@@ -1,0 +1,402 @@
+diff --git a/include/linux/tempesta_fw.h b/include/linux/tempesta_fw.h
+new file mode 100644
+index 0000000..0572398
+--- /dev/null
++++ b/include/linux/tempesta_fw.h
+@@ -0,0 +1,33 @@
++/**
++ * Linux interface for Tempesta FW (FireWall and/or FrameWork).
++ *
++ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#ifndef __TEMPESTA_FW_H__
++#define __TEMPESTA_FW_H__
++
++#include <net/sock.h>
++
++typedef struct {
++	int (*sock_tcp_rcv)(struct sock *sk, struct sk_buff *skb);
++} TempestaOps;
++
++void tempesta_register_ops(TempestaOps *tops);
++void tempesta_unregister_ops(TempestaOps *tops);
++
++#endif /* __TEMPESTA_FW_H__ */
++
+diff --git a/include/net/tcp.h b/include/net/tcp.h
+index 5bba80f..64e5d06 100644
+--- a/include/net/tcp.h
++++ b/include/net/tcp.h
+@@ -583,6 +583,15 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
+ /* tcp.c */
+ extern void tcp_get_info(const struct sock *, struct tcp_info *);
+ 
++/* Routines required by Synchronous Sockets module. */
++extern void skb_entail(struct sock *sk, struct sk_buff *skb);
++extern void tcp_push(struct sock *sk, int flags, int mss_now, int nonagle);
++extern int tcp_send_mss(struct sock *sk, int *size_goal, int flags);
++extern void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb);
++extern void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags);
++extern void tcp_queue_skb(struct sock *sk, struct sk_buff *skb);
++extern int tcp_close_state(struct sock *sk);
++
+ /* Read 'sendfile()'-style from a TCP socket */
+ typedef int (*sk_read_actor_t)(read_descriptor_t *, struct sk_buff *,
+ 				unsigned int, size_t);
+diff --git a/net/core/request_sock.c b/net/core/request_sock.c
+index 4425148..aad84f4 100644
+--- a/net/core/request_sock.c
++++ b/net/core/request_sock.c
+@@ -223,3 +223,4 @@ out:
+ 	sock_put(lsk);
+ 	return;
+ }
++EXPORT_SYMBOL(reqsk_fastopen_remove);
+diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
+index ab450c0..6c23c10 100644
+--- a/net/ipv4/tcp.c
++++ b/net/ipv4/tcp.c
+@@ -281,6 +281,7 @@
+ #include <asm/ioctls.h>
+ 
+ int sysctl_tcp_fin_timeout __read_mostly = TCP_FIN_TIMEOUT;
++EXPORT_SYMBOL_GPL(sysctl_tcp_fin_timeout);
+ 
+ struct percpu_counter tcp_orphan_count;
+ EXPORT_SYMBOL_GPL(tcp_orphan_count);
+@@ -582,18 +583,19 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
+ }
+ EXPORT_SYMBOL(tcp_ioctl);
+ 
+-static inline void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb)
++void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb)
+ {
+ 	TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
+ 	tp->pushed_seq = tp->write_seq;
+ }
++EXPORT_SYMBOL(tcp_mark_push);
+ 
+ static inline bool forced_push(const struct tcp_sock *tp)
+ {
+ 	return after(tp->write_seq, tp->pushed_seq + (tp->max_window >> 1));
+ }
+ 
+-static inline void skb_entail(struct sock *sk, struct sk_buff *skb)
++void skb_entail(struct sock *sk, struct sk_buff *skb)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
+@@ -609,6 +611,7 @@ static inline void skb_entail(struct sock *sk, struct sk_buff *skb)
+ 	if (tp->nonagle & TCP_NAGLE_PUSH)
+ 		tp->nonagle &= ~TCP_NAGLE_PUSH;
+ }
++EXPORT_SYMBOL(skb_entail);
+ 
+ static inline void tcp_mark_urg(struct tcp_sock *tp, int flags)
+ {
+@@ -616,8 +619,7 @@ static inline void tcp_mark_urg(struct tcp_sock *tp, int flags)
+ 		tp->snd_up = tp->write_seq;
+ }
+ 
+-static inline void tcp_push(struct sock *sk, int flags, int mss_now,
+-			    int nonagle)
++void tcp_push(struct sock *sk, int flags, int mss_now, int nonagle)
+ {
+ 	if (tcp_send_head(sk)) {
+ 		struct tcp_sock *tp = tcp_sk(sk);
+@@ -630,6 +632,7 @@ static inline void tcp_push(struct sock *sk, int flags, int mss_now,
+ 					  (flags & MSG_MORE) ? TCP_NAGLE_CORK : nonagle);
+ 	}
+ }
++EXPORT_SYMBOL(tcp_push);
+ 
+ static int tcp_splice_data_recv(read_descriptor_t *rd_desc, struct sk_buff *skb,
+ 				unsigned int offset, size_t len)
+@@ -814,7 +817,7 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
+ 	return max(xmit_size_goal, mss_now);
+ }
+ 
+-static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
++int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
+ {
+ 	int mss_now;
+ 
+@@ -823,6 +826,7 @@ static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
+ 
+ 	return mss_now;
+ }
++EXPORT_SYMBOL(tcp_send_mss);
+ 
+ static ssize_t do_tcp_sendpages(struct sock *sk, struct page *page, int offset,
+ 				size_t size, int flags)
+@@ -1370,6 +1374,7 @@ void tcp_cleanup_rbuf(struct sock *sk, int copied)
+ 	if (time_to_ack)
+ 		tcp_send_ack(sk);
+ }
++EXPORT_SYMBOL(tcp_cleanup_rbuf);
+ 
+ static void tcp_prequeue_process(struct sock *sk)
+ {
+@@ -2000,7 +2005,7 @@ static const unsigned char new_state[16] = {
+   /* TCP_CLOSING	*/ TCP_CLOSING,
+ };
+ 
+-static int tcp_close_state(struct sock *sk)
++int tcp_close_state(struct sock *sk)
+ {
+ 	int next = (int)new_state[sk->sk_state];
+ 	int ns = next & TCP_STATE_MASK;
+@@ -2009,6 +2014,7 @@ static int tcp_close_state(struct sock *sk)
+ 
+ 	return next & TCP_ACTION_FIN;
+ }
++EXPORT_SYMBOL(tcp_close_state);
+ 
+ /*
+  *	Shutdown the sending side of a connection. Much like close except
+@@ -2048,6 +2054,7 @@ bool tcp_check_oom(struct sock *sk, int shift)
+ 		net_info_ratelimited("out of memory -- consider tuning tcp_mem\n");
+ 	return too_many_orphans || out_of_socket_memory;
+ }
++EXPORT_SYMBOL(tcp_check_oom);
+ 
+ void tcp_close(struct sock *sk, long timeout)
+ {
+diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
+index 9c62257..490a03f 100644
+--- a/net/ipv4/tcp_input.c
++++ b/net/ipv4/tcp_input.c
+@@ -570,6 +570,7 @@ new_measure:
+ 	tp->rcvq_space.seq = tp->copied_seq;
+ 	tp->rcvq_space.time = tcp_time_stamp;
+ }
++EXPORT_SYMBOL(tcp_rcv_space_adjust);
+ 
+ /* There is something which you must keep in mind when you analyze the
+  * behavior of the tp->ato delayed ack timeout interval.  When a
+diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
+index 0f01788..36b9978 100644
+--- a/net/ipv4/tcp_minisocks.c
++++ b/net/ipv4/tcp_minisocks.c
+@@ -352,6 +352,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
+ 	tcp_update_metrics(sk);
+ 	tcp_done(sk);
+ }
++EXPORT_SYMBOL(tcp_time_wait);
+ 
+ void tcp_twsk_destructor(struct sock *sk)
+ {
+diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
+index ec335fa..fdb0d79 100644
+--- a/net/ipv4/tcp_output.c
++++ b/net/ipv4/tcp_output.c
+@@ -353,7 +353,7 @@ static inline void TCP_ECN_send(struct sock *sk, struct sk_buff *skb,
+ /* Constructs common control bits of non-data skb. If SYN/FIN is present,
+  * auto increment end seqno.
+  */
+-static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
++void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+ {
+ 	skb->ip_summed = CHECKSUM_PARTIAL;
+ 	skb->csum = 0;
+@@ -370,6 +370,7 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+ 		seq++;
+ 	TCP_SKB_CB(skb)->end_seq = seq;
+ }
++EXPORT_SYMBOL(tcp_init_nondata_skb);
+ 
+ static inline bool tcp_urg_mode(const struct tcp_sock *tp)
+ {
+@@ -961,7 +962,7 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
+  * NOTE: probe0 timer is not checked, do not forget tcp_push_pending_frames,
+  * otherwise socket can stall.
+  */
+-static void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
++void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 
+@@ -972,6 +973,7 @@ static void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
+ 	sk->sk_wmem_queued += skb->truesize;
+ 	sk_mem_charge(sk, skb->truesize);
+ }
++EXPORT_SYMBOL(tcp_queue_skb);
+ 
+ /* Initialize TSO segments for a packet. */
+ static void tcp_set_skb_tso_segs(const struct sock *sk, struct sk_buff *skb,
+@@ -1348,6 +1350,7 @@ unsigned int tcp_current_mss(struct sock *sk)
+ 
+ 	return mss_now;
+ }
++EXPORT_SYMBOL(tcp_current_mss);
+ 
+ /* Congestion window validation. (RFC2861) */
+ static void tcp_cwnd_validate(struct sock *sk)
+@@ -2043,6 +2046,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+ 			   sk_gfp_atomic(sk, GFP_ATOMIC)))
+ 		tcp_check_probe_timer(sk);
+ }
++EXPORT_SYMBOL(__tcp_push_pending_frames);
+ 
+ /* Send _single_ skb sitting at the send head. This function requires
+  * true push pending frames to setup probe timer etc.
+@@ -2605,6 +2609,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+ 
+ 	TCP_INC_STATS(sock_net(sk), TCP_MIB_OUTRSTS);
+ }
++EXPORT_SYMBOL(tcp_send_active_reset);
+ 
+ /* Send a crossed SYN-ACK during socket establishment.
+  * WARNING: This routine must only be called when we have already sent
+diff --git a/security/Kconfig b/security/Kconfig
+index e9c6ac7..f32eadd 100644
+--- a/security/Kconfig
++++ b/security/Kconfig
+@@ -132,7 +132,7 @@ choice
+ 	default DEFAULT_SECURITY_TOMOYO if SECURITY_TOMOYO
+ 	default DEFAULT_SECURITY_APPARMOR if SECURITY_APPARMOR
+ 	default DEFAULT_SECURITY_YAMA if SECURITY_YAMA
+-	default DEFAULT_SECURITY_DAC
++	default DEFAULT_SECURITY_TEMPESTA
+ 
+ 	help
+ 	  Select the security module that will be used by default if the
+diff --git a/security/Makefile b/security/Makefile
+index c26c81e..2d7c1e1 100644
+--- a/security/Makefile
++++ b/security/Makefile
+@@ -8,6 +8,7 @@ subdir-$(CONFIG_SECURITY_SMACK)		+= smack
+ subdir-$(CONFIG_SECURITY_TOMOYO)        += tomoyo
+ subdir-$(CONFIG_SECURITY_APPARMOR)	+= apparmor
+ subdir-$(CONFIG_SECURITY_YAMA)		+= yama
++subdir-y				+= tempesta
+ 
+ # always enable default capabilities
+ obj-y					+= commoncap.o
+@@ -23,6 +24,7 @@ obj-$(CONFIG_AUDIT)			+= lsm_audit.o
+ obj-$(CONFIG_SECURITY_TOMOYO)		+= tomoyo/built-in.o
+ obj-$(CONFIG_SECURITY_APPARMOR)		+= apparmor/built-in.o
+ obj-$(CONFIG_SECURITY_YAMA)		+= yama/built-in.o
++obj-y					+= tempesta/built-in.o
+ obj-$(CONFIG_CGROUP_DEVICE)		+= device_cgroup.o
+ 
+ # Object integrity file lists
+diff --git a/security/tempesta/Makefile b/security/tempesta/Makefile
+new file mode 100644
+index 0000000..4c439ac
+--- /dev/null
++++ b/security/tempesta/Makefile
+@@ -0,0 +1,3 @@
++obj-y := tempesta.o
++
++tempesta-y := tempesta_lsm.o
+diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
+new file mode 100644
+index 0000000..bc3e735
+--- /dev/null
++++ b/security/tempesta/tempesta_lsm.c
+@@ -0,0 +1,90 @@
++/**
++ *		Tempesta FW
++ *
++ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#include <linux/security.h>
++#include <linux/spinlock.h>
++
++#include <linux/tempesta_fw.h>
++
++static TempestaOps __rcu *tempesta_ops;
++static DEFINE_SPINLOCK(tops_lock);
++
++void
++tempesta_register_ops(TempestaOps *tops)
++{
++	spin_lock(&tops_lock);
++
++	BUG_ON(tempesta_ops);
++
++	rcu_assign_pointer(tempesta_ops, tops);
++
++	spin_unlock(&tops_lock);
++}
++EXPORT_SYMBOL(tempesta_register_ops);
++
++void
++tempesta_unregister_ops(TempestaOps *tops)
++{
++	spin_lock(&tops_lock);
++
++	BUG_ON(tempesta_ops != tops);
++
++	rcu_assign_pointer(tempesta_ops, NULL);
++
++	spin_unlock(&tops_lock);
++
++	/*
++	 * tempesta_ops is called in softirq only, so if there are some users
++	 * of the structures then they are active on their CPUs.
++	 * After the below we can be sure that nobody refers @tops and we can
++	 * go forward and destroy it.
++	 */
++	synchronize_rcu();
++}
++EXPORT_SYMBOL(tempesta_unregister_ops);
++
++static int
++tempesta_sock_tcp_rcv(struct sock *sk, struct sk_buff *skb)
++{
++	int r = 0;
++	TempestaOps *tops;
++
++	rcu_read_lock();
++	tops = rcu_dereference(tempesta_ops);
++	if (likely(tops))
++		r = tops->sock_tcp_rcv(sk, skb);
++	rcu_read_unlock();
++
++	return r;
++}
++
++static struct security_operations tempesta_sec_ops __read_mostly = {
++	.socket_sock_rcv_skb	= tempesta_sock_tcp_rcv,
++};
++
++static __init int
++tempesta_init(void)
++{
++	if (register_security(&tempesta_sec_ops))
++		panic("Tempesta: kernel security registration failed.\n");
++
++	return 0;
++}
++
++security_initcall(tempesta_init);
