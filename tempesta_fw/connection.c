@@ -1,0 +1,368 @@
+/**
+ *		Tempesta FW
+ *
+ * Generic connection management.
+ *
+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITFWOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+#include "classifier.h"
+#include "client.h"
+#include "connection.h"
+#include "gfsm.h"
+#include "log.h"
+#include "session.h"
+
+#include "sync_socket.h"
+
+#define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
+
+static struct kmem_cache *conn_cache;
+static TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
+
+/*
+ * ------------------------------------------------------------------------
+ *  	Utilities
+ * ------------------------------------------------------------------------
+ */
+static TfwConnection *
+tfw_connection_alloc(int type, void *handler)
+{
+	TfwConnection *c = kmem_cache_alloc(conn_cache,
+					    GFP_ATOMIC | __GFP_ZERO);
+	if (!c)
+		return NULL;
+
+	c->type = type;
+	c->hndl = handler;
+
+	return c;
+}
+
+static void
+tfw_connection_free(TfwConnection *c)
+{
+	tfw_session_free(c->sess);
+	kmem_cache_free(conn_cache, c);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ *  	Connection Downcalls
+ * ------------------------------------------------------------------------
+ */
+/**
+ * A downcall for new connection called to set necessary callbacks
+ * when a traditional Sockets connect() is calling.
+ */
+int
+tfw_connection_new(struct sock *sk, int type, void *handler,
+		  void (*destructor)(struct sock *s))
+{
+	TfwConnection *c = sk->sk_user_data;
+
+	BUG_ON(!c); /* parent socket protocol */
+	BUG_ON(type != Conn_Clnt && type != Conn_Srv);
+
+	/* Type: connection direction BitwiseOR protocol. */
+	type |= c->type;
+
+	sk->sk_user_data = tfw_connection_alloc(type, handler);
+	if (!sk->sk_user_data) {
+		TFW_ERR("Can't allocate a new connection\n");
+		/* TODO drop the connection. */
+		return -ENOMEM;
+	}
+
+	sk->sk_destruct = destructor;
+
+	sock_set_flag(sk, SOCK_DBG);
+
+	c = sk->sk_user_data;
+	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(c);
+
+	return 0;
+}
+
+int
+tfw_connection_close(struct sock *sk)
+{
+	TfwConnection *c = sk->sk_user_data;
+
+	TFW_DBG("Close socket %p, conn=%p\n", sk, c);
+
+	/*
+	 * Classify the connection closing while all data structures
+	 * are alive.
+	 */
+	if (tfw_classify_conn_close(sk) == TFW_BLOCK)
+		return -EPERM;
+
+	conn_hooks[TFW_CONN_TYPE2IDX(c->type)]->conn_destruct(c);
+
+	tfw_connection_free(c);
+
+	sk->sk_user_data = NULL;
+
+	return 0;
+}
+
+void
+tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg)
+{
+	BUG_ON(!conn->sess);
+
+	ss_send(conn->sess->cli->sock, &msg->skb_list, msg->len);
+}
+
+void
+tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
+{
+	/*
+	 * TODO: determine whether we need to establish a new connection
+	 * (e.g. if current backend connection is busy (not HTTP case))
+	 * and ask backend layer to establish a new connection.
+	 *
+	 * Also here we need to ask for other connection from the pool
+	 * if current connection is failed (probably to mirrored backend).
+	 * XXX Or should we do this on connection fail event instead?
+	 */
+
+	BUG_ON(!conn->sess);
+
+	ss_send(conn->sess->srv->sock, &msg->skb_list, msg->len);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * 	Connection Upcalls
+ * ------------------------------------------------------------------------
+ */
+/**
+ * An upcall for new connection accepting.
+ *
+ * This is an upcall for new connection, i.e. we open the connection
+ * passively. So this is client connection.
+ */
+static int
+tfw_connection_new_upcall(struct sock *sk)
+{
+	TfwClient *cli;
+
+	/* Classify the connection before any resource allocations. */
+	if (tfw_classify_conn_estab(sk) == TFW_BLOCK)
+		return -EPERM;
+
+	/*
+	 * TODO: currently there is one to one socket-client
+	 * mapping, which isn't appropriate since a client can
+	 * have more than one socket with the server.
+	 *
+	 * We have too lookup the client by the socket and create a new one
+	 * only if it's really new.
+	 */
+	cli = tfw_create_client(sk);
+	if (!cli) {
+		TFW_ERR("Can't allocate a new client");
+		ss_close(sk);
+		return -EINVAL;
+	}
+
+	tfw_connection_new(sk, Conn_Clnt, cli, tfw_destroy_client);
+
+	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
+
+	return 0;
+}
+
+static TfwSession *
+tfw_create_and_link_session(TfwConnection *cli_conn)
+{
+	TfwClient *cli = cli_conn->hndl;
+	TfwConnection *srv_conn;
+	TfwSession *sess;
+
+	sess = tfw_create_session(cli);
+	if (!sess)
+		return NULL;
+
+	/* Bind current client and server connections into one session. */
+	BUG_ON(cli_conn->sess);
+	srv_conn = sess->srv->sock->sk_user_data;
+	/*
+	 * Check that the server doesn't service somebody else.
+	 * FIXME when do we need to free the server session,
+	 * 	 that it can service other clients?
+	 */
+	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
+	srv_conn->sess = cli_conn->sess = sess;
+
+	return sess;
+}
+
+/**
+ * TODO/FIXME
+ * Things which happen in the function are wrong. We have to choose backend
+ * server when the request is [fully?] parsed to be able to route static and
+ * dynamic requests to different server (so we need to know at least base part
+ * of URI to choose a server).
+ *
+ * Probably, following scheme is most suitable:
+ * 1. schedulers which are going to route request depending on URI must register
+ *    hook TFW_HTTP_HOOK_REQ_STATUS and adjust server information;
+ * 2. schedulers which schedule request depending on server stress on
+ *    round-robin actully should do their work as early as possible to reduce
+ *    message latency and accelerator memory consumption (that parts of
+ *    the request can be sent to server immediately) and choose the server
+ *    in this function.
+ *
+ * So at least we need scheduler interface which can register its callbacks in
+ * different places.
+ */
+static int
+tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
+{
+	TfwConnection *conn = sk->sk_user_data;
+
+	if (conn->type & Conn_Clnt) {
+		/*
+		 * Bind the connection with a session
+		 * if it wasn't done so far.
+		 */
+		if (!conn->sess) {
+			tfw_create_and_link_session(conn);
+			if (!conn->sess) {
+				TFW_WARN("Can't allocate new session\n");
+				return -ENOMEM;
+			}
+		}
+	}
+
+	return tfw_gfsm_dispatch(conn, data, len);
+}
+
+static int
+tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
+{
+	TfwConnection *conn = (TfwConnection *)proto;
+
+	if (!conn->msg) {
+		int i = TFW_CONN_TYPE2IDX(conn->type);
+		conn->msg = conn_hooks[i]->conn_msg_alloc(conn);
+		if (!conn->msg)
+			return -ENOMEM;
+		TFW_DBG("Link new msg %p with connection %p\n",
+			conn->msg, conn);
+	}
+
+	skb_queue_tail(&conn->msg->skb_list, skb);
+
+	return 0;
+}
+
+static int
+tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
+{
+	TfwConnection *conn = (TfwConnection *)proto;
+
+	TFW_DBG("postpone skb %p\n", skb);
+
+	skb_queue_tail(&conn->msg->skb_list, skb);
+
+	return 0;
+}
+
+static SsHooks ssocket_hooks = {
+	.connection_new		= tfw_connection_new_upcall,
+	.connection_drop	= tfw_connection_close,
+	.connection_recv	= tfw_connection_recv,
+	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
+	.postpone_skb		= tfw_connection_postpone_skb,
+};
+
+/*
+ * ------------------------------------------------------------------------
+ * 	Connection API (frontend for synchronous sockets) initialization
+ * ------------------------------------------------------------------------
+ */
+void
+tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
+{
+	unsigned hid = TFW_CONN_TYPE2IDX(type);
+
+	BUG_ON(hid >= TFW_CONN_MAX_PROTOS || conn_hooks[hid]);
+
+	conn_hooks[hid] = hooks;
+}
+
+int tfw_open_backend_sockets(void);
+void tfw_close_backend_sockets(void);
+int tfw_open_listen_sockets(void);
+void tfw_close_listen_sockets(void);
+
+int
+tfw_connection_init(void)
+{
+	int r;
+
+	conn_cache = kmem_cache_create("tfw_conn_cache", sizeof(TfwConnection),
+				       0, 0, NULL);
+	if (!conn_cache)
+		return -ENOMEM;
+
+	r = tfw_session_init();
+	if (r)
+		goto err_sess;
+
+	/* FIXME it seems we need to open sockets AFTER ss_hooks_register */
+	r = tfw_open_backend_sockets();
+	if (r)
+		goto err_server_sock;
+
+	r = tfw_open_listen_sockets();
+	if (r)
+		goto err_listen_sock;
+
+	r = ss_hooks_register(&ssocket_hooks);
+	if (r)
+		goto err_hooks;
+
+	return 0;
+err_hooks:
+	tfw_close_listen_sockets();
+err_listen_sock:
+	tfw_close_backend_sockets();
+err_server_sock:
+	tfw_session_exit();
+err_sess:
+	kmem_cache_destroy(conn_cache);
+
+	return r;
+}
+
+void
+tfw_connection_exit(void)
+{
+	tfw_close_listen_sockets();
+	tfw_close_backend_sockets();
+
+	/* Unregister socket hooks when all network activity is stopped. */
+	ss_hooks_unregister(&ssocket_hooks);
+
+	tfw_session_exit();
+
+	kmem_cache_destroy(conn_cache);
+}
