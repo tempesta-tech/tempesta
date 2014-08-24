@@ -23,6 +23,6 @@
 #include "tdb.h"
 
 int tdb_file_open(TDB *db);
-int tdb_file_close(TDB *db);
+void tdb_file_close(TDB *db);
 
 #endif /* __FILE_H__ */

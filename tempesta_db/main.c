@@ -103,7 +103,7 @@ tdb_open(const char *path, unsigned int size, int index, int key_sz,
 	INIT_WORK(&tw->work, tdb_open_db);
 	tw->db = db;
 
-	queue_work(tdb_wq, tw);
+	queue_work(tdb_wq, (struct work_struct *)tw);
 
 	/*
 	 * FIXME at this point the caller can use the DB descriptor,
@@ -120,7 +120,9 @@ EXPORT_SYMBOL(tdb_open);
 void
 tdb_close(TDB *db)
 {
-	/* TODO */
+	/* Unmapping can be done from process context. */
+	tdb_file_close(db);
+
 	kfree(db);
 }
 EXPORT_SYMBOL(tdb_close);

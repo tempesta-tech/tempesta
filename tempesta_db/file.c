@@ -17,6 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/mman.h>
+#include <linux/sched.h>
+
 #include "file.h"
 
 /**
@@ -28,23 +31,40 @@
 int
 tdb_file_open(TDB *db)
 {
-	unsigned long addr;
+	unsigned long addr, populate;
 	struct mm_struct *mm = current->mm;
+	struct file *filp;
+
 	/* Must be called from kernel thread context. */
 	BUG_ON(mm != &init_mm);
 
 	strcat(db->path, "/" TDB_FNAME);
 
-	db->filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
-	if (IS_ERR(db->filp))
-		return PTR_ERR(db->filp);
-	if (!db->filp || !db->filp->f_dentry)
+	filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
+	if (IS_ERR(filp))
+		return PTR_ERR(filp);
+	if (!filp || !filp->f_dentry)
 		return -ENOENT;
 
-	/* mmap and mlock the file to make it accessible from softirq. */
-	addr = do_mmap_pgoff();
-	if (IS_ERR((void *)addr))
+	down_write(&init_mm.mmap_sem);
 
+	/*
+	 * mmap() and mlock() the file to make it accessible from softirq.
+	 * Use MAP_SHARED to synchronize the mapping with underlying file.
+	 */
+	addr = do_mmap_pgoff(filp, 0, db->size, PROT_READ|PROT_WRITE,
+			     MAP_SHARED|MAP_POPULATE|MAP_LOCKED, 0, &populate);
+
+	up_write(&init_mm.mmap_sem);
+
+	if (IS_ERR((void *)addr)) {
+		filp_close(filp, NULL);
+		return (long)addr;
+	}
+	if (populate)
+		mm_populate(addr, populate);
+
+	db->filp = filp;
 	db->map = addr;
 
 	return 0;
@@ -53,7 +73,14 @@ tdb_file_open(TDB *db)
 void
 tdb_file_close(TDB *db)
 {
-	/* TODO */
+	down_write(&init_mm.mmap_sem);
+	do_munmap(&init_mm, db->map, db->size);
+	up_write(&init_mm.mmap_sem);
+
+	filp_close(db->filp, NULL);
+
+	db->filp = NULL;
+	db->map = 0;
 }
 
 
