@@ -16,7 +16,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS = # -DDEBUG
+EXTRA_CFLAGS =  -I$(src)/../../tempesta_db # -DDEBUG
 
 obj-m = th_stress_sys.o
 th_stress_sys-objs = sys.o

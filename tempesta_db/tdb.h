@@ -35,13 +35,15 @@
 #define TDB_IDX_TREE	1
 
 typedef struct {
-	struct file	*filp;
-	unsigned long	map;
-	unsigned int	size;
-	int		index;
-	int		key_sz;
-	int		eviction;
-	char		path[TDB_PATH_LEN + sizeof(TDB_FNAME)];
+	struct file	*filp;	/* mmap'ed file */
+	unsigned long	map;	/* mmap address, setted only when the hadler
+				   is fully initialized */
+	unsigned int	size;	/* whole data size */
+	int		index;	/* index type */
+	int		key_sz;	/* key size */
+	int		eviction; /* eviction stratagy */
+	char		path[TDB_PATH_LEN /* path to mmaped file */
+			     + sizeof(TDB_FNAME)];
 } TDB;
 
 #define TDB_BANNER	"[tdb] "
