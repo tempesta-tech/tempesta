@@ -84,7 +84,8 @@ enum {
 
 	TFW_HTTP_HDR_RAW,
 
-	TFW_HTTP_HDR_NUM	= 16
+	TFW_HTTP_HDR_NUM	= 16,
+	TFW_HTTP_HDR_NUM_MAX	= 512
 };
 
 typedef struct {
@@ -93,7 +94,7 @@ typedef struct {
 } TfwHttpHdr;
 
 typedef struct {
-	unsigned int	size;
+	unsigned int	size;	/* number of elements in the table */
 	unsigned int	off;
 	TfwHttpHdr	tbl[0];
 } TfwHttpHdrTbl;

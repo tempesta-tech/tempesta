@@ -17,15 +17,42 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CACHE_H__
-#define __TFW_CACHE_H__
-
+#include "gfsm.h"
 #include "http.h"
 
-void tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
-TfwHttpResp *tfw_cache_lookup(TfwHttpReq *req);
+TfwHttpMsg *
+tfw_http_msg_alloc(int type)
+{
+	TfwHttpMsg *hm = (type & Conn_Clnt)
+			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
+			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
+	if (!hm)
+		return NULL;
 
-int tfw_cache_init(void);
-void tfw_cache_exit(void);
+	skb_queue_head_init(&hm->msg.skb_list);
+	hm->msg.prev = NULL;
+	hm->msg.len = 0;
 
-#endif /* __TFW_CACHE_H__ */
+	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	hm->h_tbl->size = __HHTBL_SZ(1);
+	hm->h_tbl->off = 0;
+
+	return hm;
+}
+
+/**
+ * The function does not free @m->skb_list, the caller is responsible for that.
+ */
+void
+tfw_http_msg_free(TfwHttpMsg *m)
+{
+	while (1) {
+		struct sk_buff *skb = skb_dequeue(&m->msg.skb_list);
+		if (!skb)
+			break;
+		kfree_skb(skb);
+	}
+	tfw_pool_free(m->pool);
+}
+
+

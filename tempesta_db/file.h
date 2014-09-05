@@ -22,6 +22,8 @@
 
 #include "tdb.h"
 
+void *tdb_file_alloc_data_page(TDB *db);
+
 int tdb_file_open(TDB *db);
 void tdb_file_close(TDB *db);
 

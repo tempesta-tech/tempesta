@@ -33,11 +33,13 @@ typedef struct {
 	void		*ptr; /* pointer to string or array of strings */
 } TfwStr;
 
+/* Get @c'th chunk of @s. */
 #define TFW_STR_CHUNK(s, c)	(((s)->flags & TFW_STR_COMPOUND)	\
 				 ? (c >= (s)->len			\
 				    ? NULL				\
 				    : (TfwStr *)(s)->ptr + c)		\
 				 : s)
+/* Get last/current chunk of @s. */
 #define TFW_STR_CURR(s)		(((s)->flags & TFW_STR_COMPOUND)	\
 				 ? (TfwStr *)(s)->ptr + (s)->len - 1	\
 				 : s)
