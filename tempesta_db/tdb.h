@@ -34,6 +34,37 @@
 #define TDB_IDX_SEQLOG	0 /* no index */
 #define TDB_IDX_TREE	1
 
+/*
+ * Database record header/descriptor.
+ * This is header of PAGE_SIZE memory segment.
+ *
+ * @coll_next	- next record offset (in pages) in collision chain
+ * 		  (can be negative)
+ * 		  (TODO: Index???: do we need this?)
+ * @chunk_next	- offset of next data chunk (also with TdbRecord as header)
+ * @d_len	- data length of current chunk
+ */
+typedef struct {
+	int		coll_next;
+	int		chunk_next;
+	unsigned int	flags;
+	unsigned int	d_len;
+	char		data[0];
+} __attribute__((packed)) TdbRecord;
+
+/*
+ * Data size is always not more than PAGE_SIZE - sizeof(TdbRecord).
+ * TdbRecord is always placed at begin of a page.
+ */
+#define TDB_REC_FROM_PTR(p)	((TdbRecord *)((unsigned long)(p) & PAGE_MASK))
+#define TDB_REC_DTAIL(p)	((p)->data + (p)->d_len)
+#define TDB_REC_DNEXT(r)	((TdbRecord *)((char *)(r)		\
+					       + (r)->chunk_next * PAGE_SIZE))
+#define TDB_REC_ISLAST(r)	(!(r)->chunk_next)
+#define TDB_REC_DMAXSZ		((size_t)(PAGE_SIZE - sizeof(TdbRecord)))
+#define TDB_REC_ROOM(r)		(TDB_REC_DMAXSZ - (r)->d_len)
+
+/* Database handle descriptor. */
 typedef struct {
 	struct file	*filp;	/* mmap'ed file */
 	unsigned long	map;	/* mmap address, setted only when the hadler
@@ -46,11 +77,22 @@ typedef struct {
 			     + sizeof(TDB_FNAME)];
 } TDB;
 
+#define TDB_REC_OFFSET(db, r)	(((unsigned long)(r) - (db)->map) / PAGE_SIZE)
+
 #define TDB_BANNER	"[tdb] "
 #define TDB_ERR(...)	pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
-int tdb_write(TDB *db);
+TdbRecord *tdb_entry_create(TDB *db, unsigned long *key, size_t elen);
+void *tdb_entry_add(TDB *db, TdbRecord **r, size_t size);
 void *tdb_lookup(TDB *db, unsigned long *key);
+
+static inline void *
+tdb_get_next_data_ptr(TDB *db, TdbRecord **trec)
+{
+	return TDB_REC_ROOM(*trec)
+	       ? TDB_REC_DTAIL(*trec)
+	       : tdb_entry_add(db, trec, 0);
+}
 
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, unsigned int size, int index, int key_sz,

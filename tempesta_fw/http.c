@@ -27,37 +27,22 @@
 #include "classifier.h"
 #include "gfsm.h"
 #include "http.h"
+#include "http_msg.h"
 #include "log.h"
 
 #include "sync_socket.h"
 
-static TfwHttpMsg *
-__tfw_http_msg_alloc(int type)
+TfwMsg *
+tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
-	TfwHttpMsg *hm = (type & Conn_Clnt)
-			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
-			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
-	if (!hm)
+	TfwHttpMsg *hm = tfw_http_msg_alloc(conn->type);
+	if (unlikely(!hm))
 		return NULL;
 
-	skb_queue_head_init(&hm->msg.skb_list);
-	hm->msg.prev = NULL;
-	hm->msg.len = 0;
+	hm->conn = conn;
+	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
 
-	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
-	hm->h_tbl->size = __HHTBL_SZ(1);
-	hm->h_tbl->off = 0;
-
-	return hm;
-}
-
-/**
- * The function does not free @m->skb_list, the caller is responsible for that.
- */
-static void
-__tfw_http_msg_free(TfwHttpMsg *m)
-{
-	tfw_pool_free(m->pool);
+	return (TfwMsg *)hm;
 }
 
 /**
@@ -72,20 +57,7 @@ tfw_http_conn_init(TfwConnection *conn)
 static void
 tfw_http_conn_destruct(TfwConnection *conn)
 {
-	__tfw_http_msg_free((TfwHttpMsg *)conn->msg);
-}
-
-static TfwMsg *
-tfw_http_conn_msg_alloc(TfwConnection *conn)
-{
-	TfwHttpMsg *hm = __tfw_http_msg_alloc(conn->type);
-	if (unlikely(!hm))
-		return NULL;
-
-	hm->conn = conn;
-	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
-
-	return (TfwMsg *)hm;
+	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
@@ -99,7 +71,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb, *skb = hm->msg.skb_list.prev;
 
-	shm = __tfw_http_msg_alloc(type);
+	shm = tfw_http_msg_alloc(type);
 	if (!shm)
 		return NULL;
 
@@ -110,7 +82,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	BUG_ON(!skb);
 	nskb = skb_clone(skb, GFP_ATOMIC);
 	if (!nskb) {
-		__tfw_http_msg_free(shm);
+		tfw_http_msg_free(shm);
 		return NULL;
 	}
 	skb_queue_tail(&shm->msg.skb_list, nskb);
@@ -495,10 +467,12 @@ next_skb:
 		vaddr = kmap_atomic(skb_frag_page(frag));
 		dlen = skb_frag_size(frag);
 
-		// TODO do we need to process poaged data?
-		// It's easy to rewrite the header chunks if it starts at
-		// linear data and there we allocated extra room, but it's
-		// unclear how to allocate extra room if frags array is full.
+		/*
+		 * TODO do we need to process poaged data?
+		 * It's easy to rewrite the header chunks if it starts at
+		 * linear data and there we allocated extra room, but it's
+		 * unclear how to allocate extra room if frags array is full.
+		 */
 	}
 
 	/* Process packet fragments. */
@@ -660,7 +634,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
-		TfwCacheEntry *ce;
+		TfwHttpResp *resp;
 
 		r = tfw_http_parse_req(req, data, len);
 
@@ -676,6 +650,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				goto block;
 			return TFW_POSTPONE;
 		case TFW_PASS:
+			/* Request is fully parsed, set it to the connection. */
+			conn->req = req;
+
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 			r = tfw_gfsm_move(&req->msg.state,
 					  TFW_HTTP_FSM_REQ_MSG, data, len);
@@ -685,10 +662,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		}
 
 		/* The request is fully parsed, process it. */
-	
-		ce = tfw_cache_lookup(req);
-		if (ce) {
-			/* TODO send the cached response */;
+
+		resp = tfw_cache_lookup(req);
+		if (resp) {
+			/*
+			 * We have prepared response, send it as is.
+			 * TODO should we adjust it somehow?
+			 */
+			tfw_connection_send_cli(conn, (TfwMsg *)resp);
 		} else {
 			if (tfw_http_adjust_req(req))
 				goto block;
@@ -697,7 +678,13 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		}
 
 		if (!req->parser.data_off || req->parser.data_off == len) {
-			/* There is no pending data in skbs. */
+			/* There is no pending data in skbs.
+			 *
+			 * FIXME it seems we free request pool before
+			 * appropriate response is received.
+			 * TODO request and appropriate response must live
+			 * in the same pool.
+			 */
 			tfw_pool_free(req->pool);
 			conn->msg = NULL;
 			break;
@@ -756,13 +743,15 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 	/* The response is fully parsed, process it. */
 
-	tfw_cache_add(resp);
-
 	r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data, len);
 	if (r == TFW_PASS) {
 		if (tfw_http_adjust_resp(resp))
 			goto block;
+
+		/* Cache adjusted and filtered responses only. */
+		tfw_cache_add(resp, conn->req);
+
 		tfw_connection_send_cli(conn, (TfwMsg *)resp);
 	}
 	else if (r == TFW_BLOCK) {

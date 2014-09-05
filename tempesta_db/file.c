@@ -17,10 +17,18 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/fs.h>
 #include <linux/mman.h>
 #include <linux/sched.h>
 
 #include "file.h"
+
+void *
+tdb_file_alloc_data_page(TDB *db)
+{
+	/* TODO */
+	return NULL;
+}
 
 /**
  * Open, mmap and mlock the specified file to be able to read and
@@ -45,6 +53,14 @@ tdb_file_open(TDB *db)
 		return PTR_ERR(filp);
 	if (!filp || !filp->f_dentry)
 		return -ENOENT;
+
+	/* Allocate continous extents. */
+	if (filp->f_op->fallocate) {
+		struct inode *inode = file_inode(filp);
+		sb_start_write(inode->i_sb);
+		filp->f_op->fallocate(filp, 0, 0, db->size);
+		sb_end_write(inode->i_sb);
+	}
 
 	down_write(&init_mm.mmap_sem);
 
@@ -73,9 +89,7 @@ tdb_file_open(TDB *db)
 void
 tdb_file_close(TDB *db)
 {
-	down_write(&init_mm.mmap_sem);
-	do_munmap(&init_mm, db->map, db->size);
-	up_write(&init_mm.mmap_sem);
+	vm_munmap(db->map, db->size);
 
 	filp_close(db->filp, NULL);
 
