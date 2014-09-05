@@ -38,17 +38,74 @@ MODULE_LICENSE("GPL");
 static struct workqueue_struct *tdb_wq;
 static struct kmem_cache *tw_cache;
 
-int
-tdb_write(TDB *db)
+/**
+ * Allocates a new page and links it to @curr record.
+ */
+static TdbRecord *
+tdb_record_new(TDB *db, TdbRecord *curr)
 {
-	/* @db can be uninitialized, see tdb_open(). */
-	if (!db->map)
-		return -EINVAL;
+	TdbRecord *r;
 
-	/* TODO */
-	return 0;
+	/* @db can be uninitialized, see tdb_open(). */
+	if (unlikely(!db->map))
+		return NULL;
+
+	r = tdb_file_alloc_data_page(db);
+	if (!r)
+		return NULL;
+	memset(r, 0, sizeof(*r));
+	if (curr)
+		curr->chunk_next = TDB_REC_OFFSET(db, r);
+
+	return r;
 }
-EXPORT_SYMBOL(tdb_write);
+
+TdbRecord *
+tdb_entry_create(TDB *db, unsigned long *key, size_t elen)
+{
+	TdbRecord *r = tdb_record_new(db, NULL);
+	if (!r)
+		return NULL;
+
+	WARN_ON(elen + sizeof(*r) > PAGE_SIZE);
+	r->d_len = elen - sizeof(*r);
+
+	/* TODO add the entry to index by @key. */
+
+	return r;
+}
+EXPORT_SYMBOL(tdb_entry_create);
+
+/**
+ * Return pointer to free area of size at least @size bytes or allocate
+ * a new record and link it with the current one.
+ */
+void *
+tdb_entry_add(TDB *db, TdbRecord **r, size_t size)
+{
+	char *rd;
+	TdbRecord *r_tmp = *r;
+
+	/* No sense to allocate space room for not the last entry. */
+	WARN_ON(!TDB_REC_ISLAST(r_tmp));
+	if (unlikely(size > TDB_REC_DMAXSZ)) {
+		TDB_ERR("Requested too large record size, %lu\n", size);
+		return NULL;
+	}
+
+	if (!TDB_REC_ROOM(r_tmp) || TDB_REC_ROOM(r_tmp) < size) {
+		r_tmp = tdb_record_new(db, r_tmp);
+		if (!r_tmp)
+			return NULL;
+		*r = r_tmp;
+	}
+
+	rd = r_tmp->data + r_tmp->d_len;
+	r_tmp->d_len += size;
+
+	return rd;
+}
+EXPORT_SYMBOL(tdb_entry_add);
 
 void *
 tdb_lookup(TDB *db, unsigned long *key)

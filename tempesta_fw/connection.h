@@ -51,6 +51,7 @@ typedef struct {
 
 	int		type;
 	TfwMsg		*msg;	/* currently processing message */
+	void		*req;	/* last fully parsed request */
 	void 		*hndl;	/* ThClient or ThServer handler */
 	TfwSession	*sess;	/* currently handled session */
 } TfwConnection;

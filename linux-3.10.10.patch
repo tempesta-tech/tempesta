@@ -57,6 +57,39 @@ index 5bba80f..64e5d06 100644
  /* Read 'sendfile()'-style from a TCP socket */
  typedef int (*sk_read_actor_t)(read_descriptor_t *, struct sk_buff *,
  				unsigned int, size_t);
+diff --git a/mm/init-mm.c b/mm/init-mm.c
+index a56a851..e1567c3 100644
+--- a/mm/init-mm.c
++++ b/mm/init-mm.c
+@@ -23,3 +23,4 @@ struct mm_struct init_mm = {
+ 	.mmlist		= LIST_HEAD_INIT(init_mm.mmlist),
+ 	INIT_MM_CONTEXT(init_mm)
+ };
++EXPORT_SYMBOL(init_mm);
+diff --git a/mm/mlock.c b/mm/mlock.c
+index 79b7cf7..8ec4b19 100644
+--- a/mm/mlock.c
++++ b/mm/mlock.c
+@@ -443,6 +443,7 @@ int __mm_populate(unsigned long start, unsigned long len, int ignore_errors)
+ 		up_read(&mm->mmap_sem);
+ 	return ret;	/* 0 or negative error code */
+ }
++EXPORT_SYMBOL(__mm_populate);
+ 
+ SYSCALL_DEFINE2(mlock, unsigned long, start, size_t, len)
+ {
+diff --git a/mm/mmap.c b/mm/mmap.c
+index 8d25fdc..54fb194 100644
+--- a/mm/mmap.c
++++ b/mm/mmap.c
+@@ -1348,6 +1348,7 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
+ 		*populate = len;
+ 	return addr;
+ }
++EXPORT_SYMBOL(do_mmap_pgoff);
+ 
+ SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
+ 		unsigned long, prot, unsigned long, flags,
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
 index 4425148..aad84f4 100644
 --- a/net/core/request_sock.c

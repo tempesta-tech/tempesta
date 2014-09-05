@@ -712,6 +712,8 @@ done:
  *
  * Note that both the headers can already be compound (i.e. consist from
  * few data chunks/fragments), so we should handle string tree of heigh 2.
+ *
+ * tfw_cache_copy_resp() also must be updated.
  */
 static void
 __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
@@ -725,6 +727,12 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 	{
 		/* Allocate some more room if not enough to store the header. */
 		size_t order = hm->h_tbl->size / TFW_HTTP_HDR_NUM;
+
+		if (unlikely(__HHTBL_SZ(order + 1) >= TFW_HTTP_HDR_NUM_MAX)) {
+			TFW_WARN("Too many HTTP headers\n");
+			return;
+		}
+
 		ht = tfw_pool_realloc(hm->pool, hm->h_tbl, TFW_HHTBL_SZ(order),
 				      TFW_HHTBL_SZ(order + 1));
 		if (!ht)

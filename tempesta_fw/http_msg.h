@@ -17,15 +17,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CACHE_H__
-#define __TFW_CACHE_H__
+#ifndef __TFW_HTTP_MSG_H__
+#define __TFW_HTTP_MSG_H__
 
 #include "http.h"
 
-void tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
-TfwHttpResp *tfw_cache_lookup(TfwHttpReq *req);
+TfwHttpMsg *tfw_http_msg_alloc(int type);
+void tfw_http_msg_free(TfwHttpMsg *m);
 
-int tfw_cache_init(void);
-void tfw_cache_exit(void);
-
-#endif /* __TFW_CACHE_H__ */
+#endif /* __TFW_HTTP_MSG_H__ */
