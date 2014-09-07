@@ -41,7 +41,7 @@ static struct socket **backend_socks;
 
 /**
  * Connect to the back-end server.
- */
+  */
 static int
 tfw_backend_connect(struct socket **sock, void *addr)
 {
@@ -81,6 +81,11 @@ tfw_backend_connect(struct socket **sock, void *addr)
 	 */
 	TFW_DBG("Created back-end connection %p\n", sk);
 
+	/*
+	 * TODO only one server connection is established now.
+	 * Create N connections to each server for redundancy,
+	 * so we shuldn't allocate a new server for each connection.
+	 */
 	srv = tfw_create_server(sk);
 	if (!srv) {
 		char buf[MAX_ADDR_LEN];

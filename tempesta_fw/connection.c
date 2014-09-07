@@ -97,7 +97,7 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 	return 0;
 }
 
-int
+static int
 tfw_connection_close(struct sock *sk)
 {
 	TfwConnection *c = sk->sk_user_data;
@@ -131,6 +131,9 @@ tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg)
 void
 tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
 {
+	TfwConnection *srv_conn;
+	TfwSession *sess = conn->sess;
+
 	/*
 	 * TODO: determine whether we need to establish a new connection
 	 * (e.g. if current backend connection is busy (not HTTP case))
@@ -141,9 +144,26 @@ tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
 	 * XXX Or should we do this on connection fail event instead?
 	 */
 
-	BUG_ON(!conn->sess);
+	BUG_ON(!sess);
 
-	ss_send(conn->sess->srv->sock, &msg->skb_list, msg->len);
+	if (tfw_session_sched_msg(sess, msg)) {
+		TFW_ERR("Cannot schedule message, len=%d clnt=%p\n",
+			msg->len, sess->cli);
+		tfw_connection_close(sess->cli->sock);
+		return;
+	}
+
+	/* Bind the server connection with the session. */
+	srv_conn = sess->srv->sock->sk_user_data;
+	/*
+	 * Check that the server doesn't service somebody else.
+	 * FIXME when do we need to free the server session,
+	 * 	 that it can service other clients?
+	 */
+	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
+	srv_conn->sess = sess;
+
+	ss_send(sess->srv->sock, &msg->skb_list, msg->len);
 }
 
 /*
@@ -192,23 +212,15 @@ static TfwSession *
 tfw_create_and_link_session(TfwConnection *cli_conn)
 {
 	TfwClient *cli = cli_conn->hndl;
-	TfwConnection *srv_conn;
 	TfwSession *sess;
 
-	sess = tfw_create_session(cli);
+	sess = tfw_session_create(cli);
 	if (!sess)
 		return NULL;
-
-	/* Bind current client and server connections into one session. */
 	BUG_ON(cli_conn->sess);
-	srv_conn = sess->srv->sock->sk_user_data;
-	/*
-	 * Check that the server doesn't service somebody else.
-	 * FIXME when do we need to free the server session,
-	 * 	 that it can service other clients?
-	 */
-	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
-	srv_conn->sess = cli_conn->sess = sess;
+
+	/* Bind current client connection with the session. */
+	cli_conn->sess = sess;
 
 	return sess;
 }
