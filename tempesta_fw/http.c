@@ -287,7 +287,7 @@ next_skb:
 		vaddr = kmap_atomic(skb_frag_page(frag));
 		dlen = skb_frag_size(frag);
 
-		// TODO do we need to process this?
+		/* TODO do we need to process this? */
 	}
 
 	/* Process packet fragments. */

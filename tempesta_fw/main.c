@@ -71,7 +71,9 @@ tfw_init(void)
 	if (r)
 		goto err_http;
 
-	//r = tfw_filter_init();
+#if 0
+	r = tfw_filter_init();
+#endif
 	if (r)
 		goto err_filter;
 
@@ -94,7 +96,9 @@ err_connection:
 err_client:
 	tfw_server_exit();
 err_server:
-	// tfw_filter_stop();
+#if 0
+	tfw_filter_stop();
+#endif
 err_filter:
 	tfw_http_exit();
 err_http:
@@ -113,7 +117,9 @@ tfw_exit(void)
 	tfw_connection_exit();
 	tfw_client_exit();
 	tfw_server_exit();
-	//tfw_filter_stop();
+#if 0
+	tfw_filter_stop();
+#endif
 	tfw_http_exit();
 	tfw_cache_exit();
 	tfw_if_exit();

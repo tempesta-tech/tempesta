@@ -573,7 +573,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	TFW_DBG("parser: Connection parsed: flags %#x\n", msg->flags);
 	parser->_i_st = I_0;
@@ -622,7 +622,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = I_0;
 	return r;
@@ -697,7 +697,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = I_0;
 	return r;
@@ -1024,7 +1024,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = Req_I_0;
 	return r;
@@ -1081,7 +1081,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = Req_I_0;
 	return r;
@@ -1676,7 +1676,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = Resp_I_0;
 	return r;
@@ -1899,7 +1899,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = Resp_I_0;
 	return r;
@@ -1947,7 +1947,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		return CSTR_NEQ;
 	}
 
-	} // FSM END
+	} /* FSM END */
 done:
 	parser->_i_st = Resp_I_0;
 	return r;
