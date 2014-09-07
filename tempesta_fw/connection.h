@@ -83,7 +83,6 @@ typedef struct {
 /* Connection downcalls. */
 int tfw_connection_new(struct sock *sk, int type, void *handler,
 		       void (*destructor)(struct sock *s));
-int tfw_connection_close(struct sock *sk);
 void tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg);
 void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
 

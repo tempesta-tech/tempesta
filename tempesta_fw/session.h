@@ -37,7 +37,8 @@ typedef struct {
 	TfwClient	*cli;
 } TfwSession;
 
-TfwSession *tfw_create_session(TfwClient *cli);
+int tfw_session_sched_msg(TfwSession *s, TfwMsg *msg);
+TfwSession *tfw_session_create(TfwClient *cli);
 void tfw_session_free(TfwSession *s);
 
 int tfw_session_init(void);

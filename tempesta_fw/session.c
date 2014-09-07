@@ -25,32 +25,30 @@
 
 static struct kmem_cache *sess_cache;
 
-/*
- * TODO create a new session (choose appropriate server connection) depending on
- * properties of user connection [TODO request ?] (cookie session,
- * client IP session, basic authentication, URL parameters,
- * HTTP header value etc.)
- */
-TfwSession *
-tfw_create_session(TfwClient *cli)
+int
+tfw_session_sched_msg(TfwSession *s, TfwMsg *msg)
 {
-	TfwSession *sess;
-	TfwServer *srv;
-
-	srv = tfw_sched_get_srv();
+	TfwServer *srv = tfw_sched_get_srv(msg);
 	if (!srv) {
 		TFW_ERR("Can't get an appropriate server for a session");
-		return NULL;
+		return -ENOENT;
 	}
 
-	sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC);
-	if (!sess)
+	s->srv = srv;
+
+	return 0;
+}
+
+TfwSession *
+tfw_session_create(TfwClient *cli)
+{
+	TfwSession *s = kmem_cache_alloc(sess_cache, GFP_ATOMIC);
+	if (!s)
 		return NULL;
 
-	sess->srv = srv;
-	sess->cli = cli;
+	s->cli = cli;
 
-	return sess;
+	return s;
 }
 
 void
