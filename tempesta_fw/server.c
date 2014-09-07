@@ -52,7 +52,9 @@ tfw_destroy_server(struct sock *s)
 	conn->hndl = NULL;
 
 	/* FIXME clear the server references from all current sessions. */
-	// kmem_cache_free(srv_cache, srv);
+#if 0
+	kmem_cache_free(srv_cache, srv);
+#endif
 }
 
 TfwServer *
