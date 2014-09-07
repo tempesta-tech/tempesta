@@ -48,8 +48,10 @@ tfw_sched_del_srv(TfwServer *srv)
 }
 
 TfwServer *
-tfw_sched_get_srv(void)
+tfw_sched_get_srv(TfwMsg *msg)
 {
+	/* TODO call scheduling module if we have any registered. */
+
 	return dummy_srv;
 }
 

@@ -23,6 +23,7 @@
 #ifndef __TFW_SCHED_H__
 #define __TFW_SCHED_H__
 
+#include "msg.h"
 #include "server.h"
 
 /*
@@ -39,7 +40,7 @@ typedef struct {
 int tfw_sched_add_srv(TfwServer *srv);
 int tfw_sched_del_srv(TfwServer *srv);
 
-TfwServer *tfw_sched_get_srv(void);
+TfwServer *tfw_sched_get_srv(TfwMsg *msg);
 
 extern int tfw_sched_register(TfwScheduler *mod);
 extern void tfw_sched_unregister(void);
