@@ -87,8 +87,10 @@ static struct kmem_cache *c_cache;
 static void
 tfw_cache_key_calc(TfwHttpReq *req, unsigned long *key)
 {
-	// TODO: do we need so long key?
-	// Aren't 64bit single long not enough?
+	/*
+	 * TODO: do we need so long key?
+	 * Aren't 64bit single long not enough?
+	 */
 }
 
 /**

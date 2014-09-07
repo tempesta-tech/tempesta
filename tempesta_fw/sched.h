@@ -26,14 +26,11 @@
 #include "server.h"
 
 /*
- * TODO:
- * -- manage requests schediling
- *    -> Sessions handling: see http://www.apsis.ch/pound, "SESSIONS"
- * -- manage connections to backend servers
- *    (-> DPI - we can have too many "back-end" servers, so we need to prune
- *        low active connections from the connection pool).
- *    Should we manage connections separate from requests management and move
- *    the functionality to different module type?
+ * TODO In case of forward proxy manage connections to 'backend' servers
+ * we can have too many 'backend' servers, so we need to prune low-active
+ * connections from the connection pool.
+ * Should we manage connections separate from requests management and move
+ * the functionality to different module type?
  */
 
 typedef struct {
