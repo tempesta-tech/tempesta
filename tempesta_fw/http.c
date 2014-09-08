@@ -644,6 +644,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			len, req->parser.data_off, r);
 
 		switch (r) {
+		default:
+			TFW_ERR("bad HTTP parser return code, %d\n", r);
+			BUG();
 		case TFW_BLOCK:
 			TFW_DBG("Block bad HTTP request\n");
 			goto block;
@@ -663,7 +666,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 					  TFW_HTTP_FSM_REQ_MSG, data, len);
 			if (r == TFW_BLOCK)
 				goto block;
-			/* fall through */
+			/* Fall through. */
 		}
 
 		/* The request is fully parsed, process it. */

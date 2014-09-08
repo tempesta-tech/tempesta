@@ -148,7 +148,7 @@ do {									\
 #define __FSM_FINISH(m)							\
 done:									\
 	parser->state = __fsm_const_state;				\
-	parser->data_off = p - data;					\
+	parser->data_off = p - data + 1; /* add current character */	\
 	m->msg.len += parser->data_off;					\
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
@@ -431,13 +431,14 @@ enum {
 
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func, id)	\
 __FSM_STATE(st_curr) {							\
+	int ret;							\
 	long n = data + len - p;					\
 	BUG_ON(n < 0);							\
 	parser->_i_st = st_i;						\
-	/* @n - header length, @r - next shift (@n + *CR + LF). */	\
-	r = func(msg, p, &n);						\
-	TFW_DBG("parse header " #func ": return %d\n", r);		\
-	switch (r) {							\
+	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
+	ret = func(msg, p, &n);						\
+	TFW_DBG("parse header " #func ": return %d\n", ret);		\
+	switch (ret) {							\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
 		STORE_HEADER(msg, id, n);				\
@@ -446,10 +447,10 @@ __FSM_STATE(st_curr) {							\
 	case CSTR_NEQ: /* bad header value */				\
 		return TFW_BLOCK;					\
 	default:							\
-		BUG_ON(r <= 0);						\
+		BUG_ON(ret <= 0);					\
 		/* The header value is fully parsed, move forward. */	\
 		CLOSE_HEADER(msg, id, n);				\
-		__FSM_MOVE_n(st_next, r);				\
+		__FSM_MOVE_n(st_next, ret);				\
 	}								\
 }
 
@@ -475,17 +476,17 @@ do {									\
 /* Read request|response body. */					\
 __FSM_STATE(prefix ## _Body) {						\
 	if (!parser->to_read) {						\
-		int r;							\
+		int ret;						\
 		unsigned int to_read = 0;				\
 		long n = data + len - p;				\
 		if (!(msg->flags & TFW_HTTP_CHUNKED)) {			\
 			/* We've fully read Content-Length bytes. */	\
-			r = TFW_PASS;					\
+			ret = TFW_PASS;					\
 			goto done;					\
 		}							\
 		/* Read next chunk length. */				\
-		r = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);	\
-		switch (r) {						\
+		ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);	\
+		switch (ret) {						\
 		case CSTR_POSTPONE:					\
 			/* Not all the header data is parsed. */	\
 			__FSM_MOVE_n(prefix ## _Body, n);		\
@@ -493,9 +494,9 @@ __FSM_STATE(prefix ## _Body) {						\
 		case CSTR_NEQ: /* bad header value */			\
 			return TFW_BLOCK;				\
 		default:						\
-			BUG_ON(r <= 0);					\
+			BUG_ON(ret <= 0);				\
 			parser->to_read = to_read;			\
-			__FSM_MOVE_n(prefix ## _BodyChunkEoL, r);	\
+			__FSM_MOVE_n(prefix ## _BodyChunkEoL, ret);	\
 		}							\
 	}								\
 	/* fall through */						\
