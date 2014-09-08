@@ -737,8 +737,11 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 				      TFW_HHTBL_SZ(order + 1));
 		if (!ht)
 			return;
-		hm->h_tbl = ht;
 		ht->size = __HHTBL_SZ(order + 1);
+		ht->off = hm->h_tbl->off;
+		memset(ht->tbl + __HHTBL_SZ(order), 0,
+		       __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
+		hm->h_tbl = ht;
 	}
 
 	if (id == TFW_HTTP_HDR_RAW)

@@ -16,7 +16,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -I$(src)/../sync_socket -I$(src)/../tempesta_db
+EXTRA_CFLAGS += -I$(src)/../sync_socket -I$(src)/../tempesta_db -DDEBUG
 
 obj-m	= tempesta_fw.o
 tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
