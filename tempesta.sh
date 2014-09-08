@@ -28,8 +28,9 @@ start()
 {
 	echo "Starting Tempesta..."
 
-	# Set verbose kernel logging.
-	echo '7 7 7 7' > /proc/sys/kernel/printk
+	# Set verbose kernel logging,
+	# so debug messages are shown on serial console as well.
+	echo '8 7 1 7' > /proc/sys/kernel/printk
 
 	mkdir -p $TFW_CACHE_PATH 2>/dev/null
 

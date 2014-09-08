@@ -69,7 +69,10 @@ static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 {
 	TfwHttpMsg *shm;
-	struct sk_buff *nskb, *skb = hm->msg.skb_list.prev;
+	struct sk_buff *nskb, *skb;
+
+	skb = skb_peek_tail(&hm->msg.skb_list);
+	BUG_ON(!skb);
 
 	shm = tfw_http_msg_alloc(type);
 	if (!shm)
@@ -79,7 +82,6 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	 * The sibling is created for current (the last skb in skb_list
 	 * - set the skb as a start for skb_list in @sm.
 	 */
-	BUG_ON(!skb);
 	nskb = skb_clone(skb, GFP_ATOMIC);
 	if (!nskb) {
 		tfw_http_msg_free(shm);
@@ -637,6 +639,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		TfwHttpResp *resp;
 
 		r = tfw_http_parse_req(req, data, len);
+
+		TFW_DBG("request parsed: len=%lu parsed=%d res=%d\n",
+			len, req->parser.data_off, r);
 
 		switch (r) {
 		case TFW_BLOCK:
