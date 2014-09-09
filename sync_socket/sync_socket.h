@@ -60,6 +60,9 @@ typedef struct {
 	 * Add the @skb to the current connection message.
 	 * We need this low-level sk_buff opertation at connection (higher)
 	 * level to provide zero-copy with socket buffers reusage.
+	 *
+	 * All the put skbs are owned by the protocol handlers.
+	 * Sync sockets don't free the skbs.
 	 */
 	int (*put_skb_to_msg)(SsProto *proto, struct sk_buff *skb);
 
