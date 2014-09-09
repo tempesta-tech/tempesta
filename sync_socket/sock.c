@@ -196,7 +196,8 @@ ss_do_close(struct sock *sk)
 	int data_was_unread = 0;
 	int state;
 
-	SS_DBG("Close socket %p\n", sk);
+	SS_DBG("Close socket %p (account=%d)\n",
+		sk, sk_has_account(sk));
 
 	if (unlikely(!sk))
 		return;
@@ -228,6 +229,7 @@ ss_do_close(struct sock *sk)
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
 		data_was_unread += len;
+		SS_DBG("free rcv skb %p\n", skb);
 		__kfree_skb(skb);
 	}
 
@@ -244,8 +246,9 @@ ss_do_close(struct sock *sk)
 	else if (tcp_close_state(sk)) {
 		/* The code below is taken from tcp_send_fin(). */
 		struct tcp_sock *tp = tcp_sk(sk);
-		struct sk_buff *skb = tcp_write_queue_tail(sk);
 		int mss_now = tcp_current_mss(sk);
+
+		skb = tcp_write_queue_tail(sk);
 
 		if (tcp_send_head(sk) != NULL) {
 			/* Send FIN with data if we have any. */
@@ -281,7 +284,7 @@ adjudge_to_death:
 	 * so don't acquire sk->sk_lock.
 	 */
 	if (sk->sk_backlog.tail) {
-		struct sk_buff *skb = sk->sk_backlog.head;
+		skb = sk->sk_backlog.head;
 		do {
 			sk->sk_backlog.head = sk->sk_backlog.tail = NULL;
 			do {
@@ -293,6 +296,7 @@ adjudge_to_death:
 				 * so there is nobody interesting in receiving
 				 * data.
 				 */
+				SS_DBG("free backlog skb %p\n", skb);
 				__kfree_skb(skb);
 				skb = next;
 			} while (skb != NULL);
@@ -350,29 +354,6 @@ ss_close(struct sock *sk)
 EXPORT_SYMBOL(ss_close);
 
 /**
- * Process received data on the socket.
- * @return SS_OK, SS_DROP or negative value of error code.
- *
- * TODO One connection MUST be processed on one CPU - ensure this.
- */
-static int
-ss_tcp_process_connection(struct sk_buff *skb, struct sock *sk,
-			  unsigned int off, int *count)
-{
-	int r = ss_tcp_process_skb(skb, sk, off, count);
-	if (r < 0) {
-		SS_WARN("can't process app data on socket %p\n", sk);
-		/*
-		 * Drop connection on internal errors as well as
-		 * on banned packets.
-		 */
-		ss_do_close(sk);
-	}
-
-	return r;
-}
-
-/**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
  * We can't use standard tcp_read_sock() with our actor callback, because
@@ -406,10 +387,20 @@ ss_tcp_process_data(struct sock *sk)
 			off--;
 		if (off < skb->len) {
 			int count = 0;
-			int r = ss_tcp_process_connection(skb, sk, off, &count);
+			int r = ss_tcp_process_skb(skb, sk, off, &count);
 			if (r < 0) {
-				__kfree_skb(skb);
-				SS_DBG("DROP blocked skb");
+				SS_WARN("can't process app data on socket %p\n",
+					sk);
+				/*
+				 * Drop connection on internal errors as well as
+				 * on banned packets.
+				 *
+				 * ss_do_close() is responsible for calling
+				 * application layer connection closing callback
+				 * which will free all the passed and linked
+				 * with currently processed message skbs.
+				 */
+				ss_do_close(sk);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;

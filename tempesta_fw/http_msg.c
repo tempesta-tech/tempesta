@@ -48,9 +48,15 @@ void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
 	while (1) {
+		/*
+		 * The skbs are passed to us by put_skb_to_msg() call,
+		 * so we're responsible to free them.
+		 */
 		struct sk_buff *skb = skb_dequeue(&m->msg.skb_list);
 		if (!skb)
 			break;
+		TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p\n",
+			skb, skb->truesize, skb->sk, skb->destructor);
 		kfree_skb(skb);
 	}
 	tfw_pool_free(m->pool);
