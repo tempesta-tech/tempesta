@@ -117,7 +117,11 @@ tfw_close_backend_sockets(void)
 
 	while (backend_socks_n)
 		sock_release(backend_socks[--backend_socks_n]);
-	kfree(backend_socks);
+
+	if (backend_socks) {
+		kfree(backend_socks);
+		backend_socks = NULL;
+	}
 
 	up_read(&tfw_cfg.mtx);
 }
@@ -128,8 +132,12 @@ tfw_close_backend_sockets(void)
 int
 tfw_open_backend_sockets(void)
 {
-	int r = -ENOMEM;
+	int i;
+	int ret;
 	TfwAddrCfg *be;
+
+	BUG_ON(backend_socks);
+	BUG_ON(backend_socks_n);
 
 	down_read(&tfw_cfg.mtx);
 
@@ -138,23 +146,27 @@ tfw_open_backend_sockets(void)
 	TFW_LOG("Open %u backend sockets\n", be->count);
 
 	backend_socks = kmalloc(sizeof(void *) * be->count, GFP_KERNEL);
-	if (!backend_socks)
+	if (!backend_socks) {
+		ret = -ENOMEM;
 		goto out;
-
-	while (backend_socks_n < be->count) {
-		r = tfw_backend_connect(&backend_socks[backend_socks_n],
-				       &be->addr[backend_socks_n]);
-		if (r) {
-			tfw_close_backend_sockets();
-			goto out;
-		}
-		++backend_socks_n;
 	}
 
-	r = 0;
+	for (i = 0; i < be->count; ++i) {
+		struct socket **backend_sock = &backend_socks[backend_socks_n];
+		void *backend_addr = &be->addr[backend_socks_n];
+
+		ret = tfw_backend_connect(backend_sock, backend_addr);
+
+		if (!ret) {
+			++backend_socks_n;
+		}
+	}
+
+	ret = 0;
+
 out:
 	up_read(&tfw_cfg.mtx);
-	return r;
+	return ret;
 }
 
 /**
