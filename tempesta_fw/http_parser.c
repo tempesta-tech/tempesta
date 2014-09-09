@@ -132,8 +132,8 @@ case st:								\
 st: __attribute__((unused)) 						\
  	__fsm_const_state = st; /* optimized out to constant */		\
 	c = *p;								\
-	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c)\n",			\
-		st, parser->_i_st, c, isprint(c) ? c : '.');
+	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
+		st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
 #define __FSM_EXIT(field)						\
 do {									\
@@ -469,6 +469,7 @@ do {									\
 		__FSM_MOVE(to_state);					\
 	}								\
 	/* There is no body at all. */					\
+	r = TFW_PASS;							\
 	goto done;							\
 } while (0)
 
