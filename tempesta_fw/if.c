@@ -313,11 +313,14 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 
 	if (write) {
 		char *p, *tmp_buf;
+		size_t copied_data_len;
 
 		p = tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
 		if (!tmp_buf)
 			return -ENOMEM;
-		if (copy_from_user(tmp_buf, buffer, ctl->maxlen)) {
+		
+		copied_data_len = min((size_t)ctl->maxlen, *lenp);
+		if (copy_from_user(tmp_buf, buffer, copied_data_len)) {
 			kfree(tmp_buf);
 			return -EFAULT;
 		}
@@ -333,7 +336,7 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 			kfree(tmp_buf);
 			return -ENOMEM;
 		}
-
+		
 		new_addr->count = r;
 		for (i = 0; i < new_addr->count; ++i) {
 			r = tfw_inet_pton(&p, new_addr->addr + i);
