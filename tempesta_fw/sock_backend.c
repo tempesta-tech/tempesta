@@ -152,8 +152,8 @@ tfw_open_backend_sockets(void)
 	}
 
 	for (i = 0; i < be->count; ++i) {
-		struct socket **backend_sock = &backend_socks[backend_socks_n];
-		void *backend_addr = &be->addr[backend_socks_n];
+		struct socket **backend_sock = &backend_socks[i];
+		void *backend_addr = &be->addr[i];
 
 		ret = tfw_backend_connect(backend_sock, backend_addr);
 
