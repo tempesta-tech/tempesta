@@ -38,6 +38,12 @@
 #define DEF_BACKEND_ADDR	INADDR_LOOPBACK
 #define DEF_PROC_STR_LEN	128
 
+
+union TfwAddr {
+	struct sockaddr_in v4;
+	struct sockaddr_in6 v6;
+};
+
 typedef struct {
 	int	count;
 	union {
