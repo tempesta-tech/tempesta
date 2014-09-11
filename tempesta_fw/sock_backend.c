@@ -182,7 +182,13 @@ reopen_dead_backend_sockets(void)
 	for (i = 0; i < backend_socks_n; ++i) {
 		TfwBackendSockDesc *backend = &backend_socks[i];
 		
-		/* TODO: reconnect already existing sockets */
+		if (backend->socket && backend->socket->sk->sk_shutdown) {
+			char addr_str[MAX_ADDR_LEN] = { 0 };
+			tfw_inet_ntop(&backend->addr, addr_str);
+			TFW_LOG("Disconnected from backend: %s\n", addr_str);
+			sock_release(backend->socket);
+			backend->socket = NULL;
+		}
 		
 		if (!backend->socket) {
 			int ret = 0;
