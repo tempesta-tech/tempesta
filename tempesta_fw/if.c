@@ -29,6 +29,7 @@
 #include "cache.h"
 #include "lib.h"
 #include "log.h"
+#include "sock_backend.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -378,7 +379,7 @@ static ctl_table tfw_ctl_main_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= sysctl_addr,
 		.extra1		= &tfw_cfg.backends,
-		.extra2		= tfw_reopen_backend_sockets,
+		.extra2		= tfw_apply_new_backends_cfg,
 	},
 	{ /* TODO reinitialize/destroy storage on setting/unsetting the var. */
 		.procname	= "cache_enable",

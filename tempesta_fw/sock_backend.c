@@ -26,8 +26,10 @@
  * -- limit number of persistent connections to be able to work as forward
  *    (transparent) proxy (probably we need to switch on/off functionality for
  *    connections pool)
+ * -- FIXME synchronize it with socket operations.
  */
 #include <linux/net.h>
+#include <linux/kthread.h>
 #include <net/inet_sock.h>
 
 #include "tempesta.h"
@@ -37,14 +39,269 @@
 #include "server.h"
 
 
-typedef struct TfwBackend {
-	struct socket *socket;   /* must be NULL when disconnected */
+typedef struct TfwBackendSockDesc {
 	union TfwAddr addr;
-} TfwBackend;
+	struct socket *socket;  /* the ptr is NULL when not connected */
+} TfwBackendSockDesc;
 
-static TfwBackend *backends = NULL;
-static unsigned int backends_n = 0;
-DEFINE_MUTEX(backends_mutex);
+
+/* the global list of all known backends (either connected or disconnected) */
+static TfwBackendSockDesc *backend_socks = NULL;
+static unsigned int backend_socks_n = 0;
+DEFINE_MUTEX(backend_socks_mtx);
+
+
+/* the thread that reopens connections to dead backends in background */
+static struct task_struct *backend_reconnnect_thread = NULL;
+const char *backend_reconnect_thread_name = "tempesta_breconnd";
+const unsigned int backend_reconnect_interval_msec = 1000;
+bool backend_reconnnect_thread_should_exit = false;
+
+
+/* forward declarations of local functions */
+static void start_backend_reconnect_thread(void);
+static void stop_backend_reconnect_thread(void);
+static int backend_reconnect_thread_main_loop(void *data);
+static void open_new_backend_sockets(void);
+static void reopen_dead_backend_sockets(void);
+static void close_all_backend_sockets(void);
+static bool all_backend_sockets_are_closed(void);
+static void copy_new_backend_addresses_from_cfg(void);
+static void free_backends_mem(void);
+static int tfw_backend_connect(struct socket **sock, void *addr);
+
+
+void
+tfw_apply_new_backends_cfg(void)
+{
+	stop_backend_reconnect_thread();
+	close_all_backend_sockets();
+	copy_new_backend_addresses_from_cfg();
+	open_new_backend_sockets();
+	start_backend_reconnect_thread();
+}
+
+
+void
+tfw_close_backend_sockets_and_free_memory(void)
+{
+	stop_backend_reconnect_thread();
+	close_all_backend_sockets();
+	free_backends_mem();
+}
+
+
+
+static void
+start_backend_reconnect_thread(void)
+{
+	struct task_struct *t;
+	
+	BUG_ON(backend_reconnnect_thread);
+	TFW_LOG("Starting thread: %s\n", backend_reconnect_thread_name);
+	
+	t = kthread_run(
+		backend_reconnect_thread_main_loop,
+		NULL,
+		backend_reconnect_thread_name
+	);
+	
+	if (IS_ERR_OR_NULL(t)) {
+		TFW_LOG("Can't create thread: %s (%ld)",
+			backend_reconnect_thread_name,
+			PTR_ERR(t));
+	} else {
+		backend_reconnnect_thread = t;
+	}
+}
+
+
+static void
+stop_backend_reconnect_thread(void)
+{
+	if (backend_reconnnect_thread) {
+		TFW_LOG("Stopping thread: %s\n", backend_reconnect_thread_name);
+		kthread_stop(backend_reconnnect_thread);
+		backend_reconnnect_thread = NULL;
+	}
+}
+
+
+static int
+backend_reconnect_thread_main_loop(void *data)
+{
+	while (true) {
+		msleep_interruptible(backend_reconnect_interval_msec);
+		reopen_dead_backend_sockets();
+		
+		if (kthread_should_stop()) {
+			return 0;
+		}
+	}
+}
+
+
+static void
+open_new_backend_sockets(void)
+{
+	size_t i;	
+	mutex_lock(&backend_socks_mtx);
+	
+	for (i = 0; i < backend_socks_n; ++i) {
+		TfwBackendSockDesc *backend = &backend_socks[i];
+
+		if (!backend->socket) {
+			int ret = 0;
+			
+			char addr_str[MAX_ADDR_LEN] = { 0 };
+			tfw_inet_ntop(&backend->addr, addr_str);
+			TFW_LOG("Connecting to backend: %s\n", addr_str);
+
+			ret = tfw_backend_connect(&backend->socket, &backend->addr);
+			if (!ret) {
+				TFW_LOG("Connected to backend: %s\n", addr_str);
+			} else {
+				TFW_LOG("Can't connect to: %s (%d)\n", addr_str, ret);
+			}
+
+			/* we should leave NULL ptr when connection is failed */
+			BUG_ON(ret && backend->socket);
+		}
+	}
+	
+	mutex_unlock(&backend_socks_mtx);
+}
+
+
+static void
+reopen_dead_backend_sockets(void)
+{
+	size_t i;	
+	mutex_lock(&backend_socks_mtx);
+	
+	for (i = 0; i < backend_socks_n; ++i) {
+		TfwBackendSockDesc *backend = &backend_socks[i];
+		
+		/* TODO: reconnect already existing sockets */
+		
+		if (!backend->socket) {
+			int ret = 0;
+
+			ret = tfw_backend_connect(&backend->socket, &backend->addr);
+			if (!ret) {
+				char addr_str[MAX_ADDR_LEN] = { 0 };
+				tfw_inet_ntop(&backend->addr, addr_str);
+				TFW_LOG("Connected to backend: %s\n", addr_str);
+			} else {
+				BUG_ON(backend->socket);
+			}
+		}
+	}
+	
+	mutex_unlock(&backend_socks_mtx);
+}
+
+
+void
+close_all_backend_sockets(void)
+{
+	size_t i;
+	mutex_lock(&backend_socks_mtx);
+	
+	for (i = 0; i < backend_socks_n; ++i) {
+		TfwBackendSockDesc *backend = &backend_socks[i];
+		struct socket *tmp_socket = backend->socket;
+					
+		if (tmp_socket) {
+			char addr_str[MAX_ADDR_LEN] = { 0 };
+			tfw_inet_ntop(&backend->addr, addr_str);
+			TFW_LOG("Closing backend connection: %s\n", addr_str);
+			
+			backend->socket = NULL;
+			sock_release(tmp_socket);
+		}
+	}
+	
+	mutex_unlock(&backend_socks_mtx);
+}
+
+
+static bool
+all_backend_sockets_are_closed(void)
+{
+	size_t i;
+	bool ret = true;
+	
+	mutex_lock(&backend_socks_mtx);
+	
+	for (i = 0; i < backend_socks_n; ++i) {
+		if (backend_socks[i].socket) {
+			ret = false;
+		}
+	}
+	
+	mutex_unlock(&backend_socks_mtx);
+	
+	return ret;
+}
+
+
+void
+copy_new_backend_addresses_from_cfg(void)
+{
+	int i;
+	size_t addr_count;
+	TfwAddrCfg *backend_addrs;
+	TfwBackendSockDesc *allocated_backends;
+	
+	BUG_ON(!all_backend_sockets_are_closed());
+
+	/* allocate memory for new backends table and copy configuration to there*/
+	
+	down_read(&tfw_cfg.mtx);
+
+	backend_addrs = tfw_cfg.backends;
+	addr_count = backend_addrs->count;
+	
+	allocated_backends = kcalloc(1, sizeof(*allocated_backends) * addr_count, GFP_KERNEL);
+	if (!allocated_backends) {
+		up_read(&tfw_cfg.mtx);
+		TFW_ERR("Can't allocate memory\n");
+		return;
+	}
+	
+	for (i = 0; i < addr_count; ++i) {
+		TfwBackendSockDesc *backend = &allocated_backends[i];
+		void *addr = &backend_addrs->addr[i];
+		memcpy(&backend->addr, addr, sizeof(backend->addr));
+	}
+	
+	up_read(&tfw_cfg.mtx);
+	
+	
+	mutex_lock(&backend_socks_mtx);
+	if (backend_socks) {
+		kfree(backend_socks);
+	}
+	backend_socks = allocated_backends;
+	backend_socks_n = addr_count;
+	mutex_unlock(&backend_socks_mtx);
+}
+
+
+static void
+free_backends_mem()
+{
+	mutex_lock(&backend_socks_mtx);
+	
+	if (backend_socks) {
+		kfree(backend_socks);
+		backend_socks = NULL;
+		backend_socks_n = 0;
+	}
+	
+	mutex_unlock(&backend_socks_mtx);
+}
 
 
 
@@ -77,9 +334,6 @@ tfw_backend_connect(struct socket **sock, void *addr)
 
 	r = kernel_connect(*sock, (struct sockaddr *)addr, sza, 0);
 	if (r) {
-		char buf[MAX_ADDR_LEN];
-		tfw_inet_ntop(addr, buf);
-		TFW_ERR("Can't connect to back-end server %s (%d)\n", buf, r);
 		goto err_sock_destroy;
 	}
 	sk = (*sock)->sk;
@@ -88,7 +342,6 @@ tfw_backend_connect(struct socket **sock, void *addr)
 	 * TODO Set up socket callbacks.
 	 * Do we need any?
 	 */
-	TFW_DBG("Created back-end connection %p\n", sk);
 
 	/*
 	 * TODO only one server connection is established now.
@@ -115,100 +368,4 @@ err_sock_destroy:
 	sock_release(*sock);
 	*sock = NULL;
 	return r;
-}
-
-
-void
-tfw_close_backend_sockets(void)
-{
-	size_t i;
-	
-	mutex_lock(&backends_mutex);
-	
-	for (i = 0; i < backends_n; ++i) {
-		TfwBackend *backend = &backends[i];
-		struct socket *tmp_socket = backend->socket;
-					
-		if (tmp_socket) {
-			char addr_str[MAX_ADDR_LEN] = { 0 };
-			tfw_inet_ntop(&backend->addr, addr_str);
-			TFW_LOG("Closing backend connection: %s\n", addr_str);
-			
-			backend->socket = NULL;
-			sock_release(tmp_socket);
-		}
-	}
-
-	if (backends) {
-		kfree(backends);
-		backends = NULL;
-		backends_n = 0;
-	}
-	
-	mutex_unlock(&backends_mutex);
-}
-
-/**
- * Connect to back-end server.
- */
-int
-tfw_open_backend_sockets(void)
-{
-	int i;
-	size_t addr_count;
-	TfwAddrCfg *backend_addrs;
-	TfwBackend *tmp_backends;
-
-	/* allocate memory for new backends table and copy configuration to there*/
-	
-	down_read(&tfw_cfg.mtx);
-
-	backend_addrs = tfw_cfg.backends;
-	addr_count = backend_addrs->count;
-	
-	tmp_backends = kcalloc(1, sizeof(*tmp_backends) * addr_count, GFP_KERNEL);
-	if (!tmp_backends) {
-		up_read(&tfw_cfg.mtx);
-		return -ENOMEM;
-	}
-	
-	for (i = 0; i < addr_count; ++i) {
-		TfwBackend *backend = &tmp_backends[i];
-		void *addr = &backend_addrs->addr[i];
-		memcpy(&backend->addr, addr, sizeof(backend->addr));
-	}
-	
-	up_read(&tfw_cfg.mtx);
-	
-
-	for (i = 0; i < addr_count; ++i) {
-		int ret = 0;
-		char addr_str[MAX_ADDR_LEN] = { 0 };
-		TfwBackend *backend = &tmp_backends[i];
-		
-		tfw_inet_ntop(&backend->addr, addr_str);
-		TFW_LOG("Connecting to backend: %s\n", addr_str);
-		
-		ret = tfw_backend_connect(&backend->socket, &backend->addr);
-		BUG_ON(ret && backend->socket);
-	}
-	
-	mutex_lock(&backends_mutex);
-	BUG_ON(backends);
-	BUG_ON(backends_n);
-	backends = tmp_backends;
-	backends_n = addr_count;
-	mutex_unlock(&backends_mutex);
-	
-	return 0;
-}
-
-/**
- * FIXME synchronize it with socket operations.
- */
-int
-tfw_reopen_backend_sockets(void)
-{
-	tfw_close_backend_sockets();
-	return tfw_open_backend_sockets();
 }
