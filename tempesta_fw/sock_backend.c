@@ -36,8 +36,17 @@
 #include "log.h"
 #include "server.h"
 
-static unsigned int backend_socks_n = 0;
-static struct socket **backend_socks;
+
+typedef struct TfwBackend {
+	struct socket *socket;   /* must be NULL when disconnected */
+	union TfwAddr addr;
+} TfwBackend;
+
+static TfwBackend *backends = NULL;
+static unsigned int backends_n = 0;
+DEFINE_MUTEX(backends_mutex);
+
+
 
 /**
  * Connect to the back-end server.
@@ -104,6 +113,7 @@ err_conn_create:
 	tfw_destroy_server(sk);
 err_sock_destroy:
 	sock_release(*sock);
+	*sock = NULL;
 	return r;
 }
 
@@ -111,19 +121,31 @@ err_sock_destroy:
 void
 tfw_close_backend_sockets(void)
 {
-	down_read(&tfw_cfg.mtx);
-
-	TFW_LOG("Close %u backend sockets\n", backend_socks_n);
-
-	while (backend_socks_n)
-		sock_release(backend_socks[--backend_socks_n]);
-
-	if (backend_socks) {
-		kfree(backend_socks);
-		backend_socks = NULL;
+	size_t i;
+	
+	mutex_lock(&backends_mutex);
+	
+	for (i = 0; i < backends_n; ++i) {
+		TfwBackend *backend = &backends[i];
+		struct socket *tmp_socket = backend->socket;
+					
+		if (tmp_socket) {
+			char addr_str[MAX_ADDR_LEN] = { 0 };
+			tfw_inet_ntop(&backend->addr, addr_str);
+			TFW_LOG("Closing backend connection: %s\n", addr_str);
+			
+			backend->socket = NULL;
+			sock_release(tmp_socket);
+		}
 	}
 
-	up_read(&tfw_cfg.mtx);
+	if (backends) {
+		kfree(backends);
+		backends = NULL;
+		backends_n = 0;
+	}
+	
+	mutex_unlock(&backends_mutex);
 }
 
 /**
@@ -133,40 +155,52 @@ int
 tfw_open_backend_sockets(void)
 {
 	int i;
-	int ret;
-	TfwAddrCfg *be;
+	size_t addr_count;
+	TfwAddrCfg *backend_addrs;
+	TfwBackend *tmp_backends;
 
-	BUG_ON(backend_socks);
-	BUG_ON(backend_socks_n);
-
+	/* allocate memory for new backends table and copy configuration to there*/
+	
 	down_read(&tfw_cfg.mtx);
 
-	be = tfw_cfg.backends;
-
-	TFW_LOG("Open %u backend sockets\n", be->count);
-
-	backend_socks = kmalloc(sizeof(void *) * be->count, GFP_KERNEL);
-	if (!backend_socks) {
-		ret = -ENOMEM;
-		goto out;
+	backend_addrs = tfw_cfg.backends;
+	addr_count = backend_addrs->count;
+	
+	tmp_backends = kcalloc(1, sizeof(*tmp_backends) * addr_count, GFP_KERNEL);
+	if (!tmp_backends) {
+		up_read(&tfw_cfg.mtx);
+		return -ENOMEM;
 	}
-
-	for (i = 0; i < be->count; ++i) {
-		struct socket **backend_sock = &backend_socks[i];
-		void *backend_addr = &be->addr[i];
-
-		ret = tfw_backend_connect(backend_sock, backend_addr);
-
-		if (!ret) {
-			++backend_socks_n;
-		}
+	
+	for (i = 0; i < addr_count; ++i) {
+		TfwBackend *backend = &tmp_backends[i];
+		void *addr = &backend_addrs->addr[i];
+		memcpy(&backend->addr, addr, sizeof(backend->addr));
 	}
-
-	ret = 0;
-
-out:
+	
 	up_read(&tfw_cfg.mtx);
-	return ret;
+	
+
+	for (i = 0; i < addr_count; ++i) {
+		int ret = 0;
+		char addr_str[MAX_ADDR_LEN] = { 0 };
+		TfwBackend *backend = &tmp_backends[i];
+		
+		tfw_inet_ntop(&backend->addr, addr_str);
+		TFW_LOG("Connecting to backend: %s\n", addr_str);
+		
+		ret = tfw_backend_connect(&backend->socket, &backend->addr);
+		BUG_ON(ret && backend->socket);
+	}
+	
+	mutex_lock(&backends_mutex);
+	BUG_ON(backends);
+	BUG_ON(backends_n);
+	backends = tmp_backends;
+	backends_n = addr_count;
+	mutex_unlock(&backends_mutex);
+	
+	return 0;
 }
 
 /**
