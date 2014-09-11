@@ -74,7 +74,6 @@ extern TfwCfg tfw_cfg;
 int tfw_if_init(void);
 void tfw_if_exit(void);
 
-int tfw_reopen_backend_sockets(void);
 int tfw_reopen_listen_sockets(void);
 
 #endif /* __TEMPESTA_H__ */
