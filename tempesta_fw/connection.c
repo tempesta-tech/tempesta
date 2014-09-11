@@ -27,6 +27,7 @@
 #include "session.h"
 
 #include "sync_socket.h"
+#include "sock_backend.h"
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
 
@@ -92,6 +93,8 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 	sock_set_flag(sk, SOCK_DBG);
 
 	c = sk->sk_user_data;
+	
+	BUG_ON(conn_hooks[TFW_CONN_TYPE2IDX(type)] == NULL);
 	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(c);
 
 	return 0;
@@ -320,8 +323,6 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 	conn_hooks[hid] = hooks;
 }
 
-int tfw_open_backend_sockets(void);
-void tfw_close_backend_sockets(void);
 int tfw_open_listen_sockets(void);
 void tfw_close_listen_sockets(void);
 
@@ -339,11 +340,6 @@ tfw_connection_init(void)
 	if (r)
 		goto err_sess;
 
-	/* FIXME it seems we need to open sockets AFTER ss_hooks_register */
-	r = tfw_open_backend_sockets();
-	if (r)
-		goto err_server_sock;
-
 	r = tfw_open_listen_sockets();
 	if (r)
 		goto err_listen_sock;
@@ -356,8 +352,6 @@ tfw_connection_init(void)
 err_hooks:
 	tfw_close_listen_sockets();
 err_listen_sock:
-	tfw_close_backend_sockets();
-err_server_sock:
 	tfw_session_exit();
 err_sess:
 	kmem_cache_destroy(conn_cache);
@@ -369,7 +363,7 @@ void
 tfw_connection_exit(void)
 {
 	tfw_close_listen_sockets();
-	tfw_close_backend_sockets();
+	tfw_close_backend_sockets_and_free_memory();
 
 	/* Unregister socket hooks when all network activity is stopped. */
 	ss_hooks_unregister(&ssocket_hooks);

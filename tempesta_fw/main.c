@@ -53,7 +53,7 @@ tfw_init(void)
 	int r;
 
 	TFW_LOG("Start Tempesta\n");
-
+        
 	/* Initialize tfw_cfg. */
 	init_rwsem(&tfw_cfg.mtx);
 	tfw_cfg.c_size = cache_size;
