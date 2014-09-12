@@ -39,10 +39,10 @@
 #define DEF_PROC_STR_LEN	128
 
 
-union TfwAddr {
+typedef union {
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
-};
+} TfwAddr;
 
 typedef struct {
 	int	count;
