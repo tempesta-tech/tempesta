@@ -93,8 +93,6 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 	sock_set_flag(sk, SOCK_DBG);
 
 	c = sk->sk_user_data;
-	
-	BUG_ON(conn_hooks[TFW_CONN_TYPE2IDX(type)] == NULL);
 	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(c);
 
 	return 0;
