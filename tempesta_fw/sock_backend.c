@@ -60,16 +60,15 @@ DEFINE_MUTEX(backend_socks_mtx);
 
 
 /* The thread that reopens dead backend connections in background. */
-static struct task_struct *backend_reconnnect_thread = NULL;
-const char *backend_reconnect_thread_name = "tempesta_breconnd";
-const unsigned int backend_reconnect_interval_msec = 1000;
-bool backend_reconnnect_thread_should_exit = false;
+static struct task_struct *breconnd_task = NULL;
+#define TFW_BRECONND_NAME "tfw_breconnd"
+#define TFW_BRECONND_INTERVAL 1000
 
 
 /* Forward declarations for local functions. */
-static void start_backend_reconnect_thread(void);
-static void stop_backend_reconnect_thread(void);
-static int backend_reconnect_thread_main_loop(void *data);
+static void start_breconnd_thread(void);
+static void stop_breconnd_thread(void);
+static int breconnd_main_loop(void *data);
 static void open_new_backend_sockets(void);
 static void reopen_dead_backend_sockets(void);
 static void close_all_backend_sockets(void);
@@ -90,13 +89,13 @@ static int tfw_backend_connect(struct socket **sock, void *addr);
 void
 tfw_apply_new_backends_cfg(void)
 {
-	stop_backend_reconnect_thread();
+	stop_breconnd_thread();
 	close_all_backend_sockets();
 	copy_new_backend_addresses_from_cfg();
 
 	if (backend_socks_n > 0) {
 		open_new_backend_sockets();
-		start_backend_reconnect_thread();
+		start_breconnd_thread();
 	}
 }
 
@@ -108,7 +107,7 @@ tfw_apply_new_backends_cfg(void)
 void
 tfw_release_backend_sockets(void)
 {
-	stop_backend_reconnect_thread();
+	stop_breconnd_thread();
 	close_all_backend_sockets();
 	free_backends_mem();
 }
@@ -116,31 +115,31 @@ tfw_release_backend_sockets(void)
 
 
 static void
-start_backend_reconnect_thread(void)
+start_breconnd_thread(void)
 {
 	struct task_struct *t;
 
-	BUG_ON(backend_reconnnect_thread);
-	TFW_DBG("Starting thread: %s\n", backend_reconnect_thread_name);
+	BUG_ON(breconnd_task);
+	TFW_DBG("Starting thread: %s\n", TFW_BRECONND_NAME);
 
 	t = kthread_run(
-		backend_reconnect_thread_main_loop,
+		breconnd_main_loop,
 		NULL,
-		backend_reconnect_thread_name
+		TFW_BRECONND_NAME
 	);
 
 	if (IS_ERR_OR_NULL(t)) {
 		TFW_LOG("Can't create thread: %s (%ld)",
-			backend_reconnect_thread_name,
+			TFW_BRECONND_NAME,
 			PTR_ERR(t));
 	} else {
-		backend_reconnnect_thread = t;
+		breconnd_task = t;
 	}
 }
 
 
 static void
-stop_backend_reconnect_thread(void)
+stop_breconnd_thread(void)
 {
 	/* FIXME:
 	 * The function will block while the thread sleeps because the
@@ -148,19 +147,19 @@ stop_backend_reconnect_thread(void)
 	 * We need to somehow notify the thread that it should exit and then
 	 * interrupt its sleep (perhaps by sending a signal).
 	 */
-	if (backend_reconnnect_thread) {
-		TFW_DBG("Stopping thread: %s\n", backend_reconnect_thread_name);
-		kthread_stop(backend_reconnnect_thread);
-		backend_reconnnect_thread = NULL;
+	if (breconnd_task) {
+		TFW_DBG("Stopping thread: %s\n", TFW_BRECONND_NAME);
+		kthread_stop(breconnd_task);
+		breconnd_task = NULL;
 	}
 }
 
 
 static int
-backend_reconnect_thread_main_loop(void *data)
+breconnd_main_loop(void *data)
 {
 	while (true) {
-		msleep_interruptible(backend_reconnect_interval_msec);
+		msleep_interruptible(TFW_BRECONND_INTERVAL);
 		reopen_dead_backend_sockets();
 
 		if (kthread_should_stop()) {
