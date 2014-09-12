@@ -361,7 +361,7 @@ void
 tfw_connection_exit(void)
 {
 	tfw_close_listen_sockets();
-	tfw_close_backend_sockets_and_free_memory();
+	tfw_release_backend_sockets();
 
 	/* Unregister socket hooks when all network activity is stopped. */
 	ss_hooks_unregister(&ssocket_hooks);
