@@ -40,7 +40,7 @@
 
 
 typedef struct {
-	union TfwAddr addr;
+	TfwAddr addr;
 	struct socket *socket; /* The ptr is NULL when not connected. */
 } TfwBackendSockDesc;
 
