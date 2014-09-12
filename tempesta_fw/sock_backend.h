@@ -22,7 +22,7 @@
 
 
 void tfw_apply_new_backends_cfg(void);
-void tfw_close_backend_sockets_and_free_memory(void);
+void tfw_release_backend_sockets(void);
 
 
 #endif /* __TFW_SOCK_BACKEND_H__ */
