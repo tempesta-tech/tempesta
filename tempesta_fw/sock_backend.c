@@ -304,9 +304,7 @@ copy_new_backend_addresses_from_cfg(void)
 	
 	/* replace old backends list with the freshly allocated one */
 	mutex_lock(&backend_socks_mtx);
-	if (backend_socks) {
-		kfree(backend_socks);
-	}
+	kfree(backend_socks);
 	backend_socks = new_backends;
 	backend_socks_n = new_be_count;
 	mutex_unlock(&backend_socks_mtx);
@@ -318,11 +316,9 @@ free_backends_mem()
 {
 	mutex_lock(&backend_socks_mtx);
 	
-	if (backend_socks) {
-		kfree(backend_socks);
-		backend_socks = NULL;
-		backend_socks_n = 0;
-	}
+	kfree(backend_socks);
+	backend_socks = NULL;
+	backend_socks_n = 0;
 	
 	mutex_unlock(&backend_socks_mtx);
 }
