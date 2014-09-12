@@ -29,7 +29,6 @@
 #include "cache.h"
 #include "lib.h"
 #include "log.h"
-#include "sock_backend.h"
 
 /*
  * ------------------------------------------------------------------------

@@ -27,7 +27,6 @@
 #include "session.h"
 
 #include "sync_socket.h"
-#include "sock_backend.h"
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
 
@@ -323,6 +322,7 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 
 int tfw_open_listen_sockets(void);
 void tfw_close_listen_sockets(void);
+void tfw_release_backend_sockets(void);
 
 int
 tfw_connection_init(void)
