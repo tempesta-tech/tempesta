@@ -106,7 +106,7 @@ tfw_apply_new_backends_cfg(void)
  * background threads and releases allocated memory.
  */
 void
-tfw_close_backend_sockets_and_free_memory(void)
+tfw_release_backend_sockets(void)
 {
 	stop_backend_reconnect_thread();
 	close_all_backend_sockets();
