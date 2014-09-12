@@ -62,6 +62,19 @@ tfw_str_tokens_count(const char *str)
 	return n;
 }
 
+/**
+ * Replace the trailing '\n' with '\0'.
+ * @str must be NULL-terminated.
+ */
+static void
+tfw_remove_trailing_newline(char *str)
+{
+	size_t len = strlen(str);
+	if (len && (str[len - 1] == '\n')) {
+		str[len - 1] = '\0'; 
+	}
+}
+
 static int 
 tfw_inet_pton_ipv4(char **p, struct sockaddr_in *addr)
 {
@@ -326,12 +339,9 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 			return -EFAULT;
 		}
 
+		tfw_remove_trailing_newline(p);
 		r = tfw_str_tokens_count(p);
-		if (!r) {
-			kfree(tmp_buf);
-			return -EINVAL;
-		}
-
+		
 		new_addr = kmalloc(SIZE_OF_ADDR_CFG(r), GFP_KERNEL);
 		if (!new_addr) {
 			kfree(tmp_buf);
