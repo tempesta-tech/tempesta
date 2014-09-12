@@ -41,11 +41,11 @@
 
 typedef struct {
 	union TfwAddr addr;
-	struct socket *socket;  /* the ptr is NULL when not connected */
+	struct socket *socket; /* The ptr is NULL when not connected. */
 } TfwBackendSockDesc;
 
 
-/* the global list of all known backends (either connected or disconnected) */
+/* The global list of all known backends (either connected or disconnected). */
 static TfwBackendSockDesc *backend_socks = NULL;
 static unsigned int backend_socks_n = 0;
 DEFINE_MUTEX(backend_socks_mtx);
@@ -59,14 +59,14 @@ DEFINE_MUTEX(backend_socks_mtx);
 	)
 
 
-/* the thread that reopens dead backend connections in background */
+/* The thread that reopens dead backend connections in background. */
 static struct task_struct *backend_reconnnect_thread = NULL;
 const char *backend_reconnect_thread_name = "tempesta_breconnd";
 const unsigned int backend_reconnect_interval_msec = 1000;
 bool backend_reconnnect_thread_should_exit = false;
 
 
-/* forward declarations for local functions */
+/* Forward declarations for local functions. */
 static void start_backend_reconnect_thread(void);
 static void stop_backend_reconnect_thread(void);
 static int backend_reconnect_thread_main_loop(void *data);
@@ -284,7 +284,7 @@ copy_new_backend_addresses_from_cfg(void)
 	cfg = tfw_cfg.backends;
 	new_be_count = tfw_cfg.backends->count;
 
-	/* allocate memory for the new backends list */
+	/* Allocate memory for the new backends list. */
 	new_backends = kcalloc(1, sizeof(*new_backends) * new_be_count, GFP_KERNEL);
 	if (!new_backends) {
 		up_read(&tfw_cfg.mtx);
@@ -292,7 +292,7 @@ copy_new_backend_addresses_from_cfg(void)
 		return;
 	}
 
-	/* pull addrs from cfg to the allocated memory */
+	/* Pull addresses from tfw_cfg to the allocated memory. */
 	for (i = 0; i < new_be_count; ++i) {
 		TfwBackendSockDesc *be = &new_backends[i];
 		void *addr = &cfg->addr[i];
@@ -302,7 +302,7 @@ copy_new_backend_addresses_from_cfg(void)
 	up_read(&tfw_cfg.mtx);
 
 
-	/* replace old backends list with the freshly allocated one */
+	/* Replace old backends list with the freshly allocated one. */
 	mutex_lock(&backend_socks_mtx);
 	kfree(backend_socks);
 	backend_socks = new_backends;
@@ -327,7 +327,7 @@ free_backends_mem()
 
 /**
  * Connect to the back-end server.
-  */
+ */
 static int
 tfw_backend_connect(struct socket **sock, void *addr)
 {
