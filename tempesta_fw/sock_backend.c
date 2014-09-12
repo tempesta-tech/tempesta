@@ -39,7 +39,7 @@
 #include "server.h"
 
 
-typedef struct TfwBackendSockDesc {
+typedef struct {
 	union TfwAddr addr;
 	struct socket *socket;  /* the ptr is NULL when not connected */
 } TfwBackendSockDesc;
