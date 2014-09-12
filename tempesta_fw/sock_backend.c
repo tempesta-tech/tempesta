@@ -284,7 +284,7 @@ copy_new_backend_addresses_from_cfg(void)
 	new_be_count = tfw_cfg.backends->count;
 
 	/* Allocate memory for the new backends list. */
-	new_backends = kcalloc(1, sizeof(*new_backends) * new_be_count, GFP_KERNEL);
+	new_backends = kzalloc(sizeof(*new_backends) * new_be_count, GFP_KERNEL);
 	if (!new_backends) {
 		up_read(&tfw_cfg.mtx);
 		TFW_ERR("Can't allocate memory\n");
