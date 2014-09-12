@@ -93,8 +93,11 @@ tfw_apply_new_backends_cfg(void)
 	stop_backend_reconnect_thread();
 	close_all_backend_sockets();
 	copy_new_backend_addresses_from_cfg();
-	open_new_backend_sockets();
-	start_backend_reconnect_thread();
+	
+	if (backend_socks_n > 0) {
+		open_new_backend_sockets();
+		start_backend_reconnect_thread();
+	}
 }
 
 
