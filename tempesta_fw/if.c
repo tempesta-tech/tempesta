@@ -334,7 +334,7 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 			kfree(tmp_buf);
 			return -ENOMEM;
 		}
-		
+
 		new_addr->count = r;
 		for (i = 0; i < new_addr->count; ++i) {
 			r = tfw_inet_pton(&p, new_addr->addr + i);
