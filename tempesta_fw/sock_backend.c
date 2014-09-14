@@ -129,7 +129,7 @@ start_breconnd_thread(void)
 	);
 
 	if (IS_ERR_OR_NULL(t)) {
-		TFW_LOG("Can't create thread: %s (%ld)",
+		TFW_ERR("Can't create thread: %s (%ld)",
 			TFW_BRECONND_NAME,
 			PTR_ERR(t));
 	} else {
@@ -181,10 +181,11 @@ open_new_backend_sockets(void)
 		if (!be->socket) {
 			int ret = tfw_backend_connect(&be->socket, &be->addr);
 
-			const char *msg = ret
-				? "Can't connect to backend"
-				: "Connected to backend";
-			TFW_LOG_ADDR(msg, &be->addr);
+			if (ret) {
+				TFW_WARN_ADDR("Can't connect to backend", &be->addr);
+			} else {
+				TFW_LOG_ADDR("Connected to backend", &be->addr);
+			}
 
 			/* it should leave NULL ptr when connection is failed */
 			BUG_ON(ret && be->socket);
