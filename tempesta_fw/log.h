@@ -52,6 +52,10 @@ do { \
 #define TFW_LOG_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_LOG("%s: %s\n", msg, addr_str))
 
+/* Log a warning message and append an IP address to it.*/
+#define TFW_WARN_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_WARN("%s: %s\n", msg, addr_str))
+
 /* Log an error message and appen an IP address to it. */
 #define TFW_ERR_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_ERR("%s: %s\n", msg, addr_str))
