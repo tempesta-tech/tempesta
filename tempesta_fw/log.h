@@ -48,6 +48,10 @@ do { \
 } while (0)
 
 
+/* Log a debug message and append an IP address to it.*/
+#define TFW_DBG_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_DBG("%s: %s\n", msg, addr_str))
+
 /* Log an info message and append an IP address to it.*/
 #define TFW_LOG_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_LOG("%s: %s\n", msg, addr_str))

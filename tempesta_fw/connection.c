@@ -322,7 +322,8 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 
 int tfw_open_listen_sockets(void);
 void tfw_close_listen_sockets(void);
-void tfw_release_backend_sockets(void);
+int tfw_sock_backend_init(void);
+void tfw_sock_backend_shutdown(void);
 
 int
 tfw_connection_init(void)
@@ -338,6 +339,10 @@ tfw_connection_init(void)
 	if (r)
 		goto err_sess;
 
+	r = tfw_sock_backend_init();
+	if (r)
+		goto err_backend_sock;
+
 	r = tfw_open_listen_sockets();
 	if (r)
 		goto err_listen_sock;
@@ -350,6 +355,8 @@ tfw_connection_init(void)
 err_hooks:
 	tfw_close_listen_sockets();
 err_listen_sock:
+	tfw_sock_backend_shutdown();
+err_backend_sock:
 	tfw_session_exit();
 err_sess:
 	kmem_cache_destroy(conn_cache);
@@ -361,7 +368,7 @@ void
 tfw_connection_exit(void)
 {
 	tfw_close_listen_sockets();
-	tfw_release_backend_sockets();
+	tfw_sock_backend_shutdown();
 
 	/* Unregister socket hooks when all network activity is stopped. */
 	ss_hooks_unregister(&ssocket_hooks);
