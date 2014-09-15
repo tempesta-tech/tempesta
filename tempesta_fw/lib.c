@@ -89,3 +89,70 @@ tfw_inet_ntop(void *addr, char *buf)
 
 	return 0;
 }
+
+
+static bool
+tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
+{
+	return ((a->sin_addr.s_addr == b->sin_addr.s_addr) &&
+		(a->sin_port == b->sin_port) &&
+		(a->sin_family == b->sin_family));
+}
+
+
+static bool
+tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
+{
+	const __be32 *aw = a->sin6_addr.in6_u.u6_addr32;
+	const __be32 *bw = a->sin6_addr.in6_u.u6_addr32;
+
+	/* NOTE: The field 'sin6_flowinfo' is not compared intentionally. */
+	/* FIXME: Do we really need to compare the 'sin6_scope_id' field? */
+	return ((aw[0] == bw[0]) &&
+		(aw[1] == bw[1]) &&
+		(aw[2] == bw[2]) &&
+		(aw[3] == bw[3]) &&
+		(a->sin6_port == b->sin6_port) &&
+		(a->sin6_scope_id == b->sin6_scope_id) &&
+		(a->sin6_family == b->sin6_family));
+}
+
+
+/**
+ * tfw_addr_eq() - Compare two addresses represented by struct sockaddr.
+ *
+ * The function compares two IPv4 or IPv6 addresses represented by either
+ * struct sockaddr_in or struct sockaddr_in6 types. Other address families
+ * are not yet supported (the function always returns false for them).
+ *
+ * Return: true if addresses are equal, false otherwise.
+ *         IPv4 addresses are treated as equal if both addr and port are equal.
+ *         IPv6 addresses are treated as equal if their address bytes and ports
+ *         and scope IDs are equal.
+ */
+bool
+tfw_addr_eq(const void *addr1, const void *addr2)
+{
+	unsigned short family1, family2;
+
+	BUG_ON(!addr1 || !addr2);
+	
+	family1 = *(unsigned short *)addr1;
+	family2 = *(unsigned short *)addr2;
+
+	if (family1 != family2) {
+		return false;
+	}
+
+	if (family1 == AF_INET) {
+		return tfw_addr_eq_inet(addr1, addr2);
+	}
+	else if (family1 == AF_INET6)
+	{
+		return tfw_addr_eq_inet6(addr1, addr2);
+	}
+	else {
+		TFW_WARN("Can't compare address family: %u\n", family1);
+		return false;
+	}
+}

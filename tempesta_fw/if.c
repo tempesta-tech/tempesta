@@ -375,7 +375,7 @@ static ctl_table tfw_ctl_main_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= sysctl_addr,
 		.extra1		= &tfw_cfg.backends,
-		.extra2		= tfw_apply_new_backends_cfg,
+		.extra2		= tfw_sock_backend_refresh_cfg,
 	},
 	{ /* TODO reinitialize/destroy storage on setting/unsetting the var. */
 		.procname	= "cache_enable",
