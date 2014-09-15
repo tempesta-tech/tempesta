@@ -75,6 +75,6 @@ int tfw_if_init(void);
 void tfw_if_exit(void);
 
 int tfw_reopen_listen_sockets(void);
-void tfw_apply_new_backends_cfg(void);
+void tfw_sock_backend_refresh_cfg(void);
 
 #endif /* __TEMPESTA_H__ */

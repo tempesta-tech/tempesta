@@ -30,6 +30,8 @@
  */
 #include <linux/net.h>
 #include <linux/kthread.h>
+#include <linux/wait.h>
+#include <linux/freezer.h>
 #include <net/inet_sock.h>
 
 #include "tempesta.h"
@@ -39,35 +41,36 @@
 #include "server.h"
 
 
+/* The thread that connects to backends in background. */
+static struct task_struct *tfw_bconnd_task = NULL;
+
+#define TFW_BCONND_THREAD_NAME "tfw_bconnd"
+#define TFW_BCONND_RETRY_INTERVAL 1000
+
+/*
+ * This workqueue is used to notify the thread that the configuration
+ * has changed and therefore it should refresh the list of backends.
+ */
+DECLARE_WAIT_QUEUE_HEAD(tfw_bconnd_wq);
+bool tfw_bconnd_should_refresh = false;
+
+/* The list in which the thread maintains the sockets internally. */
 typedef struct {
+	struct list_head list;
 	TfwAddr addr;
 	struct socket *socket; /* The ptr is NULL when not connected. */
 } TfwBackendSockDesc;
 
 
-/* The global list of all known backends (either connected or disconnected). */
-static TfwBackendSockDesc *backend_socks = NULL;
-static unsigned int backend_socks_n = 0;
-DEFINE_MUTEX(backend_socks_mtx);
-
-/* the helper macro for iteration over the backend list */
-#define FOR_EACH_IN_BACKEND_SOCKS(i, curr) \
-	for ( \
-		(i) = 0,  (curr) = backend_socks;  \
-		(i) < backend_socks_n;  \
-		++(i),  ++(curr)  \
-	)
-
-
-/* The thread that reopens dead backend connections in background. */
-static struct task_struct *breconnd_task = NULL;
-#define TFW_BRECONND_NAME "tfw_breconnd"
-#define TFW_BRECONND_INTERVAL 1000
-
-
-
 /**
- * Connect to the back-end server.
+ * tfw_backend_connect() - Connect to the back-end server.
+ *
+ * @sock  The output socket to be allocated and connected.
+ *        The pointer is set to allocated socket when connected successfully
+ *        and NULLed when connection is failed.
+ * @addr  A struct sockaddr that describes an address to connect to.
+ *
+ * Return: an error code, zero on success.
  */
 static int
 tfw_backend_connect(struct socket **sock, void *addr)
@@ -132,246 +135,273 @@ err_sock_destroy:
 }
 
 
-static void
-open_new_backend_sockets(void)
+static bool
+addr_is_in_list(TfwAddr *addr, struct list_head *list)
 {
-	size_t i;
 	TfwBackendSockDesc *be;
+	list_for_each_entry(be, list, list) {
 
-	mutex_lock(&backend_socks_mtx);
-
-	FOR_EACH_IN_BACKEND_SOCKS(i, be) {
-		if (!be->socket) {
-			int ret = tfw_backend_connect(&be->socket, &be->addr);
-
-			if (ret) {
-				TFW_WARN_ADDR("Can't connect to backend", &be->addr);
-			} else {
-				TFW_LOG_ADDR("Connected to backend", &be->addr);
-			}
-
-			/* it should leave NULL ptr when connection is failed */
-			BUG_ON(ret && be->socket);
+		if (tfw_addr_eq(addr, &be->addr)) {
+			return true;
 		}
 	}
 
-	mutex_unlock(&backend_socks_mtx);
-}
-
-
-static void
-reopen_dead_backend_sockets(void)
-{
-	size_t i;
-	TfwBackendSockDesc *be;
-
-	mutex_lock(&backend_socks_mtx);
-
-	FOR_EACH_IN_BACKEND_SOCKS(i, be) {
-		if (be->socket && be->socket->sk->sk_shutdown) {
-			TFW_LOG_ADDR("Disconnected from backend", &be->addr);
-			sock_release(be->socket);
-			be->socket = NULL;
-		}
-
-		if (!be->socket) {
-			int ret = tfw_backend_connect(&be->socket, &be->addr);
-
-			if (!ret) {
-				TFW_LOG_ADDR("Connected to backend", &be->addr);
-			} else {
-				BUG_ON(be->socket);
-			}
-		}
-	}
-
-	mutex_unlock(&backend_socks_mtx);
-}
-
-
-void
-close_all_backend_sockets(void)
-{
-	size_t i;
-	TfwBackendSockDesc *be;
-
-	mutex_lock(&backend_socks_mtx);
-
-	FOR_EACH_IN_BACKEND_SOCKS(i, be) {
-		if (be->socket) {
-			struct socket *tmp_socket = be->socket;
-			be->socket = NULL;
-			sock_release(tmp_socket);
-
-			TFW_LOG_ADDR("Closing backend connection", &be->addr);
-		}
-	}
-
-	mutex_unlock(&backend_socks_mtx);
+	return false;
 }
 
 
 static bool
-all_backend_sockets_are_closed(void)
+addr_is_in_cfg(TfwAddr *addr, TfwAddrCfg *cfg)
 {
-	bool ret = true;
-	size_t i;
-	TfwBackendSockDesc *be;
+	int i;
+	for (i = 0; i < cfg->count; ++i) {
+		if (tfw_addr_eq(addr, &cfg->addr[i])) {
+			return true;
+		}
+	}
+	
+	return false;
+}
 
-	mutex_lock(&backend_socks_mtx);
 
-	FOR_EACH_IN_BACKEND_SOCKS(i, be) {
-		if (be->socket) {
-			ret = false;
+/**
+ * get_new_socks_from_cfg() - Update given socks_list from global configuration.
+ *
+ * @sock_list  The list of TfwBackendSockDesc to be updated.
+ * 
+ * The function populates the socks_list by new backend addresses from tfw_cfg
+ * with preserving already existing connections in the sock_list.
+ */
+static void
+get_new_socks_from_cfg(struct list_head *socks_list)
+{
+	int i;
+	size_t count;
+	void *addr;
+	TfwAddrCfg *cfg;
+	TfwBackendSockDesc *be, *be_tmp;
+
+	down_read(&tfw_cfg.mtx);
+
+	cfg = tfw_cfg.backends;
+	count = tfw_cfg.backends->count;
+
+	/* Iterate over the old backends list and release those who not present
+	 * in the new backends list. After this step the socks_list should
+	 * contain an intersection between socks_list and tfw_cfg.backends. */
+	list_for_each_entry_safe(be, be_tmp, socks_list, list) {
+		addr = &be->addr;
+		if (!addr_is_in_cfg(addr, cfg)) {
+			TFW_DBG_ADDR("Removing old backend", addr);
+			if (be->socket) {
+				sock_release(be->socket);
+			}
+			list_del(&be->list);
+			kfree(be);
 		}
 	}
 
-	mutex_unlock(&backend_socks_mtx);
+	/* Iterate over the new configuration and add to the socks_list only
+	 * new backends (thus preserving the already existing connections). */
+	for (i = 0; i < count; ++i) {
+		addr = &cfg->addr[i];
+		if (!addr_is_in_list(addr, socks_list)) {
+			TFW_DBG_ADDR("Adding new backend", addr);
+			be = kzalloc(sizeof(*be), GFP_KERNEL);
+			if (!be) {
+				TFW_ERR("Can't allocate memory\n");
+				goto out;
+			}
+			memcpy(&be->addr, addr, sizeof(be->addr));
+			list_add(&be->list, socks_list);
+		}
+	}
+
+out:
+	up_read(&tfw_cfg.mtx);
+}
+
+
+/**
+ * delete_all_sockets() - Release all sockets and free all elemenits in a list.
+ */
+static void
+delete_all_sockets(struct list_head *socks_list)
+{
+	TfwBackendSockDesc *be, *be_tmp;
+	list_for_each_entry_safe(be, be_tmp, socks_list, list) {
+		if (be->socket) {
+			sock_release(be->socket);
+		}
+		list_del(&be->list);
+		kfree(be);
+	}
+}
+
+
+/**
+ * release_closed_socks() - Release dead sockets from the given list.
+ */
+static void
+release_closed_socks(struct list_head *socks_list)
+{
+	TfwBackendSockDesc *be;
+	list_for_each_entry(be, socks_list, list) {
+		if (be->socket && be->socket->sk->sk_shutdown) {
+			sock_release(be->socket);
+			be->socket = NULL;
+		}
+	}
+}
+
+
+/**
+ * connect_backend_socks() - Connect not yet connected sockets in a given list.
+ *
+ * Return: true if all sockets are connected, false otherwise.
+ */
+static bool
+connect_backend_socks(struct list_head *socks_list)
+{
+	int ret;
+	TfwBackendSockDesc *be;
+	bool all_socks_connected = true;
+	
+	list_for_each_entry(be, socks_list, list) {
+		if (!be->socket) {
+			ret = tfw_backend_connect(&be->socket, &be->addr);
+
+			if (!ret) {
+				TFW_LOG_ADDR("Connected to backend", &be->addr);
+			} else {
+				all_socks_connected = false;
+				/* We should leave NULL if not connected. */
+				BUG_ON(be->socket);
+			}
+		}
+
+	}
+
+	return all_socks_connected;
+}
+
+
+/**
+ * tfw_bconnd() - The main loop of the tfw_bconnd thread.
+ *
+ * The thread establishes connections to backends in the background.
+ * Internally it maintains a list of connected/disconnected backends.
+ * When there are not yet connected backends in the list, it wakes up
+ * periodically and tries to connect to them.
+ *
+ * When all backends are connected (or there is no backends) the thread sleeps
+ * waiting for a new configuration. When there is new configuration (the
+ * tfw_sock_backend_refresh_cfg() is called), the thread wakes up and updates
+ * the list of backends and begins connection attempts again.
+ *
+ * Note: If a backend connection is lost for some reason, the thread doesn't
+ * restore it automatically until you call tfw_sock_backend_refresh_cfg().
+ *
+ */
+static int
+tfw_bconnd(void *data)
+{
+	LIST_HEAD(socks_list);
+	bool all_socks_connected = false;
+
+	set_freezable();
+	
+	do {
+		long timeout = all_socks_connected
+			? MAX_SCHEDULE_TIMEOUT
+			: TFW_BCONND_RETRY_INTERVAL;
+		
+		wait_event_freezable_timeout(
+			tfw_bconnd_wq,
+			tfw_bconnd_should_refresh,
+			timeout;
+		);
+
+		if (tfw_bconnd_should_refresh) {
+			get_new_socks_from_cfg(&socks_list);
+			release_closed_socks(&socks_list);
+			tfw_bconnd_should_refresh = false;
+		}
+
+		if (!all_socks_connected) {
+			all_socks_connected = connect_backend_socks(&socks_list);
+		}
+	} while (!kthread_should_stop());
+
+	TFW_LOG("%s: stopping\n", TFW_BCONND_THREAD_NAME);
+	delete_all_sockets(&socks_list);
+
+	return 0;
+}
+
+
+/**
+ * tfw_sock_backend_init() - Initialize routines related to backend sockets.
+ *
+ * This function spawns the tfw_bconnd thread that connects to backends
+ * in the background.
+ */
+int
+tfw_sock_backend_init(void)
+{
+	int ret = 0;
+	
+	BUG_ON(tfw_bconnd_task);
+	TFW_DBG("Starting thread: %s\n", TFW_BCONND_THREAD_NAME);
+
+	tfw_bconnd_task = kthread_run(
+		tfw_bconnd,
+		NULL,
+		TFW_BCONND_THREAD_NAME
+	);
+
+	if (IS_ERR_OR_NULL(tfw_bconnd_task)) {
+		TFW_ERR("Can't create thread: %s (%ld)", 
+			TFW_BCONND_THREAD_NAME, PTR_ERR(tfw_bconnd_task));
+		ret = PTR_ERR(tfw_bconnd_task);
+		tfw_bconnd_task = NULL;
+	}
 
 	return ret;
 }
 
 
-static void
-free_backends_mem(void)
-{
-	mutex_lock(&backend_socks_mtx);
-
-	kfree(backend_socks);
-	backend_socks = NULL;
-	backend_socks_n = 0;
-
-	mutex_unlock(&backend_socks_mtx);
-}
-
-
+/**
+ * tfw_sock_backend_shutdown() - Close connections to all backends and 
+ *                               release all resources.
+ * 
+ * This function stops the tfw_bconnd thread that maintains the list of
+ * opened sockets. Upon exit the thread should close all the sockets and
+ * release allocated memory.
+ */
 void
-copy_new_backend_addresses_from_cfg(void)
+tfw_sock_backend_shutdown(void)
 {
-	int i;
-	size_t new_be_count;
-	TfwBackendSockDesc *new_backends;
-	TfwAddrCfg *cfg;
-
-	BUG_ON(!all_backend_sockets_are_closed());
-
-	down_read(&tfw_cfg.mtx);
-
-	cfg = tfw_cfg.backends;
-	new_be_count = tfw_cfg.backends->count;
-
-	/* Allocate memory for the new backends list. */
-	new_backends = kzalloc(sizeof(*new_backends) * new_be_count, GFP_KERNEL);
-	if (!new_backends) {
-		up_read(&tfw_cfg.mtx);
-		TFW_ERR("Can't allocate memory\n");
+	if (!tfw_bconnd_task) {
 		return;
 	}
 
-	/* Pull addresses from tfw_cfg to the allocated memory. */
-	for (i = 0; i < new_be_count; ++i) {
-		TfwBackendSockDesc *be = &new_backends[i];
-		void *addr = &cfg->addr[i];
-		memcpy(&be->addr, addr, sizeof(be->addr));
-	}
-
-	up_read(&tfw_cfg.mtx);
-
-
-	/* Replace old backends list with the freshly allocated one. */
-	mutex_lock(&backend_socks_mtx);
-	kfree(backend_socks);
-	backend_socks = new_backends;
-	backend_socks_n = new_be_count;
-	mutex_unlock(&backend_socks_mtx);
+	TFW_DBG("Stopping thread: %s\n", TFW_BCONND_THREAD_NAME);
+	kthread_stop(tfw_bconnd_task);
+	tfw_bconnd_task = NULL;
 }
 
 
-static int
-breconnd_main_loop(void *data)
-{
-	while (true) {
-		msleep_interruptible(TFW_BRECONND_INTERVAL);
-		reopen_dead_backend_sockets();
-
-		if (kthread_should_stop()) {
-			return 0;
-		}
-	}
-}
-
-
-static void
-start_breconnd_thread(void)
-{
-	struct task_struct *t;
-
-	BUG_ON(breconnd_task);
-	TFW_DBG("Starting thread: %s\n", TFW_BRECONND_NAME);
-
-	t = kthread_run(
-		breconnd_main_loop,
-		NULL,
-		TFW_BRECONND_NAME
-	);
-
-	if (IS_ERR_OR_NULL(t)) {
-		TFW_ERR("Can't create thread: %s (%ld)",
-			TFW_BRECONND_NAME,
-			PTR_ERR(t));
-	} else {
-		breconnd_task = t;
-	}
-}
-
-
-static void
-stop_breconnd_thread(void)
-{
-	/* FIXME:
-	 * The function will block while the thread sleeps because the
-	 * kthread_stop() waits until the thread exits.
-	 * We need to somehow notify the thread that it should exit and then
-	 * interrupt its sleep (perhaps by sending a signal).
-	 */
-	if (breconnd_task) {
-		TFW_DBG("Stopping thread: %s\n", TFW_BRECONND_NAME);
-		kthread_stop(breconnd_task);
-		breconnd_task = NULL;
-	}
-}
-
-
-/*
- * Apply the new backends configuration.
+/**
+ * tfw_sock_backend_refresh_cfg() - Refresh backends configuration.
  *
  * This function should be called when you change the backend configuration
- * (the addresses list in tfw_cfg). It closes all active connections to backends
- * and then opens new ones within the new configuration.
- * Also it restarts the thread that re-connects to the backends in background.
+ * (the addresses list in tfw_cfg). It wakes up the tfw_bconnd thread that
+ * fetches the new configuration and connects to new backends.
  */
 void
-tfw_apply_new_backends_cfg(void)
+tfw_sock_backend_refresh_cfg(void)
 {
-	stop_breconnd_thread();
-	close_all_backend_sockets();
-	copy_new_backend_addresses_from_cfg();
-
-	if (backend_socks_n > 0) {
-		open_new_backend_sockets();
-		start_breconnd_thread();
-	}
-}
-
-
-/*
- * The clean-up routine: it closes all backend connections, terminates
- * background threads and releases allocated memory.
- */
-void
-tfw_release_backend_sockets(void)
-{
-	stop_breconnd_thread();
-	close_all_backend_sockets();
-	free_backends_mem();
+	tfw_bconnd_should_refresh = true;
+	wake_up(&tfw_bconnd_wq);
 }
