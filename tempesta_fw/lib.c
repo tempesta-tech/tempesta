@@ -90,7 +90,6 @@ tfw_inet_ntop(void *addr, char *buf)
 	return 0;
 }
 
-
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
 {
@@ -98,7 +97,6 @@ tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
 		(a->sin_port == b->sin_port) &&
 		(a->sin_family == b->sin_family));
 }
-
 
 static bool
 tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
@@ -116,7 +114,6 @@ tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 		(a->sin6_scope_id == b->sin6_scope_id) &&
 		(a->sin6_family == b->sin6_family));
 }
-
 
 /**
  * tfw_addr_eq() - Compare two addresses represented by struct sockaddr.
@@ -136,22 +133,18 @@ tfw_addr_eq(const void *addr1, const void *addr2)
 	unsigned short family1, family2;
 
 	BUG_ON(!addr1 || !addr2);
-	
+
 	family1 = *(unsigned short *)addr1;
 	family2 = *(unsigned short *)addr2;
 
-	if (family1 != family2) {
+	if (family1 != family2)
 		return false;
-	}
 
 	if (family1 == AF_INET) {
 		return tfw_addr_eq_inet(addr1, addr2);
-	}
-	else if (family1 == AF_INET6)
-	{
+	} else if (family1 == AF_INET6) {
 		return tfw_addr_eq_inet6(addr1, addr2);
-	}
-	else {
+	} else {
 		TFW_WARN("Can't compare address family: %u\n", family1);
 		return false;
 	}
