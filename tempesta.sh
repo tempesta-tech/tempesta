@@ -44,6 +44,9 @@ start()
 				 cache_path="$TFW_CACHE_PATH"
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
+	sysctl --load=tempesta.sysctl.conf
+	[ $? -ne 0 ] && error "cannot apply configuration via sysctl"
+
 	echo "done"
 }
 

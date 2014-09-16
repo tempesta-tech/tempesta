@@ -38,6 +38,12 @@
 #define DEF_BACKEND_ADDR	INADDR_LOOPBACK
 #define DEF_PROC_STR_LEN	128
 
+
+typedef union {
+	struct sockaddr_in v4;
+	struct sockaddr_in6 v6;
+} TfwAddr;
+
 typedef struct {
 	int	count;
 	union {
@@ -68,7 +74,7 @@ extern TfwCfg tfw_cfg;
 int tfw_if_init(void);
 void tfw_if_exit(void);
 
-int tfw_reopen_backend_sockets(void);
 int tfw_reopen_listen_sockets(void);
+void tfw_sock_backend_refresh_cfg(void);
 
 #endif /* __TEMPESTA_H__ */

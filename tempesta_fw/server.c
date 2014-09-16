@@ -50,6 +50,8 @@ tfw_destroy_server(struct sock *s)
 
 	srv->sock = NULL;
 	conn->hndl = NULL;
+	
+	be_srv = NULL;
 
 	/* FIXME clear the server references from all current sessions. */
 #if 0

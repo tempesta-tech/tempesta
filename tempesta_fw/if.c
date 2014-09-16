@@ -313,21 +313,21 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 
 	if (write) {
 		char *p, *tmp_buf;
+		size_t copied_data_len;
 
 		p = tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
 		if (!tmp_buf)
 			return -ENOMEM;
-		if (copy_from_user(tmp_buf, buffer, ctl->maxlen)) {
+		
+		copied_data_len = min((size_t)ctl->maxlen, *lenp);
+		if (copy_from_user(tmp_buf, buffer, copied_data_len)) {
 			kfree(tmp_buf);
 			return -EFAULT;
 		}
 
+		p = strim(p);
 		r = tfw_str_tokens_count(p);
-		if (!r) {
-			kfree(tmp_buf);
-			return -EINVAL;
-		}
-
+		
 		new_addr = kmalloc(SIZE_OF_ADDR_CFG(r), GFP_KERNEL);
 		if (!new_addr) {
 			kfree(tmp_buf);
@@ -375,7 +375,7 @@ static ctl_table tfw_ctl_main_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= sysctl_addr,
 		.extra1		= &tfw_cfg.backends,
-		.extra2		= tfw_reopen_backend_sockets,
+		.extra2		= tfw_sock_backend_refresh_cfg,
 	},
 	{ /* TODO reinitialize/destroy storage on setting/unsetting the var. */
 		.procname	= "cache_enable",
