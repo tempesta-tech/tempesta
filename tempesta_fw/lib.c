@@ -19,6 +19,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/string.h>
 #include "tempesta.h"
 #include "lib.h"
 #include "log.h"
@@ -93,25 +94,16 @@ tfw_inet_ntop(void *addr, char *buf)
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
 {
-	return ((a->sin_addr.s_addr == b->sin_addr.s_addr) &&
-		(a->sin_port == b->sin_port) &&
-		(a->sin_family == b->sin_family));
+	return !memcmp(a, b, sizeof(*a));
 }
 
 static bool
 tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 {
-	const __be32 *aw = a->sin6_addr.in6_u.u6_addr32;
-	const __be32 *bw = a->sin6_addr.in6_u.u6_addr32;
-
-	/* NOTE: The field 'sin6_flowinfo' is not compared intentionally. */
-	/* FIXME: Do we really need to compare the 'sin6_scope_id' field? */
-	return ((aw[0] == bw[0]) &&
-		(aw[1] == bw[1]) &&
-		(aw[2] == bw[2]) &&
-		(aw[3] == bw[3]) &&
+	/* NOTE: The fields 'sin6_flowinfo' and 'sin6_scope_id'  are
+	 * not compared intentionally. */
+	return (!memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)) &&
 		(a->sin6_port == b->sin6_port) &&
-		(a->sin6_scope_id == b->sin6_scope_id) &&
 		(a->sin6_family == b->sin6_family));
 }
 
