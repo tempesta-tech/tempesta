@@ -32,4 +32,37 @@
 #define TFW_WARN(...)	net_warn_ratelimited(TFW_BANNER "Warning: " __VA_ARGS__)
 #define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
 
+
+/*
+ * Print an IP address into a buffer (allocated on stack) and then evaluate
+ * an expression where the buffer may be used.
+ * Usage:
+ *   struct sockaddr *sockaddr_in;
+ *   TFW_WITH_ADDR_FMT(addr, str, printk("formatted addr: %s\n", str);
+ */
+#define TFW_WITH_ADDR_FMT(addr_ptr, fmtd_addr_var_name, action_expr)  \
+do { \
+	char fmtd_addr_var_name[MAX_ADDR_LEN]; \
+	tfw_inet_ntop(addr_ptr, fmtd_addr_var_name); \
+	action_expr; \
+} while (0)
+
+
+/* Log a debug message and append an IP address to it.*/
+#define TFW_DBG_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_DBG("%s: %s\n", msg, addr_str))
+
+/* Log an info message and append an IP address to it.*/
+#define TFW_LOG_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_LOG("%s: %s\n", msg, addr_str))
+
+/* Log a warning message and append an IP address to it.*/
+#define TFW_WARN_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_WARN("%s: %s\n", msg, addr_str))
+
+/* Log an error message and appen an IP address to it. */
+#define TFW_ERR_ADDR(msg, addr_ptr) \
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_ERR("%s: %s\n", msg, addr_str))
+
+
 #endif /* __TFW_LOG_H__ */
