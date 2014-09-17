@@ -55,6 +55,14 @@ tfw_connection_alloc(int type, void *handler)
 static void
 tfw_connection_free(TfwConnection *c)
 {
+	TfwConnection *peer_conn = tfw_connection_peer(c);
+
+	/*
+	 * FIXME do we need to synchronize this?
+	 * If a connection can be processed from different CPUs, then we do.
+	 */
+	peer_conn->sess = NULL;
+
 	tfw_session_free(c->sess);
 	kmem_cache_free(conn_cache, c);
 }
@@ -121,18 +129,15 @@ tfw_connection_close(struct sock *sk)
 }
 
 void
-tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg)
 {
-	BUG_ON(!conn->sess);
-
-	ss_send(conn->sess->cli->sock, &msg->skb_list, msg->len);
+	ss_send(sess->cli->sock, &msg->skb_list, msg->len);
 }
 
 void
-tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 {
 	TfwConnection *srv_conn;
-	TfwSession *sess = conn->sess;
 
 	/*
 	 * TODO: determine whether we need to establish a new connection
@@ -144,8 +149,6 @@ tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
 	 * XXX Or should we do this on connection fail event instead?
 	 */
 
-	BUG_ON(!sess);
-
 	if (tfw_session_sched_msg(sess, msg)) {
 		TFW_ERR("Cannot schedule message, len=%d clnt=%p\n",
 			msg->len, sess->cli);
@@ -154,7 +157,7 @@ tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
 	}
 
 	/* Bind the server connection with the session. */
-	srv_conn = sess->srv->sock->sk_user_data;
+	srv_conn = tfw_sess_conn(sess, Conn_Srv);
 	/*
 	 * Check that the server doesn't service somebody else.
 	 * FIXME when do we need to free the server session,
@@ -280,7 +283,9 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 			conn->msg, conn);
 	}
 
-	skb_queue_tail(&conn->msg->skb_list, skb);
+	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
+
+	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
 	return 0;
 }
@@ -292,7 +297,7 @@ tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
 
 	TFW_DBG("postpone skb %p\n", skb);
 
-	skb_queue_tail(&conn->msg->skb_list, skb);
+	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
 	return 0;
 }
