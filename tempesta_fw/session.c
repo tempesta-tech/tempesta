@@ -47,6 +47,8 @@ tfw_session_create(TfwClient *cli)
 		return NULL;
 
 	s->cli = cli;
+	s->srv = NULL;
+	INIT_LIST_HEAD(&s->req_list);
 
 	return s;
 }

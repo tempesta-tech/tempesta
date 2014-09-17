@@ -24,14 +24,16 @@
 
 #include <linux/skbuff.h>
 
+#include "sync_socket.h"
+
 #include "gfsm.h"
 
 typedef struct tfw_msg {
-	struct tfw_msg		*prev;		/* sibling messages */
-	TfwGState		state;		/* message processing state. */
-	struct sk_buff_head	skb_list;	/* list of sk_buff's belonging
-						   to the message. */
-	int			len;
+	struct tfw_msg	*prev;		/* sibling messages */
+	TfwGState	state;		/* message processing state. */
+	SsSkbList	skb_list;	/* list of sk_buff's belonging
+					   to the message. */
+	int		len;
 } TfwMsg;
 
 #endif /* __TFW_MSG_H__ */

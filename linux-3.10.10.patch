@@ -1,3 +1,60 @@
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index dec1748..f620738 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -418,8 +418,12 @@ struct sk_buff {
+ 	 * layer. Please put your private variables there. If you
+ 	 * want to keep them across layers you have to do a skb_clone()
+ 	 * first. This is owned by whoever has the skb queued ATM.
++	 *
++	 * Tempesta. Extend the control block from original 48 bytes to
++	 * 64, so we can place our own control block at the end of @cb
++	 * and safely pass the skb to TCP and IP layers.
+ 	 */
+-	char			cb[48] __aligned(8);
++	char			cb[64] __aligned(8);
+ 
+ 	unsigned long		_skb_refdst;
+ #ifdef CONFIG_XFRM
+@@ -2933,5 +2937,38 @@ static inline bool skb_head_is_locked(const struct sk_buff *skb)
+ {
+ 	return !skb->head_frag || skb_cloned(skb);
+ }
++
++/*
++ * ------------------------------------------------------------------------
++ * 		Tempesta FW
++ * ------------------------------------------------------------------------
++ */
++/*
++ * We use this additional skb list to be able to reference skbs which are
++ * processed by standard Linux TCP/IP stack w/o skb cloning.
++ */
++typedef struct {
++	struct sk_buff	*next;
++	struct sk_buff	*prev;
++} SsSkbCb;
++
++#define TFW_SKB_CB(s)		((SsSkbCb *)((s)->cb + sizeof((s)->cb)	\
++						      - sizeof(SsSkbCb)))
++
++/**
++ * Whether the @skb is passed to application layer.
++ *
++ * Linux TCP/IP code owns all socket buffers and can call __kfree_skb() at any
++ * time. Meantime, we need to pass the buffers to Tempesta code to avoid data
++ * copying.
++ */
++static inline bool
++ss_skb_passed(const struct sk_buff *skb)
++{
++	SsSkbCb *scb = TFW_SKB_CB(skb);
++
++	return scb->next || scb->prev;
++}
++
+ #endif	/* __KERNEL__ */
+ #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta_fw.h b/include/linux/tempesta_fw.h
 new file mode 100644
 index 0000000..0572398
@@ -99,6 +156,21 @@ index 4425148..aad84f4 100644
  	return;
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index 1c1738c..ce21652 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -619,6 +619,10 @@ static void skb_release_all(struct sk_buff *skb)
+ 
+ void __kfree_skb(struct sk_buff *skb)
+ {
++	/* Don't free Tempesta owned socket buffers. */
++	if (unlikely(ss_skb_passed(skb)))
++		return;
++
+ 	skb_release_all(skb);
+ 	kfree_skbmem(skb);
+ }
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
 index ab450c0..6c23c10 100644
 --- a/net/ipv4/tcp.c

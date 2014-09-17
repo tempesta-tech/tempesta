@@ -20,6 +20,12 @@
 #include "gfsm.h"
 #include "http.h"
 
+static void
+__tfw_http_msg_init_req(TfwHttpReq *req)
+{
+	INIT_LIST_HEAD(&req->list);
+}
+
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
 {
@@ -29,7 +35,7 @@ tfw_http_msg_alloc(int type)
 	if (!hm)
 		return NULL;
 
-	skb_queue_head_init(&hm->msg.skb_list);
+	ss_skb_queue_head_init(&hm->msg.skb_list);
 	hm->msg.prev = NULL;
 	hm->msg.len = 0;
 
@@ -37,6 +43,9 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->size = __HHTBL_SZ(1);
 	hm->h_tbl->off = 0;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
+
+	if (type & Conn_Clnt)
+		__tfw_http_msg_init_req((TfwHttpReq *)hm);
 
 	return hm;
 }
@@ -47,19 +56,26 @@ tfw_http_msg_alloc(int type)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
+	/*
+	 * FIXME do we need to synchronize this?
+	 * If a connection can be processed from different CPUs, then we do.
+	 */
+	if (m->conn->msg == (TfwMsg *)m)
+		m->conn->msg = NULL;
+
 	while (1) {
 		/*
 		 * The skbs are passed to us by put_skb_to_msg() call,
 		 * so we're responsible to free them.
 		 */
-		struct sk_buff *skb = skb_dequeue(&m->msg.skb_list);
+		struct sk_buff *skb = ss_skb_dequeue(&m->msg.skb_list);
 		if (!skb)
 			break;
-		TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p\n",
-			skb, skb->truesize, skb->sk, skb->destructor);
+		TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p"
+			" users=%d\n",
+			skb, skb->truesize, skb->sk, skb->destructor,
+			atomic_read(&skb->users));
 		kfree_skb(skb);
 	}
 	tfw_pool_free(m->pool);
 }
-
-

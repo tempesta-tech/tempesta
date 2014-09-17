@@ -131,6 +131,7 @@ typedef struct {
 
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
+	struct list_head list;
 	unsigned char	method;
 	TfwStr		host; /* host in URI, may differ from Host header */
 	TfwStr		uri;
