@@ -71,7 +71,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb, *skb;
 
-	skb = skb_peek_tail(&hm->msg.skb_list);
+	skb = ss_skb_peek_tail(&hm->msg.skb_list);
 	BUG_ON(!skb);
 
 	shm = tfw_http_msg_alloc(type);
@@ -87,7 +87,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 		tfw_http_msg_free(shm);
 		return NULL;
 	}
-	skb_queue_tail(&shm->msg.skb_list, nskb);
+	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
 
 	shm->msg.prev = &hm->msg;
 	/* Relink current connection msg to @hsm. */
@@ -119,7 +119,7 @@ tfw_http_establish_skb_hdrs(TfwHttpMsg *hm)
 			continue;
 		if (!hdr->field.ptr)
 			break;
-		hdr->skb = hm->msg.skb_list.prev;
+		hdr->skb = hm->msg.skb_list.last;
 	}
 }
 
@@ -308,7 +308,7 @@ next_skb:
 }
 
 #define TFW_HTTP_HDR_ADD(hm, str)	__hdr_add(str "\r\n", sizeof(str) + 1, \
-						  hm->msg.skb_list.next, \
+						  hm->msg.skb_list.first, \
 						  hm->crlf)
 
 static int
@@ -627,11 +627,13 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)conn->msg;
+	TfwSession *sess = conn->sess;
 
 	BUG_ON(!req);
+	BUG_ON(!sess);
 
-	TFW_DBG("received %lu client data bytes (%.*s) on socket (conn=%p)\n",
-			len, (int)len, data, conn);
+	TFW_DBG("Received %lu client data bytes (%.*s) on socket (conn=%p)\n",
+		len, (int)len, data, conn);
 
 	/* Process pipelined requests in a loop. */
 	while (1) {
@@ -645,7 +647,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		switch (r) {
 		default:
-			TFW_ERR("bad HTTP parser return code, %d\n", r);
+			TFW_ERR("bad HTTP parser request return code, %d\n", r);
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG("Block bad HTTP request\n");
@@ -658,12 +660,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				goto block;
 			return TFW_POSTPONE;
 		case TFW_PASS:
-			/* Request is fully parsed, set it to the connection. */
-			conn->req = req;
+			/* Request is fully parsed, add it to the connection. */
+			list_add_tail(&req->list, &sess->req_list);
+			conn->msg = NULL;
 
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 			r = tfw_gfsm_move(&req->msg.state,
 					  TFW_HTTP_FSM_REQ_MSG, data, len);
+			TFW_DBG("GFSM return code %d\n", r);
 			if (r == TFW_BLOCK)
 				goto block;
 			/* Fall through. */
@@ -677,26 +681,17 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			 * We have prepared response, send it as is.
 			 * TODO should we adjust it somehow?
 			 */
-			tfw_connection_send_cli(conn, (TfwMsg *)resp);
+			tfw_connection_send_cli(sess, (TfwMsg *)resp);
 		} else {
 			if (tfw_http_adjust_req(req))
 				goto block;
 			/* Send the request to appropriate server. */
-			tfw_connection_send_srv(conn, (TfwMsg *)req);
+			tfw_connection_send_srv(sess, (TfwMsg *)req);
 		}
 
-		if (!req->parser.data_off || req->parser.data_off == len) {
-			/* There is no pending data in skbs.
-			 *
-			 * FIXME it seems we free request pool before
-			 * appropriate response is received.
-			 * TODO request and appropriate response must live
-			 * in the same pool.
-			 */
-			tfw_pool_free(req->pool);
-			conn->msg = NULL;
+		if (!req->parser.data_off || req->parser.data_off == len)
+			/* There is no more pending data in skbs. */
 			break;
-		}
 
 		/* Pipelined requests: create new sibling message. */
 		hm = tfw_http_msg_create_sibling((TfwHttpMsg *)req, Conn_Clnt);
@@ -709,7 +704,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 	return r;
 block:
-	/* Resources will be freed on connection closing. */
+	tfw_http_msg_free((TfwHttpMsg *)req);
 	return TFW_BLOCK;
 }
 
@@ -721,15 +716,23 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)conn->msg;
+	TfwSession *sess = conn->sess;
 
 	BUG_ON(!resp);
+	BUG_ON(!sess);
 
 	TFW_DBG("received %lu server data bytes (%.*s) on socket (conn=%p)\n",
-			len, (int)len, data, conn);
+		len, (int)len, data, conn);
 
 	r = tfw_http_parse_resp(resp, data, len);
 
+	TFW_DBG("response parsed: len=%lu parsed=%d res=%d\n",
+		len, resp->parser.data_off, r);
+
 	switch (r) {
+	default:
+		TFW_ERR("bad HTTP parser return code, %d\n", r);
+		BUG();
 	case TFW_BLOCK:
 		TFW_DBG("Block bad HTTP response\n");
 		goto block;
@@ -754,13 +757,28 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 	r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data, len);
 	if (r == TFW_PASS) {
+		TfwHttpReq *req;
+
 		if (tfw_http_adjust_resp(resp))
 			goto block;
 
-		/* Cache adjusted and filtered responses only. */
-		tfw_cache_add(resp, conn->req);
+		/*
+		 * Cache adjusted and filtered responses only.
+		 * We get responses in the same order as requests,
+		 * so we can just pop the first request.
+		 */
+		if (unlikely(list_empty(&sess->req_list))) {
+			TFW_WARN("Response w/o request\n");
+			goto block;
+		}
+		req = list_first_entry(&sess->req_list, TfwHttpReq, list);
+		list_del(&req->list);
+		tfw_cache_add(resp, req);
 
-		tfw_connection_send_cli(conn, (TfwMsg *)resp);
+		/* Now we don't need the request anymore. */
+		tfw_http_msg_free((TfwHttpMsg *)req);
+
+		tfw_connection_send_cli(sess, (TfwMsg *)resp);
 	}
 	else if (r == TFW_BLOCK) {
 		tfw_pool_free(resp->pool);
@@ -769,7 +787,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 	return r;
 block:
-	/* Resources will be freed on connection closing. */
+	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return TFW_BLOCK;
 }
 

@@ -25,8 +25,8 @@
 
 /**
  * Tempesta reuses server connections to handle many clients.
- * Each client or server connection has ThConneciton descriptor for internal
- * usage. ThSession maps a client connection with a server connection which
+ * Each client or server connection has TfwConneciton descriptor for internal
+ * usage. TfwSession maps a client connection with a server connection which
  * is currently dedicated to process the client. When we receive first client
  * request we allocate ThSession, choose a server connection and bind
  * the client connection with the server connection through just allocated
@@ -35,6 +35,7 @@
 typedef struct {
 	TfwServer	*srv;
 	TfwClient	*cli;
+	struct list_head req_list; /* list of pipelined requests */
 } TfwSession;
 
 int tfw_session_sched_msg(TfwSession *s, TfwMsg *msg);

@@ -102,10 +102,7 @@ tfw_backend_connect(struct socket **sock, void *addr)
 	}
 	sk = (*sock)->sk;
 
-	/*
-	 * TODO Set up socket callbacks.
-	 * Do we need any?
-	 */
+	ss_set_callbacks(sk);
 
 	/*
 	 * TODO only one server connection is established now.

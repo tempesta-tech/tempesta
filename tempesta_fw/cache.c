@@ -214,8 +214,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	ce->resp = resp;
 
 	/*
-	 * We must write the entry key now because the request can not
-	 * be dead when the function finishes.
+	 * We must write the entry key now because the request dies
+	 * when the function finishes.
 	 */
 	if (tfw_cache_entry_key_copy(ce, req))
 		return;
@@ -268,7 +268,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 			if (!skb)
 				goto err_skb;
 			skb_reserve(skb, SKB_HDR_SZ);
-			skb_queue_tail(&ce->resp->msg.skb_list, skb);
+			ss_skb_queue_tail(&ce->resp->msg.skb_list, skb);
 			f = 0;
 		}
 

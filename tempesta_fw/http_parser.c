@@ -156,6 +156,7 @@ do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
+		__fsm_const_state = to; /* start from state @to nest time */\
 		if (parser->hdr.ptr) {					\
 			TfwStr *h = TFW_STR_CURR(&parser->hdr);		\
 			h->len += data + len - (unsigned char *)h->ptr;	\
@@ -460,6 +461,8 @@ __FSM_STATE(st_curr) {							\
 
 #define TFW_HTTP_INIT_BODY_PARSING(msg, to_state)			\
 do {									\
+	TFW_DBG("parse msg body: flags=%#x content_length=%d\n",	\
+		msg->flags, msg->content_length);			\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_MOVE(to_state);					\
@@ -476,17 +479,12 @@ do {									\
 #define TFW_HTTP_PARSE_BODY(prefix, msg)				\
 /* Read request|response body. */					\
 __FSM_STATE(prefix ## _Body) {						\
+	TFW_DBG("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
-		int ret;						\
-		unsigned int to_read = 0;				\
 		long n = data + len - p;				\
-		if (!(msg->flags & TFW_HTTP_CHUNKED)) {			\
-			/* We've fully read Content-Length bytes. */	\
-			ret = TFW_PASS;					\
-			goto done;					\
-		}							\
+		unsigned int to_read = 0;				\
 		/* Read next chunk length. */				\
-		ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);	\
+		int ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);\
 		switch (ret) {						\
 		case CSTR_POSTPONE:					\
 			/* Not all the header data is parsed. */	\
@@ -504,11 +502,18 @@ __FSM_STATE(prefix ## _Body) {						\
 }									\
 /* Read parser->to_read bytes of message body. */			\
 __FSM_STATE(prefix ## _BodyReadChunk) {					\
+	int _n = min(parser->to_read, (int)(data + len - p));		\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
-	msg->body.len += min(parser->to_read, (int)(data + len - p));	\
+	msg->body.len += _n;						\
+	parser->to_read -= _n;						\
 	/* Just skip required number of bytes. */			\
-	__FSM_MOVE_n(prefix ## _Body, parser->to_read);			\
+	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
+		/* In case of chunked message read trailing '0\r\n'. */	\
+		__FSM_MOVE_n(prefix ## _Body, _n);			\
+	/* We've fully read Content-Length bytes. */			\
+	r = TFW_PASS;							\
+	goto done;							\
 }									\
 __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 	if (c == '\n') {						\
@@ -529,6 +534,41 @@ __FSM_STATE(prefix ## _Done) {						\
 		goto done;						\
 	}								\
 	return TFW_BLOCK;						\
+}
+
+/*
+ * Read LWS at arbitrary position and move to stashed state.
+ * This is bit complicated (however you can think about this as
+ * a plain pushdown automaton), but reduces FSM code size.
+ */
+#define RGEN_LWS()							\
+__FSM_STATE(RGen_LWS) {							\
+	switch (c) {							\
+	case '\r':							\
+		if (likely(!(parser->flags & TFW_HTTP_PF_CRLF))) {	\
+			parser->flags |= TFW_HTTP_PF_CR;		\
+			__FSM_MOVE(RGen_LWS);				\
+		}							\
+		return TFW_BLOCK;					\
+	case '\n':							\
+		if (likely(!(parser->flags & TFW_HTTP_PF_LF))) {	\
+			parser->flags |= TFW_HTTP_PF_LF;		\
+			__FSM_MOVE(RGen_LWS);				\
+		}							\
+		return TFW_BLOCK;					\
+	case ' ':							\
+	case '\t':							\
+		__FSM_MOVE(RGen_LWS);					\
+	default:							\
+		/* Field values should start from ALNUM. */		\
+		if (unlikely(!isalnum(c)))				\
+			return TFW_BLOCK;				\
+		parser->flags &= ~TFW_HTTP_PF_CRLF;			\
+		parser->state = parser->_i_st;				\
+		parser->_i_st = 0;					\
+		BUG_ON(unlikely(p >= data + len || !*p));		\
+		goto fsm_reenter;					\
+	}								\
 }
 
 /**
@@ -1303,38 +1343,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		}
 	}
 
-	/*
-	 * Read LWS at arbitrary position and move to stashed state.
-	 * This is bit complicated (however you can think about this as
-	 * a plain pushdown automaton), but reduces FSM code size.
-	 */
-	__FSM_STATE(RGen_LWS) {
-		switch (c) {
-		case '\r':
-			if (likely(!(parser->flags & TFW_HTTP_PF_CRLF))) {
-				parser->flags |= TFW_HTTP_PF_CR;
-				__FSM_MOVE(RGen_LWS);
-			}
-			return TFW_BLOCK;
-		case '\n':
-			if (likely(!(parser->flags & TFW_HTTP_PF_LF))) {
-				parser->flags |= TFW_HTTP_PF_LF;
-				__FSM_MOVE(RGen_LWS);
-			}
-			return TFW_BLOCK;
-		case ' ':
-		case '\t':
-			__FSM_MOVE(RGen_LWS);
-		default:
-			/* Field values should start from ALNUM. */
-			if (unlikely(!isalnum(c)))
-				return TFW_BLOCK;
-			parser->flags &= ~TFW_HTTP_PF_CRLF;
-			parser->state = parser->_i_st;
-			parser->_i_st = 0;
-			____FSM_MOVE_LAMBDA(fsm_reenter, 0, goto done);
-		}
-	}
+	RGEN_LWS();
 
 	/* Parse headers starting from 'C'. */
 	__FSM_STATE(Req_HdrC) {
@@ -1363,7 +1372,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 				   && tolower(*(p + 12)) == 'h'
 				   && *(p + 13) == ':'))
 			{
-				parser->_i_st = Req_HdrContent_Length;
+				parser->_i_st = Req_HdrContent_LengthV;
 				__FSM_MOVE_n(RGen_LWS, 14);
 			}
 			if (likely(C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
@@ -2073,18 +2082,18 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_0) {
 		if (unlikely(c == '\r' || c == '\n'))
 			__FSM_MOVE(Resp_0);
-		__FSM_MOVE(Resp_HttpVer);
+		/* fall through */
 	}
 
 	/* HTTP version */
 	__FSM_STATE(Resp_HttpVer) {
 		if (likely(p + 9 <= data + len)) {
 			/* Quick path. */
-			if (*(unsigned long *)(p + 1)
-			     == TFW_CHAR8_INT('H', 'T', 'T', 'P',
-					      '/', '1', '.', '1')
+			if (*(unsigned long *)p == TFW_CHAR8_INT('H', 'T', 'T',
+								 'P', '/', '1',
+								 '.', '1')
 			    && *(p + 8) == ' ')
-				__FSM_MOVE(Resp_StatusCode);
+				__FSM_MOVE_n(Resp_StatusCode, 9);
 			else
 				return TFW_BLOCK;
 		}
@@ -2197,38 +2206,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}
 	}
 
-	/*
-	 * Read LWS at arbitrary position and move to stashed state.
-	 * This is bit complicated (however you can think about this as
-	 * a plain pushdown automaton), but reduces FSM code size.
-	 */
-	__FSM_STATE(RGen_LWS) {
-		switch (c) {
-		case '\r':
-			if (likely(!(parser->flags & TFW_HTTP_PF_CRLF))) {
-				parser->flags |= TFW_HTTP_PF_CR;
-				__FSM_MOVE(RGen_LWS);
-			}
-			return TFW_BLOCK;
-		case '\n':
-			if (likely(!(parser->flags & TFW_HTTP_PF_LF))) {
-				parser->flags |= TFW_HTTP_PF_LF;
-				__FSM_MOVE(RGen_LWS);
-			}
-			return TFW_BLOCK;
-		case ' ':
-		case '\t':
-			__FSM_MOVE(RGen_LWS);
-		default:
-			/* Field values should start from ALNUM. */
-			if (unlikely(!isalnum(c)))
-				return TFW_BLOCK;
-			parser->flags &= ~TFW_HTTP_PF_CRLF;
-			parser->state = parser->_i_st;
-			parser->_i_st = 0;
-			____FSM_MOVE_LAMBDA(fsm_reenter, 1, goto done);
-		}
-	}
+	RGEN_LWS();
 
 	/* Parse headers starting from 'C'. */
 	__FSM_STATE(Resp_HdrC) {
@@ -2257,7 +2235,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 				   && tolower(*(p + 12)) == 'h'
 				   && *(p + 13) == ':'))
 			{
-				parser->_i_st = Resp_HdrContent_Length;
+				parser->_i_st = Resp_HdrContent_LengthV;
 				__FSM_MOVE_n(RGen_LWS, 14);
 			}
 			if (likely(C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
