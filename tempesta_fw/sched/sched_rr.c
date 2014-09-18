@@ -3,21 +3,34 @@
 #include <linux/module.h>
 
 #include "../sched.h"
+#include "../debugfs.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
 MODULE_VERSION("0.0.1");
 MODULE_LICENSE("GPL");
 
+/*
+ * The scheduler keeps all servers in a double-linked list.
+ * When .get_srv() is invoked the first server in the list is returned and the
+ * list is rotated so the next call returns the next server in the list.
+ * The head 'srv_list' always points to the next server returned by the scheduler.
+ */
+LIST_HEAD(srv_list);
+DEFINE_SPINLOCK(srv_list_spinlock);
+
+/*
+ * The srv_list consists of the TfwSchedRrSrvEntry elements.
+ * They are allocated dynamically when a server is added or removed.
+ */
 typedef struct tfw_sched_rr_srv_entry_t {
 	TfwServer *srv;
 	struct list_head list;
 } TfwSchedRrSrvEntry;
 
-static LIST_HEAD(srv_list);
-
-DEFINE_SPINLOCK(srv_list_spinlock);
-
+/**
+ * Find an entry in the 'srv_list' corresponding to the given server.
+ */
 static TfwSchedRrSrvEntry *
 find_srv_entry(TfwServer *srv) {
 	TfwSchedRrSrvEntry *srv_entry;
@@ -30,12 +43,21 @@ find_srv_entry(TfwServer *srv) {
 	return NULL;
 }
 
+/**
+ * The implementation of get_srv() for the round-robin scheduler.
+ *
+ * @param msg  A message for which the server should be chosen.
+ *             The round-robin scheduler doesn't use it to pick a server, so
+ *             the argument is simply ignored.
+ *
+ * On each call the function returns the next server in the scheduling list
+ * (which is filled from the tfw_sched_rr_add_srv() function).
+ */
 TfwServer *
 tfw_sched_rr_get_srv(TfwMsg *msg)
 {
 	TfwSchedRrSrvEntry *entry;
-
-	BUG_ON(!msg);
+	TfwServer *srv;
 
 	spin_lock(&srv_list_spinlock);
 
@@ -44,9 +66,23 @@ tfw_sched_rr_get_srv(TfwMsg *msg)
 
 	spin_unlock(&srv_list_spinlock);
 
-	return (entry ? entry->srv : NULL);
+	srv = (entry ? entry->srv : NULL);
+	return srv;
 }
 
+/**
+ * The implementation of add_srv() method for the round-robin scheduler.
+ *
+ * @param srv  A server to be added for scheduling.
+ *             Must not be NULL.
+ *
+ * The server is added to the head of the scheduling list, so the
+ * tfw_sched_rr_get_srv() will return it upon the next call.
+ *
+ * Return: Zero on success, or an error code:
+ *         ENOMEM if there is no memory available,
+ *         EEXIST if the given is already present.
+ */
 int
 tfw_sched_rr_add_srv(TfwServer *srv)
 {
@@ -74,6 +110,14 @@ out:
 	return ret;
 }
 
+/**
+ * Delete the given server from the scheduling list.
+ *
+ * @param srv  A server to be removed from the scheduler.
+ *             Must not be null.
+ *
+ * Return: Zero on success or ENOENT if no such server is found in the list.
+ */
 int
 tfw_sched_rr_del_srv(TfwServer *srv)
 {
@@ -92,20 +136,45 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 	}
 	spin_unlock(&srv_list_spinlock);
 
-	return (entry_is_deleted ? 0 : -ENOMEM);
+	return (entry_is_deleted ? 0 : -ENOENT);
+}
+
+static int
+print_state_to_str(char *buf, size_t size)
+{
+	int printed, total_printed = 0;
+
+	TfwSchedRrSrvEntry *srv_entry, *tmp_entry;
+	list_for_each_entry_safe(srv_entry, tmp_entry, &srv_list, list) {
+		printed = snprintf(buf, size, "%p\n", srv_entry->srv);
+		if (printed <= 0)
+			break;
+		BUG_ON(printed > size);
+		buf += printed;
+		size -= printed;
+		total_printed += printed;
+	}
+
+	return total_printed;
 }
 
 
 
-TfwScheduler tfw_sched_rr_mod = {
-	.name = "round-robin",
-	.get_srv = tfw_sched_rr_get_srv,
-	.add_srv = tfw_sched_rr_add_srv,
-	.del_srv = tfw_sched_rr_del_srv
-};
-
 int tfw_sched_rr_init(void)
 {
+	static TfwScheduler tfw_sched_rr_mod = {
+		.name = "round-robin",
+		.get_srv = tfw_sched_rr_get_srv,
+		.add_srv = tfw_sched_rr_add_srv,
+		.del_srv = tfw_sched_rr_del_srv
+	};
+
+	static TfwDebugfsHandlers h = {
+		.read = print_state_to_str,
+		.write = NULL
+	};
+	tfw_debugfs_set_handlers("/sched_rr/state", &h);
+
 	return tfw_sched_register(&tfw_sched_rr_mod);
 }
 module_init(tfw_sched_rr_init);
@@ -118,5 +187,7 @@ void tfw_sched_rr_exit(void)
 		list_del(&srv_entry->list);
 		kfree(srv_entry);
 	}
+
+	tfw_sched_unregister();
 }
 module_exit(tfw_sched_rr_exit);
