@@ -34,7 +34,7 @@
 
 MODULE_AUTHOR("NatSys Lab. (http://natsys-lab.com)");
 MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
-MODULE_VERSION("0.4.2");
+MODULE_VERSION("0.4.3");
 MODULE_LICENSE("GPL");
 
 static SsHooks *ss_hooks __read_mostly;
@@ -57,7 +57,7 @@ static SsHooks *ss_hooks __read_mostly;
  * TODO use MSG_MORE untill we reach end of message.
  */
 void
-ss_send(struct sock *sk, const SsSkbList *skb_list, int len)
+ss_send(struct sock *sk, const SsSkbList *skb_list)
 {
 	struct sk_buff *skb;
 	struct tcp_skb_cb *tcb;
@@ -85,18 +85,18 @@ ss_send(struct sock *sk, const SsSkbList *skb_list, int len)
 		 */
 		tcp_mark_push(tp, skb);
 
-		SS_DBG("%s:%d entail skb=%p\n", __FUNCTION__, __LINE__, skb);
+		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
+		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
 
 		skb_entail(sk, skb);
+
+		tcb->end_seq += skb->len;
+		tp->write_seq += skb->len;
 	}
 
-	tcb->end_seq += len;
-	tp->write_seq += len;
-
-	SS_DBG("%s:%d len=%d sk=%p is_queue_empty=%d"
-	       " tcp_send_head(sk)=%p sk->sk_state=%d\n",
-	       __FUNCTION__, __LINE__, len, sk,
-	       tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
+	SS_DBG("%s:%d sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
+	       " sk->sk_state=%d\n", __FUNCTION__, __LINE__,
+	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
 

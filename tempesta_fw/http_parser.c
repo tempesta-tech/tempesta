@@ -155,7 +155,6 @@ do {									\
 done:									\
 	parser->state = __fsm_const_state;				\
 	parser->data_off = p - data;					\
-	m->msg.len += parser->data_off;					\
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
 do {									\
