@@ -30,6 +30,8 @@ typedef struct tfw_sched_rr_srv_entry_t {
 
 /**
  * Find an entry in the 'srv_list' corresponding to the given server.
+ *
+ * Note: the function must be called with srv_list_spinlock locked.
  */
 static TfwSchedRrSrvEntry *
 find_srv_entry(TfwServer *srv) {
@@ -159,15 +161,15 @@ print_state_to_str(char *buf, size_t size)
 }
 
 
+static TfwScheduler tfw_sched_rr_mod = {
+	.name = "round-robin",
+	.get_srv = tfw_sched_rr_get_srv,
+	.add_srv = tfw_sched_rr_add_srv,
+	.del_srv = tfw_sched_rr_del_srv
+};
 
 int tfw_sched_rr_init(void)
 {
-	static TfwScheduler tfw_sched_rr_mod = {
-		.name = "round-robin",
-		.get_srv = tfw_sched_rr_get_srv,
-		.add_srv = tfw_sched_rr_add_srv,
-		.del_srv = tfw_sched_rr_del_srv
-	};
 
 	static TfwDebugfsHandlers h = {
 		.read = print_state_to_str,
@@ -188,6 +190,6 @@ void tfw_sched_rr_exit(void)
 		kfree(srv_entry);
 	}
 
-	tfw_sched_unregister();
+	tfw_sched_unregister(&tfw_sched_rr_mod);
 }
 module_exit(tfw_sched_rr_exit);

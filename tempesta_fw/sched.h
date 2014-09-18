@@ -49,7 +49,7 @@ int tfw_sched_del_srv(TfwServer *srv);
 
 
 int tfw_sched_register(TfwScheduler *mod);
-void tfw_sched_unregister(void);
+void tfw_sched_unregister(TfwScheduler *mod);
 
 
 #endif /* __TFW_SCHED_H__ */

@@ -22,6 +22,6 @@ obj-m	= tempesta_fw.o
 tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
 		   http.o http_msg.o http_parser.o if.o lib.o main.o pool.o \
 		   sched.o server.o session.o sock_backend.o sock_frontend.o \
-		   stress.o debugfs.o
+		   stress.o debugfs.o sched_dummy.o
 
 obj-m	+= log/ classifier/ stress/ sched/ filter/

@@ -48,6 +48,9 @@ MODULE_PARM_DESC(cache_path, "Path to cache directory");
 int tfw_connection_init(void);
 void tfw_connection_exit(void);
 
+int tfw_sched_dummy_init(void);
+void tfw_sched_dummy_exit(void);
+
 static int __init
 tfw_init(void)
 {
@@ -60,11 +63,17 @@ tfw_init(void)
 	tfw_cfg.c_size = cache_size;
 	memcpy(tfw_cfg.c_path, cache_path, DEF_PROC_STR_LEN);
 
-	tfw_debugfs_init();
-
 	r = tfw_if_init();
 	if (r)
 		return r;
+
+	r = tfw_debugfs_init();
+	if (r)
+		goto err_debugfs;
+
+	r = tfw_sched_dummy_init();
+	if (r)
+		goto err_sched;
 
 	r = tfw_cache_init();
 	if (r)
@@ -107,8 +116,11 @@ err_filter:
 err_http:
 	tfw_cache_exit();
 err_cache:
-	tfw_if_exit();
+	tfw_sched_dummy_exit();
+err_sched:
 	tfw_debugfs_exit();
+err_debugfs:
+	tfw_if_exit();
 
 	return r;
 }
