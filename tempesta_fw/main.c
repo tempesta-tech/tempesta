@@ -28,6 +28,7 @@
 #include "http.h"
 #include "log.h"
 #include "server.h"
+#include "debugfs.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
@@ -105,6 +106,7 @@ err_http:
 	tfw_cache_exit();
 err_cache:
 	tfw_if_exit();
+	tfw_debugfs_exit();
 
 	return r;
 }
