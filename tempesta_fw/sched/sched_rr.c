@@ -54,19 +54,22 @@ find_srv_entry(TfwServer *srv) {
  *
  * On each call the function returns the next server in the scheduling list
  * (which is filled from the tfw_sched_rr_add_srv() function).
+ *
+ * Note: this function is called from sofirq context.
  */
 TfwServer *
 tfw_sched_rr_get_srv(TfwMsg *msg)
 {
 	TfwSchedRrSrvEntry *entry;
 	TfwServer *srv;
+	unsigned long flags;
 
-	spin_lock(&srv_list_spinlock);
+	spin_lock_irqsave(&srv_list_spinlock, flags);
 
 	entry = list_first_entry_or_null(&srv_list, TfwSchedRrSrvEntry, list);
 	list_rotate_left(&srv_list);
 
-	spin_unlock(&srv_list_spinlock);
+	spin_unlock_irqrestore(&srv_list_spinlock, flags);
 
 	srv = (entry ? entry->srv : NULL);
 	return srv;
@@ -90,6 +93,7 @@ tfw_sched_rr_add_srv(TfwServer *srv)
 {
 	int ret = 0;
 	TfwSchedRrSrvEntry *new_entry;
+	unsigned long flags;
 
 	BUG_ON(!srv);
 
@@ -99,14 +103,14 @@ tfw_sched_rr_add_srv(TfwServer *srv)
 		goto out;
 	}
 
-	spin_lock(&srv_list_spinlock);
+	spin_lock_irqsave(&srv_list_spinlock, flags);
 	if (find_srv_entry(srv)) {
 		ret = -EEXIST;
 	} else {
 		new_entry->srv = srv;
 		list_add(&new_entry->list, &srv_list);
 	}
-	spin_unlock(&srv_list_spinlock);
+	spin_unlock_irqrestore(&srv_list_spinlock, flags);
 
 out:
 	return ret;
@@ -125,10 +129,11 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 {
 	bool entry_is_deleted = false;
 	TfwSchedRrSrvEntry *srv_entry, *tmp_entry;
+	unsigned long flags;
 
 	BUG_ON(!srv);
 
-	spin_lock(&srv_list_spinlock);
+	spin_lock_irqsave(&srv_list_spinlock, flags);
 	list_for_each_entry_safe(srv_entry, tmp_entry, &srv_list, list) {
 		if (srv == srv_entry->srv) {
 			list_del(&srv_entry->list);
@@ -136,7 +141,7 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 			entry_is_deleted = true;
 		}
 	}
-	spin_unlock(&srv_list_spinlock);
+	spin_unlock_irqrestore(&srv_list_spinlock, flags);
 
 	return (entry_is_deleted ? 0 : -ENOENT);
 }
