@@ -60,6 +60,8 @@ tfw_init(void)
 	tfw_cfg.c_size = cache_size;
 	memcpy(tfw_cfg.c_path, cache_path, DEF_PROC_STR_LEN);
 
+	tfw_debugfs_init();
+
 	r = tfw_if_init();
 	if (r)
 		return r;
