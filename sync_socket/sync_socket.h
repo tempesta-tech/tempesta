@@ -190,7 +190,7 @@ void ss_hooks_unregister(SsHooks* hooks);
 
 void ss_set_callbacks(struct sock *sk);
 void ss_tcp_set_listen(struct socket *sk, SsProto *handler);
-void ss_send(struct sock *sk, const SsSkbList *skb_list, int len);
+void ss_send(struct sock *sk, const SsSkbList *skb_list);
 void ss_close(struct sock *sk);
 
 #endif /* __SS_SOCK_H__ */
