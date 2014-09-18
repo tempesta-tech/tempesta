@@ -244,6 +244,7 @@ void tfw_debugfs_set_trigger(const char *path, tfw_debugfs_trigger_t fn)
 
 	create_with_parents(path, fn, &fops);
 }
+EXPORT_SYMBOL(tfw_debugfs_set_trigger);
 
 
 /**
@@ -449,5 +450,4 @@ void tfw_debugfs_set_handlers(const char *path, TfwDebugfsHandlers *handlers)
 
 	create_with_parents(path, handlers, &fops);
 }
-
-
+EXPORT_SYMBOL(tfw_debugfs_set_handlers);
