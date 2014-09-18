@@ -145,10 +145,16 @@ do {									\
 
 #define __FSM_I_EXIT()			goto done
 
+#define FSM_EXIT()							\
+do {									\
+	p += 1; /* eat current character */				\
+	goto done;							\
+} while (0)
+
 #define __FSM_FINISH(m)							\
 done:									\
 	parser->state = __fsm_const_state;				\
-	parser->data_off = p - data + 1; /* add current character */	\
+	parser->data_off = p - data;					\
 	m->msg.len += parser->data_off;					\
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
@@ -473,7 +479,7 @@ do {									\
 	}								\
 	/* There is no body at all. */					\
 	r = TFW_PASS;							\
-	goto done;							\
+	FSM_EXIT();							\
 } while (0)
 
 #define TFW_HTTP_PARSE_BODY(prefix, msg)				\
@@ -506,6 +512,7 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
 	msg->body.len += _n;						\
+	p += _n;							\
 	parser->to_read -= _n;						\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
@@ -531,7 +538,7 @@ __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 __FSM_STATE(prefix ## _Done) {						\
 	if (c == '\n') {						\
 		r = TFW_PASS;						\
-		goto done;						\
+		FSM_EXIT();						\
 	}								\
 	return TFW_BLOCK;						\
 }
@@ -1306,7 +1313,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 				TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 			} else {
 				r = TFW_PASS;
-				goto done;
+				FSM_EXIT();
 			}
 		}
 
@@ -2155,7 +2162,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 				TFW_HTTP_INIT_BODY_PARSING(resp, Resp_Body);
 			} else {
 				r = TFW_PASS;
-				goto done;
+				FSM_EXIT();
 			}
 		}
 
