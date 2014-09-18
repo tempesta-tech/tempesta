@@ -33,7 +33,6 @@ typedef struct tfw_msg {
 	TfwGState	state;		/* message processing state. */
 	SsSkbList	skb_list;	/* list of sk_buff's belonging
 					   to the message. */
-	int		len;
 } TfwMsg;
 
 #endif /* __TFW_MSG_H__ */

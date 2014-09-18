@@ -131,7 +131,7 @@ tfw_connection_close(struct sock *sk)
 void
 tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg)
 {
-	ss_send(sess->cli->sock, &msg->skb_list, msg->len);
+	ss_send(sess->cli->sock, &msg->skb_list);
 }
 
 void
@@ -150,8 +150,8 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	 */
 
 	if (tfw_session_sched_msg(sess, msg)) {
-		TFW_ERR("Cannot schedule message, len=%d clnt=%p\n",
-			msg->len, sess->cli);
+		TFW_ERR("Cannot schedule message, msg=%p clnt=%p\n",
+			msg, sess->cli);
 		tfw_connection_close(sess->cli->sock);
 		return;
 	}
@@ -166,7 +166,7 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
 	srv_conn->sess = sess;
 
-	ss_send(sess->srv->sock, &msg->skb_list, msg->len);
+	ss_send(sess->srv->sock, &msg->skb_list);
 }
 
 /*
