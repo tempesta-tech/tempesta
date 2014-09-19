@@ -18,6 +18,5 @@
 
 EXTRA_CFLAGS = -I$(src)/../../tempesta_db -I$(src)/../../sync_socket -DDEBUG
 
-obj-m = tfw_sched_rr.o
-tfw_sched_rr-objs = sched_rr.o
+obj-m = tfw_sched_rr.o tfw_sched_dummy.o
 

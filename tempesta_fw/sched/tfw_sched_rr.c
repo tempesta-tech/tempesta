@@ -166,20 +166,19 @@ print_state_to_str(char *buf, size_t size)
 }
 
 
-static TfwScheduler tfw_sched_rr_mod = {
-	.name = "round-robin",
-	.get_srv = tfw_sched_rr_get_srv,
-	.add_srv = tfw_sched_rr_add_srv,
-	.del_srv = tfw_sched_rr_del_srv
-};
-
 int tfw_sched_rr_init(void)
 {
-
+	static TfwScheduler tfw_sched_rr_mod = {
+		.name = "round-robin",
+		.get_srv = tfw_sched_rr_get_srv,
+		.add_srv = tfw_sched_rr_add_srv,
+		.del_srv = tfw_sched_rr_del_srv
+	};
 	static TfwDebugfsHandlers h = {
 		.read = print_state_to_str,
 		.write = NULL
 	};
+	
 	tfw_debugfs_set_handlers("/sched_rr/state", &h);
 
 	return tfw_sched_register(&tfw_sched_rr_mod);
@@ -195,6 +194,6 @@ void tfw_sched_rr_exit(void)
 		kfree(srv_entry);
 	}
 
-	tfw_sched_unregister(&tfw_sched_rr_mod);
+	tfw_sched_unregister();
 }
 module_exit(tfw_sched_rr_exit);
