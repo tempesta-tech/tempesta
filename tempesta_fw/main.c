@@ -71,10 +71,6 @@ tfw_init(void)
 	if (r)
 		goto err_debugfs;
 
-	r = tfw_sched_dummy_init();
-	if (r)
-		goto err_sched;
-
 	r = tfw_cache_init();
 	if (r)
 		goto err_cache;
@@ -116,8 +112,6 @@ err_filter:
 err_http:
 	tfw_cache_exit();
 err_cache:
-	tfw_sched_dummy_exit();
-err_sched:
 	tfw_debugfs_exit();
 err_debugfs:
 	tfw_if_exit();

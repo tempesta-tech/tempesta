@@ -24,106 +24,74 @@
 #include "log.h"
 #include "sched.h"
 
-#define TFW_MAX_SCHED_COUNT 16
 
-/* The list of all scheduler modules registered with tfw_sched_register(). */
-static TfwScheduler *tfw_scheds[TFW_MAX_SCHED_COUNT];
-static size_t tfw_scheds_n = 0;
+static TfwScheduler *tfw_sched = NULL;
 
-/* Currently active scheduler from the list of all registered schedulers. */
-static TfwScheduler *tfw_active_sched = NULL;
-
-/* The lock should be acquired when any variable above is accessed. */
-DEFINE_RWLOCK(tfw_sched_lock);
-
-
-static TfwScheduler *
-get_active_sched(void)
-{
-	TfwScheduler *sched;
-	unsigned long flags;
-	
-	read_lock_irqsave(&tfw_sched_lock, flags);
-	sched = tfw_active_sched;
-	read_unlock_irqrestore(&tfw_sched_lock, flags);
-
-	return sched;
-}
 
 TfwServer *
 tfw_sched_get_srv(TfwMsg *msg)
 {
-	return get_active_sched()->get_srv(msg);
+	BUG_ON(!msg);
+	BUG_ON(!tfw_sched);
+
+	return tfw_sched->get_srv(msg);
 }
 
 int
 tfw_sched_add_srv(TfwServer *srv)
 {
-	return get_active_sched()->add_srv(srv);
+	int ret;
+	
+	BUG_ON(!srv);
+	BUG_ON(!tfw_sched);
+
+	ret = tfw_sched->add_srv(srv);
+	if (ret)
+		TFW_ERR("Can't add a server to the scheduler (%d)\n", ret);
+
+	return ret;
 }
 
 int
 tfw_sched_del_srv(TfwServer *srv)
 {
-	return get_active_sched()->del_srv(srv);
+	int ret;
+	
+	BUG_ON(!srv);
+	BUG_ON(!tfw_sched);
+
+	ret = tfw_sched->del_srv(srv);
+	if (ret)
+		TFW_ERR("Can't remove a server from the scheduler (%d)\n", ret);
+
+	return ret;
 }
 
 int
 tfw_sched_register(TfwScheduler *mod)
 {
-	unsigned long flags;
-
 	BUG_ON(!mod);
-	BUG_ON(!mod->name);
-	BUG_ON(!mod->get_srv || !mod->add_srv || !mod->del_srv);
-	BUG_ON(tfw_scheds_n >= TFW_MAX_SCHED_COUNT);
+	BUG_ON(!mod->name || !mod->get_srv || !mod->add_srv || !mod->del_srv);
 
-	write_lock_irqsave(&tfw_sched_lock, flags);
-	tfw_scheds[tfw_scheds_n] = mod;
-	tfw_active_sched = tfw_scheds[tfw_scheds_n];
-	++tfw_scheds_n;
-	write_unlock_irqrestore(&tfw_sched_lock, flags);
+	TFW_LOG("Registering new scheduler: %s\n", mod->name);
 
-	TFW_LOG("Registered new scheduler: %s\n", mod->name);
+	if (!tfw_sched) {
+		tfw_sched = mod;
+		return 0;
+	}
 
-	return 0;
+	TFW_ERR("Can't register a scheduler - the '%s' is already registered\n",
+		tfw_sched->name);
+	return -EEXIST;
 }
 EXPORT_SYMBOL(tfw_sched_register);
 
-
 void
-tfw_sched_unregister(TfwScheduler *mod)
+tfw_sched_unregister(void)
 {
-	int idx, rem;
-	unsigned long flags;
+	BUG_ON(!tfw_sched);
 
-	BUG_ON(!mod);
-	BUG_ON(!tfw_scheds_n);
-
-	TFW_LOG("Un-registering scheduler: %s\n", mod->name);
-
-	write_lock_irqsave(&tfw_sched_lock, flags);
-
-	/* Find a requested scheduler. */
-	for (idx = 0; idx < ARRAY_SIZE(tfw_scheds); ++idx) {
-		if (mod == tfw_scheds[idx])
-			break;
-	}
-	BUG_ON(idx >= tfw_scheds_n);
-
-	/* Fall back to previously registered scheduler module. */
-	if (idx > 0)
-		tfw_active_sched = tfw_scheds[idx - 1];
-	else
-		tfw_active_sched = NULL;
-
-	/* Remove gap in the array of schedulers. */
-	tfw_scheds[idx] = NULL;
-	rem = tfw_scheds_n - idx - 1;
-	memmove(&tfw_scheds[idx], &tfw_scheds[idx + 1], rem);
-	--tfw_scheds_n;
-	tfw_scheds[tfw_scheds_n] = NULL;
-
-	write_unlock_irqrestore(&tfw_sched_lock, flags);
+	TFW_LOG("Un-registering scheduler: %s\n", tfw_sched->name);
+	tfw_sched = NULL;
 }
 EXPORT_SYMBOL(tfw_sched_unregister);
