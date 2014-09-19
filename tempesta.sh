@@ -7,7 +7,7 @@
 SSOCKET=sync_socket
 TDB=tempesta_db
 TFW=tempesta_fw
-SCHED=tfw_sched_rr
+SCHED=tfw_sched_dummy
 TFW_ROOT=`pwd`/$TFW
 TFW_CACHE_SIZE=`expr 256 \* 1024`
 TFW_CACHE_PATH=$TFW_ROOT/cache
