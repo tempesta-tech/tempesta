@@ -144,6 +144,8 @@ typedef struct {
 	unsigned int	expires;
 } TfwHttpResp;
 
+typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
+
 /* Internal (parser) HTTP functions. */
 void tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new);
 int tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len);

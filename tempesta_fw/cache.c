@@ -32,6 +32,7 @@
 #include <linux/ipv6.h>
 #include <linux/kthread.h>
 #include <linux/tcp.h>
+#include <linux/topology.h>
 #include <linux/workqueue.h>
 
 #include "tdb.h"
@@ -68,13 +69,26 @@ typedef struct {
 	TfwHttpResp	*resp;
 } TfwCacheEntry;
 
+#define CKEY_SZ			2
+
 /* Work to copy response body to database. */
 typedef struct tfw_cache_work_t {
 	struct work_struct	work;
-	TfwCacheEntry		*ce;
+	union {
+		TfwCacheEntry			*ce;
+		struct {
+			TfwHttpReq		*req;
+			tfw_http_req_cache_cb_t	action;
+			void			*data;
+			unsigned long		key[CKEY_SZ];
+		} _r;
+	} _u;
+#define cw_ce	_u.ce
+#define cw_req	_u._r.req
+#define cw_act	_u._r.action
+#define cw_data	_u._r.data
+#define cw_key	_u._r.key
 } TfwCWork;
-
-#define CKEY_SZ			2
 
 static TDB *db;
 static struct task_struct *cache_mgr_thr;
@@ -106,6 +120,26 @@ tfw_cache_entry_key_copy(TfwCacheEntry *ce, TfwHttpReq *req)
 	 */
 
 	return 0;
+}
+
+/**
+ * Get NUMA node by the cache key.
+ */
+static int
+tfw_cache_key_node(unsigned long *key)
+{
+	/* TODO distribute keys among NUMA nodes. */
+	return numa_node_id();
+}
+
+/**
+ * Get a CPU identifier from @node to schedule a work.
+ */
+static int
+tfw_cache_sched_work_cpu(int node)
+{
+	/* TODO schedule the CPU */
+	return smp_processor_id();
 }
 
 /**
@@ -162,7 +196,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	int *p_hlen;
 	TdbRecord *trec;
 	TfwCWork *cw = (TfwCWork *)work;
-	TfwCacheEntry *ce = cw->ce;
+	TfwCacheEntry *ce = cw->cw_ce;
 	TfwHttpHdrTbl *htbl;
 
 	BUG_ON(!ce->resp);
@@ -203,13 +237,13 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	unsigned long key[CKEY_SZ];
 
 	if (!tfw_cfg.cache)
-		return;
+		goto out;
 
 	tfw_cache_key_calc(req, key);
 
 	ce = (TfwCacheEntry *)tdb_entry_create(db, key, sizeof(*ce));
 	if (!ce)
-		return;
+		goto out;
 
 	ce->resp = resp;
 
@@ -218,14 +252,20 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	 * when the function finishes.
 	 */
 	if (tfw_cache_entry_key_copy(ce, req))
-		return;
+		goto out;
 
 	cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
 	if (!cw)
-		return;
+		goto out;
 	INIT_WORK(&cw->work, tfw_cache_copy_resp);
-	cw->ce = ce;
-	queue_work(cache_wq, (struct work_struct *)cw);
+	cw->cw_ce = ce;
+	queue_work_on(tfw_cache_sched_work_cpu(numa_node_id()), cache_wq,
+		      (struct work_struct *)cw);
+
+out:
+	/* Now we don't need the request and the reponse anymore. */
+	tfw_http_msg_free((TfwHttpMsg *)req);
+	tfw_http_msg_free((TfwHttpMsg *)resp);
 }
 
 #define SKB_HDR_SZ	(MAX_HEADER + sizeof(struct ipv6hdr)		\
@@ -290,29 +330,77 @@ err_skb:
 	return -ENOMEM;
 }
 
-TfwHttpResp *
-tfw_cache_lookup(TfwHttpReq *req)
+static void
+__cache_req_process_node(TfwHttpReq *req, unsigned long *key,
+			 void (*action)(TfwHttpReq *, TfwHttpResp *, void *),
+			 void *data)
 {
 	TfwCacheEntry *ce;
-	unsigned long key[CKEY_SZ];
-
-	if (!tfw_cfg.cache)
-		return NULL;
-
-	tfw_cache_key_calc(req, key);
+	TfwHttpResp *resp = NULL;
 
 	ce = tdb_lookup(db, key);
 	if (!ce)
-		return NULL;
+		goto finish_req_processing;
 
-	if (ce->resp)
-		/* Already assembled response. */
-		return ce->resp;
+	if (!ce->resp)
+		if (tfw_cache_build_resp(ce))
+			/*
+			 * It seems we have the cache entry,
+			 * but there is memory issues.
+			 * Try to send send the request to backend in hope
+			 * that we have memory when we get an answer.
+			 */
+			goto finish_req_processing;
 
-	if (tfw_cache_build_resp(ce))
-		return NULL;
+	/* We have already assembled response. */
+	resp = ce->resp;
 
-	return ce->resp;
+finish_req_processing:
+	action(req, resp, data);
+	tfw_http_msg_free((TfwHttpMsg *)req);
+}
+
+static void
+tfw_cache_req_process_node(struct work_struct *work)
+{
+	TfwCWork *cw = (TfwCWork *)work;
+	TfwHttpReq *req = cw->cw_req;
+	tfw_http_req_cache_cb_t action = cw->cw_act;
+	void *data = cw->cw_data;
+	unsigned long *key = cw->cw_key;
+
+	__cache_req_process_node(req, key, action, data);
+}
+
+void
+tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
+		      void *data)
+{
+	int node;
+	unsigned long key[CKEY_SZ];
+
+	if (!tfw_cfg.cache)
+		return;
+
+	tfw_cache_key_calc(req, key);
+
+	node = tfw_cache_key_node(key);
+	if (node != numa_node_id()) {
+		/* Schedule the cache entry to the right node. */
+		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
+		if (!cw)
+			goto process_locally;
+		INIT_WORK(&cw->work, tfw_cache_req_process_node);
+		cw->cw_req = req;
+		cw->cw_act = action;
+		cw->cw_data = data;
+		memcpy(cw->cw_key, key, sizeof(key));
+		queue_work_on(tfw_cache_sched_work_cpu(node), cache_wq,
+			      (struct work_struct *)cw);
+	}
+
+process_locally:
+	__cache_req_process_node(req, key, action, data);
 }
 
 /**
@@ -364,7 +452,7 @@ tfw_cache_init(void)
 	if (!c_cache)
 		goto err_cache;
 
-	cache_wq = create_singlethread_workqueue("tfw_cache_wq");
+	cache_wq = alloc_workqueue("tfw_cache_wq", WQ_MEM_RECLAIM, 0);
 	if (!cache_wq)
 		goto err_wq;
 
