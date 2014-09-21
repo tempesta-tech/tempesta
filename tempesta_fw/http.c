@@ -619,6 +619,25 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	return 0;
 }
 
+static void
+tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
+{
+	TfwSession *sess = data;
+
+	if (resp) {
+		/*
+		 * We have prepared response, send it as is.
+		 * TODO should we adjust it somehow?
+		 */
+		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+	} else {
+		if (tfw_http_adjust_req(req))
+			return;
+		/* Send the request to appropriate server. */
+		tfw_connection_send_srv(sess, (TfwMsg *)req);
+	}
+}
+
 /**
  * @return number of processed bytes on success and negative value otherwise.
  */
@@ -638,7 +657,6 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
-		TfwHttpResp *resp;
 
 		r = tfw_http_parse_req(req, data, len);
 
@@ -675,19 +693,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		/* The request is fully parsed, process it. */
 
-		resp = tfw_cache_lookup(req);
-		if (resp) {
-			/*
-			 * We have prepared response, send it as is.
-			 * TODO should we adjust it somehow?
-			 */
-			tfw_connection_send_cli(sess, (TfwMsg *)resp);
-		} else {
-			if (tfw_http_adjust_req(req))
-				goto block;
-			/* Send the request to appropriate server. */
-			tfw_connection_send_srv(sess, (TfwMsg *)req);
-		}
+		tfw_cache_req_process(req, tfw_http_req_cache_cb, sess);
 
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
@@ -773,12 +779,14 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		}
 		req = list_first_entry(&sess->req_list, TfwHttpReq, list);
 		list_del(&req->list);
-		tfw_cache_add(resp, req);
 
-		/* Now we don't need the request anymore. */
-		tfw_http_msg_free((TfwHttpMsg *)req);
-
+		/*
+		 * Send the response to client before caching it.
+		 * The cache frees the response.
+		 */
 		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+
+		tfw_cache_add(resp, req);
 	}
 	else if (r == TFW_BLOCK) {
 		tfw_pool_free(resp->pool);
