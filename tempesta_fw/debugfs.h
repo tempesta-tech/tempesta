@@ -20,20 +20,13 @@
 #ifndef __TFW_DEBUGFS_H__
 #define __TFW_DEBUGFS_H__
 
-typedef void (*tfw_debugfs_trigger_t)(void);
-typedef int (*tfw_debugfs_handler_t)(char *buf, size_t buf_size);
+typedef int (*tfw_debugfs_handler_t)(bool is_input, char *buf, size_t size);
 
-typedef struct {
-	tfw_debugfs_handler_t read;
-	tfw_debugfs_handler_t write;
-} TfwDebugfsHandlers;
-
-
-void tfw_debugfs_set_trigger(const char *path, tfw_debugfs_trigger_t fn);
-void tfw_debugfs_set_handlers(const char *path, TfwDebugfsHandlers *handlers);
+int tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t handler_fn);
 
 int tfw_debugfs_init(void);
 void tfw_debugfs_exit(void);
+
 
 #endif	/* __TFW_DEBUGFS_H__ */
 

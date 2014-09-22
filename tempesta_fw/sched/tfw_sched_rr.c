@@ -1,172 +1,252 @@
-#include <linux/list.h>
-#include <linux/spinlock.h>
+/**
+ *		Tempesta FW
+ *
+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+#include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "../sched.h"
 #include "../debugfs.h"
+#include "../lib.h"
+#include "../sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
 MODULE_VERSION("0.0.1");
 MODULE_LICENSE("GPL");
 
-/*
- * The scheduler keeps all servers in a double-linked list.
- * When .get_srv() is invoked the first server in the list is returned and the
- * list is rotated so the next call returns the next server in the list.
- * The head 'srv_list' always points to the next server returned by the scheduler.
- */
-LIST_HEAD(srv_list);
-DEFINE_SPINLOCK(srv_list_spinlock);
-
-/*
- * The srv_list consists of the TfwSchedRrSrvEntry elements.
- * They are allocated dynamically when a server is added or removed.
- */
-typedef struct tfw_sched_rr_srv_entry_t {
-	TfwServer *srv;
-	struct list_head list;
-} TfwSchedRrSrvEntry;
+#define RR_BANNER "tfw_sched_rr: "
+#define RR_ERR(...) TFW_ERR(RR_BANNER __VA_ARGS__)
+#define RR_LOG(...) TFW_LOG(RR_BANNER __VA_ARGS__)
 
 /**
- * Find an entry in the 'srv_list' corresponding to the given server.
- *
- * Note: the function must be called with srv_list_spinlock locked.
+ * The memory for servers list is allocated statically, so this is a maximum
+ * number of servers that may be added for scheduling in this module.
  */
-static TfwSchedRrSrvEntry *
-find_srv_entry(TfwServer *srv) {
-	TfwSchedRrSrvEntry *srv_entry;
-
-	list_for_each_entry(srv_entry, &srv_list, list) {
-		if (srv == srv_entry->srv)
-			return srv_entry;
-	}
-
-	return NULL;
-}
+#define RR_MAX_SERVERS_N 64
 
 /**
- * The implementation of get_srv() for the round-robin scheduler.
+ * The structure represents a list of servers read in a round-robin fashion.
  *
- * @param msg  A message for which the server should be chosen.
- *             The round-robin scheduler doesn't use it to pick a server, so
- *             the argument is simply ignored.
- *
- * On each call the function returns the next server in the scheduling list
- * (which is filled from the tfw_sched_rr_add_srv() function).
- *
- * Note: this function is called from sofirq context.
+ * The @counter is incremented on each get() call and the "current" server is
+ * obtained as servers[counter % servers_n].
+ * This approach is chosen (instead of storing an index of the current server)
+ * for optimization purposes: it allows read servers from the array sequentially
+ * without ynchronization between readers.
  */
-TfwServer *
+typedef struct {
+	unsigned int servers_n;
+	unsigned int counter;
+	TfwServer *servers[RR_MAX_SERVERS_N];
+} RrSrvList;
+
+/**
+ * There is a total of NR_CPUS identical copies of the RrSrvList.
+ * Each CPU has its own copy stored in its local memory.
+ * The effects are following:
+ *  - get() operates faster on NUMA systems because it uses only local memory.
+ *  - add()/del() work slower because they need to update all copies.
+ *  - Each CPU has its own "current" server independent from other CPUs.
+ */
+static DEFINE_PER_CPU(RrSrvList, rr_srv_list) = {
+	.servers_n = 0,
+	.counter = 0,
+	.servers = { NULL }
+};
+
+/**
+ * The lock is needed only to synchronize writers (add() and del() methods).
+ * The get() doesn't require it.
+ */
+static DEFINE_SPINLOCK(rr_write_lock);
+
+
+/**
+ * On each subsequent call the function returns the next element from the
+ * list of servers added to the scheduler.
+ *
+ * This function is called for each incoming HTTP request, so it is relatively
+ * performance critical. Therefore, a bunch of optimizations is used to reduce
+ * the overhead and that imposes certain effects:
+ *
+ *  - Each CPU has its own "current" server, so the sequence of servers is
+ *    broken when you switch to another CPU. On average, messages are still
+ *    distributed equally across the servers, but you can't rely on the order.
+ *
+ *  - The function intended for use from a softirq context, it uses per-CPU
+ *    variables and busy-waiting without disabling the preemption or perform
+ *    any locking (although it is safe to call it with preemption enabled - you
+ *    get a wasted CPU time slice in a worst case).
+ *
+ *  - The function assumes that add() doesn't add NULL elements to the list
+ *    and del() sets deleted elements to NULL. If this invariant is violated,
+ *    it may lock up the system or return a pointer to deleted server.
+ */
+static TfwServer *
 tfw_sched_rr_get_srv(TfwMsg *msg)
 {
-	TfwSchedRrSrvEntry *entry;
+	unsigned int n;
 	TfwServer *srv;
-	unsigned long flags;
+	RrSrvList *lst = &__get_cpu_var(rr_srv_list);
 
-	spin_lock_irqsave(&srv_list_spinlock, flags);
+	do {
+		n = lst->servers_n;
+		n |= n; /* a little optimization to avoid branching when n==0 */
+		srv = lst->servers[lst->counter++ % n];
+	} while (unlikely(n && !srv));
 
-	entry = list_first_entry_or_null(&srv_list, TfwSchedRrSrvEntry, list);
-	list_rotate_left(&srv_list);
-
-	spin_unlock_irqrestore(&srv_list_spinlock, flags);
-
-	srv = (entry ? entry->srv : NULL);
 	return srv;
 }
 
+static int
+get_servers_n(void)
+{
+	return __get_cpu_var(rr_srv_list).servers_n;
+}
+
+static int
+find_server_idx(TfwServer *srv)
+{
+	int i;
+	RrSrvList *lst = &__get_cpu_var(rr_srv_list);
+	for (i = 0; i < lst->servers_n; ++i) {
+		if (lst->servers[i] == srv)
+			return i;
+	}
+
+	return -1;
+}
+
 /**
- * The implementation of add_srv() method for the round-robin scheduler.
+ * Add a server to the end of the round-robin list.
  *
- * @param srv  A server to be added for scheduling.
- *             Must not be NULL.
- *
- * The server is added to the head of the scheduling list, so the
- * tfw_sched_rr_get_srv() will return it upon the next call.
- *
- * Return: Zero on success, or an error code:
- *         ENOMEM if there is no memory available,
- *         EEXIST if the given is already present.
+ * Returns:
+ *  Zero if the server is added.
+ *  ENOMEM if there is no room for the server in the statically allocated array.
+ *  EEXIST if the given pointer is already present in the list.
  */
-int
+static int
 tfw_sched_rr_add_srv(TfwServer *srv)
 {
 	int ret = 0;
-	TfwSchedRrSrvEntry *new_entry;
-	unsigned long flags;
+	int cpu;
+	RrSrvList *lst;
 
 	BUG_ON(!srv);
 
-	new_entry = kzalloc(sizeof(*new_entry), GFP_KERNEL);
-	if (!new_entry) {
+	spin_lock_bh(&rr_write_lock);
+	if (get_servers_n() >= RR_MAX_SERVERS_N) {
+		RR_ERR("Can't add a server to the scheduler - "
+		       "the maximum number of servers (%d) is reached\n",
+		       RR_MAX_SERVERS_N);
 		ret = -ENOMEM;
-		goto out;
-	}
-
-	spin_lock_irqsave(&srv_list_spinlock, flags);
-	if (find_srv_entry(srv)) {
+	} else if (find_server_idx(srv) >= 0) {
+		RR_ERR("Can't add the server to the scheduler - "
+		       "it is already present in the servers list\n");
 		ret = -EEXIST;
 	} else {
-		new_entry->srv = srv;
-		list_add(&new_entry->list, &srv_list);
+		for_each_possible_cpu(cpu) {
+			lst = &per_cpu(rr_srv_list, cpu);
+			lst->servers[lst->servers_n] = srv;
+			++(lst->servers_n);
+		}
 	}
-	spin_unlock_irqrestore(&srv_list_spinlock, flags);
+	spin_unlock_bh(&rr_write_lock);
 
-out:
 	return ret;
 }
 
 /**
- * Delete the given server from the scheduling list.
+ * Delete a given server from the round-robin list.
  *
- * @param srv  A server to be removed from the scheduler.
- *             Must not be null.
+ * The function deletes an element by replacing it with the last element in the
+ * array and then deleting this last element. This is fast, but it changes the
+ * order of servers.
  *
- * Return: Zero on success or ENOENT if no such server is found in the list.
+ * Returns zero on success or ENOENT if the serve is not found in the list.
  */
-int
+static int
 tfw_sched_rr_del_srv(TfwServer *srv)
 {
-	bool entry_is_deleted = false;
-	TfwSchedRrSrvEntry *srv_entry, *tmp_entry;
-	unsigned long flags;
+	int ret = 0;
+	int i, cpu;
+	RrSrvList *lst;
 
-	BUG_ON(!srv);
-
-	spin_lock_irqsave(&srv_list_spinlock, flags);
-	list_for_each_entry_safe(srv_entry, tmp_entry, &srv_list, list) {
-		if (srv == srv_entry->srv) {
-			list_del(&srv_entry->list);
-			kfree(srv_entry);
-			entry_is_deleted = true;
+	spin_lock_bh(&rr_write_lock);
+	i = find_server_idx(srv);
+	if (i < 0) {
+		RR_ERR("Can't delete the server from the scheduler - "
+			" it is not found in the servers list\n");
+		ret = -ENOENT;
+	} else {
+		for_each_possible_cpu(cpu) {
+			lst = &per_cpu(rr_srv_list, cpu);
+			lst->servers[i] = lst->servers[lst->servers_n - 1];
+			--(lst->servers_n);
+			lst->servers[lst->servers_n] = NULL;
 		}
 	}
-	spin_unlock_irqrestore(&srv_list_spinlock, flags);
+	spin_unlock_bh(&rr_write_lock);
 
-	return (entry_is_deleted ? 0 : -ENOENT);
+	return ret;
 }
+
 
 static int
-print_state_to_str(char *buf, size_t size)
+debugfs_state_handler(bool input, char *buf, size_t size)
 {
-	int printed, total_printed = 0;
+	int pos = 0;
+	int cpu, i;
+	RrSrvList *my, *this;
 
-	TfwSchedRrSrvEntry *srv_entry, *tmp_entry;
-	list_for_each_entry_safe(srv_entry, tmp_entry, &srv_list, list) {
-		printed = snprintf(buf, size, "%p\n", srv_entry->srv);
-		if (printed <= 0)
-			break;
-		BUG_ON(printed > size);
-		buf += printed;
-		size -= printed;
-		total_printed += printed;
+	/* Turn the current server on write(). */
+	if (input) {
+		tfw_sched_rr_get_srv(NULL);
+		return 0;
 	}
 
-	return total_printed;
+	spin_lock_bh(&rr_write_lock);
+
+	/* Dump the servers list on read(). */
+	my = &__get_cpu_var(rr_srv_list);
+	pos += snprintf(buf + pos, size - pos, "servers: %d, counter: %d\n",
+	               my->servers_n, my->counter);
+
+	for (i = 0; i < my->servers_n; ++i) {
+		char mark = (i == (my->counter % my->servers_n)) ? '>' : ' ';
+		char srv_str[TFW_MAX_SERVER_STR_SIZE];
+
+		tfw_server_snprint(my->servers[i], srv_str, sizeof(srv_str));
+		pos += snprintf(buf + pos, size - pos, "%c%s\n", mark, srv_str);
+	}
+
+	for_each_possible_cpu(cpu) {
+		this = &per_cpu(rr_srv_list, cpu);
+		BUG_ON(my->servers_n != this->servers_n);
+		BUG_ON(memcmp(my->servers, this->servers, sizeof(my->servers)));
+	}
+
+	spin_unlock_bh(&rr_write_lock);
+
+	return pos;
 }
 
-
-int tfw_sched_rr_init(void)
+int
+tfw_sched_rr_init(void)
 {
 	static TfwScheduler tfw_sched_rr_mod = {
 		.name = "round-robin",
@@ -174,26 +254,19 @@ int tfw_sched_rr_init(void)
 		.add_srv = tfw_sched_rr_add_srv,
 		.del_srv = tfw_sched_rr_del_srv
 	};
-	static TfwDebugfsHandlers h = {
-		.read = print_state_to_str,
-		.write = NULL
-	};
-	
-	tfw_debugfs_set_handlers("/sched_rr/state", &h);
+
+	RR_LOG("init\n");
+
+	tfw_debugfs_bind("/sched/rr/state", debugfs_state_handler);
 
 	return tfw_sched_register(&tfw_sched_rr_mod);
 }
 module_init(tfw_sched_rr_init);
 
-void tfw_sched_rr_exit(void)
+void
+tfw_sched_rr_exit(void)
 {
-	TfwSchedRrSrvEntry *srv_entry, *tmp_entry;
-
-	list_for_each_entry_safe(srv_entry, tmp_entry, &srv_list, list) {
-		list_del(&srv_entry->list);
-		kfree(srv_entry);
-	}
-
 	tfw_sched_unregister();
 }
 module_exit(tfw_sched_rr_exit);
+
