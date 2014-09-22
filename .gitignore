@@ -1,0 +1,20 @@
+# Kbuild output
+*.o
+*.o.cmd
+*.ko
+*.ko.cmd
+*.obj
+*.mod.c
+.tmp_versions
+modules.order
+Module.symvers
+
+# Emacs and VIM autosave files
+*~
+\#*\#
+.\#*
+
+# eclipse project settings
+.project
+.cproject
+.settings
