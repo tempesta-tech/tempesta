@@ -42,6 +42,7 @@
 typedef union {
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
+	struct sockaddr addr;
 } TfwAddr;
 
 typedef struct {
