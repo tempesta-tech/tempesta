@@ -30,7 +30,6 @@
 
 #ifdef DEBUG
 
-
 /* The root directory for the Tempesta debugfs module.
  * All paths are referenced relative to this root. */
 struct dentry *tfw_debugfs_root;
@@ -271,9 +270,8 @@ fop_release(struct inode *inode, struct file *file)
 	tfw_debugfs_handler_t fn = file->f_inode->i_private;
 	TfwDebugfsIoState *state = file->private_data;
 
-	if (state->is_input) {
+	if (state->is_input)
 		ret = fn(state->is_input, state->buf, state->len);
-	}
 
 	kfree(state->buf);
 	kfree(state);
@@ -345,16 +343,13 @@ tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t fn)
 	struct dentry *d;
 
 	BUG_ON(!path || !fn);
-
 	d = create_with_parents(path, fn, &fops);
 
 	return IS_ERR_OR_NULL(d) ? -1 : 0;
 }
 EXPORT_SYMBOL(tfw_debugfs_bind);
 
-
 #else /* ifdef DEBUG */
-
 
 int tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t handler_fn)
 {
@@ -369,7 +364,6 @@ int tfw_debugfs_init(void)
 
 void tfw_debugfs_exit(void)
 {
-
 }
 
 #endif /* ifndef DEBUG */
