@@ -57,7 +57,8 @@ tfw_http_conn_init(TfwConnection *conn)
 static void
 tfw_http_conn_destruct(TfwConnection *conn)
 {
-	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
+	if (conn->msg)
+		tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
@@ -685,8 +686,11 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		} else {
 			if (tfw_http_adjust_req(req))
 				goto block;
+
 			/* Send the request to appropriate server. */
-			tfw_connection_send_srv(sess, (TfwMsg *)req);
+			if (tfw_connection_send_srv(sess, (TfwMsg *)req)) {
+				goto block;
+			}
 		}
 
 		if (!req->parser.data_off || req->parser.data_off == len)
@@ -704,7 +708,6 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 	return r;
 block:
-	tfw_http_msg_free((TfwHttpMsg *)req);
 	return TFW_BLOCK;
 }
 

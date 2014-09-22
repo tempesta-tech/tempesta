@@ -55,15 +55,21 @@ tfw_connection_alloc(int type, void *handler)
 static void
 tfw_connection_free(TfwConnection *c)
 {
-	TfwConnection *peer_conn = tfw_connection_peer(c);
+	TFW_DBG("Free connection: %p\n", c);
 
-	/*
-	 * FIXME do we need to synchronize this?
-	 * If a connection can be processed from different CPUs, then we do.
-	 */
-	peer_conn->sess = NULL;
+	if (c->sess) {
+		/*
+		 * FIXME do we need to synchronize this?
+		 * If a connection can be processed from different CPUs, then we do.
+		 */
+		TfwConnection *peer_conn = tfw_connection_peer(c);
+		if (peer_conn) {
+			TFW_DBG("Detach from peer: %p\n", peer_conn);
+			peer_conn->sess = NULL;
+		}
+		tfw_session_free(c->sess);
+	}
 
-	tfw_session_free(c->sess);
 	kmem_cache_free(conn_cache, c);
 }
 
@@ -134,7 +140,7 @@ tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg)
 	ss_send(sess->cli->sock, &msg->skb_list);
 }
 
-void
+int
 tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 {
 	TfwConnection *srv_conn;
@@ -152,8 +158,7 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	if (tfw_session_sched_msg(sess, msg)) {
 		TFW_ERR("Cannot schedule message, msg=%p clnt=%p\n",
 			msg, sess->cli);
-		tfw_connection_close(sess->cli->sock);
-		return;
+		return -1;
 	}
 
 	/* Bind the server connection with the session. */
@@ -167,6 +172,8 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	srv_conn->sess = sess;
 
 	ss_send(sess->srv->sock, &msg->skb_list);
+
+	return 0;
 }
 
 /*

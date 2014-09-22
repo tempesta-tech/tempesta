@@ -83,16 +83,23 @@ typedef struct {
 static inline TfwConnection *
 tfw_sess_conn(TfwSession *sess, int type)
 {
-	if (type & Conn_Clnt)
+	if ((type & Conn_Clnt) && sess->cli)
 		return sess->cli->sock->sk_user_data;
-	return sess->srv->sock->sk_user_data;
+	if ((type & Conn_Srv) && sess->srv)
+		return sess->srv->sock->sk_user_data;
+
+	return NULL;
 }
 
 static inline TfwConnection *
 tfw_connection_peer(TfwConnection *c)
 {
+	if (!c->sess)
+		return NULL;
+
 	if (c->type & Conn_Clnt)
 		return tfw_sess_conn(c->sess, Conn_Srv);
+
 	return tfw_sess_conn(c->sess, Conn_Clnt);
 }
 
@@ -100,7 +107,7 @@ tfw_connection_peer(TfwConnection *c)
 int tfw_connection_new(struct sock *sk, int type, void *handler,
 		       void (*destructor)(struct sock *s));
 void tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg);
-void tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg);
+int tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 
