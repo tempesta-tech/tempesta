@@ -55,6 +55,8 @@ tfw_http_msg_alloc(int type)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
+	TFW_DBG("Free msg: %p", m);
+
 	/*
 	 * FIXME do we need to synchronize this?
 	 * If a connection can be processed from different CPUs, then we do.

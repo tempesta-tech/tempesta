@@ -19,6 +19,10 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
+#include <linux/list.h>
+
+#include "http_msg.h"
 #include "log.h"
 #include "sched.h"
 #include "session.h"
@@ -56,6 +60,16 @@ tfw_session_create(TfwClient *cli)
 void
 tfw_session_free(TfwSession *s)
 {
+	TfwHttpReq *req, *tmp;
+
+	TFW_DBG("Free session: %p\n", s);
+
+	/* Release all pipelined HTTP requests. */
+	list_for_each_entry_safe(req, tmp, &s->req_list, list) {
+		list_del(&req->list);
+		tfw_http_msg_free((TfwHttpMsg *)req);
+	}
+
 	kmem_cache_free(sess_cache, s);
 }
 
