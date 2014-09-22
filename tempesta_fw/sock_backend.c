@@ -315,6 +315,7 @@ tfw_bconnd(void *data)
 		if (tfw_bconnd_should_refresh) {
 			get_new_socks_from_cfg(&socks_list);
 			release_closed_socks(&socks_list);
+			all_socks_connected = false;
 			tfw_bconnd_should_refresh = false;
 		}
 
