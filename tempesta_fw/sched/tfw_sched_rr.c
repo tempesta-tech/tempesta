@@ -105,9 +105,9 @@ tfw_sched_rr_get_srv(TfwMsg *msg)
 
 	do {
 		n = lst->servers_n;
-		n |= n; /* a little optimization to avoid branching when n==0 */
+		n |= !n; /* a little optimization to avoid branching when n=0 */
 		srv = lst->servers[lst->counter++ % n];
-	} while (unlikely(n && !srv));
+	} while (unlikely(n > 1 && !srv));
 
 	return srv;
 }
@@ -206,7 +206,7 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 }
 
 static int
-debugfs_state_handler(bool input, char *buf, size_t size)
+tfw_sched_rr_debugfs_hook(bool input, char *buf, size_t size)
 {
 	int pos = 0;
 	int cpu, i;
@@ -256,7 +256,7 @@ tfw_sched_rr_init(void)
 
 	RR_LOG("init\n");
 
-	tfw_debugfs_bind("/sched/rr/state", debugfs_state_handler);
+	tfw_debugfs_bind("/sched/rr/state", tfw_sched_rr_debugfs_hook);
 
 	return tfw_sched_register(&tfw_sched_rr_mod);
 }
