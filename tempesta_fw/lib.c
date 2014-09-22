@@ -94,17 +94,20 @@ tfw_inet_ntop(void *addr, char *buf)
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
 {
-	return !memcmp(a, b, sizeof(*a));
+	/* NOTE: we assume that all compared fields are packed to these 8 bytes:
+	 * sin_family and sin_port are 2 bytes each + sin_addr is 4 bytes. */
+	return *((u64 *)a)  == *((u64 *)b);
 }
 
 static bool
 tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 {
-	/* NOTE: The fields 'sin6_flowinfo' and 'sin6_scope_id'  are
-	 * not compared intentionally. */
-	return (!memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)) &&
-		(a->sin6_port == b->sin6_port) &&
-		(a->sin6_family == b->sin6_family));
+	/* NOTE: We are comparing only addr and port without other fields, so:
+	 *  - sin6_family has to be AF_INET6 for both arguments.
+	 *  - The addresses are treated as equal even if they have different
+	 *    sin6_flowinfo or sin6_scope_id. */
+	return ((a->sin6_port == b->sin6_port) &&
+		!memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)));
 }
 
 /**
