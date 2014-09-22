@@ -18,14 +18,18 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/string.h>
+#include <linux/debugfs.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
-#include <linux/debugfs.h>
+#include <linux/string.h>
 
-#include "tempesta.h"
 #include "debugfs.h"
 #include "log.h"
+#include "tempesta.h"
+
+
+#ifdef DEBUG
+
 
 /* The root directory for the Tempesta debugfs module.
  * All paths are referenced relative to this root. */
@@ -34,18 +38,17 @@ struct dentry *tfw_debugfs_root;
 /* Name of the directory which is created in the debugfs upon initialization. */
 #define TFW_DEBUGFS_ROOT_NAME "tempesta"
 
-
 /**
- * Initialize the Tempesta debugfs wrapper.
- *
- * Return: an error code or zero on success.
+ * Initialize the debugfs wrapper by creating a directory in the debugfs
+ * where all files owned by the Tempesta FW are hosted.
  */
-int tfw_debugfs_init(void)
+int
+tfw_debugfs_init(void)
 {
 	int ret = 0;
 
 	tfw_debugfs_root = debugfs_create_dir(TFW_DEBUGFS_ROOT_NAME, NULL);
-	
+
 	if (IS_ERR_OR_NULL(tfw_debugfs_root)) {
 		ret = (int)PTR_ERR(tfw_debugfs_root);
 		TFW_WARN("Can't create debugfs directory (%d)\n", ret);
@@ -55,12 +58,10 @@ int tfw_debugfs_init(void)
 }
 
 /**
- * Shutdown the Tempesta debugfs wrapper.
- *
- * The function deletes all files and directories created by this wrapper
- * and releases all resources.
+ * Delete the Tempesta's debugfs directory with all files recursively.
  */
-void tfw_debugfs_exit(void)
+void
+tfw_debugfs_exit(void)
 {
 	if (tfw_debugfs_root) {
 		debugfs_remove_recursive(tfw_debugfs_root);
@@ -69,14 +70,7 @@ void tfw_debugfs_exit(void)
 }
 
 /**
- * Look up for a file in VFS.
- *
- * @param name    A string containing a path.
- * @param parent  A dentry that represents a parent directory where the
- *                file is searched. Must not be NULL.
- *
- * Return: A pointer to dentry if the file (or directory) is found,
- *         NULL if it is not found or an error occurred.
+ * Look up for a file (or directory) in VFS.
  */
 static struct dentry *
 lookup_file(const char *path, struct dentry *parent)
@@ -94,7 +88,7 @@ lookup_file(const char *path, struct dentry *parent)
  * Create a file in the debugfs, also create parent directories if needed and
  * remove the old file if it exists.
  *
- * @param path  A string containing a path to the file.
+ * @param path  Path to a file to be created.
  *              The path is always treated relative to the Tempesta root
  *              directory in the debugfs (see tfw_debugfs_root).
  * @param data  A pointer to some data which is saved in 'file' and 'inode'
@@ -108,13 +102,11 @@ lookup_file(const char *path, struct dentry *parent)
  *  - the file is replaced if it already exists
  *  - all parent directories are created if they don't exist
  *
- * Returns:  A pointer to dentry if the file is created.
- *           A NULL or an error pointer in case of error (it may be tested
- *           with IS_ERR_OR_NULL()).
+ * Returns: An ERR_PTR if the file is not created.
  */
 static struct dentry *
 create_with_parents(const char *path, void *data,
-                    const struct file_operations *fops)
+		    const struct file_operations *fops)
 {
 	size_t name_size;
 	char *buf, *pos, *component;
@@ -148,7 +140,6 @@ create_with_parents(const char *path, void *data,
 		component = pos + 1;
 	} while (*(++pos));
 
-
 	/* Remove the file if it already exists. */
 	child = lookup_file(component, parent);
 	if (child) {
@@ -171,283 +162,214 @@ create_with_parents(const char *path, void *data,
 }
 
 /**
- * The read() operation for files created by tfw_debugfs_set_trigger().
+ * A state maintained between open() and release() calls.
  *
- * The function simply invokes a trigger which is set by the file creator.
- * It doesn't read any data and always returns EOF.
- */
-static ssize_t
-op_trigger_read(struct file *f, char __user *b, size_t s, loff_t *p)
-{
-	tfw_debugfs_trigger_t trigger_fn = f->private_data;
-	if (trigger_fn)
-		trigger_fn();
-
-	return 0;
-}
-
-/**
- * The write() operation for files created by tfw_debugfs_set_trigger()
+ * Usage of this structure depens on the data direction:
  *
- * The function only invokes a trigger function set by the file creator.
- * It doesn't write any data, but always returns the size of the input buffer
- * as if all the data was written successfully.
- */
-static ssize_t
-op_trigger_write(struct file *f, const char __user *b, size_t s, loff_t *p)
-{
-	tfw_debugfs_trigger_t trigger_fn = f->private_data;
-	if (trigger_fn)
-		trigger_fn();
-
-	return s;
-}
-
-/**
- * Create a file in debugfs so that the given function is invoked on any
- * read or write to the file.
+ * 1. If a file is open()'ed for reading (@is_input is false):
+ * - open() allocates the @buf and invokes a callback that writes data to it.
+ * - read() just copies data from the @buf to the user-space.
+ * - write() returns an error.
+ * - close() releases all the allocated memory.
  *
- * @path  A path to a file to be created. If the file already exists, it is
- *        replaced. All parent directories are created if they don't exist.
- *        The path is always treated as relative to the Tempesta root directory
- *        in the debugfs (see tfw_debugfs_root).
- * @fn    The trigger function which is called on any read or write to the file.
- *        The function doesn't take any arguments or return any value.
+ * 2. If a file is open()'ed for writing (@is_input is true):
+ * - open() allocates the @buf
+ * - read() returns an error.
+ * - write() copies data from user-space to the @buf.
+ * - close() invokes a callback passing the @buf to it and releases the memory.
  *
- * This function provides a simple way to trigger kernel functions from
- * userspace via the debugfs. It creates a file and binds read()/write()
- * operations so that the given @fn is called on any such operation without
- * actual reading or writing any data.
- *
- * For example, consider this code:
- *   void say_hello(void)
- *   {
- *           printk("hello from kernel\n");
- *   }
- *   tfw_debugfs_set_trigger("/foo/bar/hello", say_hello);
- *
- * It will create the file foo/bar/hello with all parent directories under
- * the tempesta debugfs root directory. Then from a user-space shell you may do:
- *   echo > /sys/kernel/debug/tempesta/foo/bar/hello
- *   cat /sys/kernel/debug/tempesta/foo/bar/hello
- * 
- * Both will trigger the say_hello() and you may see the message in the 'dmesg'.
- */
-void tfw_debugfs_set_trigger(const char *path, tfw_debugfs_trigger_t fn)
-{
-	static const struct file_operations fops = {
-		.open = simple_open,
-		.llseek = default_llseek,
-		.read = op_trigger_read,
-		.write = op_trigger_write
-	};
-
-	create_with_parents(path, fn, &fops);
-}
-EXPORT_SYMBOL(tfw_debugfs_set_trigger);
-
-
-/**
- * A state maintained between open() and release() operations for files
- * created by tfw_debugfs_set_handlers().
- *
- * @buf       A buffer passed to read/write handlers (the kernel-space buffer).
- * @buf_size  Size of the allocated @buf.
- * @data_len  Count of bytes written to the @buf.
+ * The file may be open()'ed only for either reading or writing but not both.
  */
 typedef struct {
+	bool is_input;
+	int len;
+	int buf_size;
 	char *buf;
-	size_t buf_size;
-	size_t data_len;
 } TfwDebugfsIoState;
 
-/**
- * The open() operation for files created by tfw_debugfs_set_handlers().
- *
- * The function is called when the file is opened. It allocates a buffer
- * and puts the pointer to the file->private_data from where it can be
- * retrieved by read/write operations.
- *
- * Note that this is not a default behavior for debugfs operations.
- * By default the simple_open() is called that copies inode->i_private to
- * file->private_data, and we replace this behavior, so now you can't assume
- * that the data passed to debugfs_file_create() will be located ad the
- * file->private_data (although the data is still accessible via the inode).
- */
 static int
-handlerio_fop_open(struct inode *inode, struct file *file)
+fop_open(struct inode *inode, struct file *file)
 {
-	TfwDebugfsIoState *state = kzalloc(sizeof(*state), GFP_KERNEL);
+	fmode_t mode = file->f_mode;
+	tfw_debugfs_handler_t fn = file->f_inode->i_private;
+	TfwDebugfsIoState *state;
+
+	if ((mode & FMODE_READ) && (mode & FMODE_WRITE)) {
+		TFW_ERR("This debugfs file can't be opened in read-write mode");
+		return -EPERM;
+	}
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
 	BUG_ON(!state);
 
-	/* For simplicity we are allocating one size buffer.
-	 * Later on we may want to resize it dynamically. */
+	/* Simply allocate a fixed-size buffer. The buffer doesn't expand, the
+	 * data is cropped if it doesn't fit to it. Later on we may change it */
 	state->buf_size = PAGE_SIZE;
 	state->buf = kmalloc(state->buf_size, GFP_KERNEL);
 	BUG_ON(!state->buf);
+
+	if (mode & FMODE_WRITE)
+		state->is_input = true;
+	else
+		state->len = fn(state->is_input, state->buf, state->buf_size);
 
 	file->private_data = state;
 
 	return 0;
 }
 
-/**
- * The release() operation for files created by tfw_debugfs_set_handlers().
- *
- * The function is called when the file is closed.
- * It releases memory allocated by handlerio_fop_open().
- */
-static  int
-handlerio_fop_release (struct inode *inode, struct file *file)
-{
-	TfwDebugfsIoState *state = file->private_data;
-
-	kfree(state->buf);
-	kfree(state);
-
-	return 0;
-}
-
-/**
- * The read() operation for files created by tfw_debugfs_set_handlers().
- *
- * The function is called when the file is read from user-space.
- * It calls a handler set by the tfw_debugfs_set_handlers() and returns
- * output buffer of the handler to the user-space.
- *
- * The handler is invoked only once after the file is open()'ed.
- * Once the buffer is written by the handler it is saved and then used for all
- * subsequent read() calls until the file is closed. So the handler doesn't
- * need to handle the position of the file, it just provides one big buffer and
- * this function streams it to the user-space.
- */
 static ssize_t
-handlerio_fop_read(struct file *file, char __user *user_buf, size_t count,
-	           loff_t *ppos)
+fop_read(struct file *file, char __user *user_buf, size_t count,
+	 loff_t *ppos)
 {
-	int buf_size, len, ret;
-	char *buf;
 	TfwDebugfsIoState *state = file->private_data;
-	TfwDebugfsHandlers *handlers = file->f_inode->i_private;
-	tfw_debugfs_handler_t read_handler = handlers->read;
 
-	if (!read_handler) {
+	if (state->is_input) {
+		TFW_ERR("Can't read this debugfs file: "
+			"it was open()'ed only for writing\n");
 		return -EPERM;
 	}
 
-	buf = state->buf;
-	buf_size = state->buf_size;
-	len = state->data_len;
+	if (state->len < 0)
+		return state->len;
 
-	/* call the handler only once */
-	if (!len) {
-		len = read_handler(buf, buf_size);
-		if (len <= 0)
-			return len;
-	}
-	state->data_len = len;
-
-	/* copy requested sub-buffer to the user-space */
-	ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
-
-	return ret;
+	return simple_read_from_buffer(user_buf, count, ppos,
+				       state->buf,
+				       state->len);
 }
 
-/**
- * The write() operation for files created by tfw_debugfs_set_handlers().
- *
- * The function is called when the file is written from user-space.
- * It invokes the handler which is set by tfw_debugfs_set_handlers() and
- * passes the buffer copied from the user space to the handler.
- */
 static ssize_t
-handlerio_fop_write(struct file *file, const char __user *user_buf,
-		    size_t count, loff_t *ppos)
+fop_write(struct file *file, const char __user *user_buf,
+	  size_t count,
+	  loff_t *ppos)
 {
-	int buf_size, len;
-	char *buf;
+	int len;
 	TfwDebugfsIoState *state = file->private_data;
-	TfwDebugfsHandlers *handlers = file->f_inode->i_private;
-	tfw_debugfs_handler_t write_handler = handlers->write;
 
-	if (!write_handler) {
+	if (!state->is_input) {
+		TFW_ERR("Can't write to this debugfs file: "
+			"it was open()'ed only for reading\n");
 		return -EPERM;
 	}
-
-	buf = state->buf;
-	buf_size = state->buf_size - 1;
 
 	/* copy data from user-space */
-	len = simple_write_to_buffer(buf, buf_size, ppos, user_buf, count);
-
+	len = simple_write_to_buffer(state->buf, (state->buf_size - 1),
+				     ppos,
+				     user_buf, count);
 	if (len > 0) {
-		state->data_len = len;
-
-		/* Call the handler and ensure the input data is terminated. */
-		buf[len] = '\0';
-		write_handler(buf, len);
+		state->len += len;
+		state->buf[state->len] = '\0';
 	}
 
 	return len;
 }
 
+static int
+fop_release(struct inode *inode, struct file *file)
+{
+	int ret = 0;
+	tfw_debugfs_handler_t fn = file->f_inode->i_private;
+	TfwDebugfsIoState *state = file->private_data;
+
+	if (state->is_input) {
+		ret = fn(state->is_input, state->buf, state->len);
+	}
+
+	kfree(state->buf);
+	kfree(state);
+
+	return ret;
+}
 
 /**
- * Create a file in the debugfs and bind read/write handler functions with it.
+ * Create a file in debugfs and bind a function with it.
  *
- * @param path      A string that contains a path to a file to be created.
- *                  The file will be replaced if it already exists, and all
- *                  parent directories will be created automatically if they
- *                  don't exist. Also path is always treated as relative to the
- *                  Tempesta root directory in the debugfs.
- * @param handlers  A structure that contains pointers to functions that are
- *                  called when the file is read or written from the user-space.
- *                  The pointer is saved and referenced while the file exists,
- *                  so the structure must not be allocated on the stack.
- *                  The pointer must not be null, but any of the function
- *                  pointers inside may be null, in this case an error will be
- *                  returned on a corresponding system call.
+ * @path  Path to of a file to be created.
+ *        The path is always treated as relative to tempesta root directory
+ *        in the debugfs. The file may exist, in this case it will be replaced.
+ *        Parent directories may not exist (they will be created automatically).
+ * @fn    A function that handles I/O (that is either receives or sends data to
+ *        user-space).
  *
- * This function allows to create a file in the debugfs and hookup functions
- * to it for handling reads and writes on the file.
+ * This function allows to bind a file (that may be read/written in user-space)
+ * with a function (that works in kernel-space).
  *
- * Consider the example:
- *   ssize_t handle_read(char *buf, size_t buf_size)
- *   {
- *           return snprintf(buf, buf_size, "hello from kernel\n");
- *   }
+ * Consider the following example:
  *
- *   ssize_t handle_write(char *data, size_t data_len)
- *   {
- *           return printk("got data from user-space: %.*s", data_len, data);
- *   }
+ * int my_io_handler(bool is_input, char *buf, size_t size)
+ * {
+ *         if (is_input) {
+ *                 printk("got input data from user-space: %.*s", size, buf);
+ *                 return 0;
+ *         } else {
+ *                 return snprintf("hello from kernel-space!\n");
+ *         }
+ * }
  *
- *   static TfwDebugfsHandlers handlers = { handle_read, handle_write };
- *   tfw_debugfs_set_handlers("/foo/bar/baz", &handlers);
+ * tfw_debugfs_bind("/foo/bar", my_io_handler);
  *
- * The code above will create the file "foo/bar/baz" under the Tempesta debugfs
- * root directory. Non-existing parent directories are created automatically.
- * Then you may do some read/write from user-space and the handlers will be
- * invoked in the kernel-space:
- *   $ cat /sys/kernel/debug/foo/bar/baz
- *   hello from kernel
- *   $ echo "hello from user" > /sys/kernel/debug/foo/bar/baz
+ * The code binds the file /foo/bar with the function my_io_handler() and allows
+ * to interact with the kernel function from a user-space shell like this:
+ *   $ cat /sys/kernel/debug/tempesta/foo/bar
+ *   hello from kernel-space!
+ *   $ echo "hi from user-space" > /sys/kernel/debug/tempesta/foo/bar
  *   $ dmesg | head -n1
- *   got data from user-space: hello from user
+ *   got input data from user-space: hi from user-space
+ *
+ * When the file is open()'ed in read mode, the my_io_handler() is called with
+ * is_input=false. In this case the function is requested to put some data to
+ * the buffer. The buffer then is saved and returned to user-space during
+ * subsequent read() calls until the file is close()'d.
+ *
+ * When the file is open()'ed in write mode, the data is accumulated in the
+ * buffer during write() calls. When the file is close()'d, the my_io_handler()
+ * is called to take the data received from user-space.
+ *
+ * Therefore, the handler function doesn't need to care about streaming, it
+ * receives or sends the data "atomically" with a single big chunk.
+ * This approach simplifies your code (no need to preserve state between calls),
+ * but it is not very effective, so don't use it for large amounts of data.
+ *
+ * @return A status code: 0 if the file is created, -1 otherwise.
  */
-void tfw_debugfs_set_handlers(const char *path, TfwDebugfsHandlers *handlers)
+int
+tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t fn)
 {
 	static const struct file_operations fops = {
 		.llseek = default_llseek,
-		.open = handlerio_fop_open,
-		.release = handlerio_fop_release,
-		.read = handlerio_fop_read,
-		.write = handlerio_fop_write,
+		.open = fop_open,
+		.read = fop_read,
+		.write = fop_write,
+		.release = fop_release,
 	};
+	struct dentry *d;
 
-	BUG_ON(!handlers);
-	BUG_ON(!handlers->read && !handlers->write);
+	BUG_ON(!path || !fn);
 
-	create_with_parents(path, handlers, &fops);
+	d = create_with_parents(path, fn, &fops);
+
+	return IS_ERR_OR_NULL(d) ? -1 : 0;
 }
-EXPORT_SYMBOL(tfw_debugfs_set_handlers);
+EXPORT_SYMBOL(tfw_debugfs_bind);
+
+
+#else /* ifdef DEBUG */
+
+
+int tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t handler_fn)
+{
+	return 0;
+}
+EXPORT_SYMBOL(tfw_debugfs_bind);
+
+int tfw_debugfs_init(void)
+{
+	return 0;
+}
+
+void tfw_debugfs_exit(void)
+{
+
+}
+
+#endif /* ifndef DEBUG */
