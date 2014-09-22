@@ -205,7 +205,6 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 	return ret;
 }
 
-
 static int
 debugfs_state_handler(bool input, char *buf, size_t size)
 {
