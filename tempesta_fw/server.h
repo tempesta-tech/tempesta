@@ -22,6 +22,8 @@
 
 #include <net/sock.h>
 
+#define TFW_MAX_SERVER_STR_SIZE 100
+
 typedef struct {
 	/* The server current stress (overloading) value. */
 	int		stress;
@@ -31,6 +33,8 @@ typedef struct {
 
 TfwServer *tfw_create_server(struct sock *s);
 void tfw_destroy_server(struct sock *s);
+
+int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
 
 int tfw_server_init(void);
 void tfw_server_exit(void);
