@@ -275,6 +275,12 @@ connect_backend_socks(struct list_head *socks_list)
 	return all_socks_connected;
 }
 
+static inline bool
+bconnd_should_wakeup()
+{
+	return (tfw_bconnd_should_refresh || kthread_should_stop());
+}
+
 /**
  * tfw_bconnd() - The main loop of the tfw_bconnd thread.
  *
@@ -309,7 +315,7 @@ tfw_bconnd(void *data)
 			: TFW_BCONND_RETRY_INTERVAL;
 		
 		wait_event_freezable_timeout(tfw_bconnd_wq,
-		                             tfw_bconnd_should_refresh,
+		                             bconnd_should_wakeup(),
 		                             timeout);
 
 		if (tfw_bconnd_should_refresh) {
