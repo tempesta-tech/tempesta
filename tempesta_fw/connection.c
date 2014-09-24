@@ -86,27 +86,28 @@ int
 tfw_connection_new(struct sock *sk, int type, void *handler,
 		  void (*destructor)(struct sock *s))
 {
-	TfwConnection *c = sk->sk_user_data;
+	TfwConnection *conn;
+	SsProto *proto = sk->sk_user_data;
 
-	BUG_ON(!c); /* parent socket protocol */
+	BUG_ON(!proto); /* parent socket protocol */
 	BUG_ON(type != Conn_Clnt && type != Conn_Srv);
 
 	/* Type: connection direction BitwiseOR protocol. */
-	type |= c->type;
+	type |= proto->type;
 
-	sk->sk_user_data = tfw_connection_alloc(type, handler);
-	if (!sk->sk_user_data) {
+	conn = tfw_connection_alloc(type, handler);
+	if (!conn) {
 		TFW_ERR("Can't allocate a new connection\n");
 		/* TODO drop the connection. */
 		return -ENOMEM;
 	}
 
+	sk->sk_user_data = conn;
 	sk->sk_destruct = destructor;
 
 	sock_set_flag(sk, SOCK_DBG);
 
-	c = sk->sk_user_data;
-	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(c);
+	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(conn);
 
 	return 0;
 }
