@@ -357,6 +357,8 @@ tfw_sock_backend_init(void)
 			TFW_BCONND_THREAD_NAME, PTR_ERR(tfw_bconnd_task));
 		ret = PTR_ERR(tfw_bconnd_task);
 		tfw_bconnd_task = NULL;
+	} else {
+		tfw_sock_backend_refresh_cfg();
 	}
 
 	return ret;
