@@ -45,8 +45,8 @@ MODULE_LICENSE("GPL");
  * The @counter is incremented on each get() call and the "current" server is
  * obtained as servers[counter % servers_n].
  * This approach is chosen (instead of storing an index of the current server)
- * for optimization purposes: it allows read servers from the array sequentially
- * without ynchronization between readers.
+ * for optimization purposes: it allows sequential reading from the array
+ * without synchronization between readers.
  */
 typedef struct {
 	unsigned int servers_n;
@@ -58,9 +58,11 @@ typedef struct {
  * There is a total of NR_CPUS identical copies of the RrSrvList.
  * Each CPU has its own copy stored in its local memory.
  * The effects are following:
- *  - get() operates faster on NUMA systems because it uses only local memory.
- *  - add()/del() work slower because they need to update all copies.
- *  - Each CPU has its own "current" server independent from other CPUs.
+ *  1. get() operates faster on because:
+ *    - Counter is not shared among CPUs, so the cache line bouncing is reduced.
+ *    - Access to the local memory is faster on NUMA systems.
+ *  2. add()/del() work slower because they need to update all copies.
+ *  3. Each CPU has its own "current" server independent from other CPUs.
  */
 static DEFINE_PER_CPU(RrSrvList, rr_srv_list) = {
 	.servers_n = 0,
@@ -105,7 +107,7 @@ tfw_sched_rr_get_srv(TfwMsg *msg)
 
 	do {
 		n = lst->servers_n;
-		n |= !n; /* a little optimization to avoid branching when n=0 */
+		n |= !n; /* Return the first element if n=0 (has to be NULL). */
 		srv = lst->servers[lst->counter++ % n];
 	} while (unlikely(n > 1 && !srv));
 
@@ -162,7 +164,7 @@ tfw_sched_rr_add_srv(TfwServer *srv)
 		for_each_possible_cpu(cpu) {
 			lst = &per_cpu(rr_srv_list, cpu);
 			lst->servers[lst->servers_n] = srv;
-			++(lst->servers_n);
+			++lst->servers_n;
 		}
 	}
 	spin_unlock_bh(&rr_write_lock);
@@ -196,7 +198,7 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 		for_each_possible_cpu(cpu) {
 			lst = &per_cpu(rr_srv_list, cpu);
 			lst->servers[i] = lst->servers[lst->servers_n - 1];
-			--(lst->servers_n);
+			--lst->servers_n;
 			lst->servers[lst->servers_n] = NULL;
 		}
 	}
