@@ -46,7 +46,7 @@ tfw_connection_alloc(int type, void *handler)
 	if (!c)
 		return NULL;
 
-	c->type = type;
+	TFW_CONN_TYPE(c) = type;
 	c->hndl = handler;
 
 	return c;
@@ -126,7 +126,7 @@ tfw_connection_close(struct sock *sk)
 	if (tfw_classify_conn_close(sk) == TFW_BLOCK)
 		return -EPERM;
 
-	conn_hooks[TFW_CONN_TYPE2IDX(c->type)]->conn_destruct(c);
+	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))]->conn_destruct(c);
 
 	tfw_connection_free(c);
 
@@ -260,7 +260,7 @@ tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
-	if (conn->type & Conn_Clnt) {
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		/*
 		 * Bind the connection with a session
 		 * if it wasn't done so far.
@@ -283,7 +283,7 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 	TfwConnection *conn = (TfwConnection *)proto;
 
 	if (!conn->msg) {
-		int i = TFW_CONN_TYPE2IDX(conn->type);
+		int i = TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn));
 		conn->msg = conn_hooks[i]->conn_msg_alloc(conn);
 		if (!conn->msg)
 			return -ENOMEM;
