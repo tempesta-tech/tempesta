@@ -243,7 +243,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 static int
 tfw_cache_build_resp(TfwCacheEntry *ce)
 {
-	int f;
+	int f = 0;
 	TdbRecord *trec;
 	unsigned char *data;
 	struct sk_buff *skb = NULL;
