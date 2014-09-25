@@ -74,6 +74,8 @@ enum {
 	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
 };
 
+#define TFW_FSM_TYPE(t)		((t) & (TFW_GFSM_FSM_N - 1))
+
 /**
  * HTTP FSM states.
  *
