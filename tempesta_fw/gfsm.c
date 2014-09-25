@@ -82,13 +82,17 @@ tfw_gfsm_switch(TfwGState *st, int prio)
 		return;
 	}
 
-	/* Remember FSM ID on the stack. */
+	/* Remember FSM ID with whole connection type on the stack. */
 	st->fsm_id[st->st_p] = proto->type;
 
 	/* Push down clear state for next FSM. */
 	++st->st_p;
 	__gfsm_state_init(st, fsm_hooks[curr_fsm][shift].st0);
 
+	/*
+	 * The new FSM starts with connection type which it declared
+	 * as enter sate argument of tfw_gfsm_register_hook().
+	 */
 	proto->type = fsm_hooks[curr_fsm][shift].fsm_id;
 }
 
@@ -117,7 +121,7 @@ tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len)
 {
 	SsProto *proto = (SsProto *)obj;
 
-	return fsm_htbl[proto->type](obj, data, len);
+	return fsm_htbl[TFW_FSM_TYPE(proto->type)](obj, data, len);
 }
 
 /**

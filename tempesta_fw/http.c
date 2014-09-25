@@ -35,7 +35,7 @@
 TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
-	TfwHttpMsg *hm = tfw_http_msg_alloc(conn->type);
+	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
 	if (unlikely(!hm))
 		return NULL;
 
@@ -802,7 +802,7 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
-	return (c->type & Conn_Clnt)
+	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data, len)
 		: tfw_http_resp_process(c, data, len);
 }
