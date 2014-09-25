@@ -276,7 +276,7 @@ connect_backend_socks(struct list_head *socks_list)
 }
 
 static inline bool
-bconnd_should_wakeup()
+bconnd_should_wakeup(void)
 {
 	return (tfw_bconnd_should_refresh || kthread_should_stop());
 }
