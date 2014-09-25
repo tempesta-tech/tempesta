@@ -40,7 +40,7 @@ enum {
 	Conn_HttpSrv	= Conn_Srv | TFW_FSM_HTTP,
 };
 
-#define TFW_CONN_TYPE2IDX(t)	((t) & (__Conn_Bits - 1))
+#define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
 
 /* TODO backend connection could have many sessions. */
 typedef struct {
@@ -50,11 +50,12 @@ typedef struct {
 	 */
 	SsProto		proto;
 
-	int		type;
 	TfwMsg		*msg;	/* currently processing (receiving) message */
 	void 		*hndl;	/* TfwClient or TfwServer handler */
 	TfwSession	*sess;	/* currently handled session */
 } TfwConnection;
+
+#define TFW_CONN_TYPE(c)	((c)->proto.type)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -97,7 +98,7 @@ tfw_connection_peer(TfwConnection *c)
 	if (!c->sess)
 		return NULL;
 
-	if (c->type & Conn_Clnt)
+	if (TFW_CONN_TYPE(c) & Conn_Clnt)
 		return tfw_sess_conn(c->sess, Conn_Srv);
 
 	return tfw_sess_conn(c->sess, Conn_Clnt);
