@@ -17,26 +17,16 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_SERVER_H__
-#define __TFW_SERVER_H__
+#ifndef __TFW_DEBUGFS_H__
+#define __TFW_DEBUGFS_H__
 
-#include <net/sock.h>
+typedef int (*tfw_debugfs_handler_t)(bool is_input, char *buf, size_t size);
 
-#define TFW_MAX_SERVER_STR_SIZE 100
+int tfw_debugfs_bind(const char *path, tfw_debugfs_handler_t handler_fn);
 
-typedef struct {
-	/* The server current stress (overloading) value. */
-	int		stress;
+int tfw_debugfs_init(void);
+void tfw_debugfs_exit(void);
 
-	struct sock	*sock;
-} TfwServer;
 
-TfwServer *tfw_create_server(struct sock *s);
-void tfw_destroy_server(struct sock *s);
+#endif	/* __TFW_DEBUGFS_H__ */
 
-int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
-
-int tfw_server_init(void);
-void tfw_server_exit(void);
-
-#endif /* __TFW_CLIENT_H__ */

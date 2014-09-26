@@ -22,11 +22,11 @@
 #include <linux/slab.h>
 
 #include "connection.h"
+#include "lib.h"
 #include "log.h"
 #include "sched.h"
 #include "server.h"
 
-static TfwServer *be_srv;
 static struct kmem_cache *srv_cache;
 
 void
@@ -50,8 +50,6 @@ tfw_destroy_server(struct sock *s)
 
 	srv->sock = NULL;
 	conn->hndl = NULL;
-	
-	be_srv = NULL;
 
 	/* FIXME clear the server references from all current sessions. */
 #if 0
@@ -74,12 +72,26 @@ tfw_create_server(struct sock *s)
 		return NULL;
 	}
 
-	/* TODO Only one back-end server is supported yet. */
-	BUG_ON(be_srv);
-	be_srv = srv;
-
 	return srv;
 }
+
+int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
+{
+	TfwAddr addr;
+	int len = sizeof(addr);
+	char addr_str_buf[MAX_ADDR_LEN];
+
+	BUG_ON(!srv || !buf || !buf_size);
+
+	memset(&addr, 0, sizeof(addr));
+	kernel_getpeername(srv->sock->sk_socket, &addr.addr, &len);
+	tfw_inet_ntop(&addr, addr_str_buf);
+
+	len = snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
+
+	return len;
+}
+EXPORT_SYMBOL(tfw_server_snprint);
 
 int __init
 tfw_server_init(void)
