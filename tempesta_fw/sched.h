@@ -23,6 +23,7 @@
 #ifndef __TFW_SCHED_H__
 #define __TFW_SCHED_H__
 
+#include "tempesta.h"
 #include "msg.h"
 #include "server.h"
 
@@ -35,14 +36,20 @@
  */
 
 typedef struct {
+	const char *name;
+
+	TfwServer *	(*get_srv)(TfwMsg *msg);
+	int		(*add_srv)(TfwServer *srv);
+	int		(*del_srv)(TfwServer *srv);
 } TfwScheduler;
 
+TfwServer *tfw_sched_get_srv(TfwMsg *msg);
 int tfw_sched_add_srv(TfwServer *srv);
 int tfw_sched_del_srv(TfwServer *srv);
 
-TfwServer *tfw_sched_get_srv(TfwMsg *msg);
 
-extern int tfw_sched_register(TfwScheduler *mod);
-extern void tfw_sched_unregister(void);
+int tfw_sched_register(TfwScheduler *mod);
+void tfw_sched_unregister(void);
+
 
 #endif /* __TFW_SCHED_H__ */

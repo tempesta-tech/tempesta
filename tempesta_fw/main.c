@@ -28,6 +28,7 @@
 #include "http.h"
 #include "log.h"
 #include "server.h"
+#include "debugfs.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
@@ -47,6 +48,9 @@ MODULE_PARM_DESC(cache_path, "Path to cache directory");
 int tfw_connection_init(void);
 void tfw_connection_exit(void);
 
+int tfw_sched_dummy_init(void);
+void tfw_sched_dummy_exit(void);
+
 static int __init
 tfw_init(void)
 {
@@ -62,6 +66,10 @@ tfw_init(void)
 	r = tfw_if_init();
 	if (r)
 		return r;
+
+	r = tfw_debugfs_init();
+	if (r)
+		goto err_debugfs;
 
 	r = tfw_cache_init();
 	if (r)
@@ -104,6 +112,8 @@ err_filter:
 err_http:
 	tfw_cache_exit();
 err_cache:
+	tfw_debugfs_exit();
+err_debugfs:
 	tfw_if_exit();
 
 	return r;
