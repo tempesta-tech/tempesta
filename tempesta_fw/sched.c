@@ -24,59 +24,74 @@
 #include "log.h"
 #include "sched.h"
 
-static TfwScheduler *sched = NULL;
-static rwlock_t	tfw_sched_lock = __RW_LOCK_UNLOCKED(tfw_sched_lock);
 
-/* TODO the TfwServer structures must be handled by scheduler modules. */
-static TfwServer *dummy_srv = NULL;
+static TfwScheduler *tfw_sched = NULL;
+
+
+TfwServer *
+tfw_sched_get_srv(TfwMsg *msg)
+{
+	BUG_ON(!msg);
+	BUG_ON(!tfw_sched);
+
+	return tfw_sched->get_srv(msg);
+}
 
 int
 tfw_sched_add_srv(TfwServer *srv)
 {
-	dummy_srv = srv;
-	TFW_DBG("Added new server %p\n", dummy_srv);
-	return 0;
+	int ret;
+	
+	BUG_ON(!srv);
+	BUG_ON(!tfw_sched);
+
+	ret = tfw_sched->add_srv(srv);
+	if (ret)
+		TFW_ERR("Can't add a server to the scheduler (%d)\n", ret);
+
+	return ret;
 }
 
 int
 tfw_sched_del_srv(TfwServer *srv)
 {
-	BUG_ON(srv != dummy_srv);
-	dummy_srv = NULL;
+	int ret;
+	
+	BUG_ON(!srv);
+	BUG_ON(!tfw_sched);
 
-	return 0;
-}
+	ret = tfw_sched->del_srv(srv);
+	if (ret)
+		TFW_ERR("Can't remove a server from the scheduler (%d)\n", ret);
 
-TfwServer *
-tfw_sched_get_srv(TfwMsg *msg)
-{
-	/* TODO call scheduling module if we have any registered. */
-
-	return dummy_srv;
+	return ret;
 }
 
 int
 tfw_sched_register(TfwScheduler *mod)
 {
-	write_lock(&tfw_sched_lock);
-	if (sched) {
-		write_unlock(&tfw_sched_lock);
-		TFW_ERR("Can't register a scheduler - there is already one"
-		        " registered\n");
-		return -1;
-	}
-	sched = mod;
-	write_unlock(&tfw_sched_lock);
+	BUG_ON(!mod);
+	BUG_ON(!mod->name || !mod->get_srv || !mod->add_srv || !mod->del_srv);
 
-	return 0;
+	TFW_LOG("Registering new scheduler: %s\n", mod->name);
+
+	if (!tfw_sched) {
+		tfw_sched = mod;
+		return 0;
+	}
+
+	TFW_ERR("Can't register a scheduler - the '%s' is already registered\n",
+		tfw_sched->name);
+	return -EEXIST;
 }
 EXPORT_SYMBOL(tfw_sched_register);
 
 void
 tfw_sched_unregister(void)
 {
-	write_lock(&tfw_sched_lock);
-	sched = NULL;
-	write_unlock(&tfw_sched_lock);
+	BUG_ON(!tfw_sched);
+
+	TFW_LOG("Un-registering scheduler: %s\n", tfw_sched->name);
+	tfw_sched = NULL;
 }
 EXPORT_SYMBOL(tfw_sched_unregister);
