@@ -25,36 +25,6 @@
 #include "log.h"
 
 /**
- * Add compound piece to @str and return pointer to the piece.
- */
-TfwStr *
-tfw_str_add_compound(TfwPool *pool, TfwStr *str)
-{
-	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
-		unsigned int l = str->len * sizeof(TfwStr);
-		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
-						    l + sizeof(TfwStr));
-		if (!p)
-			return NULL;
-		str->len++;
-	}
-	else {
-		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
-		if (!a)
-			return NULL;
-		a[0].ptr = str->ptr;
-		a[0].len = str->len;
-		str->ptr = a;
-		str->len = 2;
-		str->flags |= TFW_STR_COMPOUND;
-	}
-
-	TFW_STR_INIT((TfwStr *)str->ptr + str->len - 1);
-
-	return ((TfwStr *)str->ptr + str->len - 1);
-}
-
-/**
  * Print UPv4/IPv6 address in network byte order to @buf.
  * @buf must be MAX_ADDR_LEN bytes in size.
  */

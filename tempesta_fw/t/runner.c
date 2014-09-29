@@ -17,12 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LIB_H__
-#define __TFW_LIB_H__
 
-#include "str.h"
+#include "test.h"
 
-int tfw_inet_ntop(void *addr, char *buf);
-bool tfw_addr_eq(const void *addr1, const void *addr2);
+TEST_SUITE(tfw_str);
 
-#endif /* __TFW_LIB_H__ */
+void
+tfw_run_all_tests(void)
+{
+	RUN_TEST_SUITE(tfw_str);
+}
