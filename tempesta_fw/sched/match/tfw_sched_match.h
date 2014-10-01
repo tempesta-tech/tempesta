@@ -21,7 +21,7 @@
 #define __TFW_SCHED_MATCH_H__
 
 #include "tempesta.h"
-#include "lib.h"
+#include "lib/lib.h"
 
 #define LOG_BANNER "tfw_sched_match: "
 #define ERR(...) TFW_ERR(LOG_BANNER __VA_ARGS__)

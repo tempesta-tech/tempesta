@@ -22,8 +22,8 @@
 #include <linux/slab.h>
 
 #include "connection.h"
-#include "lib.h"
-#include "log.h"
+#include "lib/addr.h"
+#include "lib/log.h"
 #include "sched.h"
 #include "server.h"
 

@@ -21,7 +21,7 @@
  */
 
 #include "tempesta.h"
-#include "log.h"
+#include "lib/log.h"
 #include "sched.h"
 
 

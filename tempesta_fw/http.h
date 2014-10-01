@@ -21,9 +21,9 @@
 #define __TFW_HTTP_H__
 
 #include "connection.h"
-#include "lib.h"
+#include "lib/lib.h"
 #include "msg.h"
-#include "pool.h"
+
 
 /**
  * All helping information for current HTTP parsing state of a message.

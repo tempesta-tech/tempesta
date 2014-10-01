@@ -23,7 +23,7 @@
 
 #include "client.h"
 #include "connection.h"
-#include "log.h"
+#include "lib/log.h"
 
 static struct kmem_cache *cli_cache;
 

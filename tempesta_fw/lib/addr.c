@@ -24,36 +24,10 @@
 #include <linux/in.h>
 #include <linux/in6.h>
 
-#include "tempesta.h"
+#include "../tempesta.h"
 #include "lib.h"
 #include "log.h"
 
-
-/**
- * Retrurn number of tokens in @str separated by space ([ \t]+).
- * @str is null-terminated string.
- */
-int
-tfw_str_tokens_count(const char *str)
-{
-	int n = 0;
-
-	/* Eat empty string prefix. */
-	while (*str == ' ' || *str == '\t')
-		++str;
-
-	while (*str) {
-		++n;
-		/* Eat a word. */
-		while (*str && *str != ' ' && *str != '\t')
-			++str;
-		/* Eat all separators. */
-		while (*str && (*str == ' ' || *str == '\t'))
-			++str;
-	}
-
-	return n;
-}
 
 static int
 tfw_inet_pton_ipv4(char **p, struct sockaddr_in *addr)
@@ -206,9 +180,9 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 	/* Set port. */
 	if (port == -1) {
 		addr->sin6_port = htons(DEF_PORT);
-		return 0;
+	} else {
+		addr->sin6_port = htons(words[8]);
 	}
-	addr->sin6_port = htons(words[8]);
 
 	return 0;
 #undef XD
@@ -270,13 +244,13 @@ tfw_inet_ntop(const void *addr, char *buf)
 	unsigned short family = *(unsigned short *)addr;
 
 	if (family == AF_INET) {
-		struct sockaddr_in *sa = addr;
+		const struct sockaddr_in *sa = addr;
 		unsigned char *a = (unsigned char *)&sa->sin_addr.s_addr;
 		snprintf(buf, MAX_ADDR_LEN, "%u.%u.%u.%u:%u",
 			 a[0], a[1], a[2], a[3], ntohs(sa->sin_port));
 	}
 	else if (family == AF_INET6) {
-		struct sockaddr_in6 *sa = addr;
+		const struct sockaddr_in6 *sa = addr;
 		snprintf(buf, MAX_ADDR_LEN, "[%x:%x:%x:%x:%x:%x:%x:%x]:%u",
 			 ntohs(sa->sin6_addr.s6_addr16[0]),
 			 ntohs(sa->sin6_addr.s6_addr16[1]),
