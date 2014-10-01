@@ -156,12 +156,14 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len)
 {
 	return str_eq_cstr(str, cstr, cstr_len, false);
 }
+EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 bool
 tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 {
 	return str_eq_cstr(str, cstr, cstr_len, true);
 }
+EXPORT_SYMBOL(tfw_str_eq_cstr_ci);
 
 bool
 tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
@@ -190,4 +192,5 @@ tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 
 	return true;
 }
+EXPORT_SYMBOL(tfw_str_startswith_cstr_ci);
 

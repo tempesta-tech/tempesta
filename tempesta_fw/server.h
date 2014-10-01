@@ -21,6 +21,7 @@
 #define __TFW_SERVER_H__
 
 #include <net/sock.h>
+#include "tempesta.h"
 
 #define TFW_MAX_SERVER_STR_SIZE 100
 
@@ -34,6 +35,7 @@ typedef struct {
 TfwServer *tfw_create_server(struct sock *s);
 void tfw_destroy_server(struct sock *s);
 
+int tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr);
 int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
 
 int tfw_server_init(void);

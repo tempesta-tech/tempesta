@@ -16,5 +16,6 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-obj-m = dummy/ rr/ match/
+EXTRA_CFLAGS = -DDEBUG -I$(src)/../../ -I$(src)/../../../tempesta_db -I$(src)/../../../sync_socket
 
+obj-m = tfw_sched_dummy.o

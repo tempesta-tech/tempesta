@@ -22,7 +22,26 @@
 
 #include "str.h"
 
-int tfw_inet_ntop(void *addr, char *buf);
+#ifdef DEBUG
+#define DEBUG_IS_DEFINED 1
+#else
+#define DEBUG_IS_DEFINED 0
+#endif
+
+#define IF_DEBUG if (DEBUG_IS_DEFINED)
+
+#ifndef packedenum
+#define packedenum  enum __attribute__((packed))
+#endif
+
+#ifndef STRINGIFY
+#define _STRINGIFY(x) #x
+#define STRINGIFY(x) _STRINGIFY(x)
+#endif
+
+int tfw_str_tokens_count(const char *str);
+int tfw_inet_pton(char **p, void *addr);
+int tfw_inet_ntop(const void *addr, char *buf);
 bool tfw_addr_eq(const void *addr1, const void *addr2);
 
 #endif /* __TFW_LIB_H__ */
