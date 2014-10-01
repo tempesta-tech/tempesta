@@ -77,7 +77,21 @@ tfw_create_server(struct sock *s)
 	return srv;
 }
 
-int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
+int
+tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr)
+{
+	int ret = 0;
+	int len = sizeof(*addr);
+
+	memset(addr, 0, len);
+	ret = kernel_getpeername(srv->sock->sk_socket, &addr->addr, &len);
+
+	return ret;
+}
+EXPORT_SYMBOL(tfw_server_get_addr);
+
+int
+tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 {
 	TfwAddr addr;
 	int len = sizeof(addr);
@@ -85,8 +99,7 @@ int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 
 	BUG_ON(!srv || !buf || !buf_size);
 
-	memset(&addr, 0, sizeof(addr));
-	kernel_getpeername(srv->sock->sk_socket, &addr.addr, &len);
+	tfw_server_get_addr(srv, &addr);
 	tfw_inet_ntop(&addr, addr_str_buf);
 
 	len = snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
