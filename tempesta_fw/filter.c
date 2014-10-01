@@ -34,7 +34,7 @@
 #include "tempesta.h"
 #include "classifier.h"
 #include "filter.h"
-#include "log.h"
+#include "lib/log.h"
 
 static TfwFilter *filter = NULL;
 static rwlock_t	tfw_fmod_lock = __RW_LOCK_UNLOCKED(tfw_fmod_lock);

@@ -37,7 +37,7 @@
 #include "../classifier.h"
 #include "../connection.h"
 #include "../gfsm.h"
-#include "../log.h"
+#include "../lib/log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta rate limiting classifier");

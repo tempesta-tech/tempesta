@@ -20,12 +20,12 @@
 
 #include <linux/debugfs.h>
 #include <linux/fs.h>
+#include <linux/slab.h>
 #include <linux/namei.h>
 #include <linux/string.h>
 
 #include "debugfs.h"
 #include "log.h"
-#include "tempesta.h"
 
 
 #ifdef DEBUG

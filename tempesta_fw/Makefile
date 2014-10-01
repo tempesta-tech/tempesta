@@ -20,13 +20,11 @@ EXTRA_CFLAGS += -I$(src)/../sync_socket -I$(src)/../tempesta_db -DDEBUG
 
 obj-m	= tempesta_fw.o
 tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
-		   http.o http_msg.o http_parser.o if.o lib.o main.o pool.o \
-		   sched.o server.o session.o sock_backend.o sock_frontend.o \
-		   stress.o debugfs.o str.o
+		   http.o http_msg.o http_parser.o if.o main.o  sched.o server.o \
+		   session.o sock_backend.o sock_frontend.o stress.o
 
-
+# TODO: handle this correctly
 tempesta_fw-objs += t/test_tfw_str.o t/runner.o
+tempesta_fw-objs += lib/addr.o lib/debugfs.o lib/pool.o lib/str.o
 
 obj-m	+= log/ classifier/ stress/ sched/ filter/
-
-

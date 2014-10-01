@@ -25,7 +25,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "gfsm.h"
-#include "log.h"
+#include "lib/log.h"
 
 #define TFW_GFSM_STATE_ST(s)	(TFW_GFSM_STATE(s) & TFW_GFSM_STATE_MASK)
 #define TFW_GFSM_FSM(s)		(TFW_GFSM_STATE(s) >> TFW_GFSM_FSM_SHIFT)

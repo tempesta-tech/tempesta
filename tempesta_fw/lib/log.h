@@ -20,6 +20,9 @@
 #ifndef __TFW_LOG_H__
 #define __TFW_LOG_H__
 
+#include <linux/kernel.h>
+#include <linux/net.h>
+
 #define TFW_BANNER		"[tempesta] "
 
 #ifdef DEBUG

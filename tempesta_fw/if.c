@@ -24,8 +24,36 @@
 
 #include "tempesta.h"
 #include "cache.h"
-#include "lib.h"
+#include "lib/addr.h"
 #include "log.h"
+
+
+/**
+ * Retrurn number of tokens in @str separated by space ([ \t]+).
+ * @str is null-terminated string.
+ */
+static int
+tfw_str_tokens_count(const char *str)
+{
+	int n = 0;
+
+	/* Eat empty string prefix. */
+	while (*str == ' ' || *str == '\t')
+		++str;
+
+	while (*str) {
+		++n;
+		/* Eat a word. */
+		while (*str && *str != ' ' && *str != '\t')
+			++str;
+		/* Eat all separators. */
+		while (*str && (*str == ' ' || *str == '\t'))
+			++str;
+	}
+
+	return n;
+}
+
 
 /*
  * ------------------------------------------------------------------------
