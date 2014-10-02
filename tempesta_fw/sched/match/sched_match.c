@@ -20,11 +20,11 @@
 
 #include <linux/rcupdate.h>
 
+#include "http.h"
 #include "sched.h"
 #include "server.h"
-#include "http.h"
 
-#include "tfw_sched_match.h"
+#include "sched_match.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta request-matching scheduler");
@@ -47,6 +47,11 @@ MODULE_LICENSE("GPL");
  * table until. If a matching entry is found, then the algorithm stops and
  * returns a server from the list.
  *
+ * Also there are two additional entities:
+ *  - A list of all online servers added to the scheduler.
+ *  - A table of rules that contains addresses instead of TfwServer objects.
+ * When either one of them is changed, both are merged into a single matching
+ * table that combines matching rules and TfwServer objects.
  */
 
 typedef struct {
@@ -57,7 +62,6 @@ typedef struct {
 } SrvList;
 
 #define SIZE_OF_SRV_LIST(n) (sizeof(SrvList) + sizeof(TfwServer) * (n))
-
 
 typedef struct {
 	subj_t 	subj;
@@ -75,16 +79,39 @@ typedef struct {
 
 
 /**
- * The table is not updated in-place.
- * Instead, each time something is modified, a new table is built and the
- * pointer is replaced via RCU.
+ * The matching table.
+ * Generally it is read-only, once it is generated it is not updated.
+ * When a change occurs, a new table is generated and this pointer is replaced
+ * via the RCU mechanism.
  */
-static MatchTbl *match_tbl = NULL;
+static const MatchTbl *match_tbl = NULL;
+
+/**
+ * List of all known servers.
+ * Allocated once upon initialization, then updated in-place by
+ * tfw_sched_match_add_srv() and tfw_sched_match_del_srv().
+ */
 static SrvList *added_servers = NULL;
+
+/**
+ * Parsed rules.
+ * The differences from the MatchTbl are:
+ *  - Contains addresses instead of TfwServer objects.
+ *  - Not read-only, the contents is updated when rules are changed.
+ *  - Allocated statically, the whole table is overwritten by apply_new_rules().
+ */
 static RuleTbl rule_tbl;
 
-DEFINE_SPINLOCK(sched_match_write_lock);
+/**
+ * The lock for serializing writers.
+ * Must be held when either added_servers or rule_tbl is accessed.
+ */
+DEFINE_SPINLOCK(sched_match_update_lock);
 
+
+/*
+ * Supplementary functions.
+ */
 
 static void
 dbg_print_entry(const char *msg, const MatchTblEntry *e, bool print_servers)
@@ -210,6 +237,9 @@ srv_list_get_by_addr(const SrvList *list, const TfwAddr *addr)
 	return NULL;
 }
 
+/*
+ * Functions for working with MatchTbl.
+ */
 
 /**
  * Merge a table of rules and a list of servers into a single matching table.
@@ -227,7 +257,7 @@ srv_list_get_by_addr(const SrvList *list, const TfwAddr *addr)
  * Also, the function uses @tbl->pool to allocate new elements, so you are
  * responsible for freeing them, even if the function returns an error.
  */
-int
+static int
 fill_match_tbl(const RuleTbl *rule_tbl, const SrvList *all_servers, MatchTbl *tbl)
 {
 	int rule_idx, addr_idx, pattern_len;
@@ -240,6 +270,7 @@ fill_match_tbl(const RuleTbl *rule_tbl, const SrvList *all_servers, MatchTbl *tb
 		rule = &rule_tbl->rules[rule_idx];
 		pattern_len = strnlen(rule->pattern, sizeof(rule->pattern));
 
+		/* Allocate memory. */
 		entry = tfw_pool_alloc(tbl->pool, sizeof(*entry));
 		pattern = tfw_pool_alloc(tbl->pool, pattern_len);
 		servers = tfw_pool_alloc(tbl->pool, SIZE_OF_SRV_LIST(rule->addrs_n));
@@ -248,8 +279,8 @@ fill_match_tbl(const RuleTbl *rule_tbl, const SrvList *all_servers, MatchTbl *tb
 			return -1;
 		}
 
+		/* Resolve IP addresses to TfwServer pointers. */
 		servers->srv_max = rule->addrs_n;
-
 		for (addr_idx = 0; addr_idx < rule->addrs_n; ++addr_idx) {
 			const TfwAddr *addr = &rule->addrs[addr_idx];
 			TfwServer *srv = srv_list_get_by_addr(all_servers, addr);
@@ -260,6 +291,7 @@ fill_match_tbl(const RuleTbl *rule_tbl, const SrvList *all_servers, MatchTbl *tb
 			}
 		}
 
+		/* Copy data from Rule to the newly created MatchTblEntry. */
 		memcpy(pattern, rule->pattern, pattern_len);
 		entry->subj = rule->subj;
 		entry->op = rule->op;
@@ -294,7 +326,7 @@ refresh_match_tbl(void)
 		return -1;
 	}
 
-	spin_lock_bh(&sched_match_write_lock);
+	spin_lock_bh(&sched_match_update_lock);
 	ret = fill_match_tbl(&rule_tbl, added_servers, new_tbl);
 	spin_unlock_bh(&sched_match_write_lock);
 
@@ -318,6 +350,10 @@ refresh_match_tbl(void)
 	return 0;
 }
 
+/*
+ * Functions for matching HTTP requests against MatchTbl.
+ */
+
 /**
  * Evaluate an "expression" of a form: (subject [operator] pattern).
  *
@@ -338,7 +374,6 @@ apply_str_op(op_t op, const TfwStr *str, const char *cstr, int cstr_len)
 
 	return fns[op](str, cstr, cstr_len);
 }
-
 
 static bool
 match_uri(const TfwHttpReq *r, const MatchTblEntry *e)
@@ -417,6 +452,10 @@ do_matches(const TfwHttpReq *req, const MatchTbl *tbl)
 	return NULL;
 }
 
+/*
+ * Scheduler API.
+ */
+
 TfwServer *
 tfw_sched_match_get_srv(TfwMsg *msg)
 {
@@ -451,7 +490,7 @@ tfw_sched_match_add_srv(TfwServer *srv)
 
 	DBG("Adding server: %p\n", srv);
 
-	spin_lock_bh(&sched_match_write_lock);
+	spin_lock_bh(&sched_match_update_lock);
 	ret = srv_list_add(added_servers, srv);
 	spin_unlock_bh(&sched_match_write_lock);
 
@@ -475,7 +514,7 @@ tfw_sched_match_del_srv(TfwServer *srv)
 
 	DBG("Deleting server: %p\n", srv);
 
-	spin_lock_bh(&sched_match_write_lock);
+	spin_lock_bh(&sched_match_update_lock);
 	ret = srv_list_del(added_servers, srv);
 	spin_unlock_bh(&sched_match_write_lock);
 
@@ -500,9 +539,9 @@ apply_new_rules(const RuleTbl *tbl)
 
 	DBG("Applying new matching rules\n");
 
-	spin_lock_bh(&sched_match_write_lock);
+	spin_lock_bh(&sched_match_update_lock);
 	memcpy(&rule_tbl, tbl, sizeof(rule_tbl));
-	spin_unlock_bh(&sched_match_write_lock);
+	spin_unlock_bh(&sched_match_update_lock);
 
 	ret = refresh_match_tbl();
 	if (ret) {

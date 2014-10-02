@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Common helpers.
+ * IP address related functions.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
