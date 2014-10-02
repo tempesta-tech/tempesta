@@ -22,7 +22,6 @@
 
 #include <linux/list.h>
 
-#include "http_msg.h"
 #include "log.h"
 #include "sched.h"
 #include "session.h"
@@ -60,14 +59,14 @@ tfw_session_create(TfwClient *cli)
 void
 tfw_session_free(TfwSession *s)
 {
-	TfwHttpReq *req, *tmp;
+	TfwMsg *msg, *tmp;
 
 	TFW_DBG("Free session: %p\n", s);
 
 	/* Release all pipelined HTTP requests. */
-	list_for_each_entry_safe(req, tmp, &s->req_list, list) {
-		list_del(&req->list);
-		tfw_http_msg_free((TfwHttpMsg *)req);
+	list_for_each_entry_safe(msg, tmp, &s->req_list, pl_list) {
+		list_del(&msg->pl_list);
+		tfw_msg_destruct(msg);
 	}
 
 	kmem_cache_free(sess_cache, s);

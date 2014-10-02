@@ -28,11 +28,29 @@
 
 #include "gfsm.h"
 
+typedef struct tfw_msg TfwMsg;
+typedef void (*tfw_msg_destructor_t)(TfwMsg *msg);
+
 typedef struct tfw_msg {
 	struct tfw_msg	*prev;		/* sibling messages */
 	TfwGState	state;		/* message processing state. */
 	SsSkbList	skb_list;	/* list of sk_buff's belonging
 					   to the message. */
+	struct list_head pl_list;	/* Element of a pipeline list. */
+	tfw_msg_destructor_t destructor;
 } TfwMsg;
+
+
+/**
+ * Invoke TfwMsg destructor.
+ * Also the macro sets given @msg_ptr to NULL because the destructor is supposed
+ * to free some allocated memory, so the pointer becomes invalid after the call.
+ */
+#define tfw_msg_destruct(msg_ptr) 	\
+do { 					\
+	BUG_ON(!msg_ptr->destructor); 	\
+	msg_ptr->destructor(msg_ptr);	\
+	msg_ptr = NULL;			\
+} while (0)
 
 #endif /* __TFW_MSG_H__ */

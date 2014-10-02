@@ -84,24 +84,37 @@ typedef struct {
 static inline TfwConnection *
 tfw_sess_conn(TfwSession *sess, int type)
 {
-	if ((type & Conn_Clnt) && sess->cli)
+	if (type & Conn_Clnt) {
+		BUG_ON(!sess->cli);
 		return sess->cli->sock->sk_user_data;
-	if ((type & Conn_Srv) && sess->srv)
-		return sess->srv->sock->sk_user_data;
+	}
 
+	if (type & Conn_Srv) {
+		if (!sess->srv)
+			return NULL;
+		return sess->srv->sock->sk_user_data;
+	}
+
+	BUG();
 	return NULL;
 }
 
 static inline TfwConnection *
 tfw_connection_peer(TfwConnection *c)
 {
-	if (!c->sess)
-		return NULL;
-
-	if (TFW_CONN_TYPE(c) & Conn_Clnt)
+	if (TFW_CONN_TYPE(c) & Conn_Clnt) {
+		BUG_ON(!c->sess);
 		return tfw_sess_conn(c->sess, Conn_Srv);
+	}
 
-	return tfw_sess_conn(c->sess, Conn_Clnt);
+	if (TFW_CONN_TYPE(c) & Conn_Srv) {
+		if (!c->sess)
+			return NULL;
+		return tfw_sess_conn(c->sess, Conn_Clnt);
+	}
+
+	BUG();
+	return NULL;
 }
 
 /* Connection downcalls. */
