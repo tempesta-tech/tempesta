@@ -23,7 +23,11 @@ tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
 		   http.o http_msg.o http_parser.o if.o main.o  sched.o server.o \
 		   session.o sock_backend.o sock_frontend.o stress.o
 
-# TODO: handle this correctly
+# FIXME:
+#   This may be a bit confusing because usually such sub-directories have their
+#   own Makefile files. We need to decide how to properly integrate these
+#   sub-directories to the build system.
+#   
 tempesta_fw-objs += t/test_tfw_str.o t/runner.o
 tempesta_fw-objs += lib/addr.o lib/debugfs.o lib/pool.o lib/str.o
 

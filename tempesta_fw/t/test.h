@@ -1,6 +1,14 @@
 /**
  *		Tempesta FW
  *
+ * A basic set of macros for writing unit tests that run in the kernel space.
+ *
+ * This is a bit awkward approach for unit testing, but it allows to start
+ * writing tests quickly with minimal effort (spent for mocking the kernel API).
+ * Later on we may decide to move them into user-space. These macros try to
+ * imitate the GoogleTest API. That should facilitate the future migration.
+ *
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
