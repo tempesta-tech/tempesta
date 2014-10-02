@@ -57,8 +57,7 @@ tfw_http_conn_init(TfwConnection *conn)
 static void
 tfw_http_conn_destruct(TfwConnection *conn)
 {
-	if (conn->msg)
-		tfw_http_msg_free((TfwHttpMsg *)conn->msg);
+	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
@@ -662,7 +661,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			return TFW_POSTPONE;
 		case TFW_PASS:
 			/* Request is fully parsed, add it to the connection. */
-			list_add_tail(&req->list, &sess->req_list);
+			list_add_tail(&req->msg.pl_list, &sess->req_list);
 			conn->msg = NULL;
 
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
@@ -774,8 +773,8 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 			TFW_WARN("Response w/o request\n");
 			goto block;
 		}
-		req = list_first_entry(&sess->req_list, TfwHttpReq, list);
-		list_del(&req->list);
+		req = list_first_entry(&sess->req_list, TfwHttpReq, msg.pl_list);
+		list_del(&req->msg.pl_list);
 		tfw_cache_add(resp, req);
 
 		/* Now we don't need the request anymore. */

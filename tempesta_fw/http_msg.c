@@ -19,12 +19,7 @@
  */
 #include "gfsm.h"
 #include "http.h"
-
-static void
-__tfw_http_msg_init_req(TfwHttpReq *req)
-{
-	INIT_LIST_HEAD(&req->list);
-}
+#include "http_msg.h"
 
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
@@ -43,8 +38,9 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->off = 0;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
 
-	if (type & Conn_Clnt)
-		__tfw_http_msg_init_req((TfwHttpReq *)hm);
+	INIT_LIST_HEAD(&hm->msg.pl_list);
+
+	hm->msg.destructor = (tfw_msg_destructor_t)tfw_http_msg_free;
 
 	return hm;
 }
@@ -56,6 +52,10 @@ void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
 	TFW_DBG("Free msg: %p", m);
+
+	/* Allow passing a NULL pointer as the argument (similar to kfree()). */
+	if (!m)
+		return;
 
 	/*
 	 * FIXME do we need to synchronize this?
