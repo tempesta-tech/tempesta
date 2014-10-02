@@ -42,6 +42,11 @@ enum {
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
 
+typedef struct {
+	void (*sk)(struct sock *sk);
+	void (*conn)(struct sock *sk);
+} TfwConnDestructors;
+
 /* TODO backend connection could have many sessions. */
 typedef struct {
 	/*
@@ -53,6 +58,10 @@ typedef struct {
 	TfwMsg		*msg;	/* currently processing (receiving) message */
 	void 		*hndl;	/* TfwClient or TfwServer handler */
 	TfwSession	*sess;	/* currently handled session */
+
+	/* sk->sk_destruct is replaced with a custom function that invokes
+	 * the following destructors. */
+	TfwConnDestructors destructors;
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
