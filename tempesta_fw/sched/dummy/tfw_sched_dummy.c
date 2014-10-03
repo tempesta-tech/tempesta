@@ -19,7 +19,7 @@
  */
 #include <linux/module.h>
 
-#include "lib/log.h"
+#include "log.h"
 #include "sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);

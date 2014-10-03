@@ -25,7 +25,7 @@
 #include "client.h"
 #include "filter.h"
 #include "http.h"
-#include "lib/debugfs.h"
+#include "debugfs.h"
 #include "log.h"
 #include "server.h"
 #include "tempesta.h"

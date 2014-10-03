@@ -20,40 +20,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LIB_MISC_H__
-#define __TFW_LIB_MISC_H__
-
-/**
- * An enum whose size is reduced to a minimum possible value.
- *
- * Usage:
- *  typedef packedenum {
- *          FOO = 0,
- *          BAR = 255,
- *  } one_byte_enum;
- *
- *  typedef packedenum {
- *          FOO = 0,
- *          BAR = 256,
- *  } two_byte_enum;
- */
-#ifndef packedenum
-#define packedenum  enum __attribute__((packed))
-#endif
-
-/**
- * Define C struct without member padding.
- *
- * Usage:
- *  typedef packedstruct {
- *          u8  field1;
- *          u16 field2;
- *          u8  field3;
- *  } MyFourByteStruct;
- */
-#ifndef packedstruct
-#define packedstruct struct __attribute__((packed))
-#endif
+#ifndef __TFW_LIB_H__
+#define __TFW_LIB_H__
 
 /**
  * Convert C identifier (precisely, a preprocessing token) to a string literal.
@@ -69,5 +37,4 @@
 #define STRINGIFY(x) _STRINGIFY(x)
 #endif
 
-
-#endif /* __TFW_LIB_MISC_H__ */
+#endif /* __TFW_LIB_H__ */

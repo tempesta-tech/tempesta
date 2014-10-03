@@ -23,7 +23,9 @@
 #include <linux/ctype.h>
 #include <linux/string.h>
 
-#include "tfw_sched_match.h"
+#include "lib.h"
+#include "log.h"
+#include "sched_match.h"
 
 #define RULES_TEXT_BUF_SIZE 1024
 #define IP_ADDR_TEXT_BUF_SIZE 64

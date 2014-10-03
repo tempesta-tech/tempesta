@@ -19,7 +19,7 @@
  */
 
 #include "test.h"
-#include "../lib/str.h"
+#include "../str.h"
 
 
 static const TfwStr chunks[] = {

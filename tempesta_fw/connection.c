@@ -23,7 +23,7 @@
 #include "client.h"
 #include "connection.h"
 #include "gfsm.h"
-#include "lib/log.h"
+#include "log.h"
 #include "session.h"
 
 #include "sync_socket.h"

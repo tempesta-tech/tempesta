@@ -24,7 +24,7 @@
 
 #include "tempesta.h"
 #include "cache.h"
-#include "lib/addr.h"
+#include "addr.h"
 #include "log.h"
 
 

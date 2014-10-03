@@ -21,7 +21,7 @@
 #define __TFW_SERVER_H__
 
 #include <net/sock.h>
-#include "lib/addr.h"
+#include "addr.h"
 #include "tempesta.h"
 
 #define TFW_MAX_SERVER_STR_SIZE 100
