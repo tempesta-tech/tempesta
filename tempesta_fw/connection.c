@@ -80,30 +80,12 @@ tfw_connection_free(TfwConnection *c)
  */
 
 /**
- * A socket destructor (sk->sk_destruct) for TfwConnection.
- *
- * This is a wrapper that invokes:
- *  - a callback established in tfw_connection_new()
- *  - original sk_destruct which is replaced by this function
- */
-static void
-tfw_conn_destruct(struct sock *sk)
-{
-	TfwConnection *conn = sk->sk_user_data;
-	BUG_ON(!conn);
-
-	TFW_DBG("Destruct conn: %p (sock: %p)", conn, sk);
-
-	if (conn->destructors.conn)
-		conn->destructors.conn(sk);
-
-	if (conn->destructors.sk)
-		conn->destructors.sk(sk);
-}
-
-/**
  * A downcall for new connection called to set necessary callbacks
  * when a traditional Sockets connect() is calling.
+ *
+ * @destructor Is a function placed to sk->sk_destruct.
+ * The original callback is saved to TfwConnection->sk_destruct and the passed
+ * function must call it manually.
  */
 int
 tfw_connection_new(struct sock *sk, int type, void *handler,
@@ -127,9 +109,8 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 
 	sk->sk_user_data = conn;
 
-	conn->destructors.sk = sk->sk_destruct;
-	conn->destructors.conn = destructor;
-	sk->sk_destruct = tfw_conn_destruct;
+	conn->sk_destruct = sk->sk_destruct;
+	sk->sk_destruct = destructor;
 
 	sock_set_flag(sk, SOCK_DBG);
 
