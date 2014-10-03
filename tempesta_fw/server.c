@@ -55,6 +55,8 @@ tfw_destroy_server(struct sock *s)
 #if 0
 	kmem_cache_free(srv_cache, srv);
 #endif
+
+	conn->sk_destruct(s);
 }
 
 TfwServer *
