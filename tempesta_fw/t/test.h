@@ -30,12 +30,12 @@
 
 #include <linux/kernel.h>
 
+
 #define TEST(unit, assertion)  static void test__ ##unit ##__ ##assertion(void)
 #define RUN_TEST(unit, assertion) test__ ##unit ##__ ##assertion()
 
 #define TEST_SUITE(name) void test_suite__##name(void)
 #define RUN_TEST_SUITE(name) test_suite__##name()
-
 
 #define __FAIL_MSG(...) \
 do {							\
@@ -44,9 +44,7 @@ do {							\
 	printk("\n");					\
 } while (0)
 
-
 #define FAIL() __FAIL_MSG("FAIL()");
-
 
 #define EXPECT_TRUE(cond) 		\
 do { 					\
@@ -56,7 +54,6 @@ do { 					\
 	__FAIL_MSG("EXPECT_TRUE(%s) => %d", #cond, _test_val); \
 } while (0)
 
-
 #define EXPECT_FALSE(cond)		\
 do {					\
 	bool _test_val = (cond);	\
@@ -64,8 +61,6 @@ do {					\
 		break;			\
 	__FAIL_MSG("EXPECT_FALSE(%s) => %d", #cond, _test_val); \
 } while (0)
-
-
 
 #define __EXPECT_CMP(name, expr1, expr2, cmp_expr)	\
 do {							\

@@ -110,7 +110,9 @@ DEFINE_SPINLOCK(sched_match_update_lock);
 
 
 /*
- * Supplementary functions.
+ * --------------------------------------------------------------------------
+ *  Supplementary functions.
+ * --------------------------------------------------------------------------
  */
 
 static void
@@ -132,7 +134,6 @@ dbg_print_entry(const char *msg, const MatchTblEntry *e, bool print_servers)
 		}
 	}
 }
-
 
 static int
 srv_list_find(const SrvList *list, const TfwServer *srv)
@@ -157,7 +158,8 @@ srv_list_add(SrvList *list, TfwServer *srv)
 	if (srv_list_find(list, srv) > 0) {
 		ERR("The server is already present in the list\n");
 		return -EEXIST;
-	} else if (list->srv_n >= list->srv_max) {
+	}
+	else if (list->srv_n >= list->srv_max) {
 		ERR("No space left in the servers list\n");
 		return -ENOMEM;
 	}
@@ -238,9 +240,10 @@ srv_list_get_by_addr(const SrvList *list, const TfwAddr *addr)
 }
 
 /*
- * Functions for working with MatchTbl.
+ * --------------------------------------------------------------------------
+ *  MatchTbl related functions.
+ * --------------------------------------------------------------------------
  */
-
 /**
  * Merge a table of rules and a list of servers into a single matching table.
  *
@@ -305,7 +308,6 @@ fill_match_tbl(const RuleTbl *rule_tbl, const SrvList *all_servers, MatchTbl *tb
 	return 0;
 }
 
-
 /**
  * The function does two things:
  * 1. Builds new MatchTbl from a set of Rules (stored in 'rule_tbl') and a set
@@ -351,7 +353,9 @@ refresh_match_tbl(void)
 }
 
 /*
- * Functions for matching HTTP requests against MatchTbl.
+ * --------------------------------------------------------------------------
+ *  Functions for matching HTTP requests against MatchTbl.
+ * --------------------------------------------------------------------------
  */
 
 /**
@@ -425,7 +429,6 @@ match(const TfwHttpReq *req, const MatchTblEntry *entry)
 	return fns[subj](req, entry);
 }
 
-
 static TfwServer *
 do_matches(const TfwHttpReq *req, const MatchTbl *tbl)
 {
@@ -453,7 +456,9 @@ do_matches(const TfwHttpReq *req, const MatchTbl *tbl)
 }
 
 /*
- * Scheduler API.
+ * --------------------------------------------------------------------------
+ *  Scheduler API
+ * --------------------------------------------------------------------------
  */
 
 TfwServer *
@@ -481,7 +486,6 @@ tfw_sched_match_get_srv(TfwMsg *msg)
 
 	return srv;
 }
-
 
 int
 tfw_sched_match_add_srv(TfwServer *srv)
@@ -531,7 +535,6 @@ tfw_sched_match_del_srv(TfwServer *srv)
 	return ret;
 }
 
-
 int
 apply_new_rules(const RuleTbl *tbl)
 {
@@ -550,7 +553,6 @@ apply_new_rules(const RuleTbl *tbl)
 
 	return ret;
 }
-
 
 extern int sysctl_register(void);
 extern void sysctl_unregister(void);

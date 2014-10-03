@@ -30,8 +30,6 @@
 #define RULES_TEXT_BUF_SIZE 1024
 #define IP_ADDR_TEXT_BUF_SIZE 64
 
-
-
 /*
  * The following code is a sysctl interface with a primitive descend parser
  * for the configuration. The code is a bit awkward, it is a subject to change
@@ -59,7 +57,6 @@ token_str(token_t t)
 	return token_str_tbl[t];
 }
 
-
 typedef struct {
 	token_t token;
 	int len;
@@ -69,13 +66,11 @@ typedef struct {
 	RuleTbl *tbl;
 } ParserState;
 
-
 #define PARSER_ERR(s, ...) \
 do { \
 	ERR("Parser error: " __VA_ARGS__); \
 	ERR("lexeme: %.*s  position: %.80s\n", s->len, s->lexeme, s->pos); \
 } while (0)
-
 
 token_t get_token(ParserState *s)
 {
@@ -189,7 +184,7 @@ do { 							\
 })
 
 static int
-subj(ParserState *s)
+parse_subj(ParserState *s)
 {
 	static const char *subj_str_tbl[] = {
 		[SUBJ_NA] 	= STRINGIFY(SUBJ_NA),
@@ -214,7 +209,7 @@ subj(ParserState *s)
 }
 
 static int
-op(ParserState *s)
+parse_op(ParserState *s)
 {
 	static const char *op_str_tbl[] = {
 		[OP_NA] = STRINGIFY(OP_NA),
@@ -238,7 +233,7 @@ op(ParserState *s)
 }
 
 static int
-pattern(ParserState *s)
+parse_pattern(ParserState *s)
 {
 	EXPECT(TOKEN_STR, s, return -1);
 	get_token(s);
@@ -255,7 +250,7 @@ pattern(ParserState *s)
 }
 
 static int
-server(ParserState *s)
+parse_server(ParserState *s)
 {
 	int ret = 0;
 	TfwAddr *addr;
@@ -289,7 +284,7 @@ server(ParserState *s)
 }
 
 static int
-servers(ParserState *s)
+parse_servers(ParserState *s)
 {
 	EXPECT(TOKEN_LBRACE, s, return -1);
 	get_token(s);
@@ -301,7 +296,7 @@ servers(ParserState *s)
 			return 0;
 		} else {
 			EXPECT(TOKEN_STR, s, return -1);
-			if (server(s))
+			if (parse_server(s))
 				return -1;
 		}
 	}
@@ -310,13 +305,13 @@ servers(ParserState *s)
 }
 
 static int
-rule(ParserState *s)
+parse_rule(ParserState *s)
 {
-	return subj(s) || op(s) || pattern(s) || servers(s);
+	return parse_subj(s) || parse_op(s) || parse_pattern(s) || parse_servers(s);
 }
 
 static int
-rules(ParserState *s)
+parse_rules(ParserState *s)
 {
 	int ret;
 
@@ -328,7 +323,7 @@ rules(ParserState *s)
 
 		s->rule = &s->tbl->rules[s->tbl->rules_n++];
 
-		ret = rule(s);
+		ret = parse_rule(s);
 		if (ret)
 			return ret;
 	}
@@ -338,13 +333,12 @@ rules(ParserState *s)
 
 int run_parser(const char *input, RuleTbl *tbl)
 {
-	ParserState s;
+	ParserState s = {
+		.pos = input,
+		.tbl = tbl
+	};
 
-	memset(&s, 0, sizeof(s));
-	s.pos = input;
-	s.tbl = tbl;
-
-	return rules(&s);
+	return parse_rules(&s);
 }
 
 static int
@@ -397,8 +391,6 @@ out:
 	return ret;
 }
 
-
-
 static char ctl_data[RULES_TEXT_BUF_SIZE];
 
 static ctl_table sched_match_tbl[] = {
@@ -413,7 +405,6 @@ static ctl_table sched_match_tbl[] = {
 };
 
 static struct ctl_table_header *sched_match_ctl;
-
 
 int
 sysctl_register(void)

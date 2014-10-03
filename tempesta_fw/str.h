@@ -24,12 +24,10 @@
 
 #include "pool.h"
 
-typedef enum {
-	/* Str is compound from many chunks, use indirect table for the chunks. */
-	TFW_STR_COMPOUND 	= 0x01,
-	/* Str constists from compound strings. */
-	TFW_STR_COMPOUND2 	= 0x02,
-} tfw_str_flags_t;
+/* Str is compound from many chunks, use indirect table for the chunks. */
+#define TFW_STR_COMPOUND 	0x01
+/* Str constists from compound strings. */
+#define TFW_STR_COMPOUND2	0x02
 
 typedef struct {
 	unsigned int	flags;

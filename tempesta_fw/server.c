@@ -94,7 +94,6 @@ int
 tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 {
 	TfwAddr addr;
-	int len = sizeof(addr);
 	char addr_str_buf[MAX_ADDR_LEN];
 
 	BUG_ON(!srv || !buf || !buf_size);
@@ -102,9 +101,7 @@ tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 	tfw_server_get_addr(srv, &addr);
 	tfw_inet_ntop(&addr, addr_str_buf);
 
-	len = snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
-
-	return len;
+	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }
 EXPORT_SYMBOL(tfw_server_snprint);
 

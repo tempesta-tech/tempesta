@@ -291,7 +291,7 @@ tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 }
 
 /**
- * tfw_addr_eq() - Compare two addresses represented by struct sockaddr.
+ * Compare two addresses represented by struct sockaddr.
  *
  * The function compares two IPv4 or IPv6 addresses represented by either
  * struct sockaddr_in or struct sockaddr_in6 types. Other address families

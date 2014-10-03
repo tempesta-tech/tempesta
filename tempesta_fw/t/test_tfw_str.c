@@ -42,31 +42,6 @@ TEST(tfw_str_len, summarizes_chunk_lenghs)
 	EXPECT_EQ(9, len);
 }
 
-TEST(tfw_str_to_cstr, copies_all_chunks)
-{
-	char buf[16] = { 0xA0 };
-	int copied_len;
-	const char *expected_str = "foobarbaz";
-
-	copied_len = tfw_str_to_cstr(&compound_str, buf, sizeof(buf));
-
-	EXPECT_EQ(9, copied_len);
-	EXPECT_EQ(0, strcmp(expected_str, buf));
-}
-
-TEST(tfw_str_to_cstr, limits_and_terminates_output)
-{
-	char buf[6] = { 0xAA };
-	int copied_len;
-	const char *expected_str = "fooba";
-
-	copied_len = tfw_str_to_cstr(&compound_str, buf, sizeof(buf));
-
-	EXPECT_EQ(sizeof(buf) - 1, copied_len);
-	EXPECT_EQ(buf[copied_len], '\0');
-	EXPECT_EQ(0, strcmp(expected_str, buf));
-}
-
 TEST(tfw_str_eq_cstr, compares_compound_str)
 {
 	const TfwStr *str = &compound_str;
@@ -154,8 +129,6 @@ TEST(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
 TEST_SUITE(tfw_str)
 {
 	RUN_TEST(tfw_str_len, summarizes_chunk_lenghs);
-	RUN_TEST(tfw_str_to_cstr, copies_all_chunks);
-	RUN_TEST(tfw_str_to_cstr, limits_and_terminates_output);
 	RUN_TEST(tfw_str_eq_cstr, compares_compound_str);
 	RUN_TEST(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
 	RUN_TEST(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case);

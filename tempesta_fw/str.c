@@ -92,35 +92,6 @@ tfw_str_len(const TfwStr *str)
 	return total_len;
 }
 
-int
-tfw_str_to_cstr(const TfwStr *str, char *buf, int buf_size)
-{
-	int total_len = 0;
-	int len;
-	const TfwStr *chunk;
-
-	tfw_str_validate(str);
-	BUG_ON(!buf || (buf_size <= 0));
-
-	--buf_size; /* Reserve one byte for '\0'. */
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		len = min(buf_size, (int)chunk->len);
-		strncpy(buf, chunk->ptr, len);
-		buf += len;
-		buf_size -= len;
-		total_len += len;
-
-		if (!buf_size)
-			break;
-	}
-
-	/* FIXME: The buffer may already contain '\0' before this point. */
-	buf = '\0';
-
-	return total_len;
-}
-
 static bool
 str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
 {
