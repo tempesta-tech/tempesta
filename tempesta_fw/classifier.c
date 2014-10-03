@@ -27,7 +27,7 @@
 
 #include "tempesta.h"
 #include "classifier.h"
-#include "lib/log.h"
+#include "log.h"
 
 static TfwClassifier *classifier = NULL;
 static rwlock_t	tfw_class_lock = __RW_LOCK_UNLOCKED(tfw_class_lock);

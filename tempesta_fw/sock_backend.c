@@ -36,8 +36,8 @@
 
 #include "tempesta.h"
 #include "connection.h"
-#include "lib/addr.h"
-#include "lib/log.h"
+#include "addr.h"
+#include "log.h"
 #include "server.h"
 
 

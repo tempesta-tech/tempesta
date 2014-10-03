@@ -23,7 +23,7 @@
 #define __TFW_SCHED_MATCH_H__
 
 #include "tempesta.h"
-#include "lib/lib.h"
+#include "addr.h"
 
 #define LOG_BANNER "tfw_sched_match: "
 #define ERR(...) TFW_ERR(LOG_BANNER __VA_ARGS__)
@@ -34,14 +34,14 @@
 #define RULE_PATTERN_SIZE 256
 #define RULE_ADDR_COUNT 16
 
-typedef packedenum {
+typedef enum {
 	SUBJ_NA = 0,
 	SUBJ_HOST,
 	SUBJ_URI,
 	SUBJ_HEADER
 } subj_t;
 
-typedef packedenum {
+typedef enum {
 	OP_NA = 0,
 	OP_EQUAL,
 	OP_PREFIX,

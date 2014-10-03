@@ -21,8 +21,8 @@
 #define __TFW_HTTP_H__
 
 #include "connection.h"
-#include "lib/lib.h"
 #include "msg.h"
+#include "str.h"
 
 
 /**

@@ -21,7 +21,8 @@ EXTRA_CFLAGS += -I$(src)/../sync_socket -I$(src)/../tempesta_db -DDEBUG
 obj-m	= tempesta_fw.o
 tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
 		   http.o http_msg.o http_parser.o if.o main.o  sched.o server.o \
-		   session.o sock_backend.o sock_frontend.o stress.o
+		   session.o sock_backend.o sock_frontend.o stress.o addr.o debugfs.o \
+		   pool.o str.o
 
 # FIXME:
 #   This may be a bit confusing because usually such sub-directories have their
@@ -29,6 +30,6 @@ tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
 #   sub-directories to the build system.
 #   
 tempesta_fw-objs += t/test_tfw_str.o t/runner.o
-tempesta_fw-objs += lib/addr.o lib/debugfs.o lib/pool.o lib/str.o
+tempesta_fw-objs += 
 
 obj-m	+= log/ classifier/ stress/ sched/ filter/

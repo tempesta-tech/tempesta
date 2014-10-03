@@ -20,7 +20,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "lib/lib.h"
+#include "debugfs.h"
+#include "log.h"
 #include "sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);

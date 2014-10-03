@@ -84,7 +84,7 @@ typedef struct {
  * When a change occurs, a new table is generated and this pointer is replaced
  * via the RCU mechanism.
  */
-static const MatchTbl *match_tbl = NULL;
+static MatchTbl *match_tbl = NULL;
 
 /**
  * List of all known servers.
@@ -328,7 +328,7 @@ refresh_match_tbl(void)
 
 	spin_lock_bh(&sched_match_update_lock);
 	ret = fill_match_tbl(&rule_tbl, added_servers, new_tbl);
-	spin_unlock_bh(&sched_match_write_lock);
+	spin_unlock_bh(&sched_match_update_lock);
 
 	if (ret) {
 		ERR("Can't fill a new matching table\n");
@@ -459,8 +459,8 @@ do_matches(const TfwHttpReq *req, const MatchTbl *tbl)
 TfwServer *
 tfw_sched_match_get_srv(TfwMsg *msg)
 {
-	TfwServer *srv = NULL;
 	MatchTbl *tbl = NULL;
+	TfwServer *srv = NULL;
 
 	if (!added_servers->srv_n) {
 		ERR("The scheduler's server list is empty\n");
@@ -492,7 +492,7 @@ tfw_sched_match_add_srv(TfwServer *srv)
 
 	spin_lock_bh(&sched_match_update_lock);
 	ret = srv_list_add(added_servers, srv);
-	spin_unlock_bh(&sched_match_write_lock);
+	spin_unlock_bh(&sched_match_update_lock);
 
 	if (ret) {
 		ERR("Can't add the server to the scheduler: %p\n", srv);
@@ -516,7 +516,7 @@ tfw_sched_match_del_srv(TfwServer *srv)
 
 	spin_lock_bh(&sched_match_update_lock);
 	ret = srv_list_del(added_servers, srv);
-	spin_unlock_bh(&sched_match_write_lock);
+	spin_unlock_bh(&sched_match_update_lock);
 
 	if (ret) {
 		ERR("Can't delete the server from the scheduler: %p\n", srv);
