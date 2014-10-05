@@ -51,12 +51,6 @@ void tfw_connection_exit(void);
 int tfw_sched_dummy_init(void);
 void tfw_sched_dummy_exit(void);
 
-#ifdef DEBUG
-extern void tfw_run_all_tests(void);
-#else
-#define tfw_run_all_tests()
-#endif
-
 
 static int __init
 tfw_init(void)
@@ -103,8 +97,6 @@ tfw_init(void)
 	r = tfw_connection_init();
 	if (r)
 		goto err_connection;
-
-	tfw_run_all_tests();
 
 	return 0;
 

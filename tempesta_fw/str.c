@@ -91,6 +91,7 @@ tfw_str_len(const TfwStr *str)
 
 	return total_len;
 }
+EXPORT_SYMBOL(tfw_str_len);
 
 static bool
 str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)

@@ -28,30 +28,36 @@
 #ifndef __TFW_TEST_H__
 #define __TFW_TEST_H__
 
-#include <linux/kernel.h>
-
+int run_all_tests(void);
+void register_test_failure(void);
 
 #define TEST(unit, assertion)  static void test__ ##unit ##__ ##assertion(void)
 #define RUN_TEST(unit, assertion) test__ ##unit ##__ ##assertion()
 
 #define TEST_SUITE(name) void test_suite__##name(void)
-#define RUN_TEST_SUITE(name) test_suite__##name()
-
-#define __FAIL_MSG(...) \
-do {							\
-	printk("FAIL: %s():%d: ", __func__, __LINE__); 	\
-	printk(__VA_ARGS__);				\
-	printk("\n");					\
+#define RUN_TEST_SUITE(name) \
+do { \
+	printk("RUN_SUITE(%s)\n", #name); \
+	test_suite__##name(); \
 } while (0)
 
-#define FAIL() __FAIL_MSG("FAIL()");
+#define __FAIL(...) 					\
+do {							\
+	printk("FAIL:\n");				\
+	printk("  %s():%d\n  ", __func__, __LINE__); 	\
+	printk(__VA_ARGS__);				\
+	printk("\n");					\
+	register_test_failure();			\
+} while (0)
+
+#define FAIL() __FAIL("FAIL()");
 
 #define EXPECT_TRUE(cond) 		\
 do { 					\
 	bool _test_val = (cond); 	\
 	if (_test_val)			\
 		break;			\
-	__FAIL_MSG("EXPECT_TRUE(%s) => %d", #cond, _test_val); \
+	__FAIL("EXPECT_TRUE(%s) => %d", #cond, _test_val); \
 } while (0)
 
 #define EXPECT_FALSE(cond)		\
@@ -59,7 +65,7 @@ do {					\
 	bool _test_val = (cond);	\
 	if (!_test_val)			\
 		break;			\
-	__FAIL_MSG("EXPECT_FALSE(%s) => %d", #cond, _test_val); \
+	__FAIL("EXPECT_FALSE(%s) => %d", #cond, _test_val); \
 } while (0)
 
 #define __EXPECT_CMP(name, expr1, expr2, cmp_expr)	\
@@ -68,7 +74,7 @@ do {							\
 	unsigned long _val2 = (expr2);			\
 	if (cmp_expr)					\
 		break;					\
-	__FAIL_MSG("%s(%s, %s) => (%#lx, %#lx)",	\
+	__FAIL("%s(%s, %s) => (%#lx, %#lx)",		\
 	          name, #expr1, #expr2, _val1, _val2);	\
 } while (0)
 

@@ -24,12 +24,4 @@ tempesta_fw-objs = cache.o classifier.o client.o connection.o filter.o gfsm.o \
 		   session.o sock_backend.o sock_frontend.o stress.o addr.o debugfs.o \
 		   pool.o str.o
 
-# FIXME:
-#   This may be a bit confusing because usually such sub-directories have their
-#   own Makefile files. We need to decide how to properly integrate these
-#   sub-directories to the build system.
-#   
-tempesta_fw-objs += t/test_tfw_str.o t/runner.o
-tempesta_fw-objs += 
-
-obj-m	+= log/ classifier/ stress/ sched/ filter/
+obj-m	+= log/ classifier/ stress/ sched/ filter/ t/

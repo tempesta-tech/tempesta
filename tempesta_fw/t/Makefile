@@ -16,8 +16,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -I$(src)/../sync_socket -I$(src)/../tempesta_db -DDEBUG
+EXTRA_CFLAGS += -I$(src)/../ -I$(src)/../../tempesta_db -DDEBUG
 
-obj-y += runner.o test_tfw_str.o
-
-
+obj-m += tfw_test.o
+tfw_test-objs = main.o str.o test.o

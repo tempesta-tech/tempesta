@@ -18,12 +18,37 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/module.h>
+
+#include "tempesta.h"
 #include "test.h"
 
-TEST_SUITE(tfw_str);
+MODULE_AUTHOR(TFW_AUTHOR);
+MODULE_DESCRIPTION("Tempesta FW tests");
+MODULE_VERSION("0.0.1");
+MODULE_LICENSE("GPL");
+
+static int __init
+tfw_test_init(void)
+{
+	int fail_count = 0;
+
+	printk("tfw_test: start\n");
+	fail_count = run_all_tests();
+
+	printk("tfw_test: finish - ");
+	if (fail_count)
+		printk("failed %d assertions\n", fail_count);
+	else
+		printk("all passed\n");
+
+	return 0;
+}
 
 void
-tfw_run_all_tests(void)
+tfw_test_exit(void)
 {
-	RUN_TEST_SUITE(tfw_str);
 }
+
+module_init(tfw_test_init);
+module_exit(tfw_test_exit);
