@@ -20,55 +20,79 @@
 #ifndef __TFW_HTTP_MATCH_H__
 #define __TFW_HTTP_MATCH_H__
 
-#include "addr.h"
+#include <linux/list.h>
+
 #include "pool.h"
 #include "http.h"
 
 typedef enum {
-	TFW_MATCH_SUBJ_NA = 0,
-	TFW_MATCH_SUBJ_METHOD,
-	TFW_MATCH_SUBJ_URI,
-	TFW_MATCH_SUBJ_HOST,
-	TFW_MATCH_SUBJ_HEADERS,
-	_TFW_MATCH_SUBJ_COUNT,
-} tfw_match_subj_t;
+	TFW_HTTP_MATCH_F_NA = 0,
+	TFW_HTTP_MATCH_F_METHOD,
+	TFW_HTTP_MATCH_F_URI,
+	TFW_HTTP_MATCH_F_HOST,
+	TFW_HTTP_MATCH_F_HEADERS,
+	_TFW_HTTP_MATCH_F_COUNT,
+} tfw_http_match_fld_t;
 
 typedef enum {
-	TFW_MATCH_OP_NA = 0,
-	TFW_MATCH_OP_EQ,
-	TFW_MATCH_OP_PREFIX,
-	_TFW_MATCH_OP_COUNT,
-} tfw_match_op_t;
+	TFW_HTTP_MATCH_O_NA = 0,
+	TFW_HTTP_MATCH_O_EQ,
+	TFW_HTTP_MATCH_O_PREFIX,
+	_TFW_HTTP_MATCH_O_COUNT,
+} tfw_http_match_op_t;
 
 typedef struct {
 	short len;
-	char data[];
+	const char *s;
 } TfwMatchArgStr;
 
 typedef union {
 	unsigned char method;
+	TfwAddr addr;
 	TfwMatchArgStr str;
 } TfwMatchArg;
 
 typedef struct {
-	tfw_match_subj_t subj;	/* A field to compare: uri/host/header/etc. */
-	tfw_match_op_t op;	/* Comparison operation: eq/prefix/regex/etc. */
-	TfwMatchArg arg;	/* A value for matching with the field. */
-} TfwMatchRule;
+	struct list_head	list;
+	tfw_http_match_fld_t	field;
+	tfw_http_match_op_t 	op;
+	TfwMatchArg 		arg;
+	char extra[0];  /* May be consumed for variable-length @arg. */
+} TfwHttpMatchRule;
 
 typedef struct {
+	struct list_head list;
 	TfwPool *pool;
-	int rules_n;
-	int rules_max;
-	TfwMatchRule *rules[];
-} TfwMatchTbl;
+} TfwHttpMatchList;
 
 
+TfwHttpMatchList *tfw_http_match_list_alloc(void);
+void tfw_http_match_list_free(TfwHttpMatchList *);
+TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t extra_len);
+TfwHttpMatchRule * tfw_http_match_req(const TfwHttpReq *, const TfwHttpMatchList *);
 
-TfwMatchTbl *tfw_match_tbl_alloc(void);
-void tfw_match_tbl_free(TfwMatchTbl *);
-int tfw_match_tbl_rise(TfwMatchTbl **tbl, TfwMatchRule **rule, int rule_arg_len);
+#define tfw_http_match_req_entry(req, mlst, container, member) 		\
+({ 									\
+	container *_c = NULL;						\
+	TfwHttpMatchRule *_r = tfw_http_match_req((req), (mlst)); 	\
+	if (_r)								\
+		_c = container_of(_r, container, member);		\
+	_c;								\
+})
 
-const TfwMatchRule *tfw_match_http_req(const TfwHttpReq *, const TfwMatchTbl *);
+#define tfw_http_match_entry_new(mlst, container, member, extra_len) 	\
+({ 									\
+	size_t _s = sizeof(container) + (extra_len); 			\
+	container *_c = tfw_pool_alloc((mlst)->pool, _s);		\
+	if (!_c) {							\
+		TFW_ERR("Can't allocate memory from pool\n");		\
+	} else { 							\
+		memset(_c, 0, _s);					\
+		INIT_LIST_HEAD(&_c->member.list);			\
+		list_add_tail(&_c->member.list, &(mlst)->list);		\
+	}								\
+	_c;								\
+})
+
 
 #endif /* __TFW_HTTP_MATCH_H__ */

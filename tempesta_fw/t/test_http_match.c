@@ -22,119 +22,62 @@
 #include "http_match.h"
 #include "http_msg.h"
 
-TfwMatchTbl *test_match_tbl;
-TfwHttpReq *test_http_req;
+TfwHttpMatchList *test_mlst;
+TfwHttpReq *test_req;
+
 
 static void
 http_match_suite_setup(void)
 {
-	test_match_tbl = tfw_match_tbl_alloc();
-	BUG_ON(!test_match_tbl);
+	test_mlst = tfw_http_match_list_alloc();
+	BUG_ON(!test_mlst);
 
-	test_http_req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
-	BUG_ON(!test_http_req);
+	test_req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
+	BUG_ON(!test_req);
 }
 
 static void
 http_match_suite_teardown(void)
 {
-	tfw_http_msg_free((TfwHttpMsg *)test_http_req);
-	test_http_req = NULL;
+	tfw_http_msg_free((TfwHttpMsg *)test_req);
+	test_req = NULL;
 
-	tfw_match_tbl_free(test_match_tbl);
-	test_match_tbl = NULL;
+	tfw_http_match_list_free(test_mlst);
+	test_mlst = NULL;
 }
 
-TEST(tfw_match_tbl_rise, adds_rule_to_tbl)
-{
-	TfwMatchRule *rule;
-	const TfwMatchRule r = {
-		TFW_MATCH_SUBJ_METHOD, TFW_MATCH_OP_EQ,
-		{ .method = TFW_HTTP_METH_GET }
-	};
 
-	EXPECT_EQ(0, test_match_tbl->rules_n);
-	EXPECT_NULL(tfw_match_http_req(test_http_req, test_match_tbl));
-
-	tfw_match_tbl_rise(&test_match_tbl, &rule, 0);
-	*rule = r;
-	test_http_req->method = TFW_HTTP_METH_GET;
-
-	EXPECT_EQ(1, test_match_tbl->rules_n);
-	EXPECT_NOT_NULL(tfw_match_http_req(test_http_req, test_match_tbl));
-}
-
-TEST(tfw_match_tbl_rise, expands_tbl_without_corruption)
-{
-	u8 pattern;
-	int i, data_len, old_max, ret;
-	TfwMatchRule *rule;
-
-	/* Assume that initially rules_max > 1, so the loop below may do
-	 * at least two iterations. */
-	EXPECT_GT(test_match_tbl->rules_max, 1);
-
-	/* Over-fill the table, so it should grow automatically. */
-	old_max = test_match_tbl->rules_max;
-	for (i = 0; i < (test_match_tbl->rules_max + 1); ++i) {
-		pattern = i;
-		data_len = i % 8;
-
-		ret = tfw_match_tbl_rise(&test_match_tbl, &rule, data_len);
-		EXPECT_EQ(0, ret);
-
-		memset(rule, pattern, sizeof(*rule));
-		memset(rule->arg.str.data, pattern, data_len);
-	}
-	EXPECT_EQ(old_max + 1, test_match_tbl->rules_n);
-	EXPECT_LE(old_max, test_match_tbl->rules_max);
-
-	/* Check that rules are still filled with their patterns, and thus:
-	 *  - Allocated memory regions don't overlap.
-	 *  - Data is preserved when the table is re-allocated (when it grows).
-	 */
-	for (i = 0; i < test_match_tbl->rules_n; ++i) {
-		rule = test_match_tbl->rules[i];
-		pattern = i;
-		data_len = i % 8;
-
-		EXPECT_NULL(memchr_inv(rule, pattern, sizeof(*rule)));
-		EXPECT_NULL(memchr_inv(rule->arg.str.data, pattern, data_len));
-	}
-}
-
-TEST(tfw_match_http_req, returns_first_matching_rule)
-{
-	const TfwMatchRule *match;
-	TfwMatchRule *r1, *r2, *r3;
-
-	tfw_match_tbl_rise(&test_match_tbl, &r1, 0);
-	tfw_match_tbl_rise(&test_match_tbl, &r2, 0);
-	tfw_match_tbl_rise(&test_match_tbl, &r3, 0);
-
-	r1->subj = r2->subj = r3->subj = TFW_MATCH_SUBJ_METHOD;
-	r1->op = r2->op = r3->op = TFW_MATCH_OP_EQ;
-
-	r1->arg.method = TFW_HTTP_METH_POST;
-	r2->arg.method = TFW_HTTP_METH_GET;
-	r3->arg.method = TFW_HTTP_METH_GET;
-
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-
-	EXPECT_EQ(r2, match);
-}
+typedef struct {
+	int test_id;
+	TfwHttpMatchRule rule;
+} MatchEntry;
 
 static void
-add_str_rule(TfwMatchTbl **tbl, TfwMatchRule **rule,
-             tfw_match_subj_t subj, tfw_match_op_t op, const char *str_arg)
+test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
+              tfw_http_match_op_t op, const char *str_arg)
 {
+	MatchEntry *e;
 	size_t len = strlen(str_arg);
 
-	tfw_match_tbl_rise(tbl, rule, len);
-	(*rule)->subj = subj;
-	(*rule)->op = op;
-	(*rule)->arg.str.len = len;
-	memcpy((*rule)->arg.str.data, str_arg, len);
+	e = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, len);
+	e->test_id = test_id;
+	e->rule.field = req_field;
+	e->rule.op = op;
+	e->rule.arg.str.len = len;
+	e->rule.arg.str.s = e->rule.extra;
+	memcpy(&e->rule.extra, str_arg, len);
+}
+
+int
+test_mlst_match(void)
+{
+	MatchEntry *e;
+
+	e = tfw_http_match_req_entry(test_req, test_mlst, MatchEntry, rule);
+	if (e)
+		return e->test_id;
+
+	return -1;
 }
 
 static void
@@ -144,73 +87,93 @@ set_tfw_str(TfwStr *str, const char *cstr)
 	str->len = strlen(cstr);
 }
 
+
+TEST(tfw_http_match_req, returns_first_matching_rule)
+{
+	const TfwHttpMatchRule *match;
+	TfwHttpMatchRule *r1, *r2, *r3;
+
+	r1 = tfw_http_match_rule_new(test_mlst, 0);
+	r2 = tfw_http_match_rule_new(test_mlst, 0);
+	r3 = tfw_http_match_rule_new(test_mlst, 0);
+
+	r1->field = r2->field = r3->field = TFW_HTTP_MATCH_F_METHOD;
+	r1->op = r2->op = r3->op = TFW_HTTP_MATCH_O_EQ;
+	r1->arg.method = TFW_HTTP_METH_POST;
+	r2->arg.method = TFW_HTTP_METH_GET;
+	r3->arg.method = TFW_HTTP_METH_GET;
+
+	test_req->method = TFW_HTTP_METH_GET;
+
+	match = tfw_http_match_req(test_req, test_mlst);
+
+	EXPECT_EQ(r2, match);
+}
+
 TEST(http_match, uri_prefix)
 {
-	const TfwMatchRule *match;
-	TfwMatchRule *r1, *r2, *r3;
+	int match_id;
 
-	add_str_rule(&test_match_tbl, &r1,
-	             TFW_MATCH_SUBJ_URI, TFW_MATCH_OP_PREFIX, "/foo/bar/baz");
-	add_str_rule(&test_match_tbl, &r2,
-	             TFW_MATCH_SUBJ_URI, TFW_MATCH_OP_PREFIX, "/foo/ba");
-	add_str_rule(&test_match_tbl, &r3,
-	             TFW_MATCH_SUBJ_URI, TFW_MATCH_OP_PREFIX, "/");
+	test_mlst_add(1, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_PREFIX,
+	              "/foo/bar/baz");
+	test_mlst_add(2, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_PREFIX,
+	              "/foo/ba");
+	test_mlst_add(3, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_PREFIX,
+	              "/");
 
-	set_tfw_str(&test_http_req->uri, "/foo/bar/baz.html");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r1, match);
+	set_tfw_str(&test_req->uri, "/foo/bar/baz.html");
+	match_id = test_mlst_match();
+	EXPECT_EQ(1, match_id);
 
-	set_tfw_str(&test_http_req->uri, "/FOO/BAR/");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r2, match);
+	set_tfw_str(&test_req->uri, "/FOO/BAR/");
+	match_id = test_mlst_match();
+	EXPECT_EQ(2, match_id);
 
-	set_tfw_str(&test_http_req->uri, "/baz");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r3, match);
+	set_tfw_str(&test_req->uri, "/baz");
+	match_id = test_mlst_match();
+	EXPECT_EQ(3, match_id);
 
-	set_tfw_str(&test_http_req->uri, "../foo");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_NULL(match);
+	set_tfw_str(&test_req->uri, "../foo");
+	match_id = test_mlst_match();
+	EXPECT_EQ(-1, match_id);
 }
 
 TEST(http_match, host_eq)
 {
-	const TfwMatchRule *match;
-	TfwMatchRule *r1, *r2, *r3;
+	int match_id;
 
-	add_str_rule(&test_match_tbl, &r1,
-	             TFW_MATCH_SUBJ_HOST, TFW_MATCH_OP_EQ, "www.natsys-lab.com");
-	add_str_rule(&test_match_tbl, &r2,
-	             TFW_MATCH_SUBJ_HOST, TFW_MATCH_OP_EQ, "natsys-lab");
-	add_str_rule(&test_match_tbl, &r3,
-	             TFW_MATCH_SUBJ_HOST, TFW_MATCH_OP_EQ, "NATSYS-LAB.COM");
+	test_mlst_add(1, TFW_HTTP_MATCH_F_HOST, TFW_HTTP_MATCH_O_EQ,
+	              "www.natsys-lab.com");
+	test_mlst_add(2, TFW_HTTP_MATCH_F_HOST, TFW_HTTP_MATCH_O_EQ,
+	              "natsys-lab");
+	test_mlst_add(3, TFW_HTTP_MATCH_F_HOST, TFW_HTTP_MATCH_O_EQ,
+	              "NATSYS-LAB.COM");
 
-	set_tfw_str(&test_http_req->host, "natsys-lab.com");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r3, match);
+	set_tfw_str(&test_req->host, "natsys-lab.com");
+	match_id = test_mlst_match();
+	EXPECT_EQ(3, match_id);
 }
 
 TEST(http_match, headers_eq)
 {
-	const TfwMatchRule *match;
-	TfwMatchRule *r1, *r2, *r3;
+	int match_id;
 
-	add_str_rule(&test_match_tbl, &r1, TFW_MATCH_SUBJ_HEADERS,
-	             TFW_MATCH_OP_EQ, "User-Agent: U880D/4.0 (CP/M; 8-bit)");
-	add_str_rule(&test_match_tbl, &r2, TFW_MATCH_SUBJ_HEADERS,
-	             TFW_MATCH_OP_EQ, "Connection: close");
-	add_str_rule(&test_match_tbl, &r3, TFW_MATCH_SUBJ_HEADERS,
-	             TFW_MATCH_OP_EQ, "Connection: Keep-Alive");
+	test_mlst_add(1, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	             "User-Agent: U880D/4.0 (CP/M; 8-bit)");
+	test_mlst_add(2, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	             "Connection: close");
+	test_mlst_add(3, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	             "Connection: Keep-Alive");
 
-	set_tfw_str(&test_http_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
 	            "Connection: Keep-Alive");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r3, match);
+	match_id = test_mlst_match();
+	EXPECT_EQ(3, match_id);
 
-	set_tfw_str(&test_http_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
 	            "Connection: cLoSe");
-	match = tfw_match_http_req(test_http_req, test_match_tbl);
-	EXPECT_EQ(r2, match);
+	match_id = test_mlst_match();
+	EXPECT_EQ(2, match_id);
 }
 
 TEST_SUITE(http_match)
@@ -218,10 +181,7 @@ TEST_SUITE(http_match)
 	TEST_SETUP(http_match_suite_setup);
 	TEST_TEARDOWN(http_match_suite_teardown);
 
-	TEST_RUN(tfw_match_tbl_rise, adds_rule_to_tbl);
-	TEST_RUN(tfw_match_tbl_rise, expands_tbl_without_corruption);
-	TEST_RUN(tfw_match_http_req, returns_first_matching_rule);
-
+	TEST_RUN(tfw_http_match_req, returns_first_matching_rule);
 	TEST_RUN(http_match, uri_prefix);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);

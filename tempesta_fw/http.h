@@ -121,6 +121,7 @@ typedef struct {
 	unsigned char	*crlf;	/* CRLF between headers and body */	\
 	TfwStr		body;
 
+
 /**
  * A helper structure for operations common for requests and responses.
  * Just don't want to use explicit inheritance.

@@ -100,7 +100,6 @@ str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
 	const TfwStr *chunk;
 
 	tfw_str_validate(str);
-	BUG_ON(cstr_len != strlen(cstr));
 
 	if (cstr_len != tfw_str_len(str))
 		return false;
@@ -144,7 +143,6 @@ tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 	const TfwStr *chunk;
 
 	tfw_str_validate(str);
-	BUG_ON(cstr_len != strlen(cstr));
 
 	if (cstr_len > tfw_str_len(str))
 		return false;
