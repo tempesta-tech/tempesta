@@ -44,6 +44,7 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
+EXPORT_SYMBOL(tfw_http_msg_alloc);
 
 /**
  * The function does not free @m->skb_list, the caller is responsible for that.
@@ -80,3 +81,4 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_free(m->pool);
 }
+EXPORT_SYMBOL(tfw_http_msg_free);

@@ -28,74 +28,112 @@
 #ifndef __TFW_TEST_H__
 #define __TFW_TEST_H__
 
-int run_all_tests(void);
-void register_test_failure(void);
+int  test_run_all(void);
+void test_register_failure(void);
+
+typedef void (*test_fixture_fn_t)(void);
+
+void test_set_setup_fn(test_fixture_fn_t fn);
+void test_set_teardown_fn(test_fixture_fn_t fn);
+void test_call_setup_fn(void);
+void test_call_teardown_fn(void);
+
+#define TEST_BANNER "tfw_test: "
+
+#define TEST_LOG(...) printk(KERN_INFO TEST_BANNER __VA_ARGS__)
+#define TEST_LOG_LF(...) 	\
+do {				\
+	TEST_LOG(__VA_ARGS__);	\
+	printk("\n");		\
+} while (0)
+
+#define TEST_ERR(...) printk(KERN_ERR  TEST_BANNER __VA_ARGS__)
+#define TEST_ERR_LF(...) 	\
+do {				\
+	TEST_ERR(__VA_ARGS__);	\
+	printk("\n");		\
+} while (0)
+
 
 #define TEST(unit, assertion)  static void test__ ##unit ##__ ##assertion(void)
-#define RUN_TEST(unit, assertion) test__ ##unit ##__ ##assertion()
-
 #define TEST_SUITE(name) void test_suite__##name(void)
-#define RUN_TEST_SUITE(name) \
-do { \
-	printk("RUN_SUITE(%s)\n", #name); \
-	test_suite__##name(); \
+#define TEST_SETUP(fn) test_set_setup_fn(fn)
+#define TEST_TEARDOWN(fn) test_set_teardown_fn(fn)
+
+#define TEST_RUN(unit, assertion) 			\
+do { 							\
+	TEST_LOG_LF("TEST_RUN(%s, %s)", #unit, #assertion); \
+	test_call_setup_fn();				\
+	test__ ##unit ##__ ##assertion(); 		\
+	test_call_teardown_fn();			\
 } while (0)
 
-#define __FAIL(...) 					\
+#define TEST_SUITE_RUN(name) 				\
+do { 							\
+	TEST_LOG_LF("TEST_SUITE_RUN(%s)", #name); 	\
+	test_suite__##name(); 				\
+	test_set_setup_fn(NULL);			\
+	test_set_teardown_fn(NULL);			\
+} while (0)
+
+#define TEST_FAIL(...) 					\
 do {							\
-	printk("FAIL:\n");				\
-	printk("  %s():%d\n  ", __func__, __LINE__); 	\
-	printk(__VA_ARGS__);				\
-	printk("\n");					\
-	register_test_failure();			\
+	TEST_ERR_LF("FAIL:");				\
+	TEST_ERR_LF("  %s():%d", __func__, __LINE__);	\
+	TEST_ERR_LF("  " __VA_ARGS__);			\
+	test_register_failure();			\
 } while (0)
 
-#define FAIL() __FAIL("FAIL()");
 
-#define EXPECT_TRUE(cond) 		\
-do { 					\
-	bool _test_val = (cond); 	\
-	if (_test_val)			\
-		break;			\
-	__FAIL("EXPECT_TRUE(%s) => %d", #cond, _test_val); \
-} while (0)
-
-#define EXPECT_FALSE(cond)		\
-do {					\
-	bool _test_val = (cond);	\
-	if (!_test_val)			\
-		break;			\
-	__FAIL("EXPECT_FALSE(%s) => %d", #cond, _test_val); \
-} while (0)
 
 #define __EXPECT_CMP(name, expr1, expr2, cmp_expr)	\
 do {							\
-	unsigned long _val1 = (expr1);			\
-	unsigned long _val2 = (expr2);			\
+	typeof(expr1) _val1 = (expr1);			\
+	typeof(expr2) _val2 = (expr2);			\
 	if (cmp_expr)					\
 		break;					\
-	__FAIL("%s(%s, %s) => (%#lx, %#lx)",		\
-	          name, #expr1, #expr2, _val1, _val2);	\
+	TEST_FAIL("%s(%s, %s) => (%#lx, %#lx)", name, #expr1, #expr2, 	\
+	          (unsigned long)_val1, (unsigned long)_val2);		\
 } while (0)
 
-
 #define EXPECT_EQ(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_EQ", expr1, expr2, _val1 == _val2)
+	__EXPECT_CMP("EXPECT_EQ", (expr1), (expr2), _val1 == _val2)
 
 #define EXPECT_NE(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_NE", expr1, expr2, _val1 != _val2)
+	__EXPECT_CMP("EXPECT_NE", (expr1), (expr2), _val1 != _val2)
 
 #define EXPECT_LT(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_LT", expr1, expr2, _val1 < _val2)
+	__EXPECT_CMP("EXPECT_LT", (expr1), (expr2), _val1 < _val2)
 
 #define EXPECT_LE(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_LE", expr1, expr2, _val1 <= _val2)
+	__EXPECT_CMP("EXPECT_LE", (expr1), (expr2), _val1 <= _val2)
 
 #define EXPECT_GT(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_GT", expr1, expr2, _val1 > _val2)
+	__EXPECT_CMP("EXPECT_GT", (expr1), (expr2), _val1 > _val2)
 
 #define EXPECT_GE(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_GE", expr1, expr2, _val1 >= val2)
+	__EXPECT_CMP("EXPECT_GE", (expr1), (expr2), _val1 >= val2)
+
+
+#define __EXPECT_COND(name, expr, cond_expr)	\
+do {						\
+	typeof(expr) _val = (expr);		\
+	if (cond_expr)				\
+		break;				\
+	TEST_FAIL("%s(%s) => %#lx", name, #expr, (unsigned long)_val); \
+} while (0)
+
+#define EXPECT_TRUE(expr) \
+	__EXPECT_COND("EXPECT_TRUE", (expr), _val)
+
+#define EXPECT_FALSE(expr) \
+	__EXPECT_COND("EXPECT_FALSE", (expr), !_val)
+
+#define EXPECT_NULL(expr) \
+	__EXPECT_COND("EXPECT_NULL", (expr), _val == NULL)
+
+#define EXPECT_NOT_NULL(expr) \
+	__EXPECT_COND("EXPECT_NOT_NULL", (expr), _val != NULL)
 
 
 #endif /* __TFW_TEST_H__ */

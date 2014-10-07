@@ -34,7 +34,7 @@ tfw_test_init(void)
 	int fail_count = 0;
 
 	printk("tfw_test: start\n");
-	fail_count = run_all_tests();
+	fail_count = test_run_all();
 
 	printk("tfw_test: finish - ");
 	if (fail_count)

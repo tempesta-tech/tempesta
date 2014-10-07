@@ -19,7 +19,7 @@
  */
 
 #include "test.h"
-#include "../str.h"
+#include "str.h"
 
 
 static const TfwStr chunks[] = {
@@ -128,9 +128,9 @@ TEST(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
 
 TEST_SUITE(tfw_str)
 {
-	RUN_TEST(tfw_str_len, summarizes_chunk_lenghs);
-	RUN_TEST(tfw_str_eq_cstr, compares_compound_str);
-	RUN_TEST(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
-	RUN_TEST(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case);
-	RUN_TEST(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq);
+	TEST_RUN(tfw_str_len, summarizes_chunk_lenghs);
+	TEST_RUN(tfw_str_eq_cstr, compares_compound_str);
+	TEST_RUN(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
+	TEST_RUN(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case);
+	TEST_RUN(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq);
 }

@@ -21,22 +21,55 @@
 #include <linux/module.h>
 #include "test.h"
 
-int test_fail_counter = 0;
+int test_fail_counter;
+test_fixture_fn_t test_setup_fn;
+test_fixture_fn_t test_teardown_fn;
 
-TEST_SUITE(tfw_str);
-
-int
-run_all_tests(void)
+void
+test_register_failure(void)
 {
-	test_fail_counter = 0;
-
-	RUN_TEST_SUITE(tfw_str);
-
-	return test_fail_counter;
+	++test_fail_counter;
 }
 
 void
-register_test_failure(void)
+test_set_setup_fn(test_fixture_fn_t fn)
 {
-	++test_fail_counter;
+	BUG_ON(fn && test_setup_fn);
+	test_setup_fn = fn;
+}
+
+void
+test_set_teardown_fn(test_fixture_fn_t fn)
+{
+	BUG_ON(fn && test_teardown_fn);
+	test_teardown_fn = fn;
+}
+
+void
+test_call_setup_fn(void)
+{
+	if (test_setup_fn)
+		test_setup_fn();
+}
+
+void
+test_call_teardown_fn(void)
+{
+	if (test_teardown_fn)
+		test_teardown_fn();
+}
+
+
+TEST_SUITE(http_match);
+TEST_SUITE(tfw_str);
+
+int
+test_run_all(void)
+{
+	test_fail_counter = 0;
+
+	TEST_SUITE_RUN(http_match);
+	TEST_SUITE_RUN(tfw_str);
+
+	return test_fail_counter;
 }
