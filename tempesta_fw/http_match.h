@@ -26,6 +26,7 @@
 
 typedef enum {
 	TFW_MATCH_SUBJ_NA = 0,
+	TFW_MATCH_SUBJ_METHOD,
 	TFW_MATCH_SUBJ_URI,
 	TFW_MATCH_SUBJ_HOST,
 	TFW_MATCH_SUBJ_HEADERS,
@@ -45,6 +46,7 @@ typedef struct {
 } TfwMatchArgStr;
 
 typedef union {
+	unsigned char method;
 	TfwMatchArgStr str;
 } TfwMatchArg;
 

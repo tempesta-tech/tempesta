@@ -124,6 +124,12 @@ tfw_match_tbl_rise(TfwMatchTbl **tbl, TfwMatchRule **rule, int rule_arg_len)
 EXPORT_SYMBOL(tfw_match_tbl_rise);
 
 static bool
+match_method_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
+{
+	return (req->method == arg->method);
+}
+
+static bool
 match_uri_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
 {
 	/* TODO: compare URI according to RFC 2616 3.2.3:
@@ -187,6 +193,9 @@ typedef bool (*tfw_match_fn_t)(const TfwHttpReq *req, const TfwMatchArg *arg);
 
 static tfw_match_fn_t
 match_fn_tbl[_TFW_MATCH_SUBJ_COUNT][_TFW_MATCH_OP_COUNT] = {
+	[TFW_MATCH_SUBJ_METHOD] = {
+		[TFW_MATCH_OP_EQ]	= match_method_eq,
+	},
 	[TFW_MATCH_SUBJ_URI] = {
 		[TFW_MATCH_OP_EQ]	= match_uri_eq,
 		[TFW_MATCH_OP_PREFIX] 	= match_uri_prefix,
@@ -233,3 +242,4 @@ tfw_match_http_req(const TfwHttpReq *req, const TfwMatchTbl *tbl)
 
 	return NULL;
 }
+EXPORT_SYMBOL(tfw_match_http_req);
