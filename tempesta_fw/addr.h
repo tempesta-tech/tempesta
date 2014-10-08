@@ -1,9 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Generic functions and macros that don't have enough cohesion for moving
- * into separate library units.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -20,21 +17,19 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LIB_H__
-#define __TFW_LIB_H__
+#ifndef __TFW_ADDR_H__
+#define __TFW_ADDR_H__
 
-/**
- * Convert C identifier (precisely, a preprocessing token) to a string literal.
- *
- * Usage:
- *   printk("%s", STRINGIFY(foo));
- *
- * You can use STRINGIFY(func_or_var_name) instead of "func_or_var_name" to
- * facilitate various static analysis tools.
- */
-#ifndef STRINGIFY
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
-#endif
+#include <net/inet_sock.h>
 
-#endif /* __TFW_LIB_H__ */
+typedef union {
+	struct sockaddr_in v4;
+	struct sockaddr_in6 v6;
+	struct sockaddr addr;
+} TfwAddr;
+
+int tfw_inet_pton(char **p, void *addr);
+int tfw_inet_ntop(const void *addr, char *buf);
+bool tfw_addr_eq(const void *addr1, const void *addr2);
+
+#endif /* __TFW_ADDR_H__ */

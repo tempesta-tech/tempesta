@@ -21,9 +21,9 @@
 #define __TFW_HTTP_H__
 
 #include "connection.h"
-#include "lib.h"
 #include "msg.h"
-#include "pool.h"
+#include "str.h"
+
 
 /**
  * All helping information for current HTTP parsing state of a message.
@@ -120,6 +120,7 @@ typedef struct {
 	TfwConnection	*conn;						\
 	unsigned char	*crlf;	/* CRLF between headers and body */	\
 	TfwStr		body;
+
 
 /**
  * A helper structure for operations common for requests and responses.

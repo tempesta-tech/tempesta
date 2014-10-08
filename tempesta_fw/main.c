@@ -21,14 +21,14 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
-#include "tempesta.h"
 #include "cache.h"
 #include "client.h"
 #include "filter.h"
 #include "http.h"
+#include "debugfs.h"
 #include "log.h"
 #include "server.h"
-#include "debugfs.h"
+#include "tempesta.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
@@ -50,6 +50,7 @@ void tfw_connection_exit(void);
 
 int tfw_sched_dummy_init(void);
 void tfw_sched_dummy_exit(void);
+
 
 static int __init
 tfw_init(void)
