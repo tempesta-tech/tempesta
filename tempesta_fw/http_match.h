@@ -53,18 +53,34 @@ typedef struct {
 
 typedef struct {
 	struct list_head	list;
-	tfw_http_match_fld_t	field;
-	tfw_http_match_op_t 	op;
-	TfwMatchArg 		arg;
+	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
+	tfw_http_match_op_t 	op;    /* Comparison operator. */
+	TfwMatchArg 		arg;   /* A value to be compared with the field.
+					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
 
+/**
+ * Size of a rule (taking into account the variable-length @rule.arg.
+ */
 #define TFW_HTTP_MATCH_RULE_SIZE(arg_len) \
 	(offsetof(TfwHttpMatchRule, arg.str) + arg_len)
 
+/**
+ * Size of a container of the TfwHttpMatchRule.
+ *
+ * @arg_len is variable size of the @arg member.
+ *          Because of this, the rule must be the last member in the container.
+ */
 #define TFW_HTTP_MATCH_CONT_SIZE(container_struct_name, arg_len)  \
 	(sizeof(container_struct_name) - sizeof(TfwHttpMatchRule) \
 	 + TFW_HTTP_MATCH_RULE_SIZE(arg_len))
 
+/**
+ * List of rules for matching.
+ *
+ * Generally considered as a read-mostly structure, so all elements are
+ * allocated from the @pool and there is an @rcu head for updates.
+ */
 typedef struct {
 	struct list_head list;
 	TfwPool *pool;
@@ -75,9 +91,22 @@ typedef struct {
 TfwHttpMatchList *tfw_http_match_list_alloc(void);
 void tfw_http_match_list_free(TfwHttpMatchList *);
 void tfw_http_match_list_rcu_free(struct rcu_head *);
+
+/**
+ * Match a HTTP request agains a list of rules.
+ * Return a matching rule.
+ */
 TfwHttpMatchRule *tfw_http_match_req(const TfwHttpReq *, const TfwHttpMatchList *);
+
+/**
+ * Allocate a new rule in a given list.
+ */
 TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t arg_len);
 
+/**
+ * Match a HTTP request against a list of rules, but return a container
+ * structure instead of TfwHttpMatchRule.
+ */
 #define tfw_http_match_req_entry(req, mlst, container, member) 		\
 ({ 									\
 	container *_c = NULL;						\
@@ -87,6 +116,9 @@ TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t arg_len);
 	_c;								\
 })
 
+/**
+ * Allocate a container (with embedded rule) within a rule list.
+ */
 #define tfw_http_match_entry_new(mlst, container, member, arg_len) 	\
 ({ 									\
 	size_t _s = TFW_HTTP_MATCH_CONT_SIZE(container, arg_len);	\
