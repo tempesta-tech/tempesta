@@ -16,7 +16,8 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS = -I$(src)/../../tempesta_db -I$(src)/../../sync_socket -DDEBUG
+EXTRA_CFLAGS = -I$(src)/../ -I$(src)/../../tempesta_db -I$(src)/../../sync_socket
 
-obj-m = tfw_sched_rr.o tfw_sched_dummy.o
+EXTRA_CFLAGS +=  -Og -g3 -DDEBUG
 
+obj-m = tfw_sched_dummy.o tfw_sched_rr.o tfw_sched_http.o
