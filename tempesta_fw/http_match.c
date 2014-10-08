@@ -37,13 +37,13 @@ match_uri_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
 	 * - Characters other than those in the "reserved" and "unsafe"
 	 *   sets (see RFC 2396) are equivalent to their ""%" HEX HEX" encoding.
 	 */
-	return tfw_str_eq_cstr_ci(&req->uri, arg->str.s, arg->str.len);
+	return tfw_str_eq_cstr_ci(&req->uri, arg->str, arg->len);
 }
 
 static bool
 match_uri_prefix(const TfwHttpReq *req, const TfwMatchArg *arg)
 {
-	return tfw_str_startswith_cstr_ci(&req->uri, arg->str.s, arg->str.len);
+	return tfw_str_startswith_cstr_ci(&req->uri, arg->str, arg->len);
 }
 
 static bool
@@ -54,7 +54,7 @@ match_host_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
 	 *   URI or Host header (the header is used if URI is not absolute).
 	 * - Empty port and default port (80) are equal when comparing URIs.
 	 */
-	return tfw_str_eq_cstr_ci(&req->host, arg->str.s, arg->str.len);
+	return tfw_str_eq_cstr_ci(&req->host, arg->str, arg->len);
 }
 
 static bool
@@ -67,7 +67,7 @@ match_headers(const TfwHttpReq *req, const TfwMatchArg *arg,
 
 	for (i = 0; i < tbl->size; ++i) {
 		hdr = &tbl->tbl[i].field;
-		if (cmp_fn(hdr, arg->str.s, arg->str.len))
+		if (cmp_fn(hdr, arg->str, arg->len))
 			return true;
 	}
 
@@ -144,6 +144,28 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 }
 EXPORT_SYMBOL(tfw_http_match_req);
 
+TfwHttpMatchRule *
+tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
+{
+	TfwHttpMatchRule *rule;
+	size_t size = TFW_HTTP_MATCH_RULE_SIZE(arg_len);
+
+	BUG_ON(!mlst || !mlst->pool);
+
+	rule = tfw_pool_alloc(mlst->pool, size);
+	if (!rule) {
+		TFW_ERR("Can't allocate a rule for match list: %p\n", mlst);
+		return NULL;
+	}
+
+	memset(rule, 0, size);
+	INIT_LIST_HEAD(&rule->list);
+	list_add_tail(&rule->list, &mlst->list);
+
+	return rule;
+}
+EXPORT_SYMBOL(tfw_http_match_rule_new);
+
 TfwHttpMatchList *
 tfw_http_match_list_alloc(void)
 {
@@ -164,29 +186,15 @@ EXPORT_SYMBOL(tfw_http_match_list_alloc);
 void
 tfw_http_match_list_free(TfwHttpMatchList *mlst)
 {
-	BUG_ON(!mlst || !mlst->pool);
-	tfw_pool_free(mlst->pool);
+	if (mlst)
+		tfw_pool_free(mlst->pool);
 }
 EXPORT_SYMBOL(tfw_http_match_list_free);
 
-TfwHttpMatchRule *
-tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t extra_len)
+void
+tfw_http_match_list_rcu_free(struct rcu_head *r)
 {
-	TfwHttpMatchRule *rule;
-	size_t size = sizeof(*rule) + extra_len;
-
-	BUG_ON(!mlst || !mlst->pool);
-
-	rule = tfw_pool_alloc(mlst->pool, size);
-	if (!rule) {
-		TFW_ERR("Can't allocate a rule for match list: %p\n", mlst);
-		return NULL;
-	}
-
-	memset(rule, 0, size);
-	INIT_LIST_HEAD(&rule->list);
-	list_add_tail(&rule->list, &mlst->list);
-
-	return rule;
+	TfwHttpMatchList *l = container_of(r, TfwHttpMatchList, rcu);
+	tfw_pool_free(l->pool);
 }
-EXPORT_SYMBOL(tfw_http_match_rule_new);
+EXPORT_SYMBOL(tfw_http_match_list_rcu_free);

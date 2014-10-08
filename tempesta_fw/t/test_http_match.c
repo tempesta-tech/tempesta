@@ -63,9 +63,8 @@ test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
 	e->test_id = test_id;
 	e->rule.field = req_field;
 	e->rule.op = op;
-	e->rule.arg.str.len = len;
-	e->rule.arg.str.s = e->rule.extra;
-	memcpy(&e->rule.extra, str_arg, len);
+	e->rule.arg.len = len;
+	memcpy(e->rule.arg.str, str_arg, len);
 }
 
 int
@@ -93,9 +92,9 @@ TEST(tfw_http_match_req, returns_first_matching_rule)
 	const TfwHttpMatchRule *match;
 	TfwHttpMatchRule *r1, *r2, *r3;
 
-	r1 = tfw_http_match_rule_new(test_mlst, 0);
-	r2 = tfw_http_match_rule_new(test_mlst, 0);
-	r3 = tfw_http_match_rule_new(test_mlst, 0);
+	r1 = tfw_http_match_rule_new(test_mlst, sizeof(r1->arg.method));
+	r2 = tfw_http_match_rule_new(test_mlst, sizeof(r2->arg.method));
+	r3 = tfw_http_match_rule_new(test_mlst, sizeof(r3->arg.method));
 
 	r1->field = r2->field = r3->field = TFW_HTTP_MATCH_F_METHOD;
 	r1->op = r2->op = r3->op = TFW_HTTP_MATCH_O_EQ;

@@ -7,7 +7,7 @@
 SSOCKET=sync_socket
 TDB=tempesta_db
 TFW=tempesta_fw
-SCHED=dummy
+SCHED=http
 TFW_ROOT=`pwd`/$TFW
 TFW_CACHE_SIZE=`expr 256 \* 1024`
 TFW_CACHE_PATH=$TFW_ROOT/cache
@@ -45,7 +45,7 @@ start()
 				 cache_path="$TFW_CACHE_PATH"
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
-	insmod $TFW_ROOT/sched/$SCHED/*.ko
+	insmod $TFW_ROOT/sched/tfw_sched_${SCHED}.ko
 	[ $? -ne 0 ] && error "cannot load scheduler module"
 
 	sysctl --load=tempesta.sysctl.conf
