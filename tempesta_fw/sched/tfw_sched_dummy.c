@@ -19,8 +19,8 @@
  */
 #include <linux/module.h>
 
-#include "../log.h"
-#include "../sched.h"
+#include "log.h"
+#include "sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta dummy scheduler");
