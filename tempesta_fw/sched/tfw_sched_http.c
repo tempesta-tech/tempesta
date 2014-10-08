@@ -18,32 +18,44 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/ctype.h>
 #include <linux/rcupdate.h>
 #include <linux/spinlock.h>
-#include <linux/sysctl.h>
 #include <linux/string.h>
-#include <linux/ctype.h>
+#include <linux/sysctl.h>
 
+#include "http_match.h"
 #include "http.h"
+#include "lib.h"
 #include "sched.h"
 #include "server.h"
-#include "http_match.h"
-#include "lib.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
 MODULE_VERSION("0.0.1");
 MODULE_LICENSE("GPL");
 
-#define SH_BANNER "tfw_sched_http: "
-#define SH_ERR(...) TFW_ERR(SH_BANNER __VA_ARGS__)
-#define SH_LOG(...) TFW_LOG(SH_BANNER __VA_ARGS__)
-#define SH_DBG(...) TFW_DBG(SH_BANNER __VA_ARGS__)
+#define BANNER "tfw_sched_http: "
+#define ERR(...) TFW_ERR(BANNER __VA_ARGS__)
+#define LOG(...) TFW_LOG(BANNER __VA_ARGS__)
+#define DBG(...) TFW_DBG(BANNER __VA_ARGS__)
 
 #define MAX_SRV_PER_RULE 16
 #define RULES_TEXT_BUF_SIZE 4096
 #define IP_ADDR_TEXT_BUF_SIZE 32
 
+/**
+ * PtrSet is a generic set of pointers implemented by a plain array.
+ *
+ * In this module it is used for:
+ *   - Maintaining a list of all servers added to the scheduler.
+ *   - Storing TfwAddr pointers in a parsed rule.
+ *   - Storing TfwServer pointers for entries in a matching table.
+ *
+ * @counter is used only in the third case for round-robin balancing between
+ *          the servers.
+ * @max is a size of the @ptrs array (and @n is a number of occupied elements).
+ */
 typedef struct {
 	atomic_t counter;
 	short n;
@@ -53,20 +65,48 @@ typedef struct {
 
 #define PTR_SET_SIZE(max) (sizeof(PtrSet) + ((max) * sizeof(void *)))
 
+/**
+ * The structure may be used in two forms:
+ *  - A list of parsed rules with attached backend addresses.
+ *  - The same list of rules, but addresses are resolved to TfwServer objects.
+ */
 typedef struct {
 	union {
 		PtrSet *servers; /* Contains TfwServer pointers. */
-		PtrSet *addrs; /* Contains TfwAddr pointers. */
+		PtrSet *addrs;   /* Contains TfwAddr pointers. */
 	};
 	TfwHttpMatchRule rule;
 } MatchEntry;
 
+/**
+ * A list of matching rules which is used to schedule HTTP requests.
+ *
+ * The list contains pre-resolved TfwServer objects instead instead of IP
+ * addresses (specified in rules). That is done for performance purposes:
+ * when a corresponding rule is found, a TfwServer may be returned immediately
+ * without searching a TfwServer by its IP address.
+ *
+ * When either rules or servers are changed a new match_list is allocated and
+ * built, and this pointer is replaced via RCU.
+ *
+ * RCU Updaters must be synchronized with the match_list_update_lock.
+ */
 static TfwHttpMatchList __rcu *match_list;
 DEFINE_SPINLOCK(match_list_update_lock);
 
+/**
+ * A list of parsed rules (but not yet a match_list).
+ * A new list is allocated by configuration parser when rules are changed.
+ * Any access must be protected with the saved_rules_lock.
+ */
 static TfwHttpMatchList *saved_rules;
 DEFINE_SPINLOCK(saved_rules_lock);
 
+/**
+ * A set of all (online) servers added to the scheduler.
+ * Allocated once upon module initialization (for fixed amount of servers).
+ * Any access must be protected with the added_servers_lock.
+ */
 static PtrSet *added_servers;
 DEFINE_SPINLOCK(added_servers_lock);
 
@@ -97,11 +137,11 @@ ptrset_add(PtrSet *s, void *ptr)
 	BUG_ON(!s || !ptr);
 
 	if (ptrset_find(s, ptr) > 0) {
-		SH_ERR("Can't add ptr %p to set %p - duplicate ptr\n", ptr, s);
+		ERR("Can't add ptr %p to set %p - duplicate ptr\n", ptr, s);
 		return -EEXIST;
 	}
 	else if (s->n >= s->max) {
-		SH_ERR("Can't add ptr %p to set %p - set is full\n", ptr, s);
+		ERR("Can't add ptr %p to set %p - set is full\n", ptr, s);
 		return -ENOSPC;
 	}
 
@@ -121,7 +161,7 @@ ptrset_del(PtrSet *s, void *ptr)
 	i = ptrset_find(s, ptr);
 
 	if (i < 0) {
-		SH_ERR("Can't delete ptr %p from set %p - not found\n", ptr, s);
+		ERR("Can't delete ptr %p from set %p - not found\n", ptr, s);
 		return -ENOENT;
 	}
 
@@ -138,12 +178,10 @@ ptrset_get_rr(PtrSet *s)
 	unsigned int n, counter;
 	void *ret;
 
-	BUG_ON(!s);
-
 	do {
 		n = s->n;
 		if (!n) {
-			SH_ERR("Can't get a pointer from the empty set: %p\n",
+			ERR("Can't get a pointer from the empty set: %p\n",
 			       s);
 			return NULL;
 		}
@@ -155,38 +193,23 @@ ptrset_get_rr(PtrSet *s)
 	return ret;
 }
 
-TfwServer *
-tfw_sched_http_get_srv(TfwMsg *msg)
-{
-	TfwHttpMatchList *mlst;
-	MatchEntry *entry;
-	TfwServer *srv = NULL;
+/*
+ * --------------------------------------------------------------------------
+ * Functions for building match_list.
+ * --------------------------------------------------------------------------
+ */
 
-	rcu_read_lock();
-	mlst = rcu_dereference(match_list);
-	if (!mlst) {
-		SH_ERR("No rules loaded to the scheduler\n");
-	} else {
-		entry = tfw_http_match_req_entry((TfwHttpReq * )msg, mlst,
-						 MatchEntry, rule);
-		if (entry)
-			srv = ptrset_get_rr(entry->servers);
-	}
-	rcu_read_unlock();
-
-	if (!srv)
-		SH_ERR("A matching server is not found\n");
-
-	return srv;
-}
-
+/**
+ * Allocate a set of TfwAddr or TfwServer pointers for placing it
+ * into a MatchEntry.
+ */
 static PtrSet *
 alloc_servers(TfwPool *pool)
 {
 	size_t size = PTR_SET_SIZE(MAX_SRV_PER_RULE);
 	PtrSet *servers = tfw_pool_alloc(pool, size);
 	if (!servers) {
-		SH_ERR("Can't allocate memory from pool: %p\n", pool);
+		ERR("Can't allocate memory from pool: %p\n", pool);
 		return NULL;
 	}
 	memset(servers, 0, size);
@@ -197,8 +220,11 @@ alloc_servers(TfwPool *pool)
 
 #define alloc_addrs(pool) alloc_servers(pool)
 
-TfwServer *
-resolve_addr(TfwAddr *addr)
+/**
+ * Resolve TfwAddr to TfwServer (using a set of servers added to the scheduler).
+ */
+static TfwServer *
+resolve_addr(const TfwAddr *addr)
 {
 	int i, ret;
 	TfwAddr curr_addr;
@@ -212,24 +238,25 @@ resolve_addr(TfwAddr *addr)
 
 		ret = tfw_server_get_addr(curr_srv, &curr_addr);
 		if (ret) {
-			SH_ERR("Can't obtain address of the server: %p\n",
-			       curr_srv);
-			goto out;
+			LOG("Can't get address of the server: %p\n", curr_srv);
 		}
-
-		if (tfw_addr_eq(addr, &curr_addr)) {
+		else if (tfw_addr_eq(addr, &curr_addr)) {
 			out_srv = curr_srv;
-			goto out;
+			break;
 		}
 	}
 
-	out:
 	spin_unlock_bh(&added_servers_lock);
 
 	return out_srv;
 }
 
-int
+/**
+ * Resolve a set of TfwAddr pointers into a set of TfwServer pointers.
+ * Only online servers added to this scheduler are added to @dst_servers.
+ * Unresolved addresses are skipped.
+ */
+static int
 resolve_addresses(PtrSet *dst_servers, const PtrSet *src_addrs)
 {
 	int i, ret;
@@ -242,7 +269,7 @@ resolve_addresses(PtrSet *dst_servers, const PtrSet *src_addrs)
 		if (srv) {
 			ret = ptrset_add(dst_servers, srv);
 			if (ret) {
-				SH_ERR("Can't add server\n");
+				ERR("Can't add resolved server: %p\n", srv);
 				return -1;
 			}
 		}
@@ -251,28 +278,36 @@ resolve_addresses(PtrSet *dst_servers, const PtrSet *src_addrs)
 	return 0;
 }
 
-int
+/**
+ * Allocate a new entry in @dst_mlst, copy rule from @src and with resolving
+ * IP addresses to TfwServer objects.
+ */
+static int
 build_match_entry(TfwHttpMatchList *dst_mlst, const MatchEntry *src)
 {
 	int ret = 0;
 	MatchEntry *dst;
 	size_t arg_len;
 
+	/* Allocate a new entry in @dst_mlst. */
 	arg_len = src->rule.arg.len;
 	dst = tfw_http_match_entry_new(dst_mlst, MatchEntry, rule, arg_len);
 	if (!dst) {
-		SH_ERR("Can't create match entry\n");
+		ERR("Can't create new match entry\n");
 		return -1;
 	}
+
+	/* Copy all fields except @list. At this point the @dst is already a
+	 * member of @dst_mlst, so we can't touch @dst->rule.list here. */
 	dst->rule.field = src->rule.field;
 	dst->rule.op = src->rule.op;
 	dst->rule.arg.len = arg_len;
 	memcpy(dst->rule.arg.str, src->rule.arg.str, arg_len);
 
+	/* Allocate a set of server and resolve addresses to servers. */
 	dst->servers = alloc_servers(dst_mlst->pool);
 	if (!dst->servers)
 		return -1;
-
 	ret = resolve_addresses(dst->servers, src->addrs);
 	if (ret)
 		return -1;
@@ -280,6 +315,9 @@ build_match_entry(TfwHttpMatchList *dst_mlst, const MatchEntry *src)
 	return ret;
 }
 
+/**
+ * Build a new MatchList from saved_rules and added_servers.
+ */
 static TfwHttpMatchList *
 build_match_list(void)
 {
@@ -289,7 +327,7 @@ build_match_list(void)
 
 	new_match_list = tfw_http_match_list_alloc();
 	if (!new_match_list) {
-		SH_ERR("Can't allocate new match list\n");
+		ERR("Can't allocate new match list\n");
 		return NULL;
 	}
 
@@ -299,7 +337,7 @@ build_match_list(void)
 		ret = build_match_entry(new_match_list, src_entry);
 		if (ret) {
 			spin_unlock_bh(&saved_rules_lock);
-			SH_ERR("Can't build match entry\n");
+			ERR("Can't build match entry\n");
 			tfw_http_match_list_free(new_match_list);
 			return NULL;
 		}
@@ -309,21 +347,24 @@ build_match_list(void)
 	return new_match_list;
 }
 
+/**
+ * Build a new match_list and update it via RCU.
+ */
 static int
 rebuild_match_list(void)
 {
 	TfwHttpMatchList *old_match_list, *new_match_list;
 
-	SH_DBG("Refreshing match list\n");
+	DBG("Rebuilding match_list\n");
 
 	if (!saved_rules) {
-		SH_DBG("No rules loaded to the scheduler yet\n");
+		DBG("No rules loaded to the scheduler yet\n");
 		return 0;
 	}
 
 	new_match_list = build_match_list();
 	if (!new_match_list) {
-		SH_ERR("Can't build new matching list\n");
+		ERR("Can't build new match_list\n");
 		return -1;
 	}
 
@@ -338,19 +379,51 @@ rebuild_match_list(void)
 	return 0;
 }
 
+/*
+ * --------------------------------------------------------------------------
+ * Scheduler API methods.
+ * --------------------------------------------------------------------------
+ */
+
+TfwServer *
+tfw_sched_http_get_srv(TfwMsg *msg)
+{
+	TfwHttpMatchList *mlst;
+	MatchEntry *entry;
+	TfwServer *srv = NULL;
+
+	rcu_read_lock();
+	mlst = rcu_dereference(match_list);
+	if (!mlst) {
+		ERR("No rules loaded to the scheduler\n");
+	} else {
+		entry = tfw_http_match_req_entry((TfwHttpReq * )msg, mlst,
+						 MatchEntry, rule);
+		if (entry)
+			srv = ptrset_get_rr(entry->servers);
+	}
+	rcu_read_unlock();
+
+	if (!srv)
+		ERR("A matching server is not found\n");
+
+	return srv;
+}
+
+
 int
 tfw_sched_http_add_srv(TfwServer *srv)
 {
 	int ret = 0;
 
-	SH_DBG("Adding server: %p\n", srv);
+	DBG("Adding server: %p\n", srv);
 
 	spin_lock_bh(&added_servers_lock);
 	ret = ptrset_add(added_servers, srv);
 	spin_unlock_bh(&added_servers_lock);
 
 	if (ret)
-		SH_ERR("Can't add the server to the scheduler: %p\n", srv);
+		ERR("Can't add the server to the scheduler: %p\n", srv);
 	else
 		rebuild_match_list();
 
@@ -362,14 +435,14 @@ tfw_sched_http_del_srv(TfwServer *srv)
 {
 	int ret = 0;
 
-	SH_DBG("Deleting server: %p\n", srv);
+	DBG("Deleting server: %p\n", srv);
 
 	spin_lock_bh(&added_servers_lock);
 	ret = ptrset_del(added_servers, srv);
 	spin_unlock_bh(&added_servers_lock);
 
 	if (ret)
-		SH_ERR("Can't delete the server from the scheduler: %p\n", srv);
+		ERR("Can't delete the server from the scheduler: %p\n", srv);
 	else
 		rebuild_match_list();
 
@@ -378,7 +451,7 @@ tfw_sched_http_del_srv(TfwServer *srv)
 
 /*
  * --------------------------------------------------------------------------
- *  Sysctl config parser.
+ *  Sysctl configuration parser.
  * --------------------------------------------------------------------------
  *
  * This is a tiny recursive descent parser that tries to mimic this grammar:
@@ -407,16 +480,16 @@ typedef enum {
 	TOKEN_STR,
 } token_t;
 
-static const char *token_str_tbl[] = {
-	[TOKEN_NA] 	= STRINGIFY(TOKEN_NA),
-	[TOKEN_LBRACE] 	= STRINGIFY(TOKEN_LBRACE),
-	[TOKEN_RBRACE] 	= STRINGIFY(TOKEN_RBRACE),
-	[TOKEN_STR] 	= STRINGIFY(TOKEN_STR),
-};
-
-const char *
+static const char *
 token_str(token_t t)
 {
+	static const char *token_str_tbl[] = {
+		[TOKEN_NA] 	= STRINGIFY(TOKEN_NA),
+		[TOKEN_LBRACE] 	= STRINGIFY(TOKEN_LBRACE),
+		[TOKEN_RBRACE] 	= STRINGIFY(TOKEN_RBRACE),
+		[TOKEN_STR] 	= STRINGIFY(TOKEN_STR),
+	};
+
 	BUG_ON(t >= ARRAY_SIZE(token_str_tbl));
 	return token_str_tbl[t];
 }
@@ -432,11 +505,11 @@ typedef struct {
 
 #define PARSER_ERR(s, ...) \
 do { \
-	SH_ERR("Parser error: " __VA_ARGS__); \
-	SH_ERR("lexeme: %.*s  position: %.80s\n", s->len, s->lexeme, s->pos); \
+	ERR("Parser error: " __VA_ARGS__); \
+	ERR("lexeme: %.*s  position: %.80s\n", s->len, s->lexeme, s->pos); \
 } while (0)
 
-token_t
+static token_t
 get_token(ParserState *s)
 {
 	static const token_t single_char_tokens[] = {
@@ -484,7 +557,7 @@ get_token(ParserState *s)
 		s->token = TOKEN_STR;
 	}
 
-	out:
+out:
 	return s->token;
 }
 
@@ -675,8 +748,7 @@ parse_rules(ParserState *s)
 	int ret;
 
 	while (peek_token(s)) {
-		s->entry = tfw_http_match_entry_new(s->mlst, MatchEntry, rule,
-						    0);
+		s->entry = tfw_http_match_entry_new(s->mlst, MatchEntry, rule, 0);
 		if (!s->entry) {
 			PARSER_ERR(s, "can't allocate new match entry");
 			return -1;
@@ -707,7 +779,7 @@ run_parser(const char *input)
 
 	mlst = tfw_http_match_list_alloc();
 	if (!mlst) {
-		SH_ERR("Can't allocate match list\n");
+		ERR("Clsan't allocate match list\n");
 		return NULL;
 	}
 	s.mlst = mlst;
@@ -733,26 +805,26 @@ handle_sysctl(ctl_table *ctl, int write, void __user *user_buf,
 	if (!write) {
 		ret = proc_dostring(ctl, write, user_buf, lenp, ppos);
 		if (ret)
-			SH_ERR("Can't copy data to user-space\n");
+			ERR("Can't copy data to user-space\n");
 		return ret;
 	}
 
-	SH_DBG("Copying data to kernel-space\n");
+	DBG("Copying data to kernel-space\n");
 	len = min((size_t )ctl->maxlen, *lenp);
 	ret = copy_from_user(ctl->data, user_buf, len);
 	if (ret) {
-		SH_ERR("Can't copy data from user-space");
+		ERR("Can't copy data from user-space");
 		return -1;
 	}
 
-	SH_DBG("Parsing copied data\n");
+	DBG("Parsing copied data\n");
 	new_rules = run_parser(ctl->data);
 	if (!new_rules) {
-		SH_ERR("Can't parse input data\n");
+		ERR("Can't parse input data\n");
 		return -EINVAL;
 	}
 
-	SH_DBG("Replacing old rules\n");
+	DBG("Replacing old rules\n");
 	spin_lock_bh(&saved_rules_lock);
 	old_rules = saved_rules;
 	saved_rules = new_rules;
@@ -760,10 +832,10 @@ handle_sysctl(ctl_table *ctl, int write, void __user *user_buf,
 
 	tfw_http_match_list_free(old_rules);
 
-	SH_DBG("Applying new rules\n");
+	DBG("Applying new rules\n");
 	ret = rebuild_match_list();
 	if (ret)
-		SH_ERR("Can't apply new rules\n");
+		ERR("Can't apply new rules\n");
 
 	return ret;
 }
@@ -781,6 +853,12 @@ static ctl_table sched_http_ctl_tbl[] = {
 	{ }
 };
 
+/*
+ * --------------------------------------------------------------------------
+ * Init/Exit routines.
+ * --------------------------------------------------------------------------
+ */
+
 static TfwScheduler tfw_sched_rr_mod = {
 	.name = "http",
 	.get_srv = tfw_sched_http_get_srv,
@@ -793,12 +871,12 @@ tfw_sched_http_init(void)
 {
 	int ret;
 
-	SH_LOG("init\n");
+	LOG("init\n");
 
 	added_servers = kzalloc(PTR_SET_SIZE(TFW_SCHED_MAX_SERVERS),
 				GFP_KERNEL);
 	if (!added_servers) {
-		SH_LOG("Can't allocate servers list\n");
+		LOG("Can't allocate servers list\n");
 		ret = -ENOMEM;
 		goto err_alloc;
 	}
@@ -808,24 +886,24 @@ tfw_sched_http_init(void)
 					     sched_http_ctl_tbl);
 	if (!sched_http_ctl) {
 		ret = -1;
-		SH_LOG("Can't register the sysctl table\n");
+		LOG("Can't register the sysctl table\n");
 		goto err_sysctl_register;
 	}
 
 	ret = tfw_sched_register(&tfw_sched_rr_mod);
 	if (ret) {
-		SH_LOG("Can't register the scheduler module\n");
+		LOG("Can't register the scheduler module\n");
 		ret = -1;
 		goto err_mod_register;
 	}
 
 	return ret;
 
-	err_mod_register:
+err_mod_register:
 	unregister_net_sysctl_table(sched_http_ctl);
-	err_sysctl_register:
+err_sysctl_register:
 	kfree(added_servers);
-	err_alloc:
+err_alloc:
 	return ret;
 }
 

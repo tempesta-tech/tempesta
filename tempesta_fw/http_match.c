@@ -1,6 +1,42 @@
 /**
  *		Tempesta FW
  *
+ * HTTP matching logic.
+ *
+ * The matching process is driven by a "table" of rules that may look like this:
+ *         @field                  @op                      @arg
+ * { TFW_HTTP_MATCH_F_HOST,  TFW_HTTP_MATCH_O_EQ,       "example.com" },
+ * { TFW_HTTP_MATCH_F_URI,   TFW_HTTP_MATCH_O_PREFIX,   "/foo/bar"    },
+ * { TFW_HTTP_MATCH_F_URI,   TFW_HTTP_MATCH_O_PREFIX,   "/"           },
+ *
+ * The table is represented by a linked list TfwHttpMatchList that contains
+ * of TfwHttpMatchRule that has the field described above:
+ *  - @field is a field of a parsed HTTP request: method/uri/host/header/etc.
+ *  - @op determines a comparison operator: eq/prefix/substring/regex/etc.
+ *  - @arg is the second argument of the binary @op, its type is determined
+ *    dynamically depending on the @field (may be number/string/addr/etc).
+ *
+ * So the tfw_http_match_req() threads a HTTP request sequentally across all
+ * rules in the table and stops on a first matching rule (the rule is returned).
+ * The rule may be wrapped by a container structure and thus custom data may
+ * be attached to rules.
+ *
+ * Internally, each pair of @field and @op is dispatched to a corresponding
+ * match_* function.
+ * For example:
+ *  TFW_HTTP_MATCH_F_HOST + TFW_HTTP_MATCH_O_EQ    => match_host_eq
+ *  TFW_HTTP_MATCH_F_URI + TFW_HTTP_MATCH_O_EQ     => match_uri_eq
+ *  TFW_HTTP_MATCH_F_URI + TFW_HTTP_MATCH_O_PREFIX => match_uri_prefix
+ *  etc...
+ * Each such match_*() function takes TfwHttpReq and @arg as arguments and
+ * returns true if the given request matches to the given @arg.
+ * Such approach allows to keep the code structured and eases adding new
+ * @field/@op combinations.
+ * Currently that is implemented with a multi-dimensional array of pointers
+ * (the match_fn_tbl). However the code is critical for performance, so perhaps
+ * this may be optimized to a kind of jump table.
+ *
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -127,6 +163,10 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return fn(req, &rule->arg);
 }
 
+/**
+ * Match a HTTP request against all rules in @mlst.
+ * Return a first matching rule.
+ */
 TfwHttpMatchRule *
 tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 {
@@ -144,6 +184,9 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 }
 EXPORT_SYMBOL(tfw_http_match_req);
 
+/**
+ * Allocate a rule from the pool of @mlst and add it to the list.
+ */
 TfwHttpMatchRule *
 tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
 {
@@ -166,6 +209,9 @@ tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
 }
 EXPORT_SYMBOL(tfw_http_match_rule_new);
 
+/**
+ * Allocate an empty list of rules.
+ */
 TfwHttpMatchList *
 tfw_http_match_list_alloc(void)
 {
@@ -183,6 +229,9 @@ tfw_http_match_list_alloc(void)
 }
 EXPORT_SYMBOL(tfw_http_match_list_alloc);
 
+/**
+ * Free a list of rules (together with all elements allocated from its pool).
+ */
 void
 tfw_http_match_list_free(TfwHttpMatchList *mlst)
 {
@@ -191,6 +240,9 @@ tfw_http_match_list_free(TfwHttpMatchList *mlst)
 }
 EXPORT_SYMBOL(tfw_http_match_list_free);
 
+/**
+ * call_rcu() callback for freeing the TfwHttpMatchList.
+ */
 void
 tfw_http_match_list_rcu_free(struct rcu_head *r)
 {
