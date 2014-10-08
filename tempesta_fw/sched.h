@@ -35,6 +35,15 @@
  * the functionality to different module type?
  */
 
+
+/**
+ * The maximum number of servers that may be added to any scheduler.
+ *
+ * Schedulers are allowed to reject tfw_sched_add_srv() calls if the count of
+ * servers reaches this number.
+ */
+#define TFW_SCHED_MAX_SERVERS 64
+
 typedef struct {
 	const char *name;
 

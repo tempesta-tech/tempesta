@@ -20,9 +20,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "../debugfs.h"
-#include "../lib.h"
-#include "../sched.h"
+#include "debugfs.h"
+#include "log.h"
+#include "sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
@@ -37,7 +37,7 @@ MODULE_LICENSE("GPL");
  * The memory for servers list is allocated statically, so this is a maximum
  * number of servers that may be added for scheduling in this module.
  */
-#define RR_MAX_SERVERS_N 64
+#define RR_MAX_SERVERS_N TFW_SCHED_MAX_SERVERS
 
 /**
  * The structure represents a list of servers read in a round-robin fashion.

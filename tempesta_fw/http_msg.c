@@ -44,6 +44,7 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
+EXPORT_SYMBOL(tfw_http_msg_alloc);
 
 /**
  * The function does not free @m->skb_list, the caller is responsible for that.
@@ -61,7 +62,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	 * FIXME do we need to synchronize this?
 	 * If a connection can be processed from different CPUs, then we do.
 	 */
-	if (m->conn->msg == (TfwMsg *)m)
+	if (m->conn && m->conn->msg == (TfwMsg *)m)
 		m->conn->msg = NULL;
 
 	while (1) {
@@ -80,3 +81,4 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_free(m->pool);
 }
+EXPORT_SYMBOL(tfw_http_msg_free);
