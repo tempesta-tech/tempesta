@@ -18,18 +18,12 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/bug.h>
-
+#include <linux/kernel.h>
 #include "str.h"
 
-#define TFW_STR_IS_PLAIN(str) (!(str->flags & TFW_STR_COMPOUND))
-
-#define TFW_STR_FOR_EACH_CHUNK(chunk, str) for ( \
-	chunk = (TFW_STR_IS_PLAIN(str) ? str : str->ptr); \
-	chunk < (TFW_STR_IS_PLAIN(str) ? str + 1 : (TfwStr *)str->ptr + str->len); \
-	++chunk)
-
-#ifdef DEBUG
+#ifndef DEBUG
+#define tfw_str_validate(str)
+#else
 static void
 tfw_str_validate(const TfwStr *str)
 {
@@ -47,9 +41,7 @@ tfw_str_validate(const TfwStr *str)
 		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
 	}
 }
-#else
-#define tfw_str_validate(str)
-#endif
+#endif /* ifndef DEBUG */
 
 /**
  * Add compound piece to @str and return pointer to the piece.
@@ -57,6 +49,8 @@ tfw_str_validate(const TfwStr *str)
 TfwStr *
 tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 {
+	tfw_str_validate(str);
+
 	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
 		unsigned int l = str->len * sizeof(TfwStr);
 		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
@@ -83,6 +77,9 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 }
 EXPORT_SYMBOL(tfw_str_add_compound);
 
+/**
+ * Sum lenght of all chunks in a string (either compound or plain).
+ */
 int
 tfw_str_len(const TfwStr *str)
 {
@@ -99,21 +96,32 @@ tfw_str_len(const TfwStr *str)
 }
 EXPORT_SYMBOL(tfw_str_len);
 
-int
-tfw_str_cnum(const TfwStr *str)
-{
-	return TFW_STR_IS_PLAIN(str) ? 0 : str->len;
-}
-EXPORT_SYMBOL(tfw_str_cnum);
-
+/**
+ * Compare a TfwStr (either compound or plain) with a C string.
+ *
+ * @cstr_len is strlen() of the C string.
+ *           This function doesn't calculate length on its own for optimization
+ *           purposes (the length may be pre-computed and saved between calls).
+ *
+ * If @ci is true then a case-insensitive comparison is used.
+ */
 static bool
 str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
 {
 	int ret;
 	const TfwStr *chunk;
 
-	tfw_str_validate(str);
-
+	/* TODO: Discuss/measure the impact of the length comparison.
+	 * Current implementation of tfw_str_len() loops over TfwStr
+	 * chunks, but still it may improve performance because:
+	 *  - It consumes O(chunks) instead of O(chars) for comparison.
+	 *  - Good spatial locality: all TfwStr chunks are packed together in
+	 *    the memory (unlike actual strings referenced by the chunks).
+	 *  - Generally strings tend to have different lenghts, especially in
+	 *    matching tables with a lot of rules.
+	 * Even if lengths are equal, the overhead of tfw_str_len() is amortized
+	 * by hot caches that contain chunks used in the next loop.
+	 */
 	if (cstr_len != tfw_str_len(str))
 		return false;
 
@@ -135,6 +143,9 @@ str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
 	return true;
 }
 
+/**
+ * Compare TfwStr with a C string (case-sensitive).
+ */
 bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len)
 {
@@ -142,6 +153,9 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len)
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr);
 
+/**
+ * Compare TfwStr with a C string (case-insensitive).
+ */
 bool
 tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 {
@@ -149,13 +163,14 @@ tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_ci);
 
+/**
+ * Return true if a given @cstr is a prefix of @str (case-insensitive).
+ */
 bool
 tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 {
 	int len;
 	const TfwStr *chunk;
-
-	tfw_str_validate(str);
 
 	if (cstr_len > tfw_str_len(str))
 		return false;

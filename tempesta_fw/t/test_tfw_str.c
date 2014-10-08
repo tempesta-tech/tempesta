@@ -42,15 +42,6 @@ TEST(tfw_str_len, summarizes_chunk_lenghs)
 	EXPECT_EQ(9, len);
 }
 
-TEST(tfw_str_cnum, returns_number_of_chunks)
-{
-	int plain_cnum = tfw_str_cnum(&chunks[2]);
-	int compound_cnum = tfw_str_cnum(&compound_str);
-
-	EXPECT_EQ(0, plain_cnum);
-	EXPECT_EQ(3, compound_cnum);
-}
-
 TEST(tfw_str_eq_cstr, compares_compound_str)
 {
 	const TfwStr *str = &compound_str;
@@ -142,21 +133,18 @@ TEST(tfw_str_add_compound, allocates_and_adds_chunk)
 	TFW_STR_INIT(s);
 	s->len = 4;
 	s->ptr = "abcd";
-	EXPECT_EQ(0, tfw_str_cnum(s));
 	EXPECT_EQ(4, tfw_str_len(s));
 	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcd", 4));
 
 	c2 = tfw_str_add_compound(pool, s);
 	c2->len = 2;
 	c2->ptr = "ef";
-	EXPECT_EQ(2, tfw_str_cnum(s));
 	EXPECT_EQ(6, tfw_str_len(s));
 	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcdef", 6));
 
 	c3 = tfw_str_add_compound(pool, s);
 	c3->len = 3;
 	c3->ptr = "ghi";
-	EXPECT_EQ(3, tfw_str_cnum(s));
 	EXPECT_EQ(9, tfw_str_len(s));
 	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcdefghi", 9));
 
@@ -166,7 +154,6 @@ TEST(tfw_str_add_compound, allocates_and_adds_chunk)
 TEST_SUITE(tfw_str)
 {
 	TEST_RUN(tfw_str_len, summarizes_chunk_lenghs);
-	TEST_RUN(tfw_str_cnum, returns_number_of_chunks);
 	TEST_RUN(tfw_str_eq_cstr, compares_compound_str);
 	TEST_RUN(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
 	TEST_RUN(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case);
