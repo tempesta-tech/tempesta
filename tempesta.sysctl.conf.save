@@ -1,0 +1,6 @@
+# tempesta.sysctl.conf - Configuration file for setting Tempesta FW variables.
+
+# A list of backend HTTP servers.
+# By default Tempesta FW uses 127.0.0.1:8080 as a single backend server.
+# You may change it 
+# net.tempesta.backend = 127.0.0.1:8080 127.0.0.1:8081 127.0.0.1:8082
