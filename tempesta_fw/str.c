@@ -29,6 +29,7 @@
 	chunk < (TFW_STR_IS_PLAIN(str) ? str + 1 : (TfwStr *)str->ptr + str->len); \
 	++chunk)
 
+#ifdef DEBUG
 static void
 tfw_str_validate(const TfwStr *str)
 {
@@ -46,6 +47,9 @@ tfw_str_validate(const TfwStr *str)
 		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
 	}
 }
+#else
+#define tfw_str_validate(str)
+#endif
 
 /**
  * Add compound piece to @str and return pointer to the piece.
@@ -67,6 +71,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 			return NULL;
 		a[0].ptr = str->ptr;
 		a[0].len = str->len;
+		a[0].flags = 0;  /* TODO: should we inherit flags here? */
 		str->ptr = a;
 		str->len = 2;
 		str->flags |= TFW_STR_COMPOUND;
@@ -76,6 +81,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 
 	return ((TfwStr *)str->ptr + str->len - 1);
 }
+EXPORT_SYMBOL(tfw_str_add_compound);
 
 int
 tfw_str_len(const TfwStr *str)
@@ -92,6 +98,13 @@ tfw_str_len(const TfwStr *str)
 	return total_len;
 }
 EXPORT_SYMBOL(tfw_str_len);
+
+int
+tfw_str_cnum(const TfwStr *str)
+{
+	return TFW_STR_IS_PLAIN(str) ? 0 : str->len;
+}
+EXPORT_SYMBOL(tfw_str_cnum);
 
 static bool
 str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
