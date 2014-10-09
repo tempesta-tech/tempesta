@@ -21,11 +21,11 @@
 #include "test.h"
 #include "str.h"
 
-
+static const char data[] = "foobarbaz";
 static const TfwStr chunks[] = {
-	{ .flags = 0, .len = 0, .ptr = "" },
-	{ .flags = 0, .len = 3, .ptr = "foo" },
-	{ .flags = 0, .len = 6, .ptr = "barbaz" }
+	{ .flags = 0, .len = 0, .ptr = NULL },
+	{ .flags = 0, .len = 3, .ptr = (void *)data },
+	{ .flags = 0, .len = 6, .ptr = (void *)(data + 3) }
 };
 
 static const TfwStr compound_str = {
@@ -63,6 +63,15 @@ TEST(tfw_str_eq_cstr, compares_compound_str)
 	EXPECT_FALSE(tfw_str_eq_cstr(str, wrong4, wrong4_len));
 }
 
+TEST(tfw_str_eq_cstr, handles_unterminated_cstr)
+{
+	const TfwStr *str = &compound_str;
+	const char *cstr = "foobarbaz [some garbage]";
+	size_t len = 9;
+
+	EXPECT_TRUE(tfw_str_eq_cstr(str, cstr, len));
+}
+
 TEST(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case)
 {
 	const TfwStr *str = &compound_str;
@@ -81,7 +90,31 @@ TEST(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case)
 	EXPECT_FALSE(tfw_str_eq_cstr_ci(str, wrong2, wrong2_len));
 }
 
-TEST(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case)
+TEST(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix)
+{
+	const TfwStr *str = &compound_str;
+	const char *right1 = "f";
+	const char *right2 = "foo";
+	const char *right3 = "foobarba";
+	const char *wrong1 = "s";
+	const char *wrong2 = "barbaz";
+	const char *wrong3 = "foobarbaz1";
+	size_t right1_len = strlen(right1);
+	size_t right2_len = strlen(right2);
+	size_t right3_len = strlen(right3);
+	size_t wrong1_len = strlen(wrong1);
+	size_t wrong2_len = strlen(wrong2);
+	size_t wrong3_len = strlen(wrong3);
+
+	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right1, right1_len));
+	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right2, right2_len));
+	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right3, right3_len));
+	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong1, wrong1_len));
+	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong2, wrong2_len));
+	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong3, wrong3_len));
+}
+
+TEST(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix_ignoring_case)
 {
 	const TfwStr *str = &compound_str;
 	const char *right1 = "f";
@@ -93,13 +126,13 @@ TEST(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case)
 	size_t wrong1_len = strlen(wrong1);
 	size_t wrong2_len = strlen(wrong2);
 
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(str, right1, right1_len));
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(str, right2, right2_len));
-	EXPECT_FALSE(tfw_str_startswith_cstr_ci(str, wrong1, wrong1_len));
-	EXPECT_FALSE(tfw_str_startswith_cstr_ci(str, wrong2, wrong2_len));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(str, right1, right1_len));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(str, right2, right2_len));
+	EXPECT_FALSE(tfw_str_subjoins_cstr_ci(str, wrong1, wrong1_len));
+	EXPECT_FALSE(tfw_str_subjoins_cstr_ci(str, wrong2, wrong2_len));
 }
 
-TEST(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
+TEST(tfw_str_subjoins_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
 {
 	/* Few corner cases here:
 	 *  - Any string starts with itself.
@@ -118,10 +151,10 @@ TEST(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
 	const char *cstr2 = "aBCd";
 	const char *empty_cstr = "";
 
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(&str, cstr, 4));
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(&str, cstr2, 4));
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(&str, empty_cstr, 0));
-	EXPECT_TRUE(tfw_str_startswith_cstr_ci(&empty_str, empty_cstr, 0));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, cstr, 4));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, cstr2, 4));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, empty_cstr, 0));
+	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&empty_str, empty_cstr, 0));
 }
 
 TEST(tfw_str_add_compound, allocates_and_adds_chunk)
@@ -155,8 +188,10 @@ TEST_SUITE(tfw_str)
 {
 	TEST_RUN(tfw_str_len, summarizes_chunk_lenghs);
 	TEST_RUN(tfw_str_eq_cstr, compares_compound_str);
+	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_cstr);
 	TEST_RUN(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
-	TEST_RUN(tfw_str_startswith_cstr_ci, tests_compound_str_prefix_ignoring_case);
-	TEST_RUN(tfw_str_startswith_cstr_ci, returns_true_if_prefix_is_empty_or_eq);
+	TEST_RUN(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix);
+	TEST_RUN(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix_ignoring_case);
+	TEST_RUN(tfw_str_subjoins_cstr_ci, returns_true_if_prefix_is_empty_or_eq);
 	TEST_RUN(tfw_str_add_compound, allocates_and_adds_chunk);
 }
