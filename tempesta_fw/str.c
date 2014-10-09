@@ -22,10 +22,12 @@
 #include "str.h"
 
 #ifndef DEBUG
-#define tfw_str_validate(str)
+#define validate_tfw_str(str)
+#define validate_cstr(cstr, len)
 #else
+
 static void
-tfw_str_validate(const TfwStr *str)
+validate_tfw_str(const TfwStr *str)
 {
 	const TfwStr *chunk;
 
@@ -41,6 +43,20 @@ tfw_str_validate(const TfwStr *str)
 		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
 	}
 }
+
+static void
+validate_cstr(const char *cstr, unsigned int len)
+{
+	/* Usually C strings are patterns for matching against TfwStr, so we
+	 * can make some asumptions on them:
+	 *  - Length corresponds to strlen().
+	 *  - They are shorter than 2^16. Opposite likely means an error,
+	 *    perhaps an error code (negative value) is used as an unsigned int.
+	 */
+	BUG_ON(len >= (1<<16));
+	BUG_ON(strnlen(cstr, len) != len);
+}
+
 #endif /* ifndef DEBUG */
 
 /**
@@ -49,7 +65,7 @@ tfw_str_validate(const TfwStr *str)
 TfwStr *
 tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 {
-	tfw_str_validate(str);
+	validate_tfw_str(str);
 
 	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
 		unsigned int l = str->len * sizeof(TfwStr);
@@ -86,7 +102,7 @@ tfw_str_len(const TfwStr *str)
 	int total_len = 0;
 	const TfwStr *chunk;
 
-	tfw_str_validate(str);
+	validate_tfw_str(str);
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
 		total_len += chunk->len;
@@ -96,51 +112,46 @@ tfw_str_len(const TfwStr *str)
 }
 EXPORT_SYMBOL(tfw_str_len);
 
+
+#define CMP_PREFIX 0x1
+#define CMP_CI     0x2
+
 /**
- * Compare a TfwStr (either compound or plain) with a C string.
+ * Generic function for comparing TfwStr and C strings.
  *
- * @cstr_len is strlen() of the C string.
- *           This function doesn't calculate length on its own for optimization
- *           purposes (the length may be pre-computed and saved between calls).
+ * @cstr_len is used for performance purposes.
+ * The length may be pre-computed by the caller and saved between calls.
+ * Also it allows @cstr to be not terminated.
  *
- * If @ci is true then a case-insensitive comparison is used.
+ * @flags allow to specify the following options:
+ *  - CMP_PREFIX - the @cstr is a prefix, only first @cstr_len chars are
+ *                 compared, the rest of @str is ignored.
+ *  - CMP_CI - use case-insensitive comparison function.
  */
 static bool
-str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
+str_cmp_cstr(const TfwStr *str, const char *cstr, unsigned int cstr_len, u8 flags)
 {
-	int ret;
 	const TfwStr *chunk;
+	unsigned int cmp_len;
+	typeof(&strncmp) cmp_fn = (flags & CMP_CI) ? strnicmp : strncmp;
 
-	/* TODO: Discuss/measure the impact of the length comparison.
-	 * Current implementation of tfw_str_len() loops over TfwStr
-	 * chunks, but still it may improve performance because:
-	 *  - It consumes O(chunks) instead of O(chars) for comparison.
-	 *  - Good spatial locality: all TfwStr chunks are packed together in
-	 *    the memory (unlike actual strings referenced by the chunks).
-	 *  - Generally strings tend to have different lenghts, especially in
-	 *    matching tables with a lot of rules.
-	 * Even if lengths are equal, the overhead of tfw_str_len() is amortized
-	 * by hot caches that contain chunks used in the next loop.
-	 */
-	if (cstr_len != tfw_str_len(str))
-		return false;
+	validate_cstr(cstr, cstr_len);
+	validate_tfw_str(str);
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		if (ci)
-			ret = strnicmp(cstr, chunk->ptr, chunk->len);
-		else
-			ret = strncmp(cstr, chunk->ptr, chunk->len);
+		cmp_len = min(cstr_len, chunk->len);
 
-		if (ret)
+		if (cmp_fn(cstr, chunk->ptr, cmp_len))
 			return false;
 
-		cstr += chunk->len;
-		cstr_len -= chunk->len;
+		if (chunk->len > cstr_len)
+			return (flags & CMP_PREFIX);
+
+		cstr += cmp_len;
+		cstr_len -= cmp_len;
 	}
 
-	BUG_ON(cstr_len != 0);
-
-	return true;
+	return !cstr_len;
 }
 
 /**
@@ -149,7 +160,7 @@ str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len, bool ci)
 bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len)
 {
-	return str_eq_cstr(str, cstr, cstr_len, false);
+	return str_cmp_cstr(str, cstr, cstr_len, 0);
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr);
 
@@ -159,36 +170,27 @@ EXPORT_SYMBOL(tfw_str_eq_cstr);
 bool
 tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 {
-	return str_eq_cstr(str, cstr, cstr_len, true);
+	return str_cmp_cstr(str, cstr, cstr_len, CMP_CI);
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_ci);
+
+/**
+ * Return true if a given @cstr is a prefix of @str (case-sensitive).
+ */
+bool
+tfw_str_subjoins_cstr(const TfwStr *str, const char *cstr, int cstr_len)
+{
+	return str_cmp_cstr(str, cstr, cstr_len, CMP_PREFIX);
+}
+EXPORT_SYMBOL(tfw_str_subjoins_cstr);
 
 /**
  * Return true if a given @cstr is a prefix of @str (case-insensitive).
  */
 bool
-tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
+tfw_str_subjoins_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
 {
-	int len;
-	const TfwStr *chunk;
-
-	if (cstr_len > tfw_str_len(str))
-		return false;
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		len = min(cstr_len, (int)chunk->len);
-
-		if (strnicmp(cstr, chunk->ptr, len))
-			return false;
-
-		cstr += len;
-		cstr_len -= len;
-
-		if (!cstr_len)
-			break;
-	}
-
-	return true;
+	return str_cmp_cstr(str, cstr, cstr_len, (CMP_PREFIX | CMP_CI));
 }
-EXPORT_SYMBOL(tfw_str_startswith_cstr_ci);
+EXPORT_SYMBOL(tfw_str_subjoins_cstr_ci);
 

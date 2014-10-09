@@ -62,6 +62,7 @@ TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 int tfw_str_len(const TfwStr *str);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len);
 bool tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len);
-bool tfw_str_startswith_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len);
+bool tfw_str_subjoins_cstr(const TfwStr *str, const char *cstr, int cstr_len);
+bool tfw_str_subjoins_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len);
 
 #endif /* __TFW_STR_H__ */

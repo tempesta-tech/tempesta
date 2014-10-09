@@ -79,7 +79,7 @@ match_uri_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
 static bool
 match_uri_prefix(const TfwHttpReq *req, const TfwMatchArg *arg)
 {
-	return tfw_str_startswith_cstr_ci(&req->uri, arg->str, arg->len);
+	return tfw_str_subjoins_cstr_ci(&req->uri, arg->str, arg->len);
 }
 
 static bool
@@ -119,7 +119,7 @@ match_headers_eq(const TfwHttpReq *req, const TfwMatchArg *arg)
 static bool
 match_headers_prefix(const TfwHttpReq *req, const TfwMatchArg *arg)
 {
-	return match_headers(req, arg, tfw_str_startswith_cstr_ci);
+	return match_headers(req, arg, tfw_str_subjoins_cstr_ci);
 }
 
 typedef bool (*tfw_match_fn_t)(const TfwHttpReq *req, const TfwMatchArg *arg);
