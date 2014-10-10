@@ -62,6 +62,7 @@ test_call_teardown_fn(void)
 
 TEST_SUITE(http_match);
 TEST_SUITE(tfw_str);
+TEST_SUITE(tfw_str_kv);
 
 int
 test_run_all(void)
@@ -70,6 +71,7 @@ test_run_all(void)
 
 	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(tfw_str);
+	TEST_SUITE_RUN(tfw_str_kv);
 
 	return test_fail_counter;
 }
