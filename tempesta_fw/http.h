@@ -32,9 +32,11 @@
 #define TFW_HTTP_PF_LF			0x02
 #define TFW_HTTP_PF_CRLF		(TFW_HTTP_PF_CR | TFW_HTTP_PF_LF)
 
-#define TFW_HTTP_METH_GET		0
-#define TFW_HTTP_METH_HEAD		1
-#define TFW_HTTP_METH_POST		2
+typedef enum {
+	TFW_HTTP_METH_GET	= 0,
+	TFW_HTTP_METH_HEAD	= 1,
+	TFW_HTTP_METH_POST	= 2,
+} tfw_http_meth_t;
 
 #define TFW_HTTP_CC_NO_CACHE		0x001
 #define TFW_HTTP_CC_NO_STORE		0x002
@@ -77,8 +79,10 @@ typedef struct tfw_http_parser {
 
 /**
  * Http headers table.
+ *
+ * Note: don't forget to update tfw_http_hdr_name() upon adding a new header.
  */
-enum {
+typedef enum {
 	TFW_HTTP_HDR_CONNECTION,
 	TFW_HTTP_HDR_HOST,
 
@@ -86,7 +90,7 @@ enum {
 
 	TFW_HTTP_HDR_NUM	= 16,
 	TFW_HTTP_HDR_NUM_MAX	= 512
-};
+} tfw_http_hdr_t;
 
 typedef struct {
 	TfwStr		field;
@@ -153,5 +157,7 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
 int tfw_http_init(void);
 void tfw_http_exit(void);
+const char *tfw_http_hdr_name(tfw_http_hdr_t id);
+const int tfw_http_hdr_name_len(tfw_http_hdr_t id);
 
 #endif /* __TFW_HTTP_H__ */
