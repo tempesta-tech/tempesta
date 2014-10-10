@@ -157,7 +157,7 @@ tfw_cache_copy_str(TdbRecord **trec, TfwStr *src)
 		size_t n = TDB_REC_ROOM(*trec)
 			   ? min(TDB_REC_ROOM(*trec),
 				 (size_t)(src->len - copied))
-			   : min(TDB_REC_DMAXSZ,
+			   : min(TDB_REC_DMAXSZ(*trec),
 				 (size_t)(src->len - copied));
 		char *dst = tdb_entry_add(db, trec, n);
 		memcpy(dst, (char *)src->ptr + copied, n);
@@ -188,6 +188,9 @@ tfw_cache_copy_str_compound(TdbRecord **trec, TfwStr *src)
 
 /**
  * Work to copy response skbs to database mapped area.
+ *
+ * It's nasty to copy data on CPU, but we can't use DMA for mmaped file
+ * as well as for unaligned memory areas.
  */
 static void
 tfw_cache_copy_resp(struct work_struct *work)
@@ -241,7 +244,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	tfw_cache_key_calc(req, key);
 
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, sizeof(*ce));
+	ce = (TfwCacheEntry *)tdb_entry_create(db, key, sizeof(*ce), TDB_F_LARGE);
 	if (!ce)
 		goto out;
 
