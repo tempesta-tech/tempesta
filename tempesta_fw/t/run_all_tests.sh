@@ -12,7 +12,7 @@ function run_test_mod() {
 }
 
 function show_last_run_log() {
-	dmesg | tac | grep -m 1 -B 200 "tfw_test: start" | tac
+	dmesg | tac | grep -m 1 -B 10000 "tfw_test: start" | tac
 }
 
 function show_last_run_summary() {
