@@ -31,12 +31,15 @@ typedef enum {
 	TFW_HTTP_MATCH_F_METHOD,
 	TFW_HTTP_MATCH_F_URI,
 	TFW_HTTP_MATCH_F_HOST,
-	TFW_HTTP_MATCH_F_HEADERS,
+	TFW_HTTP_MATCH_F_HDR_CONN,
+	TFW_HTTP_MATCH_F_HDR_HOST,
+	TFW_HTTP_MATCH_F_HDR_RAW,
 	_TFW_HTTP_MATCH_F_COUNT,
 } tfw_http_match_fld_t;
 
 typedef enum {
 	TFW_HTTP_MATCH_O_NA = 0,
+	TFW_HTTP_MATCH_O_IN,
 	TFW_HTTP_MATCH_O_EQ,
 	TFW_HTTP_MATCH_O_PREFIX,
 	_TFW_HTTP_MATCH_O_COUNT,
@@ -45,7 +48,7 @@ typedef enum {
 typedef struct {
 	short len; /* Actual amount of memory allocated for the union below. */
 	union {
-		unsigned char method;
+		tfw_http_meth_t method;
 		TfwAddr addr;
 		char str[0];
 	};
