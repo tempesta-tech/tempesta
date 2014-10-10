@@ -124,7 +124,7 @@ TEST(http_match, uri_prefix)
 	match_id = test_mlst_match();
 	EXPECT_EQ(1, match_id);
 
-	set_tfw_str(&test_req->uri, "/FOO/BAR/");
+	set_tfw_str(&test_req->uri, "/foo/bar/");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
 
@@ -157,11 +157,11 @@ TEST(http_match, headers_eq)
 {
 	int match_id;
 
-	test_mlst_add(1, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
 	             "User-Agent: U880D/4.0 (CP/M; 8-bit)");
-	test_mlst_add(2, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
 	             "Connection: close");
-	test_mlst_add(3, TFW_HTTP_MATCH_F_HEADERS, TFW_HTTP_MATCH_O_EQ,
+	test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
 	             "Connection: Keep-Alive");
 
 	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,

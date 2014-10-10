@@ -614,7 +614,7 @@ parse_field(ParserState *s)
 		[TFW_HTTP_MATCH_F_NA] 	   = STRINGIFY(TFW_HTTP_MATCH_F_NA),
 		[TFW_HTTP_MATCH_F_HOST] = "host",
 		[TFW_HTTP_MATCH_F_URI] = "uri",
-		[TFW_HTTP_MATCH_F_HEADERS] = "headers",
+		[TFW_HTTP_MATCH_F_HDR_RAW] = "headers",
 	};
 	tfw_http_match_fld_t field;
 
