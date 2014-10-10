@@ -3,10 +3,6 @@
  *
  * This is the entry point: initialization functions and public interfaces.
  *
- * If index is not SEQLOG (i.e. no index at all), then to improve space locality
- * for large data sets index records grow from lower addresses to higher while
- * data records grow towards then, from maximum to minimum addresses.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -61,13 +57,14 @@ tdb_record_new(TDB *db, TdbRecord *curr)
 }
 
 TdbRecord *
-tdb_entry_create(TDB *db, unsigned long *key, size_t elen)
+tdb_entry_create(TDB *db, unsigned long *key, size_t elen, unsigned int flags)
 {
 	TdbRecord *r = tdb_record_new(db, NULL);
 	if (!r)
 		return NULL;
 
 	WARN_ON(elen + sizeof(*r) > PAGE_SIZE);
+	r->flags = flags;
 	r->d_len = elen - sizeof(*r);
 
 	/* TODO add the entry to index by @key. */
@@ -86,9 +83,12 @@ tdb_entry_add(TDB *db, TdbRecord **r, size_t size)
 	char *rd;
 	TdbRecord *r_tmp = *r;
 
+	/* Call extension on fixed size record. */
+	BUG_ON((*r)->flags & TDB_F_LARGE);
+
 	/* No sense to allocate space room for not the last entry. */
 	WARN_ON(!TDB_REC_ISLAST(r_tmp));
-	if (unlikely(size > TDB_REC_DMAXSZ)) {
+	if (unlikely(size > TDB_REC_DMAXSZ(*r))) {
 		TDB_ERR("Requested too large record size, %lu\n", size);
 		return NULL;
 	}

@@ -35,6 +35,15 @@
 #define TDB_IDX_TREE	1
 
 /*
+ * Use the flag if expected average record size is large enough,
+ * so TDB reserves at least one page per entry.
+ * This is useful for cases when the final size of the stored entry is unknown
+ * at the time when we create the database entry and we need to store
+ * the entry chunks as they appear.
+ */
+#define TDB_F_LARGE	1
+
+/*
  * Database record header/descriptor.
  * This is header of PAGE_SIZE memory segment.
  *
@@ -61,8 +70,10 @@ typedef struct {
 #define TDB_REC_DNEXT(r)	((TdbRecord *)((char *)(r)		\
 					       + (r)->chunk_next * PAGE_SIZE))
 #define TDB_REC_ISLAST(r)	(!(r)->chunk_next)
-#define TDB_REC_DMAXSZ		((size_t)(PAGE_SIZE - sizeof(TdbRecord)))
-#define TDB_REC_ROOM(r)		(TDB_REC_DMAXSZ - (r)->d_len)
+#define TDB_REC_DMAXSZ(r)	((size_t)((r)->flags & TDB_F_LARGE	\
+					  ? PAGE_SIZE - sizeof(TdbRecord) \
+					  : (r)->d_len))
+#define TDB_REC_ROOM(r)		(TDB_REC_DMAXSZ(r) - (r)->d_len)
 
 /* Database handle descriptor. */
 typedef struct {
@@ -82,7 +93,8 @@ typedef struct {
 #define TDB_BANNER	"[tdb] "
 #define TDB_ERR(...)	pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
-TdbRecord *tdb_entry_create(TDB *db, unsigned long *key, size_t elen);
+TdbRecord *tdb_entry_create(TDB *db, unsigned long *key, size_t elen,
+			    unsigned int flags);
 void *tdb_entry_add(TDB *db, TdbRecord **r, size_t size);
 void *tdb_lookup(TDB *db, unsigned long *key);
 
