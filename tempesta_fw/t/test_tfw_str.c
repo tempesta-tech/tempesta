@@ -18,180 +18,369 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "test.h"
+#include <linux/kernel.h>
+
 #include "str.h"
+#include "test.h"
 
-static const char data[] = "foobarbaz";
-static const TfwStr chunks[] = {
-	{ .flags = 0, .len = 0, .ptr = NULL },
-	{ .flags = 0, .len = 3, .ptr = (void *)data },
-	{ .flags = 0, .len = 6, .ptr = (void *)(data + 3) }
-};
+static TfwPool *str_pool;
 
-static const TfwStr compound_str = {
-	.flags = TFW_STR_COMPOUND,
-	.len = 3,
-	.ptr = (void *)chunks
-};
-
-
-TEST(tfw_str_len, summarizes_chunk_lenghs)
+static void
+create_str_pool(void)
 {
-	int len = tfw_str_len(&compound_str);
-
-	EXPECT_EQ(9, len);
+	BUG_ON(str_pool);
+	str_pool = __tfw_pool_new(1);
+	BUG_ON(!str_pool);
 }
 
-TEST(tfw_str_eq_cstr, compares_compound_str)
+static void
+free_all_str(void)
 {
-	const TfwStr *str = &compound_str;
-	const char *right = "foobarbaz";
-	const char *wrong1 = "";
-	const char *wrong2 = "foo";
-	const char *wrong3 = "foobarbar";
-	const char *wrong4 = "foobarbaz1";
-	size_t right_len = strlen(right);
-	size_t wrong1_len = strlen(wrong1);
-	size_t wrong2_len = strlen(wrong2);
-	size_t wrong3_len = strlen(wrong3);
-	size_t wrong4_len = strlen(wrong4);
-
-	EXPECT_TRUE(tfw_str_eq_cstr(str, right, right_len));
-	EXPECT_FALSE(tfw_str_eq_cstr(str, wrong1, wrong1_len));
-	EXPECT_FALSE(tfw_str_eq_cstr(str, wrong2, wrong2_len));
-	EXPECT_FALSE(tfw_str_eq_cstr(str, wrong3, wrong3_len));
-	EXPECT_FALSE(tfw_str_eq_cstr(str, wrong4, wrong4_len));
+	tfw_pool_free(str_pool);
+	str_pool = NULL;
 }
 
-TEST(tfw_str_eq_cstr, handles_unterminated_cstr)
+static TfwStr *
+alloc_str(void)
 {
-	const TfwStr *str = &compound_str;
-	const char *cstr = "foobarbaz [some garbage]";
-	size_t len = 9;
+	TfwStr *s;
 
-	EXPECT_TRUE(tfw_str_eq_cstr(str, cstr, len));
+	s = tfw_pool_alloc(str_pool, sizeof(*s));
+	BUG_ON(!s);
+	memset(s, 0, sizeof(*s));
+
+	return s;
 }
 
-TEST(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case)
+static TfwStr *
+make_plain_str(const char *data)
 {
-	const TfwStr *str = &compound_str;
-	const char *right1 = "foobarbaz";
-	const char *right2 = "fooBarbAz";
-	const char *wrong1 = "foobar";
-	const char *wrong2 = "fooBarbaz!";
-	size_t right1_len = strlen(right1);
-	size_t right2_len = strlen(right2);
-	size_t wrong1_len = strlen(wrong1);
-	size_t wrong2_len = strlen(wrong2);
+	TfwStr *s = alloc_str();
 
-	EXPECT_TRUE(tfw_str_eq_cstr_ci(str, right1, right1_len));
-	EXPECT_TRUE(tfw_str_eq_cstr_ci(str, right2, right2_len));
-	EXPECT_FALSE(tfw_str_eq_cstr_ci(str, wrong1, wrong1_len));
-	EXPECT_FALSE(tfw_str_eq_cstr_ci(str, wrong2, wrong2_len));
+	s->len =  strlen(data);
+	s->ptr = (void *)data;
+
+	return s;
 }
 
-TEST(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix)
+static TfwStr *
+make_compound_str(const char *data)
 {
-	const TfwStr *str = &compound_str;
-	const char *right1 = "f";
-	const char *right2 = "foo";
-	const char *right3 = "foobarba";
-	const char *wrong1 = "s";
-	const char *wrong2 = "barbaz";
-	const char *wrong3 = "foobarbaz1";
-	size_t right1_len = strlen(right1);
-	size_t right2_len = strlen(right2);
-	size_t right3_len = strlen(right3);
-	size_t wrong1_len = strlen(wrong1);
-	size_t wrong2_len = strlen(wrong2);
-	size_t wrong3_len = strlen(wrong3);
+	TfwStr *str, *chunk;
+	size_t chunk_len = 0;
+	size_t total_len = strlen(data);
 
-	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right1, right1_len));
-	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right2, right2_len));
-	EXPECT_TRUE(tfw_str_subjoins_cstr(str, right3, right3_len));
-	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong1, wrong1_len));
-	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong2, wrong2_len));
-	EXPECT_FALSE(tfw_str_subjoins_cstr(str, wrong3, wrong3_len));
+	str = alloc_str();
+
+	do {
+		chunk = tfw_str_add_compound(str_pool, str);
+		chunk->len = min(total_len, ++chunk_len % 4);
+		chunk->ptr = (void *)data;
+		data += chunk->len;
+		total_len -= chunk->len;
+	} while (total_len > 0);
+
+	return str;
 }
 
-TEST(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix_ignoring_case)
-{
-	const TfwStr *str = &compound_str;
-	const char *right1 = "f";
-	const char *right2 = "fOObaR";
-	const char *wrong1 = "fOO bar";
-	const char *wrong2 = "foobarbazz";
-	size_t right1_len = strlen(right1);
-	size_t right2_len = strlen(right2);
-	size_t wrong1_len = strlen(wrong1);
-	size_t wrong2_len = strlen(wrong2);
+#define TFW_STR(name, literal) const TfwStr *name = make_compound_str(literal)
 
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(str, right1, right1_len));
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(str, right2, right2_len));
-	EXPECT_FALSE(tfw_str_subjoins_cstr_ci(str, wrong1, wrong1_len));
-	EXPECT_FALSE(tfw_str_subjoins_cstr_ci(str, wrong2, wrong2_len));
+
+TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strings)
+{
+	const char *cstr = "foo123 barbaz";
+	int len = strlen(cstr);
+
+	TFW_STR(match, "foo123 barbaz");
+	TFW_STR(diff1, "aoo123 barbaz");
+	TFW_STR(diff2, "foo123 barbaa");
+	TFW_STR(diff3, "Foo123 barbaz");
+	TFW_STR(crop,  "foo123 barba");
+	TFW_STR(extra, "foo123 barbazz");
+
+	EXPECT_TRUE(tfw_str_eq_cstr(match, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(diff1, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(diff2, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(diff3, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(crop,  cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(extra, cstr, len, TFW_STR_EQ_DEFAULT));
 }
 
-TEST(tfw_str_subjoins_cstr_ci, returns_true_if_prefix_is_empty_or_eq)
+TEST(tfw_str_eq_cstr, handles_plain_str)
 {
-	/* Few corner cases here:
-	 *  - Any string starts with itself.
-	 *  - Any string starts with an empty string.
-	 *  - An empty string starts with itself.
-	 */
-	const TfwStr str = {
-		.len = 4,
-		.ptr = "abcd"
+	const char *cstr1 = "foo";
+	const char *cstr2 = "bar baz";
+	size_t len1 = strlen(cstr1);
+	size_t len2 = strlen(cstr2);
+	TfwStr *s1 = make_plain_str(cstr1);
+	TfwStr *s2 = make_plain_str(cstr2);
+
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, cstr1, len1, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(s2, cstr2, len2, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(s1, cstr2, len2, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(s2, cstr1, len1, TFW_STR_EQ_DEFAULT));
+}
+
+TEST(tfw_str_eq_cstr, handles_unterminated_strs)
+{
+	const char *cstr = "foobarbaz [SOME GARBAGE]";
+	int cstr_len = 9;
+	TfwStr s = {
+		.len = cstr_len,
+		.ptr = (void *)"foobarbaz [ANOTHER GARBAGE]"
 	};
-	const TfwStr empty_str = {
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr, cstr_len, TFW_STR_EQ_DEFAULT));
+}
+
+TEST(tfw_str_eq_cstr, handles_empty_strs)
+{
+	TfwStr s1 = {
 		.len = 0,
-		.ptr = ""
+		.ptr = (void *)"garbage"
 	};
-	const char *cstr = "abcd";
-	const char *cstr2 = "aBCd";
-	const char *empty_cstr = "";
+	TfwStr s2 = {
+		.len = 0,
+		.ptr = NULL
+	};
+	TfwStr chunks[] = { s1, s2 };
+	TfwStr s3 = {
+		.flags = TFW_STR_COMPOUND,
+		.len = 2,
+		.ptr = &chunks
+	};
+	TfwStr s_ne = {
+		.len = 3,
+		.ptr = (void *)"foo"
+	};
+	const char *cstr = "";
+	const char *cstr_ne = "bar";
+	size_t len = strlen(cstr_ne);
 
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, cstr, 4));
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, cstr2, 4));
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&str, empty_cstr, 0));
-	EXPECT_TRUE(tfw_str_subjoins_cstr_ci(&empty_str, empty_cstr, 0));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s1, cstr, 0, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s2, cstr, 0, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s3, cstr, 0, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s_ne, cstr, 0, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s1, cstr_ne, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s2, cstr_ne, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s3, cstr_ne, len, TFW_STR_EQ_DEFAULT));
 }
 
-TEST(tfw_str_add_compound, allocates_and_adds_chunk)
+
+TEST(tfw_str_eq_cstr, supports_casei)
 {
-	TfwStr *s, *c2, *c3;
-	TfwPool *pool = __tfw_pool_new(PAGE_SIZE);
+	TFW_STR(s, "FooBarBaz 123");
+	const char *cstr1 = "FooBarBaz 123";
+	const char *cstr2 = "fooBarBaz 123";
+	const char *cstr3 = "FooBarBaZ 123";
+	size_t len1 = strlen(cstr1);
+	size_t len2 = strlen(cstr2);
+	size_t len3 = strlen(cstr3);
 
-	s = tfw_pool_alloc(pool, sizeof(*s));
-	TFW_STR_INIT(s);
-	s->len = 4;
-	s->ptr = "abcd";
-	EXPECT_EQ(4, tfw_str_len(s));
-	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcd", 4));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, cstr1, len1, TFW_STR_EQ_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, cstr2, len2, TFW_STR_EQ_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, cstr3, len3, TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, cstr2, len2, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, cstr3, len3, TFW_STR_EQ_DEFAULT));
+}
 
-	c2 = tfw_str_add_compound(pool, s);
-	c2->len = 2;
-	c2->ptr = "ef";
-	EXPECT_EQ(6, tfw_str_len(s));
-	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcdef", 6));
+TEST(tfw_str_eq_cstr, supports_prefix)
+{
+	TFW_STR(s, "/foo/bar/baz.test");
+	const char *p1 = "/foo/bar/baz.test";
+	const char *p2 = "/foo/bar/baz.tes";
+	const char *p3 = "/foo/bar/baz";
+	const char *p4 = "/foo/bar/";
+	const char *p5 = "/foo";
+	const char *p6 = "/";
+	const char *p7 = "";
+	const char *extra = "/foo/bar/baz.test1";
+	const char *p1_ci = "/foo/bar/baz.tesT";
+	const char *p5_ci = "/Foo";
 
-	c3 = tfw_str_add_compound(pool, s);
-	c3->len = 3;
-	c3->ptr = "ghi";
-	EXPECT_EQ(9, tfw_str_len(s));
-	EXPECT_TRUE(tfw_str_eq_cstr(s, "abcdefghi", 9));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p1, strlen(p1), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p2, strlen(p2), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p3, strlen(p3), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p4, strlen(p4), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p5, strlen(p5), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p6, strlen(p6), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p7, strlen(p7), TFW_STR_EQ_PREFIX));
 
-	tfw_pool_free(pool);
+	EXPECT_FALSE(tfw_str_eq_cstr(s, extra, strlen(extra), TFW_STR_EQ_PREFIX));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci), TFW_STR_EQ_PREFIX));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci), TFW_STR_EQ_PREFIX));
+
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci), TFW_STR_EQ_PREFIX_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci), TFW_STR_EQ_PREFIX_CASEI));
+}
+
+TEST(tfw_str_eq_kv, reutrns_true_only_for_equal_kv)
+{
+	const char *key = "Cache-Control";
+	const char *val = "max-age=3600, public";
+	size_t klen = strlen(key);
+	size_t vlen = strlen(val);
+	char sep = ':';
+	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
+
+	TFW_STR(match,    "Cache-Control: max-age=3600, public");
+	TFW_STR(keydiff,  "Cache-Cootrol: max-age=3600, public");
+	TFW_STR(keylong,  "Cache-Controll: max-age=3600, public");
+	TFW_STR(keyshort, "Cache-Contro: max-age=3600, public");
+	TFW_STR(sepdiff,  "Cache-Control= max-age=3600, public");
+	TFW_STR(sepdup,   "Cache-Control:: max-age=3600, public");
+	TFW_STR(sepempty, "Cache-Control max-age=3600, public");
+	TFW_STR(valshort, "Cache-Control: max-age=3600, publi");
+	TFW_STR(valdiff,  "Cache-Control: max-age=3601, public");
+
+	EXPECT_TRUE(tfw_str_eq_kv(match, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(keydiff, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(keylong, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(keyshort, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(sepdiff, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(sepdup, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(sepempty, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(valshort, key, klen, sep, val, vlen, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(valdiff, key, klen, sep, val, vlen, flags));
+}
+
+TEST(tfw_str_eq_kv, handles_plain_str)
+{
+	TfwStr *s1 = make_plain_str("Cache-Control: max-age=3600, public");
+	TfwStr *s2 = make_plain_str("Cache-Control: no-cache");
+	const char *k = "Cache-Control";
+	const char *v1 = "max-age=3600, public";
+	const char *v2 = "no-cache";
+	size_t klen = strlen(k);
+	size_t v1_len = strlen(v1);
+	size_t v2_len = strlen(v2);
+	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
+	char sep = ':';
+
+	EXPECT_TRUE(tfw_str_eq_kv(s1, k, klen, sep, v1, v1_len, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(s2, k, klen, sep, v2, v2_len, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(s1, k, klen, sep, v2, v2_len, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(s2, k, klen, sep, v1, v1_len, flags));
+}
+
+TEST(tfw_str_eq_kv, handles_unterminated_strs)
+{
+	TfwStr s = {
+		.len = 35,
+		.ptr = (void *)"Cache-Control: max-age=3600, public [GARBAGE1]"
+	};
+	const char *k = "Cache-Control [GARBAGE2]";
+	const char *v = "max-age=3600, public [GARBAGE3]";
+	size_t klen = 13;
+	size_t vlen = 20;
+	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
+	char sep = ':';
+
+	EXPECT_TRUE(tfw_str_eq_kv(&s, k, klen, sep, v, vlen, flags));
+}
+
+TEST(tfw_str_eq_kv, handles_empty_val)
+{
+	TFW_STR(str_e1, "Cache-Control:");
+	TFW_STR(str_e2, "Cache-Control:    ");
+	TFW_STR(str_ne, "Cache-Control: max-age=3600, public");
+	const char *k = "Cache-Control";
+	size_t klen = strlen(k);
+	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
+
+	EXPECT_TRUE(tfw_str_eq_kv(str_e1, k, klen, ':', "", 0, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(str_e2, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne, k, klen, ':', "", 0, flags));
+}
+
+TEST(tfw_str_eq_kv, supports_casei_val)
+{
+	TFW_STR(keycase, "cache-control: max-age=3600, public");
+	TFW_STR(valcase1, "Cache-Control: Max-age=3600, public");
+	TFW_STR(valcase2, "Cache-Control: Max-age=3600, publiC");
+	const char *k = "Cache-Control";
+	const char *v = "max-age=3600, public";
+	size_t klen = strlen(k);
+	size_t vlen = strlen(v);
+	char sep = ':';
+	tfw_str_eq_flags_t flags_ci = TFW_STR_EQ_CASEI;
+	tfw_str_eq_flags_t flags_cs = TFW_STR_EQ_DEFAULT;
+
+	/* The key is always case-sensitive, regardless of the flag. */
+	EXPECT_TRUE(tfw_str_eq_kv(keycase, k, klen, sep, v, vlen, flags_ci));
+	EXPECT_TRUE(tfw_str_eq_kv(keycase, k, klen, sep, v, vlen, flags_cs));
+
+	EXPECT_TRUE(tfw_str_eq_kv(valcase1, k, klen, sep, v, vlen, flags_ci));
+	EXPECT_TRUE(tfw_str_eq_kv(valcase2, k, klen, sep, v, vlen, flags_ci));
+	EXPECT_FALSE(tfw_str_eq_kv(valcase1, k, klen, sep, v, vlen, flags_cs));
+	EXPECT_FALSE(tfw_str_eq_kv(valcase2, k, klen, sep, v, vlen, flags_cs));
+}
+
+TEST(tfw_str_eq_kv, supports_prefix_val)
+{
+	TFW_STR(s, "Cache-Control: max-age=3600, public");
+	const char *k = "Cache-Control";
+	const char *p1 = "max-age=3600, public";
+	const char *p2 = "max-age=3600";
+	const char *p3 = "m";
+	const char *p4 = "";
+	const char *extra = "max-age=3600, publicc";
+	const char *diff = "max-age=3601, public";
+	const char *p2_ci = "Max-Age=3600";
+	size_t k_len = strlen(k);
+	size_t p1_len = strlen(p1);
+	size_t p2_len = strlen(p2);
+	size_t p3_len = strlen(p3);
+	size_t p4_len = strlen(p4);
+	size_t extra_len = strlen(extra);
+	size_t diff_len = strlen(diff);
+	size_t p2_ci_len = strlen(p2_ci);
+	char sep = ':';
+	tfw_str_eq_flags_t flags = TFW_STR_EQ_PREFIX;
+	tfw_str_eq_flags_t flags_ci = TFW_STR_EQ_PREFIX_CASEI;
+
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p1, p1_len, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p2, p2_len, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p3, p3_len, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p4, p4_len, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, extra, extra_len, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, diff, diff_len, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, p2_ci, p2_ci_len, flags));
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p2_ci, p2_ci_len, flags_ci));
+
+}
+
+TEST(tfw_str_eq_kv, allows_space_sep)
+{
+	TFW_STR(s, "key v a l u e");
+	const char *k = "key";
+	const char *v = "v a l u e";
+	size_t klen = strlen(k);
+	size_t vlen = strlen(v);
+	char sep = ' ';
+
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, klen, sep, v, vlen, TFW_STR_EQ_DEFAULT));
 }
 
 TEST_SUITE(tfw_str)
 {
-	TEST_RUN(tfw_str_len, summarizes_chunk_lenghs);
-	TEST_RUN(tfw_str_eq_cstr, compares_compound_str);
-	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_cstr);
-	TEST_RUN(tfw_str_eq_cstr_ci, compares_compound_str_ignoring_case);
-	TEST_RUN(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix);
-	TEST_RUN(tfw_str_subjoins_cstr_ci, tests_compound_str_prefix_ignoring_case);
-	TEST_RUN(tfw_str_subjoins_cstr_ci, returns_true_if_prefix_is_empty_or_eq);
-	TEST_RUN(tfw_str_add_compound, allocates_and_adds_chunk);
+	TEST_SETUP(create_str_pool);
+	TEST_TEARDOWN(free_all_str);
+
+	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strings);
+	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);
+	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_strs);
+	TEST_RUN(tfw_str_eq_cstr, handles_empty_strs);
+	TEST_RUN(tfw_str_eq_cstr, supports_casei);
+	TEST_RUN(tfw_str_eq_cstr, supports_prefix);
+
+	TEST_RUN(tfw_str_eq_kv, reutrns_true_only_for_equal_kv);
+	TEST_RUN(tfw_str_eq_kv, handles_plain_str);
+	TEST_RUN(tfw_str_eq_kv, handles_unterminated_strs);
+	TEST_RUN(tfw_str_eq_kv, handles_empty_val);
+	TEST_RUN(tfw_str_eq_kv, supports_casei_val);
+	TEST_RUN(tfw_str_eq_kv, supports_prefix_val);
+	TEST_RUN(tfw_str_eq_kv, allows_space_sep);
 }
+
+
+

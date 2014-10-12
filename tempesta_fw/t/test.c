@@ -59,19 +59,16 @@ test_call_teardown_fn(void)
 		test_teardown_fn();
 }
 
-
-TEST_SUITE(http_match);
 TEST_SUITE(tfw_str);
-TEST_SUITE(tfw_str_kv);
+TEST_SUITE(http_match);
 
 int
 test_run_all(void)
 {
 	test_fail_counter = 0;
 
-	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(tfw_str);
-	TEST_SUITE_RUN(tfw_str_kv);
+	TEST_SUITE_RUN(http_match);
 
 	return test_fail_counter;
 }

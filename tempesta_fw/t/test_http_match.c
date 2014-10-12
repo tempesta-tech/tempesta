@@ -63,6 +63,7 @@ test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
 	e->test_id = test_id;
 	e->rule.field = req_field;
 	e->rule.op = op;
+	e->rule.arg.type = TFW_HTTP_MATCH_A_STR;
 	e->rule.arg.len = len;
 	memcpy(e->rule.arg.str, str_arg, len);
 }
@@ -98,6 +99,7 @@ TEST(tfw_http_match_req, returns_first_matching_rule)
 
 	r1->field = r2->field = r3->field = TFW_HTTP_MATCH_F_METHOD;
 	r1->op = r2->op = r3->op = TFW_HTTP_MATCH_O_EQ;
+	r1->arg.type = r2->arg.type = r3->arg.type = TFW_HTTP_MATCH_A_METHOD;
 	r1->arg.method = TFW_HTTP_METH_POST;
 	r2->arg.method = TFW_HTTP_METH_GET;
 	r3->arg.method = TFW_HTTP_METH_GET;

@@ -28,24 +28,34 @@
 
 typedef enum {
 	TFW_HTTP_MATCH_F_NA = 0,
-	TFW_HTTP_MATCH_F_METHOD,
-	TFW_HTTP_MATCH_F_URI,
-	TFW_HTTP_MATCH_F_HOST,
 	TFW_HTTP_MATCH_F_HDR_CONN,
 	TFW_HTTP_MATCH_F_HDR_HOST,
 	TFW_HTTP_MATCH_F_HDR_RAW,
-	_TFW_HTTP_MATCH_F_COUNT,
+	TFW_HTTP_MATCH_F_HOST,
+	TFW_HTTP_MATCH_F_METHOD,
+	TFW_HTTP_MATCH_F_URI,
+	_TFW_HTTP_MATCH_F_COUNT
 } tfw_http_match_fld_t;
 
 typedef enum {
 	TFW_HTTP_MATCH_O_NA = 0,
-	TFW_HTTP_MATCH_O_IN,
 	TFW_HTTP_MATCH_O_EQ,
+	TFW_HTTP_MATCH_O_IN,
 	TFW_HTTP_MATCH_O_PREFIX,
-	_TFW_HTTP_MATCH_O_COUNT,
+	_TFW_HTTP_MATCH_O_COUNT
 } tfw_http_match_op_t;
 
+typedef enum {
+	TFW_HTTP_MATCH_A_NA = 0,
+	TFW_HTTP_MATCH_A_ADDR,
+	TFW_HTTP_MATCH_A_METHOD,
+	TFW_HTTP_MATCH_A_NUM,
+	TFW_HTTP_MATCH_A_STR,
+	_TFW_HTTP_MATCH_A_COUNT
+} tfw_http_match_arg_t;
+
 typedef struct {
+	tfw_http_match_arg_t type;
 	short len; /* Actual amount of memory allocated for the union below. */
 	union {
 		tfw_http_meth_t method;
@@ -61,6 +71,8 @@ typedef struct {
 	TfwMatchArg 		arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
+
+#define TFW_HTTP_MATCH_MAX_ARG_LEN (1<<16)
 
 /**
  * Size of a rule (taking into account the variable-length @rule.arg.
