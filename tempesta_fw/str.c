@@ -116,7 +116,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 EXPORT_SYMBOL(tfw_str_add_compound);
 
 /**
- * Sum lenght of all chunks in a string (either compound or plain).
+ * Sum length of all chunks in a string (either compound or plain).
  */
 int
 tfw_str_len(const TfwStr *str)
@@ -134,90 +134,50 @@ tfw_str_len(const TfwStr *str)
 }
 EXPORT_SYMBOL(tfw_str_len);
 
-
-#define CMP_PREFIX 0x1
-#define CMP_CI     0x2
-
 /**
  * Generic function for comparing TfwStr and C strings.
  *
+ * @str may be either plain or compound.
+ *
  * @cstr_len is used for performance purposes.
  * The length may be pre-computed by the caller and saved between calls.
- * Also it allows @cstr to be not terminated.
+ *
+ * @cstr is not required to be terminated.
  *
  * @flags allow to specify the following options:
- *  - CMP_PREFIX - the @cstr is a prefix, only first @cstr_len chars are
- *                 compared, the rest of @str is ignored.
- *  - CMP_CI - use case-insensitive comparison function.
+ *  - TFW_STR_EQ_PREFIX
+ *      The @cstr is a prefix, only first @cstr_len chars are compared, and the
+ *      rest of @str is ignored.
+ *  - TFW_STR_EQ_CASEI
+ *      Use case-insensitive comparison function.
  */
-static bool
-str_cmp_cstr(const TfwStr *str, const char *cstr, unsigned int cstr_len,
-             u8 flags)
+bool
+tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
+                tfw_str_eq_flags_t flags)
 {
 	const TfwStr *chunk;
-	unsigned int cmp_len;
-	typeof(&strncmp) cmp_fn = (flags & CMP_CI) ? strnicmp : strncmp;
+	unsigned int len;
+	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
 
 	validate_cstr(cstr, cstr_len);
 	validate_tfw_str(str);
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		cmp_len = min(cstr_len, chunk->len);
+		len = min(cstr_len, (int)chunk->len);
 
-		if (cmp_fn(cstr, chunk->ptr, cmp_len))
+		if (cmp(cstr, chunk->ptr, len))
 			return false;
 
 		if (chunk->len > cstr_len)
-			return (flags & CMP_PREFIX);
+			return (flags & TFW_STR_EQ_PREFIX);
 
-		cstr += cmp_len;
-		cstr_len -= cmp_len;
+		cstr += len;
+		cstr_len -= len;
 	}
 
 	return !cstr_len;
 }
-
-/**
- * Compare TfwStr with a C string (case-sensitive).
- */
-bool
-tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len)
-{
-	return str_cmp_cstr(str, cstr, cstr_len, 0);
-}
 EXPORT_SYMBOL(tfw_str_eq_cstr);
-
-/**
- * Compare TfwStr with a C string (case-insensitive).
- */
-bool
-tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
-{
-	return str_cmp_cstr(str, cstr, cstr_len, CMP_CI);
-}
-EXPORT_SYMBOL(tfw_str_eq_cstr_ci);
-
-/**
- * Return true if a given @cstr is a prefix of @str (case-sensitive).
- */
-bool
-tfw_str_subjoins_cstr(const TfwStr *str, const char *cstr, int cstr_len)
-{
-	return str_cmp_cstr(str, cstr, cstr_len, CMP_PREFIX);
-}
-EXPORT_SYMBOL(tfw_str_subjoins_cstr);
-
-/**
- * Return true if a given @cstr is a prefix of @str (case-insensitive).
- */
-bool
-tfw_str_subjoins_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len)
-{
-	return str_cmp_cstr(str, cstr, cstr_len, (CMP_PREFIX | CMP_CI));
-}
-EXPORT_SYMBOL(tfw_str_subjoins_cstr_ci);
-
-
 
 /**
  * Generic function for comparing TfwStr and a key-value pair of C strings.
@@ -245,11 +205,11 @@ EXPORT_SYMBOL(tfw_str_subjoins_cstr_ci);
  *     on how @key/@sep/@val are spread across the chunks.
  *
  * @flags allows to specify additional options for comparison:
- *  - CMP_CI
+ *  - TFW_STR_EQ_CASEI
  *    Use case-insensitive comparison for @key and @val.
  *    The @sep is always case-sensitive.
  *
- *  - CMP_PREFIX
+ *  - TFW_STR_EQ_PREFIX
  *    Treat @val as a prefix.
  *    For example, if @val = "text", then it will match to:
  *      "Content-Type: text"
@@ -258,9 +218,9 @@ EXPORT_SYMBOL(tfw_str_subjoins_cstr_ci);
  *    The flag affects only @val (the @key comparison is always case-insensitive
  *    and @sep is always case-sensitive).
  */
-static bool
-str_cmp_kv(const TfwStr *str,  const char *key, int key_len,  char sep,
-          const char *val, int val_len,  u8 flags)
+bool
+tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
+	      const char *val, int val_len, tfw_str_eq_flags_t flags)
 {
 	const TfwStr *chunk;
 	char *p;
@@ -280,7 +240,7 @@ str_cmp_kv(const TfwStr *str,  const char *key, int key_len,  char sep,
 	validate_cstr(val, val_len);
 
 	/* The mask turns off the case bit in alphabetic ASCII characters. */
-	val_case_mask = (flags & CMP_CI) ? 0xDF : 0xEF;
+	val_case_mask = (flags & TFW_STR_EQ_CASEI) ? 0xDF : 0xEF;
 	#define _CMP_KEY(c1, c2) ((c1 ^ c2) & 0xDF)
 	#define _CMP_VAL(c1, c2) ((c1 ^ c2) & val_case_mask)
 
@@ -310,7 +270,7 @@ str_cmp_kv(const TfwStr *str,  const char *key, int key_len,  char sep,
 				}
 				++state;
 			case WS1:
-				if (isspace(c))
+				if (isspace(c) && !isspace(sep))
 					break;
 				++state;
 			case SEP:
@@ -324,7 +284,7 @@ str_cmp_kv(const TfwStr *str,  const char *key, int key_len,  char sep,
 				++state;
 			case VAL:
 				if (!val_len)
-					return (flags & CMP_PREFIX);
+					return (flags & TFW_STR_EQ_PREFIX);
 				if (_CMP_VAL(c, *val))
 					return false;
 				++val;
@@ -335,36 +295,5 @@ str_cmp_kv(const TfwStr *str,  const char *key, int key_len,  char sep,
 
 	return !val_len;
 }
-
-bool
-tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len,
-              char sep, const char *val, int val_len)
-{
-	return str_cmp_kv(str, key, key_len, sep, val, val_len, 0);
-}
 EXPORT_SYMBOL(tfw_str_eq_kv);
 
-bool
-tfw_str_eq_kv_ci(const TfwStr *str, const char *key, int key_len,
-                 char sep, const char *val, int val_len)
-{
-	return str_cmp_kv(str, key, key_len, sep, val, val_len, CMP_CI);
-}
-EXPORT_SYMBOL(tfw_str_eq_kv_ci);
-
-bool
-tfw_str_subjoins_kv(const TfwStr *str, const char *key, int key_len,
-                    char sep, const char *val, int val_len)
-{
-	return str_cmp_kv(str, key, key_len, sep, val, val_len, CMP_PREFIX);
-}
-EXPORT_SYMBOL(tfw_str_subjoins_kv);
-
-bool
-tfw_str_subjoins_kv_ci(const TfwStr *str, const char *key, int key_len,
-                       char sep, const char *val, int val_len)
-{
-	return str_cmp_kv(str, key, key_len, sep, val, val_len,
-	                  (CMP_PREFIX | CMP_CI));
-}
-EXPORT_SYMBOL(tfw_str_subjoins_kv_ci);

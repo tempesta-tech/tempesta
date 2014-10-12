@@ -61,19 +61,16 @@ typedef struct {
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 int tfw_str_len(const TfwStr *str);
 
-bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len);
-bool tfw_str_eq_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len);
-bool tfw_str_subjoins_cstr(const TfwStr *str, const char *cstr, int cstr_len);
-bool tfw_str_subjoins_cstr_ci(const TfwStr *str, const char *cstr, int cstr_len);
+typedef enum {
+	TFW_STR_EQ_DEFAULT = 0x0,
+	TFW_STR_EQ_PREFIX  = 0x1,
+	TFW_STR_EQ_CASEI   = 0x2,
+	TFW_STR_EQ_PREFIX_CASEI = (TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI),
+} tfw_str_eq_flags_t;
 
-
-bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len,
-                   char sep, const char *val, int val_len);
-bool tfw_str_eq_kv_ci(const TfwStr *str, const char *key, int key_len,
-                      char sep, const char *val, int val_len);
-bool tfw_str_subjoins_kv(const TfwStr *str, const char *key, int key_len,
-                         char sep, const char *val, int val_len);
-bool tfw_str_subjoins_kv_ci(const TfwStr *str,  const char *key, int key_len,
-                            char sep, const char *val, int val_len);
+bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
+                     tfw_str_eq_flags_t flags);
+bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
+                   const char *val, int val_len, tfw_str_eq_flags_t flags);
 
 #endif /* __TFW_STR_H__ */

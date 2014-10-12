@@ -64,24 +64,20 @@
 #include "http_match.h"
 #include "http.h"
 
-typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
-typedef typeof(&tfw_str_eq_cstr) eq_str_fn;
-typedef typeof(&tfw_str_eq_kv) eq_hdr_fn;
-
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @val with the header's value (skipping name and LWS).
  *
  * For example:
- *   hdr_cmp(req, TFW_HTTP_HDR_HOST, "natsys-lab", 14, tfw_str_subjoins_kv);
+ *   hdr_val_eq(req, TFW_HTTP_HDR_HOST, "natsys-lab", 10, TFW_STR_EQ_PREFIX);
  * will match the following headers:
  *   "Host: natsys-lab"
  *   "Host: natsys-lab.com"
  *   "Host  :  natsys-lab.com"
  */
 static bool
-hdr_cmp(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
-        int val_len, eq_hdr_fn fn)
+hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
+           int val_len, tfw_str_eq_flags_t flags)
 {
 	TfwStr *hdr;
 	const char *name;
@@ -94,171 +90,168 @@ hdr_cmp(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
 	name = tfw_http_hdr_name(id);
 	name_len = tfw_http_hdr_name_len(id);
 
-	return fn(hdr, name, name_len, ':', val, val_len);
+	return tfw_str_eq_kv(hdr, name, name_len, ':', val, val_len, flags);
 }
 
-static bool
-match_method_in(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+/**
+ * Map an operator to that flags passed to tfw_str_eq_*() functions.
+ */
+static tfw_str_eq_flags_t
+map_op_to_str_eq_flags(tfw_http_match_op_t op)
 {
-	return (req->method & rule->arg.method);
+	static const tfw_str_eq_flags_t flags_tbl[] = {
+		[ 0 ... _TFW_HTTP_MATCH_O_COUNT ] = -1,
+		[TFW_HTTP_MATCH_O_EQ]     = TFW_STR_EQ_DEFAULT,
+		[TFW_HTTP_MATCH_O_PREFIX] = TFW_STR_EQ_PREFIX,
+	};
+	BUG_ON(flags_tbl[op] < 0);
+	return flags_tbl[op];
 }
 
+
 static bool
-match_method_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	return (req->method == rule->arg.method);
+	if (rule->op == TFW_HTTP_MATCH_O_EQ)
+		return (req->method == rule->arg.method);
+
+	if (rule->op == TFW_HTTP_MATCH_O_IN)
+		return !!(req->method & rule->arg.method);
+
+	/* Only EQ and IN operators are supported (do we need more?). */
+	BUG();
+	return 0;
 }
 
 static bool
 match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	/* The comparison is case-sensitive according to RFC 2616 (3.2.3).
-	 * The RFC says a client SHOULD use a case-sensitive octet-by-octet
-	 * comparison" except for 'host' and 'scheme'. Since we don't store
-	 * them in the @uri field, the whole field is case-sensitive.
-	 *
-	 * TODO: Handle URI encoding.
-	 */
-	static const eq_str_fn op_tbl[] = {
-		[TFW_HTTP_MATCH_O_EQ] = tfw_str_eq_cstr,
-		[TFW_HTTP_MATCH_O_PREFIX] = tfw_str_subjoins_cstr,
-	};
-	eq_str_fn fn = op_tbl[rule->op];
-	BUG_ON(!fn);
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	return fn(&req->uri, rule->arg.str, rule->arg.len);
+	/* RFC 2616
+	 *  3.2.3: The comparison of URI is case-sensitive (except for host and
+	 *  scheme, but we may ignore it since we don't store them in req->uri).
+	 * TODO:
+	 *  3.2.3: Handle URI percent encoding (required by the RFC).
+	 */
+
+	return tfw_str_eq_cstr(&req->uri, rule->arg.str, rule->arg.len, flags);
 }
 
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	/* According to RFC 2616 (5.2), when Virtual Hosts are on, then
-	 * both URI and Host header are used (URI overrides Host).
-	 * Also the comparison is case-insensitive.
-	 *
-	 * TODO: Empty and 80 ports are equal.
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
+
+	/* RFC 2616:
+	 *  5.2: Both URI and Host header are used (URI overrides Host)
+	 *       (actually only when "Virtual Hosts" feature is turned on).
+	 *  3.2.3: Comparison of the host in URI is case-insensitive.
+	 * TODO:
+	 *  3.2.3, 14.23: Port 80 is equal to a non-given/empty port.
 	 */
-	static const eq_str_fn op_tbl_uri[] = {
-		[TFW_HTTP_MATCH_O_EQ] = tfw_str_eq_cstr_ci,
-		[TFW_HTTP_MATCH_O_PREFIX] = tfw_str_subjoins_cstr_ci
-	};
-	static const eq_hdr_fn op_tbl_hdr[] = {
-		[TFW_HTTP_MATCH_O_EQ] = tfw_str_eq_kv_ci,
-		[TFW_HTTP_MATCH_O_PREFIX] = tfw_str_subjoins_kv_ci
-	};
+
+	flags |= TFW_STR_EQ_CASEI;
 
 	if (req->host.len) {
-		eq_str_fn fn = op_tbl_uri[rule->op];
-		BUG_ON(!fn);
-
-		return fn(&req->host, rule->arg.str, rule->arg.len);
-	} else {
-		eq_hdr_fn fn = op_tbl_hdr[rule->op];
-		BUG_ON(!fn);
-
-		return hdr_cmp(req, TFW_HTTP_HDR_HOST, rule->arg.str,
-		               rule->arg.len, fn);
+		return tfw_str_eq_cstr(&req->host, rule->arg.str,
+		                       rule->arg.len, flags);
 	}
-}
 
+	return hdr_val_eq(req, TFW_HTTP_HDR_HOST, rule->arg.str,
+	                  rule->arg.len, flags);
+}
 static bool
 match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	/* There is no general constraint on case-sensitivity of header values,
-	 * each header defines its own rules. However, we always ignore case
-	 * here because that apply to the most of the headers.
-	 *
-	 * TODO: case-sensitive matching for headers when required by RFC.
-	 */
-	static const eq_hdr_fn op_tbl[] = {
-		[TFW_HTTP_MATCH_O_EQ] = tfw_str_eq_kv_ci,
-		[TFW_HTTP_MATCH_O_PREFIX] = tfw_str_subjoins_kv_ci
-	};
 	static const tfw_http_hdr_t id_tbl[] = {
 		[0 ... _TFW_HTTP_MATCH_F_COUNT] = -1,
 		[TFW_HTTP_MATCH_F_HDR_CONN] = TFW_HTTP_HDR_CONNECTION,
 		[TFW_HTTP_MATCH_F_HDR_HOST] = TFW_HTTP_HDR_HOST,
 	};
-	eq_hdr_fn fn = op_tbl[rule->op];
+
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 	tfw_http_hdr_t id = id_tbl[rule->field];
+	BUG_ON(id < 0);
 
-	BUG_ON(id < 0 || !fn);
+	/* There is no general rule, but most headers are case-insensitive.
+	 * TODO: case-sensitive matching for headers when required by RFC. */
+	flags |= TFW_STR_EQ_CASEI;
 
-	return hdr_cmp(req, id, rule->arg.str, rule->arg.len, fn);
+	return hdr_val_eq(req, id, rule->arg.str, rule->arg.len, flags);
 }
 
 static bool
 match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	/* Raw headers are not tokenized, (e.g. "Host:foo" != "Host: foo).
-	 *
-	 * TODO: handle LWS* between header and value for raw headers.
-	 */
-	static const eq_str_fn op_tbl[] = {
-		[TFW_HTTP_MATCH_O_EQ] = tfw_str_eq_cstr_ci,
-		[TFW_HTTP_MATCH_O_PREFIX] = tfw_str_eq_cstr_ci
-	};
-	eq_str_fn fn;
 	TfwStr *hdr;
 	int i;
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	fn = op_tbl[rule->op];
-	BUG_ON(!fn);
+	/* It would be hard to apply some header-specific rules here, so ignore
+	 * case for all headers according to the robustness principle. */
+	flags |= TFW_STR_EQ_CASEI;
 
 	for (i = 0; i < req->h_tbl->size; ++i) {
 		hdr = &req->h_tbl->tbl[i].field;
 		if (!hdr->len)
 			continue;
-		if (fn(hdr, rule->arg.str, rule->arg.len))
+
+		/* TODO: handle LWS* between header and value for raw headers.
+		 * (currently "X-Hdr:foo" is not equal to "X-Hdr: foo").
+		 */
+		if (tfw_str_eq_cstr(hdr, rule->arg.str, rule->arg.len, flags))
 			return true;
 	}
 
 	return false;
 }
 
-static const match_fn
-match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT][_TFW_HTTP_MATCH_O_COUNT] = {
-	[TFW_HTTP_MATCH_F_METHOD] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_method_eq,
-		[TFW_HTTP_MATCH_O_IN]     = match_method_in,
-	},
-	[TFW_HTTP_MATCH_F_URI] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_uri,
-		[TFW_HTTP_MATCH_O_PREFIX] = match_uri,
-	},
-	[TFW_HTTP_MATCH_F_HOST] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_host,
-		[TFW_HTTP_MATCH_O_PREFIX] = match_host,
-	},
-	[TFW_HTTP_MATCH_F_HDR_CONN] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_hdr,
-		[TFW_HTTP_MATCH_O_PREFIX] = match_hdr,
-	},
-	[TFW_HTTP_MATCH_F_HDR_HOST] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_hdr,
-		[TFW_HTTP_MATCH_O_PREFIX] = match_hdr,
-	},
-	[TFW_HTTP_MATCH_F_HDR_RAW] = {
-		[TFW_HTTP_MATCH_O_EQ]     = match_hdr_raw,
-		[TFW_HTTP_MATCH_O_PREFIX] = match_hdr_raw,
-	},
+
+typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
+
+static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
+	[TFW_HTTP_MATCH_F_HOST]		= match_host,
+	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
+	[TFW_HTTP_MATCH_F_URI]		= match_uri,
 };
 
+static const tfw_http_match_arg_t arg_type_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
+	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
+};
+
+/**
+ * Dispatch rule to a corresponding match_*() function.
+ */
 static bool
 do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	match_fn fn;
+	match_fn match_fn;
+	tfw_http_match_fld_t field;
+	tfw_http_match_arg_t arg_type;
 
 	BUG_ON(!req || !rule);
-	BUG_ON(rule->field >= ARRAY_SIZE(match_fn_tbl));
-	BUG_ON(rule->op >= ARRAY_SIZE(match_fn_tbl[0]));
+	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
+	BUG_ON(rule->op < 0 || rule->op >= _TFW_HTTP_MATCH_O_COUNT);
+	BUG_ON(rule->arg.type < 0 || rule->arg.type >= _TFW_HTTP_MATCH_A_COUNT);
+	BUG_ON(rule->arg.len <= 0 || rule->arg.len >= TFW_HTTP_MATCH_MAX_ARG_LEN);
 
-	TFW_DBG("rule: %p, field: %#x, op: %#x\n", rule, rule->field, rule->op);
+	field = rule->field;
+	match_fn = match_fn_tbl[field];
+	arg_type = arg_type_tbl[field];
+	BUG_ON(!match_fn);
+	BUG_ON(!arg_type);
+	BUG_ON(arg_type != rule->arg.type);
 
-	fn = match_fn_tbl[rule->field][rule->op];
-	BUG_ON(!fn);
-
-	return fn(req, rule);
+	return match_fn(req, rule);
 }
 
 /**
@@ -273,6 +266,8 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 	TFW_DBG("Matching request: %p, list: %p\n", req, mlst);
 
 	list_for_each_entry(rule, &mlst->list, list) {
+		TFW_DBG("rule: %p, field: %#x, op: %#x\n",
+		        rule, rule->field, rule->op);
 		if (do_match(req, rule))
 			return rule;
 	}
@@ -299,6 +294,7 @@ tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
 	}
 
 	memset(rule, 0, size);
+	rule->arg.len = arg_len;
 	INIT_LIST_HEAD(&rule->list);
 	list_add_tail(&rule->list, &mlst->list);
 
