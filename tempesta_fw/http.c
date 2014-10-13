@@ -834,40 +834,9 @@ tfw_http_exit(void)
 static const char hdr_connection[] = "Connection";
 static const char hdr_host[] = "Host";
 
-#define HDR(name) { hdr_##name, sizeof(hdr_##name) - 1 }
-static const struct {
-	const char *name;
-	int len;
-} hdr_name_tbl[] = {
-	[TFW_HTTP_HDR_CONNECTION] = HDR(connection),
-	[TFW_HTTP_HDR_HOST]       = HDR(host),
+TfwHttpHdrMeta tfw_http_hdr_meta_tbl[TFW_HTTP_HDR_NUM] = {
+	#define _HDR(name) { hdr_##name, sizeof(hdr_##name) - 1 }
+	[TFW_HTTP_HDR_CONNECTION] = _HDR(connection),
+	[TFW_HTTP_HDR_HOST]       = _HDR(host),
 };
-#undef HDR
 
-#define HDR_GET_FIELD(field_type, field_name, id)		\
-({ 								\
-	field_type _val;					\
-	BUG_ON(id < 0 || id >= ARRAY_SIZE(hdr_name_tbl));	\
-	_val = hdr_name_tbl[id].field_name;			\
-	BUG_ON(!_val);						\
-	_val;							\
-})
-
-/**
- * Get header name string by its id (offset in the TfwHttpHdrTbl).
- */
-const char *
-tfw_http_hdr_name(tfw_http_hdr_t id)
-{
-	return HDR_GET_FIELD(const char *, name, id);
-}
-
-/**
- * Get length of a header name string.
- * The value is pre-computed at compile time and hence is faster.
- */
-const int
-tfw_http_hdr_name_len(tfw_http_hdr_t id)
-{
-	return HDR_GET_FIELD(int, len, id);
-}

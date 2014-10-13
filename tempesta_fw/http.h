@@ -80,7 +80,7 @@ typedef struct tfw_http_parser {
 /**
  * Http headers table.
  *
- * Note: don't forget to update tfw_http_hdr_name() upon adding a new header.
+ * Note: don't forget to update tfw_http_hdr_meta_tbl upon adding a new header.
  */
 typedef enum {
 	TFW_HTTP_HDR_CONNECTION,
@@ -157,7 +157,30 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
 int tfw_http_init(void);
 void tfw_http_exit(void);
+
 const char *tfw_http_hdr_name(tfw_http_hdr_t id);
 const int tfw_http_hdr_name_len(tfw_http_hdr_t id);
+
+
+/* Table of static header parameters. */
+
+typedef struct {
+	const char *name;
+	int name_len;
+} TfwHttpHdrMeta;
+
+extern TfwHttpHdrMeta tfw_http_hdr_meta_tbl[TFW_HTTP_HDR_NUM];
+
+static inline const TfwHttpHdrMeta *
+tfw_http_hdr_meta_get(tfw_http_hdr_t id)
+{
+	TfwHttpHdrMeta *ret;
+
+	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
+	ret = &tfw_http_hdr_meta_tbl[id];
+	BUG_ON(!ret->name || !ret->name_len);
+
+	return ret;
+}
 
 #endif /* __TFW_HTTP_H__ */
