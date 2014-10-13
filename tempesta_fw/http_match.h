@@ -40,7 +40,6 @@ typedef enum {
 typedef enum {
 	TFW_HTTP_MATCH_O_NA = 0,
 	TFW_HTTP_MATCH_O_EQ,
-	TFW_HTTP_MATCH_O_IN,
 	TFW_HTTP_MATCH_O_PREFIX,
 	_TFW_HTTP_MATCH_O_COUNT
 } tfw_http_match_op_t;
@@ -62,13 +61,13 @@ typedef struct {
 		TfwAddr addr;
 		char str[0];
 	};
-} TfwMatchArg;
+} TfwHttpMatchArg;
 
 typedef struct {
 	struct list_head	list;
 	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
 	tfw_http_match_op_t 	op;    /* Comparison operator. */
-	TfwMatchArg 		arg;   /* A value to be compared with the field.
+	TfwHttpMatchArg 	arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
 
