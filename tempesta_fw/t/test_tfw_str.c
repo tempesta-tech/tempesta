@@ -282,14 +282,34 @@ TEST(tfw_str_eq_kv, handles_empty_val)
 {
 	TFW_STR(str_e1, "Cache-Control:");
 	TFW_STR(str_e2, "Cache-Control:    ");
-	TFW_STR(str_ne, "Cache-Control: max-age=3600, public");
+	TFW_STR(str_ne1, "Cache-Control: max-age=3600, public");
+	TFW_STR(str_ne2, "Cache-Control=");
+	TFW_STR(str_ne3, "Cache-Control= ");
+	TFW_STR(str_ne4, "Cache-Control=     ");
+	TFW_STR(str_ne5, "Cache-Contro:");
+	TFW_STR(str_ne6, "Cache-Contr:");
+	TFW_STR(str_ne7, "Cache-Cont:");
+	TFW_STR(str_ne8, "");
+	TFW_STR(str_ne9, "Other-Key:");
+	TFW_STR(str_ne10, "Other-Key: ");
+	TFW_STR(str_ne11, "Other-Key:    ");
 	const char *k = "Cache-Control";
 	size_t klen = strlen(k);
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
 
 	EXPECT_TRUE(tfw_str_eq_kv(str_e1, k, klen, ':', "", 0, flags));
 	EXPECT_TRUE(tfw_str_eq_kv(str_e2, k, klen, ':', "", 0, flags));
-	EXPECT_FALSE(tfw_str_eq_kv(str_ne, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne1, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne2, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne3, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne4, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne5, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne6, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne7, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne8, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne9, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne10, k, klen, ':', "", 0, flags));
+	EXPECT_FALSE(tfw_str_eq_kv(str_ne11, k, klen, ':', "", 0, flags));
 }
 
 TEST(tfw_str_eq_kv, supports_casei_val)

@@ -40,7 +40,9 @@ typedef struct {
 				 ? (c >= (s)->len			\
 				    ? NULL				\
 				    : (TfwStr *)(s)->ptr + c)		\
-				 : s)
+				 : (!c					\
+				    ? s 				\
+				    : NULL))
 /* Get last/current chunk of @s. */
 #define TFW_STR_CURR(s)		(((s)->flags & TFW_STR_COMPOUND)	\
 				 ? (TfwStr *)(s)->ptr + (s)->len - 1	\
