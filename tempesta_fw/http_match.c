@@ -77,20 +77,18 @@
  */
 static bool
 hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
-           int val_len, tfw_str_eq_flags_t flags)
+           int val_len, tfw_str_eq_flags_t f)
 {
 	TfwStr *hdr;
-	const char *name;
-	int name_len;
+	const TfwHttpHdrMeta *m;
 
 	hdr = &req->h_tbl->tbl[id].field;
 	if (!hdr->len)
 		return false;
 
-	name = tfw_http_hdr_name(id);
-	name_len = tfw_http_hdr_name_len(id);
+	m = tfw_http_hdr_meta_get(id);
 
-	return tfw_str_eq_kv(hdr, name, name_len, ':', val, val_len, flags);
+	return tfw_str_eq_kv(hdr, m->name, m->name_len, ':', val, val_len, f);
 }
 
 /**
