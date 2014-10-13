@@ -43,6 +43,7 @@ MODULE_LICENSE("GPL");
 #define MAX_SRV_PER_RULE 16
 #define RULES_TEXT_BUF_SIZE 4096
 #define IP_ADDR_TEXT_BUF_SIZE 32
+#define RULE_ARG_BUF_SIZE 255
 
 /**
  * PtrSet is a generic set of pointers implemented by a plain array.
@@ -301,6 +302,7 @@ build_match_entry(TfwHttpMatchList *dst_mlst, const MatchEntry *src)
 	 * member of @dst_mlst, so we can't touch @dst->rule.list here. */
 	dst->rule.field = src->rule.field;
 	dst->rule.op = src->rule.op;
+	dst->rule.arg.type = src->rule.arg.type;
 	dst->rule.arg.len = arg_len;
 	memcpy(dst->rule.arg.str, src->rule.arg.str, arg_len);
 
@@ -324,6 +326,7 @@ build_match_list(void)
 	int ret;
 	TfwHttpMatchList *new_match_list = NULL;
 	MatchEntry *src_entry;
+
 
 	new_match_list = tfw_http_match_list_alloc();
 	if (!new_match_list) {
@@ -612,9 +615,11 @@ parse_field(ParserState *s)
 {
 	static const char *field_str_tbl[] = {
 		[TFW_HTTP_MATCH_F_NA] 	   = STRINGIFY(TFW_HTTP_MATCH_F_NA),
+		[TFW_HTTP_MATCH_F_HDR_RAW] = "hdr_raw",
+		[TFW_HTTP_MATCH_F_HDR_CONN] = "hdr_conn",
+		[TFW_HTTP_MATCH_F_HDR_HOST] = "hdr_host",
 		[TFW_HTTP_MATCH_F_HOST] = "host",
 		[TFW_HTTP_MATCH_F_URI] = "uri",
-		[TFW_HTTP_MATCH_F_HDR_RAW] = "headers",
 	};
 	tfw_http_match_fld_t field;
 
@@ -660,24 +665,17 @@ static int
 parse_arg(ParserState *s)
 {
 	TfwHttpMatchArg *arg;
-	size_t old_size, new_size;
 
 	EXPECT(TOKEN_STR, s, return -1);
 	get_token(s);
 
-	old_size = TFW_HTTP_MATCH_CONT_SIZE(MatchEntry, 0);
-	new_size = TFW_HTTP_MATCH_CONT_SIZE(MatchEntry, s->len + 1);
-	s->entry = tfw_pool_realloc(s->mlst->pool, s->entry, old_size,
-				    new_size);
-	if (!s->entry) {
-		PARSER_ERR(s, "can't reallocate match entry");
-		return -1;
-	}
-
 	arg = &s->entry->rule.arg;
+	BUG_ON(s->len >= RULE_ARG_BUF_SIZE);
+
+	arg->type = TFW_HTTP_MATCH_A_STR;
 	arg->len = s->len;
-	memcpy(arg->str, s->lexeme, arg->len);
-	arg->str[arg->len] = '\0';
+	memcpy(arg->str, s->lexeme, s->len);
+	arg->str[s->len] = '\0';
 
 	return 0;
 }
@@ -748,7 +746,8 @@ parse_rules(ParserState *s)
 	int ret;
 
 	while (peek_token(s)) {
-		s->entry = tfw_http_match_entry_new(s->mlst, MatchEntry, rule, 0);
+		s->entry = tfw_http_match_entry_new(s->mlst, MatchEntry, rule,
+		                                    RULE_ARG_BUF_SIZE);
 		if (!s->entry) {
 			PARSER_ERR(s, "can't allocate new match entry");
 			return -1;
@@ -789,6 +788,7 @@ run_parser(const char *input)
 		tfw_http_match_list_free(mlst);
 		mlst = NULL;
 	}
+
 
 	return mlst;
 }
