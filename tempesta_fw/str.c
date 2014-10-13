@@ -222,17 +222,12 @@ bool
 tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 	      const char *val, int val_len, tfw_str_eq_flags_t flags)
 {
+	const char *key_end = key + key_len;
+	const char *val_end = val + val_len;
 	const TfwStr *chunk;
-	char *p;
-	enum {
-		NA = 0,
-		KEY,
-		WS1,
-		SEP,
-		WS2,
-		VAL,
-	} state = KEY;
-	char c;
+	const char *c;
+	const char *cend;
+	short cnum;
 	u8 val_case_mask;
 
 	validate_tfw_str(str);
@@ -241,59 +236,80 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 
 	/* The mask turns off the case bit in alphabetic ASCII characters. */
 	val_case_mask = (flags & TFW_STR_EQ_CASEI) ? 0xDF : 0xEF;
-	#define _CMP_KEY(c1, c2) ((c1 ^ c2) & 0xDF)
-	#define _CMP_VAL(c1, c2) ((c1 ^ c2) & val_case_mask)
+	#define _CMP_KEY(c1, c2) (((c1) ^ (c2)) & 0xDF)
+	#define _CMP_VAL(c1, c2) (((c1) ^ (c2)) & val_case_mask)
 
-	/* A tiny FSM here. It compares one character at a time, so perhaps it
-	 * is not the fastest one, but the overhead is amortized by absence of
-	 * function calls.
-	 * The switch() below looks a little bit strange, usual 'break's are
-	 * omitted intentionally since state transitions are always sequential,
-	 * so there is no need to break their code which is ordered naturally.
-	 * Read the code keeping in mind that:
-	 *  break;   => eat a character and re-enter the current state
-	 *  ++state; => switch to the next state, but don't eat a character
-	 */
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		for (p = chunk->ptr; p < ((char *)chunk->ptr + chunk->len); ++p) {
-			c = *p;
-			switch (state) {
-			default:
-				BUG();
-			case KEY:
-				if (key_len) {
-					if (_CMP_KEY(c, *key))
-						return false;
-					++key;
-					--key_len;
-					break;
-				}
-				++state;
-			case WS1:
-				if (isspace(c) && !isspace(sep))
-					break;
-				++state;
-			case SEP:
-				if (c != sep)
-					return false;
-				++state;
-				break;
-			case WS2:
-				if (isspace(c))
-					break;
-				++state;
-			case VAL:
-				if (!val_len)
-					return (flags & TFW_STR_EQ_PREFIX);
-				if (_CMP_VAL(c, *val))
-					return false;
-				++val;
-				--val_len;
-			}
+
+	/* Try to move to the next chunk (if current chunk is finished).
+	 * Execute @ok_code on sucess or @err_code if there is no next chunk. */
+	#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
+		if (unlikely(c == cend))	{		\
+			++cnum;					\
+			chunk = TFW_STR_CHUNK(str, cnum); 	\
+			if (chunk) {				\
+				c = chunk->ptr;			\
+				cend = chunk->ptr + chunk->len; \
+				ok_code;			\
+			} else {				\
+				err_code;			\
+				BUG();				\
+			}					\
 		}
+
+	/* Initialize  the state - get the first chunk. */
+	cnum = 0;
+	chunk = TFW_STR_CHUNK(str, 0);
+	if (!chunk)
+		return false;
+	c = chunk->ptr;
+	cend = chunk->ptr + chunk->len;
+
+	/* A tiny FSM here. Instead of a traditional for+switch construction
+	 * it uses a series of small loops to improve branch prediction and
+	 * locality of the code (and thus L1i hit).
+	 */
+
+state_key:
+	while (key != key_end && c != cend) {
+		if (_CMP_KEY(*key++, *c++))
+			return false;
+	}
+	_TRY_NEXT_CHUNK(goto state_key, return false);
+
+state_sp1:
+	if (!isspace(sep)) {
+		while (c != cend && isspace(*c))
+			++c;
+		_TRY_NEXT_CHUNK(goto state_sp1, return false);
 	}
 
-	return !val_len;
+/* state_sep: */
+	if (*c++ != sep)
+		return false;
+
+state_sp2:
+	while (c != cend && isspace(*c))
+		++c;
+	_TRY_NEXT_CHUNK(goto state_sp2, return (val == val_end));
+
+state_val:
+	while (val != val_end && c != cend) {
+		if (_CMP_VAL(*val++, *c++))
+			return false;
+	}
+
+	/* @val is not finished - request the next chunk. */
+	if (val != val_end) {
+		_TRY_NEXT_CHUNK(goto state_val, return false);
+	}
+
+	/* The chunk is not finished - then @val must be a prefix. */
+	if (c != cend) {
+		return (flags & TFW_STR_EQ_PREFIX);
+	}
+
+	/* Both @val and the current chunk are finished - full match. */
+	return true;
 }
 EXPORT_SYMBOL(tfw_str_eq_kv);
 
