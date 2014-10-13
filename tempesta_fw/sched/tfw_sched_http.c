@@ -659,7 +659,7 @@ parse_op(ParserState *s)
 static int
 parse_arg(ParserState *s)
 {
-	TfwMatchArg *arg;
+	TfwHttpMatchArg *arg;
 	size_t old_size, new_size;
 
 	EXPECT(TOKEN_STR, s, return -1);
