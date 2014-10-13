@@ -235,6 +235,10 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_http_match_fld_t field;
 	tfw_http_match_arg_t arg_type;
 
+	TFW_DBG("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
+	        rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
+	        rule->arg.len, rule->arg.str);
+
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
 	BUG_ON(rule->op < 0 || rule->op >= _TFW_HTTP_MATCH_O_COUNT);
@@ -263,8 +267,6 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 	TFW_DBG("Matching request: %p, list: %p\n", req, mlst);
 
 	list_for_each_entry(rule, &mlst->list, list) {
-		TFW_DBG("rule: %p, field: %#x, op: %#x\n",
-		        rule, rule->field, rule->op);
 		if (do_match(req, rule))
 			return rule;
 	}
