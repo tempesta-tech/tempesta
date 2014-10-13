@@ -115,10 +115,7 @@ match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	if (rule->op == TFW_HTTP_MATCH_O_EQ)
 		return (req->method == rule->arg.method);
 
-	if (rule->op == TFW_HTTP_MATCH_O_IN)
-		return !!(req->method & rule->arg.method);
-
-	/* Only EQ and IN operators are supported (do we need more?). */
+	/* Only EQ operator is supported (do we need more?). */
 	BUG();
 	return 0;
 }

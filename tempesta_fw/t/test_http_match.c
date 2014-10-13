@@ -177,6 +177,77 @@ TEST(http_match, headers_eq)
 	EXPECT_EQ(2, match_id);
 }
 
+TEST(http_match, hdr_host_prefix)
+{
+	int match_id;
+
+	test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_CONN, TFW_HTTP_MATCH_O_EQ,
+	             "Connection: Keep-Alive");
+	test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
+	              "ex");
+	test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
+		     "www.example.com");
+
+	set_tfw_str(&test_req->host, "example.com");
+	match_id = test_mlst_match();
+	EXPECT_EQ(-1, match_id);
+
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	            "Host: example.com");
+	match_id = test_mlst_match();
+	EXPECT_EQ(2, match_id);
+
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	            "Host :        eXample.com");
+	match_id = test_mlst_match();
+	EXPECT_EQ(2, match_id);
+
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	            "Host: www");
+	match_id = test_mlst_match();
+	EXPECT_EQ(-1, match_id);
+
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	            "Host:  WWW.EXAMPLE.COM:8081");
+	match_id = test_mlst_match();
+	EXPECT_EQ(3, match_id);
+}
+
+TEST(http_match, method_eq)
+{
+	int match_id;
+	MatchEntry *e1, *e2;
+	size_t len = FIELD_SIZEOF(TfwHttpMatchArg, method);
+
+	e1 = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, len);
+	e1->test_id = 42,
+	e1->rule.field = TFW_HTTP_MATCH_F_METHOD;
+	e1->rule.op = TFW_HTTP_MATCH_O_EQ;
+	e1->rule.arg.type = TFW_HTTP_MATCH_A_METHOD;
+	e1->rule.arg.len = len;
+	e1->rule.arg.method = TFW_HTTP_METH_POST;
+
+	e2 = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, len);
+	e2->test_id = 43,
+	e2->rule.field = TFW_HTTP_MATCH_F_METHOD;
+	e2->rule.op = TFW_HTTP_MATCH_O_EQ;
+	e2->rule.arg.type = TFW_HTTP_MATCH_A_METHOD;
+	e2->rule.arg.len = len;
+	e2->rule.arg.method = TFW_HTTP_METH_GET;
+
+	test_req->method = TFW_HTTP_METH_HEAD;
+	match_id = test_mlst_match();
+	EXPECT_EQ(-1, match_id);
+
+	test_req->method = TFW_HTTP_METH_GET;
+	match_id = test_mlst_match();
+	EXPECT_EQ(43, match_id);
+
+	test_req->method = TFW_HTTP_METH_POST;
+	match_id = test_mlst_match();
+	EXPECT_EQ(42, match_id);
+}
+
 TEST_SUITE(http_match)
 {
 	TEST_SETUP(http_match_suite_setup);
@@ -186,4 +257,6 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, uri_prefix);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);
+	TEST_RUN(http_match, hdr_host_prefix);
+	TEST_RUN(http_match, method_eq);
 }
