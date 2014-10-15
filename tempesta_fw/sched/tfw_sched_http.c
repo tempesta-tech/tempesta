@@ -388,7 +388,7 @@ rebuild_match_list(void)
  * --------------------------------------------------------------------------
  */
 
-TfwServer *
+static TfwServer *
 tfw_sched_http_get_srv(TfwMsg *msg)
 {
 	TfwHttpMatchList *mlst;
@@ -414,7 +414,7 @@ tfw_sched_http_get_srv(TfwMsg *msg)
 }
 
 
-int
+static int
 tfw_sched_http_add_srv(TfwServer *srv)
 {
 	int ret = 0;
@@ -433,7 +433,7 @@ tfw_sched_http_add_srv(TfwServer *srv)
 	return ret;
 }
 
-int
+static int
 tfw_sched_http_del_srv(TfwServer *srv)
 {
 	int ret = 0;
@@ -859,7 +859,7 @@ static ctl_table sched_http_ctl_tbl[] = {
  * --------------------------------------------------------------------------
  */
 
-static TfwScheduler tfw_sched_rr_mod = {
+static TfwScheduler tfw_sched_http_mod = {
 	.name = "http",
 	.get_srv = tfw_sched_http_get_srv,
 	.add_srv = tfw_sched_http_add_srv,
@@ -890,7 +890,7 @@ tfw_sched_http_init(void)
 		goto err_sysctl_register;
 	}
 
-	ret = tfw_sched_register(&tfw_sched_rr_mod);
+	ret = tfw_sched_register(&tfw_sched_http_mod);
 	if (ret) {
 		LOG("Can't register the scheduler module\n");
 		ret = -1;

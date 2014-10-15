@@ -106,7 +106,6 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	return flags_tbl[op];
 }
 
-
 static bool
 match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
