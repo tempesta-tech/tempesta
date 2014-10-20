@@ -32,14 +32,17 @@ http_match_suite_setup(void)
 	test_mlst = tfw_http_match_list_alloc();
 	BUG_ON(!test_mlst);
 
-	test_req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
-	BUG_ON(!test_req);
+	test_req = tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO);
+	test_req->h_tbl = tfw_pool_alloc(test_req->pool, TFW_HHTBL_SZ(1));
+	test_req->h_tbl->size = __HHTBL_SZ(1);
+	test_req->h_tbl->off = 0;
+	memset(test_req->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
 }
 
 static void
 http_match_suite_teardown(void)
 {
-	tfw_http_msg_free((TfwHttpMsg *)test_req);
+	tfw_pool_free(test_req->pool);
 	test_req = NULL;
 
 	tfw_http_match_list_free(test_mlst);

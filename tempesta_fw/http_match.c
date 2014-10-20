@@ -61,6 +61,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/cache.h>
 #include "http_match.h"
 #include "http.h"
 
@@ -79,16 +80,32 @@ static bool
 hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
            int val_len, tfw_str_eq_flags_t f)
 {
+#define _HDR(name) { name, sizeof(name) - 1 }
+	static const struct {
+		const char *name;
+		int name_len;
+	} hdr_name_tbl[TFW_HTTP_HDR_NUM] = {
+		[TFW_HTTP_HDR_CONNECTION] = _HDR("Connection"),
+		[TFW_HTTP_HDR_HOST]       = _HDR("Host"),
+	};
+#undef _HDR
+
 	TfwStr *hdr;
-	const TfwHttpHdrMeta *m;
+	const char *hdr_name;
+	int hdr_name_len;
+
+	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
 
 	hdr = &req->h_tbl->tbl[id].field;
 	if (!hdr->len)
 		return false;
 
-	m = tfw_http_hdr_meta_get(id);
+	hdr_name = hdr_name_tbl[id].name;
+	hdr_name_len = hdr_name_tbl[id].name_len;
+	BUG_ON(!hdr_name);
+	BUG_ON(!hdr_name_len);
 
-	return tfw_str_eq_kv(hdr, m->name, m->name_len, ':', val, val_len, f);
+	return tfw_str_eq_kv(hdr, hdr_name, hdr_name_len, ':', val, val_len, f);
 }
 
 /**
@@ -110,9 +127,9 @@ static bool
 match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	if (rule->op == TFW_HTTP_MATCH_O_EQ)
-		return (req->method == rule->arg.method);
+		return req->method == rule->arg.method;
 
-	/* Only EQ operator is supported (do we need more?). */
+	/* Only EQ operator is supported. */
 	BUG();
 	return 0;
 }
@@ -155,6 +172,7 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return hdr_val_eq(req, TFW_HTTP_HDR_HOST, rule->arg.str,
 	                  rule->arg.len, flags);
 }
+
 static bool
 match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
@@ -204,7 +222,8 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
 
-static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+static const match_fn
+__read_mostly match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
@@ -213,7 +232,8 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_URI]		= match_uri,
 };
 
-static const tfw_http_match_arg_t arg_type_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+static const tfw_http_match_arg_t
+__read_mostly arg_type_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
