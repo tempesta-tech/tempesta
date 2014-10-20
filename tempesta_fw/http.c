@@ -830,13 +830,3 @@ tfw_http_exit(void)
 {
 }
 
-
-static const char hdr_connection[] = "Connection";
-static const char hdr_host[] = "Host";
-
-TfwHttpHdrMeta tfw_http_hdr_meta_tbl[TFW_HTTP_HDR_NUM] = {
-	#define _HDR(name) { hdr_##name, sizeof(hdr_##name) - 1 }
-	[TFW_HTTP_HDR_CONNECTION] = _HDR(connection),
-	[TFW_HTTP_HDR_HOST]       = _HDR(host),
-};
-
