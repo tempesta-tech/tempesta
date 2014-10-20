@@ -231,6 +231,8 @@ tfw_inet_pton(char **p, void *addr)
 	TFW_ERR("Can't parse address %s\n", *p);
 	return -EINVAL;
 }
+/* TODO: Remove the export after implementing a configuration framework
+ * that will remove the dependency of tfw_sched_http on this function. */
 EXPORT_SYMBOL(tfw_inet_pton);
 
 /**
@@ -269,7 +271,6 @@ tfw_inet_ntop(const void *addr, char *buf)
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_inet_ntop);
 
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)

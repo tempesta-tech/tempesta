@@ -40,10 +40,10 @@ MODULE_LICENSE("GPL");
 #define LOG(...) TFW_LOG(BANNER __VA_ARGS__)
 #define DBG(...) TFW_DBG(BANNER __VA_ARGS__)
 
-#define MAX_SRV_PER_RULE 16
-#define RULES_TEXT_BUF_SIZE 4096
-#define IP_ADDR_TEXT_BUF_SIZE 32
-#define RULE_ARG_BUF_SIZE 255
+#define MAX_SRV_PER_RULE 	16
+#define RULES_TEXT_BUF_SIZE 	4096
+#define IP_ADDR_TEXT_BUF_SIZE 	32
+#define RULE_ARG_BUF_SIZE 	255
 
 /**
  * PtrSet is a generic set of pointers implemented by a plain array.
@@ -205,7 +205,7 @@ ptrset_get_rr(PtrSet *s)
  * into a MatchEntry.
  */
 static PtrSet *
-alloc_servers(TfwPool *pool)
+alloc_ptrset(TfwPool *pool)
 {
 	size_t size = PTR_SET_SIZE(MAX_SRV_PER_RULE);
 	PtrSet *servers = tfw_pool_alloc(pool, size);
@@ -219,7 +219,8 @@ alloc_servers(TfwPool *pool)
 	return servers;
 }
 
-#define alloc_addrs(pool) alloc_servers(pool)
+#define alloc_servers(pool) alloc_ptrset(pool)
+#define alloc_addrs(pool) alloc_ptrset(pool)
 
 /**
  * Resolve TfwAddr to TfwServer (using a set of servers added to the scheduler).
@@ -286,7 +287,6 @@ resolve_addresses(PtrSet *dst_servers, const PtrSet *src_addrs)
 static int
 build_match_entry(TfwHttpMatchList *dst_mlst, const MatchEntry *src)
 {
-	int ret = 0;
 	MatchEntry *dst;
 	size_t arg_len;
 
@@ -310,11 +310,7 @@ build_match_entry(TfwHttpMatchList *dst_mlst, const MatchEntry *src)
 	dst->servers = alloc_servers(dst_mlst->pool);
 	if (!dst->servers)
 		return -1;
-	ret = resolve_addresses(dst->servers, src->addrs);
-	if (ret)
-		return -1;
-
-	return ret;
+	return resolve_addresses(dst->servers, src->addrs);
 }
 
 /**
@@ -326,7 +322,6 @@ build_match_list(void)
 	int ret;
 	TfwHttpMatchList *new_match_list = NULL;
 	MatchEntry *src_entry;
-
 
 	new_match_list = tfw_http_match_list_alloc();
 	if (!new_match_list) {

@@ -228,33 +228,26 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 	const char *c;
 	const char *cend;
 	short cnum;
-	u8 val_case_mask;
 
 	validate_tfw_str(str);
 	validate_key(key, key_len);
 	validate_cstr(val, val_len);
 
-	/* The mask turns off the case bit in alphabetic ASCII characters. */
-	val_case_mask = (flags & TFW_STR_EQ_CASEI) ? 0xDF : 0xEF;
-	#define _CMP_KEY(c1, c2) (((c1) ^ (c2)) & 0xDF)
-	#define _CMP_VAL(c1, c2) (((c1) ^ (c2)) & val_case_mask)
-
-
-	/* Try to move to the next chunk (if current chunk is finished).
-	 * Execute @ok_code on sucess or @err_code if there is no next chunk. */
-	#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
-		if (unlikely(c == cend))	{		\
-			++cnum;					\
-			chunk = TFW_STR_CHUNK(str, cnum); 	\
-			if (chunk) {				\
-				c = chunk->ptr;			\
-				cend = chunk->ptr + chunk->len; \
-				ok_code;			\
-			} else {				\
-				err_code;			\
-				BUG();				\
-			}					\
-		}
+/* Try to move to the next chunk (if current chunk is finished).
+ * Execute @ok_code on sucess or @err_code if there is no next chunk. */
+#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
+	if (unlikely(c == cend))	{		\
+		++cnum;					\
+		chunk = TFW_STR_CHUNK(str, cnum); 	\
+		if (chunk) {				\
+			c = chunk->ptr;			\
+			cend = chunk->ptr + chunk->len; \
+			ok_code;			\
+		} else {				\
+			err_code;			\
+			BUG();				\
+		}					\
+	}
 
 	/* Initialize  the state - get the first chunk. */
 	cnum = 0;
@@ -271,7 +264,7 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 
 state_key:
 	while (key != key_end && c != cend) {
-		if (_CMP_KEY(*key++, *c++))
+		if (tolower(*key++) != tolower(*c++))
 			return false;
 	}
 	_TRY_NEXT_CHUNK(goto state_key, return false);
@@ -293,9 +286,16 @@ state_sp2:
 	_TRY_NEXT_CHUNK(goto state_sp2, return (val == val_end));
 
 state_val:
-	while (val != val_end && c != cend) {
-		if (_CMP_VAL(*val++, *c++))
-			return false;
+	if (flags & TFW_STR_EQ_CASEI) {
+		while (val != val_end && c != cend) {
+			if (tolower(*val++) != tolower(*c++))
+				return false;
+		}
+	} else {
+		while (val != val_end && c != cend) {
+			if (*val++ != *c++)
+				return false;
+		}
 	}
 
 	/* @val is not finished - request the next chunk. */
