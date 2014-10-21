@@ -47,6 +47,7 @@ __tfw_pool_new(size_t n)
 
 	return p;
 }
+EXPORT_SYMBOL(__tfw_pool_new);
 
 void *
 tfw_pool_alloc(TfwPool *p, size_t n)
@@ -61,6 +62,7 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 
 	return a;
 }
+EXPORT_SYMBOL(tfw_pool_alloc);
 
 void *
 tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
@@ -82,9 +84,11 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 
 	return a;
 }
+EXPORT_SYMBOL(tfw_pool_realloc);
 
 void
 tfw_pool_free(TfwPool *p)
 {
 	free_pages((unsigned long)p, p->order);
 }
+EXPORT_SYMBOL(tfw_pool_free);

@@ -1,9 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Generic functions and macros that don't have enough cohesion for moving
- * into separate library units.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -20,21 +17,58 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LIB_H__
-#define __TFW_LIB_H__
 
-/**
- * Convert C identifier (precisely, a preprocessing token) to a string literal.
- *
- * Usage:
- *   printk("%s", STRINGIFY(foo));
- *
- * You can use STRINGIFY(func_or_var_name) instead of "func_or_var_name" to
- * facilitate various static analysis tools.
- */
-#ifndef STRINGIFY
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
-#endif
+#include <linux/module.h>
+#include "test.h"
 
-#endif /* __TFW_LIB_H__ */
+int test_fail_counter;
+test_fixture_fn_t test_setup_fn;
+test_fixture_fn_t test_teardown_fn;
+
+void
+test_register_failure(void)
+{
+	++test_fail_counter;
+}
+
+void
+test_set_setup_fn(test_fixture_fn_t fn)
+{
+	BUG_ON(fn && test_setup_fn);
+	test_setup_fn = fn;
+}
+
+void
+test_set_teardown_fn(test_fixture_fn_t fn)
+{
+	BUG_ON(fn && test_teardown_fn);
+	test_teardown_fn = fn;
+}
+
+void
+test_call_setup_fn(void)
+{
+	if (test_setup_fn)
+		test_setup_fn();
+}
+
+void
+test_call_teardown_fn(void)
+{
+	if (test_teardown_fn)
+		test_teardown_fn();
+}
+
+TEST_SUITE(tfw_str);
+TEST_SUITE(http_match);
+
+int
+test_run_all(void)
+{
+	test_fail_counter = 0;
+
+	TEST_SUITE_RUN(tfw_str);
+	TEST_SUITE_RUN(http_match);
+
+	return test_fail_counter;
+}

@@ -1,9 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Generic functions and macros that don't have enough cohesion for moving
- * into separate library units.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -20,21 +17,38 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LIB_H__
-#define __TFW_LIB_H__
 
-/**
- * Convert C identifier (precisely, a preprocessing token) to a string literal.
- *
- * Usage:
- *   printk("%s", STRINGIFY(foo));
- *
- * You can use STRINGIFY(func_or_var_name) instead of "func_or_var_name" to
- * facilitate various static analysis tools.
- */
-#ifndef STRINGIFY
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
-#endif
+#include <linux/module.h>
 
-#endif /* __TFW_LIB_H__ */
+#include "tempesta.h"
+#include "test.h"
+
+MODULE_AUTHOR(TFW_AUTHOR);
+MODULE_DESCRIPTION("Tempesta FW tests");
+MODULE_VERSION("0.0.1");
+MODULE_LICENSE("GPL");
+
+static int __init
+tfw_test_init(void)
+{
+	int fail_count = 0;
+
+	printk("tfw_test: start\n");
+	fail_count = test_run_all();
+
+	printk("tfw_test: finish - ");
+	if (fail_count)
+		printk("failed %d assertions\n", fail_count);
+	else
+		printk("all passed\n");
+
+	return 0;
+}
+
+void
+tfw_test_exit(void)
+{
+}
+
+module_init(tfw_test_init);
+module_exit(tfw_test_exit);
