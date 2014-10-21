@@ -16,16 +16,8 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -Werror -I$(src)/../sync_socket -I$(src)/../tempesta_db
+EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(src)/../ \
+		-I$(src)/../../tempesta_db -I$(src)/../../sync_socket
 
-ifneq ($(NDEBUG), 1)
-EXTRA_CFLAGS += -DDEBUG -O0 -g3
-endif
-
-obj-m	= tempesta_fw.o
-tempesta_fw-objs = addr.o cache.o classifier.o client.o connection.o debugfs.o \
-		   filter.o gfsm.o http.o http_match.o http_msg.o http_parser.o if.o \
-		   main.o pool.o sched.o server.o session.o sock_backend.o \
-		   sock_frontend.o stress.o str.o
-
-obj-m	+= log/ classifier/ stress/ sched/ filter/ t/
+obj-m += tfw_test.o
+tfw_test-objs = main.o test.o test_tfw_str.o test_http_match.o

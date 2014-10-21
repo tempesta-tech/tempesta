@@ -24,11 +24,11 @@
 #include "tempesta.h"
 #include "cache.h"
 #include "client.h"
+#include "debugfs.h"
 #include "filter.h"
 #include "http.h"
 #include "log.h"
 #include "server.h"
-#include "debugfs.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");

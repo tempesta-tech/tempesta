@@ -61,7 +61,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	 * FIXME do we need to synchronize this?
 	 * If a connection can be processed from different CPUs, then we do.
 	 */
-	if (m->conn->msg == (TfwMsg *)m)
+	if (m->conn && m->conn->msg == (TfwMsg *)m)
 		m->conn->msg = NULL;
 
 	while (1) {

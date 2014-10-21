@@ -20,9 +20,9 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "tempesta.h"
 #include "log.h"
 #include "sched.h"
+#include "tempesta.h"
 
 
 static TfwScheduler *tfw_sched = NULL;
