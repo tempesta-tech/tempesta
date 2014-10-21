@@ -39,8 +39,7 @@
  * this may be optimized to a kind of jump table.
  *
  * TODO:
- *   - Handle "Percent-encoding" during URI comparison.
- *   - Default port 80 in Host header and absoluteURI.
+ *   - Compare normalized URIs.
  *   - Handle LWS* between header and value for raw headers.
  *   - Case-sensitive matching for headers when required by RFC.
  *
@@ -139,11 +138,11 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	/* RFC 2616
-	 *  3.2.3: The comparison of URI is case-sensitive (except for host and
-	 *  scheme, but we may ignore it since we don't store them in req->uri).
+	/* RFC 7230:
+	 *  2.7.3: the comparison is case-insensitive.
+	 *
 	 * TODO:
-	 *  3.2.3: Handle URI percent encoding (required by the RFC).
+	 *  2.7.3: compare normalized URIs.
 	 */
 
 	return tfw_str_eq_cstr(&req->uri, rule->arg.str, rule->arg.len, flags);
@@ -154,12 +153,14 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	/* RFC 2616:
-	 *  5.2: Both URI and Host header are used (URI overrides Host)
-	 *       (actually only when "Virtual Hosts" feature is turned on).
-	 *  3.2.3: Comparison of the host in URI is case-insensitive.
+	/*
+	 * RFC 7230:
+	 *  5.4: Host header must be ignored when URI is absolute.
+	 *  5.4, 2.7.3: the comparison is case-insensitive.
+	 *
 	 * TODO:
-	 *  3.2.3, 14.23: Port 80 is equal to a non-given/empty port.
+	 *  5.4, 2.7.3: Port 80 is equal to a non-given/empty port (done by
+	 *  normalizing the host).
 	 */
 
 	flags |= TFW_STR_EQ_CASEI;
