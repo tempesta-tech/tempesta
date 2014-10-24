@@ -74,8 +74,10 @@ tdb_entry_create(TDB *db, unsigned long *key, size_t elen, unsigned int flags)
 EXPORT_SYMBOL(tdb_entry_create);
 
 /**
- * Return pointer to free area of size at least @size bytes or allocate
+ * @return pointer to free area of size at least @size bytes or allocate
  * a new record and link it with the current one.
+ *
+ * TODO update @size to actually allocated space.
  */
 void *
 tdb_entry_add(TDB *db, TdbRecord **r, size_t size)

@@ -218,7 +218,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	 */
 	p_hlen = tdb_entry_add(db, &trec, sizeof(ce->hdr_lens[0])
 					  * ce->hdr_num);
-	/* Set start of headers pointer just after array of header lengthh. */
+	/* Set start of headers pointer just after array of header length. */
 	ce->hdrs = tdb_get_next_data_ptr(db, &trec);
 	for (i = 0; i < ce->hdr_num; ++i) {
 		TfwStr *hdr = &htbl->tbl[i].field;

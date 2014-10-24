@@ -6,5 +6,5 @@ So all data is mmap()'ed and mlock()'ed which makes Linux syncronize the memory
 region with disk and vise versa. Generic storage is applicable for application
 caches, filter rules, resolver results, events and access logs or traffic dumps.
 
-The storage works with plugable index, replicator and cache evictor.
-
+Fixed and variable length records can be stored. However, fixed size records
+can't have zero key and data at the same time - such records treated as deleted.
