@@ -3,10 +3,6 @@
  *
  * This is the entry point: initialization functions and public interfaces.
  *
- * If index is not SEQLOG (i.e. no index at all), then to improve space locality
- * for large data sets index records grow from lower addresses to higher while
- * data records grow towards then, from maximum to minimum addresses.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -26,8 +22,8 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
-#include "tdb.h"
 #include "file.h"
+#include "htrie.h"
 #include "work.h"
 
 MODULE_AUTHOR("NatSys Lab. (http://natsys-lab.com)");
@@ -38,83 +34,50 @@ MODULE_LICENSE("GPL");
 static struct workqueue_struct *tdb_wq;
 static struct kmem_cache *tw_cache;
 
-/**
- * Allocates a new page and links it to @curr record.
- */
-static TdbRecord *
-tdb_record_new(TDB *db, TdbRecord *curr)
+TdbRec *
+tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
-	TdbRecord *r;
-
-	/* @db can be uninitialized, see tdb_open(). */
-	if (unlikely(!db->map))
-		return NULL;
-
-	r = tdb_file_alloc_data_page(db);
+	TdbRec *r = tdb_htrie_insert(db->hdr, key, data, len);
 	if (!r)
-		return NULL;
-	memset(r, 0, sizeof(*r));
-	if (curr)
-		curr->chunk_next = TDB_REC_OFFSET(db, r);
-
-	return r;
-}
-
-TdbRecord *
-tdb_entry_create(TDB *db, unsigned long *key, size_t elen)
-{
-	TdbRecord *r = tdb_record_new(db, NULL);
-	if (!r)
-		return NULL;
-
-	WARN_ON(elen + sizeof(*r) > PAGE_SIZE);
-	r->d_len = elen - sizeof(*r);
-
-	/* TODO add the entry to index by @key. */
+		TDB_ERR("Cannot create cache entry for %.*s\n",
+			(int)*len, (char *)data);
 
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_create);
 
 /**
- * Return pointer to free area of size at least @size bytes or allocate
+ * @return pointer to free area of size at least @size bytes or allocate
  * a new record and link it with the current one.
+ *
+ * TODO update @size to actually allocated space.
  */
-void *
-tdb_entry_add(TDB *db, TdbRecord **r, size_t size)
+TdbVRec *
+tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 {
-	char *rd;
-	TdbRecord *r_tmp = *r;
-
-	/* No sense to allocate space room for not the last entry. */
-	WARN_ON(!TDB_REC_ISLAST(r_tmp));
-	if (unlikely(size > TDB_REC_DMAXSZ)) {
-		TDB_ERR("Requested too large record size, %lu\n", size);
-		return NULL;
-	}
-
-	if (!TDB_REC_ROOM(r_tmp) || TDB_REC_ROOM(r_tmp) < size) {
-		r_tmp = tdb_record_new(db, r_tmp);
-		if (!r_tmp)
-			return NULL;
-		*r = r_tmp;
-	}
-
-	rd = r_tmp->data + r_tmp->d_len;
-	r_tmp->d_len += size;
-
-	return rd;
+	return tdb_htrie_extend_rec(db->hdr, r, size);
 }
 EXPORT_SYMBOL(tdb_entry_add);
 
 void *
-tdb_lookup(TDB *db, unsigned long *key)
+tdb_lookup(TDB *db, unsigned long key)
 {
+	TdbFRec *r;
+	TdbBucket *b;
+
 	/* @db can be uninitialized, see tdb_open(). */
-	if (!db->map)
+	if (!db->hdr)
+		return NULL;
+	BUG_ON(!TDB_HTRIE_VARLENRECS(db->hdr));
+
+	b = tdb_htrie_lookup(db->hdr, key);
+	if (!b)
 		return NULL;
 
-	/* TODO */
+	TDB_HTRIE_FOREACH_REC(db->hdr, b, r)
+		if (tdb_live_fsrec(db->hdr, r))
+			return r;
+
 	return NULL;
 }
 EXPORT_SYMBOL(tdb_lookup);
@@ -126,9 +89,14 @@ static void
 tdb_open_db(struct work_struct *work)
 {
 	TdbWork *tw = (TdbWork *)work;
+	TDB *db = tw->db;
 
-	if (tdb_file_open(tw->db))
-		TDB_ERR("can't open");
+	if (tdb_file_open(db, tw->fsize))
+		TDB_ERR("Cannot open db\n");
+
+	db->hdr = tdb_htrie_init(db->hdr, db->filp->f_inode->i_size, tw->rsize);
+	if (!db->hdr)
+		TDB_ERR("Cannot initialize db header\n");
 
 	kmem_cache_free(tw_cache, tw);
 }
@@ -139,8 +107,7 @@ tdb_open_db(struct work_struct *work)
  * The function must not be called from softirq!
  */
 TDB *
-tdb_open(const char *path, unsigned int size, int index, int key_sz,
-	 int eviction)
+tdb_open(const char *path, unsigned int fsize, unsigned int rec_size)
 {
 	TDB *db;
 	TdbWork *tw;
@@ -149,16 +116,14 @@ tdb_open(const char *path, unsigned int size, int index, int key_sz,
 	if (!db)
 		return NULL;
 	strncpy(db->path, path, TDB_PATH_LEN - 1);
-	db->size = size;
-	db->index = index;
-	db->key_sz = key_sz;
-	db->eviction = eviction;
 
 	tw = kmem_cache_alloc(tw_cache, GFP_KERNEL);
 	if (!tw)
 		goto err_cache;
 	INIT_WORK(&tw->work, tdb_open_db);
 	tw->db = db;
+	tw->fsize = fsize;
+	tw->rsize = rec_size;
 
 	queue_work(tdb_wq, (struct work_struct *)tw);
 

@@ -1,5 +1,3 @@
-#		Tempesta DB
-#
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
 # Copyright (C) 2014 Tempesta Technologies Ltd.
 #
@@ -17,5 +15,24 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-obj-m	= tempesta_db.o
-tempesta_db-objs = file.o htrie.o main.o
+ifndef CC
+	CC	= gcc
+endif
+
+CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
+
+CFLAGS		= -O0 -msse4.2 -ggdb -Wall -Werror -DTDB_CL_SZ=$(CACHELINE)
+TARGETS		= tdb_htrie
+
+all : $(TARGETS)
+
+tdb_htrie : tdb_htrie.o
+	$(CC) $(CFLAGS) -o $@ $^
+
+%.o : %.cc
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean : FORCE
+	rm -f *.o *~ *.orig $(TARGETS)
+
+FORCE :

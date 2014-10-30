@@ -89,7 +89,7 @@ typedef enum {
 	TFW_HTTP_HDR_RAW,
 
 	TFW_HTTP_HDR_NUM	= 16,
-	TFW_HTTP_HDR_NUM_MAX	= 512
+	TFW_HTTP_HDR_NUM_MAX	= PAGE_SIZE / sizeof(int) / 2
 } tfw_http_hdr_t;
 
 typedef struct {
@@ -147,6 +147,8 @@ typedef struct {
 	unsigned int	keep_alive;
 	unsigned int	expires;
 } TfwHttpResp;
+
+typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */
 void tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new);
