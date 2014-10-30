@@ -1,6 +1,7 @@
 #		Tempesta DB
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2014 Tempesta Technologies Ltd.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,4 +18,4 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 obj-m	= tempesta_db.o
-tempesta_db-objs = evict_lru.o file.o main.o
+tempesta_db-objs = file.o htrie.o main.o

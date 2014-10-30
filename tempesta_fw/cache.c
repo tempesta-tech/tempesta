@@ -13,6 +13,7 @@
  * 2. Purge cache by individual entities (e.g. curl -X PURGE <URL>)
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 Tempesta Technologies Ltd.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -40,10 +41,11 @@
 #include "tempesta.h"
 #include "cache.h"
 #include "http_msg.h"
+#include "lib.h"
 
 /*
  * @trec	- Database record descriptor.
- * @key_len and @key - the cache enty key (URI + Host header)
+ * @key		- the cache enty key (URI + Host header)
  * @hdr_lens	- array of size @hdr_num with all HTTP header lengths
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs)
  * @body	- pointer to response body (with a prepending CRLF)
@@ -55,21 +57,19 @@
  * on database writing.
  */
 typedef struct {
-	TdbRecord	trec;
-	/* trec.data_len begins from the below. */
-	unsigned int	key_len;
+	TdbVRec		trec;
+	/* TDB record body begins from the below. */
 	unsigned int	hdr_num;
+	unsigned int	key_len;
 	unsigned long	body_len;
 	/* db direct write bound */
-	unsigned char	*key;
+	char	*key;
 	unsigned int	*hdr_lens;
-	unsigned char	*hdrs;
-	unsigned char	*body;
+	char		*hdrs;
+	char		*body;
 	/* db conversion bound */
 	TfwHttpResp	*resp;
 } TfwCacheEntry;
-
-#define CKEY_SZ			2
 
 /* Work to copy response body to database. */
 typedef struct tfw_cache_work_t {
@@ -80,7 +80,7 @@ typedef struct tfw_cache_work_t {
 			TfwHttpReq		*req;
 			tfw_http_req_cache_cb_t	action;
 			void			*data;
-			unsigned long		key[CKEY_SZ];
+			unsigned long		key;
 		} _r;
 	} _u;
 #define cw_ce	_u.ce
@@ -98,13 +98,14 @@ static struct kmem_cache *c_cache;
 /**
  * Calculates search key for the request URI and Host header.
  */
-static void
-tfw_cache_key_calc(TfwHttpReq *req, unsigned long *key)
+static unsigned long
+tfw_cache_key_calc(TfwHttpReq *req)
 {
-	/*
-	 * TODO: do we need so long key?
-	 * Aren't 64bit single long not enough?
-	 */
+	unsigned long key = 0;
+
+	/* TODO use hash_tfw_str() & tfw_hash_calc(data, len) */
+
+	return key;
 }
 
 /**
@@ -113,12 +114,6 @@ tfw_cache_key_calc(TfwHttpReq *req, unsigned long *key)
 static int
 tfw_cache_entry_key_copy(TfwCacheEntry *ce, TfwHttpReq *req)
 {
-	/*
-	 * TODO
-	 * We do not need the field in TfwCacheEntry if we use index
-	 * like patricia tree. Postpone the code until index is ready.
-	 */
-
 	return 0;
 }
 
@@ -126,7 +121,7 @@ tfw_cache_entry_key_copy(TfwCacheEntry *ce, TfwHttpReq *req)
  * Get NUMA node by the cache key.
  */
 static int
-tfw_cache_key_node(unsigned long *key)
+tfw_cache_key_node(unsigned long key)
 {
 	/* TODO distribute keys among NUMA nodes. */
 	return numa_node_id();
@@ -143,45 +138,64 @@ tfw_cache_sched_work_cpu(int node)
 }
 
 /**
- * Copies plain TfwStr to TdbRecord.
+ * Copies plain TfwStr to TdbRec.
  * @return number of copied bytes (@src length).
+ *
+ * The function copies part of some large data of length @tot_len,
+ * so it tries to minimizae total number of allocations regardles
+ * how many chunks are copied.
  */
-static unsigned int
-tfw_cache_copy_str(TdbRecord **trec, TfwStr *src)
+static long
+tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
-	unsigned int copied = 0;
+	long copied = 0;
 
 	BUG_ON(src->flags & (TFW_STR_COMPOUND | TFW_STR_COMPOUND2));
 
 	while (copied < src->len) {
-		size_t n = TDB_REC_ROOM(*trec)
-			   ? min(TDB_REC_ROOM(*trec),
-				 (size_t)(src->len - copied))
-			   : min(TDB_REC_DMAXSZ(*trec),
-				 (size_t)(src->len - copied));
-		char *dst = tdb_entry_add(db, trec, n);
-		memcpy(dst, (char *)src->ptr + copied, n);
-		copied += n;
+		int room = (char *)(*trec + 1) + (*trec)->len - *p;
+		BUG_ON(room < 0);
+		if (!room) {
+			BUG_ON(tot_len < copied);
+			*trec = tdb_entry_add(db, *trec, tot_len - copied);
+			if (!*trec)
+				return -ENOMEM;
+			*p = (char *)(*trec + 1);
+			room = (*trec)->len;
+		}
+		room = min((long)room, src->len - copied);
+		memcpy(p, (char *)src->ptr + copied, room);
+		*p += room;
+		copied += room;
 	}
 
 	return copied;
 }
 
 /**
- * Copies TfwStr (probably compound) to TdbRecord.
+ * Copies TfwStr (probably compound) to TdbRec.
  * @return number of copied bytes (@src overall length).
  */
-static unsigned int
-tfw_cache_copy_str_compound(TdbRecord **trec, TfwStr *src)
+static long
+tfw_cache_copy_str_compound(char **p, TdbVRec **trec, TfwStr *src,
+			    size_t tot_len)
 {
 	int i;
-	unsigned int copied = 0;
+	long copied = 0;
+
+	BUG_ON(!tot_len);
 
 	if (!(src->flags & TFW_STR_COMPOUND))
-		return tfw_cache_copy_str(trec, src);
+		return tfw_cache_copy_str(p, trec, src, tot_len);
 
-	for (i = 0; i < src->len; ++i)
-		copied += tfw_cache_copy_str(trec, (TfwStr *)src->ptr + i);
+	for (i = 0; i < src->len; ++i) {
+		long n = tfw_cache_copy_str(p, trec, (TfwStr *)src->ptr + i,
+					    tot_len - copied);
+		if (n < 0)
+			return n;
+		copied += n;
+		BUG_ON(tot_len < copied);
+	}
 
 	return copied;
 }
@@ -196,39 +210,69 @@ static void
 tfw_cache_copy_resp(struct work_struct *work)
 {
 	int i;
-	int *p_hlen;
-	TdbRecord *trec;
+	size_t hlens, tot_len;
+	long n;
+	char *p;
 	TfwCWork *cw = (TfwCWork *)work;
 	TfwCacheEntry *ce = cw->cw_ce;
+	TdbVRec *trec;
 	TfwHttpHdrTbl *htbl;
+	TfwHttpHdr *hdr;
 
 	BUG_ON(!ce->resp);
-
-	/* Get current write position. */
-	for (trec = (TdbRecord *)ce; !TDB_REC_ISLAST(trec);
-	     trec = TDB_REC_DNEXT(trec))
-		;
 
 	/* Write HTTP headers. */
 	htbl = ce->resp->h_tbl;
 	ce->hdr_num = htbl->size;
+
+	hlens = sizeof(ce->hdr_lens[0]) * ce->hdr_num;
+	tot_len = hlens + ce->resp->msg.len;
+
 	/*
-	 * Header length array are always allocated in single page due to
-	 * headers number limitation.
+	 * Try to place the cached response in single memory chunk.
+	 *
+	 * Number of HTTP headers is limited by TFW_HTTP_HDR_NUM_MAX while TDB
+	 * should be able to allocate an empty page if we issued a large
+	 * request. So HTTP header lengths must fit the first allocated data
+	 * chunk, also there must be some space for headers and message bodies.
 	 */
-	p_hlen = tdb_entry_add(db, &trec, sizeof(ce->hdr_lens[0])
-					  * ce->hdr_num);
-	/* Set start of headers pointer just after array of header length. */
-	ce->hdrs = tdb_get_next_data_ptr(db, &trec);
-	for (i = 0; i < ce->hdr_num; ++i) {
-		TfwStr *hdr = &htbl->tbl[i].field;
-		p_hlen[i] = tfw_cache_copy_str_compound(&trec, hdr);
+	trec = tdb_entry_add(db, (TdbVRec *)ce, tot_len);
+	if (!trec || trec->len <= hlens) {
+		TFW_WARN("Cannot allocate memory to cache HTTP headers."
+			 " Probably TDB cache is exhausted.\n");
+		goto err;
+	}
+	p = (char *)(trec + 1) + hlens;
+	tot_len -= hlens;
+
+	/*
+	 * Set start of headers pointer just after array of
+	 * header length.
+	 */
+	ce->hdrs = p;
+	hdr = htbl->tbl;
+	for (i = 0; i < hlens / sizeof(ce->hdr_lens[0]); ++i, ++hdr) {
+		n = tfw_cache_copy_str_compound(&p, &trec, &hdr->field,
+						tot_len);
+		if (n < 0) {
+			TFW_ERR("Cache: cannot copy HTTP header\n");
+			goto err;
+		}
+		BUG_ON(n > tot_len);
+		tot_len -= n;
 	}
 
 	/* Write HTTP response body. */
-	ce->body = tdb_get_next_data_ptr(db, &trec);
-	ce->body_len += tfw_cache_copy_str_compound(&trec, &ce->resp->body);
+	ce->body = p;
+	n = tfw_cache_copy_str_compound(&p, &trec, &ce->resp->body, tot_len);
+	if (n < 0) {
+		TFW_ERR("Cache: cannot copy HTTP body\n");
+		goto err;
+	}
+	ce->body_len = n;
 
+err:
+	/* FIXME all allocated TDB blocks are leaked here. */
 	kmem_cache_free(c_cache, cw);
 }
 
@@ -236,15 +280,19 @@ void
 tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	TfwCWork *cw;
-	TfwCacheEntry *ce;
-	unsigned long key[CKEY_SZ];
+	TfwCacheEntry *ce, cdata = {{}};
+	unsigned long key;
+	size_t len = sizeof(cdata);
 
 	if (!tfw_cfg.cache)
 		goto out;
 
-	tfw_cache_key_calc(req, key);
+	key = tfw_cache_key_calc(req);
 
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, sizeof(*ce), TDB_F_LARGE);
+	/* TODO copy at least first part of URI here. */
+
+	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata, &len);
+	BUG_ON(len != sizeof(cdata));
 	if (!ce)
 		goto out;
 
@@ -287,8 +335,8 @@ static int
 tfw_cache_build_resp(TfwCacheEntry *ce)
 {
 	int f;
-	TdbRecord *trec;
-	unsigned char *data;
+	TdbVRec *trec = &ce->trec;
+	char *data;
 	struct sk_buff *skb = NULL;
 
 	/*
@@ -300,10 +348,22 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	if (!ce->resp)
 		return -ENOMEM;
 
-	trec = TDB_REC_FROM_PTR(ce->hdrs);
-	data = ce->hdrs;
-	while (1) {
-		int off, size = trec->d_len;
+	/* Deserialize offsets to pointers. */
+	ce->key = TDB_PTR(db->hdr, (unsigned long)ce->key);
+	ce->hdr_lens = TDB_PTR(db->hdr, (unsigned long)ce->hdr_lens);
+	ce->hdrs = TDB_PTR(db->hdr, (unsigned long)ce->hdrs);
+	ce->body = TDB_PTR(db->hdr, (unsigned long)ce->body);
+
+	/* See tfw_cache_copy_resp(). */
+	BUG_ON((char *)(trec + 1) + trec->len <= ce->hdrs);
+
+	trec = TDB_PTR(db->hdr, TDB_DI2O(trec->chunk_next));
+	for (data = ce->hdrs;
+	     (long)trec != (long)db->hdr;
+	     trec = TDB_PTR(db->hdr, TDB_DI2O(trec->chunk_next)),
+		data = trec->data)
+	{
+		int off, size = trec->len;
 
 		if (!skb || f == MAX_SKB_FRAGS) {
 			/* Protocol headers are placed in linear data only. */
@@ -316,14 +376,10 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 		}
 
 		off = (unsigned long)data & ~PAGE_MASK;
-		size -= off - sizeof(*trec);
+		size = (char *)(trec + 1) + trec->len - data;
 
 		skb_fill_page_desc(skb, f, virt_to_page(data), off, size);
 
-		if (TDB_REC_ISLAST(trec))
-			break;
-		trec = TDB_REC_DNEXT(trec);
-		data = trec->data;
 		++f;
 	}
 
@@ -334,7 +390,7 @@ err_skb:
 }
 
 static void
-__cache_req_process_node(TfwHttpReq *req, unsigned long *key,
+__cache_req_process_node(TfwHttpReq *req, unsigned long key,
 			 void (*action)(TfwHttpReq *, TfwHttpResp *, void *),
 			 void *data)
 {
@@ -344,6 +400,8 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long *key,
 	ce = tdb_lookup(db, key);
 	if (!ce)
 		goto finish_req_processing;
+
+	/* TODO process collisions. */
 
 	if (!ce->resp)
 		if (tfw_cache_build_resp(ce))
@@ -370,9 +428,8 @@ tfw_cache_req_process_node(struct work_struct *work)
 	TfwHttpReq *req = cw->cw_req;
 	tfw_http_req_cache_cb_t action = cw->cw_act;
 	void *data = cw->cw_data;
-	unsigned long *key = cw->cw_key;
 
-	__cache_req_process_node(req, key, action, data);
+	__cache_req_process_node(req, cw->cw_key, action, data);
 }
 
 void
@@ -380,12 +437,12 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		      void *data)
 {
 	int node;
-	unsigned long key[CKEY_SZ];
+	unsigned long key;
 
 	if (!tfw_cfg.cache)
 		return;
 
-	tfw_cache_key_calc(req, key);
+	key = tfw_cache_key_calc(req);
 
 	node = tfw_cache_key_node(key);
 	if (node != numa_node_id()) {
@@ -397,7 +454,7 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		cw->cw_req = req;
 		cw->cw_act = action;
 		cw->cw_data = data;
-		memcpy(cw->cw_key, key, sizeof(key));
+		cw->cw_key = key;
 		queue_work_on(tfw_cache_sched_work_cpu(node), cache_wq,
 			      (struct work_struct *)cw);
 	}
@@ -439,8 +496,7 @@ tfw_cache_init(void)
 	if (!tfw_cfg.cache)
 		return 0;
 
-	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size,
-		      TDB_IDX_TREE, CKEY_SZ, TDB_EVC_LRU);
+	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0);
 	if (!db)
 		return 1;
 
