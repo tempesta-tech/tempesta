@@ -2,6 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 Tempesta Technologies Ltd.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,9 +23,7 @@
 
 #include "tdb.h"
 
-void *tdb_file_alloc_data_page(TDB *db);
-
-int tdb_file_open(TDB *db);
+int tdb_file_open(TDB *db, unsigned long size);
 void tdb_file_close(TDB *db);
 
 #endif /* __FILE_H__ */
