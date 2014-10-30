@@ -33,6 +33,7 @@ typedef void (*tfw_msg_destructor_t)(TfwMsg *msg);
 
 typedef struct tfw_msg {
 	struct tfw_msg	*prev;		/* sibling messages */
+	size_t		len;		/* total body length */
 	TfwGState	state;		/* message processing state. */
 	SsSkbList	skb_list;	/* list of sk_buff's belonging
 					   to the message. */

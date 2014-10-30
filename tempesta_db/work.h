@@ -30,6 +30,8 @@
 typedef struct tdb_work_t {
 	struct work_struct	work;
 	TDB			*db;
+	unsigned long		fsize;
+	unsigned int		rsize;
 } TdbWork;
 
 #endif /* __WORK_H__ */

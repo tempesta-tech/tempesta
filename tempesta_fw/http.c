@@ -619,6 +619,25 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	return 0;
 }
 
+static void
+tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
+{
+	TfwSession *sess = data;
+
+	if (resp) {
+		/*
+		 * We have prepared response, send it as is.
+		 * TODO should we adjust it somehow?
+		 */
+		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+	} else {
+		if (tfw_http_adjust_req(req))
+			return;
+		/* Send the request to appropriate server. */
+		tfw_connection_send_srv(sess, (TfwMsg *)req);
+	}
+}
+
 /**
  * @return number of processed bytes on success and negative value otherwise.
  */
@@ -638,12 +657,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
-		TfwHttpResp *resp;
+		int msg_off = req->parser.data_off;
 
 		r = tfw_http_parse_req(req, data, len);
 
-		TFW_DBG("request parsed: len=%lu parsed=%d res=%d\n",
-			len, req->parser.data_off, r);
+		req->msg.len += req->parser.data_off - msg_off;
+
+		TFW_DBG("request parsed: len=%lu parsed=%d msg_len=%lu res=%d\n",
+			len, req->parser.data_off, req->msg.len, r);
 
 		switch (r) {
 		default:
@@ -675,22 +696,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		/* The request is fully parsed, process it. */
 
-		resp = tfw_cache_lookup(req);
-		if (resp) {
-			/*
-			 * We have prepared response, send it as is.
-			 * TODO should we adjust it somehow?
-			 */
-			tfw_connection_send_cli(sess, (TfwMsg *)resp);
-		} else {
-			if (tfw_http_adjust_req(req))
-				goto block;
-
-			/* Send the request to appropriate server. */
-			if (tfw_connection_send_srv(sess, (TfwMsg *)req)) {
-				goto block;
-			}
-		}
+		tfw_cache_req_process(req, tfw_http_req_cache_cb, sess);
 
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
@@ -727,6 +733,8 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		len, (int)len, data, conn);
 
 	r = tfw_http_parse_resp(resp, data, len);
+
+	resp->msg.len += resp->parser.data_off;
 
 	TFW_DBG("response parsed: len=%lu parsed=%d res=%d\n",
 		len, resp->parser.data_off, r);
@@ -773,14 +781,17 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 			TFW_WARN("Response w/o request\n");
 			goto block;
 		}
+
 		req = list_first_entry(&sess->req_list, TfwHttpReq, msg.pl_list);
 		list_del(&req->msg.pl_list);
-		tfw_cache_add(resp, req);
 
-		/* Now we don't need the request anymore. */
-		tfw_http_msg_free((TfwHttpMsg *)req);
-
+		/*
+		 * Send the response to client before caching it.
+		 * The cache frees the response.
+		 */
 		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+
+		tfw_cache_add(resp, req);
 	}
 	else if (r == TFW_BLOCK) {
 		tfw_pool_free(resp->pool);
@@ -805,7 +816,6 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
 		? tfw_http_req_process(c, data, len)
 		: tfw_http_resp_process(c, data, len);
 }
-
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,

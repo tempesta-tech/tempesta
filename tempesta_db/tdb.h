@@ -4,6 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 Tempesta Technologies Ltd.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,76 +28,104 @@
 #define TDB_FNAME	"data"
 #define TDB_PATH_LEN	128
 
-/* Eviction stratagies. */
-#define TDB_EVC_LRU	1
-
-/* Index types. */
-#define TDB_IDX_SEQLOG	0 /* no index */
-#define TDB_IDX_TREE	1
-
-/*
- * Database record header/descriptor.
- * This is header of PAGE_SIZE memory segment.
+/**
+ * Tempesta DB file descriptor.
  *
- * @coll_next	- next record offset (in pages) in collision chain
- * 		  (can be negative)
- * 		  (TODO: Index???: do we need this?)
- * @chunk_next	- offset of next data chunk (also with TdbRecord as header)
- * @d_len	- data length of current chunk
+ * We store independent records in at least cache line size data blocks
+ * to avoid false sharing.
+ *
+ * @dbsz	- the database size in bytes;
+ * @rec_len	- fixed-size records length or zero for variable-length records;
+ * @i_wcl	- index block next to write (byte offset);
+ * @d_wcl	- data block next to write (byte offset);
+ * @ext_bmp	- bitmap of used/free extents.
+ * 		  Must be small and cache line aligned;
+ * @i_wm, @d_wm	- watermarks (in extents) for index and data correspondingly.
+ * 		  The watermarks grow towards each other and their meeting
+ * 		  signals that the data file is full;
  */
 typedef struct {
-	int		coll_next;
-	int		chunk_next;
-	unsigned int	flags;
-	unsigned int	d_len;
-	char		data[0];
-} __attribute__((packed)) TdbRecord;
-
-/*
- * Data size is always not more than PAGE_SIZE - sizeof(TdbRecord).
- * TdbRecord is always placed at begin of a page.
- */
-#define TDB_REC_FROM_PTR(p)	((TdbRecord *)((unsigned long)(p) & PAGE_MASK))
-#define TDB_REC_DTAIL(p)	((p)->data + (p)->d_len)
-#define TDB_REC_DNEXT(r)	((TdbRecord *)((char *)(r)		\
-					       + (r)->chunk_next * PAGE_SIZE))
-#define TDB_REC_ISLAST(r)	(!(r)->chunk_next)
-#define TDB_REC_DMAXSZ		((size_t)(PAGE_SIZE - sizeof(TdbRecord)))
-#define TDB_REC_ROOM(r)		(TDB_REC_DMAXSZ - (r)->d_len)
+	unsigned long	magic;
+	unsigned long	dbsz;
+	unsigned long	i_wcl;
+	unsigned long	d_wcl;
+	unsigned int	rec_len;
+	unsigned short	i_wm;
+	unsigned short	d_wm;
+	unsigned char	_padding[8 * 3];
+	unsigned long	ext_bmp[0];
+} __attribute__((packed)) TdbHdr;
 
 /* Database handle descriptor. */
 typedef struct {
+	TdbHdr		*hdr;
 	struct file	*filp;	/* mmap'ed file */
-	unsigned long	map;	/* mmap address, setted only when the hadler
-				   is fully initialized */
-	unsigned int	size;	/* whole data size */
-	int		index;	/* index type */
-	int		key_sz;	/* key size */
-	int		eviction; /* eviction stratagy */
 	char		path[TDB_PATH_LEN /* path to mmaped file */
 			     + sizeof(TDB_FNAME)];
 } TDB;
 
-#define TDB_REC_OFFSET(db, r)	(((unsigned long)(r) - (db)->map) / PAGE_SIZE)
+/**
+ * Fixed-size (and typically small) records.
+ */
+typedef struct {
+	unsigned long	key; /* must be the first */
+	char		data[0];
+} __attribute__((packed)) TdbFRec;
 
-#define TDB_BANNER	"[tdb] "
-#define TDB_ERR(...)	pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
+/**
+ * Variable-size (typically large) record.
+ *
+ * @chunk_next	- offset of next data chunk (also with TdbRec as header)
+ * @len		- data length of current chunk
+ */
+typedef struct {
+	unsigned long	key; /* must be the first */
+	unsigned int	chunk_next;
+	unsigned int	len;
+	char		data[0];
+} __attribute__((packed)) TdbVRec;
 
-TdbRecord *tdb_entry_create(TDB *db, unsigned long *key, size_t elen);
-void *tdb_entry_add(TDB *db, TdbRecord **r, size_t size);
-void *tdb_lookup(TDB *db, unsigned long *key);
+/* Common interface for database records of all kinds. */
+typedef TdbFRec TdbRec;
 
-static inline void *
-tdb_get_next_data_ptr(TDB *db, TdbRecord **trec)
-{
-	return TDB_REC_ROOM(*trec)
-	       ? TDB_REC_DTAIL(*trec)
-	       : tdb_entry_add(db, trec, 0);
-}
+/**
+ * We use very small index nodes size of only one cache line.
+ * So overall memory footprint of the index is mininal by a cost of more LLC
+ * or main memory transfers. However, smaller memory usage means better TLB
+ * utilization on huge worksets.
+ */
+#define TDB_HTRIE_NODE_SZ	L1_CACHE_BYTES
+/*
+ * There is no sense to allocate a new resolving node for each new small
+ * (less than cache line size) data record. So we place small records in
+ * 2 cache lines in sequential order and burst the node only when there
+ * is no room.
+ */
+#define TDB_HTRIE_MINDREC	(L1_CACHE_BYTES * 2)
+
+/* Convert internal offsets to system pointer. */
+#define TDB_PTR(h, o)		(void *)((char *)(h) + (o))
+/* Get index and data block indexes by byte offset and vise versa. */
+#define TDB_O2DI(o)		((o) / TDB_HTRIE_MINDREC)
+#define TDB_O2II(o)		((o) / TDB_HTRIE_NODE_SZ)
+#define TDB_DI2O(i)		((i) * TDB_HTRIE_MINDREC)
+#define TDB_II2O(i)		((i) * TDB_HTRIE_NODE_SZ)
+
+#define TDB_BANNER		"[tdb] "
+
+#ifdef DEBUG
+#define TDB_DBG(...)		pr_debug(TDB_BANNER "  " __VA_ARGS__)
+#else
+#define TDB_DBG(...)
+#endif
+#define TDB_ERR(...)		pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
+
+TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
+TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
+void *tdb_lookup(TDB *db, unsigned long key);
 
 /* Open/close database handler. */
-TDB *tdb_open(const char *path, unsigned int size, int index, int key_sz,
-	      int eviction);
+TDB *tdb_open(const char *path, unsigned int fsize, unsigned int rec_size);
 void tdb_close(TDB *db);
 
 #endif /* __TDB_H__ */
