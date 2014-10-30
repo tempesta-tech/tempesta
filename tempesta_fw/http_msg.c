@@ -37,6 +37,7 @@ tfw_http_msg_alloc(int type)
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 	hm->msg.prev = NULL;
+	hm->msg.len = 0;
 
 	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
 	hm->h_tbl->size = __HHTBL_SZ(1);

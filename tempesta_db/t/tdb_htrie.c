@@ -8,6 +8,7 @@
  * TODO
  * - consistensy checking and recovery
  * - garbage collection
+ * - eviction
  * - reduce number of memset(.., 0, ..) calls
  * - freeing interface for eviction thread
  * - unit test for concurrency
@@ -859,6 +860,8 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 
 /**
  * Add more data to @rec.
+ *
+ * TODO update semantic to return TdbVRec *.
  */
 void *
 tdb_htrie_extend_rec(TdbHdr *dbh, TdbRec *rec, size_t *size)
