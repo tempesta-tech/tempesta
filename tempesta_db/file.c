@@ -2,6 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 Tempesta Technologies Ltd.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,21 +24,17 @@
 
 #include "file.h"
 
-void *
-tdb_file_alloc_data_page(TDB *db)
-{
-	/* TODO */
-	return NULL;
-}
-
 /**
  * Open, mmap and mlock the specified file to be able to read and
  * write to it in softirqs.
  *
  * The function must not be called from softirq!
+ *
+ * FIXME database header must be extent aligned, so mmap must map file by
+ * aligned address.
  */
 int
-tdb_file_open(TDB *db)
+tdb_file_open(TDB *db, unsigned long size)
 {
 	unsigned long addr, populate;
 	struct mm_struct *mm = current->mm;
@@ -58,7 +55,7 @@ tdb_file_open(TDB *db)
 	if (filp->f_op->fallocate) {
 		struct inode *inode = file_inode(filp);
 		sb_start_write(inode->i_sb);
-		filp->f_op->fallocate(filp, 0, 0, db->size);
+		filp->f_op->fallocate(filp, 0, 0, size);
 		sb_end_write(inode->i_sb);
 	}
 
@@ -68,7 +65,7 @@ tdb_file_open(TDB *db)
 	 * mmap() and mlock() the file to make it accessible from softirq.
 	 * Use MAP_SHARED to synchronize the mapping with underlying file.
 	 */
-	addr = do_mmap_pgoff(filp, 0, db->size, PROT_READ|PROT_WRITE,
+	addr = do_mmap_pgoff(filp, 0, size, PROT_READ|PROT_WRITE,
 			     MAP_SHARED|MAP_POPULATE|MAP_LOCKED, 0, &populate);
 
 	up_write(&init_mm.mmap_sem);
@@ -81,7 +78,7 @@ tdb_file_open(TDB *db)
 		mm_populate(addr, populate);
 
 	db->filp = filp;
-	db->map = addr;
+	db->hdr = (TdbHdr *)addr;
 
 	return 0;
 }
@@ -89,12 +86,15 @@ tdb_file_open(TDB *db)
 void
 tdb_file_close(TDB *db)
 {
-	vm_munmap(db->map, db->size);
+	if (!db->hdr)
+		return;
+
+	vm_munmap((unsigned long)db->hdr, db->hdr->dbsz);
 
 	filp_close(db->filp, NULL);
 
 	db->filp = NULL;
-	db->map = 0;
+	db->hdr = NULL;
 }
 
 

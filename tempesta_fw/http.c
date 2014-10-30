@@ -657,11 +657,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
+		int msg_off = req->parser.data_off;
 
 		r = tfw_http_parse_req(req, data, len);
 
-		TFW_DBG("request parsed: len=%lu parsed=%d res=%d\n",
-			len, req->parser.data_off, r);
+		req->msg.len += req->parser.data_off - msg_off;
+
+		TFW_DBG("request parsed: len=%lu parsed=%d msg_len=%lu res=%d\n",
+			len, req->parser.data_off, req->msg.len, r);
 
 		switch (r) {
 		default:
@@ -731,6 +734,8 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		len, (int)len, data, conn);
 
 	r = tfw_http_parse_resp(resp, data, len);
+
+	resp->msg.len += resp->parser.data_off;
 
 	TFW_DBG("response parsed: len=%lu parsed=%d res=%d\n",
 		len, resp->parser.data_off, r);
@@ -811,7 +816,6 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
 		? tfw_http_req_process(c, data, len)
 		: tfw_http_resp_process(c, data, len);
 }
-
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,

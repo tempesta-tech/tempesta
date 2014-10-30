@@ -52,4 +52,6 @@ TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 int tfw_inet_ntop(void *addr, char *buf);
 bool tfw_addr_eq(const void *addr1, const void *addr2);
 
+unsigned long tfw_hash_calc(const char *data, size_t len);
+
 #endif /* __TFW_LIB_H__ */
