@@ -160,7 +160,6 @@ int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
 int tfw_http_init(void);
 void tfw_http_exit(void);
 
-const char *tfw_http_hdr_name(tfw_http_hdr_t id);
-const int tfw_http_hdr_name_len(tfw_http_hdr_t id);
+unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_H__ */

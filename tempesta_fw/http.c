@@ -840,3 +840,17 @@ tfw_http_exit(void)
 {
 }
 
+/**
+ * Calculate key of a HTTP request by hashing its URI and Host header.
+ *
+ * Requests with the same URI and Host are mapped to the same key with
+ * high probability. Different keys may be calculated for the same Host and URI
+ * when they consist of many chunks.
+ */
+unsigned long
+tfw_http_req_key_calc(const TfwHttpReq *req)
+{
+	return (tfw_str_hash(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
+	        tfw_str_hash(&req->uri));
+}
+EXPORT_SYMBOL(tfw_http_req_key_calc);
