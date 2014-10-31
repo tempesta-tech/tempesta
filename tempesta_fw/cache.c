@@ -101,11 +101,7 @@ static struct kmem_cache *c_cache;
 static unsigned long
 tfw_cache_key_calc(TfwHttpReq *req)
 {
-	unsigned long key = 0;
-
-	/* TODO use hash_tfw_str() & tfw_hash_calc(data, len) */
-
-	return key;
+	return tfw_http_req_key_calc(req);
 }
 
 /**

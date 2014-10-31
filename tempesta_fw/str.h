@@ -75,4 +75,7 @@ bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
                    const char *val, int val_len, tfw_str_eq_flags_t flags);
 
+
+unsigned long tfw_str_hash(const TfwStr *str);
+
 #endif /* __TFW_STR_H__ */
