@@ -1,10 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Common helpers.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,14 +19,14 @@
  */
 
 #include <linux/kernel.h>
+#include "hash.h"
 
-/**
- * Good and fast hash function.
- *
- * BEWARE: your CPU must support SSE 4.2.
- */
-#define CRC32_SSE42(a, b)	asm volatile("crc32q %2, %0"		\
-					     : "=r"(a) : "0"(a), "r"(b))
+#define CRCQ(crc, data64) \
+	asm volatile("crc32q %2, %0" : "=r"(crc) : "0"(crc), "r"(data64))
+
+#define CRCB(crc, data8) \
+	asm volatile("crc32b %2, %0" : "=r"(crc) : "0"(crc), "r"(data8))
+
 
 unsigned long
 tfw_hash_calc(const char *data, size_t len)
@@ -41,13 +38,13 @@ tfw_hash_calc(const char *data, size_t len)
 	size_t n = (len / MUL) & ~1UL;
 
 	for (i = 0; i < n; i += 2) {
-		CRC32_SSE42(crc0, d[i]);
-		CRC32_SSE42(crc1, d[i + 1]);
+		CRCQ(crc0, d[i]);
+		CRCQ(crc1, d[i + 1]);
 	}
 
 	n *= MUL;
 	if (n + MUL <= len) {
-		CRC32_SSE42(crc0, d[n]);
+		CRCQ(crc0, d[n / MUL]);
 		n += MUL;
 	}
 
@@ -85,3 +82,53 @@ tfw_hash_calc(const char *data, size_t len)
 	return h;
 #undef MUL
 }
+
+unsigned long
+tfw_hash_str(const TfwStr *str)
+{
+#define MUL sizeof(long)
+	const TfwStr *chunk;
+	const char *pos;
+	const char *body_end;
+	const char *head_end;
+	const char *tail_end;
+	register unsigned long crc0 = 0xAAAAAAAA;
+	register unsigned long crc1 = 0x55555555;
+	unsigned int len;
+
+	TFW_STR_FOR_EACH_CHUNK(chunk, str) {
+		len = chunk->len;
+		pos = chunk->ptr;
+
+		tail_end = pos + len;
+		head_end = PTR_ALIGN(pos, MUL);
+		body_end = PTR_ALIGN(tail_end, MUL) - MUL;
+
+		if (unlikely(len < MUL)) {
+			goto tail;
+		}
+
+		while (pos != head_end) {
+			CRCB(crc0, *pos);
+			CRCB(crc1, *pos);
+			++pos;
+		}
+
+		while (pos != body_end) {
+			CRCQ(crc0, *((unsigned long *)pos));
+			CRCQ(crc1, *((unsigned long *)pos));
+			pos += MUL;
+		}
+tail:
+		while (pos != tail_end) {
+			CRCB(crc0, *pos);
+			CRCB(crc1, *pos);
+			++pos;
+		}
+	}
+
+	return (crc1 << 32) | crc0;
+#undef MUL
+}
+EXPORT_SYMBOL(tfw_hash_str);
+
