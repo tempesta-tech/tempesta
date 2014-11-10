@@ -850,7 +850,7 @@ tfw_http_exit(void)
 unsigned long
 tfw_http_req_key_calc(const TfwHttpReq *req)
 {
-	return (tfw_str_hash(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
-	        tfw_str_hash(&req->uri));
+	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
+	        tfw_hash_str(&req->uri));
 }
 EXPORT_SYMBOL(tfw_http_req_key_calc);

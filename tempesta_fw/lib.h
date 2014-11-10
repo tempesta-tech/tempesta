@@ -37,6 +37,4 @@
 #define STRINGIFY(x) _STRINGIFY(x)
 #endif
 
-unsigned long tfw_hash_calc(const char *data, size_t len);
-
 #endif /* __TFW_LIB_H__ */

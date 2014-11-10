@@ -21,7 +21,6 @@
 #include <linux/kernel.h>
 #include <linux/ctype.h>
 
-#include "lib.h"
 #include "str.h"
 
 #ifndef DEBUG
@@ -315,16 +314,3 @@ state_val:
 }
 EXPORT_SYMBOL(tfw_str_eq_kv);
 
-
-unsigned long tfw_str_hash(const TfwStr *str)
-{
-	const TfwStr *chunk;
-	unsigned long hash = 0;
-
-	TFW_STR_FOR_EACH_CHUNK(chunk, str) {
-		hash ^= tfw_hash_calc(chunk->ptr, chunk->len);
-	}
-
-	return hash;
-}
-EXPORT_SYMBOL(tfw_str_hash);
