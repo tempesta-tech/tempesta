@@ -17,60 +17,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#ifndef __TFW_HASH_H__
+#define __TFW_HASH_H__
 
-#include <linux/module.h>
-#include "test.h"
+#include "str.h"
 
-int test_fail_counter;
-test_fixture_fn_t test_setup_fn;
-test_fixture_fn_t test_teardown_fn;
+unsigned long tfw_hash_calc(const char *data, size_t len);
+unsigned long tfw_hash_str(const TfwStr *str);
 
-void
-test_register_failure(void)
-{
-	++test_fail_counter;
-}
-
-void
-test_set_setup_fn(test_fixture_fn_t fn)
-{
-	BUG_ON(fn && test_setup_fn);
-	test_setup_fn = fn;
-}
-
-void
-test_set_teardown_fn(test_fixture_fn_t fn)
-{
-	BUG_ON(fn && test_teardown_fn);
-	test_teardown_fn = fn;
-}
-
-void
-test_call_setup_fn(void)
-{
-	if (test_setup_fn)
-		test_setup_fn();
-}
-
-void
-test_call_teardown_fn(void)
-{
-	if (test_teardown_fn)
-		test_teardown_fn();
-}
-
-TEST_SUITE(tfw_str);
-TEST_SUITE(http_match);
-TEST_SUITE(hash);
-
-int
-test_run_all(void)
-{
-	test_fail_counter = 0;
-
-	TEST_SUITE_RUN(tfw_str);
-	TEST_SUITE_RUN(http_match);
-	TEST_SUITE_RUN(hash);
-
-	return test_fail_counter;
-}
+#endif /* __TFW_HASH_H__ */
