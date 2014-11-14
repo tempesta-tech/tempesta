@@ -69,13 +69,59 @@ find_srv_idx(TfwServer *srv)
 	return -1;
 }
 
+static unsigned long
+substitute(unsigned long num, unsigned long val1, unsigned long val2)
+{
+	return (num == val1) ? val2 : ((num == val2) ? val1 : num);
+}
+
+/* TODO: replace the hash function. */
+static unsigned long
+hash_djb2(const char *s, int len, unsigned long hash)
+{
+	int i;
+	unsigned char c;
+
+	hash = substitute(hash, 0, 5381);
+
+	for (i = 0; i < len; ++i) {
+		c = s[i];
+		hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+	}
+
+	hash = substitute(hash, 0, 5381);
+
+	return hash;
+}
+
+static unsigned long
+hash_tfw_str(TfwStr *str, unsigned long hash)
+{
+	/* TODO: use TFW_STR_FOR_EACH_CHUNK from sched/http. */
+	if (str->flags & TFW_STR_COMPOUND) {
+		TfwStr *chunk;
+		int cnum;
+		for (cnum = 0; cnum < str->len; ++cnum) {
+			chunk = (TfwStr *)str->ptr + cnum;
+			hash = hash_djb2(chunk->ptr, chunk->len, hash);
+		}
+	} else {
+		hash = hash_djb2(str->ptr, str->len, hash);
+	}
+
+	return hash;
+}
+
 static TfwServer *
 tfw_sched_hash_get_srv(TfwMsg *msg)
 {
 	TfwServer *srv;
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	unsigned long hash = 0;
 	int n;
 
-	unsigned long hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	hash = hash_tfw_str(&req->uri, hash);
+	hash = hash_tfw_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field, hash);
 
 	do {
 		n = servers_n;
