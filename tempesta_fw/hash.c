@@ -27,62 +27,6 @@
 #define CRCB(crc, data8) \
 	asm volatile("crc32b %2, %0" : "=r"(crc) : "0"(crc), "r"(data8))
 
-
-unsigned long
-tfw_hash_calc(const char *data, size_t len)
-{
-#define MUL	sizeof(long)
-	int i;
-	register unsigned long crc0 = 0, crc1 = 0;
-	unsigned long h, *d = (unsigned long *)data;
-	size_t n = (len / MUL) & ~1UL;
-
-	for (i = 0; i < n; i += 2) {
-		CRCQ(crc0, d[i]);
-		CRCQ(crc1, d[i + 1]);
-	}
-
-	n *= MUL;
-	if (n + MUL <= len) {
-		CRCQ(crc0, d[n / MUL]);
-		n += MUL;
-	}
-
-	h = (crc1 << 32) | crc0;
-
-	/*
-	 * Generate relatively small and dense hash tail values - they are good
-	 * for short strings in htrie which uses less significant bits at root,
-	 * however collisions are very probable.
-	 */
-	switch (len - n) {
-	case 7:
-		h += data[n] * n;
-		++n;
-	case 6:
-		h += data[n] * n;
-		++n;
-	case 5:
-		h += data[n] * n;
-		++n;
-	case 4:
-		h += data[n] * n;
-		++n;
-	case 3:
-		h += data[n] * n;
-		++n;
-	case 2:
-		h += data[n] * n;
-		++n;
-	case 1:
-		h += data[n] * n;
-		++n;
-	}
-
-	return h;
-#undef MUL
-}
-
 /*
  * At this point the whole hash is just a regular CRC32 of all chunks.
  * The crc value is stored in the 32 least significant bits of the hash,
