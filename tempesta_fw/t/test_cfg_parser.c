@@ -19,7 +19,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "../cfg_parser.h"
+#include "cfg_parser.h"
 #include "test.h"
 
 TEST(cfg_parser, recognizes_dec_hex_bin_bases)
@@ -212,15 +212,15 @@ TEST(cfg_parser, handles_simple_node_value)
 	bool v3e = true;
 	bool v3g;
 
-	const TfwCfgNode *n1, *n2, *n3;
+	TfwCfgNode *n1, *n2, *n3;
 
 	n1 = tfw_cfg_parse_single_node(s1);
 	n2 = tfw_cfg_parse_single_node(s2);
 	n3 = tfw_cfg_parse_single_node(s3);
 
-	TFW_CFG_NODE_VAL(n1, str, v1g);
-	TFW_CFG_NODE_VAL(n2, int, v2g);
-	TFW_CFG_NODE_VAL(n3, bool, v3g);
+	TFW_CFG_NVAL(n1, str, v1g);
+	TFW_CFG_NVAL(n2, int, v2g);
+	TFW_CFG_NVAL(n3, bool, v3g);
 
 	//EXPECT_STR_EQ(v1e, v1g);
 	(void)v1e;
@@ -250,15 +250,15 @@ TEST(cfg_parser, handles_value_list)
 		.v4.sin_port = htons(8081)
 	};
 	const TfwAddr *g1, *g2, *g3;
-	const TfwCfgNode *n;
+	TfwCfgNode *n;
 
 	const char *s = "backends :80 [::0]:80 127.0.0.1:8081;";
 
 	n = tfw_cfg_parse_single_node(s);
 
-	TFW_CFG_NODE_GET_VAL(n, 1, addr, g2);
-	TFW_CFG_NODE_GET_VAL(n, 0, addr, g1);
-	TFW_CFG_NODE_GET_VAL(n, 2, addr, g3);
+	TFW_CFG_NVAL_GET(n, 1, addr, g2);
+	TFW_CFG_NVAL_GET(n, 0, addr, g1);
+	TFW_CFG_NVAL_GET(n, 2, addr, g3);
 
 	EXPECT_TRUE(tfw_addr_eq(&e1, g1));
 	EXPECT_TRUE(tfw_addr_eq(&e2, g2));
@@ -273,14 +273,14 @@ TEST(cfg_parser, handles_node_attributes)
 	bool attr2_val;
 	int attr3_val;
 
-	const TfwCfgNode *n;
+	TfwCfgNode *n;
 	const char *s = "node_name attr1=val1 attr2=true attr3=42;";
 
 	n = tfw_cfg_parse_single_node(s);
 
-	TFW_CFG_NODE_ATTR_GET(n, "attr1", str, attr1_val);
-	TFW_CFG_NODE_ATTR_GET(n, "attr2", bool, attr2_val);
-	TFW_CFG_NODE_ATTR_GET(n, "AtTr3", int, attr3_val);
+	TFW_CFG_NATTR_GET(n, "attr1", str, attr1_val);
+	TFW_CFG_NATTR_GET(n, "attr2", bool, attr2_val);
+	TFW_CFG_NATTR_GET(n, "AtTr3", int, attr3_val);
 
 	EXPECT_STR_EQ("val1", attr1_val);
 	EXPECT_EQ(true, attr2_val);
@@ -305,26 +305,26 @@ TEST(cfg_parser, handles_nested_nodes)
 		"}				"
 		"				";
 
-	const TfwCfgNode *section, *subsection;
-	const TfwCfgNode *n1, *n2, *n3, *nn1, *nn2, *nn3;
+	TfwCfgNode *section, *subsection;
+	TfwCfgNode *n1, *n2, *n3, *nn1, *nn2, *nn3;
 	int n1v, n2v, n3v, nn1v, nn2v, nn3v;
 
 	section = tfw_cfg_parse_single_node(s);
-	subsection = tfw_cfg_node_get_child(section, "subsection");
+	subsection = tfw_cfg_nchild_get(section, "subsection");
 
-	n1 = tfw_cfg_node_get_child(section, "name1");
-	n2 = tfw_cfg_node_get_child(section, "name2");
-	n3 = tfw_cfg_node_get_child(section, "name3");
-	nn1 = tfw_cfg_node_get_child(subsection, "sub1");
-	nn2 = tfw_cfg_node_get_child(subsection, "sub2");
-	nn3 = tfw_cfg_node_get_child(subsection, "sub3");
+	n1 = tfw_cfg_nchild_get(section, "name1");
+	n2 = tfw_cfg_nchild_get(section, "name2");
+	n3 = tfw_cfg_nchild_get(section, "name3");
+	nn1 = tfw_cfg_nchild_get(subsection, "sub1");
+	nn2 = tfw_cfg_nchild_get(subsection, "sub2");
+	nn3 = tfw_cfg_nchild_get(subsection, "sub3");
 
-	TFW_CFG_NODE_VAL(n1, int, n1v);
-	TFW_CFG_NODE_VAL(n2, int, n2v);
-	TFW_CFG_NODE_VAL(n3, int, n3v);
-	TFW_CFG_NODE_VAL(nn1, int, nn1v);
-	TFW_CFG_NODE_VAL(nn2, int, nn2v);
-	TFW_CFG_NODE_VAL(nn3, int, nn3v);
+	TFW_CFG_NVAL(n1, int, n1v);
+	TFW_CFG_NVAL(n2, int, n2v);
+	TFW_CFG_NVAL(n3, int, n3v);
+	TFW_CFG_NVAL(nn1, int, nn1v);
+	TFW_CFG_NVAL(nn2, int, nn2v);
+	TFW_CFG_NVAL(nn3, int, nn3v);
 
 	EXPECT_EQ(n1v, 1);
 	EXPECT_EQ(n2v, 2);
@@ -338,8 +338,8 @@ TEST(cfg_parser, handles_nested_nodes)
 
 TEST(cfg_parser, handles_mixed_vals_attrs_children)
 {
+	TfwCfgNode *server, *child2;
 	const char *name, *addr, *mode, *child2_val;
-	const TfwCfgNode *server, *child2;
 	const char *s =
 		"server example.com 10.1.1.1 mode=reverse_proxy {	"
 		"	child1 1;					"
@@ -347,12 +347,12 @@ TEST(cfg_parser, handles_mixed_vals_attrs_children)
 		"}";
 
 	server = tfw_cfg_parse_single_node(s);
-	child2 = tfw_cfg_node_get_child(server, "child2");
+	child2 = tfw_cfg_nchild_get(server, "child2");
 
-	TFW_CFG_NODE_GET_VAL(server, 0, str, name);
-	TFW_CFG_NODE_GET_VAL(server, 1, str, addr);
-	TFW_CFG_NODE_ATTR_GET(server, "mode", str, mode);
-	TFW_CFG_NODE_VAL(child2, str, child2_val);
+	TFW_CFG_NVAL_GET(server, 0, str, name);
+	TFW_CFG_NVAL_GET(server, 1, str, addr);
+	TFW_CFG_NATTR_GET(server, "mode", str, mode);
+	TFW_CFG_NVAL(child2, str, child2_val);
 
 	EXPECT_STR_EQ(name, "example.com");
 	EXPECT_STR_EQ(addr, "10.1.1.1");
@@ -364,8 +364,8 @@ TEST(cfg_parser, handles_mixed_vals_attrs_children)
 
 TEST(cfg_parser, reads_all_nodes_from_input)
 {
-	const TfwCfgNode *root, *section, *subsection;
-	const TfwCfgNode *n1, *n2, *n3, *n4, *n5;
+	TfwCfgNode *root, *section, *subsection;
+	TfwCfgNode *n1, *n2, *n3, *n4, *n5;
 	int v1, v2, v3, v4, v5;
 
 	const char *s =
@@ -385,20 +385,20 @@ TEST(cfg_parser, reads_all_nodes_from_input)
 		"			";
 
 	root = tfw_cfg_parse(s);
-	section = tfw_cfg_node_get_child(root, "section");
-	subsection = tfw_cfg_node_get_child(section, "subsection");
+	section = tfw_cfg_nchild_get(root, "section");
+	subsection = tfw_cfg_nchild_get(section, "subsection");
 
-	n1 = tfw_cfg_node_get_child(root, "name1");
-	n2 = tfw_cfg_node_get_child(section, "name2");
-	n3 = tfw_cfg_node_get_child(section, "name3");
-	n4 = tfw_cfg_node_get_child(subsection, "name4");
-	n5 = tfw_cfg_node_get_child(root, "name5");
+	n1 = tfw_cfg_nchild_get(root, "name1");
+	n2 = tfw_cfg_nchild_get(section, "name2");
+	n3 = tfw_cfg_nchild_get(section, "name3");
+	n4 = tfw_cfg_nchild_get(subsection, "name4");
+	n5 = tfw_cfg_nchild_get(root, "name5");
 
-	TFW_CFG_NODE_VAL(n1, int, v1);
-	TFW_CFG_NODE_VAL(n2, int, v2);
-	TFW_CFG_NODE_VAL(n3, int, v3);
-	TFW_CFG_NODE_VAL(n4, int, v4);
-	TFW_CFG_NODE_VAL(n5, int, v5);
+	TFW_CFG_NVAL(n1, int, v1);
+	TFW_CFG_NVAL(n2, int, v2);
+	TFW_CFG_NVAL(n3, int, v3);
+	TFW_CFG_NVAL(n4, int, v4);
+	TFW_CFG_NVAL(n5, int, v5);
 
 	EXPECT_EQ(v1, 1);
 	EXPECT_EQ(v2, 2);
@@ -409,9 +409,9 @@ TEST(cfg_parser, reads_all_nodes_from_input)
 	tfw_cfg_node_free(root);
 }
 
-TEST(tfw_cfg_node_descend, retrieves_nested_nodes)
+TEST(tfw_cfg_nchild_descend, retrieves_nested_nodes)
 {
-	const TfwCfgNode *root, *target;
+	TfwCfgNode *root, *target;
 	const char *val;
 
 	const char *s =
@@ -430,9 +430,9 @@ TEST(tfw_cfg_node_descend, retrieves_nested_nodes)
 
 
 	root = tfw_cfg_parse(s);
-	target = tfw_cfg_node_descend(root, "level1.level2.level3.target");
+	target = tfw_cfg_nchild_descend(root, "level1.level2.level3.target");
 
-	TFW_CFG_NODE_VAL(target, str, val);
+	TFW_CFG_NVAL(target, str, val);
 
 	EXPECT_STR_EQ(val, "value");
 
@@ -441,7 +441,7 @@ TEST(tfw_cfg_node_descend, retrieves_nested_nodes)
 
 TEST(TFW_CFG_GET, may_retreive_either_val_attr_child)
 {
-	const TfwCfgNode *root, *sub2_node, *flag2_node;
+	TfwCfgNode *root, *sub2_node, *flag2_node;
 	bool flag1, flag2, flag3;
 	bool is_sub;
 
@@ -485,7 +485,71 @@ TEST(TFW_CFG_GET, may_retreive_either_val_attr_child)
 	tfw_cfg_node_free(root);
 }
 
-TEST_SUITE(cfg)
+TEST(TFW_CFG_NCHILD_EACH, iterates_over_children_nodes)
+{
+	const char *s =
+		"n1 {					"
+		"	n1_1 foo;			"
+		"	n1_2 bar;			"
+		"	n1_3 baz;			"
+		"}					"
+		"					"
+		"n2;					"
+		"					"
+		"n3 {					"
+		"	n3_1 {				"
+		"		n3_1_1 value1;		"
+		"		n3_1_2 value2;		"
+		"	}				"
+		"					"
+		"	n3_2 {				"
+		"		n3_2_1 value3;		"
+		"		n3_2_2 value4;		"
+		"	}				"
+		"}					"
+		"					";
+
+	TfwCfgNode *root, *l1_node, *l2_node, *l3_node;
+	const char *val;
+	int l1_cnt = 0;
+	int l2_cnt = 0;
+	int l3_cnt = 0;
+
+	root = tfw_cfg_parse(s);
+
+
+	TFW_CFG_NCHILD_EACH(root, l1_node) {
+		++l1_cnt;
+
+		TFW_CFG_NCHILD_EACH(l1_node, l2_node) {
+			++l2_cnt;
+
+			TFW_CFG_NCHILD_EACH(l2_node, l3_node) {
+				++l3_cnt;
+
+				/* Selectively check some values. */
+				if (l1_cnt == 3 && l2_cnt == 1 && l3_cnt == 1) {
+					TFW_CFG_NVAL(l2_node, str, val);
+					EXPECT_STR_EQ(val, "value1");
+				}
+
+				if (l1_cnt == 3 && l2_cnt == 2 && l3_cnt == 2) {
+					TFW_CFG_NVAL(l2_node, str, val);
+					EXPECT_STR_EQ(val, "value4");
+				}
+			}
+		}
+	}
+
+	EXPECT_EQ(l1_cnt, 3);
+	EXPECT_EQ(l2_cnt, 5);
+	EXPECT_EQ(l3_cnt, 4);
+
+	tfw_cfg_node_free(root);
+}
+
+
+TEST_SUITE(cfg_parser)
 {
 	TEST_RUN(cfg_parser, recognizes_dec_hex_bin_bases);
 	TEST_RUN(cfg_parser, recognizes_truthy_falsy_values);
@@ -496,7 +560,7 @@ TEST_SUITE(cfg)
 	TEST_RUN(cfg_parser, handles_nested_nodes);
 	TEST_RUN(cfg_parser, handles_mixed_vals_attrs_children);
 	TEST_RUN(cfg_parser, reads_all_nodes_from_input);
-
-	TEST_RUN(tfw_cfg_node_descend, retrieves_nested_nodes);
+	TEST_RUN(tfw_cfg_nchild_descend, retrieves_nested_nodes);
 	TEST_RUN(TFW_CFG_GET, may_retreive_either_val_attr_child);
+	TEST_RUN(TFW_CFG_NCHILD_EACH, iterates_over_children_nodes);
 }

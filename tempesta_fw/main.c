@@ -29,6 +29,7 @@
 #include "http.h"
 #include "log.h"
 #include "server.h"
+#include "cfg.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
@@ -62,6 +63,8 @@ tfw_init(void)
 	init_rwsem(&tfw_cfg.mtx);
 	tfw_cfg.c_size = cache_size;
 	memcpy(tfw_cfg.c_path, cache_path, DEF_PROC_STR_LEN);
+
+	tfw_cfg_if_init();
 
 	r = tfw_if_init();
 	if (r)

@@ -17,4 +17,29 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#ifndef __TFW_CFG_MOD_H__
+#define __TFW_CFG_MOD_H__
 
+#include <linux/list.h>
+#include "cfg_spec.h"
+
+typedef struct {
+	/* Private fields. Used internally, don't even initialize them. */
+	struct list_head list;
+	bool is_started;
+
+	/* Public fields. To be filled by modules. */
+	const char *name;
+	const TfwCfgSpec *spec_arr;  /* Terminated by an empty element. */
+	int (*start)(void);
+	void (*stop)(void);
+} TfwCfgMod;
+
+int tfw_cfg_mod_register(TfwCfgMod *mod);
+void tfw_cfg_mod_unregister(TfwCfgMod *mod);
+
+int tfw_cfg_mod_publish_new_cfg(TfwCfgNode *root);
+int tfw_cfg_mod_start_all(void);
+void tfw_cfg_mod_stop_all(void);
+
+#endif /* TEMPESTA_FW_CFG_MOD_H_ */

@@ -21,14 +21,9 @@
 #include <linux/kernel.h>
 #include <net/net_namespace.h>
 
-/*
- * The printk() is used instead of a logger module is used to avoid circular
- * dependencies (if it turns out that the logger would use the configuration
- * subsystem for taking some parameters).
- */
-#define DBG(...) pr_debug("tfw_cfg: " __VA_ARGS__)
-#define LOG(...) pr_info("tfw_cfg: " __VA_ARGS__)
-#define ERR(...) pr_debug("tfw_cfg: error: " __VA_ARGS__)
+#include "cfg_private_log.h"
+#include "cfg_mod.h"
+#include "cfg_parser.h"
 
 
 #define CFG_BUF_SIZE 65536
@@ -42,14 +37,17 @@
 
 static struct {
 	char state[STATE_MAX + 1];
-	char cfg_path[CFG_PATH_MAX + 1];
+	char cfg_path[CFG_PATH_MAX + 1]; /* TODO: implement this */
+	char cfg_text[CFG_BUF_SIZE + 1];
 } tfw_cfg_sysctl_bufs = {
 	.state = STATE_DEFAULT_VAL,
 	.cfg_path = CFG_PATH_DEFAULT_VAL,
 };
 
+static TfwCfgNode *parsed_cfg;
 
 
+#if 0  /* TODO: implement this */
 static const char *
 read_cfg_file(void)
 {
@@ -95,25 +93,46 @@ out_err:
 	filp_close(fp, NULL);
 	return NULL;
 }
+#endif
 
 static int
 start_modules_with_new_cfg(void)
 {
-	const char *cfg_text = read_cfg_file();
-	if (!cfg_text)
-		return -1;
+	int ret;
+	const char *cfg_text;
 
-	DBG("got the text: %s\n", cfg_text);
+	DBG("parsing new configuration and starting all modules\n")
 
-	kfree(cfg_text);
+	cfg_text = tfw_cfg_sysctl_bufs.cfg_text;
+	if (!*cfg_text) {
+		ERR("no configuration found\n");
+		return -EINVAL;
+	}
+
+	BUG_ON(parsed_cfg);
+	parsed_cfg = tfw_cfg_parse(cfg_text);
+	if (!parsed_cfg) {
+		ERR("parse error\n");
+		return -EINVAL;
+	}
+
+	ret = tfw_cfg_mod_publish_new_cfg(parsed_cfg);
+	if (ret) {
+		ERR("can't apply new configuration\n");
+		goto out_cleanup;
+	}
+
+	ret = tfw_cfg_mod_start_all();;
+	if (ret) {
+		ERR("can't start modules\n");
+		goto out_cleanup;
+	}
 
 	return 0;
-}
 
-static int
-stop_modules(void)
-{
-	return 0;
+out_cleanup:
+	tfw_cfg_node_free(parsed_cfg);
+	return ret;
 }
 
 static int
@@ -123,15 +142,31 @@ handle_state_change(const char *old_state, const char *new_state)
 	bool is_start = !strcasecmp(new_state, "start");
 	bool is_stop = !strcasecmp(new_state, "stop");
 
-	if (!is_changed)
+	LOG("got state via sysctl: %s\n", new_state);
+
+	if (!is_changed) {
+		LOG("the state (%s) isn't changed, nothing to do\n", new_state);
 		return 0;
+	}
 
-	if (is_start)
-		return start_modules_with_new_cfg();
+	if (is_start) {
+		int ret;
 
-	if (is_stop)
-		return stop_modules();
+		LOG("starting...");
+		ret = start_modules_with_new_cfg();
+		if (ret)
+			ERR("failed to start\n");
 
+		return ret;
+	}
+
+	if (is_stop) {
+		LOG("stopping...");
+		tfw_cfg_mod_stop_all();
+		return 0;
+	}
+
+	/* Neither "start" or "stop"? */
 	return -EINVAL;
 }
 
@@ -179,6 +214,13 @@ static ctl_table tfw_cfg_sysctl_tbl[] = {
 		.maxlen		= sizeof(tfw_cfg_sysctl_bufs.state) - 1,
 		.mode		= 0644,
 		.proc_handler	= handle_sysctl_state_io,
+	},
+	{
+		.procname	= "cfg",
+		.data 		= tfw_cfg_sysctl_bufs.cfg_text,
+		.maxlen		= sizeof(tfw_cfg_sysctl_bufs.cfg_text - 1),
+		.mode		= 0644,
+		.proc_handler	= proc_dostring,
 	},
 	{}
 };

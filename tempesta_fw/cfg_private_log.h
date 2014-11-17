@@ -17,9 +17,14 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CFG_MODULE_H__
-#define __TFW_CFG_MODULE_H__
+#ifndef __TFW_CFG_PRIVATE_LOG_H__
+#define __TFW_CFG_PRIVATE_LOG_H__
 
+/* A regular logger module may use the configuration subsystem
+ * so we are using printk() internally to avoid circular dependencies. */
+#define LOG_BANNER "tfw_cfg: "
+#define DBG(...) pr_debug(LOG_BANNER __VA_ARGS__);
+#define LOG(...) pr_info(LOG_BANNER __VA_ARGS__)
+#define ERR(...) pr_err(LOG_BANNER __VA_ARGS__);
 
-
-#endif /* __TFW_CFG_MODULE_H__ */
+#endif /* __TFW_CFG_PRIVATE_LOG_H__ */

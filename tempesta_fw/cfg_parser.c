@@ -18,11 +18,12 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/kernel.h>
-#include <linux/ctype.h>
-#include <linux/string.h>
 #include <linux/bug.h>
+#include <linux/ctype.h>
+#include <linux/kernel.h>
+#include <linux/string.h>
 
+#include "cfg_private_log.h"
 #include "cfg_parser.h"
 
 
@@ -35,11 +36,6 @@
 /* Maximum length of a whole configuration file. */
 #define TFW_CFG_TEXT_MAX_LEN (1 << 24)
 
-/*A logger module may use the configuration subsystem, so use printk() here
- * to avoid circular dependencies. */
-#define DBG(...) pr_debug("tfw_cfg: " __VA_ARGS__);
-#define ERR(...) pr_err("tfw_cfg: " __VA_ARGS__);
-
 /* FSM's debug messages are very verbose, so they are turned off by default. */
 #ifdef DEBUG_CFG_FSM
 #define FSM_DBG(...) DBG(__VA_ARGS__)
@@ -47,7 +43,7 @@
 #define FSM_DBG(...)
 #endif
 
-/* TFSM is even more verboose, it prints a message for every single character,
+/* TFSM is even more verbose, it prints a message for every single character,
  * so it is turned on separately. */
 #ifdef DEBUG_CFG_TFSM
 #define TFSM_DBG(...) DBG(__VA_ARGS__)
@@ -353,15 +349,6 @@ node_set_name(TfwCfgNode *node, const char *name)
 	node->name = name;
 }
 
-static void
-node_add_val(TfwCfgNode *node, TfwCfgVal *val)
-{
-	node_validate(node);
-	val_validate(val);
-
-	list_add_tail(&val->siblings, &node->val_list);
-}
-
 TfwCfgVal *
 node_find_attr(const TfwCfgNode *node, const char *name)
 {
@@ -379,23 +366,6 @@ node_find_attr(const TfwCfgNode *node, const char *name)
 	return NULL;
 }
 
-static void
-node_set_attr(TfwCfgNode *node, const char *attr_name, TfwCfgVal *attr_val)
-{
-	TfwCfgVal *existing_attr;
-
-	node_validate(node);
-	val_validate(attr_val);
-
-	existing_attr = node_find_attr(node, attr_name);
-	val_free(existing_attr);
-
-	/* The caller should not know that we cheat with the linked list,
-	 * so we take the name as an argument and set it here. */
-	attr_val->attr_name = attr_name;
-	list_add(&attr_val->siblings, &node->attr_list);
-}
-
 void
 node_add_child(TfwCfgNode *parent, TfwCfgNode *new_child)
 {
@@ -411,10 +381,9 @@ node_add_child(TfwCfgNode *parent, TfwCfgNode *new_child)
  * ------------------------------------------------------------------------
  */
 
-#define VAL_CAST(val, out_ptr, ptr_op, type, default_val)	\
+#define VAL_CAST(val, out_ptr, ptr_op, type)			\
 ({								\
 	int _r = -1;						\
-	*out_ptr = default_val;					\
 	if (val) {						\
 		val_validate(val);				\
 		if (val->mask & TFW_CFG_VAL_##type) {		\
@@ -428,29 +397,27 @@ node_add_child(TfwCfgNode *parent, TfwCfgNode *new_child)
 int
 tfw_cfg_val_cast_int(const TfwCfgVal *val, int *out)
 {
-	return VAL_CAST(val, out, , int, 0);
+	return VAL_CAST(val, out, , int);
 }
 EXPORT_SYMBOL(tfw_cfg_val_cast_int);
 
 int
 tfw_cfg_val_cast_bool(const TfwCfgVal *val, bool *out)
 {
-	return VAL_CAST(val, out, , bool, false);
+	return VAL_CAST(val, out, , bool);
 }
 EXPORT_SYMBOL(tfw_cfg_val_cast_bool);
 
 int
 tfw_cfg_val_cast_addr(const TfwCfgVal *val, const TfwAddr **out)
 {
-	return VAL_CAST(val, out, &, addr, NULL);
+	return VAL_CAST(val, out, &, addr);
 }
 EXPORT_SYMBOL(tfw_cfg_val_cast_addr);
 
 int
 tfw_cfg_val_cast_str(const TfwCfgVal *val, const char **out)
 {
-	*out = NULL;
-
 	if (val) {
 		val_validate(val);
 		*out = val->val_str;
@@ -462,7 +429,31 @@ tfw_cfg_val_cast_str(const TfwCfgVal *val, const char **out)
 EXPORT_SYMBOL(tfw_cfg_val_cast_str);
 
 const TfwCfgVal *
-tfw_cfg_node_get_val(const TfwCfgNode *node, int n)
+tfw_cfg_val_clone(const TfwCfgVal *src)
+{
+	size_t len;
+	TfwCfgVal *new;
+	val_validate(src);
+
+	len = strlen(src->val_str);
+	new = val_alloc(len);
+	memcpy(new, src, sizeof(*new));
+	memcpy(new->val_str, src->val_str, len);
+
+	return new;
+
+}
+EXPORT_SYMBOL(tfw_cfg_val_clone);
+
+
+/*
+ * ------------------------------------------------------------------------
+ *	TfwCfgNode - value list methods
+ * ------------------------------------------------------------------------
+ */
+
+const TfwCfgVal *
+tfw_cfg_nval_get(const TfwCfgNode *node, int n)
 {
 	TfwCfgVal *val;
 
@@ -477,10 +468,63 @@ tfw_cfg_node_get_val(const TfwCfgNode *node, int n)
 
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_cfg_node_get_val);
+EXPORT_SYMBOL(tfw_cfg_nval_get);
 
 const TfwCfgVal *
-tfw_cfg_node_get_attr(const TfwCfgNode *node, const char *attr_name)
+tfw_cfg_nval_first(const TfwCfgNode *node)
+{
+	return list_first_entry_or_null(&node->val_list, TfwCfgVal, siblings);
+}
+EXPORT_SYMBOL(tfw_cfg_nval_first);
+
+const TfwCfgVal *
+tfw_cfg_nval_next(const TfwCfgNode *node, const TfwCfgVal *prev)
+{
+	if (prev->siblings.next == &node->val_list)
+		return NULL;
+
+	return list_entry(prev->siblings.next, TfwCfgVal, siblings);
+}
+EXPORT_SYMBOL(tfw_cfg_nval_next);
+
+int
+tfw_cfg_nval_count(const TfwCfgNode *node)
+{
+	int n = 0;
+	struct list_head *pos;
+
+	node_validate(node);
+
+	list_for_each(pos, &node->val_list) {
+		++n;
+	}
+
+	return n;
+}
+EXPORT_SYMBOL(tfw_cfg_nval_count);
+
+int
+tfw_cfg_nval_add(TfwCfgNode *node, const TfwCfgVal *v)
+{
+	TfwCfgVal *val = (TfwCfgVal *)v;
+
+	node_validate(node);
+	val_validate(val);
+
+	list_add_tail(&val->siblings, &node->val_list);
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_nval_add);
+
+/*
+ * ------------------------------------------------------------------------
+ *	TfwCfgNode - attribute methods
+ * ------------------------------------------------------------------------
+ */
+
+const TfwCfgVal *
+tfw_cfg_nattr_get(const TfwCfgNode *node, const char *attr_name)
 {
 	TfwCfgVal *attr;
 
@@ -494,10 +538,72 @@ tfw_cfg_node_get_attr(const TfwCfgNode *node, const char *attr_name)
 
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_cfg_node_get_attr);
+EXPORT_SYMBOL(tfw_cfg_nattr_get);
 
-const TfwCfgNode *
-tfw_cfg_node_get_child(const TfwCfgNode *parent, const char *child_name)
+void tfw_cfg_nattr_first(const TfwCfgNode *node, const char **out_name,
+			 const TfwCfgVal **out_val)
+{
+	node_validate(node);
+	BUG_ON(!out_name || !out_val);
+
+	*out_val =  list_first_entry_or_null(&node->attr_list, TfwCfgVal, siblings);
+	*out_name = (*out_val) ? (*out_val)->attr_name : NULL;
+}
+EXPORT_SYMBOL(tfw_cfg_nattr_first);
+
+void tfw_cfg_nattr_next(const TfwCfgNode *node, const char **inout_name,
+		        const TfwCfgVal **inout_val)
+{
+	const TfwCfgVal *prev, *next;
+
+	node_validate(node);
+	BUG_ON(!inout_name || !inout_val);
+	BUG_ON(!(*inout_name) || !(*inout_val));
+	BUG_ON(*inout_name != (*inout_val)->attr_name);
+
+	prev = *inout_val;
+	if (prev->siblings.next == &node->attr_list) {
+		*inout_name = NULL;
+		*inout_val = NULL;
+	} else {
+		next = list_entry(prev->siblings.next, TfwCfgVal, siblings);
+		*inout_name = next->attr_name;
+		*inout_val = next;
+	}
+
+}
+EXPORT_SYMBOL(tfw_cfg_nattr_next);
+
+int
+tfw_cfg_nattr_set(TfwCfgNode *node, const char *attr_name,
+		  const TfwCfgVal *v)
+{
+	TfwCfgVal *attr_val = (TfwCfgVal *)v;
+	TfwCfgVal *existing_attr;
+
+	node_validate(node);
+	val_validate(attr_val);
+
+	existing_attr = node_find_attr(node, attr_name);
+	val_free(existing_attr);
+
+	/* The caller should not know that we cheat with the linked list,
+	 * so we take the name as an argument and set it here. */
+	attr_val->attr_name = attr_name;
+	list_add(&attr_val->siblings, &node->attr_list);
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_nattr_set);
+
+/*
+ * ------------------------------------------------------------------------
+ *	TfwCfgNode - children node methods
+ * ------------------------------------------------------------------------
+ */
+
+TfwCfgNode *
+tfw_cfg_nchild_get(const TfwCfgNode *parent, const char *child_name)
 {
 	TfwCfgNode *child;
 
@@ -511,7 +617,24 @@ tfw_cfg_node_get_child(const TfwCfgNode *parent, const char *child_name)
 
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_cfg_node_get_child);
+EXPORT_SYMBOL(tfw_cfg_nchild_get);
+
+TfwCfgNode *
+tfw_cfg_nchild_first(const TfwCfgNode *parent)
+{
+	return list_first_entry_or_null(&parent->child_list, TfwCfgNode, siblings);
+}
+EXPORT_SYMBOL(tfw_cfg_nchild_first);
+
+TfwCfgNode *
+tfw_cfg_nchild_next(const TfwCfgNode *parent, const TfwCfgNode *curr)
+{
+	if (curr->siblings.next == &parent->child_list)
+		return NULL;
+
+	return list_entry(curr->siblings.next, TfwCfgNode, siblings);
+}
+EXPORT_SYMBOL(tfw_cfg_nchild_next);
 
 static void
 path_validate(const char *path)
@@ -526,9 +649,10 @@ path_validate(const char *path)
 	}
 }
 
-const TfwCfgNode *
-tfw_cfg_node_descend(const TfwCfgNode *node, const char *path)
+TfwCfgNode *
+do_descend(TfwCfgNode *node, const char *path, bool should_create)
 {
+	TfwCfgNode *parent;
 	char name[TFW_CFG_NAME_MAX_LEN];
 	size_t name_len;
 
@@ -544,29 +668,63 @@ tfw_cfg_node_descend(const TfwCfgNode *node, const char *path)
 		memcpy(name, path, name_len);
 		name[name_len] = '\0';
 
-		node = tfw_cfg_node_get_child(node, name);
-		path += name_len;
+		parent = node;
+		node = tfw_cfg_nchild_get(parent, name);
+		if (!node && should_create) {
+			const char *n;
 
+			n = name_alloc(name, name_len);
+			node = node_alloc();
+			BUG_ON(!node || !n);
+
+			node_set_name(node, n);
+			node_add_child(parent, node);
+		}
+		parent = node;
+
+		path += name_len;
 		BUG_ON(*path && *path != '.');
 		if (*path)
 			path++;
 	}
 
-
 	return node;
 }
-EXPORT_SYMBOL(tfw_cfg_node_descend);
+
+TfwCfgNode *
+tfw_cfg_nchild_descend(const TfwCfgNode *root, const char *path)
+{
+	return do_descend((TfwCfgNode *)root, path, false);
+}
+EXPORT_SYMBOL(tfw_cfg_nchild_descend);
+
+TfwCfgNode *
+tfw_cfg_nchild_descend_create(TfwCfgNode *root, const char *path)
+{
+	return do_descend(root, path, true);
+}
+EXPORT_SYMBOL(tfw_cfg_nchild_descend_create);
 
 void
-tfw_cfg_node_free(const TfwCfgNode *node)
+tfw_cfg_node_free( TfwCfgNode *node)
 {
-	/* The 'const' qualifier is needed because the 'const TfwCfgNode *'
-	 * is returned from tfw_cfg_parse() and the user should be able to pass
-	 * it back to this function.  */
-
-	node_free((TfwCfgNode *)node);
+	node_free(node);
 }
 EXPORT_SYMBOL(tfw_cfg_node_free);
+
+const char *
+tfw_cfg_nname_get(const TfwCfgNode *node)
+{
+	return node->name;
+}
+EXPORT_SYMBOL(tfw_cfg_nname_get);
+
+bool
+tfw_cfg_nname_eq(const TfwCfgNode *node, const char *name)
+{
+	return !strcasecmp(node->name, name);
+}
+EXPORT_SYMBOL(tfw_cfg_nname_eq);
 
 /*
  * ------------------------------------------------------------------------
@@ -1125,7 +1283,7 @@ parse_node(ParserState *ps)
 		TfwCfgVal *v = parse_literal(ps->prev_lit, ps->prev_lit_len);
 
 		FSM_DBG("add value: %s (type mask: %#x)\n", v->val_str, v->mask);
-		node_add_val(ps->n, v);
+		tfw_cfg_nval_add(ps->n, v);
 
 		FSM_JMP(PS_VAL_OR_ATTR);
 	}
@@ -1142,7 +1300,7 @@ parse_node(ParserState *ps)
 		val = parse_literal(ps->lit, ps->lit_len);
 
 		FSM_DBG("set attr: %s = %s\n", name, val->val_str);
-		node_set_attr(ps->n, name, val);
+		tfw_cfg_nattr_set(ps->n, name, val);
 
 		PFSM_MOVE(PS_VAL_OR_ATTR);
 	}
@@ -1178,7 +1336,7 @@ parse_node(ParserState *ps)
 	}
 }
 
-const TfwCfgNode *
+TfwCfgNode *
 tfw_cfg_parse_single_node(const char *cfg_text)
 {
 	ParserState ps = {
@@ -1190,7 +1348,7 @@ tfw_cfg_parse_single_node(const char *cfg_text)
 }
 EXPORT_SYMBOL(tfw_cfg_parse_single_node);
 
-const TfwCfgNode *
+TfwCfgNode *
 tfw_cfg_parse(const char *cfg_text)
 {
 	ParserState ps = {

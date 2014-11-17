@@ -30,40 +30,85 @@
 typedef struct TfwCfgNode TfwCfgNode;
 typedef struct TfwCfgVal TfwCfgVal;
 
-void tfw_cfg_node_free(const TfwCfgNode *node);
+typedef int tfw_cfg_val_type_int;
+typedef bool tfw_cfg_val_type_bool;
+typedef const char * tfw_cfg_val_type_str;
+typedef const TfwAddr * tfw_cfg_val_type_addr;
 
 int tfw_cfg_val_cast_int(const TfwCfgVal *val, int *out);
 int tfw_cfg_val_cast_bool(const TfwCfgVal *val, bool *out);
 int tfw_cfg_val_cast_addr(const TfwCfgVal *val, const TfwAddr **out);
 int tfw_cfg_val_cast_str(const TfwCfgVal *val, const char **out);
 
+const TfwCfgVal *tfw_cfg_val_clone(const TfwCfgVal *src);
+void tfw_cfg_val_free(const TfwCfgVal *val);
+
 int tfw_cfg_parse_int(const char *str, int *out_num);
 int tfw_cfg_parse_bool(const char *str, bool *out_bool);
 int tfw_cfg_parse_addr(const char *str, TfwAddr *out_addr);
 
-const TfwCfgNode *tfw_cfg_parse(const char *cfg_text);
-const TfwCfgNode *tfw_cfg_parse_single_node(const char *cfg_text);
+TfwCfgNode *tfw_cfg_parse(const char *cfg_text);
+TfwCfgNode *tfw_cfg_parse_single_node(const char *cfg_text);
+void tfw_cfg_node_free(TfwCfgNode *node);
 
-const TfwCfgVal *tfw_cfg_node_get_val(const TfwCfgNode *node, int n);
-const TfwCfgVal *tfw_cfg_node_get_attr(const TfwCfgNode *node, const char *name);
-const TfwCfgNode *tfw_cfg_node_get_child(const TfwCfgNode *node, const char *name);
+/* Node's name. */
+bool tfw_cfg_nname_eq(const TfwCfgNode *node, const char *name);
+const char *tfw_cfg_nname_get(const TfwCfgNode *node);
 
-const TfwCfgNode *tfw_cfg_node_descend(const TfwCfgNode *root, const char *path);
+/* Node's value list. */
+const TfwCfgVal *tfw_cfg_nval_get(const TfwCfgNode *node, int n);
+const TfwCfgVal *tfw_cfg_nval_first(const TfwCfgNode *node);
+const TfwCfgVal *tfw_cfg_nval_next(const TfwCfgNode *node, const TfwCfgVal *prev);
+int tfw_cfg_nval_count(const TfwCfgNode *node);
+int tfw_cfg_nval_add(TfwCfgNode *node, const TfwCfgVal *val);
 
-#define TFW_CFG_NODE_VAL(node, out_type, out_var) \
-	TFW_CFG_NODE_GET_VAL(node, 0, out_type, out_var)
-
-#define TFW_CFG_NODE_GET_VAL(node, n, out_type, out_var)	\
-({								\
-	const TfwCfgVal *_v = tfw_cfg_node_get_val(node, n);	\
-	tfw_cfg_val_cast_##out_type(_v, &(out_var));		\
+#define TFW_CFG_NVAL_GET(node, n, out_type, out_var)	\
+({							\
+	const TfwCfgVal *_v = tfw_cfg_nval_get(node, n);\
+	tfw_cfg_val_cast_##out_type(_v, &(out_var));	\
 })
 
-#define TFW_CFG_NODE_ATTR_GET(node, attr_name, out_type, out_var) 	\
+#define TFW_CFG_NVAL(node, out_type, out_var) \
+	TFW_CFG_NVAL_GET(node, 0, out_type, out_var)
+
+#define TFW_CFG_NVAL_EACH(node, val) \
+	for ((val) = tfw_cfg_nval_first(node); \
+	     (val); \
+	     (val) = tfw_cfg_nval_next((node), (val)))
+
+
+/* Node's attribute list. */
+
+const TfwCfgVal *tfw_cfg_nattr_get(const TfwCfgNode *node, const char *name);
+int tfw_cfg_nattr_set(TfwCfgNode *node, const char *name, const TfwCfgVal *value);
+void tfw_cfg_nattr_first(const TfwCfgNode *node, const char **out_name,
+			 const TfwCfgVal **out_val);
+void tfw_cfg_nattr_next(const TfwCfgNode *node, const char **inout_name,
+		        const TfwCfgVal **inout_val);
+
+#define TFW_CFG_NATTR_GET(node, attr_name, out_type, out_var) 		\
 ({ 									\
-	const TfwCfgVal *_v = tfw_cfg_node_get_attr(node, attr_name); 	\
+	const TfwCfgVal *_v = tfw_cfg_nattr_get(node, attr_name); 	\
 	tfw_cfg_val_cast_##out_type(_v, &(out_var));			\
 })
+
+#define TFW_CFG_NATTR_EACH(node, name, val) \
+	for (tfw_cfg_nattr_first(node, &name, &val); \
+	     (name); \
+	     tfw_cfg_nattr_next(node, &name, &val))
+
+
+/* Children nodes. */
+TfwCfgNode *tfw_cfg_nchild_get(const TfwCfgNode *node, const char *name);
+TfwCfgNode *tfw_cfg_nchild_descend(const TfwCfgNode *root, const char *path);
+TfwCfgNode *tfw_cfg_nchild_descend_create(TfwCfgNode *root, const char *path);
+TfwCfgNode *tfw_cfg_nchild_first(const TfwCfgNode *parent);
+TfwCfgNode *tfw_cfg_nchild_next(const TfwCfgNode *parent, const TfwCfgNode *prev);
+
+#define TFW_CFG_NCHILD_EACH(parent, child) \
+	for ((child) = tfw_cfg_nchild_first(parent); \
+	     (child); \
+	     (child) = tfw_cfg_nchild_next((parent), (child)))
 
 /**
  * Fetch a value from a node parsed by tfw_cfg_parse().
@@ -122,25 +167,25 @@ const TfwCfgNode *tfw_cfg_node_descend(const TfwCfgNode *root, const char *path)
  *   - addr (means: const TfwCfgAddr)
  * The type of @out_var must correspond to the @out_type.
  *
- * When the value cannot be fetched, the macro returns -1 and tries to leave
- * some "zero" object (NULL or 0 or something like that) in the @out_var.
+ * When the value cannot be fetched, the macro returns -1 and leaves
+ * the @out_var initialized to zero.
  */
-#define TFW_CFG_GET(root, path, field, key, out_type, out_var) \
-({ 									\
-	const TfwCfgNode *_n = tfw_cfg_node_descend(root, path); 	\
-	!_n ? -1 :							\
-		tfw_cfg_val_cast_##out_type(				\
-			tfw_cfg_node_get_##field(_n, key),		\
-			&(out_var));					\
+#define TFW_CFG_GET(root, path, field, key, out_type, out_var)	\
+({ 								\
+	TfwCfgNode *_n = tfw_cfg_nchild_descend(root, path); 	\
+	out_var = 0;						\
+	!_n ? -1 :						\
+		tfw_cfg_val_cast_##out_type(			\
+			tfw_cfg_n ##field ##_get(_n, key),	\
+			&(out_var));				\
 })
 
 static inline int
-tfw_cfg_val_cast_node(const TfwCfgNode *in, const TfwCfgNode **out)
+tfw_cfg_val_cast_node(TfwCfgNode *in, TfwCfgNode **out)
 {
 	/* This hack provides a kind of polymorphism for TFW_CFG_GET(). */
 	*out = in;
 	return -(!in);
 }
-
 
 #endif /* __TFW_CFG_PARSER_H__ */
