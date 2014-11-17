@@ -83,6 +83,14 @@ tfw_hash_calc(const char *data, size_t len)
 #undef MUL
 }
 
+/*
+ * At this point the whole hash is just a regular CRC32 of all chunks.
+ * The crc value is stored in the 32 least significant bits of the hash,
+ * and the high 32 bits are always zero.
+ *
+ * The CRC32 is used for performance purposes (the algorithm utilizes SSE4.2
+ * hardware instructions).
+ */
 unsigned long
 tfw_hash_str(const TfwStr *str)
 {
@@ -92,8 +100,7 @@ tfw_hash_str(const TfwStr *str)
 	const char *body_end;
 	const char *head_end;
 	const char *tail_end;
-	register unsigned long crc0 = 0xAAAAAAAA;
-	register unsigned long crc1 = 0x55555555;
+	register unsigned long crc = 0xFFFFFFFF;
 	unsigned int len;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str) {
@@ -109,25 +116,22 @@ tfw_hash_str(const TfwStr *str)
 		}
 
 		while (pos != head_end) {
-			CRCB(crc0, *pos);
-			CRCB(crc1, *pos);
+			CRCB(crc, *pos);
 			++pos;
 		}
 
 		while (pos != body_end) {
-			CRCQ(crc0, *((unsigned long *)pos));
-			CRCQ(crc1, *((unsigned long *)pos));
+			CRCQ(crc, *((unsigned long *)pos));
 			pos += MUL;
 		}
 tail:
 		while (pos != tail_end) {
-			CRCB(crc0, *pos);
-			CRCB(crc1, *pos);
+			CRCB(crc, *pos);
 			++pos;
 		}
 	}
 
-	return (crc1 << 32) | crc0;
+	return crc;
 #undef MUL
 }
 EXPORT_SYMBOL(tfw_hash_str);
