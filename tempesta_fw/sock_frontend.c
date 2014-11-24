@@ -33,31 +33,38 @@
 #include <linux/net.h>
 #include <net/inet_sock.h>
 
-#include "tempesta.h"
+#include "cfg.h"
 #include "connection.h"
 #include "filter.h"
 #include "http.h"
 #include "log.h"
-
 #include "sync_socket.h"
+#include "tempesta.h"
 
+#define LISTEN_SOCK_BACKLOG_LEN 1024
+#define LISTEN_SOCKS_MAX 8
+
+static struct socket *listen_socks[LISTEN_SOCKS_MAX];
 static unsigned int listen_socks_n = 0;
-static SsProto *protos;
+
+static SsProto protos[LISTEN_SOCKS_MAX];
+
+#define FOR_EACH_SOCK(sock, i) \
+	for (i = 0;  (sock = listen_socks[i], i < listen_socks_n);  ++i)
 
 /**
- * Create a listening front-end socket.
+ * Create a front-end socket and bind it with the given @addr, but
+ * not yet start listening.
  */
 static int
-__open_listen_socket(SsProto *proto, void *addr)
+tfw_add_listen_socket(const TfwAddr *addr)
 {
-	struct socket *s;
-	unsigned short family = *(unsigned short *)addr;
-	unsigned short sza = family == AF_INET
-			     ? sizeof(struct sockaddr_in)
-			     : sizeof(struct sockaddr_in6);
 	int r;
+	size_t sa_len = tfw_addr_sa_len(addr);
+	struct sockaddr sa = addr->sa;
+	struct socket *s;
 
-	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, &s);
+	r = sock_create_kern(addr->sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
 	if (r) {
 		TFW_ERR("Can't create front-end listening socket (%d)\n", r);
 		return r;
@@ -65,100 +72,100 @@ __open_listen_socket(SsProto *proto, void *addr)
 
 	inet_sk(s->sk)->freebind = 1;
 	s->sk->sk_reuse = 1;
-	r = s->ops->bind(s, (struct sockaddr *)addr, sza);
+	r = s->ops->bind(s, &sa, sa_len);
 	if (r) {
 		TFW_ERR("Can't bind front-end listening socket (%d)\n", r);
-		goto err;
+		sock_release(s);
+		return r;
 	}
 
-	ss_tcp_set_listen(s, proto);
-	TFW_DBG("Created listening socket %p\n", s->sk);
+	TFW_DBG("Created frontend socket %p\n", s->sk);
 
-	/* TODO adjust /proc/sys/net/core/somaxconn */
-	r = s->ops->listen(s, 1024);
-	if (r) {
-		TFW_ERR("Can't listen on front-end socket (%d)\n", r);
-		goto err;
-	}
+	BUG_ON(listen_socks_n >= ARRAY_SIZE(protos));
+	BUG_ON(listen_socks[listen_socks_n]);
+	listen_socks[listen_socks_n] = s;
+	++listen_socks_n;
 
-	return r;
-err:
-	sock_release(s);
-	return r;
+	return 0;
 }
 
-void
-tfw_close_listen_sockets(void)
+static int
+tfw_start_listen_sockets(void)
 {
-	down_read(&tfw_cfg.mtx);
+	SsProto *proto;
+	struct socket *sock;
+	int i, r;
 
-	TFW_LOG("Close %u listening sockets\n", listen_socks_n);
-
-	while (listen_socks_n)
-		sock_release(protos[--listen_socks_n].listener);
-	kfree(protos);
-
-	up_read(&tfw_cfg.mtx);
-}
-
-int
-tfw_open_listen_sockets(void)
-{
-	struct sockaddr_in6 *addr;
-	int r = -ENOMEM;
-	__be16 ports[DEF_MAX_PORTS];
-
-	down_read(&tfw_cfg.mtx);
-
-	TFW_LOG("Open %u listening sockets\n", tfw_cfg.listen->count);
-
-	protos = kzalloc(sizeof(void *) * tfw_cfg.listen->count, GFP_KERNEL);
-	if (!protos)
-		goto out;
-
-	for (listen_socks_n = 0; listen_socks_n < tfw_cfg.listen->count;
-	     ++listen_socks_n)
-	{
-		SsProto *proto;
-
-		if (listen_socks_n > DEF_MAX_PORTS) {
-			TFW_ERR("Too many listening sockets\n");
-			tfw_close_listen_sockets();
-			goto out;
-		}
-
+	FOR_EACH_SOCK(sock, i) {
 		/*
 		 * TODO If multiprotocol support is required, then here we must
 		 * have information for which protocol we're establishing
 		 * the new listener. So TfwAddrCfg must be extended with
 		 * protocol information (e.g. HTTP enum value).
 		 */
-		proto = protos + listen_socks_n;
+		proto = &protos[i];
 		proto->type = TFW_FSM_HTTP;
-		addr = (struct sockaddr_in6 *)(tfw_cfg.listen->addr
-					       + listen_socks_n);
-		r = __open_listen_socket(proto, addr);
+
+		BUG_ON(proto->listener);
+
+		ss_tcp_set_listen(sock, proto);
+		TFW_DBG("Created listening socket %p\n", sock->sk);
+
+		/* TODO adjust /proc/sys/net/core/somaxconn */
+		r = sock->ops->listen(sock, LISTEN_SOCK_BACKLOG_LEN);
 		if (r) {
-			tfw_close_listen_sockets();
-			goto out;
+			TFW_ERR("Can't listen on front-end socket (%d)\n", r);
+			return r;
 		}
-		ports[listen_socks_n] = addr->sin6_port;
+
 	}
 
-	tfw_filter_set_inports(ports, listen_socks_n);
-
-	r = 0;
-out:
-	up_read(&tfw_cfg.mtx);
-	return r;
+	return 0;
 }
 
-/**
- * FIXME synchronize it with socket operations.
- */
-int
-tfw_reopen_listen_sockets(void)
+static void
+tfw_stop_listen_sockets(void)
 {
-	tfw_close_listen_sockets();
-	return tfw_open_listen_sockets();
+	struct socket *sock;
+	int i;
+
+	FOR_EACH_SOCK(sock, i) {
+		kernel_sock_shutdown(sock, SHUT_RDWR);
+	}
 }
+
+static void
+tfw_release_listen_sockets(void)
+{
+	struct socket *sock;
+	int i;
+
+	FOR_EACH_SOCK(sock, i) {
+		sock_release(sock);
+	}
+
+	memset(listen_socks, 0, sizeof(listen_socks));
+	memset(protos, 0, sizeof(protos));
+}
+
+
+static TfwCfgSpec sock_frontend_cfg_spec[] = {
+	{
+		"listen",
+		"listen :80 [::0]:80;",
+		"A list of addresses/ports for listening for new connections.",
+		.val_each = true,
+		.call_addr = tfw_add_listen_socket,
+	},
+	{}
+};
+
+TfwCfgMod tfw_mod_sock_frontend  = {
+	.name = "sock_frontend",
+	.cfg_spec_arr =  sock_frontend_cfg_spec,
+
+	.start   = tfw_start_listen_sockets,
+	.stop    = tfw_stop_listen_sockets,
+	.cleanup = tfw_release_listen_sockets,
+
+};

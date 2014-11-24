@@ -26,20 +26,36 @@
 typedef struct {
 	/* Private fields. Used internally, don't even initialize them. */
 	struct list_head list;
-	bool is_started;
 
 	/* Public fields. To be filled by modules. */
+
+	/* Text name of the module. At this point used only for logging. */
 	const char *name;
-	const TfwCfgSpec *spec_arr;  /* Terminated by an empty element. */
+
+	/* These two act like module_init()/module_exit(). They are used only
+	 * within this Tempesta FW kernel module to avoid boilerplate code. */
+	int (*init)(void);
+	void (*exit)(void);
+
+	/* An array (terminated by an empty element) that specifies rules
+	 * for handling configuration entries for this module. */
+	const TfwCfgSpec *cfg_spec_arr;
+
+	int (*setup)(void);
 	int (*start)(void);
 	void (*stop)(void);
+	void (*cleanup)(void);
 } TfwCfgMod;
 
-int tfw_cfg_mod_register(TfwCfgMod *mod);
-void tfw_cfg_mod_unregister(TfwCfgMod *mod);
+/* Call init/exit and subscribe to start/stop events. */
+int tfw_cfg_mod_init(TfwCfgMod *mod);
+void tfw_cfg_mod_exit(TfwCfgMod *mod);
 
-int tfw_cfg_mod_publish_new_cfg(TfwCfgNode *root);
-int tfw_cfg_mod_start_all(void);
+/* Publish start/stop events. */
+int tfw_cfg_mod_start_all(TfwCfgNode *cfg_root);
 void tfw_cfg_mod_stop_all(void);
 
-#endif /* TEMPESTA_FW_CFG_MOD_H_ */
+/* A shutdown routine. */
+void tfw_cfg_mod_exit_all(void);
+
+#endif /* __TFW_CFG_MOD_H__ */

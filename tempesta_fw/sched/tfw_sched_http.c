@@ -676,6 +676,12 @@ parse_arg(ParserState *s)
 }
 
 static int
+tfw_inet_pton(char **pos, TfwAddr *addr)
+{
+	return 0;
+}
+
+static int
 parse_addr(ParserState *s)
 {
 	int ret = 0;

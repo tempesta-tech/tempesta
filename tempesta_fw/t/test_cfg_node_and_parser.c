@@ -1,6 +1,16 @@
 /**
-#include <cfg_node.h>
  *		Tempesta FW
+ *
+ * The parser and TfwCfgNode are tested together because:
+ *  1. The parser produces TfwCfgNode which is accessible only through its
+ *     methods. You have to call them anyway in parser tests, so if you add
+ *     up separate node tests, you end up with a lot of duplicate logic.
+ *  2. It is hard to construct a tree of TfwCfgNode objects manually,
+ *     it would require a lot of relatively low-level operations to do that.
+ *
+ * So we are creating trees with parser and then querying them using the
+ * TfwCfgNode methods. Of course, we get worse isolation and test granularity
+ * as a drawback.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
@@ -409,7 +419,8 @@ TEST(cfg_parser, reads_all_nodes_from_input)
 	tfw_cfg_node_free(root);
 }
 
-TEST(tfw_cfg_nchild_descend, retrieves_nested_nodes)
+
+TEST(tfw_cfg_node_descend, retrieves_nested_nodes)
 {
 	TfwCfgNode *root, *target;
 	const char *val;
@@ -430,11 +441,35 @@ TEST(tfw_cfg_nchild_descend, retrieves_nested_nodes)
 
 
 	root = tfw_cfg_parse(s);
-	target = tfw_cfg_nchild_descend(root, "level1.level2.level3.target");
+	target = tfw_cfg_node_descend(root, "level1.level2.level3.target");
 
 	TFW_CFG_NVAL(target, str, val);
 
 	EXPECT_STR_EQ(val, "value");
+
+	tfw_cfg_node_free(root);
+}
+
+TEST(tfw_cfg_node_descend, reaches_child_in_duplicate_parents)
+{
+	TfwCfgNode *root, *child3;
+
+	const char *s =
+		"section {			"
+		"	child1 value1;		"
+		"	child2 value2;		"
+		"}"
+		""
+		"section {"
+		"	child3 value3;		"
+		"	child4 value4;		"
+		"}				"
+		"";
+
+	root = tfw_cfg_parse(s);
+	child3 = tfw_cfg_node_descend(root, "section.child3");
+
+	EXPECT_NOT_NULL(child3);
 
 	tfw_cfg_node_free(root);
 }
@@ -548,7 +583,6 @@ TEST(TFW_CFG_NCHILD_EACH, iterates_over_children_nodes)
 	tfw_cfg_node_free(root);
 }
 
-
 TEST_SUITE(cfg_parser)
 {
 	TEST_RUN(cfg_parser, recognizes_dec_hex_bin_bases);
@@ -560,7 +594,8 @@ TEST_SUITE(cfg_parser)
 	TEST_RUN(cfg_parser, handles_nested_nodes);
 	TEST_RUN(cfg_parser, handles_mixed_vals_attrs_children);
 	TEST_RUN(cfg_parser, reads_all_nodes_from_input);
-	TEST_RUN(tfw_cfg_nchild_descend, retrieves_nested_nodes);
+	TEST_RUN(tfw_cfg_node_descend, retrieves_nested_nodes);
+	TEST_RUN(tfw_cfg_node_descend, reaches_child_in_duplicate_parents);
 	TEST_RUN(TFW_CFG_GET, may_retreive_either_val_attr_child);
 	TEST_RUN(TFW_CFG_NCHILD_EACH, iterates_over_children_nodes);
 }

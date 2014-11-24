@@ -72,7 +72,7 @@ tfw_session_free(TfwSession *s)
 	kmem_cache_free(sess_cache, s);
 }
 
-int
+static int
 tfw_session_init(void)
 {
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwSession),
@@ -82,9 +82,15 @@ tfw_session_init(void)
 	return 0;
 }
 
-void
+static void
 tfw_session_exit(void)
 {
 	kmem_cache_destroy(sess_cache);
 }
 
+
+TfwCfgMod tfw_mod_session = {
+	.name = "session",
+	.init = tfw_session_init,
+	.exit = tfw_session_exit
+};

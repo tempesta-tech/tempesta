@@ -8,8 +8,6 @@ SSOCKET=sync_socket
 TDB=tempesta_db
 TFW=tempesta_fw
 TFW_ROOT=`pwd`/$TFW
-TFW_CACHE_SIZE=`expr 256 \* 1024`
-TFW_CACHE_PATH=$TFW_ROOT/cache
 
 arg=${1:-}
 ss_path=${SYNC_SOCKET:="./"}
@@ -41,15 +39,14 @@ start()
 	insmod $tdb_path/$TDB.ko
 	[ $? -ne 0 ] && error "cannot load tempesta database module"
 
-	insmod $TFW_ROOT/$TFW.ko cache_size=$TFW_CACHE_SIZE \
-				 cache_path="$TFW_CACHE_PATH"
+	insmod $TFW_ROOT/$TFW.ko
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
 	insmod $TFW_ROOT/sched/tfw_sched_${sched}.ko
 	[ $? -ne 0 ] && error "cannot load scheduler module"
 
-	sysctl --load=tempesta.sysctl.conf
-	[ $? -ne 0 ] && error "cannot apply configuration via sysctl"
+	echo start > /proc/sys/net/tempesta/state
+	[ $? -ne 0 ] && error "cannot start tempesta"
 
 	echo "done"
 }

@@ -18,7 +18,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "../cfg_spec.h"
+#include "cfg_parser.h"
+#include "cfg_spec.h"
 #include "test.h"
 
 static const char *raw_cfg =
@@ -142,7 +143,7 @@ static int us_cb_counter;
 static int us_srv_addr_cb_counter;
 static int us_srv_addr_weight_cb_counter;
 
-static void
+static int
 index_cb(const char *index)
 {
 	bool is_php = strcmp(index, "index.php");
@@ -152,25 +153,31 @@ index_cb(const char *index)
 	EXPECT_TRUE(is_php || is_htm || is_html);
 
 	++index_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 tcp_nopush_cb(bool tcp_nopush)
 {
 	EXPECT_TRUE(tcp_nopush);
 
 	++tcp_nopush_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 cache_size_int_cb(int cache_size)
 {
 	EXPECT_EQ(cache_size, 8192);
 
 	++cache_size_int_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 cache_size_str_cb(const char *cache_size)
 {
 	bool is_auto = strcmp(cache_size, "auto");
@@ -179,9 +186,11 @@ cache_size_str_cb(const char *cache_size)
 	EXPECT_TRUE(is_auto || is_8192);
 
 	++cache_size_str_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 us_cb(const TfwCfgNode *upstream)
 {
 	const char *name;
@@ -190,9 +199,11 @@ us_cb(const TfwCfgNode *upstream)
 	EXPECT_STR_EQ(name, "us");
 
 	++us_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 us_srv_addr_cb(const TfwAddr *addr)
 {
 	TfwAddr expected_addr = {
@@ -219,25 +230,26 @@ us_srv_addr_cb(const TfwAddr *addr)
 	}
 
 	++us_srv_addr_cb_counter;
+
+	return 0;
 }
 
-static void
+static int
 us_srv_addr_weight_cb(int weight)
 {
 	EXPECT_EQ(us_cb_counter, 1);
-	EXPECT_LT(us_srv_addr_weight_cb_counter, 3);
 
 	if (us_srv_addr_weight_cb_counter == 0) {
-		EXPECT_EQ(us_srv_addr_cb_counter, 1);
 		EXPECT_EQ(weight, 10);
 	}
 
 	if (us_srv_addr_weight_cb_counter == 1) {
-		EXPECT_EQ(us_srv_addr_cb_counter, 2);
 		EXPECT_EQ(weight, 5);
 	}
 
 	++us_srv_addr_weight_cb_counter;
+
+	return 0;
 }
 
 
@@ -295,7 +307,7 @@ TEST(cfg_spec, allows_to_handle_cfg_with_custom_callbacks)
 
 static int backends_cb_counter;
 
-static void
+static int
 backends_cb(const TfwAddr *be_addr)
 {
 	TfwAddr expected_v4 = {
@@ -319,11 +331,26 @@ backends_cb(const TfwAddr *be_addr)
 	EXPECT_TRUE(tfw_addr_eq(expected_addr, be_addr));
 
 	++backends_cb_counter;
+
+	return 0;
 }
 
-TEST(cfg_spec, allows_to_specify_default_values)
+TEST(cfg_spec, allows_creating_default_nodes)
 {
+	bool log_enable = false;
+	int log_level = 0;
+
 	const TfwCfgSpec spec[] = {
+		{
+			"log",
+			"log enable level=3;",
+			.set_bool = &log_enable
+		},
+		{
+			"log",
+			.attr = "level",
+			.set_int = &log_level
+		},
 		{
 			"http.backends",
 			"backends 127.0.0.1:8081 [::1]:8081;",
@@ -335,9 +362,85 @@ TEST(cfg_spec, allows_to_specify_default_values)
 
 	backends_cb_counter = 0;
 
+	tfw_cfg_spec_set_defaults(spec, parsed_cfg);
 	tfw_cfg_spec_apply(spec, parsed_cfg);
 
+	EXPECT_EQ(log_enable, true);
+	EXPECT_EQ(log_level, 3);
 	EXPECT_EQ(backends_cb_counter, 2);
+}
+
+
+static int default_srv_cb_counter;
+static int default_us_srv_weight_cb_counter;
+
+static int
+default_srv_cb(const TfwCfgNode *server)
+{
+	const char *mode = "";
+	bool is_enabled = false;
+
+	TFW_CFG_NVAL_GET(server, 0, str, mode);
+	TFW_CFG_NATTR_GET(server, "is_enabled", bool, is_enabled);
+
+	EXPECT_STR_EQ(mode, "reverse_proxy");
+	EXPECT_EQ(is_enabled, true);
+
+	++default_srv_cb_counter;
+	EXPECT_LE(default_srv_cb_counter, 2);
+
+	return 0;
+}
+
+static int
+default_us_srv_weight_cb(int weight)
+{
+	if (default_us_srv_weight_cb_counter == 0) {
+		EXPECT_EQ(weight, 10);
+	}
+	else if (default_us_srv_weight_cb_counter == 1) {
+		EXPECT_EQ(weight, 5);
+	}
+	else if (default_us_srv_weight_cb_counter == 2) {
+		EXPECT_EQ(weight, 1);
+	}
+	else {
+		TEST_FAIL("excessive default_usr_srv_weight_cb() call");
+	}
+
+	++default_us_srv_weight_cb_counter;
+
+	return 0;
+}
+
+TEST(cfg_spec, allows_merging_in_defaults_for_non_singletons)
+{
+	const TfwCfgSpec spec[] = {
+		{
+			"http.server",
+			"server reverse_proxy is_enabled=true;",
+			.is_not_singleton = true,
+			.call_node = default_srv_cb
+		},
+		{
+			"http.upstream.server",
+			"server weight=1;",
+			.is_not_singleton = true,
+
+			.attr = "weight",
+			.call_int = default_us_srv_weight_cb
+		},
+		{}
+	};
+
+	default_srv_cb_counter = 0;
+	default_us_srv_weight_cb_counter = 0;
+
+	tfw_cfg_spec_set_defaults(spec, parsed_cfg);
+	tfw_cfg_spec_apply(spec, parsed_cfg);
+
+	EXPECT_EQ(default_srv_cb_counter, 2);
+	EXPECT_EQ(default_us_srv_weight_cb_counter, 3);
 }
 
 TEST_SUITE(cfg_module)
@@ -347,5 +450,6 @@ TEST_SUITE(cfg_module)
 
 	TEST_RUN(cfg_spec, allows_to_save_cfg_to_custom_struct);
 	TEST_RUN(cfg_spec, allows_to_handle_cfg_with_custom_callbacks);
-	TEST_RUN(cfg_spec, allows_to_specify_default_values);
+	TEST_RUN(cfg_spec, allows_creating_default_nodes);
+	TEST_RUN(cfg_spec, allows_merging_in_defaults_for_non_singletons);
 }

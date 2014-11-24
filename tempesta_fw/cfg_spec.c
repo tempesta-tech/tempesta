@@ -18,18 +18,130 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/ctype.h>
+
+#include "cfg_private.h"
+#include "cfg_parser.h"
 #include "cfg_spec.h"
 
+
+#define for_each_spec(pos, array) \
+	for (spec = &array[0]; (spec->path != NULL); ++spec)
+
 static void
-handle_val_fields(const TfwCfgSpec *spec, const TfwCfgVal *val)
+create_default_node(const TfwCfgSpec *spec, TfwCfgNode *cfg_root)
+{
+	int r;
+	TfwCfgNode *parent, *default_node;
+	char *dot;
+	char parent_path[TFW_CFG_PATH_MAX_LEN];
+
+	BUG_ON(!spec->deflt || !*spec->deflt);  /* Empty default value? */
+	BUG_ON(!*spec->path);			/* Default for a root node? */
+
+	strlcpy(parent_path, spec->path, sizeof(parent_path));
+	dot = strrchr(parent_path, '.');
+	if (dot)
+		*dot = '\0';
+	else
+		parent_path[0] = '\0';
+
+	parent = tfw_cfg_node_descend(cfg_root, parent_path);
+	BUG_ON(!parent);
+
+	default_node = tfw_cfg_parse_single_node(spec->deflt);
+	BUG_ON(!default_node);
+
+	r = tfw_cfg_nchild_add(parent, default_node);
+	BUG_ON(r);
+}
+
+static int
+merge_in_defaults(TfwCfgNode *node, void *arg)
+{
+	TfwCfgNode *default_node = arg;
+	const TfwCfgVal *val, *copied_val;
+	const char *name;
+	int r, node_val_count, default_val_nth;
+
+	/* Just a sanity check. Actually we don't need the node name. */
+	name = tfw_cfg_nname_get(default_node);
+	BUG_ON(!tfw_cfg_nname_eq(node, name));
+
+	/* Add default values starting at a position where @node's list ends. */
+	node_val_count = tfw_cfg_nval_count(node);
+	default_val_nth = 0;
+	TFW_CFG_NVAL_EACH(default_node, val) {
+		++default_val_nth;
+
+		if (default_val_nth > node_val_count) {
+			copied_val = tfw_cfg_val_clone(val);
+			BUG_ON(!copied_val);
+
+			r = tfw_cfg_nval_add(node, copied_val);
+			BUG_ON(r);
+		}
+	}
+
+	/* Set only attributes that are not present in the @node. */
+	TFW_CFG_NATTR_EACH(default_node, name, val) {
+		if (!tfw_cfg_nattr_get(node, name)) {
+			copied_val = tfw_cfg_val_clone(val);
+			BUG_ON(!copied_val);
+
+			r = tfw_cfg_nattr_set(node, name, copied_val);
+			BUG_ON(r);
+		}
+	}
+
+	/* No support for merging subtrees yet. */
+	BUG_ON(tfw_cfg_nchild_first(default_node));
+
+	return 0;
+}
+
+void
+tfw_cfg_spec_set_defaults(const TfwCfgSpec spec_arr[], TfwCfgNode *cfg_root)
+{
+	const TfwCfgSpec *spec;
+	TfwCfgNode *node;
+
+	for_each_spec(spec, spec_arr) {
+		if (spec->deflt && spec->is_not_singleton) {
+			node = tfw_cfg_parse_single_node(spec->deflt);
+			BUG_ON(!node);
+
+			tfw_cfg_node_walk(cfg_root, spec->path,
+					  merge_in_defaults, node);
+
+			tfw_cfg_node_free(node);
+		}
+
+		if (spec->deflt && !spec->is_not_singleton) {
+			node = tfw_cfg_node_descend(cfg_root, spec->path);
+			if (!node)
+				create_default_node(spec, cfg_root);
+		}
+	}
+}
+DEBUG_EXPORT_SYMBOL(tfw_cfg_spec_set_defaults);
+
+
+int
+tfw_cfg_spec_validate(const TfwCfgSpec spec_arr[], const TfwCfgNode *cfg_root)
+{
+	return 0;
+}
+DEBUG_EXPORT_SYMBOL(tfw_cfg_spec_validate);
+
+
+static int
+apply_val_fields(const TfwCfgSpec *spec, const TfwCfgVal *val)
 {
 #define DO_SET(type) \
 	if (spec->set_##type) \
 		tfw_cfg_val_cast_##type(val, spec->set_##type)
 
-	/* The dynamic-to-static conversion is always painful. We can't avoid
-	 * that (since the configuration tree is dynamically-typed by nature),
-	 * so we use such macros here to reduce amount of duplicate code. */
 	DO_SET(int);
 	DO_SET(bool);
 	DO_SET(str);
@@ -40,8 +152,11 @@ handle_val_fields(const TfwCfgSpec *spec, const TfwCfgVal *val)
 #define DO_CB(type) 						\
 	if (spec->call_##type) { 				\
 		tfw_cfg_val_type_##type _val = 0;		\
+		int ret = 0;					\
 		if (!tfw_cfg_val_cast_##type(val, &_val))	\
-			spec->call_##type(_val);		\
+			ret = spec->call_##type(_val);		\
+		if (ret)					\
+			return ret;				\
 	}
 
 	DO_CB(int);
@@ -50,157 +165,69 @@ handle_val_fields(const TfwCfgSpec *spec, const TfwCfgVal *val)
 	DO_CB(addr);
 
 #undef DO_CB
+
+	return 0;
 }
 
-
-static void
-merge_in_defaults(TfwCfgNode *dest_node, const TfwCfgNode *default_node)
+static int
+apply_node_fields(const TfwCfgSpec *spec, TfwCfgNode *node)
 {
-	const TfwCfgVal *val, *copied_val;
-	const char *name;
-	int default_val_nth;
-	int node_val_count;
-	int r;
-
-	/* Just a sanity check. Actually we don't need the name. */
-	name = tfw_cfg_nname_get(default_node);
-	BUG_ON(!tfw_cfg_nname_eq(dest_node, name));
-
-	/* Add only tail default values to the destination node. */
-	node_val_count = tfw_cfg_nval_count(dest_node);
-	default_val_nth = 0;
-	TFW_CFG_NVAL_EACH(default_node, val) {
-		++default_val_nth;
-
-
-		if (default_val_nth > node_val_count) {
-			copied_val = tfw_cfg_val_clone(val);
-			BUG_ON(!copied_val);
-
-			r = tfw_cfg_nval_add(dest_node, copied_val);
-			BUG_ON(r);
-		}
-	}
-
-	/* Set only attributes that are not set in the destination nodes. */
-	TFW_CFG_NATTR_EACH(default_node, name, val) {
-		if (!tfw_cfg_nattr_get(dest_node, name)) {
-			copied_val = tfw_cfg_val_clone(val);
-			BUG_ON(!copied_val);
-
-			r = tfw_cfg_nattr_set(dest_node, name, val);
-			BUG_ON(r);
-		}
-	}
-
-	/* No support for merging subtrees yet. */
-	BUG_ON(tfw_cfg_nchild_first(default_node));
-}
-
-static void
-handle_node_fields(const TfwCfgSpec *spec, TfwCfgNode *node)
-{
-	if (spec->deflt) {
-		TfwCfgNode *default_node;
-
-		default_node = tfw_cfg_parse_single_node(spec->deflt);
-		BUG_ON(!default_node);
-
-		merge_in_defaults(node, default_node);
-		tfw_cfg_node_free(default_node);
-	}
-
 	if (spec->call_node)
-		spec->call_node(node);
+		return spec->call_node(node);
+
+	return 0;
 }
 
-static void
-apply_single_spec_item(const TfwCfgSpec *spec, TfwCfgNode *node)
+static int
+apply_spec_to_node(TfwCfgNode *node, void *arg)
 {
+	const TfwCfgSpec *spec = arg;
 	const TfwCfgVal *val;
+	int ret;
 
-	handle_node_fields(spec, node);
+	ret = apply_node_fields(spec, node);
+	if (ret)
+		return ret;
 
 	if (spec->attr) {
 		val = tfw_cfg_nattr_get(node, spec->attr);
-		handle_val_fields(spec, val);
+		ret = apply_val_fields(spec, val);
 	}
 	else if (spec->val_each) {
 		TFW_CFG_NVAL_EACH(node, val) {
-			handle_val_fields(spec, val);
+			ret = apply_val_fields(spec, val);
+			if (ret)
+				break;
 		}
 	}
 	else {
 		val = tfw_cfg_nval_get(node, spec->val_pos);
-		handle_val_fields(spec, val);
-	}
-}
-
-
-#define PATH_BUF_SIZE 255
-
-static void
-apply_spec_recursively(const TfwCfgSpec spec_arr[], TfwCfgNode *node, char *path)
-{
-	char *dot;
-	const TfwCfgSpec *spec;
-	TfwCfgNode *child;
-
-	/* Push current node to the path. */
-	if (path[0])
-		strlcat(path, ".", PATH_BUF_SIZE);
-	strlcat(path, tfw_cfg_nname_get(node), PATH_BUF_SIZE);
-
-	/* Apply the spec rules to the current node. */
-	for (spec = spec_arr; spec->path; ++spec) {
-		if (!strcasecmp(path, spec->path)) {
-			apply_single_spec_item(spec, node);
-		}
+		ret = apply_val_fields(spec, val);
 	}
 
-	/* Apply to all children recursively. */
-	TFW_CFG_NCHILD_EACH(node, child) {
-		apply_spec_recursively(spec_arr, child, path);
-	}
-
-	/* Pop current node from the path. */
-	dot = strrchr(path, '.');
-	if (dot)
-		*dot = '\0';
-	else
-		path[0] = '\0';
-}
-
-static void
-create_default_nodes(const TfwCfgSpec spec_arr[], TfwCfgNode *root)
-{
-	TfwCfgNode *child;
-	const TfwCfgSpec *spec;
-
-	for (spec = spec_arr; spec->path; ++spec) {
-		child = tfw_cfg_nchild_descend(root, spec->path);
-
-		if (!child && spec->deflt) {
-			child = tfw_cfg_nchild_descend_create(root, spec->path);
-			BUG_ON(!child);
-		}
-	}
+	return ret;
 }
 
 int
-tfw_cfg_spec_apply(const TfwCfgSpec spec_arr[], TfwCfgNode *node)
+tfw_cfg_spec_apply(const TfwCfgSpec spec_arr[], const TfwCfgNode *cfg_root)
 {
-	TfwCfgNode *child;
+	TfwCfgNode *root;
+	const TfwCfgSpec *spec;
+	const char *path;
+	void *arg;
+	int ret;
 
-	char path_buf[PATH_BUF_SIZE + 1];
-	path_buf[0] = '\0';
+	for_each_spec(spec, spec_arr) {
+		root = (TfwCfgNode *)cfg_root;
+		path = spec->path;
+		arg = (void *)spec;
 
-	create_default_nodes(spec_arr, node);
-
-	TFW_CFG_NCHILD_EACH(node, child) {
-		apply_spec_recursively(spec_arr, child, path_buf);
+		ret = tfw_cfg_node_walk(root, path, apply_spec_to_node, arg);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_spec_apply);
+DEBUG_EXPORT_SYMBOL(tfw_cfg_spec_apply);
+

@@ -70,7 +70,5 @@
 #define __TFW_CFG_H__
 
 #include "cfg_mod.h"
-#include "cfg_spec.h"
-#include "cfg_userspace_if.h"
 
 #endif /* __TFW_CFG_H__ */

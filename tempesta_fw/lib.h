@@ -37,4 +37,26 @@
 #define STRINGIFY(x) _STRINGIFY(x)
 #endif
 
+/**
+ * A cleaner replacement for #ifdef DEBUG used to eliminate sections of code
+ * in a release build.
+ */
+#ifdef DEBUG
+#define IF_DEBUG if (1)
+#else
+#define IF_DEBUG if (0)
+#endif
+
+/**
+ * The macro is used instead of EXPORT_SYMBOL() mostly for testing.
+ * Symbols marked with this macro are not exported in a release build and thus
+ * don't pollute the global symbols table.
+ */
+#ifdef DEBUG
+#define DEBUG_EXPORT_SYMBOL(sym) EXPORT_SYMBOL(sym)
+#else
+#define DEBUG_EXPORT_SYMBOL(sym)
+#endif
+
+
 #endif /* __TFW_LIB_H__ */

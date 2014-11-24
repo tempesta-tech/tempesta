@@ -21,9 +21,9 @@
 #include <linux/kernel.h>
 #include <net/net_namespace.h>
 
-#include "cfg_private_log.h"
 #include "cfg_mod.h"
 #include "cfg_parser.h"
+#include "cfg_private.h"
 
 
 #define CFG_BUF_SIZE 65536
@@ -101,13 +101,9 @@ start_modules_with_new_cfg(void)
 	int ret;
 	const char *cfg_text;
 
-	DBG("parsing new configuration and starting all modules\n")
+	DBG("parsing new configuration and starting all modules\n");
 
 	cfg_text = tfw_cfg_sysctl_bufs.cfg_text;
-	if (!*cfg_text) {
-		ERR("no configuration found\n");
-		return -EINVAL;
-	}
 
 	BUG_ON(parsed_cfg);
 	parsed_cfg = tfw_cfg_parse(cfg_text);
@@ -116,13 +112,7 @@ start_modules_with_new_cfg(void)
 		return -EINVAL;
 	}
 
-	ret = tfw_cfg_mod_publish_new_cfg(parsed_cfg);
-	if (ret) {
-		ERR("can't apply new configuration\n");
-		goto out_cleanup;
-	}
-
-	ret = tfw_cfg_mod_start_all();;
+	ret = tfw_cfg_mod_start_all(parsed_cfg);
 	if (ret) {
 		ERR("can't start modules\n");
 		goto out_cleanup;
@@ -231,14 +221,14 @@ static struct ctl_table_header *tfw_cfg_sysctl_hdr;
 int
 tfw_cfg_if_init(void)
 {
-	tfw_cfg_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta2",
+	tfw_cfg_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 						 tfw_cfg_sysctl_tbl);
 	if (!tfw_cfg_sysctl_hdr) {
 		ERR("can't register sysctl table\n");
 		return -1;
 	}
 
-	return start_modules_with_new_cfg();
+	return 0;
 }
 
 void

@@ -17,10 +17,10 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CFG_MODULE_H__
-#define __TFW_CFG_MODULE_H__
+#ifndef __TFW_CFG_SPEC_H__
+#define __TFW_CFG_SPEC_H__
 
-#include "cfg_parser.h"
+#include "cfg_node.h"
 
 typedef struct {
 	const char *path;
@@ -28,7 +28,8 @@ typedef struct {
 	/* Node-related fields. */
 	const char *deflt;
 	const char *doc;
-	void (*call_node)(const TfwCfgNode *node);
+	int (*call_node)(const TfwCfgNode *node);
+	bool is_not_singleton;
 
 
 	/* Value or attribute related fields. */
@@ -38,10 +39,10 @@ typedef struct {
 		u8 val_pos  : 7;
 	};
 
-	void (*call_int)(int value);
-	void (*call_bool)(bool value);
-	void (*call_str)(const char *str);
-	void (*call_addr)(const TfwAddr *addr);
+	int (*call_int)(int value);
+	int (*call_bool)(bool value);
+	int (*call_addr)(const TfwAddr *addr);
+	int (*call_str)(const char *str);
 
 	int *set_int;
 	bool *set_bool;
@@ -50,7 +51,17 @@ typedef struct {
 } TfwCfgSpec;
 
 
-int tfw_cfg_spec_apply(const TfwCfgSpec spec_arr[], TfwCfgNode *node);
+/* Create nodes and values specified by the @dflt field in TfwCfgSpec. */
+void tfw_cfg_spec_set_defaults(const TfwCfgSpec spec_arr[],
+			       TfwCfgNode *cfg_root);
+
+/* Handle validation-related fields of the TfwCfgSpec. */
+int tfw_cfg_spec_validate(const TfwCfgSpec spec_arr[],
+			  const TfwCfgNode *cfg_root);
+
+/* Handle set/callback fields in the TfwCfgSpec. */
+int tfw_cfg_spec_apply(const TfwCfgSpec spec_arr[],
+		       const TfwCfgNode *cfg_root);
 
 
-#endif /* __TFW_CFG_MODULE_H__ */
+#endif /* __TFW_CFG_SPEC_H__ */
