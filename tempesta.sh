@@ -14,7 +14,7 @@ TFW_CACHE_PATH=$TFW_ROOT/cache
 arg=${1:-}
 ss_path=${SYNC_SOCKET:="./"}
 tdb_path=${TDB:="./"}
-sched=${SCHED:="dummy"}
+sched=${SCHED:="rr"}
 
 error()
 {

@@ -37,20 +37,22 @@ tfw_session_sched_msg(TfwSession *s, TfwMsg *msg)
 		return -ENOENT;
 	}
 
+#ifdef TODO
 	s->srv = srv;
+#endif
 
 	return 0;
 }
 
 TfwSession *
-tfw_session_create(TfwClient *cli)
+tfw_session_create(struct sock *cli_sk)
 {
 	TfwSession *s = kmem_cache_alloc(sess_cache, GFP_ATOMIC);
 	if (!s)
 		return NULL;
 
-	s->cli = cli;
-	s->srv = NULL;
+	s->cli_sk = cli_sk;
+	s->srv_sk = NULL;
 	INIT_LIST_HEAD(&s->req_list);
 
 	return s;

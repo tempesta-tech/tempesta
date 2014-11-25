@@ -24,6 +24,7 @@
 #include <linux/in.h>
 #include <linux/in6.h>
 
+#include "addr.h"
 #include "log.h"
 #include "tempesta.h"
 
@@ -326,3 +327,24 @@ tfw_addr_eq(const void *addr1, const void *addr2)
 	}
 }
 EXPORT_SYMBOL(tfw_addr_eq);
+
+ssize_t
+tfw_addr_sa_len(const TfwAddr *addr)
+{
+	sa_family_t family;
+
+	BUG_ON(!addr);
+
+	family = addr->sa.sa_family;
+
+	if (family == AF_INET) {
+		return sizeof(addr->v4);
+	}
+	else if (family == AF_INET6) {
+		return sizeof(addr->v6);
+	}
+	else {
+		TFW_ERR("Bad address family: %d\n", family);
+		return -EINVAL;
+	}
+}

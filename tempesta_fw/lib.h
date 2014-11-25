@@ -37,4 +37,14 @@
 #define STRINGIFY(x) _STRINGIFY(x)
 #endif
 
+/**
+ * A cleaner replacement for #ifdef DEBUG used to eliminate sections of code
+ * in a release build.
+ */
+#ifdef DEBUG
+#define IF_DEBUG if (1)
+#else
+#define IF_DEBUG if (0)
+#endif
+
 #endif /* __TFW_LIB_H__ */

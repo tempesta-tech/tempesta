@@ -42,6 +42,11 @@ enum {
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
 
+typedef int (*tfw_conn_close_cb_t)(struct sock *sk);
+
+#define TFW_CONN_CLOSE_FREE	0
+#define TFW_CONN_CLOSE_LEAVE	1
+
 /* TODO backend connection could have many sessions. */
 typedef struct {
 	/*
@@ -51,12 +56,19 @@ typedef struct {
 	SsProto		proto;
 
 	TfwMsg		*msg;	/* currently processing (receiving) message */
-	void 		*hndl;	/* TfwClient or TfwServer handler */
 	TfwSession	*sess;	/* currently handled session */
 
-	/* Original sk->sk_destruct. Destructors passed to tfw_connection_new()
-	 * must call it manually. */
-	void (*sk_destruct)(struct sock *sk);
+	/* host of the connection - either TfwClient or TfwServer */
+	union {
+		TfwClient *cli;
+		TfwServer *srv;
+		void *hndl;
+	};
+
+	/* A callback which is invoked when the connection is closed (either
+	 * by local or remote side. Decides whether the connection should freed
+	 * or live for further re-connection. */
+	tfw_conn_close_cb_t close_cb;
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
@@ -85,18 +97,19 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
+
 static inline TfwConnection *
 tfw_sess_conn(TfwSession *sess, int type)
 {
 	if (type & Conn_Clnt) {
-		BUG_ON(!sess->cli);
-		return sess->cli->sock->sk_user_data;
+		BUG_ON(!sess->cli_sk);
+		return sess->cli_sk->sk_user_data;
 	}
 
 	if (type & Conn_Srv) {
-		if (!sess->srv)
+		if (!sess->srv_sk)
 			return NULL;
-		return sess->srv->sock->sk_user_data;
+		return sess->srv_sk->sk_user_data;
 	}
 
 	BUG();
@@ -121,12 +134,13 @@ tfw_connection_peer(TfwConnection *c)
 	return NULL;
 }
 
+
 /* Connection downcalls. */
 int tfw_connection_new(struct sock *sk, int type, void *handler,
-		       void (*destructor)(struct sock *s));
-void tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg);
-int tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg);
+		       tfw_conn_close_cb_t close_cb);
+void tfw_connection_free(TfwConnection *c);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
-
+void tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg);
+int tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg);
 #endif /* __TFW_CONNECTION_H__ */

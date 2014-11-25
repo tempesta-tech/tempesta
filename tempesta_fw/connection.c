@@ -52,7 +52,7 @@ tfw_connection_alloc(int type, void *handler)
 	return c;
 }
 
-static void
+void
 tfw_connection_free(TfwConnection *c)
 {
 	TFW_DBG("Free connection: %p\n", c);
@@ -89,7 +89,7 @@ tfw_connection_free(TfwConnection *c)
  */
 int
 tfw_connection_new(struct sock *sk, int type, void *handler,
-		  void (*destructor)(struct sock *s))
+		   tfw_conn_close_cb_t close_cb)
 {
 	TfwConnection *conn;
 	SsProto *proto = sk->sk_user_data;
@@ -107,11 +107,9 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 		return -ENOMEM;
 	}
 
+	conn->close_cb = close_cb;
+
 	sk->sk_user_data = conn;
-
-	conn->sk_destruct = sk->sk_destruct;
-	sk->sk_destruct = destructor;
-
 	sock_set_flag(sk, SOCK_DBG);
 
 	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(conn);
@@ -145,7 +143,7 @@ tfw_connection_close(struct sock *sk)
 void
 tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg)
 {
-	ss_send(sess->cli->sock, &msg->skb_list);
+	ss_send(sess->cli_sk, &msg->skb_list);
 }
 
 int
@@ -164,8 +162,7 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	 */
 
 	if (tfw_session_sched_msg(sess, msg)) {
-		TFW_ERR("Cannot schedule message, msg=%p clnt=%p\n",
-			msg, sess->cli);
+		TFW_ERR("Cannot schedule message, msg=%p\n", msg);
 		return -1;
 	}
 
@@ -179,7 +176,7 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
 	srv_conn->sess = sess;
 
-	ss_send(sess->srv->sock, &msg->skb_list);
+	ss_send(sess->srv_sk, &msg->skb_list);
 
 	return 0;
 }
@@ -212,14 +209,14 @@ tfw_connection_new_upcall(struct sock *sk)
 	 * We have too lookup the client by the socket and create a new one
 	 * only if it's really new.
 	 */
-	cli = tfw_create_client(sk);
+	cli = tfw_client_alloc(sk);
 	if (!cli) {
 		TFW_ERR("Can't allocate a new client");
 		ss_close(sk);
 		return -EINVAL;
 	}
 
-	tfw_connection_new(sk, Conn_Clnt, cli, tfw_destroy_client);
+	tfw_connection_new(sk, Conn_Clnt, cli, tfw_client_conn_close);
 
 	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
 
@@ -227,17 +224,17 @@ tfw_connection_new_upcall(struct sock *sk)
 }
 
 static TfwSession *
-tfw_create_and_link_session(TfwConnection *cli_conn)
+tfw_create_and_link_session(struct sock *cli_sk)
 {
-	TfwClient *cli = cli_conn->hndl;
+	TfwConnection *cli_conn = cli_sk->sk_user_data;
 	TfwSession *sess;
 
-	sess = tfw_session_create(cli);
+	sess = tfw_session_create(cli_sk);
 	if (!sess)
 		return NULL;
-	BUG_ON(cli_conn->sess);
 
 	/* Bind current client connection with the session. */
+	BUG_ON(cli_conn->sess);
 	cli_conn->sess = sess;
 
 	return sess;
@@ -273,7 +270,7 @@ tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 		 * if it wasn't done so far.
 		 */
 		if (!conn->sess) {
-			tfw_create_and_link_session(conn);
+			tfw_create_and_link_session(sk);
 			if (!conn->sess) {
 				TFW_WARN("Can't allocate new session\n");
 				return -ENOMEM;

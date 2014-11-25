@@ -228,8 +228,8 @@ alloc_ptrset(TfwPool *pool)
 static TfwServer *
 resolve_addr(const TfwAddr *addr)
 {
-	int i, ret;
-	TfwAddr curr_addr;
+	int i;
+	TfwAddr *curr_addr;
 	TfwServer *curr_srv;
 	TfwServer *out_srv = NULL;
 
@@ -237,12 +237,9 @@ resolve_addr(const TfwAddr *addr)
 
 	for (i = 0; i < added_servers->n; ++i) {
 		curr_srv = added_servers->ptrs[i];
+		curr_addr = &curr_srv->addr;
 
-		ret = tfw_server_get_addr(curr_srv, &curr_addr);
-		if (ret) {
-			LOG("Can't get address of the server: %p\n", curr_srv);
-		}
-		else if (tfw_addr_eq(addr, &curr_addr)) {
+		if (tfw_addr_eq(addr, curr_addr)) {
 			out_srv = curr_srv;
 			break;
 		}

@@ -229,7 +229,7 @@ tfw_sched_rr_debugfs_hook(bool input, char *buf, size_t size)
 
 	for (i = 0; i < my->servers_n; ++i) {
 		char mark = (i == (my->counter % my->servers_n)) ? '>' : ' ';
-		char srv_str[TFW_MAX_SERVER_STR_SIZE];
+		char srv_str[TFW_SRV_STR_MAX_SIZE];
 
 		tfw_server_snprint(my->servers[i], srv_str, sizeof(srv_str));
 		pos += snprintf(buf + pos, size - pos, "%c%s\n", mark, srv_str);

@@ -30,43 +30,37 @@
 static struct kmem_cache *srv_cache;
 
 void
-tfw_destroy_server(struct sock *s)
+tfw_server_free(TfwServer *srv)
 {
-	TfwConnection *conn = s->sk_user_data;
-	TfwServer *srv;
-
-	BUG_ON(!conn);
-	srv = conn->hndl;
+	struct sock *sk;
+	int i;
 
 	/* The call back can be called twise bou our and Linux code. */
 	if (unlikely(!srv))
 		return;
 
-	TFW_DBG("Destroy server socket %p\n", s);
+	TFW_DBG("Destroy server: %p\n", srv);
 
 	if (tfw_sched_del_srv(srv))
 		TFW_WARN("Try to delete orphaned server from"
 			 " requests scheduler");
 
-	srv->sock = NULL;
-	conn->hndl = NULL;
+	tfw_ptrset_for_each(sk, i, &srv->socks) {
+		tfw_connection_free(sk->sk_user_data);
+	}
 
 	/* FIXME clear the server references from all current sessions. */
 #if 0
 	kmem_cache_free(srv_cache, srv);
 #endif
-
-	conn->sk_destruct(s);
 }
 
 TfwServer *
-tfw_create_server(struct sock *s)
+tfw_server_alloc(void)
 {
 	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC);
 	if (!srv)
 		return NULL;
-
-	srv->sock = s;
 
 	if (tfw_sched_add_srv(srv)) {
 		TFW_ERR("Can't add a server to requests scheduler\n");
@@ -78,28 +72,13 @@ tfw_create_server(struct sock *s)
 }
 
 int
-tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr)
-{
-	int ret = 0;
-	int len = sizeof(*addr);
-
-	memset(addr, 0, len);
-	ret = kernel_getpeername(srv->sock->sk_socket, &addr->addr, &len);
-
-	return ret;
-}
-EXPORT_SYMBOL(tfw_server_get_addr);
-
-int
 tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 {
-	TfwAddr addr;
 	char addr_str_buf[MAX_ADDR_LEN];
 
 	BUG_ON(!srv || !buf || !buf_size);
 
-	tfw_server_get_addr(srv, &addr);
-	tfw_inet_ntop(&addr, addr_str_buf);
+	tfw_inet_ntop(&srv->addr, addr_str_buf);
 
 	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }

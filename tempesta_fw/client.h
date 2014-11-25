@@ -24,8 +24,8 @@ typedef struct {
 	struct sock	*sock;
 } TfwClient;
 
-TfwClient *tfw_create_client(struct sock *s);
-void tfw_destroy_client(struct sock *s);
+TfwClient *tfw_client_alloc(struct sock *s);
+int tfw_client_conn_close(struct sock *sk);
 
 int tfw_client_init(void);
 void tfw_client_exit(void);

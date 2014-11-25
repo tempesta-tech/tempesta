@@ -33,13 +33,13 @@
  * session.
  */
 typedef struct {
-	TfwServer	*srv;
-	TfwClient	*cli;
+	struct sock 	 *srv_sk;
+	struct sock	 *cli_sk;
 	struct list_head req_list; /* list of pipelined requests */
 } TfwSession;
 
 int tfw_session_sched_msg(TfwSession *s, TfwMsg *msg);
-TfwSession *tfw_session_create(TfwClient *cli);
+TfwSession *tfw_session_create(struct sock *cli_sk);
 void tfw_session_free(TfwSession *s);
 
 int tfw_session_init(void);

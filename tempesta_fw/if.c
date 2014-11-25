@@ -99,7 +99,6 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 {
 	int r, i;
 	TfwAddrCfg *new_addr = NULL, **cfg_addr = ctl->extra1;
-	int (*reinit)(void) = ctl->extra2;
 
 	if (write) {
 		char *p, *tmp_buf;
@@ -150,8 +149,6 @@ sysctl_addr(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 		*cfg_addr = new_addr;
 
 		up_write(&tfw_cfg.mtx);
-
-		r = reinit();
 	}
 
 	return r;
@@ -165,7 +162,6 @@ static ctl_table tfw_ctl_main_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= sysctl_addr,
 		.extra1		= &tfw_cfg.backends,
-		.extra2		= tfw_sock_backend_refresh_cfg,
 	},
 	{ /* TODO reinitialize/destroy storage on setting/unsetting the var. */
 		.procname	= "cache_enable",

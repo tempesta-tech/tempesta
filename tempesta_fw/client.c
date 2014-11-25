@@ -27,30 +27,31 @@
 
 static struct kmem_cache *cli_cache;
 
-void
-tfw_destroy_client(struct sock *s)
+int
+tfw_client_conn_close(struct sock *sk)
 {
-	TfwConnection *conn = s->sk_user_data;
 	TfwClient *cli;
+	TfwConnection *conn;
 
-	BUG_ON(!conn);
-	cli = conn->hndl;
+	TFW_DBG("Close client socket: %p\n", sk);
 
-	/* The call back can be called twise bou our and Linux code. */
-	if (unlikely(!cli))
-		return;
+	BUG_ON(!sk);
+	BUG_ON(!sk->sk_user_data);
 
-	TFW_DBG("Destroy client socket %p\n", s);
+	conn = sk->sk_user_data;
+	cli = conn->cli;
+	BUG_ON(!cli);
 
-	conn->hndl = NULL;
+	TFW_DBG("Destroy client: %p\n", cli);
 
+	conn->cli = NULL;
 	kmem_cache_free(cli_cache, cli);
 
-	conn->sk_destruct(s);
+	return TFW_CONN_CLOSE_FREE;
 }
 
 TfwClient *
-tfw_create_client(struct sock *s)
+tfw_client_alloc(struct sock *s)
 {
 	TfwClient *c = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
 	if (!c)
