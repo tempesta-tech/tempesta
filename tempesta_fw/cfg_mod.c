@@ -44,6 +44,12 @@
  */
 static bool mods_are_started;
 
+/**
+ * Modules may hold references to parsed confugration objects during their
+ * operation, so we are storing it here between setup/cleanup events.
+ */
+TfwCfgNode *current_cfg;
+
 /* The global list of all registered modules (consists of TfwCfgMod objects). */
 static LIST_HEAD(tfw_cfg_mod_list);
 
@@ -144,7 +150,7 @@ tfw_cfg_mod_register(TfwCfgMod *mod)
 	ret = call_mod_init(mod);
 	if (ret) {
 		ERR("can't register module: %s - init callback returned error: "
-		    "%d\n", ret);
+		    "%d\n", mod->name, ret);
 		return ret;
 	}
 
@@ -209,6 +215,7 @@ tfw_cfg_mod_start_all(TfwCfgNode *new_cfg)
 	DBG("starting all modules\n");
 
 	BUG_ON(mods_are_started);
+	BUG_ON(current_cfg);
 	WARN_ON(list_empty(&tfw_cfg_mod_list));
 
 	FOR_EACH_MOD(mod) {
@@ -249,6 +256,7 @@ tfw_cfg_mod_start_all(TfwCfgNode *new_cfg)
 	}
 
 	mods_are_started = true;
+	current_cfg = new_cfg;
 
 	return 0;
 
@@ -290,6 +298,7 @@ void tfw_cfg_mod_stop_all(void)
 	DBG("stopping all modules\n");
 
 	BUG_ON(!mods_are_started);
+	BUG_ON(!current_cfg);
 	WARN_ON(list_empty(&tfw_cfg_mod_list));
 
 	FOR_EACH_MOD_REVERSE(mod) {
@@ -300,6 +309,8 @@ void tfw_cfg_mod_stop_all(void)
 		call_mod_cleanup(mod);
 	}
 
+	tfw_cfg_node_free(current_cfg);
+	current_cfg = NULL;
 	mods_are_started = false;
 }
 
