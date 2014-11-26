@@ -32,15 +32,34 @@ typedef struct {
 	/* Text name of the module. At this point used only for logging. */
 	const char *name;
 
-	/* These two act like module_init()/module_exit(). They are used only
-	 * within this Tempesta FW kernel module to avoid boilerplate code. */
+	/* These two act like module_init()/module_exit(). They are called when
+	 * a module is registered/unregistered and used to eliminate some
+	 * boilerplate code (init/exit function declarations and calls). */
 	int (*init)(void);
 	void (*exit)(void);
 
-	/* An array (terminated by an empty element) that specifies rules
-	 * for handling configuration entries for this module. */
+	/* An array (terminated by an empty element) that stores rules for
+	 * processing configuration for this module. */
 	const TfwCfgSpec *cfg_spec_arr;
 
+	/* These four callbacks are invoked when start/stop events are received.
+	 * Basically, the system life cycle looks like this:
+	 *   1. Receive a "start" event, and then:
+	 *        a. Call @setup for each module.
+	 *        b. Process @cfg_spec_arr of each module.
+	 *        c. Call @start for each module.
+	 *   2. Modules are started and doing something useful.
+	 *   3. Receive "stop" event, and then:
+	 *        a. Call @stop for each module.
+	 *        b. Call @cleanup for each module.
+	 *        c. Free configuration passed to @cfg_spec_arr callbacks.
+	 *
+	 * We need separate @setup/@cleanup callbacks to determine lifetime of
+	 * allocated memory: modules shall allocate memory in @setup and free
+	 * it in @cleanup, so other modules may reference it in @start/@stop
+	 * callbacks. Also after @cleanup all the parsed configuration dies, so
+	 * modules must clean references to objects like TfwCfgNode and TfwAddr.
+	 */
 	int (*setup)(void);
 	int (*start)(void);
 	void (*stop)(void);
@@ -48,8 +67,8 @@ typedef struct {
 } TfwCfgMod;
 
 /* Call init/exit and subscribe to start/stop events. */
-int tfw_cfg_mod_init(TfwCfgMod *mod);
-void tfw_cfg_mod_exit(TfwCfgMod *mod);
+int tfw_cfg_mod_register(TfwCfgMod *mod);
+void tfw_cfg_mod_unregister(TfwCfgMod *mod);
 
 /* Publish start/stop events. */
 int tfw_cfg_mod_start_all(TfwCfgNode *cfg_root);

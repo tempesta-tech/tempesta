@@ -31,7 +31,7 @@ MODULE_LICENSE("GPL");
 #define INIT_TFW_MOD(mod_name) 			\
 do {						\
 	extern TfwCfgMod mod_name; 		\
-	r = tfw_cfg_mod_init(&mod_name); 	\
+	r = tfw_cfg_mod_register(&mod_name); 	\
 	if (r)					\
 		goto err;			\
 } while (0)

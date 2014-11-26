@@ -22,10 +22,51 @@
 
 #include "cfg_node.h"
 
+/**
+ * A TfwCfgSpec describes a single rule, according to which configuration is
+ * somehow processed.
+ *
+ *
+ * @deflt is a default value.
+ * It is specified for the whole node as raw text, e.g.:
+ *     .dflt = "server example.com 127.0.0.1;"
+ * The string is parsed, and the resulting TfwCfgNode is used as a source of
+ * default values. This is ugly, but allows to reduce the amount of extra fields
+ * for each kind of value.
+ *
+ * @doc is a documentation string.
+ * It is used for generating default config file with documentation comments
+ * and basically to make your source code easier to understand.
+ *
+ * @call_node is called when node with the given @path is met.
+ * The callback (just like all other callbacks in this structure) may signal an
+ * error by returning an error. In this case processing of the whole spec is
+ * stopped and a major error is issued.
+ *
+ * @is_not_singleton says whether there must be only one node with the
+ * given @path in any configuration tree.
+ * Usually, there are two kinds of data expressed in configuration files:
+ *  1. Singletons - regular entities: sections and settings.
+ *  2. Non-singletons - repetitive things like a rules for tfw_sched_http.
+ * For singletons @dflt creates a node if it doesn't exist.
+ * For non-singletons @deflt merges-in default values and attributes into each
+ * node with given @path (doesn't create a node if it doesn't exist).
+ *
+ *
+ * @attr, @val_each and @val_pos specify a value for which all actions
+ * described below are performed.
+ *
+ * @set_int, @set_bool, @set_str and @set_addr allows to save the value to
+ * a variable or a structure. If there is no value of given type, then zero
+ * is saved by the given pointer.
+ *
+ * @call_int, @call_bool, @call_addr and @call_str allow to invoke a custom
+ * callback when a value at specified position is met. A callback is not invoked
+ * at all when there is no value of such type.
+ */
 typedef struct {
-	const char *path;
-
 	/* Node-related fields. */
+	const char *path;
 	const char *deflt;
 	const char *doc;
 	int (*call_node)(const TfwCfgNode *node);

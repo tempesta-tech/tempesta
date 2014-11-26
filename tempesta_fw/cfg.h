@@ -34,14 +34,20 @@
  *     Delivers all the configuration from user-space to registered modules.
  *     Listens for start/stop/reload events via sysctl, reads the configuration
  *     via VFS, passes it to the parser, and then to the registered modules.
- *  - cfg_module.c
+ *  - cfg_mod.c
+ *     Maintains a list of all registered modules and distributes start/stop
+ *     events across them.
+ *  - cfg_spec.c
  *     An API for other modules that allows to register callbacks for various
  *     sections and directives, add some validation rules, etc.
  *  - cfg_parser.c
  *     Code that deserializes plain-text configuration into a tree of all
  *     nested sections and so on.
- *     Also the unit defines TfwCfgNode (the basic building block of the parsed
- *     configuration tree) and a bunch of methods for querying the parsed tree.
+ *  - cfg_node.c
+ *     Defines TfwCfgNode (the basic building block of the parsed configuration
+ *     tree) and a bunch of methods for querying the parsed tree.
+ *
+ * This file only exposes external API for Tempesta FW modules.
  *
  * Major TODO items:
  *  - Managing large sets of data via Tempesta DB.

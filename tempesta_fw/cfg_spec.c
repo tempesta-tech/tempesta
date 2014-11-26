@@ -1,6 +1,63 @@
 /**
  *		Tempesta FW
  *
+ * The TfwCfgSpec is a little DSL for describing configuration rules
+ * in a declarative manner.
+ *
+ * A spec looks like this:
+ *  TfwCfgSpec s = {
+ *          .path = "foo.bar.baz",       // path of a node
+ *          .call_node = my_callback,    // what to do with this node
+ *
+ *          .attr = "is_enabled",        // name of an attribute within the node
+ *          .set_bool = &my_variable,    // what to do with the attribute
+ *   }
+ *
+ * Basically, each spec combines:
+ *   1. Path to a node and a bunch of actions that are performed when such node
+ *      is met in a parsed configuration tree.
+ *   2. Attribute name or value position and a bunch of actions that performed
+ *      on the value.
+ *
+ * There are various fields in the structure for specifying various actions:
+ * set variable, call a callback, validate the value, set default value, etc.
+ *
+ * Nodes and values are different kinds of data and therefore have different
+ * actions. Naturally they should be represented with different structures,
+ * but that would be tricky in C, so we combine everything into the single
+ * TfwCfgSpec structure and use an array of them to describe all the rules.
+ *
+ * For better understanding see the structure declaration, tests and usages in
+ * real Tempesta FW modules.
+ *
+ * One final note is: why do we need the TfwCfgSpec and why just not query a
+ * parsed configuration tree with functions from cfg_node.c?
+ * The goals are:
+ *   - Reduce amount of boilerplate code: ecach time you need to query the tree,
+ *     check return codes, cast values (since they are dynamically typed), etc.
+ *     Code in this unit does all this common function calls for you, and you
+ *     just need to provide arguments via the spec.
+ *   - The structure may be easily interpreted to build a default configuration
+ *     file or documentation which is more tricky with C code.
+ *   - Implicit validation: if you specify a callback that takes TfwAddr, then
+ *     you likely expect only an IP address as a value, so we can check it and
+ *     print an error message automatically.
+ *   - Repetitive nodes (like a list of request matching rules in sched_http)
+ *     are tricky to handle manually: you have to walk over the tree and compare
+ *     the path manually. Code in this unit already does it for you.
+ *   - A declarative set of rules is likely easier to read than imperative C
+ *     code. Also the code style is likely to be more uniform across modules.
+ *
+ * TODO:
+ *   - Validation (either implicit or explicit).
+ *   - Generating documentation and default config file.
+ *   - Spec fields that allow to add objects to collections like linked lists
+ *     and remove them when the configuration is changed (collect garbage).
+ *   - Better error messages: user should see some metadata: file/line/source
+ *     when validation failed or a callback returned an error code.
+ *   - Handle conflicts between specs of different modules: for example, what
+ *     happens if two modules define different default values for the same node?
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  *
  * This program is free software; you can redistribute it and/or modify it

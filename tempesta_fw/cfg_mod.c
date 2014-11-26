@@ -2,11 +2,13 @@
  *		Tempesta FW
  *
  * This unit implements a global list of Tempesta FW modules.
+ *
  * Basically it implements a publish-subscribe pattern.
- * Various modules subscribe themselves here (via tfw_cfg_mod_init())
- * to receive start/stop events.
- * On the other side, some routine in cfg_userspace_if.c receives start/stop
- * commands and publishes them here (via tfw_cfg_mod_start_all()/_stop_all()).
+ * Modules subscribe to start/stop events and some sysctl handler publishes
+ * the event (and attaches a new configuration tree).
+ *
+ * So the responsibility of this unit is to distribute start/stop events and
+ * configuration updates across all modules registered in a running system.
  *
  * Also, new configuration has to be applied before starting the modules,
  * so tfw_cfg_mod_start_all() takes the parsed TfwCfgNode as an argument and
@@ -32,10 +34,18 @@
 #include "cfg_mod.h"
 #include "cfg_private.h"
 
-/* TODO: synchronize access to these variables. */
-static bool mods_are_started;
-static LIST_HEAD(tfw_cfg_mod_list);
+/* TODO: synchronize access to these global variables. */
 
+/**
+ * At this point we start/stop the whole system and don't allow separate modules
+ * to change the state. Also that implies, that a new module may be added only
+ * when the system is stopped.
+ * So this variable is used to check this constraint.
+ */
+static bool mods_are_started;
+
+/* The global list of all registered modules (consists of TfwCfgMod objects). */
+static LIST_HEAD(tfw_cfg_mod_list);
 
 #define FOR_EACH_MOD(pos) \
 	list_for_each_entry(pos, &tfw_cfg_mod_list, list)
@@ -46,11 +56,34 @@ static LIST_HEAD(tfw_cfg_mod_list);
 #define FOR_EACH_MOD_SAFE_REVERSE(pos, tmp) \
 	list_for_each_entry_safe_reverse(pos, tmp, &tfw_cfg_mod_list, list)
 
-#define FOR_EACH_MOD_REVERSE_FROM_PREV(pos, from_pos) \
-	for (pos = list_entry(from_pos->list.prev, TfwCfgMod, list);  \
+/**
+ * Iterate over modules in the reverse order starting from an element which
+ * is previous to the @curr_pos.
+ *
+ * Assume you are iterating over all modules and do some operation, and it is
+ * failed for the current module (pointed by @curr_pos). Then you would like to
+ * iterate over already processed modules and cancel the operation for them,
+ * so this macro helps you to do that.
+ */
+#define FOR_EACH_MOD_REVERSE_FROM_PREV(pos, curr_pos) \
+	for (pos = list_entry(curr_pos->list.prev, TfwCfgMod, list);  \
 	     &pos->list != &tfw_cfg_mod_list; \
 	     pos = list_entry(pos->list.prev, TfwCfgMod, list))
 
+
+/* The following macros generate shortcut functions for invoking
+ * callbacks specified in TfwCfgMod.
+ *
+ * A generated function looks like this:
+ *
+ *    int call_mod_start(const TfwCfgMod *mod)
+ *    {
+ *            int ret = 0;
+ *            if (mod->mod_start)
+ *                    ret = mod->mod_start();
+ *            return ret;
+ *    }
+ */
 
 #define DEFINE_CB(callback_name) 				\
 static void 							\
@@ -81,12 +114,21 @@ DEFINE_CB(stop);
 DEFINE_CB(cleanup);
 DEFINE_CB(exit);
 
+
+/**
+ * Add @mod to the global list of registered modules and call @mod->init.
+ *
+ * After the registration the module starts receiving start/stop/setup/cleanup
+ * events and configuration updates.
+ */
 int
-tfw_cfg_mod_init(TfwCfgMod *mod)
+tfw_cfg_mod_register(TfwCfgMod *mod)
 {
 	int ret;
 
 	BUG_ON(!mod || !mod->name);
+
+	LOG("register module: %s\n", mod->name);
 
 	if (mods_are_started) {
 		ERR("can't register module: %s - other modules are running and"
@@ -100,18 +142,24 @@ tfw_cfg_mod_init(TfwCfgMod *mod)
 	}
 
 	ret = call_mod_init(mod);
-	if (ret)
+	if (ret) {
+		ERR("can't register module: %s - init callback returned error: "
+		    "%d\n", ret);
 		return ret;
+	}
 
 	INIT_LIST_HEAD(&mod->list);
 	list_add_tail(&mod->list, &tfw_cfg_mod_list);
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_cfg_mod_init);
+EXPORT_SYMBOL(tfw_cfg_mod_register);
 
+/**
+ * Remove the @mod from the global list and call the @mod->exit callback.
+ */
 void
-tfw_cfg_mod_exit(TfwCfgMod *mod)
+tfw_cfg_mod_unregister(TfwCfgMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
 
@@ -122,11 +170,10 @@ tfw_cfg_mod_exit(TfwCfgMod *mod)
 	     "removing a module while the system is running is dangerous.",
 	     mod->name);
 
-
 	list_del(&mod->list);
 	call_mod_exit(mod);
 }
-EXPORT_SYMBOL(tfw_cfg_mod_exit);
+EXPORT_SYMBOL(tfw_cfg_mod_unregister);
 
 /**
  * Propagate new configuration to all modules and then start them.
@@ -270,6 +317,6 @@ tfw_cfg_mod_exit_all(void)
 		tfw_cfg_mod_stop_all();
 
 	FOR_EACH_MOD_SAFE_REVERSE(mod, tmp) {
-		tfw_cfg_mod_exit(mod);
+		tfw_cfg_mod_unregister(mod);
 	}
 }
