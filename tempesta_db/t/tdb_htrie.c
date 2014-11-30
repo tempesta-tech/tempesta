@@ -163,14 +163,14 @@ ffz(unsigned long word)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
 				 / BITS_PER_LONG)
 /* Convert internal offsets to system pointer. */
-#define TDB_HTRIE_PTR(h, o)	(void *)((char *)(h) + (o))
+#define TDB_PTR(h, o)		(void *)((char *)(h) + (o))
 /* Get internal offset from a pointer. */
 #define TDB_HTRIE_OFF(h, p)	((char *)(p) - (char *)(h))
 /* Get index and data block indexes by byte offset and vise versa. */
-#define TDB_HTRIE_O2DI(o)	((o) / TDB_HTRIE_MINDREC)
-#define TDB_HTRIE_O2II(o)	((o) / TDB_HTRIE_NODE_SZ)
-#define TDB_HTRIE_DI2O(i)	((i) * TDB_HTRIE_MINDREC)
-#define TDB_HTRIE_II2O(i)	((i) * TDB_HTRIE_NODE_SZ)
+#define TDB_O2DI(o)	((o) / TDB_HTRIE_MINDREC)
+#define TDB_O2II(o)	((o) / TDB_HTRIE_NODE_SZ)
+#define TDB_DI2O(i)	((i) * TDB_HTRIE_MINDREC)
+#define TDB_II2O(i)	((i) * TDB_HTRIE_NODE_SZ)
 /* Base offset of extent containing pointer @p. */
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 
@@ -268,12 +268,9 @@ typedef TdbFRec TdbRec;
 #define TDB_HTRIE_BUCKET_1ST(b)	((void *)((b) + 1))
 #define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BUCKET_1ST(b))
 /* Iterate over buckets in collision chain. */
-#define TDB_HTRIE_BUCKET_NEXT(h, b)					\
-({									\
-	(b)->coll_next							\
-	? TDB_HTRIE_PTR(h, TDB_HTRIE_DI2O((b)->coll_next))		\
-	: NULL;								\
- })
+#define TDB_HTRIE_BUCKET_NEXT(h, b) ((b)->coll_next			\
+				     ? TDB_PTR(h, TDB_DI2O((b)->coll_next))\
+				     : NULL)
 
 #define TDB_HDR_SZ(h)							\
 	(sizeof(TdbHdr) + TDB_EXT_BMP_2L(h) * sizeof(long))
@@ -400,7 +397,7 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	set_bit(0, hdr->ext_bmp);
 	set_bit(BITS_PER_LONG - 1, &hdr->ext_bmp[TDB_EXT_BMP_2L(hdr) - 1]);
 	set_bit(0, tdb_ext(hdr, hdr)->b_bmp);
-	set_bit(0, tdb_ext(hdr, TDB_HTRIE_PTR(hdr, hdr->d_wcl))->b_bmp);
+	set_bit(0, tdb_ext(hdr, TDB_PTR(hdr, hdr->d_wcl))->b_bmp);
 
 	return hdr;
 }
@@ -502,7 +499,7 @@ static unsigned long
 tdb_alloc_index_blk(TdbHdr *dbh)
 {
 	unsigned long rptr;
-	TdbExt *e = tdb_ext(dbh, TDB_HTRIE_PTR(dbh, dbh->i_wcl));
+	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->i_wcl));
 
 	while (1) {
 		rptr = tdb_alloc_blk(dbh, e);
@@ -526,7 +523,7 @@ static unsigned long
 tdb_alloc_data_blk(TdbHdr *dbh)
 {
 	unsigned long rptr;
-	TdbExt *e = tdb_ext(dbh, TDB_HTRIE_PTR(dbh, dbh->d_wcl));
+	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->d_wcl));
 
 	while (1) {
 		rptr = tdb_alloc_blk(dbh, e);
@@ -609,22 +606,6 @@ tdb_alloc_index(TdbHdr *dbh)
 	return rptr;
 }
 
-TdbHdr *
-tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
-{
-	TdbHdr *hdr = (TdbHdr *)p;
-
-	if (hdr->magic != TDB_MAGIC)
-		hdr = tdb_init_mapping(p, db_size, rec_len);
-
-	TDB_DBG("init db header: i_wcl=%lu d_wcl=%lu db_size=%lu rec_len=%u"
-		" i_wm=%u d_wm=%u\n",
-		hdr->i_wcl, hdr->d_wcl, hdr->dbsz, hdr->rec_len, hdr->i_wm,
-		hdr->d_wm);
-
-	return hdr;
-}
-
 static void
 tdb_htrie_init_bucket(TdbBucket *b)
 {
@@ -698,15 +679,15 @@ tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 	n = tdb_alloc_index(dbh);
 	if (!n)
 		return -ENOMEM;
-	new_in = TDB_HTRIE_PTR(dbh, n);
-	new_in_idx = TDB_HTRIE_O2II(n);
+	new_in = TDB_PTR(dbh, n);
+	new_in_idx = TDB_O2II(n);
 
 #define MOVE_RECORDS(Type, live)					\
 do {									\
 	Type *r = (Type *)b;						\
 	k = TDB_HTRIE_IDX(r->key, bits);				\
 	/* Always leave first record in the same data block. */		\
-	new_in->shifts[k] = TDB_HTRIE_O2DI(TDB_HTRIE_OFF(dbh, bckt))	\
+	new_in->shifts[k] = TDB_O2DI(TDB_HTRIE_OFF(dbh, bckt))	\
 			    | TDB_HTRIE_DBIT;				\
 	TDB_DBG("link bckt=%p w/ iblk=%#x by %#lx (key=%#lx)\n",	\
 		bckt, new_in_idx, k, r->key);				\
@@ -729,19 +710,18 @@ do {									\
 			nb[k].b = tdb_alloc_data(dbh, 0);		\
 			if (!nb[k].b)					\
 				goto err_cleanup;			\
-			b = TDB_HTRIE_PTR(dbh, nb[k].b);		\
+			b = TDB_PTR(dbh, nb[k].b);			\
 			tdb_htrie_init_bucket(b);			\
 			memcpy(TDB_HTRIE_BUCKET_1ST(b), r, n);		\
 			nb[k].off = sizeof(*b) + n;			\
-			new_in->shifts[k] = TDB_HTRIE_O2DI(nb[k].b)	\
-					    | TDB_HTRIE_DBIT;		\
+			new_in->shifts[k] = TDB_O2DI(nb[k].b) | TDB_HTRIE_DBIT;\
 			/* We copied a record, clear its orignal place. */\
 			free_nb = free_nb > 0 ? free_nb : -free_nb;	\
 			TDB_DBG("copied rec=%p (len=%lu key=%#lx) to"	\
 				" new dblk=%#lx w/ idx=%#lx\n",		\
 				r, n, r->key, nb[k].b, k);		\
 		} else {						\
-			b = TDB_HTRIE_PTR(dbh, nb[k].b + nb[k].off);	\
+			b = TDB_PTR(dbh, nb[k].b + nb[k].off);		\
 			memmove(b, r, n);				\
 			nb[k].off += n;					\
 			TDB_DBG("moved rec=%p (len=%lu key=%#lx) to"	\
@@ -769,7 +749,7 @@ do {									\
 	if (free_nb > 0) {
 		TDB_DBG("clear dblk=%#lx from %#x\n",
 			nb[free_nb].b, nb[free_nb].off);
-		memset(TDB_HTRIE_PTR(dbh, nb[free_nb].b + nb[free_nb].off),
+		memset(TDB_PTR(dbh, nb[free_nb].b + nb[free_nb].off),
 		       0, TDB_HTRIE_MINDREC - nb[free_nb].off);
 	}
 
@@ -778,7 +758,7 @@ err_cleanup:
 	if (free_nb > 0)
 		for (i = 0; i < TDB_HTRIE_FANOUT; ++i)
 			if (i != free_nb && nb[i].b)
-				tdb_free_data_blk(TDB_HTRIE_PTR(dbh, nb[i].b));
+				tdb_free_data_blk(TDB_PTR(dbh, nb[i].b));
 	tdb_free_index_blk(new_in);
 	return -ENOMEM;
 }
@@ -809,9 +789,9 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 		TDB_DBG("Descend iblk=%p key=%#lx bits=%d -> %#lx\n",
 			*node, key, *bits, o);
 		BUG_ON(o
-		       && (TDB_HTRIE_DI2O(o & ~TDB_HTRIE_DBIT)
+		       && (TDB_DI2O(o & ~TDB_HTRIE_DBIT)
 				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
-			   || TDB_HTRIE_DI2O(o & ~TDB_HTRIE_DBIT)
+			   || TDB_DI2O(o & ~TDB_HTRIE_DBIT)
 				> dbh->dbsz));
 
 		if (o & TDB_HTRIE_DBIT) {
@@ -819,11 +799,11 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 			*bits += TDB_HTRIE_BITS;
 			o ^= TDB_HTRIE_DBIT;
 			BUG_ON(!o);
-			return TDB_HTRIE_DI2O(o);
+			return TDB_DI2O(o);
 		} else {
 			if (!o)
 				return 0; /* cannot descend deeper */
-			*node = TDB_HTRIE_PTR(dbh, TDB_HTRIE_II2O(o));
+			*node = TDB_PTR(dbh, TDB_II2O(o));
 			*bits += TDB_HTRIE_BITS;
 		}
 	}
@@ -833,7 +813,7 @@ static TdbRec *
 tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 		     void *data, size_t len, int init_bucket)
 {
-	char *ptr = TDB_HTRIE_PTR(dbh, off);
+	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r;
 
 	if (init_bucket) {
@@ -860,14 +840,12 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 
 /**
  * Add more data to @rec.
- *
- * TODO update semantic to return TdbVRec *.
  */
-void *
-tdb_htrie_extend_rec(TdbHdr *dbh, TdbRec *rec, size_t *size)
+TdbVRec *
+tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t *size)
 {
 	unsigned long o;
-	TdbVRec *chunk, *r = (TdbVRec *)rec;
+	TdbVRec *chunk;
 
 	/* Cannot extend fixed-size records. */
 	BUG_ON(!TDB_HTRIE_VARLENRECS(dbh));
@@ -876,18 +854,19 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbRec *rec, size_t *size)
 	if (!o)
 		return NULL;
 
-	chunk = TDB_HTRIE_PTR(dbh, o);
-	chunk->key = r->key;
+	chunk = TDB_PTR(dbh, o);
+	chunk->key = rec->key;
 	chunk->chunk_next = 0;
 	chunk->len = *size;
 
-	while (r->chunk_next)
-		r = TDB_HTRIE_PTR(dbh, TDB_HTRIE_DI2O(r->chunk_next));
-	BUG_ON(!tdb_live_vsrec(r));
+	/* A caller is appreciated to pass the last record chunk by @rec. */
+	while (unlikely(rec->chunk_next))
+		rec = TDB_PTR(dbh, TDB_DI2O(rec->chunk_next));
+	BUG_ON(!tdb_live_vsrec(rec));
 
-	r->chunk_next = o;
+	rec->chunk_next = o;
 
-	return chunk + 1;
+	return chunk;
 }
 
 /**
@@ -917,7 +896,7 @@ retry:
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, 1);
 
-		node->shifts[TDB_HTRIE_IDX(key, bits)] = TDB_HTRIE_O2DI(o)
+		node->shifts[TDB_HTRIE_IDX(key, bits)] = TDB_O2DI(o)
 							 | TDB_HTRIE_DBIT;
 
 		return rec;
@@ -926,7 +905,7 @@ retry:
 	/*
 	 * HTrie collision.
 	 */
-	bckt = TDB_HTRIE_PTR(dbh, o);
+	bckt = TDB_PTR(dbh, o);
 	BUG_ON(!bckt);
 
 	/*
@@ -959,7 +938,7 @@ retry:
 			return NULL;
 		while (bckt->coll_next && !(bckt->flags & TDB_HTRIE_VRFREED))
 			bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
-		bckt->coll_next = TDB_HTRIE_O2DI(o);
+		bckt->coll_next = TDB_O2DI(o);
 		return tdb_htrie_create_rec(dbh, o, key, data, *len, 1);
 	}
 
@@ -993,7 +972,23 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 	if (!o)
 		return NULL;
 
-	return TDB_HTRIE_PTR(dbh, o);
+	return TDB_PTR(dbh, o);
+}
+
+TdbHdr *
+tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
+{
+	TdbHdr *hdr = (TdbHdr *)p;
+
+	if (hdr->magic != TDB_MAGIC)
+		hdr = tdb_init_mapping(p, db_size, rec_len);
+
+	TDB_DBG("init db header: i_wcl=%lu d_wcl=%lu db_size=%lu rec_len=%u"
+		" i_wm=%u d_wm=%u\n",
+		hdr->i_wcl, hdr->d_wcl, hdr->dbsz, hdr->rec_len, hdr->i_wm,
+		hdr->d_wm);
+
+	return hdr;
 }
 
 /*
@@ -1166,22 +1161,24 @@ tdb_htrie_test_varsz(const char *fname)
 	for (u = urls; u->body; ++u) {
 		unsigned long k = tdb_hash_calc(u->body, u->len);
 		size_t copied = 0, to_copy = u->len;
-		char *p;
-		TdbRec *rec;
+		TdbVRec *rec;
 
 		printf("insert [%.40s...] (len=%lu)\n", u->body, u->len);
 		fflush(NULL);
 
-		rec = tdb_htrie_insert(dbh, k, u->body, &to_copy);
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->body, &to_copy);
 		assert((u->len && rec) || (!u->len && !rec));
 
 		copied += to_copy;
 		to_copy = u->len - to_copy;
 
 		while (copied != u->len) {
-			p = tdb_htrie_extend_rec(dbh, rec, &to_copy);
-			assert(p);
+			char *p;
 
+			rec = tdb_htrie_extend_rec(dbh, rec, &to_copy);
+			assert(rec);
+
+			p = (char *)(rec + 1);
 			memcpy(p, u->body + copied, to_copy);
 
 			copied += to_copy;
