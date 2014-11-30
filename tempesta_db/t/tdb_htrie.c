@@ -1001,8 +1001,8 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 #define TDB_VSF_SZ		(2UL * 1024 * 1024 * 1024)
 #define TDB_FSF_SZ		(16UL * 1024 * 1024)
 #define THRN			1
-#define DATA_N			1000
-#define LOOP_N			10
+#define DATA_N			100
+#define LOOP_N			1
 
 typedef struct {
 	char	*body;
@@ -1133,6 +1133,18 @@ tdb_htrie_pure_close(void *addr, size_t size)
 }
 
 static void
+print_bin_url(TestUrl *u)
+{
+	int i, len = u->len < 40 ? u->len : 40;
+
+	printf("insert [");
+	for (i = 0; i < len; ++i)
+		printf("%#x", u->body[i]);
+	printf(len < u->len ? "...] (len=%lu)\n" : "] (len=%lu)\n", u->len);
+	fflush(NULL);
+}
+
+static void
 do_varsz(TdbHdr *dbh)
 {
 	int i;
@@ -1144,8 +1156,7 @@ do_varsz(TdbHdr *dbh)
 		size_t copied = 0, to_copy = u->len;
 		TdbVRec *rec;
 
-		printf("insert [%.40s...] (len=%lu)\n", u->body, u->len);
-		fflush(NULL);
+		print_bin_url(u);
 
 		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->body, &to_copy);
 		assert((u->len && rec) || (!u->len && !rec));
@@ -1172,8 +1183,7 @@ do_varsz(TdbHdr *dbh)
 		unsigned long k = tdb_hash_calc(u->body, u->len);
 		TdbBucket *b;
 
-		printf("results for [%.40s...] lookup:\n", u->body);
-		fflush(NULL);
+		print_bin_url(u);
 
 		b = tdb_htrie_lookup(dbh, k);
 		if (!b) {
@@ -1186,13 +1196,11 @@ do_varsz(TdbHdr *dbh)
 		if (TDB_HTRIE_VARLENRECS(dbh)) {
 			TdbVRec *r;
 			TDB_HTRIE_FOREACH_REC(dbh, b, r) {
-				if (tdb_live_vsrec(r)) {
-					printf("\t[%.64s...] key=%#lx"
-					       " bckt=%p\n", r->data,
-					       tdb_hash_calc(r->data, r->len),
-					       b);
-					fflush(NULL);
-				}
+				if (tdb_live_vsrec(r))
+					TDB_DBG("\t[%.64s...] key=%#lx"
+						" bckt=%p\n", r->data,
+						tdb_hash_calc(r->data, r->len),
+						b);
 			}
 		} else {
 			BUG();
@@ -1248,12 +1256,10 @@ do_fixsz(TdbHdr *dbh)
 		} else {
 			TdbFRec *r;
 			TDB_HTRIE_FOREACH_REC(dbh, b, r) {
-				if (tdb_live_fsrec(dbh, r)) {
-					printf("\t(%#x) %u bckt=%p\n",
-					       *(unsigned int *)r->data,
-					       *(unsigned int *)r->data, b);
-					fflush(NULL);
-				}
+				if (tdb_live_fsrec(dbh, r))
+					TDB_DBG("\t(%#x) %u bckt=%p\n",
+						*(unsigned int *)r->data,
+						*(unsigned int *)r->data, b);
 			}
 		}
 	}
