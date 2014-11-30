@@ -6,12 +6,12 @@
  * data records grow towards them, from maximum to minimum addresses.
  *
  * TODO
- * - consistensy checking and recovery
- * - garbage collection
- * - eviction
- * - reduce number of memset(.., 0, ..) calls
- * - freeing interface for eviction thread
  * - unit test for concurrency
+ * - freeing interface for eviction thread
+ * - eviction
+ * - garbage collection
+ * - consistensy checking and recovery
+ * - reduce number of memset(.., 0, ..) calls
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2014 Tempesta Technologies Ltd.
@@ -35,6 +35,7 @@
 #include <cpuid.h>
 #include <fcntl.h>
 #include <immintrin.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 /*
  * ------------------------------------------------------------------------
@@ -998,16 +1000,16 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
  */
 #define TDB_VSF_SZ		(2UL * 1024 * 1024 * 1024)
 #define TDB_FSF_SZ		(16UL * 1024 * 1024)
+#define THRN			1
+#define DATA_N			1000
+#define LOOP_N			10
 
-#if 0
-#include "urls.h"
-#else
 typedef struct {
 	char	*body;
 	size_t	len;
 } TestUrl;
 
-static TestUrl urls[] = {
+static TestUrl urls[DATA_N] = {
 	{"", 0},
 	{"http://www.w3.org/1999/02/22-rdf-syntax-ns#", 0},
 	{"http://ns.adobe.com/iX/1.0/", 0},
@@ -1033,16 +1035,9 @@ static TestUrl urls[] = {
 	{"http://www.google.com/", 0},
 	{"http://www.google.com/logos/Logo_25wht.gif", 0},
 	{"http://www.xplain.com", 0},
-	{NULL, 0}
 };
-#endif
 
-static unsigned int ints[] = {
-	0, 324, 2324345, 10, 4000111222, 2111222999, 2, 3, 4, 5, 6, 7, 100,
-	3999888999, 4222999888, 2500600800, 65535, 200, 2000, 20000, 200000,
-	2000000, 20000000, 200000000, 2000000000, 2000000001, 10, 11, 12, 13,
-	4000111222, 3111222999, 4294967290, 32424, 9986, 7344, 23354, 6876437
-};
+static unsigned int ints[DATA_N];
 
 static inline unsigned long
 tv_to_ms(const struct timeval *tv)
@@ -1137,28 +1132,14 @@ tdb_htrie_pure_close(void *addr, size_t size)
 	munmap(addr, size);
 }
 
-void
-tdb_htrie_test_varsz(const char *fname)
+static void
+do_varsz(TdbHdr *dbh)
 {
-	char *addr;
-	int r __attribute__((unused));
+	int i;
 	TestUrl *u;
-	TdbHdr *dbh;
-	struct timeval tv0, tv1;
-
-	printf("\n----------- Variable size records test -------------\n");
-
-	addr = tdb_htrie_open(fname, TDB_VSF_SZ);
-
-	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
-	if (!dbh)
-		TDB_ERR("cannot initialize htrie for urls");
-
-	r = gettimeofday(&tv0, NULL);
-	assert(!r);
 
 	/* Store records. */
-	for (u = urls; u->body; ++u) {
+	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->body, u->len);
 		size_t copied = 0, to_copy = u->len;
 		TdbVRec *rec;
@@ -1187,7 +1168,7 @@ tdb_htrie_test_varsz(const char *fname)
 	}
 
 	/* Read records. */
-	for (u = urls; u->body; ++u) {
+	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->body, u->len);
 		TdbBucket *b;
 
@@ -1217,58 +1198,47 @@ tdb_htrie_test_varsz(const char *fname)
 			BUG();
 		}
 	}
-
-	r = gettimeofday(&tv1, NULL);
-	assert(!r);
-
-	printf("tdb htrie urls test: time=%lums\n",
-		tv_to_ms(&tv1) - tv_to_ms(&tv0));
-
-	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
 }
 
-void
-tdb_htrie_test_fixsz(const char *fname)
+static void *
+varsz_thr_f(void *data)
 {
-	int r __attribute__((unused));
-	char *addr;
-	unsigned int *i;
-	TdbHdr *dbh;
-	struct timeval tv0, tv1;
+	int i;
+	TdbHdr *dbh = (TdbHdr *)data;
 
-	printf("\n----------- Fixed size records test -------------\n");
+	for (i = 0; i < LOOP_N; ++i)
+		do_varsz(dbh);
 
-	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
+	return NULL;
+}
 
-	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
-	if (!dbh)
-		TDB_ERR("cannot initialize htrie for ints");
-
-	r = gettimeofday(&tv0, NULL);
-	assert(!r);
+static void
+do_fixsz(TdbHdr *dbh)
+{
+	int i;
 
 	/* Store records. */
-	for (i = ints; i < ints + sizeof(ints) / sizeof(ints[0]); ++i) {
-		size_t copied = sizeof(*i);
+	for (i = 0; i < DATA_N; ++i) {
+		size_t copied = sizeof(ints[i]);
 		TdbRec *rec __attribute__((unused));
 
-		printf("insert int %u\n", *i);
+		printf("insert int %u\n", ints[i]);
 		fflush(NULL);
 
-		rec = tdb_htrie_insert(dbh, *i, i, &copied);
-		assert(rec && copied == sizeof(*i));
+		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied);
+		assert(rec && copied == sizeof(ints[i]));
 	}
 
 	/* Read records. */
-	for (i = ints; i < ints + sizeof(ints) / sizeof(ints[0]); ++i) {
+	for (i = 0; i < DATA_N; ++i) {
 		TdbBucket *b;
 
-		printf("results for int %u lookup:\n", *i);
+		printf("results for int %u lookup:\n", ints[i]);
 		fflush(NULL);
 
-		b = tdb_htrie_lookup(dbh, *i);
+		b = tdb_htrie_lookup(dbh, ints[i]);
 		if (!b) {
-			fprintf(stderr, "ERROR: can't find int %u\n", *i);
+			fprintf(stderr, "ERROR: can't find int %u\n", ints[i]);
 			fflush(NULL);
 			continue;
 		}
@@ -1287,6 +1257,81 @@ tdb_htrie_test_fixsz(const char *fname)
 			}
 		}
 	}
+}
+
+static void *
+fixsz_thr_f(void *data)
+{
+	int i;
+	TdbHdr *dbh = (TdbHdr *)data;
+
+	for (i = 0; i < LOOP_N; ++i)
+		do_fixsz(dbh);
+
+	return NULL;
+}
+
+void
+tdb_htrie_test_varsz(const char *fname)
+{
+	int r __attribute__((unused));
+	int t;
+	char *addr;
+	TdbHdr *dbh;
+	struct timeval tv0, tv1;
+	pthread_t thr[THRN];
+
+	printf("\n----------- Variable size records test -------------\n");
+
+	addr = tdb_htrie_open(fname, TDB_VSF_SZ);
+	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
+	if (!dbh)
+		TDB_ERR("cannot initialize htrie for urls");
+
+	r = gettimeofday(&tv0, NULL);
+	assert(!r);
+
+	for (t = 0; t < THRN; ++t)
+		if (pthread_create(thr + t, NULL, varsz_thr_f, dbh))
+			perror("cannot spawn varsz thread");
+	for (t = 0; t < THRN; ++t)
+		pthread_join(thr[t], NULL);
+
+	r = gettimeofday(&tv1, NULL);
+	assert(!r);
+
+	printf("tdb htrie urls test: time=%lums\n",
+		tv_to_ms(&tv1) - tv_to_ms(&tv0));
+
+	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
+}
+
+void
+tdb_htrie_test_fixsz(const char *fname)
+{
+	int r __attribute__((unused));
+	int t;
+	char *addr;
+	TdbHdr *dbh;
+	struct timeval tv0, tv1;
+	pthread_t thr[THRN];
+
+	printf("\n----------- Fixed size records test -------------\n");
+
+	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
+
+	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
+	if (!dbh)
+		TDB_ERR("cannot initialize htrie for ints");
+
+	r = gettimeofday(&tv0, NULL);
+	assert(!r);
+
+	for (t = 0; t < THRN; ++t)
+		if (pthread_create(thr + t, NULL, fixsz_thr_f, dbh))
+			perror("cannot spawn fixsz thread");
+	for (t = 0; t < THRN; ++t)
+		pthread_join(thr[t], NULL);
 
 	r = gettimeofday(&tv1, NULL);
 	assert(!r);
@@ -1297,18 +1342,59 @@ tdb_htrie_test_fixsz(const char *fname)
 	tdb_htrie_pure_close(addr, TDB_FSF_SZ);
 }
 
-void
+static void
 tdb_htrie_test(const char *vsf, const char *fsf)
 {
 	tdb_htrie_test_varsz(vsf);
 	tdb_htrie_test_fixsz(fsf);
 }
 
+static void
+init_test_data_for_hash(void)
+{
+	TestUrl *u;
+
+	/* Load urls pages and precompute string lengths (with terminator). */
+	for (u = urls; u->body; ++u)
+		u->len = strlen(u->body) + 1;
+}
+
+static void
+init_test_data_for_htrie(void)
+{
+	int i, rfd;
+
+	printf("prepare htrie testing data..."); fflush(NULL);
+
+	if ((rfd = open("/dev/urandom", O_RDONLY)) < 0)
+		TDB_ERR("cannot open /dev/urandom\n");
+
+	/* Leav first empty element. */
+	for (i = 1; i < DATA_N; ++i) {
+		int r = rand();
+
+		ints[i] = r;
+
+		r %= 65536;
+		urls[i].body = malloc(r + 1);
+		urls[i].len = r + 1;
+		if (!urls[i].body) {
+			TDB_ERR("not enough memory\n");
+			BUG();
+		}
+		read(rfd, urls[i].body, r);
+		urls[i].body[r] = 0;
+	}
+
+	close(rfd);
+
+	printf("done\n");
+}
+
 int
 main(int argc, char *argv[])
 {
 	unsigned int eax, ebx, ecx = 0, edx;
-	TestUrl *u;
 	struct rlimit rlim = { TDB_VSF_SZ, TDB_VSF_SZ * 2};
 	
 	if (argc < 3) {
@@ -1328,12 +1414,10 @@ main(int argc, char *argv[])
 	if (!(ecx & bit_SSE4_2))
 		TDB_ERR("SSE4.2 is not supported");
 
-	/* Load urls pages and precompute string lengths (with terminator). */
-	for (u = urls; u->body; ++u)
-		u->len = strlen(u->body) + 1;
-
+	init_test_data_for_hash();
 	hash_calc_benchmark();
 
+	init_test_data_for_htrie();
 	tdb_htrie_test(argv[1], argv[2]);
 
 	return 0;
