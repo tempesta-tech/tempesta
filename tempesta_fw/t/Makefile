@@ -21,4 +21,4 @@ EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(src)/../ \
 
 obj-m += tfw_test.o
 tfw_test-objs = main.o test.o helpers.o test_hash.o test_http_match.o \
-		test_tfw_str.o test_http_parser.o
+		test_tfw_str.o test_http_parser.o test_addr.o

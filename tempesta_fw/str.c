@@ -314,3 +314,42 @@ state_val:
 }
 EXPORT_SYMBOL(tfw_str_eq_kv);
 
+/**
+ * Join all chunks of @str to a single plain C string.
+ *
+ * The function copies all chunks of the @str to the @out_buf.
+ * If the buffer has not enough space to fit all chunks, then the output string
+ * is cropped (at most @buf_size - 1 bytes is written). The output string is
+ * always terminated with '\0'.
+ *
+ * Returns length of the output string.
+ */
+size_t
+tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
+{
+	int total_len = 0;
+	int len;
+	const TfwStr *chunk;
+
+	validate_tfw_str(str);
+	BUG_ON(!out_buf || (buf_size <= 0));
+
+	--buf_size; /* Reserve one byte for '\0'. */
+
+	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
+		len = min(buf_size, (int)chunk->len);
+		strncpy(out_buf, chunk->ptr, len);
+		out_buf += len;
+		buf_size -= len;
+		total_len += len;
+
+		if (!buf_size)
+			break;
+	}
+
+	/* FIXME: The buffer may already contain '\0' before this point. */
+	out_buf = '\0';
+
+	return total_len;
+}
+EXPORT_SYMBOL(tfw_str_to_cstr);
