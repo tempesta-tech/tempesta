@@ -512,13 +512,13 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
 	msg->body.len += _n;						\
-	p += _n;							\
 	parser->to_read -= _n;						\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
 		/* In case of chunked message read trailing '0\r\n'. */	\
 		__FSM_MOVE_n(prefix ## _Body, _n);			\
 	/* We've fully read Content-Length bytes. */			\
+	p += _n;							\
 	r = TFW_PASS;							\
 	goto done;							\
 }									\
