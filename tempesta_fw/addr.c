@@ -24,9 +24,23 @@
 #include <linux/in.h>
 #include <linux/in6.h>
 
+#include "addr.h"
 #include "log.h"
 #include "tempesta.h"
 
+static bool
+family_is_not_supported(sa_family_t family)
+{
+	return (family != AF_INET && family != AF_INET6);
+}
+
+static void
+validate_addr(const TfwAddr *addr)
+{
+        BUG_ON(!addr);
+        WARN(family_is_not_supported(addr->family),
+	     "Bad address family: %u\n", addr->family);
+}
 
 static int
 tfw_inet_pton_ipv4(char **p, struct sockaddr_in *addr)
@@ -292,37 +306,245 @@ tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 }
 
 /**
- * Compare two addresses represented by struct sockaddr.
+ * Compare two IPv4/IPv6 addresses.
  *
- * The function compares two IPv4 or IPv6 addresses represented by either
- * struct sockaddr_in or struct sockaddr_in6 types. Other address families
- * are not yet supported (the function always returns false for them).
+ * Addresses are treated as equal if both address and port bytes are equal.
+ * For IPv6, such fields as "Flow Info" and "Scope ID" are ignored, only address
+ * and port fields are compared.
  *
- * Return: true if addresses are equal, false otherwise.
- *         IPv4 addresses are treated as equal if both addr and port are equal.
- *         IPv6 addresses are treated as equal if their address bytes and ports
- *         and scope IDs are equal.
+ * Also the function returns false and gives WARN() if any of two addresses
+ * has a family value other than IPv4 or IPv6.
  */
 bool
-tfw_addr_eq(const void *addr1, const void *addr2)
+tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2)
 {
-	unsigned short family1, family2;
+	sa_family_t family;
 
-	BUG_ON(!addr1 || !addr2);
+	validate_addr(addr1);
+	validate_addr(addr2);
 
-	family1 = *(unsigned short *)addr1;
-	family2 = *(unsigned short *)addr2;
-
-	if (family1 != family2)
+	family = addr1->family;
+	if (family != addr2->family)
 		return false;
 
-	if (family1 == AF_INET) {
-		return tfw_addr_eq_inet(addr1, addr2);
-	} else if (family1 == AF_INET6) {
-		return tfw_addr_eq_inet6(addr1, addr2);
-	} else {
-		TFW_WARN("Can't compare address family: %u\n", family1);
+	if (unlikely(family_is_not_supported(family)))
 		return false;
-	}
+
+	if (family == AF_INET6)
+		return tfw_addr_eq_inet6(&addr1->v6, &addr2->v6);
+
+	return tfw_addr_eq_inet(&addr1->v4, &addr2->v4);
 }
 EXPORT_SYMBOL(tfw_addr_eq);
+
+/*
+ * ------------------------------------------------------------------------
+ *	tfw_addr_fmt() and its helpers
+ * ------------------------------------------------------------------------
+ *
+ * The tfw_addr_fmt() is called at least once for each incoming HTTP request.
+ * Although there is not much work to do, we try to minimize the overhead, and
+ * define few low-level helpers here instead of using something like snprintf().
+ */
+
+/**
+ * Reverse digits in a buffer and remove leading zeros,
+ * e.g. "54321000" -> "12345".
+ *
+ * @end_pos is &buf[buf_len].
+ *
+ * Returns a position behind the latest output digit in the @buf.
+ */
+static char *
+reverse_and_clip_zeros(char *buf, char *end_pos)
+{
+	char *p = buf;
+	char *q = end_pos - 1;
+
+	while (*q == '0' && p < q)
+		--q;
+	end_pos = (q + 1);
+
+	while (p < q) {
+		*p = *p ^ *q;
+		*q = *p ^ *q;
+		*p = *p ^ *q;
+		++p;
+		--q;
+	}
+
+	return end_pos;
+}
+
+/**
+ * Convert a number to base-10 textual representation,
+ * e.g. 12345 -> "12345".
+ *
+ * The function can only print up to 5 digits and take input numbers that are
+ * less than 81920, which is suitable for printing port and IPv4 octet values.
+ *
+ * Returns a position behind the last digit in @out_buf.
+ */
+static char *
+put_dec(u32 q, char *out_buf)
+{
+	u32 r;
+
+	/* Extract decimal digits (as ASCII characters) from the input number.
+	 * The code is borrowed from put_dec_full9() (linux/lib/vsprintf.c). */
+	r  = (q * 0xcccd) >> 19;
+	out_buf[0] = (q - 10 * r) + '0';
+	q  = (r * 0x0ccd) >> 15;
+	out_buf[1] = (r - 10 * q) + '0';
+	r  = (q * 0x00cd) >> 11;
+	out_buf[2] = (q - 10 * r) + '0';
+	q  = (r * 0x000d) >> 7;
+	out_buf[3] = (r - 10 * q) + '0';
+	out_buf[4] = q + '0';
+
+	/* We clip leading zeros here because some programs do treat them
+	 * as an octal base mark. */
+	return reverse_and_clip_zeros(out_buf, out_buf + 5);
+}
+
+/**
+ * Convert @group to hexadecimal digits and put them to the @buf,
+ * e.g. 0x01F9 -> "1f9".
+ *
+ * Leading zeros are clipped.
+ *
+ * Returns a position behind the latest printed digit.
+ */
+static char *
+put_ipv6_digit_group(u16 group, char *out_buf)
+{
+	out_buf[0] = hex_asc[ group        & 0xF];
+	out_buf[1] = hex_asc[(group >> 4)  & 0xF];
+	out_buf[2] = hex_asc[(group >> 8)  & 0xF];
+	out_buf[3] = hex_asc[(group >> 12) & 0xF];
+
+	return reverse_and_clip_zeros(out_buf, out_buf + 4);
+}
+
+/**
+ * Convert an IPv4 address and a port value to string,
+ * e.g. (both big-endian) 0x7F000001, 80 -> "127.0.0.1:80".
+ *
+ * @buf must be at least 21 bytes in size, or you get an overflow.
+ *
+ * Returns position behind the latest character in the @buf.
+ * The output is NOT terminated with '\0'.
+ */
+char *
+_tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
+{
+	char *pos = buf;
+	u8 *octets = (u8 *)&in_addr;
+
+	pos = put_dec(octets[0], pos);
+	*pos++ = '.';
+	pos = put_dec(octets[1], pos);
+	*pos++ = '.';
+	pos = put_dec(octets[2], pos);
+	*pos++ = '.';
+	pos = put_dec(octets[3], pos);
+
+	if (in_port) {
+		*pos++ = ':';
+		pos = put_dec(ntohs(in_port), pos);
+	}
+
+	return pos;
+}
+
+/**
+ * Convert an IPv6 address and a port value to string.
+ *
+ * Output examples:
+ *   "::1"
+ *   "[2f1c:22::1a:0:1]:8081"
+ *   "[0123:4567:89ab:cdef:0123:4567:89ab:cdef]:65535"
+ *
+ * The address is enclosed to square brackets when @in_port is not zero.
+ *
+ * Size of @buf must be at least TFW_ADDR_STR_BUF_SIZE, or you get an overflow.
+ *
+ * Returns position behind the last character in @buf.
+ * The output is NOT terminated with '\0'.
+ */
+char *
+_tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
+{
+	char *pos = buf;
+	const u16 *groups = in6_addr->in6_u.u6_addr16;
+	u8 zeros_already_omitted = false;
+	u8 i;
+
+	if (in_port)
+		*pos++ = '[';
+
+	/* Print groups of hexadecimal digits separated by ':'.
+	 * Consecutive groups of zeros are omitted and leading zeros are clipped
+	 * (e.g. 0123:0000:0000:0000:00ab -> 123::ab").
+	 *
+	 * The output value is inserted to X-Forwarded-For header of every HTTP
+	 * request, which is done by patching sk_buff in-place. A shorter string
+	 * helps to do less work there and thus likely beneficial.
+	 */
+	for (i = 0; i < 7; ++i) {
+		if (groups[i] || zeros_already_omitted) {
+			pos = put_ipv6_digit_group(ntohs(groups[i]), pos);
+			*pos++ = ':';
+		}
+		else if (!groups[i] && (groups[i + 1] || i == 6)) {
+			if (*(pos - 1) != ':')
+				*pos++ = ':';
+			*pos++ = ':';
+			zeros_already_omitted = true;
+		}
+	}
+
+	/* The last group doesn't have ':' after it. */
+	pos = put_ipv6_digit_group(ntohs(groups[7]), pos);
+
+
+	if (in_port) {
+		*pos++ = ']';
+		*pos++ = ':';
+		pos = put_dec(ntohs(in_port), pos);
+	}
+
+	return pos;
+}
+
+/**
+ * Convert IPv4/IPv6 address and a port value to string,
+ * e.g. "127.0.0.1:80" or "[::1]:80".
+ *
+ * Returns length of a string written to the @out_buf.
+ */
+size_t
+tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
+{
+	char *pos;
+
+	validate_addr(addr);
+	BUG_ON(!out_buf);
+	BUG_ON(buf_size < TFW_ADDR_STR_BUF_SIZE);
+
+	if (unlikely(family_is_not_supported(addr->family))) {
+		out_buf[0] = '\0';
+		return 0;
+	}
+
+	pos = (addr->sa.sa_family == AF_INET6)
+	    ? _tfw_addr_fmt_v6(&addr->v6.sin6_addr, addr->v6.sin6_port, out_buf)
+	    : _tfw_addr_fmt_v4(addr->v4.sin_addr.s_addr, addr->v4.sin_port,
+			       out_buf);
+
+	BUG_ON(pos >= (out_buf + buf_size));
+	*pos = '\0';
+
+	return (pos - out_buf);
+}
+EXPORT_SYMBOL(tfw_addr_fmt);

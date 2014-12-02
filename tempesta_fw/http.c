@@ -26,6 +26,7 @@
 #include "cache.h"
 #include "classifier.h"
 #include "gfsm.h"
+#include "hash.h"
 #include "http.h"
 #include "http_msg.h"
 #include "log.h"
@@ -590,6 +591,112 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 }
 
 /**
+ * Get @skb's source address and port as a string, e.g. "127.0.0.1", "::1".
+ *
+ * Only the source IP address is printed to @out_buf, and the TCP/SCTP port
+ * is not printed. That is done because:
+ *  - Less output bytes means more chance for fast path in __hdr_add().
+ *  - RFC7239 says the port is optional.
+ *  - Most proxy servers don't put it to the field.
+ *  - Usually you get a random port of an outbound connection there,
+ *    so the value is likely useless.
+ * If at some point we will need the port, then the fix should be trivial:
+ * just get it with tcp_hdr(skb)->src (or sctp_hdr() for SPDY).
+ */
+static char *
+tfw_fmt_skb_src_addr(const struct sk_buff *skb, char *out_buf)
+{
+	const struct iphdr *ih4 = ip_hdr(skb);
+	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
+
+	if (ih6->version == 6)
+		return _tfw_addr_fmt_v6(&ih6->saddr, 0, out_buf);
+
+	return _tfw_addr_fmt_v4(ih4->saddr, 0, out_buf);
+}
+
+static int
+tfw_http_add_forwarded_for(TfwHttpMsg *m)
+{
+#define XFF_HDR "X-Forwarded-For: "
+#define XFF_LEN (sizeof(XFF_HDR) - 1)
+
+	struct sk_buff *skb;
+	char *pos;
+	int r, len;
+	char buf[XFF_LEN + TFW_ADDR_STR_BUF_SIZE + 2] = XFF_HDR;
+
+	skb = m->msg.skb_list.first;
+	pos = buf + XFF_LEN;
+	pos = tfw_fmt_skb_src_addr(skb, pos);
+
+	*pos++ = '\r';
+	*pos++ = '\n';
+	len = (pos - buf);
+	r = __hdr_add(buf, len, skb, m->crlf);
+
+	if (r)
+		TFW_ERR("can't add X-Forwarded-For header to msg: %p, "
+			"buf: %*s", m, len, buf);
+	else
+		TFW_DBG("added X-Forwarded-For header: %*s\n", len, buf);
+
+	return r;
+
+#undef XFF_HDR
+#undef XFF_LEN
+}
+
+static int
+tfw_http_append_forwarded_for(TfwHttpMsg *m)
+{
+	TfwHttpHdr *hdr = &m->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+	struct sk_buff *skb;
+	char *buf, *pos;
+	int r, old_hdr_len, buf_size, new_hdr_len;
+
+	skb = m->msg.skb_list.first;
+	old_hdr_len = tfw_str_len(&hdr->field);
+	buf_size = old_hdr_len + TFW_ADDR_STR_BUF_SIZE + sizeof(", \r\n");
+
+	buf = tfw_pool_alloc(m->pool, buf_size);
+	memset (buf, 0, buf_size);
+	if (!buf)
+		return TFW_BLOCK;
+
+	tfw_str_to_cstr(&hdr->field, buf, buf_size);
+
+	pos = buf + old_hdr_len;
+	*pos++ = ',';
+	*pos++ = ' ';
+	BUG_ON(!skb);
+	pos = tfw_fmt_skb_src_addr(skb, pos);
+	*pos++ = '\r';
+	*pos++ = '\n';
+
+	new_hdr_len = (pos - buf);
+	r = __hdr_sub(&hdr->field, buf, new_hdr_len, skb);
+
+	if (r)
+		TFW_ERR("can't replace X-Forwarded-For with: %.*s",
+			new_hdr_len, buf);
+	else
+		TFW_DBG("re-placed X-Forwarded-For header: %.*s",
+			new_hdr_len, buf);
+
+	return r;
+}
+
+static int
+tfw_http_add_or_append_forwarded_for(TfwHttpMsg *m)
+{
+	if (m->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field.len)
+		return tfw_http_append_forwarded_for(m);
+
+	return tfw_http_add_forwarded_for(m);
+}
+
+/**
  * Adjust the request before proxying it to real server.
  */
 static int
@@ -597,6 +704,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 {
 	int r = 0;
 	TfwHttpMsg *m = (TfwHttpMsg *)req;
+
+	r = tfw_http_add_or_append_forwarded_for(m);
+	if (r)
+		return r;
 
 	if ((m->flags & __TFW_HTTP_CONN_MASK) != TFW_HTTP_CONN_KA)
 		r = tfw_http_set_hdr_connection(m, TFW_HTTP_CONN_KA);
