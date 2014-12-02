@@ -381,6 +381,32 @@ TEST(tfw_str_eq_kv, allows_space_sep)
 	EXPECT_TRUE(tfw_str_eq_kv(s, k, klen, sep, v, vlen, TFW_STR_EQ_DEFAULT));
 }
 
+TEST(tfw_str_to_cstr, copies_all_chunks)
+{
+	TFW_STR(compound_str, "foo bar baz 12345678");
+	char buf[21] = { 0xA0 };
+	int copied_len;
+	const char *expected_str = "foo bar baz 12345678";
+
+	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
+
+	EXPECT_EQ(20, copied_len);
+	EXPECT_EQ(0, strcmp(expected_str, buf));
+}
+
+TEST(tfw_str_to_cstr, limits_and_terminates_output)
+{
+	TFW_STR(compound_str, "foobarbaz");
+	char buf[6] = { 0xAA };
+	int copied_len;
+	const char *expected_str = "fooba";
+
+	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
+
+	EXPECT_EQ(sizeof(buf) - 1, copied_len);
+	EXPECT_EQ(buf[copied_len], '\0');
+	EXPECT_EQ(0, strcmp(expected_str, buf));
+}
 
 TEST_SUITE(tfw_str)
 {
@@ -401,6 +427,9 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_kv, supports_casei_val);
 	TEST_RUN(tfw_str_eq_kv, supports_prefix_val);
 	TEST_RUN(tfw_str_eq_kv, allows_space_sep);
+
+	TEST_RUN(tfw_str_to_cstr, copies_all_chunks);
+	TEST_RUN(tfw_str_to_cstr, limits_and_terminates_output);
 }
 
 
