@@ -443,6 +443,7 @@ __FSM_STATE(st_curr) {							\
 	parser->_i_st = st_i;						\
 	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
 	ret = func(msg, p, &n);						\
+	n += (size_t)p - (size_t)parser->hdr.ptr;			\
 	TFW_DBG("parse header " #func ": return %d\n", ret);		\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
@@ -1424,7 +1425,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			unsigned char *cr = p1 - 1;
 			while (cr != p && *cr == '\r')
 				--cr;
-			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p);
+			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p + 1);
 			p = p1; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
