@@ -736,7 +736,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 			hlen_set = true;
 		}
 		if (c == '\n') {
-			r = p - data;
+			r = p - data + 1;
 			goto done;
 		}
 		if (isspace(c))
