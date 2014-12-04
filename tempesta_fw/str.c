@@ -96,6 +96,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 						    l + sizeof(TfwStr));
 		if (!p)
 			return NULL;
+		str->ptr = p;
 		str->len++;
 	}
 	else {
