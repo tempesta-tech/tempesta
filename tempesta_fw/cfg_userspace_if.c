@@ -26,105 +26,115 @@
 #include "cfg_private.h"
 
 
-#define CFG_BUF_SIZE 65536
-#define CFG_BUF_READ_BLOCK_SIZE 4096
-
 #define STATE_MAX 32
 #define STATE_DEFAULT_VAL "stop"
-
 #define CFG_PATH_MAX 255
 #define CFG_PATH_DEFAULT_VAL "/etc/tempesta.conf"
 
 static struct {
 	char state[STATE_MAX + 1];
-	char cfg_path[CFG_PATH_MAX + 1]; /* TODO: implement this */
-	char cfg_text[CFG_BUF_SIZE + 1];
+	char cfg_path[CFG_PATH_MAX + 1];
 } tfw_cfg_sysctl_bufs = {
 	.state = STATE_DEFAULT_VAL,
 	.cfg_path = CFG_PATH_DEFAULT_VAL,
 };
 
-static TfwCfgNode *parsed_cfg;
+/*
+ * The buffer where the whole configuration is stored.
+ * Currently it is allocated as one big continious chunk of memory which is bad.
+ * TODO: Fix the parser to be able to stream data into it by small chunks.
+ */
+static char cfg_text_buf[65535];
+#define CFG_BUF_READ_BLOCK_SIZE PAGE_SIZE
 
-
-#if 0  /* TODO: implement this */
-static const char *
+/**
+ * Read contents of the whole configuration file to cfg_text_buf.
+ * The file path is specified via sysctl (tempesta.cfg_path).
+ *
+ * If there is no file the function returns 0 and leaves the buffer empty.
+ * This is not an error, it means that only default values should be used
+ * without any external configuration.
+ */
+static int
 read_cfg_file(void)
 {
 	const char *path = tfw_cfg_sysctl_bufs.cfg_path;
-	char *buf;
 	struct file *fp;
-	int bytes_read, read_size, remaining_space;
-	loff_t offset;
+	mm_segment_t oldfs;
+	loff_t offset = 0;
+	size_t bytes_read, read_size, remaining_space;
+	int ret = 0;
+
+	DBG("reading configuration file: %s\n", path);
+
+	oldfs = get_fs();
+	set_fs(get_ds());
 
 	fp = filp_open(path, O_RDONLY, 0);
-
 	if (IS_ERR_OR_NULL(fp)) {
 		ERR("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
-		return NULL;
-	}
-
-	buf = kmalloc(CFG_BUF_SIZE, GFP_KERNEL);
-	if (!buf) {
-		ERR("can't allocate memory\n");
-		goto out_err;
+		goto out;
 	}
 
 	do {
-		remaining_space = CFG_BUF_SIZE - offset - 1;
+		remaining_space = sizeof(cfg_text_buf) - offset - 1;
 		read_size = min(remaining_space, CFG_BUF_READ_BLOCK_SIZE);
 
-		bytes_read = kernel_read(fp, offset, buf + offset, read_size);
-		offset += bytes_read;
+		bytes_read = vfs_read(fp, cfg_text_buf + offset, read_size, \
+				      &offset);
 
 		if (bytes_read < 0) {
-			ERR("can't read file: %s (err: %d)\n", path, bytes_read);
-			goto out_err;
+			ret = bytes_read;
+			ERR("can't read file: %s (err: %d)\n", path, ret);
+			goto out;
 		}
 	} while (bytes_read);
 
-	buf[offset] = '\0';
-	filp_close(fp, NULL);
+out:
+	cfg_text_buf[offset] = '\0';
+	DBG("configuration file contents:\n%s\n", cfg_text_buf);
 
-	return buf;
+	if (!IS_ERR_OR_NULL(fp))
+		filp_close(fp, NULL);
+	set_fs(oldfs);
 
-out_err:
-	kfree(buf);
-	filp_close(fp, NULL);
-	return NULL;
+	return ret;
 }
-#endif
 
+/**
+ * Read the configuration file via VFS, parse it and start all modules pushing
+ * the new configuration to them.
+ */
 static int
 start_modules_with_new_cfg(void)
 {
-	int ret;
-	const char *cfg_text;
+	TfwCfgNode *parsed_cfg;
+	int ret = 0;
 
 	DBG("parsing new configuration and starting all modules\n");
 
-	cfg_text = tfw_cfg_sysctl_bufs.cfg_text;
+	ret = read_cfg_file();
+	if (ret)
+		return ret;
 
-	BUG_ON(parsed_cfg);
-	parsed_cfg = tfw_cfg_parse(cfg_text);
+	parsed_cfg = tfw_cfg_parse(cfg_text_buf);
 	if (!parsed_cfg) {
-		ERR("parse error\n");
+		ERR("can't parse configuration data\n");
 		return -EINVAL;
 	}
 
 	ret = tfw_cfg_mod_start_all(parsed_cfg);
-	if (ret) {
-		ERR("can't start modules\n");
-		goto out_cleanup;
-	}
+	if (ret)
+		ERR("can't start modules, err: %d\n", ret);
 
-	return 0;
-
-out_cleanup:
-	tfw_cfg_node_free(parsed_cfg);
 	return ret;
 }
 
+/**
+ * Process "start" and "stop" commands (received from sysctl as strings).
+ * Do corresponding actions if the state changed from "start" to "stop"
+ * and vise versa.
+ */
 static int
 handle_state_change(const char *old_state, const char *new_state)
 {
@@ -135,7 +145,7 @@ handle_state_change(const char *old_state, const char *new_state)
 	LOG("got state via sysctl: %s\n", new_state);
 
 	if (!is_changed) {
-		LOG("the state (%s) isn't changed, nothing to do\n", new_state);
+		LOG("the state '%s' isn't changed, nothing to do\n", new_state);
 		return 0;
 	}
 
@@ -160,6 +170,9 @@ handle_state_change(const char *old_state, const char *new_state)
 	return -EINVAL;
 }
 
+/**
+ * Syctl handler for tempesta.state.
+ */
 static int
 handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 		       size_t *lenp, loff_t *ppos)
@@ -205,18 +218,10 @@ static ctl_table tfw_cfg_sysctl_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= handle_sysctl_state_io,
 	},
-	{
-		.procname	= "cfg",
-		.data 		= tfw_cfg_sysctl_bufs.cfg_text,
-		.maxlen		= sizeof(tfw_cfg_sysctl_bufs.cfg_text - 1),
-		.mode		= 0644,
-		.proc_handler	= proc_dostring,
-	},
 	{}
 };
 
 static struct ctl_table_header *tfw_cfg_sysctl_hdr;
-
 
 int
 tfw_cfg_if_init(void)
@@ -237,5 +242,3 @@ tfw_cfg_if_exit(void)
 	handle_state_change(tfw_cfg_sysctl_bufs.state, "stop");
 	unregister_net_sysctl_table(tfw_cfg_sysctl_hdr);
 }
-
-

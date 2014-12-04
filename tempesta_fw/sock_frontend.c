@@ -146,6 +146,7 @@ tfw_release_listen_sockets(void)
 
 	memset(listen_socks, 0, sizeof(listen_socks));
 	memset(protos, 0, sizeof(protos));
+	listen_socks_n = 0;
 }
 
 

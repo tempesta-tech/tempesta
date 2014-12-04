@@ -203,8 +203,8 @@ EXPORT_SYMBOL(tfw_cfg_mod_unregister);
  * In case of any error the function tries to roll-back: it stops and cleans
  * already started modules and thus leaves them in a consistent state.
  *
- * In case of success, you must not free @new_cfg, it is saved until all
- * modules are stopped (a "cleanup" is performed), and then freed automatically.
+ * In any case (either error or success) the function takes care of free'ing
+ * the @new_cfg. You must not reference it once you called this function.
  */
 int
 tfw_cfg_mod_start_all(TfwCfgNode *new_cfg)
@@ -273,6 +273,8 @@ err_recover_cleanup:
 	}
 
 err_norecover:
+	tfw_cfg_node_free(new_cfg);
+
 	return ret;
 }
 

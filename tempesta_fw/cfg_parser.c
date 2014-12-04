@@ -924,15 +924,28 @@ tfw_cfg_parse(const char *cfg_text)
 
 	TfwCfgNode *root, *node;
 
+	BUG_ON(!cfg_text);
+
 	root = tfw_cfg_node_alloc("root");
 
-	if (!*cfg_text)
+	if (!*cfg_text) {
+		LOG("configuration is empty\n");
+
+		/* Actually empty configuration is not an error, so we return
+		 * the empty root which is then filled with default values. */
 		return root;
+	}
 
 	do {
 		node = parse_node(&ps);
-		if (node)
-			tfw_cfg_nchild_add(root, node);
+		if (!node) {
+			ERR("parse error\n");
+			tfw_cfg_node_free(root);
+			return NULL;
+		}
+
+		tfw_cfg_nchild_add(root, node);
+
 	} while (node && ps.t);
 
 	return root;

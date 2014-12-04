@@ -60,6 +60,10 @@ struct list_head backend_socks = LIST_HEAD_INIT(backend_socks);
 #define FOR_EACH_SOCK(entry) \
 	list_for_each_entry(entry, &backend_socks, list)
 
+#define FOR_EACH_SOCK_SAFE(entry, tmp) \
+	list_for_each_entry_safe(entry, tmp, &backend_socks, list)
+
+
 
 /**
  * Connect to the back-end server.
@@ -255,9 +259,9 @@ stop_bconnd(void)
 static void
 release_backend_entries(void)
 {
-	TfwBackendSockEntry *entry;
+	TfwBackendSockEntry *entry, *tmp;
 
-	FOR_EACH_SOCK(entry) {
+	FOR_EACH_SOCK_SAFE(entry, tmp) {
 		kfree(entry);
 	}
 
