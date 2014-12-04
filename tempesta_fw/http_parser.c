@@ -385,7 +385,7 @@ do {									\
 		PROCESS_ACC();
 
 	/* Parse current chunk. */
-	for (p = data; !isspace(*p) || *p == ';'; ++p) {
+	for (p = data; !isspace(*p) && (*p != ';'); ++p) {
 		if (unlikely(p - data == len)) {
 			if (chunk->ptr) {
 				r = CSTR_BADLEN;
