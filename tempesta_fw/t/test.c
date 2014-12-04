@@ -60,6 +60,7 @@ test_call_teardown_fn(void)
 }
 
 TEST_SUITE(tfw_str);
+TEST_SUITE(http_parser);
 TEST_SUITE(http_match);
 TEST_SUITE(hash);
 
@@ -69,6 +70,7 @@ test_run_all(void)
 	test_fail_counter = 0;
 
 	TEST_SUITE_RUN(tfw_str);
+	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(hash);
 
