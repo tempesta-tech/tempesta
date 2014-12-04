@@ -64,6 +64,14 @@
 #include "http_match.h"
 #include "http.h"
 
+/* Matching every request against a long table of rules may produce a lot of
+ * debugging messages, so they are turned off by default. */
+#ifdef DEBUG_HTTP_MATCH
+#define MATCH_DBG(...) TFW_DBG(__VA_ARGS__)
+#else
+#define MATCH_DBG(...)
+#endif
+
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @val with the header's value (skipping name and LWS).
@@ -253,9 +261,9 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_http_match_fld_t field;
 	tfw_http_match_arg_t arg_type;
 
-	TFW_DBG("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
-	        rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
-	        rule->arg.len, rule->arg.str);
+	MATCH_DBG("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
+	          rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
+	          rule->arg.len, rule->arg.str);
 
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
@@ -282,7 +290,7 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 {
 	TfwHttpMatchRule *rule;
 
-	TFW_DBG("Matching request: %p, list: %p\n", req, mlst);
+	MATCH_DBG("Matching request: %p, list: %p\n", req, mlst);
 
 	list_for_each_entry(rule, &mlst->list, list) {
 		if (do_match(req, rule))

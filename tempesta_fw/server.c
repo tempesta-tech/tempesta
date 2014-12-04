@@ -84,7 +84,7 @@ tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr)
 	int len = sizeof(*addr);
 
 	memset(addr, 0, len);
-	ret = kernel_getpeername(srv->sock->sk_socket, &addr->addr, &len);
+	ret = kernel_getpeername(srv->sock->sk_socket, &addr->sa, &len);
 
 	return ret;
 }
@@ -105,7 +105,7 @@ tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 }
 EXPORT_SYMBOL(tfw_server_snprint);
 
-int __init
+static int
 tfw_server_init(void)
 {
 	srv_cache = kmem_cache_create("tfw_srv_cache", sizeof(TfwServer),
@@ -115,9 +115,16 @@ tfw_server_init(void)
 	return 0;
 }
 
-void
+static void
 tfw_server_exit(void)
 {
 	kmem_cache_destroy(srv_cache);
 }
+
+
+TfwCfgMod tfw_mod_server = {
+	.name = "server",
+	.init = tfw_server_init,
+	.exit = tfw_server_exit
+};
 

@@ -25,11 +25,12 @@
 typedef union {
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
-	struct sockaddr addr;
+	struct sockaddr sa;
 } TfwAddr;
 
-int tfw_inet_pton(char **p, void *addr);
 int tfw_inet_ntop(const void *addr, char *buf);
 bool tfw_addr_eq(const void *addr1, const void *addr2);
+
+ssize_t tfw_addr_sa_len(const TfwAddr *addr);
 
 #endif /* __TFW_ADDR_H__ */

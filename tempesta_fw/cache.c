@@ -90,6 +90,12 @@ typedef struct tfw_cache_work_t {
 #define cw_key	_u._r.key
 } TfwCWork;
 
+static struct {
+	bool cache;
+	const char *db_path;
+	int db_max_pages;
+} cache_cfg __read_mostly;
+
 static TDB *db;
 static struct task_struct *cache_mgr_thr;
 static struct workqueue_struct *cache_wq;
@@ -280,7 +286,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	unsigned long key;
 	size_t len = sizeof(cdata);
 
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		goto out;
 
 	key = tfw_cache_key_calc(req);
@@ -435,7 +441,7 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 	int node;
 	unsigned long key;
 
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		return;
 
 	key = tfw_cache_key_calc(req);
@@ -484,15 +490,15 @@ tfw_cache_mgr(void *arg)
 	return 0;
 }
 
-int __init
-tfw_cache_init(void)
+static int
+tfw_cache_start(void)
 {
 	int r = 0;
 
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		return 0;
 
-	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0);
+	db = tdb_open(cache_cfg.db_path, cache_cfg.db_max_pages, 0);
 	if (!db)
 		return 1;
 
@@ -521,14 +527,49 @@ err_thr:
 	return r;
 }
 
-void
-tfw_cache_exit(void)
+static void
+tfw_cache_stop(void)
 {
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		return;
 
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
-	tdb_close(db);
 }
+
+
+static const TfwCfgSpec cache_cfg_spec[] = {
+	{
+		"cache",
+		"cache {}",
+		"Cache-related parameters"
+	},
+	{
+		"cache.cache",
+		"cache off;",
+		"Enable/disable caching.",
+		.set_bool = &cache_cfg.cache,
+	},
+	{
+		"cache.path",
+		"path /opt/tempesta/cache;",
+		"Path to cache directory.",
+		.set_str = &cache_cfg.db_path,
+	},
+	{
+		"cache.size",
+		"size 262144;",
+		"Maximum cache size in pages.",
+		.set_int = &cache_cfg.db_max_pages,
+	},
+	{},
+};
+
+TfwCfgMod tfw_mod_cache = {
+	.name = "cache",
+	.cfg_spec_arr = cache_cfg_spec,
+
+	.start = tfw_cache_start,
+	.stop  = tfw_cache_stop,
+};

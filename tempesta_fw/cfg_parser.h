@@ -17,20 +17,19 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TEMPESTA_H__
-#define __TEMPESTA_H__
+#ifndef __TFW_CFG_PARSER_H__
+#define __TFW_CFG_PARSER_H__
 
-#include <linux/in6.h>
-#include <linux/module.h>
-#include <linux/rwsem.h>
-#include <linux/tempesta_fw.h>
-#include <net/sock.h>
+#include <linux/types.h>
 
-#include "cfg.h"
-#include "tdb.h"
+#include "addr.h"
+#include "cfg_node.h"
 
-#define TFW_AUTHOR		"NatSys Lab. (http://natsys-lab.com)"
+int tfw_cfg_parse_int(const char *str, int *out_num);
+int tfw_cfg_parse_bool(const char *str, bool *out_bool);
+int tfw_cfg_parse_addr(const char *str, TfwAddr *out_addr);
 
-#define DEF_MAX_PORTS		8
+TfwCfgNode *tfw_cfg_parse(const char *cfg_text);
+TfwCfgNode *tfw_cfg_parse_single_node(const char *cfg_text);
 
-#endif /* __TEMPESTA_H__ */
+#endif /* __TFW_CFG_PARSER_H__ */

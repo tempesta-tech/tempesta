@@ -39,7 +39,4 @@ void tfw_destroy_server(struct sock *s);
 int tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr);
 int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
 
-int tfw_server_init(void);
-void tfw_server_exit(void);
-
 #endif /* __TFW_CLIENT_H__ */
