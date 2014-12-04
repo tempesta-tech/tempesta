@@ -814,7 +814,7 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 		h->ptr, h->len, h->flags);
 
 	/* Move the offset forward if current header is fully read. */
-	if (close)
+	if (close && (id == ht->off))
 		ht->off++;
 }
 
@@ -1535,6 +1535,8 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	return r;
 }
+/* TODO: change to DEBUG_EXPORT_SYMBOL() after merging the 'cfg' branch. */
+EXPORT_SYMBOL(tfw_http_parse_req);
 
 /*
  * ------------------------------------------------------------------------
