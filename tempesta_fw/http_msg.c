@@ -36,7 +36,7 @@ tfw_http_msg_alloc(int type)
 
 	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
 	hm->h_tbl->size = __HHTBL_SZ(1);
-	hm->h_tbl->off = 0;
+	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
 
 	INIT_LIST_HEAD(&hm->msg.pl_list);
@@ -45,6 +45,7 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
+EXPORT_SYMBOL(tfw_http_msg_alloc);
 
 /**
  * The function does not free @m->skb_list, the caller is responsible for that.
@@ -81,3 +82,4 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_free(m->pool);
 }
+EXPORT_SYMBOL(tfw_http_msg_free);
