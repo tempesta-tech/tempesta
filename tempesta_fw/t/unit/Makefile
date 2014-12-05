@@ -16,27 +16,18 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS = $(DEFINES) -DDEBUG
-ifdef NORMALIZATION
-	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
-endif
+tfw_root = $(src)/../../../
 
-obj-m	+= sync_socket/ tempesta_db/ tempesta_fw/
+EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(tfw_root)/tempesta_fw \
+		-I$(tfw_root)/tempesta_db -I$(tfw_root)/sync_socket
 
-KERNEL = /lib/modules/$(shell uname -r)/source
-
-all: build
-	
-build:
-	make -C $(KERNEL) M=$(PWD) modules
-
-test: build
-	SYNC_SOCKET=./sync_socket TDB=./tempesta_db ./tempesta.sh start
-	./tempesta_fw/t/unit/run_all_tests.sh
-	./tempesta.sh stop
-	./tempesta_fw/t/functional/run_all_tests.sh
-
-clean:
-	make -C $(KERNEL) M=$(PWD) clean
-	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
-		-exec rm -f {} \;
+obj-m += tfw_test.o
+tfw_test-objs = \
+	main.o \
+	test.o \
+	helpers.o \
+	test_addr.o \
+	test_hash.o \
+	test_http_match.o \
+	test_tfw_str.o \
+	test_http_parser.o
