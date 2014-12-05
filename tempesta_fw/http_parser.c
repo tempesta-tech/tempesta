@@ -319,7 +319,8 @@ out:
  * or negative value otherwise.
  */
 static int
-__parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+__parse_int_a(TfwStr *chunk, unsigned char *data, size_t len,
+	      const unsigned long *delimiter_a, unsigned int *acc)
 {
 	unsigned char *p;
 	int r;
@@ -338,7 +339,7 @@ do {									\
 		PROCESS_ACC();
 
 	/* Parse current chunk. */
-	for (p = data; !isspace(*p); ++p) {
+	for (p = data; !IN_ALPHABET(*p, delimiter_a); ++p) {
 		if (unlikely(p - data == len)) {
 			if (chunk->ptr) {
 				r = CSTR_BADLEN;
@@ -358,6 +359,24 @@ err:
 	chunk->ptr = NULL;
 	return r;
 #undef PROCESS_ACC
+}
+
+static inline int
+__parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+{
+	/*
+	 * Standard white-space characters are:
+	 * ' '  (0x20) space (SPC)
+	 * '\t' (0x09) horizontal tab (TAB)
+	 * '\n' (0x0a) newline (LF)
+	 * '\v' (0x0b) vertical tab (VT)
+	 * '\f' (0x0c) feed (FF)
+	 * '\r' (0x0d) carriage return (CR)
+	 */
+	static const unsigned long whitespace_a[] ____cacheline_aligned = {
+		0x0000000100003e00UL, 0, 0, 0
+	};
+	return __parse_int_a(chunk, data, len, whitespace_a, acc);
 }
 
 /**
@@ -1735,6 +1754,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	static const unsigned long colon_a[] ____cacheline_aligned = {
+		/* ':' (0x3a)(58) Colon */
+		0x0400000000000000UL, 0, 0, 0
+	};
 
 	__FSM_START(parser->_i_st) {
 
@@ -1915,7 +1938,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		/* Skip week day as redundant information. */
 		unsigned char *sp = memchr(p, ' ', len);
 		if (sp)
-			__FSM_I_MOVE_n(Resp_I_ExpDate, sp - p);
+			__FSM_I_MOVE_n(Resp_I_ExpDate, sp - p + 1);
 		return CSTR_POSTPONE;
 
 	}
@@ -1944,57 +1967,57 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		case 'A':
 			TRY_STR_LAMBDA("Apr", {
 				resp->expires += SB_APR;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Aug", {
 				resp->expires += SB_AUG;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			return CSTR_NEQ;
 		case 'J':
 			TRY_STR_LAMBDA("Jan", {
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Jun", {
 				resp->expires += SB_JUN;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Jul", {
 				resp->expires += SB_JUL;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			return CSTR_NEQ;
 		case 'M':
 			TRY_STR_LAMBDA("Mar", {
 				/* Add SEC24H for leap year on year parsing. */
 				resp->expires += SB_MAR;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("May", {
 				resp->expires += SB_MAY;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			return CSTR_NEQ;
 		default:
 			TRY_STR_LAMBDA("Feb", {
 				resp->expires += SB_FEB;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Sep", {
 				resp->expires += SB_SEP;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Oct", {
 				resp->expires += SB_OCT;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Nov", {
 				resp->expires += SB_NOV;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			TRY_STR_LAMBDA("Dec", {
 				resp->expires += SB_DEC;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 4);
+				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
 			});
 			return CSTR_NEQ;
 		}
@@ -2025,7 +2048,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_ExpHour) {
 		unsigned int t = 0;
-		int n = __parse_int(chunk, p, len, &t);
+		int n = __parse_int_a(chunk, p, len, colon_a, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
@@ -2037,7 +2060,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_ExpMin) {
 		unsigned int t = 0;
-		int n = __parse_int(chunk, p, len, &t);
+		int n = __parse_int_a(chunk, p, len, colon_a, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
