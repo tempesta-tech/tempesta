@@ -438,12 +438,13 @@ enum {
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func, id)	\
 __FSM_STATE(st_curr) {							\
 	int ret;							\
-	long n = data + len - p;					\
+	long n = data + len - p;	/* Remaining number of bytes */	\
 	BUG_ON(n < 0);							\
 	parser->_i_st = st_i;						\
-	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
 	ret = func(msg, p, &n);						\
-	n += (size_t)p - (size_t)parser->hdr.ptr;			\
+	/* @n - hdr value length, @ret - next data (@n + *CR + LF). */	\
+	n += (size_t) p - (size_t) TFW_STR_CURR(&parser->hdr)->ptr;	\
+	/* @n - full header length (key + value) */			\
 	TFW_DBG("parse header " #func ": return %d\n", ret);		\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
