@@ -143,8 +143,6 @@ do {									\
 	goto done;							\
 } while (0)
 
-#define __FSM_I_EXIT()			goto done
-
 #define FSM_EXIT()							\
 do {									\
 	p += 1; /* eat current character */				\
@@ -172,15 +170,20 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_I_MOVE_n(to, n)						\
-	____FSM_MOVE_LAMBDA(to, n, __FSM_I_EXIT())
-
 #define __FSM_MOVE_n(to, n)						\
 	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT(NULL))
 #define __FSM_MOVE(to)			__FSM_MOVE_n(to, 1)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
+/*
+ * __FSM_I_* macros are intended to help with parsing of message
+ * header values. That is done with separate, nested, or internal
+ * FSMs, and so _I_ in the name means "internal" FSM.
+ */
+#define __FSM_I_EXIT()			goto done
+#define __FSM_I_MOVE_n(to, n)						\
+	____FSM_MOVE_LAMBDA(to, n, __FSM_I_EXIT())
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 #define __FSM_I_MOVE_str(to, str)	__FSM_I_MOVE_n(to, sizeof(str) - 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
@@ -460,10 +463,11 @@ __FSM_STATE(st_curr) {							\
 	long n = data + len - p;					\
 	BUG_ON(n < 0);							\
 	parser->_i_st = st_i;						\
-	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
 	ret = func(msg, p, &n);						\
-	n += (size_t)p - (size_t)parser->hdr.ptr;			\
-	TFW_DBG("parse header " #func ": return %d\n", ret);		\
+	/* @n - hdr value length, @ret - next data (@n + *CR + LF). */	\
+	n += (size_t) p - (size_t) TFW_STR_CURR(&parser->hdr)->ptr;	\
+	/* @n - full header length (key + value) */			\
+	TFW_DBG("parse header " #func ": ret=%d n=%ld\n", ret, n);	\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
@@ -484,17 +488,43 @@ __FSM_STATE(st_curr) {							\
 	__TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func,	\
 				 TFW_HTTP_HDR_RAW)
 
+/*
+ * __FSM_B_* macros are intended to help with parsing of a message
+ * body, hence the "_B_" in the names. The macros are similar to
+ * those for parsing of message headers (__FSM_*), or for parsing
+ * of message header values (__FSM_I_*, where _I_ means "internal",
+ * or nested FSM). The major difference from __FSM_* macros is that
+ * there can be zeroes in a message body that cannot be in a header.
+ */
+#define __FSM_B_MOVE_n(to, n)						\
+do {									\
+	p += n;								\
+	if (unlikely(p >= data + len)) {				\
+		/*							\
+		 * Postpone parsing until more data is available,	\
+		 * and start from state @to on next parser run.		\
+		 */							\
+		r = TFW_POSTPONE;					\
+		__fsm_const_state = to;					\
+		goto done;						\
+	}								\
+	c = *p;								\
+	goto to;							\
+} while (0)
+
+#define __FSM_B_MOVE(to)	__FSM_B_MOVE_n(to, 1)
+
 #define TFW_HTTP_INIT_BODY_PARSING(msg, to_state)			\
 do {									\
 	TFW_DBG("parse msg body: flags=%#x content_length=%d\n",	\
 		msg->flags, msg->content_length);			\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE(to_state);					\
-	/* Next we chek content length. */				\
+		__FSM_B_MOVE(to_state);					\
+	/* Next we check content length. */				\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
-		__FSM_MOVE(to_state);					\
+		__FSM_B_MOVE(to_state);					\
 	}								\
 	/* There is no body at all. */					\
 	r = TFW_PASS;							\
@@ -512,15 +542,15 @@ __FSM_STATE(prefix ## _Body) {						\
 		int ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);\
 		switch (ret) {						\
 		case CSTR_POSTPONE:					\
-			/* Not all the header data is parsed. */	\
-			__FSM_MOVE_n(prefix ## _Body, n);		\
+			/* Not all data has been parsed. */		\
+			__FSM_B_MOVE_n(prefix ## _Body, n);		\
 		case CSTR_BADLEN: /* bad header length */		\
 		case CSTR_NEQ: /* bad header value */			\
 			return TFW_BLOCK;				\
 		default:						\
 			BUG_ON(ret <= 0);				\
 			parser->to_read = to_read;			\
-			__FSM_MOVE_n(prefix ## _BodyChunkEoL, ret);	\
+			__FSM_B_MOVE_n(prefix ## _BodyChunkEoL, ret);	\
 		}							\
 	}								\
 	/* fall through */						\
@@ -535,7 +565,7 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
 		/* In case of chunked message read trailing '0\r\n'. */	\
-		__FSM_MOVE_n(prefix ## _Body, _n);			\
+		__FSM_B_MOVE_n(prefix ## _Body, _n);			\
 	/* We've fully read Content-Length bytes. */			\
 	p += _n;							\
 	r = TFW_PASS;							\
@@ -544,13 +574,13 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 	if (c == '\n') {						\
 		if (parser->to_read)					\
-			__FSM_MOVE(prefix ## _BodyReadChunk);		\
+			__FSM_B_MOVE(prefix ## _BodyReadChunk);		\
 		else							\
 			/* Read trailing headers, RFC 2616 3.6.1. */	\
-			__FSM_MOVE(prefix ## _Hdr);			\
+			__FSM_B_MOVE(prefix ## _Hdr);			\
 	}								\
 	if (c == '\r' || c == '=' || IN_ALPHABET(*p, hdr_a) || c == ';') \
-		__FSM_MOVE(prefix ## _BodyChunkEoL);			\
+		__FSM_B_MOVE(prefix ## _BodyChunkEoL);			\
 	return TFW_BLOCK;						\
 }									\
 /* Request|Response is fully read. */					\
