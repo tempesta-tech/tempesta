@@ -45,7 +45,7 @@ So in contrast to unit tests, the functional testing is (mostly) a black-box tes
 
 We also trying to keep things simple here. Each test is a separate `.py` file under the `functional/` directory. It is executed linearly as a script without usual complicated stuff like organizing tests into classes that represents suites. Every test is a separate program that executes whatever it likes to. To run a test, just execute the corresponding `.py` file.
 
-A shared testing framework is located at `test.py`. It does all the dirty job of initializing Tempesta, starting the back-end HTTP server, sending packets via sockets, etc. All tests should import this module.
+A bunch of shared helper utils is located in the `functional/helpers` subdirectory. They do all the dirty job of initializing Tempesta, starting the back-end HTTP server, sending packets via sockets, etc.
 
 Also there is a script that runs all tests: `run_all_tests.sh`. It simply enumerates all those separate test scripts. In contrast to unit tests, the script should be executed when Tempesta FW is not running.
 
