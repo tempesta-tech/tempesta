@@ -36,7 +36,7 @@ tfw_http_msg_alloc(int type)
 
 	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
 	hm->h_tbl->size = __HHTBL_SZ(1);
-	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
+	hm->h_tbl->off = 0;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
 
 	INIT_LIST_HEAD(&hm->msg.pl_list);

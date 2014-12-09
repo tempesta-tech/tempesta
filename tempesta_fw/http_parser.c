@@ -443,7 +443,6 @@ __FSM_STATE(st_curr) {							\
 	parser->_i_st = st_i;						\
 	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
 	ret = func(msg, p, &n);						\
-	n += (size_t)p - (size_t)parser->hdr.ptr;			\
 	TFW_DBG("parse header " #func ": return %d\n", ret);		\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
