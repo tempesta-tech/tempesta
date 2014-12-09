@@ -660,7 +660,6 @@ tfw_http_append_forwarded_for(TfwHttpMsg *m)
 	buf_size = old_hdr_len + TFW_ADDR_STR_BUF_SIZE + sizeof(", \r\n");
 
 	buf = tfw_pool_alloc(m->pool, buf_size);
-	memset (buf, 0, buf_size);
 	if (!buf)
 		return TFW_BLOCK;
 
