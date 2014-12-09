@@ -348,7 +348,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 	}
 
 	/* FIXME: The buffer may already contain '\0' before this point. */
-	out_buf = '\0';
+	*out_buf = '\0';
 
 	return total_len;
 }
