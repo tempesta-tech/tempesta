@@ -348,67 +348,59 @@ EXPORT_SYMBOL(tfw_addr_eq);
  */
 
 /**
- * Reverse digits in a buffer and remove leading zeros,
- * e.g. "54321000" -> "12345".
- *
- * @end_pos is &buf[buf_len].
- *
- * Returns a position behind the latest output digit in the @buf.
- */
-static char *
-reverse_and_clip_zeros(char *buf, char *end_pos)
-{
-	char *p = buf;
-	char *q = end_pos - 1;
-
-	while (*q == '0' && p < q)
-		--q;
-	end_pos = (q + 1);
-
-	while (p < q) {
-		*p = *p ^ *q;
-		*q = *p ^ *q;
-		*p = *p ^ *q;
-		++p;
-		--q;
-	}
-
-	return end_pos;
-}
-
-/**
  * Convert a number to base-10 textual representation,
  * e.g. 12345 -> "12345".
  *
  * The function can only print up to 5 digits and take input numbers that are
- * less than 81920, which is suitable for printing port and IPv4 octet values.
+ * less than 65536, which is suitable for printing port and IPv4 octet values.
  *
  * Returns a position behind the last digit in @out_buf.
  */
 static char *
-put_dec(u32 q, char *out_buf)
+tfw_put_dec(u32 q, char *out_buf)
 {
 	u32 r;
+	u8 digits_n = 1 + (q > 9) + (q > 99) + (q > 999) + (q > 9999);
 
-	/* Extract decimal digits (as ASCII characters) from the input number.
-	 * The code is borrowed from put_dec_full9() (linux/lib/vsprintf.c). */
-	r  = (q * 0xcccd) >> 19;
-	out_buf[0] = (q - 10 * r) + '0';
-	q  = (r * 0x0ccd) >> 15;
-	out_buf[1] = (r - 10 * q) + '0';
-	r  = (q * 0x00cd) >> 11;
-	out_buf[2] = (q - 10 * r) + '0';
-	q  = (r * 0x000d) >> 7;
-	out_buf[3] = (r - 10 * q) + '0';
-	out_buf[4] = q + '0';
+	/* Extract individual digits and convert them to ASCII characters.
+	 *
+	 * Decimal digits are extracted by fast division by 10.
+	 * The code is based on put_dec_full9() from linux/lib/vsprintf.c.
+	 *
+	 * Some programs treat leading zeros as an octal base mark,
+	 * so the switch(digits_n) is used to skip them.
+	 */
+	switch(digits_n) {
+	case 4:
+		r  = (q * 0x0ccd) >> 15;
+		out_buf[3] = (q - 10 * r) + '0';
+		q  = (r * 0x00cd) >> 11;
+		out_buf[2] = (r - 10 * q) + '0';
+	case 2:
+		r  = (q * 0x000d) >> 7;
+		out_buf[1] = (q - 10 * r) + '0';
+		out_buf[0] = r + '0';
 
-	/* We clip leading zeros here because some programs do treat them
-	 * as an octal base mark. */
-	return reverse_and_clip_zeros(out_buf, out_buf + 5);
+		break;
+	case 5:
+		r  = (q * 0xcccd) >> 19;
+		out_buf[4] = (q - 10 * r) + '0';
+		q  = (r * 0x0ccd) >> 15;
+		out_buf[3] = (r - 10 * q) + '0';
+	case 3:
+		r  = (q * 0x00cd) >> 11;
+		out_buf[2] = (q - 10 * r) + '0';
+		q  = (r * 0x000d) >> 7;
+		out_buf[1] = (r - 10 * q) + '0';
+	case 1:
+		out_buf[0] = q + '0';
+	}
+
+	return out_buf + digits_n;
 }
 
 /**
- * Convert @group to hexadecimal digits and put them to the @buf,
+ * Convert @group to hexadecimal digits and put them to the buffer,
  * e.g. 0x01F9 -> "1f9".
  *
  * Leading zeros are clipped.
@@ -416,42 +408,60 @@ put_dec(u32 q, char *out_buf)
  * Returns a position behind the latest printed digit.
  */
 static char *
-put_ipv6_digit_group(u16 group, char *out_buf)
+tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 {
-	out_buf[0] = hex_asc[ group        & 0xF];
-	out_buf[1] = hex_asc[(group >> 4)  & 0xF];
-	out_buf[2] = hex_asc[(group >> 8)  & 0xF];
-	out_buf[3] = hex_asc[(group >> 12) & 0xF];
+	u8 digits_n = 1 + (group > 0xF) + (group > 0xFF) + (group > 0xFFF);
 
-	return reverse_and_clip_zeros(out_buf, out_buf + 4);
+	out_buf += digits_n;
+
+	switch(digits_n) {
+	case 4:
+		out_buf[-4] = hex_asc[(group >> 12)      ];
+	case 3:
+		out_buf[-3] = hex_asc[(group >> 8)  & 0xF];
+	case 2:
+		out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
+	case 1:
+		out_buf[-1] = hex_asc[ group        & 0xF];
+	}
+
+	return out_buf;
 }
 
 /**
+ * Decide whether the port value should be included to a serialized IP address.
+ * We omit port 80 because it is the default value in most HTTP specifications.
+ */
+#define SHOULD_PRINT_PORT(in_port) \
+	unlikely(in_port && in_port != __constant_cpu_to_be16(80))
+
+/**
  * Convert an IPv4 address and a port value to string,
- * e.g. (both big-endian) 0x7F000001, 80 -> "127.0.0.1:80".
+ * e.g. (both big-endian) 0x7F000001, 8081 -> "127.0.0.1:8081".
  *
+ * @in_port is ignored if it is equal to 0 or 80.
  * @buf must be at least 21 bytes in size, or you get an overflow.
  *
  * Returns position behind the latest character in the @buf.
  * The output is NOT terminated with '\0'.
  */
 char *
-_tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
+tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
 {
 	char *pos = buf;
 	u8 *octets = (u8 *)&in_addr;
 
-	pos = put_dec(octets[0], pos);
+	pos = tfw_put_dec(octets[0], pos);
 	*pos++ = '.';
-	pos = put_dec(octets[1], pos);
+	pos = tfw_put_dec(octets[1], pos);
 	*pos++ = '.';
-	pos = put_dec(octets[2], pos);
+	pos = tfw_put_dec(octets[2], pos);
 	*pos++ = '.';
-	pos = put_dec(octets[3], pos);
+	pos = tfw_put_dec(octets[3], pos);
 
-	if (in_port) {
+	if (SHOULD_PRINT_PORT(in_port)) {
 		*pos++ = ':';
-		pos = put_dec(ntohs(in_port), pos);
+		pos = tfw_put_dec(ntohs(in_port), pos);
 	}
 
 	return pos;
@@ -467,20 +477,21 @@ _tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
  *
  * The address is enclosed to square brackets when @in_port is not zero.
  *
+ * @in_port is ignored if it is equal to 0 or 80.
  * Size of @buf must be at least TFW_ADDR_STR_BUF_SIZE, or you get an overflow.
  *
  * Returns position behind the last character in @buf.
  * The output is NOT terminated with '\0'.
  */
 char *
-_tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
+tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 {
 	char *pos = buf;
 	const u16 *groups = in6_addr->in6_u.u6_addr16;
 	u8 zeros_already_omitted = false;
 	u8 i;
 
-	if (in_port)
+	if (SHOULD_PRINT_PORT(in_port))
 		*pos++ = '[';
 
 	/* Print groups of hexadecimal digits separated by ':'.
@@ -493,7 +504,7 @@ _tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 	 */
 	for (i = 0; i < 7; ++i) {
 		if (groups[i] || zeros_already_omitted) {
-			pos = put_ipv6_digit_group(ntohs(groups[i]), pos);
+			pos = tfw_put_ipv6_digit_group(ntohs(groups[i]), pos);
 			*pos++ = ':';
 		}
 		else if (!groups[i] && (groups[i + 1] || i == 6)) {
@@ -505,13 +516,12 @@ _tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 	}
 
 	/* The last group doesn't have ':' after it. */
-	pos = put_ipv6_digit_group(ntohs(groups[7]), pos);
+	pos = tfw_put_ipv6_digit_group(ntohs(groups[7]), pos);
 
-
-	if (in_port) {
+	if (SHOULD_PRINT_PORT(in_port)) {
 		*pos++ = ']';
 		*pos++ = ':';
-		pos = put_dec(ntohs(in_port), pos);
+		pos = tfw_put_dec(ntohs(in_port), pos);
 	}
 
 	return pos;
@@ -519,7 +529,13 @@ _tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 
 /**
  * Convert IPv4/IPv6 address and a port value to string,
- * e.g. "127.0.0.1:80" or "[::1]:80".
+ * e.g. "127.0.0.1:8080" or "[::1]:8080".
+ *
+ * Note: the port 80 is omitted in the output string since it is a default HTTP
+ * port  and we use this function to format an address of a HTTP server.
+ * E.g.:
+ *   { 127.0.0.1, 81 } => "127.0.0.1:81"
+ *   { 127.0.0.1, 80 } => "127.0.0.1"
  *
  * Returns length of a string written to the @out_buf.
  */
@@ -538,8 +554,8 @@ tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
 	}
 
 	pos = (addr->sa.sa_family == AF_INET6)
-	    ? _tfw_addr_fmt_v6(&addr->v6.sin6_addr, addr->v6.sin6_port, out_buf)
-	    : _tfw_addr_fmt_v4(addr->v4.sin_addr.s_addr, addr->v4.sin_port,
+	    ? tfw_addr_fmt_v6(&addr->v6.sin6_addr, addr->v6.sin6_port, out_buf)
+	    : tfw_addr_fmt_v4(addr->v4.sin_addr.s_addr, addr->v4.sin_port,
 			       out_buf);
 
 	BUG_ON(pos >= (out_buf + buf_size));
