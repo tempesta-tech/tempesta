@@ -40,10 +40,14 @@ TEST(tfw_addr_fmt, formats_ipv4_addrs)
 		.v4.sin_port = htons(65535),
 	};
 
-	char s1[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s2[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s3[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
+	char s1[TFW_ADDR_STR_BUF_SIZE];
+	char s2[TFW_ADDR_STR_BUF_SIZE];
+	char s3[TFW_ADDR_STR_BUF_SIZE];
 	size_t l1, l2, l3;
+
+	memset(s1, 0xAA, sizeof(s1));
+	memset(s2, 0xAA, sizeof(s2));
+	memset(s3, 0xAA, sizeof(s3));
 
 	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
 	l2 = tfw_addr_fmt(&a2, s2, sizeof(s2));
@@ -84,11 +88,16 @@ TEST(tfw_addr_fmt, formats_ipv6_addrs)
 	const char *e2 = "[ff05::2]:2718";
 	const char *e3 = "[12:3456::bcde:f001:0:0:607]:65535";
 
-	char s0[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s1[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s2[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s3[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
+	char s0[TFW_ADDR_STR_BUF_SIZE];
+	char s1[TFW_ADDR_STR_BUF_SIZE];
+	char s2[TFW_ADDR_STR_BUF_SIZE];
+	char s3[TFW_ADDR_STR_BUF_SIZE];
 	size_t l0, l1, l2, l3;
+
+	memset(s0, 0xAA, sizeof(s0));
+	memset(s1, 0xAA, sizeof(s1));
+	memset(s2, 0xAA, sizeof(s2));
+	memset(s3, 0xAA, sizeof(s3));
 
 	l0 = tfw_addr_fmt(&a0, s0, sizeof(s0));
 	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
@@ -117,9 +126,12 @@ TEST(tfw_addr_fmt, omits_port_80)
 	const char *e1 = "127.0.0.1";
 	const char *e2 = "::1";
 
-	char s1[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
-	char s2[TFW_ADDR_STR_BUF_SIZE] = { 0xAA };
+	char s1[TFW_ADDR_STR_BUF_SIZE];
+	char s2[TFW_ADDR_STR_BUF_SIZE];
 	size_t l1, l2;
+
+	memset(s1, 0xAA, sizeof(s1));
+	memset(s2, 0xAA, sizeof(s2));
 
 	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
 	l2 = tfw_addr_fmt(&a2, s2, sizeof(s2));
