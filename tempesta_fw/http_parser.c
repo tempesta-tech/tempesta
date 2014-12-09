@@ -540,6 +540,7 @@ __FSM_STATE(prefix ## _Body) {						\
 		unsigned int to_read = 0;				\
 		/* Read next chunk length. */				\
 		int ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);\
+		TFW_DBG("n=%ld ret=%d to_read=%d\n", n, ret, to_read);	\
 		switch (ret) {						\
 		case CSTR_POSTPONE:					\
 			/* Not all data has been parsed. */		\
@@ -563,9 +564,10 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	msg->body.len += _n;						\
 	parser->to_read -= _n;						\
 	/* Just skip required number of bytes. */			\
-	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
-		/* In case of chunked message read trailing '0\r\n'. */	\
-		__FSM_B_MOVE_n(prefix ## _Body, _n);			\
+	if (parser->to_read)						\
+		__FSM_B_MOVE_n(prefix ## _BodyReadChunk, _n);		\
+	if (msg->flags & TFW_HTTP_CHUNKED)				\
+		__FSM_B_MOVE_n(prefix ## _BodyChunkEnd, _n);		\
 	/* We've fully read Content-Length bytes. */			\
 	p += _n;							\
 	r = TFW_PASS;							\
@@ -581,6 +583,14 @@ __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 	}								\
 	if (c == '\r' || c == '=' || IN_ALPHABET(*p, hdr_a) || c == ';') \
 		__FSM_B_MOVE(prefix ## _BodyChunkEoL);			\
+	return TFW_BLOCK;						\
+}									\
+__FSM_STATE(prefix ## _BodyChunkEnd) {					\
+	if (c == '\n') {						\
+		__FSM_B_MOVE(prefix ## _Body);				\
+	}								\
+	if (c == '\r')							\
+		__FSM_B_MOVE(prefix ## _BodyChunkEnd);			\
 	return TFW_BLOCK;						\
 }									\
 /* Request|Response is fully read. */					\
@@ -1006,6 +1016,7 @@ enum {
 	/* Body */
 	Req_Body,
 	Req_BodyChunkEoL,
+	Req_BodyChunkEnd,
 	Req_BodyReadChunk,
 	/* URI normalization. */
 	Req_UriNorm,
@@ -2276,6 +2287,7 @@ enum {
 	/* Body */
 	Resp_Body,
 	Resp_BodyChunkEoL,
+	Resp_BodyChunkEnd,
 	Resp_BodyReadChunk,
 	Resp_Done
 };
