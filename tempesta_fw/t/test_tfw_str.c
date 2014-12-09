@@ -384,10 +384,11 @@ TEST(tfw_str_eq_kv, allows_space_sep)
 TEST(tfw_str_to_cstr, copies_all_chunks)
 {
 	TFW_STR(compound_str, "foo bar baz 12345678");
-	char buf[21] = { 0xA0 };
+	char buf[21];
 	int copied_len;
 	const char *expected_str = "foo bar baz 12345678";
 
+	memset(buf, 0xA0, sizeof(buf));
 	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
 
 	EXPECT_EQ(20, copied_len);
@@ -397,10 +398,11 @@ TEST(tfw_str_to_cstr, copies_all_chunks)
 TEST(tfw_str_to_cstr, limits_and_terminates_output)
 {
 	TFW_STR(compound_str, "foobarbaz");
-	char buf[6] = { 0xAA };
+	char buf[6];
 	int copied_len;
 	const char *expected_str = "fooba";
 
+	memset(buf, 0xAA, sizeof(buf));
 	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
 
 	EXPECT_EQ(sizeof(buf) - 1, copied_len);
