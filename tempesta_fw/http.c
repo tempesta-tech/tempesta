@@ -610,9 +610,9 @@ tfw_fmt_skb_src_addr(const struct sk_buff *skb, char *out_buf)
 	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
 
 	if (ih6->version == 6)
-		return _tfw_addr_fmt_v6(&ih6->saddr, 0, out_buf);
+		return tfw_addr_fmt_v6(&ih6->saddr, 0, out_buf);
 
-	return _tfw_addr_fmt_v4(ih4->saddr, 0, out_buf);
+	return tfw_addr_fmt_v4(ih4->saddr, 0, out_buf);
 }
 
 static int

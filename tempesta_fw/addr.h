@@ -33,19 +33,16 @@ int tfw_inet_pton(char **p, void *addr);
 int tfw_inet_ntop(const void *addr, char *buf);
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
 
-
-
 /* Maximum size of a buffer needed for tfw_addr_fmt(), including '\0'. */
 #define TFW_ADDR_STR_BUF_SIZE \
 	sizeof("[FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:255.255.255.255]:65535")
 
-
 size_t tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
-
-char * _tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *out_buf);
-char * _tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port,
+/* A couple of faster alternatives to tfw_addr_fmt().
+ * Note that they don't check input arguments and don't terminate output. */
+char * tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *out_buf);
+char * tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port,
 			char *out_buf);
-
 
 #endif /* __TFW_ADDR_H__ */
