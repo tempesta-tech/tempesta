@@ -38,6 +38,13 @@ free_msgs(void)
 	parsed_req = NULL;
 }
 
+static void
+reset_parsed_msgs(void)
+{
+	free_msgs();
+	allocate_msgs();
+}
+
 #define PARSE_REQ(raw_req_str) \
 	tfw_http_parse_req(parsed_req, raw_req_str, strlen(raw_req_str))
 
@@ -83,6 +90,42 @@ TEST(http_parser, segregates_special_headers)
 	EXPECT_TRUE(b4);
 }
 
+TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
+{
+	int r;
+
+	r = PARSE_REQ(
+		"GET / HTTP/1.1\r\n"
+		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,  natsys-lab.com:65535  \r\n"
+		"\r\n"
+	);
+	EXPECT_EQ(r, TFW_PASS);
+
+	reset_parsed_msgs();
+	r = PARSE_REQ(
+		"GET / HTTP/1.1\r\n"
+		"X-Forwarded-For: 1.2.3.4, , 5.6.7.8\r\n"
+		"\r\n"
+	);
+	EXPECT_EQ(r, TFW_BLOCK);
+
+	reset_parsed_msgs();
+	r = PARSE_REQ(
+		"GET / HTTP/1.1\r\n"
+		"X-Forwarded-For: foo!\r\n"
+		"\r\n"
+	);
+	EXPECT_EQ(r, TFW_BLOCK);
+
+	reset_parsed_msgs();
+	r = PARSE_REQ(
+		"GET / HTTP/1.1\r\n"
+		"X-Forwarded-For: \r\n"
+		"\r\n"
+	);
+	EXPECT_EQ(r, TFW_BLOCK);
+}
+
 
 TEST_SUITE(http_parser)
 {
@@ -90,4 +133,5 @@ TEST_SUITE(http_parser)
 	TEST_TEARDOWN(free_msgs);
 
 	TEST_RUN(http_parser, segregates_special_headers);
+	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 }
