@@ -20,5 +20,11 @@ EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(src)/../ \
 		-I$(src)/../../tempesta_db -I$(src)/../../sync_socket
 
 obj-m += tfw_test.o
-tfw_test-objs = main.o test.o helpers.o test_hash.o test_http_match.o \
-		test_tfw_str.o test_http_parser.o
+tfw_test-objs = \
+	helpers.o \
+	main.o \
+	test.o \
+	test_hash.o \
+	test_http_match.o \
+	test_http_parser.o \
+	test_tfw_str.o \

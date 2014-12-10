@@ -22,10 +22,32 @@ ifneq ($(NDEBUG), 1)
 EXTRA_CFLAGS += -DDEBUG -O0 -g3
 endif
 
-obj-m	= tempesta_fw.o
-tempesta_fw-objs = addr.o cache.o classifier.o client.o connection.o debugfs.o \
-		   filter.o gfsm.o  hash.o http.o http_match.o http_msg.o \
-		   http_parser.o if.o main.o pool.o sched.o server.o session.o \
-		   sock_backend.o sock_frontend.o stress.o str.o
+obj-m	= tempesta_fw.o 
+
+tempesta_fw-objs = \
+	addr.o \
+	cache.o \
+	classifier.o \
+	client.o \
+	connection.o \
+	debugfs.o \
+	filter.o \
+	gfsm.o \
+	hash.o \
+	http.o \
+	http_match.o \
+	http_msg.o \
+	http_parser.o \
+	if.o \
+	main.o \
+	pool.o \
+	sched.o \
+	server.o \
+	session.o \
+	sock_backend.o \
+	sock_frontend.o \
+	stress.o \
+	str.o \
+
 
 obj-m	+= log/ classifier/ stress/ sched/ filter/ t/
