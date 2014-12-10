@@ -327,9 +327,9 @@ EXPORT_SYMBOL(tfw_str_eq_kv);
 size_t
 tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 {
-	int total_len = 0;
-	int len;
 	const TfwStr *chunk;
+	char *pos = out_buf;
+	int len;
 
 	validate_tfw_str(str);
 	BUG_ON(!out_buf || (buf_size <= 0));
@@ -338,18 +338,16 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
 		len = min(buf_size, (int)chunk->len);
-		strncpy(out_buf, chunk->ptr, len);
-		out_buf += len;
+		strncpy(pos, chunk->ptr, len);
+		pos += len;
 		buf_size -= len;
-		total_len += len;
 
-		if (!buf_size)
+		if (unlikely(!buf_size))
 			break;
 	}
 
-	/* FIXME: The buffer may already contain '\0' before this point. */
-	*out_buf = '\0';
+	*pos = '\0';
 
-	return total_len;
+	return (pos - out_buf);
 }
 EXPORT_SYMBOL(tfw_str_to_cstr);
