@@ -31,3 +31,6 @@ show_last_run_log
 
 echo_header Unit test output summary:
 show_last_run_summary
+
+show_last_run_summary | grep -iq 'FAIL' && exit -1
+exit 0

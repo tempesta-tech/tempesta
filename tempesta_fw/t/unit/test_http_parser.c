@@ -48,6 +48,83 @@ reset_parsed_msgs(void)
 #define PARSE_REQ(raw_req_str) \
 	tfw_http_parse_req(parsed_req, raw_req_str, strlen(raw_req_str))
 
+#define PARSE_REQ_PASS(raw_req_str) \
+	EXPECT_EQ(TFW_PASS, PARSE_REQ(raw_req_str))
+
+#define EXPECT_TFWSTR_EQ_CSTR(tfw_str, cstr) \
+	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
+
+TEST(http_parser, parses_method_get)
+{
+	PARSE_REQ_PASS("GET / HTTP/1.1\r\n\r\n);");
+	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_GET);
+}
+
+TEST(http_parser, parses_method_head)
+{
+	PARSE_REQ_PASS("HEAD / HTTP/1.1\r\n\r\n);");
+	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_HEAD);
+}
+
+TEST(http_parser, parses_method_post)
+{
+	PARSE_REQ_PASS("POST / HTTP/1.1\r\n\r\n);");
+	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_POST);
+}
+
+TEST(http_parser, parses_uri_root)
+{
+	PARSE_REQ_PASS("GET / HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
+}
+
+TEST(http_parser, parses_uri_rel_file)
+{
+	PARSE_REQ_PASS("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/foo/b_a_r/baz.html");
+}
+
+TEST(http_parser, parses_uri_rel_dir)
+{
+	PARSE_REQ_PASS("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/a/b/c/dir/");
+}
+
+TEST(http_parser, parses_uri_rel_dir_with_params)
+{
+	PARSE_REQ_PASS("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/a/b/c/dir/?foo=1&bar=2#abcd");
+}
+
+TEST(http_parser, parses_uri_abs_host)
+{
+	PARSE_REQ_PASS("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
+}
+
+TEST(http_parser, parses_uri_abs_host_port)
+{
+	PARSE_REQ_PASS("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n);");
+	/* NOTE: we don't include port to the parsed_req->host */
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
+}
+
+TEST(http_parser, parses_uri_abs_host_rel)
+{
+	PARSE_REQ_PASS("GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/foo/");
+}
+
+TEST(http_parser, parses_uri_abs_host_port_rel_params)
+{
+	PARSE_REQ_PASS("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n);");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
+	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/cgi-bin/show.pl?entry=tempesta");
+}
+
 TEST(http_parser, segregates_special_headers)
 {
 	TfwHttpHdrTbl *h_tbl;
@@ -132,6 +209,17 @@ TEST_SUITE(http_parser)
 	TEST_SETUP(allocate_msgs);
 	TEST_TEARDOWN(free_msgs);
 
+	TEST_RUN(http_parser, parses_method_get);
+	TEST_RUN(http_parser, parses_method_head);
+	TEST_RUN(http_parser, parses_method_post);
+	TEST_RUN(http_parser, parses_uri_root);
+	TEST_RUN(http_parser, parses_uri_rel_file);
+	TEST_RUN(http_parser, parses_uri_rel_dir);
+	TEST_RUN(http_parser, parses_uri_rel_dir_with_params);
+	TEST_RUN(http_parser, parses_uri_abs_host);
+	TEST_RUN(http_parser, parses_uri_abs_host_port);
+	TEST_RUN(http_parser, parses_uri_abs_host_rel);
+	TEST_RUN(http_parser, parses_uri_abs_host_port_rel_params);
 	TEST_RUN(http_parser, segregates_special_headers);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 }
