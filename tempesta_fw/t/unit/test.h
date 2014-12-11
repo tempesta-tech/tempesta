@@ -78,8 +78,9 @@ do { 							\
 
 #define TEST_FAIL(...) 					\
 do {							\
+	TEST_ERR_LF("%s:%d: error: ", __FILE__, __LINE__); \
 	TEST_ERR_LF("FAIL:");				\
-	TEST_ERR_LF("  %s():%d", __func__, __LINE__);	\
+	TEST_ERR_LF("  %s()", __func__);		\
 	TEST_ERR_LF("  " __VA_ARGS__);			\
 	test_register_failure();			\
 } while (0)
