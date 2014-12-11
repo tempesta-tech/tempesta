@@ -465,9 +465,8 @@ __FSM_STATE(st_curr) {							\
 	parser->_i_st = st_i;						\
 	ret = func(msg, p, &n);						\
 	/* @n - hdr value length, @ret - next data (@n + *CR + LF). */	\
-	n += (size_t) p - (size_t) TFW_STR_CURR(&parser->hdr)->ptr;	\
-	/* @n - full header length (key + value) */			\
-	TFW_DBG("parse header " #func ": ret=%d n=%ld\n", ret, n);	\
+	TFW_DBG("parse header " #func					\
+		": ret=%d n=%ld id=%d\n", ret, n, id);			\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
@@ -478,6 +477,8 @@ __FSM_STATE(st_curr) {							\
 		return TFW_BLOCK;					\
 	default:							\
 		BUG_ON(ret <= 0);					\
+		n += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
+		/* @n - full header length (key + value) */		\
 		/* The header value is fully parsed, move forward. */	\
 		CLOSE_HEADER(msg, id, n);				\
 		__FSM_MOVE_n(st_next, ret);				\
@@ -869,8 +870,8 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 	TFW_STR_COPY(h, &hm->parser.hdr);
 	h->len = len;
 	TFW_STR_INIT(&hm->parser.hdr);
-	TFW_DBG("store header w/ ptr=%p len=%d flags=%x\n",
-		h->ptr, h->len, h->flags);
+	TFW_DBG("store header w/ ptr=%p len=%d flags=%x id=%d\n",
+		h->ptr, h->len, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
 	if (close && (id == ht->off))
