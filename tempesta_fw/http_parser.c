@@ -1459,6 +1459,16 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
+			if (likely(p + 17 <= data + len
+				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
+						    'r', 'w', 'a', 'r')
+				   && C8_INT_LCM(p + 8, 'd', 'e', 'd', '-',
+						        'f', 'o', 'r', ':')))
+			{
+				/* NOTE: don't eat spaces here, that is done
+				 * in __req_parse_x_forwarded_for(). */
+				__FSM_MOVE_n(Req_HdrX_Forwarded_ForV, 16);
+			}
 			__FSM_MOVE(Req_HdrX);
 		default:
 			__FSM_JMP(Req_HdrOther);
