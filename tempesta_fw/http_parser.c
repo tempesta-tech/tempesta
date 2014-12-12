@@ -434,6 +434,7 @@ enum {
 	I_0, /* initial state */
 
 	I_Conn, /* Connection */
+	I_ConnOther,
 	I_ContLen, /* Content-Length */
 	I_TransEncod, /* Transfer-Encoding */
 	I_TransEncodExt,
@@ -657,13 +658,46 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(I_Conn) {
 		TRY_STR_LAMBDA("close", {
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
-			__FSM_I_MOVE_str(I_EoL, "close");
+			__FSM_I_MOVE_str(I_EoT, "close");
 		});
 		TRY_STR_LAMBDA("keep-alive", {
 			msg->flags |= TFW_HTTP_CONN_KA;
-			__FSM_I_MOVE_str(I_EoL, "keep-alive");
+			__FSM_I_MOVE_str(I_EoT, "keep-alive");
 		});
-		return CSTR_NEQ;
+		__FSM_I_MOVE_n(I_ConnOther, 0);
+	}
+
+	/*
+	 * Other connection tokens. Popular examples of the "Connection:"
+	 * header value are "Keep-Alive, TE" or "TE, close". However,
+	 * it could be names of any headers, including custom headers.
+	 */
+	__FSM_STATE(I_ConnOther) {
+		/*
+		 * TODO
+		 * - replace double memchr() below by a strspn() analog
+		 *   that accepts string length instead of processing
+		 *   null-terminated strings.
+		 */
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
+		unsigned char *comma = memchr(p, ',', plen);
+		if (comma && (!lf || (lf && (comma < lf))))
+			__FSM_I_MOVE_n(I_EoT, comma - p);
+		if (lf)
+			__FSM_I_MOVE_n(I_EoL, lf - p);
+		return CSTR_POSTPONE;
+	}
+
+	/* End of token */
+	__FSM_STATE(I_EoT) {
+		if (c == ' ' || c == ',')
+			__FSM_I_MOVE(I_EoT);
+		if (IN_ALPHABET(c, hdr_a))
+			__FSM_I_MOVE_n(I_Conn, 0);
+		if (!isspace(c))
+			return CSTR_NEQ;
+		/* fall through */
 	}
 
 	__FSM_STATE(I_EoL) {
@@ -678,7 +712,6 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(I_EoL);
-
 		return CSTR_NEQ;
 	}
 
