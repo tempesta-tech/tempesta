@@ -797,11 +797,11 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(I_TransEncodExt) {
 		/*
 		 * TODO
-		 * - process transfer encodings: gzip, deflate, identity,
-		 *   				 compress;
-		 * - replace double memchr() below by strspn() analog which
-		 *   accepts string length instead of processing null-terminated
-		 *   strings.
+		 * - process transfer encodings:
+		 *   gzip, deflate, identity, compress;
+		 * - replace double memchr() below by a strspn() analog
+		 *   that accepts string length instead of processing
+		 *   null-terminated strings.
 		 */
 		unsigned char *lf = memchr(p, '\n', len);
 		unsigned char *comma = memchr(p, ',', len);
@@ -1159,9 +1159,9 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		/*
 		 * TODO
 		 * - process cache extensions;
-		 * - replace double memchr() below by strspn() analog which
-		 *   accepts string length instead of processing null-terminated
-		 *   strings.
+		 * - replace double memchr() below by a strspn() analog
+		 *   that accepts string length instead of processing
+		 *   null-terminated strings.
 		 */
 		unsigned char *lf = memchr(p, '\n', len);
 		unsigned char *comma = memchr(p, ',', len);
@@ -1647,14 +1647,14 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_HdrOther) {
 		/* Just eat the header until LF. */
-		char *p1 = memchr(p, '\n', len);
-		if (p1) {
+		unsigned char *lf = memchr(p, '\n', len);
+		if (lf) {
 			/* Get length of the header. */
-			unsigned char *cr = p1 - 1;
+			unsigned char *cr = lf - 1;
 			while (cr != p && *cr == '\r')
 				--cr;
 			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p + 1);
-			p = p1; /* move to just after LF */
+			p = lf; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
 		STORE_HEADER(req, TFW_HTTP_HDR_RAW, len);
@@ -1902,10 +1902,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	__FSM_STATE(Resp_I_Ext) {
 		/*
 		 * TODO
-		 * - process cache extaensions;
-		 * - replace double memchr() below by strspn() analog which
-		 *   accepts string length instead of processing null-terminated
-		 *   strings.
+		 * - process cache extensions;
+		 * - replace double memchr() below by a strspn() analog
+		 *   that accepts string length instead of processing
+		 *   null-terminated strings.
 		 */
 		unsigned char *lf = memchr(p, '\n', len);
 		unsigned char *comma = memchr(p, ',', len);
@@ -2014,7 +2014,6 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		if (sp)
 			__FSM_I_MOVE_n(Resp_I_ExpDate, sp - p + 1);
 		return CSTR_POSTPONE;
-
 	}
 
 	__FSM_STATE(Resp_I_ExpDate) {
@@ -2390,10 +2389,10 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* Reason-Phrase: just skip. */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		unsigned char *eol = memchr(p, '\n', len);
-		if (!p)
-			__FSM_MOVE_n(Resp_ReasonPhrase, len);
-		__FSM_MOVE_n(Resp_Hdr, eol - p + 1);
+		unsigned char *lf = memchr(p, '\n', len);
+		if (lf)
+			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
+		__FSM_MOVE_n(Resp_ReasonPhrase, len);
 	}
 
 	/* ----------------    Header Lines    ---------------- */
@@ -2539,10 +2538,10 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	 * extremely large).
 	 */
 	__FSM_STATE(Resp_HdrOther) {
-		/* Just eat the header until LF. */
-		p = memchr(p, '\n', len);
-		if (p)
-			__FSM_MOVE_n(Resp_Hdr, 1);
+		/* Just eat the header including LF. */
+		unsigned char *lf = memchr(p, '\n', len);
+		if (lf)
+			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
 		__FSM_MOVE_n(Resp_HdrOther, len);
 	}
 
