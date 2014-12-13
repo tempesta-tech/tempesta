@@ -657,10 +657,14 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(I_Conn) {
 		TRY_STR_LAMBDA("close", {
+			if (msg->flags & TFW_HTTP_CONN_KA)
+				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
 			__FSM_I_MOVE_str(I_EoT, "close");
 		});
 		TRY_STR_LAMBDA("keep-alive", {
+			if (msg->flags & TFW_HTTP_CONN_CLOSE)
+				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
 			__FSM_I_MOVE_str(I_EoT, "keep-alive");
 		});
