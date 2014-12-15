@@ -178,8 +178,8 @@ do {									\
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
- * header values. That is done with separate, nested, or internal
- * FSMs, and so _I_ in the name means "internal" FSM.
+ * header values. That is done with separate, nested, or interior
+ * FSMs, and so _I_ in the name means "interior" FSM.
  */
 #define __FSM_I_EXIT()			goto done
 #define __FSM_I_MOVE_n(to, n)						\
@@ -445,7 +445,7 @@ enum {
 
 /* Parsing helpers. */
 #define TRY_STR_LAMBDA(str, lambda)					\
-	r = CHUNK_STRNCASECMP(chunk, p, len, str);			\
+	r = CHUNK_STRNCASECMP(chunk, p, len - (size_t)(p - data), str);	\
 	switch (r) {							\
 	case CSTR_EQ:							\
 		lambda;							\
@@ -461,27 +461,28 @@ enum {
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func, id)	\
 __FSM_STATE(st_curr) {							\
 	int ret;							\
-	long n = data + len - p;					\
-	BUG_ON(n < 0);							\
+	size_t plen = len - (size_t)(p - data);				\
+	BUG_ON(p > data + len);						\
 	parser->_i_st = st_i;						\
-	ret = func(msg, p, &n);						\
-	/* @n - hdr value length, @ret - next data (@n + *CR + LF). */	\
+	ret = func(msg, p, &plen);					\
+	/* @plen - header value length */				\
+	/* @ret - next data (@plen + *CR + LF) */			\
 	TFW_DBG("parse header " #func					\
-		": ret=%d n=%ld id=%d\n", ret, n, id);			\
+		": ret=%d plen=%ld id=%d\n", ret, plen, id);		\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
-		STORE_HEADER(msg, id, n);				\
-		__FSM_MOVE_n(st_curr, n);				\
+		STORE_HEADER(msg, id, plen);				\
+		__FSM_MOVE_n(st_curr, plen);				\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
 		return TFW_BLOCK;					\
 	default:							\
 		BUG_ON(ret <= 0);					\
-		n += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
-		/* @n - full header length (key + value) */		\
+		plen += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
+		/* @plen - full header length (key + value) */		\
 		/* The header value is fully parsed, move forward. */	\
-		CLOSE_HEADER(msg, id, n);				\
+		CLOSE_HEADER(msg, id, plen);				\
 		__FSM_MOVE_n(st_next, ret);				\
 	}								\
 }
@@ -494,7 +495,7 @@ __FSM_STATE(st_curr) {							\
  * __FSM_B_* macros are intended to help with parsing of a message
  * body, hence the "_B_" in the names. The macros are similar to
  * those for parsing of message headers (__FSM_*), or for parsing
- * of message header values (__FSM_I_*, where _I_ means "internal",
+ * of message header values (__FSM_I_*, where _I_ means "interior",
  * or nested FSM). The major difference from __FSM_* macros is that
  * there can be zeroes in a message body that cannot be in a header.
  */
@@ -538,15 +539,17 @@ do {									\
 __FSM_STATE(prefix ## _Body) {						\
 	TFW_DBG("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
-		long n = data + len - p;				\
 		unsigned int to_read = 0;				\
+		size_t plen = len - (size_t)(p - data);			\
 		/* Read next chunk length. */				\
-		int ret = __parse_hex(&parser->_tmp_chunk, p, n, &to_read);\
-		TFW_DBG("n=%ld ret=%d to_read=%d\n", n, ret, to_read);	\
+		int ret = __parse_hex(&parser->_tmp_chunk,		\
+				      p, plen, &to_read);		\
+		TFW_DBG("plen=%zu ret=%d to_read=%d\n",			\
+			plen, ret, to_read);				\
 		switch (ret) {						\
 		case CSTR_POSTPONE:					\
 			/* Not all data has been parsed. */		\
-			__FSM_B_MOVE_n(prefix ## _Body, n);		\
+			__FSM_B_MOVE_n(prefix ## _Body, plen);		\
 		case CSTR_BADLEN: /* bad header length */		\
 		case CSTR_NEQ: /* bad header value */			\
 			return TFW_BLOCK;				\
@@ -560,18 +563,19 @@ __FSM_STATE(prefix ## _Body) {						\
 }									\
 /* Read parser->to_read bytes of message body. */			\
 __FSM_STATE(prefix ## _BodyReadChunk) {					\
-	int _n = min(parser->to_read, (int)(data + len - p));		\
+	size_t mlen = min(parser->to_read,				\
+			  (int)(len - (size_t)(p - data)));		\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
-	msg->body.len += _n;						\
-	parser->to_read -= _n;						\
+	msg->body.len += mlen;						\
+	parser->to_read -= mlen;					\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read)						\
-		__FSM_B_MOVE_n(prefix ## _BodyReadChunk, _n);		\
+		__FSM_B_MOVE_n(prefix ## _BodyReadChunk, mlen);		\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_B_MOVE_n(prefix ## _BodyChunkEnd, _n);		\
+		__FSM_B_MOVE_n(prefix ## _BodyChunkEnd, mlen);		\
 	/* We've fully read Content-Length bytes. */			\
-	p += _n;							\
+	p += mlen;							\
 	r = TFW_PASS;							\
 	goto done;							\
 }									\
@@ -764,7 +768,6 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(I_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -807,9 +810,10 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		unsigned char *lf = memchr(p, '\n', len);
-		unsigned char *comma = memchr(p, ',', len);
-		if (comma && comma < lf)
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
+		unsigned char *comma = memchr(p, ',', plen);
+		if (comma && (!lf || (lf && (comma < lf))))
 			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (lf)
 			__FSM_I_MOVE_n(I_EoL, lf - p);
@@ -839,7 +843,6 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(I_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -896,8 +899,8 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 	h = &ht->tbl[id].field;
 	if (h->ptr) {
 		/*
-		 * The header consists from many fragments - use compound string
-		 * to aggregate the fragments in one string.
+		 * The header consists of multiple fragments.
+		 * Aggregate the fragments into one compound string.
 		 */
 		h = tfw_str_add_compound(hm->pool, &ht->tbl[id].field);
 		if (!h)
@@ -1037,7 +1040,10 @@ enum {
 #define TFW_HTTP_URI_HOOK	Req_UriAbsPath
 #endif
 
-/* Helping (inferior) states to process particular parts of HTTP request. */
+/*
+ * Helping (interior) FSM states
+ * for processing specific parts of an HTTP request.
+ */
 enum {
 	Req_I_0,
 
@@ -1108,7 +1114,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		req->cache_ctl.max_age = acc;
@@ -1117,7 +1124,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		req->cache_ctl.max_fresh = acc;
@@ -1132,9 +1140,10 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		unsigned char *lf = memchr(p, '\n', len);
-		unsigned char *comma = memchr(p, ',', len);
-		if (comma && comma < lf)
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
+		unsigned char *comma = memchr(p, ',', plen);
+		if (comma && (!lf || (lf && (comma < lf))))
 			__FSM_I_MOVE_n(Req_I_CC_EoT, comma - p);
 		if (lf)
 			__FSM_I_MOVE_n(Req_I_CC_EoL, lf - p);
@@ -1146,8 +1155,9 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		if (c == ' ' || c == ',')
 			__FSM_I_MOVE(Req_I_CC_EoT);
 		/*
-		 * TODO: we're don't support for now field values for max-stale,
-		 * so just skip '=[hdr_a]*' for now.
+		 * TODO
+		 * - For the time being we don't support field values
+		 *   for the max-stale field, so just skip '=[hdr_a]*'.
 		 */
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_Ext);
@@ -1170,7 +1180,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Req_I_CC_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -1227,7 +1236,6 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Req_I_H_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -1362,7 +1370,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	/* HTTP version */
 	__FSM_STATE(Req_HttpVer) {
 		if (likely(p + 8 <= data + len)) {
-			/* Quick path. */
+			/* Fast path. */
 			if (*(unsigned long *)p
 			    == TFW_CHAR8_INT('H', 'T', 'T', 'P',
 					     '/', '1', '.', '1'))
@@ -1517,7 +1525,8 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_HdrOther) {
 		/* Just eat the header until LF. */
-		unsigned char *lf = memchr(p, '\n', len);
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
 		if (lf) {
 			/* Get length of the header. */
 			unsigned char *cr = lf - 1;
@@ -1527,8 +1536,8 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			p = lf; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
-		STORE_HEADER(req, TFW_HTTP_HDR_RAW, len);
-		__FSM_MOVE_n(Req_HdrOther, len);
+		STORE_HEADER(req, TFW_HTTP_HDR_RAW, plen);
+		__FSM_MOVE_n(Req_HdrOther, plen);
 	}
 
 	/* Request headers are fully read. */
@@ -1641,7 +1650,10 @@ EXPORT_SYMBOL(tfw_http_parse_req);
  *	HTTP response parsing
  * ------------------------------------------------------------------------
  */
-/* Helping (inferior) states to process particular parts of HTTP request. */
+/*
+ * Helping (interior) FSM states
+ * for processing specific parts of an HTTP request.
+ */
 enum {
 	Resp_I_0,
 
@@ -1731,7 +1743,8 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->cache_ctl.max_age = acc;
@@ -1740,7 +1753,8 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->cache_ctl.s_maxage = acc;
@@ -1755,9 +1769,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		unsigned char *lf = memchr(p, '\n', len);
-		unsigned char *comma = memchr(p, ',', len);
-		if (comma && comma < lf)
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
+		unsigned char *comma = memchr(p, ',', plen);
+		if (comma && (!lf || (lf && (comma < lf))))
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
 		if (lf)
 			__FSM_I_MOVE_n(Resp_I_EoL, lf - p);
@@ -1769,8 +1784,9 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 		if (c == ' ' || c == ',')
 			__FSM_I_MOVE(Resp_I_EoT);
 		/*
-		 * TODO: we're don't support for now field values for no-cache and
-		 * private fields, so just skip '=[hdr_a]*'.
+		 * TODO
+		 * - For the time being we don't support field values for
+		 *   no-cache and private fields, so just skip '=[hdr_a]*'.
 		 */
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
@@ -1793,7 +1809,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Resp_I_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -1861,29 +1876,30 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_Expires) {
-		/* Skip week day as redundant information. */
-		unsigned char *sp = memchr(p, ' ', len);
+		/* Skip a weekday as redundant information. */
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *sp = memchr(p, ' ', plen);
 		if (sp)
 			__FSM_I_MOVE_n(Resp_I_ExpDate, sp - p + 1);
 		return CSTR_POSTPONE;
 	}
 
 	__FSM_STATE(Resp_I_ExpDate) {
-		unsigned int acc = 0;
 		int n;
+		unsigned int acc = 0;
+		size_t plen = len - (size_t)(p - data);
 
 		if (!isdigit(c))
 			return CSTR_NEQ;
-
-		/* date1: parse 2-digit day. */
-		n = __parse_int(chunk, p, len, &acc);
+		/* Parse a 2-digit day. */
+		n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		else if (n != 2 || acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
 		resp->expires = (acc - 1) * SEC24H;
-		/* Skip the day and SP. */
+		/* Skip a day and a following SP. */
 		__FSM_I_MOVE_n(Resp_I_ExpMonth, 3);
 	}
 
@@ -1958,7 +1974,8 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	/* 4-digit year. */
 	__FSM_STATE(Resp_I_ExpYear) {
 		unsigned int year = 0;
-		int n = __parse_int(chunk, p, len, &year);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &year);
 		if (n < 0)
 			return n;
 		else if (n != 4)
@@ -1967,43 +1984,46 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		if (n < 0)
 			return CSTR_NEQ;
 		resp->expires = n;
-		/* Skip the year and follwing SP. */
+		/* Skip a year and a following SP. */
 		__FSM_I_MOVE_n(Resp_I_ExpHour, 5);
 	}
 
 	__FSM_STATE(Resp_I_ExpHour) {
 		unsigned int t = 0;
-		int n = __parse_int_a(chunk, p, len, colon_a, &t);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int_a(chunk, p, plen, colon_a, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t * 3600;
-		/* Skip hour and follwing ':'. */
+		/* Skip an hour and a following ':'. */
 		__FSM_I_MOVE_n(Resp_I_ExpMin, 3);
 	}
 
 	__FSM_STATE(Resp_I_ExpMin) {
 		unsigned int t = 0;
-		int n = __parse_int_a(chunk, p, len, colon_a, &t);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int_a(chunk, p, plen, colon_a, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t * 60;
-		/* Skip minutes and follwing ':'. */
+		/* Skip minutes and a following ':'. */
 		__FSM_I_MOVE_n(Resp_I_ExpSec, 3);
 	}
 
 	__FSM_STATE(Resp_I_ExpSec) {
 		unsigned int t = 0;
-		int n = __parse_int(chunk, p, len, &t);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t;
-		/* Skip seconds and follwing ' GMT'. */
+		/* Skip seconds and a following ' GMT'. */
 		__FSM_I_MOVE_n(Resp_I_EoL, 6);
 	}
 
@@ -2019,7 +2039,6 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Resp_I_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -2048,7 +2067,8 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->keep_alive = acc;
@@ -2067,7 +2087,6 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		if (isspace(c))
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Resp_I_EoL);
-
 		return CSTR_NEQ;
 	}
 
@@ -2199,7 +2218,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/* HTTP version */
 	__FSM_STATE(Resp_HttpVer) {
 		if (likely(p + 9 <= data + len)) {
-			/* Quick path. */
+			/* Fast path. */
 			if (*(unsigned long *)p == TFW_CHAR8_INT('H', 'T', 'T',
 								 'P', '/', '1',
 								 '.', '1')
@@ -2218,16 +2237,13 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/* Response Status-Code. */
 	__FSM_STATE(Resp_StatusCode) {
 		unsigned int acc = 0;
-		long n = data + len - p;
-
-		BUG_ON(n < 0);
-
+		size_t plen = len - (size_t)(p - data);
+		int n = __parse_int(&parser->_tmp_chunk, p, plen, &acc);
 		parser->_i_st = I_Conn;
-		r = __parse_int(&parser->_tmp_chunk, p, n, &acc);
-		switch (r) {
+		switch (n) {
 		case CSTR_POSTPONE:
 			/* Not all the header data is parsed. */
-			__FSM_MOVE_n(Resp_StatusCode, n);
+			__FSM_MOVE_n(Resp_StatusCode, plen);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			/* bad status value */
@@ -2235,16 +2251,17 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 		default:
 			/* The header value is fully parsed, move forward. */
 			resp->status = acc;
-			__FSM_MOVE_n(Resp_ReasonPhrase, r);
+			__FSM_MOVE_n(Resp_ReasonPhrase, n);
 		}
 	}
 
 	/* Reason-Phrase: just skip. */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		unsigned char *lf = memchr(p, '\n', len);
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
 		if (lf)
 			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
-		__FSM_MOVE_n(Resp_ReasonPhrase, len);
+		__FSM_MOVE_n(Resp_ReasonPhrase, plen);
 	}
 
 	/* ----------------    Header Lines    ---------------- */
@@ -2385,16 +2402,17 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 			       __parse_transfer_encoding);
 
 	/*
-	 * Other (non interesting HTTP headers).
-	 * Note that some of them (like Cookie or User-Agent can be
-	 * extremely large).
+	 * Other (uninteresting) HTTP headers.
+	 * Note that some of these (like Cookie or User-Agent)
+	 * can be extremely large.
 	 */
 	__FSM_STATE(Resp_HdrOther) {
 		/* Just eat the header including LF. */
-		unsigned char *lf = memchr(p, '\n', len);
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
 		if (lf)
 			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
-		__FSM_MOVE_n(Resp_HdrOther, len);
+		__FSM_MOVE_n(Resp_HdrOther, plen);
 	}
 
 	/* Response headers are fully read. */
