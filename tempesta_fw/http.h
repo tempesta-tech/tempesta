@@ -85,6 +85,7 @@ typedef struct tfw_http_parser {
 typedef enum {
 	TFW_HTTP_HDR_CONNECTION,
 	TFW_HTTP_HDR_HOST,
+	TFW_HTTP_HDR_X_FORWARDED_FOR,
 
 	TFW_HTTP_HDR_RAW,
 

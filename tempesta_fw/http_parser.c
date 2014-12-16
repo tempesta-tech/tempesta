@@ -843,6 +843,20 @@ static const unsigned long uap_a[] ____cacheline_aligned = {
 	0xaffffffa00000000UL, 0x47fffffeafffffffUL, 0, 0
 };
 
+/*
+ * Alphabet for X-Forwarded-For Node ID (RFC 7239).
+ *
+ * "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-[]:"
+ */
+static const unsigned long xff_a[] ____cacheline_aligned = {
+	0x7ff600000000000UL, 0x7fffffeaffffffeUL, 0, 0
+};
+
+/**
+ * Check whether a character is a whitespace (RWS/OWS/BWS according to RFC7230).
+ */
+#define IS_WS(c) (c == ' ' || c == '\t')
+
 /* Main (parent) HTTP request processing states. */
 enum {
 	Req_0,
@@ -923,6 +937,22 @@ enum {
 	Req_HdrTransfer_Encodin,
 	Req_HdrTransfer_Encoding,
 	Req_HdrTransfer_EncodingV,
+	Req_HdrX,
+	Req_HdrX_,
+	Req_HdrX_F,
+	Req_HdrX_Fo,
+	Req_HdrX_For,
+	Req_HdrX_Forw,
+	Req_HdrX_Forwa,
+	Req_HdrX_Forwar,
+	Req_HdrX_Forward,
+	Req_HdrX_Forwarde,
+	Req_HdrX_Forwarded,
+	Req_HdrX_Forwarded_,
+	Req_HdrX_Forwarded_F,
+	Req_HdrX_Forwarded_Fo,
+	Req_HdrX_Forwarded_For,
+	Req_HdrX_Forwarded_ForV,
 	Req_HdrOther,
 	Req_HdrDone,
 	/* Body */
@@ -955,6 +985,11 @@ enum {
 	Req_I_CC_Ext,
 	Req_I_CC_EoT,
 	Req_I_CC_EoL,
+	/* X-Forwarded-For header */
+	Req_I_XFF,
+	Req_I_XFF_Node_Id,
+	Req_I_XFF_Sep,
+	Req_I_XFF_EoL,
 };
 
 /**
@@ -1131,6 +1166,84 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 			/* Eat all spaces including '\r'. */
 			__FSM_I_MOVE(Req_I_H_EoL);
 
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+done:
+	parser->_i_st = Req_I_0;
+	return r;
+}
+
+/**
+ * Parse X-Forwarded-For header, RFC 7239.
+ */
+static int
+__req_parse_x_forwarded_for(TfwHttpReq *req, unsigned char *data,
+			    size_t *lenrval)
+{
+	int r = CSTR_NEQ;
+	TfwHttpParser *parser = &req->parser;
+	unsigned char *p = data;
+	size_t len = *lenrval;
+	unsigned char c = *p;
+	bool hlen_set = false;
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_XFF) {
+		/* Eat OWS before the node ID. */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE(Req_I_XFF);
+
+		/* Start of an IP address or a host name. */
+		if (likely(IN_ALPHABET(c, xff_a)))
+			__FSM_I_JMP(Req_I_XFF_Node_Id);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_XFF_Node_Id) {
+		/* Eat IP address or host name.
+		 * TODO: parse/validate IP addresses and textual IDs.
+		 * Currently we just validate separate characters, but the
+		 * whole value may be invalid (e.g. "---[_..[[").
+		 */
+		if (likely(IN_ALPHABET(c, xff_a)))
+			__FSM_I_MOVE(Req_I_XFF_Node_Id);
+
+		__FSM_I_JMP(Req_I_XFF_Sep);
+	}
+
+	__FSM_STATE(Req_I_XFF_Sep) {
+		/* Proxy chains are rare, so we expect that the list will end
+		 * after the first node and we get '\r' here. */
+		if (likely(c == '\r'))
+			__FSM_I_JMP(Req_I_XFF_EoL);
+
+		/* OWS before comma or before \r\n (is unusual). */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE(Req_I_XFF_Sep);
+
+		/* Multiple subsequent commas look suspicious, so we don't
+		 * stay in this state after the first comma is met. */
+		if (likely(c == ','))
+			__FSM_I_MOVE(Req_I_XFF);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_XFF_EoL) {
+		if (!hlen_set) {
+			*lenrval = p - data; /* set header length */
+			hlen_set = true;
+		}
+		if (c == '\r')
+			__FSM_I_MOVE(Req_I_XFF_EoL);
+		if (c == '\n') {
+			r = p - data + 1;
+			goto done;
+		}
 		return CSTR_NEQ;
 	}
 
@@ -1346,6 +1459,20 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_LWS, 18);
 			}
 			__FSM_MOVE(Req_HdrT);
+		case 'x':
+			if (likely(p + 17 <= data + len
+				   && *(p + 1) == '-'
+				   && *(p + 11) == '-'
+				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
+						    'r', 'w', 'a', 'r')
+				   && C8_INT_LCM(p + 8, 'd', 'e', 'd', '-',
+						        'f', 'o', 'r', ':')))
+			{
+				/* NOTE: don't eat spaces here, that is done
+				 * in __req_parse_x_forwarded_for(). */
+				__FSM_MOVE_n(Req_HdrX_Forwarded_ForV, 16);
+			}
+			__FSM_MOVE(Req_HdrX);
 		default:
 			__FSM_JMP(Req_HdrOther);
 		}
@@ -1412,6 +1539,13 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_HDR_VAL(Req_HdrTransfer_EncodingV, Req_Hdr, I_TransEncod,
 			       (TfwHttpMsg *)req, __parse_transfer_encoding);
+
+	/* 'X-Forwarded-For:*LWS' is NOT read since we may have '[' after LWS,
+	 * and RGEN_LWS() accepts only alpha-numeric characters there.
+	 * The whitespace is processed by the __req_parse_x_forwarded_for(). */
+	__TFW_HTTP_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, Req_Hdr,
+				 Req_I_XFF, req, __req_parse_x_forwarded_for,
+				 TFW_HTTP_HDR_X_FORWARDED_FOR);
 
 	/*
 	 * Other (non interesting HTTP headers).
@@ -1530,6 +1664,24 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrTransfer_Encodi, 'n', Req_HdrTransfer_Encodin, hdr_a, Req_HdrOther);
 	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding, hdr_a, Req_HdrOther);
 	__FSM_TX_AF_LWS(Req_HdrTransfer_Encoding, ':', Req_HdrTransfer_EncodingV, hdr_a, Req_HdrOther);
+
+	/* X-Forwarded-For header processing. */
+	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_, 'f', Req_HdrX_F, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forw, 'a', Req_HdrX_Forwa, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwa, 'r', Req_HdrX_Forwar, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwar, 'd', Req_HdrX_Forward, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forward, 'e', Req_HdrX_Forwarde, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarde, 'd', Req_HdrX_Forwarded, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded, '-', Req_HdrX_Forwarded_, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_, 'f', Req_HdrX_Forwarded_F, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo, hdr_a, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_For, hdr_a, Req_HdrOther);
+	/* NOTE: we don't eat LWS here because RGEN_LWS() doesn't allow '[' after LWS. */
+	__FSM_TX_AF(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, hdr_a, Req_HdrOther);
 
 	}
 	__FSM_FINISH(req);
