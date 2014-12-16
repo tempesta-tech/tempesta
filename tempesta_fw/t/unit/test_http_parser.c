@@ -23,106 +23,136 @@
 #include "test.h"
 #include "helpers.h"
 
-TfwHttpReq *parsed_req;
+TfwHttpReq *req;
+
+#define MIN_REQ_LEN 4;
 
 static void
-allocate_msgs(void)
+alloc_req(void)
 {
-	parsed_req = test_req_alloc();
-}
-
-static void
-free_msgs(void)
-{
-	test_req_free(parsed_req);
-	parsed_req = NULL;
+	BUG_ON(req);
+	req = test_req_alloc();
 }
 
 static void
-reset_parsed_msgs(void)
+free_req(void)
 {
-	free_msgs();
-	allocate_msgs();
+	if (req)
+		test_req_free(req);
+	req = NULL;
 }
 
-#define PARSE_REQ(raw_req_str) \
-	tfw_http_parse_req(parsed_req, raw_req_str, strlen(raw_req_str))
-
-#define PARSE_REQ_PASS(raw_req_str) \
-	EXPECT_EQ(TFW_PASS, PARSE_REQ(raw_req_str))
-
-#define EXPECT_TFWSTR_EQ_CSTR(tfw_str, cstr) \
-	EXPECT_TRUE(tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
-
-TEST(http_parser, parses_method_get)
+static void
+reset_req(void)
 {
-	PARSE_REQ_PASS("GET / HTTP/1.1\r\n\r\n);");
-	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_GET);
+	free_req();
+	alloc_req();
 }
 
-TEST(http_parser, parses_method_head)
+bool
+do_split_and_parse(unsigned char *req_str)
 {
-	PARSE_REQ_PASS("HEAD / HTTP/1.1\r\n\r\n);");
-	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_HEAD);
+	static size_t req_len, head_len, tail_len;
+	int err;
+
+	BUG_ON(!req_str);
+	BUG_ON(head_len > req_len);
+
+	/* First iteration. */
+	if (!req_len) {
+		req_len = strlen(req_str);
+		head_len = MIN_REQ_LEN;
+		tail_len = req_len - head_len;
+	}
+
+	/* Done all iterations?. */
+	if (head_len >= req_len) {
+		req_len = head_len = tail_len = 0;
+		return 1;
+	}
+
+	++head_len;
+	--tail_len;
+	reset_req();
+	err = tfw_http_parse_req(req, req_str, head_len);
+	if (err == TFW_POSTPONE)
+		err = tfw_http_parse_req(req, req_str + head_len, tail_len);
+
+	return err;
 }
 
-TEST(http_parser, parses_method_post)
+#define FOR_REQ(raw_req_str) while(TRY_PARSE_EXPECT_PASS(raw_req_str))
+#define EXPECT_BLOCK_REQ(raw_req_str) while(TRY_PARSE_EXPECT_BLOCK(raw_req_str))
+
+#define TRY_PARSE_EXPECT_PASS(str)				\
+({ 								\
+	int _err = do_split_and_parse(str);			\
+	if (_err < 0)						\
+		TEST_FAIL("can't parse request:\n%s", (str)); 	\
+	!_err;							\
+})
+
+#define TRY_PARSE_EXPECT_BLOCK(str)		\
+({						\
+	int _err = do_split_and_parse(str);	\
+	if (!_err)				\
+		TEST_FAIL("request is not blocked as expected:\n%s", (str)); \
+	(_err < 0);				\
+})
+
+TEST(http_parser, parses_req_method)
 {
-	PARSE_REQ_PASS("POST / HTTP/1.1\r\n\r\n);");
-	EXPECT_EQ(parsed_req->method, TFW_HTTP_METH_POST);
+	FOR_REQ("GET / HTTP/1.1\r\n\r\n")
+		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
+
+	FOR_REQ("HEAD / HTTP/1.1\r\n\r\n")
+		EXPECT_EQ(req->method, TFW_HTTP_METH_HEAD);
+
+	FOR_REQ("POST / HTTP/1.1\r\n\r\n")
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
 }
 
-TEST(http_parser, parses_uri_root)
-{
-	PARSE_REQ_PASS("GET / HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
-}
+#define EXPECT_TFWSTR_EQ(tfw_str, cstr) \
+	EXPECT_EQ(true, tfw_str_eq_cstr(tfw_str, cstr, strlen(cstr), 0))
 
-TEST(http_parser, parses_uri_rel_file)
+TEST(http_parser, parses_req_uri)
 {
-	PARSE_REQ_PASS("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/foo/b_a_r/baz.html");
-}
+	/* Relative part of the URI only. */
 
-TEST(http_parser, parses_uri_rel_dir)
-{
-	PARSE_REQ_PASS("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/a/b/c/dir/");
-}
+	FOR_REQ("GET / HTTP/1.1\r\n\r\n")
+		EXPECT_TFWSTR_EQ(&req->uri, "/");
 
-TEST(http_parser, parses_uri_rel_dir_with_params)
-{
-	PARSE_REQ_PASS("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/a/b/c/dir/?foo=1&bar=2#abcd");
-}
+	FOR_REQ("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n")
+		EXPECT_TFWSTR_EQ(&req->uri, "/foo/b_a_r/baz.html");
 
-TEST(http_parser, parses_uri_abs_host)
-{
-	PARSE_REQ_PASS("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
-}
+	FOR_REQ("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n")
+		EXPECT_TFWSTR_EQ(&req->uri, "/a/b/c/dir/");
 
-TEST(http_parser, parses_uri_abs_host_port)
-{
-	PARSE_REQ_PASS("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n);");
-	/* NOTE: we don't include port to the parsed_req->host */
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/");
-}
+	FOR_REQ("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n")
+		EXPECT_TFWSTR_EQ(&req->uri, "/a/b/c/dir/?foo=1&bar=2#abcd");
 
-TEST(http_parser, parses_uri_abs_host_rel)
-{
-	PARSE_REQ_PASS("GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/foo/");
-}
+	/* Absolute URI. */
+	/* NOTE: we don't include port to the req->host */
 
-TEST(http_parser, parses_uri_abs_host_port_rel_params)
-{
-	PARSE_REQ_PASS("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n);");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->host, "natsys-lab.com");
-	EXPECT_TFWSTR_EQ_CSTR(&parsed_req->uri, "/cgi-bin/show.pl?entry=tempesta");
+	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri, "/");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri, "/");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri, "/foo/");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri, "/cgi-bin/show.pl?entry=tempesta");
+	}
 }
 
 TEST(http_parser, segregates_special_headers)
@@ -138,88 +168,70 @@ TEST(http_parser, segregates_special_headers)
 	const char *s_connection = "Connection: Keep-Alive";
 
 
-	PARSE_REQ(
-		"GET /foo HTTP/1.1\r\n"
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
 		"Accept: */*\r\n"
 		"Host: localhost\r\n"
 		"Connection: Keep-Alive\r\n"
-		"\r\n"
-	);
+		"\r\n")
+	{
+		h_tbl = req->h_tbl;
 
-	h_tbl = parsed_req->h_tbl;
+		EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 2);
 
-	EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 2);
+		h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW].field;
+		h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
+		h_host       = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
+		h_connection = &h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field;
 
-	h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW].field;
-	h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
-	h_host       = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
-	h_connection = &h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field;
+		b1 = tfw_str_eq_cstr(h_user_agent, s_user_agent, strlen(s_user_agent), 0);
+		b2 = tfw_str_eq_cstr(h_accept, s_accept, strlen(s_accept), 0);
+		b3 = tfw_str_eq_cstr(h_host, s_host, strlen(s_host), 0);
+		b4 = tfw_str_eq_cstr(h_connection, s_connection, strlen(s_connection), 0);
 
-	b1 = tfw_str_eq_cstr(h_user_agent, s_user_agent, strlen(s_user_agent), 0);
-	b2 = tfw_str_eq_cstr(h_accept, s_accept, strlen(s_accept), 0);
-	b3 = tfw_str_eq_cstr(h_host, s_host, strlen(s_host), 0);
-	b4 = tfw_str_eq_cstr(h_connection, s_connection, strlen(s_connection), 0);
-
-	EXPECT_TRUE(b1);
-	EXPECT_TRUE(b2);
-	EXPECT_TRUE(b3);
-	EXPECT_TRUE(b4);
+		EXPECT_TRUE(b1);
+		EXPECT_TRUE(b2);
+		EXPECT_TRUE(b3);
+		EXPECT_TRUE(b4);
+	}
 }
 
 TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 {
-	int r;
-
-	r = PARSE_REQ(
-		"GET / HTTP/1.1\r\n"
+	FOR_REQ("GET / HTTP/1.1\r\n"
 		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,  natsys-lab.com:65535  \r\n"
-		"\r\n"
-	);
-	EXPECT_EQ(r, TFW_PASS);
+		"\r\n")
+	{
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
+		EXPECT_GT(h->len, 0);
+	}
 
-	reset_parsed_msgs();
-	r = PARSE_REQ(
+	EXPECT_BLOCK_REQ(
 		"GET / HTTP/1.1\r\n"
 		"X-Forwarded-For: 1.2.3.4, , 5.6.7.8\r\n"
 		"\r\n"
 	);
-	EXPECT_EQ(r, TFW_BLOCK);
 
-	reset_parsed_msgs();
-	r = PARSE_REQ(
+	EXPECT_BLOCK_REQ(
 		"GET / HTTP/1.1\r\n"
 		"X-Forwarded-For: foo!\r\n"
 		"\r\n"
 	);
-	EXPECT_EQ(r, TFW_BLOCK);
 
-	reset_parsed_msgs();
-	r = PARSE_REQ(
+	EXPECT_BLOCK_REQ(
 		"GET / HTTP/1.1\r\n"
 		"X-Forwarded-For: \r\n"
 		"\r\n"
 	);
-	EXPECT_EQ(r, TFW_BLOCK);
 }
 
 
 TEST_SUITE(http_parser)
 {
-	TEST_SETUP(allocate_msgs);
-	TEST_TEARDOWN(free_msgs);
+	TEST_TEARDOWN(free_req);
 
-	TEST_RUN(http_parser, parses_method_get);
-	TEST_RUN(http_parser, parses_method_head);
-	TEST_RUN(http_parser, parses_method_post);
-	TEST_RUN(http_parser, parses_uri_root);
-	TEST_RUN(http_parser, parses_uri_rel_file);
-	TEST_RUN(http_parser, parses_uri_rel_dir);
-	TEST_RUN(http_parser, parses_uri_rel_dir_with_params);
-	TEST_RUN(http_parser, parses_uri_abs_host);
-	TEST_RUN(http_parser, parses_uri_abs_host_port);
-	TEST_RUN(http_parser, parses_uri_abs_host_rel);
-	TEST_RUN(http_parser, parses_uri_abs_host_port_rel_params);
+	TEST_RUN(http_parser, parses_req_method);
+	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, segregates_special_headers);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 }
