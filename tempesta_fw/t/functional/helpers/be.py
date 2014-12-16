@@ -90,7 +90,7 @@ class BackendHTTPRequestHandler(BaseHTTPRequestHandler):
         # Read body  and push it to the callback
         headers = self.headers
         body_len = int(headers['Content-Length'] or 0)
-        body = str(self.rfile.read(body_len))
+        body = self.rfile.read(body_len)
         cb = self.server.backend_callback
         resp_tuple = cb(self.command, self.path, headers, body)
         
@@ -107,6 +107,9 @@ class BackendHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         print(body)
+    
+    # At this point Tempesta FW parser blocks HTTP/1.0 requests
+    protocol_version = 'HTTP/1.1'
     
     # Actual handler methods. We dispatch all them into our single function.
     do_GET  = _handle_req_with_cb
