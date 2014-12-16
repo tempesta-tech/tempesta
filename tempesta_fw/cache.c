@@ -435,8 +435,10 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 	int node;
 	unsigned long key;
 
-	if (!tfw_cfg.cache)
+	if (!tfw_cfg.cache) {
+		action(req, NULL, data);
 		return;
+	}
 
 	key = tfw_cache_key_calc(req);
 
