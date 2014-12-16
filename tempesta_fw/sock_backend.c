@@ -148,7 +148,7 @@ addr_is_in_cfg(TfwAddr *addr, TfwAddrCfg *cfg)
 {
 	int i;
 	for (i = 0; i < cfg->count; ++i) {
-		if (tfw_addr_eq(addr, &cfg->addr[i]))
+		if (tfw_addr_eq(addr, (TfwAddr *)&cfg->addr[i]))
 			return true;
 	}
 	

@@ -24,6 +24,7 @@ tfw_test-objs = \
 	helpers.o \
 	main.o \
 	test.o \
+	test_addr.o \
 	test_hash.o \
 	test_http_match.o \
 	test_http_parser.o \
