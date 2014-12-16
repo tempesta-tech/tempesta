@@ -385,7 +385,7 @@ do {									\
 		PROCESS_ACC();
 
 	/* Parse current chunk. */
-	for (p = data; !isspace(*p) || *p == ';'; ++p) {
+	for (p = data; !isspace(*p) && (*p != ';'); ++p) {
 		if (unlikely(p - data == len)) {
 			if (chunk->ptr) {
 				r = CSTR_BADLEN;
@@ -438,12 +438,13 @@ enum {
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func, id)	\
 __FSM_STATE(st_curr) {							\
 	int ret;							\
-	long n = data + len - p;					\
+	long n = data + len - p;	/* Remaining number of bytes */	\
 	BUG_ON(n < 0);							\
 	parser->_i_st = st_i;						\
-	/* @n - header length, @ret - next shift (@n + *CR + LF). */	\
 	ret = func(msg, p, &n);						\
-	n += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;	\
+	/* @n - hdr value length, @ret - next data (@n + *CR + LF). */	\
+	n += (size_t) p - (size_t) TFW_STR_CURR(&parser->hdr)->ptr;	\
+	/* @n - full header length (key + value) */			\
 	TFW_DBG("parse header " #func ": return %d\n", ret);		\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
@@ -512,13 +513,13 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
 	msg->body.len += _n;						\
-	p += _n;							\
 	parser->to_read -= _n;						\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read || (msg->flags & TFW_HTTP_CHUNKED))		\
 		/* In case of chunked message read trailing '0\r\n'. */	\
 		__FSM_MOVE_n(prefix ## _Body, _n);			\
 	/* We've fully read Content-Length bytes. */			\
+	p += _n;							\
 	r = TFW_PASS;							\
 	goto done;							\
 }									\
@@ -736,7 +737,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 			hlen_set = true;
 		}
 		if (c == '\n') {
-			r = p - data;
+			r = p - data + 1;
 			goto done;
 		}
 		if (isspace(c))
