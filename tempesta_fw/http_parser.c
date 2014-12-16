@@ -1460,6 +1460,8 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
 			if (likely(p + 17 <= data + len
+				   && *(p + 1) == '-'
+				   && *(p + 11) == '-'
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
 						    'r', 'w', 'a', 'r')
 				   && C8_INT_LCM(p + 8, 'd', 'e', 'd', '-',
