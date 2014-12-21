@@ -230,8 +230,8 @@ __FSM_STATE(st) {							\
 	 (((long)h << 56) | ((long)g << 48) | ((long)f << 40)		\
 	  | ((long)e << 32) | (d << 24) | (c << 16) | (b << 8) | a)
 /*
- * Match 4 or 8 characters with type conversion to int with lower-case
- * conversion.
+ * Match 4 or 8 characters with conversion to lower case
+ * and type conversion to int or long type.
  */
 #define C4_INT_LCM(p, a, b, c, d)					\
 	 (p + 4 <= data + len) &&					\
@@ -1482,20 +1482,20 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	/* HTTP version */
 	__FSM_STATE(Req_HttpVer) {
-		if (likely(p + 8 <= data + len)) {
-			/* Fast path. */
-			if (*(unsigned long *)p
-			    == TFW_CHAR8_INT('H', 'T', 'T', 'P',
-					     '/', '1', '.', '1'))
-				__FSM_MOVE_n(Req_EoL, 8);
-			else
-				return TFW_BLOCK;
+		if (unlikely(p + 8 > data + len)) {
+			/* Slow path. */
+			if (c == 'H')
+				__FSM_MOVE(Req_HttpVerT1);
+			return TFW_BLOCK;
 		}
-
-		/* Slow path. */
-		if (c == 'H')
-			__FSM_MOVE(Req_HttpVerT1);
-		return TFW_BLOCK;
+		/* Fast path. */
+		switch (*(unsigned long *)p) {
+		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
+		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
+			__FSM_MOVE_n(Req_EoL, 8);
+		default:
+			return TFW_BLOCK;
+		}
 	}
 
 	/* End of HTTP line (request or header). */
@@ -1687,14 +1687,22 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	/* ----------------    Improbable states    ---------------- */
 
-	/* Parse HTTP version (only 1.1 is supported). */
+	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX(Req_HttpVerT1, 'T', Req_HttpVerT2);
 	__FSM_TX(Req_HttpVerT2, 'T', Req_HttpVerP);
 	__FSM_TX(Req_HttpVerP, 'P', Req_HttpVerSlash);
 	__FSM_TX(Req_HttpVerSlash, '/', Req_HttpVer11);
 	__FSM_TX(Req_HttpVer11, '1', Req_HttpVerDot);
 	__FSM_TX(Req_HttpVerDot, '.', Req_HttpVer12);
-	__FSM_TX(Req_HttpVer12, '1', Req_EoL);
+	__FSM_STATE(Req_HttpVer12) {
+		switch(c) {
+		case '1':
+		case '0':
+			__FSM_MOVE(Req_EoL);
+		default:
+			return TFW_BLOCK;
+		}
+	}
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Req_HdrCa, 'c', Req_HdrCac, hdr_a, Req_HdrOther);
@@ -2369,21 +2377,22 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* HTTP version */
 	__FSM_STATE(Resp_HttpVer) {
-		if (likely(p + 9 <= data + len)) {
-			/* Fast path. */
-			if (*(unsigned long *)p == TFW_CHAR8_INT('H', 'T', 'T',
-								 'P', '/', '1',
-								 '.', '1')
-			    && *(p + 8) == ' ')
-				__FSM_MOVE_n(Resp_StatusCode, 9);
-			else
-				return TFW_BLOCK;
+		if (unlikely(p + 9 > data + len)) {
+			/* Slow path. */
+			if (c == 'H')
+				__FSM_MOVE(Resp_HttpVerT1);
+			return TFW_BLOCK;
 		}
-
-		/* Slow path. */
-		if (c == 'H')
-			__FSM_MOVE(Resp_HttpVerT1);
-		return TFW_BLOCK;
+		/* Fast path. */
+		switch (*(unsigned long *)p) {
+		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
+		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
+			if (*(p + 8) == ' ')
+				__FSM_MOVE_n(Resp_StatusCode, 9);
+			/* fall through */
+		default:
+			return TFW_BLOCK;
+		}
 	}
 
 	/* Response Status-Code. */
@@ -2580,14 +2589,22 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* ----------------    Improbable states    ---------------- */
 
-	/* Parse HTTP version and SP (only 1.1 is supported). */
+	/* Parse HTTP version and SP (1.1 and 1.0 are supported). */
 	__FSM_TX(Resp_HttpVerT1, 'T', Resp_HttpVerT2);
 	__FSM_TX(Resp_HttpVerT2, 'T', Resp_HttpVerP);
 	__FSM_TX(Resp_HttpVerP, 'P', Resp_HttpVerSlash);
 	__FSM_TX(Resp_HttpVerSlash, '/', Resp_HttpVer11);
 	__FSM_TX(Resp_HttpVer11, '1', Resp_HttpVerDot);
 	__FSM_TX(Resp_HttpVerDot, '.', Resp_HttpVer12);
-	__FSM_TX(Resp_HttpVer12, '1', Resp_SSpace);
+	__FSM_STATE(Resp_HttpVer12) {
+		switch (c) {
+		case '1':
+		case '0':
+			__FSM_MOVE(Resp_SSpace);
+		default:
+			return TFW_BLOCK;
+		}
+	}
 	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCode);
 
 	/* Cache-Control header processing. */
