@@ -1852,10 +1852,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
-	static const unsigned long colon_a[] ____cacheline_aligned = {
-		/* ':' (0x3a)(58) Colon */
-		0x0400000000000000UL, 0, 0, 0
-	};
 
 	__FSM_START(parser->_i_st) {
 
@@ -2032,6 +2028,10 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	static const unsigned long colon_a[] ____cacheline_aligned = {
+		/* ':' (0x3a)(58) Colon */
+		0x0400000000000000UL, 0, 0, 0
+	};
 
 	__FSM_START(parser->_i_st) {
 
