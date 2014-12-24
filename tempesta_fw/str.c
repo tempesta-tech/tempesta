@@ -18,33 +18,37 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/kernel.h>
 #include <linux/ctype.h>
-
 #include "str.h"
 
-#ifndef DEBUG
-#define validate_tfw_str(str)
-#define validate_cstr(cstr, len)
-#define validate_key(key, len)
+#ifndef IF_DEBUG
+#ifdef DEBUG
+#define IF_DEBUG if (1)
 #else
+#define IF_DEBUG if (0)
+#endif
+#endif
 
 static void
 validate_tfw_str(const TfwStr *str)
 {
-	const TfwStr *chunk;
+	const TfwStrChunk *chunk;
+	int i;
+	int total_len = 0;
 
 	BUG_ON(!str);
-	BUG_ON(str->flags & TFW_STR_COMPOUND2);  /* Not supported yet. */
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
 		BUG_ON(!chunk);
-		BUG_ON(chunk->len && !chunk->ptr);
+		BUG_ON(!chunk->len);
+		BUG_ON(!chunk->data);
 
-		/* The flag is not allowed for chunks.
-		 * It must be set only for their parent TfwStr object. */
-		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
+		for (i = 0; i < chunk->len; ++i)
+			BUG_ON(iscntrl(chunk->data[i]));
+		total_len += chunk->len;
 	}
+
+	BUG_ON(total_len != str->len);
 }
 
 static void
@@ -80,61 +84,153 @@ validate_key(const char *key, int len)
 	validate_cstr(key, len);
 }
 
-#endif /* ifndef DEBUG */
-
-/**
- * Add compound piece to @str and return pointer to the piece.
- */
-TfwStr *
-tfw_str_add_compound(TfwPool *pool, TfwStr *str)
+int
+tfw_str_add_chunk(TfwStr *str, const char *start_pos, const char *end_pos,
+		  TfwPool *pool)
 {
-	validate_tfw_str(str);
+	TfwStrChunk *new_chunk, *new_chunks_tbl;
 
-	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
-		unsigned int l = str->len * sizeof(TfwStr);
-		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
-						    l + sizeof(TfwStr));
-		if (!p)
-			return NULL;
-		str->ptr = p;
-		str->len++;
+	IF_DEBUG {
+		validate_tfw_str(str);
+		BUG_ON(!start_pos);
+		BUG_ON(!end_pos);
+		BUG_ON(!pool);
+		BUG_ON(str->cnum == TFW_STR_CNUM_MAX);
+		BUG_ON((end_pos - start_pos) > TFW_STR_CHUNK_LEN_MAX);
+		BUG_ON(((end_pos - start_pos) + str->len ) > TFW_STR_LEN_MAX);
+		BUG_ON(end_pos < start_pos);
+	}
+
+	/* Don't add empty chunks at all. */
+	if (unlikely(end_pos == start_pos))
+		return 0;
+
+	/* Fast path: we assume, that most strings consist of only one chunk.
+	 * If so, then we embed the chunk right into the TfwStr structure
+	 * and thus avoid presumably expensive memory allocation. */
+	if (likely(str->cnum == 0)) {
+		str->single_chunk.data = (char *)start_pos;
+		str->single_chunk.len = (end_pos - start_pos);
+		str->cnum = 1;
+		return 0;
+	}
+
+	/* Slow path:
+	 * Re-allocate the whole chunks table to get room for the new chunk. */
+	if (likely(str->cnum == 1)) {
+		/* Already have a single chunk? Then allocate a table for two
+		 * chunks and extract the old chunk embedded to the TfwStr. */
+		new_chunks_tbl = tfw_pool_alloc(pool, 2*sizeof(TfwStrChunk));
+		if (!new_chunks_tbl)
+			return -ENOMEM;
+		new_chunks_tbl[0] = str->single_chunk;
+		new_chunk = &new_chunks_tbl[1];
+		str->chunks = new_chunks_tbl;
+		str->cnum = 2;
 	}
 	else {
-		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
-		if (!a)
-			return NULL;
-		a[0].ptr = str->ptr;
-		a[0].len = str->len;
-		a[0].flags = 0;  /* TODO: should we inherit flags here? */
-		str->ptr = a;
-		str->len = 2;
-		str->flags |= TFW_STR_COMPOUND;
+		/* Have many chunks? Reallocate the table to fit one more. */
+		new_chunks_tbl = tfw_pool_realloc(pool, str->chunks,
+					sizeof(TfwStrChunk) * (str->cnum),
+					sizeof(TfwStrChunk) * (str->cnum + 1));
+		if (!new_chunks_tbl)
+			return -ENOMEM;
+		new_chunk = new_chunks_tbl + str->cnum;
+		str->chunks = new_chunks_tbl;
+		++str->cnum;
 	}
 
-	TFW_STR_INIT((TfwStr *)str->ptr + str->len - 1);
+	/* Ok, the chunk is allocated, set it up and update the total length. */
+	new_chunk->data = (char *)start_pos;
+	new_chunk->len = (end_pos - start_pos);
+	str->len += new_chunk->len;
 
-	return ((TfwStr *)str->ptr + str->len - 1);
+	return 0;
 }
-EXPORT_SYMBOL(tfw_str_add_compound);
+EXPORT_SYMBOL(tfw_str_add_chunk);
 
 /**
- * Sum length of all chunks in a string (either compound or plain).
+ * Return sum of lengths of all chunks in the string.
+ *
+ * At this point the length is simply stored in the TfwStr structure.
+ * The value is incremented whenever a new chunk is added.
  */
 int
 tfw_str_len(const TfwStr *str)
 {
-	int total_len = 0;
-	const TfwStr *chunk;
-
-	validate_tfw_str(str);
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		total_len += chunk->len;
+	IF_DEBUG {
+		validate_tfw_str(str);
 	}
 
-	return total_len;
+	return str->len;
 }
 EXPORT_SYMBOL(tfw_str_len);
+
+/**
+ * Join all chunks of @str to a single plain C string.
+ *
+ * The function copies all chunks of the @str to the @out_buf.
+ * If the buffer has not enough space to fit all chunks, then the output string
+ * is cropped (at most @buf_size - 1 bytes is written). The output string is
+ * always terminated with '\0'.
+ *
+ * Returns length of the output string.
+ */
+int
+tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
+{
+	const TfwStrChunk *chunk;
+	char *pos = out_buf;
+	int len;
+
+	IF_DEBUG {
+		validate_tfw_str(str);
+		BUG_ON(!out_buf || (buf_size <= 0));
+	}
+
+	--buf_size; /* Reserve one byte for '\0'. */
+
+	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
+		len = min(buf_size, (int)chunk->len);
+		memcpy(pos, chunk->data, len);
+		pos += len;
+		buf_size -= len;
+
+		if (unlikely(!buf_size))
+			break;
+	}
+
+	*pos = '\0';
+
+	return (pos - out_buf);
+}
+EXPORT_SYMBOL(tfw_str_to_cstr);
+
+/**
+ * A little bit faster alternative to strnicmp() that can be inlined here.
+ * (perhaps slower if __HAVE_ARCH_STRNICMP, but x86 and x86_64 don't have it).
+ *
+ * Returns zero when all characters are equal (case-insensitive).
+ * Does NOT check whether strings are terminated with '\0'.
+ */
+static int
+_tfw_casecmp(const char *s1, const char *s2, size_t len)
+{
+	char c1, c2;
+
+	IF_DEBUG {
+		BUG_ON(!s1);
+		BUG_ON(!s2);
+		BUG_ON(!len);
+	}
+
+	do {
+		c1 = tolower(*s1++);
+		c2 = tolower(*s2++);
+	} while (c1 == c2 && --len);
+
+	return (c1 != c2);
+}
 
 /**
  * Generic function for comparing TfwStr and C strings.
@@ -157,25 +253,57 @@ bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                 tfw_str_eq_flags_t flags)
 {
-	const TfwStr *chunk;
+	const TfwStrChunk *chunk;
 	unsigned int len;
-	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
 
-	validate_cstr(cstr, cstr_len);
-	validate_tfw_str(str);
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		len = min(cstr_len, (int)chunk->len);
-
-		if (cmp(cstr, chunk->ptr, len))
-			return false;
-
-		if (chunk->len > cstr_len)
-			return (flags & TFW_STR_EQ_PREFIX);
-
-		cstr += len;
-		cstr_len -= len;
+	IF_DEBUG {
+		validate_cstr(cstr, cstr_len);
+		validate_tfw_str(str);
 	}
+
+	/* Fast path: compare strings by their and lengths.
+	 * Usually we compare to search one matching string among others.
+	 * For example, in http_match unit we compare all strings in a list
+	 * until we find a matching one. So we expect that most of the strings
+	 * are not equal, and only one string is matching in most cases. */
+	if (likely((flags & TFW_STR_EQ_PREFIX)  ? (str->len < cstr_len)
+						: (str->len != cstr_len)))
+		return false;
+
+	/* TODO: another optimization is possible:
+	 * We can calculate hash of the @cstr and compare it with a value
+	 * which is cached in the TfwStr structure between calls.
+	 * That fits to a scenario of the http_match module where we compare
+	 * single TfwStr with many C strings.
+	 * This approach allows to avoid walking over TfwStr chunks, but has
+	 * an overhead of hashing. Usually I/O overhead dominates, and any
+	 * calculation overhead is negligible, so it may be beneficial.
+	 * Benchmarks are required to proof that.
+	 */
+
+	/* Slow path: compare contents.
+	 * The code generation is a bit ugly, but enables an optimization:
+	 * instead of checking the CASEI flag on every iteration, we do that
+	 * only once in the outer statement. Could be done with a function
+	 * pointer, but this is a little bit slower.
+	 */
+#define __CMP_CHUNKS(cmp_fn) 					\
+	TFW_STR_FOR_EACH_CHUNK (chunk, str) {			\
+		len = min(cstr_len, (int)chunk->len);		\
+		if (cmp_fn(cstr, chunk->data, len))		\
+			return false;				\
+		if (chunk->len > cstr_len)			\
+			return (flags & TFW_STR_EQ_PREFIX);	\
+		cstr += len;					\
+		cstr_len -= len;				\
+	}							\
+
+	if (flags & TFW_STR_EQ_CASEI)
+		__CMP_CHUNKS(_tfw_casecmp)
+	else
+		__CMP_CHUNKS(memcmp)
+
+#undef __CMP_CHUNKS
 
 	return !cstr_len;
 }
@@ -226,14 +354,16 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 {
 	const char *key_end = key + key_len;
 	const char *val_end = val + val_len;
-	const TfwStr *chunk;
+	const TfwStrChunk *chunk;
 	const char *c;
 	const char *cend;
 	short cnum;
 
-	validate_tfw_str(str);
-	validate_key(key, key_len);
-	validate_cstr(val, val_len);
+	IF_DEBUG {
+		validate_tfw_str(str);
+		validate_key(key, key_len);
+		validate_cstr(val, val_len);
+	}
 
 /* Try to move to the next chunk (if current chunk is finished).
  * Execute @ok_code on sucess or @err_code if there is no next chunk. */
@@ -241,13 +371,16 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 	if (unlikely(c == cend))	{		\
 		++cnum;					\
 		chunk = TFW_STR_CHUNK(str, cnum); 	\
-		if (chunk) {				\
-			c = chunk->ptr;			\
-			cend = chunk->ptr + chunk->len; \
+		if (unlikely(chunk)) {			\
+			c = chunk->data;		\
+			cend = chunk->data + chunk->len;\
 			ok_code;			\
 		} else {				\
 			err_code;			\
-			BUG();				\
+			/* err_code should jump. */	\
+			IF_DEBUG {			\
+				BUG();			\
+			}				\
 		}					\
 	}
 
@@ -256,8 +389,8 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 	chunk = TFW_STR_CHUNK(str, 0);
 	if (!chunk)
 		return false;
-	c = chunk->ptr;
-	cend = chunk->ptr + chunk->len;
+	c = chunk->data;
+	cend = chunk->data + chunk->len;
 
 	/* A tiny FSM here. Instead of a traditional for+switch construction
 	 * it uses a series of small loops to improve branch prediction and
@@ -314,41 +447,3 @@ state_val:
 	return true;
 }
 EXPORT_SYMBOL(tfw_str_eq_kv);
-
-/**
- * Join all chunks of @str to a single plain C string.
- *
- * The function copies all chunks of the @str to the @out_buf.
- * If the buffer has not enough space to fit all chunks, then the output string
- * is cropped (at most @buf_size - 1 bytes is written). The output string is
- * always terminated with '\0'.
- *
- * Returns length of the output string.
- */
-size_t
-tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
-{
-	const TfwStr *chunk;
-	char *pos = out_buf;
-	int len;
-
-	validate_tfw_str(str);
-	BUG_ON(!out_buf || (buf_size <= 0));
-
-	--buf_size; /* Reserve one byte for '\0'. */
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		len = min(buf_size, (int)chunk->len);
-		strncpy(pos, chunk->ptr, len);
-		pos += len;
-		buf_size -= len;
-
-		if (unlikely(!buf_size))
-			break;
-	}
-
-	*pos = '\0';
-
-	return (pos - out_buf);
-}
-EXPORT_SYMBOL(tfw_str_to_cstr);

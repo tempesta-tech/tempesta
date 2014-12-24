@@ -29,6 +29,13 @@ void
 test_register_failure(void)
 {
 	++test_fail_counter;
+
+	/* TODO: something more graceful.
+	 * We have heavy HTTP parser tests that produce a lot of debugging
+	 * output. So the BUG() allows to avoid flooding and breaks execution
+	 * exactly at a point when some test is failed.
+	 */
+	BUG();
 }
 
 void

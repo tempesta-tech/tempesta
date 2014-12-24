@@ -134,7 +134,7 @@ tfw_cache_sched_work_cpu(int node)
 }
 
 /**
- * Copies plain TfwStr to TdbRec.
+ * Copies single TfwStrChunk to TdbRec.
  * @return number of copied bytes (@src length).
  *
  * The function copies part of some large data of length @tot_len,
@@ -142,11 +142,9 @@ tfw_cache_sched_work_cpu(int node)
  * how many chunks are copied.
  */
 static long
-tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+tfw_cache_copy_chunk(char **p, TdbVRec **trec, TfwStrChunk *src, size_t tot_len)
 {
 	long copied = 0;
-
-	BUG_ON(src->flags & (TFW_STR_COMPOUND | TFW_STR_COMPOUND2));
 
 	while (copied < src->len) {
 		int room = (char *)(*trec + 1) + (*trec)->len - *p;
@@ -160,7 +158,7 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			room = (*trec)->len;
 		}
 		room = min((long)room, src->len - copied);
-		memcpy(p, (char *)src->ptr + copied, room);
+		memcpy(p, src->data + copied, room);
 		*p += room;
 		copied += room;
 	}
@@ -176,17 +174,13 @@ static long
 tfw_cache_copy_str_compound(char **p, TdbVRec **trec, TfwStr *src,
 			    size_t tot_len)
 {
-	int i;
+	TfwStrChunk *chunk;
 	long copied = 0;
 
 	BUG_ON(!tot_len);
 
-	if (!(src->flags & TFW_STR_COMPOUND))
-		return tfw_cache_copy_str(p, trec, src, tot_len);
-
-	for (i = 0; i < src->len; ++i) {
-		long n = tfw_cache_copy_str(p, trec, (TfwStr *)src->ptr + i,
-					    tot_len - copied);
+	TFW_STR_FOR_EACH_CHUNK(chunk, src) {
+		long n = tfw_cache_copy_chunk(p, trec, chunk, tot_len - copied);
 		if (n < 0)
 			return n;
 		copied += n;

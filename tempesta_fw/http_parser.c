@@ -89,36 +89,55 @@
  *	Common HTTP routines
  * ------------------------------------------------------------------------
  */
+
 /**
- * Set final field length and mark it as finished.
+ * Remember current position which is used later for crating new chunks and
+ * accumulating them to a TfwStr field (uri, header, host, etc).
  */
-static inline void
-__field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
-{
-	if (unlikely(field->flags & TFW_STR_COMPOUND)) {
-		TfwStr *last = (TfwStr *)field->ptr + field->len - 1;
-		if (unlikely(begin == end)) {
-			BUG_ON(field->len >= 2);
-			if (--field->len == 1)
-				/*
-				 * Last/second chunk is empty
-				 * - back to plain string.
-				 */
-				memcpy(field, field->ptr, sizeof(*field));
-		} else {
-			/*
-			 * This is not the first data segment,
-			 * so current data starts at @begin.
-			 */
-			last->ptr = begin;
-			last->len = end - begin;
-		}
-	} else {
-		/* field->ptr must be set before reaching current state. */
-		BUG_ON(!field->ptr);
-		field->len = end - (unsigned char *)field->ptr;
-	}
-}
+#define __FIELD_START(pos) field_start_p = (pos)
+
+/**
+ * Start a new field, forget all data accumulated so far.
+ * This is used for headers: we don't store names for "special" headers and do
+ * so for "common" headers, but we don't know whether the header is special
+ * until we parse its name. So we remember the position when the name is started
+ * unconditionally, and then use this macro to "skip" the name when we detect
+ * a "special" header.
+ */
+#define __FIELD_RESTART(pos)		\
+do {					\
+	TFW_STR_INIT(&parser->field);	\
+	__FIELD_START(pos);		\
+} while (0)
+
+/**
+ * Stop accumulating data and save everything to a given TfwStr object.
+ */
+#define __FIELD_FINISH(pos, dest_tfw_str)		\
+do {							\
+	__FIELD_BREAK(pos);				\
+	TFW_STR_COPY(dest_tfw_str, &parser->field); 	\
+	TFW_STR_INIT(&parser->field);			\
+} while (0)
+
+#define __FIELD_FINISH_CHUNK(pos) \
+	if (unlikely(tfw_str_add_chunk(&parser->field, field_start_p, (pos), \
+				       msg->pool))) \
+		return TFW_BLOCK
+
+#define __FIELD_BREAK(pos) \
+	if (likely(field_start_p)) \
+		__FIELD_FINISH_CHUNK(pos)
+
+/**
+ * Restore state interrupted by __FIELD_BREAK().
+ * This macro is called when the parser re-enters saved state after the message
+ * was POSTPONEd. It detects whether a field was in progress, and if it was, the
+ * macro starts a new chunk of data.
+ */
+#define __FIELD_RESTORE() \
+	unsigned char *field_start_p = \
+		unlikely(TFW_STR_IS_NOT_EMPTY(&parser->field)) ? data : NULL
 
 #define __FSM_START(s)							\
 int __fsm_const_state;							\
@@ -135,11 +154,9 @@ st: __attribute__((unused)) 						\
 	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
 		st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
-#define __FSM_EXIT(field)						\
+#define __FSM_EXIT()							\
 do {									\
-	if (field) /* staticaly resolved */				\
-		if (unlikely(!tfw_str_add_compound(msg->pool, field)))	\
-			return TFW_BLOCK;				\
+	__FIELD_BREAK(data + len);					\
 	goto done;							\
 } while (0)
 
@@ -160,10 +177,6 @@ do {									\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
-		if (parser->hdr.ptr) {					\
-			TfwStr *h = TFW_STR_CURR(&parser->hdr);		\
-			h->len += data + len - (unsigned char *)h->ptr;	\
-		}							\
 		code;							\
 	}								\
 	c = *p;								\
@@ -171,7 +184,7 @@ do {									\
 } while (0)
 
 #define __FSM_MOVE_n(to, n)						\
-	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT(NULL))
+	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT())
 #define __FSM_MOVE(to)			__FSM_MOVE_n(to, 1)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
@@ -282,8 +295,8 @@ tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new)
  * Maybe it's better to rename it...
  */
 static int
-__chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len, const char *str,
-	       size_t tot_len)
+__chunk_strncasecmp(TfwStrChunk *chunk, unsigned char *p, size_t len,
+		    const char *str, size_t tot_len)
 {
 	int r = CSTR_EQ, cn = chunk->len;
 
@@ -292,7 +305,7 @@ __chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len, const char *str
 			r = CSTR_BADLEN;
 			goto out;
 		}
-		chunk->ptr = p;
+		chunk->data = p;
 		chunk->len = len;
 		return CSTR_POSTPONE;
 	}
@@ -303,13 +316,13 @@ __chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len, const char *str
 	 * Also GLIBC has assembly implementation of the functions, so
 	 * implement our own strcasecmp() if it becomes a bottle neck.
 	 */
-	if ((cn && strncasecmp(chunk->ptr, str, cn))
+	if ((cn && strncasecmp(chunk->data, str, cn))
 	    || strncasecmp(p, str + cn, tot_len - cn))
 		r = CSTR_NEQ;
 
 out:
 	chunk->len = 0;
-	chunk->ptr = NULL;
+	chunk->data = NULL;
 
 	return r;
 }
@@ -322,7 +335,7 @@ out:
  * or negative value otherwise.
  */
 static int
-__parse_int_a(TfwStr *chunk, unsigned char *data, size_t len,
+__parse_int_a(TfwStrChunk *chunk, unsigned char *data, size_t len,
 	      const unsigned long *delimiter_a, unsigned int *acc)
 {
 	unsigned char *p;
@@ -338,17 +351,17 @@ do {									\
 } while (0)
 
 	/* Parse stored chunk. */
-	for (p = chunk->ptr; chunk->len; ++chunk->ptr, --chunk->len)
+	for (p = chunk->data; chunk->len; ++chunk->data, --chunk->len)
 		PROCESS_ACC();
 
 	/* Parse current chunk. */
 	for (p = data; !IN_ALPHABET(*p, delimiter_a); ++p) {
 		if (unlikely(p - data == len)) {
-			if (chunk->ptr) {
+			if (chunk->data) {
 				r = CSTR_BADLEN;
 				goto err;
 			} else {
-				chunk->ptr = data;
+				chunk->data = data;
 				chunk->len = len;
 				return CSTR_POSTPONE;
 			}
@@ -359,13 +372,13 @@ do {									\
 	r = (p - data > 0) ? p - data : CSTR_BADLEN;
 err:
 	/* Initialized chunk, chunk->len is already zero. */
-	chunk->ptr = NULL;
+	chunk->data = NULL;
 	return r;
 #undef PROCESS_ACC
 }
 
 static inline int
-__parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+__parse_int(TfwStrChunk *chunk, unsigned char *data, size_t len, unsigned int *acc)
 {
 	/*
 	 * Standard white-space characters are:
@@ -388,7 +401,7 @@ __parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
  * or negative value otherwise.
  */
 static int
-__parse_hex(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+__parse_hex(TfwStrChunk *chunk, unsigned char *data, size_t len, unsigned int *acc)
 {
 	unsigned char *p;
 	int r;
@@ -403,17 +416,17 @@ do {									\
 } while (0)
 
 	/* Parse stored chunk. */
-	for (p = chunk->ptr; chunk->len; ++chunk->ptr, --chunk->len)
+	for (p = chunk->data; chunk->len; ++chunk->data, --chunk->len)
 		PROCESS_ACC();
 
 	/* Parse current chunk. */
 	for (p = data; !isspace(*p) && (*p != ';'); ++p) {
 		if (unlikely(p - data == len)) {
-			if (chunk->ptr) {
+			if (chunk->data) {
 				r = CSTR_BADLEN;
 				goto err;
 			} else {
-				chunk->ptr = data;
+				chunk->data = data;
 				chunk->len = len;
 				return CSTR_POSTPONE;
 			}
@@ -424,7 +437,7 @@ do {									\
 	r = (p - data > 0) ? p - data : CSTR_BADLEN;
 err:
 	/* Initialized chunk, chunk->len is already zero. */
-	chunk->ptr = NULL;
+	chunk->data = NULL;
 	return r;
 #undef PROCESS_ACC
 }
@@ -472,17 +485,14 @@ __FSM_STATE(st_curr) {							\
 	switch (ret) {							\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
-		STORE_HEADER(msg, id, plen);				\
 		__FSM_MOVE_n(st_curr, plen);				\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
 		return TFW_BLOCK;					\
 	default:							\
 		BUG_ON(ret <= 0);					\
-		plen += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
-		/* @plen - full header length (key + value) */		\
+		CLOSE_HEADER(msg, id, p + plen); 			\
 		/* The header value is fully parsed, move forward. */	\
-		CLOSE_HEADER(msg, id, plen);				\
 		__FSM_MOVE_n(st_next, ret);				\
 	}								\
 }
@@ -509,6 +519,7 @@ do {									\
 		 */							\
 		r = TFW_POSTPONE;					\
 		__fsm_const_state = to;					\
+		__FIELD_FINISH_CHUNK(data + len);			\
 		goto done;						\
 	}								\
 	c = *p;								\
@@ -521,6 +532,7 @@ do {									\
 do {									\
 	TFW_DBG("parse msg body: flags=%#x content_length=%d\n",	\
 		msg->flags, msg->content_length);			\
+	__FIELD_START(p + 1);						\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_B_MOVE(to_state);					\
@@ -565,8 +577,6 @@ __FSM_STATE(prefix ## _Body) {						\
 __FSM_STATE(prefix ## _BodyReadChunk) {					\
 	size_t mlen = min(parser->to_read,				\
 			  (int)(len - (size_t)(p - data)));		\
-	if (!msg->body.ptr)						\
-		msg->body.ptr = p;					\
 	msg->body.len += mlen;						\
 	parser->to_read -= mlen;					\
 	/* Just skip required number of bytes. */			\
@@ -651,7 +661,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &msg->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -739,7 +749,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &msg->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -785,7 +795,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &msg->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -864,64 +874,47 @@ done:
  *
  * tfw_cache_copy_resp() also must be updated.
  */
-static void
-__store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
-	       bool close)
+static TfwHttpHdr *
+__alloc_header(TfwHttpMsg *hm, tfw_http_hdr_t id)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *h;
 
-	if (unlikely(id == TFW_HTTP_HDR_RAW
-		     && hm->h_tbl->off == hm->h_tbl->size))
+	if (unlikely(id == TFW_HTTP_HDR_RAW))
 	{
 		/* Allocate some more room if not enough to store the header. */
-		size_t order = hm->h_tbl->size / TFW_HTTP_HDR_NUM;
+		if (unlikely(ht->off == ht->size)) {
+			size_t order = ht->size / TFW_HTTP_HDR_NUM;
 
-		if (unlikely(__HHTBL_SZ(order + 1) >= TFW_HTTP_HDR_NUM_MAX)) {
-			TFW_WARN("Too many HTTP headers\n");
-			return;
+			if (unlikely(__HHTBL_SZ(order + 1) >= TFW_HTTP_HDR_NUM_MAX)) {
+				TFW_ERR("Too many HTTP headers\n");
+				return NULL;
+			}
+
+			ht = tfw_pool_realloc(hm->pool, ht, TFW_HHTBL_SZ(order),
+					      TFW_HHTBL_SZ(order + 1));
+			if (!ht)
+				return NULL;
+			ht->size = __HHTBL_SZ(order + 1);
+			ht->off = hm->h_tbl->off;
+			memset(ht->tbl + __HHTBL_SZ(order), 0,
+			       __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
+			hm->h_tbl = ht;
 		}
 
-		ht = tfw_pool_realloc(hm->pool, hm->h_tbl, TFW_HHTBL_SZ(order),
-				      TFW_HHTBL_SZ(order + 1));
-		if (!ht)
-			return;
-		ht->size = __HHTBL_SZ(order + 1);
-		ht->off = hm->h_tbl->off;
-		memset(ht->tbl + __HHTBL_SZ(order), 0,
-		       __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
-		hm->h_tbl = ht;
+		/* Dynamically assign new ID to the raw header. */
+		id = ht->off++;
 	}
 
-	if (id == TFW_HTTP_HDR_RAW)
-		id = ht->off;
-
-	h = &ht->tbl[id].field;
-	if (h->ptr) {
-		/*
-		 * The header consists of multiple fragments.
-		 * Aggregate the fragments into one compound string.
-		 */
-		h = tfw_str_add_compound(hm->pool, &ht->tbl[id].field);
-		if (!h)
-			return;
-	}
-
-	TFW_STR_COPY(h, &hm->parser.hdr);
-	h->len = len;
-	TFW_STR_INIT(&hm->parser.hdr);
-	TFW_DBG("store header w/ ptr=%p len=%d flags=%x id=%d\n",
-		h->ptr, h->len, h->flags, id);
-
-	/* Move the offset forward if current header is fully read. */
-	if (close && (id == ht->off))
-		ht->off++;
+	return &ht->tbl[id];
 }
 
-#define STORE_HEADER(rmsg, id, len)	__store_header((TfwHttpMsg *)rmsg, \
-						       data, len, id, false)
-#define CLOSE_HEADER(rmsg, id, len)	__store_header((TfwHttpMsg *)rmsg, \
-						       data, len, id, true)
+#define CLOSE_HEADER(rmsg, id, end_pos) 			\
+do {								\
+	TfwHttpHdr *h = __alloc_header((TfwHttpMsg *)rmsg, id); \
+	if (!h)							\
+		return TFW_BLOCK;				\
+	__FIELD_FINISH(end_pos, &h->field);			\
+} while (0)
 
 /*
  * ------------------------------------------------------------------------
@@ -1103,7 +1096,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &req->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -1367,6 +1360,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	unsigned char *p = data;
 	unsigned char c = *p;
 
+	__FIELD_RESTORE();
 	__FSM_START(parser->state) {
 
 	/* ----------------    Request Line    ---------------- */
@@ -1402,18 +1396,14 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(c == ' '))
 			__FSM_MOVE(Req_MUSpace);
 		if (likely(c == '/')) {
-			req->uri.ptr = p;
+			__FIELD_START(p);
 			__FSM_MOVE(Req_UriAbsPath);
 		}
 		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')))
 			if (likely(*(p + 4) == ':' && *(p + 5) == '/'
 				   && *(p + 6) == '/'))
 			{
-				/*
-				 * Set req->host here making Host header value
-				 * ignored according to RFC2616 5.2.
-				 */
-				req->host.ptr = p + 7;
+				__FIELD_START(p + 7);
 				__FSM_MOVE_n(Req_UriHost, 7);
 			}
 
@@ -1435,10 +1425,14 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	/* Host is read, start to read port or abs_path. */
 	__FSM_STATE(Req_UriHostEnd) {
-		req->host.len = p - (unsigned char *)req->host.ptr;
+		/*
+		 * Set req->host here making Host header value
+		 * ignored according to RFC2616 5.2.
+		 */
+		__FIELD_FINISH(p, &req->host);
 
 		if (likely(c == '/')) {
-			req->uri.ptr = p;
+			__FIELD_START(p);
 			__FSM_MOVE(Req_UriAbsPath);
 		}
 		else if (c == ':') {
@@ -1456,7 +1450,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (unlikely(c != '/'))
 			return TFW_BLOCK;
 
-		req->uri.ptr = p;
+		__FIELD_START(p);
 		__FSM_MOVE(Req_UriAbsPath);
 	}
 
@@ -1464,11 +1458,10 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_UriAbsPath) {
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */
-			____FSM_MOVE_LAMBDA(TFW_HTTP_URI_HOOK, 1,
-					    __FSM_EXIT(&req->uri));
+			__FSM_MOVE(TFW_HTTP_URI_HOOK);
 
 		if (likely(c == ' ')) {
-			__field_finish(&req->uri, data, p);
+			__FIELD_FINISH(p, &req->uri);
 			__FSM_MOVE(Req_HttpVer);
 		}
 
@@ -1517,18 +1510,16 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 * There is a switch for first character of a header name.
 	 */
 	__FSM_STATE(Req_Hdr) {
-		if (parser->hdr.ptr)
-			tfw_str_add_compound(req->pool, &parser->hdr);
-
 		if (unlikely(c == '\r')) {
-			if (!req->body.ptr) {
+			if (TFW_STR_IS_EMPTY(&req->body)) {
 				req->crlf = p;
 				__FSM_MOVE(Req_HdrDone);
-			} else
+			} else {
 				__FSM_MOVE(Req_Done);
+			}
 		}
 		if (unlikely(c == '\n')) {
-			if (!req->body.ptr) {
+			if (TFW_STR_IS_EMPTY(&req->body)) {
 				TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 			} else {
 				r = TFW_PASS;
@@ -1540,7 +1531,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		/* We're going to read new header, remember it. */
-		TFW_STR_CURR(&parser->hdr)->ptr = p;
+		__FIELD_START(p);
 
 		switch (LC(c)) {
 		case 'c':
@@ -1666,11 +1657,10 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			unsigned char *cr = lf - 1;
 			while (cr != p && *cr == '\r')
 				--cr;
-			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p + 1);
+			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr);
 			p = lf; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
-		STORE_HEADER(req, TFW_HTTP_HDR_RAW, plen);
 		__FSM_MOVE_n(Req_HdrOther, plen);
 	}
 
@@ -1847,7 +1837,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &resp->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -2022,7 +2012,7 @@ static int
 __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 {
 	TfwHttpParser *parser = &resp->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	int r = CSTR_NEQ;
 	unsigned char *p = data;
 	size_t len = *lenrval;
@@ -2213,7 +2203,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 {
 	int r = CSTR_NEQ;
 	TfwHttpParser *parser = &resp->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
+	TfwStrChunk *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	size_t len = *lenrval;
 	unsigned char c = *p;
@@ -2365,6 +2355,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	unsigned char *p = data;
 	unsigned char c = *p;
 
+	__FIELD_RESTORE();
 	__FSM_START(parser->state) {
 
 	/* ----------------    Status Line    ---------------- */
@@ -2429,18 +2420,16 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(Resp_Hdr) {
-		if (parser->hdr.ptr)
-			tfw_str_add_compound(resp->pool, &parser->hdr);
-
 		if (unlikely(c == '\r')) {
-			if (!resp->body.ptr) {
+			if (TFW_STR_IS_EMPTY(&resp->body)) {
 				resp->crlf = p;
 				__FSM_MOVE(Resp_HdrDone);
-			} else
+			} else {
 				__FSM_MOVE(Resp_Done);
+			}
 		}
 		if (unlikely(c == '\n')) {
-			if (!resp->body.ptr) {
+			if (TFW_STR_IS_EMPTY(&resp->body)) {
 				TFW_HTTP_INIT_BODY_PARSING(resp, Resp_Body);
 			} else {
 				r = TFW_PASS;
@@ -2452,7 +2441,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		/* We're going to read new header, remember it. */
-		TFW_STR_CURR(&parser->hdr)->ptr = p;
+		__FIELD_START(p);
 
 		switch (LC(c)) {
 		case 'c':

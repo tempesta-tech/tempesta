@@ -72,9 +72,10 @@ typedef struct tfw_http_parser {
 	int		data_off;	/* data offset from which the parser
 					   starts reading */
 	int		to_read;	/* remaining data to read */
-	TfwStr		_tmp_chunk;	/* stores begin of currently processed
+	TfwStrChunk	_tmp_chunk;	/* stores begin of currently processed
 					   string at the end of last skb */
-	TfwStr		hdr;		/* currently parser header */
+	TfwStr		field;		/* currently processed field: uri, host,
+					   a header, etc. */
 } TfwHttpParser;
 
 /**
