@@ -2,7 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,13 +24,15 @@
 #include "tdb.h"
 
 #define TDB_EXT_BITS		21
-#define TDB_EXT_SZ		(1 << TDB_EXT_BITS)
+#define TDB_EXT_SZ		(1UL << TDB_EXT_BITS)
 #define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 #define TDB_BLK_BMP_2L		(TDB_EXT_SZ / PAGE_SIZE / BITS_PER_LONG)
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)
 /* Get extent id by a record offset. */
 #define TDB_EXT_ID(o)		(TDB_EXT_O(o) >> TDB_EXT_BITS)
+/* Block absolute offset. */
+#define TDB_BLK_O(x)		((x) & TDB_BLK_MASK)
 /* Get block index in an extent. */
 #define TDB_BLK_ID(x)		(((x) & PAGE_MASK) & ~TDB_EXT_MASK)
 
@@ -59,7 +61,7 @@
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
 				 / BITS_PER_LONG)
 /* Get internal offset from a pointer. */
-#define TDB_HTRIE_OFF(h, p)	((char *)(p) - (char *)(h))
+#define TDB_HTRIE_OFF(h, p)	((unsigned long)(p) - (unsigned long)(h))
 /* Base offset of extent containing pointer @p. */
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 

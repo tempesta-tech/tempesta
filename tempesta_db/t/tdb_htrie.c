@@ -14,7 +14,7 @@
  * - reduce number of memset(.., 0, ..) calls
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -54,7 +54,7 @@
 #error "Unknown size of cache line"
 #endif
 
-#define PAGE_SIZE	4096
+#define PAGE_SIZE	4096UL
 #define BITS_PER_LONG	64
 #ifndef ENOMEM
 #define ENOMEM		1
@@ -69,6 +69,7 @@
 #define TDB_ERR(...)							\
 do {									\
 	fprintf(stderr, "Error: " __VA_ARGS__);				\
+	fprintf(stderr, "\n");						\
 	exit(1);							\
 } while (0)
 
@@ -113,17 +114,19 @@ ffz(unsigned long word)
  * ------------------------------------------------------------------------
  */
 #define TDB_MAGIC		0x434947414D424454UL /* "TDBMAGIC" */
-#define TDB_MAP_ADDR		0x600000000000
+#define TDB_MAP_ADDR		0x600000000000UL
 #define TDB_BLK_SZ		PAGE_SIZE
 #define TDB_BLK_MASK		(~(TDB_BLK_SZ - 1))
 #define TDB_EXT_BITS		21
-#define TDB_EXT_SZ		(1 << TDB_EXT_BITS)
+#define TDB_EXT_SZ		(1UL << TDB_EXT_BITS)
 #define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 #define TDB_BLK_BMP_2L		(TDB_EXT_SZ / TDB_BLK_SZ / BITS_PER_LONG)
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)
 /* Get extent id by a record offset. */
 #define TDB_EXT_ID(o)		(TDB_EXT_O(o) >> TDB_EXT_BITS)
+/* Block absolute offset. */
+#define TDB_BLK_O(x)		((x) & TDB_BLK_MASK)
 /* Get block index in an extent. */
 #define TDB_BLK_ID(x)		(((x) & TDB_BLK_MASK) & ~TDB_EXT_MASK)
 
@@ -167,12 +170,12 @@ ffz(unsigned long word)
 /* Convert internal offsets to system pointer. */
 #define TDB_PTR(h, o)		(void *)((char *)(h) + (o))
 /* Get internal offset from a pointer. */
-#define TDB_HTRIE_OFF(h, p)	((char *)(p) - (char *)(h))
+#define TDB_HTRIE_OFF(h, p)	((unsigned long)(p) - (unsigned long)(h))
 /* Get index and data block indexes by byte offset and vise versa. */
-#define TDB_O2DI(o)	((o) / TDB_HTRIE_MINDREC)
-#define TDB_O2II(o)	((o) / TDB_HTRIE_NODE_SZ)
-#define TDB_DI2O(i)	((i) * TDB_HTRIE_MINDREC)
-#define TDB_II2O(i)	((i) * TDB_HTRIE_NODE_SZ)
+#define TDB_O2DI(o)		((o) / TDB_HTRIE_MINDREC)
+#define TDB_O2II(o)		((o) / TDB_HTRIE_NODE_SZ)
+#define TDB_DI2O(i)		((i) * TDB_HTRIE_MINDREC)
+#define TDB_II2O(i)		((i) * TDB_HTRIE_NODE_SZ)
 /* Base offset of extent containing pointer @p. */
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 
@@ -244,7 +247,7 @@ typedef struct {
 /**
  * Variable-size (typically large) record.
  *
- * @chunk_next	- offset of next data chunk (also with TdbRecord as header)
+ * @chunk_next	- offset of next data chunk
  * @len		- data length of current chunk
  */
 typedef struct {
@@ -332,10 +335,9 @@ tdb_hash_calc(const char *data, size_t len)
 		crc1 = _mm_crc32_u64(crc1, d[i + 1]);
 	}
 
-	n *= MUL;
-	if (n + MUL <= len) {
+	if (n * MUL + MUL <= len) {
 		crc0 = _mm_crc32_u64(crc0, d[n]);
-		n += MUL;
+		n++;
 	}
 
 	h = (crc1 << 32) | crc0;
@@ -345,6 +347,7 @@ tdb_hash_calc(const char *data, size_t len)
 	 * for short strings in htrie which uses less significant bits at root,
 	 * however collisions are very probable.
 	 */
+	n *= MUL;
 	switch (len - n) {
 	case 7:
 		h += data[n] * n;
@@ -366,7 +369,6 @@ tdb_hash_calc(const char *data, size_t len)
 		++n;
 	case 1:
 		h += data[n] * n;
-		++n;
 	}
 
 	return h;
@@ -402,28 +404,6 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	set_bit(0, tdb_ext(hdr, TDB_PTR(hdr, hdr->d_wcl))->b_bmp);
 
 	return hdr;
-}
-
-/*
- * @return aligned and shrinked (if necessary) length to allocate data block.
- * Can be significanly less than @len for chunked data.
- */
-static size_t
-tdb_full_rec_len(TdbHdr *dbh, size_t *len)
-{
-	size_t align_len, rhl;
-
-	rhl = TDB_HTRIE_VARLENRECS(dbh) ? sizeof(TdbVRec) : sizeof(TdbFRec);
-
-	/* Allocate at least 2 cache lines for small data records. */
-	align_len = TDB_HTRIE_DALIGN(*len + rhl);
-
-	if (align_len > TDB_BLK_SZ) {
-		*len -= align_len - TDB_BLK_SZ;
-		align_len = TDB_BLK_SZ;
-	}
-
-	return align_len;
 }
 
 static inline void
@@ -485,13 +465,14 @@ tdb_alloc_blk(TdbHdr *dbh, TdbExt *e)
 
 		r = ffz(e->b_bmp[i]);
 		set_bit(r, &e->b_bmp[i]);
-		r = TDB_EXT_BASE(dbh, e) + r * TDB_BLK_SZ;
-		if (!r) {
-			r += sizeof(*e);
-			if (TDB_EXT_O(e) == TDB_EXT_O(dbh))
-				r += TDB_HDR_SZ(dbh);
+		if (unlikely(!i && !r)) {
+			r = sizeof(*e);
+			if (unlikely(TDB_EXT_O(e) == TDB_EXT_O(dbh)))
+				return r + TDB_HDR_SZ(dbh);
+			return r + TDB_EXT_BASE(dbh, e);
 		}
-		return r;
+		return TDB_EXT_BASE(dbh, e)
+		       + (i * BITS_PER_LONG + r) * TDB_BLK_SZ;
 	}
 
 	return 0;
@@ -500,50 +481,76 @@ tdb_alloc_blk(TdbHdr *dbh, TdbExt *e)
 static unsigned long
 tdb_alloc_index_blk(TdbHdr *dbh)
 {
-	unsigned long rptr;
+	unsigned long ei, rptr;
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->i_wcl));
 
-	while (1) {
-		rptr = tdb_alloc_blk(dbh, e);
-		if (!rptr) {
-			unsigned long eo;
-			if (TDB_HTRIE_OFF(dbh, e) + TDB_EXT_SZ * 2 > dbh->d_wm)
-				return 0;
-			e = (TdbExt *)(TDB_EXT_O(e) + TDB_EXT_SZ);
-			eo = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
-			if (dbh->i_wm < eo)
-				dbh->i_wm = eo;
-			tdb_set_bit(dbh->ext_bmp,
-				    TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
-			continue;
-		}
+	/* Check extent pointed by next to write index block. */
+	if (!(dbh->i_wcl & ~TDB_EXT_MASK))
+		goto point_to_new_ext;
+
+	rptr = tdb_alloc_blk(dbh, e);
+	if (likely(rptr))
 		return TDB_HTRIE_IALIGN(rptr);
-	}
+
+	/* No room in current extent, try the next one. */
+	e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
+
+point_to_new_ext:
+	ei = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
+	if (ei >= dbh->d_wm)
+		return 0;
+	if (ei > dbh->i_wm)
+		dbh->i_wm = ei;
+	tdb_set_bit(dbh->ext_bmp, TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
+
+	TDB_DBG("Alloc new index extent %p\n", e);
+
+	rptr = tdb_alloc_blk(dbh, e);
+	BUG_ON(!rptr);
+
+	return TDB_HTRIE_IALIGN(rptr);
 }
 
 static unsigned long
 tdb_alloc_data_blk(TdbHdr *dbh)
 {
-	unsigned long rptr;
+	unsigned long ei, rptr;
 	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->d_wcl));
 
-	while (1) {
-		rptr = tdb_alloc_blk(dbh, e);
-		if (!rptr) {
-			/* No room in current extent, try the next one. */
-			unsigned long eo;
-			if (TDB_HTRIE_OFF(dbh, e) <  dbh->i_wm + TDB_EXT_SZ * 2)
-				return 0;
-			e = (TdbExt *)((char *)e - TDB_EXT_SZ);
-			eo = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
-			if (dbh->d_wm > eo)
-				dbh->d_wm = eo;
-			tdb_set_bit(dbh->ext_bmp,
-				    TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
-			continue;
-		}
-		return TDB_HTRIE_DALIGN(rptr);
+	/* Check extent pointed by next to write data block. */
+	if (!(dbh->d_wcl & ~TDB_EXT_MASK)) {
+		e = (TdbExt *)((unsigned long)e - TDB_EXT_SZ * 2);
+		goto point_to_new_ext;
 	}
+
+	rptr = tdb_alloc_blk(dbh, e);
+	if (likely(rptr))
+		return TDB_HTRIE_DALIGN(rptr);
+
+	/* No room in current extent, try the next one. */
+	e = (TdbExt *)((unsigned long)e - TDB_EXT_SZ);
+
+point_to_new_ext:
+	ei = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
+	if (ei <=  dbh->i_wm)
+		return 0;
+	if (ei < dbh->d_wm)
+		dbh->d_wm = ei;
+	tdb_set_bit(dbh->ext_bmp, TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
+
+	TDB_DBG("Alloc new data extent %p\n", e);
+
+	rptr = tdb_alloc_blk(dbh, e);
+	BUG_ON(!rptr);
+
+	return TDB_HTRIE_DALIGN(rptr);
+}
+
+static void
+tdb_htrie_init_bucket(TdbBucket *b)
+{
+	b->coll_next = 0;
+	b->flags = 0;
 }
 
 /**
@@ -553,31 +560,54 @@ tdb_alloc_data_blk(TdbHdr *dbh)
  * Return 0 on error.
  */
 static unsigned long
-tdb_alloc_data(TdbHdr *dbh, size_t len)
+tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 {
 	unsigned long rptr = dbh->d_wcl;
+	size_t hdr_len, res_len = *len;
 
-	BUG_ON(len > TDB_BLK_SZ);
+	hdr_len = (bucket_hdr ? sizeof(TdbBucket) : 0)
+		  + (TDB_HTRIE_VARLENRECS(dbh)
+		     ? sizeof(TdbVRec)
+		     : sizeof(TdbFRec));
+	res_len += hdr_len;
 
-	/* Never allocate too small chunks. */
-	if (len < TDB_HTRIE_MINDREC)
-		len = TDB_HTRIE_MINDREC;
+	/*
+	 * Allocate at least 2 cache lines for small data records
+	 * and keep records after tails of large records also aligned.
+	 */
+	res_len = TDB_HTRIE_DALIGN(res_len);
 
-	if (unlikely((dbh->i_wm + 1) * TDB_EXT_SZ + len + dbh->d_wcl
+	if (unlikely((dbh->i_wm + 1) * TDB_EXT_SZ + res_len + dbh->d_wcl
 		      > dbh->dbsz + dbh->d_wm * TDB_EXT_SZ))
 		return 0; /* not enough space */
 
-	if (TDB_BLK_ID(rptr + len) > TDB_BLK_ID(rptr)) {
+	if (!(rptr & ~TDB_BLK_MASK)
+	    || TDB_BLK_O(rptr + res_len) > TDB_BLK_O(rptr))
+	{
+		size_t max_data_len;
+
 		/* Use a new page and/or extent for the data. */
 		rptr = tdb_alloc_data_blk(dbh);
 		if (!rptr)
 			return 0;
+
+		max_data_len = TDB_BLK_SZ - (rptr & ~TDB_BLK_MASK);
+		if (res_len > max_data_len) {
+			res_len = max_data_len;
+			*len = res_len - hdr_len;
+		}
 	}
 
-	TDB_DBG("alloc dblk %#lx for len=%lu\n", rptr, len);
+	TDB_DBG("alloc dblk %#lx for len=%lu\n", rptr, *len);
 	BUG_ON(TDB_HTRIE_DALIGN(rptr) != rptr);
 
-	dbh->d_wcl = rptr + len;
+	dbh->d_wcl = rptr + res_len;
+	BUG_ON(TDB_HTRIE_DALIGN(dbh->d_wcl) != dbh->d_wcl);
+
+	if (bucket_hdr) {
+		tdb_htrie_init_bucket(TDB_PTR(dbh, rptr));
+		rptr += sizeof(TdbBucket);
+	}
 
 	return rptr;
 }
@@ -591,8 +621,7 @@ tdb_alloc_index(TdbHdr *dbh)
 {
 	unsigned long rptr = dbh->i_wcl;
 
-	if (unlikely(TDB_BLK_ID(rptr + sizeof(TdbHtrieNode))
-		     > TDB_BLK_ID(rptr)))
+	if (unlikely(TDB_BLK_O(rptr + sizeof(TdbHtrieNode)) > TDB_BLK_O(rptr)))
 	{
 		/* Use a new page and/or extent for the data. */
 		rptr = tdb_alloc_index_blk(dbh);
@@ -606,13 +635,6 @@ tdb_alloc_index(TdbHdr *dbh)
 	dbh->i_wcl = rptr + sizeof(TdbHtrieNode);
 
 	return rptr;
-}
-
-static void
-tdb_htrie_init_bucket(TdbBucket *b)
-{
-	b->coll_next = 0;
-	b->flags = 0;
 }
 
 /**
@@ -709,7 +731,8 @@ do {									\
 		BUG_ON(copied + n > TDB_HTRIE_MINDREC);			\
 		k = TDB_HTRIE_IDX(r->key, bits);			\
 		if (!nb[k].b) {						\
-			nb[k].b = tdb_alloc_data(dbh, 0);		\
+			size_t _n = 0;					\
+			nb[k].b = tdb_alloc_data(dbh, &_n, 0);		\
 			if (!nb[k].b)					\
 				goto err_cleanup;			\
 			b = TDB_PTR(dbh, nb[k].b);			\
@@ -813,17 +836,11 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 static TdbRec *
 tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
-		     void *data, size_t len, int init_bucket)
+		     void *data, size_t len)
 {
 	char *ptr = TDB_PTR(dbh, off);
-	TdbRec *r;
+	TdbRec *r = (TdbRec *)ptr;
 
-	if (init_bucket) {
-		tdb_htrie_init_bucket((TdbBucket *)ptr);
-		ptr += sizeof(TdbBucket);
-	}
-
-	r = (TdbRec *)ptr;
 	BUG_ON(r->key);
 	r->key = key;
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
@@ -844,7 +861,7 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
  * Add more data to @rec.
  */
 TdbVRec *
-tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t *size)
+tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 {
 	unsigned long o;
 	TdbVRec *chunk;
@@ -852,14 +869,16 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t *size)
 	/* Cannot extend fixed-size records. */
 	BUG_ON(!TDB_HTRIE_VARLENRECS(dbh));
 
-	o = tdb_alloc_data(dbh, tdb_full_rec_len(dbh, size));
+	TDB_DBG("Extend record: rec_ptr=%p to_copy=%lu\n", rec, size);
+
+	o = tdb_alloc_data(dbh, &size, 0);
 	if (!o)
 		return NULL;
 
 	chunk = TDB_PTR(dbh, o);
 	chunk->key = rec->key;
 	chunk->chunk_next = 0;
-	chunk->len = *size;
+	chunk->len = size;
 
 	/* A caller is appreciated to pass the last record chunk by @rec. */
 	while (unlikely(rec->chunk_next))
@@ -892,11 +911,11 @@ retry:
 	if (!o) {
 		TDB_DBG("Create a new htrie node for key %#lx\n", key);
 
-		o = tdb_alloc_data(dbh, tdb_full_rec_len(dbh, len));
+		o = tdb_alloc_data(dbh, len, 1);
 		if (!o)
 			return NULL;
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, 1);
+		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
 
 		node->shifts[TDB_HTRIE_IDX(key, bits)] = TDB_O2DI(o)
 							 | TDB_HTRIE_DBIT;
@@ -926,7 +945,7 @@ retry:
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
 		if (o)
-			return tdb_htrie_create_rec(dbh, o, key, data, *len, 0);
+			return tdb_htrie_create_rec(dbh, o, key, data, *len);
 	}
 
 	if (TDB_HTRIE_RESOLVED(bits)) {
@@ -935,13 +954,13 @@ retry:
 			key, bits, *len);
 
 		BUG_ON(TDB_HTRIE_BUCKET_KEY(bckt) != key);
-		o = tdb_alloc_data(dbh, tdb_full_rec_len(dbh, len));
+		o = tdb_alloc_data(dbh, len, 1);
 		if (!o)
 			return NULL;
 		while (bckt->coll_next && !(bckt->flags & TDB_HTRIE_VRFREED))
 			bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
 		bckt->coll_next = TDB_O2DI(o);
-		return tdb_htrie_create_rec(dbh, o, key, data, *len, 1);
+		return tdb_htrie_create_rec(dbh, o, key, data, *len);
 	}
 
 	/*
@@ -1000,7 +1019,7 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
  */
 #define TDB_VSF_SZ		(2UL * 1024 * 1024 * 1024)
 #define TDB_FSF_SZ		(16UL * 1024 * 1024)
-#define THRN			1
+#define THR_N			1
 #define DATA_N			100
 #define LOOP_N			1
 
@@ -1137,9 +1156,9 @@ print_bin_url(TestUrl *u)
 {
 	int i, len = u->len < 40 ? u->len : 40;
 
-	printf("insert [");
+	printf("insert [0x");
 	for (i = 0; i < len; ++i)
-		printf("%#x", u->body[i]);
+		printf("%x", (unsigned char)u->body[i]);
 	printf(len < u->len ? "...] (len=%lu)\n" : "] (len=%lu)\n", u->len);
 	fflush(NULL);
 }
@@ -1153,7 +1172,7 @@ do_varsz(TdbHdr *dbh)
 	/* Store records. */
 	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->body, u->len);
-		size_t copied = 0, to_copy = u->len;
+		size_t copied, to_copy = u->len;
 		TdbVRec *rec;
 
 		print_bin_url(u);
@@ -1161,20 +1180,18 @@ do_varsz(TdbHdr *dbh)
 		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->body, &to_copy);
 		assert((u->len && rec) || (!u->len && !rec));
 
-		copied += to_copy;
-		to_copy = u->len - to_copy;
+		copied = to_copy;
 
 		while (copied != u->len) {
 			char *p;
 
-			rec = tdb_htrie_extend_rec(dbh, rec, &to_copy);
+			rec = tdb_htrie_extend_rec(dbh, rec, u->len - copied);
 			assert(rec);
 
 			p = (char *)(rec + 1);
-			memcpy(p, u->body + copied, to_copy);
+			memcpy(p, u->body + copied, rec->len);
 
-			copied += to_copy;
-			to_copy = u->len - to_copy;
+			copied += rec->len;
 		}
 	}
 
@@ -1285,7 +1302,7 @@ tdb_htrie_test_varsz(const char *fname)
 	char *addr;
 	TdbHdr *dbh;
 	struct timeval tv0, tv1;
-	pthread_t thr[THRN];
+	pthread_t thr[THR_N];
 
 	printf("\n----------- Variable size records test -------------\n");
 
@@ -1297,10 +1314,10 @@ tdb_htrie_test_varsz(const char *fname)
 	r = gettimeofday(&tv0, NULL);
 	assert(!r);
 
-	for (t = 0; t < THRN; ++t)
+	for (t = 0; t < THR_N; ++t)
 		if (pthread_create(thr + t, NULL, varsz_thr_f, dbh))
 			perror("cannot spawn varsz thread");
-	for (t = 0; t < THRN; ++t)
+	for (t = 0; t < THR_N; ++t)
 		pthread_join(thr[t], NULL);
 
 	r = gettimeofday(&tv1, NULL);
@@ -1320,7 +1337,7 @@ tdb_htrie_test_fixsz(const char *fname)
 	char *addr;
 	TdbHdr *dbh;
 	struct timeval tv0, tv1;
-	pthread_t thr[THRN];
+	pthread_t thr[THR_N];
 
 	printf("\n----------- Fixed size records test -------------\n");
 
@@ -1333,10 +1350,10 @@ tdb_htrie_test_fixsz(const char *fname)
 	r = gettimeofday(&tv0, NULL);
 	assert(!r);
 
-	for (t = 0; t < THRN; ++t)
+	for (t = 0; t < THR_N; ++t)
 		if (pthread_create(thr + t, NULL, fixsz_thr_f, dbh))
 			perror("cannot spawn fixsz thread");
-	for (t = 0; t < THRN; ++t)
+	for (t = 0; t < THR_N; ++t)
 		pthread_join(thr[t], NULL);
 
 	r = gettimeofday(&tv1, NULL);
@@ -1375,7 +1392,7 @@ init_test_data_for_htrie(void)
 	if ((rfd = open("/dev/urandom", O_RDONLY)) < 0)
 		TDB_ERR("cannot open /dev/urandom\n");
 
-	/* Leav first empty element. */
+	/* Leave first element empty. */
 	for (i = 1; i < DATA_N; ++i) {
 		int r = rand();
 
@@ -1419,6 +1436,16 @@ main(int argc, char *argv[])
 	   
 	if (!(ecx & bit_SSE4_2))
 		TDB_ERR("SSE4.2 is not supported");
+
+	printf("Run test with parameters:\n"
+	       "\tfix rec db size: %lu\n"
+	       "\tvar rec db size: %lu\n"
+	       "\textent size:     %lu\n"
+	       "\tthreads number:  %d\n"
+	       "\tdata size:       %d\n"
+	       "\tloops:           %d\n",
+	       TDB_FSF_SZ, TDB_VSF_SZ, TDB_EXT_SZ,
+	       THR_N, DATA_N, LOOP_N);
 
 	init_test_data_for_hash();
 	hash_calc_benchmark();
