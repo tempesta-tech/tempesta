@@ -20,6 +20,7 @@
 
 #include <linux/kernel.h>
 #include "hash.h"
+#include "lib.h"
 
 #define CRCQ(crc, data64) \
 	asm volatile("crc32q %2, %0" : "=r"(crc) : "0"(crc), "r"(data64))
@@ -78,5 +79,5 @@ tail:
 	return crc;
 #undef MUL
 }
-EXPORT_SYMBOL(tfw_hash_str);
+DEBUG_EXPORT_SYMBOL(tfw_hash_str);
 
