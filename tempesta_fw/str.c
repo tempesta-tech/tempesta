@@ -21,6 +21,7 @@
 #include <linux/kernel.h>
 #include <linux/ctype.h>
 
+#include "lib.h"
 #include "str.h"
 
 #ifndef DEBUG
@@ -115,7 +116,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 
 	return ((TfwStr *)str->ptr + str->len - 1);
 }
-EXPORT_SYMBOL(tfw_str_add_compound);
+DEBUG_EXPORT_SYMBOL(tfw_str_add_compound);
 
 /**
  * Sum length of all chunks in a string (either compound or plain).
@@ -134,7 +135,7 @@ tfw_str_len(const TfwStr *str)
 
 	return total_len;
 }
-EXPORT_SYMBOL(tfw_str_len);
+DEBUG_EXPORT_SYMBOL(tfw_str_len);
 
 /**
  * Generic function for comparing TfwStr and C strings.
@@ -179,7 +180,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 
 	return !cstr_len;
 }
-EXPORT_SYMBOL(tfw_str_eq_cstr);
+DEBUG_EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 /**
  * Generic function for comparing TfwStr and a key-value pair of C strings.
@@ -313,7 +314,7 @@ state_val:
 	/* Both @val and the current chunk are finished - full match. */
 	return true;
 }
-EXPORT_SYMBOL(tfw_str_eq_kv);
+DEBUG_EXPORT_SYMBOL(tfw_str_eq_kv);
 
 /**
  * Join all chunks of @str to a single plain C string.
@@ -351,4 +352,4 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 	return (pos - out_buf);
 }
-EXPORT_SYMBOL(tfw_str_to_cstr);
+DEBUG_EXPORT_SYMBOL(tfw_str_to_cstr);
