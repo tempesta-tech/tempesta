@@ -17,51 +17,116 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_STR_H__
-#define __TFW_STR_H__
-
-#include <linux/string.h>
+#ifndef __TFW_STR2_H__
+#define __TFW_STR2_H__
 
 #include "pool.h"
 
-/* Str is compound from many chunks, use indirect table for the chunks. */
-#define TFW_STR_COMPOUND 	0x01
-/* Str constists from compound strings. */
-#define TFW_STR_COMPOUND2	0x02
+/**
+ * The structure is packed. That reduces sizeof() the structure from 16 to 10
+ * bytes on x86_64 and thus saves about 40% of memory for fragmented strings.
+ * Fragmented strings are not rare:
+ *  - Modern web application use big HTTP headers (700-800 bytes on average,
+ *    according to Google's SPDY whitepapper). Also there are URIs and HTTP
+ *    pipelining, so requests are often fragmented because they reach common
+ *    MTU/MSS values of about 1500 bytes.
+ *  - HTTP responses are almost always fragmented. An average HTML page size
+ *    in the year 2014 is 60KB (according to httparchive.org), so the HTTP
+ *    parser almost always creates many chunks for HTTP response bodies.
+ * So for fragmented HTTP messages we store chunks more compact, and therefore
+ * improve cache hit rate in cost of unaligned access overhead.
+ * The exact impact on the performance should be measured with benchmarks,
+ * but until then, we try to minimize the memory footprint, because we have many
+ * TfwStr/TfwStrChunk structures allocated for each TfwHttpMsg object.
+ */
+typedef struct  __attribute__ ((packed)) {
+	char *data;
+	u16 len;
+} TfwStrChunk;
 
-typedef struct {
-	unsigned int	flags;
-	unsigned int	len; /* length of a string or array of strings */
-	void		*ptr; /* pointer to string or array of strings */
+/**
+ * TfwStr is a chunked string representation.
+ * In the Tempesta FW we aim to utilize zero-copy approach everywhere,
+ * so instead of copying HTTP requests into some buffers, we collect incoming
+ * skb and make (possibly fragmented) TfwStr objects from them.
+ *
+ * A TfwStr may consist of many fragments (represented by TfwStrChunk).
+ * Such string is called "compound". In this case (@cnum > 1) the @chunks points
+ * to a dynamically allocated array of chunks.
+ *
+ * When there is only one chunk, it is embedded right into the TfwStr structure.
+ * Such string is called "plain", and in this case (@cnum <= 1) the @chunks
+ * field is invalid and the data may be accessed via the @singe_chunk field.
+ * That allows to avoid memory allocation. We expect most of strings consist of
+ * a single framgnet, and we expect to have a lot of TfwStr objects under load,
+ * so this approach helps to save a lot of memory and costly memory allocations.
+ * As a drawback, we have to handle the single chunk case in all functions
+ * working with the TfwStr; that introduces some overhead too, so benchmarks
+ * should be done to measure it, but until then, we are trying to save memory.
+ *
+ * @len is the sum of all chunks added together.
+ * The field is valid for both plain and compound strings, but you should not
+ * access them directly because the implementation may change.
+ * Use functions and macros defined below.
+ */
+typedef union {
+	struct {
+		TfwStrChunk *chunks;
+		u32 len;
+		u16 cnum;
+		/* u16 hash; (TODO: optimize string comparison using it). */
+	};
+	TfwStrChunk single_chunk;
 } TfwStr;
 
-/* Get @c'th chunk of @s. */
-#define TFW_STR_CHUNK(s, c)	(((s)->flags & TFW_STR_COMPOUND)	\
-				 ? (c >= (s)->len			\
-				    ? NULL				\
-				    : (TfwStr *)(s)->ptr + c)		\
-				 : (!c					\
-				    ? s 				\
-				    : NULL))
+#define TFW_STR_LEN_MAX		0xFFFFFFFF
+#define TFW_STR_CNUM_MAX	0xFFFF
+#define TFW_STR_CHUNK_LEN_MAX	0xFFFF
+
+#define TFW_STR_IS_COMPOUND(s)  ((s)->cnum > 1)	/* 0 chunks is also plain. */
+#define TFW_STR_IS_NOT_EMPTY(s) ((s)->chunks)	/* @chunks is aligned */
+#define TFW_STR_IS_EMPTY(s)	(!(s)->chunks)
+
+/* Initialize TfwStr (slightly optimized). */
+#define TFW_STR_INIT(s)			\
+do {					\
+	*((u64 *)s) = U64_C(0);		\
+	*((u64 *)s + 1) = U64_C(0);	\
+} while (0)
+
+/* Shallow copy: doesn't copy allocated @chunks table. */
+#define TFW_STR_COPY(dst, src)	(*(dst) = *(src))
+
+/* Get @c'th chunk of @s (starting from 0). */
+#define TFW_STR_CHUNK(s, c)	(TFW_STR_IS_COMPOUND(s)		\
+				 ? (c >= (s)->cnum		\
+				    ? NULL			\
+				    : (s)->chunks + c)		\
+				 : (c				\
+				    ? NULL 			\
+				    : &(s)->single_chunk))
+
 /* Get last/current chunk of @s. */
-#define TFW_STR_CURR(s)		(((s)->flags & TFW_STR_COMPOUND)	\
-				 ? (TfwStr *)(s)->ptr + (s)->len - 1	\
-				 : s)
-
-#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
-#define TFW_STR_COPY(dst, src)	memcpy(dst, src, sizeof(TfwStr))
-
-#define TFW_STR_IS_PLAIN(str) (!(str->flags & TFW_STR_COMPOUND))
+#define TFW_STR_CURR(s) (TFW_STR_IS_COMPOUND(s)			\
+			 ? ((s)->chunks + (s)->cnum - 1)	\
+			 : &(s)->single_chunk)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
-#define TFW_STR_FOR_EACH_CHUNK(c, s) for ( \
-	c = (TFW_STR_IS_PLAIN(s) ? s : s->ptr); \
-	c < (TFW_STR_IS_PLAIN(s) ? s + 1 : (TfwStr *)s->ptr + s->len); \
-	++c)
+#define TFW_STR_FOR_EACH_CHUNK(c, s) \
+	for ((c) = _TFW_STR_CHUNKS_START(s); (c) < _TFW_STR_CHUNKS_END(s); ++(c))
 
+#define _TFW_STR_CHUNKS_START(s) \
+	(TFW_STR_IS_COMPOUND(s) ? (s)->chunks : &(s)->single_chunk)
 
-TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
+#define _TFW_STR_CHUNKS_END(s) \
+	(_TFW_STR_CHUNKS_START(s) + (s)->cnum)
+
+int tfw_str_add_chunk(TfwStr *str, const char *start_pos, const char *end_pos,
+		      TfwPool *pool);
 int tfw_str_len(const TfwStr *str);
+int tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
+
+/* Comparison functions. */
 
 typedef enum {
 	TFW_STR_EQ_DEFAULT = 0x0,
@@ -75,6 +140,4 @@ bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
                    const char *val, int val_len, tfw_str_eq_flags_t flags);
 
-size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
-
-#endif /* __TFW_STR_H__ */
+#endif /* __TFW_STR2_H__ */

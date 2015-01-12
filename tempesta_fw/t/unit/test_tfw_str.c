@@ -20,8 +20,8 @@
 
 #include <linux/kernel.h>
 
-#include "str.h"
 #include "test.h"
+#include "str.h"
 
 static TfwPool *str_pool;
 
@@ -55,29 +55,26 @@ alloc_str(void)
 static TfwStr *
 make_plain_str(const char *data)
 {
-	TfwStr *s = alloc_str();
+	TfwStr *str = alloc_str();
+	tfw_str_add_chunk(str, data, data + strlen(data), str_pool);
 
-	s->len =  strlen(data);
-	s->ptr = (void *)data;
-
-	return s;
+	return str;
 }
 
 static TfwStr *
 make_compound_str(const char *data)
 {
-	TfwStr *str, *chunk;
+	TfwStr *str;
 	size_t chunk_len = 0;
 	size_t total_len = strlen(data);
 
 	str = alloc_str();
 
 	do {
-		chunk = tfw_str_add_compound(str_pool, str);
-		chunk->len = min(total_len, ++chunk_len % 4);
-		chunk->ptr = (void *)data;
-		data += chunk->len;
-		total_len -= chunk->len;
+		chunk_len = min(total_len, ++chunk_len % 4);
+		tfw_str_add_chunk(str, data, data + chunk_len, str_pool);
+		data += chunk_len;
+		total_len -= chunk_len;
 	} while (total_len > 0);
 
 	return str;
@@ -85,6 +82,18 @@ make_compound_str(const char *data)
 
 #define TFW_STR(name, literal) const TfwStr *name = make_compound_str(literal)
 
+TEST(tfw_str, can_be_casted_to_chunk)
+{
+	TfwStr s = {
+		.chunks = (void *)0xDEADBEEF,
+		.cnum = 1234,
+		.len = 54321,
+	};
+
+	TfwStrChunk *c = (TfwStrChunk *)&s;
+	EXPECT_EQ((void *)s.chunks, (void *)c->data);
+	EXPECT_EQ(s.len, c->len);
+}
 
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strings)
 {
@@ -124,47 +133,15 @@ TEST(tfw_str_eq_cstr, handles_plain_str)
 TEST(tfw_str_eq_cstr, handles_unterminated_strs)
 {
 	const char *cstr = "foobarbaz [SOME GARBAGE]";
-	int cstr_len = 9;
-	TfwStr s = {
-		.len = cstr_len,
-		.ptr = (void *)"foobarbaz [ANOTHER GARBAGE]"
-	};
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr, cstr_len, TFW_STR_EQ_DEFAULT));
+	size_t part_len = 9;
+	TfwStr *s;
+
+	/* Make a plain string and crop it so it becomes unterminated. */
+	s = make_plain_str(cstr);
+	s->single_chunk.len = part_len;
+
+	EXPECT_TRUE(tfw_str_eq_cstr(s, cstr, part_len, TFW_STR_EQ_DEFAULT));
 }
-
-TEST(tfw_str_eq_cstr, handles_empty_strs)
-{
-	TfwStr s1 = {
-		.len = 0,
-		.ptr = (void *)"garbage"
-	};
-	TfwStr s2 = {
-		.len = 0,
-		.ptr = NULL
-	};
-	TfwStr chunks[] = { s1, s2 };
-	TfwStr s3 = {
-		.flags = TFW_STR_COMPOUND,
-		.len = 2,
-		.ptr = &chunks
-	};
-	TfwStr s_ne = {
-		.len = 3,
-		.ptr = (void *)"foo"
-	};
-	const char *cstr = "";
-	const char *cstr_ne = "bar";
-	size_t len = strlen(cstr_ne);
-
-	EXPECT_TRUE(tfw_str_eq_cstr(&s1, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s2, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s3, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s_ne, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s1, cstr_ne, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s2, cstr_ne, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s3, cstr_ne, len, TFW_STR_EQ_DEFAULT));
-}
-
 
 TEST(tfw_str_eq_cstr, supports_casei)
 {
@@ -264,10 +241,7 @@ TEST(tfw_str_eq_kv, handles_plain_str)
 
 TEST(tfw_str_eq_kv, handles_unterminated_strs)
 {
-	TfwStr s = {
-		.len = 35,
-		.ptr = (void *)"Cache-Control: max-age=3600, public [GARBAGE1]"
-	};
+	TfwStr *s;
 	const char *k = "Cache-Control [GARBAGE2]";
 	const char *v = "max-age=3600, public [GARBAGE3]";
 	size_t klen = 13;
@@ -275,7 +249,10 @@ TEST(tfw_str_eq_kv, handles_unterminated_strs)
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT;
 	char sep = ':';
 
-	EXPECT_TRUE(tfw_str_eq_kv(&s, k, klen, sep, v, vlen, flags));
+	s = make_plain_str("Cache-Control: max-age=3600, public [GARBAGE1]");
+	s->len = 35; /* crop */
+
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, klen, sep, v, vlen, flags));
 }
 
 TEST(tfw_str_eq_kv, handles_empty_val)
@@ -415,10 +392,11 @@ TEST_SUITE(tfw_str)
 	TEST_SETUP(create_str_pool);
 	TEST_TEARDOWN(free_all_str);
 
+	TEST_RUN(tfw_str, can_be_casted_to_chunk);
+
 	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strings);
 	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);
 	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_strs);
-	TEST_RUN(tfw_str_eq_cstr, handles_empty_strs);
 	TEST_RUN(tfw_str_eq_cstr, supports_casei);
 	TEST_RUN(tfw_str_eq_cstr, supports_prefix);
 
@@ -433,6 +411,4 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_to_cstr, copies_all_chunks);
 	TEST_RUN(tfw_str_to_cstr, limits_and_terminates_output);
 }
-
-
 

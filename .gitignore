@@ -18,3 +18,7 @@ Module.symvers
 .project
 .cproject
 .settings
+.pydevproject
+
+# Python compiler cache files
+*.pyc

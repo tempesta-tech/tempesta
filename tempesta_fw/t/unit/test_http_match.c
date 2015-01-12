@@ -82,10 +82,11 @@ test_mlst_match(void)
 }
 
 static void
-set_tfw_str(TfwStr *str, const char *cstr)
+set_tfw_str(TfwStr *str, char *cstr)
 {
-	str->ptr = (void *)cstr;
-	str->len = strlen(cstr);
+	str->cnum = 1;
+	str->single_chunk.data = cstr;
+	str->single_chunk.len = strlen(cstr);
 }
 
 

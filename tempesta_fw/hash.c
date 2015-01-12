@@ -39,7 +39,7 @@ unsigned long
 tfw_hash_str(const TfwStr *str)
 {
 #define MUL sizeof(long)
-	const TfwStr *chunk;
+	const TfwStrChunk *chunk;
 	const char *pos;
 	const char *body_end;
 	const char *head_end;
@@ -49,7 +49,7 @@ tfw_hash_str(const TfwStr *str)
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str) {
 		len = chunk->len;
-		pos = chunk->ptr;
+		pos = chunk->data;
 
 		tail_end = pos + len;
 		head_end = PTR_ALIGN(pos, MUL);
@@ -79,4 +79,3 @@ tail:
 #undef MUL
 }
 EXPORT_SYMBOL(tfw_hash_str);
-

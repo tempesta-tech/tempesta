@@ -118,8 +118,8 @@ tfw_http_establish_skb_hdrs(TfwHttpMsg *hm)
 		TfwHttpHdr *hdr = hm->h_tbl->tbl + i;
 		if (hdr->skb)
 			continue;
-		if (!hdr->field.ptr)
-			break;
+		if (!hdr->field.chunks)
+			break;  /* XXX: why do we stop here? */
 		hdr->skb = hm->msg.skb_list.last;
 	}
 }
@@ -315,18 +315,19 @@ next_skb:
 static int
 __hdr_delete(TfwStr *hdr, struct sk_buff *skb)
 {
+#ifdef FIXME
 	int i, dlen, c = 0, r = TFW_PASS;
 	struct sk_buff *frag_i;
-	TfwStr *h = TFW_STR_CHUNK(hdr, 0);
+	TfwStrChunk *h = TFW_STR_CHUNK(hdr, 0);
 	unsigned char *vaddr;
 
 #define PROCESS_DATA(code)						\
 do {									\
-	unsigned char *p = h->ptr;					\
+	unsigned char *p = h->data;					\
 	if (p >= vaddr && p < vaddr + dlen) {				\
 		if (p + h->len < vaddr + dlen) {			\
 			/* The header is linear. */			\
-			BUG_ON(hdr->flags & TFW_STR_COMPOUND);		\
+			BUG_ON(TFW_STR_IS_COMPOUND(hdr));		\
 			memmove(p, p + h->len, dlen - (p - vaddr) - h->len); \
 			skb_trim(skb, skb->len - h->len);		\
 			code;						\
@@ -336,7 +337,7 @@ do {									\
 			BUG_ON(p + h->len - vaddr - dlen);		\
 			skb_trim(skb, skb->len - h->len);		\
 			code;						\
-			if (!(hdr->flags & TFW_STR_COMPOUND))		\
+			if (!TFW_STR_IS_COMPOUND(hdr))			\
 				return TFW_PASS;			\
 			/* Compound header: process next chunk. */	\
 			++c;						\
@@ -390,18 +391,20 @@ next_skb:
 	/* It seems not all data was received. */
 	return TFW_BLOCK;
 #undef PROCESS_DATA
+#endif
+	return 0;
 }
 
 static int
 __hdr_sub(TfwStr *hdr, const char *new_hdr, size_t nh_len, struct sk_buff *skb)
 {
-	int c, i, r, dlen, tot_hlen = 0;
+#ifdef FIXME
+	int c, i, r, dlen, tot_hlen;
 	struct sk_buff *frag_i;
-	TfwStr *h;
+	TfwStrChunk *h;
 	unsigned char *vaddr, *p;
 
-	for (h = TFW_STR_CHUNK(hdr, 0), c = 0; h; h = TFW_STR_CHUNK(hdr, ++c))
-		tot_hlen += h->len;
+	tot_hlen = tfw_str_len(hdr);
 	c = 0;
 	h = TFW_STR_CHUNK(hdr, c);
 
@@ -410,7 +413,7 @@ next_skb:
 	vaddr = skb->data;
 
 	/* Process linear data. */
-	p = h->ptr;
+	p = h->data;
 	if (p >= vaddr && p < vaddr + dlen) {
 		int delta = nh_len - tot_hlen;
 		if (tot_hlen < nh_len) {
@@ -421,7 +424,7 @@ next_skb:
 		}
 		if (p + h->len < vaddr + dlen) {
 			/* The header is linear. */
-			BUG_ON(hdr->flags & TFW_STR_COMPOUND);
+			BUG_ON(TFW_STR_IS_COMPOUND(hdr));
 			memcpy(p, new_hdr, nh_len);
 			if (h->len > nh_len) {
 				/* Set SPs at the end of header. */
@@ -455,9 +458,9 @@ next_skb:
 				memcpy(p + n, new_hdr, delta);
 
 			/* Move to next header chunk if exists. */
-			if (!(hdr->flags & TFW_STR_COMPOUND))
+			if (!TFW_STR_IS_COMPOUND(hdr))
 				return TFW_PASS;
-					++c;
+			++c;
 			h = TFW_STR_CHUNK(hdr, c);
 			if (!h)	
 				return TFW_PASS;
@@ -499,6 +502,8 @@ next_skb:
 
 	/* It seems not all data was received. */
 	return TFW_BLOCK;
+#endif
+	return 0;
 }
 
 #define TFW_HTTP_HDR_SUB(hdr, str, skb)	__hdr_sub(hdr, str "\r\n",	\
@@ -546,11 +551,6 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	/* Never call the function if no changes are required. */
 	BUG_ON(!need_add && !need_del);
 
-	/* Delete unnecessary headers. */
-	if (unlikely(ch->field.flags & TFW_STR_COMPOUND2))
-		/* Few Connection headers - looks suspicious. */
-		return TFW_BLOCK;
-
 	if (need_add && need_del) {
 		/* Substitute the header. */
 		switch (need_add) {
@@ -570,7 +570,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	}
 	else if (need_add) {
 		/* There is no Connection header, add one. */
-		BUG_ON(ch->field.ptr);
+		BUG_ON(TFW_STR_IS_NOT_EMPTY(&ch->field));
 		switch (need_add) {
 		case TFW_HTTP_CONN_CLOSE:
 			r = TFW_HTTP_HDR_ADD(hm, "Connection: close");
