@@ -42,7 +42,4 @@ int tfw_session_sched_msg(TfwSession *s, TfwMsg *msg);
 TfwSession *tfw_session_create(TfwClient *cli);
 void tfw_session_free(TfwSession *s);
 
-int tfw_session_init(void);
-void tfw_session_exit(void);
-
 #endif /* __TFW_SESSION_H__ */

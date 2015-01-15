@@ -927,29 +927,6 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
 		: tfw_http_resp_process(c, data, len);
 }
 
-static TfwConnHooks http_conn_hooks = {
-	.conn_init	= tfw_http_conn_init,
-	.conn_destruct	= tfw_http_conn_destruct,
-	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
-};
-
-int __init
-tfw_http_init(void)
-{
-	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
-	if (r)
-		return r;
-
-	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
-
-	return 0;
-}
-
-void
-tfw_http_exit(void)
-{
-}
-
 /**
  * Calculate key of a HTTP request by hashing its URI and Host header.
  *
@@ -961,6 +938,35 @@ unsigned long
 tfw_http_req_key_calc(const TfwHttpReq *req)
 {
 	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
-	        tfw_hash_str(&req->uri));
+		tfw_hash_str(&req->uri));
 }
 EXPORT_SYMBOL(tfw_http_req_key_calc);
+
+static TfwConnHooks http_conn_hooks = {
+	.conn_init	= tfw_http_conn_init,
+	.conn_destruct	= tfw_http_conn_destruct,
+	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
+};
+
+static int
+tfw_http_init(void)
+{
+	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
+	if (r)
+		return r;
+
+	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
+
+	return 0;
+}
+
+static void
+tfw_http_exit(void)
+{
+}
+
+TfwCfgMod tfw_mod_http = {
+	.name = "http",
+	.init = tfw_http_init,
+	.exit = tfw_http_exit,
+};

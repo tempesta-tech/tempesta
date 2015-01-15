@@ -695,7 +695,7 @@ parse_addr(ParserState *s)
 	memcpy(buf, s->lexeme, s->len);
 	buf[s->len] = '\0';
 	pos = buf;
-	ret = tfw_inet_pton(&pos, addr);
+	ret = tfw_inet_pton(pos, addr);
 
 	if (ret) {
 		PARSER_ERR(s, "invalid address");

@@ -2,19 +2,22 @@
 #
 # Tempesta FW service script.
 #
-# 2012-2014. Written by NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015 Tempesta Technologies.
 
-SSOCKET=sync_socket
-TDB=tempesta_db
-TFW=tempesta_fw
-TFW_ROOT=`pwd`/$TFW
-TFW_CACHE_SIZE=`expr 256 \* 1024`
-TFW_CACHE_PATH=$TFW_ROOT/cache
+root=$(dirname "$0")
 
 arg=${1:-}
-ss_path=${SYNC_SOCKET:="./"}
-tdb_path=${TDB:="./"}
+ss_path=${SS_PATH:="$root/sync_socket"}
+tdb_path=${TDB_PATH:="$root/tempesta_db"}
+tfw_path=${TFW_PATH:="$root/tempesta_fw"}
+tfw_cfg_path=${TFW_CFG_PATH:="$root/tempesta_fw.conf"}
 sched=${SCHED:="dummy"}
+
+ss_mod=sync_socket
+tdb_mod=tempesta_db
+tfw_mod=tempesta_fw
+tfw_sched_mod=tfw_sched_$sched
 
 error()
 {
@@ -33,23 +36,20 @@ start()
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
 
-	mkdir -p $TFW_CACHE_PATH 2>/dev/null
-
-	insmod $ss_path/$SSOCKET.ko
+	insmod $ss_path/$ss_mod.ko
 	[ $? -ne 0 ] && error "cannot load synchronous sockets module"
 
-	insmod $tdb_path/$TDB.ko
+	insmod $tdb_path/$tdb_mod.ko
 	[ $? -ne 0 ] && error "cannot load tempesta database module"
 
-	insmod $TFW_ROOT/$TFW.ko cache_size=$TFW_CACHE_SIZE \
-				 cache_path="$TFW_CACHE_PATH"
+	insmod $tfw_path/$tfw_mod.ko tfw_cfg_path=$tfw_cfg_path
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
-	insmod $TFW_ROOT/sched/tfw_sched_${sched}.ko
-	[ $? -ne 0 ] && error "cannot load scheduler module"
+	insmod $tfw_path/sched/tfw_sched_${sched}.ko
+	[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
 
-	sysctl --load=tempesta.sysctl.conf
-	[ $? -ne 0 ] && error "cannot apply configuration via sysctl"
+	sysctl -w net.tempesta.state=start
+	[ $? -ne 0 ] && error "cannot start Tempesta FW"
 
 	echo "done"
 }
@@ -57,10 +57,13 @@ start()
 stop()
 {
 	echo "Stopping Tempesta"
+	
+	sysctl -w net.tempesta.state=stop
 
-	rmmod $TFW
-	rmmod $TDB
-	rmmod $SSOCKET
+	rmmod tfw_sched_mod
+	rmmod tfw_mod
+	rmmod tdb_mod
+	rmmod ss_mod
 
 	echo "done"
 }

@@ -25,6 +25,7 @@ tfw_test-objs = \
 	main.o \
 	test.o \
 	test_addr.o \
+	test_cfg.o \
 	test_hash.o \
 	test_http_match.o \
 	test_http_parser.o \
