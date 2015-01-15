@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,8 +39,5 @@ void tfw_destroy_server(struct sock *s);
 
 int tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr);
 int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
-
-int tfw_server_init(void);
-void tfw_server_exit(void);
 
 #endif /* __TFW_CLIENT_H__ */

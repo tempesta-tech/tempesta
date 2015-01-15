@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,6 +19,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #ifndef __TEMPESTA_H__
+
 #define __TEMPESTA_H__
 
 #include <linux/in6.h>
@@ -26,50 +28,11 @@
 #include <linux/tempesta_fw.h>
 #include <net/sock.h>
 
+#include "cfg.h"
 #include "tdb.h"
 
 #define TFW_AUTHOR		"NatSys Lab. (http://natsys-lab.com)"
 
 #define DEF_MAX_PORTS		8
-#define DEF_PORT		80
-#define DEF_LISTEN_PORT		DEF_PORT
-#define DEF_LISTEN_ADDR		INADDR_ANY
-#define DEF_BACKEND_PORT	8080
-#define DEF_BACKEND_ADDR	INADDR_LOOPBACK
-#define DEF_PROC_STR_LEN	128
-
-
-typedef struct {
-	int	count;
-	union {
-		struct sockaddr_in v4;
-		struct sockaddr_in6 v6;
-	}	addr[0];
-} TfwAddrCfg;
-#define SIZE_OF_ADDR_CFG(n)	(sizeof(TfwAddrCfg) 			\
-				 + sizeof(struct sockaddr_in6) * (n))
-
-/* Main configuration structure. */
-typedef struct {
-	struct rw_semaphore    	mtx; /* configuration lock */
-
-	TfwAddrCfg		*listen;
-	TfwAddrCfg		*backends;
-
-	/* Cache configuration. */
-	int			cache;
-	unsigned int		c_size; /* cache size in pages */
-	char			c_path[TDB_PATH_LEN]; /* cache files path */
-} TfwCfg;
-
-/* Main configuration structure. */
-extern TfwCfg tfw_cfg;
-
-
-int tfw_if_init(void);
-void tfw_if_exit(void);
-
-int tfw_reopen_listen_sockets(void);
-void tfw_sock_backend_refresh_cfg(void);
 
 #endif /* __TEMPESTA_H__ */

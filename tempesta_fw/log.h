@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,7 +36,6 @@
 #define TFW_WARN(...)	net_warn_ratelimited(TFW_BANNER "Warning: " __VA_ARGS__)
 #define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
 
-
 /*
  * Print an IP address into a buffer (allocated on stack) and then evaluate
  * an expression where the buffer may be used.
@@ -45,8 +45,8 @@
  */
 #define TFW_WITH_ADDR_FMT(addr_ptr, fmtd_addr_var_name, action_expr)  \
 do { \
-	char fmtd_addr_var_name[MAX_ADDR_LEN]; \
-	tfw_inet_ntop(addr_ptr, fmtd_addr_var_name); \
+	char fmtd_addr_var_name[TFW_ADDR_STR_BUF_SIZE]; \
+	tfw_addr_fmt(addr_ptr, fmtd_addr_var_name, sizeof(fmtd_addr_var_name)); \
 	action_expr; \
 } while (0)
 

@@ -10,6 +10,7 @@
  *
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,6 +28,9 @@
  */
 #ifndef __TFW_TEST_H__
 #define __TFW_TEST_H__
+
+#include <linux/kernel.h>
+#include <linux/string.h>
 
 int  test_run_all(void);
 void test_register_failure(void);
@@ -136,5 +140,23 @@ do {						\
 #define EXPECT_NOT_NULL(expr) \
 	__EXPECT_COND("EXPECT_NOT_NULL", (expr), _val != NULL)
 
+#define EXPECT_OK(expr) \
+	__EXPECT_COND("EXPECT_OK", (expr), _val == 0)
+
+#define EXPECT_ERROR(expr) \
+	__EXPECT_COND("EXPECT_ERROR", (expr), _val != 0)
+
+
+#define EXPECT_STR_EQ(str1, str2) 		\
+do {						\
+	const char *_s1 = (str1);		\
+	const char *_s2 = (str2);		\
+	if (!_s1 || !_s2)			\
+		TEST_FAIL("EXPECT_STR_EQ(%s, %s) => NULL ptr: (%p, %p)\n", \
+			  #str1, #str2, _s1, _s2); \
+	else if (strcmp(_s1, _s2))		\
+		TEST_FAIL("EXPECT_STR_EQ(%s, %s) => NEQ:\n  str1: %s\n  str2: %s\n", \
+			  #str1, #str2, _s1, _s2); \
+} while (0)
 
 #endif /* __TFW_TEST_H__ */
