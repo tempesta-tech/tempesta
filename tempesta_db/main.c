@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR("NatSys Lab. (http://natsys-lab.com)");
 MODULE_DESCRIPTION("Tempesta DB");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
 
 static struct workqueue_struct *tdb_wq;
