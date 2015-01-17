@@ -6,12 +6,12 @@
  * data records grow towards them, from maximum to minimum addresses.
  *
  * TODO
- * - unit test for concurrency
  * - freeing interface for eviction thread
  * - eviction
  * - garbage collection
  * - consistensy checking and recovery
  * - reduce number of memset(.., 0, ..) calls
+ * - large contigous allocations
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies.
@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <immintrin.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,6 +108,37 @@ ffz(unsigned long word)
 		: "r" (~word));
 	return word;
 }
+
+typedef struct {
+	int counter;
+} atomic_t;
+
+typedef struct {
+	long counter;
+} atomic64_t;
+
+static inline int
+atomic_cmpxchg(atomic_t *v, int old, int new)
+{
+	return __atomic_compare_exchange_n(&v->counter, &old, new, false,
+					   __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+}
+
+static inline long
+xadd(unsigned long *v, unsigned long i)
+{
+	return __atomic_fetch_add(v, i, __ATOMIC_SEQ_CST);
+}
+
+/*
+ * Pthread doesn't have RW spin-locks,
+ * so just use semaphores to test concurrency.
+ */
+typedef pthread_rwlock_t rwlock_t;
+
+#define rwlock_init(lock)	pthread_rwlock_init(lock, NULL)
+#define write_lock_bh(lock)	pthread_rwlock_wrlock(lock)
+#define write_unlock_bh(lock)	pthread_rwlock_unlock(lock)
 
 /*
  * ------------------------------------------------------------------------
@@ -234,6 +266,7 @@ typedef struct {
 typedef struct {
 	unsigned int 	coll_next;
 	unsigned int	flags;
+	rwlock_t	lock;
 } __attribute__((packed)) TdbBucket;
 
 /**
@@ -463,6 +496,7 @@ tdb_alloc_blk(TdbHdr *dbh, TdbExt *e)
 		if (!(e->b_bmp[i] ^ ~0UL))
 			continue;
 
+		// TODO synchronize this and below callers!
 		r = ffz(e->b_bmp[i]);
 		set_bit(r, &e->b_bmp[i]);
 		if (unlikely(!i && !r)) {
@@ -551,6 +585,7 @@ tdb_htrie_init_bucket(TdbBucket *b)
 {
 	b->coll_next = 0;
 	b->flags = 0;
+	rwlock_init(&b->lock);
 }
 
 /**
@@ -558,6 +593,9 @@ tdb_htrie_init_bucket(TdbBucket *b)
  * available room for writting if @len doesn't fit to block.
  *
  * Return 0 on error.
+ *
+ * TODO Allocate set of pages if there are any for large @len.
+ *      Defragment memory blocks in background.
  */
 static unsigned long
 tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
@@ -615,13 +653,15 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 /**
  * Allocates a new index block.
  * @return byte offset of the block.
+ *
+ * TODO synchronize this!
  */
 static unsigned long
 tdb_alloc_index(TdbHdr *dbh)
 {
 	unsigned long rptr = dbh->i_wcl;
 
-	if (unlikely(TDB_BLK_O(rptr + sizeof(TdbHtrieNode)) > TDB_BLK_O(rptr)))
+	if (unlikely(TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1) > TDB_BLK_O(rptr)))
 	{
 		/* Use a new page and/or extent for the data. */
 		rptr = tdb_alloc_index_blk(dbh);
@@ -642,6 +682,8 @@ tdb_alloc_index(TdbHdr *dbh)
  * Traverses the collision chain in hope to find some room somewhere.
  *
  * The function links the last small record with the new (returned) one.
+ *
+ * Called under bucket lock.
  */
 static unsigned long
 tdb_htrie_smallrec_link(TdbHdr *dbh, size_t len, TdbBucket *bckt)
@@ -684,14 +726,17 @@ done:
  * Grow the tree.
  *
  * @node	- current index node at which least significant bits collision
- * 		  happened.
+ * 		  happened. Set to the new node to continue the search from.
+ *
+ * Called under bucket lock, so we can safely copy and remove records
+ * from the bucket.
  */
 static int
 tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 		unsigned long key, int bits)
 {
 	int i, free_nb;
-	unsigned int new_in_idx;
+	unsigned int new_in_idx, shift_save;
 	unsigned long k, n;
 	TdbBucket *b = TDB_HTRIE_BUCKET_1ST(bckt);
 	TdbHtrieNode *new_in;
@@ -699,6 +744,9 @@ tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 		unsigned long	b;
 		unsigned char	off;
 	} nb[TDB_HTRIE_FANOUT] = {{0, 0}};
+
+	/* Just a consistency check. Should be removed in future. */
+	shift_save = (*node)->shifts[TDB_HTRIE_IDX(key, bits - TDB_HTRIE_BITS)];
 
 	n = tdb_alloc_index(dbh);
 	if (!n)
@@ -711,7 +759,7 @@ do {									\
 	Type *r = (Type *)b;						\
 	k = TDB_HTRIE_IDX(r->key, bits);				\
 	/* Always leave first record in the same data block. */		\
-	new_in->shifts[k] = TDB_O2DI(TDB_HTRIE_OFF(dbh, bckt))	\
+	new_in->shifts[k] = TDB_O2DI(TDB_HTRIE_OFF(dbh, bckt))		\
 			    | TDB_HTRIE_DBIT;				\
 	TDB_DBG("link bckt=%p w/ iblk=%#x by %#lx (key=%#lx)\n",	\
 		bckt, new_in_idx, k, r->key);				\
@@ -766,8 +814,14 @@ do {									\
 	/* Link the new index node with @node. */
 	TDB_DBG("link iblk=%p w/ iblk=%p (%#x) by idx=%#lx\n",
 		*node, new_in, new_in_idx, k);
-	k = TDB_HTRIE_IDX(key, bits - TDB_HTRIE_BITS);
-	(*node)->shifts[k] = new_in_idx;
+	if (unlikely(atomic_cmpxchg((atomic_t *)&(*node)->shifts[k],
+				    shift_save, new_in_idx)
+		     != shift_save))
+		/*
+		 * Nobody should change the index block,
+		 * while the bucket lock is held.
+		 */
+		BUG();
 	*node = new_in;
 
 	/* Now we can safely remove all copied records. */
@@ -881,11 +935,13 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	chunk->len = size;
 
 	/* A caller is appreciated to pass the last record chunk by @rec. */
+retry:
 	while (unlikely(rec->chunk_next))
 		rec = TDB_PTR(dbh, TDB_DI2O(rec->chunk_next));
 	BUG_ON(!tdb_live_vsrec(rec));
 
-	rec->chunk_next = o;
+	if (atomic_cmpxchg((atomic_t *)&rec->chunk_next, 0, o))
+		goto retry;
 
 	return chunk;
 }
@@ -896,10 +952,10 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 TdbRec *
 tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
 {
-	int bits = 0;
+	int i, bits = 0;
 	unsigned long o;
 	TdbBucket *bckt;
-	TdbRec *rec;
+	TdbRec *rec = NULL;
 	TdbHtrieNode *node = TDB_HTRIE_ROOT(dbh);
 
 	/* Don't store empty data. */
@@ -917,10 +973,10 @@ retry:
 
 		rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
 
-		node->shifts[TDB_HTRIE_IDX(key, bits)] = TDB_O2DI(o)
-							 | TDB_HTRIE_DBIT;
-
-		return rec;
+		i = TDB_HTRIE_IDX(key, bits);
+		if (atomic_cmpxchg((atomic_t *)&node->shifts[i], 0,
+				   TDB_O2DI(o) | TDB_HTRIE_DBIT) == 0)
+			return rec;
 	}
 
 	/*
@@ -929,14 +985,19 @@ retry:
 	bckt = TDB_PTR(dbh, o);
 	BUG_ON(!bckt);
 
+	write_lock_bh(&bckt->lock);
+
 	/*
 	 * Try to place the small record in preallocated room for
 	 * small records. There could be full or partial key match.
 	 * Small and large variable-length records can be intermixed
 	 * in collision chain, so we do this before processing
 	 * full key collision.
+	 *
+	 * Don't try to place the small record if we passed there due to
+	 * concurrent data allocation above.
 	 */
-	if (*len < TDB_HTRIE_MINDREC) {
+	if (*len < TDB_HTRIE_MINDREC && likely(!o)) {
 		/* Align small record length to 8 bytes. */
 		size_t n = TDB_HTRIE_RALIGN(*len);
 
@@ -944,8 +1005,11 @@ retry:
 			" key %#lx\n", n, bits, key);
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
-		if (o)
-			return tdb_htrie_create_rec(dbh, o, key, data, *len);
+		if (o) {
+			rec = tdb_htrie_create_rec(dbh, o, key, data, *len);
+			write_unlock_bh(&bckt->lock);
+			return rec;
+		}
 	}
 
 	if (TDB_HTRIE_RESOLVED(bits)) {
@@ -954,12 +1018,23 @@ retry:
 			key, bits, *len);
 
 		BUG_ON(TDB_HTRIE_BUCKET_KEY(bckt) != key);
+
+		while (bckt->coll_next && !(bckt->flags & TDB_HTRIE_VRFREED)) {
+			TdbBucket *next = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+			write_lock_bh(&next->lock);
+			write_unlock_bh(&bckt->lock);
+			bckt = next;
+		}
+
 		o = tdb_alloc_data(dbh, len, 1);
-		if (!o)
+		if (!o) {
+			write_unlock_bh(&bckt->lock);
 			return NULL;
-		while (bckt->coll_next && !(bckt->flags & TDB_HTRIE_VRFREED))
-			bckt = TDB_HTRIE_BUCKET_NEXT(dbh, bckt);
+		}
 		bckt->coll_next = TDB_O2DI(o);
+
+		write_unlock_bh(&bckt->lock);
+
 		return tdb_htrie_create_rec(dbh, o, key, data, *len);
 	}
 
@@ -975,10 +1050,14 @@ retry:
 		bits, key, *len);
 
 	if (tdb_htrie_burst(dbh, &node, bckt, key, bits)) {
+		write_unlock_bh(&bckt->lock);
 		TDB_ERR("Cannot burst node=%p and bckt=%p for key %#lx\n",
 			node, bckt, key);
 		return NULL;
 	}
+
+	write_unlock_bh(&bckt->lock);
+
 	goto retry;
 }
 
@@ -1019,9 +1098,9 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
  */
 #define TDB_VSF_SZ		(2UL * 1024 * 1024 * 1024)
 #define TDB_FSF_SZ		(16UL * 1024 * 1024)
-#define THR_N			1
+#define THR_N			2
 #define DATA_N			100
-#define LOOP_N			1
+#define LOOP_N			2
 
 typedef struct {
 	char	*body;
