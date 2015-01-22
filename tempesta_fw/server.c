@@ -94,18 +94,18 @@ int
 tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 {
 	TfwAddr addr;
-	char addr_str_buf[MAX_ADDR_LEN];
+	char addr_str_buf[TFW_ADDR_STR_BUF_SIZE];
 
 	BUG_ON(!srv || !buf || !buf_size);
 
 	tfw_server_get_addr(srv, &addr);
-	tfw_inet_ntop(&addr, addr_str_buf);
+	tfw_addr_fmt(&addr, addr_str_buf, sizeof(addr_str_buf));
 
 	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }
 EXPORT_SYMBOL(tfw_server_snprint);
 
-int __init
+static int
 tfw_server_init(void)
 {
 	srv_cache = kmem_cache_create("tfw_srv_cache", sizeof(TfwServer),
@@ -115,9 +115,14 @@ tfw_server_init(void)
 	return 0;
 }
 
-void
+static void
 tfw_server_exit(void)
 {
 	kmem_cache_destroy(srv_cache);
 }
 
+TfwCfgMod tfw_mod_server = {
+	.name = "server",
+	.init = tfw_server_init,
+	.exit = tfw_server_exit
+};

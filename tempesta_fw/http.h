@@ -158,9 +158,6 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
-int tfw_http_init(void);
-void tfw_http_exit(void);
-
 unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_H__ */

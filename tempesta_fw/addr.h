@@ -29,9 +29,9 @@ typedef union {
 	sa_family_t family;
 } TfwAddr;
 
-int tfw_inet_pton(char **p, void *addr);
-int tfw_inet_ntop(const void *addr, char *buf);
+int tfw_inet_pton(const char *str, TfwAddr *addr);
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
+ssize_t tfw_addr_sa_len(const TfwAddr *addr);
 
 /* Maximum size of a buffer needed for tfw_addr_fmt(), including '\0'. */
 #define TFW_ADDR_STR_BUF_SIZE \

@@ -26,7 +26,4 @@ void tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 			   void *data);
 
-int tfw_cache_init(void);
-void tfw_cache_exit(void);
-
 #endif /* __TFW_CACHE_H__ */

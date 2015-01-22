@@ -43,48 +43,60 @@ validate_addr(const TfwAddr *addr)
 }
 
 static int
-tfw_inet_pton_ipv4(char **p, struct sockaddr_in *addr)
+tfw_inet_pton_ipv4(const char *pos, struct sockaddr_in *addr)
 {
-	int octet = -1, i = 0, port = 0;
-	unsigned char *a = (unsigned char *)&addr->sin_addr.s_addr;
+	unsigned long addr_val = 0;
+	int port = 0;
 
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = 0;
-	for ( ; **p && !isspace(**p); ++*p) {
-		if (isdigit(**p)) {
-			octet = (octet == -1)
-				? **p - '0'
-				: octet * 10 + **p - '0';
-			if ((!port && octet > 255) || octet > 0xFFFF)
-				return -EINVAL;
-		}
-		else if (octet >= 0 && ((**p == '.' && i < 4)
-					|| (**p == ':' && i == 3)))
-		{
-			a[i++] = octet;
-			octet = -1;
-			port = **p == ':';
-		} else
+	int r;
+	int octet_val;
+	int octet_idx;
+	char octet_str[4];
+	size_t octet_str_len;
+
+	if (*pos == ':')
+		goto port;
+
+	/* Parse 4 decimal octets separated by dots. */
+	for (octet_idx = 0; octet_idx < 4; ++octet_idx) {
+		octet_str_len = strspn(pos, "1234567890");
+		if (!octet_str_len || octet_str_len > 3)
+			return -EINVAL;
+
+		memcpy(octet_str, pos, octet_str_len);
+		octet_str[octet_str_len] = '\0';
+
+		r = kstrtoint(octet_str, 10, &octet_val);
+		if (r || octet_val < 0 || octet_val > 255)
+			return -EINVAL;
+
+		addr_val = (addr_val << 8) | octet_val;
+		pos += octet_str_len;
+
+		if (octet_idx < 3 && *pos++ != '.')
 			return -EINVAL;
 	}
-	if (octet >= 0) {
-		if (i == 3) {
-			/* Default port. */
-			a[i] = octet;
-			addr->sin_port = htons(DEF_PORT);
-			return 0;
-		}
-		else if (i == 4) {
-			addr->sin_port = htons(octet);
-			return 0;
-		}
+
+port:
+	port = 0;
+	if (*pos) {
+		if (*pos++ != ':')
+			return -EINVAL;
+
+		r = kstrtoint(pos, 10, &port);
+		if (r || port < 0 || port > 65535)
+			return -EINVAL;
 	}
 
-	return -EINVAL;
+	addr->sin_family = AF_INET;
+	addr->sin_addr.s_addr = htonl(addr_val);
+	addr->sin_port = htons(port);
+
+	return 0;
 }
 
 static int
-tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
+tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 {
 #define XD(x) ((x >= 'a') ? 10 + x - 'a' : x - '0')
 
@@ -92,29 +104,29 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 	int a, hole = -1, i = 0, port = -1, ipv4_mapped = 0;
 
 	memset(addr, 0, sizeof(*addr));
-	addr->sin6_family = AF_INET6;
 
-	for ( ; **p && !isspace(**p); ++*p) {
+	for ( ; *pos; ++pos) {
 		if (i > 7 && !(i == 8 && port == 1))
 			return -EINVAL;
-		if (**p == '[') {
+
+		if (*pos == '[') {
 			port = 0;
 		}
-		else if (**p == ':') {
-			if (*(*p + 1) == ':') {
+		else if (*pos == ':') {
+			if (*(pos + 1) == ':') {
 				/*
 				 * Leave current (if empty) or next (otherwise)
 				 * word as a hole.
 				 */
-				++*p;
+				++pos;
 				hole = (words[i] != -1) ? ++i : i;
-			} else if (words[i] == -1) {
+			} else if (words[i] == -1)
 				return -EINVAL;
-			}
+
 			/* Store port in the last word. */
 			i = (port == 1) ? 8 : i + 1;
 		}
-		else if (**p == '.') {
+		else if (*pos == '.') {
 			++i;
 			if (ipv4_mapped)
 				continue;
@@ -137,12 +149,12 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 			i = 1;
 			words[1] = words[2] = -1;
 		}
-		else if (isxdigit(**p)) {
+		else if (isxdigit(*pos)) {
 			words[i] = words[i] == -1 ? 0 : words[i];
 			if (ipv4_mapped || port == 1) {
-				if (!isdigit(**p))
+				if (!isdigit(*pos))
 					return -EINVAL;
-				words[i] = words[i] * 10 + **p - '0';
+				words[i] = words[i] * 10 + *pos - '0';
 				if (port) {
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
@@ -151,16 +163,17 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 					return -EINVAL;
 				}
 			} else {
-				words[i] = (words[i] << 4) | XD(tolower(**p));
+				words[i] = (words[i] << 4) | XD(tolower(*pos));
 				if (words[i] > 0xFFFF)
 					return -EINVAL;
 			}
 		}
-		else if (**p == ']') {
+		else if (*pos == ']') {
 			port = 1;
 		}
-		else
+		else {
 			return -EINVAL;
+		}
 	}
 
 	/* Some sanity checks. */
@@ -192,10 +205,12 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 
 	/* Set port. */
 	if (port == -1) {
-		addr->sin6_port = htons(DEF_PORT);
+		addr->sin6_port = 0;
 	} else {
 		addr->sin6_port = htons(words[8]);
 	}
+
+	addr->sin6_family = AF_INET6;
 
 	return 0;
 #undef XD
@@ -204,87 +219,24 @@ tfw_inet_pton_ipv6(char **p, struct sockaddr_in6 *addr)
 /**
  * Parse IPv4 and IPv6 addresses with optional port.
  * See RFC5952.
- *
- * @p - string pointer, updated by the function.
- * @addr - distination to write as a pointer to a union of sockaddr_in and
- * 	   sockaddr_in6.
  */
 int
-tfw_inet_pton(char **p, void *addr)
+tfw_inet_pton(const char *str, TfwAddr *addr)
 {
-	int mode = 0;
+	memset(addr, 0, sizeof(*addr));
 
-	/* Eat empty string prefix. */
-	while (**p && isspace(**p))
-		++*p;
+	/* The IPv6 address must be enclosed into square brackets,
+	 * or else we can't distinguish it from the port. */
+	if (str[0] == '[' && !strcspn(str, "1234567890ABCDEFabcdef:[]"))
+		return tfw_inet_pton_ipv6(str, &addr->v6);
 
-	/* Determine type of the address (IPv4/IPv6). */
-	if (**p == '[' || isalpha(**p)) {
-		mode = 6;
-	} else {
-		char *p1 = *p;
-		while (*p1 && isdigit(*p1))
-			p1++;
-		if (*p1 == ':') {
-			mode = 6;
-		}
-		else if (*p1 == '.') {
-			mode = 4;
-		}
-		else {
-			TFW_ERR("bad string: %s\n", *p);
-			return -EINVAL;
-		}
-	}
+	if (!strcspn(str, "1234567890.:"))
+		return tfw_inet_pton_ipv4(str, &addr->v4);
 
-	if (mode == 4)
-		return tfw_inet_pton_ipv4(p, addr);
-	if (mode == 6)
-		return tfw_inet_pton_ipv6(p, addr);
-
-	TFW_ERR("Can't parse address %s\n", *p);
 	return -EINVAL;
 }
-/* TODO: Remove the export after implementing a configuration framework
- * that will remove the dependency of tfw_sched_http on this function. */
 EXPORT_SYMBOL(tfw_inet_pton);
 
-/**
- * Print UPv4/IPv6 address in network byte order to @buf.
- * @buf must be MAX_ADDR_LEN bytes in size.
- */
-int
-tfw_inet_ntop(const void *addr, char *buf)
-{
-	unsigned short family = *(unsigned short *)addr;
-
-	if (family == AF_INET) {
-		const struct sockaddr_in *sa = addr;
-		unsigned char *a = (unsigned char *)&sa->sin_addr.s_addr;
-		snprintf(buf, MAX_ADDR_LEN, "%u.%u.%u.%u:%u",
-			 a[0], a[1], a[2], a[3], ntohs(sa->sin_port));
-	}
-	else if (family == AF_INET6) {
-		const struct sockaddr_in6 *sa = addr;
-		snprintf(buf, MAX_ADDR_LEN, "[%x:%x:%x:%x:%x:%x:%x:%x]:%u",
-			 ntohs(sa->sin6_addr.s6_addr16[0]),
-			 ntohs(sa->sin6_addr.s6_addr16[1]),
-			 ntohs(sa->sin6_addr.s6_addr16[2]),
-			 ntohs(sa->sin6_addr.s6_addr16[3]),
-			 ntohs(sa->sin6_addr.s6_addr16[4]),
-			 ntohs(sa->sin6_addr.s6_addr16[5]),
-			 ntohs(sa->sin6_addr.s6_addr16[6]),
-			 ntohs(sa->sin6_addr.s6_addr16[7]),
-			 ntohs(sa->sin6_port));
-	}
-	else {
-		TFW_ERR("Bad address family %u\n", family);
-		snprintf(buf, MAX_ADDR_LEN, "<unknown>");
-		return -EINVAL;
-	}
-
-	return 0;
-}
 
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
@@ -564,3 +516,19 @@ tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
 	return (pos - out_buf);
 }
 EXPORT_SYMBOL(tfw_addr_fmt);
+
+ssize_t
+tfw_addr_sa_len(const TfwAddr *addr)
+{
+        sa_family_t family;
+
+        BUG_ON(!addr);
+
+        family = addr->sa.sa_family;
+        if (unlikely(family_is_not_supported(family))) {
+                TFW_ERR("Bad address family: %d\n", family);
+                return -1;
+        }
+
+        return (family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
+}

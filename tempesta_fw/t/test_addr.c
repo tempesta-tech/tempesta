@@ -140,9 +140,64 @@ TEST(tfw_addr_fmt, omits_port_80)
 	EXPECT_EQ(0, memcmp(e2, s2, ++l2));
 }
 
+TEST(tfw_inet_pton, recognizes_v4_and_v6_addrs)
+{
+        const char *s1 = "127.0.0.1";
+        const char *s2 = "127.0.0.1:8081";
+        const char *s3 = ":8080";
+        const char *s4 = "[::1]:1234";
+        const char *s5 = "[::0]:5678";
+
+        TfwAddr e1 = {
+                .v4.sin_family = AF_INET,
+                .v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+        };
+        TfwAddr e2 = {
+                .v4.sin_family = AF_INET,
+                .v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+                .v4.sin_port = htons(8081)
+        };
+        TfwAddr e3 = {
+                .v4.sin_family = AF_INET,
+                .v4.sin_addr.s_addr = htonl(INADDR_ANY),
+                .v4.sin_port = htons(8080)
+        };
+        TfwAddr e4 = {
+                .v6.sin6_family = AF_INET6,
+                .v6.sin6_addr = IN6ADDR_LOOPBACK_INIT,
+                .v6.sin6_port = htons(1234)
+        };
+        TfwAddr e5 = {
+                .v6.sin6_family = AF_INET6,
+                .v6.sin6_addr = IN6ADDR_ANY_INIT,
+                .v6.sin6_port = htons(5678)
+        };
+
+        TfwAddr a1, a2, a3, a4, a5;
+        int r1, r2, r3, r4, r5;
+
+        r1 = tfw_inet_pton(s1, &a1);
+        r2 = tfw_inet_pton(s2, &a2);
+        r3 = tfw_inet_pton(s3, &a3);
+        r4 = tfw_inet_pton(s4, &a4);
+        r5 = tfw_inet_pton(s5, &a5);
+
+        EXPECT_OK(r1);
+        EXPECT_OK(r2);
+        EXPECT_OK(r3);
+        EXPECT_OK(r4);
+        EXPECT_OK(r5);
+        EXPECT_TRUE(tfw_addr_eq(&a1, &e1));
+        EXPECT_TRUE(tfw_addr_eq(&a2, &e2));
+        EXPECT_TRUE(tfw_addr_eq(&a3, &e3));
+        EXPECT_TRUE(tfw_addr_eq(&a4, &e4));
+        EXPECT_TRUE(tfw_addr_eq(&a5, &e5));
+}
+
 TEST_SUITE(addr)
 {
 	TEST_RUN(tfw_addr_fmt, formats_ipv4_addrs);
 	TEST_RUN(tfw_addr_fmt, formats_ipv6_addrs);
 	TEST_RUN(tfw_addr_fmt, omits_port_80);
+	TEST_RUN(tfw_inet_pton, recognizes_v4_and_v6_addrs);
 }
