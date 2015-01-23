@@ -25,6 +25,7 @@
 #include <linux/in6.h>
 
 #include "addr.h"
+#include "lib.h"
 #include "log.h"
 #include "tempesta.h"
 
@@ -563,4 +564,4 @@ tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
 
 	return (pos - out_buf);
 }
-EXPORT_SYMBOL(tfw_addr_fmt);
+DEBUG_EXPORT_SYMBOL(tfw_addr_fmt);

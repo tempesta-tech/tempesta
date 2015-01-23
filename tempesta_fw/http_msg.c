@@ -20,6 +20,7 @@
 #include "gfsm.h"
 #include "http.h"
 #include "http_msg.h"
+#include "lib.h"
 
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
@@ -45,7 +46,7 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
-EXPORT_SYMBOL(tfw_http_msg_alloc);
+DEBUG_EXPORT_SYMBOL(tfw_http_msg_alloc);
 
 /**
  * The function does not free @m->skb_list, the caller is responsible for that.
@@ -82,4 +83,4 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_free(m->pool);
 }
-EXPORT_SYMBOL(tfw_http_msg_free);
+DEBUG_EXPORT_SYMBOL(tfw_http_msg_free);
