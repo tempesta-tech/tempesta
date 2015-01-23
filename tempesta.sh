@@ -58,6 +58,7 @@ stop()
 {
 	echo "Stopping Tempesta"
 
+	rmmod tfw_sched_${sched}
 	rmmod $TFW
 	rmmod $TDB
 	rmmod $SSOCKET

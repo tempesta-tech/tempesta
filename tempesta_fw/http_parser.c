@@ -1431,7 +1431,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		*p = LC(*p);
 		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_MOVE(Req_UriHost);
-		__FSM_MOVE(Req_UriHostEnd);
+		__FSM_JMP(Req_UriHostEnd);
 	}
 
 	/* Host is read, start to read port or abs_path. */
