@@ -83,6 +83,7 @@
 
 #include "gfsm.h"
 #include "http.h"
+#include "lib.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -1802,8 +1803,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	return r;
 }
-/* TODO: change to DEBUG_EXPORT_SYMBOL() after merging the 'cfg' branch. */
-EXPORT_SYMBOL(tfw_http_parse_req);
+DEBUG_EXPORT_SYMBOL(tfw_http_parse_req);
 
 /*
  * ------------------------------------------------------------------------
