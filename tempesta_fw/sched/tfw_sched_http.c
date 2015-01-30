@@ -502,7 +502,7 @@ parse_backend(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return -ENOMEM;
 	}
 
-	r = tfw_inet_pton(e->vals[0], parsed_addr);
+	r = tfw_addr_pton(e->vals[0], parsed_addr);
 	if (r) {
 		ERR("Can't parse IP address\n");
 		return r;

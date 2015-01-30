@@ -30,75 +30,61 @@
 #include "log.h"
 #include "tempesta.h"
 
-static bool
-family_is_not_supported(sa_family_t family)
-{
-	return (family != AF_INET && family != AF_INET6);
-}
-
 static void
 validate_addr(const TfwAddr *addr)
 {
-        BUG_ON(!addr);
-        WARN(family_is_not_supported(addr->family),
-	     "Bad address family: %u\n", addr->family);
+	/* At this point we are not going to support addresses other than
+	 * IPv4 and IPv6, so we check it here, so all functions may safely
+	 * assume that they get either one family and nothing else. */
+	IF_DEBUG {
+		BUG_ON(!addr);
+		BUG_ON(addr->family != AF_INET && addr->family != AF_INET6);
+	}
 }
 
 static int
-tfw_inet_pton_ipv4(const char *pos, struct sockaddr_in *addr)
+tfw_addr_pton_v4(const char *p, struct sockaddr_in *addr)
 {
-	unsigned long addr_val = 0;
-	int port = 0;
-
-	int r;
-	int octet_val;
-	int octet_idx;
-	char octet_str[4];
-	size_t octet_str_len;
-
-	if (*pos == ':')
-		goto port;
-
-	/* Parse 4 decimal octets separated by dots. */
-	for (octet_idx = 0; octet_idx < 4; ++octet_idx) {
-		octet_str_len = strspn(pos, "1234567890");
-		if (!octet_str_len || octet_str_len > 3)
-			return -EINVAL;
-
-		memcpy(octet_str, pos, octet_str_len);
-		octet_str[octet_str_len] = '\0';
-
-		r = kstrtoint(octet_str, 10, &octet_val);
-		if (r || octet_val < 0 || octet_val > 255)
-			return -EINVAL;
-
-		addr_val = (addr_val << 8) | octet_val;
-		pos += octet_str_len;
-
-		if (octet_idx < 3 && *pos++ != '.')
-			return -EINVAL;
-	}
-
-port:
-	port = 0;
-	if (*pos) {
-		if (*pos++ != ':')
-			return -EINVAL;
-
-		r = kstrtoint(pos, 10, &port);
-		if (r || port < 0 || port > 65535)
-			return -EINVAL;
-	}
+	int octet = -1, i = 0, port = 0;
+	unsigned char *a = (unsigned char *)&addr->sin_addr.s_addr;
 
 	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = htonl(addr_val);
-	addr->sin_port = htons(port);
+	addr->sin_addr.s_addr = 0;
+	for ( ; *p; ++p) {
+		if (isdigit(*p)) {
+			octet = (octet == -1)
+				? *p - '0'
+				: octet * 10 + *p - '0';
+			if ((!port && octet > 255) || octet > 0xFFFF)
+				return -EINVAL;
+		}
+		else if (octet >= 0 && ((*p == '.' && i < 4)
+					|| (*p == ':' && i == 3)))
+		{
+			a[i++] = octet;
+			octet = -1;
+			port = *p == ':';
+		} else
+			return -EINVAL;
+	}
+	if (octet >= 0) {
+		if (i == 3) {
+			/* Default port. */
+			a[i] = octet;
+			addr->sin_port = htons(TFW_ADDR_STR_DEF_PORT);
+			return 0;
+		}
+		else if (i == 4) {
+			addr->sin_port = htons(octet);
+			return 0;
+		}
+	}
 
-	return 0;
+	return -EINVAL;
 }
 
 static int
-tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
+tfw_addr_pton_v6(const char *p, struct sockaddr_in6 *addr)
 {
 #define XD(x) ((x >= 'a') ? 10 + x - 'a' : x - '0')
 
@@ -107,20 +93,20 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 
 	memset(addr, 0, sizeof(*addr));
 
-	for ( ; *pos; ++pos) {
+	for ( ; *p; ++p) {
 		if (i > 7 && !(i == 8 && port == 1))
 			return -EINVAL;
 
-		if (*pos == '[') {
+		if (*p == '[') {
 			port = 0;
 		}
-		else if (*pos == ':') {
-			if (*(pos + 1) == ':') {
+		else if (*p == ':') {
+			if (*(p + 1) == ':') {
 				/*
 				 * Leave current (if empty) or next (otherwise)
 				 * word as a hole.
 				 */
-				++pos;
+				++p;
 				hole = (words[i] != -1) ? ++i : i;
 			} else if (words[i] == -1)
 				return -EINVAL;
@@ -128,7 +114,7 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 			/* Store port in the last word. */
 			i = (port == 1) ? 8 : i + 1;
 		}
-		else if (*pos == '.') {
+		else if (*p == '.') {
 			++i;
 			if (ipv4_mapped)
 				continue;
@@ -151,12 +137,12 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 			i = 1;
 			words[1] = words[2] = -1;
 		}
-		else if (isxdigit(*pos)) {
+		else if (isxdigit(*p)) {
 			words[i] = words[i] == -1 ? 0 : words[i];
 			if (ipv4_mapped || port == 1) {
-				if (!isdigit(*pos))
+				if (!isdigit(*p))
 					return -EINVAL;
-				words[i] = words[i] * 10 + *pos - '0';
+				words[i] = words[i] * 10 + *p - '0';
 				if (port) {
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
@@ -165,12 +151,12 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 					return -EINVAL;
 				}
 			} else {
-				words[i] = (words[i] << 4) | XD(tolower(*pos));
+				words[i] = (words[i] << 4) | XD(tolower(*p));
 				if (words[i] > 0xFFFF)
 					return -EINVAL;
 			}
 		}
-		else if (*pos == ']') {
+		else if (*p == ']') {
 			port = 1;
 		}
 		else {
@@ -207,7 +193,7 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
 
 	/* Set port. */
 	if (port == -1) {
-		addr->sin6_port = 0;
+		addr->sin6_port = htons(TFW_ADDR_STR_DEF_PORT);
 	} else {
 		addr->sin6_port = htons(words[8]);
 	}
@@ -223,22 +209,36 @@ tfw_inet_pton_ipv6(const char *pos, struct sockaddr_in6 *addr)
  * See RFC5952.
  */
 int
-tfw_inet_pton(const char *str, TfwAddr *addr)
+tfw_addr_pton(const char *str, TfwAddr *addr)
 {
-	memset(addr, 0, sizeof(*addr));
+	int ret = -EINVAL;
+	int mode = 0;
 
-	/* The IPv6 address must be enclosed into square brackets,
-	 * or else we can't distinguish it from the port. */
-	if (str[0] == '[' && !strcspn(str, "1234567890ABCDEFabcdef:[]"))
-		return tfw_inet_pton_ipv6(str, &addr->v6);
+	/* Determine type of the address (IPv4/IPv6). */
+	if (str[0] == '[' || isalpha(str[0])) {
+		mode = 6;
+	} else {
+		const char *pos = str;
+		while (*pos && isdigit(*pos))
+			pos++;
+		if (*pos == ':') {
+			mode = 6;
+		}
+		else if (*pos == '.') {
+			mode = 4;
+		}
+	}
 
-	if (!strcspn(str, "1234567890.:"))
-		return tfw_inet_pton_ipv4(str, &addr->v4);
+	if (mode == 4)
+		ret = tfw_addr_pton_v4(str, &addr->v4);
+	else if (mode == 6)
+		ret = tfw_addr_pton_v6(str, &addr->v6);
 
-	return -EINVAL;
+	if (ret)
+		TFW_ERR("Can't parse IP address: '%s'\n", str);
+	return ret;
 }
-EXPORT_SYMBOL(tfw_inet_pton);
-
+DEBUG_EXPORT_SYMBOL(tfw_addr_pton);
 
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
@@ -281,9 +281,6 @@ tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2)
 	if (family != addr2->family)
 		return false;
 
-	if (unlikely(family_is_not_supported(family)))
-		return false;
-
 	if (family == AF_INET6)
 		return tfw_addr_eq_inet6(&addr1->v6, &addr2->v6);
 
@@ -293,10 +290,10 @@ EXPORT_SYMBOL(tfw_addr_eq);
 
 /*
  * ------------------------------------------------------------------------
- *	tfw_addr_fmt() and its helpers
+ *	tfw_addr_ntop() and its helpers
  * ------------------------------------------------------------------------
  *
- * The tfw_addr_fmt() is called at least once for each incoming HTTP request.
+ * The tfw_addr_ntop() is called at least once for each incoming HTTP request.
  * Although there is not much work to do, we try to minimize the overhead, and
  * define few low-level helpers here instead of using something like snprintf().
  */
@@ -386,8 +383,8 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
  * Decide whether the port value should be included to a serialized IP address.
  * We omit port 80 because it is the default value in most HTTP specifications.
  */
-#define SHOULD_PRINT_PORT(in_port) \
-	unlikely(in_port && in_port != __constant_cpu_to_be16(80))
+#define SHOULD_PRINT_PORT(port) \
+	unlikely(port && port != __constant_cpu_to_be16(TFW_ADDR_STR_DEF_PORT))
 
 /**
  * Convert an IPv4 address and a port value to string,
@@ -494,18 +491,13 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
  * Returns length of a string written to the @out_buf.
  */
 size_t
-tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
+tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size)
 {
 	char *pos;
 
 	validate_addr(addr);
 	BUG_ON(!out_buf);
 	BUG_ON(buf_size < TFW_ADDR_STR_BUF_SIZE);
-
-	if (unlikely(family_is_not_supported(addr->family))) {
-		out_buf[0] = '\0';
-		return 0;
-	}
 
 	pos = (addr->sa.sa_family == AF_INET6)
 	    ? tfw_addr_fmt_v6(&addr->v6.sin6_addr, addr->v6.sin6_port, out_buf)
@@ -517,20 +509,11 @@ tfw_addr_fmt(const TfwAddr *addr, char *out_buf, size_t buf_size)
 
 	return (pos - out_buf);
 }
-DEBUG_EXPORT_SYMBOL(tfw_addr_fmt);
+DEBUG_EXPORT_SYMBOL(tfw_addr_ntop);
 
 ssize_t
 tfw_addr_sa_len(const TfwAddr *addr)
 {
-        sa_family_t family;
-
-        BUG_ON(!addr);
-
-        family = addr->sa.sa_family;
-        if (unlikely(family_is_not_supported(family))) {
-                TFW_ERR("Bad address family: %d\n", family);
-                return -1;
-        }
-
-        return (family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
+        validate_addr(addr);
+        return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
 }

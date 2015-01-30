@@ -112,7 +112,7 @@ tfw_backend_connect(struct socket **sock, const TfwAddr *addr)
 	srv = tfw_create_server(sk);
 	if (!srv) {
 		char buf[TFW_ADDR_STR_BUF_SIZE];
-		tfw_addr_fmt(addr, buf, sizeof(buf));
+		tfw_addr_ntop(addr, buf, sizeof(buf));
 		TFW_ERR("Can't create server descriptor for %s\n", buf);
 		goto err_sock_destroy;
 	}
@@ -256,7 +256,7 @@ add_backend_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	raw_addr = ce->vals[0];
-	r = tfw_inet_pton(raw_addr, &parsed_addr);
+	r = tfw_addr_pton(raw_addr, &parsed_addr);
 	if (r) {
 		TFW_ERR("can't parse IP address");
 		return -EINVAL;
