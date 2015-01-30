@@ -100,7 +100,7 @@ tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 	BUG_ON(!srv || !buf || !buf_size);
 
 	tfw_server_get_addr(srv, &addr);
-	tfw_addr_fmt(&addr, addr_str_buf, sizeof(addr_str_buf));
+	tfw_addr_ntop(&addr, addr_str_buf, sizeof(addr_str_buf));
 
 	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }

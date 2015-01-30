@@ -23,7 +23,7 @@
 #include "test.h"
 
 
-TEST(tfw_addr_fmt, formats_ipv4_addrs)
+TEST(tfw_addr_ntop, formats_ipv4_addrs)
 {
 	TfwAddr a1 = {
 		.v4.sin_family = AF_INET,
@@ -50,16 +50,16 @@ TEST(tfw_addr_fmt, formats_ipv4_addrs)
 	memset(s2, 0xAA, sizeof(s2));
 	memset(s3, 0xAA, sizeof(s3));
 
-	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_fmt(&a2, s2, sizeof(s2));
-	l3 = tfw_addr_fmt(&a3, s3, sizeof(s3));
+	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
+	l3 = tfw_addr_ntop(&a3, s3, sizeof(s3));
 
 	EXPECT_EQ(0, memcmp("0.0.0.0", s1, ++l1));
 	EXPECT_EQ(0, memcmp("127.0.0.1:8001", s2, ++l2));
 	EXPECT_EQ(0, memcmp("7.100.255.10:65535", s3, ++l3));
 }
 
-TEST(tfw_addr_fmt, formats_ipv6_addrs)
+TEST(tfw_addr_ntop, formats_ipv6_addrs)
 {
 	TfwAddr a0 = {
 		.v6.sin6_family = AF_INET6,
@@ -100,10 +100,10 @@ TEST(tfw_addr_fmt, formats_ipv6_addrs)
 	memset(s2, 0xAA, sizeof(s2));
 	memset(s3, 0xAA, sizeof(s3));
 
-	l0 = tfw_addr_fmt(&a0, s0, sizeof(s0));
-	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_fmt(&a2, s2, sizeof(s2));
-	l3 = tfw_addr_fmt(&a3, s3, sizeof(s3));
+	l0 = tfw_addr_ntop(&a0, s0, sizeof(s0));
+	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
+	l3 = tfw_addr_ntop(&a3, s3, sizeof(s3));
 
 	EXPECT_EQ(0, memcmp(e0, s0, ++l0));
 	EXPECT_EQ(0, memcmp(e1, s1, ++l1));
@@ -111,7 +111,7 @@ TEST(tfw_addr_fmt, formats_ipv6_addrs)
 	EXPECT_EQ(0, memcmp(e3, s3, ++l3));
 }
 
-TEST(tfw_addr_fmt, omits_port_80)
+TEST(tfw_addr_ntop, omits_port_80)
 {
 	TfwAddr a1 = {
 		.v4.sin_family = AF_INET,
@@ -134,24 +134,25 @@ TEST(tfw_addr_fmt, omits_port_80)
 	memset(s1, 0xAA, sizeof(s1));
 	memset(s2, 0xAA, sizeof(s2));
 
-	l1 = tfw_addr_fmt(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_fmt(&a2, s2, sizeof(s2));
+	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
 
 	EXPECT_EQ(0, memcmp(e1, s1, ++l1));
 	EXPECT_EQ(0, memcmp(e2, s2, ++l2));
 }
 
-TEST(tfw_inet_pton, recognizes_v4_and_v6_addrs)
+TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
 {
         const char *s1 = "127.0.0.1";
         const char *s2 = "127.0.0.1:8081";
-        const char *s3 = ":8080";
+        const char *s3 = "1111::2:a:B";
         const char *s4 = "[::1]:1234";
         const char *s5 = "[::0]:5678";
 
         TfwAddr e1 = {
                 .v4.sin_family = AF_INET,
                 .v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+		.v4.sin_port = htons(80)
         };
         TfwAddr e2 = {
                 .v4.sin_family = AF_INET,
@@ -159,9 +160,11 @@ TEST(tfw_inet_pton, recognizes_v4_and_v6_addrs)
                 .v4.sin_port = htons(8081)
         };
         TfwAddr e3 = {
-                .v4.sin_family = AF_INET,
-                .v4.sin_addr.s_addr = htonl(INADDR_ANY),
-                .v4.sin_port = htons(8080)
+                .v6.sin6_family = AF_INET6,
+                .v6.sin6_addr = { { {
+                	0x11, 0x11, 0,0,0,0,0,0,0,0, 0,0x2, 0,0xa, 0,0xB
+                } } },
+                .v6.sin6_port = htons(80)
         };
         TfwAddr e4 = {
                 .v6.sin6_family = AF_INET6,
@@ -177,11 +180,11 @@ TEST(tfw_inet_pton, recognizes_v4_and_v6_addrs)
         TfwAddr a1, a2, a3, a4, a5;
         int r1, r2, r3, r4, r5;
 
-        r1 = tfw_inet_pton(s1, &a1);
-        r2 = tfw_inet_pton(s2, &a2);
-        r3 = tfw_inet_pton(s3, &a3);
-        r4 = tfw_inet_pton(s4, &a4);
-        r5 = tfw_inet_pton(s5, &a5);
+        r1 = tfw_addr_pton(s1, &a1);
+        r2 = tfw_addr_pton(s2, &a2);
+        r3 = tfw_addr_pton(s3, &a3);
+        r4 = tfw_addr_pton(s4, &a4);
+        r5 = tfw_addr_pton(s5, &a5);
 
         EXPECT_OK(r1);
         EXPECT_OK(r2);
@@ -197,8 +200,8 @@ TEST(tfw_inet_pton, recognizes_v4_and_v6_addrs)
 
 TEST_SUITE(addr)
 {
-	TEST_RUN(tfw_addr_fmt, formats_ipv4_addrs);
-	TEST_RUN(tfw_addr_fmt, formats_ipv6_addrs);
-	TEST_RUN(tfw_addr_fmt, omits_port_80);
-	TEST_RUN(tfw_inet_pton, recognizes_v4_and_v6_addrs);
+	TEST_RUN(tfw_addr_ntop, formats_ipv4_addrs);
+	TEST_RUN(tfw_addr_ntop, formats_ipv6_addrs);
+	TEST_RUN(tfw_addr_ntop, omits_port_80);
+	TEST_RUN(tfw_addr_pton, recognizes_v4_and_v6_addrs);
 }
