@@ -78,7 +78,7 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	addr_str = ce->vals[0];
-	r = tfw_inet_pton(addr_str, &addr);
+	r = tfw_addr_pton(addr_str, &addr);
 	if (r) {
 		TFW_ERR("can't parse IP address: '%s'\n", ce->vals[0]);
 		return r;

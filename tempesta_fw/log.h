@@ -46,7 +46,7 @@
 #define TFW_WITH_ADDR_FMT(addr_ptr, fmtd_addr_var_name, action_expr)  \
 do { \
 	char fmtd_addr_var_name[TFW_ADDR_STR_BUF_SIZE]; \
-	tfw_addr_fmt(addr_ptr, fmtd_addr_var_name, sizeof(fmtd_addr_var_name)); \
+	tfw_addr_ntop(addr_ptr, fmtd_addr_var_name, sizeof(fmtd_addr_var_name)); \
 	action_expr; \
 } while (0)
 
