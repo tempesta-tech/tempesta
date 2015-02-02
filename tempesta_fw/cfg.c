@@ -47,7 +47,7 @@
  *  specifications via TfwCfgMod and TfwCfgSpec structures. The code here pushes
  *  events and parsed configuration via callbacks specified in these structures.
  *
- *  The code in this unit contains two main entities:
+ *  The code in this unit contains four main entities:
  *    1. The configuration parser.
  *       We utilize FSM approach for the parser. The code is divided into two
  *       FSMs: TFSM (tokenizer) and PFSM (the parser that produces entries).
@@ -127,22 +127,34 @@
  */
 
 static const char *
-alloc_and_copy_str(const char *src, size_t len)
+alloc_and_copy_literal(const char *src, size_t len)
 {
-	char *s;
+	const char *src_pos, *src_end;
+	char *dst, *dst_pos;
 
 	BUG_ON(!src);
 
-	s = kmalloc(len + 1, GFP_KERNEL);
-	if (!s) {
+	dst = kmalloc(len + 1, GFP_KERNEL);
+	if (!dst) {
 		TFW_ERR("can't allocate memory\n");
 		return NULL;
 	}
 
-	memcpy(s, src, len);
-	s[len] = '\0';
 
-	return s;
+	/* Copy the string eating backslashes. */
+	src_end = src + len;
+	src_pos = src;
+	dst_pos = dst;
+	while (src_pos < src_end) {
+		if (*src_pos != '\\') {
+			*dst_pos = *src_pos;
+			++dst_pos;
+		}
+		++src_pos;
+	}
+	*dst_pos = '\0';
+
+	return dst;
 }
 
 /**
@@ -210,7 +222,7 @@ entry_set_name(TfwCfgEntry *e, const char *name_src, size_t name_len)
 	if (!check_identifier(name_src, name_len))
 		return -EINVAL;
 
-	e->name = alloc_and_copy_str(name_src, name_len);
+	e->name = alloc_and_copy_literal(name_src, name_len);
 	if (!e->name)
 		return -ENOMEM;
 
@@ -229,7 +241,7 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -ENOBUFS;
 	}
 
-	val = alloc_and_copy_str(val_src, val_len);
+	val = alloc_and_copy_literal(val_src, val_len);
 	if (!val)
 		return -ENOMEM;
 
@@ -255,8 +267,8 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 	if (!check_identifier(key_src, key_len))
 		return -EINVAL;
 
-	key = alloc_and_copy_str(key_src, key_len);
-	val = alloc_and_copy_str(val_src, val_len);
+	key = alloc_and_copy_literal(key_src, key_len);
+	val = alloc_and_copy_literal(val_src, val_len);
 
 	if (!key || !val) {
 		kfree(key);
@@ -692,19 +704,18 @@ spec_start_handling(TfwCfgSpec specs[])
 {
 	TfwCfgSpec *spec;
 
-	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		spec->call_counter = 0;
+	BUG_ON(!specs);
 
-		/* Sanity checks. */
+	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		BUG_ON(!spec->name);
 		BUG_ON(!*spec->name);
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
-		BUG_ON(spec->call_counter < 0);
+		BUG_ON(spec->call_counter);
 	}
 }
 
-int
+static int
 spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
@@ -715,14 +726,13 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 		return -EINVAL;
 	}
 
+	TFW_DBG("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
-	if (r) {
-		TFW_ERR("configuration handler returned error: %d\n", r);
-		return r;
-	}
-
 	++spec->call_counter;
-	return 0;
+	if (r)
+		TFW_ERR("configuration handler returned error: %d\n", r);
+
+	return r;
 }
 
 /**
@@ -745,6 +755,8 @@ spec_handle_default(TfwCfgSpec *spec)
 	len = snprintf(fake_entry_buf, sizeof(fake_entry_buf), "%s %s;",
 		 spec->name, spec->deflt);
 	BUG_ON(len >= sizeof(fake_entry_buf));
+
+	TFW_DBG("use default entry: '%s'\n", fake_entry_buf);
 
 	memset(&ps, 0, sizeof(ps));
 	ps.in = ps.pos = fake_entry_buf;
@@ -789,6 +801,20 @@ spec_finish_handling(TfwCfgSpec specs[])
 err_no_entry:
 	TFW_ERR("the required entry is not found: '%s'\n", spec->name);
 	return -EINVAL;
+}
+
+static void
+spec_cleanup(TfwCfgSpec specs[])
+{
+	TfwCfgSpec *spec;
+
+	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
+		if (spec->call_counter) {
+			TFW_DBG("spec cleanup: '%s'\n", spec->name);
+			spec->cleanup(spec);
+			spec->call_counter = 0;
+		}
+	}
 }
 
 /*
@@ -862,6 +888,13 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 }
 EXPORT_SYMBOL(tfw_cfg_check_single_val);
 
+static void
+tfw_cfg_cleanup_children(TfwCfgSpec *cs)
+{
+	TfwCfgSpec *nested_specs = cs->dest;
+	spec_cleanup(nested_specs);
+}
+
 /**
  * This handler allows to parse nested entries recursively.
  *
@@ -885,12 +918,16 @@ EXPORT_SYMBOL(tfw_cfg_check_single_val);
  * of the parent state, so we simply restore it with container_of().
  */
 int
-tfw_cfg_parse_children(TfwCfgSpec *cs, TfwCfgEntry *e)
+tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	TfwCfgParserState *ps = container_of(e, TfwCfgParserState, e);
 	TfwCfgSpec *nested_specs = cs->dest;
 	TfwCfgSpec *matching_spec;
-	int r;
+	int ret;
+
+	BUG_ON(!nested_specs);
+	BUG_ON(!cs->call_counter && cs->cleanup);
+	cs->cleanup = tfw_cfg_cleanup_children;
 
 	if (e->val_n || e->attr_n) {
 		TFW_ERR("the entry must have no values or attributes\n");
@@ -913,7 +950,7 @@ tfw_cfg_parse_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	while (ps->t != TOKEN_RBRACE) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
-			TFW_ERR("syntax error\n");
+			TFW_ERR("parser error\n");
 			return ps->err;
 		}
 
@@ -923,9 +960,9 @@ tfw_cfg_parse_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 
-		r = spec_handle_entry(matching_spec, &ps->e);
-		if (r)
-			return r;
+		ret = spec_handle_entry(matching_spec, &ps->e);
+		if (ret)
+			return ret;
 	}
 
 	/* Eat '}'. */
@@ -935,7 +972,7 @@ tfw_cfg_parse_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	return spec_finish_handling(nested_specs);
 }
-EXPORT_SYMBOL(tfw_cfg_parse_children);
+EXPORT_SYMBOL(tfw_cfg_handle_children);
 
 int
 tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
@@ -1015,7 +1052,6 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	int *dest_int;
 	const char *in_str;
 
-
 	BUG_ON(!cs->dest);
 	r = tfw_cfg_check_single_val(e);
 	if (r)
@@ -1033,9 +1069,9 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (cs->spec_ext) {
 		TfwCfgSpecInt *cse = cs->spec_ext;
 
-		if (cse->is_multiple_of && (val % cse->is_multiple_of)) {
+		if (cse->multiple_of && (val % cse->multiple_of)) {
 			TFW_ERR("the value of '%s' is not a multiple of %d\n",
-				in_str ,cse->is_multiple_of);
+				in_str ,cse->multiple_of);
 			goto err;
 		}
 
@@ -1056,38 +1092,57 @@ err:
 }
 EXPORT_SYMBOL(tfw_cfg_set_int);
 
+static void
+tfw_cfg_cleanup_str(TfwCfgSpec *cs)
+{
+	char **strp = cs->dest;
+	char *str = *strp;
+
+	/* The function shall only be called when some memory was allocated. */
+	BUG_ON(!str);
+	kfree(str);
+	*strp = NULL;
+	cs->cleanup = NULL;
+}
+
 int
 tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
-	const char *in_str = e->vals[0];
-	const char **dest_str = cs->dest;
-	TfwCfgSpecStr *cse = cs->spec_ext;
-	int r, len, len_min, len_max;
+	const char **dest_strp;
+	int r;
+
+	BUG_ON(!cs);
+	BUG_ON(!cs->dest);
+	BUG_ON(cs->call_counter);
+	BUG_ON(cs->cleanup);
 
 	r = tfw_cfg_check_single_val(e);
 	if (r)
 		return r;
 
-	BUG_ON(!dest_str);
-	BUG_ON(!cs);
-	BUG_ON(!cse->buf.buf || !cse->buf.size); /* TODO: dynamic allocation. */
+	if (cs->spec_ext) {
+		TfwCfgSpecStr *cse = cs->spec_ext;
+		const char *str;
+		int min, max, len;
 
-	len = strlen(in_str);
-	if (len >= cse->buf.size) {
-		TFW_ERR("the string is too long: '%s'\n", in_str);
-		return -EINVAL;
+		min = cse->len_range.min;
+		max = cse->len_range.max;
+		str = e->vals[0];
+		len = strlen(str);
+		if (min != max && (len < min || len > max)) {
+			TFW_ERR("the string length (%d) is out of valid range "
+				" (%d, %d): '%s'\n", len, min, max, str);
+			return -EINVAL;
+		}
 	}
 
-	len_min = cse->len_range.min;
-	len_max = cse->len_range.max;
-	if (len_min != len_max && (len < len_min || len > len_max)) {
-		TFW_ERR("the string length (%d) is out of valid range (%d, %d):"
-			" '%s'\n", len, len_min, len_max, in_str);
-		return -EINVAL;
-	}
+	/* Simply steal the dynamically allocated value from the TfwCfgEntry
+	 * and set a callback to free it properly. */
+	dest_strp = cs->dest;
+	*dest_strp = e->vals[0];
+	e->vals[0] = NULL;
+	cs->cleanup = tfw_cfg_cleanup_str;
 
-	memcpy(cse->buf.buf, in_str, len + 1);
-	*dest_str = cse->buf.buf;
 	return 0;
 }
 EXPORT_SYMBOL(tfw_cfg_set_str);
@@ -1117,30 +1172,27 @@ EXPORT_SYMBOL(tfw_cfg_set_str);
 	     &pos->list != head; 				\
 	     pos = list_entry(pos->list.prev, TfwCfgMod, list))
 
-/**
- * Invoke TfwCfgMod->@callback-name.
- */
-#define MOD_CALL(modp, callback_name) 					\
-do {									\
-	TFW_DBG("mod_%s(): %s\n", #callback_name, (modp)->name);	\
-	if ((modp)->callback_name)					\
-		(modp)->callback_name();				\
-} while (0)
+static int
+mod_start(TfwCfgMod *mod)
+{
+	int ret = 0;
 
-/**
- * Invoke TfwCfgMod->@callback_name and check the return value.
- */
-#define MOD_CALL_RET(modp, callback_name)				\
-({									\
-	int _ret = 0;							\
-	TFW_DBG("mod_%s(): %s\n", #callback_name, (modp)->name);	\
-	if ((modp)->callback_name)					\
-		ret = (modp)->callback_name();				\
-	if (_ret) 							\
-		TFW_ERR("failed: mod_%s(): %s\n",			\
-			 #callback_name, (modp)->name); 		\
-	_ret;								\
-})
+	TFW_DBG("mod_start(): %s\n", mod->name);
+	if (mod->start)
+		ret = mod->start();
+	if (ret)
+		TFW_ERR("start() for module '%s' returned the error: %d\n",
+			mod->name, ret);
+	return ret;
+}
+
+static void
+mod_stop(TfwCfgMod *mod)
+{
+	TFW_DBG("mod_stop(): %s\n", mod->name);
+	if (mod->stop)
+		mod->stop();
+}
 
 static void
 print_parse_error(const TfwCfgParserState *ps)
@@ -1173,8 +1225,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 	int r = -EINVAL;
 
 	MOD_FOR_EACH(mod, mod_list) {
-		if (mod->specs)
-			spec_start_handling(mod->specs);
+		spec_start_handling(mod->specs);
 	}
 
 	do {
@@ -1187,8 +1238,6 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 			break; /* EOF - nothing is parsed and no error. */
 
 		MOD_FOR_EACH(mod, mod_list) {
-			if(!mod->specs)
-				continue;
 			matching_spec = spec_find(mod->specs, ps.e.name);
 			if (matching_spec)
 				break;
@@ -1204,11 +1253,9 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
-		if (mod->specs) {
-			r = spec_finish_handling(mod->specs);
-			if (r)
-				goto err;
-		}
+		r = spec_finish_handling(mod->specs);
+		if (r)
+			goto err;
 	}
 
 	return 0;
@@ -1219,10 +1266,8 @@ err:
 DEBUG_EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
 
 /**
- * Start all modules, parse the @cfg_text and push the parsed data to modules.
- *
- * The two distinct @setup/@start passes are required to allow setting callbacks
- * that are executed both before and after configuration parsing.
+ * Parse the @cfg_text with pushing parsed data to modules, and then start
+ * all modules via the TfwCfgMod->start callback.
  *
  * Upon error, the function tries to roll-back the state: if any modules are
  * already started, it stops them and so on.
@@ -1235,13 +1280,6 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 
 	BUG_ON(list_empty(mod_list));
 
-	TFW_DBG("setting up modules...\n");
-	MOD_FOR_EACH(mod, mod_list) {
-		ret = MOD_CALL_RET(mod, setup);
-		if (ret)
-			goto err_recover_cleanup;
-	}
-
 	TFW_DBG("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
 	if (ret) {
@@ -1251,7 +1289,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 
 	TFW_DBG("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
-		ret = MOD_CALL_RET(mod, start);
+		ret = mod_start(mod);
 		if (ret)
 			goto err_recover_stop;
 	}
@@ -1262,30 +1300,19 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 err_recover_stop:
 	TFW_DBG("stopping already stared modules\n");
 	MOD_FOR_EACH_REVERSE_FROM_PREV(tmp_mod, mod, mod_list) {
-		MOD_CALL(tmp_mod, stop);
+		mod_stop(tmp_mod);
 	}
 
 err_recover_cleanup:
-	TFW_DBG("cleaning up already initialized modules\n");
-	MOD_FOR_EACH_REVERSE_FROM_PREV(tmp_mod, mod, mod_list) {
-		MOD_CALL(tmp_mod, cleanup);
+	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+		spec_cleanup(mod->specs);
 	}
 
 	return ret;
 }
 
 /**
- * Stop all registered modules.
- *
- * That is done in two passes:
- * 1. Invoke "stop" callback for all modules.
- * 2. Invoke "cleanup" callback for all modules.
- *
- * The two distinct passes are needed to avoid synchronization.
- * Modules may reference each other, so if some work is happening during the
- * execution of this function, it may cause running modules to reference already
- * stopped and un-initialized modules.To avoid that, we introduce the "cleanup"
- * pass where modules may free memory after everything is stopped.
+ * Stop all registered modules and clean up theeir parsed configuration data.
  *
  * Passes are done in reverse order of tfw_cfg_mod_start_all()
  * (modules are started/stopped in LIFO manner).
@@ -1298,13 +1325,9 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 	TFW_DBG("stopping modules...\n");
 
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
-		MOD_CALL(mod, stop);
+		mod_stop(mod);
+		spec_cleanup(mod->specs);
 	}
-
-	MOD_FOR_EACH_REVERSE(mod, mod_list) {
-		MOD_CALL(mod, cleanup);
-	}
-
 }
 
 /*
@@ -1459,21 +1482,20 @@ handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 }
 
 static struct ctl_table_header *tfw_cfg_sysctl_hdr;
+static ctl_table tfw_cfg_sysctl_tbl[] = {
+	{
+		.procname	= "state",
+		.data		= tfw_cfg_sysctl_state_buf,
+		.maxlen		= sizeof(tfw_cfg_sysctl_state_buf) - 1,
+		.mode		= 0644,
+		.proc_handler	= handle_sysctl_state_io,
+	},
+	{}
+};
 
 int
-tfw_cfg_mod_if_init(void)
+tfw_cfg_if_init(void)
 {
-	static ctl_table tfw_cfg_sysctl_tbl[] = {
-		{
-			.procname	= "state",
-			.data		= tfw_cfg_sysctl_state_buf,
-			.maxlen		= sizeof(tfw_cfg_sysctl_state_buf) - 1,
-			.mode		= 0644,
-			.proc_handler	= handle_sysctl_state_io,
-		},
-		{}
-	};
-
 	tfw_cfg_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 						 tfw_cfg_sysctl_tbl);
 	if (!tfw_cfg_sysctl_hdr) {
@@ -1489,11 +1511,11 @@ tfw_cfg_mod_if_init(void)
  * and then un-register the sysctl interface.
  */
 void
-tfw_cfg_mod_if_exit(void)
+tfw_cfg_if_exit(void)
 {
 	TfwCfgMod *mod, *tmp;
 
-	TFW_DBG("stopping and unregistering all modules\n");
+	TFW_DBG("stopping and unregistering all cfg modules\n");
 
 	if (tfw_cfg_mods_are_started)
 		tfw_cfg_stop_mods(&tfw_cfg_mods);
@@ -1513,23 +1535,14 @@ tfw_cfg_mod_if_exit(void)
 int
 tfw_cfg_mod_register(TfwCfgMod *mod)
 {
-	int ret;
-
 	BUG_ON(!mod || !mod->name);
 
-	TFW_LOG("register module: %s\n", mod->name);
+	TFW_DBG("register cfg: %s\n", mod->name);
 
 	if (tfw_cfg_mods_are_started) {
 		TFW_ERR("can't register module: %s - Tempesta FW is running\n",
 			mod->name);
 		return -EPERM;
-	}
-
-	ret = MOD_CALL_RET(mod, init);
-	if (ret) {
-		TFW_ERR("can't register module: %s - init callback returned "
-			"error: %d\n", mod->name, ret);
-		return ret;
 	}
 
 	INIT_LIST_HEAD(&mod->list);
@@ -1547,6 +1560,8 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
 
+	TFW_DBG("unregister cfg: %s\n", mod->name);
+
 	/* We can't return an error code here because the function may be called
 	 * from a module_exit() routine that shall not fail.
 	 * Also we can't produce BUG() here because it may hang the system on
@@ -1558,6 +1573,10 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 	     mod->name);
 
 	list_del(&mod->list);
-	MOD_CALL(mod, exit);
+
+	if (tfw_cfg_mods_are_started) {
+		mod_stop(mod);
+		spec_cleanup(mod->specs);
+	}
 }
 EXPORT_SYMBOL(tfw_cfg_mod_unregister);

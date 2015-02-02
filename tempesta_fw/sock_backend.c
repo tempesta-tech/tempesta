@@ -257,10 +257,8 @@ add_backend_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	raw_addr = ce->vals[0];
 	r = tfw_addr_pton(raw_addr, &parsed_addr);
-	if (r) {
-		TFW_ERR("can't parse IP address");
+	if (r)
 		return -EINVAL;
-	}
 
 	be = kzalloc(sizeof(*be), GFP_KERNEL);
 	be->addr = parsed_addr;
@@ -270,7 +268,7 @@ add_backend_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-release_backend_entries(void)
+release_backend_entries(TfwCfgSpec *cs)
 {
 	TfwBackendSockEntry *entry, *tmp;
 
@@ -281,16 +279,16 @@ release_backend_entries(void)
 	INIT_LIST_HEAD(&backend_socks);
 }
 
-TfwCfgMod tfw_mod_sock_backend = {
+TfwCfgMod tfw_sock_backend_cfg_mod = {
 	.name = "sock_backend",
 	.start = start_bconnd,
 	.stop = stop_bconnd,
-	.cleanup = release_backend_entries,
 	.specs = (TfwCfgSpec[]) {
 		{
-			"backend", ":8080",
+			"backend", "127.0.0.1:8080",
 			add_backend_entry,
-			.allow_repeat = true
+			.allow_repeat = true,
+			.cleanup = release_backend_entries
 		},
 		{}
 	}

@@ -150,17 +150,6 @@ stop_listen_socks(void)
 	int i;
 
 	FOR_EACH_SOCK(sock, i) {
-		kernel_sock_shutdown(sock, SHUT_RDWR);
-	}
-}
-
-static void
-release_listen_socks(void)
-{
-	struct socket *sock;
-	int i;
-
-	FOR_EACH_SOCK(sock, i) {
 		sock_release(sock);
 	}
 
@@ -169,14 +158,13 @@ release_listen_socks(void)
 	listen_socks_n = 0;
 }
 
-TfwCfgMod tfw_mod_sock_frontend  = {
-	.name = "sock_frontend",
-	.start   = start_listen_socks,
-	.stop    = stop_listen_socks,
-	.cleanup = release_listen_socks,
-	.specs = (TfwCfgSpec[]){
+TfwCfgMod tfw_sock_frontend_cfg_mod  = {
+	.name	= "sock_frontend",
+	.start	= start_listen_socks,
+	.stop	= stop_listen_socks,
+	.specs	= (TfwCfgSpec[]){
 		{
-			"listen", ":80",
+			"listen", "127.0.0.1:80",
 			add_listen_sock,
 			.allow_repeat = true
 		},
