@@ -949,7 +949,7 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
 };
 
-static int
+int __init
 tfw_http_init(void)
 {
 	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
@@ -961,13 +961,7 @@ tfw_http_init(void)
 	return 0;
 }
 
-static void
+void
 tfw_http_exit(void)
 {
 }
-
-TfwCfgMod tfw_mod_http = {
-	.name = "http",
-	.init = tfw_http_init,
-	.exit = tfw_http_exit,
-};

@@ -160,6 +160,12 @@ typedef struct {
  * @call_counter is how many times the @handler was invoked during the parsing
  * process. It is used by the parser to determine whether it needs to process
  * the @deflt field. The counter is reset when configuration is re-loaded.
+ *
+ * @cleanup is another callback which is supposed to free memory allocated
+ * by the @handler. It is called when the configuration is un-loaded (either the
+ * system is stopped, or new configuration is available, or an error occurred).
+ * The @cleanup callback is invoked when @handler was called at least once
+ * regardless of the handler's return value.
  */
 typedef struct TfwCfgSpec TfwCfgSpec;
 struct TfwCfgSpec {
@@ -167,10 +173,13 @@ struct TfwCfgSpec {
 	const char *deflt;
 	int (*handler)(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 	void *dest;
-	void *spec_ext;		/* TfwCfgSpecInt, TfwCfgSpecStr, etc. */
-	int call_counter;	/* calls of @handler */
-	bool allow_repeat;	/* allow call_counter > 1 */
-	bool allow_none;	/* allow call_counter == 0 */
+	void *spec_ext;			/* TfwCfgSpecInt, TfwCfgSpecStr, etc. */
+	int call_counter;		/* Incremented after @handler call. */
+	struct {
+		bool allow_repeat:1;	/* allow @call_counter > 1 */
+		bool allow_none:1;	/* allow @call_counter == 0 */
+	};
+	void (*cleanup)(TfwCfgSpec *self);
 };
 
 /**
@@ -200,39 +209,16 @@ struct TfwCfgSpec {
  * @specs must be an array of TfwCfgSpec structures which is terminated
  * by a null (zero'ed) element.
  *
- *
- * @init and @exit callbacks act like module_init()/module_exit().
- * They are called when a module is registered/unregistered and their only
- * purpose is to eliminate some boilerplate function declarations and calls.
- *
- * @setup, @start, @stop and @cleanup callbacks are invoked when events
- * are recevied via sysctl. The workflow is the following:
- *   1. Receive a "start" event via syctl.
- *   2. Invoke @setup.
- *   3. Parse configuration, process @specs.
- *   4. Invoke @start.
- *   5. Receive a "stop" event via sysctl.
- *   6. Invoke @stop.
- *   7. Invoke @cleanup.
- * Separate @setup/@start are needed to be able to run actions both before
- * and after configuration parsing.
- * Separate @stop/@cleanup callbacks are needed to avoid a scenario when a
- * half of the modules are stopped and free()'d their memory, and another half
- * is working and possibly references memory of the stopped modules. We stop
- * work in @stop and free memory in @cleanup to avoid tricky synchronization.
- *
- * The only required field is the @name. All other fields may be NULL.
+ * @start and @stop callbacks are invoked when corresponding events are received
+ * via sysctl. The @start is called after the configuration is parsed and @specs
+ * are handled.
  */
 typedef struct {
 	struct list_head list;	/* Private. Don't touch. */
 	const char *name;	/* [A-Za-z0-9_], starts with a letter. */
-	TfwCfgSpec *specs;	/* An array terminated by a null element. */
-	int  (*init)(void);
-	void (*exit)(void);
-	int  (*setup)(void);
 	int  (*start)(void);
 	void (*stop)(void);
-	void (*cleanup)(void);
+	TfwCfgSpec *specs;	/* An array terminated by a null element. */
 } TfwCfgMod;
 
 /* Subscribe/unsubscribe a module to sysctl events and configuration updates. */
@@ -250,36 +236,54 @@ typedef struct {
 	int value;
 } TfwCfgEnumMapping;
 
-int tfw_cfg_map_enum(const TfwCfgEnumMapping mappings[],
-		     const char *in_name, void *out_int);
-
-int tfw_cfg_check_single_val(const TfwCfgEntry *e);
-
-int tfw_cfg_parse_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
-
-int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
-
-int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
-
+/* TfwCfgSpec->spec_ext for tfw_cfg_set_int(). */
 typedef struct {
-	int is_multiple_of;
+	int multiple_of;
 	struct {
 		long min;
 		long max;
 	} range;
 } TfwCfgSpecInt;
 
-int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
-
+/**
+ * TfwCfgSpec->spec_ext for tfw_cfg_set_str().
+ *
+ * @len_range is the min/max length constraint for the input string.
+ * Ignored when @len_range.min == @len_range.max.
+ */
 typedef struct {
 	struct {
 		size_t min;
 		size_t max;
 	} len_range;
-	struct {
-		char *buf;
-		size_t size;
-	} buf;
 } TfwCfgSpecStr;
+
+/**
+ * TfwCfgSpec->spec_ext for tfw_cfg_handle_children().
+ *
+ * If @allow_val is set, then tfw_cfg_handle_children() allows a single value
+ * to be set in the parsed entry in addition to children entries, like this:
+ *   parsed_entry "some value" {
+ *       child_entry1;
+ *       child_entry2;
+ *       ...
+ *   }
+ * Normally that "some value" is not allowed, and the parsed entry must contain
+ * only nested entries without any values and attributes.
+ */
+typedef struct {
+	bool allow_val;
+} TfwCfgSpecChild;
+
+/* Generic TfwCfgSpec->handler functions. */
+int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
+int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
+int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
+int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
+
+/* Various helpers for building custom handler functions. */
+int tfw_cfg_check_single_val(const TfwCfgEntry *e);
+int tfw_cfg_map_enum(const TfwCfgEnumMapping mappings[],
+		     const char *in_name, void *out_int);
 
 #endif /* __TFW_CFG_H__ */

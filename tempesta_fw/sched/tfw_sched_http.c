@@ -440,19 +440,19 @@ static TfwScheduler tfw_sched_http_mod_sched = {
  */
 
 static int
-cfg_setup(void)
+parse_sched_http_section(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
+	/* Allocate memory for nested backend_group/rule entries. */
 	BUG_ON(parsed_rules);
-
 	parsed_rules = tfw_http_match_list_alloc();
 	if (!parsed_rules)
 		return -ENOMEM;
 
-	return 0;
+	return tfw_cfg_handle_children(cs, e);
 }
 
 static void
-cfg_cleanup(void)
+free_parsed_rules(TfwCfgSpec *cs)
 {
 	tfw_http_match_list_free(parsed_rules);
 	parsed_rules = NULL;
@@ -482,7 +482,7 @@ parse_backend_group(TfwCfgSpec *cs, TfwCfgEntry *e)
 	memcpy(new_name, in_name, len);
 	new_group->name = new_name;
 
-	return tfw_cfg_parse_children(cs, e);
+	return tfw_cfg_handle_children(cs, e);
 }
 
 static int
@@ -625,16 +625,16 @@ static TfwCfgSpec cfg_sched_http_section_specs[] = {
 static TfwCfgSpec cfg_toplevel_specs[] = {
 	{
 		.name    = "sched_http",
-		.handler = tfw_cfg_parse_children,
-		.dest    = cfg_sched_http_section_specs
+		.handler = parse_sched_http_section,
+		.dest    = cfg_sched_http_section_specs,
+		.cleanup = free_parsed_rules
 	},
 	{}
 };
 
-static TfwCfgMod tfw_sched_http_mod_cfg = {
+static TfwCfgMod tfw_sched_http_cfg_mod = {
+	.name    = "sched_http",
 	.specs   = cfg_toplevel_specs,
-	.setup   = cfg_setup,
-	.cleanup = cfg_cleanup
 };
 
 /*
@@ -648,7 +648,7 @@ tfw_sched_http_init(void)
 {
 	int ret;
 
-	ret = tfw_cfg_mod_register(&tfw_sched_http_mod_cfg);
+	ret = tfw_cfg_mod_register(&tfw_sched_http_cfg_mod);
 	if (ret) {
 		ERR("Can't register configuration module\n");
 		return ret;
@@ -657,7 +657,7 @@ tfw_sched_http_init(void)
 	ret = tfw_sched_register(&tfw_sched_http_mod_sched);
 	if (ret) {
 		ERR("Can't register scheduler module\n");
-		tfw_cfg_mod_unregister(&tfw_sched_http_mod_cfg);
+		tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
 	}
 	return ret;
 }
@@ -666,7 +666,7 @@ void
 tfw_sched_http_exit(void)
 {
 	tfw_sched_unregister();
-	tfw_cfg_mod_unregister(&tfw_sched_http_mod_cfg);
+	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
 }
 
 module_init(tfw_sched_http_init);

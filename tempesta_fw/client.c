@@ -61,7 +61,7 @@ tfw_create_client(struct sock *s)
 	return c;
 }
 
-static int
+int __init
 tfw_client_init(void)
 {
 	cli_cache = kmem_cache_create("tfw_cli_cache", sizeof(TfwClient),
@@ -71,16 +71,8 @@ tfw_client_init(void)
 	return 0;
 }
 
-static void
+void
 tfw_client_exit(void)
 {
 	kmem_cache_destroy(cli_cache);
 }
-
-
-TfwCfgMod tfw_mod_client = {
-	.name = "client",
-	.init = tfw_client_init,
-	.exit = tfw_client_exit,
-};
-

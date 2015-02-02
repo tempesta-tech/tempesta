@@ -29,51 +29,65 @@ MODULE_DESCRIPTION("Tempesta FW");
 MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
-#define INIT_TFW_MOD(mod_name) 			\
-do {						\
-	extern TfwCfgMod mod_name; 		\
-	r = tfw_cfg_mod_register(&mod_name); 	\
-	if (r)					\
-		goto err;			\
+typedef void (*exit_fn)(void);
+exit_fn exit_hooks[32];
+size_t  exit_hooks_n;
+
+#define DO_INIT(mod)					\
+do {								\
+	extern int tfw_##mod##_init(void);			\
+	extern void tfw_##mod##_exit(void);			\
+	BUG_ON(exit_hooks_n >= ARRAY_SIZE(exit_hooks));		\
+	TFW_LOG("init: %s\n", #mod);				\
+	r = tfw_##mod##_init();					\
+	if (r) {						\
+		TFW_ERR("can't initialize Tempesta FW module: '%s' (%d)\n", \
+			#mod, r);				\
+		goto err;					\
+	}							\
+	exit_hooks[exit_hooks_n++] = tfw_##mod##_exit;		\
 } while (0)
 
-extern int tfw_cfg_mod_if_init(void);
-extern void tfw_cfg_mod_if_exit(void);
+#define DO_CFG_REG(mod)						\
+do {								\
+	extern TfwCfgMod tfw_##mod##_cfg_mod;			\
+	r = tfw_cfg_mod_register(&tfw_##mod##_cfg_mod);		\
+	if (r)							\
+		goto err;					\
+} while (0)
+
+static void
+tfw_exit(void)
+{
+	int i;
+	TFW_LOG("exiting...\n");
+	for (i = exit_hooks_n - 1; i >= 0; --i) {
+		exit_hooks[i]();
+	}
+}
 
 static int __init
 tfw_init(void)
 {
 	int r;
 
-	TFW_LOG("Initializing Tempesta kernel module\n");
+	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
-	r = tfw_cfg_mod_if_init();
-	if (r) {
-		TFW_ERR("can't initialize Tempesta configuration interface\n");
-		return r;
-	}
+	DO_INIT(cfg_if);
+	DO_INIT(http);
+	DO_INIT(server);
+	DO_INIT(client);
+	DO_INIT(session);
+	DO_INIT(connection);
 
-	INIT_TFW_MOD(tfw_mod_cache);
-	INIT_TFW_MOD(tfw_mod_http);
-	INIT_TFW_MOD(tfw_mod_server);
-	INIT_TFW_MOD(tfw_mod_client);
-	INIT_TFW_MOD(tfw_mod_session);
-	INIT_TFW_MOD(tfw_mod_connection);
-	INIT_TFW_MOD(tfw_mod_sock_backend);
-	INIT_TFW_MOD(tfw_mod_sock_frontend);
+	DO_CFG_REG(cache);
+	DO_CFG_REG(sock_backend);
+	DO_CFG_REG(sock_frontend);
 
-	TFW_LOG("Tempesta FW module is initialized\n");
 	return 0;
 err:
-	tfw_cfg_mod_if_exit();
+	tfw_exit();
 	return r;
-}
-
-static void __exit
-tfw_exit(void)
-{
-	TFW_LOG("Shutdown Tempesta\n");
-	tfw_cfg_mod_if_exit();
 }
 
 module_init(tfw_init);

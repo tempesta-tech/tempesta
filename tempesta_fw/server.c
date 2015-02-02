@@ -106,7 +106,7 @@ tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 }
 EXPORT_SYMBOL(tfw_server_snprint);
 
-static int
+int __init
 tfw_server_init(void)
 {
 	srv_cache = kmem_cache_create("tfw_srv_cache", sizeof(TfwServer),
@@ -116,14 +116,8 @@ tfw_server_init(void)
 	return 0;
 }
 
-static void
+void
 tfw_server_exit(void)
 {
 	kmem_cache_destroy(srv_cache);
 }
-
-TfwCfgMod tfw_mod_server = {
-	.name = "server",
-	.init = tfw_server_init,
-	.exit = tfw_server_exit
-};
