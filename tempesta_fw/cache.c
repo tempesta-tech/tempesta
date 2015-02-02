@@ -544,30 +544,32 @@ tfw_cache_stop(void)
 static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	{
 		"cache", "off",
-		tfw_cfg_set_bool, &cache_cfg.cache
+		tfw_cfg_set_bool,
+		&cache_cfg.cache
 	},
 	{
 		"cache_size", "262144",
-		tfw_cfg_set_int, &cache_cfg.db_size,
+		tfw_cfg_set_int,
+		&cache_cfg.db_size,
 		&(TfwCfgSpecInt) {
-			.is_multiple_of = PAGE_SIZE,
+			.multiple_of = PAGE_SIZE,
 			.range = { PAGE_SIZE, (1 << 30) },
 		}
 	},
 	{
 		"cache_path", "/opt/tempesta/cache",
-		tfw_cfg_set_str, &cache_cfg.db_path,
+		tfw_cfg_set_str,
+		&cache_cfg.db_path,
 		&(TfwCfgSpecStr) {
-			.len_range = { 0, PATH_MAX },
-			.buf = { (char[PATH_MAX]){}, PATH_MAX }
+			.len_range = { 1, PATH_MAX },
 		}
 	},
 	{}
 };
 
-TfwCfgMod tfw_mod_cache = {
-	.name 	 = "cache",
-	.start	 = tfw_cache_start,
-	.stop	 = tfw_cache_stop,
-	.specs	 = tfw_cache_cfg_specs,
+TfwCfgMod tfw_cache_cfg_mod = {
+	.name 	= "cache",
+	.start	= tfw_cache_start,
+	.stop	= tfw_cache_stop,
+	.specs	= tfw_cache_cfg_specs,
 };

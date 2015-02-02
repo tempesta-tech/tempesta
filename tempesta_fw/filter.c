@@ -214,7 +214,7 @@ tfw_filter_init(void)
 	return r;
 }
 
-void __exit
+void
 tfw_filter_exit(void)
 {
 	tempesta_unregister_ops(&tempesta_ops);

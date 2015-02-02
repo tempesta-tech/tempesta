@@ -341,7 +341,7 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 	conn_hooks[hid] = hooks;
 }
 
-static int
+int __init
 tfw_connection_init(void)
 {
 	int r;
@@ -358,16 +358,9 @@ tfw_connection_init(void)
 	return r;
 }
 
-static void
+void
 tfw_connection_exit(void)
 {
 	ss_hooks_unregister(&ssocket_hooks);
 	kmem_cache_destroy(conn_cache);
 }
-
-
-TfwCfgMod tfw_mod_connection = {
-	.name = "connection",
-	.init = tfw_connection_init,
-	.exit = tfw_connection_exit,
-};
