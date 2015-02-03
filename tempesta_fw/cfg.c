@@ -1412,22 +1412,24 @@ DEBUG_EXPORT_SYMBOL(tfw_cfg_stop_mods);
  * ------------------------------------------------------------------------
  */
 
-/* The buffer net.tempesta.state value as a string.
- * We need to store it to avoid double start or stop action.*/
-static char tfw_cfg_sysctl_state_buf[32];
-
 /* The file path is passed via the kernel module parameter.
  * Usually you would not like to change it on a running system. */
-static char *tfw_cfg_path = "/etc/tempesta.conf";
+static char *tfw_cfg_path;
 module_param(tfw_cfg_path, charp, 0444);
 MODULE_PARM_DESC(tfw_cfg_path, "Path to Tempesta FW configuration file.");
+
+/* The buffer net.tempesta.state value as a string.
+ * We need to store it to avoid double start or stop action. */
+static char tfw_cfg_sysctl_state_buf[32];
+DEFINE_MUTEX(tfw_cfg_sysctl_state_buf_mtx);
 
 /* The global list of all registered modules (consists of TfwCfgMod objects). */
 static LIST_HEAD(tfw_cfg_mods);
 
-/* The serialized value of tfw_cfg_sysctl_state_buf.
+/* The deserialized value of tfw_cfg_sysctl_state_buf.
  * Indicates that all registered modules are started. */
 bool tfw_cfg_mods_are_started;
+
 
 /**
  * Read the whole file and put all the contents to the @out_buf.
@@ -1481,22 +1483,17 @@ out:
 static int
 handle_state_change(const char *old_state, const char *new_state)
 {
-	bool is_changed = strcasecmp(old_state, new_state);
-	bool is_start = !strcasecmp(new_state, "start");
-	bool is_stop = !strcasecmp(new_state, "stop");
-
 	/* The buffer where the whole configuration is stored.
 	 * FIXME: use vmalloc() with the size of the configuration file. */
 	static char cfg_text_buf[65536];
 
 	TFW_LOG("got state via sysctl: %s\n", new_state);
 
-	if (!is_changed) {
+	if (!strcasecmp(old_state, new_state)) {
 		TFW_LOG("the state '%s' isn't changed, nothing to do\n", new_state);
 		return 0;
 	}
-
-	if (is_start) {
+	if (!strcasecmp("start", new_state)) {
 		int ret;
 
 		TFW_DBG("reading configuration file...\n");
@@ -1511,9 +1508,9 @@ handle_state_change(const char *old_state, const char *new_state)
 		return ret;
 
 		tfw_cfg_mods_are_started = true;
+		return 0;
 	}
-
-	if (is_stop) {
+	if (!strcasecmp("stop", new_state)) {
 		TFW_LOG("stopping all modules...\n");
 		tfw_cfg_stop_mods(&tfw_cfg_mods);
 		tfw_cfg_mods_are_started = false;
@@ -1521,6 +1518,8 @@ handle_state_change(const char *old_state, const char *new_state)
 	}
 
 	/* Neither "start" or "stop"? */
+	TFW_ERR("invalid state: '%s'. Should be either 'start' or 'stop'\n",
+		new_state);
 	return -EINVAL;
 }
 
@@ -1533,6 +1532,8 @@ handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 {
 	int r = 0;
 
+	mutex_lock(&tfw_cfg_sysctl_state_buf_mtx);
+
 	if (is_write) {
 		char new_state_buf[ctl->maxlen];
 		char *new_state, *old_state;
@@ -1541,7 +1542,7 @@ handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 		copied_data_len = min((size_t)ctl->maxlen, *lenp);
 		r = copy_from_user(new_state_buf, user_buf, copied_data_len);
 		if (r)
-			return r;
+			goto out;
 
 		new_state_buf[copied_data_len] = '\0';
 		new_state = strim(new_state_buf);
@@ -1549,11 +1550,12 @@ handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 
 		r = handle_state_change(old_state, new_state);
 		if (r)
-			return r;
+			goto out;
 	}
 
 	r = proc_dostring(ctl, is_write, user_buf, lenp, ppos);
-
+out:
+	mutex_unlock(&tfw_cfg_sysctl_state_buf_mtx);
 	return r;
 }
 

@@ -63,6 +63,7 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwAddr addr;
 	const char *addr_str;
 	struct socket *s;
+	SsProto *proto;
 	int r;
 
 	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
@@ -86,7 +87,7 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = sock_create_kern(addr.sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
 	if (r) {
-		TFW_ERR("Can't create socket (err: %d)\n", r);
+		TFW_ERR("can't create socket (err: %d)\n", r);
 		return r;
 	}
 
@@ -99,9 +100,17 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return r;
 	}
 
-	TFW_DBG("Created frontend socket %p\n", s->sk);
+	/**
+	 * TODO: If multiprotocol support is required, then here we must have
+	 * information for which protocol we're establishing the new listener.
+	 * e.g.: listen 127.0.0.1:80 proto=http;
+	 */
+	proto = &protos[listen_socks_n];
+	proto->type = TFW_FSM_HTTP;
+	BUG_ON(proto->listener);
+	ss_tcp_set_listen(s, proto);
+	TFW_DBG("created front-end socket: sk=%p\n", s->sk);
 
-	BUG_ON(listen_socks_n >= ARRAY_SIZE(protos));
 	BUG_ON(listen_socks[listen_socks_n]);
 	listen_socks[listen_socks_n] = s;
 	++listen_socks_n;
@@ -112,32 +121,19 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 start_listen_socks(void)
 {
-	SsProto *proto;
+
 	struct socket *sock;
 	int i, r;
 
 	FOR_EACH_SOCK(sock, i) {
-		/*
-		 * TODO If multiprotocol support is required, then here we must
-		 * have information for which protocol we're establishing
-		 * the new listener. So TfwAddrCfg must be extended with
-		 * protocol information (e.g. HTTP enum value).
-		 */
-		proto = &protos[i];
-		proto->type = TFW_FSM_HTTP;
-
-		BUG_ON(proto->listener);
-
-		ss_tcp_set_listen(sock, proto);
-		TFW_DBG("Created listening socket %p\n", sock->sk);
-
 		/* TODO adjust /proc/sys/net/core/somaxconn */
+		TFW_DBG("start listening on socket: sk=%p\n", sock->sk);
 		r = sock->ops->listen(sock, LISTEN_SOCK_BACKLOG_LEN);
 		if (r) {
-			TFW_ERR("Can't listen on front-end socket (%d)\n", r);
+			TFW_ERR("can't listen on front-end socket sk=%p (%d)\n",
+				sock->sk, r);
 			return r;
 		}
-
 	}
 
 	return 0;
@@ -150,6 +146,7 @@ stop_listen_socks(void)
 	int i;
 
 	FOR_EACH_SOCK(sock, i) {
+		TFW_DBG("release front-end socket: sk=%p\n", sock->sk);
 		sock_release(sock);
 	}
 
