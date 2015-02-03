@@ -518,7 +518,7 @@ parse_backend(TfwCfgSpec *cs, TfwCfgEntry *e)
 	return r;
 }
 
-TfwCfgEnumMapping cfg_field_enum_mappings[] = {
+TfwCfgEnum cfg_field_enum_mappings[] = {
 	{ "uri",      TFW_HTTP_MATCH_F_URI },
 	{ "host",     TFW_HTTP_MATCH_F_HOST },
 	{ "hdr_host", TFW_HTTP_MATCH_F_HDR_HOST },
@@ -527,7 +527,7 @@ TfwCfgEnumMapping cfg_field_enum_mappings[] = {
 	{}
 };
 
-TfwCfgEnumMapping cfg_op_enum_mappings[] = {
+TfwCfgEnum cfg_op_enum_mappings[] = {
 	{ "eq",     TFW_HTTP_MATCH_O_EQ },
 	{ "prefix", TFW_HTTP_MATCH_O_PREFIX },
 	/* TODO: suffix, substr, regex, case sensitive/insensitive versions. */

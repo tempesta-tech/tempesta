@@ -234,7 +234,7 @@ void tfw_cfg_mod_unregister(TfwCfgMod *mod);
 typedef struct {
 	const char *name;
 	int value;
-} TfwCfgEnumMapping;
+} TfwCfgEnum;
 
 /* TfwCfgSpec->spec_ext for tfw_cfg_set_int(). */
 typedef struct {
@@ -243,6 +243,7 @@ typedef struct {
 		long min;
 		long max;
 	} range;
+	TfwCfgEnum *enums;   /* NULL-terminated array. */
 } TfwCfgSpecInt;
 
 /**
@@ -256,6 +257,7 @@ typedef struct {
 		size_t min;
 		size_t max;
 	} len_range;
+	const char *cset;
 } TfwCfgSpecStr;
 
 /**
@@ -283,7 +285,7 @@ int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 
 /* Various helpers for building custom handler functions. */
 int tfw_cfg_check_single_val(const TfwCfgEntry *e);
-int tfw_cfg_map_enum(const TfwCfgEnumMapping mappings[],
+int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
 
 #endif /* __TFW_CFG_H__ */
