@@ -97,7 +97,7 @@
 
 #include "cfg.h"
 #include "http_match.h"
-#include "ptrset.h"
+#include "rrptrset.h"
 #include "sched.h"
 #include "server.h"
 
@@ -113,14 +113,10 @@ MODULE_LICENSE("GPL");
 
 #define TFW_BE_GROUP_MAX_ADDRS 16  /* max TfwAddr per TfwBeGroupAddrSet */
 
-typedef TFW_PTRSET_STRUCT(TfwAddr, TFW_BE_GROUP_MAX_ADDRS) TfwBeGroupAddrSet;
-typedef TFW_PTRSET_STRUCT(TfwServer, 16) TfwBeGroupSrvSet;
-typedef TFW_PTRSET_STRUCT(TfwServer, TFW_SCHED_MAX_SERVERS) TfwBeSrvSet;
-
 typedef struct {
-	TfwBeGroupSrvSet *servers;
-	TfwHttpMatchRule rule;
-} TfwSchedHttpMatchEntry;
+	size_t n;
+	TfwAddr addrs[TFW_BE_GROUP_MAX_ADDRS];
+} TfwBeGroupAddrSet;
 
 typedef struct {
 	struct list_head list;
@@ -132,6 +128,11 @@ typedef struct {
 	TfwSchedHttpCfgBeGroup *be_group;
 	TfwHttpMatchRule rule;
 } TfwSchedHttpCfgRule;
+
+typedef struct {
+	TfwRrPtrSet *servers;  /* Pointers to TfwServer objects. */
+	TfwHttpMatchRule rule;
+} TfwSchedHttpMatchEntry;
 
 /**
  * The list of TfwSchedHttpMatchEntry
@@ -159,8 +160,11 @@ static struct list_head parsed_be_groups;  /* TfwSchedHttpCfgBeGroup */
 static TfwHttpMatchList *parsed_rules;
 DEFINE_SPINLOCK(parsed_rules_lock);
 
-/* The list of available servers. Allocated statically. */
-static TfwBeSrvSet added_servers;
+/**
+ * The list of available servers (TfwServer objects added for scheduling).
+ * Allocated once upon initialization. Any access require locking.
+ */
+static TfwRrPtrSet *added_servers;
 DEFINE_SPINLOCK(added_servers_lock);
 
 /*
@@ -169,16 +173,16 @@ DEFINE_SPINLOCK(added_servers_lock);
  * --------------------------------------------------------------------------
  */
 
-static TfwBeGroupSrvSet *
+static TfwRrPtrSet *
 alloc_srv_set(TfwPool *pool, size_t max_srv_n)
 {
 	size_t size = tfw_ptrset_size(max_srv_n);
-	TfwBeGroupSrvSet *ptrset = tfw_pool_alloc(pool, size);
+	TfwRrPtrSet *ptrset = tfw_pool_alloc(pool, size);
 	if (!ptrset) {
 		ERR("Can't allocate memory from pool: %p\n", pool);
 		return NULL;
 	}
-	tfw_ptrset_init_dyn(ptrset, max_srv_n);
+	tfw_ptrset_init(ptrset, max_srv_n);
 
 	return ptrset;
 }
@@ -196,7 +200,7 @@ resolve_addr(const TfwAddr *addr)
 
 	spin_lock_bh(&added_servers_lock);
 
-	tfw_ptrset_for_each(curr_srv, i, &added_servers) {
+	tfw_ptrset_for_each(curr_srv, i, added_servers) {
 		ret = tfw_server_get_addr(curr_srv, &curr_addr);
 		if (ret) {
 			LOG("Can't get address of the server: %p\n", curr_srv);
@@ -220,13 +224,14 @@ resolve_addr(const TfwAddr *addr)
  * addresses are skipped, so the output set may be smaller than the input set.
  */
 static int
-resolve_addrs(TfwBeGroupSrvSet *servers, const TfwBeGroupAddrSet *addrs)
+resolve_addrs(TfwRrPtrSet *servers, const TfwBeGroupAddrSet *addrs)
 {
 	int i, ret;
-	TfwAddr *addr;
+	const TfwAddr *addr;
 	TfwServer *srv;
 
-	tfw_ptrset_for_each(addr, i, addrs) {
+	for (i = 0; i < addrs->n; ++i) {
+		addr = &addrs->addrs[i];
 		srv = resolve_addr(addr);
 		if (srv) {
 			ret = tfw_ptrset_add(servers, srv);
@@ -379,7 +384,7 @@ tfw_sched_http_add_srv(TfwServer *srv)
 	DBG("Adding server: %p\n", srv);
 
 	spin_lock_bh(&added_servers_lock);
-	ret = tfw_ptrset_add(&added_servers, srv);
+	ret = tfw_ptrset_add(added_servers, srv);
 	spin_unlock_bh(&added_servers_lock);
 
 	if (ret)
@@ -398,7 +403,7 @@ tfw_sched_http_del_srv(TfwServer *srv)
 	DBG("Deleting server: %p\n", srv);
 
 	spin_lock_bh(&added_servers_lock);
-	ret = tfw_ptrset_del(&added_servers, srv);
+	ret = tfw_ptrset_del(added_servers, srv);
 	spin_unlock_bh(&added_servers_lock);
 
 	if (ret)
@@ -489,6 +494,7 @@ static int
 parse_backend(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	TfwSchedHttpCfgBeGroup *current_be_group;
+	TfwBeGroupAddrSet *addrs;
 	TfwAddr *parsed_addr;
 	int r;
 
@@ -496,25 +502,21 @@ parse_backend(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (r)
 		return r;
 
-	parsed_addr = tfw_pool_alloc(parsed_rules->pool, sizeof(*parsed_addr));
-	if (!parsed_addr) {
-		ERR("Can't allocate memory\n");
-		return -ENOMEM;
-	}
-
-	r = tfw_addr_pton(e->vals[0], parsed_addr);
-	if (r) {
-		ERR("Can't parse IP address\n");
-		return r;
-	}
-
 	/* Put parsed_addr to the current backend_group which is the latest
 	 * element added to the parsed_be_groups. */
 	current_be_group = list_entry(parsed_be_groups.prev,
 				      TfwSchedHttpCfgBeGroup, list);
-	r = tfw_ptrset_add(&current_be_group->addrs, parsed_addr);
+	addrs = &current_be_group->addrs;
+
+	if (addrs->n == ARRAY_SIZE(addrs->addrs)) {
+		ERR("maximum number of addresses per backend_group reached\n");
+		return -ENOBUFS;
+	}
+
+	parsed_addr = &addrs->addrs[addrs->n++];
+	r = tfw_addr_pton(e->vals[0], parsed_addr);
 	if (r)
-		ERR("Can't add backend IP address to the backend_group\n");
+		ERR("Can't parse IP address\n");
 	return r;
 }
 
@@ -647,18 +649,33 @@ int
 tfw_sched_http_init(void)
 {
 	int ret;
+	size_t size = tfw_ptrset_size(TFW_SCHED_MAX_SERVERS);
+	added_servers = kmalloc(size, GFP_KERNEL);
+	if (!added_servers) {
+		ERR("can't allocate memory\n");
+		ret = -ENOMEM;
+		goto err_alloc;
+	}
 
 	ret = tfw_cfg_mod_register(&tfw_sched_http_cfg_mod);
 	if (ret) {
 		ERR("Can't register configuration module\n");
-		return ret;
+		goto err_cfg_register;
 	}
 
 	ret = tfw_sched_register(&tfw_sched_http_mod_sched);
 	if (ret) {
 		ERR("Can't register scheduler module\n");
-		tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+		goto err_sched_register;
 	}
+
+	return 0;
+
+err_sched_register:
+	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+err_cfg_register:
+	kfree(added_servers);
+err_alloc:
 	return ret;
 }
 
@@ -667,6 +684,7 @@ tfw_sched_http_exit(void)
 {
 	tfw_sched_unregister();
 	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+	kfree(added_servers);
 }
 
 module_init(tfw_sched_http_init);
