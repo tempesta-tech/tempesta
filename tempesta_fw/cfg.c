@@ -95,19 +95,30 @@
 
 #include "cfg.h"
 
-/* FSM's debug messages are very verbose, so they are turned off by default. */
-#ifdef DEBUG_CFG_FSM
-#define FSM_DBG(...) TFW_DBG(__VA_ARGS__)
-#else
-#define FSM_DBG(...)
+/*
+ * Use -DTFW_CFG_DBG_LVL=N to increase verbosity just for this unit.
+ *
+ * Levels 2 and 3 are used by FSMs. At level 2 you get a message for each FSM
+ * state change. At level 3 there will be a message for each parsed character,
+ * so be aware of the flood.
+ */
+#ifndef TFW_CFG_DBG_LVL
+#define TFW_CFG_DBG_LVL 0
 #endif
 
-/* TFSM is even more verbose, it prints a message for every single character,
- * so it is turned on separately. */
-#ifdef DEBUG_CFG_TFSM
-#define TFSM_DBG(...) TFW_DBG(__VA_ARGS__)
-#else
-#define TFSM_DBG(...)
+#if (TFW_CFG_DBG_LVL >= 1)
+#undef TFW_DBG
+#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
+#endif
+
+#if (TFW_CFG_DBG_LVL >= 2)
+#undef TFW_DBG2
+#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
+#endif
+
+#if (TFW_CFG_DBG_LVL >= 3)
+#undef TFW_DBG3
+#define TFW_DBG3(...) __TFW_DBG3(__VA_ARGS__)
 #endif
 
 /*
@@ -363,11 +374,11 @@ typedef struct {
 /* Macros common for both TFSM and PFSM. */
 
 #define FSM_STATE(name) 		\
-	FSM_DBG("fsm: implicit exit from: %s\n", ps->fsm_ss); \
+	TFW_DBG2("fsm: implicit exit from: %s\n", ps->fsm_ss); \
 	BUG();				\
 name:					\
 	if (ps->fsm_s != &&name) {	\
-		FSM_DBG("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
+		TFW_DBG2("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
 		ps->fsm_s = &&name;	\
 		ps->fsm_ss = #name;	\
 	}
@@ -390,7 +401,7 @@ do {					\
 do {				\
 	ps->prev_c = ps->c;	\
 	ps->c = *(++ps->pos);	\
-	TFSM_DBG("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
+	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	FSM_JMP(to_state);	\
 } while (0)
 
@@ -425,7 +436,7 @@ do {					\
 #define PFSM_MOVE(to_state)					\
 do {								\
 	read_next_token(ps);					\
-	FSM_DBG("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
+	TFW_DBG2("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
 		ps->prev_t, ps->prev_lit_len, ps->prev_lit,  	\
 		ps->t, ps->lit_len, ps->lit); 			\
 	if(!ps->t) {						\
@@ -458,7 +469,7 @@ read_next_token(TfwCfgParserState *ps)
 	ps->t = TOKEN_NA;
 	ps->c = *ps->pos;
 
-	FSM_DBG("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
+	TFW_DBG2("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
 
 	FSM_JMP(TS_START_NEW_TOKEN);
 
@@ -560,7 +571,7 @@ read_next_token(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(TS_EXIT) {
-		FSM_DBG("tfsm exit: t: %d, lit: %.*s\n", ps->t, ps->lit_len, ps->lit);
+		TFW_DBG2("tfsm exit: t: %d, lit: %.*s\n", ps->t, ps->lit_len, ps->lit);
 	}
 }
 
@@ -585,7 +596,7 @@ read_next_token(TfwCfgParserState *ps)
 static void
 parse_cfg_entry(TfwCfgParserState *ps)
 {
-	FSM_DBG("pfsm: start\n");
+	TFW_DBG2("pfsm: start\n");
 	BUG_ON(ps->err);
 
 	/* Start of the input? Read the first token and start a new entry. */
@@ -608,7 +619,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	 */
 	FSM_STATE(PS_START_NEW_ENTRY) {
 		entry_reset(&ps->e);
-		FSM_DBG("set name: %.*s\n", ps->lit_len, ps->lit);
+		TFW_DBG2("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -645,7 +656,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		/* name val1 val2;
 		 *           ^
 		 *           We are here (but still need to store val1). */
-		FSM_DBG("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
+		TFW_DBG2("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
 
 		ps->err = entry_add_val(&ps->e, ps->prev_lit, ps->prev_lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -666,7 +677,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		val = ps->lit;
 		val_len = ps->lit_len;
 
-		FSM_DBG("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
+		TFW_DBG2("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
 
 		ps->err = entry_add_attr(&ps->e, key, key_len, val, val_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -691,7 +702,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(PS_EXIT) {
-		FSM_DBG("pfsm: exit\n");
+		TFW_DBG2("pfsm: exit\n");
 	}
 }
 
