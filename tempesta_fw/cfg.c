@@ -131,6 +131,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 {
 	const char *src_pos, *src_end;
 	char *dst, *dst_pos;
+	bool is_escaped;
 
 	BUG_ON(!src);
 
@@ -140,15 +141,21 @@ alloc_and_copy_literal(const char *src, size_t len)
 		return NULL;
 	}
 
-
-	/* Copy the string eating backslashes. */
+	/* Copy the string eating escaping backslashes. */
+	/* FIXME: the logic looks like a tiny FSM,
+	 *        so perhaps it should be included to the TFSM. */
 	src_end = src + len;
 	src_pos = src;
 	dst_pos = dst;
+	is_escaped = false;
 	while (src_pos < src_end) {
-		if (*src_pos != '\\') {
+		if (*src_pos != '\\' || is_escaped) {
+			is_escaped = false;
 			*dst_pos = *src_pos;
 			++dst_pos;
+		}
+		else if (*src_pos == '\\') {
+			is_escaped = true;
 		}
 		++src_pos;
 	}
@@ -463,9 +470,9 @@ read_next_token(TfwCfgParserState *ps)
 
 		/* A backslash means that the next character definitely has
 		 * no special meaning and thus starts a literal. */
-		TFSM_COND_MOVE(ps->c == '\\', TS_LITERAL_FIRST_CHAR);
+		FSM_COND_JMP(ps->c == '\\', TS_LITERAL_FIRST_CHAR);
 
-		/* Eat non-escaped spaces. */
+		/* Eat non-is_escaped spaces. */
 		TFSM_COND_SKIP(isspace(ps->c));
 
 		/* A character next to a double quote is the first character
@@ -491,7 +498,7 @@ read_next_token(TfwCfgParserState *ps)
 		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_NA);
 
 		/* Eat everything until a new line is reached.
-		 * The line break cannot be escaped within a comment. */
+		 * The line break cannot be is_escaped within a comment. */
 		TFSM_COND_SKIP(ps->c != '\n');
 		TFSM_MOVE(TS_START_NEW_TOKEN);
 	}
@@ -506,20 +513,26 @@ read_next_token(TfwCfgParserState *ps)
 		TFSM_COND_JMP_EXIT(!ps->c && !ps->lit_len, TOKEN_NA);
 		TFSM_COND_JMP_EXIT(!ps->c && ps->lit_len, TOKEN_LITERAL);
 
+		/* Accumulate backslash together with any next character. */
+		TFSM_COND_MOVE(ps->c == '\\', TS_LITERAL_ACC_ESCAPE);
+
 		/* Non-escaped special characters terminate the literal. */
-		if (ps->prev_c != '\\') {
-			TFSM_COND_JMP_EXIT(isspace(ps->c), TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == '"', TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == '#', TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == '{', TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == '}', TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == ';', TOKEN_LITERAL);
-			TFSM_COND_JMP_EXIT(ps->c == '=', TOKEN_LITERAL);
-		}
+		TFSM_COND_JMP_EXIT(isspace(ps->c), TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '"', TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '#', TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '{', TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '}', TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == ';', TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '=', TOKEN_LITERAL);
 
 		/* Accumulate everything else. */
 		++ps->lit_len;
 		TFSM_SKIP();
+	}
+
+	FSM_STATE(TS_LITERAL_ACC_ESCAPE) {
+		ps->lit_len += 2;
+		TFSM_MOVE(TS_LITERAL_ACCUMULATE);
 	}
 
 	FSM_STATE(TS_QUOTED_LITERAL_FIRST_CHAR) {
@@ -531,12 +544,19 @@ read_next_token(TfwCfgParserState *ps)
 		/* EOF means there is no matching double quote. */
 		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_NA);
 
-		/* Only a non-escaped quote terminates the literal. */
-		TFSM_COND_MOVE_EXIT(ps->c == '"' && ps->prev_c != '\\', TOKEN_LITERAL);
+		/* A double quote terminates the literal,
+		 * but it may be escaped with a backslash. */
+		TFSM_COND_MOVE(ps->c == '\\', TS_QUOTED_LIT_ACC_ESCAPE);
+		TFSM_COND_MOVE_EXIT(ps->c == '"', TOKEN_LITERAL);
 
 		/* Everything else is accumulated (including line breaks). */
 		++ps->lit_len;
 		TFSM_SKIP();
+	}
+
+	FSM_STATE(TS_QUOTED_LIT_ACC_ESCAPE) {
+		ps->lit_len += 2;
+		TFSM_MOVE(TS_QUOTED_LITERAL_ACCUMULATE);
 	}
 
 	FSM_STATE(TS_EXIT) {
@@ -711,7 +731,7 @@ spec_start_handling(TfwCfgSpec specs[])
 		BUG_ON(!*spec->name);
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
-		BUG_ON(spec->call_counter);
+		BUG_ON(spec->call_counter < 0);
 	}
 }
 
@@ -809,11 +829,11 @@ spec_cleanup(TfwCfgSpec specs[])
 	TfwCfgSpec *spec;
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter) {
+		if (spec->call_counter && spec->cleanup) {
 			TFW_DBG("spec cleanup: '%s'\n", spec->name);
 			spec->cleanup(spec);
-			spec->call_counter = 0;
 		}
+		spec->call_counter = 0;
 	}
 }
 
@@ -825,11 +845,11 @@ spec_cleanup(TfwCfgSpec specs[])
  */
 
 int
-tfw_cfg_map_enum(const TfwCfgEnumMapping mappings[],
+tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		 const char *in_name, void *out_int)
 {
 	int *out;
-	const TfwCfgEnumMapping *pos;
+	const TfwCfgEnum *pos;
 
 	/* The function writes an int, but usually you want to pass an enum
 	 * as the @out_int, so ensure check that their sizes are equal.
@@ -842,9 +862,6 @@ tfw_cfg_map_enum(const TfwCfgEnumMapping mappings[],
 	BUG_ON(!mappings);
 	BUG_ON(!in_name);
 	BUG_ON(!out_int);
-
-	if (!check_identifier(in_name, strlen(in_name)))
-		return -EINVAL;
 
 	for (pos = mappings; pos->name; ++pos) {
 		BUG_ON(!check_identifier(pos->name, strlen(pos->name)));
@@ -982,6 +999,23 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 	const char *in_str = e->vals[0];
 
 	BUG_ON(!dest_bool);
+
+	/* Handle simple flag without a value.
+	 * Usually it looks like this:
+	 *   backend 127.0.0.1:8001 {
+	 *      health_check;
+	 *      ...;
+	 *   }
+	 */
+	if (!e->val_n && !e->attr_n && !e->have_children) {
+		*dest_bool = true;
+		return 0;
+	}
+
+	/* Handle explicit (single) value, for example:
+	 *   feature on;
+	 *   feature off;
+	 */
 	if (tfw_cfg_check_single_val(e))
 		return -EINVAL;
 
@@ -1051,32 +1085,43 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	int base, r, val;
 	int *dest_int;
 	const char *in_str;
+	TfwCfgSpecInt *cse;
 
 	BUG_ON(!cs->dest);
 	r = tfw_cfg_check_single_val(e);
 	if (r)
 		goto err;
 
+	/* First, try to substitute an enum keyword with an integer value. */
 	in_str = e->vals[0];
+	cse = cs->spec_ext;
+	if (cse && cse->enums) {
+		r = tfw_cfg_map_enum(cse->enums, in_str, &val);
+		if (!r)
+			goto val_is_parsed;
+	}
+
 	base = detect_base(&in_str);
 	if (!base)
 		goto err;
-
 	r = kstrtoint(in_str, base, &val);
 	if (r)
 		goto err;
 
-	if (cs->spec_ext) {
-		TfwCfgSpecInt *cse = cs->spec_ext;
+val_is_parsed:
+	/* Check value restrictions if we have any in the spec extension. */
+	if (cse) {
+		int div = cse->multiple_of;
+		long min = cse->range.min;
+		long max = cse->range.max;
 
-		if (cse->multiple_of && (val % cse->multiple_of)) {
+		if (div && val % div) {
 			TFW_ERR("the value of '%s' is not a multiple of %d\n",
 				in_str ,cse->multiple_of);
 			goto err;
 		}
 
-		if (cse->range.min != cse->range.max &&
-		    (val < cse->range.min || val > cse->range.max)) {
+		if (min != max && (val < min || val > max)) {
 			TFW_ERR("the value of '%s' is out of range: %ld, %ld\n",
 				in_str, cse->range.min, cse->range.max);
 			goto err;
@@ -1086,6 +1131,7 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	dest_int = cs->dest;
 	*dest_int = val;
 	return 0;
+
 err:
 	TFW_ERR("can't parse integer");
 	return -EINVAL;
@@ -1105,6 +1151,17 @@ tfw_cfg_cleanup_str(TfwCfgSpec *cs)
 	cs->cleanup = NULL;
 }
 
+static bool
+is_matching_to_cset(const char *p, const char *cset)
+{
+	while (*p) {
+		if (!strchr(cset, *p))
+			return false;
+		++p;
+	}
+	return true;
+}
+
 int
 tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
@@ -1122,16 +1179,23 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	if (cs->spec_ext) {
 		TfwCfgSpecStr *cse = cs->spec_ext;
-		const char *str;
+		const char *str, *cset;
 		int min, max, len;
+
+		str = e->vals[0];
+		len = strlen(str);
 
 		min = cse->len_range.min;
 		max = cse->len_range.max;
-		str = e->vals[0];
-		len = strlen(str);
 		if (min != max && (len < min || len > max)) {
 			TFW_ERR("the string length (%d) is out of valid range "
 				" (%d, %d): '%s'\n", len, min, max, str);
+			return -EINVAL;
+		}
+
+		cset = cse->cset;
+		if (cset && !is_matching_to_cset(str, cset)) {
+			TFW_ERR("invalid characters found: '%s'\n", str);
 			return -EINVAL;
 		}
 	}
@@ -1202,7 +1266,7 @@ print_parse_error(const TfwCfgParserState *ps)
 
 	TFW_ERR("configuration parsing error:\n"
 		"%.*s\n"
-		"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+		"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
 		len, start);
 }
 
@@ -1263,7 +1327,6 @@ err:
 	print_parse_error(&ps);
 	return -EINVAL;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
 
 /**
  * Parse the @cfg_text with pushing parsed data to modules, and then start
@@ -1310,6 +1373,7 @@ err_recover_cleanup:
 
 	return ret;
 }
+DEBUG_EXPORT_SYMBOL(tfw_cfg_start_mods);
 
 /**
  * Stop all registered modules and clean up theeir parsed configuration data.
@@ -1317,7 +1381,7 @@ err_recover_cleanup:
  * Passes are done in reverse order of tfw_cfg_mod_start_all()
  * (modules are started/stopped in LIFO manner).
  */
-static void
+void
 tfw_cfg_stop_mods(struct list_head *mod_list)
 {
 	TfwCfgMod *mod;
@@ -1329,6 +1393,7 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 		spec_cleanup(mod->specs);
 	}
 }
+DEBUG_EXPORT_SYMBOL(tfw_cfg_stop_mods);
 
 /*
  * ------------------------------------------------------------------------
