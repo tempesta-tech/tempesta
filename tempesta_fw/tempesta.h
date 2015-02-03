@@ -19,7 +19,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #ifndef __TEMPESTA_H__
-
 #define __TEMPESTA_H__
 
 #include <linux/in6.h>
