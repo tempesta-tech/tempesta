@@ -1432,48 +1432,69 @@ bool tfw_cfg_mods_are_started;
 
 
 /**
- * Read the whole file and put all the contents to the @out_buf.
+ * The functions returns a buffer containing the whole file.
+ * The buffer must be freed with vfree().
  */
-static int
-read_file_via_vfs(const char *path, char *out_buf, size_t buf_size)
+void *
+read_file_via_vfs(const char *path)
 {
+	char *out_buf;
 	struct file *fp;
+	size_t bytes_read, read_size, buf_size;
+	loff_t offset;
 	mm_segment_t oldfs;
-	loff_t offset = 0;
-	size_t bytes_read, read_size;
-	int ret = 0;
 
 	TFW_DBG("reading file: %s\n", path);
 
-	--buf_size; /* reserve one bye for '\0'. */
 	oldfs = get_fs();
 	set_fs(get_ds());
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
 		TFW_ERR("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
-		goto out;
+		goto err_open;
 	}
 
+	buf_size = fp->f_inode->i_size;
+	TFW_DBG("file size: %zu bytes\n", buf_size);
+	buf_size += 1; /* for '\0' */
+
+	out_buf = vmalloc(buf_size);
+	if (!out_buf) {
+		TFW_ERR("can't allocate memory\n");
+		goto err_alloc;
+	}
+
+	offset = 0;
 	do {
-		buf_size -= offset;
-		read_size = min(buf_size, PAGE_SIZE);
+		TFW_DBG("read by offset: %d\n", (int)offset);
+		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
 		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
 				      &offset);
 		if (bytes_read < 0) {
-			ret = bytes_read;
-			TFW_ERR("can't read file: %s (err: %d)\n", path, ret);
-			goto out;
+			TFW_ERR("can't read file: %s (err: %zu)\n", path,
+				bytes_read);
+			goto err_read;
 		}
 	} while (bytes_read);
 
-out:
-	if (!IS_ERR_OR_NULL(fp))
-		filp_close(fp, NULL);
-	set_fs(oldfs);
-	out_buf[offset] = '\0';
+	/* Exactly one byte (reserved for '\0') should remain. */
+	if (buf_size - offset - 1) {
+		TFW_ERR("file size changed during the read: '%s'\n,", path);
+		goto err_read;
+	}
 
-	return ret;
+	out_buf[offset] = '\0';
+	set_fs(oldfs);
+	return out_buf;
+
+err_read:
+	vfree(out_buf);
+err_alloc:
+	filp_close(fp, NULL);
+err_open:
+	set_fs(oldfs);
+	return NULL;
 }
 
 /**
@@ -1483,10 +1504,6 @@ out:
 static int
 handle_state_change(const char *old_state, const char *new_state)
 {
-	/* The buffer where the whole configuration is stored.
-	 * FIXME: use vmalloc() with the size of the configuration file. */
-	static char cfg_text_buf[65536];
-
 	TFW_LOG("got state via sysctl: %s\n", new_state);
 
 	if (!strcasecmp(old_state, new_state)) {
@@ -1495,20 +1512,22 @@ handle_state_change(const char *old_state, const char *new_state)
 	}
 	if (!strcasecmp("start", new_state)) {
 		int ret;
+		char *cfg_text_buf;
 
 		TFW_DBG("reading configuration file...\n");
-		ret = read_file_via_vfs(tfw_cfg_path, cfg_text_buf,
-					sizeof(cfg_text_buf));
-
+		cfg_text_buf = read_file_via_vfs(tfw_cfg_path);
+		if (!cfg_text_buf)
+			return -ENOENT;
 
 		TFW_LOG("starting all modules...\n");
 		ret = tfw_cfg_start_mods(cfg_text_buf, &tfw_cfg_mods);
 		if (ret)
 			TFW_ERR("failed to start modules\n");
-		return ret;
+		else
+			tfw_cfg_mods_are_started = true;
 
-		tfw_cfg_mods_are_started = true;
-		return 0;
+		vfree(cfg_text_buf);
+		return ret;
 	}
 	if (!strcasecmp("stop", new_state)) {
 		TFW_LOG("stopping all modules...\n");
