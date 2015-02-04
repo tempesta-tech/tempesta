@@ -7,6 +7,12 @@
 
 root=$(dirname "$0")
 
+# Resolve root to absolute path which is handy for kernel.
+# pwd is used instead of readlink to avoid symlink resolution.
+pushd "$root" > /dev/null
+root="$(pwd)"
+popd > /dev/null
+
 arg=${1:-}
 ss_path=${SS_PATH:="$root/sync_socket"}
 tdb_path=${TDB_PATH:="$root/tempesta_db"}
