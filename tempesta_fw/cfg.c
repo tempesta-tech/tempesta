@@ -1416,7 +1416,8 @@ DEBUG_EXPORT_SYMBOL(tfw_cfg_stop_mods);
  * Usually you would not like to change it on a running system. */
 static char *tfw_cfg_path;
 module_param(tfw_cfg_path, charp, 0444);
-MODULE_PARM_DESC(tfw_cfg_path, "Path to Tempesta FW configuration file.");
+MODULE_PARM_DESC(tfw_cfg_path,
+		 "Path to Tempesta FW configuration file. Must be absolute.");
 
 /* The buffer net.tempesta.state value as a string.
  * We need to store it to avoid double start or stop action. */
