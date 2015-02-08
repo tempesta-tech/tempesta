@@ -1,0 +1,37 @@
+/**
+ *	Tempesta kernel emulation unit testing framework.
+ *
+ * Copyright (C) 2015 Tempesta Technologies.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+#ifndef __SPINLOCK_H__
+#define __SPINLOCK_H__
+
+#include <pthread.h>
+
+#include "kernel.h"
+
+/*
+ * Pthread doesn't have RW spin-locks,
+ * so just use semaphores to test concurrency.
+ */
+typedef pthread_rwlock_t rwlock_t;
+
+#define rwlock_init(lock)		pthread_rwlock_init(lock, NULL)
+#define write_lock_bh(lock)		pthread_rwlock_wrlock(lock)
+#define write_unlock_bh(lock)		pthread_rwlock_unlock(lock)
+
+#endif /* __SPINLOCK_H__ */
