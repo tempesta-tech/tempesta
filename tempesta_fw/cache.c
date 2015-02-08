@@ -413,7 +413,13 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	resp = ce->resp;
 
 finish_req_processing:
+
+	/*
+	 * TODO perform the call on original CPU to avoid inter-node
+	 * memory transfers.
+	 */
 	action(req, resp, data);
+
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
 
@@ -492,6 +498,7 @@ tfw_cache_init(void)
 	if (!tfw_cfg.cache)
 		return 0;
 
+	/* TODO open db per node. */
 	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0);
 	if (!db)
 		return 1;

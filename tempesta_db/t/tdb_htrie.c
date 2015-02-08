@@ -1,17 +1,14 @@
 /**
  * Unit test for Tempesta DB HTrie storage.
  *
- * If index is not SEQLOG (i.e. no index at all), then to improve space locality
- * for large data sets index records grow from lower addresses to higher while
- * data records grow towards them, from maximum to minimum addresses.
- *
  * TODO
- * - freeing interface for eviction thread
- * - eviction
- * - garbage collection
- * - consistensy checking and recovery
- * - reduce number of memset(.., 0, ..) calls
- * - large contigous allocations
+ * !- freeing interface for eviction thread
+ * !- reduce number of memset(.., 0, ..) calls
+ * !- split generic storage, memory management and index subsystems
+ * -- garbage collection
+ * -- eviction
+ * -- consistensy checking and recovery
+ * -- large contigous allocations
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies.
@@ -51,7 +48,7 @@
  *	Kernel stubs
  * ------------------------------------------------------------------------
  */
-#ifndef TDB_CL_SZ
+#ifndef L1_CACHE_BYTES
 #error "Unknown size of cache line"
 #endif
 
@@ -82,7 +79,8 @@ do {									\
 
 #define LOCK_PREFIX "\n\tlock; "
 #define IS_IMMEDIATE(nr)		(__builtin_constant_p(nr))
-#define BITOP_ADDR(x) "+m" (*(volatile long *) (x))
+#define BITOP_ADDR(x)			"+m" (*(volatile long *) (x))
+#define ADDR				(*(volatile long *)addr)
 #define CONST_MASK_ADDR(nr, addr)	BITOP_ADDR((void *)(addr) + ((nr)>>3))
 #define CONST_MASK(nr)			(1 << ((nr) & 7))
 
@@ -100,6 +98,17 @@ set_bit(unsigned int nr, volatile unsigned long *addr)
 	}
 }
 
+static inline int
+sync_test_and_set_bit(int nr, volatile unsigned long *addr)
+{
+	int oldbit;
+
+	asm volatile("lock; btsl %2,%1\n\tsbbl %0,%0"
+		     : "=r" (oldbit), "+m" (ADDR)
+		     : "Ir" (nr) : "memory");
+	return oldbit;
+}
+
 static inline unsigned long
 ffz(unsigned long word)
 {
@@ -113,10 +122,6 @@ typedef struct {
 	int counter;
 } atomic_t;
 
-typedef struct {
-	long counter;
-} atomic64_t;
-
 static inline int
 atomic_cmpxchg(atomic_t *v, int old, int new)
 {
@@ -124,10 +129,24 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 					   __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
 }
 
-static inline long
-xadd(unsigned long *v, unsigned long i)
+typedef struct {
+	long counter;
+} atomic64_t;
+
+#define atomic64_set(v, i)	((v)->counter = (i))
+#define atomic64_read(v)	(*(volatile long *)&(v)->counter)
+
+static inline int
+atomic64_cmpxchg(atomic64_t *v, long old, long new)
 {
-	return __atomic_fetch_add(v, i, __ATOMIC_SEQ_CST);
+	return __atomic_compare_exchange_n(&v->counter, &old, new, false,
+					   __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+}
+
+static inline void
+atomic64_add(long i, atomic64_t *v)
+{
+	__atomic_fetch_add(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 /*
@@ -136,9 +155,34 @@ xadd(unsigned long *v, unsigned long i)
  */
 typedef pthread_rwlock_t rwlock_t;
 
-#define rwlock_init(lock)	pthread_rwlock_init(lock, NULL)
-#define write_lock_bh(lock)	pthread_rwlock_wrlock(lock)
-#define write_unlock_bh(lock)	pthread_rwlock_unlock(lock)
+#define rwlock_init(lock)		pthread_rwlock_init(lock, NULL)
+#define write_lock_bh(lock)		pthread_rwlock_wrlock(lock)
+#define write_unlock_bh(lock)		pthread_rwlock_unlock(lock)
+
+/*
+ * In user space all threads have different identifiers,
+ * so there is no problems with preemption.
+ */
+#define local_bh_disable()
+#define local_bh_enable()
+
+static size_t __thr_max = 0;
+static size_t __thread __thr_id;
+
+static int
+spawn_thread(pthread_t *thr_id, void *(func)(void *data), void *arg)
+{
+	__thr_id = __atomic_fetch_add(&__thr_max, 1, __ATOMIC_SEQ_CST);
+	return pthread_create(thr_id, NULL, func, arg);
+}
+
+#define __percpu
+/* 32 should be enough for testing. */
+#define alloc_percpu(s)			calloc(32, sizeof(s))
+#define free_percpu(p)			free(p)
+#define for_each_possible_cpu(c)	for (c = 0; c < 32; ++c)
+#define per_cpu_ptr(a, c)		&(a)[c]
+#define this_cpu_ptr(a)			(&(a)[__thr_id])
 
 /*
  * ------------------------------------------------------------------------
@@ -156,11 +200,12 @@ typedef pthread_rwlock_t rwlock_t;
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)
 /* Get extent id by a record offset. */
-#define TDB_EXT_ID(o)		(TDB_EXT_O(o) >> TDB_EXT_BITS)
+#define TDB_EXT_ID(o)		((unsigned long)(o) >> TDB_EXT_BITS)
 /* Block absolute offset. */
 #define TDB_BLK_O(x)		((x) & TDB_BLK_MASK)
 /* Get block index in an extent. */
 #define TDB_BLK_ID(x)		(((x) & TDB_BLK_MASK) & ~TDB_EXT_MASK)
+#define TDB_BLK_ALIGN(x)	TDB_BLK_O((x) + TDB_BLK_SZ - 1)
 
 /* True if the tree keeps variable length records. */
 #define TDB_HTRIE_VARLENRECS(h)	(!(h)->rec_len)
@@ -170,17 +215,18 @@ typedef pthread_rwlock_t rwlock_t;
  * or main memory transfers. However, smaller memory usage means better TLB
  * utilization on huge worksets.
  */
-#define TDB_HTRIE_NODE_SZ	TDB_CL_SZ
+#define TDB_HTRIE_NODE_SZ	L1_CACHE_BYTES
 /*
  * There is no sense to allocate a new resolving node for each new small
  * (less than cache line size) data record. So we place small records in
  * 2 cache lines in sequential order and burst the node only when there
  * is no room.
  */
-#define TDB_HTRIE_MINDREC	(TDB_CL_SZ * 2)
+#define TDB_HTRIE_MINDREC	(L1_CACHE_BYTES * 2)
 /* Each record in the tree must be at least 8-byte aligned. */
 #define TDB_HTRIE_RALIGN(n)	(((unsigned long)(n) + 7) & ~7UL)
-#define TDB_HTRIE_IALIGN(n)	(((n) + TDB_CL_SZ - 1) & ~(TDB_CL_SZ - 1))
+#define TDB_HTRIE_IALIGN(n)	(((n) + L1_CACHE_BYTES - 1)		\
+				 & ~(L1_CACHE_BYTES - 1))
 #define TDB_HTRIE_DALIGN(n)	(((n) + TDB_HTRIE_MINDREC - 1)		\
 				 & ~(TDB_HTRIE_MINDREC - 1))
 #define TDB_HTRIE_BITS		4
@@ -190,15 +236,19 @@ typedef pthread_rwlock_t rwlock_t;
 /*
  * We use 31 bits to address index and data blocks.
  * The most significant bit is used to flag data pointer/offset.
- * Index blocks are addressed by index of a TDB_CL_SZ-byte blocks in the file,
- * while data blocks are addressed by indexes of TDB_HTRIE_MINDREC blocks.
- * So theoretical size of the database shard which can be addressed is 256GB.
+ * Index blocks are addressed by index of a L1_CACHE_BYTES-byte blocks in
+ * the file, while data blocks are addressed by indexes of TDB_HTRIE_MINDREC
+ * blocks.
+ *
+ * So the maximum size of one database table is 128GB per processor package,
+ * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
 				 / BITS_PER_LONG)
+#define TDB_MAX_DB_SZ		((1UL << 31) * L1_CACHE_BYTES)
 /* Convert internal offsets to system pointer. */
 #define TDB_PTR(h, o)		(void *)((char *)(h) + (o))
 /* Get internal offset from a pointer. */
@@ -212,31 +262,41 @@ typedef pthread_rwlock_t rwlock_t;
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 
 /**
+ * Per-CPU dynamically allocated data for TDB handler.
+ * Access to the data must be with preemption disabled for reentrance between
+ * softirq and process cotexts.
+ *
+ * @i_wcl, @d_wcl - per-CPU current partially written index and data blocks.
+ *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
+ *		    the variable. The variables are initialized in runtime,
+ *		    so we lose some free space on system restart.
+ */
+typedef struct {
+	unsigned long	i_wcl;
+	unsigned long	d_wcl;
+} TdbPerCpu;
+
+/**
  * Tempesta DB file descriptor.
  *
  * We store independent records in at least cache line size data blocks
  * to avoid false sharing.
  *
  * @dbsz	- the database size in bytes;
+ * @nwb		- next to write block (byte offset);
+ * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
  * @rec_len	- fixed-size records length or zero for variable-length records;
- * @i_wcl	- index block next to write (byte offset);
- * @d_wcl	- data block next to write (byte offset);
- * @ext_bmp	- bitmap of used/free extents.
+ ** @ext_bmp	- bitmap of used/free extents.
  * 		  Must be small and cache line aligned;
- * @i_wm, @d_wm	- watermarks (in extents) for index and data correspondingly.
- * 		  The watermarks grow towards each other and their meeting
- * 		  signals that the data file is full;
  */
 typedef struct {
-	unsigned long	magic;
-	unsigned long	dbsz;
-	unsigned long	i_wcl;
-	unsigned long	d_wcl;
-	unsigned int	rec_len;
-	unsigned short	i_wm;
-	unsigned short	d_wm;
-	unsigned char	_padding[8 * 3];
-	unsigned long	ext_bmp[0];
+	unsigned long		magic;
+	unsigned long		dbsz;
+	atomic64_t		nwb;
+	TdbPerCpu __percpu	*pcpu;
+	unsigned int		rec_len;
+	unsigned char		_padding[8 * 3 + 4];
+	unsigned long		ext_bmp[0];
 } __attribute__((packed)) TdbHdr;
 
 /**
@@ -411,11 +471,18 @@ tdb_hash_calc(const char *data, size_t len)
 static TdbHdr *
 tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 {
+	int b, hdr_sz;
 	TdbHdr *hdr = (TdbHdr *)p;
 
-	/* Use variable-size records for large stored data. */
-	if (rec_len > TDB_BLK_SZ / 2)
+	if (db_size > TDB_MAX_DB_SZ) {
+		TDB_ERR("too large database size (%lu)", db_size);
 		return NULL;
+	}
+	/* Use variable-size records for large data to store. */
+	if (rec_len > TDB_BLK_SZ / 2) {
+		TDB_ERR("too large record length (%u)\n", rec_len);
+		return NULL;
+	}
 
 	/* Zero whole area. */
 	memset(hdr, 0, db_size);
@@ -423,18 +490,16 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	hdr->magic = TDB_MAGIC;
 	hdr->dbsz = db_size;
 	hdr->rec_len = rec_len;
-	/* Set index write cache line just after rool index node. */
-	hdr->i_wcl = TDB_HTRIE_IALIGN(TDB_HDR_SZ(hdr) + sizeof(TdbExt)
-				      + sizeof(TdbHtrieNode));
-	/* Data grows from the last extent to begin. */
-	hdr->d_wm = db_size / TDB_EXT_SZ - 1;
-	hdr->d_wcl = TDB_HTRIE_DALIGN(hdr->d_wm * TDB_EXT_SZ + sizeof(TdbExt));
+
+	/* Set next block to just after block with root index node. */
+	hdr_sz = TDB_BLK_ALIGN(TDB_HDR_SZ(hdr) + sizeof(TdbExt)
+			       + sizeof(TdbHtrieNode));
+	atomic64_set(&hdr->nwb, hdr_sz);
 
 	/* Set first (current) extents and blocks as used. */
 	set_bit(0, hdr->ext_bmp);
-	set_bit(BITS_PER_LONG - 1, &hdr->ext_bmp[TDB_EXT_BMP_2L(hdr) - 1]);
-	set_bit(0, tdb_ext(hdr, hdr)->b_bmp);
-	set_bit(0, tdb_ext(hdr, TDB_PTR(hdr, hdr->d_wcl))->b_bmp);
+	for (b = 0; b < hdr_sz / TDB_BLK_SZ; b++)
+		set_bit(b, tdb_ext(hdr, hdr)->b_bmp);
 
 	return hdr;
 }
@@ -487,97 +552,90 @@ tdb_live_vsrec(TdbVRec *rec)
  * @return start of available room (offset in bytes) at the block.
  */
 static inline unsigned long
-tdb_alloc_blk(TdbHdr *dbh, TdbExt *e)
+__tdb_alloc_blk_ext(TdbHdr *dbh, TdbExt *e)
 {
-	int i;
+	int i = 0;
 	unsigned long r;
 
-	for (i = 0; i < TDB_BLK_BMP_2L; ++i) {
-		if (!(e->b_bmp[i] ^ ~0UL))
-			continue;
+repeat:
+	r = e->b_bmp[i];
 
-		// TODO synchronize this and below callers!
-		r = ffz(e->b_bmp[i]);
-		set_bit(r, &e->b_bmp[i]);
-		if (unlikely(!i && !r)) {
-			r = sizeof(*e);
-			if (unlikely(TDB_EXT_O(e) == TDB_EXT_O(dbh)))
-				return r + TDB_HDR_SZ(dbh);
-			return r + TDB_EXT_BASE(dbh, e);
-		}
-		return TDB_EXT_BASE(dbh, e)
-		       + (i * BITS_PER_LONG + r) * TDB_BLK_SZ;
+	if (!(r ^ ~0UL)) {
+		if (++i == TDB_BLK_BMP_2L)
+			return 0;
+		goto repeat;
 	}
 
-	return 0;
+	r = ffz(r);
+
+	if (sync_test_and_set_bit(r, &e->b_bmp[i]))
+		goto repeat; /* race conflict, retry */
+
+	if (unlikely(!i && !r)) {
+		r = sizeof(*e);
+		if (unlikely(TDB_EXT_O(e) == TDB_EXT_O(dbh)))
+			return r + TDB_HDR_SZ(dbh);
+		return r + TDB_EXT_BASE(dbh, e);
+	}
+
+	return TDB_EXT_BASE(dbh, e)
+	       + (i * BITS_PER_LONG + r) * TDB_BLK_SZ;
 }
 
 static unsigned long
-tdb_alloc_index_blk(TdbHdr *dbh)
+tdb_alloc_blk(TdbHdr *dbh)
 {
-	unsigned long ei, rptr;
-	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->i_wcl));
+	TdbExt *e;
+	long g_nwb, rptr, next_blk;
 
-	/* Check extent pointed by next to write index block. */
-	if (!(dbh->i_wcl & ~TDB_EXT_MASK))
-		goto point_to_new_ext;
+	while (1) {
+		g_nwb = atomic64_read(&dbh->nwb);
+		e = tdb_ext(dbh, TDB_PTR(dbh, g_nwb));
 
-	rptr = tdb_alloc_blk(dbh, e);
-	if (likely(rptr))
-		return TDB_HTRIE_IALIGN(rptr);
+		if (likely(g_nwb & ~TDB_EXT_MASK)) {
+			/*
+			 * Current extent was already getted.
+			 * Probably we can allocate some memory in this extent.
+			 */
+			rptr = __tdb_alloc_blk_ext(dbh, e);
+			if (likely(rptr))
+				break;
+			/*
+			 * No way, there is no room in current extent -
+			 * update current pointer or try the next extent.
+			 *
+			 * TODO we recheck dbh->nwb just in assumption
+			 * that eviction/freeing thread moved it back.
+			 */
+			if (unlikely(g_nwb != atomic64_read(&dbh->nwb)))
+				continue;
+			e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
+		}
+		/*
+		 * Whole extent can't be fully utilized by concurrent contexts
+		 * while we're in the function.
+		 */
+		break;
+	}
 
-	/* No room in current extent, try the next one. */
-	e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
-
-point_to_new_ext:
-	ei = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
-	if (ei >= dbh->d_wm)
+	/* New extent should be used. */
+	if (unlikely(TDB_HTRIE_OFF(dbh, e) == dbh->dbsz)) {
+		TDB_ERR("out of free space\n");
 		return 0;
-	if (ei > dbh->i_wm)
-		dbh->i_wm = ei;
-	tdb_set_bit(dbh->ext_bmp, TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
+	}
+	BUG_ON(TDB_HTRIE_OFF(dbh, e) > dbh->dbsz);
+	set_bit(TDB_EXT_ID(TDB_EXT_BASE(dbh, e)), dbh->ext_bmp);
 
-	TDB_DBG("Alloc new index extent %p\n", e);
+	TDB_DBG("Alloc new extent %p\n", e);
 
-	rptr = tdb_alloc_blk(dbh, e);
+	rptr = __tdb_alloc_blk_ext(dbh, e);
 	BUG_ON(!rptr);
+
+	next_blk = rptr + TDB_BLK_SZ;
+	for ( ; g_nwb <= rptr; g_nwb = atomic64_read(&dbh->nwb))
+		atomic64_cmpxchg(&dbh->nwb, g_nwb, next_blk);
 
 	return TDB_HTRIE_IALIGN(rptr);
-}
-
-static unsigned long
-tdb_alloc_data_blk(TdbHdr *dbh)
-{
-	unsigned long ei, rptr;
-	TdbExt *e = tdb_ext(dbh, TDB_PTR(dbh, dbh->d_wcl));
-
-	/* Check extent pointed by next to write data block. */
-	if (!(dbh->d_wcl & ~TDB_EXT_MASK)) {
-		e = (TdbExt *)((unsigned long)e - TDB_EXT_SZ * 2);
-		goto point_to_new_ext;
-	}
-
-	rptr = tdb_alloc_blk(dbh, e);
-	if (likely(rptr))
-		return TDB_HTRIE_DALIGN(rptr);
-
-	/* No room in current extent, try the next one. */
-	e = (TdbExt *)((unsigned long)e - TDB_EXT_SZ);
-
-point_to_new_ext:
-	ei = TDB_EXT_ID(TDB_HTRIE_OFF(dbh, e));
-	if (ei <=  dbh->i_wm)
-		return 0;
-	if (ei < dbh->d_wm)
-		dbh->d_wm = ei;
-	tdb_set_bit(dbh->ext_bmp, TDB_EXT_ID(TDB_EXT_BASE(dbh, e)));
-
-	TDB_DBG("Alloc new data extent %p\n", e);
-
-	rptr = tdb_alloc_blk(dbh, e);
-	BUG_ON(!rptr);
-
-	return TDB_HTRIE_DALIGN(rptr);
 }
 
 static void
@@ -594,13 +652,14 @@ tdb_htrie_init_bucket(TdbBucket *b)
  *
  * Return 0 on error.
  *
- * TODO Allocate set of pages if there are any for large @len.
- *      Defragment memory blocks in background.
+ * TODO Allocate sequence of pages if there are any for large @len.
+ *      Probably we should use external location for large data.
+ *      Defragment memory blocks in background by page table remappings.
  */
 static unsigned long
 tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 {
-	unsigned long rptr = dbh->d_wcl;
+	unsigned long rptr, new_wcl;
 	size_t hdr_len, res_len = *len;
 
 	hdr_len = (bucket_hdr ? sizeof(TdbBucket) : 0)
@@ -615,9 +674,9 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 	 */
 	res_len = TDB_HTRIE_DALIGN(res_len);
 
-	if (unlikely((dbh->i_wm + 1) * TDB_EXT_SZ + res_len + dbh->d_wcl
-		      > dbh->dbsz + dbh->d_wm * TDB_EXT_SZ))
-		return 0; /* not enough space */
+	local_bh_disable();
+
+	rptr = this_cpu_ptr(dbh->pcpu)->d_wcl;
 
 	if (!(rptr & ~TDB_BLK_MASK)
 	    || TDB_BLK_O(rptr + res_len) > TDB_BLK_O(rptr))
@@ -625,9 +684,9 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 		size_t max_data_len;
 
 		/* Use a new page and/or extent for the data. */
-		rptr = tdb_alloc_data_blk(dbh);
+		rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
-			return 0;
+			goto out;
 
 		max_data_len = TDB_BLK_SZ - (rptr & ~TDB_BLK_MASK);
 		if (res_len > max_data_len) {
@@ -639,41 +698,50 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 	TDB_DBG("alloc dblk %#lx for len=%lu\n", rptr, *len);
 	BUG_ON(TDB_HTRIE_DALIGN(rptr) != rptr);
 
-	dbh->d_wcl = rptr + res_len;
-	BUG_ON(TDB_HTRIE_DALIGN(dbh->d_wcl) != dbh->d_wcl);
+	new_wcl = rptr + res_len;
+	BUG_ON(TDB_HTRIE_DALIGN(new_wcl) != new_wcl);
+	this_cpu_ptr(dbh->pcpu)->d_wcl = new_wcl;
 
 	if (bucket_hdr) {
 		tdb_htrie_init_bucket(TDB_PTR(dbh, rptr));
 		rptr += sizeof(TdbBucket);
 	}
 
+out:
+	local_bh_enable();
 	return rptr;
 }
 
 /**
  * Allocates a new index block.
  * @return byte offset of the block.
- *
- * TODO synchronize this!
  */
 static unsigned long
 tdb_alloc_index(TdbHdr *dbh)
 {
-	unsigned long rptr = dbh->i_wcl;
+	unsigned long rptr = 0;
 
-	if (unlikely(TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1) > TDB_BLK_O(rptr)))
+	local_bh_disable();
+
+	rptr = this_cpu_ptr(dbh->pcpu)->i_wcl;
+
+	if (unlikely(!(rptr & ~TDB_BLK_MASK)
+		     || TDB_BLK_O(rptr + sizeof(TdbHtrieNode) - 1)
+			> TDB_BLK_O(rptr)))
 	{
-		/* Use a new page and/or extent for the data. */
-		rptr = tdb_alloc_index_blk(dbh);
+		/* Use a new page and/or extent for local CPU. */
+		rptr = tdb_alloc_blk(dbh);
 		if (!rptr)
-			return 0;
+			goto out;
 	}
 
 	TDB_DBG("alloc iblk %#lx\n", rptr);
 	BUG_ON(TDB_HTRIE_IALIGN(rptr) != rptr);
 
-	dbh->i_wcl = rptr + sizeof(TdbHtrieNode);
+	this_cpu_ptr(dbh->pcpu)->i_wcl = rptr + sizeof(TdbHtrieNode);
 
+out:
+	local_bh_enable();
 	return rptr;
 }
 
@@ -913,6 +981,9 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 
 /**
  * Add more data to @rec.
+ *
+ * The function is called to extend just added new record, so it's not expected
+ * that it can be called concurrently for the same record.
  */
 TdbVRec *
 tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
@@ -1078,17 +1149,41 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 TdbHdr *
 tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
 {
+	int cpu;
 	TdbHdr *hdr = (TdbHdr *)p;
 
-	if (hdr->magic != TDB_MAGIC)
+	if (hdr->magic != TDB_MAGIC) {
 		hdr = tdb_init_mapping(p, db_size, rec_len);
+		if (!hdr) {
+			TDB_ERR("cannot init db mapping\n");
+			return NULL;
+		}
+	}
 
-	TDB_DBG("init db header: i_wcl=%lu d_wcl=%lu db_size=%lu rec_len=%u"
-		" i_wm=%u d_wm=%u\n",
-		hdr->i_wcl, hdr->d_wcl, hdr->dbsz, hdr->rec_len, hdr->i_wm,
-		hdr->d_wm);
+	/* Set per-CPU pointers. */
+	hdr->pcpu = alloc_percpu(TdbPerCpu);
+	if (!hdr->pcpu) {
+		TDB_ERR("cannot allocate per-cpu data\n");
+		return NULL;
+	}
+	for_each_possible_cpu(cpu) {
+		TdbPerCpu *p = per_cpu_ptr(hdr->pcpu, cpu);
+		p->i_wcl = atomic64_read(&hdr->nwb);
+		atomic64_add(TDB_BLK_SZ, &hdr->nwb);
+		p->d_wcl = atomic64_read(&hdr->nwb);
+		atomic64_add(TDB_BLK_SZ, &hdr->nwb);
+	}
+
+	TDB_DBG("init db header: nwb=%lu db_size=%lu rec_len=%u\n",
+		atomic64_read(&hdr->nwb), hdr->dbsz, hdr->rec_len);
 
 	return hdr;
+}
+
+void
+tdb_htrie_exit(TdbHdr *dbh)
+{
+	free_percpu(dbh->pcpu);
 }
 
 /*
@@ -1096,11 +1191,11 @@ tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len)
  *	Testing routines
  * ------------------------------------------------------------------------
  */
-#define TDB_VSF_SZ		(2UL * 1024 * 1024 * 1024)
-#define TDB_FSF_SZ		(16UL * 1024 * 1024)
-#define THR_N			2
+#define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
+#define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
+#define THR_N			1
 #define DATA_N			100
-#define LOOP_N			2
+#define LOOP_N			1
 
 typedef struct {
 	char	*body;
@@ -1200,7 +1295,7 @@ tdb_htrie_open(const char *fname, size_t size)
 		TDB_ERR("no file");
 	}
 
-	if ((fd = open(fname, O_RDWR|O_CREAT)) < 0)
+	if ((fd = open(fname, O_RDWR|O_CREAT, O_RDWR)) < 0)
         	TDB_ERR("open failure");
 
 	if (sb.st_size != size)
@@ -1394,7 +1489,7 @@ tdb_htrie_test_varsz(const char *fname)
 	assert(!r);
 
 	for (t = 0; t < THR_N; ++t)
-		if (pthread_create(thr + t, NULL, varsz_thr_f, dbh))
+		if (spawn_thread(thr + t, varsz_thr_f, dbh))
 			perror("cannot spawn varsz thread");
 	for (t = 0; t < THR_N; ++t)
 		pthread_join(thr[t], NULL);
@@ -1430,7 +1525,7 @@ tdb_htrie_test_fixsz(const char *fname)
 	assert(!r);
 
 	for (t = 0; t < THR_N; ++t)
-		if (pthread_create(thr + t, NULL, fixsz_thr_f, dbh))
+		if (spawn_thread(thr + t, fixsz_thr_f, dbh))
 			perror("cannot spawn fixsz thread");
 	for (t = 0; t < THR_N; ++t)
 		pthread_join(thr[t], NULL);
@@ -1479,13 +1574,17 @@ init_test_data_for_htrie(void)
 
 		r %= 65536;
 		urls[i].body = malloc(r + 1);
-		urls[i].len = r + 1;
 		if (!urls[i].body) {
 			TDB_ERR("not enough memory\n");
 			BUG();
 		}
-		read(rfd, urls[i].body, r);
+		r = read(rfd, urls[i].body, r);
+		if (r <= 0) {
+			TDB_ERR("can't read urandom data\n");
+			BUG();
+		}
 		urls[i].body[r] = 0;
+		urls[i].len = r + 1;
 	}
 
 	close(rfd);
