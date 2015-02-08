@@ -21,8 +21,8 @@ endif
 
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
-CFLAGS		= -O0 -msse4.2 -ggdb -Wall -Werror -lpthread \
-		  -DTDB_CL_SZ=$(CACHELINE)
+CFLAGS		= -O2 -msse4.2 -ggdb -Wall -Werror -fno-strict-aliasing \
+		  -lpthread -DL1_CACHE_BYTES=$(CACHELINE)
 TARGETS		= tdb_htrie
 
 all : $(TARGETS)

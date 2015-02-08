@@ -27,7 +27,7 @@
 #include "htrie.h"
 #include "work.h"
 
-MODULE_AUTHOR("NatSys Lab. (http://natsys-lab.com)");
+MODULE_AUTHOR("Tempesta Technologies (http://tempesta-tech.com)");
 MODULE_DESCRIPTION("Tempesta DB");
 MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
@@ -85,6 +85,8 @@ EXPORT_SYMBOL(tdb_lookup);
 
 /**
  * Work queue wrapper for tdb_file_open() (real file open).
+ * We have to call the function from work queue to map database
+ * file to kernel context.
  */
 static void
 tdb_open_db(struct work_struct *work)
@@ -145,6 +147,8 @@ tdb_close(TDB *db)
 {
 	/* Unmapping can be done from process context. */
 	tdb_file_close(db);
+
+	tdb_htrie_exit(db->hdr);
 
 	kfree(db);
 }

@@ -30,11 +30,12 @@
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)
 /* Get extent id by a record offset. */
-#define TDB_EXT_ID(o)		(TDB_EXT_O(o) >> TDB_EXT_BITS)
+#define TDB_EXT_ID(o)		((unsigned long)(o) >> TDB_EXT_BITS)
 /* Block absolute offset. */
 #define TDB_BLK_O(x)		((x) & TDB_BLK_MASK)
 /* Get block index in an extent. */
 #define TDB_BLK_ID(x)		(((x) & PAGE_MASK) & ~TDB_EXT_MASK)
+#define TDB_BLK_ALIGN(x)	TDB_BLK_O((x) + TDB_BLK_SZ - 1)
 
 /* True if the tree keeps variable length records. */
 #define TDB_HTRIE_VARLENRECS(h)	(!(h)->rec_len)
@@ -53,13 +54,16 @@
  * The most significant bit is used to flag data pointer/offset.
  * Index blocks are addressed by index of a L1_CACHE_BYTES-byte blocks in the file,
  * while data blocks are addressed by indexes of TDB_HTRIE_MINDREC blocks.
- * So theoretical size of the database shard which can be addressed is 256GB.
+ *
+ * So the maximum size of one database table is 128GB per processor package,
+ * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
 				 / BITS_PER_LONG)
+#define TDB_MAX_DB_SZ		((1UL << 31) * L1_CACHE_BYTES)
 /* Get internal offset from a pointer. */
 #define TDB_HTRIE_OFF(h, p)	((unsigned long)(p) - (unsigned long)(h))
 /* Base offset of extent containing pointer @p. */
@@ -73,6 +77,7 @@
 typedef struct {
 	unsigned int 	coll_next;
 	unsigned int	flags;
+	rwlock_t	lock;
 } __attribute__((packed)) TdbBucket;
 
 #define TDB_HTRIE_VRFREED	TDB_HTRIE_DBIT
@@ -142,5 +147,6 @@ TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 size_t *len);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
+void tdb_htrie_exit(TdbHdr *dbh);
 
 #endif /* __HTRIE_H__ */
