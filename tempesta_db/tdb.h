@@ -29,31 +29,41 @@
 #define TDB_PATH_LEN	128
 
 /**
+ * Per-CPU dynamically allocated data for TDB handler.
+ * Access to the data must be with preemption disabled for reentrance between
+ * softirq and process cotexts.
+ *
+ * @i_wcl, @d_wcl - per-CPU current partially written index and data blocks.
+ *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
+ *		    the variable. The variables are initialized in runtime,
+ *		    so we lose some free space on system restart.
+ */
+typedef struct {
+	unsigned long	i_wcl;
+	unsigned long	d_wcl;
+} TdbPerCpu;
+
+/**
  * Tempesta DB file descriptor.
  *
  * We store independent records in at least cache line size data blocks
  * to avoid false sharing.
  *
  * @dbsz	- the database size in bytes;
+ * @nwb		- next to write block (byte offset);
+ * @pcpu	- pointer to per-cpu dynamic data for the TDB handler;
  * @rec_len	- fixed-size records length or zero for variable-length records;
- * @i_wcl	- index block next to write (byte offset);
- * @d_wcl	- data block next to write (byte offset);
- * @ext_bmp	- bitmap of used/free extents.
+ ** @ext_bmp	- bitmap of used/free extents.
  * 		  Must be small and cache line aligned;
- * @i_wm, @d_wm	- watermarks (in extents) for index and data correspondingly.
- * 		  The watermarks grow towards each other and their meeting
- * 		  signals that the data file is full;
  */
 typedef struct {
-	unsigned long	magic;
-	unsigned long	dbsz;
-	unsigned long	i_wcl;
-	unsigned long	d_wcl;
-	unsigned int	rec_len;
-	unsigned short	i_wm;
-	unsigned short	d_wm;
-	unsigned char	_padding[8 * 3];
-	unsigned long	ext_bmp[0];
+	unsigned long		magic;
+	unsigned long		dbsz;
+	atomic64_t		nwb;
+	TdbPerCpu __percpu	*pcpu;
+	unsigned int		rec_len;
+	unsigned char		_padding[8 * 3 + 4];
+	unsigned long		ext_bmp[0];
 } __attribute__((packed)) TdbHdr;
 
 /* Database handle descriptor. */
@@ -120,6 +130,9 @@ typedef TdbFRec TdbRec;
 #endif
 #define TDB_ERR(...)		pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
+/*
+ * Storage routines.
+ */
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
 void *tdb_lookup(TDB *db, unsigned long key);
