@@ -120,7 +120,7 @@ tdb_hash_calc(const char *data, size_t len)
 #define LOOP_N			1
 
 typedef struct {
-	char	*body;
+	char	*data;
 	size_t	len;
 } TestUrl;
 
@@ -186,8 +186,8 @@ hash_calc_benchmark(void)
 	r = gettimeofday(&tv0, NULL);
 	assert(!r);
 	for (i = 0; i < N; ++i)
-		for (u = urls; u->body; ++u)
-			acc += tdb_hash_calc(u->body, u->len);
+		for (u = urls; u->data; ++u)
+			acc += tdb_hash_calc(u->data, u->len);
 	r = gettimeofday(&tv1, NULL);
 	assert(!r);
 	printf("tdb hash: time=%lums ignore_val=%d\n",
@@ -196,8 +196,8 @@ hash_calc_benchmark(void)
 	r = gettimeofday(&tv0, NULL);
 	assert(!r);
 	for (i = 0; i < N; ++i)
-		for (u = urls; u->body; ++u)
-			acc += test_hash_calc_dummy(u->body, u->len);
+		for (u = urls; u->data; ++u)
+			acc += test_hash_calc_dummy(u->data, u->len);
 	r = gettimeofday(&tv1, NULL);
 	assert(!r);
 	printf("dummy hash: time=%lums ignore_val=%d\n",
@@ -247,15 +247,22 @@ tdb_htrie_pure_close(void *addr, size_t size)
 	munmap(addr, size);
 }
 
+#define __print_bin(s, prefix, suffix)					\
+do {									\
+	int _i, _n = (s)->len < 40 ? (s)->len : 40;			\
+	printf(prefix "[0x");						\
+	for (_i = 0; _i < _n; ++_i)					\
+		printf("%x", (unsigned char)(s)->data[_i]);		\
+	printf(_n < (s)->len						\
+	       ? "...] (len=%lu)" suffix				\
+	       : "] (len=%lu)",						\
+	       (unsigned long)(s)->len);				\
+} while (0)
+
 static void
 print_bin_url(TestUrl *u)
 {
-	int i, len = u->len < 40 ? u->len : 40;
-
-	printf("insert [0x");
-	for (i = 0; i < len; ++i)
-		printf("%x", (unsigned char)u->body[i]);
-	printf(len < u->len ? "...] (len=%lu)\n" : "] (len=%lu)\n", u->len);
+	__print_bin(u, "insert ", "\n");
 	fflush(NULL);
 }
 
@@ -267,13 +274,13 @@ do_varsz(TdbHdr *dbh)
 
 	/* Store records. */
 	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
-		unsigned long k = tdb_hash_calc(u->body, u->len);
+		unsigned long k = tdb_hash_calc(u->data, u->len);
 		size_t copied, to_copy = u->len;
 		TdbVRec *rec;
 
 		print_bin_url(u);
 
-		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->body, &to_copy);
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy);
 		assert((u->len && rec) || (!u->len && !rec));
 
 		copied = to_copy;
@@ -285,7 +292,7 @@ do_varsz(TdbHdr *dbh)
 			assert(rec);
 
 			p = (char *)(rec + 1);
-			memcpy(p, u->body + copied, rec->len);
+			memcpy(p, u->data + copied, rec->len);
 
 			copied += rec->len;
 		}
@@ -293,7 +300,7 @@ do_varsz(TdbHdr *dbh)
 
 	/* Read records. */
 	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
-		unsigned long k = tdb_hash_calc(u->body, u->len);
+		unsigned long k = tdb_hash_calc(u->data, u->len);
 		TdbBucket *b;
 
 		print_bin_url(u);
@@ -301,7 +308,7 @@ do_varsz(TdbHdr *dbh)
 		b = tdb_htrie_lookup(dbh, k);
 		if (!b) {
 			fprintf(stderr, "ERROR: can't find URL [%.20s...]\n",
-				u->body);
+				u->data);
 			fflush(NULL);
 			continue;
 		}
@@ -309,11 +316,12 @@ do_varsz(TdbHdr *dbh)
 		if (TDB_HTRIE_VARLENRECS(dbh)) {
 			TdbVRec *r;
 			TDB_HTRIE_FOREACH_REC(dbh, b, r) {
-				if (tdb_live_vsrec(r))
-					TDB_DBG("\t[%.64s...] key=%#lx"
-						" bckt=%p\n", r->data,
-						tdb_hash_calc(r->data, r->len),
-						b);
+				if (tdb_live_vsrec(r)) {
+					__print_bin(r, "\t", "");
+					printf("key=%#lx bckt=%p\n",
+					       tdb_hash_calc(r->data, r->len),
+					       b);
+				}
 			}
 		} else {
 			BUG();
@@ -474,8 +482,8 @@ init_test_data_for_hash(void)
 	TestUrl *u;
 
 	/* Load urls pages and precompute string lengths (with terminator). */
-	for (u = urls; u->body; ++u)
-		u->len = strlen(u->body) + 1;
+	for (u = urls; u->data; ++u)
+		u->len = strlen(u->data) + 1;
 }
 
 static void
@@ -495,17 +503,17 @@ init_test_data_for_htrie(void)
 		ints[i] = r;
 
 		r %= 65536;
-		urls[i].body = malloc(r + 1);
-		if (!urls[i].body) {
+		urls[i].data = malloc(r + 1);
+		if (!urls[i].data) {
 			TDB_ERR("not enough memory\n");
 			BUG();
 		}
-		r = read(rfd, urls[i].body, r);
+		r = read(rfd, urls[i].data, r);
 		if (r <= 0) {
 			TDB_ERR("can't read urandom data\n");
 			BUG();
 		}
-		urls[i].body[r] = 0;
+		urls[i].data[r] = 0;
 		urls[i].len = r + 1;
 	}
 
