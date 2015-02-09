@@ -4,6 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -94,12 +95,12 @@ int
 tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 {
 	TfwAddr addr;
-	char addr_str_buf[MAX_ADDR_LEN];
+	char addr_str_buf[TFW_ADDR_STR_BUF_SIZE];
 
 	BUG_ON(!srv || !buf || !buf_size);
 
 	tfw_server_get_addr(srv, &addr);
-	tfw_inet_ntop(&addr, addr_str_buf);
+	tfw_addr_ntop(&addr, addr_str_buf, sizeof(addr_str_buf));
 
 	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }
@@ -120,4 +121,3 @@ tfw_server_exit(void)
 {
 	kmem_cache_destroy(srv_cache);
 }
-

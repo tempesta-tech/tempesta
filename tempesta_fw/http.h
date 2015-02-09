@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -135,11 +136,14 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 } TfwHttpMsg;
 
+/* XXX: the @uri field name is confused. It is not an URI as defined by RFCs,
+ * but rather only a part of the URI.
+ */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	unsigned char	method;
 	TfwStr		host; /* host in URI, may differ from Host header */
-	TfwStr		uri;
+	TfwStr		uri;  /* path + query + fragment from URI (RFC3986.3) */
 } TfwHttpReq;
 
 typedef struct {
@@ -158,9 +162,6 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
-int tfw_http_init(void);
-void tfw_http_exit(void);
-
 unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
 
 #endif /* __TFW_HTTP_H__ */

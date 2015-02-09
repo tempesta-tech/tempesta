@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,20 +22,61 @@
 #define __TFW_LOG_H__
 
 #include <linux/kernel.h>
-#include <linux/net.h>
 
 #define TFW_BANNER		"[tempesta] "
 
+/*
+ * We have different verbosity levels for debug messages.
+ * They are controlled by the DEBUG macro which is usually passed via the
+ * compiler option.
+ *   -DDEBUG or -DDEBUG=1 enables the debug logging via TFW_DBG().
+ *   -DDEBUG=2 - same as above, but also enables TFW_DBG2().
+ *   -DDEBUG=3 - same as above plus TFW_DBG3().
+ *   ...etc
+ * Currently there are only 3 levels, but they may be added in future as needed.
+ *
+ * Also -DDEBUG disables rate limiting of non-debug messages, but this is a
+ * temporary thing that will be removed when logger modules will be implemented.
+ */
+
+#define __TFW_DBG1(...) pr_debug(TFW_BANNER "  " __VA_ARGS__)
+#define __TFW_DBG2(...) pr_debug(TFW_BANNER "    " __VA_ARGS__)
+#define __TFW_DBG3(...) pr_debug(TFW_BANNER "      " __VA_ARGS__)
+
 #ifdef DEBUG
-#define TFW_DBG(...)	pr_debug(TFW_BANNER "  " __VA_ARGS__)
+#define TFW_DBG_LVL (DEBUG + 0)
+#else
+#define TFW_DBG_LVL 0
+#endif
+
+#if (TFW_DBG_LVL >= 1)
+#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
 #else
 #define TFW_DBG(...)
 #endif
 
-#define TFW_LOG(...)	net_info_ratelimited(TFW_BANNER __VA_ARGS__)
-#define TFW_WARN(...)	net_warn_ratelimited(TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
+#if (TFW_DBG_LVL >= 2)
+#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
+#else
+#define TFW_DBG2(...)
+#endif
 
+#if (TFW_DBG_LVL >= 3)
+#define TFW_DBG3(...) __TFW_DBG3(__VA_ARGS__)
+#else
+#define TFW_DBG3(...)
+#endif
+
+#ifdef DEBUG
+#define TFW_ERR(...)	printk(TFW_BANNER "ERROR: " __VA_ARGS__)
+#define TFW_WARN(...)	printk(TFW_BANNER "Warning: " __VA_ARGS__)
+#define TFW_LOG(...)	printk(TFW_BANNER __VA_ARGS__)
+#else
+#include <linux/net.h>
+#define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
+#define TFW_WARN(...)	net_warn_ratelimited(TFW_BANNER "Warning: " __VA_ARGS__)
+#define TFW_LOG(...)	net_info_ratelimited(TFW_BANNER __VA_ARGS__)
+#endif
 
 /*
  * Print an IP address into a buffer (allocated on stack) and then evaluate
@@ -45,8 +87,8 @@
  */
 #define TFW_WITH_ADDR_FMT(addr_ptr, fmtd_addr_var_name, action_expr)  \
 do { \
-	char fmtd_addr_var_name[MAX_ADDR_LEN]; \
-	tfw_inet_ntop(addr_ptr, fmtd_addr_var_name); \
+	char fmtd_addr_var_name[TFW_ADDR_STR_BUF_SIZE]; \
+	tfw_addr_ntop(addr_ptr, fmtd_addr_var_name, sizeof(fmtd_addr_var_name)); \
 	action_expr; \
 } while (0)
 

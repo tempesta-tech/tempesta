@@ -1,6 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -31,10 +32,9 @@ build:
 	make -C $(KERNEL) M=$(PWD) modules
 
 test: build
-	SYNC_SOCKET=./sync_socket TDB=./tempesta_db ./tempesta.sh start
+	./tempesta.sh load_modules
 	./tempesta_fw/t/unit/run_all_tests.sh
-	./tempesta.sh stop
-	./tempesta_fw/t/functional/run_all_tests.sh
+	./tempesta.sh unload_modules
 
 clean:
 	make -C $(KERNEL) M=$(PWD) clean
