@@ -64,6 +64,26 @@
 #include "http_match.h"
 #include "http.h"
 
+/*
+ * Use -DTFW_HTTP_MATCH_DBG_LVL=N to increase verbosity just for this unit.
+ *
+ * At the level 1 you get a log message for every processed HTTP message,
+ * and at level 2 a message for each rule against which the request is matched.
+ */
+#ifndef TFW_HTTP_MATCH_DBG_LVL
+#define TFW_HTTP_MATCH_DBG_LVL 0
+#endif
+
+#if (TFW_HTTP_MATCH_DBG_LVL >= 1)
+#undef TFW_DBG
+#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
+#endif
+
+#if (TFW_HTTP_MATCH_DBG_LVL >= 2)
+#undef TFW_DBG2
+#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
+#endif
+
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @val with the header's value (skipping name and LWS).
@@ -144,6 +164,7 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 * TODO:
 	 *  2.7.3: compare normalized URIs.
 	 */
+	flags |= TFW_STR_EQ_CASEI;
 
 	return tfw_str_eq_cstr(&req->uri, rule->arg.str, rule->arg.len, flags);
 }
@@ -253,9 +274,9 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_http_match_fld_t field;
 	tfw_http_match_arg_t arg_type;
 
-	TFW_DBG("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
-	        rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
-	        rule->arg.len, rule->arg.str);
+	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
+	          rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
+	          rule->arg.len, rule->arg.str);
 
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);

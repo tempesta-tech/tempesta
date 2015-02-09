@@ -4,6 +4,7 @@
  * Handling client and server sessions (at OSI level 5 and higher).
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -72,7 +73,7 @@ tfw_session_free(TfwSession *s)
 	kmem_cache_free(sess_cache, s);
 }
 
-int
+int __init
 tfw_session_init(void)
 {
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwSession),
@@ -87,4 +88,3 @@ tfw_session_exit(void)
 {
 	kmem_cache_destroy(sess_cache);
 }
-

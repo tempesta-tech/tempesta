@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,8 +27,5 @@ typedef struct {
 
 TfwClient *tfw_create_client(struct sock *s);
 void tfw_destroy_client(struct sock *s);
-
-int tfw_client_init(void);
-void tfw_client_exit(void);
 
 #endif /* __TFW_CLIENT_H__ */

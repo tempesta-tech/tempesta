@@ -5,6 +5,7 @@
  * into separate library units.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,6 +47,16 @@
 #define DEBUG_EXPORT_SYMBOL(sym) EXPORT_SYMBOL(sym)
 #else
 #define DEBUG_EXPORT_SYMBOL(sym)
+#endif
+
+/**
+ * A cleaner replacement for #ifdef DEBUG used to eliminate sections of code
+ * in a release build.
+ */
+#ifdef DEBUG
+#define IF_DEBUG if (1)
+#else
+#define IF_DEBUG if (0)
 #endif
 
 #endif /* __TFW_LIB_H__ */

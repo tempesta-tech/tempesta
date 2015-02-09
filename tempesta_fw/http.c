@@ -4,6 +4,7 @@
  * HTTP processing.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -927,6 +928,21 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
 		: tfw_http_resp_process(c, data, len);
 }
 
+/**
+ * Calculate key of a HTTP request by hashing its URI and Host header.
+ *
+ * Requests with the same URI and Host are mapped to the same key with
+ * high probability. Different keys may be calculated for the same Host and URI
+ * when they consist of many chunks.
+ */
+unsigned long
+tfw_http_req_key_calc(const TfwHttpReq *req)
+{
+	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
+		tfw_hash_str(&req->uri));
+}
+EXPORT_SYMBOL(tfw_http_req_key_calc);
+
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_destruct	= tfw_http_conn_destruct,
@@ -949,18 +965,3 @@ void
 tfw_http_exit(void)
 {
 }
-
-/**
- * Calculate key of a HTTP request by hashing its URI and Host header.
- *
- * Requests with the same URI and Host are mapped to the same key with
- * high probability. Different keys may be calculated for the same Host and URI
- * when they consist of many chunks.
- */
-unsigned long
-tfw_http_req_key_calc(const TfwHttpReq *req)
-{
-	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
-	        tfw_hash_str(&req->uri));
-}
-EXPORT_SYMBOL(tfw_http_req_key_calc);

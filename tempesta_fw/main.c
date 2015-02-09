@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,120 +20,74 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 
 #include "tempesta.h"
-#include "cache.h"
-#include "client.h"
-#include "debugfs.h"
-#include "filter.h"
-#include "http.h"
 #include "log.h"
-#include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
 MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
-TfwCfg tfw_cfg;
+typedef void (*exit_fn)(void);
+exit_fn exit_hooks[32];
+size_t  exit_hooks_n;
 
-static unsigned int cache_size = 256 * 1024;
-module_param(cache_size, uint, 0444);
-MODULE_PARM_DESC(cache_size, "Maximum cache size in pages");
+#define DO_INIT(mod)					\
+do {								\
+	extern int tfw_##mod##_init(void);			\
+	extern void tfw_##mod##_exit(void);			\
+	BUG_ON(exit_hooks_n >= ARRAY_SIZE(exit_hooks));		\
+	TFW_LOG("init: %s\n", #mod);				\
+	r = tfw_##mod##_init();					\
+	if (r) {						\
+		TFW_ERR("can't initialize Tempesta FW module: '%s' (%d)\n", \
+			#mod, r);				\
+		goto err;					\
+	}							\
+	exit_hooks[exit_hooks_n++] = tfw_##mod##_exit;		\
+} while (0)
 
-static char *cache_path = "/opt/tempesta/cache";
-module_param(cache_path, charp, 0444);
-MODULE_PARM_DESC(cache_path, "Path to cache directory");
+#define DO_CFG_REG(mod)						\
+do {								\
+	extern TfwCfgMod tfw_##mod##_cfg_mod;			\
+	r = tfw_cfg_mod_register(&tfw_##mod##_cfg_mod);		\
+	if (r)							\
+		goto err;					\
+} while (0)
 
-int tfw_connection_init(void);
-void tfw_connection_exit(void);
-
-int tfw_sched_dummy_init(void);
-void tfw_sched_dummy_exit(void);
+static void
+tfw_exit(void)
+{
+	int i;
+	TFW_LOG("exiting...\n");
+	for (i = exit_hooks_n - 1; i >= 0; --i) {
+		exit_hooks[i]();
+	}
+}
 
 static int __init
 tfw_init(void)
 {
 	int r;
 
-	TFW_LOG("Start Tempesta\n");
+	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
-	/* Initialize tfw_cfg. */
-	init_rwsem(&tfw_cfg.mtx);
-	tfw_cfg.c_size = cache_size;
-	memcpy(tfw_cfg.c_path, cache_path, DEF_PROC_STR_LEN);
+	DO_INIT(cfg_if);
+	DO_INIT(http);
+	DO_INIT(server);
+	DO_INIT(client);
+	DO_INIT(session);
+	DO_INIT(connection);
 
-	r = tfw_if_init();
-	if (r)
-		return r;
-
-	r = tfw_debugfs_init();
-	if (r)
-		goto err_debugfs;
-
-	r = tfw_cache_init();
-	if (r)
-		goto err_cache;
-
-	r = tfw_http_init();
-	if (r)
-		goto err_http;
-
-#if 0
-	r = tfw_filter_init();
-#endif
-	if (r)
-		goto err_filter;
-
-	r = tfw_server_init();
-	if (r)
-		goto err_server;
-
-	r = tfw_client_init();
-	if (r)
-		goto err_client;
-
-	r = tfw_connection_init();
-	if (r)
-		goto err_connection;
+	DO_CFG_REG(cache);
+	DO_CFG_REG(sock_backend);
+	DO_CFG_REG(sock_frontend);
 
 	return 0;
-
-err_connection:
-	tfw_client_exit();
-err_client:
-	tfw_server_exit();
-err_server:
-#if 0
-	tfw_filter_stop();
-#endif
-err_filter:
-	tfw_http_exit();
-err_http:
-	tfw_cache_exit();
-err_cache:
-	tfw_debugfs_exit();
-err_debugfs:
-	tfw_if_exit();
-
+err:
+	tfw_exit();
 	return r;
-}
-
-static void __exit
-tfw_exit(void)
-{
-	TFW_LOG("Shutdown Tempesta\n");
-
-	tfw_connection_exit();
-	tfw_client_exit();
-	tfw_server_exit();
-#if 0
-	tfw_filter_stop();
-#endif
-	tfw_http_exit();
-	tfw_cache_exit();
-	tfw_if_exit();
 }
 
 module_init(tfw_init);
