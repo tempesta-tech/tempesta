@@ -95,6 +95,13 @@ static struct task_struct *cache_mgr_thr;
 static struct workqueue_struct *cache_wq;
 static struct kmem_cache *c_cache;
 
+static struct {
+	bool cache;
+	unsigned int db_size;
+	const char *db_path;
+} cache_cfg __read_mostly;
+
+
 /**
  * Calculates search key for the request URI and Host header.
  */
@@ -280,7 +287,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	unsigned long key;
 	size_t len = sizeof(cdata);
 
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		goto out;
 
 	key = tfw_cache_key_calc(req);
@@ -435,7 +442,7 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 	int node;
 	unsigned long key;
 
-	if (!tfw_cfg.cache) {
+	if (!cache_cfg.cache) {
 		action(req, NULL, data);
 		return;
 	}
@@ -486,15 +493,15 @@ tfw_cache_mgr(void *arg)
 	return 0;
 }
 
-int __init
-tfw_cache_init(void)
+static int
+tfw_cache_start(void)
 {
 	int r = 0;
 
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		return 0;
 
-	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0);
+	db = tdb_open(cache_cfg.db_path, cache_cfg.db_size, 0);
 	if (!db)
 		return 1;
 
@@ -523,14 +530,46 @@ err_thr:
 	return r;
 }
 
-void
-tfw_cache_exit(void)
+static void
+tfw_cache_stop(void)
 {
-	if (!tfw_cfg.cache)
+	if (!cache_cfg.cache)
 		return;
 
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
-	tdb_close(db);
 }
+
+static TfwCfgSpec tfw_cache_cfg_specs[] = {
+	{
+		"cache", "off",
+		tfw_cfg_set_bool,
+		&cache_cfg.cache
+	},
+	{
+		"cache_size", "262144",
+		tfw_cfg_set_int,
+		&cache_cfg.db_size,
+		&(TfwCfgSpecInt) {
+			.multiple_of = PAGE_SIZE,
+			.range = { PAGE_SIZE, (1 << 30) },
+		}
+	},
+	{
+		"cache_dir", "/opt/tempesta/cache",
+		tfw_cfg_set_str,
+		&cache_cfg.db_path,
+		&(TfwCfgSpecStr) {
+			.len_range = { 1, PATH_MAX },
+		}
+	},
+	{}
+};
+
+TfwCfgMod tfw_cache_cfg_mod = {
+	.name 	= "cache",
+	.start	= tfw_cache_start,
+	.stop	= tfw_cache_stop,
+	.specs	= tfw_cache_cfg_specs,
+};

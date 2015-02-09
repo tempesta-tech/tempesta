@@ -939,6 +939,13 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
  * 	for ( ; *u; ++u)
  * 		uap_a[*u >> 6] |= 1UL << (*u & 0x3f);
  */
+/*
+ * BUG: according to RFC 2616, absolute paths doesn't include the query string:
+ *     http_URL = "http:" "//" host [ ":" port ] [ abs_path [ "?" query ]]
+ * So the alphabet contains characters valid for query but invalid for abs_path.
+ * In a similar way, that violates RFC 7230 that distinguishes "absolute-path"
+ * from "query" and "fragment" components.
+ */
 static const unsigned long uap_a[] ____cacheline_aligned = {
 	0xaffffffa00000000UL, 0x47fffffeafffffffUL, 0, 0
 };
@@ -1462,6 +1469,10 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	/* URI abs_path */
+	/* BUG: the code parses not only "abs_path".
+	 * E.g., we get "/foo/bar/baz?query#fragment" instead of "/foo/bar/baz"
+	 * as we should according to RFC 2616 (3.2.2) and RFC 7230 (2.7).
+	 */
 	__FSM_STATE(Req_UriAbsPath) {
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */

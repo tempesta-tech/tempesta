@@ -27,6 +27,7 @@ obj-m	= tempesta_fw.o
 tempesta_fw-objs = \
 	addr.o \
 	cache.o \
+	cfg.o \
 	classifier.o \
 	client.o \
 	connection.o \
@@ -38,7 +39,6 @@ tempesta_fw-objs = \
 	http_match.o \
 	http_msg.o \
 	http_parser.o \
-	if.o \
 	main.o \
 	pool.o \
 	sched.o \

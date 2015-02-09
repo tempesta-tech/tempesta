@@ -15,6 +15,7 @@ Module.symvers
 .\#*
 
 # eclipse project settings
+.pydevproject
 .project
 .cproject
 .settings
