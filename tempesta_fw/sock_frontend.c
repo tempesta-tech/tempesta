@@ -121,7 +121,6 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 start_listen_socks(void)
 {
-
 	struct socket *sock;
 	int i, r;
 

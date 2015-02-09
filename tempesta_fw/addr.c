@@ -36,10 +36,8 @@ validate_addr(const TfwAddr *addr)
 	/* At this point we are not going to support addresses other than
 	 * IPv4 and IPv6, so we check it here, so all functions may safely
 	 * assume that they get either one family and nothing else. */
-	IF_DEBUG {
-		BUG_ON(!addr);
-		BUG_ON(addr->family != AF_INET && addr->family != AF_INET6);
-	}
+	BUG_ON(!addr);
+	BUG_ON(addr->family != AF_INET && addr->family != AF_INET6);
 }
 
 static int
