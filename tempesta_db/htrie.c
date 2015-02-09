@@ -151,8 +151,10 @@ repeat:
 		goto repeat; /* race conflict, retry */
 
 	if (unlikely(!i && !r)) {
+		/* First block in the extent. */
 		r = sizeof(*e);
 		if (unlikely(TDB_EXT_O(e) == TDB_EXT_O(dbh)))
+			/* First extent in the database. */
 			return r + TDB_HDR_SZ(dbh);
 		return r + TDB_EXT_BASE(dbh, e);
 	}
@@ -161,44 +163,42 @@ repeat:
 	       + (i * BITS_PER_LONG + r) * TDB_BLK_SZ;
 }
 
-
 static unsigned long
 tdb_alloc_blk(TdbHdr *dbh)
 {
 	TdbExt *e;
 	long g_nwb, rptr, next_blk;
 
-	while (1) {
-		g_nwb = atomic64_read(&dbh->nwb);
-		e = tdb_ext(dbh, TDB_PTR(dbh, g_nwb));
+retry:
+	g_nwb = atomic64_read(&dbh->nwb);
+	e = tdb_ext(dbh, TDB_PTR(dbh, g_nwb));
 
-		if (likely(g_nwb & ~TDB_EXT_MASK)) {
-			/*
-			 * Current extent was already getted.
-			 * Probably we can allocate some memory in this extent.
-			 */
-			rptr = __tdb_alloc_blk_ext(dbh, e);
-			if (likely(rptr))
-				break;
-			/*
-			 * No way, there is no room in current extent -
-			 * update current pointer or try the next extent.
-			 *
-			 * TODO we recheck dbh->nwb just in assumption
-			 * that eviction/freeing thread moved it back.
-			 */
-			if (unlikely(g_nwb != atomic64_read(&dbh->nwb)))
-				continue;
-			e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
-		}
+	if (likely(g_nwb & ~TDB_EXT_MASK)) {
 		/*
-		 * Whole extent can't be fully utilized by concurrent contexts
-		 * while we're in the function.
+		 * Current extent was already getted.
+		 * Probably we can allocate some memory in this extent.
 		 */
-		break;
+		rptr = __tdb_alloc_blk_ext(dbh, e);
+		if (likely(rptr))
+			goto allocated;
+		/*
+		 * No way, there is no room in current extent -
+		 * update current pointer or try the next extent.
+		 *
+		 * TODO we recheck dbh->nwb just in assumption
+		 * that eviction/freeing thread moved it back.
+		 */
+		if (unlikely(g_nwb != atomic64_read(&dbh->nwb)))
+			goto retry;
+		e = (TdbExt *)((unsigned long)e + TDB_EXT_SZ);
 	}
 
-	/* New extent should be used. */
+	/*
+	 * The new extent should be used.
+	 * Whole extent shouldn't be fully utilized by concurrent contexts
+	 * while we're in the function, so we expect that it will satisfy
+	 * our allocation request.
+	 */
 	if (unlikely(TDB_HTRIE_OFF(dbh, e) == dbh->dbsz)) {
 		TDB_ERR("out of free space\n");
 		return 0;
@@ -206,16 +206,22 @@ tdb_alloc_blk(TdbHdr *dbh)
 	BUG_ON(TDB_HTRIE_OFF(dbh, e) > dbh->dbsz);
 	set_bit(TDB_EXT_ID(TDB_EXT_BASE(dbh, e)), dbh->ext_bmp);
 
-	TDB_DBG("Alloc new extent %p\n", e);
+	TDB_DBG("Allocated new extent %p\n", e);
 
 	rptr = __tdb_alloc_blk_ext(dbh, e);
 	BUG_ON(!rptr);
 
+allocated:
 	next_blk = rptr + TDB_BLK_SZ;
 	for ( ; g_nwb <= rptr; g_nwb = atomic64_read(&dbh->nwb))
 		atomic64_cmpxchg(&dbh->nwb, g_nwb, next_blk);
 
-	return TDB_HTRIE_IALIGN(rptr);
+	/*
+	 * Align offsets of new blocks for data records.
+	 * This is only for first blocks in extents, so we lose only
+	 * TDB_HTRIE_MINDREC - L1_CACHE_BYTES per extent.
+	 */
+	return TDB_HTRIE_DALIGN(rptr);
 }
 
 static void
@@ -371,10 +377,12 @@ done:
 }
 
 /**
- * Grow the tree.
+ * Grow the tree by bursting current data bucket @bckt.
  *
  * @node	- current index node at which least significant bits collision
  * 		  happened. Set to the new node to continue the search from.
+ * @bits	- number of successfully resolved bits, the next TDB_HTRIE_BITS
+ * 		  determine current tree branch offset at @node.
  *
  * Called under bucket lock, so we can safely copy and remove records
  * from the bucket.
@@ -393,7 +401,7 @@ tdb_htrie_burst(TdbHdr *dbh, TdbHtrieNode **node, TdbBucket *bckt,
 		unsigned char	off;
 	} nb[TDB_HTRIE_FANOUT] = {{0, 0}};
 
-	/* Just a consistency check. Should be removed in future. */
+	/* TODO Just a consistency check. Should be removed in future. */
 	shift_save = (*node)->shifts[TDB_HTRIE_IDX(key, bits - TDB_HTRIE_BITS)];
 
 	n = tdb_alloc_index(dbh);
@@ -459,17 +467,15 @@ do {									\
 
 #undef MOVE_RECORDS
 
-	/* Link the new index node with @node. */
+	/*
+	 * Link the new index node with @node.
+	 * Nobody should change the index block, while the bucket lock is held.
+	 */
+	k = TDB_HTRIE_IDX(key, bits - TDB_HTRIE_BITS);
 	TDB_DBG("link iblk=%p w/ iblk=%p (%#x) by idx=%#lx\n",
 		*node, new_in, new_in_idx, k);
-	if (unlikely(atomic_cmpxchg((atomic_t *)&(*node)->shifts[k],
-				    shift_save, new_in_idx)
-		     != shift_save))
-		/*
-		 * Nobody should change the index block,
-		 * while the bucket lock is held.
-		 */
-		BUG();
+	BUG_ON((*node)->shifts[k] != shift_save);
+	(*node)->shifts[k] = new_in_idx;
 	*node = new_in;
 
 	/* Now we can safely remove all copied records. */
@@ -603,7 +609,7 @@ retry:
 TdbRec *
 tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
 {
-	int i, bits = 0;
+	int bits = 0;
 	unsigned long o;
 	TdbBucket *bckt;
 	TdbRec *rec = NULL;
@@ -616,6 +622,8 @@ tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data, size_t *len)
 retry:
 	o = tdb_htrie_descend(dbh, &node, key, &bits);
 	if (!o) {
+		int i;
+
 		TDB_DBG("Create a new htrie node for key %#lx\n", key);
 
 		o = tdb_alloc_data(dbh, len, 1);
@@ -628,6 +636,9 @@ retry:
 		if (atomic_cmpxchg((atomic_t *)&node->shifts[i], 0,
 				   TDB_O2DI(o) | TDB_HTRIE_DBIT) == 0)
 			return rec;
+		/* Somebody already created the new brach. */
+		// TODO free just allocated data block
+		goto retry;
 	}
 
 	/*

@@ -34,15 +34,17 @@ typedef struct {
 static inline int
 atomic_cmpxchg(atomic_t *v, int old, int new)
 {
-	return __atomic_compare_exchange_n(&v->counter, &old, new, false,
-					   __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+	__atomic_compare_exchange_n(&v->counter, &old, new, false,
+				    __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+	return old;
 }
 
 static inline int
 atomic64_cmpxchg(atomic64_t *v, long old, long new)
 {
-	return __atomic_compare_exchange_n(&v->counter, &old, new, false,
-					   __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+	__atomic_compare_exchange_n(&v->counter, &old, new, false,
+				    __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+	return old;
 }
 
 static inline void
