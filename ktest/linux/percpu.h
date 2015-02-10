@@ -23,9 +23,11 @@
 #include <stdlib.h>
 
 /* 32 should be enough for testing. */
-#define alloc_percpu(s)			calloc(32, sizeof(s))
+#define NR_CPUS				32
+
+#define alloc_percpu(s)			calloc(NR_CPUS, sizeof(s))
 #define free_percpu(p)			free(p)
-#define for_each_possible_cpu(c)	for (c = 0; c < 32; ++c)
+#define for_each_possible_cpu(c)	for (c = 0; c < NR_CPUS; ++c)
 #define per_cpu_ptr(a, c)		&(a)[c]
 #define this_cpu_ptr(a)			(&(a)[__thr_id])
 

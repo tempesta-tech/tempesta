@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies (http://tempesta-tech.com)");
 MODULE_DESCRIPTION("Tempesta DB");
-MODULE_VERSION("0.1.2");
+MODULE_VERSION("0.1.3");
 MODULE_LICENSE("GPL");
 
 static struct workqueue_struct *tdb_wq;
@@ -60,10 +60,25 @@ tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 }
 EXPORT_SYMBOL(tdb_entry_add);
 
+/**
+ * Lookup and get a record.
+ * Since we don't copy returned records, we have to lock the memory location
+ * where the record is placed and the user must call tdb_rec_put() when finish
+ * with the record.
+ *
+ * The caller must not call sleeping functions during work with the record.
+ * Typically there is only one large record per bucket, so the bucket lock
+ * is exactly the same as to lock the record. While there could be many
+ * small records in a bucket, so the caller should not perform long jobs
+ * with small records.
+ *
+ * @return pointer to record with acquired bucket lock if the record is
+ * found and NULL without acquired locks otherwise.
+ */
 void *
-tdb_lookup(TDB *db, unsigned long key)
+tdb_rec_get(TDB *db, unsigned long key)
 {
-	TdbFRec *r;
+	TdbRec *r;
 	TdbBucket *b;
 
 	/* @db can be uninitialized, see tdb_open(). */
@@ -75,13 +90,24 @@ tdb_lookup(TDB *db, unsigned long key)
 	if (!b)
 		return NULL;
 
-	TDB_HTRIE_FOREACH_REC(db->hdr, b, r)
+	/* The bucket must be alive regardless deleted/evicted records in it. */
+	TDB_HTRIE_FOREACH_REC(db->hdr, b, r, {
 		if (tdb_live_fsrec(db->hdr, r))
+			/* Return the record w/ locked bucket. */
 			return r;
+	});
 
 	return NULL;
 }
-EXPORT_SYMBOL(tdb_lookup);
+EXPORT_SYMBOL(tdb_rec_get);
+
+void
+tdb_rec_put(void *rec)
+{
+	TdbBucket *b = (TdbBucket *)TDB_HTRIE_DALIGN((unsigned long)rec);
+	read_unlock_bh(&b->lock);
+}
+EXPORT_SYMBOL(tdb_rec_put);
 
 /**
  * Work queue wrapper for tdb_file_open() (real file open).
