@@ -151,21 +151,18 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	/* Process paged data. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		unsigned int f_sz = skb_frag_size(frag);
-		if (f_sz > off) {
-			unsigned char *vaddr = kmap_atomic(skb_frag_page(frag));
+		unsigned int frag_size = skb_frag_size(frag);
+		if (frag_size > off) {
+			unsigned char *frag_addr = skb_frag_address(frag);
 
-			r = ss_tcp_process_proto_skb(sk, vaddr + off,
-						     f_sz - off, skb);
-
-			kunmap_atomic(vaddr);
-
+			r = ss_tcp_process_proto_skb(sk, frag_addr + off,
+						     frag_size - off, skb);
 			if (r < 0)
 				return r;
-			*count += f_sz - off;
+			*count += frag_size - off;
 			off = 0;
 		} else
-			off -= f_sz;
+			off -= frag_size;
 	}
 
 	/* Process packet fragments. */

@@ -171,6 +171,7 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 
 	/* Bind the server connection with the session. */
 	srv_conn = tfw_sess_conn(sess, Conn_Srv);
+	BUG_ON(srv_conn == NULL);
 	/*
 	 * Check that the server doesn't service somebody else.
 	 * FIXME when do we need to free the server session,
@@ -297,7 +298,9 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 		TFW_DBG("Link new msg %p with connection %p\n",
 			conn->msg, conn);
 	}
-
+	if (!ss_skb_passed(skb)) {
+		skb_get(skb);
+	}
 	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
 
 	ss_skb_queue_tail(&conn->msg->skb_list, skb);

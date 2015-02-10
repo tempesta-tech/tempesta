@@ -704,7 +704,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r = 0;
 	TfwHttpMsg *m = (TfwHttpMsg *)req;
 
-	r = tfw_http_add_or_append_forwarded_for(m);
+//	r = tfw_http_add_or_append_forwarded_for(m);
 	if (r)
 		return r;
 
