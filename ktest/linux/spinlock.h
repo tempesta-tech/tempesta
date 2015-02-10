@@ -33,5 +33,7 @@ typedef pthread_rwlock_t rwlock_t;
 #define rwlock_init(lock)		pthread_rwlock_init(lock, NULL)
 #define write_lock_bh(lock)		pthread_rwlock_wrlock(lock)
 #define write_unlock_bh(lock)		pthread_rwlock_unlock(lock)
+#define read_lock_bh(lock)		pthread_rwlock_rdlock(lock)
+#define read_unlock_bh(lock)		pthread_rwlock_unlock(lock)
 
 #endif /* __SPINLOCK_H__ */

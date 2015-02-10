@@ -115,9 +115,9 @@ tdb_hash_calc(const char *data, size_t len)
  */
 #define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
 #define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
-#define THR_N			1
-#define DATA_N			100
-#define LOOP_N			1
+#define THR_N			4
+#define DATA_N			1000
+#define LOOP_N			10
 
 typedef struct {
 	char	*data;
@@ -307,22 +307,28 @@ do_varsz(TdbHdr *dbh)
 
 		b = tdb_htrie_lookup(dbh, k);
 		if (!b) {
-			fprintf(stderr, "ERROR: can't find URL [%.20s...]\n",
-				u->data);
+			fprintf(stderr, "ERROR: can't find bucket for URL"
+				" [%.20s...] (key=%#lx)\n", u->data, k);
 			fflush(NULL);
 			continue;
 		}
 
 		if (TDB_HTRIE_VARLENRECS(dbh)) {
 			TdbVRec *r;
-			TDB_HTRIE_FOREACH_REC(dbh, b, r) {
+			bool found = false;
+			TDB_HTRIE_FOREACH_REC(dbh, b, r, {
 				if (tdb_live_vsrec(r)) {
 					__print_bin(r, "\t", "");
 					printf("key=%#lx bckt=%p\n",
 					       tdb_hash_calc(r->data, r->len),
 					       b);
+					if (r->key == k)
+						found = true;
 				}
-			}
+			});
+			if (!found)
+				fprintf(stderr, "ERROR: can't find URL %#lx\n",
+					k);
 		} else {
 			BUG();
 		}
@@ -367,7 +373,8 @@ do_fixsz(TdbHdr *dbh)
 
 		b = tdb_htrie_lookup(dbh, ints[i]);
 		if (!b) {
-			fprintf(stderr, "ERROR: can't find int %u\n", ints[i]);
+			fprintf(stderr, "ERROR: can't find bucket for int %u\n",
+				ints[i]);
 			fflush(NULL);
 			continue;
 		}
@@ -376,12 +383,20 @@ do_fixsz(TdbHdr *dbh)
 			BUG();
 		} else {
 			TdbFRec *r;
-			TDB_HTRIE_FOREACH_REC(dbh, b, r) {
-				if (tdb_live_fsrec(dbh, r))
-					TDB_DBG("\t(%#x) %u bckt=%p\n",
-						*(unsigned int *)r->data,
-						*(unsigned int *)r->data, b);
-			}
+			bool found = false;
+			TDB_HTRIE_FOREACH_REC(dbh, b, r, {
+				if (tdb_live_fsrec(dbh, r)) {
+					printf("\t(%#x)%u bckt=%p\n",
+					       *(unsigned int *)r->data,
+					       *(unsigned int *)r->data, b);
+					if (*(unsigned int *)r->data == ints[i]
+					    && r->key == ints[i])
+						found = true;
+				}
+			});
+			if (!found)
+				fprintf(stderr, "ERROR: can't find int %u\n",
+					ints[i]);
 		}
 	}
 }

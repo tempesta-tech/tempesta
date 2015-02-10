@@ -393,7 +393,7 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TfwCacheEntry *ce;
 	TfwHttpResp *resp = NULL;
 
-	ce = tdb_lookup(db, key);
+	ce = tdb_rec_get(db, key);
 	if (!ce)
 		goto finish_req_processing;
 
@@ -421,6 +421,8 @@ finish_req_processing:
 	action(req, resp, data);
 
 	tfw_http_msg_free((TfwHttpMsg *)req);
+
+	tdb_rec_put(ce);
 }
 
 static void

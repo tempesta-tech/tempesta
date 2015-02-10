@@ -48,7 +48,7 @@
 #define TDB_HTRIE_BITS		4
 #define TDB_HTRIE_FANOUT	(1 << TDB_HTRIE_BITS)
 #define TDB_HTRIE_KMASK		(TDB_HTRIE_FANOUT - 1) /* key mask */
-#define TDB_HTRIE_RESOLVED(b)	((b) + TDB_HTRIE_BITS >= BITS_PER_LONG)
+#define TDB_HTRIE_RESOLVED(b)	((b) + TDB_HTRIE_BITS > BITS_PER_LONG)
 /*
  * We use 31 bits to address index and data blocks.
  * The most significant bit is used to flag data pointer/offset.
@@ -90,8 +90,8 @@ typedef struct {
 			      TDB_HTRIE_VRLEN((TdbVRec *)r),		\
 			      (h)->rec_len)
 #define TDB_HTRIE_RECLEN(h, r)	TDB_HTRIE_RALIGN(sizeof(*(r)) + __RECLEN(h, r))
-#define TDB_HTRIE_BUCKET_1ST(b)	((void *)((b) + 1))
-#define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BUCKET_1ST(b))
+#define TDB_HTRIE_BCKT_1ST_REC(b) ((void *)((b) + 1))
+#define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BCKT_1ST_REC(b))
 /* Iterate over buckets in collision chain. */
 #define TDB_HTRIE_BUCKET_NEXT(h, b) ((b)->coll_next			\
 				     ? TDB_PTR(h, TDB_DI2O((b)->coll_next))\
@@ -103,27 +103,42 @@ typedef struct {
 	(TdbHtrieNode *)((char *)(h) + TDB_HDR_SZ(h) + sizeof(TdbExt))
 
 /**
- * Iterate over all records in collision chain.
+ * Iterate over all records in collision chain with locked buckets.
  * Buckets are inspected according to following rules:
  * - if first record is > TDB_HTRIE_MINDREC, then only it is observer;
  * - all records which fit TDB_HTRIE_MINDREC.
  *
- * @d	- database handler;
- * @b	- bucket to iterate over;
- * @r	- record pointer;
+ * @d		- database handler;
+ * @b		- bucket to iterate over;
+ * @r		- record pointer;
+ * @code	- code to execute for each record.
+ *
+ * Bucket at the head of the list must be alive.
  */
-#define TDB_HTRIE_FOREACH_REC(d, b, r)					\
-	for ( ; b; b = TDB_HTRIE_BUCKET_NEXT(d, b))			\
-		for (r = TDB_HTRIE_BUCKET_1ST(b);			\
+#define TDB_HTRIE_FOREACH_REC(d, b, r, code)				\
+do {									\
+	TdbBucket *b_tmp;						\
+	read_lock_bh(&b->lock);						\
+	do {								\
+		for (r = TDB_HTRIE_BCKT_1ST_REC(b);			\
 		     ({ long _n = (char *)r - (char *)b + sizeof(*r);	\
 		        /* Crash if small records exceed small block	\
 			 * boundary. */					\
 			BUG_ON(_n < TDB_HTRIE_MINDREC			\
-			       && r != TDB_HTRIE_BUCKET_1ST(b)		\
+			       && r != TDB_HTRIE_BCKT_1ST_REC(b)	\
 			       && _n + __RECLEN(d, r) > TDB_HTRIE_MINDREC);\
 			_n <= TDB_HTRIE_MINDREC; });			\
-		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))
+		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))\
+			code;						\
+		b_tmp = TDB_HTRIE_BUCKET_NEXT(d, b);			\
+		if (b_tmp)						\
+			read_lock_bh(&b_tmp->lock);			\
+		read_unlock_bh(&b->lock);				\
+		b = b_tmp;						\
+	} while (b);							\
+} while (0)
 
+/* FIXME we can't store zero bytes by zero key. */
 static inline int
 tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
 {
