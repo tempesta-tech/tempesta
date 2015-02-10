@@ -26,6 +26,10 @@
 #define DEBUG 1
 #endif
 
+#ifndef ENOMEM
+#define ENOMEM		1
+#endif
+
 #define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
 

@@ -34,10 +34,6 @@
 #define L1_CACHE_BYTES 64
 #endif
 
-#ifndef ENOMEM
-#define ENOMEM		1
-#endif
-
 /* asm/page.h */
 #define PAGE_SIZE	4096UL
 
