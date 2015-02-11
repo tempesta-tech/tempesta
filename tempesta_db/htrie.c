@@ -820,5 +820,4 @@ void
 tdb_htrie_exit(TdbHdr *dbh)
 {
 	free_percpu(dbh->pcpu);
-	kfree(dbh);
 }
