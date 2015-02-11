@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies (http://tempesta-tech.com)");
 MODULE_DESCRIPTION("Tempesta DB");
-MODULE_VERSION("0.1.3");
+MODULE_VERSION("0.1.4");
 MODULE_LICENSE("GPL");
 
 static struct workqueue_struct *tdb_wq;
