@@ -58,34 +58,19 @@ static SsProto protos[LISTEN_SOCKS_MAX];
  * but not yet start listening.
  */
 static int
-add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
+add_listen_sock(TfwAddr *addr)
 {
-	TfwAddr addr;
-	const char *addr_str;
-	struct socket *s;
-	SsProto *proto;
 	int r;
+	SsProto *proto;
+	struct socket *s;
 
 	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
-		TFW_ERR("maximum number of listen sockets (%d) is reached",
+		TFW_ERR("maximum number of listen sockets (%d) is reached\n",
 			listen_socks_n);
 		return -ENOBUFS;
 	}
 
-	r = tfw_cfg_check_single_val(ce);
-	if (r) {
-		TFW_ERR("invalid syntax\n");
-		return r;
-	}
-
-	addr_str = ce->vals[0];
-	r = tfw_addr_pton(addr_str, &addr);
-	if (r) {
-		TFW_ERR("can't parse IP address: '%s'\n", ce->vals[0]);
-		return r;
-	}
-
-	r = sock_create_kern(addr.sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
+	r = sock_create_kern(addr->sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
 	if (r) {
 		TFW_ERR("can't create socket (err: %d)\n", r);
 		return r;
@@ -93,9 +78,9 @@ add_listen_sock(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	inet_sk(s->sk)->freebind = 1;
 	s->sk->sk_reuse = 1;
-	r = s->ops->bind(s, &addr.sa, tfw_addr_sa_len(&addr));
+	r = s->ops->bind(s, &addr->sa, tfw_addr_sa_len(addr));
 	if (r) {
-		TFW_ERR("can't bind to address: '%s'\n", addr_str);
+		TFW_ERR_ADDR("can't bind to", addr);
 		sock_release(s);
 		return r;
 	}
@@ -154,14 +139,55 @@ stop_listen_socks(void)
 	listen_socks_n = 0;
 }
 
+static int
+handle_listen_cfg_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	int port;
+	TfwAddr addr;
+	const char *in_str;
+
+	r = tfw_cfg_check_single_val(ce);
+	if (r)
+		goto parse_err;
+
+	/* Try both:
+	 *  a single port without IP address (e.g. "listen 8081"),
+	 *  and a full IP address (e.g. "listen 127.0.0.1:8081").
+	 */
+	in_str = ce->vals[0];
+	r = tfw_cfg_parse_int(in_str, &port);
+	if (!r) {
+		r = tfw_cfg_check_range(port, 0, 65535);
+		if (r)
+			goto parse_err;
+
+		/* For single port, use 0.0.0.0:port (IPv4, but not IPv6). */
+		addr.v4.sin_family = AF_INET;
+		addr.v4.sin_addr.s_addr = htonl(INADDR_ANY);
+		addr.v4.sin_port = htons(port);
+	} else {
+		r = tfw_addr_pton(in_str, &addr);
+		if (r)
+			goto parse_err;
+	}
+
+	r = add_listen_sock(&addr);
+	return r;
+
+parse_err:
+	TFW_ERR("can't parse 'listen' value: '%s'\n", in_str);
+	return -EINVAL;
+}
+
 TfwCfgMod tfw_sock_frontend_cfg_mod  = {
 	.name	= "sock_frontend",
 	.start	= start_listen_socks,
 	.stop	= stop_listen_socks,
 	.specs	= (TfwCfgSpec[]){
 		{
-			"listen", "127.0.0.1:80",
-			add_listen_sock,
+			"listen", "80",
+			handle_listen_cfg_entry,
 			.allow_repeat = true
 		},
 		{}
