@@ -116,7 +116,7 @@ tdb_hash_calc(const char *data, size_t len)
 #define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
 #define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
 #define THR_N			4
-#define DATA_N			1000
+#define DATA_N			100
 #define LOOP_N			10
 
 typedef struct {
@@ -266,39 +266,15 @@ print_bin_url(TestUrl *u)
 	fflush(NULL);
 }
 
+/**
+ * Read stored variable sized records.
+ */
 static void
-do_varsz(TdbHdr *dbh)
+lookup_varsz_records(TdbHdr *dbh)
 {
 	int i;
 	TestUrl *u;
 
-	/* Store records. */
-	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
-		unsigned long k = tdb_hash_calc(u->data, u->len);
-		size_t copied, to_copy = u->len;
-		TdbVRec *rec;
-
-		print_bin_url(u);
-
-		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy);
-		assert((u->len && rec) || (!u->len && !rec));
-
-		copied = to_copy;
-
-		while (copied != u->len) {
-			char *p;
-
-			rec = tdb_htrie_extend_rec(dbh, rec, u->len - copied);
-			assert(rec);
-
-			p = (char *)(rec + 1);
-			memcpy(p, u->data + copied, rec->len);
-
-			copied += rec->len;
-		}
-	}
-
-	/* Read records. */
 	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->data, u->len);
 		TdbBucket *b;
@@ -335,6 +311,41 @@ do_varsz(TdbHdr *dbh)
 	}
 }
 
+static void
+do_varsz(TdbHdr *dbh)
+{
+	int i;
+	TestUrl *u;
+
+	/* Store records. */
+	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
+		unsigned long k = tdb_hash_calc(u->data, u->len);
+		size_t copied, to_copy = u->len;
+		TdbVRec *rec;
+
+		print_bin_url(u);
+
+		rec = (TdbVRec *)tdb_htrie_insert(dbh, k, u->data, &to_copy);
+		assert((u->len && rec) || (!u->len && !rec));
+
+		copied = to_copy;
+
+		while (copied != u->len) {
+			char *p;
+
+			rec = tdb_htrie_extend_rec(dbh, rec, u->len - copied);
+			assert(rec);
+
+			p = (char *)(rec + 1);
+			memcpy(p, u->data + copied, rec->len);
+
+			copied += rec->len;
+		}
+	}
+
+	lookup_varsz_records(dbh);
+}
+
 static void *
 varsz_thr_f(void *data)
 {
@@ -347,24 +358,14 @@ varsz_thr_f(void *data)
 	return NULL;
 }
 
+/**
+ * Read stored fixed size records.
+ */
 static void
-do_fixsz(TdbHdr *dbh)
+lookup_fixsz_records(TdbHdr *dbh)
 {
 	int i;
 
-	/* Store records. */
-	for (i = 0; i < DATA_N; ++i) {
-		size_t copied = sizeof(ints[i]);
-		TdbRec *rec __attribute__((unused));
-
-		printf("insert int %u\n", ints[i]);
-		fflush(NULL);
-
-		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied);
-		assert(rec && copied == sizeof(ints[i]));
-	}
-
-	/* Read records. */
 	for (i = 0; i < DATA_N; ++i) {
 		TdbBucket *b;
 
@@ -399,6 +400,26 @@ do_fixsz(TdbHdr *dbh)
 					ints[i]);
 		}
 	}
+}
+
+static void
+do_fixsz(TdbHdr *dbh)
+{
+	int i;
+
+	/* Store records. */
+	for (i = 0; i < DATA_N; ++i) {
+		size_t copied = sizeof(ints[i]);
+		TdbRec *rec __attribute__((unused));
+
+		printf("insert int %u\n", ints[i]);
+		fflush(NULL);
+
+		rec = tdb_htrie_insert(dbh, ints[i], &ints[i], &copied);
+		assert(rec && copied == sizeof(ints[i]));
+	}
+
+	lookup_fixsz_records(dbh);
 }
 
 static void *
@@ -445,6 +466,19 @@ tdb_htrie_test_varsz(const char *fname)
 	printf("tdb htrie urls test: time=%lums\n",
 		tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
+	tdb_htrie_exit(dbh);
+	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
+
+	printf("\n	**** Variable size records test reopen ****\n");
+
+	addr = tdb_htrie_open(fname, TDB_VSF_SZ);
+	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
+	if (!dbh)
+		TDB_ERR("cannot initialize htrie for urls");
+
+	lookup_varsz_records(dbh);
+
+	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
 }
 
@@ -461,7 +495,6 @@ tdb_htrie_test_fixsz(const char *fname)
 	printf("\n----------- Fixed size records test -------------\n");
 
 	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
-
 	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for ints");
@@ -481,6 +514,19 @@ tdb_htrie_test_fixsz(const char *fname)
 	printf("tdb htrie ints test: time=%lums\n",
 		tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
+	tdb_htrie_exit(dbh);
+	tdb_htrie_pure_close(addr, TDB_FSF_SZ);
+
+	printf("\n	**** Fixed size records test reopen ****\n");
+
+	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
+	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
+	if (!dbh)
+		TDB_ERR("cannot initialize htrie for ints");
+
+	lookup_fixsz_records(dbh);
+
+	tdb_htrie_exit(dbh);
 	tdb_htrie_pure_close(addr, TDB_FSF_SZ);
 }
 
