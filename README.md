@@ -19,6 +19,7 @@ Tempesta requires following Linux kernel configuration options to be switched on
 
 * CONFIG\_SECURITY
 * CONFIG\_SECURITY\_NETWORK
+* CONFIG\_NETLINK\_MMAP
 
 
 ### Build
