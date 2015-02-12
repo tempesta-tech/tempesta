@@ -10,3 +10,11 @@ which makes Linux syncronize the memory region with disk and vise versa.
 
 Fixed and variable length records can be stored. However, fixed size records
 can't have zero key and data at the same time - such records treated as deleted.
+
+
+### Tempesta DB Query Tool
+
+**tdbq** is user-space CLI tool to query the in-kernel database.
+Please see the below some some usage examples.
+
+#### .....
