@@ -1440,10 +1440,10 @@ void *
 read_file_via_vfs(const char *path)
 {
 	char *out_buf;
-	struct file *fp;
-	size_t bytes_read, read_size, buf_size;
 	loff_t offset;
+	struct file *fp;
 	mm_segment_t oldfs;
+	size_t bytes_read, file_size;
 
 	TFW_DBG("reading file: %s\n", path);
 
@@ -1456,11 +1456,10 @@ read_file_via_vfs(const char *path)
 		goto err_open;
 	}
 
-	buf_size = fp->f_inode->i_size;
-	TFW_DBG("file size: %zu bytes\n", buf_size);
-	buf_size += 1; /* for '\0' */
+	file_size = fp->f_inode->i_size;
+	TFW_DBG("file size: %zu bytes\n", file_size);
 
-	out_buf = vmalloc(buf_size);
+	out_buf = vmalloc(file_size + 1);
 	if (!out_buf) {
 		TFW_ERR("can't allocate memory\n");
 		goto err_alloc;
@@ -1468,8 +1467,8 @@ read_file_via_vfs(const char *path)
 
 	offset = 0;
 	do {
+		size_t read_size = min((size_t)(file_size - offset), PAGE_SIZE);
 		TFW_DBG("read by offset: %d\n", (int)offset);
-		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
 		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
 				      &offset);
 		if (bytes_read < 0) {
@@ -1479,13 +1478,12 @@ read_file_via_vfs(const char *path)
 		}
 	} while (bytes_read);
 
-	/* Exactly one byte (reserved for '\0') should remain. */
-	if (buf_size - offset - 1) {
+	if (file_size - offset) {
 		TFW_ERR("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
 
-	out_buf[offset] = '\0';
+	out_buf[offset] = '\0';  /* one extra byte was vmalloc()'ed for '\0' */
 	set_fs(oldfs);
 	return out_buf;
 
