@@ -75,20 +75,16 @@ typedef struct {
 static int
 tfw_backend_connect(struct socket **sock, void *addr)
 {
-	static struct {
-		SsProto	_placeholder;
-		int	type;
-	} dummy_proto = {
-		.type = TFW_FSM_HTTP,
-	};
-
+	int r;
 	TfwServer *srv;
 	struct sock *sk;
+	SsProto dummy_proto = {
+		.type = TFW_FSM_HTTP
+	};
 	unsigned short family = *(unsigned short *)addr;
 	unsigned short sza = family == AF_INET
 			     ? sizeof(struct sockaddr_in)
 			     : sizeof(struct sockaddr_in6);
-	int r;
 
 	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, sock);
 	if (r) {
