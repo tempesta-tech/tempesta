@@ -46,8 +46,6 @@ tfw_destroy_client(struct sock *s)
 	conn->hndl = NULL;
 
 	kmem_cache_free(cli_cache, cli);
-
-	conn->sk_destruct(s);
 }
 
 TfwClient *

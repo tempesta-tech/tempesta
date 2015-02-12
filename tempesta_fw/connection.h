@@ -54,9 +54,9 @@ typedef struct {
 	void 		*hndl;	/* TfwClient or TfwServer handler */
 	TfwSession	*sess;	/* currently handled session */
 
-	/* Original sk->sk_destruct. Destructors passed to tfw_connection_new()
-	 * must call it manually. */
-	void (*sk_destruct)(struct sock *sk);
+	/* The callback passed to tfw_connection_new().
+	 * Called before free()'ing the connection when it is closed. */
+	void (*destruct)(struct sock *sk);
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
