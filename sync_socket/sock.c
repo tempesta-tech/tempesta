@@ -610,14 +610,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		assert_spin_locked(&lsk->sk->sk_lock.slock);
 		ss_drain_accept_queue(lsk->sk, sk);
-	}
-	else if (sk->sk_state == TCP_CLOSE_WAIT) {
-		/*
-		 * Connection has received FIN.
-		 *
-		 * FIXME it seems we should to do things below on TCP_CLOSE
-		 * instead of TCP_CLOSE_WAIT.
-		 */
+	} else if (sk->sk_state == TCP_CLOSE) {
 		ss_do_close(sk);
 	}
 }
