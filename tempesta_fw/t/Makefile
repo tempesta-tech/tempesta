@@ -17,7 +17,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(src)/../ \
-		-I$(src)/../../tempesta_db -I$(src)/../../sync_socket
+		-I$(src)/../../tempesta_db/core -I$(src)/../../sync_socket
 
 obj-m += tfw_test.o
 tfw_test-objs = main.o test.o test_hash.o test_http_match.o test_tfw_str.o

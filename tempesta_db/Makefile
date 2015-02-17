@@ -17,3 +17,17 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+all: libtdb tdbq
+
+.PHONY: libtdb
+libtdb:
+	make -C libtdb
+
+.PHONY: tdbq
+tdbq:
+	make -C tdbq
+
+.PHONY: clean
+clean:
+	make -C libtdb clean
+	make -C tdbq clean
