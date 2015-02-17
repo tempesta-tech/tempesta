@@ -17,10 +17,10 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CXX		= g++
-CFLAGS		= -O2 -ggdb -Wall
-LDFLAGS		= -L/usr/local/lib -lboost_program_options
-INCLUDES	= -I/usr/local/include/boost-1_38
-DEBUG		= -DDEBUG
+# Use gnu++11 instead of c++11 for standard C header compatibility.
+CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
+LDFLAGS		= -lboost_program_options -L../libtdb -ltdb
+INCLUDES	= -I../libtdb
 
 OBJECTS	= main.o
 
@@ -30,10 +30,10 @@ tdbq: $(OBJECTS)
 	$(CXX) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.cc
-	$(CXX) $(CFLAGS) $(DEBUG) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 clean: FORCE
-	rm -f *.o* *~ tdbq tags *.core
+	rm -f *.o* *~ tdbq
 
 FORCE:
 

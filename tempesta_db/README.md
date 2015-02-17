@@ -15,6 +15,7 @@ can't have zero key and data at the same time - such records treated as deleted.
 ### Tempesta DB Query Tool
 
 **tdbq** is user-space CLI tool to query the in-kernel database.
-Please see the below some some usage examples.
+The tool is built on top of **libtdb**, which should be considered as embedded
+database. Please see the below some some usage examples.
 
 #### .....
