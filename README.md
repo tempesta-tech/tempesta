@@ -15,11 +15,16 @@ characteristics in comparison with common Socket API and even kernel sockets.
 
 ### Prerequisites
 
-Tempesta requires following Linux kernel configuration options to be switched on:
+Tempesta requires following Linux kernel configuration options to be switched
+on:
 
 * CONFIG\_SECURITY
 * CONFIG\_SECURITY\_NETWORK
 * CONFIG\_NETLINK\_MMAP
+
+Tempesta DB user-space libarary requires netlink mmap defined in standard
+headers, so preferably Linux distribution should have native 3.10 kernel.
+Currently CentOS 7 is shipped with appropriate kernel.
 
 
 ### Build

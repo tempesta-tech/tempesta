@@ -26,6 +26,7 @@
 #include "file.h"
 #include "htrie.h"
 #include "work.h"
+#include "tdb_if.h"
 
 MODULE_AUTHOR("Tempesta Technologies (http://tempesta-tech.com)");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -191,7 +192,12 @@ tdb_init(void)
 	if (!tdb_wq)
 		goto err_wq;
 
+	if (tdb_if_init())
+		goto err_if;
+
 	return 0;
+err_if:
+	destroy_workqueue(tdb_wq);
 err_wq:
 	kmem_cache_destroy(tw_cache);
 	return -ENOMEM;
@@ -200,6 +206,7 @@ err_wq:
 static void __exit
 tdb_exit(void)
 {
+	tdb_if_exit();
 	destroy_workqueue(tdb_wq);
 	kmem_cache_destroy(tw_cache);
 }

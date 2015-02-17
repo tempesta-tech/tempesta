@@ -1,0 +1,66 @@
+/**
+ *		Tempesta DB
+ *
+ * User-space communication interfaces.
+ *
+ * Copyright (C) 2015 Tempesta Technologies.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+#ifndef __TDB_IF_H__
+#define __TDB_IF_H__
+
+enum tdb_msg_type {
+	TDB_MSG_UNSPEC,
+	TDB_MSG_INFO,
+	TDB_MSG_CREATE,
+	TDB_MSG_INSERT,
+	TDB_MSG_SELECT,
+	__TDB_MSG_TYPE_MAX
+};
+
+/**
+ * Record specification used for update and select queries.
+ *
+ * @klen	- key length;
+ * @dlen	- data length;
+ * @data	- record key followed by body
+ */
+typedef struct {
+	unsigned int	klen;
+	unsigned int	dlen;
+	char		data[0];
+} TdbMsgRec;
+
+/**
+ * @type	- message type;
+ * @rec_n	- number of record specifications;
+ * @t_name	- table name;
+ * @recs	- record specifications (keys only for select or <key,value>
+ * 		  for inserts and updates);
+ */
+typedef struct {
+	unsigned char	type;
+	unsigned int	rec_n;
+	char		t_name[8];
+	TdbMsgRec	recs[0];
+} TdbMsg;
+
+#ifdef __KERNEL__
+int tdb_if_init(void);
+void tdb_if_exit(void);
+#endif
+
+#endif /* __TDB_IF_H__ */

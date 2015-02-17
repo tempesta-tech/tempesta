@@ -16,7 +16,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -Werror -I$(src)/../sync_socket -I$(src)/../tempesta_db
+EXTRA_CFLAGS += -Werror -I$(src)/../sync_socket -I$(src)/../tempesta_db/core
 
 ifneq ($(NDEBUG), 1)
 EXTRA_CFLAGS += -DDEBUG -O0 -g3

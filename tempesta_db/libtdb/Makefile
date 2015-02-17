@@ -1,6 +1,6 @@
-#	Tempesta FW
+#		Tempesta DB User-space Library
 #
-# Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -16,9 +16,24 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -I$(src)/../../sync_socket -I$(src)/../../tempesta_db/core \
-		-DDEBUG
+CXX		= g++
+# Use gnu++11 instead of c++11 for standard C header compatibility.
+CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
+LDFLAGS		= -shared -fPIC
+INCLUDES	= -I../core
 
-obj-m = tfw_req_conn_limit.o
-tfw_req_conn_limit-objs = req_conn_limit.o
+OBJECTS	= handler.o
+
+all : libtdb.so
+
+libtdb.so: $(OBJECTS)
+	$(CXX) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+%.o: %.cc
+	$(CXX) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -c $< -o $@
+
+clean: FORCE
+	rm -f *.o* *~ libtdb.so
+
+FORCE:
 

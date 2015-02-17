@@ -1,6 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,15 +22,19 @@ ifdef NORMALIZATION
 	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
 endif
 
-obj-m	+= sync_socket/ tempesta_db/ tempesta_fw/
+obj-m	+= sync_socket/ tempesta_db/core/ tempesta_fw/
 
-KERNEL = /lib/modules/$(shell uname -r)/source
+KERNEL = /lib/modules/$(shell uname -r)/build
+
+export KERNEL EXTRA_CFLAGS
 
 all:
+	make -C tempesta_db
 	make -C $(KERNEL) M=$(PWD) modules
 
 clean:
 	make -C $(KERNEL) M=$(PWD) clean
+	make -C tempesta_db clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;
 
