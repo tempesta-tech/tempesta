@@ -28,7 +28,7 @@
 
 #include "tdb.h"
 
-#define TFW_AUTHOR		"NatSys Lab. (http://natsys-lab.com)"
+#define TFW_AUTHOR		"Tempesta Technologies"
 
 #define DEF_MAX_PORTS		8
 #define DEF_PORT		80

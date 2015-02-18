@@ -31,15 +31,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <tdb_if.h>
+#include <iostream> // AK_DBG
 
 #include "libtdb.h"
-
-#ifndef SOL_NETLINK
-#define SOL_NETLINK	270
-#endif
-
-#define NL_FR_SZ	16384
 
 bool debug = false;
 
@@ -70,7 +64,7 @@ TdbHndl::lazy_buffer_alloc()
 }
 
 void
-TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_proc_cb)
+TdbHndl::msg_recv(std::function<void (TdbMsg *)> data_cb, DoubleCb msg_cb)
 {
 	// Call poll(2) just for internal netlink mmap flow control.
 	pollfd pfds[1];
@@ -90,6 +84,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_proc_cb)
 		nl_mmap_hdr *hdr = (nl_mmap_hdr *)(rx_ring_ + rx_fr_off_);
 
 		if (hdr->nm_status == NL_MMAP_STATUS_VALID) {
+			std::cout << "AK_DBG: zero-copy" << std::endl;
 			// Regular memory mapped frame.
 			nlh = (nlmsghdr *)((char *)hdr + NL_MMAP_HDRLEN);
 			if (!hdr->nm_len) {
@@ -101,6 +96,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_proc_cb)
 			}
 		}
 		else if (hdr->nm_status == NL_MMAP_STATUS_COPY) {
+			std::cout << "AK_DBG: copying" << std::endl;
 			lazy_buffer_alloc();
 
 			// Frame is queued to socket receive queue.
@@ -111,7 +107,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_proc_cb)
 		} else
 			throw TdbExcept("cannot read expected msg");
 
-		read_more = msg_proc_cb(nlh);
+		read_more = msg_cb(nlh, data_cb);
 
 		// Release frame back to the kernel.
 		hdr->nm_status = NL_MMAP_STATUS_UNUSED;
@@ -150,17 +146,40 @@ TdbHndl::msg_send(std::function<void (nlmsghdr *)> msg_build_cb)
  * ------------------------------------------------------------------------
  */
 void
-TdbHndl::get_info()
+TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
 {
 	msg_send([=](nlmsghdr *nlh) {
 		nlh->nlmsg_len = sizeof(*nlh) + sizeof(TdbMsg);
 		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
 		nlh->nlmsg_flags |= NLM_F_REQUEST;
 
-		TdbMsg *m = (TdbMsg *)(nlh + 1);
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
 		memset(m, 0, sizeof(*m));
 		m->type = TDB_MSG_INFO;
 		m->t_name[0] = '*'; // show all tables
+	});
+
+	msg_recv(data_cb,
+		 [=](nlmsghdr *nlh, std::function<void (TdbMsg *)> data_cb)
+			-> bool
+	{
+		// Consistency checking.
+		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
+				     + sizeof(TdbMsgRec))
+			throw TdbExcept("bad info msg len %u", nlh->nlmsg_len);
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		if (m->type != TDB_MSG_INFO || m->rec_n != 1)
+			throw TdbExcept("malformed info msg type=%u rec_n=%u",
+					m->type, m->rec_n);
+		if (m->recs[0].klen || !m->recs[0].dlen)
+			throw TdbExcept("malformed info msg record"
+					" klen=%u dlen=%u",
+					m->recs[0].klen, m->recs[0].dlen);
+
+		data_cb(m);
+
+		return false; // info is single-frame message
 	});
 }
 
@@ -169,16 +188,14 @@ TdbHndl::TdbHndl(size_t mm_sz)
 	rx_fr_off_(0),
 	tx_fr_off_(0)
 {
-	// NETLINK_FIREWALL suits well for Tempesta FW and
-	// is unused by any standard Linux subsystem for now.
-	fd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_FIREWALL);
+	fd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_TEMPESTA);
 	if (fd_ < 0)
 		throw TdbExcept("cannot create netlink socket");
 
 	sockaddr_nl addr = {
 		.nl_family	= AF_NETLINK,
-		.nl_pid		= getpid(),
 	};
+	addr.nl_pid = getpid();
 	if (bind(fd_, (const sockaddr *)&addr, sizeof(addr)))
 		throw TdbExcept("cannot bind netlink socket");
 

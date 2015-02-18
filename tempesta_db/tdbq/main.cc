@@ -99,8 +99,9 @@ main(int argc, char *argv[])
 		TdbHndl th(vm["mmap"].as<size_t>());
 
 		if (a == ACT_INFO) {
-			// TODO tables list, database version, usage memory etc.
-			th.get_info();
+			th.get_info([=](TdbMsg *m) {
+				std::cout << m->recs[0].data << std::endl;
+			});
 		}
 		else if (a == ACT_CREATE) {
 		}

@@ -28,9 +28,11 @@
 #include "work.h"
 #include "tdb_if.h"
 
-MODULE_AUTHOR("Tempesta Technologies (http://tempesta-tech.com)");
+#define TDB_VERSION	"0.1.6"
+
+MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
-MODULE_VERSION("0.1.5");
+MODULE_VERSION();
 MODULE_LICENSE("GPL");
 
 static struct workqueue_struct *tdb_wq;
@@ -110,6 +112,15 @@ tdb_rec_put(void *rec)
 }
 EXPORT_SYMBOL(tdb_rec_put);
 
+int
+tdb_info(char *buf, size_t len)
+{
+	// TODO tables list, database version, usage memory etc.
+	return snprintf(buf, len,
+			"Tempesta DB version: %s\n",
+			TDB_VERSION);
+}
+
 /**
  * Work queue wrapper for tdb_file_open() (real file open).
  * We have to call the function from work queue to map database
@@ -184,6 +195,9 @@ EXPORT_SYMBOL(tdb_close);
 static int __init
 tdb_init(void)
 {
+
+	TDB_LOG("Start Tempesta DB\n");
+
 	tw_cache = KMEM_CACHE(tdb_work_t, 0);
 	if (!tw_cache)
 		return -ENOMEM;
@@ -206,6 +220,8 @@ err_wq:
 static void __exit
 tdb_exit(void)
 {
+	TDB_LOG("Shutdown Tempesta DB\n");
+
 	tdb_if_exit();
 	destroy_workqueue(tdb_wq);
 	kmem_cache_destroy(tw_cache);
