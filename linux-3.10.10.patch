@@ -114,6 +114,18 @@ index 5bba80f..64e5d06 100644
  /* Read 'sendfile()'-style from a TCP socket */
  typedef int (*sk_read_actor_t)(read_descriptor_t *, struct sk_buff *,
  				unsigned int, size_t);
+diff --git a/include/uapi/linux/netlink.h b/include/uapi/linux/netlink.h
+index 1a85940..909e081 100644
+--- a/include/uapi/linux/netlink.h
++++ b/include/uapi/linux/netlink.h
+@@ -27,6 +27,7 @@
+ #define NETLINK_ECRYPTFS	19
+ #define NETLINK_RDMA		20
+ #define NETLINK_CRYPTO		21	/* Crypto layer */
++#define NETLINK_TEMPESTA	22
+ 
+ #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
+ 
 diff --git a/mm/init-mm.c b/mm/init-mm.c
 index a56a851..e1567c3 100644
 --- a/mm/init-mm.c

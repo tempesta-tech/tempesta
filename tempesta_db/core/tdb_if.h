@@ -22,9 +22,19 @@
 #ifndef __TDB_IF_H__
 #define __TDB_IF_H__
 
+#ifndef NETLINK_TEMPESTA
+#define NETLINK_TEMPESTA	22
+#endif
+#ifndef SOL_NETLINK
+#define SOL_NETLINK		270
+#endif
+
+#define NL_FR_SZ		16384
+
 enum tdb_msg_type {
-	TDB_MSG_UNSPEC,
-	TDB_MSG_INFO,
+	__TDB_MSG_UNSPEC,
+	__TDB_MSG_BASE,
+	TDB_MSG_INFO	= __TDB_MSG_BASE,
 	TDB_MSG_CREATE,
 	TDB_MSG_INSERT,
 	TDB_MSG_SELECT,

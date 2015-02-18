@@ -24,6 +24,7 @@
 
 #include <functional>
 
+#include <tdb_if.h>
 #include "exception.h"
 
 class TdbHndl {
@@ -34,13 +35,17 @@ public:
 	TdbHndl(size_t mm_sz);
 	~TdbHndl() noexcept;
 
-	void get_info();
+	void get_info(std::function<void (TdbMsg *)> data_cb);
 
 private:
+	typedef std::function<bool (nlmsghdr *,
+				    std::function<void (TdbMsg *)>)>
+		DoubleCb;
+
 	void advance_frame_offset(unsigned int &off) noexcept;
 	void lazy_buffer_alloc();
 
-	void msg_recv(std::function<bool (nlmsghdr *)> msg_proc_cb);
+	void msg_recv(std::function<void (TdbMsg *)> data_cb, DoubleCb msg_cb);
 	void msg_send(std::function<void (nlmsghdr *)> msg_build_cb);
 
 private:

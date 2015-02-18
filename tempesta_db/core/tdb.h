@@ -128,6 +128,7 @@ typedef TdbFRec TdbRec;
 #else
 #define TDB_DBG(...)
 #endif
+#define TDB_LOG(...)		pr_info(TDB_BANNER __VA_ARGS__)
 #define TDB_ERR(...)		pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
 /*
@@ -137,6 +138,7 @@ TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
 void *tdb_rec_get(TDB *db, unsigned long key);
 void tdb_rec_put(void *rec);
+int tdb_info(char *buf, size_t len);
 
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, unsigned int fsize, unsigned int rec_size);
