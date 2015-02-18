@@ -20,7 +20,7 @@ CXX		= g++
 # Use gnu++11 instead of c++11 for standard C header compatibility.
 CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
 LDFLAGS		= -lboost_program_options -L../libtdb -ltdb
-INCLUDES	= -I../libtdb
+INCLUDES	= -I../libtdb -I../core
 
 OBJECTS	= main.o
 
