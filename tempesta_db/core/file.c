@@ -43,8 +43,6 @@ tdb_file_open(TDB *db, unsigned long size)
 	/* Must be called from kernel thread context. */
 	BUG_ON(mm != &init_mm);
 
-	strcat(db->path, "/" TDB_FNAME);
-
 	filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
 	if (IS_ERR(filp))
 		return PTR_ERR(filp);
