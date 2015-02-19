@@ -28,15 +28,22 @@
 #include "work.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.6"
+#define TDB_VERSION	"0.1.7"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
-MODULE_VERSION();
+MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
+
+#define TDB_MAXTBL	(PAGE_SIZE / (TDB_TBLNAME_LEN + 1))
 
 static struct workqueue_struct *tdb_wq;
 static struct kmem_cache *tw_cache;
+
+/* Global list of currently open tables. */
+static char tdb_tbls[TDB_MAXTBL][TDB_TBLNAME_LEN + 1];
+static int tbl_last;
+static DEFINE_MUTEX(tbl_mtx);
 
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
@@ -115,10 +122,66 @@ EXPORT_SYMBOL(tdb_rec_put);
 int
 tdb_info(char *buf, size_t len)
 {
-	// TODO tables list, database version, usage memory etc.
-	return snprintf(buf, len,
-			"Tempesta DB version: %s\n",
-			TDB_VERSION);
+	int i, n;
+
+	n = snprintf(buf, len,
+		     "\nTempesta DB version: %s\n"
+		     "Open tables: ",
+		     TDB_VERSION);
+	if (n <= 0)
+		return n;
+
+	mutex_lock(&tbl_mtx);
+
+	for (i = 0; i < tbl_last; ++i) {
+		int r = snprintf(buf + n, len - n, "%s ", tdb_tbls[i]);
+		if (r <= 0)
+			goto err;
+		n += r;
+	}
+
+err:
+	buf[n - 1] = '\n';
+
+	mutex_unlock(&tbl_mtx);
+
+	return n;
+}
+
+static void
+tdb_tbl_enumerate(TDB *db)
+{
+	mutex_lock(&tbl_mtx);
+
+	if (tbl_last < TDB_MAXTBL) {
+		strncpy(tdb_tbls[tbl_last], db->tbl_name, TDB_TBLNAME_LEN);
+		++tbl_last;
+	} else
+		TDB_WARN("Cannot enumerate %s\n", db->tbl_name);
+
+	mutex_unlock(&tbl_mtx);
+}
+
+static void
+tdb_tbl_forget(TDB *db)
+{
+	int i;
+
+	mutex_lock(&tbl_mtx);
+
+	for (i = 0; i < tbl_last; ++i) {
+		if (strncmp(db->tbl_name, tdb_tbls[i], TDB_TBLNAME_LEN))
+			continue;
+		if (i < TDB_MAXTBL - 1)
+			memmove(tdb_tbls[i], tdb_tbls[i + 1],
+				(tbl_last - i) * TDB_TBLNAME_LEN);
+		--tbl_last;
+		goto forgotten;
+	}
+	TDB_WARN("Table %s was not enumerated\n", db->tbl_name);
+
+forgotten:
+	mutex_unlock(&tbl_mtx);
 }
 
 /**
@@ -140,6 +203,42 @@ tdb_open_db(struct work_struct *work)
 		TDB_ERR("Cannot initialize db header\n");
 
 	kmem_cache_free(tw_cache, tw);
+
+	tdb_tbl_enumerate(db);
+}
+
+/**
+ * The path to table must end with table name (not more than TDB_TBLNAME_LEN
+ * characters in long) followed by TDB_SUFFIX.
+ */
+static int
+tdb_proc_tblpath(TDB *db, const char *path)
+{
+	int len;
+	char *slash;
+
+	len = strlen(path);
+	if (strncmp(path + len - sizeof(TDB_SUFFIX),
+		    TDB_SUFFIX, sizeof(TDB_SUFFIX)))
+	{
+		TDB_ERR("Bad table suffix for %s\n", path);
+		return -EINVAL;
+	}
+	slash = strrchr(path, '/');
+	if (!slash) {
+		TDB_ERR("Please specify absolute path to %s\n", path);
+		return -EINVAL;
+	}
+	len = len - (slash - path) - sizeof(TDB_SUFFIX);
+	if (len > TDB_TBLNAME_LEN) {
+		TDB_ERR("Too long table name %s\n", path);
+		return -EINVAL;
+	}
+
+	strncpy(db->path, path, TDB_PATH_LEN - 1);
+	strncpy(db->tbl_name, slash + 1, len);
+
+	return 0;
 }
 
 /**
@@ -156,11 +255,13 @@ tdb_open(const char *path, unsigned int fsize, unsigned int rec_size)
 	db = kzalloc(sizeof(TDB), GFP_KERNEL);
 	if (!db)
 		return NULL;
-	strncpy(db->path, path, TDB_PATH_LEN - 1);
+
+	if (tdb_proc_tblpath(db, path))
+		goto err;
 
 	tw = kmem_cache_alloc(tw_cache, GFP_KERNEL);
 	if (!tw)
-		goto err_cache;
+		goto err;
 	INIT_WORK(&tw->work, tdb_open_db);
 	tw->db = db;
 	tw->fsize = fsize;
@@ -174,7 +275,7 @@ tdb_open(const char *path, unsigned int fsize, unsigned int rec_size)
 	 * Put conditional wait here.
 	 */
 	return db;
-err_cache:
+err:
 	kfree(db);
 	return NULL;
 }
@@ -183,6 +284,8 @@ EXPORT_SYMBOL(tdb_open);
 void
 tdb_close(TDB *db)
 {
+	tdb_tbl_forget(db);
+
 	/* Unmapping can be done from process context. */
 	tdb_file_close(db);
 
