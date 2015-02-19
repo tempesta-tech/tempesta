@@ -25,9 +25,7 @@
 
 #include <linux/fs.h>
 
-#define TDB_SUFFIX		".tdb"
-#define TDB_PATH_LEN		128
-#define TDB_TBLNAME_LEN		15
+#include "tdb_if.h"
 
 /**
  * Per-CPU dynamically allocated data for TDB handler.
@@ -149,7 +147,7 @@ void tdb_rec_put(void *rec);
 int tdb_info(char *buf, size_t len);
 
 /* Open/close database handler. */
-TDB *tdb_open(const char *path, unsigned int fsize, unsigned int rec_size);
+TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size);
 void tdb_close(TDB *db);
 
 #endif /* __TDB_H__ */

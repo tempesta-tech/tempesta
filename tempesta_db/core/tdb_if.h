@@ -29,6 +29,9 @@
 #define SOL_NETLINK		270
 #endif
 
+#define TDB_SUFFIX		".tdb"
+#define TDB_TBLNAME_LEN		15
+#define TDB_PATH_LEN		128
 #define NL_FR_SZ		16384
 
 enum tdb_msg_type {
@@ -40,6 +43,18 @@ enum tdb_msg_type {
 	TDB_MSG_SELECT,
 	__TDB_MSG_TYPE_MAX
 };
+
+#define TDB_NLF_RESP_OK		0x0100
+
+/**
+ * Record for create table command.
+ */
+typedef struct {
+	size_t		tbl_size;
+	unsigned int	rec_size;
+	unsigned int	path_len;
+	char		path[0];
+} TdbCrTblRec;
 
 /**
  * Record specification used for update and select queries.

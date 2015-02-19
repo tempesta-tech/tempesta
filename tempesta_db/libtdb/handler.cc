@@ -64,7 +64,7 @@ TdbHndl::lazy_buffer_alloc()
 }
 
 void
-TdbHndl::msg_recv(std::function<void (TdbMsg *)> data_cb, DoubleCb msg_cb)
+TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 {
 	// Call poll(2) just for internal netlink mmap flow control.
 	pollfd pfds[1];
@@ -107,7 +107,7 @@ TdbHndl::msg_recv(std::function<void (TdbMsg *)> data_cb, DoubleCb msg_cb)
 		} else
 			throw TdbExcept("cannot read expected msg");
 
-		read_more = msg_cb(nlh, data_cb);
+		read_more = msg_cb(nlh);
 
 		// Release frame back to the kernel.
 		hdr->nm_status = NL_MMAP_STATUS_UNUSED;
@@ -159,10 +159,7 @@ TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
 		m->t_name[0] = '*'; // show all tables
 	});
 
-	msg_recv(data_cb,
-		 [=](nlmsghdr *nlh, std::function<void (TdbMsg *)> data_cb)
-			-> bool
-	{
+	msg_recv([&data_cb](nlmsghdr *nlh) -> bool {
 		// Consistency checking.
 		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
 				     + sizeof(TdbMsgRec))
@@ -183,10 +180,54 @@ TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
 	});
 }
 
+void
+TdbHndl::create_table(std::string &db_path, std::string &tbl_name,
+		      size_t tbl_size, unsigned int rec_size)
+{
+	if (tbl_name.length() > TDB_TBLNAME_LEN)
+		throw TdbExcept("too long table name");
+
+	msg_send([&db_path, &tbl_name, tbl_size, rec_size](nlmsghdr *nlh) {
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		m->type = TDB_MSG_CREATE;
+		m->rec_n = 1;
+		db_path.copy(m->t_name, TDB_TBLNAME_LEN);
+
+		std::string p = db_path + "/" + tbl_name + TDB_SUFFIX;
+
+		TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
+		ct->tbl_size = tbl_size;
+		ct->rec_size = rec_size;
+		ct->path_len = p.length();
+		p.copy(ct->path, ct->path_len);
+
+		m->recs[0].klen = 0;
+		m->recs[0].dlen = sizeof(*ct) + ct->path_len;
+
+		nlh->nlmsg_len = sizeof(*nlh) + sizeof(*m) + sizeof(TdbMsgRec)
+				 + m->recs[0].dlen;
+		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
+		nlh->nlmsg_flags |= NLM_F_REQUEST;
+	});
+
+	// Just check for status message.
+	msg_recv([=](nlmsghdr *nlh) -> bool {
+		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
+			throw TdbExcept("bad create table status msg");
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		if (m->type != (TDB_MSG_CREATE | TDB_NLF_RESP_OK))
+			throw TdbExcept("cannot create table, see dmesg");
+
+		return false;
+	});
+}
+
 TdbHndl::TdbHndl(size_t mm_sz)
 	: ring_sz_(mm_sz / 2),
 	rx_fr_off_(0),
-	tx_fr_off_(0)
+	tx_fr_off_(0),
+	buf_(NULL)
 {
 	fd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_TEMPESTA);
 	if (fd_ < 0)
