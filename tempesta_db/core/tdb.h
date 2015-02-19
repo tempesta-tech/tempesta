@@ -25,8 +25,9 @@
 
 #include <linux/fs.h>
 
-#define TDB_FNAME	"data"
-#define TDB_PATH_LEN	128
+#define TDB_SUFFIX		".tdb"
+#define TDB_PATH_LEN		128
+#define TDB_TBLNAME_LEN		15
 
 /**
  * Per-CPU dynamically allocated data for TDB handler.
@@ -66,12 +67,18 @@ typedef struct {
 	unsigned long		ext_bmp[0];
 } __attribute__((packed)) TdbHdr;
 
-/* Database handle descriptor. */
+/**
+ * Database handle descriptor.
+ *
+ * @filp	- mmap()'ed file;
+ * @tbl_name	- table name;
+ * @path	- path to the table;
+ */
 typedef struct {
 	TdbHdr		*hdr;
-	struct file	*filp;	/* mmap'ed file */
-	char		path[TDB_PATH_LEN /* path to mmaped file */
-			     + sizeof(TDB_FNAME)];
+	struct file	*filp;
+	char		tbl_name[TDB_TBLNAME_LEN + 1];
+	char		path[TDB_PATH_LEN];
 } TDB;
 
 /**
@@ -129,6 +136,7 @@ typedef TdbFRec TdbRec;
 #define TDB_DBG(...)
 #endif
 #define TDB_LOG(...)		pr_info(TDB_BANNER __VA_ARGS__)
+#define TDB_WARN(...)		pr_info(TDB_BANNER "Warning: " __VA_ARGS__)
 #define TDB_ERR(...)		pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
 /*
