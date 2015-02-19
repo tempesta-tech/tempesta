@@ -118,12 +118,11 @@ rcl_account_do(struct sock *sk, int (*func)(RclAccount *ra, struct sock *sk))
 	spin_lock(&hb->lock);
 
 	hlist_for_each_entry_safe(ra, tmp, &hb->list, hentry) {
-		if (!ipv6_addr_equal(&addr, &ra->addr)) {
-			/* Collect garbage. */
-			if (ra->last_ts + GC_TO < jiffies / HZ)
-				hash_del(&ra->hentry);
-			continue;
-		}
+		if (ipv6_addr_equal(&addr, &ra->addr))
+			break;
+		/* Collect garbage. */
+		if (ra->last_ts + GC_TO < jiffies / HZ)
+			hash_del(&ra->hentry);
 	}
 	if (!ra) {
 		spin_unlock(&hb->lock);
