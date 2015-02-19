@@ -36,16 +36,14 @@ public:
 	~TdbHndl() noexcept;
 
 	void get_info(std::function<void (TdbMsg *)> data_cb);
+	void create_table(std::string &db_path, std::string &tbl_name,
+			  size_t tbl_size, unsigned int rec_size);
 
 private:
-	typedef std::function<bool (nlmsghdr *,
-				    std::function<void (TdbMsg *)>)>
-		DoubleCb;
-
 	void advance_frame_offset(unsigned int &off) noexcept;
 	void lazy_buffer_alloc();
 
-	void msg_recv(std::function<void (TdbMsg *)> data_cb, DoubleCb msg_cb);
+	void msg_recv(std::function<bool (nlmsghdr *)> msg_cb);
 	void msg_send(std::function<void (nlmsghdr *)> msg_build_cb);
 
 private:

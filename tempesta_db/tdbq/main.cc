@@ -24,41 +24,67 @@
 
 #include <libtdb.h>
 
-// String definitions.
-#define ACT_INFO	"info"
-#define ACT_CREATE	"create"
-#define ACT_INSERT	"insert"
-#define ACT_SELECT	"select"
+enum {
+	ACT_INFO,
+	ACT_CREATE,
+	ACT_INSERT,
+	ACT_SELECT,
+};
 
 namespace po  = boost::program_options;
 
-static void
-check_config(po::variables_map &vm)
-{
-	if (!vm.count("action")) {
-		throw TdbExcept("please specify some action");
-		return;
+struct Cfg {
+	int		action;
+	unsigned int	rec_sz;
+	size_t		tbl_sz;
+	size_t		mm_sz;
+	std::string	db_path;
+	std::string	table;
+
+	Cfg &
+	operator=(po::variables_map &&vm)
+	{
+		if (vm.count("path"))
+			db_path	= std::move(vm["path"].as<std::string>());
+		table	= std::move(vm["table"].as<std::string>());
+		tbl_sz	= vm["tbl_size"].as<size_t>();
+		rec_sz	= vm["rec_size"].as<size_t>();
+		mm_sz	= vm["mmap"].as<size_t>();
+
+		std::string a = std::move(vm["action"].as<std::string>());
+		if (a == "info") {
+			action = ACT_INFO;
+		} else if (a == "create") {
+			action = ACT_CREATE;
+		} else if (a == "insert") {
+			action = ACT_INSERT;
+		} else if (a == "select") {
+			action = ACT_SELECT;
+		} else {
+			throw TdbExcept("bad action: %s", a.c_str());
+		}
+
+		if (action == ACT_INFO && table != "*")
+			throw TdbExcept("'info' command is only allowed for"
+					" all tables");
+		if (table == "*" && action != ACT_INFO)
+			throw TdbExcept("please specify a table");
+		if (action == ACT_CREATE && db_path.empty())
+			throw TdbExcept("please specify database path");
+
+		if (mm_sz % 2)
+			throw TdbExcept("mmap size must be multiple of 2");
+		if (mm_sz > UINT_MAX)
+			throw TdbExcept("mmap size must be multiple to"
+					" page size");
+		return *this;
 	}
-
-	auto a = vm["action"].as<std::string>();
-	auto t = vm["table"].as<std::string>();
-	if (a == ACT_INFO && t != "*")
-		throw TdbExcept("'show' command is only allowed for"
-				" all tables");
-	if (t == "*" && a != ACT_INFO)
-		throw TdbExcept("please specify a table");
-
-	auto m = vm["mmap"].as<size_t>();
-	if (m % 2)
-		throw TdbExcept("mmap size must be multiple of 2");
-	if (m > UINT_MAX)
-		throw TdbExcept("mmap size must be multiple of page size");
-}
+};
 
 int
 main(int argc, char *argv[])
 {
-	po::variables_map vm;
+	Cfg cfg;
 	po::options_description desc("\n\tTempesta DB CLI Query Tool\n"
 				     "\nUsage:");
 	desc.add_options()
@@ -69,16 +95,23 @@ main(int argc, char *argv[])
 
 		("action,a", po::value<std::string>(),
 		 "The action specification, one of the follwoing:\n"
-		 "  " ACT_INFO "    - information about current"
+		 "  info    - information about current"
 		 		      " database state;\n"
-		 "  " ACT_CREATE "  - create a new table;\n"
-		 "  " ACT_INSERT "  - insert a record to a table;\n"
-		 "  " ACT_SELECT "  - select from a table")
+		 "  create  - create a new table;\n"
+		 "  insert  - insert a record to a table;\n"
+		 "  select  - select from a table")
 		("key,k", po::value<std::string>(), "The record key")
+		("path,p", po::value<std::string>(), "Path to database files")
+		("rec_size,r", po::value<size_t>()->default_value(0),
+		 "Table record size. Specify this for fixed-size records"
+		 " and leave zero for variable-size records like strings")
 		("table,t", po::value<std::string>()->default_value("*"),
-		 "The table to operate on or '*' for all tables");
+		 "The table to operate on or '*' for all tables")
+		("tbl_size,s", po::value<size_t>()->default_value(64),
+		 "Table size in pages");
 	try {
 		// Parse config options
+		po::variables_map vm;
 		po::store(po::parse_command_line(argc, argv, desc), vm);
 		po::notify(vm);
 		if (vm.count("help")) {
@@ -87,7 +120,8 @@ main(int argc, char *argv[])
 		}
 		if (vm.count("debug"))
 			debug = true;
-		check_config(vm);
+
+		cfg = std::move(vm);
 	}
 	catch (std::exception &e) {
 		std::cerr << "Configuration error:  " << e.what() << std::endl;
@@ -95,23 +129,28 @@ main(int argc, char *argv[])
 	}
 
 	try {
-		auto a = vm["action"].as<std::string>();
-		TdbHndl th(vm["mmap"].as<size_t>());
+		TdbHndl th(cfg.mm_sz);
 
-		if (a == ACT_INFO) {
+		switch (cfg.action) {
+		case ACT_INFO:
 			th.get_info([=](TdbMsg *m) {
 				std::cout << m->recs[0].data << std::endl;
 			});
-		}
-		else if (a == ACT_CREATE) {
-		}
-		else if (a == ACT_INSERT) {
+			break;
+		case ACT_CREATE:
+			th.create_table(cfg.db_path, cfg.table, cfg.tbl_sz,
+					cfg.rec_sz);
+			std::cout << "table " << cfg.table << " created"
+				  << std::endl;
+			break;
+		case ACT_INSERT:
 			// TODO generic insertion function for many key=value pairs
+			break;
+		case ACT_SELECT:
+			break;
+		default:
+			throw TdbExcept("bad action number %d", cfg.action);
 		}
-		else if (a == ACT_SELECT) {
-		}
-		else
-			throw TdbExcept(("bad action: " + a).c_str());
 	}
 	catch (TdbExcept &e) {
 		std::cerr << "Error: " << e.what() << std::endl;

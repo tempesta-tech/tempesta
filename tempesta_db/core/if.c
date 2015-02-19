@@ -60,6 +60,23 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 static int
 tdb_if_create(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	TdbMsg *resp_m, *m = cb->data;
+	TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
+	struct nlmsghdr *nlh;
+
+	/* Create status response. */
+	nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
+			cb->nlh->nlmsg_type, sizeof(TdbMsg), 0);
+	if (!nlh)
+		return -EMSGSIZE;
+
+	resp_m = nlmsg_data(nlh);
+	resp_m->type = TDB_MSG_CREATE;
+	m->rec_n = 0;
+
+	if (tdb_open(ct->path, ct->tbl_size, ct->rec_size))
+		resp_m->type |= TDB_NLF_RESP_OK;
+
 	return 0;
 }
 
@@ -96,7 +113,7 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 
 	m = nlmsg_data(nlh);
 
-	/* Type specific consistency checking. */
+	/* Check the message type and do consistency checking for each type. */
 	switch (m->type) {
 	case TDB_MSG_INFO:
 		if (m->rec_n || m->t_name[0] != '*' || m->t_name[1] != 0) {
@@ -106,6 +123,24 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		}
 		break;
 	case TDB_MSG_CREATE:
+		if (m->rec_n != 1) {
+			TDB_ERR("empty create table msg\n");
+			return -EINVAL;
+		}
+		if (m->recs[0].dlen < sizeof(TdbCrTblRec)) {
+			TDB_ERR("empty record in create table msg\n");
+			return -EINVAL;
+		}
+		{
+			TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
+			if (!ct->tbl_size || ct->path_len < sizeof(TDB_SUFFIX))
+			{
+				TDB_ERR("malformed create table msg:"
+					" tbl_size=%lu path_len=%u\n",
+					ct->tbl_size, ct->path_len);
+				return -EINVAL;
+			}
+		}
 		break;
 	case TDB_MSG_INSERT:
 		break;
