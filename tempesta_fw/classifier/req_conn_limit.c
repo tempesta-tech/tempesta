@@ -39,6 +39,7 @@
 #include "../client.h"
 #include "../connection.h"
 #include "../gfsm.h"
+#include "../http.h"
 #include "../log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
@@ -86,6 +87,11 @@ static unsigned int rcl_req_burst = 0;
 static unsigned int rcl_conn_rate = 0;
 static unsigned int rcl_conn_burst = 0;
 static unsigned int rcl_conn_max = 0;
+
+/* Limits for HTTP request contents: uri, headers, body, etc. */
+static unsigned int rcl_http_uri_len = 0;
+static unsigned int rcl_http_field_len = 0;
+static unsigned int rcl_http_body_len = 0;
 
 static void
 rcl_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
@@ -253,11 +259,89 @@ block:
 }
 
 static int
+rcl_http_uri_len_limit(const TfwHttpReq *req)
+{
+	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
+	 * This is too slow. The value must be stored in a TfwStr field. */
+	if (rcl_http_uri_len && tfw_str_len(&req->uri) > rcl_http_uri_len) {
+		TFW_DBG("rcl: http_uri_len limit is reached\n");
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
+static int
+rcl_http_field_len_limit(const TfwHttpReq *req)
+{
+	const TfwStr *field, *end;
+
+	if (!rcl_http_field_len)
+		return TFW_PASS;
+
+	TFW_HTTP_FOR_EACH_HDR_FIELD(field, end, req) {
+		if (tfw_str_len(field) > rcl_http_field_len) {
+			TFW_DBG("rcl: http_field_len limit is reached\n");
+			return TFW_BLOCK;
+		}
+	}
+
+	return TFW_PASS;
+}
+
+static int
+rcl_http_body_len_limit(const TfwHttpReq *req)
+{
+	if (rcl_http_body_len && tfw_str_len(&req->body) > rcl_http_body_len) {
+		TFW_DBG("rcl: http_body_len limit is reached\n");
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
+static int
+rcl_http_len_limit(const TfwHttpReq *req)
+{
+	int r;
+
+	r = rcl_http_uri_len_limit(req);
+	if (r)
+		return r;
+	r = rcl_http_field_len_limit(req);
+	if (r)
+		return r;
+	r = rcl_http_body_len_limit(req);
+	if (r)
+		return r;
+
+	return 0;
+}
+
+static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
+	int r;
 	TfwConnection *c = (TfwConnection *)obj;
+	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
 
-	return rcl_account_do(c->sk, rcl_req_limit);
+	r = rcl_account_do(c->sess->cli->sock, rcl_req_limit);
+	if (r)
+		return r;
+	r = rcl_http_len_limit(req);
+	if (r)
+		return r;
+
+	return 0;
+}
+
+static int
+rcl_http_chunk_handler(void *obj, unsigned char *data, size_t len)
+{
+	TfwConnection *c = (TfwConnection *)obj;
+	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
+
+	return rcl_http_len_limit(req);
 }
 
 static TfwClassifier rcl_class_ops = {
@@ -305,6 +389,9 @@ char rcl_req_burst_str[RCL_INT_LEN];
 char rcl_conn_rate_str[RCL_INT_LEN];
 char rcl_conn_burst_str[RCL_INT_LEN];
 char rcl_conn_max_str[RCL_INT_LEN];
+char rcl_http_uri_len_str[RCL_INT_LEN];
+char rcl_http_field_len_str[RCL_INT_LEN];
+char rcl_http_body_len_str[RCL_INT_LEN];
 
 static ctl_table rcl_ctl_table[] = {
 	{
@@ -347,6 +434,30 @@ static ctl_table rcl_ctl_table[] = {
 		.proc_handler	= rcl_sysctl_int,
 		.extra1		= &rcl_conn_max,
 	},
+	{
+		.procname 	= "http_uri_len",
+		.data		= rcl_http_uri_len_str,
+		.maxlen		= 10,
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_int,
+		.extra1		= &rcl_http_uri_len,
+	},
+	{
+		.procname 	= "http_field_len",
+		.data		= rcl_http_field_len_str,
+		.maxlen		= 10,
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_int,
+		.extra1		= &rcl_http_field_len,
+	},
+	{
+		.procname 	= "http_body_len",
+		.data		= rcl_http_body_len_str,
+		.maxlen		= 10,
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_int,
+		.extra1		= &rcl_http_body_len,
+	},
 	{}
 };
 static struct ctl_path __tfw_path[] = {
@@ -366,44 +477,80 @@ rcl_init(void)
 		return -EINVAL;
 	}
 
+	rcl_ctl = register_net_sysctl(&init_net, "net/tempesta/req_conn_limit",
+				      rcl_ctl_table);
+	if (!rcl_ctl) {
+		TFW_ERR("rcl: can't register sysctl table\n");
+		r = -1;
+		goto err_sysctl;
+	}
+
 	r = tfw_classifier_register(&rcl_class_ops);
 	if (r) {
 		TFW_ERR("rcl: can't register classifier\n");
 		goto err_class;
 	}
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_RCL, rcl_http_req_handler);
+	/**
+	 * FIXME:
+	 *  Here we add two primitive hooks by registering two FSMs.
+	 *  There is a bunch of problems here:
+	 *  - We can't unregister hooks. Therefore, we can't unload this module
+	 *    and can't recover if the second tfw_gfsm_register_hook() fails.
+	 *  - We have to add every hook to the global enum of FSMs.
+	 *  - We register two FSMs, but actually don't implement anything close
+	 *    to FSM and don't need the FSM switching logic.
+	 *
+	 * The suggested solution is to extend the GFSM with the support of
+	 * "lightweight hooks" that behave like plain functions rather than FSM.
+	 * That should solve all these problems listed above:
+	 *  - Such hook may be unregistered any time it is not executed.
+	 *  - The hook doesn't need an ID, so no need to maintain a global list
+	 *    of all known hooks in the GFSM code.
+	 *  - No need to create a dummy FSM just to call the hook.
+	 *    This is easy to comprehend, and perhaps faster since the GFSM
+	 *    doesn't need to switch FSMs.
+	 */
+	r = tfw_gfsm_register_fsm(TFW_FSM_RCL_REQ, rcl_http_req_handler);
 	if (r) {
-		TFW_ERR("rcl: can't register fsm\n");
-		goto err_fsm;
+		TFW_ERR("rcl: can't register fsm: req\n");
+		goto err_fsm_req;
+	}
+	r = tfw_gfsm_register_fsm(TFW_FSM_RCL_CHUNK, rcl_http_chunk_handler);
+	if (r) {
+		TFW_ERR("rcl: can't register fsm: chunk\n");
+		goto err_fsm_chunk;
 	}
 
-	rcl_ctl = register_sysctl_paths(__tfw_path, rcl_ctl_table);
-	if (!rcl_ctl) {
-		TFW_ERR("rcl: can't register sysctl table\n");
-		goto err_sysctl;
-	}
-
-	/* Must be last call - we can't unregister the hook. */
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_RCL, 0);
-
-	if (r < 0) {
-		TFW_ERR("rcl: can't register gfsm hook\n");
-		goto err_hook;
+				   TFW_HTTP_FSM_REQ_MSG, 0,
+				   TFW_FSM_RCL_REQ);
+	if (r) {
+		TFW_ERR("rcl: can't register gfsm hook: req\n");
+		goto err_hook_req;
+	}
+	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
+				   TFW_HTTP_FSM_REQ_CHUNK, 0,
+				   TFW_FSM_RCL_CHUNK);
+	if (r) {
+		TFW_ERR("rcl: can't register gfsm hook: chunk\n");
+		TFW_ERR("rcl: can't recover\n");
+		BUG();
 	}
 
 	TFW_WARN("rcl mudule can't be unloaded, "
 		 "so all allocated resources won't freed\n");
 
 	return 0;
-err_hook:
-	unregister_sysctl_table(rcl_ctl);
-err_sysctl:
-	tfw_gfsm_unregister_fsm(TFW_FSM_RCL);
-err_fsm:
+err_hook_req:
+	tfw_gfsm_unregister_fsm(TFW_FSM_RCL_CHUNK);
+err_fsm_chunk:
+	tfw_gfsm_unregister_fsm(TFW_FSM_RCL_REQ);
+err_fsm_req:
 	tfw_classifier_unregister();
 err_class:
+	unregister_sysctl_table(rcl_ctl);
+err_sysctl:
 	kmem_cache_destroy(rcl_mem_cache);
 	return r;
 }
