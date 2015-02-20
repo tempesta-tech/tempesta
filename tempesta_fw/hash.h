@@ -23,5 +23,6 @@
 #include "str.h"
 
 unsigned long tfw_hash_str(const TfwStr *str);
+unsigned long tfw_hash_buf(const void *buf, size_t len);
 
 #endif /* __TFW_HASH_H__ */

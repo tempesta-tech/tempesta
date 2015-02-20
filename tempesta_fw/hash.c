@@ -81,3 +81,19 @@ tail:
 }
 DEBUG_EXPORT_SYMBOL(tfw_hash_str);
 
+unsigned long
+tfw_hash_buf(const void *buf, size_t len)
+{
+	const char *pos = buf;
+	const char *end = buf + len;
+	register unsigned long crc = 0xFFFFFFFF;
+
+	/* At this point performance is not required here, so KISS. */
+	while (pos < end) {
+		CRCB(crc, *pos);
+		++pos;
+	}
+
+	return crc;
+}
+EXPORT_SYMBOL(tfw_hash_buf);
