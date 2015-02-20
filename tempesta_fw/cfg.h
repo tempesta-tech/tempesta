@@ -284,7 +284,11 @@ int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 
 /* Various helpers for building custom handler functions. */
+int tfw_cfg_check_range(long value, long min, long max);
+int tfw_cfg_check_multiple_of(long value, int divisor);
+int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
 int tfw_cfg_check_single_val(const TfwCfgEntry *e);
+int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
 

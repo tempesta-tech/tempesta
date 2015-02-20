@@ -888,6 +888,38 @@ tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 EXPORT_SYMBOL(tfw_cfg_map_enum);
 
 /**
+ * Check that integer is in specified range.
+ * Print an error and return non-zero if it is out of range.
+ */
+int
+tfw_cfg_check_range(long value, long min, long max)
+{
+	if (min != max && (value < min || value > max)) {
+		TFW_ERR("the value %ld is out of range: [%ld, %ld]\n",
+			value, min, max);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_range);
+
+/**
+ * Check that integer @value is a multiple of @divisor (print an error
+ * otherwise);
+ */
+int
+tfw_cfg_check_multiple_of(long value, int divisor)
+{
+	if (divisor && (value % divisor)) {
+		TFW_ERR("the value of %ld is not a multiple of %d\n",
+			value, divisor);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_multiple_of);
+
+/**
  * Most of the handlers below work with single-value entries like this:
  *   option1 42;
  *   option2 true;
@@ -915,6 +947,51 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 	return r;
 }
 EXPORT_SYMBOL(tfw_cfg_check_single_val);
+
+/**
+ * Detect integer base and strip 0x and 0b prefixes from the string.
+ *
+ * The custom function is written because the kstrtox() treats leading zeros as
+ * the octal base. That may cause an unexpected effect when you specify "010" in
+ * the configuration and get 8 instead of 10. We want to avoid that.
+ *
+ * As a bonus, we have the "0b" support here. This may be handy for specifying
+ * some masks and bit strings in the configuration.
+ */
+static int
+detect_base(const char **pos)
+{
+	const char *str = *pos;
+	size_t len = strlen(str);
+
+	if (!len)
+		return 0;
+
+	if (len > 2 && str[0] == '0' && isalpha(str[1])) {
+		char c = tolower(str[1]);
+
+		(*pos) += 2;
+
+		if (c == 'x')
+			return 16;
+		else if (c == 'b')
+			return 2;
+		else
+			return 0;
+	}
+
+	return 10;
+}
+
+int
+tfw_cfg_parse_int(const char *s, int *out_int)
+{
+	int base = detect_base(&s);
+	if (!base)
+		return -EINVAL;
+	return kstrtoint(s, base, out_int);
+}
+EXPORT_SYMBOL(tfw_cfg_parse_int);
 
 static void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
@@ -1055,45 +1132,11 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 }
 EXPORT_SYMBOL(tfw_cfg_set_bool);
 
-/**
- * Detect integer base and strip 0x and 0b prefixes from the string.
- *
- * The custom function is written because the kstrtox() treats leading zeros as
- * the octal base. That may cause an unexpected effect when you specify "010" in
- * the configuration and get 8 instead of 10. We want to avoid that.
- *
- * As a bonus, we have the "0b" support here. This may be handy for specifying
- * some masks and bit strings in the configuration.
- */
-static int
-detect_base(const char **pos)
-{
-	const char *str = *pos;
-	size_t len = strlen(str);
-
-	if (!len)
-		return 0;
-
-	if (len > 2 && str[0] == '0' && isalpha(str[1])) {
-		char c = tolower(str[1]);
-
-		(*pos) += 2;
-
-		if (c == 'x')
-			return 16;
-		else if (c == 'b')
-			return 2;
-		else
-			return 0;
-	}
-
-	return 10;
-}
 
 int
 tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
-	int base, r, val;
+	int r, val;
 	int *dest_int;
 	const char *in_str;
 	TfwCfgSpecInt *cse;
@@ -1112,31 +1155,17 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 			goto val_is_parsed;
 	}
 
-	base = detect_base(&in_str);
-	if (!base)
-		goto err;
-	r = kstrtoint(in_str, base, &val);
+	r = tfw_cfg_parse_int(in_str, &val);
 	if (r)
 		goto err;
 
 val_is_parsed:
 	/* Check value restrictions if we have any in the spec extension. */
 	if (cse) {
-		int div = cse->multiple_of;
-		long min = cse->range.min;
-		long max = cse->range.max;
-
-		if (div && val % div) {
-			TFW_ERR("the value of '%s' is not a multiple of %d\n",
-				in_str ,cse->multiple_of);
+		r  = tfw_cfg_check_multiple_of(val, cse->multiple_of);
+		r |= tfw_cfg_check_range(val, cse->range.min, cse->range.max);
+		if (r)
 			goto err;
-		}
-
-		if (min != max && (val < min || val > max)) {
-			TFW_ERR("the value of '%s' is out of range: %ld, %ld\n",
-				in_str, cse->range.min, cse->range.max);
-			goto err;
-		}
 	}
 
 	dest_int = cs->dest;
