@@ -163,6 +163,12 @@ typedef struct {
 	unsigned int	expires;
 } TfwHttpResp;
 
+#define TFW_HTTP_FOR_EACH_HDR_FIELD(pos, end, msg) \
+	for ((pos) = &(msg)->h_tbl->tbl[0].field, \
+	     (end) = &(msg)->h_tbl->tbl[(msg)->h_tbl->off].field; \
+	     (pos) < (end); \
+	     ++(pos))
+
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */
