@@ -92,6 +92,7 @@ static unsigned int rcl_conn_max = 0;
 static unsigned int rcl_http_uri_len = 0;
 static unsigned int rcl_http_field_len = 0;
 static unsigned int rcl_http_body_len = 0;
+static unsigned long rcl_http_methods_mask = 0;
 
 static void
 rcl_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
@@ -319,6 +320,18 @@ rcl_http_len_limit(const TfwHttpReq *req)
 }
 
 static int
+rcl_http_methods_check(const TfwHttpReq *req)
+{
+	unsigned long m = (1 << req->method);
+
+	if (rcl_http_methods_mask && (rcl_http_methods_mask & m))
+		return TFW_PASS;
+
+	TFW_DBG("rcl: forbidden method: %d (%#lx)\n", req->method, m);
+	return TFW_BLOCK;
+}
+
+static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
@@ -338,10 +351,18 @@ rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 static int
 rcl_http_chunk_handler(void *obj, unsigned char *data, size_t len)
 {
+	int r;
 	TfwConnection *c = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
 
-	return rcl_http_len_limit(req);
+	r = rcl_http_methods_check(req);
+	if (r)
+		return r;
+	r = rcl_http_len_limit(req);
+	if (r)
+		return r;
+
+	return 0;
 }
 
 static TfwClassifier rcl_class_ops = {
@@ -382,7 +403,115 @@ rcl_sysctl_int(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
 	return proc_dostring(ctl, write, buffer, lenp, ppos);
 }
 
+/* TODO: refactoring: get rid of these sysctl handlers,
+ * replace them with Tempesta's cfg framework. */
+
+static int
+rcl_find_idx_by_str(const char **str_vec, size_t str_vec_size, const char *str)
+{
+	int i;
+	const char *curr_str;
+
+	for (i = 0; i < str_vec_size; ++i) {
+		curr_str = str_vec[i];
+		BUG_ON(!curr_str);
+		if (!strcasecmp(curr_str, str))
+			return i;
+	}
+
+	return -1;
+}
+
+static char *
+rcl_tokenize(char **tmp_buf)
+{
+	char *token = strsep(tmp_buf, " \r\n\t");
+
+	/* Unlike strsep(), don't return empty tokens. */
+	if (token && !*token)
+		token = NULL;
+
+	return token;
+}
+
+static int
+rcl_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
+{
+	static const char *strs[_TFW_HTTP_METH_COUNT] = {
+		[TFW_HTTP_METH_GET] = "get",
+		[TFW_HTTP_METH_POST] = "post",
+		[TFW_HTTP_METH_HEAD] = "head",
+	};
+	char *token;
+	int method_idx;
+	unsigned long methods_mask;
+
+	token = tmp_buf;
+	methods_mask = 0;
+	while ((token = rcl_tokenize(&tmp_buf))) {
+		method_idx = rcl_find_idx_by_str(strs, ARRAY_SIZE(strs), token);
+		if (method_idx < 0) {
+			TFW_ERR("rcl: invalid method: '%s'\n", token);
+			return -EINVAL;
+		}
+
+		TFW_DBG("rcl: parsed method: %s => %d\n", token, method_idx);
+		methods_mask |= (1 << method_idx);
+	}
+
+	TFW_DBG("parsed methods_mask: %#lx\n", methods_mask);
+	*out_mask = methods_mask;
+	return 0;
+}
+
+static int
+rcl_sysctl_handle(ctl_table *ctl, int write,
+		  void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int r, len;
+	char *tmp_buf;
+	void *parse_dest;
+	int (*parse_fn)(const char *tmp_buf, void *dest);
+
+	tmp_buf = NULL;
+	parse_fn = ctl->extra1;
+	parse_dest = ctl->extra2;
+	BUG_ON(!parse_fn || !parse_dest);
+
+	if (write) {
+		tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
+		if (!tmp_buf) {
+			TFW_ERR("rcl: can't allocate temporary buffer\n");
+			r = -ENOMEM;
+			goto out;
+		}
+
+		len =  min(ctl->maxlen, (int)*lenp);
+		if (copy_from_user(tmp_buf, buffer, len)) {
+			TFW_ERR("rcl: can't copy data from userspace\n");
+			r = -EFAULT;
+			goto out;
+		}
+
+		if (parse_fn(tmp_buf, parse_dest)) {
+			TFW_ERR("rcl: can't parse input data\n");
+			r = -EINVAL;
+			goto out;
+		}
+	}
+
+	r = proc_dostring(ctl, write, buffer, lenp, ppos);
+	if (r)
+		TFW_ERR("rcl: sysctl error\n");
+out:
+	if (r)
+		TFW_ERR("rcl: can't read/write parameter: %s\n", ctl->procname);
+	kfree(tmp_buf);
+	return r;
+}
+
 #define RCL_INT_LEN	10
+#define RCL_STR_LEN	255
 
 char rcl_req_rate_str[RCL_INT_LEN];
 char rcl_req_burst_str[RCL_INT_LEN];
@@ -392,6 +521,7 @@ char rcl_conn_max_str[RCL_INT_LEN];
 char rcl_http_uri_len_str[RCL_INT_LEN];
 char rcl_http_field_len_str[RCL_INT_LEN];
 char rcl_http_body_len_str[RCL_INT_LEN];
+char rcl_http_methods_str[RCL_STR_LEN];
 
 static ctl_table rcl_ctl_table[] = {
 	{
@@ -457,6 +587,15 @@ static ctl_table rcl_ctl_table[] = {
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_int,
 		.extra1		= &rcl_http_body_len,
+	},
+	{
+		.procname	= "http_methods",
+		.data		= rcl_http_methods_str,
+		.maxlen		= RCL_STR_LEN,
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_methods_mask,
+		.extra2		= &rcl_http_methods_mask,
 	},
 	{}
 };
