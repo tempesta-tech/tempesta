@@ -514,7 +514,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "request_rate",
 		.data		= rcl_req_rate_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_req_rate_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -523,7 +523,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "request_burst",
 		.data		= rcl_req_burst_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_req_burst_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -532,7 +532,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "new_connection_rate",
 		.data		= rcl_conn_rate_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_conn_rate_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -541,7 +541,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "new_connection_burst",
 		.data		= rcl_conn_burst_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_conn_burst_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -550,7 +550,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "concurrent_connections",
 		.data		= rcl_conn_max_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_conn_max_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -559,7 +559,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname 	= "http_uri_len",
 		.data		= rcl_http_uri_len_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_http_uri_len_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -568,7 +568,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname 	= "http_field_len",
 		.data		= rcl_http_field_len_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_http_field_len_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -577,7 +577,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname 	= "http_body_len",
 		.data		= rcl_http_body_len_str,
-		.maxlen		= 10,
+		.maxlen		= sizeof(rcl_http_body_len_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_int,
@@ -586,7 +586,7 @@ static ctl_table rcl_ctl_table[] = {
 	{
 		.procname	= "http_methods",
 		.data		= rcl_http_methods_str,
-		.maxlen		= RCL_STR_LEN,
+		.maxlen		= sizeof(rcl_http_methods_str),
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_methods_mask,
