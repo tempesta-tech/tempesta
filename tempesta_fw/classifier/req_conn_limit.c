@@ -371,36 +371,23 @@ static TfwClassifier rcl_class_ops = {
 };
 
 static int
-rcl_sysctl_int(ctl_table *ctl, int write, void __user *buffer, size_t *lenp,
-	       loff_t *ppos)
+rcl_parse_int(char *tmp_buf, int *out_val)
 {
-	unsigned int *param = ctl->extra1;
+	char *p;
+	int val = 0;
 
-	if (write) {
-		unsigned int tmp_v = 0;
-		char *p, *tmp_buf;
+	tmp_buf = strim(tmp_buf);
 
-		tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
-		if (!tmp_buf)
-			return -ENOMEM;
-		if (copy_from_user(tmp_buf, buffer, ctl->maxlen)) {
-			kfree(tmp_buf);
-			return -EFAULT;
+	for (p = tmp_buf; *p; ++p) {
+		if (!isdigit(*p)) {
+			TFW_ERR("not a digit: '%c'\n", *p);
+			return -EINVAL;
 		}
-
-		for (p = tmp_buf; *p; ++p) {
-			if (!isdigit(*p)) {
-				kfree(tmp_buf);
-				return -EINVAL;
-			}
-			tmp_v = tmp_v * 10 + *p - '0';
-		}
-		*param = tmp_v;
-
-		kfree(tmp_buf);
+		val = val * 10 + *p - '0';
 	}
 
-	return proc_dostring(ctl, write, buffer, lenp, ppos);
+	*out_val = val;
+	return 0;
 }
 
 /* TODO: refactoring: get rid of these sysctl handlers,
@@ -529,64 +516,72 @@ static ctl_table rcl_ctl_table[] = {
 		.data		= rcl_req_rate_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_req_rate,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_req_rate,
 	},
 	{
 		.procname	= "request_burst",
 		.data		= rcl_req_burst_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_req_burst,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_req_burst,
 	},
 	{
 		.procname	= "new_connection_rate",
 		.data		= rcl_conn_rate_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_conn_rate,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_conn_rate,
 	},
 	{
 		.procname	= "new_connection_burst",
 		.data		= rcl_conn_burst_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_conn_burst,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_conn_burst,
 	},
 	{
 		.procname	= "concurrent_connections",
 		.data		= rcl_conn_max_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_conn_max,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_conn_max,
 	},
 	{
 		.procname 	= "http_uri_len",
 		.data		= rcl_http_uri_len_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_http_uri_len,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_http_uri_len,
 	},
 	{
 		.procname 	= "http_field_len",
 		.data		= rcl_http_field_len_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_http_field_len,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_http_field_len,
 	},
 	{
 		.procname 	= "http_body_len",
 		.data		= rcl_http_body_len_str,
 		.maxlen		= 10,
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_int,
-		.extra1		= &rcl_http_body_len,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_int,
+		.extra2		= &rcl_http_body_len,
 	},
 	{
 		.procname	= "http_methods",
