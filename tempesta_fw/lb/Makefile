@@ -23,4 +23,4 @@ ifneq ($(NDEBUG), 1)
 EXTRA_CFLAGS += -DDEBUG -O0 -g3
 endif
 
-obj-m = tfw_lb_dummy.o
+obj-m = tfw_lb_dummy.o tfw_lb_http.o
