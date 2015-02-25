@@ -285,7 +285,8 @@ TfwCfgMod tfw_sock_backend_cfg_mod = {
 	.stop = stop_bconnd,
 	.specs = (TfwCfgSpec[]) {
 		{
-			"backend", "127.0.0.1:8080",
+			/* XXX: to be extracted to a load balancer module. */
+			"backend_", "127.0.0.1:8080",
 			add_backend_entry,
 			.allow_repeat = true,
 			.cleanup = release_backend_entries
