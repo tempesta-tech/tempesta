@@ -345,6 +345,8 @@ rcl_http_methods_check(const TfwHttpReq *req)
 static int
 rcl_http_ct_check(const TfwHttpReq *req)
 {
+#define _CT "Content-Type"
+#define _CTLEN (sizeof(_CT) - 1)
 	TfwStr *ct, *end;
 	RclCtVal *curr;
 
@@ -358,8 +360,7 @@ rcl_http_ct_check(const TfwHttpReq *req)
 	 * and pollute the headers table.
 	 */
 	TFW_HTTP_FOR_EACH_RAW_HDR_FIELD(ct, end, req) {
-		if (tfw_str_eq_cstr(ct, "Content-Type", sizeof("Content-Type"),
-				    TFW_STR_EQ_PREFIX_CASEI))
+		if (tfw_str_eq_cstr(ct, _CT, _CTLEN, TFW_STR_EQ_PREFIX_CASEI))
 			break;
 
 	}
@@ -375,10 +376,14 @@ rcl_http_ct_check(const TfwHttpReq *req)
 	 * usually faster for small sets of values. Perhaps we should switch
 	 * between two if the performance is that critical here, but benchmarks
 	 * should be done to measure the impact.
+	 *
+	 * TODO: don't store field name in the TfwStr. Store only the header
+	 * value, and thus get rid of the nasty tfw_str_eq_kv().
 	 */
 	rcu_read_lock();
 	for (curr = rcu_dereference(rcl_http_ct_vals); curr->str; ++curr) {
-		if (tfw_str_eq_cstr(ct, curr->str, curr->len, TFW_STR_EQ_CASEI))
+		if (tfw_str_eq_kv(ct, _CT, _CTLEN, ':', curr->str, curr->len,
+				  TFW_STR_EQ_PREFIX_CASEI))
 			break;
 	}
 	rcu_read_unlock();
@@ -389,6 +394,8 @@ rcl_http_ct_check(const TfwHttpReq *req)
 	}
 
 	return TFW_PASS;
+#undef _CT
+#undef _CTLEN
 }
 
 static int
