@@ -94,6 +94,7 @@ static unsigned int rcl_http_field_len = 0;
 static unsigned int rcl_http_body_len = 0;
 static unsigned long rcl_http_methods_mask = 0;
 static bool rcl_http_ct_is_required = false;
+static bool rcl_http_host_is_required = false;
 
 /* The list of allowed Content-Type values. */
 
@@ -391,6 +392,27 @@ rcl_http_ct_check(const TfwHttpReq *req)
 }
 
 static int
+rcl_http_host_check(const TfwHttpReq *req)
+{
+	TfwStr *field;
+
+	if (!rcl_http_host_is_required || req->method != TFW_HTTP_METH_POST)
+		return TFW_PASS;
+
+	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
+	if (!field->ptr) {
+		TFW_DBG("rcl: the Host header is missing\n");
+		return TFW_BLOCK;
+	}
+
+	/* FIXME: here should be a check that the Host value is not an IP
+	 * address. Need a fast routine that supports compound TfwStr.
+	 * Perhaps should implement a tiny FSM or postpone the task until we
+	 * have a good regex library. */
+	return TFW_PASS;
+}
+
+static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
@@ -404,6 +426,9 @@ rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 	if (r)
 		return r;
 	r = rcl_http_ct_check(req);
+	if (r)
+		return r;
+	r = rcl_http_host_check(req);
 	if (r)
 		return r;
 
@@ -666,6 +691,7 @@ char rcl_http_body_len_str[RCL_INT_LEN];
 char rcl_http_methods_str[RCL_STR_LEN];
 char rcl_http_ct_is_required_str[RCL_INT_LEN];
 char rcl_http_content_types_str[RCL_LONG_STR_LEN];
+char rcl_http_host_is_required_str[RCL_INT_LEN];
 
 static ctl_table rcl_ctl_table[] = {
 	{
@@ -765,6 +791,15 @@ static ctl_table rcl_ctl_table[] = {
 		.mode		= 0644,
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_ct_vals,
+	},
+	{
+		.procname	= "http_host_is_required",
+		.data		= rcl_http_host_is_required_str,
+		.maxlen		= sizeof(rcl_http_host_is_required_str),
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_bool,
+		.extra2		= &rcl_http_host_is_required
 	},
 	{}
 };
