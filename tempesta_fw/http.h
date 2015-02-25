@@ -165,7 +165,13 @@ typedef struct {
 } TfwHttpResp;
 
 #define TFW_HTTP_FOR_EACH_HDR_FIELD(pos, end, msg) \
-	for ((pos) = &(msg)->h_tbl->tbl[0].field, \
+	__TFW_HTTP_FOR_EACH_HDR_FROM(pos, end, msg, 0)
+
+#define TFW_HTTP_FOR_EACH_RAW_HDR_FIELD(pos, end, msg) \
+	__TFW_HTTP_FOR_EACH_HDR_FROM(pos, end, msg, TFW_HTTP_HDR_RAW)
+
+#define __TFW_HTTP_FOR_EACH_HDR_FROM(pos, end, msg, start_off) \
+	for ((pos) = &(msg)->h_tbl->tbl[start_off].field, \
 	     (end) = &(msg)->h_tbl->tbl[(msg)->h_tbl->off].field; \
 	     (pos) < (end); \
 	     ++(pos))
