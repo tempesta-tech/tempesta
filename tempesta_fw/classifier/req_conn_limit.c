@@ -93,6 +93,16 @@ static unsigned int rcl_http_uri_len = 0;
 static unsigned int rcl_http_field_len = 0;
 static unsigned int rcl_http_body_len = 0;
 static unsigned long rcl_http_methods_mask = 0;
+static bool rcl_http_ct_is_required = false;
+
+/* The list of allowed Content-Type values. */
+
+typedef struct {
+	char   *str;
+	size_t len;	/* The pre-computed strlen(@str). */
+} RclCtVal;
+
+static RclCtVal *rcl_http_ct_vals __rcu;
 
 static void
 rcl_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
@@ -332,6 +342,55 @@ rcl_http_methods_check(const TfwHttpReq *req)
 }
 
 static int
+rcl_http_ct_check(const TfwHttpReq *req)
+{
+	TfwStr *ct, *end;
+	RclCtVal *curr;
+
+	if (!rcl_http_ct_is_required || req->method != TFW_HTTP_METH_POST)
+		return TFW_PASS;
+
+	/* Find the Content-Type header.
+	 *
+	 * XXX: Should we make the header "special"?
+	 * It would speed up this function, but bloat the HTTP parser code,
+	 * and pollute the headers table.
+	 */
+	TFW_HTTP_FOR_EACH_RAW_HDR_FIELD(ct, end, req) {
+		if (tfw_str_eq_cstr(ct, "Content-Type", sizeof("Content-Type"),
+				    TFW_STR_EQ_PREFIX_CASEI))
+			break;
+
+	}
+	if (ct == end) {
+		TFW_DBG("rcl: Content-Type is missing\n");
+		return TFW_BLOCK;
+	}
+
+	/* Check that the Content-Type is in the list of allowed values.
+	 *
+	 * TODO: possible improvement: binary search.
+	 * Generally the binary search is more efficient, but linear search is
+	 * usually faster for small sets of values. Perhaps we should switch
+	 * between two if the performance is that critical here, but benchmarks
+	 * should be done to measure the impact.
+	 */
+	rcu_read_lock();
+	for (curr = rcu_dereference(rcl_http_ct_vals); curr->str; ++curr) {
+		if (tfw_str_eq_cstr(ct, curr->str, curr->len, TFW_STR_EQ_CASEI))
+			break;
+	}
+	rcu_read_unlock();
+
+	if (!curr->str) {
+		TFW_DBG("rcl: forbidden Content-Type value\n");
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
+static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
@@ -342,6 +401,9 @@ rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 	if (r)
 		return r;
 	r = rcl_http_len_limit(req);
+	if (r)
+		return r;
+	r = rcl_http_ct_check(req);
 	if (r)
 		return r;
 
@@ -376,8 +438,6 @@ rcl_parse_int(char *tmp_buf, int *out_val)
 	char *p;
 	int val = 0;
 
-	tmp_buf = strim(tmp_buf);
-
 	for (p = tmp_buf; *p; ++p) {
 		if (!isdigit(*p)) {
 			TFW_ERR("not a digit: '%c'\n", *p);
@@ -387,6 +447,21 @@ rcl_parse_int(char *tmp_buf, int *out_val)
 	}
 
 	*out_val = val;
+	return 0;
+}
+
+static int
+rcl_parse_bool(char *tmp_buf, bool *out_bool)
+{
+	char c = *tmp_buf;
+
+	/* XXX: should we support true/false/etc instead of 0/1 here? */
+	if (c != '0' && c != '1') {
+		TFW_ERR("invalid boolean value: %s\n", tmp_buf);
+		return -EINVAL;
+	}
+
+	*out_bool = c - '0';
 	return 0;
 }
 
@@ -409,16 +484,33 @@ rcl_find_idx_by_str(const char **str_vec, size_t str_vec_size, const char *str)
 	return -1;
 }
 
+#define RCL_TOKEN_SEPARATORS	" \r\n\t"
+
 static char *
 rcl_tokenize(char **tmp_buf)
 {
-	char *token = strsep(tmp_buf, " \r\n\t");
+	char *token = strsep(tmp_buf, RCL_TOKEN_SEPARATORS);
 
 	/* Unlike strsep(), don't return empty tokens. */
 	if (token && !*token)
 		token = NULL;
 
 	return token;
+}
+
+static int
+rcl_count_tokens(char *str)
+{
+	int n = 0;
+
+	while (*str) {
+		str += strspn(str, RCL_TOKEN_SEPARATORS);
+		if (*str)
+			++n;
+		str += strcspn(str, RCL_TOKEN_SEPARATORS);
+	}
+
+	return n;
 }
 
 static int
@@ -452,18 +544,79 @@ rcl_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
 }
 
 static int
+rcl_parse_ct_vals(char *tmp_buf, void *unused)
+{
+	void *mem;
+	char *token, *strs, *strs_pos;
+	size_t tokens_n, vals_size, strs_size;
+	RclCtVal *vals, *vals_pos, *old_vals;
+
+	tokens_n = rcl_count_tokens(tmp_buf);
+	if (!tokens_n) {
+		TFW_ERR("the rcl_http_ct_vals is empty\n");
+		return -EINVAL;
+	}
+
+	/* Allocate a single chunk of memory which is suitable to hold the
+	 * variable-sized list of variable-sized strings.
+	 *
+	 * Basically that will look like:
+	 *  [[RclCtVal, RclCtVal, RclCtVal, NULL]string1\0\string2\0\string3\0]
+	 *           +         +         +       ^         ^         ^
+	 *           |         |         |       |         |         |
+	 *           +---------------------------+         |         |
+	 *                     |         |                 |         |
+	 *                     +---------------------------+         |
+	 *                               |                           |
+	 *                               +---------------------------+
+	 */
+	strs_size = strlen(tmp_buf) + 1;
+	vals_size = sizeof(RclCtVal) * (tokens_n + 1);
+	mem = kzalloc(vals_size + strs_size, GFP_KERNEL);
+	vals = mem;
+	strs = mem + vals_size;
+
+	/* Copy tokens from tmp_buf to the vals/strs list. */
+	/* TODO: validate tokens, they should look like: "text/plain". */
+	vals_pos = vals;
+	strs_pos = strs;
+	while ((token = rcl_tokenize(&tmp_buf))) {
+		size_t len = strlen(token) + 1;
+		BUG_ON(!len);
+
+		memcpy(strs_pos, token, len);
+		vals_pos->str = strs_pos;
+		vals_pos->len = (len - 1);
+		TFW_DBG("parsed Content-Type value: '%s'\n", strs_pos);
+
+		vals_pos++;
+		strs_pos += len;
+	}
+	BUG_ON(vals_pos != (vals + tokens_n));
+	BUG_ON(strs_pos > (strs + strs_size));
+
+	/* Replace the old list of allowed Content-Type values. */
+	/* TODO: sort values to make binary search possible. */
+	old_vals = rcl_http_ct_vals;
+	rcu_assign_pointer(rcl_http_ct_vals, vals);
+	synchronize_rcu();
+	kfree(old_vals);
+	return 0;
+}
+
+static int
 rcl_sysctl_handle(ctl_table *ctl, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int r, len;
-	char *tmp_buf;
+	char *tmp_buf, *trimmed_buf;
 	void *parse_dest;
 	int (*parse_fn)(const char *tmp_buf, void *dest);
 
 	tmp_buf = NULL;
 	parse_fn = ctl->extra1;
 	parse_dest = ctl->extra2;
-	BUG_ON(!parse_fn || !parse_dest);
+	BUG_ON(!parse_fn);
 
 	if (write) {
 		tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
@@ -480,7 +633,8 @@ rcl_sysctl_handle(ctl_table *ctl, int write,
 			goto out;
 		}
 
-		if (parse_fn(tmp_buf, parse_dest)) {
+		trimmed_buf = strim(tmp_buf);
+		if (parse_fn(trimmed_buf, parse_dest)) {
 			TFW_ERR("rcl: can't parse input data\n");
 			r = -EINVAL;
 			goto out;
@@ -497,8 +651,9 @@ out:
 	return r;
 }
 
-#define RCL_INT_LEN	10
-#define RCL_STR_LEN	255
+#define RCL_INT_LEN		10
+#define RCL_STR_LEN		255
+#define RCL_LONG_STR_LEN	1024
 
 char rcl_req_rate_str[RCL_INT_LEN];
 char rcl_req_burst_str[RCL_INT_LEN];
@@ -509,6 +664,8 @@ char rcl_http_uri_len_str[RCL_INT_LEN];
 char rcl_http_field_len_str[RCL_INT_LEN];
 char rcl_http_body_len_str[RCL_INT_LEN];
 char rcl_http_methods_str[RCL_STR_LEN];
+char rcl_http_ct_is_required_str[RCL_INT_LEN];
+char rcl_http_content_types_str[RCL_LONG_STR_LEN];
 
 static ctl_table rcl_ctl_table[] = {
 	{
@@ -591,6 +748,23 @@ static ctl_table rcl_ctl_table[] = {
 		.proc_handler	= rcl_sysctl_handle,
 		.extra1		= rcl_parse_methods_mask,
 		.extra2		= &rcl_http_methods_mask,
+	},
+	{
+		.procname 	= "http_ct_is_required",
+		.data		= rcl_http_ct_is_required_str,
+		.maxlen		= sizeof(rcl_http_ct_is_required_str),
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_bool,
+		.extra2		= &rcl_http_ct_is_required,
+	},
+	{
+		.procname	= "http_ct_vals",
+		.data		= rcl_http_content_types_str,
+		.maxlen		= sizeof(rcl_http_content_types_str),
+		.mode		= 0644,
+		.proc_handler	= rcl_sysctl_handle,
+		.extra1		= rcl_parse_ct_vals,
 	},
 	{}
 };
