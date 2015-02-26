@@ -1,16 +1,25 @@
 /**
  *		Tempesta FW
  *
- * Simple classification module which performs following limitings per a client:
+ * Simple classification module which performs following limitings:
+ *
+ * Temporal limitings per a client:
  *	1. HTTP requests rate;
  *	2. number of concurrent connections;
  *	3. new connections rate.
  * All the limits works for specified temporal bursts.
  *
+ * Static limits for contents of a HTTP request:
+ * 	1. maximum length of URI/header/body.
+ * 	2. checks for presence of certain required header fields
+ * 	3. HTTP method and Content-Type restrictions (check that the value is
+ * 	   in a set of allowed values defined by the user).
+ *
  * The module exports appropriate configuration options in
- * /proc/net/tempesta/req_conn_limit directory. Options with names *_rate
- * define requests/connections rate per second. *_burst are temporal burst
- * for 1/RCL_FREQ of second.
+ * /proc/net/tempesta/req_conn_limit directory.
+ * 	- options with names *_rate define requests/connections rate per second.
+ * 	- *_burst are temporal burst for 1/RCL_FREQ of second.
+ * 	- http_* are static limits for contents of a HTTP request.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
