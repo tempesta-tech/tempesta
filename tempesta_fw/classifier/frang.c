@@ -16,9 +16,9 @@
  * 	   in a set of allowed values defined by the user).
  *
  * The module exports appropriate configuration options in
- * /proc/net/tempesta/req_conn_limit directory.
+ * /proc/net/tempesta/frang directory.
  * 	- options with names *_rate define requests/connections rate per second.
- * 	- *_burst are temporal burst for 1/RCL_FREQ of second.
+ * 	- *_burst are temporal burst for 1/FRANG_FREQ of second.
  * 	- http_* are static limits for contents of a HTTP request.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
@@ -52,70 +52,70 @@
 #include "../log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta rate limiting classifier");
+MODULE_DESCRIPTION("Tempesta static limiting classifier");
 MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
 
-/* We account users with RCL_FREQ frequency per second. */
-#define RCL_FREQ	8
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
 /* Garbage collection timeout (seconds). */
 #define GC_TO		1800
-#define RCL_HASH_BITS	17
+#define FRANG_HASH_BITS	17
 
 typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
 	unsigned int	req;
-} RclRates;
+} FrangRates;
 
-typedef struct rcl_account_t {
+typedef struct frang_account_t {
 	struct hlist_node	hentry;
 	struct in6_addr		addr; /* client address */
 	unsigned long		last_ts; /* last access time */
 	unsigned int		conn_curr; /* current connections number */
-	RclRates		history[RCL_FREQ];
-} RclAccount;
+	FrangRates		history[FRANG_FREQ];
+} FrangAcc;
 
 typedef struct {
 	struct hlist_head	list;
 	spinlock_t		lock;
-} RclHashBucket;
+} FrangHashBucket;
 
-RclHashBucket rcl_hash[1 << RCL_HASH_BITS] = {
-	[0 ... ((1 << RCL_HASH_BITS) - 1)] = {
+FrangHashBucket frang_hash[1 << FRANG_HASH_BITS] = {
+	[0 ... ((1 << FRANG_HASH_BITS) - 1)] = {
 		HLIST_HEAD_INIT,
 		__SPIN_LOCK_UNLOCKED(lock)
 	}
 };
 
-static struct kmem_cache *rcl_mem_cache;
+static struct kmem_cache *frang_mem_cache;
 
 /* Limits (zero means unlimited). */
-static unsigned int rcl_req_rate = 0;
-static unsigned int rcl_req_burst = 0;
-static unsigned int rcl_conn_rate = 0;
-static unsigned int rcl_conn_burst = 0;
-static unsigned int rcl_conn_max = 0;
+static unsigned int frang_req_rate = 0;
+static unsigned int frang_req_burst = 0;
+static unsigned int frang_conn_rate = 0;
+static unsigned int frang_conn_burst = 0;
+static unsigned int frang_conn_max = 0;
 
 /* Limits for HTTP request contents: uri, headers, body, etc. */
-static unsigned int rcl_http_uri_len = 0;
-static unsigned int rcl_http_field_len = 0;
-static unsigned int rcl_http_body_len = 0;
-static unsigned long rcl_http_methods_mask = 0;
-static bool rcl_http_ct_is_required = false;
-static bool rcl_http_host_is_required = false;
+static unsigned int frang_http_uri_len = 0;
+static unsigned int frang_http_field_len = 0;
+static unsigned int frang_http_body_len = 0;
+static unsigned long frang_http_methods_mask = 0;
+static bool frang_http_ct_is_required = false;
+static bool frang_http_host_is_required = false;
 
 /* The list of allowed Content-Type values. */
 
 typedef struct {
 	char   *str;
 	size_t len;	/* The pre-computed strlen(@str). */
-} RclCtVal;
+} FrangCtVal;
 
-static RclCtVal *rcl_http_ct_vals __rcu;
+static FrangCtVal *frang_http_ct_vals __rcu;
 
 static void
-rcl_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
+frang_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
 {
 	struct inet_sock *isk = (struct inet_sock *)sk;
 
@@ -128,19 +128,19 @@ rcl_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
 }
 
 static int
-rcl_account_do(struct sock *sk, int (*func)(RclAccount *ra, struct sock *sk))
+frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 {
 	struct in6_addr addr;
 	struct hlist_node *tmp;
-	RclAccount *ra;
-	RclHashBucket *hb;
+	FrangAcc *ra;
+	FrangHashBucket *hb;
 	unsigned int key, r;
 
-	rcl_get_ipv6addr(sk, &addr);
+	frang_get_ipv6addr(sk, &addr);
 	key = addr.s6_addr32[0] ^ addr.s6_addr32[1] ^ addr.s6_addr32[2]
 		^ addr.s6_addr32[3];
 
-	hb = &rcl_hash[hash_min(key, RCL_HASH_BITS)];
+	hb = &frang_hash[hash_min(key, FRANG_HASH_BITS)];
 
 	spin_lock(&hb->lock);
 
@@ -159,9 +159,9 @@ rcl_account_do(struct sock *sk, int (*func)(RclAccount *ra, struct sock *sk))
 		 * Other CPUs should not add the same account while we
 		 * allocating the account w/o lock.
 		 */
-		ra = kmem_cache_alloc(rcl_mem_cache, GFP_ATOMIC | __GFP_ZERO);
+		ra = kmem_cache_alloc(frang_mem_cache, GFP_ATOMIC | __GFP_ZERO);
 		if (!ra) {
-			TFW_WARN("rcl: can't alloc account record\n");
+			TFW_WARN("frang: can't alloc account record\n");
 			return TFW_BLOCK;
 		}
 
@@ -181,11 +181,11 @@ rcl_account_do(struct sock *sk, int (*func)(RclAccount *ra, struct sock *sk))
 }
 
 static int
-rcl_conn_limit(RclAccount *ra, struct sock *unused)
+frang_conn_limit(FrangAcc *ra, struct sock *unused)
 {
-	unsigned long ts = jiffies * RCL_FREQ / HZ;
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	unsigned int csum = 0;
-	int i = ts % RCL_FREQ;
+	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
@@ -196,36 +196,36 @@ rcl_conn_limit(RclAccount *ra, struct sock *unused)
 	/*
 	 * Increment connection counters ever if we return TFW_BLOCK.
 	 * Synchronous sockets will call connection_drop callback,
-	 * so our rcl_conn_close() is also called and we decrement
+	 * so our frang_conn_close() is also called and we decrement
 	 * conn_curr there, but leave conn_new as is - we account failed
 	 * connection tries as well as successfully establised connections.
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
 
-	if (rcl_conn_max && ra->conn_curr > rcl_conn_max)
+	if (frang_conn_max && ra->conn_curr > frang_conn_max)
 		return TFW_BLOCK;
-	if (rcl_req_burst && ra->history[i].req > rcl_req_burst)
+	if (frang_req_burst && ra->history[i].req > frang_req_burst)
 		return TFW_BLOCK;
 
 	/* Collect new connections sum. */
-	for (i = 0; i < RCL_FREQ; i++)
-		if (ra->history[i].ts + RCL_FREQ >= ts)
+	for (i = 0; i < FRANG_FREQ; i++)
+		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			csum += ra->history[i].conn_new;
-	if (rcl_conn_rate && csum > rcl_conn_rate)
+	if (frang_conn_rate && csum > frang_conn_rate)
 		return TFW_BLOCK;
 
 	return TFW_PASS;
 }
 
 static int
-rcl_conn_new(struct sock *sk)
+frang_conn_new(struct sock *sk)
 {
-	return rcl_account_do(sk, rcl_conn_limit);
+	return frang_account_do(sk, frang_conn_limit);
 }
 
 static int
-__rcl_conn_close(RclAccount *ra, struct sock *unused)
+__frang_conn_close(FrangAcc *ra, struct sock *unused)
 {
 	BUG_ON(!ra->conn_curr);
 
@@ -238,17 +238,17 @@ __rcl_conn_close(RclAccount *ra, struct sock *unused)
  * Just update current connection count for the user.
  */
 static int
-rcl_conn_close(struct sock *sk)
+frang_conn_close(struct sock *sk)
 {
-	return rcl_account_do(sk, __rcl_conn_close);
+	return frang_account_do(sk, __frang_conn_close);
 }
 
 static int
-rcl_req_limit(RclAccount *ra, struct sock *sk)
+frang_req_limit(FrangAcc *ra, struct sock *sk)
 {
-	unsigned long ts = jiffies * RCL_FREQ / HZ;
+	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	unsigned int rsum = 0;
-	int i = ts % RCL_FREQ;
+	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
@@ -257,14 +257,14 @@ rcl_req_limit(RclAccount *ra, struct sock *sk)
 	}
 	ra->history[i].req++;
 
-	if (rcl_req_burst && ra->history[i].req > rcl_req_burst)
+	if (frang_req_burst && ra->history[i].req > frang_req_burst)
 		goto block;
 
 	/* Collect current request sum. */
-	for (i = 0; i < RCL_FREQ; i++)
-		if (ra->history[i].ts + RCL_FREQ >= ts)
+	for (i = 0; i < FRANG_FREQ; i++)
+		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			rsum += ra->history[i].req;
-	if (rcl_req_rate && rsum > rcl_req_rate)
+	if (frang_req_rate && rsum > frang_req_rate)
 		goto block;
 
 	return TFW_PASS;
@@ -280,12 +280,12 @@ block:
 }
 
 static int
-rcl_http_uri_len_limit(const TfwHttpReq *req)
+frang_http_uri_len_limit(const TfwHttpReq *req)
 {
 	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
 	 * This is too slow. The value must be stored in a TfwStr field. */
-	if (rcl_http_uri_len && tfw_str_len(&req->uri) > rcl_http_uri_len) {
-		TFW_DBG("rcl: http_uri_len limit is reached\n");
+	if (frang_http_uri_len && tfw_str_len(&req->uri) > frang_http_uri_len) {
+		TFW_DBG("frang: http_uri_len limit is reached\n");
 		return TFW_BLOCK;
 	}
 
@@ -293,16 +293,16 @@ rcl_http_uri_len_limit(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_field_len_limit(const TfwHttpReq *req)
+frang_http_field_len_limit(const TfwHttpReq *req)
 {
 	const TfwStr *field, *end;
 
-	if (!rcl_http_field_len)
+	if (!frang_http_field_len)
 		return TFW_PASS;
 
 	TFW_HTTP_FOR_EACH_HDR_FIELD(field, end, req) {
-		if (tfw_str_len(field) > rcl_http_field_len) {
-			TFW_DBG("rcl: http_field_len limit is reached\n");
+		if (tfw_str_len(field) > frang_http_field_len) {
+			TFW_DBG("frang: http_field_len limit is reached\n");
 			return TFW_BLOCK;
 		}
 	}
@@ -311,10 +311,11 @@ rcl_http_field_len_limit(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_body_len_limit(const TfwHttpReq *req)
+frang_http_body_len_limit(const TfwHttpReq *req)
 {
-	if (rcl_http_body_len && tfw_str_len(&req->body) > rcl_http_body_len) {
-		TFW_DBG("rcl: http_body_len limit is reached\n");
+	if (frang_http_body_len &&
+	    tfw_str_len(&req->body) > frang_http_body_len) {
+		TFW_DBG("frang: http_body_len limit is reached\n");
 		return TFW_BLOCK;
 	}
 
@@ -322,17 +323,17 @@ rcl_http_body_len_limit(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_len_limit(const TfwHttpReq *req)
+frang_http_len_limit(const TfwHttpReq *req)
 {
 	int r;
 
-	r = rcl_http_uri_len_limit(req);
+	r = frang_http_uri_len_limit(req);
 	if (r)
 		return r;
-	r = rcl_http_field_len_limit(req);
+	r = frang_http_field_len_limit(req);
 	if (r)
 		return r;
-	r = rcl_http_body_len_limit(req);
+	r = frang_http_body_len_limit(req);
 	if (r)
 		return r;
 
@@ -340,26 +341,26 @@ rcl_http_len_limit(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_methods_check(const TfwHttpReq *req)
+frang_http_methods_check(const TfwHttpReq *req)
 {
 	unsigned long m = (1 << req->method);
 
-	if (rcl_http_methods_mask && (rcl_http_methods_mask & m))
+	if (frang_http_methods_mask && (frang_http_methods_mask & m))
 		return TFW_PASS;
 
-	TFW_DBG("rcl: forbidden method: %d (%#lx)\n", req->method, m);
+	TFW_DBG("frang: forbidden method: %d (%#lx)\n", req->method, m);
 	return TFW_BLOCK;
 }
 
 static int
-rcl_http_ct_check(const TfwHttpReq *req)
+frang_http_ct_check(const TfwHttpReq *req)
 {
 #define _CT "Content-Type"
 #define _CTLEN (sizeof(_CT) - 1)
 	TfwStr *ct, *end;
-	RclCtVal *curr;
+	FrangCtVal *curr;
 
-	if (!rcl_http_ct_is_required || req->method != TFW_HTTP_METH_POST)
+	if (!frang_http_ct_is_required || req->method != TFW_HTTP_METH_POST)
 		return TFW_PASS;
 
 	/* Find the Content-Type header.
@@ -374,7 +375,7 @@ rcl_http_ct_check(const TfwHttpReq *req)
 
 	}
 	if (ct == end) {
-		TFW_DBG("rcl: Content-Type is missing\n");
+		TFW_DBG("frang: Content-Type is missing\n");
 		return TFW_BLOCK;
 	}
 
@@ -390,7 +391,7 @@ rcl_http_ct_check(const TfwHttpReq *req)
 	 * value, and thus get rid of the nasty tfw_str_eq_kv().
 	 */
 	rcu_read_lock();
-	for (curr = rcu_dereference(rcl_http_ct_vals); curr->str; ++curr) {
+	for (curr = rcu_dereference(frang_http_ct_vals); curr->str; ++curr) {
 		if (tfw_str_eq_kv(ct, _CT, _CTLEN, ':', curr->str, curr->len,
 				  TFW_STR_EQ_PREFIX_CASEI))
 			break;
@@ -398,7 +399,7 @@ rcl_http_ct_check(const TfwHttpReq *req)
 	rcu_read_unlock();
 
 	if (!curr->str) {
-		TFW_DBG("rcl: forbidden Content-Type value\n");
+		TFW_DBG("frang: forbidden Content-Type value\n");
 		return TFW_BLOCK;
 	}
 
@@ -408,16 +409,16 @@ rcl_http_ct_check(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_host_check(const TfwHttpReq *req)
+frang_http_host_check(const TfwHttpReq *req)
 {
 	TfwStr *field;
 
-	if (!rcl_http_host_is_required || req->method != TFW_HTTP_METH_POST)
+	if (!frang_http_host_is_required || req->method != TFW_HTTP_METH_POST)
 		return TFW_PASS;
 
 	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 	if (!field->ptr) {
-		TFW_DBG("rcl: the Host header is missing\n");
+		TFW_DBG("frang: the Host header is missing\n");
 		return TFW_BLOCK;
 	}
 
@@ -429,22 +430,22 @@ rcl_http_host_check(const TfwHttpReq *req)
 }
 
 static int
-rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
+frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
 	TfwConnection *c = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
 
-	r = rcl_account_do(c->sess->cli->sock, rcl_req_limit);
+	r = frang_account_do(c->sess->cli->sock, frang_req_limit);
 	if (r)
 		return r;
-	r = rcl_http_len_limit(req);
+	r = frang_http_len_limit(req);
 	if (r)
 		return r;
-	r = rcl_http_ct_check(req);
+	r = frang_http_ct_check(req);
 	if (r)
 		return r;
-	r = rcl_http_host_check(req);
+	r = frang_http_host_check(req);
 	if (r)
 		return r;
 
@@ -452,29 +453,29 @@ rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 }
 
 static int
-rcl_http_chunk_handler(void *obj, unsigned char *data, size_t len)
+frang_http_chunk_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
 	TfwConnection *c = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
 
-	r = rcl_http_methods_check(req);
+	r = frang_http_methods_check(req);
 	if (r)
 		return r;
-	r = rcl_http_len_limit(req);
+	r = frang_http_len_limit(req);
 	if (r)
 		return r;
 
 	return 0;
 }
 
-static TfwClassifier rcl_class_ops = {
-	.classify_conn_estab	= rcl_conn_new,
-	.classify_conn_close	= rcl_conn_close,
+static TfwClassifier frang_class_ops = {
+	.classify_conn_estab	= frang_conn_new,
+	.classify_conn_close	= frang_conn_close,
 };
 
 static int
-rcl_parse_int(char *tmp_buf, int *out_val)
+frang_parse_int(char *tmp_buf, int *out_val)
 {
 	char *p;
 	int val = 0;
@@ -492,7 +493,7 @@ rcl_parse_int(char *tmp_buf, int *out_val)
 }
 
 static int
-rcl_parse_bool(char *tmp_buf, bool *out_bool)
+frang_parse_bool(char *tmp_buf, bool *out_bool)
 {
 	char c = *tmp_buf;
 
@@ -510,12 +511,12 @@ rcl_parse_bool(char *tmp_buf, bool *out_bool)
  * replace them with Tempesta's cfg framework. */
 
 static int
-rcl_find_idx_by_str(const char **str_vec, size_t str_vec_size, const char *str)
+frang_find_idx_by_str(const char **str_vec, size_t vec_size, const char *str)
 {
 	int i;
 	const char *curr_str;
 
-	for (i = 0; i < str_vec_size; ++i) {
+	for (i = 0; i < vec_size; ++i) {
 		curr_str = str_vec[i];
 		BUG_ON(!curr_str);
 		if (!strcasecmp(curr_str, str))
@@ -525,12 +526,12 @@ rcl_find_idx_by_str(const char **str_vec, size_t str_vec_size, const char *str)
 	return -1;
 }
 
-#define RCL_TOKEN_SEPARATORS	" \r\n\t"
+#define FRANG_TOKEN_SEPARATORS	" \r\n\t"
 
 static char *
-rcl_tokenize(char **tmp_buf)
+frang_tokenize(char **tmp_buf)
 {
-	char *token = strsep(tmp_buf, RCL_TOKEN_SEPARATORS);
+	char *token = strsep(tmp_buf, FRANG_TOKEN_SEPARATORS);
 
 	/* Unlike strsep(), don't return empty tokens. */
 	if (token && !*token)
@@ -540,22 +541,22 @@ rcl_tokenize(char **tmp_buf)
 }
 
 static int
-rcl_count_tokens(char *str)
+frang_count_tokens(char *str)
 {
 	int n = 0;
 
 	while (*str) {
-		str += strspn(str, RCL_TOKEN_SEPARATORS);
+		str += strspn(str, FRANG_TOKEN_SEPARATORS);
 		if (*str)
 			++n;
-		str += strcspn(str, RCL_TOKEN_SEPARATORS);
+		str += strcspn(str, FRANG_TOKEN_SEPARATORS);
 	}
 
 	return n;
 }
 
 static int
-rcl_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
+frang_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
 {
 	static const char *strs[_TFW_HTTP_METH_COUNT] = {
 		[TFW_HTTP_METH_GET] = "get",
@@ -563,20 +564,20 @@ rcl_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
 		[TFW_HTTP_METH_HEAD] = "head",
 	};
 	char *token;
-	int method_idx;
+	int idx;
 	unsigned long methods_mask;
 
 	token = tmp_buf;
 	methods_mask = 0;
-	while ((token = rcl_tokenize(&tmp_buf))) {
-		method_idx = rcl_find_idx_by_str(strs, ARRAY_SIZE(strs), token);
-		if (method_idx < 0) {
-			TFW_ERR("rcl: invalid method: '%s'\n", token);
+	while ((token = frang_tokenize(&tmp_buf))) {
+		idx = frang_find_idx_by_str(strs, ARRAY_SIZE(strs), token);
+		if (idx < 0) {
+			TFW_ERR("frang: invalid method: '%s'\n", token);
 			return -EINVAL;
 		}
 
-		TFW_DBG("rcl: parsed method: %s => %d\n", token, method_idx);
-		methods_mask |= (1 << method_idx);
+		TFW_DBG("frang: parsed method: %s => %d\n", token, idx);
+		methods_mask |= (1 << idx);
 	}
 
 	TFW_DBG("parsed methods_mask: %#lx\n", methods_mask);
@@ -585,16 +586,16 @@ rcl_parse_methods_mask(char *tmp_buf, unsigned long *out_mask)
 }
 
 static int
-rcl_parse_ct_vals(char *tmp_buf, void *unused)
+frang_parse_ct_vals(char *tmp_buf, void *unused)
 {
 	void *mem;
 	char *token, *strs, *strs_pos;
 	size_t tokens_n, vals_size, strs_size;
-	RclCtVal *vals, *vals_pos, *old_vals;
+	FrangCtVal *vals, *vals_pos, *old_vals;
 
-	tokens_n = rcl_count_tokens(tmp_buf);
+	tokens_n = frang_count_tokens(tmp_buf);
 	if (!tokens_n) {
-		TFW_ERR("the rcl_http_ct_vals is empty\n");
+		TFW_ERR("the frang_http_ct_vals is empty\n");
 		return -EINVAL;
 	}
 
@@ -602,17 +603,17 @@ rcl_parse_ct_vals(char *tmp_buf, void *unused)
 	 * variable-sized list of variable-sized strings.
 	 *
 	 * Basically that will look like:
-	 *  [[RclCtVal, RclCtVal, RclCtVal, NULL]string1\0\string2\0\string3\0]
-	 *           +         +         +       ^         ^         ^
-	 *           |         |         |       |         |         |
-	 *           +---------------------------+         |         |
-	 *                     |         |                 |         |
-	 *                     +---------------------------+         |
+	 *  [[FrangCtVal, FrangCtVal, FrangCtVal, NULL]str1\0\str2\0\str3\0]
+	 *           +         +         +             ^      ^      ^
+	 *           |         |         |             |      |      |
+	 *           +---------------------------------+      |      |
+	 *                     |         |                    |      |
+	 *                     +------------------------------+      |
 	 *                               |                           |
 	 *                               +---------------------------+
 	 */
 	strs_size = strlen(tmp_buf) + 1;
-	vals_size = sizeof(RclCtVal) * (tokens_n + 1);
+	vals_size = sizeof(FrangCtVal) * (tokens_n + 1);
 	mem = kzalloc(vals_size + strs_size, GFP_KERNEL);
 	vals = mem;
 	strs = mem + vals_size;
@@ -621,7 +622,7 @@ rcl_parse_ct_vals(char *tmp_buf, void *unused)
 	/* TODO: validate tokens, they should look like: "text/plain". */
 	vals_pos = vals;
 	strs_pos = strs;
-	while ((token = rcl_tokenize(&tmp_buf))) {
+	while ((token = frang_tokenize(&tmp_buf))) {
 		size_t len = strlen(token) + 1;
 		BUG_ON(!len);
 
@@ -638,15 +639,15 @@ rcl_parse_ct_vals(char *tmp_buf, void *unused)
 
 	/* Replace the old list of allowed Content-Type values. */
 	/* TODO: sort values to make binary search possible. */
-	old_vals = rcl_http_ct_vals;
-	rcu_assign_pointer(rcl_http_ct_vals, vals);
+	old_vals = frang_http_ct_vals;
+	rcu_assign_pointer(frang_http_ct_vals, vals);
 	synchronize_rcu();
 	kfree(old_vals);
 	return 0;
 }
 
 static int
-rcl_sysctl_handle(ctl_table *ctl, int write,
+frang_sysctl_handle(ctl_table *ctl, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int r, len;
@@ -662,21 +663,21 @@ rcl_sysctl_handle(ctl_table *ctl, int write,
 	if (write) {
 		tmp_buf = kzalloc(ctl->maxlen + 1, GFP_KERNEL);
 		if (!tmp_buf) {
-			TFW_ERR("rcl: can't allocate temporary buffer\n");
+			TFW_ERR("frang: can't allocate temporary buffer\n");
 			r = -ENOMEM;
 			goto out;
 		}
 
 		len =  min(ctl->maxlen, (int)*lenp);
 		if (copy_from_user(tmp_buf, buffer, len)) {
-			TFW_ERR("rcl: can't copy data from userspace\n");
+			TFW_ERR("frang: can't copy data from userspace\n");
 			r = -EFAULT;
 			goto out;
 		}
 
 		trimmed_buf = strim(tmp_buf);
 		if (parse_fn(trimmed_buf, parse_dest)) {
-			TFW_ERR("rcl: can't parse input data\n");
+			TFW_ERR("frang: can't parse input data\n");
 			r = -EINVAL;
 			goto out;
 		}
@@ -684,138 +685,139 @@ rcl_sysctl_handle(ctl_table *ctl, int write,
 
 	r = proc_dostring(ctl, write, buffer, lenp, ppos);
 	if (r)
-		TFW_ERR("rcl: sysctl error\n");
+		TFW_ERR("frang: sysctl error\n");
 out:
 	if (r)
-		TFW_ERR("rcl: can't read/write parameter: %s\n", ctl->procname);
+		TFW_ERR("frang: can't read/write parameter: %s\n",
+			ctl->procname);
 	kfree(tmp_buf);
 	return r;
 }
 
-#define RCL_INT_LEN		10
-#define RCL_STR_LEN		255
-#define RCL_LONG_STR_LEN	1024
+#define FRANG_INT_LEN		10
+#define FRANG_STR_LEN		255
+#define FRANG_LONG_STR_LEN	1024
 
-char rcl_req_rate_str[RCL_INT_LEN];
-char rcl_req_burst_str[RCL_INT_LEN];
-char rcl_conn_rate_str[RCL_INT_LEN];
-char rcl_conn_burst_str[RCL_INT_LEN];
-char rcl_conn_max_str[RCL_INT_LEN];
-char rcl_http_uri_len_str[RCL_INT_LEN];
-char rcl_http_field_len_str[RCL_INT_LEN];
-char rcl_http_body_len_str[RCL_INT_LEN];
-char rcl_http_methods_str[RCL_STR_LEN];
-char rcl_http_ct_is_required_str[RCL_INT_LEN];
-char rcl_http_content_types_str[RCL_LONG_STR_LEN];
-char rcl_http_host_is_required_str[RCL_INT_LEN];
+char frang_req_rate_str[FRANG_INT_LEN];
+char frang_req_burst_str[FRANG_INT_LEN];
+char frang_conn_rate_str[FRANG_INT_LEN];
+char frang_conn_burst_str[FRANG_INT_LEN];
+char frang_conn_max_str[FRANG_INT_LEN];
+char frang_http_uri_len_str[FRANG_INT_LEN];
+char frang_http_field_len_str[FRANG_INT_LEN];
+char frang_http_body_len_str[FRANG_INT_LEN];
+char frang_http_methods_str[FRANG_STR_LEN];
+char frang_http_ct_is_required_str[FRANG_INT_LEN];
+char frang_http_content_types_str[FRANG_LONG_STR_LEN];
+char frang_http_host_is_required_str[FRANG_INT_LEN];
 
-static ctl_table rcl_ctl_table[] = {
+static ctl_table frang_ctl_table[] = {
 	{
 		.procname	= "request_rate",
-		.data		= rcl_req_rate_str,
-		.maxlen		= sizeof(rcl_req_rate_str),
+		.data		= frang_req_rate_str,
+		.maxlen		= sizeof(frang_req_rate_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_req_rate,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_req_rate,
 	},
 	{
 		.procname	= "request_burst",
-		.data		= rcl_req_burst_str,
-		.maxlen		= sizeof(rcl_req_burst_str),
+		.data		= frang_req_burst_str,
+		.maxlen		= sizeof(frang_req_burst_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_req_burst,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_req_burst,
 	},
 	{
 		.procname	= "new_connection_rate",
-		.data		= rcl_conn_rate_str,
-		.maxlen		= sizeof(rcl_conn_rate_str),
+		.data		= frang_conn_rate_str,
+		.maxlen		= sizeof(frang_conn_rate_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_conn_rate,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_conn_rate,
 	},
 	{
 		.procname	= "new_connection_burst",
-		.data		= rcl_conn_burst_str,
-		.maxlen		= sizeof(rcl_conn_burst_str),
+		.data		= frang_conn_burst_str,
+		.maxlen		= sizeof(frang_conn_burst_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_conn_burst,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_conn_burst,
 	},
 	{
 		.procname	= "concurrent_connections",
-		.data		= rcl_conn_max_str,
-		.maxlen		= sizeof(rcl_conn_max_str),
+		.data		= frang_conn_max_str,
+		.maxlen		= sizeof(frang_conn_max_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_conn_max,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_conn_max,
 	},
 	{
 		.procname 	= "http_uri_len",
-		.data		= rcl_http_uri_len_str,
-		.maxlen		= sizeof(rcl_http_uri_len_str),
+		.data		= frang_http_uri_len_str,
+		.maxlen		= sizeof(frang_http_uri_len_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_http_uri_len,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_http_uri_len,
 	},
 	{
 		.procname 	= "http_field_len",
-		.data		= rcl_http_field_len_str,
-		.maxlen		= sizeof(rcl_http_field_len_str),
+		.data		= frang_http_field_len_str,
+		.maxlen		= sizeof(frang_http_field_len_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_http_field_len,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_http_field_len,
 	},
 	{
 		.procname 	= "http_body_len",
-		.data		= rcl_http_body_len_str,
-		.maxlen		= sizeof(rcl_http_body_len_str),
+		.data		= frang_http_body_len_str,
+		.maxlen		= sizeof(frang_http_body_len_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_int,
-		.extra2		= &rcl_http_body_len,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_int,
+		.extra2		= &frang_http_body_len,
 	},
 	{
 		.procname	= "http_methods",
-		.data		= rcl_http_methods_str,
-		.maxlen		= sizeof(rcl_http_methods_str),
+		.data		= frang_http_methods_str,
+		.maxlen		= sizeof(frang_http_methods_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_methods_mask,
-		.extra2		= &rcl_http_methods_mask,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_methods_mask,
+		.extra2		= &frang_http_methods_mask,
 	},
 	{
 		.procname 	= "http_ct_is_required",
-		.data		= rcl_http_ct_is_required_str,
-		.maxlen		= sizeof(rcl_http_ct_is_required_str),
+		.data		= frang_http_ct_is_required_str,
+		.maxlen		= sizeof(frang_http_ct_is_required_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_bool,
-		.extra2		= &rcl_http_ct_is_required,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_bool,
+		.extra2		= &frang_http_ct_is_required,
 	},
 	{
 		.procname	= "http_ct_vals",
-		.data		= rcl_http_content_types_str,
-		.maxlen		= sizeof(rcl_http_content_types_str),
+		.data		= frang_http_content_types_str,
+		.maxlen		= sizeof(frang_http_content_types_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_ct_vals,
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_ct_vals,
 	},
 	{
 		.procname	= "http_host_is_required",
-		.data		= rcl_http_host_is_required_str,
-		.maxlen		= sizeof(rcl_http_host_is_required_str),
+		.data		= frang_http_host_is_required_str,
+		.maxlen		= sizeof(frang_http_host_is_required_str),
 		.mode		= 0644,
-		.proc_handler	= rcl_sysctl_handle,
-		.extra1		= rcl_parse_bool,
-		.extra2		= &rcl_http_host_is_required
+		.proc_handler	= frang_sysctl_handle,
+		.extra1		= frang_parse_bool,
+		.extra2		= &frang_http_host_is_required
 	},
 	{}
 };
@@ -825,28 +827,28 @@ static struct ctl_path __tfw_path[] = {
 };
 
 static int __init
-rcl_init(void)
+frang_init(void)
 {
 	int r;
-	struct ctl_table_header *rcl_ctl;
+	struct ctl_table_header *frang_ctl;
 
-	rcl_mem_cache = KMEM_CACHE(rcl_account_t, 0);
-	if (!rcl_mem_cache) {
-		TFW_ERR("rcl: can't create cache\n");
+	frang_mem_cache = KMEM_CACHE(frang_account_t, 0);
+	if (!frang_mem_cache) {
+		TFW_ERR("frang: can't create cache\n");
 		return -EINVAL;
 	}
 
-	rcl_ctl = register_net_sysctl(&init_net, "net/tempesta/req_conn_limit",
-				      rcl_ctl_table);
-	if (!rcl_ctl) {
-		TFW_ERR("rcl: can't register sysctl table\n");
+	frang_ctl = register_net_sysctl(&init_net, "net/tempesta/frang",
+				      frang_ctl_table);
+	if (!frang_ctl) {
+		TFW_ERR("frang: can't register sysctl table\n");
 		r = -1;
 		goto err_sysctl;
 	}
 
-	r = tfw_classifier_register(&rcl_class_ops);
+	r = tfw_classifier_register(&frang_class_ops);
 	if (r) {
-		TFW_ERR("rcl: can't register classifier\n");
+		TFW_ERR("frang: can't register classifier\n");
 		goto err_class;
 	}
 
@@ -870,48 +872,48 @@ rcl_init(void)
 	 *    This is easy to comprehend, and perhaps faster since the GFSM
 	 *    doesn't need to switch FSMs.
 	 */
-	r = tfw_gfsm_register_fsm(TFW_FSM_RCL_REQ, rcl_http_req_handler);
+	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
-		TFW_ERR("rcl: can't register fsm: req\n");
+		TFW_ERR("frang: can't register fsm: req\n");
 		goto err_fsm_req;
 	}
-	r = tfw_gfsm_register_fsm(TFW_FSM_RCL_CHUNK, rcl_http_chunk_handler);
+	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_CHUNK, frang_http_chunk_handler);
 	if (r) {
-		TFW_ERR("rcl: can't register fsm: chunk\n");
+		TFW_ERR("frang: can't register fsm: chunk\n");
 		goto err_fsm_chunk;
 	}
 
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
 				   TFW_HTTP_FSM_REQ_MSG, 0,
-				   TFW_FSM_RCL_REQ);
+				   TFW_FSM_FRANG_REQ);
 	if (r) {
-		TFW_ERR("rcl: can't register gfsm hook: req\n");
+		TFW_ERR("frang: can't register gfsm hook: req\n");
 		goto err_hook_req;
 	}
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
 				   TFW_HTTP_FSM_REQ_CHUNK, 0,
-				   TFW_FSM_RCL_CHUNK);
+				   TFW_FSM_FRANG_CHUNK);
 	if (r) {
-		TFW_ERR("rcl: can't register gfsm hook: chunk\n");
-		TFW_ERR("rcl: can't recover\n");
+		TFW_ERR("frang: can't register gfsm hook: chunk\n");
+		TFW_ERR("frang: can't recover\n");
 		BUG();
 	}
 
-	TFW_WARN("rcl mudule can't be unloaded, "
+	TFW_WARN("frang mudule can't be unloaded, "
 		 "so all allocated resources won't freed\n");
 
 	return 0;
 err_hook_req:
-	tfw_gfsm_unregister_fsm(TFW_FSM_RCL_CHUNK);
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_CHUNK);
 err_fsm_chunk:
-	tfw_gfsm_unregister_fsm(TFW_FSM_RCL_REQ);
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm_req:
 	tfw_classifier_unregister();
 err_class:
-	unregister_sysctl_table(rcl_ctl);
+	unregister_sysctl_table(frang_ctl);
 err_sysctl:
-	kmem_cache_destroy(rcl_mem_cache);
+	kmem_cache_destroy(frang_mem_cache);
 	return r;
 }
 
-module_init(rcl_init);
+module_init(frang_init);
