@@ -17,8 +17,8 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 EXTRA_CFLAGS += -I$(src)/../../sync_socket -I$(src)/../../tempesta_db/core \
-		-DDEBUG
+		-DDEBUG -Werror
 
-obj-m = tfw_req_conn_limit.o
-tfw_req_conn_limit-objs = req_conn_limit.o
+obj-m = tfw_frang.o
+tfw_frang-objs = frang.o
 
