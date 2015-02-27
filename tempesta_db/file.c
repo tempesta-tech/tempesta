@@ -37,11 +37,10 @@ int
 tdb_file_open(TDB *db, unsigned long size)
 {
 	unsigned long addr, populate;
-	struct mm_struct *mm = current->mm;
 	struct file *filp;
 
 	/* Must be called from kernel thread context. */
-	BUG_ON(mm != &init_mm);
+	BUG_ON(current->mm);
 
 	strcat(db->path, "/" TDB_FNAME);
 
