@@ -1,15 +1,6 @@
 /**
  * Unit test for Tempesta DB HTrie storage.
  *
- * TODO
- * !- freeing interface for eviction thread
- * !- reduce number of memset(.., 0, ..) calls
- * !- split generic storage, memory management and index subsystems
- * -- garbage collection
- * -- eviction
- * -- consistensy checking and recovery
- * -- large contigous allocations
- *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies.
  *
@@ -44,14 +35,58 @@
 #include <unistd.h>
 
 /* Include HTrie for test. */
-#include "../htrie.c"
+#include "../core/htrie.c"
 
 /*
- * ------------------------------------------------------------------------
- *	Tempesta DB index and data manipulations
- * ------------------------------------------------------------------------
+ * HTrie requires extent-aligned address.
+ * These are just some good addresses to be mapped to.
+ * Use different map addresses to ensure that data structures and algorithms
+ * are address independent.
  */
-#define TDB_MAP_ADDR		0x600000000000UL
+#define TDB_MAP_ADDR1		((void *)(0x600000000000UL + TDB_EXT_SZ))
+#define TDB_MAP_ADDR2		((void *)(0x600000000000UL + TDB_EXT_SZ * 3))
+
+#define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
+#define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
+#define THR_N			4
+#define DATA_N			100
+#define LOOP_N			10
+
+typedef struct {
+	char	*data;
+	size_t	len;
+} TestUrl;
+
+static TestUrl urls[DATA_N] = {
+	{"", 0},
+	{"http://www.w3.org/1999/02/22-rdf-syntax-ns#", 0},
+	{"http://ns.adobe.com/iX/1.0/", 0},
+	{"http://www.w3.org/1999/02/22-rdf-syntax-ns#", 0},
+	{"http://purl.org/dc/elements/1.1/", 0},
+	{"http://www.cse.unsw.edu.au/~disy/papers/", 0},
+	{"http://developer.intel.com/design/itanium/family", 0},
+	{"http://www.caldera.com/developers/community/contrib/aim.html", 0},
+	{"http://www.sparc.org/standards.html", 0},
+	{"http://www.xplain.com", 0},
+	{"http://www.mactech.com/misc/about_mt.html", 0},
+	{"http://www.mactech.com/", 0},
+	{"http://www.google-analytics.com/urchin.js", 0},
+	{"http://www.betterram.com/", 0},
+	{"http://www.mactechdomains.com/", 0},
+	{"http://www.mactechsupplies.com/store.php?nfid=34", 0},
+	{"http://www.mactech.com/cables/", 0},
+	{"http://www.xplain.com", 0},
+	{"http://www.amazon.com/exec/obidos/redirect?link_code=ur2&amp;camp=178"
+	 "9&amp;tag=mactechmagazi-20&amp;creative=9325&amp;path=external-search"
+	 "\%3Fsearch-type=ss\%26keyword=ipod\%26index=pc-hardware", 0},
+	{"http://store.mactech.com/mactech/riskfree/offer.html?FROM=MTRF", 0},
+	{"http://www.google.com/", 0},
+	{"http://www.google.com/logos/Logo_25wht.gif", 0},
+	{"http://www.xplain.com", 0},
+};
+
+static unsigned int ints[DATA_N];
+
 
 unsigned long
 tdb_hash_calc(const char *data, size_t len)
@@ -108,52 +143,6 @@ tdb_hash_calc(const char *data, size_t len)
 #undef MUL
 }
 
-/*
- * ------------------------------------------------------------------------
- *	Testing routines
- * ------------------------------------------------------------------------
- */
-#define TDB_VSF_SZ		(TDB_EXT_SZ * 1024)
-#define TDB_FSF_SZ		(TDB_EXT_SZ * 8)
-#define THR_N			4
-#define DATA_N			100
-#define LOOP_N			10
-
-typedef struct {
-	char	*data;
-	size_t	len;
-} TestUrl;
-
-static TestUrl urls[DATA_N] = {
-	{"", 0},
-	{"http://www.w3.org/1999/02/22-rdf-syntax-ns#", 0},
-	{"http://ns.adobe.com/iX/1.0/", 0},
-	{"http://www.w3.org/1999/02/22-rdf-syntax-ns#", 0},
-	{"http://purl.org/dc/elements/1.1/", 0},
-	{"http://www.cse.unsw.edu.au/~disy/papers/", 0},
-	{"http://developer.intel.com/design/itanium/family", 0},
-	{"http://www.caldera.com/developers/community/contrib/aim.html", 0},
-	{"http://www.sparc.org/standards.html", 0},
-	{"http://www.xplain.com", 0},
-	{"http://www.mactech.com/misc/about_mt.html", 0},
-	{"http://www.mactech.com/", 0},
-	{"http://www.google-analytics.com/urchin.js", 0},
-	{"http://www.betterram.com/", 0},
-	{"http://www.mactechdomains.com/", 0},
-	{"http://www.mactechsupplies.com/store.php?nfid=34", 0},
-	{"http://www.mactech.com/cables/", 0},
-	{"http://www.xplain.com", 0},
-	{"http://www.amazon.com/exec/obidos/redirect?link_code=ur2&amp;camp=178"
-	 "9&amp;tag=mactechmagazi-20&amp;creative=9325&amp;path=external-search"
-	 "\%3Fsearch-type=ss\%26keyword=ipod\%26index=pc-hardware", 0},
-	{"http://store.mactech.com/mactech/riskfree/offer.html?FROM=MTRF", 0},
-	{"http://www.google.com/", 0},
-	{"http://www.google.com/logos/Logo_25wht.gif", 0},
-	{"http://www.xplain.com", 0},
-};
-
-static unsigned int ints[DATA_N];
-
 static inline unsigned long
 tv_to_ms(const struct timeval *tv)
 {
@@ -206,33 +195,40 @@ hash_calc_benchmark(void)
 }
 
 void *
-tdb_htrie_open(const char *fname, size_t size)
+tdb_htrie_open(void *addr, const char *fname, size_t size, int *fd)
 {
-	int fd;
 	void *p;
-	struct stat sb;
+	struct stat sb = { 0 };
 
-	if (stat(fname, &sb) < 0) {
+	if (!stat(fname, &sb)) {
 		printf("filesize: %ld\n", sb.st_size);
-		TDB_ERR("no file");
+	} else {
+		TDB_WARN("no files, create them\n");
 	}
 
-	if ((fd = open(fname, O_RDWR|O_CREAT, O_RDWR)) < 0)
-        	TDB_ERR("open failure");
+	if ((*fd = open(fname, O_RDWR|O_CREAT, O_RDWR)) < 0) {
+		perror("ERROR: open failure");
+		exit(1);
+	}
 
 	if (sb.st_size != size)
-		if (fallocate(fd, 0, 0, size))
-			TDB_ERR("fallocate failure");
+		if (fallocate(*fd, 0, 0, size)) {
+			perror("ERROR: fallocate failure");
+			exit(1);
+		}
 
 	/* Use MAP_SHARED to carry changes to underlying file. */
-	p = mmap((void *)TDB_MAP_ADDR, size, PROT_READ | PROT_WRITE,
-		 MAP_SHARED, fd, 0);
-	if (p == MAP_FAILED)
-		TDB_ERR("cannot mmap the file");
+	p = mmap(addr, size, PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	if (p != addr) {
+		perror("ERROR: cannot mmap the file");
+		exit(1);
+	}
 	printf("maped to %p\n", p);
 
-	if (mlock(p, size))
-		TDB_ERR("mlock failure");
+	if (mlock(p, size)) {
+		perror("ERROR: mlock failure");
+		exit(1);
+	}
 
 	return p;
 }
@@ -241,10 +237,11 @@ tdb_htrie_open(const char *fname, size_t size)
  * Just free the memory region, the file will be closed on program exit.
  */
 void
-tdb_htrie_pure_close(void *addr, size_t size)
+tdb_htrie_pure_close(void *addr, size_t size, int fd)
 {
 	munlock(addr, size);
 	munmap(addr, size);
+	close(fd);
 }
 
 #define __print_bin(s, prefix, suffix)					\
@@ -438,7 +435,7 @@ void
 tdb_htrie_test_varsz(const char *fname)
 {
 	int r __attribute__((unused));
-	int t;
+	int t, fd;
 	char *addr;
 	TdbHdr *dbh;
 	struct timeval tv0, tv1;
@@ -446,7 +443,7 @@ tdb_htrie_test_varsz(const char *fname)
 
 	printf("\n----------- Variable size records test -------------\n");
 
-	addr = tdb_htrie_open(fname, TDB_VSF_SZ);
+	addr = tdb_htrie_open(TDB_MAP_ADDR1, fname, TDB_VSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for urls");
@@ -467,11 +464,11 @@ tdb_htrie_test_varsz(const char *fname)
 		tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
 	tdb_htrie_exit(dbh);
-	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
+	tdb_htrie_pure_close(addr, TDB_VSF_SZ, fd);
 
 	printf("\n	**** Variable size records test reopen ****\n");
 
-	addr = tdb_htrie_open(fname, TDB_VSF_SZ);
+	addr = tdb_htrie_open(TDB_MAP_ADDR2, fname, TDB_VSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_VSF_SZ, 0);
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for urls");
@@ -479,14 +476,14 @@ tdb_htrie_test_varsz(const char *fname)
 	lookup_varsz_records(dbh);
 
 	tdb_htrie_exit(dbh);
-	tdb_htrie_pure_close(addr, TDB_VSF_SZ);
+	tdb_htrie_pure_close(addr, TDB_VSF_SZ, fd);
 }
 
 void
 tdb_htrie_test_fixsz(const char *fname)
 {
 	int r __attribute__((unused));
-	int t;
+	int t, fd;
 	char *addr;
 	TdbHdr *dbh;
 	struct timeval tv0, tv1;
@@ -494,7 +491,7 @@ tdb_htrie_test_fixsz(const char *fname)
 
 	printf("\n----------- Fixed size records test -------------\n");
 
-	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
+	addr = tdb_htrie_open(TDB_MAP_ADDR1, fname, TDB_FSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for ints");
@@ -515,11 +512,11 @@ tdb_htrie_test_fixsz(const char *fname)
 		tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
 	tdb_htrie_exit(dbh);
-	tdb_htrie_pure_close(addr, TDB_FSF_SZ);
+	tdb_htrie_pure_close(addr, TDB_FSF_SZ, fd);
 
 	printf("\n	**** Fixed size records test reopen ****\n");
 
-	addr = tdb_htrie_open(fname, TDB_FSF_SZ);
+	addr = tdb_htrie_open(TDB_MAP_ADDR2, fname, TDB_FSF_SZ, &fd);
 	dbh = tdb_htrie_init(addr, TDB_FSF_SZ, sizeof(ints[0]));
 	if (!dbh)
 		TDB_ERR("cannot initialize htrie for ints");
@@ -527,7 +524,7 @@ tdb_htrie_test_fixsz(const char *fname)
 	lookup_fixsz_records(dbh);
 
 	tdb_htrie_exit(dbh);
-	tdb_htrie_pure_close(addr, TDB_FSF_SZ);
+	tdb_htrie_pure_close(addr, TDB_FSF_SZ, fd);
 }
 
 static void

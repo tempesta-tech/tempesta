@@ -21,7 +21,7 @@
  */
 #include <linux/module.h>
 
-#include "../tempesta.h"
+#include "../tempesta_fw.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta system stress accounting");

@@ -21,7 +21,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "cache.h"
 #include "client.h"
 #include "debugfs.h"

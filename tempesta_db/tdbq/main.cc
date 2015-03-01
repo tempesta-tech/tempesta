@@ -26,7 +26,7 @@
 
 enum {
 	ACT_INFO,
-	ACT_CREATE,
+	ACT_OPEN,
 	ACT_INSERT,
 	ACT_SELECT,
 };
@@ -54,8 +54,8 @@ struct Cfg {
 		std::string a = std::move(vm["action"].as<std::string>());
 		if (a == "info") {
 			action = ACT_INFO;
-		} else if (a == "create") {
-			action = ACT_CREATE;
+		} else if (a == "open") {
+			action = ACT_OPEN;
 		} else if (a == "insert") {
 			action = ACT_INSERT;
 		} else if (a == "select") {
@@ -69,14 +69,13 @@ struct Cfg {
 					" all tables");
 		if (table == "*" && action != ACT_INFO)
 			throw TdbExcept("please specify a table");
-		if (action == ACT_CREATE && db_path.empty())
+		if (action == ACT_OPEN && db_path.empty())
 			throw TdbExcept("please specify database path");
 
 		if (mm_sz % 2)
 			throw TdbExcept("mmap size must be multiple of 2");
 		if (mm_sz > UINT_MAX)
-			throw TdbExcept("mmap size must be multiple to"
-					" page size");
+			throw TdbExcept("too large mmap size");
 		return *this;
 	}
 };
@@ -95,9 +94,8 @@ main(int argc, char *argv[])
 
 		("action,a", po::value<std::string>(),
 		 "The action specification, one of the follwoing:\n"
-		 "  info    - information about current"
-		 		      " database state;\n"
-		 "  create  - create a new table;\n"
+		 "  info    - information about current database state;\n"
+		 "  open    - open and create a new table if necessary;\n"
 		 "  insert  - insert a record to a table;\n"
 		 "  select  - select from a table")
 		("key,k", po::value<std::string>(), "The record key")
@@ -107,7 +105,7 @@ main(int argc, char *argv[])
 		 " and leave zero for variable-size records like strings")
 		("table,t", po::value<std::string>()->default_value("*"),
 		 "The table to operate on or '*' for all tables")
-		("tbl_size,s", po::value<size_t>()->default_value(64),
+		("tbl_size,s", po::value<size_t>()->default_value(512),
 		 "Table size in pages");
 	try {
 		// Parse config options
@@ -137,9 +135,9 @@ main(int argc, char *argv[])
 				std::cout << m->recs[0].data << std::endl;
 			});
 			break;
-		case ACT_CREATE:
-			th.create_table(cfg.db_path, cfg.table, cfg.tbl_sz,
-					cfg.rec_sz);
+		case ACT_OPEN:
+			th.open_table(cfg.db_path, cfg.table, cfg.tbl_sz,
+				      cfg.rec_sz);
 			std::cout << "table " << cfg.table << " created"
 				  << std::endl;
 			break;

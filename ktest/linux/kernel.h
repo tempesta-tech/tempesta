@@ -31,6 +31,7 @@
 #endif
 
 #define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
+#define pr_warn(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
 
 #endif /* __KERNEL_H__ */

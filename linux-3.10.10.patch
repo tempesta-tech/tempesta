@@ -1,3 +1,36 @@
+diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
+index 2fe6e76..c8d2d8e 100644
+--- a/Documentation/kernel-parameters.txt
++++ b/Documentation/kernel-parameters.txt
+@@ -2967,6 +2967,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
+ 
+ 	tdfx=		[HW,DRM]
+ 
++	tempesta_pages=	[KNL]
++			Order of pages reserved on each NUMA node for
++			Tempesta database. Must be multiple greater or equal
++			to 9 (one Tempesta DB extent size, 4KB * 2 ^ 9 = 2MB).
++
+ 	test_suspend=	[SUSPEND]
+ 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
+ 			standby suspend) as the system sleep state to briefly
+diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
+index fe120da..a7daef0 100644
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -268,6 +268,12 @@ config ZONE_DMA
+ 
+ 	  If unsure, say Y.
+ 
++config FORCE_MAX_ZONEORDER
++	int "MAX_ORDER (11 - 15)"  if SECURITY_TEMPESTA
++	range 11 15  if SECURITY_TEMPESTA
++	default "15" if SECURITY_TEMPESTA
++	default "11"
++
+ config SMP
+ 	bool "Symmetric multi-processing support"
+ 	---help---
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
 index dec1748..f620738 100644
 --- a/include/linux/skbuff.h
@@ -55,16 +88,17 @@ index dec1748..f620738 100644
 +
  #endif	/* __KERNEL__ */
  #endif	/* _LINUX_SKBUFF_H */
-diff --git a/include/linux/tempesta_fw.h b/include/linux/tempesta_fw.h
+diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..0572398
+index 0000000..35dd9dc
 --- /dev/null
-+++ b/include/linux/tempesta_fw.h
-@@ -0,0 +1,33 @@
++++ b/include/linux/tempesta.h
+@@ -0,0 +1,44 @@
 +/**
 + * Linux interface for Tempesta FW (FireWall and/or FrameWork).
 + *
 + * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015 Tempesta Technologies.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -80,8 +114,8 @@ index 0000000..0572398
 + * this program; if not, write to the Free Software Foundation, Inc., 59
 + * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 + */
-+#ifndef __TEMPESTA_FW_H__
-+#define __TEMPESTA_FW_H__
++#ifndef __TEMPESTA_H__
++#define __TEMPESTA_H__
 +
 +#include <net/sock.h>
 +
@@ -89,10 +123,20 @@ index 0000000..0572398
 +	int (*sock_tcp_rcv)(struct sock *sk, struct sk_buff *skb);
 +} TempestaOps;
 +
++typedef struct {
++	unsigned long	addr;
++	unsigned long	pages;
++} TempestaMapping;
++
++/* Security hooks. */
 +void tempesta_register_ops(TempestaOps *tops);
 +void tempesta_unregister_ops(TempestaOps *tops);
 +
-+#endif /* __TEMPESTA_FW_H__ */
++/* Memory management. */
++void tempesta_reserve_pages(void);
++int tempesta_get_mapping(int node, TempestaMapping **tm);
++
++#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/tcp.h b/include/net/tcp.h
 index 5bba80f..64e5d06 100644
@@ -126,39 +170,157 @@ index 1a85940..909e081 100644
  
  #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
  
-diff --git a/mm/init-mm.c b/mm/init-mm.c
-index a56a851..e1567c3 100644
---- a/mm/init-mm.c
-+++ b/mm/init-mm.c
-@@ -23,3 +23,4 @@ struct mm_struct init_mm = {
- 	.mmlist		= LIST_HEAD_INIT(init_mm.mmlist),
- 	INIT_MM_CONTEXT(init_mm)
- };
-+EXPORT_SYMBOL(init_mm);
-diff --git a/mm/mlock.c b/mm/mlock.c
-index 79b7cf7..8ec4b19 100644
---- a/mm/mlock.c
-+++ b/mm/mlock.c
-@@ -443,6 +443,7 @@ int __mm_populate(unsigned long start, unsigned long len, int ignore_errors)
- 		up_read(&mm->mmap_sem);
- 	return ret;	/* 0 or negative error code */
- }
-+EXPORT_SYMBOL(__mm_populate);
+diff --git a/init/main.c b/init/main.c
+index 9484f4b..c6d79bb 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -74,6 +74,7 @@
+ #include <linux/ptrace.h>
+ #include <linux/blkdev.h>
+ #include <linux/elevator.h>
++#include <linux/tempesta.h>
  
- SYSCALL_DEFINE2(mlock, unsigned long, start, size_t, len)
- {
-diff --git a/mm/mmap.c b/mm/mmap.c
-index 8d25fdc..54fb194 100644
---- a/mm/mmap.c
-+++ b/mm/mmap.c
-@@ -1348,6 +1348,7 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
- 		*populate = len;
- 	return addr;
- }
-+EXPORT_SYMBOL(do_mmap_pgoff);
+ #include <asm/io.h>
+ #include <asm/bugs.h>
+@@ -637,6 +638,14 @@ asmlinkage void __init start_kernel(void)
  
- SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
- 		unsigned long, prot, unsigned long, flags,
+ 	ftrace_init();
+ 
++	/*
++	 * Tempesta: reserve pages at so early stage to get continous
++	 * address space of physical pages.
++	 */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	tempesta_reserve_pages();
++#endif
++
+ 	/* Do the rest non-__init'ed, we're now alive */
+ 	rest_init();
+ }
+diff --git a/mm/Makefile b/mm/Makefile
+index 72c5acb..4fc1df7 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -58,3 +58,4 @@ obj-$(CONFIG_DEBUG_KMEMLEAK) += kmemleak.o
+ obj-$(CONFIG_DEBUG_KMEMLEAK_TEST) += kmemleak-test.o
+ obj-$(CONFIG_CLEANCACHE) += cleancache.o
+ obj-$(CONFIG_MEMORY_ISOLATION) += page_isolation.o
++obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
+diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
+new file mode 100644
+index 0000000..5cce460
+--- /dev/null
++++ b/mm/tempesta_mm.c
+@@ -0,0 +1,109 @@
++/**
++ *		Tempesta Memory Reservation
++ *
++ * Copyright (C) 2015 Tempesta Technologies.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#include <linux/gfp.h>
++#include <linux/tempesta.h>
++#include <linux/topology.h>
++
++#define MAX_PGORDER		25	/* 128GB per one table */
++#define MIN_PGORDER		9	/* 2MB - one extent */
++#define DEFAULT_PGORDER		17	/* 512MB */
++#define PGCHUNKS		(1 << (MAX_PGORDER - MAX_ORDER + 1))
++
++static int pgorder = DEFAULT_PGORDER;
++static TempestaMapping map[MAX_NUMNODES];
++
++static int __init
++tempesta_setup_pages(char *str)
++{
++	get_option(&str, &pgorder);
++	if (pgorder < MIN_PGORDER)
++		pgorder = MIN_PGORDER;
++
++	return 1;
++}
++__setup("tempesta_pages=", tempesta_setup_pages);
++
++void __init
++tempesta_reserve_pages(void)
++{
++	static struct page *pg_arr[PGCHUNKS];
++	struct page *p;
++	int i, node, n, chunk_order;
++
++	chunk_order = min_t(int, MAX_ORDER - 1, pgorder);
++	n = 1 << (pgorder - chunk_order);
++
++	/*
++	 * Linux buddy allocator returns blocks aligned on the their size
++	 * and returned addresses grow from top to bottom.
++	 */
++	for_each_node_with_cpus(node) {
++		for (i = n - 1; i >= 0; --i) {
++			p = alloc_pages_node(node, GFP_KERNEL|__GFP_ZERO,
++					     chunk_order);
++			if (!p) {
++				pr_err("Tempesta: cannot allocate page set"
++				       " at node %d\n", node);
++				goto err;
++			}
++			if (i < n - 1
++			    && page_address(p) + PAGE_SIZE * (1 << chunk_order)
++			       != page_address(pg_arr[i + 1]))
++			{
++				pr_err("Tempesta: sparse page set alloc:"
++				       " %p:%p %lx\n", page_address(p),
++				     page_address(pg_arr[i + 1]),
++				     PAGE_SIZE * (1 << chunk_order));
++				goto err;
++			}
++
++			pr_info("Tempesta: alloc %lu pages starting at address"
++				" %p at node %d\n",
++			     1UL << chunk_order, page_address(p), node);
++
++			pg_arr[i] = p;
++			if (!map[node].addr) {
++				map[node].addr = (unsigned long)page_address(p);
++				map[node].pages = 1 << pgorder;
++			}
++		}
++	}
++
++	BUG_ON(!pg_arr[0]);
++	return;
++err:
++	for (--node; node >= 0; --node)
++		for (i = 0; i < n; ++i)
++			if (pg_arr[i])
++				__free_pages(pg_arr[i], chunk_order);
++}
++
++int
++tempesta_get_mapping(int node, TempestaMapping **tm)
++{
++	if (!map[node].addr)
++		return -ENOMEM;
++
++	*tm = &map[node];
++
++	return 0;
++}
++EXPORT_SYMBOL(tempesta_get_mapping);
++
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
 index 4425148..aad84f4 100644
 --- a/net/core/request_sock.c
@@ -380,18 +542,45 @@ index ec335fa..fdb0d79 100644
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
 diff --git a/security/Kconfig b/security/Kconfig
-index e9c6ac7..f32eadd 100644
+index e9c6ac7..2c69fbe 100644
 --- a/security/Kconfig
 +++ b/security/Kconfig
-@@ -132,7 +132,7 @@ choice
+@@ -122,22 +122,26 @@ source security/smack/Kconfig
+ source security/tomoyo/Kconfig
+ source security/apparmor/Kconfig
+ source security/yama/Kconfig
++source security/tempesta/Kconfig
+ 
+ source security/integrity/Kconfig
+ 
+ choice
+ 	prompt "Default security module"
++	default DEFAULT_SECURITY_TEMPESTA if SECURITY_TEMPESTA
+ 	default DEFAULT_SECURITY_SELINUX if SECURITY_SELINUX
+ 	default DEFAULT_SECURITY_SMACK if SECURITY_SMACK
  	default DEFAULT_SECURITY_TOMOYO if SECURITY_TOMOYO
  	default DEFAULT_SECURITY_APPARMOR if SECURITY_APPARMOR
  	default DEFAULT_SECURITY_YAMA if SECURITY_YAMA
 -	default DEFAULT_SECURITY_DAC
-+	default DEFAULT_SECURITY_TEMPESTA
  
  	help
  	  Select the security module that will be used by default if the
+ 	  kernel parameter security= is not specified.
+ 
++	config DEFAULT_SECURITY_TEMPESTA
++		bool "Tempesta FW" if SECURITY_TEMPESTA=y
++
+ 	config DEFAULT_SECURITY_SELINUX
+ 		bool "SELinux" if SECURITY_SELINUX=y
+ 
+@@ -160,6 +164,7 @@ endchoice
+ 
+ config DEFAULT_SECURITY
+ 	string
++	default "tempesta" if DEFAULT_SECURITY_TEMPESTA
+ 	default "selinux" if DEFAULT_SECURITY_SELINUX
+ 	default "smack" if DEFAULT_SECURITY_SMACK
+ 	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
 diff --git a/security/Makefile b/security/Makefile
 index c26c81e..2d7c1e1 100644
 --- a/security/Makefile
@@ -412,6 +601,21 @@ index c26c81e..2d7c1e1 100644
  obj-$(CONFIG_CGROUP_DEVICE)		+= device_cgroup.o
  
  # Object integrity file lists
+diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
+new file mode 100644
+index 0000000..901dc02
+--- /dev/null
++++ b/security/tempesta/Kconfig
+@@ -0,0 +1,9 @@
++config SECURITY_TEMPESTA
++	bool "Tempesta FW Support"
++	depends on SECURITY && NET && INET
++	select SECURITY_NETWORK
++	default y
++	help
++	  This selects Tempesta FW security module.
++	  Further information may be found at https://github.com/natsys/tempesta
++	  If you are unsure how to answer this question, answer N.
 diff --git a/security/tempesta/Makefile b/security/tempesta/Makefile
 new file mode 100644
 index 0000000..4c439ac
@@ -423,10 +627,10 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..bc3e735
+index 0000000..721d1f2
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,89 @@
 +/**
 + *		Tempesta FW
 + *
@@ -448,8 +652,7 @@ index 0000000..bc3e735
 + */
 +#include <linux/security.h>
 +#include <linux/spinlock.h>
-+
-+#include <linux/tempesta_fw.h>
++#include <linux/tempesta.h>
 +
 +static TempestaOps __rcu *tempesta_ops;
 +static DEFINE_SPINLOCK(tops_lock);

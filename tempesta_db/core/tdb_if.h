@@ -22,6 +22,8 @@
 #ifndef __TDB_IF_H__
 #define __TDB_IF_H__
 
+#include "extent.h"
+
 #ifndef NETLINK_TEMPESTA
 #define NETLINK_TEMPESTA	22
 #endif
@@ -38,7 +40,7 @@ enum tdb_msg_type {
 	__TDB_MSG_UNSPEC,
 	__TDB_MSG_BASE,
 	TDB_MSG_INFO	= __TDB_MSG_BASE,
-	TDB_MSG_CREATE,
+	TDB_MSG_OPEN,
 	TDB_MSG_INSERT,
 	TDB_MSG_SELECT,
 	__TDB_MSG_TYPE_MAX
