@@ -22,7 +22,7 @@
  */
 #include <linux/sysctl.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "cache.h"
 #include "addr.h"
 #include "log.h"

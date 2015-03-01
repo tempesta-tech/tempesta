@@ -22,7 +22,7 @@
 
 #include <net/sock.h>
 #include "addr.h"
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 #define TFW_MAX_SERVER_STR_SIZE 100
 

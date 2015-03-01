@@ -23,7 +23,7 @@
 #ifndef __TFW_SCHED_H__
 #define __TFW_SCHED_H__
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "msg.h"
 #include "server.h"
 

@@ -25,7 +25,7 @@
 #include <linux/in6.h>
 
 #include "log.h"
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 
 static int

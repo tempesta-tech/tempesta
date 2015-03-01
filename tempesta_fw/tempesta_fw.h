@@ -17,13 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TEMPESTA_H__
-#define __TEMPESTA_H__
+#ifndef __TEMPESTA_FW_H__
+#define __TEMPESTA_FW_H__
 
 #include <linux/in6.h>
 #include <linux/module.h>
 #include <linux/rwsem.h>
-#include <linux/tempesta_fw.h>
+#include <linux/tempesta.h>
 #include <net/sock.h>
 
 #include "tdb.h"
@@ -72,4 +72,4 @@ void tfw_if_exit(void);
 int tfw_reopen_listen_sockets(void);
 void tfw_sock_backend_refresh_cfg(void);
 
-#endif /* __TEMPESTA_H__ */
+#endif /* __TEMPESTA_FW_H__ */

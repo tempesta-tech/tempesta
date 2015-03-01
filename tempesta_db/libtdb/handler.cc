@@ -181,15 +181,19 @@ TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
 }
 
 void
-TdbHndl::create_table(std::string &db_path, std::string &tbl_name,
-		      size_t tbl_size, unsigned int rec_size)
+TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
+		    size_t pages, unsigned int rec_size)
 {
+	size_t tbl_size = pages * getpagesize();
+
 	if (tbl_name.length() > TDB_TBLNAME_LEN)
 		throw TdbExcept("too long table name");
+	if (tbl_size & ~TDB_EXT_MASK)
+		throw TdbExcept("table size must be multiple of extent size");
 
 	msg_send([&db_path, &tbl_name, tbl_size, rec_size](nlmsghdr *nlh) {
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
-		m->type = TDB_MSG_CREATE;
+		m->type = TDB_MSG_OPEN;
 		m->rec_n = 1;
 		db_path.copy(m->t_name, TDB_TBLNAME_LEN);
 
@@ -216,7 +220,7 @@ TdbHndl::create_table(std::string &db_path, std::string &tbl_name,
 			throw TdbExcept("bad create table status msg");
 
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
-		if (m->type != (TDB_MSG_CREATE | TDB_NLF_RESP_OK))
+		if (m->type != (TDB_MSG_OPEN | TDB_NLF_RESP_OK))
 			throw TdbExcept("cannot create table, see dmesg");
 
 		return false;

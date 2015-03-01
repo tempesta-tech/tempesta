@@ -58,7 +58,7 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 }
 
 static int
-tdb_if_create(struct sk_buff *skb, struct netlink_callback *cb)
+tdb_if_open(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	TdbMsg *resp_m, *m = cb->data;
 	TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
@@ -71,10 +71,10 @@ tdb_if_create(struct sk_buff *skb, struct netlink_callback *cb)
 		return -EMSGSIZE;
 
 	resp_m = nlmsg_data(nlh);
-	resp_m->type = TDB_MSG_CREATE;
+	resp_m->type = TDB_MSG_OPEN;
 	m->rec_n = 0;
 
-	if (tdb_open(ct->path, ct->tbl_size, ct->rec_size))
+	if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
 		resp_m->type |= TDB_NLF_RESP_OK;
 
 	return 0;
@@ -96,7 +96,7 @@ static const struct {
 	int (*dump)(struct sk_buff *, struct netlink_callback *);
 } tdb_if_call_tbl[__TDB_MSG_TYPE_MAX] = {
 	[TDB_MSG_INFO - __TDB_MSG_BASE]		= { .dump = tdb_if_info },
-	[TDB_MSG_CREATE - __TDB_MSG_BASE]	= { .dump = tdb_if_create },
+	[TDB_MSG_OPEN - __TDB_MSG_BASE]		= { .dump = tdb_if_open },
 	[TDB_MSG_INSERT - __TDB_MSG_BASE]	= { .dump = tdb_if_insert },
 	[TDB_MSG_SELECT - __TDB_MSG_BASE]	= { .dump = tdb_if_select },
 };
@@ -122,7 +122,7 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 			return -EINVAL;
 		}
 		break;
-	case TDB_MSG_CREATE:
+	case TDB_MSG_OPEN:
 		if (m->rec_n != 1) {
 			TDB_ERR("empty create table msg\n");
 			return -EINVAL;

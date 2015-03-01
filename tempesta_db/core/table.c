@@ -90,3 +90,23 @@ tdb_tbl_print_all(char *buf, size_t len)
 
 	return n;
 }
+
+TDB *
+tdb_tbl_lookup(char *table, size_t len)
+{
+	int i;
+	TDB *db = NULL;
+
+	mutex_lock(&tbl_mtx);
+
+	for (i = 0; i < tbl_last; ++i) {
+		if (!strncmp(tdb_tbls[i].name, table, len)) {
+			db = tdb_get(tdb_tbls[i].db);
+			break;
+		}
+	}
+
+	mutex_unlock(&tbl_mtx);
+
+	return db;
+}

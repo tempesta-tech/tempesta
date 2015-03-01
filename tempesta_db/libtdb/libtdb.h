@@ -36,8 +36,8 @@ public:
 	~TdbHndl() noexcept;
 
 	void get_info(std::function<void (TdbMsg *)> data_cb);
-	void create_table(std::string &db_path, std::string &tbl_name,
-			  size_t tbl_size, unsigned int rec_size);
+	void open_table(std::string &db_path, std::string &tbl_name,
+			size_t pages, unsigned int rec_size);
 
 private:
 	void advance_frame_offset(unsigned int &off) noexcept;

@@ -1,9 +1,6 @@
 /**
  *		Tempesta DB
  *
- * Delayed work definitions.
- *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -20,19 +17,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __WORK_H__
-#define __WORK_H__
+#ifndef __EXTENT_H__
+#define __EXTENT_H__
 
-#include <linux/workqueue.h>
+#define TDB_EXT_BITS		21
+#define TDB_EXT_SZ		(1UL << TDB_EXT_BITS)
+#define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 
-#include "tdb.h"
-
-/* Work to open new database file. */
-typedef struct tdb_work_t {
-	struct work_struct	work;
-	TDB			*db;
-	unsigned long		fsize;
-	unsigned int		rsize;
-} TdbWork;
-
-#endif /* __WORK_H__ */
+#endif /* __EXTENT_H__ */

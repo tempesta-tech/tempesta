@@ -107,7 +107,7 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 			       + sizeof(TdbHtrieNode));
 	atomic64_set(&hdr->nwb, hdr_sz);
 
-	/* Set first (current) extents and blocks as used. */
+	/* Set first (current) extents and header blocks as used. */
 	set_bit(0, hdr->ext_bmp);
 	for (b = 0; b < hdr_sz / TDB_BLK_SZ; b++)
 		set_bit(b, tdb_ext(hdr, hdr)->b_bmp);

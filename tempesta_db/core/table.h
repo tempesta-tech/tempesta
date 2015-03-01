@@ -23,5 +23,6 @@
 void tdb_tbl_enumerate(TDB *db);
 void tdb_tbl_forget(TDB *db);
 int tdb_tbl_print_all(char *buf, size_t len);
+TDB *tdb_tbl_lookup(char *table, size_t len);
 
 #endif /* __TABLE_H__ */
