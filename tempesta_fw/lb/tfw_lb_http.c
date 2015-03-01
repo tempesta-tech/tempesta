@@ -18,8 +18,12 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <linux/freezer.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
 #include <linux/percpu.h>
 #include <linux/smp.h>
+#include <linux/wait.h>
 #include <net/sock.h>
 #include <net/tcp_states.h>
 
@@ -252,6 +256,280 @@ tfw_lb_http_send_msg(TfwMsg *msg)
 	TFW_DBG("send to backend_group: %s\n", group->name);
 	ss_send(sk, &msg->skb_list);
 	return 0;
+}
+
+/*
+ * ------------------------------------------------------------------------
+ *	Connection management.
+ * ------------------------------------------------------------------------
+ */
+
+#define TFW_LB_CONND_THREAD_NAME "tfw_lb_connd"
+#define TFW_LB_CONND_RETRY_INTEVAL_MSEC 1000
+
+/* The thread that connects to back-end servers in background. */
+static struct task_struct *tfw_lb_connd_task = NULL;
+DECLARE_WAIT_QUEUE_HEAD(tfw_lb_connd_wakeup_wq);
+
+/* Indicates that some connection was closed, so the thread should wake up. */
+static bool tfw_lb_connd_should_wakeup = false;
+
+/**
+ * Re-establish closed connection in background.
+ *
+ * This is a callback which is called when a connection is closed.
+ * Two things should happen then:
+ *  - The connection should be re-established.
+ *  - The dead socket in the TfwLbSrv->conn_pool should be re-placed.
+ *
+ * Instead of doing them here, we defer the job to the tfw_lb_connd thread.
+ * That is done because:
+ *  - The function is called in atomic context, but we don't have a non-blocking
+ *    connect() routine in Synchonous Sockets yet.
+ *  - The function may be run concurrently on multiple CPUs, and a  multi-writer
+ *    implementation for TfwLbSrv->conn_pool is tricky. We can do all writes in
+ *    the single thread and thus simplify the code.
+ */
+static void
+tfw_lb_reconnect_in_bg(struct sock *sk)
+{
+	TFW_DBG("back-end server connection is closed: "
+		"sk=%p sock=%p\n", sk, sk->sk_socket);
+
+	tfw_lb_connd_should_wakeup = true;
+	wake_up(&tfw_lb_connd_wakeup_wq);
+}
+
+/**
+ * Establish a single connection to the back-end server (but don't yet add it
+ * to the server's connection pool).
+ */
+static struct socket *
+tfw_lb_srv_connect(TfwLbSrv *srv)
+{
+	static struct {
+		SsProto	_placeholder;
+		int	type;
+	} dummy_proto = {
+		.type = TFW_FSM_HTTP,
+	};
+
+	int r;
+	size_t sza;
+	struct sock *sk;
+	struct socket *sock;
+	struct sockaddr *sa;
+
+	sa = &srv->addr.sa;
+	sza = tfw_addr_sa_len(&srv->addr);
+
+	r = sock_create_kern(sa->sa_family, SOCK_STREAM, IPPROTO_TCP, &sock);
+	if (r) {
+		TFW_ERR("can't create back-end server socket: srv=%p"
+			" err=%d\n", srv, r);
+		return NULL;
+	}
+
+	r = kernel_connect(sock, sa, sza, 0);
+	if (r) {
+		sock_release(sock);
+		return NULL;
+	}
+
+	sk = sock->sk;
+	ss_set_callbacks(sk);
+
+	sk->sk_user_data = &dummy_proto;
+	r = tfw_connection_new(sk, Conn_Srv, srv, tfw_lb_reconnect_in_bg);
+	if (r) {
+		TFW_ERR("can't create connection object: srv=%p sk=%p"
+			" sock=%p\n", srv, sk, sock);
+		sock_release(sock);
+		return NULL;
+	}
+
+	TFW_DBG("connected: sock=%p sk=%p state=%d\n", sock, sk, sk->sk_state);
+	TFW_DBG_ADDR("connected to backend server", &srv->addr);
+	return sock;
+}
+
+/**
+ * Establish all possible connections to all servers in the @group.
+ *
+ * Try to open as much as possible connections to all servers in the group.
+ * Restore closed connections.
+ */
+static int
+tfw_lb_group_connect(TfwLbGroup *group)
+{
+	int i;
+	int ret = 0;
+	TfwLbSrv *srv;
+	struct socket *sock, *new_sock;
+
+	list_for_each_entry(srv, &group->srvs, list) {
+		for (i = 0; i < srv->socks_n; ++i) {
+			sock = srv->socks[i];
+
+			/* Skip healthy connections. */
+			if (sock && sock->sk->sk_state == TCP_ESTABLISHED)
+				continue;
+
+			/* Open a new connection. */
+			new_sock = tfw_lb_srv_connect(srv);
+			if (!new_sock) {
+				ret = -1;
+				break;
+			}
+
+			/* Replace/add the dead/nonexistent socket. */
+			/* TODO: update TfwLbGroup->sks here. */
+			rcu_assign_pointer(srv->socks[i], new_sock);
+			synchronize_rcu();
+			if (sock)
+				sock_release(sock);
+		}
+	}
+	return ret;
+}
+
+/**
+ * Close connections to all servers in the @group. Release all sockets.
+ */
+static void
+tfw_lb_group_disconnect(TfwLbGroup *group)
+{
+	TfwLbSrv *srv;
+	struct socket **sockp;
+
+	TFW_DBG("drain backend_group: %s\n", group->name);
+
+	list_for_each_entry(srv, &group->srvs, list) {
+		TFW_DBG_ADDR("disconnect backend", &srv->addr);
+
+		for (sockp = srv->socks; *sockp; ++sockp) {
+			TFW_DBG("release sock: %p\n", *sockp);
+			sock_release(*sockp);
+		}
+	}
+
+	memset(group->sks, 0, (group->sks_n * sizeof(struct sock *)));
+}
+
+static int
+tfw_lb_connect_all_groups(void)
+{
+	int r;
+	TfwLbGroup *group;
+
+	list_for_each_entry(group, &tfw_lb_groups, list) {
+		r |= tfw_lb_group_connect(group);
+	}
+
+	return r;
+}
+
+static void
+tfw_lb_disconnect_all_groups(void)
+{
+	TfwLbGroup *group;
+	list_for_each_entry(group, &tfw_lb_groups, list) {
+		tfw_lb_group_disconnect(group);
+	}
+}
+
+/**
+ * tfw_lb_connd() - The main loop of the tfw_lb_connd thread.
+ *
+ * The thread establishes connections to back-end servers in the background.
+ *
+ * It iterates over the list of all known servers and checks their connection
+ * pools, and if there are closed connections, the thread re-establishes them.
+ *
+ * When all connections are established, the thread sleeps until some connection
+ * is lost. It is woken by a callback which is called when connection is closed.
+ * Then the thread iterates over all servers as usual and reestablishes the
+ * closed connection.
+ *
+ * If a connection attempt is failed, instead of sleeping forever, it wakes up
+ * periodically and makes another attempt (with unlimited number of retries).
+ */
+static int
+tfw_lb_connd_mainloop(void *data)
+{
+	set_freezable();
+
+	do {
+		int err;
+		long timeout;
+		err = tfw_lb_connect_all_groups();
+		timeout = err
+			? msecs_to_jiffies(TFW_LB_CONND_RETRY_INTEVAL_MSEC)
+			: MAX_SCHEDULE_TIMEOUT;
+		wait_event_freezable_timeout(
+			tfw_lb_connd_wakeup_wq,
+			tfw_lb_connd_should_wakeup || kthread_should_stop(),
+			timeout);
+		tfw_lb_connd_should_wakeup = false;
+
+		/* TODO/BUG:
+		 *
+		 * Suppose we had an established connection and the remote side
+		 * went offline. We catch it and try to restore the connection
+		 * just after it is closed.
+		 *
+		 * Then actually the kernel_connect() doesn't return an error,
+		 * although no connection is really established. We don't detect
+		 * the error and think that everything is OK and sleep forever
+		 * in this main loop, so the connection is never restored.
+		 *
+		 * The socket produced by kernel_connect() is killed shortly
+		 * after it is created with the following error:
+		 *    IPv4: Attempt to release TCP socket in state 1
+		 *
+		 * The dirty workaround is to sleep here to delay the connection
+		 * attempt. Then kernel_connect() returns error as we expect.
+		 * The msleep() below should be removed after the bug is fixed.
+		 */
+		msleep(TFW_LB_CONND_RETRY_INTEVAL_MSEC);
+
+	} while (!kthread_should_stop());
+
+	TFW_LOG("%s: stopping\n", TFW_LB_CONND_THREAD_NAME);
+	tfw_lb_disconnect_all_groups();
+
+	return 0;
+}
+
+int
+tfw_lb_connd_start(void)
+{
+	int ret = 0;
+
+	BUG_ON(tfw_lb_connd_task);
+	TFW_DBG("starting thread: %s\n", TFW_LB_CONND_THREAD_NAME);
+
+	tfw_lb_connd_task = kthread_run(tfw_lb_connd_mainloop, NULL,
+					TFW_LB_CONND_THREAD_NAME);
+
+	if (IS_ERR_OR_NULL(tfw_lb_connd_task)) {
+		TFW_ERR("can't create thread: %s (err: %ld)\n",
+			TFW_LB_CONND_THREAD_NAME, PTR_ERR(tfw_lb_connd_task));
+		ret = PTR_ERR(tfw_lb_connd_task);
+		tfw_lb_connd_task = NULL;
+	}
+
+	return ret;
+}
+
+void
+tfw_lb_connd_stop(void)
+{
+	BUG_ON(!tfw_lb_connd_task);
+	TFW_DBG("stopping thread: %s\n", TFW_LB_CONND_THREAD_NAME);
+
+	kthread_stop(tfw_lb_connd_task);
+	tfw_lb_connd_task = NULL;
 }
 
 /*
@@ -777,6 +1055,8 @@ static const TfwLbMod tfw_lb_http_mod = {
 
 static TfwCfgMod tfw_lb_http_cfg_mod = {
 	.name = "tfw_lb_http",
+	.start = tfw_lb_connd_start,
+	.stop  = tfw_lb_connd_stop,
 	.specs = tfw_lb_cfg_toplevel_specs
 };
 
