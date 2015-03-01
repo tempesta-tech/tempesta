@@ -19,11 +19,13 @@ tdb_path=${TDB_PATH:="$root/tempesta_db"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
 tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
 sched=${SCHED:="dummy"}
+lb=${LB:="dummy"}
 
 ss_mod=sync_socket
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
+tfw_lb_mod=tfw_lb_$lb
 
 error()
 {
@@ -54,6 +56,9 @@ load_modules()
 
 	insmod $tfw_path/sched/tfw_sched_${sched}.ko
 	[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
+	
+	insmod $tfw_path/lb/${tfw_lb_mod}.ko
+	[ $? -ne 0 ] && error "cannot load tempesta load balancer module"
 }
 
 start()
@@ -77,6 +82,7 @@ unload_modules()
 {
 	echo "Un-loading Tempesta kernel modules..."
 
+	rmmod $tfw_lb_mod
 	rmmod $tfw_sched_mod
 	rmmod $tfw_mod
 	rmmod $tdb_mod

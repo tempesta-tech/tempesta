@@ -888,6 +888,73 @@ tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 EXPORT_SYMBOL(tfw_cfg_map_enum);
 
 /**
+ * Get value of attribute with name @attr_key.
+ * Return @default_val if the attribute is not found in the entry @e.
+ */
+const char *
+tfw_cfg_get_attr(const TfwCfgEntry *e,
+		 const char *attr_key, const char *default_val)
+{
+	size_t i;
+	const char *key, *val;
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(e, i, key, val) {
+		if (!strcasecmp(key, attr_key))
+			return val;
+	}
+
+	return default_val;
+}
+EXPORT_SYMBOL(tfw_cfg_get_attr);
+
+/**
+ * Check that integer is in specified range.
+ * Print an error and return non-zero if it is out of range.
+ */
+int
+tfw_cfg_check_range(long value, long min, long max)
+{
+	if (min != max && (value < min || value > max)) {
+		TFW_ERR("the value %ld is out of range: [%ld, %ld]\n",
+			value, min, max);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_range);
+
+/**
+ * Check that integer @value is a multiple of @divisor (print an error
+ * otherwise);
+ */
+int
+tfw_cfg_check_multiple_of(long value, int divisor)
+{
+	if (divisor && (value % divisor)) {
+		TFW_ERR("the value of %ld is not a multiple of %d\n",
+			value, divisor);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_multiple_of);
+
+/**
+ * Check that the entry @e has exactly @val_n values.
+ */
+int
+tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
+{
+	if (e->val_n != val_n) {
+		TFW_ERR("invalid number of values; expected: %d, got: %zu\n",
+			val_n, e->val_n);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_val_n);
+
+/**
  * Most of the handlers below work with single-value entries like this:
  *   option1 42;
  *   option2 true;
@@ -915,6 +982,51 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 	return r;
 }
 EXPORT_SYMBOL(tfw_cfg_check_single_val);
+
+/**
+ * Detect integer base and strip 0x and 0b prefixes from the string.
+ *
+ * The custom function is written because the kstrtox() treats leading zeros as
+ * the octal base. That may cause an unexpected effect when you specify "010" in
+ * the configuration and get 8 instead of 10. We want to avoid that.
+ *
+ * As a bonus, we have the "0b" support here. This may be handy for specifying
+ * some masks and bit strings in the configuration.
+ */
+static int
+detect_base(const char **pos)
+{
+	const char *str = *pos;
+	size_t len = strlen(str);
+
+	if (!len)
+		return 0;
+
+	if (len > 2 && str[0] == '0' && isalpha(str[1])) {
+		char c = tolower(str[1]);
+
+		(*pos) += 2;
+
+		if (c == 'x')
+			return 16;
+		else if (c == 'b')
+			return 2;
+		else
+			return 0;
+	}
+
+	return 10;
+}
+
+int
+tfw_cfg_parse_int(const char *s, int *out_int)
+{
+	int base = detect_base(&s);
+	if (!base)
+		return -EINVAL;
+	return kstrtoint(s, base, out_int);
+}
+EXPORT_SYMBOL(tfw_cfg_parse_int);
 
 static void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
@@ -949,6 +1061,7 @@ int
 tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	TfwCfgParserState *ps = container_of(e, TfwCfgParserState, e);
+	TfwCfgSpecChild *cse = cs->spec_ext;
 	TfwCfgSpec *nested_specs = cs->dest;
 	TfwCfgSpec *matching_spec;
 	int ret;
@@ -957,15 +1070,17 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!cs->call_counter && cs->cleanup);
 	cs->cleanup = tfw_cfg_cleanup_children;
 
-	if (e->val_n || e->attr_n) {
-		TFW_ERR("the entry must have no values or attributes\n");
-		return -EINVAL;
-	}
 	if (!e->have_children) {
 		TFW_ERR("the entry has no nested children entries\n");
 		return -EINVAL;
 	}
 
+	/* Call TfwCfgSpecChild->begin_hook before parsing anything. */
+	ret = (cse && cse->begin_hook) ? cse->begin_hook(cs, e) : 0;
+	if (ret)
+		return ret;
+
+	/* Prepare childen's TfwCfgSpec for parsing. */
 	spec_start_handling(nested_specs);
 
 	/* Eat '{'. */
@@ -998,7 +1113,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (ps->err)
 		return ps->err;
 
-	return spec_finish_handling(nested_specs);
+	ret = spec_finish_handling(nested_specs);
+	if (ret)
+		return ret;
+
+	/* Children entries are parsed, call TfwCfgSpecChild->finish_hook. */
+	ret = (cse && cse->finish_hook) ? cse->finish_hook(cs) : 0;
+	return ret;
 }
 EXPORT_SYMBOL(tfw_cfg_handle_children);
 
@@ -1055,45 +1176,11 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 }
 EXPORT_SYMBOL(tfw_cfg_set_bool);
 
-/**
- * Detect integer base and strip 0x and 0b prefixes from the string.
- *
- * The custom function is written because the kstrtox() treats leading zeros as
- * the octal base. That may cause an unexpected effect when you specify "010" in
- * the configuration and get 8 instead of 10. We want to avoid that.
- *
- * As a bonus, we have the "0b" support here. This may be handy for specifying
- * some masks and bit strings in the configuration.
- */
-static int
-detect_base(const char **pos)
-{
-	const char *str = *pos;
-	size_t len = strlen(str);
-
-	if (!len)
-		return 0;
-
-	if (len > 2 && str[0] == '0' && isalpha(str[1])) {
-		char c = tolower(str[1]);
-
-		(*pos) += 2;
-
-		if (c == 'x')
-			return 16;
-		else if (c == 'b')
-			return 2;
-		else
-			return 0;
-	}
-
-	return 10;
-}
 
 int
 tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
-	int base, r, val;
+	int r, val;
 	int *dest_int;
 	const char *in_str;
 	TfwCfgSpecInt *cse;
@@ -1112,31 +1199,17 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 			goto val_is_parsed;
 	}
 
-	base = detect_base(&in_str);
-	if (!base)
-		goto err;
-	r = kstrtoint(in_str, base, &val);
+	r = tfw_cfg_parse_int(in_str, &val);
 	if (r)
 		goto err;
 
 val_is_parsed:
 	/* Check value restrictions if we have any in the spec extension. */
 	if (cse) {
-		int div = cse->multiple_of;
-		long min = cse->range.min;
-		long max = cse->range.max;
-
-		if (div && val % div) {
-			TFW_ERR("the value of '%s' is not a multiple of %d\n",
-				in_str ,cse->multiple_of);
+		r  = tfw_cfg_check_multiple_of(val, cse->multiple_of);
+		r |= tfw_cfg_check_range(val, cse->range.min, cse->range.max);
+		if (r)
 			goto err;
-		}
-
-		if (min != max && (val < min || val > max)) {
-			TFW_ERR("the value of '%s' is out of range: %ld, %ld\n",
-				in_str, cse->range.min, cse->range.max);
-			goto err;
-		}
 	}
 
 	dest_int = cs->dest;

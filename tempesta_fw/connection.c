@@ -24,6 +24,7 @@
 #include "client.h"
 #include "connection.h"
 #include "gfsm.h"
+#include "lb_mod.h"
 #include "log.h"
 #include "session.h"
 
@@ -119,6 +120,7 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 
 	return 0;
 }
+EXPORT_SYMBOL(tfw_connection_new);
 
 static int
 tfw_connection_close(struct sock *sk)
@@ -180,9 +182,8 @@ tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg)
 	BUG_ON(srv_conn->sess && srv_conn->sess != sess);
 	srv_conn->sess = sess;
 
-	ss_send(sess->srv->sock, &msg->skb_list);
-
-	return 0;
+	/* XXX: will be refactored. */
+	return tfw_lb_send_msg(msg);
 }
 
 /*
