@@ -25,19 +25,15 @@
 
 #include "file.h"
 #include "htrie.h"
-#include "work.h"
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.8"
+#define TDB_VERSION	"0.1.9"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
 MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
-
-static struct workqueue_struct *tdb_wq;
-static struct kmem_cache *tw_cache;
 
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
@@ -133,34 +129,13 @@ tdb_info(char *buf, size_t len)
 }
 
 /**
- * Work queue wrapper for tdb_file_open() (real file open).
- * We have to call the function from work queue to map database
- * file to kernel context rather to the calling process address space.
- */
-static void
-tdb_open_db(struct work_struct *work)
-{
-	TdbWork *tw = (TdbWork *)work;
-	TDB *db = tw->db;
-
-	if (tdb_file_open(db, tw->fsize))
-		TDB_ERR("Cannot open db\n");
-
-	db->hdr = tdb_htrie_init(db->hdr, db->filp->f_inode->i_size, tw->rsize);
-	if (!db->hdr)
-		TDB_ERR("Cannot initialize db header\n");
-
-	kmem_cache_free(tw_cache, tw);
-
-	tdb_tbl_enumerate(db);
-}
-
-/**
+ * Search for already opened handler for the database or allocate a new one.
+ *
  * The path to table must end with table name (not more than TDB_TBLNAME_LEN
  * characters in long) followed by TDB_SUFFIX.
  */
 static int
-tdb_proc_tblpath(TDB *db, const char *path)
+tdb_get_db(const char *path, TDB **db)
 {
 	int len;
 	char *slash;
@@ -180,64 +155,73 @@ tdb_proc_tblpath(TDB *db, const char *path)
 	len = len - (slash - path) - sizeof(TDB_SUFFIX);
 	if (len > TDB_TBLNAME_LEN) {
 		TDB_ERR("Too long table name %s\n", path);
-		return -EINVAL;
+		return -ENAMETOOLONG;
 	}
 
-	strncpy(db->path, path, TDB_PATH_LEN - 1);
-	strncpy(db->tbl_name, slash + 1, len);
+	*db = tdb_tbl_lookup(slash + 1, len);
+	if (*db)
+		return 0;
+
+	*db = kzalloc(sizeof(TDB), GFP_KERNEL);
+	if (!*db) {
+		TDB_ERR("Cannot allocate new db handler\n");
+		return -ENOMEM;
+	}
+	strncpy((*db)->path, path, TDB_PATH_LEN - 1);
+	strncpy((*db)->tbl_name, slash + 1, len);
+	tdb_get(*db);
 
 	return 0;
 }
 
 /**
  * Open database file and @return its descriptor.
+ * If the database is already opened, then returns the handler.
  *
  * The function must not be called from softirq!
  */
 TDB *
-tdb_open(const char *path, size_t fsize, unsigned int rec_size)
+tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 {
 	TDB *db;
-	TdbWork *tw;
 
 	TDB_DBG("Open table %s: size=%lu rec_size=%u\n", path, fsize, rec_size);
 
-	db = kzalloc(sizeof(TDB), GFP_KERNEL);
-	if (!db)
-		return NULL;
+	if (tdb_get_db(path, &db) < 0)
+		return db;
 
-	if (tdb_proc_tblpath(db, path))
+	if (tdb_file_open(db, fsize, node)) {
+		TDB_ERR("Cannot open db\n");
 		goto err;
+	}
 
-	tw = kmem_cache_alloc(tw_cache, GFP_KERNEL);
-	if (!tw)
-		goto err;
-	INIT_WORK(&tw->work, tdb_open_db);
-	tw->db = db;
-	tw->fsize = fsize;
-	tw->rsize = rec_size;
+	db->hdr = tdb_htrie_init(db->hdr, db->filp->f_inode->i_size, rec_size);
+	if (!db->hdr) {
+		TDB_ERR("Cannot initialize db header\n");
+		goto err_init;
+	}
 
-	queue_work(tdb_wq, (struct work_struct *)tw);
+	tdb_tbl_enumerate(db);
 
-	/*
-	 * FIXME at this point the caller can use the DB descriptor,
-	 * but work queue probably doesn't initialize it so far.
-	 * Put conditional wait here.
-	 */
 	return db;
+err_init:
+	tdb_file_close(db, node);
 err:
-	kfree(db);
+	tdb_put(db);
 	return NULL;
 }
 EXPORT_SYMBOL(tdb_open);
 
 void
-tdb_close(TDB *db)
+tdb_close(TDB *db, int node)
 {
+	if (!atomic_dec_and_test(&db->count))
+		return;
+
 	tdb_tbl_forget(db);
 
 	/* Unmapping can be done from process context. */
-	tdb_file_close(db);
+	tdb_file_close(db, node);
 
 	tdb_htrie_exit(db->hdr);
 
@@ -248,26 +232,19 @@ EXPORT_SYMBOL(tdb_close);
 static int __init
 tdb_init(void)
 {
+	int r;
 
 	TDB_LOG("Start Tempesta DB\n");
 
-	tw_cache = KMEM_CACHE(tdb_work_t, 0);
-	if (!tw_cache)
-		return -ENOMEM;
+	r = tdb_init_mappings();
+	if (r)
+		return r;
 
-	tdb_wq = create_singlethread_workqueue("tdb_wq");
-	if (!tdb_wq)
-		goto err_wq;
-
-	if (tdb_if_init())
-		goto err_if;
+	r = tdb_if_init();
+	if (r)
+		return r;
 
 	return 0;
-err_if:
-	destroy_workqueue(tdb_wq);
-err_wq:
-	kmem_cache_destroy(tw_cache);
-	return -ENOMEM;
 }
 
 static void __exit
@@ -276,8 +253,6 @@ tdb_exit(void)
 	TDB_LOG("Shutdown Tempesta DB\n");
 
 	tdb_if_exit();
-	destroy_workqueue(tdb_wq);
-	kmem_cache_destroy(tw_cache);
 }
 
 module_init(tdb_init);

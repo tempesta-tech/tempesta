@@ -38,7 +38,7 @@
 
 #include "tdb.h"
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "cache.h"
 #include "http_msg.h"
 #include "lib.h"
@@ -500,8 +500,8 @@ tfw_cache_init(void)
 	if (!tfw_cfg.cache)
 		return 0;
 
-	/* TODO open db per node. */
-	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0);
+	/* TODO open db for each node. */
+	db = tdb_open(tfw_cfg.c_path, tfw_cfg.c_size, 0, numa_node_id());
 	if (!db)
 		return 1;
 
@@ -526,7 +526,7 @@ err_wq:
 err_cache:
 	kthread_stop(cache_mgr_thr);
 err_thr:
-	tdb_close(db);
+	tdb_close(db, numa_node_id());
 	return r;
 }
 
@@ -539,5 +539,5 @@ tfw_cache_exit(void)
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
-	tdb_close(db);
+	tdb_close(db, numa_node_id());
 }

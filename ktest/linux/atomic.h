@@ -40,6 +40,18 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 }
 
 static inline int
+atomic_inc(atomic_t *v)
+{
+	return __atomic_add_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
+}
+
+static inline int
+atomic_dec_and_test(atomic_t *v)
+{
+	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST) == 0;
+}
+
+static inline int
 atomic64_cmpxchg(atomic64_t *v, long old, long new)
 {
 	__atomic_compare_exchange_n(&v->counter, &old, new, false,

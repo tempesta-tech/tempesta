@@ -33,7 +33,7 @@
 #include <linux/net.h>
 #include <net/inet_sock.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "connection.h"
 #include "filter.h"
 #include "http.h"

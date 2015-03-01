@@ -23,9 +23,6 @@
 
 #include "tdb.h"
 
-#define TDB_EXT_BITS		21
-#define TDB_EXT_SZ		(1UL << TDB_EXT_BITS)
-#define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 #define TDB_BLK_BMP_2L		(TDB_EXT_SZ / PAGE_SIZE / BITS_PER_LONG)
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)

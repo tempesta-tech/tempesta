@@ -20,7 +20,7 @@
 
 #include <linux/module.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "test.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);

@@ -24,6 +24,7 @@
 #define __TDB_H__
 
 #include <linux/fs.h>
+#include <linux/slab.h>
 
 #include "tdb_if.h"
 
@@ -75,6 +76,7 @@ typedef struct {
 typedef struct {
 	TdbHdr		*hdr;
 	struct file	*filp;
+	atomic_t	count;
 	char		tbl_name[TDB_TBLNAME_LEN + 1];
 	char		path[TDB_PATH_LEN];
 } TDB;
@@ -134,7 +136,7 @@ typedef TdbFRec TdbRec;
 #define TDB_DBG(...)
 #endif
 #define TDB_LOG(...)		pr_info(TDB_BANNER __VA_ARGS__)
-#define TDB_WARN(...)		pr_info(TDB_BANNER "Warning: " __VA_ARGS__)
+#define TDB_WARN(...)		pr_warn(TDB_BANNER "Warning: " __VA_ARGS__)
 #define TDB_ERR(...)		pr_err(TDB_BANNER "ERROR: " __VA_ARGS__)
 
 /*
@@ -147,7 +149,21 @@ void tdb_rec_put(void *rec);
 int tdb_info(char *buf, size_t len);
 
 /* Open/close database handler. */
-TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size);
-void tdb_close(TDB *db);
+TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);
+void tdb_close(TDB *db, int node);
+
+static inline TDB *
+tdb_get(TDB *db)
+{
+	atomic_inc(&db->count);
+	return db;
+}
+
+static inline void
+tdb_put(TDB *db)
+{
+	if (atomic_dec_and_test(&db->count))
+		kfree(db);
+}
 
 #endif /* __TDB_H__ */
