@@ -27,6 +27,7 @@
 enum {
 	ACT_INFO,
 	ACT_OPEN,
+	ACT_CLOSE,
 	ACT_INSERT,
 	ACT_SELECT,
 };
@@ -56,6 +57,8 @@ struct Cfg {
 			action = ACT_INFO;
 		} else if (a == "open") {
 			action = ACT_OPEN;
+		} else if (a == "close") {
+			action = ACT_CLOSE;
 		} else if (a == "insert") {
 			action = ACT_INSERT;
 		} else if (a == "select") {
@@ -96,6 +99,7 @@ main(int argc, char *argv[])
 		 "The action specification, one of the follwoing:\n"
 		 "  info    - information about current database state;\n"
 		 "  open    - open and create a new table if necessary;\n"
+		 "  close   - close a table;\n"
 		 "  insert  - insert a record to a table;\n"
 		 "  select  - select from a table")
 		("key,k", po::value<std::string>(), "The record key")
@@ -139,6 +143,11 @@ main(int argc, char *argv[])
 			th.open_table(cfg.db_path, cfg.table, cfg.tbl_sz,
 				      cfg.rec_sz);
 			std::cout << "table " << cfg.table << " created"
+				  << std::endl;
+			break;
+		case ACT_CLOSE:
+			th.close_table(cfg.table);
+			std::cout << "table " << cfg.table << " closed"
 				  << std::endl;
 			break;
 		case ACT_INSERT:

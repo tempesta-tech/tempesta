@@ -23,8 +23,8 @@
 
 #include "tdb.h"
 
-int tdb_file_open(TDB *db, unsigned long size, int node);
-void tdb_file_close(TDB *db, int node);
+int tdb_file_open(TDB *db, unsigned long size);
+void tdb_file_close(TDB *db);
 int tdb_init_mappings(void);
 
 #endif /* __FILE_H__ */

@@ -41,6 +41,7 @@ enum tdb_msg_type {
 	__TDB_MSG_BASE,
 	TDB_MSG_INFO	= __TDB_MSG_BASE,
 	TDB_MSG_OPEN,
+	TDB_MSG_CLOSE,
 	TDB_MSG_INSERT,
 	TDB_MSG_SELECT,
 	__TDB_MSG_TYPE_MAX
@@ -79,7 +80,7 @@ typedef struct {
  * 		  for inserts and updates);
  */
 typedef struct {
-	unsigned char	type;
+	unsigned int	type;
 	unsigned int	rec_n;
 	char		t_name[8];
 	TdbMsgRec	recs[0];

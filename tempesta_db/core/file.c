@@ -168,11 +168,10 @@ ma_free(unsigned long addr, int node)
 static unsigned long
 tempesta_map_file(struct file *file, unsigned long len, int node)
 {
-	struct iovec iov;
-	struct kiocb kiocb;
+	mm_segment_t oldfs;
 	MArea *ma;
+	loff_t off = 0;
 	unsigned long addr = -ENOMEM;
-	ssize_t r;
 
 	BUG_ON(len & ~TDB_EXT_MASK);
 	BUG_ON(file->f_inode->i_size != len);
@@ -181,7 +180,7 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 
 	ma = ma_get_best_fit(len, node);
 	if (!ma) {
-		TDB_ERR("cannot allocate %lu pages at node %d\n",
+		TDB_ERR("Cannot allocate %lu pages at node %d\n",
 			len / PAGE_SIZE, node);
 		goto err;
 	}
@@ -192,26 +191,21 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 
 	get_file(file);
 
-	iov = (struct iovec) {
-		.iov_base = (void *)ma->start,
-		.iov_len = len,
-	};
-	init_sync_kiocb(&kiocb, file);
-	kiocb.ki_left = len;
-	kiocb.ki_nbytes = len;
-	r = file->f_op->aio_read(&kiocb, &iov, 1, 0);
-	if (r == -EIOCBQUEUED) {
-		r = wait_on_sync_kiocb(&kiocb);
-	}
-	else if (r != len) {
-		TDB_ERR("cannot read %lu bytes to addr %p, ret = %ld\n",
-			len, r, (void *)ma->start);
+	oldfs = get_fs();
+	set_fs(get_ds());
+
+	addr = vfs_read(file, (char *)ma->start, len, &off);
+	if (addr != len) {
+		TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
+			len, (void *)ma->start, addr);
 		fput(file);
 		__ma_free(ma);
-		goto err;
+		goto err_fs;
 	}
 
 	addr = ma->start;
+err_fs:
+	set_fs(oldfs);
 err:
 	mutex_unlock(&map_mtx);
 
@@ -219,43 +213,39 @@ err:
 }
 
 /**
+ * Syncronize memory mapping with the file.
  * Called from process context.
  */
 static void
 tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 		    int node)
 {
-	int o;
+	mm_segment_t oldfs;
 	MArea *ma;
-	struct address_space *mapping = file->f_mapping;
-	struct writeback_control wbc = {
-		.nr_to_write	= LONG_MAX,
-		.range_start	= 0,
-		.range_end	= LLONG_MAX,
-		.sync_mode	= WB_SYNC_ALL,
-	};
+	loff_t off = 0;
+	ssize_t r;
 
 	mutex_lock(&map_mtx);
 
-	/* Syncronize memory mapping with the file. */
-	BUG_ON(!mapping->a_ops->writepage); /* Don't use the filesystem. */
 	ma = ma_lookup(addr, node);
 	if (!ma) {
 		TDB_ERR("Cannot sync memory area for %#lx address at node %d\n",
 		     addr, node);
 		goto err;
 	}
-	for (o = 0; o < len; o += PAGE_SIZE) {
-		struct page *page = virt_to_page(ma->start + o);
-		/* FIXME replace by direct IO. */
-		if (mapping->a_ops->writepage(page, &wbc) < 0) {
-			TDB_ERR("Cannot sync page %lu from mapping %lx"
-				" of size %lu pages\n",
-				o / PAGE_SIZE, ma->start, ma->pages);
-			goto err;
-		}
+
+	oldfs = get_fs();
+	set_fs(get_ds());
+
+	r = vfs_write(file, (void *)ma->start, len, &off);
+	if (r != len) {
+		TDB_ERR("Cannot sync mapping %lx of size %lu pages\n",
+			ma->start, ma->pages);
+		goto err_fs;
 	}
 
+err_fs:
+	set_fs(oldfs);
 err:
 	fput(file);
 	ma_free(addr, node);
@@ -271,14 +261,14 @@ err:
  * The function must not be called from softirq!
  */
 int
-tdb_file_open(TDB *db, unsigned long size, int node)
+tdb_file_open(TDB *db, unsigned long size)
 {
 	unsigned long addr;
 	struct file *filp;
 
 	filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
 	if (IS_ERR(filp)) {
-		TDB_ERR("cannot open db file %s\n", db->path);
+		TDB_ERR("Cannot open db file %s\n", db->path);
 		return PTR_ERR(filp);
 	}
 	BUG_ON(!filp || !filp->f_dentry);
@@ -291,9 +281,9 @@ tdb_file_open(TDB *db, unsigned long size, int node)
 		sb_end_write(inode->i_sb);
 	}
 
-	addr = tempesta_map_file(filp, size, node);
+	addr = tempesta_map_file(filp, size, db->node);
 	if (IS_ERR((void *)addr)) {
-		TDB_ERR("cannot map file\n");
+		TDB_ERR("Cannot map file\n");
 		filp_close(filp, NULL);
 		return (int)addr;
 	}
@@ -307,13 +297,13 @@ tdb_file_open(TDB *db, unsigned long size, int node)
 }
 
 void
-tdb_file_close(TDB *db, int node)
+tdb_file_close(TDB *db)
 {
 	if (!db->hdr || db->hdr->dbsz)
 		return;
 
 	tempesta_unmap_file(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
-			    node);
+			    db->node);
 
 	filp_close(db->filp, NULL);
 

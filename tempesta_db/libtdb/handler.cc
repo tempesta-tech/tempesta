@@ -227,6 +227,36 @@ TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 	});
 }
 
+void
+TdbHndl::close_table(std::string &tbl_name)
+{
+	if (tbl_name.length() > TDB_TBLNAME_LEN)
+		throw TdbExcept("too long table name");
+
+	msg_send([&tbl_name](nlmsghdr *nlh) {
+		nlh->nlmsg_len = sizeof(*nlh) + sizeof(TdbMsg);
+		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
+		nlh->nlmsg_flags |= NLM_F_REQUEST;
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		memset(m, 0, sizeof(*m));
+		m->type = TDB_MSG_CLOSE;
+		tbl_name.copy(m->t_name, TDB_TBLNAME_LEN);
+	});
+
+	// Just check for status message.
+	msg_recv([=](nlmsghdr *nlh) -> bool {
+		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
+			throw TdbExcept("bad close table status msg");
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		if (m->type != (TDB_MSG_CLOSE | TDB_NLF_RESP_OK))
+			throw TdbExcept("cannot close table, see dmesg");
+
+		return false;
+	});
+}
+
 TdbHndl::TdbHndl(size_t mm_sz)
 	: ring_sz_(mm_sz / 2),
 	rx_fr_off_(0),

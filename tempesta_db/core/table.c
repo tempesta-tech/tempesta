@@ -36,6 +36,9 @@ static DEFINE_MUTEX(tbl_mtx);
 void
 tdb_tbl_enumerate(TDB *db)
 {
+	if (atomic_read(&db->count) > 1)
+		return; /* already enumerated */
+
 	mutex_lock(&tbl_mtx);
 
 	if (tbl_last < TDB_MAXTBL) {
@@ -52,6 +55,8 @@ void
 tdb_tbl_forget(TDB *db)
 {
 	int i;
+
+	BUG_ON(atomic_read(&db->count));
 
 	mutex_lock(&tbl_mtx);
 
@@ -89,6 +94,19 @@ tdb_tbl_print_all(char *buf, size_t len)
 	mutex_unlock(&tbl_mtx);
 
 	return n;
+}
+
+void
+tdb_tbl_foreach(void (*func)(TDB *db))
+{
+	int i;
+
+	mutex_lock(&tbl_mtx);
+
+	for (i = 0; i < tbl_last; ++i)
+		func(tdb_tbls[i].db);
+
+	mutex_unlock(&tbl_mtx);
 }
 
 TDB *
