@@ -208,10 +208,10 @@ index 72c5acb..4fc1df7 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 0000000..5cce460
+index 0000000..396b465
 --- /dev/null
 +++ b/mm/tempesta_mm.c
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,107 @@
 +/**
 + *		Tempesta Memory Reservation
 + *
@@ -258,7 +258,7 @@ index 0000000..5cce460
 +tempesta_reserve_pages(void)
 +{
 +	static struct page *pg_arr[PGCHUNKS];
-+	struct page *p;
++	struct page *p = NULL;
 +	int i, node, n, chunk_order;
 +
 +	chunk_order = min_t(int, MAX_ORDER - 1, pgorder);
@@ -293,14 +293,12 @@ index 0000000..5cce460
 +			     1UL << chunk_order, page_address(p), node);
 +
 +			pg_arr[i] = p;
-+			if (!map[node].addr) {
-+				map[node].addr = (unsigned long)page_address(p);
-+				map[node].pages = 1 << pgorder;
-+			}
 +		}
++		BUG_ON(map[node].addr);
++		map[node].addr = (unsigned long)page_address(p);
++		map[node].pages = 1 << pgorder;
 +	}
 +
-+	BUG_ON(!pg_arr[0]);
 +	return;
 +err:
 +	for (--node; node >= 0; --node)

@@ -38,6 +38,7 @@ public:
 	void get_info(std::function<void (TdbMsg *)> data_cb);
 	void open_table(std::string &db_path, std::string &tbl_name,
 			size_t pages, unsigned int rec_size);
+	void close_table(std::string &tbl_name);
 
 private:
 	void advance_frame_offset(unsigned int &off) noexcept;

@@ -22,7 +22,7 @@
 #include <net/netlink.h>
 #include <net/net_namespace.h>
 
-#include "tdb.h"
+#include "table.h"
 #include "tdb_if.h"
 
 static struct sock *nls;
@@ -58,7 +58,7 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 }
 
 static int
-tdb_if_open(struct sk_buff *skb, struct netlink_callback *cb)
+tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 {
 	TdbMsg *resp_m, *m = cb->data;
 	TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
@@ -71,11 +71,27 @@ tdb_if_open(struct sk_buff *skb, struct netlink_callback *cb)
 		return -EMSGSIZE;
 
 	resp_m = nlmsg_data(nlh);
-	resp_m->type = TDB_MSG_OPEN;
-	m->rec_n = 0;
+	resp_m->rec_n = 0;
 
-	if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
-		resp_m->type |= TDB_NLF_RESP_OK;
+	if (m->type == TDB_MSG_OPEN) {
+		resp_m->type = TDB_MSG_OPEN;
+		if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
+			resp_m->type |= TDB_NLF_RESP_OK;
+	} else {
+		TDB *db;
+
+		resp_m->type = TDB_MSG_CLOSE;
+
+		db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
+		if (db) {
+			tdb_put(db);
+			tdb_close(db);
+			resp_m->type |= TDB_NLF_RESP_OK;
+		} else {
+			TDB_WARN("Tried to close non existent table '%s'\n",
+				 m->t_name);
+		}
+	}
 
 	return 0;
 }
@@ -96,7 +112,8 @@ static const struct {
 	int (*dump)(struct sk_buff *, struct netlink_callback *);
 } tdb_if_call_tbl[__TDB_MSG_TYPE_MAX] = {
 	[TDB_MSG_INFO - __TDB_MSG_BASE]		= { .dump = tdb_if_info },
-	[TDB_MSG_OPEN - __TDB_MSG_BASE]		= { .dump = tdb_if_open },
+	[TDB_MSG_OPEN - __TDB_MSG_BASE]		= { .dump = tdb_if_open_close },
+	[TDB_MSG_CLOSE - __TDB_MSG_BASE]	= { .dump = tdb_if_open_close },
 	[TDB_MSG_INSERT - __TDB_MSG_BASE]	= { .dump = tdb_if_insert },
 	[TDB_MSG_SELECT - __TDB_MSG_BASE]	= { .dump = tdb_if_select },
 };
@@ -141,6 +158,8 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 				return -EINVAL;
 			}
 		}
+		break;
+	case TDB_MSG_CLOSE:
 		break;
 	case TDB_MSG_INSERT:
 		break;

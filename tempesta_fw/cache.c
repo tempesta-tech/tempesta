@@ -526,7 +526,7 @@ err_wq:
 err_cache:
 	kthread_stop(cache_mgr_thr);
 err_thr:
-	tdb_close(db, numa_node_id());
+	tdb_close(db);
 	return r;
 }
 
@@ -539,5 +539,5 @@ tfw_cache_exit(void)
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
-	tdb_close(db, numa_node_id());
+	tdb_close(db);
 }

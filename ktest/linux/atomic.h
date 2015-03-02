@@ -24,12 +24,8 @@ typedef struct {
 	int counter;
 } atomic_t;
 
-typedef struct {
-	long counter;
-} atomic64_t;
-
-#define atomic64_set(v, i)	((v)->counter = (i))
-#define atomic64_read(v)	(*(volatile long *)&(v)->counter)
+#define atomic_set(v, i)	((v)->counter = (i))
+#define atomic_read(v)		(*(volatile int *)&(v)->counter)
 
 static inline int
 atomic_cmpxchg(atomic_t *v, int old, int new)
@@ -50,6 +46,13 @@ atomic_dec_and_test(atomic_t *v)
 {
 	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST) == 0;
 }
+
+typedef struct {
+	long counter;
+} atomic64_t;
+
+#define atomic64_set(v, i)	((v)->counter = (i))
+#define atomic64_read(v)	(*(volatile long *)&(v)->counter)
 
 static inline int
 atomic64_cmpxchg(atomic64_t *v, long old, long new)
