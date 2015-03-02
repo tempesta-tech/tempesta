@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.9"
+#define TDB_VERSION	"0.1.10"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -185,12 +185,12 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 {
 	TDB *db;
 
-	TDB_DBG("Open table %s: size=%lu rec_size=%u\n", path, fsize, rec_size);
-
 	if (tdb_get_db(path, &db) < 0)
 		return db;
 
-	if (tdb_file_open(db, fsize, node)) {
+	db->node = node;
+
+	if (tdb_file_open(db, fsize)) {
 		TDB_ERR("Cannot open db\n");
 		goto err;
 	}
@@ -203,29 +203,40 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 
 	tdb_tbl_enumerate(db);
 
+	TDB_LOG("Opened table %s: size=%lu rec_size=%u\n",
+		path, fsize, rec_size);
+
 	return db;
 err_init:
-	tdb_file_close(db, node);
+	tdb_file_close(db);
 err:
 	tdb_put(db);
 	return NULL;
 }
 EXPORT_SYMBOL(tdb_open);
 
+static void
+__do_close_table(TDB *db)
+{
+	/* Unmapping can be done from process context. */
+	tdb_file_close(db);
+
+	tdb_htrie_exit(db->hdr);
+
+	TDB_LOG("Closed table %s\n", db->tbl_name);
+
+	kfree(db);
+}
+
 void
-tdb_close(TDB *db, int node)
+tdb_close(TDB *db)
 {
 	if (!atomic_dec_and_test(&db->count))
 		return;
 
 	tdb_tbl_forget(db);
 
-	/* Unmapping can be done from process context. */
-	tdb_file_close(db, node);
-
-	tdb_htrie_exit(db->hdr);
-
-	kfree(db);
+	__do_close_table(db);
 }
 EXPORT_SYMBOL(tdb_close);
 
@@ -253,6 +264,12 @@ tdb_exit(void)
 	TDB_LOG("Shutdown Tempesta DB\n");
 
 	tdb_if_exit();
+
+	/*
+	 * There are no database users, so roughtly close all abandoned
+	 * tables w/o refrence checking and so on.
+	 */
+	tdb_tbl_foreach(__do_close_table);
 }
 
 module_init(tdb_init);

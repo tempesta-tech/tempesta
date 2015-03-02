@@ -70,12 +70,15 @@ typedef struct {
  * Database handle descriptor.
  *
  * @filp	- mmap()'ed file;
+ * @node	- NUMA node ID;
+ * @count	- reference counter;
  * @tbl_name	- table name;
  * @path	- path to the table;
  */
 typedef struct {
 	TdbHdr		*hdr;
 	struct file	*filp;
+	int		node;
 	atomic_t	count;
 	char		tbl_name[TDB_TBLNAME_LEN + 1];
 	char		path[TDB_PATH_LEN];
@@ -150,7 +153,7 @@ int tdb_info(char *buf, size_t len);
 
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);
-void tdb_close(TDB *db, int node);
+void tdb_close(TDB *db);
 
 static inline TDB *
 tdb_get(TDB *db)
