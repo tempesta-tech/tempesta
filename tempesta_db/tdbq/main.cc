@@ -32,7 +32,7 @@ enum {
 	ACT_SELECT,
 };
 
-namespace po  = boost::program_options;
+namespace po = boost::program_options;
 
 struct Cfg {
 	int		action;
@@ -41,16 +41,22 @@ struct Cfg {
 	size_t		mm_sz;
 	std::string	db_path;
 	std::string	table;
+	std::string	key;
+	std::string	val;
 
 	Cfg &
 	operator=(po::variables_map &&vm)
 	{
 		if (vm.count("path"))
-			db_path	= std::move(vm["path"].as<std::string>());
-		table	= std::move(vm["table"].as<std::string>());
-		tbl_sz	= vm["tbl_size"].as<size_t>();
-		rec_sz	= vm["rec_size"].as<size_t>();
-		mm_sz	= vm["mmap"].as<size_t>();
+			db_path = std::move(vm["path"].as<std::string>());
+		if (vm.count("key"))
+			key = std::move(vm["key"].as<std::string>());
+		if (vm.count("value"))
+			val = std::move(vm["value"].as<std::string>());
+		table = std::move(vm["table"].as<std::string>());
+		tbl_sz = vm["tbl_size"].as<size_t>();
+		rec_sz = vm["rec_size"].as<size_t>();
+		mm_sz = vm["mmap"].as<size_t>();
 
 		std::string a = std::move(vm["action"].as<std::string>());
 		if (a == "info") {
@@ -67,9 +73,17 @@ struct Cfg {
 			throw TdbExcept("bad action: %s", a.c_str());
 		}
 
+		// Sanity checks.
 		if (action == ACT_INFO && table != "*")
 			throw TdbExcept("'info' command is only allowed for"
 					" all tables");
+		if (action == ACT_INSERT && (key.empty() || val.empty()))
+			throw TdbExcept("please specify key and value for"
+					" inserted item");
+		if (action == ACT_INSERT && key == "*")
+			throw TdbExcept("please specify exact key");
+		if (!val.empty() && (val.front() != '\'' || val.back() != '\''))
+			throw TdbExcept("value must be single quotes closed");
 		if (table == "*" && action != ACT_INFO)
 			throw TdbExcept("please specify a table");
 		if (action == ACT_OPEN && db_path.empty())
@@ -102,7 +116,9 @@ main(int argc, char *argv[])
 		 "  close   - close a table;\n"
 		 "  insert  - insert a record to a table;\n"
 		 "  select  - select from a table")
-		("key,k", po::value<std::string>(), "The record key")
+		("key,k", po::value<std::string>(),
+		 "The record key (ASCII string closed in single quotes or"
+		 " * to match all records)")
 		("path,p", po::value<std::string>(), "Path to database files")
 		("rec_size,r", po::value<size_t>()->default_value(0),
 		 "Table record size. Specify this for fixed-size records"
@@ -110,7 +126,9 @@ main(int argc, char *argv[])
 		("table,t", po::value<std::string>()->default_value("*"),
 		 "The table to operate on or '*' for all tables")
 		("tbl_size,s", po::value<size_t>()->default_value(512),
-		 "Table size in pages");
+		 "Table size in pages")
+		("value,v", po::value<std::string>(),
+		 "The record value (ASCII string closed in single quotes)");
 	try {
 		// Parse config options
 		po::variables_map vm;
@@ -135,8 +153,8 @@ main(int argc, char *argv[])
 
 		switch (cfg.action) {
 		case ACT_INFO:
-			th.get_info([=](TdbMsg *m) {
-				std::cout << m->recs[0].data << std::endl;
+			th.get_info([=](char *data) {
+				std::cout << data << std::endl;
 			});
 			break;
 		case ACT_OPEN:
@@ -151,13 +169,31 @@ main(int argc, char *argv[])
 				  << std::endl;
 			break;
 		case ACT_INSERT:
-			// TODO generic insertion function for many key=value pairs
+			th.trx_begin();
+			th.insert(cfg.table, cfg.key.length(), cfg.val.length(),
+				  [&] (char *key, char *val)
+				  {
+					cfg.key.copy(key, cfg.key.length());
+					cfg.val.copy(val, cfg.val.length());
+				  });
+			th.trx_commit();
 			break;
 		case ACT_SELECT:
+			th.query(cfg.table, cfg.key,
+				 [=](char *key, size_t klen,
+				     char *val, size_t vlen)
+				 {
+					std::cout << "'";
+					std::cout.write(key, klen);
+					std::cout << "' -> '";
+					std::cout.write(val, vlen);
+					std::cout << "'" << std::endl;
+				 });
 			break;
 		default:
 			throw TdbExcept("bad action number %d", cfg.action);
 		}
+		std::cout << th.last_status() << std::endl;
 	}
 	catch (TdbExcept &e) {
 		std::cerr << "Error: " << e.what() << std::endl;

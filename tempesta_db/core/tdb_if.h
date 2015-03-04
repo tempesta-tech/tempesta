@@ -47,7 +47,10 @@ enum tdb_msg_type {
 	__TDB_MSG_TYPE_MAX
 };
 
-#define TDB_NLF_RESP_OK		0x0100
+#define TDB_NLF_TYPE_MASK	0x00ff
+#define TDB_NLF_RESP_OK		0x0100 /* good reposne status */
+#define TDB_NLF_RESP_TRUNC	0x0200 /* response was truncated */
+#define TDB_NLF_RESP_END	0x0400 /* end of chunked response */
 
 /**
  * Record for create table command.
@@ -72,6 +75,9 @@ typedef struct {
 	char		data[0];
 } TdbMsgRec;
 
+#define TDB_MSGREC_LEN(r)	(sizeof(*(r)) + (r)->klen + (r)->dlen)
+#define TDB_MSGREC_DATA(r)	((r)->data + (r)->klen)
+
 /**
  * @type	- message type;
  * @rec_n	- number of record specifications;
@@ -82,7 +88,7 @@ typedef struct {
 typedef struct {
 	unsigned int	type;
 	unsigned int	rec_n;
-	char		t_name[8];
+	char		t_name[TDB_TBLNAME_LEN + 1];
 	TdbMsgRec	recs[0];
 } TdbMsg;
 

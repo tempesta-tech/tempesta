@@ -31,7 +31,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <iostream> // AK_DBG
+#include <sstream>
 
 #include "libtdb.h"
 
@@ -44,6 +44,42 @@ const size_t TdbHndl::MMSZ = 256 * 1024;
  *	Private helpers
  * ------------------------------------------------------------------------
  */
+void
+TdbHndl::LastOpStatus::update(const TdbMsg *m) noexcept
+{
+	switch (m->type & TDB_NLF_TYPE_MASK) {
+	case TDB_MSG_INFO:
+		op = "INFO";
+		break;
+	case TDB_MSG_OPEN:
+		op = "OPEN";
+		break;
+	case TDB_MSG_CLOSE:
+		op = "CLOSE";
+		break;
+	case TDB_MSG_INSERT:
+		op = "INSERT";
+	case TDB_MSG_SELECT:
+		op = "SELECT";
+		break;
+	default:
+		op = "[unspecified]";
+	}
+	ret = (m->type & TDB_NLF_RESP_OK) ? "OK" : "FAILED";
+	if (m->type & TDB_NLF_RESP_TRUNC)
+		ret += ",Truncated";
+	rec_n = m->rec_n;
+}
+
+std::ostream &
+operator<<(std::ostream &os, const TdbHndl::LastOpStatus &los)
+{
+	os << los.op << ": records=" << los.rec_n << " status=" << los.ret
+	   << " " << los.copy;
+
+	return os;
+}
+
 void
 TdbHndl::advance_frame_offset(unsigned int &off) noexcept
 {
@@ -84,7 +120,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 		nl_mmap_hdr *hdr = (nl_mmap_hdr *)(rx_ring_ + rx_fr_off_);
 
 		if (hdr->nm_status == NL_MMAP_STATUS_VALID) {
-			std::cout << "AK_DBG: zero-copy" << std::endl;
+			last_status_.set_copying(false);
 			// Regular memory mapped frame.
 			nlh = (nlmsghdr *)((char *)hdr + NL_MMAP_HDRLEN);
 			if (!hdr->nm_len) {
@@ -96,7 +132,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 			}
 		}
 		else if (hdr->nm_status == NL_MMAP_STATUS_COPY) {
-			std::cout << "AK_DBG: copying" << std::endl;
+			last_status_.set_copying(true);
 			lazy_buffer_alloc();
 
 			// Frame is queued to socket receive queue.
@@ -117,6 +153,18 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 }
 
 void
+TdbHndl::send_to_kernel()
+{
+	sockaddr_nl addr = {
+		.nl_family	= AF_NETLINK,
+	};
+	if (sendto(fd_, NULL, 0, 0, (const sockaddr *)&addr, sizeof(addr)) < 0)
+		throw TdbExcept("cannot send msg to kernel");
+
+	advance_frame_offset(tx_fr_off_);
+}
+
+void
 TdbHndl::msg_send(std::function<void (nlmsghdr *)> msg_build_cb)
 {
 	nl_mmap_hdr *hdr = (nl_mmap_hdr *)(tx_ring_ + tx_fr_off_);
@@ -131,13 +179,7 @@ TdbHndl::msg_send(std::function<void (nlmsghdr *)> msg_build_cb)
 	hdr->nm_len = nlh->nlmsg_len;
 	hdr->nm_status = NL_MMAP_STATUS_VALID;
 
-	sockaddr_nl addr = {
-		.nl_family	= AF_NETLINK,
-	};
-	if (sendto(fd_, NULL, 0, 0, (const sockaddr *)&addr, sizeof(addr)) < 0)
-		throw TdbExcept("cannot send msg to kernel");
-
-	advance_frame_offset(tx_fr_off_);
+	send_to_kernel();
 }
 
 /*
@@ -146,8 +188,69 @@ TdbHndl::msg_send(std::function<void (nlmsghdr *)> msg_build_cb)
  * ------------------------------------------------------------------------
  */
 void
-TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
+TdbHndl::alloc_trx_frame() noexcept
 {
+	trx_.init();
+
+	trx_.fr_hdr = (nl_mmap_hdr *)(tx_ring_ + tx_fr_off_);
+	if (trx_.fr_hdr->nm_status != NL_MMAP_STATUS_UNUSED)
+		throw TdbExcept("no tx frame available");
+
+	// Pack only one message per frame.
+	trx_.msg_hdr = (nlmsghdr *)((char *)trx_.fr_hdr + NL_MMAP_HDRLEN);
+	trx_.msg_hdr->nlmsg_type = NLMSG_MIN_TYPE + 1;
+	trx_.msg_hdr->nlmsg_flags |= NLM_F_REQUEST;
+
+	trx_.tdb_hdr = (TdbMsg *)NLMSG_DATA(trx_.msg_hdr);
+	memset(trx_.tdb_hdr, 0, sizeof(TdbMsg));
+
+	trx_.off = sizeof(nlmsghdr) + sizeof(TdbMsg);
+}
+
+void
+TdbHndl::trx_begin()
+{
+	if (trx_)
+		throw TdbExcept("nested trx!");
+
+	alloc_trx_frame();
+}
+
+/**
+ * Send all peding frames.
+ */
+void
+TdbHndl::trx_commit()
+{
+	trx_.msg_hdr->nlmsg_len = trx_.off;
+	trx_.fr_hdr->nm_len = trx_.msg_hdr->nlmsg_len;
+	trx_.fr_hdr->nm_status = NL_MMAP_STATUS_VALID;
+
+	send_to_kernel();
+
+	trx_.init();
+
+	// Check trx status.
+	msg_recv([this](nlmsghdr *nlh) -> bool {
+		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
+			throw TdbExcept("bad transaction status msg");
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		if (!(m->type & TDB_NLF_RESP_OK))
+			throw TdbExcept("transaction failed, see dmesg");
+
+		last_status_.update(m);
+
+		return false;
+	});
+}
+
+void
+TdbHndl::get_info(std::function<void (char *)> data_cb)
+{
+	if (trx_)
+		throw TdbExcept("cannot run the action inside transaction");
+
 	msg_send([=](nlmsghdr *nlh) {
 		nlh->nlmsg_len = sizeof(*nlh) + sizeof(TdbMsg);
 		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
@@ -174,7 +277,7 @@ TdbHndl::get_info(std::function<void (TdbMsg *)> data_cb)
 					" klen=%u dlen=%u",
 					m->recs[0].klen, m->recs[0].dlen);
 
-		data_cb(m);
+		data_cb(m->recs[0].data);
 
 		return false; // info is single-frame message
 	});
@@ -184,6 +287,9 @@ void
 TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 		    size_t pages, unsigned int rec_size)
 {
+	if (trx_)
+		throw TdbExcept("cannot run the action inside transaction");
+
 	size_t tbl_size = pages * getpagesize();
 
 	if (tbl_name.length() > TDB_TBLNAME_LEN)
@@ -230,6 +336,9 @@ TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 void
 TdbHndl::close_table(std::string &tbl_name)
 {
+	if (trx_)
+		throw TdbExcept("cannot run the action inside transaction");
+
 	if (tbl_name.length() > TDB_TBLNAME_LEN)
 		throw TdbExcept("too long table name");
 
@@ -255,6 +364,113 @@ TdbHndl::close_table(std::string &tbl_name)
 
 		return false;
 	});
+}
+
+void
+TdbHndl::insert(std::string &tbl_name, size_t klen, size_t vlen,
+		std::function<void (char *, char *)> placement_cb)
+{
+	static const size_t HDRS_LEN = sizeof(nl_mmap_hdr) + sizeof(TdbMsg)
+				       + sizeof(TdbMsgRec);
+	bool in_trx = trx_;
+
+	if (!in_trx)
+		trx_begin();
+
+	if (trx_.off + sizeof(nlmsghdr) + sizeof(TdbMsgRec) + klen + vlen
+	    > NL_FR_SZ)
+	{
+		// Not enugh space in current frame, alllocate a new one.
+		advance_frame_offset(tx_fr_off_);
+		alloc_trx_frame();
+	}
+	if (klen + vlen + HDRS_LEN > NL_FR_SZ)
+		throw TdbExcept("too large data for one insertion");
+
+	// Verify and set command set type and table if needed.
+	if (trx_.tdb_hdr->type != TDB_MSG_INSERT
+	    || tbl_name.compare(0, TDB_TBLNAME_LEN, trx_.tdb_hdr->t_name))
+	{
+		// Alloc new frame for different trx type.
+		advance_frame_offset(tx_fr_off_);
+		alloc_trx_frame();
+	}
+	if (!trx_.tdb_hdr->type || !trx_.tdb_hdr->t_name[0]) {
+		trx_.tdb_hdr->type = TDB_MSG_INSERT;
+		tbl_name.copy(trx_.tdb_hdr->t_name, TDB_TBLNAME_LEN);
+	}
+
+	TdbMsgRec *r = (TdbMsgRec *)((char *)trx_.msg_hdr + trx_.off);
+	r->klen = klen;
+	r->dlen = vlen;
+
+	placement_cb(r->data, TDB_MSGREC_DATA(r));
+
+	++trx_.tdb_hdr->rec_n;
+	trx_.off += TDB_MSGREC_LEN(r);
+
+	if (!in_trx)
+		trx_commit();
+}
+
+void
+TdbHndl::query(std::string &tbl_name, std::string &key,
+	       std::function<void (char *, size_t, char *, size_t)> process_cb)
+{
+	if (trx_)
+		throw TdbExcept("cannot run the action inside transaction");
+
+	if (tbl_name.length() > TDB_TBLNAME_LEN)
+		throw TdbExcept("too long table name");
+
+	msg_send([&tbl_name, &key](nlmsghdr *nlh) {
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		m->type = TDB_MSG_SELECT;
+		m->rec_n = 1;
+		tbl_name.copy(m->t_name, tbl_name.length());
+
+		m->recs[0].klen = key.length();
+		m->recs[0].dlen = 0;
+		key.copy(m->recs[0].data, m->recs[0].klen);
+
+		nlh->nlmsg_len = sizeof(*nlh) + sizeof(*m) + sizeof(TdbMsgRec)
+				 + m->recs[0].klen;
+		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
+		nlh->nlmsg_flags |= NLM_F_REQUEST;
+	});
+
+	// Read results.
+	msg_recv([&process_cb](nlmsghdr *nlh) -> bool {
+		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
+			throw TdbExcept("bad info msg len %u", nlh->nlmsg_len);
+
+		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
+		if (m->type != TDB_MSG_SELECT
+		    || nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
+					+ m->rec_n * sizeof(TdbMsgRec))
+			throw TdbExcept("malformed query results type=%u rec_n=%u",
+					m->type, m->rec_n);
+
+		for (unsigned int i = 0, off = 0; i < m->rec_n; ++i) {
+			TdbMsgRec *r = (TdbMsgRec *)((char *)m->recs + off);
+			process_cb(r->data, r->klen,
+				   TDB_MSGREC_DATA(r), r->dlen);
+			off += TDB_MSGREC_LEN(r);
+		}
+
+		return !(m->type & TDB_NLF_RESP_END);
+	});
+
+}
+
+std::string
+TdbHndl::last_status() noexcept
+{
+	std::stringstream ss;
+
+	ss << last_status_;
+
+	return ss.str();
 }
 
 TdbHndl::TdbHndl(size_t mm_sz)

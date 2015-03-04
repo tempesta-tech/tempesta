@@ -19,9 +19,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/ctype.h>
 #include <net/netlink.h>
 #include <net/net_namespace.h>
 
+#include "htrie.h"
 #include "table.h"
 #include "tdb_if.h"
 
@@ -47,6 +49,7 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 	/* Fill in response. */
 	memcpy(m, cb->data, sizeof(*m));
 	m->rec_n = 1;
+	m->type |= TDB_NLF_RESP_END;
 	m->recs[0].klen = 0;
 	m->recs[0].dlen = tdb_info(m->recs[0].data, TDB_NLMSG_MAXSZ);
 	if (m->recs[0].dlen <= 0) {
@@ -74,13 +77,13 @@ tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 	resp_m->rec_n = 0;
 
 	if (m->type == TDB_MSG_OPEN) {
-		resp_m->type = TDB_MSG_OPEN;
+		resp_m->type = TDB_MSG_OPEN | TDB_NLF_RESP_END;
 		if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
 			resp_m->type |= TDB_NLF_RESP_OK;
 	} else {
 		TDB *db;
 
-		resp_m->type = TDB_MSG_CLOSE;
+		resp_m->type = TDB_MSG_CLOSE | TDB_NLF_RESP_END;
 
 		db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
 		if (db) {
@@ -99,12 +102,145 @@ tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 static int
 tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int i, off;
+	unsigned long key, len;
+	TdbMsg *resp_m, *m = cb->data;
+	TdbMsgRec *r;
+	TdbVRec *vr;
+	TdbFRec *fr;
+	struct nlmsghdr *nlh;
+	TDB *db;
+
+	/* Create status response. */
+	nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
+			cb->nlh->nlmsg_type, sizeof(TdbMsg), 0);
+	if (!nlh)
+		return -EMSGSIZE;
+
+	resp_m = nlmsg_data(nlh);
+	resp_m->rec_n = 0;
+
+	db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
+	if (!db) {
+		TDB_WARN("Tried to insert into non existent table '%s'\n",
+			 m->t_name);
+		return 0;
+	}
+
+	if (TDB_HTRIE_VARLENRECS(db->hdr)) {
+		for (i = 0, off = 0; i < m->rec_n; ++i) {
+			r = (TdbMsgRec *)((char *)m->recs + off);
+			key = tdb_hash_calc(r->data, r->klen);
+			len = r->dlen;
+			vr = (TdbVRec *)tdb_entry_create(db, key,
+							 TDB_MSGREC_DATA(r),
+							 &len);
+			if (!vr) {
+				TDB_ERR("Cannot create variable-size record\n");
+				break;
+			}
+			for ( ; len < r->dlen; ) {
+				vr = tdb_entry_add(db, vr, r->dlen - len);
+				if (!vr) {
+					TDB_ERR("Cannot extend variable-size"
+						" record\n");
+					break;
+				}
+				memcpy(vr + 1, r->data + len, vr->len);
+				len += vr->len;
+			}
+			off += TDB_MSGREC_LEN(r);
+		}
+	} else {
+		for (i = 0, off = 0; i < m->rec_n; ++i) {
+			r = (TdbMsgRec *)((char *)m->recs + off);
+			key = tdb_hash_calc(r->data, r->klen);
+			len = r->dlen;
+			fr = (TdbFRec *)tdb_entry_create(db, key,
+							 TDB_MSGREC_DATA(r),
+							 &len);
+			if (!fr || len != r->dlen) {
+				TDB_ERR("Cannot create fixed-size record\n");
+				break;
+			}
+			off += TDB_MSGREC_LEN(r);
+		}
+	}
+
+	tdb_put(db);
+	if (i == m->rec_n)
+		resp_m->type |= TDB_NLF_RESP_OK;
+	else
+		resp_m->rec_n = i;
+
 	return 0;
 }
 
 static int
 tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned long key;
+	TdbMsg *resp_m, *m = cb->data;
+	TdbRec *res;
+	struct nlmsghdr *nlh;
+	TDB *db;
+
+	nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
+			cb->nlh->nlmsg_type, TDB_NLMSG_MAXSZ, 0);
+	if (!nlh)
+		return -EMSGSIZE;
+
+	resp_m = nlmsg_data(nlh);
+	resp_m->rec_n = 0;
+
+	db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
+	if (!db) {
+		TDB_WARN("Tried to select from non existent table '%s'\n",
+			 m->t_name);
+		return 0;
+	}
+
+	/*
+	 * FIXME implement select all records:
+	 * 1. full HTrie iterator is required;
+	 * 2. use many netlink frames to send probably large data set.
+	 */
+	key = tdb_hash_calc(m->recs[0].data, m->recs[0].klen);
+	res = tdb_rec_get(db, key);
+	if (res) {
+		resp_m->rec_n = 1;
+		resp_m->recs[0].klen = sizeof(res->key);
+		memcpy(&resp_m->recs[0].data, &res->key, sizeof(res->key));
+		if (TDB_HTRIE_VARLENRECS(db->hdr)) {
+			TdbVRec *vr = (TdbVRec *)res;
+			size_t off = 0;
+			resp_m->recs[0].dlen = 0;
+			while (1) {
+				size_t n = vr->len;
+				if (n + off > TDB_NLMSG_MAXSZ) {
+					n = TDB_NLMSG_MAXSZ - off;
+					resp_m->type |= TDB_NLF_RESP_TRUNC;
+				}
+				resp_m->recs[0].dlen += n;
+				memcpy(vr->data,
+				       TDB_MSGREC_DATA(&resp_m->recs[0]), n);
+				if (n < vr->len || !vr->chunk_next)
+					break;
+				vr = TDB_PTR(db->hdr, TDB_DI2O(vr->chunk_next));
+			}
+		}
+		else {
+			TdbFRec *fr = (TdbFRec *)res;
+			resp_m->recs[0].dlen = db->hdr->rec_len;
+			memcpy(fr->data, TDB_MSGREC_DATA(&resp_m->recs[0]),
+			       resp_m->recs[0].dlen);
+		}
+		tdb_rec_put(res);
+	}
+
+	tdb_put(db);
+	resp_m->type |= TDB_NLF_RESP_OK;
+
 	return 0;
 }
 
@@ -117,6 +253,22 @@ static const struct {
 	[TDB_MSG_INSERT - __TDB_MSG_BASE]	= { .dump = tdb_if_insert },
 	[TDB_MSG_SELECT - __TDB_MSG_BASE]	= { .dump = tdb_if_select },
 };
+
+static int
+tdb_if_check_tblname(TdbMsg *m)
+{
+	int i, ret;
+
+	for (i = 0; i < TDB_TBLNAME_LEN; ++i)
+		if (!isalnum(m->t_name[i]))
+			return false;
+	ret = !m->t_name[i];
+
+	if (!ret)
+		TDB_ERR("Bad table name %.*s\n", i, m->t_name);
+
+	return ret;
+}
 
 static int
 tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
@@ -144,6 +296,8 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 			TDB_ERR("empty create table msg\n");
 			return -EINVAL;
 		}
+		if (!tdb_if_check_tblname(m))
+			return -EINVAL;
 		if (m->recs[0].dlen < sizeof(TdbCrTblRec)) {
 			TDB_ERR("empty record in create table msg\n");
 			return -EINVAL;
@@ -160,10 +314,28 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		}
 		break;
 	case TDB_MSG_CLOSE:
+		if (m->rec_n) {
+			TDB_ERR("Bad close table msg: rec_n=%u\n", m->rec_n);
+			return -EINVAL;
+		}
+		if (!tdb_if_check_tblname(m))
+			return -EINVAL;
 		break;
 	case TDB_MSG_INSERT:
+		if (m->rec_n < 1) {
+			TDB_ERR("empty insert msg\n");
+			return -EINVAL;
+		}
+		if (!tdb_if_check_tblname(m))
+			return -EINVAL;
 		break;
 	case TDB_MSG_SELECT:
+		if (m->rec_n != 1) {
+			TDB_ERR("empty select msg\n");
+			return -EINVAL;
+		}
+		if (!tdb_if_check_tblname(m))
+			return -EINVAL;
 		break;
 	default:
 		TDB_ERR("bad netlink msg type %u\n", m->type);
