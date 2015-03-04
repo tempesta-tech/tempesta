@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.10"
+#define TDB_VERSION	"0.1.11"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -40,8 +40,8 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
 	TdbRec *r = tdb_htrie_insert(db->hdr, key, data, len);
 	if (!r)
-		TDB_ERR("Cannot create cache entry for %.*s\n",
-			(int)*len, (char *)data);
+		TDB_ERR("Cannot create cache entry for %.*s, key=%#lx\n",
+			(int)*len, (char *)data, key);
 
 	return r;
 }
@@ -92,9 +92,14 @@ tdb_rec_get(TDB *db, unsigned long key)
 
 	/* The bucket must be alive regardless deleted/evicted records in it. */
 	TDB_HTRIE_FOREACH_REC(db->hdr, b, r, {
-		if (tdb_live_fsrec(db->hdr, r))
-			/* Return the record w/ locked bucket. */
-			return r;
+		/* Return the record w/ locked bucket. */
+		if (TDB_HTRIE_VARLENRECS(db->hdr)) {
+			if (tdb_live_vsrec((TdbVRec *)r))
+				return r;
+		} else {
+			if (tdb_live_fsrec(db->hdr, (TdbFRec *)r))
+				return r;
+		}
 	});
 
 	return NULL;
