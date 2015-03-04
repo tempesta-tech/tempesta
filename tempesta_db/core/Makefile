@@ -18,4 +18,4 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 obj-m	= tempesta_db.o
-tempesta_db-objs = file.o htrie.o if.o main.o table.o
+tempesta_db-objs = file.o hash.o htrie.o if.o main.o table.o

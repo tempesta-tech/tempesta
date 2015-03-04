@@ -155,6 +155,8 @@ int tdb_info(char *buf, size_t len);
 TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);
 void tdb_close(TDB *db);
 
+unsigned long tdb_hash_calc(const char *data, size_t len);
+
 static inline TDB *
 tdb_get(TDB *db)
 {
