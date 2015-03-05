@@ -22,7 +22,7 @@
 
 #include <linux/in6.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 /*
  * Filtering module handler.

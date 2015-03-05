@@ -31,7 +31,7 @@
 #include <linux/netfilter_ipv6.h>
 #include <net/tcp.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "classifier.h"
 #include "filter.h"
 #include "log.h"

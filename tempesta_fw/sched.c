@@ -22,7 +22,7 @@
 
 #include "log.h"
 #include "sched.h"
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 
 static TfwScheduler *tfw_sched = NULL;

@@ -1,6 +1,7 @@
-#	Tempesta FW
+#		Tempesta DB
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -16,9 +17,5 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -I$(src)/../../sync_socket -I$(src)/../../tempesta_db/core \
-		-DDEBUG
-
-obj-m = tfw_req_conn_limit.o
-tfw_req_conn_limit-objs = req_conn_limit.o
-
+obj-m	= tempesta_db.o
+tempesta_db-objs = file.o hash.o htrie.o if.o main.o table.o

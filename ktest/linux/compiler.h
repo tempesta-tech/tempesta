@@ -1,9 +1,7 @@
 /**
- *		Tempesta FW
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Stress/overload module for the local system.
- *
- * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,26 +17,20 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/module.h>
+#ifndef __COMPILER_H__
+#define __COMPILER_H__
 
-#include "../tempesta_fw.h"
+#include <assert.h>
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta system stress accounting");
-MODULE_VERSION("0.1.0");
-MODULE_LICENSE("GPL");
+/* asm/types.h */
+#define BITS_PER_LONG	64
 
+#define likely(e)	__builtin_expect((e), 1)
+#define unlikely(e)	__builtin_expect((e), 0)
 
-static int __init
-th_stress_sys_init(void)
-{
-	return 0;
-}
+#define BUG_ON(c)	assert(!(c))
+#define BUG()		abort()
 
-static void __exit
-th_stress_sys_exit(void)
-{
-}
+#define __percpu
 
-module_init(th_stress_sys_init);
-module_exit(th_stress_sys_exit);
+#endif /* __COMPILER_H__ */

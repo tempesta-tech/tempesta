@@ -25,7 +25,7 @@
  * -- add socket/connection options adjusting to change client QoS
  */
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "classifier.h"
 #include "log.h"
 

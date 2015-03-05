@@ -22,13 +22,16 @@ ifdef NORMALIZATION
 	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
 endif
 
-obj-m	+= sync_socket/ tempesta_db/ tempesta_fw/
+obj-m	+= sync_socket/ tempesta_db/core/ tempesta_fw/
 
-KERNEL = /lib/modules/$(shell uname -r)/source
+KERNEL = /lib/modules/$(shell uname -r)/build
+
+export KERNEL EXTRA_CFLAGS
 
 all: build
 	
 build:
+	make -C tempesta_db
 	make -C $(KERNEL) M=$(PWD) modules
 
 test: build
@@ -38,5 +41,6 @@ test: build
 
 clean:
 	make -C $(KERNEL) M=$(PWD) clean
+	make -C tempesta_db clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;

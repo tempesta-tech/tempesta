@@ -34,13 +34,14 @@
 #include <linux/net.h>
 #include <net/inet_sock.h>
 
+#include "tempesta_fw.h"
 #include "cfg.h"
 #include "connection.h"
 #include "filter.h"
 #include "http.h"
 #include "log.h"
+
 #include "sync_socket.h"
-#include "tempesta.h"
 
 #define LISTEN_SOCK_BACKLOG_LEN 1024
 #define LISTEN_SOCKS_MAX 8
