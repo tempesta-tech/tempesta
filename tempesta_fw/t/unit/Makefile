@@ -20,7 +20,7 @@
 tfw_root = $(src)/../../../
 
 EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(tfw_root)/tempesta_fw \
-		-I$(tfw_root)/tempesta_db -I$(tfw_root)/sync_socket
+		-I$(tfw_root)/tempesta_db/core -I$(tfw_root)/sync_socket
 
 obj-m += tfw_test.o
 tfw_test-objs = \

@@ -1,9 +1,8 @@
 /**
  *		Tempesta FW
  *
- * Stress/overload module for the local system.
- *
- * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,26 +18,20 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#ifndef __TEMPESTA_FW_H__
+#define __TEMPESTA_FW_H__
+
+#include <linux/in6.h>
 #include <linux/module.h>
+#include <linux/rwsem.h>
+#include <linux/tempesta.h>
+#include <net/sock.h>
 
-#include "../tempesta_fw.h"
+#include "cfg.h"
+#include "tdb.h"
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta system stress accounting");
-MODULE_VERSION("0.1.0");
-MODULE_LICENSE("GPL");
+#define TFW_AUTHOR		"Tempesta Technologies"
 
+#define DEF_MAX_PORTS		8
 
-static int __init
-th_stress_sys_init(void)
-{
-	return 0;
-}
-
-static void __exit
-th_stress_sys_exit(void)
-{
-}
-
-module_init(th_stress_sys_init);
-module_exit(th_stress_sys_exit);
+#endif /* __TEMPESTA_FW_H__ */

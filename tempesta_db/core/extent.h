@@ -1,7 +1,6 @@
 /**
- *		Tempesta FW
+ *		Tempesta DB
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -18,20 +17,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TEMPESTA_H__
-#define __TEMPESTA_H__
+#ifndef __EXTENT_H__
+#define __EXTENT_H__
 
-#include <linux/in6.h>
-#include <linux/module.h>
-#include <linux/rwsem.h>
-#include <linux/tempesta_fw.h>
-#include <net/sock.h>
+#define TDB_EXT_BITS		21
+#define TDB_EXT_SZ		(1UL << TDB_EXT_BITS)
+#define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 
-#include "cfg.h"
-#include "tdb.h"
-
-#define TFW_AUTHOR		"NatSys Lab. (http://natsys-lab.com)"
-
-#define DEF_MAX_PORTS		8
-
-#endif /* __TEMPESTA_H__ */
+#endif /* __EXTENT_H__ */

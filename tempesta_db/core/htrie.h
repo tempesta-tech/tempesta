@@ -2,7 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,16 +23,16 @@
 
 #include "tdb.h"
 
-#define TDB_EXT_BITS		21
-#define TDB_EXT_SZ		(1 << TDB_EXT_BITS)
-#define TDB_EXT_MASK		(~(TDB_EXT_SZ - 1))
 #define TDB_BLK_BMP_2L		(TDB_EXT_SZ / PAGE_SIZE / BITS_PER_LONG)
 /* Get current extent by an offset in it. */
 #define TDB_EXT_O(o)		((unsigned long)(o) & TDB_EXT_MASK)
 /* Get extent id by a record offset. */
-#define TDB_EXT_ID(o)		(TDB_EXT_O(o) >> TDB_EXT_BITS)
+#define TDB_EXT_ID(o)		((unsigned long)(o) >> TDB_EXT_BITS)
+/* Block absolute offset. */
+#define TDB_BLK_O(x)		((x) & TDB_BLK_MASK)
 /* Get block index in an extent. */
 #define TDB_BLK_ID(x)		(((x) & PAGE_MASK) & ~TDB_EXT_MASK)
+#define TDB_BLK_ALIGN(x)	TDB_BLK_O((x) + TDB_BLK_SZ - 1)
 
 /* True if the tree keeps variable length records. */
 #define TDB_HTRIE_VARLENRECS(h)	(!(h)->rec_len)
@@ -45,21 +45,24 @@
 #define TDB_HTRIE_BITS		4
 #define TDB_HTRIE_FANOUT	(1 << TDB_HTRIE_BITS)
 #define TDB_HTRIE_KMASK		(TDB_HTRIE_FANOUT - 1) /* key mask */
-#define TDB_HTRIE_RESOLVED(b)	((b) + TDB_HTRIE_BITS >= BITS_PER_LONG)
+#define TDB_HTRIE_RESOLVED(b)	((b) + TDB_HTRIE_BITS > BITS_PER_LONG)
 /*
  * We use 31 bits to address index and data blocks.
  * The most significant bit is used to flag data pointer/offset.
  * Index blocks are addressed by index of a L1_CACHE_BYTES-byte blocks in the file,
  * while data blocks are addressed by indexes of TDB_HTRIE_MINDREC blocks.
- * So theoretical size of the database shard which can be addressed is 256GB.
+ *
+ * So the maximum size of one database table is 128GB per processor package,
+ * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\
 				 / BITS_PER_LONG)
+#define TDB_MAX_DB_SZ		((1UL << 31) * L1_CACHE_BYTES)
 /* Get internal offset from a pointer. */
-#define TDB_HTRIE_OFF(h, p)	((char *)(p) - (char *)(h))
+#define TDB_HTRIE_OFF(h, p)	((unsigned long)(p) - (unsigned long)(h))
 /* Base offset of extent containing pointer @p. */
 #define TDB_EXT_BASE(h, p)	TDB_EXT_O(TDB_HTRIE_OFF(h, p))
 
@@ -71,6 +74,7 @@
 typedef struct {
 	unsigned int 	coll_next;
 	unsigned int	flags;
+	rwlock_t	lock;
 } __attribute__((packed)) TdbBucket;
 
 #define TDB_HTRIE_VRFREED	TDB_HTRIE_DBIT
@@ -83,8 +87,8 @@ typedef struct {
 			      TDB_HTRIE_VRLEN((TdbVRec *)r),		\
 			      (h)->rec_len)
 #define TDB_HTRIE_RECLEN(h, r)	TDB_HTRIE_RALIGN(sizeof(*(r)) + __RECLEN(h, r))
-#define TDB_HTRIE_BUCKET_1ST(b)	((void *)((b) + 1))
-#define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BUCKET_1ST(b))
+#define TDB_HTRIE_BCKT_1ST_REC(b) ((void *)((b) + 1))
+#define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BCKT_1ST_REC(b))
 /* Iterate over buckets in collision chain. */
 #define TDB_HTRIE_BUCKET_NEXT(h, b) ((b)->coll_next			\
 				     ? TDB_PTR(h, TDB_DI2O((b)->coll_next))\
@@ -96,27 +100,42 @@ typedef struct {
 	(TdbHtrieNode *)((char *)(h) + TDB_HDR_SZ(h) + sizeof(TdbExt))
 
 /**
- * Iterate over all records in collision chain.
+ * Iterate over all records in collision chain with locked buckets.
  * Buckets are inspected according to following rules:
  * - if first record is > TDB_HTRIE_MINDREC, then only it is observer;
  * - all records which fit TDB_HTRIE_MINDREC.
  *
- * @d	- database handler;
- * @b	- bucket to iterate over;
- * @r	- record pointer;
+ * @d		- database handler;
+ * @b		- bucket to iterate over;
+ * @r		- record pointer;
+ * @code	- code to execute for each record.
+ *
+ * Bucket at the head of the list must be alive.
  */
-#define TDB_HTRIE_FOREACH_REC(d, b, r)					\
-	for ( ; b; b = TDB_HTRIE_BUCKET_NEXT(d, b))			\
-		for (r = TDB_HTRIE_BUCKET_1ST(b);			\
+#define TDB_HTRIE_FOREACH_REC(d, b, r, code)				\
+do {									\
+	TdbBucket *b_tmp;						\
+	read_lock_bh(&b->lock);						\
+	do {								\
+		for (r = TDB_HTRIE_BCKT_1ST_REC(b);			\
 		     ({ long _n = (char *)r - (char *)b + sizeof(*r);	\
 		        /* Crash if small records exceed small block	\
 			 * boundary. */					\
 			BUG_ON(_n < TDB_HTRIE_MINDREC			\
-			       && r != TDB_HTRIE_BUCKET_1ST(b)		\
+			       && r != TDB_HTRIE_BCKT_1ST_REC(b)	\
 			       && _n + __RECLEN(d, r) > TDB_HTRIE_MINDREC);\
 			_n <= TDB_HTRIE_MINDREC; });			\
-		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))
+		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))\
+			code;						\
+		b_tmp = TDB_HTRIE_BUCKET_NEXT(d, b);			\
+		if (b_tmp)						\
+			read_lock_bh(&b_tmp->lock);			\
+		read_unlock_bh(&b->lock);				\
+		b = b_tmp;						\
+	} while (b);							\
+} while (0)
 
+/* FIXME we can't store zero bytes by zero key. */
 static inline int
 tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
 {
@@ -140,5 +159,6 @@ TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 size_t *len);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
+void tdb_htrie_exit(TdbHdr *dbh);
 
 #endif /* __HTRIE_H__ */

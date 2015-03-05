@@ -21,19 +21,19 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.3.1");
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
 size_t  exit_hooks_n;
 
-#define DO_INIT(mod)					\
+#define DO_INIT(mod)						\
 do {								\
 	extern int tfw_##mod##_init(void);			\
 	extern void tfw_##mod##_exit(void);			\

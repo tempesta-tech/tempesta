@@ -1,5 +1,5 @@
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2014 Tempesta Technologies Ltd.
+# Copyright (C) 2015 Tempesta Technologies Ltd.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,7 +21,9 @@ endif
 
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
-CFLAGS		= -O0 -msse4.2 -ggdb -Wall -Werror -DTDB_CL_SZ=$(CACHELINE)
+CFLAGS		= -O2 -msse4.2 -ggdb -Wall -Werror -fno-strict-aliasing \
+		  -lpthread -DL1_CACHE_BYTES=$(CACHELINE) \
+		  -I../../ktest
 TARGETS		= tdb_htrie
 
 all : $(TARGETS)

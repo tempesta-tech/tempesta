@@ -1,7 +1,7 @@
 #		Tempesta DB
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2014 Tempesta Technologies Ltd.
+# Copyright (C) 2015 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,5 +17,17 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-obj-m	= tempesta_db.o
-tempesta_db-objs = file.o htrie.o main.o
+all: libtdb tdbq
+
+.PHONY: libtdb
+libtdb:
+	make -C libtdb
+
+.PHONY: tdbq
+tdbq:
+	make -C tdbq
+
+.PHONY: clean
+clean:
+	make -C libtdb clean
+	make -C tdbq clean

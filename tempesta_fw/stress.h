@@ -22,7 +22,7 @@
 
 #include <linux/list.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 typedef enum {
 	TfwStress_Sys	= 1,

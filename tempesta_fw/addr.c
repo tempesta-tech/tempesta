@@ -28,7 +28,7 @@
 #include "addr.h"
 #include "lib.h"
 #include "log.h"
-#include "tempesta.h"
+#include "tempesta_fw.h"
 
 static void
 validate_addr(const TfwAddr *addr)
