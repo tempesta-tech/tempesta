@@ -1,9 +1,7 @@
 /**
- *		Tempesta FW
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Stress/overload module for the local system.
- *
- * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,26 +17,23 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/module.h>
+#ifndef __SPINLOCK_H__
+#define __SPINLOCK_H__
 
-#include "../tempesta_fw.h"
+#include <pthread.h>
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta system stress accounting");
-MODULE_VERSION("0.1.0");
-MODULE_LICENSE("GPL");
+#include "kernel.h"
 
+/*
+ * Pthread doesn't have RW spin-locks,
+ * so just use semaphores to test concurrency.
+ */
+typedef pthread_rwlock_t rwlock_t;
 
-static int __init
-th_stress_sys_init(void)
-{
-	return 0;
-}
+#define rwlock_init(lock)		pthread_rwlock_init(lock, NULL)
+#define write_lock_bh(lock)		pthread_rwlock_wrlock(lock)
+#define write_unlock_bh(lock)		pthread_rwlock_unlock(lock)
+#define read_lock_bh(lock)		pthread_rwlock_rdlock(lock)
+#define read_unlock_bh(lock)		pthread_rwlock_unlock(lock)
 
-static void __exit
-th_stress_sys_exit(void)
-{
-}
-
-module_init(th_stress_sys_init);
-module_exit(th_stress_sys_exit);
+#endif /* __SPINLOCK_H__ */

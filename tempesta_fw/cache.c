@@ -38,7 +38,7 @@
 
 #include "tdb.h"
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "cache.h"
 #include "http_msg.h"
 #include "lib.h"
@@ -400,7 +400,7 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TfwCacheEntry *ce;
 	TfwHttpResp *resp = NULL;
 
-	ce = tdb_lookup(db, key);
+	ce = tdb_rec_get(db, key);
 	if (!ce)
 		goto finish_req_processing;
 
@@ -420,8 +420,16 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	resp = ce->resp;
 
 finish_req_processing:
+
+	/*
+	 * TODO perform the call on original CPU to avoid inter-node
+	 * memory transfers.
+	 */
 	action(req, resp, data);
+
 	tfw_http_msg_free((TfwHttpMsg *)req);
+
+	tdb_rec_put(ce);
 }
 
 static void
@@ -501,7 +509,8 @@ tfw_cache_start(void)
 	if (!cache_cfg.cache)
 		return 0;
 
-	db = tdb_open(cache_cfg.db_path, cache_cfg.db_size, 0);
+	/* TODO open db for each node. */
+	db = tdb_open(cache_cfg.db_path, cache_cfg.db_size, 0, numa_node_id());
 	if (!db)
 		return 1;
 

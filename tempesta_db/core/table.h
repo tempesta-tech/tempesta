@@ -1,9 +1,7 @@
 /**
- *		Tempesta FW
+ *		Tempesta DB
  *
- * Stress/overload module for the local system.
- *
- * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,26 +17,15 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/module.h>
+#ifndef __TABLE_H__
+#define __TABLE_H__
 
-#include "../tempesta_fw.h"
+#include "tdb.h"
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta system stress accounting");
-MODULE_VERSION("0.1.0");
-MODULE_LICENSE("GPL");
+void tdb_tbl_enumerate(TDB *db);
+void tdb_tbl_forget(TDB *db);
+int tdb_tbl_print_all(char *buf, size_t len);
+void tdb_tbl_foreach(void (*func)(TDB *db));
+TDB *tdb_tbl_lookup(char *table, size_t len);
 
-
-static int __init
-th_stress_sys_init(void)
-{
-	return 0;
-}
-
-static void __exit
-th_stress_sys_exit(void)
-{
-}
-
-module_init(th_stress_sys_init);
-module_exit(th_stress_sys_exit);
+#endif /* __TABLE_H__ */

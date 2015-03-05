@@ -1,9 +1,7 @@
 /**
- *		Tempesta DB
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Delayed work definitions.
- *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,19 +17,18 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __WORK_H__
-#define __WORK_H__
+#ifndef __PERCPU_H__
+#define __PERCPU_H__
 
-#include <linux/workqueue.h>
+#include <stdlib.h>
 
-#include "tdb.h"
+/* 32 should be enough for testing. */
+#define NR_CPUS				32
 
-/* Work to open new database file. */
-typedef struct tdb_work_t {
-	struct work_struct	work;
-	TDB			*db;
-	unsigned long		fsize;
-	unsigned int		rsize;
-} TdbWork;
+#define alloc_percpu(s)			calloc(NR_CPUS, sizeof(s))
+#define free_percpu(p)			free(p)
+#define for_each_possible_cpu(c)	for (c = 0; c < NR_CPUS; ++c)
+#define per_cpu_ptr(a, c)		&(a)[c]
+#define this_cpu_ptr(a)			(&(a)[__thr_id])
 
-#endif /* __WORK_H__ */
+#endif /* __PERCPU_H__ */

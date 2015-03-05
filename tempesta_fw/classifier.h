@@ -24,7 +24,7 @@
 #include <net/sock.h>
 #include <net/tcp.h>
 
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "connection.h"
 
 /*

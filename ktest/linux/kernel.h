@@ -1,8 +1,7 @@
 /**
- *		Tempesta DB
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,12 +17,21 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __FILE_H__
-#define __FILE_H__
+#ifndef __KERNEL_H__
+#define __KERNEL_H__
 
-#include "tdb.h"
+#include <stdio.h>
 
-int tdb_file_open(TDB *db, unsigned long size);
-void tdb_file_close(TDB *db);
+#ifndef NDEBUG
+#define DEBUG 1
+#endif
 
-#endif /* __FILE_H__ */
+#ifndef ENOMEM
+#define ENOMEM		1
+#endif
+
+#define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
+#define pr_warn(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
+#define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
+
+#endif /* __KERNEL_H__ */

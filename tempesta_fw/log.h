@@ -23,7 +23,7 @@
 
 #include <linux/kernel.h>
 
-#define TFW_BANNER		"[tempesta] "
+#define TFW_BANNER	"[tempesta] "
 
 /*
  * We have different verbosity levels for debug messages.
@@ -92,7 +92,6 @@ do { \
 	action_expr; \
 } while (0)
 
-
 /* Log a debug message and append an IP address to it.*/
 #define TFW_DBG_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_DBG("%s: %s\n", msg, addr_str))
@@ -108,6 +107,5 @@ do { \
 /* Log an error message and appen an IP address to it. */
 #define TFW_ERR_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_ERR("%s: %s\n", msg, addr_str))
-
 
 #endif /* __TFW_LOG_H__ */

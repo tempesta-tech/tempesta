@@ -20,7 +20,7 @@
 * this program; if not, write to the Free Software Foundation, Inc., 59
 * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
-#include "tempesta.h"
+#include "tempesta_fw.h"
 #include "classifier.h"
 #include "stress.h"
 

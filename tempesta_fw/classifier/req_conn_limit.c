@@ -33,7 +33,7 @@
 #include <linux/spinlock.h>
 #include <net/ipv6.h>
 
-#include "../tempesta.h"
+#include "../tempesta_fw.h"
 #include "../classifier.h"
 #include "../connection.h"
 #include "../gfsm.h"
