@@ -28,7 +28,7 @@ Please see the below some usage examples.
 To start to use TDB load the module and add **libtdb** to LD\_LIBRARY\_PATH
 
         $ insmod tempesta_db.ko
-	$ export LD_LIBRARY_PATH=`pwd`/libtdb/
+        $ export LD_LIBRARY_PATH=`pwd`/libtdb/
 
 #### Open a Table
 
@@ -36,8 +36,8 @@ TDB mainatins tables as binarys files, so to create a table you must specify the
 path to its file and its name:
 
         $ tdbq -a open -p /tmp -t test
-	table test opened
-	OPEN: records=0 status=OK zero-copy
+        table test opened
+        OPEN: records=0 status=OK zero-copy
 
 Command line key `-a` specifies required action, open in this case. The command
 above creates `/tmp/test.tdb` with default size of 2MB. TDB uses extents,
@@ -51,11 +51,11 @@ method - zero-copy or copying.
 #### Insert a New Record
 
         $ tdbq -t test -a insert -k 'KEY' -v 'THE_DATA'
-	INSERT: records=1 status=OK zero-copy
+        INSERT: records=1 status=OK zero-copy
 
 #### Select a Record
 
         $ tdbq -t test -a select -k 'KEY'
-	'KEY' -> 'THE_DATA'
-	SELECT: records=1 status=OK zero-copy
+        'KEY' -> 'THE_DATA'
+        SELECT: records=1 status=OK zero-copy
 
