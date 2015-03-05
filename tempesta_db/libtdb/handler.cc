@@ -59,6 +59,7 @@ TdbHndl::LastOpStatus::update(const TdbMsg *m) noexcept
 		break;
 	case TDB_MSG_INSERT:
 		op = "INSERT";
+		break;
 	case TDB_MSG_SELECT:
 		op = "SELECT";
 		break;
@@ -203,8 +204,6 @@ TdbHndl::alloc_trx_frame() noexcept
 
 	trx_.tdb_hdr = (TdbMsg *)NLMSG_DATA(trx_.msg_hdr);
 	memset(trx_.tdb_hdr, 0, sizeof(TdbMsg));
-
-	trx_.off = sizeof(nlmsghdr) + sizeof(TdbMsg);
 }
 
 void
@@ -222,7 +221,8 @@ TdbHndl::trx_begin()
 void
 TdbHndl::trx_commit()
 {
-	trx_.msg_hdr->nlmsg_len = trx_.off;
+	trx_.msg_hdr->nlmsg_len = sizeof(*trx_.msg_hdr) + sizeof(*trx_.tdb_hdr)
+				  + trx_.off;
 	trx_.fr_hdr->nm_len = trx_.msg_hdr->nlmsg_len;
 	trx_.fr_hdr->nm_status = NL_MMAP_STATUS_VALID;
 
@@ -262,14 +262,15 @@ TdbHndl::get_info(std::function<void (char *)> data_cb)
 		m->t_name[0] = '*'; // show all tables
 	});
 
-	msg_recv([&data_cb](nlmsghdr *nlh) -> bool {
+	msg_recv([this, &data_cb](nlmsghdr *nlh) -> bool {
 		// Consistency checking.
 		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
 				     + sizeof(TdbMsgRec))
 			throw TdbExcept("bad info msg len %u", nlh->nlmsg_len);
 
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
-		if (m->type != TDB_MSG_INFO || m->rec_n != 1)
+		if (m->type != (TDB_MSG_INFO | TDB_NLF_RESP_OK)
+		    || m->rec_n != 1)
 			throw TdbExcept("malformed info msg type=%u rec_n=%u",
 					m->type, m->rec_n);
 		if (m->recs[0].klen || !m->recs[0].dlen)
@@ -278,6 +279,8 @@ TdbHndl::get_info(std::function<void (char *)> data_cb)
 					m->recs[0].klen, m->recs[0].dlen);
 
 		data_cb(m->recs[0].data);
+
+		last_status_.update(m);
 
 		return false; // info is single-frame message
 	});
@@ -301,21 +304,23 @@ TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
 		m->type = TDB_MSG_OPEN;
 		m->rec_n = 1;
-		db_path.copy(m->t_name, TDB_TBLNAME_LEN);
+		tbl_name.copy(m->t_name, TDB_TBLNAME_LEN);
+		m->t_name[tbl_name.length()] = 0;
 
 		std::string p = db_path + "/" + tbl_name + TDB_SUFFIX;
 
 		TdbCrTblRec *ct = (TdbCrTblRec *)(m->recs + 1);
 		ct->tbl_size = tbl_size;
 		ct->rec_size = rec_size;
-		ct->path_len = p.length();
-		p.copy(ct->path, ct->path_len);
+		ct->path_len = p.length() + 1;
+		p.copy(ct->path, p.length());
+		ct->path[p.length()] = 0;
 
 		m->recs[0].klen = 0;
 		m->recs[0].dlen = sizeof(*ct) + ct->path_len;
 
-		nlh->nlmsg_len = sizeof(*nlh) + sizeof(*m) + sizeof(TdbMsgRec)
-				 + m->recs[0].dlen;
+		nlh->nlmsg_len = sizeof(*nlh) + sizeof(*m)
+				 + TDB_MSGREC_LEN(&m->recs[0]);
 		nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
 		nlh->nlmsg_flags |= NLM_F_REQUEST;
 	});
@@ -323,11 +328,13 @@ TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 	// Just check for status message.
 	msg_recv([=](nlmsghdr *nlh) -> bool {
 		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
-			throw TdbExcept("bad create table status msg");
+			throw TdbExcept("bad open table status msg");
 
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
 		if (m->type != (TDB_MSG_OPEN | TDB_NLF_RESP_OK))
-			throw TdbExcept("cannot create table, see dmesg");
+			throw TdbExcept("cannot open table, see dmesg");
+
+		last_status_.update(m);
 
 		return false;
 	});
@@ -351,6 +358,7 @@ TdbHndl::close_table(std::string &tbl_name)
 		memset(m, 0, sizeof(*m));
 		m->type = TDB_MSG_CLOSE;
 		tbl_name.copy(m->t_name, TDB_TBLNAME_LEN);
+		m->t_name[tbl_name.length()] = 0;
 	});
 
 	// Just check for status message.
@@ -361,6 +369,8 @@ TdbHndl::close_table(std::string &tbl_name)
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
 		if (m->type != (TDB_MSG_CLOSE | TDB_NLF_RESP_OK))
 			throw TdbExcept("cannot close table, see dmesg");
+
+		last_status_.update(m);
 
 		return false;
 	});
@@ -387,20 +397,14 @@ TdbHndl::insert(std::string &tbl_name, size_t klen, size_t vlen,
 	if (klen + vlen + HDRS_LEN > NL_FR_SZ)
 		throw TdbExcept("too large data for one insertion");
 
-	// Verify and set command set type and table if needed.
-	if (trx_.tdb_hdr->type != TDB_MSG_INSERT
-	    || tbl_name.compare(0, TDB_TBLNAME_LEN, trx_.tdb_hdr->t_name))
-	{
-		// Alloc new frame for different trx type.
-		advance_frame_offset(tx_fr_off_);
-		alloc_trx_frame();
-	}
 	if (!trx_.tdb_hdr->type || !trx_.tdb_hdr->t_name[0]) {
+		// New transaction.
 		trx_.tdb_hdr->type = TDB_MSG_INSERT;
 		tbl_name.copy(trx_.tdb_hdr->t_name, TDB_TBLNAME_LEN);
+		trx_.tdb_hdr->t_name[tbl_name.length()] = 0;
 	}
 
-	TdbMsgRec *r = (TdbMsgRec *)((char *)trx_.msg_hdr + trx_.off);
+	TdbMsgRec *r = (TdbMsgRec *)((char *)trx_.tdb_hdr->recs + trx_.off);
 	r->klen = klen;
 	r->dlen = vlen;
 
@@ -428,6 +432,7 @@ TdbHndl::query(std::string &tbl_name, std::string &key,
 		m->type = TDB_MSG_SELECT;
 		m->rec_n = 1;
 		tbl_name.copy(m->t_name, tbl_name.length());
+		m->t_name[tbl_name.length()] = 0;
 
 		m->recs[0].klen = key.length();
 		m->recs[0].dlen = 0;
@@ -440,16 +445,18 @@ TdbHndl::query(std::string &tbl_name, std::string &key,
 	});
 
 	// Read results.
-	msg_recv([&process_cb](nlmsghdr *nlh) -> bool {
+	msg_recv([this, &process_cb](nlmsghdr *nlh) -> bool {
 		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg))
 			throw TdbExcept("bad info msg len %u", nlh->nlmsg_len);
 
 		TdbMsg *m = (TdbMsg *)NLMSG_DATA(nlh);
-		if (m->type != TDB_MSG_SELECT
+		if ((m->type & TDB_MSG_SELECT) != TDB_MSG_SELECT
 		    || nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
 					+ m->rec_n * sizeof(TdbMsgRec))
 			throw TdbExcept("malformed query results type=%u rec_n=%u",
 					m->type, m->rec_n);
+		if (!(m->type & TDB_NLF_RESP_OK))
+			throw TdbExcept("cannot execute query, see dmesg");
 
 		for (unsigned int i = 0, off = 0; i < m->rec_n; ++i) {
 			TdbMsgRec *r = (TdbMsgRec *)((char *)m->recs + off);
@@ -457,6 +464,9 @@ TdbHndl::query(std::string &tbl_name, std::string &key,
 				   TDB_MSGREC_DATA(r), r->dlen);
 			off += TDB_MSGREC_LEN(r);
 		}
+
+		if (m->type & TDB_NLF_RESP_END)
+			last_status_.update(m);
 
 		return !(m->type & TDB_NLF_RESP_END);
 	});

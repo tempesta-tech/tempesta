@@ -48,8 +48,8 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 
 	/* Fill in response. */
 	memcpy(m, cb->data, sizeof(*m));
+	m->type |= TDB_NLF_RESP_OK;
 	m->rec_n = 1;
-	m->type |= TDB_NLF_RESP_END;
 	m->recs[0].klen = 0;
 	m->recs[0].dlen = tdb_info(m->recs[0].data, TDB_NLMSG_MAXSZ);
 	if (m->recs[0].dlen <= 0) {
@@ -77,13 +77,13 @@ tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 	resp_m->rec_n = 0;
 
 	if (m->type == TDB_MSG_OPEN) {
-		resp_m->type = TDB_MSG_OPEN | TDB_NLF_RESP_END;
+		resp_m->type = TDB_MSG_OPEN;
 		if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
 			resp_m->type |= TDB_NLF_RESP_OK;
 	} else {
 		TDB *db;
 
-		resp_m->type = TDB_MSG_CLOSE | TDB_NLF_RESP_END;
+		resp_m->type = TDB_MSG_CLOSE;
 
 		db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
 		if (db) {
@@ -119,6 +119,7 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 
 	resp_m = nlmsg_data(nlh);
 	resp_m->rec_n = 0;
+	resp_m->type = TDB_MSG_INSERT;
 
 	db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
 	if (!db) {
@@ -131,16 +132,15 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 		for (i = 0, off = 0; i < m->rec_n; ++i) {
 			r = (TdbMsgRec *)((char *)m->recs + off);
 			key = tdb_hash_calc(r->data, r->klen);
-			len = r->dlen;
-			vr = (TdbVRec *)tdb_entry_create(db, key,
-							 TDB_MSGREC_DATA(r),
-							 &len);
+			len = TDB_MSGREC_LEN(r);
+			vr = (TdbVRec *)tdb_entry_create(db, key, r, &len);
 			if (!vr) {
 				TDB_ERR("Cannot create variable-size record\n");
 				break;
 			}
-			for ( ; len < r->dlen; ) {
-				vr = tdb_entry_add(db, vr, r->dlen - len);
+			for ( ; len < TDB_MSGREC_LEN(r); ) {
+				vr = tdb_entry_add(db, vr,
+						   TDB_MSGREC_LEN(r) - len);
 				if (!vr) {
 					TDB_ERR("Cannot extend variable-size"
 						" record\n");
@@ -155,10 +155,8 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 		for (i = 0, off = 0; i < m->rec_n; ++i) {
 			r = (TdbMsgRec *)((char *)m->recs + off);
 			key = tdb_hash_calc(r->data, r->klen);
-			len = r->dlen;
-			fr = (TdbFRec *)tdb_entry_create(db, key,
-							 TDB_MSGREC_DATA(r),
-							 &len);
+			len = TDB_MSGREC_LEN(r);
+			fr = (TdbFRec *)tdb_entry_create(db, key, r, &len);
 			if (!fr || len != r->dlen) {
 				TDB_ERR("Cannot create fixed-size record\n");
 				break;
@@ -170,8 +168,7 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 	tdb_put(db);
 	if (i == m->rec_n)
 		resp_m->type |= TDB_NLF_RESP_OK;
-	else
-		resp_m->rec_n = i;
+	resp_m->rec_n = i;
 
 	return 0;
 }
@@ -192,6 +189,7 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 
 	resp_m = nlmsg_data(nlh);
 	resp_m->rec_n = 0;
+	resp_m->type = TDB_MSG_SELECT;
 
 	db = tdb_tbl_lookup(m->t_name, TDB_TBLNAME_LEN);
 	if (!db) {
@@ -201,7 +199,7 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 	}
 
 	/*
-	 * FIXME implement select all records:
+	 * FIXME implement select of all records:
 	 * 1. full HTrie iterator is required;
 	 * 2. use many netlink frames to send probably large data set.
 	 */
@@ -209,37 +207,32 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 	res = tdb_rec_get(db, key);
 	if (res) {
 		resp_m->rec_n = 1;
-		resp_m->recs[0].klen = sizeof(res->key);
-		memcpy(&resp_m->recs[0].data, &res->key, sizeof(res->key));
 		if (TDB_HTRIE_VARLENRECS(db->hdr)) {
 			TdbVRec *vr = (TdbVRec *)res;
-			size_t off = 0;
-			resp_m->recs[0].dlen = 0;
+			size_t off = vr->len;
+			memcpy(resp_m->recs, vr->data, vr->len);
 			while (1) {
 				size_t n = vr->len;
 				if (n + off > TDB_NLMSG_MAXSZ) {
 					n = TDB_NLMSG_MAXSZ - off;
 					resp_m->type |= TDB_NLF_RESP_TRUNC;
 				}
-				resp_m->recs[0].dlen += n;
-				memcpy(vr->data,
-				       TDB_MSGREC_DATA(&resp_m->recs[0]), n);
+				memcpy((char *)resp_m->recs + off, vr->data, n);
 				if (n < vr->len || !vr->chunk_next)
 					break;
 				vr = TDB_PTR(db->hdr, TDB_DI2O(vr->chunk_next));
+				off += n;
 			}
 		}
 		else {
-			TdbFRec *fr = (TdbFRec *)res;
-			resp_m->recs[0].dlen = db->hdr->rec_len;
-			memcpy(fr->data, TDB_MSGREC_DATA(&resp_m->recs[0]),
-			       resp_m->recs[0].dlen);
+			memcpy(resp_m->recs, res->data, db->hdr->rec_len);
 		}
 		tdb_rec_put(res);
 	}
 
 	tdb_put(db);
-	resp_m->type |= TDB_NLF_RESP_OK;
+	/* Only one record is fetched for now. */
+	resp_m->type |= TDB_NLF_RESP_OK | TDB_NLF_RESP_END;
 
 	return 0;
 }
@@ -255,11 +248,11 @@ static const struct {
 };
 
 static int
-tdb_if_check_tblname(TdbMsg *m)
+tdb_if_check_tblname(const TdbMsg *m)
 {
 	int i, ret;
 
-	for (i = 0; i < TDB_TBLNAME_LEN; ++i)
+	for (i = 0; m->t_name[i] && i <= TDB_TBLNAME_LEN; ++i)
 		if (!isalnum(m->t_name[i]))
 			return false;
 	ret = !m->t_name[i];

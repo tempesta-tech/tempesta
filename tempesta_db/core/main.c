@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.11"
+#define TDB_VERSION	"0.1.12"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -139,44 +139,44 @@ tdb_info(char *buf, size_t len)
  * The path to table must end with table name (not more than TDB_TBLNAME_LEN
  * characters in long) followed by TDB_SUFFIX.
  */
-static int
-tdb_get_db(const char *path, TDB **db)
+static TDB *
+tdb_get_db(const char *path)
 {
 	int len;
 	char *slash;
+	TDB *db;
 
 	len = strlen(path);
 	if (strncmp(path + len - sizeof(TDB_SUFFIX) + 1,
 		    TDB_SUFFIX, sizeof(TDB_SUFFIX) - 1))
 	{
 		TDB_ERR("Bad table suffix for %s\n", path);
-		return -EINVAL;
+		return NULL;
 	}
 	slash = strrchr(path, '/');
 	if (!slash) {
 		TDB_ERR("Please specify absolute path to %s\n", path);
-		return -EINVAL;
+		return NULL;
 	}
 	len = len - (slash - path) - sizeof(TDB_SUFFIX);
 	if (len > TDB_TBLNAME_LEN) {
 		TDB_ERR("Too long table name %s\n", path);
-		return -ENAMETOOLONG;
+		return NULL;
 	}
 
-	*db = tdb_tbl_lookup(slash + 1, len);
-	if (*db)
-		return 0;
+	db = tdb_tbl_lookup(slash + 1, len);
+	if (db)
+		return db;
 
-	*db = kzalloc(sizeof(TDB), GFP_KERNEL);
-	if (!*db) {
+	db = kzalloc(sizeof(TDB), GFP_KERNEL);
+	if (!db) {
 		TDB_ERR("Cannot allocate new db handler\n");
-		return -ENOMEM;
+		return NULL;
 	}
-	strncpy((*db)->path, path, TDB_PATH_LEN - 1);
-	strncpy((*db)->tbl_name, slash + 1, len);
-	tdb_get(*db);
+	strncpy(db->path, path, TDB_PATH_LEN - 1);
+	strncpy(db->tbl_name, slash + 1, len);
 
-	return 0;
+	return tdb_get(db);
 }
 
 /**
@@ -188,10 +188,9 @@ tdb_get_db(const char *path, TDB **db)
 TDB *
 tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 {
-	TDB *db;
-
-	if (tdb_get_db(path, &db) < 0)
-		return db;
+	TDB *db = tdb_get_db(path);
+	if (!db)
+		return NULL;
 
 	db->node = node;
 
@@ -228,7 +227,7 @@ __do_close_table(TDB *db)
 
 	tdb_htrie_exit(db->hdr);
 
-	TDB_LOG("Closed table %s\n", db->tbl_name);
+	TDB_LOG("Close table %s\n", db->tbl_name);
 
 	kfree(db);
 }
