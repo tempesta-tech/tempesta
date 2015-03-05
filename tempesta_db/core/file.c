@@ -299,16 +299,13 @@ tdb_file_open(TDB *db, unsigned long size)
 void
 tdb_file_close(TDB *db)
 {
-	if (!db->hdr || db->hdr->dbsz)
+	if (!db->hdr || !db->hdr->dbsz)
 		return;
 
 	tempesta_unmap_file(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
 			    db->node);
 
 	filp_close(db->filp, NULL);
-
-	db->filp = NULL;
-	db->hdr = NULL;
 }
 
 int
