@@ -56,6 +56,13 @@ struct Cfg {
 		table = std::move(vm["table"].as<std::string>());
 		tbl_sz = vm["tbl_size"].as<size_t>();
 		rec_sz = vm["rec_size"].as<size_t>();
+		if (rec_sz && rec_sz < sizeof(TdbMsgRec) + 2) {
+			// Fixed-size record must include TdbMsgRec header
+			// plust at least one byte for key and data.
+			throw TdbExcept("Fixed-size records must be at least"
+					" %u bytes in size",
+					sizeof(TdbMsgRec) + 2);
+		}
 		mm_sz = vm["mmap"].as<size_t>();
 
 		std::string a = std::move(vm["action"].as<std::string>());
@@ -82,8 +89,6 @@ struct Cfg {
 					" inserted item");
 		if (action == ACT_INSERT && key == "*")
 			throw TdbExcept("please specify exact key");
-		if (!val.empty() && (val.front() != '\'' || val.back() != '\''))
-			throw TdbExcept("value must be single quotes closed");
 		if (table == "*" && action != ACT_INFO)
 			throw TdbExcept("please specify a table");
 		if (action == ACT_OPEN && db_path.empty())
@@ -116,19 +121,17 @@ main(int argc, char *argv[])
 		 "  close   - close a table;\n"
 		 "  insert  - insert a record to a table;\n"
 		 "  select  - select from a table")
-		("key,k", po::value<std::string>(),
-		 "The record key (ASCII string closed in single quotes or"
-		 " * to match all records)")
+		("key,k", po::value<std::string>(), "The record key")
 		("path,p", po::value<std::string>(), "Path to database files")
 		("rec_size,r", po::value<size_t>()->default_value(0),
 		 "Table record size. Specify this for fixed-size records"
+		 " (including key and data lengths plus 8 bytes)"
 		 " and leave zero for variable-size records like strings")
 		("table,t", po::value<std::string>()->default_value("*"),
 		 "The table to operate on or '*' for all tables")
 		("tbl_size,s", po::value<size_t>()->default_value(512),
 		 "Table size in pages")
-		("value,v", po::value<std::string>(),
-		 "The record value (ASCII string closed in single quotes)");
+		("value,v", po::value<std::string>(), "The record value");
 	try {
 		// Parse config options
 		po::variables_map vm;
@@ -160,7 +163,7 @@ main(int argc, char *argv[])
 		case ACT_OPEN:
 			th.open_table(cfg.db_path, cfg.table, cfg.tbl_sz,
 				      cfg.rec_sz);
-			std::cout << "table " << cfg.table << " created"
+			std::cout << "table " << cfg.table << " opened"
 				  << std::endl;
 			break;
 		case ACT_CLOSE:
