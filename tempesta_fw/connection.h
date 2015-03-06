@@ -100,7 +100,6 @@ tfw_sess_conn(TfwSession *sess, int type)
 	}
 
 	BUG();
-	return NULL;
 }
 
 static inline TfwConnection *
