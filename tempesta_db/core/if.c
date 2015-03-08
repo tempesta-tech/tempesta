@@ -348,8 +348,11 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 static void
 tdb_if_rcv(struct sk_buff *skb)
 {
+	/* TODO remove the mutex for concurrent user-space updates. */
 	mutex_lock(&tdb_if_mtx);
+
 	netlink_rcv_skb(skb, &tdb_if_proc_msg);
+
 	mutex_unlock(&tdb_if_mtx);
 }
 
