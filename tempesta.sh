@@ -15,7 +15,7 @@ popd > /dev/null
 
 arg=${1:-}
 ss_path=${SS_PATH:="$root/sync_socket"}
-tdb_path=${TDB_PATH:="$root/tempesta_db"}
+tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
 tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
 sched=${SCHED:="dummy"}
