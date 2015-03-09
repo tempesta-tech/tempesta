@@ -3,59 +3,8 @@
  *
  * HTTP Parser.
  *
- * Table-based FSM is greedy for memory (the state table can require number
- * of pages) and randomly accesses cells of the table, so it is hard to make
- * table-based FSM work quickly due to poor L1d cache hit.
- * However, if FSM has many branches at the many states (i.e. many input
- * characters at the many states generate many branches) then table-based
- * approach can get solid performance. But HTTP's one isn't kind of such FSMs.
- * Also during FSM processing we need to do some custom actions, so we need
- * switch statement anyhow.
- *
- * The most popular approach (widely used in HTTP servers) is switch-driven
- * automaton. If logging is switched off and an HTTP server (tested on Nginx) is
- * loaded only by requests to the same content, then all content is cached and
- * HTTP parser becomes the most hot spot. The problem is that HTTP parsing code
- * is comparable in size with L1i cache and processes one character at a time
- * with significant number of branches. Modern compilers optimize large switch
- * statements to lookup tables that minimizes number of conditional jumps, but
- * branch misprediction and instruction cache misses still hurt performance of
- * the state machine. So the approach is also could be considered as inefficient.
- *
- * The first obvious alternative for the state machine is to use Hybrid State
- * Machine (HSM), which combines very small table with also small switch
- * statement. In our case we tried to encode outgoing transitions from a state
- * with at most 4 ranges. If the state has more outgoing transitions, then all
- * transitions over that 4 must be encoded in switch. All actions (like storing
- * HTTP header names and values) must be performed in switch. Using this
- * technique we can encode each state with only 16 bytes, i.e. one cache line
- * can contain 4 states. Giving this the approach should have significantly
- * improve data cache hit.
- *
- * We also know that Ragel generates perfect automatons and combines case labels
- * in switch statement with direct goto labels (it seems switch is used to be
- * able to enter FSM from any state, i.e. to be able to process chunked data).
- * Such automatons has lower number of loop cycle and bit faster than
- * traditional a-loop-cycle-for-each-transition approach. There was successful
- * attempt to generate simple HTTP parsers using Ragel, but the parsers are
- * limited in functionality.
- *
- * However there are also several research papers which says that an automaton
- * states is just auxiliary information and an automaton can be significantly
- * accelerated if state information is declined.
- *
- * So the second interesting opportunity to generate the fastest HTTP parser is
- * just to encode the automaton directly using simple goto statements, ever w/o
- * any explicit loop.
- *
- * Basically HTTP parsers just matches a string against set of characters
- * (e.g. [A-Za-z_-] for header names), what strspn(3) does. SSE 4.2 provides
- * PCMPSTR instructions family for this purpose (GLIBC since 2.16 uses
- * SSE 4.2 impemenetation for strspn()). However, this is vector instruction
- * which doesn't support accepr ot reject sets more than 16 characters, so it's
- * not too usable for HTTP parsers.
- *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -365,8 +314,11 @@ err:
 #undef PROCESS_ACC
 }
 
+/**
+ * Parse an integer followed by whit space.
+ */
 static inline int
-__parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+parse_int_ws(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
 {
 	/*
 	 * Standard white-space characters are:
@@ -381,6 +333,28 @@ __parse_int(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
 		0x0000000100003e00UL, 0, 0, 0
 	};
 	return __parse_int_a(chunk, data, len, whitespace_a, acc);
+}
+
+/**
+ * Parse an integer as part of HTTP list.
+ */
+static inline int
+parse_int_list(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+{
+	/*
+	 * Standard white-space plus coma characters are:
+	 * '\t' (0x09) horizontal tab (TAB)
+	 * '\n' (0x0a) newline (LF)
+	 * '\v' (0x0b) vertical tab (VT)
+	 * '\f' (0x0c) feed (FF)
+	 * '\r' (0x0d) carriage return (CR)
+	 * ' '  (0x20) space (SPC)
+	 * ','  (0x2c) coma
+	 */
+	static const unsigned long ws_coma_a[] ____cacheline_aligned = {
+		0x0000100100003e00UL, 0, 0, 0
+	};
+	return __parse_int_a(chunk, data, len, ws_coma_a, acc);
 }
 
 /**
@@ -750,7 +724,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(I_ContLen) {
 		unsigned int acc = 0;
-		int n = __parse_int(chunk, p, len, &acc);
+		int n = parse_int_ws(chunk, p, len, &acc);
 		if (n < 0)
 			return n;
 		msg->content_length = acc;
@@ -1158,7 +1132,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &acc);
+		int n = parse_int_list(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		req->cache_ctl.max_age = acc;
@@ -1168,7 +1142,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(Req_I_CC_MinFreshV) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &acc);
+		int n = parse_int_list(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		req->cache_ctl.max_fresh = acc;
@@ -1915,7 +1889,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &acc);
+		int n = parse_int_list(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->cache_ctl.max_age = acc;
@@ -1925,7 +1899,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &acc);
+		int n = parse_int_list(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->cache_ctl.s_maxage = acc;
@@ -2063,7 +2037,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
-		n = __parse_int(chunk, p, plen, &acc);
+		n = parse_int_ws(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		else if (n != 2 || acc < 1)
@@ -2146,7 +2120,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(Resp_I_ExpYear) {
 		unsigned int year = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &year);
+		int n = parse_int_ws(chunk, p, plen, &year);
 		if (n < 0)
 			return n;
 		else if (n != 4)
@@ -2188,7 +2162,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	__FSM_STATE(Resp_I_ExpSec) {
 		unsigned int t = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &t);
+		int n = parse_int_ws(chunk, p, plen, &t);
 		if (n < 0)
 			return n;
 		else if (n != 2)
@@ -2233,17 +2207,50 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_KeepAlive) {
-		TRY_STR("timeout=", Resp_I_KeepAliveTO);
+		switch (tolower(c)) {
+		case 't':
+			TRY_STR("timeout=", Resp_I_KeepAliveTO);
+		default:
+			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		}
 	}
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(chunk, p, plen, &acc);
+		int n = parse_int_list(chunk, p, plen, &acc);
 		if (n < 0)
 			return n;
 		resp->keep_alive = acc;
-		__FSM_I_MOVE_n(Resp_I_EoL, n);
+		__FSM_I_MOVE_n(Resp_I_EoT, n);
+	}
+
+	/*
+	 * Just ignore Keep-Alive extensions. Known extensions:
+	 *	max=N
+	 */
+	__FSM_STATE(Resp_I_Ext) {
+		size_t plen = len - (size_t)(p - data);
+		unsigned char *lf = memchr(p, '\n', plen);
+		unsigned char *comma = memchr(p, ',', plen);
+		if (comma && (!lf || (lf && (comma < lf))))
+			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
+		if (lf)
+			__FSM_I_MOVE_n(Resp_I_EoL, lf - p);
+		return CSTR_POSTPONE;
+	}
+
+	/* End of term. */
+	__FSM_STATE(Resp_I_EoT) {
+		if (c == ' ' || c == ',')
+			__FSM_I_MOVE(Resp_I_EoT);
+		if (c == '=')
+			__FSM_I_MOVE(Resp_I_Ext);
+		if (IN_ALPHABET(c, hdr_a))
+			__FSM_I_MOVE(Resp_I_KeepAlive);
+		if (!isspace(c))
+			return CSTR_NEQ;
+		/* fall through */
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
@@ -2410,7 +2417,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_StatusCode) {
 		unsigned int acc = 0;
 		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int(&parser->_tmp_chunk, p, plen, &acc);
+		int n = parse_int_list(&parser->_tmp_chunk, p, plen, &acc);
 		parser->_i_st = I_Conn;
 		switch (n) {
 		case CSTR_POSTPONE:
