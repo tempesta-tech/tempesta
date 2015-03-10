@@ -84,13 +84,11 @@ tfw_connection_free(TfwConnection *c)
  * A downcall for new connection called to set necessary callbacks
  * when a traditional Sockets connect() is calling.
  *
- * @destructor Is a function placed to sk->sk_destruct.
- * The original callback is saved to TfwConnection->sk_destruct and the passed
- * function must call it manually.
+ * The @destructor is called when the connection is closed.
  */
 int
 tfw_connection_new(struct sock *sk, int type, void *handler,
-		  void (*destructor)(struct sock *s))
+		   void (*destruct)(struct sock *s))
 {
 	TfwConnection *conn;
 	SsProto *proto = sk->sk_user_data;
@@ -109,11 +107,9 @@ tfw_connection_new(struct sock *sk, int type, void *handler,
 	}
 
 	sk->sk_user_data = conn;
-
-	conn->sk_destruct = sk->sk_destruct;
-	sk->sk_destruct = destructor;
-
 	sock_set_flag(sk, SOCK_DBG);
+
+	conn->destruct = destruct;
 
 	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(conn);
 
@@ -135,6 +131,7 @@ tfw_connection_close(struct sock *sk)
 		return -EPERM;
 
 	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))]->conn_destruct(c);
+	c->destruct(sk);
 
 	tfw_connection_free(c);
 
