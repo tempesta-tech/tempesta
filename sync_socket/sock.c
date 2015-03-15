@@ -107,11 +107,7 @@ static int
 ss_tcp_process_proto_skb(struct sock *sk, unsigned char *data, size_t len,
 			 struct sk_buff *skb)
 {
-	int r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
-	if (r != SS_OK)
-		return r;
-
-	r = SS_CALL(connection_recv, sk, data, len);
+	int r = SS_CALL(connection_recv, sk, data, len);
 	if (r == SS_POSTPONE) {
 		SS_CALL(postpone_skb, sk->sk_user_data, skb);
 		r = SS_OK;
@@ -135,6 +131,15 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	int i, r = SS_OK;
 	int lin_len = skb_headlen(skb);
 	struct sk_buff *frag_i;
+
+	/*
+	 * We know prciselly from the caller that the skb has data.
+	 * No matter where exactly the data is placed, but the skb relates
+	 * to current message, so put it to the message.
+	 */
+	r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
+	if (r != SS_OK)
+		return r;
 
 	/* Process linear data. */
 	if (off < lin_len) {
