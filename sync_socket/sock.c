@@ -24,7 +24,6 @@
  * TODO:
  * -- Read cache objects by 64KB and use GSO?
  */
-#include <linux/highmem.h>
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <net/inet_common.h>
@@ -153,13 +152,9 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 		unsigned int f_sz = skb_frag_size(frag);
 		if (f_sz > off) {
-			unsigned char *vaddr = kmap_atomic(skb_frag_page(frag));
-
-			r = ss_tcp_process_proto_skb(sk, vaddr + off,
+			unsigned char *f_addr = skb_frag_address(frag);
+			r = ss_tcp_process_proto_skb(sk, f_addr + off,
 						     f_sz - off, skb);
-
-			kunmap_atomic(vaddr);
-
 			if (r < 0)
 				return r;
 			*count += f_sz - off;
