@@ -76,10 +76,7 @@ struct list_head backend_socks = LIST_HEAD_INIT(backend_socks);
 static int
 tfw_backend_connect(struct socket **sock, const TfwAddr *addr)
 {
-	static struct {
-		SsProto	_placeholder;
-		int	type;
-	} dummy_proto = {
+	static SsProto dummy_proto = {
 		.type = TFW_FSM_HTTP,
 	};
 
