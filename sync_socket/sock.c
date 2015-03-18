@@ -4,6 +4,7 @@
  * Generic socket routines.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,18 +28,84 @@
 #include <linux/module.h>
 #include <net/tcp.h>
 #include <net/inet_common.h>
+#include <net/ip6_route.h>
 
 #include "log.h"
 #include "sync_socket.h"
 
-MODULE_AUTHOR("NatSys Lab. (http://natsys-lab.com)");
+MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
-MODULE_VERSION("0.4.3");
+MODULE_VERSION("0.4.4");
 MODULE_LICENSE("GPL");
 
 static SsHooks *ss_hooks __read_mostly;
 
 #define SS_CALL(f, ...)		(ss_hooks->f ? ss_hooks->f(__VA_ARGS__) : 0)
+
+/**
+ * Copied from net/netfilter/xt_TEE.c.
+ */
+static struct net *
+ss_pick_net(struct sk_buff *skb)
+{
+#ifdef CONFIG_NET_NS
+	const struct dst_entry *dst;
+
+	if (skb->dev != NULL)
+		return dev_net(skb->dev);
+	dst = skb_dst(skb);
+	if (dst != NULL && dst->dev != NULL)
+		return dev_net(dst->dev);
+#endif
+	return &init_net;
+}
+
+/**
+ * Reroute a packet to the destination for IPv4 and IPv6.
+ */
+static bool
+ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
+{
+	struct rtable *rt;
+	struct inet_sock *isk = &tp->inet_conn.icsk_inet;
+#if IS_ENABLED(CONFIG_IPV6)
+	struct ipv6_pinfo *np = inet6_sk(&isk->sk);
+
+	if (np) {
+		struct flowi6 fl6 = { .daddr = np->daddr };
+		struct dst_entry *dst;
+
+		BUG_ON(isk->sk.sk_family != AF_INET6);
+		BUG_ON(skb->protocol != htons(ETH_P_IPV6));
+
+		dst = ip6_route_output(ss_pick_net(skb), NULL, &fl6);
+		if (dst->error) {
+			dst_release(dst);
+			return false;
+		}
+
+		skb_dst_drop(skb);
+		skb_dst_set(skb, dst);
+		skb->dev = dst->dev;
+	} else
+#endif
+	{
+		struct flowi4 fl4 = { .daddr = isk->inet_daddr };
+
+		BUG_ON(isk->sk.sk_family != AF_INET);
+		BUG_ON(skb->protocol != htons(ETH_P_IP));
+
+		rt = ip_route_output_key(ss_pick_net(skb), &fl4);
+		if (IS_ERR(rt))
+			return false;
+
+		skb_dst_drop(skb);
+		skb_dst_set(skb, &rt->dst);
+		skb->dev = rt->dst.dev;
+	}
+
+	return true;
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -91,6 +158,14 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 
 		tcb->end_seq += skb->len;
 		tp->write_seq += skb->len;
+
+		if (!ss_skb_route(skb, tp)) {
+			/*
+			 * FIXME how to handle the error?
+			 * Just free the skb?
+			 */
+			SS_WARN("cannot route skb\n");
+		}
 	}
 
 	SS_DBG("%s:%d sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
