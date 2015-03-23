@@ -81,8 +81,7 @@ enum {
 	TFW_FSM_HTTPS,
 
 	/* Request connection limiting classifier */
-	TFW_FSM_FRANG_REQ,
-	TFW_FSM_FRANG_CHUNK,
+	TFW_FSM_FRANG,
 
 	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
 };

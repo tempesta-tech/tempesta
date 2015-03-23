@@ -439,6 +439,10 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	r = frang_account_do(c->sess->cli->sock, frang_req_limit);
 	if (r)
 		return r;
+
+	r = frang_http_methods_check(req);
+	if (r)
+		return r;
 	r = frang_http_len_limit(req);
 	if (r)
 		return r;
@@ -446,23 +450,6 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	if (r)
 		return r;
 	r = frang_http_host_check(req);
-	if (r)
-		return r;
-
-	return 0;
-}
-
-static int
-frang_http_chunk_handler(void *obj, unsigned char *data, size_t len)
-{
-	int r;
-	TfwConnection *c = (TfwConnection *)obj;
-	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
-
-	r = frang_http_methods_check(req);
-	if (r)
-		return r;
-	r = frang_http_len_limit(req);
 	if (r)
 		return r;
 
@@ -848,62 +835,31 @@ frang_init(void)
 		goto err_class;
 	}
 
-	/**
-	 * FIXME:
-	 *  Here we add two primitive hooks by registering two FSMs.
-	 *  There is a bunch of problems here:
-	 *  - We can't unregister hooks. Therefore, we can't unload this module
-	 *    and can't recover if the second tfw_gfsm_register_hook() fails.
-	 *  - We have to add every hook to the global enum of FSMs.
-	 *  - We register two FSMs, but actually don't implement anything close
-	 *    to FSM and don't need the FSM switching logic.
-	 *
-	 * The suggested solution is to extend the GFSM with the support of
-	 * "lightweight hooks" that behave like plain functions rather than FSM.
-	 * That should solve all these problems listed above:
-	 *  - Such hook may be unregistered any time it is not executed.
-	 *  - The hook doesn't need an ID, so no need to maintain a global list
-	 *    of all known hooks in the GFSM code.
-	 *  - No need to create a dummy FSM just to call the hook.
-	 *    This is easy to comprehend, and perhaps faster since the GFSM
-	 *    doesn't need to switch FSMs.
-	 */
-	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
+	/* FIXME: this is not a FSM here, but rather a set of static checks
+	 * that are executed when a HTTP request is fully parsed.
+	 * These checks should be executed during the parsing process in order
+	 * to drop suspicious requests as early as possible. */
+	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG, frang_http_req_handler);
 	if (r) {
 		TFW_ERR("frang: can't register fsm: req\n");
-		goto err_fsm_req;
-	}
-	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_CHUNK, frang_http_chunk_handler);
-	if (r) {
-		TFW_ERR("frang: can't register fsm: chunk\n");
-		goto err_fsm_chunk;
+		goto err_fsm;
 	}
 
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
 				   TFW_HTTP_FSM_REQ_MSG, 0,
-				   TFW_FSM_FRANG_REQ);
+				   TFW_FSM_FRANG);
 	if (r) {
 		TFW_ERR("frang: can't register gfsm hook: req\n");
-		goto err_hook_req;
-	}
-	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_CHUNK, 0,
-				   TFW_FSM_FRANG_CHUNK);
-	if (r) {
-		TFW_ERR("frang: can't register gfsm hook: chunk\n");
-		TFW_ERR("frang: can't recover\n");
-		BUG();
+		goto err_hook;
 	}
 
 	TFW_WARN("frang mudule can't be unloaded, "
 		 "so all allocated resources won't freed\n");
 
 	return 0;
-err_hook_req:
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_CHUNK);
-err_fsm_chunk:
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
-err_fsm_req:
+err_hook:
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
+err_fsm:
 	tfw_classifier_unregister();
 err_class:
 	unregister_sysctl_table(frang_ctl);
