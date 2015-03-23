@@ -36,7 +36,7 @@ typedef enum {
 	TFW_HTTP_METH_GET,
 	TFW_HTTP_METH_HEAD,
 	TFW_HTTP_METH_POST,
-	_TFW_HTTP_METH_COUNT,
+	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
 #define TFW_HTTP_CC_NO_CACHE		0x001
