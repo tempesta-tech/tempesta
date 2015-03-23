@@ -821,10 +821,6 @@ static ctl_table frang_ctl_table[] = {
 	},
 	{}
 };
-static struct ctl_path __tfw_path[] = {
-	{ .procname = "net/tempesta/req_conn_limit", },
-	{}
-};
 
 static int __init
 frang_init(void)
