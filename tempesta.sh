@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies.
+# Copyright (C) 2015 Tempesta Technologies, Inc.
 
 root=$(dirname "$0")
 

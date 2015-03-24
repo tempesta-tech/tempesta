@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,26 +18,25 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_SERVER_H__
-#define __TFW_SERVER_H__
+#ifndef __SERVER_H__
+#define __SERVER_H__
 
-#include <net/sock.h>
 #include "addr.h"
-#include "tempesta_fw.h"
+#include "connection.h"
+#include "peer.h"
 
 #define TFW_MAX_SERVER_STR_SIZE 100
 
 typedef struct {
+	TFW_PEER_COMMON;
 	/* The server current stress (overloading) value. */
 	int		stress;
-
-	struct sock	*sock;
 } TfwServer;
 
-TfwServer *tfw_create_server(struct sock *s);
+TfwServer *tfw_create_server(struct sock *sk, TfwConnection *conn);
 void tfw_destroy_server(struct sock *s);
 
 int tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr);
 int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
 
-#endif /* __TFW_CLIENT_H__ */
+#endif /* __SERVER_H__ */

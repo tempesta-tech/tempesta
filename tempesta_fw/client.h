@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,11 +21,11 @@
 #ifndef __TFW_CLIENT_H__
 #define __TFW_CLIENT_H__
 
-typedef struct {
-	struct sock	*sock;
-} TfwClient;
+#include "peer.h"
 
-TfwClient *tfw_create_client(struct sock *s);
+typedef TfwPeer TfwClient;
+
+TfwClient *tfw_create_client(void);
 void tfw_destroy_client(struct sock *s);
 
 #endif /* __TFW_CLIENT_H__ */

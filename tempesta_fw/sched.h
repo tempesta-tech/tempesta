@@ -5,6 +5,7 @@
  * back-end servers.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,13 +29,12 @@
 #include "server.h"
 
 /*
- * TODO In case of forward proxy manage connections to 'backend' servers
- * we can have too many 'backend' servers, so we need to prune low-active
+ * TODO In case of forward proxy manage connections to servers
+ * we can have too many servers, so we need to prune low-active
  * connections from the connection pool.
  * Should we manage connections separate from requests management and move
  * the functionality to different module type?
  */
-
 
 /**
  * The maximum number of servers that may be added to any scheduler.
@@ -52,13 +52,11 @@ typedef struct {
 	int		(*del_srv)(TfwServer *srv);
 } TfwScheduler;
 
-TfwServer *tfw_sched_get_srv(TfwMsg *msg);
+TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
 int tfw_sched_add_srv(TfwServer *srv);
 int tfw_sched_del_srv(TfwServer *srv);
 
-
 int tfw_sched_register(TfwScheduler *mod);
 void tfw_sched_unregister(void);
-
 
 #endif /* __TFW_SCHED_H__ */

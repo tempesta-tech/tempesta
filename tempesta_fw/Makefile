@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies.
+# Copyright (C) 2015 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -44,11 +44,10 @@ tempesta_fw-objs = \
 	pool.o \
 	sched.o \
 	server.o \
-	session.o \
-	sock_backend.o \
-	sock_frontend.o \
+	sock_clnt.o \
+	sock_srv.o \
 	stress.o \
 	str.o \
-
+	tls.o
 
 obj-m	+= log/ classifier/ stress/ sched/ filter/ t/

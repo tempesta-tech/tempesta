@@ -123,19 +123,19 @@ TEST(http_match, uri_prefix)
 	test_mlst_add(3, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_PREFIX,
 	              "/");
 
-	set_tfw_str(&test_req->uri, "/foo/bar/baz.html");
+	set_tfw_str(&test_req->uri_path, "/foo/bar/baz.html");
 	match_id = test_mlst_match();
 	EXPECT_EQ(1, match_id);
 
-	set_tfw_str(&test_req->uri, "/foo/bar/");
+	set_tfw_str(&test_req->uri_path, "/foo/bar/");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
 
-	set_tfw_str(&test_req->uri, "/baz");
+	set_tfw_str(&test_req->uri_path, "/baz");
 	match_id = test_mlst_match();
 	EXPECT_EQ(3, match_id);
 
-	set_tfw_str(&test_req->uri, "../foo");
+	set_tfw_str(&test_req->uri_path, "../foo");
 	match_id = test_mlst_match();
 	EXPECT_EQ(-1, match_id);
 }

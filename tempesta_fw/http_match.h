@@ -23,6 +23,7 @@
 #include <linux/list.h>
 #include <linux/rcupdate.h>
 
+#include "addr.h"
 #include "pool.h"
 #include "http.h"
 

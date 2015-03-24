@@ -166,7 +166,7 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 */
 	flags |= TFW_STR_EQ_CASEI;
 
-	return tfw_str_eq_cstr(&req->uri, rule->arg.str, rule->arg.len, flags);
+	return tfw_str_eq_cstr(&req->uri_path, rule->arg.str, rule->arg.len, flags);
 }
 
 static bool

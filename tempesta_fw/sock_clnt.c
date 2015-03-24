@@ -1,10 +1,10 @@
 /**
  *		Tempesta FW
  *
- * TCP/IP stack hooks and socket routines to handle external (fron-end) traffic.
+ * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 #include <net/inet_sock.h>
 
 #include "tempesta_fw.h"
+#include "addr.h"
 #include "cfg.h"
 #include "connection.h"
 #include "filter.h"
@@ -59,7 +60,7 @@ static SsProto protos[LISTEN_SOCKS_MAX];
  * but not yet start listening.
  */
 static int
-add_listen_sock(TfwAddr *addr)
+add_listen_sock(TfwAddr *addr, int type)
 {
 	int r;
 	SsProto *proto;
@@ -86,13 +87,8 @@ add_listen_sock(TfwAddr *addr)
 		return r;
 	}
 
-	/**
-	 * TODO: If multiprotocol support is required, then here we must have
-	 * information for which protocol we're establishing the new listener.
-	 * e.g.: listen 127.0.0.1:80 proto=http;
-	 */
 	proto = &protos[listen_socks_n];
-	proto->type = TFW_FSM_HTTP;
+	proto->type = type;
 	BUG_ON(proto->listener);
 	ss_tcp_set_listen(s, proto);
 	TFW_DBG("created front-end socket: sk=%p\n", s->sk);
@@ -173,7 +169,8 @@ handle_listen_cfg_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			goto parse_err;
 	}
 
-	r = add_listen_sock(&addr);
+	/* TODO Issue #82: pass parsed protocol instead of hardcoded HTTP. */
+	r = add_listen_sock(&addr, TFW_FSM_HTTP);
 	return r;
 
 parse_err:
@@ -181,7 +178,7 @@ parse_err:
 	return -EINVAL;
 }
 
-TfwCfgMod tfw_sock_frontend_cfg_mod  = {
+TfwCfgMod tfw_sock_client_cfg_mod  = {
 	.name	= "sock_frontend",
 	.start	= start_listen_socks,
 	.stop	= stop_listen_socks,
