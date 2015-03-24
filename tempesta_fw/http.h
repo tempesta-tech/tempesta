@@ -25,7 +25,6 @@
 #include "msg.h"
 #include "str.h"
 
-
 /**
  * All helping information for current HTTP parsing state of a message.
  */
@@ -115,6 +114,12 @@ typedef struct {
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x0004
 
+/**
+ * Common HTTP message members.
+ *
+ * @conn	- connection which the message was received on;
+ * @crlf	- pointer to CRLF between headers and body
+ */
 #define TFW_HTTP_MSG_COMMON						\
 	TfwMsg		msg;						\
 	TfwPool		*pool;						\
@@ -124,9 +129,8 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned int	content_length;					\
 	TfwConnection	*conn;						\
-	unsigned char	*crlf;	/* CRLF between headers and body */	\
+	unsigned char	*crlf;						\
 	TfwStr		body;
-
 
 /**
  * A helper structure for operations common for requests and responses.
@@ -136,14 +140,17 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 } TfwHttpMsg;
 
-/* XXX: the @uri field name is confused. It is not an URI as defined by RFCs,
- * but rather only a part of the URI.
+/**
+ * HTTP Request.
+ *
+ * @host	- host in URI, may differ from Host header;
+ * @uri_path	- path + query + fragment from URI (RFC3986.3);
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
-	unsigned char	method;
-	TfwStr		host; /* host in URI, may differ from Host header */
-	TfwStr		uri;  /* path + query + fragment from URI (RFC3986.3) */
+	unsigned char		method;
+	TfwStr			host;
+	TfwStr			uri_path;
 } TfwHttpReq;
 
 typedef struct {

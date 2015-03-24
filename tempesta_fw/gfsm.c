@@ -9,6 +9,7 @@
  * savin current FSM state in states stack.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -135,7 +136,7 @@ tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len)
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned char new_state, unsigned char *data,
+tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
 	      size_t len)
 {
 	int r = TFW_PASS, p;
@@ -184,8 +185,8 @@ tfw_gfsm_move(TfwGState *st, unsigned char new_state, unsigned char *data,
  * and adjust all the messages.
  */
 int
-tfw_gfsm_register_hook(int fsm_id, int prio, int state, int st0,
-		       unsigned short hndl_fsm_id)
+tfw_gfsm_register_hook(int fsm_id, int prio, int state,
+		       unsigned short hndl_fsm_id, int st0)
 {
 	int shift, st = state & TFW_GFSM_STATE_MASK;
 

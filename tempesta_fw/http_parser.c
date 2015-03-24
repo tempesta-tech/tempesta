@@ -1384,7 +1384,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(c == ' '))
 			__FSM_MOVE(Req_MUSpace);
 		if (likely(c == '/')) {
-			req->uri.ptr = p;
+			req->uri_path.ptr = p;
 			__FSM_MOVE(Req_UriAbsPath);
 		}
 		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')))
@@ -1420,7 +1420,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		req->host.len = p - (unsigned char *)req->host.ptr;
 
 		if (likely(c == '/')) {
-			req->uri.ptr = p;
+			req->uri_path.ptr = p;
 			__FSM_MOVE(Req_UriAbsPath);
 		}
 		else if (c == ':') {
@@ -1438,7 +1438,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (unlikely(c != '/'))
 			return TFW_BLOCK;
 
-		req->uri.ptr = p;
+		req->uri_path.ptr = p;
 		__FSM_MOVE(Req_UriAbsPath);
 	}
 
@@ -1451,10 +1451,10 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */
 			____FSM_MOVE_LAMBDA(TFW_HTTP_URI_HOOK, 1,
-					    __FSM_EXIT(&req->uri));
+					    __FSM_EXIT(&req->uri_path));
 
 		if (likely(c == ' ')) {
-			__field_finish(&req->uri, data, p);
+			__field_finish(&req->uri_path, data, p);
 			__FSM_MOVE(Req_HttpVer);
 		}
 

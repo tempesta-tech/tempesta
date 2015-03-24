@@ -4,7 +4,7 @@
  * HTTP processing.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #include "http.h"
 #include "http_msg.h"
 #include "log.h"
+#include "sched.h"
 
 #include "sync_socket.h"
 
@@ -59,7 +60,12 @@ tfw_http_conn_init(TfwConnection *conn)
 static void
 tfw_http_conn_destruct(TfwConnection *conn)
 {
+	TfwMsg *msg, *tmp;
+
 	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
+
+	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
+		tfw_http_msg_free((TfwHttpMsg *)msg);
 }
 
 /**
@@ -92,7 +98,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
 
 	shm->msg.prev = &hm->msg;
-	/* Relink current connection msg to @hsm. */
+	/* Relink current connection msg to @shm. */
 	shm->conn = hm->conn;
 
 	return shm;
@@ -733,19 +739,19 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 {
-	TfwSession *sess = data;
+	TfwConnection *conn = data;
 
 	if (resp) {
 		/*
 		 * We have prepared response, send it as is.
 		 * TODO should we adjust it somehow?
 		 */
-		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+		tfw_connection_send_cli(conn, (TfwMsg *)resp);
 	} else {
 		if (tfw_http_adjust_req(req))
 			return;
 		/* Send the request to appropriate server. */
-		tfw_connection_send_srv(sess, (TfwMsg *)req);
+		tfw_connection_send_srv(conn, (TfwMsg *)req);
 	}
 }
 
@@ -757,10 +763,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)conn->msg;
-	TfwSession *sess = conn->sess;
+	TfwConnection *srv_conn;
 
 	BUG_ON(!req);
-	BUG_ON(!sess);
 
 	TFW_DBG("Received %lu client data bytes (%.*s) on socket (conn=%p)\n",
 		len, (int)len, data, conn);
@@ -792,22 +797,33 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				goto block;
 			return TFW_POSTPONE;
 		case TFW_PASS:
-			/* Request is fully parsed, add it to the connection. */
-			list_add_tail(&req->msg.pl_list, &sess->req_list);
-			conn->msg = NULL;
-
-			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-			r = tfw_gfsm_move(&req->msg.state,
-					  TFW_HTTP_FSM_REQ_MSG, data, len);
-			TFW_DBG("GFSM return code %d\n", r);
-			if (r == TFW_BLOCK)
-				goto block;
-			/* Fall through. */
+			/*
+			 * The request is fully parsed,
+			 * fall through and process it.
+			 */
+			;
 		}
 
-		/* The request is fully parsed, process it. */
+		/* Dispatch the request to appropriate server. */
+		srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+		if (!srv_conn) {
+			TFW_ERR("Can't get an appropriate server connection"
+				" for a session\n");
+			goto block;
+		}
 
-		tfw_cache_req_process(req, tfw_http_req_cache_cb, sess);
+		/* Request is fully parsed, add it to the connection. */
+		list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
+		conn->msg = NULL;
+
+		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
+		r = tfw_gfsm_move(&req->msg.state, TFW_HTTP_FSM_REQ_MSG, data,
+				  len);
+		TFW_DBG("GFSM return code %d\n", r);
+		if (r == TFW_BLOCK)
+			goto block;
+
+		tfw_cache_req_process(req, tfw_http_req_cache_cb, srv_conn);
 
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
@@ -835,10 +851,8 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)conn->msg;
-	TfwSession *sess = conn->sess;
 
 	BUG_ON(!resp);
-	BUG_ON(!sess);
 
 	TFW_DBG("received %lu server data bytes (%.*s) on socket (conn=%p)\n",
 		len, (int)len, data, conn);
@@ -878,6 +892,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 	r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data, len);
 	if (r == TFW_PASS) {
+		TfwMsg *req_msg;
 		TfwHttpReq *req;
 
 		if (tfw_http_adjust_resp(resp))
@@ -888,19 +903,19 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		 * We get responses in the same order as requests,
 		 * so we can just pop the first request.
 		 */
-		if (unlikely(list_empty(&sess->req_list))) {
+		if (unlikely(list_empty(&conn->msg_queue))) {
 			TFW_WARN("Response w/o request\n");
 			goto block;
 		}
-
-		req = list_first_entry(&sess->req_list, TfwHttpReq, msg.pl_list);
-		list_del(&req->msg.pl_list);
+		req_msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
+		list_del(&req_msg->msg_list);
 
 		/*
 		 * Send the response to client before caching it.
 		 * The cache frees the response.
 		 */
-		tfw_connection_send_cli(sess, (TfwMsg *)resp);
+		req = (TfwHttpReq *)req_msg;
+		tfw_connection_send_cli(req->conn, (TfwMsg *)resp);
 
 		tfw_cache_add(resp, req);
 	}
@@ -939,7 +954,7 @@ unsigned long
 tfw_http_req_key_calc(const TfwHttpReq *req)
 {
 	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
-		tfw_hash_str(&req->uri));
+		tfw_hash_str(&req->uri_path));
 }
 EXPORT_SYMBOL(tfw_http_req_key_calc);
 
@@ -958,7 +973,12 @@ tfw_http_init(void)
 
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
-	return 0;
+	/* Must be last call - we can't unregister the hook. */
+	r = tfw_gfsm_register_hook(TFW_FSM_HTTPS, TFW_GFSM_HOOK_PRIORITY_ANY,
+				   TFW_HTTPS_FSM_TODO_ISSUE_81,
+				   TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
+
+	return r;
 }
 
 void

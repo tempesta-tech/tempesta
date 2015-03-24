@@ -28,6 +28,9 @@
 
 static struct kmem_cache *cli_cache;
 
+/**
+ * Used as socket destructor callback.
+ */
 void
 tfw_destroy_client(struct sock *s)
 {
@@ -35,7 +38,7 @@ tfw_destroy_client(struct sock *s)
 	TfwClient *cli;
 
 	BUG_ON(!conn);
-	cli = conn->hndl;
+	cli = conn->peer;
 
 	/* The call back can be called twise bou our and Linux code. */
 	if (unlikely(!cli))
@@ -43,7 +46,7 @@ tfw_destroy_client(struct sock *s)
 
 	TFW_DBG("Destroy client socket %p\n", s);
 
-	conn->hndl = NULL;
+	conn->peer = NULL;
 
 	kmem_cache_free(cli_cache, cli);
 
@@ -51,12 +54,11 @@ tfw_destroy_client(struct sock *s)
 }
 
 TfwClient *
-tfw_create_client(struct sock *s)
+tfw_create_client(void)
 {
 	TfwClient *c = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
 	if (!c)
 		return NULL;
-	c->sock = s;
 
 	return c;
 }
