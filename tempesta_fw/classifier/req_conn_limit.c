@@ -13,6 +13,7 @@
  * for 1/RCL_FREQ of second.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,6 +36,7 @@
 
 #include "../tempesta_fw.h"
 #include "../classifier.h"
+#include "../client.h"
 #include "../connection.h"
 #include "../gfsm.h"
 #include "../log.h"
@@ -246,6 +248,7 @@ block:
 	 * TODO reset connection istead of wasting resources on
 	 * gentle closing. See ss_do_close() in sync_socket.
 	 */
+	TFW_DBG("%s: close connection\n", __FUNCTION__);
 	ss_close(sk);
 	return TFW_BLOCK;
 }
@@ -254,8 +257,9 @@ static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	TfwConnection *c = (TfwConnection *)obj;
+	TfwClient *clnt = c->peer;
 
-	return rcl_account_do(c->sess->cli->sock, rcl_req_limit);
+	return rcl_account_do(clnt->sock, rcl_req_limit);
 }
 
 static TfwClassifier rcl_class_ops = {
@@ -384,8 +388,7 @@ rcl_init(void)
 
 	/* Must be last call - we can't unregister the hook. */
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_MSG, 0,
-				   TFW_FSM_RCL);
+				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_RCL, 0);
 
 	if (r < 0) {
 		TFW_ERR("rcl: can't register gfsm hook\n");

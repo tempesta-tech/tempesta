@@ -4,6 +4,7 @@
  * Generic protocol message.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,34 +25,23 @@
 
 #include <linux/skbuff.h>
 
-#include "sync_socket.h"
-
 #include "gfsm.h"
 
-typedef struct tfw_msg TfwMsg;
-typedef void (*tfw_msg_destructor_t)(TfwMsg *msg);
-
-typedef struct tfw_msg {
-	struct tfw_msg	*prev;		/* sibling messages */
-	size_t		len;		/* total body length */
-	TfwGState	state;		/* message processing state. */
-	SsSkbList	skb_list;	/* list of sk_buff's belonging
-					   to the message. */
-	struct list_head pl_list;	/* Element of a pipeline list. */
-	tfw_msg_destructor_t destructor;
-} TfwMsg;
-
+#include "sync_socket.h"
 
 /**
- * Invoke TfwMsg destructor.
- * Also the macro sets given @msg_ptr to NULL because the destructor is supposed
- * to free some allocated memory, so the pointer becomes invalid after the call.
+ * @prev	- sibling messages sharing the same skb;
+ * @msg_list	- messages queue to send to peer;
+ * @state	- message processing state;
+ * @skb_list	- list of sk_buff's belonging to the message;
+ * @len		- total body length;
  */
-#define tfw_msg_destruct(msg_ptr) 	\
-do { 					\
-	BUG_ON(!msg_ptr->destructor); 	\
-	msg_ptr->destructor(msg_ptr);	\
-	msg_ptr = NULL;			\
-} while (0)
+typedef struct tfw_msg_t {
+	struct tfw_msg_t	*prev;
+	struct list_head	msg_list;
+	TfwGState		state;
+	SsSkbList		skb_list;
+	size_t			len;
+} TfwMsg;
 
 #endif /* __TFW_MSG_H__ */

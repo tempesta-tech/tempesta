@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,48 +23,17 @@
 #include "http_msg.h"
 #include "lib.h"
 
-TfwHttpMsg *
-tfw_http_msg_alloc(int type)
-{
-	TfwHttpMsg *hm = (type & Conn_Clnt)
-			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
-			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
-	if (!hm)
-		return NULL;
-
-	ss_skb_queue_head_init(&hm->msg.skb_list);
-	hm->msg.prev = NULL;
-	hm->msg.len = 0;
-
-	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
-	hm->h_tbl->size = __HHTBL_SZ(1);
-	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
-	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
-
-	INIT_LIST_HEAD(&hm->msg.pl_list);
-
-	hm->msg.destructor = (tfw_msg_destructor_t)tfw_http_msg_free;
-
-	return hm;
-}
-DEBUG_EXPORT_SYMBOL(tfw_http_msg_alloc);
-
 /**
  * The function does not free @m->skb_list, the caller is responsible for that.
  */
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	TFW_DBG("Free msg: %p", m);
+	TFW_DBG("Free msg: %p\n", m);
 
-	/* Allow passing a NULL pointer as the argument (similar to kfree()). */
 	if (!m)
 		return;
 
-	/*
-	 * FIXME do we need to synchronize this?
-	 * If a connection can be processed from different CPUs, then we do.
-	 */
 	if (m->conn && m->conn->msg == (TfwMsg *)m)
 		m->conn->msg = NULL;
 
@@ -84,3 +54,28 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	tfw_pool_free(m->pool);
 }
 DEBUG_EXPORT_SYMBOL(tfw_http_msg_free);
+
+TfwHttpMsg *
+tfw_http_msg_alloc(int type)
+{
+	TfwHttpMsg *hm = (type & Conn_Clnt)
+			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
+			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
+	if (!hm)
+		return NULL;
+
+	ss_skb_queue_head_init(&hm->msg.skb_list);
+	hm->msg.prev = NULL;
+	hm->msg.len = 0;
+	hm->conn = NULL;
+
+	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	hm->h_tbl->size = __HHTBL_SZ(1);
+	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
+	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
+
+	INIT_LIST_HEAD(&hm->msg.msg_list);
+
+	return hm;
+}
+DEBUG_EXPORT_SYMBOL(tfw_http_msg_alloc);

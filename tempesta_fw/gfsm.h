@@ -47,6 +47,7 @@
 /* Maximum number of different FSMs (1 << 4 = 16). */
 #define TFW_GFSM_FSM_BITS	4
 #define TFW_GFSM_FSM_N		(1 << TFW_GFSM_FSM_BITS)
+#define TFW_GFSM_FSM_MASK	(TFW_GFSM_FSM_N - 1)
 #define TFW_GFSM_FSM_SHIFT	(TFW_GFSM_PRIO_SHIFT + TFW_GFSM_PRIO_BITS)
 /*
  * We limit maximum FSM switch stack depth by 8, while the maximum number of
@@ -67,14 +68,25 @@
 
 /**
  * All state machines must get their number by registering in this enum.
+ *
+ * L5-L7 protocols stack is just TLS carrying application protocol,
+ * so the secured application protocols have designated FSMs rather than
+ * build real stack. This simplifies the protocols handling, makes it faster
+ * and privides more flexibility to set classification FSMs' hooks for
+ * specific secured application protocol.
  */
 enum {
+	/* Protocols */
 	TFW_FSM_HTTP,
-	TFW_FSM_RCL,	/* Request connection limiting classifier */ 
-	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
+	TFW_FSM_HTTPS,
+
+	/* Request connection limiting classifier */
+	TFW_FSM_RCL,
+
+	TFW_FSM_NUM	= TFW_GFSM_FSM_N
 };
 
-#define TFW_FSM_TYPE(t)		((t) & (TFW_GFSM_FSM_N - 1))
+#define TFW_FSM_TYPE(t)		((t) & TFW_GFSM_FSM_MASK)
 
 /**
  * HTTP FSM states.
@@ -98,9 +110,7 @@ enum {
  * So generally hooks are called on receiving client request (I), on receiving
  * server response (II) and after generation of local response (III).
  *
- * TODO generic callback note: Nginx uses chains for filters, so all filters
- * is called each time regardless neither of them are activated.
- * Only conf->enable for each filter is verified. So we need to:
+ * TODO generic callback note. We need to:
  * 1. store all callbacks in fixed size array to eliminate random memory access
  *    on callbacks;
  * 2. modules must register a callback only if it has work to do (not just when
@@ -134,6 +144,22 @@ enum {
 	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
 
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
+};
+
+/**
+ * HTTPS states.
+ *
+ * TODO Issue #81: this is just PoC states, write the right states here.
+ */
+#define TFW_GFSM_HTTPS_STATE(s)	((TFW_FSM_HTTPS << TFW_GFSM_FSM_SHIFT) | (s))
+enum {
+	/* HTTPS FSM initial state, not hookable. */
+	TFW_HTTPS_FSM_INIT		= TFW_GFSM_HTTPS_STATE(0),
+
+	/* TODO */
+	TFW_HTTPS_FSM_TODO_ISSUE_81	= TFW_GFSM_HTTPS_STATE(1),
+
+	TFW_HTTPS_FSM_DONE	= TFW_GFSM_HTTPS_STATE(TFW_GFSM_STATE_LAST)
 };
 
 /*
@@ -202,11 +228,11 @@ typedef int (*tfw_gfsm_handler_t)(void *obj, unsigned char *data, size_t len);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
 int tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len);
-int tfw_gfsm_move(TfwGState *st, unsigned char new_state, unsigned char *data,
+int tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
 		  size_t len);
 
-int tfw_gfsm_register_hook(int fsm_id, int prio, int state, int st0,
-			   unsigned short hndl_fsm_id);
+int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
+			   unsigned short hndl_fsm_id, int st0);
 int tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler);
 void tfw_gfsm_unregister_fsm(int fsm_id);
 

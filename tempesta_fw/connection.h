@@ -24,7 +24,7 @@
 
 #include "gfsm.h"
 #include "msg.h"
-#include "session.h"
+#include "peer.h"
 
 #include "sync_socket.h"
 
@@ -36,26 +36,34 @@ enum {
 	Conn_Clnt	= 0x1 << __Conn_Bits,
 	Conn_Srv	= 0x2 << __Conn_Bits,
 
+	/* HTTP */
 	Conn_HttpClnt	= Conn_Clnt | TFW_FSM_HTTP,
 	Conn_HttpSrv	= Conn_Srv | TFW_FSM_HTTP,
+
+	/* HTTPS */
+	Conn_HttpsClnt	= Conn_Clnt | TFW_FSM_HTTPS,
+	Conn_HttpsSrv	= Conn_Srv | TFW_FSM_HTTPS,
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
 
-/* TODO backend connection could have many sessions. */
+/**
+ * Session/Presentation layer (in OSI terms) handling.
+ *
+ * @proto	- protocol handler. Base class, must be first;
+ * @msg		- currently processing (receiving) message;
+ * @peer	- TfwClient or TfwServer handler;
+ * @msg_queue	- messages queue to be sent over the connection;
+ * @sk_destruct	- original sk->sk_destruct. Destructors passed to
+ * 		  tfw_connection_new() must call it manually.
+ */
 typedef struct {
-	/*
-	 * Stack of l5-l7 protocol handlers.
-	 * Base class, must be first.
-	 */
-	SsProto		proto;
+	SsProto			proto;
 
-	TfwMsg		*msg;	/* currently processing (receiving) message */
-	void 		*hndl;	/* TfwClient or TfwServer handler */
-	TfwSession	*sess;	/* currently handled session */
+	TfwMsg			*msg;
+	TfwPeer 		*peer;
+	struct list_head	msg_queue;
 
-	/* Original sk->sk_destruct. Destructors passed to tfw_connection_new()
-	 * must call it manually. */
 	void (*sk_destruct)(struct sock *sk);
 } TfwConnection;
 
@@ -85,46 +93,11 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
-static inline TfwConnection *
-tfw_sess_conn(TfwSession *sess, int type)
-{
-	if (type & Conn_Clnt) {
-		BUG_ON(!sess->cli);
-		return sess->cli->sock->sk_user_data;
-	}
-
-	if (type & Conn_Srv) {
-		if (!sess->srv)
-			return NULL;
-		return sess->srv->sock->sk_user_data;
-	}
-
-	BUG();
-}
-
-static inline TfwConnection *
-tfw_connection_peer(TfwConnection *c)
-{
-	if (TFW_CONN_TYPE(c) & Conn_Clnt) {
-		BUG_ON(!c->sess);
-		return tfw_sess_conn(c->sess, Conn_Srv);
-	}
-
-	if (TFW_CONN_TYPE(c) & Conn_Srv) {
-		if (!c->sess)
-			return NULL;
-		return tfw_sess_conn(c->sess, Conn_Clnt);
-	}
-
-	BUG();
-	return NULL;
-}
-
 /* Connection downcalls. */
-int tfw_connection_new(struct sock *sk, int type, void *handler,
-		       void (*destructor)(struct sock *s));
-void tfw_connection_send_cli(TfwSession *sess, TfwMsg *msg);
-int tfw_connection_send_srv(TfwSession *sess, TfwMsg *msg);
+TfwConnection *tfw_connection_new(struct sock *sk, int type,
+				  void (*destructor)(struct sock *s));
+void tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg);
+void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 

@@ -22,7 +22,6 @@
  */
 #include <linux/slab.h>
 
-#include "connection.h"
 #include "addr.h"
 #include "log.h"
 #include "sched.h"
@@ -37,7 +36,7 @@ tfw_destroy_server(struct sock *s)
 	TfwServer *srv;
 
 	BUG_ON(!conn);
-	srv = conn->hndl;
+	srv = (TfwServer *)conn->peer;
 
 	/* The call back can be called twise bou our and Linux code. */
 	if (unlikely(!srv))
@@ -49,25 +48,26 @@ tfw_destroy_server(struct sock *s)
 		TFW_WARN("Try to delete orphaned server from"
 			 " requests scheduler");
 
-	srv->sock = NULL;
-	conn->hndl = NULL;
+	conn->peer = NULL;
 
-	/* FIXME clear the server references from all current sessions. */
-#if 0
 	kmem_cache_free(srv_cache, srv);
-#endif
 
 	conn->sk_destruct(s);
 }
 
 TfwServer *
-tfw_create_server(struct sock *s)
+tfw_create_server(struct sock *sk, TfwConnection *conn)
 {
 	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC);
 	if (!srv)
 		return NULL;
 
-	srv->sock = s;
+	/*
+	 * Bind connectin with the server.
+	 * Must be done before we publish the server to scheduler.
+	 */
+	srv->sock = sk;
+	conn->peer = (TfwPeer *)srv;
 
 	if (tfw_sched_add_srv(srv)) {
 		TFW_ERR("Can't add a server to requests scheduler\n");

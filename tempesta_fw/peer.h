@@ -1,7 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -18,13 +17,16 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CACHE_H__
-#define __TFW_CACHE_H__
+#ifndef __PEER_H__
+#define __PEER_H__
 
-#include "http.h"
+#include <net/sock.h>
 
-void tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
-void tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
-			   void *data);
+#define TFW_PEER_COMMON							\
+	struct sock	*sock;
 
-#endif /* __TFW_CACHE_H__ */
+typedef struct {
+	TFW_PEER_COMMON;
+} TfwPeer;
+
+#endif /* __PEER_H__ */

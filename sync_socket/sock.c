@@ -4,7 +4,7 @@
  * Generic socket routines.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -675,6 +675,7 @@ ss_tcp_state_change(struct sock *sk)
 		/* The callback is called from tcp_rcv_state_process(). */
 		r = SS_CALL(connection_new, sk);
 		if (r) {
+			SS_DBG("New connection hook failed, r=%d\n", r);
 			ss_do_close(sk);
 			return;
 		}
@@ -696,6 +697,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * FIXME it seems we should to do things below on TCP_CLOSE
 		 * instead of TCP_CLOSE_WAIT.
 		 */
+		SS_DBG("Peer connection closing\n");
 		ss_do_close(sk);
 	}
 }

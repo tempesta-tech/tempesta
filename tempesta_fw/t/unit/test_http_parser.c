@@ -120,38 +120,38 @@ TEST(http_parser, parses_req_uri)
 	/* Relative part of the URI only. */
 
 	FOR_REQ("GET / HTTP/1.1\r\n\r\n")
-		EXPECT_TFWSTR_EQ(&req->uri, "/");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 
 	FOR_REQ("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n")
-		EXPECT_TFWSTR_EQ(&req->uri, "/foo/b_a_r/baz.html");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/foo/b_a_r/baz.html");
 
 	FOR_REQ("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n")
-		EXPECT_TFWSTR_EQ(&req->uri, "/a/b/c/dir/");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/a/b/c/dir/");
 
 	FOR_REQ("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n")
-		EXPECT_TFWSTR_EQ(&req->uri, "/a/b/c/dir/?foo=1&bar=2#abcd");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/a/b/c/dir/?foo=1&bar=2#abcd");
 
 	/* Absolute URI. */
 	/* NOTE: we don't include port to the req->host */
 
 	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->uri, "/");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->uri, "/");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->uri, "/foo/");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/foo/");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->uri, "/cgi-bin/show.pl?entry=tempesta");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/cgi-bin/show.pl?entry=tempesta");
 	}
 }
 

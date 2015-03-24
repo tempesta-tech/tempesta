@@ -26,7 +26,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.3.1");
+MODULE_VERSION("0.3.2");
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);
@@ -74,15 +74,18 @@ tfw_init(void)
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
 	DO_INIT(cfg_if);
+
+	/* Register TLS before HTTP, so HTTP FSM can register TLS hooks. */
+	DO_INIT(tls);
 	DO_INIT(http);
+
 	DO_INIT(server);
 	DO_INIT(client);
-	DO_INIT(session);
 	DO_INIT(connection);
 
 	DO_CFG_REG(cache);
-	DO_CFG_REG(sock_backend);
-	DO_CFG_REG(sock_frontend);
+	DO_CFG_REG(sock_server);
+	DO_CFG_REG(sock_client);
 
 	return 0;
 err:

@@ -13,7 +13,7 @@
  * 2. Purge cache by individual entities (e.g. curl -X PURGE <URL>)
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2014 Tempesta Technologies Ltd.
+ * Copyright (C) 2014 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -443,6 +443,12 @@ tfw_cache_req_process_node(struct work_struct *work)
 	__cache_req_process_node(req, cw->cw_key, action, data);
 }
 
+/**
+ * Process @req at node which possesses the cached data required to fulfill
+ * the request. In worse case the request can be assembled in softirq at
+ * one node, the cached response can be prepared at the second node while
+ * the final response is sent by third node (see dev_queue_xmit()).
+ */
 void
 tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		      void *data)

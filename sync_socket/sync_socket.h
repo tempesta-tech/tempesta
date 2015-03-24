@@ -151,7 +151,7 @@ enum {
 	SS_OK		= 0,
 };
 
-/* Protocols stack handlers. */
+/* Protocol descriptor. */
 typedef struct ss_proto_t {
 	struct socket	*listener;
 	int		type;

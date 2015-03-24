@@ -4,6 +4,7 @@
  * Requst schedulers interface.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,17 +25,31 @@
 #include "sched.h"
 #include "tempesta_fw.h"
 
-
 static TfwScheduler *tfw_sched = NULL;
 
-
-TfwServer *
-tfw_sched_get_srv(TfwMsg *msg)
+TfwConnection *
+tfw_sched_get_srv_conn(TfwMsg *msg)
 {
+	TfwServer *srv;
+
 	BUG_ON(!msg);
 	BUG_ON(!tfw_sched);
 
-	return tfw_sched->get_srv(msg);
+	srv = tfw_sched->get_srv(msg);
+	if (!srv)
+		return NULL;
+
+	/*
+	 * TODO: determine whether we need to establish a new connection
+	 * (e.g. if current backend connection is busy (not HTTP case))
+	 * and ask backend layer to establish a new connection.
+	 *
+	 * Also here we need to ask for other connection from the pool
+	 * if current connection is failed (probably to mirrored backend).
+	 * XXX Or should we do this on connection fail event instead?
+	 */
+
+	return srv->sock->sk_user_data;
 }
 
 int
