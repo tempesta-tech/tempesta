@@ -18,10 +18,11 @@
  * server unless it is offline.
  *
  * TODO:
- *  - Refactoring: there is simpilar logic in all scheduler modules related
+ *  - Refactoring: there is simpler logic in all scheduler modules related
  *    to lists of TfwServer objects. The code should be extracted and re-used.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,16 +39,16 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  */
+#include <linux/hash.h>
 #include <linux/module.h>
 
-#include "hash.h"
 #include "http_msg.h"
 #include "log.h"
 #include "sched.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.0.2");
 MODULE_LICENSE("GPL");
 
 #define BANNER "tfw_sched_hash: "
@@ -66,7 +67,12 @@ typedef struct {
  * The array is chosen instead of a linked list to allow easy binary search
  * implementation and perhaps to improve spatial locality of TfwSrvHash objects.
  *
- * @rcu is needed to
+ * The RCU mechanism is used to protect the list from being modified,
+ * while the data is scanned by tfw_sched_hash_get_srv().
+ *
+ * @rcu is needed to make updates possible in an atomic context.
+ * That happens if a server connection is lost, so the disconnect callback is
+ * executed in a softirq context and a TfwServer is deleted from the scheduler.
  */
 typedef struct {
 	struct rcu_head rcu;
@@ -74,8 +80,13 @@ typedef struct {
 	TfwSrvHash	srv_hashes[];
 } TfwSrvHashList;
 
-#define TFW_SRV_HASH_LIST_SIZE(n) \
-	(sizeof(TfwSrvHashList) + ((n) + 1) * sizeof(TfwSrvHash))
+#define TFW_SRV_HASH_LIST_SIZE(n) 					\
+({									\
+	/* We put two NULLs when the list is empty in order		\
+	 * to simplify the algorithm in tfw_sched_hash_get_srv() */	\
+	size_t _nulls = n ? 1 : 2;					\
+	(sizeof(TfwSrvHashList) + ((n) + _nulls) * sizeof(TfwSrvHash));	\
+})
 
 /**
  * A NULL-terminated array of TfwSrvHash that stores all servers added to the
@@ -114,35 +125,66 @@ static DEFINE_SPINLOCK(srv_hashes_update_lock);
 static TfwServer *
 tfw_sched_hash_get_srv(TfwMsg *msg)
 {
-	unsigned long msg_hash;
-	TfwSrvHash *curr, *best;
+	TfwServer *best_srv;
+	TfwSrvHash *curr_srv_hash;
 	TfwSrvHashList *srv_hash_list;
+	unsigned long msg_hash, curr_weight, best_weight;
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 
 	rcu_read_lock();
 	srv_hash_list = rcu_dereference(tfw_srv_hash_list);
-	best = curr = &srv_hash_list->srv_hashes[0];
-	while (curr->srv) {
-		if ((msg_hash ^ curr->hash) > (msg_hash ^ best->hash))
-			best = curr;
-		++curr;
+
+	/* 1. Set best = first element of the list. */
+	curr_srv_hash = &srv_hash_list->srv_hashes[0];
+	best_srv = curr_srv_hash->srv;
+	best_weight = msg_hash ^ curr_srv_hash->hash;
+
+	/* 2. Try to find a better one among 2nd...Nth elements of the list.
+	 * We don't check for N == 0 here; the list is terminated with two NULL
+	 * elements when it is empty, so we can avoid the extra branch here. */
+	while ((++curr_srv_hash)->srv) {
+		curr_weight = msg_hash ^ curr_srv_hash->hash;
+		if (curr_weight > best_weight) {
+			best_weight = curr_weight;
+			best_srv = curr_srv_hash->srv;
+		}
+		++curr_srv_hash;
 	}
+
 	rcu_read_unlock();
 
-	return best->srv;
+	return best_srv;
 }
 
 static unsigned long
 tfw_sched_hash_calc_srv(TfwServer *srv)
 {
-	size_t len;
-	TfwAddr addr;
+	unsigned long hash;
+	union {
+		TfwAddr addr;
+		unsigned char bytes[0];
+	} a;
+	size_t i, bytes_n;
 
-	tfw_server_get_addr(srv, &addr);
-	len = tfw_addr_sa_len(&addr);
+	/**
+	 * Here we just cast the whole TfwAddr to an array of bytes
+	 * and use the standard hash_long() to calculate the hash.
+	 *
+	 * That only works if the following invariants are held:
+	 *  - There are no gaps between structure fields.
+	 *  - No structure fields (e.g. sin6_flowinfo) are changed if we
+	 *    re-connect to the same server.
+	 */
+	tfw_server_get_addr(srv, &a.addr);
+	bytes_n = tfw_addr_sa_len(&a.addr);
 
-	return tfw_hash_buf(&addr, len);
+	hash = 0;
+	for (i = 0; i < bytes_n; ++i) {
+		hash = hash_long(hash ^ a.bytes[i], BITS_PER_LONG);
+	}
+
+	return hash;
 }
 
 static int
