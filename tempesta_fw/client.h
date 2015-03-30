@@ -21,9 +21,15 @@
 #ifndef __TFW_CLIENT_H__
 #define __TFW_CLIENT_H__
 
+#include <crypto/sha.h>
+#include "str.h"
 #include "peer.h"
 
-typedef TfwPeer TfwClient;
+typedef struct {
+        TFW_PEER_COMMON;
+	TfwStr		cookie;		/* Tempesta sticky cookie value */
+	u_char		hmac[SHA1_DIGEST_SIZE];
+} TfwClient;
 
 TfwClient *tfw_create_client(void);
 void tfw_destroy_client(struct sock *s);

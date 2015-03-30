@@ -171,4 +171,9 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
 unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
 
+/* HTTP message header add/del/sub API */
+int tfw_http_hdr_add(TfwHttpMsg *, const char *, size_t);
+int tfw_http_hdr_sub(TfwHttpMsg *, TfwStr *, const char *, size_t);
+int tfw_http_hdr_del(TfwHttpMsg *, TfwStr *);
+
 #endif /* __TFW_HTTP_H__ */

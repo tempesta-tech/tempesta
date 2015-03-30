@@ -40,6 +40,7 @@ tempesta_fw-objs = \
 	http_match.o \
 	http_msg.o \
 	http_parser.o \
+	http_sticky.o \
 	main.o \
 	pool.o \
 	sched.o \
