@@ -38,7 +38,7 @@ tfw_destroy_client(struct sock *s)
 	TfwClient *cli;
 
 	BUG_ON(!conn);
-	cli = conn->peer;
+	cli = (TfwClient *)conn->peer;
 
 	/* The call back can be called twise bou our and Linux code. */
 	if (unlikely(!cli))
