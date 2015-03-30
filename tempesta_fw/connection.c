@@ -189,7 +189,7 @@ tfw_connection_new_upcall(struct sock *sk)
 	}
 
 	cli->sock = sk;
-	conn->peer = cli;
+	conn->peer = (TfwPeer *)cli;
 
 	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
 

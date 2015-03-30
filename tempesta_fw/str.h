@@ -51,13 +51,13 @@ typedef struct {
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 #define TFW_STR_COPY(dst, src)	memcpy(dst, src, sizeof(TfwStr))
 
-#define TFW_STR_IS_PLAIN(str) (!(str->flags & TFW_STR_COMPOUND))
+#define TFW_STR_IS_PLAIN(str) (!((str)->flags & TFW_STR_COMPOUND))
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
 #define TFW_STR_FOR_EACH_CHUNK(c, s) for ( \
-	c = (TFW_STR_IS_PLAIN(s) ? s : s->ptr); \
-	c < (TFW_STR_IS_PLAIN(s) ? s + 1 : (TfwStr *)s->ptr + s->len); \
-	++c)
+	(c) = (TFW_STR_IS_PLAIN(s) ? (s) : (s)->ptr); \
+	(c) < (TFW_STR_IS_PLAIN(s) ? (s) + 1 : (TfwStr *)(s)->ptr + (s)->len); \
+	++(c))
 
 
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
