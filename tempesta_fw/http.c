@@ -30,6 +30,7 @@
 #include "hash.h"
 #include "http.h"
 #include "http_msg.h"
+#include "http_sticky.h"
 #include "log.h"
 #include "sched.h"
 
@@ -696,6 +697,7 @@ tfw_http_append_forwarded_for(TfwHttpMsg *m)
 static int
 tfw_http_add_or_append_forwarded_for(TfwHttpMsg *m)
 {
+	return 0;
 	if (m->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field.len)
 		return tfw_http_append_forwarded_for(m);
 
@@ -804,6 +806,22 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			;
 		}
 
+		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
+		r = tfw_gfsm_move(&req->msg.state,
+				  TFW_HTTP_FSM_REQ_MSG, data, len);
+		TFW_DBG("GFSM return code %d\n", r);
+		if (r == TFW_BLOCK)
+			goto block;
+		conn->msg = NULL;
+
+		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
+		if (r < 0) {
+			goto block;
+		} else if (r > 0) {
+			tfw_http_msg_free((TfwHttpMsg *)req);
+			goto pipeline;
+		}
+
 		/* Dispatch the request to appropriate server. */
 		srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 		if (!srv_conn) {
@@ -814,17 +832,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		/* Request is fully parsed, add it to the connection. */
 		list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
-		conn->msg = NULL;
-
-		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-		r = tfw_gfsm_move(&req->msg.state, TFW_HTTP_FSM_REQ_MSG, data,
-				  len);
-		TFW_DBG("GFSM return code %d\n", r);
-		if (r == TFW_BLOCK)
-			goto block;
 
 		tfw_cache_req_process(req, tfw_http_req_cache_cb, srv_conn);
-
+pipeline:
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
 			break;
@@ -910,11 +920,19 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		req_msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 		list_del(&req_msg->msg_list);
 
+		req = (TfwHttpReq *)req_msg;
+		r = tfw_http_sticky_resp_process((TfwHttpMsg *)resp,
+						 (TfwHttpMsg *)req);
+		if (r < 0) {
+			tfw_http_msg_free((TfwHttpMsg *)req);
+			tfw_http_msg_free((TfwHttpMsg *)resp);
+			return TFW_BLOCK;
+		}
+
 		/*
 		 * Send the response to client before caching it.
-		 * The cache frees the response.
+		 * The cache frees the response and the request.
 		 */
-		req = (TfwHttpReq *)req_msg;
 		tfw_connection_send_cli(req->conn, (TfwMsg *)resp);
 
 		tfw_cache_add(resp, req);
@@ -928,6 +946,24 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 block:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return TFW_BLOCK;
+}
+
+int
+tfw_http_hdr_add(TfwHttpMsg *hm, const char *data, size_t len)
+{
+	return __hdr_add(data, len, hm->msg.skb_list.first, hm->crlf);
+}
+
+int
+tfw_http_hdr_del(TfwHttpMsg *hm, TfwStr *hdr)
+{
+	return __hdr_delete(hdr, hm->msg.skb_list.first);
+}
+
+int
+tfw_http_hdr_sub(TfwHttpMsg *hm, TfwStr *hdr, const char *data, size_t len)
+{
+	return __hdr_sub(hdr, data, len, hm->msg.skb_list.first);
 }
 
 /**
