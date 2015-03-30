@@ -282,7 +282,7 @@ frang_http_uri_len_limit(const TfwHttpReq *req)
 	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
 	 * This is too slow. The value must be stored in a TfwStr field. */
 	if (frang_cfg.http_uri_len &&
-	    tfw_str_len(&req->uri) > frang_cfg.http_uri_len) {
+	    tfw_str_len(&req->uri_path) > frang_cfg.http_uri_len) {
 		TFW_DBG("frang: http_uri_len limit is reached\n");
 		return TFW_BLOCK;
 	}
@@ -431,9 +431,10 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r;
 	TfwConnection *c = (TfwConnection *)obj;
+	TfwClient *clnt = (TfwClient *)c->peer;
 	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
 
-	r = frang_account_do(c->sess->cli->sock, frang_req_limit);
+	r = frang_account_do(clnt->sock, frang_req_limit);
 	if (r)
 		return r;
 
