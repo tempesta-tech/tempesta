@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,65 +21,55 @@
 #include <linux/module.h>
 
 #include "log.h"
-#include "sched.h"
+#include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta dummy scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
-/* The only single server is supported by the dummy scheduler. */
-static TfwServer *dummy_srv = NULL;
-
-TfwServer *
-tfw_sched_dummy_get_srv(TfwMsg *msg)
+/**
+ * Just return first connection to the first server in the group.
+ */
+static TfwConnection *
+tfw_sched_dummy_schedule(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	return dummy_srv;
+	TfwServer *srv;
+	TfwConnection *conn = NULL;
+
+	write_lock(&sg->lock);
+
+	if (unlikely(list_empty(&sg->srv_list)))
+		goto out;
+
+	srv = list_first_entry(&sg->srv_list, TfwServer, list);
+
+	if (unlikely(list_empty(&srv->conn_list)))
+		goto out;
+
+	conn = list_first_entry(&srv->conn_list, TfwConnection, list);
+out:
+	read_unlock(&sg->lock);
+
+	return conn;
 }
 
-int
-tfw_sched_dummy_add_srv(TfwServer *srv)
-{
-	if (srv && dummy_srv)
-		TFW_WARN("Can't add multiple servers to the dummy scheduler,"
-			 "so only the most recently added server is used\n");
-
-	dummy_srv = srv;
-
-	return 0;
-}
-
-int
-tfw_sched_dummy_del_srv(TfwServer *srv)
-{
-	if (srv != dummy_srv) {
-		TFW_WARN("Can't remove the server from the dummy scheduler\n");
-		return -ENOENT;
-	} else {
-		dummy_srv = NULL;
-		return 0;
-	}
-}
+static TfwScheduler tfw_sched_dummy = {
+	.name		= "dummy",
+	.list		= LIST_HEAD_INIT(tfw_sched_dummy.list),
+	.sched_srv	= tfw_sched_dummy_schedule
+};
 
 int
 tfw_sched_dummy_init(void)
 {
-	static TfwScheduler tfw_sched_dummy_mod = {
-		.name = "dummy",
-		.get_srv = tfw_sched_dummy_get_srv,
-		.add_srv = tfw_sched_dummy_add_srv,
-		.del_srv = tfw_sched_dummy_del_srv
-	};
-
-	return tfw_sched_register(&tfw_sched_dummy_mod);
+	return tfw_sched_register(&tfw_sched_dummy);
 }
 module_init(tfw_sched_dummy_init);
 
 void
 tfw_sched_dummy_exit(void)
 {
-	dummy_srv = NULL;
-
-	tfw_sched_unregister();
+	tfw_sched_unregister(&tfw_sched_dummy);
 }
 module_exit(tfw_sched_dummy_exit);

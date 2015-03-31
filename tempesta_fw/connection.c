@@ -48,6 +48,7 @@ tfw_connection_alloc(int type)
 		return NULL;
 
 	TFW_CONN_TYPE(c) = type;
+	INIT_LIST_HEAD(&c->list);
 	INIT_LIST_HEAD(&c->msg_queue);
 
 	return c;
@@ -83,22 +84,25 @@ tfw_connection_new(struct sock *sk, int type,
 		   void (*destructor)(struct sock *s))
 {
 	TfwConnection *conn;
-	SsProto *proto = sk->sk_user_data;
 
-	BUG_ON(!proto); /* parent socket protocol */
-	BUG_ON(type != Conn_Clnt && type != Conn_Srv);
+	BUG_ON(!(type & (Conn_Clnt | Conn_Srv)));
 
 	/* Type: connection direction BitwiseOR protocol. */
-	type |= proto->type;
+	if (sk->sk_user_data) {
+		SsProto *proto = sk->sk_user_data;
+		type |= proto->type;
+	}
 
 	conn = tfw_connection_alloc(type);
 	if (!conn)
 		return NULL;
 
 	sk->sk_user_data = conn;
-
-	conn->sk_destruct = sk->sk_destruct;
-	sk->sk_destruct = destructor;
+	if (destructor) {
+		conn->sk_destruct = sk->sk_destruct;
+		sk->sk_destruct = destructor;
+	}
+	conn->sock = sk;
 
 	sock_set_flag(sk, SOCK_DBG);
 
@@ -123,6 +127,8 @@ tfw_connection_close(struct sock *sk)
 
 	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))]->conn_destruct(c);
 
+	tfw_peer_del_conn(c->peer, &c->list);
+
 	tfw_connection_free(c);
 
 	sk->sk_user_data = NULL;
@@ -131,19 +137,9 @@ tfw_connection_close(struct sock *sk)
 }
 
 void
-tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
-	TfwClient *clnt =(TfwClient *)conn->peer;
-
-	ss_send(clnt->sock, &msg->skb_list);
-}
-
-void
-tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
-{
-	TfwServer *srv = (TfwServer *)conn->peer;
-
-	ss_send(srv->sock, &msg->skb_list);
+	ss_send(conn->sock, &msg->skb_list);
 }
 
 /*
@@ -160,12 +156,19 @@ tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
 static int
 tfw_connection_new_upcall(struct sock *sk)
 {
-	TfwClient *cli;
+	TfwAddr addr;
 	TfwConnection *conn;
 
 	/* Classify the connection before any resource allocations. */
 	if (tfw_classify_conn_estab(sk) == TFW_BLOCK)
 		return -EPERM;
+
+	conn = tfw_connection_new(sk, Conn_Clnt, tfw_client_put);
+	if (!conn) {
+		TFW_ERR("Cannot create new client connection\n");
+		ss_close(sk);
+		return -ENOMEM;
+	}
 
 	/*
 	 * TODO: currently there is one to one socket-client
@@ -174,47 +177,21 @@ tfw_connection_new_upcall(struct sock *sk)
 	 *
 	 * We have too lookup the client by the socket and create a new one
 	 * only if it's really new.
+	 *
+	 * Derive the client address from @sk and properly set @addr.
 	 */
-	cli = tfw_create_client();
-	if (!cli) {
+	memset(&addr, 0, sizeof(addr));
+	if (!tfw_create_client(conn, &addr)) {
 		TFW_ERR("Can't allocate a new client");
 		ss_close(sk);
 		return -EINVAL;
 	}
-
-	conn = tfw_connection_new(sk, Conn_Clnt, tfw_destroy_client);
-	if (!conn) {
-		TFW_ERR("Cannot create new client connection\n");
-		tfw_destroy_client(sk);
-	}
-
-	cli->sock = sk;
-	conn->peer = (TfwPeer *)cli;
 
 	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
 
 	return 0;
 }
 
-/**
- * TODO/FIXME
- * Things which happen in the function are wrong. We have to choose backend
- * server when the request is [fully?] parsed to be able to route static and
- * dynamic requests to different server (so we need to know at least base part
- * of URI to choose a server).
- *
- * Probably, following scheme is most suitable:
- * 1. schedulers which are going to route request depending on URI must register
- *    hook TFW_HTTP_HOOK_REQ_STATUS and adjust server information;
- * 2. schedulers which schedule request depending on server stress on
- *    round-robin actully should do their work as early as possible to reduce
- *    message latency and accelerator memory consumption (that parts of
- *    the request can be sent to server immediately) and choose the server
- *    in this function.
- *
- * So at least we need scheduler interface which can register its callbacks in
- * different places.
- */
 static int
 tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 {

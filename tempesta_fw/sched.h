@@ -25,38 +25,50 @@
 #define __TFW_SCHED_H__
 
 #include "tempesta_fw.h"
-#include "msg.h"
-#include "server.h"
+#include "connection.h"
 
-/*
- * TODO In case of forward proxy manage connections to servers
- * we can have too many servers, so we need to prune low-active
- * connections from the connection pool.
- * Should we manage connections separate from requests management and move
- * the functionality to different module type?
- */
-
-/**
- * The maximum number of servers that may be added to any scheduler.
- *
- * Schedulers are allowed to reject tfw_sched_add_srv() calls if the count of
- * servers reaches this number.
- */
 #define TFW_SCHED_MAX_SERVERS 64
 
-typedef struct {
-	const char *name;
+/*
+ * The scheduler must know about server groups which it schedules as well as
+ * server group should know about scheduler which is binded to it.
+ */
+struct tfw_srv_group_t;
 
-	TfwServer *	(*get_srv)(TfwMsg *msg);
-	int		(*add_srv)(TfwServer *srv);
-	int		(*del_srv)(TfwServer *srv);
+/**
+ * Requests scheduling algorithm handler.
+ *
+ * @name	- name of the algorithm;
+ * @list	- list of registered schedulers;
+ * @add_grp	- add server group to the scheduler;
+ * @del_grp	- delete server group from the scheduler;
+ * @update_grp	- update server group referencing the scheduler;
+ * @sched_grp	- server scheduling virtual method;
+ * @sched_srv	- requests scheduling virtual method;
+ *
+ * All schedulers must be able to scheduler messages among servers of one
+ * server group, i.e. @sched_srv must be defined.
+ * However, not all the schedulers are able to designate target server group.
+ * If a scheduler determines server group, then it should register @sched_grp
+ * callback. The callback determines the target server group which references
+ * a scheduler responsible to distribute messages in the group.
+ * For the avoidance of unnecessary calls, any @sched_grp callback must call
+ * @sched_srv callback of the target scheduler.
+ */
+typedef struct {
+	const char		*name;
+	struct list_head	list;
+	void			(*add_grp)(struct tfw_srv_group_t *sg);
+	void			(*del_grp)(struct tfw_srv_group_t *sg);
+	void			(*update_grp)(struct tfw_srv_group_t *sg);
+	TfwConnection		*(*sched_grp)(TfwMsg *msg);
+	TfwConnection		*(*sched_srv)(TfwMsg *msg,
+					      struct tfw_srv_group_t *sg);
 } TfwScheduler;
 
 TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
-int tfw_sched_add_srv(TfwServer *srv);
-int tfw_sched_del_srv(TfwServer *srv);
-
-int tfw_sched_register(TfwScheduler *mod);
-void tfw_sched_unregister(void);
+TfwScheduler *tfw_sched_lookup(const char *name);
+int tfw_sched_register(TfwScheduler *sched);
+void tfw_sched_unregister(TfwScheduler *sched);
 
 #endif /* __TFW_SCHED_H__ */

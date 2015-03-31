@@ -4,6 +4,7 @@
  * Definitions for generic connection (at OSI level 4) management.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,6 +22,8 @@
  */
 #ifndef __TFW_CONNECTION_H__
 #define __TFW_CONNECTION_H__
+
+#include <net/sock.h>
 
 #include "gfsm.h"
 #include "msg.h"
@@ -51,18 +54,22 @@ enum {
  * Session/Presentation layer (in OSI terms) handling.
  *
  * @proto	- protocol handler. Base class, must be first;
+ * @list	- list of connections with the @peer;
+ * @msg_queue	- messages queue to be sent over the connection;
  * @msg		- currently processing (receiving) message;
  * @peer	- TfwClient or TfwServer handler;
- * @msg_queue	- messages queue to be sent over the connection;
+ * @sock	- appropriate socket handler;
  * @sk_destruct	- original sk->sk_destruct. Destructors passed to
- * 		  tfw_connection_new() must call it manually.
+ * 		  tfw_connection_new() must call it manually;
  */
 typedef struct {
 	SsProto			proto;
+	struct list_head	list;
+	struct list_head	msg_queue;
 
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
-	struct list_head	msg_queue;
+	struct sock		*sock;
 
 	void (*sk_destruct)(struct sock *sk);
 } TfwConnection;
@@ -96,8 +103,7 @@ typedef struct {
 /* Connection downcalls. */
 TfwConnection *tfw_connection_new(struct sock *sk, int type,
 				  void (*destructor)(struct sock *s));
-void tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg);
-void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
+void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 

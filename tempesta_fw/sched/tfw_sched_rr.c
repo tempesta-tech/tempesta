@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,11 +23,11 @@
 
 #include "debugfs.h"
 #include "log.h"
-#include "sched.h"
+#include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
 #define RR_BANNER "tfw_sched_rr: "
@@ -98,9 +99,12 @@ static DEFINE_SPINLOCK(rr_write_lock);
  *    and del() sets deleted elements to NULL. If this invariant is violated,
  *    it may lock up the system or return a pointer to deleted server.
  */
-static TfwServer *
-tfw_sched_rr_get_srv(TfwMsg *msg)
+static TfwConnection *
+tfw_sched_rr_get_srv(TfwMsg *msg, TfwSrvGroup *sg)
 {
+	return 0;
+/* FIXME #85 rework the function. */
+#if 0
 	unsigned int n;
 	TfwServer *srv;
 	RrSrvList *lst = &__get_cpu_var(rr_srv_list);
@@ -112,6 +116,7 @@ tfw_sched_rr_get_srv(TfwMsg *msg)
 	} while (unlikely(n > 1 && !srv));
 
 	return srv;
+#endif
 }
 
 static int
@@ -133,6 +138,8 @@ find_server_idx(TfwServer *srv)
 	return -1;
 }
 
+/* FIXME #85 the interfaces reworked */
+#if 0
 /**
  * Add a server to the end of the round-robin list.
  *
@@ -206,6 +213,7 @@ tfw_sched_rr_del_srv(TfwServer *srv)
 
 	return ret;
 }
+#endif
 
 static int
 tfw_sched_rr_debugfs_hook(bool input, char *buf, size_t size)
@@ -216,7 +224,8 @@ tfw_sched_rr_debugfs_hook(bool input, char *buf, size_t size)
 
 	/* Turn the current server on write(). */
 	if (input) {
-		tfw_sched_rr_get_srv(NULL);
+		// FIXME #85
+		// tfw_sched_rr_get_srv(NULL);
 		return 0;
 	}
 
@@ -246,28 +255,27 @@ tfw_sched_rr_debugfs_hook(bool input, char *buf, size_t size)
 	return pos;
 }
 
+static TfwScheduler tfw_sched_rr = {
+	.name		= "round-robin",
+	.list		= LIST_HEAD_INIT(tfw_sched_rr.list),
+	.sched_srv	= tfw_sched_rr_get_srv
+};
+
 int
 tfw_sched_rr_init(void)
 {
-	static TfwScheduler tfw_sched_rr_mod = {
-		.name = "round-robin",
-		.get_srv = tfw_sched_rr_get_srv,
-		.add_srv = tfw_sched_rr_add_srv,
-		.del_srv = tfw_sched_rr_del_srv
-	};
-
 	RR_LOG("init\n");
 
 	tfw_debugfs_bind("/sched/rr/state", tfw_sched_rr_debugfs_hook);
 
-	return tfw_sched_register(&tfw_sched_rr_mod);
+	return tfw_sched_register(&tfw_sched_rr);
 }
 module_init(tfw_sched_rr_init);
 
 void
 tfw_sched_rr_exit(void)
 {
-	tfw_sched_unregister();
+	tfw_sched_unregister(&tfw_sched_rr);
 }
 module_exit(tfw_sched_rr_exit);
 

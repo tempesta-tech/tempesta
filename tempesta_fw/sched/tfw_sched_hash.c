@@ -6,6 +6,7 @@
  * and uses the hash value as an index in the array of servers added with
  * the tfw_sched_add_srv() function. Therefore, requests with the same URI and
  * Host are mapped to the same server (unless the list of servers is changed).
+ * FIXME #85 update the comment.
  *
  * TODO:
  *  - Replace the hash function (currnlty djb2 is used).
@@ -13,6 +14,7 @@
  *    to lists of TfwServer objects. The code should be extracted and re-used.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -37,7 +39,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
 
@@ -69,9 +71,12 @@ find_srv_idx(TfwServer *srv)
 	return -1;
 }
 
-static TfwServer *
-tfw_sched_hash_get_srv(TfwMsg *msg)
+static TfwConnection *
+tfw_sched_hash_schedule(TfwMsg *msg, TfwSrvGroup *sg)
 {
+	return NULL;
+/* FIXME #85 interfaces changed, rework the function. */
+#if 0
 	TfwServer *srv;
 	int n;
 
@@ -87,8 +92,11 @@ tfw_sched_hash_get_srv(TfwMsg *msg)
 	} while (!srv);
 
 	return srv;
+#endif
 }
 
+/* FIXME #85: generic server code is responsible for servers manipulation now. */
+#if 0
 static int
 tfw_sched_hash_add_srv(TfwServer *srv)
 {
@@ -130,26 +138,26 @@ tfw_sched_hash_del_srv(TfwServer *srv)
 
 	return ret;
 }
+#endif
+
+static TfwScheduler tfw_sched_hash = {
+	.name		= "hash",
+	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
+	.sched_srv	= tfw_sched_hash_schedule,
+};
 
 int
 tfw_sched_hash_init(void)
 {
-	static TfwScheduler tfw_sched_hash_mod = {
-		.name = "hash",
-		.get_srv = tfw_sched_hash_get_srv,
-		.add_srv = tfw_sched_hash_add_srv,
-		.del_srv = tfw_sched_hash_del_srv
-	};
-
 	LOG("init\n");
 
-	return tfw_sched_register(&tfw_sched_hash_mod);
+	return tfw_sched_register(&tfw_sched_hash);
 }
 module_init(tfw_sched_hash_init);
 
 void
 tfw_sched_hash_exit(void)
 {
-	tfw_sched_unregister();
+	tfw_sched_unregister(&tfw_sched_hash);
 }
 module_exit(tfw_sched_hash_exit);

@@ -4,7 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,89 +22,185 @@
  */
 #include <linux/slab.h>
 
-#include "addr.h"
 #include "log.h"
 #include "sched.h"
 #include "server.h"
 
+/* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
+/* Server groups management. */
+static LIST_HEAD(sg_list);
+static DEFINE_RWLOCK(sg_lock);
+
+/**
+ * Add the connectin to the server connections list and bind it with the server.
+ */
+void
+tfw_server_bind_conn(TfwServer *srv, TfwConnection *conn)
+{
+	tfw_peer_add_conn((TfwPeer *)srv, &conn->list);
+	conn->peer = (TfwPeer *)srv;
+}
 
 void
-tfw_destroy_server(struct sock *s)
+tfw_destroy_server(TfwServer *srv)
 {
-	TfwConnection *conn = s->sk_user_data;
-	TfwServer *srv;
-
-	BUG_ON(!conn);
-	srv = (TfwServer *)conn->peer;
-
-	/* The call back can be called twise bou our and Linux code. */
-	if (unlikely(!srv))
-		return;
-
-	TFW_DBG("Destroy server socket %p\n", s);
-
-	if (tfw_sched_del_srv(srv))
-		TFW_WARN("Try to delete orphaned server from"
-			 " requests scheduler");
-
-	conn->peer = NULL;
+	/* Close all connections before free the server! */
+	BUG_ON(!list_empty(&srv->conn_list));
 
 	kmem_cache_free(srv_cache, srv);
-
-	conn->sk_destruct(s);
 }
 
 TfwServer *
-tfw_create_server(struct sock *sk, TfwConnection *conn)
+tfw_create_server(TfwConnection *conn, const TfwAddr *addr)
 {
 	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC);
 	if (!srv)
 		return NULL;
 
-	/*
-	 * Bind connectin with the server.
-	 * Must be done before we publish the server to scheduler.
-	 */
-	srv->sock = sk;
-	conn->peer = (TfwPeer *)srv;
+	tfw_peer_init((TfwPeer *)srv, addr);
+	INIT_LIST_HEAD(&srv->list);
+	srv->flags = TFW_SRV_F_ON;
 
-	if (tfw_sched_add_srv(srv)) {
-		TFW_ERR("Can't add a server to requests scheduler\n");
-		kmem_cache_free(srv_cache, srv);
-		return NULL;
-	}
+	if (conn)
+		tfw_server_bind_conn(srv, conn);
 
 	return srv;
 }
 
-int
-tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr)
+TfwSrvGroup *
+tfw_sg_new(gfp_t flags)
 {
-	int ret = 0;
-	int len = sizeof(*addr);
+	TfwSrvGroup *sg = kmalloc(sizeof(TfwSrvGroup), flags);
 
-	memset(addr, 0, len);
-	ret = kernel_getpeername(srv->sock->sk_socket, &addr->sa, &len);
+	if (!sg)
+		return NULL;
 
-	return ret;
+	INIT_LIST_HEAD(&sg->list);
+	INIT_LIST_HEAD(&sg->srv_list);
+	sg->lock = __RW_LOCK_UNLOCKED(sg->lock);
+	sg->sched = NULL;
+	sg->sched_data = NULL;
+
+	write_lock(&sg_lock);
+	list_add(&sg->list, &sg_list);
+	write_unlock(&sg_lock);
+
+	return sg;
 }
-EXPORT_SYMBOL(tfw_server_get_addr);
 
-int
-tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
+void
+tfw_sg_free(TfwSrvGroup *sg)
 {
-	TfwAddr addr;
-	char addr_str_buf[TFW_ADDR_STR_BUF_SIZE];
+	read_lock(&sg->lock);
+	if (!list_empty(&sg->srv_list))
+		TFW_WARN("Free non-empty server group\n");
+	read_unlock(&sg->lock);
 
-	BUG_ON(!srv || !buf || !buf_size);
+	write_lock(&sg_lock);
+	list_del(&sg->list);
+	write_unlock(&sg_lock);
 
-	tfw_server_get_addr(srv, &addr);
-	tfw_addr_ntop(&addr, addr_str_buf, sizeof(addr_str_buf));
-
-	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
+	kfree(sg);
 }
-EXPORT_SYMBOL(tfw_server_snprint);
+
+/**
+ * Add a server to the server group. */
+void
+tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
+{
+	write_lock(&sg->lock);
+	list_add(&sg->srv_list, &srv->list);
+	write_unlock(&sg->lock);
+}
+
+void
+tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
+{
+	write_lock(&sg->lock);
+	list_del(&srv->list);
+	write_unlock(&sg->lock);
+}
+
+/**
+ * FIXME #85 use the function in configuration routines to bind
+ * schedulers with server groups.
+ */
+int
+tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched)
+{
+	TfwScheduler *s = tfw_sched_lookup(sched);
+
+	if (!s)
+		return -EINVAL;
+
+	sg->sched = s;
+	if (s->add_grp)
+		s->add_grp(sg);
+
+	return 0;
+}
+
+/**
+ * Iterate over all server groups and call @cb for each server.
+ * @cb is called under spin-lock, so can't sleep.
+ * @cb is considered as updater, so write lock is used.
+ */
+int
+tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
+{
+	int r = 0;
+	TfwServer *srv;
+	TfwSrvGroup *sg;
+
+	write_lock(&sg_lock);
+
+	list_for_each_entry(sg, &sg_list, list) {
+		write_lock(&sg->lock);
+
+		list_for_each_entry(srv, &sg->list, list) {
+			r = cb(srv);
+			if (r) {
+				write_unlock(&sg->lock);
+				goto out;
+			}
+		}
+
+		write_unlock(&sg->lock);
+	}
+
+out:
+	write_unlock(&sg_lock);
+
+	return r;
+}
+
+/**
+ * Release all server groups with all servers.
+ */
+void
+tfw_sg_release_all(void)
+{
+	TfwServer *srv, *srv_tmp;
+	TfwSrvGroup *sg, *sg_tmp;
+
+	write_lock(&sg_lock);
+
+	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
+		write_lock(&sg->lock);
+
+		list_for_each_entry_safe(srv, srv_tmp, &sg->list, list)
+			tfw_destroy_server(srv);
+
+		write_unlock(&sg->lock);
+
+		kfree(sg);
+	}
+
+	INIT_LIST_HEAD(&sg_list);
+
+	write_unlock(&sg_lock);
+}
 
 int __init
 tfw_server_init(void)
