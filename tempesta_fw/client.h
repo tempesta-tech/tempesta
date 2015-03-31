@@ -21,11 +21,21 @@
 #ifndef __TFW_CLIENT_H__
 #define __TFW_CLIENT_H__
 
-#include "peer.h"
+#include "connection.h"
 
-typedef TfwPeer TfwClient;
+/**
+ * Client descriptor.
+ *
+ * @conn_users		- connections reference counter.
+ * 			  The client is released, when the counter reaches zero:
+ * 			  no connections to the srever - no client for us :)
+ */
+typedef struct {
+	TFW_PEER_COMMON;
+	atomic_t	conn_users;
+} TfwClient;
 
-TfwClient *tfw_create_client(void);
-void tfw_destroy_client(struct sock *s);
+TfwClient *tfw_create_client(TfwConnection *conn, const TfwAddr *addr);
+void tfw_client_put(struct sock *s);
 
 #endif /* __TFW_CLIENT_H__ */
