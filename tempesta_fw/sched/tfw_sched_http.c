@@ -72,7 +72,7 @@
  *     and parsed into the global list of back-end servers (see above).
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -103,7 +103,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
 #define BANNER "tfw_sched_http: "
@@ -193,19 +193,14 @@ alloc_srv_set(TfwPool *pool, size_t max_srv_n)
 static TfwServer *
 resolve_addr(const TfwAddr *addr)
 {
-	int i, ret;
-	TfwAddr curr_addr;
+	int i;
 	TfwServer *curr_srv;
 	TfwServer *out_srv = NULL;
 
 	spin_lock_bh(&added_servers_lock);
 
 	tfw_ptrset_for_each(curr_srv, i, added_servers) {
-		ret = tfw_server_get_addr(curr_srv, &curr_addr);
-		if (ret) {
-			LOG("Can't get address of the server: %p\n", curr_srv);
-		}
-		else if (tfw_addr_eq(addr, &curr_addr)) {
+		if (tfw_addr_eq(addr, &curr_srv->addr)) {
 			out_srv = curr_srv;
 			break;
 		}
@@ -350,9 +345,12 @@ rebuild_match_list(void)
  * --------------------------------------------------------------------------
  */
 
-static TfwServer *
-tfw_sched_http_get_srv(TfwMsg *msg)
+static TfwConnection *
+tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
 {
+	return NULL;
+/* FIXME #85 rework the function */
+#if 0
 	TfwHttpMatchList *mlst;
 	TfwSchedHttpMatchEntry *entry;
 	TfwServer *srv = NULL;
@@ -373,9 +371,34 @@ tfw_sched_http_get_srv(TfwMsg *msg)
 		ERR("A matching server is not found\n");
 
 	return srv;
+#endif
 }
 
+// FIXME #85: TODO
+// XXX the scheduler (as well as other schedulers except dummy) is responsible
+// for server failovering inside a server group. While connection failovering
+// is done in sock_srv.c
+static TfwConnection *
+tfw_sched_http_sched_grp(TfwMsg *msg)
+{
+	TfwSrvGroup *sg = NULL;
 
+	// FIXME #85 determine the server group
+	BUG();
+
+	return sg->sched->sched_srv(msg, sg);
+}
+
+static void
+tfw_sched_http_add_grp(TfwSrvGroup *sg)
+{
+	// FIXME #85 add the group to sime internal stucture
+	// (e.g. array which binds HTTP field values with the target server
+	// group), so tfw_sched_http_grp() can quickly find the group.
+}
+
+// FIXME #85 move the function to somewhere else
+#if 0
 static int
 tfw_sched_http_add_srv(TfwServer *srv)
 {
@@ -413,12 +436,15 @@ tfw_sched_http_del_srv(TfwServer *srv)
 
 	return ret;
 }
+#endif
 
-static TfwScheduler tfw_sched_http_mod_sched = {
-	.name = "http",
-	.get_srv = tfw_sched_http_get_srv,
-	.add_srv = tfw_sched_http_add_srv,
-	.del_srv = tfw_sched_http_del_srv
+static TfwScheduler tfw_sched_http = {
+	.name		= "http",
+	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
+	.add_grp	= tfw_sched_http_add_grp,
+	// FIXME #85: define other callbacks
+	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_grp	= tfw_sched_http_sched_grp,
 };
 
 /*
@@ -663,7 +689,7 @@ tfw_sched_http_init(void)
 		goto err_cfg_register;
 	}
 
-	ret = tfw_sched_register(&tfw_sched_http_mod_sched);
+	ret = tfw_sched_register(&tfw_sched_http);
 	if (ret) {
 		ERR("Can't register scheduler module\n");
 		goto err_sched_register;
@@ -682,7 +708,7 @@ err_alloc:
 void
 tfw_sched_http_exit(void)
 {
-	tfw_sched_unregister();
+	tfw_sched_unregister(&tfw_sched_http);
 	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
 	kfree(added_servers);
 }

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * TCP/IP stack hooks and socket routines to handle server traffic.
+ * Handling server connections.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
@@ -20,6 +20,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
 /**
  * TODO
  * -- [connection pool, reverse proxy only] establish N connections with each server
@@ -28,6 +29,11 @@
  *    (transparent) proxy (probably we need to switch on/off functionality for
  *    connections pool)
  * -- FIXME synchronize with socket operations.
+ */
+/*
+ * TODO In case of forward proxy manage connections to servers
+ * we can have too many servers, so we need to prune low-active
+ * connections from the connection pool.
  */
 #include <linux/net.h>
 #include <linux/kthread.h>
@@ -41,22 +47,20 @@
 #include "log.h"
 #include "server.h"
 
-
 /* The thread that connects to servers in background. */
 static struct task_struct *tfw_sconnd_task = NULL;
 DECLARE_WAIT_QUEUE_HEAD(tfw_sconnd_wq);
 
-#define TFW_SCONND_THREAD_NAME "tfw_sconnd"
-#define TFW_SCONND_RETRY_INTERVAL 1000
+#define TFW_SCONND_THREAD_NAME		"tfw_sconnd"
+#define TFW_SCONND_RETRY_INTERVAL	1000
 
+// FIXME #87: this is temporal strut, abandon the stuff below.
 typedef struct {
-	struct list_head list;
-	TfwAddr addr;
-	struct socket *socket;  /* NULL when not connected. */
+	struct list_head	list;
+	struct socket		*sock;  /* NULL when not connected. */
 } TfwServerSockEntry;
 
-/* The list of all known servers (either connected or disconnected). */
-struct list_head server_socks = LIST_HEAD_INIT(server_socks);
+static LIST_HEAD(server_socks);
 
 #define FOR_EACH_SOCK(entry) \
 	list_for_each_entry(entry, &server_socks, list)
@@ -64,103 +68,63 @@ struct list_head server_socks = LIST_HEAD_INIT(server_socks);
 #define FOR_EACH_SOCK_SAFE(entry, tmp) \
 	list_for_each_entry_safe(entry, tmp, &server_socks, list)
 
-/**
- * Connect to the back-end server.
- *
- * @sock  The output socket to be allocated and connected.
- *        The pointer is set to allocated socket when connected successfully
- *        and NULLed when connection is failed.
- *
- * Return: an error code, zero on success.
- */
-static int
-tfw_server_connect(struct socket **sock, const TfwAddr *addr)
+static struct sock *
+tfw_server_connect(TfwAddr *addr)
 {
-	static SsProto dummy_proto = {
-		.type = TFW_FSM_HTTP,
-	};
-
-	TfwServer *srv;
-	TfwConnection *conn;
-	struct sock *sk;
+	TfwServerSockEntry *se;
 	struct sockaddr sa = addr->sa;
 	sa_family_t family = addr->sa.sa_family;
 	size_t sza = tfw_addr_sa_len(addr);
 	int r;
 
-	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, sock);
+	se = kzalloc(sizeof(*se), GFP_ATOMIC);
+	if (!se) {
+		TFW_ERR("Cannot allocate socket entry\n");
+		return NULL;
+	}
+	INIT_LIST_HEAD(&se->list);
+
+	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, &se->sock);
 	if (r) {
 		TFW_ERR("Can't create back-end connections socket (%d)\n", r);
-		return r;
+		goto err_se_free;
 	}
 
-	r = kernel_connect(*sock, &sa, sza, 0);
+	r = kernel_connect(se->sock, &sa, sza, 0);
 	if (r)
-		goto err_sock_destroy;
-	sk = (*sock)->sk;
+		goto err_connect;
 
-	ss_set_callbacks(sk);
+	ss_set_callbacks(se->sock->sk);
 
-	sk->sk_user_data = &dummy_proto;
+	list_add(&se->list, &server_socks);
 
-	conn = tfw_connection_new(sk, Conn_Srv, tfw_destroy_server);
-	if (r) {
-		TFW_ERR("Cannot create new server connection\n");
-		goto err_conn_create;
-	}
+	return se->sock->sk;
 
-	/*
-	 * TODO only one server connection is established now.
-	 * Create N connections to each server for redundancy,
-	 * so we shuldn't allocate a new server for each connection.
-	 */
-	srv = tfw_create_server(sk, conn);
-	if (!srv) {
-		char buf[TFW_ADDR_STR_BUF_SIZE];
-		tfw_addr_ntop(addr, buf, sizeof(buf));
-		TFW_ERR("Can't create server descriptor for %s\n", buf);
-		goto err_sock_destroy;
-	}
-
-	return 0;
-
-err_sock_destroy:
-	tfw_destroy_server(sk);
-err_conn_create:
-	sock_release(*sock);
-	*sock = NULL;
-	return r;
+err_connect:
+	sock_release(se->sock);
+err_se_free:
+	kfree(se);
+	return NULL;
 }
 
-/**
- * Connect not yet connected server sockets.
- *
- * Return: true if all sockets are connected, false otherwise.
- */
-static bool
-connect_server_socks(void)
+static int
+tfw_server_conn_failover(TfwServer *srv)
 {
-	int ret;
-	TfwServerSockEntry *entry;
-	bool all_socks_connected = true;
-	
-	FOR_EACH_SOCK(entry) {
-		if (!entry->socket) {
-			ret = tfw_server_connect(&entry->socket, &entry->addr);
+	TfwConnection *conn;
 
-			if (!ret) {
-				TFW_LOG_ADDR("Connected to server",
-					     &entry->addr);
-			} else {
-				all_socks_connected = false;
-				/* We should leave NULL if not connected. */
-				BUG_ON(entry->socket);
-			}
-		}
+	BUG_ON(list_empty(&srv->conn_list));
 
-	}
+	conn = list_first_entry(&srv->conn_list, TfwConnection, list);
 
-	return all_socks_connected;
+	/* FIXME #85 who sets @sock to NULL on connection failure? */
+	if (likely(conn->sock))
+		return 0;
+
+	conn->sock = tfw_server_connect(&srv->addr);
+	if (!conn->sock)
+		return -EINVAL;
+
+	return 0;
 }
 
 static void
@@ -169,8 +133,8 @@ release_server_socks(void)
 	TfwServerSockEntry *entry;
 
 	FOR_EACH_SOCK(entry) {
-		if (entry->socket)
-			sock_release(entry->socket);
+		if (entry->sock)
+			sock_release(entry->sock);
 	}
 }
 
@@ -185,27 +149,28 @@ release_server_socks(void)
  * Note: If a server connection is lost for some reason, the thread doesn't
  * restore it automatically.
  *
+ * TODO (#83) replace kernel_connect() in tfw_server_connect() and call it
+ * on TCP events, so the thread should be abandoned.
+ * In fact, the approach with the thread is simply wron and inconsistent
+ * with Syncronous Sockets technology, it won't work properly in context of
+ * #76 (massive back-end servers farm).
  */
 static int
 tfw_sconnd(void *data)
 {
-
+	int r;
 	LIST_HEAD(socks_list);
-	bool all_socks_connected = false;
 
 	set_freezable();
 	
 	do {
-		long timeout = all_socks_connected
-			       ? MAX_SCHEDULE_TIMEOUT
-			       : TFW_SCONND_RETRY_INTERVAL;
-
 		wait_event_freezable_timeout(tfw_sconnd_wq,
 					     kthread_should_stop(),
-		                             timeout);
+		                             MAX_SCHEDULE_TIMEOUT);
 
-		if (!all_socks_connected)
-			all_socks_connected = connect_server_socks();
+		r = tfw_sg_for_each_srv(tfw_server_conn_failover);
+		if (r)
+			TFW_WARN("Cannot failover server connection(s)\n");
 	} while (!kthread_should_stop());
 
 	TFW_LOG("%s: stopping\n", TFW_SCONND_THREAD_NAME);
@@ -247,39 +212,83 @@ stop_sconnd(void)
 static int
 add_server_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r;
 	const char *raw_addr;
-	TfwAddr parsed_addr;
-	TfwServerSockEntry *be;
+	TfwSrvGroup *sg;
+	TfwServer *srv;
+	TfwConnection *conn;
+	struct sock *sk;
+	TfwAddr addr;
 
-	r = tfw_cfg_check_single_val(ce);
-	if (r)
+	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 
 	raw_addr = ce->vals[0];
-	r = tfw_addr_pton(raw_addr, &parsed_addr);
-	if (r)
+	if (tfw_addr_pton(raw_addr, &addr))
 		return -EINVAL;
 
-	be = kzalloc(sizeof(*be), GFP_KERNEL);
-	be->addr = parsed_addr;
-	list_add_tail(&be->list, &server_socks);
+	sk = tfw_server_connect(&addr);
+	if (!sk)
+		return -ENOTCONN;
+
+	/*
+	 * Create a server group for each server now.
+	 * FIXME #85 Allocate server groups in proper way.
+	 */
+	sg = tfw_sg_new(GFP_KERNEL);
+	if (!sg)
+		goto err_sg;
+
+	conn = tfw_connection_new(sk, Conn_HttpSrv, NULL);
+	if (!conn) {
+		TFW_ERR("Cannot create new server connection\n");
+		goto err_conn_create;
+	}
+
+	/*
+	 * FIXME #85,#5
+	 * Only one server connection is established now.
+	 * Create N connections to each server for redundancy,
+	 * so we shuldn't allocate a new server for each connection.
+	 */
+	srv = tfw_create_server(conn, &addr);
+	if (!srv) {
+		char buf[TFW_ADDR_STR_BUF_SIZE];
+		tfw_addr_ntop(&addr, buf, sizeof(buf));
+		TFW_ERR("Can't create server descriptor for %s\n", buf);
+		goto err_srv;
+	}
+
+	tfw_sg_add(sg, srv);
 
 	return 0;
+
+err_srv:
+	/*
+	 * TODO check that tfw_connection_close() is called on
+	 * socket destructor.
+	 */
+err_conn_create:
+	tfw_sg_free(sg);
+err_sg:
+	ss_close(sk);
+	/* FIXME #87: TfwServerSockEntry memory leak. */
+	return -ENOMEM;
 }
 
 static void
 release_server_entries(TfwCfgSpec *cs)
 {
+	/* FIXME #85: abandon the stuff. */
 	TfwServerSockEntry *entry, *tmp;
-
 	FOR_EACH_SOCK_SAFE(entry, tmp) {
 		kfree(entry);
 	}
-
 	INIT_LIST_HEAD(&server_socks);
+
+	tfw_sg_release_all();
 }
 
+// FIXME #85 rework the configuration to create server groups here
 TfwCfgMod tfw_sock_server_cfg_mod = {
 	.name = "sock_backend",
 	.start = start_sconnd,

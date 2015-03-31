@@ -23,4 +23,5 @@ ifneq ($(NDEBUG), 1)
 EXTRA_CFLAGS += -DDEBUG -O0 -g3
 endif
 
-obj-m = tfw_sched_dummy.o tfw_sched_http.o tfw_sched_rr.o
+# FIXME #85: disable HTTP and RR schedulers
+obj-m = tfw_sched_dummy.o # tfw_sched_http.o tfw_sched_rr.o

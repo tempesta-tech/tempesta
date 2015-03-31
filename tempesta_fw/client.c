@@ -32,35 +32,40 @@ static struct kmem_cache *cli_cache;
  * Used as socket destructor callback.
  */
 void
-tfw_destroy_client(struct sock *s)
+tfw_client_put(struct sock *s)
 {
 	TfwConnection *conn = s->sk_user_data;
-	TfwClient *cli;
+	TfwClient *clnt;
 
 	BUG_ON(!conn);
-	cli = (TfwClient *)conn->peer;
+	clnt =(TfwClient *)conn->peer;
 
-	/* The call back can be called twise bou our and Linux code. */
-	if (unlikely(!cli))
-		return;
+	list_del(&conn->list);
 
-	TFW_DBG("Destroy client socket %p\n", s);
+	if (atomic_dec_and_test(&clnt->conn_users)) {
+		BUG_ON(!list_empty(&clnt->conn_list));
+		kmem_cache_free(cli_cache, clnt);
+	}
 
-	conn->peer = NULL;
-
-	kmem_cache_free(cli_cache, cli);
-
-	conn->sk_destruct(s);
+	if (conn->sk_destruct)
+		conn->sk_destruct(s);
 }
 
 TfwClient *
-tfw_create_client(void)
+tfw_create_client(TfwConnection *conn, const TfwAddr *addr)
 {
-	TfwClient *c = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
-	if (!c)
+	TfwClient *clnt = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
+	if (!clnt)
 		return NULL;
 
-	return c;
+	tfw_peer_init((TfwPeer *)clnt, addr);
+
+	tfw_peer_add_conn((TfwPeer *)clnt, &conn->list);
+	conn->peer = (TfwPeer *)clnt;
+
+	atomic_set(&clnt->conn_users, 1);
+
+	return clnt;
 }
 
 int __init

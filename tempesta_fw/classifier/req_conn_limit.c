@@ -257,9 +257,8 @@ static int
 rcl_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	TfwConnection *c = (TfwConnection *)obj;
-	TfwClient *clnt = (TfwClient *) c->peer;
 
-	return rcl_account_do(clnt->sock, rcl_req_limit);
+	return rcl_account_do(c->sock, rcl_req_limit);
 }
 
 static TfwClassifier rcl_class_ops = {
