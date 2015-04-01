@@ -673,8 +673,7 @@ frang_init(void)
 	}
 
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_MSG, 0,
-				   TFW_FSM_FRANG);
+				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG, 0);
 	if (r) {
 		TFW_ERR("frang: can't register gfsm hook: req\n");
 		goto err_hook;
