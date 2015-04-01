@@ -321,24 +321,6 @@ frang_http_body_len_limit(const TfwHttpReq *req)
 }
 
 static int
-frang_http_len_limit(const TfwHttpReq *req)
-{
-	int r;
-
-	r = frang_http_uri_len_limit(req);
-	if (r)
-		return r;
-	r = frang_http_field_len_limit(req);
-	if (r)
-		return r;
-	r = frang_http_body_len_limit(req);
-	if (r)
-		return r;
-
-	return 0;
-}
-
-static int
 frang_http_methods_check(const TfwHttpReq *req)
 {
 	unsigned long m = (1 << req->method);
@@ -441,7 +423,13 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	r = frang_http_methods_check(req);
 	if (r)
 		return r;
-	r = frang_http_len_limit(req);
+	r = frang_http_uri_len_limit(req);
+	if (r)
+		return r;
+	r = frang_http_field_len_limit(req);
+	if (r)
+		return r;
+	r = frang_http_body_len_limit(req);
 	if (r)
 		return r;
 	r = frang_http_ct_check(req);
