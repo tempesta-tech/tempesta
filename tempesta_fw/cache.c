@@ -465,7 +465,12 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 
 	node = tfw_cache_key_node(key);
 	if (node != numa_node_id()) {
-		/* Schedule the cache entry to the right node. */
+		/*
+		 * Schedule the cache entry to the right node.
+		 *
+		 * TODO work queues are slow, use common kernel threads.
+		 * Probably threading should be at TDB side...
+		 */
 		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
 		if (!cw)
 			goto process_locally;
