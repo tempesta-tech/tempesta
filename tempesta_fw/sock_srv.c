@@ -64,24 +64,33 @@ struct list_head server_socks = LIST_HEAD_INIT(server_socks);
 #define FOR_EACH_SOCK_SAFE(entry, tmp) \
 	list_for_each_entry_safe(entry, tmp, &server_socks, list)
 
-/**
- * Connect to the back-end server.
+SsHooks ss_server_hooks;
+
+/*
+ * To avoid sleeping in connect() call, a connect is split in two parts.
+ * First, a socket is allocated, and a connect is initiated on the socket
+ * in a non-blocking mode. Control is returned to the caller immediately.
+ * However, that doesn't mean the connection has been established to the
+ * remote server. The connect will be completed a bit later, after 3WHS.
+ * That's when the second part of connect is triggered as the connection
+ * is established successfully. At that time we know that we're connected
+ * to the remote server. That is when we can start using the socket and
+ * the connection in Tempesta.
+ */
+/*
+ * Initiate a connect to back-end server.
  *
  * @sock  The output socket to be allocated and connected.
- *        The pointer is set to allocated socket when connected successfully
- *        and NULLed when connection is failed.
+ *        The pointer is set to the allocated socket when connect
+ *        is initiated successfully, and NULLed when that fails.
  *
- * Return: an error code, zero on success.
+ * Return: an error code, or zero on success.
  */
 static int
 tfw_server_connect(struct socket **sock, const TfwAddr *addr)
 {
-	static SsProto dummy_proto = {
-		.type = TFW_FSM_HTTP,
-	};
+	static SsProto dummy_proto = { 0 };
 
-	TfwServer *srv;
-	TfwConnection *conn;
 	struct sock *sk;
 	struct sockaddr sa = addr->sa;
 	sa_family_t family = addr->sa.sa_family;
@@ -93,18 +102,43 @@ tfw_server_connect(struct socket **sock, const TfwAddr *addr)
 		TFW_ERR("Can't create back-end connections socket (%d)\n", r);
 		return r;
 	}
-
-	r = kernel_connect(*sock, &sa, sza, 0);
-	if (r)
-		goto err_sock_destroy;
 	sk = (*sock)->sk;
 
+	/*
+	 * TODO: Specify an actual protocol instead of static HTTP.
+	 * That would also require creating multiple dummy_proto{}.
+	 */
+	ss_set_proto(*sock, &dummy_proto, TFW_FSM_HTTP, &ss_server_hooks);
 	ss_set_callbacks(sk);
+	TFW_DBG("Created server socket sk=%p\n", sk);
 
-	sk->sk_user_data = &dummy_proto;
+	r = ss_connect(*sock, &sa, sza, 0);
+	if (r) {
+		TFW_DBG("Connect error on server socket sk=%p, r=%d\n", sk, r);
+		sock_release(*sock);
+		*sock = NULL;
+		return r;
+	}
+
+	return 0;
+}
+
+/*
+ * Complete a connect to back-end server
+ *
+ * This is the second part of the connect process. This function
+ * is called asynchronously when the connection gets established.
+ * The purpose is to set up whatever is necessary in Tempesta on
+ * an established connection to a back-end server.
+ */
+static int
+tfw_server_connect_complete(struct sock *sk)
+{
+	TfwServer *srv;
+	TfwConnection *conn;
 
 	conn = tfw_connection_new(sk, Conn_Srv, tfw_destroy_server);
-	if (r) {
+	if (!conn) {
 		TFW_ERR("Cannot create new server connection\n");
 		goto err_conn_create;
 	}
@@ -116,20 +150,36 @@ tfw_server_connect(struct socket **sock, const TfwAddr *addr)
 	 */
 	srv = tfw_create_server(sk, conn);
 	if (!srv) {
+		TfwAddr addr;
+		int len = sizeof(addr);
 		char buf[TFW_ADDR_STR_BUF_SIZE];
-		tfw_addr_ntop(addr, buf, sizeof(buf));
+
+		memset(&addr, 0, len);
+		kernel_getpeername(sk->sk_socket, &addr.sa, &len);
+		tfw_addr_ntop(&addr, buf, sizeof(buf));
 		TFW_ERR("Can't create server descriptor for %s\n", buf);
 		goto err_sock_destroy;
 	}
+	TFW_DBG("Connected server socket sk=%p\n", sk);
 
 	return 0;
 
 err_sock_destroy:
 	tfw_destroy_server(sk);
 err_conn_create:
-	sock_release(*sock);
-	*sock = NULL;
-	return r;
+	sock_release(sk->sk_socket);
+	return -1;
+}
+
+static int
+tfw_server_connection_close(struct sock *sk)
+{
+	TfwConnection *conn = sk->sk_user_data;
+
+	TFW_DBG("Close server socket %p, conn=%p\n", sk, conn);
+	tfw_connection_close(sk);
+
+	return 0;
 }
 
 /**
@@ -279,6 +329,15 @@ release_server_entries(TfwCfgSpec *cs)
 
 	INIT_LIST_HEAD(&server_socks);
 }
+
+SsHooks ss_server_hooks = {
+	.connection_new		= tfw_server_connect_complete,
+	.connection_drop	= tfw_server_connection_close,
+	.connection_close	= tfw_server_connection_close,
+	.connection_recv	= tfw_connection_recv,
+	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
+	.postpone_skb		= tfw_connection_postpone_skb,
+};
 
 TfwCfgMod tfw_sock_server_cfg_mod = {
 	.name = "sock_backend",

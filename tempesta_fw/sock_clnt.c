@@ -37,10 +37,12 @@
 #include "tempesta_fw.h"
 #include "addr.h"
 #include "cfg.h"
+#include "classifier.h"
 #include "connection.h"
 #include "filter.h"
 #include "http.h"
 #include "log.h"
+#include "client.h"
 
 #include "sync_socket.h"
 
@@ -55,6 +57,8 @@ static SsProto protos[LISTEN_SOCKS_MAX];
 #define FOR_EACH_SOCK(sock, i) \
 	for (i = 0;  (sock = listen_socks[i], i < listen_socks_n);  ++i)
 
+SsHooks ss_client_hooks;
+
 /**
  * Parse IP address, create a socket and bind it with the address,
  * but not yet start listening.
@@ -63,7 +67,6 @@ static int
 add_listen_sock(TfwAddr *addr, int type)
 {
 	int r;
-	SsProto *proto;
 	struct socket *s;
 
 	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
@@ -77,6 +80,9 @@ add_listen_sock(TfwAddr *addr, int type)
 		TFW_ERR("can't create socket (err: %d)\n", r);
 		return r;
 	}
+	ss_set_proto(s, &protos[listen_socks_n], type, &ss_client_hooks);
+	ss_set_listener(s);
+	ss_tcp_set_listen(s);
 
 	inet_sk(s->sk)->freebind = 1;
 	s->sk->sk_reuse = 1;
@@ -87,15 +93,68 @@ add_listen_sock(TfwAddr *addr, int type)
 		return r;
 	}
 
-	proto = &protos[listen_socks_n];
-	proto->type = type;
-	BUG_ON(proto->listener);
-	ss_tcp_set_listen(s, proto);
 	TFW_DBG("created front-end socket: sk=%p\n", s->sk);
 
 	BUG_ON(listen_socks[listen_socks_n]);
 	listen_socks[listen_socks_n] = s;
 	++listen_socks_n;
+
+	return 0;
+}
+
+static int
+tfw_client_connect_complete(struct sock *sk)
+{
+	TfwClient *cli;
+	TfwConnection *conn;
+
+	/* Classify the connection before any resource allocations. */
+	if (tfw_classify_conn_estab(sk) == TFW_BLOCK)
+		return -EPERM;
+
+	/*
+	 * TODO: currently there is one to one socket-client
+	 * mapping, which isn't appropriate since a client can
+	 * have more than one socket with the server.
+	 *
+	 * We have to lookup the client by the socket and create
+	 * a new one* only if it's really new.
+	 */
+	cli = tfw_create_client();
+	if (!cli) {
+		TFW_ERR("Can't allocate a new client");
+		ss_close(sk);
+		return -EINVAL;
+	}
+
+	conn = tfw_connection_new(sk, Conn_Clnt, tfw_destroy_client);
+	if (!conn) {
+		TFW_ERR("Cannot create new client connection\n");
+		tfw_destroy_client(sk);
+	}
+
+	cli->sock = sk;
+	conn->peer = (TfwPeer *)cli;
+	ss_set_callbacks(sk);
+
+	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
+
+	return 0;
+}
+
+static int
+tfw_client_connection_close(struct sock *sk)
+{
+	TfwConnection *conn = sk->sk_user_data;
+
+	TFW_DBG("Closing client socket %p, conn=%p\n", sk, conn);
+	/*
+	 * Classify the connection closing while all data structures
+	 * are alive.
+	 */
+	if (tfw_classify_conn_close(sk) == TFW_BLOCK)
+		return -EPERM;
+	tfw_connection_close(sk);
 
 	return 0;
 }
@@ -177,6 +236,15 @@ parse_err:
 	TFW_ERR("can't parse 'listen' value: '%s'\n", in_str);
 	return -EINVAL;
 }
+
+SsHooks ss_client_hooks = {
+	.connection_new		= tfw_client_connect_complete,
+	.connection_drop	= tfw_client_connection_close,
+	.connection_close	= tfw_client_connection_close,
+	.connection_recv	= tfw_connection_recv,
+	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
+	.postpone_skb		= tfw_connection_postpone_skb,
+};
 
 TfwCfgMod tfw_sock_client_cfg_mod  = {
 	.name	= "sock_frontend",
