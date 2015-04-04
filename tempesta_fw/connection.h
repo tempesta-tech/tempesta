@@ -101,4 +101,9 @@ void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 
+int tfw_connection_close(struct sock *);
+int tfw_connection_recv(struct sock *, unsigned char *, size_t);
+int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
+int tfw_connection_postpone_skb(SsProto *, struct sk_buff *);
+
 #endif /* __TFW_CONNECTION_H__ */
