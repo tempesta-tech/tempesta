@@ -5,7 +5,8 @@
  * It works fully in softirq context as opposed to kserver working mostly in
  * kworker threads.
  *
- * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -128,39 +129,34 @@ int __init
 kserver_init(void)
 {
 	int r;
-	struct socket *lsk;
+	struct sock *lsk;
 	struct sockaddr_in saddr;
 
-	r = ss_hooks_register(&ssocket_hooks);
-	if (r) {
-		printk(KERN_ERR "Can't register synchronous socket callbacks\n");
-		return r;
-	}
-
-	r = sock_create_kern(AF_INET, SOCK_STREAM, IPPROTO_TCP, &lsk);
+	r = ss_sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &lsk);
 	if (r) {
 		printk(KERN_ERR "Can't listening socket\n");
 		goto err_create;
 	}
 
-	inet_sk(lsk->sk)->freebind = 1;
-	lsk->sk->sk_reuse = 1;
+	inet_sk(lsk)->freebind = 1;
+	lsk->sk_reuse = 1;
 
 	/* Set TCP handlers. */
-	ss_tcp_set_listen(lsk, (SsProto *)&my_proto);
+	ss_set_proto(lsk, (SsProto *)&my_proto, 0, &ssocket_hooks);
+	ss_set_listen(lsk);
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sin_family = AF_INET;
 	saddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	saddr.sin_port = htons(PORT);
 
-	r = lsk->ops->bind(lsk, (struct sockaddr *)&saddr, sizeof(saddr));
+	r = ss_bind(lsk, (struct sockaddr *)&saddr, sizeof(saddr));
 	if (r) {
 		printk(KERN_ERR "Can't bind listening socket\n");
 		goto err_call;
 	}
 
-	r = lsk->ops->listen(lsk, 1000);
+	r = ss_listen(lsk, 1000);
 	if (r) {
 		printk(KERN_ERR "Can't listen on socket\n");
 		goto err_call;
@@ -168,9 +164,8 @@ kserver_init(void)
 
 	return 0;
 err_call:
-	sock_release(lsk);
+	ss_release(lsk);
 err_create:
-	ss_hooks_unregister(&ssocket_hooks);
 	return r;
 }
 
@@ -179,7 +174,7 @@ kserver_exit(void)
 {
 	int ci;
 
-	sock_release(my_proto.proto.listener);
+	ss_release(my_proto.proto.listener);
 
 	for (ci = 0; ci < atomic_read(&conn_i); ++ci)
 		if (conn[ci])
@@ -190,8 +185,6 @@ kserver_exit(void)
 	 * softirq processing the sockets which are calling ssocket_hooks
 	 * callbacks.
 	 */
-
-	ss_hooks_unregister(&ssocket_hooks);
 
 	stat_print();
 }
