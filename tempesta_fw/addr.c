@@ -515,3 +515,4 @@ tfw_addr_sa_len(const TfwAddr *addr)
         validate_addr(addr);
         return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
 }
+EXPORT_SYMBOL(tfw_addr_sa_len);
