@@ -38,9 +38,18 @@ MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
 MODULE_VERSION("0.4.4");
 MODULE_LICENSE("GPL");
 
-static SsHooks *ss_hooks __read_mostly;
+#ifdef DEBUG
+static const char *ss_statename[]={
+	"Unused","Established","Syn Sent","Syn Recv",
+	"Fin Wait 1","Fin Wait 2","Time Wait", "Close",
+	"Close Wait","Last ACK","Listen","Closing"
+};
+#endif
 
-#define SS_CALL(f, ...)		(ss_hooks->f ? ss_hooks->f(__VA_ARGS__) : 0)
+#define SS_CALL(f, ...)							\
+	(((SsProto *)(sk)->sk_user_data)->hooks->f			\
+	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
+	: 0)
 
 /**
  * Copied from net/netfilter/xt_TEE.c.
@@ -208,7 +217,7 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	struct sk_buff *frag_i;
 
 	/*
-	 * We know prciselly from the caller that the skb has data.
+	 * We know for sure from the caller that the skb has data.
 	 * No matter where exactly the data is placed, but the skb relates
 	 * to current message, so put it to the message.
 	 */
@@ -595,6 +604,8 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk, int bytes)
 {
+	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
+
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
 		 * Error packet received.
@@ -625,6 +636,7 @@ static void
 ss_tcp_error(struct sock *sk)
 {
 	SS_DBG("process error on socket %p\n", sk);
+	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
 
 	if (sk->sk_destruct)
 		sk->sk_destruct(sk);
@@ -640,37 +652,19 @@ ss_set_sock_atomic_alloc(struct sock *sk)
 }
 
 /**
- * Make the data socket serviced by synchronous sockets.
- */
-void
-ss_set_callbacks(struct sock *sk)
-{
-	write_lock_bh(&sk->sk_callback_lock);
-
-	ss_set_sock_atomic_alloc(sk);
-
-	sk->sk_data_ready = ss_tcp_data_ready;
-	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_error_report = ss_tcp_error;
-
-	write_unlock_bh(&sk->sk_callback_lock);
-}
-EXPORT_SYMBOL(ss_set_callbacks);
-
-/**
  * Socket state change callback.
  */
 static void
 ss_tcp_state_change(struct sock *sk)
 {
+	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
+
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
 
 		SsProto *proto = sk->sk_user_data;
 		struct socket *lsk = proto->listener;
 		int r;
-
-		BUG_ON(!lsk);
 
 		/* The callback is called from tcp_rcv_state_process(). */
 		r = SS_CALL(connection_new, sk);
@@ -679,80 +673,111 @@ ss_tcp_state_change(struct sock *sk)
 			ss_do_close(sk);
 			return;
 		}
-
-		ss_set_callbacks(sk);
-
+		if (lsk) {
+			/*
+			 * We know which socket is just accepted.
+			 * Just drain listening socket accept queue,
+			 * and don't care about the returned socket.
+			 */
+			assert_spin_locked(&lsk->sk->sk_lock.slock);
+			ss_drain_accept_queue(lsk->sk, sk);
+		}
+	} else if ((sk->sk_state == TCP_CLOSE_WAIT)
+		 || (sk->sk_state == TCP_FIN_WAIT1)) {
 		/*
-		 * We know which socket is just accepted, so we just
-		 * drain listening socket accept queue and don't care
-		 * about returned socket.
-		 */
-		assert_spin_locked(&lsk->sk->sk_lock.slock);
-		ss_drain_accept_queue(lsk->sk, sk);
-	}
-	else if (sk->sk_state == TCP_CLOSE_WAIT) {
-		/*
-		 * Connection has received FIN.
+		 * Connection is being closed.
+		 * Either Tempesta sent FIN, or we received FIN.
 		 *
 		 * FIXME it seems we should to do things below on TCP_CLOSE
 		 * instead of TCP_CLOSE_WAIT.
 		 */
 		SS_DBG("Peer connection closing\n");
 		ss_do_close(sk);
+	} else if (sk->sk_state == TCP_CLOSE) {
+		/*
+		 * In current implementation we never get to TCP_CLOSE
+		 * in normal course of action. We only get here if we
+		 * never entered TCP_ESTABLISHED state.
+		 */
+		SS_DBG("Connection is finished\n");
+		SS_CALL(connection_close, sk);
 	}
 }
+
+/*
+ * Store listening socket as parent for all accepted connections.
+ */
+void
+ss_set_listener(struct socket *sock)
+{
+	SsProto *proto = (SsProto *)sock->sk->sk_user_data;
+	if (proto)
+		proto->listener = sock;
+}
+EXPORT_SYMBOL(ss_set_listener);
+
+/*
+ * Set up protocol handler.
+ */
+void
+ss_set_proto(struct socket *sock, SsProto *proto, int type, SsHooks *hooks)
+{
+	struct sock *sk = sock->sk;
+
+	BUG_ON(sk->sk_user_data);
+
+	proto->hooks = hooks;
+	proto->type = type;
+	sk->sk_user_data = proto;
+}
+EXPORT_SYMBOL(ss_set_proto);
+
+/**
+ * Make data socket serviced by synchronous sockets.
+ */
+void
+ss_set_callbacks(struct sock *sk)
+{
+	write_lock_bh(&sk->sk_callback_lock);
+	ss_set_sock_atomic_alloc(sk);
+	sk->sk_data_ready = ss_tcp_data_ready;
+	sk->sk_state_change = ss_tcp_state_change;
+	sk->sk_error_report = ss_tcp_error;
+	write_unlock_bh(&sk->sk_callback_lock);
+}
+EXPORT_SYMBOL(ss_set_callbacks);
 
 /**
  * Set protocol handler and initialize first callbacks.
  */
 void
-ss_tcp_set_listen(struct socket *sock, SsProto *handler)
+ss_tcp_set_listen(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
 
 	write_lock_bh(&sk->sk_callback_lock);
-
-	BUG_ON(sk->sk_user_data);
-
 	ss_set_sock_atomic_alloc(sk);
-
 	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_user_data = handler;
-	handler->listener = sock;
-
 	write_unlock_bh(&sk->sk_callback_lock);
 }
 EXPORT_SYMBOL(ss_tcp_set_listen);
+
+int
+ss_connect(struct socket *sock, struct sockaddr *addr, int addrlen, int flags)
+{
+	int ret = kernel_connect(sock, addr, addrlen, flags | O_NONBLOCK);
+	if (ret != -EINPROGRESS) {
+		return ret;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(ss_connect);
 
 /*
  * ------------------------------------------------------------------------
  *  	Sockets initialization
  * ------------------------------------------------------------------------
  */
-
-/*
- * FIXME Only one user for now, don't care about registration races.
- */
-int
-ss_hooks_register(SsHooks* hooks)
-{
-	if (ss_hooks)
-		return -EEXIST;
-
-	ss_hooks = hooks;
-
-	return 0;
-}
-EXPORT_SYMBOL(ss_hooks_register);
-
-void
-ss_hooks_unregister(SsHooks* hooks)
-{
-	BUG_ON(hooks != ss_hooks);
-	ss_hooks = NULL;
-}
-EXPORT_SYMBOL(ss_hooks_unregister);
-
 int __init
 ss_init(void)
 {
