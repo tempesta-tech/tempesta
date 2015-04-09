@@ -75,7 +75,7 @@ tfw_connection_free(TfwConnection *c)
  * A downcall for new connection called to set necessary callbacks
  * when a traditional Sockets connect() is calling.
  *
- * @destructor Is a function placed to sk->sk_destruct.
+ * @destructor is a function placed to sk->sk_destruct.
  * The original callback is saved to TfwConnection->sk_destruct and the passed
  * function must call it manually.
  */
@@ -84,6 +84,7 @@ tfw_connection_new(struct sock *sk, int type,
 		   void (*destructor)(struct sock *s))
 {
 	TfwConnection *conn;
+	SsProto *proto = sk->sk_user_data;
 
 	BUG_ON(!(type & (Conn_Clnt | Conn_Srv)));
 
@@ -97,6 +98,7 @@ tfw_connection_new(struct sock *sk, int type,
 	if (!conn)
 		return NULL;
 
+	conn->proto.hooks = proto->hooks;
 	sk->sk_user_data = conn;
 	if (destructor) {
 		conn->sk_destruct = sk->sk_destruct;
@@ -111,27 +113,25 @@ tfw_connection_new(struct sock *sk, int type,
 	return conn;
 }
 
-static int
+int
 tfw_connection_close(struct sock *sk)
 {
-	TfwConnection *c = sk->sk_user_data;
-
-	TFW_DBG("Close socket %p, conn=%p\n", sk, c);
+	TfwConnection *conn = sk->sk_user_data;
 
 	/*
-	 * Classify the connection closing while all data structures
-	 * are alive.
+	 * TfwConnection{} is allocated and set up only when
+	 * the connection had been established successfully.
+	 * In that case a proper Conn_Clnt or Conn_Srv flag
+	 * had been set. Otherwise we have just a SsProto{}
+	 * placeholder there.
 	 */
-	if (tfw_classify_conn_close(sk) == TFW_BLOCK)
-		return -EPERM;
-
-	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))]->conn_destruct(c);
-
-	tfw_peer_del_conn(c->peer, &c->list);
-
-	tfw_connection_free(c);
-
-	sk->sk_user_data = NULL;
+	if (conn && (conn->proto.type & (Conn_Clnt | Conn_Srv))) {
+		conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]
+			->conn_destruct(conn);
+		tfw_peer_del_conn(conn->peer, &conn->list);
+		tfw_connection_free(conn);
+		sk->sk_user_data = NULL;
+	}
 
 	return 0;
 }
@@ -147,52 +147,27 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
  * 	Connection Upcalls
  * ------------------------------------------------------------------------
  */
+
 /**
- * An upcall for new connection accepting.
+ * TODO/FIXME
+ * Things which happen in the function are wrong. We have to choose backend
+ * server when the request is [fully?] parsed to be able to route static and
+ * dynamic requests to different server (so we need to know at least base part
+ * of URI to choose a server).
  *
- * This is an upcall for new connection, i.e. we open the connection
- * passively. So this is client connection.
+ * Probably, following scheme is most suitable:
+ * 1. schedulers which are going to route request depending on URI must register
+ *    hook TFW_HTTP_HOOK_REQ_STATUS and adjust server information;
+ * 2. schedulers which schedule request depending on server stress on
+ *    round-robin actully should do their work as early as possible to reduce
+ *    message latency and accelerator memory consumption (that parts of
+ *    the request can be sent to server immediately) and choose the server
+ *    in this function.
+ *
+ * So at least we need scheduler interface which can register its callbacks in
+ * different places.
  */
-static int
-tfw_connection_new_upcall(struct sock *sk)
-{
-	TfwAddr addr;
-	TfwConnection *conn;
-
-	/* Classify the connection before any resource allocations. */
-	if (tfw_classify_conn_estab(sk) == TFW_BLOCK)
-		return -EPERM;
-
-	conn = tfw_connection_new(sk, Conn_Clnt, tfw_client_put);
-	if (!conn) {
-		TFW_ERR("Cannot create new client connection\n");
-		ss_close(sk);
-		return -ENOMEM;
-	}
-
-	/*
-	 * TODO: currently there is one to one socket-client
-	 * mapping, which isn't appropriate since a client can
-	 * have more than one socket with the server.
-	 *
-	 * We have too lookup the client by the socket and create a new one
-	 * only if it's really new.
-	 *
-	 * Derive the client address from @sk and properly set @addr.
-	 */
-	memset(&addr, 0, sizeof(addr));
-	if (!tfw_create_client(conn, &addr)) {
-		TFW_ERR("Can't allocate a new client");
-		ss_close(sk);
-		return -EINVAL;
-	}
-
-	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
-
-	return 0;
-}
-
-static int
+int
 tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 {
 	TfwConnection *conn = sk->sk_user_data;
@@ -200,7 +175,7 @@ tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 	return tfw_gfsm_dispatch(conn, data, len);
 }
 
-static int
+int
 tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 {
 	TfwConnection *conn = (TfwConnection *)proto;
@@ -221,7 +196,7 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 	return 0;
 }
 
-static int
+int
 tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
 {
 	TfwConnection *conn = (TfwConnection *)proto;
@@ -232,14 +207,6 @@ tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
 
 	return 0;
 }
-
-static SsHooks ssocket_hooks = {
-	.connection_new		= tfw_connection_new_upcall,
-	.connection_drop	= tfw_connection_close,
-	.connection_recv	= tfw_connection_recv,
-	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
-	.postpone_skb		= tfw_connection_postpone_skb,
-};
 
 /*
  * ------------------------------------------------------------------------
@@ -259,23 +226,16 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 int __init
 tfw_connection_init(void)
 {
-	int r;
-
 	conn_cache = kmem_cache_create("tfw_conn_cache", sizeof(TfwConnection),
 				       0, 0, NULL);
 	if (!conn_cache)
 		return -ENOMEM;
 
-	r = ss_hooks_register(&ssocket_hooks);
-	if (r)
-		kmem_cache_destroy(conn_cache);
-
-	return r;
+	return 0;
 }
 
 void
 tfw_connection_exit(void)
 {
-	ss_hooks_unregister(&ssocket_hooks);
 	kmem_cache_destroy(conn_cache);
 }
