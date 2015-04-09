@@ -57,6 +57,7 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 
 /**
  * Lookup a scheduler by name.
+ * If the @name is NULL, then the first available scheduler is returned.
  * Useful only for configuration routines.
  */
 TfwScheduler *
@@ -67,7 +68,7 @@ tfw_sched_lookup(const char *name)
 	read_lock(&sched_lock);
 
 	list_for_each_entry(sched, &sched_list, list) {
-		if (!strcmp(name, sched->name)) {
+		if (!name || !strcasecmp(name, sched->name)) {
 			read_unlock(&sched_lock);
 			return sched;
 		}

@@ -71,6 +71,8 @@ typedef struct {
 	TfwPeer 		*peer;
 	struct sock		*sock;
 
+	struct socket		*socket; /* XXX: temporary field */
+
 	void (*sk_destruct)(struct sock *sk);
 } TfwConnection;
 

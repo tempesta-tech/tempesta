@@ -26,7 +26,10 @@
 #include "peer.h"
 #include "sched.h"
 
-#define TFW_MAX_SERVER_STR_SIZE 100
+#define TFW_SRV_STR_MAX_SIZE 	100
+#define TFW_SRV_MAX_CONN	32	/* TfwConnection per TfwServer */
+#define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
+#define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
 
 /**
  * Server descriptor, a TfwPeer successor.
@@ -51,6 +54,7 @@ typedef struct {
  * eviction policy. While both of them should define failovering policy.
  *
  * @list		- member pointer in the list of server groups;
+ * @name		- name of the group specified in the configuration;
  * @srv_list		- list of servers belonging to the group;
  * @lock		- synchronizes the group readers with updaters;
  * @sched		- requests scheduling handler;
@@ -58,6 +62,7 @@ typedef struct {
  */
 typedef struct tfw_srv_group_t {
 	struct list_head	list;
+	const char		*name;
 	struct list_head	srv_list;
 	rwlock_t		lock;
 	TfwScheduler		*sched;
@@ -66,10 +71,9 @@ typedef struct tfw_srv_group_t {
 
 /* Server specific routines. */
 void tfw_server_bind_conn(TfwServer *srv, TfwConnection *conn);
-TfwServer *tfw_create_server(TfwConnection *conn, const TfwAddr *addr);
+TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
 
-/* FIXME #85 use the functions for failovering as described in #78. */
 static inline void
 tfw_server_online(TfwServer *srv)
 {
@@ -95,8 +99,12 @@ tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
 }
 
 /* Server group routines. */
-TfwSrvGroup *tfw_sg_new(gfp_t flags);
+
+TfwSrvGroup *tfw_sg_lookup(const char *name);
+TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 void tfw_sg_free(TfwSrvGroup *sg);
+int tfw_sg_count(void);
+
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);

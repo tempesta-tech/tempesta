@@ -27,8 +27,6 @@
 #include "tempesta_fw.h"
 #include "connection.h"
 
-#define TFW_SCHED_MAX_SERVERS 64
-
 /*
  * The scheduler must know about server groups which it schedules as well as
  * server group should know about scheduler which is binded to it.

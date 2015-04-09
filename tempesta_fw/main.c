@@ -84,8 +84,8 @@ tfw_init(void)
 	DO_INIT(connection);
 
 	DO_CFG_REG(cache);
-	DO_CFG_REG(sock_server);
-	DO_CFG_REG(sock_client);
+	DO_CFG_REG(sock_srv);
+	DO_CFG_REG(sock_clnt);
 
 	return 0;
 err:
