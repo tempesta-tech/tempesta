@@ -47,258 +47,311 @@
 #include "log.h"
 #include "server.h"
 
-/* The thread that connects to servers in background. */
-static struct task_struct *tfw_sconnd_task = NULL;
-DECLARE_WAIT_QUEUE_HEAD(tfw_sconnd_wq);
-
-#define TFW_SCONND_THREAD_NAME		"tfw_sconnd"
-#define TFW_SCONND_RETRY_INTERVAL	1000
-
-// FIXME #87: this is temporal strut, abandon the stuff below.
-typedef struct {
-	struct list_head	list;
-	struct socket		*sock;  /* NULL when not connected. */
-} TfwServerSockEntry;
-
-static LIST_HEAD(server_socks);
-
-#define FOR_EACH_SOCK(entry) \
-	list_for_each_entry(entry, &server_socks, list)
-
-#define FOR_EACH_SOCK_SAFE(entry, tmp) \
-	list_for_each_entry_safe(entry, tmp, &server_socks, list)
-
-static struct sock *
-tfw_server_connect(TfwAddr *addr)
+/**
+ * Create a single connection to the @addr.
+ */
+static TfwConnection *
+tfw_sock_srv_connect(TfwAddr *addr)
 {
-	TfwServerSockEntry *se;
-	struct sockaddr sa = addr->sa;
-	sa_family_t family = addr->sa.sa_family;
-	size_t sza = tfw_addr_sa_len(addr);
+	static struct {
+		SsProto	_placeholder;
+		int	type;
+	} dummy_proto = {
+		.type = TFW_FSM_HTTP,
+	};
+
 	int r;
-
-	se = kzalloc(sizeof(*se), GFP_ATOMIC);
-	if (!se) {
-		TFW_ERR("Cannot allocate socket entry\n");
-		return NULL;
-	}
-	INIT_LIST_HEAD(&se->list);
-
-	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, &se->sock);
-	if (r) {
-		TFW_ERR("Can't create back-end connections socket (%d)\n", r);
-		goto err_se_free;
-	}
-
-	r = kernel_connect(se->sock, &sa, sza, 0);
-	if (r)
-		goto err_connect;
-
-	ss_set_callbacks(se->sock->sk);
-
-	list_add(&se->list, &server_socks);
-
-	return se->sock->sk;
-
-err_connect:
-	sock_release(se->sock);
-err_se_free:
-	kfree(se);
-	return NULL;
-}
-
-static int
-tfw_server_conn_failover(TfwServer *srv)
-{
+	struct sock *sk;
+	struct socket *sock;
 	TfwConnection *conn;
 
-	BUG_ON(list_empty(&srv->conn_list));
-
-	conn = list_first_entry(&srv->conn_list, TfwConnection, list);
-
-	/* FIXME #85 who sets @sock to NULL on connection failure? */
-	if (likely(conn->sock))
-		return 0;
-
-	conn->sock = tfw_server_connect(&srv->addr);
-	if (!conn->sock)
-		return -EINVAL;
-
-	return 0;
-}
-
-static void
-release_server_socks(void)
-{
-	TfwServerSockEntry *entry;
-
-	FOR_EACH_SOCK(entry) {
-		if (entry->sock)
-			sock_release(entry->sock);
+	r = sock_create_kern(addr->family, SOCK_STREAM, IPPROTO_TCP, &sock);
+	if (r) {
+		TFW_ERR("can't create a socket: err=%d\n", r);
+		return NULL;
 	}
+
+	r = kernel_connect(sock, &addr->sa, tfw_addr_sa_len(addr), 0);
+	if (r) {
+		sock_release(sock);
+		return NULL;
+	}
+
+	sk = sock->sk;
+	ss_set_callbacks(sk);
+
+	sk->sk_user_data = &dummy_proto;
+	conn = tfw_connection_new(sk, Conn_HttpSrv, NULL);
+	if (!conn) {
+		TFW_ERR("can't create a connection object\n");
+		sock_release(sock);
+	}
+
+	return conn;
 }
 
 /**
- * tfw_sconnd() - The main loop of the tfw_sconnd thread.
- *
- * The thread establishes connections to servers in the background.
- * Internally it maintains a list of connected/disconnected servers.
- * When there are not yet connected servers in the list, it wakes up
- * periodically and tries to connect to them.
- *
- * Note: If a server connection is lost for some reason, the thread doesn't
- * restore it automatically.
- *
- * TODO (#83) replace kernel_connect() in tfw_server_connect() and call it
- * on TCP events, so the thread should be abandoned.
- * In fact, the approach with the thread is simply wron and inconsistent
- * with Syncronous Sockets technology, it won't work properly in context of
- * #76 (massive back-end servers farm).
+ * Delete @srv object with all nested sockets.
  */
-static int
-tfw_sconnd(void *data)
+static void
+tfw_sock_srv_destroy(TfwServer *srv)
 {
-	int r;
-	LIST_HEAD(socks_list);
+	TfwConnection *conn, *tmp;
 
-	set_freezable();
-	
-	do {
-		wait_event_freezable_timeout(tfw_sconnd_wq,
-					     kthread_should_stop(),
-		                             MAX_SCHEDULE_TIMEOUT);
-
-		r = tfw_sg_for_each_srv(tfw_server_conn_failover);
-		if (r)
-			TFW_WARN("Cannot failover server connection(s)\n");
-	} while (!kthread_should_stop());
-
-	TFW_LOG("%s: stopping\n", TFW_SCONND_THREAD_NAME);
-	release_server_socks();
-
-	return 0;
-}
-
-static int
-start_sconnd(void)
-{
-	int ret = 0;
-
-	BUG_ON(tfw_sconnd_task);
-	TFW_DBG("Starting thread: %s\n", TFW_SCONND_THREAD_NAME);
-
-	tfw_sconnd_task = kthread_run(tfw_sconnd, NULL, TFW_SCONND_THREAD_NAME);
-
-	if (IS_ERR_OR_NULL(tfw_sconnd_task)) {
-		TFW_ERR("Can't create thread: %s (%ld)",
-			TFW_SCONND_THREAD_NAME, PTR_ERR(tfw_sconnd_task));
-		ret = PTR_ERR(tfw_sconnd_task);
-		tfw_sconnd_task = NULL;
+	list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
+		tfw_peer_del_conn((TfwPeer *)srv, &conn->list);
+		sock_release(conn->socket);
 	}
 
-	return ret;
+	tfw_destroy_server(srv);
 }
 
-static void
-stop_sconnd(void)
+/**
+ * Create a TfwServer object with nested sockets.
+ */
+static TfwServer *
+tfw_sock_srv_create(TfwAddr *addr, int conns_n)
 {
-	BUG_ON(!tfw_sconnd_task);
-	TFW_DBG("Stopping thread: %s\n", TFW_SCONND_THREAD_NAME);
-
-	kthread_stop(tfw_sconnd_task);
-	tfw_sconnd_task = NULL;
-}
-
-static int
-add_server_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	const char *raw_addr;
-	TfwSrvGroup *sg;
+	int i;
 	TfwServer *srv;
 	TfwConnection *conn;
-	struct sock *sk;
-	TfwAddr addr;
 
-	if (tfw_cfg_check_single_val(ce))
-		return -EINVAL;
-
-	raw_addr = ce->vals[0];
-	if (tfw_addr_pton(raw_addr, &addr))
-		return -EINVAL;
-
-	sk = tfw_server_connect(&addr);
-	if (!sk)
-		return -ENOTCONN;
-
-	/*
-	 * Create a server group for each server now.
-	 * FIXME #85 Allocate server groups in proper way.
-	 */
-	sg = tfw_sg_new(GFP_KERNEL);
-	if (!sg)
-		goto err_sg;
-
-	conn = tfw_connection_new(sk, Conn_HttpSrv, NULL);
-	if (!conn) {
-		TFW_ERR("Cannot create new server connection\n");
-		goto err_conn_create;
-	}
-
-	/*
-	 * FIXME #85,#5
-	 * Only one server connection is established now.
-	 * Create N connections to each server for redundancy,
-	 * so we shuldn't allocate a new server for each connection.
-	 */
-	srv = tfw_create_server(conn, &addr);
+	srv = tfw_create_server(addr);
 	if (!srv) {
-		char buf[TFW_ADDR_STR_BUF_SIZE];
-		tfw_addr_ntop(&addr, buf, sizeof(buf));
-		TFW_ERR("Can't create server descriptor for %s\n", buf);
-		goto err_srv;
+		TFW_ERR("can't create a server object\n");
 	}
 
-	tfw_sg_add(sg, srv);
+	for (i = 0; i < conns_n; ++i) {
+		conn = tfw_sock_srv_connect(addr);
+		if (!conn) {
+			TFW_ERR_ADDR("can't connect to", addr);
+			tfw_sock_srv_destroy(srv);
+			return NULL;
+		}
+	}
 
-	return 0;
-
-err_srv:
-	/*
-	 * TODO check that tfw_connection_close() is called on
-	 * socket destructor.
-	 */
-err_conn_create:
-	tfw_sg_free(sg);
-err_sg:
-	ss_close(sk);
-	/* FIXME #87: TfwServerSockEntry memory leak. */
-	return -ENOMEM;
+	TFW_DBG_ADDR("connected", addr);
+	return srv;
 }
 
-static void
-release_server_entries(TfwCfgSpec *cs)
+/*
+ * ------------------------------------------------------------------------
+ *	Configuration handling
+ * ------------------------------------------------------------------------
+ */
+
+#define TFW_SRV_CFG_DEF_CONNS_N		"4"
+
+/**
+ * A "srv_group" which is currently being parsed.
+ * All "server" entries are added to this group.
+ */
+static TfwSrvGroup *tfw_srv_cfg_curr_group;
+
+/**
+ * Handle "server" within an "srv_group", e.g.:
+ *   srv_group foo {
+ *       server 10.0.0.1;
+ *       server 10.0.0.2;
+ *       server 10.0.0.3 conns_n=1;
+ *   }
+ *
+ * Every server is simply added to the tfw_srv_cfg_curr_group.
+ */
+static int
+tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	/* FIXME #85: abandon the stuff. */
-	TfwServerSockEntry *entry, *tmp;
-	FOR_EACH_SOCK_SAFE(entry, tmp) {
-		kfree(entry);
-	}
-	INIT_LIST_HEAD(&server_socks);
+	TfwAddr addr;
+	TfwServer *srv;
+	int r, conns_n;
+	const char *in_addr, *in_conns_n;
 
-	tfw_sg_release_all();
+	BUG_ON(!tfw_srv_cfg_curr_group);
+
+	r  = tfw_cfg_check_val_n(ce, 1);
+	if (r)
+		return -EINVAL;
+
+	in_addr = ce->vals[0];
+	in_conns_n = tfw_cfg_get_attr(ce, "conns_n", TFW_SRV_CFG_DEF_CONNS_N);
+
+	r =  tfw_addr_pton(in_addr, &addr);
+	if (r)
+		return r;
+	r = tfw_cfg_parse_int(in_conns_n, &conns_n);
+	if (r)
+		return r;
+
+	srv = tfw_sock_srv_create(&addr, conns_n);
+	if (!srv) {
+		TFW_ERR("can't create a server socket\n");
+		return -EPERM;
+	}
+
+	tfw_sg_add(tfw_srv_cfg_curr_group, srv);
+	return 0;
 }
 
-// FIXME #85 rework the configuration to create server groups here
-TfwCfgMod tfw_sock_server_cfg_mod = {
-	.name = "sock_backend",
-	.start = start_sconnd,
-	.stop = stop_sconnd,
-	.specs = (TfwCfgSpec[]) {
+/**
+ * Handle a top-level "server" entry that doesn't belong to any group.
+ *
+ * All such top-level entries are simply added to the "default" group.
+ * So this configuration example:
+ *    server 10.0.0.1;
+ *    server 10.0.0.2;
+ *    srv_group local {
+ *        server 127.0.0.1:8000;
+ *    }
+ * is implicitly transformed to this:
+ *    srv_group default {
+ *        server 10.0.0.1;
+ *        server 10.0.0.2;
+ *    }
+ *    srv_group local {
+ *        server 127.0.0.1:8000;
+ *    }
+ */
+static int
+tfw_srv_cfg_handle_server_outside_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	tfw_srv_cfg_curr_group = tfw_sg_lookup("default");
+
+	/* The "default" group is created implicitly. */
+	if (!tfw_srv_cfg_curr_group) {
+		tfw_srv_cfg_curr_group = tfw_sg_new("default", GFP_KERNEL);
+		BUG_ON(!tfw_srv_cfg_curr_group);
+	}
+
+	return tfw_srv_cfg_handle_server(cs, ce);
+}
+
+/**
+ * Handle defaults for the "server" spec.
+ *
+ * The separate function is only needed to check that there are no "server"
+ * entries already defined (either top-level or within an "srv_group").
+ * If there is at least one, we don't need to use defaults.
+ */
+static int
+tfw_srv_cfg_handle_server_defaults(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_sg_count()) {
+		TFW_DBG("at least one server is defined, ignore defaults\n");
+		return 0;
+	}
+
+	TFW_DBG("no servers defined, apply defaults\n");
+	return tfw_srv_cfg_handle_server_outside_group(cs, ce);
+}
+
+/**
+ * The callback is invoked on entering an "srv_group", e.g:
+ *
+ *   srv_group foo sched=hash {  <--- The position at the moment of call.
+ *       server ...;
+ *       server ...;
+ *       ...
+ *   }
+ *
+ * Basically it parses the group name and the "sched" attribute, creates a
+ * new TfwSrvGroup object and sets the context for parsing nested "server"s.
+ */
+static int
+fw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	TfwSrvGroup *sg;
+	const char *name, *sched_str;
+
+	r = tfw_cfg_check_val_n(ce, 1);
+	if (r)
+		return r;
+	name = ce->vals[0];
+	sched_str = tfw_cfg_get_attr(ce, "sched", NULL);
+
+	TFW_DBG("begin srv_group: %s\n", name);
+
+	sg = tfw_sg_new(name, GFP_KERNEL);
+	if (!sg) {
+		TFW_ERR("can't add srv_group: %s\n", name);
+		return -EINVAL;
+	}
+
+	r = tfw_sg_set_sched(sg, sched_str);
+	if (r) {
+		TFW_ERR("can't set scheduler for srv_group: %s\n", name);
+		return r;
+	}
+
+	/* Set the current group. All nested "server"s are added to it. */
+	tfw_srv_cfg_curr_group = sg;
+	return 0;
+}
+
+/**
+ * The callback is invoked upon exit from a "srv_group" when all nested
+ * "server"s are parsed, e.g.:
+ *
+ *   srv_group foo sched=hash {
+ *       server ...;
+ *       server ...;
+ *       ...
+ *   }  <--- The position at the moment of call.
+ */
+static int
+tfw_srv_cfg_finish_srv_group(TfwCfgSpec *cs)
+{
+	BUG_ON(!tfw_srv_cfg_curr_group);
+	BUG_ON(list_empty(&tfw_srv_cfg_curr_group->srv_list));
+	TFW_DBG("finish srv_group: %s\n", tfw_srv_cfg_curr_group->name);
+	tfw_srv_cfg_curr_group = NULL;
+	return 0;
+}
+
+/**
+ * Clean the state that is changed during parsing "server" and "srv_group".
+ */
+static void
+tfw_srv_cfg_clean_srv_groups(TfwCfgSpec *cs)
+{
+	tfw_sg_release_all();
+	tfw_srv_cfg_curr_group = NULL;
+}
+
+static TfwCfgSpec tfw_sock_srv_cfg_srv_group_specs[] = {
+	{
+		"server", NULL,
+		tfw_srv_cfg_handle_server,
+		.allow_repeat = true,
+		.cleanup = tfw_srv_cfg_clean_srv_groups
+	},
+	{}
+};
+
+TfwCfgMod tfw_sock_srv_cfg_mod = {
+	.name = "sock_srv",
+	.specs = (TfwCfgSpec[]){
 		{
-			"backend", "127.0.0.1:8080",
-			add_server_entry,
+			"server", NULL,
+			tfw_srv_cfg_handle_server_outside_group,
+			.allow_none = true,
 			.allow_repeat = true,
-			.cleanup = release_server_entries
+			.cleanup = tfw_srv_cfg_clean_srv_groups,
+		},
+		{
+			"server_default_dummy", "127.0.0.1:8080 conns_n=4",
+			tfw_srv_cfg_handle_server_defaults
+		},
+		{
+			"srv_group", NULL,
+			tfw_cfg_handle_children,
+			tfw_sock_srv_cfg_srv_group_specs,
+			&(TfwCfgSpecChild) {
+				.begin_hook = fw_srv_cfg_begin_srv_group,
+				.finish_hook = tfw_srv_cfg_finish_srv_group
+			},
+			.allow_none = true,
+			.allow_repeat = true,
 		},
 		{}
 	}

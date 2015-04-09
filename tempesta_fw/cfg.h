@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -263,18 +263,12 @@ typedef struct {
 /**
  * TfwCfgSpec->spec_ext for tfw_cfg_handle_children().
  *
- * If @allow_val is set, then tfw_cfg_handle_children() allows a single value
- * to be set in the parsed entry in addition to children entries, like this:
- *   parsed_entry "some value" {
- *       child_entry1;
- *       child_entry2;
- *       ...
- *   }
- * Normally that "some value" is not allowed, and the parsed entry must contain
- * only nested entries without any values and attributes.
+ * The @begin_hook is called before any children is parsed,
+ * and the @finish_hook is called after all children entries are parsed.
  */
 typedef struct {
-	bool allow_val;
+	int (*begin_hook)(TfwCfgSpec *self, TfwCfgEntry *parent_entry);
+	int (*finish_hook)(TfwCfgSpec *self);
 } TfwCfgSpecChild;
 
 /* Generic TfwCfgSpec->handler functions. */
@@ -291,5 +285,7 @@ int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
+const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
+			     const char *default_val);
 
 #endif /* __TFW_CFG_H__ */
