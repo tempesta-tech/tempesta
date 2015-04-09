@@ -178,8 +178,8 @@ parse_err:
 	return -EINVAL;
 }
 
-TfwCfgMod tfw_sock_client_cfg_mod  = {
-	.name	= "sock_frontend",
+TfwCfgMod tfw_sock_clnt_cfg_mod  = {
+	.name	= "sock_clnt",
 	.start	= start_listen_socks,
 	.stop	= stop_listen_socks,
 	.specs	= (TfwCfgSpec[]){

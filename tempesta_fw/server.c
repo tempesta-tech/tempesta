@@ -52,7 +52,7 @@ tfw_destroy_server(TfwServer *srv)
 }
 
 TfwServer *
-tfw_create_server(TfwConnection *conn, const TfwAddr *addr)
+tfw_create_server(const TfwAddr *addr)
 {
 	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC);
 	if (!srv)
@@ -62,21 +62,49 @@ tfw_create_server(TfwConnection *conn, const TfwAddr *addr)
 	INIT_LIST_HEAD(&srv->list);
 	srv->flags = TFW_SRV_F_ON;
 
-	if (conn)
-		tfw_server_bind_conn(srv, conn);
-
 	return srv;
 }
 
 TfwSrvGroup *
-tfw_sg_new(gfp_t flags)
+tfw_sg_lookup(const char *name)
 {
-	TfwSrvGroup *sg = kmalloc(sizeof(TfwSrvGroup), flags);
+	TfwSrvGroup *sg;
 
-	if (!sg)
+	read_lock(&sg_lock);
+	list_for_each_entry(sg, &sg_list, list) {
+		if (!strcasecmp(sg->name, name)) {
+			read_unlock(&sg_lock);
+			return sg;
+		}
+	}
+	read_unlock(&sg_lock);
+	return NULL;
+}
+
+TfwSrvGroup *
+tfw_sg_new(const char *name, gfp_t flags)
+{
+	void *mem;
+	TfwSrvGroup *sg;
+	size_t sg_size, name_size;
+
+	if (tfw_sg_lookup(name)) {
+		TFW_ERR("duplicate server group: '%s'\n", name);
 		return NULL;
+	}
+
+	TFW_DBG("new server group: '%s'\n", name);
+
+	sg_size = sizeof(*sg);
+	name_size = strlen(name) + 1;
+	mem = kmalloc(sg_size + name_size, flags);
+	if (!mem)
+		return NULL;
+	sg = mem;
+	sg->name = mem + sg_size;
 
 	INIT_LIST_HEAD(&sg->list);
+	memcpy((char *)sg->name, name, name_size);
 	INIT_LIST_HEAD(&sg->srv_list);
 	sg->lock = __RW_LOCK_UNLOCKED(sg->lock);
 	sg->sched = NULL;
@@ -104,6 +132,21 @@ tfw_sg_free(TfwSrvGroup *sg)
 	kfree(sg);
 }
 
+int
+tfw_sg_count(void)
+{
+	int count = 0;
+	TfwSrvGroup *sg;
+
+	read_lock(&sg_lock);
+	list_for_each_entry(sg, &sg_list, list) {
+		++count;
+	}
+	read_unlock(&sg_lock);
+
+	return count;
+}
+
 /**
  * Add a server to the server group. */
 void
@@ -122,10 +165,6 @@ tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
 	write_unlock(&sg->lock);
 }
 
-/**
- * FIXME #85 use the function in configuration routines to bind
- * schedulers with server groups.
- */
 int
 tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched)
 {
