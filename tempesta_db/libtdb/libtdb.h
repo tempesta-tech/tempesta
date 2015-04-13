@@ -1,7 +1,7 @@
 /**
  *		Tempesta DB User-space Library Definitions
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 #include <iostream>
 
 #include <tdb_if.h>
-#include "exception.h"
+#include "exception.h" // TODO use common TfwExcept
 
 class TdbHndl {
 public:

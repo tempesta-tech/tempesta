@@ -1,6 +1,5 @@
-#		Tempesta FW
+#		Tempesta Language
 #
-# Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
 # Copyright (C) 2015 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -17,31 +16,36 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS = $(DEFINES) -DDEBUG
-ifdef NORMALIZATION
-	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
-endif
+CXX		= g++
+LEX		= flex++
+YACC		= bison
+# Use gnu++11 instead of c++11 for standard C header compatibility.
+CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
+LDFLAGS		= -lboost_program_options
+INCLUDES	= -I../lib
 
-obj-m	+= sync_socket/ tempesta_db/core/ tempesta_fw/
+OBJECTS		= ast.o compiler.o lexer.o main.o parser.o
 
-KERNEL = /lib/modules/$(shell uname -r)/build
+all : gen_parser tl
 
-export KERNEL EXTRA_CFLAGS
+gen_parser: lexer.ll parser.yy
+	$(LEX) lexer.ll
+	$(YACC) -v parser.yy
 
-all: build
-	
-build:
-	make -C tempesta_db
-	make -C tl
-	make -C $(KERNEL) M=$(PWD) modules
+tl: $(OBJECTS)
+	$(CXX) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-test: build
-	./tempesta.sh load_modules
-	./tempesta_fw/t/unit/run_all_tests.sh
-	./tempesta.sh unload_modules
+lexer.o: lexer.cc
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-clean:
-	make -C $(KERNEL) M=$(PWD) clean
-	make -C tempesta_db clean
-	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
-		-exec rm -f {} \;
+parser.o: parser.cc
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+%.o: %.cc
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+clean: FORCE
+	rm -f *.o* *~ tl lexer.h lexer.cc parser.cc parser.h
+
+FORCE:
+
