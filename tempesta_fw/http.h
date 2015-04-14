@@ -114,6 +114,9 @@ typedef struct {
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x0004
 
+/* Request flags */
+#define TFW_HTTP_STICKY_SET		(0x0100)	/* Need 'Set-Cookie` */
+
 /**
  * Common HTTP message members.
  *
@@ -175,5 +178,25 @@ unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
 int tfw_http_hdr_add(TfwHttpMsg *, const char *, size_t);
 int tfw_http_hdr_sub(TfwHttpMsg *, TfwStr *, const char *, size_t);
 int tfw_http_hdr_del(TfwHttpMsg *, TfwStr *);
+
+/*
+ * Helper functions for preparation of an HTTP message.
+ */
+size_t tfw_http_prep_date(char *buf);
+size_t tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
+/*
+ * Functions to send an HTTP error response to a client.
+ */
+TfwHttpMsg *tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie);
+TfwHttpMsg *tfw_http_prep_502(TfwHttpMsg *hm);
+
+/*
+ * Functions to create SKBs with data stream.
+ *
+ * These are designed to work together. tfw_msg_setup() returns a handle
+ * that is passed on each call to tfw_msg_add_data().
+ */
+void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
+void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
 
 #endif /* __TFW_HTTP_H__ */
