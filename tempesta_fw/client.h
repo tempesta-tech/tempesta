@@ -22,13 +22,15 @@
 #define __TFW_CLIENT_H__
 
 #include <crypto/sha.h>
-#include "str.h"
+#include <linux/time.h>
 #include "peer.h"
 
 typedef struct {
         TFW_PEER_COMMON;
-	TfwStr		cookie;		/* Tempesta sticky cookie value */
-	u_char		hmac[SHA1_DIGEST_SIZE];
+	struct {
+		struct timespec	ts;
+		unsigned char	hmac[SHA1_DIGEST_SIZE];
+	} cookie;
 } TfwClient;
 
 TfwClient *tfw_create_client(void);
