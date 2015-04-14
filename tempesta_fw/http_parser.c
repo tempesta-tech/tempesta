@@ -883,7 +883,7 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 	}
 
 	TFW_STR_COPY(h, &hm->parser.hdr);
-	h->len += len;
+	h->len = len;
 	TFW_STR_INIT(&hm->parser.hdr);
 	TFW_DBG("store header w/ ptr=%p len=%d flags=%x id=%d\n",
 		h->ptr, h->len, h->flags, id);
@@ -1650,9 +1650,9 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (lf) {
 			/* Get length of the header. */
 			unsigned char *cr = lf - 1;
-			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
+			while (cr != p && *cr == '\r')
 				--cr;
-			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p);
+			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p + 1);
 			p = lf; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
