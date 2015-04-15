@@ -154,8 +154,9 @@ enum {
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	struct ss_hooks	*hooks;
-	struct socket	*listener;
+	struct sock	*listener;
 	int		type;
+	struct socket	*sock;
 } SsProto;
 
 /* Table of Synchronous Sockets connection callbacks. */
@@ -192,14 +193,18 @@ typedef struct ss_hooks {
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
-void ss_set_proto(struct socket *sock,
-		  SsProto *proto, int type, SsHooks *hooks);
-void ss_set_listener(struct socket *sock);
+void ss_set_proto(struct sock *sk, SsProto *proto, int type, SsHooks *hooks);
+void ss_set_listener(struct sock *sk);
 void ss_set_callbacks(struct sock *sk);
-void ss_tcp_set_listen(struct socket *sk);
+void ss_tcp_set_listen(struct sock *sk);
 void ss_send(struct sock *sk, const SsSkbList *skb_list);
 void ss_close(struct sock *sk);
-int ss_connect(struct socket *sock,
-	       struct sockaddr *addr, int addrlen, int flags);
+int ss_sock_create(int family, int type, int protocol,
+		   struct socket *sock, struct sock **res);
+void ss_release(struct sock *sk);
+int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
+int ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen);
+int ss_listen(struct sock *sk, int backlog);
+int ss_getpeername(struct sock *sk, struct sockaddr *addr, int *addrlen);
 
 #endif /* __SS_SOCK_H__ */
