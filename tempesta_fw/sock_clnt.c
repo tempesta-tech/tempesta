@@ -49,13 +49,14 @@
 #define LISTEN_SOCK_BACKLOG_LEN 1024
 #define LISTEN_SOCKS_MAX 8
 
-static struct socket *listen_socks[LISTEN_SOCKS_MAX];
+static struct sock *listen_socks[LISTEN_SOCKS_MAX];
 static unsigned int listen_socks_n = 0;
 
+static struct socket sock_holders[LISTEN_SOCKS_MAX];
 static SsProto protos[LISTEN_SOCKS_MAX];
 
-#define FOR_EACH_SOCK(sock, i) \
-	for (i = 0;  (sock = listen_socks[i], i < listen_socks_n);  ++i)
+#define FOR_EACH_SOCK(sk, i) \
+	for (i = 0;  (sk = listen_socks[i], i < listen_socks_n);  ++i)
 
 SsHooks ss_client_hooks;
 
@@ -67,36 +68,40 @@ static int
 add_listen_sock(TfwAddr *addr, int type)
 {
 	int r;
-	struct socket *s;
+	struct sock *sk;
+	struct socket *sk_sock;
 
 	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
 		TFW_ERR("maximum number of listen sockets (%d) is reached\n",
 			listen_socks_n);
 		return -ENOBUFS;
 	}
+	protos[listen_socks_n].sock = &sock_holders[listen_socks_n];
+	sk_sock = protos[listen_socks_n].sock;
 
-	r = sock_create_kern(addr->sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
+	r = ss_sock_create(addr->sa.sa_family,
+			   SOCK_STREAM, IPPROTO_TCP, sk_sock, &sk);
 	if (r) {
 		TFW_ERR("can't create socket (err: %d)\n", r);
 		return r;
 	}
-	ss_set_proto(s, &protos[listen_socks_n], type, &ss_client_hooks);
-	ss_set_listener(s);
-	ss_tcp_set_listen(s);
+	ss_set_proto(sk, &protos[listen_socks_n], type, &ss_client_hooks);
+	ss_set_listener(sk);
+	ss_tcp_set_listen(sk);
 
-	inet_sk(s->sk)->freebind = 1;
-	s->sk->sk_reuse = 1;
-	r = s->ops->bind(s, &addr->sa, tfw_addr_sa_len(addr));
+	inet_sk(sk)->freebind = 1;
+	sk->sk_reuse = 1;
+	r = ss_bind(sk, &addr->sa, tfw_addr_sa_len(addr));
 	if (r) {
 		TFW_ERR_ADDR("can't bind to", addr);
-		sock_release(s);
+		sock_release(sk_sock);
 		return r;
 	}
 
-	TFW_DBG("created front-end socket: sk=%p\n", s->sk);
+	TFW_DBG("created front-end socket: sk=%p\n", sk);
 
 	BUG_ON(listen_socks[listen_socks_n]);
-	listen_socks[listen_socks_n] = s;
+	listen_socks[listen_socks_n] = sk;
 	++listen_socks_n;
 
 	return 0;
@@ -118,7 +123,7 @@ tfw_client_connect_complete(struct sock *sk)
 	 * have more than one socket with the server.
 	 *
 	 * We have to lookup the client by the socket and create
-	 * a new one* only if it's really new.
+	 * a new one only if it's really new.
 	 */
 	cli = tfw_create_client();
 	if (!cli) {
@@ -132,6 +137,9 @@ tfw_client_connect_complete(struct sock *sk)
 		TFW_ERR("Cannot create new client connection\n");
 		tfw_destroy_client(sk);
 	}
+
+	/* Make sure we don't refer to parent's socket holder */
+	conn->proto.sock = NULL;
 
 	cli->sock = sk;
 	conn->peer = (TfwPeer *)cli;
@@ -162,16 +170,16 @@ tfw_client_connection_close(struct sock *sk)
 static int
 start_listen_socks(void)
 {
-	struct socket *sock;
+	struct sock *sk;
 	int i, r;
 
-	FOR_EACH_SOCK(sock, i) {
+	FOR_EACH_SOCK(sk, i) {
 		/* TODO adjust /proc/sys/net/core/somaxconn */
-		TFW_DBG("start listening on socket: sk=%p\n", sock->sk);
-		r = sock->ops->listen(sock, LISTEN_SOCK_BACKLOG_LEN);
+		TFW_DBG("start listening on socket: sk=%p\n", sk);
+		r = ss_listen(sk, LISTEN_SOCK_BACKLOG_LEN);
 		if (r) {
 			TFW_ERR("can't listen on front-end socket sk=%p (%d)\n",
-				sock->sk, r);
+				sk, r);
 			return r;
 		}
 	}
@@ -182,15 +190,16 @@ start_listen_socks(void)
 static void
 stop_listen_socks(void)
 {
-	struct socket *sock;
+	struct socket *sk_sock;
 	int i;
 
-	FOR_EACH_SOCK(sock, i) {
-		TFW_DBG("release front-end socket: sk=%p\n", sock->sk);
-		sock_release(sock);
+	for (i = 0;  (sk_sock = &sock_holders[i], i < listen_socks_n);  ++i) {
+		TFW_DBG("release front-end socket: sk=%p\n", listen_socks[i]);
+		sock_release(sk_sock);
 	}
 
 	memset(listen_socks, 0, sizeof(listen_socks));
+	memset(sock_holders, 0, sizeof(sock_holders));
 	memset(protos, 0, sizeof(protos));
 	listen_socks_n = 0;
 }

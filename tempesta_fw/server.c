@@ -85,7 +85,7 @@ tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr)
 	int len = sizeof(*addr);
 
 	memset(addr, 0, len);
-	ret = kernel_getpeername(srv->sock->sk_socket, &addr->sa, &len);
+	ret = ss_getpeername(srv->sock, &addr->sa, &len);
 
 	return ret;
 }

@@ -52,7 +52,7 @@ DECLARE_WAIT_QUEUE_HEAD(tfw_sconnd_wq);
 typedef struct {
 	struct list_head list;
 	TfwAddr addr;
-	struct socket *socket;  /* NULL when not connected. */
+	struct sock *sk;  /* NULL when not connected. */
 } TfwServerSockEntry;
 
 /* The list of all known servers (either connected or disconnected). */
@@ -87,38 +87,48 @@ SsHooks ss_server_hooks;
  * Return: an error code, or zero on success.
  */
 static int
-tfw_server_connect(struct socket **sock, const TfwAddr *addr)
+tfw_server_connect(struct sock **server_sk, const TfwAddr *addr)
 {
-	static SsProto dummy_proto = { 0 };
+	static struct socket dummy_sock;
+	static SsProto dummy_proto = { .sock = &dummy_sock };
 
 	struct sock *sk;
+	struct socket *sk_sock;
 	struct sockaddr sa = addr->sa;
 	sa_family_t family = addr->sa.sa_family;
 	size_t sza = tfw_addr_sa_len(addr);
 	int r;
 
-	r = sock_create_kern(family, SOCK_STREAM, IPPROTO_TCP, sock);
-	if (r) {
-		TFW_ERR("Can't create back-end connections socket (%d)\n", r);
+	/*
+	 * XXX Just for the proof of concept.
+	 * This works ONLY when there's just one backend server.
+	 * We need one 'struct socket' holder per connection
+	 * that lives for the whole duration of the connection.
+	 */
+	sk_sock = dummy_proto.sock;
+
+	r = ss_sock_create(family, SOCK_STREAM, IPPROTO_TCP, sk_sock, &sk);
+	if (r != 0) {
+		TFW_ERR("Unable to create sk socket (%d)\n", r);
 		return r;
 	}
-	sk = (*sock)->sk;
 
 	/*
 	 * TODO: Specify an actual protocol instead of static HTTP.
 	 * That would also require creating multiple dummy_proto{}.
 	 */
-	ss_set_proto(*sock, &dummy_proto, TFW_FSM_HTTP, &ss_server_hooks);
+	ss_set_proto(sk, &dummy_proto, TFW_FSM_HTTP, &ss_server_hooks);
 	ss_set_callbacks(sk);
 	TFW_DBG("Created server socket sk=%p\n", sk);
 
-	r = ss_connect(*sock, &sa, sza, 0);
+	r = ss_connect(sk, &sa, sza, 0);
 	if (r) {
 		TFW_DBG("Connect error on server socket sk=%p, r=%d\n", sk, r);
-		sock_release(*sock);
-		*sock = NULL;
+		ss_release(sk);
 		return r;
 	}
+
+	*server_sk = sk;
 
 	return 0;
 }
@@ -155,7 +165,7 @@ tfw_server_connect_complete(struct sock *sk)
 		char buf[TFW_ADDR_STR_BUF_SIZE];
 
 		memset(&addr, 0, len);
-		kernel_getpeername(sk->sk_socket, &addr.sa, &len);
+		ss_getpeername(sk, &addr.sa, &len);
 		tfw_addr_ntop(&addr, buf, sizeof(buf));
 		TFW_ERR("Can't create server descriptor for %s\n", buf);
 		goto err_sock_destroy;
@@ -167,7 +177,7 @@ tfw_server_connect_complete(struct sock *sk)
 err_sock_destroy:
 	tfw_destroy_server(sk);
 err_conn_create:
-	sock_release(sk->sk_socket);
+	ss_release(sk);
 	return -1;
 }
 
@@ -195,8 +205,8 @@ connect_server_socks(void)
 	bool all_socks_connected = true;
 	
 	FOR_EACH_SOCK(entry) {
-		if (!entry->socket) {
-			ret = tfw_server_connect(&entry->socket, &entry->addr);
+		if (!entry->sk) {
+			ret = tfw_server_connect(&entry->sk, &entry->addr);
 
 			if (!ret) {
 				TFW_LOG_ADDR("Connected to server",
@@ -204,7 +214,7 @@ connect_server_socks(void)
 			} else {
 				all_socks_connected = false;
 				/* We should leave NULL if not connected. */
-				BUG_ON(entry->socket);
+				BUG_ON(entry->sk);
 			}
 		}
 
@@ -219,8 +229,8 @@ release_server_socks(void)
 	TfwServerSockEntry *entry;
 
 	FOR_EACH_SOCK(entry) {
-		if (entry->socket)
-			sock_release(entry->socket);
+		if (entry->sk)
+			ss_release(entry->sk);
 	}
 }
 
