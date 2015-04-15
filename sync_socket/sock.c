@@ -663,7 +663,7 @@ ss_tcp_state_change(struct sock *sk)
 		/* Process the new TCP connection. */
 
 		SsProto *proto = sk->sk_user_data;
-		struct socket *lsk = proto->listener;
+		struct sock *lsk = proto->listener;
 		int r;
 
 		/* The callback is called from tcp_rcv_state_process(). */
@@ -679,8 +679,8 @@ ss_tcp_state_change(struct sock *sk)
 			 * Just drain listening socket accept queue,
 			 * and don't care about the returned socket.
 			 */
-			assert_spin_locked(&lsk->sk->sk_lock.slock);
-			ss_drain_accept_queue(lsk->sk, sk);
+			assert_spin_locked(&lsk->sk_lock.slock);
+			ss_drain_accept_queue(lsk, sk);
 		}
 	} else if ((sk->sk_state == TCP_CLOSE_WAIT)
 		 || (sk->sk_state == TCP_FIN_WAIT1)) {
@@ -708,11 +708,11 @@ ss_tcp_state_change(struct sock *sk)
  * Store listening socket as parent for all accepted connections.
  */
 void
-ss_set_listener(struct socket *sock)
+ss_set_listener(struct sock *sk)
 {
-	SsProto *proto = (SsProto *)sock->sk->sk_user_data;
+	SsProto *proto = (SsProto *)sk->sk_user_data;
 	if (proto)
-		proto->listener = sock;
+		proto->listener = sk;
 }
 EXPORT_SYMBOL(ss_set_listener);
 
@@ -720,10 +720,8 @@ EXPORT_SYMBOL(ss_set_listener);
  * Set up protocol handler.
  */
 void
-ss_set_proto(struct socket *sock, SsProto *proto, int type, SsHooks *hooks)
+ss_set_proto(struct sock *sk, SsProto *proto, int type, SsHooks *hooks)
 {
-	struct sock *sk = sock->sk;
-
 	BUG_ON(sk->sk_user_data);
 
 	proto->hooks = hooks;
@@ -751,10 +749,8 @@ EXPORT_SYMBOL(ss_set_callbacks);
  * Set protocol handler and initialize first callbacks.
  */
 void
-ss_tcp_set_listen(struct socket *sock)
+ss_tcp_set_listen(struct sock *sk)
 {
-	struct sock *sk = sock->sk;
-
 	write_lock_bh(&sk->sk_callback_lock);
 	ss_set_sock_atomic_alloc(sk);
 	sk->sk_state_change = ss_tcp_state_change;
@@ -763,15 +759,104 @@ ss_tcp_set_listen(struct socket *sock)
 EXPORT_SYMBOL(ss_tcp_set_listen);
 
 int
-ss_connect(struct socket *sock, struct sockaddr *addr, int addrlen, int flags)
+ss_sock_create(int family, int type, int protocol,
+		struct socket *sock, struct sock **res)
 {
-	int ret = kernel_connect(sock, addr, addrlen, flags | O_NONBLOCK);
+	int ret;
+	const struct net_proto_family *pf;
+
+	if ((family != AF_INET) && (family != AF_INET6))
+		return -EAFNOSUPPORT;
+	if (type != SOCK_STREAM)
+		return -EINVAL;
+
+	rcu_read_lock();
+	if ((pf = get_proto_family(family)) == NULL)
+		goto out_rcu_unlock;
+	if (!try_module_get(pf->owner))
+		goto out_rcu_unlock;
+	rcu_read_unlock();
+
+	memset(sock, 0, sizeof(*sock));
+	sock->type = type;
+
+	if ((ret = pf->create(&init_net, sock, protocol, 1)) < 0)
+		goto out_module_put;
+	if (!try_module_get(sock->ops->owner))
+		goto out_module_busy;
+	module_put(pf->owner);
+
+	BUG_ON(!sock->sk);
+	BUG_ON(sock->sk->sk_socket != sock);
+	BUG_ON(sock->file);
+	*res = sock->sk;
+
+	return 0;
+
+out_module_busy:
+	ret = -EAFNOSUPPORT;
+	ss_release(sock->sk);
+out_module_put:
+	sock->ops = NULL;
+	module_put(pf->owner);
+out_ret_error:
+	return ret;
+out_rcu_unlock:
+	ret = -EAFNOSUPPORT;
+	rcu_read_unlock();
+	goto out_ret_error;
+}
+EXPORT_SYMBOL(ss_sock_create);
+
+void
+ss_release(struct sock *sk)
+{
+	struct socket *sock = sk->sk_socket;
+
+	if (sock->ops) {
+		struct module *owner = sock->ops->owner;
+
+		sock->ops->release(sock);
+		sock->ops = NULL;
+		module_put(owner);
+	}
+}
+EXPORT_SYMBOL(ss_release);
+
+int
+ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags)
+{
+	int ret = kernel_connect(sk->sk_socket, addr, addrlen, flags | O_NONBLOCK);
 	if (ret != -EINPROGRESS) {
 		return ret;
 	}
 	return 0;
 }
 EXPORT_SYMBOL(ss_connect);
+
+int
+ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen)
+{
+	struct socket *sock = sk->sk_socket;
+	return sock->ops->bind(sock, addr, addrlen);
+}
+EXPORT_SYMBOL(ss_bind);
+
+int
+ss_listen(struct sock *sk, int backlog)
+{
+	struct socket *sock = sk->sk_socket;
+	return sock->ops->listen(sock, backlog);
+}
+EXPORT_SYMBOL(ss_listen);
+
+int
+ss_getpeername(struct sock *sk, struct sockaddr *addr, int *addrlen)
+{
+	struct socket *sock = sk->sk_socket;
+	return sock->ops->getname(sock, addr, addrlen, 1);
+}
+EXPORT_SYMBOL(ss_getpeername);
 
 /*
  * ------------------------------------------------------------------------

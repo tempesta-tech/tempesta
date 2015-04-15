@@ -47,7 +47,6 @@ tfw_connection_alloc(int type)
 	if (!c)
 		return NULL;
 
-	TFW_CONN_TYPE(c) = type;
 	INIT_LIST_HEAD(&c->msg_queue);
 
 	return c;
@@ -89,13 +88,13 @@ tfw_connection_new(struct sock *sk, int type,
 	BUG_ON(type != Conn_Clnt && type != Conn_Srv);
 
 	/* Type: connection direction BitwiseOR protocol. */
-	type |= proto->type;
+	proto->type |= type;
 
-	conn = tfw_connection_alloc(type);
+	conn = tfw_connection_alloc(proto->type);
 	if (!conn)
 		return NULL;
 
-	conn->proto.hooks = proto->hooks;
+	conn->proto = *proto;
 	sk->sk_user_data = conn;
 
 	conn->sk_destruct = sk->sk_destruct;
