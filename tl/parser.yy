@@ -105,7 +105,7 @@ args:
 	
 expr:
 	IDENT
-		{ $$ = create_identifier($1, st->get($1)); }
+		{ $$ = create_identifier($1, st->lookup($1)); }
 	| LONGINT
 		{ $$ = create_number($1); }
 	| IPV4

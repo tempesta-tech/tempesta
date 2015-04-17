@@ -31,6 +31,10 @@ class Symbol {
 
 class SymTbl {
 public:
+	SymTbl() noexcept
+		: parent_(NULL) // global symbol table by default
+	{}
+
 	~SymTbl() noexcept
 	{
 		for (auto &s: tbl_)
@@ -43,22 +47,28 @@ public:
 		tbl_[name] = new Symbol;
 	}
 
+	// TODO control reserved words. Also for functions.
 	Symbol *
-	get(std::string &name) noexcept
+	lookup(std::string &name) noexcept
 	{
 		Symbol *s;
-		auto is = tbl_.find(name);
-		if (is == tbl_.end()) {
-			s = new Symbol;
-			tbl_[name] = s;
-		} else {
-			s = is->second;
+
+		// Lookup in current and all enclosing evironments.
+		for (SymTbl *t = this; t; t = t->parent_) {
+			auto is = t->tbl_.find(name);
+			if (is != t->tbl_.end())
+				return is->second;
 		}
+		s = new Symbol;
+
+		// Creat the symbol in local env.
+		tbl_[name] = s;
 
 		return s;
 	}
 
 private:
+	SymTbl				*parent_;
 	std::map<std::string, Symbol *>	tbl_;
 };
 
