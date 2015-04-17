@@ -42,7 +42,7 @@ static inline void
 tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
 {
 	INIT_LIST_HEAD(&p->conn_list);
-	p->conn_lock = __RW_LOCK_UNLOCKED(p->conn_lock);
+	rwlock_init(&p->conn_lock);
 
 	memcpy(&p->addr, addr, sizeof(p->addr));
 }

@@ -106,7 +106,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 	INIT_LIST_HEAD(&sg->list);
 	memcpy((char *)sg->name, name, name_size);
 	INIT_LIST_HEAD(&sg->srv_list);
-	sg->lock = __RW_LOCK_UNLOCKED(sg->lock);
+	rwlock_init(&sg->lock);
 	sg->sched = NULL;
 	sg->sched_data = NULL;
 
