@@ -58,7 +58,7 @@ enum {
  * @msg_queue	- messages queue to be sent over the connection;
  * @msg		- currently processing (receiving) message;
  * @peer	- TfwClient or TfwServer handler;
- * @sock	- appropriate socket handler;
+ * @sk		- appropriate sock handler;
  * @sk_destruct	- original sk->sk_destruct. Destructors passed to
  * 		  tfw_connection_new() must call it manually;
  */
@@ -69,9 +69,9 @@ typedef struct {
 
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
-	struct sock		*sock;
+	struct sock		*sk;
 
-	struct socket		*socket; /* XXX: temporary field */
+	struct socket		*sock; /* XXX: temporary field */
 
 	void (*sk_destruct)(struct sock *sk);
 } TfwConnection;
