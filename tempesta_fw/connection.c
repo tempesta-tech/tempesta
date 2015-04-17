@@ -104,7 +104,7 @@ tfw_connection_new(struct sock *sk, int type,
 		conn->sk_destruct = sk->sk_destruct;
 		sk->sk_destruct = destructor;
 	}
-	conn->sock = sk;
+	conn->sk = sk;
 
 	sock_set_flag(sk, SOCK_DBG);
 
@@ -139,7 +139,7 @@ tfw_connection_close(struct sock *sk)
 void
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
-	ss_send(conn->sock, &msg->skb_list);
+	ss_send(conn->sk, &msg->skb_list);
 }
 
 /*
