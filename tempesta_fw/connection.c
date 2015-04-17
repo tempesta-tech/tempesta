@@ -130,22 +130,6 @@ tfw_connection_close(struct sock *sk)
 	return 0;
 }
 
-void
-tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg)
-{
-	TfwClient *clnt =(TfwClient *)conn->peer;
-
-	ss_send(clnt->sock, &msg->skb_list);
-}
-
-void
-tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg)
-{
-	TfwServer *srv = (TfwServer *)conn->peer;
-
-	ss_send(srv->sock, &msg->skb_list);
-}
-
 /*
  * ------------------------------------------------------------------------
  * 	Connection Upcalls

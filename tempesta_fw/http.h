@@ -113,6 +113,7 @@ typedef struct {
 #define TFW_HTTP_CONN_KA		0x0002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x0004
+#define TFW_HTTP_MSG_OUT		0x0010
 
 /**
  * Common HTTP message members.
@@ -159,6 +160,16 @@ typedef struct {
 	unsigned int	keep_alive;
 	unsigned int	expires;
 } TfwHttpResp;
+
+/*
+ * Send an HTTP message to a peer on a given connection.
+ */
+static inline void
+tfw_http_msg_send(TfwConnection *conn, TfwHttpMsg *hm)
+{
+	hm->flags |= TFW_HTTP_MSG_OUT;
+	ss_send(conn->peer->sock, &hm->msg.skb_list);
+}
 
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
