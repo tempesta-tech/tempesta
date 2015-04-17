@@ -45,11 +45,13 @@ tfw_http_msg_free(TfwHttpMsg *m)
 		struct sk_buff *skb = ss_skb_dequeue(&m->msg.skb_list);
 		if (!skb)
 			break;
-		TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p"
-			" users=%d\n",
-			skb, skb->truesize, skb->sk, skb->destructor,
-			atomic_read(&skb->users));
-		kfree_skb(skb);
+		if (!(m->flags & TFW_HTTP_MSG_OUT)) {
+			TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p"
+				" users=%d\n",
+				skb, skb->truesize, skb->sk, skb->destructor,
+				atomic_read(&skb->users));
+			__kfree_skb(skb);
+		}
 	}
 	tfw_pool_free(m->pool);
 }

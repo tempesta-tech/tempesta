@@ -96,8 +96,6 @@ typedef struct {
 /* Connection downcalls. */
 TfwConnection *tfw_connection_new(struct sock *sk, int type,
 				  void (*destructor)(struct sock *s));
-void tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg);
-void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 
