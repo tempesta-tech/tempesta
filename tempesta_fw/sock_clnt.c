@@ -52,7 +52,6 @@
 static struct sock *listen_socks[LISTEN_SOCKS_MAX];
 static unsigned int listen_socks_n = 0;
 
-static struct socket sock_holders[LISTEN_SOCKS_MAX];
 static SsProto protos[LISTEN_SOCKS_MAX];
 
 #define FOR_EACH_SOCK(sk, i) \
@@ -69,32 +68,27 @@ add_listen_sock(TfwAddr *addr, int type)
 {
 	int r;
 	struct sock *sk;
-	struct socket *sk_sock;
 
 	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
 		TFW_ERR("maximum number of listen sockets (%d) is reached\n",
 			listen_socks_n);
 		return -ENOBUFS;
 	}
-	protos[listen_socks_n].sock = &sock_holders[listen_socks_n];
-	sk_sock = protos[listen_socks_n].sock;
 
-	r = ss_sock_create(addr->sa.sa_family,
-			   SOCK_STREAM, IPPROTO_TCP, sk_sock, &sk);
+	r = ss_sock_create(addr->sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
 		TFW_ERR("can't create socket (err: %d)\n", r);
 		return r;
 	}
 	ss_set_proto(sk, &protos[listen_socks_n], type, &ss_client_hooks);
-	ss_set_listener(sk);
-	ss_tcp_set_listen(sk);
+	ss_set_listen(sk);
 
 	inet_sk(sk)->freebind = 1;
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, &addr->sa, tfw_addr_sa_len(addr));
 	if (r) {
 		TFW_ERR_ADDR("can't bind to", addr);
-		sock_release(sk_sock);
+		ss_release(sk);
 		return r;
 	}
 
@@ -136,10 +130,9 @@ tfw_client_connect_complete(struct sock *sk)
 	if (!conn) {
 		TFW_ERR("Cannot create new client connection\n");
 		tfw_destroy_client(sk);
+		ss_close(sk);
+		return -EINVAL;
 	}
-
-	/* Make sure we don't refer to parent's socket holder */
-	conn->proto.sock = NULL;
 
 	cli->sock = sk;
 	conn->peer = (TfwPeer *)cli;
@@ -190,16 +183,15 @@ start_listen_socks(void)
 static void
 stop_listen_socks(void)
 {
-	struct socket *sk_sock;
+	struct sock *sk;
 	int i;
 
-	for (i = 0;  (sk_sock = &sock_holders[i], i < listen_socks_n);  ++i) {
+	FOR_EACH_SOCK(sk, i) {
 		TFW_DBG("release front-end socket: sk=%p\n", listen_socks[i]);
-		sock_release(sk_sock);
+		ss_release(sk);
 	}
 
 	memset(listen_socks, 0, sizeof(listen_socks));
-	memset(sock_holders, 0, sizeof(sock_holders));
 	memset(protos, 0, sizeof(protos));
 	listen_socks_n = 0;
 }

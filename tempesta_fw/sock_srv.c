@@ -89,11 +89,9 @@ SsHooks ss_server_hooks;
 static int
 tfw_server_connect(struct sock **server_sk, const TfwAddr *addr)
 {
-	static struct socket dummy_sock;
-	static SsProto dummy_proto = { .sock = &dummy_sock };
+	static SsProto dummy_proto = { 0 };
 
 	struct sock *sk;
-	struct socket *sk_sock;
 	struct sockaddr sa = addr->sa;
 	sa_family_t family = addr->sa.sa_family;
 	size_t sza = tfw_addr_sa_len(addr);
@@ -105,9 +103,7 @@ tfw_server_connect(struct sock **server_sk, const TfwAddr *addr)
 	 * We need one 'struct socket' holder per connection
 	 * that lives for the whole duration of the connection.
 	 */
-	sk_sock = dummy_proto.sock;
-
-	r = ss_sock_create(family, SOCK_STREAM, IPPROTO_TCP, sk_sock, &sk);
+	r = ss_sock_create(family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r != 0) {
 		TFW_ERR("Unable to create sk socket (%d)\n", r);
 		return r;
