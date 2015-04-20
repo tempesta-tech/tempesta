@@ -33,10 +33,10 @@
 #include "log.h"
 #include "sync_socket.h"
 
-MODULE_AUTHOR("Tempesta Technologies");
-MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
-MODULE_VERSION("0.4.4");
-MODULE_LICENSE("GPL");
+#ifdef TFW_BANNER
+#undef TFW_BANNER
+#define TFW_BANNER	"[sync_sockets] "
+#endif
 
 #ifdef DEBUG
 static const char *ss_statename[] = {
@@ -912,15 +912,12 @@ EXPORT_SYMBOL(ss_getpeername);
  * ------------------------------------------------------------------------
  */
 int __init
-ss_init(void)
+tfw_ss_init(void)
 {
 	return 0;
 }
 
-void __exit
-ss_exit(void)
+void
+tfw_ss_exit(void)
 {
 }
-
-module_init(ss_init);
-module_exit(ss_exit);

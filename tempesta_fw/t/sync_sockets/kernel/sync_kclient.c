@@ -26,9 +26,9 @@
 #include <linux/freezer.h>
 #include <net/inet_sock.h>
 
-#include "../../log.h"
-#include "../../sync_socket.h"
-#include "../../../tempesta_fw/addr.h"
+#include "addr.h"
+#include "log.h"
+#include "sync_socket.h"
 
 /*
  * Start KCLIENT_NTHREADS threads. Each thread initiates KCLIENT_NCONNECTS
