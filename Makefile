@@ -22,7 +22,7 @@ ifdef NORMALIZATION
 	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
 endif
 
-obj-m	+= sync_socket/ tempesta_db/core/ tempesta_fw/
+obj-m	+= tempesta_db/core/ tempesta_fw/
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
