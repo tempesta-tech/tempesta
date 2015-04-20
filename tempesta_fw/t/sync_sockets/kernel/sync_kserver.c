@@ -28,7 +28,7 @@
 #include <linux/module.h>
 #include <net/inet_sock.h>
 
-#include "../../sync_socket.h"
+#include "sync_socket.h"
 
 #define MAX_CONN	(1000 * 1000)
 #define PORT		5000

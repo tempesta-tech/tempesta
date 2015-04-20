@@ -17,7 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -Werror -I$(src)/../sync_socket -I$(src)/../tempesta_db/core
+EXTRA_CFLAGS += -Werror -I$(src)/../tempesta_db/core
 
 ifneq ($(NDEBUG), 1)
 EXTRA_CFLAGS += -DDEBUG -O0 -g3
@@ -44,6 +44,7 @@ tempesta_fw-objs = \
 	pool.o \
 	sched.o \
 	server.o \
+	sock.o \
 	sock_clnt.o \
 	sock_srv.o \
 	stress.o \

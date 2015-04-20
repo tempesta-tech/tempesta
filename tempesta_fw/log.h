@@ -108,4 +108,10 @@ do { \
 #define TFW_ERR_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_ERR("%s: %s\n", msg, addr_str))
 
+/* Keep SS debug primitives separate */
+#define SS_DBG(...)	TFW_DBG(__VA_ARGS__)
+#define SS_ERR(...)	TFW_ERR(__VA_ARGS__)
+#define SS_WARN(...)	TFW_WARN(__VA_ARGS__)
+#define SS_LOG(...)	TFW_LOG(__VA_ARGS__)
+
 #endif /* __TFW_LOG_H__ */
