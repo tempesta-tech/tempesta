@@ -73,6 +73,7 @@ tfw_init(void)
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
+	DO_INIT(ss);
 	DO_INIT(cfg_if);
 
 	/* Register TLS before HTTP, so HTTP FSM can register TLS hooks. */

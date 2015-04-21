@@ -33,16 +33,16 @@
 #include "log.h"
 #include "sync_socket.h"
 
-MODULE_AUTHOR("Tempesta Technologies");
-MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
-MODULE_VERSION("0.4.4");
-MODULE_LICENSE("GPL");
+#ifdef TFW_BANNER
+#undef TFW_BANNER
+#define TFW_BANNER	"[sync_sockets] "
+#endif
 
 #ifdef DEBUG
-static const char *ss_statename[]={
-	"Unused","Established","Syn Sent","Syn Recv",
-	"Fin Wait 1","Fin Wait 2","Time Wait", "Close",
-	"Close Wait","Last ACK","Listen","Closing"
+static const char *ss_statename[] = {
+	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
+	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
+	"Close Wait",	"Last ACK",	"Listen",	"Closing"
 };
 #endif
 
@@ -139,6 +139,9 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	struct tcp_sock *tp = tcp_sk(sk);
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
+
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	bh_lock_sock_nested(sk);
 
@@ -291,8 +294,9 @@ ss_do_close(struct sock *sk)
 	int data_was_unread = 0;
 	int state;
 
-	SS_DBG("Close socket %p (account=%d)\n",
-		sk, sk_has_account(sk));
+	SS_DBG("Close socket %p (account=%d)\n", sk, sk_has_account(sk));
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (unlikely(!sk))
 		return;
@@ -540,6 +544,8 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 #else
 	struct request_sock *req;
 #endif
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -604,7 +610,8 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk, int bytes)
 {
-	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -636,19 +643,11 @@ static void
 ss_tcp_error(struct sock *sk)
 {
 	SS_DBG("process error on socket %p\n", sk);
-	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (sk->sk_destruct)
 		sk->sk_destruct(sk);
-}
-
-/**
- * We're working with the sockets in softirq, so set allocations atomic.
- */
-static void
-ss_set_sock_atomic_alloc(struct sock *sk)
-{
-	sk->sk_allocation = GFP_ATOMIC;
 }
 
 /**
@@ -657,7 +656,8 @@ ss_set_sock_atomic_alloc(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("%s: sk %p, state %s\n", __FUNCTION__, sk, ss_statename[sk->sk_state]);
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
@@ -674,6 +674,15 @@ ss_tcp_state_change(struct sock *sk)
 			return;
 		}
 		if (lsk) {
+			/*
+			 * This is a new socket for an accepted connect
+			 * request that the kernel has allocated itself.
+			 * Kernel initializes this field to GFP_KERNEL.
+			 * Tempesta works with sockets in SoftIRQ context,
+			 * so set it to atomic allocation.
+			 */
+			sk->sk_allocation = GFP_ATOMIC;
+
 			/*
 			 * We know which socket is just accepted.
 			 * Just drain listening socket accept queue,
@@ -705,18 +714,6 @@ ss_tcp_state_change(struct sock *sk)
 }
 
 /*
- * Store listening socket as parent for all accepted connections.
- */
-void
-ss_set_listener(struct sock *sk)
-{
-	SsProto *proto = (SsProto *)sk->sk_user_data;
-	if (proto)
-		proto->listener = sk;
-}
-EXPORT_SYMBOL(ss_set_listener);
-
-/*
  * Set up protocol handler.
  */
 void
@@ -737,7 +734,6 @@ void
 ss_set_callbacks(struct sock *sk)
 {
 	write_lock_bh(&sk->sk_callback_lock);
-	ss_set_sock_atomic_alloc(sk);
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
 	sk->sk_error_report = ss_tcp_error;
@@ -746,29 +742,53 @@ ss_set_callbacks(struct sock *sk)
 EXPORT_SYMBOL(ss_set_callbacks);
 
 /**
- * Set protocol handler and initialize first callbacks.
+ * Store listening socket as parent for all accepted connections,
+ * and initialize first callbacks.
  */
 void
-ss_tcp_set_listen(struct sock *sk)
+ss_set_listen(struct sock *sk)
 {
+	((SsProto *)sk->sk_user_data)->listener = sk;
+
 	write_lock_bh(&sk->sk_callback_lock);
-	ss_set_sock_atomic_alloc(sk);
 	sk->sk_state_change = ss_tcp_state_change;
 	write_unlock_bh(&sk->sk_callback_lock);
 }
-EXPORT_SYMBOL(ss_tcp_set_listen);
+EXPORT_SYMBOL(ss_set_listen);
+
+/*
+ * Tempesta works with Linux internal sockets (struct sock), and it
+ * does not need full BSD sockets (struct socket), nor does it need
+ * file/inode operations on these sockets. Both take memory and system
+ * resources. Here is a set of socket interface functions that accept
+ * "struct sock" instead of "struct socket". With these we avoid taking
+ * unnecessary system memory and resources.
+ *
+ * As a BSD socket (struct socket) is not allocated and populated,
+ * a socket placeholder is used in these functions. A placeholder
+ * is initialized with just enough data to satisfy an underlying
+ * kernel function that still wants "struct socket" as an argument.
+ *
+ * Support for both IPv4 and IPv6 is required. A small trick is used
+ * to avoid calculating which Linux kernel function to call each time.
+ * There is a dummy "struct socket" for each protocol family that has
+ * its "ops" pointer initialized to corresponding set of socket interface
+ * functions for the protocol family. Then a pointer to corresponding
+ * dummy socket structure is assigned to sk->sk_socket at the time
+ * a socket is created as it would be in case of BSD sockets.
+ */
+static struct socket inet_sock_dummy;
+static struct socket inet6_sock_dummy;
 
 int
-ss_sock_create(int family, int type, int protocol,
-		struct socket *sock, struct sock **res)
+ss_sock_create(int family, int type, int protocol, struct sock **res)
 {
 	int ret;
 	const struct net_proto_family *pf;
+	struct socket sock = { .type = type };
 
-	if ((family != AF_INET) && (family != AF_INET6))
-		return -EAFNOSUPPORT;
-	if (type != SOCK_STREAM)
-		return -EINVAL;
+	BUG_ON(type != SOCK_STREAM);
+	BUG_ON((family != AF_INET) && (family != AF_INET6));
 
 	rcu_read_lock();
 	if ((pf = get_proto_family(family)) == NULL)
@@ -777,27 +797,40 @@ ss_sock_create(int family, int type, int protocol,
 		goto out_rcu_unlock;
 	rcu_read_unlock();
 
-	memset(sock, 0, sizeof(*sock));
-	sock->type = type;
-
-	if ((ret = pf->create(&init_net, sock, protocol, 1)) < 0)
+	if ((ret = pf->create(&init_net, &sock, protocol, 1)) < 0)
 		goto out_module_put;
-	if (!try_module_get(sock->ops->owner))
+	if (!try_module_get(sock.ops->owner))
 		goto out_module_busy;
 	module_put(pf->owner);
 
-	BUG_ON(!sock->sk);
-	BUG_ON(sock->sk->sk_socket != sock);
-	BUG_ON(sock->file);
-	*res = sock->sk;
+	BUG_ON(!sock.sk);
+	BUG_ON(sock.sk->sk_socket != &sock);
+	BUG_ON(sock.file);
 
+	/* Set up socket ops through a dummy socket. */
+	if (family == AF_INET) {
+		if (unlikely(!inet_sock_dummy.ops))
+			inet_sock_dummy.ops = sock.ops;
+		sock.sk->sk_socket = &inet_sock_dummy;
+	} else {
+		if (unlikely(!inet6_sock_dummy.ops))
+			inet6_sock_dummy.ops = sock.ops;
+		sock.sk->sk_socket = &inet6_sock_dummy;
+	}
+	/*
+	 * Kernel initializes this fiels to GFP_KERNEL.
+	 * Tempesta works with sockets in SoftIRQ context,
+	 * so set it to atomic allocation.
+	 */
+	sock.sk->sk_allocation = GFP_ATOMIC;
+
+	*res = sock.sk;
 	return 0;
 
 out_module_busy:
 	ret = -EAFNOSUPPORT;
-	ss_release(sock->sk);
+	ss_release(sock.sk);
 out_module_put:
-	sock->ops = NULL;
 	module_put(pf->owner);
 out_ret_error:
 	return ret;
@@ -811,22 +844,25 @@ EXPORT_SYMBOL(ss_sock_create);
 void
 ss_release(struct sock *sk)
 {
-	struct socket *sock = sk->sk_socket;
-
-	if (sock->ops) {
-		struct module *owner = sock->ops->owner;
-
-		sock->ops->release(sock);
-		sock->ops = NULL;
-		module_put(owner);
-	}
+	struct socket sock = {
+		.sk = sk,
+		.ops = sk->sk_socket->ops
+	};
+	BUG_ON(sock_flag(sk, SOCK_LINGER));
+	sock.ops->release(&sock);
+	module_put(sock.ops->owner);
 }
 EXPORT_SYMBOL(ss_release);
 
 int
 ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags)
 {
-	int ret = kernel_connect(sk->sk_socket, addr, addrlen, flags | O_NONBLOCK);
+	struct socket sock = {
+		.sk = sk,
+		.ops = sk->sk_socket->ops,
+		.state = SS_UNCONNECTED
+	};
+	int ret = sock.ops->connect(&sock, addr, addrlen, flags | O_NONBLOCK);
 	if (ret != -EINPROGRESS) {
 		return ret;
 	}
@@ -837,24 +873,36 @@ EXPORT_SYMBOL(ss_connect);
 int
 ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen)
 {
-	struct socket *sock = sk->sk_socket;
-	return sock->ops->bind(sock, addr, addrlen);
+	struct socket sock = {
+		.sk = sk,
+		.ops = sk->sk_socket->ops,
+		.type = sk->sk_type
+	};
+	return sock.ops->bind(&sock, addr, addrlen);
 }
 EXPORT_SYMBOL(ss_bind);
 
 int
 ss_listen(struct sock *sk, int backlog)
 {
-	struct socket *sock = sk->sk_socket;
-	return sock->ops->listen(sock, backlog);
+	struct socket sock = {
+		.sk = sk,
+		.ops = sk->sk_socket->ops,
+		.type = sk->sk_type,
+		.state = SS_UNCONNECTED
+	};
+	return sock.ops->listen(&sock, backlog);
 }
 EXPORT_SYMBOL(ss_listen);
 
 int
 ss_getpeername(struct sock *sk, struct sockaddr *addr, int *addrlen)
 {
-	struct socket *sock = sk->sk_socket;
-	return sock->ops->getname(sock, addr, addrlen, 1);
+	struct socket sock = {
+		.sk = sk,
+		.ops = sk->sk_socket->ops
+	};
+	return sock.ops->getname(&sock, addr, addrlen, 1);
 }
 EXPORT_SYMBOL(ss_getpeername);
 
@@ -864,15 +912,12 @@ EXPORT_SYMBOL(ss_getpeername);
  * ------------------------------------------------------------------------
  */
 int __init
-ss_init(void)
+tfw_ss_init(void)
 {
 	return 0;
 }
 
-void __exit
-ss_exit(void)
+void
+tfw_ss_exit(void)
 {
 }
-
-module_init(ss_init);
-module_exit(ss_exit);
