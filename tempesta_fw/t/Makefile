@@ -17,5 +17,5 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-# This is just a stub for compilind unit tests subdirectory.
-obj-m += unit/
+# This is just a stub for compiling unit tests subdirectory.
+obj-m += sync_sockets/ unit/
