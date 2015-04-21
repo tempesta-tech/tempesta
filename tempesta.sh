@@ -14,13 +14,11 @@ root="$(pwd)"
 popd > /dev/null
 
 arg=${1:-}
-ss_path=${SS_PATH:="$root/sync_socket"}
 tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
 tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
 sched=${SCHED:="dummy"}
 
-ss_mod=sync_socket
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
@@ -42,9 +40,6 @@ load_modules()
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
-
-	insmod $ss_path/$ss_mod.ko
-	[ $? -ne 0 ] && error "cannot load synchronous sockets module"
 
 	insmod $tdb_path/$tdb_mod.ko
 	[ $? -ne 0 ] && error "cannot load tempesta database module"
@@ -80,7 +75,6 @@ unload_modules()
 	rmmod $tfw_sched_mod
 	rmmod $tfw_mod
 	rmmod $tdb_mod
-	rmmod $ss_mod
 }
 
 # Linux service interface.
