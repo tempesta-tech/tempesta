@@ -35,7 +35,7 @@ typedef struct {
 	atomic_t	conn_users;
 } TfwClient;
 
-TfwClient *tfw_create_client(TfwConnection *conn, const TfwAddr *addr);
-void tfw_client_put(struct sock *s);
+TfwClient *tfw_client_obtain(struct sock *sk);
+void tfw_client_put(TfwClient *cli);
 
 #endif /* __TFW_CLIENT_H__ */

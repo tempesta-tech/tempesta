@@ -52,13 +52,13 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * TODO Initialize allocated Client structure by HTTP specific callbacks and FSM.
  */
 static int
-tfw_http_conn_init(TfwConnection *conn)
+tfw_http_conn_estab(TfwConnection *conn)
 {
 	return 0;
 }
 
 static void
-tfw_http_conn_destruct(TfwConnection *conn)
+tfw_http_conn_close(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
 
@@ -66,6 +66,7 @@ tfw_http_conn_destruct(TfwConnection *conn)
 
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
 		tfw_http_msg_free((TfwHttpMsg *)msg);
+	INIT_LIST_HEAD(&conn->msg_queue);
 }
 
 /**
@@ -959,8 +960,8 @@ tfw_http_req_key_calc(const TfwHttpReq *req)
 EXPORT_SYMBOL(tfw_http_req_key_calc);
 
 static TfwConnHooks http_conn_hooks = {
-	.conn_init	= tfw_http_conn_init,
-	.conn_destruct	= tfw_http_conn_destruct,
+	.conn_estab	= tfw_http_conn_estab,
+	.conn_close	= tfw_http_conn_close,
 	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
 };
 

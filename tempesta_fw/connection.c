@@ -20,120 +20,124 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "classifier.h"
-#include "client.h"
+
 #include "connection.h"
 #include "gfsm.h"
+#include "lib.h"
 #include "log.h"
-#include "server.h"
-
 #include "sync_socket.h"
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
 
-static struct kmem_cache *conn_cache;
-static TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
+static TfwConnHooks *tfw_conn_hooks[TFW_CONN_MAX_PROTOS];
 
-/*
- * ------------------------------------------------------------------------
- *  	Utilities
- * ------------------------------------------------------------------------
- */
-static TfwConnection *
-tfw_connection_alloc(int type)
+#define TFW_CONN_HOOK_CALL(conn, hook_name) \
+	tfw_conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]->hook_name(conn)
+
+void
+tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {
-	TfwConnection *c = kmem_cache_alloc(conn_cache,
-					    GFP_ATOMIC | __GFP_ZERO);
-	if (!c)
-		return NULL;
+	unsigned hid = TFW_CONN_TYPE2IDX(type);
 
-	TFW_CONN_TYPE(c) = type;
-	INIT_LIST_HEAD(&c->list);
-	INIT_LIST_HEAD(&c->msg_queue);
+	BUG_ON(hid >= TFW_CONN_MAX_PROTOS || tfw_conn_hooks[hid]);
 
-	return c;
-}
-
-/**
- * TfwConnection must be CPU local, so do not synchronize this.
- */
-static void
-tfw_connection_free(TfwConnection *c)
-{
-	TFW_DBG("Free connection: %p\n", c);
-
-	kmem_cache_free(conn_cache, c);
+	tfw_conn_hooks[hid] = hooks;
 }
 
 /*
  * ------------------------------------------------------------------------
- *  	Connection Downcalls
+ * 	Generic TfwConnection helpers.
  * ------------------------------------------------------------------------
  */
 
 /**
- * A downcall for new connection called to set necessary callbacks
- * when a traditional Sockets connect() is calling.
- *
- * @destructor is a function placed to sk->sk_destruct.
- * The original callback is saved to TfwConnection->sk_destruct and the passed
- * function must call it manually.
+ * The TfwConnection constructor.
+ * It initializes @conn fields, but doesn't allocate the TfwConnection object.
  */
-TfwConnection *
-tfw_connection_new(struct sock *sk, int type,
-		   void (*destructor)(struct sock *s))
+void
+tfw_connection_construct(TfwConnection *conn)
 {
-	TfwConnection *conn;
-	SsProto *proto = sk->sk_user_data;
+	memset(conn, 0, sizeof(*conn));
+	INIT_LIST_HEAD(&conn->list);
+	INIT_LIST_HEAD(&conn->msg_queue);
+}
 
-	BUG_ON(!(type & (Conn_Clnt | Conn_Srv)));
-
-	/* Type: connection direction BitwiseOR protocol. */
-	if (sk->sk_user_data) {
-		SsProto *proto = sk->sk_user_data;
-		type |= proto->type;
+/**
+ * Check that TfwConnection resources are cleaned up properly.
+ */
+void
+tfw_connection_validate_cleanup(TfwConnection *conn)
+{
+	IF_DEBUG {
+		BUG_ON(!conn);
+		BUG_ON(!list_empty(&conn->list));
+		BUG_ON(!list_empty(&conn->msg_queue));
+		BUG_ON(conn->msg);
+		BUG_ON(conn->peer);
+		BUG_ON(conn->sk);
 	}
+}
 
-	conn = tfw_connection_alloc(type);
-	if (!conn)
-		return NULL;
-
-	conn->proto.hooks = proto->hooks;
-	sk->sk_user_data = conn;
-	if (destructor) {
-		conn->sk_destruct = sk->sk_destruct;
-		sk->sk_destruct = destructor;
-	}
+void
+tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
+{
+	BUG_ON(conn->sk || sk->sk_user_data);
 	conn->sk = sk;
-
-	sock_set_flag(sk, SOCK_DBG);
-
-	conn_hooks[TFW_CONN_TYPE2IDX(type)]->conn_init(conn);
-
-	return conn;
+	sk->sk_user_data = conn;
 }
 
-int
-tfw_connection_close(struct sock *sk)
+void
+tfw_connection_unlink_sk(TfwConnection *conn)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	BUG_ON(!conn->sk || !conn->sk->sk_user_data);
+	conn->sk->sk_user_data = NULL;
+	conn->sk = NULL;
+}
 
-	/*
-	 * TfwConnection{} is allocated and set up only when
-	 * the connection had been established successfully.
-	 * In that case a proper Conn_Clnt or Conn_Srv flag
-	 * had been set. Otherwise we have just a SsProto{}
-	 * placeholder there.
-	 */
-	if (conn && (conn->proto.type & (Conn_Clnt | Conn_Srv))) {
-		conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]
-			->conn_destruct(conn);
-		tfw_peer_del_conn(conn->peer, &conn->list);
-		tfw_connection_free(conn);
-		sk->sk_user_data = NULL;
-	}
+void
+tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
+{
+	BUG_ON(conn->peer || !list_empty(&conn->list));
+	conn->peer = peer;
+	tfw_peer_add_conn(peer, &conn->list);
+}
 
-	return 0;
+void
+tfw_connection_unlink_peer(TfwConnection *conn)
+{
+	BUG_ON(!conn->peer || list_empty(&conn->list));
+	tfw_peer_del_conn(conn->peer, &conn->list);
+	conn->peer = NULL;
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * 	TfwConnHooks downcalls.
+ * ------------------------------------------------------------------------
+ */
+
+/**
+ * Publish the "connection is established" event via TfwConnHooks.
+ */
+int
+tfw_connection_estab(TfwConnection *conn)
+{
+	int r = TFW_CONN_HOOK_CALL(conn, conn_estab);
+	if (r)
+		TFW_DBG("conn_init() hook returned error: %d\n", r);
+	return r;
+}
+
+/**
+ * Publish the "connection is closed" event via TfwConnHooks.
+ */
+void
+tfw_connection_close(TfwConnection *conn)
+{
+	/* Ask higher levels to free resources. */
+	TFW_CONN_HOOK_CALL(conn, conn_close);
+	BUG_ON(conn->msg);
+	BUG_ON(!list_empty(&conn->msg_queue));
 }
 
 void
@@ -144,7 +148,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 
 /*
  * ------------------------------------------------------------------------
- * 	Connection Upcalls
+ * 	SsHooks Upcalls
  * ------------------------------------------------------------------------
  */
 
@@ -181,8 +185,7 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 	TfwConnection *conn = (TfwConnection *)proto;
 
 	if (!conn->msg) {
-		int i = TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn));
-		conn->msg = conn_hooks[i]->conn_msg_alloc(conn);
+		TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
 		if (!conn->msg)
 			return -ENOMEM;
 		TFW_DBG("Link new msg %p with connection %p\n",
@@ -208,34 +211,3 @@ tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
 	return 0;
 }
 
-/*
- * ------------------------------------------------------------------------
- * 	Connection API (frontend for synchronous sockets) initialization
- * ------------------------------------------------------------------------
- */
-void
-tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
-{
-	unsigned hid = TFW_CONN_TYPE2IDX(type);
-
-	BUG_ON(hid >= TFW_CONN_MAX_PROTOS || conn_hooks[hid]);
-
-	conn_hooks[hid] = hooks;
-}
-
-int __init
-tfw_connection_init(void)
-{
-	conn_cache = kmem_cache_create("tfw_conn_cache", sizeof(TfwConnection),
-				       0, 0, NULL);
-	if (!conn_cache)
-		return -ENOMEM;
-
-	return 0;
-}
-
-void
-tfw_connection_exit(void)
-{
-	kmem_cache_destroy(conn_cache);
-}
