@@ -153,9 +153,9 @@ enum {
 
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
-	struct ss_hooks	*hooks;
-	struct sock	*listener;
-	int		type;
+	const struct ss_hooks	*hooks;
+	struct sock		*listener;
+	int			type;
 } SsProto;
 
 /* Table of Synchronous Sockets connection callbacks. */

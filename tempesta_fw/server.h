@@ -35,10 +35,12 @@
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
+ * @sg		- back-reference to the server group;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
+	struct tfw_srv_group_t	*sg;
 	unsigned int		flags;
 	int			stress;
 } TfwServer;
@@ -107,6 +109,7 @@ int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv);
+void tfw_sg_update(TfwSrvGroup *sg);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);

@@ -54,7 +54,7 @@ tfw_destroy_server(TfwServer *srv)
 TfwServer *
 tfw_create_server(const TfwAddr *addr)
 {
-	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC);
+	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC | __GFP_ZERO);
 	if (!srv)
 		return NULL;
 
@@ -80,6 +80,7 @@ tfw_sg_lookup(const char *name)
 	read_unlock(&sg_lock);
 	return NULL;
 }
+EXPORT_SYMBOL(tfw_sg_lookup);
 
 TfwSrvGroup *
 tfw_sg_new(const char *name, gfp_t flags)
@@ -152,6 +153,9 @@ tfw_sg_count(void)
 void
 tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 {
+	BUG_ON(srv->sg);
+	srv->sg = sg;
+
 	write_lock(&sg->lock);
 	list_add(&sg->srv_list, &srv->list);
 	write_unlock(&sg->lock);
@@ -163,6 +167,19 @@ tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
 	write_lock(&sg->lock);
 	list_del(&srv->list);
 	write_unlock(&sg->lock);
+
+	BUG_ON(srv->sg != sg);
+	srv->sg = NULL;
+}
+
+/**
+ * Notify @sg->sched that the group is updated.
+ */
+void
+tfw_sg_update(TfwSrvGroup *sg)
+{
+	BUG_ON(!sg->sched || !sg->sched->update_grp);
+	sg->sched->update_grp(sg);
 }
 
 int
@@ -197,7 +214,7 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 	list_for_each_entry(sg, &sg_list, list) {
 		write_lock(&sg->lock);
 
-		list_for_each_entry(srv, &sg->list, list) {
+		list_for_each_entry(srv, &sg->srv_list, list) {
 			r = cb(srv);
 			if (r) {
 				write_unlock(&sg->lock);

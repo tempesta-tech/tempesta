@@ -29,43 +29,51 @@
 static struct kmem_cache *cli_cache;
 
 /**
- * Used as socket destructor callback.
+ * Called when a client socket is closed.
  */
 void
-tfw_client_put(struct sock *s)
+tfw_client_put(TfwClient *clnt)
 {
-	TfwConnection *conn = s->sk_user_data;
-	TfwClient *clnt;
-
-	BUG_ON(!conn);
-	clnt =(TfwClient *)conn->peer;
-
-	list_del(&conn->list);
-
 	if (atomic_dec_and_test(&clnt->conn_users)) {
 		BUG_ON(!list_empty(&clnt->conn_list));
 		kmem_cache_free(cli_cache, clnt);
 	}
-
-	if (conn->sk_destruct)
-		conn->sk_destruct(s);
 }
 
+/**
+ * Find a client corresponding to the @sk.
+ *
+ * NOTE: The returned TfwClient reference must be released via tfw_client_put()
+ * when the @sk is closed.
+ *
+ * NOTE: The function is called while a new client socket is being accepted,
+ * and the TfwConnection object is not yet initialized, so this function should
+ * not reference the TfwConnection object (via the @
+ */
 TfwClient *
-tfw_create_client(TfwConnection *conn, const TfwAddr *addr)
+tfw_client_obtain(struct sock *sk)
 {
-	TfwClient *clnt = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
-	if (!clnt)
+	static const TfwAddr dummy_addr;
+
+	/*
+	 * TODO: currently there is one to one socket-client
+	 * mapping, which isn't appropriate since a client can
+	 * have more than one socket with the server.
+	 *
+	 * We have too lookup the client by the socket and create a new one
+	 * only if it's really new.
+	 */
+	TfwClient *cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
+	if (!cli)
 		return NULL;
+	atomic_set(&cli->conn_users, 1);
 
-	tfw_peer_init((TfwPeer *)clnt, addr);
+	/* TODO: Derive the client IP address from @sk. */
+	tfw_peer_init((TfwPeer *)cli, &dummy_addr);
 
-	tfw_peer_add_conn((TfwPeer *)clnt, &conn->list);
-	conn->peer = (TfwPeer *)clnt;
+	TFW_DBG("new client: cli=%p\n", cli);
 
-	atomic_set(&clnt->conn_users, 1);
-
-	return clnt;
+	return cli;
 }
 
 int __init
