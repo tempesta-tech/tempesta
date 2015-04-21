@@ -49,20 +49,20 @@ tfw_tls_conn_msg_alloc(TfwConnection *conn)
 
 /* TODO Update @conn for newly established connection */
 static int
-tfw_tls_conn_init(TfwConnection *conn)
+tfw_tls_conn_estab(TfwConnection *conn)
 {
 	return 0;
 }
 
 /* TODO */
 static void
-tfw_tls_conn_destruct(TfwConnection *conn)
+tfw_tls_conn_close(TfwConnection *conn)
 {
 }
 
 static TfwConnHooks tls_conn_hooks = {
-	.conn_init	= tfw_tls_conn_init,
-	.conn_destruct	= tfw_tls_conn_destruct,
+	.conn_estab	= tfw_tls_conn_estab,
+	.conn_close	= tfw_tls_conn_close,
 	.conn_msg_alloc	= tfw_tls_conn_msg_alloc,
 };
 

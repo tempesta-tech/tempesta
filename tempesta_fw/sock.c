@@ -713,26 +713,16 @@ ss_tcp_state_change(struct sock *sk)
 	}
 }
 
-/*
- * Set up protocol handler.
- */
-void
-ss_set_proto(struct sock *sk, SsProto *proto, int type, SsHooks *hooks)
-{
-	BUG_ON(sk->sk_user_data);
-
-	proto->hooks = hooks;
-	proto->type = type;
-	sk->sk_user_data = proto;
-}
-EXPORT_SYMBOL(ss_set_proto);
-
 /**
  * Make data socket serviced by synchronous sockets.
  */
 void
 ss_set_callbacks(struct sock *sk)
 {
+	/* ss_tcp_state_change() dereferences sk->sk_user_data as SsProto, so
+	 * the caller should initialize it before setting callbacks. */
+	BUG_ON(!sk->sk_user_data);
+
 	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;

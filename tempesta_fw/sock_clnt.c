@@ -31,146 +31,286 @@
  *    See tcp_sendmsg(), tcp_write_xmit()
  */
 
-#include <linux/net.h>
-#include <net/inet_sock.h>
-
-#include "tempesta_fw.h"
-#include "addr.h"
 #include "cfg.h"
 #include "classifier.h"
-#include "connection.h"
-#include "filter.h"
-#include "http.h"
-#include "log.h"
 #include "client.h"
-
+#include "connection.h"
+#include "log.h"
 #include "sync_socket.h"
+#include "tempesta_fw.h"
 
-#define LISTEN_SOCK_BACKLOG_LEN 1024
-#define LISTEN_SOCKS_MAX 8
-
-static struct socket *listen_socks[LISTEN_SOCKS_MAX];
-static unsigned int listen_socks_n = 0;
-
-static SsProto protos[LISTEN_SOCKS_MAX];
-
-#define FOR_EACH_SOCK(sock, i) \
-	for (i = 0;  (sock = listen_socks[i], i < listen_socks_n);  ++i)
-
-SsHooks ss_client_hooks;
-
-/**
- * Parse IP address, create a socket and bind it with the address,
- * but not yet start listening.
+/*
+ * ------------------------------------------------------------------------
+ *	Client socket handling.
+ * ------------------------------------------------------------------------
  */
-static int
-add_listen_sock(TfwAddr *addr, int type)
+
+static struct kmem_cache *tfw_cli_conn_cache;
+
+static TfwConnection *
+tfw_cli_conn_alloc(void)
 {
-	int r;
-	struct socket *s;
-
-	if (listen_socks_n == ARRAY_SIZE(listen_socks)) {
-		TFW_ERR("maximum number of listen sockets (%d) is reached\n",
-			listen_socks_n);
-		return -ENOBUFS;
-	}
-
-	r = sock_create_kern(addr->sa.sa_family, SOCK_STREAM, IPPROTO_TCP, &s);
-	if (r) {
-		TFW_ERR("can't create socket (err: %d)\n", r);
-		return r;
-	}
-	ss_set_proto(s, &protos[listen_socks_n], type, &ss_client_hooks);
-	ss_set_listener(s);
-	ss_tcp_set_listen(s);
-
-	inet_sk(s->sk)->freebind = 1;
-	s->sk->sk_reuse = 1;
-	r = s->ops->bind(s, &addr->sa, tfw_addr_sa_len(addr));
-	if (r) {
-		TFW_ERR_ADDR("can't bind to", addr);
-		sock_release(s);
-		return r;
-	}
-
-	TFW_DBG("created front-end socket: sk=%p\n", s->sk);
-
-	BUG_ON(listen_socks[listen_socks_n]);
-	listen_socks[listen_socks_n] = s;
-	++listen_socks_n;
-
-	return 0;
-}
-
-static int
-tfw_client_connect_complete(struct sock *sk)
-{
-	TfwAddr addr;
 	TfwConnection *conn;
 
+	conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	if (!conn)
+		return NULL;
+
+	tfw_connection_construct(conn);
+	return conn;
+}
+
+static void
+tfw_cli_conn_free(TfwConnection *conn)
+{
+	tfw_connection_validate_cleanup(conn);
+	kmem_cache_free(tfw_cli_conn_cache, conn);
+}
+
+static void
+tfw_cli_conn_inherit_proto(TfwConnection *conn, SsProto *listen_sock_proto)
+{
+	BUG_ON(conn->proto.type);
+	conn->proto = *listen_sock_proto;
+	conn->proto.type |= Conn_Clnt;
+}
+
+/**
+ * This hook is called when a new client connection is established.
+ */
+static int
+tfw_sock_clnt_new(struct sock *sk)
+{
+
+	int r;
+	TfwClient *cli;
+	TfwConnection *conn;
+	SsProto *listen_sock_proto;
+
+	TFW_DBG("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
+
+	/* The new sk->sk_user_data points to the TfwListenSock of the parent
+	 * listening socket. We set it to NULL here to prevent other functions
+	 * from referencing the TfwListenSock while a new TfwConnection object
+	 * is not yet allocated/initialized. */
+	listen_sock_proto = sk->sk_user_data;
+	sk->sk_user_data = NULL;
+
 	/* Classify the connection before any resource allocations. */
-	if (tfw_classify_conn_estab(sk) == TFW_BLOCK)
-		return -EPERM;
+	r = tfw_classify_conn_estab(sk);
+	if (r) {
+		TFW_DBG("new client socket is blocked by the classifier: "
+			"sk=%p, r=%d\n", sk, r);
+		goto err_classify;
 
-	conn = tfw_connection_new(sk, Conn_Clnt, tfw_client_put);
+	}
+
+	cli = tfw_client_obtain(sk);
+	if (!cli) {
+		TFW_ERR("can't obtain a client for the new socket\n");
+		r = -ENOENT;
+		goto err_cli_obtain;
+	}
+
+	conn = tfw_cli_conn_alloc();
 	if (!conn) {
-		TFW_ERR("Cannot create new client connection\n");
-		ss_close(sk);
-		return -ENOMEM;
+		TFW_ERR("can't allocate a new client connection\n");
+		r = -ENOMEM;
+		goto err_conn_alloc;
 	}
 
-	/*
-	 * TODO: currently there is one to one socket-client
-	 * mapping, which isn't appropriate since a client can
-	 * have more than one socket with the server.
-	 *
-	 * We have too lookup the client by the socket and create a new one
-	 * only if it's really new.
-	 *
-	 * Derive the client address from @sk and properly set @addr.
-	 */
-	memset(&addr, 0, sizeof(addr));
-	if (!tfw_create_client(conn, &addr)) {
-		TFW_ERR("Can't allocate a new client");
-		ss_close(sk);
-		return -EINVAL;
+	tfw_cli_conn_inherit_proto(conn, listen_sock_proto);
+	tfw_connection_link_sk(conn, sk);
+	tfw_connection_link_peer(conn, (TfwPeer *)cli);
+
+	r = tfw_connection_estab(conn);
+	if (r) {
+		TFW_ERR("conn_estab() hook returned error\n");
+		goto err_conn_estab;
 	}
 
-	TFW_DBG("New client socket %p (state=%u)\n", sk, sk->sk_state);
-
+	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
+		sk, conn, cli);
 	return 0;
+
+err_conn_estab:
+	tfw_connection_unlink_peer(conn);
+	tfw_connection_unlink_sk(conn);
+	tfw_cli_conn_free(conn);
+err_conn_alloc:
+	tfw_client_put(cli);
+err_cli_obtain:
+	tfw_classify_conn_close(sk);
+err_classify:
+	return r;
 }
 
 static int
-tfw_client_connection_close(struct sock *sk)
+tfw_sock_clnt_drop(struct sock *sk)
 {
+	int r;
 	TfwConnection *conn = sk->sk_user_data;
+	TfwClient *cli = (TfwClient *)conn->peer;
 
-	TFW_DBG("Closing client socket %p, conn=%p\n", sk, conn);
-	/*
-	 * Classify the connection closing while all data structures
-	 * are alive.
-	 */
-	if (tfw_classify_conn_close(sk) == TFW_BLOCK)
-		return -EPERM;
-	tfw_connection_close(sk);
+	TFW_DBG("close client socket: sk=%p, conn=%p, cli=%p\n", sk, conn, cli);
+
+	if (!sk->sk_user_data)
+		return 0;
+
+	/* Classify the connection closing while all resources are alive. */
+	/* FIXME: here we call tfw_classify_conn_close() while these resources
+	 * are alive, but in tfw_sock_clnt_new() we call it when resources are
+	 * freed (or not yet allocated). */
+	r = tfw_classify_conn_close(sk);
+
+	tfw_connection_unlink_peer(conn);
+	tfw_connection_unlink_sk(conn);
+	tfw_cli_conn_free(conn);
+
+	return r;
+}
+
+static const SsHooks tfw_sock_clnt_ss_hooks = {
+	.connection_new		= tfw_sock_clnt_new,
+	.connection_drop	= tfw_sock_clnt_drop,
+	.connection_recv	= tfw_connection_recv,
+	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
+	.postpone_skb		= tfw_connection_postpone_skb,
+};
+
+/*
+ * ------------------------------------------------------------------------
+ *	Listening socket handling.
+ * ------------------------------------------------------------------------
+ */
+
+#define TFW_LISTEN_SOCK_BACKLOG_LEN 	1024
+
+/**
+ * The listening socket representation.
+ * One such structure corresponds to one "listen" configuration entry.
+ *
+ * @proto	- The protocol descriptor for Synchronous Sockets.
+ * @sk		- The underlying networking representation.
+ * @list	- An entry in the tfw_listen_socks list.
+ * @addr	- The IP address specified in the configuration.
+ */
+typedef struct {
+	SsProto 		proto;
+	struct sock		*sk;
+	struct list_head	list;
+	TfwAddr			addr;
+} TfwListenSock;
+
+/**
+ * The list of all existing TfwListenSock structures.
+ *
+ * The list is filled when Tempesta FW is started and emptied when it is
+ * stopped, and not changed in between. Therefore, no locking is required.
+ */
+static LIST_HEAD(tfw_listen_socks);
+
+/**
+ * Allocate a new TfwListenSock and add it to the global list of sockets.
+ *
+ * @type is the SsProto->type.
+ */
+static int
+tfw_listen_sock_add(const TfwAddr *addr, int type)
+{
+	TfwListenSock *ls;
+
+	ls = kzalloc(sizeof(*ls), GFP_KERNEL);
+	if (!ls)
+		return -ENOMEM;
+
+	/* Don't open a socket now, just save the configuration data.
+	 * The socket is opened later in tfw_listen_sock_start(). */
+	ls->addr = *addr;
+	ls->proto.type = type;
+	ls->proto.hooks = &tfw_sock_clnt_ss_hooks;
+
+	INIT_LIST_HEAD(&ls->list);
+	list_add(&ls->list, &tfw_listen_socks);
+	return 0;
+}
+
+static void
+tfw_listen_sock_del_all(void)
+{
+	TfwListenSock *ls, *tmp;
+
+	BUG_ON(list_empty(&tfw_listen_socks));
+
+	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
+		BUG_ON(ls->sk);
+		kfree(ls);
+	}
+
+	INIT_LIST_HEAD(&tfw_listen_socks);
+}
+
+/**
+ * Start listening on a socket.
+ * Create a new socket in @ls->sk that listens the @ls->addr.
+ * This is similar to a classic socket()/bind()/listen() sequence.
+ */
+static int
+tfw_listen_sock_start(TfwListenSock *ls)
+{
+	int r;
+	struct sock *sk;
+	TfwAddr *addr = &ls->addr;
+
+	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
+	if (r) {
+		TFW_ERR("can't create listening socket (err: %d)\n", r);
+		return r;
+	}
+
+	/* Link the new socket and TfwListenSock
+	 * That must be done before ss_set_listen() that uses SsProto. */
+	ls->sk = sk;
+	sk->sk_user_data = ls;
+
+	/* For listening sockets we do ss_set_listen() instead of
+	 * ss_set_callbacks(). */
+	ss_set_listen(sk);
+
+	inet_sk(sk)->freebind = 1;
+	sk->sk_reuse = 1;
+	r = ss_bind(sk, &addr->sa, tfw_addr_sa_len(addr));
+	if (r) {
+		TFW_ERR_ADDR("can't bind to", addr);
+		ss_release(sk);
+		return r;
+	}
+
+	/* TODO adjust /proc/sys/net/core/somaxconn */
+	TFW_DBG("start listening on socket: sk=%p\n", sk);
+	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
+	if (r) {
+		TFW_ERR("can't listen on front-end socket sk=%p (%d)\n", sk, r);
+		return r;
+	}
 
 	return 0;
 }
 
+/**
+ * Start listening on all existing sockets (added via "listen" configuration
+ * entries).
+ */
 static int
-start_listen_socks(void)
+tfw_listen_sock_start_all(void)
 {
-	struct socket *sock;
-	int i, r;
+	int r;
+	TfwListenSock *ls;
 
-	FOR_EACH_SOCK(sock, i) {
-		/* TODO adjust /proc/sys/net/core/somaxconn */
-		TFW_DBG("start listening on socket: sk=%p\n", sock->sk);
-		r = sock->ops->listen(sock, LISTEN_SOCK_BACKLOG_LEN);
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		r = tfw_listen_sock_start(ls);
 		if (r) {
-			TFW_ERR("can't listen on front-end socket sk=%p (%d)\n",
-				sock->sk, r);
+			TFW_ERR_ADDR("can't start listening on", &ls->addr);
 			return r;
 		}
 	}
@@ -179,23 +319,25 @@ start_listen_socks(void)
 }
 
 static void
-stop_listen_socks(void)
+tfw_listen_sock_stop_all(void)
 {
-	struct socket *sock;
-	int i;
+	TfwListenSock *ls;
 
-	FOR_EACH_SOCK(sock, i) {
-		TFW_DBG("release front-end socket: sk=%p\n", sock->sk);
-		sock_release(sock);
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		BUG_ON(!ls->sk);
+		ss_release(ls->sk);
+		ls->sk = NULL;
 	}
-
-	memset(listen_socks, 0, sizeof(listen_socks));
-	memset(protos, 0, sizeof(protos));
-	listen_socks_n = 0;
 }
 
+/*
+ * ------------------------------------------------------------------------
+ *	configuration handling
+ * ------------------------------------------------------------------------
+ */
+
 static int
-handle_listen_cfg_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	int port;
@@ -228,7 +370,7 @@ handle_listen_cfg_entry(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	/* TODO Issue #82: pass parsed protocol instead of hardcoded HTTP. */
-	r = add_listen_sock(&addr, TFW_FSM_HTTP);
+	r = tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 	return r;
 
 parse_err:
@@ -236,25 +378,45 @@ parse_err:
 	return -EINVAL;
 }
 
-SsHooks ss_client_hooks = {
-	.connection_new		= tfw_client_connect_complete,
-	.connection_drop	= tfw_client_connection_close,
-	.connection_close	= tfw_client_connection_close,
-	.connection_recv	= tfw_connection_recv,
-	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
-	.postpone_skb		= tfw_connection_postpone_skb,
-};
+static void
+tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
+{
+	tfw_listen_sock_del_all();
+}
 
 TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 	.name	= "sock_clnt",
-	.start	= start_listen_socks,
-	.stop	= stop_listen_socks,
+	.start	= tfw_listen_sock_start_all,
+	.stop	= tfw_listen_sock_stop_all,
 	.specs	= (TfwCfgSpec[]){
 		{
 			"listen", "80",
-			handle_listen_cfg_entry,
-			.allow_repeat = true
+			tfw_sock_clnt_cfg_handle_listen,
+			.allow_repeat = true,
+			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
 		},
 		{}
 	}
 };
+
+/*
+ * ------------------------------------------------------------------------
+ *	init/exit
+ * ------------------------------------------------------------------------
+ */
+
+int
+tfw_sock_clnt_init(void)
+{
+	BUG_ON(tfw_cli_conn_cache);
+	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
+					       sizeof(TfwConnection),
+					       0, 0, NULL);
+	return !tfw_cli_conn_cache ? -ENOMEM : 0;
+}
+
+void
+tfw_sock_clnt_exit(void)
+{
+	kmem_cache_destroy(tfw_cli_conn_cache);
+}

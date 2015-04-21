@@ -23,12 +23,10 @@
 
 /**
  * TODO
- * -- [connection pool, reverse proxy only] establish N connections with each server
- *    for better parallelization on the server side.
  * -- limit number of persistent connections to be able to work as forward
  *    (transparent) proxy (probably we need to switch on/off functionality for
  *    connections pool)
- * -- FIXME synchronize with socket operations.
+ * -- FIXME synchronize with sock operations.
  */
 /*
  * TODO In case of forward proxy manage connections to servers
@@ -47,91 +45,393 @@
 #include "log.h"
 #include "server.h"
 
-/**
- * Create a single connection to the @addr.
+/*
+ * ------------------------------------------------------------------------
+ *	Server connection establishment.
+ * ------------------------------------------------------------------------
+ *
+ * This section of code is responsible for maintaining a server connection in
+ * an established state, and doing so in an asynchronous (callback-based) way.
+ *
+ * The entry point is the tfw_sock_srv_connect_try() function.
+ * It initiates a connection attempt and just exits without blocking.
+ *
+ * Later on, when the connection state is changed, a callback is invoked:
+ *  - tfw_sock_srv_connect_retry() - the connection attempt is failed.
+ *  - tfw_sock_srv_connect_complete() - the connection is established.
+ *  - tfw_sock_srv_connect_failover() - the established connection is closed.
+ *
+ * Both retry() and failover() call the tfw_sock_srv_connect_try() again to
+ * re-establish the connection, and thus the tfw_sock_srv_connect_try() is
+ * called repeatedly until the connection is finally established (or until
+ * this "loop" of callbacks is stopped by the tfw_sock_srv_disconnect()).
  */
-static TfwConnection *
-tfw_sock_srv_connect(TfwAddr *addr)
+
+/** The wakeup interval between failed connection attempts. */
+#define TFW_SOCK_SRV_RETRY_TIMER_MS	1000
+
+/**
+ * TfwConnection extension for server sockets.
+ *
+ * @conn	- The base structure. Must be the first member.
+ * @srv		- A parent server object who owns this connection.
+ * @retry_timer	- The timer makes a delay between connection attempts.
+ *
+ * A server connection differs from a client connection.
+ * For client sockets, a new TfwConnection object is created when a new client
+ * socket is accepted (the connection is already established at that point).
+ * For server sockets, we create a socket first, and then some time passes while
+ * a connection is being established.
+ *
+ * Therefore, we need this separate structure with slightly different semantics:
+ *  - When a server socket is created, we allocate a TfwSrvConnection object,
+ *    but don't fully initialize it until a connection is actually established.
+ *  - If a connection attempt is failed, we re-use the same TfwSrvConnection
+ *    object with a new socket, and make another connection attempt.
+ *
+ * So basically a TfwSrvConnection object has a longer lifetime.
+ */
+typedef struct {
+	TfwConnection		conn;
+	TfwServer		*srv;
+	struct timer_list	retry_timer;
+} TfwSrvConnection;
+
+/**
+ * Initiate a new connection attempt without blocking while the attempt
+ * is finished.
+ */
+static int
+tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 {
-	static struct {
-		SsProto	_placeholder;
-		int	type;
-	} dummy_proto = {
-		.type = TFW_FSM_HTTP,
-	};
-
 	int r;
+	TfwAddr *addr;
 	struct sock *sk;
-	struct socket *sock;
-	TfwConnection *conn;
 
-	r = sock_create_kern(addr->family, SOCK_STREAM, IPPROTO_TCP, &sock);
+	addr = &srv_conn->srv->addr;
+
+	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
-		TFW_ERR("can't create a socket: err=%d\n", r);
-		return NULL;
+		TFW_ERR("can't create a server socket\n");
+		return r;
 	}
 
-	r = kernel_connect(sock, &addr->sa, tfw_addr_sa_len(addr), 0);
-	if (r) {
-		sock_release(sock);
-		return NULL;
-	}
-
-	sk = sock->sk;
+	tfw_connection_link_sk(&srv_conn->conn, sk);
 	ss_set_callbacks(sk);
 
-	sk->sk_user_data = &dummy_proto;
-	conn = tfw_connection_new(sk, Conn_HttpSrv, NULL);
-	if (!conn) {
-		TFW_ERR("can't create a connection object\n");
-		sock_release(sock);
+	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
+	if (r) {
+		TFW_ERR("can't initiate a server connection\n");
+		tfw_connection_unlink_sk(&srv_conn->conn);
+		ss_release(sk);
+		return r;
 	}
 
-	return conn;
+	return 0;
+}
+
+static void
+__mod_retry_timer(TfwSrvConnection *srv_conn)
+{
+	mod_timer(&srv_conn->retry_timer,
+		  jiffies + msecs_to_jiffies(TFW_SOCK_SRV_RETRY_TIMER_MS));
+}
+
+static void
+tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
+{
+	int r;
+	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
+
+	r = tfw_sock_srv_connect_try(srv_conn);
+	if (r) {
+		/* Can't even initiate the connection?
+		 * Just re-execute this function later. */
+		TFW_ERR("server connection retry is failed\n");
+		__mod_retry_timer(srv_conn);
+	}
+}
+
+static void
+__setup_retry_timer(TfwSrvConnection *srv_conn)
+{
+	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
+		    (unsigned long)srv_conn);
 }
 
 /**
- * Delete @srv object with all nested sockets.
+ * The hook is executed when a connection attempt is failed
+ * (and not executed when an already established connection is closed).
+ *
+ * Basically it makes a retry (calls the tfw_sock_srv_try() again).
+ * There should be a pause between connection attempts, so the retry is done
+ * in a deferred context (in a timer callback).
+ */
+static int
+tfw_sock_srv_connect_retry(struct sock *sk)
+{
+	TfwSrvConnection *srv_conn;
+
+	srv_conn = sk->sk_user_data;
+	BUG_ON(!srv_conn);
+
+	/* We have to create a new socket for each connection attempt.
+	 * The old socket is released here as soon as it is not used anymore. */
+	tfw_connection_unlink_sk(&srv_conn->conn);
+	ss_release(sk);
+
+	/* The new socket is created after a delay in the timer callback. */
+	__setup_retry_timer(srv_conn);
+	__mod_retry_timer(srv_conn);
+
+	return 0;
+}
+
+/**
+ * The hook is executed when a server connection is established.
+ */
+static int
+tfw_sock_srv_connect_complete(struct sock *sk)
+{
+	int r;
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+
+	/* Notify higher-level levels. */
+	r = tfw_connection_estab(&srv_conn->conn);
+	if (r) {
+		TFW_ERR("conn_estab() hook returned error\n");
+		return r;
+	}
+
+	/* Notify the scheduler about the new available connection. */
+	tfw_sg_update(srv_conn->srv->sg);
+
+	TFW_DBG_ADDR("connected", &srv_conn->srv->addr);
+	return 0;
+
+}
+
+/**
+ * The hook is executed when a server connection is lost.
+ * I.e. the connection was established before, but now it is closed.
+ */
+static int
+tfw_sock_srv_connect_failover(struct sock *sk)
+{
+	int r;
+	TfwSrvConnection *srv_conn;
+
+	srv_conn = sk->sk_user_data;
+	TFW_DBG_ADDR("connection lost", &srv_conn->conn.peer->addr);
+
+	/* Revert tfw_sock_srv_connect_complete(). */
+	tfw_sg_update(srv_conn->srv->sg);
+	tfw_connection_close(&srv_conn->conn);
+
+	/* Revert tfw_sock_srv_connect_try(). */
+	tfw_connection_unlink_sk(&srv_conn->conn);
+	ss_release(sk);
+
+	/* Initiate a new connection sequence.
+	 * The TfwSrvConnection (and nested TfwConnection) is re-used here. */
+	r = tfw_sock_srv_connect_try(srv_conn);
+	if (r) {
+		TFW_ERR("failover connect failed\n");
+
+		/* Just retry later. */
+		__setup_retry_timer(srv_conn);
+		__mod_retry_timer(srv_conn);
+	}
+
+	return 0;
+}
+
+static const SsHooks tfw_sock_srv_ss_hooks = {
+	.connection_new		= tfw_sock_srv_connect_complete,
+	.connection_drop	= tfw_sock_srv_connect_failover,
+	.connection_close	= tfw_sock_srv_connect_retry,
+	.connection_recv	= tfw_connection_recv,
+	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
+	.postpone_skb		= tfw_connection_postpone_skb,
+};
+
+/**
+ * Close a server connection, or stop connection attempts if the connection
+ * is not established.
  */
 static void
-tfw_sock_srv_destroy(TfwServer *srv)
+tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
-	TfwConnection *conn, *tmp;
+	/* FIXME: SsHooks may be executed concurrently here.
+	 * We must prevent any hook execution starting from this point.
+	 *
+	 * For new()/drop()/close() hooks this is solved by faking them with
+	 * dummy functions that do nothing. However, the similar approach
+	 * for recv()/put_skb()/postpone_skb() leads to a memory leak.
+	 *
+	 * Perhaps we should implement an ss_shutdown() that terminates
+	 * data reception without socket deallocation.
+	 */
 
-	list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
-		tfw_peer_del_conn((TfwPeer *)srv, &conn->list);
-		sock_release(conn->socket);
+	/* Prevent races with timer callbacks. */
+	del_timer_sync(&srv_conn->retry_timer);
+
+	/* Revert tfw_sock_srv_connect_complete(). */
+	if (srv_conn->conn.peer) {
+		tfw_sg_update(srv_conn->srv->sg);
+		tfw_connection_close(&srv_conn->conn);
 	}
 
-	tfw_destroy_server(srv);
+	/* Revert tfw_sock_srv_connect_try(). */
+	if (srv_conn->conn.sk) {
+		struct sock *sk = srv_conn->conn.sk;
+		tfw_connection_unlink_sk(&srv_conn->conn);
+		ss_release(sk);
+	}
 }
 
-/**
- * Create a TfwServer object with nested sockets.
+/*
+ * ------------------------------------------------------------------------
+ *	Global connect/disconnect routines.
+ * ------------------------------------------------------------------------
+ *
+ * At this point, we support only the reverse proxy mode, so we connect to all
+ * servers when the Tempesta FW is started, and close all connections when the
+ * Tempesta FW is stopped. This section of code is responsible for that.
+ *
+ * This behavior may change in future for a forward proxy implementation.
+ * Then we will have a lot of short-living connections. We should keep it in
+ * mind to avoid possible bottlenecks. In particular, this is the reason why we
+ * don't have a global list of all TfwSrvConnection objects and store
+ * not-yet-established connections in the TfwServer->conn_list.
  */
-static TfwServer *
-tfw_sock_srv_create(TfwAddr *addr, int conns_n)
+
+
+static int
+tfw_sock_srv_connect_srv(TfwServer *srv)
+{
+	int r;
+	TfwSrvConnection *srv_conn;
+
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+		r = tfw_sock_srv_connect_try(srv_conn);
+		if (r)
+			return r;
+	}
+
+	return 0;
+}
+
+static int
+tfw_sock_srv_disconnect_srv(TfwServer *srv)
+{
+	TfwSrvConnection *srv_conn;
+
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+		tfw_sock_srv_disconnect(srv_conn);
+	}
+
+	return 0;
+}
+
+static int
+tfw_sock_srv_connect_all(void)
+{
+	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+}
+
+static void
+tfw_sock_srv_disconnect_all(void)
+{
+	int r = tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
+	BUG_ON(r);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ *	TfwServer creation/deletion helpers.
+ * ------------------------------------------------------------------------
+ *
+ * This section of code is responsible for allocating TfwSrvConnection objects
+ * and linking them with a TfwServer object.
+ *
+ * All server connections (TfwSrvConnection objects) are pre-allocated  when a
+ * TfwServer is created. That happens when at the configuration parsing stage.
+ *
+ * Later on, when Tempesta FW is started, these TfwSrvConnection objects are
+ * used to establish connections. These connection objects are re-used (but not
+ * re-allocated) when connections are re-established.
+ */
+
+static struct kmem_cache *tfw_srv_conn_cache;
+
+static TfwSrvConnection *
+tfw_srv_conn_alloc(void)
+{
+	SsProto *proto;
+	TfwSrvConnection *srv_conn;
+
+	srv_conn = kmem_cache_alloc(tfw_srv_conn_cache, GFP_ATOMIC);
+	if (!srv_conn)
+		return NULL;
+
+	tfw_connection_construct(&srv_conn->conn);
+
+	proto = &srv_conn->conn.proto;
+	proto->type = Conn_HttpSrv;
+	proto->hooks = &tfw_sock_srv_ss_hooks;
+
+	return srv_conn;
+}
+
+static void
+tfw_srv_conn_free(TfwSrvConnection *srv_conn)
+{
+	tfw_connection_validate_cleanup(&srv_conn->conn);
+
+	/* Check that all nested resources are already freed. */
+	BUG_ON(srv_conn->srv);
+	BUG_ON(timer_pending(&srv_conn->retry_timer));
+
+	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
+}
+
+static int
+tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 {
 	int i;
-	TfwServer *srv;
-	TfwConnection *conn;
-
-	srv = tfw_create_server(addr);
-	if (!srv) {
-		TFW_ERR("can't create a server object\n");
-	}
+	TfwSrvConnection *srv_conn;
 
 	for (i = 0; i < conns_n; ++i) {
-		conn = tfw_sock_srv_connect(addr);
-		if (!conn) {
-			TFW_ERR_ADDR("can't connect to", addr);
-			tfw_sock_srv_destroy(srv);
-			return NULL;
-		}
+		srv_conn = tfw_srv_conn_alloc();
+		if (!srv_conn)
+			return -ENOMEM;
+		srv_conn->srv = srv;
+		tfw_connection_link_peer(&srv_conn->conn, (TfwPeer *)srv);
 	}
 
-	TFW_DBG_ADDR("connected", addr);
-	return srv;
+	return 0;
+}
+
+static int
+tfw_sock_srv_delete_conns(TfwServer *srv)
+{
+	TfwSrvConnection *srv_conn, *tmp;
+
+	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
+		tfw_connection_unlink_peer(&srv_conn->conn);
+		srv_conn->srv = NULL;
+		tfw_srv_conn_free(srv_conn);
+	}
+
+	return 0;
+}
+
+static void
+tfw_sock_srv_delete_all_conns(void)
+{
+	int r = tfw_sg_for_each_srv(tfw_sock_srv_delete_conns);
+	BUG_ON(r);
 }
 
 /*
@@ -168,27 +468,33 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	BUG_ON(!tfw_srv_cfg_curr_group);
 
-	r  = tfw_cfg_check_val_n(ce, 1);
+	r = tfw_cfg_check_val_n(ce, 1);
 	if (r)
 		return -EINVAL;
 
 	in_addr = ce->vals[0];
 	in_conns_n = tfw_cfg_get_attr(ce, "conns_n", TFW_SRV_CFG_DEF_CONNS_N);
 
-	r =  tfw_addr_pton(in_addr, &addr);
+	r = tfw_addr_pton(in_addr, &addr);
 	if (r)
 		return r;
 	r = tfw_cfg_parse_int(in_conns_n, &conns_n);
 	if (r)
 		return r;
 
-	srv = tfw_sock_srv_create(&addr, conns_n);
+	srv = tfw_create_server(&addr);
 	if (!srv) {
 		TFW_ERR("can't create a server socket\n");
 		return -EPERM;
 	}
-
 	tfw_sg_add(tfw_srv_cfg_curr_group, srv);
+
+	r = tfw_sock_srv_add_conns(srv, conns_n);
+	if (r) {
+		TFW_ERR("can't add connections to the server\n");
+		return r;
+	}
+
 	return 0;
 }
 
@@ -257,7 +563,7 @@ tfw_srv_cfg_handle_server_defaults(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * new TfwSrvGroup object and sets the context for parsing nested "server"s.
  */
 static int
-fw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	TfwSrvGroup *sg;
@@ -309,11 +615,12 @@ tfw_srv_cfg_finish_srv_group(TfwCfgSpec *cs)
 }
 
 /**
- * Clean the state that is changed during parsing "server" and "srv_group".
+ * Clean everything produced during parsing "server" and "srv_group" entries.
  */
 static void
 tfw_srv_cfg_clean_srv_groups(TfwCfgSpec *cs)
 {
+	tfw_sock_srv_delete_all_conns();
 	tfw_sg_release_all();
 	tfw_srv_cfg_curr_group = NULL;
 }
@@ -325,29 +632,34 @@ static TfwCfgSpec tfw_sock_srv_cfg_srv_group_specs[] = {
 		.allow_repeat = true,
 		.cleanup = tfw_srv_cfg_clean_srv_groups
 	},
-	{}
+	{ }
 };
 
 TfwCfgMod tfw_sock_srv_cfg_mod = {
-	.name = "sock_srv",
-	.specs = (TfwCfgSpec[]){
+	.name  = "sock_srv",
+	.start = tfw_sock_srv_connect_all,
+	.stop  = tfw_sock_srv_disconnect_all,
+	.specs = (TfwCfgSpec[] ) {
 		{
-			"server", NULL,
+			"server",
+			NULL,
 			tfw_srv_cfg_handle_server_outside_group,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_srv_cfg_clean_srv_groups,
 		},
 		{
-			"server_default_dummy", "127.0.0.1:8080 conns_n=4",
+			"server_default_dummy",
+			"127.0.0.1:8080 conns_n=4",
 			tfw_srv_cfg_handle_server_defaults
 		},
 		{
-			"srv_group", NULL,
+			"srv_group",
+			NULL,
 			tfw_cfg_handle_children,
 			tfw_sock_srv_cfg_srv_group_specs,
-			&(TfwCfgSpecChild) {
-				.begin_hook = fw_srv_cfg_begin_srv_group,
+			&(TfwCfgSpecChild ) {
+				.begin_hook = tfw_srv_cfg_begin_srv_group,
 				.finish_hook = tfw_srv_cfg_finish_srv_group
 			},
 			.allow_none = true,
@@ -356,3 +668,25 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 		{}
 	}
 };
+
+/*
+ * ------------------------------------------------------------------------
+ *	init/exit
+ * ------------------------------------------------------------------------
+ */
+
+int
+tfw_sock_srv_init(void)
+{
+	BUG_ON(tfw_srv_conn_cache);
+	tfw_srv_conn_cache = kmem_cache_create("tfw_srv_conn_cache",
+					       sizeof(TfwSrvConnection),
+					       0, 0, NULL);
+	return !tfw_srv_conn_cache ? -ENOMEM : 0;
+}
+
+void
+tfw_sock_srv_exit(void)
+{
+	kmem_cache_destroy(tfw_srv_conn_cache);
+}

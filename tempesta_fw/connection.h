@@ -59,8 +59,6 @@ enum {
  * @msg		- currently processing (receiving) message;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- appropriate sock handler;
- * @sk_destruct	- original sk->sk_destruct. Destructors passed to
- * 		  tfw_connection_new() must call it manually;
  */
 typedef struct {
 	SsProto			proto;
@@ -70,10 +68,6 @@ typedef struct {
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
-
-	struct socket		*sock; /* XXX: temporary field */
-
-	void (*sk_destruct)(struct sock *sk);
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
@@ -86,14 +80,14 @@ typedef struct {
 	 * This is a good place to handle Access or GEO modules (block a client
 	 * or bind its descriptor with Geo information).
 	 */
-	int (*conn_init)(TfwConnection *conn);
+	int (*conn_estab)(TfwConnection *conn);
 
 	/*
-	 * Closing a connection (client or server as for conn_init()).
+	 * Closing a connection (client or server as for conn_estab()).
 	 * This is necessary for modules who account number of established
 	 * client connections.
 	 */
-	void (*conn_destruct)(TfwConnection *conn);
+	void (*conn_close)(TfwConnection *conn);
 
 	/**
 	 * High level protocols should be able to allocate messages with all
@@ -102,14 +96,22 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
-/* Connection downcalls. */
-TfwConnection *tfw_connection_new(struct sock *sk, int type,
-				  void (*destructor)(struct sock *s));
+void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
-void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
+/* Generic helpers, used for both client and server connections. */
+void tfw_connection_construct(TfwConnection *conn);
+void tfw_connection_validate_cleanup(TfwConnection *conn);
+void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
+void tfw_connection_unlink_sk(TfwConnection *conn);
+void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
+void tfw_connection_unlink_peer(TfwConnection *conn);
 
-int tfw_connection_close(struct sock *);
+/* TfwConnHooks downcalls. */
+int tfw_connection_estab(TfwConnection *conn);
+void tfw_connection_close(TfwConnection *conn);
+
+/* SsHooks upcalls. */
 int tfw_connection_recv(struct sock *, unsigned char *, size_t);
 int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
 int tfw_connection_postpone_skb(SsProto *, struct sk_buff *);
