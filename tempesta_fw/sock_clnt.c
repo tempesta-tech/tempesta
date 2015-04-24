@@ -166,6 +166,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	tfw_connection_unlink_peer(conn);
 	tfw_connection_unlink_sk(conn);
 	tfw_cli_conn_free(conn);
+	tfw_client_put(cli);
 
 	return r;
 }
