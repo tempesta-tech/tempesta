@@ -31,6 +31,19 @@ index fe120da..a7daef0 100644
  config SMP
  	bool "Symmetric multi-processing support"
  	---help---
+diff --git a/include/linux/net.h b/include/linux/net.h
+index 99c9f0c..a6fd726 100644
+--- a/include/linux/net.h
++++ b/include/linux/net.h
+@@ -185,6 +185,8 @@ struct net_proto_family {
+ 	struct module	*owner;
+ };
+ 
++extern const struct net_proto_family *get_proto_family(int family);
++
+ struct iovec;
+ struct kvec;
+ 
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
 index dec1748..f620738 100644
 --- a/include/linux/skbuff.h
@@ -539,6 +552,23 @@ index ec335fa..fdb0d79 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
+diff --git a/net/socket.c b/net/socket.c
+index 4ca1526..2b525c7 100644
+--- a/net/socket.c
++++ b/net/socket.c
+@@ -158,6 +158,12 @@ static const struct file_operations socket_file_ops = {
+ static DEFINE_SPINLOCK(net_family_lock);
+ static const struct net_proto_family __rcu *net_families[NPROTO] __read_mostly;
+ 
++const struct net_proto_family *get_proto_family(int family)
++{
++	return rcu_dereference(net_families[family]);
++}
++EXPORT_SYMBOL(get_proto_family);
++
+ /*
+  *	Statistics counters of the socket lists
+  */
 diff --git a/security/Kconfig b/security/Kconfig
 index e9c6ac7..2c69fbe 100644
 --- a/security/Kconfig
@@ -601,14 +631,18 @@ index c26c81e..2d7c1e1 100644
  # Object integrity file lists
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 0000000..901dc02
+index 0000000..ba1859b
 --- /dev/null
 +++ b/security/tempesta/Kconfig
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,13 @@
 +config SECURITY_TEMPESTA
 +	bool "Tempesta FW Support"
 +	depends on SECURITY && NET && INET
 +	select SECURITY_NETWORK
++	select CRYPTO
++	select CRYPTO_HMAC
++	select CRYPTO_SHA1
++	select CRYPTO_SHA1_SSSE3
 +	default y
 +	help
 +	  This selects Tempesta FW security module.
