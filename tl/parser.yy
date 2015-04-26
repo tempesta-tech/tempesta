@@ -29,6 +29,7 @@
 %skeleton "lalr1.cc"
 %output "parser.cc"
 %defines "parser.h"
+%define api.value.type variant
 %define api.namespace { tl }
 %define parser_class_name { BisonParser }
 %parse-param { tl::FlexScanner &scanner }
@@ -46,12 +47,6 @@
 			 tl::FlexScanner &scanner);
 }
 
-%union {
-	long		value;
-	std::string	str;
-	tl::Expr	*expr;
-}
-
 %left "||"
 %left "&&"
 %nonassoc "==" "!="
@@ -59,15 +54,15 @@
 %nonassoc "=~" "!~"
 %left '.' '(' ')'
  
-%token <str> IDENT
-%token <str> IPV4
-%token <value> LONGINT
-%token <str> STR
-%token <str> REGEX
+%token <std::string> IDENT
+%token <std::string> IPV4
+%token <long> LONGINT
+%token <std::string> STR
+%token <std::string> REGEX
 %token IF
  
-%type <expr> stmt expr
-%type <tl::Expr::FAgrs> args
+%type <tl::Expr *> stmt expr
+%type <tl::Expr::FArgs> args
  
 %%
  
