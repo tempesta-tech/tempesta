@@ -29,13 +29,10 @@ extern int yy_flex_debug;
 namespace tl {
 
 Compiler::Compiler(bool debug) noexcept
-	: ast_root_(nullptr),
-	parser_(scanner_, &ast_root_, &st_)
+	: parser_(scanner_, ast_root_, st_)
 {
-	if (debug) {
+	if (debug)
 		yy_flex_debug = 1;
-		yy_debug = 1;
-	}
 }
 
 void
@@ -78,7 +75,8 @@ Compiler::ast_print() noexcept
 {
 	std::cout << "Parsed AST (left branches are on top):" << std::endl;
 
-	ast_node_print(ast_root_, 0);
+	for (auto n: ast_root_->expr_l_)
+		ast_node_print(n, 0);
 }
 
 } // namespace tl

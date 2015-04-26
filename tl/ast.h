@@ -104,15 +104,14 @@ Expr *create_func(const char *name, Expr::FArgs *args) noexcept;
 
 std::ostream& operator<<(std::ostream& os, const Expr *expr) noexcept;
 
-class AST {
-public:
+// Currently just a sequence of statements.
+struct AST {
 	void
 	push_expr(Expr *e) noexcept
 	{
 		expr_l_.push_back(e);
 	}
 
-private:
 	std::list<Expr *>	expr_l_;
 };
 

@@ -88,7 +88,6 @@ create_func(const char *name, Expr::FArgs &args) noexcept
 	return e;
 }
 
-
 std::ostream&
 operator<<(std::ostream& os, const Expr *expr) noexcept
 {

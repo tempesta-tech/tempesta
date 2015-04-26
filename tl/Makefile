@@ -45,7 +45,7 @@ parser.o: parser.cc
 	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 clean: FORCE
-	rm -f *.o* *~ tl lexer.h lexer.cc parser.cc parser.h
+	rm -f *.o* *~ tl lexer.h lexer.cc parser.cc parser.h stack.hh
 
 FORCE:
 

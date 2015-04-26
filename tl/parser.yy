@@ -21,19 +21,19 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "ast.h"
-#include "sym_tbl.h"
 #include "exception.h"
+#include "sym_tbl.h"
 %}
  
-%require "2.4.1"
+%require "3.0.0"
 %skeleton "lalr1.cc"
 %output "parser.cc"
 %defines "parser.h"
-%define namespace "tl"
-%define parser_class_name "BisonParser"
+%define api.namespace { tl }
+%define parser_class_name { BisonParser }
 %parse-param { tl::FlexScanner &scanner }
-%lex-param { tl::FlexScanner &scanner }
-%parse-param { tl::AST *ast, tl::SymTbl *st }
+%parse-param { tl::AST *ast }
+%parse-param { tl::SymTbl &st }
 
 %code requires {
 	namespace tl {
@@ -64,7 +64,7 @@
 %token <value> LONGINT
 %token <str> STR
 %token <str> REGEX
-%token if
+%token IF
  
 %type <expr> stmt expr
 %type <tl::Expr::FAgrs> args

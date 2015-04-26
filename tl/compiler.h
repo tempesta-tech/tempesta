@@ -39,7 +39,7 @@ private:
 	void ast_node_print(const Expr *node, int lvl) noexcept;
 
 private:
-	AST		ast_root_;
+	AST		*ast_root_;
 	SymTbl		st_;
 	FlexScanner	scanner_;
 	BisonParser	parser_;
