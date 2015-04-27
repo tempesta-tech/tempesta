@@ -507,10 +507,3 @@ tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size)
 	return (pos - out_buf);
 }
 DEBUG_EXPORT_SYMBOL(tfw_addr_ntop);
-
-ssize_t
-tfw_addr_sa_len(const TfwAddr *addr)
-{
-        validate_addr(addr);
-        return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
-}
