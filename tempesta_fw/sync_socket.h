@@ -192,7 +192,8 @@ typedef struct ss_hooks {
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
-void ss_set_proto(struct sock *sk, SsProto *proto, int type, SsHooks *hooks);
+void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
+void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 void ss_send(struct sock *sk, const SsSkbList *skb_list);

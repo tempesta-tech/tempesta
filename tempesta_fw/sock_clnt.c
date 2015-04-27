@@ -67,14 +67,6 @@ tfw_cli_conn_free(TfwConnection *conn)
 	kmem_cache_free(tfw_cli_conn_cache, conn);
 }
 
-static void
-tfw_cli_conn_inherit_proto(TfwConnection *conn, SsProto *listen_sock_proto)
-{
-	BUG_ON(conn->proto.type);
-	conn->proto = *listen_sock_proto;
-	conn->proto.type |= Conn_Clnt;
-}
-
 /**
  * This hook is called when a new client connection is established.
  */
@@ -119,7 +111,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_conn_alloc;
 	}
 
-	tfw_cli_conn_inherit_proto(conn, listen_sock_proto);
+	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
@@ -227,9 +219,8 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 
 	/* Don't open a socket now, just save the configuration data.
 	 * The socket is opened later in tfw_listen_sock_start(). */
+	ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, type);
 	ls->addr = *addr;
-	ls->proto.type = type;
-	ls->proto.hooks = &tfw_sock_clnt_ss_hooks;
 
 	INIT_LIST_HEAD(&ls->list);
 	list_add(&ls->list, &tfw_listen_socks);
