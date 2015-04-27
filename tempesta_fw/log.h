@@ -108,10 +108,22 @@ do { \
 #define TFW_ERR_ADDR(msg, addr_ptr) \
 	TFW_WITH_ADDR_FMT(addr_ptr, addr_str, TFW_ERR("%s: %s\n", msg, addr_str))
 
-/* Keep SS debug primitives separate */
-#define SS_DBG(...)	TFW_DBG(__VA_ARGS__)
-#define SS_ERR(...)	TFW_ERR(__VA_ARGS__)
-#define SS_WARN(...)	TFW_WARN(__VA_ARGS__)
-#define SS_LOG(...)	TFW_LOG(__VA_ARGS__)
+/*
+ * Keep SS debug primitives separate.
+ */
+#define SS_BANNER	"[sync_sockets] "
+
+#ifdef DEBUG
+#define SS_DBG(...)	pr_debug(SS_BANNER "  " __VA_ARGS__)
+#define SS_ERR(...)	pr_err(SS_BANNER "ERROR: " __VA_ARGS__)
+#define SS_WARN(...)	pr_warn(SS_BANNER "Warning" __VA_ARGS__)
+#define SS_LOG(...)	pr_info(SS_BANNER __VA_ARGS__)
+#else
+#include <linux/net.h>
+#define SS_DBG(...)
+#define SS_ERR(...)	net_err_ratelimited(SS_BANNER "ERROR: " __VA_ARGS__)
+#define SS_WARN(...)	net_warn_ratelimited(SS_BANNER "Warning" __VA_ARGS__)
+#define SS_LOG(...)	net_info_ratelimited(SS_BANNER __VA_ARGS__)
+#endif
 
 #endif /* __TFW_LOG_H__ */
