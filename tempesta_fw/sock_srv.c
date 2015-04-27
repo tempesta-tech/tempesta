@@ -120,7 +120,7 @@ tfw_server_connect(struct sock **server_sk, const TfwAddr *addr)
 	r = ss_connect(sk, &sa, sza, 0);
 	if (r) {
 		TFW_DBG("Connect error on server socket sk=%p, r=%d\n", sk, r);
-		ss_release(sk);
+		ss_close(sk);
 		return r;
 	}
 
@@ -173,7 +173,7 @@ tfw_server_connect_complete(struct sock *sk)
 err_sock_destroy:
 	tfw_destroy_server(sk);
 err_conn_create:
-	ss_release(sk);
+	ss_close(sk);
 	return -1;
 }
 
@@ -226,7 +226,7 @@ release_server_socks(void)
 
 	FOR_EACH_SOCK(entry) {
 		if (entry->sk)
-			ss_release(entry->sk);
+			ss_close(entry->sk);
 	}
 }
 
