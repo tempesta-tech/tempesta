@@ -32,16 +32,6 @@ static struct kmem_cache *srv_cache;
 static LIST_HEAD(sg_list);
 static DEFINE_RWLOCK(sg_lock);
 
-/**
- * Add the connectin to the server connections list and bind it with the server.
- */
-void
-tfw_server_bind_conn(TfwServer *srv, TfwConnection *conn)
-{
-	tfw_peer_add_conn((TfwPeer *)srv, &conn->list);
-	conn->peer = (TfwPeer *)srv;
-}
-
 void
 tfw_destroy_server(TfwServer *srv)
 {
