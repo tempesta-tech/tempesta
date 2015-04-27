@@ -1650,9 +1650,9 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (lf) {
 			/* Get length of the header. */
 			unsigned char *cr = lf - 1;
-			while (cr != p && *cr == '\r')
+			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
 				--cr;
-			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p + 1);
+			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p);
 			p = lf; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
