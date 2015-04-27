@@ -138,7 +138,7 @@ tfw_http_msg_setup(TfwHttpMsg *hm, size_t len)
 			if ((page = alloc_page(GFP_ATOMIC)) == NULL) {
 				return NULL;
 			}
-			skb_fill_page_desc(skb, i_frag, page, 0, 0);
+			__skb_fill_page_desc(skb, i_frag, page, 0, 0);
 			skb->truesize += PAGE_SIZE;
 			skb_shinfo(skb)->nr_frags++;
 		}
@@ -181,11 +181,12 @@ tfw_http_prep_date(char *buf)
 	struct timespec ts;
 	char *ptr = buf;
 
-	static char *wday[] =
-		{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-	static char *month[] =
-		{ "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-		  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+	static char *wday[] __read_mostly =
+		{ "Sun, ", "Mon, ", "Tue, ",
+		  "Wed, ", "Thu, ", "Fri, ", "Sat, " };
+	static char *month[] __read_mostly =
+		{ " Jan ", " Feb ", " Mar ", " Apr ", " May ", " Jun ",
+		  " Jul ", " Aug ", " Sep ", " Oct ", " Nov ", " Dec " };
 
 #define PRINT_2DIGIT(p, n)			\
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
@@ -194,15 +195,11 @@ tfw_http_prep_date(char *buf)
 	getnstimeofday(&ts);
 	time_to_tm(ts.tv_sec, 0, &tm);
 
-	memcpy(ptr, wday[tm.tm_wday], 3);
-	ptr += 3;
-	*ptr++ = ',';
-	*ptr++ = ' ';
+	memcpy(ptr, wday[tm.tm_wday], 5);
+	ptr += 5;
 	PRINT_2DIGIT(ptr, tm.tm_mday);
-	*ptr++ = ' ';
-	memcpy(ptr, month[tm.tm_mon], 3);
-	ptr += 3;
-	*ptr++ = ' ';
+	memcpy(ptr, month[tm.tm_mon], 5);
+	ptr += 5;
 	PRINT_2DIGIT(ptr, (tm.tm_year + 1900) / 100);
 	PRINT_2DIGIT(ptr, (tm.tm_year + 1900) % 100);
 	*ptr++ = ' ';
@@ -211,9 +208,8 @@ tfw_http_prep_date(char *buf)
 	PRINT_2DIGIT(ptr, tm.tm_min);
 	*ptr++ = ':';
 	PRINT_2DIGIT(ptr, tm.tm_sec);
-	*ptr++ = ' ';
-	memcpy(ptr, "GMT", 3);
-	ptr += 3;
+	memcpy(ptr, " GMT", 4);
+	ptr += 4;
 #undef PRINT_2DIGIT
 
 	return ptr - buf;

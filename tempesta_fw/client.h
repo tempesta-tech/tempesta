@@ -26,7 +26,7 @@
 #include "peer.h"
 
 typedef struct {
-        TFW_PEER_COMMON;
+	TFW_PEER_COMMON;
 	struct {
 		struct timespec	ts;
 		unsigned char	hmac[SHA1_DIGEST_SIZE];

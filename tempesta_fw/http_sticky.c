@@ -229,9 +229,9 @@ static int
 tfw_http_sticky_set(TfwHttpMsg *hm)
 {
 	TfwAddr addr;
-	int ret, addr_len = sizeof(addr);
 	TfwStr ua_value = { 0 };
 	const TfwStr s_field_name = TfwStr_string("User-Agent:");
+	int ret, addr_len = sizeof(addr);
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 
 	char desc[sizeof(struct shash_desc)
