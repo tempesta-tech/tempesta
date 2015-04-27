@@ -114,6 +114,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		return r;
 	}
 
+	sock_set_flag(sk, SOCK_DBG);
 	tfw_connection_link_sk(&srv_conn->conn, sk);
 	ss_set_callbacks(sk);
 
