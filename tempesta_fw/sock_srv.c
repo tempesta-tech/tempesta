@@ -379,10 +379,8 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_construct(&srv_conn->conn);
-
 	proto = &srv_conn->conn.proto;
-	proto->type = Conn_HttpSrv;
-	proto->hooks = &tfw_sock_srv_ss_hooks;
+	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
 	return srv_conn;
 }
