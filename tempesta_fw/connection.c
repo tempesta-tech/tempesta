@@ -44,12 +44,6 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 	tfw_conn_hooks[hid] = hooks;
 }
 
-/*
- * ------------------------------------------------------------------------
- * 	Generic TfwConnection helpers.
- * ------------------------------------------------------------------------
- */
-
 /**
  * The TfwConnection constructor.
  * It initializes @conn fields, but doesn't allocate the TfwConnection object.
@@ -110,12 +104,6 @@ tfw_connection_unlink_peer(TfwConnection *conn)
 	conn->peer = NULL;
 }
 
-/*
- * ------------------------------------------------------------------------
- * 	TfwConnHooks downcalls.
- * ------------------------------------------------------------------------
- */
-
 /**
  * Publish the "connection is established" event via TfwConnHooks.
  */
@@ -145,12 +133,6 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
 	ss_send(conn->sk, &msg->skb_list);
 }
-
-/*
- * ------------------------------------------------------------------------
- * 	SsHooks Upcalls
- * ------------------------------------------------------------------------
- */
 
 /**
  * TODO/FIXME
