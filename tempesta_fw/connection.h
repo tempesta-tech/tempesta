@@ -80,14 +80,14 @@ typedef struct {
 	 * This is a good place to handle Access or GEO modules (block a client
 	 * or bind its descriptor with Geo information).
 	 */
-	int (*conn_estab)(TfwConnection *conn);
+	int (*conn_init)(TfwConnection *conn);
 
 	/*
-	 * Closing a connection (client or server as for conn_estab()).
+	 * Closing a connection (client or server as for conn_init()).
 	 * This is necessary for modules who account number of established
 	 * client connections.
 	 */
-	void (*conn_close)(TfwConnection *conn);
+	void (*conn_destruct)(TfwConnection *conn);
 
 	/**
 	 * High level protocols should be able to allocate messages with all
@@ -107,11 +107,9 @@ void tfw_connection_unlink_sk(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 void tfw_connection_unlink_peer(TfwConnection *conn);
 
-/* TfwConnHooks downcalls. */
-int tfw_connection_estab(TfwConnection *conn);
-void tfw_connection_close(TfwConnection *conn);
+int tfw_connection_init(TfwConnection *conn);
+void tfw_connection_destruct(TfwConnection *conn);
 
-/* SsHooks upcalls. */
 int tfw_connection_recv(struct sock *, unsigned char *, size_t);
 int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
 int tfw_connection_postpone_skb(SsProto *, struct sk_buff *);

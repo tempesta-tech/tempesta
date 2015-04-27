@@ -196,9 +196,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
 	/* Notify higher-level levels. */
-	r = tfw_connection_estab(&srv_conn->conn);
+	r = tfw_connection_init(&srv_conn->conn);
 	if (r) {
-		TFW_ERR("conn_estab() hook returned error\n");
+		TFW_ERR("conn_init() hook returned error\n");
 		return r;
 	}
 
@@ -227,7 +227,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 
 	/* Revert tfw_sock_srv_connect_complete(). */
 	tfw_sg_update(srv->sg);
-	tfw_connection_close(&srv_conn->conn);
+	tfw_connection_destruct(&srv_conn->conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
 	tfw_connection_unlink_sk(&srv_conn->conn);
@@ -282,7 +282,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	/* Revert tfw_sock_srv_connect_complete(). */
 	if (srv_conn->conn.peer) {
 		tfw_sg_update(srv->sg);
-		tfw_connection_close(&srv_conn->conn);
+		tfw_connection_destruct(&srv_conn->conn);
 	}
 
 	/* Revert tfw_sock_srv_connect_try(). */

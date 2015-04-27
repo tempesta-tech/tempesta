@@ -108,9 +108,9 @@ tfw_connection_unlink_peer(TfwConnection *conn)
  * Publish the "connection is established" event via TfwConnHooks.
  */
 int
-tfw_connection_estab(TfwConnection *conn)
+tfw_connection_init(TfwConnection *conn)
 {
-	int r = TFW_CONN_HOOK_CALL(conn, conn_estab);
+	int r = TFW_CONN_HOOK_CALL(conn, conn_init);
 	if (r)
 		TFW_DBG("conn_init() hook returned error: %d\n", r);
 	return r;
@@ -120,10 +120,10 @@ tfw_connection_estab(TfwConnection *conn)
  * Publish the "connection is closed" event via TfwConnHooks.
  */
 void
-tfw_connection_close(TfwConnection *conn)
+tfw_connection_destruct(TfwConnection *conn)
 {
 	/* Ask higher levels to free resources. */
-	TFW_CONN_HOOK_CALL(conn, conn_close);
+	TFW_CONN_HOOK_CALL(conn, conn_destruct);
 	BUG_ON(conn->msg);
 	BUG_ON(!list_empty(&conn->msg_queue));
 }
