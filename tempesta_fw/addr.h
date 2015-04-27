@@ -42,7 +42,6 @@ typedef union {
 } TfwAddr;
 
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
-ssize_t tfw_addr_sa_len(const TfwAddr *addr);
 int tfw_addr_pton(const char *str, TfwAddr *addr);
 size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
@@ -51,5 +50,12 @@ size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 char *tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *out_buf);
 char *tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port,
 			char *out_buf);
+
+static inline ssize_t
+tfw_addr_sa_len(const TfwAddr *addr)
+{
+	return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
+}
+
 
 #endif /* __TFW_ADDR_H__ */
