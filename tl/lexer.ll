@@ -48,12 +48,12 @@ IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
 {COMMENT}	{ /* Skip comments. */ }
 
 {NUMBER}	{
-			yylval->value = atol(yytext);
+			yylval->build<long>() = atol(yytext);
 			return tl::TL_LONGINT;
 		}
 
 {IPV4}		{
-			yylval->str = yytext;
+			yylval->build<std::string>() = yytext;
 			return tl::TL_IPV4;
 		}
 
@@ -105,7 +105,7 @@ IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
 		}
 
 {IDENT}		{
-			yylval->str = yytext;
+			yylval->build<std::string>() = yytext;
 			return tl::TL_IDENT;
 		}
 

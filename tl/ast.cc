@@ -27,7 +27,7 @@
 namespace tl {
 
 Expr *
-Expr::set_str(const char *str) noexcept
+Expr::set_str(const std::string &str) noexcept
 {
 	str_ = str;
 	return this;
@@ -78,7 +78,7 @@ create_op(tl_term_t type, Expr *left, Expr *right) noexcept
 }
 
 Expr *
-create_func(const char *name, Expr::FArgs &args) noexcept
+create_func(const std::string &name, Expr::FArgs &args) noexcept
 {
 	Expr *e = new Expr(TL_FUNC);
 

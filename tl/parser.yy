@@ -35,6 +35,7 @@
 %parse-param { tl::FlexScanner &scanner }
 %parse-param { tl::AST *ast }
 %parse-param { tl::SymTbl &st }
+%lex-param { tl::FlexScanner &scanner }
 
 %code requires {
 	namespace tl {

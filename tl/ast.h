@@ -81,7 +81,7 @@ struct Expr {
 			delete a;
 	}
 
-	Expr *set_str(const char *str) noexcept;
+	Expr *set_str(const std::string &str) noexcept;
 	Expr *set_val(long v) noexcept;
 
 	tl_term_t	type_;		// type of AST node
@@ -100,7 +100,7 @@ Expr *create_str(tl_term_t type, const char *str) noexcept;
 Expr *create_identifier(const char *name, Symbol *s) noexcept;
 Expr *create_ipv4(const char *addr);
 Expr *create_op(tl_term_t type, Expr *left, Expr *right) noexcept;
-Expr *create_func(const char *name, Expr::FArgs *args) noexcept;
+Expr *create_func(const std::string &name, Expr::FArgs *args) noexcept;
 
 std::ostream& operator<<(std::ostream& os, const Expr *expr) noexcept;
 
