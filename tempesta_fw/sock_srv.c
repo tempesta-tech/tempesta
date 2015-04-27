@@ -74,7 +74,6 @@
  * TfwConnection extension for server sockets.
  *
  * @conn	- The base structure. Must be the first member.
- * @srv		- A parent server object who owns this connection.
  * @retry_timer	- The timer makes a delay between connection attempts.
  *
  * A server connection differs from a client connection.
@@ -93,7 +92,6 @@
  */
 typedef struct {
 	TfwConnection		conn;
-	TfwServer		*srv;
 	struct timer_list	retry_timer;
 } TfwSrvConnection;
 
@@ -108,7 +106,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	TfwAddr *addr;
 	struct sock *sk;
 
-	addr = &srv_conn->srv->addr;
+	addr = &srv_conn->conn.peer->addr;
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
@@ -195,6 +193,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
 	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
 	/* Notify higher-level levels. */
 	r = tfw_connection_estab(&srv_conn->conn);
@@ -204,9 +203,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	}
 
 	/* Notify the scheduler about the new available connection. */
-	tfw_sg_update(srv_conn->srv->sg);
+	tfw_sg_update(srv->sg);
 
-	TFW_DBG_ADDR("connected", &srv_conn->srv->addr);
+	TFW_DBG_ADDR("connected", &srv->addr);
 	return 0;
 
 }
@@ -219,13 +218,15 @@ static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
 	int r;
+	TfwServer *srv;
 	TfwSrvConnection *srv_conn;
 
 	srv_conn = sk->sk_user_data;
-	TFW_DBG_ADDR("connection lost", &srv_conn->conn.peer->addr);
+	srv = (TfwServer *)srv_conn->conn.peer;
+	TFW_DBG_ADDR("connection lost", &srv->addr);
 
 	/* Revert tfw_sock_srv_connect_complete(). */
-	tfw_sg_update(srv_conn->srv->sg);
+	tfw_sg_update(srv->sg);
 	tfw_connection_close(&srv_conn->conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
@@ -262,6 +263,8 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+
 	/* FIXME: SsHooks may be executed concurrently here.
 	 * We must prevent any hook execution starting from this point.
 	 *
@@ -278,7 +281,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 
 	/* Revert tfw_sock_srv_connect_complete(). */
 	if (srv_conn->conn.peer) {
-		tfw_sg_update(srv_conn->srv->sg);
+		tfw_sg_update(srv->sg);
 		tfw_connection_close(&srv_conn->conn);
 	}
 
@@ -390,7 +393,6 @@ tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 	tfw_connection_validate_cleanup(&srv_conn->conn);
 
 	/* Check that all nested resources are already freed. */
-	BUG_ON(srv_conn->srv);
 	BUG_ON(timer_pending(&srv_conn->retry_timer));
 
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
@@ -406,7 +408,6 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 		srv_conn = tfw_srv_conn_alloc();
 		if (!srv_conn)
 			return -ENOMEM;
-		srv_conn->srv = srv;
 		tfw_connection_link_peer(&srv_conn->conn, (TfwPeer *)srv);
 	}
 
@@ -420,7 +421,6 @@ tfw_sock_srv_delete_conns(TfwServer *srv)
 
 	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
 		tfw_connection_unlink_peer(&srv_conn->conn);
-		srv_conn->srv = NULL;
 		tfw_srv_conn_free(srv_conn);
 	}
 
