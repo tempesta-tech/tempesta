@@ -168,8 +168,8 @@ tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
 void
 tfw_sg_update(TfwSrvGroup *sg)
 {
-	BUG_ON(!sg->sched || !sg->sched->update_grp);
-	sg->sched->update_grp(sg);
+	if (sg->sched && sg->sched->update_grp)
+		sg->sched->update_grp(sg);
 }
 
 int
