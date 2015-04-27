@@ -17,7 +17,7 @@ arg=${1:-}
 tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
 tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
-sched=${SCHED:="dummy"}
+sched_ko_files=($(ls $tfw_path/sched/*.ko))
 
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
@@ -47,8 +47,11 @@ load_modules()
 	insmod $tfw_path/$tfw_mod.ko tfw_cfg_path=$tfw_cfg_path
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
-	insmod $tfw_path/sched/tfw_sched_${sched}.ko
-	[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
+	for ko_file in "${sched_ko_files[@]}"
+	do
+		insmod $ko_file
+		[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
+	done
 }
 
 start()
@@ -72,7 +75,12 @@ unload_modules()
 {
 	echo "Un-loading Tempesta kernel modules..."
 
-	rmmod $tfw_sched_mod
+	for ko_file in "${sched_ko_files[@]}"
+	do
+		mod_name = $(basename "${ko_file%.ko}") 
+		rmmod $mod_name
+	done
+	
 	rmmod $tfw_mod
 	rmmod $tdb_mod
 }
