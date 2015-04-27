@@ -123,17 +123,17 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
-	r = tfw_connection_estab(conn);
+	r = tfw_connection_init(conn);
 	if (r) {
-		TFW_ERR("conn_estab() hook returned error\n");
-		goto err_conn_estab;
+		TFW_ERR("conn_init() hook returned error\n");
+		goto err_conn_init;
 	}
 
 	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		sk, conn, cli);
 	return 0;
 
-err_conn_estab:
+err_conn_init:
 	tfw_connection_unlink_peer(conn);
 	tfw_connection_unlink_sk(conn);
 	tfw_cli_conn_free(conn);
