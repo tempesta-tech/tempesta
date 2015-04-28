@@ -181,6 +181,14 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		conn_idx = 0;
 		list_for_each_entry(conn, &srv->conn_list, list) {
+			/* Skip not-yet-established connections.
+			 * However, take into account the conn_idx to preserver
+			 * same hash values for all connections. */
+			if (!conn->sk) {
+				++conn_idx;
+				continue;
+			}
+
 			conn_hash = &hash_list->conn_hashes[hash_idx];
 			conn_hash->conn = conn;
 			conn_hash->hash = __calc_conn_hash(srv, conn_idx);
