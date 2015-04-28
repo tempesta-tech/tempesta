@@ -46,9 +46,12 @@ tfw_http_msg_free(TfwHttpMsg *m)
 		if (!skb)
 			break;
 		TFW_DBG("free skb %p: truesize=%d sk=%p, destructor=%p"
-			" users=%d\n",
+			" users=%d type=%s\n",
 			skb, skb->truesize, skb->sk, skb->destructor,
-			atomic_read(&skb->users));
+			atomic_read(&skb->users),
+			TFW_CONN_TYPE(m->conn) & Conn_Clnt
+			? "Conn_Clnt" : TFW_CONN_TYPE(m->conn) & Conn_Srv
+					? "Conn_Srv" : "Unknown");
 		kfree_skb(skb);
 	}
 	tfw_pool_free(m->pool);
