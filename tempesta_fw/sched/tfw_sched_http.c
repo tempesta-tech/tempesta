@@ -22,23 +22,21 @@
  * a back-end server to which the request is sent.
  *
  * The configuration section for the example above looks like:
- *   sched_http {
- *       srv_group webapp_site1 {
- *           server 10.0.17.1:8081;
- *       }
- *       srv_group webapp_site2 {
- *           server 10.0.17.2:8082;
- *       }
- *       srv_group storage_servers {
- *           server 10.0.18.1;
- *           server 10.0.18.2;
- *           server 10.0.18.3;
- *       }
- *       sched_http_rules {
- *           match storage_servers uri prefix "static.example.com";
- *           match webapp_site1 host eq "site1.example.com";
- *           match webapp_site2 host eq "site2.example.com";
- *       }
+ *   srv_group webapp_site1 {
+ *       server 10.0.17.1:8081;
+ *   }
+ *   srv_group webapp_site2 {
+ *       server 10.0.17.2:8082;
+ *   }
+ *   srv_group storage_servers {
+ *       server 10.0.18.1;
+ *       server 10.0.18.2;
+ *       server 10.0.18.3;
+ *   }
+ *   sched_http_rules {
+ *       match storage_servers uri prefix "static.example.com";
+ *       match webapp_site1 host eq "site1.example.com";
+ *       match webapp_site2 host eq "site2.example.com";
  *   }
  *
  * This module handles only the "sched_http_rules" section. It simply selects
