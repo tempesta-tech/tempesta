@@ -122,7 +122,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	if (r) {
 		TFW_ERR("can't initiate a server connection\n");
 		tfw_connection_unlink_sk(&srv_conn->conn);
-		ss_release(sk);
+		ss_close(sk);
 		return r;
 	}
 
@@ -177,7 +177,7 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	/* We have to create a new socket for each connection attempt.
 	 * The old socket is released here as soon as it is not used anymore. */
 	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_release(sk);
+	ss_close(sk);
 
 	/* The new socket is created after a delay in the timer callback. */
 	__setup_retry_timer(srv_conn);
@@ -232,7 +232,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 
 	/* Revert tfw_sock_srv_connect_try(). */
 	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_release(sk);
+	ss_close(sk);
 
 	/* Initiate a new connection sequence.
 	 * The TfwSrvConnection (and nested TfwConnection) is re-used here. */
@@ -290,7 +290,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	if (srv_conn->conn.sk) {
 		struct sock *sk = srv_conn->conn.sk;
 		tfw_connection_unlink_sk(&srv_conn->conn);
-		ss_release(sk);
+		ss_close(sk);
 	}
 }
 
