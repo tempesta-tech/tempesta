@@ -240,6 +240,9 @@ tfw_sg_release_all(void)
 
 		write_unlock(&sg->lock);
 
+		if (sg->sched && sg->sched->del_grp)
+			sg->sched->del_grp(sg);
+
 		kfree(sg);
 	}
 
