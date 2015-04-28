@@ -317,6 +317,7 @@ static TfwCfgMod tfw_sched_http_cfg_mod = {
 				.begin_hook = tfw_sched_http_cfg_begin_rules,
 				.finish_hook = tfw_sched_http_cfg_finish_rules
 			},
+			.allow_none = true
 		},
 		{}
 	}
