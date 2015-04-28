@@ -26,14 +26,347 @@
 
 #include "cache.h"
 #include "classifier.h"
+#include "client.h"
 #include "gfsm.h"
 #include "hash.h"
 #include "http.h"
 #include "http_msg.h"
+#include "http_sticky.h"
 #include "log.h"
 #include "sched.h"
 
 #include "sync_socket.h"
+
+/*
+ * Build Tempesta message from pieces of data.
+ *
+ * The functions tfw_http_msg_setup() and tfw_http_msg_add_data()
+ * are designed to work together. The objective is to avoid error
+ * processing when putting stream data in SKBs piece by piece.
+ *
+ * Errors may be returned by memory allocation functions,
+ * so that job is done in tfw_http_msg_setup(). Given the total
+ * HTTP message length, it allocates an appropriate number of SKBs
+ * and page fragments to hold the payload, and sets them up in
+ * Tempesta message.
+ *
+ * SKBs are created complely headerless. The linear part of SKBs
+ * is set apart for headers, and stream data is placed in paged
+ * fragments. Lower layers will take care of prepending all
+ * required headers.
+ *
+ * tfw_http_msg_add_data() adds a piece of data to the message,
+ * forming data stream piece by piece. All memory for data
+ * has been allocated and set up by tfw_http_msg_setup(),
+ * so any errors that we may get are considered critical.
+ *
+ * State is kept between calls to these functions to facilitate
+ * quick access to current SKB and page fragment. State is passed
+ * and updated on each call to these functions.
+ */
+typedef struct tfw_msg_add_state {
+	struct sk_buff	*skb;
+	unsigned int	fragnum;
+} tfw_mastate_t;
+
+void
+tfw_http_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len)
+{
+	skb_frag_t *frag;
+	tfw_mastate_t *state = (tfw_mastate_t *)handle;
+	struct sk_buff *skb = state->skb;
+	unsigned int i_frag = state->fragnum;
+	size_t copy_size, page_offset, data_offset = 0;
+
+	BUG_ON(skb == NULL);
+	BUG_ON(i_frag >= MAX_SKB_FRAGS);
+
+	while (len) {
+		if (i_frag >= MAX_SKB_FRAGS) {
+			skb = ss_skb_next(&msg->skb_list, skb);
+			state->skb = skb;
+			state->fragnum = 0;
+			i_frag = 0;
+			BUG_ON(skb == NULL);
+		}
+		for (; len && (i_frag < MAX_SKB_FRAGS); i_frag++) {
+			frag = &skb_shinfo(skb)->frags[i_frag];
+			page_offset = skb_frag_size(frag);
+			copy_size = min(len, PAGE_SIZE - page_offset);
+			memcpy(page_address(frag->page.p) + page_offset,
+			       data + data_offset, copy_size);
+			skb_frag_size_add(frag, copy_size);
+			data_offset += copy_size;
+			len -= copy_size;
+		}
+		/*
+		 * The above for() loop runs at least once,
+		 * which means that i_frags is always incremented.
+		 */
+		state->fragnum = i_frag - 1;
+	}
+	/* In the end, data_offset equals the initial len value */
+	skb->len += data_offset;
+	skb->data_len += data_offset;
+}
+
+void *
+tfw_http_msg_setup(TfwHttpMsg *hm, size_t len)
+{
+	struct page *page;
+	struct sk_buff *skb;
+	tfw_mastate_t *state;
+	int i_frag, i_skb, nr_skb_frags;
+	int nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
+	int nr_skbs = DIV_ROUND_UP(nr_frags, MAX_SKB_FRAGS);
+
+	/*
+	 * TODO: Make sure to create SKBs with payload size <= MSS
+	 */
+	if ((state = tfw_pool_alloc(hm->pool, sizeof(*state))) == NULL) {
+		return NULL;
+	}
+	for (i_skb = 0; i_skb < nr_skbs; i_skb++) {
+		if ((skb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC)) == NULL) {
+			return NULL;
+		}
+		skb_reserve(skb, MAX_TCP_HEADER);
+		ss_skb_queue_tail(&hm->msg.skb_list, skb);
+
+		nr_skb_frags = min_t(size_t, nr_frags, MAX_SKB_FRAGS);
+		for (i_frag = 0; i_frag < nr_skb_frags; i_frag++) {
+			if ((page = alloc_page(GFP_ATOMIC)) == NULL) {
+				return NULL;
+			}
+			__skb_fill_page_desc(skb, i_frag, page, 0, 0);
+			skb->truesize += PAGE_SIZE;
+			skb_shinfo(skb)->nr_frags++;
+		}
+		nr_frags -= nr_skb_frags;
+	}
+	/* Set up initial state */
+	state->skb = ss_skb_peek(&hm->msg.skb_list);
+	state->fragnum = 0;
+
+	return state;
+}
+
+#define S_CRLF			"\r\n"
+#define S_CRLFCRLF		"\r\n\r\n"
+#define S_HTTP			"http://"
+
+#define S_302			"HTTP/1.1 302 Found"
+#define S_502			"HTTP/1.1 502 Bad Gateway"
+
+#define S_F_HOST		"Host: "
+#define S_F_DATE		"Date: "
+#define S_F_CONTENT_LENGTH	"Content-Length: "
+#define S_F_LOCATION		"Location: "
+#define S_F_CONNECTION		"Connection: "
+#define S_F_SET_COOKIE		"Set-Cookie: "
+
+#define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
+#define S_V_CONTENT_LENGTH	"9999"
+
+#define SLEN(s)			(sizeof(s) - 1)
+
+/*
+ * Prepare current date in the format required for HTTP "Date:"
+ * header field. See RFC 2616 section 3.3.
+ */
+size_t
+tfw_http_prep_date(char *buf)
+{
+	struct tm tm;
+	struct timespec ts;
+	char *ptr = buf;
+
+	static char *wday[] __read_mostly =
+		{ "Sun, ", "Mon, ", "Tue, ",
+		  "Wed, ", "Thu, ", "Fri, ", "Sat, " };
+	static char *month[] __read_mostly =
+		{ " Jan ", " Feb ", " Mar ", " Apr ", " May ", " Jun ",
+		  " Jul ", " Aug ", " Sep ", " Oct ", " Nov ", " Dec " };
+
+#define PRINT_2DIGIT(p, n)			\
+	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
+	*p++ = '0' + n % 10;
+
+	getnstimeofday(&ts);
+	time_to_tm(ts.tv_sec, 0, &tm);
+
+	memcpy(ptr, wday[tm.tm_wday], 5);
+	ptr += 5;
+	PRINT_2DIGIT(ptr, tm.tm_mday);
+	memcpy(ptr, month[tm.tm_mon], 5);
+	ptr += 5;
+	PRINT_2DIGIT(ptr, (tm.tm_year + 1900) / 100);
+	PRINT_2DIGIT(ptr, (tm.tm_year + 1900) % 100);
+	*ptr++ = ' ';
+	PRINT_2DIGIT(ptr, tm.tm_hour);
+	*ptr++ = ':';
+	PRINT_2DIGIT(ptr, tm.tm_min);
+	*ptr++ = ':';
+	PRINT_2DIGIT(ptr, tm.tm_sec);
+	memcpy(ptr, " GMT", 4);
+	ptr += 4;
+#undef PRINT_2DIGIT
+
+	return ptr - buf;
+}
+
+/*
+ * Convert a C string to a printable hex string.
+ *
+ * Each character makes two hex digits, thus the size of the
+ * output buffer must be twice of the length of input string.
+ */
+size_t
+tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
+{
+	char *ptr = buf;
+
+	while (len--) {
+		*ptr++ = hex_asc_hi(*value);
+		*ptr++ = hex_asc_lo(*value++);
+	}
+	return (ptr - buf);
+}
+
+/*
+ * Prepare an HTTP 302 response to the client. The response redirects
+ * the client to the same URI as the original request, but it includes
+ * 'Set-Cookie:' header field that sets Tempesta sticky cookie.
+ */
+#define S_302_PART_01		S_302 S_CRLF S_F_DATE
+/* Insert current date */
+#define S_302_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF	\
+				S_F_LOCATION S_HTTP
+/* Insert full location URI */
+#define S_302_PART_03		S_CRLF S_F_SET_COOKIE
+/* Insert cookie name and value */
+#define S_302_PART_04		S_CRLFCRLF
+
+#define S_302_FIXLEN							\
+	SLEN(S_302_PART_01) + SLEN(S_V_DATE) + SLEN(S_302_PART_02)	\
+	+ SLEN(S_302_PART_03) + SLEN(S_302_PART_04)
+
+TfwHttpMsg *
+tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
+{
+	void *handle;
+	TfwStr *chunk;
+	TfwMsg *msg;
+	TfwHttpMsg *resp;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	u_char *ptr, buf[SLEN(S_F_HOST) + 256];
+	size_t len, data_len = S_302_FIXLEN;
+
+	if (!(hm->flags & TFW_HTTP_STICKY_SET)) {
+		return NULL;
+	}
+	if ((resp = tfw_http_msg_alloc(Conn_Srv)) == NULL) {
+		return NULL;
+	}
+	msg = (TfwMsg *)resp;
+	resp->conn = hm->conn;
+
+	/* Add variable part of data length to get the total */
+	data_len += req->host.len
+		    ? req->host.len
+		    : hm->h_tbl->tbl[TFW_HTTP_HDR_HOST].field.len;
+	data_len += req->uri_path.len + tfw_str_len(cookie);
+
+	if ((handle = tfw_http_msg_setup(resp, data_len)) == NULL) {
+		tfw_http_msg_free(resp);
+		return NULL;
+	}
+
+	tfw_http_msg_add_data(handle, msg, S_302_PART_01, SLEN(S_302_PART_01));
+	len = tfw_http_prep_date(buf);
+	tfw_http_msg_add_data(handle, msg, buf, len);
+	tfw_http_msg_add_data(handle, msg, S_302_PART_02, SLEN(S_302_PART_02));
+	if (req->host.len) {
+		TFW_STR_FOR_EACH_CHUNK(chunk, &req->host) {
+			tfw_http_msg_add_data(handle, msg, chunk->ptr,
+							   chunk->len);
+		}
+	} else {
+		TfwStr *hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
+		/*
+		 * HOST is a special header in Tempesta, and it should not
+		 * contain the actual "Host: " prefix. But it does now.
+		 * Work around it.
+		 */
+		if (TFW_STR_IS_PLAIN(hdr)) {
+			tfw_http_msg_add_data(handle, msg,
+					      hdr->ptr + SLEN(S_F_HOST),
+					      hdr->len - SLEN(S_F_HOST));
+		} else  {
+			/*
+			 * Per RFC 1035, 2181, max length of FQDN is 255.
+			 * What if it is UTF-8 encoded?
+			 */
+			/*
+			 * XXX Linearize TfwStr{}. Should be eliminated
+			 * when better TfwStr{} functions are implemented.
+			 */
+			tfw_str_to_cstr(hdr, buf, hdr->len);
+			ptr = strim(buf + SLEN(S_F_HOST));
+			tfw_http_msg_add_data(handle, msg, ptr,
+					      hdr->len - (ptr - buf));
+		}
+	}
+	TFW_STR_FOR_EACH_CHUNK(chunk, &req->uri_path) {
+		tfw_http_msg_add_data(handle, msg, chunk->ptr, chunk->len);
+	}
+	tfw_http_msg_add_data(handle, msg, S_302_PART_03, SLEN(S_302_PART_03));
+	TFW_STR_FOR_EACH_CHUNK(chunk, cookie) {
+		tfw_http_msg_add_data(handle, msg, chunk->ptr, chunk->len);
+	}
+	tfw_http_msg_add_data(handle, msg, S_302_PART_04, SLEN(S_302_PART_04));
+
+	return resp;
+}
+
+/*
+ * Prepare an HTTP 502 response to the client. It tells the client that
+ * Tempesta is unable to forward the request to the designated server.
+ */
+#define S_502_PART_01		S_502 S_CRLF S_F_DATE
+/* Insert current date */
+#define S_502_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
+
+#define S_502_FIXLEN							\
+	SLEN(S_502_PART_01) + SLEN(S_V_DATE) + SLEN(S_502_PART_02)
+
+TfwHttpMsg *
+tfw_http_prep_502(TfwHttpMsg *hm)
+{
+	void *handle;
+	TfwMsg *msg;
+	TfwHttpMsg *resp;
+	u_char buf[SLEN(S_V_DATE)];
+	size_t len, data_len = S_502_FIXLEN;
+
+	if ((resp = tfw_http_msg_alloc(Conn_Srv)) == NULL) {
+		return NULL;
+	}
+	msg = (TfwMsg *)resp;
+	resp->conn = hm->conn;
+
+	if ((handle = tfw_http_msg_setup(resp, data_len)) == NULL) {
+		tfw_http_msg_free(resp);
+		return NULL;
+	}
+
+	tfw_http_msg_add_data(handle, msg, S_502_PART_01, SLEN(S_502_PART_01));
+	len = tfw_http_prep_date(buf);
+	tfw_http_msg_add_data(handle, msg, buf, len);
+	tfw_http_msg_add_data(handle, msg, S_502_PART_02, SLEN(S_502_PART_02));
+
+	return resp;
+}
 
 TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
@@ -804,6 +1137,22 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			;
 		}
 
+		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
+		r = tfw_gfsm_move(&req->msg.state,
+				  TFW_HTTP_FSM_REQ_MSG, data, len);
+		TFW_DBG("GFSM return code %d\n", r);
+		if (r == TFW_BLOCK)
+			goto block;
+		conn->msg = NULL;
+
+		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
+		if (r < 0) {
+			goto block;
+		} else if (r > 0) {
+			tfw_http_msg_free((TfwHttpMsg *)req);
+			goto pipeline;
+		}
+
 		/* Dispatch the request to appropriate server. */
 		srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 		if (!srv_conn) {
@@ -811,20 +1160,11 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				" for a session\n");
 			goto block;
 		}
-
 		/* Request is fully parsed, add it to the connection. */
 		list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
-		conn->msg = NULL;
-
-		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-		r = tfw_gfsm_move(&req->msg.state, TFW_HTTP_FSM_REQ_MSG, data,
-				  len);
-		TFW_DBG("GFSM return code %d\n", r);
-		if (r == TFW_BLOCK)
-			goto block;
 
 		tfw_cache_req_process(req, tfw_http_req_cache_cb, srv_conn);
-
+pipeline:
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
 			break;
@@ -910,11 +1250,19 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		req_msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 		list_del(&req_msg->msg_list);
 
+		req = (TfwHttpReq *)req_msg;
+		r = tfw_http_sticky_resp_process((TfwHttpMsg *)resp,
+						 (TfwHttpMsg *)req);
+		if (r < 0) {
+			tfw_http_msg_free((TfwHttpMsg *)req);
+			tfw_http_msg_free((TfwHttpMsg *)resp);
+			return TFW_BLOCK;
+		}
+
 		/*
 		 * Send the response to client before caching it.
-		 * The cache frees the response.
+		 * The cache frees the response and the request.
 		 */
-		req = (TfwHttpReq *)req_msg;
 		tfw_connection_send_cli(req->conn, (TfwMsg *)resp);
 
 		tfw_cache_add(resp, req);
@@ -928,6 +1276,24 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 block:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return TFW_BLOCK;
+}
+
+int
+tfw_http_hdr_add(TfwHttpMsg *hm, const char *data, size_t len)
+{
+	return __hdr_add(data, len, hm->msg.skb_list.first, hm->crlf);
+}
+
+int
+tfw_http_hdr_del(TfwHttpMsg *hm, TfwStr *hdr)
+{
+	return __hdr_delete(hdr, hm->msg.skb_list.first);
+}
+
+int
+tfw_http_hdr_sub(TfwHttpMsg *hm, TfwStr *hdr, const char *data, size_t len)
+{
+	return __hdr_sub(hdr, data, len, hm->msg.skb_list.first);
 }
 
 /**
