@@ -74,7 +74,6 @@
 
 #include "cfg.h"
 #include "http_match.h"
-#include "rrptrset.h"
 #include "sched.h"
 #include "server.h"
 
