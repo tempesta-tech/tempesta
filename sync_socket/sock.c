@@ -93,7 +93,6 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 		struct flowi4 fl4 = { .daddr = isk->inet_daddr };
 
 		BUG_ON(isk->sk.sk_family != AF_INET);
-		BUG_ON(skb->protocol != htons(ETH_P_IP));
 
 		rt = ip_route_output_key(ss_pick_net(skb), &fl4);
 		if (IS_ERR(rt))
