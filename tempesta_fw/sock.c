@@ -799,56 +799,36 @@ ss_inet_create(struct net *net, int family,
 	int err, pfinet;
 	struct sock *sk;
 	struct inet_sock *inet;
-	struct inet_protosw *answer;
 	struct proto *answer_prot;
-	unsigned char answer_flags;
-	char answer_no_check;
-	struct list_head *inetsw;
 
+	/* TCP only is supported for now. */
+	BUG_ON(type != SOCK_STREAM || protocol != IPPROTO_TCP);
+
+	/*
+	 * Get socket properties.
+	 * See inet_protosw and tcpv6_protosw definitions.
+	 */
 	if (family == AF_INET) {
 		pfinet = PF_INET;
-		inetsw = inet_get_inetsw();
+		answer_prot = &tcp_prot;
 	} else {
 		pfinet = PF_INET6;
-		inetsw = inet6_get_inetsw6();
+		answer_prot = &tcpv6_prot;
 	}
+	WARN_ON(answer_prot->slab == NULL);
 
 	if (unlikely(!inet_ehash_secret))
 		build_ehash_secret();
-
-	err = -ESOCKTNOSUPPORT;
-	rcu_read_lock();
-	list_for_each_entry_rcu(answer, &inetsw[type], list) {
-		err = 0;
-		if (protocol == answer->protocol)
-			break;
-		else if (IPPROTO_IP == answer->protocol)
-			break;
-		err = -EPROTONOSUPPORT;
-	}
-	if (unlikely(err)) {
-		rcu_read_unlock();
-		goto out;
-	}
-
-	answer_prot = answer->prot;
-	answer_no_check = answer->no_check;
-	answer_flags = answer->flags;
-	rcu_read_unlock();
-
-	WARN_ON(answer_prot->slab == NULL);
 
 	err = -ENOBUFS;
 	if ((sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)) == NULL)
 		goto out;
 
 	err = 0;
-	sk->sk_no_check = answer_no_check;
-	if (INET_PROTOSW_REUSE & answer_flags)
-		sk->sk_reuse = SK_CAN_REUSE;
+	sk->sk_no_check = 0;
 
 	inet = inet_sk(sk);
-	inet->is_icsk = (INET_PROTOSW_ICSK & answer_flags) != 0;
+	inet->is_icsk = 1;
 	inet->nodefrag = 0;
 	inet->inet_id = 0;
 
@@ -906,10 +886,6 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	int ret;
 	struct sock *sk;
 	const struct net_proto_family *pf;
-
-	BUG_ON(type != SOCK_STREAM);
-	BUG_ON(protocol != IPPROTO_TCP);
-	BUG_ON((family != AF_INET) && (family != AF_INET6));
 
 	rcu_read_lock();
 	if ((pf = get_proto_family(family)) == NULL)
