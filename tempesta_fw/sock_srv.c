@@ -572,7 +572,7 @@ tfw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		return r;
 	name = ce->vals[0];
-	sched_str = tfw_cfg_get_attr(ce, "sched", NULL);
+	sched_str = tfw_cfg_get_attr(ce, "sched", "round-robin");
 
 	TFW_DBG("begin srv_group: %s\n", name);
 

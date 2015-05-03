@@ -72,7 +72,6 @@ typedef struct tfw_srv_group_t {
 } TfwSrvGroup;
 
 /* Server specific routines. */
-void tfw_server_bind_conn(TfwServer *srv, TfwConnection *conn);
 TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
 

@@ -892,8 +892,8 @@ EXPORT_SYMBOL(tfw_cfg_map_enum);
  * Return @default_val if the attribute is not found in the entry @e.
  */
 const char *
-tfw_cfg_get_attr(const TfwCfgEntry *e,
-		 const char *attr_key, const char *default_val)
+tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
+		 const char *default_val)
 {
 	size_t i;
 	const char *key, *val;
