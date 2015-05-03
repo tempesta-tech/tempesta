@@ -5,8 +5,8 @@
  *
  * The goal of this module is to implement a load balancing scheme based on
  * HTTP message contents, that is, to provide user a way to route HTTP requests
- * to different back-end servers depending on HTTP request fields: Host, URI,
- * headers, etc.
+ * to different back-end server groups depending on HTTP request fields:
+ * Host, URI, headers, etc.
  *
  * For example, you have a hardware setup that consists of:
  *   - a web application server for a site, say "site1.example.com";
@@ -77,7 +77,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 #define BANNER "tfw_sched_http: "
@@ -98,10 +98,10 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	TfwSrvGroup *sg;
 	TfwConnection *conn;
 	TfwSchedHttpRule *rule;
-	TfwHttpMatchList *mlst = tfw_sched_http_rules;
 
-	BUG_ON(!mlst);
-	rule = tfw_http_match_req_entry((TfwHttpReq * )msg, mlst,
+	BUG_ON(!tfw_sched_http_rules);
+
+	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, tfw_sched_http_rules,
 					TfwSchedHttpRule, rule);
 	if (unlikely(!rule)) {
 		ERR("can't find an appropriate server group\n");
