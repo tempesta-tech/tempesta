@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -56,6 +56,5 @@ tfw_addr_sa_len(const TfwAddr *addr)
 {
 	return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
 }
-
 
 #endif /* __TFW_ADDR_H__ */

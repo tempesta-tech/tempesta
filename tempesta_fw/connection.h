@@ -96,18 +96,31 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
+/**
+ * Check that TfwConnection resources are cleaned up properly.
+ */
+static inline void
+tfw_connection_validate_cleanup(TfwConnection *conn)
+{
+	BUG_ON(!conn);
+	BUG_ON(!list_empty(&conn->list));
+	BUG_ON(!list_empty(&conn->msg_queue));
+	BUG_ON(conn->msg);
+	BUG_ON(conn->peer);
+	BUG_ON(conn->sk);
+}
+
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
 /* Generic helpers, used for both client and server connections. */
-void tfw_connection_construct(TfwConnection *conn);
-void tfw_connection_validate_cleanup(TfwConnection *conn);
+void tfw_connection_init(TfwConnection *conn);
 void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
 void tfw_connection_unlink_sk(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 void tfw_connection_unlink_peer(TfwConnection *conn);
 
-int tfw_connection_init(TfwConnection *conn);
+int tfw_connection_new(TfwConnection *conn);
 void tfw_connection_destruct(TfwConnection *conn);
 
 int tfw_connection_recv(struct sock *, unsigned char *, size_t);

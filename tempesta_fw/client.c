@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,12 +43,8 @@ tfw_client_put(TfwClient *clnt)
 /**
  * Find a client corresponding to the @sk.
  *
- * NOTE: The returned TfwClient reference must be released via tfw_client_put()
+ * The returned TfwClient reference must be released via tfw_client_put()
  * when the @sk is closed.
- *
- * NOTE: The function is called while a new client socket is being accepted,
- * and the TfwConnection object is not yet initialized, so this function should
- * not reference the TfwConnection object (via the @
  */
 TfwClient *
 tfw_client_obtain(struct sock *sk)
