@@ -26,6 +26,7 @@
  * -- Read cache objects by 64KB and use GSO?
  */
 #include <linux/module.h>
+#include <net/protocol.h>
 #include <net/tcp.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
@@ -33,14 +34,23 @@
 #include "log.h"
 #include "sync_socket.h"
 
-MODULE_AUTHOR("Tempesta Technologies");
-MODULE_DESCRIPTION("Linux Kernel Synchronous Sockets");
-MODULE_VERSION("0.4.4");
-MODULE_LICENSE("GPL");
+#ifdef TFW_BANNER
+#undef TFW_BANNER
+#define TFW_BANNER	"[sync_sockets] "
+#endif
 
-static SsHooks *ss_hooks __read_mostly;
+#ifdef DEBUG
+static const char *ss_statename[] = {
+	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
+	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
+	"Close Wait",	"Last ACK",	"Listen",	"Closing"
+};
+#endif
 
-#define SS_CALL(f, ...)		(ss_hooks->f ? ss_hooks->f(__VA_ARGS__) : 0)
+#define SS_CALL(f, ...)							\
+	(((SsProto *)(sk)->sk_user_data)->hooks->f			\
+	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
+	: 0)
 
 /**
  * Copied from net/netfilter/xt_TEE.c.
@@ -130,6 +140,9 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
 
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
 	bh_lock_sock_nested(sk);
 
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
@@ -207,7 +220,7 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	struct sk_buff *frag_i;
 
 	/*
-	 * We know prciselly from the caller that the skb has data.
+	 * We know for sure from the caller that the skb has data.
 	 * No matter where exactly the data is placed, but the skb relates
 	 * to current message, so put it to the message.
 	 */
@@ -281,8 +294,9 @@ ss_do_close(struct sock *sk)
 	int data_was_unread = 0;
 	int state;
 
-	SS_DBG("Close socket %p (account=%d)\n",
-		sk, sk_has_account(sk));
+	SS_DBG("Close socket %p (account=%d)\n", sk, sk_has_account(sk));
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (unlikely(!sk))
 		return;
@@ -530,6 +544,8 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 #else
 	struct request_sock *req;
 #endif
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -594,6 +610,9 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk, int bytes)
 {
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
 		 * Error packet received.
@@ -624,37 +643,12 @@ static void
 ss_tcp_error(struct sock *sk)
 {
 	SS_DBG("process error on socket %p\n", sk);
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (sk->sk_destruct)
 		sk->sk_destruct(sk);
 }
-
-/**
- * We're working with the sockets in softirq, so set allocations atomic.
- */
-static void
-ss_set_sock_atomic_alloc(struct sock *sk)
-{
-	sk->sk_allocation = GFP_ATOMIC;
-}
-
-/**
- * Make the data socket serviced by synchronous sockets.
- */
-void
-ss_set_callbacks(struct sock *sk)
-{
-	write_lock_bh(&sk->sk_callback_lock);
-
-	ss_set_sock_atomic_alloc(sk);
-
-	sk->sk_data_ready = ss_tcp_data_ready;
-	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_error_report = ss_tcp_error;
-
-	write_unlock_bh(&sk->sk_callback_lock);
-}
-EXPORT_SYMBOL(ss_set_callbacks);
 
 /**
  * Socket state change callback.
@@ -662,14 +656,15 @@ EXPORT_SYMBOL(ss_set_callbacks);
 static void
 ss_tcp_state_change(struct sock *sk)
 {
+	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
+		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
 
 		SsProto *proto = sk->sk_user_data;
-		struct socket *lsk = proto->listener;
+		struct sock *lsk = proto->listener;
 		int r;
-
-		BUG_ON(!lsk);
 
 		/* The callback is called from tcp_rcv_state_process(). */
 		r = SS_CALL(connection_new, sk);
@@ -678,90 +673,336 @@ ss_tcp_state_change(struct sock *sk)
 			ss_do_close(sk);
 			return;
 		}
+		if (lsk) {
+			/*
+			 * This is a new socket for an accepted connect
+			 * request that the kernel has allocated itself.
+			 * Kernel initializes this field to GFP_KERNEL.
+			 * Tempesta works with sockets in SoftIRQ context,
+			 * so set it to atomic allocation.
+			 */
+			sk->sk_allocation = GFP_ATOMIC;
 
-		ss_set_callbacks(sk);
-
+			/*
+			 * We know which socket is just accepted.
+			 * Just drain listening socket accept queue,
+			 * and don't care about the returned socket.
+			 */
+			assert_spin_locked(&lsk->sk_lock.slock);
+			ss_drain_accept_queue(lsk, sk);
+		}
+	} else if ((sk->sk_state == TCP_CLOSE_WAIT)
+		 || (sk->sk_state == TCP_FIN_WAIT1)) {
 		/*
-		 * We know which socket is just accepted, so we just
-		 * drain listening socket accept queue and don't care
-		 * about returned socket.
-		 */
-		assert_spin_locked(&lsk->sk->sk_lock.slock);
-		ss_drain_accept_queue(lsk->sk, sk);
-	}
-	else if (sk->sk_state == TCP_CLOSE_WAIT) {
-		/*
-		 * Connection has received FIN.
+		 * Connection is being closed.
+		 * Either Tempesta sent FIN, or we received FIN.
 		 *
 		 * FIXME it seems we should to do things below on TCP_CLOSE
 		 * instead of TCP_CLOSE_WAIT.
 		 */
 		SS_DBG("Peer connection closing\n");
 		ss_do_close(sk);
+	} else if (sk->sk_state == TCP_CLOSE) {
+		/*
+		 * In current implementation we never get to TCP_CLOSE
+		 * in normal course of action. We only get here if we
+		 * never entered TCP_ESTABLISHED state.
+		 */
+		SS_DBG("Connection is finished\n");
+		SS_CALL(connection_close, sk);
 	}
 }
 
+void
+ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
+{
+	proto->hooks = hooks;
+	proto->type = type;
+
+	/* The memory allocated for @proto should be already zero'ed, so don't
+	 * initialize this field to NULL, but instead check the invariant. */
+	BUG_ON(proto->listener);
+}
+
+void
+ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
+{
+	*child = *parent;
+	child->type |= child_type;
+}
+
 /**
- * Set protocol handler and initialize first callbacks.
+ * Make data socket serviced by synchronous sockets.
  */
 void
-ss_tcp_set_listen(struct socket *sock, SsProto *handler)
+ss_set_callbacks(struct sock *sk)
 {
-	struct sock *sk = sock->sk;
+	/* ss_tcp_state_change() dereferences sk->sk_user_data as SsProto, so
+	 * the caller should initialize it before setting callbacks. */
+	BUG_ON(!sk->sk_user_data);
 
 	write_lock_bh(&sk->sk_callback_lock);
-
-	BUG_ON(sk->sk_user_data);
-
-	ss_set_sock_atomic_alloc(sk);
-
+	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_user_data = handler;
-	handler->listener = sock;
-
+	sk->sk_error_report = ss_tcp_error;
 	write_unlock_bh(&sk->sk_callback_lock);
 }
-EXPORT_SYMBOL(ss_tcp_set_listen);
+EXPORT_SYMBOL(ss_set_callbacks);
 
-/*
- * ------------------------------------------------------------------------
- *  	Sockets initialization
- * ------------------------------------------------------------------------
+/**
+ * Store listening socket as parent for all accepted connections,
+ * and initialize first callbacks.
  */
+void
+ss_set_listen(struct sock *sk)
+{
+	((SsProto *)sk->sk_user_data)->listener = sk;
+
+	write_lock_bh(&sk->sk_callback_lock);
+	sk->sk_state_change = ss_tcp_state_change;
+	write_unlock_bh(&sk->sk_callback_lock);
+}
+EXPORT_SYMBOL(ss_set_listen);
 
 /*
- * FIXME Only one user for now, don't care about registration races.
+ * Tempesta works with Linux internal sockets (struct sock), and it
+ * does not need full BSD sockets (struct socket), nor does it need
+ * file/inode operations on these sockets. Both take memory and system
+ * resources. Here is a set of socket interface functions that accept
+ * "struct sock" instead of "struct socket". With these we avoid taking
+ * unnecessary system memory and resources.
+ *
+ * Some of these functions cover lots of cases that are not applicable
+ * to Tempesta's use. As speed is important, shorter and faster variants
+ * of those are implemented by removing unnecessary parts of code.
+ *
+ * Where there's little to gain by implementing a shorter variant,
+ * an original kernel protocol interface function is called.
+ * As a BSD socket (struct socket) is not allocated and populated,
+ * a socket placeholder is used in these functions. A placeholder
+ * is initialized with just enough data to satisfy an underlying
+ * kernel function that still wants "struct socket" as an argument.
+ */
+/*
+ * Create a new socket for IPv4 or IPv6 protocol. The original functions
+ * are inet_create() and inet6_create(). They are nearly identical and
+ * only minor details are different. All of them are covered here.
+ *
+ * NOTE: This code assumes that both IPv4 and IPv6 are compiled in as
+ * part of the Linux kernel, and not as separate loadable kernel modules.
+ */
+static int
+ss_inet_create(struct net *net, int family,
+	       int type, int protocol, struct sock **nsk)
+{
+	int err, pfinet;
+	struct sock *sk;
+	struct inet_sock *inet;
+	struct proto *answer_prot;
+
+	/* TCP only is supported for now. */
+	BUG_ON(type != SOCK_STREAM || protocol != IPPROTO_TCP);
+
+	/*
+	 * Get socket properties.
+	 * See inet_protosw and tcpv6_protosw definitions.
+	 */
+	if (family == AF_INET) {
+		pfinet = PF_INET;
+		answer_prot = &tcp_prot;
+	} else {
+		pfinet = PF_INET6;
+		answer_prot = &tcpv6_prot;
+	}
+	WARN_ON(answer_prot->slab == NULL);
+
+	if (unlikely(!inet_ehash_secret))
+		build_ehash_secret();
+
+	err = -ENOBUFS;
+	if ((sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)) == NULL)
+		goto out;
+
+	err = 0;
+	sk->sk_no_check = 0;
+
+	inet = inet_sk(sk);
+	inet->is_icsk = 1;
+	inet->nodefrag = 0;
+	inet->inet_id = 0;
+
+	if (ipv4_config.no_pmtu_disc)
+		inet->pmtudisc = IP_PMTUDISC_DONT;
+	else
+		inet->pmtudisc = IP_PMTUDISC_WANT;
+
+	sock_init_data(NULL, sk);
+	sk->sk_type = type;
+	sk->sk_allocation = GFP_ATOMIC;
+
+	sk->sk_destruct = inet_sock_destruct;
+	sk->sk_protocol = protocol;
+	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
+
+	if (family == AF_INET6) {
+		/* The next two lines are inet6_sk_generic(sk) */
+		const int offset = sk->sk_prot->obj_size
+				   - sizeof(struct ipv6_pinfo);
+		struct ipv6_pinfo *np = (struct ipv6_pinfo *)
+					(((u8 *)sk) + offset);
+		np->hop_limit = -1;
+		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
+		np->mc_loop = 1;
+		np->pmtudisc = IPV6_PMTUDISC_WANT;
+		np->ipv6only = net->ipv6.sysctl.bindv6only;
+		inet->pinet6 = np;
+	}
+
+	inet->uc_ttl = -1;
+	inet->mc_loop = 1;
+	inet->mc_ttl = 1;
+	inet->mc_all = 1;
+	inet->mc_index = 0;
+	inet->mc_list = NULL;
+	inet->rcv_tos = 0;
+
+	sk_refcnt_debug_inc(sk);
+
+	if (sk->sk_prot->init)
+		if ((err = sk->sk_prot->init(sk)) != 0) {
+			sk_common_release(sk);
+			goto out;
+		}
+
+	*nsk = sk;
+out:
+	return err;
+}
+
+int
+ss_sock_create(int family, int type, int protocol, struct sock **res)
+{
+	int ret;
+	struct sock *sk;
+	const struct net_proto_family *pf;
+
+	rcu_read_lock();
+	if ((pf = get_proto_family(family)) == NULL)
+		goto out_rcu_unlock;
+	if (!try_module_get(pf->owner))
+		goto out_rcu_unlock;
+	rcu_read_unlock();
+
+	ret = ss_inet_create(&init_net, family, type, protocol, &sk);
+	module_put(pf->owner);
+	if (ret < 0)
+		goto out_module_put;
+
+	*res = sk;
+	return 0;
+
+out_module_put:
+	module_put(pf->owner);
+out_ret_error:
+	return ret;
+out_rcu_unlock:
+	ret = -EAFNOSUPPORT;
+	rcu_read_unlock();
+	goto out_ret_error;
+}
+EXPORT_SYMBOL(ss_sock_create);
+
+/*
+ * The original functions are inet_release() and inet6_release().
+ * NOTE: Rework this function if/when Tempesta needs multicast support.
+ */
+void
+ss_release(struct sock *sk)
+{
+	BUG_ON(sock_flag(sk, SOCK_LINGER));
+
+	sock_rps_reset_flow(sk);
+	sk->sk_prot->close(sk, 0);
+}
+EXPORT_SYMBOL(ss_release);
+
+/*
+ * The original function is inet_stream_connect() that is common
+ * to IPv4 and IPv6.
  */
 int
-ss_hooks_register(SsHooks* hooks)
+ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
-	if (ss_hooks)
-		return -EEXIST;
+	int err;
 
-	ss_hooks = hooks;
+	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
-	return 0;
+	lock_sock(sk);
+	if (uaddr_len < sizeof(uaddr->sa_family))
+		return -EINVAL;
+	err = -EISCONN;
+	if (sk->sk_state != TCP_CLOSE)
+		goto out;
+	if ((err = sk->sk_prot->connect(sk, uaddr, uaddr_len)) != 0)
+		goto out;
+	err = 0;
+out:
+	release_sock(sk);
+	return err;
 }
-EXPORT_SYMBOL(ss_hooks_register);
+EXPORT_SYMBOL(ss_connect);
 
-void
-ss_hooks_unregister(SsHooks* hooks)
+/*
+ * The original functions are inet_bind() and inet6_bind().
+ * These two can be made a bit shorter should that become necessary.
+ */
+int
+ss_bind(struct sock *sk, struct sockaddr *uaddr, int uaddr_len)
 {
-	BUG_ON(hooks != ss_hooks);
-	ss_hooks = NULL;
+	struct socket sock = {
+		.sk = sk,
+		.type = sk->sk_type
+	};
+	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	BUG_ON(sk->sk_type != SOCK_STREAM);
+	if (sk->sk_family == AF_INET)
+		return inet_bind(&sock, uaddr, uaddr_len);
+	else
+		return inet6_bind(&sock, uaddr, uaddr_len);
 }
-EXPORT_SYMBOL(ss_hooks_unregister);
+EXPORT_SYMBOL(ss_bind);
 
-int __init
-ss_init(void)
+/*
+ * The original function is inet_listen() that is common to IPv4 and IPv6.
+ * There isn't much to make shorter there, so just invoke it directly.
+ */
+int
+ss_listen(struct sock *sk, int backlog)
 {
-	return 0;
+	struct socket sock = {
+		.sk = sk,
+		.type = sk->sk_type,
+		.state = SS_UNCONNECTED
+	};
+	BUG_ON(sk->sk_type != SOCK_STREAM);
+	return inet_listen(&sock, backlog);
 }
+EXPORT_SYMBOL(ss_listen);
 
-void __exit
-ss_exit(void)
+/*
+ * The original functions are inet_getname() and inet6_getname().
+ * There isn't much to make shorter there, so just invoke them directly.
+ */
+int
+ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 {
-}
+	struct socket sock = { .sk = sk };
 
-module_init(ss_init);
-module_exit(ss_exit);
+	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	if (sk->sk_family == AF_INET)
+		return inet_getname(&sock, uaddr, uaddr_len, 1);
+	else
+		return inet6_getname(&sock, uaddr, uaddr_len, 1);
+}
+EXPORT_SYMBOL(ss_getpeername);

@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,38 +29,47 @@
 static struct kmem_cache *cli_cache;
 
 /**
- * Used as socket destructor callback.
+ * Called when a client socket is closed.
  */
 void
-tfw_destroy_client(struct sock *s)
+tfw_client_put(TfwClient *clnt)
 {
-	TfwConnection *conn = s->sk_user_data;
-	TfwClient *cli;
-
-	BUG_ON(!conn);
-	cli = (TfwClient *)conn->peer;
-
-	/* The call back can be called twise bou our and Linux code. */
-	if (unlikely(!cli))
-		return;
-
-	TFW_DBG("Destroy client socket %p\n", s);
-
-	conn->peer = NULL;
-
-	kmem_cache_free(cli_cache, cli);
-
-	conn->sk_destruct(s);
+	if (atomic_dec_and_test(&clnt->conn_users)) {
+		BUG_ON(!list_empty(&clnt->conn_list));
+		kmem_cache_free(cli_cache, clnt);
+	}
 }
 
+/**
+ * Find a client corresponding to the @sk.
+ *
+ * The returned TfwClient reference must be released via tfw_client_put()
+ * when the @sk is closed.
+ */
 TfwClient *
-tfw_create_client(void)
+tfw_client_obtain(struct sock *sk)
 {
-	TfwClient *c = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
-	if (!c)
-		return NULL;
+	static const TfwAddr dummy_addr;
 
-	return c;
+	/*
+	 * TODO: currently there is one to one socket-client
+	 * mapping, which isn't appropriate since a client can
+	 * have more than one socket with the server.
+	 *
+	 * We have too lookup the client by the socket and create a new one
+	 * only if it's really new.
+	 */
+	TfwClient *cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
+	if (!cli)
+		return NULL;
+	atomic_set(&cli->conn_users, 1);
+
+	/* TODO: Derive the client IP address from @sk. */
+	tfw_peer_init((TfwPeer *)cli, &dummy_addr);
+
+	TFW_DBG("new client: cli=%p\n", cli);
+
+	return cli;
 }
 
 int __init

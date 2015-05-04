@@ -4,6 +4,7 @@
  * Definitions for generic connection (at OSI level 4) management.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,6 +22,8 @@
  */
 #ifndef __TFW_CONNECTION_H__
 #define __TFW_CONNECTION_H__
+
+#include <net/sock.h>
 
 #include "gfsm.h"
 #include "msg.h"
@@ -51,20 +54,20 @@ enum {
  * Session/Presentation layer (in OSI terms) handling.
  *
  * @proto	- protocol handler. Base class, must be first;
+ * @list	- list of connections with the @peer;
+ * @msg_queue	- messages queue to be sent over the connection;
  * @msg		- currently processing (receiving) message;
  * @peer	- TfwClient or TfwServer handler;
- * @msg_queue	- messages queue to be sent over the connection;
- * @sk_destruct	- original sk->sk_destruct. Destructors passed to
- * 		  tfw_connection_new() must call it manually.
+ * @sk		- appropriate sock handler;
  */
 typedef struct {
 	SsProto			proto;
+	struct list_head	list;
+	struct list_head	msg_queue;
 
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
-	struct list_head	msg_queue;
-
-	void (*sk_destruct)(struct sock *sk);
+	struct sock		*sk;
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
@@ -93,12 +96,35 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
-/* Connection downcalls. */
-TfwConnection *tfw_connection_new(struct sock *sk, int type,
-				  void (*destructor)(struct sock *s));
-void tfw_connection_send_cli(TfwConnection *conn, TfwMsg *msg);
-void tfw_connection_send_srv(TfwConnection *conn, TfwMsg *msg);
+/**
+ * Check that TfwConnection resources are cleaned up properly.
+ */
+static inline void
+tfw_connection_validate_cleanup(TfwConnection *conn)
+{
+	BUG_ON(!conn);
+	BUG_ON(!list_empty(&conn->list));
+	BUG_ON(!list_empty(&conn->msg_queue));
+	BUG_ON(conn->msg);
+	BUG_ON(conn->peer);
+	BUG_ON(conn->sk);
+}
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
+void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
+
+/* Generic helpers, used for both client and server connections. */
+void tfw_connection_init(TfwConnection *conn);
+void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
+void tfw_connection_unlink_sk(TfwConnection *conn);
+void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
+void tfw_connection_unlink_peer(TfwConnection *conn);
+
+int tfw_connection_new(TfwConnection *conn);
+void tfw_connection_destruct(TfwConnection *conn);
+
+int tfw_connection_recv(struct sock *, unsigned char *, size_t);
+int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
+int tfw_connection_postpone_skb(SsProto *, struct sk_buff *);
 
 #endif /* __TFW_CONNECTION_H__ */

@@ -20,13 +20,51 @@
 #ifndef __PEER_H__
 #define __PEER_H__
 
-#include <net/sock.h>
+#include <linux/list.h>
+#include <linux/spinlock.h>
 
+#include "addr.h"
+
+/**
+ * @conn_list		- connections list associated with the peer;
+ * @conn_lock		- protects @conn_list;
+ */
 #define TFW_PEER_COMMON							\
-	struct sock	*sock;
+	struct list_head	conn_list;				\
+	rwlock_t		conn_lock;				\
+	TfwAddr			addr;
 
 typedef struct {
 	TFW_PEER_COMMON;
 } TfwPeer;
+
+static inline void
+tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
+{
+	INIT_LIST_HEAD(&p->conn_list);
+	rwlock_init(&p->conn_lock);
+
+	memcpy(&p->addr, addr, sizeof(p->addr));
+}
+
+static inline void
+tfw_peer_add_conn(TfwPeer *p, struct list_head *conn_list)
+{
+	write_lock(&p->conn_lock);
+
+	list_add(conn_list, &p->conn_list);
+
+	write_unlock(&p->conn_lock);
+}
+
+static inline void
+tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
+{
+	write_lock(&p->conn_lock);
+
+	list_del(conn_list);
+
+	write_unlock(&p->conn_lock);
+}
 
 #endif /* __PEER_H__ */
