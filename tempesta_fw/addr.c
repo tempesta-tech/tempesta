@@ -4,7 +4,7 @@
  * IP address related functions.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,6 @@
 #include "addr.h"
 #include "lib.h"
 #include "log.h"
-#include "tempesta_fw.h"
 
 static void
 validate_addr(const TfwAddr *addr)
@@ -508,10 +507,3 @@ tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size)
 	return (pos - out_buf);
 }
 DEBUG_EXPORT_SYMBOL(tfw_addr_ntop);
-
-ssize_t
-tfw_addr_sa_len(const TfwAddr *addr)
-{
-        validate_addr(addr);
-        return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
-}

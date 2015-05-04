@@ -399,6 +399,7 @@ tfw_http_conn_destruct(TfwConnection *conn)
 
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
 		tfw_http_msg_free((TfwHttpMsg *)msg);
+	INIT_LIST_HEAD(&conn->msg_queue);
 }
 
 /**
@@ -1079,12 +1080,12 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		 * We have prepared response, send it as is.
 		 * TODO should we adjust it somehow?
 		 */
-		tfw_connection_send_cli(conn, (TfwMsg *)resp);
+		tfw_connection_send(conn, (TfwMsg *)resp);
 	} else {
 		if (tfw_http_adjust_req(req))
 			return;
 		/* Send the request to appropriate server. */
-		tfw_connection_send_srv(conn, (TfwMsg *)req);
+		tfw_connection_send(conn, (TfwMsg *)req);
 	}
 }
 
@@ -1263,7 +1264,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		 * Send the response to client before caching it.
 		 * The cache frees the response and the request.
 		 */
-		tfw_connection_send_cli(req->conn, (TfwMsg *)resp);
+		tfw_connection_send(req->conn, (TfwMsg *)resp);
 
 		tfw_cache_add(resp, req);
 	}

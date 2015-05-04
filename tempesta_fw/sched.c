@@ -25,88 +25,89 @@
 #include "sched.h"
 #include "tempesta_fw.h"
 
-static TfwScheduler *tfw_sched = NULL;
+static LIST_HEAD(sched_list);
+static DEFINE_RWLOCK(sched_lock);
 
 TfwConnection *
 tfw_sched_get_srv_conn(TfwMsg *msg)
 {
-	TfwServer *srv;
+	TfwConnection *conn;
+	TfwScheduler *sched;
 
-	BUG_ON(!msg);
-	BUG_ON(!tfw_sched);
+	read_lock(&sched_lock);
 
-	srv = tfw_sched->get_srv(msg);
-	if (!srv)
-		return NULL;
+	list_for_each_entry(sched, &sched_list, list) {
+		if (!sched->sched_grp)
+			break;
 
-	/*
-	 * TODO: determine whether we need to establish a new connection
-	 * (e.g. if current backend connection is busy (not HTTP case))
-	 * and ask backend layer to establish a new connection.
-	 *
-	 * Also here we need to ask for other connection from the pool
-	 * if current connection is failed (probably to mirrored backend).
-	 * XXX Or should we do this on connection fail event instead?
-	 */
-
-	return srv->sock->sk_user_data;
-}
-
-int
-tfw_sched_add_srv(TfwServer *srv)
-{
-	int ret;
-	
-	BUG_ON(!srv);
-	BUG_ON(!tfw_sched);
-
-	ret = tfw_sched->add_srv(srv);
-	if (ret)
-		TFW_ERR("Can't add a server to the scheduler (%d)\n", ret);
-
-	return ret;
-}
-
-int
-tfw_sched_del_srv(TfwServer *srv)
-{
-	int ret;
-	
-	BUG_ON(!srv);
-	BUG_ON(!tfw_sched);
-
-	ret = tfw_sched->del_srv(srv);
-	if (ret)
-		TFW_ERR("Can't remove a server from the scheduler (%d)\n", ret);
-
-	return ret;
-}
-
-int
-tfw_sched_register(TfwScheduler *mod)
-{
-	BUG_ON(!mod);
-	BUG_ON(!mod->name || !mod->get_srv || !mod->add_srv || !mod->del_srv);
-
-	TFW_LOG("Registering new scheduler: %s\n", mod->name);
-
-	if (!tfw_sched) {
-		tfw_sched = mod;
-		return 0;
+		/* Try all able schedulers until some of them gets a result. */
+		conn = sched->sched_grp(msg);
+		if (conn) {
+			read_unlock(&sched_lock);
+			return conn;
+		}
 	}
 
-	TFW_ERR("Can't register a scheduler - the '%s' is already registered\n",
-		tfw_sched->name);
-	return -EEXIST;
+	read_unlock(&sched_lock);
+
+	TFW_ERR("No server group scheduler\n");
+
+	return NULL;
+}
+
+/**
+ * Lookup a scheduler by name.
+ * If the @name is NULL, then the first available scheduler is returned.
+ * Useful only for configuration routines.
+ */
+TfwScheduler *
+tfw_sched_lookup(const char *name)
+{
+	TfwScheduler *sched;
+
+	read_lock(&sched_lock);
+
+	list_for_each_entry(sched, &sched_list, list) {
+		if (!name || !strcasecmp(name, sched->name)) {
+			read_unlock(&sched_lock);
+			return sched;
+		}
+	}
+
+	read_unlock(&sched_lock);
+
+	return NULL;
+}
+
+int
+tfw_sched_register(TfwScheduler *sched)
+{
+	TFW_LOG("Registering new scheduler: %s\n", sched->name);
+
+	write_lock(&sched_lock);
+
+	/* Add groups scheduling schedulers to head of the list. */
+	if (sched->sched_grp)
+		list_add(&sched->list, &sched_list);
+	else
+		list_add_tail(&sched->list, &sched_list);
+
+	write_unlock(&sched_lock);
+
+	return 0;
 }
 EXPORT_SYMBOL(tfw_sched_register);
 
 void
-tfw_sched_unregister(void)
+tfw_sched_unregister(TfwScheduler *sched)
 {
-	BUG_ON(!tfw_sched);
+	TFW_LOG("Un-registering scheduler: %s\n", sched->name);
 
-	TFW_LOG("Un-registering scheduler: %s\n", tfw_sched->name);
-	tfw_sched = NULL;
+	write_lock(&sched_lock);
+
+	list_del(&sched->list);
+
+	write_unlock(&sched_lock);
+
 }
 EXPORT_SYMBOL(tfw_sched_unregister);

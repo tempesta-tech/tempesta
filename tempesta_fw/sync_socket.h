@@ -147,23 +147,27 @@ enum {
 	/* The packet should be stashed (made by callback). */
 	SS_POSTPONE	= -1,
 
-	/* Current packet looks good and we can safely pass it. */
+	/* The packet looks good and we can safely pass it. */
 	SS_OK		= 0,
 };
 
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
-	struct socket	*listener;
-	int		type;
+	const struct ss_hooks	*hooks;
+	struct sock		*listener;
+	int			type;
 } SsProto;
 
-/* Table of socket connection callbacks. */
-typedef struct {
+/* Table of Synchronous Sockets connection callbacks. */
+typedef struct ss_hooks {
 	/* New connection accepted. */
 	int (*connection_new)(struct sock *sk);
 
 	/* Drop TCP connection associated with the socket. */
 	int (*connection_drop)(struct sock *sk);
+
+	/* Final close of TCP connection associated with the socket. */
+	int (*connection_close)(struct sock *sk);
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(struct sock *sk, unsigned char *data,
@@ -188,9 +192,17 @@ typedef struct {
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
+void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
+void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
-void ss_tcp_set_listen(struct socket *sk, SsProto *handler);
+void ss_set_listen(struct sock *sk);
 void ss_send(struct sock *sk, const SsSkbList *skb_list);
 void ss_close(struct sock *sk);
+int ss_sock_create(int family, int type, int protocol, struct sock **res);
+void ss_release(struct sock *sk);
+int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
+int ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen);
+int ss_listen(struct sock *sk, int backlog);
+int ss_getpeername(struct sock *sk, struct sockaddr *addr, int *addrlen);
 
 #endif /* __SS_SOCK_H__ */
