@@ -350,7 +350,7 @@ index 4425148..aad84f4 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 1c1738c..ce21652 100644
+index 1c1738c..fe0705f 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -619,6 +619,10 @@ static void skb_release_all(struct sk_buff *skb)
@@ -364,6 +364,17 @@ index 1c1738c..ce21652 100644
  	skb_release_all(skb);
  	kfree_skbmem(skb);
  }
+@@ -715,7 +719,9 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ #ifdef CONFIG_XFRM
+ 	new->sp			= secpath_get(old->sp);
+ #endif
+-	memcpy(new->cb, old->cb, sizeof(old->cb));
++	memcpy(new->cb, old->cb, sizeof(old->cb) - sizeof(SsSkbCb));
++	TFW_SKB_CB(new)->next	= NULL;
++	TFW_SKB_CB(new)->prev	= NULL;
+ 	new->csum		= old->csum;
+ 	new->local_df		= old->local_df;
+ 	new->pkt_type		= old->pkt_type;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
 index ab450c0..6c23c10 100644
 --- a/net/ipv4/tcp.c
