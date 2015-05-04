@@ -30,7 +30,6 @@
  *    only M (M < N) bytes in window (recalculate checksum or just wait)?
  *    See tcp_sendmsg(), tcp_write_xmit()
  */
-
 #include "cfg.h"
 #include "classifier.h"
 #include "client.h"
@@ -56,7 +55,8 @@ tfw_cli_conn_alloc(void)
 	if (!conn)
 		return NULL;
 
-	tfw_connection_construct(conn);
+	tfw_connection_init(conn);
+
 	return conn;
 }
 
@@ -73,7 +73,6 @@ tfw_cli_conn_free(TfwConnection *conn)
 static int
 tfw_sock_clnt_new(struct sock *sk)
 {
-
 	int r;
 	TfwClient *cli;
 	TfwConnection *conn;
@@ -115,7 +114,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
-	r = tfw_connection_init(conn);
+	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
 		goto err_conn_init;
@@ -183,13 +182,11 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
  * The listening socket representation.
  * One such structure corresponds to one "listen" configuration entry.
  *
- * @proto	- The protocol descriptor for Synchronous Sockets.
  * @sk		- The underlying networking representation.
  * @list	- An entry in the tfw_listen_socks list.
  * @addr	- The IP address specified in the configuration.
  */
 typedef struct {
-	SsProto 		proto;
 	struct sock		*sk;
 	struct list_head	list;
 	TfwAddr			addr;
@@ -205,6 +202,8 @@ static LIST_HEAD(tfw_listen_socks);
 
 /**
  * Allocate a new TfwListenSock and add it to the global list of sockets.
+ * Don't open a socket now, just save the configuration data.
+ * The socket is opened later in tfw_listen_sock_start().
  *
  * @type is the SsProto->type.
  */
@@ -217,13 +216,10 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	/* Don't open a socket now, just save the configuration data.
-	 * The socket is opened later in tfw_listen_sock_start(). */
-	ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, type);
 	ls->addr = *addr;
 
-	INIT_LIST_HEAD(&ls->list);
 	list_add(&ls->list, &tfw_listen_socks);
+
 	return 0;
 }
 
@@ -362,8 +358,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	/* TODO Issue #82: pass parsed protocol instead of hardcoded HTTP. */
-	r = tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
-	return r;
+	return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 
 parse_err:
 	TFW_ERR("can't parse 'listen' value: '%s'\n", in_str);

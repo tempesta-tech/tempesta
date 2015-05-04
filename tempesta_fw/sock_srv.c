@@ -197,7 +197,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
 	/* Notify higher-level levels. */
-	r = tfw_connection_init(&srv_conn->conn);
+	r = tfw_connection_new(&srv_conn->conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
@@ -208,7 +208,6 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	return 0;
-
 }
 
 /**
@@ -310,7 +309,6 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
-
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
@@ -379,7 +377,7 @@ tfw_srv_conn_alloc(void)
 	if (!srv_conn)
 		return NULL;
 
-	tfw_connection_construct(&srv_conn->conn);
+	tfw_connection_init(&srv_conn->conn);
 	proto = &srv_conn->conn.proto;
 	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 

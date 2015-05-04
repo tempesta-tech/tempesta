@@ -26,7 +26,6 @@
 #include "peer.h"
 #include "sched.h"
 
-#define TFW_SRV_STR_MAX_SIZE 	100
 #define TFW_SRV_MAX_CONN	32	/* TfwConnection per TfwServer */
 #define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
 #define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
@@ -56,22 +55,23 @@ typedef struct {
  * eviction policy. While both of them should define failovering policy.
  *
  * @list		- member pointer in the list of server groups;
- * @name		- name of the group specified in the configuration;
  * @srv_list		- list of servers belonging to the group;
  * @lock		- synchronizes the group readers with updaters;
  * @sched		- requests scheduling handler;
  * @sched_data		- private scheduler data for the server group;
+ * @name		- name of the group specified in the configuration;
  */
 typedef struct tfw_srv_group_t {
 	struct list_head	list;
-	const char		*name;
 	struct list_head	srv_list;
 	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void			*sched_data;
+	char			name[0];
 } TfwSrvGroup;
 
 /* Server specific routines. */
+
 TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
 
@@ -85,18 +85,6 @@ static inline void
 tfw_server_offline(TfwServer *srv)
 {
 	srv->flags &= ~TFW_SRV_F_ON;
-}
-
-static inline int
-tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size)
-{
-	char addr_str_buf[TFW_ADDR_STR_BUF_SIZE];
-
-	BUG_ON(!srv || !buf || !buf_size);
-
-	tfw_addr_ntop(&srv->addr, addr_str_buf, sizeof(addr_str_buf));
-
-	return snprintf(buf, buf_size, "srv %p: %s", srv, addr_str_buf);
 }
 
 /* Server group routines. */

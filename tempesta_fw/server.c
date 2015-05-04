@@ -75,9 +75,8 @@ EXPORT_SYMBOL(tfw_sg_lookup);
 TfwSrvGroup *
 tfw_sg_new(const char *name, gfp_t flags)
 {
-	void *mem;
 	TfwSrvGroup *sg;
-	size_t sg_size, name_size;
+	size_t name_size = strlen(name) + 1;
 
 	if (tfw_sg_lookup(name)) {
 		TFW_ERR("duplicate server group: '%s'\n", name);
@@ -86,20 +85,16 @@ tfw_sg_new(const char *name, gfp_t flags)
 
 	TFW_DBG("new server group: '%s'\n", name);
 
-	sg_size = sizeof(*sg);
-	name_size = strlen(name) + 1;
-	mem = kmalloc(sg_size + name_size, flags);
-	if (!mem)
+	sg = kmalloc(sizeof(*sg) + name_size, flags);
+	if (!sg)
 		return NULL;
-	sg = mem;
-	sg->name = mem + sg_size;
 
 	INIT_LIST_HEAD(&sg->list);
-	memcpy((char *)sg->name, name, name_size);
 	INIT_LIST_HEAD(&sg->srv_list);
 	rwlock_init(&sg->lock);
 	sg->sched = NULL;
 	sg->sched_data = NULL;
+	memcpy(sg->name, name, name_size);
 
 	write_lock(&sg_lock);
 	list_add(&sg->list, &sg_list);

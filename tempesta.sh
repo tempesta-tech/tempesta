@@ -47,8 +47,7 @@ load_modules()
 	insmod $tfw_path/$tfw_mod.ko tfw_cfg_path=$tfw_cfg_path
 	[ $? -ne 0 ] && error "cannot load tempesta module"
 
-	for ko_file in "${sched_ko_files[@]}"
-	do
+	for ko_file in "${sched_ko_files[@]}"; do
 		insmod $ko_file
 		[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
 	done
@@ -75,8 +74,7 @@ unload_modules()
 {
 	echo "Un-loading Tempesta kernel modules..."
 
-	for ko_file in "${sched_ko_files[@]}"
-	do
+	for ko_file in "${sched_ko_files[@]}"; do
 		mod_name = $(basename "${ko_file%.ko}") 
 		rmmod $mod_name
 	done
