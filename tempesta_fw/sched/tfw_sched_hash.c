@@ -2,17 +2,24 @@
  *		Tempesta FW
  *
  * Hash-based HTTP request scheduler.
- * The scheduler computes hash of URI and Host header fields of a HTTP request
- * and uses the hash value as an index in the array of servers added with
- * the tfw_sched_add_srv() function. Therefore, requests with the same URI and
- * Host are mapped to the same server (unless the list of servers is changed).
  *
- * TODO:
- *  - Replace the hash function (currnlty djb2 is used).
- *  - Refactoring: there is simpilar logic in all scheduler modules related
- *    to lists of TfwServer objects. The code should be extracted and re-used.
+ * The scheduler computes hash of URI and Host header fields of a HTTP request
+ * and uses the hash value to select an appropriate server.
+ * The same hash value is always mapped to the same server, therefore HTTP
+ * requests with the same Host/URI are always scheduled to the same server.
+ *
+ * Also, the scheduler utilizes the Rendezvous hashing (Highest Random Weight)
+ * method that allows to stick every HTTP message to its server, preserving
+ * this mapping when servers are added/deleted and go online/offline.
+ *
+ * The scheduler hashes not only HTTP requests, but also servers (TfwServer
+ * objects), and for each incoming HTTP request it searches for a best match
+ * among all server hashes. Each Host/URI hash has only one best matching
+ * TfwSrver hash which is chosen, and thus any request always goes to its home
+ * server unless it is offline.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,127 +36,192 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  */
+#include <linux/hash.h>
 #include <linux/module.h>
 
 #include "log.h"
-#include "sched.h"
+#include "server.h"
 #include "http_msg.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.0.1");
+MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
-
 
 #define BANNER "tfw_sched_hash: "
 #define ERR(...) TFW_ERR(BANNER __VA_ARGS__)
-#define LOG(...) TFW_LOG(BANNER __VA_ARGS__)
 #define DBG(...) TFW_DBG(BANNER __VA_ARGS__)
+#define DBG2(...) TFW_DBG2(BANNER __VA_ARGS__)
 
-/* TODO: change this to a global setting after merging sched/http. */
-#define MAX_SERVERS_N 64
+typedef struct {
+	TfwConnection	*conn;
+	unsigned long	hash;
+} TfwConnHash;
+
+typedef struct {
+	TfwConnHash	conn_hashes[0];
+} TfwConnHashList;
+
+#define TFW_CONN_HASH_LIST_SIZE(n) \
+	(sizeof(TfwConnHashList) + ((n) + 1) * sizeof(TfwConnHash))
 
 /**
- * Servers added to the scheduler are stored in this statically allocated array.
- * Only writes are protected with the servers_write_lock, reads are lock-free.
+ * Find an appropriate server connection for the HTTP request @msg.
+ * The server is chosen based on the hash value of URI/Host fields of the @msg,
+ * so multiple requests to the same resource are mapped to the same server.
+ *
+ * Higest Random Weight hashing method is involved: for each message we
+ * calculate randomized weights as follows: (msg_hash ^ srv_conn_hash),
+ * and pick a server/connection with the highest weight.
+ * That sticks messages with certain Host/URI to certain server connection.
+ * A server always receives requests with some URI/Host values bound to it,
+ * and that holds even if some servers go offline/online.
+ *
+ * The drawbacks of HRW hashing are:
+ *  - A weak hash function adds unfairness to the load balancing.
+ *    There may be a case when a server pulls all load from all other servers.
+ *    Although it is quite improbable, such condition is quite stable: it cannot
+ *    be fixed by adding/removing servers and restarting the Tempesta FW.
+ *  - For every HTTP request, we have to scan the list of all servers to find
+ *    a matching one with the highest weight. That adds some overhead.
  */
-static TfwServer *servers[MAX_SERVERS_N];
-static int servers_n;
-static DEFINE_SPINLOCK(servers_write_lock);
-
-static int
-find_srv_idx(TfwServer *srv)
+static TfwConnection *
+tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int i;
-	for (i = 0; i < servers_n; ++i) {
-		if (servers[i] == srv)
-			return i;
+	TfwConnHash *curr_conn_hash;
+	TfwConnHashList *conn_hash_list;
+	TfwConnection *best_conn;
+	unsigned long msg_hash, curr_weight, best_weight;
+
+	conn_hash_list = sg->sched_data;
+	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+
+	/* 1. Set best = first element of the list. */
+	curr_conn_hash = &conn_hash_list->conn_hashes[0];
+	best_conn = curr_conn_hash->conn;
+	best_weight = msg_hash ^ curr_conn_hash->hash;
+
+	/* 2. Try to find a better one among 2nd...Nth elements of the list. */
+	/* TODO: binary search. */
+	while ((++curr_conn_hash)->conn) {
+		curr_weight = msg_hash ^ curr_conn_hash->hash;
+		if (curr_weight > best_weight) {
+			best_weight = curr_weight;
+			best_conn = curr_conn_hash->conn;
+		}
+		++curr_conn_hash;
 	}
 
-	return -1;
+	return best_conn;
 }
 
-static TfwServer *
-tfw_sched_hash_get_srv(TfwMsg *msg)
+static void
+tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
+{
+	size_t sched_data_size = TFW_CONN_HASH_LIST_SIZE(TFW_SG_MAX_CONN);
+	BUG_ON(sg->sched_data);
+	sg->sched_data = kzalloc(sched_data_size, GFP_KERNEL);
+	BUG_ON(!sg->sched_data);
+}
+
+static void
+tfw_sched_hash_free_data(TfwSrvGroup *sg)
+{
+	BUG_ON(!sg->sched_data);
+	kfree(sg->sched_data);
+	sg->sched_data = NULL;
+}
+
+static unsigned long
+__calc_conn_hash(TfwServer *srv, size_t conn_idx)
+{
+	unsigned long hash;
+	union {
+		TfwAddr addr;
+		unsigned char bytes[0];
+	} *a;
+	size_t i, bytes_n;
+
+	/* hash_64() works better when bits are distributed uniformly. */
+	hash = REPEAT_BYTE(0xAA);
+
+	/**
+	 * Here we just cast the whole TfwAddr to an array of bytes.
+	 *
+	 * That only works if the following invariants are held:
+	 *  - There are no gaps between structure fields.
+	 *  - No structure fields (e.g. sin6_flowinfo) are changed if we
+	 *    re-connect to the same server.
+	 */
+	a = (void *)&srv->addr;
+	bytes_n = tfw_addr_sa_len(&a->addr);
+	for (i = 0; i < bytes_n; ++i) {
+		hash = hash_long(hash ^ a->bytes[i], BITS_PER_LONG);
+	}
+
+	/* Also mix-in the conn_idx. */
+	hash = hash_long(hash ^ conn_idx, BITS_PER_LONG);
+
+	return hash;
+}
+
+static void
+tfw_sched_hash_update_data(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
-	int n;
+	TfwConnection *conn;
+	TfwConnHash *conn_hash;
+	TfwConnHashList *hash_list;
+	size_t conn_idx, hash_idx;
 
-	unsigned long hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	hash_list = sg->sched_data;
+	BUG_ON(!hash_list);
 
-	do {
-		n = servers_n;
-		if (!n) {
-			ERR("No servers added to the scheduler\n");
-			return NULL;
+	hash_idx = 0;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		conn_idx = 0;
+		list_for_each_entry(conn, &srv->conn_list, list) {
+			/* Skip not-yet-established connections.
+			 * However, take into account the conn_idx to preserver
+			 * same hash values for all connections. */
+			if (!conn->sk) {
+				++conn_idx;
+				continue;
+			}
+
+			conn_hash = &hash_list->conn_hashes[hash_idx];
+			conn_hash->conn = conn;
+			conn_hash->hash = __calc_conn_hash(srv, conn_idx);
+			++conn_idx;
+			++hash_idx;
 		}
-		srv = servers[hash % n];
-	} while (!srv);
-
-	return srv;
-}
-
-static int
-tfw_sched_hash_add_srv(TfwServer *srv)
-{
-	int ret = 0;
-
-	spin_lock_bh(&servers_write_lock);
-	if (servers_n >= MAX_SERVERS_N) {
-		ERR("Can't add a server to the scheduler - the list is full\n");
-		ret = -ENOMEM;
-	} else if (find_srv_idx(srv) >= 0) {
-		ERR("Can't add the server to the scheduler - already added\n");
-		ret = -EEXIST;
-	} else {
-		servers[servers_n] = srv;
-		++servers_n;
 	}
-	spin_unlock_bh(&servers_write_lock);
 
-	return ret;
+	BUG_ON(hash_idx >= TFW_SG_MAX_CONN);
+	hash_list->conn_hashes[hash_idx].conn = NULL; /* terminate the list */
 }
 
-static int
-tfw_sched_hash_del_srv(TfwServer *srv)
-{
-	int ret = 0;
-	int i;
-
-	spin_lock_bh(&servers_write_lock);
-	i = find_srv_idx(srv);
-	if (i < 0) {
-		ERR("Can't delete the server from the scheduler - not found\n");
-		ret = -ENOENT;
-	} else {
-		servers[i] = servers[servers_n - 1];
-		--servers_n;
-		servers[servers_n] = NULL;
-	}
-	spin_unlock_bh(&servers_write_lock);
-
-	return ret;
-}
+static TfwScheduler tfw_sched_hash = {
+	.name		= "hash",
+	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
+	.add_grp	= tfw_sched_hash_alloc_data,
+	.del_grp	= tfw_sched_hash_free_data,
+	.update_grp	= tfw_sched_hash_update_data,
+	.sched_srv	= tfw_sched_hash_get_srv_conn,
+};
 
 int
 tfw_sched_hash_init(void)
 {
-	static TfwScheduler tfw_sched_hash_mod = {
-		.name = "hash",
-		.get_srv = tfw_sched_hash_get_srv,
-		.add_srv = tfw_sched_hash_add_srv,
-		.del_srv = tfw_sched_hash_del_srv
-	};
-
-	LOG("init\n");
-
-	return tfw_sched_register(&tfw_sched_hash_mod);
+	DBG("init\n");
+	return tfw_sched_register(&tfw_sched_hash);
 }
 module_init(tfw_sched_hash_init);
 
 void
 tfw_sched_hash_exit(void)
 {
-	tfw_sched_unregister();
+	DBG("exit\n");
+	tfw_sched_unregister(&tfw_sched_hash);
 }
 module_exit(tfw_sched_hash_exit);

@@ -23,17 +23,26 @@
 
 #include <crypto/sha.h>
 #include <linux/time.h>
-#include "peer.h"
 
+#include "connection.h"
+
+/**
+ * Client descriptor.
+ *
+ * @conn_users		- connections reference counter.
+ * 			  The client is released, when the counter reaches zero:
+ * 			  no connections to the srever - no client for us :)
+ */
 typedef struct {
 	TFW_PEER_COMMON;
+	atomic_t	conn_users;
 	struct {
 		struct timespec	ts;
 		unsigned char	hmac[SHA1_DIGEST_SIZE];
 	} cookie;
 } TfwClient;
 
-TfwClient *tfw_create_client(void);
-void tfw_destroy_client(struct sock *s);
+TfwClient *tfw_client_obtain(struct sock *sk);
+void tfw_client_put(TfwClient *cli);
 
 #endif /* __TFW_CLIENT_H__ */

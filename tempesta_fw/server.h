@@ -24,19 +24,81 @@
 #include "addr.h"
 #include "connection.h"
 #include "peer.h"
+#include "sched.h"
 
-#define TFW_MAX_SERVER_STR_SIZE 100
+#define TFW_SRV_MAX_CONN	32	/* TfwConnection per TfwServer */
+#define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
+#define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
 
+/**
+ * Server descriptor, a TfwPeer successor.
+ *
+ * @list	- member pointer in the list of servers of a server group;
+ * @sg		- back-reference to the server group;
+ */
 typedef struct {
 	TFW_PEER_COMMON;
-	/* The server current stress (overloading) value. */
-	int		stress;
+	struct list_head	list;
+	struct tfw_srv_group_t	*sg;
+	unsigned int		flags;
+	int			stress;
 } TfwServer;
 
-TfwServer *tfw_create_server(struct sock *sk, TfwConnection *conn);
-void tfw_destroy_server(struct sock *s);
+/* The server should be considered online and used by schedulers. */
+#define TFW_SRV_F_ON	0x01U
 
-int tfw_server_get_addr(const TfwServer *srv, TfwAddr *addr);
-int tfw_server_snprint(const TfwServer *srv, char *buf, size_t buf_size);
+/**
+ * The servers group with the same load balancing, failovering and eviction
+ * policies.
+ *
+ * Reverse proxy must define load balancing policy. Forward proxy must define
+ * eviction policy. While both of them should define failovering policy.
+ *
+ * @list		- member pointer in the list of server groups;
+ * @srv_list		- list of servers belonging to the group;
+ * @lock		- synchronizes the group readers with updaters;
+ * @sched		- requests scheduling handler;
+ * @sched_data		- private scheduler data for the server group;
+ * @name		- name of the group specified in the configuration;
+ */
+typedef struct tfw_srv_group_t {
+	struct list_head	list;
+	struct list_head	srv_list;
+	rwlock_t		lock;
+	TfwScheduler		*sched;
+	void			*sched_data;
+	char			name[0];
+} TfwSrvGroup;
+
+/* Server specific routines. */
+
+TfwServer *tfw_create_server(const TfwAddr *addr);
+void tfw_destroy_server(TfwServer *srv);
+
+static inline void
+tfw_server_online(TfwServer *srv)
+{
+	srv->flags |= TFW_SRV_F_ON;
+}
+
+static inline void
+tfw_server_offline(TfwServer *srv)
+{
+	srv->flags &= ~TFW_SRV_F_ON;
+}
+
+/* Server group routines. */
+
+TfwSrvGroup *tfw_sg_lookup(const char *name);
+TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
+void tfw_sg_free(TfwSrvGroup *sg);
+int tfw_sg_count(void);
+
+void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
+void tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv);
+void tfw_sg_update(TfwSrvGroup *sg);
+int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
+int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+void tfw_sg_release_all(void);
 
 #endif /* __SERVER_H__ */

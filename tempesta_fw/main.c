@@ -26,7 +26,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.3.2");
+MODULE_VERSION("0.3.3");
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);
@@ -82,12 +82,13 @@ tfw_init(void)
 
 	DO_INIT(server);
 	DO_INIT(client);
-	DO_INIT(connection);
+	DO_INIT(sock_srv);
+	DO_INIT(sock_clnt);
 
 	DO_CFG_REG(cache);
 	DO_CFG_REG(http_sticky);
-	DO_CFG_REG(sock_server);
-	DO_CFG_REG(sock_client);
+	DO_CFG_REG(sock_srv);
+	DO_CFG_REG(sock_clnt);
 
 	return 0;
 err:

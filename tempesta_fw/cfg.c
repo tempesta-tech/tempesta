@@ -67,7 +67,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -888,6 +888,26 @@ tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 EXPORT_SYMBOL(tfw_cfg_map_enum);
 
 /**
+ * Get value of attribute with name @attr_key.
+ * Return @default_val if the attribute is not found in the entry @e.
+ */
+const char *
+tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
+		 const char *default_val)
+{
+	size_t i;
+	const char *key, *val;
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(e, i, key, val) {
+		if (!strcasecmp(key, attr_key))
+			return val;
+	}
+
+	return default_val;
+}
+EXPORT_SYMBOL(tfw_cfg_get_attr);
+
+/**
  * Check that integer is in specified range.
  * Print an error and return non-zero if it is out of range.
  */
@@ -918,6 +938,21 @@ tfw_cfg_check_multiple_of(long value, int divisor)
 	return 0;
 }
 EXPORT_SYMBOL(tfw_cfg_check_multiple_of);
+
+/**
+ * Check that the entry @e has exactly @val_n values.
+ */
+int
+tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
+{
+	if (e->val_n != val_n) {
+		TFW_ERR("invalid number of values; expected: %d, got: %zu\n",
+			val_n, e->val_n);
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_check_val_n);
 
 /**
  * Most of the handlers below work with single-value entries like this:
@@ -1026,6 +1061,7 @@ int
 tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	TfwCfgParserState *ps = container_of(e, TfwCfgParserState, e);
+	TfwCfgSpecChild *cse = cs->spec_ext;
 	TfwCfgSpec *nested_specs = cs->dest;
 	TfwCfgSpec *matching_spec;
 	int ret;
@@ -1034,15 +1070,17 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!cs->call_counter && cs->cleanup);
 	cs->cleanup = tfw_cfg_cleanup_children;
 
-	if (e->val_n || e->attr_n) {
-		TFW_ERR("the entry must have no values or attributes\n");
-		return -EINVAL;
-	}
 	if (!e->have_children) {
 		TFW_ERR("the entry has no nested children entries\n");
 		return -EINVAL;
 	}
 
+	/* Call TfwCfgSpecChild->begin_hook before parsing anything. */
+	ret = (cse && cse->begin_hook) ? cse->begin_hook(cs, e) : 0;
+	if (ret)
+		return ret;
+
+	/* Prepare childen's TfwCfgSpec for parsing. */
 	spec_start_handling(nested_specs);
 
 	/* Eat '{'. */
@@ -1075,7 +1113,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (ps->err)
 		return ps->err;
 
-	return spec_finish_handling(nested_specs);
+	ret = spec_finish_handling(nested_specs);
+	if (ret)
+		return ret;
+
+	/* Children entries are parsed, call TfwCfgSpecChild->finish_hook. */
+	ret = (cse && cse->finish_hook) ? cse->finish_hook(cs) : 0;
+	return ret;
 }
 EXPORT_SYMBOL(tfw_cfg_handle_children);
 
@@ -1469,10 +1513,10 @@ void *
 read_file_via_vfs(const char *path)
 {
 	char *out_buf;
-	loff_t offset;
 	struct file *fp;
+	size_t bytes_read, read_size, buf_size;
+	loff_t offset;
 	mm_segment_t oldfs;
-	size_t bytes_read, file_size;
 
 	TFW_DBG("reading file: %s\n", path);
 
@@ -1485,10 +1529,11 @@ read_file_via_vfs(const char *path)
 		goto err_open;
 	}
 
-	file_size = fp->f_inode->i_size;
-	TFW_DBG("file size: %zu bytes\n", file_size);
+	buf_size = fp->f_inode->i_size;
+	TFW_DBG("file size: %zu bytes\n", buf_size);
+	buf_size += 1; /* for '\0' */
 
-	out_buf = vmalloc(file_size + 1);
+	out_buf = vmalloc(buf_size);
 	if (!out_buf) {
 		TFW_ERR("can't allocate memory\n");
 		goto err_alloc;
@@ -1496,8 +1541,8 @@ read_file_via_vfs(const char *path)
 
 	offset = 0;
 	do {
-		size_t read_size = min((size_t)(file_size - offset), PAGE_SIZE);
 		TFW_DBG("read by offset: %d\n", (int)offset);
+		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
 		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
 				      &offset);
 		if (bytes_read < 0) {
@@ -1507,12 +1552,13 @@ read_file_via_vfs(const char *path)
 		}
 	} while (bytes_read);
 
-	if (file_size - offset) {
+	/* Exactly one byte (reserved for '\0') should remain. */
+	if (buf_size - offset - 1) {
 		TFW_ERR("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
 
-	out_buf[offset] = '\0';  /* one extra byte was vmalloc()'ed for '\0' */
+	out_buf[offset] = '\0';
 	set_fs(oldfs);
 	return out_buf;
 
