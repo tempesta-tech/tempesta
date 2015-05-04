@@ -152,10 +152,18 @@ index 0000000..35dd9dc
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 5bba80f..64e5d06 100644
+index 5bba80f..407a603 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
-@@ -583,6 +583,15 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
+@@ -346,6 +346,7 @@ static inline bool tcp_synq_no_recent_overflow(const struct sock *sk)
+ }
+ 
+ extern struct proto tcp_prot;
++extern struct proto tcpv6_prot;
+ 
+ #define TCP_INC_STATS(net, field)	SNMP_INC_STATS((net)->mib.tcp_statistics, field)
+ #define TCP_INC_STATS_BH(net, field)	SNMP_INC_STATS_BH((net)->mib.tcp_statistics, field)
+@@ -583,6 +584,15 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
  /* tcp.c */
  extern void tcp_get_info(const struct sock *, struct tcp_info *);
  
@@ -342,7 +350,7 @@ index 4425148..aad84f4 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 1c1738c..ce21652 100644
+index 1c1738c..fe0705f 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -619,6 +619,10 @@ static void skb_release_all(struct sk_buff *skb)
@@ -356,6 +364,17 @@ index 1c1738c..ce21652 100644
  	skb_release_all(skb);
  	kfree_skbmem(skb);
  }
+@@ -715,7 +719,9 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ #ifdef CONFIG_XFRM
+ 	new->sp			= secpath_get(old->sp);
+ #endif
+-	memcpy(new->cb, old->cb, sizeof(old->cb));
++	memcpy(new->cb, old->cb, sizeof(old->cb) - sizeof(SsSkbCb));
++	TFW_SKB_CB(new)->next	= NULL;
++	TFW_SKB_CB(new)->prev	= NULL;
+ 	new->csum		= old->csum;
+ 	new->local_df		= old->local_df;
+ 	new->pkt_type		= old->pkt_type;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
 index ab450c0..6c23c10 100644
 --- a/net/ipv4/tcp.c
@@ -552,6 +571,18 @@ index ec335fa..fdb0d79 100644
  
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
+diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
+index 0a17ed9..68ecb96 100644
+--- a/net/ipv6/tcp_ipv6.c
++++ b/net/ipv6/tcp_ipv6.c
+@@ -1946,6 +1946,7 @@ struct proto tcpv6_prot = {
+ #endif
+ 	.clear_sk		= tcp_v6_clear_sk,
+ };
++EXPORT_SYMBOL(tcpv6_prot);
+ 
+ static const struct inet6_protocol tcpv6_protocol = {
+ 	.early_demux	=	tcp_v6_early_demux,
 diff --git a/net/socket.c b/net/socket.c
 index 4ca1526..2b525c7 100644
 --- a/net/socket.c
