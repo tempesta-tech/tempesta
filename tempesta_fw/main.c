@@ -85,6 +85,7 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 
+	DO_CFG_REG(filter);
 	DO_CFG_REG(cache);
 	DO_CFG_REG(http_sticky);
 	DO_CFG_REG(sock_srv);

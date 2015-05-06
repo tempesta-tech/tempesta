@@ -23,40 +23,15 @@
 
 #include <linux/in6.h>
 
-#include "tempesta_fw.h"
+enum {
+	TFW_F_DROP,
+};
 
-/*
- * Filtering module handler.
- *
- * TODO:
- * -- possibility to change TCP options (window and timers) and send or not ACKs
- *    to be able to provice different QoS to the clients.
- */
 typedef struct {
-	/*
-	 * @return netfilter response constant depending on internal filter
-	 * 	   logic for specified skb.
-	 */
-	int	(*block)(struct sk_buff *skb);
-	/*
-	 * Add new blocking rule for the particular IP.
-	 */
-#if IS_ENABLED(CONFIG_IPV6)
-	void	(*add_rule)(__be32 addr4, struct in6_addr *addr6);
-#else
-	void	(*add_rule)(__be32 addr4);
-#endif
-} TfwFilter;
+	struct in6_addr		addr;
+	int			action;
+} TfwFRule;
 
-void tfw_filter_set_inports(__be16 *ports, unsigned int n);
-
-/* Filter actions. */
-void tfw_filter_add_rule(struct sock *sk);
-
-int tfw_filter_register(TfwFilter *mod);
-void tfw_filter_unregister(void);
-
-int tfw_filter_init(void);
-void tfw_filter_exit(void);
+void tfw_filter_add_inport(__be16 port);
 
 #endif /* __TFW_FILTER_H__ */
