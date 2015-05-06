@@ -75,7 +75,7 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	if ((resp = tfw_http_prep_302(hm, &cookie)) == NULL) {
 		return -1;
 	}
-	tfw_connection_send_cli(conn, (TfwMsg *)resp);
+	tfw_connection_send(conn, (TfwMsg *)resp);
 	tfw_http_msg_free(resp);
 
 	return 0;
@@ -90,7 +90,7 @@ tfw_http_sticky_send_502(TfwHttpMsg *hm)
 	if ((resp = tfw_http_prep_502(hm)) == NULL) {
 		return -1;
 	}
-	tfw_connection_send_cli(conn, (TfwMsg *)resp);
+	tfw_connection_send(conn, (TfwMsg *)resp);
 	tfw_http_msg_free(resp);
 
 	return 0;
@@ -197,6 +197,8 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	return 1;
 }
 
+/* Probably stil needed for #101. */
+#if 0
 /*
  * Get IP address of the peer (remote address of the connection).
  * inet_getname()/inet6_getname() only use sock to access sock->sk.
@@ -216,6 +218,7 @@ tfw_getpeeraddr(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 	}
 	return 0;
 }
+#endif
 
 /*
  * Create Tempesta sticky cookie value and set it for the client.
@@ -245,10 +248,16 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) <= 0) {
 		return ret;
 	}
+	/*
+	 * TODO #101 get client address from client->addr.
+	 * tfw_client_update() must be updated for this.
+	 */
+#if 0
 	ret = tfw_getpeeraddr(client->sock, &addr.sa, &addr_len);
 	if (ret != 0) {
 		return ret;
 	}
+#endif
 	/* Set only once per client's session */
 	if (!client->cookie.ts.tv_sec) {
 		getnstimeofday(&client->cookie.ts);
