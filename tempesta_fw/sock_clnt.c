@@ -34,6 +34,7 @@
 #include "classifier.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
@@ -219,6 +220,9 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	ls->addr = *addr;
 
 	list_add(&ls->list, &tfw_listen_socks);
+
+	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
+	tfw_filter_add_inport(addr->v4.sin_port);
 
 	return 0;
 }
