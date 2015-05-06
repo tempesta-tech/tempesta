@@ -559,16 +559,20 @@ tfw_cache_stop(void)
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
+
+	tdb_close(db);
 }
 
 static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	{
-		"cache", "off",
+		"cache",
+		"off",
 		tfw_cfg_set_bool,
 		&cache_cfg.cache
 	},
 	{
-		"cache_size", "262144",
+		"cache_size",
+		"262144",
 		tfw_cfg_set_int,
 		&cache_cfg.db_size,
 		&(TfwCfgSpecInt) {
