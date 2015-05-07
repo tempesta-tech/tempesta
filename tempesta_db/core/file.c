@@ -265,6 +265,7 @@ tdb_file_open(TDB *db, unsigned long size)
 {
 	unsigned long addr;
 	struct file *filp;
+	struct inode *inode;
 
 	filp = filp_open(db->path, O_CREAT | O_RDWR, 0600);
 	if (IS_ERR(filp)) {
@@ -273,13 +274,17 @@ tdb_file_open(TDB *db, unsigned long size)
 	}
 	BUG_ON(!filp || !filp->f_dentry);
 
-	/* Allocate continous extents. */
-	if (filp->f_op->fallocate) {
-		struct inode *inode = file_inode(filp);
-		sb_start_write(inode->i_sb);
-		filp->f_op->fallocate(filp, 0, 0, size);
-		sb_end_write(inode->i_sb);
+	if (!filp->f_op->fallocate) {
+		TDB_ERR("TDB requires filesystem with fallocate support\n");
+		filp_close(db->filp, NULL);
+		return -EBADF;
 	}
+
+	/* Allocate continous extents. */
+	inode = file_inode(filp);
+	sb_start_write(inode->i_sb);
+	filp->f_op->fallocate(filp, 0, 0, size);
+	sb_end_write(inode->i_sb);
 
 	addr = tempesta_map_file(filp, size, db->node);
 	if (IS_ERR((void *)addr)) {

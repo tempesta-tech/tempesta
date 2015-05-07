@@ -188,7 +188,14 @@ tdb_get_db(const char *path)
 TDB *
 tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 {
-	TDB *db = tdb_get_db(path);
+	TDB *db;
+
+	if ((fsize & ~TDB_EXT_MASK) || fsize < TDB_EXT_SZ) {
+		TDB_ERR("Bad table size: %lu\n", fsize);
+		return NULL;
+	}
+
+	db = tdb_get_db(path);
 	if (!db)
 		return NULL;
 

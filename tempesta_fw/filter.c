@@ -310,7 +310,7 @@ tfw_filter_stop(void)
 static TfwCfgSpec tfw_filter_cfg_specs[] = {
 	{
 		"filter_tbl_size",
-		"262144",
+		"16777216",
 		tfw_cfg_set_int,
 		&filter_cfg.db_size,
 		&(TfwCfgSpecInt) {
