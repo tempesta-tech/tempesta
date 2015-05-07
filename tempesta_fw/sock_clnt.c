@@ -365,7 +365,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 
 parse_err:
-	TFW_ERR("can't parse 'listen' value: '%s'\n", in_str);
+	TFW_ERR("Unable to parse 'listen' value: '%s'\n", in_str);
 	return -EINVAL;
 }
 
