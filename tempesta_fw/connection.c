@@ -66,6 +66,8 @@ tfw_connection_unlink_sk(TfwConnection *conn)
 	BUG_ON(!conn->sk || !conn->sk->sk_user_data);
 	conn->sk->sk_user_data = NULL;
 	conn->sk = NULL;
+	if (conn_hooks[idx])
+		conn_hooks[idx]->conn_destruct(c);
 }
 
 void
