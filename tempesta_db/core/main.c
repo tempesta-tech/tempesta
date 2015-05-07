@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies. 
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.12"
+#define TDB_VERSION	"0.1.13"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -81,11 +81,6 @@ tdb_rec_get(TDB *db, unsigned long key)
 	TdbRec *r;
 	TdbBucket *b;
 
-	/* @db can be uninitialized, see tdb_open(). */
-	if (!db->hdr)
-		return NULL;
-	BUG_ON(!TDB_HTRIE_VARLENRECS(db->hdr));
-
 	b = tdb_htrie_lookup(db->hdr, key);
 	if (!b)
 		return NULL;
@@ -110,6 +105,7 @@ void
 tdb_rec_put(void *rec)
 {
 	TdbBucket *b = (TdbBucket *)TDB_HTRIE_DALIGN((unsigned long)rec);
+	BUG_ON(!b);
 	read_unlock_bh(&b->lock);
 }
 EXPORT_SYMBOL(tdb_rec_put);
