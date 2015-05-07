@@ -581,7 +581,8 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 		}
 	},
 	{
-		"cache_dir", "/opt/tempesta/cache",
+		"cache_db",
+		"/opt/tempesta/db/cache.tdb",
 		tfw_cfg_set_str,
 		&cache_cfg.db_path,
 		&(TfwCfgSpecStr) {
