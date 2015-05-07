@@ -57,6 +57,9 @@ start()
 {
 	echo "Starting Tempesta..."
 
+	# Create database directory if it doesn't exists.
+	mkdir -p /opt/tempesta/db/
+
 	sysctl -w net.tempesta.state=start
 	[ $? -ne 0 ] && error "cannot start Tempesta FW"
 

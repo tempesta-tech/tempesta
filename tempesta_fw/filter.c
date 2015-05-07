@@ -319,8 +319,8 @@ static TfwCfgSpec tfw_filter_cfg_specs[] = {
 		}
 	},
 	{
-		"filter_dir",
-		"/opt/tempesta/filter",
+		"filter_db",
+		"/opt/tempesta/db/filter.tdb",
 		tfw_cfg_set_str,
 		&filter_cfg.db_path,
 		&(TfwCfgSpecStr) {
