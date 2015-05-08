@@ -118,6 +118,7 @@ typedef struct {
 
 /* Request flags */
 #define TFW_HTTP_STICKY_SET		(0x0100)	/* Need 'Set-Cookie` */
+#define TFW_HTTP_FIELD_DUPENTRY		(0x0200)	/* Duplicate field */
 
 /**
  * Common HTTP message members.
