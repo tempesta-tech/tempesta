@@ -38,6 +38,7 @@
 #include <net/ipv6.h>
 
 #include "../tempesta_fw.h"
+#include "../addr.h"
 #include "../classifier.h"
 #include "../client.h"
 #include "../connection.h"
@@ -97,12 +98,20 @@ typedef struct {
 	unsigned int 	conn_burst;
 	unsigned int 	conn_max;
 
+	/*
+	 * Limits on time it takes to receive
+	 * a full header or a body chunk.
+	 */
+	unsigned long	clnt_hdr_timeout;
+	unsigned long	clnt_body_timeout;
+
 	/* Limits for HTTP request contents: uri, headers, body, etc. */
 	unsigned int 	http_uri_len;
 	unsigned int 	http_field_len;
 	unsigned int 	http_body_len;
-	bool 		http_ct_is_required;
-	bool 		http_host_is_required;
+	bool 		http_ct_required;
+	bool 		http_host_required;
+	bool		http_field_noduplicate;
 	/* The bitmask of allowed HTTP Method values. */
 	unsigned long 	http_methods_mask;
 	/* The list of allowed Content-Type values. */
@@ -148,6 +157,7 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 		if (ra->last_ts + GC_TO < jiffies / HZ)
 			hash_del(&ra->hentry);
 	}
+
 	if (!ra) {
 		spin_unlock(&hb->lock);
 
@@ -268,8 +278,8 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 
 block:
 	/*
-	 * TODO reset connection istead of wasting resources on
-	 * gentle closing. See ss_do_close() in sync_socket.
+	 * TODO reset connection instead of wasting resources
+	 * on gentle closing. See ss_do_close() in sync_socket.
 	 */
 	TFW_DBG("%s: close connection\n", __FUNCTION__);
 	ss_close(sk);
@@ -277,111 +287,106 @@ block:
 }
 
 static int
-frang_http_uri_len_limit(const TfwHttpReq *req)
+frang_http_uri_len(const TfwHttpReq *req)
 {
 	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
 	 * This is too slow. The value must be stored in a TfwStr field. */
-	if (frang_cfg.http_uri_len &&
-	    tfw_str_len(&req->uri_path) > frang_cfg.http_uri_len) {
-		TFW_DBG("frang: http_uri_len limit is reached\n");
+	if (tfw_str_len(&req->uri_path) > frang_cfg.http_uri_len) {
+		TFW_DBG("frang: http_uri_len limit reached\n");
 		return TFW_BLOCK;
 	}
-
 	return TFW_PASS;
 }
 
 static int
-frang_http_field_len_limit(const TfwHttpReq *req)
+frang_http_field_len_raw(const TfwHttpReq *req)
 {
 	const TfwStr *field, *end;
 
-	if (!frang_cfg.http_field_len)
-		return TFW_PASS;
-
-	TFW_HTTP_FOR_EACH_HDR_FIELD(field, end, req) {
+	FOR_EACH_HDR_FIELD_FROM(field, end, req, req->hdr_rawid) {
 		if (tfw_str_len(field) > frang_cfg.http_field_len) {
-			TFW_DBG("frang: http_field_len limit is reached\n");
+			TFW_DBG("frang: http_field_len limit reached\n");
 			return TFW_BLOCK;
 		}
 	}
-
 	return TFW_PASS;
 }
 
 static int
-frang_http_body_len_limit(const TfwHttpReq *req)
+frang_http_field_len_special(const TfwHttpReq *req)
 {
-	if (frang_cfg.http_body_len &&
-	    tfw_str_len(&req->body) > frang_cfg.http_body_len) {
-		TFW_DBG("frang: http_body_len limit is reached\n");
+	const TfwStr *field, *end;
+
+	FOR_EACH_HDR_FIELD_SPECIAL(field, end, req) {
+		if (tfw_str_len(field) > frang_cfg.http_field_len) {
+			TFW_DBG("frang: http_field_len limit reached\n");
+			return TFW_BLOCK;
+		}
+	}
+	return TFW_PASS;
+}
+
+static int
+frang_http_methods(const TfwHttpReq *req)
+{
+	unsigned long mbit = (1 << req->method);
+
+	if (!(frang_cfg.http_methods_mask & mbit)) {
+		TFW_DBG("frang: method not permitted: %d (%#lx)\n",
+			req->method, mbit);
 		return TFW_BLOCK;
 	}
-
 	return TFW_PASS;
-}
-
-static int
-frang_http_methods_check(const TfwHttpReq *req)
-{
-	unsigned long m = (1 << req->method);
-
-	if (frang_cfg.http_methods_mask && (frang_cfg.http_methods_mask & m))
-		return TFW_PASS;
-
-	TFW_DBG("frang: forbidden method: %d (%#lx)\n", req->method, m);
-	return TFW_BLOCK;
 }
 
 static int
 frang_http_ct_check(const TfwHttpReq *req)
 {
-#define _CT "Content-Type"
-#define _CTLEN (sizeof(_CT) - 1)
-	TfwStr *ct, *end;
+#define _CT	"Content-Type"
+#define _CTLEN	(sizeof(_CT) - 1)
+	TfwStr *field, *end;
 	FrangCtVal *curr;
 
-	if (!frang_cfg.http_ct_is_required || !frang_cfg.http_ct_vals ||
-	    req->method != TFW_HTTP_METH_POST)
+	if (req->method != TFW_HTTP_METH_POST) {
 		return TFW_PASS;
-
+	}
 	/* Find the Content-Type header.
 	 *
-	 * XXX: Should we make the header "special"?
-	 * It would speed up this function, but bloat the HTTP parser code,
-	 * and pollute the headers table.
+	 * XXX: Make Content-Type header "special".
 	 */
-	TFW_HTTP_FOR_EACH_RAW_HDR_FIELD(ct, end, req) {
-		if (tfw_str_eq_cstr(ct, _CT, _CTLEN, TFW_STR_EQ_PREFIX_CASEI))
+	FOR_EACH_HDR_FIELD_RAW(field, end, req) {
+		if (tfw_str_eq_cstr(field, _CT, _CTLEN,
+				    TFW_STR_EQ_PREFIX_CASEI)) {
 			break;
-
+		}
 	}
-	if (ct == end) {
+	if (field == end) {
 		TFW_DBG("frang: Content-Type is missing\n");
 		return TFW_BLOCK;
 	}
-
-	/* Check that the Content-Type is in the list of allowed values.
+	/* Verify that Content-Type value is on the list of allowed values.
 	 *
 	 * TODO: possible improvement: binary search.
-	 * Generally the binary search is more efficient, but linear search is
-	 * usually faster for small sets of values. Perhaps we should switch
-	 * between two if the performance is that critical here, but benchmarks
-	 * should be done to measure the impact.
+	 * Generally binary search is more efficient, but linear search
+	 * is usually faster for small sets of values. Perhaps we should
+	 * switch between the two if performance is critical here,
+	 * but benchmarks should be done to measure the impact.
 	 *
-	 * TODO: don't store field name in the TfwStr. Store only the header
-	 * value, and thus get rid of the nasty tfw_str_eq_kv().
+	 * TODO: don't store field name in the TfwStr. Store only
+	 * the header field value, and thus get rid of tfw_str_eq_kv().
 	 */
 	for (curr = frang_cfg.http_ct_vals; curr->str; ++curr) {
-		if (tfw_str_eq_kv(ct, _CT, _CTLEN, ':', curr->str, curr->len,
-				  TFW_STR_EQ_PREFIX_CASEI))
+		if (tfw_str_eq_kv(field, _CT, _CTLEN, ':',
+				  curr->str, curr->len,
+				  TFW_STR_EQ_PREFIX_CASEI)) {
 			break;
+		}
 	}
-
 	if (!curr->str) {
-		TFW_DBG("frang: forbidden Content-Type value\n");
+		TFW_DBG("frang: Content-Type value not permitted: %s\n",
+			curr->str);
 		return TFW_BLOCK;
 	}
-
 	return TFW_PASS;
 #undef _CT
 #undef _CTLEN
@@ -390,56 +395,240 @@ frang_http_ct_check(const TfwHttpReq *req)
 static int
 frang_http_host_check(const TfwHttpReq *req)
 {
+	int len;
 	TfwStr *field;
-
-	if (!frang_cfg.http_host_is_required || req->method != TFW_HTTP_METH_POST)
-		return TFW_PASS;
+	TfwAddr addr;
+	char *buf, *ptr;
 
 	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 	if (!field->ptr) {
 		TFW_DBG("frang: the Host header is missing\n");
 		return TFW_BLOCK;
 	}
-
-	/* FIXME: here should be a check that the Host value is not an IP
+	/*
+	 * FIXME: here should be a check that the Host value is not an IP
 	 * address. Need a fast routine that supports compound TfwStr.
 	 * Perhaps should implement a tiny FSM or postpone the task until we
-	 * have a good regex library. */
+	 * have a good regex library.
+	 * For now just linearize the Host header field TfwStr{} string.
+	 */
+	len = tfw_str_len(field) + 1;
+	if ((buf = tfw_pool_alloc(req->pool, len)) == NULL)
+		return TFW_BLOCK;
+	tfw_str_to_cstr(field, buf, len);
+	ptr = buf + sizeof("Host:") - 1;
+	ptr = skip_spaces(ptr);
+	if (!tfw_addr_pton(ptr, &addr))
+		return TFW_BLOCK;
 	return TFW_PASS;
 }
+
+enum {
+	Frang_Req_0,
+
+	Frang_Req_Hdr_Start,
+	Frang_Req_Hdr_Method,
+	Frang_Req_Hdr_UriLen,
+	Frang_Req_Hdr_FieldDup,
+	Frang_Req_Hdr_FieldLenRaw,
+	Frang_Req_Hdr_FieldLenSpecial,
+	Frang_Req_Hdr_Crlf,
+	Frang_Req_Hdr_Host,
+	Frang_Req_Hdr_ContentType,
+
+	Frang_Req_Hdr_NoState,
+
+	Frang_Req_Body_Start,
+	Frang_Req_Body_Timeout,
+	Frang_Req_Body_Len,
+
+	Frang_Req_Body_NoState,
+
+	Frang_Req_NothingToDo
+};
+
+#define FSM_HDR_STATE(state)						\
+	((state > Frang_Req_Hdr_Start) && (state < Frang_Req_Hdr_NoState))
+
+#define __FSM_INIT()							\
+int __fsm_const_state;
+
+#define __FSM_START(st)							\
+switch(st)
+
+#define __FSM_FINISH()							\
+done:									\
+	TFW_DBG("Finish FRANG FSM at state %d\n", __fsm_const_state);	\
+	TFW_DBG("Return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");	\
+	req->frang_st = __fsm_const_state;
+
+#define __FSM_STATE(st)							\
+case st:								\
+st: __attribute__((unused))						\
+	TFW_DBG("enter FRANG FSM at state %d\n", st);			\
+	__fsm_const_state = st; /* optimized out to constant */
+
+#define __FSM_EXIT()	goto done;
+
+#define __FSM_JUMP(to)	goto to;
+#define __FSM_MOVE(to)							\
+	if (r)								\
+		__FSM_EXIT();						\
+	goto to;
+
+#define __FSM_JUMP_EXIT(to)						\
+	__fsm_const_state = to; /* optimized out to constant */		\
+	__FSM_EXIT()
 
 static int
 frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
-	int r;
+	int r = TFW_PASS;
+	unsigned int body_len = len;
 	TfwConnection *c = (TfwConnection *)obj;
 	TfwClient *clnt = (TfwClient *)c->peer;
 	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
+	struct sk_buff *head_skb = (void *)ss_skb_peek(&req->msg.skb_list);
+	struct sk_buff *skb = (void *)ss_skb_peek_tail(&req->msg.skb_list);
 
-	r = frang_account_do(clnt->sock, frang_req_limit);
-	if (r)
-		return r;
+	__FSM_INIT();
 
-	r = frang_http_methods_check(req);
-	if (r)
-		return r;
-	r = frang_http_uri_len_limit(req);
-	if (r)
-		return r;
-	r = frang_http_field_len_limit(req);
-	if (r)
-		return r;
-	r = frang_http_body_len_limit(req);
-	if (r)
-		return r;
-	r = frang_http_ct_check(req);
-	if (r)
-		return r;
-	r = frang_http_host_check(req);
-	if (r)
-		return r;
+	/*
+	 * There's no need to check for header timeout if this is the very
+	 * first data chunk of a request (first full separate SKB with data.
+	 * The FSM is guaranteed to go through the initial states and then
+	 * either block or move to one of header states. Then header timeout
+	 * is checked on each consecutive SKB with data.
+	 *
+	 * Why is this not one of FSM states? Basically, that's to avoid
+	 * going through unnecessary FSM states each time this is run. When
+	 * there's a slowris attack, we may stay long in Hdr_Method or in
+	 * Hdr_UriLen states, and that would require including the header
+	 * timeout state in the loop. But when we're past these states, we
+	 * don't want to run through them on each run again, and just loop
+	 * in FieldDup and FieldLen states. I guess that can be done with
+	 * some clever FSM programming, but this is plain simpler.
+	 */
+	if (frang_cfg.clnt_hdr_timeout
+	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st)) {
+		unsigned long start = req->tm_header;
+		unsigned long delta = frang_cfg.clnt_hdr_timeout;
+		if (time_is_after_jiffies(start + delta))
+			return TFW_BLOCK;
+	}
 
-	return 0;
+	__FSM_START(req->frang_st) {
+
+	__FSM_STATE(Frang_Req_0) {
+		if (frang_cfg.req_burst || frang_cfg.req_rate) {
+			r = frang_account_do(clnt->sock, frang_req_limit);
+		}
+		__FSM_MOVE(Frang_Req_Hdr_Start);
+	}
+	__FSM_STATE(Frang_Req_Hdr_Start) {
+		if (frang_cfg.clnt_hdr_timeout) {
+			req->tm_header = jiffies;
+		}
+		req->hdr_rawid = TFW_HTTP_HDR_RAW;
+		__FSM_JUMP(Frang_Req_Hdr_Method);
+	}
+	__FSM_STATE(Frang_Req_Hdr_Method) {
+		if (frang_cfg.http_methods_mask) {
+			if (req->method == TFW_HTTP_METH_NONE) {
+				__FSM_EXIT();
+			}
+			r = frang_http_methods(req);
+		}
+		__FSM_MOVE(Frang_Req_Hdr_UriLen);
+	}
+	__FSM_STATE(Frang_Req_Hdr_UriLen) {
+		if (frang_cfg.http_uri_len) {
+			if (!(req->uri_path.flags & TFW_STR_COMPLETE)) {
+				__FSM_EXIT();
+			}
+			r = frang_http_uri_len(req);
+		}
+		__FSM_MOVE(Frang_Req_Hdr_FieldDup);
+	}
+	__FSM_STATE(Frang_Req_Hdr_FieldDup) {
+		if (frang_cfg.http_field_noduplicate) {
+			if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
+				r = TFW_BLOCK;
+			}
+		}
+		__FSM_MOVE(Frang_Req_Hdr_FieldLenRaw);
+	}
+	__FSM_STATE(Frang_Req_Hdr_FieldLenRaw) {
+		if (frang_cfg.http_field_len) {
+			r = frang_http_field_len_raw(req);
+			req->hdr_rawid = req->h_tbl->off;
+		}
+		__FSM_MOVE(Frang_Req_Hdr_Crlf);
+	}
+	__FSM_STATE(Frang_Req_Hdr_Crlf) {
+		if (req->crlf) {
+			__FSM_JUMP(Frang_Req_Hdr_FieldLenSpecial);
+		}
+		__FSM_JUMP_EXIT(Frang_Req_Hdr_FieldDup);
+	}
+	__FSM_STATE(Frang_Req_Hdr_FieldLenSpecial) {
+		if (frang_cfg.http_field_len) {
+			r = frang_http_field_len_special(req);
+		}
+		__FSM_MOVE(Frang_Req_Hdr_Host);
+	}
+	__FSM_STATE(Frang_Req_Hdr_Host) {
+		if (frang_cfg.http_host_required) {
+			r = frang_http_host_check(req);
+		}
+		__FSM_MOVE(Frang_Req_Hdr_ContentType);
+	}
+	__FSM_STATE(Frang_Req_Hdr_ContentType) {
+		if (frang_cfg.http_ct_required || frang_cfg.http_ct_vals) {
+			r = frang_http_ct_check(req);
+		}
+		__FSM_MOVE(Frang_Req_Body_Start);
+	}
+	__FSM_STATE(Frang_Req_Body_Start) {
+		if (frang_cfg.clnt_body_timeout) {
+			req->tm_bchunk = jiffies;
+		}
+		if (frang_cfg.http_body_len) {
+			req->body_len = 0;
+			body_len = tfw_str_len(&req->body);
+			__FSM_JUMP_EXIT(Frang_Req_Body_Len);
+		}
+		__FSM_JUMP_EXIT(Frang_Req_NothingToDo);
+	}
+	__FSM_STATE(Frang_Req_Body_Timeout) {
+		/*
+		 * Note that this state is skipped on the first
+		 * data SKB with a body part as that's unnecesary.
+		 */
+		if (frang_cfg.clnt_body_timeout && (skb != head_skb)) {
+			unsigned long start = req->tm_bchunk;
+			unsigned long delta = frang_cfg.clnt_body_timeout;
+			if (time_is_after_jiffies(start + delta))
+				r = TFW_BLOCK;
+		}
+		__FSM_MOVE(Frang_Req_Body_Len);
+	}
+	__FSM_STATE(Frang_Req_Body_Len) {
+		req->body_len += body_len;
+		if (req->body_len > frang_cfg.http_body_len) {
+			TFW_DBG("frang: http_body_len limit reached\n");
+			r = TFW_BLOCK;
+		}
+		__FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
+	}
+	__FSM_STATE(Frang_Req_NothingToDo) {
+		__FSM_EXIT();
+	}
+
+	}
+	__FSM_FINISH();
+
+	return r;
 }
 
 static TfwClassifier frang_class_ops = {
@@ -549,6 +738,17 @@ frang_free_ct_vals(TfwCfgSpec *cs)
 	frang_cfg.http_ct_vals = NULL;
 }
 
+static int
+frang_start(void)
+{
+	/* Convert these timeouts to jiffies for convenience */
+	frang_cfg.clnt_hdr_timeout =
+		*(unsigned int *)&frang_cfg.clnt_hdr_timeout * HZ;
+	frang_cfg.clnt_body_timeout =
+		*(unsigned int *)&frang_cfg.clnt_body_timeout * HZ;
+	return 0;
+}
+
 static TfwCfgSpec frang_cfg_section_specs[] = {
 	{
 		"request_rate", "0",
@@ -561,12 +761,12 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		&frang_cfg.req_burst,
 	},
 	{
-		"new_connection_rate", "0",
+		"connection_rate", "0",
 		tfw_cfg_set_int,
 		&frang_cfg.conn_rate,
 	},
 	{
-		"new_connection_burst", "0",
+		"connection_burst", "0",
 		tfw_cfg_set_int,
 		&frang_cfg.conn_burst,
 	},
@@ -574,6 +774,16 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		"concurrent_connections", "0",
 		tfw_cfg_set_int,
 		&frang_cfg.conn_max,
+	},
+	{
+		"client_header_timeout", "0",
+		tfw_cfg_set_int,
+		(unsigned int *)&frang_cfg.clnt_hdr_timeout,
+	},
+	{
+		"client_body_timeout", "0",
+		tfw_cfg_set_int,
+		(unsigned int *)&frang_cfg.clnt_body_timeout,
 	},
 	{
 		"http_uri_len", "0",
@@ -591,14 +801,19 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		&frang_cfg.http_body_len,
 	},
 	{
-		"http_host_is_required", "false",
+		"http_host_required", "false",
 		tfw_cfg_set_bool,
-		&frang_cfg.http_host_is_required,
+		&frang_cfg.http_host_required,
 	},
 	{
-		"http_ct_is_required", "false",
+		"http_ct_required", "false",
 		tfw_cfg_set_bool,
-		&frang_cfg.http_ct_is_required,
+		&frang_cfg.http_ct_required,
+	},
+	{
+		"http_field_noduplicate", "false",
+		tfw_cfg_set_bool,
+		&frang_cfg.http_field_noduplicate,
 	},
 	{
 		"http_methods", NULL,
@@ -615,15 +830,16 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 
 static TfwCfgSpec frang_cfg_toplevel_specs[] = {
 	{
-		"frang_limits", NULL,
-		tfw_cfg_handle_children,
-		&frang_cfg_section_specs
+		.name = "frang_limits",
+		.handler = tfw_cfg_handle_children,
+		.dest = &frang_cfg_section_specs
 	},
 	{}
 };
 
 static TfwCfgMod frang_cfg_mod = {
 	.name = "frang",
+	.start = frang_start,
 	.specs = frang_cfg_toplevel_specs
 };
 
@@ -650,24 +866,29 @@ frang_init(void)
 		goto err_class;
 	}
 
-	/* FIXME: this is not a FSM here, but rather a set of static checks
-	 * that are executed when a HTTP request is fully parsed.
-	 * These checks should be executed during the parsing process in order
-	 * to drop suspicious requests as early as possible. */
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG, frang_http_req_handler);
 	if (r) {
-		TFW_ERR("frang: can't register fsm: req\n");
+		TFW_ERR("frang: can't register fsm\n");
 		goto err_fsm;
 	}
 
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG, 0);
+				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG,
+				   TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST));
 	if (r) {
-		TFW_ERR("frang: can't register gfsm hook: req\n");
+		TFW_ERR("frang: can't register gfsm hook: msg\n");
 		goto err_hook;
 	}
+	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
+				   TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG,
+				   TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST));
+	if (r) {
+		TFW_ERR("frang: can't register gfsm hook: chunk\n");
+		TFW_ERR("frang: can't recover\n");
+		BUG();
+	}
 
-	TFW_WARN("frang mudule can't be unloaded, "
+	TFW_WARN("frang module can't be unloaded, "
 		 "so all allocated resources won't freed\n");
 
 	return 0;

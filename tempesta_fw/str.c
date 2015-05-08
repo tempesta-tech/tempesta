@@ -105,9 +105,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
 		if (!a)
 			return NULL;
-		a[0].ptr = str->ptr;
-		a[0].len = str->len;
-		a[0].flags = 0;  /* TODO: should we inherit flags here? */
+		a[0] = *str;
 		str->ptr = a;
 		str->len = 2;
 		str->flags |= TFW_STR_COMPOUND;
