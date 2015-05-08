@@ -52,4 +52,4 @@ tempesta_fw-objs = \
 	str.o \
 	tls.o
 
-obj-m	+= log/ classifier/ stress/ sched/ filter/ t/
+obj-m	+= log/ classifier/ stress/ sched/ t/
