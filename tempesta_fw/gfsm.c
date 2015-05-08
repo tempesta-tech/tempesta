@@ -72,10 +72,10 @@ tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
  * This function is responsible for all context storing/restoring logic.
  */
 static void
-tfw_gfsm_switch(TfwGState *st, unsigned short new_st, int prio)
+tfw_gfsm_switch(TfwGState *st, int prio)
 {
-	int curr_fsm = TFW_GFSM_FSM(st);
-	int shift = prio * TFW_GFSM_PRIO_N + new_st;
+	int curr_st = TFW_GFSM_STATE_ST(st), curr_fsm = TFW_GFSM_FSM(st);
+	int shift = prio * TFW_GFSM_PRIO_N + curr_st;
 	SsProto *proto = (SsProto *)st->obj;
 
 	if (unlikely(st->st_p + 1 >= TFW_GFSM_STACK_DEPTH)) {
@@ -95,9 +95,6 @@ tfw_gfsm_switch(TfwGState *st, unsigned short new_st, int prio)
 	 * as enter sate argument of tfw_gfsm_register_hook().
 	 */
 	proto->type = fsm_hooks[curr_fsm][shift].fsm_id;
-
-	/* Push the parent's st->obj to the new FSM. */
-	st->obj = proto;
 }
 
 /**
@@ -144,7 +141,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
 {
 	int r = TFW_PASS, p;
 	unsigned int *wc = st->wish_call[st->st_p];
-	unsigned long mask = 1 << new_state;
+	unsigned long mask = 1 << TFW_GFSM_STATE_ST(st);
 
 	/* Start from higest priority. */
 	for (p = TFW_GFSM_HOOK_PRIORITY_HIGH;
@@ -152,10 +149,10 @@ tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
 	{
 		/* The bitmask is likely spread. */
 		if (likely(!(wc[p] & mask)))
-			continue;
+			return r;
 	
 		/* Switch context to other FSM. */
-		tfw_gfsm_switch(st, new_state, p);
+		tfw_gfsm_switch(st, p);
 		/*
 		 * Let the FSM do all its jobs.
 		 * There is possible recursion when the new FSM moves through
