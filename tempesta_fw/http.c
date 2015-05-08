@@ -1139,13 +1139,13 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			;
 		}
 
-		/* The request is fully parsed, move to a corresponding state.*/
+		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 		r = tfw_gfsm_move(&req->msg.state,
 				  TFW_HTTP_FSM_REQ_MSG, data, len);
 		TFW_DBG("GFSM return code %d\n", r);
 		if (r == TFW_BLOCK)
 			goto block;
-
+		conn->msg = NULL;
 
 		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
 		if (r < 0) {
@@ -1162,8 +1162,9 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				" for a session\n");
 			goto block;
 		}
-		/* Add it to the server connection. */
+		/* Request is fully parsed, add it to the connection. */
 		list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
+
 		tfw_cache_req_process(req, tfw_http_req_cache_cb, srv_conn);
 pipeline:
 		if (!req->parser.data_off || req->parser.data_off == len)
