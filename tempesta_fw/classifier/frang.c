@@ -485,9 +485,8 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 {
 	int r = TFW_PASS;
 	unsigned int body_len = len;
-	TfwConnection *c = (TfwConnection *)obj;
-	TfwClient *clnt = (TfwClient *)c->peer;
-	TfwHttpReq *req = container_of(c->msg, TfwHttpReq, msg);
+	TfwConnection *conn = (TfwConnection *)obj;
+	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
 	struct sk_buff *head_skb = (void *)ss_skb_peek(&req->msg.skb_list);
 	struct sk_buff *skb = (void *)ss_skb_peek_tail(&req->msg.skb_list);
 
@@ -521,7 +520,7 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 
 	__FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate) {
-			r = frang_account_do(clnt->sock, frang_req_limit);
+			r = frang_account_do(conn->sk, frang_req_limit);
 		}
 		__FSM_MOVE(Frang_Req_Hdr_Start);
 	}
