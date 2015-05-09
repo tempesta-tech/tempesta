@@ -197,29 +197,6 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	return 1;
 }
 
-/* Probably stil needed for #101. */
-#if 0
-/*
- * Get IP address of the peer (remote address of the connection).
- * inet_getname()/inet6_getname() only use sock to access sock->sk.
- * Make use of that.
- */
-static int
-tfw_getpeeraddr(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
-{
-	struct socket sock = { .sk = sk };
-
-	if (sk->sk_family == AF_INET6) {
-		inet6_getname(&sock, uaddr, uaddr_len, 1);
-	} else if (sk->sk_family == AF_INET) {
-		inet_getname(&sock, uaddr, uaddr_len, 1);
-	} else {
-		return -1;
-	}
-	return 0;
-}
-#endif
-
 /*
  * Create Tempesta sticky cookie value and set it for the client.
  *
@@ -231,10 +208,9 @@ tfw_getpeeraddr(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 static int
 tfw_http_sticky_set(TfwHttpMsg *hm)
 {
-	TfwAddr addr;
+	int ret, addr_len;
 	TfwStr ua_value = { 0 };
 	const TfwStr s_field_name = TfwStr_string("User-Agent:");
-	int ret, addr_len = sizeof(addr);
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 
 	char desc[sizeof(struct shash_desc)
@@ -248,27 +224,20 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) <= 0) {
 		return ret;
 	}
-	/*
-	 * TODO #101 get client address from client->addr.
-	 * tfw_client_update() must be updated for this.
-	 */
-#if 0
-	ret = tfw_getpeeraddr(client->sock, &addr.sa, &addr_len);
-	if (ret != 0) {
-		return ret;
-	}
-#endif
+
 	/* Set only once per client's session */
 	if (!client->cookie.ts.tv_sec) {
 		getnstimeofday(&client->cookie.ts);
 	}
+	addr_len = (hm->conn->sk->sk_family == AF_INET)
+		   ? sizeof(client->addr.v4) : sizeof(client->addr.v6);
 
 	memset(desc, 0, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
 	crypto_shash_init(shash_desc);
-	crypto_shash_update(shash_desc, (u8 *)&addr.sa, addr_len);
+	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
 	crypto_shash_update(shash_desc, (u8 *)ua_value.ptr, ua_value.len);
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
