@@ -49,23 +49,28 @@ tfw_client_put(TfwClient *clnt)
 TfwClient *
 tfw_client_obtain(struct sock *sk)
 {
-	static const TfwAddr dummy_addr;
+	int daddr_len;
+	TfwAddr daddr;
 
 	/*
 	 * TODO: currently there is one to one socket-client
 	 * mapping, which isn't appropriate since a client can
 	 * have more than one socket with the server.
 	 *
-	 * We have too lookup the client by the socket and create a new one
-	 * only if it's really new.
+	 * We need to look up a client by the socket and create
+	 * a new one only if it's really new.
 	 */
 	TfwClient *cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
 	if (!cli)
 		return NULL;
-	atomic_set(&cli->conn_users, 1);
 
-	/* TODO: Derive the client IP address from @sk. */
-	tfw_peer_init((TfwPeer *)cli, &dummy_addr);
+	/* Derive client's IP address from @sk. */
+	if (ss_getpeername(sk, &daddr.sa, &daddr_len)) {
+		kmem_cache_free(cli_cache, cli);
+		return NULL;
+	}
+	tfw_peer_init((TfwPeer *)cli, &daddr);
+	atomic_set(&cli->conn_users, 1);
 
 	TFW_DBG("new client: cli=%p\n", cli);
 
