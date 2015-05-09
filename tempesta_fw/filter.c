@@ -60,6 +60,8 @@ static TDB *ip_filter_db;
 void
 tfw_filter_add_inport(__be16 port)
 {
+	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
+
 	tfw_inports.ports[tfw_inports.count++] = port;
 }
 
