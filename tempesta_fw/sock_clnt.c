@@ -183,11 +183,13 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
  * The listening socket representation.
  * One such structure corresponds to one "listen" configuration entry.
  *
+ * @proto	- protocol descriptor for the listening socket;
  * @sk		- The underlying networking representation.
  * @list	- An entry in the tfw_listen_socks list.
  * @addr	- The IP address specified in the configuration.
  */
 typedef struct {
+	SsProto			proto;
 	struct sock		*sk;
 	struct list_head	list;
 	TfwAddr			addr;
@@ -217,9 +219,9 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	ls->addr = *addr;
-
+	ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
 	list_add(&ls->list, &tfw_listen_socks);
+	ls->addr = *addr;
 
 	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
 	tfw_filter_add_inport(addr->v4.sin_port);
@@ -253,6 +255,8 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	int r;
 	struct sock *sk;
 	TfwAddr *addr = &ls->addr;
+
+	TFW_LOG_ADDR("Open listen socket on", addr);
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
@@ -353,7 +357,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 		/* For single port, use 0.0.0.0:port (IPv4, but not IPv6). */
 		addr.v4.sin_family = AF_INET;
-		addr.v4.sin_addr.s_addr = htonl(INADDR_ANY);
+		addr.v4.sin_addr.s_addr = INADDR_ANY;
 		addr.v4.sin_port = htons(port);
 	} else {
 		r = tfw_addr_pton(in_str, &addr);
@@ -381,7 +385,8 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 	.stop	= tfw_listen_sock_stop_all,
 	.specs	= (TfwCfgSpec[]){
 		{
-			"listen", "80",
+			"listen",
+			"80",
 			tfw_sock_clnt_cfg_handle_listen,
 			.allow_repeat = true,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
