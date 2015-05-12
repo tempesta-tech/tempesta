@@ -828,6 +828,44 @@ done:
 	return r;
 }
 
+/*
+ * All singular headers should be made special and take a contiguous
+ * id space (be grouped together in the id space). Non-singular special
+ * headers should follow and take a different id space to differentiate
+ * from singular headers. That way checking whether a header field can
+ * be duplicated or not would be easy and fast as it should be. The check
+ * would be a simple comparison if the header field id is within the range.
+ */
+static bool
+__header_is_singular(const TfwStr *field)
+{
+	int idx;
+#define TfwStr_string(v)	{ 0, sizeof(v) - 1, (v) }
+	static const TfwStr field_singular[] = {
+		TfwStr_string("Host"),
+		TfwStr_string("Location"),
+		TfwStr_string("Content_Type"),
+		TfwStr_string("Content_Length"),
+		TfwStr_string("User_Agent"),
+		TfwStr_string("Referer"),
+		TfwStr_string("From"),
+		TfwStr_string("Authorization"),
+		TfwStr_string("Proxy_Authorization"),
+		TfwStr_string("If_Modified_Since"),
+		TfwStr_string("If_Unmodified_Since"),
+		TfwStr_string("Max_Forwards"),
+	};
+#undef TfwStr_string
+
+	for (idx = 0; idx < ARRAY_SIZE(field_singular); idx++)
+		if (tfw_str_eq_cstr(field,
+				    field_singular[idx].ptr,
+				    field_singular[idx].len,
+				    TFW_STR_EQ_PREFIX_CASEI))
+			return true;
+	return false;
+}
+
 static int
 __header_is_duplicate(TfwHttpMsg *hm, int id, int adjust)
 {
@@ -918,8 +956,8 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
 	 */
 	if ((id < TFW_HTTP_HDR_RAW)
 	    && h->ptr && (h->flags & TFW_STR_COMPLETE)) {
-		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		/* XXX Make sure the header is NOT singular */
+		if (__header_is_singular(h))
+			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 		/* XXX Append a proper concatenation character */
 		/* XXX Do not append the field name, just the value */
 		/* Don't change current logic for now */
@@ -944,8 +982,8 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
 		BUG_ON(duph && !(duph->flags & TFW_STR_COMPLETE));
 		h->flags |= TFW_STR_HASCOLON;
 		if (duph) {
-			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-			/* XXX Make sure the header is NOT singular */
+			if (__header_is_singular(h))
+				hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 			/* XXX Append a proper concatenation character */
 			/* XXX Append accumulated data to the original field */
 			/* XXX Do not append the field name, just the value */
