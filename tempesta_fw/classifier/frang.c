@@ -111,7 +111,6 @@ typedef struct {
 	unsigned int 	http_body_len;
 	bool 		http_ct_required;
 	bool 		http_host_required;
-	bool		http_field_noduplicate;
 	/* The bitmask of allowed HTTP Method values. */
 	unsigned long 	http_methods_mask;
 	/* The list of allowed Content-Type values. */
@@ -550,10 +549,8 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 		__FSM_MOVE(Frang_Req_Hdr_FieldDup);
 	}
 	__FSM_STATE(Frang_Req_Hdr_FieldDup) {
-		if (frang_cfg.http_field_noduplicate) {
-			if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
-				r = TFW_BLOCK;
-			}
+		if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
+			r = TFW_BLOCK;
 		}
 		__FSM_MOVE(Frang_Req_Hdr_FieldLenRaw);
 	}
@@ -808,11 +805,6 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		"http_ct_required", "false",
 		tfw_cfg_set_bool,
 		&frang_cfg.http_ct_required,
-	},
-	{
-		"http_field_noduplicate", "false",
-		tfw_cfg_set_bool,
-		&frang_cfg.http_field_noduplicate,
 	},
 	{
 		"http_methods", NULL,
