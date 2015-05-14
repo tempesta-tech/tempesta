@@ -511,7 +511,7 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st)) {
 		unsigned long start = req->tm_header;
 		unsigned long delta = frang_cfg.clnt_hdr_timeout;
-		if (time_is_after_jiffies(start + delta))
+		if (time_is_before_jiffies(start + delta))
 			return TFW_BLOCK;
 	}
 
@@ -604,8 +604,9 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 		if (frang_cfg.clnt_body_timeout && (skb != head_skb)) {
 			unsigned long start = req->tm_bchunk;
 			unsigned long delta = frang_cfg.clnt_body_timeout;
-			if (time_is_after_jiffies(start + delta))
+			if (time_is_before_jiffies(start + delta))
 				r = TFW_BLOCK;
+			req->tm_bchunk = jiffies;
 		}
 		__FSM_MOVE(Frang_Req_Body_Len);
 	}
