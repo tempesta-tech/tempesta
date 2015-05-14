@@ -29,6 +29,9 @@
 /* Str constists from compound strings. */
 #define TFW_STR_COMPOUND2	0x02
 
+#define TFW_STR_COMPLETE	0x10	/* The string is complete */
+#define TFW_STR_HASCOLON	0x20	/* The string has a colon char */
+
 typedef struct {
 	unsigned int	flags;
 	unsigned int	len; /* length of a string or array of strings */
