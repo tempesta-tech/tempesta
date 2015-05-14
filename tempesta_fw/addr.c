@@ -231,8 +231,6 @@ tfw_addr_pton(const char *str, TfwAddr *addr)
 	else if (mode == 6)
 		ret = tfw_addr_pton_v6(str, &addr->v6);
 
-	if (ret)
-		TFW_ERR("Can't parse IP address: '%s'\n", str);
 	return ret;
 }
 DEBUG_EXPORT_SYMBOL(tfw_addr_pton);
