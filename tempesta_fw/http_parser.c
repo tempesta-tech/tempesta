@@ -839,30 +839,47 @@ done:
 static bool
 __header_is_singular(const TfwStr *field)
 {
-	int idx;
+	int idx, ichar, fchar;
+	bool fplain = !(field->flags & (TFW_STR_COMPOUND|TFW_STR_COMPOUND2));
+
 #define TfwStr_string(v)	{ 0, sizeof(v) - 1, (v) }
-	static const TfwStr field_singular[] = {
-		TfwStr_string("Host"),
-		TfwStr_string("Location"),
-		TfwStr_string("Content_Type"),
-		TfwStr_string("Content_Length"),
-		TfwStr_string("User_Agent"),
-		TfwStr_string("Referer"),
-		TfwStr_string("From"),
+	/*
+	 * Place strings in alphabetical order to speed up processing.
+	 */
+	static const TfwStr field_singular[] __read_mostly = {
 		TfwStr_string("Authorization"),
-		TfwStr_string("Proxy_Authorization"),
+		TfwStr_string("Content_Length"),
+		TfwStr_string("Content_Type"),
+		TfwStr_string("From"),
+		TfwStr_string("Host"),
 		TfwStr_string("If_Modified_Since"),
 		TfwStr_string("If_Unmodified_Since"),
+		TfwStr_string("Location"),
 		TfwStr_string("Max_Forwards"),
+		TfwStr_string("Proxy_Authorization"),
+		TfwStr_string("Referer"),
+		TfwStr_string("User_Agent"),
 	};
 #undef TfwStr_string
 
-	for (idx = 0; idx < ARRAY_SIZE(field_singular); idx++)
-		if (tfw_str_eq_cstr(field,
-				    field_singular[idx].ptr,
-				    field_singular[idx].len,
-				    TFW_STR_EQ_PREFIX_CASEI))
-			return true;
+	fchar = fplain
+		? tolower(*(unsigned char *)field->ptr)
+		: tolower(*(unsigned char *)((TfwStr *)field->ptr)->ptr);
+	for (idx = 0; idx < ARRAY_SIZE(field_singular); idx++) {
+		ichar = tolower(*(unsigned char *)field_singular[idx].ptr);
+		if (fchar < ichar)
+			continue;
+		else if (fchar > ichar)
+			break;
+		else if (fchar == ichar) {
+			const TfwStr *ifield = &field_singular[idx];
+			if (fplain && (field->len != ifield->len))
+				continue;
+			if (tfw_str_eq_cstr(field, ifield->ptr, ifield->len,
+						   TFW_STR_EQ_PREFIX_CASEI))
+				return true;
+		}
+	}
 	return false;
 }
 
