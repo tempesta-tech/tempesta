@@ -68,6 +68,7 @@ __field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
 		BUG_ON(!field->ptr);
 		field->len = end - (unsigned char *)field->ptr;
 	}
+	field->flags |= TFW_STR_COMPLETE;
 }
 
 #define __FSM_START(s)							\
@@ -827,6 +828,92 @@ done:
 	return r;
 }
 
+/*
+ * All singular headers should be made special and take a contiguous
+ * id space (be grouped together in the id space). Non-singular special
+ * headers should follow and take a different id space to differentiate
+ * from singular headers. That way checking whether a header field can
+ * be duplicated or not would be easy and fast as it should be. The check
+ * would be a simple comparison if the header field id is within the range.
+ */
+static bool
+__header_is_singular(const TfwStr *field)
+{
+	int idx, ichar, fchar;
+	bool fplain = !(field->flags & (TFW_STR_COMPOUND|TFW_STR_COMPOUND2));
+
+#define TfwStr_string(v)	{ 0, sizeof(v) - 1, (v) }
+	/*
+	 * Place strings in alphabetical order to speed up processing.
+	 */
+	static const TfwStr field_singular[] __read_mostly = {
+		TfwStr_string("Authorization"),
+		TfwStr_string("Content_Length"),
+		TfwStr_string("Content_Type"),
+		TfwStr_string("From"),
+		TfwStr_string("Host"),
+		TfwStr_string("If_Modified_Since"),
+		TfwStr_string("If_Unmodified_Since"),
+		TfwStr_string("Location"),
+		TfwStr_string("Max_Forwards"),
+		TfwStr_string("Proxy_Authorization"),
+		TfwStr_string("Referer"),
+		TfwStr_string("User_Agent"),
+	};
+#undef TfwStr_string
+
+	fchar = fplain
+		? tolower(*(unsigned char *)field->ptr)
+		: tolower(*(unsigned char *)((TfwStr *)field->ptr)->ptr);
+	for (idx = 0; idx < ARRAY_SIZE(field_singular); idx++) {
+		ichar = tolower(*(unsigned char *)field_singular[idx].ptr);
+		if (fchar < ichar)
+			continue;
+		else if (fchar > ichar)
+			break;
+		else if (fchar == ichar) {
+			const TfwStr *ifield = &field_singular[idx];
+			if (fplain && (field->len != ifield->len))
+				continue;
+			if (tfw_str_eq_cstr(field, ifield->ptr, ifield->len,
+						   TFW_STR_EQ_PREFIX_CASEI))
+				return true;
+		}
+	}
+	return false;
+}
+
+static int
+__header_is_duplicate(TfwHttpMsg *hm, int id, int adjust)
+{
+	int dupid;
+	char *buf;
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *field = &hm->h_tbl->tbl[id].field;
+	int len = tfw_str_len(field) - adjust;
+
+	if ((buf = tfw_pool_alloc(hm->pool, len + 1)) == NULL)
+		return id;
+	tfw_str_to_cstr(field, buf, len + 1);
+	for (dupid = TFW_HTTP_HDR_RAW; dupid < ht->off; dupid++) {
+		TfwStr *hdr = &ht->tbl[dupid].field;
+		if (tfw_str_eq_cstr(hdr, buf, len, TFW_STR_EQ_PREFIX_CASEI))
+			return dupid;
+	}
+	return id;
+}
+
+static inline char *
+__strrnchr(const char *s, size_t len, int c)
+{
+	const char *p = s + len;
+	do {
+		if (*p == (char)c)
+			return (char *)p;
+	} while (--p >= s);
+	return NULL;
+}
+
 /**
  * TODO process duplicate _generic_ (TFW_HTT_HDR_RAW) headers like:
  *
@@ -840,11 +927,12 @@ done:
  * tfw_cache_copy_resp() also must be updated.
  */
 static void
-__store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
+__store_header(TfwHttpMsg *hm, char *data, long len, int id,
 	       bool close)
 {
-	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *h;
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	char *cptr, *hptr = hm->parser.hdr.ptr;
 
 	if (unlikely(id == TFW_HTTP_HDR_RAW
 		     && hm->h_tbl->off == hm->h_tbl->size))
@@ -872,6 +960,25 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 		id = ht->off;
 
 	h = &ht->tbl[id].field;
+
+	/*
+	 * This doesn't change the current logic, but allows for proper
+	 * concatenation of header fields that may come in multiples in
+	 * a single HTTP message. Things to take care of are:
+	 * - Certain header fields are strictly singular and may not be
+	 *   repeated in an HTTP message. Duplicate of a singular header
+	 *   fields is a bug worth blocking the whole HTTP message.
+	 * - Certain header fields have '\n' as a concatenating character
+	 *   instead of an usual ',' (comma).
+	 */
+	if ((id < TFW_HTTP_HDR_RAW)
+	    && h->ptr && (h->flags & TFW_STR_COMPLETE)) {
+		if (__header_is_singular(h))
+			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+		/* XXX Append a proper concatenation character */
+		/* XXX Do not append the field name, just the value */
+		/* Don't change current logic for now */
+	}
 	if (h->ptr) {
 		/*
 		 * The header consists of multiple fragments.
@@ -881,16 +988,37 @@ __store_header(TfwHttpMsg *hm, unsigned char *data, long len, int id,
 		if (!h)
 			return;
 	}
-
 	TFW_STR_COPY(h, &hm->parser.hdr);
 	h->len = len;
+
+	if ((id > TFW_HTTP_HDR_RAW)
+	    && len && !(h->flags & TFW_STR_HASCOLON)
+	    && ((cptr = __strrnchr(hptr, len, ':')) != NULL)) {
+		int dupid = __header_is_duplicate(hm, id, hptr + len - cptr);
+		TfwStr *duph = (dupid == id) ? NULL : &ht->tbl[dupid].field;
+		BUG_ON(duph && !(duph->flags & TFW_STR_COMPLETE));
+		h->flags |= TFW_STR_HASCOLON;
+		if (duph) {
+			if (__header_is_singular(h))
+				hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+			/* XXX Append a proper concatenation character */
+			/* XXX Append accumulated data to the original field */
+			/* XXX Do not append the field name, just the value */
+			/* XXX Switch current field to the original one */
+			/* Don't change current logic for now */
+		}
+	}
+
 	TFW_STR_INIT(&hm->parser.hdr);
 	TFW_DBG("store header w/ ptr=%p len=%d flags=%x id=%d\n",
 		h->ptr, h->len, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
-	if (close && (id == ht->off))
-		ht->off++;
+	if (close) {
+		if (id == ht->off)
+			ht->off++;
+		h->flags |= TFW_STR_COMPLETE;
+	}
 }
 
 #define STORE_HEADER(rmsg, id, len)	__store_header((TfwHttpMsg *)rmsg, \

@@ -1127,6 +1127,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 			r = tfw_gfsm_move(&req->msg.state,
 					  TFW_HTTP_FSM_REQ_CHUNK, data, len);
+			TFW_DBG("GFSM return code %d\n", r);
 			if (r == TFW_BLOCK)
 				goto block;
 			return TFW_POSTPONE;

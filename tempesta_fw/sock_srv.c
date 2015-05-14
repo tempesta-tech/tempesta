@@ -579,7 +579,6 @@ tfw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR("can't add srv_group: %s\n", name);
 		return -EINVAL;
 	}
-
 	r = tfw_sg_set_sched(sg, sched_str);
 	if (r) {
 		TFW_ERR("can't set scheduler for srv_group: %s\n", name);

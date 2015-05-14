@@ -33,9 +33,11 @@
 #define TFW_HTTP_PF_CRLF		(TFW_HTTP_PF_CR | TFW_HTTP_PF_LF)
 
 typedef enum {
-	TFW_HTTP_METH_GET	= 0,
-	TFW_HTTP_METH_HEAD	= 1,
-	TFW_HTTP_METH_POST	= 2,
+	TFW_HTTP_METH_NONE,
+	TFW_HTTP_METH_GET,
+	TFW_HTTP_METH_HEAD,
+	TFW_HTTP_METH_POST,
+	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
 #define TFW_HTTP_CC_NO_CACHE		0x001
@@ -61,14 +63,14 @@ typedef struct {
  * large and log(N) becomes expensive and hard to code.
  *
  * So we use states space splitting to avoid states explosion.
- * @_stashed_st is used to save current state and go to inferior sub-automaton
- * (e.g. process LWS using @state while current state is saved in @_stashed_st
- * or using @_stashed_st parse value of a header described
+ * @_i_st is used to save current state and go to interior sub-automaton
+ * (e.g. process LWS using @state while current state is saved in @_i_st
+ * or using @_i_st parse value of a header described
  */
 typedef struct tfw_http_parser {
 	unsigned char	flags;
 	int		state;		/* current parser state */
-	int		_i_st;		/* helping (inferior) state */
+	int		_i_st;		/* helping (interior) state */
 	int		data_off;	/* data offset from which the parser
 					   starts reading */
 	int		to_read;	/* remaining data to read */
@@ -116,6 +118,7 @@ typedef struct {
 
 /* Request flags */
 #define TFW_HTTP_STICKY_SET		(0x0100)	/* Need 'Set-Cookie` */
+#define TFW_HTTP_FIELD_DUPENTRY		(0x0200)	/* Duplicate field */
 
 /**
  * Common HTTP message members.
@@ -146,14 +149,25 @@ typedef struct {
 /**
  * HTTP Request.
  *
+ * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @frang_st	- current state of FRANG classifier;
+ * @hdr_rawid	- id of the latest RAW header that was checked;
+ * @tm_header	- time HTTP header started coming;
+ * @tm_bchunk	- time previous chunk of HTTP body had come at;
+ * @body_len	- current length of the HTTP message body;
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	unsigned char		method;
 	TfwStr			host;
 	TfwStr			uri_path;
+	unsigned int		frang_st;
+	unsigned int		hdr_rawid;
+	unsigned long		tm_header;
+	unsigned long		tm_bchunk;
+	unsigned long		body_len;
 } TfwHttpReq;
 
 typedef struct {
@@ -162,6 +176,25 @@ typedef struct {
 	unsigned int	keep_alive;
 	unsigned int	expires;
 } TfwHttpResp;
+
+#define FOR_EACH_HDR_FIELD(pos, end, msg)				\
+	__FOR_EACH_HDR_FIELD(pos, end, msg, 0, (msg)->h_tbl->off)
+
+#define FOR_EACH_HDR_FIELD_SPECIAL(pos, end, msg)			\
+	__FOR_EACH_HDR_FIELD(pos, end, msg, 0, TFW_HTTP_HDR_RAW)
+
+#define FOR_EACH_HDR_FIELD_RAW(pos, end, msg)				\
+	__FOR_EACH_HDR_FIELD(pos, end, msg, TFW_HTTP_HDR_RAW,		\
+					    (msg)->h_tbl->off)
+
+#define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
+	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
+
+#define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
+	for ((pos) = &(msg)->h_tbl->tbl[soff].field, 			\
+	     (end) = &(msg)->h_tbl->tbl[eoff].field;			\
+	     (pos) < (end); 						\
+	     ++(pos))
 
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 

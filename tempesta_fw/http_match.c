@@ -104,8 +104,9 @@ hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
 		const char *name;
 		int name_len;
 	} hdr_name_tbl[TFW_HTTP_HDR_NUM] = {
-		[TFW_HTTP_HDR_CONNECTION] = _HDR("Connection"),
-		[TFW_HTTP_HDR_HOST]       = _HDR("Host"),
+		[TFW_HTTP_HDR_CONNECTION]      = _HDR("Connection"),
+		[TFW_HTTP_HDR_HOST]            = _HDR("Host"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR] = _HDR("X-Forwarded-For"),
 	};
 #undef _HDR
 
