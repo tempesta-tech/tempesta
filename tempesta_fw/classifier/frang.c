@@ -167,7 +167,7 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 		 */
 		ra = kmem_cache_alloc(frang_mem_cache, GFP_ATOMIC | __GFP_ZERO);
 		if (!ra) {
-			TFW_WARN("frang: can't alloc account record\n");
+			TFW_WARN("frang: Unable to allocate account record\n");
 			return TFW_BLOCK;
 		}
 
@@ -263,16 +263,21 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 	}
 	ra->history[i].req++;
 
-	if (frang_cfg.req_burst && ra->history[i].req > frang_cfg.req_burst)
+	if (frang_cfg.req_burst && ra->history[i].req > frang_cfg.req_burst) {
+		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+			 "request_burst",
+			 ra->history[i].req, frang_cfg.req_burst);
 		goto block;
-
+	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			rsum += ra->history[i].req;
-	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate)
+	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate) {
+		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+			 "request_rate", rsum, frang_cfg.req_rate);
 		goto block;
-
+	}
 	return TFW_PASS;
 
 block:
@@ -290,8 +295,10 @@ frang_http_uri_len(const TfwHttpReq *req)
 {
 	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
 	 * This is too slow. The value must be stored in a TfwStr field. */
-	if (tfw_str_len(&req->uri_path) > frang_cfg.http_uri_len) {
-		TFW_DBG("frang: http_uri_len limit reached\n");
+	unsigned int uri_len = tfw_str_len(&req->uri_path);
+	if (uri_len > frang_cfg.http_uri_len) {
+		TFW_WARN("frang_%s limit exceeded: %u (%u)\n",
+			 "http_uri_len", uri_len, frang_cfg.http_uri_len);
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
@@ -303,8 +310,11 @@ frang_http_field_len_raw(const TfwHttpReq *req)
 	const TfwStr *field, *end;
 
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, req->hdr_rawid) {
-		if (tfw_str_len(field) > frang_cfg.http_field_len) {
-			TFW_DBG("frang: http_field_len limit reached\n");
+		unsigned int field_len = tfw_str_len(field);
+		if (field_len > frang_cfg.http_field_len) {
+			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+				 "http_field_len",
+				 field_len, frang_cfg.http_field_len);
 			return TFW_BLOCK;
 		}
 	}
@@ -317,8 +327,11 @@ frang_http_field_len_special(const TfwHttpReq *req)
 	const TfwStr *field, *end;
 
 	FOR_EACH_HDR_FIELD_SPECIAL(field, end, req) {
-		if (tfw_str_len(field) > frang_cfg.http_field_len) {
-			TFW_DBG("frang: http_field_len limit reached\n");
+		unsigned int field_len = tfw_str_len(field);
+		if (field_len > frang_cfg.http_field_len) {
+			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+				 "http_field_len",
+				 field_len, frang_cfg.http_field_len);
 			return TFW_BLOCK;
 		}
 	}
@@ -331,8 +344,8 @@ frang_http_methods(const TfwHttpReq *req)
 	unsigned long mbit = (1 << req->method);
 
 	if (!(frang_cfg.http_methods_mask & mbit)) {
-		TFW_DBG("frang: method not permitted: %d (%#lx)\n",
-			req->method, mbit);
+		TFW_WARN("frang: restricted HTTP method: %u (%#lxu)\n",
+			 req->method, mbit);
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
@@ -360,7 +373,7 @@ frang_http_ct_check(const TfwHttpReq *req)
 		}
 	}
 	if (field == end) {
-		TFW_DBG("frang: Content-Type is missing\n");
+		TFW_WARN("frang: 'Content-Type' header field missing\n");
 		return TFW_BLOCK;
 	}
 	/* Verify that Content-Type value is on the list of allowed values.
@@ -382,8 +395,8 @@ frang_http_ct_check(const TfwHttpReq *req)
 		}
 	}
 	if (!curr->str) {
-		TFW_DBG("frang: Content-Type value not permitted: %s\n",
-			curr->str);
+		TFW_WARN("frang: restricted Content-Type value: %s\n",
+			 curr->str);
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
@@ -401,7 +414,7 @@ frang_http_host_check(const TfwHttpReq *req)
 
 	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 	if (!field->ptr) {
-		TFW_DBG("frang: the Host header is missing\n");
+		TFW_WARN("frang: 'Host' header field missing\n");
 		return TFW_BLOCK;
 	}
 	/*
@@ -417,8 +430,10 @@ frang_http_host_check(const TfwHttpReq *req)
 	tfw_str_to_cstr(field, buf, len);
 	ptr = buf + sizeof("Host:") - 1;
 	ptr = skip_spaces(ptr);
-	if (!tfw_addr_pton(ptr, &addr))
+	if (!tfw_addr_pton(ptr, &addr)) {
+		TFW_WARN("frang: 'Host' header field contains IP address\n");
 		return TFW_BLOCK;
+	}
 	return TFW_PASS;
 }
 
@@ -511,8 +526,12 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st)) {
 		unsigned long start = req->tm_header;
 		unsigned long delta = frang_cfg.clnt_hdr_timeout;
-		if (time_is_before_jiffies(start + delta))
+		if (time_is_before_jiffies(start + delta)) {
+			TFW_WARN("frang: %s limit exceeded: %lums (%lums)\n",
+				 "client_header_timeout",
+				 jiffies - start, delta);
 			return TFW_BLOCK;
+		}
 	}
 
 	__FSM_START(req->frang_st) {
@@ -550,6 +569,7 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	}
 	__FSM_STATE(Frang_Req_Hdr_FieldDup) {
 		if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
+			TFW_WARN("frang: duplicate header field found\n");
 			r = TFW_BLOCK;
 		}
 		__FSM_MOVE(Frang_Req_Hdr_FieldLenRaw);
@@ -604,8 +624,13 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 		if (frang_cfg.clnt_body_timeout && (skb != head_skb)) {
 			unsigned long start = req->tm_bchunk;
 			unsigned long delta = frang_cfg.clnt_body_timeout;
-			if (time_is_before_jiffies(start + delta))
+			if (time_is_before_jiffies(start + delta)) {
+				TFW_WARN("frang: %s limit exceeded: "
+					 "%lums (%lums)\n",
+					 "client_body_timeout",
+					 jiffies - start, delta);
 				r = TFW_BLOCK;
+			}
 			req->tm_bchunk = jiffies;
 		}
 		__FSM_MOVE(Frang_Req_Body_Len);
@@ -613,7 +638,9 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 	__FSM_STATE(Frang_Req_Body_Len) {
 		req->body_len += body_len;
 		if (req->body_len > frang_cfg.http_body_len) {
-			TFW_DBG("frang: http_body_len limit reached\n");
+			TFW_WARN("frang: %s limit exceeded: %lu (%u)\n",
+				 "http_body_len",
+				 req->body_len, frang_cfg.http_body_len);
 			r = TFW_BLOCK;
 		}
 		__FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
