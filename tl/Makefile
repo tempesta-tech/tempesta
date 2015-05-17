@@ -20,7 +20,7 @@ CXX		= g++
 LEX		= flex++
 YACC		= bison
 # Use gnu++11 instead of c++11 for standard C header compatibility.
-CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
+CFLAGS		= -std=gnu++11 -ggdb -Wall -Wno-sign-compare
 LDFLAGS		= -lboost_program_options
 INCLUDES	= -I../lib
 
@@ -29,8 +29,8 @@ OBJECTS		= ast.o compiler.o lexer.o main.o parser.o
 all : gen_parser tl
 
 gen_parser: lexer.ll parser.yy
-	$(LEX) lexer.ll
-	$(YACC) -v parser.yy
+	$(LEX) --debug lexer.ll
+	$(YACC) --debug -v parser.yy
 
 tl: $(OBJECTS)
 	$(CXX) $(CFLAGS) -o $@ $^ $(LDFLAGS)

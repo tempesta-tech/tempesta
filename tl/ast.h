@@ -55,6 +55,8 @@ typedef enum {
 	TL_IF,		// if statement
 	TL_FUNC,	// function call
 
+	TL_EOS,		// ; End Of Statement
+
 	TL_UNDEF
 } tl_term_t;
  
@@ -88,21 +90,21 @@ struct Expr {
 	Expr		*left_;		// left side of the tree
 	Expr		*right_;	// right side of the tree
 	Symbol		*sym_;		// the entry in symbol table
-	union {
-		long		value_;
-		std::string	str_;
-	};
+	long		value_;
+	std::string	str_;
 	FArgs		args_;		// function args, block statemets etc
 };
  
 Expr *create_number(long value) noexcept;
-Expr *create_str(tl_term_t type, const char *str) noexcept;
-Expr *create_identifier(const char *name, Symbol *s) noexcept;
-Expr *create_ipv4(const char *addr);
+Expr *create_str(tl_term_t type, const std::string &str) noexcept;
+Expr *create_identifier(const std::string &name, Symbol *s) noexcept;
+Expr *create_ipv4(const std::string  &addr);
 Expr *create_op(tl_term_t type, Expr *left, Expr *right) noexcept;
-Expr *create_func(const std::string &name, Expr::FArgs *args) noexcept;
+Expr *create_deref(Expr *ident, const std::string &member) noexcept;
+Expr *create_func_noargs(Expr *ident) noexcept;
+Expr *create_func(Expr *ident, Expr::FArgs &args) noexcept;
 
-std::ostream& operator<<(std::ostream& os, const Expr *expr) noexcept;
+std::ostream& operator<<(std::ostream& os, const Expr *expr);
 
 // Currently just a sequence of statements.
 struct AST {

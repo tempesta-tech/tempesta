@@ -24,15 +24,17 @@
 
 #include "compiler.h"
 
-extern int yy_flex_debug;
-
 namespace tl {
 
 Compiler::Compiler(bool debug) noexcept
 	: parser_(scanner_, ast_root_, st_)
 {
-	if (debug)
-		yy_flex_debug = 1;
+	if (debug) {
+		scanner_.set_debug(1);
+#ifdef YYDEBUG
+		parser_.set_debug_level(1);
+#endif
+	}
 }
 
 void
@@ -60,7 +62,8 @@ Compiler::ast_node_print(const Expr *node, int lvl) noexcept
 	std::cout << node << std::endl;
 
 	if (node->type_ == TL_FUNC) {
-		BOOST_ASSERT(!node->left_ && !node->right_);
+		BOOST_ASSERT(node->left_ && !node->right_);
+		ast_node_print(node->left_, lvl + 1);
 		for (auto &a: node->args_)
 			ast_node_print(a, lvl + 1);
 	} else {
@@ -75,7 +78,7 @@ Compiler::ast_print() noexcept
 {
 	std::cout << "Parsed AST (left branches are on top):" << std::endl;
 
-	for (auto n: ast_root_->expr_l_)
+	for (auto n: ast_root_.expr_l_)
 		ast_node_print(n, 0);
 }
 

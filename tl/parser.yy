@@ -23,17 +23,20 @@
 #include "ast.h"
 #include "exception.h"
 #include "sym_tbl.h"
+
+#define YYDEBUG 1
 %}
  
 %require "3.0.0"
 %skeleton "lalr1.cc"
 %output "parser.cc"
 %defines "parser.h"
+%locations
 %define api.value.type variant
 %define api.namespace { tl }
 %define parser_class_name { BisonParser }
 %parse-param { tl::FlexScanner &scanner }
-%parse-param { tl::AST *ast }
+%parse-param { tl::AST &ast }
 %parse-param { tl::SymTbl &st }
 %lex-param { tl::FlexScanner &scanner }
 
@@ -45,6 +48,7 @@
 
 %code {
 	static int yylex(tl::BisonParser::semantic_type * yylval,
+			 tl::BisonParser::location_type *loc,
 			 tl::FlexScanner &scanner);
 }
 
@@ -55,84 +59,105 @@
 %nonassoc "=~" "!~"
 %left '.' '(' ')'
  
-%token <std::string> IDENT
-%token <std::string> IPV4
-%token <long> LONGINT
-%token <std::string> STR
-%token <std::string> REGEX
-%token IF
- 
-%type <tl::Expr *> stmt expr
-%type <tl::Expr::FArgs> args
- 
+%token <std::string>	IDENT
+%token <std::string>	IPV4
+%token <long>		LONGINT
+%token <std::string>	STR
+%token <std::string>	RE
+%token			EQ
+%token			NEQ
+%token			REEQ
+%token			RENEQ
+%token			GE
+%token			LE
+%token			AND
+%token			OR
+%token			IF
+
+%type <tl::Expr *>	stmt expr ident
+%type <tl::Expr::FArgs>	args
+
+%start program
+
 %%
  
 program:
 	stmt
-		{ ast->push_expr($1); }
+		{ ast.push_expr($1); }
 	| program stmt
-		{ ast->push_expr($2); }
+		{ ast.push_expr($2); }
 	;
 
 stmt:
 	expr ';'
 		{ $$ = $1; }
-	| "if" '(' expr ')' stmt
+	| IF '(' expr ')' stmt
 		{ $$ = create_op(TL_IF, $3, $5); }
-	| STR '(' ')'
-		{ $$ = create_func($1, NULL); }
-	| STR '(' args ')'
-		{ $$ = create_func($1, $3); }
 	;
 
-args:
-	expr
-		{
-			$$ = FArgs();
-			$$.push_back($1);
-		}
-	| args ',' expr
-		{
-			FArgs &args = $1;
-			args.push_back($3);
-			$$ = args;
-		}
-	;
-	
 expr:
-	IDENT
-		{ $$ = create_identifier($1, st->lookup($1)); }
+	ident '(' ')'
+		{ $$ = create_func_noargs($1); }
+	| ident '(' args ')'
+		{ $$ = create_func($1, $3); }
+	| '(' expr ')'
+		{ $$ = $2; }
+	| expr AND expr
+		{ $$ = create_op(TL_AND, $1, $3); }
+	| expr OR expr
+		{ $$ = create_op(TL_OR, $1, $3); }
+	| expr EQ expr
+		{ $$ = create_op(TL_EQ, $1, $3); }
+	| expr NEQ expr
+		{ $$ = create_op(TL_NEQ, $1, $3); }
+	| expr REEQ expr
+		{ $$ = create_op(TL_REEQ, $1, $3); }
+	| expr RENEQ expr
+		{ $$ = create_op(TL_RENEQ, $1, $3); }
+	| expr '>' expr
+		{ $$ = create_op(TL_GT, $1, $3); }
+	| expr GE expr
+		{ $$ = create_op(TL_GE, $1, $3); }
+	| expr '<' expr
+		{ $$ = create_op(TL_LT, $1, $3); }
+	| expr LE expr
+		{ $$ = create_op(TL_LE, $1, $3); }
+	| ident
+		{ $$ = $1; }
 	| LONGINT
 		{ $$ = create_number($1); }
 	| IPV4
 		{ $$ = create_ipv4($1); }
 	| STR
 		{ $$ = create_str(TL_STR, $1); }
-	| REGEX
-		{ $$ = create_str($1); }
-	| expr '.' expr
-		{ $$ = create_op(TL_DEREF, $1, $3); }
-	| expr "==" expr
-		{ $$ = create_op(TL_EQ, $1, $3); }
-	| expr "!=" expr
-		{ $$ = create_op(TL_NEQ, $1, $3); }
-	| expr "=~" expr
-		{ $$ = create_op(TL_REEQ, $1, $3); }
-	| expr "!~" expr
-		{ $$ = create_op(TL_RENEQ, $1, $3); }
-	| expr '>' expr
-		{ $$ = create_op(TL_GT, $1, $3); }
-	| expr ">=" expr
-		{ $$ = create_op(TL_GE, $1, $3); }
-	| expr '<' expr
-		{ $$ = create_op(TL_LT, $1, $3); }
-	| expr "<=" expr
-		{ $$ = create_op(TL_LE, $1, $3); }
-	| '(' expr ')'
-		{ $$ = $2; }
+	| RE
+		{ $$ = create_str(TL_REGEX, $1); }
 	;
- 
+
+ident:
+	IDENT
+		{ $$ = create_identifier($1, st.lookup($1)); }
+	| ident '.' IDENT
+		{ $$ = create_deref($1, $3); }
+	;
+
+args:
+	expr
+		{
+			$$ = tl::Expr::FArgs();
+			$$.push_back($1);
+		}
+	| args ',' expr
+		{
+			tl::Expr::FArgs &args = $1;
+			args.push_back($3);
+			$$ = args;
+		}
+	;
+	
 %%
+
+extern int yylineno;
 
 void
 tl::BisonParser::error(const tl::BisonParser::location_type &loc,
@@ -147,7 +172,9 @@ tl::BisonParser::error(const tl::BisonParser::location_type &loc,
 #include "scanner.h"
 
 static int
-yylex(tl::BisonParser::semantic_type * yylval, tl::FlexScanner &scanner)
+yylex(tl::BisonParser::semantic_type * yylval,
+      tl::BisonParser::location_type *loc,
+      tl::FlexScanner &scanner)
 {
 	return scanner.yylex(yylval);
 }

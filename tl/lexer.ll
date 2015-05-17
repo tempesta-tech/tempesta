@@ -26,15 +26,20 @@
 #include "exception.h"
 #include "scanner.h"
 
+#define pt tl::BisonParser::token
+
 char str_buf[256], *str;
+int yylineno;
 %}
 
 %option outfile="lexer.cc" header-file="lexer.h"
 %option yyclass="FlexScanner"
 %option noyywrap nodefault c++
+%option yylineno
+%option debug
 
 WS		[ \r\n\t]*
-COMMENT		#.*\n
+COMMENT		#.*
 NUMBER		0|[1-9][0-9]*
 IDENT		[a-zA-Z_][a-zA-Z0-9_]*
 IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
@@ -49,15 +54,15 @@ IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
 
 {NUMBER}	{
 			yylval->build<long>() = atol(yytext);
-			return tl::TL_LONGINT;
+			return pt::LONGINT;
 		}
 
 {IPV4}		{
 			yylval->build<std::string>() = yytext;
-			return tl::TL_IPV4;
+			return pt::IPV4;
 		}
 
-	/* Process strings and regular expressions with escaped symbols. */
+	/* Process strings with escaped symbols. */
 \"		{
 			BEGIN STRING;
 			str = str_buf;
@@ -67,11 +72,14 @@ IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
 <STRING>\\\"	{ *str++ = '\"'; }
 <STRING>\"	{
 			*str = 0;
+			yylval->build<std::string>() = str_buf;
 			BEGIN 0;
+			return pt::STR;
 		}
 <STRING>\n	{ throw TfwExcept("bad string [%s]", yytext); }
 <STRING>.	{ *str++ = *yytext; }
 
+	/* Process regular expressions with escaped symbols. */
 \/		{
 			BEGIN REGEX;
 			str = str_buf;
@@ -80,33 +88,34 @@ IPV4		[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
 <REGEX>\\t	{ *str++ = '\t'; }
 <REGEX>\\\"	{ *str++ = '\"'; }
 <REGEX>\/i?	{
+			if (!strcmp(yytext, "/i")) {
+				*str++ = '/';
+				*str++ = 'i';
+			}
 			*str = 0;
+			yylval->build<std::string>() = str_buf;
 			BEGIN 0;
+			return pt::RE;
 		}
 <REGEX>\n	{ throw TfwExcept("bad regexp [%s]", yytext); }
 <REGEX>.	{ *str++ = *yytext; }
 
-"."		{ return tl::TL_DEREF; }
-"("		{ return tl::TL_LPAREN; }
-")"		{ return tl::TL_RPAREN; }
-"=="		{ return tl::TL_EQ; }
-"!="		{ return tl::TL_NEQ; }
-"=~"		{ return tl::TL_REEQ; }
-"!~"		{ return tl::TL_RENEQ; }
-">"		{ return tl::TL_GT; }
-">="		{ return tl::TL_GE; }
-"<"		{ return tl::TL_LT; }
-"<="		{ return tl::TL_LE; }
-"&&"		{ return tl::TL_AND; }
-"<"		{ return tl::TL_OR; }
+[.,()><;]	{ return *yytext; }
+"=="		{ return pt::EQ; }
+"!="		{ return pt::NEQ; }
+"=~"		{ return pt::REEQ; }
+"!~"		{ return pt::RENEQ; }
+">="		{ return pt::GE; }
+"<="		{ return pt::LE; }
+"&&"		{ return pt::AND; }
+"||"		{ return pt::OR; }
 
-"if"		{
-			return tl::TL_IF;
-		}
+"if"		{ return pt::IF; }
 
 {IDENT}		{
 			yylval->build<std::string>() = yytext;
-			return tl::TL_IDENT;
+			return pt::IDENT;
 		}
 
-.		{ throw TfwExcept("unknown character[%s]", yytext); }
+.		{ throw TfwExcept("unknown character [%s]", yytext); }
+

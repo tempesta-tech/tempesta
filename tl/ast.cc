@@ -47,25 +47,25 @@ create_number(long value) noexcept
 }
 
 Expr *
-create_str(tl_term_t type, const char *str) noexcept
+create_str(tl_term_t type, const std::string &str) noexcept
 {
 	return (new Expr(type))->set_str(str);
 }
 
 Expr *
-create_identifier(const char *name, Symbol *s) noexcept
+create_identifier(const std::string &name, Symbol *s) noexcept
 {
 	return (new Expr(TL_IDENT, nullptr, nullptr, s))->set_str(name);
 }
 
 Expr *
-create_ipv4(const char *addr)
+create_ipv4(const std::string &addr)
 {
 	Expr *e = new Expr(TL_IPV4);
 	struct sockaddr_in v4;
 
-	if (!inet_pton(AF_INET, addr, &v4.sin_addr))
-		throw TfwExcept("invalid IPv4 address: %s", addr);
+	if (!inet_pton(AF_INET, addr.c_str(), &v4.sin_addr))
+		throw TfwExcept("invalid IPv4 address: %s", addr.c_str());
 	e->value_ = v4.sin_addr.s_addr;
 
 	return e;
@@ -78,32 +78,56 @@ create_op(tl_term_t type, Expr *left, Expr *right) noexcept
 }
 
 Expr *
-create_func(const std::string &name, Expr::FArgs &args) noexcept
+create_deref(Expr *ident, const std::string &member) noexcept
 {
-	Expr *e = new Expr(TL_FUNC);
+	return (new Expr(TL_DEREF, ident))->set_str(member);
+}
 
-	e->set_str(name);
+Expr *
+create_func_noargs(Expr *ident) noexcept
+{
+	return new Expr(TL_FUNC, ident);
+}
+
+Expr *
+create_func(Expr *ident, Expr::FArgs &args) noexcept
+{
+	Expr *e = create_func_noargs(ident);
+
 	e->args_ = std::move(args);
 
 	return e;
 }
 
 std::ostream&
-operator<<(std::ostream& os, const Expr *expr) noexcept
+operator<<(std::ostream& os, const Expr *expr)
 {
 	switch (expr->type_) {
-	case TL_IDENT:
 	case TL_FUNC:
-	case TL_STR:
-	case TL_REGEX:
+		os << "__func__";
+		break;
+	case TL_IDENT:
 		os << expr->str_;
 		break;
+	case TL_STR:
+		os << "\"" << expr->str_ << "\"";
+		break;
+	case TL_REGEX:
+		os << "/" << expr->str_ << "/";
+		break;
 	case TL_LONGINT:
-	case TL_IPV4:
 		os << "'" << expr->value_ << "'";
 		break;
+	case TL_IPV4: {
+		char buf[128];
+		if (!inet_ntop(AF_INET, &expr->value_, buf, 128))
+			throw TfwExcept("cannot retrieve IPv4 from %lx",
+					expr->value_);
+		os << "'" << buf << "'";
+		break;
+		}
 	case TL_DEREF:
-		os << ".";
+		os << expr->str_ << " .";
 		break;
 	case TL_EQ:
 		os << "==";
