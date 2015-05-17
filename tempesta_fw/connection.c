@@ -128,7 +128,7 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 	TfwConnection *conn = (TfwConnection *)proto;
 
 	if (!conn->msg) {
-		TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
+		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
 		if (!conn->msg)
 			return -ENOMEM;
 		TFW_DBG("Link new msg %p with connection %p\n",

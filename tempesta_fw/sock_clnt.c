@@ -114,6 +114,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
+	ss_set_callbacks(sk);
 
 	r = tfw_connection_new(conn);
 	if (r) {
