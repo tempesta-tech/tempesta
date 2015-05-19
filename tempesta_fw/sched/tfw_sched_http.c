@@ -93,7 +93,19 @@ typedef struct {
 static TfwHttpMatchList *tfw_sched_http_rules;
 
 static TfwConnection *
-tfw_sched_http_sched_grp(TfwMsg *msg)
+tfw_sched_http_default(TfwMsg *msg)
+{
+	TfwConnection *conn = NULL;
+	TfwSrvGroup *sg = tfw_sg_lookup("default");
+	if (sg)
+		conn = sg->sched->sched_srv(msg, sg);
+	if (unlikely(!conn))
+		ERR("Unable to select server from group '%s'\n", sg->name);
+	return conn;
+}
+
+static TfwConnection *
+tfw_sched_http_match(TfwMsg *msg)
 {
 	TfwSrvGroup *sg;
 	TfwConnection *conn;
@@ -104,8 +116,9 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, tfw_sched_http_rules,
 					TfwSchedHttpRule, rule);
 	if (unlikely(!rule)) {
-		ERR("can't find an appropriate server group\n");
-		return NULL;
+		/* No matching rule found. Try the default group. */
+		DBG("No matching rule found.\n");
+		return tfw_sched_http_default(msg);
 	}
 
 	sg = rule->main_sg;
@@ -121,8 +134,22 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	}
 
 	if (unlikely(!conn))
-		ERR("can't select a server from the group\n");
+		ERR("Unable to select server from group '%s'\n", sg->name);
 
+	return conn;
+}
+
+static TfwConnection *
+tfw_sched_http_sched_grp(TfwMsg *msg)
+{
+	TfwConnection *conn;
+
+	/* Try the default group if no rules are configured. */
+	if (!tfw_sched_http_rules) {
+		conn = tfw_sched_http_default(msg);
+	} else {
+		conn = tfw_sched_http_match(msg);
+	}
 	return conn;
 }
 
