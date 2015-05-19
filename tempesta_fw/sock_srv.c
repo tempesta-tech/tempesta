@@ -517,13 +517,22 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_srv_cfg_handle_server_outside_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	tfw_srv_cfg_curr_group = tfw_sg_lookup("default");
+	int ret;
+	static const char __read_mostly s_dummy[] = "dummy";
+	static const char __read_mostly s_default[] = "default";
+	TfwSrvGroup *sg = tfw_sg_lookup(s_default);
 
 	/* The "default" group is created implicitly. */
-	if (!tfw_srv_cfg_curr_group) {
-		tfw_srv_cfg_curr_group = tfw_sg_new("default", GFP_KERNEL);
-		BUG_ON(!tfw_srv_cfg_curr_group);
+	if (!sg && ((sg = tfw_sg_new("default", GFP_KERNEL)) == NULL)) {
+		TFW_ERR("Unable to add server group: '%s'\n", s_default);
+		return -EINVAL;
 	}
+	if ((ret = tfw_sg_set_sched(sg, s_dummy)) != 0) {
+		TFW_ERR("Unable to set scheduler '%s' "
+			"for server group '%s'\n", s_dummy, s_default);
+		return ret;
+	}
+	tfw_srv_cfg_curr_group = sg;
 
 	return tfw_srv_cfg_handle_server(cs, ce);
 }
