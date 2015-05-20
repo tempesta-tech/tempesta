@@ -91,16 +91,19 @@ typedef struct {
 } TfwSchedHttpRule;
 
 static TfwHttpMatchList *tfw_sched_http_rules;
+static TfwSrvGroup *tfw_sched_sg_default;
 
 static TfwConnection *
 tfw_sched_http_default(TfwMsg *msg)
 {
 	TfwConnection *conn = NULL;
-	TfwSrvGroup *sg = tfw_sg_lookup("default");
-	if (sg)
-		conn = sg->sched->sched_srv(msg, sg);
+
+	if (tfw_sched_sg_default)
+		conn = tfw_sched_sg_default
+		       ->sched->sched_srv(msg, tfw_sched_sg_default);
 	if (unlikely(!conn))
-		ERR("Unable to select server from group '%s'\n", sg->name);
+		ERR("Unable to select server from group '%s'\n",
+		    tfw_sched_sg_default->name);
 	return conn;
 }
 
@@ -323,6 +326,19 @@ tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
 	tfw_sched_http_rules = NULL;
 }
 
+static int
+tfw_sched_http_start(void)
+{
+	tfw_sched_sg_default = tfw_sg_lookup("default");
+	return 0;
+}
+
+static void
+tfw_sched_http_stop(void)
+{
+	tfw_sched_sg_default = NULL;
+}
+
 static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
 	{
 		"match", NULL,
@@ -334,7 +350,9 @@ static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
 };
 
 static TfwCfgMod tfw_sched_http_cfg_mod = {
-	.name = "tfw_sched_http",
+	.name  = "tfw_sched_http",
+	.start = tfw_sched_http_start,
+	.stop  = tfw_sched_http_stop,
 	.specs = (TfwCfgSpec[]){
 		{
 			"sched_http_rules", NULL,
