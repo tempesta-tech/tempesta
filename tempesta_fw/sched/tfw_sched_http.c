@@ -64,11 +64,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/ctype.h>
-#include <linux/rcupdate.h>
-#include <linux/spinlock.h>
 #include <linux/string.h>
-#include <linux/sysctl.h>
 
 #include "cfg.h"
 #include "http_match.h"
