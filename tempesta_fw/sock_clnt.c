@@ -339,7 +339,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	int port;
 	TfwAddr addr;
-	const char *in_str;
+	const char *in_str = NULL;
 
 	r = tfw_cfg_check_single_val(ce);
 	if (r)
@@ -370,7 +370,8 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 
 parse_err:
-	TFW_ERR("Unable to parse 'listen' value: '%s'\n", in_str);
+	TFW_ERR("Unable to parse 'listen' value: '%s'\n",
+		in_str ? in_str : "No value specified");
 	return -EINVAL;
 }
 
