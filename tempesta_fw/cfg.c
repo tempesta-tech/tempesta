@@ -1369,7 +1369,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 		.pos = cfg_text
 	};
 	TfwCfgMod *mod;
-	TfwCfgSpec *matching_spec;
+	TfwCfgSpec *matching_spec = NULL;
 	int r = -EINVAL;
 
 	MOD_FOR_EACH(mod, mod_list) {
