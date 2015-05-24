@@ -174,7 +174,11 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 	unsigned long addr = -ENOMEM;
 
 	BUG_ON(len & ~TDB_EXT_MASK);
-	BUG_ON(file->f_inode->i_size != len);
+	if (file->f_inode->i_size != len) {
+		TDB_ERR("Bad file size %ld while expected is %lu\n",
+			file->f_inode->i_size, len);
+		return -EBADF;
+	}
 
 	mutex_lock(&map_mtx);
 

@@ -57,7 +57,7 @@ start()
 {
 	echo "Starting Tempesta..."
 
-	# Create database directory if it doesn't exists.
+	# Create database directory if it doesn't exist.
 	mkdir -p /opt/tempesta/db/
 
 	sysctl -w net.tempesta.state=start
