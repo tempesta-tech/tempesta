@@ -572,7 +572,7 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	},
 	{
 		"cache_size",
-		"536870912",
+		"268435456",
 		tfw_cfg_set_int,
 		&cache_cfg.db_size,
 		&(TfwCfgSpecInt) {
