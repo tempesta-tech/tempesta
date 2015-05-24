@@ -566,7 +566,7 @@ tfw_cache_stop(void)
 static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	{
 		"cache",
-		"off",
+		"on",
 		tfw_cfg_set_bool,
 		&cache_cfg.cache
 	},

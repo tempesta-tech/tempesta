@@ -529,25 +529,6 @@ tfw_srv_cfg_handle_server_outside_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 /**
- * Handle defaults for the "server" spec.
- *
- * The separate function is only needed to check that there are no "server"
- * entries already defined (either top-level or within an "srv_group").
- * If there is at least one, we don't need to use defaults.
- */
-static int
-tfw_srv_cfg_handle_server_defaults(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	if (tfw_sg_count()) {
-		TFW_DBG("at least one server is defined, ignore defaults\n");
-		return 0;
-	}
-
-	TFW_DBG("no servers defined, apply defaults\n");
-	return tfw_srv_cfg_handle_server_outside_group(cs, ce);
-}
-
-/**
  * The callback is invoked on entering an "srv_group", e.g:
  *
  *   srv_group foo sched=hash {  <--- The position at the moment of call.
@@ -643,11 +624,6 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_srv_cfg_clean_srv_groups,
-		},
-		{
-			"server_default_dummy",
-			"127.0.0.1:8080 conns_n=4",
-			tfw_srv_cfg_handle_server_defaults
 		},
 		{
 			"srv_group",
