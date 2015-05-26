@@ -690,14 +690,15 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..721d1f2
+index 0000000..d7c20aa
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,94 @@
 +/**
 + *		Tempesta FW
 + *
 + * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -761,9 +762,13 @@ index 0000000..721d1f2
 +	TempestaOps *tops;
 +
 +	rcu_read_lock();
++
 +	tops = rcu_dereference(tempesta_ops);
-+	if (likely(tops))
-+		r = tops->sock_tcp_rcv(sk, skb);
++	if (likely(tops)) {
++		if (skb->protocol == htons(ETH_P_IP))
++			r = tops->sock_tcp_rcv(sk, skb);
++	}
++
 +	rcu_read_unlock();
 +
 +	return r;
