@@ -78,8 +78,7 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	for ko_file in "${sched_ko_files[@]}"; do
-		mod_name = $(basename "${ko_file%.ko}") 
-		rmmod $mod_name
+		rmmod $(basename "${ko_file%.ko}")
 	done
 	
 	rmmod $tfw_mod

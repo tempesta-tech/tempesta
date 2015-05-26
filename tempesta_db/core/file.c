@@ -175,7 +175,7 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 
 	BUG_ON(len & ~TDB_EXT_MASK);
 	if (file->f_inode->i_size != len) {
-		TDB_ERR("Bad file size %ld while expected is %lu\n",
+		TDB_ERR("Bad file size %lld while expected is %lu\n",
 			file->f_inode->i_size, len);
 		return -EBADF;
 	}
