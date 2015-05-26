@@ -129,7 +129,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	return 0;
 }
 
-static void
+static inline void
 __mod_retry_timer(TfwSrvConnection *srv_conn)
 {
 	mod_timer(&srv_conn->retry_timer,
@@ -151,7 +151,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 	}
 }
 
-static void
+static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
@@ -180,7 +180,6 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	ss_close(sk);
 
 	/* The new socket is created after a delay in the timer callback. */
-	__setup_retry_timer(srv_conn);
 	__mod_retry_timer(srv_conn);
 
 	return 0;
@@ -240,7 +239,6 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 		TFW_ERR("failover connect failed\n");
 
 		/* Just retry later. */
-		__setup_retry_timer(srv_conn);
 		__mod_retry_timer(srv_conn);
 	}
 
@@ -378,6 +376,7 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&srv_conn->conn);
+	__setup_retry_timer(srv_conn);
 	proto = &srv_conn->conn.proto;
 	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
