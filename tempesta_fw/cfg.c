@@ -194,6 +194,9 @@ check_identifier(const char *buf, size_t len)
 		return false;
 	}
 
+	if ((len == 1) && (buf[0] == '*'))
+		return true;
+
 	if (!isalpha(buf[0])) {
 		TFW_ERR("the first character is not a letter: '%c'\n", buf[0]);
 		return false;

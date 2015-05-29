@@ -39,6 +39,15 @@
  *       match webapp_site2 host eq "site2.example.com";
  *   }
  *
+ * There's also a wildcard, or default match rule that looks like this:
+ *       match storage_servers * * *
+ * Here all of field, op, and arg arguments of the rule are wilcard characters.
+ * This rule works as last resort option, and it forwards requests that didn't
+ * match any more specific rule to the designated server group. If no default
+ * rule is specified, it is created implicitly to point to the group 'default'
+ * if it exists. As all match rules are processed in sequential order, this
+ * rule must come last to serve the intended role.
+ *
  * This module handles only the "sched_http_rules" section. It simply selects
  * a "match" rule for an incoming HTTP request. Other entities ("server" and
  * "srv_group") are handled in other modules.
@@ -87,37 +96,22 @@ typedef struct {
 } TfwSchedHttpRule;
 
 static TfwHttpMatchList *tfw_sched_http_rules;
-static TfwSrvGroup *tfw_sched_sg_default;
 
 static TfwConnection *
-tfw_sched_http_default(TfwMsg *msg)
-{
-	TfwConnection *conn = NULL;
-
-	if (tfw_sched_sg_default)
-		conn = tfw_sched_sg_default
-		       ->sched->sched_srv(msg, tfw_sched_sg_default);
-	if (unlikely(!conn))
-		ERR("Unable to select server from group '%s'\n",
-		    tfw_sched_sg_default->name);
-	return conn;
-}
-
-static TfwConnection *
-tfw_sched_http_match(TfwMsg *msg)
+tfw_sched_http_sched_grp(TfwMsg *msg)
 {
 	TfwSrvGroup *sg;
 	TfwConnection *conn;
 	TfwSchedHttpRule *rule;
 
-	BUG_ON(!tfw_sched_http_rules);
+	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
+		return NULL;
 
 	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, tfw_sched_http_rules,
 					TfwSchedHttpRule, rule);
 	if (unlikely(!rule)) {
-		/* No matching rule found. Try the default group. */
 		DBG("No matching rule found.\n");
-		return tfw_sched_http_default(msg);
+		return NULL;
 	}
 
 	sg = rule->main_sg;
@@ -135,20 +129,6 @@ tfw_sched_http_match(TfwMsg *msg)
 	if (unlikely(!conn))
 		ERR("Unable to select server from group '%s'\n", sg->name);
 
-	return conn;
-}
-
-static TfwConnection *
-tfw_sched_http_sched_grp(TfwMsg *msg)
-{
-	TfwConnection *conn;
-
-	/* Try the default group if no rules are configured. */
-	if (!tfw_sched_http_rules) {
-		conn = tfw_sched_http_default(msg);
-	} else {
-		conn = tfw_sched_http_match(msg);
-	}
 	return conn;
 }
 
@@ -174,21 +154,34 @@ static TfwScheduler tfw_sched_http = {
  */
 
 /* e.g.: match group ENUM eq "pattern"; */
-static const TfwCfgEnum tfw_sched_http_cfg_field_enum[] = {
-	{ "uri",      TFW_HTTP_MATCH_F_URI },
-	{ "host",     TFW_HTTP_MATCH_F_HOST },
-	{ "hdr_host", TFW_HTTP_MATCH_F_HDR_HOST },
-	{ "hdr_conn", TFW_HTTP_MATCH_F_HDR_CONN },
-	{ "hdr_raw",  TFW_HTTP_MATCH_F_HDR_RAW },
+static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_field_enum[] = {
+	{ "*",		TFW_HTTP_MATCH_F_WILDCARD },
+	{ "uri",	TFW_HTTP_MATCH_F_URI },
+	{ "host",	TFW_HTTP_MATCH_F_HOST },
+	{ "hdr_host",	TFW_HTTP_MATCH_F_HDR_HOST },
+	{ "hdr_conn",	TFW_HTTP_MATCH_F_HDR_CONN },
+	{ "hdr_raw",	TFW_HTTP_MATCH_F_HDR_RAW },
 	{}
 };
 
 /* e.g.: match group uri ENUM "pattern"; */
-static const TfwCfgEnum tfw_sched_http_cfg_op_enum[] = {
-	{ "eq",     TFW_HTTP_MATCH_O_EQ },
-	{ "prefix", TFW_HTTP_MATCH_O_PREFIX },
+static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_op_enum[] = {
+	{ "*",		TFW_HTTP_MATCH_O_WILDCARD },
+	{ "eq",		TFW_HTTP_MATCH_O_EQ },
+	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
 	/* TODO: suffix, substr, regex, case sensitive/insensitive versions. */
 	{}
+};
+
+static const tfw_http_match_arg_t
+__read_mostly tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+	[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
+	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
+	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
 };
 
 /**
@@ -307,8 +300,10 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule->backup_sg = backup_sg;
 	rule->rule.field = field;
 	rule->rule.op = op;
-	rule->rule.arg.len = arg_len;
+	rule->rule.arg.len = arg_len - 1;
 	memcpy(rule->rule.arg.str, in_arg, arg_len);
+	rule->rule.arg.type = tfw_sched_http_cfg_arg_tbl[field];
+
 	return 0;
 }
 
@@ -325,14 +320,58 @@ tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
 static int
 tfw_sched_http_start(void)
 {
-	tfw_sched_sg_default = tfw_sg_lookup("default");
+	TfwSchedHttpRule *srule;
+	TfwHttpMatchRule *mrule;
+	TfwSrvGroup *sg_default;
+	TfwHttpMatchList *mlist = NULL;
+
+	/*
+	 * If there's a default rule already then we are all set.
+	 */
+	if (tfw_sched_http_rules && !list_empty(&tfw_sched_http_rules->list)) {
+		mrule = list_entry(tfw_sched_http_rules->list.prev,
+				   TfwHttpMatchRule, list);
+		if ((mrule->field == TFW_HTTP_MATCH_F_WILDCARD)
+		    && (mrule->op == TFW_HTTP_MATCH_O_WILDCARD)
+		    && (mrule->arg.len == 1) && (*mrule->arg.str == '*'))
+			return 0;
+	}
+	/*
+	 * No default rule specified in the configuration, but there's no
+	 * group 'default' so we would have nowhere to point this rule to.
+	 */
+	if ((sg_default = tfw_sg_lookup("default")) == NULL)
+		return 0;
+	if (tfw_sched_http_rules == NULL) {
+		mlist = tfw_http_match_list_alloc();
+		if (mlist == NULL) {
+			ERR("Unable to create match rule list\n");
+			return -ENOMEM;
+		}
+		tfw_sched_http_rules = mlist;
+	}
+	srule = tfw_http_match_entry_new(tfw_sched_http_rules,
+					 typeof(*srule), rule, sizeof("*"));
+	if (srule == NULL) {
+		ERR("Unable to allocate memory for default rule\n");
+		return -ENOMEM;
+	}
+	srule->main_sg = sg_default;
+	srule->backup_sg = NULL;
+	srule->rule.field = TFW_HTTP_MATCH_F_WILDCARD;
+	srule->rule.op = TFW_HTTP_MATCH_O_WILDCARD;
+	srule->rule.arg.len = sizeof("*") - 1;
+	srule->rule.arg.str[0] = '*';
+	srule->rule.arg.str[1] = '\0';
+	srule->rule.arg.type =
+		tfw_sched_http_cfg_arg_tbl[TFW_HTTP_MATCH_F_WILDCARD];
+
 	return 0;
 }
 
 static void
 tfw_sched_http_stop(void)
 {
-	tfw_sched_sg_default = NULL;
 }
 
 static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
