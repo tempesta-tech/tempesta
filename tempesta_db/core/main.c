@@ -210,8 +210,8 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 
 	tdb_tbl_enumerate(db);
 
-	TDB_LOG("Opened table %s: size=%lu rec_size=%u\n",
-		path, fsize, rec_size);
+	TDB_LOG("Opened table %s: size=%lu rec_size=%u base=%p\n",
+		path, fsize, rec_size, db->hdr);
 
 	return db;
 err_init:
