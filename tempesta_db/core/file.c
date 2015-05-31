@@ -92,7 +92,7 @@ ma_split(MArea *ma, unsigned long len)
 	ret->pages = req_pages;
 	ret->flags = MA_F_USED;
 	/* @ret is the tail of @ma. */
-	ret->start = ma->start + (ma->pages - req_pages) * PAGE_SIZE;
+	ret->start = ma->start + ma->pages * PAGE_SIZE;
 	ret->prev = ma;
 	ret->next = ma->next;
 	if (ret->next)
