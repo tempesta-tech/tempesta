@@ -65,16 +65,16 @@ tfw_sched_lookup(const char *name)
 {
 	TfwScheduler *sched;
 
-	read_lock(&sched_lock);
+	read_lock_bh(&sched_lock);
 
 	list_for_each_entry(sched, &sched_list, list) {
 		if (!name || !strcasecmp(name, sched->name)) {
-			read_unlock(&sched_lock);
+			read_unlock_bh(&sched_lock);
 			return sched;
 		}
 	}
 
-	read_unlock(&sched_lock);
+	read_unlock_bh(&sched_lock);
 
 	return NULL;
 }
@@ -84,7 +84,7 @@ tfw_sched_register(TfwScheduler *sched)
 {
 	TFW_LOG("Registering new scheduler: %s\n", sched->name);
 
-	write_lock(&sched_lock);
+	write_lock_bh(&sched_lock);
 
 	/* Add groups scheduling schedulers to head of the list. */
 	if (sched->sched_grp)
@@ -92,7 +92,7 @@ tfw_sched_register(TfwScheduler *sched)
 	else
 		list_add_tail(&sched->list, &sched_list);
 
-	write_unlock(&sched_lock);
+	write_unlock_bh(&sched_lock);
 
 	return 0;
 }
@@ -103,11 +103,11 @@ tfw_sched_unregister(TfwScheduler *sched)
 {
 	TFW_LOG("Un-registering scheduler: %s\n", sched->name);
 
-	write_lock(&sched_lock);
+	write_lock_bh(&sched_lock);
 
 	list_del(&sched->list);
 
-	write_unlock(&sched_lock);
+	write_unlock_bh(&sched_lock);
 
 }
 EXPORT_SYMBOL(tfw_sched_unregister);
