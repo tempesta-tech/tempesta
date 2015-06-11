@@ -48,7 +48,7 @@ static const char *ss_statename[] = {
 #endif
 
 #define SS_CALL(f, ...)							\
-	(((SsProto *)(sk)->sk_user_data)->hooks->f			\
+	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
@@ -194,11 +194,15 @@ static int
 ss_tcp_process_proto_skb(struct sock *sk, unsigned char *data, size_t len,
 			 struct sk_buff *skb)
 {
-	int r = SS_CALL(connection_recv, sk, data, len);
+	int r;
+
+	read_lock(&sk->sk_callback_lock);
+	r = SS_CALL(connection_recv, sk, data, len);
 	if (r == SS_POSTPONE) {
 		SS_CALL(postpone_skb, sk->sk_user_data, skb);
 		r = SS_OK;
 	}
+	read_unlock(&sk->sk_callback_lock);
 
 	return r;
 }
@@ -224,7 +228,9 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	 * No matter where exactly the data is placed, but the skb relates
 	 * to current message, so put it to the message.
 	 */
+	read_lock(&sk->sk_callback_lock);
 	r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
+	read_unlock(&sk->sk_callback_lock);
 	if (r != SS_OK)
 		return r;
 
@@ -302,10 +308,6 @@ ss_do_close(struct sock *sk)
 		return;
 
 	BUG_ON(sk->sk_state == TCP_LISTEN);
-	/* Don't try to close unassigned socket. */
-	BUG_ON(!sk->sk_user_data);
-
-	SS_CALL(connection_drop, sk);
 
 	sock_rps_reset_flow(sk);
 
@@ -438,16 +440,42 @@ adjudge_to_death:
 	}
 }
 
+/*
+ * Release all Tempesta data linked to the socket, start failover
+ * procedure if required, and then cut all ties with Tempesta.
+ * Effectively that stops all future traffic from coming to Tempesta.
+ */
+static inline void
+ss_dropdata(struct sock *sk)
+{
+	BUG_ON(sk->sk_user_data == NULL);
+
+	write_lock(&sk->sk_callback_lock);
+	SS_CALL(connection_drop, sk);
+	sk->sk_user_data = NULL;
+	write_unlock(&sk->sk_callback_lock);
+}
+
+/*
+ * Close a socket.
+ *
+ * It's presumed that all Tempesta data linked to the socket
+ * is released before or after calling this function. Also,
+ * it's presumed that all activity in the socket is stopped
+ * before this function is called. Both are rather important.
+ * This function implicitly enables SoftIRQs sometime in the
+ * process. Be careful when calling it with SoftIRQs disabled.
+ * It's safer if it's called last after everything else is done.
+ */
 void
 ss_close(struct sock *sk)
 {
-	local_bh_disable();
+	BUG_ON(sk->sk_user_data);
+
 	bh_lock_sock_nested(sk);
-
 	ss_do_close(sk);
-
 	bh_unlock_sock(sk);
-	local_bh_enable();
+
 	sock_put(sk);
 }
 EXPORT_SYMBOL(ss_close);
@@ -475,6 +503,7 @@ ss_tcp_process_data(struct sock *sk)
 			SS_WARN("recvmsg bug: TCP sequence gap at seq %X"
 				" recvnxt %X\n",
 				tp->copied_seq, TCP_SKB_CB(skb)->seq);
+			ss_dropdata(sk);
 			ss_do_close(sk);
 			return;
 		}
@@ -500,6 +529,7 @@ ss_tcp_process_data(struct sock *sk)
 				 * with currently processed message skbs.
 				 */
 				__kfree_skb(skb);
+				ss_dropdata(sk);
 				ss_do_close(sk);
 				goto out; /* connection dropped */
 			}
@@ -509,8 +539,9 @@ ss_tcp_process_data(struct sock *sk)
 		else if (tcp_hdr(skb)->fin) {
 			SS_DBG("received FIN, do active close\n");
 			++tp->copied_seq;
-			ss_do_close(sk);
 			__kfree_skb(skb);
+			ss_dropdata(sk);
+			ss_do_close(sk);
 		}
 		else {
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
@@ -667,9 +698,12 @@ ss_tcp_state_change(struct sock *sk)
 		int r;
 
 		/* The callback is called from tcp_rcv_state_process(). */
+		read_lock(&sk->sk_callback_lock);
 		r = SS_CALL(connection_new, sk);
+		read_unlock(&sk->sk_callback_lock);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
+			ss_dropdata(sk);
 			ss_do_close(sk);
 			return;
 		}
@@ -701,6 +735,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * instead of TCP_CLOSE_WAIT.
 		 */
 		SS_DBG("Peer connection closing\n");
+		ss_dropdata(sk);
 		ss_do_close(sk);
 	} else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -709,7 +744,10 @@ ss_tcp_state_change(struct sock *sk)
 		 * never entered TCP_ESTABLISHED state.
 		 */
 		SS_DBG("Connection is finished\n");
+		write_lock(&sk->sk_callback_lock);
 		SS_CALL(connection_close, sk);
+		write_unlock(&sk->sk_callback_lock);
+		ss_do_close(sk);
 	}
 }
 
@@ -733,6 +771,11 @@ ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
 
 /**
  * Make data socket serviced by synchronous sockets.
+ *
+ * This function is called for each socket that is created by Tempesta.
+ * It's run before a socket is bound or connected, so locking is not
+ * required at that time. It's also called for each accepted socket,
+ * and at that time it's run under sk_callback_lock.
  */
 void
 ss_set_callbacks(struct sock *sk)
@@ -741,11 +784,9 @@ ss_set_callbacks(struct sock *sk)
 	 * the caller should initialize it before setting callbacks. */
 	BUG_ON(!sk->sk_user_data);
 
-	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
 	sk->sk_error_report = ss_tcp_error;
-	write_unlock_bh(&sk->sk_callback_lock);
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 

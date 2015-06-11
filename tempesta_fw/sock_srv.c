@@ -54,17 +54,17 @@
  * an established state, and doing so in an asynchronous (callback-based) way.
  *
  * The entry point is the tfw_sock_srv_connect_try() function.
- * It initiates a connection attempt and just exits without blocking.
+ * It initiates a connect attempt and just exits without blocking.
  *
- * Later on, when the connection state is changed, a callback is invoked:
- *  - tfw_sock_srv_connect_retry() - the connection attempt is failed.
- *  - tfw_sock_srv_connect_complete() - the connection is established.
- *  - tfw_sock_srv_connect_failover() - the established connection is closed.
+ * Later on, when connection state is changed, a callback is invoked:
+ *  - tfw_sock_srv_connect_retry() - a connect attempt has failed.
+ *  - tfw_sock_srv_connect_complete() - a connection is established.
+ *  - tfw_sock_srv_connect_failover() - an established connection is closed.
  *
- * Both retry() and failover() call the tfw_sock_srv_connect_try() again to
- * re-establish the connection, and thus the tfw_sock_srv_connect_try() is
+ * Both retry() and failover() call tfw_sock_srv_connect_try() again
+ * to re-establish the connection, and thus tfw_sock_srv_connect_try() is
  * called repeatedly until the connection is finally established (or until
- * this "loop" of callbacks is stopped by the tfw_sock_srv_disconnect()).
+ * this "loop" of callbacks is stopped by tfw_sock_srv_disconnect()).
  */
 
 /** The wakeup interval between failed connection attempts. */
@@ -177,7 +177,6 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	/* We have to create a new socket for each connection attempt.
 	 * The old socket is released here as soon as it is not used anymore. */
 	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_close(sk);
 
 	/* The new socket is created after a delay in the timer callback. */
 	__mod_retry_timer(srv_conn);
@@ -217,11 +216,9 @@ static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
 	int r;
-	TfwServer *srv;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
-	srv_conn = sk->sk_user_data;
-	srv = (TfwServer *)srv_conn->conn.peer;
 	TFW_DBG_ADDR("connection lost", &srv->addr);
 
 	/* Revert tfw_sock_srv_connect_complete(). */
@@ -230,7 +227,6 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 
 	/* Revert tfw_sock_srv_connect_try(). */
 	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_close(sk);
 
 	/* Initiate a new connection sequence.
 	 * The TfwSrvConnection (and nested TfwConnection) is re-used here. */
@@ -262,31 +258,30 @@ static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-
-	/* FIXME: SsHooks may be executed concurrently here.
-	 * We must prevent any hook execution starting from this point.
-	 *
-	 * For new()/drop()/close() hooks this is solved by faking them with
-	 * dummy functions that do nothing. However, the similar approach
-	 * for recv()/put_skb()/postpone_skb() leads to a memory leak.
-	 *
-	 * Perhaps we should implement an ss_shutdown() that terminates
-	 * data reception without socket deallocation.
-	 */
+	struct sock *sk = srv_conn->conn.sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&srv_conn->retry_timer);
 
+	/*
+	 * Revert tfw_sock_srv_connect_try().
+	 * It doesn't matter if the order in which we destroy
+	 * the connection is different from what we did when
+	 * created it. Doing it this way immediately disconnects
+	 * Tempesta from all socket activity, so any possible
+	 * concurrency is eliminated.
+	 */
+	if (sk) {
+		ss_callback_write_lock(sk);
+		tfw_connection_unlink_sk(&srv_conn->conn);
+		ss_callback_write_unlock(sk);
+	}
 	/* Revert tfw_sock_srv_connect_complete(). */
 	if (srv_conn->conn.peer) {
 		tfw_sg_update(srv->sg);
 		tfw_connection_destruct(&srv_conn->conn);
 	}
-
-	/* Revert tfw_sock_srv_connect_try(). */
-	if (srv_conn->conn.sk) {
-		struct sock *sk = srv_conn->conn.sk;
-		tfw_connection_unlink_sk(&srv_conn->conn);
+	if (sk) {
 		ss_close(sk);
 	}
 }
@@ -328,7 +323,9 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+		local_bh_disable();
 		tfw_sock_srv_disconnect(srv_conn);
+		local_bh_enable();
 	}
 
 	return 0;

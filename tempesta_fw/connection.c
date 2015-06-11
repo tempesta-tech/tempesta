@@ -52,6 +52,12 @@ tfw_connection_init(TfwConnection *conn)
 	INIT_LIST_HEAD(&conn->msg_queue);
 }
 
+/*
+ * It's essential that this function is called before a socket
+ * is bound or connected, which guarantees that there are no calls
+ * to Tempesta callbacks. No locking is needed under these conditions.
+ * Otherwise, it must be called under write lock on sk->sk_callback_lock.
+ */
 void
 tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
 {
@@ -60,6 +66,11 @@ tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
 	sk->sk_user_data = conn;
 }
 
+/*
+ * This function does the opposite to what tfw_connection_link_sk() does.
+ * It must be called under write lock on sk->sk_callback_lock to be able
+ * to modify sk->sk_user_data, or the socket must not be bound or connected.
+ */
 void
 tfw_connection_unlink_sk(TfwConnection *conn)
 {
@@ -114,6 +125,10 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 	ss_send(conn->sk, &msg->skb_list);
 }
 
+/*
+ * Must be called under a lock on sk->sk_callback_lock due to
+ * the use of sk->sk_user_data.
+ */
 int
 tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
 {
