@@ -676,9 +676,6 @@ ss_tcp_error(struct sock *sk)
 	SS_DBG("process error on socket %p\n", sk);
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
-
-	if (sk->sk_destruct)
-		sk->sk_destruct(sk);
 }
 
 /**
