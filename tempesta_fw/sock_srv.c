@@ -120,7 +120,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("can't initiate a server connection\n");
+		TFW_ERR("can't initiate a server connection: error %d\n", r);
 		tfw_connection_unlink_sk(&srv_conn->conn);
 		ss_close(sk);
 		return r;
@@ -244,7 +244,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_failover,
-	.connection_close	= tfw_sock_srv_connect_retry,
+	.connection_error	= tfw_sock_srv_connect_retry,
 	.connection_recv	= tfw_connection_recv,
 	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
 	.postpone_skb		= tfw_connection_postpone_skb,
