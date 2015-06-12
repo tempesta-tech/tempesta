@@ -167,8 +167,8 @@ typedef struct ss_hooks {
 	/* Drop TCP connection associated with the socket. */
 	int (*connection_drop)(struct sock *sk);
 
-	/* Final close of TCP connection associated with the socket. */
-	int (*connection_close)(struct sock *sk);
+	/* Error on TCP connection associated with the socket. */
+	int (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(struct sock *sk, unsigned char *data,

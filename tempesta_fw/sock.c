@@ -676,6 +676,24 @@ ss_tcp_error(struct sock *sk)
 	SS_DBG("process error on socket %p\n", sk);
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
+	/*
+	 * Should the need arise, the connection_error() callback can
+	 * be given an argument specifying the exact cause of error.
+	 */
+	if (sk->sk_state == TCP_SYN_SENT) {
+		/*
+		 * We get an error in this state when there's no server
+		 * at the other end, and a connect attempt cannot be
+		 * completed. The socket is moved to TCP_CLOSED state
+		 * by the kernel, thus skipping TCP_ESTABLISHED state.
+		 * Note, that it's unnecessary to close the socket
+		 * explicitly, the kernel will do it itself right away.
+		 */
+		write_lock(&sk->sk_callback_lock);
+		SS_CALL(connection_error, sk);
+		write_unlock(&sk->sk_callback_lock);
+	}
 }
 
 /**
@@ -734,18 +752,12 @@ ss_tcp_state_change(struct sock *sk)
 		SS_DBG("Peer connection closing\n");
 		ss_dropdata(sk);
 		ss_do_close(sk);
-	} else if (sk->sk_state == TCP_CLOSE) {
-		/*
-		 * In current implementation we never get to TCP_CLOSE
-		 * in normal course of action. We only get here if we
-		 * never entered TCP_ESTABLISHED state.
-		 */
-		SS_DBG("Connection is finished\n");
-		write_lock(&sk->sk_callback_lock);
-		SS_CALL(connection_close, sk);
-		write_unlock(&sk->sk_callback_lock);
-		ss_do_close(sk);
 	}
+	/*
+	 * In current implementation we never get to TCP_CLOSE state
+	 * in normal course of action. We forcefully close the socket
+	 * before it gets a chance to reach the final state.
+	 */
 }
 
 void
