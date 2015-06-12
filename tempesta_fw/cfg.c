@@ -1633,11 +1633,11 @@ handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
 		size_t copied_data_len;
 
 		copied_data_len = min((size_t)ctl->maxlen, *lenp);
-		r = copy_from_user(new_state_buf, user_buf, copied_data_len);
-		if (r)
+		r = strncpy_from_user(new_state_buf, user_buf, copied_data_len);
+		if (r < 0)
 			goto out;
 
-		new_state_buf[copied_data_len] = '\0';
+		new_state_buf[r] = 0;
 		new_state = strim(new_state_buf);
 		old_state = ctl->data;
 
