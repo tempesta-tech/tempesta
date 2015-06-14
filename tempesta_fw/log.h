@@ -116,13 +116,13 @@ do { \
 #ifdef DEBUG
 #define SS_DBG(...)	pr_debug(SS_BANNER "  " __VA_ARGS__)
 #define SS_ERR(...)	pr_err(SS_BANNER "ERROR: " __VA_ARGS__)
-#define SS_WARN(...)	pr_warn(SS_BANNER "Warning" __VA_ARGS__)
+#define SS_WARN(...)	pr_warn(SS_BANNER "Warning: " __VA_ARGS__)
 #define SS_LOG(...)	pr_info(SS_BANNER __VA_ARGS__)
 #else
 #include <linux/net.h>
 #define SS_DBG(...)
 #define SS_ERR(...)	net_err_ratelimited(SS_BANNER "ERROR: " __VA_ARGS__)
-#define SS_WARN(...)	net_warn_ratelimited(SS_BANNER "Warning" __VA_ARGS__)
+#define SS_WARN(...)	net_warn_ratelimited(SS_BANNER "Warning: " __VA_ARGS__)
 #define SS_LOG(...)	net_info_ratelimited(SS_BANNER __VA_ARGS__)
 #endif
 

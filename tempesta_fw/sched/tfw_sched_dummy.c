@@ -49,7 +49,7 @@ tfw_sched_dummy_schedule(TfwMsg *msg, TfwSrvGroup *sg)
 
 	conn = list_first_entry(&srv->conn_list, TfwConnection, list);
 out:
-	read_unlock(&sg->lock);
+	write_unlock(&sg->lock);
 
 	return conn;
 }
