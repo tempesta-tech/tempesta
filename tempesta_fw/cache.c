@@ -429,7 +429,8 @@ finish_req_processing:
 
 	tfw_http_msg_free((TfwHttpMsg *)req);
 
-	tdb_rec_put(ce);
+	if (ce)
+		tdb_rec_put(ce);
 }
 
 static void
