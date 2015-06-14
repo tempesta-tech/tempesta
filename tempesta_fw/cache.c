@@ -145,8 +145,8 @@ tfw_cache_sched_work_cpu(int node)
  * @return number of copied bytes (@src length).
  *
  * The function copies part of some large data of length @tot_len,
- * so it tries to minimizae total number of allocations regardles
- * how many chunks are copied.
+ * so it tries to minimize total number of allocations regardless
+ * of how many chunks are copied.
  */
 static long
 tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
@@ -427,8 +427,18 @@ finish_req_processing:
 	 */
 	action(req, resp, data);
 
-	tfw_http_msg_free((TfwHttpMsg *)req);
-
+	if (resp) {
+		/*
+		 * Response is found in TDB (cache), so the request
+		 * is not forwarded to a backend server but served
+		 * directly from cache instead. The request and the
+		 * response are not needed anymore after the response
+		 * is sent out to the client.
+		 */
+		list_del(&req->msg.msg_list);
+		tfw_http_msg_free((TfwHttpMsg *)req);
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+	}
 	if (ce)
 		tdb_rec_put(ce);
 }
