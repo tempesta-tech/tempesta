@@ -129,7 +129,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	return 0;
 }
 
-static void
+static inline void
 __mod_retry_timer(TfwSrvConnection *srv_conn)
 {
 	mod_timer(&srv_conn->retry_timer,
@@ -151,7 +151,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 	}
 }
 
-static void
+static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
@@ -180,7 +180,6 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	ss_close(sk);
 
 	/* The new socket is created after a delay in the timer callback. */
-	__setup_retry_timer(srv_conn);
 	__mod_retry_timer(srv_conn);
 
 	return 0;
@@ -240,7 +239,6 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 		TFW_ERR("failover connect failed\n");
 
 		/* Just retry later. */
-		__setup_retry_timer(srv_conn);
 		__mod_retry_timer(srv_conn);
 	}
 
@@ -378,6 +376,7 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&srv_conn->conn);
+	__setup_retry_timer(srv_conn);
 	proto = &srv_conn->conn.proto;
 	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
@@ -444,6 +443,7 @@ tfw_sock_srv_delete_all_conns(void)
  * All "server" entries are added to this group.
  */
 static TfwSrvGroup *tfw_srv_cfg_curr_group;
+static TfwScheduler *tfw_srv_cfg_dflt_sched;
 
 /**
  * Handle "server" within an "srv_group", e.g.:
@@ -517,13 +517,28 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_srv_cfg_handle_server_outside_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	tfw_srv_cfg_curr_group = tfw_sg_lookup("default");
+	int ret;
+	const char *dflt_sched_name;
+	static const char __read_mostly s_default[] = "default";
+	TfwSrvGroup *sg = tfw_sg_lookup(s_default);
 
-	/* The "default" group is created implicitly. */
-	if (!tfw_srv_cfg_curr_group) {
-		tfw_srv_cfg_curr_group = tfw_sg_new("default", GFP_KERNEL);
-		BUG_ON(!tfw_srv_cfg_curr_group);
+	/* The group "default" is created implicitly. */
+	if (sg == NULL) {
+		if ((sg = tfw_sg_new(s_default, GFP_KERNEL)) == NULL) {
+			TFW_ERR("Unable to add server group '%s'\n", s_default);
+			return -EINVAL;
+		}
+		dflt_sched_name = tfw_srv_cfg_dflt_sched
+				  ? tfw_srv_cfg_dflt_sched->name
+				  : "round-robin";
+		if ((ret = tfw_sg_set_sched(sg, dflt_sched_name)) != 0) {
+			TFW_ERR("Unable to set scheduler '%s' "
+				"for server group '%s'\n",
+				dflt_sched_name, s_default);
+			return ret;
+		}
 	}
+	tfw_srv_cfg_curr_group = sg;
 
 	return tfw_srv_cfg_handle_server(cs, ce);
 }
@@ -545,24 +560,27 @@ tfw_srv_cfg_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	TfwSrvGroup *sg;
-	const char *name, *sched_str;
+	const char *sg_name, *sched_name, *dflt_sched_name;
 
 	r = tfw_cfg_check_val_n(ce, 1);
 	if (r)
 		return r;
-	name = ce->vals[0];
-	sched_str = tfw_cfg_get_attr(ce, "sched", "round-robin");
+	sg_name = ce->vals[0];
+	dflt_sched_name = tfw_srv_cfg_dflt_sched
+			  ? tfw_srv_cfg_dflt_sched->name : "round-robin";
+	sched_name = tfw_cfg_get_attr(ce, "sched", dflt_sched_name);
 
-	TFW_DBG("begin srv_group: %s\n", name);
+	TFW_DBG("begin srv_group: %s\n", sg_name);
 
-	sg = tfw_sg_new(name, GFP_KERNEL);
+	sg = tfw_sg_new(sg_name, GFP_KERNEL);
 	if (!sg) {
-		TFW_ERR("can't add srv_group: %s\n", name);
+		TFW_ERR("Unable to add server group '%s'\n", sg_name);
 		return -EINVAL;
 	}
-	r = tfw_sg_set_sched(sg, sched_str);
+	r = tfw_sg_set_sched(sg, sched_name);
 	if (r) {
-		TFW_ERR("can't set scheduler for srv_group: %s\n", name);
+		TFW_ERR("Unable to set scheduler '%s' "
+			"for server group '%s'\n", sched_name, sg_name);
 		return r;
 	}
 
@@ -588,6 +606,19 @@ tfw_srv_cfg_finish_srv_group(TfwCfgSpec *cs)
 	BUG_ON(list_empty(&tfw_srv_cfg_curr_group->srv_list));
 	TFW_DBG("finish srv_group: %s\n", tfw_srv_cfg_curr_group->name);
 	tfw_srv_cfg_curr_group = NULL;
+	return 0;
+}
+
+static int
+tfw_srv_cfg_handle_sched_outside_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_cfg_check_val_n(ce, 1))
+		return -EINVAL;
+	tfw_srv_cfg_dflt_sched = tfw_sched_lookup(ce->vals[0]);
+	if (tfw_srv_cfg_dflt_sched == NULL) {
+		TFW_ERR("Unrecognized scheduler: '%s'\n", ce->vals[0]);
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -621,6 +652,14 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			"server",
 			NULL,
 			tfw_srv_cfg_handle_server_outside_group,
+			.allow_none = true,
+			.allow_repeat = true,
+			.cleanup = tfw_srv_cfg_clean_srv_groups,
+		},
+		{
+			"sched",
+			NULL,
+			tfw_srv_cfg_handle_sched_outside_group,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_srv_cfg_clean_srv_groups,
