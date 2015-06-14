@@ -62,7 +62,7 @@ tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 {
 	write_lock(&p->conn_lock);
 
-	list_del(conn_list);
+	list_del_init(conn_list);
 
 	write_unlock(&p->conn_lock);
 }

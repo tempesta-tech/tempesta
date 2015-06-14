@@ -194,6 +194,9 @@ check_identifier(const char *buf, size_t len)
 		return false;
 	}
 
+	if ((len == 1) && (buf[0] == '*'))
+		return true;
+
 	if (!isalpha(buf[0])) {
 		TFW_ERR("the first character is not a letter: '%c'\n", buf[0]);
 		return false;
@@ -1369,7 +1372,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 		.pos = cfg_text
 	};
 	TfwCfgMod *mod;
-	TfwCfgSpec *matching_spec;
+	TfwCfgSpec *matching_spec = NULL;
 	int r = -EINVAL;
 
 	MOD_FOR_EACH(mod, mod_list) {

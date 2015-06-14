@@ -242,27 +242,28 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return false;
 }
 
+static bool
+match_wildcard(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+{
+	if ((rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+	    && (rule->arg.type == TFW_HTTP_MATCH_A_WILDCARD)
+	    && (rule->arg.len == 1) && (rule->arg.str[0] == '*'))
+		return true;
+	return false;
+}
+
 
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
 
 static const match_fn
 __read_mostly match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+	[TFW_HTTP_MATCH_F_WILDCARD]	= match_wildcard,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
 	[TFW_HTTP_MATCH_F_HOST]		= match_host,
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
 	[TFW_HTTP_MATCH_F_URI]		= match_uri,
-};
-
-static const tfw_http_match_arg_t
-__read_mostly arg_type_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
-	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
-	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
 };
 
 /**
@@ -273,7 +274,6 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	match_fn match_fn;
 	tfw_http_match_fld_t field;
-	tfw_http_match_arg_t arg_type;
 
 	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
 	          rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
@@ -287,10 +287,7 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 	field = rule->field;
 	match_fn = match_fn_tbl[field];
-	arg_type = arg_type_tbl[field];
 	BUG_ON(!match_fn);
-	BUG_ON(!arg_type);
-	BUG_ON(arg_type != rule->arg.type);
 
 	return match_fn(req, rule);
 }
