@@ -49,9 +49,10 @@ tfw_http_msg_free(TfwHttpMsg *m)
 			" users=%d type=%s\n",
 			skb, skb->truesize, skb->sk, skb->destructor,
 			atomic_read(&skb->users),
-			TFW_CONN_TYPE(m->conn) & Conn_Clnt
-			? "Conn_Clnt" : TFW_CONN_TYPE(m->conn) & Conn_Srv
-					? "Conn_Srv" : "Unknown");
+			m->conn && TFW_CONN_TYPE(m->conn) & Conn_Clnt
+			? "Conn_Clnt"
+			: m->conn && TFW_CONN_TYPE(m->conn) & Conn_Srv
+			  ? "Conn_Srv" : "Unknown");
 		kfree_skb(skb);
 	}
 	tfw_pool_free(m->pool);
