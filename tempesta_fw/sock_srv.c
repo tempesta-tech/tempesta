@@ -96,8 +96,8 @@ typedef struct {
 } TfwSrvConnection;
 
 /**
- * Initiate a new connection attempt without blocking while the attempt
- * is finished.
+ * Initiate a new connect attempt without blocking
+ * until the connection is established.
  */
 static int
 tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
@@ -120,7 +120,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("can't initiate a server connection: error %d\n", r);
+		TFW_ERR("can't initiate a connect to server: error %d\n", r);
 		tfw_connection_unlink_sk(&srv_conn->conn);
 		ss_close(sk);
 		return r;
@@ -144,9 +144,11 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 
 	r = tfw_sock_srv_connect_try(srv_conn);
 	if (r) {
-		/* Can't even initiate the connection?
-		 * Just re-execute this function later. */
-		TFW_ERR("server connection retry is failed\n");
+		/*
+		 * Can't even initiate the connect?
+		 * Just re-execute this function later.
+		 */
+		TFW_ERR("server connect retry failed\n");
 		__mod_retry_timer(srv_conn);
 	}
 }
@@ -156,32 +158,6 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
-}
-
-/**
- * The hook is executed when a connection attempt is failed
- * (and not executed when an already established connection is closed).
- *
- * Basically it makes a retry (calls the tfw_sock_srv_try() again).
- * There should be a pause between connection attempts, so the retry is done
- * in a deferred context (in a timer callback).
- */
-static int
-tfw_sock_srv_connect_retry(struct sock *sk)
-{
-	TfwSrvConnection *srv_conn;
-
-	srv_conn = sk->sk_user_data;
-	BUG_ON(!srv_conn);
-
-	/* We have to create a new socket for each connection attempt.
-	 * The old socket is released here as soon as it is not used anymore. */
-	tfw_connection_unlink_sk(&srv_conn->conn);
-
-	/* The new socket is created after a delay in the timer callback. */
-	__mod_retry_timer(srv_conn);
-
-	return 0;
 }
 
 /**
@@ -201,7 +177,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
-	/* Notify the scheduler about the new available connection. */
+	/* Notify the scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
@@ -228,8 +204,10 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	/* Revert tfw_sock_srv_connect_try(). */
 	tfw_connection_unlink_sk(&srv_conn->conn);
 
-	/* Initiate a new connection sequence.
-	 * The TfwSrvConnection (and nested TfwConnection) is re-used here. */
+	/*
+	 * Initiate a new connect attempt.
+	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
+	 */
 	r = tfw_sock_srv_connect_try(srv_conn);
 	if (r) {
 		TFW_ERR("failover connect failed\n");
@@ -237,6 +215,41 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 		/* Just retry later. */
 		__mod_retry_timer(srv_conn);
 	}
+
+	return 0;
+}
+
+/**
+ * The hook is executed when there's unrecoverable error in a connection
+ * (and not executed when an established connection is closed as usual).
+ * An error may occur in any TCP state. All Tempesta resources associated
+ * with the socket must be released in case they were allocated before.
+ *
+ * Basically it initiates a reconnect (calls tfw_sock_srv_try() again).
+ * There should be a pause between connect attempts, so the reconnect
+ * is done in a deferred context (in a timer callback).
+ */
+static int
+tfw_sock_srv_connect_retry(struct sock *sk)
+{
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+
+	TFW_DBG_ADDR("connection error", &srv->addr);
+
+	/* Revert tfw_sock_srv_connect_complete(). */
+	tfw_sg_update(srv->sg);
+	tfw_connection_destruct(&srv_conn->conn);
+
+	/* Revert tfw_sock_srv_connect_try(). */
+	tfw_connection_unlink_sk(&srv_conn->conn);
+
+	/*
+	 * We need to create a new socket for each connect attempt.
+	 * The old socket is released as soon as it is not used anymore.
+	 * New socket is created after a delay in the timer callback.
+	 */
+	__mod_retry_timer(srv_conn);
 
 	return 0;
 }
@@ -265,24 +278,21 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 
 	/*
 	 * Revert tfw_sock_srv_connect_try().
-	 * It doesn't matter if the order in which we destroy
-	 * the connection is different from what we did when
-	 * created it. Doing it this way immediately disconnects
-	 * Tempesta from all socket activity, so any possible
-	 * concurrency is eliminated.
+	 * It doesn't matter that the order in which we destroy
+	 * the connection is different from what we did when created it.
+	 * Doing it this way immediately disconnects Tempesta from all
+	 * socket activity, so any possible concurrency is eliminated.
 	 */
 	if (sk) {
 		ss_callback_write_lock(sk);
 		tfw_connection_unlink_sk(&srv_conn->conn);
 		ss_callback_write_unlock(sk);
+		ss_close(sk);
 	}
 	/* Revert tfw_sock_srv_connect_complete(). */
-	if (srv_conn->conn.peer) {
+	if (srv) {
 		tfw_sg_update(srv->sg);
 		tfw_connection_destruct(&srv_conn->conn);
-	}
-	if (sk) {
-		ss_close(sk);
 	}
 }
 

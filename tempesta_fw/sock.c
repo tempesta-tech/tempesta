@@ -667,35 +667,6 @@ ss_tcp_data_ready(struct sock *sk, int bytes)
 }
 
 /**
- * Socket failover.
- */
-static void
-ss_tcp_error(struct sock *sk)
-{
-	SS_DBG("process error on socket %p\n", sk);
-	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
-
-	/*
-	 * Should the need arise, the connection_error() callback can
-	 * be given an argument specifying the exact cause of error.
-	 */
-	if (sk->sk_state == TCP_SYN_SENT) {
-		/*
-		 * We get an error in this state when there's no server
-		 * at the other end, and a connect attempt cannot be
-		 * completed. The socket is moved to TCP_CLOSED state
-		 * by the kernel, thus skipping TCP_ESTABLISHED state.
-		 * Note, that it's unnecessary to close the socket
-		 * explicitly, the kernel will do it itself right away.
-		 */
-		write_lock(&sk->sk_callback_lock);
-		SS_CALL(connection_error, sk);
-		write_unlock(&sk->sk_callback_lock);
-	}
-}
-
-/**
  * Socket state change callback.
  */
 static void
@@ -739,22 +710,33 @@ ss_tcp_state_change(struct sock *sk)
 			ss_drain_accept_queue(lsk, sk);
 		}
 	} else if ((sk->sk_state == TCP_CLOSE_WAIT)
-		 || (sk->sk_state == TCP_FIN_WAIT1)) {
+		   || (sk->sk_state == TCP_FIN_WAIT1)) {
 		/*
 		 * Connection is being closed.
 		 * Either Tempesta sent FIN, or we received FIN.
-		 *
-		 * FIXME it seems we should to do things below on TCP_CLOSE
-		 * instead of TCP_CLOSE_WAIT.
 		 */
 		SS_DBG("Peer connection closing\n");
 		ss_droplink(sk);
+	} else if (sk->sk_state == TCP_CLOSE) {
+		/*
+		 * In current implementation we never reach TCP_CLOSE state
+		 * in regular course of action. When a socket is moved from
+		 * TCP_ESTABLISHED state to a closing state, we forcefully
+		 * close the socket before it can reach the final state.
+		 */
+		/*
+		 * We get here when an error has occured in the connection.
+		 * It could be that RST was received which may happen for
+		 * multiple reasons. Or it could be a case of TCP timeout
+		 * where the connection appears to be dead. In all of these
+		 * cases the socket is moved directly to TCP_CLOSE state
+		 * thus skipping all other states.
+		 */
+		write_lock(&sk->sk_callback_lock);
+		SS_CALL(connection_error, sk);
+		write_unlock(&sk->sk_callback_lock);
+		ss_do_close(sk);
 	}
-	/*
-	 * In current implementation we never get to TCP_CLOSE state
-	 * in normal course of action. We forcefully close the socket
-	 * before it gets a chance to reach the final state.
-	 */
 }
 
 void
@@ -787,13 +769,14 @@ ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
 void
 ss_set_callbacks(struct sock *sk)
 {
-	/* ss_tcp_state_change() dereferences sk->sk_user_data as SsProto, so
-	 * the caller should initialize it before setting callbacks. */
+	/*
+	 * ss_tcp_state_change() dereferences sk->sk_user_data as SsProto,
+	 * so the caller must initialize it before setting callbacks.
+	 */
 	BUG_ON(!sk->sk_user_data);
 
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
-	sk->sk_error_report = ss_tcp_error;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 
