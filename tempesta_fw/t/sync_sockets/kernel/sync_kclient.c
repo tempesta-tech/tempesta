@@ -111,7 +111,8 @@ kclient_connect(int descidx)
 		atomic_inc(&kclient_connect_nerror);
 		return ret;
 	}
-	ss_set_proto(sk, &desc->proto, descidx, &kclient_hooks);
+	ss_proto_init(&desc->proto, &kclient_hooks, descidx);
+	sk->sk_user_data = &desc->proto;
 	ss_set_callbacks(sk);
 	ret = ss_connect(sk, &kclient_server_address.sa,
 			 tfw_addr_sa_len(&kclient_server_address), 0);
@@ -202,7 +203,7 @@ kclient_connection_error(struct sock *sk)
 static SsHooks kclient_hooks = {
 	.connection_new		= kclient_connect_complete,
 	.connection_drop	= kclient_connection_close,
-	.connection_close	= kclient_connection_error,
+	.connection_error	= kclient_connection_error,
 };
 
 static void
