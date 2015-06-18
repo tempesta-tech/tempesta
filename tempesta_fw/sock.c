@@ -441,31 +441,14 @@ adjudge_to_death:
 }
 
 /*
- * Release all Tempesta data linked to the socket, start failover
- * procedure if required, and then cut all ties with Tempesta.
- * Effectively that stops all future traffic from coming to Tempesta.
- */
-static inline void
-ss_dropdata(struct sock *sk)
-{
-	BUG_ON(sk->sk_user_data == NULL);
-
-	write_lock(&sk->sk_callback_lock);
-	SS_CALL(connection_drop, sk);
-	sk->sk_user_data = NULL;
-	write_unlock(&sk->sk_callback_lock);
-}
-
-/*
  * Close a socket.
  *
  * It's presumed that all Tempesta data linked to the socket
  * is released before or after calling this function. Also,
  * it's presumed that all activity in the socket is stopped
  * before this function is called. Both are rather important.
- * This function implicitly enables SoftIRQs sometime in the
- * process. Be careful when calling it with SoftIRQs disabled.
- * It's safer if it's called last after everything else is done.
+ *
+ * Must be called with BH disabled in process context.
  */
 void
 ss_close(struct sock *sk)
@@ -479,6 +462,25 @@ ss_close(struct sock *sk)
 	sock_put(sk);
 }
 EXPORT_SYMBOL(ss_close);
+
+/*
+ * Release all Tempesta data linked to the socket, start failover
+ * procedure if required, and then cut all ties with Tempesta.
+ * Effectively, that stops all traffic from coming to Tempesta.
+ * In the end, close the socket.
+ */
+static void
+ss_droplink(struct sock *sk)
+{
+	BUG_ON(sk->sk_user_data == NULL);
+
+	write_lock(&sk->sk_callback_lock);
+	SS_CALL(connection_drop, sk);
+	sk->sk_user_data = NULL;
+	write_unlock(&sk->sk_callback_lock);
+
+	ss_do_close(sk);
+}
 
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -503,8 +505,7 @@ ss_tcp_process_data(struct sock *sk)
 			SS_WARN("recvmsg bug: TCP sequence gap at seq %X"
 				" recvnxt %X\n",
 				tp->copied_seq, TCP_SKB_CB(skb)->seq);
-			ss_dropdata(sk);
-			ss_do_close(sk);
+			ss_droplink(sk);
 			return;
 		}
 
@@ -529,8 +530,7 @@ ss_tcp_process_data(struct sock *sk)
 				 * with currently processed message skbs.
 				 */
 				__kfree_skb(skb);
-				ss_dropdata(sk);
-				ss_do_close(sk);
+				ss_droplink(sk);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
@@ -540,8 +540,7 @@ ss_tcp_process_data(struct sock *sk)
 			SS_DBG("received FIN, do active close\n");
 			++tp->copied_seq;
 			__kfree_skb(skb);
-			ss_dropdata(sk);
-			ss_do_close(sk);
+			ss_droplink(sk);
 		}
 		else {
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
@@ -718,8 +717,7 @@ ss_tcp_state_change(struct sock *sk)
 		read_unlock(&sk->sk_callback_lock);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
-			ss_dropdata(sk);
-			ss_do_close(sk);
+			ss_droplink(sk);
 			return;
 		}
 		if (lsk) {
@@ -750,8 +748,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * instead of TCP_CLOSE_WAIT.
 		 */
 		SS_DBG("Peer connection closing\n");
-		ss_dropdata(sk);
-		ss_do_close(sk);
+		ss_droplink(sk);
 	}
 	/*
 	 * In current implementation we never get to TCP_CLOSE state
