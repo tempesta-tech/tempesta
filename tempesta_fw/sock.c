@@ -770,6 +770,7 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 	 * initialize this field to NULL, but instead check the invariant. */
 	BUG_ON(proto->listener);
 }
+EXPORT_SYMBOL(ss_proto_init);
 
 void
 ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
@@ -933,7 +934,7 @@ int
 ss_sock_create(int family, int type, int protocol, struct sock **res)
 {
 	int ret;
-	struct sock *sk;
+	struct sock *sk = NULL;
 	const struct net_proto_family *pf;
 
 	rcu_read_lock();
