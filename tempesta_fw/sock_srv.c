@@ -54,17 +54,17 @@
  * an established state, and doing so in an asynchronous (callback-based) way.
  *
  * The entry point is the tfw_sock_srv_connect_try() function.
- * It initiates a connection attempt and just exits without blocking.
+ * It initiates a connect attempt and just exits without blocking.
  *
- * Later on, when the connection state is changed, a callback is invoked:
- *  - tfw_sock_srv_connect_retry() - the connection attempt is failed.
- *  - tfw_sock_srv_connect_complete() - the connection is established.
- *  - tfw_sock_srv_connect_failover() - the established connection is closed.
+ * Later on, when connection state is changed, a callback is invoked:
+ *  - tfw_sock_srv_connect_retry() - a connect attempt has failed.
+ *  - tfw_sock_srv_connect_complete() - a connection is established.
+ *  - tfw_sock_srv_connect_failover() - an established connection is closed.
  *
- * Both retry() and failover() call the tfw_sock_srv_connect_try() again to
- * re-establish the connection, and thus the tfw_sock_srv_connect_try() is
+ * Both retry() and failover() call tfw_sock_srv_connect_try() again
+ * to re-establish the connection, and thus tfw_sock_srv_connect_try() is
  * called repeatedly until the connection is finally established (or until
- * this "loop" of callbacks is stopped by the tfw_sock_srv_disconnect()).
+ * this "loop" of callbacks is stopped by tfw_sock_srv_disconnect()).
  */
 
 /** The wakeup interval between failed connection attempts. */
@@ -96,8 +96,8 @@ typedef struct {
 } TfwSrvConnection;
 
 /**
- * Initiate a new connection attempt without blocking while the attempt
- * is finished.
+ * Initiate a new connect attempt without blocking
+ * until the connection is established.
  */
 static int
 tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
@@ -120,7 +120,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("can't initiate a server connection\n");
+		TFW_ERR("can't initiate a connect to server: error %d\n", r);
 		tfw_connection_unlink_sk(&srv_conn->conn);
 		ss_close(sk);
 		return r;
@@ -144,9 +144,11 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 
 	r = tfw_sock_srv_connect_try(srv_conn);
 	if (r) {
-		/* Can't even initiate the connection?
-		 * Just re-execute this function later. */
-		TFW_ERR("server connection retry is failed\n");
+		/*
+		 * Can't even initiate the connect?
+		 * Just re-execute this function later.
+		 */
+		TFW_ERR("server connect retry failed\n");
 		__mod_retry_timer(srv_conn);
 	}
 }
@@ -156,33 +158,6 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
-}
-
-/**
- * The hook is executed when a connection attempt is failed
- * (and not executed when an already established connection is closed).
- *
- * Basically it makes a retry (calls the tfw_sock_srv_try() again).
- * There should be a pause between connection attempts, so the retry is done
- * in a deferred context (in a timer callback).
- */
-static int
-tfw_sock_srv_connect_retry(struct sock *sk)
-{
-	TfwSrvConnection *srv_conn;
-
-	srv_conn = sk->sk_user_data;
-	BUG_ON(!srv_conn);
-
-	/* We have to create a new socket for each connection attempt.
-	 * The old socket is released here as soon as it is not used anymore. */
-	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_close(sk);
-
-	/* The new socket is created after a delay in the timer callback. */
-	__mod_retry_timer(srv_conn);
-
-	return 0;
 }
 
 /**
@@ -202,7 +177,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
-	/* Notify the scheduler about the new available connection. */
+	/* Notify the scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
@@ -217,11 +192,9 @@ static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
 	int r;
-	TfwServer *srv;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
-	srv_conn = sk->sk_user_data;
-	srv = (TfwServer *)srv_conn->conn.peer;
 	TFW_DBG_ADDR("connection lost", &srv->addr);
 
 	/* Revert tfw_sock_srv_connect_complete(). */
@@ -230,10 +203,11 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 
 	/* Revert tfw_sock_srv_connect_try(). */
 	tfw_connection_unlink_sk(&srv_conn->conn);
-	ss_close(sk);
 
-	/* Initiate a new connection sequence.
-	 * The TfwSrvConnection (and nested TfwConnection) is re-used here. */
+	/*
+	 * Initiate a new connect attempt.
+	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
+	 */
 	r = tfw_sock_srv_connect_try(srv_conn);
 	if (r) {
 		TFW_ERR("failover connect failed\n");
@@ -245,10 +219,45 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	return 0;
 }
 
+/**
+ * The hook is executed when there's unrecoverable error in a connection
+ * (and not executed when an established connection is closed as usual).
+ * An error may occur in any TCP state. All Tempesta resources associated
+ * with the socket must be released in case they were allocated before.
+ *
+ * Basically it initiates a reconnect (calls tfw_sock_srv_try() again).
+ * There should be a pause between connect attempts, so the reconnect
+ * is done in a deferred context (in a timer callback).
+ */
+static int
+tfw_sock_srv_connect_retry(struct sock *sk)
+{
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+
+	TFW_DBG_ADDR("connection error", &srv->addr);
+
+	/* Revert tfw_sock_srv_connect_complete(). */
+	tfw_sg_update(srv->sg);
+	tfw_connection_destruct(&srv_conn->conn);
+
+	/* Revert tfw_sock_srv_connect_try(). */
+	tfw_connection_unlink_sk(&srv_conn->conn);
+
+	/*
+	 * We need to create a new socket for each connect attempt.
+	 * The old socket is released as soon as it is not used anymore.
+	 * New socket is created after a delay in the timer callback.
+	 */
+	__mod_retry_timer(srv_conn);
+
+	return 0;
+}
+
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_failover,
-	.connection_close	= tfw_sock_srv_connect_retry,
+	.connection_error	= tfw_sock_srv_connect_retry,
 	.connection_recv	= tfw_connection_recv,
 	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
 	.postpone_skb		= tfw_connection_postpone_skb,
@@ -262,32 +271,28 @@ static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-
-	/* FIXME: SsHooks may be executed concurrently here.
-	 * We must prevent any hook execution starting from this point.
-	 *
-	 * For new()/drop()/close() hooks this is solved by faking them with
-	 * dummy functions that do nothing. However, the similar approach
-	 * for recv()/put_skb()/postpone_skb() leads to a memory leak.
-	 *
-	 * Perhaps we should implement an ss_shutdown() that terminates
-	 * data reception without socket deallocation.
-	 */
+	struct sock *sk = srv_conn->conn.sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&srv_conn->retry_timer);
 
+	/*
+	 * Revert tfw_sock_srv_connect_try().
+	 * It doesn't matter that the order in which we destroy
+	 * the connection is different from what we did when created it.
+	 * Doing it this way immediately disconnects Tempesta from all
+	 * socket activity, so any possible concurrency is eliminated.
+	 */
+	if (sk) {
+		ss_callback_write_lock(sk);
+		tfw_connection_unlink_sk(&srv_conn->conn);
+		ss_callback_write_unlock(sk);
+		ss_close(sk);
+	}
 	/* Revert tfw_sock_srv_connect_complete(). */
-	if (srv_conn->conn.peer) {
+	if (srv) {
 		tfw_sg_update(srv->sg);
 		tfw_connection_destruct(&srv_conn->conn);
-	}
-
-	/* Revert tfw_sock_srv_connect_try(). */
-	if (srv_conn->conn.sk) {
-		struct sock *sk = srv_conn->conn.sk;
-		tfw_connection_unlink_sk(&srv_conn->conn);
-		ss_close(sk);
 	}
 }
 
@@ -328,7 +333,9 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+		local_bh_disable();
 		tfw_sock_srv_disconnect(srv_conn);
+		local_bh_enable();
 	}
 
 	return 0;
