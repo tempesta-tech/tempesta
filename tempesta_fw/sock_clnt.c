@@ -94,7 +94,6 @@ tfw_sock_clnt_new(struct sock *sk)
 		TFW_DBG("new client socket is blocked by the classifier: "
 			"sk=%p, r=%d\n", sk, r);
 		goto err_classify;
-
 	}
 
 	cli = tfw_client_obtain(sk);
@@ -146,9 +145,6 @@ tfw_sock_clnt_drop(struct sock *sk)
 	TfwClient *cli = (TfwClient *)conn->peer;
 
 	TFW_DBG("close client socket: sk=%p, conn=%p, cli=%p\n", sk, conn, cli);
-
-	if (!sk->sk_user_data)
-		return 0;
 
 	/* Classify the connection closing while all resources are alive. */
 	/* FIXME: here we call tfw_classify_conn_close() while these resources
