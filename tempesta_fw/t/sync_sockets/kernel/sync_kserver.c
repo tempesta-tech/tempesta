@@ -90,18 +90,18 @@ kserver_read(struct sock *sk, unsigned char *data, size_t len)
 }
 
 static int
-kserver_connection_new(struct sock *sock)
+kserver_connection_new(struct sock *sk)
 {
 	int ci;
 
-	BUG_ON(!sock->sk_user_data);
+	BUG_ON(!sk->sk_user_data);
 
 	/* TODO Typically we should allocate a new connection here. */
 
 	/* Write the socket to free it as module exit. */
 	ci = atomic_inc_return(&conn_i);
 	if (ci < MAX_CONN) {
-		conn[ci] = sock;
+		conn[ci] = sk;
 	} else {
 		printk(KERN_ERR "Too many connections!\n");
 	}
@@ -142,7 +142,8 @@ kserver_init(void)
 	lsk->sk_reuse = 1;
 
 	/* Set TCP handlers. */
-	ss_set_proto(lsk, (SsProto *)&my_proto, 0, &ssocket_hooks);
+	ss_proto_init((SsProto *)&my_proto, &ssocket_hooks, 0);
+	lsk->sk_user_data = (SsProto *)&my_proto;
 	ss_set_listen(lsk);
 
 	memset(&saddr, 0, sizeof(saddr));

@@ -22,6 +22,7 @@
 #ifndef __SS_SOCK_H__
 #define __SS_SOCK_H__
 
+#include <net/sock.h>
 #include <linux/skbuff.h>
 
 /*
@@ -166,8 +167,8 @@ typedef struct ss_hooks {
 	/* Drop TCP connection associated with the socket. */
 	int (*connection_drop)(struct sock *sk);
 
-	/* Final close of TCP connection associated with the socket. */
-	int (*connection_close)(struct sock *sk);
+	/* Error on TCP connection associated with the socket. */
+	int (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(struct sock *sk, unsigned char *data,
@@ -188,6 +189,16 @@ typedef struct ss_hooks {
 	 */
 	int (*postpone_skb)(SsProto *proto, struct sk_buff *skb);
 } SsHooks;
+
+static inline void ss_callback_write_lock(struct sock *sk)
+{
+	write_lock(&sk->sk_callback_lock);
+}
+
+static inline void ss_callback_write_unlock(struct sock *sk)
+{
+	write_unlock(&sk->sk_callback_lock);
+}
 
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
