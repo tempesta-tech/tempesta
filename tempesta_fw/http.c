@@ -156,6 +156,7 @@ tfw_http_msg_setup(TfwHttpMsg *hm, size_t len)
 #define S_HTTP			"http://"
 
 #define S_302			"HTTP/1.1 302 Found"
+#define S_404			"HTTP/1.1 404 Not Found"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
 
 #define S_F_HOST		"Host: "
@@ -330,6 +331,45 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 }
 
 /*
+ * Prepare an HTTP 404 response to the client. It tells the client that
+ * Tempesta is unable to find the requested data.
+ */
+#define S_404_PART_01		S_404 S_CRLF S_F_DATE
+/* Insert current date */
+#define S_404_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
+
+#define S_404_FIXLEN							\
+	SLEN(S_404_PART_01) + SLEN(S_V_DATE) + SLEN(S_404_PART_02)
+
+TfwHttpMsg *
+tfw_http_prep_404(TfwHttpMsg *hm)
+{
+	void *handle;
+	TfwMsg *msg;
+	TfwHttpMsg *resp;
+	u_char buf[SLEN(S_V_DATE)];
+	size_t len, data_len = S_404_FIXLEN;
+
+	if ((resp = tfw_http_msg_alloc(Conn_Srv)) == NULL) {
+		return NULL;
+	}
+	msg = (TfwMsg *)resp;
+	resp->conn = hm->conn;
+
+	if ((handle = tfw_http_msg_setup(resp, data_len)) == NULL) {
+		tfw_http_msg_free(resp);
+		return NULL;
+	}
+
+	tfw_http_msg_add_data(handle, msg, S_404_PART_01, SLEN(S_404_PART_01));
+	len = tfw_http_prep_date(buf);
+	tfw_http_msg_add_data(handle, msg, buf, len);
+	tfw_http_msg_add_data(handle, msg, S_404_PART_02, SLEN(S_404_PART_02));
+
+	return resp;
+}
+
+/*
  * Prepare an HTTP 502 response to the client. It tells the client that
  * Tempesta is unable to forward the request to the designated server.
  */
@@ -366,6 +406,22 @@ tfw_http_prep_502(TfwHttpMsg *hm)
 	tfw_http_msg_add_data(handle, msg, S_502_PART_02, SLEN(S_502_PART_02));
 
 	return resp;
+}
+
+static int
+tfw_http_send_404(TfwHttpMsg *hm)
+{
+	TfwHttpMsg *resp;
+	TfwConnection *conn = hm->conn;
+
+	if ((resp = tfw_http_prep_404(hm)) == NULL) {
+		return -1;
+	}
+	TFW_DBG("Send HTTP 404 response to the client\n");
+	tfw_connection_send(conn, (TfwMsg *)resp);
+	tfw_http_msg_free(resp);
+
+	return 0;
 }
 
 TfwMsg *
@@ -1070,23 +1126,48 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	return 0;
 }
 
+/*
+ * Depending on results of processing of a request, either send the request
+ * to an appropriate server, or return the cached response. If none of that
+ * can be done for any reason, return HTTP 404 error to the client.
+ */
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 {
-	TfwConnection *conn = data;
+	int r;
 
 	if (resp) {
 		/*
 		 * We have prepared response, send it as is.
 		 * TODO should we adjust it somehow?
 		 */
-		tfw_connection_send(conn, (TfwMsg *)resp);
+		tfw_connection_send(req->conn, (TfwMsg *)resp);
 	} else {
-		if (tfw_http_adjust_req(req))
+		/* Dispatch request to an appropriate server. */
+		TfwConnection *conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+		if (!conn)
+			goto send_404;
+		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
+		if (r < 0) {
+			goto send_404;		/* Should it be an HTTP 502? */
+		} else if (r > 0) {
+			/* Response sent, nothing to do */
 			return;
-		/* Send the request to appropriate server. */
+		}
+		if (tfw_http_adjust_req(req))
+			goto send_404;		/* Should it be an HTTP 502? */
+
+		/* Add request to the connection. */
+		list_add_tail(&req->msg.msg_list, &conn->msg_queue);
+
+		/* Send request to the server. */
 		tfw_connection_send(conn, (TfwMsg *)req);
 	}
+	return;
+
+send_404:
+	tfw_http_send_404((TfwHttpMsg *)req);
+	return;
 }
 
 /**
@@ -1097,7 +1178,6 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)conn->msg;
-	TfwConnection *srv_conn;
 
 	BUG_ON(!req);
 
@@ -1147,26 +1227,8 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			goto block;
 		conn->msg = NULL;
 
-		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
-		if (r < 0) {
-			goto block;
-		} else if (r > 0) {
-			tfw_http_msg_free((TfwHttpMsg *)req);
-			goto pipeline;
-		}
+		tfw_cache_req_process(req, tfw_http_req_cache_cb, NULL);
 
-		/* Dispatch the request to appropriate server. */
-		srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-		if (!srv_conn) {
-			TFW_ERR("Can't get an appropriate server connection"
-				" for a session\n");
-			goto block;
-		}
-		/* Request is fully parsed, add it to the connection. */
-		list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
-
-		tfw_cache_req_process(req, tfw_http_req_cache_cb, srv_conn);
-pipeline:
 		if (!req->parser.data_off || req->parser.data_off == len)
 			/* There is no more pending data in skbs. */
 			break;
