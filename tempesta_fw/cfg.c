@@ -1314,13 +1314,14 @@ EXPORT_SYMBOL(tfw_cfg_set_str);
 	list_for_each_entry_safe_reverse(pos, tmp, head, list)
 
 /**
- * Iterate over modules in the reverse order starting from an element which
- * is previous to the @curr_pos. Useful for roll-back'ing all previously
- * processed modules when an operation for the current module is failed.
+ * Iterate over modules in reverse order starting from current element
+ * @curr_pos. Useful for roll-back'ing all previously processed modules
+ * when an operation for current module has failed. We start from current
+ * element as an operation for current module may have been half-done,
+ * and the module needs to be called as well.
  */
-#define MOD_FOR_EACH_REVERSE_FROM_PREV(pos, curr_pos, head) 		\
-	for (pos = list_entry(curr_pos->list.prev, TfwCfgMod, list);  	\
-	     &pos->list != head; 				\
+#define MOD_FOR_EACH_REVERSE_FROM_CURR(pos, curr_pos, head) 		\
+	for (pos = curr_pos;  &pos->list != head; 			\
 	     pos = list_entry(pos->list.prev, TfwCfgMod, list))
 
 static int
@@ -1449,7 +1450,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 
 err_recover_stop:
 	TFW_DBG("stopping already stared modules\n");
-	MOD_FOR_EACH_REVERSE_FROM_PREV(tmp_mod, mod, mod_list) {
+	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, mod_list) {
 		mod_stop(tmp_mod);
 	}
 

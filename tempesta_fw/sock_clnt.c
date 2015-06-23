@@ -81,10 +81,12 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	TFW_DBG("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 
-	/* The new sk->sk_user_data points to the TfwListenSock of the parent
+	/*
+	 * The new sk->sk_user_data points to the TfwListenSock of the parent
 	 * listening socket. We set it to NULL here to prevent other functions
 	 * from referencing the TfwListenSock while a new TfwConnection object
-	 * is not yet allocated/initialized. */
+	 * is not yet allocated/initialized.
+	 */
 	listen_sock_proto = sk->sk_user_data;
 	sk->sk_user_data = NULL;
 
@@ -147,9 +149,11 @@ tfw_sock_clnt_drop(struct sock *sk)
 	TFW_DBG("close client socket: sk=%p, conn=%p, cli=%p\n", sk, conn, cli);
 
 	/* Classify the connection closing while all resources are alive. */
-	/* FIXME: here we call tfw_classify_conn_close() while these resources
+	/*
+	 * FIXME: here we call tfw_classify_conn_close() while these resources
 	 * are alive, but in tfw_sock_clnt_new() we call it when resources are
-	 * freed (or not yet allocated). */
+	 * freed (or not yet allocated).
+	 */
 	r = tfw_classify_conn_close(sk);
 
 	tfw_connection_unlink_peer(conn);
@@ -261,13 +265,17 @@ tfw_listen_sock_start(TfwListenSock *ls)
 		return r;
 	}
 
-	/* Link the new socket and TfwListenSock
-	 * That must be done before ss_set_listen() that uses SsProto. */
+	/*
+	 * Link the new socket and TfwListenSock.
+	 * That must be done before calling ss_set_listen() that uses SsProto.
+	 */
 	ls->sk = sk;
 	sk->sk_user_data = ls;
 
-	/* For listening sockets we do ss_set_listen() instead of
-	 * ss_set_callbacks(). */
+	/*
+	 * For listening sockets we use
+	 * ss_set_listen() instead of ss_set_callbacks().
+	 */
 	ss_set_listen(sk);
 
 	inet_sk(sk)->freebind = 1;
@@ -275,7 +283,6 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	r = ss_bind(sk, &addr->sa, tfw_addr_sa_len(addr));
 	if (r) {
 		TFW_ERR_ADDR("can't bind to", addr);
-		ss_release(sk);
 		return r;
 	}
 
@@ -341,9 +348,10 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto parse_err;
 
-	/* Try both:
-	 *  a single port without IP address (e.g. "listen 8081"),
-	 *  and a full IP address (e.g. "listen 127.0.0.1:8081").
+	/*
+	 * Try both:
+	 * - a single port without IP address (e.g. "listen 8081");
+	 * - a full IP address (e.g. "listen 127.0.0.1:8081").
 	 */
 	in_str = ce->vals[0];
 	r = tfw_cfg_parse_int(in_str, &port);
