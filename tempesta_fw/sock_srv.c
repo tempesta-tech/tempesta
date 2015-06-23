@@ -148,7 +148,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 		 * Can't even initiate the connect?
 		 * Just re-execute this function later.
 		 */
-		TFW_ERR("server connect retry failed\n");
+		TFW_WARN("server connect retry failed\n");
 		__mod_retry_timer(srv_conn);
 	}
 }
@@ -210,7 +210,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	 */
 	r = tfw_sock_srv_connect_try(srv_conn);
 	if (r) {
-		TFW_ERR("failover connect failed\n");
+		TFW_WARN("failover connect failed\n");
 
 		/* Just retry later. */
 		__mod_retry_timer(srv_conn);
