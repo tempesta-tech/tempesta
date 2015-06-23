@@ -157,6 +157,7 @@ tfw_http_msg_setup(TfwHttpMsg *hm, size_t len)
 
 #define S_302			"HTTP/1.1 302 Found"
 #define S_404			"HTTP/1.1 404 Not Found"
+#define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
 
 #define S_F_HOST		"Host: "
@@ -370,6 +371,45 @@ tfw_http_prep_404(TfwHttpMsg *hm)
 }
 
 /*
+ * Prepare an HTTP 500 response to the client. It tells the client that
+ * there was an internal error while forwarding the request to a server.
+ */
+#define S_500_PART_01		S_500 S_CRLF S_F_DATE
+/* Insert current date */
+#define S_500_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
+
+#define S_500_FIXLEN							\
+	SLEN(S_500_PART_01) + SLEN(S_V_DATE) + SLEN(S_500_PART_02)
+
+TfwHttpMsg *
+tfw_http_prep_500(TfwHttpMsg *hm)
+{
+	void *handle;
+	TfwMsg *msg;
+	TfwHttpMsg *resp;
+	u_char buf[SLEN(S_V_DATE)];
+	size_t len, data_len = S_500_FIXLEN;
+
+	if ((resp = tfw_http_msg_alloc(Conn_Srv)) == NULL) {
+		return NULL;
+	}
+	msg = (TfwMsg *)resp;
+	resp->conn = hm->conn;
+
+	if ((handle = tfw_http_msg_setup(resp, data_len)) == NULL) {
+		tfw_http_msg_free(resp);
+		return NULL;
+	}
+
+	tfw_http_msg_add_data(handle, msg, S_500_PART_01, SLEN(S_500_PART_01));
+	len = tfw_http_prep_date(buf);
+	tfw_http_msg_add_data(handle, msg, buf, len);
+	tfw_http_msg_add_data(handle, msg, S_500_PART_02, SLEN(S_500_PART_02));
+
+	return resp;
+}
+
+/*
  * Prepare an HTTP 502 response to the client. It tells the client that
  * Tempesta is unable to forward the request to the designated server.
  */
@@ -418,6 +458,22 @@ tfw_http_send_404(TfwHttpMsg *hm)
 		return -1;
 	}
 	TFW_DBG("Send HTTP 404 response to the client\n");
+	tfw_connection_send(conn, (TfwMsg *)resp);
+	tfw_http_msg_free(resp);
+
+	return 0;
+}
+
+static int
+tfw_http_send_500(TfwHttpMsg *hm)
+{
+	TfwHttpMsg *resp;
+	TfwConnection *conn = hm->conn;
+
+	if ((resp = tfw_http_prep_500(hm)) == NULL) {
+		return -1;
+	}
+	TFW_DBG("Send HTTP 500 response to the client\n");
 	tfw_connection_send(conn, (TfwMsg *)resp);
 	tfw_http_msg_free(resp);
 
@@ -1129,7 +1185,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 /*
  * Depending on results of processing of a request, either send the request
  * to an appropriate server, or return the cached response. If none of that
- * can be done for any reason, return HTTP 404 error to the client.
+ * can be done for any reason, return HTTP 404 or 500 error to the client.
  */
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
@@ -1145,17 +1201,19 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 	} else {
 		/* Dispatch request to an appropriate server. */
 		TfwConnection *conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-		if (!conn)
+		if (!conn) {
+			TFW_ERR("Unable to find a backend server\n");
 			goto send_404;
+		}
 		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
 		if (r < 0) {
-			goto send_404;		/* Should it be an HTTP 502? */
+			goto send_500;
 		} else if (r > 0) {
 			/* Response sent, nothing to do */
 			return;
 		}
 		if (tfw_http_adjust_req(req))
-			goto send_404;		/* Should it be an HTTP 502? */
+			goto send_500;
 
 		/* Add request to the connection. */
 		list_add_tail(&req->msg.msg_list, &conn->msg_queue);
@@ -1167,6 +1225,9 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
+	return;
+send_500:
+	tfw_http_send_500((TfwHttpMsg *)req);
 	return;
 }
 
