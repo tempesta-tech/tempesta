@@ -50,8 +50,6 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 
 	read_unlock(&sched_lock);
 
-	TFW_ERR("No server group scheduler\n");
-
 	return NULL;
 }
 
