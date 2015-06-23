@@ -315,13 +315,11 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
-	int r;
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
-		r = tfw_sock_srv_connect_try(srv_conn);
-		if (r)
-			return r;
+		if (tfw_sock_srv_connect_try(srv_conn))
+			__mod_retry_timer(srv_conn);
 	}
 
 	return 0;
