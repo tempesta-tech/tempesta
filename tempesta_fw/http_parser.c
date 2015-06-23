@@ -915,7 +915,7 @@ __strrnchr(const char *s, size_t len, int c)
 }
 
 /**
- * TODO process duplicate _generic_ (TFW_HTT_HDR_RAW) headers like:
+ * TODO process duplicate _generic_ (TFW_HTTP_HDR_RAW) headers like:
  *
  * 	Foo: bar value\r\n
  * 	Bar: other value\r\n
@@ -993,7 +993,8 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
 
 	if ((id > TFW_HTTP_HDR_RAW)
 	    && len && !(h->flags & TFW_STR_HASCOLON)
-	    && ((cptr = __strrnchr(hptr, len, ':')) != NULL)) {
+	    && ((cptr = __strrnchr(hptr, len, ':')) != NULL))
+	{
 		int dupid = __header_is_duplicate(hm, id, hptr + len - cptr);
 		TfwStr *duph = (dupid == id) ? NULL : &ht->tbl[dupid].field;
 		BUG_ON(duph && !(duph->flags & TFW_STR_COMPLETE));
@@ -1030,6 +1031,11 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
  * ------------------------------------------------------------------------
  *	HTTP request parsing
  * ------------------------------------------------------------------------
+ */
+/*
+ * TODO Performance.
+ * The alphabets below are less than 8 ranges, so they can be handled
+ * using CMPESTRI(_SIDD_CMP_RANGES).
  */
 /*
  * Alphabet for URI abs_path (RFC 3986).
