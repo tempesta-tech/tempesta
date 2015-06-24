@@ -68,7 +68,8 @@
  */
 
 /** The wakeup interval between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MS	1000
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	1000		/* 1 sec in msecs */
+#define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
 
 /**
  * TfwConnection extension for server sockets.
@@ -93,6 +94,8 @@
 typedef struct {
 	TfwConnection		conn;
 	struct timer_list	retry_timer;
+	unsigned long		timeout;
+	unsigned int		attempts;
 } TfwSrvConnection;
 
 /**
@@ -132,8 +135,22 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 static inline void
 __mod_retry_timer(TfwSrvConnection *srv_conn)
 {
+	/* A variant of exponential backoff delay algorithm. */
+	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
+		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
+					TFW_SOCK_SRV_RETRY_TIMER_MIN
+					* (1 << srv_conn->attempts));
+		srv_conn->attempts++;
+	}
 	mod_timer(&srv_conn->retry_timer,
-		  jiffies + msecs_to_jiffies(TFW_SOCK_SRV_RETRY_TIMER_MS));
+		  jiffies + msecs_to_jiffies(srv_conn->timeout));
+}
+
+static inline void
+__reset_retry_timer(TfwSrvConnection *srv_conn)
+{
+	srv_conn->timeout = 0;
+	srv_conn->attempts = 0;
 }
 
 static void
@@ -156,6 +173,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
+	__reset_retry_timer(srv_conn);
 	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
 }
@@ -179,6 +197,8 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	/* Notify the scheduler of new connection. */
 	tfw_sg_update(srv->sg);
+
+	__reset_retry_timer(srv_conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	return 0;
