@@ -1358,6 +1358,18 @@ print_parse_error(const TfwCfgParserState *ps)
 		len, start);
 }
 
+/*
+ * Find configuration option specs by option name.
+ * This is a helper function for outside use.
+ * It is used in making dynamic additions to configuration.
+ */
+TfwCfgSpec *
+tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name)
+{
+	return spec_find(specs, name);
+}
+EXPORT_SYMBOL(tfw_cfg_spec_find);
+
 /**
  * The top-level parsing routine.
  *
@@ -1415,6 +1427,7 @@ err:
 	print_parse_error(&ps);
 	return -EINVAL;
 }
+EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
 
 /**
  * Parse the @cfg_text with pushing parsed data to modules, and then start
