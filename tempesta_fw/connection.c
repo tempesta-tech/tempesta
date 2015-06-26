@@ -156,15 +156,3 @@ tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
 
 	return 0;
 }
-
-int
-tfw_connection_postpone_skb(SsProto *proto, struct sk_buff *skb)
-{
-	TfwConnection *conn = (TfwConnection *)proto;
-
-	TFW_DBG("postpone skb %p\n", skb);
-
-	ss_skb_queue_tail(&conn->msg->skb_list, skb);
-
-	return 0;
-}
