@@ -288,4 +288,8 @@ int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 			     const char *default_val);
 
+/* Functions for making dynamic additions to configuration. */
+TfwCfgSpec *tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name);
+int tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list);
+
 #endif /* __TFW_CFG_H__ */
