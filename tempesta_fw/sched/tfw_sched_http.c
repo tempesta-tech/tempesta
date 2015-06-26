@@ -191,12 +191,10 @@ __read_mostly tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 static int
 tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	BUG_ON(tfw_sched_http_rules);
-
 	DBG("begin sched_http_rules\n");
-	BUG_ON(tfw_sched_http_rules);
 
-	tfw_sched_http_rules = tfw_http_match_list_alloc();
+	if (!tfw_sched_http_rules)
+		tfw_sched_http_rules = tfw_http_match_list_alloc();
 	if (!tfw_sched_http_rules)
 		return -ENOMEM;
 
@@ -317,15 +315,24 @@ tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
 	tfw_sched_http_rules = NULL;
 }
 
+/* Forward declaration */
+static TfwCfgMod tfw_sched_http_cfg_mod;
+
 static int
 tfw_sched_http_start(void)
 {
-	TfwSchedHttpRule *srule;
 	TfwHttpMatchRule *mrule;
 	TfwSrvGroup *sg_default;
-	TfwHttpMatchList *mlist = NULL;
+	struct list_head mod_list;
+	TfwCfgMod cfg_mod;
+	TfwCfgSpec *cfg_spec;
+	static const char __read_mostly cfg_text[] =
+		"sched_http_rules {\nmatch default * * *;\n}\n";
 
 	/*
+	 * See if we need to add a default rule that forwards all
+	 * requests that do not match any rule to group 'default'.
+	 *
 	 * If there's a default rule already then we are all set.
 	 */
 	if (tfw_sched_http_rules && !list_empty(&tfw_sched_http_rules->list)) {
@@ -342,29 +349,27 @@ tfw_sched_http_start(void)
 	 */
 	if ((sg_default = tfw_sg_lookup("default")) == NULL)
 		return 0;
-	if (tfw_sched_http_rules == NULL) {
-		mlist = tfw_http_match_list_alloc();
-		if (mlist == NULL) {
-			ERR("Unable to create match rule list\n");
-			return -ENOMEM;
-		}
-		tfw_sched_http_rules = mlist;
-	}
-	srule = tfw_http_match_entry_new(tfw_sched_http_rules,
-					 typeof(*srule), rule, sizeof("*"));
-	if (srule == NULL) {
-		ERR("Unable to allocate memory for default rule\n");
-		return -ENOMEM;
-	}
-	srule->main_sg = sg_default;
-	srule->backup_sg = NULL;
-	srule->rule.field = TFW_HTTP_MATCH_F_WILDCARD;
-	srule->rule.op = TFW_HTTP_MATCH_O_WILDCARD;
-	srule->rule.arg.len = sizeof("*") - 1;
-	srule->rule.arg.str[0] = '*';
-	srule->rule.arg.str[1] = '\0';
-	srule->rule.arg.type =
-		tfw_sched_http_cfg_arg_tbl[TFW_HTTP_MATCH_F_WILDCARD];
+
+	/*
+	 * Add a default rule that points to group 'default'. Note that
+	 * there's a restriction that 'sched_http_rules' option can only
+	 * be seen once in the configuration file. As we know for sure
+	 * the there's no default rule yet, we can work around that by
+	 * removing the restriction in a copy of specs for the option.
+	 * Using configuration processing functions, we add the default
+	 * rule exactly the same way it would have been done if it were
+	 * in the configuration file.
+	 */
+	cfg_mod = tfw_sched_http_cfg_mod;
+	INIT_LIST_HEAD(&cfg_mod.list);
+	INIT_LIST_HEAD(&mod_list);
+	list_add(&cfg_mod.list, &mod_list);
+
+	cfg_spec = tfw_cfg_spec_find(cfg_mod.specs, "sched_http_rules");
+	cfg_spec->allow_repeat = true;
+
+	if (tfw_cfg_parse_mods_cfg(cfg_text, &mod_list))
+		return -EINVAL;
 
 	return 0;
 }
@@ -388,7 +393,7 @@ static TfwCfgMod tfw_sched_http_cfg_mod = {
 	.name  = "tfw_sched_http",
 	.start = tfw_sched_http_start,
 	.stop  = tfw_sched_http_stop,
-	.specs = (TfwCfgSpec[]){
+	.specs = (TfwCfgSpec[]) {
 		{
 			"sched_http_rules", NULL,
 			tfw_cfg_handle_children,
