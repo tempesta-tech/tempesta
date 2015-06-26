@@ -230,7 +230,7 @@ tfw_sg_release_all(void)
 	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
 		write_lock(&sg->lock);
 
-		list_for_each_entry_safe(srv, srv_tmp, &sg->list, list)
+		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
 			tfw_destroy_server(srv);
 
 		write_unlock(&sg->lock);
