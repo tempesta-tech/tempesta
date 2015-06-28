@@ -886,20 +886,23 @@ __header_is_singular(const TfwStr *field)
 static int
 __header_is_duplicate(TfwHttpMsg *hm, int id, int adjust)
 {
-	int dupid;
+	int len, dupid;
 	char *buf;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *field = &hm->h_tbl->tbl[id].field;
-	int len = tfw_str_len(field) - adjust;
+
+	len = tfw_str_len(field) - adjust;
 
 	if ((buf = tfw_pool_alloc(hm->pool, len + 1)) == NULL)
 		return id;
 	tfw_str_to_cstr(field, buf, len + 1);
+
 	for (dupid = TFW_HTTP_HDR_RAW; dupid < ht->off; dupid++) {
 		TfwStr *hdr = &ht->tbl[dupid].field;
 		if (tfw_str_eq_cstr(hdr, buf, len, TFW_STR_EQ_PREFIX_CASEI))
 			return dupid;
 	}
+
 	return id;
 }
 
@@ -988,7 +991,7 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
 		if (!h)
 			return;
 	}
-	TFW_STR_COPY(h, &hm->parser.hdr);
+	*h = hm->parser.hdr;
 	h->len = len;
 
 	if ((id > TFW_HTTP_HDR_RAW)
@@ -1774,7 +1777,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	/*
 	 * Other (non interesting HTTP headers).
-	 * Note that some of them (like Cookie or User-Agent can be
+	 * Note that some of them (like Set-Cookie or User-Agent can be
 	 * extremely large).
 	 */
 	__FSM_STATE(Req_HdrOther) {
@@ -2581,8 +2584,10 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(Resp_Hdr) {
-		if (parser->hdr.ptr)
+		if (parser->hdr.ptr) {
+			BUG();
 			tfw_str_add_compound(resp->pool, &parser->hdr);
+		}
 
 		if (unlikely(c == '\r')) {
 			if (!resp->body.ptr) {
@@ -2716,15 +2721,22 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/*
 	 * Other (uninteresting) HTTP headers.
-	 * Note that some of these (like Cookie or User-Agent)
-	 * can be extremely large.
+	 * Note that some of these (like Cookie) can be extremely large.
 	 */
 	__FSM_STATE(Resp_HdrOther) {
 		/* Just eat the header including LF. */
 		size_t plen = len - (size_t)(p - data);
 		unsigned char *lf = memchr(p, '\n', plen);
-		if (lf)
-			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
+		if (lf) {
+			/* Get length of the header. */
+			unsigned char *cr = lf - 1;
+			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
+				--cr;
+			CLOSE_HEADER(resp, TFW_HTTP_HDR_RAW, cr - p);
+			p = lf; /* move to just after LF */
+			__FSM_MOVE(Resp_Hdr);
+		}
+		STORE_HEADER(resp, TFW_HTTP_HDR_RAW, plen);
 		__FSM_MOVE_n(Resp_HdrOther, plen);
 	}
 
