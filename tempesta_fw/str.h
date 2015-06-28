@@ -52,7 +52,6 @@ typedef struct {
 				 : s)
 
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
-#define TFW_STR_COPY(dst, src)	memcpy(dst, src, sizeof(TfwStr))
 
 #define TFW_STR_IS_PLAIN(str) (!((str)->flags & TFW_STR_COMPOUND))
 

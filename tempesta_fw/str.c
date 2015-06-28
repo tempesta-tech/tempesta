@@ -38,14 +38,10 @@ validate_tfw_str(const TfwStr *str)
 	const TfwStr *chunk;
 
 	BUG_ON(!str);
-	BUG_ON(str->flags & TFW_STR_COMPOUND2);  /* Not supported yet. */
 
 	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
 		BUG_ON(!chunk);
-		BUG_ON(chunk->len && !chunk->ptr);
-
-		/* The flag is not allowed for chunks.
-		 * It must be set only for their parent TfwStr object. */
+		BUG_ON(!chunk->len || !chunk->ptr);
 		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
 	}
 }
@@ -91,8 +87,6 @@ validate_key(const char *key, int len)
 TfwStr *
 tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 {
-	validate_tfw_str(str);
-
 	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
 		unsigned int l = str->len * sizeof(TfwStr);
 		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
