@@ -1263,14 +1263,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG("Block bad HTTP request\n");
-			goto block;
+			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 			r = tfw_gfsm_move(&req->msg.state,
 					  TFW_HTTP_FSM_REQ_CHUNK, data, len);
 			TFW_DBG("GFSM return code %d\n", r);
 			if (r == TFW_BLOCK)
-				goto block;
+				return TFW_BLOCK;
 			/*
 			 * TFW_POSTPONE status means that parsing succeeded
 			 * but more data is needed to complete it. Lower layers
@@ -1291,7 +1291,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 				  TFW_HTTP_FSM_REQ_MSG, data, len);
 		TFW_DBG("GFSM return code %d\n", r);
 		if (r == TFW_BLOCK)
-			goto block;
+			return TFW_BLOCK;
 		conn->msg = NULL;
 
 		tfw_cache_req_process(req, tfw_http_req_cache_cb, NULL);
@@ -1310,8 +1310,6 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 	}
 
 	return r;
-block:
-	return TFW_BLOCK;
 }
 
 /**
