@@ -198,10 +198,6 @@ ss_tcp_process_proto_skb(struct sock *sk, unsigned char *data, size_t len,
 
 	read_lock(&sk->sk_callback_lock);
 	r = SS_CALL(connection_recv, sk, data, len);
-	if (r == SS_POSTPONE) {
-		SS_CALL(postpone_skb, sk->sk_user_data, skb);
-		r = SS_OK;
-	}
 	read_unlock(&sk->sk_callback_lock);
 
 	return r;
