@@ -183,11 +183,6 @@ typedef struct ss_hooks {
 	 * Sync sockets don't free the skbs.
 	 */
 	int (*put_skb_to_msg)(SsProto *proto, struct sk_buff *skb);
-
-	/*
-	 * Postpone the @skb into internal protocol queue.
-	 */
-	int (*postpone_skb)(SsProto *proto, struct sk_buff *skb);
 } SsHooks;
 
 static inline void ss_callback_write_lock(struct sock *sk)
