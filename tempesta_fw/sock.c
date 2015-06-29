@@ -294,7 +294,7 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
  * See tcp_sk(sk)->linger2 processing in standard tcp_close().
  */
 static void
-ss_do_close(struct sock *sk)
+__ss_do_close(struct sock *sk)
 {
 	struct sk_buff *skb;
 	int data_was_unread = 0;
@@ -440,6 +440,13 @@ adjudge_to_death:
 	}
 }
 
+static void
+ss_do_close(struct sock *sk)
+{
+	__ss_do_close(sk);
+	sock_put(sk);
+}
+
 /*
  * Close a socket.
  *
@@ -456,7 +463,7 @@ ss_close(struct sock *sk)
 	BUG_ON(sk->sk_user_data);
 
 	bh_lock_sock_nested(sk);
-	ss_do_close(sk);
+	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
@@ -524,7 +531,7 @@ ss_tcp_process_data(struct sock *sk)
 				 * Drop connection on internal errors as well as
 				 * on banned packets.
 				 *
-				 * ss_do_close() is responsible for calling
+				 * ss_droplink() is responsible for calling
 				 * application layer connection closing callback
 				 * which will free all the passed and linked
 				 * with currently processed message skbs.
