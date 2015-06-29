@@ -1302,9 +1302,14 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		/* Pipelined requests: create new sibling message. */
 		hm = tfw_http_msg_create_sibling((TfwHttpMsg *)req, Conn_Clnt);
-		if (!hm)
-			/* Bad... Let's wait little bit... */
-			return TFW_POSTPONE;
+		if (!hm) {
+			/*
+			 * Bad, not enought memory.
+			 * Hope to process the packet latter with a new data.
+			 */
+			TFW_WARN("Not enough memory to create request sibling\n");
+			return TFW_PASS;
+		}
 		tfw_http_parser_msg_inherit((TfwHttpMsg *)req, hm);
 		req = (TfwHttpReq *)hm;
 	}
