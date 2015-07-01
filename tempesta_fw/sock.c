@@ -276,6 +276,8 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 }
 
 /**
+ * This is main body of the socket close function in Sync Sockets.
+ *
  * inet_release() can sleep (as well as tcp_close()), so we make our own
  * non-sleepable socket closing.
  *
@@ -440,6 +442,9 @@ adjudge_to_death:
 	}
 }
 
+/*
+ * This function is for internal Sync Sockets use only.
+ */
 static void
 ss_do_close(struct sock *sk)
 {
@@ -455,6 +460,7 @@ ss_do_close(struct sock *sk)
  * it's presumed that all activity in the socket is stopped
  * before this function is called. Both are rather important.
  *
+ * This function may be used in process and SoftIRQ contexts.
  * Must be called with BH disabled in process context.
  */
 void
@@ -475,6 +481,8 @@ EXPORT_SYMBOL(ss_close);
  * procedure if required, and then cut all ties with Tempesta.
  * Effectively, that stops all traffic from coming to Tempesta.
  * In the end, close the socket.
+ *
+ * This function is for internal Sync Sockets use only.
  */
 static void
 ss_droplink(struct sock *sk)
