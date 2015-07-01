@@ -272,6 +272,8 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 }
 
 /**
+ * This is main body of the socket close function in Sync Sockets.
+ *
  * inet_release() can sleep (as well as tcp_close()), so we make our own
  * non-sleepable socket closing.
  *
@@ -290,7 +292,7 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
  * See tcp_sk(sk)->linger2 processing in standard tcp_close().
  */
 static void
-ss_do_close(struct sock *sk)
+__ss_do_close(struct sock *sk)
 {
 	struct sk_buff *skb;
 	int data_was_unread = 0;
@@ -437,6 +439,16 @@ adjudge_to_death:
 }
 
 /*
+ * This function is for internal Sync Sockets use only.
+ */
+static void
+ss_do_close(struct sock *sk)
+{
+	__ss_do_close(sk);
+	sock_put(sk);
+}
+
+/*
  * Close a socket.
  *
  * It's presumed that all Tempesta data linked to the socket
@@ -444,6 +456,7 @@ adjudge_to_death:
  * it's presumed that all activity in the socket is stopped
  * before this function is called. Both are rather important.
  *
+ * This function may be used in process and SoftIRQ contexts.
  * Must be called with BH disabled in process context.
  */
 void
@@ -452,7 +465,7 @@ ss_close(struct sock *sk)
 	BUG_ON(sk->sk_user_data);
 
 	bh_lock_sock_nested(sk);
-	ss_do_close(sk);
+	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
@@ -464,6 +477,8 @@ EXPORT_SYMBOL(ss_close);
  * procedure if required, and then cut all ties with Tempesta.
  * Effectively, that stops all traffic from coming to Tempesta.
  * In the end, close the socket.
+ *
+ * This function is for internal Sync Sockets use only.
  */
 static void
 ss_droplink(struct sock *sk)
@@ -520,7 +535,7 @@ ss_tcp_process_data(struct sock *sk)
 				 * Drop connection on internal errors as well as
 				 * on banned packets.
 				 *
-				 * ss_do_close() is responsible for calling
+				 * ss_droplink() is responsible for calling
 				 * application layer connection closing callback
 				 * which will free all the passed and linked
 				 * with currently processed message skbs.
