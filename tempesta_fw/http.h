@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -76,19 +76,29 @@ typedef struct tfw_http_parser {
 	int		to_read;	/* remaining data to read */
 	TfwStr		_tmp_chunk;	/* stores begin of currently processed
 					   string at the end of last skb */
-	TfwStr		hdr;		/* currently parser header */
+	TfwStr		hdr;		/* currently parsed header */
 } TfwHttpParser;
 
 /**
  * Http headers table.
  *
+ * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
+ * repetition attacks. See __header_is_singular() and don't forget to
+ * update the static headers array when add a new singular header here.
+ *
  * Note: don't forget to update hdr_val_eq() upon adding a new header.
  */
 typedef enum {
-	TFW_HTTP_HDR_CONNECTION,
 	TFW_HTTP_HDR_HOST,
+	TFW_HTTP_HDR_CONTENT_LENGTH,
+
+	/* End of list of singular header. */
+	TFW_HTTP_HDR_NONSINGULAR,
+
+	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 
+	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
 
 	TFW_HTTP_HDR_NUM	= 16,
@@ -157,6 +167,7 @@ typedef struct {
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @body_len	- current length of the HTTP message body;
+ * @hash	- hash value calculated for the request;
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
@@ -168,6 +179,7 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		body_len;
+	unsigned long		hash;
 } TfwHttpReq;
 
 typedef struct {
@@ -205,7 +217,7 @@ int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
-unsigned long tfw_http_req_key_calc(const TfwHttpReq *req);
+unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 
 /* HTTP message header add/del/sub API */
 int tfw_http_hdr_add(TfwHttpMsg *, const char *, size_t);

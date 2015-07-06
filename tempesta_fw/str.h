@@ -1,7 +1,27 @@
 /**
  *		Tempesta FW
  *
+ * String handling.
+ * There are few design concepts and properties which make our strings special:
+ *
+ * 1. the string is designed for zero-copy operations, i.e. it hanles pointer
+ *    only to actual data stored somewhere else, typically in skb;
+ *
+ * 2. the string handles possibly chunked data, e.g. splitted among different
+ *    skbs. In this case COMPOUND flag is used;
+ *
+ * 3. it is HTTP specific in that sense that the string aggregates duplicate
+ *    headers, where duplicate is not necessary exact string matching
+ *    (e.g. LWS should not be considered). Duplicate values are handled using
+ *    DUPLICATE flag;
+ *
+ * 4. (2) and (3) lead to tree-like data structure if some of duplicate
+ *    strings are also compound. This makes string processing logic more
+ *    complex, but handles plain strings as well as compound and avoids
+ *    additional dynamic memory allocations.
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,50 +40,96 @@
 #ifndef __TFW_STR_H__
 #define __TFW_STR_H__
 
+#include <linux/bug.h>
 #include <linux/string.h>
 
 #include "pool.h"
 
+#define TFW_STR_FBITS		8
+#define TFW_STR_CN_SHIFT	TFW_STR_FBITS
 /* Str is compound from many chunks, use indirect table for the chunks. */
-#define TFW_STR_COMPOUND 	0x01
-/* Str constists from compound strings. */
-#define TFW_STR_COMPOUND2	0x02
+#define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
+/*
+ * Str constists from compound or plain strings.
+ * Duplicate strings are also always compound on root level.
+ */
+#define TFW_STR_DUPLICATE	0x01
+/* The string is complete */
+#define TFW_STR_COMPLETE	0x02
 
-#define TFW_STR_COMPLETE	0x10	/* The string is complete */
-#define TFW_STR_HASCOLON	0x20	/* The string has a colon char */
-
+/*
+ * @flags	- 3 most significant bytes for number of chunks of compound
+ * 		  string and the least significant byte for flags;
+ * @len		- total length of compund or plain string;
+ * @ptr		- pointer to string data or array of nested strings;
+ */
 typedef struct {
 	unsigned int	flags;
-	unsigned int	len; /* length of a string or array of strings */
-	void		*ptr; /* pointer to string or array of strings */
+	unsigned int	len;
+	void		*ptr;
 } TfwStr;
 
+/* Numner of chunks in @s. */
+#define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
+#define TFW_STR_CHUNKN_INC(s)	((s)->flags += (1 << TFW_STR_CN_SHIFT))
+#define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags |= ((n) << TFW_STR_CN_SHIFT))
+/* Compound string contains at least 2 chunks. */
+#define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
+
 /* Get @c'th chunk of @s. */
-#define TFW_STR_CHUNK(s, c)	(((s)->flags & TFW_STR_COMPOUND)	\
-				 ? (c >= (s)->len			\
+#define TFW_STR_CHUNK(s, c)	(((s)->flags & __TFW_STR_COMPOUND)	\
+				 ? (c >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
 				    : (TfwStr *)(s)->ptr + c)		\
 				 : (!c					\
 				    ? s 				\
 				    : NULL))
-/* Get last/current chunk of @s. */
-#define TFW_STR_CURR(s)		(((s)->flags & TFW_STR_COMPOUND)	\
-				 ? (TfwStr *)(s)->ptr + (s)->len - 1	\
-				 : s)
+/*
+ * Get last/current chunk of @s.
+ * The most left leaf is taken as the current chunk for duplicate strings tree.
+ */
+#define TFW_STR_CURR(s)							\
+({									\
+	TfwStr *_tmp = ((s)->flags & TFW_STR_DUPLICATE)			\
+		       ? (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1	\
+		       : (s);						\
+	(_tmp->flags & __TFW_STR_COMPOUND)				\
+		? (TfwStr *)_tmp->ptr + TFW_STR_CHUNKN(_tmp) - 1	\
+		: (_tmp);						\
+ })
+
+/* Update length of the string which points to new data with length @n. */
+#define TFW_STR_UPDLEN(s, n)						\
+do {									\
+	(s)->len += (n);						\
+	if ((s)->flags & __TFW_STR_COMPOUND) {				\
+		BUG_ON(((TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1)->len); \
+		((TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1)->len = (n); \
+	}								\
+} while (0)
 
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 
-#define TFW_STR_IS_PLAIN(str) (!((str)->flags & TFW_STR_COMPOUND))
+#define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))
+#define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
-#define TFW_STR_FOR_EACH_CHUNK(c, s) for ( \
-	(c) = (TFW_STR_IS_PLAIN(s) ? (s) : (s)->ptr); \
-	(c) < (TFW_STR_IS_PLAIN(s) ? (s) + 1 : (TfwStr *)(s)->ptr + (s)->len); \
-	++(c))
-
+#define TFW_STR_FOR_EACH_CHUNK(c, s, code)				\
+do {									\
+	/* Iterate over chunks, not duplicates. */			\
+	BUG_ON((s)->flags & TFW_STR_DUPLICATE);				\
+	if (likely(TFW_STR_PLAIN(s))) {					\
+		(c) = (s);						\
+		code;							\
+	} else {							\
+		for ((c) = (s)->ptr;					\
+		     (c) < (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s); ++(c)) \
+			code;						\
+	}								\
+} while (0)
 
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
-int tfw_str_len(const TfwStr *str);
+TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 
 typedef enum {
 	TFW_STR_EQ_DEFAULT = 0x0,
@@ -72,11 +138,13 @@ typedef enum {
 	TFW_STR_EQ_PREFIX_CASEI = (TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI),
 } tfw_str_eq_flags_t;
 
+int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
 bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
-                   const char *val, int val_len, tfw_str_eq_flags_t flags);
+                   const char *val, int val_len, tfw_str_eq_flags_t flags)
+	__deprecated;
 
-size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
+size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size) __deprecated;
 
 #endif /* __TFW_STR_H__ */

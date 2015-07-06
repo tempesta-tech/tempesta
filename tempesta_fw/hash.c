@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/kernel.h>
 #include "hash.h"
 #include "lib.h"
@@ -48,7 +48,7 @@ tfw_hash_str(const TfwStr *str)
 	register unsigned long crc = 0xFFFFFFFF;
 	unsigned int len;
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, str) {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
 		len = chunk->len;
 		pos = chunk->ptr;
 
@@ -56,25 +56,22 @@ tfw_hash_str(const TfwStr *str)
 		head_end = PTR_ALIGN(pos, MUL);
 		body_end = PTR_ALIGN(tail_end, MUL) - MUL;
 
-		if (unlikely(len < MUL)) {
-			goto tail;
+		if (likely(len >= MUL)) {
+			while (pos != head_end) {
+				CRCB(crc, *pos);
+				++pos;
+			}
+			while (pos != body_end) {
+				CRCQ(crc, *((unsigned long *)pos));
+				pos += MUL;
+			}
 		}
 
-		while (pos != head_end) {
-			CRCB(crc, *pos);
-			++pos;
-		}
-
-		while (pos != body_end) {
-			CRCQ(crc, *((unsigned long *)pos));
-			pos += MUL;
-		}
-tail:
 		while (pos != tail_end) {
 			CRCB(crc, *pos);
 			++pos;
 		}
-	}
+	});
 
 	return crc;
 #undef MUL

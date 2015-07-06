@@ -69,8 +69,8 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	chunks[2].len = len;
 
 	cookie.ptr = chunks;
-	cookie.len = sizeof(chunks) / sizeof(chunks[0]);
-	cookie.flags = TFW_STR_COMPOUND;
+	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
+	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
 	if ((resp = tfw_http_prep_302(hm, &cookie)) == NULL) {
 		return -1;
@@ -145,7 +145,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	 * XXX Linearize TfwStr{}. Should be eliminated
 	 * when better TfwStr{} functions are implemented.
 	 */
-	len = tfw_str_len(hdr_field) + 1;
+	len = hdr_field->len + 1;
 	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
 		return -ENOMEM;
 	}
@@ -182,7 +182,7 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	/*
 	 * XXX The following code assumes that TfwStr is linear.
 	 */
-	BUG_ON(!TFW_STR_IS_PLAIN(&value));
+	BUG_ON(!TFW_STR_PLAIN(&value));
 	valptr = strnstr(value.ptr, tfw_cfg_sticky.name.ptr, value.len);
 	if (!valptr)
 		return 0;

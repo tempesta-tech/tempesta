@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -59,14 +60,15 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 
 TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 {
+	unsigned long h1, h2, h3;
+
 	TfwStr s1 = { .len = 17, .ptr = (void *)"Host: example.com" };
 
 	TfwStr s2c1 = {	.len = 14, .ptr = (void *)"Host: example." };
 	TfwStr s2c2 = {	.len = 3, .ptr = (void *)"com" };
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
-		.flags = TFW_STR_COMPOUND,
-		.len = 2,
+		.len = 14 + 3,
 		.ptr = s2chunks
 	};
 
@@ -78,12 +80,13 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 	TfwStr s3c6 = {	.len = 0, .ptr = NULL };
 	TfwStr s3chunks[] = { s3c1, s3c2, s3c3, s3c4, s3c5, s3c6 };
 	TfwStr s3 = {
-		.flags = TFW_STR_COMPOUND,
-		.len = 6,
+		.len = 1 + 0 + 3 + 1 + 12 + 0,
 		.ptr = s3chunks
 	};
 
-	unsigned long h1, h2, h3;
+	TFW_STR_CHUNKN_INIT(&s2);
+	__TFW_STR_CHUNKN_SET(&s3, 6);
+
 	h1 = tfw_hash_str(&s1);
 	h2 = tfw_hash_str(&s2);
 	h3 = tfw_hash_str(&s3);

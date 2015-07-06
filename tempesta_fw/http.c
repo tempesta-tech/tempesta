@@ -261,8 +261,8 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	TfwMsg *msg;
 	TfwHttpMsg *resp;
 	TfwHttpReq *req = (TfwHttpReq *)hm;
-	u_char *ptr, buf[SLEN(S_F_HOST) + 256];
 	size_t len, data_len = S_302_FIXLEN;
+	u_char buf[SLEN(S_F_HOST) + 256];
 
 	if (!(hm->flags & TFW_HTTP_STICKY_SET)) {
 		return NULL;
@@ -277,7 +277,7 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	data_len += req->host.len
 		    ? req->host.len
 		    : hm->h_tbl->tbl[TFW_HTTP_HDR_HOST].field.len;
-	data_len += req->uri_path.len + tfw_str_len(cookie);
+	data_len += req->uri_path.len + cookie->len;
 
 	if ((handle = tfw_http_msg_setup(resp, data_len)) == NULL) {
 		tfw_http_msg_free(resp);
@@ -289,43 +289,34 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	tfw_http_msg_add_data(handle, msg, buf, len);
 	tfw_http_msg_add_data(handle, msg, S_302_PART_02, SLEN(S_302_PART_02));
 	if (req->host.len) {
-		TFW_STR_FOR_EACH_CHUNK(chunk, &req->host) {
-			tfw_http_msg_add_data(handle, msg, chunk->ptr,
-							   chunk->len);
-		}
+		TFW_STR_FOR_EACH_CHUNK(chunk, &req->host,
+				       tfw_http_msg_add_data(handle, msg,
+							     chunk->ptr,
+							     chunk->len));
 	} else {
 		TfwStr *hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
-		/*
-		 * HOST is a special header in Tempesta, and it should not
-		 * contain the actual "Host: " prefix. But it does now.
-		 * Work around it.
-		 */
-		if (TFW_STR_IS_PLAIN(hdr)) {
-			tfw_http_msg_add_data(handle, msg,
-					      hdr->ptr + SLEN(S_F_HOST),
-					      hdr->len - SLEN(S_F_HOST));
+		if (TFW_STR_PLAIN(hdr)) {
+			tfw_http_msg_add_data(handle, msg, hdr->ptr, hdr->len);
 		} else  {
 			/*
 			 * Per RFC 1035, 2181, max length of FQDN is 255.
 			 * What if it is UTF-8 encoded?
 			 */
 			/*
-			 * XXX Linearize TfwStr{}. Should be eliminated
+			 * TODO Linearize TfwStr{}. Should be eliminated
 			 * when better TfwStr{} functions are implemented.
 			 */
 			tfw_str_to_cstr(hdr, buf, hdr->len);
-			ptr = strim(buf + SLEN(S_F_HOST));
-			tfw_http_msg_add_data(handle, msg, ptr,
-					      hdr->len - (ptr - buf));
+			tfw_http_msg_add_data(handle, msg, buf, hdr->len);
 		}
 	}
-	TFW_STR_FOR_EACH_CHUNK(chunk, &req->uri_path) {
-		tfw_http_msg_add_data(handle, msg, chunk->ptr, chunk->len);
-	}
+	TFW_STR_FOR_EACH_CHUNK(chunk, &req->uri_path,
+			       tfw_http_msg_add_data(handle, msg, chunk->ptr,
+						     chunk->len));
 	tfw_http_msg_add_data(handle, msg, S_302_PART_03, SLEN(S_302_PART_03));
-	TFW_STR_FOR_EACH_CHUNK(chunk, cookie) {
-		tfw_http_msg_add_data(handle, msg, chunk->ptr, chunk->len);
-	}
+	TFW_STR_FOR_EACH_CHUNK(chunk, cookie,
+			       tfw_http_msg_add_data(handle, msg, chunk->ptr,
+						     chunk->len));
 	tfw_http_msg_add_data(handle, msg, S_302_PART_04, SLEN(S_302_PART_04));
 
 	return resp;
@@ -715,6 +706,8 @@ nodata:
 
 /**
  * Add @new_hdr as a last header just before the message body.
+ *
+ * FIXME RFC 7230 3.2.2 prohibits generating headers with the same field name.
  */
 static int
 __hdr_add(const char *new_hdr, size_t nh_len, struct sk_buff *skb,
@@ -765,6 +758,9 @@ next_skb:
 						  hm->msg.skb_list.first, \
 						  hm->crlf)
 
+/**
+ * FIXME update for duplicate strings.
+ */
 static int
 __hdr_delete(TfwStr *hdr, struct sk_buff *skb)
 {
@@ -773,13 +769,18 @@ __hdr_delete(TfwStr *hdr, struct sk_buff *skb)
 	TfwStr *h = TFW_STR_CHUNK(hdr, 0);
 	unsigned char *vaddr;
 
+	if (hdr->flags & TFW_STR_DUPLICATE) {
+		TFW_WARN("Duplicate headers deletion is not supported\n");
+		return TFW_BLOCK;
+	}
+
 #define PROCESS_DATA(code)						\
 do {									\
 	unsigned char *p = h->ptr;					\
 	if (p >= vaddr && p < vaddr + dlen) {				\
 		if (p + h->len < vaddr + dlen) {			\
 			/* The header is linear. */			\
-			BUG_ON(hdr->flags & TFW_STR_COMPOUND);		\
+			BUG_ON(!TFW_STR_PLAIN(hdr));			\
 			memmove(p, p + h->len, dlen - (p - vaddr) - h->len); \
 			skb_trim(skb, skb->len - h->len);		\
 			code;						\
@@ -789,7 +790,7 @@ do {									\
 			BUG_ON(p + h->len - vaddr - dlen);		\
 			skb_trim(skb, skb->len - h->len);		\
 			code;						\
-			if (!(hdr->flags & TFW_STR_COMPOUND))		\
+			if (TFW_STR_PLAIN(hdr))			\
 				return TFW_PASS;			\
 			/* Compound header: process next chunk. */	\
 			++c;						\
@@ -824,7 +825,7 @@ next_skb:
 	/* Process packet fragments. */
 	skb_walk_frags(skb, frag_i) {
 		TfwStr hdr2 = { .flags = hdr->flags };
-		if (hdr->flags & TFW_STR_COMPOUND) {
+		if (!TFW_STR_PLAIN(hdr)) {
 			hdr2.len = hdr->len - c;
 			hdr2.ptr = h;
 		} else {
@@ -845,6 +846,11 @@ next_skb:
 #undef PROCESS_DATA
 }
 
+/**
+ * Substitute @hdr by @new_bdr.
+ *
+ * FIXME support duplicate @hdr.
+ */
 static int
 __hdr_sub(TfwStr *hdr, const char *new_hdr, size_t nh_len, struct sk_buff *skb)
 {
@@ -852,6 +858,11 @@ __hdr_sub(TfwStr *hdr, const char *new_hdr, size_t nh_len, struct sk_buff *skb)
 	struct sk_buff *frag_i;
 	TfwStr *h;
 	unsigned char *vaddr, *p;
+
+	if (hdr->flags & TFW_STR_DUPLICATE) {
+		TFW_WARN("Duplicate headers substitution is not supported\n");
+		return TFW_BLOCK;
+	}
 
 	for (h = TFW_STR_CHUNK(hdr, 0), c = 0; h; h = TFW_STR_CHUNK(hdr, ++c))
 		tot_hlen += h->len;
@@ -874,7 +885,7 @@ next_skb:
 		}
 		if (p + h->len < vaddr + dlen) {
 			/* The header is linear. */
-			BUG_ON(hdr->flags & TFW_STR_COMPOUND);
+			BUG_ON(!TFW_STR_PLAIN(hdr));
 			memcpy(p, new_hdr, nh_len);
 			if (h->len > nh_len) {
 				/* Set SPs at the end of header. */
@@ -908,7 +919,7 @@ next_skb:
 				memcpy(p + n, new_hdr, delta);
 
 			/* Move to next header chunk if exists. */
-			if (!(hdr->flags & TFW_STR_COMPOUND))
+			if (TFW_STR_PLAIN(hdr))
 				return TFW_PASS;
 					++c;
 			h = TFW_STR_CHUNK(hdr, c);
@@ -934,7 +945,7 @@ next_skb:
 	/* Process packet fragments. */
 	skb_walk_frags(skb, frag_i) {
 		TfwStr hdr2 = { .flags = hdr->flags };
-		if (hdr->flags & TFW_STR_COMPOUND) {
+		if (!TFW_STR_PLAIN(hdr)) {
 			hdr2.len = hdr->len - c;
 			hdr2.ptr = h;
 		} else {
@@ -975,7 +986,7 @@ next_skb:
  *    (which is shorter) using skb pointers;
  *
  * 2. need to add a header - we add the header as last header shifting message
- *    body;
+ *    body. Duplicate headers should also be processed for this case;
  *
  * 3. replace some of the headers - aggregate all current headers with the same
  *    name to one single header with comma separated fields (RFC 2616 4.2)
@@ -999,23 +1010,14 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	/* Never call the function if no changes are required. */
 	BUG_ON(!need_add && !need_del);
 
-	/* Delete unnecessary headers. */
-	if (unlikely(ch->field.flags & TFW_STR_COMPOUND2))
-		/* Few Connection headers - looks suspicious. */
-		return TFW_BLOCK;
-
 	if (need_add && need_del) {
 		/* Substitute the header. */
 		switch (need_add) {
 		case TFW_HTTP_CONN_CLOSE:
-			r = TFW_HTTP_HDR_SUB(&ch->field,
-					     "Connection: close",
-					     ch->skb);
+			r = TFW_HTTP_HDR_SUB(&ch->field, "close", ch->skb);
 			break;
 		case TFW_HTTP_CONN_KA:
-			r = TFW_HTTP_HDR_SUB(&ch->field,
-					     "Connection: keep-alive",
-					     ch->skb);
+			r = TFW_HTTP_HDR_SUB(&ch->field, "keep-alive", ch->skb);
 			break;
 		default:
 			BUG();
@@ -1109,7 +1111,7 @@ tfw_http_append_forwarded_for(TfwHttpMsg *m)
 	int r, old_hdr_len, buf_size, new_hdr_len;
 
 	skb = m->msg.skb_list.first;
-	old_hdr_len = tfw_str_len(&hdr->field);
+	old_hdr_len = hdr->field.len;
 	buf_size = old_hdr_len + TFW_ADDR_STR_BUF_SIZE + sizeof(", \r\n");
 
 	buf = tfw_pool_alloc(m->pool, buf_size);
@@ -1457,10 +1459,15 @@ tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
  * when they consist of many chunks.
  */
 unsigned long
-tfw_http_req_key_calc(const TfwHttpReq *req)
+tfw_http_req_key_calc(TfwHttpReq *req)
 {
-	return (tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field) ^
-		tfw_hash_str(&req->uri_path));
+	if (req->hash)
+		return req->hash;
+
+	req->hash = tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field)
+		    ^ tfw_hash_str(&req->uri_path);
+
+	return req->hash;
 }
 EXPORT_SYMBOL(tfw_http_req_key_calc);
 

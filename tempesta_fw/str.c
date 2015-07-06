@@ -18,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/bug.h>
 #include <linux/kernel.h>
 #include <linux/ctype.h>
@@ -26,75 +25,17 @@
 #include "lib.h"
 #include "str.h"
 
-#ifndef DEBUG
-#define validate_tfw_str(str)
-#define validate_cstr(cstr, len)
-#define validate_key(key, len)
-#else
-
-static void
-validate_tfw_str(const TfwStr *str)
+static TfwStr *
+__str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 {
-	const TfwStr *chunk;
-
-	BUG_ON(!str);
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		BUG_ON(!chunk);
-		BUG_ON(!chunk->len || !chunk->ptr);
-		BUG_ON(chunk->flags & TFW_STR_COMPOUND);
-	}
-}
-
-static void
-validate_cstr(const char *cstr, unsigned int len)
-{
-	/* Usually C strings are patterns for matching against TfwStr, so we
-	 * can make some assumptions on them:
-	 *  - They don't contain control and non-ASCII characters.
-	 *  - Their length corresponds to strlen().
-	 *  - They are shorter than 2^16. Opposite likely means an error,
-	 *    perhaps an error code (the negative value) was used as an
-	 *    unsigned integer.
-	 */
-	int i;
-	for (i = 0; i < len; ++i)
-		BUG_ON(iscntrl(cstr[i]) || !isascii(cstr[i]));
-	BUG_ON(strnlen(cstr, len) != len);
-	BUG_ON(len >= (1<<16));
-}
-
-static void
-validate_key(const char *key, int len)
-{
-	/* The term 'key' is even stricter than 'cstr'.
-	 * A key must be a valid cstr, but in addition:
-	 *  - It should not contain spaces (or tokenization would be tricky).
-	 *  - Expected length won't exceed 256 characters.
-	 */
-	int i;
-	for (i = 0; i < len; ++i)
-		BUG_ON(isspace(key[i]));
-	BUG_ON(len >= (1<<8));
-	validate_cstr(key, len);
-}
-
-#endif /* ifndef DEBUG */
-
-/**
- * Add compound piece to @str and return pointer to the piece.
- */
-TfwStr *
-tfw_str_add_compound(TfwPool *pool, TfwStr *str)
-{
-	if (unlikely(str->flags & TFW_STR_COMPOUND)) {
-		unsigned int l = str->len * sizeof(TfwStr);
+	if (unlikely(str->flags & flag)) {
+		unsigned int l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
 		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
 						    l + sizeof(TfwStr));
 		if (!p)
 			return NULL;
 		str->ptr = p;
-		str->len++;
+		TFW_STR_CHUNKN_INC(str);
 	}
 	else {
 		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
@@ -102,34 +43,119 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 			return NULL;
 		a[0] = *str;
 		str->ptr = a;
-		str->len = 2;
-		str->flags |= TFW_STR_COMPOUND;
+		TFW_STR_CHUNKN_INIT(str);
 	}
 
-	TFW_STR_INIT((TfwStr *)str->ptr + str->len - 1);
+	str = TFW_STR_CURR(str);
 
-	return ((TfwStr *)str->ptr + str->len - 1);
+	TFW_STR_INIT(str);
+
+	return str;
+}
+
+/**
+ * Add compound piece to @str and return pointer to the piece.
+ */
+TfwStr *
+tfw_str_add_compound(TfwPool *pool, TfwStr *str)
+{
+	return __str_grow_tree(pool, str, __TFW_STR_COMPOUND);
 }
 DEBUG_EXPORT_SYMBOL(tfw_str_add_compound);
 
 /**
- * Sum length of all chunks in a string (either compound or plain).
+ * Add place for a new duplicate to string tree @str, a string wich is probably
+ * alredy a set of duplicate compound strings).
  */
-int
-tfw_str_len(const TfwStr *str)
+TfwStr *
+tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 {
-	int total_len = 0;
-	const TfwStr *chunk;
+	TfwStr *dup_str = __str_grow_tree(pool, str, TFW_STR_DUPLICATE);
 
-	validate_tfw_str(str);
+	/* Length for set of duplicate strings has no sense. */
+	str->len = 0;
+	str->flags |= TFW_STR_DUPLICATE;
 
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
-		total_len += chunk->len;
+	return dup_str;
+}
+DEBUG_EXPORT_SYMBOL(tfw_str_add_duplicate);
+
+/**
+ * Core routine for tfw_stricmpspn() working on flat C strings.
+ * TODO too slow, rewrite on AVX2.
+ */
+static int
+__cstricmpspn(const char *s1, const char *s2, int n, int stop)
+{
+	unsigned char c1, c2;
+
+	while (n) {
+		c1 = tolower(*s1++);
+		c2 = tolower(*s2++);
+		if (c1 != c2)
+			return c1 < c2 ? -1 : 1;
+		if (!c1 || c1 == stop)
+			break;
+		n--;
 	}
 
-	return total_len;
+	return 0;
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_len);
+
+/**
+ * Like strcasecmp(3) for TfwStr, but stops matching when faces @stop.
+ * Do not use it for duplicate strings, rather call it for each duplicate
+ * substring separately.
+ */
+int
+tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
+{
+	int i1, i2, off1, off2, n;
+	const TfwStr *c1, *c2;
+
+	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
+
+	if (!stop || !s1->len || !s2->len) {
+		n = (int)s1->len - (int)s2->len;
+		if (n)
+			return n;
+	}
+
+	i1 = i2 = 0;
+	off1 = off2 = 0;
+	n = min(s1->len, s2->len);
+	c1 = TFW_STR_CHUNK(s1, 0);
+	c2 = TFW_STR_CHUNK(s2, 0);
+	while (n) {
+		int cn = min(c1->len - off1, c2->len - off2);
+		int r = stop
+			? __cstricmpspn((char *)c1->ptr + off1,
+					(char *)c2->ptr + off2, cn, stop)
+			: strnicmp((char *)c1->ptr + off1,
+				   (char *)c2->ptr + off2, cn);
+		if (r)
+			return r;
+		n -= cn;
+		if (cn == c1->len - off1) {
+			off1 = 0;
+			++i1;
+			c1 = TFW_STR_CHUNK(s1, i1);
+		} else {
+			off1 += cn;
+		}
+		if (cn == c2->len - off2) {
+			off2 = 0;
+			++i2;
+			c2 = TFW_STR_CHUNK(s2, i2);
+		} else {
+			off2 += cn;
+		}
+		BUG_ON(n && (!c1 || !c2));
+	}
+
+	return 0;
+}
+DEBUG_EXPORT_SYMBOL(tfw_stricmpspn);
 
 /**
  * Generic function for comparing TfwStr and C strings.
@@ -156,10 +182,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 	unsigned int len;
 	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
 
-	validate_cstr(cstr, cstr_len);
-	validate_tfw_str(str);
-
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
 		len = min(cstr_len, (int)chunk->len);
 
 		if (cmp(cstr, chunk->ptr, len))
@@ -170,13 +193,15 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 
 		cstr += len;
 		cstr_len -= len;
-	}
+	});
 
 	return !cstr_len;
 }
 DEBUG_EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 /**
+ * DEPRECATED - used only to compare headers which must be special.
+ *
  * Generic function for comparing TfwStr and a key-value pair of C strings.
  *
  * The key-value pair has the following form:
@@ -225,10 +250,6 @@ tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
 	const char *c;
 	const char *cend;
 	short cnum;
-
-	validate_tfw_str(str);
-	validate_key(key, key_len);
-	validate_cstr(val, val_len);
 
 /* Try to move to the next chunk (if current chunk is finished).
  * Execute @ok_code on sucess or @err_code if there is no next chunk. */
@@ -311,6 +332,8 @@ state_val:
 DEBUG_EXPORT_SYMBOL(tfw_str_eq_kv);
 
 /**
+ * DEPRECATED: The function intentionaly brokes zero-copy string design.
+ *
  * Join all chunks of @str to a single plain C string.
  *
  * The function copies all chunks of the @str to the @out_buf.
@@ -319,6 +342,7 @@ DEBUG_EXPORT_SYMBOL(tfw_str_eq_kv);
  * always terminated with '\0'.
  *
  * Returns length of the output string.
+ *
  */
 size_t
 tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
@@ -327,12 +351,11 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 	char *pos = out_buf;
 	int len;
 
-	validate_tfw_str(str);
 	BUG_ON(!out_buf || (buf_size <= 0));
 
 	--buf_size; /* Reserve one byte for '\0'. */
 
-	TFW_STR_FOR_EACH_CHUNK (chunk, str) {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
 		len = min(buf_size, (int)chunk->len);
 		strncpy(pos, chunk->ptr, len);
 		pos += len;
@@ -340,7 +363,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 		if (unlikely(!buf_size))
 			break;
-	}
+	});
 
 	*pos = '\0';
 
