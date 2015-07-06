@@ -153,8 +153,6 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
 	long copied = 0;
 
-	BUG_ON(src->flags & (TFW_STR_COMPOUND | TFW_STR_COMPOUND2));
-
 	while (copied < src->len) {
 		int room = (char *)(*trec + 1) + (*trec)->len - *p;
 		BUG_ON(room < 0);
@@ -188,12 +186,41 @@ tfw_cache_copy_str_compound(char **p, TdbVRec **trec, TfwStr *src,
 
 	BUG_ON(!tot_len);
 
-	if (!(src->flags & TFW_STR_COMPOUND))
+	if (TFW_STR_PLAIN(src))
 		return tfw_cache_copy_str(p, trec, src, tot_len);
 
-	for (i = 0; i < src->len; ++i) {
+	for (i = 0; i < TFW_STR_CHUNKN(src); ++i) {
 		long n = tfw_cache_copy_str(p, trec, (TfwStr *)src->ptr + i,
 					    tot_len - copied);
+		if (n < 0)
+			return n;
+		copied += n;
+		BUG_ON(tot_len < copied);
+	}
+
+	return copied;
+}
+
+/**
+ * Copies TfwStr (probably compound and duplicate) to TdbRec.
+ * @return number of copied bytes (@src overall length).
+ */
+static long
+tfw_cache_copy_str_duplicate(char **p, TdbVRec **trec, TfwStr *src,
+			     size_t tot_len)
+{
+	int i;
+	long copied = 0;
+
+	BUG_ON(!tot_len);
+
+	if (!(src->flags & TFW_STR_DUPLICATE))
+		return tfw_cache_copy_str_compound(p, trec, src, tot_len);
+
+	for (i = 0; i < TFW_STR_CHUNKN(src); ++i) {
+		long n = tfw_cache_copy_str_compound(p, trec,
+						     (TfwStr *)src->ptr + i,
+						     tot_len - copied);
 		if (n < 0)
 			return n;
 		copied += n;
@@ -255,8 +282,8 @@ tfw_cache_copy_resp(struct work_struct *work)
 	ce->hdrs = p;
 	hdr = htbl->tbl;
 	for (i = 0; i < hlens / sizeof(ce->hdr_lens[0]); ++i, ++hdr) {
-		n = tfw_cache_copy_str_compound(&p, &trec, &hdr->field,
-						tot_len);
+		n = tfw_cache_copy_str_duplicate(&p, &trec, &hdr->field,
+						 tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
 			goto err;
@@ -267,7 +294,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 
 	/* Write HTTP response body. */
 	ce->body = p;
-	n = tfw_cache_copy_str_compound(&p, &trec, &ce->resp->body, tot_len);
+	n = tfw_cache_copy_str_duplicate(&p, &trec, &ce->resp->body, tot_len);
 	if (n < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		goto err;

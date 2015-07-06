@@ -4,7 +4,7 @@
  * HTTP Parser.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@
 static inline void
 __field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
 {
-	if (unlikely(field->flags & TFW_STR_COMPOUND)) {
+	if (unlikely(!TFW_STR_PLAIN(field))) {
 		TfwStr *last = (TfwStr *)field->ptr + field->len - 1;
 		if (unlikely(begin == end)) {
 			BUG_ON(field->len >= 2);
@@ -71,8 +71,19 @@ __field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
 	field->flags |= TFW_STR_COMPLETE;
 }
 
+/**
+ * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
+ * variables in nested blocks, so we declare all required temporal variables
+ * used in the defines below here to reduce stack frame usage.
+ * Since the variables are global now, be careful with them.
+ */
 #define __FSM_START(s)							\
 int __fsm_const_state;							\
+/* Declare FSM automatic variables, the variables have only local sense. */ \
+int __fsm_n;								\
+size_t __fsm_sz __attribute__((unused));				\
+unsigned char *__fsm_ch __attribute__((unused));			\
+TfwStr *__fsm_str;							\
 parser->data_off = 0; /* new data chunk */				\
 fsm_reenter: __attribute__((unused))					\
 	TFW_DBG("enter FSM at state %d\n", s);				\
@@ -112,8 +123,10 @@ do {									\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		if (parser->hdr.ptr) {					\
-			TfwStr *h = TFW_STR_CURR(&parser->hdr);		\
-			h->len += data + len - (unsigned char *)h->ptr;	\
+			__fsm_str = TFW_STR_CURR(&parser->hdr);		\
+			__fsm_n = data + len - (unsigned char *)__fsm_str->ptr;\
+			__fsm_str->len += __fsm_n;			\
+			parser->hdr.len += __fsm_n;			\
 		}							\
 		code;							\
 	}								\
@@ -436,30 +449,41 @@ enum {
 
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_next, st_i, msg, func, id)	\
 __FSM_STATE(st_curr) {							\
-	int ret;							\
-	size_t plen = len - (size_t)(p - data);				\
+	__fsm_sz = len - (size_t)(p - data);				\
 	BUG_ON(p > data + len);						\
 	parser->_i_st = st_i;						\
-	ret = func(msg, p, &plen);					\
-	/* @plen - header value length */				\
-	/* @ret - next data (@plen + *CR + LF) */			\
-	TFW_DBG("parse header " #func					\
-		": ret=%d plen=%ld id=%d\n", ret, plen, id);		\
-	switch (ret) {							\
+	if (__builtin_constant_p(id) < TFW_HTTP_HDR_RAW) {		\
+		/*							\
+		 * Check whether the header slot is acquired to catch	\
+		 * duplicate headers in sense of RFC 7230 3.2.2.	\
+		 */							\
+		if (__builtin_constant_p(id) < TFW_HTTP_HDR_NONSINGULAR	\
+		    && unlikely((msg)->h_tbl->tbl[id].field.ptr))	\
+			return TFW_BLOCK;				\
+		/* Don't store header name for special headers. */	\
+		TFW_STR_INIT(&parser->hdr);				\
+		TFW_STR_CURR(&parser->hdr)->ptr = p;			\
+	}								\
+	__fsm_n = func(msg, p, &__fsm_sz);				\
+	/* @__fsm_sz - header value length */				\
+	/* @ret - next data (@__fsm_sz + *CR + LF) */			\
+	TFW_DBG("parse header " #func ": ret=%d len=%ld id=%d\n",	\
+		__fsm_n, __fsm_sz, id);					\
+	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* Not all the header data is parsed. */		\
-		STORE_HEADER(msg, id, plen);				\
-		__FSM_MOVE_n(st_curr, plen);				\
+		__store_header_chunk((TfwHttpMsg *)msg, p, __fsm_sz);	\
+		__FSM_MOVE_n(st_curr, __fsm_sz);			\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
 		return TFW_BLOCK;					\
 	default:							\
-		BUG_ON(ret <= 0);					\
-		plen += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
-		/* @plen - full header length (key + value) */		\
+		BUG_ON(__fsm_n <= 0);					\
+		__fsm_sz += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
+		/* @__fsm_sz - full header length (key + value) */		\
 		/* The header value is fully parsed, move forward. */	\
-		CLOSE_HEADER(msg, id, plen);				\
-		__FSM_MOVE_n(st_next, ret);				\
+		__close_header((TfwHttpMsg *)msg, __fsm_sz, id);		\
+		__FSM_MOVE_n(st_next, __fsm_n);				\
 	}								\
 }
 
@@ -516,42 +540,42 @@ __FSM_STATE(prefix ## _Body) {						\
 	TFW_DBG("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
 		unsigned int to_read = 0;				\
-		size_t plen = len - (size_t)(p - data);			\
+		__fsm_sz = len - (size_t)(p - data);			\
 		/* Read next chunk length. */				\
-		int ret = __parse_hex(&parser->_tmp_chunk,		\
-				      p, plen, &to_read);		\
-		TFW_DBG("plen=%zu ret=%d to_read=%d\n",			\
-			plen, ret, to_read);				\
-		switch (ret) {						\
+		__fsm_n = __parse_hex(&parser->_tmp_chunk,		\
+				      p, __fsm_sz, &to_read);		\
+		TFW_DBG("len=%zu ret=%d to_read=%d\n",			\
+			__fsm_sz, __fsm_n, to_read);			\
+		switch (__fsm_n) {					\
 		case CSTR_POSTPONE:					\
 			/* Not all data has been parsed. */		\
-			__FSM_B_MOVE_n(prefix ## _Body, plen);		\
+			__FSM_B_MOVE_n(prefix ## _Body, __fsm_sz);	\
 		case CSTR_BADLEN: /* bad header length */		\
 		case CSTR_NEQ: /* bad header value */			\
 			return TFW_BLOCK;				\
 		default:						\
-			BUG_ON(ret <= 0);				\
+			BUG_ON(__fsm_n <= 0);				\
 			parser->to_read = to_read;			\
-			__FSM_B_MOVE_n(prefix ## _BodyChunkEoL, ret);	\
+			__FSM_B_MOVE_n(prefix ## _BodyChunkEoL, __fsm_n); \
 		}							\
 	}								\
 	/* fall through */						\
 }									\
 /* Read parser->to_read bytes of message body. */			\
 __FSM_STATE(prefix ## _BodyReadChunk) {					\
-	size_t mlen = min(parser->to_read,				\
+	__fsm_sz = min(parser->to_read,					\
 			  (int)(len - (size_t)(p - data)));		\
 	if (!msg->body.ptr)						\
 		msg->body.ptr = p;					\
-	msg->body.len += mlen;						\
-	parser->to_read -= mlen;					\
+	msg->body.len += __fsm_sz;					\
+	parser->to_read -= __fsm_sz;					\
 	/* Just skip required number of bytes. */			\
 	if (parser->to_read)						\
-		__FSM_B_MOVE_n(prefix ## _BodyReadChunk, mlen);		\
+		__FSM_B_MOVE_n(prefix ## _BodyReadChunk, __fsm_sz);	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_B_MOVE_n(prefix ## _BodyChunkEnd, mlen);		\
+		__FSM_B_MOVE_n(prefix ## _BodyChunkEnd, __fsm_sz);	\
 	/* We've fully read Content-Length bytes. */			\
-	p += mlen;							\
+	p += __fsm_sz;							\
 	r = TFW_PASS;							\
 	goto done;							\
 }									\
@@ -663,13 +687,14 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		unsigned char *comma = memchr(p, ',', plen);
-		if (comma && (!lf || (lf && (comma < lf))))
+		unsigned char *comma;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		comma = memchr(p, ',', __fsm_sz);
+		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(I_EoT, comma - p);
-		if (lf)
-			__FSM_I_MOVE_n(I_EoL, lf - p);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(I_EoL, __fsm_ch - p);
 		return CSTR_POSTPONE;
 	}
 
@@ -725,11 +750,11 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(I_ContLen) {
 		unsigned int acc = 0;
-		int n = parse_int_ws(chunk, p, len, &acc);
-		if (n < 0)
-			return n;
+		__fsm_n = parse_int_ws(chunk, p, len, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		msg->content_length = acc;
-		__FSM_I_MOVE_n(I_EoL, n);
+		__FSM_I_MOVE_n(I_EoL, __fsm_n);
 	}
 
 	__FSM_STATE(I_EoL) {
@@ -786,13 +811,14 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		unsigned char *comma = memchr(p, ',', plen);
-		if (comma && (!lf || (lf && (comma < lf))))
+		unsigned char *comma;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		comma = memchr(p, ',', __fsm_sz);
+		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(I_EoT, comma - p);
-		if (lf)
-			__FSM_I_MOVE_n(I_EoL, lf - p);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(I_EoL, __fsm_ch - p);
 		return CSTR_POSTPONE;
 	}
 
@@ -828,119 +854,128 @@ done:
 	return r;
 }
 
-/*
- * All singular headers should be made special and take a contiguous
- * id space (be grouped together in the id space). Non-singular special
- * headers should follow and take a different id space to differentiate
- * from singular headers. That way checking whether a header field can
- * be duplicated or not would be easy and fast as it should be. The check
- * would be a simple comparison if the header field id is within the range.
+/**
+ * Slow check of generic (raw) header for singularity.
+ * Some of the header should be special and moved to tfw_http_hdr_t enum,
+ * so linear search is Ok here.
+ * @return true for headers which must never have duplicates.
  */
 static bool
-__header_is_singular(const TfwStr *field)
+__header_is_singular(const TfwStr *hdr)
 {
-	int idx, ichar, fchar;
-	bool fplain = !(field->flags & (TFW_STR_COMPOUND|TFW_STR_COMPOUND2));
-
-#define TfwStr_string(v)	{ 0, sizeof(v) - 1, (v) }
-	/*
-	 * Place strings in alphabetical order to speed up processing.
-	 */
-	static const TfwStr field_singular[] __read_mostly = {
-		TfwStr_string("Authorization"),
-		TfwStr_string("Content_Length"),
-		TfwStr_string("Content_Type"),
-		TfwStr_string("From"),
-		TfwStr_string("Host"),
-		TfwStr_string("If_Modified_Since"),
-		TfwStr_string("If_Unmodified_Since"),
-		TfwStr_string("Location"),
-		TfwStr_string("Max_Forwards"),
-		TfwStr_string("Proxy_Authorization"),
-		TfwStr_string("Referer"),
-		TfwStr_string("User_Agent"),
-	};
+	int i, fc;
+	static const TfwStr hdr_singular[] __read_mostly = {
+#define TfwStr_string(v) { 0, sizeof(v) - 1, (v) }
+		TfwStr_string("authorization:"),
+		TfwStr_string("content-type:"),
+		TfwStr_string("from:"),
+		TfwStr_string("if-modified-since:"),
+		TfwStr_string("if-unmodified-since:"),
+		TfwStr_string("location:"),
+		TfwStr_string("max-forwards:"),
+		TfwStr_string("proxy-authorization:"),
+		TfwStr_string("referer:"),
+		TfwStr_string("user-agent:"),
 #undef TfwStr_string
+	};
 
-	fchar = fplain
-		? tolower(*(unsigned char *)field->ptr)
-		: tolower(*(unsigned char *)((TfwStr *)field->ptr)->ptr);
-	for (idx = 0; idx < ARRAY_SIZE(field_singular); idx++) {
-		ichar = tolower(*(unsigned char *)field_singular[idx].ptr);
-		if (fchar < ichar)
+	fc = tolower(*(unsigned char *)TFW_STR_CHUNK(hdr, 0));
+	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
+		const TfwStr *sh = &hdr_singular[i];
+		int sc = *(unsigned char *)sh->ptr;
+		if (fc > sc)
 			continue;
-		else if (fchar > ichar)
+		if (fc < sc)
 			break;
-		else if (fchar == ichar) {
-			const TfwStr *ifield = &field_singular[idx];
-			if (fplain && (field->len != ifield->len))
-				continue;
-			if (tfw_str_eq_cstr(field, ifield->ptr, ifield->len,
-						   TFW_STR_EQ_PREFIX_CASEI))
-				return true;
-		}
+		if (!tfw_stricmpspn(hdr, sh->ptr, ':'))
+			return true;
 	}
 	return false;
 }
 
+/**
+ * Lookup for the header @hdr in already collected headers table @ht,
+ * i.e. check whether the header is duplicate.
+ * @return the header id.
+ *
+ * Certain header fields are strictly singular and may not be repeated in
+ * an HTTP message. Duplicate of a singular header fields is a bug worth
+ * blocking the whole HTTP message.
+ */
 static int
-__header_is_duplicate(TfwHttpMsg *hm, int id, int adjust)
+__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
-	int len, dupid;
-	char *buf;
+	int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *field = &hm->h_tbl->tbl[id].field;
 
-	len = tfw_str_len(field) - adjust;
-
-	if ((buf = tfw_pool_alloc(hm->pool, len + 1)) == NULL)
-		return id;
-	tfw_str_to_cstr(field, buf, len + 1);
-
-	for (dupid = TFW_HTTP_HDR_RAW; dupid < ht->off; dupid++) {
-		TfwStr *hdr = &ht->tbl[dupid].field;
-		if (tfw_str_eq_cstr(hdr, buf, len, TFW_STR_EQ_PREFIX_CASEI))
-			return dupid;
+	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
+		TfwStr *h = &ht->tbl[id].field;
+		/* There is no sense to compare against all duplicates. */
+		if (h->flags & TFW_STR_DUPLICATE)
+			h = TFW_STR_CHUNK(h, 0);
+		if (tfw_stricmpspn(hdr, h, ':'))
+			continue;
+		if (__header_is_singular(hdr))
+			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+		break;
 	}
 
 	return id;
 }
 
-static inline char *
-__strrnchr(const char *s, size_t len, int c)
-{
-	const char *p = s + len;
-	do {
-		if (*p == (char)c)
-			return (char *)p;
-	} while (--p >= s);
-	return NULL;
-}
-
 /**
- * TODO process duplicate _generic_ (TFW_HTTP_HDR_RAW) headers like:
- *
- * 	Foo: bar value\r\n
- * 	Bar: other value\r\n
- * 	Foo: processed as a new header - no collision!
- *
- * Note that both the headers can already be compound (i.e. consist from
- * few data chunks/fragments), so we should handle string tree of heigh 2.
- *
- * tfw_cache_copy_resp() also must be updated.
+ * Process fully parsed, probably compound, header (i.e. close it) to
+ * HTTP message headers list.
  */
 static void
-__store_header(TfwHttpMsg *hm, char *data, long len, int id,
-	       bool close)
+__close_header(TfwHttpMsg *hm, long len, int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	char *cptr, *hptr = hm->parser.hdr.ptr;
 
-	if (unlikely(id == TFW_HTTP_HDR_RAW
-		     && hm->h_tbl->off == hm->h_tbl->size))
-	{
-		/* Allocate some more room if not enough to store the header. */
+	BUG_ON(hm->parser.hdr.flags & TFW_STR_DUPLICATE);
+	BUG_ON(id > TFW_HTTP_HDR_RAW);
+
+	/*
+	 * Firstly set the full current header chunk length and
+	 * mark the header string as complete.
+	 */
+	TFW_STR_UPDLEN(&hm->parser.hdr, len);
+	hm->parser.hdr.flags |= TFW_STR_COMPLETE;
+
+	/* Quick path for special headers. */
+	if (likely(id < TFW_HTTP_HDR_RAW)) {
+		h = &ht->tbl[id].field;
+		if (TFW_STR_EMPTY(h))
+			/* Just store the special header in empty slot. */
+			goto done;
+
+		/*
+		 * Process duplicate header.
+		 *
+		 * RFC 7230 3.2.2: all duplicates of special singular
+		 * headers must be blocked as early as possible,
+		 * just when parser reads them.
+		 */
+		BUG_ON(id < TFW_HTTP_HDR_NONSINGULAR);
+		/*
+		 * RFC 7230 3.2.2: duplicate of non-singular special
+		 * header - leave the decision to classification layer.
+		 */
+		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+		goto duplicate;
+	}
+
+	/*
+	 * A new raw header is to be stored, but it can be a duplicate of some
+	 * existing header and we must find appropriate index for it.
+	 * Both the headers, the new one and existing one, can already be
+	 * compound.
+	 */
+	id = __hdr_lookup(hm, &hm->parser.hdr);
+
+	/* Allocate some more room if not enough to store the header. */
+	if (unlikely(id == ht->size)) {
 		size_t order = hm->h_tbl->size / TFW_HTTP_HDR_NUM;
 
 		if (unlikely(__HHTBL_SZ(order + 1) >= TFW_HTTP_HDR_NUM_MAX)) {
@@ -959,76 +994,58 @@ __store_header(TfwHttpMsg *hm, char *data, long len, int id,
 		hm->h_tbl = ht;
 	}
 
-	if (id == TFW_HTTP_HDR_RAW)
-		id = ht->off;
-
 	h = &ht->tbl[id].field;
 
-	/*
-	 * This doesn't change the current logic, but allows for proper
-	 * concatenation of header fields that may come in multiples in
-	 * a single HTTP message. Things to take care of are:
-	 * - Certain header fields are strictly singular and may not be
-	 *   repeated in an HTTP message. Duplicate of a singular header
-	 *   fields is a bug worth blocking the whole HTTP message.
-	 * - Certain header fields have '\n' as a concatenating character
-	 *   instead of an usual ',' (comma).
-	 */
-	if ((id < TFW_HTTP_HDR_RAW)
-	    && h->ptr && (h->flags & TFW_STR_COMPLETE)) {
-		if (__header_is_singular(h))
-			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		/* XXX Append a proper concatenation character */
-		/* XXX Do not append the field name, just the value */
-		/* Don't change current logic for now */
-	}
-	if (h->ptr) {
-		/*
-		 * The header consists of multiple fragments.
-		 * Aggregate the fragments into one compound string.
-		 */
-		h = tfw_str_add_compound(hm->pool, &ht->tbl[id].field);
-		if (!h)
-			return;
-	}
-	*h = hm->parser.hdr;
-	h->len = len;
+	if (!h->ptr)
+		/* Add the new header. */
+		goto done;
 
-	if ((id > TFW_HTTP_HDR_RAW)
-	    && len && !(h->flags & TFW_STR_HASCOLON)
-	    && ((cptr = __strrnchr(hptr, len, ':')) != NULL))
-	{
-		int dupid = __header_is_duplicate(hm, id, hptr + len - cptr);
-		TfwStr *duph = (dupid == id) ? NULL : &ht->tbl[dupid].field;
-		BUG_ON(duph && !(duph->flags & TFW_STR_COMPLETE));
-		h->flags |= TFW_STR_HASCOLON;
-		if (duph) {
-			if (__header_is_singular(h))
-				hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-			/* XXX Append a proper concatenation character */
-			/* XXX Append accumulated data to the original field */
-			/* XXX Do not append the field name, just the value */
-			/* XXX Switch current field to the original one */
-			/* Don't change current logic for now */
-		}
+duplicate:
+	h = tfw_str_add_duplicate(hm->pool, h);
+	if (unlikely(!h)) {
+		TFW_WARN("Cannot close header %p id=%d\n",
+			 &hm->parser.hdr, id);
+		return;
 	}
+
+done:
+	*h = hm->parser.hdr;
 
 	TFW_STR_INIT(&hm->parser.hdr);
 	TFW_DBG("store header w/ ptr=%p len=%d flags=%x id=%d\n",
 		h->ptr, h->len, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
-	if (close) {
-		if (id == ht->off)
-			ht->off++;
-		h->flags |= TFW_STR_COMPLETE;
-	}
+	if (id == ht->off)
+		ht->off++;
 }
 
-#define STORE_HEADER(rmsg, id, len)	__store_header((TfwHttpMsg *)rmsg, \
-						       data, len, id, false)
-#define CLOSE_HEADER(rmsg, id, len)	__store_header((TfwHttpMsg *)rmsg, \
-						       data, len, id, true)
+/**
+ * Fix current header parsing state, so that parser can back to the header
+ * when it receives more data on it.
+ */
+static void
+__store_header_chunk(TfwHttpMsg *hm, unsigned char *data, long len)
+{
+	TfwHttpParser *parser = &hm->parser;
+
+	if (parser->hdr.len) {
+		TfwStr *h = tfw_str_add_compound(hm->pool, &parser->hdr);
+		if (unlikely (!h)) {
+			TFW_WARN("Cannot store chunk [%.*s]\n",
+				 min((int)len, 10), data);
+			return;
+		}
+		h->ptr = data;
+		h->len = len;
+		parser->hdr.len += len;
+	} else {
+		/* Just close first chunk of the header. */
+		BUG_ON(!parser->hdr.ptr);
+		BUG_ON(parser->hdr.len);
+		parser->hdr.len = len;
+	}
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -1268,22 +1285,22 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		req->cache_ctl.max_age = acc;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, n);
+		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		req->cache_ctl.max_fresh = acc;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, n);
+		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_Ext) {
@@ -1294,13 +1311,14 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		unsigned char *comma = memchr(p, ',', plen);
-		if (comma && (!lf || (lf && (comma < lf))))
+		unsigned char *comma;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		comma = memchr(p, ',', __fsm_sz);
+		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Req_I_CC_EoT, comma - p);
-		if (lf)
-			__FSM_I_MOVE_n(Req_I_CC_EoL, lf - p);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(Req_I_CC_EoL, __fsm_ch - p);
 		return CSTR_POSTPONE;
 	}
 
@@ -1344,7 +1362,7 @@ done:
 }
 
 /**
- * Parse request Host header, RFC 2616 14.23
+ * Parse request Host header, RFC 7230 5.4.
  */
 static int
 __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
@@ -1524,17 +1542,17 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->uri_path.ptr = p;
 			__FSM_MOVE(Req_UriAbsPath);
 		}
-		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')))
-			if (likely(*(p + 4) == ':' && *(p + 5) == '/'
-				   && *(p + 6) == '/'))
-			{
-				/*
-				 * Set req->host here making Host header value
-				 * ignored according to RFC2616 5.2.
-				 */
-				req->host.ptr = p + 7;
-				__FSM_MOVE_n(Req_UriHost, 7);
-			}
+		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')
+			   && *(p + 4) == ':' && *(p + 5) == '/'
+			   && *(p + 6) == '/'))
+		{
+			/*
+			 * Set req->host here making Host header value
+			 * ignored according to RFC2616 5.2.
+			 */
+			req->host.ptr = p + 7;
+			__FSM_MOVE_n(Req_UriHost, 7);
+		}
 
 		return TFW_BLOCK;
 	}
@@ -1640,8 +1658,19 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 * There is a switch for first character of a header name.
 	 */
 	__FSM_STATE(Req_Hdr) {
-		if (parser->hdr.ptr)
-			tfw_str_add_compound(req->pool, &parser->hdr);
+		if (parser->hdr.ptr) {
+			/*
+			 * Make the header compound if field-name is split
+			 * across chunks.
+			 */
+			__fsm_str = tfw_str_add_compound(req->pool,
+							 &parser->hdr);
+			if (unlikely (!__fsm_str)) {
+				TFW_WARN("Cannot add compound header to %p\n",
+					 &parser->hdr);
+				return TFW_BLOCK;
+			}
+		}
 
 		if (unlikely(c == '\r')) {
 			if (!req->body.ptr) {
@@ -1761,8 +1790,9 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 				 TFW_HTTP_HDR_CONNECTION);
 
 	/* 'Content-Length:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_HDR_VAL(Req_HdrContent_LengthV, Req_Hdr, I_ContLen,
-			       (TfwHttpMsg *)req, __parse_content_length);
+	__TFW_HTTP_PARSE_HDR_VAL(Req_HdrContent_LengthV, Req_Hdr, I_ContLen,
+				 (TfwHttpMsg *)req, __parse_content_length,
+				 TFW_HTTP_HDR_CONTENT_LENGTH);
 
 	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_HDR_VAL(Req_HdrTransfer_EncodingV, Req_Hdr, I_TransEncod,
@@ -1782,19 +1812,20 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_HdrOther) {
 		/* Just eat the header until LF. */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		if (lf) {
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		if (__fsm_ch) {
 			/* Get length of the header. */
-			unsigned char *cr = lf - 1;
+			unsigned char *cr = __fsm_ch - 1;
 			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
 				--cr;
-			CLOSE_HEADER(req, TFW_HTTP_HDR_RAW, cr - p);
-			p = lf; /* move to just after LF */
+			__close_header((TfwHttpMsg *)req, cr - p,
+				       TFW_HTTP_HDR_RAW);
+			p = __fsm_ch; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
-		STORE_HEADER(req, TFW_HTTP_HDR_RAW, plen);
-		__FSM_MOVE_n(Req_HdrOther, plen);
+		__store_header_chunk((TfwHttpMsg *)req, p, __fsm_sz);
+		__FSM_MOVE_n(Req_HdrOther, __fsm_sz);
 	}
 
 	/* Request headers are fully read. */
@@ -2025,22 +2056,22 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		resp->cache_ctl.max_age = acc;
-		__FSM_I_MOVE_n(Resp_I_EoT, n);
+		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(chunk, p, __fsm_n, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		resp->cache_ctl.s_maxage = acc;
-		__FSM_I_MOVE_n(Resp_I_EoT, n);
+		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_Ext) {
@@ -2051,13 +2082,14 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		unsigned char *comma = memchr(p, ',', plen);
-		if (comma && (!lf || (lf && (comma < lf))))
+		unsigned char *comma;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		comma = memchr(p, ',', __fsm_sz);
+		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
-		if (lf)
-			__FSM_I_MOVE_n(Resp_I_EoL, lf - p);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(Resp_I_EoL, __fsm_ch - p);
 		return CSTR_POSTPONE;
 	}
 
@@ -2143,41 +2175,40 @@ __year_day_secs(unsigned int year, unsigned int day_sec)
 static int
 __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 {
-	TfwHttpParser *parser = &resp->parser;
-	TfwStr *chunk = &parser->_tmp_chunk;
-	int r = CSTR_NEQ;
-	unsigned char *p = data;
-	size_t len = *lenrval;
-	unsigned char c = *p;
-	bool hlen_set = false;
 	static const unsigned long colon_a[] ____cacheline_aligned = {
 		/* ':' (0x3a)(58) Colon */
 		0x0400000000000000UL, 0, 0, 0
 	};
+	TfwHttpParser *parser = &resp->parser;
+	TfwStr *chunk = &parser->_tmp_chunk;
+	unsigned char *p = data;
+	size_t len = *lenrval;
+	int r = CSTR_NEQ;
+	unsigned char c = *p;
+	bool hlen_set = false;
 
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_Expires) {
 		/* Skip a weekday as redundant information. */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *sp = memchr(p, ' ', plen);
-		if (sp)
-			__FSM_I_MOVE_n(Resp_I_ExpDate, sp - p + 1);
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, ' ', __fsm_sz);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(Resp_I_ExpDate, __fsm_ch - p + 1);
 		return CSTR_POSTPONE;
 	}
 
 	__FSM_STATE(Resp_I_ExpDate) {
-		int n;
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
+		__fsm_sz = len - (size_t)(p - data);
 
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
-		n = parse_int_ws(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
-		else if (n != 2 || acc < 1)
+		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		else if (__fsm_n != 2 || acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
 		resp->expires = (acc - 1) * SEC24H;
@@ -2256,27 +2287,27 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	/* 4-digit year. */
 	__FSM_STATE(Resp_I_ExpYear) {
 		unsigned int year = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_ws(chunk, p, plen, &year);
-		if (n < 0)
-			return n;
-		else if (n != 4)
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &year);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		else if (__fsm_n != 4)
 			return CSTR_BADLEN;
-		n = __year_day_secs(year, resp->expires);
-		if (n < 0)
+		__fsm_n = __year_day_secs(year, resp->expires);
+		if (__fsm_n < 0)
 			return CSTR_NEQ;
-		resp->expires = n;
+		resp->expires = __fsm_n;
 		/* Skip a year and a following SP. */
 		__FSM_I_MOVE_n(Resp_I_ExpHour, 5);
 	}
 
 	__FSM_STATE(Resp_I_ExpHour) {
 		unsigned int t = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int_a(chunk, p, plen, colon_a, &t);
-		if (n < 0)
-			return n;
-		else if (n != 2)
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = __parse_int_a(chunk, p, __fsm_sz, colon_a, &t);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		else if (__fsm_n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t * 3600;
 		/* Skip an hour and a following ':'. */
@@ -2285,11 +2316,11 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_ExpMin) {
 		unsigned int t = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = __parse_int_a(chunk, p, plen, colon_a, &t);
-		if (n < 0)
-			return n;
-		else if (n != 2)
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = __parse_int_a(chunk, p, __fsm_sz, colon_a, &t);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		else if (__fsm_n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t * 60;
 		/* Skip minutes and a following ':'. */
@@ -2298,11 +2329,11 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_ExpSec) {
 		unsigned int t = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_ws(chunk, p, plen, &t);
-		if (n < 0)
-			return n;
-		else if (n != 2)
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &t);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		else if (__fsm_n != 2)
 			return CSTR_BADLEN;
 		resp->expires = t;
 		/* Skip seconds and a following ' GMT'. */
@@ -2354,12 +2385,12 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(chunk, p, plen, &acc);
-		if (n < 0)
-			return n;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
 		resp->keep_alive = acc;
-		__FSM_I_MOVE_n(Resp_I_EoT, n);
+		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	/*
@@ -2367,13 +2398,14 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	 *	max=N
 	 */
 	__FSM_STATE(Resp_I_Ext) {
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		unsigned char *comma = memchr(p, ',', plen);
-		if (comma && (!lf || (lf && (comma < lf))))
+		unsigned char *comma;
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		comma = memchr(p, ',', __fsm_sz);
+		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
-		if (lf)
-			__FSM_I_MOVE_n(Resp_I_EoL, lf - p);
+		if (__fsm_ch)
+			__FSM_I_MOVE_n(Resp_I_EoL, __fsm_ch - p);
 		return CSTR_POSTPONE;
 	}
 
@@ -2553,13 +2585,14 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/* Response Status-Code. */
 	__FSM_STATE(Resp_StatusCode) {
 		unsigned int acc = 0;
-		size_t plen = len - (size_t)(p - data);
-		int n = parse_int_list(&parser->_tmp_chunk, p, plen, &acc);
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_n = parse_int_list(&parser->_tmp_chunk, p, __fsm_sz,
+					 &acc);
 		parser->_i_st = I_Conn;
-		switch (n) {
+		switch (__fsm_n) {
 		case CSTR_POSTPONE:
 			/* Not all the header data is parsed. */
-			__FSM_MOVE_n(Resp_StatusCode, plen);
+			__FSM_MOVE_n(Resp_StatusCode, __fsm_sz);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			/* bad status value */
@@ -2567,17 +2600,17 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 		default:
 			/* The header value is fully parsed, move forward. */
 			resp->status = acc;
-			__FSM_MOVE_n(Resp_ReasonPhrase, n);
+			__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_n);
 		}
 	}
 
 	/* Reason-Phrase: just skip. */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		if (lf)
-			__FSM_MOVE_n(Resp_Hdr, lf - p + 1);
-		__FSM_MOVE_n(Resp_ReasonPhrase, plen);
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		if (__fsm_ch)
+			__FSM_MOVE_n(Resp_Hdr, __fsm_ch - p + 1);
+		__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_sz);
 	}
 
 	/* ----------------    Header Lines    ---------------- */
@@ -2585,8 +2618,17 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(Resp_Hdr) {
 		if (parser->hdr.ptr) {
-			BUG();
-			tfw_str_add_compound(resp->pool, &parser->hdr);
+			/*
+			 * Make the header compound if field-name is split
+			 * across chunks.
+			 */
+			__fsm_str = tfw_str_add_compound(resp->pool,
+							 &parser->hdr);
+			if (unlikely (!__fsm_str)) {
+				TFW_WARN("Cannot add compound header to %p\n",
+					 &parser->hdr);
+				return TFW_BLOCK;
+			}
 		}
 
 		if (unlikely(c == '\r')) {
@@ -2703,8 +2745,9 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 				 TFW_HTTP_HDR_CONNECTION);
 
 	/* 'Content-Length:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_HDR_VAL(Resp_HdrContent_LengthV, Resp_Hdr, I_ContLen,
-			       (TfwHttpMsg *)resp, __parse_content_length);
+	__TFW_HTTP_PARSE_HDR_VAL(Resp_HdrContent_LengthV, Resp_Hdr, I_ContLen,
+				 (TfwHttpMsg *)resp, __parse_content_length,
+				 TFW_HTTP_HDR_CONTENT_LENGTH);
 
 	/* 'Expires:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_HDR_VAL(Resp_HdrExpiresV, Resp_Hdr, Resp_I_Expires,
@@ -2725,19 +2768,20 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Resp_HdrOther) {
 		/* Just eat the header including LF. */
-		size_t plen = len - (size_t)(p - data);
-		unsigned char *lf = memchr(p, '\n', plen);
-		if (lf) {
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\n', __fsm_sz);
+		if (__fsm_ch) {
 			/* Get length of the header. */
-			unsigned char *cr = lf - 1;
+			unsigned char *cr = __fsm_ch - 1;
 			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
 				--cr;
-			CLOSE_HEADER(resp, TFW_HTTP_HDR_RAW, cr - p);
-			p = lf; /* move to just after LF */
+			__close_header((TfwHttpMsg *)resp, cr - p,
+				       TFW_HTTP_HDR_RAW);
+			p = __fsm_ch; /* move to just after LF */
 			__FSM_MOVE(Resp_Hdr);
 		}
-		STORE_HEADER(resp, TFW_HTTP_HDR_RAW, plen);
-		__FSM_MOVE_n(Resp_HdrOther, plen);
+		__store_header_chunk((TfwHttpMsg *)resp, p, __fsm_sz);
+		__FSM_MOVE_n(Resp_HdrOther, __fsm_sz);
 	}
 
 	/* Response headers are fully read. */
