@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -48,7 +49,7 @@ alloc_str(void)
 
 	s = tfw_pool_alloc(str_pool, sizeof(*s));
 	BUG_ON(!s);
-	memset(s, 0, sizeof(*s));
+	TFW_STR_INIT(s);
 
 	return s;
 }
@@ -68,26 +69,115 @@ static TfwStr *
 make_compound_str(const char *data)
 {
 	TfwStr *str, *chunk;
-	size_t chunk_len = 0;
+	size_t chunk_len = 1;
 	size_t total_len = strlen(data);
 
 	str = alloc_str();
+	str->len = min(total_len, chunk_len);
+	str->ptr = (void *)data;
 
-	do {
+	for (total_len -= str->len; total_len > 0; total_len -= chunk->len) {
 		chunk = tfw_str_add_compound(str_pool, str);
-		chunk->len = min(total_len, ++chunk_len % 4);
-		chunk->ptr = (void *)data;
-		data += chunk->len;
-		total_len -= chunk->len;
-	} while (total_len > 0);
+		if (!chunk)
+			return NULL;
+		chunk->len = min(total_len, ++chunk_len % 8);
+		chunk->ptr = (void *)(data + str->len);
+		str->len += chunk->len;
+	}
 
 	return str;
 }
 
 #define TFW_STR(name, literal) const TfwStr *name = make_compound_str(literal)
 
+TEST(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs)
+{
+	TFW_STR(s1, "abcdefghijklmnopqrst");
+	TFW_STR(s2, "ABcDefGHIJKLmnopqrst");
+	TFW_STR(s3, "abcdefghi");
+	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
 
-TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strings)
+	EXPECT_TRUE(tfw_stricmpspn(s1, s2, 0) == 0);
+	EXPECT_FALSE(tfw_stricmpspn(s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(s1, s3, 'f') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(s1, s4, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(s1, s4, 't') == 0);
+}
+
+TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
+{
+	TfwStr s1 = {
+		.len	= sizeof("abcdefghijklmnopqrst") - 1,
+		.ptr	= "abcdefghijklmnopqrst"
+	};
+	TFW_STR(s2, "abcdefghijklmnopqrst");
+	TFW_STR(s3, "abcdefghi");
+	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
+
+	EXPECT_TRUE(tfw_stricmpspn(&s1, s2, 0) == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, s3, 'f') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s4, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, s4, 't') == 0);
+}
+
+TEST(tfw_stricmpspn, handles_empty_strs)
+{
+	TfwStr s1 = {
+		.len	= 0,
+		.ptr	= "garbage"
+	};
+	TfwStr s2 = {
+		.len	= 0,
+		.ptr	= "trash"
+	};
+	TFW_STR(s3, "abcdefghijklmnopqrst");
+
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'a') == 0);
+}
+
+TEST(tfw_stricmpspn, handles_different_size_strs)
+{
+	TfwStr c1 = {
+		.len = sizeof("ab") - 1,
+		.ptr = (void *)"ab"
+	};
+	TfwStr c2 = {
+		.len = sizeof("cdefghijklmnopqrst") - 1,
+		.ptr = "cdefghijklmnopqrst"
+	};
+	TfwStr chunks1[] = { c1, c2 };
+	TfwStr s1 = {
+		.len = sizeof("abcdefghijklmnopqrst") - 1,
+		.ptr = &chunks1
+	};
+
+	TfwStr c3 = {
+		.len = sizeof("abcdefg") - 1,
+		.ptr = (void *)"abcdefg"
+	};
+	TfwStr c4 = {
+		.len = sizeof("hi") - 1,
+		.ptr = "hi"
+	};
+	TfwStr c5 = {
+		.len = sizeof("jklmnopqrst") - 1,
+		.ptr = "jklmnopqrst"
+	};
+	TfwStr chunks2[] = { c3, c4, c5 };
+	TfwStr s2 = {
+		.len = sizeof("abcdefghijklmnopqrst") - 1,
+		.ptr = &chunks2
+	};
+
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'r') == 0);
+}
+
+TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
 {
 	const char *cstr = "foo123 barbaz";
 	int len = strlen(cstr);
@@ -145,8 +235,7 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	};
 	TfwStr chunks[] = { s1, s2 };
 	TfwStr s3 = {
-		.flags = TFW_STR_COMPOUND,
-		.len = 2,
+		.len = 0,
 		.ptr = &chunks
 	};
 	TfwStr s_ne = {
@@ -156,6 +245,8 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	const char *cstr = "";
 	const char *cstr_ne = "bar";
 	size_t len = strlen(cstr_ne);
+
+	TFW_STR_CHUNKN_INIT(&s3);
 
 	EXPECT_TRUE(tfw_str_eq_cstr(&s1, cstr, 0, TFW_STR_EQ_DEFAULT));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s2, cstr, 0, TFW_STR_EQ_DEFAULT));
@@ -206,12 +297,17 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 	EXPECT_TRUE(tfw_str_eq_cstr(s, p6, strlen(p6), TFW_STR_EQ_PREFIX));
 	EXPECT_TRUE(tfw_str_eq_cstr(s, p7, strlen(p7), TFW_STR_EQ_PREFIX));
 
-	EXPECT_FALSE(tfw_str_eq_cstr(s, extra, strlen(extra), TFW_STR_EQ_PREFIX));
-	EXPECT_FALSE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci), TFW_STR_EQ_PREFIX));
-	EXPECT_FALSE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci), TFW_STR_EQ_PREFIX));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, extra, strlen(extra),
+		     TFW_STR_EQ_PREFIX));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci),
+		     TFW_STR_EQ_PREFIX));
+	EXPECT_FALSE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci),
+		     TFW_STR_EQ_PREFIX));
 
-	EXPECT_TRUE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci), TFW_STR_EQ_PREFIX_CASEI));
-	EXPECT_TRUE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci), TFW_STR_EQ_PREFIX_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p1_ci, strlen(p1_ci),
+		    TFW_STR_EQ_PREFIX_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(s, p5_ci, strlen(p5_ci),
+		    TFW_STR_EQ_PREFIX_CASEI));
 }
 
 TEST(tfw_str_eq_kv, reutrns_true_only_for_equal_kv)
@@ -366,8 +462,8 @@ TEST(tfw_str_eq_kv, supports_prefix_val)
 	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, extra, extra_len, flags));
 	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, diff, diff_len, flags));
 	EXPECT_FALSE(tfw_str_eq_kv(s, k, k_len, sep, p2_ci, p2_ci_len, flags));
-	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p2_ci, p2_ci_len, flags_ci));
-
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, k_len, sep, p2_ci, p2_ci_len,
+				  flags_ci));
 }
 
 TEST(tfw_str_eq_kv, allows_space_sep)
@@ -379,7 +475,8 @@ TEST(tfw_str_eq_kv, allows_space_sep)
 	size_t vlen = strlen(v);
 	char sep = ' ';
 
-	EXPECT_TRUE(tfw_str_eq_kv(s, k, klen, sep, v, vlen, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_kv(s, k, klen, sep, v, vlen,
+				  TFW_STR_EQ_DEFAULT));
 }
 
 TEST(tfw_str_to_cstr, copies_all_chunks)
@@ -416,7 +513,12 @@ TEST_SUITE(tfw_str)
 	TEST_SETUP(create_str_pool);
 	TEST_TEARDOWN(free_all_str);
 
-	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strings);
+	TEST_RUN(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs);
+	TEST_RUN(tfw_stricmpspn, handles_plain_and_compound_strs);
+	TEST_RUN(tfw_stricmpspn, handles_empty_strs);
+	TEST_RUN(tfw_stricmpspn, handles_different_size_strs);
+
+	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strs);
 	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);
 	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_strs);
 	TEST_RUN(tfw_str_eq_cstr, handles_empty_strs);
@@ -434,6 +536,3 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_to_cstr, copies_all_chunks);
 	TEST_RUN(tfw_str_to_cstr, limits_and_terminates_output);
 }
-
-
-

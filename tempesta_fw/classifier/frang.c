@@ -293,14 +293,12 @@ block:
 static int
 frang_http_uri_len(const TfwHttpReq *req)
 {
-	/* FIXME: tfw_str_len() iterates over chunks to calculate the length.
-	 * This is too slow. The value must be stored in a TfwStr field. */
-	unsigned int uri_len = tfw_str_len(&req->uri_path);
-	if (uri_len > frang_cfg.http_uri_len) {
-		TFW_WARN("frang_%s limit exceeded: %u (%u)\n",
-			 "http_uri_len", uri_len, frang_cfg.http_uri_len);
+	if (req->uri_path.len > frang_cfg.http_uri_len) {
+		TFW_WARN("frang: HTTP URI length limit exceeded: %u (%u)\n",
+			 req->uri_path.len, frang_cfg.http_uri_len);
 		return TFW_BLOCK;
 	}
+
 	return TFW_PASS;
 }
 
@@ -310,14 +308,14 @@ frang_http_field_len_raw(const TfwHttpReq *req)
 	const TfwStr *field, *end;
 
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, req->hdr_rawid) {
-		unsigned int field_len = tfw_str_len(field);
-		if (field_len > frang_cfg.http_field_len) {
-			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-				 "http_field_len",
-				 field_len, frang_cfg.http_field_len);
+		if (field->len > frang_cfg.http_field_len) {
+			TFW_WARN("frang: HTTP raw field limit exceeded:"
+				 " %u (%u)\n",
+				 field->len, frang_cfg.http_field_len);
 			return TFW_BLOCK;
 		}
 	}
+
 	return TFW_PASS;
 }
 
@@ -327,14 +325,14 @@ frang_http_field_len_special(const TfwHttpReq *req)
 	const TfwStr *field, *end;
 
 	FOR_EACH_HDR_FIELD_SPECIAL(field, end, req) {
-		unsigned int field_len = tfw_str_len(field);
-		if (field_len > frang_cfg.http_field_len) {
-			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-				 "http_field_len",
-				 field_len, frang_cfg.http_field_len);
+		if (field->len > frang_cfg.http_field_len) {
+			TFW_WARN("frang: HTTP special field limit exceeded:"
+				 " %u (%u)\n",
+				 field->len, frang_cfg.http_field_len);
 			return TFW_BLOCK;
 		}
 	}
+
 	return TFW_PASS;
 }
 
@@ -384,8 +382,8 @@ frang_http_ct_check(const TfwHttpReq *req)
 	 * switch between the two if performance is critical here,
 	 * but benchmarks should be done to measure the impact.
 	 *
-	 * TODO: don't store field name in the TfwStr. Store only
-	 * the header field value, and thus get rid of tfw_str_eq_kv().
+	 * TODO: store Content-Type as specual header,
+	 * and thus get rid of tfw_str_eq_kv().
 	 */
 	for (curr = frang_cfg.http_ct_vals; curr->str; ++curr) {
 		if (tfw_str_eq_kv(field, _CT, _CTLEN, ':',
@@ -407,10 +405,10 @@ frang_http_ct_check(const TfwHttpReq *req)
 static int
 frang_http_host_check(const TfwHttpReq *req)
 {
-	int len;
-	TfwStr *field;
 	TfwAddr addr;
-	char *buf, *ptr;
+	TfwStr *field;
+	char *buf;
+	int len;
 
 	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 	if (!field->ptr) {
@@ -424,13 +422,11 @@ frang_http_host_check(const TfwHttpReq *req)
 	 * have a good regex library.
 	 * For now just linearize the Host header field TfwStr{} string.
 	 */
-	len = tfw_str_len(field) + 1;
+	len = field->len + 1;
 	if ((buf = tfw_pool_alloc(req->pool, len)) == NULL)
 		return TFW_BLOCK;
 	tfw_str_to_cstr(field, buf, len);
-	ptr = buf + sizeof("Host:") - 1;
-	ptr = skip_spaces(ptr);
-	if (!tfw_addr_pton(ptr, &addr)) {
+	if (!tfw_addr_pton(buf, &addr)) {
 		TFW_WARN("frang: 'Host' header field contains IP address\n");
 		return TFW_BLOCK;
 	}
@@ -611,7 +607,7 @@ frang_http_req_handler(void *obj, unsigned char *data, size_t len)
 		}
 		if (frang_cfg.http_body_len) {
 			req->body_len = 0;
-			body_len = tfw_str_len(&req->body);
+			body_len = req->body.len;
 			__FSM_JUMP_EXIT(Frang_Req_Body_Len);
 		}
 		__FSM_JUMP_EXIT(Frang_Req_NothingToDo);

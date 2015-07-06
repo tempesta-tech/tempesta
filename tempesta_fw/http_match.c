@@ -44,6 +44,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -99,20 +100,7 @@ static bool
 hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
            int val_len, tfw_str_eq_flags_t f)
 {
-#define _HDR(name) { name, sizeof(name) - 1 }
-	static const struct {
-		const char *name;
-		int name_len;
-	} hdr_name_tbl[TFW_HTTP_HDR_NUM] = {
-		[TFW_HTTP_HDR_CONNECTION]      = _HDR("Connection"),
-		[TFW_HTTP_HDR_HOST]            = _HDR("Host"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = _HDR("X-Forwarded-For"),
-	};
-#undef _HDR
-
 	TfwStr *hdr;
-	const char *hdr_name;
-	int hdr_name_len;
 
 	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
 
@@ -120,12 +108,7 @@ hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
 	if (!hdr->len)
 		return false;
 
-	hdr_name = hdr_name_tbl[id].name;
-	hdr_name_len = hdr_name_tbl[id].name_len;
-	BUG_ON(!hdr_name);
-	BUG_ON(!hdr_name_len);
-
-	return tfw_str_eq_kv(hdr, hdr_name, hdr_name_len, ':', val, val_len, f);
+	return tfw_str_eq_cstr(hdr, val, val_len, f);
 }
 
 /**
