@@ -219,17 +219,6 @@ ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
 	int lin_len = skb_headlen(skb);
 	struct sk_buff *frag_i;
 
-	/*
-	 * We know for sure from the caller that the skb has data.
-	 * No matter where exactly the data is placed, but the skb relates
-	 * to current message, so put it to the message.
-	 */
-	read_lock(&sk->sk_callback_lock);
-	r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
-	read_unlock(&sk->sk_callback_lock);
-	if (r != SS_OK)
-		return r;
-
 	/* Process linear data. */
 	if (off < lin_len) {
 		r = ss_tcp_process_proto_skb(sk, skb->data + off,
@@ -492,7 +481,6 @@ ss_droplink(struct sock *sk)
 
 	ss_do_close(sk);
 }
-
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
@@ -506,6 +494,7 @@ ss_droplink(struct sock *sk)
 static void
 ss_tcp_process_data(struct sock *sk)
 {
+	bool droplink = true;
 	int processed = 0;
 	unsigned int off;
 	struct sk_buff *skb, *tmp;
@@ -516,8 +505,7 @@ ss_tcp_process_data(struct sock *sk)
 			SS_WARN("recvmsg bug: TCP sequence gap at seq %X"
 				" recvnxt %X\n",
 				tp->copied_seq, TCP_SKB_CB(skb)->seq);
-			ss_droplink(sk);
-			return;
+			goto out;
 		}
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
@@ -526,23 +514,25 @@ ss_tcp_process_data(struct sock *sk)
 		if (tcp_hdr(skb)->syn)
 			off--;
 		if (off < skb->len) {
-			int count = 0;
-			int r = ss_tcp_process_skb(skb, sk, off, &count);
-			if (r < 0) {
-				SS_WARN("can't process app data on socket %p\n",
-					sk);
-				/*
-				 * Drop connection on internal errors as well as
-				 * on banned packets.
-				 *
-				 * ss_droplink() is responsible for calling
-				 * application layer connection closing callback
-				 * which will free all the passed and linked
-				 * with currently processed message skbs.
-				 */
+			int r, count = 0;
+
+			/*
+			 * We know that the SKB has data. No matter where
+			 * exactly the data is in the SKB, the SKB belongs
+			 * to the current message. Put it to the message.
+			 */
+			read_lock(&sk->sk_callback_lock);
+			r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
+			read_unlock(&sk->sk_callback_lock);
+			if (r != SS_OK) {
 				__kfree_skb(skb);
-				ss_droplink(sk);
-				goto out; /* connection dropped */
+				goto out;
+			}
+
+			r = ss_tcp_process_skb(skb, sk, off, &count);
+			if (r != SS_OK) {
+				SS_WARN("Error processing data: sk=%p\n", sk);
+				goto out;
 			}
 			tp->copied_seq += count;
 			processed += count;
@@ -551,16 +541,17 @@ ss_tcp_process_data(struct sock *sk)
 			SS_DBG("received FIN, do active close\n");
 			++tp->copied_seq;
 			__kfree_skb(skb);
-			ss_droplink(sk);
+			goto out;
 		}
 		else {
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
 				" seq %X rcvnxt %X len %x\n",
-			       tp->copied_seq, TCP_SKB_CB(skb)->seq,
-			       tp->rcv_nxt, skb->len);
+				tp->copied_seq, TCP_SKB_CB(skb)->seq,
+				tp->rcv_nxt, skb->len);
 			__kfree_skb(skb);
 		}
 	}
+	droplink = false;
 out:
 	/*
 	 * Recalculate the appropriate TCP receive buffer space and
@@ -569,6 +560,17 @@ out:
 	tcp_rcv_space_adjust(sk);
 	if (processed)
 		tcp_cleanup_rbuf(sk, processed);
+	if (droplink) {
+		/*
+		 * Drop connection on internal errors as well as
+		 * on banned packets.
+		 *
+		 * ss_droplink() is responsible for calling application
+		 * layer connection closing callback that will free all
+		 * SKBs linked with the currently processed message.
+		 */
+		ss_droplink(sk);
+	}
 }
 
 /**
