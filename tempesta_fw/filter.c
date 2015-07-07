@@ -221,11 +221,13 @@ tfw_ipv6_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 
 	/* Drop early: chech the table first. */
 	rule = tdb_rec_get(ip_filter_db, key);
-	if (rule && rule->action == TFW_F_DROP) {
+	if (rule) {
+		if (rule->action == TFW_F_DROP) {
+			tdb_rec_put(rule);
+			return NF_DROP;
+		}
 		tdb_rec_put(rule);
-		return NF_DROP;
 	}
-	tdb_rec_put(rule);
 
 	/* Check classifiers for Layer 3. */
 	r = tfw_classify_ipv6(skb);
