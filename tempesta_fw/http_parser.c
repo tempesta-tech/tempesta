@@ -452,12 +452,12 @@ __FSM_STATE(st_curr) {							\
 	__fsm_sz = len - (size_t)(p - data);				\
 	BUG_ON(p > data + len);						\
 	parser->_i_st = st_i;						\
-	if (__builtin_constant_p(id) < TFW_HTTP_HDR_RAW) {		\
+	if (id < TFW_HTTP_HDR_RAW) {					\
 		/*							\
 		 * Check whether the header slot is acquired to catch	\
 		 * duplicate headers in sense of RFC 7230 3.2.2.	\
 		 */							\
-		if (__builtin_constant_p(id) < TFW_HTTP_HDR_NONSINGULAR	\
+		if (id < TFW_HTTP_HDR_NONSINGULAR			\
 		    && unlikely((msg)->h_tbl->tbl[id].field.ptr))	\
 			return TFW_BLOCK;				\
 		/* Don't store header name for special headers. */	\
