@@ -479,10 +479,8 @@ __FSM_STATE(st_curr) {							\
 		return TFW_BLOCK;					\
 	default:							\
 		BUG_ON(__fsm_n <= 0);					\
-		__fsm_sz += (size_t)p - (size_t)TFW_STR_CURR(&parser->hdr)->ptr;\
-		/* @__fsm_sz - full header length (key + value) */		\
 		/* The header value is fully parsed, move forward. */	\
-		__close_header((TfwHttpMsg *)msg, __fsm_sz, id);		\
+		__close_header((TfwHttpMsg *)msg, p + __fsm_sz, id);	\
 		__FSM_MOVE_n(st_next, __fsm_n);				\
 	}								\
 }
@@ -928,7 +926,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
  * HTTP message headers list.
  */
 static void
-__close_header(TfwHttpMsg *hm, long len, int id)
+__close_header(TfwHttpMsg *hm, const char *curr_p, int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -940,7 +938,7 @@ __close_header(TfwHttpMsg *hm, long len, int id)
 	 * Firstly set the full current header chunk length and
 	 * mark the header string as complete.
 	 */
-	TFW_STR_UPDLEN(&hm->parser.hdr, len);
+	tfw_str_updlen(&hm->parser.hdr, curr_p);
 	hm->parser.hdr.flags |= TFW_STR_COMPLETE;
 
 	/* Quick path for special headers. */
@@ -1819,8 +1817,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			unsigned char *cr = __fsm_ch - 1;
 			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
 				--cr;
-			__close_header((TfwHttpMsg *)req, cr - p,
-				       TFW_HTTP_HDR_RAW);
+			__close_header((TfwHttpMsg *)req, cr, TFW_HTTP_HDR_RAW);
 			p = __fsm_ch; /* move to just after LF */
 			__FSM_MOVE(Req_Hdr);
 		}
@@ -2775,7 +2772,7 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 			unsigned char *cr = __fsm_ch - 1;
 			while (likely(cr != p) && unlikely(*(cr - 1) == '\r'))
 				--cr;
-			__close_header((TfwHttpMsg *)resp, cr - p,
+			__close_header((TfwHttpMsg *)resp, cr,
 				       TFW_HTTP_HDR_RAW);
 			p = __fsm_ch; /* move to just after LF */
 			__FSM_MOVE(Resp_Hdr);
