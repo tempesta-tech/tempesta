@@ -106,27 +106,14 @@ static TfwStr *
 tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
 {
 	int i;
-	TfwStr *hdr_field;
 
 	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
-		hdr_field = &hm->h_tbl->tbl[i].field;
+		TfwStr *hdr_field = &hm->h_tbl->tbl[i].field;
 		if (tfw_str_eq_cstr(hdr_field, field_name, len,
-				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI)) {
-			break;
-		}
+				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
+			return hdr_field;
 	}
-	if (i < hm->h_tbl->size) {
-		/*
-		 * XXX DIRTY HACK TO COMPENSATE FOR PARSER BUG.
-		 * XXX REMOVE WHEN THE BUG IS FIXED. (SEE ISSUE #94)
-		 */
-		const TfwStr s_cookie = TfwStr_string("Cookie:");
-		if (tfw_str_eq_cstr(hdr_field, s_cookie.ptr, s_cookie.len,
-				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI)) {
-			hdr_field->len += 3;
-		}
-		return hdr_field;
-	}
+
 	return NULL;
 }
 

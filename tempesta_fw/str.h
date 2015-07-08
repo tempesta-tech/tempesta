@@ -98,16 +98,6 @@ typedef struct {
 		: (_tmp);						\
  })
 
-/* Update length of the string which points to new data with length @n. */
-#define TFW_STR_UPDLEN(s, n)						\
-do {									\
-	(s)->len += (n);						\
-	if ((s)->flags & __TFW_STR_COMPOUND) {				\
-		BUG_ON(((TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1)->len); \
-		((TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1)->len = (n); \
-	}								\
-} while (0)
-
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 
 #define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))
@@ -127,6 +117,28 @@ do {									\
 			code;						\
 	}								\
 } while (0)
+
+/**
+ * Update length of the string which points to new data with length @n.
+ */
+static inline void
+tfw_str_updlen(TfwStr *s, const char *curr_p)
+{
+	unsigned int n;
+
+	if (s->flags & __TFW_STR_COMPOUND) {
+		TfwStr *chunk = (TfwStr *)s->ptr + TFW_STR_CHUNKN(s) - 1;
+
+		BUG_ON(chunk->len);
+		BUG_ON(!chunk->ptr || curr_p <= (char *)chunk->ptr);
+
+		n = curr_p - (char *)chunk->ptr;
+		chunk->len = n;
+	} else {
+		n = curr_p - (char *)s->ptr;
+	}
+	s->len += n;
+}
 
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
