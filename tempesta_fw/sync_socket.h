@@ -171,8 +171,8 @@ typedef struct ss_hooks {
 	int (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
-	int (*connection_recv)(struct sock *sk, unsigned char *data,
-			       size_t len);
+	int (*connection_recv)(struct sock *sk,
+			       struct sk_buff *skb, size_t offset);
 
 	/*
 	 * Add the @skb to the current connection message.
@@ -182,7 +182,7 @@ typedef struct ss_hooks {
 	 * All the put skbs are owned by the protocol handlers.
 	 * Sync sockets don't free the skbs.
 	 */
-	int (*put_skb_to_msg)(SsProto *proto, struct sk_buff *skb);
+	int (*put_skb_to_msg)(struct sock *sk, struct sk_buff *skb);
 } SsHooks;
 
 static inline void ss_callback_write_lock(struct sock *sk)

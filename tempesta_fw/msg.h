@@ -42,6 +42,7 @@ typedef struct tfw_msg_t {
 	TfwGState		state;
 	SsSkbList		skb_list;
 	size_t			len;
+	size_t			skb_offset;
 } TfwMsg;
 
 #endif /* __TFW_MSG_H__ */

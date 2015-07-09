@@ -94,6 +94,8 @@ typedef struct {
 	 * required information.
 	 */
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
+
+	int (*conn_msg_process)(TfwConnection *conn);
 } TfwConnHooks;
 
 /**
@@ -123,7 +125,7 @@ void tfw_connection_unlink_peer(TfwConnection *conn);
 int tfw_connection_new(TfwConnection *conn);
 void tfw_connection_destruct(TfwConnection *conn);
 
-int tfw_connection_recv(struct sock *, unsigned char *, size_t);
-int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
+int tfw_connection_recv(struct sock *, struct sk_buff *, size_t);
+int tfw_connection_put_skb_to_msg(struct sock *, struct sk_buff *);
 
 #endif /* __TFW_CONNECTION_H__ */

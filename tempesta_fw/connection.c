@@ -130,17 +130,27 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
  * the use of sk->sk_user_data.
  */
 int
-tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
+tfw_connection_recv(struct sock *sk, struct sk_buff *skb, size_t offset)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
-	return tfw_gfsm_dispatch(conn, data, len);
+	if (!conn->msg) {
+		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
+		if (!conn->msg)
+			return TFW_BLOCK;
+		TFW_DBG("Link msg %p with connection %p\n", conn->msg, conn);
+	}
+	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
+	ss_skb_queue_tail(&conn->msg->skb_list, skb);
+	conn->msg->skb_offset = offset;
+
+	return TFW_CONN_HOOK_CALL(conn, conn_msg_process);
 }
 
 int
-tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
+tfw_connection_put_skb_to_msg(struct sock *sk, struct sk_buff *skb)
 {
-	TfwConnection *conn = (TfwConnection *)proto;
+	TfwConnection *conn = sk->sk_user_data;
 
 	if (!conn->msg) {
 		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);

@@ -544,6 +544,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
 
 	shm->msg.prev = &hm->msg;
+	shm->msg.skb_offset = hm->msg.skb_offset;
 	/* Relink current connection msg to @shm. */
 	shm->conn = hm->conn;
 
@@ -1232,111 +1233,95 @@ send_500:
 }
 
 /**
- * @return number of processed bytes on success and negative value otherwise.
+ * @return zero on success and negative value otherwise.
  */
 static int
 tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
-	TfwHttpReq *req = (TfwHttpReq *)conn->msg;
-
-	BUG_ON(!req);
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)conn->msg;
 
 	TFW_DBG("Received %lu client data bytes (%.*s) on socket (conn=%p)\n",
 		len, (int)len, data, conn);
 
-	/* Process pipelined requests in a loop. */
-	while (1) {
-		TfwHttpMsg *hm;
-		int msg_off = req->parser.data_off;
+	r = tfw_http_parse_req((TfwHttpReq *)hmreq, data, len);
+	hmreq->msg.len += hmreq->parser.data_off;
+	hmreq->msg.skb_offset += hmreq->parser.data_off;
 
-		r = tfw_http_parse_req(req, data, len);
+	TFW_DBG("request parsed: len=%lu parsed=%d msg_len=%lu res=%d\n",
+		len, hmreq->parser.data_off, hmreq->msg.len, r);
 
-		req->msg.len += req->parser.data_off - msg_off;
-
-		TFW_DBG("request parsed: len=%lu parsed=%d msg_len=%lu res=%d\n",
-			len, req->parser.data_off, req->msg.len, r);
-
-		switch (r) {
-		default:
-			TFW_ERR("bad HTTP parser request return code, %d\n", r);
-			BUG();
-		case TFW_BLOCK:
-			TFW_DBG("Block bad HTTP request\n");
-			return TFW_BLOCK;
-		case TFW_POSTPONE:
-			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-			r = tfw_gfsm_move(&req->msg.state,
-					  TFW_HTTP_FSM_REQ_CHUNK, data, len);
-			TFW_DBG("GFSM return code %d\n", r);
-			if (r == TFW_BLOCK)
-				return TFW_BLOCK;
-			/*
-			 * TFW_POSTPONE status means that parsing succeeded
-			 * but more data is needed to complete it. Lower layers
-			 * just supply data for parsing. They only want to know
-			 * if processing of a message should continue or not.
-			 */
-			return TFW_PASS;
-		case TFW_PASS:
-			/*
-			 * The request is fully parsed,
-			 * fall through and process it.
-			 */
-			;
-		}
-
-		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-		r = tfw_gfsm_move(&req->msg.state,
-				  TFW_HTTP_FSM_REQ_MSG, data, len);
+	switch (r) {
+	default:
+		TFW_ERR("bad HTTP parser request return code, %d\n", r);
+		BUG();
+	case TFW_BLOCK:
+		TFW_DBG("Block bad HTTP request\n");
+		return TFW_BLOCK;
+	case TFW_POSTPONE:
+		tfw_http_establish_skb_hdrs(hmreq);
+		r = tfw_gfsm_move(&hmreq->msg.state,
+				  TFW_HTTP_FSM_REQ_CHUNK, data, len);
 		TFW_DBG("GFSM return code %d\n", r);
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
-		conn->msg = NULL;
-
-		tfw_cache_req_process(req, tfw_http_req_cache_cb, NULL);
-
-		if (!req->parser.data_off || req->parser.data_off == len)
-			/* There is no more pending data in skbs. */
-			break;
-
-		/* Pipelined requests: create new sibling message. */
-		hm = tfw_http_msg_create_sibling((TfwHttpMsg *)req, Conn_Clnt);
-		if (!hm) {
-			/*
-			 * Bad, not enought memory.
-			 * Hope to process the packet latter with a new data.
-			 */
-			TFW_WARN("Not enough memory to create request sibling\n");
-			return TFW_PASS;
-		}
-		tfw_http_parser_msg_inherit((TfwHttpMsg *)req, hm);
-		req = (TfwHttpReq *)hm;
+		return TFW_POSTPONE;
+	case TFW_PASS:
+		/*
+		 * The request is fully parsed,
+		 * fall through and process it.
+		 */
+		;
 	}
+
+	tfw_http_establish_skb_hdrs(hmreq);
+	r = tfw_gfsm_move(&hmreq->msg.state, TFW_HTTP_FSM_REQ_MSG, data, len);
+	TFW_DBG("GFSM return code %d\n", r);
+	if (r == TFW_BLOCK)
+		return TFW_BLOCK;
+
+	conn->msg = NULL;
+
+	if (hmreq->parser.data_off < len) {
+		/* Pipelined requests: create new sibling message. */
+		TfwHttpMsg *shm = tfw_http_msg_create_sibling(hmreq, Conn_Clnt);
+		if (shm == NULL) {
+			/*
+			 * Not enough memory. Unfortunately, there's
+			 * no recourse. The caller can't deal with
+			 * partially processed data and expects that
+			 * data is processed in full.
+			 */
+			TFW_WARN("Not enough memory "
+				 "to create request sibling\n");
+			return TFW_BLOCK;
+		}
+		tfw_http_parser_msg_inherit(hmreq, shm);
+		conn->msg = (TfwMsg *)shm;
+	}
+
+	tfw_cache_req_process((TfwHttpReq *)hmreq, tfw_http_req_cache_cb, NULL);
 
 	return r;
 }
 
 /**
- * @return number of processed bytes on success and negative value otherwise.
+ * @return zero on success and negative value otherwise.
  */
 static int
 tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 {
 	int r = TFW_BLOCK;
-	TfwHttpResp *resp = (TfwHttpResp *)conn->msg;
-
-	BUG_ON(!resp);
+	TfwHttpMsg *hmreq, *hmresp = (TfwHttpMsg *)conn->msg;
 
 	TFW_DBG("received %lu server data bytes (%.*s) on socket (conn=%p)\n",
 		len, (int)len, data, conn);
 
-	r = tfw_http_parse_resp(resp, data, len);
-
-	resp->msg.len += resp->parser.data_off;
+	r = tfw_http_parse_resp((TfwHttpResp *)hmresp, data, len);
+	hmresp->msg.len += hmresp->parser.data_off;
 
 	TFW_DBG("response parsed: len=%lu parsed=%d res=%d\n",
-		len, resp->parser.data_off, r);
+		len, hmresp->parser.data_off, r);
 
 	switch (r) {
 	default:
@@ -1346,75 +1331,68 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 		TFW_DBG("Block bad HTTP response\n");
 		goto block;
 	case TFW_POSTPONE:
-		tfw_http_establish_skb_hdrs((TfwHttpMsg *)resp);
-		r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_RESP_CHUNK,
-				  data, len);
+		tfw_http_establish_skb_hdrs(hmresp);
+		r = tfw_gfsm_move(&hmresp->msg.state,
+				  TFW_HTTP_FSM_RESP_CHUNK, data, len);
+		TFW_DBG("GFSM return code %d\n", r);
 		if (r == TFW_BLOCK)
 			goto block;
-		/*
-		 * TFW_POSTPONE status means that parsing succeeded
-		 * but more data is needed to complete it. Lower layers
-		 * just supply data for parsing. They only want to know
-		 * if processing of a message should continue or not.
-		 */
-		return TFW_PASS;
+		return TFW_POSTPONE;
 	case TFW_PASS:
-		tfw_http_establish_skb_hdrs((TfwHttpMsg *)resp);
-		r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_RESP_MSG,
-				  data, len);
-		if (r == TFW_BLOCK)
-			goto block;
-		/* fall through */
-	}
-
-	/* The response is fully parsed, process it. */
-
-	r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
-			  data, len);
-	if (r == TFW_PASS) {
-		TfwMsg *req_msg;
-		TfwHttpReq *req;
-
-		if (tfw_http_adjust_resp(resp))
-			goto block;
-
 		/*
-		 * Cache adjusted and filtered responses only.
-		 * We get responses in the same order as requests,
-		 * so we can just pop the first request.
+		 * The response is fully parsed,
+		 * fall through and process it.
 		 */
-		if (unlikely(list_empty(&conn->msg_queue))) {
-			TFW_WARN("Response w/o request\n");
-			goto block;
-		}
-		req_msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
-		list_del(&req_msg->msg_list);
-
-		req = (TfwHttpReq *)req_msg;
-		r = tfw_http_sticky_resp_process((TfwHttpMsg *)resp,
-						 (TfwHttpMsg *)req);
-		if (r < 0) {
-			tfw_http_msg_free((TfwHttpMsg *)req);
-			tfw_http_msg_free((TfwHttpMsg *)resp);
-			return TFW_BLOCK;
-		}
-
-		/*
-		 * Send the response to client before caching it.
-		 * The cache frees the response and the request.
-		 */
-		tfw_connection_send(req->conn, (TfwMsg *)resp);
-
-		tfw_cache_add(resp, req);
+		;
 	}
-	else if (r == TFW_BLOCK) {
-		tfw_pool_free(resp->pool);
-		conn->msg = NULL;
+
+	tfw_http_establish_skb_hdrs(hmresp);
+	r = tfw_gfsm_move(&hmresp->msg.state,
+			  TFW_HTTP_FSM_RESP_MSG, data, len);
+	if (r == TFW_BLOCK)
+		goto block;
+
+	r = tfw_gfsm_move(&hmresp->msg.state,
+			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, data, len);
+	TFW_DBG("GFSM return code %d\n", r);
+	if (r == TFW_BLOCK)
+		goto block;
+
+	if (tfw_http_adjust_resp((TfwHttpResp *)hmresp))
+		goto block;
+
+	/*
+	 * Cache adjusted and filtered responses only.
+	 * We get responses in the same order as requests,
+	 * so we can just pop the first request.
+	 */
+	if (unlikely(list_empty(&conn->msg_queue))) {
+		TFW_WARN("Response w/o request\n");
+		goto block;
 	}
+	hmreq = (TfwHttpMsg *)list_first_entry(&conn->msg_queue,
+					       TfwMsg, msg_list);
+	list_del(&hmreq->msg.msg_list);
+
+	r = tfw_http_sticky_resp_process(hmresp, hmreq);
+	if (r < 0) {
+		tfw_http_msg_free(hmreq);
+		tfw_http_msg_free(hmresp);
+		return TFW_BLOCK;
+	}
+
+	conn->msg = NULL;
+
+	/*
+	 * Send the response to client before caching it.
+	 * The cache frees the response and the request.
+	 */
+	tfw_connection_send(hmreq->conn, (TfwMsg *)hmresp);
+	tfw_cache_add((TfwHttpResp *)hmresp, (TfwHttpReq *)hmreq);
 
 	return r;
 block:
-	tfw_http_msg_free((TfwHttpMsg *)resp);
+	tfw_http_msg_free(hmresp);
 	return TFW_BLOCK;
 }
 
@@ -1440,13 +1418,97 @@ tfw_http_hdr_sub(TfwHttpMsg *hm, TfwStr *hdr, const char *data, size_t len)
  * @return status (application logic decision) of the message processing.
  */
 int
-tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
+tfw_http_data_process(void *conn, unsigned char *data, size_t len)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data, len)
 		: tfw_http_resp_process(c, data, len);
+}
+
+int
+tfw_http_process_skb(TfwConnection *conn, struct sk_buff *skb, size_t offset)
+{
+	int i, ret = TFW_PASS;
+	int headlen = skb_headlen(skb);
+	struct sk_buff *skb_frag;
+
+	if (offset >= headlen) {
+		offset -= headlen;
+	} else {
+		ret = tfw_gfsm_dispatch(conn, skb->data + offset,
+					      headlen - offset);
+		if (ret != TFW_POSTPONE)
+			return ret;
+		offset = 0;
+	}
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+		int frag_size = skb_frag_size(frag);
+		if (offset >= frag_size) {
+			offset -= frag_size;
+		} else {
+			unsigned char *frag_addr = skb_frag_address(frag);
+			ret = tfw_gfsm_dispatch(conn, frag_addr + offset,
+						      frag_size - offset);
+			if (ret != TFW_POSTPONE)
+				return ret;
+			offset = 0;
+		}
+	}
+	skb_walk_frags(skb, skb_frag) {
+		if (offset >= skb_frag->len) {
+			offset -= skb_frag->len;
+		} else {
+			ret = tfw_http_process_skb(conn, skb, offset);
+			if (ret != TFW_POSTPONE)
+				return ret;
+			offset = 0;
+		}
+	}
+
+	return ret;
+}
+
+int
+tfw_http_msg_process(TfwConnection *conn)
+{
+	int ret = TFW_BLOCK;
+
+	BUG_ON(!conn->msg);
+
+	while (conn->msg) {
+		struct sk_buff *skb = ss_skb_peek_tail(&conn->msg->skb_list);
+
+		BUG_ON(conn->msg->skb_offset >= skb->len);
+
+		ret = tfw_http_process_skb(conn, skb, conn->msg->skb_offset);
+		/*
+		 * It's important to remember that the current message
+		 * conn->msg may has been released along with its SKBs.
+		 * We cannot continue using them now.
+		 *
+		 * TFW_POSTPONE means that the SKB has been processed
+		 * in full, but more data is needed to complete processing.
+		 *
+		 * TFW_PASS means that a complete message has been parsed.
+		 * A sibling message may has been created if there's more
+		 * data in the SKB. In that case conn->msg points to the
+		 * new message, and the SKB has been cloned. Otherwise,
+		 * conn->msg has been NULLed, and processing of current
+		 * SKB stops here.
+		 */
+		if ((ret != TFW_PASS) && (ret != TFW_POSTPONE))
+			break;
+		if (ret == TFW_POSTPONE) {
+			ret = TFW_PASS;
+			break;
+		}
+		/* TFW_PASS. Continue depending on the value of conn->msg. */
+	}
+
+	return ret;
 }
 
 /**
@@ -1468,12 +1530,13 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_destruct	= tfw_http_conn_destruct,
 	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
+	.conn_msg_process = tfw_http_msg_process
 };
 
 int __init
 tfw_http_init(void)
 {
-	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
+	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_data_process);
 	if (r)
 		return r;
 
