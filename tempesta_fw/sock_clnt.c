@@ -343,7 +343,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwAddr addr;
 	const char *in_str = NULL;
 
-	r = tfw_cfg_check_single_val(ce);
+	r = tfw_cfg_check_val_n(ce, 1);
 	if (r)
 		goto parse_err;
 
@@ -369,8 +369,23 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			goto parse_err;
 	}
 
-	/* TODO Issue #82: pass parsed protocol instead of hardcoded HTTP. */
-	return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+	r = tfw_cfg_check_range(ce->attr_n, 0, 1);
+	if (r)
+		goto parse_err;
+
+	if (!ce->attr_n)
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+
+	in_str = tfw_cfg_get_attr(ce, "proto", NULL);
+	if (!in_str)
+		goto parse_err;
+
+	if (!strcasecmp(in_str, "http"))
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+	else if (!strcasecmp(in_str, "https"))
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
+	else
+		goto parse_err;
 
 parse_err:
 	TFW_ERR("Unable to parse 'listen' value: '%s'\n",
