@@ -234,8 +234,6 @@ tfw_listen_sock_del_all(void)
 {
 	TfwListenSock *ls, *tmp;
 
-	BUG_ON(list_empty(&tfw_listen_socks));
-
 	list_for_each_entry_safe(ls, tmp, &tfw_listen_socks, list) {
 		BUG_ON(ls->sk);
 		kfree(ls);
