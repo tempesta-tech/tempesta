@@ -25,6 +25,8 @@
 #include <net/sock.h>
 #include <linux/skbuff.h>
 
+#include "ss_skb.h"
+
 /*
  * ------------------------------------------------------------------------
  * 		Socket buffers management
@@ -138,20 +140,6 @@ ss_skb_dequeue(SsSkbList *list)
  * 		Synchronous Sockets API
  * ------------------------------------------------------------------------
  */
-/**
- * Responses from socket hook functions.
- */
-enum {
-	/* The packet must be dropped. */
-	SS_DROP		= -2,
-
-	/* The packet should be stashed (made by callback). */
-	SS_POSTPONE	= -1,
-
-	/* The packet looks good and we can safely pass it. */
-	SS_OK		= 0,
-};
-
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;
@@ -171,8 +159,8 @@ typedef struct ss_hooks {
 	int (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
-	int (*connection_recv)(struct sock *sk, unsigned char *data,
-			       size_t len);
+	int (*connection_recv)(struct sock *sk, struct sk_buff *skb,
+			       unsigned int off);
 
 	/*
 	 * Add the @skb to the current connection message.

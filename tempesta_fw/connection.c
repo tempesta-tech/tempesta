@@ -130,11 +130,11 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
  * the use of sk->sk_user_data.
  */
 int
-tfw_connection_recv(struct sock *sk, unsigned char *data, size_t len)
+tfw_connection_recv(struct sock *sk, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
-	return tfw_gfsm_dispatch(conn, data, len);
+	return tfw_gfsm_dispatch(conn, skb, off);
 }
 
 int
