@@ -1237,27 +1237,28 @@ send_500:
  * @return number of processed bytes on success and negative value otherwise.
  */
 static int
-tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
+tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 {
 	int r = TFW_BLOCK;
+	unsigned int next_off = off;
 	TfwHttpReq *req = (TfwHttpReq *)conn->msg;
 
 	BUG_ON(!req);
 
-	TFW_DBG("Received %lu client data bytes (%.*s) on socket (conn=%p)\n",
-		len, (int)len, data, conn);
+	TFW_DBG("received %u client data bytes on conn=%p\n", skb->len, conn);
 
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
 		int msg_off = req->parser.data_off;
 
-		r = tfw_http_parse_req(req, data, len);
+		off = next_off;
+		r = ss_skb_process(skb, &next_off, tfw_http_parse_req, req);
 
 		req->msg.len += req->parser.data_off - msg_off;
 
-		TFW_DBG("request parsed: len=%lu parsed=%d msg_len=%lu res=%d\n",
-			len, req->parser.data_off, req->msg.len, r);
+		TFW_DBG("request parsed: len=%u parsed=%d msg_len=%lu res=%d\n",
+			skb->len - off, req->parser.data_off, req->msg.len, r);
 
 		switch (r) {
 		default:
@@ -1269,7 +1270,7 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		case TFW_POSTPONE:
 			tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
 			r = tfw_gfsm_move(&req->msg.state,
-					  TFW_HTTP_FSM_REQ_CHUNK, data, len);
+					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG("GFSM return code %d\n", r);
 			if (r == TFW_BLOCK)
 				return TFW_BLOCK;
@@ -1289,8 +1290,8 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 		}
 
 		tfw_http_establish_skb_hdrs((TfwHttpMsg *)req);
-		r = tfw_gfsm_move(&req->msg.state,
-				  TFW_HTTP_FSM_REQ_MSG, data, len);
+		r = tfw_gfsm_move(&req->msg.state, TFW_HTTP_FSM_REQ_MSG,
+				  skb, off);
 		TFW_DBG("GFSM return code %d\n", r);
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
@@ -1298,7 +1299,8 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
 
 		tfw_cache_req_process(req, tfw_http_req_cache_cb, NULL);
 
-		if (!req->parser.data_off || req->parser.data_off == len)
+		if (!req->parser.data_off
+		    || req->parser.data_off == skb->len - off)
 			/* There is no more pending data in skbs. */
 			break;
 
@@ -1323,22 +1325,23 @@ tfw_http_req_process(TfwConnection *conn, unsigned char *data, size_t len)
  * @return number of processed bytes on success and negative value otherwise.
  */
 static int
-tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
+tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
+		      unsigned int off)
 {
 	int r = TFW_BLOCK;
+	unsigned int next_off = off;
 	TfwHttpResp *resp = (TfwHttpResp *)conn->msg;
 
 	BUG_ON(!resp);
 
-	TFW_DBG("received %lu server data bytes (%.*s) on socket (conn=%p)\n",
-		len, (int)len, data, conn);
+	TFW_DBG("received %u server data bytes on conn=%p\n", skb->len, conn);
 
-	r = tfw_http_parse_resp(resp, data, len);
+	r = ss_skb_process(skb, &next_off, tfw_http_parse_resp, resp);
 
 	resp->msg.len += resp->parser.data_off;
 
-	TFW_DBG("response parsed: len=%lu parsed=%d res=%d\n",
-		len, resp->parser.data_off, r);
+	TFW_DBG("response parsed: len=%u parsed=%d res=%d\n",
+		skb->len - off, resp->parser.data_off, r);
 
 	switch (r) {
 	default:
@@ -1350,7 +1353,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 	case TFW_POSTPONE:
 		tfw_http_establish_skb_hdrs((TfwHttpMsg *)resp);
 		r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_RESP_CHUNK,
-				  data, len);
+				  skb, off);
 		if (r == TFW_BLOCK)
 			goto block;
 		/*
@@ -1363,7 +1366,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 	case TFW_PASS:
 		tfw_http_establish_skb_hdrs((TfwHttpMsg *)resp);
 		r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_RESP_MSG,
-				  data, len);
+				  skb, off);
 		if (r == TFW_BLOCK)
 			goto block;
 		/* fall through */
@@ -1372,7 +1375,7 @@ tfw_http_resp_process(TfwConnection *conn, unsigned char *data, size_t len)
 	/* The response is fully parsed, process it. */
 
 	r = tfw_gfsm_move(&resp->msg.state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
-			  data, len);
+			  skb, off);
 	if (r == TFW_PASS) {
 		TfwMsg *req_msg;
 		TfwHttpReq *req;
@@ -1442,13 +1445,13 @@ tfw_http_hdr_sub(TfwHttpMsg *hm, TfwStr *hdr, const char *data, size_t len)
  * @return status (application logic decision) of the message processing.
  */
 int
-tfw_http_msg_process(void *conn, unsigned char *data, size_t len)
+tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
-		? tfw_http_req_process(c, data, len)
-		: tfw_http_resp_process(c, data, len);
+		? tfw_http_req_process(c, skb, off)
+		: tfw_http_resp_process(c, skb, off);
 }
 
 /**

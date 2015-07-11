@@ -224,12 +224,13 @@ typedef struct {
 
 #define TFW_GFSM_STATE(s)	(s)->st_stack[(s)->st_p]
 
-typedef int (*tfw_gfsm_handler_t)(void *obj, unsigned char *data, size_t len);
+typedef int (*tfw_gfsm_handler_t)(void *obj, struct sk_buff *skb,
+				  unsigned int off);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
-int tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len);
-int tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
-		  size_t len);
+int tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off);
+int tfw_gfsm_move(TfwGState *st, unsigned short new_state, struct sk_buff *skb,
+		  unsigned int off);
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			   unsigned short hndl_fsm_id, int st0);
