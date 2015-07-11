@@ -212,11 +212,11 @@ typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */
 void tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new);
-int tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len);
-int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
+int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
+int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
+int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 
 /* HTTP message header add/del/sub API */

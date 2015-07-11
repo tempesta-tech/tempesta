@@ -190,87 +190,6 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 }
 EXPORT_SYMBOL(ss_send);
 
-static int
-ss_tcp_process_proto_skb(struct sock *sk, unsigned char *data, size_t len,
-			 struct sk_buff *skb)
-{
-	int r;
-
-	read_lock(&sk->sk_callback_lock);
-	r = SS_CALL(connection_recv, sk, data, len);
-	read_unlock(&sk->sk_callback_lock);
-
-	return r;
-}
-
-/**
- * Process a socket buffer.
- * See standard skb_copy_datagram_iovec() implementation.
- * @return SS_OK, SS_DROP or negative value of error code.
- *
- * In any case returns with @skb passed to application layer.
- * We don't manege the skb any more.
- */
-static int
-ss_tcp_process_skb(struct sk_buff *skb, struct sock *sk, unsigned int off,
-		   int *count)
-{
-	int i, r = SS_OK;
-	int lin_len = skb_headlen(skb);
-	struct sk_buff *frag_i;
-
-	/*
-	 * We know for sure from the caller that the skb has data.
-	 * No matter where exactly the data is placed, but the skb relates
-	 * to current message, so put it to the message.
-	 */
-	read_lock(&sk->sk_callback_lock);
-	r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
-	read_unlock(&sk->sk_callback_lock);
-	if (r != SS_OK)
-		return r;
-
-	/* Process linear data. */
-	if (off < lin_len) {
-		r = ss_tcp_process_proto_skb(sk, skb->data + off,
-					     lin_len - off, skb);
-		if (r < 0)
-			return r;
-		*count += lin_len - off;
-		off = 0;
-	} else
-		off -= lin_len;
-
-	/* Process paged data. */
-	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
-		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		unsigned int f_sz = skb_frag_size(frag);
-		if (f_sz > off) {
-			unsigned char *f_addr = skb_frag_address(frag);
-			r = ss_tcp_process_proto_skb(sk, f_addr + off,
-						     f_sz - off, skb);
-			if (r < 0)
-				return r;
-			*count += f_sz - off;
-			off = 0;
-		} else
-			off -= f_sz;
-	}
-
-	/* Process packet fragments. */
-	skb_walk_frags(skb, frag_i) {
-		if (frag_i->len > off) {
-			r = ss_tcp_process_skb(frag_i, sk, off, count);
-			if (r < 0)
-				return r;
-			off = 0;
-		} else
-			off -= frag_i->len;
-	}
-
-	return r;
-}
-
 /**
  * This is main body of the socket close function in Sync Sockets.
  *
@@ -526,8 +445,29 @@ ss_tcp_process_data(struct sock *sk)
 		if (tcp_hdr(skb)->syn)
 			off--;
 		if (off < skb->len) {
-			int count = 0;
-			int r = ss_tcp_process_skb(skb, sk, off, &count);
+			int r, count = skb->len - off;
+
+			read_lock(&sk->sk_callback_lock);
+
+			/*
+			 * We know for sure from the caller that the skb
+			 * relates to current message, so put it to the message
+			 * skb list.
+			 *
+			 * Hereafter skb is passed to higher protocol handler
+			 * and must be freed there.
+			 */
+			r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
+			if (r != SS_OK) {
+				read_unlock(&sk->sk_callback_lock);
+				__kfree_skb(skb);
+				goto out;
+			}
+
+			r = SS_CALL(connection_recv, sk, skb, off);
+
+			read_unlock(&sk->sk_callback_lock);
+
 			if (r < 0) {
 				SS_WARN("can't process app data on socket %p\n",
 					sk);
@@ -540,7 +480,6 @@ ss_tcp_process_data(struct sock *sk)
 				 * which will free all the passed and linked
 				 * with currently processed message skbs.
 				 */
-				__kfree_skb(skb);
 				ss_droplink(sk);
 				goto out; /* connection dropped */
 			}

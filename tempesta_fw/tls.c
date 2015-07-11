@@ -28,14 +28,18 @@
  * to avoid copying.
  */
 static int
-tfw_tls_msg_process(void *conn, unsigned char *data, size_t len)
+tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	int r = TFW_BLOCK;
 	TfwConnection *c = (TfwConnection *)conn;
 	TfwMsg *msg = (TfwMsg *)c->msg;
 
-	/* TODO switch to HTTP FSM, @data and @len must be decrypted here. */
-	r = tfw_gfsm_move(&msg->state, TFW_HTTPS_FSM_TODO_ISSUE_81, data, len);
+	/*
+	 * TODO switch to HTTP FSM, @data and @len must be decrypted here.
+	 * Typically we don't need original skb any more either for server or
+	 * proxy modes, so it has sense to do decryption in-place.
+	 */
+	r = tfw_gfsm_move(&msg->state, TFW_HTTPS_FSM_TODO_ISSUE_81, skb, off);
 
 	return r;
 }

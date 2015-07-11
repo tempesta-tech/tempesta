@@ -77,13 +77,15 @@ __field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
  * used in the defines below here to reduce stack frame usage.
  * Since the variables are global now, be careful with them.
  */
-#define __FSM_START(s)							\
+#define __FSM_DECLARE_VARS()						\
 int __fsm_const_state;							\
 /* Declare FSM automatic variables, the variables have only local sense. */ \
 int __fsm_n;								\
 size_t __fsm_sz __attribute__((unused));				\
 unsigned char *__fsm_ch __attribute__((unused));			\
-TfwStr *__fsm_str;							\
+TfwStr *__fsm_str;
+
+#define __FSM_START(s)							\
 parser->data_off = 0; /* new data chunk */				\
 fsm_reenter: __attribute__((unused))					\
 	TFW_DBG("enter FSM at state %d\n", s);				\
@@ -654,6 +656,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -743,6 +746,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -789,6 +793,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1242,6 +1247,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1371,6 +1377,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1428,6 +1435,7 @@ __req_parse_x_forwarded_for(TfwHttpReq *req, unsigned char *data,
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1494,13 +1502,18 @@ done:
 }
 
 int
-tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
+tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
+	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	TfwHttpParser *parser = &req->parser;
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	int r = TFW_BLOCK;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
+		len, (int)len, data, req);
 
 	__FSM_START(parser->state) {
 
@@ -2002,6 +2015,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t *lenrv
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2183,6 +2197,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	int r = CSTR_NEQ;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2368,6 +2383,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t *lenrval)
 	size_t len = *lenrval;
 	unsigned char c = *p;
 	bool hlen_set = false;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2541,13 +2557,18 @@ enum {
 };
 
 int
-tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
+tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 {
+	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	TfwHttpParser *parser = &resp->parser;
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 	int r = TFW_BLOCK;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	TFW_DBG("parse %lu server data bytes (%.*s) on resp=%p\n",
+		len, (int)len, data, resp);
 
 	__FSM_START(parser->state) {
 
