@@ -20,13 +20,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-/*
- * TODO:
- *
- * 1.	Currently we parse only limited number of HTTP headers.
- * 	Store all other headers in strings array allocated using pool.
- */
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 
@@ -153,13 +146,21 @@ do {									\
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
 
-/* Automaton transition from state @st to @st_next on character @ch. */
-#define __FSM_TX(st, ch, st_next)					\
+/* Conditional transition from state @st to @st_next. */
+#define __FSM_TX_COND(st, condition, st_next) 				\
 __FSM_STATE(st) {							\
-	if (likely(c == ch))						\
+	if (likely(condition))						\
 		__FSM_MOVE(st_next);					\
 	return TFW_BLOCK;						\
 }
+
+/* Automaton transition from state @st to @st_next on character @ch. */
+#define __FSM_TX(st, ch, st_next) \
+	__FSM_TX_COND(st, c == (ch), st_next)
+
+/* Case-insensitive version of __FSM_TX(). */
+#define __FSM_TX_LC(st, ch, st_next) 					\
+	__FSM_TX_COND(st, LC(c) == (ch), st_next)
 
 /* Automaton transition with alphabet checking and fallback state. */
 #define __FSM_TX_AF(st, ch, st_next, a, st_fallback)			\
@@ -246,8 +247,8 @@ tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new)
  * Maybe it's better to rename it...
  */
 static int
-__chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len, const char *str,
-	       size_t tot_len)
+__chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len,
+		    const char *str, size_t tot_len)
 {
 	int r = CSTR_EQ, cn = chunk->len;
 
@@ -353,7 +354,8 @@ parse_int_ws(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
  * Parse an integer as part of HTTP list.
  */
 static inline int
-parse_int_list(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+parse_int_list(TfwStr *chunk, unsigned char *data, size_t len,
+	       unsigned int *acc)
 {
 	/*
 	 * Standard white-space plus coma characters are:
@@ -1095,7 +1097,22 @@ enum {
 	Req_0,
 	/* Request line. */
 	Req_Method,
+	Req_MethG,
+	Req_MethGe,
+	Req_MethH,
+	Req_MethHe,
+	Req_MethHea,
+	Req_MethP,
+	Req_MethPo,
+	Req_MethPos,
 	Req_MUSpace,
+	Req_Uri,
+	Req_UriSchH,
+	Req_UriSchHt,
+	Req_UriSchHtt,
+	Req_UriSchHttp,
+	Req_UriSchHttpColon,
+	Req_UriSchHttpColonSlash,
 	Req_UriHost,
 	Req_UriHostEnd,
 	Req_UriPort,
@@ -1514,28 +1531,44 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
-		if (unlikely(p + 4 >= data + len))
-			return TFW_BLOCK;
-
-		switch (*(unsigned int *)p) {
-		case TFW_CHAR4_INT('G', 'E', 'T', ' '):
-			req->method = TFW_HTTP_METH_GET;
-			__FSM_MOVE_n(Req_MUSpace, 4);
-		case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
-			req->method = TFW_HTTP_METH_HEAD;
-			__FSM_MOVE_n(Req_MUSpace, 4);
-		case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
-			req->method = TFW_HTTP_METH_POST;
-			__FSM_MOVE_n(Req_MUSpace, 4);
+		/* Fast path: compare 4 characters at once. */
+		if (likely(p + 4 <= data + len)) {
+			switch (*(unsigned int *)p) {
+			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
+				req->method = TFW_HTTP_METH_GET;
+				__FSM_MOVE_n(Req_Uri, 4);
+			case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
+				req->method = TFW_HTTP_METH_HEAD;
+				__FSM_MOVE_n(Req_MUSpace, 4);
+			case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
+				req->method = TFW_HTTP_METH_POST;
+				__FSM_MOVE_n(Req_MUSpace, 4);
+			}
+			return TFW_BLOCK; /* Unsupported method */
 		}
-
-		return TFW_BLOCK; /* Unsupported method */
+		/* Slow path: step char-by-char. */
+		switch (c) {
+		case 'G':
+			__FSM_MOVE(Req_MethG);
+		case 'H':
+			__FSM_MOVE(Req_MethH);
+		case 'P':
+			__FSM_MOVE(Req_MethP);
+		}
+                return TFW_BLOCK; /* Unsupported method */
 	}
 
-	/* Eat spaces before URI and HTTP (only) scheme. */
+	/*
+	 * Eat SP before URI and HTTP (only) scheme.
+	 * RFC 7230 3.1.1 requires only one SP.
+	 */
 	__FSM_STATE(Req_MUSpace) {
-		if (likely(c == ' '))
-			__FSM_MOVE(Req_MUSpace);
+		if (unlikely(c != ' '))
+			return TFW_BLOCK;
+		__FSM_MOVE(Req_Uri);
+	}
+
+	__FSM_STATE(Req_Uri) {
 		if (likely(c == '/')) {
 			req->uri_path.ptr = p;
 			__FSM_MOVE(Req_UriAbsPath);
@@ -1551,6 +1584,10 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->host.ptr = p + 7;
 			__FSM_MOVE_n(Req_UriHost, 7);
 		}
+
+		/* "http://" slow path - step char-by-char. */
+		if (likely(LC(c) == 'h'))
+			__FSM_MOVE(Req_UriSchH);
 
 		return TFW_BLOCK;
 	}
@@ -1837,6 +1874,45 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	TFW_HTTP_PARSE_BODY(Req, req);
 
 	/* ----------------    Improbable states    ---------------- */
+
+	/*
+	 * HTTP Method processing.
+	 *
+	 * GET
+	 */
+	__FSM_TX(Req_MethG, 'E', Req_MethGe);
+	__FSM_STATE(Req_MethGe) {
+		if (unlikely(c != 'T'))
+			return TFW_BLOCK;
+		req->method = TFW_HTTP_METH_GET;
+		__FSM_MOVE(Req_MUSpace);
+	}
+	/* POST */
+	__FSM_TX(Req_MethP, 'O', Req_MethPo);
+	__FSM_TX(Req_MethPo, 'S', Req_MethPos);
+	__FSM_STATE(Req_MethPos) {
+		if (unlikely(c != 'T'))
+			return TFW_BLOCK;
+		req->method = TFW_HTTP_METH_POST;
+		__FSM_MOVE(Req_MUSpace);
+	}
+	/* HEAD */
+	__FSM_TX(Req_MethH, 'E', Req_MethHe);
+	__FSM_TX(Req_MethHe, 'A', Req_MethHea);
+	__FSM_STATE(Req_MethHea) {
+		if (unlikely(c != 'D'))
+			return TFW_BLOCK;
+		req->method = TFW_HTTP_METH_HEAD;
+		__FSM_MOVE(Req_MUSpace);
+	}
+
+	/* process URI scheme: "http://" */
+	__FSM_TX_LC(Req_UriSchH, 't', Req_UriSchHt);
+	__FSM_TX_LC(Req_UriSchHt, 't', Req_UriSchHtt);
+	__FSM_TX_LC(Req_UriSchHtt, 'p', Req_UriSchHttp);
+	__FSM_TX(Req_UriSchHttp, ':', Req_UriSchHttpColon);
+	__FSM_TX(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
+	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriHost);
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX(Req_HttpVerT1, 'T', Req_HttpVerT2);
