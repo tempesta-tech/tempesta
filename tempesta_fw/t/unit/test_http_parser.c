@@ -18,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "http_msg.h"
 
 #include "test.h"
@@ -134,9 +133,6 @@ do_split_and_parse(unsigned char *req_str)
 	return ret;
 }
 
-#define FOR_REQ(raw_req_str) while(TRY_PARSE_EXPECT_PASS(raw_req_str))
-#define EXPECT_BLOCK_REQ(raw_req_str) while(TRY_PARSE_EXPECT_BLOCK(raw_req_str))
-
 #define TRY_PARSE_EXPECT_PASS(str)				\
 ({ 								\
 	int _err = do_split_and_parse(str);			\
@@ -152,6 +148,9 @@ do_split_and_parse(unsigned char *req_str)
 		TEST_FAIL("request is not blocked as expected:\n%s", (str)); \
 	(_err < 0);				\
 })
+
+#define FOR_REQ(req)		while(TRY_PARSE_EXPECT_PASS(req))
+#define EXPECT_BLOCK_REQ(req)	while(TRY_PARSE_EXPECT_BLOCK(req))
 
 TEST(http_parser, parses_req_method)
 {
@@ -308,7 +307,6 @@ TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 		"\r\n"
 	);
 }
-
 
 TEST_SUITE(http_parser)
 {
