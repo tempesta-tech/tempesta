@@ -1250,10 +1250,20 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	/* Process pipelined requests in a loop. */
 	while (1) {
 		TfwHttpMsg *hm;
-		int msg_off = req->parser.data_off;
+		TfwHttpParser *parser = &req->parser;
+		unsigned short msg_off = parser->data_off;
 
+		/* Remember starting offset of current message. */
 		off = next_off;
+
 		r = ss_skb_process(skb, &next_off, tfw_http_parse_req, req);
+
+		/*
+		 * @next_off points to end of current data chunk, so
+		 * adjust the next message offset that it can point to
+		 * somewhere in current data chunk.
+		 */
+		next_off -= parser->cdc_len - parser->data_off;
 
 		req->msg.len += req->parser.data_off - msg_off;
 
