@@ -500,15 +500,17 @@ tfw_http_conn_destruct(TfwConnection *conn)
 
 	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 
-	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
-		tfw_http_msg_free((TfwHttpMsg *)msg);
-	INIT_LIST_HEAD(&conn->msg_queue);
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
+			tfw_http_msg_free((TfwHttpMsg *)msg);
+		INIT_LIST_HEAD(&conn->msg_queue);
+	}
 }
 
 /**
- * Create sibling for @msg message.
+ * Create a sibling for @msg message.
  * Siblings in HTTP are usually pipelined requests
- * which can share the same skbs.
+ * that can share the same SKBs.
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
@@ -524,8 +526,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 		return NULL;
 
 	/*
-	 * The sibling is created for current (the last skb in skb_list
-	 * - set the skb as a start for skb_list in @sm.
+	 * The sibling message is set up with a clone of current
+	 * SKB (the last SKB in skb_list) as the starting SKB.
 	 */
 	nskb = skb_clone(skb, GFP_ATOMIC);
 	if (!nskb) {
@@ -534,8 +536,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	}
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
 
-	shm->msg.prev = &hm->msg;
-	/* Relink current connection msg to @shm. */
+	/* The sibling message belongs to the same connection. */
 	shm->conn = hm->conn;
 
 	return shm;
