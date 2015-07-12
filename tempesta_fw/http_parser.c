@@ -116,7 +116,9 @@ do {									\
 #define __FSM_FINISH(m)							\
 done:									\
 	parser->state = __fsm_const_state;				\
-	parser->data_off = p - data;					\
+	/* Remember lengths to get correct offset of next message. */	\
+	parser->cdc_len = len;						\
+	parser->data_off = p - data;
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
 do {									\
