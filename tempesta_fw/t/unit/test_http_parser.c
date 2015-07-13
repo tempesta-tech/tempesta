@@ -90,7 +90,7 @@ do_split_and_parse(unsigned char *req_str)
 	static char head_buf[PAGE_SIZE];
 	static char tail_buf[PAGE_SIZE];
 	static size_t req_len, head_len, tail_len;
-	int ret;
+	int r;
 
 	BUG_ON(!req_str);
 	BUG_ON(head_len > req_len);
@@ -110,7 +110,6 @@ do_split_and_parse(unsigned char *req_str)
 
 	++head_len;
 	--tail_len;
-	TFW_DBG("split: head_len=%zu, tail_len=%zu\n", head_len, tail_len);
 
 	/* Done all iterations?. */
 	if (head_len == req_len) {
@@ -118,26 +117,31 @@ do_split_and_parse(unsigned char *req_str)
 		return 1;
 	}
 
-	/* Parse the head. Put it to a separate buffer to guard bounds. */
-	memset(head_buf, 0xDEADDEAD, head_len);
+	/* Put data to a separate buffers to guard bounds. */
 	memcpy(head_buf, req_str, head_len);
-	ret = tfw_http_parse_req(req, head_buf, head_len);
+	memset(head_buf + head_len, 0, sizeof(head_buf) - head_len);
+	memcpy(tail_buf, req_str + head_len, tail_len);
+	memset(tail_buf + tail_len, 0, sizeof(tail_buf) - tail_len);
+
+	TEST_LOG("split: head_len=%zu [%.*s], tail_len=%zu [%.*s]\n",
+		 head_len, (int)head_len, head_buf,
+		 tail_len, (int)tail_len, tail_buf);
+
 	/* We expect that the parser requests more data. */
-	if (ret != TFW_POSTPONE)
-		return -1;
+	r = tfw_http_parse_req(req, head_buf, head_len);
+	if (r != TFW_POSTPONE)
+		return r;
 
 	/* Parse the tail. */
-	memset(tail_buf, 0xDEADDEAD, tail_len);
-	memcpy(tail_buf, req_str + head_len, tail_len);
-	ret = tfw_http_parse_req(req, tail_buf, tail_len);
-	return ret;
+	return tfw_http_parse_req(req, tail_buf, tail_len);
 }
 
 #define TRY_PARSE_EXPECT_PASS(str)				\
 ({ 								\
 	int _err = do_split_and_parse(str);			\
 	if (_err < 0)						\
-		TEST_FAIL("can't parse request:\n%s", (str)); 	\
+		TEST_FAIL("can't parse request (code=%d):\n%s",	\
+			  _err, (str)); 			\
 	!_err;							\
 })
 
@@ -149,8 +153,15 @@ do_split_and_parse(unsigned char *req_str)
 	(_err < 0);				\
 })
 
-#define FOR_REQ(req)		while(TRY_PARSE_EXPECT_PASS(req))
-#define EXPECT_BLOCK_REQ(req)	while(TRY_PARSE_EXPECT_BLOCK(req))
+#define FOR_REQ(req)						\
+	TEST_LOG("=== request: [%s]\n", req);			\
+	while(TRY_PARSE_EXPECT_PASS(req))
+
+#define EXPECT_BLOCK_REQ(req)					\
+do {								\
+	TEST_LOG("=== request: [%s]\n", req);			\
+	while(TRY_PARSE_EXPECT_BLOCK(req));			\
+} while (0)
 
 TEST(http_parser, parses_req_method)
 {

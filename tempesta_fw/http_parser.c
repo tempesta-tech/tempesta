@@ -39,22 +39,17 @@ static inline void
 __field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
 {
 	if (unlikely(!TFW_STR_PLAIN(field))) {
-		TfwStr *last = (TfwStr *)field->ptr + field->len - 1;
 		if (unlikely(begin == end)) {
-			BUG_ON(field->len >= 2);
-			if (--field->len == 1)
-				/*
-				 * Last/second chunk is empty
-				 * - back to plain string.
-				 */
-				memcpy(field, field->ptr, sizeof(*field));
+			tfw_str_del_chunk(field, TFW_STR_CHUNKN(field) - 1);
 		} else {
+			TfwStr *last = (TfwStr *)field->ptr
+				       + TFW_STR_CHUNKN(field) - 1;
 			/*
 			 * This is not the first data segment,
 			 * so current data starts at @begin.
 			 */
 			last->ptr = begin;
-			last->len = end - begin;
+			tfw_str_updlen(field, end);
 		}
 	} else {
 		/* field->ptr must be set before reaching current state. */
@@ -92,9 +87,11 @@ st: __attribute__((unused)) 						\
 
 #define __FSM_EXIT(field)						\
 do {									\
-	if (field) /* staticaly resolved */				\
+	if (field) { /* staticaly resolved */				\
+		tfw_str_updlen(field, data + len);			\
 		if (unlikely(!tfw_str_add_compound(msg->pool, field)))	\
 			return TFW_BLOCK;				\
+	}								\
 	goto done;							\
 } while (0)
 
@@ -127,11 +124,13 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_MOVE_n(to, n)						\
-	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT(NULL))
-#define __FSM_MOVE(to)			__FSM_MOVE_n(to, 1)
+#define __FSM_MOVE_nf(to, n, field)					\
+	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT(field))
+#define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, NULL)
+#define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
+#define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, NULL)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
-#define __FSM_JMP(to)			do { goto to; } while (0)
+#define __FSM_JMP(to)		do { goto to; } while (0)
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
@@ -1113,6 +1112,7 @@ enum {
 	Req_UriSchHttp,
 	Req_UriSchHttpColon,
 	Req_UriSchHttpColonSlash,
+	Req_UriHostStart,
 	Req_UriHost,
 	Req_UriHostEnd,
 	Req_UriPort,
@@ -1571,19 +1571,12 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_Uri) {
 		if (likely(c == '/')) {
 			req->uri_path.ptr = p;
-			__FSM_MOVE(Req_UriAbsPath);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
 			   && *(p + 6) == '/'))
-		{
-			/*
-			 * Set req->host here making Host header value
-			 * ignored according to RFC2616 5.2.
-			 */
-			req->host.ptr = p + 7;
-			__FSM_MOVE_n(Req_UriHost, 7);
-		}
+			__FSM_MOVE_n(Req_UriHostStart, 7);
 
 		/* "http://" slow path - step char-by-char. */
 		if (likely(LC(c) == 'h'))
@@ -1598,20 +1591,30 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	 * We must not rewrite abs_path, but still can cast host part
 	 * to lower case.
 	 */
+	__FSM_STATE(Req_UriHostStart) {
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			*p = LC(*p);
+			req->host.ptr = p;
+			__FSM_MOVE_f(Req_UriHost, &req->host);
+		}
+		return TFW_BLOCK;
+	}
+
 	__FSM_STATE(Req_UriHost) {
-		*p = LC(*p);
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_MOVE(Req_UriHost);
-		__FSM_JMP(Req_UriHostEnd);
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			*p = LC(*p);
+			__FSM_MOVE_f(Req_UriHost, &req->host);
+		}
+		/* fall throught */
 	}
 
 	/* Host is read, start to read port or abs_path. */
 	__FSM_STATE(Req_UriHostEnd) {
-		req->host.len = p - (unsigned char *)req->host.ptr;
+		__field_finish(&req->host, data, p);
 
 		if (likely(c == '/')) {
 			req->uri_path.ptr = p;
-			__FSM_MOVE(Req_UriAbsPath);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ':') {
 			__FSM_MOVE(Req_UriPort);
@@ -1629,7 +1632,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		req->uri_path.ptr = p;
-		__FSM_MOVE(Req_UriAbsPath);
+		__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 	}
 
 	/* URI abs_path */
@@ -1912,7 +1915,7 @@ tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_TX_LC(Req_UriSchHtt, 'p', Req_UriSchHttp);
 	__FSM_TX(Req_UriSchHttp, ':', Req_UriSchHttpColon);
 	__FSM_TX(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
-	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriHost);
+	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriHostStart);
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX(Req_HttpVerT1, 'T', Req_HttpVerT2);
