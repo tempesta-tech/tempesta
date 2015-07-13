@@ -25,6 +25,29 @@
 #include "lib.h"
 #include "str.h"
 
+void
+tfw_str_del_chunk(TfwStr *str, int id)
+{
+	unsigned int cn = TFW_STR_CHUNKN(str);
+
+	if (unlikely(TFW_STR_PLAIN(str)))
+		return;
+	BUG_ON(str->flags & TFW_STR_DUPLICATE);
+	BUG_ON(id >= cn);
+
+	if (TFW_STR_CHUNKN(str) == 2) {
+		/* Just fall back to plain string. */
+		*str = *((TfwStr *)str->ptr + (id ^ 1));
+		return;
+	}
+
+	str->len -= TFW_STR_CHUNK(str, id)->len;
+	TFW_STR_CHUNKN_DEC(str);
+	/* Move all chunks after @id. */
+	memmove((TfwStr *)str->ptr + id, (TfwStr *)str->ptr + id + 1,
+		(cn - id - 1) * sizeof(TfwStr));
+}
+
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 {
@@ -178,8 +201,8 @@ bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                 tfw_str_eq_flags_t flags)
 {
-	const TfwStr *chunk;
 	unsigned int len;
+	const TfwStr *chunk;
 	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
