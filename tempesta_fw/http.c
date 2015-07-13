@@ -500,11 +500,9 @@ tfw_http_conn_destruct(TfwConnection *conn)
 
 	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
-		list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
-			tfw_http_msg_free((TfwHttpMsg *)msg);
-		INIT_LIST_HEAD(&conn->msg_queue);
-	}
+	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
+		tfw_http_msg_free((TfwHttpMsg *)msg);
+	INIT_LIST_HEAD(&conn->msg_queue);
 }
 
 /**
