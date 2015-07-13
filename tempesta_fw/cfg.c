@@ -1622,7 +1622,8 @@ handle_state_change(const char *old_state, const char *new_state)
 	}
 	if (!strcasecmp("stop", new_state)) {
 		TFW_LOG("stopping all modules...\n");
-		tfw_cfg_stop_mods(&tfw_cfg_mods);
+		if (tfw_cfg_mods_are_started)
+			tfw_cfg_stop_mods(&tfw_cfg_mods);
 		tfw_cfg_mods_are_started = false;
 		return 0;
 	}
