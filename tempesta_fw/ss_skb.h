@@ -35,8 +35,7 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef int (*ss_skb_proc_actor_t)(void *conn, unsigned char *data,
-				   size_t len);
+typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
-		   ss_skb_proc_actor_t proc_actor, void *data);
+		   ss_skb_actor_t actor, void *objdata);
