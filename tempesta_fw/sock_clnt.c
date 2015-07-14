@@ -221,7 +221,12 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
+	if (type == TFW_FSM_HTTP)
+		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
+	else if (type == TFW_FSM_HTTPS)
+		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpsClnt);
+	else
+		return -EINVAL;
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
 
