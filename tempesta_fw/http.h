@@ -69,20 +69,19 @@ typedef struct {
  *
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
- * @cdc_len	- current data chunk length;
- * @data_off	- data offset from which the parser starts reading;
+ * @data_len	- length of the data chunk currently being processed;
+ * @data_off	- offset in the data chunk currently being processed;
  *		  (the two above are limited by skb data chunk size,
  *		   so they're never more than 64KB)
- * @to_read	- remaining data to read;
- * @_tmp_chunk	- stores begin of currently processed string at the end
- * 		  of last skb;
- * @hdr		- currently parsed header
+ * @to_read	- remaining number of bytes to read;
+ * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
+ * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
 	unsigned char	flags;
 	int		state;
 	int		_i_st;
-	unsigned short	cdc_len;
+	unsigned short	data_len;
 	unsigned short	data_off;
 	int		to_read;
 	TfwStr		_tmp_chunk;

@@ -28,59 +28,61 @@
 /**
  * Process a socket buffer.
  * See standard skb_copy_datagram_iovec() implementation.
- * @return SS_OK, SS_DROP or negative value of error code.
+ * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
  *
- * The function is anaware about application layer, but it still chops
- * @skb to messages: if @proc_actor returns POSTPONE code and there is more
- * data in @skb, then function continues to process @skb, otherwise it
- * returns allowing higher layer to process the full message.
- * @off is used as an iterator among the function calls over the same @skb.
+ * The function is unaware of an application layer, but it still splits
+ * @skb into messages. If @actor returns POSTPONE and there is more data
+ * in @skb, then the function continues to process the @skb. Otherwise
+ * it returns, thus allowing an upper layer to process a full message
+ * or an error code. @off is used as an iterator between function calls
+ * over the same @skb.
  */
 int
 ss_skb_process(struct sk_buff *skb, unsigned int *off,
-	       ss_skb_proc_actor_t proc_actor, void *data)
+	       ss_skb_actor_t actor, void *objdata)
 {
 	int i, r = SS_OK;
-	int lin_len = skb_headlen(skb);
-	unsigned int o = *off;
-	struct sk_buff *frag_i;
+	int headlen = skb_headlen(skb);
+	unsigned int offset = *off;
+	struct sk_buff *skb_frag;
 
 	/* Process linear data. */
-	if (o < lin_len) {
-		*off = lin_len;
-		r = proc_actor(data, skb->data + o, lin_len - o);
+	if (offset < headlen) {
+		*off = headlen;
+		r = actor(objdata, skb->data + offset, headlen - offset);
 		if (r != SS_POSTPONE)
 			return r;
-		o = 0;
-	} else
-		o -= lin_len;
-
+		offset = 0;
+	} else {
+		offset -= headlen;
+	}
 	/* Process paged data. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		unsigned int f_sz = skb_frag_size(frag);
-		if (f_sz > o) {
-			unsigned char *f_addr = skb_frag_address(frag);
-			*off += f_sz - o;
-			r = ss_tcp_process_proto_skb(sk, f_addr + o,
-						     f_sz - o, skb);
+		unsigned int frag_size = skb_frag_size(frag);
+		if (offset < frag_size) {
+			unsigned char *frag_addr = skb_frag_address(frag);
+			*off += frag_size - offset;
+			r = actor(objdata, frag_addr + offset,
+					   frag_size - offset);
 			if (r != SS_POSTPONE)
 				return r;
-			o = 0;
-		} else
-			o -= f_sz;
+			offset = 0;
+		} else {
+			offset -= frag_size;
+		}
 	}
-
 	/* Process packet fragments. */
-	skb_walk_frags(skb, frag_i) {
-		if (frag_i->len > o) {
-			*off += frag_i->len - o;
-			r = ss_skb_process(frag_i, o, proc_actor, data);
+	skb_walk_frags(skb, skb_frag) {
+		if (offset < skb_frag->len) {
+			*off += skb_frag->len - offset;
+			r = ss_skb_process(skb_frag, &offset, actor, objdata);
 			if (r != SS_POSTPONE)
 				return r;
-			o = 0;
-		} else
-			o -= frag_i->len;
+			offset = 0;
+		} else {
+			offset -= skb_frag->len;
+		}
 	}
 
 	return r;
