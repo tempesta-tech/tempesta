@@ -221,18 +221,20 @@ TEST(http_parser, parses_req_uri)
 TEST(http_parser, fills_hdr_tbl)
 {
 	TfwHttpHdrTbl *h_tbl;
-	bool b1, b2, b3, b4, b5, b6, b7, b8;
-	TfwStr *h_user_agent, *h_accept, *h_host, *h_connection,
-		*h_xch, *h_xff, *h_dummy9, *h_cc;
+	TfwStr *h_user_agent, *h_accept, *h_host, *h_connection, *h_contlen,
+		*h_xch, *h_xff, *h_dummy4, *h_dummy9, *h_cc;
 
-	/* expected header values */
+	/* Expected values for special headers. */
+	const char *s_host = "localhost";
+	const char *s_connection = "Keep-Alive";
+	const char *s_xff = "127.0.0.1, example.com";
+	const char *s_cl = "0";
+	/* Expected values for raw headers. */
 	const char *s_user_agent = "User-Agent: Wget/1.13.4 (linux-gnu)";
 	const char *s_accept = "Accept: */*";
-	const char *s_host = "Host: localhost";
-	const char *s_connection = "Connection: Keep-Alive";
 	const char *s_xch = "X-Custom-Hdr: custom header values";
-	const char *s_xff = "X-Forwarded-For: 127.0.0.1, example.com";
 	const char *s_dummy9 = "Dummy9: 9";
+	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
@@ -249,6 +251,7 @@ TEST(http_parser, fills_hdr_tbl)
 		"Dummy4: 4\r\n"  /* That is done to check table reallocation. */
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
+		"Content-Length: 0\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
 		"Dummy9: 9\r\n"
@@ -258,35 +261,41 @@ TEST(http_parser, fills_hdr_tbl)
 		h_tbl = req->h_tbl;
 
 		/* Special headers: */
-		h_host       = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
+		h_host = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 		h_connection = &h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field;
-		h_xff        = &h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
+		h_contlen = &h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].field;
+		h_xff = &h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
 
-		/* Common (raw) headers: 14 total, are 10 dummies. */
+		/* Common (raw) headers: 14 total with 10 dummies. */
 		EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 14);
+
 		h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 0].field;
 		h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
 		h_xch        = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 2].field;
+		h_dummy4     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 7].field;
 		h_dummy9     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 12].field;
 		h_cc         = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 13].field;
 
-		b1 = tfw_str_eq_cstr(h_user_agent, s_user_agent, strlen(s_user_agent), 0);
-		b2 = tfw_str_eq_cstr(h_accept, s_accept, strlen(s_accept), 0);
-		b3 = tfw_str_eq_cstr(h_host, s_host, strlen(s_host), 0);
-		b4 = tfw_str_eq_cstr(h_connection, s_connection, strlen(s_connection), 0);
-		b5 = tfw_str_eq_cstr(h_xch, s_xch, strlen(s_xch), 0);
-		b6 = tfw_str_eq_cstr(h_xff, s_xff, strlen(s_xff), 0);
-		b7 = tfw_str_eq_cstr(h_dummy9, s_dummy9, strlen(s_dummy9), 0);
-		b8 = tfw_str_eq_cstr(h_cc, s_cc, strlen(s_cc), 0);
-
-		EXPECT_TRUE(b1);
-		EXPECT_TRUE(b2);
-		EXPECT_TRUE(b3);
-		EXPECT_TRUE(b4);
-		EXPECT_TRUE(b5);
-		EXPECT_TRUE(b6);
-		EXPECT_TRUE(b7);
-		EXPECT_TRUE(b8);
+		EXPECT_TRUE(tfw_str_eq_cstr(h_user_agent, s_user_agent,
+					    strlen(s_user_agent), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_accept, s_accept,
+					    strlen(s_accept), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_host, s_host,
+					    strlen(s_host), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_connection, s_connection,
+					    strlen(s_connection), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
+					    strlen(s_xch), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_xff, s_xff,
+					    strlen(s_xff), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
+					    strlen(s_dummy4), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
+					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
+					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_contlen, s_cl,
+					    strlen(s_cl), 0));
 	}
 }
 

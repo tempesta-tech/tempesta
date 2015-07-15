@@ -116,7 +116,7 @@ typedef struct {
 	TfwHttpHdr	tbl[0];
 } TfwHttpHdrTbl;
 
-#define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * o)
+#define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
 #define TFW_HHTBL_SZ(o)			(sizeof(TfwHttpHdrTbl)		\
 					 + sizeof(TfwHttpHdr) * __HHTBL_SZ(o))
 
