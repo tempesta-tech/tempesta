@@ -56,6 +56,8 @@
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete */
 #define TFW_STR_COMPLETE	0x02
+/* User specific flag. Useful for push-down automata. */
+#define TFW_STR_USER		0x04
 
 /*
  * @flags	- 3 most significant bytes for number of chunks of compound
