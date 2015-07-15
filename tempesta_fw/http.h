@@ -65,18 +65,27 @@ typedef struct {
  * So we use states space splitting to avoid states explosion.
  * @_i_st is used to save current state and go to interior sub-automaton
  * (e.g. process LWS using @state while current state is saved in @_i_st
- * or using @_i_st parse value of a header described
+ * or using @_i_st parse value of a header described.
+ *
+ * @state	- current parser state;
+ * @_i_st	- helping (interior) state;
+ * @data_off	- data offset from which the parser starts reading
+ * 		  (not more than single packet size);
+ * @to_read	- remaining data to read;
+ * @_tmp_acc	- integer accumulator to parse chunked integers;
+ * @_tmp_chunk	- stores begin of currently processed string at the end of
+ * 		  last skb. The item is used for short fields processing;
+ * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
 	unsigned char	flags;
-	int		state;		/* current parser state */
-	int		_i_st;		/* helping (interior) state */
-	int		data_off;	/* data offset from which the parser
-					   starts reading */
-	int		to_read;	/* remaining data to read */
-	TfwStr		_tmp_chunk;	/* stores begin of currently processed
-					   string at the end of last skb */
-	TfwStr		hdr;		/* currently parsed header */
+	unsigned short	data_off;
+	int		state;
+	int		_i_st;
+	int		to_read;
+	unsigned int	_tmp_acc;
+	TfwStr		_tmp_chunk;
+	TfwStr		hdr;
 } TfwHttpParser;
 
 /**

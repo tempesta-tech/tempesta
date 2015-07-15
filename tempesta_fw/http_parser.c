@@ -3,6 +3,14 @@
  *
  * HTTP Parser.
  *
+ * The parser enforces few sane limitations:
+ *
+ * 	- short fields (like numeric Content-Length) could be carried by not
+ * 	  more than 2 data chunks - the bigger number of chunks means some
+ * 	  dirty games like Slow HTTP attack.
+ *
+ * 	- TODO write down other limits.
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
@@ -507,57 +515,32 @@ out:
 
 /**
  * Parse probably chunked string representation of an decimal integer.
- * Returns number of parsed bytes (in data, w/o stored chunk) on success
- * or negative value otherwise.
+ * @return number of parsed bytes.
  */
 static int
-__parse_int_a(TfwStr *chunk, unsigned char *data, size_t len,
+parse_int_a(unsigned char *data, size_t len,
 	      const unsigned long *delimiter_a, unsigned int *acc)
 {
 	unsigned char *p;
-	int r;
 
-#define PROCESS_ACC()							\
-do {									\
-	if (unlikely(!isdigit(*p)))					\
-		return CSTR_NEQ;					\
-	if (unlikely(*acc > (UINT_MAX - 10) / 10))			\
-		return CSTR_BADLEN;					\
-	*acc = *acc * 10 + *p - '0';					\
-} while (0)
-
-	/* Parse stored chunk. */
-	for (p = chunk->ptr; chunk->len; ++chunk->ptr, --chunk->len)
-		PROCESS_ACC();
-
-	/* Parse current chunk. */
 	for (p = data; !IN_ALPHABET(*p, delimiter_a); ++p) {
-		if (unlikely(p - data == len)) {
-			if (chunk->ptr) {
-				r = CSTR_BADLEN;
-				goto err;
-			} else {
-				chunk->ptr = data;
-				chunk->len = len;
-				return CSTR_POSTPONE;
-			}
-		}
-		PROCESS_ACC();
+		if (unlikely(p - data == len))
+			return CSTR_POSTPONE;
+		if (unlikely(!isdigit(*p)))
+			return CSTR_NEQ;
+		if (unlikely(*acc > (UINT_MAX - 10) / 10))
+			return CSTR_BADLEN;
+		*acc = *acc * 10 + *p - '0';
 	}
 
-	r = (p - data > 0) ? p - data : CSTR_BADLEN;
-err:
-	/* Initialized chunk, chunk->len is already zero. */
-	chunk->ptr = NULL;
-	return r;
-#undef PROCESS_ACC
+	return p - data;
 }
 
 /**
  * Parse an integer followed by whit space.
  */
 static inline int
-parse_int_ws(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+parse_int_ws(unsigned char *data, size_t len, unsigned int *acc)
 {
 	/*
 	 * Standard white-space characters are:
@@ -571,15 +554,14 @@ parse_int_ws(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
 	static const unsigned long whitespace_a[] ____cacheline_aligned = {
 		0x0000000100003e00UL, 0, 0, 0
 	};
-	return __parse_int_a(chunk, data, len, whitespace_a, acc);
+	return parse_int_a(data, len, whitespace_a, acc);
 }
 
 /**
  * Parse an integer as part of HTTP list.
  */
 static inline int
-parse_int_list(TfwStr *chunk, unsigned char *data, size_t len,
-	       unsigned int *acc)
+parse_int_list(unsigned char *data, size_t len, unsigned int *acc)
 {
 	/*
 	 * Standard white-space plus coma characters are:
@@ -594,54 +576,29 @@ parse_int_list(TfwStr *chunk, unsigned char *data, size_t len,
 	static const unsigned long ws_coma_a[] ____cacheline_aligned = {
 		0x0000100100003e00UL, 0, 0, 0
 	};
-	return __parse_int_a(chunk, data, len, ws_coma_a, acc);
+	return parse_int_a(data, len, ws_coma_a, acc);
 }
 
 /**
  * Parse probably chunked string representation of an hexadecimal integer.
- * Returns number of parsed bytes (in data, w/o stored chunk) on success
- * or negative value otherwise.
+ * @return number of parsed bytes.
  */
 static int
-__parse_hex(TfwStr *chunk, unsigned char *data, size_t len, unsigned int *acc)
+parse_int_hex(unsigned char *data, size_t len, unsigned int *acc)
 {
 	unsigned char *p;
-	int r;
 
-#define PROCESS_ACC()							\
-do {									\
-	if (unlikely(*acc > (UINT_MAX - 10) / 10))			\
-		return CSTR_BADLEN;					\
-	if (!isxdigit(*p))						\
-		return CSTR_NEQ;					\
-	*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;		\
-} while (0)
-
-	/* Parse stored chunk. */
-	for (p = chunk->ptr; chunk->len; ++chunk->ptr, --chunk->len)
-		PROCESS_ACC();
-
-	/* Parse current chunk. */
 	for (p = data; !isspace(*p) && (*p != ';'); ++p) {
-		if (unlikely(p - data == len)) {
-			if (chunk->ptr) {
-				r = CSTR_BADLEN;
-				goto err;
-			} else {
-				chunk->ptr = data;
-				chunk->len = len;
-				return CSTR_POSTPONE;
-			}
-		}
-		PROCESS_ACC();
+		if (unlikely(p - data == len))
+			return CSTR_POSTPONE;
+		if (!isxdigit(*p))
+			return CSTR_NEQ;
+		if (unlikely(*acc > (UINT_MAX - 16) / 16))
+			return CSTR_BADLEN;
+		*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;
 	}
 
-	r = (p - data > 0) ? p - data : CSTR_BADLEN;
-err:
-	/* Initialized chunk, chunk->len is already zero. */
-	chunk->ptr = NULL;
-	return r;
-#undef PROCESS_ACC
+	return p - data;
 }
 
 /* Helping (inferior) states to process particular parts of HTTP message. */
@@ -695,7 +652,8 @@ __FSM_STATE(st_curr) {							\
 		parser->hdr.flags |= TFW_STR_USER; /* single shot */	\
 	}								\
 	__fsm_n = func(hm, p, __fsm_sz);				\
-	TFW_DBG("parse header " #func ": len=%d id=%d\n", __fsm_n, id);	\
+	TFW_DBG("parse header " #func ": ret=%d len=%lu id=%d\n",	\
+		__fsm_n, __fsm_sz, id);					\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* The automaton state keeping is handled in @func. */	\
@@ -791,13 +749,11 @@ do {									\
 __FSM_STATE(prefix ## _Body) {						\
 	TFW_DBG("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
-		unsigned int to_read = 0;				\
 		__fsm_sz = len - (size_t)(p - data);			\
 		/* Read next chunk length. */				\
-		__fsm_n = __parse_hex(&parser->_tmp_chunk,		\
-				      p, __fsm_sz, &to_read);		\
+		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_tmp_acc);\
 		TFW_DBG("len=%zu ret=%d to_read=%d\n",			\
-			__fsm_sz, __fsm_n, to_read);			\
+			__fsm_sz, __fsm_n, parser->_tmp_acc);		\
 		switch (__fsm_n) {					\
 		case CSTR_POSTPONE:					\
 			/* Not all data has been parsed. */		\
@@ -807,7 +763,8 @@ __FSM_STATE(prefix ## _Body) {						\
 			return TFW_BLOCK;				\
 		default:						\
 			BUG_ON(__fsm_n <= 0);				\
-			parser->to_read = to_read;			\
+			parser->to_read = parser->_tmp_acc;		\
+			parser->_tmp_acc = 0;				\
 			__FSM_B_MOVE_n(prefix ## _BodyChunkEoL, __fsm_n); \
 		}							\
 	}								\
@@ -942,7 +899,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (__fsm_ch)
 			return __fsm_ch - data;
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(I_ConnOther, __fsm_sz);
 	}
 
 	/* End of token */
@@ -969,8 +926,13 @@ done:
 static int
 __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
-	return parse_int_ws(&msg->parser._tmp_chunk, data, len,
-			    &msg->content_length);
+	int r;
+
+	r = parse_int_ws(data, len, &msg->content_length);
+	if (r == CSTR_POSTPONE)
+		hdr_chunk_fixup(msg, data, len);
+
+	return r;
 }
 
 /**
@@ -1012,7 +974,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (__fsm_ch)
 			return __fsm_ch - data;
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(I_TransEncodExt, __fsm_sz);
 	}
 
 	/* End of term. */
@@ -1280,22 +1242,26 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_age = acc;
+		req->cache_ctl.max_age = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_fresh = acc;
+		req->cache_ctl.max_fresh = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
@@ -1315,7 +1281,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(Req_I_CC_EoT, comma - p);
 		if (__fsm_ch)
 			return __fsm_ch - data;
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(Req_I_CC_Ext, __fsm_sz);
 	}
 
 	/* End of term. */
@@ -2028,22 +1994,26 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->cache_ctl.max_age = acc;
+		resp->cache_ctl.max_age = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(chunk, p, __fsm_n, &acc);
+		__fsm_n = parse_int_list(p, __fsm_n, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->cache_ctl.s_maxage = acc;
+		resp->cache_ctl.s_maxage = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -2063,7 +2033,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
 		if (__fsm_ch)
 			return __fsm_ch - data;
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
 	}
 
 	/* End of term. */
@@ -2151,23 +2121,24 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_ch = memchr(p, ' ', __fsm_sz);
 		if (__fsm_ch)
 			__FSM_I_MOVE_n(Resp_I_ExpDate, __fsm_ch - p + 1);
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(Resp_I_Expires, __fsm_sz);
 	}
 
 	__FSM_STATE(Resp_I_ExpDate) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &acc);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		else if (__fsm_n != 2 || acc < 1)
+		if (parser->_tmp_acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
-		resp->expires = (acc - 1) * SEC24H;
+		resp->expires = (parser->_tmp_acc - 1) * SEC24H;
+		parser->_tmp_acc = 0;
 		/* Skip a day and a following SP. */
 		__FSM_I_MOVE_n(Resp_I_ExpMonth, 3);
 	}
@@ -2242,56 +2213,58 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* 4-digit year. */
 	__FSM_STATE(Resp_I_ExpYear) {
-		unsigned int year = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &year);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		else if (__fsm_n != 4)
-			return CSTR_BADLEN;
-		__fsm_n = __year_day_secs(year, resp->expires);
+		__fsm_n = __year_day_secs(parser->_tmp_acc, resp->expires);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
-			return CSTR_NEQ;
+			return __fsm_n;
 		resp->expires = __fsm_n;
+		parser->_tmp_acc = 0;
 		/* Skip a year and a following SP. */
 		__FSM_I_MOVE_n(Resp_I_ExpHour, 5);
 	}
 
 	__FSM_STATE(Resp_I_ExpHour) {
-		unsigned int t = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = __parse_int_a(chunk, p, __fsm_sz, colon_a, &t);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		else if (__fsm_n != 2)
-			return CSTR_BADLEN;
-		resp->expires = t * 3600;
+		resp->expires = parser->_tmp_acc * 3600;
+		parser->_tmp_acc = 0;
 		/* Skip an hour and a following ':'. */
 		__FSM_I_MOVE_n(Resp_I_ExpMin, 3);
 	}
 
 	__FSM_STATE(Resp_I_ExpMin) {
-		unsigned int t = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = __parse_int_a(chunk, p, __fsm_sz, colon_a, &t);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		else if (__fsm_n != 2)
-			return CSTR_BADLEN;
-		resp->expires = t * 60;
+		resp->expires = parser->_tmp_acc * 60;
+		parser->_tmp_acc = 0;
 		/* Skip minutes and a following ':'. */
 		__FSM_I_MOVE_n(Resp_I_ExpSec, 3);
 	}
 
 	__FSM_STATE(Resp_I_ExpSec) {
-		unsigned int t = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_ws(chunk, p, __fsm_sz, &t);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		else if (__fsm_n != 2)
-			return CSTR_BADLEN;
-		resp->expires = t;
+		resp->expires = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		/* Skip seconds and a following ' GMT'. */
 		__FSM_I_MOVE_n(Resp_I_EoL, 6);
 	}
@@ -2329,12 +2302,14 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(chunk, p, __fsm_sz, &acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->keep_alive = acc;
+		resp->keep_alive = parser->_tmp_acc;
+		parser->_tmp_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -2351,7 +2326,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
 		if (__fsm_ch)
 			return __fsm_ch - data;
-		return CSTR_POSTPONE;
+		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
 	}
 
 	/* End of term. */
@@ -2513,10 +2488,8 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* Response Status-Code. */
 	__FSM_STATE(Resp_StatusCode) {
-		unsigned int acc = 0;
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(&parser->_tmp_chunk, p, __fsm_sz,
-					 &acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		parser->_i_st = I_Conn;
 		switch (__fsm_n) {
 		case CSTR_POSTPONE:
@@ -2528,7 +2501,8 @@ tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 		default:
 			/* The header value is fully parsed, move forward. */
-			resp->status = acc;
+			resp->status = parser->_tmp_acc;
+			parser->_tmp_acc = 0;
 			__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_n);
 		}
 	}
