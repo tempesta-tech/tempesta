@@ -168,7 +168,6 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_connection_recv,
-	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
 };
 
 /*

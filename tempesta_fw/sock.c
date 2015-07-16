@@ -447,25 +447,13 @@ ss_tcp_process_data(struct sock *sk)
 		if (off < skb->len) {
 			int r, count = skb->len - off;
 
-			read_lock(&sk->sk_callback_lock);
-
 			/*
-			 * We know for sure from the caller that the skb
-			 * relates to current message, so put it to the message
-			 * skb list.
-			 *
-			 * Hereafter skb is passed to higher protocol handler
-			 * and must be freed there.
+			 * We know that data for processing is within
+			 * the current SKB. Hand the SKB over to the
+			 * upper layer for processing.
 			 */
-			r = SS_CALL(put_skb_to_msg, sk->sk_user_data, skb);
-			if (r != SS_OK) {
-				read_unlock(&sk->sk_callback_lock);
-				__kfree_skb(skb);
-				goto out;
-			}
-
+			read_lock(&sk->sk_callback_lock);
 			r = SS_CALL(connection_recv, sk, skb, off);
-
 			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
