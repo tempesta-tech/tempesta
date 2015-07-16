@@ -72,7 +72,7 @@ typedef struct {
  * @data_len	- length of the data chunk currently being processed;
  * @data_off	- offset in the data chunk currently being processed;
  *		  (the two above are limited by skb data chunk size,
- *		   so they're never more than 64KB)
+ *		   so they never exceed 64KB value)
  * @to_read	- remaining number of bytes to read;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
