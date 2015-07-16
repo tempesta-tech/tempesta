@@ -161,16 +161,6 @@ typedef struct ss_hooks {
 	/* Process data received on the socket. */
 	int (*connection_recv)(struct sock *sk, struct sk_buff *skb,
 			       unsigned int off);
-
-	/*
-	 * Add the @skb to the current connection message.
-	 * We need this low-level sk_buff opertation at connection (higher)
-	 * level to provide zero-copy with socket buffers reusage.
-	 *
-	 * All the put skbs are owned by the protocol handlers.
-	 * Sync sockets don't free the skbs.
-	 */
-	int (*put_skb_to_msg)(SsProto *proto, struct sk_buff *skb);
 } SsHooks;
 
 static inline void ss_callback_write_lock(struct sock *sk)

@@ -134,25 +134,18 @@ tfw_connection_recv(struct sock *sk, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
-	return tfw_gfsm_dispatch(conn, skb, off);
-}
-
-int
-tfw_connection_put_skb_to_msg(SsProto *proto, struct sk_buff *skb)
-{
-	TfwConnection *conn = (TfwConnection *)proto;
-
 	if (!conn->msg) {
 		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
-		if (!conn->msg)
+		if (!conn->msg) {
+			__kfree_skb(skb);
 			return -ENOMEM;
+		}
 		TFW_DBG("Link new msg %p with connection %p\n",
 			conn->msg, conn);
 	}
 
 	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
-
 	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
-	return 0;
+	return tfw_gfsm_dispatch(conn, skb, off);
 }
