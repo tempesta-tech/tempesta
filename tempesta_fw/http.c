@@ -1244,37 +1244,38 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 {
 	int r = TFW_BLOCK;
 	unsigned int data_off = off;
-	struct sk_buff *data_skb = skb;
+	unsigned int skb_len = skb->len;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb->len);
+	BUG_ON(off >= skb_len);
 
 	TFW_DBG("Received %u client data bytes on conn=%p\n",
-		data_skb->len - data_off, conn);
+		skb_len - off, conn);
 	/*
-	 * Process pipelined requests in a loop
-	 * until all data in the SKB is processed.
+	 * Process pipelined requests in a loop until all data
+	 * in the SKB is processed. Note that @skb_len stays
+	 * the same for all pipelined messages in the SKB.
 	 */
-	while (data_off < data_skb->len) {
+	while (data_off < skb_len) {
+		TfwHttpMsg *hmsib = NULL;
 		TfwHttpMsg *hmreq = (TfwHttpMsg *)conn->msg;
 		TfwHttpParser *parser = &hmreq->parser;
-		unsigned int start_off = data_off;
 
 		/*
 		 * Process/parse data in the SKB.
-		 * @data_off points at the end of current data chunk after
-		 * processing. However processing may have stopped in the
+		 * @off points at the start of data for processing.
+		 * After processing @data_off points at the end of current
+		 * data chunk. However processing may have stopped in the
 		 * middle of the chunk. Adjust it to point to the right
 		 * location within the chunk.
 		 */
-		r = ss_skb_process(data_skb, &data_off,
-				   tfw_http_parse_req, hmreq);
+		off = data_off;
+		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, hmreq);
 		data_off -= parser->data_len - parser->data_off;
-		hmreq->msg.len += data_off - start_off;
+		hmreq->msg.len += data_off - off;
 
 		TFW_DBG("Request parsed: len=%u parsed=%d msg_len=%lu res=%d\n",
-			data_skb->len - start_off, data_off - start_off,
-			hmreq->msg.len, r);
+			skb_len - off, data_off - off, hmreq->msg.len, r);
 
 		switch (r) {
 		default:
@@ -1287,8 +1288,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		case TFW_POSTPONE:
 			tfw_http_establish_skb_hdrs(hmreq);
 			r = tfw_gfsm_move(&hmreq->msg.state,
-					  TFW_HTTP_FSM_REQ_CHUNK,
-					  data_skb, start_off);
+					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK)
 				return TFW_BLOCK;
@@ -1309,16 +1309,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 
 		tfw_http_establish_skb_hdrs(hmreq);
 		r = tfw_gfsm_move(&hmreq->msg.state,
-				  TFW_HTTP_FSM_REQ_MSG, data_skb, start_off);
+				  TFW_HTTP_FSM_REQ_MSG, skb, off);
 		TFW_DBG("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
 
-		if (data_off < data_skb->len) {
+		if (data_off < skb_len) {
 			/* Pipelined requests: create new sibling message. */
-			TfwHttpMsg *shm =
-				tfw_http_msg_create_sibling(hmreq, Conn_Clnt);
-			if (shm == NULL) {
+			hmsib = tfw_http_msg_create_sibling(hmreq, Conn_Clnt);
+			if (hmsib == NULL) {
 				/*
 				 * Not enough memory. Unfortunately, there's
 				 * no recourse. The caller expects that data
@@ -1329,9 +1328,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 					 "to create request sibling\n");
 				return TFW_BLOCK;
 			}
-			tfw_http_parser_msg_inherit(hmreq, shm);
-			data_skb = ss_skb_peek_tail(&shm->msg.skb_list);
-			conn->msg = (TfwMsg *)shm;
+			tfw_http_parser_msg_inherit(hmreq, hmsib);
 		}
 		/*
 		 * The request should either be stored or released.
@@ -1339,6 +1336,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 */
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb, NULL);
+
+		/*
+		 * Switch data processing to a new SKB,
+		 * and the connection to a new sibling message.
+		 */
+		if (hmsib) {
+			skb = ss_skb_peek_tail(&hmsib->msg.skb_list);
+			conn->msg = (TfwMsg *)hmsib;
+		}
 	}
 	/*
 	 * All data in the SKB has been processed, and the processing
