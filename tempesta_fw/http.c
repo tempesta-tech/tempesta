@@ -511,13 +511,10 @@ tfw_http_conn_destruct(TfwConnection *conn)
  * which can share the same skbs.
  */
 static TfwHttpMsg *
-tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
+tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb, int type)
 {
 	TfwHttpMsg *shm;
-	struct sk_buff *nskb, *skb;
-
-	skb = ss_skb_peek_tail(&hm->msg.skb_list);
-	BUG_ON(!skb);
+	struct sk_buff *nskb;
 
 	shm = tfw_http_msg_alloc(type);
 	if (!shm)
@@ -527,12 +524,13 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, int type)
 	 * The sibling is created for current (the last skb in skb_list
 	 * - set the skb as a start for skb_list in @sm.
 	 */
-	nskb = skb_clone(skb, GFP_ATOMIC);
+	nskb = skb_clone(*skb, GFP_ATOMIC);
 	if (!nskb) {
 		tfw_http_msg_free(shm);
 		return NULL;
 	}
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
+	*skb = nskb;
 
 	shm->msg.prev = &hm->msg;
 	/* Relink current connection msg to @shm. */
@@ -1315,8 +1313,12 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			return TFW_BLOCK;
 
 		if (data_off < skb_len) {
-			/* Pipelined requests: create new sibling message. */
-			hmsib = tfw_http_msg_create_sibling(hmreq, Conn_Clnt);
+			/*
+			 * Pipelined requests: create a new sibling message.
+			 * @skb is replaced with pointer to a new SKB.
+			 */
+			hmsib = tfw_http_msg_create_sibling(hmreq,
+							    &skb, Conn_Clnt);
 			if (hmsib == NULL) {
 				/*
 				 * Not enough memory. Unfortunately, there's
@@ -1337,14 +1339,12 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb, NULL);
 
-		/*
-		 * Switch data processing to a new SKB,
-		 * and the connection to a new sibling message.
-		 */
-		if (hmsib) {
-			skb = ss_skb_peek_tail(&hmsib->msg.skb_list);
+		if (hmsib)
+			/*
+			 * Switch connection to the new sibling message.
+			 * Data processing will continue with the new SKB.
+			 */
 			conn->msg = (TfwMsg *)hmsib;
-		}
 	}
 	/*
 	 * All data in the SKB has been processed, and the processing
