@@ -124,6 +124,5 @@ int tfw_connection_new(TfwConnection *conn);
 void tfw_connection_destruct(TfwConnection *conn);
 
 int tfw_connection_recv(struct sock *sk, struct sk_buff *skb, unsigned int off);
-int tfw_connection_put_skb_to_msg(SsProto *, struct sk_buff *);
 
 #endif /* __TFW_CONNECTION_H__ */
