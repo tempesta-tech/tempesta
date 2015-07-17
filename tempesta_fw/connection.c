@@ -101,10 +101,7 @@ tfw_connection_unlink_peer(TfwConnection *conn)
 int
 tfw_connection_new(TfwConnection *conn)
 {
-	int r = TFW_CONN_HOOK_CALL(conn, conn_init);
-	if (r)
-		TFW_DBG("conn_init() hook returned error: %d\n", r);
-	return r;
+	return TFW_CONN_HOOK_CALL(conn, conn_init);
 }
 
 /**

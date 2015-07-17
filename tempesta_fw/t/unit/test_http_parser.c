@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,15 +18,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "http_msg.h"
 
 #include "test.h"
 #include "helpers.h"
 
 TfwHttpReq *req;
-
-#define MIN_REQ_LEN 4;
 
 static void
 alloc_req(void)
@@ -49,46 +47,101 @@ reset_req(void)
 	alloc_req();
 }
 
-bool
+/**
+ * The function is designed to be called in a loop, e.g.
+ *   while(!do_split_and_parse(req_str));
+ *
+ * On each iteration it splits the @req_str into two fragments and pushes
+ * them to the HTTP parser.
+ *
+ * For example, given the request:
+ *    "GET / HTTP/1.1\r\n"
+ * The function (being called in a loop) will do the following:
+ *     parse("GET / HTTP/1.1\r\n");
+ *     parse("G"); parse("ET / HTTP/1.1\r\n");
+ *     parse("GE"); parse("T / HTTP/1.1\r\n");
+ *     parse("GET"); parse(" / HTTP/1.1\r\n");
+ *     parse("GET "); parse("/ HTTP/1.1\r\n");
+ *     parse("GET /"); parse(" HTTP/1.1\r\n");
+ *     ...
+ *     parse("GET / HTTP/1.1"); parse("\r\n");
+ *     parse("GET / HTTP/1.1\r"); parse("\n");
+ *
+ * That is done because:
+ *  - HTTP pipelining: the feature implies that such a "split" may occur at
+ *    any position of the input string. THe HTTP parser should be able to handle
+ *    that, and we would like to test it.
+ *  - Code coverage: the parser contains some optimizations for non-fragmented
+ *    data, so we need to generate all possible fragments to test both "fast
+ *    path" and "slow path" execution.
+ *
+ * The function is stateful:
+ *  - It puts the parsed request to the global variable @req (on each call).
+ *  - It maintains the internal state between calls.
+ *
+ * Return value:
+ *  == 0 - OK: current step of the loop is done without errors, proceed.
+ *  <  0 - Error: the parsing is failed.
+ *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
+ */
+int
 do_split_and_parse(unsigned char *req_str)
 {
+	static char head_buf[PAGE_SIZE];
+	static char tail_buf[PAGE_SIZE];
 	static size_t req_len, head_len, tail_len;
-	int err;
+	int r;
 
 	BUG_ON(!req_str);
 	BUG_ON(head_len > req_len);
+	BUG_ON(head_len > sizeof(head_buf));
+	BUG_ON(tail_len > sizeof(tail_buf));
+	reset_req();
 
 	/* First iteration. */
 	if (!req_len) {
 		req_len = strlen(req_str);
-		head_len = MIN_REQ_LEN;
+		head_len = 0;
 		tail_len = req_len - head_len;
-	}
 
-	/* Done all iterations?. */
-	if (head_len >= req_len) {
-		req_len = head_len = tail_len = 0;
-		return 1;
+		/* Parse request as a single chunk on the first iteration. */
+		return tfw_http_parse_req(req, req_str, req_len);
 	}
 
 	++head_len;
 	--tail_len;
-	reset_req();
-	err = tfw_http_parse_req(req, req_str, head_len);
-	if (err == TFW_POSTPONE)
-		err = tfw_http_parse_req(req, req_str + head_len, tail_len);
 
-	return err;
+	/* Done all iterations?. */
+	if (head_len == req_len) {
+		req_len = head_len = tail_len = 0;
+		return 1;
+	}
+
+	/* Put data to a separate buffers to guard bounds. */
+	memcpy(head_buf, req_str, head_len);
+	memset(head_buf + head_len, 0, sizeof(head_buf) - head_len);
+	memcpy(tail_buf, req_str + head_len, tail_len);
+	memset(tail_buf + tail_len, 0, sizeof(tail_buf) - tail_len);
+
+	TEST_LOG("split: head_len=%zu [%.*s], tail_len=%zu [%.*s]\n",
+		 head_len, (int)head_len, head_buf,
+		 tail_len, (int)tail_len, tail_buf);
+
+	/* We expect that the parser requests more data. */
+	r = tfw_http_parse_req(req, head_buf, head_len);
+	if (r != TFW_POSTPONE)
+		return r;
+
+	/* Parse the tail. */
+	return tfw_http_parse_req(req, tail_buf, tail_len);
 }
-
-#define FOR_REQ(raw_req_str) while(TRY_PARSE_EXPECT_PASS(raw_req_str))
-#define EXPECT_BLOCK_REQ(raw_req_str) while(TRY_PARSE_EXPECT_BLOCK(raw_req_str))
 
 #define TRY_PARSE_EXPECT_PASS(str)				\
 ({ 								\
 	int _err = do_split_and_parse(str);			\
 	if (_err < 0)						\
-		TEST_FAIL("can't parse request:\n%s", (str)); 	\
+		TEST_FAIL("can't parse request (code=%d):\n%s",	\
+			  _err, (str)); 			\
 	!_err;							\
 })
 
@@ -99,6 +152,16 @@ do_split_and_parse(unsigned char *req_str)
 		TEST_FAIL("request is not blocked as expected:\n%s", (str)); \
 	(_err < 0);				\
 })
+
+#define FOR_REQ(req)						\
+	TEST_LOG("=== request: [%s]\n", req);			\
+	while(TRY_PARSE_EXPECT_PASS(req))
+
+#define EXPECT_BLOCK_REQ(req)					\
+do {								\
+	TEST_LOG("=== request: [%s]\n", req);			\
+	while(TRY_PARSE_EXPECT_BLOCK(req));			\
+} while (0)
 
 TEST(http_parser, parses_req_method)
 {
@@ -155,44 +218,84 @@ TEST(http_parser, parses_req_uri)
 	}
 }
 
-TEST(http_parser, segregates_special_headers)
+TEST(http_parser, fills_hdr_tbl)
 {
 	TfwHttpHdrTbl *h_tbl;
-	bool b1, b2, b3, b4;
-	TfwStr *h_user_agent, *h_accept, *h_host, *h_connection;
+	TfwStr *h_user_agent, *h_accept, *h_host, *h_connection, *h_contlen,
+		*h_xch, *h_xff, *h_dummy4, *h_dummy9, *h_cc;
 
-	/* expected header values */
+	/* Expected values for special headers. */
+	const char *s_host = "localhost";
+	const char *s_connection = "Keep-Alive";
+	const char *s_xff = "127.0.0.1, example.com";
+	const char *s_cl = "0";
+	/* Expected values for raw headers. */
 	const char *s_user_agent = "User-Agent: Wget/1.13.4 (linux-gnu)";
 	const char *s_accept = "Accept: */*";
-	const char *s_host = "Host: localhost";
-	const char *s_connection = "Connection: Keep-Alive";
-
+	const char *s_xch = "X-Custom-Hdr: custom header values";
+	const char *s_dummy9 = "Dummy9: 9";
+	const char *s_dummy4 = "Dummy4: 4";
+	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
 		"Accept: */*\r\n"
 		"Host: localhost\r\n"
 		"Connection: Keep-Alive\r\n"
+		"X-Custom-Hdr: custom header values\r\n"
+		"X-Forwarded-For: 127.0.0.1, example.com\r\n"
+		"Dummy0: 0\r\n"
+		"Dummy1: 1\r\n"
+		"Dummy2: 2\r\n"
+		"Dummy3: 3\r\n"
+		"Dummy4: 4\r\n"  /* That is done to check table reallocation. */
+		"Dummy5: 5\r\n"
+		"Dummy6: 6\r\n"
+		"Content-Length: 0\r\n"
+		"Dummy7: 7\r\n"
+		"Dummy8: 8\r\n"
+		"Dummy9: 9\r\n"
+		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
 		"\r\n")
 	{
 		h_tbl = req->h_tbl;
 
-		EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 2);
-
-		h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW].field;
-		h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
-		h_host       = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
+		/* Special headers: */
+		h_host = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
 		h_connection = &h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field;
+		h_contlen = &h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].field;
+		h_xff = &h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
 
-		b1 = tfw_str_eq_cstr(h_user_agent, s_user_agent, strlen(s_user_agent), 0);
-		b2 = tfw_str_eq_cstr(h_accept, s_accept, strlen(s_accept), 0);
-		b3 = tfw_str_eq_cstr(h_host, s_host, strlen(s_host), 0);
-		b4 = tfw_str_eq_cstr(h_connection, s_connection, strlen(s_connection), 0);
+		/* Common (raw) headers: 14 total with 10 dummies. */
+		EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 14);
 
-		EXPECT_TRUE(b1);
-		EXPECT_TRUE(b2);
-		EXPECT_TRUE(b3);
-		EXPECT_TRUE(b4);
+		h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 0].field;
+		h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
+		h_xch        = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 2].field;
+		h_dummy4     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 7].field;
+		h_dummy9     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 12].field;
+		h_cc         = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 13].field;
+
+		EXPECT_TRUE(tfw_str_eq_cstr(h_user_agent, s_user_agent,
+					    strlen(s_user_agent), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_accept, s_accept,
+					    strlen(s_accept), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_host, s_host,
+					    strlen(s_host), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_connection, s_connection,
+					    strlen(s_connection), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
+					    strlen(s_xch), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_xff, s_xff,
+					    strlen(s_xff), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
+					    strlen(s_dummy4), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
+					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
+					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_contlen, s_cl,
+					    strlen(s_cl), 0));
 	}
 }
 
@@ -225,15 +328,12 @@ TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 	);
 }
 
-
 TEST_SUITE(http_parser)
 {
-	return; /* TODO: these tests don't pass, need to fix the HTTP parser. */
-
 	TEST_TEARDOWN(free_req);
 
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
-	TEST_RUN(http_parser, segregates_special_headers);
+	TEST_RUN(http_parser, fills_hdr_tbl);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 }

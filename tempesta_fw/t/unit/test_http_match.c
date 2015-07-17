@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,16 +18,19 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "http_match.h"
 #include "http_msg.h"
 
 #include "test.h"
 #include "helpers.h"
 
+typedef struct {
+	int test_id;
+	TfwHttpMatchRule rule;
+} MatchEntry;
+
 TfwHttpMatchList *test_mlst;
 TfwHttpReq *test_req;
-
 
 static void
 http_match_suite_setup(void)
@@ -46,12 +50,6 @@ http_match_suite_teardown(void)
 	tfw_http_match_list_free(test_mlst);
 	test_mlst = NULL;
 }
-
-
-typedef struct {
-	int test_id;
-	TfwHttpMatchRule rule;
-} MatchEntry;
 
 static void
 test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
@@ -194,12 +192,12 @@ TEST(http_match, hdr_host_prefix)
 	EXPECT_EQ(-1, match_id);
 
 	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
-	            "Host: example.com");
+	            "example.com");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
 
 	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
-	            "Host :        eXample.com");
+	            "eXample.COM");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
 
@@ -209,7 +207,7 @@ TEST(http_match, hdr_host_prefix)
 	EXPECT_EQ(-1, match_id);
 
 	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
-	            "Host:  WWW.EXAMPLE.COM:8081");
+	            "WWW.EXAMPLE.COM:8081");
 	match_id = test_mlst_match();
 	EXPECT_EQ(3, match_id);
 }
