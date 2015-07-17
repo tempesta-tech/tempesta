@@ -65,13 +65,14 @@ typedef struct {
  * So we use states space splitting to avoid states explosion.
  * @_i_st is used to save current state and go to interior sub-automaton
  * (e.g. process LWS using @state while current state is saved in @_i_st
- * or using @_i_st parse value of a header described
+ * or using @_i_st parse value of a header described.
  *
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_go	- remaining number of bytes to process in the data chunk;
  *		  (limited by single packet size and never exceeds 64KB)
  * @to_read	- remaining number of bytes to read;
+ * @_tmp_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -81,6 +82,7 @@ typedef struct tfw_http_parser {
 	int		state;
 	int		_i_st;
 	int		to_read;
+	unsigned int	_tmp_acc;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 } TfwHttpParser;
@@ -122,7 +124,7 @@ typedef struct {
 	TfwHttpHdr	tbl[0];
 } TfwHttpHdrTbl;
 
-#define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * o)
+#define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
 #define TFW_HHTBL_SZ(o)			(sizeof(TfwHttpHdrTbl)		\
 					 + sizeof(TfwHttpHdr) * __HHTBL_SZ(o))
 

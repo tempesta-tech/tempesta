@@ -60,8 +60,10 @@ TfwHttpMsg *
 tfw_http_msg_alloc(int type)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
-			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
-			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
+			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq,
+						      TFW_POOL_ZERO)
+			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp,
+						      TFW_POOL_ZERO);
 	if (!hm)
 		return NULL;
 
