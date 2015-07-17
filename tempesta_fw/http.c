@@ -1262,14 +1262,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		/*
 		 * Process/parse data in the SKB.
 		 * @off points at the start of data for processing.
-		 * After processing @data_off points at the end of current
-		 * data chunk. However processing may have stopped in the
-		 * middle of the chunk. Adjust it to point to the right
-		 * location within the chunk.
+		 * @data_off is the current offset of data to process in
+		 * the SKB. After processing @data_off points at the end
+		 * of latest data chunk. However processing may have
+		 * stopped in the middle of the chunk. Adjust it to point 
+		 * to the right location within the chunk.
 		 */
 		off = data_off;
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, hmreq);
-		data_off -= parser->data_len - parser->data_off;
+		data_off -= parser->to_go;
 		hmreq->msg.len += data_off - off;
 
 		TFW_DBG("Request parsed: len=%u parsed=%d msg_len=%lu res=%d\n",
@@ -1330,7 +1331,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 					 "to create request sibling\n");
 				return TFW_BLOCK;
 			}
-			tfw_http_parser_msg_inherit(hmreq, hmsib);
 		}
 		/*
 		 * The request should either be stored or released.
