@@ -56,6 +56,8 @@
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete */
 #define TFW_STR_COMPLETE	0x02
+/* User specific flag. Useful for push-down automata. */
+#define TFW_STR_USER		0x04
 
 /*
  * @flags	- 3 most significant bytes for number of chunks of compound
@@ -72,6 +74,7 @@ typedef struct {
 /* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
 #define TFW_STR_CHUNKN_INC(s)	((s)->flags += (1 << TFW_STR_CN_SHIFT))
+#define TFW_STR_CHUNKN_DEC(s)	((s)->flags -= (1 << TFW_STR_CN_SHIFT))
 #define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags |= ((n) << TFW_STR_CN_SHIFT))
 /* Compound string contains at least 2 chunks. */
 #define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
@@ -119,7 +122,7 @@ do {									\
 } while (0)
 
 /**
- * Update length of the string which points to new data with length @n.
+ * Update length of the string which points to new data ending at @curr_p.
  */
 static inline void
 tfw_str_updlen(TfwStr *s, const char *curr_p)
@@ -140,6 +143,8 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 	s->len += n;
 }
 
+void tfw_str_del_chunk(TfwStr *str, int id);
+
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 
@@ -157,6 +162,7 @@ bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
                    const char *val, int val_len, tfw_str_eq_flags_t flags)
 	__deprecated;
 
-size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size) __deprecated;
+size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
+	__deprecated;
 
 #endif /* __TFW_STR_H__ */

@@ -130,6 +130,7 @@ tfw_sock_clnt_new(struct sock *sk)
 err_conn_init:
 	tfw_connection_unlink_peer(conn);
 	tfw_connection_unlink_sk(conn);
+	tfw_connection_destruct(conn);
 	tfw_cli_conn_free(conn);
 err_conn_alloc:
 	tfw_client_put(cli);
@@ -158,6 +159,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 
 	tfw_connection_unlink_peer(conn);
 	tfw_connection_unlink_sk(conn);
+	tfw_connection_destruct(conn);
 	tfw_cli_conn_free(conn);
 	tfw_client_put(cli);
 
@@ -218,7 +220,12 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	if (!ls)
 		return -ENOMEM;
 
-	ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
+	if (type == TFW_FSM_HTTP)
+		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
+	else if (type == TFW_FSM_HTTPS)
+		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpsClnt);
+	else
+		return -EINVAL;
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
 
