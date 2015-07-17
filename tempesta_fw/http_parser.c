@@ -86,7 +86,6 @@ unsigned char *__fsm_ch __attribute__((unused));			\
 TfwStr *__fsm_str;
 
 #define __FSM_START(s)							\
-parser->data_off = 0; /* new data chunk */				\
 fsm_reenter: __attribute__((unused))					\
 	TFW_DBG("enter FSM at state %d\n", s);				\
 switch (s)
@@ -116,9 +115,8 @@ do {									\
 #define __FSM_FINISH(m)							\
 done:									\
 	parser->state = __fsm_const_state;				\
-	/* Remember lengths to get correct offset of next message. */	\
-	parser->data_len = len;						\
-	parser->data_off = p - data;
+	/* Remaining number of bytes to process in the data chunk. */	\
+	parser->to_go = len - (size_t)(p - data);
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
 do {									\
@@ -221,15 +219,6 @@ static const unsigned long hdr_a[] ____cacheline_aligned = {
 };
 
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
-
-/**
- * Prepare the parser to process a new message in the same data chunk.
- */
-void
-tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new)
-{
-	hm_new->parser.data_off = hm->parser.data_off;
-}
 
 #define CSTR_EQ			0
 #define CSTR_POSTPONE		TFW_POSTPONE	/* -1 */

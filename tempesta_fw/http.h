@@ -69,20 +69,17 @@ typedef struct {
  *
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
- * @data_len	- length of the data chunk currently being processed;
- * @data_off	- offset in the data chunk currently being processed;
- *		  (the two above are limited by skb data chunk size,
- *		   so they never exceed 64KB value)
+ * @to_go	- remaining number of bytes to process in the data chunk;
+ *		  (limited by single packet size and never exceeds 64KB)
  * @to_read	- remaining number of bytes to read;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
 	unsigned char	flags;
+	unsigned short	to_go;
 	int		state;
 	int		_i_st;
-	unsigned short	data_len;
-	unsigned short	data_off;
 	int		to_read;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
@@ -220,7 +217,6 @@ typedef struct {
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */
-void tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new);
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
 int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 
