@@ -48,6 +48,7 @@ tempesta_fw-objs = \
 	sock.o \
 	sock_clnt.o \
 	sock_srv.o \
+	ss_skb.o \
 	stress.o \
 	str.o \
 	tls.o

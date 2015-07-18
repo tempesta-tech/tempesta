@@ -279,7 +279,6 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_drop	= tfw_sock_srv_connect_failover,
 	.connection_error	= tfw_sock_srv_connect_retry,
 	.connection_recv	= tfw_connection_recv,
-	.put_skb_to_msg		= tfw_connection_put_skb_to_msg,
 };
 
 /**
