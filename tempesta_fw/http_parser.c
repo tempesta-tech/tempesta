@@ -302,14 +302,15 @@ done:
  * used in the defines below here to reduce stack frame usage.
  * Since the variables are global now, be careful with them.
  */
-#define __FSM_START(s)							\
+#define __FSM_DECLARE_VARS()						\
 int __fsm_const_state;							\
 /* Declare FSM automatic variables, the variables have only local sense. */ \
 int __fsm_n __attribute__((unused));					\
 size_t __fsm_sz __attribute__((unused));				\
 unsigned char *__fsm_ch __attribute__((unused));			\
-TfwStr *__fsm_str __attribute__((unused));				\
-parser->data_off = 0; /* new data chunk */				\
+TfwStr *__fsm_str __attribute__((unused));
+
+#define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
 	TFW_DBG("enter FSM at state %d\n", s);				\
 switch (s)
@@ -341,7 +342,8 @@ do {									\
 #define __FSM_FINISH(m)							\
 done:									\
 	parser->state = __fsm_const_state;				\
-	parser->data_off = p - data;					\
+	/* Remaining number of bytes to process in the data chunk. */	\
+	parser->to_go = len - (size_t)(p - data);
 
 #define ____FSM_MOVE_LAMBDA(to, n, code)				\
 do {									\
@@ -453,15 +455,6 @@ static const unsigned long hdr_a[] ____cacheline_aligned = {
 
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
 
-/**
- * Prepare the parser to process a new message in the same data chunk.
- */
-void
-tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new)
-{
-	hm_new->parser.data_off = hm->parser.data_off;
-}
-
 #define CSTR_EQ			0
 #define CSTR_POSTPONE		TFW_POSTPONE	/* -1 */
 #define CSTR_NEQ		TFW_BLOCK	/* -2 */
@@ -564,19 +557,19 @@ static inline int
 parse_int_list(unsigned char *data, size_t len, unsigned int *acc)
 {
 	/*
-	 * Standard white-space plus coma characters are:
+	 * Standard white-space plus comma characters are:
 	 * '\t' (0x09) horizontal tab (TAB)
 	 * '\n' (0x0a) newline (LF)
 	 * '\v' (0x0b) vertical tab (VT)
 	 * '\f' (0x0c) feed (FF)
 	 * '\r' (0x0d) carriage return (CR)
 	 * ' '  (0x20) space (SPC)
-	 * ','  (0x2c) coma
+	 * ','  (0x2c) comma
 	 */
-	static const unsigned long ws_coma_a[] ____cacheline_aligned = {
+	static const unsigned long ws_comma_a[] ____cacheline_aligned = {
 		0x0000100100003e00UL, 0, 0, 0
 	};
-	return parse_int_a(data, len, ws_coma_a, acc);
+	return parse_int_a(data, len, ws_comma_a, acc);
 }
 
 /**
@@ -860,6 +853,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwStr *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -946,6 +940,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwStr *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1202,6 +1197,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	TfwStr *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1318,6 +1314,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1356,6 +1353,7 @@ __req_parse_x_forwarded_for(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	TfwHttpParser *parser = &msg->parser;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -1411,13 +1409,18 @@ done:
 }
 
 int
-tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len)
+tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
+	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	TfwHttpParser *parser = &req->parser;
 	TfwHttpMsg *msg = (TfwHttpMsg *)req;
 	int r = TFW_BLOCK;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
+		len, (int)len, data, req);
 
 	__FSM_START(parser->state) {
 
@@ -1944,6 +1947,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	TfwStr *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2112,6 +2116,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	unsigned char *p = data;
 	int r = CSTR_NEQ;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2289,6 +2294,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	TfwStr *chunk = &parser->_tmp_chunk;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
 
 	__FSM_START(parser->_i_st) {
 
@@ -2448,13 +2454,18 @@ enum {
 };
 
 int
-tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len)
+tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 {
+	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	TfwHttpParser *parser = &resp->parser;
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
 	int r = TFW_BLOCK;
 	unsigned char *p = data;
 	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	TFW_DBG("parse %lu server data bytes (%.*s) on resp=%p\n",
+		len, (int)len, data, resp);
 
 	__FSM_START(parser->state) {
 

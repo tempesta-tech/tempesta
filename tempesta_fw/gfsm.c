@@ -118,11 +118,11 @@ tfw_gfsm_pop_ctx(TfwGState *st)
  * Dispatch connection data to proper FSM.
  */
 int
-tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len)
+tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off)
 {
 	SsProto *proto = (SsProto *)obj;
 
-	return fsm_htbl[TFW_FSM_TYPE(proto->type)](obj, data, len);
+	return fsm_htbl[TFW_FSM_TYPE(proto->type)](obj, skb, off);
 }
 
 /**
@@ -136,8 +136,8 @@ tfw_gfsm_dispatch(void *obj, unsigned char *data, size_t len)
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
-	      size_t len)
+tfw_gfsm_move(TfwGState *st, unsigned short new_state, struct sk_buff *skb,
+	      unsigned int off)
 {
 	int r = TFW_PASS, p;
 	unsigned int *wc = st->wish_call[st->st_p];
@@ -158,7 +158,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short new_state, unsigned char *data,
 		 * There is possible recursion when the new FSM moves through
 		 * its states.
 		 */
-		r = tfw_gfsm_dispatch(st->obj, data, len);
+		r = tfw_gfsm_dispatch(st->obj, skb, off);
 		/*
 		 * XXX Should we continue processing for lower priorities
 		 * if current FSM is still in progress?

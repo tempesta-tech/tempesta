@@ -69,17 +69,16 @@ typedef struct {
  *
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
- * @data_off	- data offset from which the parser starts reading
- * 		  (not more than single packet size);
- * @to_read	- remaining data to read;
- * @_tmp_acc	- integer accumulator to parse chunked integers;
- * @_tmp_chunk	- stores begin of currently processed string at the end of
- * 		  last skb. The item is used for short fields processing;
+ * @to_go	- remaining number of bytes to process in the data chunk;
+ *		  (limited by single packet size and never exceeds 64KB)
+ * @to_read	- remaining number of bytes to read;
+ * @_tmp_acc	- integer accumulator for parsing chunked integers;
+ * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
 	unsigned char	flags;
-	unsigned short	data_off;
+	unsigned short	to_go;
 	int		state;
 	int		_i_st;
 	int		to_read;
@@ -220,12 +219,11 @@ typedef struct {
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */
-void tfw_http_parser_msg_inherit(TfwHttpMsg *hm, TfwHttpMsg *hm_new);
-int tfw_http_parse_req(TfwHttpReq *req, unsigned char *data, size_t len);
-int tfw_http_parse_resp(TfwHttpResp *resp, unsigned char *data, size_t len);
+int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
+int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, unsigned char *data, size_t len);
+int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 
 /* HTTP message header add/del/sub API */
