@@ -23,9 +23,6 @@
 #include "http_msg.h"
 #include "lib.h"
 
-/**
- * The function does not free @m->skb_list, the caller is responsible for that.
- */
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
@@ -39,8 +36,8 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	while (1) {
 		/*
-		 * The skbs are passed to us by put_skb_to_msg() call,
-		 * so we're responsible to free them.
+		 * The SKBs are handed to Tempesta from the lower layer.
+		 * Tempesta is responsible for releasing them.
 		 */
 		struct sk_buff *skb = ss_skb_dequeue(&m->msg.skb_list);
 		if (!skb)
