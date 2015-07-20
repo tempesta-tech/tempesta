@@ -1,19 +1,26 @@
 /**
  *		Tempesta FW
  *
- * Simple classification module which performs following limitings:
+ * Simple classification module that enforces the following limits:
  *
- * Temporal limitings per a client:
- *	1. HTTP requests rate;
- *	2. number of concurrent connections;
- *	3. new connections rate.
- * All the limits works for specified temporal bursts.
+ * Time-related limits per client:
+ *	- HTTP requests rate (number of requests per second);
+ *	- HTTP requests burst (maximum rate per 1/FRANG_FREQ of a second);
+ *	- new connections rate (number of new connections per second);
+ *	- new connections burst (maximum rate per 1/FRANG_FREQ of a second);
+ *	- number of concurrent connections;
+ *	- maximum time for receiving the whole HTTP message header;
+ *	- maximum time between receiving parts of HTTP message body;
  *
- * Static limits for contents of a HTTP request:
- * 	1. maximum length of URI/header/body.
- * 	2. checks for presence of certain required header fields
- * 	3. HTTP method and Content-Type restrictions (check that the value is
- * 	   in a set of allowed values defined by the user).
+ * Static limits for contents of HTTP request:
+ * 	- maximum length of URI, single HTTP header, HTTP request body;
+ * 	- presence of certain mandatory header fields;
+ *	- restrictions on values of HTTP method and Content-Type
+ *	  (check that the value is one of those defined by a user);
+ *
+ * Also, there are certain restrictions that are not user-controlled.
+ * For instance, if Host: header is present it may not contain an IP address.
+ * Or, that singular header fields may not be duplicated in an HTTP header.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
@@ -162,8 +169,8 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 
 		/*
 		 * Add new client account.
-		 * Other CPUs should not add the same account while we
-		 * allocating the account w/o lock.
+		 * Other CPUs should not add the same account
+		 * while we're allocating the account w/o a lock.
 		 */
 		ra = kmem_cache_alloc(frang_mem_cache, GFP_ATOMIC | __GFP_ZERO);
 		if (!ra) {
@@ -200,11 +207,12 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 	}
 
 	/*
-	 * Increment connection counters ever if we return TFW_BLOCK.
+	 * Increment connection counters even if we return TFW_BLOCK.
 	 * Synchronous sockets will call connection_drop callback,
-	 * so our frang_conn_close() is also called and we decrement
-	 * conn_curr there, but leave conn_new as is - we account failed
-	 * connection tries as well as successfully establised connections.
+	 * so our frang_conn_close() is also called. conn_curr is
+	 * decremented there, but conn_new is not changed. We count
+	 * both failed connection attempts and connections that were
+	 * successfully established.
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
@@ -214,7 +222,7 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 	if (frang_cfg.req_burst && ra->history[i].req > frang_cfg.req_burst)
 		return TFW_BLOCK;
 
-	/* Collect new connections sum. */
+	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			csum += ra->history[i].conn_new;
@@ -241,7 +249,7 @@ __frang_conn_close(FrangAcc *ra, struct sock *unused)
 }
 
 /**
- * Just update current connection count for the user.
+ * Just update current connection count for a user.
  */
 static int
 frang_conn_close(struct sock *sk)
@@ -505,7 +513,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * first chunk of a request (first full separate SKB with data).
 	 * The FSM is guaranteed to go through the initial states and then
 	 * either block or move to one of header states. Then header timeout
-	 * is checked on each consecutive SKB with data.
+	 * is checked on each consecutive SKB with data - while we're still
+	 * in one of header processing states.
 	 *
 	 * Why is this not one of FSM states? Basically, that's to avoid
 	 * going through unnecessary FSM states each time this is run. When
@@ -530,12 +539,23 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 
 	__FSM_START(req->frang_st) {
 
+	/*
+	 * New HTTP request. Initial state. Check the limits that
+	 * do not depend on contents of HTTP request. Note that
+	 * connection-related limits are implemented as callbacks
+	 * that run when a connection is established or destroyed.
+	 */
 	__FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate) {
 			r = frang_account_do(conn->sk, frang_req_limit);
 		}
 		__FSM_MOVE(Frang_Req_Hdr_Start);
 	}
+	/*
+	 * Prepare for HTTP request header checks. Set the time
+	 * the header started coming in. Set starting position
+	 * for checking raw (non-special) headers.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_Start) {
 		if (frang_cfg.clnt_hdr_timeout) {
 			req->tm_header = jiffies;
@@ -543,6 +563,10 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		req->hdr_rawid = TFW_HTTP_HDR_RAW;
 		__FSM_JUMP(Frang_Req_Hdr_Method);
 	}
+	/*
+	 * Ensure that HTTP request method is one of those
+	 * defined by a user.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_Method) {
 		if (frang_cfg.http_methods_mask) {
 			if (req->method == TFW_HTTP_METH_NONE) {
@@ -552,6 +576,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_MOVE(Frang_Req_Hdr_UriLen);
 	}
+	/* Ensure that length of URI is within limits. */
 	__FSM_STATE(Frang_Req_Hdr_UriLen) {
 		if (frang_cfg.http_uri_len) {
 			if (!(req->uri_path.flags & TFW_STR_COMPLETE)) {
@@ -561,6 +586,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_MOVE(Frang_Req_Hdr_FieldDup);
 	}
+	/* Ensure that singular header fields are not duplicated. */
 	__FSM_STATE(Frang_Req_Hdr_FieldDup) {
 		if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
 			TFW_WARN("frang: duplicate header field found\n");
@@ -568,6 +594,12 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_MOVE(Frang_Req_Hdr_FieldLenRaw);
 	}
+	/*
+	 * Ensure that length of raw (non-special) header fields
+	 * is within limits. To avoid repeated checking of headers
+	 * that were checked already, move the starting position
+	 * for this check.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_FieldLenRaw) {
 		if (frang_cfg.http_field_len) {
 			r = frang_http_field_len_raw(req);
@@ -575,30 +607,47 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_MOVE(Frang_Req_Hdr_Crlf);
 	}
+	/*
+	 * See if the full HTTP header is processed.
+	 * If not, continue checks on header fields.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_Crlf) {
 		if (req->crlf) {
 			__FSM_JUMP(Frang_Req_Hdr_FieldLenSpecial);
 		}
 		__FSM_JUMP_EXIT(Frang_Req_Hdr_FieldDup);
 	}
+	/*
+	 * Full HTTP header has been processed, and any possible
+	 * special header fields are collected. Run checks on them.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_FieldLenSpecial) {
 		if (frang_cfg.http_field_len) {
 			r = frang_http_field_len_special(req);
 		}
 		__FSM_MOVE(Frang_Req_Hdr_Host);
 	}
+	/* Ensure presence and the value of Host: header field. */
 	__FSM_STATE(Frang_Req_Hdr_Host) {
 		if (frang_cfg.http_host_required) {
 			r = frang_http_host_check(req);
 		}
 		__FSM_MOVE(Frang_Req_Hdr_ContentType);
 	}
+	/*
+	 * Ensure presence of Content-Type: header field.
+	 * Ensure that the value is one of those defined by a user.
+	 */
 	__FSM_STATE(Frang_Req_Hdr_ContentType) {
 		if (frang_cfg.http_ct_required || frang_cfg.http_ct_vals) {
 			r = frang_http_ct_check(req);
 		}
 		__FSM_MOVE(Frang_Req_Body_Start);
 	}
+	/*
+	 * Prepare for HTTP request body checks.
+	 * Set the time the body started coming in.
+	 */
 	__FSM_STATE(Frang_Req_Body_Start) {
 		if (frang_cfg.clnt_body_timeout) {
 			req->tm_bchunk = jiffies;
@@ -608,6 +657,11 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_JUMP_EXIT(Frang_Req_NothingToDo);
 	}
+	/*
+	 * Ensure that HTTP request body is coming without delays.
+	 * The timeout is between chunks of the body, so reset
+	 * the start time after each check.
+	 */
 	__FSM_STATE(Frang_Req_Body_Timeout) {
 		/*
 		 * Note that this state is skipped on the first data SKB
@@ -627,6 +681,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_MOVE(Frang_Req_Body_Len);
 	}
+	/* Ensure that the length of HTTP request body is within limits. */
 	__FSM_STATE(Frang_Req_Body_Len) {
 		if (frang_cfg.http_body_len
 		    && (req->body.len > frang_cfg.http_body_len)) {
@@ -637,6 +692,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		}
 		__FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
 	}
+	/* All limits are verified for current request. */
 	__FSM_STATE(Frang_Req_NothingToDo) {
 		__FSM_EXIT();
 	}
