@@ -494,18 +494,15 @@ static int
 frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 {
 	int r = TFW_PASS;
-	unsigned int body_len = skb->len - off;
 	TfwConnection *conn = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
 	struct sk_buff *head_skb = (void *)ss_skb_peek(&req->msg.skb_list);
 
 	__FSM_INIT();
 
-	skb = (void *)ss_skb_peek_tail(&req->msg.skb_list);
-
 	/*
 	 * There's no need to check for header timeout if this is the very
-	 * first data chunk of a request (first full separate SKB with data.
+	 * first chunk of a request (first full separate SKB with data).
 	 * The FSM is guaranteed to go through the initial states and then
 	 * either block or move to one of header states. Then header timeout
 	 * is checked on each consecutive SKB with data.
@@ -515,9 +512,9 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * there's a slowris attack, we may stay long in Hdr_Method or in
 	 * Hdr_UriLen states, and that would require including the header
 	 * timeout state in the loop. But when we're past these states, we
-	 * don't want to run through them on each run again, and just loop
-	 * in FieldDup and FieldLen states. I guess that can be done with
-	 * some clever FSM programming, but this is plain simpler.
+	 * don't want to run through them on each run again, and just want
+	 * to loop in FieldDup and FieldLen states. I guess that can be
+	 * done with some clever FSM programming, but this is just simpler.
 	 */
 	if (frang_cfg.clnt_hdr_timeout
 	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st)) {
@@ -606,19 +603,17 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		if (frang_cfg.clnt_body_timeout) {
 			req->tm_bchunk = jiffies;
 		}
-		if (frang_cfg.http_body_len) {
-			req->body_len = 0;
-			body_len = req->body.len;
-			__FSM_JUMP_EXIT(Frang_Req_Body_Len);
+		if (frang_cfg.http_body_len || frang_cfg.clnt_body_timeout) {
+			__FSM_MOVE(Frang_Req_Body_Len);
 		}
 		__FSM_JUMP_EXIT(Frang_Req_NothingToDo);
 	}
 	__FSM_STATE(Frang_Req_Body_Timeout) {
 		/*
-		 * Note that this state is skipped on the first
-		 * data SKB with a body part as that's unnecesary.
+		 * Note that this state is skipped on the first data SKB
+		 * with body part as obviously no timeout has occured yet.
 		 */
-		if (frang_cfg.clnt_body_timeout && (skb != head_skb)) {
+		if (frang_cfg.clnt_body_timeout) {
 			unsigned long start = req->tm_bchunk;
 			unsigned long delta = frang_cfg.clnt_body_timeout;
 			if (time_is_before_jiffies(start + delta)) {
@@ -633,11 +628,11 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		__FSM_MOVE(Frang_Req_Body_Len);
 	}
 	__FSM_STATE(Frang_Req_Body_Len) {
-		req->body_len += body_len;
-		if (req->body_len > frang_cfg.http_body_len) {
-			TFW_WARN("frang: %s limit exceeded: %lu (%u)\n",
+		if (frang_cfg.http_body_len
+		    && (req->body.len > frang_cfg.http_body_len)) {
+			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 				 "http_body_len",
-				 req->body_len, frang_cfg.http_body_len);
+				 req->body.len, frang_cfg.http_body_len);
 			r = TFW_BLOCK;
 		}
 		__FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
