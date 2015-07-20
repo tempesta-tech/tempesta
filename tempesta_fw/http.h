@@ -174,7 +174,6 @@ typedef struct {
  * @hdr_rawid	- id of the latest RAW header that was checked;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
- * @body_len	- current length of the HTTP message body;
  * @hash	- hash value calculated for the request;
  */
 typedef struct {
@@ -186,7 +185,6 @@ typedef struct {
 	unsigned int		hdr_rawid;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
-	unsigned long		body_len;
 	unsigned long		hash;
 } TfwHttpReq;
 
