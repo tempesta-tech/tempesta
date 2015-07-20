@@ -186,7 +186,6 @@ typedef struct {
 	unsigned int		hdr_rawid;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
-	unsigned long		body_len;
 	unsigned long		hash;
 } TfwHttpReq;
 
