@@ -159,7 +159,7 @@ typedef struct ss_hooks {
 	int (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
-	int (*connection_recv)(struct sock *sk, struct sk_buff *skb,
+	int (*connection_recv)(void *conn, struct sk_buff *skb,
 			       unsigned int off);
 } SsHooks;
 

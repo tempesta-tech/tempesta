@@ -123,6 +123,6 @@ void tfw_connection_unlink_peer(TfwConnection *conn);
 int tfw_connection_new(TfwConnection *conn);
 void tfw_connection_destruct(TfwConnection *conn);
 
-int tfw_connection_recv(struct sock *sk, struct sk_buff *skb, unsigned int off);
+int tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off);
 
 #endif /* __TFW_CONNECTION_H__ */
