@@ -143,6 +143,7 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
+	/* Synchronize concurrent socket writting in different softirqs. */
 	bh_lock_sock_nested(sk);
 
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
@@ -445,6 +446,7 @@ ss_tcp_process_data(struct sock *sk)
 			off--;
 		if (off < skb->len) {
 			int r, count = skb->len - off;
+			void *conn;
 
 			/*
 			 * We know that data for processing is within
@@ -452,7 +454,38 @@ ss_tcp_process_data(struct sock *sk)
 			 * upper layer for processing.
 			 */
 			read_lock(&sk->sk_callback_lock);
-			r = SS_CALL(connection_recv, sk, skb, off);
+
+			conn = sk->sk_user_data;
+
+			/*
+			 * We're in softirq context and under the socket lock.
+			 * We pretty sure RSS/RPS schedules ingress packets for
+			 * the same socket to exactly same softirq, so only one
+			 * ingress context can work on the socket at any given
+			 * point of time.
+			 *
+			 * Dedlock: we can call ss_send() from application
+			 * handler for other socket while other softirq is
+			 * processing the ingress data on the socket and is
+			 * going to send data through our socket. Typically
+			 * there can be many clinet ingress sockets sending
+			 * to the same server socket which is returning
+			 * upstream data to the sockets.
+			 *
+			 * Thus ss_send() works concurrenly on the same socket.
+			 * While ss_tcp_process_data() isn't concurrent.
+			 * So unlock the socket and let others to send through
+			 * it. ss_send() doesn't touch ingress socket members
+			 * (moreover Linux is poor in that TCP ingress and
+			 * egress flows can't run concurrently on the same
+			 * socket).
+			 */
+			bh_unlock_sock(sk);
+
+			r = SS_CALL(connection_recv, conn, skb, off);
+
+			bh_lock_sock_nested(sk);
+
 			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {

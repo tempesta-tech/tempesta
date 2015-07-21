@@ -127,9 +127,9 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
  * the use of sk->sk_user_data.
  */
 int
-tfw_connection_recv(struct sock *sk, struct sk_buff *skb, unsigned int off)
+tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConnection *conn = cdata;
 
 	if (!conn->msg) {
 		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
