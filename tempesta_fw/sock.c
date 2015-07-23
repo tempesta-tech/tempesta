@@ -454,7 +454,6 @@ ss_tcp_process_data(struct sock *sk)
 			 * upper layer for processing.
 			 */
 			read_lock(&sk->sk_callback_lock);
-
 			conn = sk->sk_user_data;
 
 			/*
@@ -485,8 +484,24 @@ ss_tcp_process_data(struct sock *sk)
 			r = SS_CALL(connection_recv, conn, skb, off);
 
 			bh_lock_sock_nested(sk);
-
 			read_unlock(&sk->sk_callback_lock);
+
+			/*
+			 * Unlocking of the socket above creates a chance that
+			 * the socket might be closed in a parallel thread.
+			 * Now that the socket is locked again, check to see
+			 * if that has really happened. If it has, then simply
+			 * return to the caller. The party that actually closes
+			 * the socket takes care of any additional actions like
+			 * failover, etc.
+			 *
+			 * Note that the socket had not been destroyed in case
+			 * it's been closed. An extra socket reference is taken
+			 * before this function is called which prevents that.
+			 * See tcp_v4_rcv() and __inet_lookup_established().
+			 */
+			if (sk->sk_state != TCP_ESTABLISHED)
+				return;
 
 			if (r < 0) {
 				SS_WARN("can't process app data on socket %p\n",
