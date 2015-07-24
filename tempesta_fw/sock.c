@@ -454,6 +454,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * upper layer for processing.
 			 */
 			read_lock(&sk->sk_callback_lock);
+
 			conn = sk->sk_user_data;
 
 			/*
@@ -484,6 +485,7 @@ ss_tcp_process_data(struct sock *sk)
 			r = SS_CALL(connection_recv, conn, skb, off);
 
 			bh_lock_sock_nested(sk);
+
 			read_unlock(&sk->sk_callback_lock);
 
 			/*
@@ -500,7 +502,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * before this function is called which prevents that.
 			 * See tcp_v4_rcv() and __inet_lookup_established().
 			 */
-			if (sk->sk_state != TCP_ESTABLISHED)
+			if (unlikely(sk->sk_state != TCP_ESTABLISHED))
 				return;
 
 			if (r < 0) {
