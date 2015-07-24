@@ -730,7 +730,7 @@ next_skb:
 	/* Process paged data. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		vaddr = kmap_atomic(skb_frag_page(frag));
+		vaddr = skb_frag_address(frag);
 		dlen = skb_frag_size(frag);
 
 		/* TODO do we need to process this? */
@@ -808,14 +808,13 @@ next_skb:
 	/* Process paged data. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		vaddr = kmap_atomic(skb_frag_page(frag));
+		vaddr = skb_frag_address(frag);
 		vaddr += frag->page_offset;
 		dlen = skb_frag_size(frag);
 
 		PROCESS_DATA({
 				skb->data_len -= h->len;
 				skb_frag_size_set(frag, dlen - h->len);
-				kunmap_atomic(vaddr);
 			});
 	}
 
@@ -928,7 +927,7 @@ next_skb:
 	/* Process paged data. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		vaddr = kmap_atomic(skb_frag_page(frag));
+		vaddr = skb_frag_address(frag);
 		dlen = skb_frag_size(frag);
 
 		/*
