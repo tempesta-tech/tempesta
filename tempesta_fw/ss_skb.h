@@ -37,5 +37,6 @@ enum {
 
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
+struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
