@@ -524,7 +524,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb, int type)
 	 * The sibling message is set up with a clone of current
 	 * SKB (the last SKB in skb_list) as the starting SKB.
 	 */
-	nskb = skb_clone(*skb, GFP_ATOMIC);
+	nskb = ss_skb_split(*skb, hm->msg.len);
 	if (!nskb) {
 		tfw_http_msg_free(shm);
 		return NULL;
@@ -1248,9 +1248,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	TFW_DBG("Received %u client data bytes on conn=%p\n",
 		skb_len - off, conn);
 	/*
-	 * Process pipelined requests in a loop until all data
-	 * in the SKB is processed. Note that @skb_len stays
-	 * the same for all pipelined messages in the SKB.
+	 * Process pipelined requests in a loop
+	 * until all data in the SKB is processed.
 	 */
 	while (data_off < skb_len) {
 		TfwHttpMsg *hmsib = NULL;
@@ -1337,12 +1336,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb, NULL);
 
-		if (hmsib)
+		if (hmsib) {
 			/*
 			 * Switch connection to the new sibling message.
 			 * Data processing will continue with the new SKB.
 			 */
+			data_off = 0;
+			skb_len = skb->len;
 			conn->msg = (TfwMsg *)hmsib;
+		}
 	}
 	/*
 	 * All data in the SKB has been processed, and the processing
