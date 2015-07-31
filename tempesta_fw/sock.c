@@ -425,7 +425,7 @@ ss_droplink(struct sock *sk)
 static void
 ss_tcp_process_data(struct sock *sk)
 {
-	bool droplink = true;
+	bool tcp_fin, droplink = true;
 	int processed = 0;
 	unsigned int off;
 	struct sk_buff *skb, *tmp;
@@ -442,10 +442,12 @@ ss_tcp_process_data(struct sock *sk)
 		__skb_unlink(skb, &sk->sk_receive_queue);
 		skb_orphan(skb);
 
+		/* SKB may be freed in processing. Save the flag. */
+		tcp_fin = tcp_hdr(skb)->fin;
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
 		if (tcp_hdr(skb)->syn)
 			off--;
-		if (off < skb->len) {
+		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
 			void *conn;
 
@@ -460,23 +462,23 @@ ss_tcp_process_data(struct sock *sk)
 
 			/*
 			 * We're in softirq context and under the socket lock.
-			 * We pretty sure RSS/RPS schedules ingress packets for
-			 * the same socket to exactly same softirq, so only one
-			 * ingress context can work on the socket at any given
+			 * We're pretty sure RSS/RPS schedules ingress packets
+			 * for the same socket to exactly same softirq, so only
+			 * one ingress context can work on the socket at any
 			 * point of time.
 			 *
-			 * Dedlock: we can call ss_send() from application
-			 * handler for other socket while other softirq is
-			 * processing the ingress data on the socket and is
-			 * going to send data through our socket. Typically
-			 * there can be many clinet ingress sockets sending
-			 * to the same server socket which is returning
-			 * upstream data to the sockets.
+			 * Deadlock: we may call ss_send() from an application
+			 * handler for a different socket while other softirq
+			 * is processing ingress data on the socket and is going
+			 * to send data through our socket. Generally there can
+			 * be multiple client ingress sockets sending data to
+			 * the same server socket that is returning upstream
+			 * data to the sockets.
 			 *
-			 * Thus ss_send() works concurrenly on the same socket.
-			 * While ss_tcp_process_data() isn't concurrent.
-			 * So unlock the socket and let others to send through
-			 * it. ss_send() doesn't touch ingress socket members
+			 * Thus ss_send() works concurrenly on the same socket,
+			 * while ss_tcp_process_data() is not concurrent.
+			 * So unlock the socket and let others send through it.
+			 * ss_send() doesn't touch members of an ingress socket.
 			 * (moreover Linux is poor in that TCP ingress and
 			 * egress flows can't run concurrently on the same
 			 * socket).
@@ -522,14 +524,18 @@ ss_tcp_process_data(struct sock *sk)
 			}
 			tp->copied_seq += count;
 			processed += count;
-		}
-		else if (tcp_hdr(skb)->fin) {
-			SS_DBG("received FIN, do active close\n");
-			++tp->copied_seq;
+
+			if (tcp_fin) {
+				SS_DBG("received FIN, do an active close\n");
+				++tp->copied_seq;
+				goto out;
+			}
+		} else if (tcp_fin) {
 			__kfree_skb(skb);
+			SS_DBG("received FIN, do an active close\n");
+			++tp->copied_seq;
 			goto out;
-		}
-		else {
+		} else {
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
 				" seq %X rcvnxt %X len %x\n",
 				tp->copied_seq, TCP_SKB_CB(skb)->seq,
@@ -540,8 +546,8 @@ ss_tcp_process_data(struct sock *sk)
 	droplink = false;
 out:
 	/*
-	 * Recalculate the appropriate TCP receive buffer space and
-	 * send ACK to the client with new window.
+	 * Recalculate an appropriate TCP receive buffer space
+	 * and send ACK to a client with the new window.
 	 */
 	tcp_rcv_space_adjust(sk);
 	if (processed)
