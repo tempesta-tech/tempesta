@@ -23,6 +23,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <net/sock.h>
+#include <net/tcp.h>
 #include "ss_skb.h"
 
 /**
@@ -86,4 +88,53 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 	}
 
 	return r;
+}
+
+/*
+ * Split an SKB in two at a given offset. The original SKB is shrunk
+ * to specified 'len', and the remaining data is put into a new SKB.
+ *
+ * The implementation is very much like tcp_fragment() or tso_fragment()
+ * in the Linux kernel. One major difference is that these SKBs were just
+ * taken out of the receive queue, so they have not been out to the write
+ * queue yet. The socket is unlocked when this function runs, which means
+ * that we can't adjust socket accounting. The SKBs must come orphaned.
+ */
+struct sk_buff *
+ss_skb_split(struct sk_buff *skb, int len)
+{
+	struct sk_buff *buff;
+	int nsize, nlen;
+
+	/* Assert that the SKB is orphaned. */
+	BUG_ON(skb->destructor);
+
+	nsize = skb_headlen(skb) - len;
+	if (nsize < 0)
+		nsize = 0;
+	nsize = ALIGN(nsize, 4);
+
+	buff = alloc_skb_fclone(nsize + MAX_TCP_HEADER, GFP_ATOMIC);
+	if (buff == NULL)
+		return NULL;
+
+	skb_reserve(buff, MAX_TCP_HEADER);
+	buff->reserved_tailroom = buff->end - buff->tail - nsize;
+
+	nlen = skb->len - len - nsize;
+	buff->truesize += nlen;
+	skb->truesize -= nlen;
+
+	/*
+	 * Correct the sequence numbers. There's no need to adjust
+	 * TCP flags as the lower layer knows the original SKB only.
+	 * Checksum is also irrelevant at this stage.
+	 */
+	TCP_SKB_CB(buff)->seq = TCP_SKB_CB(skb)->seq + len;
+	TCP_SKB_CB(buff)->end_seq = TCP_SKB_CB(skb)->end_seq;
+	TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(buff)->seq;
+
+	skb_split(skb, buff, len);
+
+	return buff;
 }
