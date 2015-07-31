@@ -8,9 +8,9 @@ at the same time. It accelerates Web applications and provide high performance
 framework with access to all network layers for running complex network traffic
 classification and blocking modules.
 
-**Tempesta FW** is built on top of **Synchronous Sockets**,
-a library for Linux kernel which provides better and more stable performance
-characteristics in comparison with common Socket API and even kernel sockets.
+**Tempesta FW** is built into Linux TCP/IP stack for better and more stable
+performance characteristics in comparison with TCP servers on top of common
+Socket API and even kernel sockets.
 
 
 ### Prerequisites
@@ -31,10 +31,12 @@ Currently CentOS 7 is shipped with appropriate kernel.
 
 To build the module you need to do following steps:
 
-1. Patch Linux kernel 3.10.10 with linux-3.10.10.patch
+1. Patch Linux kernel 3.10.10 with linux-3.10.10.patch or just download
+   [already patched kernel](https://github.com/krizhanovsky/linux-3.10.10-sync_sockets)
 2. Build and load the kernel
-3. Just run make to build Synchronous Sockets, Tempesta DB and Tempesta FW
-   modules
+3. Just run make to build Tempesta FW and Tempesta DB modules:
+
+        $ cd tempesta && make
 
 Add NORMALIZATION=1 as an argument to make to build Tempesta with HTTP
 normalization logic.
