@@ -440,6 +440,7 @@ ss_tcp_process_data(struct sock *sk)
 		}
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
+		skb_orphan(skb);
 
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
 		if (tcp_hdr(skb)->syn)
