@@ -426,11 +426,10 @@ static void
 ss_tcp_process_data(struct sock *sk)
 {
 	bool tcp_fin, droplink = true;
-	int r, count, processed = 0;
+	int processed = 0;
 	unsigned int off;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
-	void *conn;
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
 		if (unlikely(before(tp->copied_seq, TCP_SKB_CB(skb)->seq))) {
@@ -442,111 +441,112 @@ ss_tcp_process_data(struct sock *sk)
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
 
+		/* SKB may be freed in processing. Save the flag. */
 		tcp_fin = tcp_hdr(skb)->fin;
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
 		if (tcp_hdr(skb)->syn)
 			off--;
-		if (off < skb->len)
-			goto data_skb;
-		if (tcp_fin)
-			goto lone_fin;
-		SS_WARN("recvmsg bug: overlapping TCP segment at %X"
-			" seq %X rcvnxt %X len %x\n",
-			tp->copied_seq, TCP_SKB_CB(skb)->seq,
-			tp->rcv_nxt, skb->len);
-		__kfree_skb(skb);
-		continue;
-data_skb:
-		count = skb->len - off;
+		if (likely(off < skb->len)) {
+			int r, count = skb->len - off;
+			void *conn;
 
-		/*
-		 * We know that data for processing is within
-		 * the current SKB. Hand the SKB over to the
-		 * upper layer for processing.
-		 */
-		read_lock(&sk->sk_callback_lock);
-
-		conn = sk->sk_user_data;
-
-		/*
-		 * We're in softirq context and under the socket lock.
-		 * We're pretty sure RSS/RPS schedules ingress packets
-		 * for the same socket to exactly same softirq, so only
-		 * one ingress context can work on the socket at any
-		 * point of time.
-		 *
-		 * Deadlock: we may call ss_send() from an application
-		 * handler for a different socket while other softirq
-		 * is processing ingress data on the socket and is going
-		 * to send data through our socket. Generally there can
-		 * be multiple client ingress sockets sending data to
-		 * the same server socket that is returning upstream
-		 * data to the sockets.
-		 *
-		 * Thus ss_send() works concurrenly on the same socket,
-		 * while ss_tcp_process_data() is not concurrent.
-		 * So unlock the socket and let others send through it.
-		 * ss_send() doesn't touch members of an ingress socket.
-		 * (moreover Linux is poor in that TCP ingress and
-		 * egress flows can't run concurrently on the same
-		 * socket).
-		 */
-		bh_unlock_sock(sk);
-
-		r = SS_CALL(connection_recv, conn, skb, off);
-
-		bh_lock_sock_nested(sk);
-
-		read_unlock(&sk->sk_callback_lock);
-
-		/*
-		 * Unlocking of the socket above creates a chance that
-		 * the socket might be closed in a parallel thread.
-		 * Now that the socket is locked again, check to see
-		 * if that has really happened. If it has, then simply
-		 * return to the caller. The party that actually closes
-		 * the socket takes care of any additional actions like
-		 * failover, etc.
-		 *
-		 * Note that the socket had not been destroyed in case
-		 * it's been closed. An extra socket reference is taken
-		 * before this function is called which prevents that.
-		 * See tcp_v4_rcv() and __inet_lookup_established().
-		 */
-		if (unlikely(sk->sk_state != TCP_ESTABLISHED))
-			return;
-
-		if (r < 0) {
-			SS_WARN("can't process app data on socket %p\n", sk);
 			/*
-			 * Drop connection on internal errors as well as
-			 * on banned packets.
-			 *
-			 * ss_droplink() is responsible for calling
-			 * application layer connection closing callback
-			 * which will free all the passed and linked
-			 * with currently processed message skbs.
+			 * We know that data for processing is within
+			 * the current SKB. Hand the SKB over to the
+			 * upper layer for processing.
 			 */
-			goto out; /* connection dropped */
-		}
-		tp->copied_seq += count;
-		processed += count;
+			read_lock(&sk->sk_callback_lock);
 
-		if (tcp_fin)
-			goto data_fin;
-		continue;
-lone_fin:
-		__kfree_skb(skb);
-data_fin:
-		SS_DBG("received FIN, do an active close\n");
-		++tp->copied_seq;
-		goto out;
+			conn = sk->sk_user_data;
+
+			/*
+			 * We're in softirq context and under the socket lock.
+			 * We're pretty sure RSS/RPS schedules ingress packets
+			 * for the same socket to exactly same softirq, so only
+			 * one ingress context can work on the socket at any
+			 * point of time.
+			 *
+			 * Deadlock: we may call ss_send() from an application
+			 * handler for a different socket while other softirq
+			 * is processing ingress data on the socket and is going
+			 * to send data through our socket. Generally there can
+			 * be multiple client ingress sockets sending data to
+			 * the same server socket that is returning upstream
+			 * data to the sockets.
+			 *
+			 * Thus ss_send() works concurrenly on the same socket,
+			 * while ss_tcp_process_data() is not concurrent.
+			 * So unlock the socket and let others send through it.
+			 * ss_send() doesn't touch members of an ingress socket.
+			 * (moreover Linux is poor in that TCP ingress and
+			 * egress flows can't run concurrently on the same
+			 * socket).
+			 */
+			bh_unlock_sock(sk);
+
+			r = SS_CALL(connection_recv, conn, skb, off);
+
+			bh_lock_sock_nested(sk);
+
+			read_unlock(&sk->sk_callback_lock);
+
+			/*
+			 * Unlocking of the socket above creates a chance that
+			 * the socket might be closed in a parallel thread.
+			 * Now that the socket is locked again, check to see
+			 * if that has really happened. If it has, then simply
+			 * return to the caller. The party that actually closes
+			 * the socket takes care of any additional actions like
+			 * failover, etc.
+			 *
+			 * Note that the socket had not been destroyed in case
+			 * it's been closed. An extra socket reference is taken
+			 * before this function is called which prevents that.
+			 * See tcp_v4_rcv() and __inet_lookup_established().
+			 */
+			if (unlikely(sk->sk_state != TCP_ESTABLISHED))
+				return;
+
+			if (r < 0) {
+				SS_WARN("can't process app data on socket %p\n",
+					sk);
+				/*
+				 * Drop connection on internal errors as well as
+				 * on banned packets.
+				 *
+				 * ss_droplink() is responsible for calling
+				 * application layer connection closing callback
+				 * which will free all the passed and linked
+				 * with currently processed message skbs.
+				 */
+				goto out; /* connection dropped */
+			}
+			tp->copied_seq += count;
+			processed += count;
+
+			if (tcp_fin) {
+				SS_DBG("received FIN, do an active close\n");
+				++tp->copied_seq;
+				goto out;
+			}
+		} else if (tcp_fin) {
+			__kfree_skb(skb);
+			SS_DBG("received FIN, do an active close\n");
+			++tp->copied_seq;
+			goto out;
+		} else {
+			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
+				" seq %X rcvnxt %X len %x\n",
+				tp->copied_seq, TCP_SKB_CB(skb)->seq,
+				tp->rcv_nxt, skb->len);
+			__kfree_skb(skb);
+		}
 	}
 	droplink = false;
 out:
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
-	 * and send ACK to the client with the new window.
+	 * and send ACK to a client with the new window.
 	 */
 	tcp_rcv_space_adjust(sk);
 	if (processed)
