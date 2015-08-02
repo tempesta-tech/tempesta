@@ -167,6 +167,19 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
 		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
 
+		/*
+		 * When SKBs are removed from socket's receive queue and
+		 * passed to Tempesta, control over these SKBs is passed
+		 * from kernel to Tempesta as well. Tempesta becomes the
+		 * sole owner of these SKBs. When these SKBs are sent out
+		 * to a client or a backend by Tempesta, the kernel becomes
+		 * an extra owner of the SKBs in addition to Tempesta.
+		 * To account for that it's necessary to increment SKB's
+		 * count of users so that SKBs are not freed from under
+		 * Tempesta or from under the kernel.
+		 */
+		skb_get(skb);
+
 		skb_entail(sk, skb);
 
 		tcb->end_seq += skb->len;
