@@ -104,8 +104,11 @@ do_split_and_parse(unsigned char *req_str)
 		head_len = 0;
 		tail_len = req_len - head_len;
 
+		BUG_ON(req_len > sizeof(head_buf));
+		memcpy(head_buf, req_str, req_len);
+
 		/* Parse request as a single chunk on the first iteration. */
-		return tfw_http_parse_req(req, req_str, req_len);
+		return tfw_http_parse_req(req, head_buf, req_len);
 	}
 
 	++head_len;
