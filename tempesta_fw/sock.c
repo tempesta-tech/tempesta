@@ -727,8 +727,7 @@ ss_tcp_state_change(struct sock *sk)
 			assert_spin_locked(&lsk->sk_lock.slock);
 			ss_drain_accept_queue(lsk, sk);
 		}
-	} else if ((sk->sk_state == TCP_CLOSE_WAIT)
-		   || (sk->sk_state == TCP_FIN_WAIT1)) {
+	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
 		 * Connection is being closed.
 		 * Either Tempesta sent FIN, or we received FIN.
