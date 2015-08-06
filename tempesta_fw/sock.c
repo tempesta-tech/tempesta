@@ -420,7 +420,6 @@ ss_droplink(struct sock *sk)
 
 	write_lock(&sk->sk_callback_lock);
 	SS_CALL(connection_drop, sk);
-	sk->sk_user_data = NULL;
 	write_unlock(&sk->sk_callback_lock);
 
 	ss_do_close(sk);
