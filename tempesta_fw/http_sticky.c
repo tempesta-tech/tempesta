@@ -208,7 +208,8 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	/*
 	 * XXX The code below assumes that ua_value is a linear TfwStr{}
 	 */
-	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) <= 0) {
+	/* User-Agent header field is not mandatory and may be missing. */
+	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) < 0) {
 		return ret;
 	}
 
@@ -225,7 +226,9 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 
 	crypto_shash_init(shash_desc);
 	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
-	crypto_shash_update(shash_desc, (u8 *)ua_value.ptr, ua_value.len);
+	if (ua_value.len)
+		crypto_shash_update(shash_desc, (u8 *)ua_value.ptr,
+						      ua_value.len);
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
 					client->cookie.hmac);
