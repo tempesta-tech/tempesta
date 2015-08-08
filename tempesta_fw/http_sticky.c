@@ -140,6 +140,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	ptr = strim(buf + field_name->len);
 	value->ptr = ptr;
 	value->len = len - (ptr - buf);
+	value->flags = 0;
 
 	return 1;
 }
