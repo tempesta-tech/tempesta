@@ -454,6 +454,20 @@ ss_tcp_process_data(struct sock *sk)
 		__skb_unlink(skb, &sk->sk_receive_queue);
 		skb_orphan(skb);
 
+		/* Shared SKBs shouldn't be seen here. */
+		if (skb_shared(skb))
+			BUG();
+		/*
+		 * Cloned SKBs come here if a client or a back end are
+		 * on the same host as Tempesta. That's the way it works
+		 * through the loopback interface. That's excessive when
+		 * Tempesta is in the middle, and should be eliminated.
+		 * In the meantime unclone these SKBs as Tempesta needs
+		 * to be able to modify SKB's data.
+		 */
+		if (skb_cloned(skb))
+			pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+
 		/* SKB may be freed in processing. Save the flag. */
 		tcp_fin = tcp_hdr(skb)->fin;
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
