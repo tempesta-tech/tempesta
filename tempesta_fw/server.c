@@ -22,6 +22,7 @@
  */
 #include <linux/slab.h>
 
+#include "lib.h"
 #include "log.h"
 #include "sched.h"
 #include "server.h"
@@ -54,6 +55,7 @@ tfw_create_server(const TfwAddr *addr)
 
 	return srv;
 }
+DEBUG_EXPORT_SYMBOL(tfw_create_server);
 
 TfwSrvGroup *
 tfw_sg_lookup(const char *name)
@@ -102,6 +104,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 
 	return sg;
 }
+DEBUG_EXPORT_SYMBOL(tfw_sg_new);
 
 void
 tfw_sg_free(TfwSrvGroup *sg)
@@ -142,9 +145,10 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	srv->sg = sg;
 
 	write_lock(&sg->lock);
-	list_add(&sg->srv_list, &srv->list);
+	list_add(&srv->list, &sg->srv_list);
 	write_unlock(&sg->lock);
 }
+DEBUG_EXPORT_SYMBOL(tfw_sg_add);
 
 void
 tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
@@ -181,6 +185,7 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched)
 
 	return 0;
 }
+DEBUG_EXPORT_SYMBOL(tfw_sg_set_sched);
 
 /**
  * Iterate over all server groups and call @cb for each server.
@@ -245,6 +250,7 @@ tfw_sg_release_all(void)
 
 	write_unlock(&sg_lock);
 }
+DEBUG_EXPORT_SYMBOL(tfw_sg_release_all);
 
 int __init
 tfw_server_init(void)
