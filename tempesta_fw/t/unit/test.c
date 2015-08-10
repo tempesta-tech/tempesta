@@ -88,6 +88,7 @@ TEST_SUITE(http_match);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
 TEST_SUITE(cfg);
+TEST_SUITE(sched_rr);
 
 int
 test_run_all(void)
@@ -100,6 +101,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
 	TEST_SUITE_RUN(cfg);
+	TEST_SUITE_RUN(sched_rr);
 
 	return test_fail_counter;
 }
