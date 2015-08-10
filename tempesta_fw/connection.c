@@ -86,6 +86,7 @@ tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
 	conn->peer = peer;
 	tfw_peer_add_conn(peer, &conn->list);
 }
+DEBUG_EXPORT_SYMBOL(tfw_connection_link_peer);
 
 void
 tfw_connection_unlink_peer(TfwConnection *conn)
@@ -94,6 +95,7 @@ tfw_connection_unlink_peer(TfwConnection *conn)
 	tfw_peer_del_conn(conn->peer, &conn->list);
 	conn->peer = NULL;
 }
+DEBUG_EXPORT_SYMBOL(tfw_connection_unlink_peer);
 
 /**
  * Publish the "connection is established" event via TfwConnHooks.
