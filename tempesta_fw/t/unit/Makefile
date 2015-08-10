@@ -32,4 +32,6 @@ tfw_test-objs = \
 	test_hash.o \
 	test_http_match.o \
 	test_tfw_str.o \
-	test_http_parser.o
+	test_http_parser.o \
+	sched_helper.o \
+	test_sched_rr.o
