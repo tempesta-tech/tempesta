@@ -197,7 +197,7 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 		}
 	}
 
-	BUG_ON(hash_idx >= TFW_SG_MAX_CONN);
+	BUG_ON(hash_idx > TFW_SG_MAX_CONN + 1);
 	hash_list->conn_hashes[hash_idx].conn = NULL; /* terminate the list */
 }
 
