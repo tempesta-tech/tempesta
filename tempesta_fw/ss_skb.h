@@ -19,6 +19,10 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
+#ifndef __TFW_SS_SKB_H__
+#define __TFW_SS_SKB_H__
+
 #include <linux/skbuff.h>
 
 /**
@@ -40,3 +44,5 @@ typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
+
+#endif
