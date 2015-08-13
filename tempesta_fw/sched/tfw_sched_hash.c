@@ -63,7 +63,9 @@ typedef struct {
 } TfwConnHashList;
 
 #define TFW_CONN_HASH_LIST_SIZE(n) \
-	(sizeof(TfwConnHashList) + ((n) + 1) * sizeof(TfwConnHash))
+	((n) + 1)
+#define TFW_CONN_HASH_DATA_SIZE(n) \
+	(sizeof(TfwConnHashList) + TFW_CONN_HASH_LIST_SIZE(n) * sizeof(TfwConnHash))
 
 /**
  * Find an appropriate server connection for the HTTP request @msg.
@@ -118,7 +120,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static void
 tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
 {
-	size_t sched_data_size = TFW_CONN_HASH_LIST_SIZE(TFW_SG_MAX_CONN);
+	size_t sched_data_size = TFW_CONN_HASH_DATA_SIZE(TFW_SG_MAX_CONN);
 	BUG_ON(sg->sched_data);
 	sg->sched_data = kzalloc(sched_data_size, GFP_KERNEL);
 	BUG_ON(!sg->sched_data);
@@ -197,7 +199,7 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 		}
 	}
 
-	BUG_ON(hash_idx >= TFW_SG_MAX_CONN);
+	BUG_ON(hash_idx >= TFW_CONN_HASH_LIST_SIZE(TFW_SG_MAX_CONN));
 	hash_list->conn_hashes[hash_idx].conn = NULL; /* terminate the list */
 }
 
