@@ -247,7 +247,7 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 
 #define S_SET_COOKIE_MAXLEN					\
 	SLEN(S_F_SET_COOKIE)					\
-	+ STICKY_NAME_MAXLEN + 1 + STICKY_KEY_MAXLEN * 2
+	+ STICKY_NAME_MAXLEN + 1 + STICKY_KEY_MAXLEN * 2 + 2
 
 static int
 tfw_http_sticky_add(TfwHttpMsg *hm, u_char *value, size_t len)
@@ -260,6 +260,8 @@ tfw_http_sticky_add(TfwHttpMsg *hm, u_char *value, size_t len)
 	ptr += tfw_cfg_sticky.name.len;
 	*ptr++ = '=';
 	ptr += tfw_http_prep_hexstring(ptr, value, len);
+	*ptr++ = '\r';
+	*ptr++ = '\n';
 	TFW_DBG("%s: \"%.*s\"\n", __FUNCTION__, (int)(ptr - buf), buf);
 
 	if ((ret = tfw_http_hdr_add(hm, buf, ptr - buf)) != 0) {

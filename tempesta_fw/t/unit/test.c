@@ -84,6 +84,7 @@ test_call_teardown_fn(void)
 
 TEST_SUITE(tfw_str);
 TEST_SUITE(http_parser);
+TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
@@ -99,6 +100,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(tfw_str);
 	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
+	TEST_SUITE_RUN(http_sticky);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
 	TEST_SUITE_RUN(cfg);
