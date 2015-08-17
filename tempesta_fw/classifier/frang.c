@@ -504,7 +504,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	int r = TFW_PASS;
 	TfwConnection *conn = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
-	struct sk_buff *head_skb = (void *)ss_skb_peek(&req->msg.skb_list);
+	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
 
 	__FSM_INIT();
 
