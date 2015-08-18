@@ -401,8 +401,12 @@ frang_http_ct_check(const TfwHttpReq *req)
 		}
 	}
 	if (!curr->str) {
-		TFW_WARN("frang: restricted Content-Type value: %s\n",
-			 curr->str);
+		/* take first chunk */
+		TfwStr *s = TFW_STR_CHUNK(field, 0);
+		if (s) {
+			TFW_WARN("frang: restricted Content-Type value: %.*s\n",
+			          s->len, (char *)s->ptr);
+		}
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
