@@ -135,7 +135,6 @@ void
 ss_send(struct sock *sk, const SsSkbList *skb_list)
 {
 	struct sk_buff *skb;
-	struct tcp_skb_cb *tcb;
 	struct tcp_sock *tp = tcp_sk(sk);
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
@@ -149,7 +148,7 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
 	BUG_ON(ss_skb_queue_empty(skb_list));
-	for (skb = ss_skb_peek(skb_list), tcb = TCP_SKB_CB(skb);
+	for (skb = ss_skb_peek(skb_list);
 	     skb; skb = ss_skb_next(skb_list, skb))
 	{
 		skb->ip_summed = CHECKSUM_PARTIAL;
@@ -182,8 +181,8 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 
 		skb_entail(sk, skb);
 
-		tcb->end_seq += skb->len;
 		tp->write_seq += skb->len;
+		TCP_SKB_CB(skb)->end_seq += skb->len;
 
 		if (!ss_skb_route(skb, tp)) {
 			/*
