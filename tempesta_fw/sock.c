@@ -134,7 +134,7 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 void
 ss_send(struct sock *sk, const SsSkbList *skb_list)
 {
-	struct sk_buff *skb;
+	struct sk_buff *skb, *iskb;
 	struct tcp_sock *tp = tcp_sk(sk);
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
@@ -148,24 +148,10 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
 	BUG_ON(ss_skb_queue_empty(skb_list));
-	for (skb = ss_skb_peek(skb_list);
-	     skb; skb = ss_skb_next(skb_list, skb))
+	for (iskb = ss_skb_peek(skb_list), skb = iskb;
+	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
-		skb->ip_summed = CHECKSUM_PARTIAL;
-		skb_shinfo(skb)->gso_segs = 0;
-
-		/*
-		 * TODO
-		 * Mark all data with PUSH to force receiver to consume
-		 * the data. Currently we do this in debugging purpose.
-		 * We need to do this only for complete messages/skbs.
-		 * (Actually tcp_push() already does it for the last skb.)
-		 */
-		tcp_mark_push(tp, skb);
-
-		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
-		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
-
+#if 0 /* Original code. */
 		/*
 		 * When SKBs are removed from socket's receive queue and
 		 * passed to Tempesta, control over these SKBs is passed
@@ -178,6 +164,48 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 		 * Tempesta or from under the kernel.
 		 */
 		skb_get(skb);
+#else /* Workaround. */
+		/*
+		 * An SKB may be split in the TCP stack. When that happens,
+		 * part of original SKB data is moved to a new SKB that is
+		 * unknown to Tempesta. Tempesta has no control over that
+		 * new SKB and the original data that was moved to it. The
+		 * new SKB is freed after it is successfully transmitted,
+		 * and original data that was moved to the new SKB is freed
+		 * as well. Tempesta keeps pointers into original SKB data
+		 * that point to parts of HTTP message in the SKB. Those
+		 * pointers are required for caching of an HTTP message.
+		 * After the new SKB with part of original data is freed,
+		 * the pointers become invalid.
+		 * Please see issues #173 and #122 for more information.
+		 *
+		 * Until this issue is properly solved, make a copy of each
+		 * SKB as a workaround, and pass the copy to Linux TCP stack.
+		 * That way all original data stay under complete control of
+		 * Tempesta. As a copy is passed to TCP stack, there's no
+		 * need to make these SKBs shared for the purpose of keeping
+		 * control over them.
+		 */
+		skb = pskb_copy(skb, GFP_ATOMIC);
+		if (!skb) {
+			SS_ERR("Unable to make a copy of original SKB.\n");
+			continue;
+		}
+#endif
+		skb->ip_summed = CHECKSUM_PARTIAL;
+		skb_shinfo(skb)->gso_segs = 0;
+
+		/*
+		 * TODO
+		 * Mark all data with PUSH to force receiver to consume
+		 * the data. Currently we do this for debugging purposes.
+		 * We need to do this only for complete messages/skbs.
+		 * (Actually tcp_push() already does it for the last skb.)
+		 */
+		tcp_mark_push(tp, skb);
+
+		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
+		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
 
 		skb_entail(sk, skb);
 
