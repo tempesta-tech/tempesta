@@ -1516,6 +1516,7 @@ DEFINE_MUTEX(tfw_cfg_sysctl_state_buf_mtx);
 
 /* The global list of all registered modules (consists of TfwCfgMod objects). */
 static LIST_HEAD(tfw_cfg_mods);
+static DEFINE_RWLOCK(cfg_mods_lock);
 
 /* The deserialized value of tfw_cfg_sysctl_state_buf.
  * Indicates that all registered modules are started. */
@@ -1734,8 +1735,12 @@ tfw_cfg_mod_register(TfwCfgMod *mod)
 		return -EPERM;
 	}
 
+	write_lock(&cfg_mods_lock);
+
 	INIT_LIST_HEAD(&mod->list);
 	list_add_tail(&mod->list, &tfw_cfg_mods);
+
+	write_unlock(&cfg_mods_lock);
 
 	return 0;
 }
@@ -1761,7 +1766,11 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 	     "This is dangerous. Continuing with fingers crossed...\n",
 	     mod->name);
 
+	write_lock(&cfg_mods_lock);
+
 	list_del(&mod->list);
+
+	write_unlock(&cfg_mods_lock);
 
 	if (tfw_cfg_mods_are_started) {
 		mod_stop(mod);
@@ -1769,3 +1778,23 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 	}
 }
 EXPORT_SYMBOL(tfw_cfg_mod_unregister);
+
+TfwCfgMod *
+tfw_cfg_mod_find(const char *name)
+{
+	TfwCfgMod *mod;
+
+	read_lock(&cfg_mods_lock);
+
+	list_for_each_entry(mod, &tfw_cfg_mods, list) {
+		if (!name || !strcasecmp(name, mod->name)) {
+			read_unlock_bh(&cfg_mods_lock);
+			return mod;
+		}
+	}
+
+	read_unlock(&cfg_mods_lock);
+
+	return NULL;
+}
+DEBUG_EXPORT_SYMBOL(tfw_cfg_mod_find);
