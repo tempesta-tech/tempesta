@@ -1788,7 +1788,7 @@ tfw_cfg_mod_find(const char *name)
 
 	list_for_each_entry(mod, &tfw_cfg_mods, list) {
 		if (!name || !strcasecmp(name, mod->name)) {
-			read_unlock_bh(&cfg_mods_lock);
+			read_unlock(&cfg_mods_lock);
 			return mod;
 		}
 	}
