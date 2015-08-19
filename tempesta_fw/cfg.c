@@ -1735,12 +1735,12 @@ tfw_cfg_mod_register(TfwCfgMod *mod)
 		return -EPERM;
 	}
 
-	write_lock_bh(&cfg_mods_lock);
+	write_lock(&cfg_mods_lock);
 
 	INIT_LIST_HEAD(&mod->list);
 	list_add_tail(&mod->list, &tfw_cfg_mods);
 
-	write_unlock_bh(&cfg_mods_lock);
+	write_unlock(&cfg_mods_lock);
 
 	return 0;
 }
@@ -1766,11 +1766,11 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 	     "This is dangerous. Continuing with fingers crossed...\n",
 	     mod->name);
 
-	write_lock_bh(&cfg_mods_lock);
+	write_lock(&cfg_mods_lock);
 
 	list_del(&mod->list);
 
-	write_unlock_bh(&cfg_mods_lock);
+	write_unlock(&cfg_mods_lock);
 
 	if (tfw_cfg_mods_are_started) {
 		mod_stop(mod);
@@ -1784,7 +1784,7 @@ tfw_cfg_mod_find(const char *name)
 {
 	TfwCfgMod *mod;
 
-	read_lock_bh(&cfg_mods_lock);
+	read_lock(&cfg_mods_lock);
 
 	list_for_each_entry(mod, &tfw_cfg_mods, list) {
 		if (!name || !strcasecmp(name, mod->name)) {
@@ -1793,7 +1793,7 @@ tfw_cfg_mod_find(const char *name)
 		}
 	}
 
-	read_unlock_bh(&cfg_mods_lock);
+	read_unlock(&cfg_mods_lock);
 
 	return NULL;
 }
