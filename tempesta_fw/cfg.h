@@ -225,6 +225,8 @@ typedef struct {
 int tfw_cfg_mod_register(TfwCfgMod *mod);
 void tfw_cfg_mod_unregister(TfwCfgMod *mod);
 
+TfwCfgMod *tfw_cfg_mod_find(const char *name);
+
 /*
  * ------------------------------------------------------------------------
  *	Generic TfwCfgSpec->handler functions.
