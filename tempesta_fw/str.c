@@ -32,7 +32,7 @@ tfw_str_del_chunk(TfwStr *str, int id)
 
 	if (unlikely(TFW_STR_PLAIN(str)))
 		return;
-	BUG_ON(str->flags & TFW_STR_DUPLICATE);
+	BUG_ON(TFW_STR_DUP(str));
 	BUG_ON(id >= cn);
 
 	if (TFW_STR_CHUNKN(str) == 2) {
@@ -42,34 +42,44 @@ tfw_str_del_chunk(TfwStr *str, int id)
 	}
 
 	str->len -= TFW_STR_CHUNK(str, id)->len;
-	TFW_STR_CHUNKN_DEC(str);
+	TFW_STR_CHUNKN_SUB(str, 1);
 	/* Move all chunks after @id. */
 	memmove((TfwStr *)str->ptr + id, (TfwStr *)str->ptr + id + 1,
 		(cn - id - 1) * sizeof(TfwStr));
 }
 
+/**
+ * Grow @str for @n new chunks.
+ * New branches of the string tree are created on 2nd level only,
+ * i.e. there is no possibility to grow number of chunks of duplicate string.
+ * Pass pointer to one of the duplicates to do so.
+ * @return pointer to the first of newly added chunk.
+ *
+ * TODO do we need exponential growing?
+ */
 static TfwStr *
-__str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
+__str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
 	if (str->flags & flag) {
 		unsigned int l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
-		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
-						    l + sizeof(TfwStr));
+		void *p = tfw_pool_realloc(pool, str->ptr, l,
+					   l + n * sizeof(TfwStr));
 		if (!p)
 			return NULL;
 		str->ptr = p;
-		TFW_STR_CHUNKN_INC(str);
-	} else {
-		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
+		TFW_STR_CHUNKN_ADD(str, n);
+	}
+	else {
+		TfwStr *a = tfw_pool_alloc(pool, (n + 1) * sizeof(TfwStr));
 		if (!a)
 			return NULL;
 		a[0] = *str;
 		str->ptr = a;
-		TFW_STR_CHUNKN_INIT(str);
+		__TFW_STR_CHUNKN_SET(str, n + 1);
 	}
 
-	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - 1;
-	TFW_STR_INIT(str);
+	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - n;
+	memset(str, 0, sizeof(TfwStr) * n);
 
 	return str;
 }
@@ -80,7 +90,10 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 TfwStr *
 tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 {
-	return __str_grow_tree(pool, str, __TFW_STR_COMPOUND);
+	/* Need to specify exact string duplicate to grow. */
+	BUG_ON(TFW_STR_DUP(str));
+
+	return __str_grow_tree(pool, str, __TFW_STR_COMPOUND, 1);
 }
 DEBUG_EXPORT_SYMBOL(tfw_str_add_compound);
 
@@ -91,7 +104,7 @@ DEBUG_EXPORT_SYMBOL(tfw_str_add_compound);
 TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 {
-	TfwStr *dup_str = __str_grow_tree(pool, str, TFW_STR_DUPLICATE);
+	TfwStr *dup_str = __str_grow_tree(pool, str, TFW_STR_DUPLICATE, 1);
 
 	/* Length for set of duplicate strings has no sense. */
 	str->len = 0;
@@ -100,6 +113,108 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 	return dup_str;
 }
 DEBUG_EXPORT_SYMBOL(tfw_str_add_duplicate);
+
+int
+tfw_strcpy(TfwStr *dst, const TfwStr *src)
+{
+	int n1, n2, o1, o2, chunks = 0;
+	int mode = (TFW_STR_PLAIN(src) << 1) | TFW_STR_PLAIN(dst);
+	TfwStr *c1, *c2, *sptr1, *sptr2;
+
+	BUG_ON(TFW_STR_DUP(dst));
+	BUG_ON(TFW_STR_DUP(src));
+
+	if (unlikely(src->len > dst->len))
+		return -E2BIG;
+
+	switch (mode) {
+	case 0: /* The both are plain. */
+		memcpy(dst->ptr, src->ptr, dst->len);
+		break;
+	case 1: /* @src is compound, @dst is plain. */
+		sptr1 = (TfwStr *)src->ptr;
+		n1 = TFW_STR_CHUNKN(src);
+		for (c1 = sptr1, o2 = 0; c1 < sptr1 + n1; ++c1, o2 += c1->len)
+			memcpy((char *)dst->ptr + o2, c1->ptr, c1->len);
+		BUG_ON(o2 != src->len);
+		return 0;
+	case 2: /* @src is plain, @dst is compound. */
+		sptr2 = (TfwStr *)dst->ptr;
+		n2 = TFW_STR_CHUNKN(dst);
+		for (c2 = sptr2, o1 = 0; c2 < sptr2 + n2; ++c2, o1 += c2->len) {
+			memcpy(c2->ptr, (char *)src->ptr + o1, c2->len);
+			++chunks;
+		}
+		BUG_ON(o1 != dst->len);
+		return 0;
+	case 3: /* The both are compound. */
+		n1 = TFW_STR_CHUNKN(src);
+		n2 = TFW_STR_CHUNKN(dst);
+		o1 = o2 = 0;
+		c1 = sptr1 = (TfwStr *)src->ptr;
+		c2 = (TfwStr *)dst->ptr;
+		while (1) {
+			int _n = min(c1->len - o1, c2->len - o2);
+			memcpy((char *)c2->ptr + o2, (char *)c1->ptr + o1, _n);
+			if (c1 == sptr1 + n1 - 1 && _n == c1->len - o1) {
+				/* Adjust @dst last chunk length. */
+				c2->len = o2 + _n;
+				break;
+			}
+			if (c1->len - o1 == c2->len - o2) {
+				++c1;
+				++c2;
+				++chunks;
+				o1 = o2 = 0;
+			}
+			else if (_n == c1->len - o1) {
+				++c1;
+				o1 = 0;
+				o2 += _n;
+			}
+			else {
+				++c2;
+				++chunks;
+				o2 = 0;
+				o1 += _n;
+			}
+		}
+	}
+
+	/* Set resulting number of chunks, forget about others. */
+	__TFW_STR_CHUNKN_SET(dst, chunks);
+	dst->len = src->len;
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_strcpy);
+
+int
+tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
+{
+	int n = TFW_STR_CHUNKN(src);
+	TfwStr *to, *c;
+
+	BUG_ON(TFW_STR_DUP(dst));
+	BUG_ON(TFW_STR_DUP(src));
+
+	to = __str_grow_tree(pool, dst, __TFW_STR_COMPOUND, n ? : 1);
+	if (!to)
+		return -ENOMEM;
+
+	n = 0;
+	TFW_STR_FOR_EACH_CHUNK(c, src, {
+		n += c->len;
+		to->ptr = c->ptr;
+		to->len = c->len;
+		to->skb = c->skb;
+		++to;
+	});
+	dst->len += n;
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_strcat);
 
 /**
  * Core routine for tfw_stricmpspn() working on flat C strings.
@@ -176,7 +291,7 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 
 	return 0;
 }
-DEBUG_EXPORT_SYMBOL(tfw_stricmpspn);
+EXPORT_SYMBOL(tfw_stricmpspn);
 
 /**
  * Generic function for comparing TfwStr and C strings.
@@ -218,10 +333,14 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 
 	return !cstr_len;
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_eq_cstr);
+EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 /**
  * DEPRECATED - used only to compare headers which must be special.
+ * RFC 7230 now prohibits spaces between header name and ':', so there is no
+ * reason to process the field.
+ * Moreover, due to unnecessary complexity the function uses plain C FSM,
+ * whil optimized vector processing should be used.
  *
  * Generic function for comparing TfwStr and a key-value pair of C strings.
  *
@@ -350,7 +469,7 @@ state_val:
 	/* Both @val and the current chunk are finished - full match. */
 	return true;
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_eq_kv);
+EXPORT_SYMBOL(tfw_str_eq_kv);
 
 /**
  * DEPRECATED: The function intentionaly brokes zero-copy string design.
@@ -390,4 +509,4 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 	return (pos - out_buf);
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_to_cstr);
+EXPORT_SYMBOL(tfw_str_to_cstr);

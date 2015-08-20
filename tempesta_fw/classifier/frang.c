@@ -50,7 +50,7 @@
 #include "../client.h"
 #include "../connection.h"
 #include "../gfsm.h"
-#include "../http.h"
+#include "../http_msg.h"
 #include "../log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
@@ -392,8 +392,7 @@ frang_http_ct_check(const TfwHttpReq *req)
 	 * switch between the two if performance is critical here,
 	 * but benchmarks should be done to measure the impact.
 	 *
-	 * TODO: store Content-Type as specual header,
-	 * and thus get rid of tfw_str_eq_kv().
+	 * TODO: replace deprecated tfw_str_eq_kv() by faster tfw_stricmpspn().
 	 */
 	for (curr = frang_cfg.http_ct_vals; curr->str; ++curr) {
 		if (tfw_str_eq_kv(field, _CT, _CTLEN, ':',
@@ -420,15 +419,18 @@ static int
 frang_http_host_check(const TfwHttpReq *req)
 {
 	TfwAddr addr;
-	TfwStr *field;
+	TfwStr field;
 	char *buf;
 	int len;
 
-	field = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
-	if (!field->ptr) {
+	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
 		TFW_WARN("frang: 'Host' header field missing\n");
 		return TFW_BLOCK;
 	}
+
+	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+			     TFW_HTTP_HDR_HOST, &field);
+
 	/*
 	 * FIXME: here should be a check that the Host value is not an IP
 	 * address. Need a fast routine that supports compound TfwStr.
@@ -436,10 +438,10 @@ frang_http_host_check(const TfwHttpReq *req)
 	 * have a good regex library.
 	 * For now just linearize the Host header field TfwStr{} string.
 	 */
-	len = field->len + 1;
+	len = field.len + 1;
 	if ((buf = tfw_pool_alloc(req->pool, len)) == NULL)
 		return TFW_BLOCK;
-	tfw_str_to_cstr(field, buf, len);
+	tfw_str_to_cstr(&field, buf, len);
 	if (!tfw_addr_pton(buf, &addr)) {
 		TFW_WARN("frang: 'Host' header field contains IP address\n");
 		return TFW_BLOCK;
@@ -633,9 +635,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * If not, continue checks on header fields.
 	 */
 	__FSM_STATE(Frang_Req_Hdr_Crlf) {
-		if (req->crlf) {
+		if (!TFW_STR_EMPTY(&req->crlf))
 			__FSM_JUMP(Frang_Req_Hdr_FieldLenSpecial);
-		}
 		__FSM_JUMP_EXIT(Frang_Req_Hdr_FieldDup);
 	}
 	/*

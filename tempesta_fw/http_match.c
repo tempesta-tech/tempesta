@@ -63,7 +63,7 @@
 
 #include <linux/cache.h>
 #include "http_match.h"
-#include "http.h"
+#include "http_msg.h"
 
 /*
  * Use -DTFW_HTTP_MATCH_DBG_LVL=N to increase verbosity just for this unit.
@@ -101,14 +101,17 @@ hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
            int val_len, tfw_str_eq_flags_t f)
 {
 	TfwStr *hdr;
+	TfwStr hdr_val;
 
 	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
 
-	hdr = &req->h_tbl->tbl[id].field;
-	if (!hdr->len)
+	hdr = &req->h_tbl->tbl[id];
+	if (TFW_STR_EMPTY(hdr))
 		return false;
 
-	return tfw_str_eq_cstr(hdr, val, val_len, f);
+	tfw_http_msg_hdr_val(hdr, id, &hdr_val);
+
+	return tfw_str_eq_cstr(&hdr_val, val, val_len, f);
 }
 
 /**
@@ -170,10 +173,9 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (req->host.len) {
+	if (req->host.len)
 		return tfw_str_eq_cstr(&req->host, rule->arg.str,
 		                       rule->arg.len, flags);
-	}
 
 	return hdr_val_eq(req, TFW_HTTP_HDR_HOST, rule->arg.str,
 	                  rule->arg.len, flags);
@@ -211,8 +213,8 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	flags |= TFW_STR_EQ_CASEI;
 
 	for (i = 0; i < req->h_tbl->size; ++i) {
-		hdr = &req->h_tbl->tbl[i].field;
-		if (!hdr->len)
+		hdr = &req->h_tbl->tbl[i];
+		if (TFW_STR_EMPTY(hdr))
 			continue;
 
 		/* TODO: handle LWS* between header and value for raw headers.
