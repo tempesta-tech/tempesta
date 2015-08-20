@@ -25,17 +25,15 @@
 #include <linux/time.h>
 #include <crypto/hash.h>
 #include <crypto/sha.h>
+
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
-#include "http.h"
 #include "http_msg.h"
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
 #define STICKY_KEY_MAXLEN	(sizeof(((TfwClient *)0)->cookie.hmac))
-
-#define TfwStr_string(v)	{ 0, sizeof(v) - 1, (v) }
 
 typedef struct sticky {
 	TfwStr		name;
@@ -51,43 +49,27 @@ static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 static int
 tfw_http_sticky_send_302(TfwHttpMsg *hm)
 {
-	size_t len;
 	TfwHttpMsg *resp;
 	TfwConnection *conn = hm->conn;
 	TfwStr chunks[3], cookie = { 0 };
-	TfwStr s_eq = TfwStr_string("=");
+	DEFINE_TFW_STR(s_eq, "=");
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 	char buf[sizeof(client->cookie.hmac) * 2];
 
-	len = tfw_http_prep_hexstring(buf, client->cookie.hmac,
-					   sizeof(client->cookie.hmac));
+	tfw_http_prep_hexstring(buf, client->cookie.hmac,
+				sizeof(client->cookie.hmac));
 
 	memset(chunks, 0, sizeof(chunks));
 	chunks[0] = tfw_cfg_sticky.name;
 	chunks[1] = s_eq;
 	chunks[2].ptr = buf;
-	chunks[2].len = len;
+	chunks[2].len = sizeof(client->cookie.hmac) * 2;
 
 	cookie.ptr = chunks;
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
 	if ((resp = tfw_http_prep_302(hm, &cookie)) == NULL) {
-		return -1;
-	}
-	tfw_connection_send(conn, (TfwMsg *)resp);
-	tfw_http_msg_free(resp);
-
-	return 0;
-}
-
-static int
-tfw_http_sticky_send_502(TfwHttpMsg *hm)
-{
-	TfwHttpMsg *resp;
-	TfwConnection *conn = hm->conn;
-
-	if ((resp = tfw_http_prep_502(hm)) == NULL) {
 		return -1;
 	}
 	tfw_connection_send(conn, (TfwMsg *)resp);
@@ -108,7 +90,7 @@ tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
 	int i;
 
 	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
-		TfwStr *hdr_field = &hm->h_tbl->tbl[i].field;
+		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
 		if (tfw_str_eq_cstr(hdr_field, field_name, len,
 				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
 			return hdr_field;
@@ -152,7 +134,7 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 {
 	int ret;
 	u_char *valptr, *endptr;
-	const TfwStr s_field_name = TfwStr_string("Cookie:");
+	const DEFINE_TFW_STR(s_field_name, "Cookie:");
 	TfwStr value = { 0 };
 
 	/*
@@ -197,7 +179,7 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 {
 	int ret, addr_len;
 	TfwStr ua_value = { 0 };
-	const TfwStr s_field_name = TfwStr_string("User-Agent:");
+	const DEFINE_TFW_STR(s_field_name, "User-Agent:");
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 
 	char desc[sizeof(struct shash_desc)
@@ -252,23 +234,28 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 static int
 tfw_http_sticky_add(TfwHttpMsg *hm, u_char *value, size_t len)
 {
-	int ret;
-	char buf[S_SET_COOKIE_MAXLEN] = S_F_SET_COOKIE;
-	char *ptr = buf + SLEN(S_F_SET_COOKIE);
+	char buf[len * 2];
+	TfwStr set_cookie = {
+		.ptr = (TfwStr []) {
+			{ .ptr = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
+			{ .ptr = tfw_cfg_sticky.name.ptr,
+			  .len = tfw_cfg_sticky.name.len },
+			{ .ptr = "=", .len = 1 },
+			{ .ptr = buf, .len = len * 2 },
+			{ .ptr = "\r\n", .len = 2 }
+		},
+		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name.len
+		       + 3 + len * 2,
+		.flags = 5 << TFW_STR_CN_SHIFT
+	};
 
-	memcpy(ptr, tfw_cfg_sticky.name.ptr, tfw_cfg_sticky.name.len);
-	ptr += tfw_cfg_sticky.name.len;
-	*ptr++ = '=';
-	ptr += tfw_http_prep_hexstring(ptr, value, len);
-	*ptr++ = '\r';
-	*ptr++ = '\n';
-	TFW_DBG("%s: \"%.*s\"\n", __FUNCTION__, (int)(ptr - buf), buf);
+	tfw_http_prep_hexstring(buf, value, len);
 
-	if ((ret = tfw_http_hdr_add(hm, buf, ptr - buf)) != 0) {
-		return ret;
-	}
+	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __FUNCTION__,
+		tfw_cfg_sticky.name.len, (char *)tfw_cfg_sticky.name.ptr,
+		(int)len * 2, buf);
 
-	return 0;
+	return tfw_http_msg_hdr_add(hm, &set_cookie);
 }
 
 /*
@@ -283,10 +270,9 @@ tfw_http_sticky_notfound(TfwHttpMsg *hm)
 	int ret;
 
 	/* Create Tempesta sticky cookie and store it */
-	if (tfw_http_sticky_set(hm) != 0) {
-		tfw_http_sticky_send_502(hm);
-		return -1;
-	}
+	if (tfw_http_sticky_set(hm) != 0)
+		return tfw_http_send_502(hm);
+
 	/*
 	 * If configured, ensure that backend server receives
 	 * requests that always carry Tempesta sticky cookie.

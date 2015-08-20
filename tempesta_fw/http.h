@@ -114,19 +114,14 @@ typedef enum {
 } tfw_http_hdr_t;
 
 typedef struct {
-	TfwStr		field;
-	struct sk_buff	*skb;
-} TfwHttpHdr;
-
-typedef struct {
 	unsigned int	size;	/* number of elements in the table */
 	unsigned int	off;
-	TfwHttpHdr	tbl[0];
+	TfwStr		tbl[0];
 } TfwHttpHdrTbl;
 
 #define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
 #define TFW_HHTBL_SZ(o)			(sizeof(TfwHttpHdrTbl)		\
-					 + sizeof(TfwHttpHdr) * __HHTBL_SZ(o))
+					 + sizeof(TfwStr) * __HHTBL_SZ(o))
 
 /* Common flags for requests and responses. */
 #define TFW_HTTP_CONN_CLOSE		0x0001
@@ -143,6 +138,8 @@ typedef struct {
  *
  * @conn	- connection which the message was received on;
  * @crlf	- pointer to CRLF between headers and body
+ *
+ * TfwStr members must be the last for efficient scanning.
  */
 #define TFW_HTTP_MSG_COMMON						\
 	TfwMsg		msg;						\
@@ -153,7 +150,7 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned int	content_length;					\
 	TfwConnection	*conn;						\
-	unsigned char	*crlf;						\
+	TfwStr		crlf;						\
 	TfwStr		body;
 
 /**
@@ -163,6 +160,8 @@ typedef struct {
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 } TfwHttpMsg;
+
+#define __MSG_STR_START(m)		(&(m)->crlf)
 
 /**
  * HTTP Request.
@@ -175,12 +174,14 @@ typedef struct {
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value calculated for the request;
+ *
+ * TfwStr members must be the first for efficient scanning.
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
-	unsigned char		method;
 	TfwStr			host;
 	TfwStr			uri_path;
+	unsigned char		method;
 	unsigned int		frang_st;
 	unsigned int		hdr_rawid;
 	unsigned long		tm_header;
@@ -189,12 +190,23 @@ typedef struct {
 	unsigned int		chunk_cnt;
 } TfwHttpReq;
 
+#define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
+#define TFW_HTTP_REQ_STR_END(r)		((&(r)->uri_path) + 1)
+
+/**
+ * HTTP Response.
+ *
+ * TfwStr members must be the first for efficient scanning.
+ */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	unsigned short	status;
 	unsigned int	keep_alive;
 	unsigned int	expires;
 } TfwHttpResp;
+
+#define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
+#define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
 #define FOR_EACH_HDR_FIELD(pos, end, msg)				\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, 0, (msg)->h_tbl->off)
@@ -210,10 +222,10 @@ typedef struct {
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
-	for ((pos) = &(msg)->h_tbl->tbl[soff].field, 			\
-	     (end) = &(msg)->h_tbl->tbl[eoff].field;			\
+	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
+	     (end) = &(msg)->h_tbl->tbl[eoff];				\
 	     (pos) < (end); 						\
-	     pos = (TfwStr *)((TfwHttpHdr *)(pos) + 1))
+	     ++(pos))
 
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
@@ -225,21 +237,15 @@ int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 
-/* HTTP message header add/del/sub API */
-int tfw_http_hdr_add(TfwHttpMsg *, const char *, size_t);
-int tfw_http_hdr_sub(TfwHttpMsg *, TfwStr *, const char *, size_t);
-int tfw_http_hdr_del(TfwHttpMsg *, TfwStr *);
-
 /*
  * Helper functions for preparation of an HTTP message.
  */
-size_t tfw_http_prep_date(char *buf);
-size_t tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
+void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
 /*
  * Functions to send an HTTP error response to a client.
  */
 TfwHttpMsg *tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie);
-TfwHttpMsg *tfw_http_prep_502(TfwHttpMsg *hm);
+int tfw_http_send_502(TfwHttpMsg *hm);
 
 /*
  * Functions to create SKBs with data stream.

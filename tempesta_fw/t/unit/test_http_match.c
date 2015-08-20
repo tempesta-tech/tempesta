@@ -38,7 +38,6 @@ http_match_suite_setup(void)
 	test_req = test_req_alloc();
 	test_mlst = tfw_http_match_list_alloc();
 	BUG_ON(!test_mlst);
-
 }
 
 static void
@@ -85,7 +84,6 @@ set_tfw_str(TfwStr *str, const char *cstr)
 	str->ptr = (void *)cstr;
 	str->len = strlen(cstr);
 }
-
 
 TEST(tfw_http_match_req, returns_first_matching_rule)
 {
@@ -161,16 +159,16 @@ TEST(http_match, headers_eq)
 	test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
 	             "User-Agent: U880D/4.0 (CP/M; 8-bit)");
 	test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
-	             "Connection: close");
+	             "Connection:          close");
 	test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_RAW, TFW_HTTP_MATCH_O_EQ,
-	             "Connection: Keep-Alive");
+	             "Connection:   Keep-Alive");
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
-	            "Connection: Keep-Alive");
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
+	            "Connection:  Keep-Alive");
 	match_id = test_mlst_match();
 	EXPECT_EQ(3, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
 	            "Connection: cLoSe");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
@@ -181,7 +179,7 @@ TEST(http_match, hdr_host_prefix)
 	int match_id;
 
 	test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_CONN, TFW_HTTP_MATCH_O_EQ,
-	             "Connection: Keep-Alive");
+	             "Connection:    Keep-Alive");
 	test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
 	              "ex");
 	test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
@@ -191,23 +189,23 @@ TEST(http_match, hdr_host_prefix)
 	match_id = test_mlst_match();
 	EXPECT_EQ(-1, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 	            "example.com");
 	match_id = test_mlst_match();
 	EXPECT_EQ(2, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 	            "eXample.COM");
 	match_id = test_mlst_match();
-	EXPECT_EQ(2, match_id);
+	EXPECT_EQ(-1, match_id); /* Host header contains the header name. */
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 	            "Host: www");
 	match_id = test_mlst_match();
 	EXPECT_EQ(-1, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST].field,
-	            "WWW.EXAMPLE.COM:8081");
+	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+	            "Host: WWW.EXAMPLE.COM:8081");
 	match_id = test_mlst_match();
 	EXPECT_EQ(3, match_id);
 }
