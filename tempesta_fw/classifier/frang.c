@@ -116,6 +116,8 @@ typedef struct {
 	unsigned int 	http_uri_len;
 	unsigned int 	http_field_len;
 	unsigned int 	http_body_len;
+	unsigned int	http_hchunk_cnt;
+	unsigned int	http_bchunk_cnt;
 	bool 		http_ct_required;
 	bool 		http_host_required;
 	/* The bitmask of allowed HTTP Method values. */
@@ -462,6 +464,7 @@ enum {
 
 	Frang_Req_Body_Start,
 	Frang_Req_Body_Timeout,
+	Frang_Req_Body_ChunkCnt,
 	Frang_Req_Body_Len,
 
 	Frang_Req_Body_NoState,
@@ -537,6 +540,20 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 			TFW_WARN("frang: %s limit exceeded: %lums (%lums)\n",
 				 "client_header_timeout",
 				 jiffies - start, delta);
+			return TFW_BLOCK;
+		}
+	}
+
+	/* Сheck for chunk count here to account for possible fragmentation
+	 * in HTTP status line. The rationale for not making this one of FSM
+	 * states is the same as for the code block above.
+	 */
+	if (frang_cfg.http_hchunk_cnt && FSM_HDR_STATE(req->frang_st)) {
+		req->chunk_cnt++;
+		if (req->chunk_cnt > frang_cfg.http_hchunk_cnt) {
+			TFW_WARN("frang: %s limit exceeded: %d (%d)\n",
+			         "http_header_chunk_cnt", req->chunk_cnt,
+			         frang_cfg.http_hchunk_cnt);
 			return TFW_BLOCK;
 		}
 	}
@@ -653,11 +670,12 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * Set the time the body started coming in.
 	 */
 	__FSM_STATE(Frang_Req_Body_Start) {
-		if (frang_cfg.clnt_body_timeout) {
+		if (frang_cfg.http_body_len || frang_cfg.clnt_body_timeout ||
+		    frang_cfg.http_bchunk_cnt)
+		{
+			req->chunk_cnt = 0; /* start counting body chunks now */
 			req->tm_bchunk = jiffies;
-		}
-		if (frang_cfg.http_body_len || frang_cfg.clnt_body_timeout) {
-			__FSM_MOVE(Frang_Req_Body_Len);
+			__FSM_MOVE(Frang_Req_Body_ChunkCnt);
 		}
 		__FSM_JUMP_EXIT(Frang_Req_NothingToDo);
 	}
@@ -682,6 +700,19 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 				r = TFW_BLOCK;
 			}
 			req->tm_bchunk = jiffies;
+		}
+		__FSM_MOVE(Frang_Req_Body_ChunkCnt);
+	}
+	/* Limit number of chunks in request body */
+	__FSM_STATE(Frang_Req_Body_ChunkCnt) {
+		req->chunk_cnt++;
+		if (frang_cfg.http_bchunk_cnt &&
+		    req->chunk_cnt > frang_cfg.http_bchunk_cnt)
+		{
+			TFW_WARN("frang: %s limit exceeded: %d (%d)\n",
+			         "http_body_chunk_cnt", req->chunk_cnt,
+			         frang_cfg.http_bchunk_cnt);
+			r = TFW_BLOCK;
 		}
 		__FSM_MOVE(Frang_Req_Body_Len);
 	}
@@ -875,6 +906,16 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		"http_body_len", "0",
 		tfw_cfg_set_int,
 		&frang_cfg.http_body_len,
+	},
+	{
+		"http_header_chunk_cnt", "0",
+		tfw_cfg_set_int,
+		&frang_cfg.http_hchunk_cnt,
+	},
+	{
+		"http_body_chunk_cnt", "0",
+		tfw_cfg_set_int,
+		&frang_cfg.http_bchunk_cnt,
 	},
 	{
 		"http_host_required", "false",
