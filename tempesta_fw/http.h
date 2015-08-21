@@ -186,6 +186,7 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	unsigned int		chunk_cnt;
 } TfwHttpReq;
 
 typedef struct {
