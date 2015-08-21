@@ -24,6 +24,7 @@
 #include "helpers.h"
 #include "sched_helper.h"
 #include "test.h"
+#include "kallsyms_helper.h"
 
 char req_str1[] = "GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n";
 char req_str2[] = "GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n";
@@ -38,6 +39,8 @@ char *req_strs[] = {
 };
 size_t req_strs_size = sizeof(req_strs) / sizeof(req_strs[0]);
 
+static int (*tfw_http_parse_req_ptr)(void *req_data, unsigned char *data, size_t len);
+
 TEST(tfw_sched_hash, sg_empty)
 {
 	int i, j;
@@ -49,7 +52,7 @@ TEST(tfw_sched_hash, sg_empty)
 			TfwConnection *conn;
 			TfwHttpReq *req = test_req_alloc();
 
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
+			tfw_http_parse_req_ptr(req, req_strs[i], strlen(req_strs[i]));
 
 			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
 			EXPECT_TRUE(conn == NULL);
@@ -189,6 +192,8 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_hash)
 {
+	tfw_http_parse_req_ptr = get_sym_ptr("tfw_http_parse_req");
+
 	TEST_RUN(tfw_sched_hash, sg_empty);
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_zero_conn);
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_max_conn);
