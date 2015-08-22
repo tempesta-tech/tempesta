@@ -167,7 +167,9 @@ hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 static void
 hdr_chunk_fixup(TfwHttpMsg *hm, unsigned char *data, long len)
 {
-	TfwStr *hdr = TFW_STR_CURR(&hm->parser.hdr);
+	TfwStr *hdr = &hm->parser.hdr;
+
+	BUG_ON(hdr->flags & TFW_STR_DUPLICATE);
 
 	TFW_DBG("store header chunk len=%ld data=%p hdr=<%#x,%u,%p>\n",
 		len, data, hdr->flags, hdr->len, hdr->ptr);
