@@ -848,6 +848,10 @@ spec_cleanup(TfwCfgSpec specs[])
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
+
+		if (spec->handler == &tfw_cfg_handle_children) {
+			spec->cleanup = NULL;
+		}
 	}
 }
 

@@ -193,6 +193,7 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 TEST_SUITE(sched_hash)
 {
 	tfw_http_parse_req_ptr = get_sym_ptr("tfw_http_parse_req");
+	BUG_ON(tfw_http_parse_req_ptr == NULL);
 
 	TEST_RUN(tfw_sched_hash, sg_empty);
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_zero_conn);

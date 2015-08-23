@@ -36,5 +36,6 @@ tfw_test-objs = \
 	sched_helper.o \
 	test_sched_rr.o \
 	test_sched_hash.o \
+	test_sched_http.o \
 	test_http_sticky.o \
 	kallsyms_helper.o

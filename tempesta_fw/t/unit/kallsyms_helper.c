@@ -20,30 +20,34 @@
 
 #include <linux/string.h>
 #include <linux/kallsyms.h>
+#include <linux/module.h>
 
 #include "kallsyms_helper.h"
 
-static const char *_name;
+typedef struct {
+	unsigned long addr;
+	const char    *name;
+} Symdata;
 
 static int
 get_sym(void *data, const char *namebuf, struct module *owner, unsigned long addr)
 {
-        if (strcmp(namebuf, _name)) {
-            return 0;
-        }
+	Symdata *symdata = data;
 
-        *(unsigned long *)data = addr;
-        return 1;
+	if (strcmp(namebuf, symdata->name) || !strcmp(owner->name, THIS_MODULE->name)) {
+		return 0;
+	}
+
+	symdata->addr = addr;
+	return 1;
 }
 
 void *
 get_sym_ptr(const char *name)
 {
-        unsigned long sym_addr = 0;
+	Symdata symdata = { .addr = 0, .name = name };
 
-        _name = name;
+	kallsyms_on_each_symbol(get_sym, &symdata);
 
-        kallsyms_on_each_symbol(get_sym, &sym_addr);
-
-        return (void *)sym_addr;
+	return (void *)symdata.addr;
 }
