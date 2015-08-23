@@ -139,7 +139,7 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 			o2 += c1->len;
 		}
 		BUG_ON(o2 != src->len);
-		return 0;
+		break;
 	case 2: /* @src is plain, @dst is compound. */
 		sptr2 = (TfwStr *)dst->ptr;
 		n2 = TFW_STR_CHUNKN(dst);
@@ -149,7 +149,7 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 			++chunks;
 		}
 		BUG_ON(o1 != dst->len);
-		return 0;
+		break;
 	case 3: /* The both are compound. */
 		n1 = TFW_STR_CHUNKN(src);
 		n2 = TFW_STR_CHUNKN(dst);
