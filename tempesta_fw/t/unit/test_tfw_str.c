@@ -18,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/bug.h>
 #include <linux/kernel.h>
 
@@ -88,7 +87,125 @@ make_compound_str(const char *data)
 	return str;
 }
 
-#define TFW_STR(name, literal) const TfwStr *name = make_compound_str(literal)
+#define TFW_STR(name, literal)	TfwStr *name = make_compound_str(literal)
+
+TEST(tfw_strcpy, zero_src)
+{
+	TfwStr s1 = {
+		.len = 0,
+		.ptr = NULL
+	};
+	TfwStr s2 = {
+		.len = 3,
+		.ptr = "abc"
+	};
+
+	/* @dest->ptr is static memory, but must not crash. */
+	EXPECT_ZERO(!tfw_strcpy(&s2, &s1));
+}
+
+TEST(tfw_strcpy, zero_dst)
+{
+	TfwStr s1 = {
+		.len = 0,
+		.ptr = NULL
+	};
+	TfwStr s2 = {
+		.len = 3,
+		.ptr = "abc"
+	};
+
+	/* @dest->ptr is static memory, but must not crash. */
+	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
+}
+
+TEST(tfw_strcpy, both_plain)
+{
+	char buf1[4] = { 0 }, buf2[4] = "abc";
+	TfwStr s1 = {
+		.len = 4,
+		.ptr = buf1
+	};
+	TfwStr s2 = {
+		.len = 4,
+		.ptr = buf2
+	};
+
+	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
+	EXPECT_STR_EQ(s1.ptr, "abc");
+}
+
+TEST(tfw_strcpy, src_compound)
+{
+	char buf1[32] = { 0 };
+	TfwStr s1 = {
+		.len = 32,
+		.ptr = buf1
+	};
+	TFW_STR(s2, "abcdefghijklmnop");
+
+	EXPECT_ZERO(tfw_strcpy(&s1, s2));
+	EXPECT_STR_EQ(s1.ptr, "abcdefghijklmnop");
+}
+
+TEST(tfw_strcpy, dst_compound)
+{
+	char buf[32] = { 0 };
+	TfwStr s2 = {
+		.len = sizeof("abcdefghijklmnop"),
+		.ptr = "abcdefghijklmnop"
+	};
+	TFW_STR(s1, buf);
+
+	EXPECT_ZERO(tfw_strcpy(s1, &s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
+				    sizeof("abcdefghijklmnop") - 1, 0));
+}
+
+TEST(tfw_strcpy, both_compound)
+{
+	char buf[32] = { 0 };
+	TFW_STR(s1, buf);
+	TFW_STR(s2, "abcdefghijklmnop");
+
+	EXPECT_ZERO(tfw_strcpy(s1, s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
+				    sizeof("abcdefghijklmnop") - 1, 0));
+}
+
+TEST(tfw_strcat, plain)
+{
+	int chunks;
+	TFW_STR(s1, "abcdefghijklmnop");
+	TfwStr s2 = {
+		.len = sizeof("0123456789"),
+		.ptr = "0123456789"
+	};
+
+	chunks = TFW_STR_CHUNKN(s1);
+
+	EXPECT_ZERO(tfw_strcat(str_pool, s1, &s2));
+	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == chunks + 1);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
+				    sizeof("abcdefghijklmnop0123456789") - 1,
+				    0));
+}
+
+TEST(tfw_strcat, compound)
+{
+	int chunks1, chunks2;
+	TFW_STR(s1, "abcdefghijklmnop");
+	TFW_STR(s2, "0123456789");
+
+	chunks1 = TFW_STR_CHUNKN(s1);
+	chunks2 = TFW_STR_CHUNKN(s2);
+
+	EXPECT_ZERO(tfw_strcat(str_pool, s1, s2));
+	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == chunks1 + chunks2);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
+				    sizeof("abcdefghijklmnop0123456789") - 1,
+				    0));
+}
 
 TEST(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs)
 {
@@ -256,7 +373,6 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	EXPECT_FALSE(tfw_str_eq_cstr(&s2, cstr_ne, len, TFW_STR_EQ_DEFAULT));
 	EXPECT_FALSE(tfw_str_eq_cstr(&s3, cstr_ne, len, TFW_STR_EQ_DEFAULT));
 }
-
 
 TEST(tfw_str_eq_cstr, supports_casei)
 {
@@ -479,39 +595,20 @@ TEST(tfw_str_eq_kv, allows_space_sep)
 				  TFW_STR_EQ_DEFAULT));
 }
 
-TEST(tfw_str_to_cstr, copies_all_chunks)
-{
-	TFW_STR(compound_str, "foo bar baz 12345678");
-	char buf[21];
-	int copied_len;
-	const char *expected_str = "foo bar baz 12345678";
-
-	memset(buf, 0xA0, sizeof(buf));
-	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
-
-	EXPECT_EQ(20, copied_len);
-	EXPECT_EQ(0, strcmp(expected_str, buf));
-}
-
-TEST(tfw_str_to_cstr, limits_and_terminates_output)
-{
-	TFW_STR(compound_str, "foobarbaz");
-	char buf[6];
-	int copied_len;
-	const char *expected_str = "fooba";
-
-	memset(buf, 0xAA, sizeof(buf));
-	copied_len = tfw_str_to_cstr(compound_str, buf, sizeof(buf));
-
-	EXPECT_EQ(sizeof(buf) - 1, copied_len);
-	EXPECT_EQ(buf[copied_len], '\0');
-	EXPECT_EQ(0, strcmp(expected_str, buf));
-}
-
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
 	TEST_TEARDOWN(free_all_str);
+
+	TEST_RUN(tfw_strcpy, zero_src);
+	TEST_RUN(tfw_strcpy, zero_dst);
+	TEST_RUN(tfw_strcpy, both_plain);
+	TEST_RUN(tfw_strcpy, src_compound);
+	TEST_RUN(tfw_strcpy, dst_compound);
+	TEST_RUN(tfw_strcpy, both_compound);
+
+	TEST_RUN(tfw_strcat, plain);
+	TEST_RUN(tfw_strcat, compound);
 
 	TEST_RUN(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs);
 	TEST_RUN(tfw_stricmpspn, handles_plain_and_compound_strs);
@@ -532,7 +629,4 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_kv, supports_casei_val);
 	TEST_RUN(tfw_str_eq_kv, supports_prefix_val);
 	TEST_RUN(tfw_str_eq_kv, allows_space_sep);
-
-	TEST_RUN(tfw_str_to_cstr, copies_all_chunks);
-	TEST_RUN(tfw_str_to_cstr, limits_and_terminates_output);
 }
