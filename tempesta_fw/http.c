@@ -511,7 +511,8 @@ tfw_http_conn_destruct(TfwConnection *conn)
  * that can share the same SKBs.
  */
 static TfwHttpMsg *
-tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb, int type)
+tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
+			    unsigned int split_offset, int type)
 {
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
@@ -524,7 +525,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb, int type)
 	 * The sibling message is set up with a clone of current
 	 * SKB (the last SKB in skb_list) as the starting SKB.
 	 */
-	nskb = ss_skb_split(*skb, hm->msg.len);
+	nskb = ss_skb_split(*skb, split_offset);
 	if (!nskb) {
 		tfw_http_msg_free(shm);
 		return NULL;
@@ -1315,8 +1316,9 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			 * Pipelined requests: create a new sibling message.
 			 * @skb is replaced with pointer to a new SKB.
 			 */
-			hmsib = tfw_http_msg_create_sibling(hmreq,
-							    &skb, Conn_Clnt);
+			hmsib = tfw_http_msg_create_sibling(hmreq, &skb,
+							    data_off,
+							    Conn_Clnt);
 			if (hmsib == NULL) {
 				/*
 				 * Not enough memory. Unfortunately, there's

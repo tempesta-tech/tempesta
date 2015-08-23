@@ -23,3 +23,7 @@ Module.symvers
 
 # Python compiler cache files
 *.pyc
+
+# tdb binaries
+/tempesta_db/libtdb/libtdb.so
+/tempesta_db/tdbq/tdbq

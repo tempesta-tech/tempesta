@@ -18,9 +18,9 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifndef __TFW_KALLSYM_HELPER_H__
-#define __TFW_KALLSYM_HELPER_H__
+#ifndef __TFW_KALLSYMS_HELPER_H__
+#define __TFW_KALLSYMS_HELPER_H__
 
 void *get_sym_ptr(const char *name);
 
-#endif /* __TFW_KALLSYM_HELPER_H__ */
+#endif /* __TFW_KALLSYMS_HELPER_H__ */

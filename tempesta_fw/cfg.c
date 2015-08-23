@@ -1784,7 +1784,7 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 EXPORT_SYMBOL(tfw_cfg_mod_unregister);
 
 TfwCfgMod *
-tfw_cfg_mod_lookup(const char *name)
+tfw_cfg_mod_find(const char *name)
 {
 	TfwCfgMod *mod;
 
@@ -1801,4 +1801,4 @@ tfw_cfg_mod_lookup(const char *name)
 
 	return NULL;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_mod_lookup);
+DEBUG_EXPORT_SYMBOL(tfw_cfg_mod_find);
