@@ -29,6 +29,11 @@
 #define __read_mostly
 #endif
 
+#ifdef __init
+#undef __init
+#define __init
+#endif
+
 #include "http_sticky.c"
 
 #include "http.c"
