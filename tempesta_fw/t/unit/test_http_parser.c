@@ -223,9 +223,9 @@ TEST(http_parser, parses_req_uri)
 
 TEST(http_parser, fills_hdr_tbl)
 {
-	TfwHttpHdrTbl *h_tbl;
-	TfwStr *h_user_agent, *h_accept, *h_host, *h_connection, *h_contlen,
-		*h_xch, *h_xff, *h_dummy4, *h_dummy9, *h_cc;
+	TfwHttpHdrTbl *ht;
+	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc;
+	TfwStr h_host, h_connection, h_contlen, h_xff;
 
 	/* Expected values for special headers. */
 	const char *s_host = "localhost";
@@ -261,44 +261,49 @@ TEST(http_parser, fills_hdr_tbl)
 		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
 		"\r\n")
 	{
-		h_tbl = req->h_tbl;
+		ht = req->h_tbl;
 
 		/* Special headers: */
-		h_host = &h_tbl->tbl[TFW_HTTP_HDR_HOST].field;
-		h_connection = &h_tbl->tbl[TFW_HTTP_HDR_CONNECTION].field;
-		h_contlen = &h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].field;
-		h_xff = &h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST],
+				     TFW_HTTP_HDR_HOST, &h_host);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+				     TFW_HTTP_HDR_CONNECTION, &h_connection);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
+				     TFW_HTTP_HDR_CONTENT_LENGTH, &h_contlen);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
+				     TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
 
 		/* Common (raw) headers: 14 total with 10 dummies. */
-		EXPECT_EQ(h_tbl->off, TFW_HTTP_HDR_RAW + 14);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
 
-		h_user_agent = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 0].field;
-		h_accept     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 1].field;
-		h_xch        = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 2].field;
-		h_dummy4     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 7].field;
-		h_dummy9     = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 12].field;
-		h_cc         = &h_tbl->tbl[TFW_HTTP_HDR_RAW + 13].field;
+		h_user_agent = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
+		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
+		h_xch        = &ht->tbl[TFW_HTTP_HDR_RAW + 2];
+		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 7];
+		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
+					    strlen(s_host), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
+					    strlen(s_connection), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
+					    strlen(s_cl), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_xff, s_xff,
+					    strlen(s_xff), 0));
 
 		EXPECT_TRUE(tfw_str_eq_cstr(h_user_agent, s_user_agent,
 					    strlen(s_user_agent), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_accept, s_accept,
 					    strlen(s_accept), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_host, s_host,
-					    strlen(s_host), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_connection, s_connection,
-					    strlen(s_connection), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
 					    strlen(s_xch), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_xff, s_xff,
-					    strlen(s_xff), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
 					    strlen(s_cc), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_contlen, s_cl,
-					    strlen(s_cl), 0));
 	}
 }
 
@@ -308,7 +313,7 @@ TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,  natsys-lab.com:65535  \r\n"
 		"\r\n")
 	{
-		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR].field;
+		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
 		EXPECT_GT(h->len, 0);
 	}
 

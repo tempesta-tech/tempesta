@@ -247,7 +247,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	TfwCacheEntry *ce = cw->cw_ce;
 	TdbVRec *trec;
 	TfwHttpHdrTbl *htbl;
-	TfwHttpHdr *hdr;
+	TfwStr *hdr;
 
 	BUG_ON(!ce->resp);
 
@@ -282,8 +282,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	ce->hdrs = p;
 	hdr = htbl->tbl;
 	for (i = 0; i < hlens / sizeof(ce->hdr_lens[0]); ++i, ++hdr) {
-		n = tfw_cache_copy_str_duplicate(&p, &trec, &hdr->field,
-						 tot_len);
+		n = tfw_cache_copy_str_duplicate(&p, &trec, hdr, tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
 			goto err;
@@ -374,7 +373,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	ce->resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
+	ce->resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv, 0);
 	if (!ce->resp)
 		return -ENOMEM;
 
