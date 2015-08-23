@@ -36,7 +36,7 @@ parse_cfg(const char *cfg_text)
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
-	cfg_mod = *tfw_cfg_mod_lookup("tfw_sched_http");
+	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	INIT_LIST_HEAD(&cfg_mod.list);
 	INIT_LIST_HEAD(&mod_list);
 	list_add(&cfg_mod.list, &mod_list);
@@ -49,7 +49,7 @@ cleanup_cfg(void)
 {
 	TfwCfgMod cfg_mod;
 
-	cfg_mod = *tfw_cfg_mod_lookup("tfw_sched_http");
+	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	spec_cleanup_ptr(cfg_mod.specs);
 }
 

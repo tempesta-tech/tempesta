@@ -186,6 +186,7 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	unsigned int		chunk_cnt;
 } TfwHttpReq;
 
 typedef struct {
@@ -212,7 +213,7 @@ typedef struct {
 	for ((pos) = &(msg)->h_tbl->tbl[soff].field, 			\
 	     (end) = &(msg)->h_tbl->tbl[eoff].field;			\
 	     (pos) < (end); 						\
-	     ++(pos))
+	     pos = (TfwStr *)((TfwHttpHdr *)(pos) + 1))
 
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 

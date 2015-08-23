@@ -167,7 +167,9 @@ hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 static void
 hdr_chunk_fixup(TfwHttpMsg *hm, unsigned char *data, long len)
 {
-	TfwStr *hdr = TFW_STR_CURR(&hm->parser.hdr);
+	TfwStr *hdr = &hm->parser.hdr;
+
+	BUG_ON(hdr->flags & TFW_STR_DUPLICATE);
 
 	TFW_DBG("store header chunk len=%ld data=%p hdr=<%#x,%u,%p>\n",
 		len, data, hdr->flags, hdr->len, hdr->ptr);
@@ -478,10 +480,8 @@ __chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len,
 	int r = CSTR_EQ, cn = chunk->len;
 
 	if (unlikely(tot_len > cn + len)) {
-		if (cn) {
-			r = CSTR_BADLEN;
-			goto out;
-		}
+		if (cn)
+			return CSTR_BADLEN;
 		chunk->ptr = p;
 		chunk->len = len;
 		return CSTR_POSTPONE;
@@ -496,10 +496,6 @@ __chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len,
 	if ((cn && strncasecmp(chunk->ptr, str, cn))
 	    || strncasecmp(p, str + cn, tot_len - cn))
 		r = CSTR_NEQ;
-
-out:
-	chunk->len = 0;
-	chunk->ptr = NULL;
 
 	return r;
 }
@@ -606,12 +602,16 @@ enum {
 };
 
 /* Parsing helpers. */
-#define TRY_STR_LAMBDA(str, lambda)					\
+#define TRY_STR_LAMBDA(str, lambda, state)				\
 	r = __chunk_strncasecmp(chunk, p, len - (size_t)(p - data),	\
 				str, sizeof(str) - 1);			\
 	switch (r) {							\
 	case CSTR_EQ:							\
+		__fsm_sz = chunk->len;					\
+		chunk->ptr = NULL;					\
+		chunk->len = 0;						\
 		lambda;							\
+		__FSM_I_MOVE_n(state, sizeof(str) - 1 - __fsm_sz);	\
 	case CSTR_POSTPONE:						\
 		hdr_chunk_fixup(msg, data, len);			\
 	case CSTR_BADLEN:						\
@@ -621,7 +621,7 @@ enum {
 	}
 
 #define TRY_STR(str, state)						\
-	TRY_STR_LAMBDA(str, __FSM_I_MOVE_str(state, str))
+	TRY_STR_LAMBDA(str, { }, state)
 
 #define __TFW_HTTP_PARSE_HDR_VAL(st_curr, st_i, hm, func, id)	\
 __FSM_STATE(st_curr) {							\
@@ -863,14 +863,12 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t len)
 			if (msg->flags & TFW_HTTP_CONN_KA)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
-			__FSM_I_MOVE_str(I_EoT, "close");
-		});
+		}, I_EoT);
 		TRY_STR_LAMBDA("keep-alive", {
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
-			__FSM_I_MOVE_str(I_EoT, "keep-alive");
-		});
+		}, I_EoT);
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
 
@@ -948,8 +946,7 @@ __parse_transfer_encoding(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_STATE(I_TransEncod) {
 		TRY_STR_LAMBDA("chunked", {
 			msg->flags |= TFW_HTTP_CHUNKED;
-			__FSM_I_MOVE_str(I_EoT, "chunked");
-		});
+		}, I_EoT);
 		__FSM_I_MOVE_n(I_TransEncodExt, 0);
 	}
 
@@ -1209,29 +1206,23 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
 			TRY_STR_LAMBDA("max-stale", {
 				req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-				__FSM_I_MOVE_str(Req_I_CC_EoT, "max-stale");
-			});
+			}, Req_I_CC_EoT);
 			goto cache_extension;
 		case 'n':
 			TRY_STR_LAMBDA("no-cache", {
 				req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-				__FSM_I_MOVE_str(Req_I_CC_EoT, "no-cache");
-			});
+			}, Req_I_CC_EoT);
 			TRY_STR_LAMBDA("no-store", {
 				req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-				__FSM_I_MOVE_str(Req_I_CC_EoT, "no-store");
-			});
+			}, Req_I_CC_EoT);
 			TRY_STR_LAMBDA("no-transform", {
 				req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
-				__FSM_I_MOVE_str(Req_I_CC_EoT, "no-transform");
-			});
+			}, Req_I_CC_EoT);
 			goto cache_extension;
 		case 'o':
 			TRY_STR_LAMBDA("only-if-cached", {
 				req->cache_ctl.flags |= TFW_HTTP_CC_NO_OIC;
-				__FSM_I_MOVE_str(Req_I_CC_EoT,
-						 "only-if-cached");
-			});
+			}, Req_I_CC_EoT);
 		default:
 		cache_extension:
 			__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
@@ -1952,37 +1943,29 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
 			TRY_STR_LAMBDA("must-revalidate", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REV;
-				__FSM_I_MOVE_str(Resp_I_EoT, "must-revalidate");
-			});
+			}, Resp_I_EoT);
 			goto cache_extension;
 		case 'n':
 			TRY_STR_LAMBDA("no-cache", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-				__FSM_I_MOVE_str(Resp_I_EoT, "no-cache");
-			});
+			}, Resp_I_EoT);
 			TRY_STR_LAMBDA("no-store", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-				__FSM_I_MOVE_str(Resp_I_EoT, "no-store");
-			});
+			}, Resp_I_EoT);
 			TRY_STR_LAMBDA("no-transform", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
-				__FSM_I_MOVE_str(Resp_I_EoT, "no-transform");
-			});
+			}, Resp_I_EoT);
 			goto cache_extension;
 		case 'p':
 			TRY_STR_LAMBDA("public", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
-				__FSM_I_MOVE_str(Resp_I_EoT, "public");
-			});
+			}, Resp_I_EoT);
 			TRY_STR_LAMBDA("private", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
-				__FSM_I_MOVE_str(Resp_I_EoT, "private");
-			});
+			}, Resp_I_EoT);
 			TRY_STR_LAMBDA("proxy-revalidate", {
 				resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
-				__FSM_I_MOVE_str(Resp_I_EoT,
-						 "proxy-revalidate");
-			});
+			}, Resp_I_EoT);
 			goto cache_extension;
 		case 's':
 			TRY_STR("s-maxage=", Resp_I_CC_SMaxAgeV);
@@ -2148,58 +2131,45 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		case 'A':
 			TRY_STR_LAMBDA("Apr", {
 				resp->expires += SB_APR;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Aug", {
 				resp->expires += SB_AUG;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			return CSTR_NEQ;
 		case 'J':
-			TRY_STR_LAMBDA("Jan", {
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			TRY_STR("Jan", Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Jun", {
 				resp->expires += SB_JUN;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Jul", {
 				resp->expires += SB_JUL;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			return CSTR_NEQ;
 		case 'M':
 			TRY_STR_LAMBDA("Mar", {
 				/* Add SEC24H for leap year on year parsing. */
 				resp->expires += SB_MAR;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("May", {
 				resp->expires += SB_MAY;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			return CSTR_NEQ;
 		default:
 			TRY_STR_LAMBDA("Feb", {
 				resp->expires += SB_FEB;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Sep", {
 				resp->expires += SB_SEP;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Oct", {
 				resp->expires += SB_OCT;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Nov", {
 				resp->expires += SB_NOV;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			TRY_STR_LAMBDA("Dec", {
 				resp->expires += SB_DEC;
-				__FSM_I_MOVE_n(Resp_I_ExpYearSP, 3);
-			});
+			}, Resp_I_ExpYearSP);
 			return CSTR_NEQ;
 		}
 	}
