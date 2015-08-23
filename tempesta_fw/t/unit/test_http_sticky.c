@@ -50,9 +50,6 @@
 
 #define COOKIE_NAME         "QWERTY_123"
 
-#define TfwStr_string(v)        { 0, sizeof(v) - 1, (v) }
-
-
 static struct {
 	int             tfw_connection_send_was_called;
 	int             seen_set_cookie_header;
@@ -73,8 +70,8 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	unsigned int    data_off = 0;
-	const TfwStr    s_set_cookie = TfwStr_string("Set-Cookie:");
-	TfwStr          hdr_value = {};
+	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
+	DEFINE_TFW_STR(hdr_value, NULL);
 
 	BUG_ON(!msg);
 	BUG_ON(!conn);
@@ -117,8 +114,8 @@ http_sticky_suite_setup(void)
 
 	memset(&mock, 0, sizeof(mock));
 
-	mock.hmreq = tfw_http_msg_alloc(Conn_Clnt);
-	mock.hmresp = tfw_http_msg_alloc(Conn_Srv);
+	mock.hmreq = tfw_http_msg_alloc(Conn_Clnt, 0);
+	mock.hmresp = tfw_http_msg_alloc(Conn_Srv, 0);
 
 	BUG_ON(!mock.hmreq);
 	BUG_ON(!mock.hmresp);
@@ -171,7 +168,7 @@ TEST(http_sticky, sending_302)
 TEST(http_sticky, sending_502)
 {
 	EXPECT_EQ(tfw_http_sticky_set(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_sticky_send_502(mock.hmreq), 0);
+	EXPECT_EQ(tfw_http_send_502(mock.hmreq), 0);
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
@@ -238,7 +235,7 @@ http_parse_resp_helper(void)
 	/* XXX reset parser explicitly to be able to call it multiple times */
 	memset(&mock.hmresp->parser, 0, sizeof(mock.hmresp->parser));
 	mock.hmresp->h_tbl->off = TFW_HTTP_HDR_RAW;
-	memset(mock.hmresp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwHttpHdr));
+	memset(mock.hmresp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
 	return http_parse_helper(mock.hmresp, tfw_http_parse_resp);
 }

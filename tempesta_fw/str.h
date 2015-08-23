@@ -75,8 +75,8 @@ typedef struct {
 	unsigned int	flags;
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val) TfwStr name = { val, NULL, sizeof(val) - 1, \
-						  0 }
+#define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
+						  sizeof(val) - 1, 0 }
 
 /* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
