@@ -170,13 +170,15 @@ __lookup_pgfrag_room(struct sk_buff *skb, int len)
 static int
 __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 {
+	int i, n_frag = 0;
+	struct skb_shared_info *psi, *si = skb_shinfo(skb);
+
 	if (skb_shinfo(skb)->nr_frags > MAX_SKB_FRAGS - n) {
-		int i, n_frag;
 		skb_frag_t *f;
 		struct sk_buff *skb_frag;
-		struct skb_shared_info *si = skb_shinfo(pskb ? : skb);
 
-		skb_frag = si->frag_list;
+		psi = pskb ? skb_shinfo(pskb) : si;
+		skb_frag = psi->frag_list;
 		n_frag = skb_shinfo(skb)->nr_frags + n - MAX_SKB_FRAGS;
 
 		if (skb_frag && !skb_headlen(skb_frag)
@@ -189,14 +191,14 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 			skb_frag = alloc_skb(0, GFP_ATOMIC);
 			if (!skb_frag)
 				return -ENOMEM;
-			skb_frag->next = si->frag_list;
-			si->frag_list = skb_frag;
+			skb_frag->next = psi->frag_list;
+			psi->frag_list = skb_frag;
 		}
 
 		for (i = n_frag - 1;
 		     i >= 0 && MAX_SKB_FRAGS - n + i >= from; --i)
 		{
-			f = &skb_shinfo(skb)->frags[MAX_SKB_FRAGS - n + i];
+			f = &si->frags[MAX_SKB_FRAGS - n + i];
 			skb_shinfo(skb_frag)->frags[i] = *f;
 			ss_skb_adjust_data_len(skb, -skb_frag_size(f));
 			ss_skb_adjust_data_len(skb_frag, skb_frag_size(f));
@@ -204,11 +206,11 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 		skb_shinfo(skb_frag)->nr_frags += n_frag;
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_frag->ip_summed = CHECKSUM_PARTIAL;
-		n -= n_frag;
 	}
 
-	memmove(&skb_shinfo(skb)->frags[from + n],
-		&skb_shinfo(skb)->frags[from], n);	
+	memmove(&si->frags[from + n], &si->frags[from],
+		(si->nr_frags - from - n_frag) * sizeof(skb_frag_t));
+	si->nr_frags += n - n_frag;
 
 	return 0;
 }
@@ -273,7 +275,10 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 
 	BUG_ON(!(alloc | tail_len));
 
-	/* Quick and unlike path: just advance skb tail pointer. */
+	/*
+	 * Quick and unlike path: just advance skb tail pointer.
+	 * TODO optimization: move the tail if it's small.
+	 */
 	if (unlikely(!tail_len && len <= skb_tailroom(skb)))
 		return skb_put(skb, len);
 
@@ -316,10 +321,8 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		/* Partially stolen from skb_try_coalesce(). */
 		WARN_ON(skb_head_is_locked(skb));
 
-		if (tail_len) {
-			__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
-			skb_frag_ref(skb, alloc);
-		}
+		__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
+		skb_frag_ref(skb, alloc);
 	}
 
 	return skb_frag_address(&skb_shinfo(skb)->frags[0]);
@@ -497,6 +500,14 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 	dlen = skb_headlen(skb);
 	vaddr = skb->data;
 
+	SS_DBG("skb fragmentation (len=%d pspt=%p, skb: head=%p data=%p"
+	       " tail=%p end=%p len=%u data_len=%u truesize=%u"
+	       " nr_frags=%u frag_list=%p)...\n",
+	       len, pspt, skb->head, skb->data,
+	       skb_tail_pointer(skb), skb_end_pointer(skb),
+	       skb->len, skb->data_len, skb->truesize,
+	       skb_shinfo(skb)->nr_frags, skb_shinfo(skb)->frag_list);
+
 	if (pspt >= vaddr && pspt < vaddr + dlen) {
 		it->ptr = __split_linear_data(skb, pskb, pspt, len);
 		goto done;
@@ -522,6 +533,14 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 
 	return -ENOENT;
 done:
+	SS_DBG("%s: res=%p, skb: head=%p data=%p tail=%p end=%p"
+	       " len=%u data_len=%u truesize=%u"
+	       " nr_frags=%u frag_list=%p)\n", __FUNCTION__, it->ptr,
+	       skb->head, skb->data,
+	       skb_tail_pointer(skb), skb_end_pointer(skb),
+	       skb->len, skb->data_len, skb->truesize,
+	       skb_shinfo(skb)->nr_frags, skb_shinfo(skb)->frag_list);
+
 	if (!it->ptr)
 		return SS_DROP;
 	it->len = len;
