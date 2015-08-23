@@ -51,7 +51,7 @@ tfw_str_del_chunk(TfwStr *str, int id)
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 {
-	if (unlikely(str->flags & flag)) {
+	if (str->flags & flag) {
 		unsigned int l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
 		unsigned char *p = tfw_pool_realloc(pool, str->ptr, l,
 						    l + sizeof(TfwStr));
@@ -59,8 +59,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 			return NULL;
 		str->ptr = p;
 		TFW_STR_CHUNKN_INC(str);
-	}
-	else {
+	} else {
 		TfwStr *a = tfw_pool_alloc(pool, 2 * sizeof(TfwStr));
 		if (!a)
 			return NULL;
@@ -69,8 +68,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag)
 		TFW_STR_CHUNKN_INIT(str);
 	}
 
-	str = TFW_STR_CURR(str);
-
+	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - 1;
 	TFW_STR_INIT(str);
 
 	return str;

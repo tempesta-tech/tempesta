@@ -55,7 +55,10 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 	void *a;
 
 	/* TODO properly increase the pool size. */
-	BUG_ON(p->off + n > TFW_POOL_SIZE(p));
+	if (unlikely(p->off + n >= TFW_POOL_SIZE(p))) {
+		TFW_ERR("%s: insufficient space in pool %p\n", __func__, p);
+		return NULL;
+	}
 
 	a = p->base + p->off;
 	p->off += n;
@@ -70,17 +73,24 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 	unsigned char *p_tmp = ptr;
 	void *a;
 
+	BUG_ON(new_n < old_n);
+
 	if (p_tmp + old_n == p->base + p->off) {
 		/*
 		 * Quick path: there were no other allocations since previous
 		 * alloc().
 		 */
+		if (unlikely(p->off + new_n - old_n >= TFW_POOL_SIZE(p))) {
+			TFW_ERR("%s: insufficient space in pool %p\n", __func__, p);
+			return NULL;
+		}
 		p->off += new_n - old_n;
 		return ptr;
 	}
 
 	a = tfw_pool_alloc(p, new_n);
-	memcpy(a, ptr, old_n);
+	if (likely(a))
+		memcpy(a, ptr, old_n);
 
 	return a;
 }
