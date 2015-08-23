@@ -177,12 +177,12 @@ TEST(tfw_sched_http, some_rules)
 	test_req("GET http://natsys-lab.com/foo/bar/ HTTP/1.1\r\n\r\n", expect_conn2);
 	test_req("GET http://natsys-lab.com/foo/baz/ HTTP/1.1\r\n\r\n", expect_conn3);
 	test_req("GET http://natsys-lab2.com/foo/baz/ HTTP/1.1\r\n\r\n", expect_conn4);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nHost: google.com\r\n", expect_conn5);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nHost: google2.com\r\n", expect_conn6);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: close\r\n", expect_conn7);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: Keep-Alive\r\n", expect_conn8);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nUser-Agent:Bot\r\n", expect_conn9);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nX-Forwarded-For: 127.0.0.1\r\n", expect_conn10);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nHost: google.com\r\n\r\n", expect_conn5);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nHost: google2.com\r\n\r\n", expect_conn6);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: close\r\n\r\n", expect_conn7);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n", expect_conn8);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n", expect_conn9);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nX-Forwarded-For: 127.0.0.1\r\n\r\n", expect_conn10);
 	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\n\r\n", NULL);
 
 	cleanup_cfg();
@@ -228,33 +228,33 @@ TestCase test_cases[] = {
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_host eq natsys-lab.com;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab.com\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab.com\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_host prefix natsys-lab;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: google.com\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: google.com\r\n\r\n",
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_conn eq Keep-Alive;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_conn prefix Keep;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_raw eq User-Agent:Bot;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Bot\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Tot\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Tot\r\n\r\n",
 	},
 	{
 		.rule_str = "sched_http_rules {\nmatch default hdr_raw prefix User-Agent;\n}\n",
-		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Bot\r\n",
-		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent: Bot\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 };
 
@@ -291,6 +291,9 @@ TEST_SUITE(sched_http)
 {
 	tfw_sched_lookup_ptr = get_sym_ptr("tfw_sched_lookup");
 	spec_cleanup_ptr = get_sym_ptr("spec_cleanup");
+
+	BUG_ON(tfw_sched_lookup_ptr == NULL);
+	BUG_ON(spec_cleanup_ptr == NULL);
 
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);

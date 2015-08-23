@@ -25,29 +25,29 @@
 #include "kallsyms_helper.h"
 
 typedef struct {
-        unsigned long addr;
-        const char    *name;
+	unsigned long addr;
+	const char    *name;
 } Symdata;
 
 static int
 get_sym(void *data, const char *namebuf, struct module *owner, unsigned long addr)
 {
-        Symdata *symdata = (Symdata *)data;
+	Symdata *symdata = data;
 
-        if (strcmp(namebuf, symdata->name) || !strcmp(owner->name, THIS_MODULE->name)) {
-            return 0;
-        }
+	if (strcmp(namebuf, symdata->name) || !strcmp(owner->name, THIS_MODULE->name)) {
+		return 0;
+	}
 
-        symdata->addr = addr;
-        return 1;
+	symdata->addr = addr;
+	return 1;
 }
 
 void *
 get_sym_ptr(const char *name)
 {
-        Symdata symdata = { .addr = 0, .name = name };
+	Symdata symdata = { .addr = 0, .name = name };
 
-        kallsyms_on_each_symbol(get_sym, &symdata);
+	kallsyms_on_each_symbol(get_sym, &symdata);
 
-        return (void *)symdata.addr;
+	return (void *)symdata.addr;
 }
