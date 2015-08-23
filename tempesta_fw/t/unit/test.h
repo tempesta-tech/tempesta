@@ -101,6 +101,9 @@ do {							\
 	          (unsigned long)_val1, (unsigned long)_val2);		\
 } while (0)
 
+#define EXPECT_ZERO(expr) \
+	__EXPECT_COND("EXPECT_ZERO", (expr), _val == 0)
+
 #define EXPECT_EQ(expr1, expr2) \
 	__EXPECT_CMP("EXPECT_EQ", (expr1), (expr2), _val1 == _val2)
 
