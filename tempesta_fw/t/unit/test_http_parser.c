@@ -331,6 +331,19 @@ TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 	);
 }
 
+TEST(http_parser, parses_connection_value)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"\r\n")
+		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_KA);
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Connection: Close\r\n"
+		"\r\n")
+		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
+}
+
 TEST_SUITE(http_parser)
 {
 	TEST_TEARDOWN(free_req);
@@ -339,4 +352,5 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, fills_hdr_tbl);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
+	TEST_RUN(http_parser, parses_connection_value);
 }
