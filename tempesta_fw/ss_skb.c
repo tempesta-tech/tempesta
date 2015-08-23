@@ -544,7 +544,7 @@ int
 ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
 {
 	if (unlikely(len > PAGE_SIZE)) {
-		SS_WARN("Trying to get too large skb room, size=%d\n", len);
+		SS_WARN("Trying to get too large skb room, size=%u\n", len);
 		return -E2BIG;
 	}
 

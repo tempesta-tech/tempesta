@@ -344,7 +344,7 @@ static int
 __hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
 {
 	int r;
-	TfwStr it;
+	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
 	r = ss_skb_get_room(hm->crlf.skb, h->ptr, hdr->len, &it);
@@ -369,7 +369,7 @@ __hdr_append(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr)
 {
 	int r;
 	TfwStr *h = TFW_STR_LAST(orig_hdr);
-	TfwStr it;
+	TfwStr it = {};
 
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
