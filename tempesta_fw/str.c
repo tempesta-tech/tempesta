@@ -117,7 +117,7 @@ DEBUG_EXPORT_SYMBOL(tfw_str_add_duplicate);
 int
 tfw_strcpy(TfwStr *dst, const TfwStr *src)
 {
-	int n1, n2, o1, o2, chunks = 0;
+	int n1, n2, o1 = 0, o2 = 0, chunks = 0;
 	int mode = (TFW_STR_PLAIN(src) << 1) | TFW_STR_PLAIN(dst);
 	TfwStr *c1, *c2, *sptr1, *sptr2;
 
@@ -134,15 +134,18 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 	case 1: /* @src is compound, @dst is plain. */
 		sptr1 = (TfwStr *)src->ptr;
 		n1 = TFW_STR_CHUNKN(src);
-		for (c1 = sptr1, o2 = 0; c1 < sptr1 + n1; ++c1, o2 += c1->len)
+		for (c1 = sptr1; c1 < sptr1 + n1; ++c1) {
 			memcpy((char *)dst->ptr + o2, c1->ptr, c1->len);
+			o2 += c1->len;
+		}
 		BUG_ON(o2 != src->len);
 		return 0;
 	case 2: /* @src is plain, @dst is compound. */
 		sptr2 = (TfwStr *)dst->ptr;
 		n2 = TFW_STR_CHUNKN(dst);
-		for (c2 = sptr2, o1 = 0; c2 < sptr2 + n2; ++c2, o1 += c2->len) {
+		for (c2 = sptr2; c2 < sptr2 + n2; ++c2) {
 			memcpy(c2->ptr, (char *)src->ptr + o1, c2->len);
+			o1 += c2->len;
 			++chunks;
 		}
 		BUG_ON(o1 != dst->len);
@@ -150,7 +153,6 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 	case 3: /* The both are compound. */
 		n1 = TFW_STR_CHUNKN(src);
 		n2 = TFW_STR_CHUNKN(dst);
-		o1 = o2 = 0;
 		c1 = sptr1 = (TfwStr *)src->ptr;
 		c2 = (TfwStr *)dst->ptr;
 		while (1) {

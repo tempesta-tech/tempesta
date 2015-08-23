@@ -50,6 +50,7 @@
 #include "pool.h"
 
 #define TFW_STR_FBITS		8
+#define TFW_STR_FMASK		((1 << TFW_STR_FBITS) - 1)
 #define TFW_STR_CN_SHIFT	TFW_STR_FBITS
 /* Str is compound from many chunks, use indirect table for the chunks. */
 #define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
@@ -82,7 +83,8 @@ typedef struct {
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
 #define TFW_STR_CHUNKN_ADD(s, n) ((s)->flags += ((n) << TFW_STR_CN_SHIFT))
 #define TFW_STR_CHUNKN_SUB(s, n) ((s)->flags -= ((n) << TFW_STR_CN_SHIFT))
-#define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags |= ((n) << TFW_STR_CN_SHIFT))
+#define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags = ((s)->flags & TFW_STR_FMASK) \
+						  | ((n) << TFW_STR_CN_SHIFT))
 /* Compound string contains at least 2 chunks. */
 #define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
 
