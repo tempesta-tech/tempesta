@@ -386,14 +386,22 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 static int
 tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
+	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
 	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
 
-	return tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
-				     sizeof("X-Forwarded-For") - 1,
-				     buf, p - buf,
-				     TFW_HTTP_HDR_X_FORWARDED_FOR, true);
+	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
+				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
+				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
+	if (r)
+		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
+			(int)(p - buf), buf, hm);
+	else
+		TFW_DBG("added X-Forwarded-For header for %*s\n",
+			(int)(p - buf), buf);
+
+	return r;
 }
 
 /**
