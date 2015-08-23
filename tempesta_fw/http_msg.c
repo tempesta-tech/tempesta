@@ -175,13 +175,13 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
  * now by facinng CRLF at begin of current data chunk.
  */
 void
-tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, long len)
+tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
 {
 	TfwStr *hdr = &hm->parser.hdr;
 
 	BUG_ON(hdr->flags & TFW_STR_DUPLICATE);
 
-	TFW_DBG("store header chunk len=%ld data=%p hdr=<%#x,%u,%p>\n",
+	TFW_DBG("store header chunk len=%d data=%p hdr=<%#x,%u,%p>\n",
 		len, data, hdr->flags, hdr->len, hdr->ptr);
 
 	/* The header should be open before. */
@@ -208,7 +208,7 @@ tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, long len)
 				 min((int)len, 10), data);
 			return;
 		}
-		tfw_http_msg_set_data(hm, hdr, data);
+		tfw_http_msg_set_data(hm, h, data);
 		tfw_str_updlen(hdr, data + len);
 	}
 }
