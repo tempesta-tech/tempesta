@@ -40,6 +40,30 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
+/**
+ * String can either contain plain data, in which case `ptr` field is used as
+ * a pointer to a continuos region, or multiple chunks of data, in which case
+ * `ptr` points to an array of plain TfwStr's. In other words, a single
+ * indirection is expected. If string have more than one chunk, it's called
+ * a "compound" string. `len` field of a compound string contains total length
+ * of all chunks combined. Same field for a plain string is just length of
+ * a data in the region pointed to by `ptr`.
+ *
+ * Another possibility is a so called duplicate string. A duplicate string is
+ * a bunch of strings that describe HTTP fields with the same name. For example,
+ * an HTTP server can return mulitple Set-Cookie fields; all of those will end
+ * up in a duplicate string. Such strings use `ptr` field as an array of
+ * TfwStr's, each of which can be a compound string. A duplicate string can not
+ * itself consist of duplicate strings.
+ *
+ * `flags` field is used for both discerning the types of strings and keeping
+ * the number of elements in `ptr` array, if there are any. Lower 8 bits of
+ * the field are reserved for flags. Remaining bits are used to store the number
+ * of chunks in a compound string. Zero means a plain string.
+ *
+ */
+
 #ifndef __TFW_STR_H__
 #define __TFW_STR_H__
 
