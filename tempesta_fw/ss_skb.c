@@ -258,6 +258,16 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	return 0;
 }
 
+/*
+ * Maximum data length to move.
+ * Assume that it's faster to move this mnumber of bytes than do relatively
+ * complex things with skb fragmentation (also keep in mind that higher
+ * number of skb fragments reduces performance of segmentation offload).
+ * Meantime, this is relatively large piece of data to keep HTTP headers
+ * in most cases.
+ */
+#define __MAXCPSZ	256
+
 /**
  * Sometimes kernel gives bit more memory for skb than was requested
  * (see ksize() call in __alloc_skb()) - use the extra memory if it's enough
@@ -276,11 +286,16 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 	BUG_ON(!(alloc | tail_len));
 
 	/*
-	 * Quick and unlike path: just advance skb tail pointer.
-	 * TODO optimization: move the tail if it's small.
+	 * Quick and unlike path: move small skb tail or
+	 * just advance skb tail pointer.
 	 */
-	if (unlikely(!tail_len && len <= skb_tailroom(skb)))
-		return skb_put(skb, len);
+	if (unlikely(tail_len <= __MAXCPSZ && len <= skb_tailroom(skb))) {
+		unsigned char *p = skb_put(skb, len);
+		if (!tail_len)
+			return p;
+		memmove(pspt + len, pspt, tail_len);
+		return pspt;
+	}
 
 	/*
 	 * Not enough room in linear part - put the data to page fragment.
