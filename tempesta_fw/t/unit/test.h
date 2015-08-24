@@ -89,7 +89,13 @@ do {							\
 	test_register_failure();			\
 } while (0)
 
-
+#define __EXPECT_COND(name, expr, cond_expr)	\
+do {						\
+	typeof(expr) _val = (expr);		\
+	if (cond_expr)				\
+		break;				\
+	TEST_FAIL("%s(%s) => %#lx", name, #expr, (unsigned long)_val); \
+} while (0)
 
 #define __EXPECT_CMP(name, expr1, expr2, cmp_expr)	\
 do {							\
@@ -121,15 +127,6 @@ do {							\
 
 #define EXPECT_GE(expr1, expr2) \
 	__EXPECT_CMP("EXPECT_GE", (expr1), (expr2), _val1 >= val2)
-
-
-#define __EXPECT_COND(name, expr, cond_expr)	\
-do {						\
-	typeof(expr) _val = (expr);		\
-	if (cond_expr)				\
-		break;				\
-	TEST_FAIL("%s(%s) => %#lx", name, #expr, (unsigned long)_val); \
-} while (0)
 
 #define EXPECT_TRUE(expr) \
 	__EXPECT_COND("EXPECT_TRUE", (expr), _val)

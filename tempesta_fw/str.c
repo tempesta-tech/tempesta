@@ -119,48 +119,50 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 {
 	int n1, n2, o1 = 0, o2 = 0, chunks = 0;
 	int mode = (TFW_STR_PLAIN(src) << 1) | TFW_STR_PLAIN(dst);
-	TfwStr *c1, *c2, *sptr1, *sptr2;
+	TfwStr *c1, *c2, *end;
 
 	BUG_ON(TFW_STR_DUP(dst));
 	BUG_ON(TFW_STR_DUP(src));
 
+	/* After the check we don't need to control @dst chunks overrun. */
 	if (unlikely(src->len > dst->len))
 		return -E2BIG;
 
 	switch (mode) {
-	case 0: /* The both are plain. */
-		memcpy(dst->ptr, src->ptr, dst->len);
+	case 3: /* The both are plain. */
+		memcpy(dst->ptr, src->ptr, min(src->len, dst->len));
 		break;
 	case 1: /* @src is compound, @dst is plain. */
-		sptr1 = (TfwStr *)src->ptr;
 		n1 = TFW_STR_CHUNKN(src);
-		for (c1 = sptr1; c1 < sptr1 + n1; ++c1) {
+		end = (TfwStr *)src->ptr + n1;
+		for (c1 = (TfwStr *)src->ptr; c1 < end; ++c1) {
 			memcpy((char *)dst->ptr + o2, c1->ptr, c1->len);
 			o2 += c1->len;
 		}
 		BUG_ON(o2 != src->len);
 		break;
 	case 2: /* @src is plain, @dst is compound. */
-		sptr2 = (TfwStr *)dst->ptr;
-		n2 = TFW_STR_CHUNKN(dst);
-		for (c2 = sptr2; c2 < sptr2 + n2; ++c2) {
+		for (c2 = (TfwStr *)dst->ptr; o1 < src->len; ++c2) {
+			/* Update length of the last chunk. */
+			c2->len = min(c2->len, src->len - o1);
 			memcpy(c2->ptr, (char *)src->ptr + o1, c2->len);
-			o1 += c2->len;
 			++chunks;
+			o1 += c2->len;
 		}
-		BUG_ON(o1 != dst->len);
 		break;
-	case 3: /* The both are compound. */
+	case 0: /* The both are compound. */
 		n1 = TFW_STR_CHUNKN(src);
 		n2 = TFW_STR_CHUNKN(dst);
-		c1 = sptr1 = (TfwStr *)src->ptr;
+		c1 = (TfwStr *)src->ptr;
 		c2 = (TfwStr *)dst->ptr;
+		end = c1 + n1 - 1;
 		while (1) {
 			int _n = min(c1->len - o1, c2->len - o2);
 			memcpy((char *)c2->ptr + o2, (char *)c1->ptr + o1, _n);
-			if (c1 == sptr1 + n1 - 1 && _n == c1->len - o1) {
+			if (c1 == end && _n == c1->len - o1) {
 				/* Adjust @dst last chunk length. */
 				c2->len = o2 + _n;
+				++chunks;
 				break;
 			}
 			if (c1->len - o1 == c2->len - o2) {
@@ -311,6 +313,8 @@ EXPORT_SYMBOL(tfw_stricmpspn);
  *      rest of @str is ignored.
  *  - TFW_STR_EQ_CASEI
  *      Use case-insensitive comparison function.
+ *
+ * @return true if the strings are equal and false otherwise.
  */
 bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
