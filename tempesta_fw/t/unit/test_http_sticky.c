@@ -34,6 +34,8 @@
 #define __init
 #endif
 
+#include "http_msg.c"
+
 #include "http_sticky.c"
 
 #include "http.c"
