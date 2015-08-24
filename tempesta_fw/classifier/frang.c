@@ -326,6 +326,12 @@ frang_http_field_len_raw(const TfwHttpReq *req)
 		}
 	}
 
+	if (req->parser.hdr.len > frang_cfg.http_field_len) {
+		TFW_WARN("frang: HTTP raw field limit exceeded: %u (%u)\n",
+		         req->parser.hdr.len, frang_cfg.http_field_len);
+		return TFW_BLOCK;
+	}
+
 	return TFW_PASS;
 }
 
