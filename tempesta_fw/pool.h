@@ -40,7 +40,7 @@ typedef struct {
 	if (likely(p)) {						\
  		s = tfw_pool_alloc(p, sizeof(struct_name));		\
  		BUG_ON(!s);						\
- 		if (mask && TFW_POOL_ZERO)				\
+		if (mask & TFW_POOL_ZERO)				\
  			memset(s, 0, sizeof(struct_name));		\
  		s->pool = p;						\
  	} else {							\
