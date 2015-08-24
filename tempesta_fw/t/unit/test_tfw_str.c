@@ -101,7 +101,8 @@ TEST(tfw_strcpy, zero_src)
 	};
 
 	/* @dest->ptr is static memory, but must not crash. */
-	EXPECT_ZERO(!tfw_strcpy(&s2, &s1));
+	EXPECT_ZERO(tfw_strcpy(&s2, &s1));
+	EXPECT_ZERO(s2.len);
 }
 
 TEST(tfw_strcpy, zero_dst)
@@ -116,7 +117,7 @@ TEST(tfw_strcpy, zero_dst)
 	};
 
 	/* @dest->ptr is static memory, but must not crash. */
-	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
+	EXPECT_ZERO(!tfw_strcpy(&s1, &s2));
 }
 
 TEST(tfw_strcpy, both_plain)
@@ -150,9 +151,9 @@ TEST(tfw_strcpy, src_compound)
 
 TEST(tfw_strcpy, dst_compound)
 {
-	char buf[32] = { 0 };
+	char buf[32] = { [0 ... 30] = 'a', 0 };
 	TfwStr s2 = {
-		.len = sizeof("abcdefghijklmnop"),
+		.len = sizeof("abcdefghijklmnop") - 1,
 		.ptr = "abcdefghijklmnop"
 	};
 	TFW_STR(s1, buf);
@@ -164,11 +165,23 @@ TEST(tfw_strcpy, dst_compound)
 
 TEST(tfw_strcpy, both_compound)
 {
-	char buf[32] = { 0 };
+	char buf[32] = { [0 ... 30] = 'a', 0 };
 	TFW_STR(s1, buf);
-	TFW_STR(s2, "abcdefghijklmnop");
+	TfwStr s2 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "ab",	.len = 2 },
+			{ .ptr = "cde",	.len = 3 },
+			{ .ptr = "f",	.len = 1 },
+			{ .ptr = "g",	.len = 1 },
+			{ .ptr = "h",	.len = 1 },
+			{ .ptr = "ijklmno", .len = 7 },
+			{ .ptr = "p", .len = 1 }
+		},
+		.len = sizeof("abcdefghijklmnop") - 1,
+		.flags = 7 << TFW_STR_CN_SHIFT
+	};
 
-	EXPECT_ZERO(tfw_strcpy(s1, s2));
+	EXPECT_ZERO(tfw_strcpy(s1, &s2));
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
 }
@@ -178,7 +191,7 @@ TEST(tfw_strcat, plain)
 	int chunks;
 	TFW_STR(s1, "abcdefghijklmnop");
 	TfwStr s2 = {
-		.len = sizeof("0123456789"),
+		.len = sizeof("0123456789") - 1,
 		.ptr = "0123456789"
 	};
 
@@ -258,40 +271,28 @@ TEST(tfw_stricmpspn, handles_empty_strs)
 
 TEST(tfw_stricmpspn, handles_different_size_strs)
 {
-	TfwStr c1 = {
-		.len = sizeof("ab") - 1,
-		.ptr = (void *)"ab"
-	};
-	TfwStr c2 = {
-		.len = sizeof("cdefghijklmnopqrst") - 1,
-		.ptr = "cdefghijklmnopqrst"
-	};
-	TfwStr chunks1[] = { c1, c2 };
 	TfwStr s1 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "ab", .len = sizeof("ab") - 1 },
+			{ .ptr = "cdefghijklmnopqrst",
+			  .len = sizeof("cdefghijklmnopqrst") - 1 }
+		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.ptr = &chunks1
+		.flags = 2 << TFW_STR_CN_SHIFT
 	};
-
-	TfwStr c3 = {
-		.len = sizeof("abcdefg") - 1,
-		.ptr = (void *)"abcdefg"
-	};
-	TfwStr c4 = {
-		.len = sizeof("hi") - 1,
-		.ptr = "hi"
-	};
-	TfwStr c5 = {
-		.len = sizeof("jklmnopqrst") - 1,
-		.ptr = "jklmnopqrst"
-	};
-	TfwStr chunks2[] = { c3, c4, c5 };
 	TfwStr s2 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "abcdefg", .len = sizeof("abcdefg") - 1 },
+			{ .ptr = "hi", .len = sizeof("hi") - 1 },
+			{ .ptr = "jklmnopqrst",
+			  .len = sizeof("jklmnopqrst") - 1 }
+		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.ptr = &chunks2
+		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
-	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'r') == 0);
+	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
+	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 'r'));
 }
 
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
