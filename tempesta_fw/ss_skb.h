@@ -167,6 +167,23 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->truesize += delta;
 }
 
+/*
+ * Return the size of an SKB fragment.
+ * @frag - pointer to an SKB fragment.
+ * @frag_size - initial size of first fragment of the SKB.
+ *
+ * When an empty SKB is created for placing data into it,
+ * each fragment of the SKB is set up as having zero size.
+ * In that case, return PAGE_SIZE for the fragment size.
+ * See implementation of ss_skb_alloc().
+ */
+static inline unsigned int
+ss_skb_frag_size(skb_frag_t *frag, unsigned int frag_size)
+{
+        return frag_size ? skb_frag_size(frag) : PAGE_SIZE;
+}
+
+
 #define SS_SKB_MAX_DATA_LEN	(MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
