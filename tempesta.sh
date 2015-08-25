@@ -6,6 +6,7 @@
 # Copyright (C) 2015 Tempesta Technologies, Inc.
 
 root=$(dirname "$0")
+name=`basename $0` # program name (comm name in ps)
 
 # Resolve root to absolute path which is handy for kernel.
 # pwd is used instead of readlink to avoid symlink resolution.
@@ -13,15 +14,32 @@ pushd "$root" > /dev/null
 root="$(pwd)"
 popd > /dev/null
 
-arg=${1:-}
 tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
+class_path="$tfw_path/classifier/"
 tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
 sched_ko_files=($(ls $tfw_path/sched/*.ko))
 
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
+declare frang_mod=
+
+declare -r long_opts="help,load,unload,start,stop,restart"
+
+usage()
+{
+	echo -e "\nUsage: ${name} [options] {action}\n"
+	echo -e "Options:"
+	echo -e "  -f          Load Frang, HTTP DoS protection module.\n"
+	echo -e "Actions:"
+	echo -e "  --help      Show this message and exit."
+	echo -e "  --load      Load Tempesta modules."
+	echo -e "  --unload    Unload Tempesta modules."
+	echo -e "  --start     Load modules and start."
+	echo -e "  --stop      Stop and unload modules."
+	echo -e "  --restart   Restart.\n"
+}
 
 error()
 {
@@ -51,6 +69,12 @@ load_modules()
 		insmod $ko_file
 		[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
 	done
+
+	if [ "$frang_mod" ]; then
+		echo "Load Frang"
+		insmod $class_path/$frang_mod.ko
+		[ $? -ne 0 ] && error "cannot load $frang_mod module"
+	fi
 }
 
 start()
@@ -83,32 +107,47 @@ unload_modules()
 	
 	rmmod $tfw_mod
 	rmmod $tdb_mod
+	[ "`lsmod | grep \"\<$frang_mod\>\"`" ] && rmmod $frang_mod
 }
 
-# Linux service interface.
-case "$arg" in
-	load_modules)
-		load_modules
-		;;
-	unload_modules)
-		unload_modules
-		;;
-	start)
-		load_modules
-		start
-		;;
-	stop)
-		stop
-		unload_modules
-		;;
-	restart)
-		stop
-		start
-		;;
-	*)
-		echo "Usage: $0 {start|stop|restart}" >&1
-		exit 2
-		;;
-esac
-
-echo "done"
+args=$(getopt -o "f" -a -l "$long_opts" -- "$@")
+eval set -- "${args}"
+for opt; do
+	case "$opt" in
+		# Selectors for internal usage.
+		--load)
+			load_modules
+			exit
+			;;
+		--unload)
+			unload_modules
+			exit
+			;;
+		# User CLI.
+		--start)
+			load_modules && start && echo "done"
+			exit
+			;;
+		--stop)
+			stop && unload_modules && echo "done"
+			exit
+			;;
+		--restart)
+			stop && start && echo "done"
+			exit
+			;;
+		# Ignore any options after action.
+		-f)
+			frang_mod=tfw_frang
+			shift
+			;;
+		-h|--help)
+			usage
+			exit
+			;;
+		*)
+			error "Bad command line argument"
+			exit 2
+			;;
+	esac
+done
