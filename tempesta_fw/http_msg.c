@@ -559,12 +559,13 @@ tfw_http_msg_iter_init(TfwHttpMsg *hm, TfwMsgIter *it)
 
 	it->frag = 0;
 	it->frag_off = 0;
+	it->frag_size = skb_frag_size(&skb_shinfo(it->skb)->frags[0]);
 }
 
 int
 tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data)
 {
-	int n, c_off = 0;
+	unsigned int n, c_off = 0, frag_size;
 	const TfwStr *c;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 
@@ -572,23 +573,22 @@ tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data)
 		if (!frag)
 			return -E2BIG;
 
-		n = min(c->len - c_off, skb_frag_size(frag) - it->frag_off);
+		frag_size = ss_skb_frag_size(frag, it->frag_size);
+		n = min(c->len - c_off, frag_size - it->frag_off);
 
 		memcpy((char *)skb_frag_address(frag) + it->frag_off,
 		       (char *)c->ptr + c_off, n);
 		skb_frag_size_add(frag, n);
 		ss_skb_adjust_data_len(it->skb, n);
 
-		if (c->len - c_off == skb_frag_size(frag) - it->frag_off) {
+		if (c->len - c_off == frag_size - it->frag_off) {
 			frag = ss_skb_frag_next(&hm->msg.skb_list,
 						&it->skb, &it->frag);
 			it->frag_off = c_off = 0;
-		}
-		else if (n == c->len - c_off) {
+		} else if (n == c->len - c_off) {
 			c_off = 0;
 			it->frag_off += n;
-		}
-		else {
+		} else {
 			it->frag_off = 0;
 			c_off += n;
 			frag = ss_skb_frag_next(&hm->msg.skb_list,
