@@ -570,9 +570,10 @@ tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data)
 	unsigned int c_off = 0, c_size, f_room, n_copy;
 
 	TFW_STR_FOR_EACH_CHUNK(c, data, {
+this_chunk:
 		if (!frag)
 			return -E2BIG;
-this_chunk:
+
 		c_size = c->len - c_off;
 		f_room = ss_skb_frag_size(frag, it->frag_size) - it->frag_off;
 		n_copy = min(c_size, f_room);
