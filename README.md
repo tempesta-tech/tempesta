@@ -22,7 +22,7 @@ on:
 * CONFIG\_SECURITY\_NETWORK
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta DB user-space libarary requires netlink mmap defined in standard
+Tempesta DB user-space library requires netlink mmap defined in standard
 headers, so preferably Linux distribution should have native 3.10 kernel.
 Currently CentOS 7 is shipped with appropriate kernel.
 
@@ -58,3 +58,20 @@ The file location is determined by the `TFW_CFG_PATH` environment variable:
 By default, the `tempesta_fw.conf` from this directory is used.
 
 See `tempesta_fw.conf` for the list of available options and their descriptions.
+A part of the Tempesta which check some parameters of connections/messages going through the Tenpesta Firewall is designed as separate module. 
+It called "Frang". After a procedure of registration in the Tempesta as a kind of "Classifier", the Tempestra starts to checks new connections and messages through the Frang. 
+The Frang has his section of options in configuration("frang_limits". This options are:
+"request_rate" - rate of requests through a connection;
+"request_burst" - maximum rate of requests per fixed period of time(fraction of second);
+"connection_rate" -number of new connection per second;
+"connection_burst" -number of new connection per fixed period of time (fraction of second);
+"concurrent_connections" - number of concurrent connection;
+"client_header_timeout" timeout of incomming header of request;
+"client_body_timeout" timeout of incomming parts of a message;
+"http_uri_len" - max length of uri part in a request;
+"http_field_len" max length of fields in a request; 
+"http_body_len";
+"http_host_required" - the field "Host" is not optional;
+"http_ct_required";
+"http_methods" - a list of pemitted requests methods;
+"http_ct_vals"- enabled values of Content-Type of a request; 
