@@ -565,34 +565,51 @@ tfw_http_msg_iter_init(TfwHttpMsg *hm, TfwMsgIter *it)
 int
 tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data)
 {
-	unsigned int n, c_off = 0, frag_size;
 	const TfwStr *c;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+	unsigned int c_off = 0, c_size, f_room, n_copy;
 
 	TFW_STR_FOR_EACH_CHUNK(c, data, {
 		if (!frag)
 			return -E2BIG;
-
-		frag_size = ss_skb_frag_size(frag, it->frag_size);
-		n = min(c->len - c_off, frag_size - it->frag_off);
+this_chunk:
+		c_size = c->len - c_off;
+		f_room = ss_skb_frag_size(frag, it->frag_size) - it->frag_off;
+		n_copy = min(c_size, f_room);
 
 		memcpy((char *)skb_frag_address(frag) + it->frag_off,
-		       (char *)c->ptr + c_off, n);
-		skb_frag_size_add(frag, n);
-		ss_skb_adjust_data_len(it->skb, n);
+		       (char *)c->ptr + c_off, n_copy);
+		skb_frag_size_add(frag, n_copy);
+		ss_skb_adjust_data_len(it->skb, n_copy);
 
-		if (c->len - c_off == frag_size - it->frag_off) {
-			frag = ss_skb_frag_next(&hm->msg.skb_list,
-						&it->skb, &it->frag);
-			it->frag_off = c_off = 0;
-		} else if (n == c->len - c_off) {
+		if (c_size < f_room) {
+			/*
+			 * The chunk has fit in the SKB fragment with room
+			 * to spare. Stay in the same SKB fragment, swith
+			 * to next chunk of the string.
+			 */
 			c_off = 0;
-			it->frag_off += n;
+			it->frag_off += n_copy;
 		} else {
-			it->frag_off = 0;
-			c_off += n;
+			/*
+			 * Current SKB fragment has no more room available.
+			 * Switch to next SKB fragment.
+			 */
 			frag = ss_skb_frag_next(&hm->msg.skb_list,
 						&it->skb, &it->frag);
+			it->frag_off = 0;
+			/*
+			 * If all data from the chunk has been copied,
+			 * then switch to next chunk. Otherwise, stay
+			 * in the current chunk.
+			 */
+			/* Note that n_copy equals f_room here. */
+			if (c_size == n_copy) {
+				c_off = 0;
+			} else {
+				c_off += n_copy;
+				goto this_chunk;
+			}
 		}
 	});
 
