@@ -43,7 +43,7 @@ test_req_alloc(void)
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_HttpClnt, 0);
+	req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_HttpClnt);
 	BUG_ON(!req);
 
 	return req;
