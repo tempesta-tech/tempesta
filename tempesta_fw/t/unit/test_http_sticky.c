@@ -121,8 +121,8 @@ http_sticky_suite_setup(void)
 
 	memset(&mock, 0, sizeof(mock));
 
-	mock.hmreq = tfw_http_msg_alloc(Conn_Clnt, 0);
-	mock.hmresp = tfw_http_msg_alloc(Conn_Srv, 0);
+	mock.hmreq = tfw_http_msg_alloc(Conn_Clnt);
+	mock.hmresp = tfw_http_msg_alloc(Conn_Srv);
 
 	BUG_ON(!mock.hmreq);
 	BUG_ON(!mock.hmresp);
