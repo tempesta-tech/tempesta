@@ -25,12 +25,12 @@
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"
-#include "gfsm.h"
 #include "hash.h"
 #include "http_msg.h"
 #include "http_sticky.h"
 #include "log.h"
 #include "sched.h"
+#include "tls.h"
 
 #include "sync_socket.h"
 
