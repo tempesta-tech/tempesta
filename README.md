@@ -22,7 +22,7 @@ on:
 * CONFIG\_SECURITY\_NETWORK
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta DB user-space libarary requires netlink mmap defined in standard
+Tempesta DB user-space library requires netlink mmap defined in standard
 headers, so preferably Linux distribution should have native 3.10 kernel.
 Currently CentOS 7 is shipped with appropriate kernel.
 
@@ -44,17 +44,61 @@ normalization logic.
 
 ### Run & Stop
 
-        $ ./tempesta.sh start
-        $ ./tempesta.sh stop
+Use ```tempesta.sh``` script to run and stop Tempesta. The script provides help
+info by ```--help``` switch. Usage example:
+
+        $ ./tempesta.sh --start
+        $ ./tempesta.sh --stop
+
 
 ### Configuration
 
 Tempesta is configured via plain-text configuration file.
 
-The file location is determined by the `TFW_CFG_PATH` environment variable:
+The file location is determined by the `TFW\_CFG\_PATH` environment variable:
 
         $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh start
 
-By default, the `tempesta_fw.conf` from this directory is used.
+By default, the `tempesta\_fw.conf` from this directory is used.
 
-See `tempesta_fw.conf` for the list of available options and their descriptions.
+See ```tempesta\_fw.conf` for the list of available options and their descriptions.
+
+#### Frang
+
+**Frang** is a separate Tempesta module for HTTP DoS and DDoS attaks prevention.
+Use ```-f``` command key to start Tempesta with Frang:
+
+        $ ./tempesta.sh -f --start
+
+Frang has secific section in configuration file, *"frang_limits"*.
+The list of available options:
+
+* **request_rate** - requests per second rate through a connection;
+
+* **request_burst** - temporal burst of requests within 1 second;
+
+* **connection_rate** - new connections rate for each client;
+
+* **connection_burst** - temporal burst of new connections within 1 second;
+
+* **concurrent_connections** - maximum number of concurrent connection for
+			       each peer;
+
+* **client_header_timeout** - timeout between HTTP headers of incomming request;
+
+* **client_body_timeout** - timeout between chunks of HTTP request body;
+
+* **http_uri_len** - maximum length of URI part in a request;
+
+* **http_field_len** - maximum length of fields (headers) in a request;
+
+* **http_body_len** - maximum length of a request body;
+
+* **http_host_required** - require presense of ```Host``` header in a request;
+
+* **http_ct_required** - require ```Content-Type``` header in a request;
+
+* **http_methods** - sets the list of pemitted HTTP methods;
+
+* **http_ct_vals** - allowed values for ```Content-Type``` header;
+
