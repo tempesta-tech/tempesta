@@ -549,25 +549,68 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 	return __hdr_add(hm, hdr, hid);
 }
 
-void
-tfw_http_msg_iter_init(TfwHttpMsg *hm, TfwMsgIter *it)
+/**
+ * Allocate skb space for further @hm data writing.
+ * Put as much as possible to one skb, TCP GSO will care about segmentation.
+ *
+ * tfw_http_msg_free() is expected to be called for @hm if the function fails.
+ */
+static int
+__msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 {
+	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
+	struct sk_buff *skb;
+
+	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
+		skb = ss_skb_alloc(min_t(size_t, len, SS_SKB_MAX_DATA_LEN));
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(&hm->msg.skb_list, skb);
+	}
+
+	return 0;
+}
+
+/*
+ * Allocate an HTTP message of type @type and set it up with empty SKB
+ * space of size @data_len for data writing. An iterator @it is set up
+ * to support consecutive writes. This function is intended to work
+ * together with tfw_http_msg_write() that uses the @it iterator.
+ */
+TfwHttpMsg *
+tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
+{
+	TfwHttpMsg *hm = tfw_http_msg_alloc(type);
+
+	if ((hm == NULL) || (data_len == 0))
+		return NULL;
+	if (__msg_alloc_skb_data(hm, data_len)) {
+		tfw_http_msg_free(hm);
+		return NULL;
+	}
+
 	it->skb = ss_skb_peek(&hm->msg.skb_list);
+	it->frag = 0;
 
 	BUG_ON(it->skb == NULL);
 	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
-	it->frag = 0;
-	it->frag_off = 0;
-	it->frag_size = skb_frag_size(&skb_shinfo(it->skb)->frags[0]);
+	return hm;
 }
 
+/*
+ * Fill up an HTTP message @hm with data from string @data. An iterator
+ * @it is used to support multiple calls to this functions after set up.
+ * This function can only be called after a call to tfw_http_msg_setup().
+ * It works only with empty SKB space prepared by tfw_http_msg_setup().
+ * It should not be used under any other circumstances.
+ */
 int
-tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data)
+tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
 {
 	const TfwStr *c;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-	unsigned int c_off = 0, c_size, f_room, n_copy;
+	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
 	TFW_STR_FOR_EACH_CHUNK(c, data, {
 this_chunk:
@@ -575,10 +618,11 @@ this_chunk:
 			return -E2BIG;
 
 		c_size = c->len - c_off;
-		f_room = ss_skb_frag_size(frag, it->frag_size) - it->frag_off;
+		f_size = skb_frag_size(frag);
+		f_room = PAGE_SIZE - frag->page_offset - f_size;
 		n_copy = min(c_size, f_room);
 
-		memcpy((char *)skb_frag_address(frag) + it->frag_off,
+		memcpy((char *)skb_frag_address(frag) + f_size,
 		       (char *)c->ptr + c_off, n_copy);
 		skb_frag_size_add(frag, n_copy);
 		ss_skb_adjust_data_len(it->skb, n_copy);
@@ -590,7 +634,6 @@ this_chunk:
 			 * to next chunk of the string.
 			 */
 			c_off = 0;
-			it->frag_off += n_copy;
 		} else {
 			/*
 			 * Current SKB fragment has no more room available.
@@ -598,14 +641,12 @@ this_chunk:
 			 */
 			frag = ss_skb_frag_next(&hm->msg.skb_list,
 						&it->skb, &it->frag);
-			it->frag_off = 0;
 			/*
 			 * If all data from the chunk has been copied,
 			 * then switch to next chunk. Otherwise, stay
 			 * in the current chunk.
 			 */
-			/* Note that n_copy equals f_room here. */
-			if (c_size == n_copy) {
+			if (c_size == f_room) {
 				c_off = 0;
 			} else {
 				c_off += n_copy;
@@ -651,35 +692,13 @@ tfw_http_msg_free(TfwHttpMsg *m)
 DEBUG_EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
- * Allocate skb space for further @hm data writing.
- * Put as much as possible to one skb, TCP GSO will care about segmentation.
- *
- * tfw_http_msg_free() is expected to be called for @hm if the function fails.
- */
-static int
-__msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
-{
-	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
-	struct sk_buff *skb;
-
-	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
-		skb = ss_skb_alloc(min_t(size_t, len, SS_SKB_MAX_DATA_LEN));
-		if (!skb)
-			return -ENOMEM;
-		ss_skb_queue_tail(&hm->msg.skb_list, skb);
-	}
-
-	return 0;
-}
-
-/**
  * Allocate a new HTTP message.
  * Given the total message length as @data_len, it allocates an appropriate
  * number of SKBs and page fragments to hold the payload, and sets them up
  * in Tempesta message.
  */
 TfwHttpMsg *
-tfw_http_msg_alloc(int type, size_t data_len)
+tfw_http_msg_alloc(int type)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
 			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq,
@@ -698,11 +717,7 @@ tfw_http_msg_alloc(int type, size_t data_len)
 
 	INIT_LIST_HEAD(&hm->msg.msg_list);
 
-	if (data_len && __msg_alloc_skb_data(hm, data_len)) {
-		tfw_http_msg_free(hm);
-		return NULL;
-	}
-
 	return hm;
 }
 DEBUG_EXPORT_SYMBOL(tfw_http_msg_alloc);
+
