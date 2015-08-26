@@ -44,47 +44,61 @@ normalization logic.
 
 ### Run & Stop
 
-        $ ./tempesta.sh start
-        $ ./tempesta.sh stop
+Use ```tempesta.sh``` script to run and stop Tempesta. The script provides help
+info by ```--help``` switch. Usage example:
+
+        $ ./tempesta.sh --start
+        $ ./tempesta.sh --stop
+
 
 ### Configuration
 
 Tempesta is configured via plain-text configuration file.
 
-The file location is determined by the `TFW_CFG_PATH` environment variable:
+The file location is determined by the `TFW\_CFG\_PATH` environment variable:
 
         $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh start
 
-By default, the `tempesta_fw.conf` from this directory is used.
+By default, the `tempesta\_fw.conf` from this directory is used.
 
-See `tempesta_fw.conf` for the list of available options and their descriptions.
+See ```tempesta\_fw.conf` for the list of available options and their descriptions.
 
-####Frang
-A part of the Tempesta which prevents some HTTP DoS and DDoS attaks is designed as s eparate module. 
-It called "Frang". After a procedure of registration in the Tempesta as a kind of a "Classifier", the Tempestra starts to checks new connections and messages through the Frang. You can use -f key when starting the Tempesta to turn on Frang module.
+#### Frang
 
-The Frang has his section of options in configuration("frang_limits"). This options are:
-* "request_rate" - rate of requests through a connection;
+**Frang** is a separate Tempesta module for HTTP DoS and DDoS attaks prevention.
+Use ```-f``` command key to start Tempesta with Frang:
 
-* "request_burst" - maximum rate of requests per fixed period of time(fraction of sec)"connection_rate" -number of new connection per second;
+        $ ./tempesta.sh -f --start
 
-* "connection_burst" -number of new connection per fixed period of time (fraction of second);
+Frang has secific section in configuration file, *"frang_limits"*.
+The list of available options:
 
-* "concurrent_connections" - number of concurrent connection;
-"client_header_timeout" timeout of incomming header of request;
-* "client_body_timeout" timeout of incomming parts of a message;
+* **request_rate** - requests per second rate through a connection;
 
-* "http_uri_len" - max length of uri part in a request;
+* **request_burst** - temporal burst of requests within 1 second;
 
-* "http_field_len" max length of fields in a request;
+* **connection_rate** - new connections rate for each client;
 
-* "http_body_len" - max length of a request body;
+* **connection_burst** - temporal burst of new connections within 1 second;
 
-* "http_host_required" - the field "Host" is not optional;
+* **concurrent_connections** - maximum number of concurrent connection for
+			       each peer;
 
-* "http_ct_required"- Content-Type is not optional;
+* **client_header_timeout** - timeout between HTTP headers of incomming request;
 
-* "http_methods" - a list of pemitted requests methods;
+* **client_body_timeout** - timeout between chunks of HTTP request body;
 
-* "http_ct_vals" - the enabled values of Content-Type of a request;
+* **http_uri_len** - maximum length of URI part in a request;
+
+* **http_field_len** - maximum length of fields (headers) in a request;
+
+* **http_body_len** - maximum length of a request body;
+
+* **http_host_required** - require presense of ```Host``` header in a request;
+
+* **http_ct_required** - require ```Content-Type``` header in a request;
+
+* **http_methods** - sets the list of pemitted HTTP methods;
+
+* **http_ct_vals** - allowed values for ```Content-Type``` header;
 
