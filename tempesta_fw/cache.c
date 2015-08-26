@@ -373,7 +373,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	ce->resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv, 0);
+	ce->resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
 	if (!ce->resp)
 		return -ENOMEM;
 
