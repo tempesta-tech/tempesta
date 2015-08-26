@@ -20,6 +20,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "connection.h"
+#include "tls.h"
 
 /**
  * TODO do all crypto and handle TLS FSM here.
