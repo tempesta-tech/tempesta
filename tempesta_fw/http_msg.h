@@ -25,8 +25,6 @@
 
 typedef struct {
 	unsigned int	frag;
-	unsigned int	frag_off;
-	unsigned int	frag_size;
 	struct sk_buff	*skb;
 } TfwMsgIter;
 
