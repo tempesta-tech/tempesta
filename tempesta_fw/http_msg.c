@@ -580,11 +580,13 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 TfwHttpMsg *
 tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 {
-	TfwHttpMsg *hm = tfw_http_msg_alloc(type);
+	TfwHttpMsg *hm;
 
-	if ((hm == NULL) || (data_len == 0))
+	if (data_len == 0)
 		return NULL;
-	if (__msg_alloc_skb_data(hm, data_len)) {
+
+	hm = tfw_http_msg_alloc(type);
+	if (hm && __msg_alloc_skb_data(hm, data_len)) {
 		tfw_http_msg_free(hm);
 		return NULL;
 	}
