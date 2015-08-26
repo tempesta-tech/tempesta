@@ -22,8 +22,60 @@
 #define __TFW_HTTP_H__
 
 #include "connection.h"
+#include "gfsm.h"
 #include "msg.h"
 #include "str.h"
+
+/**
+ * HTTP Generic FSM states.
+ *
+ * We (as Apache HTTP Server and other Web-servers do) define several phases
+ * on HTTP messgas processing. However we set the hooks also to response
+ * processing (local and received from backend server) as well as to request
+ * processing. We can depict the phases as following:
+ *
+ *	Client			Tempesta			Server
+ *	~~~~~~			~~~~~~~~			~~~~~~
+ *
+ * 	[req]		-->	(I) (process)	-->		[req]
+ *
+ * 	[resp]		<--	(process) (II)	<--		[resp]
+ *
+ * 	[resp]		<--	(III) (process) <-+
+ * 						   \
+ * 						(local cache)
+ *
+ * So generally hooks are called on receiving client request (I), on receiving
+ * server response (II) and after generation of local response (III).
+ *
+ * TODO generic callback note. We need to:
+ * 1. store all callbacks in fixed size array to eliminate random memory access
+ *    on callbacks;
+ * 2. modules must register a callback only if it has work to do (not just when
+ *    it's loaded into kernel).
+ */
+#define TFW_GFSM_HTTP_STATE(s)	((TFW_FSM_HTTP << TFW_GFSM_FSM_SHIFT) | (s))
+enum {
+	/* HTTP FSM initial state, not hookable. */
+	TFW_HTTP_FSM_INIT		= TFW_GFSM_HTTP_STATE(0),
+
+	/* Called on request End-Of-Skb (EOS). */
+	TFW_HTTP_FSM_REQ_CHUNK		= TFW_GFSM_HTTP_STATE(1),
+
+	/* Whole request is read. */
+	TFW_HTTP_FSM_REQ_MSG		= TFW_GFSM_HTTP_STATE(2),
+
+	/* Called on response EOS. */
+	TFW_HTTP_FSM_RESP_CHUNK		= TFW_GFSM_HTTP_STATE(3),
+
+	/* Whole response is read. */
+	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
+
+	/* Run just before localy generated response sending. */
+	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
+
+	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
+};
 
 /**
  * All helping information for current HTTP parsing state of a message.
