@@ -30,7 +30,6 @@
 
 #define TFW_GFSM_STATE_ST(s)	(TFW_GFSM_STATE(s) & TFW_GFSM_STATE_MASK)
 #define TFW_GFSM_FSM(s)		(TFW_GFSM_STATE(s) >> TFW_GFSM_FSM_SHIFT)
-#define TFW_GFSM_WC(s)		(s)->wish_call[(s)->st_p]
 #define TFW_GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
 
 typedef struct {
@@ -48,34 +47,29 @@ static TfwFsmHook fsm_hooks[TFW_FSM_NUM][TFW_GFSM_HOOK_N] __read_mostly;
  */
 static unsigned int fsm_hooks_bm[TFW_FSM_NUM][TFW_GFSM_WC_BMAP_SZ];
 
-static void
-__gfsm_state_init(TfwGState *st, int st0)
-{
-	TFW_GFSM_STATE(st) = st0;
-
-	/* Set hooks for the FSM. */
-	memcpy(TFW_GFSM_WC(st), fsm_hooks_bm[st0 >> TFW_GFSM_FSM_SHIFT],
-	       TFW_GFSM_WC_BMAP_SZ * sizeof(int));
-}
-
+/**
+ * The function must be called by first FSM processing @obj or
+ * independent code, such that alls FSMs can use it for dispatching.
+ */
 void
 tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
 {
-
 	st->st_p = 0;
 	st->obj = obj;
-	__gfsm_state_init(st, st0);
+	TFW_GFSM_STATE(st) = st0;
 }
 
 /**
- * Context switch between different FSMs.
+ * Context switch from current FSM @fsm_id_curr at state @state.
  * This function is responsible for all context storing/restoring logic.
+ * tfw_gfsm_pop_ctx() moves up on the context state reverting current FSM
+ * context.
  */
 static void
-tfw_gfsm_switch(TfwGState *st, int prio)
+tfw_gfsm_switch(TfwGState *st, int fsm_id_curr, int state, int prio)
 {
-	int curr_st = TFW_GFSM_STATE_ST(st), curr_fsm = TFW_GFSM_FSM(st);
-	int shift = prio * TFW_GFSM_PRIO_N + curr_st;
+	int shift = prio * TFW_GFSM_PRIO_N + (state & TFW_GFSM_STATE_MASK);
+	int fsm_id_next = fsm_hooks[TFW_GFSM_FSM(st)][shift].fsm_id;
 	SsProto *proto = (SsProto *)st->obj;
 
 	if (unlikely(st->st_p + 1 >= TFW_GFSM_STACK_DEPTH)) {
@@ -83,22 +77,24 @@ tfw_gfsm_switch(TfwGState *st, int prio)
 		return;
 	}
 
-	/* Remember FSM ID with whole connection type on the stack. */
+	/* Remember current FSM context. */
 	st->fsm_id[st->st_p] = proto->type;
+	TFW_GFSM_STATE(st) = state; /* @fsm_id_curr will continue from here. */
 
 	/* Push down clear state for next FSM. */
 	++st->st_p;
-	__gfsm_state_init(st, fsm_hooks[curr_fsm][shift].st0);
+	TFW_GFSM_STATE(st) = fsm_hooks[fsm_id_curr][shift].st0;
+	st->fsm_id[st->st_p] = fsm_id_next;
 
 	/*
 	 * The new FSM starts with connection type which it declared
 	 * as enter sate argument of tfw_gfsm_register_hook().
 	 */
-	proto->type = fsm_hooks[curr_fsm][shift].fsm_id;
+	proto->type = fsm_id_next;
 }
 
 /**
- * Pop context of just called FSM from FSM contexts stack if it finishes.
+ * Pop context of just called FSM from contexts stack if it finishes.
  */
 static void
 tfw_gfsm_pop_ctx(TfwGState *st)
@@ -126,8 +122,7 @@ tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off)
 }
 
 /**
- * Move the FSM to new state @new_state and call all registered hooks
- * for current (just fully processed state).
+ * Move the FSM to new state @state and call all registered hooks for it.
  *
  * Iterates over all priorities for current state of top (current) FSM and
  * switch to the registered FSMs.
@@ -136,29 +131,32 @@ tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off)
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned short new_state, struct sk_buff *skb,
+tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 	      unsigned int off)
 {
 	int r = TFW_PASS, p;
-	unsigned int *wc = st->wish_call[st->st_p];
-	unsigned long mask = 1 << TFW_GFSM_STATE_ST(st);
+	int fsm_id_curr = TFW_GFSM_FSM(st);
+	unsigned int *hooks = fsm_hooks_bm[TFW_GFSM_FSM(st)];
+	unsigned long mask = 1 << state;
 
 	/* Start from higest priority. */
 	for (p = TFW_GFSM_HOOK_PRIORITY_HIGH;
 	     p < TFW_GFSM_HOOK_PRIORITY_NUM; ++p)
 	{
 		/* The bitmask is likely spread. */
-		if (likely(!(wc[p] & mask)))
-			return r;
+		if (likely(!(hooks[p] & mask)))
+			continue;
 	
 		/* Switch context to other FSM. */
-		tfw_gfsm_switch(st, p);
+		tfw_gfsm_switch(st, fsm_id_curr, state, p);
+
 		/*
 		 * Let the FSM do all its jobs.
 		 * There is possible recursion when the new FSM moves through
 		 * its states.
 		 */
 		r = tfw_gfsm_dispatch(st->obj, skb, off);
+
 		/*
 		 * XXX Should we continue processing for lower priorities
 		 * if current FSM is still in progress?
@@ -169,10 +167,11 @@ tfw_gfsm_move(TfwGState *st, unsigned short new_state, struct sk_buff *skb,
 			break;
 	}
 
-	TFW_GFSM_STATE(st) = new_state;
+	TFW_GFSM_STATE(st) = state;
 
 	return r;
 }
+EXPORT_SYMBOL(tfw_gfsm_move);
 
 /**
  * Register a hook which will be called with priority @prio when FSM @fsm_id
@@ -189,19 +188,26 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 		       unsigned short hndl_fsm_id, int st0)
 {
 	int shift, st = state & TFW_GFSM_STATE_MASK;
+	unsigned int st_bit = 1 << st;
 
-	/* Initial FSM state is never hookable. */
+	/* Initial FSM state isn't hookable. */
 	BUG_ON(!st);
 
 	if (prio == TFW_GFSM_HOOK_PRIORITY_ANY) {
 		/*
-		 * Register hook at first free slot to reduce spinning in
-		 * tfw_gfsm_move().
+		 * Try to register the hook with higest priority.
+		 * If the state slot for the priority is already acquired,
+		 * then try lower priority.
 		 */
-		int p;
-		for (p = 0; p < TFW_GFSM_HOOK_PRIORITY_NUM; ++p)
-			if (!fsm_hooks_bm[fsm_id][prio])
-				prio = p;
+		for (prio = TFW_GFSM_HOOK_PRIORITY_HIGH;
+		     prio < TFW_GFSM_HOOK_PRIORITY_NUM; ++prio)
+			if (!(fsm_hooks_bm[fsm_id][prio] & st_bit))
+				break;
+		if (prio == TFW_GFSM_HOOK_PRIORITY_NUM) {
+			TFW_ERR("All hook slots for FSM %d are acquired\n",
+				fsm_id);
+			return -EBUSY;
+		}
 	}
 	shift = prio * TFW_GFSM_PRIO_N + st;
 
@@ -214,7 +220,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 
 	fsm_hooks[fsm_id][shift].st0 = st0;
 	fsm_hooks[fsm_id][shift].fsm_id = hndl_fsm_id;
-	fsm_hooks_bm[fsm_id][prio] |= 1 << st;
+	fsm_hooks_bm[fsm_id][prio] |= st_bit;
 
 	return 0;
 }
