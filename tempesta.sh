@@ -95,6 +95,8 @@ stop()
 	echo "Stopping Tempesta..."
 
 	sysctl -w net.tempesta.state=stop
+
+	echo "done"
 }
 
 unload_modules()
@@ -125,15 +127,18 @@ for opt; do
 			;;
 		# User CLI.
 		--start)
-			load_modules && start && echo "done"
+			load_modules
+			start
 			exit
 			;;
 		--stop)
-			stop && unload_modules && echo "done"
+			stop
+			unload_modules
 			exit
 			;;
 		--restart)
-			stop && start && echo "done"
+			stop
+			start
 			exit
 			;;
 		# Ignore any options after action.
