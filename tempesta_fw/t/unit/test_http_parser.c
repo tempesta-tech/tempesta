@@ -26,10 +26,10 @@
 TfwHttpReq *req;
 
 static void
-alloc_req(void)
+alloc_req(size_t data_len)
 {
 	BUG_ON(req);
-	req = test_req_alloc();
+	req = test_req_alloc(data_len);
 }
 
 static void
@@ -41,10 +41,10 @@ free_req(void)
 }
 
 static void
-reset_req(void)
+reset_req(size_t data_len)
 {
 	free_req();
-	alloc_req();
+	alloc_req(data_len);
 }
 
 /**
@@ -96,7 +96,7 @@ do_split_and_parse(unsigned char *req_str)
 	BUG_ON(head_len > req_len);
 	BUG_ON(head_len > sizeof(head_buf));
 	BUG_ON(tail_len > sizeof(tail_buf));
-	reset_req();
+	reset_req(strlen(req_str));
 
 	/* First iteration. */
 	if (!req_len) {
