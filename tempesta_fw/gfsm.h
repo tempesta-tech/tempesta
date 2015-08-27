@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -88,80 +89,6 @@ enum {
 
 #define TFW_FSM_TYPE(t)		((t) & TFW_GFSM_FSM_MASK)
 
-/**
- * HTTP FSM states.
- *
- * We (as Apache HTTP Server and other Web-servers do) define several phases
- * on HTTP messgas processing. However we set the hooks also to response
- * processing (local and received from backend server) as well as to request
- * processing. We can depict the phases as following:
- *
- *	Client			Tempesta			Server
- *	~~~~~~			~~~~~~~~			~~~~~~
- *
- * 	[req]		-->	(I) (process)	-->		[req]
- *
- * 	[resp]		<--	(process) (II)	<--		[resp]
- *
- * 	[resp]		<--	(III) (process) <-+
- * 						   \
- * 						(local cache)
- *
- * So generally hooks are called on receiving client request (I), on receiving
- * server response (II) and after generation of local response (III).
- *
- * TODO generic callback note. We need to:
- * 1. store all callbacks in fixed size array to eliminate random memory access
- *    on callbacks;
- * 2. modules must register a callback only if it has work to do (not just when
- *    it's loaded into kernel).
- */
-/*
- * TODO
- * -- add state CHUNK_READ and remove the too verbouse states
- * -- add modules callbacks to adjust HTTP requests and responses
- *    (e.g. adjust Cookie and rewrite headers)
- * -- Slow Request: drop connection if a request isn't finished in timeout
- */
-#define TFW_GFSM_HTTP_STATE(s)	((TFW_FSM_HTTP << TFW_GFSM_FSM_SHIFT) | (s))
-enum {
-	/* HTTP FSM initial state, not hookable. */
-	TFW_HTTP_FSM_INIT		= TFW_GFSM_HTTP_STATE(0),
-
-	/* Called on request End-Of-Skb (EOS). */
-	TFW_HTTP_FSM_REQ_CHUNK		= TFW_GFSM_HTTP_STATE(1),
-
-	/* Whole request is read. */
-	TFW_HTTP_FSM_REQ_MSG		= TFW_GFSM_HTTP_STATE(2),
-
-	/* Called on response EOS. */
-	TFW_HTTP_FSM_RESP_CHUNK		= TFW_GFSM_HTTP_STATE(3),
-
-	/* Whole response is read. */
-	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
-
-	/* Run just before localy generated response sending. */
-	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
-
-	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
-};
-
-/**
- * HTTPS states.
- *
- * TODO Issue #81: this is just PoC states, write the right states here.
- */
-#define TFW_GFSM_HTTPS_STATE(s)	((TFW_FSM_HTTPS << TFW_GFSM_FSM_SHIFT) | (s))
-enum {
-	/* HTTPS FSM initial state, not hookable. */
-	TFW_HTTPS_FSM_INIT		= TFW_GFSM_HTTPS_STATE(0),
-
-	/* TODO */
-	TFW_HTTPS_FSM_TODO_ISSUE_81	= TFW_GFSM_HTTPS_STATE(1),
-
-	TFW_HTTPS_FSM_DONE	= TFW_GFSM_HTTPS_STATE(TFW_GFSM_STATE_LAST)
-};
-
 /*
  * Hooks of each phase can also be ordered by their priority.
  * Since the hooks are stored in fixed size array (so we can quickly determine
@@ -206,11 +133,6 @@ enum {
  * On FSM switch a new FSM state is pushed to the stack, so current FSM state
  * is saved and we can continue from the previous state when the new FSM
  * finishes processing. @st_p is the stack pointer - current state possition.
- *
- * @wish_call is a bitmap of states for current FSM on which there are other
- * FSMs wishing to be called. It specifies on which priority and for which
- * state of the current FSM we should lookup a hook of FSM which wishes
- * to make a call.
  */
 typedef struct {
 	/* The two belows should be on the same cache line. */
@@ -218,8 +140,6 @@ typedef struct {
 	void		*obj; /* object which state we track */
 	unsigned short	st_stack[TFW_GFSM_STACK_DEPTH];
 	unsigned short	fsm_id[TFW_GFSM_STACK_DEPTH];
-	unsigned int	wish_call[TFW_GFSM_STACK_DEPTH][TFW_GFSM_WC_BMAP_SZ]
-							____cacheline_aligned;
 } TfwGState;
 
 #define TFW_GFSM_STATE(s)	(s)->st_stack[(s)->st_p]
@@ -229,7 +149,7 @@ typedef int (*tfw_gfsm_handler_t)(void *obj, struct sk_buff *skb,
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
 int tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off);
-int tfw_gfsm_move(TfwGState *st, unsigned short new_state, struct sk_buff *skb,
+int tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 		  unsigned int off);
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
