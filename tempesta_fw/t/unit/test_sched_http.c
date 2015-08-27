@@ -58,7 +58,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 {
 	TfwScheduler *sched;
 	TfwConnection *conn;
-	TfwHttpReq *req = test_req_alloc();
+	TfwHttpReq *req = test_req_alloc(req_str? strlen(req_str): 1);
 
 	if (req_str) {
 		tfw_http_parse_req(req, req_str, strlen(req_str));
