@@ -1,9 +1,6 @@
 /**
  *		Tempesta FW
  *
- * Generic protocol message.
- *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -20,26 +17,26 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_MSG_H__
-#define __TFW_MSG_H__
-
-#include <linux/skbuff.h>
+#ifndef __TFW_TLS_H__
+#define __TFW_TLS_H__
 
 #include "gfsm.h"
 
-#include "sync_socket.h"
-
 /**
- * @msg_list	- messages queue to send to peer;
- * @state	- message processing state;
- * @skb_list	- list of sk_buff's belonging to the message;
- * @len		- total body length;
+ * HTTPS states.
+ *
+ * TODO Issue #81: this is just PoC states, write the right states here.
  */
-typedef struct tfw_msg_t {
-	struct list_head	msg_list;
-	TfwGState		state;
-	SsSkbList		skb_list;
-	size_t			len;
-} TfwMsg;
+#define TFW_GFSM_HTTPS_STATE(s)	((TFW_FSM_HTTPS << TFW_GFSM_FSM_SHIFT) | (s))
+enum {
+	/* HTTPS FSM initial state, not hookable. */
+	TFW_HTTPS_FSM_INIT		= TFW_GFSM_HTTPS_STATE(0),
 
-#endif /* __TFW_MSG_H__ */
+	/* TODO */
+	TFW_HTTPS_FSM_TODO_ISSUE_81	= TFW_GFSM_HTTPS_STATE(1),
+
+	TFW_HTTPS_FSM_DONE	= TFW_GFSM_HTTPS_STATE(TFW_GFSM_STATE_LAST)
+};
+
+#endif /* __TFW_TLS_H__ */
+
