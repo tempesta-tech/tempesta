@@ -25,12 +25,12 @@
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"
-#include "gfsm.h"
 #include "hash.h"
 #include "http_msg.h"
 #include "http_sticky.h"
 #include "log.h"
 #include "sched.h"
+#include "tls.h"
 
 #include "sync_socket.h"
 
@@ -187,25 +187,22 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	data_len += req->host.len ? : host.len;
 	data_len += req->uri_path.len + cookie->len;
 
-	resp = tfw_http_msg_alloc(Conn_Srv, data_len);
-	if (!resp)
+	resp = tfw_http_msg_create(&it, Conn_Srv, data_len);
+	if (resp == NULL)
 		return NULL;
-
 	resp->conn = hm->conn;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-
-	tfw_http_msg_iter_init(resp, &it);
-	tfw_http_msg_write(resp, &it, &rh);
+	tfw_http_msg_write(&it, resp, &rh);
 	if (!TFW_STR_EMPTY(&req->host))
-		tfw_http_msg_write(resp, &it, &req->host);
+		tfw_http_msg_write(&it, resp, &req->host);
 	else
-		tfw_http_msg_write(resp, &it, &host);
-	tfw_http_msg_write(resp, &it, &req->uri_path);
-	tfw_http_msg_write(resp, &it, &(TfwStr){ .ptr = S_302_PART_03,
+		tfw_http_msg_write(&it, resp, &host);
+	tfw_http_msg_write(&it, resp, &req->uri_path);
+	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_03,
 						 .len = SLEN(S_302_PART_03)});
-	tfw_http_msg_write(resp, &it, cookie);
-	tfw_http_msg_write(resp, &it, &(TfwStr){ .ptr = S_302_PART_04,
+	tfw_http_msg_write(&it, resp, cookie);
+	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_04,
 						 .len = SLEN(S_302_PART_04)});
 
 	return resp;
@@ -217,16 +214,13 @@ tfw_http_send_resp(TfwHttpMsg *hm, const TfwStr *msg, const TfwStr *date)
 	TfwHttpMsg *resp;
 	TfwMsgIter it;
 
-	resp = tfw_http_msg_alloc(Conn_Srv, msg->len);
-	if (!resp)
+	resp = tfw_http_msg_create(&it, Conn_Srv, msg->len);
+	if (resp == NULL)
 		return -ENOMEM;
-
 	resp->conn = hm->conn;
 
 	tfw_http_prep_date(date->ptr);
-
-	tfw_http_msg_iter_init((TfwHttpMsg *)resp, &it);
-	tfw_http_msg_write(resp, &it, msg);
+	tfw_http_msg_write(&it, resp, msg);
 
 	tfw_connection_send(hm->conn, (TfwMsg *)resp);
 	tfw_http_msg_free(resp);
@@ -291,7 +285,7 @@ tfw_http_send_502(TfwHttpMsg *hm)
 TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
-	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn), 0);
+	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
 	if (unlikely(!hm))
 		return NULL;
 
@@ -334,7 +328,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
 
-	shm = tfw_http_msg_alloc(type, 0);
+	shm = tfw_http_msg_alloc(type);
 	if (!shm)
 		return NULL;
 
