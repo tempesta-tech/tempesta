@@ -55,7 +55,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.1.2");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -449,8 +449,21 @@ frang_http_host_check(const TfwHttpReq *req)
 	return TFW_PASS;
 }
 
+/* The GFSM states aren't hookable, so don't open the definitions. */
+#define TFW_GFSM_FRANG_STATE(s)	((TFW_FSM_FRANG << TFW_GFSM_FSM_SHIFT) | (s))
 enum {
-	Frang_Req_0,
+	/* Run the FSM for each HTTP request chunk. */
+	TFW_FRANG_FSM_INIT	= TFW_GFSM_FRANG_STATE(0),
+	/* Run the FSM for fully read HTTP request. */
+	TFW_FRANG_FSM_MSG	= TFW_GFSM_FRANG_STATE(1),
+	TFW_FRANG_FSM_DONE	= TFW_GFSM_FRANG_STATE(TFW_GFSM_STATE_LAST)
+};
+
+enum {
+	/* TODO Enter FSM with this state for each HTTP request chunk. */
+	__Frang_Chunk_0,
+
+	Frang_Req_0 = __Frang_Chunk_0,
 
 	Frang_Req_Hdr_Start,
 	Frang_Req_Hdr_Method,
@@ -464,14 +477,19 @@ enum {
 
 	Frang_Req_Hdr_NoState,
 
-	Frang_Req_Body_Start,
+	/* TODO Enter FSM with this state when HTTP request if fully read. */
+	__Frang_Msg_0,
+
+	Frang_Req_Body_Start = __Frang_Msg_0,
 	Frang_Req_Body_Timeout,
 	Frang_Req_Body_ChunkCnt,
 	Frang_Req_Body_Len,
 
 	Frang_Req_Body_NoState,
 
-	Frang_Req_NothingToDo
+	__Frang_LastState,
+
+	Frang_Req_NothingToDo = __Frang_LastState,
 };
 
 #define FSM_HDR_STATE(state)						\
@@ -507,12 +525,14 @@ st: __attribute__((unused))						\
 	__fsm_const_state = to; /* optimized out to constant */		\
 	__FSM_EXIT()
 
+/**
+ * FSM to process each HTTP request chunk.
+ */
 static int
-frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+frang_process_http_msg_chunk(TfwConnection *conn, TfwHttpReq *req,
+			     struct sk_buff *skb)
 {
 	int r = TFW_PASS;
-	TfwConnection *conn = (TfwConnection *)obj;
-	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
 	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
 
 	__FSM_INIT();
@@ -735,6 +755,55 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 
 	}
 	__FSM_FINISH();
+
+	return r;
+}
+
+/**
+ * FSM to process end of HTTP request.
+ *
+ * TODO move here some states from frang_process_http_msg_chunk().
+ */
+static int
+frang_process_http_eor(TfwConnection *conn, TfwHttpReq *req,
+		       struct sk_buff *skb)
+{
+	/*
+	 * frang_process_http_msg_chunk() is called by HTTP FSM only when
+	 * parser returns POSTPONE, so if the request comes with only one
+	 * chung, then only this function is called.
+	 * So just call chunk processing for now.
+	 * TODO this should be reworked when states are distributed among
+	 * the functions properly.
+	 */
+	return frang_process_http_msg_chunk(conn, req, skb);
+}
+
+static int
+frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+{
+	int r, state;
+	TfwConnection *conn = (TfwConnection *)obj;
+	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
+
+	state = TFW_GFSM_STATE(&req->msg.state);
+	switch (state) {
+	case TFW_FRANG_FSM_INIT:
+		r = frang_process_http_msg_chunk(conn, req, skb);
+		state = TFW_FRANG_FSM_MSG;
+		break;
+	case TFW_FRANG_FSM_MSG:
+		r = frang_process_http_eor(conn, req, skb);
+		state = TFW_FRANG_FSM_DONE;
+		break;
+	default:
+		TFW_ERR("frang: invalid FSM state %d\n", state);
+		BUG();
+	}
+
+	if (r != TFW_BLOCK)
+		/* Don't check the result - nobody hooks us. */
+		tfw_gfsm_move(&req->msg.state, state, skb, off);
 
 	return r;
 }
@@ -985,16 +1054,18 @@ frang_init(void)
 		goto err_fsm;
 	}
 
+	BUG_ON(__Frang_LastState > TFW_GFSM_STATE_LAST);
+
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
 				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG,
-				   TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST));
+				   TFW_FRANG_FSM_MSG);
 	if (r) {
 		TFW_ERR("frang: can't register gfsm hook: msg\n");
 		goto err_hook;
 	}
 	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
 				   TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG,
-				   TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST));
+				   TFW_FRANG_FSM_INIT);
 	if (r) {
 		TFW_ERR("frang: can't register gfsm hook: chunk\n");
 		TFW_ERR("frang: can't recover\n");

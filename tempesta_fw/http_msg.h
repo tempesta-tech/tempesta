@@ -24,8 +24,7 @@
 #include "http.h"
 
 typedef struct {
-	int		frag;
-	int		frag_off;
+	unsigned int	frag;
 	struct sk_buff	*skb;
 } TfwMsgIter;
 
@@ -51,15 +50,15 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 #define TFW_HTTP_MSG_HDR_DEL(hm, name, hid)				\
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 
-void tfw_http_msg_iter_init(TfwHttpMsg *hm, TfwMsgIter *it);
-int tfw_http_msg_write(TfwHttpMsg *hm, TfwMsgIter *it, const TfwStr *data);
+TfwHttpMsg *tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len);
+int tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data);
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 void tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 
-TfwHttpMsg *tfw_http_msg_alloc(int type, size_t data_len);
+TfwHttpMsg *tfw_http_msg_alloc(int type);
 void tfw_http_msg_free(TfwHttpMsg *m);
 
 #endif /* __TFW_HTTP_MSG_H__ */
