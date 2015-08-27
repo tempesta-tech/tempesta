@@ -54,6 +54,7 @@
 
 #include "test.h"
 #include "helpers.h"
+#include "tfw_str_helper.h"
 
 #define COOKIE_NAME         "QWERTY_123"
 
@@ -163,13 +164,26 @@ TEST(http_sticky, sending_302_without_preparing)
 
 TEST(http_sticky, sending_302)
 {
-	EXPECT_EQ(tfw_http_sticky_set(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_sticky_send_302(mock.hmreq), 0);
+	create_str_pool();
 
-	EXPECT_TRUE(mock.tfw_connection_send_was_called);
-	EXPECT_TRUE(mock.seen_set_cookie_header);
-	EXPECT_TRUE(mock.seen_cookie);
-	EXPECT_EQ(mock.http_status, 302);
+	{
+		/* Need host header and
+		 *it must be compound as standart header
+		 */
+		TFW_STR2(hdr1, "Host: ", "localhost");
+
+		mock.hmreq->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+
+		EXPECT_EQ(tfw_http_sticky_set(mock.hmreq), 0);
+		EXPECT_EQ(tfw_http_sticky_send_302(mock.hmreq), 0);
+
+		EXPECT_TRUE(mock.tfw_connection_send_was_called);
+		EXPECT_TRUE(mock.seen_set_cookie_header);
+		EXPECT_TRUE(mock.seen_cookie);
+		EXPECT_EQ(mock.http_status, 302);
+	}
+
+	free_all_str();
 }
 
 TEST(http_sticky, sending_502)
