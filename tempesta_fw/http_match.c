@@ -62,6 +62,7 @@
  */
 
 #include <linux/cache.h>
+#include <linux/ctype.h>
 #include "http_match.h"
 #include "http_msg.h"
 
@@ -213,14 +214,33 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	flags |= TFW_STR_EQ_CASEI;
 
 	for (i = 0; i < req->h_tbl->size; ++i) {
+		const char *rule_arg_end, *rule_hdr, *rule_val, *p;
+		int rule_hdr_size, rule_val_size;
+
 		hdr = &req->h_tbl->tbl[i];
 		if (TFW_STR_EMPTY(hdr))
 			continue;
 
-		/* TODO: handle LWS* between header and value for raw headers.
-		 * (currently "X-Hdr:foo" is not equal to "X-Hdr: foo").
-		 */
-		if (tfw_str_eq_cstr(hdr, rule->arg.str, rule->arg.len, flags))
+		BUG_ON(TFW_STR_PLAIN(hdr));
+
+		rule_arg_end = rule->arg.str + rule->arg.len;
+
+		p = rule->arg.str;
+		while (p < rule_arg_end && *p++ != ':');
+
+		rule_hdr = rule->arg.str;
+		rule_hdr_size = p - rule_hdr;
+
+		if (p < rule_arg_end) {
+			while (isspace(*p++));
+			p--;
+		}
+
+		rule_val = p;
+		rule_val_size = rule->arg.len - (rule_val - rule->arg.str);
+
+		if (tfw_str_eq_cstr(TFW_STR_CHUNK(hdr, 0), rule_hdr, rule_hdr_size, flags | TFW_STR_EQ_PREFIX) &&
+		    tfw_str_eq_cstr(TFW_STR_CHUNK(hdr, 1), rule_val, rule_val_size, flags))
 			return true;
 	}
 
