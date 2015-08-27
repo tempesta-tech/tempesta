@@ -44,8 +44,8 @@ normalization logic.
 
 ### Run & Stop
 
-Use ```tempesta.sh``` script to run and stop Tempesta. The script provides help
-info by ```--help``` switch. Usage example:
+Use `tempesta.sh` script to run and stop Tempesta. The script provides help
+info by `--help` switch. Usage example:
 
         $ ./tempesta.sh --start
         $ ./tempesta.sh --stop
@@ -70,35 +70,34 @@ Use ```-f``` command key to start Tempesta with Frang:
 
         $ ./tempesta.sh -f --start
 
-Frang has secific section in configuration file, *"frang_limits"*.
+Frang has separate section in the configuration file, *"frang_limits"*.
 The list of available options:
 
-* **request_rate** - requests per second rate through a connection;
+* **request_rate** - maximum number of requests per second from a client;
 
-* **request_burst** - max amount of requests within fraction of second;
+* **request_burst** - maximum number of requests per fraction of second;
 
-* **connection_rate** - new connections rate for each client;
+* **connection_rate** - maximum number of connections per client;
 
-* **connection_burst** - max amount new connections within fraction of second;
+* **connection_burst** - maximum number of connections per fraction of second;
 
-* **concurrent_connections** - maximum number of concurrent connection for
-			       each peer;
+* **concurrent_connections** - maximum number of concurrent connections per client;
 
-* **client_header_timeout** - timeout between HTTP headers of incomming request;
+* **client_header_timeout** - maximum time for reciving the whole HTTP message header of incomming request;
 
-* **client_body_timeout** - timeout between chunks of HTTP request body;
+* **client_body_timeout** - maximum time between receiving partsof HTTP message body of incomming request;
 
 * **http_uri_len** - maximum length of URI part in a request;
 
-* **http_field_len** - maximum length of fields (headers) in a request;
+* **http_field_len** - maximum length of a single HTTP header field of incoming request;
 
-* **http_body_len** - maximum length of a request body;
+* **http_body_len** - maximum length of HTTP message body of incoming request;
 
-* **http_host_required** - require presense of ```Host``` header in a request;
+* **http_host_required** - require presence of `Host` header in a request;
 
-* **http_ct_required** - require ```Content-Type``` header in a request;
+* **http_ct_required** - require presence of `Content-Type` header in a request;
 
-* **http_methods** - sets the list of pemitted HTTP methods;
+* **http_methods** - the list of accepted HTTP methods;
 
-* **http_ct_vals** - allowed values for ```Content-Type``` header;
+* **http_ct_vals** - the list of accepted values for `Content-Type` header;
 
