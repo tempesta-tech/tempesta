@@ -46,7 +46,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 
 	BUG_ON(TFW_STR_PLAIN(hdr));
 	BUG_ON(TFW_STR_DUP(hdr));
-	BUG_ON(nlen >= hdr->len);
+	BUG_ON(nlen > hdr->len);
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
 	*val = *hdr;
@@ -54,10 +54,9 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
 		BUG_ON(!c->len);
-		BUG_ON(c->len >= val->len);
 
 		if (nlen > 0) {
-			nlen -= val->len;
+			nlen -= c->len;
 		}
 		else if (unlikely(((char *)c->ptr)[0] == ' '
 				  || ((char *)c->ptr)[0] == '\t'))
@@ -261,9 +260,12 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
 	id = __hdr_lookup(hm, &hm->parser.hdr);
 
 	/* Allocate some more room if not enough to store the header. */
-	if (unlikely(id == ht->size))
+	if (unlikely(id == ht->size)) {
 		if (tfw_http_msg_grow_hdr_tbl(hm))
 			return TFW_BLOCK;
+
+		ht = hm->h_tbl;
+	}
 
 	h = &ht->tbl[id];
 
