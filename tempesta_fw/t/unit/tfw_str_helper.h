@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,12 +17,16 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_TEST_HELPER_H__
-#define __TFW_TEST_HELPER_H__
+#include "str.h"
 
-/* These functions help to create fake HTTP messages for testing without
- * involving complicated stuff like sk_buff manipulations. */
-TfwHttpReq *test_req_alloc(size_t data_len);
-void test_req_free(TfwHttpReq *req);
+extern TfwPool *str_pool;
 
-#endif /* __TFW_TEST_HELPER_H__ */
+void create_str_pool(void);
+void free_all_str(void);
+
+TfwStr *make_plain_str(const char *data);
+TfwStr *make_compound_str(const char *data);
+TfwStr *make_compound_str2(const char *data1, const char *data2);
+
+#define TFW_STR(name, literal)	TfwStr *name = make_compound_str(literal)
+#define TFW_STR2(name, literal1, literal2) TfwStr *name = make_compound_str2(literal1, literal2)

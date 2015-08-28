@@ -35,15 +35,16 @@
 #include "http_msg.h"
 
 TfwHttpReq *
-test_req_alloc(void)
+test_req_alloc(size_t data_len)
 {
 	TfwHttpReq *req;
+	TfwMsgIter it;
 
 	/* Actually there were more code here, mostly it was copy-paste from
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_HttpClnt);
+	req = (TfwHttpReq *)tfw_http_msg_create(&it, Conn_HttpClnt, data_len);
 	BUG_ON(!req);
 
 	return req;

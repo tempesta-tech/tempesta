@@ -23,71 +23,7 @@
 
 #include "str.h"
 #include "test.h"
-
-static TfwPool *str_pool;
-
-static void
-create_str_pool(void)
-{
-	BUG_ON(str_pool);
-	str_pool = __tfw_pool_new(1);
-	BUG_ON(!str_pool);
-}
-
-static void
-free_all_str(void)
-{
-	tfw_pool_free(str_pool);
-	str_pool = NULL;
-}
-
-static TfwStr *
-alloc_str(void)
-{
-	TfwStr *s;
-
-	s = tfw_pool_alloc(str_pool, sizeof(*s));
-	BUG_ON(!s);
-	TFW_STR_INIT(s);
-
-	return s;
-}
-
-static TfwStr *
-make_plain_str(const char *data)
-{
-	TfwStr *s = alloc_str();
-
-	s->len =  strlen(data);
-	s->ptr = (void *)data;
-
-	return s;
-}
-
-static TfwStr *
-make_compound_str(const char *data)
-{
-	TfwStr *str, *chunk;
-	size_t chunk_len = 1;
-	size_t total_len = strlen(data);
-
-	str = alloc_str();
-	str->len = min(total_len, chunk_len);
-	str->ptr = (void *)data;
-
-	for (total_len -= str->len; total_len > 0; total_len -= chunk->len) {
-		chunk = tfw_str_add_compound(str_pool, str);
-		if (!chunk)
-			return NULL;
-		chunk->len = min(total_len, ++chunk_len % 8);
-		chunk->ptr = (void *)(data + str->len);
-		str->len += chunk->len;
-	}
-
-	return str;
-}
-
-#define TFW_STR(name, literal)	TfwStr *name = make_compound_str(literal)
+#include "tfw_str_helper.h"
 
 TEST(tfw_strcpy, zero_src)
 {

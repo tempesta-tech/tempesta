@@ -1300,6 +1300,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			*p = LC(*p);
 			tfw_http_msg_set_data(msg, &req->host, p);
+			__FSM_MOVE_f(Req_UriHost, &req->host);
 		}
 		return TFW_BLOCK;
 	}
