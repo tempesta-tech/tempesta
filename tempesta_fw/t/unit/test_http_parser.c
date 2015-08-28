@@ -22,6 +22,7 @@
 
 #include "test.h"
 #include "helpers.h"
+#include "tfw_fuzzer.h"
 
 TfwHttpReq *req;
 
@@ -365,6 +366,19 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
+TEST(http_parser, fuzzer)
+{
+	char *req;
+		
+	while (1) {
+		req = fuzz_req();
+		if (!req)
+			break;
+		FOR_REQ(req);
+		kfree(req);
+	}
+}
+
 TEST_SUITE(http_parser)
 {
 	TEST_TEARDOWN(free_req);
@@ -374,4 +388,5 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, fills_hdr_tbl);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, fuzzer);
 }
