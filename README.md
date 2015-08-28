@@ -57,7 +57,7 @@ Tempesta is configured via plain-text configuration file.
 
 The file location is determined by the `TFW_CFG_PATH` environment variable:
 
-        $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh start
+        $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh --start
 
 By default, the `tempesta_fw.conf` from this directory is used.
 
