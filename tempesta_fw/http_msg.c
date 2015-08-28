@@ -46,7 +46,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 
 	BUG_ON(TFW_STR_PLAIN(hdr));
 	BUG_ON(TFW_STR_DUP(hdr));
-	BUG_ON(nlen > hdr->len);
+	BUG_ON(nlen >= hdr->len);
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
 	*val = *hdr;
