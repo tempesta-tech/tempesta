@@ -50,7 +50,7 @@ TEST(tfw_sched_hash, sg_empty)
 	for (i = 0; i < req_strs_size; ++i) {
 		for (j = 0; j < 3; ++j) {
 			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc();
+			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
 			tfw_http_parse_req_ptr(req, req_strs[i], strlen(req_strs[i]));
 
@@ -74,7 +74,7 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_zero_conn)
 	for (i = 0; i < req_strs_size; ++i) {
 		for (j = 0; j < 3; ++j) {
 			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc();
+			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
 			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
 
@@ -105,7 +105,7 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 		for (j = 0; j < 3 * TFW_SRV_MAX_CONN; ++j) {
 			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc();
+			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
 			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
 
@@ -137,7 +137,7 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
 	for (i = 0; i < req_strs_size; ++i) {
 		for (j = 0; j < 2 * TFW_SG_MAX_SRV; ++j) {
 			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc();
+			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
 			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
 
@@ -171,7 +171,7 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 		for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc();
+			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
 			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
 

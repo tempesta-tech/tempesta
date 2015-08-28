@@ -23,6 +23,7 @@
 
 #include "test.h"
 #include "helpers.h"
+#include "tfw_str_helper.h"
 
 typedef struct {
 	int test_id;
@@ -35,7 +36,7 @@ TfwHttpReq *test_req;
 static void
 http_match_suite_setup(void)
 {
-	test_req = test_req_alloc();
+	test_req = test_req_alloc(1);
 	test_mlst = tfw_http_match_list_alloc();
 	BUG_ON(!test_mlst);
 }
@@ -176,38 +177,46 @@ TEST(http_match, headers_eq)
 
 TEST(http_match, hdr_host_prefix)
 {
-	int match_id;
+	create_str_pool();
 
-	test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_CONN, TFW_HTTP_MATCH_O_EQ,
-	             "Connection:    Keep-Alive");
-	test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
-	              "ex");
-	test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
-		     "www.example.com");
+	{
+		int match_id;
 
-	set_tfw_str(&test_req->host, "example.com");
-	match_id = test_mlst_match();
-	EXPECT_EQ(-1, match_id);
+		/* Special headers must be compound */
+		TFW_STR2(hdr1, "Host: ", "example.com");
+		TFW_STR2(hdr2, "Host: ", "Host: eXample.COM");
+		TFW_STR2(hdr3, "Host: ", "www");
+		TFW_STR2(hdr4, "Host: ", "WWW.EXAMPLE.COM:8081");
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-	            "example.com");
-	match_id = test_mlst_match();
-	EXPECT_EQ(2, match_id);
+		test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_CONN, TFW_HTTP_MATCH_O_EQ,
+		             "Connection:    Keep-Alive");
+		test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
+		              "ex");
+		test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_HOST, TFW_HTTP_MATCH_O_PREFIX,
+			     "www.example.com");
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-	            "eXample.COM");
-	match_id = test_mlst_match();
-	EXPECT_EQ(-1, match_id); /* Host header contains the header name. */
+		set_tfw_str(&test_req->host, "example.com");
+		match_id = test_mlst_match();
+		EXPECT_EQ(-1, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-	            "Host: www");
-	match_id = test_mlst_match();
-	EXPECT_EQ(-1, match_id);
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
+		match_id = test_mlst_match();
+		EXPECT_EQ(2, match_id);
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-	            "Host: WWW.EXAMPLE.COM:8081");
-	match_id = test_mlst_match();
-	EXPECT_EQ(3, match_id);
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
+		match_id = test_mlst_match();
+		EXPECT_EQ(-1, match_id); /* Host header contains the header name. */
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr3;
+		match_id = test_mlst_match();
+		EXPECT_EQ(-1, match_id);
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr4;
+		match_id = test_mlst_match();
+		EXPECT_EQ(3, match_id);
+	}
+
+	free_all_str();
 }
 
 TEST(http_match, method_eq)
