@@ -93,6 +93,10 @@ The list of available options:
 
 * **http_body_len** - maximum length of HTTP message body of incoming request;
 
+* **http_header_chunk_cnt** - limit number of chunks in all header for HTTP request;
+
+* **http_body_chunk_cnt** - limit number of chunks for HTTP request body;
+
 * **http_host_required** - require presence of `Host` header in a request;
 
 * **http_ct_required** - require presence of `Content-Type` header in a request;
