@@ -285,9 +285,10 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 
 	BUG_ON(!(alloc | tail_len));
 
+#if 0 /* Skip the optimization for the time being. */
 	/*
-	 * Quick and unlike path: move small skb tail or
-	 * just advance skb tail pointer.
+	 * Quick and unlikely path: move small skb tail
+	 * or just advance skb tail pointer.
 	 */
 	if (unlikely(tail_len <= __MAXCPSZ && len <= skb_tailroom(skb))) {
 		unsigned char *p = skb_put(skb, len);
@@ -296,6 +297,7 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		memmove(pspt + len, pspt, tail_len);
 		return pspt;
 	}
+#endif
 
 	/*
 	 * Not enough room in linear part - put the data to page fragment.
@@ -329,6 +331,7 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 			/* Remove |@len| data bytes. */
 			tail_off -= len;
 			skb->tail += len;
+			skb->len += len;
 		}
 		skb->data_len += tail_len;
 		skb->tail -= tail_len;
@@ -364,8 +367,10 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 		frag_dst = __check_frag_room(skb, frag_dst, len);
 		if (frag_dst) {
 			/* Coalesce new data with the fragment. */
-			int new_off = ss_skb_frag_len(frag_dst);
+			int new_off = skb_frag_size(frag_dst);
 			skb_frag_size_add(frag_dst, len);
+			skb->len += len;
+			skb->data_len += len;
 			return (char *)skb_frag_address(frag_dst) + new_off;
 		}
 	}
@@ -442,11 +447,16 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	}
 	if (off + len == skb_frag_size(frag)) {
 		skb_frag_size_sub(frag, len);
+		skb->len -= len;
+		skb->data_len -= len;
 		++i;
 		goto lookup_next_ptr;
 	}
 	if (!off) {
 		frag->page_offset += len;
+		skb_frag_size_sub(frag, len);
+		skb->len -= len;
+		skb->data_len -= len;
 		return skb_frag_address(frag);
 	}
 
