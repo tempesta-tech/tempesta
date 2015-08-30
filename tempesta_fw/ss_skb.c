@@ -57,10 +57,10 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 }
 
 /**
- * Allocate a new skb with reserved data length @len.
+ * Allocate a new skb that can hold data of length @len.
  *
- * SKB is created complely headerless. The linear part of SKB is set apart
- * for headers, and stream data is placed in paged fragments.
+ * An SKB is created complely headerless. The linear part of an SKB
+ * is set apart for headers, and stream data is placed in paged fragments.
  * Lower layers will take care of prepending all required headers.
  */
 struct sk_buff *
@@ -99,9 +99,9 @@ ss_skb_frag_len(skb_frag_t *frag)
 
 /**
  * Scan page fragments list for fragments placed at the same page with
- * @frag and check whether the page has enough room to add @len bytes more.
- * All fragments are scanned when @refcnt reaches 0, otherwise the page is also
- * used by somebody else - give up to check it.
+ * @frag and check if the page has enough room to add @len bytes more.
+ * All fragments are scanned when @refcnt reaches 0, otherwise the page
+ * is also used by someone else - give up on checking it.
  * @return pointer to the last fragment from the page.
  */
 static skb_frag_t *
@@ -137,7 +137,7 @@ __check_frag_room(struct sk_buff *skb, skb_frag_t *frag, int len)
 }
 
 /**
- * Lookup page fragment which has @len bytes of room.
+ * Look up a page fragment that has @len bytes of room.
  */
 static skb_frag_t *
 __lookup_pgfrag_room(struct sk_buff *skb, int len)
@@ -164,8 +164,8 @@ __lookup_pgfrag_room(struct sk_buff *skb, int len)
 /**
  * Somewhat like skb_shift().
  *
- * Beware: @from could be equal to MAX_SKB_FRAGS if we need to insert a new
- * fragmnet after the last one.
+ * Beware: @from can be equal to MAX_SKB_FRAGS if we need to insert a new
+ * fragment after the last one.
  */
 static int
 __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
@@ -244,8 +244,8 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 
 	if (i == MAX_SKB_FRAGS) {
 		/*
-		 * Insert the new fragment just after the last one in @skb,
-		 * i.e. at begin of the next skb fragment.
+		 * Insert a new paged fragment right after the last one
+		 * in @skb, i.e. as the first fragment of the next skb.
 		 */
 		skb = skb_shinfo(pskb ? : skb)->frag_list;
 		i = 0;
@@ -726,7 +726,7 @@ struct sk_buff *
 ss_skb_split(struct sk_buff *skb, int len)
 {
 	struct sk_buff *buff;
-	int nsize, nlen;
+	int nsize, asize, nlen;
 
 	/* Assert that the SKB is orphaned. */
 	BUG_ON(skb->destructor);
@@ -734,14 +734,15 @@ ss_skb_split(struct sk_buff *skb, int len)
 	nsize = skb_headlen(skb) - len;
 	if (nsize < 0)
 		nsize = 0;
-	nsize = ALIGN(nsize, 4);
+	asize = ALIGN(nsize, 4);
 
-	buff = alloc_skb_fclone(nsize + MAX_TCP_HEADER, GFP_ATOMIC);
+	buff = alloc_skb_fclone(asize + MAX_TCP_HEADER, GFP_ATOMIC);
 	if (buff == NULL)
 		return NULL;
 
 	skb_reserve(buff, MAX_TCP_HEADER);
-	buff->reserved_tailroom = buff->end - buff->tail - nsize;
+	/* Make sure there's exactly asize bytes available. */
+	buff->reserved_tailroom = buff->end - buff->tail - asize;
 
 	nlen = skb->len - len - nsize;
 	buff->truesize += nlen;
