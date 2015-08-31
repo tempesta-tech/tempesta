@@ -146,5 +146,5 @@ tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
 	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
-	return tfw_gfsm_dispatch(conn, skb, off);
+	return tfw_gfsm_dispatch(&conn->msg->state, conn, skb, off);
 }
