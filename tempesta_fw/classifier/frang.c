@@ -797,7 +797,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		state = TFW_FRANG_FSM_DONE;
 		break;
 	default:
-		TFW_ERR("frang: invalid FSM state %d\n", state);
+		TFW_ERR("frang: invalid FSM state %#x\n", state);
 		BUG();
 	}
 
