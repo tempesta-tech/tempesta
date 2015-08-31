@@ -333,8 +333,9 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 			skb->tail += len;
 			skb->len += len;
 		}
-		skb->data_len += tail_len;
 		skb->tail -= tail_len;
+		skb->data_len += tail_len;
+		skb->truesize += tail_len;
 
 		/* Partially stolen from skb_try_coalesce(). */
 		WARN_ON(skb_head_is_locked(skb));
@@ -360,6 +361,7 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 	struct sk_buff *skb_dst;
 
+	BUG_ON((off < frag->page_offset) || (off >= skb_frag_size(frag)));
 	split = off && off < skb_frag_size(frag);
 
 	if (!split) {
@@ -369,12 +371,15 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 			/* Coalesce new data with the fragment. */
 			int new_off = skb_frag_size(frag_dst);
 			skb_frag_size_add(frag_dst, len);
-			skb->len += len;
-			skb->data_len += len;
+			ss_skb_adjust_data_len(skb, len);
 			return (char *)skb_frag_address(frag_dst) + new_off;
 		}
 	}
 
+	/*
+	 * Get a fragment at position @dst_i that can hold @len bytes.
+	 * Get a place for a fragment holding tail data in split case.
+	 */
 	if (__new_pgfrag(skb, pskb, len, dst_i, 1 + split))
 		return NULL;
 
@@ -387,8 +392,10 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 
 	if (!off) {
 		/*
-		 * Move current fragment forward and place the new fragment
-		 * on its place, i.e. swap the fragments.
+		 * Need to add data at the start of a fragment.
+		 * Move the fragment forward and put the new
+		 * fragment in its place instead. In other words,
+		 * swap the fragments.
 		 */
 		swap(*frag, *frag_dst);
 		if (dst_i == MAX_SKB_FRAGS) {
@@ -400,6 +407,13 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	}
 
 	if (split) {
+		/*
+		 * Need to add data in the middle of a fragment.
+		 * Split the fragment. The head of the fragment
+		 * stays there, the tail of the fragment is moved
+		 * to a new fragment. The fragment for new data
+		 * is placed in between.
+		 */
 		int tail_len = skb_frag_size(frag) - off;
 		int tail_i = (dst_i + 1) % MAX_SKB_FRAGS;
 		skb_frag_size_sub(frag, tail_len);
@@ -429,7 +443,7 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	BUG_ON(off == skb_frag_size(frag));
+	BUG_ON((off < frag->page_offset) || (off >= skb_frag_size(frag)));
 	if (unlikely(off + len > skb_frag_size(frag))) {
 		SS_WARN("Try to delete too much\n");
 		return NULL;
@@ -447,16 +461,14 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	}
 	if (off + len == skb_frag_size(frag)) {
 		skb_frag_size_sub(frag, len);
-		skb->len -= len;
-		skb->data_len -= len;
+		ss_skb_adjust_data_len(skb, -len);
 		++i;
 		goto lookup_next_ptr;
 	}
 	if (!off) {
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
-		skb->len -= len;
-		skb->data_len -= len;
+		ss_skb_adjust_data_len(skb, -len);
 		return skb_frag_address(frag);
 	}
 
@@ -473,7 +485,7 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 
 	i = (i + 1) % MAX_SKB_FRAGS;
 	tail_len = skb_frag_size(frag) - off - len;
-	skb_frag_size_sub(frag, tail_len);
+	skb_frag_size_sub(frag, len + tail_len);
 	__skb_fill_page_desc(skb_dst, i, skb_frag_page(frag),
 			     frag->page_offset + off + len, tail_len);
 	skb_frag_ref(skb, i);
