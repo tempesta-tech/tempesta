@@ -6,7 +6,18 @@
  * GFSM is a generic extension of hooks for traditional HTTP processing phases.
  * The basic concept is that there are number of processing FSMs (HTTP, ICAP,
  * some other module processing etc.) which can switch between each other
- * savin current FSM state in states stack.
+ * saving current FSM state in states stack.
+ *
+ * GFSM example for simplified HTTP/ICAP interoperability:
+ * 1. softirq1 receives HTTP request and calls GFSM to switch to ICAP FSM;
+ * 2. ICAP FSM sends the request to ICAP server in the same softirq1.
+ *    softirq1 forgets about the request and goes to process other packets.
+ *    However, current HTTP FSM state must be saved, so it can continue to
+ *    process the request later;
+ * 3. softirq2 receives response from ICAP server and calls GFSM to switch
+ *    to HTTP FSM back;
+ * 4. HTTP continues to process the request: cache it, forward it to
+ *    an upstream etc.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
@@ -28,9 +39,18 @@
 #include "gfsm.h"
 #include "log.h"
 
-#define TFW_GFSM_STATE_ST(s)	(TFW_GFSM_STATE(s) & TFW_GFSM_STATE_MASK)
-#define TFW_GFSM_FSM(s)		(TFW_GFSM_STATE(s) >> TFW_GFSM_FSM_SHIFT)
-#define TFW_GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
+#define FSM_STATE(s)		(s)->states[(unsigned char)(s)->curr]
+#define __GFSM_FSM(_s)		(((_s) >> TFW_GFSM_FSM_SHIFT)	\
+				 & TFW_GFSM_FSM_MASK)
+#define FSM(s)			__GFSM_FSM(FSM_STATE(s))
+#define GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
+#define SET_STATE(s, x)						\
+do {								\
+	FSM_STATE(s) = (FSM_STATE(s) & ~TFW_GFSM_STATE_MASK) | (x); \
+} while (0)
+
+#define __BAD_STATE_BYTE	0xff
+#define BAD_STATE		((__BAD_STATE_BYTE << 8) | __BAD_STATE_BYTE)
 
 typedef struct {
 	int 		st0;
@@ -40,7 +60,7 @@ typedef struct {
 /* Table of FSM handlers. */
 static tfw_gfsm_handler_t fsm_htbl[TFW_FSM_NUM] __read_mostly;
 /* Table of registered hook callbacks. */
-static TfwFsmHook fsm_hooks[TFW_FSM_NUM][TFW_GFSM_HOOK_N] __read_mostly;
+static TfwFsmHook fsm_hooks[TFW_FSM_NUM][GFSM_HOOK_N] __read_mostly;
 /*
  * Table of bitmaps for set hooks.
  * For each FSM there are 16 priorities by 32 states, see gfsm.h.
@@ -54,71 +74,88 @@ static unsigned int fsm_hooks_bm[TFW_FSM_NUM][TFW_GFSM_WC_BMAP_SZ];
 void
 tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
 {
-	st->st_p = 0;
 	st->obj = obj;
-	TFW_GFSM_STATE(st) = st0;
+	memset(st->states, __BAD_STATE_BYTE, sizeof(st->states));
+	FSM_STATE(st) = st0;
 }
 
 /**
- * Context switch from current FSM @fsm_id_curr at state @state.
- * This function is responsible for all context storing/restoring logic.
- * tfw_gfsm_pop_ctx() moves up on the context state reverting current FSM
- * context.
+ * Lookup next FSM in stored states.
  */
-static void
-tfw_gfsm_switch(TfwGState *st, int fsm_id_curr, int state, int prio)
+static int
+__gfsm_fsm_lookup(TfwGState *st, int fsm_id, int *free_slot)
+{
+	int i;
+	for (i = 0, *free_slot = -1; i < TFW_GFSM_FSM_NUM; ++i) {
+		if (__GFSM_FSM(st->states[i]) == fsm_id)
+			return i;
+		if (*free_slot == -1 && st->states[i] == BAD_STATE)
+			*free_slot = i;
+	}
+	return -1;
+}
+
+/**
+ * Context switch from current FSM at state @state to next FSM.
+ */
+static int
+tfw_gfsm_switch(TfwGState *st, int state, int prio)
 {
 	int shift = prio * TFW_GFSM_PRIO_N + (state & TFW_GFSM_STATE_MASK);
-	int fsm_id_next = fsm_hooks[TFW_GFSM_FSM(st)][shift].fsm_id;
-	SsProto *proto = (SsProto *)st->obj;
+	int fsm_next = fsm_hooks[FSM(st)][shift].fsm_id;
+	int fsm_curr = state >> TFW_GFSM_FSM_SHIFT;
+	int free_slot;
 
-	if (unlikely(st->st_p + 1 >= TFW_GFSM_STACK_DEPTH)) {
-		TFW_WARN("Too deep gfsm call, can't run hooks\n");
-		return;
+	TFW_DBG("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
+		fsm_curr, state, fsm_next, fsm_hooks[fsm_curr][shift].st0);
+
+	st->curr = __gfsm_fsm_lookup(st, fsm_next, &free_slot);
+	if (st->curr < 0) {
+		/* Create new clear state for the next FSM. */
+		BUG_ON(free_slot < 0);
+		st->curr = free_slot;
+		FSM_STATE(st) = fsm_hooks[fsm_curr][shift].st0;
 	}
 
-	/* Remember current FSM context. */
-	st->fsm_id[st->st_p] = proto->type;
-	TFW_GFSM_STATE(st) = state; /* @fsm_id_curr will continue from here. */
-
-	/* Push down clear state for next FSM. */
-	++st->st_p;
-	TFW_GFSM_STATE(st) = fsm_hooks[fsm_id_curr][shift].st0;
-	st->fsm_id[st->st_p] = fsm_id_next;
-
-	/*
-	 * The new FSM starts with connection type which it declared
-	 * as enter sate argument of tfw_gfsm_register_hook().
-	 */
-	proto->type = fsm_id_next;
+	return fsm_next;
 }
 
-/**
- * Pop context of just called FSM from contexts stack if it finishes.
- */
-static void
-tfw_gfsm_pop_ctx(TfwGState *st)
+static int
+__gfsm_fsm_exec(TfwGState *st, int fsm_id, struct sk_buff *skb,
+		unsigned int off)
 {
-	SsProto *proto = (SsProto *)st->obj;
+	int r, slot, dummy;
 
-	if (TFW_GFSM_STATE_ST(st) != TFW_GFSM_STATE_LAST)
-		return;
+	st->curr = slot = __gfsm_fsm_lookup(st, fsm_id, &dummy);
+	BUG_ON(st->curr < 0);
 
-	--st->st_p;
-	BUG_ON(st->st_p < 0);
+	FSM_STATE(st) |= TFW_GFSM_ONSTACK;
 
-	proto->type = st->fsm_id[st->st_p];
+	TFW_DBG("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
+
+	r = fsm_htbl[fsm_id](st->obj, skb, off);
+
+	/* If current FSM finishes, remove its state. */
+	if ((st->states[slot] & TFW_GFSM_STATE_MASK) == TFW_GFSM_STATE_LAST) {
+		FSM_STATE(st) = BAD_STATE;
+		st->curr = -1;
+	} else {
+		st->states[slot] &= ~TFW_GFSM_ONSTACK;
+	}
+
+	return r;
 }
 
 /**
- * Dispatch connection data to proper FSM.
+ * Dispatch connection data to proper FSM by application protocol type.
  */
 int
-tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off)
+tfw_gfsm_dispatch(TfwGState *st, void *obj, struct sk_buff *skb,
+		  unsigned int off)
 {
-	SsProto *proto = (SsProto *)obj;
+	int fsm_id = TFW_FSM_TYPE(((SsProto *)obj)->type);
 
-	return fsm_htbl[TFW_FSM_TYPE(proto->type)](obj, skb, off);
+	return __gfsm_fsm_exec(st, fsm_id, skb, off);
 }
 
 /**
@@ -134,40 +171,48 @@ int
 tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 	      unsigned int off)
 {
-	int r = TFW_PASS, p;
-	int fsm_id_curr = TFW_GFSM_FSM(st);
-	unsigned int *hooks = fsm_hooks_bm[TFW_GFSM_FSM(st)];
+	int r = TFW_PASS, p, fsm;
+	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << state;
+
+	TFW_DBG("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
+
+	/* Remember current FSM context. */
+	SET_STATE(st, state);
 
 	/* Start from higest priority. */
 	for (p = TFW_GFSM_HOOK_PRIORITY_HIGH;
 	     p < TFW_GFSM_HOOK_PRIORITY_NUM; ++p)
 	{
-		/* The bitmask is likely spread. */
-		if (likely(!(hooks[p] & mask)))
-			continue;
-	
+		/*
+		 * TODO Handle different priorities by ordering the hooks,
+		 * rather than fixed priority levels to avoid spinning in vain.
+		 */
+		if (!(hooks[p] & mask))
+			return TFW_PASS;
+
 		/* Switch context to other FSM. */
-		tfw_gfsm_switch(st, fsm_id_curr, state, p);
+		fsm = tfw_gfsm_switch(st, state, p);
 
 		/*
-		 * Let the FSM do all its jobs.
-		 * There is possible recursion when the new FSM moves through
-		 * its states.
+		 * Don't execute FSM handler who executed us,
+		 * the FSM will just continue it's processing when all other
+		 * executed FSMs exit.
 		 */
-		r = tfw_gfsm_dispatch(st->obj, skb, off);
+		if (FSM_STATE(st) & TFW_GFSM_ONSTACK)
+			continue;
 
-		/*
-		 * XXX Should we continue processing for lower priorities
-		 * if current FSM is still in progress?
-		 */
-		tfw_gfsm_pop_ctx(st);
-
-		if (r == TFW_BLOCK)
-			break;
+		switch (__gfsm_fsm_exec(st, fsm, skb, off)) {
+		case TFW_BLOCK:
+			return TFW_BLOCK;
+		case TFW_POSTPONE:
+			/*
+			 * Postpone processing if at least one FSM
+			 * needs more data.
+			 */
+			r = TFW_POSTPONE;
+		}
 	}
-
-	TFW_GFSM_STATE(st) = state;
 
 	return r;
 }
