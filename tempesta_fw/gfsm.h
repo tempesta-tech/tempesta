@@ -27,11 +27,11 @@
 #include "sync_socket.h"
 
 /*
- * Full state representation requires 13 bits:
+ * Full state representation requires 14 bits:
  *
- * 	ffff     pppp    sssss
- *     12  9     8  5    4   0
- *     FSM id  priority  state
+ * 	o        ffff     pppp    sssss
+ *     13       12  9     8  5    4   0
+ *   on stack  FSM id   priority  state
  *
  * Maximum number of different states for each FSM = (1 << 5 = 32).
  * States 0 and 31 are reserved as initial and accepting for automaton.
@@ -50,16 +50,18 @@
 #define TFW_GFSM_FSM_N		(1 << TFW_GFSM_FSM_BITS)
 #define TFW_GFSM_FSM_MASK	(TFW_GFSM_FSM_N - 1)
 #define TFW_GFSM_FSM_SHIFT	(TFW_GFSM_PRIO_SHIFT + TFW_GFSM_PRIO_BITS)
+/* Reentrant call (the FSM is on the call stack) flag. */
+#define TFW_GFSM_ONSTACK	(1 << (TFW_GFSM_FSM_SHIFT + TFW_GFSM_FSM_BITS))
 /*
- * We limit maximum FSM switch stack depth by 8, while the maximum number of
- * FSMs are much bigger. Firstly, we should do this to avoid deep calling
- * recursion on FSMs switch. Secondly, basically only complicated modules
- * (like FastCGI or ICAP) which depends on third-party services' responses
- * require storing state for processing message - other simple modules can
- * just call one hook function and exit w/o leaving current FSM state on
+ * We limit maximum number of states tracked FSMs by 8, while the maximum
+ * number of FSMs are much bigger. Firstly, we should do this to avoid deep
+ * calling recursion on FSMs switch. Secondly, basically only complicated
+ * modules (like FastCGI or ICAP) which depends on third-party services'
+ * responses require storing state for processing message - other simple modules
+ * can just call one hook function and exit w/o leaving current FSM state on
  * the stack.
  */
-#define TFW_GFSM_STACK_DEPTH	8
+#define TFW_GFSM_FSM_NUM	8
 /*
  * Actually equal to TFW_GFSM_PRIO_N -
  * be careful, this fact is used in GFSM code.
@@ -127,28 +129,29 @@ enum {
 };
 
 /**
- * Generic FSM state representation with all related info.
+ * Generic FSM state representation for all running FSMs.
  *
- * Current FSM state is placed on top of states stack (@st_stack).
- * On FSM switch a new FSM state is pushed to the stack, so current FSM state
- * is saved and we can continue from the previous state when the new FSM
- * finishes processing. @st_p is the stack pointer - current state possition.
+ * @curr	- index of current FSM in @states;
+ * @obj		- an object processed by FSMs (derived from SsProto);
+ * @states	- all FSM states;
  */
 typedef struct {
 	/* The two belows should be on the same cache line. */
-	unsigned char	st_p;
+	char		curr;
 	void		*obj; /* object which state we track */
-	unsigned short	st_stack[TFW_GFSM_STACK_DEPTH];
-	unsigned short	fsm_id[TFW_GFSM_STACK_DEPTH];
+	unsigned short	states[TFW_GFSM_FSM_NUM];
 } TfwGState;
 
-#define TFW_GFSM_STATE(s)	(s)->st_stack[(s)->st_p]
+#define TFW_GFSM_STATE(s)	((s)->states[(unsigned char)(s)->curr]	\
+				 & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT) \
+				    | TFW_GFSM_STATE_MASK))
 
 typedef int (*tfw_gfsm_handler_t)(void *obj, struct sk_buff *skb,
 				  unsigned int off);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
-int tfw_gfsm_dispatch(void *obj, struct sk_buff *skb, unsigned int off);
+int tfw_gfsm_dispatch(TfwGState *st, void *obj, struct sk_buff *skb,
+		      unsigned int off);
 int tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 		  unsigned int off);
 

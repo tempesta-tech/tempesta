@@ -483,6 +483,7 @@ send_500:
 
 /**
  * @return zero on success and negative value otherwise.
+ * TODO enter the function depending on current GFSM state.
  */
 static int
 tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
@@ -554,6 +555,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		r = tfw_gfsm_move(&hmreq->msg.state,
 				  TFW_HTTP_FSM_REQ_MSG, skb, off);
 		TFW_DBG("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
 
@@ -611,6 +613,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 
 /**
  * @return zero on success and negative value otherwise.
+ * TODO enter the function depending on current GFSM state.
  */
 static int
 tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
