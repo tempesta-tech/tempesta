@@ -362,57 +362,45 @@ frang_http_methods(const TfwHttpReq *req)
 static int
 frang_http_ct_check(const TfwHttpReq *req)
 {
-#define _CT	"Content-Type"
-#define _CTLEN	(sizeof(_CT) - 1)
-	TfwStr *field, *end;
+	TfwStr field, *s;
 	FrangCtVal *curr;
 
 	if (req->method != TFW_HTTP_METH_POST) {
 		return TFW_PASS;
 	}
-	/* Find the Content-Type header.
-	 *
-	 * XXX: Make Content-Type header "special".
-	 */
-	FOR_EACH_HDR_FIELD_RAW(field, end, req) {
-		if (tfw_str_eq_cstr(field, _CT, _CTLEN,
-				    TFW_STR_EQ_PREFIX_CASEI)) {
-			break;
-		}
-	}
-	if (field == end) {
+
+	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE])) {
 		TFW_WARN("frang: 'Content-Type' header field missing\n");
 		return TFW_BLOCK;
 	}
-	/* Verify that Content-Type value is on the list of allowed values.
+	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+			     TFW_HTTP_HDR_CONTENT_TYPE, &field);
+
+	/*
+	 * Verify that Content-Type value is on the list of allowed values.
 	 *
 	 * TODO: possible improvement: binary search.
 	 * Generally binary search is more efficient, but linear search
 	 * is usually faster for small sets of values. Perhaps we should
 	 * switch between the two if performance is critical here,
 	 * but benchmarks should be done to measure the impact.
-	 *
-	 * TODO: replace deprecated tfw_str_eq_kv() by faster tfw_stricmpspn().
 	 */
 	for (curr = frang_cfg.http_ct_vals; curr->str; ++curr) {
-		if (tfw_str_eq_kv(field, _CT, _CTLEN, ':',
-				  curr->str, curr->len,
-				  TFW_STR_EQ_PREFIX_CASEI)) {
-			break;
-		}
+		if (tfw_str_eq_cstr(&field, curr->str, curr->len,
+				    TFW_STR_EQ_PREFIX_CASEI))
+			return TFW_PASS;
 	}
-	if (!curr->str) {
-		/* take first chunk */
-		TfwStr *s = TFW_STR_CHUNK(field, 0);
-		if (s) {
-			TFW_WARN("frang: restricted Content-Type value: %.*s\n",
-			          s->len, (char *)s->ptr);
-		}
-		return TFW_BLOCK;
+
+	/* Take first chunk only for logging. */
+	s = TFW_STR_CHUNK(&field, 0);
+	if (s) {
+		TFW_WARN("frang: restricted Content-Type value: %.*s\n",
+		          s->len, (char *)s->ptr);
+	} else {
+		TFW_WARN("frang: restricted empty Content-Type\n");
 	}
-	return TFW_PASS;
-#undef _CT
-#undef _CTLEN
+
+	return TFW_BLOCK;
 }
 
 static int
@@ -797,7 +785,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		state = TFW_FRANG_FSM_DONE;
 		break;
 	default:
-		TFW_ERR("frang: invalid FSM state %#x\n", state);
+		TFW_ERR("frang: invalid FSM state %d\n", state);
 		BUG();
 	}
 
