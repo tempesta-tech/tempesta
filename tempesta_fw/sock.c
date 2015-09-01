@@ -1026,9 +1026,10 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
-	lock_sock(sk);
+	bh_lock_sock(sk);
+	err = -EINVAL;
 	if (uaddr_len < sizeof(uaddr->sa_family))
-		return -EINVAL;
+		goto out;
 	err = -EISCONN;
 	if (sk->sk_state != TCP_CLOSE)
 		goto out;
@@ -1036,7 +1037,7 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 		goto out;
 	err = 0;
 out:
-	release_sock(sk);
+	bh_unlock_sock(sk);
 	return err;
 }
 EXPORT_SYMBOL(ss_connect);
