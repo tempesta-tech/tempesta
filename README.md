@@ -101,7 +101,8 @@ The list of available options:
 
 * **http_ct_required** - require presence of `Content-Type` header in a request;
 
+* **http_ct_vals** - the list of accepted values for `Content-Type` header;
+
 * **http_methods** - the list of accepted HTTP methods;
 
-* **http_ct_vals** - the list of accepted values for `Content-Type` header;
 

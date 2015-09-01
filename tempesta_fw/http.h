@@ -156,6 +156,7 @@ typedef enum {
 	TFW_HTTP_HDR_NONSINGULAR,
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
+	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 
 	/* Start of list of generic (raw) headers. */

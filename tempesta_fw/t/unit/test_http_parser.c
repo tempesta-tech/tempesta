@@ -225,13 +225,14 @@ TEST(http_parser, fills_hdr_tbl)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc;
-	TfwStr h_host, h_connection, h_contlen, h_xff;
+	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff;
 
 	/* Expected values for special headers. */
 	const char *s_host = "localhost";
 	const char *s_connection = "Keep-Alive";
 	const char *s_xff = "127.0.0.1, example.com";
 	const char *s_cl = "0";
+	const char *s_ct = "text/html; charset=iso-8859-1";
 	/* Expected values for raw headers. */
 	const char *s_user_agent = "User-Agent: Wget/1.13.4 (linux-gnu)";
 	const char *s_accept = "Accept: */*";
@@ -255,6 +256,7 @@ TEST(http_parser, fills_hdr_tbl)
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
 		"Content-Length: 0\r\n"
+		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
 		"Dummy9: 9\r\n"
@@ -270,6 +272,8 @@ TEST(http_parser, fills_hdr_tbl)
 				     TFW_HTTP_HDR_CONNECTION, &h_connection);
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
 				     TFW_HTTP_HDR_CONTENT_LENGTH, &h_contlen);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				     TFW_HTTP_HDR_CONTENT_TYPE, &h_conttype);
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 				     TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
 
@@ -289,6 +293,8 @@ TEST(http_parser, fills_hdr_tbl)
 					    strlen(s_connection), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
 					    strlen(s_cl), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
+					    strlen(s_ct), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_xff, s_xff,
 					    strlen(s_xff), 0));
 
