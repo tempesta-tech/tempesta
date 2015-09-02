@@ -223,7 +223,6 @@ typedef struct {
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @frang_st	- current state of FRANG classifier;
- * @hdr_rawid	- id of the latest RAW header that was checked;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value calculated for the request;
@@ -236,7 +235,6 @@ typedef struct {
 	TfwStr			uri_path;
 	unsigned char		method;
 	unsigned int		frang_st;
-	unsigned int		hdr_rawid;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
@@ -261,6 +259,12 @@ typedef struct {
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
+#define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
+	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
+	     (end) = &(msg)->h_tbl->tbl[eoff];				\
+	     (pos) < (end); 						\
+	     ++(pos))
+
 #define FOR_EACH_HDR_FIELD(pos, end, msg)				\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, 0, (msg)->h_tbl->off)
 
@@ -274,11 +278,6 @@ typedef struct {
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
-#define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
-	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
-	     (end) = &(msg)->h_tbl->tbl[eoff];				\
-	     (pos) < (end); 						\
-	     ++(pos))
 
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 

@@ -399,13 +399,13 @@ static int
 __hdr_del(TfwHttpMsg *hm, int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *dup, *hdr = &ht->tbl[hid];
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
 
 	/* Delete the underlying data. */
-	TFW_STR_FOR_EACH_DUP(dup, hdr, {
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		if (ss_skb_cutoff_data(&hm->msg.skb_list, dup, 0, 2))
 			return TFW_BLOCK;
-	});
+	};
 
 	/* Delete the header from header table. */
 	if (hid < TFW_HTTP_HDR_RAW) {
