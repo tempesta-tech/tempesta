@@ -141,6 +141,7 @@ typedef struct {
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
+/* TODO rework it as TFW_STR_FOR_EACH_DUP, no need for lambda notation now. */
 #define TFW_STR_FOR_EACH_CHUNK(c, s, code)				\
 do {									\
 	typeof(s) __end;						\
@@ -158,19 +159,15 @@ do {									\
 } while (0)
 
 /* The same as above, but for duplicate strings. */
-#define TFW_STR_FOR_EACH_DUP(d, s, code)				\
-do {									\
-	typeof(s) __end;						\
+#define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		__end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
+		(end) = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
 		(d) = (s)->ptr;						\
 	} else {							\
 		(d) = (s);						\
-		__end = (s) + 1;					\
+		(end) = (s) + 1;					\
 	}								\
-	for ( ; (d) < __end; ++(d))					\
-		code;							\
-} while (0)
+	for ( ; (d) < (end); ++(d))
 
 /**
  * Update length of the string which points to new data ending at @curr_p.
@@ -212,9 +209,6 @@ int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
-
-bool tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
-                   const char *val, int val_len, tfw_str_eq_flags_t flags);
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 

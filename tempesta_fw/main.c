@@ -26,7 +26,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.4.4");
+MODULE_VERSION("0.4.5");
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);

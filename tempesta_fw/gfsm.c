@@ -19,6 +19,11 @@
  * 4. HTTP continues to process the request: cache it, forward it to
  *    an upstream etc.
  *
+ * GFSM stores FSM states in an array w/ free organisation to allow graph-like
+ * FSM switching scheme. The entry point to GFSM is defined by current
+ * connection type and the next GFSM trasitions by registered FSM hooks for
+ * currently running FSM.
+ *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
