@@ -320,162 +320,30 @@ bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                 tfw_str_eq_flags_t flags)
 {
-	unsigned int len;
+	int len, clen = cstr_len;
 	const TfwStr *chunk;
 	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
-		len = min(cstr_len, (int)chunk->len);
+		len = min(clen, (int)chunk->len);
 
 		if (cmp(cstr, chunk->ptr, len))
 			return false;
 
-		if (chunk->len > cstr_len)
+		/*
+		 * Relatively specific case, so leave it here and
+		 * don't move it to begin of the function.
+		 */
+		if (str->len > cstr_len)
 			return (flags & TFW_STR_EQ_PREFIX);
 
 		cstr += len;
-		cstr_len -= len;
+		clen -= len;
 	});
 
-	return !cstr_len;
+	return !clen;
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr);
-
-/**
- * DEPRECATED - used only to compare headers which must be special.
- * RFC 7230 now prohibits spaces between header name and ':', so there is no
- * reason to process the field.
- * Moreover, due to unnecessary complexity the function uses plain C FSM,
- * whil optimized vector processing should be used.
- *
- * Generic function for comparing TfwStr and a key-value pair of C strings.
- *
- * The key-value pair has the following form:
- *   (@key)[:space:]*(@sep)[:space:]*(@val)
- *
- * For example, if:
- *   @key = "Connection"
- *   @sep = ':'
- *   @val = "keep-alive"
- * Then all the following TfwStr values will match it:
- *   "Connection:keep-alive"
- *   "Connection: keep-alive"
- *   "Connection   :   keep-alive"
- *   "Connection \r\n : \t keep-alive"
- *
- * Note: Space characters are tested using isspace(), so chars like \r\n\t
- * are treated as space.
- *
- * @key should not contain spaces (although current implementation allows it).
- * @sep is a single character, no repetitions allowed (e.g "==").
- * @val must not start with a space (because all spaces are eaten after @sep).
- * @str may consist of any number of chunks, there is no limitation
- *     on how @key/@sep/@val are spread across the chunks.
- *
- * @flags allows to specify additional options for comparison:
- *  - TFW_STR_EQ_CASEI
- *    Use case-insensitive comparison for @key and @val.
- *    The @sep is always case-sensitive.
- *
- *  - TFW_STR_EQ_PREFIX
- *    Treat @val as a prefix.
- *    For example, if @val = "text", then it will match to:
- *      "Content-Type: text"
- *      "Content-Type: text/html"
- *      "Content-Type: text/html; charset=UTF-8"
- *    The flag affects only @val (the @key comparison is always case-insensitive
- *    and @sep is always case-sensitive).
- */
-bool
-tfw_str_eq_kv(const TfwStr *str, const char *key, int key_len, char sep,
-	      const char *val, int val_len, tfw_str_eq_flags_t flags)
-{
-	const char *key_end = key + key_len;
-	const char *val_end = val + val_len;
-	const TfwStr *chunk;
-	const char *c;
-	const char *cend;
-	short cnum;
-
-/* Try to move to the next chunk (if current chunk is finished).
- * Execute @ok_code on sucess or @err_code if there is no next chunk. */
-#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
-	if (unlikely(c == cend))	{		\
-		++cnum;					\
-		chunk = TFW_STR_CHUNK(str, cnum); 	\
-		if (chunk) {				\
-			c = chunk->ptr;			\
-			cend = chunk->ptr + chunk->len; \
-			ok_code;			\
-		} else {				\
-			err_code;			\
-			BUG();				\
-		}					\
-	}
-
-	/* Initialize  the state - get the first chunk. */
-	cnum = 0;
-	chunk = TFW_STR_CHUNK(str, 0);
-	if (!chunk)
-		return false;
-	c = chunk->ptr;
-	cend = chunk->ptr + chunk->len;
-
-	/* A tiny FSM here. Instead of a traditional for+switch construction
-	 * it uses a series of small loops to improve branch prediction and
-	 * locality of the code (and thus L1i hit).
-	 */
-
-state_key:
-	while (key != key_end && c != cend) {
-		if (tolower(*key++) != tolower(*c++))
-			return false;
-	}
-	_TRY_NEXT_CHUNK(goto state_key, return false);
-
-state_sp1:
-	if (!isspace(sep)) {
-		while (c != cend && isspace(*c))
-			++c;
-		_TRY_NEXT_CHUNK(goto state_sp1, return false);
-	}
-
-/* state_sep: */
-	if (*c++ != sep)
-		return false;
-
-state_sp2:
-	while (c != cend && isspace(*c))
-		++c;
-	_TRY_NEXT_CHUNK(goto state_sp2, return (val == val_end));
-
-state_val:
-	if (flags & TFW_STR_EQ_CASEI) {
-		while (val != val_end && c != cend) {
-			if (tolower(*val++) != tolower(*c++))
-				return false;
-		}
-	} else {
-		while (val != val_end && c != cend) {
-			if (*val++ != *c++)
-				return false;
-		}
-	}
-
-	/* @val is not finished - request the next chunk. */
-	if (val != val_end) {
-		_TRY_NEXT_CHUNK(goto state_val, return false);
-	}
-
-	/* The chunk is not finished - then @val must be a prefix. */
-	if (c != cend) {
-		return (flags & TFW_STR_EQ_PREFIX);
-	}
-
-	/* Both @val and the current chunk are finished - full match. */
-	return true;
-}
-EXPORT_SYMBOL(tfw_str_eq_kv);
 
 /**
  * DEPRECATED: The function intentionaly brokes zero-copy string design.

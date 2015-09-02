@@ -37,6 +37,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 	static const size_t hdr_lens[] = {
 		[TFW_HTTP_HDR_HOST]	= sizeof("Host:") - 1,
 		[TFW_HTTP_HDR_CONTENT_LENGTH] = sizeof("Content-Length:") - 1,
+		[TFW_HTTP_HDR_CONTENT_TYPE] = sizeof("Content-Type:") - 1,
 		[TFW_HTTP_HDR_CONNECTION] = sizeof("Connection:") - 1,
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = sizeof("X-Forwarded-For:") - 1,
 	};
@@ -398,13 +399,13 @@ static int
 __hdr_del(TfwHttpMsg *hm, int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *dup, *hdr = &ht->tbl[hid];
+	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
 
 	/* Delete the underlying data. */
-	TFW_STR_FOR_EACH_DUP(dup, hdr, {
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 		if (ss_skb_cutoff_data(&hm->msg.skb_list, dup, 0, 2))
 			return TFW_BLOCK;
-	});
+	};
 
 	/* Delete the header from header table. */
 	if (hid < TFW_HTTP_HDR_RAW) {
