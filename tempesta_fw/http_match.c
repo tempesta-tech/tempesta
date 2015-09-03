@@ -62,6 +62,7 @@
  */
 
 #include <linux/cache.h>
+#include <linux/ctype.h>
 #include "http_match.h"
 #include "http_msg.h"
 
@@ -201,27 +202,114 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return hdr_val_eq(req, id, rule->arg.str, rule->arg.len, flags);
 }
 
+#define _MOVE_TO_COND(p, end, cond)			\
+	while((p) < (end) && !(cond)) {			\
+		(p)++;					\
+	}
+
+#define TFW_LC_INT	0x20202020
+#define TFW_LC_LONG	0x2020202020202020UL
+
+/*
+ * Match 4 or 8 characters with conversion to lower case
+ * and type conversion to int or long type.
+ */
+#define C4_LCM(p, c)				\
+	 !((*(unsigned int *)(p) | TFW_LC_INT) 		\
+	 ^ (*(unsigned int *)(c) | TFW_LC_INT))
+#define C8_LCM(p, c)				\
+	 !((*(unsigned long *)(p) | TFW_LC_LONG)	\
+	 ^ (*(unsigned long *)(c) | TFW_LC_LONG))
+
+/* It would be hard to apply some header-specific rules here, so ignore
+ * case for all headers according to the robustness principle.
+ */
 static bool
 match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	TfwStr *hdr;
 	int i;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	/* It would be hard to apply some header-specific rules here, so ignore
-	 * case for all headers according to the robustness principle. */
-	flags |= TFW_STR_EQ_CASEI;
-
 	for (i = 0; i < req->h_tbl->size; ++i) {
-		hdr = &req->h_tbl->tbl[i];
-		if (TFW_STR_EMPTY(hdr))
-			continue;
+		const TfwStr *hdr, *chunk;
+		const char *c, *cend, *p, *pend;
+		short cnum;
 
-		/* TODO: handle LWS* between header and value for raw headers.
-		 * (currently "X-Hdr:foo" is not equal to "X-Hdr: foo").
-		 */
-		if (tfw_str_eq_cstr(hdr, rule->arg.str, rule->arg.len, flags))
-			return true;
+		hdr = &req->h_tbl->tbl[i];
+		if (TFW_STR_EMPTY(hdr)) {
+			continue;
+		}
+
+		/* Initialize  the state - get the first chunk. */
+		p = rule->arg.str;
+		pend = rule->arg.str + rule->arg.len;
+		cnum = 0;
+		chunk = TFW_STR_CHUNK(hdr, 0);
+		if (!chunk) {
+			return p == NULL;
+		}
+		c = chunk->ptr;
+		cend = chunk->ptr + chunk->len;
+
+#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
+	if (unlikely(c == cend))	{		\
+		++cnum;					\
+		chunk = TFW_STR_CHUNK(hdr, cnum); 	\
+		if (chunk) {				\
+			c = chunk->ptr;			\
+			cend = chunk->ptr + chunk->len; \
+			ok_code;			\
+		} else {				\
+			err_code;			\
+			BUG();				\
+		}					\
+	}
+
+state_common:
+		while (p != pend && c != cend) {
+			if (p + 8 <= pend &&
+			    c + 8 <= cend &&
+			    C8_LCM(p, c)) {
+				p += 8;
+				c += 8;
+				continue;
+			}
+
+			if (p + 4 <= pend &&
+			    c + 4 <= cend &&
+			    C4_LCM(p, c)) {
+				p += 4;
+				c += 4;
+				continue;
+			}
+
+			if (tolower(*p) != tolower(*c)) {
+				/* If the position of strings have a different
+				 * number of space characters, missing their */
+				if (unlikely((isspace(*p) &&
+					      isspace(*(p - 1))) ||
+					     (isspace(*c) &&
+					      isspace(*(c - 1))))) {
+					goto state_sp;
+				}
+
+				return false;
+			}
+
+			p++;
+			c++;
+		}
+		_TRY_NEXT_CHUNK(goto state_common, return p == pend);
+
+		if (p == pend) {
+			return flags & TFW_STR_EQ_PREFIX;
+		}
+
+state_sp:
+		_MOVE_TO_COND(c, cend, !isspace(*c));
+		_MOVE_TO_COND(p, pend, !isspace(*p));
+		_TRY_NEXT_CHUNK(goto state_sp, return p == pend);
+		goto state_common;
 	}
 
 	return false;
