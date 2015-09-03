@@ -455,7 +455,7 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 		__skb_frag_unref(frag);
 		if (i + 1 < si->nr_frags)
 			memmove(&si->frags[i], &si->frags[i + 1],
-				si->nr_frags - i - 1);
+				(si->nr_frags - i - 1) * sizeof(skb_frag_t));
 		--si->nr_frags;
 		goto lookup_next_ptr;
 	}
