@@ -258,16 +258,6 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	return 0;
 }
 
-/*
- * Maximum data length to move.
- * Assume that it's faster to move this mnumber of bytes than do relatively
- * complex things with skb fragmentation (also keep in mind that higher
- * number of skb fragments reduces performance of segmentation offload).
- * Meantime, this is relatively large piece of data to keep HTTP headers
- * in most cases.
- */
-#define __MAXCPSZ	256
-
 /**
  * Sometimes kernel gives bit more memory for skb than was requested
  * (see ksize() call in __alloc_skb()) - use the extra memory if it's enough
@@ -285,29 +275,24 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 
 	BUG_ON(!(alloc | tail_len));
 
-#if 0 /* Skip the optimization for the time being. */
 	/*
-	 * Quick and unlikely path: move small skb tail
-	 * or just advance skb tail pointer.
+	 * Quick and unlikely path: just advance skb tail pointer.
+	 * Note that this only works when we add space. When we remove,
+	 * pspt points at the start of a data chunk to remove. In that
+	 * case, tail_len can never be zero.
 	 */
-	if (unlikely(tail_len <= __MAXCPSZ && len <= skb_tailroom(skb))) {
-		unsigned char *p = skb_put(skb, len);
-		if (!tail_len)
-			return p;
-		memmove(pspt + len, pspt, tail_len);
-		return pspt;
+	if (unlikely(!tail_len && len <= ss_skb_tailroom(skb))) {
+		return ss_skb_put(skb, len);
 	}
-#endif
-
 	/*
-	 * Not enough room in linear part - put the data to page fragment.
+	 * Not enough room in the linear part - put data in a page fragment.
 	 *
-	 * Don't bother with skb tail: if the linear part is large, then it's
-	 * likely that we'll do some smaller data insertions and go by
-	 * quick path above, otherwise the tail size is also small.
+	 * Don't bother with skb tail: if the linear part is large, then
+	 * it's likely that we'll do some smaller data insertions and go
+	 * by the quick path above, otherwise the tail size is also small.
 	 *
-	 * Do all allocations before fragments movement to
-	 * avoid complex rollback.
+	 * Do all allocations before moving the fragments to avoid
+	 * complex rollback.
 	 */
 
 	if (alloc) {
@@ -315,8 +300,8 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 			return NULL;
 	} else {
 		/*
-		 * Probably we should delete the wholse second part of
-		 * the linear data or move it to page fragment.
+		 * Probably we should delete the whole second part
+		 * of the linear data or move it to page fragment.
 		 */
 		tail_len += len;
 		BUG_ON(tail_len < 0);
@@ -361,7 +346,7 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 	struct sk_buff *skb_dst;
 
-	BUG_ON((off < frag->page_offset) || (off >= skb_frag_size(frag)));
+	BUG_ON((off < 0) || (off >= skb_frag_size(frag)));
 	split = off && off < skb_frag_size(frag);
 
 	if (!split) {
@@ -443,7 +428,7 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	BUG_ON((off < frag->page_offset) || (off >= skb_frag_size(frag)));
+	BUG_ON((off < 0) || (off >= skb_frag_size(frag)));
 	if (unlikely(off + len > skb_frag_size(frag))) {
 		SS_WARN("Try to delete too much\n");
 		return NULL;
