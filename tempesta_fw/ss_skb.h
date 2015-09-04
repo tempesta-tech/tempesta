@@ -172,7 +172,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
  *
  * This function is nearly a copy of the original that is defined
  * in include/linux/skbuff.h. The difference is that the original
- * only works on a non-linear skb, while this one works on any skb.
+ * only works on a linear skb, while this one works on any skb.
  */
 static inline int
 ss_skb_tailroom(const struct sk_buff *skb)
@@ -185,7 +185,7 @@ ss_skb_tailroom(const struct sk_buff *skb)
  *
  * This function is nearly a copy of the original that is defined
  * in net/core/skbuff.c. The difference is that the original only
- * works on a non-linear skb, while this one works on any skb.
+ * works on a linear skb, while this one works on any skb.
  */
 static inline unsigned char *
 ss_skb_put(struct sk_buff *skb, unsigned int len)
