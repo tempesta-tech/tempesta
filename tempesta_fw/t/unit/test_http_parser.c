@@ -368,15 +368,18 @@ TEST(http_parser, parses_connection_value)
 
 TEST(http_parser, fuzzer)
 {
-	char *req;
-		
+	char *str;
+	int i = 0, ret;
+	str = vmalloc(2 * 1024 * 1024);
+
 	while (1) {
-		req = fuzz_req();
-		if (!req)
+		TEST_LOG("%s:fuzzer i: %d\n", __func__, i++);
+		ret = fuzz_req(str);
+		if (!ret)
 			break;
-		FOR_REQ(req);
-		kfree(req);
+		FOR_REQ(str);
 	}
+	vfree(str);
 }
 
 TEST_SUITE(http_parser)
