@@ -285,6 +285,18 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		return ss_skb_put(skb, len);
 	}
 	/*
+	 * Quick and unlikely path: just move skb tail pointer backward.
+	 * Note that this only works when we remove data, and the data
+	 * is located exactly at the end of the linear part of an skb.
+	 */
+	if (unlikely((len < 0) && (tail_len == -len))) {
+		ss_skb_put(skb, len);
+		if (skb_is_nonlinear(skb))
+			return skb_frag_address(&skb_shinfo(skb)->frags[0]);
+		/* Not found. Return invalid address, and try next skb. */
+		return (void *)1;
+	}
+	/*
 	 * Not enough room in the linear part - put data in a page fragment.
 	 *
 	 * Don't bother with skb tail: if the linear part is large, then
