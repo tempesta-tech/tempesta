@@ -167,6 +167,37 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->truesize += delta;
 }
 
+/*
+ * skb_tailroom - number of bytes at buffer end
+ *
+ * This function is nearly a copy of the original that is defined
+ * in include/linux/skbuff.h. The difference is that the original
+ * only works on a linear skb, while this one works on any skb.
+ */
+static inline int
+ss_skb_tailroom(const struct sk_buff *skb)
+{
+	return skb->end - skb->tail;
+}
+
+/*
+ * skb_put - add data to a buffer
+ *
+ * This function is nearly a copy of the original that is defined
+ * in net/core/skbuff.c. The difference is that the original only
+ * works on a linear skb, while this one works on any skb.
+ */
+static inline unsigned char *
+ss_skb_put(struct sk_buff *skb, unsigned int len)
+{
+	unsigned char *tmp = skb_tail_pointer(skb);
+	skb->tail += len;
+	skb->len  += len;
+	if (unlikely(skb->tail > skb->end))
+		BUG();
+	return tmp;
+}
+
 #define SS_SKB_MAX_DATA_LEN	(MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
