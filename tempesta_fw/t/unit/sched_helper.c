@@ -22,7 +22,7 @@
 #include "sched_helper.h"
 
 TfwSrvConnection *tfw_srv_conn_alloc(void);
-void tfw_srv_conn_free(TfwSrvConnection *srv_conn);
+void tfw_srv_conn_free(TfwConnection *conn);
 
 TfwSrvGroup *
 test_create_sg(const char *name, const char *sched_name)
@@ -78,13 +78,13 @@ test_create_conn(TfwPeer *peer)
 void
 test_conn_release_all(TfwSrvGroup *sg)
 {
-	TfwSrvConnection *conn, *conn_tmp;
+	TfwConnection *conn, *conn_tmp;
 	TfwServer *srv, *srv_tmp;
 
 	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list) {
-		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, conn.list) {
-			conn->conn.sk = NULL;
-			tfw_connection_unlink_peer(&conn->conn);
+		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, list) {
+			conn->sk = NULL;
+			tfw_connection_unlink_peer(conn);
 			tfw_srv_conn_free(conn);
 		}
 	}
