@@ -61,9 +61,8 @@ tfw_connection_init(TfwConnection *conn)
 void
 tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
 {
-	BUG_ON(conn->sk || sk->sk_user_data);
-	conn->sk = sk;
-	sk->sk_user_data = conn;
+	tfw_connection_link_to_sk(conn, sk);
+	tfw_connection_link_from_sk(conn, sk);
 }
 
 /*
@@ -72,9 +71,10 @@ tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
  * to modify sk->sk_user_data, or the socket must not be bound or connected.
  */
 void
-tfw_connection_unlink_sk(TfwConnection *conn)
+tfw_connection_unlink_sk(TfwConnection *conn, struct sock *sk)
 {
-	BUG_ON(!conn->sk || !conn->sk->sk_user_data);
+	BUG_ON((sk == NULL) || (conn->sk != sk));
+	BUG_ON(sk->sk_user_data == NULL);
 	conn->sk->sk_user_data = NULL;
 	conn->sk = NULL;
 }
