@@ -59,6 +59,16 @@ static inline void ss_callback_write_unlock(struct sock *sk)
 	write_unlock(&sk->sk_callback_lock);
 }
 
+static inline void ss_sock_hold(struct sock *sk)
+{
+	sock_hold(sk);
+}
+
+static inline void ss_sock_put(struct sock *sk)
+{
+	sock_put(sk);
+}
+
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 

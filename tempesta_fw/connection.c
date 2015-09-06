@@ -43,6 +43,10 @@ tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 	conn_hooks[hid] = hooks;
 }
 
+/*
+ * Initialize the connection structure.
+ * It's not on any list yet, so it's safe to do so without locks.
+ */
 void
 tfw_connection_init(TfwConnection *conn)
 {
@@ -50,14 +54,16 @@ tfw_connection_init(TfwConnection *conn)
 
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->msg_queue);
+	spin_lock_init(&conn->splock);
 	atomic_set(&conn->refcnt, 1);
 }
 
 /*
- * It's essential that this function is called before a socket
- * is bound or connected, which guarantees that there are no calls
- * to Tempesta callbacks. No locking is needed under these conditions.
- * Otherwise, it must be called under write lock on sk->sk_callback_lock.
+ * It's essential that this function is called before a socket is bound
+ * or connected, which guarantees that there are no calls to Tempesta
+ * callbacks. No locking is required under these conditions to modify
+ * sk->sk_user_data. Otherwise, it must be called under write lock on
+ * sk->sk_callback_lock. conn->sk is modified under a separate lock.
  */
 void
 tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
@@ -67,16 +73,19 @@ tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
 }
 
 /*
- * This function does the opposite to what tfw_connection_link_sk() does.
- * It must be called under write lock on sk->sk_callback_lock to be able
- * to modify sk->sk_user_data, or the socket must not be bound or connected.
+ * This function does an opposite to what tfw_connection_link_sk() does.
+ * It must be called under write lock on sk->sk_callback_lock to modify
+ * sk->sk_user_data, or the socket must not be bound or connected.
+ * Socket close may occur in SoftIRQ or in user context at STOP time,
+ * and in both cases it's protected with a lock on sk->sk_callback_lock.
+ * conn->sk is modified under a separate lock.
  */
 void
 tfw_connection_unlink_sk(TfwConnection *conn, struct sock *sk)
 {
-	BUG_ON((sk == NULL) || (conn->sk != sk));
+	BUG_ON((sk == NULL) || (conn->sk && (conn->sk != sk)));
 	BUG_ON(sk->sk_user_data == NULL);
-	conn->sk->sk_user_data = NULL;
+	sk->sk_user_data = NULL;
 	conn->sk = NULL;
 }
 
@@ -122,7 +131,17 @@ tfw_connection_destruct(TfwConnection *conn)
 void
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
-	ss_send(conn->sk, &msg->skb_list);
+	struct sock *sk;
+
+	spin_lock(&conn->splock);
+	sk = conn->sk;
+	if (sk)
+		ss_sock_hold(sk);
+	spin_unlock(&conn->splock);
+	if (sk) {
+		ss_send(sk, &msg->skb_list);
+		sock_put(sk);
+	}
 }
 
 /*

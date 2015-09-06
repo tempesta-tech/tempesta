@@ -54,11 +54,13 @@ enum {
  * Session/Presentation layer (in OSI terms) handling.
  *
  * @proto	- protocol handler. Base class, must be first;
- * @list	- list of connections with the @peer;
- * @msg_queue	- messages queue to be sent over the connection;
- * @msg		- currently processing (receiving) message;
+ * @list	- member in the list of connections with @peer;
+ * @msg_queue	- queue of messages to be sent over the connection;
+ * @refcnt	- number of users of the connection structure;
+ * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
- * @sk		- appropriate sock handler;
+ * @sk		- an appropriate sock handler;
+ * @splock	- lock for accessing @peer and @sk;
  */
 typedef struct {
 	SsProto			proto;
@@ -69,6 +71,7 @@ typedef struct {
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
+	spinlock_t		splock;
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
@@ -140,8 +143,11 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(!list_empty(&conn->msg_queue));
 	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
+
+	spin_lock(&conn->splock);
 	BUG_ON(conn->peer);
 	BUG_ON(conn->sk);
+	spin_unlock(&conn->splock);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);

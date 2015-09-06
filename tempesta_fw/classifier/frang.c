@@ -577,6 +577,13 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 */
 	__FRANG_FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate) {
+			/*
+			 * This code is executed synchronously and under
+			 * a proper lock which guarantees that conn->sk
+			 * will not disappear while it's executed. Thus
+			 * no extra lock on conn->sk is required here.
+			 * (The lock is sk->sk_callback_lock)
+			 */
 			r = frang_account_do(conn->sk, frang_req_limit);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);

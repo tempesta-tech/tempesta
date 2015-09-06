@@ -114,9 +114,20 @@ tfw_sched_rr_update_data(TfwSrvGroup *sg)
 		conn_list = &srv_list->conn_lists[srv_idx];
 
 		list_for_each_entry(conn, &srv->conn_list, list) {
-			/* Skip not-yet-established connections. */
-			if (!conn->sk)
+			/*
+			 * Skip not-yet-established connections.
+			 *
+			 * A connection may die by the time someone wants
+			 * to use it. That has to be dealt with elsewhere.
+			 * It should be assumed that scheduler's data is
+			 * only semi-accurate at any point of time.
+			 */
+			spin_lock(&conn->splock);
+			if (!conn->sk) {
+				spin_unlock(&conn->splock);
 				continue;
+			}
+			spin_unlock(&conn->splock);
 
 			conn_list->conns[conn_idx] = conn;
 			++conn_idx;
