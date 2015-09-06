@@ -96,6 +96,20 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
+static inline void
+tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
+{
+	BUG_ON(sk->sk_user_data);
+	sk->sk_user_data = conn;
+}
+
+static inline void
+tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
+{
+	BUG_ON(conn->sk);
+	conn->sk = sk;
+}
+
 /**
  * Check that TfwConnection resources are cleaned up properly.
  */
@@ -116,7 +130,7 @@ void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);
 void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
-void tfw_connection_unlink_sk(TfwConnection *conn);
+void tfw_connection_unlink_sk(TfwConnection *conn, struct sock *sk);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 void tfw_connection_unlink_peer(TfwConnection *conn);
 
