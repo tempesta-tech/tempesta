@@ -119,13 +119,13 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	}
 
 	sock_set_flag(sk, SOCK_DBG);
-	tfw_connection_link_sk(&srv_conn->conn, sk);
+	tfw_connection_link_from_sk(&srv_conn->conn, sk);
 	ss_set_callbacks(sk);
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("can't initiate a connect to server: error %d\n", r);
-		tfw_connection_unlink_sk(&srv_conn->conn);
+		tfw_connection_unlink_sk(&srv_conn->conn, sk);
 		ss_close(sk);
 		return r;
 	}
@@ -189,6 +189,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwSrvConnection *srv_conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
 
+	/* Link Tempesta with the socket. */
+	tfw_connection_link_to_sk(&srv_conn->conn, sk);
+
 	/* Notify higher-level levels. */
 	r = tfw_connection_new(&srv_conn->conn);
 	if (r) {
@@ -223,7 +226,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	tfw_connection_destruct(&srv_conn->conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn);
+	tfw_connection_unlink_sk(&srv_conn->conn, sk);
 
 	/*
 	 * Initiate a new connect attempt.
@@ -263,7 +266,7 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	tfw_connection_destruct(&srv_conn->conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn);
+	tfw_connection_unlink_sk(&srv_conn->conn, sk);
 
 	/*
 	 * We need to create a new socket for each connect attempt.
@@ -304,7 +307,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 */
 	if (sk) {
 		ss_callback_write_lock(sk);
-		tfw_connection_unlink_sk(&srv_conn->conn);
+		tfw_connection_unlink_sk(&srv_conn->conn, sk);
 		ss_callback_write_unlock(sk);
 		ss_close(sk);
 	}
