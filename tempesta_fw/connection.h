@@ -56,6 +56,7 @@ enum {
  * @proto	- protocol handler. Base class, must be first;
  * @list	- list of connections with the @peer;
  * @msg_queue	- messages queue to be sent over the connection;
+ * @msg_qlock	- lock for accessing @msg_queue;
  * @msg		- currently processing (receiving) message;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- appropriate sock handler;
@@ -64,6 +65,7 @@ typedef struct {
 	SsProto			proto;
 	struct list_head	list;
 	struct list_head	msg_queue;
+	spinlock_t		msg_qlock;
 
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
