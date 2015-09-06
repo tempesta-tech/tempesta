@@ -104,13 +104,13 @@ typedef struct {
  * until the connection is established.
  */
 static int
-tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try(TfwConnection *conn)
 {
 	int r;
 	TfwAddr *addr;
 	struct sock *sk;
 
-	addr = &srv_conn->conn.peer->addr;
+	addr = &conn->peer->addr;
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
@@ -119,13 +119,13 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	}
 
 	sock_set_flag(sk, SOCK_DBG);
-	tfw_connection_link_from_sk(&srv_conn->conn, sk);
+	tfw_connection_link_from_sk(conn, sk);
 	ss_set_callbacks(sk);
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("can't initiate a connect to server: error %d\n", r);
-		tfw_connection_unlink_sk(&srv_conn->conn, sk);
+		tfw_connection_unlink_sk(conn, sk);
 		ss_close(sk);
 		return r;
 	}
@@ -160,7 +160,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 	int r;
 	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
 
-	r = tfw_sock_srv_connect_try(srv_conn);
+	r = tfw_sock_srv_connect_try(&srv_conn->conn);
 	if (r) {
 		/*
 		 * Can't even initiate the connect?
@@ -175,7 +175,8 @@ static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
-	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
+	setup_timer(&srv_conn->retry_timer,
+		    tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
 }
 
@@ -186,14 +187,14 @@ static int
 tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+	TfwConnection *conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)conn->peer;
 
 	/* Link Tempesta with the socket. */
-	tfw_connection_link_to_sk(&srv_conn->conn, sk);
+	tfw_connection_link_to_sk(conn, sk);
 
 	/* Notify higher-level levels. */
-	r = tfw_connection_new(&srv_conn->conn);
+	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
@@ -202,7 +203,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	/* Notify the scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
-	__reset_retry_timer(srv_conn);
+	__reset_retry_timer((TfwSrvConnection *)conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	return 0;
@@ -216,28 +217,28 @@ static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
 	int r;
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+	TfwConnection *conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR("connection lost", &srv->addr);
 
 	/* Revert tfw_sock_srv_connect_complete(). */
 	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(&srv_conn->conn);
+	tfw_connection_destruct(conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn, sk);
+	tfw_connection_unlink_sk(conn, sk);
 
 	/*
 	 * Initiate a new connect attempt.
 	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
 	 */
-	r = tfw_sock_srv_connect_try(srv_conn);
+	r = tfw_sock_srv_connect_try(conn);
 	if (r) {
 		TFW_WARN("failover connect failed\n");
 
 		/* Just retry later. */
-		__mod_retry_timer(srv_conn);
+		__mod_retry_timer((TfwSrvConnection *)conn);
 	}
 
 	return 0;
@@ -256,24 +257,24 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 static int
 tfw_sock_srv_connect_retry(struct sock *sk)
 {
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+	TfwConnection *conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR("connection error", &srv->addr);
 
 	/* Revert tfw_sock_srv_connect_complete(). */
 	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(&srv_conn->conn);
+	tfw_connection_destruct(conn);
 
 	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn, sk);
+	tfw_connection_unlink_sk(conn, sk);
 
 	/*
 	 * We need to create a new socket for each connect attempt.
 	 * The old socket is released as soon as it is not used anymore.
 	 * New socket is created after a delay in the timer callback.
 	 */
-	__mod_retry_timer(srv_conn);
+	__mod_retry_timer((TfwSrvConnection *)conn);
 
 	return 0;
 }
@@ -290,13 +291,13 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * is not established.
  */
 static void
-tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
+tfw_sock_srv_disconnect(TfwConnection *conn)
 {
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-	struct sock *sk = srv_conn->conn.sk;
+	TfwServer *srv = (TfwServer *)conn->peer;
+	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
-	del_timer_sync(&srv_conn->retry_timer);
+	del_timer_sync(&((TfwSrvConnection *)conn)->retry_timer);
 
 	/*
 	 * Revert tfw_sock_srv_connect_try().
@@ -307,14 +308,14 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 */
 	if (sk) {
 		ss_callback_write_lock(sk);
-		tfw_connection_unlink_sk(&srv_conn->conn, sk);
+		tfw_connection_unlink_sk(conn, sk);
 		ss_callback_write_unlock(sk);
 		ss_close(sk);
 	}
 	/* Revert tfw_sock_srv_connect_complete(). */
 	if (srv) {
 		tfw_sg_update(srv->sg);
-		tfw_connection_destruct(&srv_conn->conn);
+		tfw_connection_destruct(conn);
 	}
 }
 
@@ -337,11 +338,11 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn;
+	TfwConnection *conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
-		if (tfw_sock_srv_connect_try(srv_conn))
-			__mod_retry_timer(srv_conn);
+	list_for_each_entry(conn, &srv->conn_list, list) {
+		if (tfw_sock_srv_connect_try(conn))
+			__mod_retry_timer((TfwSrvConnection *)conn);
 	}
 
 	return 0;
@@ -350,11 +351,11 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn;
+	TfwConnection *conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+	list_for_each_entry(conn, &srv->conn_list, list) {
 		local_bh_disable();
-		tfw_sock_srv_disconnect(srv_conn);
+		tfw_sock_srv_disconnect(conn);
 		local_bh_enable();
 	}
 
@@ -414,14 +415,11 @@ DEBUG_EXPORT_SYMBOL(tfw_srv_conn_alloc);
 void
 tfw_srv_conn_free(TfwConnection *conn)
 {
-	TfwSrvConnection *srv_conn =
-		container_of(conn, TfwSrvConnection, conn);
-
-	BUG_ON(timer_pending(&srv_conn->retry_timer));
+	BUG_ON(timer_pending(&((TfwSrvConnection *)conn)->retry_timer));
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
+	kmem_cache_free(tfw_srv_conn_cache, conn);
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_free);
 
