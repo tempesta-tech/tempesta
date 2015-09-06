@@ -411,14 +411,16 @@ tfw_srv_conn_alloc(void)
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_alloc);
 
-static void
-tfw_srv_conn_free(TfwSrvConnection *srv_conn)
+void
+tfw_srv_conn_free(TfwConnection *conn)
 {
-	tfw_connection_validate_cleanup(&srv_conn->conn);
+	TfwSrvConnection *srv_conn =
+		container_of(conn, TfwSrvConnection, conn);
 
-	/* Check that all nested resources are already freed. */
 	BUG_ON(timer_pending(&srv_conn->retry_timer));
 
+	/* Check that all nested resources are freed. */
+	tfw_connection_validate_cleanup(conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_free);
@@ -440,13 +442,13 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 }
 
 static int
-tfw_sock_srv_delete_conns(TfwServer *srv)
+tfw_sock_srv_del_conns(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn, *tmp;
+	TfwConnection *conn, *tmp;
 
-	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
-		tfw_connection_unlink_peer(&srv_conn->conn);
-		tfw_srv_conn_free(srv_conn);
+	list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
+		tfw_connection_unlink_peer(conn);
+		tfw_srv_conn_free(conn);
 	}
 
 	return 0;
@@ -455,7 +457,7 @@ tfw_sock_srv_delete_conns(TfwServer *srv)
 static void
 tfw_sock_srv_delete_all_conns(void)
 {
-	int r = tfw_sg_for_each_srv(tfw_sock_srv_delete_conns);
+	int r = tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
 	BUG_ON(r);
 }
 
