@@ -183,13 +183,23 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		conn_idx = 0;
 		list_for_each_entry(conn, &srv->conn_list, list) {
-			/* Skip not-yet-established connections.
-			 * However, take into account the conn_idx to preserver
-			 * same hash values for all connections. */
+			/*
+			 * Skip not-yet-established connections. Take care
+			 * of conn_idx to preserve same hash values for all
+			 * connections.
+			 *
+			 * A connection may die by the time someone wants
+			 * to use it. That has to be dealt with elsewhere.
+			 * It should be assumed that scheduler's data is
+			 * only semi-accurate at any point of time.
+			 */
+			spin_lock(&conn->splock);
 			if (!conn->sk) {
+				spin_unlock(&conn->splock);
 				++conn_idx;
 				continue;
 			}
+			spin_unlock(&conn->splock);
 
 			conn_hash = &hash_list->conn_hashes[hash_idx];
 			conn_hash->conn = conn;

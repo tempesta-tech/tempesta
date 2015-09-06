@@ -145,6 +145,8 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	/* Synchronize concurrent socket writting in different softirqs. */
 	bh_lock_sock_nested(sk);
 
+	if (sk->sk_state != TCP_ESTABLISHED)
+		goto out;
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
 	BUG_ON(ss_skb_queue_empty(skb_list));
@@ -226,7 +228,7 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
-
+out:
 	bh_unlock_sock(sk);
 }
 EXPORT_SYMBOL(ss_send);

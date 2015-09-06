@@ -100,8 +100,8 @@ typedef struct {
 } TfwSrvConnection;
 
 /**
- * Initiate a new connect attempt without blocking
- * until the connection is established.
+ * Initiate a non-blocking connect attempt.
+ * Returns immediately without waiting until a connection is established.
  */
 static int
 tfw_sock_srv_connect_try(TfwConnection *conn)
@@ -191,7 +191,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	/* Link Tempesta with the socket. */
+	spin_lock(&conn->splock);
 	tfw_connection_link_to_sk(conn, sk);
+	spin_unlock(&conn->splock);
 
 	/* Notify higher-level levels. */
 	r = tfw_connection_new(conn);
@@ -199,8 +201,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
 	}
-
-	/* Notify the scheduler of new connection. */
+	/* Notify scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
 	__reset_retry_timer((TfwSrvConnection *)conn);
@@ -222,12 +223,14 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 
 	TFW_DBG_ADDR("connection lost", &srv->addr);
 
-	/* Revert tfw_sock_srv_connect_complete(). */
+	/* Withdraw from socket activity. */
+	spin_lock(&conn->splock);
+	tfw_connection_unlink_sk(conn, sk);
+	spin_unlock(&conn->splock);
+
+	/* Update Server Group and release resources. */
 	tfw_sg_update(srv->sg);
 	tfw_connection_destruct(conn);
-
-	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(conn, sk);
 
 	/*
 	 * Initiate a new connect attempt.
@@ -236,7 +239,6 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	r = tfw_sock_srv_connect_try(conn);
 	if (r) {
 		TFW_WARN("failover connect failed\n");
-
 		/* Just retry later. */
 		__mod_retry_timer((TfwSrvConnection *)conn);
 	}
@@ -262,16 +264,18 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 
 	TFW_DBG_ADDR("connection error", &srv->addr);
 
-	/* Revert tfw_sock_srv_connect_complete(). */
+	/* Withdraw from socket activity. */
+	spin_lock(&conn->splock);
+	tfw_connection_unlink_sk(conn, sk);
+	spin_unlock(&conn->splock);
+
+	/* Update Server Group and release resources. */
 	tfw_sg_update(srv->sg);
 	tfw_connection_destruct(conn);
 
-	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(conn, sk);
-
 	/*
 	 * We need to create a new socket for each connect attempt.
-	 * The old socket is released as soon as it is not used anymore.
+	 * The old socket is released as soon as it's not used anymore.
 	 * New socket is created after a delay in the timer callback.
 	 */
 	__mod_retry_timer((TfwSrvConnection *)conn);
@@ -287,35 +291,44 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 };
 
 /**
- * Close a server connection, or stop connection attempts if the connection
+ * Close a server connection, or stop connection attempts if a connection
  * is not established.
  */
 static void
 tfw_sock_srv_disconnect(TfwConnection *conn)
 {
-	TfwServer *srv = (TfwServer *)conn->peer;
-	struct sock *sk = conn->sk;
+	struct sock *sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&((TfwSrvConnection *)conn)->retry_timer);
 
 	/*
-	 * Revert tfw_sock_srv_connect_try().
-	 * It doesn't matter that the order in which we destroy
-	 * the connection is different from what we did when created it.
-	 * Doing it this way immediately disconnects Tempesta from all
-	 * socket activity, so any possible concurrency is eliminated.
+	 * tfw_connection_unlink_sk() modifies sk->sk_user_data. That must
+	 * be done under sk->sk_callback_lock. However that lock cannot be
+	 * taken under conn->splock as we would get lock inversion. It is
+	 * taken in Sync Sockets, and conn->splock is taken under that lock.
+	 * So we need to adhere to correct order of locking.
 	 */
+	spin_lock(&conn->splock);
+	sk = conn->sk;
+	if (sk)
+		ss_sock_hold(sk);
+	spin_unlock(&conn->splock);
 	if (sk) {
+		/* Withdraw from socket activity and close the socket. */
 		ss_callback_write_lock(sk);
+		spin_lock(&conn->splock);
 		tfw_connection_unlink_sk(conn, sk);
-		ss_callback_write_unlock(sk);
-		ss_close(sk);
-	}
-	/* Revert tfw_sock_srv_connect_complete(). */
-	if (srv) {
-		tfw_sg_update(srv->sg);
+		spin_unlock(&conn->splock);
+
+		/* Update Server Group and release resources. */
+		if (conn->peer)
+			tfw_sg_update(((TfwServer *)conn->peer)->sg);
 		tfw_connection_destruct(conn);
+		ss_callback_write_unlock(sk);
+
+		ss_close(sk);
+		ss_sock_put(sk);
 	}
 }
 
@@ -340,10 +353,9 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwConnection *conn;
 
-	list_for_each_entry(conn, &srv->conn_list, list) {
+	list_for_each_entry(conn, &srv->conn_list, list)
 		if (tfw_sock_srv_connect_try(conn))
 			__mod_retry_timer((TfwSrvConnection *)conn);
-	}
 
 	return 0;
 }
@@ -353,11 +365,8 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwConnection *conn;
 
-	list_for_each_entry(conn, &srv->conn_list, list) {
-		local_bh_disable();
+	list_for_each_entry(conn, &srv->conn_list, list)
 		tfw_sock_srv_disconnect(conn);
-		local_bh_enable();
-	}
 
 	return 0;
 }
@@ -396,7 +405,6 @@ static struct kmem_cache *tfw_srv_conn_cache;
 static TfwSrvConnection *
 tfw_srv_conn_alloc(void)
 {
-	SsProto *proto;
 	TfwSrvConnection *srv_conn;
 
 	srv_conn = kmem_cache_alloc(tfw_srv_conn_cache, GFP_ATOMIC);
@@ -405,8 +413,8 @@ tfw_srv_conn_alloc(void)
 
 	tfw_connection_init(&srv_conn->conn);
 	__setup_retry_timer(srv_conn);
-	proto = &srv_conn->conn.proto;
-	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
+	ss_proto_init(&srv_conn->conn.proto,
+		      &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
 	return srv_conn;
 }

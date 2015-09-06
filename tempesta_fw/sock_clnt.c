@@ -121,8 +121,11 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_conn_init;
 	}
 
+	spin_lock(&conn->splock);
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
+	spin_unlock(&conn->splock);
+
 	ss_set_callbacks(sk);
 
 	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
@@ -158,8 +161,11 @@ tfw_sock_clnt_drop(struct sock *sk)
 	 */
 	r = tfw_classify_conn_close(sk);
 
+	spin_lock(&conn->splock);
 	tfw_connection_unlink_sk(conn, sk);
 	tfw_connection_unlink_peer(conn);
+	spin_unlock(&conn->splock);
+
 	tfw_connection_destruct(conn);
 	if (tfw_connection_put(conn))
 		tfw_cli_conn_free(conn);
