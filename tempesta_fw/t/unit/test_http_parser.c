@@ -373,12 +373,20 @@ TEST(http_parser, fuzzer)
 	str = vmalloc(2 * 1024 * 1024);
 
 	while (1) {
-		TEST_LOG("%s:fuzzer i: %d\n", __func__, i++);
-		ret = fuzz_req(str);
-		if (!ret)
+		TEST_LOG("%s:fuzzer iteration: %d\n", __func__, i++);
+		ret = fuzz_gen(str, 10);
+		switch (ret) {
+		case FUZZ_VALID:
+			FOR_REQ(str);
 			break;
-		FOR_REQ(str);
+		case FUZZ_INVALID:
+			EXPECT_BLOCK_REQ(str);
+			break;
+		case FUZZ_END:
+			goto end;
+		}
 	}
+end:
 	vfree(str);
 }
 
