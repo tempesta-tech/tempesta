@@ -64,6 +64,7 @@ typedef struct {
 	SsProto			proto;
 	struct list_head	list;
 	struct list_head	msg_queue;
+	atomic_t		refcnt;
 
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
@@ -97,6 +98,24 @@ typedef struct {
 } TfwConnHooks;
 
 static inline void
+tfw_connection_get(TfwConnection *conn)
+{
+	atomic_inc(&conn->refcnt);
+}
+
+static inline bool
+tfw_connection_put(TfwConnection *conn)
+{
+	if (unlikely(!conn))
+		return false;
+	if (likely(atomic_read(&conn->refcnt) == 1))
+		smp_rmb();
+	else if (likely(!atomic_dec_and_test(&conn->refcnt)))
+		return false;
+	return true;
+}
+
+static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
@@ -119,6 +138,7 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
 	BUG_ON(!list_empty(&conn->msg_queue));
+	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
 	BUG_ON(conn->peer);
 	BUG_ON(conn->sk);
