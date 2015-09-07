@@ -1363,6 +1363,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
+		else if (c == ' ') {
+			__FSM_MOVE(Req_HttpVer);
+		}
 		else if (c == ':') {
 			__FSM_MOVE(Req_UriPort);
 		}
@@ -1374,12 +1377,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_UriPort) {
 		if (likely(isdigit(c)))
 			__FSM_MOVE(Req_UriPort);
-
-		if (unlikely(c != '/'))
+		else if (likely(c == '/')) {
+			tfw_http_msg_set_data(msg, &req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+		}
+		else if (c == ' ') {
+			__FSM_MOVE(Req_HttpVer);
+		}
+		else
 			return TFW_BLOCK;
-
-		tfw_http_msg_set_data(msg, &req->uri_path, p);
-		__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 	}
 
 	/* URI abs_path */
