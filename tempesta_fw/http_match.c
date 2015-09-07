@@ -207,20 +207,6 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		(p)++;					\
 	}
 
-#define TFW_LC_INT	0x20202020
-#define TFW_LC_LONG	0x2020202020202020UL
-
-/*
- * Match 4 or 8 characters with conversion to lower case
- * and type conversion to int or long type.
- */
-#define C4_LCM(p, c)				\
-	 !((*(unsigned int *)(p) | TFW_LC_INT) 		\
-	 ^ (*(unsigned int *)(c) | TFW_LC_INT))
-#define C8_LCM(p, c)				\
-	 !((*(unsigned long *)(p) | TFW_LC_LONG)	\
-	 ^ (*(unsigned long *)(c) | TFW_LC_LONG))
-
 /* It would be hard to apply some header-specific rules here, so ignore
  * case for all headers according to the robustness principle.
  */
@@ -231,8 +217,9 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
 	for (i = 0; i < req->h_tbl->size; ++i) {
-		const TfwStr *hdr, *chunk;
+		const TfwStr *hdr, *dup, *end, *chunk;
 		const char *c, *cend, *p, *pend;
+		char prev;
 		short cnum;
 
 		hdr = &req->h_tbl->tbl[i];
@@ -240,21 +227,22 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			continue;
 		}
 
-		/* Initialize  the state - get the first chunk. */
-		p = rule->arg.str;
-		pend = rule->arg.str + rule->arg.len;
-		cnum = 0;
-		chunk = TFW_STR_CHUNK(hdr, 0);
-		if (!chunk) {
-			return p == NULL;
-		}
-		c = chunk->ptr;
-		cend = chunk->ptr + chunk->len;
+		TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+			/* Initialize  the state - get the first chunk. */
+			p = rule->arg.str;
+			pend = rule->arg.str + rule->arg.len;
+			cnum = 0;
+			chunk = TFW_STR_CHUNK(dup, 0);
+			if (!chunk) {
+				return p == NULL;
+			}
+			c = chunk->ptr;
+			cend = chunk->ptr + chunk->len;
 
 #define _TRY_NEXT_CHUNK(ok_code, err_code)		\
 	if (unlikely(c == cend))	{		\
 		++cnum;					\
-		chunk = TFW_STR_CHUNK(hdr, cnum); 	\
+		chunk = TFW_STR_CHUNK(dup, cnum); 	\
 		if (chunk) {				\
 			c = chunk->ptr;			\
 			cend = chunk->ptr + chunk->len; \
@@ -266,50 +254,44 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	}
 
 state_common:
-		while (p != pend && c != cend) {
-			if (p + 8 <= pend &&
-			    c + 8 <= cend &&
-			    C8_LCM(p, c)) {
-				p += 8;
-				c += 8;
-				continue;
-			}
+			while (p != pend && c != cend) {
+				if (tolower(*p) != tolower(*c)) {
+					/* If the position of the strings have a
+					 * different number of space characters,
+					 * or one of the strings have space
+					 * characters after ':', missing their
+					 */
+					if (unlikely((
+						(isspace(*p) &&
+							(prev == *p ||
+								prev == ':'))
+						||
+						(isspace(*c) &&
+							(prev == *c ||
+								prev == ':'))
+						))) {
+						goto state_sp;
+					}
 
-			if (p + 4 <= pend &&
-			    c + 4 <= cend &&
-			    C4_LCM(p, c)) {
-				p += 4;
-				c += 4;
-				continue;
-			}
-
-			if (tolower(*p) != tolower(*c)) {
-				/* If the position of strings have a different
-				 * number of space characters, missing their */
-				if (unlikely((isspace(*p) &&
-					      isspace(*(p - 1))) ||
-					     (isspace(*c) &&
-					      isspace(*(c - 1))))) {
-					goto state_sp;
+					return false;
 				}
 
-				return false;
+				p++;
+				c++;
+				prev = *(p - 1);
+			}
+			_TRY_NEXT_CHUNK(goto state_common, return p == pend);
+
+			if (p == pend) {
+				return flags & TFW_STR_EQ_PREFIX;
 			}
 
-			p++;
-			c++;
-		}
-		_TRY_NEXT_CHUNK(goto state_common, return p == pend);
-
-		if (p == pend) {
-			return flags & TFW_STR_EQ_PREFIX;
-		}
-
 state_sp:
-		_MOVE_TO_COND(c, cend, !isspace(*c));
-		_MOVE_TO_COND(p, pend, !isspace(*p));
-		_TRY_NEXT_CHUNK(goto state_sp, return p == pend);
-		goto state_common;
+			_MOVE_TO_COND(p, pend, !isspace(*p));
+			_MOVE_TO_COND(c, cend, !isspace(*c));
+			_TRY_NEXT_CHUNK(goto state_sp, return p == pend);
+			goto state_common;
+		}
 	}
 
 	return false;
