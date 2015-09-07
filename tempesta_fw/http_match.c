@@ -249,7 +249,6 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			ok_code;			\
 		} else {				\
 			err_code;			\
-			BUG();				\
 		}					\
 	}
 
@@ -280,10 +279,14 @@ state_common:
 				c++;
 				prev = *(p - 1);
 			}
-			_TRY_NEXT_CHUNK(goto state_common, return p == pend);
+			_TRY_NEXT_CHUNK(goto state_common, );
 
-			if (p == pend) {
-				return flags & TFW_STR_EQ_PREFIX;
+			if (c == cend && p == pend) {
+				return true;
+			}
+
+			if (p == pend && flags & TFW_STR_EQ_PREFIX) {
+				return true;
 			}
 
 state_sp:
