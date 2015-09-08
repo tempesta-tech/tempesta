@@ -25,6 +25,7 @@
 #include "tfw_fuzzer.h"
 
 TfwHttpReq *req;
+TfwHttpResp *resp;
 
 static void
 alloc_req(size_t data_len)
@@ -48,11 +49,42 @@ reset_req(size_t data_len)
 	alloc_req(data_len);
 }
 
+static void
+alloc_resp(size_t data_len)
+{
+	BUG_ON(resp);
+	resp = test_resp_alloc(data_len);
+}
+
+static void
+free_resp(void)
+{
+	if (resp)
+		test_resp_free(resp);
+	resp = NULL;
+}
+
+static void
+reset_resp(size_t data_len)
+{
+	free_resp();
+	alloc_resp(data_len);
+}
+
+static void
+free_msgs(void)
+{
+	free_req();
+	free_resp();
+}
+
 /**
  * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(req_str));
+ *   while(!do_split_and_parse(str, type));
  *
- * On each iteration it splits the @req_str into two fragments and pushes
+ * type may be FUZZ_REQ or FUZZ_RESP.
+ *
+ * On each iteration it splits the @str into two fragments and pushes
  * them to the HTTP parser.
  *
  * For example, given the request:
@@ -77,7 +109,8 @@ reset_req(size_t data_len)
  *    path" and "slow path" execution.
  *
  * The function is stateful:
- *  - It puts the parsed request to the global variable @req (on each call).
+ *  - It puts the parsed request or response to the global variable
+ *  @req or @resp (on each call, depending on the message type).
  *  - It maintains the internal state between calls.
  *
  * Return value:
@@ -86,30 +119,38 @@ reset_req(size_t data_len)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 int
-do_split_and_parse(unsigned char *req_str)
+do_split_and_parse(unsigned char *str, int type)
 {
 	static char head_buf[PAGE_SIZE];
 	static char tail_buf[PAGE_SIZE];
-	static size_t req_len, head_len, tail_len;
+	static size_t len, head_len, tail_len;
 	int r;
 
-	BUG_ON(!req_str);
-	BUG_ON(head_len > req_len);
+	BUG_ON(!str);
+	BUG_ON(head_len > len);
 	BUG_ON(head_len > sizeof(head_buf));
 	BUG_ON(tail_len > sizeof(tail_buf));
-	reset_req(strlen(req_str));
+	if (type == FUZZ_REQ)
+		reset_req(strlen(str));
+	else if (type == FUZZ_RESP)
+		reset_resp(strlen(str));
+	else
+		BUG();
 
 	/* First iteration. */
-	if (!req_len) {
-		req_len = strlen(req_str);
+	if (!len) {
+		len = strlen(str);
 		head_len = 0;
-		tail_len = req_len - head_len;
+		tail_len = len;
 
-		BUG_ON(req_len > sizeof(head_buf));
-		memcpy(head_buf, req_str, req_len);
+		BUG_ON(len > sizeof(head_buf));
+		memcpy(head_buf, str, len);
 
 		/* Parse request as a single chunk on the first iteration. */
-		return tfw_http_parse_req(req, head_buf, req_len);
+		if (type == FUZZ_REQ)
+			return tfw_http_parse_req(req, head_buf, len);
+		else
+			return tfw_http_parse_resp(resp, head_buf, len);
 	}
 
 	++head_len;
@@ -117,14 +158,14 @@ do_split_and_parse(unsigned char *req_str)
 
 	/* Done all iterations?. */
 	if (head_len == req_len) {
-		req_len = head_len = tail_len = 0;
+		len = head_len = tail_len = 0;
 		return 1;
 	}
 
 	/* Put data to a separate buffers to guard bounds. */
-	memcpy(head_buf, req_str, head_len);
+	memcpy(head_buf, str, head_len);
 	memset(head_buf + head_len, 0, sizeof(head_buf) - head_len);
-	memcpy(tail_buf, req_str + head_len, tail_len);
+	memcpy(tail_buf, str + head_len, tail_len);
 	memset(tail_buf + tail_len, 0, sizeof(tail_buf) - tail_len);
 
 	TEST_LOG("split: head_len=%zu [%.*s], tail_len=%zu [%.*s]\n",
@@ -132,39 +173,58 @@ do_split_and_parse(unsigned char *req_str)
 		 tail_len, (int)tail_len, tail_buf);
 
 	/* We expect that the parser requests more data. */
-	r = tfw_http_parse_req(req, head_buf, head_len);
+	if (type == FUZZ_REQ)
+		r = tfw_http_parse_req(req, head_buf, head_len);
+	else
+		r = tfw_http_parse_resp(resp, head_buf, head_len);
 	if (r != TFW_POSTPONE)
 		return r;
 
 	/* Parse the tail. */
-	return tfw_http_parse_req(req, tail_buf, tail_len);
+	if (type == FUZZ_REQ)
+		return tfw_http_parse_req(req, tail_buf, tail_len);
+	else
+		return tfw_http_parse_resp(resp, tail_buf, tail_len);
 }
 
-#define TRY_PARSE_EXPECT_PASS(str)				\
+#define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str);			\
+	int _err = do_split_and_parse(str, type);		\
 	if (_err < 0)						\
-		TEST_FAIL("can't parse request (code=%d):\n%s",	\
+		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
+			  (type == FUZZ_REQ ? "request" : "response"),\
 			  _err, (str)); 			\
 	!_err;							\
 })
 
-#define TRY_PARSE_EXPECT_BLOCK(str)		\
-({						\
-	int _err = do_split_and_parse(str);	\
-	if (!_err)				\
-		TEST_FAIL("request is not blocked as expected:\n%s", (str)); \
-	(_err < 0);				\
+#define TRY_PARSE_EXPECT_BLOCK(str, type)			\
+({								\
+	int _err = do_split_and_parse(str, type);		\
+	if (!_err)						\
+		TEST_FAIL("%s is not blocked as expected:\n%s",\
+			       (type == FUZZ_REQ ? "request" : "response"),\
+			       (str));				\
+	(_err < 0);						\
 })
 
-#define FOR_REQ(req)						\
-	TEST_LOG("=== request: [%s]\n", req);			\
-	while(TRY_PARSE_EXPECT_PASS(req))
+#define FOR_REQ(str)						\
+	TEST_LOG("=== request: [%s]\n", str);			\
+	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
 
-#define EXPECT_BLOCK_REQ(req)					\
+#define EXPECT_BLOCK_REQ(str)					\
 do {								\
-	TEST_LOG("=== request: [%s]\n", req);			\
-	while(TRY_PARSE_EXPECT_BLOCK(req));			\
+	TEST_LOG("=== request: [%s]\n", str);			\
+	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
+} while (0)
+
+#define FOR_RESP(str)						\
+	TEST_LOG("=== response: [%s]\n", str);			\
+	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
+
+#define EXPECT_BLOCK_RESP(str)					\
+do {								\
+	TEST_LOG("=== response: [%s]\n", str);			\
+	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
 TEST(http_parser, parses_req_method)
@@ -372,9 +432,9 @@ TEST(http_parser, fuzzer)
 	int i = 0, ret;
 	str = vmalloc(2 * 1024 * 1024);
 
-	while (1) {
-		TEST_LOG("%s:fuzzer iteration: %d\n", __func__, i++);
-		ret = fuzz_gen(str, 10);
+	for (i = 0; i < 2; i++) {
+		TEST_LOG("fuzz request i: %d\n", i);
+		ret = fuzz_gen(str, 5, FUZZ_REQ);
 		switch (ret) {
 		case FUZZ_VALID:
 			FOR_REQ(str);
@@ -386,13 +446,28 @@ TEST(http_parser, fuzzer)
 			goto end;
 		}
 	}
+
+	for (i = 0; i < 2; i++) {
+		TEST_LOG("fuzz response i: %d\n", i);
+		ret = fuzz_gen(str, 5, FUZZ_RESP);
+		switch (ret) {
+		case FUZZ_VALID:
+			FOR_RESP(str);
+			break;
+		case FUZZ_INVALID:
+			EXPECT_BLOCK_RESP(str);
+			break;
+		case FUZZ_END:
+			goto end;
+		}
+	}
 end:
 	vfree(str);
 }
 
 TEST_SUITE(http_parser)
 {
-	TEST_TEARDOWN(free_req);
+	TEST_TEARDOWN(free_msgs);
 
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
