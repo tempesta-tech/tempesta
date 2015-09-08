@@ -309,11 +309,13 @@ tfw_http_conn_destruct(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
 
-	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
-
+	spin_lock(&conn->msg_qlock);
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
 		tfw_http_msg_free((TfwHttpMsg *)msg);
 	INIT_LIST_HEAD(&conn->msg_queue);
+	spin_unlock(&conn->msg_qlock);
+
+	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
@@ -446,9 +448,14 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		 */
 		tfw_connection_send(req->conn, (TfwMsg *)resp);
 	} else {
-		/* Dispatch request to an appropriate server. */
+		/*
+		 * Dispatch request to an appropriate server.
+		 * Shedulers should make a decision given an original
+		 * unmodified request, so this must be done before any
+		 * mangling of the request.
+		 */
 		TfwConnection *conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-		if (!conn) {
+		if (conn == NULL) {
 			TFW_ERR("Unable to find a backend server\n");
 			goto send_404;
 		}
@@ -463,8 +470,10 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		if (tfw_http_adjust_req(req))
 			goto send_500;
 
-		/* Add request to the connection. */
+		/* Add request to the server connection. */
+		spin_lock(&conn->msg_qlock);
 		list_add_tail(&req->msg.msg_list, &conn->msg_queue);
+		spin_unlock(&conn->msg_qlock);
 
 		/* Send request to the server. */
 		tfw_connection_send(conn, (TfwMsg *)req);
@@ -695,13 +704,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * We get responses in the same order as requests,
 	 * so we can just pop the first request.
 	 */
+	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
+		spin_unlock(&conn->msg_qlock);
 		TFW_WARN("Response w/o request\n");
 		goto freeresp;
 	}
 	hmreq = (TfwHttpMsg *)
 		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 	list_del(&hmreq->msg.msg_list);
+	spin_unlock(&conn->msg_qlock);
 
 	r = tfw_http_sticky_resp_process(hmresp, hmreq);
 	if (r < 0)
@@ -724,13 +736,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * request, and keep the connection open for data exchange.
 	 */
 delreq:
+	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
+		spin_unlock(&conn->msg_qlock);
 		TFW_WARN("Response w/o request\n");
 		goto freeresp;
 	}
 	hmreq = (TfwHttpMsg *)
 		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 	list_del(&hmreq->msg.msg_list);
+	spin_unlock(&conn->msg_qlock);
 freereq:
 	tfw_http_msg_free(hmreq);
 freeresp:
