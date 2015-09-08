@@ -4,30 +4,33 @@
 
 #include "tfw_fuzzer.h"
 
-struct fuzz_req {
+struct fuzz_msg {
 	char *s;
 	int inval; /* 0 - valid, 1 - invalid */
 };
 
-static struct fuzz_req methods[] = {{"GET", 0}, {"HEAD", 0}, {"POST", 0},
+static struct fuzz_msg methods[] = {{"GET", 0}, {"HEAD", 0}, {"POST", 0},
 	{NULL, }};
-static struct fuzz_req uri_path_start[] = {{"http:/", 0}, {"https:/", 0},
+static struct fuzz_msg uri_path_start[] = {{"http:/", 0}, {"https:/", 0},
 	{"", 0}, {NULL, }};
-static struct fuzz_req uri_file[] = {{"file.html", 0}, {"f-i_l.e", 0},
+static struct fuzz_msg uri_file[] = {{"file.html", 0}, {"f-i_l.e", 0},
 	{"fi%20le", 0}, {"xn--80aaxtnfh0b", 0}, {NULL, }};
-static struct fuzz_req versions[] = {{"1.0", 0}, {"1.1", 0}, {"0.9", 1},
+static struct fuzz_msg versions[] = {{"1.0", 0}, {"1.1", 0}, {"0.9", 1},
 	{NULL, }}; // HTTP/0.9 is blocked
-static struct fuzz_req conn_val[] = {{"keep-alive", 0}, {"close", 0},
+static struct fuzz_msg resp_code[] = {{"200 OK", 0}, {"302 Found", 0},
+	{"400 Bad Request", 0}, {"403 Forbidden", 0}, {"404 Not Found", 0},
+	{"500 Internal Server Error", 0}, {NULL, }};
+static struct fuzz_msg conn_val[] = {{"keep-alive", 0}, {"close", 0},
 	{"upgrade", 0}, {NULL, }};
-static struct fuzz_req ua_val[] = {{"Wget/1.13.4 (linux-gnu)", 0},
+static struct fuzz_msg ua_val[] = {{"Wget/1.13.4 (linux-gnu)", 0},
 	{"Mozilla/5.0", 0}, {NULL, }};
-static struct fuzz_req hosts[] = {{"localhost", 0}, {"127.0.0.1", 0},
+static struct fuzz_msg hosts[] = {{"localhost", 0}, {"127.0.0.1", 0},
 	{"example.com", 0}, {"xn--80aacbuczbw9a6a.xn--p1ai", 0}, {NULL, }};
-static struct fuzz_req content_type[] = {{"text/html;charset=utf-8", 0},
+static struct fuzz_msg content_type[] = {{"text/html;charset=utf-8", 0},
 	{"image/jpeg", 0}, {"text/plain", 0}, {NULL, }};
-static struct fuzz_req content_length[] = {{"0", 0}, {"10", 1}, {"-42", 1},
+static struct fuzz_msg content_length[] = {{"0", 0}, {"10", 1}, {"-42", 1},
 	{"146", 1}, {"0100", 1}, {"100500", 1}, {NULL, }};
-static struct fuzz_req transfer_encoding[] = {{"chunked", 0}, {"identity", 0},
+static struct fuzz_msg transfer_encoding[] = {{"chunked", 0}, {"identity", 0},
 	{"compress", 0}, {"deflate", 0}, {"gzip", 0}, {NULL, }};
 
 #define A_URI "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~!*'();:@&=+$,/?%#[]"
@@ -45,26 +48,45 @@ static struct {
 	char *a_val;
 	char *a_inval;
 } gen_vector[] = {
-	{0, 3, "", NULL},				/* METHOD */
-	{1, 6, "", NULL},				/* SPACES */
-	{0, 3, "", NULL},				/* HTTP_VER */
-	{0, 3, "", NULL},			 	/* URI_PATH_START */
-	{1, 3, "", NULL},				/* URI_PATH_DEPTH */
-	{0, 4, A_URI, NULL},				/* URI_FILE */
-	{0, 4, "", NULL},				/* CONNECTION */
-	{0, 3, A_USER_AGENT, A_USER_AGENT_INVAL},	/* USER_AGENT*/
-	{0, 4, A_HOST, A_HOST_INVAL},			/* HOST */
-	{0, 4, A_X_FORWARDED_FOR, A_X_FORWARDED_FOR_INVAL},/* X_FORWARDED_FOR */
-	{0, 4, "", NULL},				/* CONTENT_TYPE */
-	{0, 7, "0123456789", NULL},			/* CONTENT_LENGTH */
-	{0, 6, "", NULL},				/* TRANSFER_ENCODING */
-	{0, 5, "", NULL}				/* TRANSFER_ENCODING_NUM */
+	/* METHOD */
+	{0, sizeof(methods) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* SPACES */
+	{1, 6, "", NULL},
+	/* HTTP_VER */
+	{0, sizeof(versions) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* RESP_CODE */
+	{0, sizeof(resp_code) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* URI_PATH_START */
+	{0, sizeof(uri_path_start) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* URI_PATH_DEPTH */
+	{1, 3, "", NULL},
+	/* URI_FILE */
+	{0, sizeof(uri_file) / sizeof(struct fuzz_msg) - 1, A_URI, NULL},
+	/* CONNECTION */
+	{0, sizeof(conn_val) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* USER_AGENT*/
+	{0, sizeof(ua_val) / sizeof(struct fuzz_msg) - 1, A_USER_AGENT,
+		A_USER_AGENT_INVAL},
+	/* HOST */
+	{0, sizeof(hosts) / sizeof(struct fuzz_msg) - 1, A_HOST, A_HOST_INVAL},
+	/* X_FORWARDED_FOR */
+	{0, sizeof(hosts) / sizeof(struct fuzz_msg) - 1, A_X_FORWARDED_FOR,
+		A_X_FORWARDED_FOR_INVAL},
+	/* CONTENT_TYPE */
+	{0, sizeof(content_type) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* CONTENT_LENGTH */
+	{0, sizeof(content_length) / sizeof(struct fuzz_msg) - 1, "0123456789", NULL},
+	/* TRANSFER_ENCODING */
+	{0, sizeof(transfer_encoding) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	/* TRANSFER_ENCODING_NUM */
+	{0, 5, "", NULL},
 };
 
 enum {
 	METHOD,
 	SPACES,
 	HTTP_VER,
+	RESP_CODE,
 	URI_PATH_START,
 	URI_PATH_DEPTH,
 	URI_FILE,
@@ -138,7 +160,7 @@ static char *add_spaces(char *s1)
 
 static int add_method(char *s1)
 {
-	struct fuzz_req r = methods[gen_vector[METHOD].i];
+	struct fuzz_msg r = methods[gen_vector[METHOD].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -158,7 +180,7 @@ static int add_method(char *s1)
 
 static int add_uri_path_start(char *s1)
 {
-	struct fuzz_req r = uri_path_start[gen_vector[URI_PATH_START].i];
+	struct fuzz_msg r = uri_path_start[gen_vector[URI_PATH_START].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -178,7 +200,7 @@ static int add_uri_path_start(char *s1)
 
 static int add_uri_file(char *s1)
 {
-	struct fuzz_req r = uri_file[gen_vector[URI_FILE].i];
+	struct fuzz_msg r = uri_file[gen_vector[URI_FILE].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -198,7 +220,7 @@ static int add_uri_file(char *s1)
 
 static int add_http_ver(char *s1)
 {
-	struct fuzz_req r = versions[gen_vector[HTTP_VER].i];
+	struct fuzz_msg r = versions[gen_vector[HTTP_VER].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -216,9 +238,29 @@ static int add_http_ver(char *s1)
 	return FUZZ_INVALID;
 }
 
+static int add_resp_code(char *s1)
+{
+	struct fuzz_msg r = resp_code[gen_vector[RESP_CODE].i];
+
+	if (r.s) {
+		strcat(s1, r.s);
+		return r.inval;
+	} else {
+		if (gen_vector[CONTENT_LENGTH].i % 2) {
+			add_string(s1, gen_vector[RESP_CODE].i,
+				   gen_vector[RESP_CODE].a_val);
+			return FUZZ_VALID;
+		} else
+			add_string(s1, gen_vector[RESP_CODE].i,
+				   gen_vector[RESP_CODE].a_inval);
+	}
+
+	return FUZZ_INVALID;
+}
+
 static int add_connection(char *s1)
 {
-	struct fuzz_req r = conn_val[gen_vector[CONNECTION].i];
+	struct fuzz_msg r = conn_val[gen_vector[CONNECTION].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -238,7 +280,7 @@ static int add_connection(char *s1)
 
 static int add_user_agent(char *s1)
 {
-	struct fuzz_req r = ua_val[gen_vector[USER_AGENT].i];
+	struct fuzz_msg r = ua_val[gen_vector[USER_AGENT].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -258,7 +300,7 @@ static int add_user_agent(char *s1)
 
 static int add_host(char *s1)
 {
-	struct fuzz_req r = hosts[gen_vector[HOST].i];
+	struct fuzz_msg r = hosts[gen_vector[HOST].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -278,7 +320,7 @@ static int add_host(char *s1)
 
 static int add_x_forwarded_for(char *s1)
 {
-	struct fuzz_req r = hosts[gen_vector[X_FORWARDED_FOR].i];
+	struct fuzz_msg r = hosts[gen_vector[X_FORWARDED_FOR].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -298,7 +340,7 @@ static int add_x_forwarded_for(char *s1)
 
 static int add_content_type(char *s1)
 {
-	struct fuzz_req r = content_type[gen_vector[CONTENT_TYPE].i];
+	struct fuzz_msg r = content_type[gen_vector[CONTENT_TYPE].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -318,7 +360,7 @@ static int add_content_type(char *s1)
 
 static int add_content_length(char *s1)
 {
-	struct fuzz_req r = content_length[gen_vector[CONTENT_LENGTH].i];
+	struct fuzz_msg r = content_length[gen_vector[CONTENT_LENGTH].i];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -331,7 +373,7 @@ static int add_content_length(char *s1)
 
 static int add_transfer_encoding(char *s1, int n)
 {
-	struct fuzz_req r = transfer_encoding[n];
+	struct fuzz_msg r = transfer_encoding[n];
 
 	if (r.s) {
 		strcat(s1, r.s);
@@ -353,7 +395,7 @@ static int add_transfer_encoding(char *s1, int n)
  * FUZZ_END if the request sequence is over.
  * `move` is how many gen_vector's elements should be changed
  * each time a new request is generated, should be >= 1. */
-int fuzz_gen(char *str, int move)
+int fuzz_gen(char *str, int move, int type)
 {
 	int i, ret, v = 0;
 
@@ -363,20 +405,26 @@ int fuzz_gen(char *str, int move)
 		return -EINVAL;
 	*str = '\0';
 
-	v |= add_method(str);
-	add_spaces(str);
+	if (type == FUZZ_REQ) {
+		v |= add_method(str);
+		add_spaces(str);
 
-	add_uri_path_start(str);
-	if (!gen_vector[URI_PATH_DEPTH].i)
-		addch(str, '/');
-	for (i = 0; i < gen_vector[URI_PATH_DEPTH].i; ++i) {
-		addch(str, '/');
-		v |= add_uri_file(str);
+		add_uri_path_start(str);
+		if (!gen_vector[URI_PATH_DEPTH].i)
+			addch(str, '/');
+		for (i = 0; i < gen_vector[URI_PATH_DEPTH].i; ++i) {
+			addch(str, '/');
+			v |= add_uri_file(str);
+		}
+		add_spaces(str);
 	}
 
-	add_spaces(str);
 	strcat(str, "HTTP/");
 	v |= add_http_ver(str);
+	if (type == FUZZ_RESP) {
+		add_spaces(str);
+		v |= add_resp_code(str);
+	}
 	strcat(str, "\r\n");
 
 	strcat(str, "Connection:");
