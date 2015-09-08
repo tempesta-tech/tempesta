@@ -17,8 +17,9 @@ static struct fuzz_msg uri_file[] = {{"file.html", 0}, {"f-i_l.e", 0},
 	{"fi%20le", 0}, {"xn--80aaxtnfh0b", 0}, {NULL, }};
 static struct fuzz_msg versions[] = {{"1.0", 0}, {"1.1", 0}, {"0.9", 1},
 	{NULL, }}; // HTTP/0.9 is blocked
-static struct fuzz_msg resp_code[] = {{"200 OK", 0}, {"302 Found", 0},
-	{"400 Bad Request", 0}, {"403 Forbidden", 0}, {"404 Not Found", 0},
+static struct fuzz_msg resp_code[] = {{"100 Continue", 0}, {"200 OK", 0},
+	{"302 Found", 0}, {"304 Not Modified", 0}, {"400 Bad Request", 0},
+	{"403 Forbidden", 0}, {"404 Not Found", 0},
 	{"500 Internal Server Error", 0}, {NULL, }};
 static struct fuzz_msg conn_val[] = {{"keep-alive", 0}, {"close", 0},
 	{"upgrade", 0}, {NULL, }};
@@ -41,6 +42,8 @@ static struct fuzz_msg transfer_encoding[] = {{"chunked", 0}, {"identity", 0},
 #define A_HOST_INVAL "\\`~!*'();@&=+$,/?%#\03\023\07\r"
 #define A_X_FORWARDED_FOR A_HOST
 #define A_X_FORWARDED_FOR_INVAL A_HOST_INVAL
+
+static const char *a_body = "ABCxyz013\r\n\t-_.~!*'();:@&=+$,/?%#[]\n\r\023\07\013\014\x89\x90\xa0\xc0";
 
 static struct {
 	int i;
@@ -80,6 +83,8 @@ static struct {
 	{0, sizeof(transfer_encoding) / sizeof(struct fuzz_msg) - 1, "", NULL},
 	/* TRANSFER_ENCODING_NUM */
 	{0, 5, "", NULL},
+	/* BODY_SIZE */
+	{0, 10, "", NULL}
 };
 
 enum {
@@ -98,6 +103,7 @@ enum {
 	CONTENT_LENGTH,
 	TRANSFER_ENCODING,
 	TRANSFER_ENCODING_NUM,
+	BODY_SIZE,
 	N_FIELDS
 };
 
@@ -389,6 +395,35 @@ static int add_transfer_encoding(char *s1, int n)
 	return FUZZ_INVALID;
 }
 
+static int add_body(char *s1, int type)
+{
+	size_t len = strlen(s1), cont_len,
+	       i, body_size = gen_vector[BODY_SIZE].i * 256;
+	char *rc;
+	int err;
+
+	for (i = 0; i < body_size; ++i)
+		s1[len + i] = a_body[((i + gen_vector[CONTENT_LENGTH].i +
+				       gen_vector[BODY_SIZE].i + len) ^
+				       (a_body[i] + len)) % sizeof(a_body)];
+
+	err = kstrtoul(content_length[gen_vector[CONTENT_LENGTH].i].s,
+			10, &cont_len);
+	if (err)
+		return FUZZ_INVALID;
+	if (cont_len > body_size)
+		return FUZZ_INVALID;
+	if (type == FUZZ_REQ)
+		return FUZZ_VALID;
+
+	rc = resp_code[gen_vector[RESP_CODE].i].s;
+	if (!strstr(rc, "100") || !strstr(rc, "101") || !strstr(rc, "102") ||
+			!strstr(rc, "204") || !strstr(rc, "304"))
+		return FUZZ_INVALID;
+
+	return FUZZ_VALID;
+}
+
 /* Returns:
  * FUZZ_VALID if the result is a valid request,
  * FUZZ_INVALID if it's invalid,
@@ -469,6 +504,8 @@ int fuzz_gen(char *str, int move, int type)
 	}
 
 	strcat(str, "\r\n\r\n");
+
+	v |= add_body(str, type);
 
 	for (i = 0; i < move; i++) {
 		ret = gen_vector_move((N_FIELDS - 1 + i * ((i % 2) ? 3 : 2)) % N_FIELDS);
