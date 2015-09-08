@@ -28,7 +28,7 @@
 #include "ss_skb.h"
 
 /**
- * Fills @val with second part of specula HTTP header containing the header
+ * Fills @val with second part of special HTTP header containing the header
  * value.
  */
 void
@@ -51,13 +51,13 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
 	*val = *hdr;
-	val->len -= nlen;
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
 		BUG_ON(!c->len);
 
 		if (nlen > 0) {
 			nlen -= c->len;
+			val->len -= c->len;
 		}
 		else if (unlikely(((char *)c->ptr)[0] == ' '
 				  || ((char *)c->ptr)[0] == '\t'))
@@ -66,7 +66,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 			 * RFC 7230: skip OWS before header field.
 			 * In most cases OWS is on the same chunk with
 			 * the header name.
-			 * Header field always begins at new chunk.
+			 * Header field-value always begins at new chunk.
 			 */
 			val->len -= c->len;
 		}
