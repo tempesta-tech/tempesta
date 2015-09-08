@@ -51,13 +51,13 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
 	*val = *hdr;
-	val->len -= nlen;
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
 		BUG_ON(!c->len);
 
 		if (nlen > 0) {
 			nlen -= c->len;
+			val->len -= c->len;
 		}
 		else if (unlikely(((char *)c->ptr)[0] == ' '
 				  || ((char *)c->ptr)[0] == '\t'))
