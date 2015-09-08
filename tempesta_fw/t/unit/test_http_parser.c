@@ -205,9 +205,19 @@ TEST(http_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
+	FOR_REQ("GET http://natsys-lab.com HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "");
+	}
+
 	FOR_REQ("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com:8080 HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n") {
