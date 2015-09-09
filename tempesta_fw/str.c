@@ -334,7 +334,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 		 * Relatively specific case, so leave it here and
 		 * don't move it to begin of the function.
 		 */
-		if (str->len > cstr_len)
+		if ((int)chunk->len > clen)
 			return (flags & TFW_STR_EQ_PREFIX);
 
 		cstr += len;
