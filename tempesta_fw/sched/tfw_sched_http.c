@@ -238,13 +238,13 @@ static int
 tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
-	size_t arg_len;
+	size_t arg_size;
 	TfwSchedHttpRule *rule;
-	tfw_http_match_op_t  op;
+	tfw_http_match_op_t op;
 	tfw_http_match_fld_t field;
+	tfw_http_match_arg_t type;
 	TfwSrvGroup *main_sg, *backup_sg;
 	const char *in_main_sg, *in_field, *in_op, *in_arg, *in_backup_sg;
-	char *p;
 
 	r = tfw_cfg_check_val_n(e, 4);
 	if (r)
@@ -285,9 +285,11 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return -EINVAL;
 	}
 
-	arg_len = strlen(in_arg) + 1;
+	arg_size = strlen(in_arg) + 1;
+	type = tfw_sched_http_cfg_arg_tbl[field];
+
 	rule = tfw_http_match_entry_new(tfw_sched_http_rules,
-					TfwSchedHttpRule, rule, arg_len);
+					TfwSchedHttpRule, rule, arg_size);
 	if (!rule) {
 		ERR("can't allocate memory for parsed rule\n");
 		return -ENOMEM;
@@ -296,20 +298,15 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	DBG("parsed rule: match  '%s'=%p  '%s'=%d  '%s'=%d  '%s'\n",
 		in_main_sg, main_sg, in_field, field, in_op, op, in_arg);
 
+	if (type == TFW_HTTP_MATCH_A_STR || type == TFW_HTTP_MATCH_A_WILDCARD) {
+		tfw_http_match_rule_init(&rule->rule, field, op, type, in_arg);
+	} else {
+		BUG();
+		// TODO: parsing not string matching rules
+	}
+
 	rule->main_sg = main_sg;
 	rule->backup_sg = backup_sg;
-	rule->rule.field = field;
-	rule->rule.op = op;
-	rule->rule.arg.len = arg_len - 1;
-	memcpy(rule->rule.arg.str, in_arg, arg_len);
-	rule->rule.arg.type = tfw_sched_http_cfg_arg_tbl[field];
-
-	if (rule->rule.field == TFW_HTTP_MATCH_F_HDR_RAW) {
-		p = rule->rule.arg.str;
-		while ((*p = tolower(*p))) {
-			p++;
-		}
-	}
 
 	return 0;
 }

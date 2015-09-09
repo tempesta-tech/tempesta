@@ -151,5 +151,7 @@ TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t arg_len);
 	_c;								\
 })
 
+void tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
+	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg);
 
 #endif /* __TFW_HTTP_MATCH_H__ */
