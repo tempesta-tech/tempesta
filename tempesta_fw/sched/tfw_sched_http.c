@@ -74,6 +74,7 @@
  */
 
 #include <linux/string.h>
+#include <linux/ctype.h>
 
 #include "cfg.h"
 #include "http_match.h"
@@ -243,6 +244,7 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	tfw_http_match_fld_t field;
 	TfwSrvGroup *main_sg, *backup_sg;
 	const char *in_main_sg, *in_field, *in_op, *in_arg, *in_backup_sg;
+	char *p;
 
 	r = tfw_cfg_check_val_n(e, 4);
 	if (r)
@@ -301,6 +303,13 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule->rule.arg.len = arg_len - 1;
 	memcpy(rule->rule.arg.str, in_arg, arg_len);
 	rule->rule.arg.type = tfw_sched_http_cfg_arg_tbl[field];
+
+	if (rule->rule.field == TFW_HTTP_MATCH_F_HDR_RAW) {
+		p = rule->rule.arg.str;
+		while ((*p = tolower(*p))) {
+			p++;
+		}
+	}
 
 	return 0;
 }
