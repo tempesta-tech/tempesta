@@ -26,6 +26,9 @@ Tempesta DB user-space library requires netlink mmap defined in standard
 headers, so preferably Linux distribution should have native 3.10 kernel.
 Currently CentOS 7 is shipped with an appropriate kernel.
 
+Please, also read [Tempesta DB README](tempesta_db/README.md) for its
+prerequisites.
+
 
 ### Build
 
