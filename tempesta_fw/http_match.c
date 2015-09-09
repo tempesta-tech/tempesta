@@ -252,47 +252,75 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		}					\
 	}
 
+			prev = *p;
 state_common:
 			while (p != pend && c != cend) {
-				if (tolower(*p) != tolower(*c)) {
-					/* If the position of the strings have a
-					 * different number of space characters,
-					 * or one of the strings have space
-					 * characters after ':', missing their
+				/* The rule convert to lower case on the step of
+				 * handling the configuration.
+				 */
+				if (*p != tolower(*c)) {
+					/* If the same position of the header
+					 * field and rule have a different
+					 * number of whitespace characters,
+					 * consider their as equivalent and
+					 * skip whitespace characters after ':'.
 					 */
-					if (unlikely((
-						(isspace(*p) &&
-							(prev == *p ||
-								prev == ':'))
-						||
-						(isspace(*c) &&
-							(prev == *c ||
-								prev == ':'))
-						))) {
-						goto state_sp;
+					if (isspace(prev) || prev == ':') {
+						if (isspace(*c)) {
+							c++;
+							goto state_hdr_sp;
+						}
+
+						if (isspace(*p)) {
+							prev = *p++;
+							goto state_rule_sp;
+						}
 					}
 
 					return false;
 				}
 
-				p++;
+				prev = *p++;
 				c++;
-				prev = *(p - 1);
-			}
-			_TRY_NEXT_CHUNK(goto state_common, );
-
-			if (c == cend && p == pend) {
-				return true;
 			}
 
 			if (p == pend && flags & TFW_STR_EQ_PREFIX) {
 				return true;
 			}
 
-state_sp:
+			_TRY_NEXT_CHUNK(goto state_common, {
+				/* If header field and rule finished, then
+				 * header field and rule are equivalent.
+				 */
+				if (p == pend) {
+					return true;
+				}
+
+				/* If only rule doesn't finished, may be it have
+				 * trailing spaces.
+				 */
+				if (isspace(*p)) {
+					p++;
+					goto state_rule_sp;
+				}
+			});
+
+			/* If only header field doesn't finished, may be it have
+			 * trailing spaces.
+			 */
+			if (isspace(*c)) {
+				c++;
+				goto state_hdr_sp;
+			}
+
+			return false;
+
+state_rule_sp:
 			_MOVE_TO_COND(p, pend, !isspace(*p));
+			goto state_common;
+
+state_hdr_sp:
 			_MOVE_TO_COND(c, cend, !isspace(*c));
-			_TRY_NEXT_CHUNK(goto state_sp, return p == pend);
 			goto state_common;
 		}
 	}
