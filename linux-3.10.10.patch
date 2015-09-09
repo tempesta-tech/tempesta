@@ -1,36 +1,19 @@
 diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
-index 2fe6e76..c8d2d8e 100644
+index 2fe6e76..bc663a8 100644
 --- a/Documentation/kernel-parameters.txt
 +++ b/Documentation/kernel-parameters.txt
 @@ -2967,6 +2967,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
  
  	tdfx=		[HW,DRM]
  
-+	tempesta_pages=	[KNL]
-+			Order of pages reserved on each NUMA node for
-+			Tempesta database. Must be multiple greater or equal
-+			to 9 (one Tempesta DB extent size, 4KB * 2 ^ 9 = 2MB).
++	tempesta_dbmem=	[KNL]
++			Order of 2MB memory blocks reserved on each NUMA node
++			for Tempesta database. Huge pages are used if
++			possible.
 +
  	test_suspend=	[SUSPEND]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) as the system sleep state to briefly
-diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
-index fe120da..a7daef0 100644
---- a/arch/x86/Kconfig
-+++ b/arch/x86/Kconfig
-@@ -268,6 +268,12 @@ config ZONE_DMA
- 
- 	  If unsure, say Y.
- 
-+config FORCE_MAX_ZONEORDER
-+	int "MAX_ORDER (11 - 15)"  if SECURITY_TEMPESTA
-+	range 11 15  if SECURITY_TEMPESTA
-+	default "15" if SECURITY_TEMPESTA
-+	default "11"
-+
- config SMP
- 	bool "Symmetric multi-processing support"
- 	---help---
 diff --git a/include/linux/net.h b/include/linux/net.h
 index 99c9f0c..a6fd726 100644
 --- a/include/linux/net.h
@@ -45,7 +28,7 @@ index 99c9f0c..a6fd726 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index dec1748..f620738 100644
+index dec1748..69ae157 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -418,8 +418,12 @@ struct sk_buff {
@@ -62,7 +45,15 @@ index dec1748..f620738 100644
  
  	unsigned long		_skb_refdst;
  #ifdef CONFIG_XFRM
-@@ -2933,5 +2937,38 @@ static inline bool skb_head_is_locked(const struct sk_buff *skb)
+@@ -627,6 +631,7 @@ static inline struct rtable *skb_rtable(const struct sk_buff *skb)
+ }
+ 
+ extern void kfree_skb(struct sk_buff *skb);
++extern void kfree_skb_untraced(struct sk_buff *skb);
+ extern void kfree_skb_list(struct sk_buff *segs);
+ extern void skb_tx_error(struct sk_buff *skb);
+ extern void consume_skb(struct sk_buff *skb);
+@@ -2933,5 +2938,38 @@ static inline bool skb_head_is_locked(const struct sk_buff *skb)
  {
  	return !skb->head_frag || skb_cloned(skb);
  }
@@ -103,15 +94,15 @@ index dec1748..f620738 100644
  #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..35dd9dc
+index 0000000..1db97b3
 --- /dev/null
 +++ b/include/linux/tempesta.h
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,45 @@
 +/**
 + * Linux interface for Tempesta FW (FireWall and/or FrameWork).
 + *
 + * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015 Tempesta Technologies.
++ * Copyright (C) 2015 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -138,7 +129,7 @@ index 0000000..35dd9dc
 +
 +typedef struct {
 +	unsigned long	addr;
-+	unsigned long	pages;
++	unsigned long	pages; /* number of 4KB pages */
 +} TempestaMapping;
 +
 +/* Security hooks. */
@@ -147,10 +138,24 @@ index 0000000..35dd9dc
 +
 +/* Memory management. */
 +void tempesta_reserve_pages(void);
++void tempesta_reserve_vmpages(void);
 +int tempesta_get_mapping(int node, TempestaMapping **tm);
 +
 +#endif /* __TEMPESTA_H__ */
 +
+diff --git a/include/net/sock.h b/include/net/sock.h
+index 66772cf..436c4d8 100644
+--- a/include/net/sock.h
++++ b/include/net/sock.h
+@@ -1417,7 +1417,7 @@ static inline void sk_wmem_free_skb(struct sock *sk, struct sk_buff *skb)
+ 	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
+ 	sk->sk_wmem_queued -= skb->truesize;
+ 	sk_mem_uncharge(sk, skb->truesize);
+-	__kfree_skb(skb);
++	kfree_skb_untraced(skb);
+ }
+ 
+ /* Used by processes to "lock" a socket state, so that
 diff --git a/include/net/tcp.h b/include/net/tcp.h
 index 5bba80f..407a603 100644
 --- a/include/net/tcp.h
@@ -192,7 +197,7 @@ index 1a85940..909e081 100644
  #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
  
 diff --git a/init/main.c b/init/main.c
-index 9484f4b..c6d79bb 100644
+index 9484f4b..8969bbc 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -74,6 +74,7 @@
@@ -203,21 +208,31 @@ index 9484f4b..c6d79bb 100644
  
  #include <asm/io.h>
  #include <asm/bugs.h>
-@@ -637,6 +638,14 @@ asmlinkage void __init start_kernel(void)
- 
- 	ftrace_init();
- 
+@@ -462,10 +463,24 @@ static void __init mm_init(void)
+ 	 */
+ 	page_cgroup_init_flatmem();
+ 	mem_init();
++
 +	/*
-+	 * Tempesta: reserve pages at so early stage to get continous
-+	 * address space of physical pages.
++	 * Tempesta: reserve pages just when zones are initialized
++	 * to get continous address space of huge pages.
 +	 */
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	tempesta_reserve_pages();
 +#endif
 +
- 	/* Do the rest non-__init'ed, we're now alive */
- 	rest_init();
+ 	kmem_cache_init();
+ 	percpu_init_late();
+ 	pgtable_cache_init();
+ 	vmalloc_init();
++
++	/* Try vmalloc() if the previous one failed. */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	tempesta_reserve_vmpages();
++#endif
  }
+ 
+ asmlinkage void __init start_kernel(void)
 diff --git a/mm/Makefile b/mm/Makefile
 index 72c5acb..4fc1df7 100644
 --- a/mm/Makefile
@@ -229,14 +244,14 @@ index 72c5acb..4fc1df7 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 0000000..396b465
+index 0000000..3909f7f
 --- /dev/null
 +++ b/mm/tempesta_mm.c
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,284 @@
 +/**
 + *		Tempesta Memory Reservation
 + *
-+ * Copyright (C) 2015 Tempesta Technologies.
++ * Copyright (C) 2015 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -253,88 +268,265 @@ index 0000000..396b465
 + * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 + */
 +#include <linux/gfp.h>
++#include <linux/hugetlb.h>
 +#include <linux/tempesta.h>
 +#include <linux/topology.h>
++#include <linux/vmalloc.h>
 +
-+#define MAX_PGORDER		25	/* 128GB per one table */
-+#define MIN_PGORDER		9	/* 2MB - one extent */
-+#define DEFAULT_PGORDER		17	/* 512MB */
-+#define PGCHUNKS		(1 << (MAX_PGORDER - MAX_ORDER + 1))
++#include "internal.h"
++
++#define MAX_PGORDER		16	/* 128GB per one table */
++#define MIN_PGORDER		0	/* 2MB - one extent */
++#define DEFAULT_PGORDER		8	/* 512MB */
++/* Modern processors support up to 1.5TB of RAM, be ready for 2TB. */
++#define GREEDY_ARNUM		(1024 * 1024 + 1)
++#define PGNUM			(1 << pgorder)
++#define PGNUM4K			(PGNUM * (1 << HUGETLB_PAGE_ORDER))
 +
 +static int pgorder = DEFAULT_PGORDER;
++static gfp_t gfp_f = GFP_HIGHUSER | __GFP_COMP | __GFP_THISNODE | __GFP_ZERO
++		     | __GFP_REPEAT |__GFP_NOWARN;
 +static TempestaMapping map[MAX_NUMNODES];
++/*
++ * Modern x86-64 has not more than 512GB RAM per physical node.
++ * This is very large amount of memory, but it will be freed when
++ * initialization phase ends.
++ */
++static struct page *greedy[GREEDY_ARNUM] __initdata = { 0 };
 +
 +static int __init
 +tempesta_setup_pages(char *str)
 +{
 +	get_option(&str, &pgorder);
-+	if (pgorder < MIN_PGORDER)
++	if (pgorder < MIN_PGORDER) {
++		pr_err("Tempesta: bad dbmem value %d, must be [%d:%d]\n",
++		       pgorder, MIN_PGORDER, MAX_PGORDER);
 +		pgorder = MIN_PGORDER;
++	}
++	if (pgorder > MAX_PGORDER) {
++		pr_err("Tempesta: bad dbmem value %d, must be [%d:%d]\n",
++		       pgorder, MIN_PGORDER, MAX_PGORDER);
++		pgorder = MAX_PGORDER;
++	}
 +
 +	return 1;
 +}
-+__setup("tempesta_pages=", tempesta_setup_pages);
++__setup("tempesta_dbmem=", tempesta_setup_pages);
 +
++/**
++ * The code is somewhat stollen from mm/hugetlb.c.
++ */
++static struct page *
++tempesta_alloc_hpage(int nid)
++{
++	struct page *p;
++
++	p = alloc_pages_exact_node(nid, gfp_f, HUGETLB_PAGE_ORDER);
++	if (!p)
++		return NULL;
++
++	if (arch_prepare_hugepage(p)) {
++		pr_err("Tempesta: cannot prepare hugepage %p at node %d\n",
++		       p, nid);
++		return NULL;
++	}
++
++	count_vm_event(HTLB_BUDDY_PGALLOC);
++
++	__ClearPageReserved(p);
++	prep_compound_page(p, HUGETLB_PAGE_ORDER);
++
++	/* Acquire the page immediately. */
++	set_page_refcounted(p);
++
++	return p;
++}
++
++static void
++tempesta_free_hpage(struct page *p)
++{
++	__free_pages(p, HUGETLB_PAGE_ORDER);
++}
++
++/**
++ * Greedely alloc huge pages and try to find continous region organized
++ * by sorted set of allocated pages. When the region is found, all pages
++ * out of it are returned to system.
++ */
++static struct page *
++tempesta_alloc_contmem(int nid)
++{
++	long min = -1, start = -1, curr = 0, end = -1, max = -1;
++	struct page *p;
++
++	while (1) {
++		p = tempesta_alloc_hpage(nid);
++		if (!p)
++			goto err;
++		curr = ((long)page_address(p) - PAGE_OFFSET) >> HPAGE_SHIFT;
++		/*
++		 * The first kernel mapped page is always reserved.
++		 * Keep untouched (zero) bounds for faster lookups.
++		 */
++		BUG_ON(curr < 1 || curr >= GREEDY_ARNUM);
++		greedy[curr] = p;
++
++		/* First time initialization. */
++		if (min < 0) {
++			min = start = end = max = curr;
++		} else {
++			/* Update bounds for faster pages return. */
++			if (min > curr)
++				min = curr;
++			if (max < curr)
++				max = curr;
++			/* Update continous memory segment bounds. */
++			if (curr == end + 1) {
++				while (end <= max && greedy[end + 1])
++					++end;
++			}
++			else if (curr + 1 == start) {
++				while (start >= min && greedy[start - 1])
++					--start;
++			}
++			else {
++				/* Try to find new continous segment. */
++				long i, d_max = 0, good_start = start = min;
++				for (i = min; i <= max; ++i) {
++					if (greedy[i]) {
++						if (start == -1)
++							start = i;
++						end = i;
++						if (i - start + 1 == PGNUM)
++							break;
++						continue;
++					}
++
++					if (start > 0 && end - start > d_max) {
++						good_start = start;
++						d_max = end - start;
++					}
++					start = -1;
++				}
++				if (end - start < d_max) {
++					start = good_start;
++					end = start + d_max;
++				}
++			}
++		}
++
++		if (end - start + 1 == PGNUM)
++			break; /* continous space is built! */
++	}
++
++	/* Return unnecessary pages. */
++	BUG_ON(min < 0 || start < 0 || end < 0 || max < 0);
++	for ( ; min < start; ++min)
++		if (greedy[min]) {
++			tempesta_free_hpage(greedy[min]);
++			greedy[min] = NULL;
++		}
++	for ( ; max > end; --max)
++		if (greedy[max]) {
++			tempesta_free_hpage(greedy[max]);
++			greedy[max] = NULL;
++		}
++	return greedy[start];
++
++err:
++	pr_err("Tempesta: cannot allocate %u continous huge pages at node"
++	       " %d\n", PGNUM, nid);
++	for ( ; min >= 0 && min <= max; ++min)
++		if (greedy[min]) {
++			tempesta_free_hpage(greedy[min]);
++			greedy[min] = NULL;
++		}
++	return NULL;
++}
++
++/**
++ * Allocate continous virtual space of huge pages for Tempesta.
++ * We do not use giantic 1GB pages since not all modern x86-64 CPUs
++ * allows them in virtualized mode.
++ *
++ * TODO try firstly to allocate giantic pages, next huge pages and finally
++ * fallback to common 4KB pages allocation if previous tries failed.
++ */
 +void __init
 +tempesta_reserve_pages(void)
 +{
-+	static struct page *pg_arr[PGCHUNKS];
-+	struct page *p = NULL;
-+	int i, node, n, chunk_order;
++	int nid;
++	struct page *p;
 +
-+	chunk_order = min_t(int, MAX_ORDER - 1, pgorder);
-+	n = 1 << (pgorder - chunk_order);
++	for_each_online_node(nid) {
++		p = tempesta_alloc_contmem(nid);
++		if (!p)
++			goto err;
 +
-+	/*
-+	 * Linux buddy allocator returns blocks aligned on the their size
-+	 * and returned addresses grow from top to bottom.
-+	 */
-+	for_each_node_with_cpus(node) {
-+		for (i = n - 1; i >= 0; --i) {
-+			p = alloc_pages_node(node, GFP_KERNEL|__GFP_ZERO,
-+					     chunk_order);
-+			if (!p) {
-+				pr_err("Tempesta: cannot allocate page set"
-+				       " at node %d\n", node);
-+				goto err;
-+			}
-+			if (i < n - 1
-+			    && page_address(p) + PAGE_SIZE * (1 << chunk_order)
-+			       != page_address(pg_arr[i + 1]))
-+			{
-+				pr_err("Tempesta: sparse page set alloc:"
-+				       " %p:%p %lx\n", page_address(p),
-+				     page_address(pg_arr[i + 1]),
-+				     PAGE_SIZE * (1 << chunk_order));
-+				goto err;
-+			}
++		map[nid].addr = (unsigned long)page_address(p);
++		map[nid].pages = PGNUM4K;
 +
-+			pr_info("Tempesta: alloc %lu pages starting at address"
-+				" %p at node %d\n",
-+			     1UL << chunk_order, page_address(p), node);
-+
-+			pg_arr[i] = p;
-+		}
-+		BUG_ON(map[node].addr);
-+		map[node].addr = (unsigned long)page_address(p);
-+		map[node].pages = 1 << pgorder;
++		pr_info("Tempesta: allocated huge pages space %p %luMB at node"
++			" %d\n", page_address(p),
++			PGNUM4K * PAGE_SIZE / (1024 * 1024), nid);
 +	}
 +
 +	return;
 +err:
-+	for (--node; node >= 0; --node)
-+		for (i = 0; i < n; ++i)
-+			if (pg_arr[i])
-+				__free_pages(pg_arr[i], chunk_order);
++	for_each_online_node(nid) {
++		struct page *pend;
++		if (!map[nid].addr)
++			continue;
++		for (p = virt_to_page(map[nid].addr), pend = p + PGNUM4K;
++		     p < pend; p += 1 << HUGETLB_PAGE_ORDER)
++			tempesta_free_hpage(p);
++	}
++	memset(map, 0, sizeof(map));
++}
++
++/**
++ * Allocates necessary space if tempesta_reserve_pages() failed.
++ */
++void __init
++tempesta_reserve_vmpages(void)
++{
++	int nid, maps = 0;
++	size_t vmsize = PGNUM * (1 << HPAGE_SHIFT);
++
++	for_each_online_node(nid)
++		maps += !!map[nid].addr;
++
++	BUG_ON(maps && maps < nr_online_nodes);
++	if (maps == nr_online_nodes)
++		return;
++
++	for_each_online_node(nid) {
++		pr_warn("Tempesta: allocate %u vmalloc pages at node %d\n",
++			PGNUM4K, nid);
++
++		map[nid].addr = (unsigned long)vzalloc_node(vmsize, nid);
++		if (!map[nid].addr)
++			goto err;
++		map[nid].pages = PGNUM4K;
++	}
++
++	return;
++err:
++	pr_err("Tempesta: cannot vmalloc area of %lu bytes at node %d\n",
++	       vmsize, nid);
++	for_each_online_node(nid)
++		if (map[nid].addr)
++			vfree((void *)map[nid].addr);
++	memset(map, 0, sizeof(map));
 +}
 +
 +int
-+tempesta_get_mapping(int node, TempestaMapping **tm)
++tempesta_get_mapping(int nid, TempestaMapping **tm)
 +{
-+	if (!map[node].addr)
++	if (unlikely(!map[nid].addr))
 +		return -ENOMEM;
 +
-+	*tm = &map[node];
++	*tm = &map[nid];
 +
 +	return 0;
 +}
@@ -350,21 +542,49 @@ index 4425148..aad84f4 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 1c1738c..fe0705f 100644
+index 1c1738c..5864702 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
-@@ -619,6 +619,10 @@ static void skb_release_all(struct sk_buff *skb)
+@@ -619,6 +619,9 @@ static void skb_release_all(struct sk_buff *skb)
  
  void __kfree_skb(struct sk_buff *skb)
  {
-+	/* Don't free Tempesta owned socket buffers. */
-+	if (unlikely(ss_skb_passed(skb)))
-+		return;
++	/* Can't free buffers owned by Tempesta. */
++	BUG_ON((unlikely(ss_skb_passed(skb))));
 +
  	skb_release_all(skb);
  	kfree_skbmem(skb);
  }
-@@ -715,7 +719,9 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+@@ -696,6 +699,28 @@ void consume_skb(struct sk_buff *skb)
+ }
+ EXPORT_SYMBOL(consume_skb);
+ 
++/**
++ *	kfree_skb_untraced - free an skbuff
++ *	@skb: buffer to free
++ *
++ *	Drop a reference to the buffer and free it if the usage count has
++ *	hit zero. Functions identically to kfree_skb() or consume_skb(),
++ *	but kfree_skb_untraced() doesn't make any assumptions on semantics,
++ *	i.e. whether the frame is being dropped after a failure or consumed.
++ *	Consequently, it doesn't contain any instrumentation for tracing.
++ */
++void kfree_skb_untraced(struct sk_buff *skb)
++{
++	if (unlikely(!skb))
++		return;
++	if (likely(atomic_read(&skb->users) == 1))
++		smp_rmb();
++	else if (likely(!atomic_dec_and_test(&skb->users)))
++		return;
++	__kfree_skb(skb);
++}
++EXPORT_SYMBOL(kfree_skb_untraced);
++
+ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ {
+ 	new->tstamp		= old->tstamp;
+@@ -715,7 +740,9 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
  #ifdef CONFIG_XFRM
  	new->sp			= secpath_get(old->sp);
  #endif
