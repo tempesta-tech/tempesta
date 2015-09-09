@@ -62,6 +62,7 @@
  */
 
 #include <linux/cache.h>
+#include <linux/ctype.h>
 #include "http_match.h"
 #include "http_msg.h"
 
@@ -201,27 +202,127 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return hdr_val_eq(req, id, rule->arg.str, rule->arg.len, flags);
 }
 
+#define _MOVE_TO_COND(p, end, cond)			\
+	while((p) < (end) && !(cond)) {			\
+		(p)++;					\
+	}
+
+/* It would be hard to apply some header-specific rules here, so ignore
+ * case for all headers according to the robustness principle.
+ */
 static bool
 match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	TfwStr *hdr;
 	int i;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	/* It would be hard to apply some header-specific rules here, so ignore
-	 * case for all headers according to the robustness principle. */
-	flags |= TFW_STR_EQ_CASEI;
-
 	for (i = 0; i < req->h_tbl->size; ++i) {
-		hdr = &req->h_tbl->tbl[i];
-		if (TFW_STR_EMPTY(hdr))
-			continue;
+		const TfwStr *hdr, *dup, *end, *chunk;
+		const char *c, *cend, *p, *pend;
+		char prev;
+		short cnum;
 
-		/* TODO: handle LWS* between header and value for raw headers.
-		 * (currently "X-Hdr:foo" is not equal to "X-Hdr: foo").
-		 */
-		if (tfw_str_eq_cstr(hdr, rule->arg.str, rule->arg.len, flags))
-			return true;
+		hdr = &req->h_tbl->tbl[i];
+		if (TFW_STR_EMPTY(hdr)) {
+			continue;
+		}
+
+		TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+			/* Initialize  the state - get the first chunk. */
+			p = rule->arg.str;
+			pend = rule->arg.str + rule->arg.len;
+			cnum = 0;
+			chunk = TFW_STR_CHUNK(dup, 0);
+			if (!chunk) {
+				return p == NULL;
+			}
+			c = chunk->ptr;
+			cend = chunk->ptr + chunk->len;
+
+#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
+	if (unlikely(c == cend))	{		\
+		++cnum;					\
+		chunk = TFW_STR_CHUNK(dup, cnum); 	\
+		if (chunk) {				\
+			c = chunk->ptr;			\
+			cend = chunk->ptr + chunk->len; \
+			ok_code;			\
+		} else {				\
+			err_code;			\
+		}					\
+	}
+
+			prev = *p;
+state_common:
+			while (p != pend && c != cend) {
+				/* The rule convert to lower case on the step of
+				 * handling the configuration.
+				 */
+				if (*p != tolower(*c)) {
+					/* If the same position of the header
+					 * field and rule have a different
+					 * number of whitespace characters,
+					 * consider their as equivalent and
+					 * skip whitespace characters after ':'.
+					 */
+					if (isspace(prev) || prev == ':') {
+						if (isspace(*c)) {
+							c++;
+							goto state_hdr_sp;
+						}
+
+						if (isspace(*p)) {
+							prev = *p++;
+							goto state_rule_sp;
+						}
+					}
+
+					return false;
+				}
+
+				prev = *p++;
+				c++;
+			}
+
+			if (p == pend && flags & TFW_STR_EQ_PREFIX) {
+				return true;
+			}
+
+			_TRY_NEXT_CHUNK(goto state_common, {
+				/* If header field and rule finished, then
+				 * header field and rule are equivalent.
+				 */
+				if (p == pend) {
+					return true;
+				}
+
+				/* If only rule doesn't finished, may be it have
+				 * trailing spaces.
+				 */
+				if (isspace(*p)) {
+					p++;
+					goto state_rule_sp;
+				}
+			});
+
+			/* If only header field doesn't finished, may be it have
+			 * trailing spaces.
+			 */
+			if (isspace(*c)) {
+				c++;
+				goto state_hdr_sp;
+			}
+
+			return false;
+
+state_rule_sp:
+			_MOVE_TO_COND(p, pend, !isspace(*p));
+			goto state_common;
+
+state_hdr_sp:
+			_MOVE_TO_COND(c, cend, !isspace(*c));
+			goto state_common;
+		}
 	}
 
 	return false;
@@ -364,3 +465,21 @@ tfw_http_match_list_rcu_free(struct rcu_head *r)
 	tfw_pool_free(l->pool);
 }
 EXPORT_SYMBOL(tfw_http_match_list_rcu_free);
+
+void
+tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
+	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg) {
+	rule->field = field;
+	rule->op = op;
+	rule->arg.type = type;
+	rule->arg.len = strlen(arg);
+	memcpy(rule->arg.str, arg, rule->arg.len + 1);
+
+	if (field == TFW_HTTP_MATCH_F_HDR_RAW) {
+		char *p = rule->arg.str;
+		while ((*p = tolower(*p))) {
+			p++;
+		}
+	}
+}
+EXPORT_SYMBOL(tfw_http_match_rule_init);
