@@ -465,3 +465,21 @@ tfw_http_match_list_rcu_free(struct rcu_head *r)
 	tfw_pool_free(l->pool);
 }
 EXPORT_SYMBOL(tfw_http_match_list_rcu_free);
+
+void
+tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
+	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg) {
+	rule->field = field;
+	rule->op = op;
+	rule->arg.type = type;
+	rule->arg.len = strlen(arg);
+	memcpy(rule->arg.str, arg, rule->arg.len + 1);
+
+	if (field == TFW_HTTP_MATCH_F_HDR_RAW) {
+		char *p = rule->arg.str;
+		while ((*p = tolower(*p))) {
+			p++;
+		}
+	}
+}
+EXPORT_SYMBOL(tfw_http_match_rule_init);
