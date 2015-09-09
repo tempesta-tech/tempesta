@@ -18,6 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/ctype.h>
+
 #include "http_match.h"
 #include "http_msg.h"
 
@@ -57,6 +59,7 @@ test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
 {
 	MatchEntry *e;
 	size_t len = strlen(str_arg);
+	char *p;
 
 	e = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, len);
 	e->test_id = test_id;
@@ -65,6 +68,13 @@ test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
 	e->rule.arg.type = TFW_HTTP_MATCH_A_STR;
 	e->rule.arg.len = len;
 	memcpy(e->rule.arg.str, str_arg, len);
+
+	if (e->rule.field == TFW_HTTP_MATCH_F_HDR_RAW) {
+		p = e->rule.arg.str;
+		while ((*p = tolower(*p))) {
+			p++;
+		}
+	}
 }
 
 int
