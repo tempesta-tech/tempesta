@@ -20,6 +20,8 @@ switched on:
 
 * CONFIG\_SECURITY
 * CONFIG\_SECURITY\_NETWORK
+* CONFIG\_SECURITY\_TEMPESTA
+* CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
 * CONFIG\_NETLINK\_MMAP
 
 Tempesta DB user-space library requires netlink mmap defined in standard
