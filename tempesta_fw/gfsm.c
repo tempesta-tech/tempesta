@@ -227,11 +227,8 @@ EXPORT_SYMBOL(tfw_gfsm_move);
  * Register a hook which will be called with priority @prio when FSM @fsm_id
  * reaches state @state. The hooks switches calling FSM to FSM represented by
  * @hndl_fsm_id at state @st0.
- *
- * TODO currently we don't have unregister hook logic, so any module using GFSM
- * hooks can't be unloaded for now. The problem is that there could be some
- * live messages with set hooks when a module is unloaded, so we need to scan
- * and adjust all the messages.
+ * @return resulting priority at which the hook was registered or
+ * negative value of failure.
  */
 int
 tfw_gfsm_register_hook(int fsm_id, int prio, int state,
@@ -272,9 +269,26 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 	fsm_hooks[fsm_id][shift].fsm_id = hndl_fsm_id;
 	fsm_hooks_bm[fsm_id][prio] |= st_bit;
 
-	return 0;
+	return prio;
 }
 EXPORT_SYMBOL(tfw_gfsm_register_hook);
+
+/**
+ * The function called must be pretty sure that there is no live messages
+ * with set hooks. Typically, the function should be called on shutdown
+ * phase only when all connections are already terminated with all associated
+ * messages.
+ */
+void
+tfw_gfsm_unregister_hook(int fsm_id, int prio, int state)
+{
+	int st = state & TFW_GFSM_STATE_MASK;
+	int shift = prio * TFW_GFSM_PRIO_N + st;
+
+	memset(&fsm_hooks[fsm_id][shift], 0, sizeof(TfwFsmHook));
+	fsm_hooks_bm[fsm_id][prio] &= ~(1 << st);
+}
+EXPORT_SYMBOL(tfw_gfsm_unregister_hook);
 
 int
 tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)

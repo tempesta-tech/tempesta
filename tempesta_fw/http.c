@@ -36,6 +36,7 @@
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+int ghprio; /* GFSM hook priority. */
 
 #define S_CRLF			"\r\n"
 #define S_CRLFCRLF		"\r\n\r\n"
@@ -804,14 +805,21 @@ tfw_http_init(void)
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	/* Must be last call - we can't unregister the hook. */
-	r = tfw_gfsm_register_hook(TFW_FSM_HTTPS, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTPS_FSM_TODO_ISSUE_81,
-				   TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
+	ghprio = tfw_gfsm_register_hook(TFW_FSM_HTTPS,
+					TFW_GFSM_HOOK_PRIORITY_ANY,
+					TFW_HTTPS_FSM_TODO_ISSUE_81,
+					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
+	if (ghprio < 0)
+		return ghprio;
 
-	return r;
+	return 0;
 }
 
 void
 tfw_http_exit(void)
 {
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio,
+				 TFW_HTTPS_FSM_TODO_ISSUE_81);
+	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
+	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

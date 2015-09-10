@@ -23,7 +23,8 @@ sched_ko_files=($(ls $tfw_path/sched/*.ko))
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
-declare frang_mod=
+frang_mod="tfw_frang"
+declare frang_enable=
 
 declare -r long_opts="help,load,unload,start,stop,restart"
 
@@ -70,7 +71,7 @@ load_modules()
 		[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
 	done
 
-	if [ "$frang_mod" ]; then
+	if [ "$frang_enable" ]; then
 		echo "Load Frang"
 		insmod $class_path/$frang_mod.ko
 		[ $? -ne 0 ] && error "cannot load $frang_mod module"
@@ -106,10 +107,10 @@ unload_modules()
 	for ko_file in "${sched_ko_files[@]}"; do
 		rmmod $(basename "${ko_file%.ko}")
 	done
-	
+
+	[ "`lsmod | grep \"\<$frang_mod\>\"`" ] && rmmod $frang_mod
 	rmmod $tfw_mod
 	rmmod $tdb_mod
-	[ "`lsmod | grep \"\<$frang_mod\>\"`" ] && rmmod $frang_mod
 }
 
 args=$(getopt -o "f" -a -l "$long_opts" -- "$@")
@@ -143,7 +144,7 @@ for opt; do
 			;;
 		# Ignore any options after action.
 		-f)
-			frang_mod=tfw_frang
+			frang_enable=1
 			shift
 			;;
 		-h|--help)
