@@ -66,7 +66,6 @@ typedef struct {
 	struct list_head	list;
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
-
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
@@ -111,6 +110,8 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(conn->peer);
 	BUG_ON(conn->sk);
 }
+
+#define TFW_CONN_ALIVE(c)	((c)->sk && SS_SOCK_ALIVE((c)->sk))
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);

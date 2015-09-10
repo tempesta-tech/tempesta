@@ -115,7 +115,7 @@ tfw_sched_rr_update_data(TfwSrvGroup *sg)
 
 		list_for_each_entry(conn, &srv->conn_list, list) {
 			/* Skip not-yet-established connections. */
-			if (!conn->sk)
+			if (!TFW_CONN_ALIVE(conn))
 				continue;
 
 			conn_list->conns[conn_idx] = conn;
