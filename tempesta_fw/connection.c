@@ -34,16 +34,6 @@ static TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]->hook_name(conn)
 
 void
-tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
-{
-	unsigned hid = TFW_CONN_TYPE2IDX(type);
-
-	BUG_ON(hid >= TFW_CONN_MAX_PROTOS || conn_hooks[hid]);
-
-	conn_hooks[hid] = hooks;
-}
-
-void
 tfw_connection_init(TfwConnection *conn)
 {
 	memset(conn, 0, sizeof(*conn));
@@ -148,4 +138,20 @@ tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
 	return tfw_gfsm_dispatch(&conn->msg->state, conn, skb, off);
+}
+
+void
+tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
+{
+	unsigned hid = TFW_CONN_TYPE2IDX(type);
+
+	BUG_ON(hid >= TFW_CONN_MAX_PROTOS || conn_hooks[hid]);
+
+	conn_hooks[hid] = hooks;
+}
+
+void
+tfw_connection_hooks_unregister(int type)
+{
+	conn_hooks[TFW_CONN_TYPE2IDX(type)] = NULL;
 }
