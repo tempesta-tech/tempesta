@@ -1,3 +1,341 @@
+diff --git a/Documentation/CodingStyle b/Documentation/CodingStyle
+index e00b8f0..7ac3707 100644
+--- a/Documentation/CodingStyle
++++ b/Documentation/CodingStyle
+@@ -1,5 +1,5 @@
+-
+-		Linux kernel coding style
++		Tempesta coding style
++	(based on Linux kernel coding style)
+ 
+ This is a short document describing the preferred coding style for the
+ linux kernel.  Coding style is very personal, and I won't _force_ my
+@@ -87,6 +87,17 @@ are placed substantially to the right. The same applies to function headers
+ with a long argument list. However, never break user-visible strings such as
+ printk messages, because that breaks the ability to grep for them.
+ 
++Functions calls on multiple lines must have the arguments aligned properly on
++the second and subsequent lines (see https://lkml.org/lkml/2013/6/6/703),
++this means:
++
++	function(arg1, arg2,
++		 arg3, arg4);
++
++You must use the appropriate number of TAB and space characters to achieve this
++proper column alignment, rather than only using TAB characters as you have done
++here.
++
+ 
+ 		Chapter 3: Placing Braces and Spaces
+ 
+@@ -117,7 +128,8 @@ while, do).  E.g.:
+ However, there is one special case, namely functions: they have the
+ opening brace at the beginning of the next line, thus:
+ 
+-	int function(int x)
++	int
++	function(int x)
+ 	{
+ 		body of function
+ 	}
+@@ -140,9 +152,11 @@ and
+ 
+ 	if (x == y) {
+ 		..
+-	} else if (x > y) {
++	}
++	else if (x > y) {
+ 		...
+-	} else {
++	}
++	else {
+ 		....
+ 	}
+ 
+@@ -154,6 +168,9 @@ supply of new-lines on your screen is not a renewable resource (think
+ 25-line terminal screens here), you have more empty lines to put
+ comments on.
+ 
++However, please note that else-if statements begins at new line to make
++conditions more explicit and improve code readability.
++
+ Do not unnecessarily use braces where a single statement will do.
+ 
+ if (condition)
+@@ -372,7 +389,8 @@ In source files, separate functions with one blank line.  If the function is
+ exported, the EXPORT* macro for it should follow immediately after the closing
+ function brace line.  E.g.:
+ 
+-int system_is_up(void)
++int
++system_is_up(void)
+ {
+ 	return system_state == SYSTEM_RUNNING;
+ }
+@@ -382,6 +400,31 @@ In function prototypes, include parameter names with their data types.
+ Although this is not required by the C language, it is preferred in Linux
+ because it is a simple way to add valuable information for the reader.
+ 
++Let's consider following *bad* example of C++ function definition:
++
++	template<typename T> inline SomeOtherTemplate<arg1, arg2> the_function(
++		int a, char b, char c)
++	{
++		.....
++	}
++
++In this example function type occupies almost full line, so there is no space
++for name of the function and its arguments. To make function declarations more
++convinient we place template argumenta at first line, function return type at
++the second one and the function name with its arguments at the last line:
++
++	template<typename T>
++	inline SomeOtherTemplate<arg1, arg2>
++	the_function(int a, char b,
++		     char c)
++	{
++		.....
++	}
++
++Please note that if some function arguments ("c" at the example above) don't
++fit one line, they are placed at the next line with identation by tabs and
++spaces to the first argument.
++
+ 
+ 		Chapter 7: Centralized exiting of functions
+ 
+@@ -399,7 +442,8 @@ The rationale is:
+     modifications are prevented
+ - saves the compiler work to optimize redundant code away ;)
+ 
+-int fun(int a)
++int
++fun(int a)
+ {
+ 	int result = 0;
+ 	char *buffer = kmalloc(SIZE);
+@@ -441,7 +485,8 @@ See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
+ for details.
+ 
+ Linux style for comments is the C89 "/* ... */" style.
+-Don't use C99-style "// ..." comments.
++However, in application-level code you can use C99 or C++-style "// ..."
++comments.
+ 
+ The preferred style for long (multi-line) comments is:
+ 
+@@ -454,16 +499,6 @@ The preferred style for long (multi-line) comments is:
+ 	 * with beginning and ending almost-blank lines.
+ 	 */
+ 
+-For files in net/ and drivers/net/ the preferred style for long (multi-line)
+-comments is a little different.
+-
+-	/* The preferred comment style for files in net/ and drivers/net
+-	 * looks like this.
+-	 *
+-	 * It is nearly the same as the generally preferred comment style,
+-	 * but there is no initial almost-blank line.
+-	 */
+-
+ It's also important to comment data, whether they are basic types or derived
+ types.  To this end, use just one data declaration per line (no commas for
+ multiple data declarations).  This leaves you room for a small comment on each
+@@ -546,7 +581,15 @@ config AUDIT
+ 	  logging of avc messages output).  Does not do system-call
+ 	  auditing without CONFIG_AUDITSYSCALL.
+ 
+-Seriously dangerous features (such as write support for certain
++Features that might still be considered unstable should be defined as
++dependent on "EXPERIMENTAL":
++
++config SLUB
++	depends on EXPERIMENTAL && !ARCH_USES_SLAB_PAGE_STRUCT
++	bool "SLUB (Unqueued Allocator)"
++	...
++
++while seriously dangerous features (such as write support for certain
+ filesystems) should advertise this prominently in their prompt string:
+ 
+ config ADFS_FS_RW
+@@ -673,9 +716,8 @@ ones already enabled by DEBUG.
+ 		Chapter 14: Allocating memory
+ 
+ The kernel provides the following general purpose memory allocators:
+-kmalloc(), kzalloc(), kmalloc_array(), kcalloc(), vmalloc(), and
+-vzalloc().  Please refer to the API documentation for further information
+-about them.
++kmalloc(), kzalloc(), kcalloc(), vmalloc(), and vzalloc().  Please refer to
++the API documentation for further information about them.
+ 
+ The preferred form for passing a size of a struct is the following:
+ 
+@@ -689,17 +731,6 @@ Casting the return value which is a void pointer is redundant. The conversion
+ from void pointer to any other pointer type is guaranteed by the C programming
+ language.
+ 
+-The preferred form for allocating an array is the following:
+-
+-	p = kmalloc_array(n, sizeof(...), ...);
+-
+-The preferred form for allocating a zeroed array is the following:
+-
+-	p = kcalloc(n, sizeof(...), ...);
+-
+-Both forms check for overflow on the allocation size n * sizeof(...),
+-and return NULL if that occurred.
+-
+ 
+ 		Chapter 15: The inline disease
+ 
+@@ -780,7 +811,109 @@ need them.  Feel free to peruse that header file to see what else is already
+ defined that you shouldn't reproduce in your code.
+ 
+ 
+-		Chapter 18:  Editor modelines and other cruft
++		Chapter 18: C++ and other stuff
++
++We use the same coding style for kernel C and application C++ programming, so
++we adjust the original guide with some C++ specific things.
++
++Althought Linux kernel doesn't like capital letters and typedefs for structures,
++it is uncommon for C++ to write
++
++	struct virtual_container *a;
++
++or similarly
++
++	class virtual_container *a;
++
++so to keep consistency between structures and classes we should write
++
++	virtual_container_t *a;
++
++where virtual_container_t is a class typedef'ed structure. To be able to tell
++what "a" is we name classes and structures the same way, using CamelCase.
++So "a" becomes
++
++	VirtualContainer *a.
++
++C++ projects are often includes C, C++/STL, Boost and/or other header files.
++It is desired to sort them as: firstly C-headers, then standard C++ headers,
++headers from other standard libraries and lastly the project's internal headers:
++
++	#include <stdio.h>
++	#include <stdlib.h>
++
++	#include <iostream>
++	#include <vector>
++
++	#include <boost/bind.hpp>
++
++	#include "daemon.h"
++	#include "mem.h"
++
++It is also good idea to sort includes alhpabetically.
++
++By the way, C++ is very powerfull tool which in many cases uses TIMTOWTDI (There
++Is More Than One Way To Do It) concept. For example in some cases you can use
++simple C-array, STL vector or Boost array. In such cases keep you code as simple
++as possibly. It means that if there is no difference, then you should prefer
++C-array to STL vector and STL vector to Boost array.
++
++If a code operates with many function pointers, then it is sometimes difficult
++to find which function a pointer reffers to. So to simplify code navigation
++function pointer types must be defined as <type_name>_t, functions which are
++used with the types should be named as <some_prefix>_<type_name> and variables
++of the type as <some_prefix>_<type_name> or <type_name>_<some_suffix>. E.g.:
++
++	typedef void (*some_func_t)(void);
++
++	void xxx_some_func(void) {};
++	void yyy_some_func(void) {};
++
++	some_func_t var1_some_func = xxx_some_func;
++	some_func_t some_func_var2 = yyy_some_func;
++
++This way it is pretty simple to grep whole code for all functions which can be
++refered by "var1_some_func". Exception of the rule could be variable names
++defined and used in one function scope.
++
++In Linux kernel pointer specifier "*" is placed near to the argument name.
++There is no reason to treat C++ reference "&" differently. So prefer this style
++
++	int &func();
++	int *a, &b = a;
++
++to this *bad* style:
++
++	int& func();
++	int* a, & b = a;
++
++In C++ class methods (special type of function) can operate with global, local,
++or the class memebers. So to differentiate class members from global and local
++variables it is a good idea to use "_" suffix:
++
++	class A {
++		int a_;
++	};
++
++Exception safiness. All functions, which don't throw exceptions,  mandatory MUST
++specify it with noexcept statement:
++
++	void func() noexcept;
++
++Yes, it makes risk to get unexpected exception. But such exceptions must be
++tested and fixed during test phase. And, yes, each time when you need to modify
++source code of a function you have to check that your changes don't affect
++the function exception specification. However, it is much simplier to analyze
++which work flow could lead to and to which exceptions.
++
++Do not use following stupid safe programming for conditions:
++
++	if (5 == a)
++
++It makes code hard to read, but prevents very rare type of misprint.
++
++
++		Chapter 19:  Editor modelines and other cruft
+ 
+ Some editors can interpret configuration information embedded in source files,
+ indicated with special markers.  For example, emacs interprets lines marked
+@@ -807,36 +940,6 @@ own custom mode, or may have some other magic method for making indentation
+ work correctly.
+ 
+ 
+-		Chapter 19:  Inline assembly
+-
+-In architecture-specific code, you may need to use inline assembly to interface
+-with CPU or platform functionality.  Don't hesitate to do so when necessary.
+-However, don't use inline assembly gratuitously when C can do the job.  You can
+-and should poke hardware from C when possible.
+-
+-Consider writing simple helper functions that wrap common bits of inline
+-assembly, rather than repeatedly writing them with slight variations.  Remember
+-that inline assembly can use C parameters.
+-
+-Large, non-trivial assembly functions should go in .S files, with corresponding
+-C prototypes defined in C header files.  The C prototypes for assembly
+-functions should use "asmlinkage".
+-
+-You may need to mark your asm statement as volatile, to prevent GCC from
+-removing it if GCC doesn't notice any side effects.  You don't always need to
+-do so, though, and doing so unnecessarily can limit optimization.
+-
+-When writing a single inline assembly statement containing multiple
+-instructions, put each instruction on a separate line in a separate quoted
+-string, and end each string except the last with \n\t to properly indent the
+-next instruction in the assembly output:
+-
+-	asm ("magic %reg1, #42\n\t"
+-	     "more_magic %reg2, %reg3"
+-	     : /* outputs */ : /* inputs */ : /* clobbers */);
+-
+-
+-
+ 		Appendix I: References
+ 
+ The C Programming Language, Second Edition
 diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
 index 2fe6e76..bc663a8 100644
 --- a/Documentation/kernel-parameters.txt
