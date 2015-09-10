@@ -50,6 +50,7 @@ static struct {
 	int max;
 	char *a_val;
 	char *a_inval;
+	int singular; /* only for headers; 0 - nonsingular, 1 - singular */
 } gen_vector[] = {
 	/* METHOD */
 	{0, sizeof(methods) / sizeof(struct fuzz_msg) - 1, "", NULL},
@@ -66,23 +67,27 @@ static struct {
 	/* URI_FILE */
 	{0, sizeof(uri_file) / sizeof(struct fuzz_msg) - 1, A_URI, NULL},
 	/* CONNECTION */
-	{0, sizeof(conn_val) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	{0, sizeof(conn_val) / sizeof(struct fuzz_msg) - 1, "", NULL, 1},
 	/* USER_AGENT*/
 	{0, sizeof(ua_val) / sizeof(struct fuzz_msg) - 1, A_USER_AGENT,
-		A_USER_AGENT_INVAL},
+		A_USER_AGENT_INVAL, 1},
 	/* HOST */
-	{0, sizeof(hosts) / sizeof(struct fuzz_msg) - 1, A_HOST, A_HOST_INVAL},
+	{0, sizeof(hosts) / sizeof(struct fuzz_msg) - 1, A_HOST,
+		A_HOST_INVAL, 1},
 	/* X_FORWARDED_FOR */
 	{0, sizeof(hosts) / sizeof(struct fuzz_msg) - 1, A_X_FORWARDED_FOR,
-		A_X_FORWARDED_FOR_INVAL},
+		A_X_FORWARDED_FOR_INVAL, 0},
 	/* CONTENT_TYPE */
-	{0, sizeof(content_type) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	{0, sizeof(content_type) / sizeof(struct fuzz_msg) - 1, "", NULL, 1},
 	/* CONTENT_LENGTH */
-	{0, sizeof(content_length) / sizeof(struct fuzz_msg) - 1, "0123456789", NULL},
+	{0, sizeof(content_length) / sizeof(struct fuzz_msg) - 1, "0123456789",
+		NULL, 1},
 	/* TRANSFER_ENCODING */
-	{0, sizeof(transfer_encoding) / sizeof(struct fuzz_msg) - 1, "", NULL},
+	{0, sizeof(transfer_encoding) / sizeof(struct fuzz_msg) - 1, "", NULL, 0},
 	/* TRANSFER_ENCODING_NUM */
 	{0, 5, "", NULL},
+	/* DUPLICATES */
+	{0, 3, "", NULL},
 	/* BODY_SIZE */
 	{0, 10, "", NULL}
 };
@@ -103,6 +108,7 @@ enum {
 	CONTENT_LENGTH,
 	TRANSFER_ENCODING,
 	TRANSFER_ENCODING_NUM,
+	DUPLICATES,
 	BODY_SIZE,
 	N_FIELDS
 };
@@ -268,6 +274,8 @@ static int add_connection(char *s1)
 {
 	struct fuzz_msg r = conn_val[gen_vector[CONNECTION].i];
 
+	strcat(s1, "Connection:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -288,6 +296,8 @@ static int add_user_agent(char *s1)
 {
 	struct fuzz_msg r = ua_val[gen_vector[USER_AGENT].i];
 
+	strcat(s1, "User-agent:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -308,6 +318,8 @@ static int add_host(char *s1)
 {
 	struct fuzz_msg r = hosts[gen_vector[HOST].i];
 
+	strcat(s1, "Host:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -328,6 +340,8 @@ static int add_x_forwarded_for(char *s1)
 {
 	struct fuzz_msg r = hosts[gen_vector[X_FORWARDED_FOR].i];
 
+	strcat(s1, "X-Forwarded-For:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -348,6 +362,8 @@ static int add_content_type(char *s1)
 {
 	struct fuzz_msg r = content_type[gen_vector[CONTENT_TYPE].i];
 
+	strcat(s1, "Content-Type:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -368,6 +384,8 @@ static int add_content_length(char *s1)
 {
 	struct fuzz_msg r = content_length[gen_vector[CONTENT_LENGTH].i];
 
+	strcat(s1, "Content-Length:");
+	add_spaces(s1);
 	if (r.s) {
 		strcat(s1, r.s);
 		return r.inval;
@@ -377,7 +395,7 @@ static int add_content_length(char *s1)
 	return FUZZ_INVALID;
 }
 
-static int add_transfer_encoding(char *s1, int n)
+static int __add_transfer_encoding(char *s1, int n)
 {
 	struct fuzz_msg r = transfer_encoding[n];
 
@@ -393,6 +411,24 @@ static int add_transfer_encoding(char *s1, int n)
 	}
 
 	return FUZZ_INVALID;
+}
+
+static int add_transfer_encoding(char *s1)
+{
+	int v = 0, i;
+
+	strcat(s1, "Transfer-Encoding:");
+	add_spaces(s1);
+	v |= __add_transfer_encoding(s1, gen_vector[TRANSFER_ENCODING].i);
+	for (i = 0; i < gen_vector[TRANSFER_ENCODING_NUM].i; ++i) {
+		addch(s1, ',');
+		add_spaces(s1);
+		v |= __add_transfer_encoding(s1,
+				(i + gen_vector[CONTENT_LENGTH].i) %
+				gen_vector[TRANSFER_ENCODING].max);
+	}
+
+	return v;
 }
 
 static int add_body(char *s1, int type)
@@ -422,6 +458,26 @@ static int add_body(char *s1, int type)
 		return FUZZ_INVALID;
 
 	return FUZZ_VALID;
+}
+
+static int add_duplicates(char *s1, int n, int(*add_func)(char *s1))
+{
+	int i, tmp, v = 0;
+
+	for (i = 0; i < gen_vector[DUPLICATES].i; ++i) {
+		tmp = gen_vector[n].i;
+
+		gen_vector[n].i = (i + gen_vector[n].i +
+				   gen_vector[SPACES].i) %
+				  gen_vector[n].max;
+		v |= (*add_func)(s1);
+		strcat(s1, "\r\n");
+		gen_vector[n].i = tmp;
+	}
+
+	if (gen_vector[n].singular && i > 0)
+		return FUZZ_INVALID;
+	return v;
 }
 
 /* Returns:
@@ -462,48 +518,35 @@ int fuzz_gen(char *str, int move, int type)
 	}
 	strcat(str, "\r\n");
 
-	strcat(str, "Connection:");
-	add_spaces(str);
 	v |= add_connection(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, CONNECTION, &add_connection);
 
-	strcat(str, "User-agent:");
-	add_spaces(str);
 	v |= add_user_agent(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, USER_AGENT, &add_user_agent);
 
-	strcat(str, "Host:");
-	add_spaces(str);
 	v |= add_host(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, HOST, &add_host);
 
-	strcat(str, "X-Forwarded-For:");
-	add_spaces(str);
 	v |= add_x_forwarded_for(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, X_FORWARDED_FOR, &add_x_forwarded_for);
 
-	strcat(str, "Content-Type:");
-	add_spaces(str);
 	v |= add_content_type(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, CONTENT_TYPE, &add_content_type);
 
-	strcat(str, "Content-Length:");
-	add_spaces(str);
 	v |= add_content_length(str);
 	strcat(str, "\r\n");
+	v |= add_duplicates(str, CONTENT_LENGTH, &add_content_length);
 
-	strcat(str, "Transfer-Encoding:");
-	add_spaces(str);
-	v |= add_transfer_encoding(str, gen_vector[TRANSFER_ENCODING].i);
-	for (i = 0; i < gen_vector[TRANSFER_ENCODING_NUM].i; ++i) {
-		addch(str, ',');
-		add_spaces(str);
-		v |= add_transfer_encoding(str,
-				(i + gen_vector[CONTENT_LENGTH].i) %
-				gen_vector[TRANSFER_ENCODING].max);
-	}
+	v |= add_transfer_encoding(str);
+	strcat(str, "\r\n");
+	v |= add_duplicates(str, TRANSFER_ENCODING, &add_transfer_encoding);
 
-	strcat(str, "\r\n\r\n");
+	strcat(str, "\r\n");
 
 	v |= add_body(str, type);
 
