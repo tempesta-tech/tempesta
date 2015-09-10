@@ -22,9 +22,12 @@
 #define __SS_SOCK_H__
 
 #include <net/sock.h>
+#include <net/tcp.h>
 #include <linux/skbuff.h>
 
 #include "ss_skb.h"
+
+#define SS_SOCK_ALIVE(s)	((s)->sk_state == TCP_ESTABLISHED)
 
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
