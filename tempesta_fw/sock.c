@@ -27,7 +27,6 @@
  */
 #include <linux/module.h>
 #include <net/protocol.h>
-#include <net/tcp.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
@@ -141,6 +140,12 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
+	/*
+	 * TODO do not enter the function if the socket isn't in appropriate
+	 * state, for details see
+	 * https://github.com/natsys/tempesta/pull/237#discussion_r38937948
+	 */
 
 	/* Synchronize concurrent socket writting in different softirqs. */
 	bh_lock_sock_nested(sk);
@@ -780,8 +785,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * in regular course of action. When a socket is moved from
 		 * TCP_ESTABLISHED state to a closing state, we forcefully
 		 * close the socket before it can reach the final state.
-		 */
-		/*
+		 *
 		 * We get here when an error has occured in the connection.
 		 * It could be that RST was received which may happen for
 		 * multiple reasons. Or it could be a case of TCP timeout
@@ -1014,7 +1018,7 @@ ss_release(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_release);
 
-/*
+/**
  * The original function is inet_stream_connect() that is common
  * to IPv4 and IPv6.
  */
@@ -1026,19 +1030,16 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
-	bh_lock_sock(sk);
-	err = -EINVAL;
 	if (uaddr_len < sizeof(uaddr->sa_family))
-		goto out;
-	err = -EISCONN;
+		return -EINVAL;
 	if (sk->sk_state != TCP_CLOSE)
-		goto out;
-	if ((err = sk->sk_prot->connect(sk, uaddr, uaddr_len)) != 0)
-		goto out;
-	err = 0;
-out:
-	bh_unlock_sock(sk);
-	return err;
+		return -EISCONN;
+
+	err = sk->sk_prot->connect(sk, uaddr, uaddr_len);
+	if (err)
+		return err;
+
+	return 0;
 }
 EXPORT_SYMBOL(ss_connect);
 

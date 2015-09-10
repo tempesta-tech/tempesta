@@ -118,10 +118,31 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		return r;
 	}
 
+	/*
+	 * Setup connection handlers before ss_connect() call, because
+	 * we can get established connection right in the call in case
+	 * of local peer connection, so all handlers must be installed
+	 * before the call.
+	 */
 	sock_set_flag(sk, SOCK_DBG);
 	tfw_connection_link_sk(&srv_conn->conn, sk);
 	ss_set_callbacks(sk);
 
+	/*
+	 * There are two possible usage of the function:
+	 *
+	 * 1. tfw_sock_srv_connect_srv() called on system initialization phase
+	 *    before initialization of client listening interfaces, so there
+	 *    there is no activity on the socket;
+	 *
+	 * 2. __sock_srv_do_failover() upcalled from SS layer and with unlinked
+	 *    conn->sk, so nobody can send through the socket. Also since
+	 *    the function is called by connection_error or connection_drop
+	 *    hook from softirq, there coldn't other socket state change
+	 *    upcall from SS layer due to RSS.
+	 *
+	 * Thus we don't need syncronization for ss_connect().
+	 */
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("can't initiate a connect to server: error %d\n", r);
@@ -205,6 +226,42 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	return 0;
 }
 
+static int
+__sock_srv_do_failover(struct sock *sk, bool try_connect, const char *msg)
+{
+	int r = 0;
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+
+	TFW_DBG_ADDR(msg, &srv->addr);
+
+	/*
+	 * Unlink failed socket from connection to allow schedulers
+	 * update their connection lists.
+	 */
+	tfw_connection_unlink_sk(&srv_conn->conn);
+
+	/* Revert tfw_sock_srv_connect_complete(). */
+	tfw_sg_update(srv->sg);
+	tfw_connection_destruct(&srv_conn->conn);
+
+	if (!try_connect)
+		goto no_connect;
+
+	r = tfw_sock_srv_connect_try(srv_conn);
+	if (r) {
+		TFW_WARN("failover connect failed\n");
+		/* Just retry later. */
+		goto no_connect;
+	}
+
+	return 0;
+no_connect:
+	__mod_retry_timer(srv_conn);
+	return r;
+
+}
+
 /**
  * The hook is executed when a server connection is lost.
  * I.e. the connection was established before, but now it is closed.
@@ -212,32 +269,11 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
-	int r;
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-
-	TFW_DBG_ADDR("connection lost", &srv->addr);
-
-	/* Revert tfw_sock_srv_connect_complete(). */
-	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(&srv_conn->conn);
-
-	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn);
-
 	/*
 	 * Initiate a new connect attempt.
 	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
 	 */
-	r = tfw_sock_srv_connect_try(srv_conn);
-	if (r) {
-		TFW_WARN("failover connect failed\n");
-
-		/* Just retry later. */
-		__mod_retry_timer(srv_conn);
-	}
-
-	return 0;
+	return __sock_srv_do_failover(sk, true, "connection lost");
 }
 
 /**
@@ -249,30 +285,15 @@ tfw_sock_srv_connect_failover(struct sock *sk)
  * Basically it initiates a reconnect (calls tfw_sock_srv_try() again).
  * There should be a pause between connect attempts, so the reconnect
  * is done in a deferred context (in a timer callback).
+ *
+ * We need to create a new socket for each connect attempt.
+ * The old socket is released as soon as it is not used anymore.
+ * New socket is created after a delay in the timer callback.
  */
 static int
 tfw_sock_srv_connect_retry(struct sock *sk)
 {
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-
-	TFW_DBG_ADDR("connection error", &srv->addr);
-
-	/* Revert tfw_sock_srv_connect_complete(). */
-	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(&srv_conn->conn);
-
-	/* Revert tfw_sock_srv_connect_try(). */
-	tfw_connection_unlink_sk(&srv_conn->conn);
-
-	/*
-	 * We need to create a new socket for each connect attempt.
-	 * The old socket is released as soon as it is not used anymore.
-	 * New socket is created after a delay in the timer callback.
-	 */
-	__mod_retry_timer(srv_conn);
-
-	return 0;
+	return __sock_srv_do_failover(sk, false, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {

@@ -186,7 +186,7 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 			/* Skip not-yet-established connections.
 			 * However, take into account the conn_idx to preserver
 			 * same hash values for all connections. */
-			if (!conn->sk) {
+			if (!TFW_CONN_ALIVE(conn)) {
 				++conn_idx;
 				continue;
 			}

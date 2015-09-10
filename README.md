@@ -15,8 +15,11 @@ Socket API or even kernel sockets.
 
 ### Prerequisites
 
-Tempesta requires that the following Linux kernel configuration options are
-switched on:
+Tempesta is designed for massively parallel network processing, so it requires
+[RSS](https://www.kernel.org/doc/Documentation/networking/scaling.txt) enabled
+on you network adapter.
+
+Following Linux kernel configuration options must be switched on:
 
 * CONFIG\_SECURITY
 * CONFIG\_SECURITY\_NETWORK
