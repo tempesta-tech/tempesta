@@ -78,6 +78,52 @@ free_msgs(void)
 	free_resp();
 }
 
+int
+split_and_parse_n(unsigned char *str, int type, size_t len, int chunks)
+{
+	int chlen = len / chunks, rem = len % chunks, pos = 0, step, r;
+	char tmp1, tmp2;
+
+	while (pos < len)
+	{
+		step = chlen;
+
+		if (rem) {
+			step += rem;
+			rem = 0;
+		}
+
+		if (pos) {
+			tmp1 = *(str + pos - 1);
+			*(str + pos - 1) = 0;
+		}
+		if (pos + step < len) {
+			tmp2 = *(str + pos + step);
+			*(str + pos + step) = 0;
+		}
+
+		printk("len:%lu,pos:%d,step:%d,chlen:%d",
+				len,pos,step,chlen);
+		if (type == FUZZ_REQ)
+			r = tfw_http_parse_req(req, str + pos, step);
+		else
+			r = tfw_http_parse_resp(resp, str + pos, step);
+
+		if (pos)
+			*(str + pos - 1) = tmp1;
+		if (pos + step < len)
+			*(str + pos + step) = tmp2;
+
+		pos += step;
+
+		if (r != TFW_POSTPONE)
+			return r;
+	}
+
+	return r;
+}
+
+
 /**
  * The function is designed to be called in a loop, e.g.
  *   while(!do_split_and_parse(str, type));
@@ -124,6 +170,7 @@ do_split_and_parse(unsigned char *str, int type)
 	static char head_buf[PAGE_SIZE];
 	static char tail_buf[PAGE_SIZE];
 	static size_t len, head_len, tail_len;
+	static int chunks;
 	int r;
 
 	BUG_ON(!str);
@@ -142,6 +189,7 @@ do_split_and_parse(unsigned char *str, int type)
 		len = strlen(str);
 		head_len = 0;
 		tail_len = len;
+		chunks = 2;
 
 		BUG_ON(len > sizeof(head_buf));
 		memcpy(head_buf, str, len);
@@ -153,13 +201,22 @@ do_split_and_parse(unsigned char *str, int type)
 			return tfw_http_parse_resp(resp, head_buf, len);
 	}
 
+	while (chunks > 2) {
+		r = split_and_parse_n(str, type, len, chunks);
+		/* Done all iterations? */
+		if (chunks == len) {
+			len = head_len = tail_len = 0;
+			return r;
+		}
+		++chunks;
+	}
+
 	++head_len;
 	--tail_len;
 
-	/* Done all iterations?. */
-	if (head_len == req_len) {
-		len = head_len = tail_len = 0;
-		return 1;
+	if (head_len == len) {
+		++chunks;
+		return 0;
 	}
 
 	/* Put data to a separate buffers to guard bounds. */
