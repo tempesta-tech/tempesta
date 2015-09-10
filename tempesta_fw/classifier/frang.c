@@ -127,6 +127,8 @@ typedef struct {
 } FrangCfg;
 
 static FrangCfg frang_cfg __read_mostly;
+/* GFSM hooks priorities. */
+int prio0, prio1;
 
 static void
 frang_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
@@ -162,8 +164,10 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 		if (ipv6_addr_equal(&addr, &ra->addr))
 			break;
 		/* Collect garbage. */
-		if (ra->last_ts + GC_TO < jiffies / HZ)
+		if (ra->last_ts + GC_TO < jiffies / HZ) {
 			hash_del(&ra->hentry);
+			kmem_cache_free(frang_mem_cache, ra);
+		}
 	}
 
 	if (!ra) {
@@ -998,26 +1002,26 @@ frang_init(void)
 		goto err_fsm;
 	}
 
-	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG,
-				   TFW_FRANG_FSM_INIT);
-	if (r) {
-		TFW_ERR("frang: can't register gfsm hook: msg\n");
+	prio0 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+				       TFW_GFSM_HOOK_PRIORITY_ANY,
+				       TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG,
+				       TFW_FRANG_FSM_INIT);
+	if (prio0 < 0) {
+		TFW_ERR("frang: can't register gfsm msg hook\n");
 		goto err_hook;
 	}
-	r = tfw_gfsm_register_hook(TFW_FSM_HTTP, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG,
-				   TFW_FRANG_FSM_INIT);
-	if (r) {
-		TFW_ERR("frang: can't register gfsm hook: chunk\n");
-		TFW_ERR("frang: can't recover\n");
-		BUG();
+	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+				       TFW_GFSM_HOOK_PRIORITY_ANY,
+				       TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG,
+				       TFW_FRANG_FSM_INIT);
+	if (prio1 < 0) {
+		TFW_ERR("frang: can't register gfsm chunk hook\n");
+		goto err_hook2;
 	}
 
-	TFW_WARN("frang module can't be unloaded, "
-		 "so all allocated resources won't freed\n");
-
 	return 0;
+err_hook2:
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
 err_fsm:
@@ -1029,4 +1033,38 @@ err_cfg:
 	return r;
 }
 
+static void __exit
+frang_exit(void)
+{
+	int i;
+
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
+	tfw_classifier_unregister();
+	tfw_cfg_mod_unregister(&frang_cfg_mod);
+
+	/*
+	 * Free all accounting records before the cache destruction.
+	 * There are still could be some users.
+	 */
+	for (i = 0; i < (1 << FRANG_HASH_BITS); ++i) {
+		FrangAcc *ra;
+		struct hlist_node *tmp;
+		FrangHashBucket *hb = &frang_hash[i];
+
+		spin_lock(&hb->lock);
+
+		hlist_for_each_entry_safe(ra, tmp, &hb->list, hentry) {
+			hash_del(&ra->hentry);
+			kmem_cache_free(frang_mem_cache, ra);
+		}
+
+		spin_unlock(&hb->lock);
+	}
+
+	kmem_cache_destroy(frang_mem_cache);
+}
+
 module_init(frang_init);
+module_exit(frang_exit);
