@@ -15,24 +15,29 @@ Socket API or even kernel sockets.
 
 ### Prerequisites
 
-Tempesta is designed for massively parallel network processing, so it requires
-[RSS](https://www.kernel.org/doc/Documentation/networking/scaling.txt) enabled
-on you network adapter.
+#### Common
 
-Following Linux kernel configuration options must be switched on:
+* x86-64 CPU with at least 1GB RAM, SSE 4.2 and preferably 2MB huge pages
+  enabled (check pse and sse4\_2 flags in your /proc/cpuinfo);
+* RSS capable network adapter;
+* GNU Make 3.82 or higher;
+* GCC and G++ compilers of versions 4.8 or 4.9 (5.0 was not tested);
+* Boost library of version 1.53 or higher;
+
+We have tested builds on Linux CentOS 7 and Debian 8.
+
+#### Kernel
+
+Tempesta requires that the following Linux kernel configuration options are
+switched on:
 
 * CONFIG\_SECURITY
 * CONFIG\_SECURITY\_NETWORK
-* CONFIG\_SECURITY\_TEMPESTA
-* CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
 * CONFIG\_NETLINK\_MMAP
 
 Tempesta DB user-space library requires netlink mmap defined in standard
 headers, so preferably Linux distribution should have native 3.10 kernel.
 Currently CentOS 7 is shipped with an appropriate kernel.
-
-Please, also read [Tempesta DB README](tempesta_db/README.md) for its
-prerequisites.
 
 
 ### Build
@@ -45,9 +50,6 @@ To build the module you need to do the following steps:
 3. Run make to build Tempesta FW and Tempesta DB modules:
 
         $ cd tempesta && make
-
-Add NORMALIZATION=1 as an argument to make to build Tempesta with HTTP
-normalization logic.
 
 
 ### Run & Stop
@@ -71,7 +73,7 @@ By default, the `tempesta_fw.conf` from this directory is used.
 
 See `tempesta_fw.conf` for the list of available options and their descriptions.
 
-#### Frang
+### Frang
 
 **Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks prevention.
 Use `-f` command key to start Tempesta with Frang:
