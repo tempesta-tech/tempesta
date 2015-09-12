@@ -352,7 +352,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
-static int
+static void
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
@@ -361,35 +361,32 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 		if (tfw_sock_srv_connect_try(srv_conn))
 			__mod_retry_timer(srv_conn);
 	}
-
-	return 0;
 }
 
-static int
+/**
+ * There should be no server socket users when the function is called.
+ */
+static void
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
-		local_bh_disable();
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		tfw_sock_srv_disconnect(srv_conn);
-		local_bh_enable();
-	}
-
-	return 0;
 }
 
 static int
 tfw_sock_srv_connect_all(void)
 {
-	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+	tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+
+	return 0;
 }
 
 static void
 tfw_sock_srv_disconnect_all(void)
 {
-	int r = tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
-	BUG_ON(r);
+	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 
 /*
@@ -457,7 +454,7 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 	return 0;
 }
 
-static int
+static void
 tfw_sock_srv_delete_conns(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn, *tmp;
@@ -466,15 +463,12 @@ tfw_sock_srv_delete_conns(TfwServer *srv)
 		tfw_connection_unlink_peer(&srv_conn->conn);
 		tfw_srv_conn_free(srv_conn);
 	}
-
-	return 0;
 }
 
 static void
 tfw_sock_srv_delete_all_conns(void)
 {
-	int r = tfw_sg_for_each_srv(tfw_sock_srv_delete_conns);
-	BUG_ON(r);
+	tfw_sg_for_each_srv(tfw_sock_srv_delete_conns);
 }
 
 /*
