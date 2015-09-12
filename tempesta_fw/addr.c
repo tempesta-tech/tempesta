@@ -233,7 +233,7 @@ tfw_addr_pton(const char *str, TfwAddr *addr)
 
 	return ret;
 }
-DEBUG_EXPORT_SYMBOL(tfw_addr_pton);
+EXPORT_SYMBOL(tfw_addr_pton);
 
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
