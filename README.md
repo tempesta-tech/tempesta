@@ -54,6 +54,12 @@ To build the module you need to do the following steps:
 
         $ cd tempesta && make
 
+Note that currently Tempesta is built with DEBUG option by default which
+produces plenty of debug messages and can hit the system performance
+significantly. To disable the option build Tempesta with ```NDEBUG``` option:
+
+        $ NDEBUG=1 make
+
 
 ### Run & Stop
 
