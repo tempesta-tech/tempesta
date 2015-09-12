@@ -317,17 +317,14 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
-	TfwConnection *msg_conn = NULL;
-
-	if (hm) {
-		msg_conn = hm->conn;
-		tfw_http_msg_free(hm);
+	if (unlikely(hm == NULL))
+		return;
+	if (tfw_connection_put(hm->conn)) {
+		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
+			? tfw_cli_conn_release(hm->conn)
+			: tfw_srv_conn_release(hm->conn);
 	}
-	if (msg_conn && tfw_connection_put(msg_conn)) {
-		TFW_CONN_TYPE(msg_conn) & Conn_Clnt
-			? tfw_cli_conn_free(msg_conn)
-			: tfw_srv_conn_free(msg_conn);
-	}
+	tfw_http_msg_free(hm);
 }
 
 /**
@@ -344,9 +341,11 @@ tfw_http_conn_destruct(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
 
-
-	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
+	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
+		BUG_ON(((TfwHttpMsg *)msg)->conn
+			&& (((TfwHttpMsg *)msg)->conn == conn));
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
+	}
 	INIT_LIST_HEAD(&conn->msg_queue);
 
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
@@ -478,6 +477,7 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 {
 	int r;
+	TfwConnection *conn;
 
 	if (resp) {
 		/*
@@ -485,9 +485,14 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		 * TODO should we adjust it somehow?
 		 */
 		tfw_connection_send(req->conn, (TfwMsg *)resp);
+		return;
 	} else {
-		/* Dispatch request to an appropriate server. */
-		TfwConnection *conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+		/*
+		 * Dispatch request to an appropriate server. Schedulers
+		 * should make a decision based on an unmodified request,
+		 * so this should be done before any request mangling.
+		 */
+		conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 		if (!conn) {
 			TFW_ERR("Unable to find a backend server\n");
 			goto send_404;
@@ -498,7 +503,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		} else if (r > 0) {
 			/* Response sent, nothing to do */
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			return;
+			goto conn_put;
 		}
 		if (tfw_http_adjust_req(req))
 			goto send_500;
@@ -508,8 +513,9 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 
 		/* Send request to the server. */
 		tfw_connection_send(conn, (TfwMsg *)req);
+		goto conn_put;
 	}
-	return;
+	BUG();	/* NOTREACHED */
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
@@ -518,6 +524,9 @@ send_404:
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+conn_put:
+	if (tfw_connection_put(conn))
+		tfw_srv_conn_release(conn);
 	return;
 }
 

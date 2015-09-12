@@ -135,21 +135,25 @@ void
 ss_send(struct sock *sk, const SsSkbList *skb_list)
 {
 	struct sk_buff *skb, *iskb;
-	struct tcp_sock *tp = tcp_sk(sk);
+	struct tcp_sock *tp;
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
+
+	BUG_ON(sk == NULL);
+	BUG_ON(ss_skb_queue_empty(skb_list));
 
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
-	/* Synchronize concurrent socket writting in different softirqs. */
+	/* Synchronize concurrent socket writing in different softirqs. */
 	bh_lock_sock_nested(sk);
 
-	if (sk->sk_state != TCP_ESTABLISHED)
+	if (unlikely(!ss_can_send(sk)))
 		goto out;
+
+	tp = tcp_sk(sk);
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
-	BUG_ON(ss_skb_queue_empty(skb_list));
 	for (iskb = ss_skb_peek(skb_list), skb = iskb;
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
@@ -435,23 +439,21 @@ ss_close(struct sock *sk)
 EXPORT_SYMBOL(ss_close);
 
 /*
- * Release all Tempesta data linked to the socket, start failover
- * procedure if required, and then cut all ties with Tempesta.
- * Effectively, that stops all traffic from coming to Tempesta.
- * In the end, close the socket.
+ * Close the socket first. We're done with it anyway. Then release
+ * all Tempesta resources linked with the socket, start failover
+ * procedure if necessary, and cut all ties with Tempesta. That
+ * stops all traffic from coming to Tempesta.
+ *
+ * The order in which these actions are executed is important.
+ * The failover procedure expects that the socket is inactive.
  *
  * This function is for internal Sync Sockets use only.
  */
 static void
 ss_droplink(struct sock *sk)
 {
-	BUG_ON(sk->sk_user_data == NULL);
-
-	write_lock(&sk->sk_callback_lock);
-	SS_CALL(connection_drop, sk);
-	write_unlock(&sk->sk_callback_lock);
-
 	ss_do_close(sk);
+	SS_CALL(connection_drop, sk);
 }
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -1028,19 +1030,13 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
-	bh_lock_sock(sk);
-	err = -EINVAL;
 	if (uaddr_len < sizeof(uaddr->sa_family))
-		goto out;
-	err = -EISCONN;
+		return -EINVAL;
 	if (sk->sk_state != TCP_CLOSE)
-		goto out;
+		return -EISCONN;
 	if ((err = sk->sk_prot->connect(sk, uaddr, uaddr_len)) != 0)
-		goto out;
-	err = 0;
-out:
-	bh_unlock_sock(sk);
-	return err;
+		return err;
+	return 0;
 }
 EXPORT_SYMBOL(ss_connect);
 

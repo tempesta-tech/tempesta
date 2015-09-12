@@ -61,12 +61,26 @@ tfw_cli_conn_alloc(void)
 	return conn;
 }
 
-void
+static void
 tfw_cli_conn_free(TfwConnection *conn)
 {
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(conn);
 	kmem_cache_free(tfw_cli_conn_cache, conn);
+}
+
+void
+tfw_cli_conn_release(TfwConnection *conn)
+{
+	if (likely(conn->sk)) {
+		ss_sock_put(conn->sk);
+		tfw_connection_unlink_to_sk(conn);
+	}
+	if (likely(conn->peer)) {
+		tfw_client_put((TfwClient *)conn->peer);
+		tfw_connection_unlink_to_peer(conn);
+	}
+	tfw_cli_conn_free(conn);
 }
 
 /**
@@ -121,11 +135,13 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_conn_init;
 	}
 
-	spin_lock(&conn->splock);
+	/*
+	 * Grab the socket to avoid premature socket release.
+	 * Link Tempesta with the socket and the peer.
+	 */
+	ss_sock_hold(sk);
 	tfw_connection_link_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
-	spin_unlock(&conn->splock);
-
 	ss_set_callbacks(sk);
 
 	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
@@ -161,15 +177,23 @@ tfw_sock_clnt_drop(struct sock *sk)
 	 */
 	r = tfw_classify_conn_close(sk);
 
-	spin_lock(&conn->splock);
-	tfw_connection_unlink_sk(conn, sk);
-	tfw_connection_unlink_peer(conn);
-	spin_unlock(&conn->splock);
-
+	/*
+	 * Withdraw from socket activity. Connection is now closed,
+	 * and Tempesta is not called anymore on events in the socket.
+	 * Remove the connection from the list that is kept in @peer.
+	 * Release resources allocated in Tempesta for the connection.
+	 */
+	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_unlink_from_peer(conn);
 	tfw_connection_destruct(conn);
+
+	/*
+	 * Connection @conn, as well as @sk and @peer that make
+	 * the essence of it, remain accessible as long as there
+	 * are references to @conn.
+	 */
 	if (tfw_connection_put(conn))
-		tfw_cli_conn_free(conn);
-	tfw_client_put(cli);
+		tfw_cli_conn_release(conn);
 
 	return r;
 }
