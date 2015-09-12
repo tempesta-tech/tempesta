@@ -281,7 +281,7 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 			 "request_burst",
 			 ra->history[i].req, frang_cfg.req_burst);
-		goto block;
+		return TFW_BLOCK;
 	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
@@ -290,18 +290,9 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate) {
 		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 			 "request_rate", rsum, frang_cfg.req_rate);
-		goto block;
+		return TFW_BLOCK;
 	}
 	return TFW_PASS;
-
-block:
-	/*
-	 * TODO reset connection instead of wasting resources
-	 * on gentle closing. See ss_do_close() in sync_socket.
-	 */
-	TFW_DBG("%s: close connection\n", __FUNCTION__);
-	ss_close(sk);
-	return TFW_BLOCK;
 }
 
 static int
