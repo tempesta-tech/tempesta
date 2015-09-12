@@ -334,9 +334,6 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		skb->data_len += tail_len;
 		skb->truesize += tail_len;
 
-		/* Partially stolen from skb_try_coalesce(). */
-		WARN_ON(skb_head_is_locked(skb));
-
 		__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
 		skb_frag_ref(skb, alloc);
 	}
