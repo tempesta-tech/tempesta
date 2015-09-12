@@ -612,7 +612,7 @@ int
 ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 {
 	int r;
-	struct sk_buff *skb;
+	struct sk_buff *skb = NULL;
 	const TfwStr *c;
 	TfwStr it;
 
@@ -630,6 +630,7 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 
 		skip = 0;
 	});
+	BUG_ON(!skb);
 
 	/* Cut off the tail. */
 	if (tail) {

@@ -1612,7 +1612,8 @@ handle_state_change(const char *old_state, const char *new_state)
 	TFW_LOG("got state via sysctl: %s\n", new_state);
 
 	if (!strcasecmp(old_state, new_state)) {
-		TFW_LOG("the state '%s' isn't changed, nothing to do\n", new_state);
+		TFW_LOG("the state '%s' isn't changed, nothing to do\n",
+			new_state);
 		return 0;
 	}
 	if (!strcasecmp("start", new_state)) {

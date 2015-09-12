@@ -493,7 +493,7 @@ enum {
 	((state > Frang_Req_Hdr_Start) && (state < Frang_Req_Hdr_NoState))
 
 #define __FRANG_FSM_INIT()						\
-int __fsm_const_state;
+int __fsm_const_state = Frang_Req_0; /* make compiler happy */
 
 #define __FRANG_FSM_START(st)						\
 switch(st)
@@ -501,7 +501,7 @@ switch(st)
 #define __FRANG_FSM_FINISH()						\
 done:									\
 	TFW_DBG("Finish FRANG FSM at state %d\n", __fsm_const_state);	\
-	TFW_DBG("Return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");	\
+	TFW_DBG("Frang return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");	\
 	req->frang_st = __fsm_const_state;
 
 #define __FRANG_FSM_STATE(st)						\
