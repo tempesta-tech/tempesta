@@ -53,6 +53,25 @@ enum {
 /**
  * Session/Presentation layer (in OSI terms) handling.
  *
+ * An instance of TfwConnection{} structure links each HTTP message
+ * to the attributes of a connection the message has come on. Some
+ * of those messages may stay longer in Tempesta after they're sent
+ * out to their destinations. Requests are kept until a paired
+ * response comes. By the time there's need to use the request's
+ * connection to send the reponse on, it may already be destroyed.
+ * With that in mind, TfwConnection{} instance is not destroyed
+ * along with the connection so that is can be safely dereferenced.
+ * It's kept around until refcnt permits freeing of the instance,
+ * so it may have longer lifetime than the connection itself.
+ *
+ * @sk is an intrinsic property of TfwConnection{}.
+ * It has exactly the same lifetime as an instance of TfwConnection{}.
+ *
+ * @peer is major property of TfwConnection{}. An instance of @peer
+ * has longer lifetime expectation than a connection. @peer is always
+ * valid while it's referenced from an instance of TfwConnection{}.
+ * That is supported by a separate reference counter in @peer.
+ *
  * @proto	- protocol handler. Base class, must be first;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
@@ -60,18 +79,15 @@ enum {
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
- * @splock	- lock for accessing @peer and @sk;
  */
 typedef struct {
 	SsProto			proto;
 	struct list_head	list;
 	struct list_head	msg_queue;
 	atomic_t		refcnt;
-
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
-	spinlock_t		splock;
 } TfwConnection;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
@@ -118,6 +134,12 @@ tfw_connection_put(TfwConnection *conn)
 	return true;
 }
 
+static inline bool
+tfw_connection_hasref(TfwConnection *conn)
+{
+	return atomic_read(&conn->refcnt) > 1;
+}
+
 static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
@@ -132,6 +154,39 @@ tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
 	conn->sk = sk;
 }
 
+static inline void
+tfw_connection_unlink_from_sk(struct sock *sk)
+{
+	BUG_ON(sk->sk_user_data == NULL);
+	sk->sk_user_data = NULL;
+}
+
+static inline void
+tfw_connection_unlink_to_sk(TfwConnection *conn)
+{
+	conn->sk = NULL;
+}
+
+static inline void
+tfw_connection_unlink_from_peer(TfwConnection *conn)
+{
+	BUG_ON(!conn->peer || list_empty(&conn->list));
+	tfw_peer_del_conn(conn->peer, &conn->list);
+}
+
+static inline void
+tfw_connection_unlink_to_peer(TfwConnection *conn)
+{
+	BUG_ON(!conn->peer || !list_empty(&conn->list));
+	conn->peer = NULL;
+}
+
+static inline bool
+tfw_connection_live(TfwConnection *conn)
+{
+	return conn->sk && ss_sock_live(conn->sk);
+}
+
 /**
  * Check that TfwConnection resources are cleaned up properly.
  */
@@ -143,11 +198,8 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(!list_empty(&conn->msg_queue));
 	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
-
-	spin_lock(&conn->splock);
 	BUG_ON(conn->peer);
 	BUG_ON(conn->sk);
-	spin_unlock(&conn->splock);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
@@ -156,7 +208,7 @@ void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);
 void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
-void tfw_connection_unlink_sk(TfwConnection *conn, struct sock *sk);
+void tfw_connection_unlink_sk(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 void tfw_connection_unlink_peer(TfwConnection *conn);
 

@@ -56,10 +56,6 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 	char buf[sizeof(client->cookie.hmac) * 2];
 
-	/*
-	 * Called synchronously, so hm->conn->peer
-	 * above is always there and it's not changing.
-	 */
 	tfw_http_prep_hexstring(buf, client->cookie.hmac,
 				sizeof(client->cookie.hmac));
 
@@ -186,10 +182,6 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	const DEFINE_TFW_STR(s_field_name, "User-Agent:");
 	TfwClient *client = (TfwClient *)hm->conn->peer;
 
-	/*
-	 * Called synchronously, so hm->conn->peer
-	 * above is always there and it's not changing.
-	 */
 	char desc[sizeof(struct shash_desc)
 		  + crypto_shash_descsize(tfw_sticky_shash)]
 		  CRYPTO_MINALIGN_ATTR;
@@ -242,8 +234,8 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 static int
 tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 {
-	TfwClient *client;
-	unsigned int len = sizeof(client->cookie.hmac);
+	unsigned int len = sizeof(((TfwClient *)0)->cookie.hmac);
+	TfwClient *client = (TfwClient *)hmreq->conn->peer;
 	char buf[len * 2];
 	TfwStr set_cookie = {
 		.ptr = (TfwStr []) {
@@ -259,19 +251,7 @@ tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 		.flags = 5 << TFW_STR_CN_SHIFT
 	};
 
-	/*
-	 * Asynchronous access to conn->peer of a client connection.
-	 * A connection may go away at any time, so it's necessary
-	 * to protect that with a lock. If the client connection
-	 * is already gone, then there's nothing we can do here.
-	 */
-	spin_lock(&hmreq->conn->splock);
-	client = (TfwClient *)hmreq->conn->peer;
-	if (client)
-		tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
-	spin_unlock(&hmreq->conn->splock);
-	if (client == NULL)
-		return -ENOENT;
+	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
 
 	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __FUNCTION__,
 		tfw_cfg_sticky.name.len, (char *)tfw_cfg_sticky.name.ptr,

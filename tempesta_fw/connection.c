@@ -54,7 +54,6 @@ tfw_connection_init(TfwConnection *conn)
 
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->msg_queue);
-	spin_lock_init(&conn->splock);
 	atomic_set(&conn->refcnt, 1);
 }
 
@@ -63,7 +62,7 @@ tfw_connection_init(TfwConnection *conn)
  * or connected, which guarantees that there are no calls to Tempesta
  * callbacks. No locking is required under these conditions to modify
  * sk->sk_user_data. Otherwise, it must be called under write lock on
- * sk->sk_callback_lock. conn->sk is modified under a separate lock.
+ * sk->sk_callback_lock.
  */
 void
 tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
@@ -78,14 +77,12 @@ tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
  * sk->sk_user_data, or the socket must not be bound or connected.
  * Socket close may occur in SoftIRQ or in user context at STOP time,
  * and in both cases it's protected with a lock on sk->sk_callback_lock.
- * conn->sk is modified under a separate lock.
  */
 void
-tfw_connection_unlink_sk(TfwConnection *conn, struct sock *sk)
+tfw_connection_unlink_sk(TfwConnection *conn)
 {
-	BUG_ON((sk == NULL) || (conn->sk && (conn->sk != sk)));
-	BUG_ON(sk->sk_user_data == NULL);
-	sk->sk_user_data = NULL;
+	BUG_ON(conn->sk->sk_user_data == NULL);
+	conn->sk->sk_user_data = NULL;
 	conn->sk = NULL;
 }
 
@@ -128,20 +125,16 @@ tfw_connection_destruct(TfwConnection *conn)
 	BUG_ON(!list_empty(&conn->msg_queue));
 }
 
+/*
+ * Code architecture decisions ensure that conn->sk remains valid
+ * for the life of @conn instance. The socket itself may have been
+ * closed, but not deleted. ss_send() makes sure that data is sent
+ * only on an active socket.
+ */
 void
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
-	struct sock *sk;
-
-	spin_lock(&conn->splock);
-	sk = conn->sk;
-	if (sk)
-		ss_sock_hold(sk);
-	spin_unlock(&conn->splock);
-	if (sk) {
-		ss_send(sk, &msg->skb_list);
-		sock_put(sk);
-	}
+	ss_send(conn->sk, &msg->skb_list);
 }
 
 /*

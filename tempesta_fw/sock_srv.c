@@ -71,6 +71,7 @@
 /** The wakeup interval between failed connection attempts. */
 #define TFW_SOCK_SRV_RETRY_TIMER_MIN	1000		/* 1 sec in msecs */
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
+#define TFW_SOCK_SRV_RETRY_TIMER_HASREF	100		/* 100 msecs */
 
 /**
  * TfwConnection extension for server sockets.
@@ -104,17 +105,18 @@ typedef struct {
  * Returns immediately without waiting until a connection is established.
  */
 static int
-tfw_sock_srv_connect_try(TfwConnection *conn)
+tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 {
 	int r;
 	TfwAddr *addr;
 	struct sock *sk;
+	TfwConnection *conn = &srv_conn->conn;
 
 	addr = &conn->peer->addr;
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
-		TFW_ERR("can't create a server socket\n");
+		TFW_ERR("Unable to create server socket\n");
 		return r;
 	}
 
@@ -124,8 +126,8 @@ tfw_sock_srv_connect_try(TfwConnection *conn)
 
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("can't initiate a connect to server: error %d\n", r);
-		tfw_connection_unlink_sk(conn, sk);
+		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
+		tfw_connection_unlink_from_sk(sk);
 		ss_close(sk);
 		return r;
 	}
@@ -154,21 +156,47 @@ __reset_retry_timer(TfwSrvConnection *srv_conn)
 	srv_conn->attempts = 0;
 }
 
+static inline void
+tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
+{
+	__mod_retry_timer(srv_conn);
+}
+
+static int
+tfw_sock_srv_connect_try_now(TfwSrvConnection *srv_conn)
+{
+	TfwConnection *conn = &srv_conn->conn;
+
+	/*
+	 * When a connection is destroyed it may not be released
+	 * immediately. The connection is released when there are
+	 * no more references to it. We can't reuse the structure
+	 * until the connection is released. Just wait until that
+	 * happens.
+	 */
+	if (tfw_connection_hasref(conn)) {
+		/*
+		 * Schedule a new run in a short while. Return zero
+		 * so that this is not counted towards unsuccessful
+		 * connect attempts, and so that new attempts are not
+		 * delayed progressively.
+		 */
+		mod_timer(&srv_conn->retry_timer,
+			jiffies + TFW_SOCK_SRV_RETRY_TIMER_HASREF);
+		return 0;
+	}
+	BUG_ON(conn->sk);
+
+	return tfw_sock_srv_connect_try(srv_conn);
+}
+
 static void
 tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 {
-	int r;
 	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
 
-	r = tfw_sock_srv_connect_try(&srv_conn->conn);
-	if (r) {
-		/*
-		 * Can't even initiate the connect?
-		 * Just re-execute this function later.
-		 */
-		TFW_WARN("server connect retry failed\n");
-		__mod_retry_timer(srv_conn);
-	}
+	if (tfw_sock_srv_connect_try_now(srv_conn))
+		tfw_sock_srv_connect_try_later(srv_conn);
 }
 
 static inline void
@@ -180,6 +208,20 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 		    (unsigned long)srv_conn);
 }
 
+void
+tfw_srv_conn_release(TfwConnection *conn)
+{
+	/*
+	 * conn->sk may be zeroed if we get here after a failed
+	 * connect attempt. In that case no connection has been
+	 * established yet, and conn->sk has not been set.
+	 */
+	if (likely(conn->sk)) {
+		ss_sock_put(conn->sk);
+		tfw_connection_unlink_to_sk(conn);
+	}
+}
+
 /**
  * The hook is executed when a server connection is established.
  */
@@ -187,15 +229,18 @@ static int
 tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
-	TfwConnection *conn = sk->sk_user_data;
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwConnection *conn = &srv_conn->conn;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	/* Link Tempesta with the socket. */
-	spin_lock(&conn->splock);
+	/*
+	 * Grab the socket to avoid premature socket release.
+	 * Link Tempesta with the socket.
+	 */
+	ss_sock_hold(sk);
 	tfw_connection_link_to_sk(conn, sk);
-	spin_unlock(&conn->splock);
 
-	/* Notify higher-level levels. */
+	/* Notify higher level layers. */
 	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
@@ -204,9 +249,51 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	/* Notify scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
-	__reset_retry_timer((TfwSrvConnection *)conn);
+	__reset_retry_timer(srv_conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
+	return 0;
+}
+
+static int
+tfw_sock_srv_do_failover(struct sock *sk, bool now, const char *msg)
+{
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
+	TfwConnection *conn = &srv_conn->conn;
+	TfwServer *srv = (TfwServer *)conn->peer;
+
+	TFW_DBG_ADDR(msg, &srv->addr);
+
+	/* Withdraw from socket activity. */
+	tfw_connection_unlink_from_sk(sk);
+
+	/* Update Server Group and release resources. */
+	tfw_sg_update(srv->sg);
+	tfw_connection_destruct(conn);
+	if (tfw_connection_put(conn))
+		tfw_srv_conn_release(conn);
+
+	/*
+	 * We need to create a new socket for each connect attempt.
+	 * The old socket is released as soon as it's not used anymore.
+	 */
+	if (now) {
+		/*
+		 * Start a new connect attempt immediately.
+		 * If unsuccessful, then try later in deferred
+		 * context after a pause (in a timer callback).
+		 */
+		if (tfw_sock_srv_connect_try_now(srv_conn))
+			tfw_sock_srv_connect_try_later(srv_conn);
+	} else {
+		/*
+		 * A pause between connect attempts is needed.
+		 * Run a new connect attempt in deferred context
+		 * (in a timer callback).
+		 */
+		tfw_sock_srv_connect_try_later(srv_conn);
+	}
+
 	return 0;
 }
 
@@ -217,33 +304,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
-	int r;
-	TfwConnection *conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)conn->peer;
-
-	TFW_DBG_ADDR("connection lost", &srv->addr);
-
-	/* Withdraw from socket activity. */
-	spin_lock(&conn->splock);
-	tfw_connection_unlink_sk(conn, sk);
-	spin_unlock(&conn->splock);
-
-	/* Update Server Group and release resources. */
-	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(conn);
-
-	/*
-	 * Initiate a new connect attempt.
-	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
-	 */
-	r = tfw_sock_srv_connect_try(conn);
-	if (r) {
-		TFW_WARN("failover connect failed\n");
-		/* Just retry later. */
-		__mod_retry_timer((TfwSrvConnection *)conn);
-	}
-
-	return 0;
+	return tfw_sock_srv_do_failover(sk, true, "connection lost");
 }
 
 /**
@@ -251,36 +312,11 @@ tfw_sock_srv_connect_failover(struct sock *sk)
  * (and not executed when an established connection is closed as usual).
  * An error may occur in any TCP state. All Tempesta resources associated
  * with the socket must be released in case they were allocated before.
- *
- * Basically it initiates a reconnect (calls tfw_sock_srv_try() again).
- * There should be a pause between connect attempts, so the reconnect
- * is done in a deferred context (in a timer callback).
  */
 static int
 tfw_sock_srv_connect_retry(struct sock *sk)
 {
-	TfwConnection *conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)conn->peer;
-
-	TFW_DBG_ADDR("connection error", &srv->addr);
-
-	/* Withdraw from socket activity. */
-	spin_lock(&conn->splock);
-	tfw_connection_unlink_sk(conn, sk);
-	spin_unlock(&conn->splock);
-
-	/* Update Server Group and release resources. */
-	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(conn);
-
-	/*
-	 * We need to create a new socket for each connect attempt.
-	 * The old socket is released as soon as it's not used anymore.
-	 * New socket is created after a delay in the timer callback.
-	 */
-	__mod_retry_timer((TfwSrvConnection *)conn);
-
-	return 0;
+	return tfw_sock_srv_do_failover(sk, false, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
@@ -292,44 +328,37 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 
 /**
  * Close a server connection, or stop connection attempts if a connection
- * is not established.
+ * is not established. This is called only in user context at STOP time.
+ *
+ * This function should be called only when all traffic through Tempesta
+ * has stopped. Otherwise concurrent closing of live connections may lead
+ * to kernel crashes or deadlocks.
  */
 static void
-tfw_sock_srv_disconnect(TfwConnection *conn)
+tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
-	struct sock *sk;
+	TfwConnection *conn = &srv_conn->conn;
+	TfwServer *srv = (TfwServer *)conn->peer;
+	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
-	del_timer_sync(&((TfwSrvConnection *)conn)->retry_timer);
+	del_timer_sync(&srv_conn->retry_timer);
 
 	/*
-	 * tfw_connection_unlink_sk() modifies sk->sk_user_data. That must
-	 * be done under sk->sk_callback_lock. However that lock cannot be
-	 * taken under conn->splock as we would get lock inversion. It is
-	 * taken in Sync Sockets, and conn->splock is taken under that lock.
-	 * So we need to adhere to correct order of locking.
+	 * Withdraw from socket activity.
+	 * Close and release the socket.
 	 */
-	spin_lock(&conn->splock);
-	sk = conn->sk;
-	if (sk)
-		ss_sock_hold(sk);
-	spin_unlock(&conn->splock);
 	if (sk) {
-		/* Withdraw from socket activity and close the socket. */
-		ss_callback_write_lock(sk);
-		spin_lock(&conn->splock);
-		tfw_connection_unlink_sk(conn, sk);
-		spin_unlock(&conn->splock);
-
-		/* Update Server Group and release resources. */
-		if (conn->peer)
-			tfw_sg_update(((TfwServer *)conn->peer)->sg);
-		tfw_connection_destruct(conn);
-		ss_callback_write_unlock(sk);
-
-		ss_close(sk);
+		tfw_connection_unlink_sk(conn);
 		ss_sock_put(sk);
+		ss_close(sk);
 	}
+	/* Update Server Group. */
+	if (conn->peer)
+		tfw_sg_update(srv->sg);
+
+	/* Release resources. */
+	tfw_connection_destruct(conn);
 }
 
 /*
@@ -351,23 +380,21 @@ tfw_sock_srv_disconnect(TfwConnection *conn)
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
-	TfwConnection *conn;
+	TfwSrvConnection *srv_conn;
 
-	list_for_each_entry(conn, &srv->conn_list, list)
-		if (tfw_sock_srv_connect_try(conn))
-			__mod_retry_timer((TfwSrvConnection *)conn);
-
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
+		if (tfw_sock_srv_connect_try(srv_conn))
+			tfw_sock_srv_connect_try_later(srv_conn);
 	return 0;
 }
 
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwConnection *conn;
+	TfwSrvConnection *srv_conn;
 
-	list_for_each_entry(conn, &srv->conn_list, list)
-		tfw_sock_srv_disconnect(conn);
-
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
+		tfw_sock_srv_disconnect(srv_conn);
 	return 0;
 }
 
@@ -420,14 +447,14 @@ tfw_srv_conn_alloc(void)
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_alloc);
 
-void
-tfw_srv_conn_free(TfwConnection *conn)
+static void
+tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 {
-	BUG_ON(timer_pending(&((TfwSrvConnection *)conn)->retry_timer));
+	BUG_ON(timer_pending(&srv_conn->retry_timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_srv_conn_cache, conn);
+	tfw_connection_validate_cleanup(&srv_conn->conn);
+	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_free);
 
@@ -450,11 +477,11 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 static int
 tfw_sock_srv_del_conns(TfwServer *srv)
 {
-	TfwConnection *conn, *tmp;
+	TfwSrvConnection *srv_conn, *tmp;
 
-	list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
-		tfw_connection_unlink_peer(conn);
-		tfw_srv_conn_free(conn);
+	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
+		tfw_connection_unlink_peer(&srv_conn->conn);
+		tfw_srv_conn_free(srv_conn);
 	}
 
 	return 0;
