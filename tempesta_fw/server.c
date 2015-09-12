@@ -192,10 +192,9 @@ DEBUG_EXPORT_SYMBOL(tfw_sg_set_sched);
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
  */
-int
-tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
+void
+tfw_sg_for_each_srv(void (*cb)(TfwServer *srv))
 {
-	int r = 0;
 	TfwServer *srv;
 	TfwSrvGroup *sg;
 
@@ -204,21 +203,13 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 	list_for_each_entry(sg, &sg_list, list) {
 		write_lock(&sg->lock);
 
-		list_for_each_entry(srv, &sg->srv_list, list) {
-			r = cb(srv);
-			if (r) {
-				write_unlock(&sg->lock);
-				goto out;
-			}
-		}
+		list_for_each_entry(srv, &sg->srv_list, list)
+			cb(srv);
 
 		write_unlock(&sg->lock);
 	}
 
-out:
 	write_unlock(&sg_lock);
-
-	return r;
 }
 
 /**

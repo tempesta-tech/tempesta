@@ -1500,8 +1500,6 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 {
 	TfwCfgMod *mod;
 
-	TFW_DBG("stopping modules...\n");
-
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
 		mod_stop(mod);
 		spec_cleanup(mod->specs);
@@ -1719,7 +1717,7 @@ tfw_cfg_if_exit(void)
 {
 	TfwCfgMod *mod, *tmp;
 
-	TFW_DBG("stopping and unregistering all cfg modules\n");
+	TFW_DBG("stopping and unregistering all cfg modules...\n");
 
 	if (tfw_cfg_mods_are_started)
 		tfw_cfg_stop_mods(&tfw_cfg_mods);
