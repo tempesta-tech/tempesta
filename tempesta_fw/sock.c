@@ -443,7 +443,10 @@ EXPORT_SYMBOL(ss_close);
 static void
 ss_droplink(struct sock *sk)
 {
-	BUG_ON(sk->sk_user_data == NULL);
+	/* sk->sk_user_data may be zeroed here. It's a valid case that may
+	 * occur when classifier has blocked a connection. connection_drop()
+	 * callback is not called in that case.
+	 */
 
 	write_lock(&sk->sk_callback_lock);
 	SS_CALL(connection_drop, sk);
