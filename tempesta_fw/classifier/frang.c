@@ -223,17 +223,30 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
 
-	if (frang_cfg.conn_max && ra->conn_curr > frang_cfg.conn_max)
+	if (frang_cfg.conn_max && ra->conn_curr > frang_cfg.conn_max) {
+		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+			 "conn_max",
+			 ra->conn_curr, frang_cfg.conn_max);
 		return TFW_BLOCK;
-	if (frang_cfg.req_burst && ra->history[i].req > frang_cfg.req_burst)
+	}
+
+	if (frang_cfg.conn_burst && ra->history[i].conn_new > frang_cfg.conn_burst) {
+		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+			 "conn_burst",
+			 ra->history[i].conn_new, frang_cfg.conn_burst);
 		return TFW_BLOCK;
+	}
 
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			csum += ra->history[i].conn_new;
-	if (frang_cfg.conn_rate && csum > frang_cfg.conn_rate)
+	if (frang_cfg.conn_rate && csum > frang_cfg.conn_rate) {
+		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
+			 "conn_rate",
+			 csum, frang_cfg.conn_rate);
 		return TFW_BLOCK;
+	}
 
 	return TFW_PASS;
 }
