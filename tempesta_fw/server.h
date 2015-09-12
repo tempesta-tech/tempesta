@@ -87,7 +87,7 @@ tfw_server_offline(TfwServer *srv)
 	srv->flags &= ~TFW_SRV_F_ON;
 }
 
-void tfw_srv_conn_free(TfwConnection *conn);
+void tfw_srv_conn_release(TfwConnection *conn);
 
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name);

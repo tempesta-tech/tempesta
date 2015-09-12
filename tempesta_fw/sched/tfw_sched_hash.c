@@ -114,6 +114,9 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 		++curr_conn_hash;
 	}
 
+	BUG_ON(best_conn == NULL);
+	tfw_connection_get(best_conn);
+
 	return best_conn;
 }
 
@@ -193,13 +196,10 @@ tfw_sched_hash_update_data(TfwSrvGroup *sg)
 			 * It should be assumed that scheduler's data is
 			 * only semi-accurate at any point of time.
 			 */
-			spin_lock(&conn->splock);
-			if (!conn->sk) {
-				spin_unlock(&conn->splock);
+			if (!tfw_connection_live(conn)) {
 				++conn_idx;
 				continue;
 			}
-			spin_unlock(&conn->splock);
 
 			conn_hash = &hash_list->conn_hashes[hash_idx];
 			conn_hash->conn = conn;

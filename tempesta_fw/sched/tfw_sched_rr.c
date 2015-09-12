@@ -72,8 +72,9 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!conn_list || !conn_list->conn_n);
 	idx = atomic_inc_return(&conn_list->rr_counter) % conn_list->conn_n;
 	conn = conn_list->conns[idx];
-
 	BUG_ON(!conn);
+	tfw_connection_get(conn);
+
 	return conn;
 }
 
@@ -122,12 +123,8 @@ tfw_sched_rr_update_data(TfwSrvGroup *sg)
 			 * It should be assumed that scheduler's data is
 			 * only semi-accurate at any point of time.
 			 */
-			spin_lock(&conn->splock);
-			if (!conn->sk) {
-				spin_unlock(&conn->splock);
+			if (!tfw_connection_live(conn))
 				continue;
-			}
-			spin_unlock(&conn->splock);
 
 			conn_list->conns[conn_idx] = conn;
 			++conn_idx;

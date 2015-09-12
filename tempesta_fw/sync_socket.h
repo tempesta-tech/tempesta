@@ -22,6 +22,7 @@
 #define __SS_SOCK_H__
 
 #include <net/sock.h>
+#include <net/tcp.h>
 #include <linux/skbuff.h>
 
 #include "ss_skb.h"
@@ -67,6 +68,18 @@ static inline void ss_sock_hold(struct sock *sk)
 static inline void ss_sock_put(struct sock *sk)
 {
 	sock_put(sk);
+}
+
+static inline bool ss_sock_live(struct sock *sk)
+{
+	return (sk->sk_state == TCP_ESTABLISHED);
+}
+
+static inline bool ss_can_send(struct sock *sk)
+{
+	static const unsigned int send_states =
+		TCPF_ESTABLISHED | TCPF_CLOSE_WAIT;
+	return (((1 << sk->sk_state) & send_states) != 0);
 }
 
 int ss_hooks_register(SsHooks* hooks);
