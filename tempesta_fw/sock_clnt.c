@@ -140,7 +140,8 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * Link Tempesta with the socket and the peer.
 	 */
 	ss_sock_hold(sk);
-	tfw_connection_link_sk(conn, sk);
+	tfw_connection_link_to_sk(conn, sk);
+	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 	ss_set_callbacks(sk);
 

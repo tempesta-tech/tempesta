@@ -140,6 +140,12 @@ tfw_connection_hasref(TfwConnection *conn)
 	return atomic_read(&conn->refcnt) > 1;
 }
 
+/*
+ * Link Sync Sockets layer with Tempesta. The socket @sk now carries
+ * a reference to Tempesta's @conn instance. When a Tempesta's socket
+ * callback is called by Sync Sockets on an event in the socket, then
+ * the reference to @conn instance for the socket can be found quickly.
+ */
 static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
@@ -147,6 +153,21 @@ tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 	sk->sk_user_data = conn;
 }
 
+/*
+ * The four functions below, link/unlink to/from @sk are called under
+ * sk->sk_callback_lock. The main reason for that was that there's
+ * Tempesta shutdown procedure that runs parallel with Tempesta's main
+ * activity.
+ * TODO: When the shutdown procedure is changed to run only when main
+ * Tempesta activity has stopped, then sk->sk_callback_lock locks can
+ * be eliminated in Sync Sockets. Also, Tempesta shutdown procedure
+ * need to be verified that runs when Tempesta is unable to start.
+ */
+/*
+ * Link Tempesta with Sync Sockets layer. @conn instance now carries
+ * a reference to @sk. When there's need to send data on a connection,
+ * then the socket for that connection can be found quickly.
+ */
 static inline void
 tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
 {
@@ -154,6 +175,11 @@ tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
 	conn->sk = sk;
 }
 
+/*
+ * Do an oposite to what tfw_connection_link_from_sk() does.
+ * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
+ * callbacks are not called anymore on events in the socket.
+ */
 static inline void
 tfw_connection_unlink_from_sk(struct sock *sk)
 {
@@ -161,6 +187,11 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 	sk->sk_user_data = NULL;
 }
 
+/*
+ * Do an opposite to what tfw_connection_link_to_sk() does. Tempesta
+ * is unlinked from Sync Sockets layer, so that no data can be sent
+ * anymore on a connection.
+ */
 static inline void
 tfw_connection_unlink_to_sk(TfwConnection *conn)
 {
@@ -207,8 +238,6 @@ void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);
-void tfw_connection_link_sk(TfwConnection *conn, struct sock *sk);
-void tfw_connection_unlink_sk(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 void tfw_connection_unlink_peer(TfwConnection *conn);
 
