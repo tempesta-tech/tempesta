@@ -38,7 +38,7 @@ do {								\
 	extern int tfw_##mod##_init(void);			\
 	extern void tfw_##mod##_exit(void);			\
 	BUG_ON(exit_hooks_n >= ARRAY_SIZE(exit_hooks));		\
-	TFW_LOG("init: %s\n", #mod);				\
+	TFW_DBG("init: %s\n", #mod);				\
 	r = tfw_##mod##_init();					\
 	if (r) {						\
 		TFW_ERR("can't initialize Tempesta FW module: '%s' (%d)\n", \
