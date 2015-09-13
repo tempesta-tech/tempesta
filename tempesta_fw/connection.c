@@ -57,35 +57,6 @@ tfw_connection_init(TfwConnection *conn)
 	atomic_set(&conn->refcnt, 1);
 }
 
-/*
- * It's essential that this function is called before a socket is bound
- * or connected, which guarantees that there are no calls to Tempesta
- * callbacks. No locking is required under these conditions to modify
- * sk->sk_user_data. Otherwise, it must be called under write lock on
- * sk->sk_callback_lock.
- */
-void
-tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
-{
-	tfw_connection_link_to_sk(conn, sk);
-	tfw_connection_link_from_sk(conn, sk);
-}
-
-/*
- * This function does an opposite to what tfw_connection_link_sk() does.
- * It must be called under write lock on sk->sk_callback_lock to modify
- * sk->sk_user_data, or the socket must not be bound or connected.
- * Socket close may occur in SoftIRQ or in user context at STOP time,
- * and in both cases it's protected with a lock on sk->sk_callback_lock.
- */
-void
-tfw_connection_unlink_sk(TfwConnection *conn)
-{
-	BUG_ON(conn->sk->sk_user_data == NULL);
-	conn->sk->sk_user_data = NULL;
-	conn->sk = NULL;
-}
-
 void
 tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
 {

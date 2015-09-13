@@ -349,7 +349,8 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 * Close and release the socket.
 	 */
 	if (sk) {
-		tfw_connection_unlink_sk(conn);
+		tfw_connection_unlink_to_sk(conn);
+		tfw_connection_unlink_from_sk(sk);
 		ss_sock_put(sk);
 		ss_close(sk);
 	}
