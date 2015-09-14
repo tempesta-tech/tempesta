@@ -166,12 +166,13 @@ tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 /*
  * Link Tempesta with Sync Sockets layer. @conn instance now carries
  * a reference to @sk. When there's need to send data on a connection,
- * then the socket for that connection can be found quickly.
+ * then the socket for that connection can be found quickly. Also,
+ * get a hold of the socket to avoid premature socket release.
  */
 static inline void
 tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
 {
-	BUG_ON(conn->sk);
+	ss_sock_hold(sk);
 	conn->sk = sk;
 }
 
@@ -190,12 +191,14 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 /*
  * Do an opposite to what tfw_connection_link_to_sk() does. Tempesta
  * is unlinked from Sync Sockets layer, so that no data can be sent
- * anymore on a connection.
+ * anymore on a connection. The previously held socket is released.
+ * Note that it's unnecessary to clear conn->sk as @conn instance is
+ * in the process of being destroyed anyway.
  */
 static inline void
 tfw_connection_unlink_to_sk(TfwConnection *conn)
 {
-	conn->sk = NULL;
+	ss_sock_put(conn->sk);
 }
 
 static inline void
@@ -230,7 +233,6 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
 	BUG_ON(conn->peer);
-	BUG_ON(conn->sk);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
