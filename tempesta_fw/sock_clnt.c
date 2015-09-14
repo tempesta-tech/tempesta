@@ -146,6 +146,11 @@ tfw_sock_clnt_new(struct sock *sk)
 err_conn_init:
 	tfw_connection_destruct(conn);
 	if (tfw_connection_put(conn))
+		/*
+		 * We have just created the connection and did not link
+		 * anything to it yet. There's not need to play with
+		 * conn->refcnt. We can just free @conn unconditionally.
+		 */
 		tfw_cli_conn_free(conn);
 err_conn_alloc:
 	tfw_client_put(cli);
