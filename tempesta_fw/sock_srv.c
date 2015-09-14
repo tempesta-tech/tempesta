@@ -507,7 +507,7 @@ tfw_sock_srv_del_conns(TfwServer *srv)
 	TfwSrvConnection *srv_conn, *tmp;
 
 	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
-		tfw_connection_unlink_peer(&srv_conn->conn);
+		tfw_connection_unlink_from_peer(&srv_conn->conn);
 		tfw_srv_conn_free(srv_conn);
 	}
 

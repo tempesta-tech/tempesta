@@ -208,13 +208,6 @@ tfw_connection_unlink_from_peer(TfwConnection *conn)
 	tfw_peer_del_conn(conn->peer, &conn->list);
 }
 
-static inline void
-tfw_connection_unlink_to_peer(TfwConnection *conn)
-{
-	BUG_ON(!conn->peer || !list_empty(&conn->list));
-	conn->peer = NULL;
-}
-
 static inline bool
 tfw_connection_live(TfwConnection *conn)
 {
@@ -232,7 +225,6 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(!list_empty(&conn->msg_queue));
 	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
-	BUG_ON(conn->peer);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
@@ -241,7 +233,6 @@ void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
-void tfw_connection_unlink_peer(TfwConnection *conn);
 
 int tfw_connection_new(TfwConnection *conn);
 void tfw_connection_destruct(TfwConnection *conn);
