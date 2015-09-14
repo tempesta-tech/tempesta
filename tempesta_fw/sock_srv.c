@@ -96,21 +96,36 @@
  *   or closed, the same TfwSrvConnection{} instance is reused with
  *   a new socket. Another attempt to establish a connection is made.
  *
- * So basically a TfwSrvConnection{} instance has a longer lifetime.
- * In a sense, a TfwSrvConnection{} instance is persistent. It lives
- * from the time it is created when Tempesta is started, and until
- * the time it is destroyed when Tempesta is stopped.
- * @sk member of an instance is supposed to have the same lifetime
- * as the instance. In this case, however, the semantics is different.
- * @sk member of an instance is valid from the time a connection
- * is established, and the instance is fully initialized, and until
- * the time the instance is reused for a new connection, and a new
- * socket is created. Note that @sk member is not cleared when it's
- * no longer valid, and there's a time frame until new connection is
- * actually established. An old non-valid @sk stays a member of an
- * TfwSrvConnection{} instance during that time frame. However, the
- * condition for reuse of an instance is that there're no more users
- * of the instance, so no thread can make use of an old socket @sk.
+ * So a TfwSrvConnection{} instance has a longer lifetime. In a sense,
+ * a TfwSrvConnection{} instance is persistent. It lives from the time
+ * it is created when Tempesta is started, and until the time it is
+ * destroyed when Tempesta is stopped.
+ *
+ * @sk member of an instance is supposed to have the same lifetime as
+ * the instance. But in this case the semantics is different. @sk member
+ * of an instance is valid from the time a connection is established and
+ * the instance is fully initialized, and until the time the instance is
+ * reused for a new connection, and a new socket is created. Note that
+ * @sk member is not cleared when it is no longer valid, and there is
+ * a time frame until new connection is actually established. An old
+ * non-valid @sk stays a member of an TfwSrvConnection{} instance during
+ * that time frame. However, the condition for reuse of an instance is
+ * that there're no more users of the instance, so no thread can make
+ * use of an old socket @sk. Should something bad happen, then having
+ * a stale pointer in conn->sk is no different than having a NULL pointer.
+ *
+ * The reference counter is still needed for TfwSrvConnection{} instances.
+ * It tells when an instance can be reused for a new connect attempt.
+ * A scenario that may occur is as follows:
+ * 1. There's a client's request, so scheduler finds a server connection
+ *    and returns it to the client's thread. The server connection has
+ *    its refcnt incremented as there's a new user of it now.
+ * 2. At that time the server sends RST on that connection in response
+ *    to an earlier request. It starts the failover procedure that runs
+ *    in parallel. Part of the procedure is a new attempt to connect to
+ *    the server, which requires that TfwSrvConnection{} instance can be
+ *    reused. So the attempt to reconnect has to wait until the client
+ *    releases the server connection.
  */
 typedef struct {
 	TfwConnection		conn;
