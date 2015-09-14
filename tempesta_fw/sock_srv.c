@@ -80,18 +80,37 @@
  * @retry_timer	- The timer makes a delay between connection attempts.
  *
  * A server connection differs from a client connection.
- * For client sockets, a new TfwConnection object is created when a new client
- * socket is accepted (the connection is already established at that point).
- * For server sockets, we create a socket first, and then some time passes while
- * a connection is being established.
+ * For client sockets, a new TfwConnection{} instance is created when
+ * a new client socket is accepted (the connection is established at
+ * that point). For server sockets, we create a socket first, and then
+ * some time passes while a connection is being established.
  *
- * Therefore, we need this separate structure with slightly different semantics:
- *  - When a server socket is created, we allocate a TfwSrvConnection object,
- *    but don't fully initialize it until a connection is actually established.
- *  - If a connection attempt is failed, we re-use the same TfwSrvConnection
- *    object with a new socket, and make another connection attempt.
+ * Therefore, this extension structure has slightly different semantics:
+ * - First, a TfwSrvConnection{} instance is allocated and set up with
+ *   data from configuration file.
+ * - When a server socket is created, the TfwSrvConnection{} instance
+ *   is partially initialized to allow a connect attempt to complete.
+ * - When a connection is established, the TfwSrvConnection{} instance
+ *   is fully initialized and set up.
+ * - If a connect attempt has failed, or the connection has been reset
+ *   or closed, the same TfwSrvConnection{} instance is reused with
+ *   a new socket. Another attempt to establish a connection is made.
  *
- * So basically a TfwSrvConnection object has a longer lifetime.
+ * So basically a TfwSrvConnection{} instance has a longer lifetime.
+ * In a sense, a TfwSrvConnection{} instance is persistent. It lives
+ * from the time it is created when Tempesta is started, and until
+ * the time it is destroyed when Tempesta is stopped.
+ * @sk member of an instance is supposed to have the same lifetime
+ * as the instance. In this case, however, the semantics is different.
+ * @sk member of an instance is valid from the time a connection
+ * is established, and the instance is fully initialized, and until
+ * the time the instance is reused for a new connection, and a new
+ * socket is created. Note that @sk member is not cleared when it's
+ * no longer valid, and there's a time frame until new connection is
+ * actually established. An old non-valid @sk stays a member of an
+ * TfwSrvConnection{} instance during that time frame. However, the
+ * condition for reuse of an instance is that there're no more users
+ * of the instance, so no thread can make use of an old socket @sk.
  */
 typedef struct {
 	TfwConnection		conn;
@@ -185,8 +204,6 @@ tfw_sock_srv_connect_try_now(TfwSrvConnection *srv_conn)
 			jiffies + TFW_SOCK_SRV_RETRY_TIMER_HASREF);
 		return 0;
 	}
-	BUG_ON(conn->sk);
-
 	return tfw_sock_srv_connect_try(srv_conn);
 }
 
@@ -217,7 +234,6 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * established yet, and conn->sk has not been set.
 	 */
 	if (likely(conn->sk)) {
-		ss_sock_put(conn->sk);
 		tfw_connection_unlink_to_sk(conn);
 	}
 }
@@ -233,11 +249,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwConnection *conn = &srv_conn->conn;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	/*
-	 * Grab the socket to avoid premature socket release.
-	 * Link Tempesta with the socket.
-	 */
-	ss_sock_hold(sk);
+	/* Link Tempesta with the socket. */
 	tfw_connection_link_to_sk(conn, sk);
 
 	/* Notify higher level layers. */
@@ -349,9 +361,8 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 * Close and release the socket.
 	 */
 	if (sk) {
-		tfw_connection_unlink_to_sk(conn);
 		tfw_connection_unlink_from_sk(sk);
-		ss_sock_put(sk);
+		tfw_connection_unlink_to_sk(conn);
 		ss_close(sk);
 	}
 	/* Update Server Group. */
