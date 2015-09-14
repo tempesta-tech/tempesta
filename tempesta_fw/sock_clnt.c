@@ -74,10 +74,8 @@ tfw_cli_conn_release(TfwConnection *conn)
 {
 	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
-	if (likely(conn->peer)) {
+	if (likely(conn->peer))
 		tfw_client_put((TfwClient *)conn->peer);
-		tfw_connection_unlink_to_peer(conn);
-	}
 	tfw_cli_conn_free(conn);
 }
 
