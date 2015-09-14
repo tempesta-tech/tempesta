@@ -72,10 +72,8 @@ tfw_cli_conn_free(TfwConnection *conn)
 void
 tfw_cli_conn_release(TfwConnection *conn)
 {
-	if (likely(conn->sk)) {
-		ss_sock_put(conn->sk);
+	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
-	}
 	if (likely(conn->peer)) {
 		tfw_client_put((TfwClient *)conn->peer);
 		tfw_connection_unlink_to_peer(conn);
@@ -135,11 +133,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_conn_init;
 	}
 
-	/*
-	 * Grab the socket to avoid premature socket release.
-	 * Link Tempesta with the socket and the peer.
-	 */
-	ss_sock_hold(sk);
+	/* Link Tempesta with the socket and the peer. */
 	tfw_connection_link_to_sk(conn, sk);
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
