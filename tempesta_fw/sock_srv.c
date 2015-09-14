@@ -69,9 +69,8 @@
  */
 
 /** The wakeup interval between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MIN	1000		/* 1 sec in msecs */
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	50		/* in msecs */
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
-#define TFW_SOCK_SRV_RETRY_TIMER_HASREF	100		/* 100 msecs */
 
 /**
  * TfwConnection extension for server sockets.
@@ -170,9 +169,13 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 }
 
 static inline void
-__mod_retry_timer(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
-	/* A variant of exponential backoff delay algorithm. */
+	/*
+	 * Timeout between connect attempts is increased with each
+	 * unsuccessful attempt. Length of the timeout is decided
+	 * with a variant of exponential backoff delay algorithm.
+	 */
 	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
 		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
 					TFW_SOCK_SRV_RETRY_TIMER_MIN
@@ -183,52 +186,21 @@ __mod_retry_timer(TfwSrvConnection *srv_conn)
 		  jiffies + msecs_to_jiffies(srv_conn->timeout));
 }
 
-static inline void
-__reset_retry_timer(TfwSrvConnection *srv_conn)
-{
-	srv_conn->timeout = 0;
-	srv_conn->attempts = 0;
-}
-
-static inline void
-tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
-{
-	__mod_retry_timer(srv_conn);
-}
-
-static int
-tfw_sock_srv_connect_try_now(TfwSrvConnection *srv_conn)
-{
-	TfwConnection *conn = &srv_conn->conn;
-
-	/*
-	 * When a connection is destroyed it may not be released
-	 * immediately. The connection is released when there are
-	 * no more references to it. We can't reuse the structure
-	 * until the connection is released. Just wait until that
-	 * happens.
-	 */
-	if (tfw_connection_hasref(conn)) {
-		/*
-		 * Schedule a new run in a short while. Return zero
-		 * so that this is not counted towards unsuccessful
-		 * connect attempts, and so that new attempts are not
-		 * delayed progressively.
-		 */
-		mod_timer(&srv_conn->retry_timer,
-			jiffies + TFW_SOCK_SRV_RETRY_TIMER_HASREF);
-		return 0;
-	}
-	return tfw_sock_srv_connect_try(srv_conn);
-}
-
 static void
 tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 {
 	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
 
-	if (tfw_sock_srv_connect_try_now(srv_conn))
+	/* A new socket is created for each connect attempt. */
+	if (tfw_sock_srv_connect_try(srv_conn))
 		tfw_sock_srv_connect_try_later(srv_conn);
+}
+
+static inline void
+__reset_retry_timer(TfwSrvConnection *srv_conn)
+{
+	srv_conn->timeout = 0;
+	srv_conn->attempts = 0;
 }
 
 static inline void
@@ -251,6 +223,20 @@ tfw_srv_conn_release(TfwConnection *conn)
 	if (likely(conn->sk)) {
 		tfw_connection_unlink_to_sk(conn);
 	}
+	/*
+	 * After a disconnect, a new connect attempt is started
+	 * immediately. If that fails, new attempts are started
+	 * in deferred context after a short pause (in a timer
+	 * callback). Whatever the reason for a disconnect was,
+	 * this is uniform for any of them.
+	 *
+	 * Release of a server connection may occur in client's
+	 * SoftIRQ thread. That means that a connect attempt may
+	 * be started on a CPU that is different from the one
+	 * that received the disconnect event.
+	 */
+	if (tfw_sock_srv_connect_try((TfwSrvConnection *)conn))
+		tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
 }
 
 /**
@@ -283,7 +269,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 }
 
 static int
-tfw_sock_srv_do_failover(struct sock *sk, bool now, const char *msg)
+tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 {
 	TfwSrvConnection *srv_conn = sk->sk_user_data;
 	TfwConnection *conn = &srv_conn->conn;
@@ -300,27 +286,6 @@ tfw_sock_srv_do_failover(struct sock *sk, bool now, const char *msg)
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 
-	/*
-	 * We need to create a new socket for each connect attempt.
-	 * The old socket is released as soon as it's not used anymore.
-	 */
-	if (now) {
-		/*
-		 * Start a new connect attempt immediately.
-		 * If unsuccessful, then try later in deferred
-		 * context after a pause (in a timer callback).
-		 */
-		if (tfw_sock_srv_connect_try_now(srv_conn))
-			tfw_sock_srv_connect_try_later(srv_conn);
-	} else {
-		/*
-		 * A pause between connect attempts is needed.
-		 * Run a new connect attempt in deferred context
-		 * (in a timer callback).
-		 */
-		tfw_sock_srv_connect_try_later(srv_conn);
-	}
-
 	return 0;
 }
 
@@ -331,7 +296,7 @@ tfw_sock_srv_do_failover(struct sock *sk, bool now, const char *msg)
 static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
-	return tfw_sock_srv_do_failover(sk, true, "connection lost");
+	return tfw_sock_srv_do_failover(sk, "connection lost");
 }
 
 /**
@@ -343,7 +308,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 static int
 tfw_sock_srv_connect_retry(struct sock *sk)
 {
-	return tfw_sock_srv_do_failover(sk, false, "connection error");
+	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
