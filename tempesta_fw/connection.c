@@ -54,7 +54,6 @@ tfw_connection_init(TfwConnection *conn)
 
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->msg_queue);
-	atomic_set(&conn->refcnt, 1);
 }
 
 void
