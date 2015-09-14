@@ -150,6 +150,7 @@ static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
+	atomic_set(&conn->refcnt, 1);
 	sk->sk_user_data = conn;
 }
 
