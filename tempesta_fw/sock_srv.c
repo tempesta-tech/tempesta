@@ -123,8 +123,8 @@
  *    to an earlier request. It starts the failover procedure that runs
  *    in parallel. Part of the procedure is a new attempt to connect to
  *    the server, which requires that TfwSrvConnection{} instance can be
- *    reused. So the attempt to reconnect has to wait until the client
- *    releases the server connection.
+ *    reused. So the attempt to reconnect has to wait. It is started as
+ *    soon as the last client releases the server connection.
  */
 typedef struct {
 	TfwConnection		conn;
@@ -271,8 +271,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 static int
 tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 {
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwConnection *conn = &srv_conn->conn;
+	TfwConnection *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR(msg, &srv->addr);
