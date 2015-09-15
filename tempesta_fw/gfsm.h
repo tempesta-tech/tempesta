@@ -157,6 +157,7 @@ int tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			   unsigned short hndl_fsm_id, int st0);
+void tfw_gfsm_unregister_hook(int fsm_id, int prio, int state);
 int tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler);
 void tfw_gfsm_unregister_fsm(int fsm_id);
 

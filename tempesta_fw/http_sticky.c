@@ -199,8 +199,7 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	if (!client->cookie.ts.tv_sec) {
 		getnstimeofday(&client->cookie.ts);
 	}
-	addr_len = (hm->conn->sk->sk_family == AF_INET)
-		   ? sizeof(client->addr.v4) : sizeof(client->addr.v6);
+	addr_len = tfw_addr_sa_len(&client->addr);
 
 	memset(desc, 0, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;

@@ -27,7 +27,6 @@
  */
 #include <linux/module.h>
 #include <net/protocol.h>
-#include <net/tcp.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
@@ -452,6 +451,11 @@ EXPORT_SYMBOL(ss_close);
 static void
 ss_droplink(struct sock *sk)
 {
+	/*
+	 * sk->sk_user_data may be zeroed here. It's a valid case
+	 * that may occur when classifier has blocked a connection.
+	 * connection_drop() callback is not called in that case.
+	 */
 	ss_do_close(sk);
 	SS_CALL(connection_drop, sk);
 }
@@ -784,8 +788,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * in regular course of action. When a socket is moved from
 		 * TCP_ESTABLISHED state to a closing state, we forcefully
 		 * close the socket before it can reach the final state.
-		 */
-		/*
+		 *
 		 * We get here when an error has occured in the connection.
 		 * It could be that RST was received which may happen for
 		 * multiple reasons. Or it could be a case of TCP timeout
@@ -1018,15 +1021,13 @@ ss_release(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_release);
 
-/*
+/**
  * The original function is inet_stream_connect() that is common
  * to IPv4 and IPv6.
  */
 int
 ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
-	int err;
-
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
@@ -1034,9 +1035,8 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 		return -EINVAL;
 	if (sk->sk_state != TCP_CLOSE)
 		return -EISCONN;
-	if ((err = sk->sk_prot->connect(sk, uaddr, uaddr_len)) != 0)
-		return err;
-	return 0;
+
+	return sk->sk_prot->connect(sk, uaddr, uaddr_len);
 }
 EXPORT_SYMBOL(ss_connect);
 

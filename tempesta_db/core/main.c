@@ -230,7 +230,7 @@ __do_close_table(TDB *db)
 
 	tdb_htrie_exit(db->hdr);
 
-	TDB_LOG("Close table %s\n", db->tbl_name);
+	TDB_LOG("Close table '%s'\n", db->tbl_name);
 
 	kfree(db);
 }

@@ -360,6 +360,14 @@ tfw_listen_sock_stop_all(void)
 		ss_release(ls->sk);
 		ls->sk = NULL;
 	}
+
+	/*
+	 * TODO #116, #254
+	 * Now all listening sockets are closed, so no new connection can
+	 * appear. Close all established client connections. After that we
+	 * can safely close server connections since there are no their users
+	 * any more.
+	 */
 }
 
 /*

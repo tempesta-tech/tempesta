@@ -66,11 +66,14 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 TfwSrvConnection *
 test_create_conn(TfwPeer *peer)
 {
+	static struct sock __test_sock = {
+		.sk_state = TCP_ESTABLISHED,
+	};
 	TfwSrvConnection *srv_conn = tfw_srv_conn_alloc();
 	BUG_ON(!srv_conn);
 
 	tfw_connection_link_peer(&srv_conn->conn, peer);
-	srv_conn->conn.sk = (struct sock *)1;
+	srv_conn->conn.sk = &__test_sock;
 
 	return srv_conn;
 }

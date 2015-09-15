@@ -1,6 +1,6 @@
 ## Tempesta DB
 
-**Tempesta DB** is persistent in-memory in-kernel key-value database.
+**Tempesta DB** (TDB) is persistent in-memory in-kernel key-value database.
 The typical applications are: application caches, filter rules,
 resolver results, events, staistics and access logs or traffic dumps.
 
