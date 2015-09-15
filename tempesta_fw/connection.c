@@ -33,6 +33,10 @@ static TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 #define TFW_CONN_HOOK_CALL(conn, hook_name) \
 	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]->hook_name(conn)
 
+/*
+ * Initialize the connection structure.
+ * It's not on any list yet, so it's safe to do so without locks.
+ */
 void
 tfw_connection_init(TfwConnection *conn)
 {
@@ -43,33 +47,6 @@ tfw_connection_init(TfwConnection *conn)
 	spin_lock_init(&conn->msg_qlock);
 }
 
-/*
- * It's essential that this function is called before a socket
- * is bound or connected, which guarantees that there are no calls
- * to Tempesta callbacks. No locking is needed under these conditions.
- * Otherwise, it must be called under write lock on sk->sk_callback_lock.
- */
-void
-tfw_connection_link_sk(TfwConnection *conn, struct sock *sk)
-{
-	BUG_ON(conn->sk || sk->sk_user_data);
-	conn->sk = sk;
-	sk->sk_user_data = conn;
-}
-
-/*
- * This function does the opposite to what tfw_connection_link_sk() does.
- * It must be called under write lock on sk->sk_callback_lock to be able
- * to modify sk->sk_user_data, or the socket must not be bound or connected.
- */
-void
-tfw_connection_unlink_sk(TfwConnection *conn)
-{
-	BUG_ON(!conn->sk || !conn->sk->sk_user_data);
-	conn->sk->sk_user_data = NULL;
-	conn->sk = NULL;
-}
-
 void
 tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
 {
@@ -78,15 +55,6 @@ tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
 	tfw_peer_add_conn(peer, &conn->list);
 }
 DEBUG_EXPORT_SYMBOL(tfw_connection_link_peer);
-
-void
-tfw_connection_unlink_peer(TfwConnection *conn)
-{
-	BUG_ON(!conn->peer || list_empty(&conn->list));
-	tfw_peer_del_conn(conn->peer, &conn->list);
-	conn->peer = NULL;
-}
-DEBUG_EXPORT_SYMBOL(tfw_connection_unlink_peer);
 
 /**
  * Publish the "connection is established" event via TfwConnHooks.
@@ -109,6 +77,12 @@ tfw_connection_destruct(TfwConnection *conn)
 	BUG_ON(!list_empty(&conn->msg_queue));
 }
 
+/*
+ * Code architecture decisions ensure that conn->sk remains valid
+ * for the life of @conn instance. The socket itself may have been
+ * closed, but not deleted. ss_send() makes sure that data is sent
+ * only on an active socket.
+ */
 void
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {

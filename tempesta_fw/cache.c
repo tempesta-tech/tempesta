@@ -344,8 +344,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 out:
 	/* Now we don't need the request and the reponse anymore. */
-	tfw_http_msg_free((TfwHttpMsg *)req);
-	tfw_http_msg_free((TfwHttpMsg *)resp);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 }
 
 #define SKB_HDR_SZ	(MAX_HEADER + sizeof(struct ipv6hdr)		\
@@ -453,7 +453,7 @@ finish_req_processing:
 	 */
 	action(req, resp, data);
 
-	tfw_http_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 
 	if (ce)
 		tdb_rec_put(ce);
