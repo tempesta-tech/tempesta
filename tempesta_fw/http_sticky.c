@@ -139,7 +139,7 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 
 	/*
 	 * Find a 'Cookie:' header field in the request.
-	 * The search for Tempesta sticky cookie within the field.
+	 * Then search for Tempesta sticky cookie within the field.
 	 * NOTE: there can be only one "Cookie:" header field.
 	 * See RFC 6265 section 5.4.
 	 * NOTE: Irrelevant here, but there can be multiple 'Set-Cookie"
@@ -231,8 +231,10 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	+ STICKY_NAME_MAXLEN + 1 + STICKY_KEY_MAXLEN * 2 + 2
 
 static int
-tfw_http_sticky_add(TfwHttpMsg *hm, u_char *value, size_t len)
+tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 {
+	unsigned int len = sizeof(((TfwClient *)0)->cookie.hmac);
+	TfwClient *client = (TfwClient *)hmreq->conn->peer;
 	char buf[len * 2];
 	TfwStr set_cookie = {
 		.ptr = (TfwStr []) {
@@ -248,13 +250,13 @@ tfw_http_sticky_add(TfwHttpMsg *hm, u_char *value, size_t len)
 		.flags = 5 << TFW_STR_CN_SHIFT
 	};
 
-	tfw_http_prep_hexstring(buf, value, len);
+	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
 
 	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __FUNCTION__,
 		tfw_cfg_sticky.name.len, (char *)tfw_cfg_sticky.name.ptr,
-		(int)len * 2, buf);
+		len * 2, buf);
 
-	return tfw_http_msg_hdr_add(hm, &set_cookie);
+	return tfw_http_msg_hdr_add(hmresp, &set_cookie);
 }
 
 /*
@@ -340,16 +342,13 @@ tfw_http_sticky_req_process(TfwHttpMsg *hm)
 int
 tfw_http_sticky_resp_process(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 {
-	TfwClient *client = (TfwClient *)hmreq->conn->peer;
-
 	if (!tfw_cfg_sticky.enabled) {
 		return 0;
 	}
 	if (!(hmreq->flags & TFW_HTTP_STICKY_SET)) {
 		return 0;
 	}
-	return tfw_http_sticky_add(hmresp, client->cookie.hmac,
-					   sizeof(client->cookie.hmac));
+	return tfw_http_sticky_add(hmresp, hmreq);
 }
 
 int __init

@@ -134,25 +134,25 @@ void
 ss_send(struct sock *sk, const SsSkbList *skb_list)
 {
 	struct sk_buff *skb, *iskb;
-	struct tcp_sock *tp = tcp_sk(sk);
+	struct tcp_sock *tp;
 	int flags = MSG_DONTWAIT; /* we can't sleep */
 	int size_goal, mss_now;
+
+	BUG_ON(sk == NULL);
+	BUG_ON(ss_skb_queue_empty(skb_list));
 
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
-	/*
-	 * TODO do not enter the function if the socket isn't in appropriate
-	 * state, for details see
-	 * https://github.com/natsys/tempesta/pull/237#discussion_r38937948
-	 */
-
-	/* Synchronize concurrent socket writting in different softirqs. */
+	/* Synchronize concurrent socket writing in different softirqs. */
 	bh_lock_sock_nested(sk);
 
+	if (unlikely(!ss_can_send(sk)))
+		goto out;
+
+	tp = tcp_sk(sk);
 	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
-	BUG_ON(ss_skb_queue_empty(skb_list));
 	for (iskb = ss_skb_peek(skb_list), skb = iskb;
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
@@ -231,7 +231,7 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
-
+out:
 	bh_unlock_sock(sk);
 }
 EXPORT_SYMBOL(ss_send);
@@ -438,26 +438,26 @@ ss_close(struct sock *sk)
 EXPORT_SYMBOL(ss_close);
 
 /*
- * Release all Tempesta data linked to the socket, start failover
- * procedure if required, and then cut all ties with Tempesta.
- * Effectively, that stops all traffic from coming to Tempesta.
- * In the end, close the socket.
+ * Close the socket first. We're done with it anyway. Then release
+ * all Tempesta resources linked with the socket, start failover
+ * procedure if necessary, and cut all ties with Tempesta. That
+ * stops all traffic from coming to Tempesta.
+ *
+ * The order in which these actions are executed is important.
+ * The failover procedure expects that the socket is inactive.
  *
  * This function is for internal Sync Sockets use only.
  */
 static void
 ss_droplink(struct sock *sk)
 {
-	/* sk->sk_user_data may be zeroed here. It's a valid case that may
-	 * occur when classifier has blocked a connection. connection_drop()
-	 * callback is not called in that case.
+	/*
+	 * sk->sk_user_data may be zeroed here. It's a valid case
+	 * that may occur when classifier has blocked a connection.
+	 * connection_drop() callback is not called in that case.
 	 */
-
-	write_lock(&sk->sk_callback_lock);
-	SS_CALL(connection_drop, sk);
-	write_unlock(&sk->sk_callback_lock);
-
 	ss_do_close(sk);
+	SS_CALL(connection_drop, sk);
 }
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -1028,8 +1028,6 @@ EXPORT_SYMBOL(ss_release);
 int
 ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
-	int err;
-
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
@@ -1038,11 +1036,7 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	if (sk->sk_state != TCP_CLOSE)
 		return -EISCONN;
 
-	err = sk->sk_prot->connect(sk, uaddr, uaddr_len);
-	if (err)
-		return err;
-
-	return 0;
+	return sk->sk_prot->connect(sk, uaddr, uaddr_len);
 }
 EXPORT_SYMBOL(ss_connect);
 

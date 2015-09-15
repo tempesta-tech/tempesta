@@ -69,7 +69,7 @@
  */
 
 /** The wakeup interval between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MIN	1000		/* 1 sec in msecs */
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	50		/* in msecs */
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
 
 /**
@@ -79,18 +79,52 @@
  * @retry_timer	- The timer makes a delay between connection attempts.
  *
  * A server connection differs from a client connection.
- * For client sockets, a new TfwConnection object is created when a new client
- * socket is accepted (the connection is already established at that point).
- * For server sockets, we create a socket first, and then some time passes while
- * a connection is being established.
+ * For client sockets, a new TfwConnection{} instance is created when
+ * a new client socket is accepted (the connection is established at
+ * that point). For server sockets, we create a socket first, and then
+ * some time passes while a connection is being established.
  *
- * Therefore, we need this separate structure with slightly different semantics:
- *  - When a server socket is created, we allocate a TfwSrvConnection object,
- *    but don't fully initialize it until a connection is actually established.
- *  - If a connection attempt is failed, we re-use the same TfwSrvConnection
- *    object with a new socket, and make another connection attempt.
+ * Therefore, this extension structure has slightly different semantics:
+ * - First, a TfwSrvConnection{} instance is allocated and set up with
+ *   data from configuration file.
+ * - When a server socket is created, the TfwSrvConnection{} instance
+ *   is partially initialized to allow a connect attempt to complete.
+ * - When a connection is established, the TfwSrvConnection{} instance
+ *   is fully initialized and set up.
+ * - If a connect attempt has failed, or the connection has been reset
+ *   or closed, the same TfwSrvConnection{} instance is reused with
+ *   a new socket. Another attempt to establish a connection is made.
  *
- * So basically a TfwSrvConnection object has a longer lifetime.
+ * So a TfwSrvConnection{} instance has a longer lifetime. In a sense,
+ * a TfwSrvConnection{} instance is persistent. It lives from the time
+ * it is created when Tempesta is started, and until the time it is
+ * destroyed when Tempesta is stopped.
+ *
+ * @sk member of an instance is supposed to have the same lifetime as
+ * the instance. But in this case the semantics is different. @sk member
+ * of an instance is valid from the time a connection is established and
+ * the instance is fully initialized, and until the time the instance is
+ * reused for a new connection, and a new socket is created. Note that
+ * @sk member is not cleared when it is no longer valid, and there is
+ * a time frame until new connection is actually established. An old
+ * non-valid @sk stays a member of an TfwSrvConnection{} instance during
+ * that time frame. However, the condition for reuse of an instance is
+ * that there're no more users of the instance, so no thread can make
+ * use of an old socket @sk. Should something bad happen, then having
+ * a stale pointer in conn->sk is no different than having a NULL pointer.
+ *
+ * The reference counter is still needed for TfwSrvConnection{} instances.
+ * It tells when an instance can be reused for a new connect attempt.
+ * A scenario that may occur is as follows:
+ * 1. There's a client's request, so scheduler finds a server connection
+ *    and returns it to the client's thread. The server connection has
+ *    its refcnt incremented as there's a new user of it now.
+ * 2. At that time the server sends RST on that connection in response
+ *    to an earlier request. It starts the failover procedure that runs
+ *    in parallel. Part of the procedure is a new attempt to connect to
+ *    the server, which requires that TfwSrvConnection{} instance can be
+ *    reused. So the attempt to reconnect has to wait. It is started as
+ *    soon as the last client releases the server connection.
  */
 typedef struct {
 	TfwConnection		conn;
@@ -100,8 +134,8 @@ typedef struct {
 } TfwSrvConnection;
 
 /**
- * Initiate a new connect attempt without blocking
- * until the connection is established.
+ * Initiate a non-blocking connect attempt.
+ * Returns immediately without waiting until a connection is established.
  */
 static int
 tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
@@ -109,44 +143,45 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	int r;
 	TfwAddr *addr;
 	struct sock *sk;
+	TfwConnection *conn = &srv_conn->conn;
 
-	addr = &srv_conn->conn.peer->addr;
+	addr = &conn->peer->addr;
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
-		TFW_ERR("can't create a server socket\n");
+		TFW_ERR("Unable to create server socket\n");
 		return r;
 	}
 
 	/*
-	 * Setup connection handlers before ss_connect() call, because
-	 * we can get established connection right in the call in case
-	 * of local peer connection, so all handlers must be installed
+	 * Setup connection handlers before ss_connect() call. We can get
+	 * an established connection right when we're in the call in case
+	 * of a local peer connection, so all handlers must be installed
 	 * before the call.
 	 */
 	sock_set_flag(sk, SOCK_DBG);
-	tfw_connection_link_sk(&srv_conn->conn, sk);
+	tfw_connection_link_from_sk(conn, sk);
 	ss_set_callbacks(sk);
 
 	/*
-	 * There are two possible usage of the function:
+	 * There are two possible use patterns of this function:
 	 *
-	 * 1. tfw_sock_srv_connect_srv() called on system initialization phase
-	 *    before initialization of client listening interfaces, so there
-	 *    there is no activity on the socket;
+	 * 1. tfw_sock_srv_connect_srv() called in system initialization
+	 *    phase before initialization of client listening interfaces,
+	 *    so there is no activity in the socket;
 	 *
-	 * 2. __sock_srv_do_failover() upcalled from SS layer and with unlinked
-	 *    conn->sk, so nobody can send through the socket. Also since
-	 *    the function is called by connection_error or connection_drop
-	 *    hook from softirq, there coldn't other socket state change
-	 *    upcall from SS layer due to RSS.
+	 * 2. tfw_sock_srv_do_failover() upcalled from SS layer and with
+	 *    inactive conn->sk, so nobody can send through the socket.
+	 *    Also since the function is called by connection_error or
+	 *    connection_drop hook from SoftIRQ, there can't be another
+	 *    socket state change upcall from SS layer due to RSS.
 	 *
 	 * Thus we don't need syncronization for ss_connect().
 	 */
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("can't initiate a connect to server: error %d\n", r);
-		tfw_connection_unlink_sk(&srv_conn->conn);
+		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
+		tfw_connection_unlink_from_sk(sk);
 		ss_close(sk);
 		return r;
 	}
@@ -155,9 +190,13 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 }
 
 static inline void
-__mod_retry_timer(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
-	/* A variant of exponential backoff delay algorithm. */
+	/*
+	 * Timeout between connect attempts is increased with each
+	 * unsuccessful attempt. Length of the timeout is decided
+	 * with a variant of exponential backoff delay algorithm.
+	 */
 	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
 		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
 					TFW_SOCK_SRV_RETRY_TIMER_MIN
@@ -168,6 +207,16 @@ __mod_retry_timer(TfwSrvConnection *srv_conn)
 		  jiffies + msecs_to_jiffies(srv_conn->timeout));
 }
 
+static void
+tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
+{
+	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
+
+	/* A new socket is created for each connect attempt. */
+	if (tfw_sock_srv_connect_try(srv_conn))
+		tfw_sock_srv_connect_try_later(srv_conn);
+}
+
 static inline void
 __reset_retry_timer(TfwSrvConnection *srv_conn)
 {
@@ -175,29 +224,40 @@ __reset_retry_timer(TfwSrvConnection *srv_conn)
 	srv_conn->attempts = 0;
 }
 
-static void
-tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
-{
-	int r;
-	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
-
-	r = tfw_sock_srv_connect_try(srv_conn);
-	if (r) {
-		/*
-		 * Can't even initiate the connect?
-		 * Just re-execute this function later.
-		 */
-		TFW_WARN("server connect retry failed\n");
-		__mod_retry_timer(srv_conn);
-	}
-}
-
 static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
-	setup_timer(&srv_conn->retry_timer, tfw_sock_srv_connect_retry_timer_cb,
+	setup_timer(&srv_conn->retry_timer,
+		    tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
+}
+
+void
+tfw_srv_conn_release(TfwConnection *conn)
+{
+	/*
+	 * conn->sk may be zeroed if we get here after a failed
+	 * connect attempt. In that case no connection has been
+	 * established yet, and conn->sk has not been set.
+	 */
+	if (likely(conn->sk)) {
+		tfw_connection_unlink_to_sk(conn);
+	}
+	/*
+	 * After a disconnect, a new connect attempt is started
+	 * immediately. If that fails, new attempts are started
+	 * in deferred context after a short pause (in a timer
+	 * callback). Whatever the reason for a disconnect was,
+	 * this is uniform for any of them.
+	 *
+	 * Release of a server connection may occur in client's
+	 * SoftIRQ thread. That means that a connect attempt may
+	 * be started on a CPU that is different from the one
+	 * that received the disconnect event.
+	 */
+	if (tfw_sock_srv_connect_try((TfwSrvConnection *)conn))
+		tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
 }
 
 /**
@@ -208,16 +268,19 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
 	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+	TfwConnection *conn = &srv_conn->conn;
+	TfwServer *srv = (TfwServer *)conn->peer;
 
-	/* Notify higher-level levels. */
-	r = tfw_connection_new(&srv_conn->conn);
+	/* Link Tempesta with the socket. */
+	tfw_connection_link_to_sk(conn, sk);
+
+	/* Notify higher level layers. */
+	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
 	}
-
-	/* Notify the scheduler of new connection. */
+	/* Notify scheduler of new connection. */
 	tfw_sg_update(srv->sg);
 
 	__reset_retry_timer(srv_conn);
@@ -227,39 +290,23 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 }
 
 static int
-__sock_srv_do_failover(struct sock *sk, bool try_connect, const char *msg)
+tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 {
-	int r = 0;
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
+	TfwConnection *conn = sk->sk_user_data;
+	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR(msg, &srv->addr);
 
-	/*
-	 * Unlink failed socket from connection to allow schedulers
-	 * update their connection lists.
-	 */
-	tfw_connection_unlink_sk(&srv_conn->conn);
+	/* Withdraw from socket activity. */
+	tfw_connection_unlink_from_sk(sk);
 
-	/* Revert tfw_sock_srv_connect_complete(). */
+	/* Update Server Group and release resources. */
 	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(&srv_conn->conn);
-
-	if (!try_connect)
-		goto no_connect;
-
-	r = tfw_sock_srv_connect_try(srv_conn);
-	if (r) {
-		TFW_WARN("failover connect failed\n");
-		/* Just retry later. */
-		goto no_connect;
-	}
+	tfw_connection_destruct(conn);
+	if (tfw_connection_put(conn))
+		tfw_srv_conn_release(conn);
 
 	return 0;
-no_connect:
-	__mod_retry_timer(srv_conn);
-	return r;
-
 }
 
 /**
@@ -269,11 +316,7 @@ no_connect:
 static int
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
-	/*
-	 * Initiate a new connect attempt.
-	 * The TfwSrvConnection (and nested TfwConnection) is re-used here.
-	 */
-	return __sock_srv_do_failover(sk, true, "connection lost");
+	return tfw_sock_srv_do_failover(sk, "connection lost");
 }
 
 /**
@@ -281,19 +324,11 @@ tfw_sock_srv_connect_failover(struct sock *sk)
  * (and not executed when an established connection is closed as usual).
  * An error may occur in any TCP state. All Tempesta resources associated
  * with the socket must be released in case they were allocated before.
- *
- * Basically it initiates a reconnect (calls tfw_sock_srv_try() again).
- * There should be a pause between connect attempts, so the reconnect
- * is done in a deferred context (in a timer callback).
- *
- * We need to create a new socket for each connect attempt.
- * The old socket is released as soon as it is not used anymore.
- * New socket is created after a delay in the timer callback.
  */
 static int
 tfw_sock_srv_connect_retry(struct sock *sk)
 {
-	return __sock_srv_do_failover(sk, false, "connection error");
+	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
@@ -304,36 +339,38 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 };
 
 /**
- * Close a server connection, or stop connection attempts if the connection
- * is not established.
+ * Close a server connection, or stop connection attempts if a connection
+ * is not established. This is called only in user context at STOP time.
+ *
+ * This function should be called only when all traffic through Tempesta
+ * has stopped. Otherwise concurrent closing of live connections may lead
+ * to kernel crashes or deadlocks.
  */
 static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
-	TfwServer *srv = (TfwServer *)srv_conn->conn.peer;
-	struct sock *sk = srv_conn->conn.sk;
+	TfwConnection *conn = &srv_conn->conn;
+	TfwServer *srv = (TfwServer *)conn->peer;
+	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&srv_conn->retry_timer);
 
 	/*
-	 * Revert tfw_sock_srv_connect_try().
-	 * It doesn't matter that the order in which we destroy
-	 * the connection is different from what we did when created it.
-	 * Doing it this way immediately disconnects Tempesta from all
-	 * socket activity, so any possible concurrency is eliminated.
+	 * Withdraw from socket activity.
+	 * Close and release the socket.
 	 */
 	if (sk) {
-		ss_callback_write_lock(sk);
-		tfw_connection_unlink_sk(&srv_conn->conn);
-		ss_callback_write_unlock(sk);
+		tfw_connection_unlink_from_sk(sk);
+		tfw_connection_unlink_to_sk(conn);
 		ss_close(sk);
 	}
-	/* Revert tfw_sock_srv_connect_complete(). */
-	if (srv) {
+	/* Update Server Group. */
+	if (conn->peer)
 		tfw_sg_update(srv->sg);
-		tfw_connection_destruct(&srv_conn->conn);
-	}
+
+	/* Release resources. */
+	tfw_connection_destruct(conn);
 }
 
 /*
@@ -357,10 +394,9 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		if (tfw_sock_srv_connect_try(srv_conn))
-			__mod_retry_timer(srv_conn);
-	}
+			tfw_sock_srv_connect_try_later(srv_conn);
 }
 
 /**
@@ -410,7 +446,6 @@ static struct kmem_cache *tfw_srv_conn_cache;
 static TfwSrvConnection *
 tfw_srv_conn_alloc(void)
 {
-	SsProto *proto;
 	TfwSrvConnection *srv_conn;
 
 	srv_conn = kmem_cache_alloc(tfw_srv_conn_cache, GFP_ATOMIC);
@@ -419,8 +454,8 @@ tfw_srv_conn_alloc(void)
 
 	tfw_connection_init(&srv_conn->conn);
 	__setup_retry_timer(srv_conn);
-	proto = &srv_conn->conn.proto;
-	ss_proto_init(proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
+	ss_proto_init(&srv_conn->conn.proto,
+		      &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
 	return srv_conn;
 }
@@ -429,11 +464,10 @@ DEBUG_EXPORT_SYMBOL(tfw_srv_conn_alloc);
 static void
 tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 {
-	tfw_connection_validate_cleanup(&srv_conn->conn);
-
-	/* Check that all nested resources are already freed. */
 	BUG_ON(timer_pending(&srv_conn->retry_timer));
 
+	/* Check that all nested resources are freed. */
+	tfw_connection_validate_cleanup(&srv_conn->conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 DEBUG_EXPORT_SYMBOL(tfw_srv_conn_free);
@@ -455,12 +489,12 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 }
 
 static void
-tfw_sock_srv_delete_conns(TfwServer *srv)
+tfw_sock_srv_del_conns(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn, *tmp;
 
 	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
-		tfw_connection_unlink_peer(&srv_conn->conn);
+		tfw_connection_unlink_from_peer(&srv_conn->conn);
 		tfw_srv_conn_free(srv_conn);
 	}
 }
@@ -468,7 +502,7 @@ tfw_sock_srv_delete_conns(TfwServer *srv)
 static void
 tfw_sock_srv_delete_all_conns(void)
 {
-	tfw_sg_for_each_srv(tfw_sock_srv_delete_conns);
+	tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
 }
 
 /*

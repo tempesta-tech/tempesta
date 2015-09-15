@@ -25,6 +25,7 @@
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"
+#include "server.h"
 #include "hash.h"
 #include "http_msg.h"
 #include "http_sticky.h"
@@ -191,7 +192,6 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	resp = tfw_http_msg_create(&it, Conn_Srv, data_len);
 	if (resp == NULL)
 		return NULL;
-	resp->conn = hm->conn;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
 	tfw_http_msg_write(&it, resp, &rh);
@@ -218,7 +218,6 @@ tfw_http_send_resp(TfwHttpMsg *hm, const TfwStr *msg, const TfwStr *date)
 	resp = tfw_http_msg_create(&it, Conn_Srv, msg->len);
 	if (resp == NULL)
 		return -ENOMEM;
-	resp->conn = hm->conn;
 
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, resp, msg);
@@ -283,6 +282,11 @@ tfw_http_send_502(TfwHttpMsg *hm)
 	return tfw_http_send_resp(hm, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+/*
+ * Allocate a new HTTP message structure, and link it with
+ * the connection structure. Increment the number of users
+ * of the connection structure. Initialize GFSM for the message.
+ */
 TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
@@ -291,9 +295,37 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 		return NULL;
 
 	hm->conn = conn;
+	tfw_connection_get(conn);
 	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
 
 	return (TfwMsg *)hm;
+}
+
+/*
+ * Free an HTTP message.
+ * Also, free the connection structure if there's no more references.
+ *
+ * This function should be used anytime when there's a chance that
+ * a connection structure may belong to multiple messages, which is
+ * almost always. If a connection is suddenly closed then it still
+ * can be safely dereferenced and used in the code.
+ * In rare cases we're sure that a connection structure in a message
+ * doesn't have multiple users. For instance, when an error response
+ * is prepared and sent by Tempesta, that HTTP message does not need
+ * a connection structure. The message is then immediately destroyed,
+ * and a simpler tfw_http_msg_free() can be used for that.
+ */
+void
+tfw_http_conn_msg_free(TfwHttpMsg *hm)
+{
+	if (unlikely(hm == NULL))
+		return;
+	if (tfw_connection_put(hm->conn)) {
+		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
+			? tfw_cli_conn_release(hm->conn)
+			: tfw_srv_conn_release(hm->conn);
+	}
+	tfw_http_msg_free(hm);
 }
 
 /**
@@ -311,18 +343,20 @@ tfw_http_conn_destruct(TfwConnection *conn)
 	TfwMsg *msg, *tmp;
 
 	spin_lock(&conn->msg_qlock);
-	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list)
-		tfw_http_msg_free((TfwHttpMsg *)msg);
+	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
+		BUG_ON(((TfwHttpMsg *)msg)->conn
+			&& (((TfwHttpMsg *)msg)->conn == conn));
+		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
+	}
 	INIT_LIST_HEAD(&conn->msg_queue);
 	spin_unlock(&conn->msg_qlock);
 
-	tfw_http_msg_free((TfwHttpMsg *)conn->msg);
+	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
  * Create a sibling for @msg message.
- * Siblings in HTTP are usually pipelined requests
- * that can share the same SKBs.
+ * Siblings in HTTP are pipelined requests that share the same SKB.
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
@@ -336,8 +370,11 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		return NULL;
 
 	/*
-	 * The sibling message is set up with a clone of current
-	 * SKB (the last SKB in skb_list) as the starting SKB.
+	 * The sibling message is set up with a new SKB as
+	 * the starting SKB. The new SKB is split off from
+	 * the original SKB and contains the first part of
+	 * new message. The original SKB is shrunk to have
+	 * just data from the original message.
 	 */
 	nskb = ss_skb_split(*skb, split_offset);
 	if (!nskb) {
@@ -349,6 +386,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 
 	/* The sibling message belongs to the same connection. */
 	shm->conn = hm->conn;
+	tfw_connection_get(shm->conn);
 
 	return shm;
 }
@@ -441,6 +479,7 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 {
 	int r;
+	TfwConnection *conn;
 
 	if (resp) {
 		/*
@@ -448,14 +487,14 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		 * TODO should we adjust it somehow?
 		 */
 		tfw_connection_send(req->conn, (TfwMsg *)resp);
+		return;
 	} else {
 		/*
-		 * Dispatch request to an appropriate server.
-		 * Shedulers should make a decision given an original
-		 * unmodified request, so this must be done before any
-		 * mangling of the request.
+		 * Dispatch request to an appropriate server. Schedulers
+		 * should make a decision based on an unmodified request,
+		 * so this must be done before any request mangling.
 		 */
-		TfwConnection *conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+		conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 		if (conn == NULL) {
 			TFW_ERR("Unable to find a backend server\n");
 			goto send_404;
@@ -465,8 +504,8 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 			goto send_500;
 		} else if (r > 0) {
 			/* Response sent, nothing to do */
-			tfw_http_msg_free((TfwHttpMsg *)req);
-			return;
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			goto conn_put;
 		}
 		if (tfw_http_adjust_req(req))
 			goto send_500;
@@ -478,16 +517,20 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 
 		/* Send request to the server. */
 		tfw_connection_send(conn, (TfwMsg *)req);
+		goto conn_put;
 	}
-	return;
+	BUG();	/* NOTREACHED */
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
-	tfw_http_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
-	tfw_http_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+conn_put:
+	if (tfw_connection_put(conn))
+		tfw_srv_conn_release(conn);
 	return;
 }
 
@@ -748,10 +791,10 @@ delreq:
 	list_del(&hmreq->msg.msg_list);
 	spin_unlock(&conn->msg_qlock);
 freereq:
-	tfw_http_msg_free(hmreq);
+	tfw_http_conn_msg_free(hmreq);
 freeresp:
 	/* conn->msg will get NULLed in the process. */
-	tfw_http_msg_free(hmresp);
+	tfw_http_conn_msg_free(hmresp);
 
 	return TFW_PASS;
 }
