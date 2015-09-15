@@ -113,14 +113,14 @@ tfw_sock_clnt_new(struct sock *sk)
 	if (!cli) {
 		TFW_ERR("can't obtain a client for the new socket\n");
 		r = -ENOENT;
-		goto err_cli_obtain;
+		goto err_classify;
 	}
 
 	conn = tfw_cli_conn_alloc();
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		r = -ENOMEM;
-		goto err_conn_alloc;
+		goto err_client;
 	}
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
@@ -128,7 +128,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
-		goto err_conn_init;
+		goto err_conn;
 	}
 
 	/* Link Tempesta with the socket and the peer. */
@@ -141,7 +141,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		sk, conn, cli);
 	return 0;
 
-err_conn_init:
+err_conn:
 	tfw_connection_destruct(conn);
 	/*
 	 * We have just created the connection and did not link anything
@@ -149,11 +149,10 @@ err_conn_init:
 	 * just free @conn unconditionally.
 	 */
 	tfw_cli_conn_free(conn);
-err_conn_alloc:
+err_client:
 	tfw_client_put(cli);
-err_cli_obtain:
-	tfw_classify_conn_close(sk);
 err_classify:
+	tfw_classify_conn_close(sk);
 	return r;
 }
 
