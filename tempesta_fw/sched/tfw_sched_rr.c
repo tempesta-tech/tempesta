@@ -72,8 +72,9 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!conn_list || !conn_list->conn_n);
 	idx = atomic_inc_return(&conn_list->rr_counter) % conn_list->conn_n;
 	conn = conn_list->conns[idx];
-
 	BUG_ON(!conn);
+	tfw_connection_get(conn);
+
 	return conn;
 }
 
@@ -114,8 +115,15 @@ tfw_sched_rr_update_data(TfwSrvGroup *sg)
 		conn_list = &srv_list->conn_lists[srv_idx];
 
 		list_for_each_entry(conn, &srv->conn_list, list) {
-			/* Skip not-yet-established connections. */
-			if (!TFW_CONN_ALIVE(conn))
+			/*
+			 * Skip not-yet-established connections.
+			 *
+			 * A connection may die by the time someone wants
+			 * to use it. That has to be dealt with elsewhere.
+			 * It should be assumed that scheduler's data is
+			 * only semi-accurate at any point of time.
+			 */
+			if (!tfw_connection_live(conn))
 				continue;
 
 			conn_list->conns[conn_idx] = conn;
