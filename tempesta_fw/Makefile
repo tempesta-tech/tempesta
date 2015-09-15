@@ -20,7 +20,7 @@
 EXTRA_CFLAGS += -Werror -I$(src)/../tempesta_db/core
 
 ifneq ($(NDEBUG), 1)
-EXTRA_CFLAGS += -DDEBUG -O0 -g3
+EXTRA_CFLAGS += -DDEBUG
 endif
 
 obj-m	= tempesta_fw.o 

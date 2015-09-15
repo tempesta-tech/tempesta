@@ -37,6 +37,7 @@
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
+int ghprio; /* GFSM hook priority. */
 
 #define S_CRLF			"\r\n"
 #define S_CRLFCRLF		"\r\n\r\n"
@@ -341,20 +342,21 @@ tfw_http_conn_destruct(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
 
+	spin_lock(&conn->msg_qlock);
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
+	spin_unlock(&conn->msg_qlock);
 
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
 /**
  * Create a sibling for @msg message.
- * Siblings in HTTP are usually pipelined requests
- * that can share the same SKBs.
+ * Siblings in HTTP are pipelined requests that share the same SKB.
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
@@ -490,10 +492,10 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		/*
 		 * Dispatch request to an appropriate server. Schedulers
 		 * should make a decision based on an unmodified request,
-		 * so this should be done before any request mangling.
+		 * so this must be done before any request mangling.
 		 */
 		conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-		if (!conn) {
+		if (conn == NULL) {
 			TFW_ERR("Unable to find a backend server\n");
 			goto send_404;
 		}
@@ -508,8 +510,10 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		if (tfw_http_adjust_req(req))
 			goto send_500;
 
-		/* Add request to the connection. */
+		/* Add request to the server connection. */
+		spin_lock(&conn->msg_qlock);
 		list_add_tail(&req->msg.msg_list, &conn->msg_queue);
+		spin_unlock(&conn->msg_qlock);
 
 		/* Send request to the server. */
 		tfw_connection_send(conn, (TfwMsg *)req);
@@ -744,13 +748,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * We get responses in the same order as requests,
 	 * so we can just pop the first request.
 	 */
+	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
+		spin_unlock(&conn->msg_qlock);
 		TFW_WARN("Response w/o request\n");
 		goto freeresp;
 	}
 	hmreq = (TfwHttpMsg *)
 		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 	list_del(&hmreq->msg.msg_list);
+	spin_unlock(&conn->msg_qlock);
 
 	r = tfw_http_sticky_resp_process(hmresp, hmreq);
 	if (r < 0)
@@ -773,13 +780,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * request, and keep the connection open for data exchange.
 	 */
 delreq:
+	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
+		spin_unlock(&conn->msg_qlock);
 		TFW_WARN("Response w/o request\n");
 		goto freeresp;
 	}
 	hmreq = (TfwHttpMsg *)
 		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
 	list_del(&hmreq->msg.msg_list);
+	spin_unlock(&conn->msg_qlock);
 freereq:
 	tfw_http_conn_msg_free(hmreq);
 freeresp:
@@ -838,14 +848,21 @@ tfw_http_init(void)
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	/* Must be last call - we can't unregister the hook. */
-	r = tfw_gfsm_register_hook(TFW_FSM_HTTPS, TFW_GFSM_HOOK_PRIORITY_ANY,
-				   TFW_HTTPS_FSM_TODO_ISSUE_81,
-				   TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
+	ghprio = tfw_gfsm_register_hook(TFW_FSM_HTTPS,
+					TFW_GFSM_HOOK_PRIORITY_ANY,
+					TFW_HTTPS_FSM_TODO_ISSUE_81,
+					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
+	if (ghprio < 0)
+		return ghprio;
 
-	return r;
+	return 0;
 }
 
 void
 tfw_http_exit(void)
 {
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio,
+				 TFW_HTTPS_FSM_TODO_ISSUE_81);
+	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
+	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

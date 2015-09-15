@@ -153,10 +153,31 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		return r;
 	}
 
+	/*
+	 * Setup connection handlers before ss_connect() call. We can get
+	 * an established connection right when we're in the call in case
+	 * of a local peer connection, so all handlers must be installed
+	 * before the call.
+	 */
 	sock_set_flag(sk, SOCK_DBG);
 	tfw_connection_link_from_sk(conn, sk);
 	ss_set_callbacks(sk);
 
+	/*
+	 * There are two possible use patterns of this function:
+	 *
+	 * 1. tfw_sock_srv_connect_srv() called in system initialization
+	 *    phase before initialization of client listening interfaces,
+	 *    so there is no activity in the socket;
+	 *
+	 * 2. tfw_sock_srv_do_failover() upcalled from SS layer and with
+	 *    inactive conn->sk, so nobody can send through the socket.
+	 *    Also since the function is called by connection_error or
+	 *    connection_drop hook from SoftIRQ, there can't be another
+	 *    socket state change upcall from SS layer due to RSS.
+	 *
+	 * Thus we don't need syncronization for ss_connect().
+	 */
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
@@ -368,7 +389,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
-static int
+static void
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
@@ -376,30 +397,32 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		if (tfw_sock_srv_connect_try(srv_conn))
 			tfw_sock_srv_connect_try_later(srv_conn);
-	return 0;
 }
 
-static int
+/**
+ * There should be no server socket users when the function is called.
+ */
+static void
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		tfw_sock_srv_disconnect(srv_conn);
-	return 0;
 }
 
 static int
 tfw_sock_srv_connect_all(void)
 {
-	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+	tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+
+	return 0;
 }
 
 static void
 tfw_sock_srv_disconnect_all(void)
 {
-	int r = tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
-	BUG_ON(r);
+	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 
 /*
@@ -465,7 +488,7 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 	return 0;
 }
 
-static int
+static void
 tfw_sock_srv_del_conns(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn, *tmp;
@@ -474,15 +497,12 @@ tfw_sock_srv_del_conns(TfwServer *srv)
 		tfw_connection_unlink_from_peer(&srv_conn->conn);
 		tfw_srv_conn_free(srv_conn);
 	}
-
-	return 0;
 }
 
 static void
 tfw_sock_srv_delete_all_conns(void)
 {
-	int r = tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
-	BUG_ON(r);
+	tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
 }
 
 /*

@@ -1880,7 +1880,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		__fsm_sz = len - (size_t)(p - data);
-		__fsm_n = parse_int_list(p, __fsm_n, &parser->_tmp_acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
