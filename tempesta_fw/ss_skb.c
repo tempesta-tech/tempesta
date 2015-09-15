@@ -334,9 +334,6 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		skb->data_len += tail_len;
 		skb->truesize += tail_len;
 
-		/* Partially stolen from skb_try_coalesce(). */
-		WARN_ON(skb_head_is_locked(skb));
-
 		__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
 		skb_frag_ref(skb, alloc);
 	}
@@ -612,7 +609,7 @@ int
 ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 {
 	int r;
-	struct sk_buff *skb;
+	struct sk_buff *skb = NULL;
 	const TfwStr *c;
 	TfwStr it;
 
@@ -630,6 +627,7 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 
 		skip = 0;
 	});
+	BUG_ON(!skb);
 
 	/* Cut off the tail. */
 	if (tail) {

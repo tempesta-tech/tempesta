@@ -18,6 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/ctype.h>
+
 #include "http_match.h"
 #include "http_msg.h"
 
@@ -52,19 +54,15 @@ http_match_suite_teardown(void)
 }
 
 static void
-test_mlst_add(int test_id, tfw_http_match_fld_t req_field,
-              tfw_http_match_op_t op, const char *str_arg)
+test_mlst_add(int test_id, tfw_http_match_fld_t field,
+              tfw_http_match_op_t op, const char *arg)
 {
 	MatchEntry *e;
-	size_t len = strlen(str_arg);
+	size_t arg_size = strlen(arg) + 1;
 
-	e = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, len);
+	e = tfw_http_match_entry_new(test_mlst, MatchEntry, rule, arg_size);
+	tfw_http_match_rule_init(&e->rule, field, op, TFW_HTTP_MATCH_A_STR, arg);
 	e->test_id = test_id;
-	e->rule.field = req_field;
-	e->rule.op = op;
-	e->rule.arg.type = TFW_HTTP_MATCH_A_STR;
-	e->rule.arg.len = len;
-	memcpy(e->rule.arg.str, str_arg, len);
 }
 
 int

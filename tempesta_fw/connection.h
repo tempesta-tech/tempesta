@@ -75,7 +75,8 @@ enum {
  * @proto	- protocol handler. Base class, must be first;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
- * @refcnt	- number of users of the connection structure;
+ * @msg_qlock	- lock for accessing @msg_queue;
+ * @refcnt	- number of users of the connection structure instance;
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
@@ -84,6 +85,7 @@ typedef struct {
 	SsProto			proto;
 	struct list_head	list;
 	struct list_head	msg_queue;
+	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
@@ -95,23 +97,23 @@ typedef struct {
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
 	/*
-	 * Before servicing a new connection (client or server - connection
-	 * type should be checked in the callback).
-	 * This is a good place to handle Access or GEO modules (block a client
-	 * or bind its descriptor with Geo information).
+	 * Called before servicing a new connection (connection
+	 * type, client or server, is checked in the callback).
+	 * This is a good place to handle Access or GEO modules
+	 * (block a client or bind its descriptor with GEO data).
 	 */
 	int (*conn_init)(TfwConnection *conn);
 
 	/*
-	 * Closing a connection (client or server as for conn_init()).
-	 * This is necessary for modules who account number of established
-	 * client connections.
+	 * Called when closing a connection (client or server,
+	 * as in conn_init()). This is required for modules that
+	 * maintain the number of established client connections.
 	 */
 	void (*conn_destruct)(TfwConnection *conn);
 
-	/**
-	 * High level protocols should be able to allocate messages with all
-	 * required information.
+	/*
+	 * Higher level protocols should be able to allocate
+	 * messages with all required information.
 	 */
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
@@ -159,6 +161,7 @@ tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
  * sk->sk_callback_lock. The main reason for that was that there's
  * Tempesta shutdown procedure that runs parallel with Tempesta's main
  * activity.
+ *
  * TODO: When the shutdown procedure is changed to run only when main
  * Tempesta activity has stopped, then sk->sk_callback_lock locks can
  * be eliminated in Sync Sockets. Also, Tempesta shutdown procedure
@@ -229,6 +232,7 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
+void tfw_connection_hooks_unregister(int type);
 void tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
 /* Generic helpers, used for both client and server connections. */

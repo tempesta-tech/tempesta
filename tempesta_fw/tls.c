@@ -86,4 +86,6 @@ tfw_tls_init(void)
 void
 tfw_tls_exit(void)
 {
+	tfw_connection_hooks_unregister(TFW_FSM_HTTPS);
+	tfw_gfsm_unregister_fsm(TFW_FSM_HTTPS);
 }

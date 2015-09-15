@@ -1500,8 +1500,6 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 {
 	TfwCfgMod *mod;
 
-	TFW_DBG("stopping modules...\n");
-
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
 		mod_stop(mod);
 		spec_cleanup(mod->specs);
@@ -1612,7 +1610,8 @@ handle_state_change(const char *old_state, const char *new_state)
 	TFW_LOG("got state via sysctl: %s\n", new_state);
 
 	if (!strcasecmp(old_state, new_state)) {
-		TFW_LOG("the state '%s' isn't changed, nothing to do\n", new_state);
+		TFW_LOG("the state '%s' isn't changed, nothing to do\n",
+			new_state);
 		return 0;
 	}
 	if (!strcasecmp("start", new_state)) {
@@ -1718,7 +1717,7 @@ tfw_cfg_if_exit(void)
 {
 	TfwCfgMod *mod, *tmp;
 
-	TFW_DBG("stopping and unregistering all cfg modules\n");
+	TFW_DBG("stopping and unregistering all cfg modules...\n");
 
 	if (tfw_cfg_mods_are_started)
 		tfw_cfg_stop_mods(&tfw_cfg_mods);
