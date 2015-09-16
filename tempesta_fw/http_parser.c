@@ -101,9 +101,16 @@ st: __attribute__((unused)) 						\
 	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
 		st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
-#define __FSM_EXIT(field)						\
+#define __FSM_EXIT(pointer)						\
 do {									\
-	if (field) { /* staticaly resolved */				\
+	if (pointer) { /* staticaly resolved */				\
+		TfwStr *field = (pointer);				\
+		if (!TFW_STR_PLAIN(field)) {				\
+			TfwStr *last = (TfwStr *)field->ptr		\
+				     + TFW_STR_CHUNKN(field) - 1;	\
+			if (last->ptr == NULL)				\
+				last->ptr = data;			\
+		}							\
 		tfw_str_updlen(field, data + len);			\
 		if (unlikely(!tfw_str_add_compound(msg->pool, field)))	\
 			return TFW_BLOCK;				\
