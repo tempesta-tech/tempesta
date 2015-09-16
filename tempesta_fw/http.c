@@ -365,8 +365,9 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
 
-	shm = tfw_http_msg_alloc(type);
-	if (!shm)
+	/* The sibling message belongs to the same connection. */
+	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
+	if (unlikely(!shm))
 		return NULL;
 
 	/*
@@ -383,10 +384,6 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	}
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
 	*skb = nskb;
-
-	/* The sibling message belongs to the same connection. */
-	shm->conn = hm->conn;
-	tfw_connection_get(shm->conn);
 
 	return shm;
 }
