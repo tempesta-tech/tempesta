@@ -113,7 +113,7 @@ __hdr_is_singular(const TfwStr *hdr)
 			continue;
 		if (fc < sc)
 			break;
-		if (!tfw_stricmpspn(hdr, sh->ptr, ':'))
+		if (!tfw_stricmpspn(hdr, sh, ':'))
 			return true;
 	}
 	return false;
