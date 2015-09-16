@@ -161,9 +161,9 @@ tfw_sock_clnt_drop(struct sock *sk)
 {
 	int r;
 	TfwConnection *conn = sk->sk_user_data;
-	TfwClient *cli = (TfwClient *)conn->peer;
 
-	TFW_DBG("close client socket: sk=%p, conn=%p, cli=%p\n", sk, conn, cli);
+	TFW_DBG("close client socket: sk=%p, conn=%p, client=%p\n",
+		sk, conn, conn->peer);
 
 	/* Classify the connection closing while all resources are alive. */
 	/*
