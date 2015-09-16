@@ -101,10 +101,10 @@ st: __attribute__((unused)) 						\
 	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
 		st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
-#define __FSM_EXIT(p)							\
+#define __FSM_EXIT(pointer)						\
 do {									\
-	if (p) { /* staticaly resolved */				\
-		TfwStr *field = (p);					\
+	if (pointer) { /* staticaly resolved */				\
+		TfwStr *field = (pointer);				\
 		if (!TFW_STR_PLAIN(field)) {				\
 			TfwStr *last = (TfwStr *)field->ptr		\
 				     + TFW_STR_CHUNKN(field) - 1;	\
