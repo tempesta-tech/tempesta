@@ -42,6 +42,7 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_zero_conn)
 
 	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
 	test_create_srv("127.0.0.1", sg);
+	sg->sched->update_grp(sg);
 
 	for (i = 0; i < 3; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
@@ -68,6 +69,7 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	for (i = 0; i < 3 * TFW_SRV_MAX_CONN; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
 		s ^= (long long)conn;
+		tfw_connection_put(conn);
 	}
 
 	EXPECT_TRUE(s == 0);
@@ -85,6 +87,7 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_zero_conn)
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		test_create_srv("127.0.0.1", sg);
 	}
+	sg->sched->update_grp(sg);
 
 	for (i = 0; i < 2 * TFW_SG_MAX_SRV; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
@@ -114,6 +117,7 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 	for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
 		s ^= (long long)conn;
+		tfw_connection_put(conn);
 	}
 
 	EXPECT_TRUE(s == 0);
@@ -124,6 +128,8 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_rr)
 {
+	sched_helper_init();
+
 	TEST_RUN(tfw_sched_rr, sg_empty);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_zero_conn);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_max_conn);
