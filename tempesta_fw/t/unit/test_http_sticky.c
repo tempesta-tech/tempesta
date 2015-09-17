@@ -38,6 +38,13 @@
 
 #include "http_sticky.c"
 
+#include "filter.c"
+#include "sock.c"
+#include "server.c"
+#include "sock_srv.c"
+#include "client.c"
+#include "classifier.c"
+#include "sock_clnt.c"
 #include "http.c"
 #include "addr.c"
 #include "ss_skb.c"
