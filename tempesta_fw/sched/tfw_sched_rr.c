@@ -69,7 +69,7 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	conn_list = &srv_list->conn_lists[idx];
 
 	/* 2. Select a connection in the same round-robin manner. */
-	if (unlikely(!conn_list || !conn_list->conn_n))
+	if (unlikely(!conn_list->conn_n))
 		return NULL;
 	idx = atomic_inc_return(&conn_list->rr_counter) % conn_list->conn_n;
 	conn = conn_list->conns[idx];
