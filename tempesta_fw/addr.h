@@ -22,6 +22,7 @@
 #define __TFW_ADDR_H__
 
 #include <net/inet_sock.h>
+#include <net/ipv6.h>
 
 /**
  * The default port for textual IP address representations.
@@ -55,6 +56,25 @@ static inline ssize_t
 tfw_addr_sa_len(const TfwAddr *addr)
 {
 	return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
+}
+
+static inline void
+tfw_addr_get_sk_saddr(struct sock *sk, struct in6_addr *addr)
+{
+	struct inet_sock *isk = (struct inet_sock *)sk;
+
+#if IS_ENABLED(CONFIG_IPV6)
+	if (isk->pinet6)
+		memcpy(addr, &isk->pinet6->saddr, sizeof(*addr));
+	else
+#endif
+	ipv6_addr_set_v4mapped(isk->inet_saddr, addr);
+}
+
+static inline unsigned short
+tfw_addr_get_sk_sport(struct sock *sk)
+{
+	return inet_sk(sk)->inet_sport;
 }
 
 #endif /* __TFW_ADDR_H__ */
