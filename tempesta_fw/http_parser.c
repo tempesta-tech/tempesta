@@ -355,7 +355,7 @@ enum {
 		lambda;							\
 		__FSM_I_MOVE_n(state, sizeof(str) - 1 - __fsm_sz);	\
 	case CSTR_POSTPONE:						\
-		tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, data, len);		\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
 	case CSTR_BADLEN:						\
 		return r;						\
 	case CSTR_NEQ: /* fall through */				\
@@ -386,7 +386,7 @@ __FSM_STATE(st_curr) {							\
 	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
 		return TFW_BLOCK;					\
 	/* Store header name and field in different chunks. */		\
-	tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, data, p - data);	\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG("parse special header " #func ": ret=%d data_len=%lu id=%d\n", \
 		__fsm_n, __fsm_sz, id);					\
@@ -402,7 +402,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_n);	\
+		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
 		if (tfw_http_msg_hdr_close(msg, id))			\
 			return TFW_BLOCK;				\
 		parser->_i_st = I_0;					\
@@ -431,7 +431,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, data, p + __fsm_n - data);\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, p + __fsm_n - data);\
 		if (tfw_http_msg_hdr_close(msg, TFW_HTTP_HDR_RAW))	\
 			return TFW_BLOCK;				\
 		parser->_i_st = I_0;					\
@@ -455,7 +455,7 @@ __FSM_STATE(prefix ## _HdrOther) {					\
 	__fsm_ch = memchr(p, '\r', __fsm_sz);				\
 	if (__fsm_ch) {							\
 		/* Get length of the header. */				\
-		tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, data, __fsm_ch - data);\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_ch - data);\
 		if (tfw_http_msg_hdr_close(msg, TFW_HTTP_HDR_RAW))	\
 			return TFW_BLOCK;				\
 		__FSM_MOVE_n(RGen_LF, __fsm_ch - p + 1);		\
@@ -696,7 +696,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 
 	r = parse_int_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
-		tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, data, len);
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 
 	return r;
 }
@@ -1047,7 +1047,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_age = parser->_tmp_acc;
@@ -1059,7 +1059,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_fresh = parser->_tmp_acc;
@@ -1834,7 +1834,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.max_age = parser->_tmp_acc;
@@ -1846,7 +1846,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.s_maxage = parser->_tmp_acc;
@@ -1969,7 +1969,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		if (parser->_tmp_acc < 1)
@@ -2041,12 +2041,12 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		__fsm_n = __year_day_secs(parser->_tmp_acc, resp->expires);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->expires = __fsm_n;
@@ -2059,7 +2059,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc * 3600;
@@ -2072,7 +2072,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc * 60;
@@ -2085,7 +2085,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc;
@@ -2131,7 +2131,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_field_chunk_fixup(msg, &msg->parser.hdr, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->keep_alive = parser->_tmp_acc;

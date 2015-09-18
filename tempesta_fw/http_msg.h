@@ -54,6 +54,7 @@ TfwHttpMsg *tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len);
 int tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data);
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
+void tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len);
 void tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 				    char *data, int len);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id);
