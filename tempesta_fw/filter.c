@@ -50,35 +50,7 @@ static struct {
 	const char *db_path;
 } filter_cfg __read_mostly;
 
-static struct {
-	__be16		ports[DEF_MAX_PORTS];
-	unsigned int	count;
-} tfw_inports __read_mostly;
-
 static TDB *ip_filter_db;
-
-void
-tfw_filter_add_inport(__be16 port)
-{
-	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
-
-	tfw_inports.ports[tfw_inports.count++] = port;
-}
-
-/**
- * Check that the incoming packet should be serviced by Tempesta.
- * @return true if it's our packet, false otherwise.
- */
-static bool
-tfw_our_packet(struct tcphdr *th)
-{
-	int i;
-
-	for (i = 0; i < tfw_inports.count; ++i)
-		if (th->dest == tfw_inports.ports[i])
-			return true;
-	return false;
-}
 
 /*
  * Make sure we're dealing with an IPv4 packet. While at that, make sure
@@ -258,30 +230,6 @@ static struct nf_hook_ops tfw_nf_ops[] __read_mostly = {
 	},
 };
 
-/**
- * Called from sk_filter() called from tcp_v4_rcv() and tcp_v6_rcv(),
- * i.e. when IP fragments are already assembled and we can process TCP.
- */
-static int
-tfw_sock_tcp_rcv(struct sock *sk, struct sk_buff *skb)
-{
-	struct tcphdr *th = tcp_hdr(skb);
-
-	/* Pass the packet if it's not for us. */
-	if (!tfw_our_packet(th))
-		return 0;
-
-	/* Call L4 layer classification. */
-	if (tfw_classify_tcp(th) == TFW_BLOCK)
-		return -EPERM;
-
-	return 0;
-}
-
-static TempestaOps tempesta_ops = {
-	.sock_tcp_rcv = tfw_sock_tcp_rcv,
-};
-
 static int
 tfw_filter_start(void)
 {
@@ -299,15 +247,12 @@ tfw_filter_start(void)
 		return r;
 	}
 
-	tempesta_register_ops(&tempesta_ops);
-
 	return r;
 }
 
 static void
 tfw_filter_stop(void)
 {
-	tempesta_unregister_ops(&tempesta_ops);
 	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
 
 	tdb_close(ip_filter_db);

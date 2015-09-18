@@ -42,7 +42,6 @@
 #include <linux/ctype.h>
 #include <linux/hashtable.h>
 #include <linux/spinlock.h>
-#include <net/ipv6.h>
 
 #include "../tempesta_fw.h"
 #include "../addr.h"
@@ -55,7 +54,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.2");
+MODULE_VERSION("0.1.3");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -70,11 +69,18 @@ typedef struct {
 	unsigned int	req;
 } FrangRates;
 
+/**
+ * Main descriptor of client resource accounting.
+ * @lock can be removed if RSS is tuned to schedule packets based on
+ * <proto, src_ip> touple. However, the hashing could produce bad CPU load
+ * balancing so, such settings are not desireble.
+ */
 typedef struct frang_account_t {
 	struct hlist_node	hentry;
 	struct in6_addr		addr; /* client address */
 	unsigned long		last_ts; /* last access time */
 	unsigned int		conn_curr; /* current connections number */
+	spinlock_t		lock;
 	FrangRates		history[FRANG_FREQ];
 } FrangAcc;
 
@@ -130,29 +136,20 @@ static FrangCfg frang_cfg __read_mostly;
 /* GFSM hooks priorities. */
 int prio0, prio1;
 
-static void
-frang_get_ipv6addr(struct sock *sk, struct in6_addr *addr)
+/**
+ * Lookups and allocate in necessary client resource accounting descriptor.
+ * The descriptor is returned locked.
+ */
+static FrangAcc *
+frang_get_clnt_ra(struct sock *sk)
 {
-	struct inet_sock *isk = (struct inet_sock *)sk;
-
-#if IS_ENABLED(CONFIG_IPV6)
-	if (isk->pinet6)
-		memcpy(addr, &isk->pinet6->saddr, sizeof(*addr));
-	else
-#endif
-	ipv6_addr_set_v4mapped(isk->inet_saddr, addr);
-}
-
-static int
-frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
-{
+	unsigned int key;
 	struct in6_addr addr;
+	FrangHashBucket *hb;
 	struct hlist_node *tmp;
 	FrangAcc *ra;
-	FrangHashBucket *hb;
-	unsigned int key, r;
 
-	frang_get_ipv6addr(sk, &addr);
+	tfw_addr_get_sk_saddr(sk, &addr);
 	key = addr.s6_addr32[0] ^ addr.s6_addr32[1] ^ addr.s6_addr32[2]
 		^ addr.s6_addr32[3];
 
@@ -162,7 +159,7 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 
 	hlist_for_each_entry_safe(ra, tmp, &hb->list, hentry) {
 		if (ipv6_addr_equal(&addr, &ra->addr))
-			break;
+			goto found;
 		/* Collect garbage. */
 		if (ra->last_ts + GC_TO < jiffies / HZ) {
 			hash_del(&ra->hentry);
@@ -170,39 +167,30 @@ frang_account_do(struct sock *sk, int (*func)(FrangAcc *ra, struct sock *sk))
 		}
 	}
 
+	ra = kmem_cache_alloc(frang_mem_cache, GFP_ATOMIC | __GFP_ZERO);
 	if (!ra) {
+		TFW_WARN("frang: Unable to allocate account record\n");
 		spin_unlock(&hb->lock);
-
-		/*
-		 * Add new client account.
-		 * Other CPUs should not add the same account
-		 * while we're allocating the account w/o a lock.
-		 */
-		ra = kmem_cache_alloc(frang_mem_cache, GFP_ATOMIC | __GFP_ZERO);
-		if (!ra) {
-			TFW_WARN("frang: Unable to allocate account record\n");
-			return TFW_BLOCK;
-		}
-
-		memcpy(&ra->addr, &addr, sizeof(addr));
-
-		spin_lock(&hb->lock);
-		hlist_add_head(&ra->hentry, &hb->list);
+		return NULL;
 	}
 
+	memcpy(&ra->addr, &addr, sizeof(addr));
+	spin_lock_init(&ra->lock);
 	ra->last_ts = jiffies;
 
-	r = func(ra, sk);
+	hlist_add_head(&ra->hentry, &hb->list);
+found:
+	spin_lock(&ra->lock);
 
 	spin_unlock(&hb->lock);
 
-	return r;
+	return ra;
 }
 
 static int
 frang_conn_limit(FrangAcc *ra, struct sock *unused)
 {
-	unsigned long ts = jiffies * FRANG_FREQ / HZ;
+	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	unsigned int csum = 0;
 	int i = ts % FRANG_FREQ;
 
@@ -214,7 +202,7 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 
 	/*
 	 * Increment connection counters even if we return TFW_BLOCK.
-	 * Synchronous sockets will call connection_drop callback,
+	 * Linux will call sk_free() from inet_csk_clone_lock(),
 	 * so our frang_conn_close() is also called. conn_curr is
 	 * decremented there, but conn_new is not changed. We count
 	 * both failed connection attempts and connections that were
@@ -230,14 +218,16 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 		return TFW_BLOCK;
 	}
 
-	if (frang_cfg.conn_burst && ra->history[i].conn_new > frang_cfg.conn_burst) {
+	if (frang_cfg.conn_burst
+	    && ra->history[i].conn_new > frang_cfg.conn_burst)
+	{
 		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 			 "conn_burst",
 			 ra->history[i].conn_new, frang_cfg.conn_burst);
 		return TFW_BLOCK;
 	}
 
-	/* Collect current request sum. */
+	/* Collect current connection sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			csum += ra->history[i].conn_new;
@@ -254,35 +244,55 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 static int
 frang_conn_new(struct sock *sk)
 {
-	return frang_account_do(sk, frang_conn_limit);
-}
+	int r;
+	FrangAcc *ra;
 
-static int
-__frang_conn_close(FrangAcc *ra, struct sock *unused)
-{
-	BUG_ON(!ra->conn_curr);
+	ra = frang_get_clnt_ra(sk);
+	if (unlikely(!ra))
+		return TFW_BLOCK;
 
-	ra->conn_curr--;
+	sk->sk_security = ra;
 
-	return TFW_PASS;
+	r = frang_conn_limit(ra, sk);
+
+	spin_unlock(&ra->lock);
+
+	return r;
 }
 
 /**
  * Just update current connection count for a user.
  */
-static int
+static void
 frang_conn_close(struct sock *sk)
 {
-	return frang_account_do(sk, __frang_conn_close);
+	FrangAcc *ra = sk->sk_security;
+
+	BUG_ON(!ra);
+
+	spin_lock(&ra->lock);
+
+	ra->last_ts = jiffies;
+
+	BUG_ON(!ra->conn_curr);
+	ra->conn_curr--;
+
+	spin_unlock(&ra->lock);
 }
 
 static int
-frang_req_limit(FrangAcc *ra, struct sock *sk)
+frang_req_limit(struct sock *sk)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	unsigned int rsum = 0;
-	int i = ts % FRANG_FREQ;
+	int r = TFW_BLOCK, i = ts % FRANG_FREQ;
+	FrangAcc *ra = sk->sk_security;
 
+	BUG_ON(!ra);
+
+	spin_lock(&ra->lock);
+
+	ra->last_ts = jiffies;
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
 		ra->history[i].conn_new = 0;
@@ -294,7 +304,7 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 			 "request_burst",
 			 ra->history[i].req, frang_cfg.req_burst);
-		return TFW_BLOCK;
+		goto block;
 	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
@@ -303,9 +313,13 @@ frang_req_limit(FrangAcc *ra, struct sock *sk)
 	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate) {
 		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
 			 "request_rate", rsum, frang_cfg.req_rate);
-		return TFW_BLOCK;
+		goto block;
 	}
-	return TFW_PASS;
+
+	r = TFW_PASS;
+block:
+	spin_unlock(&ra->lock);
+	return r;
 }
 
 static int
@@ -584,9 +598,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * that run when a connection is established or destroyed.
 	 */
 	__FRANG_FSM_STATE(Frang_Req_0) {
-		if (frang_cfg.req_burst || frang_cfg.req_rate) {
-			r = frang_account_do(conn->sk, frang_req_limit);
-		}
+		if (frang_cfg.req_burst || frang_cfg.req_rate)
+			r = frang_req_limit(conn->sk);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);
 	}
 
@@ -994,11 +1007,7 @@ frang_init(void)
 		goto err_cfg;
 	}
 
-	r = tfw_classifier_register(&frang_class_ops);
-	if (r) {
-		TFW_ERR("frang: can't register classifier\n");
-		goto err_class;
-	}
+	tfw_classifier_register(&frang_class_ops);
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG, frang_http_req_handler);
 	if (r) {
@@ -1030,7 +1039,6 @@ err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
 err_fsm:
 	tfw_classifier_unregister();
-err_class:
 	tfw_cfg_mod_unregister(&frang_cfg_mod);
 err_cfg:
 	kmem_cache_destroy(frang_mem_cache);
