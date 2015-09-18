@@ -32,6 +32,4 @@ typedef struct {
 	int			action;
 } TfwFRule;
 
-void tfw_filter_add_inport(__be16 port);
-
 #endif /* __TFW_FILTER_H__ */
