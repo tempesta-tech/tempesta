@@ -69,11 +69,17 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	conn_list = &srv_list->conn_lists[idx];
 
 	/* 2. Select a connection in the same round-robin manner. */
-	BUG_ON(!conn_list || !conn_list->conn_n);
+	if (unlikely(!conn_list->conn_n))
+		return NULL;
 	idx = atomic_inc_return(&conn_list->rr_counter) % conn_list->conn_n;
 	conn = conn_list->conns[idx];
-	BUG_ON(!conn);
-	tfw_connection_get(conn);
+	/*
+	 * Unfortunately, there's still a race condition here.
+	 * Please see the description here in the issue #236:
+	 * https://github.com/natsys/tempesta/issues/236#issuecomment-140868360
+	 */
+	if (likely(conn))
+		tfw_connection_get(conn);
 
 	return conn;
 }
