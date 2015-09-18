@@ -69,7 +69,7 @@
  */
 
 /** The wakeup interval between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MIN	50		/* in msecs */
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	10		/* in msecs */
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
 
 /**
@@ -245,8 +245,7 @@ tfw_srv_conn_release(TfwConnection *conn)
 		tfw_connection_unlink_to_sk(conn);
 	}
 	/*
-	 * After a disconnect, a new connect attempt is started
-	 * immediately. If that fails, new attempts are started
+	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer
 	 * callback). Whatever the reason for a disconnect was,
 	 * this is uniform for any of them.
@@ -256,8 +255,7 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * be started on a CPU that is different from the one
 	 * that received the disconnect event.
 	 */
-	if (tfw_sock_srv_connect_try((TfwSrvConnection *)conn))
-		tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
+	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
 }
 
 /**

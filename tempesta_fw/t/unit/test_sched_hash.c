@@ -117,6 +117,7 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 			}
 
 			test_req_free(req);
+			tfw_connection_put(conn);
 		}
 	}
 
@@ -183,6 +184,7 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 			}
 
 			test_req_free(req);
+			tfw_connection_put(conn);
 		}
 	}
 
@@ -192,6 +194,8 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_hash)
 {
+	sched_helper_init();
+
 	tfw_http_parse_req_ptr = get_sym_ptr("tfw_http_parse_req");
 	BUG_ON(tfw_http_parse_req_ptr == NULL);
 

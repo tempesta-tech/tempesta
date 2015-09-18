@@ -31,6 +31,8 @@ typedef struct {
 	unsigned int		attempts;
 } TfwSrvConnection;
 
+void sched_helper_init(void);
+
 TfwSrvGroup *test_create_sg(const char *name, const char *sched_name);
 void test_sg_release_all(void);
 

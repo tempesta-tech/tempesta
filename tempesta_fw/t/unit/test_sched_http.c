@@ -69,6 +69,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 	EXPECT_TRUE((TfwSrvConnection *)conn == expect_conn);
 
 	test_req_free(req);
+	tfw_connection_put(conn);
 }
 
 TEST(tfw_sched_http, zero_rules_and_zero_conns)
@@ -80,7 +81,7 @@ TEST(tfw_sched_http, zero_rules_and_zero_conns)
 
 TEST(tfw_sched_http, one_rule_and_zero_conns)
 {
-	test_create_sg("default", "dummy");
+	test_create_sg("default", "round-robin");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -98,9 +99,10 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	TfwServer *srv;
 	TfwSrvConnection *expect_conn;
 
-	sg = test_create_sg("default", "dummy");
+	sg = test_create_sg("default", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg);
 	expect_conn = test_create_conn((TfwPeer *)srv);
+	sg->sched->update_grp(sg);
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -120,45 +122,55 @@ TEST(tfw_sched_http, some_rules)
 	TfwSrvConnection *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4, *expect_conn5,
 	                 *expect_conn6, *expect_conn7, *expect_conn8, *expect_conn9, *expect_conn10;
 
-	sg1 = test_create_sg("sg1", "dummy");
+	sg1 = test_create_sg("sg1", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg1);
 	expect_conn1 = test_create_conn((TfwPeer *)srv);
+	sg1->sched->update_grp(sg1);
 
-	sg2 = test_create_sg("sg2", "dummy");
+	sg2 = test_create_sg("sg2", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg2);
 	expect_conn2 = test_create_conn((TfwPeer *)srv);
+	sg2->sched->update_grp(sg2);
 
-	sg3 = test_create_sg("sg3", "dummy");
+	sg3 = test_create_sg("sg3", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg3);
 	expect_conn3 = test_create_conn((TfwPeer *)srv);
+	sg3->sched->update_grp(sg3);
 
-	sg4 = test_create_sg("sg4", "dummy");
+	sg4 = test_create_sg("sg4", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg4);
 	expect_conn4 = test_create_conn((TfwPeer *)srv);
+	sg4->sched->update_grp(sg4);
 
-	sg5 = test_create_sg("sg5", "dummy");
+	sg5 = test_create_sg("sg5", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg5);
 	expect_conn5 = test_create_conn((TfwPeer *)srv);
+	sg5->sched->update_grp(sg5);
 
-	sg6 = test_create_sg("sg6", "dummy");
+	sg6 = test_create_sg("sg6", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg6);
 	expect_conn6 = test_create_conn((TfwPeer *)srv);
+	sg6->sched->update_grp(sg6);
 
-	sg7 = test_create_sg("sg7", "dummy");
+	sg7 = test_create_sg("sg7", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg7);
 	expect_conn7 = test_create_conn((TfwPeer *)srv);
+	sg7->sched->update_grp(sg7);
 
-	sg8 = test_create_sg("sg8", "dummy");
+	sg8 = test_create_sg("sg8", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg8);
 	expect_conn8 = test_create_conn((TfwPeer *)srv);
+	sg8->sched->update_grp(sg8);
 
-	sg9 = test_create_sg("sg9", "dummy");
+	sg9 = test_create_sg("sg9", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg9);
 	expect_conn9 = test_create_conn((TfwPeer *)srv);
+	sg9->sched->update_grp(sg9);
 
-	sg10 = test_create_sg("sg10", "dummy");
+	sg10 = test_create_sg("sg10", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg10);
 	expect_conn10 = test_create_conn((TfwPeer *)srv);
+	sg10->sched->update_grp(sg10);
 
 	if (parse_cfg("sched_http_rules {\nmatch sg1 uri eq /foo;\n\
 	                                   match sg2 uri prefix /foo/bar;\n\
@@ -270,9 +282,10 @@ TEST(tfw_sched_http, one_rule)
 		TfwServer *srv;
 		TfwSrvConnection *expect_conn;
 
-		sg = test_create_sg("default", "dummy");
+		sg = test_create_sg("default", "round-robin");
 		srv = test_create_srv("127.0.0.1", sg);
 		expect_conn = test_create_conn((TfwPeer *)srv);
+		sg->sched->update_grp(sg);
 
 		if (parse_cfg(test_cases[i].rule_str)) {
 			TEST_FAIL("can't parse rules\n");
@@ -289,6 +302,8 @@ TEST(tfw_sched_http, one_rule)
 
 TEST_SUITE(sched_http)
 {
+	sched_helper_init();
+
 	tfw_sched_lookup_ptr = get_sym_ptr("tfw_sched_lookup");
 	spec_cleanup_ptr = get_sym_ptr("spec_cleanup");
 
