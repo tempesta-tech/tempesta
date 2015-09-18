@@ -451,6 +451,7 @@ __FSM_STATE(st_curr) {							\
 	BUG_ON(p > data + len);						\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG("parse raw header " #func ": ret=%d data_len=%lu\n",	\
 		__fsm_n, __fsm_sz);					\
@@ -466,7 +467,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, p + __fsm_n - data);\
+		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
 		if (tfw_http_msg_hdr_close(msg, TFW_HTTP_HDR_RAW))	\
 			return TFW_BLOCK;				\
 		parser->_i_st = I_0;					\
