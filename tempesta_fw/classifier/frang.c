@@ -74,13 +74,18 @@ typedef struct {
  * @lock can be removed if RSS is tuned to schedule packets based on
  * <proto, src_ip> touple. However, the hashing could produce bad CPU load
  * balancing so, such settings are not desireble.
+ *
+ * @last_ts	- last access time to the descriptor;
+ * @conn_curr	- current connections number;
+ * @addr	- client IPv6 address (w/o port);
+ * @history	- bursts history organized as a ring-buffer;
  */
 typedef struct frang_account_t {
 	struct hlist_node	hentry;
-	struct in6_addr		addr; /* client address */
-	unsigned long		last_ts; /* last access time */
-	unsigned int		conn_curr; /* current connections number */
+	unsigned long		last_ts;
+	unsigned int		conn_curr;
 	spinlock_t		lock;
+	struct in6_addr		addr;
 	FrangRates		history[FRANG_FREQ];
 } FrangAcc;
 
@@ -136,6 +141,19 @@ static FrangCfg frang_cfg __read_mostly;
 /* GFSM hooks priorities. */
 int prio0, prio1;
 
+#define frang_msg(check, addr, fmt, ...)				\
+do {									\
+	TfwAddr a = { .family = AF_INET6 };				\
+	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
+	memcpy(&a.v6.sin6_addr, addr, sizeof(a.v6.sin6_addr));		\
+	tfw_addr_ntop(&a, abuf, TFW_ADDR_STR_BUF_SIZE);			\
+	TFW_WARN("frang: %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
+} while (0)
+
+#define frang_limmsg(lim_name, curr_val, lim, addr)			\
+	frang_msg(lim_name " exceeded", addr, ": %ld (lim=%ld)\n",	\
+		  (long)curr_val, (long)lim)
+
 /**
  * Lookups and allocate in necessary client resource accounting descriptor.
  * The descriptor is returned locked.
@@ -144,21 +162,21 @@ static FrangAcc *
 frang_get_clnt_ra(struct sock *sk)
 {
 	unsigned int key;
-	struct in6_addr addr;
 	FrangHashBucket *hb;
 	struct hlist_node *tmp;
 	FrangAcc *ra;
+	TfwAddr addr;
 
 	tfw_addr_get_sk_saddr(sk, &addr);
-	key = addr.s6_addr32[0] ^ addr.s6_addr32[1] ^ addr.s6_addr32[2]
-		^ addr.s6_addr32[3];
+	key = addr.v6.sin6_addr.s6_addr32[0] ^ addr.v6.sin6_addr.s6_addr32[1]
+	      ^ addr.v6.sin6_addr.s6_addr32[2] ^ addr.v6.sin6_addr.s6_addr32[3];
 
 	hb = &frang_hash[hash_min(key, FRANG_HASH_BITS)];
 
 	spin_lock(&hb->lock);
 
 	hlist_for_each_entry_safe(ra, tmp, &hb->list, hentry) {
-		if (ipv6_addr_equal(&addr, &ra->addr))
+		if (ipv6_addr_equal(&addr.v6.sin6_addr, &ra->addr))
 			goto found;
 		/* Collect garbage. */
 		if (ra->last_ts + GC_TO < jiffies / HZ) {
@@ -174,7 +192,8 @@ frang_get_clnt_ra(struct sock *sk)
 		return NULL;
 	}
 
-	memcpy(&ra->addr, &addr, sizeof(addr));
+	memcpy(&ra->addr, &addr.v6.sin6_addr, sizeof(addr.v6.sin6_addr));
+
 	spin_lock_init(&ra->lock);
 	ra->last_ts = jiffies;
 
@@ -212,18 +231,16 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 	ra->conn_curr++;
 
 	if (frang_cfg.conn_max && ra->conn_curr > frang_cfg.conn_max) {
-		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-			 "conn_max",
-			 ra->conn_curr, frang_cfg.conn_max);
+		frang_limmsg("connections max num.", ra->conn_curr,
+			     frang_cfg.conn_max, &ra->addr);
 		return TFW_BLOCK;
 	}
 
 	if (frang_cfg.conn_burst
 	    && ra->history[i].conn_new > frang_cfg.conn_burst)
 	{
-		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-			 "conn_burst",
-			 ra->history[i].conn_new, frang_cfg.conn_burst);
+		frang_limmsg("new connections burst", ra->history[i].conn_new,
+			     frang_cfg.conn_burst, &ra->addr);
 		return TFW_BLOCK;
 	}
 
@@ -232,9 +249,8 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			csum += ra->history[i].conn_new;
 	if (frang_cfg.conn_rate && csum > frang_cfg.conn_rate) {
-		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-			 "conn_rate",
-			 csum, frang_cfg.conn_rate);
+		frang_limmsg("new connections rate", csum, frang_cfg.conn_rate,
+			     &ra->addr);
 		return TFW_BLOCK;
 	}
 
@@ -281,18 +297,12 @@ frang_conn_close(struct sock *sk)
 }
 
 static int
-frang_req_limit(struct sock *sk)
+frang_req_limit(FrangAcc *ra)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	unsigned int rsum = 0;
-	int r = TFW_BLOCK, i = ts % FRANG_FREQ;
-	FrangAcc *ra = sk->sk_security;
+	int i = ts % FRANG_FREQ;
 
-	BUG_ON(!ra);
-
-	spin_lock(&ra->lock);
-
-	ra->last_ts = jiffies;
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
 		ra->history[i].conn_new = 0;
@@ -301,33 +311,29 @@ frang_req_limit(struct sock *sk)
 	ra->history[i].req++;
 
 	if (frang_cfg.req_burst && ra->history[i].req > frang_cfg.req_burst) {
-		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-			 "request_burst",
-			 ra->history[i].req, frang_cfg.req_burst);
-		goto block;
+		frang_limmsg("requests burst", ra->history[i].req,
+			     frang_cfg.req_burst, &ra->addr);
+		return TFW_BLOCK;
 	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts)
 			rsum += ra->history[i].req;
 	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate) {
-		TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-			 "request_rate", rsum, frang_cfg.req_rate);
-		goto block;
+		frang_limmsg("request rate", rsum, frang_cfg.req_rate,
+			     &ra->addr);
+		return TFW_BLOCK;
 	}
 
-	r = TFW_PASS;
-block:
-	spin_unlock(&ra->lock);
-	return r;
+	return TFW_PASS;
 }
 
 static int
-frang_http_uri_len(const TfwHttpReq *req)
+frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra)
 {
 	if (req->uri_path.len > frang_cfg.http_uri_len) {
-		TFW_WARN("frang: HTTP URI length limit exceeded: %u (%u)\n",
-			 req->uri_path.len, frang_cfg.http_uri_len);
+		frang_limmsg("HTTP URI length", req->uri_path.len,
+			     frang_cfg.http_uri_len, &ra->addr);
 		return TFW_BLOCK;
 	}
 
@@ -346,16 +352,16 @@ frang_http_uri_len(const TfwHttpReq *req)
  * catch the long headers immediately.
  */
 static int
-__frang_http_field_len(const TfwHttpReq *req)
+__frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra)
 {
 	const TfwStr *field, *end, *dup, *dup_end;
 
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
 			if (field->len > frang_cfg.http_field_len) {
-				TFW_WARN("frang: HTTP field limit exceeded:"
-					 " %u (%u)\n",
-					 field->len, frang_cfg.http_field_len);
+				frang_limmsg("HTTP field length", field->len,
+					     frang_cfg.http_field_len,
+					     &ra->addr);
 				return TFW_BLOCK;
 			}
 		}
@@ -365,45 +371,46 @@ __frang_http_field_len(const TfwHttpReq *req)
 }
 
 static int
-frang_http_field_len(const TfwHttpReq *req)
+frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra)
 {
 	if (req->parser.hdr.len > frang_cfg.http_field_len) {
-		TFW_WARN("frang: HTTP in-progress field limit exceeded:"
-			 " %u (%u)\n",
-			 req->parser.hdr.len, frang_cfg.http_field_len);
+		frang_limmsg("HTTP in-progress field length",
+			     req->parser.hdr.len, frang_cfg.http_field_len,
+			     &ra->addr);
 		return TFW_BLOCK;
 	}
 
-	return __frang_http_field_len(req);
+	return __frang_http_field_len(req, ra);
 }
 
 static int
-frang_http_methods(const TfwHttpReq *req)
+frang_http_methods(const TfwHttpReq *req, FrangAcc *ra)
 {
 	unsigned long mbit = (1 << req->method);
 
 	if (!(frang_cfg.http_methods_mask & mbit)) {
-		TFW_WARN("frang: restricted HTTP method: %u (%#lxu)\n",
-			 req->method, mbit);
+		frang_msg("restricted HTTP method", &ra->addr,
+			  ": %u (%#lxu)\n", req->method, mbit);
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
 }
 
 static int
-frang_http_ct_check(const TfwHttpReq *req)
+frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwStr field, *s;
 	FrangCtVal *curr;
 
-	if (req->method != TFW_HTTP_METH_POST) {
+	if (req->method != TFW_HTTP_METH_POST)
 		return TFW_PASS;
-	}
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE])) {
-		TFW_WARN("frang: 'Content-Type' header field missing\n");
+		frang_msg("Content-Type header field", &ra->addr,
+			  " is missed\n");
 		return TFW_BLOCK;
 	}
+
 	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 			     TFW_HTTP_HDR_CONTENT_TYPE, &field);
 
@@ -425,17 +432,17 @@ frang_http_ct_check(const TfwHttpReq *req)
 	/* Take first chunk only for logging. */
 	s = TFW_STR_CHUNK(&field, 0);
 	if (s) {
-		TFW_WARN("frang: restricted Content-Type value: %.*s\n",
-		          s->len, (char *)s->ptr);
+		frang_msg("restricted Content-Type", &ra->addr,
+			  ": %.*s\n", s->len, (char *)s->ptr);
 	} else {
-		TFW_WARN("frang: restricted empty Content-Type\n");
+		frang_msg("restricted empty Content-Type", &ra->addr, "\n");
 	}
 
 	return TFW_BLOCK;
 }
 
 static int
-frang_http_host_check(const TfwHttpReq *req)
+frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
 	TfwStr field;
@@ -443,7 +450,7 @@ frang_http_host_check(const TfwHttpReq *req)
 	int len;
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
-		TFW_WARN("frang: 'Host' header field missing\n");
+		frang_msg("Host header field", &ra->addr, " is missed\n");
 		return TFW_BLOCK;
 	}
 
@@ -462,7 +469,8 @@ frang_http_host_check(const TfwHttpReq *req)
 		return TFW_BLOCK;
 	tfw_str_to_cstr(&field, buf, len);
 	if (!tfw_addr_pton(buf, &addr)) {
-		TFW_WARN("frang: 'Host' header field contains IP address\n");
+		frang_msg("Host header field contains IP address",
+			  &ra->addr, "\n");
 		return TFW_BLOCK;
 	}
 	return TFW_PASS;
@@ -543,8 +551,14 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	TfwConnection *conn = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
 	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
-
+	FrangAcc *ra = conn->sk->sk_security;
 	__FRANG_FSM_INIT();
+
+	BUG_ON(!ra);
+
+	spin_lock(&ra->lock);
+
+	ra->last_ts = jiffies;
 
 	/*
 	 * There's no need to check for header timeout if this is the very
@@ -564,13 +578,15 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * done with some clever FSM programming, but this is just simpler.
 	 */
 	if (frang_cfg.clnt_hdr_timeout
-	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st)) {
+	    && (skb != head_skb) && FSM_HDR_STATE(req->frang_st))
+	{
 		unsigned long start = req->tm_header;
 		unsigned long delta = frang_cfg.clnt_hdr_timeout;
+
 		if (time_is_before_jiffies(start + delta)) {
-			TFW_WARN("frang: %s limit exceeded: %lums (%lums)\n",
-				 "client_header_timeout",
-				 jiffies - start, delta);
+			frang_limmsg("client header timeout", jiffies - start,
+				     delta, &ra->addr);
+			spin_unlock(&ra->lock);
 			return TFW_BLOCK;
 		}
 	}
@@ -582,9 +598,9 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	if (frang_cfg.http_hchunk_cnt && FSM_HDR_STATE(req->frang_st)) {
 		req->chunk_cnt++;
 		if (req->chunk_cnt > frang_cfg.http_hchunk_cnt) {
-			TFW_WARN("frang: %s limit exceeded: %d (%d)\n",
-			         "http_header_chunk_cnt", req->chunk_cnt,
-			         frang_cfg.http_hchunk_cnt);
+			frang_limmsg("HTTP header chunk count", req->chunk_cnt,
+				     frang_cfg.http_hchunk_cnt, &ra->addr);
+			spin_unlock(&ra->lock);
 			return TFW_BLOCK;
 		}
 	}
@@ -599,7 +615,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 */
 	__FRANG_FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate)
-			r = frang_req_limit(conn->sk);
+			r = frang_req_limit(ra);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);
 	}
 
@@ -624,7 +640,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 			if (req->method == TFW_HTTP_METH_NONE) {
 				__FRANG_FSM_EXIT();
 			}
-			r = frang_http_methods(req);
+			r = frang_http_methods(req, ra);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
 	}
@@ -635,7 +651,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 			if (!(req->uri_path.flags & TFW_STR_COMPLETE)) {
 				__FRANG_FSM_EXIT();
 			}
-			r = frang_http_uri_len(req);
+			r = frang_http_uri_len(req, ra);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldDup);
 	}
@@ -643,7 +659,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	/* Ensure that singular header fields are not duplicated. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_FieldDup) {
 		if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
-			TFW_WARN("frang: duplicate header field found\n");
+			frang_msg("duplicate header field found",
+				  &ra->addr, "\n");
 			r = TFW_BLOCK;
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldLen);
@@ -652,7 +669,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	/* Ensure that length of all parsed headers fields is within limits. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_FieldLen) {
 		if (frang_cfg.http_field_len)
-			r = frang_http_field_len(req);
+			r = frang_http_field_len(req, ra);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Crlf);
 	}
 
@@ -672,15 +689,14 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_FieldLenFinal) {
 		if (frang_cfg.http_field_len)
-			r = __frang_http_field_len(req);
+			r = __frang_http_field_len(req, ra);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Host);
 	}
 
 	/* Ensure presence and the value of Host: header field. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_Host) {
-		if (frang_cfg.http_host_required) {
-			r = frang_http_host_check(req);
-		}
+		if (frang_cfg.http_host_required)
+			r = frang_http_host_check(req, ra);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_ContentType);
 	}
 
@@ -689,9 +705,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * Ensure that the value is one of those defined by a user.
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_ContentType) {
-		if (frang_cfg.http_ct_required || frang_cfg.http_ct_vals) {
-			r = frang_http_ct_check(req);
-		}
+		if (frang_cfg.http_ct_required || frang_cfg.http_ct_vals)
+			r = frang_http_ct_check(req, ra);
 		__FRANG_FSM_MOVE(Frang_Req_Body_Start);
 	}
 
@@ -700,8 +715,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	 * Set the time the body started coming in.
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Body_Start) {
-		if (frang_cfg.http_body_len || frang_cfg.clnt_body_timeout ||
-		    frang_cfg.http_bchunk_cnt)
+		if (frang_cfg.http_body_len || frang_cfg.clnt_body_timeout
+		    || frang_cfg.http_bchunk_cnt)
 		{
 			req->chunk_cnt = 0; /* start counting body chunks now */
 			req->tm_bchunk = jiffies;
@@ -723,11 +738,11 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 		if (frang_cfg.clnt_body_timeout) {
 			unsigned long start = req->tm_bchunk;
 			unsigned long delta = frang_cfg.clnt_body_timeout;
+
 			if (time_is_before_jiffies(start + delta)) {
-				TFW_WARN("frang: %s limit exceeded: "
-					 "%lums (%lums)\n",
-					 "client_body_timeout",
-					 jiffies - start, delta);
+				frang_limmsg("client body timeout",
+					     jiffies - start, delta,
+					     &ra->addr);
 				r = TFW_BLOCK;
 			}
 			req->tm_bchunk = jiffies;
@@ -738,12 +753,11 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	/* Limit number of chunks in request body */
 	__FRANG_FSM_STATE(Frang_Req_Body_ChunkCnt) {
 		req->chunk_cnt++;
-		if (frang_cfg.http_bchunk_cnt &&
-		    req->chunk_cnt > frang_cfg.http_bchunk_cnt)
+		if (frang_cfg.http_bchunk_cnt
+		    && req->chunk_cnt > frang_cfg.http_bchunk_cnt)
 		{
-			TFW_WARN("frang: %s limit exceeded: %d (%d)\n",
-			         "http_body_chunk_cnt", req->chunk_cnt,
-			         frang_cfg.http_bchunk_cnt);
+			frang_limmsg("HTTP body chunk count", req->chunk_cnt,
+				     frang_cfg.http_bchunk_cnt, &ra->addr);
 			r = TFW_BLOCK;
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Body_Len);
@@ -752,10 +766,10 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	/* Ensure that the length of HTTP request body is within limits. */
 	__FRANG_FSM_STATE(Frang_Req_Body_Len) {
 		if (frang_cfg.http_body_len
-		    && (req->body.len > frang_cfg.http_body_len)) {
-			TFW_WARN("frang: %s limit exceeded: %u (%u)\n",
-				 "http_body_len",
-				 req->body.len, frang_cfg.http_body_len);
+		    && (req->body.len > frang_cfg.http_body_len))
+		{
+			frang_limmsg("HTTP body length", req->body.len,
+				     frang_cfg.http_body_len, &ra->addr);
 			r = TFW_BLOCK;
 		}
 		__FRANG_FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
@@ -769,6 +783,8 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 
 	}
 	__FRANG_FSM_FINISH();
+
+	spin_unlock(&ra->lock);
 
 	return r;
 }
