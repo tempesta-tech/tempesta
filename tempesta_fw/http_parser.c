@@ -1083,7 +1083,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_age = parser->_tmp_acc;
@@ -1095,7 +1095,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_fresh = parser->_tmp_acc;
@@ -1134,7 +1134,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_Ext);
 		if (IN_ALPHABET(c, hdr_a))
-			__FSM_I_MOVE(Req_I_CC);
+			__FSM_I_MOVE_n(Req_I_CC, 0);
 		if (c == '\r')
 			return p - data;
 		return CSTR_NEQ;
@@ -1871,7 +1871,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.max_age = parser->_tmp_acc;
@@ -1883,7 +1883,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.s_maxage = parser->_tmp_acc;
@@ -1922,7 +1922,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
 		if (IN_ALPHABET(c, hdr_a))
-			__FSM_I_MOVE(Resp_I_CC);
+			__FSM_I_MOVE_n(Resp_I_CC, 0);
 		if (c == '\r')
 			return p - data;
 		return CSTR_NEQ;
