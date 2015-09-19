@@ -504,4 +504,4 @@ tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size)
 
 	return (pos - out_buf);
 }
-DEBUG_EXPORT_SYMBOL(tfw_addr_ntop);
+EXPORT_SYMBOL(tfw_addr_ntop);

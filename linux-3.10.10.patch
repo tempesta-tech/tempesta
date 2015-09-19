@@ -365,40 +365,6 @@ index 99c9f0c..a6fd726 100644
  struct iovec;
  struct kvec;
  
-diff --git a/include/linux/security.h b/include/linux/security.h
-index 4686491..c8cce6c 100644
---- a/include/linux/security.h
-+++ b/include/linux/security.h
-@@ -1630,7 +1630,7 @@ struct security_operations {
- 	void (*sock_graft) (struct sock *sk, struct socket *parent);
- 	int (*inet_conn_request) (struct sock *sk, struct sk_buff *skb,
- 				  struct request_sock *req);
--	void (*inet_csk_clone) (struct sock *newsk, const struct request_sock *req);
-+	int (*inet_csk_clone) (struct sock *newsk, const struct request_sock *req);
- 	void (*inet_conn_established) (struct sock *sk, struct sk_buff *skb);
- 	int (*secmark_relabel_packet) (u32 secid);
- 	void (*secmark_refcount_inc) (void);
-@@ -2581,7 +2581,7 @@ void security_req_classify_flow(const struct request_sock *req, struct flowi *fl
- void security_sock_graft(struct sock*sk, struct socket *parent);
- int security_inet_conn_request(struct sock *sk,
- 			struct sk_buff *skb, struct request_sock *req);
--void security_inet_csk_clone(struct sock *newsk,
-+int security_inet_csk_clone(struct sock *newsk,
- 			const struct request_sock *req);
- void security_inet_conn_established(struct sock *sk,
- 			struct sk_buff *skb);
-@@ -2737,9 +2737,10 @@ static inline int security_inet_conn_request(struct sock *sk,
- 	return 0;
- }
- 
--static inline void security_inet_csk_clone(struct sock *newsk,
-+static inline int security_inet_csk_clone(struct sock *newsk,
- 			const struct request_sock *req)
- {
-+	return 0;
- }
- 
- static inline void security_inet_conn_established(struct sock *sk,
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
 index dec1748..69ae157 100644
 --- a/include/linux/skbuff.h
@@ -466,10 +432,10 @@ index dec1748..69ae157 100644
  #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..829e4de
+index 0000000..f5f3f38
 --- /dev/null
 +++ b/include/linux/tempesta.h
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,48 @@
 +/**
 + * Linux interface for Tempesta FW (FireWall and/or FrameWork).
 + *
@@ -507,6 +473,7 @@ index 0000000..829e4de
 +} TempestaMapping;
 +
 +/* Security hooks. */
++int tempesta_new_clntsk(struct sock *newsk);
 +void tempesta_register_ops(TempestaOps *tops);
 +void tempesta_unregister_ops(TempestaOps *tops);
 +
@@ -969,29 +936,6 @@ index 1c1738c..5864702 100644
  	new->csum		= old->csum;
  	new->local_df		= old->local_df;
  	new->pkt_type		= old->pkt_type;
-diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
-index 6acb541..d743b74 100644
---- a/net/ipv4/inet_connection_sock.c
-+++ b/net/ipv4/inet_connection_sock.c
-@@ -695,7 +695,17 @@ struct sock *inet_csk_clone_lock(const struct sock *sk,
- 		/* Deinitialize accept_queue to trap illegal accesses. */
- 		memset(&newicsk->icsk_accept_queue, 0, sizeof(newicsk->icsk_accept_queue));
- 
--		security_inet_csk_clone(newsk, req);
-+		/*
-+		 * Tempesta: need this check when we know src port of the new
-+		 * socket request and the new socket is just created: there is
-+		 * still not so much work done, but we already can set
-+		 * sk_security for it.
-+		 */
-+		if (security_inet_csk_clone(newsk, req)) {
-+			bh_unlock_sock(newsk);
-+			sk_free(newsk);
-+			return NULL;
-+		}
- 	}
- 	return newsk;
- }
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
 index ab450c0..6c23c10 100644
 --- a/net/ipv4/tcp.c
@@ -1114,6 +1058,33 @@ index 9c62257..490a03f 100644
  
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
+diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
+index 7999fc5..9d73acb 100644
+--- a/net/ipv4/tcp_ipv4.c
++++ b/net/ipv4/tcp_ipv4.c
+@@ -62,6 +62,7 @@
+ #include <linux/init.h>
+ #include <linux/times.h>
+ #include <linux/slab.h>
++#include <linux/tempesta.h>
+ 
+ #include <net/net_namespace.h>
+ #include <net/icmp.h>
+@@ -1716,6 +1717,14 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+ 	}
+ #endif
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * We need already initialized socket addresses,
++	 * so there is no appropriate security hook.
++	 */
++	if (tempesta_new_clntsk(newsk))
++		goto put_and_exit;
++#endif
+ 	if (__inet_inherit_port(sk, newsk) < 0)
+ 		goto put_and_exit;
+ 	__inet_hash_nolisten(newsk, NULL);
 diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
 index 0f01788..36b9978 100644
 --- a/net/ipv4/tcp_minisocks.c
@@ -1189,10 +1160,37 @@ index ec335fa..fdb0d79 100644
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
-index 0a17ed9..68ecb96 100644
+index 0a17ed9..0fd4f0b 100644
 --- a/net/ipv6/tcp_ipv6.c
 +++ b/net/ipv6/tcp_ipv6.c
-@@ -1946,6 +1946,7 @@ struct proto tcpv6_prot = {
+@@ -39,6 +39,7 @@
+ #include <linux/ipsec.h>
+ #include <linux/times.h>
+ #include <linux/slab.h>
++#include <linux/tempesta.h>
+ 
+ #include <linux/ipv6.h>
+ #include <linux/icmpv6.h>
+@@ -1255,7 +1256,17 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+ 			       sk_gfp_atomic(sk, GFP_ATOMIC));
+ 	}
+ #endif
+-
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * We need already initialized socket addresses,
++	 * so there is no appropriate security hook.
++	 */
++	if (tempesta_new_clntsk(newsk)) {
++		inet_csk_prepare_forced_close(newsk);
++		tcp_done(newsk);
++		goto out;
++	}
++#endif
+ 	if (__inet_inherit_port(sk, newsk) < 0) {
+ 		inet_csk_prepare_forced_close(newsk);
+ 		tcp_done(newsk);
+@@ -1946,6 +1957,7 @@ struct proto tcpv6_prot = {
  #endif
  	.clear_sk		= tcp_v6_clear_sk,
  };
@@ -1278,7 +1276,7 @@ index c26c81e..2d7c1e1 100644
  
  # Object integrity file lists
 diff --git a/security/security.c b/security/security.c
-index a3dce87..7fed985 100644
+index a3dce87..f87302a 100644
 --- a/security/security.c
 +++ b/security/security.c
 @@ -25,6 +25,7 @@
@@ -1298,19 +1296,6 @@ index a3dce87..7fed985 100644
  	return security_ops->sk_alloc_security(sk, family, priority);
  }
  
-@@ -1224,10 +1227,10 @@ int security_inet_conn_request(struct sock *sk,
- }
- EXPORT_SYMBOL(security_inet_conn_request);
- 
--void security_inet_csk_clone(struct sock *newsk,
-+int security_inet_csk_clone(struct sock *newsk,
- 			const struct request_sock *req)
- {
--	security_ops->inet_csk_clone(newsk, req);
-+	return security_ops->inet_csk_clone(newsk, req);
- }
- 
- void security_inet_conn_established(struct sock *sk,
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
 index 0000000..ba1859b
@@ -1341,10 +1326,10 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..d7a21a8
+index 0000000..2a44ce3
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,134 @@
 +/**
 + *		Tempesta FW
 + *
@@ -1365,11 +1350,12 @@ index 0000000..d7a21a8
 + * this program; if not, write to the Free Software Foundation, Inc., 59
 + * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 + */
++#include <linux/ipv6.h>
 +#include <linux/security.h>
 +#include <linux/spinlock.h>
 +#include <linux/tempesta.h>
 +
-+static TempestaOps __rcu *tempesta_ops;
++static TempestaOps __rcu *tempesta_ops = NULL;
 +static DEFINE_SPINLOCK(tops_lock);
 +
 +void
@@ -1406,10 +1392,10 @@ index 0000000..d7a21a8
 +}
 +EXPORT_SYMBOL(tempesta_unregister_ops);
 +
-+static int
-+tempesta_sk_new(struct sock *newsk, const struct request_sock *req)
++int
++tempesta_new_clntsk(struct sock *newsk)
 +{
-+	int r;
++	int r = 0;
 +
 +	TempestaOps *tops;
 +
@@ -1423,8 +1409,9 @@ index 0000000..d7a21a8
 +
 +	rcu_read_unlock();
 +
-+	return 0;
++	return r;
 +}
++EXPORT_SYMBOL(tempesta_new_clntsk);
 +
 +static void
 +tempesta_sk_free(struct sock *sk)
@@ -1462,14 +1449,7 @@ index 0000000..d7a21a8
 +	return r;
 +}
 +
-+/*
-+ * socket_post_create is relatively late phase when a lot of work already
-+ * done and sk_alloc_security looks more attractive. However, the last one
-+ * is called by sk_alloc() before inet_create() before initializes
-+ * inet_sock->inet_sport, so we can't use it.
-+ */
 +static struct security_operations tempesta_sec_ops __read_mostly = {
-+	.inet_csk_clone		= tempesta_sk_new,
 +	.sk_free_security	= tempesta_sk_free,
 +	.socket_sock_rcv_skb	= tempesta_sock_tcp_rcv,
 +};
