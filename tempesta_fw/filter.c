@@ -45,12 +45,73 @@
 #include "filter.h"
 #include "log.h"
 
+enum {
+	TFW_F_DROP,
+};
+
+typedef struct {
+	struct in6_addr	addr;
+	int		action;
+} TfwFRule;
+
 static struct {
-	unsigned int db_size;
-	const char *db_path;
+	unsigned int	db_size;
+	const char	*db_path;
 } filter_cfg __read_mostly;
 
 static TDB *ip_filter_db;
+
+static unsigned long
+tfw_ipv6_hash(struct in6_addr *addr)
+{
+	return ((unsigned long)addr->s6_addr32[0] << 32)
+	       ^ ((unsigned long)addr->s6_addr32[1] << 24)
+	       ^ ((unsigned long)addr->s6_addr32[2] << 8)
+	       ^ addr->s6_addr32[3];
+}
+
+void
+tfw_filter_block_ip(struct in6_addr *addr)
+{
+	TfwFRule rule = {
+		.addr	= *addr,
+		.action	= TFW_F_DROP,
+	};
+	unsigned long key = tfw_ipv6_hash(addr);
+	size_t len = sizeof(rule);
+
+	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
+		char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};
+		tfw_addr_fmt_v6(addr, 0, abuf);
+		TFW_WARN("cannot create blocking rule for %s\n", abuf);
+	}
+}
+EXPORT_SYMBOL(tfw_filter_block_ip);
+
+/**
+ * Drop early IP layer filtering.
+ * The check is run agains each ingress packet - if application layer filter
+ * blocks a client, then the client is totaly blocked and can't send us any
+ * traffic.
+ */
+static int
+tfw_filter_check_ip(struct in6_addr *addr)
+{
+	int r;
+	TdbFRec *rec;
+	TfwFRule *rule;
+
+	rec = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
+	if (!rec)
+		return TFW_PASS;
+
+	rule = (TfwFRule *)rec->data;
+	r = rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+
+	tdb_rec_put(rec);
+
+	return r;
+}
 
 /*
  * Make sure we're dealing with an IPv4 packet. While at that, make sure
@@ -88,21 +149,16 @@ tfw_ipv4_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 {
 	int r;
 	const struct iphdr *ih;
-	TfwFRule *rule;
+	struct in6_addr addr6;
 
 	ih = __ipv4_hdr_check(skb);
 	if (!ih)
 		return NF_DROP;
 
-	/* Drop early: chech the table first. */
-	rule = tdb_rec_get(ip_filter_db, ih->saddr);
-	if (rule) {
-		if (rule->action == TFW_F_DROP) {
-			tdb_rec_put(rule);
-			return NF_DROP;
-		}
-		tdb_rec_put(rule);
-	}
+	ipv6_addr_set_v4mapped(ih->saddr, &addr6);
+
+	if (tfw_filter_check_ip(&addr6) == TFW_BLOCK)
+		return NF_DROP;
 
 	/* Check classifiers for Layer 3. */
 	r = tfw_classify_ipv4(skb);
@@ -178,28 +234,14 @@ tfw_ipv6_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 		int (*okfn)(struct sk_buff *))
 {
 	int r;
-	unsigned long key;
 	struct ipv6hdr *ih;
-	TfwFRule *rule;
 
 	ih = __ipv6_hdr_check(skb);
 	if (!ih)
 		return NF_DROP;
 
-	key = ((unsigned long)ih->saddr.s6_addr32[0] << 32)
-	      | ((unsigned long)ih->saddr.s6_addr32[1] << 24)
-	      | ((unsigned long)ih->saddr.s6_addr32[2] << 8)
-	      | ih->saddr.s6_addr32[3];
-
-	/* Drop early: chech the table first. */
-	rule = tdb_rec_get(ip_filter_db, key);
-	if (rule) {
-		if (rule->action == TFW_F_DROP) {
-			tdb_rec_put(rule);
-			return NF_DROP;
-		}
-		tdb_rec_put(rule);
-	}
+	if (tfw_filter_check_ip(&ih->saddr) == TFW_BLOCK)
+		return NF_DROP;
 
 	/* Check classifiers for Layer 3. */
 	r = tfw_classify_ipv6(skb);

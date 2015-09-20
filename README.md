@@ -111,15 +111,26 @@ Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta 
 * **sticky name=`__cookie__` enforce;**
 Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta expects that Tempesta sticky cookie is present in each HTTP request. If it is not present, Tempesta sends HTTP 302 response that redirects the client to the same URI and includes `Set-Cookie` header field, which prompts that Tempesta sticky cookie with the name `__cookie__` is set in requests from the client.
 
+
 ### Frang
 
-**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks prevention.
+**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
+prevention. It uses static limiting and checking of ingress HTTP requests.
+The main portion of it's logic is at HTTP layer, so it's recomended to use
+*ip_block* option (switched on by default) to block malicious users at
+IP layer.
+
 Use `-f` command key to start Tempesta with Frang:
 
         $ ./tempesta.sh -f --start
 
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:
+
+* **ip_block** - if the option is switched on, then Frang will add IP addresses
+		 of clients who reaches the limits to ```filter_db``` table,
+		 so that the clients traffic will be dropped much earlier.
+		 See also [filter](# Filter) section.
 
 * **request_rate** - maximum number of requests per second from a client;
 
@@ -154,3 +165,6 @@ The list of available options:
 * **http_methods** - the list of accepted HTTP methods;
 
 
+### Filter
+
+TODO
