@@ -69,12 +69,12 @@ tfw_addr_get_sk_saddr(struct sock *sk, TfwAddr *addr)
 	addr->v6.sin6_port = inet_sk(sk)->inet_sport;
 #if IS_ENABLED(CONFIG_IPV6)
 	if (inet6_sk(sk)) {
-		memcpy(&addr->v6.sin6_addr, &inet6_sk(sk)->saddr,
+		memcpy(&addr->v6.sin6_addr, &inet6_sk(sk)->daddr,
 		       sizeof(struct in6_addr));
 	} else
 #endif
 	{
-		ipv6_addr_set_v4mapped(inet_sk(sk)->inet_saddr,
+		ipv6_addr_set_v4mapped(inet_sk(sk)->inet_daddr,
 				       &addr->v6.sin6_addr);
 	}
 	addr->v6.sin6_flowinfo = 0;
@@ -86,5 +86,7 @@ tfw_addr_get_sk_sport(struct sock *sk)
 {
 	return inet_sk(sk)->inet_sport;
 }
+
+
 
 #endif /* __TFW_ADDR_H__ */
