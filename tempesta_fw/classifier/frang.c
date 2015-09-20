@@ -43,18 +43,21 @@
 #include <linux/hashtable.h>
 #include <linux/spinlock.h>
 
+#include "tdb.h"
+
 #include "../tempesta_fw.h"
 #include "../addr.h"
 #include "../classifier.h"
 #include "../client.h"
 #include "../connection.h"
+#include "../filter.h"
 #include "../gfsm.h"
 #include "../http_msg.h"
 #include "../log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.3");
+MODULE_VERSION("0.1.4");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -131,6 +134,9 @@ typedef struct {
 	unsigned int	http_bchunk_cnt;
 	bool 		http_ct_required;
 	bool 		http_host_required;
+
+	bool		ip_block;
+
 	/* The bitmask of allowed HTTP Method values. */
 	unsigned long 	http_methods_mask;
 	/* The list of allowed Content-Type values. */
@@ -143,10 +149,8 @@ int prio0, prio1;
 
 #define frang_msg(check, addr, fmt, ...)				\
 do {									\
-	TfwAddr a = { .family = AF_INET6 };				\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	memcpy(&a.v6.sin6_addr, addr, sizeof(a.v6.sin6_addr));		\
-	tfw_addr_ntop(&a, abuf, TFW_ADDR_STR_BUF_SIZE);			\
+	tfw_addr_fmt_v6(addr, 0, abuf);					\
 	TFW_WARN("frang: %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
 } while (0)
 
@@ -270,6 +274,8 @@ frang_conn_new(struct sock *sk)
 	sk->sk_security = ra;
 
 	r = frang_conn_limit(ra, sk);
+	if (r == TFW_BLOCK && frang_cfg.ip_block)
+		tfw_filter_block_ip(&ra->addr);
 
 	spin_unlock(&ra->lock);
 
@@ -545,13 +551,12 @@ st: __attribute__((unused))						\
 	__FRANG_FSM_EXIT()
 
 static int
-frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
+		       unsigned int off)
 {
 	int r = TFW_PASS;
-	TfwConnection *conn = (TfwConnection *)obj;
 	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
 	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
-	FrangAcc *ra = conn->sk->sk_security;
 	__FRANG_FSM_INIT();
 
 	BUG_ON(!ra);
@@ -789,6 +794,20 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	return r;
 }
 
+static int
+frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+{
+	int r;
+	TfwConnection *conn = (TfwConnection *)obj;
+	FrangAcc *ra = conn->sk->sk_security;
+
+	r = frang_http_req_process(ra, conn, skb, off);
+	if (r == TFW_BLOCK && frang_cfg.ip_block)
+		tfw_filter_block_ip(&ra->addr);
+
+	return r;
+}
+
 static TfwClassifier frang_class_ops = {
 	.classify_conn_estab	= frang_conn_new,
 	.classify_conn_close	= frang_conn_close,
@@ -908,6 +927,11 @@ frang_start(void)
 }
 
 static TfwCfgSpec frang_cfg_section_specs[] = {
+	{
+		"ip_block", "on",
+		tfw_cfg_set_bool,
+		&frang_cfg.ip_block,
+	},
 	{
 		"request_rate", "0",
 		tfw_cfg_set_int,
