@@ -21,8 +21,8 @@ EXTRA_CFLAGS = $(DEFINES)
 ifdef NORMALIZATION
 	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
 endif
-ifneq ($(NDEBUG), 1)
-EXTRA_CFLAGS += -DDEBUG
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
 obj-m	+= tempesta_db/core/ tempesta_fw/
