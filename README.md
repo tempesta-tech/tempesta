@@ -54,12 +54,6 @@ To build the module you need to do the following steps:
 
         $ cd tempesta && make
 
-Note that currently Tempesta is built with DEBUG option by default which
-produces plenty of debug messages and can hit the system performance
-significantly. To disable the option build Tempesta with ```NDEBUG``` option:
-
-        $ NDEBUG=1 make
-
 
 ### Run & Stop
 
@@ -130,7 +124,7 @@ The list of available options:
 * **ip_block** - if the option is switched on, then Frang will add IP addresses
 		 of clients who reaches the limits to ```filter_db``` table,
 		 so that the clients traffic will be dropped much earlier.
-		 See also [filter](# Filter) section.
+		 See also [Filter](#Filter) section.
 
 * **request_rate** - maximum number of requests per second from a client;
 
@@ -165,6 +159,6 @@ The list of available options:
 * **http_methods** - the list of accepted HTTP methods;
 
 
-### Filter
+### <a name="Filter"></a> Filter
 
 TODO

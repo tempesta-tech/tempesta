@@ -198,6 +198,8 @@ frang_get_clnt_ra(struct sock *sk)
 
 	memcpy(&ra->addr, &addr.v6.sin6_addr, sizeof(addr.v6.sin6_addr));
 
+	TFW_DBG_ADDR6("new client resource accounting", &ra->addr);
+
 	spin_lock_init(&ra->lock);
 	ra->last_ts = jiffies;
 
@@ -528,14 +530,14 @@ switch(st)
 
 #define __FRANG_FSM_FINISH()						\
 done:									\
-	TFW_DBG("Finish FRANG FSM at state %d\n", __fsm_const_state);	\
-	TFW_DBG("Frang return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");	\
+	TFW_DBG3("Finish FRANG FSM at state %d\n", __fsm_const_state);	\
+	TFW_DBG3("Frang return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");\
 	req->frang_st = __fsm_const_state;
 
 #define __FRANG_FSM_STATE(st)						\
 case st:								\
 st: __attribute__((unused))						\
-	TFW_DBG("enter FRANG FSM at state %d\n", st);			\
+	TFW_DBG3("enter FRANG FSM at state %d\n", st);			\
 	__fsm_const_state = st; /* optimized out to constant */
 
 #define __FRANG_FSM_EXIT()	goto done;
@@ -835,12 +837,12 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 
-		TFW_DBG("frang: parsed method: %s => %d\n",
-			method_str, method_id);
+		TFW_DBG3("frang: parsed method: %s => %d\n",
+			 method_str, method_id);
 		methods_mask |= (1 << method_id);
 	}
 
-	TFW_DBG("parsed methods_mask: %#lx\n", methods_mask);
+	TFW_DBG3("parsed methods_mask: %#lx\n", methods_mask);
 	frang_cfg.http_methods_mask = methods_mask;
 	return 0;
 }
@@ -896,7 +898,7 @@ frang_set_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		vals_pos->str = strs_pos;
 		vals_pos->len = (len - 1);
 
-		TFW_DBG("parsed Content-Type value: '%s'\n", in_str);
+		TFW_DBG3("parsed Content-Type value: '%s'\n", in_str);
 
 		vals_pos++;
 		strs_pos += len;
