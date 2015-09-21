@@ -161,4 +161,26 @@ The list of available options:
 
 ### <a name="Filter"></a> Filter
 
-TODO
+Let's see a simple example to understand Tempesta filtering.
+
+Firstly, run Tempesta with enabled [Frang](#Frang) and put some load onto the
+system to make Frang generat a blocking rule:
+
+        $ dmesg | grep frang
+	[   53.950426] [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
+
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
+calls filter module which stores the blocked IPs in Tempesta DB, so now we can
+run some queries on the database (you can read more about
+[tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
+
+	# ./tdbq -a info
+
+	Tempesta DB version: 0.1.14
+	Open tables: filter
+
+	INFO: records=1 status=OK zero-copy
+
+The table ```filter``` contains all the blocked IP addresses.
+
+
