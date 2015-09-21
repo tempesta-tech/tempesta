@@ -89,7 +89,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
 
-	TFW_DBG("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
+	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 
 	/*
 	 * The new sk->sk_user_data points to the TfwListenSock of the parent
@@ -126,7 +126,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 	ss_set_callbacks(sk);
 
-	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
+	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		sk, conn, cli);
 	return 0;
 
@@ -148,7 +148,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
-	TFW_DBG("close client socket: sk=%p, conn=%p, client=%p\n",
+	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
 
 	/*

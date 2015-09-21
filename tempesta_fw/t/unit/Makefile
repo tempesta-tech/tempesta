@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies.
+# Copyright (C) 2015 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,6 +21,11 @@ tfw_root = $(src)/../../../
 
 EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(tfw_root)/tempesta_fw \
 		-I$(tfw_root)/tempesta_db/core -I$(tfw_root)/sync_socket
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDBG_LVL=$(DEBUG)
+else
+	EXTRA_CFLAGS += -DDBG_LVL=0
+endif
 
 obj-m += tfw_test.o
 tfw_test-objs = \
