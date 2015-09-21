@@ -24,10 +24,11 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/gfp.h>
+#include <linux/list.h>
 
 #include "pool.h"
 
-#define TFW_POOL_SIZE(p)	(PAGE_SIZE << (p)->order)
+#define TFW_POOL_CHUNK_SIZE(p)	(PAGE_SIZE << (p)->order)
 
 /**
  * Allocate bit more pages than we need.
@@ -35,15 +36,22 @@
 TfwPool *
 __tfw_pool_new(size_t n)
 {
-	unsigned int order = (n + sizeof(TfwPool)) >> PAGE_SHIFT;
+	unsigned int order = (n + sizeof(TfwPool) + sizeof(TfwPoolChunk)) >> PAGE_SHIFT;
 	TfwPool *p;
+	TfwPoolChunk *chunk;
 
 	p = (TfwPool *)__get_free_pages(GFP_ATOMIC, order);
 	if (!p)
 		return NULL;
-	p->base = (unsigned char *)p;
-	p->order = order;
-	p->off = sizeof(*p);
+
+	INIT_LIST_HEAD(&p->chunks);
+
+	chunk = (TfwPoolChunk *)(p + 1);
+	chunk->base = (unsigned char *)p;
+	chunk->order = order;
+	chunk->off = sizeof(*p) + sizeof(*chunk);
+	INIT_LIST_HEAD(&chunk->list);
+	list_add(&chunk->list, &p->chunks);
 
 	return p;
 }
@@ -53,15 +61,26 @@ void *
 tfw_pool_alloc(TfwPool *p, size_t n)
 {
 	void *a;
+	TfwPoolChunk *chunk;
+
+	chunk = list_entry(p->chunks.next, TfwPoolChunk, list);
 
 	/* TODO properly increase the pool size. */
-	if (unlikely(p->off + n >= TFW_POOL_SIZE(p))) {
-		TFW_ERR("%s: insufficient space in pool %p\n", __func__, p);
-		return NULL;
+	if (unlikely(chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
+		unsigned int order = (n + sizeof(TfwPoolChunk)) >> PAGE_SHIFT;
+		chunk = (TfwPoolChunk *)__get_free_pages(GFP_ATOMIC, order);
+		if (!chunk)
+			return NULL;
+
+		chunk->base = (unsigned char *)chunk;
+		chunk->order = order;
+		chunk->off = sizeof(*chunk);
+		INIT_LIST_HEAD(&chunk->list);
+		list_add(&chunk->list, &p->chunks);
 	}
 
-	a = p->base + p->off;
-	p->off += n;
+	a = chunk->base + chunk->off;
+	chunk->off += n;
 
 	return a;
 }
@@ -70,21 +89,22 @@ EXPORT_SYMBOL(tfw_pool_alloc);
 void *
 tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 {
-	unsigned char *p_tmp = ptr;
+	unsigned char *tmp_ptr = ptr;
 	void *a;
+	TfwPoolChunk *chunk;
+
+	list_for_each_entry(chunk, &p->chunks, list) {
+		if (chunk->base <= tmp_ptr &&
+		    tmp_ptr < chunk->base + TFW_POOL_CHUNK_SIZE(chunk)) {
+			break;
+		}
+	}
 
 	BUG_ON(new_n < old_n);
 
-	if (p_tmp + old_n == p->base + p->off) {
-		/*
-		 * Quick path: there were no other allocations since previous
-		 * alloc().
-		 */
-		if (unlikely(p->off + new_n - old_n >= TFW_POOL_SIZE(p))) {
-			TFW_ERR("%s: insufficient space in pool %p\n", __func__, p);
-			return NULL;
-		}
-		p->off += new_n - old_n;
+	if (ptr + old_n == chunk->base + chunk->off &&
+	    chunk->off + new_n - old_n < TFW_POOL_CHUNK_SIZE(chunk)) {
+		chunk->off += new_n - old_n;
 		return ptr;
 	}
 
@@ -99,6 +119,10 @@ EXPORT_SYMBOL(tfw_pool_realloc);
 void
 tfw_pool_free(TfwPool *p)
 {
-	free_pages((unsigned long)p, p->order);
+	TfwPoolChunk *chunk;
+
+	list_for_each_entry(chunk, &p->chunks, list) {
+		free_pages((unsigned long)chunk, chunk->order);
+	}
 }
 EXPORT_SYMBOL(tfw_pool_free);

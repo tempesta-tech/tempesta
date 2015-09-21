@@ -28,9 +28,14 @@
 #define TFW_POOL_ZERO	0x1
 
 typedef struct {
-	unsigned char *base; /* base address of the pool */
-	unsigned int order; /* total size of the pool */
+	struct list_head list;
+	unsigned char *base; /* base address of the pool chunk */
+	unsigned int order; /* total size of the pool chunk */
 	unsigned int off; /* current offset, INVAIRANT: off < size */
+} TfwPoolChunk;
+
+typedef struct {
+	struct list_head chunks;
 } ____cacheline_aligned TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
