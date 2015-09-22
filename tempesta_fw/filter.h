@@ -23,15 +23,6 @@
 
 #include <linux/in6.h>
 
-enum {
-	TFW_F_DROP,
-};
-
-typedef struct {
-	struct in6_addr		addr;
-	int			action;
-} TfwFRule;
-
-void tfw_filter_add_inport(__be16 port);
+void tfw_filter_block_ip(struct in6_addr *addr);
 
 #endif /* __TFW_FILTER_H__ */

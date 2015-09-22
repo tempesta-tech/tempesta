@@ -34,7 +34,6 @@
 #include "classifier.h"
 #include "client.h"
 #include "connection.h"
-#include "filter.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
@@ -85,12 +84,12 @@ tfw_cli_conn_release(TfwConnection *conn)
 static int
 tfw_sock_clnt_new(struct sock *sk)
 {
-	int r;
+	int r = -ENOMEM;
 	TfwClient *cli;
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
 
-	TFW_DBG("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
+	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 
 	/*
 	 * The new sk->sk_user_data points to the TfwListenSock of the parent
@@ -101,25 +100,15 @@ tfw_sock_clnt_new(struct sock *sk)
 	listen_sock_proto = sk->sk_user_data;
 	sk->sk_user_data = NULL;
 
-	/* Classify the connection before any resource allocations. */
-	r = tfw_classify_conn_estab(sk);
-	if (r) {
-		TFW_DBG("new client socket is blocked by the classifier: "
-			"sk=%p, r=%d\n", sk, r);
-		goto err_classify;
-	}
-
 	cli = tfw_client_obtain(sk);
 	if (!cli) {
 		TFW_ERR("can't obtain a client for the new socket\n");
-		r = -ENOENT;
-		goto err_classify;
+		return -ENOENT;
 	}
 
 	conn = tfw_cli_conn_alloc();
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
-		r = -ENOMEM;
 		goto err_client;
 	}
 
@@ -137,7 +126,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 	ss_set_callbacks(sk);
 
-	TFW_DBG("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
+	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		sk, conn, cli);
 	return 0;
 
@@ -151,27 +140,16 @@ err_conn:
 	tfw_cli_conn_free(conn);
 err_client:
 	tfw_client_put(cli);
-err_classify:
-	tfw_classify_conn_close(sk);
 	return r;
 }
 
 static int
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	int r;
 	TfwConnection *conn = sk->sk_user_data;
 
-	TFW_DBG("close client socket: sk=%p, conn=%p, client=%p\n",
+	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
-
-	/* Classify the connection closing while all resources are alive. */
-	/*
-	 * FIXME: here we call tfw_classify_conn_close() while these resources
-	 * are alive, but in tfw_sock_clnt_new() we call it when resources are
-	 * freed (or not yet allocated).
-	 */
-	r = tfw_classify_conn_close(sk);
 
 	/*
 	 * Withdraw from socket activity. Connection is now closed,
@@ -191,7 +169,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	if (tfw_connection_put(conn))
 		tfw_cli_conn_release(conn);
 
-	return r;
+	return 0;
 }
 
 static const SsHooks tfw_sock_clnt_ss_hooks = {
@@ -258,7 +236,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	ls->addr = *addr;
 
 	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
-	tfw_filter_add_inport(addr->v4.sin_port);
+	tfw_classifier_add_inport(addr->v4.sin_port);
 
 	return 0;
 }

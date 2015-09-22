@@ -472,6 +472,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 
 	return pos;
 }
+EXPORT_SYMBOL(tfw_addr_fmt_v6);
 
 /**
  * Convert IPv4/IPv6 address and a port value to string,

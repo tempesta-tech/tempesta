@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.13"
+#define TDB_VERSION	"0.1.14"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -78,26 +78,11 @@ EXPORT_SYMBOL(tdb_entry_add);
 void *
 tdb_rec_get(TDB *db, unsigned long key)
 {
-	TdbRec *r;
-	TdbBucket *b;
-
-	b = tdb_htrie_lookup(db->hdr, key);
+	TdbBucket *b = tdb_htrie_lookup(db->hdr, key);
 	if (!b)
 		return NULL;
 
-	/* The bucket must be alive regardless deleted/evicted records in it. */
-	TDB_HTRIE_FOREACH_REC(db->hdr, b, r, {
-		/* Return the record w/ locked bucket. */
-		if (TDB_HTRIE_VARLENRECS(db->hdr)) {
-			if (tdb_live_vsrec((TdbVRec *)r))
-				return r;
-		} else {
-			if (tdb_live_fsrec(db->hdr, (TdbFRec *)r))
-				return r;
-		}
-	});
-
-	return NULL;
+	return tdb_htrie_bscan_for_rec(db->hdr, b, key);
 }
 EXPORT_SYMBOL(tdb_rec_get);
 
