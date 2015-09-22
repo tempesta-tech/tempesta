@@ -48,6 +48,17 @@ enum {
 };
 
 /**
+ * Set final field length and mark it as finished.
+ */
+static inline void
+__field_finish(TfwHttpMsg *hm, TfwStr *field,
+	       unsigned char *begin, unsigned char *end)
+{
+	tfw_http_msg_field_chunk_fixup(hm, field, begin, end - begin);
+	field->flags |= TFW_STR_COMPLETE;
+}
+
+/**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
  * used in the defines below here to reduce stack frame usage.
@@ -1322,7 +1333,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* Host is read, start to read port or abs_path. */
 	__FSM_STATE(Req_UriHostEnd) {
-		tfw_http_msg_field_chunk_fixup(msg, &req->host, data, p - data);
+		__field_finish(msg, &req->host, data, p);
 
 		if (likely(c == '/')) {
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
@@ -1364,7 +1375,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
 
 		if (likely(c == ' ')) {
-			tfw_http_msg_field_chunk_fixup(msg, &req->uri_path, data, p - data);
+			__field_finish(msg, &req->uri_path, data, p);
 			__FSM_MOVE(Req_HttpVer);
 		}
 
