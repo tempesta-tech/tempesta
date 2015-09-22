@@ -102,7 +102,9 @@ listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
 
-### Servers
+### Server Load Balancing
+
+#### Servers
 
 A back end HTTP server is defined with `server` directive. The full syntax is as follows:
 ```
@@ -118,7 +120,7 @@ server 10.1.0.1;
 server [fc00::1]:80;
 ```
 
-### Server Groups
+#### Server Groups
 
 Back end servers can be grouped together into a single unit for the purpose of load balancing. Servers within a group are considered interchangeable. The load is distributed evenly among servers within a group. If a server goes offline, other servers in a group take the load.
 The full syntax is as follows:
@@ -142,7 +144,7 @@ srv_group static_storage sched=hash {
 }
 ```
 
-### Schedulers
+#### Schedulers
 
 Scheduler is used to distribute load among known servers. The syntax is as follows:
 ```
@@ -161,7 +163,7 @@ The defined scheduler affects all server definitions that are missing a schedule
 
 Multiple `sched` directives may be defined in the configuration file. Each directive affects server groups that follow it.
 
-### HTTP Scheduler
+#### HTTP Scheduler
 
 HTTP scheduler plays a special role as it distributes HTTP requests among groups of back end servers. Then requests are futher distributed among individual back end servers within a chosen group.
 
@@ -235,7 +237,7 @@ Enable Tempesta sticky cookie. Default cookie name is used. Tempesta expects tha
 * **sticky enforce;**
 Enable Tempesta sticky cookie. Default cookie name is used. Tempesta expects that Tempesta sticky cookie is present in each HTTP request. If it is not present, Tempesta sends HTTP 302 response that redirects the client to the same URI and includes `Set-Cookie` header field, which prompts that Tempesta sticky cookie with default name is set in requests from the client.
 
-* * *sticky name=`__cookie__`;**
+* **sticky name=`__cookie__`;**
 Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta expects that Tempesta sticky cookie is present in each HTTP request. If it is not present, then Tempesta includes `Set-Cookie` header field in an HTTP response, which prompts that Tempesta sticky cookie with the name `__cookie__` is set in requests from the client.
 
 * **sticky name=`__cookie__` enforce;**
