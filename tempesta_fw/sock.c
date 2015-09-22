@@ -38,7 +38,7 @@
 #define TFW_BANNER	"[sync_sockets] "
 #endif
 
-#ifdef DEBUG
+#if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",

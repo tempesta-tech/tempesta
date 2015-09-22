@@ -51,15 +51,16 @@ typedef struct {
 	unsigned int	shifts[TDB_HTRIE_FANOUT];
 } __attribute__((packed)) TdbHtrieNode;
 
-/* Unlocked and simplified version of TDB_HTRIE_FOREACH_REC. */
+/**
+ * Unlocked and simplified version of tdb_htrie_bscan_for_rec() for
+ * small records only.
+ */
 #define TDB_HTRIE_FOREACH_REC_UNLOCKED(d, b, r)				\
 	for ( ; b; b = TDB_HTRIE_BUCKET_NEXT(d, b))			\
 		for (r = TDB_HTRIE_BCKT_1ST_REC(b);			\
-		     ({ long _n = (char *)r - (char *)b + sizeof(*r);	\
-			BUG_ON(_n < TDB_HTRIE_MINDREC			\
-			       && r != TDB_HTRIE_BCKT_1ST_REC(b)	\
-			       && _n + __RECLEN(d, r) > TDB_HTRIE_MINDREC);\
-			_n <= TDB_HTRIE_MINDREC; });			\
+		     (char *)r - (char *)b + sizeof(*r)	<= TDB_HTRIE_MINDREC \
+		     && (char *)r - (char *)b + TDB_HTRIE_RECLEN(d, r)	\
+			<= TDB_HTRIE_MINDREC;				\
 		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))
 
 
@@ -439,7 +440,7 @@ do {									\
 			    | TDB_HTRIE_DBIT;				\
 	TDB_DBG("burst: link bckt=%p w/ iblk=%#x by %#lx (key=%#lx)\n",	\
 		bckt, new_in_idx, k, r->key);				\
-	n = TDB_HTRIE_RALIGN(sizeof(*r) + __RECLEN(dbh, r));		\
+	n = TDB_HTRIE_RECLEN(dbh, r);					\
 	nb[k].b = TDB_HTRIE_OFF(dbh, bckt);				\
 	nb[k].off = sizeof(*b) + n;					\
 	free_nb = -(long)k; /* remember which block we save & copy */	\
@@ -782,6 +783,48 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 		return NULL;
 
 	return TDB_PTR(dbh, o);
+}
+
+/**
+ * Iterate over all records in collision chain with locked buckets.
+ * Buckets are inspected according to following rules:
+ * - if first record is > TDB_HTRIE_MINDREC, then only it is observer;
+ * - all records which fit TDB_HTRIE_MINDREC.
+ *
+ * The bucket @b at the head of the list must be alive regardless
+ * deleted/evicted records in it.
+ */
+TdbRec *
+tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket *b, unsigned long key)
+{
+	TdbBucket *b_tmp;
+	TdbRec *r;
+
+	read_lock_bh(&b->lock);
+
+	do {
+		r = TDB_HTRIE_BCKT_1ST_REC(b);
+		do {
+			size_t rlen = sizeof(*r) + TDB_HTRIE_RBODYLEN(dbh, r);
+			rlen = TDB_HTRIE_RALIGN(rlen);
+			if ((char *)r + rlen - (char *)b > TDB_HTRIE_MINDREC
+			    && r != TDB_HTRIE_BCKT_1ST_REC(b))
+				break;
+			if (tdb_live_rec(dbh, r) && r->key == key)
+				/* Unlock the bucket by tdb_rec_put(). */
+				return r;
+			r = (TdbRec *)((char *)r + rlen);
+		} while ((char *)r + sizeof(*r) - (char *)b
+			 <= TDB_HTRIE_MINDREC);
+
+		b_tmp = TDB_HTRIE_BUCKET_NEXT(dbh, b);
+		if (b_tmp)
+			read_lock_bh(&b_tmp->lock);
+		read_unlock_bh(&b->lock);
+		b = b_tmp;
+	} while (b);
+
+	return NULL;
 }
 
 TdbHdr *
