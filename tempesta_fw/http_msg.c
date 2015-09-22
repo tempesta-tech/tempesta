@@ -169,6 +169,50 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 }
 
 /**
+ * Fixup the new data chunk to currently parsed HTTP field.
+ *
+ * @len could be 0 if the field was fully read, but we realized this only
+ * now by facinng CRLF at begin of current data chunk.
+ */
+void
+tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
+			       char *data, int len)
+{
+	BUG_ON(field->flags & TFW_STR_DUPLICATE);
+
+	TFW_DBG3("store field chunk len=%d data=%p hdr=<%#x,%u,%p>\n",
+		 len, data, hdr->flags, hdr->len, hdr->ptr);
+
+	/* The header should be open before. */
+	if (unlikely(!field->ptr))
+		return;
+
+	if (TFW_STR_EMPTY(field)) {
+		/*
+		 * The first data chunk case.
+		 * The header chunk was explicitly opened at some data
+		 * position, so close the chunk by end of @data.
+		 */
+		BUG_ON(!TFW_STR_PLAIN(field));
+		field->len = data + len - (char *)field->ptr;
+	}
+	else if (len) {
+		/*
+		 * The data chunk doesn't lay at the header bounds.
+		 * There is at least one finished chunk, add a new one.
+		 */
+		TfwStr *last = tfw_str_add_compound(hm->pool, field);
+		if (unlikely(!last)) {
+			TFW_WARN("Cannot store chunk [%.*s]\n",
+				 min((int)len, 10), data);
+			return;
+		}
+		tfw_http_msg_set_data(hm, last, data);
+		tfw_str_updlen(field, data + len);
+	}
+}
+
+/**
  * Fixup the new data chunk to currently parsed HTTP header.
  *
  * @len could be 0 if the header was fully read, but we realized this only
@@ -177,40 +221,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 void
 tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
 {
-	TfwStr *hdr = &hm->parser.hdr;
-
-	BUG_ON(hdr->flags & TFW_STR_DUPLICATE);
-
-	TFW_DBG3("store header chunk len=%d data=%p hdr=<%#x,%u,%p>\n",
-		 len, data, hdr->flags, hdr->len, hdr->ptr);
-
-	/* The header should be open before. */
-	if (unlikely(!hdr->ptr))
-		return;
-
-	if (TFW_STR_EMPTY(hdr)) {
-		/*
-		 * The first data chunk case.
-		 * The header chunk was explicitly opened at some data
-		 * position, so close the chunk by end of @data.
-		 */
-		BUG_ON(!TFW_STR_PLAIN(hdr));
-		hdr->len = data + len - (char *)hdr->ptr;
-	}
-	else if (len) {
-		/*
-		 * The data chunk doesn't lay at the header bounds.
-		 * There is at least one finished chunk, add a new one.
-		 */
-		TfwStr *h = tfw_str_add_compound(hm->pool, hdr);
-		if (unlikely(!h)) {
-			TFW_WARN("Cannot store chunk [%.*s]\n",
-				 min((int)len, 10), data);
-			return;
-		}
-		tfw_http_msg_set_data(hm, h, data);
-		tfw_str_updlen(hdr, data + len);
-	}
+	tfw_http_msg_field_chunk_fixup(hm, &hm->parser.hdr, data, len);
 }
 
 /**

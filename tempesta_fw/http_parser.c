@@ -51,26 +51,10 @@ enum {
  * Set final field length and mark it as finished.
  */
 static inline void
-__field_finish(TfwStr *field, unsigned char *begin, unsigned char *end)
+__field_finish(TfwHttpMsg *hm, TfwStr *field,
+	       unsigned char *begin, unsigned char *end)
 {
-	if (unlikely(!TFW_STR_PLAIN(field))) {
-		if (unlikely(begin == end)) {
-			tfw_str_del_chunk(field, TFW_STR_CHUNKN(field) - 1);
-		} else {
-			TfwStr *last = (TfwStr *)field->ptr
-				       + TFW_STR_CHUNKN(field) - 1;
-			/*
-			 * This is not the first data segment,
-			 * so current data starts at @begin.
-			 */
-			last->ptr = begin;
-			tfw_str_updlen(field, end);
-		}
-	} else {
-		/* field->ptr must be set before reaching current state. */
-		BUG_ON(!field->ptr);
-		field->len = end - (unsigned char *)field->ptr;
-	}
+	tfw_http_msg_field_chunk_fixup(hm, field, begin, end - begin);
 	field->flags |= TFW_STR_COMPLETE;
 }
 
@@ -101,15 +85,7 @@ st: __attribute__((unused)) 						\
 	TFW_DBG3("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
 		 st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
-#define __FSM_EXIT(field)						\
-do {									\
-	if (field) { /* staticaly resolved */				\
-		tfw_str_updlen(field, data + len);			\
-		if (unlikely(!tfw_str_add_compound(msg->pool, field)))	\
-			return TFW_BLOCK;				\
-	}								\
-	goto done;							\
-} while (0)
+#define __FSM_EXIT()			goto done;
 
 #define FSM_EXIT()							\
 do {									\
@@ -123,25 +99,25 @@ done:									\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	parser->to_go = len - (size_t)(p - data);
 
-#define ____FSM_MOVE_LAMBDA(to, n, code)				\
+#define ____FSM_MOVE_LAMBDA(to, n, field)				\
 do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
-		/* Close currently parsed header chunk. */		\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
-		code;							\
+		/* Close currently parsed field chunk. */		\
+		tfw_http_msg_field_chunk_fixup(msg, field, data, len);	\
+		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
 
 #define __FSM_MOVE_nf(to, n, field)					\
-	____FSM_MOVE_LAMBDA(to, n, __FSM_EXIT(field))
-#define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, NULL)
+	____FSM_MOVE_LAMBDA(to, n, field)
+#define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, &msg->parser.hdr)
 #define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
-#define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, NULL)
+#define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)		do { goto to; } while (0)
 
@@ -154,7 +130,7 @@ do {									\
 #define __FSM_I_MOVE_n(to, n)						\
 do {									\
 	parser->_i_st = to;						\
-	____FSM_MOVE_LAMBDA(to, n, __FSM_I_EXIT());			\
+	____FSM_MOVE_LAMBDA(to, n, &msg->parser.hdr);			\
 } while (0)
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 #define __FSM_I_MOVE_str(to, str)	__FSM_I_MOVE_n(to, sizeof(str) - 1)
@@ -1357,7 +1333,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* Host is read, start to read port or abs_path. */
 	__FSM_STATE(Req_UriHostEnd) {
-		__field_finish(&req->host, data, p);
+		__field_finish(msg, &req->host, data, p);
 
 		if (likely(c == '/')) {
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
@@ -1396,11 +1372,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_UriAbsPath) {
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */
-			____FSM_MOVE_LAMBDA(TFW_HTTP_URI_HOOK, 1,
-					    __FSM_EXIT(&req->uri_path));
+			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
 
 		if (likely(c == ' ')) {
-			__field_finish(&req->uri_path, data, p);
+			__field_finish(msg, &req->uri_path, data, p);
 			__FSM_MOVE(Req_HttpVer);
 		}
 
