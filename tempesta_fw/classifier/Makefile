@@ -18,8 +18,8 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 EXTRA_CFLAGS += -I$(src)/../../sync_socket -I$(src)/../../tempesta_db/core
-ifneq ($(NDEBUG), 1)
-EXTRA_CFLAGS += -DDEBUG
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
 obj-m = tfw_frang.o

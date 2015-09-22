@@ -74,7 +74,7 @@ TfwStr *__fsm_str __attribute__((unused));
 
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
-	TFW_DBG("enter FSM at state %d\n", s);				\
+	TFW_DBG3("enter FSM at state %d\n", s);				\
 switch (s)
 
 #define __FSM_STATE(st)							\
@@ -82,8 +82,8 @@ case st:								\
 st: __attribute__((unused)) 						\
  	__fsm_const_state = st; /* optimized out to constant */		\
 	c = *p;								\
-	TFW_DBG("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
-		st, parser->_i_st, c, isprint(c) ? c : '.', r);
+	TFW_DBG3("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
+		 st, parser->_i_st, c, isprint(c) ? c : '.', r);
 
 #define __FSM_EXIT()			goto done;
 
@@ -399,8 +399,8 @@ __FSM_STATE(st_curr) {							\
 	/* Store header name and field in different chunks. */		\
 	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
-	TFW_DBG("parse special header " #func ": ret=%d data_len=%lu id=%d\n", \
-		__fsm_n, __fsm_sz, id);					\
+	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu""	\
+		 id=%d\n", __fsm_n, __fsm_sz, id);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* The automaton state keeping is handled in @func. */	\
@@ -428,8 +428,8 @@ __FSM_STATE(st_curr) {							\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
 	__fsm_n = func(hm, p, __fsm_sz);				\
-	TFW_DBG("parse raw header " #func ": ret=%d data_len=%lu\n",	\
-		__fsm_n, __fsm_sz);					\
+	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
+		 __fsm_n, __fsm_sz);					\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* The automaton state keeping is handled in @func. */	\
@@ -509,8 +509,8 @@ do {									\
 
 #define TFW_HTTP_INIT_BODY_PARSING(msg, to_state)			\
 do {									\
-	TFW_DBG("parse msg body: flags=%#x content_length=%d\n",	\
-		msg->flags, msg->content_length);			\
+	TFW_DBG3("parse msg body: flags=%#x content_length=%d\n",	\
+		 msg->flags, msg->content_length);			\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_B_MOVE(to_state);					\
@@ -527,13 +527,13 @@ do {									\
 #define TFW_HTTP_PARSE_BODY(prefix)					\
 /* Read request|response body. */					\
 __FSM_STATE(prefix ## _Body) {						\
-	TFW_DBG("read body: to_read=%d\n", parser->to_read);		\
+	TFW_DBG3("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
 		__fsm_sz = len - (size_t)(p - data);			\
 		/* Read next chunk length. */				\
 		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_tmp_acc);\
-		TFW_DBG("len=%zu ret=%d to_read=%d\n",			\
-			__fsm_sz, __fsm_n, parser->_tmp_acc);		\
+		TFW_DBG3("len=%zu ret=%d to_read=%d\n",			\
+			 __fsm_sz, __fsm_n, parser->_tmp_acc);		\
 		switch (__fsm_n) {					\
 		case CSTR_POSTPONE:					\
 			/* Not all data has been parsed. */		\
@@ -692,7 +692,7 @@ __parse_connection(TfwHttpMsg *msg, unsigned char *data, size_t len)
 
 	} /* FSM END */
 done:
-	TFW_DBG("parser: Connection parsed: flags %#x\n", msg->flags);
+	TFW_DBG3("parser: Connection parsed: flags %#x\n", msg->flags);
 
 	return r;
 }
