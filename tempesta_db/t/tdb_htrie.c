@@ -286,25 +286,10 @@ lookup_varsz_records(TdbHdr *dbh)
 			continue;
 		}
 
-		if (TDB_HTRIE_VARLENRECS(dbh)) {
-			TdbVRec *r;
-			bool found = false;
-			TDB_HTRIE_FOREACH_REC(dbh, b, r, {
-				if (tdb_live_vsrec(r)) {
-					__print_bin(r, "\t", "");
-					printf("key=%#lx bckt=%p\n",
-					       tdb_hash_calc(r->data, r->len),
-					       b);
-					if (r->key == k)
-						found = true;
-				}
-			});
-			if (!found)
-				fprintf(stderr, "ERROR: can't find URL %#lx\n",
-					k);
-		} else {
-			BUG();
-		}
+		BUG_ON(!TDB_HTRIE_VARLENRECS(dbh));
+
+		if (!tdb_htrie_bscan_for_rec(dbh, b, k))
+			fprintf(stderr, "ERROR: can't find URL %#lx\n", k);
 	}
 }
 
@@ -377,25 +362,10 @@ lookup_fixsz_records(TdbHdr *dbh)
 			continue;
 		}
 
-		if (TDB_HTRIE_VARLENRECS(dbh)) {
-			BUG();
-		} else {
-			TdbFRec *r;
-			bool found = false;
-			TDB_HTRIE_FOREACH_REC(dbh, b, r, {
-				if (tdb_live_fsrec(dbh, r)) {
-					printf("\t(%#x)%u bckt=%p\n",
-					       *(unsigned int *)r->data,
-					       *(unsigned int *)r->data, b);
-					if (*(unsigned int *)r->data == ints[i]
-					    && r->key == ints[i])
-						found = true;
-				}
-			});
-			if (!found)
-				fprintf(stderr, "ERROR: can't find int %u\n",
-					ints[i]);
-		}
+		BUG_ON(TDB_HTRIE_VARLENRECS(dbh));
+
+		if (!tdb_htrie_bscan_for_rec(dbh, b, ints[i]))
+			fprintf(stderr, "ERROR: can't find int %u\n", ints[i]);
 	}
 }
 

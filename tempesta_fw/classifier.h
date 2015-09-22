@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -54,7 +55,7 @@ typedef struct {
 	/*
 	 * Called when a client connection closed.
 	 */
-	int	(*classify_conn_close)(struct sock *sk);
+	void	(*classify_conn_close)(struct sock *sk);
 	/*
 	 * TODO called on retransmits to client (e.g. SYN+ACK or data).
 	 */
@@ -74,15 +75,14 @@ typedef struct {
 	int	(*classify_tcp_zwp)(void);
 } TfwClassifier;
 
+void tfw_classifier_add_inport(__be16 port);
+
 void tfw_classify_shrink(void);
 
 int tfw_classify_ipv4(struct sk_buff *skb);
 int tfw_classify_ipv6(struct sk_buff *skb);
-int tfw_classify_tcp(struct tcphdr *th);
-int tfw_classify_conn_estab(struct sock *sk);
-int tfw_classify_conn_close(struct sock *sk);
 
-extern int tfw_classifier_register(TfwClassifier *mod);
+extern void tfw_classifier_register(TfwClassifier *mod);
 extern void tfw_classifier_unregister(void);
 
 #endif /* __TFW_CLASSIFIER__ */

@@ -54,12 +54,6 @@ To build the module you need to do the following steps:
 
         $ cd tempesta && make
 
-Note that currently Tempesta is built with DEBUG option by default which
-produces plenty of debug messages and can hit the system performance
-significantly. To disable the option build Tempesta with ```NDEBUG``` option:
-
-        $ NDEBUG=1 make
-
 
 ### Run & Stop
 
@@ -81,6 +75,138 @@ The file location is determined by the `TFW_CFG_PATH` environment variable:
 By default, the `tempesta_fw.conf` from this directory is used.
 
 See `tempesta_fw.conf` for the list of available options and their descriptions.
+
+
+### Listening address
+
+Tempesta listens to incoming connections on specified address and port. The syntax is as follows:
+```
+listen <PORT> | <IPADDR>[:PORT]
+```
+`IPADDR` may be either IPv4 or IPv6 address. Host names are not allowed. IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0"). If only `PORT` is specified, then address 0.0.0.0 (but not [::1]) is used.
+If only `IPADDR` is specified, then default HTTP port 80 is used.
+
+Tempesta opens one socket for each `listen` directive. Multiple `listen` directives may be defined to listen on multiple addresses/ports. If `listen` directive is not defined in the configuration file, then by default Tempesta listens on IPv4 address 0.0.0.0 and port 80, which is an equivalent to `listen 80` directive.
+
+Below are examples of `listen` directive:
+```
+listen 80;
+listen [::0]:80;
+listen 127.0.0.1:8001;
+listen [::1]:8001;
+```
+
+### Server Load Balancing
+
+#### Servers
+
+A back end HTTP server is defined with `server` directive. The full syntax is as follows:
+```
+server <IPADDR>[:<PORT>] [conns_n=<N>]
+```
+`IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed. IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
+`PORT` defaults to 80 if not specified.
+`conns_n=<N>` is the number of parallel connections to the server. `N` defaults to 4 if not specified.
+
+Multiple back end servers may be defined. For example:
+```
+server 10.1.0.1;
+server [fc00::1]:80;
+```
+
+#### Server Groups
+
+Back end servers can be grouped together into a single unit for the purpose of load balancing. Servers within a group are considered interchangeable. The load is distributed evenly among servers within a group. If a server goes offline, other servers in a group take the load.
+The full syntax is as follows:
+```
+srv_group <NAME> [sched=<SCHED_NAME>] {
+	server <IPADDR>[:<PORT>] [conns_n=<N>];
+	...
+}
+```
+`NAME` is a unique identifier of the group that may be used to refer to it later.
+`SCHED_NAME` is the name of scheduler module that distributes load among servers within the group. Default scheduler is used if `sched` parameter is not specified.
+
+Servers that are defined outside of any group implicitly form a special group called `default`.
+
+Below is an example of server group definition:
+```
+srv_group static_storage sched=hash {
+	server 10.10.0.1:8080;
+	server 10.10.0.2:8080;
+	server [fc00::3]:8081 conns_n=1;
+}
+```
+
+#### Schedulers
+
+Scheduler is used to distribute load among known servers. The syntax is as follows:
+```
+sched <SCHED_NAME>
+```
+`SCHED_NAME` is the name of a scheduler available in Tempesta.
+
+Currently there are two schedulers available:
+* **round-robin** - Rotates all servers in a group in round-robin manner so that requests are distributed uniformly across servers. This is the default scheduler.
+* **hash** - Chooses a server based on a URI/Host hash of a request.
+Requests are distributed uniformly, and requests with the same URI/Host are always sent to the same server.
+
+If no scheduler is defined, then scheduler defaults to `round-robin`.
+
+The defined scheduler affects all server definitions that are missing a scheduler definition. If `srv_group` is missing a scheduler definition, and there is a scheduler defined, then that scheduler is set for the group.
+
+Multiple `sched` directives may be defined in the configuration file. Each directive affects server groups that follow it.
+
+#### HTTP Scheduler
+
+HTTP scheduler plays a special role as it distributes HTTP requests among groups of back end servers. Then requests are futher distributed among individual back end servers within a chosen group.
+
+HTTP scheduler is able to look inside of an HTTP request and examine its contents such as URI and headers. The scheduler distributes HTTP requests depending on values of those fields. The work of HTTP scheduler is controlled by pattern-matching rules that map certain header field values to server groups. The full syntax is as follows:
+```
+sched_http_rules {
+	match <SRV_GROUP> <FIELD> <OP> <ARG>;
+	...
+}
+```
+`SRV_GROUP` is the reference to a previously defined server group.
+`FIELD` is an HTTP request field, such as `uri`, `host`, etc.
+`OP` is a string comparison operator, such as `eq`, `prefix`, etc.
+`ARG` is an argument for the operator, such as `/foo/bar.html`, `example.com`, etc.
+
+A `match` entry is a single instruction for the load balancer that says: take `FIELD` of an HTTP request, compare it with `ARG` using `OP`. If they match, then send the request to the specified `SRV_GROUP`. For every HTTP request, the load balancer executes all `match` instructions sequentially until it finds a match. If no match is found, then the request is dropped.
+
+The following `FIELD` keywords are supported:
+* **uri** Only a part of URI is looked at that contains the path and the query string if any. (e.g. `/abs/path.html?query&key=val#fragment`).
+* **host** The host part from URI in HTTP request line, or the value of `Host` header. Host part in URI takes priority over the `Host` header value.
+* **hdr_host** The value of `Host` header.
+* **hdr_conn**  The value of `Connection` header.
+* **hdr_raw** The contents of any other HTTP header field as specified by `ARG`. `ARG` must include contents of an HTTP header starting with the header field name. Processing of `hdr_raw` may be slow because it requires walking over all headers of an HTTP request.
+
+The following `OP` keywords are supported:
+* **eq** `FIELD` is fully equal to the string specified in `ARG`.
+* **prefix** `FIELD` starts with the string specified in `ARG`.
+
+Below are examples of pattern-matching rules that define the HTTP scheduler:
+```
+srv_group static { ... }
+srv_group foo_app { ... }
+srv_group bar_app { ... }
+
+sched_http_rules {
+	match static   uri       prefix  "/static";
+	match static   host      prefix  "static.";
+	match foo_app  host      eq      "foo.example.com";
+	match bar_app  hdr_conn  eq      "keep-alive";
+	match bar_app  hdr_host  prefix  "bar.";
+	match bar_app  hdr_raw   prefix  "X-Custom-Bar-Hdr: ";
+}
+```
+There's a special default match rule that matches any request. If defined, the default rule must come last in the list of rules. All requests that didn't match any rule are routed to the server group specified in the default rule. If a default match rule is not defined, and there's the group `default` with servers defined outside of any group, then the default rule is added implicitly to route requests to the group `default`. The syntax is as follows:
+```
+match <SRV_GROUP> * * *
+```
+
+By default no rules are defined. If there's the group `default`, then the default match rule is added to route HTTP requests to the group `default`. Otherwise, requests don't match any rule, and therefore they're dropped.
 
 
 ### Sticky Cookie
@@ -111,15 +237,26 @@ Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta 
 * **sticky name=`__cookie__` enforce;**
 Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta expects that Tempesta sticky cookie is present in each HTTP request. If it is not present, Tempesta sends HTTP 302 response that redirects the client to the same URI and includes `Set-Cookie` header field, which prompts that Tempesta sticky cookie with the name `__cookie__` is set in requests from the client.
 
-### Frang
 
-**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks prevention.
+### <a name="Frang"></a> Frang
+
+**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
+prevention. It uses static limiting and checking of ingress HTTP requests.
+The main portion of it's logic is at HTTP layer, so it's recomended to use
+*ip_block* option (switched on by default) to block malicious users at
+IP layer.
+
 Use `-f` command key to start Tempesta with Frang:
 
         $ ./tempesta.sh -f --start
 
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:
+
+* **ip_block** - if the option is switched on, then Frang will add IP addresses
+		 of clients who reaches the limits to ```filter_db``` table,
+		 so that the clients traffic will be dropped much earlier.
+		 See also [Filter](#Filter) section.
 
 * **request_rate** - maximum number of requests per second from a client;
 
@@ -152,5 +289,30 @@ The list of available options:
 * **http_ct_vals** - the list of accepted values for `Content-Type` header;
 
 * **http_methods** - the list of accepted HTTP methods;
+
+
+### <a name="Filter"></a> Filter
+
+Let's see a simple example to understand Tempesta filtering.
+
+Firstly, run Tempesta with enabled [Frang](#Frang) and put some load onto the
+system to make Frang generat a blocking rule:
+
+        $ dmesg | grep frang
+        [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
+
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
+calls filter module which stores the blocked IPs in Tempesta DB, so now we can
+run some queries on the database (you can read more about
+[tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
+
+        # ./tdbq -a info
+
+        Tempesta DB version: 0.1.14
+        Open tables: filter
+
+        INFO: records=1 status=OK zero-copy
+
+The table ```filter``` contains all the blocked IP addresses.
 
 

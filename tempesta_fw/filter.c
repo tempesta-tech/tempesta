@@ -45,39 +45,72 @@
 #include "filter.h"
 #include "log.h"
 
-static struct {
-	unsigned int db_size;
-	const char *db_path;
-} filter_cfg __read_mostly;
+enum {
+	TFW_F_DROP,
+};
+
+typedef struct {
+	struct in6_addr	addr;
+	int		action;
+} TfwFRule;
 
 static struct {
-	__be16		ports[DEF_MAX_PORTS];
-	unsigned int	count;
-} tfw_inports __read_mostly;
+	unsigned int	db_size;
+	const char	*db_path;
+} filter_cfg __read_mostly;
 
 static TDB *ip_filter_db;
 
-void
-tfw_filter_add_inport(__be16 port)
+static unsigned long
+tfw_ipv6_hash(struct in6_addr *addr)
 {
-	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
-
-	tfw_inports.ports[tfw_inports.count++] = port;
+	return ((unsigned long)addr->s6_addr32[0] << 32)
+	       ^ ((unsigned long)addr->s6_addr32[1] << 24)
+	       ^ ((unsigned long)addr->s6_addr32[2] << 8)
+	       ^ addr->s6_addr32[3];
 }
 
-/**
- * Check that the incoming packet should be serviced by Tempesta.
- * @return true if it's our packet, false otherwise.
- */
-static bool
-tfw_our_packet(struct tcphdr *th)
+void
+tfw_filter_block_ip(struct in6_addr *addr)
 {
-	int i;
+	TfwFRule rule = {
+		.addr	= *addr,
+		.action	= TFW_F_DROP,
+	};
+	unsigned long key = tfw_ipv6_hash(addr);
+	size_t len = sizeof(rule);
 
-	for (i = 0; i < tfw_inports.count; ++i)
-		if (th->dest == tfw_inports.ports[i])
-			return true;
-	return false;
+	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
+		TFW_WARN_ADDR6("cannot create blocking rule", addr);
+	} else {
+		TFW_DBG_ADDR6("block client", addr);
+	}
+}
+EXPORT_SYMBOL(tfw_filter_block_ip);
+
+/**
+ * Drop early IP layer filtering.
+ * The check is run agains each ingress packet - if application layer filter
+ * blocks a client, then the client is totaly blocked and can't send us any
+ * traffic.
+ */
+static int
+tfw_filter_check_ip(struct in6_addr *addr)
+{
+	int r;
+	TdbFRec *rec;
+	TfwFRule *rule;
+
+	rec = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
+	if (!rec)
+		return TFW_PASS;
+
+	rule = (TfwFRule *)rec->data;
+	r = rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+
+	tdb_rec_put(rec);
+
+	return r;
 }
 
 /*
@@ -116,21 +149,16 @@ tfw_ipv4_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 {
 	int r;
 	const struct iphdr *ih;
-	TfwFRule *rule;
+	struct in6_addr addr6;
 
 	ih = __ipv4_hdr_check(skb);
 	if (!ih)
 		return NF_DROP;
 
-	/* Drop early: chech the table first. */
-	rule = tdb_rec_get(ip_filter_db, ih->saddr);
-	if (rule) {
-		if (rule->action == TFW_F_DROP) {
-			tdb_rec_put(rule);
-			return NF_DROP;
-		}
-		tdb_rec_put(rule);
-	}
+	ipv6_addr_set_v4mapped(ih->saddr, &addr6);
+
+	if (tfw_filter_check_ip(&addr6) == TFW_BLOCK)
+		return NF_DROP;
 
 	/* Check classifiers for Layer 3. */
 	r = tfw_classify_ipv4(skb);
@@ -206,28 +234,14 @@ tfw_ipv6_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 		int (*okfn)(struct sk_buff *))
 {
 	int r;
-	unsigned long key;
 	struct ipv6hdr *ih;
-	TfwFRule *rule;
 
 	ih = __ipv6_hdr_check(skb);
 	if (!ih)
 		return NF_DROP;
 
-	key = ((unsigned long)ih->saddr.s6_addr32[0] << 32)
-	      | ((unsigned long)ih->saddr.s6_addr32[1] << 24)
-	      | ((unsigned long)ih->saddr.s6_addr32[2] << 8)
-	      | ih->saddr.s6_addr32[3];
-
-	/* Drop early: chech the table first. */
-	rule = tdb_rec_get(ip_filter_db, key);
-	if (rule) {
-		if (rule->action == TFW_F_DROP) {
-			tdb_rec_put(rule);
-			return NF_DROP;
-		}
-		tdb_rec_put(rule);
-	}
+	if (tfw_filter_check_ip(&ih->saddr) == TFW_BLOCK)
+		return NF_DROP;
 
 	/* Check classifiers for Layer 3. */
 	r = tfw_classify_ipv6(skb);
@@ -258,30 +272,6 @@ static struct nf_hook_ops tfw_nf_ops[] __read_mostly = {
 	},
 };
 
-/**
- * Called from sk_filter() called from tcp_v4_rcv() and tcp_v6_rcv(),
- * i.e. when IP fragments are already assembled and we can process TCP.
- */
-static int
-tfw_sock_tcp_rcv(struct sock *sk, struct sk_buff *skb)
-{
-	struct tcphdr *th = tcp_hdr(skb);
-
-	/* Pass the packet if it's not for us. */
-	if (!tfw_our_packet(th))
-		return 0;
-
-	/* Call L4 layer classification. */
-	if (tfw_classify_tcp(th) == TFW_BLOCK)
-		return -EPERM;
-
-	return 0;
-}
-
-static TempestaOps tempesta_ops = {
-	.sock_tcp_rcv = tfw_sock_tcp_rcv,
-};
-
 static int
 tfw_filter_start(void)
 {
@@ -299,15 +289,12 @@ tfw_filter_start(void)
 		return r;
 	}
 
-	tempesta_register_ops(&tempesta_ops);
-
 	return r;
 }
 
 static void
 tfw_filter_stop(void)
 {
-	tempesta_unregister_ops(&tempesta_ops);
 	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
 
 	tdb_close(ip_filter_db);
