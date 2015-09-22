@@ -320,6 +320,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	/* TODO copy at least first part of URI here. */
 
+	// FIXME we should not copy cdata->trec to TDB
 	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata, &len);
 	BUG_ON(len != sizeof(cdata));
 	if (!ce)

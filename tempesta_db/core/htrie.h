@@ -79,14 +79,18 @@ typedef struct {
 
 #define TDB_HTRIE_VRFREED	TDB_HTRIE_DBIT
 #define TDB_HTRIE_VRLEN(r)	((r)->len & ~TDB_HTRIE_VRFREED)
-#define __RECLEN(h, r)							\
-	__builtin_choose_expr(__builtin_types_compatible_p(typeof(*(r)),\
-							   TdbVRec),	\
-			      /* The type cast is only to avoid compiler \
-			       * error, @r is always TdbVRec. */	\
-			      TDB_HTRIE_VRLEN((TdbVRec *)r),		\
-			      (h)->rec_len)
-#define TDB_HTRIE_RECLEN(h, r)	TDB_HTRIE_RALIGN(sizeof(*(r)) + __RECLEN(h, r))
+#define TDB_HTRIE_RBODYLEN(h, r)	((h)->rec_len ? : 		\
+					 TDB_HTRIE_VRLEN((TdbVRec *)r))
+/* Be careful to not to use it with TdbRec. */
+#define TDB_HTRIE_RECLEN(h, r)						\
+	TDB_HTRIE_RALIGN(sizeof(*(r))					\
+			 + __builtin_choose_expr(			\
+				__builtin_types_compatible_p(typeof(*(r)),\
+							     TdbVRec),	\
+				/* The type cast is only to avoid compiler \
+				   error, @r is always TdbVRec here. */	\
+				TDB_HTRIE_VRLEN((TdbVRec *)r),		\
+				(h)->rec_len))
 #define TDB_HTRIE_BCKT_1ST_REC(b) ((void *)((b) + 1))
 #define TDB_HTRIE_BUCKET_KEY(b)	(*(unsigned long *)TDB_HTRIE_BCKT_1ST_REC(b))
 /* Iterate over buckets in collision chain. */
@@ -99,42 +103,6 @@ typedef struct {
 #define TDB_HTRIE_ROOT(h)						\
 	(TdbHtrieNode *)((char *)(h) + TDB_HDR_SZ(h) + sizeof(TdbExt))
 
-/**
- * Iterate over all records in collision chain with locked buckets.
- * Buckets are inspected according to following rules:
- * - if first record is > TDB_HTRIE_MINDREC, then only it is observer;
- * - all records which fit TDB_HTRIE_MINDREC.
- *
- * @d		- database handler;
- * @b		- bucket to iterate over;
- * @r		- record pointer;
- * @code	- code to execute for each record.
- *
- * Bucket at the head of the list must be alive.
- */
-#define TDB_HTRIE_FOREACH_REC(d, b, r, code)				\
-do {									\
-	TdbBucket *b_tmp;						\
-	read_lock_bh(&b->lock);						\
-	do {								\
-		for (r = TDB_HTRIE_BCKT_1ST_REC(b);			\
-		     ({ long _n = (char *)r - (char *)b + sizeof(*r);	\
-		        /* Crash if small records exceed small block	\
-			 * boundary. */					\
-			BUG_ON(_n < TDB_HTRIE_MINDREC			\
-			       && r != TDB_HTRIE_BCKT_1ST_REC(b)	\
-			       && _n + __RECLEN(d, r) > TDB_HTRIE_MINDREC);\
-			_n <= TDB_HTRIE_MINDREC; });			\
-		     r = (typeof(r))((char *)r + TDB_HTRIE_RECLEN(d, r)))\
-			code;						\
-		b_tmp = TDB_HTRIE_BUCKET_NEXT(d, b);			\
-		if (b_tmp)						\
-			read_lock_bh(&b_tmp->lock);			\
-		read_unlock_bh(&b->lock);				\
-		b = b_tmp;						\
-	} while (b);							\
-} while (0)
-
 /* FIXME we can't store zero bytes by zero key. */
 static inline int
 tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
@@ -144,7 +112,7 @@ tdb_live_fsrec(TdbHdr *dbh, TdbFRec *rec)
 		     / sizeof(long);
 
 	for (i = 0; i < len; ++i)
-		res = !!((unsigned long *)rec)[i];
+		res |= !!((unsigned long *)rec)[i];
 	return res;
 }
 
@@ -154,10 +122,19 @@ tdb_live_vsrec(TdbVRec *rec)
 	return rec->len && !(rec->len & TDB_HTRIE_VRFREED);
 }
 
+static inline int
+tdb_live_rec(TdbHdr *dbh, TdbRec *r)
+{
+	return TDB_HTRIE_VARLENRECS(dbh)
+	       ? tdb_live_vsrec((TdbVRec *)r)
+	       : tdb_live_fsrec(dbh, (TdbFRec *)r);
+}
+
 TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
 TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 size_t *len);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
+TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket *b, unsigned long key);
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
 void tdb_htrie_exit(TdbHdr *dbh);
 
