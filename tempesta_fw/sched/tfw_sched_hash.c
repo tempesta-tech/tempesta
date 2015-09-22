@@ -114,8 +114,8 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 		++curr_conn_hash;
 	}
 
-	BUG_ON(best_conn == NULL);
-	tfw_connection_get(best_conn);
+	if (likely(best_conn))
+		tfw_connection_get(best_conn);
 
 	return best_conn;
 }

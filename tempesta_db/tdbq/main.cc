@@ -65,6 +65,8 @@ struct Cfg {
 		}
 		mm_sz = vm["mmap"].as<size_t>();
 
+		if (!vm.count("action"))
+			throw TdbExcept("please specify an action to do");
 		std::string a = std::move(vm["action"].as<std::string>());
 		if (a == "info") {
 			action = ACT_INFO;

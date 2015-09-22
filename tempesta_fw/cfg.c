@@ -96,32 +96,6 @@
 #include "cfg.h"
 
 /*
- * Use -DTFW_CFG_DBG_LVL=N to increase verbosity just for this unit.
- *
- * Levels 2 and 3 are used by FSMs. At level 2 you get a message for each FSM
- * state change. At level 3 there will be a message for each parsed character,
- * so be aware of the flood.
- */
-#ifndef TFW_CFG_DBG_LVL
-#define TFW_CFG_DBG_LVL 0
-#endif
-
-#if (TFW_CFG_DBG_LVL >= 1)
-#undef TFW_DBG
-#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
-#endif
-
-#if (TFW_CFG_DBG_LVL >= 2)
-#undef TFW_DBG2
-#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
-#endif
-
-#if (TFW_CFG_DBG_LVL >= 3)
-#undef TFW_DBG3
-#define TFW_DBG3(...) __TFW_DBG3(__VA_ARGS__)
-#endif
-
-/*
  * ------------------------------------------------------------------------
  *	Configuration Parser - TfwCfgEntry helpers
  * ------------------------------------------------------------------------
@@ -377,11 +351,11 @@ typedef struct {
 /* Macros common for both TFSM and PFSM. */
 
 #define FSM_STATE(name) 		\
-	TFW_DBG2("fsm: implicit exit from: %s\n", ps->fsm_ss); \
+	TFW_DBG3("fsm: implicit exit from: %s\n", ps->fsm_ss); \
 	BUG();				\
 name:					\
 	if (ps->fsm_s != &&name) {	\
-		TFW_DBG2("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
+		TFW_DBG3("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
 		ps->fsm_s = &&name;	\
 		ps->fsm_ss = #name;	\
 	}
@@ -439,7 +413,7 @@ do {					\
 #define PFSM_MOVE(to_state)					\
 do {								\
 	read_next_token(ps);					\
-	TFW_DBG2("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
+	TFW_DBG3("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
 		ps->prev_t, ps->prev_lit_len, ps->prev_lit,  	\
 		ps->t, ps->lit_len, ps->lit); 			\
 	if(!ps->t) {						\
@@ -472,7 +446,7 @@ read_next_token(TfwCfgParserState *ps)
 	ps->t = TOKEN_NA;
 	ps->c = *ps->pos;
 
-	TFW_DBG2("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
+	TFW_DBG3("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
 
 	FSM_JMP(TS_START_NEW_TOKEN);
 
@@ -574,7 +548,8 @@ read_next_token(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(TS_EXIT) {
-		TFW_DBG2("tfsm exit: t: %d, lit: %.*s\n", ps->t, ps->lit_len, ps->lit);
+		TFW_DBG3("tfsm exit: t: %d, lit: %.*s\n",
+			 ps->t, ps->lit_len, ps->lit);
 	}
 }
 
@@ -599,7 +574,7 @@ read_next_token(TfwCfgParserState *ps)
 static void
 parse_cfg_entry(TfwCfgParserState *ps)
 {
-	TFW_DBG2("pfsm: start\n");
+	TFW_DBG3("pfsm: start\n");
 	BUG_ON(ps->err);
 
 	/* Start of the input? Read the first token and start a new entry. */
@@ -622,7 +597,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	 */
 	FSM_STATE(PS_START_NEW_ENTRY) {
 		entry_reset(&ps->e);
-		TFW_DBG2("set name: %.*s\n", ps->lit_len, ps->lit);
+		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -659,7 +634,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		/* name val1 val2;
 		 *           ^
 		 *           We are here (but still need to store val1). */
-		TFW_DBG2("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
+		TFW_DBG3("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
 
 		ps->err = entry_add_val(&ps->e, ps->prev_lit, ps->prev_lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -680,7 +655,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		val = ps->lit;
 		val_len = ps->lit_len;
 
-		TFW_DBG2("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
+		TFW_DBG3("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
 
 		ps->err = entry_add_attr(&ps->e, key, key_len, val, val_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -705,7 +680,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(PS_EXIT) {
-		TFW_DBG2("pfsm: exit\n");
+		TFW_DBG3("pfsm: exit\n");
 	}
 }
 
@@ -760,7 +735,7 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 		return -EINVAL;
 	}
 
-	TFW_DBG("spec handle: '%s'\n", spec->name);
+	TFW_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
 	++spec->call_counter;
 	if (r)
@@ -790,7 +765,7 @@ spec_handle_default(TfwCfgSpec *spec)
 		 spec->name, spec->deflt);
 	BUG_ON(len >= sizeof(fake_entry_buf));
 
-	TFW_DBG("use default entry: '%s'\n", fake_entry_buf);
+	TFW_DBG2("use default entry: '%s'\n", fake_entry_buf);
 
 	memset(&ps, 0, sizeof(ps));
 	ps.in = ps.pos = fake_entry_buf;
@@ -844,7 +819,7 @@ spec_cleanup(TfwCfgSpec specs[])
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		if (spec->call_counter && spec->cleanup) {
-			TFW_DBG("spec cleanup: '%s'\n", spec->name);
+			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
@@ -1342,7 +1317,7 @@ mod_start(TfwCfgMod *mod)
 {
 	int ret = 0;
 
-	TFW_DBG("mod_start(): %s\n", mod->name);
+	TFW_DBG2("mod_start(): %s\n", mod->name);
 	if (mod->start)
 		ret = mod->start();
 	if (ret)
@@ -1354,7 +1329,7 @@ mod_start(TfwCfgMod *mod)
 static void
 mod_stop(TfwCfgMod *mod)
 {
-	TFW_DBG("mod_stop(): %s\n", mod->name);
+	TFW_DBG2("mod_stop(): %s\n", mod->name);
 	if (mod->stop)
 		mod->stop();
 }
@@ -1457,14 +1432,14 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 
 	BUG_ON(list_empty(mod_list));
 
-	TFW_DBG("parsing configuration and pushing it to modules...\n");
+	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
 	if (ret) {
 		TFW_ERR("can't parse configuration data\n");
 		goto err_recover_cleanup;
 	}
 
-	TFW_DBG("starting modules...\n");
+	TFW_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
 		ret = mod_start(mod);
 		if (ret)
@@ -1475,7 +1450,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 	return 0;
 
 err_recover_stop:
-	TFW_DBG("stopping already stared modules\n");
+	TFW_DBG2("stopping already stared modules\n");
 	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, mod_list) {
 		mod_stop(tmp_mod);
 	}
@@ -1547,7 +1522,7 @@ read_file_via_vfs(const char *path)
 	loff_t offset;
 	mm_segment_t oldfs;
 
-	TFW_DBG("reading file: %s\n", path);
+	TFW_DBG2("reading file: %s\n", path);
 
 	oldfs = get_fs();
 	set_fs(get_ds());
@@ -1559,7 +1534,7 @@ read_file_via_vfs(const char *path)
 	}
 
 	buf_size = fp->f_inode->i_size;
-	TFW_DBG("file size: %zu bytes\n", buf_size);
+	TFW_DBG2("file size: %zu bytes\n", buf_size);
 	buf_size += 1; /* for '\0' */
 
 	out_buf = vmalloc(buf_size);
@@ -1570,7 +1545,7 @@ read_file_via_vfs(const char *path)
 
 	offset = 0;
 	do {
-		TFW_DBG("read by offset: %d\n", (int)offset);
+		TFW_DBG3("read by offset: %d\n", (int)offset);
 		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
 		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
 				      &offset);
@@ -1618,7 +1593,7 @@ handle_state_change(const char *old_state, const char *new_state)
 		int ret;
 		char *cfg_text_buf;
 
-		TFW_DBG("reading configuration file...\n");
+		TFW_DBG3("reading configuration file...\n");
 		cfg_text_buf = read_file_via_vfs(tfw_cfg_path);
 		if (!cfg_text_buf)
 			return -ENOENT;
@@ -1717,7 +1692,7 @@ tfw_cfg_if_exit(void)
 {
 	TfwCfgMod *mod, *tmp;
 
-	TFW_DBG("stopping and unregistering all cfg modules...\n");
+	TFW_DBG2("stopping and unregistering all cfg modules...\n");
 
 	if (tfw_cfg_mods_are_started)
 		tfw_cfg_stop_mods(&tfw_cfg_mods);
@@ -1739,7 +1714,7 @@ tfw_cfg_mod_register(TfwCfgMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
 
-	TFW_DBG("register cfg: %s\n", mod->name);
+	TFW_DBG2("register cfg: %s\n", mod->name);
 
 	if (tfw_cfg_mods_are_started) {
 		TFW_ERR("can't register module: %s - Tempesta FW is running\n",
@@ -1766,7 +1741,7 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
 
-	TFW_DBG("unregister cfg: %s\n", mod->name);
+	TFW_DBG2("unregister cfg: %s\n", mod->name);
 
 	/* We can't return an error code here because the function may be called
 	 * from a module_exit() routine that shall not fail.
