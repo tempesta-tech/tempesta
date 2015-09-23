@@ -4,6 +4,7 @@
  * Memory pool.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,16 +28,18 @@
 
 #define TFW_POOL_ZERO	0x1
 
-typedef struct {
-	struct list_head list;
+typedef struct TfwPoolChunk TfwPoolChunk;
+
+struct TfwPoolChunk {
+	TfwPoolChunk *next;
 	unsigned char *base; /* base address of the pool chunk */
 	unsigned int order; /* total size of the pool chunk */
 	unsigned int off; /* current offset, INVAIRANT: off < size */
-} TfwPoolChunk;
+};
 
 typedef struct {
-	struct list_head chunks;
-} ____cacheline_aligned TfwPool;
+	TfwPoolChunk *head;
+} TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
 ({									\
@@ -58,5 +61,6 @@ TfwPool *__tfw_pool_new(size_t n);
 void *tfw_pool_alloc(TfwPool *p, size_t n);
 void *tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n);
 void tfw_pool_free(TfwPool *p);
+void tfw_try_free(TfwPool *p, void *ptr, size_t n);
 
 #endif /* __TFW_POOL_H__ */
