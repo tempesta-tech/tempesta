@@ -36,7 +36,7 @@
 TfwPool *
 __tfw_pool_new(size_t n)
 {
-	unsigned int order = (n + sizeof(TfwPool) + sizeof(TfwPoolChunk)) >> PAGE_SHIFT;
+	unsigned int order = get_order(n + sizeof(TfwPool) + sizeof(TfwPoolChunk));
 	TfwPool *p;
 	TfwPoolChunk *chunk;
 
@@ -81,7 +81,7 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 
 	chunk = p->head;
 	if (unlikely(chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
-		unsigned int order = (n + sizeof(TfwPoolChunk)) >> PAGE_SHIFT;
+		unsigned int order = get_order(n + sizeof(TfwPoolChunk));
 		chunk = (TfwPoolChunk *)__get_free_pages(GFP_ATOMIC, order);
 		if (!chunk)
 			return NULL;
