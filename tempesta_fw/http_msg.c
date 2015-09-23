@@ -180,8 +180,8 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 {
 	BUG_ON(field->flags & TFW_STR_DUPLICATE);
 
-	TFW_DBG3("store field chunk len=%d data=%p hdr=<%#x,%u,%p>\n",
-		 len, data, hdr->flags, hdr->len, hdr->ptr);
+	TFW_DBG3("store field chunk len=%d data=%p field=<%#x,%u,%p>\n",
+		 len, data, field->flags, field->len, field->ptr);
 
 	/* The header should be open before. */
 	if (unlikely(!field->ptr))
