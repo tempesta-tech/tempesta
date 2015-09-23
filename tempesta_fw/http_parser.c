@@ -427,6 +427,12 @@ __FSM_STATE(st_curr) {							\
 	BUG_ON(p > data + len);						\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
+	/* In 'func' the  pointer at the beginning of this piece of the request
+	 * is not available to us. If the request ends in 'func', we can not
+	 * correctly create a new chunk, which includes part of the request
+	 * before the header-value, and we lose this part. It should be forced
+	 * to save it.*/						\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
 		 __fsm_n, __fsm_sz);					\
@@ -442,7 +448,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, p + __fsm_n - data);\
+		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
 		if (tfw_http_msg_hdr_close(msg, TFW_HTTP_HDR_RAW))	\
 			return TFW_BLOCK;				\
 		parser->_i_st = I_0;					\
@@ -1058,7 +1064,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_age = parser->_tmp_acc;
@@ -1070,7 +1076,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		req->cache_ctl.max_fresh = parser->_tmp_acc;
@@ -1109,7 +1115,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_Ext);
 		if (IN_ALPHABET(c, hdr_a))
-			__FSM_I_MOVE(Req_I_CC);
+			__FSM_I_MOVE_n(Req_I_CC, 0);
 		if (c == '\r')
 			return p - data;
 		return CSTR_NEQ;
@@ -1845,7 +1851,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.max_age = parser->_tmp_acc;
@@ -1857,7 +1863,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.s_maxage = parser->_tmp_acc;
@@ -1896,7 +1902,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
 		if (IN_ALPHABET(c, hdr_a))
-			__FSM_I_MOVE(Resp_I_CC);
+			__FSM_I_MOVE_n(Resp_I_CC, 0);
 		if (c == '\r')
 			return p - data;
 		return CSTR_NEQ;
