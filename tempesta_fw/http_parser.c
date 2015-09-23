@@ -427,6 +427,11 @@ __FSM_STATE(st_curr) {							\
 	BUG_ON(p > data + len);						\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
+	/* In 'func' the  pointer at the beginning of this piece of the request
+	 * is not available to us. If the request ends in 'func', we can not
+	 * correctly create a new chunk, which includes part of the request
+	 * before the header-value, and we lose this part. It should be forced
+	 * to save it.*/						\
 	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
