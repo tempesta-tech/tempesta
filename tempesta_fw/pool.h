@@ -61,6 +61,6 @@ TfwPool *__tfw_pool_new(size_t n);
 void *tfw_pool_alloc(TfwPool *p, size_t n);
 void *tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n);
 void tfw_pool_free(TfwPool *p);
-void tfw_try_free(TfwPool *p, void *ptr, size_t n);
+void tfw_pool_try_free(TfwPool *p, void *ptr, size_t n);
 
 #endif /* __TFW_POOL_H__ */
