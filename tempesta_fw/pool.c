@@ -138,7 +138,7 @@ tfw_pool_free(TfwPool *p)
 EXPORT_SYMBOL(tfw_pool_free);
 
 void
-tfw_try_free(TfwPool *p, void *ptr, size_t n)
+tfw_pool_try_free(TfwPool *p, void *ptr, size_t n)
 {
 	TfwPoolChunk *chunk;
 
@@ -148,4 +148,4 @@ tfw_try_free(TfwPool *p, void *ptr, size_t n)
 		memset(ptr, 0, n);
 	}
 }
-EXPORT_SYMBOL(tfw_try_free);
+EXPORT_SYMBOL(tfw_pool_try_free);
