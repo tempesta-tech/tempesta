@@ -718,7 +718,6 @@ ss_tcp_data_ready(struct sock *sk, int bytes)
 			 * SKBs linked with the currently processed message.
 			 */
 			ss_droplink(sk);
-		}
 	}
 	else {
 		/*
@@ -780,6 +779,11 @@ ss_tcp_state_change(struct sock *sk)
 		/*
 		 * Connection is being closed.
 		 * Either Tempesta sent FIN, or we received FIN.
+		 *
+		 * It may happen that FIN comes with a data SKB. In that
+		 * case this function is called before ss_tcp_data_ready()
+		 * is called. However the SKB needs to be processed before
+		 * the connection is closed.
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
