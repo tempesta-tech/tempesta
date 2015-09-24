@@ -576,9 +576,11 @@ __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 	if (c == '\n') {						\
 		if (parser->to_read)					\
 			__FSM_B_MOVE(prefix ## _BodyReadChunk);		\
-		else							\
+		else {							\
+			msg->body.flags |= TFW_STR_COMPLETE;		\
 			/* Read trailing headers, RFC 2616 3.6.1. */	\
 			__FSM_B_MOVE(prefix ## _Hdr);			\
+		}							\
 	}								\
 	if (c == '\r' || c == '=' || IN_ALPHABET(*p, hdr_a) || c == ';') \
 		__FSM_B_MOVE(prefix ## _BodyChunkEoL);			\
@@ -1431,7 +1433,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_Hdr) {
 		if (unlikely(c == '\r')) {
-			if (TFW_STR_EMPTY(&req->body)) {
+			if (TFW_STR_EMPTY(&req->body) &&
+			    !(req->body.flags & TFW_STR_COMPLETE)) {
 				tfw_http_msg_set_data(msg, &req->crlf, p);
 				__FSM_MOVE(Req_HdrDone);
 			} else
@@ -2374,7 +2377,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(Resp_Hdr) {
 		if (unlikely(c == '\r')) {
-			if (TFW_STR_EMPTY(&resp->body)) {
+			if (TFW_STR_EMPTY(&resp->body) &&
+			    !(resp->body.flags & TFW_STR_COMPLETE)) {
 				tfw_http_msg_set_data(msg, &resp->crlf, p);
 				__FSM_MOVE(Resp_HdrDone);
 			} else
