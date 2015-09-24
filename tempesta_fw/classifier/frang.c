@@ -479,8 +479,10 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	if (!tfw_addr_pton(buf, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &ra->addr, "\n");
+		tfw_pool_try_free(req->pool, buf, len);
 		return TFW_BLOCK;
 	}
+	tfw_pool_try_free(req->pool, buf, len);
 	return TFW_PASS;
 }
 
