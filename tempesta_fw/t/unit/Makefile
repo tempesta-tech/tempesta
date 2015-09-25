@@ -49,3 +49,7 @@ tfw_test-objs = \
 obj-m += tfw_fuzzer.o
 tfw_fuzzer-obs = \
 	fuzzer.c
+
+obj-m += tfw_bomber.o
+tfw_bomber-obs = \
+	tfw_bomber.c
