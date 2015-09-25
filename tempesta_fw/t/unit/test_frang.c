@@ -66,6 +66,7 @@
 
 #include "../../addr.h"
 #include "../../classifier.h"
+#include "../../sync_socket.h"
 #include "../../client.h"
 #include "../../connection.h"
 #include "../../gfsm.h"
@@ -201,7 +202,7 @@ const int (*frang_conn_new_ptr)(struct sock*);
 	
 	
 	#define FRANG_FREQ 8
-	const char* inet_addr = "192.168.168.245.1";
+	const char* inet_addr = "192.168.168.245.128";
 unsigned short i = 0;
 typedef struct {
 	char   *str;
@@ -237,17 +238,19 @@ typedef struct {
 } FrangCfg;
 FrangCfg *frang_cfg;
 	struct inet_sock *isk;
-static  int (*frang_conn_limit_ptr)(FrangAcc *ra, struct sock *sk);
+//static  int (*frang_conn_limit_ptr)(FrangAcc *ra, struct sock *sk);
 //extern int frang_account_do(struct sock *sk, int *func(FrangAcc *ra,struct sock *sk));
 extern TfwConnection* tfw_cli_conn_alloc(void);
 static int (*frang_http_req_handler_ptr)(void *obj, 
 		                         struct sk_buff *skb , 
 					 unsigned int off);
+//static FrangAcc* (*frang_get_clnt_ra_ptr)(struct sock *sk);
+
 
 int req_handler(TfwHttpReq *req)
 {
 TfwConnection *conn;
-
+//FrangAcc *ra;
 //conn =  (TfwConnection*)req->msg->conn;
 //tfw_cli_conn_alloc_ptr = get_sym_ptr("tfw_cli_conn_alloc");
 //if(!tfw_cli_conn_alloc_ptr){
@@ -260,35 +263,72 @@ if(!conn){
 	TFW_DBG("req_handler: conn is null\n");
 
 }
+conn->sk = &mockSock;
+isk = (struct inet_sock*)(&mockSock); 
+	isk->inet_saddr = htonl(in_aton(inet_addr));
+//	frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+//ra = get_frang_acc(&mockSock);
+if(!conn->sk->sk_security){
+frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+res = frang_conn_new_ptr(conn->sk);
+}
+//conn->sk->sk_security = ra;
+/*	if(!conn->sk->sk_security){
+frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+res = frang_conn_new_ptr(conn->sk);
+ 	}*/
+
+//TFW_DBG("req_handler:%s;%lu\n","after ra:",(unsigned long)ra);
 
 //tfw_http_conn_msg_alloc(conn);
 
 //conn->msg = req->msg;
 
 frang_http_req_handler_ptr = get_sym_ptr("frang_http_req_handler");
-/*TFW_DBG("req_handler:%s;%lu\n","hand_ptr:",(unsigned long)frang_http_req_handler_ptr);*/
+TFW_DBG("req_handler:%s;%lu\n","hand_ptr:",(unsigned long)frang_http_req_handler_ptr);
 if(! frang_http_req_handler_ptr){
 TFW_DBG("frang_req_handleris null str:%d\n",392); 
 }
 //if(&mockReq->msg == NULL  || &mockReq->msg.skb_list == NULL){
 //TFW_DBG("frang_req_handleris null param:%d\n",404); 
 //}
+TFW_DBG("req_handler:%s\n","before real call hand");
 return frang_http_req_handler_ptr((void*)conn,req->msg.skb_list.first,25);
 }
-
 TEST(frang, max_conn){
+TfwHttpReq *mockReq;
 FrangAcc *ra;
 unsigned long ts;
 //unsigned long ts;
-frang_cfg = (FrangCfg*)get_sym_ptr("frang_cfg");	 
+mockReq = test_req_alloc(17);
+tfw_http_parse_req(mockReq,"GET / HTTP/1.1\r\n",16);
+	if(!frang_cfg){
+	frang_cfg = (FrangCfg*)get_sym_ptr("frang_cfg");
+	} 
 frang_cfg->conn_max =5;
 isk = (struct inet_sock*)(&mockSock); 
-	isk->inet_saddr = htonl(in_aton("127.0.0.1"));
+	isk->inet_saddr = htonl(in_aton(inet_addr));
+	TFW_DBG("max_conn:%s\n","after set iaddr,before funk addr");
+
 	frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+	if(!frang_conn_new_ptr){
+	TFW_DBG("max_conn:%s\n","conn_new ptr is null");
+	}
 	res = frang_conn_new_ptr(&mockSock);
-TFW_DBG("frang_conn_max:%s;%d\n","before ra",isk->inet_saddr);
-ra = get_frang_acc(&mockSock);
-TFW_DBG("frang_conn_max:%s;%d\n","after ra",ra->conn_curr);
+	ra = mockSock.sk_security;
+//TFW_DBG("frang_conn_max:%s;%d\n","after conn_new res:",res);
+//	TFW_DBG("max_conn:%s;%lu\n","ra from conn_new:",(unsigned long)ra);
+
+//frang_get_clnt_ra_ptr = get_sym_ptr("frang_get_clnt_ra");
+//	if(!frang_get_clnt_ra_ptr){
+//	TFW_DBG("max_conn:%s\n","get_clnt_ptr is null");
+
+//	}
+
+//ra = get_frang_acc(&mockSock);//frang_get_clnt_ra_ptr(&mockSock);
+//TFW_DBG("frang_conn_max:%s;%lu\n","after ra:",(unsigned long)ra);
+
+//TFW_DBG("frang_conn_max:%s;%d\n","after ra",ra->conn_curr);
 
 /*while(i<5){
 	ndelay(1000);
@@ -298,32 +338,36 @@ TFW_DBG("frang_conn_max:%s;%d\n","after ra",ra->conn_curr);
 	i++;
 	};*/
 	isk = (struct inet_sock*)(&mockSock); 
-//	isk->inet_saddr = in_aton(inet_addr);
+	isk->inet_saddr = in_aton(inet_addr);
 	ra->conn_curr = 5;
-	frang_conn_limit_ptr = get_sym_ptr("frang_conn_limit");
-	res = frang_conn_limit_ptr(ra,&mockSock);
+//	frang_conn_limit_ptr = get_sym_ptr("frang_conn_limit");
+//	if(!frang_conn_limit_ptr){
+//		TFW_DBG("max_conn:%s\n","conn_limit ptr is null");
+//	}
+	mockSock.sk_security = ra;
+	res = req_handler(mockReq);//frang_conn_new_ptr(&mockSock);
 	EXPECT_EQ(TFW_BLOCK, res);
 ts = jiffies * FRANG_FREQ / HZ;
 i = ts % FRANG_FREQ;
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 5;
 	ra->history[i].conn_new =5;
-	res = frang_conn_limit_ptr(ra, &mockSock);
+mockSock.sk_security = ra;
+	res = req_handler(mockReq);
 	EXPECT_EQ(TFW_BLOCK,res);
 	frang_cfg->conn_max =0;
 	frang_cfg->conn_rate = 0;
 	frang_cfg->conn_burst = 5;
 	ra->history[i].conn_new = 5;
-	res = frang_conn_limit_ptr(ra,&mockSock);
-	EXPECT_EQ(TFW_BLOCK,res);
-
-
-
+	mockSock.sk_security = ra;	
+	res = req_handler(mockReq);
+EXPECT_EQ(TFW_BLOCK,res);
 	}
 //static int (*frang_http_uri_ptr)(const TfwHttpReq *req);
 //extern int frang_http_uri_len(const TfwHttpReq *req);
 
-TEST(frang,uri){
+TEST(frang,uri)
+{
 TfwHttpReq *mockReq;
 TfwStr uri;
 mockReq = test_req_alloc(26);
@@ -340,9 +384,16 @@ tfw_http_parse_req(mockReq,"GET /index.html HTTP /1.1",25);
 
 uri.len = 17;
 uri.ptr = (void*)"/home/index.html";
+uri.flags = TFW_STR_COMPLETE;
 mockReq->uri_path = uri;
+TFW_DBG("uri:%s\n","after set uri to req");
 //frang_http_uri_ptr = get_sym_ptr("frang_http_uri_len");
 //TFW_DBG("uri_len funk ptr:%lu\n",(unsigned long)frang_http_uri_ptr);
+mockReq->frang_st = 3;
+//	if(!mockReq->sk_security){
+//	frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+//	res = frang_conn_new_ptr(&mockReq);
+//	}
 res = req_handler(mockReq);
 //res = frang_http_uri_len(mockReq);
 EXPECT_EQ(TFW_BLOCK,res);
@@ -438,19 +489,38 @@ static int (*frang_req_limit_ptr)(FrangAcc *ra, struct sock *sk);
 TEST(frang, req_count){
 	TfwConnection mockConn;
 unsigned long ts; 
-//TfwHttpReq *mockReq;
+TfwHttpReq *mockReq;
 	FrangAcc *ra;  
-	frang_cfg->conn_max =0;
+mockReq = test_req_alloc(17);
+tfw_http_parse_req(mockReq,"GET / HTTP/1.1\r\n",16);
+	if(!frang_cfg){
+	frang_cfg = get_sym_ptr("frang_cfg");
+	}
+	frang_req_limit_ptr = get_sym_ptr("frang_req_limit");
+	if(!frang_req_limit_ptr){
+	TFW_DBG("req_count:%s;\n","req_limit ptr is null");
+	}
+frang_cfg->conn_max =0;
 	frang_cfg->conn_burst = 0;
 	frang_cfg->conn_rate = 0;
 	frang_cfg->req_rate = 5;
 	//frang_cfg.req_rate = 0;
+//	TFW_DBG("req_count:%s;%lu\n","set conn sk:",(unsigned long)&mockSock);
+isk = (struct inet_sock*)(&mockSock); 
+	isk->inet_saddr = htonl(in_aton(inet_addr));
+
 			mockConn.sk = &mockSock;
 //	mockReq = test_req_alloc(15);
 //	tfw_http_parse_req(&mockReq,"GET / HTTP /1.1",15);
 //	mockConn.msg = (TfwMsg*)&mockReq;
 //	res = frang_http_req_handler(&mockConn, "GET / HTTP /1.1",15);
-	ra = (FrangAcc*)get_frang_acc(&mockSock);
+//	ra = (FrangAcc*)get_frang_acc(&mockSock);
+	
+	frang_conn_new_ptr = get_sym_ptr("frang_conn_new");
+	TFW_DBG("req_count507:%s;%lu\n","get conn_new:",(unsigned long)frang_conn_new_ptr);
+	res = frang_conn_new_ptr(&mockSock);
+	ra = mockConn.sk->sk_security;
+	
 //	TFW_DBG("frang conn:%d",ra->conn_curr);
 //	i = 0;
 //while(i<5){
@@ -462,20 +532,36 @@ ts = jiffies * FRANG_FREQ / HZ;
 i = ts % FRANG_FREQ;
 ra->history[i].req = 5;
 TFW_DBG("frang_req_i:%d;%d",i,ra->history[i].req);
-frang_req_limit_ptr = get_sym_ptr("frang_req_limit");
-res = frang_req_limit_ptr(ra,&mockSock);
+	if(!frang_conn_new_ptr){
+	TFW_DBG("frang_req_count507:%s\n","conn_new ptr is null");
+	}
+//= frang_req_limit_ptr(ra,&mockSock);
+mockSock.sk_security = ra;
+mockReq->frang_st = 0;
+res = req_handler(mockReq);
+TFW_DBG("frang_req_count:%s;%d\n","req_rate:",res);
+
+//frang_req_limit_ptr = get_sym_ptr("frang_req_limit");
 EXPECT_EQ(TFW_BLOCK,res);
-frang_cfg->req_burst = 5;
-ra->history[i].req = 5;
-res = frang_req_limit_ptr(ra,&mockSock);
+	frang_cfg->req_rate = 5;
+	frang_cfg->req_burst = 5;
+	ra->history[i].req = 5;
+/*	if(!frang_conn_new_ptr){
+	TFW_DBG("frang_req_count 517:%s\n","conn_new ptr is null");
+}*/
+mockSock.sk_security = ra;
+mockReq->frang_st = 0;
+
+res = req_handler(mockReq);
+TFW_DBG("frang_req_count:%s;%d\n","req_burst:",res);
 EXPECT_EQ(TFW_BLOCK,res);
 
 }
 //TFW_DBG("frang_req_method:%d",mockReq->method);
 //extern TfwMsg *tfw_http_conn_msg_alloc(TfwConnection *conn);
-	static int (*frang_http_req_handler_ptr)(void *obj, 
-			                  struct sk_buff *skb , 
-					  unsigned int off);
+	static int (*frang_http_req_handler_ptr)(void *obj, \
+struct sk_buff *skb , \
+unsigned int off);
 /*int req_handler(TfwHttpReq *req)
 {
 TfwConnection *conn;
@@ -572,9 +658,10 @@ Content-Length:29\r\n",61);
 
 frang_cfg->clnt_body_timeout = 0;
 frang_cfg->clnt_hdr_timeout = 1;
-mockReq->frang_st = 12;
+mockReq->frang_st = 0;
 mockReq->tm_header = jiffies - 100;
 res = req_handler(mockReq);
+TFW_DBG("hdr_timeout:%s;%d\n","res:",res);
 EXPECT_EQ(TFW_BLOCK,res);
 }
 TEST(frang,chunk_cnt)
@@ -590,27 +677,30 @@ Content-Length:29\r\n",61);
 	}
 frang_cfg->http_hchunk_cnt = 1;
 mockReq->chunk_cnt = 3;
-mockReq->frang_st = 2;
+mockReq->frang_st = 0;
 res = req_handler(mockReq);
+TFW_DBG("hdr_timeout:%s;%d\n","frang_st:",mockReq->frang_st);
 EXPECT_EQ(TFW_BLOCK,res);
 frang_cfg->http_hchunk_cnt = 0;
 frang_cfg->http_bchunk_cnt = 1;
 mockReq->chunk_cnt =3;
 res = req_handler(mockReq);
+TFW_DBG("hdr_timeout:%s;%d\n","res:",res);
+
 EXPECT_EQ(TFW_BLOCK,res);
 }
 
 TEST_SUITE(frang){
+	TEST_RUN(frang,req_count);
+	TEST_RUN(frang,max_conn);
 	TEST_RUN(frang,uri);
 	TEST_RUN(frang,body_len);
 	TEST_RUN(frang,ct_check);
 	TEST_RUN(frang,field_len);
 	TEST_RUN(frang,host);
 	TEST_RUN(frang,req_method);
-	TEST_RUN(frang,max_conn);
 	TEST_RUN(frang,chunk_cnt);
-	TEST_RUN(frang,req_count);
-		TEST_RUN(frang,body_timeout);
+			TEST_RUN(frang,body_timeout);
 	TEST_RUN(frang,hdr_timeout);
 	
 	}
