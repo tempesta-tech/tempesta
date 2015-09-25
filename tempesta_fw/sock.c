@@ -469,7 +469,7 @@ ss_droplink(struct sock *sk)
  * TODO:
  * -- process URG
  */
-static void
+static bool
 ss_tcp_process_data(struct sock *sk)
 {
 	bool tcp_fin, droplink = true;
@@ -567,7 +567,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * See tcp_v4_rcv() and __inet_lookup_established().
 			 */
 			if (unlikely(sk->sk_state != TCP_ESTABLISHED))
-				return;
+				return false;
 
 			if (r < 0) {
 				SS_WARN("can't process app data on socket %p\n",
@@ -613,17 +613,8 @@ out:
 	tcp_rcv_space_adjust(sk);
 	if (processed)
 		tcp_cleanup_rbuf(sk, processed);
-	if (droplink) {
-		/*
-		 * Drop connection on internal errors as well as
-		 * on banned packets.
-		 *
-		 * ss_droplink() is responsible for calling application
-		 * layer connection closing callback that will free all
-		 * SKBs linked with the currently processed message.
-		 */
-		ss_droplink(sk);
-	}
+
+	return droplink;
 }
 
 /**
@@ -717,7 +708,16 @@ ss_tcp_data_ready(struct sock *sk, int bytes)
 		SS_ERR("error data on socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
-		ss_tcp_process_data(sk);
+		if (ss_tcp_process_data(sk))
+			/*
+			 * Drop connection in case of FIN, internal errors,
+			 * or banned packets.
+			 *
+			 * ss_droplink() is responsible for calling application
+			 * layer connection closing callback that will free all
+			 * SKBs linked with the currently processed message.
+			 */
+			ss_droplink(sk);
 	}
 	else {
 		/*
@@ -779,7 +779,14 @@ ss_tcp_state_change(struct sock *sk)
 		/*
 		 * Connection is being closed.
 		 * Either Tempesta sent FIN, or we received FIN.
+		 *
+		 * It may happen that FIN comes with a data SKB. In that
+		 * case this function is called before ss_tcp_data_ready()
+		 * is called. However the SKB needs to be processed before
+		 * the connection is closed.
 		 */
+		if (!skb_queue_empty(&sk->sk_receive_queue))
+			ss_tcp_process_data(sk);
 		SS_DBG("Peer connection closing\n");
 		ss_droplink(sk);
 	} else if (sk->sk_state == TCP_CLOSE) {
