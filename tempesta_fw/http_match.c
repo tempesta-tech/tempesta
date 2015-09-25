@@ -451,7 +451,7 @@ void
 tfw_http_match_list_free(TfwHttpMatchList *mlst)
 {
 	if (mlst)
-		tfw_pool_free(mlst->pool);
+		tfw_pool_destroy(mlst->pool);
 }
 EXPORT_SYMBOL(tfw_http_match_list_free);
 
@@ -462,7 +462,7 @@ void
 tfw_http_match_list_rcu_free(struct rcu_head *r)
 {
 	TfwHttpMatchList *l = container_of(r, TfwHttpMatchList, rcu);
-	tfw_pool_free(l->pool);
+	tfw_pool_destroy(l->pool);
 }
 EXPORT_SYMBOL(tfw_http_match_list_rcu_free);
 

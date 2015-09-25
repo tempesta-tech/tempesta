@@ -36,9 +36,9 @@
 TfwPool *
 __tfw_pool_new(size_t n)
 {
-	unsigned int order = get_order(n + sizeof(TfwPool) + sizeof(TfwPoolChunk));
 	TfwPool *p;
 	TfwPoolChunk *chunk;
+	unsigned int order = get_order(n + sizeof(*p) + sizeof(*chunk));
 
 	p = (TfwPool *)__get_free_pages(GFP_ATOMIC, order);
 	if (!p)
@@ -124,7 +124,19 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 EXPORT_SYMBOL(tfw_pool_realloc);
 
 void
-tfw_pool_free(TfwPool *p)
+tfw_pool_try_free(TfwPool *p, void *ptr, size_t n)
+{
+	TfwPoolChunk *chunk;
+
+	chunk = __tfw_find_chunk(p, ptr);
+	if (ptr + n == chunk->base + chunk->off) {
+		chunk->off -= n;
+	}
+}
+EXPORT_SYMBOL(tfw_pool_try_free);
+
+void
+tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *chunk, *next;
 
@@ -135,17 +147,4 @@ tfw_pool_free(TfwPool *p)
 		chunk = next;
 	}
 }
-EXPORT_SYMBOL(tfw_pool_free);
-
-void
-tfw_pool_try_free(TfwPool *p, void *ptr, size_t n)
-{
-	TfwPoolChunk *chunk;
-
-	chunk = __tfw_find_chunk(p, ptr);
-	if (ptr + n == chunk->base + chunk->off) {
-		chunk->off -= n;
-		memset(ptr, 0, n);
-	}
-}
-EXPORT_SYMBOL(tfw_pool_try_free);
+EXPORT_SYMBOL(tfw_pool_destroy);
