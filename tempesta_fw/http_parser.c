@@ -574,11 +574,14 @@ __FSM_STATE(prefix ## _BodyReadChunk) {					\
 }									\
 __FSM_STATE(prefix ## _BodyChunkEoL) {					\
 	if (c == '\n') {						\
-		if (parser->to_read)					\
+		if (parser->to_read) {					\
 			__FSM_B_MOVE(prefix ## _BodyReadChunk);		\
-		else							\
-			/* Read trailing headers, RFC 2616 3.6.1. */	\
+		}							\
+		else {							\
+			msg->body.flags |= TFW_STR_COMPLETE;		\
+			/* Read trailing headers, RFC 7230 4.1.2. */	\
 			__FSM_B_MOVE(prefix ## _Hdr);			\
+		}							\
 	}								\
 	if (c == '\r' || c == '=' || IN_ALPHABET(*p, hdr_a) || c == ';') \
 		__FSM_B_MOVE(prefix ## _BodyChunkEoL);			\
@@ -1431,14 +1434,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_Hdr) {
 		if (unlikely(c == '\r')) {
-			if (TFW_STR_EMPTY(&req->body)) {
+			if (!(req->body.flags & TFW_STR_COMPLETE)) {
 				tfw_http_msg_set_data(msg, &req->crlf, p);
 				__FSM_MOVE(Req_HdrDone);
 			} else
 				__FSM_MOVE(Req_Done);
 		}
 		if (unlikely(c == '\n')) {
-			if (TFW_STR_EMPTY(&req->body)) {
+			if (!(req->body.flags & TFW_STR_COMPLETE)) {
 				TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 			} else {
 				r = TFW_PASS;
@@ -2374,14 +2377,14 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(Resp_Hdr) {
 		if (unlikely(c == '\r')) {
-			if (TFW_STR_EMPTY(&resp->body)) {
+			if (!(resp->body.flags & TFW_STR_COMPLETE)) {
 				tfw_http_msg_set_data(msg, &resp->crlf, p);
 				__FSM_MOVE(Resp_HdrDone);
 			} else
 				__FSM_MOVE(Resp_Done);
 		}
 		if (unlikely(c == '\n')) {
-			if (TFW_STR_EMPTY(&resp->body)) {
+			if (!(resp->body.flags & TFW_STR_COMPLETE)) {
 				TFW_HTTP_INIT_BODY_PARSING(resp, Resp_Body);
 			} else {
 				r = TFW_PASS;
