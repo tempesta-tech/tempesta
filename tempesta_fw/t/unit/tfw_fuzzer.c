@@ -203,7 +203,8 @@ gen_vector_move(int i)
 
 	max = gen_vector[i].size + gen_vector[i].over - 1;
 	do {
-		if (gen_vector[i].i++ == max) {
+		gen_vector[i].i++;
+		if (gen_vector[i].i > max) {
 			gen_vector[i].i = 0;
 			if (gen_vector_move(i + 1) == FUZZ_END)
 				return FUZZ_END;
