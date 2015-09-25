@@ -430,8 +430,8 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
 			(int)(p - buf), buf, hm);
 	else
-		TFW_DBG("added X-Forwarded-For header for %*s\n",
-			(int)(p - buf), buf);
+		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+			 (int)(p - buf), buf);
 
 	return r;
 }
@@ -545,8 +545,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	BUG_ON(!conn->msg);
 	BUG_ON(off >= skb_len);
 
-	TFW_DBG("Received %u client data bytes on conn=%p\n",
-		skb_len - off, conn);
+	TFW_DBG2("Received %u client data bytes on conn=%p\n",
+		 skb_len - off, conn);
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -570,8 +570,9 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		data_off -= parser->to_go;
 		hmreq->msg.len += data_off - off;
 
-		TFW_DBG("Request parsed: len=%u parsed=%d msg_len=%lu res=%d\n",
-			skb_len - off, data_off - off, hmreq->msg.len, r);
+		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
+			 " res=%d\n",
+			 skb_len - off, data_off - off, hmreq->msg.len, r);
 
 		switch (r) {
 		default:
@@ -579,12 +580,12 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				"parser return code, %d\n", r);
 			BUG();
 		case TFW_BLOCK:
-			TFW_DBG("Block invalid HTTP request\n");
+			TFW_DBG2("Block invalid HTTP request\n");
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&hmreq->msg.state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
-			TFW_DBG("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK)
 				return TFW_BLOCK;
 			/*
@@ -604,7 +605,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 
 		r = tfw_gfsm_move(&hmreq->msg.state,
 				  TFW_HTTP_FSM_REQ_MSG, skb, off);
-		TFW_DBG("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
@@ -675,13 +676,13 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 
 	BUG_ON(!hmresp);
 
-	TFW_DBG("received %u server data bytes on conn=%p\n",
+	TFW_DBG2("received %u server data bytes on conn=%p\n",
 		skb->len - off, conn);
 
 	r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
 	hmresp->msg.len += data_off - off;
 
-	TFW_DBG("response parsed: len=%u parsed=%d res=%d\n",
+	TFW_DBG2("response parsed: len=%u parsed=%d res=%d\n",
 		skb->len - off, data_off - off, r);
 
 	switch (r) {
@@ -698,12 +699,12 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		 * that went out on this connection and are waiting for
 		 * paired response messages.
 		 */
-		TFW_DBG("Block invalid HTTP response\n");
+		TFW_DBG2("Block invalid HTTP response\n");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		r = tfw_gfsm_move(&hmresp->msg.state,
 				  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
-		TFW_DBG("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK)
 			/*
 			 * We don't have a complete response.
@@ -727,13 +728,13 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 
 	r = tfw_gfsm_move(&hmresp->msg.state,
 			  TFW_HTTP_FSM_RESP_MSG, skb, off);
-	TFW_DBG("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto delreq;
 
 	r = tfw_gfsm_move(&hmresp->msg.state,
 			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
-	TFW_DBG("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
+	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto delreq;
 

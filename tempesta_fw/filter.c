@@ -81,9 +81,9 @@ tfw_filter_block_ip(struct in6_addr *addr)
 	size_t len = sizeof(rule);
 
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
-		char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};
-		tfw_addr_fmt_v6(addr, 0, abuf);
-		TFW_WARN("cannot create blocking rule for %s\n", abuf);
+		TFW_WARN_ADDR6("cannot create blocking rule", addr);
+	} else {
+		TFW_DBG_ADDR6("block client", addr);
 	}
 }
 EXPORT_SYMBOL(tfw_filter_block_ip);

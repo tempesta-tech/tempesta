@@ -133,7 +133,11 @@ typedef TdbFRec TdbRec;
 
 #define TDB_BANNER		"[tdb] "
 
-#ifdef DEBUG
+/*
+ * Tempesta DB is too internal piece of code, so print its messages on
+ * higher debugging levels.
+ */
+#if defined(DEBUG) && (DEBUG >= 2)
 #define TDB_DBG(...)		pr_debug(TDB_BANNER "  " __VA_ARGS__)
 #else
 #define TDB_DBG(...)
