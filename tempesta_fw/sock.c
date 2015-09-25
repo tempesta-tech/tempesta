@@ -469,7 +469,7 @@ ss_droplink(struct sock *sk)
  * TODO:
  * -- process URG
  */
-static int
+static bool
 ss_tcp_process_data(struct sock *sk)
 {
 	bool tcp_fin, droplink = true;
@@ -567,7 +567,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * See tcp_v4_rcv() and __inet_lookup_established().
 			 */
 			if (unlikely(sk->sk_state != TCP_ESTABLISHED))
-				return 0;
+				return false;
 
 			if (r < 0) {
 				SS_WARN("can't process app data on socket %p\n",
