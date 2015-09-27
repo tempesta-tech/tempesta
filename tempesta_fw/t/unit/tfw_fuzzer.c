@@ -116,9 +116,10 @@ enum {
 static int gen_vector_move(int i)
 {
 	if (gen_vector[i].i++ == gen_vector[i].max) {
+		gen_vector[i].i = 0;
+		BUG_ON(gen_vector[i].i > gen_vector[i].max);
 		if (i == 0)
 			return FUZZ_END;
-		gen_vector[i].i = 0;
 		if (gen_vector_move(i - 1) == FUZZ_END)
 			return FUZZ_END;
 	}
