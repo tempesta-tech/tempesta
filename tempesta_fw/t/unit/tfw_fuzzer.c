@@ -444,6 +444,8 @@ static int add_body(char *s1, int type)
 				       gen_vector[BODY_SIZE].i + len) ^
 				       (a_body[i] + len)) % sizeof(a_body)];
 
+	if (!content_length[gen_vector[CONTENT_LENGTH].i].s)
+		return FUZZ_INVALID;
 	err = kstrtoul(content_length[gen_vector[CONTENT_LENGTH].i].s,
 			10, &cont_len);
 	if (err)
