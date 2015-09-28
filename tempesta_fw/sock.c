@@ -142,7 +142,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	BUG_ON(ss_skb_queue_empty(skb_list));
 
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	/* Synchronize concurrent socket writing in different softirqs. */
 	bh_lock_sock_nested(sk);
@@ -189,8 +189,8 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		 */
 		tcp_mark_push(tp, skb);
 
-		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
-		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
+		SS_DBG("%s: entail skb=%p data_len=%u len=%u\n",
+		       __func__, skb, skb->data_len, skb->len);
 
 		skb_entail(sk, skb);
 
@@ -206,8 +206,8 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		}
 	}
 
-	SS_DBG("%s:%d sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
-	       " sk->sk_state=%d\n", __FUNCTION__, __LINE__,
+	SS_DBG("%s: sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
+	       " sk->sk_state=%d\n", __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
@@ -245,7 +245,7 @@ __ss_do_close(struct sock *sk)
 
 	SS_DBG("Close socket %p (account=%d)\n", sk, sk_has_account(sk));
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (unlikely(!sk))
 		return;
@@ -598,7 +598,7 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 	struct request_sock *req;
 #endif
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
+		__func__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -664,7 +664,7 @@ static void
 ss_tcp_data_ready(struct sock *sk, int bytes)
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -705,7 +705,7 @@ static void
 ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
