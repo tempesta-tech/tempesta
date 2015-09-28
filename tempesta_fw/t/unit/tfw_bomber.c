@@ -37,11 +37,15 @@
 #endif
 #define SS_BANNER	"[tfw_bomber] "
 
-#define TFW_BOMBER_NTHREADS		(16)
-#define TFW_BOMBER_NCONNECTS		(16)
+static int tfw_threads = 4;
+static int tfw_connects = 16;
+static int tfw_iterations = 10;
+module_param(tfw_threads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param(tfw_connects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param(tfw_iterations, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+
 #define TFW_BOMBER_WAIT_INTVL		(2)		/* in seconds */
 #define TFW_BOMBER_WAIT_MAX		(1 * 60)	/* in seconds */
-#define TFW_BOMBER_ITERATIONS		(100)
 
 /* Flags for tfw_bomber_desc_t.flags */
 #define TFW_BOMBER_CONNECT_STARTED		(0x0001)
@@ -65,21 +69,21 @@ typedef struct tfw_bomber_desc {
  * array. SsProto.type field is used here to store the index into that
  * array that can be passed around between callbacks.
  */
-static tfw_bomber_desc_t tfw_bomber_desc[TFW_BOMBER_NTHREADS][TFW_BOMBER_NCONNECTS];
-static struct task_struct *tfw_bomber_connect_task[TFW_BOMBER_NTHREADS];
-static wait_queue_head_t tfw_bomber_connect_wq[TFW_BOMBER_NTHREADS];
-static atomic_t tfw_bomber_nthread[TFW_BOMBER_NTHREADS];
+static tfw_bomber_desc_t **tfw_bomber_desc;
+static struct task_struct **tfw_bomber_connect_task;
+static wait_queue_head_t *tfw_bomber_connect_wq;
+static atomic_t *tfw_bomber_nthread;
 
-static struct task_struct *tfw_bomber_finish_task[TFW_BOMBER_NTHREADS];
-static wait_queue_head_t tfw_bomber_finish_wq[TFW_BOMBER_NTHREADS];
+static struct task_struct **tfw_bomber_finish_task;
+static wait_queue_head_t *tfw_bomber_finish_wq;
 
 /* Successful attempts */
-static atomic_t tfw_bomber_connect_nattempt[TFW_BOMBER_NTHREADS];
+static atomic_t *tfw_bomber_connect_nattempt;
 /* Connections established */
-static atomic_t tfw_bomber_connect_ncomplete[TFW_BOMBER_NTHREADS];
+static atomic_t *tfw_bomber_connect_ncomplete;
 /* Number of errors */
-static atomic_t tfw_bomber_connect_nerror[TFW_BOMBER_NTHREADS];
-static atomic_t tfw_bomber_iterations[TFW_BOMBER_NTHREADS];
+static atomic_t *tfw_bomber_connect_nerror;
+static atomic_t *tfw_bomber_iterations;
 
 static char *server = "127.0.0.1:80";
 static TfwAddr tfw_bomber_server_address;
@@ -96,15 +100,15 @@ tfw_bomber_connect(int descidx)
 {
 	int ret;
 	struct sock *sk;
-	tfw_bomber_desc_t *desc = *(tfw_bomber_desc + descidx / TFW_BOMBER_NCONNECTS)
-		+ descidx % TFW_BOMBER_NCONNECTS;
+	tfw_bomber_desc_t *desc = *(tfw_bomber_desc + descidx / tfw_connects)
+		+ descidx % tfw_connects;
 
 	ret = ss_sock_create(tfw_bomber_server_address.sa.sa_family,
 			SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (ret) {
 		SS_DBG("Unable to create kernel socket (%d)\n", ret);
 		desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-		atomic_inc(&tfw_bomber_connect_nerror[descidx / TFW_BOMBER_NCONNECTS]);
+		atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
 		return ret;
 	}
 	ss_proto_init(&desc->proto, &tfw_bomber_hooks, descidx);
@@ -119,14 +123,14 @@ tfw_bomber_connect(int descidx)
 		ss_close(sk);
 		local_bh_enable();
 		desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-		atomic_inc(&tfw_bomber_connect_nerror[descidx / TFW_BOMBER_NCONNECTS]);
+		atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
 		return ret;
 	}
 
 	local_bh_enable();
 	desc->sk = sk;
 	desc->flags |= TFW_BOMBER_CONNECT_STARTED;
-	atomic_inc(&tfw_bomber_connect_nattempt[descidx / TFW_BOMBER_NCONNECTS]);
+	atomic_inc(&tfw_bomber_connect_nattempt[descidx / tfw_connects]);
 
 	return 0;
 }
@@ -181,18 +185,18 @@ tfw_bomber_connect_complete(struct sock *sk)
 	BUG_ON(proto == NULL);
 
 	descidx = proto->type;
-	desc = *(tfw_bomber_desc + descidx / TFW_BOMBER_NCONNECTS)
-		+ descidx % TFW_BOMBER_NCONNECTS;
+	desc = *(tfw_bomber_desc + descidx / tfw_connects)
+		+ descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
 	printk("%s:connect complete, thread:%d\n",
-			__func__, descidx / TFW_BOMBER_NCONNECTS);
+			__func__, descidx / tfw_connects);
 	desc->flags |= TFW_BOMBER_CONNECT_ESTABLISHED;
-	atomic_inc(&tfw_bomber_connect_ncomplete[descidx / TFW_BOMBER_NCONNECTS]);
-	wake_up(&tfw_bomber_finish_wq[descidx / TFW_BOMBER_NCONNECTS]);
+	atomic_inc(&tfw_bomber_connect_ncomplete[descidx / tfw_connects]);
+	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
 
 	return ret;
 }
@@ -207,17 +211,17 @@ tfw_bomber_connection_close(struct sock *sk)
 	BUG_ON(proto == NULL);
 
 	descidx = proto->type;
-	desc = *(tfw_bomber_desc + descidx / TFW_BOMBER_NCONNECTS)
-		+ descidx % TFW_BOMBER_NCONNECTS;
+	desc = *(tfw_bomber_desc + descidx / tfw_connects)
+		+ descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:close sk: %p, threadn %d\n", __func__, desc->sk, descidx / TFW_BOMBER_NCONNECTS);
+	printk("%s:close sk: %p, threadn %d\n", __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_CLOSED;
-	wake_up(&tfw_bomber_finish_wq[descidx / TFW_BOMBER_NCONNECTS]);
+	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
 	return 0;
 }
 
@@ -231,32 +235,25 @@ tfw_bomber_connection_error(struct sock *sk)
 	BUG_ON(proto == NULL);
 
 	descidx = proto->type;
-	desc = *(tfw_bomber_desc + descidx / TFW_BOMBER_NCONNECTS)
-		+ descidx % TFW_BOMBER_NCONNECTS;
+	desc = *(tfw_bomber_desc + descidx / tfw_connects)
+		+ descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:error sk: %p, threadn %d\n", __func__, desc->sk, descidx / TFW_BOMBER_NCONNECTS);
+	printk("%s:error sk: %p, threadn %d\n", __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-	atomic_inc(&tfw_bomber_connect_nerror[descidx / TFW_BOMBER_NCONNECTS]);
-	wake_up(&tfw_bomber_finish_wq[descidx / TFW_BOMBER_NCONNECTS]);
+	atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
+	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
 	return 0;
 }
-
-//static int
-//kserver_read(void *conn, struct sk_buff *skb, unsigned int off)
-//{
-//	return 0;
-//}
 
 static SsHooks tfw_bomber_hooks = {
 	.connection_new		= tfw_bomber_connect_complete,
 	.connection_drop	= tfw_bomber_connection_close,
 	.connection_error	= tfw_bomber_connection_error,
-//	.connection_recv	= kserver_read,
 };
 
 static void
@@ -265,7 +262,7 @@ tfw_bomber_send_msgs(int threadn)
 	int i;
 
 	printk("%s:threadn:%d\n", __func__, threadn);
-	for (i = 0; i < TFW_BOMBER_NCONNECTS; i++)
+	for (i = 0; i < tfw_connects; i++)
 		if (tfw_bomber_desc[threadn][i].sk)
 			msg_send(&tfw_bomber_desc[threadn][i]);
 }
@@ -276,7 +273,7 @@ tfw_bomber_release_sockets(int threadn)
 	int i;
 
 	printk("%s:threadn:%d\n", __func__, threadn);
-	for (i = 0; i < TFW_BOMBER_NCONNECTS; i++) {
+	for (i = 0; i < tfw_connects; i++) {
 		if (tfw_bomber_desc[threadn][i].sk) {
 			local_bh_disable();
 			tfw_bomber_desc[threadn][i].sk->sk_user_data = NULL;
@@ -292,10 +289,10 @@ tfw_bomber_thread_connect(void *data)
 {
 	int i, nconnects = 0;
 	int threadn = (int)(long)data;
-	int descidx = threadn * TFW_BOMBER_NCONNECTS;
+	int descidx = threadn * tfw_connects;
 
 	SS_DBG("connect_thread_%02d started\n", threadn);
-	for (i = 0; i < TFW_BOMBER_NCONNECTS; i++) {
+	for (i = 0; i < tfw_connects; i++) {
 		if (tfw_bomber_connect(descidx + i) == 0) {
 			nconnects++;
 		}
@@ -304,7 +301,7 @@ tfw_bomber_thread_connect(void *data)
 	atomic_dec(&tfw_bomber_nthread[threadn]);
 	wake_up(&tfw_bomber_connect_wq[threadn]);
 	SS_DBG("Thread %d has initiated %d connects out of %d\n",
-			threadn, nconnects, TFW_BOMBER_NCONNECTS);
+			threadn, nconnects, tfw_connects);
 	return 0;
 }
 
@@ -314,7 +311,7 @@ tfw_bomber_stop_threads(void)
 	int i;
 
 	SS_DBG("%s: stop all threads\n", __func__);
-	for (i = 0; i < TFW_BOMBER_NTHREADS; i++) {
+	for (i = 0; i < tfw_threads; i++) {
 		if (tfw_bomber_connect_task[i]) {
 			kthread_stop(tfw_bomber_connect_task[i]);
 			tfw_bomber_connect_task[i] = NULL;
@@ -422,7 +419,7 @@ tfw_bomber_create_tasks(void)
 	int i, ret = 0;
 	struct task_struct *task;
 
-	for (i = 0; i < TFW_BOMBER_NTHREADS; i++) {
+	for (i = 0; i < tfw_threads; i++) {
 		task = kthread_create(tfw_bomber_thread_finish, (void *)(long)i,
 				"tfw_bomber_thread_finish_%02d", i);
 		if (IS_ERR_OR_NULL(task)) {
@@ -446,7 +443,7 @@ tfw_bomber_create_tasks(void)
 		atomic_set(&tfw_bomber_connect_nattempt[i], 0);
 		atomic_set(&tfw_bomber_connect_ncomplete[i], 0);
 		atomic_set(&tfw_bomber_connect_nerror[i], 0);
-		atomic_set(&tfw_bomber_iterations[i], TFW_BOMBER_ITERATIONS);
+		atomic_set(&tfw_bomber_iterations[i], tfw_iterations);
 	}
 
 	return ret;
@@ -455,7 +452,7 @@ tfw_bomber_create_tasks(void)
 static int __init
 tfw_bomber_init(void)
 {
-	int i, ret = 0;
+	int i, j, ret = 0;
 
 	if (tfw_addr_pton(server, &tfw_bomber_server_address)) {
 		SS_ERR("Unable to parse server's address: %s", server);
@@ -463,7 +460,80 @@ tfw_bomber_init(void)
 	}
 	SS_ERR("Started kclient module, server's address is %s\n", server);
 
-	for (i = 0; i < TFW_BOMBER_NTHREADS; i++) {
+	tfw_bomber_desc = kmalloc(tfw_threads *
+			sizeof(tfw_bomber_desc_t *), GFP_KERNEL);
+	if (!tfw_bomber_desc)
+		return -ENOMEM;
+
+	for (i = 0; i < tfw_threads; i++) {
+		tfw_bomber_desc[i] = kzalloc(tfw_connects *
+				sizeof(tfw_bomber_desc_t), GFP_KERNEL);
+		if (!tfw_bomber_desc[i]) {
+			for (j = 0; j < i; j++)
+				kfree(tfw_bomber_desc[i]);
+			ret = -ENOMEM;
+			goto err_bomber_desc;
+		}
+	}
+
+	tfw_bomber_connect_task = kmalloc(tfw_threads *
+			sizeof(struct task_struct *), GFP_KERNEL);
+	if (!tfw_bomber_connect_task) {
+		ret = -ENOMEM;
+		goto err_connect_task;
+	}
+	tfw_bomber_connect_wq = kmalloc(tfw_threads *
+			sizeof(wait_queue_head_t), GFP_KERNEL);
+	if (!tfw_bomber_connect_wq) {
+		ret = -ENOMEM;
+		goto err_connect_wq;
+	}
+	tfw_bomber_nthread = kmalloc(tfw_threads *
+			sizeof(atomic_t), GFP_KERNEL);
+	if (!tfw_bomber_nthread) {
+		ret = -ENOMEM;
+		goto err_bomber_nthread;
+	}
+
+	tfw_bomber_finish_task = kmalloc(tfw_threads *
+			sizeof(struct task_struct *), GFP_KERNEL);
+	if (!tfw_bomber_finish_task) {
+		ret = -ENOMEM;
+		goto err_finish_task;
+	}
+	tfw_bomber_finish_wq = kmalloc(tfw_threads *
+			sizeof(wait_queue_head_t), GFP_KERNEL);
+	if (!tfw_bomber_finish_wq) {
+		ret = -ENOMEM;
+		goto err_finish_wq;
+	}
+
+	tfw_bomber_connect_nattempt = kmalloc(tfw_threads *
+			sizeof(atomic_t), GFP_KERNEL);
+	if (!tfw_bomber_connect_nattempt) {
+		ret = -ENOMEM;
+		goto err_connect_nattempt;
+	}
+	tfw_bomber_connect_ncomplete = kmalloc(tfw_threads *
+			sizeof(atomic_t), GFP_KERNEL);
+	if (!tfw_bomber_connect_ncomplete) {
+		ret = -ENOMEM;
+		goto err_connect_ncomplete;
+	}
+	tfw_bomber_connect_nerror = kmalloc(tfw_threads *
+			sizeof(atomic_t), GFP_KERNEL);
+	if (!tfw_bomber_connect_nerror) {
+		ret = -ENOMEM;
+		goto err_connect_error;
+	}
+	tfw_bomber_iterations = kmalloc(tfw_threads *
+			sizeof(atomic_t), GFP_KERNEL);
+	if (!tfw_bomber_iterations) {
+		ret = -ENOMEM;
+		goto err_iterations;
+	}
+
+	for (i = 0; i < tfw_threads; i++) {
 		init_waitqueue_head(&tfw_bomber_connect_wq[i]);
 		init_waitqueue_head(&tfw_bomber_finish_wq[i]);
 	}
@@ -471,20 +541,49 @@ tfw_bomber_init(void)
 	ret = tfw_bomber_create_tasks();
 
 	if (ret) {
-		tfw_bomber_stop_threads();
+		goto err_create_tasks;
 	} else {
-		for (i = 0; i < TFW_BOMBER_NTHREADS; i++) {
+		for (i = 0; i < tfw_threads; i++) {
 			atomic_set(&tfw_bomber_nthread[i], 1);
 			wake_up_process(tfw_bomber_connect_task[i]);
+			// TODO: remove wait_event. Just connect
+			// and start tfw_bomber_finish_task.
 			wait_event_interruptible(tfw_bomber_connect_wq[i],
 					atomic_read(&tfw_bomber_nthread[i]) == 0);
 		}
 		SS_ERR("Started %d threads to initiate %d connects each\n",
-				TFW_BOMBER_NTHREADS, TFW_BOMBER_NCONNECTS);
+				tfw_threads, tfw_connects);
 
-		for (i = 0; i < TFW_BOMBER_NTHREADS; i++)
+		for (i = 0; i < tfw_threads; i++)
 			wake_up_process(tfw_bomber_finish_task[i]);
 	}
+
+	return ret;
+
+err_create_tasks:
+	tfw_bomber_stop_threads();
+	kfree(tfw_bomber_iterations);
+err_iterations:
+	kfree(tfw_bomber_connect_nerror);
+err_connect_error:
+	kfree(tfw_bomber_connect_ncomplete);
+err_connect_ncomplete:
+	kfree(tfw_bomber_connect_nattempt);
+err_connect_nattempt:
+	kfree(tfw_bomber_finish_wq);
+err_finish_wq:
+	kfree(tfw_bomber_finish_task);
+err_finish_task:
+	kfree(tfw_bomber_nthread);
+err_bomber_nthread:
+	kfree(tfw_bomber_connect_wq);
+err_connect_wq:
+	kfree(tfw_bomber_connect_task);
+err_connect_task:
+	for (i = 0; i < tfw_threads; i++)
+		kfree(tfw_bomber_desc[i]);
+err_bomber_desc:
+	kfree(tfw_bomber_desc);
 
 	return ret;
 }
@@ -492,7 +591,22 @@ tfw_bomber_init(void)
 static void
 tfw_bomber_exit(void)
 {
+	int i;
+
 	tfw_bomber_stop_threads();
+
+	for (i = 0; i < tfw_threads; i++)
+		kfree(tfw_bomber_desc[i]);
+	kfree(tfw_bomber_desc);
+	kfree(tfw_bomber_connect_task);
+	kfree(tfw_bomber_connect_wq);
+	kfree(tfw_bomber_nthread);
+	kfree(tfw_bomber_finish_task);
+	kfree(tfw_bomber_finish_wq);
+	kfree(tfw_bomber_connect_nattempt);
+	kfree(tfw_bomber_connect_ncomplete);
+	kfree(tfw_bomber_connect_nerror);
+	kfree(tfw_bomber_iterations);
 }
 
 module_init(tfw_bomber_init);
