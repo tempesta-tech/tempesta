@@ -38,7 +38,8 @@ struct TfwPoolChunk {
 };
 
 typedef struct {
-	TfwPoolChunk *head;
+	TfwPoolChunk *page_chunks_head;
+	TfwPoolChunk *large_chunks_head;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
