@@ -49,7 +49,15 @@ __tfw_pool_new(size_t n)
 	chunk->order = order;
 	chunk->off = sizeof(*p) + sizeof(*chunk);
 	chunk->next = NULL;
-	p->head = chunk;
+
+	if (!order) {
+		p->page_chunks_head = chunk;
+		p->large_chunks_head = NULL;
+	}
+	else {
+		p->page_chunks_head = NULL;
+		p->large_chunks_head = chunk;
+	}
 
 	return p;
 }
@@ -61,13 +69,17 @@ __tfw_find_chunk(TfwPool *p, void *ptr)
 	unsigned char *tmp_ptr = ptr;
 	TfwPoolChunk *chunk;
 
-	chunk = p->head;
+	chunk = p->large_chunks_head;
 	while (chunk != NULL) {
 		if (chunk->base <= tmp_ptr &&
 		    tmp_ptr < chunk->base + TFW_POOL_CHUNK_SIZE(chunk)) {
 			break;
 		}
 		chunk = chunk->next;
+	}
+
+	if (!chunk) {
+		chunk = (TfwPoolChunk *)((unsigned long)ptr & PAGE_MASK);
 	}
 
 	return chunk;
@@ -79,18 +91,29 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 	void *a;
 	TfwPoolChunk *chunk;
 
-	chunk = p->head;
-	if (unlikely(chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
-		unsigned int order = get_order(n + sizeof(TfwPoolChunk));
-		chunk = (TfwPoolChunk *)__get_free_pages(GFP_ATOMIC, order);
-		if (!chunk)
-			return NULL;
+	chunk = p->page_chunks_head;
+	if (unlikely(!chunk || chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
+		chunk = p->large_chunks_head;
+		if (unlikely(!chunk || chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
+			unsigned int order = get_order(n + sizeof(*chunk));
+			chunk = (TfwPoolChunk *)__get_free_pages(GFP_ATOMIC,
+								 order);
+			if (!chunk)
+				return NULL;
 
-		chunk->base = (unsigned char *)chunk;
-		chunk->order = order;
-		chunk->off = sizeof(*chunk);
-		chunk->next = p->head;
-		p->head = chunk;
+			chunk->base = (unsigned char *)chunk;
+			chunk->order = order;
+			chunk->off = sizeof(*chunk);
+
+			if (!order) {
+				chunk->next = p->page_chunks_head;
+				p->page_chunks_head = chunk;
+			}
+			else {
+				chunk->next = p->large_chunks_head;
+				p->large_chunks_head = chunk;
+			}
+		}
 	}
 
 	a = chunk->base + chunk->off;
@@ -140,7 +163,14 @@ tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *chunk, *next;
 
-	chunk = p->head;
+	chunk = p->page_chunks_head;
+	while (chunk != NULL) {
+		next = chunk->next;
+		free_pages((unsigned long)chunk, chunk->order);
+		chunk = next;
+	}
+
+	chunk = p->large_chunks_head;
 	while (chunk != NULL) {
 		next = chunk->next;
 		free_pages((unsigned long)chunk, chunk->order);
