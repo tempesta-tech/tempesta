@@ -19,12 +19,12 @@
 
 tfw_root = $(src)/../../../
 
-EXTRA_CFLAGS += -Werror -O0 -g3 -DDEBUG -I$(tfw_root)/tempesta_fw \
+EXTRA_CFLAGS += -Werror -O0 -g3 -I$(tfw_root)/tempesta_fw \
 		-I$(tfw_root)/tempesta_db/core -I$(tfw_root)/sync_socket
 ifdef DEBUG
-	EXTRA_CFLAGS += -DDBG_LVL=$(DEBUG)
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 else
-	EXTRA_CFLAGS += -DDBG_LVL=0
+	EXTRA_CFLAGS += -DDEBUG=0
 endif
 
 obj-m += tfw_test.o
