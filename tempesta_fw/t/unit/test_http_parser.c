@@ -78,41 +78,25 @@ free_msgs(void)
 	free_resp();
 }
 
-int
-split_and_parse_n(unsigned char *str, int type, size_t len, int chunks)
+static int
+split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
-	int chlen = len / chunks, rem = len % chunks, pos = 0, step, r;
-	char tmp1, tmp2;
+	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
+	int r;
 
-	while (pos < len)
-	{
+	while (pos < len) {
 		step = chlen;
-
 		if (rem) {
 			step += rem;
 			rem = 0;
 		}
 
-		if (pos) {
-			tmp1 = *(str + pos - 1);
-			*(str + pos - 1) = 0;
-		}
-		if (pos + step < len) {
-			tmp2 = *(str + pos + step);
-			*(str + pos + step) = 0;
-		}
-
-		printk("len:%lu,pos:%d,step:%d,chlen:%d",
-				len,pos,step,chlen);
+		TEST_LOG("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
+			len, pos, chunks, step);
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, step);
 		else
 			r = tfw_http_parse_resp(resp, str + pos, step);
-
-		if (pos)
-			*(str + pos - 1) = tmp1;
-		if (pos + step < len)
-			*(str + pos + step) = tmp2;
 
 		pos += step;
 
@@ -122,7 +106,6 @@ split_and_parse_n(unsigned char *str, int type, size_t len, int chunks)
 
 	return r;
 }
-
 
 /**
  * The function is designed to be called in a loop, e.g.
@@ -164,19 +147,19 @@ split_and_parse_n(unsigned char *str, int type, size_t len, int chunks)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-int
+static int chunks = 1;
+static int
 do_split_and_parse(unsigned char *str, int type)
 {
-	static char head_buf[PAGE_SIZE];
-	static char tail_buf[PAGE_SIZE];
-	static size_t len, head_len, tail_len;
-	static int chunks;
+	static size_t len;
 	int r;
 
 	BUG_ON(!str);
-	BUG_ON(head_len > len);
-	BUG_ON(head_len > sizeof(head_buf));
-	BUG_ON(tail_len > sizeof(tail_buf));
+
+	if (chunks == 1) {
+		len = strlen(str);
+	}
+
 	if (type == FUZZ_REQ)
 		reset_req(strlen(str));
 	else if (type == FUZZ_RESP)
@@ -184,74 +167,26 @@ do_split_and_parse(unsigned char *str, int type)
 	else
 		BUG();
 
-	/* First iteration. */
-	if (!len) {
-		len = strlen(str);
-		head_len = 0;
-		tail_len = len;
-		chunks = 2;
-
-		BUG_ON(len > sizeof(head_buf));
-		memcpy(head_buf, str, len);
-
-		/* Parse request as a single chunk on the first iteration. */
-		if (type == FUZZ_REQ)
-			return tfw_http_parse_req(req, head_buf, len);
-		else
-			return tfw_http_parse_resp(resp, head_buf, len);
+	r = split_and_parse_n(str, type, len, chunks);
+	if (chunks == len) {
+		chunks = 1;
+		return 1;
 	}
 
-	while (chunks > 2) {
-		r = split_and_parse_n(str, type, len, chunks);
-		/* Done all iterations? */
-		if (chunks == len) {
-			len = head_len = tail_len = 0;
-			return r;
-		}
-		++chunks;
-	}
-
-	++head_len;
-	--tail_len;
-
-	if (head_len == len) {
-		++chunks;
-		return 0;
-	}
-
-	/* Put data to a separate buffers to guard bounds. */
-	memcpy(head_buf, str, head_len);
-	memset(head_buf + head_len, 0, sizeof(head_buf) - head_len);
-	memcpy(tail_buf, str + head_len, tail_len);
-	memset(tail_buf + tail_len, 0, sizeof(tail_buf) - tail_len);
-
-	TEST_LOG("split: head_len=%zu [%.*s], tail_len=%zu [%.*s]\n",
-		 head_len, (int)head_len, head_buf,
-		 tail_len, (int)tail_len, tail_buf);
-
-	/* We expect that the parser requests more data. */
-	if (type == FUZZ_REQ)
-		r = tfw_http_parse_req(req, head_buf, head_len);
-	else
-		r = tfw_http_parse_resp(resp, head_buf, head_len);
-	if (r != TFW_POSTPONE)
-		return r;
-
-	/* Parse the tail. */
-	if (type == FUZZ_REQ)
-		return tfw_http_parse_req(req, tail_buf, tail_len);
-	else
-		return tfw_http_parse_resp(resp, tail_buf, tail_len);
+	++chunks;
+	return r;
 }
 
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err < 0)						\
+	if (_err < 0) {						\
+		chunks = 1;					\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" : "response"),\
 			  _err, (str)); 			\
-	!_err;							\
+	}							\
+	_err == TFW_PASS;					\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
@@ -261,7 +196,7 @@ do_split_and_parse(unsigned char *str, int type)
 		TEST_FAIL("%s is not blocked as expected:\n%s",\
 			       (type == FUZZ_REQ ? "request" : "response"),\
 			       (str));				\
-	(_err < 0);						\
+	_err == TFW_BLOCK;					\
 })
 
 #define FOR_REQ(str)						\
