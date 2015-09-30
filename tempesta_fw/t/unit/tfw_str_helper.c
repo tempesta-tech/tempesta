@@ -37,7 +37,7 @@ create_str_pool(void)
 void
 free_all_str(void)
 {
-	tfw_pool_free(str_pool);
+	tfw_pool_destroy(str_pool);
 	str_pool = NULL;
 }
 
