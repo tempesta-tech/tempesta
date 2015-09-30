@@ -28,18 +28,27 @@
 
 #define TFW_POOL_ZERO	0x1
 
-typedef struct TfwPoolChunk TfwPoolChunk;
+/**
+ * Memory pool chunk descriptor.
+ *
+ * @next	- pointer to next memory chunk;
+ * @order	- order of number of pages in the chunk;
+ * @off		- current chunk offset;
+ */
+typedef struct tfw_pool_chunk_t {
+	struct tfw_pool_chunk_t	*next;
+	unsigned int		order;
+	unsigned int		off;
+} TfwPoolChunk;
 
-struct TfwPoolChunk {
-	TfwPoolChunk *next;
-	unsigned char *base; /* base address of the pool chunk */
-	unsigned int order; /* total size of the pool chunk */
-	unsigned int off; /* current offset */
-};
-
+/**
+ * Memory pool descriptor.
+ *
+ * @curr	- current chunk to allocate memory from;
+ * @free	- current of list of free chunks;
+ */
 typedef struct {
-	TfwPoolChunk *page_chunks_head;
-	TfwPoolChunk *large_chunks_head;
+	TfwPoolChunk	*curr;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
@@ -61,7 +70,7 @@ typedef struct {
 TfwPool *__tfw_pool_new(size_t n);
 void *tfw_pool_alloc(TfwPool *p, size_t n);
 void *tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n);
-void tfw_pool_try_free(TfwPool *p, void *ptr, size_t n);
+void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
 void tfw_pool_destroy(TfwPool *p);
 
 #endif /* __TFW_POOL_H__ */
