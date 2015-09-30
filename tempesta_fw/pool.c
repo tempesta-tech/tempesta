@@ -28,96 +28,107 @@
 
 #include "pool.h"
 
-#define TFW_POOL_CHUNK_SIZE(p)	(PAGE_SIZE << (p)->order)
+#define TFW_POOL_CHUNK_SZ(c)	(PAGE_SIZE << (c)->order)
+#define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
+#define TFW_POOL_CHUNK_END(c)	(TFW_POOL_CHUNK_BASE(c) + (c)->off)
+#define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
+#define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
+				 + TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))
+#define TFW_POOL_PGCACHE_SZ	512
 
-/**
- * Allocate bit more pages than we need.
+static DEFINE_PER_CPU(unsigned int, pg_next);
+static DEFINE_PER_CPU(unsigned long [TFW_POOL_PGCACHE_SZ], pg_cache);
+
+/*
+ * Per-CPU page cache.
+ *
+ * The buddy allocator does relatively heavy things, so the cache makes
+ * memory allocations faster.
+ *
+ * It caches small number of pages and return free pages to buddy allocator,
+ * which are out of the space.
+ * Multi-page chunks can be coalesced with buddies, so that we'll be able to
+ * satisfy large realloc (i.e. if the we called from realloc(), then it's
+ * likely that the next request will be of doubled size and we typically grow
+ * through buddies coalescing). So we never cache multi-pages.
  */
-TfwPool *
-__tfw_pool_new(size_t n)
+static unsigned long
+tfw_pool_alloc_pages(unsigned int order)
 {
-	TfwPool *p;
-	TfwPoolChunk *chunk;
-	unsigned int order = get_order(n + sizeof(*p) + sizeof(*chunk));
+	unsigned int *pgn;
+	unsigned long pg_res;
 
-	p = (TfwPool *)__get_free_pages(GFP_ATOMIC, order);
-	if (!p)
-		return NULL;
+	preempt_disable();
 
-	chunk = (TfwPoolChunk *)(p + 1);
-	chunk->base = (unsigned char *)p;
-	chunk->order = order;
-	chunk->off = sizeof(*p) + sizeof(*chunk);
-	chunk->next = NULL;
+	pgn = this_cpu_ptr(&pg_next);
 
-	if (!order) {
-		p->page_chunks_head = chunk;
-		p->large_chunks_head = NULL;
+	if (likely(*pgn && !order)) {
+		--*pgn;
+		pg_res = this_cpu_read(pg_cache[*pgn]);
+
+		preempt_enable();
+
+		return pg_res;
 	}
-	else {
-		p->page_chunks_head = NULL;
-		p->large_chunks_head = chunk;
-	}
+	preempt_enable();
 
-	return p;
+	return __get_free_pages(GFP_ATOMIC, order);
 }
-EXPORT_SYMBOL(__tfw_pool_new);
 
-TfwPoolChunk *
-__tfw_find_chunk(TfwPool *p, void *ptr)
+static void
+tfw_pool_free_pages(unsigned long addr, unsigned int order)
 {
-	unsigned char *tmp_ptr = ptr;
-	TfwPoolChunk *chunk;
+	unsigned int *pgn;
 
-	chunk = p->large_chunks_head;
-	while (chunk != NULL) {
-		if (chunk->base <= tmp_ptr &&
-		    tmp_ptr < chunk->base + TFW_POOL_CHUNK_SIZE(chunk)) {
-			break;
-		}
-		chunk = chunk->next;
+	preempt_disable();
+
+	pgn = this_cpu_ptr(&pg_next);
+
+	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order)) {
+		*this_cpu_ptr(&pg_cache[*pgn]) = addr;
+		++*pgn;
+
+		preempt_enable();
+
+		return;
 	}
+	preempt_enable();
 
-	if (!chunk) {
-		chunk = (TfwPoolChunk *)((unsigned long)ptr & PAGE_MASK);
-	}
+	free_pages(addr, order);
+}
 
-	return chunk;
+static inline TfwPoolChunk *
+tfw_pool_chunk_first(TfwPool *p)
+{
+	return (TfwPoolChunk *)TFW_POOL_ALIGN_SZ((unsigned long)(p + 1));
 }
 
 void *
 tfw_pool_alloc(TfwPool *p, size_t n)
 {
 	void *a;
-	TfwPoolChunk *chunk;
+	TfwPoolChunk *c = p->curr;
 
-	chunk = p->page_chunks_head;
-	if (unlikely(!chunk || chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
-		chunk = p->large_chunks_head;
-		if (unlikely(!chunk || chunk->off + n >= TFW_POOL_CHUNK_SIZE(chunk))) {
-			unsigned int order = get_order(n + sizeof(*chunk));
-			chunk = (TfwPoolChunk *)__get_free_pages(GFP_ATOMIC,
-								 order);
-			if (!chunk)
-				return NULL;
+	n = TFW_POOL_ALIGN_SZ(n);
 
-			chunk->base = (unsigned char *)chunk;
-			chunk->order = order;
-			chunk->off = sizeof(*chunk);
+	if (unlikely(c->off + n > TFW_POOL_CHUNK_SZ(c))) {
+		unsigned int off = TFW_POOL_ALIGN_SZ(sizeof(*c)) + n;
+		unsigned int order = get_order(off);
 
-			if (!order) {
-				chunk->next = p->page_chunks_head;
-				p->page_chunks_head = chunk;
-			}
-			else {
-				chunk->next = p->large_chunks_head;
-				p->large_chunks_head = chunk;
-			}
-		}
+		c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+		if (!c)
+			return NULL;
+
+		c->next = p->curr;
+		c->order = order;
+		c->off = off;
+		p->curr = c;
+
+		return (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1));
 	}
 
-	a = chunk->base + chunk->off;
-	chunk->off += n;
+	a = (char *)TFW_POOL_CHUNK_END(c);
+	c->off += n;
 
 	return a;
 }
@@ -127,16 +138,20 @@ void *
 tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 {
 	void *a;
-	TfwPoolChunk *chunk;
+	TfwPoolChunk *c = p->curr;
 
 	BUG_ON(new_n < old_n);
 
-	chunk = __tfw_find_chunk(p, ptr);
-	if (ptr + old_n == chunk->base + chunk->off &&
-	    chunk->off + new_n - old_n < TFW_POOL_CHUNK_SIZE(chunk)) {
-		chunk->off += new_n - old_n;
+	old_n = TFW_POOL_ALIGN_SZ(old_n);
+	new_n = TFW_POOL_ALIGN_SZ(new_n);
+
+	if ((char *)ptr + old_n == (char *)TFW_POOL_CHUNK_END(c)
+	    && c->off + new_n <= TFW_POOL_CHUNK_SZ(c))
+	{
+		c->off += new_n - old_n;
 		return ptr;
 	}
+
 
 	a = tfw_pool_alloc(p, new_n);
 	if (likely(a))
@@ -146,35 +161,67 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 }
 EXPORT_SYMBOL(tfw_pool_realloc);
 
+/**
+ * It's good to call the function against just allocated chunk in stack-manner.
+ * Consequent free calls can empty the whole pool but the first chunk with
+ * the pool header.
+ */
 void
-tfw_pool_try_free(TfwPool *p, void *ptr, size_t n)
+tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 {
-	TfwPoolChunk *chunk;
+	TfwPoolChunk *c = p->curr;
 
-	chunk = __tfw_find_chunk(p, ptr);
-	if (ptr + n == chunk->base + chunk->off) {
-		chunk->off -= n;
+	n = TFW_POOL_ALIGN_SZ(n);
+	/* Stack-like usage is expected. */
+	if (likely((char *)ptr + n == (char *)TFW_POOL_CHUNK_END(c)))
+		c->off -= n;
+
+	/* Free empty chunk which doesn't contain the pool header. */
+	if (unlikely(c != tfw_pool_chunk_first(p)
+		     && c->off == TFW_POOL_ALIGN_SZ(sizeof(*c))))
+	{
+		p->curr = c->next;
+		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
 }
-EXPORT_SYMBOL(tfw_pool_try_free);
+EXPORT_SYMBOL(tfw_pool_free);
+
+/**
+ * Allocate bit more pages than we need.
+ */
+TfwPool *
+__tfw_pool_new(size_t n)
+{
+	TfwPool *p;
+	TfwPoolChunk *c;
+	unsigned int order;
+
+	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
+
+	p = (TfwPool *)tfw_pool_alloc_pages(order);
+	if (!p)
+		return NULL;
+
+	c = tfw_pool_chunk_first(p);
+	c->next = NULL;
+	c->order = order;
+	c->off = TFW_POOL_ALIGN_SZ((char *)(c + 1) - (char *)p);
+
+	p->curr = c;
+
+	return p;
+}
+EXPORT_SYMBOL(__tfw_pool_new);
 
 void
 tfw_pool_destroy(TfwPool *p)
 {
-	TfwPoolChunk *chunk, *next;
+	TfwPoolChunk *c, *next, *first = tfw_pool_chunk_first(p);
 
-	chunk = p->page_chunks_head;
-	while (chunk != NULL) {
-		next = chunk->next;
-		free_pages((unsigned long)chunk, chunk->order);
-		chunk = next;
+	for (c = p->curr; c != first; c = next) {
+		next = c->next;
+		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
-
-	chunk = p->large_chunks_head;
-	while (chunk != NULL) {
-		next = chunk->next;
-		free_pages((unsigned long)chunk, chunk->order);
-		chunk = next;
-	}
+	tfw_pool_free_pages((unsigned long)p, first->order);
 }
 EXPORT_SYMBOL(tfw_pool_destroy);
