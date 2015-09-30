@@ -4,6 +4,7 @@
  * Memory pool.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,11 +28,28 @@
 
 #define TFW_POOL_ZERO	0x1
 
+/**
+ * Memory pool chunk descriptor.
+ *
+ * @next	- pointer to next memory chunk;
+ * @order	- order of number of pages in the chunk;
+ * @off		- current chunk offset;
+ */
+typedef struct tfw_pool_chunk_t {
+	struct tfw_pool_chunk_t	*next;
+	unsigned int		order;
+	unsigned int		off;
+} TfwPoolChunk;
+
+/**
+ * Memory pool descriptor.
+ *
+ * @curr	- current chunk to allocate memory from;
+ * @free	- current of list of free chunks;
+ */
 typedef struct {
-	unsigned char *base; /* base address of the pool */
-	unsigned int order; /* total size of the pool */
-	unsigned int off; /* current offset, INVAIRANT: off < size */
-} ____cacheline_aligned TfwPool;
+	TfwPoolChunk	*curr;
+} TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
 ({									\
@@ -52,6 +70,7 @@ typedef struct {
 TfwPool *__tfw_pool_new(size_t n);
 void *tfw_pool_alloc(TfwPool *p, size_t n);
 void *tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n);
-void tfw_pool_free(TfwPool *p);
+void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
+void tfw_pool_destroy(TfwPool *p);
 
 #endif /* __TFW_POOL_H__ */
