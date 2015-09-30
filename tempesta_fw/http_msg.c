@@ -703,7 +703,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 			   ? "Conn_Srv" : "Unknown");
 		kfree_skb(skb);
 	}
-	tfw_pool_free(m->pool);
+	tfw_pool_destroy(m->pool);
 }
 DEBUG_EXPORT_SYMBOL(tfw_http_msg_free);
 
