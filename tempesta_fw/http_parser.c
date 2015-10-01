@@ -1305,7 +1305,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
-		if (likely(C4_INT_LCM(p, 'h', 't', 't', 'p')
+		if (likely(p + 7 <= data + len
+			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
 			   && *(p + 6) == '/'))
 			__FSM_MOVE_n(Req_UriHostStart, 7);
