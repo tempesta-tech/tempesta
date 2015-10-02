@@ -379,7 +379,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	 */
 	nskb = ss_skb_split(*skb, split_offset);
 	if (!nskb) {
-		tfw_http_msg_free(shm);
+		tfw_http_conn_msg_free(shm);
 		return NULL;
 	}
 	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
