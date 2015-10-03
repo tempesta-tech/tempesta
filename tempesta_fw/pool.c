@@ -28,9 +28,9 @@
 
 #include "pool.h"
 
-#define TFW_POOL_CHUNK_SZ(c)	(PAGE_SIZE << (c)->order)
+#define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
 #define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
-#define TFW_POOL_CHUNK_END(c)	(TFW_POOL_CHUNK_BASE(c) + (c)->off)
+#define TFW_POOL_CHUNK_END(p)	(TFW_POOL_CHUNK_BASE((p)->curr) + (p)->off)
 #define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
 				 + TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))
@@ -97,38 +97,35 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	free_pages(addr, order);
 }
 
-static inline TfwPoolChunk *
-tfw_pool_chunk_first(TfwPool *p)
-{
-	return (TfwPoolChunk *)TFW_POOL_ALIGN_SZ((unsigned long)(p + 1));
-}
-
 void *
 tfw_pool_alloc(TfwPool *p, size_t n)
 {
 	void *a;
-	TfwPoolChunk *c = p->curr;
 
 	n = TFW_POOL_ALIGN_SZ(n);
 
-	if (unlikely(c->off + n > TFW_POOL_CHUNK_SZ(c))) {
-		unsigned int off = TFW_POOL_ALIGN_SZ(sizeof(*c)) + n;
+	if (unlikely(p->off + n > TFW_POOL_CHUNK_SZ(p))) {
+		TfwPoolChunk *c, *curr = p->curr;
+		unsigned int off = TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)) + n;
 		unsigned int order = get_order(off);
 
 		c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
 		if (!c)
 			return NULL;
+		c->next = curr;
 
-		c->next = p->curr;
-		c->order = order;
-		c->off = off;
+		curr->order = p->order;
+		curr->off = p->off;
+
+		p->order = order;
+		p->off = off;
 		p->curr = c;
 
 		return (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1));
 	}
 
-	a = (char *)TFW_POOL_CHUNK_END(c);
-	c->off += n;
+	a = (char *)TFW_POOL_CHUNK_END(p);
+	p->off += n;
 
 	return a;
 }
@@ -138,20 +135,18 @@ void *
 tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 {
 	void *a;
-	TfwPoolChunk *c = p->curr;
 
 	BUG_ON(new_n < old_n);
 
 	old_n = TFW_POOL_ALIGN_SZ(old_n);
 	new_n = TFW_POOL_ALIGN_SZ(new_n);
 
-	if ((char *)ptr + old_n == (char *)TFW_POOL_CHUNK_END(c)
-	    && c->off + new_n <= TFW_POOL_CHUNK_SZ(c))
+	if ((char *)ptr + old_n == (char *)TFW_POOL_CHUNK_END(p)
+	    && p->off + new_n <= TFW_POOL_CHUNK_SZ(p))
 	{
-		c->off += new_n - old_n;
+		p->off += new_n - old_n;
 		return ptr;
 	}
-
 
 	a = tfw_pool_alloc(p, new_n);
 	if (likely(a))
@@ -169,19 +164,21 @@ EXPORT_SYMBOL(tfw_pool_realloc);
 void
 tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 {
-	TfwPoolChunk *c = p->curr;
-
 	n = TFW_POOL_ALIGN_SZ(n);
+
 	/* Stack-like usage is expected. */
-	if (likely((char *)ptr + n == (char *)TFW_POOL_CHUNK_END(c)))
-		c->off -= n;
+	if (unlikely((char *)ptr + n != (char *)TFW_POOL_CHUNK_END(p)))
+		return;
+
+	p->off -= n;
 
 	/* Free empty chunk which doesn't contain the pool header. */
-	if (unlikely(c != tfw_pool_chunk_first(p)
-		     && c->off == TFW_POOL_ALIGN_SZ(sizeof(*c))))
-	{
-		p->curr = c->next;
-		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+	if (unlikely(p->off == TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))) {
+		TfwPoolChunk *next = p->curr->next;
+		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(p->curr), p->order);
+		p->curr = next;
+		p->order = next->order;
+		p->off = next->off;
 	}
 }
 EXPORT_SYMBOL(tfw_pool_free);
@@ -198,15 +195,15 @@ __tfw_pool_new(size_t n)
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-	p = (TfwPool *)tfw_pool_alloc_pages(order);
-	if (!p)
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	if (unlikely(!c))
 		return NULL;
 
-	c = tfw_pool_chunk_first(p);
-	c->next = NULL;
-	c->order = order;
-	c->off = TFW_POOL_ALIGN_SZ((char *)(c + 1) - (char *)p);
+	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
+	c->next = NULL;
+	p->order = c->order = order;
+	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
 
 	return p;
@@ -216,12 +213,11 @@ EXPORT_SYMBOL(__tfw_pool_new);
 void
 tfw_pool_destroy(TfwPool *p)
 {
-	TfwPoolChunk *c, *next, *first = tfw_pool_chunk_first(p);
+	TfwPoolChunk *c, *next;
 
-	for (c = p->curr; c != first; c = next) {
+	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
-	tfw_pool_free_pages((unsigned long)p, first->order);
 }
 EXPORT_SYMBOL(tfw_pool_destroy);
