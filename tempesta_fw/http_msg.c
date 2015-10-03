@@ -329,21 +329,16 @@ int
 tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	size_t order = ht->size / TFW_HTTP_HDR_NUM;
-
-	if (__HHTBL_SZ(order + 1) >= TFW_HTTP_HDR_NUM_MAX) {
-		TFW_WARN("Too many HTTP headers\n");
-		return -ENOMEM;
-	}
+	size_t order = ht->size / TFW_HTTP_HDR_NUM, new_order = order << 1;
 
 	ht = tfw_pool_realloc(hm->pool, ht, TFW_HHTBL_SZ(order),
-			      TFW_HHTBL_SZ(order + 1));
+			      TFW_HHTBL_SZ(new_order));
 	if (!ht)
 		return -ENOMEM;
-	ht->size = __HHTBL_SZ(order + 1);
+	ht->size = __HHTBL_SZ(new_order);
 	ht->off = hm->h_tbl->off;
 	memset(ht->tbl + __HHTBL_SZ(order), 0,
-	       __HHTBL_SZ(1) * sizeof(TfwStr));
+	       __HHTBL_SZ(order) * sizeof(TfwStr));
 	hm->h_tbl = ht;
 
 	TFW_DBG3("grow http headers table to %d items\n", ht->size);
