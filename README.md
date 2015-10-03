@@ -278,6 +278,8 @@ The list of available options:
 
 * **http_body_len** - maximum length of HTTP message body of incoming request;
 
+* **http_header_cnt** - maximum number of HTTP header in a HTTP message;
+
 * **http_header_chunk_cnt** - limit number of chunks in all headers for HTTP request;
 
 * **http_body_chunk_cnt** - limit number of chunks for HTTP request body;
