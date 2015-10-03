@@ -1,11 +1,28 @@
 /**
  *		Tempesta FW
  *
- * Memory pool.
+ * Stack-like region-based memory manager.
  *
  * Pools are used per message (e.g. HTTP request or response).
  * Since Tempesta handles a message only on one CPU, then the pool should not
  * bother about concurrency.
+ *
+ * The allocator is pure Tempesta specific which is perfect for current
+ * workload (i.e. should be reviewed when new usage patterns appear):
+ * 1. the typical allocation sequence is:
+ *    (a) HTTP message is allocated on the same page as the pool itself;
+ *    (b) TfwHttpHdrTbl follows the message descriptor;
+ *    (c) many TfwStr's for each HTTP field;
+ * 2. TfwHttpHdrTbl can be rarely reallocated - since it's followed by TfwStr
+ *    allocations we always lose it's memory. The table grows exponentilly
+ *    minimizing number of reallocations and Frang controls number and size
+ *    of the reallocations;
+ * 3. TfwStr grows while we're reading it, so this is last allocation when we
+ *    reallocate it - the operation is pretty fast for current allocation.
+ *    Duplicate HTTP headers are likely introduces heavy reallocations like
+ *    (2) with losing memory - they're also rare;
+ * 4. sometimes we need temporal buffers to do something - the buffers should
+ *    be immediately freed to keep stack-like memory management.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
