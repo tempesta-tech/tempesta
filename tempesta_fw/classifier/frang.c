@@ -17,6 +17,7 @@
  * 	- presence of certain mandatory header fields;
  *	- restrictions on values of HTTP method and Content-Type
  *	  (check that the value is one of those defined by a user);
+ *	- number of HTTP headers, header and body chunks;
  *
  * Also, there are certain restrictions that are not user-controlled.
  * For instance, if Host: header is present it may not contain an IP address.
@@ -57,7 +58,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.4");
+MODULE_VERSION("0.1.5");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -132,6 +133,7 @@ typedef struct {
 	unsigned int 	http_body_len;
 	unsigned int	http_hchunk_cnt;
 	unsigned int	http_bchunk_cnt;
+	unsigned int	http_hdr_cnt;
 	bool 		http_ct_required;
 	bool 		http_host_required;
 
@@ -363,6 +365,14 @@ static int
 __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra)
 {
 	const TfwStr *field, *end, *dup, *dup_end;
+
+	if (frang_cfg.http_hdr_cnt
+	    && req->h_tbl->off >= frang_cfg.http_hdr_cnt)
+	{
+		frang_limmsg("HTTP headers number", req->h_tbl->off,
+			     frang_cfg.http_hdr_cnt, &ra->addr);
+		return TFW_BLOCK;
+	}
 
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
@@ -985,6 +995,11 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		"http_body_len", "0",
 		tfw_cfg_set_int,
 		&frang_cfg.http_body_len,
+	},
+	{
+		"http_header_cnt", "0",
+		tfw_cfg_set_int,
+		&frang_cfg.http_hdr_cnt,
 	},
 	{
 		"http_header_chunk_cnt", "0",
