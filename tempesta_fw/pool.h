@@ -45,10 +45,12 @@ typedef struct tfw_pool_chunk_t {
  * Memory pool descriptor.
  *
  * @curr	- current chunk to allocate memory from;
- * @free	- current of list of free chunks;
+ * @order,@off	- cached members of @curr;
  */
 typedef struct {
 	TfwPoolChunk	*curr;
+	unsigned int	order;
+	unsigned int	off;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, mask)					\
