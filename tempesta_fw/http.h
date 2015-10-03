@@ -163,7 +163,6 @@ typedef enum {
 	TFW_HTTP_HDR_RAW,
 
 	TFW_HTTP_HDR_NUM	= 16,
-	TFW_HTTP_HDR_NUM_MAX	= PAGE_SIZE / sizeof(int) / 2
 } tfw_http_hdr_t;
 
 typedef struct {
