@@ -545,8 +545,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	BUG_ON(!conn->msg);
 	BUG_ON(off >= skb_len);
 
-	TFW_DBG2("Received %u client data bytes on conn=%p\n",
-		 skb_len - off, conn);
+	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
+		 skb_len - off, conn, conn->msg);
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -676,8 +676,8 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 
 	BUG_ON(!hmresp);
 
-	TFW_DBG2("received %u server data bytes on conn=%p\n",
-		skb->len - off, conn);
+	TFW_DBG2("received %u server data bytes on conn=%p msg=%p\n",
+		skb->len - off, conn, hmresp);
 
 	r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
 	hmresp->msg.len += data_off - off;
