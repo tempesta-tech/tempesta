@@ -454,8 +454,6 @@ finish_req_processing:
 	 */
 	action(req, resp, data);
 
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-
 	if (ce)
 		tdb_rec_put(ce);
 }
@@ -500,11 +498,8 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		 * Probably threading should be at TDB side...
 		 */
 		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
-		if (!cw) {
-			/* Process the request on local CPU. */
-			__cache_req_process_node(req, key, action, data);
-			return;
-		}
+		if (!cw)
+			goto process_locally;
 		INIT_WORK(&cw->work, tfw_cache_req_process_node);
 		cw->cw_req = req;
 		cw->cw_act = action;
@@ -512,7 +507,11 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		cw->cw_key = key;
 		queue_work_on(tfw_cache_sched_work_cpu(node), cache_wq,
 			      (struct work_struct *)cw);
+		return;
 	}
+
+process_locally:
+	__cache_req_process_node(req, key, action, data);
 }
 
 /**
