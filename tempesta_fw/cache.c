@@ -63,7 +63,7 @@ typedef struct {
 	unsigned int	key_len;
 	unsigned long	body_len;
 	/* db direct write bound */
-	char	*key;
+	char		*key;
 	unsigned int	*hdr_lens;
 	char		*hdrs;
 	char		*body;
@@ -500,8 +500,11 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		 * Probably threading should be at TDB side...
 		 */
 		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
-		if (!cw)
-			goto process_locally;
+		if (!cw) {
+			/* Process the request on local CPU. */
+			__cache_req_process_node(req, key, action, data);
+			return;
+		}
 		INIT_WORK(&cw->work, tfw_cache_req_process_node);
 		cw->cw_req = req;
 		cw->cw_act = action;
@@ -510,9 +513,6 @@ tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
 		queue_work_on(tfw_cache_sched_work_cpu(node), cache_wq,
 			      (struct work_struct *)cw);
 	}
-
-process_locally:
-	__cache_req_process_node(req, key, action, data);
 }
 
 /**
