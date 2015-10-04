@@ -61,7 +61,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/cache.h>
 #include <linux/ctype.h>
 #include "http_match.h"
 #include "http_msg.h"
