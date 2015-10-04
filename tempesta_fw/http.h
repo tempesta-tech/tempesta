@@ -277,7 +277,6 @@ typedef struct {
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
-
 typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
 
 /* Internal (parser) HTTP functions. */

@@ -118,6 +118,7 @@ tfw_cache_key_calc(TfwHttpReq *req)
 static int
 tfw_cache_entry_key_copy(TfwCacheEntry *ce, TfwHttpReq *req)
 {
+	/* TODO */
 	return 0;
 }
 
@@ -157,6 +158,12 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 	while (copied < src->len) {
 		int room = (char *)(*trec + 1) + (*trec)->len - *p;
 		BUG_ON(room < 0);
+
+		TFW_DBG3("copy [%.*s](%u) to rec=%p(len=%u), p=%p"
+			 " tot_len=%lu room=%d copied=%ld\n",
+			 min(10, (int)src->len), (char *)src->ptr, src->len,
+			 *trec, (*trec)->len, *p, tot_len, room, copied);
+
 		if (!room) {
 			BUG_ON(tot_len < copied);
 			*trec = tdb_entry_add(db, *trec, tot_len - copied);
@@ -166,66 +173,9 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			room = (*trec)->len;
 		}
 		room = min((long)room, src->len - copied);
-		memcpy(p, (char *)src->ptr + copied, room);
+		memcpy(*p, (char *)src->ptr + copied, room);
 		*p += room;
 		copied += room;
-	}
-
-	return copied;
-}
-
-/**
- * Copies TfwStr (probably compound) to TdbRec.
- * @return number of copied bytes (@src overall length).
- */
-static long
-tfw_cache_copy_str_compound(char **p, TdbVRec **trec, TfwStr *src,
-			    size_t tot_len)
-{
-	int i;
-	long copied = 0;
-
-	BUG_ON(!tot_len);
-
-	if (TFW_STR_PLAIN(src))
-		return tfw_cache_copy_str(p, trec, src, tot_len);
-
-	for (i = 0; i < TFW_STR_CHUNKN(src); ++i) {
-		long n = tfw_cache_copy_str(p, trec, (TfwStr *)src->ptr + i,
-					    tot_len - copied);
-		if (n < 0)
-			return n;
-		copied += n;
-		BUG_ON(tot_len < copied);
-	}
-
-	return copied;
-}
-
-/**
- * Copies TfwStr (probably compound and duplicate) to TdbRec.
- * @return number of copied bytes (@src overall length).
- */
-static long
-tfw_cache_copy_str_duplicate(char **p, TdbVRec **trec, TfwStr *src,
-			     size_t tot_len)
-{
-	int i;
-	long copied = 0;
-
-	BUG_ON(!tot_len);
-
-	if (!(src->flags & TFW_STR_DUPLICATE))
-		return tfw_cache_copy_str_compound(p, trec, src, tot_len);
-
-	for (i = 0; i < TFW_STR_CHUNKN(src); ++i) {
-		long n = tfw_cache_copy_str_compound(p, trec,
-						     (TfwStr *)src->ptr + i,
-						     tot_len - copied);
-		if (n < 0)
-			return n;
-		copied += n;
-		BUG_ON(tot_len < copied);
 	}
 
 	return copied;
@@ -248,13 +198,13 @@ tfw_cache_copy_resp(struct work_struct *work)
 	TfwCacheEntry *ce = cw->cw_ce;
 	TdbVRec *trec;
 	TfwHttpHdrTbl *htbl;
-	TfwStr *hdr;
+	TfwStr *field, *f_end;
 
 	BUG_ON(!ce->resp);
 
 	/* Write HTTP headers. */
 	htbl = ce->resp->h_tbl;
-	ce->hdr_num = htbl->size;
+	ce->hdr_num = htbl->off;
 
 	hlens = sizeof(ce->hdr_lens[0]) * ce->hdr_num;
 	tot_len = hlens + ce->resp->msg.len;
@@ -262,10 +212,9 @@ tfw_cache_copy_resp(struct work_struct *work)
 	/*
 	 * Try to place the cached response in single memory chunk.
 	 *
-	 * Number of HTTP headers is limited by TFW_HTTP_HDR_NUM_MAX while TDB
-	 * should be able to allocate an empty page if we issued a large
-	 * request. So HTTP header lengths must fit the first allocated data
-	 * chunk, also there must be some space for headers and message bodies.
+	 * Number of HTTP headers is unlimited while TDB is able to
+	 * a page at the most. So if number of HTTP message headers are
+	 * out of page size, the the response won't be cached.
 	 */
 	trec = tdb_entry_add(db, (TdbVRec *)ce, tot_len);
 	if (!trec || trec->len <= hlens) {
@@ -273,33 +222,56 @@ tfw_cache_copy_resp(struct work_struct *work)
 			 " Probably TDB cache is exhausted.\n");
 		goto err;
 	}
+	/* FIXME write TDB offsets instead of pointers hereafter. */
+	ce->hdr_lens = (unsigned int *)(trec + 1);
 	p = (char *)(trec + 1) + hlens;
 	tot_len -= hlens;
+
+	TFW_DBG3("cache resp=%p/ce=%p: new_trec=%p(len=%u) hlens=%lu\n",
+		 ce->resp, ce, trec, trec->len, hlens);
 
 	/*
 	 * Set start of headers pointer just after array of
 	 * header length.
 	 */
 	ce->hdrs = p;
-	hdr = htbl->tbl;
-	for (i = 0; i < hlens / sizeof(ce->hdr_lens[0]); ++i, ++hdr) {
-		n = tfw_cache_copy_str_duplicate(&p, &trec, hdr, tot_len);
-		if (n < 0) {
-			TFW_ERR("Cache: cannot copy HTTP header\n");
-			goto err;
+	i = 0;
+	FOR_EACH_HDR_FIELD(field, f_end, ce->resp) {
+		TfwStr *dup, *dup_end;
+		ce->hdr_lens[i] = 0;
+		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
+			TfwStr *c;
+			TFW_STR_FOR_EACH_CHUNK(c, dup, {
+				n = tfw_cache_copy_str(&p, &trec, c, tot_len);
+				if (n < 0) {
+					TFW_ERR("Cache: cannot copy HTTP"
+						" header\n");
+					goto err;
+				}
+				BUG_ON(n > tot_len);
+				tot_len -= n;
+				/*
+				 * Write all duplicate headers one by one
+				 * and threat them later as signle header.
+				 */
+				ce->hdr_lens[i] += n;
+			});
 		}
-		BUG_ON(n > tot_len);
-		tot_len -= n;
+		i++;
 	}
 
 	/* Write HTTP response body. */
 	ce->body = p;
-	n = tfw_cache_copy_str_duplicate(&p, &trec, &ce->resp->body, tot_len);
-	if (n < 0) {
-		TFW_ERR("Cache: cannot copy HTTP body\n");
-		goto err;
-	}
-	ce->body_len = n;
+	ce->body_len = 0;
+	TFW_STR_FOR_EACH_CHUNK(field, &ce->resp->body, {
+		n = tfw_cache_copy_str(&p, &trec, field, tot_len);
+		if (n < 0) {
+			TFW_ERR("Cache: cannot copy HTTP body\n");
+			goto err;
+		}
+		tot_len -= n;
+		ce->body_len += n;
+	});
 
 err:
 	/* FIXME all allocated TDB blocks are leaked here. */
@@ -329,6 +301,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	ce->resp = resp;
 
+	TFW_DBG3("cache resp=%p to ce=%p\n", resp, ce);
+
 	/*
 	 * We must write the entry key now because the request dies
 	 * when the function finishes.
@@ -344,8 +318,14 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	queue_work_on(tfw_cache_sched_work_cpu(numa_node_id()), cache_wq,
 		      (struct work_struct *)cw);
 
-	/* Request isn't needed anymore, response is cached. */
+	/*
+	 * Request isn't needed anymore, response is cached:
+	 * free the first one and unlink from the connection the second one,
+	 * so the server connection will create a new message when a new
+	 * data arrives.
+	 */
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_unlink((TfwHttpMsg *)resp);
 	return;
 out:
 	/* Now we don't need the request and the reponse anymore. */

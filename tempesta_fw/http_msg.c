@@ -670,15 +670,21 @@ this_chunk:
 }
 
 void
+tfw_http_conn_msg_unlink(TfwHttpMsg *m)
+{
+	if (m->conn && m->conn->msg == (TfwMsg *)m)
+		m->conn->msg = NULL;
+}
+
+void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	TFW_DBG3("Free msg: %p\n", m);
+	TFW_DBG3("Free msg=%p\n", m);
 
 	if (!m)
 		return;
 
-	if (m->conn && m->conn->msg == (TfwMsg *)m)
-		m->conn->msg = NULL;
+	tfw_http_conn_msg_unlink(m);
 
 	while (1) {
 		/*
