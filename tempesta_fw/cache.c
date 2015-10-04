@@ -324,6 +324,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
 	BUG_ON(len != sizeof(cdata)- offsetof(TfwCacheEntry, ce_body));
 	if (!ce)
+		/* TODO delete the TDB entry. */
 		goto out;
 
 	ce->resp = resp;
@@ -343,6 +344,9 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	queue_work_on(tfw_cache_sched_work_cpu(numa_node_id()), cache_wq,
 		      (struct work_struct *)cw);
 
+	/* Request isn't needed anymore, response is cached. */
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	return;
 out:
 	/* Now we don't need the request and the reponse anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -586,6 +590,8 @@ tfw_cache_stop(void)
 	destroy_workqueue(cache_wq);
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
+
+	/* TODO destry all ce->resp and zero the pointers in TDB. */
 
 	tdb_close(db);
 }
