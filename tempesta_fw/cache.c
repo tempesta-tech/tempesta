@@ -454,8 +454,6 @@ finish_req_processing:
 	 */
 	action(req, resp, data);
 
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-
 	if (ce)
 		tdb_rec_put(ce);
 }
