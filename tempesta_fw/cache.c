@@ -59,6 +59,7 @@
 typedef struct {
 	TdbVRec		trec;
 	/* TDB record body begins from the below. */
+#define ce_body		hdr_num
 	unsigned int	hdr_num;
 	unsigned int	key_len;
 	unsigned long	body_len;
@@ -311,7 +312,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	TfwCWork *cw;
 	TfwCacheEntry *ce, cdata = {{}};
 	unsigned long key;
-	size_t len = sizeof(cdata);
+	size_t len = sizeof(cdata) - offsetof(TfwCacheEntry, ce_body);
 
 	if (!cache_cfg.cache)
 		goto out;
@@ -320,9 +321,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	/* TODO copy at least first part of URI here. */
 
-	// FIXME we should not copy cdata->trec to TDB
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata, &len);
-	BUG_ON(len != sizeof(cdata));
+	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
+	BUG_ON(len != sizeof(cdata)- offsetof(TfwCacheEntry, ce_body));
 	if (!ce)
 		goto out;
 
