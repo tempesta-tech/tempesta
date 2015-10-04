@@ -162,7 +162,7 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 		TFW_DBG3("copy [%.*s](%u) to rec=%p(len=%u), p=%p"
 			 " tot_len=%lu room=%d copied=%ld\n",
 			 min(10, (int)src->len), (char *)src->ptr, src->len,
-			 *trec, (*trec)->len, p, tot_len, room, copied);
+			 *trec, (*trec)->len, *p, tot_len, room, copied);
 
 		if (!room) {
 			BUG_ON(tot_len < copied);
@@ -269,6 +269,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 			TFW_ERR("Cache: cannot copy HTTP body\n");
 			goto err;
 		}
+		tot_len -= n;
 		ce->body_len += n;
 	});
 
@@ -317,8 +318,14 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	queue_work_on(tfw_cache_sched_work_cpu(numa_node_id()), cache_wq,
 		      (struct work_struct *)cw);
 
-	/* Request isn't needed anymore, response is cached. */
+	/*
+	 * Request isn't needed anymore, response is cached:
+	 * free the first one and unlink from the connection the second one,
+	 * so the server connection will create a new message when a new
+	 * data arrives.
+	 */
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_unlink((TfwHttpMsg *)resp);
 	return;
 out:
 	/* Now we don't need the request and the reponse anymore. */

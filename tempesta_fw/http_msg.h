@@ -62,5 +62,6 @@ int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 
 TfwHttpMsg *tfw_http_msg_alloc(int type);
 void tfw_http_msg_free(TfwHttpMsg *m);
+void tfw_http_conn_msg_unlink(TfwHttpMsg *m);
 
 #endif /* __TFW_HTTP_MSG_H__ */
