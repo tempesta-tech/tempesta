@@ -20,15 +20,17 @@
  */
 
 #include "addr.h"
+#include "log.h"
 #include "test.h"
+#include "kallsyms_helper.h"
 
-
+size_t (*tfw_addr_ntop_ptr)(const TfwAddr *addr, char *out_buf,size_t buf_size);
 TEST(tfw_addr_ntop, formats_ipv4_addrs)
 {
-	TfwAddr a1 = {
-		.v4.sin_family = AF_INET,
-		.v4.sin_addr.s_addr = INADDR_ANY,
-		.v4.sin_port = 0,
+	TfwAddr	a1 = {
+	.v4.sin_family = AF_INET,
+	.v4.sin_addr.s_addr = INADDR_ANY,
+	.v4.sin_port = 0,
 	};
 	TfwAddr a2 = {
 		.v4.sin_family = AF_INET,
@@ -50,9 +52,15 @@ TEST(tfw_addr_ntop, formats_ipv4_addrs)
 	memset(s2, 0xAA, sizeof(s2));
 	memset(s3, 0xAA, sizeof(s3));
 
-	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
-	l3 = tfw_addr_ntop(&a3, s3, sizeof(s3));
+	tfw_addr_ntop_ptr = get_sym_ptr("tfw_addr_ntop");
+	if(!tfw_addr_ntop_ptr){
+	TFW_DBG("test_addr: addr_ntop_ptr is null\n");
+	}
+
+
+	l1 = tfw_addr_ntop_ptr(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop_ptr(&a2, s2, sizeof(s2));
+	l3 = tfw_addr_ntop_ptr(&a3, s3, sizeof(s3));
 
 	EXPECT_EQ(0, memcmp("0.0.0.0", s1, ++l1));
 	EXPECT_EQ(0, memcmp("127.0.0.1:8001", s2, ++l2));
@@ -100,10 +108,10 @@ TEST(tfw_addr_ntop, formats_ipv6_addrs)
 	memset(s2, 0xAA, sizeof(s2));
 	memset(s3, 0xAA, sizeof(s3));
 
-	l0 = tfw_addr_ntop(&a0, s0, sizeof(s0));
-	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
-	l3 = tfw_addr_ntop(&a3, s3, sizeof(s3));
+	l0 = tfw_addr_ntop_ptr(&a0, s0, sizeof(s0));
+	l1 = tfw_addr_ntop_ptr(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop_ptr(&a2, s2, sizeof(s2));
+	l3 = tfw_addr_ntop_ptr(&a3, s3, sizeof(s3));
 
 	EXPECT_EQ(0, memcmp(e0, s0, ++l0));
 	EXPECT_EQ(0, memcmp(e1, s1, ++l1));
@@ -134,8 +142,8 @@ TEST(tfw_addr_ntop, omits_port_80)
 	memset(s1, 0xAA, sizeof(s1));
 	memset(s2, 0xAA, sizeof(s2));
 
-	l1 = tfw_addr_ntop(&a1, s1, sizeof(s1));
-	l2 = tfw_addr_ntop(&a2, s2, sizeof(s2));
+	l1 = tfw_addr_ntop_ptr(&a1, s1, sizeof(s1));
+	l2 = tfw_addr_ntop_ptr(&a2, s2, sizeof(s2));
 
 	EXPECT_EQ(0, memcmp(e1, s1, ++l1));
 	EXPECT_EQ(0, memcmp(e2, s2, ++l2));

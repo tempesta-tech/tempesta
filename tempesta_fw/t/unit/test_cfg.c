@@ -22,7 +22,9 @@
 #include <linux/bug.h>
 
 #include "cfg.h"
+#include "log.h"
 #include "test.h"
+#include "kallsyms_helper.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -36,8 +38,8 @@
  * our specs may interfere with already existing modules.
  * Instead, we create a dummy TfwCfgMod and pass it to them as if it was real.
  */
-extern int tfw_cfg_start_mods(const char *cfg_text,  struct list_head *mod_list);
-extern void tfw_cfg_stop_mods(struct list_head *mod_list);
+ int (*tfw_cfg_start_mods_ptr)(const char *cfg_text,  struct list_head *mod_list);
+ void (*tfw_cfg_stop_mods_ptr)(struct list_head *mod_list);
 
 LIST_HEAD(test_mod_list);
 TfwCfgMod test_dummy_mod = { .name = "test_dummy_mod" };
@@ -45,17 +47,26 @@ TfwCfgMod test_dummy_mod = { .name = "test_dummy_mod" };
 static int
 do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 {
+	if(!tfw_cfg_start_mods_ptr){
+	tfw_cfg_start_mods_ptr = get_sym_ptr("tfw_cfg_start_mods");
+	}
+	if(!tfw_cfg_start_mods_ptr){
+	TFW_DBG("test_cfg:start_mods_ptr is null\n");
+	}
 	BUG_ON(!list_empty(&test_mod_list));
 	test_dummy_mod.specs = specs;
 	list_add(&test_dummy_mod.list, &test_mod_list);
-	return tfw_cfg_start_mods(cfg_text, &test_mod_list);
+	return tfw_cfg_start_mods_ptr(cfg_text, &test_mod_list);
 }
 
 static void
 do_cleanup_cfg(void)
 {
+	if(!tfw_cfg_stop_mods_ptr){
+	tfw_cfg_stop_mods_ptr = get_sym_ptr("tfw_cfg_stop_mods");
+	}
 	BUG_ON(list_empty(&test_mod_list));
-	tfw_cfg_stop_mods(&test_mod_list);
+	tfw_cfg_stop_mods_ptr(&test_mod_list);
 	list_del(&test_dummy_mod.list);
 }
 

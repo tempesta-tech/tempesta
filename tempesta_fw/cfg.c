@@ -1424,7 +1424,7 @@ EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
  * Upon error, the function tries to roll-back the state: if any modules are
  * already started, it stops them and so on.
  */
-static int
+static noinline int
 tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 {
 	int ret;
@@ -1462,7 +1462,6 @@ err_recover_cleanup:
 
 	return ret;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_start_mods);
 
 /**
  * Stop all registered modules and clean up theeir parsed configuration data.
@@ -1480,7 +1479,6 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 		spec_cleanup(mod->specs);
 	}
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_stop_mods);
 
 /*
  * ------------------------------------------------------------------------
@@ -1784,4 +1782,3 @@ tfw_cfg_mod_find(const char *name)
 
 	return NULL;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_mod_find);

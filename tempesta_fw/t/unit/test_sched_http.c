@@ -29,6 +29,7 @@
 /* Export syms*/
 static TfwScheduler *(*tfw_sched_lookup_ptr)(const char *name);
 static void (*spec_cleanup_ptr)(TfwCfgSpec specs[]);
+TfwCfgMod * (*tfw_cfg_mod_find_ptr)(const char *name);
 
 static int
 parse_cfg(const char *cfg_text)
@@ -36,7 +37,14 @@ parse_cfg(const char *cfg_text)
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
-	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
+	if(!tfw_cfg_mod_find_ptr){
+	tfw_cfg_mod_find_ptr = get_sym_ptr("tfw_cfg_mod_find");
+	}
+	if(!tfw_cfg_mod_find_ptr){
+	TFW_DBG("test_sched_http: mod_find_ptr is null\n");
+	}
+	cfg_mod = *tfw_cfg_mod_find_ptr("tfw_sched_http");
+	
 	INIT_LIST_HEAD(&cfg_mod.list);
 	INIT_LIST_HEAD(&mod_list);
 	list_add(&cfg_mod.list, &mod_list);
@@ -47,9 +55,17 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
+//struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
-	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
+	if(!tfw_cfg_mod_find_ptr){
+	tfw_cfg_mod_find_ptr = get_sym_ptr("tfw_cfg_mod_find");
+	}
+		if(!tfw_cfg_mod_find_ptr){
+	TFW_DBG("test_sched_http: mod_find_ptr is null\n");
+	}
+
+	cfg_mod = *tfw_cfg_mod_find_ptr("tfw_sched_http");
 	spec_cleanup_ptr(cfg_mod.specs);
 }
 

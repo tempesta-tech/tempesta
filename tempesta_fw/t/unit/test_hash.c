@@ -21,13 +21,15 @@
 
 #include <linux/bug.h>
 
-#include "hash.h"
+//#include "hash.h"
+#include "str.h"
 #include "test.h"
-
+#include "kallsyms_helper.h"
 /* NOTE: hashing is a probabilistic thing. Some tests may give false results. */
-
+unsigned long (*tfw_hash_str_ptr)(const TfwStr *str);
 TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 {
+
 	/* Note: collisions are possible.
 	 * The hashes should be different with high probability,
 	 * but at this point we are not going to write some statistical tests.
@@ -38,18 +40,27 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 	TfwStr s4 = { .len = 9, .ptr = (void *)"foobarbaz" };
 	TfwStr s5 = { .len = 11, .ptr = (void *)"foobarbaz11" };
 	TfwStr s6 = { .len = 0, .ptr = (void *)"" };
-
-	unsigned long h[] = {
-		tfw_hash_str(&s1),
-		tfw_hash_str(&s2),
-		tfw_hash_str(&s3),
-		tfw_hash_str(&s4),
-		tfw_hash_str(&s5),
-		tfw_hash_str(&s6),
-	};
-
+	unsigned long h[6];
 	int i, j;
-	for (i = 0; i < ARRAY_SIZE(h); ++i) {
+
+
+	if(!tfw_hash_str_ptr){
+	tfw_hash_str_ptr = get_sym_ptr("tfw_hash_str");
+	}
+	if(!tfw_hash_str_ptr){
+	TFW_DBG("tfw_hash_str_ptr is null\n"); 
+	}
+
+	
+	h[0] =	tfw_hash_str_ptr(&s1);
+	h[1] =	tfw_hash_str_ptr(&s2);
+	h[2] =	tfw_hash_str_ptr(&s3);
+	h[3] =	tfw_hash_str_ptr(&s4);
+	h[4] =	tfw_hash_str_ptr(&s5);
+	h[5] =	tfw_hash_str_ptr(&s6);
+	
+
+	for (i = 0; i < 6; ++i) {
 		for (j = 0; j < ARRAY_SIZE(h); ++j) {
 			if (i != j && h[i] == h[j])
 				TEST_FAIL("Equal hashes: h[%d] => %#lx,  "
@@ -87,9 +98,12 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 	TFW_STR_CHUNKN_INIT(&s2);
 	__TFW_STR_CHUNKN_SET(&s3, 6);
 
-	h1 = tfw_hash_str(&s1);
-	h2 = tfw_hash_str(&s2);
-	h3 = tfw_hash_str(&s3);
+	if(!tfw_hash_str_ptr){
+	tfw_hash_str_ptr = get_sym_ptr("tfw_hash_str");
+	}
+	h1 = tfw_hash_str_ptr(&s1);
+	h2 = tfw_hash_str_ptr(&s2);
+	h3 = tfw_hash_str_ptr(&s3);
 
 	EXPECT_EQ(h1, h2);
 	EXPECT_EQ(h1, h3);
@@ -115,8 +129,11 @@ TEST(tfw_hash_str, hashes_all_chars)
 		buf1[i] = 'a';
 		buf2[i] = 'b';
 
-		h1 = tfw_hash_str(&s1);
-		h2 = tfw_hash_str(&s2);
+	if(!tfw_hash_str_ptr){
+	tfw_hash_str_ptr = get_sym_ptr("tfw_hash_str");
+	}
+		h1 = tfw_hash_str_ptr(&s1);
+		h2 = tfw_hash_str_ptr(&s2);
 		if (h1 == h2)
 			TEST_FAIL("Equal hashes (%#lx) for different strings:\n"
 			          " s1: %.*s (len %u)\n"
@@ -126,7 +143,7 @@ TEST(tfw_hash_str, hashes_all_chars)
 			          s2.len, (char *)s2.ptr, s2.len);
 
 		buf2[i] = 'a';
-		h2 = tfw_hash_str(&s2);
+		h2 = tfw_hash_str_ptr(&s2);
 		if (h1 != h2)
 			TEST_FAIL("Different hashes for equal strings:\n"
 			          " s1: %#08lx: %.*s (len %u)\n"
@@ -147,14 +164,17 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 	unsigned long h1, h2;
 	int i;
 
+	if(!tfw_hash_str_ptr){
+	tfw_hash_str_ptr = get_sym_ptr("tfw_hash_str");
+	}
 	for (i = 0; i < 255; ++i) {
 		s.len = i;
 
 		buf[i] = 'x';
-		h1 = tfw_hash_str(&s);
+		h1 = tfw_hash_str_ptr(&s);
 
 		memset(&buf[i + 1], i, (sizeof(buf) - i - 1));
-		h2 = tfw_hash_str(&s);
+		h2 = tfw_hash_str_ptr(&s);
 
 		EXPECT_EQ(h1, h2);
 	}
@@ -171,8 +191,11 @@ TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 	unsigned long h1, h2;
 	int i;
 
+	if(!tfw_hash_str_ptr){
+	tfw_hash_str_ptr = get_sym_ptr("tfw_hash_str");
+	}
 	memset(buf, 'a', sizeof(buf));
-	h1 = tfw_hash_str(&str);
+	h1 = tfw_hash_str_ptr(&str);
 
 	/* For a good hash function, a change of a single bit in the input will
 	 * cause changing many bits in the output (with high probability).
@@ -183,7 +206,7 @@ TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 	 */
 	for (i = 0; i < sizeof(buf); ++i) {
 		buf[i] = 'b';
-		h2 = tfw_hash_str(&str);
+		h2 = tfw_hash_str_ptr(&str);
 		buf[i] = 'a';
 
 		EXPECT_NE(h1 & 0x00000000000000FF, h2 & 0x00000000000000FF);
