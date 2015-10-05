@@ -55,7 +55,6 @@ tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
 	tfw_peer_add_conn(peer, &conn->list);
 }
 
-
 /**
  * Publish the "connection is established" event via TfwConnHooks.
  */

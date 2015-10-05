@@ -45,6 +45,7 @@
 #include "client.c"
 #include "classifier.c"
 #include "sock_clnt.c"
+#include "hash.c"
 #include "http.c"
 #include "addr.c"
 #include "ss_skb.c"

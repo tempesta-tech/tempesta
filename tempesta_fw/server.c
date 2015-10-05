@@ -104,7 +104,6 @@ tfw_sg_new(const char *name, gfp_t flags)
 	return sg;
 }
 
-
 void
 tfw_sg_free(TfwSrvGroup *sg)
 {
@@ -148,7 +147,6 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	write_unlock(&sg->lock);
 }
 
-
 void
 tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
 {
@@ -184,7 +182,6 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched)
 
 	return 0;
 }
-
 
 /**
  * Iterate over all server groups and call @cb for each server.
@@ -240,7 +237,6 @@ tfw_sg_release_all(void)
 
 	write_unlock(&sg_lock);
 }
-
 
 int __init
 tfw_server_init(void)
