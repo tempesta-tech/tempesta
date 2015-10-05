@@ -17,40 +17,33 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -Werror -I$(src)/../tempesta_db/core
+EXTRA_CFLAGS = $(DEFINES)
+ifdef NORMALIZATION
+	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
+endif
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
-	EXTRA_CFLAGS += -O0
 endif
 
-obj-m	= tempesta_fw.o 
+obj-m	+= tempesta_db/core/ tempesta_fw/
 
-tempesta_fw-objs = \
-	addr.o \
-	cache.o \
-	cfg.o \
-	classifier.o \
-	client.o \
-	connection.o \
-	debugfs.o \
-	filter.o \
-	gfsm.o \
-	hash.o \
-	http.o \
-	http_match.o \
-	http_msg.o \
-	http_parser.o \
-	http_sticky.o \
-	main.o \
-	pool.o \
-	sched.o \
-	server.o \
-	sock.o \
-	sock_clnt.o \
-	sock_srv.o \
-	ss_skb.o \
-	stress.o \
-	str.o \
-	tls.o
+KERNEL = /lib/modules/$(shell uname -r)/build
 
-obj-m	+= log/ classifier/ stress/ sched/ t/
+export KERNEL EXTRA_CFLAGS
+
+all: build
+	
+build:
+	make -C tempesta_db
+	make -C $(KERNEL) M=$(PWD) modules
+
+test: build
+	./tempesta.sh --load
+	./tempesta_fw/t/unit/run_all_tests.sh
+	./tempesta.sh --unload
+
+clean:
+	make -C $(KERNEL) M=$(PWD) clean
+	make -C tempesta_db clean
+	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
+		-exec rm -f {} \;
