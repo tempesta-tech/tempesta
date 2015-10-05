@@ -61,7 +61,12 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 	TfwHttpReq *req = test_req_alloc(req_str? strlen(req_str): 1);
 
 	if (req_str) {
-		tfw_http_parse_req(req, req_str, strlen(req_str));
+		static char req_str_copy[PAGE_SIZE];
+		const size_t req_str_len = strlen(req_str);
+
+		BUG_ON(req_str_len + 1 > sizeof(req_str_copy));
+		strcpy(req_str_copy, req_str);
+		tfw_http_parse_req(req, req_str_copy, req_str_len);
 	}
 
 	sched = tfw_sched_lookup_ptr("http");
