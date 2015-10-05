@@ -38,15 +38,4 @@
 #define STRINGIFY(x) _STRINGIFY(x)
 #endif
 
-/**
- * The macro is used instead of EXPORT_SYMBOL() mostly for testing.
- * Symbols marked with this macro are not exported in a release build and thus
- * don't pollute the global symbols table.
- */
-#ifdef DEBUG
-#define DEBUG_EXPORT_SYMBOL(sym) EXPORT_SYMBOL(sym)
-#else
-#define DEBUG_EXPORT_SYMBOL(sym)
-#endif
-
 #endif /* __TFW_LIB_H__ */
