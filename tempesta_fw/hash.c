@@ -76,5 +76,4 @@ tfw_hash_str(const TfwStr *str)
 	return crc;
 #undef MUL
 }
-DEBUG_EXPORT_SYMBOL(tfw_hash_str);
 
