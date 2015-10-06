@@ -706,7 +706,6 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_destroy(m->pool);
 }
-DEBUG_EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
  * Allocate a new HTTP message.
@@ -736,5 +735,4 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
-DEBUG_EXPORT_SYMBOL(tfw_http_msg_alloc);
 

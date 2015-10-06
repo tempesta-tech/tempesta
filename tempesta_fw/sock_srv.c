@@ -457,7 +457,6 @@ tfw_srv_conn_alloc(void)
 
 	return srv_conn;
 }
-DEBUG_EXPORT_SYMBOL(tfw_srv_conn_alloc);
 
 static void
 tfw_srv_conn_free(TfwSrvConnection *srv_conn)
@@ -468,7 +467,6 @@ tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 	tfw_connection_validate_cleanup(&srv_conn->conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
-DEBUG_EXPORT_SYMBOL(tfw_srv_conn_free);
 
 static int
 tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)

@@ -1761,7 +1761,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	return r;
 }
-DEBUG_EXPORT_SYMBOL(tfw_http_parse_req);
+
 
 /*
  * ------------------------------------------------------------------------
