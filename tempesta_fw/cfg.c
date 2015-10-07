@@ -778,6 +778,19 @@ spec_handle_default(TfwCfgSpec *spec)
 	BUG_ON(r);
 }
 
+static int spec_finish_handling(TfwCfgSpec specs[]);
+
+static void
+spec_handle_default_section(TfwCfgSpec *spec)
+{
+	if (spec->handler != tfw_cfg_handle_children)
+		return;
+	TFW_DBG2("use default values for section '%s'\n", spec->name);
+	if (spec->dest == NULL)
+		return;
+	spec_finish_handling(spec->dest);
+}
+
 static int
 spec_finish_handling(TfwCfgSpec specs[])
 {
@@ -796,12 +809,18 @@ spec_finish_handling(TfwCfgSpec specs[])
 	 */
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		if (!spec->call_counter) {
-			if (spec->deflt)
+			if (spec->handler == tfw_cfg_handle_children) {
+				if (!spec->allow_none) {
+					/* Whole section absent */
+					spec_handle_default_section(spec);
+				}
+			} else if (spec->deflt) {
 				/* The default value shall not produce error. */
 				spec_handle_default(spec);
-			else if (!spec->allow_none)
+			} else if (!spec->allow_none) {
 				/* Jump just because TFW_ERR() is ugly here. */
 				goto err_no_entry;
+			}
 		}
 	}
 

@@ -146,6 +146,7 @@ tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 void
 tfw_classifier_register(TfwClassifier *mod)
 {
+	TFW_LOG("Registering new classifier: %s\n", mod->name);
 	spin_lock(&tfw_class_lock);
 
 	BUG_ON(classifier);
