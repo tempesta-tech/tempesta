@@ -37,6 +37,7 @@
  *    callbacks (if either) we need to call.
  */
 typedef struct {
+	char	*name;
 	/*
 	 * Classify a client on network L3 layer.
 	 */
