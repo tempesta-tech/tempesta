@@ -358,7 +358,12 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	BUG_ON((off < 0) || (off >= skb_frag_size(frag)));
 	split = off && off < skb_frag_size(frag);
 
-	if (!split) {
+	/*
+	 * Try to append data to a page fragment. If 'off' is zero,
+	 * then try to append data to a preceding page fragment
+	 * if there's any. Go for other solutions if there's no room.
+	 */
+	if (!split && (off || i)) {
 		frag_dst = (!off && i) ? frag - 1 : frag;
 		frag_dst = __check_frag_room(skb, frag_dst, len);
 		if (frag_dst) {
