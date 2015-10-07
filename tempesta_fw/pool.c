@@ -130,8 +130,8 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 		if (!c)
 			return NULL;
 		c->next = curr;
+		c->order = order;
 
-		curr->order = p->order;
 		curr->off = p->off;
 
 		p->order = order;
