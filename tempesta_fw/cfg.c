@@ -427,7 +427,7 @@ do {								\
 	FSM_COND_LAMBDA(cond, PFSM_MOVE(to_state))
 
 /**
- * The TFSM (Tokenizer Finitie State Machine).
+ * The TFSM (Tokenizer Finite State Machine).
  *
  * Steps over characters in the input stream and classifies them as tokens.
  * Eats whitespace and comments automatically, never produces tokens for them.
@@ -554,7 +554,7 @@ read_next_token(TfwCfgParserState *ps)
 }
 
 /**
- * The PFSM (Parser Finitie State Machine).
+ * The PFSM (Parser Finite State Machine).
  *
  * Steps over a stream of tokens (produces by the TFSM), accumulates values
  * in TfwCfgEntry and returns it when the input entry is terminated with ';'.
@@ -1071,17 +1071,21 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (ret)
 		return ret;
 
-	/* Prepare childen's TfwCfgSpec for parsing. */
+	/* Prepare child TfwCfgSpec for parsing. */
 	spec_start_handling(nested_specs);
 
-	/* Eat '{'. */
+	/*
+	 * We get to this function when the caller finds
+	 * an opening brace. Confirm we have a '{' here.
+	 */
 	BUG_ON(ps->t != TOKEN_LBRACE);
+
 	read_next_token(ps);
 	if (ps->err)
 		return ps->err;
 
 	/* Walk over children entries. */
-	while (ps->t != TOKEN_RBRACE) {
+	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
 			TFW_ERR("parser error\n");
@@ -1099,11 +1103,19 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return ret;
 	}
 
-	/* Eat '}'. */
+	/*
+	 * Normally, we get out of the loop when a closing brace
+	 * is found. Otherwise, there's an error in configuration.
+	 * Check that we have a '}' here.
+	 */
+	if (ps->t != TOKEN_RBRACE) {
+		TFW_ERR("%s: Missing closing brace.\n", cs->name);
+		return -EINVAL;
+	}
+
 	read_next_token(ps);
 	if (ps->err)
 		return ps->err;
-
 	ret = spec_finish_handling(nested_specs);
 	if (ret)
 		return ret;
