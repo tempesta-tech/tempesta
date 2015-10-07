@@ -148,10 +148,10 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int chunks = 1;
+static size_t len;
 static int
 do_split_and_parse(unsigned char *str, int type)
 {
-	static size_t len;
 	int r;
 
 	BUG_ON(!str);
@@ -168,10 +168,6 @@ do_split_and_parse(unsigned char *str, int type)
 		BUG();
 
 	r = split_and_parse_n(str, type, len, chunks);
-	if (chunks == len) {
-		chunks = 1;
-		return 1;
-	}
 
 	++chunks;
 	return r;
@@ -180,42 +176,48 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err < 0) {						\
+	if (_err == TFW_BLOCK) {				\
 		chunks = 1;					\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
-			  (type == FUZZ_REQ ? "request" : "response"),\
+			  (type == FUZZ_REQ ? "request" :	\
+				              "response"),	\
 			  _err, (str)); 			\
 	}							\
-	_err == TFW_PASS;					\
+	_err == TFW_PASS && chunks <= 1/*len*/;			\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
 ({								\
 	int _err = do_split_and_parse(str, type);		\
-	if (!_err)						\
-		TEST_FAIL("%s is not blocked as expected:\n%s",\
-			       (type == FUZZ_REQ ? "request" : "response"),\
+	if (_err != TFW_BLOCK)					\
+		TEST_FAIL("%s is not blocked as expected:\n%s",	\
+			       (type == FUZZ_REQ ? "request" :	\
+						   "response"),	\
 			       (str));				\
-	_err == TFW_BLOCK;					\
+	_err == TFW_BLOCK && chunks <= 1/*len*/;		\
 })
 
 #define FOR_REQ(str)						\
 	TEST_LOG("=== request: [%s]\n", str);			\
+	chunks = 1;						\
 	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
 
 #define EXPECT_BLOCK_REQ(str)					\
 do {								\
 	TEST_LOG("=== request: [%s]\n", str);			\
+	chunks = 1;						\
 	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
 } while (0)
 
 #define FOR_RESP(str)						\
 	TEST_LOG("=== response: [%s]\n", str);			\
+	chunks = 1;						\
 	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
 
 #define EXPECT_BLOCK_RESP(str)					\
 do {								\
 	TEST_LOG("=== response: [%s]\n", str);			\
+	chunks = 1;						\
 	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
@@ -418,15 +420,17 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
+#define N 10 	// Count of generations
+#define MOVE 5	// Count of mutations
+
 TEST(http_parser, fuzzer)
 {
-	char *str;
-	int i = 0, ret;
-	str = vmalloc(2 * 1024 * 1024);
+	char *str = vmalloc(2 * 1024 * 1024);
+	int i = 0, ret = FUZZ_VALID;
 
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < N; i++) {
 		TEST_LOG("fuzz request i: %d\n", i);
-		ret = fuzz_gen(str, 5, FUZZ_REQ);
+		ret = fuzz_gen(str, MOVE, FUZZ_REQ);
 		switch (ret) {
 		case FUZZ_VALID:
 			FOR_REQ(str);
@@ -435,13 +439,14 @@ TEST(http_parser, fuzzer)
 			EXPECT_BLOCK_REQ(str);
 			break;
 		case FUZZ_END:
+		default:
 			goto end;
 		}
 	}
 
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < N; i++) {
 		TEST_LOG("fuzz response i: %d\n", i);
-		ret = fuzz_gen(str, 5, FUZZ_RESP);
+		ret = fuzz_gen(str, MOVE, FUZZ_RESP);
 		switch (ret) {
 		case FUZZ_VALID:
 			FOR_RESP(str);
