@@ -159,7 +159,7 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 	new_n = TFW_POOL_ALIGN_SZ(new_n);
 
 	if ((char *)ptr + old_n == (char *)TFW_POOL_CHUNK_END(p)
-	    && p->off + new_n <= TFW_POOL_CHUNK_SZ(p))
+	    && p->off - old_n + new_n <= TFW_POOL_CHUNK_SZ(p))
 	{
 		p->off += new_n - old_n;
 		return ptr;
