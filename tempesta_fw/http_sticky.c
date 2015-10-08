@@ -128,10 +128,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 		return 1;
 	}
 
-	/*
-	 * XXX Linearize TfwStr{}. Should be eliminated
-	 * when better TfwStr{} functions are implemented.
-	 */
+	/* field consists of multiple chunks */
 	len = hdr_field->len + 1;
 	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
 		return -ENOMEM;
