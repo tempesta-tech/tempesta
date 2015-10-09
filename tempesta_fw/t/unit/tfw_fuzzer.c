@@ -27,7 +27,7 @@ static fuzz_msg host_val[] = {{"localhost", 0}, {"127.0.0.1", 0},
 static fuzz_msg content_type[] = {{"text/html;charset=utf-8", 0},
 	{"image/jpeg", 0}, {"text/plain", 0}};
 static fuzz_msg content_len[] = {{"10000", 0}, {"0", 0}, {"-42", 1},
-	{"146", 1}, {"0100", 1}, {"100500", 1}};
+	{"146", 0}, {"0100", 0}, {"100500", 0}};
 static fuzz_msg transfer_encoding[] = {{"chunked", 0}, {"identity", 0},
 	{"compress", 0}, {"deflate", 0}, {"gzip", 0}};
 static fuzz_msg accept[] = {{"text/plain", 0}, {"text/html;q=0.5", 0},
@@ -184,7 +184,7 @@ static struct {
 	/* CONTENT_TYPE */
 	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1},
 	/* CONTENT_LENGTH */
-	{0, sizeof(content_len) / sizeof(fuzz_msg), 1, "0123456789", A_URI, 1},
+	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1},
 	/* TRANSFER_ENCODING */
 	{0, sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
 	/* ACCEPT */
