@@ -32,7 +32,7 @@
  * value.
  */
 void
-tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
+tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 {
 	static const size_t hdr_lens[] = {
 		[TFW_HTTP_HDR_HOST]	= sizeof("Host:") - 1,
@@ -45,17 +45,23 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 	TfwStr *c, *end;
 	int nlen = hdr_lens[id];
 
-	if (unlikely(TFW_STR_EMPTY(hdr))) {
-		TFW_STR_INIT(val);
-		return;
-	}
-	BUG_ON(TFW_STR_PLAIN(hdr));
 	BUG_ON(TFW_STR_DUP(hdr));
-	BUG_ON(nlen >= hdr->len);
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
+
+	/* Only Host: header is allowed to be empty
+	 * If header string is plain, it is always empty header.
+	 * Not empty headers are compount strings. */
+	BUG_ON(id == TFW_HTTP_HDR_HOST ? (nlen > hdr->len) :
+		(nlen >= hdr->len || TFW_STR_PLAIN(hdr)));
 
 	*val = *hdr;
 
+	/* Field value, if it exist, lies in the separate chunk.
+	 * So we skip several first chunks, containing field name,
+	 * to get the field value. If we have field with empty value,
+	 * we get an empty string with val->len = 0 and val->ptr from the
+	 * last name's chunk, but it is unimportant.
+	 */
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		BUG_ON(!c->len);
 
