@@ -234,24 +234,24 @@ frang_cfg->conn_burst = 5;
 
 TEST (frang, uri)
 {
-  TfwHttpReq *mockReq;
-  TfwStr uri;
-  mockReq = test_req_alloc (26);
-  tfw_http_parse_req (mockReq, "GET /index.html HTTP /1.1", 25);
-  if (!frang_cfg)
-    {
-      frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
-    }
+	TfwHttpReq *mockReq;
+	TfwStr uri;
+	mockReq = test_req_alloc (26);
+	tfw_http_parse_req(mockReq, "GET /index.html HTTP /1.1", 25);
+	if (!frang_cfg)
+	{
+		frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
+	}
 
-  frang_cfg->http_uri_len = 5;
+	frang_cfg->http_uri_len = 5;
 
-  uri.len = 17;
-  uri.ptr = (void *) "/home/index.html";
-  uri.flags = TFW_STR_COMPLETE;
-  mockReq->uri_path = uri;
-  mockReq->frang_st = 3;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
+	uri.len = 17;
+	uri.ptr = (void *) "/home/index.html";
+	uri.flags = TFW_STR_COMPLETE;
+	mockReq->uri_path = uri;
+	mockReq->frang_st = 3;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
 }
 
 TEST (frang, ct_check)
