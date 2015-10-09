@@ -257,7 +257,6 @@ TEST (frang, ct_check)
 {
 	TfwHttpReq *mockReq;
 	FrangCtVal ctval[1];
-
 	mockReq = test_req_alloc (22);
 	tfw_http_parse_req (mockReq, "POST /foo HTTP/1.1\r\n", 20);
   	if (!frang_cfg){
@@ -269,7 +268,7 @@ TEST (frang, ct_check)
 	res = req_handler (mockReq);
 	/*ct_vals*/
 	EXPECT_EQ (TFW_BLOCK, res);
-  mockReq->frang_st = 9;
+	mockReq->frang_st = 9;
 	res = req_handler (mockReq);
 	/*ct_required*/
 	EXPECT_EQ (TFW_BLOCK, res);
@@ -319,150 +318,130 @@ TEST (frang, host)
 
 TEST (frang, req_count)
 {
-  TfwConnection mockConn;
-  unsigned long ts;
-  TfwHttpReq *mockReq;
-  FrangAcc *ra;
-  mockReq = test_req_alloc (17);
-  tfw_http_parse_req (mockReq, "GET / HTTP/1.1\r\n", 16);
+	TfwConnection mockConn;
+	unsigned long ts;
+	TfwHttpReq *mockReq;
+	FrangAcc *ra;
+	mockReq = test_req_alloc (17);
+	tfw_http_parse_req (mockReq, "GET / HTTP/1.1\r\n", 16);
 	if (!frang_cfg){
-	frang_cfg = get_sym_ptr ("frang_cfg");
+		frang_cfg = get_sym_ptr ("frang_cfg");
 	}
-  frang_cfg->conn_max = 0;
-  frang_cfg->conn_burst = 0;
-  frang_cfg->conn_rate = 0;
-  frang_cfg->req_rate = 5;
-  isk = (struct inet_sock *) (&mockSock);
-  isk->inet_saddr = htonl (in_aton (inet_addr));
-
-  mockConn.sk = &mockSock;
-
-  frang_conn_new = get_sym_ptr ("frang_conn_new");
-  res = frang_conn_new (&mockSock);
-  ra = mockConn.sk->sk_security;
-
-  ts = jiffies * FRANG_FREQ / HZ;
-  i = ts % FRANG_FREQ;
-  ra->history[i].req = 5;
-  if (!frang_conn_new)
-    {
-      TFW_DBG ("frang_req_count507:%s\n", "conn_new ptr is null");
-    }
-  mockSock.sk_security = ra;
-  mockReq->frang_st = 0;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
-  frang_cfg->req_rate = 5;
-  frang_cfg->req_burst = 5;
-  ra->history[i].req = 5;
-  TFW_DBG ("frang_req_count 517:%s\n", "conn_new ptr is null");
-
-  mockSock.sk_security = ra;
-  mockReq->frang_st = 0;
-
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
+	frang_cfg->conn_max = 0;
+	frang_cfg->conn_burst = 0;
+	frang_cfg->conn_rate = 0;
+	frang_cfg->req_rate = 5;
+	isk = (struct inet_sock *) (&mockSock);
+	isk->inet_saddr = htonl (in_aton (inet_addr));
+	mockConn.sk = &mockSock;
+	frang_conn_new = get_sym_ptr ("frang_conn_new");
+	res = frang_conn_new (&mockSock);
+	ra = mockConn.sk->sk_security;
+	ts = jiffies * FRANG_FREQ / HZ;
+	i = ts % FRANG_FREQ;
+	ra->history[i].req = 5;
+  	mockSock.sk_security = ra;
+	mockReq->frang_st = 0;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
+	frang_cfg->req_rate = 5;
+	frang_cfg->req_burst = 5;
+	ra->history[i].req = 5;
+	mockSock.sk_security = ra;
+	mockReq->frang_st = 0;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
 }
 
 TEST (frang, body_len)
 {
-  TfwHttpReq *mockReq;
-  TfwStr body;
-  TfwStr crlf;
-  mockReq = test_req_alloc (22);
-
-  tfw_http_parse_req (mockReq, "POST /foo HTTP/1.1\r\n", 20);
-
-  body.ptr = "GET http://natsys-lab.com/foo";
-  body.len = 29;
-  crlf.len = 2;
-  crlf.ptr = "\r\n";
-
-  mockReq->crlf = crlf;
-
-  mockReq->body.len = 29;
-  if (!frang_cfg)
-    {
-      frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
-    }
-
-
-  frang_cfg->http_body_len = 3;
-  mockReq->frang_st = 0;
-
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
+	TfwHttpReq *mockReq;
+	TfwStr body;
+	TfwStr crlf;
+	mockReq = test_req_alloc (22);
+	tfw_http_parse_req (mockReq, "POST /foo HTTP/1.1\r\n", 20);
+	body.ptr = "GET http://natsys-lab.com/foo";
+	body.len = 29;
+	crlf.len = 2;
+	crlf.ptr = "\r\n";
+	mockReq->crlf = crlf;
+	mockReq->body.len = 29;
+	if (!frang_cfg){
+		frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
+	}
+	frang_cfg->http_body_len = 3;
+	mockReq->frang_st = 0;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
 }
 
 TEST (frang, body_timeout)
 {
-  TfwHttpReq *mockReq;
-  mockReq = test_req_alloc (62);
-  tfw_http_parse_req (mockReq, "POST http://natsys-lab.com/foo HTTP/1.1\r\n \
-Content-Length:29\r\n", 61);
-  if (!frang_cfg)
-    {
-      frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
-    }
-
-  frang_cfg->clnt_body_timeout = 1;
-  mockReq->frang_st = 12;
-  mockReq->tm_bchunk = jiffies - 100;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
-}
-
-TEST (frang, hdr_timeout)
-{
-  TfwHttpReq *mockReq;
-  mockReq = test_req_alloc (62);
-  tfw_http_parse_req (mockReq, "POST http://natsys-lab.com/foo HTTP/1.1\r\n \
+	TfwHttpReq *mockReq;
+	mockReq = test_req_alloc (62);
+	tfw_http_parse_req(mockReq, "POST http://natsys-lab.com/foo HTTP/1.1\r\n \
 Content-Length:29\r\n", 61);
 	if (!frang_cfg){
 		frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
 	}
 
-  frang_cfg->clnt_body_timeout = 0;
-  frang_cfg->clnt_hdr_timeout = 1;
-  mockReq->frang_st = 0;
-  mockReq->tm_header = jiffies - 100;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
+	frang_cfg->clnt_body_timeout = 1;
+	mockReq->frang_st = 12;
+	mockReq->tm_bchunk = jiffies - 100;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
+}
+
+TEST (frang, hdr_timeout)
+{
+	TfwHttpReq *mockReq;
+	mockReq = test_req_alloc (62);
+	tfw_http_parse_req (mockReq, "POST http://natsys-lab.com/foo HTTP/1.1\r\n \
+	Content-Length:29\r\n", 61);
+	if (!frang_cfg){
+		frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
+	}
+
+	frang_cfg->clnt_body_timeout = 0;
+	frang_cfg->clnt_hdr_timeout = 1;
+	mockReq->frang_st = 0;
+	mockReq->tm_header = jiffies - 100;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
 }
 
 TEST (frang, chunk_cnt)
 {
-  TfwHttpReq *mockReq;
-  mockReq = test_req_alloc (62);
-  tfw_http_parse_req (mockReq, "POST http://natsys-lab.com/foo HTTP/1.1\r\n \
-Content-Length:29\r\n", 61);
-  if (!frang_cfg)
-    {
-      frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
-    }
-  frang_cfg->http_hchunk_cnt = 1;
-  mockReq->chunk_cnt = 3;
-  mockReq->frang_st = 0;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
-  frang_cfg->http_hchunk_cnt = 0;
-  frang_cfg->http_bchunk_cnt = 1;
-  mockReq->chunk_cnt = 3;
-  res = req_handler (mockReq);
-  EXPECT_EQ (TFW_BLOCK, res);
+	TfwHttpReq *mockReq;
+	mockReq = test_req_alloc (62);
+	tfw_http_parse_req (mockReq, "POST http://natsys-lab.com/foo HTTP/1.	1\r\n \
+	Content-Length:29\r\n", 61);
+	if (!frang_cfg){
+		frang_cfg = (FrangCfg *) get_sym_ptr ("frang_cfg");
+	}
+	frang_cfg->http_hchunk_cnt = 1;
+	mockReq->chunk_cnt = 3;
+	mockReq->frang_st = 0;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
+	frang_cfg->http_hchunk_cnt = 0;
+	frang_cfg->http_bchunk_cnt = 1;
+	mockReq->chunk_cnt = 3;
+	res = req_handler (mockReq);
+	EXPECT_EQ (TFW_BLOCK, res);
 }
 
 TEST_SUITE (frang)
 {
-  TEST_RUN (frang, req_count);
-  TEST_RUN (frang, max_conn);
-  TEST_RUN (frang, uri);
-  TEST_RUN (frang, body_len);
-  TEST_RUN (frang, ct_check);
-  TEST_RUN (frang, field_len);
-  TEST_RUN (frang, host);
-  TEST_RUN (frang, req_method);
-  TEST_RUN (frang, chunk_cnt);
-  TEST_RUN (frang, body_timeout);
-  TEST_RUN (frang, hdr_timeout);
+	TEST_RUN (frang, req_count);
+	TEST_RUN (frang, max_conn);
+	TEST_RUN (frang, uri);
+	TEST_RUN (frang, body_len);
+	TEST_RUN (frang, ct_check);
+	TEST_RUN (frang, field_len);
+	TEST_RUN (frang, host);
+	TEST_RUN (frang, req_method);
+	TEST_RUN (frang, chunk_cnt);
+	TEST_RUN (frang, body_timeout);
+	TEST_RUN (frang, hdr_timeout);
 }
