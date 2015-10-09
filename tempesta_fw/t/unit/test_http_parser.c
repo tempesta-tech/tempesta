@@ -27,57 +27,6 @@
 TfwHttpReq *req;
 TfwHttpResp *resp;
 
-static void
-alloc_req(size_t data_len)
-{
-	BUG_ON(req);
-	req = test_req_alloc(data_len);
-}
-
-static void
-free_req(void)
-{
-	if (req)
-		test_req_free(req);
-	req = NULL;
-}
-
-static void
-reset_req(size_t data_len)
-{
-	free_req();
-	alloc_req(data_len);
-}
-
-static void
-alloc_resp(size_t data_len)
-{
-	BUG_ON(resp);
-	resp = test_resp_alloc(data_len);
-}
-
-static void
-free_resp(void)
-{
-	if (resp)
-		test_resp_free(resp);
-	resp = NULL;
-}
-
-static void
-reset_resp(size_t data_len)
-{
-	free_resp();
-	alloc_resp(data_len);
-}
-
-static void
-free_msgs(void)
-{
-	free_req();
-	free_resp();
-}
-
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
@@ -113,21 +62,8 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
  *
  * type may be FUZZ_REQ or FUZZ_RESP.
  *
- * On each iteration it splits the @str into two fragments and pushes
+ * On each iteration it splits the @str into fragments and pushes
  * them to the HTTP parser.
- *
- * For example, given the request:
- *    "GET / HTTP/1.1\r\n"
- * The function (being called in a loop) will do the following:
- *     parse("GET / HTTP/1.1\r\n");
- *     parse("G"); parse("ET / HTTP/1.1\r\n");
- *     parse("GE"); parse("T / HTTP/1.1\r\n");
- *     parse("GET"); parse(" / HTTP/1.1\r\n");
- *     parse("GET "); parse("/ HTTP/1.1\r\n");
- *     parse("GET /"); parse(" HTTP/1.1\r\n");
- *     ...
- *     parse("GET / HTTP/1.1"); parse("\r\n");
- *     parse("GET / HTTP/1.1\r"); parse("\n");
  *
  * That is done because:
  *  - HTTP pipelining: the feature implies that such a "split" may occur at
@@ -149,6 +85,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
  */
 static int chunks = 1;
 static size_t len;
+
 static int
 do_split_and_parse(unsigned char *str, int type)
 {
@@ -160,12 +97,21 @@ do_split_and_parse(unsigned char *str, int type)
 		len = strlen(str);
 	}
 
-	if (type == FUZZ_REQ)
-		reset_req(strlen(str));
-	else if (type == FUZZ_RESP)
-		reset_resp(strlen(str));
-	else
+	if (type == FUZZ_REQ) {
+		if (req)
+			test_req_free(req);
+
+		req = test_req_alloc(len);
+	}
+	else if (type == FUZZ_RESP) {
+		if (resp)
+			test_resp_free(resp);
+
+		resp = test_resp_alloc(len);
+	}
+	else {
 		BUG();
+	}
 
 	r = split_and_parse_n(str, type, len, chunks);
 
@@ -183,7 +129,7 @@ do_split_and_parse(unsigned char *str, int type)
 				              "response"),	\
 			  _err, (str)); 			\
 	}							\
-	_err == TFW_PASS && chunks <= 1/*len*/;			\
+	_err == TFW_PASS && chunks <= 1/*TODO: len*/;			\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
@@ -194,7 +140,7 @@ do_split_and_parse(unsigned char *str, int type)
 			       (type == FUZZ_REQ ? "request" :	\
 						   "response"),	\
 			       (str));				\
-	_err == TFW_BLOCK && chunks <= 1/*len*/;		\
+	_err == TFW_BLOCK && chunks <= 1/*TODO: len*/;		\
 })
 
 #define FOR_REQ(str)						\
@@ -425,7 +371,7 @@ TEST(http_parser, parses_connection_value)
 
 TEST(http_parser, fuzzer)
 {
-	char *str = vmalloc(2 * 1024 * 1024);
+	char *str = vmalloc(10 * 1024 * 1024);
 	int i = 0, ret = FUZZ_VALID;
 
 	for (i = 0; i < N; i++) {
@@ -464,8 +410,6 @@ end:
 
 TEST_SUITE(http_parser)
 {
-	TEST_TEARDOWN(free_msgs);
-
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, fills_hdr_tbl);
