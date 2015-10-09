@@ -77,13 +77,6 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/**
- * All helping information for current HTTP parsing state of a message.
- */
-#define TFW_HTTP_PF_CR			0x01
-#define TFW_HTTP_PF_LF			0x02
-#define TFW_HTTP_PF_CRLF		(TFW_HTTP_PF_CR | TFW_HTTP_PF_LF)
-
 typedef enum {
 	TFW_HTTP_METH_NONE,
 	TFW_HTTP_METH_GET,
@@ -119,22 +112,24 @@ typedef struct {
  * (e.g. process LWS using @state while current state is saved in @_i_st
  * or using @_i_st parse value of a header described.
  *
- * @state	- current parser state;
- * @_i_st	- helping (interior) state;
  * @to_go	- remaining number of bytes to process in the data chunk;
  *		  (limited by single packet size and never exceeds 64KB)
+ * @state	- current parser state;
+ * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
+ * @_hdr_tag	- describes, which header should be closed in case of
+ *		  the empty header (see RGEN_LWS_empty)
  * @_tmp_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
-	unsigned char	flags;
 	unsigned short	to_go;
 	int		state;
 	int		_i_st;
 	int		to_read;
 	unsigned long	_tmp_acc;
+	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 } TfwHttpParser;
@@ -186,6 +181,8 @@ typedef struct {
 /* Request flags */
 #define TFW_HTTP_STICKY_SET		0x0100	/* Need 'Set-Cookie` */
 #define TFW_HTTP_FIELD_DUPENTRY		0x0200	/* Duplicate field */
+/* URI has form http://authority/path, not just /path */
+#define TFW_HTTP_URI_FULL		0x0400
 
 /**
  * Common HTTP message members.
