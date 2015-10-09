@@ -99,23 +99,17 @@ TfwSrvConnection *
 test_create_conn(TfwPeer *peer)
 {
 	void (*tfw_connection_link_peer)(TfwConnection *conn,TfwPeer *peer);
-
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
 	TfwSrvConnection *srv_conn;
 
-
 	tfw_connection_link_peer = get_sym_ptr("tfw_connection_link_peer");
-	
-
-	if(!tfw_connection_link_peer)
-		TFW_DBG("sched_help: link_peer ptr null\n");
 
 	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
 	srv_conn = tfw_srv_conn_alloc_ptr();
 	BUG_ON(!srv_conn);
-
+	BUG_ON(tfw_connection_link_peer == NULL);
 	tfw_connection_link_peer(&srv_conn->conn, peer);
 	srv_conn->conn.sk = &__test_sock;
 
