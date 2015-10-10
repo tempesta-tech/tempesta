@@ -552,34 +552,17 @@ ss_tcp_process_data(struct sock *sk)
 
 			read_unlock(&sk->sk_callback_lock);
 
-			/*
-			 * Unlocking of the socket above creates a chance that
-			 * the socket might be closed in a parallel thread.
-			 * Now that the socket is locked again, check to see
-			 * if that has really happened. If it has, then simply
-			 * return to the caller. The party that actually closes
-			 * the socket takes care of any additional actions like
-			 * failover, etc.
-			 *
-			 * Note that the socket had not been destroyed in case
-			 * it's been closed. An extra socket reference is taken
-			 * before this function is called which prevents that.
-			 * See tcp_v4_rcv() and __inet_lookup_established().
-			 */
-			if (unlikely(sk->sk_state != TCP_ESTABLISHED))
-				return false;
-
 			if (r < 0) {
 				SS_WARN("can't process app data on socket %p\n",
 					sk);
 				/*
-				 * Drop connection on internal errors as well as
-				 * on banned packets.
+				 * Drop connection on internal errors as well
+				 * as on banned packets.
 				 *
 				 * ss_droplink() is responsible for calling
-				 * application layer connection closing callback
-				 * which will free all the passed and linked
-				 * with currently processed message skbs.
+				 * application layer connection closing
+				 * callback which will free all the passed and
+				 * linked with currently processed message skbs.
 				 */
 				goto out; /* connection dropped */
 			}
