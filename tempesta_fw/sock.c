@@ -131,7 +131,7 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
  * TODO use MSG_MORE untill we reach end of message.
  */
 void
-ss_send(struct sock *sk, const SsSkbList *skb_list)
+ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
 	struct sk_buff *skb, *iskb;
 	struct tcp_sock *tp;
@@ -156,47 +156,27 @@ ss_send(struct sock *sk, const SsSkbList *skb_list)
 	for (iskb = ss_skb_peek(skb_list), skb = iskb;
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
-#if 0 /* Original code. */
 		/*
-		 * When SKBs are removed from socket's receive queue and
-		 * passed to Tempesta, control over these SKBs is passed
-		 * from kernel to Tempesta as well. Tempesta becomes the
-		 * sole owner of these SKBs. When these SKBs are sent out
-		 * to a client or a backend by Tempesta, the kernel becomes
-		 * an extra owner of the SKBs in addition to Tempesta.
-		 * To account for that it's necessary to increment SKB's
-		 * count of users so that SKBs are not freed from under
-		 * Tempesta or from under the kernel.
+		 * Remvoe the skb from Tempesta lists if we won't use it
+		 * or clone it if it's going to be used by Tempesta during
+		 * and after the transmission.
 		 */
-		skb_get(skb);
-#else /* Workaround. */
-		/*
-		 * An SKB may be split in the TCP stack. When that happens,
-		 * part of original SKB data is moved to a new SKB that is
-		 * unknown to Tempesta. Tempesta has no control over that
-		 * new SKB and the original data that was moved to it. The
-		 * new SKB is freed after it is successfully transmitted,
-		 * and original data that was moved to the new SKB is freed
-		 * as well. Tempesta keeps pointers into original SKB data
-		 * that point to parts of HTTP message in the SKB. Those
-		 * pointers are required for caching of an HTTP message.
-		 * After the new SKB with part of original data is freed,
-		 * the pointers become invalid.
-		 * Please see issues #173 and #122 for more information.
-		 *
-		 * Until this issue is properly solved, make a copy of each
-		 * SKB as a workaround, and pass the copy to Linux TCP stack.
-		 * That way all original data stay under complete control of
-		 * Tempesta. As a copy is passed to TCP stack, there's no
-		 * need to make these SKBs shared for the purpose of keeping
-		 * control over them.
-		 */
-		skb = pskb_copy(skb, GFP_ATOMIC);
-		if (!skb) {
-			SS_ERR("Unable to make a copy of original SKB.\n");
-			continue;
+		if (pass_skb) {
+			ss_skb_unlink(skb_list, skb);
+		} else {
+			skb = skb_clone(skb, GFP_ATOMIC);
+			if (!skb) {
+				SS_ERR("Unable to clone an egress SKB.\n");
+				/*
+				 * Send what we collected so far.
+				 * The peer should react somehow and we can
+				 * go further instead of hang on the socket.
+				 * FIXME seems dirty...
+				 */
+				break;
+			}
 		}
-#endif
+
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
 
@@ -494,11 +474,14 @@ ss_tcp_process_data(struct sock *sk)
 			BUG();
 		/*
 		 * Cloned SKBs come here if a client or a back end are
-		 * on the same host as Tempesta. That's the way it works
-		 * through the loopback interface. That's excessive when
-		 * Tempesta is in the middle, and should be eliminated.
-		 * In the meantime unclone these SKBs as Tempesta needs
-		 * to be able to modify SKB's data.
+		 * on the same host as Tempesta. Cloning is happen in
+		 * tcp_transmit_skb() as it is for all egress packets,
+		 * but packets on loopback go to us as is, i.e. cloned.
+		 *
+		 * Tempesta adjusts skb pointers, but leave original data
+		 * untouched (this is also required to keep pointers of
+		 * parsed out HTTP data structures unchnaged).
+		 * So skb uncloning is enough here.
 		 */
 		if (skb_cloned(skb))
 			pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
