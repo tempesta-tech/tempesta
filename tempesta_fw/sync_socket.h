@@ -91,7 +91,7 @@ void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
 void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
-void ss_send(struct sock *sk, const SsSkbList *skb_list);
+void ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
 void ss_close(struct sock *sk);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
