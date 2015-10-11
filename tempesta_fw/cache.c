@@ -159,7 +159,7 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 		int room = (char *)(*trec + 1) + (*trec)->len - *p;
 		BUG_ON(room < 0);
 
-		TFW_DBG3("copy [%.*s](%u) to rec=%p(len=%u), p=%p"
+		TFW_DBG3("Cache: copy [%.*s](%u) to rec=%p(len=%u), p=%p"
 			 " tot_len=%lu room=%d copied=%ld\n",
 			 min(10, (int)src->len), (char *)src->ptr, src->len,
 			 *trec, (*trec)->len, *p, tot_len, room, copied);
@@ -417,6 +417,7 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 
 	/* TODO process collisions. */
 
+	TFW_DBG("Cache: service request w/ key %lx\n", key);
 	if (!ce->resp)
 		if (tfw_cache_build_resp(ce))
 			/*
@@ -428,6 +429,15 @@ __cache_req_process_node(TfwHttpReq *req, unsigned long key,
 			goto finish_req_processing;
 
 	/* We have already assembled response. */
+	/*
+	 * FIXME #173 -> #122
+	 * The response must be adjusted independently for each client
+	 * and send to different sockets, so we can't use the same skb.
+	 * We must generate new skb with cached data as page fragments
+	 * and copy headers. The headers must be adjusted after the function.
+	 * Probably, we shouldn't copy to TDB headers which must be generated
+	 * from scratch (e.g. Server or Connection).
+	 */
 	resp = ce->resp;
 
 finish_req_processing:
