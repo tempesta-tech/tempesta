@@ -47,37 +47,6 @@ static fuzz_msg cache_control[] = {{"no-cache", 0}, {"no-cache", 0},
 	{"cache-extension", 0}};
 static fuzz_msg expires[] = {{"Tue, 31 Jan 2012 15:02:53 GMT", 0}};
 
-enum {
-	SPACES,
-	METHOD,
-	HTTP_VER,
-	RESP_CODE,
-	URI_PATH_START,
-	URI_FILE,
-	CONNECTION,
-	USER_AGENT,
-	HOST,
-	X_FORWARDED_FOR,
-	CONTENT_TYPE,
-	CONTENT_LENGTH,
-	TRANSFER_ENCODING,
-	ACCEPT,
-	ACCEPT_LANGUAGE,
-	ACCEPT_ENCODING,
-	ACCEPT_RANGES,
-	COOKIE,
-	SET_COOKIE,
-	ETAG,
-	SERVER,
-	CACHE_CONTROL,
-	EXPIRES,
-	TRANSFER_ENCODING_NUM,
-	URI_PATH_DEPTH,
-	DUPLICATES,
-	BODY_CHUNKS_NUM,
-	N_FIELDS,
-};
-
 static fuzz_msg *vals[] = {
 	spaces,
 	methods,
@@ -146,7 +115,7 @@ static char * keys[] = {
 #define A_UA A_URI
 #define A_UA_INVAL A_URI_INVAL
 #define A_HOST "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
-	       "abcdefghijklmnopqrstuvwxyz0123456789 -._~!$&'()*+,;="
+	       "abcdefghijklmnopqrstuvwxyz0123456789-."
 #define A_HOST_INVAL A_URI_INVAL
 #define A_X_FF A_HOST
 #define A_X_FF_INVAL A_URI_INVAL
@@ -162,7 +131,7 @@ static struct {
 	int singular; /* only for headers; 0 - nonsingular, 1 - singular */
 } gen_vector[] = {
 	/* SPACES */
-	{0, sizeof(spaces) / sizeof(fuzz_msg), 1, " ", A_URI},
+	{0, sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* METHOD */
 	{0, sizeof(methods) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* HTTP_VER */
@@ -172,15 +141,15 @@ static struct {
 	/* URI_PATH_START */
 	{0, sizeof(uri_path_start) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* URI_FILE */
-	{0, sizeof(uri_file) / sizeof(fuzz_msg), 1, A_URI, A_URI_INVAL},
+	{0, sizeof(uri_file) / sizeof(fuzz_msg), 2, A_URI, A_URI_INVAL},
 	/* CONNECTION */
 	{0, sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 1},
 	/* USER_AGENT*/
-	{0, sizeof(ua_val) / sizeof(fuzz_msg), 1, A_UA, A_UA_INVAL, 1},
+	{0, sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 1},
 	/* HOST */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 1, A_HOST, A_HOST_INVAL, 1},
+	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1},
 	/* X_FORWARDED_FOR */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 1, A_X_FF, A_X_FF, 0},
+	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF, 0},
 	/* CONTENT_TYPE */
 	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1},
 	/* CONTENT_LENGTH */
@@ -236,34 +205,37 @@ gen_vector_move(int i)
 }
 
 static void
-addch(char **p, char ch)
+addch(char **p, char *end, char ch)
 {
 	if (!ch)
+		return;
+
+	if(*p + 1 > end)
 		return;
 
 	*(*p)++ = ch;
 }
 
 static void
-add_string(char **p, char *str)
+add_string(char **p, char *end, char *str)
 {
 	for (; *str != '\0'; str++)
-		addch(p, *str);
+		addch(p, end, *str);
 }
 
 static void
-add_rand_string(char **p, int n, char *seed)
+add_rand_string(char **p, char *end, int n, char *seed)
 {
 	int i;
 
 	BUG_ON(!seed);
 
 	for (i = 0; i < n; ++i)
-		addch(p, seed[((i + 333) ^ seed[i]) % strlen(seed)]);
+		addch(p, end, seed[((i + 333) ^ seed[i]) % strlen(seed)]);
 }
 
 static int
-__add_field(char **p, int t, int n)
+__add_field(char **p, char *end, int t, int n)
 {
 	fuzz_msg *val;
 
@@ -276,15 +248,15 @@ __add_field(char **p, int t, int n)
 
 	if (n < gen_vector[t].size) {
 		fuzz_msg r = val[n];
-		add_string(p, r.s);
+		add_string(p, end, r.s);
 		return r.inval;
 	} else {
-		if (n % 2 && gen_vector[t].a_val != NULL) {
-			add_rand_string(p, n * 256,
+		if (n % 2) {
+			add_rand_string(p, end, n * 256,
 				gen_vector[t].a_val);
 			return FUZZ_VALID;
 		} else {
-			add_rand_string(p, n * 256,
+			add_rand_string(p, end, n * 256,
 				gen_vector[t].a_inval);
 		}
 	}
@@ -293,13 +265,13 @@ __add_field(char **p, int t, int n)
 }
 
 static int
-add_field(char **p, int t)
+add_field(char **p, char *end, int t)
 {
-	return __add_field(p, t, gen_vector[t].i);
+	return __add_field(p, end, t, gen_vector[t].i);
 }
 
 static int
-__add_header(char **p, int t, int n)
+__add_header(char **p, char *end, int t, int n)
 {
 	int v = 0, i;
 	char *key;
@@ -311,29 +283,29 @@ __add_header(char **p, int t, int n)
 
 	BUG_ON(!key);
 
-	add_string(p, key);
-	v |= add_field(p, SPACES);
-	v |= add_field(p, t);
+	add_string(p, end, key);
+	v |= add_field(p, end, SPACES);
+	v |= add_field(p, end, t);
 	for (i = 0; i < n; ++i) {
-		addch(p, ',');
-		v |= add_field(p, SPACES);
-		v |= __add_field(p, t, (i * 256) %
+		addch(p, end, ',');
+		v |= add_field(p, end, SPACES);
+		v |= __add_field(p, end, t, (i * 256) %
 			(gen_vector[t].size + gen_vector[t].over));
 	}
 
-	add_string(p, "\r\n");
+	add_string(p, end, "\r\n");
 
 	return v;
 }
 
 static int
-add_header(char **p, int t)
+add_header(char **p, char *end, int t)
 {
-	return __add_header(p, t, 0);
+	return __add_header(p, end, t, 0);
 }
 
 static int
-add_body(char **p, int type)
+add_body(char **p, char *end, int type)
 {
 	size_t len = 0, i, j;
 	char *len_str;
@@ -350,7 +322,7 @@ add_body(char **p, int type)
 	}
 
 	if (gen_vector[TRANSFER_ENCODING].i) {
-		for (i = 0; i < len; i++)
+		for (i = 0; i < len && *p + i < end; i++)
 			*(*p)++ = a_body[(i * 256) % strlen(a_body)];
 	}
 	else {
@@ -362,10 +334,10 @@ add_body(char **p, int type)
 			char buf[256];
 			snprintf(buf, sizeof(buf), "%d", fact);
 
-			add_string(p, buf);
-			add_string(p, "\r\n");
+			add_string(p, end, buf);
+			add_string(p, end, "\r\n");
 
-			for (i = 0; i < fact; i++)
+			for (i = 0; i < fact && *p + i < end; i++)
 				*(*p)++ = a_body[(i * 256) % strlen(a_body)];
 		}
 	}
@@ -374,7 +346,7 @@ add_body(char **p, int type)
 }
 
 static int
-__add_duplicates(char **p, int t, int n)
+__add_duplicates(char **p, char *end, int t, int n)
 {
 	int i, tmp, v = 0;
 
@@ -382,7 +354,7 @@ __add_duplicates(char **p, int t, int n)
 		tmp = gen_vector[t].i;
 
 		gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
-		v |= __add_header(p, t, n);
+		v |= __add_header(p, end, t, n);
 
 		gen_vector[t].i = tmp;
 	}
@@ -394,9 +366,9 @@ __add_duplicates(char **p, int t, int n)
 }
 
 static int
-add_duplicates(char **p, int t)
+add_duplicates(char **p, char *end, int t)
 {
-	return __add_duplicates(p, t, 0);
+	return __add_duplicates(p, end, t, 0);
 }
 
 /* Returns:
@@ -406,7 +378,7 @@ add_duplicates(char **p, int t)
  * `move` is how many gen_vector's elements should be changed
  * each time a new request is generated, should be >= 1. */
 int
-fuzz_gen(char *str, int move, int type)
+fuzz_gen(char *str, char *end, field_t start, int move, int type)
 {
 	int i, n, ret, v = 0;
 
@@ -414,94 +386,94 @@ fuzz_gen(char *str, int move, int type)
 		return -EINVAL;
 
 	if (type == FUZZ_REQ) {
-		v |= add_field(&str, METHOD);
-		addch(&str, ' ');
+		v |= add_field(&str, end, METHOD);
+		addch(&str, end, ' ');
 
-		v |= add_field(&str, URI_PATH_START);
-		addch(&str, '/');
-		v |= add_field(&str, HOST);
+		v |= add_field(&str, end, URI_PATH_START);
+		addch(&str, end, '/');
+		v |= add_field(&str, end, HOST);
 		for (i = 0; i < gen_vector[URI_PATH_DEPTH].i + 1; ++i) {
-			addch(&str, '/');
-			v |= add_field(&str, URI_FILE);
+			addch(&str, end, '/');
+			v |= add_field(&str, end, URI_FILE);
 		}
-		addch(&str, ' ');
+		addch(&str, end, ' ');
 	}
 
-	add_string(&str, "HTTP/");
-	v |= add_field(&str, HTTP_VER);
+	add_string(&str, end, "HTTP/");
+	v |= add_field(&str, end, HTTP_VER);
 
 	if (type == FUZZ_RESP) {
-		addch(&str, ' ');
-		v |= add_field(&str, SPACES);
-		v |= add_field(&str, RESP_CODE);
+		addch(&str, end, ' ');
+		v |= add_field(&str, end, SPACES);
+		v |= add_field(&str, end, RESP_CODE);
 	}
 
-	add_string(&str, "\r\n");
+	add_string(&str, end, "\r\n");
 
 	if (type == FUZZ_REQ) {
-		v |= add_header(&str, HOST);
-		v |= add_duplicates(&str, HOST);
+		v |= add_header(&str, end, HOST);
+		v |= add_duplicates(&str, end, HOST);
 
-		v |= add_header(&str, ACCEPT);
-		v |= add_duplicates(&str, ACCEPT);
+		v |= add_header(&str, end, ACCEPT);
+		v |= add_duplicates(&str, end, ACCEPT);
 
-		v |= add_header(&str, ACCEPT_LANGUAGE);
-		v |= add_duplicates(&str, ACCEPT_LANGUAGE);
+		v |= add_header(&str, end, ACCEPT_LANGUAGE);
+		v |= add_duplicates(&str, end, ACCEPT_LANGUAGE);
 
-		v |= add_header(&str, ACCEPT_ENCODING);
-		v |= add_duplicates(&str, ACCEPT_ENCODING);
+		v |= add_header(&str, end, ACCEPT_ENCODING);
+		v |= add_duplicates(&str, end, ACCEPT_ENCODING);
 
-		v |= add_header(&str, COOKIE);
-		v |= add_duplicates(&str, COOKIE);
+		v |= add_header(&str, end, COOKIE);
+		v |= add_duplicates(&str, end, COOKIE);
 
-		v |= add_header(&str, X_FORWARDED_FOR);
-		v |= add_duplicates(&str, X_FORWARDED_FOR);
+		v |= add_header(&str, end, X_FORWARDED_FOR);
+		v |= add_duplicates(&str, end, X_FORWARDED_FOR);
+
+		/* TODO: The parser does not validate User-Agent now */
+		/*v |= add_header(&str, end, USER_AGENT);
+		v |= add_duplicates(&str, end, USER_AGENT);*/
 	}
 	else if (type == FUZZ_RESP) {
-		v |= add_header(&str, ACCEPT_RANGES);
-		v |= add_duplicates(&str, ACCEPT_RANGES);
+		v |= add_header(&str, end, ACCEPT_RANGES);
+		v |= add_duplicates(&str, end, ACCEPT_RANGES);
 
-		v |= add_header(&str, SET_COOKIE);
-		v |= add_duplicates(&str, SET_COOKIE);
+		v |= add_header(&str, end, SET_COOKIE);
+		v |= add_duplicates(&str, end, SET_COOKIE);
 
-		v |= add_header(&str, ETAG);
-		v |= add_duplicates(&str, ETAG);
+		v |= add_header(&str, end, ETAG);
+		v |= add_duplicates(&str, end, ETAG);
 
-		v |= add_header(&str, SERVER);
-		v |= add_duplicates(&str, SERVER);
+		v |= add_header(&str, end, SERVER);
+		v |= add_duplicates(&str, end, SERVER);
 	}
 
-	v |= add_header(&str, CONNECTION);
-	v |= add_duplicates(&str, CONNECTION);
+	v |= add_header(&str, end, CONNECTION);
+	v |= add_duplicates(&str, end, CONNECTION);
 
-	v |= add_header(&str, USER_AGENT);
-	v |= add_duplicates(&str, USER_AGENT);
+	v |= add_header(&str, end, CONTENT_TYPE);
+	v |= add_duplicates(&str, end, CONTENT_TYPE);
 
-	v |= add_header(&str, CONTENT_TYPE);
-	v |= add_duplicates(&str, CONTENT_TYPE);
-
-	v |= add_header(&str, CONTENT_LENGTH);
-	v |= add_duplicates(&str, CONTENT_LENGTH);
+	v |= add_header(&str, end, CONTENT_LENGTH);
+	v |= add_duplicates(&str, end, CONTENT_LENGTH);
 
 	n = gen_vector[TRANSFER_ENCODING_NUM].i;
-	v |= __add_header(&str, TRANSFER_ENCODING, n);
-	v |= __add_duplicates(&str, TRANSFER_ENCODING, n);
+	v |= __add_header(&str, end, TRANSFER_ENCODING, n);
+	v |= __add_duplicates(&str, end, TRANSFER_ENCODING, n);
 
-	v |= add_header(&str, CACHE_CONTROL);
-	v |= add_duplicates(&str, CACHE_CONTROL);
+	v |= add_header(&str, end, CACHE_CONTROL);
+	v |= add_duplicates(&str, end, CACHE_CONTROL);
 
-	v |= add_header(&str, EXPIRES);
-	v |= add_duplicates(&str, EXPIRES);
+	v |= add_header(&str, end, EXPIRES);
+	v |= add_duplicates(&str, end, EXPIRES);
 
-	add_string(&str, "\r\n");
+	add_string(&str, end, "\r\n");
 
-	v |= add_body(&str, type);
+	v |= add_body(&str, end, type);
 
 	*str = '\0';
 
 	for (i = 0; i < move; i++) {
-		ret = gen_vector_move((N_FIELDS - 1 + i * ((i % 2) ? 3 : 2))
-			% N_FIELDS);
+		ret = gen_vector_move(start);
 		if (ret == FUZZ_END)
 			break;
 	}
