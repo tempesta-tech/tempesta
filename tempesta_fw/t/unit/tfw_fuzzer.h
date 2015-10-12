@@ -34,6 +34,8 @@ typedef enum {
 
 int fuzz_gen(char *str, char *end, field_t start, int move, int type);
 
+void fuzz_reset(void);
+
 enum {
 	FUZZ_VALID,
 	FUZZ_INVALID,

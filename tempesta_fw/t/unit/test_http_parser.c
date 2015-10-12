@@ -367,7 +367,7 @@ TEST(http_parser, parses_connection_value)
 }
 
 #define N 1	// Count of generations
-#define MOVE 1	// Count of mutations
+#define MOVE 1	// Mutations per generation
 
 TEST(http_parser, fuzzer)
 {
@@ -393,6 +393,7 @@ TEST(http_parser, fuzzer)
 		}
 	}
 resp:
+	fuzz_reset();
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
