@@ -309,16 +309,21 @@ add_body(char **p, char *end, int type)
 {
 	size_t len = 0, i, j;
 	char *len_str;
-	int err;
+	int err, ret = FUZZ_VALID;
 
-	len_str = content_len[gen_vector[CONTENT_LENGTH].i].s;
+	i = gen_vector[CONTENT_LENGTH].i;
+	len_str = (i < gen_vector[CONTENT_LENGTH].size)? content_len[i].s: NULL;
 	if (!len_str)
 		return FUZZ_INVALID;
 
 	err = kstrtoul(len_str, 10, &len);
 	if (err) {
-
 		return FUZZ_INVALID;
+	}
+
+	if (len != 0 && i % 2) {
+		len /= 2;
+		ret = FUZZ_INVALID;
 	}
 
 	if (gen_vector[TRANSFER_ENCODING].i) {
@@ -327,7 +332,11 @@ add_body(char **p, char *end, int type)
 	}
 	else {
 		int n = gen_vector[BODY_CHUNKS_NUM].i + 1;
-		int chunk = len / n;
+		int chunk;
+
+		BUG_ON(n <= 0);
+
+		chunk = len / n;
 		for (j = 0; j < n; j++) {
 			int fact = (j != n - 1)? chunk: len - (n - 1) * chunk;
 
@@ -342,7 +351,7 @@ add_body(char **p, char *end, int type)
 		}
 	}
 
-	return FUZZ_VALID;
+	return ret;
 }
 
 static int
