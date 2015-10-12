@@ -27,8 +27,8 @@
 
 /*
  * Normally, schedulers are separate modules. Schedulers register
- * and deregister via register()/unregister() functions. Registered
- * schedulers schedulers are placed on the list and can be used by
+ * and deregister themselves via register()/unregister() functions.
+ * Registered schedulers are placed on the list and can be used by
  * Tempesta. The list is traversed on each HTTP message in search
  * for an outgoing connection, so the list traversal operation is
  * critical for speed. The event of a scheduler's registration or
