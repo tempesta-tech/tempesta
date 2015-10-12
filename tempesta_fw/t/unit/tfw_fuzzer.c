@@ -75,7 +75,6 @@ static fuzz_msg *vals[] = {
 	NULL,
 	NULL,
 	NULL,
-	NULL,
 };
 
 static char * keys[] = {
@@ -102,7 +101,6 @@ static char * keys[] = {
 	"Server:",
 	"Cache-Control:",
 	"Expires:",
-	NULL,
 	NULL,
 	NULL,
 	NULL,
@@ -179,8 +177,6 @@ static struct {
 	/* TRANSFER_ENCODING_NUM */
 	{0, 2, 0, NULL, NULL},
 	/* URI_PATH_DEPTH */
-	{0, 2, 0, NULL, NULL},
-	/* DUPLICATES */
 	{0, 2, 0, NULL, NULL},
 	/* BODY_CHUNKS_NUM */
 	{0, 3, 0, NULL, NULL},
@@ -354,12 +350,19 @@ add_body(char **p, char *end, int type)
 	return ret;
 }
 
+#define DUPLICATES_PERIOD 10
+#define MAX_DUPLICATES 9
+
 static int
 __add_duplicates(char **p, char *end, int t, int n)
 {
 	int i, tmp, v = 0;
+	static int curr_duplicates = 0;
 
-	for (i = 0; i < gen_vector[DUPLICATES].i; ++i) {
+	if (curr_duplicates++ % DUPLICATES_PERIOD)
+		return FUZZ_VALID;
+
+	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
 		tmp = gen_vector[t].i;
 
 		gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
