@@ -129,7 +129,7 @@ do_split_and_parse(unsigned char *str, int type)
 				              "response"),	\
 			  _err, (str)); 			\
 	}							\
-	_err == TFW_PASS && chunks <= 1/*TODO: len*/;			\
+	_err == TFW_PASS && chunks <= 1/*TODO: len*/;		\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
@@ -366,42 +366,49 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
-#define N 10 	// Count of generations
-#define MOVE 5	// Count of mutations
+#define N 1	// Count of generations
+#define MOVE 1	// Count of mutations
 
 TEST(http_parser, fuzzer)
 {
-	char *str = vmalloc(10 * 1024 * 1024);
-	int i = 0, ret = FUZZ_VALID;
+	size_t len = 10 * 1024 * 1024;
+	char *str = vmalloc(len);
+	int field, i, ret;
 
-	for (i = 0; i < N; i++) {
-		TEST_LOG("fuzz request i: %d\n", i);
-		ret = fuzz_gen(str, MOVE, FUZZ_REQ);
-		switch (ret) {
-		case FUZZ_VALID:
-			FOR_REQ(str);
-			break;
-		case FUZZ_INVALID:
-			EXPECT_BLOCK_REQ(str);
-			break;
-		case FUZZ_END:
-		default:
-			goto end;
+	for (field = SPACES; field < N_FIELDS; field++) {
+		for (i = 0; i < N; i++) {
+			TEST_LOG("start field: %d request: %d\n", field, i);
+			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_REQ);
+			switch (ret) {
+			case FUZZ_VALID:
+				FOR_REQ(str);
+				break;
+			case FUZZ_INVALID:
+				EXPECT_BLOCK_REQ(str);
+				break;
+			case FUZZ_END:
+			default:
+				goto resp;
+			}
 		}
 	}
+resp:
 
-	for (i = 0; i < N; i++) {
-		TEST_LOG("fuzz response i: %d\n", i);
-		ret = fuzz_gen(str, MOVE, FUZZ_RESP);
-		switch (ret) {
-		case FUZZ_VALID:
-			FOR_RESP(str);
-			break;
-		case FUZZ_INVALID:
-			EXPECT_BLOCK_RESP(str);
-			break;
-		case FUZZ_END:
-			goto end;
+	for (field = SPACES; field < N_FIELDS; field++) {
+		for (i = 0; i < N; i++) {
+			TEST_LOG("start field: %d response: %d\n", field, i);
+			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_RESP);
+			switch (ret) {
+			case FUZZ_VALID:
+				FOR_RESP(str);
+				break;
+			case FUZZ_INVALID:
+				EXPECT_BLOCK_RESP(str);
+				break;
+			case FUZZ_END:
+			default:
+				goto end;
+			}
 		}
 	}
 end:
