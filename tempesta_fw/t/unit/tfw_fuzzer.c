@@ -31,7 +31,8 @@ static fuzz_msg content_len[] = {{"10000", 0}, {"0", 0}, {"-42", 1},
 static fuzz_msg transfer_encoding[] = {{"chunked", 0}, {"identity", 0},
 	{"compress", 0}, {"deflate", 0}, {"gzip", 0}};
 static fuzz_msg accept[] = {{"text/plain", 0}, {"text/html;q=0.5", 0},
-	{"application/xhtml+xml", 0}, {"application/xml; q=0.2", 0}, {"*/*; q=0.8", 0}};
+	{"application/xhtml+xml", 0}, {"application/xml; q=0.2", 0},
+	{"*/*; q=0.8", 0}};
 static fuzz_msg accept_language[] = {{"ru", 0}, {"en-US,en;q=0.5", 0},
 	{"da", 0}, {"en-gb; q=0.8", 0}, {"ru;q=0.9", 0}};
 static fuzz_msg accept_encoding[] = {{"chunked", 0}, {"identity;q=0.5", 0},
@@ -127,6 +128,8 @@ static struct {
 	char *a_val;
 	char *a_inval;
 	int singular; /* only for headers; 0 - nonsingular, 1 - singular */
+	int dissipation; /* may be duplicates header has diferent values?;
+			   0 - no, 1 - yes */
 } gen_vector[] = {
 	/* SPACES */
 	{0, sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
@@ -141,39 +144,39 @@ static struct {
 	/* URI_FILE */
 	{0, sizeof(uri_file) / sizeof(fuzz_msg), 2, A_URI, A_URI_INVAL},
 	/* CONNECTION */
-	{0, sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 1},
+	{0, sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 0},
 	/* USER_AGENT*/
-	{0, sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 1},
+	{0, sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 0, 1},
 	/* HOST */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1},
+	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1, 1},
 	/* X_FORWARDED_FOR */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF, 0},
+	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF, 0, 1},
 	/* CONTENT_TYPE */
-	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1},
+	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* CONTENT_LENGTH */
-	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1},
+	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1},
 	/* TRANSFER_ENCODING */
-	{0, sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT */
-	{0, sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_LANGUAGE */
-	{0, sizeof(accept_language) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(accept_language) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_ENCODING */
-	{0, sizeof(accept_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(accept_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_RANGES */
-	{0, sizeof(accept_ranges) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(accept_ranges) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* COOKIE */
-	{0, sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* SET_COOKIE */
-	{0, sizeof(set_cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(set_cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ETAG */
-	{0, sizeof(etag) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(etag) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* SERVER */
-	{0, sizeof(server) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(server) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* CACHE_CONTROL */
-	{0, sizeof(cache_control) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(cache_control) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* EXPIRES */
-	{0, sizeof(expires) / sizeof(fuzz_msg), 0, NULL, NULL, 0},
+	{0, sizeof(expires) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* TRANSFER_ENCODING_NUM */
 	{0, 2, 0, NULL, NULL},
 	/* URI_PATH_DEPTH */
@@ -365,7 +368,8 @@ __add_duplicates(char **p, char *end, int t, int n)
 	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
 		tmp = gen_vector[t].i;
 
-		gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
+		if (gen_vector[t].dissipation)
+			gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
 		v |= __add_header(p, end, t, n);
 
 		gen_vector[t].i = tmp;
@@ -442,8 +446,8 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 		v |= add_duplicates(&str, end, X_FORWARDED_FOR);
 
 		/* TODO: The parser does not validate User-Agent now */
-		/*v |= add_header(&str, end, USER_AGENT);
-		v |= add_duplicates(&str, end, USER_AGENT);*/
+		/*v |= */add_header(&str, end, USER_AGENT);
+		/*v |= */add_duplicates(&str, end, USER_AGENT);
 	}
 	else if (type == FUZZ_RESP) {
 		v |= add_header(&str, end, ACCEPT_RANGES);
@@ -495,3 +499,13 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 	return ret;
 }
 EXPORT_SYMBOL(fuzz_gen);
+
+void fuzz_reset(void)
+{
+	int i;
+	for (i = 0; i < N_FIELDS; i++)
+	{
+		gen_vector[i].i = 0;
+	}
+}
+EXPORT_SYMBOL(fuzz_reset);
