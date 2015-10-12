@@ -98,6 +98,12 @@ typedef struct {
 
 static TfwHttpMatchList *tfw_sched_http_rules;
 
+/*
+ * Find a connection for an outgoing HTTP request.
+ *
+ * The search is based on contents of an HTTP request and match rules
+ * that specify which Server Group the request should be forwarded to.
+ */
 static TfwConnection *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
