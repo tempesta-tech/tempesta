@@ -150,7 +150,7 @@ static struct {
 	/* HOST */
 	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1, 1},
 	/* X_FORWARDED_FOR */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF, 0, 1},
+	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF_INVAL, 0, 1},
 	/* CONTENT_TYPE */
 	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* CONTENT_LENGTH */
@@ -320,12 +320,12 @@ add_body(char **p, char *end, int type)
 		return FUZZ_INVALID;
 	}
 
-	if (len != 0 && i % 2) {
-		len /= 2;
-		ret = FUZZ_INVALID;
-	}
-
 	if (gen_vector[TRANSFER_ENCODING].i) {
+		if (len != 0 && i % 2) {
+			len /= 2;
+			ret = FUZZ_INVALID;
+		}
+
 		for (i = 0; i < len && *p + i < end; i++)
 			*(*p)++ = a_body[(i * 256) % strlen(a_body)];
 	}
@@ -340,14 +340,25 @@ add_body(char **p, char *end, int type)
 			int fact = (j != n - 1)? chunk: len - (n - 1) * chunk;
 
 			char buf[256];
-			snprintf(buf, sizeof(buf), "%d", fact);
+			snprintf(buf, sizeof(buf), "%x", fact);
 
 			add_string(p, end, buf);
 			add_string(p, end, "\r\n");
 
+			if (fact != 0 && i % 2) {
+				fact /= 2;
+				ret = FUZZ_INVALID;
+			}
+
 			for (i = 0; i < fact && *p + i < end; i++)
 				*(*p)++ = a_body[(i * 256) % strlen(a_body)];
+
+			add_string(p, end, "\r\n");
 		}
+
+		add_string(p, end, "0");
+		add_string(p, end, "\r\n");
+		add_string(p, end, "\r\n");
 	}
 
 	return ret;
@@ -359,7 +370,7 @@ add_body(char **p, char *end, int type)
 static int
 __add_duplicates(char **p, char *end, int t, int n)
 {
-	int i, tmp, v = 0;
+	int i, tmp, v = FUZZ_VALID;
 	static int curr_duplicates = 0;
 
 	if (curr_duplicates++ % DUPLICATES_PERIOD)
