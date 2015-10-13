@@ -122,7 +122,7 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err == TFW_BLOCK) {				\
+	if (_err != TFW_PASS) {					\
 		chunks = 1;					\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" :	\
@@ -135,7 +135,7 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
 ({								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err != TFW_BLOCK)					\
+	if (_err == TFW_PASS)					\
 		TEST_FAIL("%s is not blocked as expected:\n%s",	\
 			       (type == FUZZ_REQ ? "request" :	\
 						   "response"),	\
@@ -366,7 +366,7 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
-#define N 1	// Count of generations
+#define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
 TEST(http_parser, fuzzer)
