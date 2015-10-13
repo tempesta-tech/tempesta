@@ -536,30 +536,20 @@ ss_tcp_process_data(struct sock *sk)
 			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
-				SS_WARN("can't process app data on socket %p\n",
-					sk);
-				/*
-				 * Drop connection on internal errors as well
-				 * as on banned packets.
-				 *
-				 * ss_droplink() is responsible for calling
-				 * application layer connection closing
-				 * callback which will free all the passed and
-				 * linked with currently processed message skbs.
-				 */
+				SS_WARN("Error processing data: sk %p\n", sk);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
 			processed += count;
 
 			if (tcp_fin) {
-				SS_DBG("received FIN, do an active close\n");
+				SS_DBG("Data FIN received. Active close.\n");
 				++tp->copied_seq;
 				goto out;
 			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("received FIN, do an active close\n");
+			SS_DBG("Link FIN received. Active close.\n");
 			++tp->copied_seq;
 			goto out;
 		} else {
@@ -707,6 +697,28 @@ ss_tcp_state_change(struct sock *sk)
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
+	/*
+	 * Note that TCP_CLOSE_WAIT state is not processed here.
+	 *
+	 * When FIN is received from the other side of a connection,
+	 * this function is called first before ss_tcp_data_ready()
+	 * is called, as the kernel moves the socket's state to
+	 * TCP_CLOSE_WAIT. The usual action in Tempesta is to close
+	 * the connection.
+	 *
+	 * It may happen that FIN comes with a data SKB, or there's
+	 * still data in the socket's receive queue that hasn't been
+	 * processed yet. That data needs to be processed before the
+	 * connection is closed.
+	 *
+	 * However, calling ss_tcp_data_ready() here in TCP_CLOSE_WAIT
+	 * state leads to a potential deadlock. See the comment in the
+	 * issue #282.
+	 *
+	 * FIN is always processed in ss_tcp_data_ready(). It's called
+	 * by the kernel after this function is called, so just let it
+	 * do FIN processing and close the connection.
+	 */
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
 
@@ -741,20 +753,6 @@ ss_tcp_state_change(struct sock *sk)
 			assert_spin_locked(&lsk->sk_lock.slock);
 			ss_drain_accept_queue(lsk, sk);
 		}
-	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
-		/*
-		 * Connection is being closed.
-		 * Either Tempesta sent FIN, or we received FIN.
-		 *
-		 * It may happen that FIN comes with a data SKB. In that
-		 * case this function is called before ss_tcp_data_ready()
-		 * is called. However the SKB needs to be processed before
-		 * the connection is closed.
-		 */
-		if (!skb_queue_empty(&sk->sk_receive_queue))
-			ss_tcp_process_data(sk);
-		SS_DBG("Peer connection closing\n");
-		ss_droplink(sk);
 	} else if (sk->sk_state == TCP_CLOSE) {
 		/*
 		 * In current implementation we never reach TCP_CLOSE state
