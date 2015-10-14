@@ -344,7 +344,8 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 /**
- * DEPRECATED: The function intentionaly brokes zero-copy string design.
+ * The function intentionaly brokes zero-copy string design. And should
+ * be used for short-strings only.
  *
  * Join all chunks of @str to a single plain C string.
  *
@@ -352,6 +353,12 @@ EXPORT_SYMBOL(tfw_str_eq_cstr);
  * If the buffer has not enough space to fit all chunks, then the output string
  * is cropped (at most @buf_size - 1 bytes is written). The output string is
  * always terminated with '\0'.
+ *
+ * Caveat: Be sure to free memory block as soon as possible. Leaving it
+ * allocated could ruin successful tfw_pool_realloc() sequence, and cause
+ * excessive copying. Since TfwPool is using stack-like approach, it's
+ * possible to allocate temporary storage for tfw_str_to_cstr() result,
+ * then free it, and successfully continue tfw_pool_realloc() sequence.
  *
  * Returns length of the output string.
  *

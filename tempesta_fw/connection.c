@@ -81,11 +81,13 @@ tfw_connection_destruct(TfwConnection *conn)
  * for the life of @conn instance. The socket itself may have been
  * closed, but not deleted. ss_send() makes sure that data is sent
  * only on an active socket.
+ *
+ * @unref_data is true if we won't use @msg any more.
  */
 void
-tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 {
-	ss_send(conn->sk, &msg->skb_list);
+	ss_send(conn->sk, &msg->skb_list, unref_data);
 }
 
 /*

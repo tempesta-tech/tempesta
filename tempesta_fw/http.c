@@ -222,7 +222,7 @@ tfw_http_send_resp(TfwHttpMsg *hm, const TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, resp, msg);
 
-	tfw_connection_send(hm->conn, (TfwMsg *)resp);
+	tfw_connection_send(hm->conn, (TfwMsg *)resp, true);
 	tfw_http_msg_free(resp);
 
 	return 0;
@@ -481,9 +481,11 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 	if (resp) {
 		/*
 		 * We have prepared response, send it as is.
+		 * The response is pass through ot was generated from
+		 * the cache, so unrefer all its data.
 		 * TODO should we adjust it somehow?
 		 */
-		tfw_connection_send(req->conn, (TfwMsg *)resp);
+		tfw_connection_send(req->conn, (TfwMsg *)resp, true);
 		return;
 	} else {
 		/*
@@ -513,7 +515,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		spin_unlock(&conn->msg_qlock);
 
 		/* Send request to the server. */
-		tfw_connection_send(conn, (TfwMsg *)req);
+		tfw_connection_send(conn, (TfwMsg *)req, false);
 		goto conn_put;
 	}
 	BUG();	/* NOTREACHED */
@@ -766,7 +768,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * The cache frees the response and the request.
 	 * conn->msg will get NULLed in the process.
 	 */
-	tfw_connection_send(hmreq->conn, (TfwMsg *)hmresp);
+	tfw_connection_send(hmreq->conn, (TfwMsg *)hmresp, false);
 	tfw_cache_add((TfwHttpResp *)hmresp, (TfwHttpReq *)hmreq);
 
 	return TFW_PASS;
