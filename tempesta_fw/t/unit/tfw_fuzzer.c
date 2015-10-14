@@ -216,22 +216,25 @@ addch(char **p, char *end, char ch)
 }
 
 static void
-add_string(char **p, char *end, char *str)
+add_string(char **p, char *end, const char *str)
 {
 	for (; *str != '\0'; str++)
 		addch(p, end, *str);
 }
 
 static void
-add_rand_string(char **p, char *end, int n, char *seed)
+add_rand_string(char **p, char *end, int n, const char *seed)
 {
-	int i;
+	int i, len;
 
 	BUG_ON(!seed);
 
+	len = strlen(seed);
 	for (i = 0; i < n; ++i)
-		addch(p, end, seed[((i + 333) ^ seed[i]) % strlen(seed)]);
+		addch(p, end, seed[((i + 333) ^ seed[i % len]) % len]);
 }
+
+static bool is_chancked_body = false;
 
 static int
 __add_field(char **p, char *end, int t, int n)
@@ -248,6 +251,11 @@ __add_field(char **p, char *end, int t, int n)
 	if (n < gen_vector[t].size) {
 		fuzz_msg r = val[n];
 		add_string(p, end, r.s);
+
+		if (t == TRANSFER_ENCODING && n == 0) {
+			is_chancked_body = true;
+		}
+
 		return r.inval;
 	} else {
 		if (n % 2) {
@@ -303,6 +311,8 @@ add_header(char **p, char *end, int t)
 	return __add_header(p, end, t, 0);
 }
 
+#define INVALID_BODY_PERIOD 2
+
 static int
 add_body(char **p, char *end, int type)
 {
@@ -320,39 +330,42 @@ add_body(char **p, char *end, int type)
 		return FUZZ_INVALID;
 	}
 
-	if (gen_vector[TRANSFER_ENCODING].i) {
-		if (len != 0 && i % 2) {
+	if (!is_chancked_body) {
+		if (len != 0 && i % INVALID_BODY_PERIOD) {
 			len /= 2;
 			ret = FUZZ_INVALID;
 		}
 
-		for (i = 0; i < len && *p + i < end; i++)
-			*(*p)++ = a_body[(i * 256) % strlen(a_body)];
+		add_rand_string(p, end, len, a_body);
 	}
 	else {
-		int n = gen_vector[BODY_CHUNKS_NUM].i + 1;
-		int chunk;
+		int chunks = gen_vector[BODY_CHUNKS_NUM].i + 1;
+		size_t chlen, rem, step;
 
-		BUG_ON(n <= 0);
+		BUG_ON(chunks <= 0);
 
-		chunk = len / n;
-		for (j = 0; j < n; j++) {
-			int fact = (j != n - 1)? chunk: len - (n - 1) * chunk;
-
+		chlen = len / chunks;
+		rem = len % chunks;
+		for (j = 0; j < chunks; j++) {
 			char buf[256];
-			snprintf(buf, sizeof(buf), "%x", fact);
+
+			step = chlen;
+			if (rem) {
+				step += rem;
+				rem = 0;
+			}
+
+			snprintf(buf, sizeof(buf), "%zx", step);
 
 			add_string(p, end, buf);
 			add_string(p, end, "\r\n");
 
-			if (fact != 0 && i % 2) {
-				fact /= 2;
+			if (step != 0 && i % INVALID_BODY_PERIOD) {
+				step /= 2;
 				ret = FUZZ_INVALID;
 			}
 
-			for (i = 0; i < fact && *p + i < end; i++)
-				*(*p)++ = a_body[(i * 256) % strlen(a_body)];
-
+			add_rand_string(p, end, step, a_body);
 			add_string(p, end, "\r\n");
 		}
 
@@ -377,13 +390,16 @@ __add_duplicates(char **p, char *end, int t, int n)
 		return FUZZ_VALID;
 
 	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
-		tmp = gen_vector[t].i;
-
-		if (gen_vector[t].dissipation)
+		if (gen_vector[t].dissipation) {
+			tmp = gen_vector[t].i;
 			gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
+		}
+
 		v |= __add_header(p, end, t, n);
 
-		gen_vector[t].i = tmp;
+		if (gen_vector[t].dissipation) {
+			gen_vector[t].i = tmp;
+		}
 	}
 
 	if (gen_vector[t].singular && i > 0)
