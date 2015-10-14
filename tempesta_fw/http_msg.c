@@ -93,7 +93,6 @@ __hdr_is_singular(const TfwStr *hdr)
 	static const TfwStr hdr_singular[] __read_mostly = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
-		TfwStr_string("content-type:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
 		TfwStr_string("if-unmodified-since:"),
