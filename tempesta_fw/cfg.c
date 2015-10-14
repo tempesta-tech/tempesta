@@ -90,7 +90,6 @@
 #include <net/net_namespace.h> /* for sysctl */
 
 #include "addr.h"
-#include "lib.h"
 #include "log.h"
 
 #include "cfg.h"
@@ -1493,7 +1492,6 @@ err_recover_cleanup:
 
 	return ret;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_start_mods);
 
 /**
  * Stop all registered modules and clean up theeir parsed configuration data.
@@ -1511,8 +1509,6 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 		spec_cleanup(mod->specs);
 	}
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_stop_mods);
-
 /*
  * ------------------------------------------------------------------------
  *	The list of registered modules, VFS and sysctl helpers.
@@ -1815,4 +1811,3 @@ tfw_cfg_mod_find(const char *name)
 
 	return NULL;
 }
-DEBUG_EXPORT_SYMBOL(tfw_cfg_mod_find);

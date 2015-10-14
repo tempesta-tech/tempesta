@@ -99,15 +99,18 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 TfwSrvConnection *
 test_create_conn(TfwPeer *peer)
 {
+	void (*tfw_connection_link_peer)(TfwConnection *conn,TfwPeer *peer);
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
 	TfwSrvConnection *srv_conn;
 
+	tfw_connection_link_peer = get_sym_ptr("tfw_connection_link_peer");
+
+	BUG_ON(tfw_connection_link_peer == NULL);
 	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
 	srv_conn = tfw_srv_conn_alloc_ptr();
 	BUG_ON(!srv_conn);
-
 	tfw_connection_link_peer(&srv_conn->conn, peer);
 	srv_conn->conn.sk = &__test_sock;
 

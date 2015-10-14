@@ -19,12 +19,10 @@
  */
 
 #include "http_msg.h"
-
 #include "helpers.h"
+#include "kallsyms_helper.h"
 #include "sched_helper.h"
 #include "test.h"
-#include "cfg.h"
-#include "kallsyms_helper.h"
 
 /* Export syms*/
 static TfwScheduler *(*tfw_sched_lookup_ptr)(const char *name);
@@ -33,10 +31,14 @@ static void (*spec_cleanup_ptr)(TfwCfgSpec specs[]);
 static int
 parse_cfg(const char *cfg_text)
 {
+	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
+	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
+	BUG_ON(tfw_cfg_mod_find == NULL);
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
+	
 	INIT_LIST_HEAD(&cfg_mod.list);
 	INIT_LIST_HEAD(&mod_list);
 	list_add(&cfg_mod.list, &mod_list);
@@ -47,7 +49,11 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
+	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	TfwCfgMod cfg_mod;
+
+	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
+	BUG_ON(tfw_cfg_mod_find == NULL);
 
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	spec_cleanup_ptr(cfg_mod.specs);
