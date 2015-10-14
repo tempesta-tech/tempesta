@@ -95,7 +95,6 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 
 	return __str_grow_tree(pool, str, __TFW_STR_COMPOUND, 1);
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_add_compound);
 
 /**
  * Add place for a new duplicate to string tree @str, a string wich is probably
@@ -112,7 +111,6 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 
 	return dup_str;
 }
-DEBUG_EXPORT_SYMBOL(tfw_str_add_duplicate);
 
 int
 tfw_strcpy(TfwStr *dst, const TfwStr *src)
