@@ -84,17 +84,21 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
 static int chunks = 1;
-static size_t len;
 
 static int
 do_split_and_parse(unsigned char *str, int type)
 {
 	int r;
+	static size_t len;
 
 	BUG_ON(!str);
 
 	if (chunks == 1) {
 		len = strlen(str);
+	}
+
+	if (chunks > 1/*TODO: len*/) {
+		return 1;
 	}
 
 	if (type == FUZZ_REQ) {
@@ -122,14 +126,14 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err != TFW_PASS) {					\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE) {	\
 		chunks = 1;					\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" :	\
 				              "response"),	\
 			  _err, (str)); 			\
 	}							\
-	_err == TFW_PASS && chunks <= 1/*TODO: len*/;		\
+	_err == TFW_PASS;					\
 })
 
 #define TRY_PARSE_EXPECT_BLOCK(str, type)			\
@@ -140,7 +144,7 @@ do_split_and_parse(unsigned char *str, int type)
 			       (type == FUZZ_REQ ? "request" :	\
 						   "response"),	\
 			       (str));				\
-	_err == TFW_BLOCK && chunks <= 1/*TODO: len*/;		\
+	_err == TFW_BLOCK || _err == TFW_POSTPONE;		\
 })
 
 #define FOR_REQ(str)						\
@@ -232,7 +236,7 @@ TEST(http_parser, parses_req_uri)
 	}
 }
 
-TEST(http_parser, fills_hdr_tbl)
+TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
 	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc;
@@ -315,6 +319,73 @@ TEST(http_parser, fills_hdr_tbl)
 					    strlen(s_accept), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
 					    strlen(s_xch), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
+					    strlen(s_dummy4), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
+					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
+					    strlen(s_cc), 0));
+	}
+}
+
+TEST(http_parser, fills_hdr_tbl_for_resp)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc;
+	TfwStr h_connection, h_contlen, h_conttype;
+
+	/* Expected values for special headers. */
+	const char *s_connection = "Keep-Alive";
+	const char *s_cl = "0";
+	const char *s_ct = "text/html; charset=iso-8859-1";
+	/* Expected values for raw headers. */
+	const char *s_dummy9 = "Dummy9: 9";
+	const char *s_dummy4 = "Dummy4: 4";
+	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		"Connection: Keep-Alive\r\n"
+		"Dummy0: 0\r\n"
+		"Dummy1: 1\r\n"
+		"Dummy2: 2\r\n"
+		"Dummy3: 3\r\n"
+		"Dummy4: 4\r\n"
+		"Dummy5: 5\r\n"
+		"Dummy6: 6\r\n"
+		"Content-Length: 0\r\n"
+		"Content-Type: text/html; charset=iso-8859-1\r\n"
+		"Dummy7: 7\r\n"
+		"Dummy8: 8\r\n"
+		"Dummy9: 9\r\n"
+		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+		"Keep-Alive: timeout=600, max=65526\r\n"
+		"\r\n")
+	{
+		ht = resp->h_tbl;
+
+		/* Special headers: */
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+				     TFW_HTTP_HDR_CONNECTION, &h_connection);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
+				     TFW_HTTP_HDR_CONTENT_LENGTH, &h_contlen);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				     TFW_HTTP_HDR_CONTENT_TYPE, &h_conttype);
+
+		/* Common (raw) headers: 10 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 13);
+
+		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
+		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
+		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
+
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
+					    strlen(s_connection), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
+					    strlen(s_cl), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
+					    strlen(s_ct), 0));
+
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
@@ -420,7 +491,8 @@ TEST_SUITE(http_parser)
 {
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
-	TEST_RUN(http_parser, fills_hdr_tbl);
+	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, fuzzer);
