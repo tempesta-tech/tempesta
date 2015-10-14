@@ -72,7 +72,7 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	if ((resp = tfw_http_prep_302(hm, &cookie)) == NULL) {
 		return -1;
 	}
-	tfw_connection_send(conn, (TfwMsg *)resp);
+	tfw_connection_send(conn, (TfwMsg *)resp, true);
 	tfw_http_msg_free(resp);
 
 	return 0;
@@ -110,10 +110,25 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	if (hdr_field == NULL) {
 		return 0;
 	}
-	/*
-	 * XXX Linearize TfwStr{}. Should be eliminated
-	 * when better TfwStr{} functions are implemented.
-	 */
+
+	if (TFW_STR_PLAIN(hdr_field)) {
+		buf = (char *)hdr_field->ptr + field_name->len;
+		len = hdr_field->len - field_name->len;
+
+		while (len > 0 && isspace(*buf)) {
+			buf++;
+			len--;
+		}
+		while (len > 0 && isspace(*(buf + len - 1)))
+			len--;
+
+		value->ptr = buf;
+		value->len = len;
+		value->flags = hdr_field->flags;
+		return 1;
+	}
+
+	/* field consists of multiple chunks */
 	len = hdr_field->len + 1;
 	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
 		return -ENOMEM;

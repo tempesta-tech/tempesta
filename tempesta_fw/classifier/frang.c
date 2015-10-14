@@ -823,6 +823,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 }
 
 static TfwClassifier frang_class_ops = {
+	.name			= "frang",
 	.classify_conn_estab	= frang_conn_new,
 	.classify_conn_close	= frang_conn_close,
 };
@@ -942,7 +943,7 @@ frang_start(void)
 
 static TfwCfgSpec frang_cfg_section_specs[] = {
 	{
-		"ip_block", "on",
+		"ip_block", "off",
 		tfw_cfg_set_bool,
 		&frang_cfg.ip_block,
 	},
@@ -1022,12 +1023,12 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		&frang_cfg.http_ct_required,
 	},
 	{
-		"http_methods", NULL,
+		"http_methods", "",
 		frang_set_methods_mask,
 		.cleanup = frang_clear_methods_mask,
 	},
 	{
-		"http_ct_vals", NULL,
+		"http_ct_vals", "",
 		frang_set_ct_vals,
 		.cleanup = frang_free_ct_vals
 	},
@@ -1054,6 +1055,7 @@ frang_init(void)
 {
 	int r;
 
+	TFW_DBG("Frang module init");
 	frang_mem_cache = KMEM_CACHE(frang_account_t, 0);
 	if (!frang_mem_cache) {
 		TFW_ERR("frang: can't create cache\n");
@@ -1109,6 +1111,7 @@ frang_exit(void)
 {
 	int i;
 
+	TFW_DBG("Frang module exit");
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
