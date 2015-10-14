@@ -426,7 +426,7 @@ do {								\
 	FSM_COND_LAMBDA(cond, PFSM_MOVE(to_state))
 
 /**
- * The TFSM (Tokenizer Finitie State Machine).
+ * The TFSM (Tokenizer Finite State Machine).
  *
  * Steps over characters in the input stream and classifies them as tokens.
  * Eats whitespace and comments automatically, never produces tokens for them.
@@ -553,7 +553,7 @@ read_next_token(TfwCfgParserState *ps)
 }
 
 /**
- * The PFSM (Parser Finitie State Machine).
+ * The PFSM (Parser Finite State Machine).
  *
  * Steps over a stream of tokens (produces by the TFSM), accumulates values
  * in TfwCfgEntry and returns it when the input entry is terminated with ';'.
@@ -777,6 +777,19 @@ spec_handle_default(TfwCfgSpec *spec)
 	BUG_ON(r);
 }
 
+static int spec_finish_handling(TfwCfgSpec specs[]);
+
+static void
+spec_handle_default_section(TfwCfgSpec *spec)
+{
+	if (spec->handler != tfw_cfg_handle_children)
+		return;
+	TFW_DBG2("use default values for section '%s'\n", spec->name);
+	if (spec->dest == NULL)
+		return;
+	spec_finish_handling(spec->dest);
+}
+
 static int
 spec_finish_handling(TfwCfgSpec specs[])
 {
@@ -795,12 +808,18 @@ spec_finish_handling(TfwCfgSpec specs[])
 	 */
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		if (!spec->call_counter) {
-			if (spec->deflt)
+			if (spec->handler == tfw_cfg_handle_children) {
+				if (!spec->allow_none) {
+					/* Whole section absent */
+					spec_handle_default_section(spec);
+				}
+			} else if (spec->deflt) {
 				/* The default value shall not produce error. */
 				spec_handle_default(spec);
-			else if (!spec->allow_none)
+			} else if (!spec->allow_none) {
 				/* Jump just because TFW_ERR() is ugly here. */
 				goto err_no_entry;
+			}
 		}
 	}
 
@@ -1070,17 +1089,21 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (ret)
 		return ret;
 
-	/* Prepare childen's TfwCfgSpec for parsing. */
+	/* Prepare child TfwCfgSpec for parsing. */
 	spec_start_handling(nested_specs);
 
-	/* Eat '{'. */
+	/*
+	 * We get to this function when the caller finds
+	 * an opening brace. Confirm we have a '{' here.
+	 */
 	BUG_ON(ps->t != TOKEN_LBRACE);
+
 	read_next_token(ps);
 	if (ps->err)
 		return ps->err;
 
 	/* Walk over children entries. */
-	while (ps->t != TOKEN_RBRACE) {
+	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
 			TFW_ERR("parser error\n");
@@ -1098,11 +1121,19 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return ret;
 	}
 
-	/* Eat '}'. */
+	/*
+	 * Normally, we get out of the loop when a closing brace
+	 * is found. Otherwise, there's an error in configuration.
+	 * Check that we have a '}' here.
+	 */
+	if (ps->t != TOKEN_RBRACE) {
+		TFW_ERR("%s: Missing closing brace.\n", cs->name);
+		return -EINVAL;
+	}
+
 	read_next_token(ps);
 	if (ps->err)
 		return ps->err;
-
 	ret = spec_finish_handling(nested_specs);
 	if (ret)
 		return ret;
