@@ -312,7 +312,7 @@ add_header(char **p, char *end, int t)
 	return __add_header(p, end, t, 0);
 }
 
-#define INVALID_BODY_PERIOD 2
+#define INVALID_BODY_PERIOD 3
 
 static int
 add_body(char **p, char *end, int type)
@@ -332,7 +332,7 @@ add_body(char **p, char *end, int type)
 	}
 
 	if (!is_chancked_body) {
-		if (len != 0 && i % INVALID_BODY_PERIOD) {
+		if (len != 0 && !(i % INVALID_BODY_PERIOD)) {
 			len /= 2;
 			ret = FUZZ_INVALID;
 		}
@@ -361,7 +361,7 @@ add_body(char **p, char *end, int type)
 			add_string(p, end, buf);
 			add_string(p, end, "\r\n");
 
-			if (step != 0 && i % INVALID_BODY_PERIOD) {
+			if (step != 0 && !(i % INVALID_BODY_PERIOD)) {
 				step /= 2;
 				ret = FUZZ_INVALID;
 			}
