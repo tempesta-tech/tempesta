@@ -123,11 +123,11 @@ static const char *a_body = A_URI A_URI_INVAL;
 
 static struct {
 	int i;
-	int size;
-	int over;
-	char *a_val;
-	char *a_inval;
-	int singular; /* only for headers; 0 - nonsingular, 1 - singular */
+	int size;        /* the number of preset values */
+	int over;        /* the number of generated values */
+	char *a_val;     /* the valid alphabet for generated values */
+	char *a_inval;   /* an invalid alphabet for generated values */
+	int singular;    /* only for headers; 0 - nonsingular, 1 - singular */
 	int dissipation; /* may be duplicates header has diferent values?;
 			   0 - no, 1 - yes */
 } gen_vector[] = {
@@ -152,7 +152,7 @@ static struct {
 	/* X_FORWARDED_FOR */
 	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF_INVAL, 0, 1},
 	/* CONTENT_TYPE */
-	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 0/*TODO: 1*/, 1},
 	/* CONTENT_LENGTH */
 	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1},
 	/* TRANSFER_ENCODING */
