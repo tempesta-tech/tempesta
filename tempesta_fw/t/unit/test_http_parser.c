@@ -437,6 +437,19 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
+TEST(http_parser, content_length_duplicate)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			  "Content-Length: 0\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: 0\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+}
+
 #define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
@@ -495,5 +508,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, content_length_duplicate);
 	TEST_RUN(http_parser, fuzzer);
 }
