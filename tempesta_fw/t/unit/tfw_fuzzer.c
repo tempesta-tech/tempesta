@@ -46,7 +46,8 @@ static fuzz_msg cache_control[] = {{"no-cache", 0}, {"no-cache", 0},
 	{"max-age=3600", 0}, {"no-store", 0}, {"max-stale=0", 0},
 	{"min-fresh=0", 0}, {"no-transform", 0}, {"only-if-cached", 0},
 	{"cache-extension", 0}};
-static fuzz_msg expires[] = {{"Tue, 31 Jan 2012 15:02:53 GMT", 0}};
+static fuzz_msg expires[] = {{"Tue, 31 Jan 2012 15:02:53 GMT", 0},
+	{"Tue, 999 Jan 2012 15:02:53 GMT", 1}};
 
 static fuzz_msg *vals[] = {
 	spaces,
@@ -488,6 +489,9 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 
 		v |= add_header(&str, end, SERVER);
 		v |= add_duplicates(&str, end, SERVER);
+
+		v |= add_header(&str, end, EXPIRES);
+		v |= add_duplicates(&str, end, EXPIRES);
 	}
 
 	v |= add_header(&str, end, CONNECTION);
@@ -505,9 +509,6 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 
 	v |= add_header(&str, end, CACHE_CONTROL);
 	v |= add_duplicates(&str, end, CACHE_CONTROL);
-
-	v |= add_header(&str, end, EXPIRES);
-	v |= add_duplicates(&str, end, EXPIRES);
 
 	add_string(&str, end, "\r\n");
 
