@@ -71,9 +71,9 @@
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 1)
-#define TFW_ERR(...)	printk(TFW_BANNER "ERROR: " __VA_ARGS__)
-#define TFW_WARN(...)	printk(TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_LOG(...)	printk(TFW_BANNER __VA_ARGS__)
+#define TFW_ERR(...)	printk(KERN_ERR TFW_BANNER "ERROR: " __VA_ARGS__)
+#define TFW_WARN(...)	printk(KERN_WARNING TFW_BANNER "Warning: " __VA_ARGS__)
+#define TFW_LOG(...)	printk(KERN_INFO TFW_BANNER __VA_ARGS__)
 #else
 #include <linux/net.h>
 #define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
