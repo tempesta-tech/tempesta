@@ -51,6 +51,30 @@ static const char *ss_statename[] = {
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
+/*
+ * Socket locks have a specific property where a lock can be taken in
+ * the same thread on two different sockets at the same time. However,
+ * lockdep gets nervous when that happens, so there's a notion of nested
+ * locks that belong in the same class.
+ *
+ * Usually ss_tcp_data_ready(), and consequently ss_tcp_process_data()
+ * are called from tcp_rcv_established() where the socket is locked with
+ * bh_sock_lock_nested(). However, in a rare case they are called from
+ * tcp_child_process() right after the connection has been established.
+ * The socket is a child socket, and it is under bh_sock_lock(), while
+ * the parent listening socket is under bh_sock_lock_nested().
+ *
+ * A socket is unlocked, and then locked again in Tempesta. Instead of
+ * having to determine which lock to use to relock the socket, increase
+ * the level of nesting. That way the convention of nested socket locks
+ * is not broken, and lockdep is kept happy.
+ */
+#define DOUBLE_DEPTH_NESTING		(SINGLE_DEPTH_NESTING + 1)
+
+#define bh_lock_sock_double_nested(__sk)				\
+			spin_lock_nested(&((__sk)->sk_lock.slock),	\
+			DOUBLE_DEPTH_NESTING)
+
 /**
  * Copied from net/netfilter/xt_TEE.c.
  */
@@ -145,7 +169,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	/* Synchronize concurrent socket writing in different softirqs. */
-	bh_lock_sock_nested(sk);
+	bh_lock_sock_double_nested(sk);
 
 	if (unlikely(!ss_can_send(sk)))
 		goto out;
@@ -531,7 +555,7 @@ ss_tcp_process_data(struct sock *sk)
 
 			r = SS_CALL(connection_recv, conn, skb, off);
 
-			bh_lock_sock_nested(sk);
+			bh_lock_sock_double_nested(sk);
 
 			read_unlock(&sk->sk_callback_lock);
 
@@ -743,13 +767,18 @@ ss_tcp_state_change(struct sock *sk)
 		}
 	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
-		 * Connection is being closed.
-		 * Either Tempesta sent FIN, or we received FIN.
+		 * Received FIN, connection is being closed.
 		 *
-		 * It may happen that FIN comes with a data SKB. In that
-		 * case this function is called before ss_tcp_data_ready()
-		 * is called. However the SKB needs to be processed before
-		 * the connection is closed.
+		 * When FIN is received from the other side of a connection,
+		 * this function is called first before ss_tcp_data_ready()
+		 * is called, as the kernel moves the socket's state to
+		 * TCP_CLOSE_WAIT. The usual action in Tempesta is to close
+		 * the connection.
+		 *
+		 * It may happen that FIN comes with a data SKB, or there's
+		 * still data in the socket's receive queue that hasn't been
+		 * processed yet. That data needs to be processed before the
+		 * connection is closed.
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
