@@ -42,7 +42,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = sizeof("X-Forwarded-For:") - 1,
 	};
 
-	TfwStr *c;
+	TfwStr *c, *end;
 	int nlen = hdr_lens[id];
 
 	BUG_ON(TFW_STR_PLAIN(hdr));
@@ -52,7 +52,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 
 	*val = *hdr;
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		BUG_ON(!c->len);
 
 		if (nlen > 0) {
@@ -74,7 +74,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 			break;
 		}
 		TFW_STR_CHUNKN_SUB(val, 1);
-	});
+	}
 
 	val->ptr = c;
 }
@@ -619,11 +619,11 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 int
 tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
 {
-	const TfwStr *c;
+	const TfwStr *c, *end;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
-	TFW_STR_FOR_EACH_CHUNK(c, data, {
+	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
 this_chunk:
 		if (!frag)
 			return -E2BIG;
@@ -664,7 +664,7 @@ this_chunk:
 				goto this_chunk;
 			}
 		}
-	});
+	}
 
 	return 0;
 }
