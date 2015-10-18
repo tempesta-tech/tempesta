@@ -141,22 +141,17 @@ typedef struct {
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
-/* TODO rework it as TFW_STR_FOR_EACH_DUP, no need for lambda notation now. */
-#define TFW_STR_FOR_EACH_CHUNK(c, s, code)				\
-do {									\
-	typeof(s) __end;						\
+#define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
 	/* Iterate over chunks, not duplicates. */			\
 	BUG_ON(TFW_STR_DUP(s));						\
 	if (TFW_STR_PLAIN(s)) {						\
 		(c) = (s);						\
-		__end = (s) + 1;					\
+		end = (s) + 1;						\
 	} else {							\
-		__end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
 		(c) = (s)->ptr;						\
+		end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
 	}								\
-	for ( ; (c) < __end; ++(c))					\
-		code;							\
-} while (0)
+	for ( ; (c) < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\

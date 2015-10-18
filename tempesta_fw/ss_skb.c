@@ -615,10 +615,10 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 {
 	int r;
 	struct sk_buff *skb = NULL;
-	const TfwStr *c;
+	const TfwStr *c, *end;
 	TfwStr it;
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		if (c->len <= skip) {
 			skip -= c->len;
 			continue;
@@ -631,7 +631,7 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 			return r;
 
 		skip = 0;
-	});
+	}
 	BUG_ON(!skb);
 
 	/* Cut off the tail. */

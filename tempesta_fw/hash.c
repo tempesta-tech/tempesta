@@ -40,7 +40,7 @@ unsigned long
 tfw_hash_str(const TfwStr *str)
 {
 #define MUL sizeof(long)
-	const TfwStr *chunk;
+	const TfwStr *chunk, *end;
 	const char *pos;
 	const char *body_end;
 	const char *head_end;
@@ -48,7 +48,7 @@ tfw_hash_str(const TfwStr *str)
 	register unsigned long crc = 0xFFFFFFFF;
 	unsigned int len;
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		len = chunk->len;
 		pos = chunk->ptr;
 
@@ -71,7 +71,7 @@ tfw_hash_str(const TfwStr *str)
 			CRCB(crc, *pos);
 			++pos;
 		}
-	});
+	}
 
 	return crc;
 #undef MUL

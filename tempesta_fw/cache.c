@@ -198,7 +198,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	TfwCacheEntry *ce = cw->cw_ce;
 	TdbVRec *trec;
 	TfwHttpHdrTbl *htbl;
-	TfwStr *field, *f_end;
+	TfwStr *field, *f_end, *end;
 
 	BUG_ON(!ce->resp);
 
@@ -241,7 +241,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 		ce->hdr_lens[i] = 0;
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
 			TfwStr *c;
-			TFW_STR_FOR_EACH_CHUNK(c, dup, {
+			TFW_STR_FOR_EACH_CHUNK(c, dup, end) {
 				n = tfw_cache_copy_str(&p, &trec, c, tot_len);
 				if (n < 0) {
 					TFW_ERR("Cache: cannot copy HTTP"
@@ -255,7 +255,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 				 * and threat them later as signle header.
 				 */
 				ce->hdr_lens[i] += n;
-			});
+			}
 		}
 		i++;
 	}
@@ -263,7 +263,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 	/* Write HTTP response body. */
 	ce->body = p;
 	ce->body_len = 0;
-	TFW_STR_FOR_EACH_CHUNK(field, &ce->resp->body, {
+	TFW_STR_FOR_EACH_CHUNK(field, &ce->resp->body, end) {
 		n = tfw_cache_copy_str(&p, &trec, field, tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP body\n");
@@ -271,7 +271,7 @@ tfw_cache_copy_resp(struct work_struct *work)
 		}
 		tot_len -= n;
 		ce->body_len += n;
-	});
+	}
 
 err:
 	/* FIXME all allocated TDB blocks are leaked here. */
