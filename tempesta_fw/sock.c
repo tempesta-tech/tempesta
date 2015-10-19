@@ -560,30 +560,20 @@ ss_tcp_process_data(struct sock *sk)
 			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
-				SS_WARN("can't process app data on socket %p\n",
-					sk);
-				/*
-				 * Drop connection on internal errors as well
-				 * as on banned packets.
-				 *
-				 * ss_droplink() is responsible for calling
-				 * application layer connection closing
-				 * callback which will free all the passed and
-				 * linked with currently processed message skbs.
-				 */
+				SS_WARN("Error processing data: sk %p\n", sk);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
 			processed += count;
 
 			if (tcp_fin) {
-				SS_DBG("received FIN, do an active close\n");
+				SS_DBG("Data FIN received\n");
 				++tp->copied_seq;
 				goto out;
 			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("received FIN, do an active close\n");
+			SS_DBG("Link FIN received\n");
 			++tp->copied_seq;
 			goto out;
 		} else {
@@ -700,7 +690,7 @@ ss_tcp_data_ready(struct sock *sk, int bytes)
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk))
 			/*
-			 * Drop connection in case of FIN, internal errors,
+			 * Drop connection in case of internal errors,
 			 * or banned packets.
 			 *
 			 * ss_droplink() is responsible for calling application
