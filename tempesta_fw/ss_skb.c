@@ -571,7 +571,7 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 done:
 	SS_DBG("%s: res=%p, skb: head=%p data=%p tail=%p end=%p"
 	       " len=%u data_len=%u truesize=%u"
-	       " nr_frags=%u frag_list=%p)\n", __FUNCTION__, it->ptr,
+	       " nr_frags=%u frag_list=%p)\n", __func__, it->ptr,
 	       skb->head, skb->data,
 	       skb_tail_pointer(skb), skb_end_pointer(skb),
 	       skb->len, skb->data_len, skb->truesize,
