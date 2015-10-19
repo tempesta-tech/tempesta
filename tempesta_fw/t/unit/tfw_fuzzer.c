@@ -345,29 +345,31 @@ add_body(char **p, char *end, int type)
 
 		BUG_ON(chunks <= 0);
 
-		chlen = len / chunks;
-		rem = len % chunks;
-		for (j = 0; j < chunks; j++) {
-			char buf[256];
+		if (len > 0) {
+			chlen = len / chunks;
+			rem = len % chunks;
+			for (j = 0; j < chunks; j++) {
+				char buf[256];
 
-			step = chlen;
-			if (rem) {
-				step += rem;
-				rem = 0;
+				step = chlen;
+				if (rem) {
+					step += rem;
+					rem = 0;
+				}
+
+				snprintf(buf, sizeof(buf), "%zx", step);
+
+				add_string(p, end, buf);
+				add_string(p, end, "\r\n");
+
+				if (step != 0 && !(i % INVALID_BODY_PERIOD)) {
+					step /= 2;
+					ret = FUZZ_INVALID;
+				}
+
+				add_rand_string(p, end, step, a_body);
+				add_string(p, end, "\r\n");
 			}
-
-			snprintf(buf, sizeof(buf), "%zx", step);
-
-			add_string(p, end, buf);
-			add_string(p, end, "\r\n");
-
-			if (step != 0 && !(i % INVALID_BODY_PERIOD)) {
-				step /= 2;
-				ret = FUZZ_INVALID;
-			}
-
-			add_rand_string(p, end, step, a_body);
-			add_string(p, end, "\r\n");
 		}
 
 		add_string(p, end, "0");
