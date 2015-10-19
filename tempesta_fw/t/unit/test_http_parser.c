@@ -239,7 +239,8 @@ TEST(http_parser, parses_req_uri)
 TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc;
+	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc,
+	       *h_te;
 	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff;
 
 	/* Expected values for special headers. */
@@ -255,6 +256,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
@@ -267,15 +269,16 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		"Dummy1: 1\r\n"
 		"Dummy2: 2\r\n"
 		"Dummy3: 3\r\n"
-		"Dummy4: 4\r\n"  /* That is done to check table reallocation. */
+		"Dummy4: 4\r\n"
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
 		"Content-Length: 0\r\n"
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
-		"Dummy8: 8\r\n"
+		"Dummy8: 8\r\n" /* That is done to check table reallocation. */
 		"Dummy9: 9\r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Transfer-Encoding: compress, deflate, gzip\r\n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
@@ -292,8 +295,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 				     TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
 
-		/* Common (raw) headers: 14 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+		/* Common (raw) headers: 20 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
 
 		h_user_agent = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
 		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
@@ -301,6 +304,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 7];
 		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
 		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
 					    strlen(s_host), 0));
@@ -325,13 +329,15 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
 					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
+					    strlen(s_te), 0));
 	}
 }
 
 TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_dummy4, *h_dummy9, *h_cc;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te;
 	TfwStr h_connection, h_contlen, h_conttype;
 
 	/* Expected values for special headers. */
@@ -342,6 +348,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive\r\n"
@@ -356,10 +363,11 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
-		"Dummy9: 9\r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Dummy9: 9\r\n" /* That is done to check table reallocation. */
 		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
 		"Keep-Alive: timeout=600, max=65526\r\n"
+		"Transfer-Encoding: compress, deflate, gzip\r\n"
 		"\r\n")
 	{
 		ht = resp->h_tbl;
@@ -372,12 +380,13 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				     TFW_HTTP_HDR_CONTENT_TYPE, &h_conttype);
 
-		/* Common (raw) headers: 10 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 13);
+		/* Common (raw) headers: 19 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
 
 		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
-		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
-		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
+		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
+		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
+		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
@@ -388,10 +397,12 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
-					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
 					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
+					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
+					    strlen(s_te), 0));
 	}
 }
 
