@@ -59,3 +59,22 @@ test_req_free(TfwHttpReq *req)
 
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
+
+TfwHttpResp *
+test_resp_alloc(size_t data_len)
+{
+	TfwHttpResp *resp;
+	TfwMsgIter it;
+
+	resp = (TfwHttpResp *)tfw_http_msg_create(&it, Conn_HttpSrv, data_len);
+	BUG_ON(!resp);
+
+	return resp;
+}
+
+void
+test_resp_free(TfwHttpResp *resp)
+{
+	BUG_ON(!resp);
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+}
