@@ -37,6 +37,7 @@
 
 typedef struct sticky {
 	TfwStr		name;
+	TfwStr		prefix;
 	u_int		enabled : 1;
 	u_int		enforce : 1;
 } TfwCfgSticky;
@@ -78,67 +79,109 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	return 0;
 }
 
-/*
- * Find a specific non-special header field in an HTTP message.
- *
- * This function assumes that the header field name is stored
- * in TfwStr{} after an HTTP message is parsed.
- */
-static TfwStr *
-tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
+static bool
+search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
-	int i;
+	const TfwStr *const str = &tfw_cfg_sticky.prefix;
 
-	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
-		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
-		if (tfw_str_eq_cstr(hdr_field, field_name, len,
-				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
-			return hdr_field;
-	}
+	unsigned int len, clen = str->len;
+	const char *cstr = str->ptr;
+	const TfwStr *chunk, *first = NULL, *prev, *pprev, *next;
+	TfwStr *s;
+	enum {
+		StateSearchPrefix, /* no chunk match yet */
+		StateCmp,          /* some chunks matched */
+		StateVal,          /* value found */
+		StateValChunks,    /* move through compound value */
+	} state = StateSearchPrefix;
 
-	return NULL;
-}
+	BUG_ON(!TFW_STR_PLAIN(str));
 
-static int
-tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
-{
-	char *buf, *ptr;
-	size_t len;
-	TfwStr *hdr_field;
+	TFW_STR_FOR_EACH_CHUNK(chunk, cookie, {
+		switch (state) {
+		case StateSearchPrefix:
+			len = min(clen, chunk->len);
 
-	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
-	if (hdr_field == NULL) {
-		return 0;
-	}
+			if (memcmp(cstr, chunk->ptr, len))
+				continue;
+			TFW_DBG3("%s: prefix found: %.*s\n", __func__, (int)len, cstr);
 
-	if (TFW_STR_PLAIN(hdr_field)) {
-		buf = (char *)hdr_field->ptr + field_name->len;
-		len = hdr_field->len - field_name->len;
+			first = chunk;
+adjust:
+			cstr += len;
+			clen -= len;
 
-		while (len > 0 && isspace(*buf)) {
-			buf++;
-			len--;
-		}
-		while (len > 0 && isspace(*(buf + len - 1)))
-			len--;
+			if (clen == 0) {
+				/* all substring found, now make sure it has no prefix */
+				prev = first - 1;
+				pprev = prev - 1;
+				if (first == cookie->ptr
+						|| (prev->len > 1
+							&& memcmp(prev->ptr + prev->len - 2, "; ", 2) == 0)
+						|| (unlikely(prev->len == 1)
+							&& prev != cookie->ptr
+							&& *(char*)prev->ptr == ' '
+							&& ((char*)pprev->ptr)[pprev->len - 1] == ';'))
+				{
+					state = StateVal;
+					continue;
+				} else
+					/* there is some prefix */
+					goto reset;
+			}
 
-		value->ptr = buf;
-		value->len = len;
-		value->flags = hdr_field->flags;
-		return 1;
-	}
+			/* More chunks to check. */
+			state = StateCmp;
 
-	/* field consists of multiple chunks */
-	len = hdr_field->len + 1;
-	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
-		return -ENOMEM;
-	}
-	len = tfw_str_to_cstr(hdr_field, buf, len);
-	ptr = strim(buf + field_name->len);
-	value->ptr = ptr;
-	value->len = len - (ptr - buf);
+			break;
 
-	return 1;
+		case StateCmp:
+			len = min(clen, chunk->len);
+
+			if (memcmp(cstr, chunk->ptr, len) == 0)
+				goto adjust;
+reset:
+		/*
+		 * Fall back to first matched chunk
+		 * and contunue searching from the next one.
+		 */
+		TFW_DBG3("%s: reset\n", __func__);
+		chunk = first;
+		cstr = str->ptr;
+		clen = str->len;
+		continue;
+
+		case StateVal:
+			next = chunk + 1;
+			if (likely(next == __end
+					|| *(char*)next->ptr == ';'))
+			{
+				/* value is plain */
+				TFW_DBG3("%s: plain cookie value: %.*s\n",
+						__func__, (int)chunk->len, (char*)chunk->ptr);
+				*val = *chunk;
+				return true;
+			}
+			state = StateValChunks;
+			/* fall through */
+		case StateValChunks:
+			TFW_DBG3("%s: compound cookie value found\n", __func__);
+			if (*(char*)chunk->ptr == ';')
+				/* value chunks exhausted */
+				return true;
+
+			s = tfw_str_add_compound(pool, val);
+			if (!s) {
+				TFW_DBG("%s: failed to extend value string\n", __func__);
+				return false;
+			}
+			*s = *chunk;
+			break;
+
+		} /* switch (state) */
+	}); /* TFW_STR_FOR_EACH_CHUNK */
+
+	return false;
 }
 
 /*
@@ -147,10 +190,8 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 static int
 tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 {
-	int ret;
-	u_char *valptr, *endptr;
-	const DEFINE_TFW_STR(s_field_name, "Cookie:");
 	TfwStr value = { 0 };
+	TfwStr *hdr;
 
 	/*
 	 * Find a 'Cookie:' header field in the request.
@@ -159,26 +200,15 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	 * See RFC 6265 section 5.4.
 	 * NOTE: Irrelevant here, but there can be multiple 'Set-Cookie"
 	 * header fields as an exception. See RFC 7230 section 3.2.2.
+	 * In this case, client merges them into one 'Cookie' header field
+	 * in response.
 	 */
-	if ((ret = tfw_http_field_value(hm, &s_field_name, &value)) <= 0) {
-		return ret;
-	}
-	/*
-	 * XXX The following code assumes that TfwStr is linear.
-	 */
-	BUG_ON(!TFW_STR_PLAIN(&value));
-	valptr = strnstr(value.ptr, tfw_cfg_sticky.name.ptr, value.len);
-	if (!valptr)
+	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
+	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	cookie->ptr = valptr + tfw_cfg_sticky.name.len + 1;
+	tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
 
-	valptr = cookie->ptr;
-	endptr = value.ptr + value.len;
-	while((valptr < endptr) && (*valptr != ';') && !isspace(*valptr))
-		valptr++;
-	cookie->len = valptr - (u_char *)cookie->ptr;
-
-	return 1;
+	return search_cookie(hm->pool, &value, cookie);
 }
 
 /*
@@ -192,23 +222,20 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 static int
 tfw_http_sticky_set(TfwHttpMsg *hm)
 {
-	int ret, addr_len;
+	int addr_len;
 	TfwStr ua_value = { 0 };
-	const DEFINE_TFW_STR(s_field_name, "User-Agent:");
 	TfwClient *client = (TfwClient *)hm->conn->peer;
+	TfwStr *hdr, *c;
 
 	char desc[sizeof(struct shash_desc)
 		  + crypto_shash_descsize(tfw_sticky_shash)]
 		  CRYPTO_MINALIGN_ATTR;
 	struct shash_desc *shash_desc = (struct shash_desc *)desc;
 
-	/*
-	 * XXX The code below assumes that ua_value is a linear TfwStr{}
-	 */
 	/* User-Agent header field is not mandatory and may be missing. */
-	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) < 0) {
-		return ret;
-	}
+	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
+	if (!TFW_STR_EMPTY(hdr))
+		tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_USER_AGENT, &ua_value);
 
 	/* Set only once per client's session */
 	if (!client->cookie.ts.tv_sec) {
@@ -222,9 +249,11 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 
 	crypto_shash_init(shash_desc);
 	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
-	if (ua_value.len)
-		crypto_shash_update(shash_desc, (u8 *)ua_value.ptr,
-						      ua_value.len);
+	if (ua_value.len) {
+		TFW_STR_FOR_EACH_CHUNK(c, &ua_value,
+				crypto_shash_update(shash_desc,
+					(u8 *)c->ptr, c->len));
+	}
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
 					client->cookie.hmac);
@@ -318,9 +347,11 @@ tfw_http_sticky_found(TfwHttpMsg *hm, TfwStr *value)
 	/*
 	 * Do nothing for now. The request is passed to a backend server.
 	 */
-	/* XXX This assumes that 'value' is a linear TfwStr{}. */
-	TFW_DBG("Sticky cookie found: \"%.*s\"\n",
-		(int)value->len, (char *)value->ptr);
+	if (likely(TFW_STR_PLAIN(value)))
+		TFW_DBG("Sticky cookie found: \"%.*s\"\n",
+			(int)value->len, (char *)value->ptr);
+	else
+		TFW_DBG("Sticky cookie found (compound)\n");
 
 	return 0;
 }
@@ -380,6 +411,12 @@ tfw_http_sticky_init(void)
 	tfw_cfg_sticky.name.ptr = ptr;
 	tfw_cfg_sticky.name.len = 0;
 
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
+		return -ENOMEM;
+	}
+	tfw_cfg_sticky.prefix.ptr = ptr;
+	tfw_cfg_sticky.prefix.len = 0;
+
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
 		pr_err("shash allocation failed\n");
@@ -403,6 +440,10 @@ tfw_http_sticky_exit(void)
 {
 	u_char *ptr = tfw_cfg_sticky.name.ptr;
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
+	if (ptr) {
+		kfree(ptr);
+	}
+	ptr = tfw_cfg_sticky.prefix.ptr;
 	if (ptr) {
 		kfree(ptr);
 	}
@@ -455,6 +496,10 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	memcpy(tfw_cfg_sticky.name.ptr, val, len);
 	tfw_cfg_sticky.name.len = len;
+
+	memcpy(tfw_cfg_sticky.prefix.ptr, val, len);
+	((char*)tfw_cfg_sticky.prefix.ptr)[len] = '=';
+	tfw_cfg_sticky.prefix.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		 if (!strcasecmp(val, "enforce")) {
