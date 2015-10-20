@@ -92,7 +92,7 @@ TEST_SUITE(cfg);
 TEST_SUITE(sched_rr);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
-
+TEST_SUITE(frang);
 int
 test_run_all(void)
 {
@@ -108,6 +108,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(sched_rr);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(sched_http);
+	TEST_SUITE_RUN(frang);
 
 	return test_fail_counter;
 }

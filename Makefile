@@ -38,7 +38,7 @@ build:
 	make -C $(KERNEL) M=$(PWD) modules
 
 test: build
-	./tempesta.sh --load
+	./tempesta.sh -f --load
 	./tempesta_fw/t/unit/run_all_tests.sh
 	./tempesta.sh --unload
 
