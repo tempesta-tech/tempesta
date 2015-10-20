@@ -199,7 +199,7 @@ TEST(frang, max_conn)
 	EXPECT_EQ(TFW_BLOCK, res);
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 0;
-frang_cfg->conn_burst = 5;
+	frang_cfg->conn_burst = 5;
 	ra->history[i].conn_new = 5;
 	mocksock.sk_security = ra;
 	res = req_handler (mockreq);
@@ -253,8 +253,6 @@ TEST(frang, req_method)
 	tfw_http_parse_req(mockreq, "PUT /index.html", 16);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-
-
 	frang_cfg->http_methods_mask = 2;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
