@@ -124,7 +124,8 @@ TfwConnection *test_conn_alloc(void)
 	TfwConnection *conn;
 
 	if (!test_conn_cache) 
-		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",					sizeof(TfwConnection), 0, 0, NULL);
+		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
+					 sizeof(TfwConnection), 0, 0, NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
 	tfw_connection_init(conn);
@@ -138,9 +139,8 @@ req_handler(TfwHttpReq  *req)
 	TfwConnection *conn;
 
 	conn = test_conn_alloc();
+	BUG_ON(!conn);
 	conn->msg = &req->msg;
-	if (!conn)
-		TFW_DBG("req_handler: conn is null\n");
 	conn->sk = &mocksock;
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = htonl(in_aton(inet_addr));
@@ -154,7 +154,7 @@ req_handler(TfwHttpReq  *req)
 	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
 	BUG_ON(!frang_http_req_handler);
 	return frang_http_req_handler((void *) conn,
-req->msg.skb_list.first, 25);
+				       req->msg.skb_list.first, 25);
 }
 
 TEST(frang, max_conn)
@@ -166,19 +166,13 @@ TEST(frang, max_conn)
 	tfw_http_parse_req(mockreq, "GET / HTTP/1.1\r\n", 16);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-
 	frang_cfg->conn_max = 5;
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = htonl(in_aton(inet_addr));
-
 	frang_conn_new = get_sym_ptr("frang_conn_new");
-	if (!frang_conn_new)
-		TFW_DBG("max_conn:%s\n", "conn_new ptr is null");
+	BUG_ON(!frang_conn_new)
 	res = frang_conn_new(&mocksock);
 	ra = mocksock.sk_security;
-
-
-
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = in_aton(inet_addr);
 	ra->conn_curr = 5;
@@ -213,7 +207,6 @@ TEST(frang, uri)
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
 	frang_cfg->http_uri_len = 5;
-
 	uri.len = 17;
 	uri.ptr = (void *) "/home/index.html";
 	uri.flags = TFW_STR_COMPLETE;
@@ -309,6 +302,7 @@ TEST(frang, req_count)
 	mockreq->frang_st = 0;
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+
 	frang_cfg->req_rate = 5;
 	frang_cfg->req_burst = 5;
 	ra->history[i].req = 5;
@@ -333,7 +327,6 @@ TEST(frang, body_len)
 	mockreq->body.len = 29;
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-
 	frang_cfg->http_body_len = 3;
 	mockreq->frang_st = 0;
 	res = req_handler(mockreq);
@@ -347,7 +340,6 @@ TEST(frang, body_timeout)
 	tfw_http_parse_req(mockreq, "POST /foo HTTP/1.1\r\n", 20);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-
 	frang_cfg->clnt_body_timeout = 1;
 	mockreq->frang_st = 12;
 	mockreq->tm_bchunk = jiffies - 100;
@@ -362,7 +354,6 @@ TEST(frang, hdr_timeout)
 	tfw_http_parse_req(mockreq, "POST /foo HTTP/1.1\r\n ", 20);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-
 	frang_cfg->clnt_body_timeout = 0;
 	frang_cfg->clnt_hdr_timeout = 1;
 	mockreq->frang_st = 0;
@@ -383,6 +374,7 @@ TEST(frang, chunk_cnt)
 	mockreq->frang_st = 0;
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+
 	frang_cfg->http_hchunk_cnt = 0;
 	frang_cfg->http_bchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
