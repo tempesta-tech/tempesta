@@ -62,13 +62,12 @@
 
 #define FRANG_HASH_BITS 17
 
-#define FRANG_FREQ 8
-typedef struct{
-unsigned long ts;
-unsigned int conn_new;
-unsigned int req;
+#define FRANG_FREQ	8
+ typedef struct {
+	unsigned long	ts;
+	unsigned int	conn_new;
+	unsigned int	req;
 } FrangRates;
-
 typedef struct frang_account_t{
 struct hlist_node hentry;
 struct in6_addr addr;		/* client address */
@@ -83,42 +82,41 @@ struct inet_sock *isk;
 int res;
 const char *inet_addr = "192.168.168.245.128";
 unsigned short i;
-typedef struct{
-char *str;
-size_t len;			/* The pre-computed strlen(@str). */
+typedef struct {
+	char *str;
+	size_t len;			/* The pre-computed strlen(@str). */
 } FrangCtVal;
-typedef struct{
+typedef struct {
   /* Limits (zero means unlimited). */
-unsigned int req_rate;
-unsigned int req_burst;
-unsigned int conn_rate;
-unsigned int conn_burst;
-unsigned int conn_max;
-
-  /*
+	unsigned int req_rate;
+	unsigned int req_burst;
+	unsigned int conn_rate;
+	unsigned int conn_burst;
+	unsigned int conn_max;
+/*
    * Limits on time it takes to receive
    * a full header or a body chunk.
    */
-unsigned long clnt_hdr_timeout;
-unsigned long clnt_body_timeout;
+	unsigned long clnt_hdr_timeout;
+	unsigned long clnt_body_timeout;
 
   /* Limits for HTTP request contents: uri, headers, body, etc. */
-unsigned int http_uri_len;
-unsigned int http_field_len;
-unsigned int http_body_len;
-unsigned int http_hchunk_cnt;
-unsigned int http_bchunk_cnt;
-bool http_ct_required;
-bool http_host_required;
+	unsigned int http_uri_len;
+	unsigned int http_field_len;
+	unsigned int http_body_len;
+	unsigned int http_hchunk_cnt;
+	unsigned int http_bchunk_cnt;
+	bool http_ct_required;
+	bool http_host_required;
 /* The bitmask of allowed HTTP Method values. */
-unsigned long http_methods_mask;
+	unsigned long http_methods_mask;
 /* The list of allowed Content-Type values. */
-FrangCtVal *http_ct_vals;
+	FrangCtVal *http_ct_vals;
 } FrangCfg;
 FrangCfg *frang_cfg;
 struct inet_sock *isk;
-static int (*frang_http_req_handler)(void *obj,
-				      struct sk_buff *skb, unsigned int off);
+int (*frang_http_req_handler)(void *obj,
+			      struct sk_buff *skb, unsigned int off);
 static struct kmem_cache *test_conn_cache;
 
 TfwConnection *test_conn_alloc(void)
@@ -126,8 +124,7 @@ TfwConnection *test_conn_alloc(void)
 	TfwConnection *conn;
 
 	if (!test_conn_cache) 
-		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
-sizeof(TfwConnection), 0, 0, NULL);
+		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",					sizeof(TfwConnection), 0, 0, NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
 	tfw_connection_init(conn);
