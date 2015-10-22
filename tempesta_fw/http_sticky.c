@@ -83,80 +83,39 @@ static bool
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const TfwStr *const str = &tfw_cfg_sticky.prefix;
-
-	unsigned int len, clen = str->len;
-	const char *cstr = str->ptr;
-	const TfwStr *chunk, *first = NULL, *prev, *pprev, *next;
+	const TfwStr *chunk, *next;
 	TfwStr *s;
 	enum {
-		StateSearchPrefix, /* no chunk match yet */
-		StateCmp,          /* some chunks matched */
-		StateVal,          /* value found */
-		StateValChunks,    /* move through compound value */
-	} state = StateSearchPrefix;
+		StateName,
+		StateSearchVal,
+		StateVal,
+		StateValChunks,
+	} state = StateName;
 
 	BUG_ON(!TFW_STR_PLAIN(str));
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, cookie, {
 		switch (state) {
-		case StateSearchPrefix:
-			len = min(clen, chunk->len);
 
-			if (memcmp(cstr, chunk->ptr, len))
-				continue;
-			TFW_DBG3("%s: prefix found: %.*s\n", __func__, (int)len, cstr);
-
-			first = chunk;
-adjust:
-			cstr += len;
-			clen -= len;
-
-			if (clen == 0) {
-				/* all substring found, now make sure it has no prefix */
-				prev = first - 1;
-				pprev = prev - 1;
-				if (first == cookie->ptr
-						|| (prev->len > 1
-							&& memcmp(prev->ptr + prev->len - 2, "; ", 2) == 0)
-						|| (unlikely(prev->len == 1)
-							&& prev != cookie->ptr
-							&& *(char*)prev->ptr == ' '
-							&& ((char*)pprev->ptr)[pprev->len - 1] == ';'))
-				{
-					state = StateVal;
-					continue;
-				} else
-					/* there is some prefix */
-					goto reset;
+		case StateName:
+			if ((chunk->flags & TFW_STR_KEY)
+			    && tfw_str_eq_cstr(chunk, str->ptr, str->len,
+			                       TFW_STR_EQ_PREFIX))
+			{
+				state = StateSearchVal;
 			}
-
-			/* More chunks to check. */
-			state = StateCmp;
-
 			break;
 
-		case StateCmp:
-			len = min(clen, chunk->len);
-
-			if (memcmp(cstr, chunk->ptr, len) == 0)
-				goto adjust;
-reset:
-		/*
-		 * Fall back to first matched chunk
-		 * and contunue searching from the next one.
-		 */
-		TFW_DBG3("%s: reset\n", __func__);
-		chunk = first;
-		cstr = str->ptr;
-		clen = str->len;
-		continue;
-
+		case StateSearchVal:
+			if (!(chunk->flags & TFW_STR_VALUE))
+				break;
+			state = StateVal;
+			/* fall through */
 		case StateVal:
 			next = chunk + 1;
 			if (likely(next == __end
 					|| *(char*)next->ptr == ';'))
 			{
-				/* value is plain */
 				TFW_DBG3("%s: plain cookie value: %.*s\n",
 						__func__, (int)chunk->len, (char*)chunk->ptr);
 				*val = *chunk;
@@ -166,7 +125,8 @@ reset:
 			/* fall through */
 		case StateValChunks:
 			TFW_DBG3("%s: compound cookie value found\n", __func__);
-			if (*(char*)chunk->ptr == ';')
+			if (*(char*)chunk->ptr == ';'
+			   || (chunk + 1) == __end)
 				/* value chunks exhausted */
 				return true;
 
