@@ -369,12 +369,14 @@ TEST(frang, chunk_cnt)
 	mockreq->chunk_cnt = 3;
 	mockreq->frang_st = 0;
 	res = req_handler (mockreq);
+	/*header chunk*/
 	EXPECT_EQ(TFW_BLOCK, res);
 
 	frang_cfg->http_hchunk_cnt = 0;
 	frang_cfg->http_bchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
 	res = req_handler (mockreq);
+	/*body chunks*/
 	EXPECT_EQ(TFW_BLOCK, res);
 }
 
