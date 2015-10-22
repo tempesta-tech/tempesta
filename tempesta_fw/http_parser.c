@@ -1592,8 +1592,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* Request headers are fully read. */
 	__FSM_STATE(Req_HdrDone) {
-		if (c == '\n')
+		if (c == '\n') {
+			__field_finish(msg, &req->crlf, data, p);
 			TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
+		}
 		return TFW_BLOCK;
 	}
 
