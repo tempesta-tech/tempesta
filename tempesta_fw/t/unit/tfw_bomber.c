@@ -159,7 +159,7 @@ msg_send(tfw_bomber_desc_t *desc)
 		printk("%s:FUZZ_END\n", __func__);
 	msg.ptr = str;
 	msg.skb = NULL;
-	msg.len = sizeof(str) - 1;
+	msg.len = strlen(str) - 1;
 	msg.flags = 0;
 
 	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
