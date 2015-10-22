@@ -19,8 +19,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "test.h"
-#include "sched_helper.h"
 #include <linux/ctype.h>
 #include <linux/hashtable.h>
 #include <linux/spinlock.h>
@@ -34,23 +32,11 @@
 #include <net/sock.h>
 #include <linux/socket.h>
 #include <linux/slab.h>
-#include "../../tempesta_fw.h"
-#include "cfg.h"
-#include "../../client.h"
 
-#include "kallsyms_helper.h"
-#include "test.h"
-
-#include <linux/ctype.h>
-#include <linux/hashtable.h>
-#include <linux/spinlock.h>
-#include <net/ipv6.h>
-
-#include "../../addr.h"
 #include "../../classifier.h"
-#include "../../sync_socket.h"
 #include "../../client.h"
 #include "../../connection.h"
+#include "../../sync_socket.h"
 #include "../../gfsm.h"
 #include "../../http_msg.h"
 #include "../../log.h"
@@ -58,11 +44,15 @@
 #include "../../tempesta_fw.h"
 
 #include "addr.h"
+#include "cfg.h"
 #include "helpers.h"
+#include "kallsyms_helper.h"
+#include "sched_helper.h"
+#include "test.h"
 
 #define FRANG_HASH_BITS 17
-
 #define FRANG_FREQ	8
+
  typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
