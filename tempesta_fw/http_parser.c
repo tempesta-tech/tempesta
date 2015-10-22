@@ -58,6 +58,16 @@ __field_finish(TfwHttpMsg *hm, TfwStr *field,
 	field->flags |= TFW_STR_COMPLETE;
 }
 
+/* Same as __field_finish, but p points on the last character of the string */
+static inline void
+__field_finish_curpos(TfwHttpMsg *hm, TfwStr *field,
+	       unsigned char *begin, unsigned char *end)
+{
+	tfw_http_msg_field_chunk_fixup(hm, field, begin, end - begin + 1);
+	field->flags |= TFW_STR_COMPLETE;
+}
+
+
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -1593,7 +1603,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* Request headers are fully read. */
 	__FSM_STATE(Req_HdrDone) {
 		if (c == '\n') {
-			__field_finish(msg, &req->crlf, data, p);
+			__field_finish_curpos(msg, &req->crlf, data, p);
 			TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 		}
 		return TFW_BLOCK;
