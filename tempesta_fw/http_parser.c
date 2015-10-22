@@ -59,6 +59,16 @@ __field_finish(TfwHttpMsg *hm, TfwStr *field,
 	field->flags |= TFW_STR_COMPLETE;
 }
 
+static void
+add_chunk_flags(TfwStr *str, TfwHttpParser *parser)
+{
+	if (unlikely(parser->str_flags)) {
+		TFW_DBG3("parser: add chunk flag: %u\n", parser->str_flags);
+		TFW_STR_CURR(str)->flags |= parser->str_flags;
+		parser->str_flags = 0;
+	}
+}
+
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -108,6 +118,7 @@ do {									\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		tfw_http_msg_field_chunk_fixup(msg, field, data, len);	\
+		add_chunk_flags(field, &msg->parser);			\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
@@ -142,6 +153,7 @@ do {									\
 do { 							\
 	int slen = str_len; 				\
 	tfw_http_msg_hdr_chunk_fixup(msg, str, slen); 	\
+	add_chunk_flags(&msg->parser.hdr, &msg->parser);\
 	data += slen; 					\
 	len -= slen; 					\
 } while (0)
@@ -1378,6 +1390,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
 		data = p;
+		parser->str_flags |= TFW_STR_KEY;
 		__FSM_I_MOVE(Req_I_CookieName);
 	}
 
@@ -1396,6 +1409,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 					|| c == ';' || c == '\\'))
 			return CSTR_NEQ;
 		data = p;
+		parser->str_flags |= TFW_STR_VALUE;
 		__FSM_I_MOVE(Req_I_CookieVal);
 	}
 
@@ -1425,7 +1439,6 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	} /* FSM END */
 
 done:
-
 	return r;
 }
 
