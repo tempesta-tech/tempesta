@@ -140,7 +140,7 @@ msg_send(tfw_bomber_desc_t *desc)
 {
 	struct sock *sk = desc->sk;
 	char *str;
-	int ret;
+	int len, ret;
 
 	TfwStr msg;
 	TfwHttpMsg *req;
@@ -148,12 +148,13 @@ msg_send(tfw_bomber_desc_t *desc)
 
 	BUG_ON(!sk);
 
-	str = vmalloc(1 * 1024 * 1024);
+	len = 1 * 1024 * 1024;
+	str = vmalloc(len);
 	if(!str) {
 		printk("%s:could not allocate str\n", __func__);
 		return;
 	}
-	ret = fuzz_gen(str, 5, FUZZ_REQ);
+	ret = fuzz_gen(str, str + len, 0, 1, FUZZ_REQ);
 	if (ret == FUZZ_END)
 		printk("%s:FUZZ_END\n", __func__);
 	msg.ptr = str;
@@ -167,7 +168,7 @@ msg_send(tfw_bomber_desc_t *desc)
 			__func__, sk, sk->sk_socket, &msg);
 	local_bh_disable();
 	printk("%s:softirq disabled\n", __func__);
-	ss_send(sk, &req->msg.skb_list);
+	ss_send(sk, &req->msg.skb_list, false);
 	printk("%s:sent\n", __func__);
 	local_bh_enable();
 	printk("%s:softirq enabled\n", __func__);
