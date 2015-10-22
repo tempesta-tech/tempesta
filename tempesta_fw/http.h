@@ -132,6 +132,7 @@ typedef struct tfw_http_parser {
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
+	unsigned int    str_flags;
 } TfwHttpParser;
 
 /**
