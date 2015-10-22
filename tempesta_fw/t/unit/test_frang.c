@@ -115,12 +115,10 @@ typedef struct {
 } FrangCfg;
 FrangCfg *frang_cfg;
 struct inet_sock *isk;
-int (*frang_http_req_handler)(void *obj,
-			      struct sk_buff *skb, unsigned int off);
-static struct kmem_cache *test_conn_cache;
 
 TfwConnection *test_conn_alloc(void)
 {
+	static struct kmem_cache *test_conn_cache;
 	TfwConnection *conn;
 
 	if (!test_conn_cache) 
@@ -136,6 +134,9 @@ TfwConnection *test_conn_alloc(void)
 int
 req_handler(TfwHttpReq  *req)
 {
+	int (*frang_http_req_handler)(void *obj,
+				     struct sk_buff *skb, unsigned int off);
+
 	TfwConnection *conn;
 
 	conn = test_conn_alloc();
@@ -170,7 +171,7 @@ TEST(frang, max_conn)
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = htonl(in_aton(inet_addr));
 	frang_conn_new = get_sym_ptr("frang_conn_new");
-	BUG_ON(!frang_conn_new)
+	BUG_ON(!frang_conn_new);
 	res = frang_conn_new(&mocksock);
 	ra = mocksock.sk_security;
 	isk = (struct inet_sock *) (&mocksock);
@@ -220,17 +221,22 @@ TEST(frang, ct_check)
 {
 	TfwHttpReq *mockreq;
 	FrangCtVal ctval[1];
-	mockreq = test_req_alloc(22);
-	tfw_http_parse_req(mockreq, "POST /foo HTTP/1.1\r\n", 20);
+	mockreq = test_req_alloc(44);
+	tfw_http_parse_req(mockreq, "POST /foo HTTP/1.1\r\nContent-Type:text/html;", 43);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
 	ctval[0].len = 17;
 	ctval[0].str = "application/html";
-	frang_cfg->http_ct_required = true;
+	frang_cfg->http_ct_vals = ctval;
+	mockreq->frang_st = 0;
 	res = req_handler(mockreq);
 	/*ct_vals*/
 	EXPECT_EQ(TFW_BLOCK, res);
-	mockreq->frang_st = 9;
+	test_req_free(mockreq);
+	mockreq = test_req_alloc(21);
+	tfw_http_parse_req(mockreq, "POST /foo HTTP/1.1\r\n", 20);
+	frang_cfg->http_ct_required = true;
+	mockreq->frang_st = 0;
 	res = req_handler(mockreq);
 	/*ct_required*/
 	EXPECT_EQ(TFW_BLOCK, res);
