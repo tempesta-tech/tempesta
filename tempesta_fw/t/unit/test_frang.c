@@ -106,15 +106,13 @@ int res;
 const char *inet_addr = "192.168.168.245.128";
 unsigned short i;
 
-
 TfwConnection *test_conn_alloc(void)
 {
-	static struct kmem_cache *test_conn_cache;
 	TfwConnection *conn;
+	static struct kmem_cache *test_conn_cache;
 
-	if (!test_conn_cache) 
-		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
-					 sizeof(TfwConnection), 0, 0, NULL);
+	test_conn_cache = kmem_cache_create("tfw_test_conn_cache",sizeof(TfwConnection), 0, 0, NULL);
+
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
 	tfw_connection_init(conn);
@@ -194,6 +192,7 @@ TEST(frang, max_conn)
 	res = req_handler (mockreq);
 	/*conn_max */
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, uri)
@@ -230,6 +229,7 @@ TEST(frang, ct_check)
 	res = req_handler(mockreq);
 	/*ct_required*/
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, req_method)
@@ -241,6 +241,7 @@ TEST(frang, req_method)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, field_len)
@@ -252,6 +253,7 @@ TEST(frang, field_len)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, host)
@@ -263,6 +265,7 @@ TEST(frang, host)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, req_count)
@@ -318,6 +321,7 @@ TEST(frang, body_len)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, body_timeout)
@@ -329,6 +333,7 @@ TEST(frang, body_timeout)
 	mockreq->tm_bchunk = jiffies - 100;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, hdr_timeout)
@@ -343,6 +348,7 @@ TEST(frang, hdr_timeout)
 
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST(frang, chunk_cnt)
@@ -365,14 +371,16 @@ TEST(frang, chunk_cnt)
 	res = req_handler (mockreq);
 	/*body chunks*/
 	EXPECT_EQ(TFW_BLOCK, res);
+test_req_free(mockreq);
 }
 
 TEST_SUITE(frang)
 {
 	frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
-	BUG_ON(frang_cfg == NULL);
 	frang_conn_new = get_sym_ptr("frang_conn_new");
+
 	BUG_ON(frang_conn_new == NULL);
+	BUG_ON(frang_cfg == NULL);
 
 	TEST_RUN(frang, req_count);
 	TEST_RUN(frang, max_conn);
