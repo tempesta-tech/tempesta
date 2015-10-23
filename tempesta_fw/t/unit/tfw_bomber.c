@@ -39,10 +39,8 @@
 
 static int tfw_threads = 4;
 static int tfw_connects = 16;
-static int tfw_iterations = 10;
 module_param(tfw_threads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(tfw_connects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(tfw_iterations, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 
 #define TFW_BOMBER_WAIT_INTVL		(2)		/* in seconds */
 #define TFW_BOMBER_WAIT_MAX		(1 * 60)	/* in seconds */
@@ -83,13 +81,10 @@ static atomic_t *tfw_bomber_connect_nattempt;
 static atomic_t *tfw_bomber_connect_ncomplete;
 /* Number of errors */
 static atomic_t *tfw_bomber_connect_nerror;
-static atomic_t *tfw_bomber_iterations;
 
-static char *server = "127.0.0.1:80";
+static char *server = "127.0.0.1:8080";
 static TfwAddr tfw_bomber_server_address;
 static SsHooks tfw_bomber_hooks;
-
-static int tfw_bomber_thread_finish(void *data);
 
 module_param(server, charp, 0);
 MODULE_PARM_DESC(server, "Server host address and optional port nunber");
@@ -329,56 +324,11 @@ tfw_bomber_stop_threads(void)
 }
 
 static int
-tfw_bomber_recreate_thread(int threadn)
-{
-	int ret = 0;
-	struct task_struct *task;
-
-	task = kthread_create(tfw_bomber_thread_finish,
-			      (void *)(long)threadn,
-			      "tfw_bomber_thread_finish_%02d", threadn);
-	if (IS_ERR_OR_NULL(task)) {
-		ret = PTR_ERR(task);
-		SS_ERR("Unable to create thread: %s%02d (%d)\n",
-		       "tfw_bomber_finish_task", threadn, ret);
-		tfw_bomber_stop_threads();
-		return ret;
-	}
-	tfw_bomber_finish_task[threadn] = task;
-
-	task = kthread_create(tfw_bomber_thread_connect,
-			      (void *)(long)threadn,
-			      "tfw_bomber_thread_connect_%02d", threadn);
-	if (IS_ERR_OR_NULL(task)) {
-		ret = PTR_ERR(task);
-		SS_ERR("Unable to create a thread: %s%02d (%d)\n",
-		       "tfw_bomber_thread_connect", threadn, ret);
-		tfw_bomber_stop_threads();
-		return ret;
-	}
-	tfw_bomber_connect_task[threadn] = task;
-
-	atomic_set(&tfw_bomber_connect_nattempt[threadn], 0);
-	atomic_set(&tfw_bomber_connect_ncomplete[threadn], 0);
-	atomic_set(&tfw_bomber_connect_nerror[threadn], 0);
-	atomic_set(&tfw_bomber_nthread[threadn], 1);
-
-	wake_up_process(tfw_bomber_connect_task[threadn]);
-	wait_event_interruptible(tfw_bomber_connect_wq[threadn],
-			atomic_read(&tfw_bomber_nthread[threadn]) == 0);
-
-	wake_up_process(tfw_bomber_finish_task[threadn]);
-
-	return 0;
-}
-
-static int
 tfw_bomber_thread_finish(void *data)
 {
 	int threadn = (int)(long)data;
 	int nattempt = atomic_read(&tfw_bomber_connect_nattempt[threadn]);
 	uint64_t time_max = (uint64_t)get_seconds() + TFW_BOMBER_WAIT_MAX;
-	int niterations;
 	int ret = 0;
 	int nerror, ncomplete;
 
@@ -406,13 +356,6 @@ tfw_bomber_thread_finish(void *data)
 	tfw_bomber_send_msgs(threadn);
 	tfw_bomber_release_sockets(threadn);
 	tfw_bomber_finish_task[threadn] = NULL;
-
-	niterations = atomic_dec_return(&tfw_bomber_iterations[threadn]);
-	printk("%s:niterations:%d,threadn:%d\n",
-	       __func__, niterations, threadn);
-
-	if (niterations)
-		ret = tfw_bomber_recreate_thread(threadn);
 
 	return ret;
 }
@@ -447,7 +390,6 @@ tfw_bomber_create_tasks(void)
 		atomic_set(&tfw_bomber_connect_nattempt[i], 0);
 		atomic_set(&tfw_bomber_connect_ncomplete[i], 0);
 		atomic_set(&tfw_bomber_connect_nerror[i], 0);
-		atomic_set(&tfw_bomber_iterations[i], tfw_iterations);
 	}
 
 	return ret;
@@ -530,12 +472,6 @@ tfw_bomber_init(void)
 		ret = -ENOMEM;
 		goto err_connect_error;
 	}
-	tfw_bomber_iterations = kmalloc(tfw_threads *
-		sizeof(atomic_t), GFP_KERNEL);
-	if (!tfw_bomber_iterations) {
-		ret = -ENOMEM;
-		goto err_iterations;
-	}
 
 	for (i = 0; i < tfw_threads; i++) {
 		init_waitqueue_head(&tfw_bomber_connect_wq[i]);
@@ -568,8 +504,6 @@ tfw_bomber_init(void)
 
 err_create_tasks:
 	tfw_bomber_stop_threads();
-	kfree(tfw_bomber_iterations);
-err_iterations:
 	kfree(tfw_bomber_connect_nerror);
 err_connect_error:
 	kfree(tfw_bomber_connect_ncomplete);
@@ -612,7 +546,6 @@ tfw_bomber_exit(void)
 	kfree(tfw_bomber_connect_nattempt);
 	kfree(tfw_bomber_connect_ncomplete);
 	kfree(tfw_bomber_connect_nerror);
-	kfree(tfw_bomber_iterations);
 }
 
 module_init(tfw_bomber_init);
