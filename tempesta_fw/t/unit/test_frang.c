@@ -25,7 +25,6 @@
 #include <linux/slab.h>
 #include <linux/inet.h>
 #include <linux/module.h>
-#include <linux/printk.h>
 #include <net/ipv6.h>
 #include <net/sock.h>
 #include <linux/socket.h>
@@ -56,7 +55,7 @@
 	unsigned int	conn_new;
 	unsigned int	req;
 } FrangRates;
-typedef struct frang_account_t{
+typedef struct frang_account_t {
 struct hlist_node hentry;
 struct in6_addr addr;		/* client address */
 unsigned long last_ts;	/* last access time */
