@@ -101,10 +101,10 @@ tfw_bomber_connect(int descidx)
 	int ret;
 	struct sock *sk;
 	tfw_bomber_desc_t *desc = *(tfw_bomber_desc + descidx / tfw_connects)
-		+ descidx % tfw_connects;
+						    + descidx % tfw_connects;
 
 	ret = ss_sock_create(tfw_bomber_server_address.sa.sa_family,
-			SOCK_STREAM, IPPROTO_TCP, &sk);
+			     SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (ret) {
 		SS_DBG("Unable to create kernel socket (%d)\n", ret);
 		desc->flags |= TFW_BOMBER_CONNECT_ERROR;
@@ -116,7 +116,7 @@ tfw_bomber_connect(int descidx)
 	ss_set_callbacks(sk);
 	local_bh_disable();
 	ret = ss_connect(sk, &tfw_bomber_server_address.sa,
-			tfw_addr_sa_len(&tfw_bomber_server_address), 0);
+			 tfw_addr_sa_len(&tfw_bomber_server_address), 0);
 	if (ret) {
 		SS_DBG("Connect error on server socket sk %p (%d)\n", sk, ret);
 		sk->sk_user_data = NULL;
@@ -157,6 +157,7 @@ msg_send(tfw_bomber_desc_t *desc)
 	ret = fuzz_gen(str, str + len, 0, 1, FUZZ_REQ);
 	if (ret == FUZZ_END)
 		printk("%s:FUZZ_END\n", __func__);
+
 	msg.ptr = str;
 	msg.skb = NULL;
 	msg.len = strlen(str) - 1;
@@ -165,7 +166,7 @@ msg_send(tfw_bomber_desc_t *desc)
 	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
 	tfw_http_msg_write(&it, req, &msg);
 	printk("%s:sk:%p, sk->sk_socket %p, msg:%p\n",
-			__func__, sk, sk->sk_socket, &msg);
+	       __func__, sk, sk->sk_socket, &msg);
 	local_bh_disable();
 	printk("%s:softirq disabled\n", __func__);
 	ss_send(sk, &req->msg.skb_list, false);
@@ -187,14 +188,14 @@ tfw_bomber_connect_complete(struct sock *sk)
 
 	descidx = proto->type;
 	desc = *(tfw_bomber_desc + descidx / tfw_connects)
-		+ descidx % tfw_connects;
+				 + descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
 	printk("%s:connect complete, thread:%d\n",
-			__func__, descidx / tfw_connects);
+	       __func__, descidx / tfw_connects);
 	desc->flags |= TFW_BOMBER_CONNECT_ESTABLISHED;
 	atomic_inc(&tfw_bomber_connect_ncomplete[descidx / tfw_connects]);
 	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
@@ -213,13 +214,14 @@ tfw_bomber_connection_close(struct sock *sk)
 
 	descidx = proto->type;
 	desc = *(tfw_bomber_desc + descidx / tfw_connects)
-		+ descidx % tfw_connects;
+				 + descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:close sk: %p, threadn %d\n", __func__, desc->sk, descidx / tfw_connects);
+	printk("%s:close sk: %p, threadn %d\n",
+	       __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_CLOSED;
 	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
@@ -237,13 +239,14 @@ tfw_bomber_connection_error(struct sock *sk)
 
 	descidx = proto->type;
 	desc = *(tfw_bomber_desc + descidx / tfw_connects)
-		+ descidx % tfw_connects;
+				 + descidx % tfw_connects;
 	BUG_ON(desc->proto.type != descidx);
 	BUG_ON(desc->proto.listener != NULL);
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:error sk: %p, threadn %d\n", __func__, desc->sk, descidx / tfw_connects);
+	printk("%s:error sk: %p, threadn %d\n",
+	       __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_ERROR;
 	atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
@@ -302,7 +305,7 @@ tfw_bomber_thread_connect(void *data)
 	atomic_dec(&tfw_bomber_nthread[threadn]);
 	wake_up(&tfw_bomber_connect_wq[threadn]);
 	SS_DBG("Thread %d has initiated %d connects out of %d\n",
-			threadn, nconnects, tfw_connects);
+	       threadn, nconnects, tfw_connects);
 	return 0;
 }
 
@@ -332,24 +335,24 @@ tfw_bomber_recreate_thread(int threadn)
 	struct task_struct *task;
 
 	task = kthread_create(tfw_bomber_thread_finish,
-			(void *)(long)threadn,
-			"tfw_bomber_thread_finish_%02d", threadn);
+			      (void *)(long)threadn,
+			      "tfw_bomber_thread_finish_%02d", threadn);
 	if (IS_ERR_OR_NULL(task)) {
 		ret = PTR_ERR(task);
 		SS_ERR("Unable to create thread: %s%02d (%d)\n",
-				"tfw_bomber_finish_task", threadn, ret);
+		       "tfw_bomber_finish_task", threadn, ret);
 		tfw_bomber_stop_threads();
 		return ret;
 	}
 	tfw_bomber_finish_task[threadn] = task;
 
 	task = kthread_create(tfw_bomber_thread_connect,
-			(void *)(long)threadn,
-			"tfw_bomber_thread_connect_%02d", threadn);
+			      (void *)(long)threadn,
+			      "tfw_bomber_thread_connect_%02d", threadn);
 	if (IS_ERR_OR_NULL(task)) {
 		ret = PTR_ERR(task);
 		SS_ERR("Unable to create a thread: %s%02d (%d)\n",
-				"tfw_bomber_thread_connect", threadn, ret);
+		       "tfw_bomber_thread_connect", threadn, ret);
 		tfw_bomber_stop_threads();
 		return ret;
 	}
@@ -377,7 +380,6 @@ tfw_bomber_thread_finish(void *data)
 	uint64_t time_max = (uint64_t)get_seconds() + TFW_BOMBER_WAIT_MAX;
 	int niterations;
 	int ret = 0;
-	long timeout = TFW_BOMBER_WAIT_INTVL;
 	int nerror, ncomplete;
 
 	printk("%s,nattempt:%d,thread:%d\n", __func__, nattempt, threadn);
@@ -393,10 +395,10 @@ tfw_bomber_thread_finish(void *data)
 		}
 		wait_event_freezable_timeout(tfw_bomber_finish_wq[threadn],
 				kthread_should_stop(),
-				timeout);
+				TFW_BOMBER_WAIT_INTVL);
 		if ((uint64_t)get_seconds() > time_max) {
 			SS_ERR("%s exceeded maximum wait time of %d seconds\n",
-					"tfw_bomber_thread_finish", TFW_BOMBER_WAIT_MAX);
+			       "tfw_bomber_thread_finish", TFW_BOMBER_WAIT_MAX);
 			break;
 		}
 	} while (!kthread_should_stop() && ncomplete + nerror < nattempt);
@@ -406,7 +408,8 @@ tfw_bomber_thread_finish(void *data)
 	tfw_bomber_finish_task[threadn] = NULL;
 
 	niterations = atomic_dec_return(&tfw_bomber_iterations[threadn]);
-	printk("%s:niterations:%d,threadn:%d\n", __func__, niterations, threadn);
+	printk("%s:niterations:%d,threadn:%d\n",
+	       __func__, niterations, threadn);
 
 	if (niterations)
 		ret = tfw_bomber_recreate_thread(threadn);
@@ -422,21 +425,21 @@ tfw_bomber_create_tasks(void)
 
 	for (i = 0; i < tfw_threads; i++) {
 		task = kthread_create(tfw_bomber_thread_finish, (void *)(long)i,
-				"tfw_bomber_thread_finish_%02d", i);
+				      "tfw_bomber_thread_finish_%02d", i);
 		if (IS_ERR_OR_NULL(task)) {
 			ret = PTR_ERR(task);
 			SS_ERR("Unable to create thread: %s%02d (%d)\n",
-					"tfw_bomber_finish_task", i, ret);
+			       "tfw_bomber_finish_task", i, ret);
 			break;
 		}
 		tfw_bomber_finish_task[i] = task;
 
 		task = kthread_create(tfw_bomber_thread_connect, (void *)(long)i,
-				"tfw_bomber_thread_connect_%02d", i);
+				      "tfw_bomber_thread_connect_%02d", i);
 		if (IS_ERR_OR_NULL(task)) {
 			ret = PTR_ERR(task);
 			SS_ERR("Unable to create a thread: %s%02d (%d)\n",
-					"tfw_bomber_thread_connect", i, ret);
+			       "tfw_bomber_thread_connect", i, ret);
 			break;
 		}
 		tfw_bomber_connect_task[i] = task;
@@ -459,16 +462,16 @@ tfw_bomber_init(void)
 		SS_ERR("Unable to parse server's address: %s", server);
 		return -EINVAL;
 	}
-	SS_ERR("Started kclient module, server's address is %s\n", server);
+	SS_DBG("Started kclient module, server's address is %s\n", server);
 
 	tfw_bomber_desc = kmalloc(tfw_threads *
-			sizeof(tfw_bomber_desc_t *), GFP_KERNEL);
+		sizeof(tfw_bomber_desc_t *), GFP_KERNEL);
 	if (!tfw_bomber_desc)
 		return -ENOMEM;
 
 	for (i = 0; i < tfw_threads; i++) {
 		tfw_bomber_desc[i] = kzalloc(tfw_connects *
-				sizeof(tfw_bomber_desc_t), GFP_KERNEL);
+			sizeof(tfw_bomber_desc_t), GFP_KERNEL);
 		if (!tfw_bomber_desc[i]) {
 			for (j = 0; j < i; j++)
 				kfree(tfw_bomber_desc[i]);
@@ -478,57 +481,57 @@ tfw_bomber_init(void)
 	}
 
 	tfw_bomber_connect_task = kmalloc(tfw_threads *
-			sizeof(struct task_struct *), GFP_KERNEL);
+		sizeof(struct task_struct *), GFP_KERNEL);
 	if (!tfw_bomber_connect_task) {
 		ret = -ENOMEM;
 		goto err_connect_task;
 	}
 	tfw_bomber_connect_wq = kmalloc(tfw_threads *
-			sizeof(wait_queue_head_t), GFP_KERNEL);
+		sizeof(wait_queue_head_t), GFP_KERNEL);
 	if (!tfw_bomber_connect_wq) {
 		ret = -ENOMEM;
 		goto err_connect_wq;
 	}
 	tfw_bomber_nthread = kmalloc(tfw_threads *
-			sizeof(atomic_t), GFP_KERNEL);
+		sizeof(atomic_t), GFP_KERNEL);
 	if (!tfw_bomber_nthread) {
 		ret = -ENOMEM;
 		goto err_bomber_nthread;
 	}
 
 	tfw_bomber_finish_task = kmalloc(tfw_threads *
-			sizeof(struct task_struct *), GFP_KERNEL);
+		sizeof(struct task_struct *), GFP_KERNEL);
 	if (!tfw_bomber_finish_task) {
 		ret = -ENOMEM;
 		goto err_finish_task;
 	}
 	tfw_bomber_finish_wq = kmalloc(tfw_threads *
-			sizeof(wait_queue_head_t), GFP_KERNEL);
+		sizeof(wait_queue_head_t), GFP_KERNEL);
 	if (!tfw_bomber_finish_wq) {
 		ret = -ENOMEM;
 		goto err_finish_wq;
 	}
 
 	tfw_bomber_connect_nattempt = kmalloc(tfw_threads *
-			sizeof(atomic_t), GFP_KERNEL);
+		sizeof(atomic_t), GFP_KERNEL);
 	if (!tfw_bomber_connect_nattempt) {
 		ret = -ENOMEM;
 		goto err_connect_nattempt;
 	}
 	tfw_bomber_connect_ncomplete = kmalloc(tfw_threads *
-			sizeof(atomic_t), GFP_KERNEL);
+		sizeof(atomic_t), GFP_KERNEL);
 	if (!tfw_bomber_connect_ncomplete) {
 		ret = -ENOMEM;
 		goto err_connect_ncomplete;
 	}
 	tfw_bomber_connect_nerror = kmalloc(tfw_threads *
-			sizeof(atomic_t), GFP_KERNEL);
+		sizeof(atomic_t), GFP_KERNEL);
 	if (!tfw_bomber_connect_nerror) {
 		ret = -ENOMEM;
 		goto err_connect_error;
 	}
 	tfw_bomber_iterations = kmalloc(tfw_threads *
-			sizeof(atomic_t), GFP_KERNEL);
+		sizeof(atomic_t), GFP_KERNEL);
 	if (!tfw_bomber_iterations) {
 		ret = -ENOMEM;
 		goto err_iterations;
@@ -552,10 +555,10 @@ tfw_bomber_init(void)
 			// TODO: remove wait_event. Just connect
 			// and start tfw_bomber_finish_task.
 			wait_event_interruptible(tfw_bomber_connect_wq[i],
-					atomic_read(&tfw_bomber_nthread[i]) == 0);
+						 atomic_read(&tfw_bomber_nthread[i]) == 0);
 		}
 		SS_ERR("Started %d threads to initiate %d connects each\n",
-				tfw_threads, tfw_connects);
+		       tfw_threads, tfw_connects);
 
 		for (i = 0; i < tfw_threads; i++)
 			wake_up_process(tfw_bomber_finish_task[i]);
