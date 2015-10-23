@@ -112,8 +112,6 @@ static char * keys[] = {
 #define A_URI "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
               "abcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;="
 #define A_URI_INVAL " <>`^{}\"\n\t\x03\x07\x1F"
-#define A_UA A_URI
-#define A_UA_INVAL A_URI_INVAL
 #define A_HOST "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
 	       "abcdefghijklmnopqrstuvwxyz0123456789-."
 #define A_HOST_INVAL A_URI_INVAL
@@ -147,13 +145,13 @@ static struct {
 	/* CONNECTION */
 	{0, sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 0},
 	/* USER_AGENT*/
-	{0, sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 0, 1},
+	{0, sizeof(ua_val) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* HOST */
 	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1, 1},
 	/* X_FORWARDED_FOR */
 	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF_INVAL, 0, 1},
 	/* CONTENT_TYPE */
-	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 0/*TODO: 1*/, 1},
+	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* CONTENT_LENGTH */
 	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1},
 	/* TRANSFER_ENCODING */
@@ -475,9 +473,8 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 		v |= add_header(&str, end, X_FORWARDED_FOR);
 		v |= add_duplicates(&str, end, X_FORWARDED_FOR);
 
-		/* TODO: The parser does not validate User-Agent now */
-		/*v |= */add_header(&str, end, USER_AGENT);
-		/*v |= */add_duplicates(&str, end, USER_AGENT);
+		v |= add_header(&str, end, USER_AGENT);
+		v |= add_duplicates(&str, end, USER_AGENT);
 	}
 	else if (type == FUZZ_RESP) {
 		v |= add_header(&str, end, ACCEPT_RANGES);
