@@ -190,16 +190,12 @@ TEST(frang, max_conn)
 TEST(frang, uri)
 {
 	TfwHttpReq *mockreq;
-	TfwStr uri;
 	mockreq = test_req_alloc(26);
-	tfw_http_parse_req(mockreq, "GET /index.html HTTP /1.1", 25);
+	tfw_http_parse_req(mockreq, "GET /home/index.html HTTP /1.1\r\n", 
+			   25);
 	if (!frang_cfg)
 		frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
 	frang_cfg->http_uri_len = 5;
-	uri.len = 17;
-	uri.ptr = (void *) "/home/index.html";
-	uri.flags = TFW_STR_COMPLETE;
-	mockreq->uri_path = uri;
 	mockreq->frang_st = 3;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
