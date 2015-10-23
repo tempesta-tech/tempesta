@@ -539,6 +539,8 @@ tfw_bomber_init(void)
 		init_waitqueue_head(&tfw_bomber_finish_wq[i]);
 	}
 
+	fuzz_reset();
+
 	ret = tfw_bomber_create_tasks();
 
 	if (ret) {
