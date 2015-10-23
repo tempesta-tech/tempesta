@@ -297,7 +297,7 @@ TEST(frang, body_len)
 	mockreq = test_req_alloc(strlen(req));
 	tfw_http_parse_req(mockreq, req, strlen(req));
 	body.ptr = "GET http://natsys-lab.com/foo";
-	body.len = 29;
+	body.len = strlen(body.ptr);
 	crlf.len = 2;
 	crlf.ptr = "\r\n";
 	mockreq->crlf = crlf;
