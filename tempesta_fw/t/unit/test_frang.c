@@ -63,16 +63,11 @@ typedef struct frang_account_t {
 	FrangRates history[FRANG_FREQ];
 } FrangAcc;
 
-const int (*frang_conn_new) (struct sock *);
-struct sock mocksock;
-struct inet_sock *isk;
-int res;
-const char *inet_addr = "192.168.168.245.128";
-unsigned short i;
 typedef struct {
 	char *str;
 	size_t len;			/* The pre-computed strlen(@str). */
 } FrangCtVal;
+
 typedef struct {
   /* Limits (zero means unlimited). */
 	unsigned int req_rate;
@@ -99,8 +94,18 @@ typedef struct {
 /* The list of allowed Content-Type values. */
 	FrangCtVal *http_ct_vals;
 } FrangCfg;
+
 FrangCfg *frang_cfg;
+
 struct inet_sock *isk;
+const int (*frang_conn_new) (struct sock *);
+struct sock mocksock;
+
+struct inet_sock *isk;
+int res;
+const char *inet_addr = "192.168.168.245.128";
+unsigned short i;
+
 
 TfwConnection *test_conn_alloc(void)
 {
