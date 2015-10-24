@@ -108,8 +108,9 @@ TfwConnection
 {
 	TfwConnection *conn;
 	static struct kmem_cache *test_conn_cache;
-
-	test_conn_cache = kmem_cache_create("tfw_test_conn_cache",sizeof(TfwConnection), 0, 0, NULL);
+	if(!test_conn_cache)
+		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
+				       sizeof(TfwConnection), 0, 0, NULL);
 	BUG_ON(test_conn_cache == NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
