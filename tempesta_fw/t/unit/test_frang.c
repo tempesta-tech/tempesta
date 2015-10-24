@@ -103,8 +103,8 @@ struct sock mocksock;
 
 const char *inet_addr = "192.168.168.245.128";
 
-TfwConnection
-*test_conn_alloc(void)
+TfwConnection *
+test_conn_alloc(void)
 {
 	TfwConnection *conn;
 	static struct kmem_cache *test_conn_cache;
@@ -168,8 +168,6 @@ TEST(frang, max_conn)
 	isk->inet_saddr = htonl(in_aton(inet_addr));
 	res = frang_conn_new(&mocksock);
 	ra = mocksock.sk_security;
-	isk = (struct inet_sock *) (&mocksock);
-	isk->inet_saddr = in_aton(inet_addr);
 	ra->conn_curr = 5;
 	mocksock.sk_security = ra;
 
