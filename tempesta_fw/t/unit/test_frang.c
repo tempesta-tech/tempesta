@@ -96,9 +96,9 @@ typedef struct {
 } FrangCfg;
 
 FrangCfg *frang_cfg;
+const int (*frang_conn_new) (struct sock *);
 
 struct inet_sock *isk;
-const int (*frang_conn_new) (struct sock *);
 struct sock mocksock;
 
 struct inet_sock *isk;
@@ -136,8 +136,6 @@ req_handler(TfwHttpReq  *req)
 	if (!conn->sk->sk_security) {
 		res = frang_conn_new(conn->sk);
 	}
-
-
 
 	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
 	BUG_ON(!frang_http_req_handler);
@@ -192,7 +190,7 @@ TEST(frang, max_conn)
 	res = req_handler (mockreq);
 	/*conn_max */
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, uri)
@@ -205,6 +203,7 @@ TEST(frang, uri)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+	test_req_free(mockreq);
 }
 
 TEST(frang, ct_check)
@@ -221,6 +220,8 @@ TEST(frang, ct_check)
 	res = req_handler(mockreq);
 	/*ct_vals*/
 	EXPECT_EQ(TFW_BLOCK, res);
+	test_req_free(mockreq);
+
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
 	frang_cfg->http_ct_required = true;
@@ -229,7 +230,7 @@ TEST(frang, ct_check)
 	res = req_handler(mockreq);
 	/*ct_required*/
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, req_method)
@@ -241,7 +242,7 @@ TEST(frang, req_method)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, field_len)
@@ -253,7 +254,7 @@ TEST(frang, field_len)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, host)
@@ -265,7 +266,7 @@ TEST(frang, host)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, req_count)
@@ -301,6 +302,7 @@ TEST(frang, req_count)
 	mockreq->frang_st = 0;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
+	test_req_free(mockreq);
 }
 
 TEST(frang, body_len)
@@ -321,7 +323,7 @@ TEST(frang, body_len)
 
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, body_timeout)
@@ -333,7 +335,7 @@ TEST(frang, body_timeout)
 	mockreq->tm_bchunk = jiffies - 100;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, hdr_timeout)
@@ -348,7 +350,7 @@ TEST(frang, hdr_timeout)
 
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST(frang, chunk_cnt)
@@ -371,7 +373,7 @@ TEST(frang, chunk_cnt)
 	res = req_handler (mockreq);
 	/*body chunks*/
 	EXPECT_EQ(TFW_BLOCK, res);
-test_req_free(mockreq);
+	test_req_free(mockreq);
 }
 
 TEST_SUITE(frang)
