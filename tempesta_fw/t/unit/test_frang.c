@@ -69,19 +69,19 @@ typedef struct {
 } FrangCtVal;
 
 typedef struct {
-  /* Limits (zero means unlimited). */
+	/* Limits (zero means unlimited). */
 	unsigned int req_rate;
 	unsigned int req_burst;
 	unsigned int conn_rate;
 	unsigned int conn_burst;
 	unsigned int conn_max;
-  /*
-   * Limits on time it takes to receive
-   * a full header or a body chunk.
-   */
+	/*
+	Limits on time it takes to receive
+	 a full header or a body chunk.
+	*/
 	unsigned long clnt_hdr_timeout;
 	unsigned long clnt_body_timeout;
-  /* Limits for HTTP request contents: uri, headers, body, etc. */
+	/* Limits for HTTP request contents: uri, headers, body, etc. */
 	unsigned int http_uri_len;
 	unsigned int http_field_len;
 	unsigned int http_body_len;
@@ -89,9 +89,9 @@ typedef struct {
 	unsigned int http_bchunk_cnt;
 	bool http_ct_required;
 	bool http_host_required;
-/* The bitmask of allowed HTTP Method values. */
+	/* The bitmask of allowed HTTP Method values. */
 	unsigned long http_methods_mask;
-/* The list of allowed Content-Type values. */
+	/* The list of allowed Content-Type values. */
 	FrangCtVal *http_ct_vals;
 } FrangCfg;
 
@@ -143,7 +143,8 @@ req_handler(TfwHttpReq  *req)
 				       req->msg.skb_list.first, 25);
 }
 
-TfwHttpReq *get_test_req(unsigned char *req)
+TfwHttpReq 
+*get_test_req(unsigned char *req)
 {
 	TfwHttpReq *test_req;
 	int len = strlen(req);
