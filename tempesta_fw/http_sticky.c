@@ -84,7 +84,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const TfwStr *const str = &tfw_cfg_sticky.prefix;
 	const TfwStr *chunk, *next;
-	TfwStr *s;
+	TfwStr *s = NULL;
 	enum {
 		StateName,
 		StateSearchVal,
@@ -113,7 +113,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 			/* fall through */
 		case StateVal:
 			next = chunk + 1;
-			if (likely(next == __end
+			if (likely(chunk == TFW_STR_LAST(cookie)
 					|| *(char*)next->ptr == ';'))
 			{
 				TFW_DBG3("%s: plain cookie value: %.*s\n",
@@ -122,11 +122,10 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 				return true;
 			}
 			state = StateValChunks;
+			TFW_DBG3("%s: compound cookie value found\n", __func__);
 			/* fall through */
 		case StateValChunks:
-			TFW_DBG3("%s: compound cookie value found\n", __func__);
-			if (*(char*)chunk->ptr == ';'
-			   || (chunk + 1) == __end)
+			if (*(char*)chunk->ptr == ';')
 				/* value chunks exhausted */
 				return true;
 
@@ -141,7 +140,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		} /* switch (state) */
 	}); /* TFW_STR_FOR_EACH_CHUNK */
 
-	return false;
+	return s != NULL;
 }
 
 /*
