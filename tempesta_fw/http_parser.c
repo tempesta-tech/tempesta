@@ -1413,7 +1413,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieName) {
 		if (unlikely(c == '=')) {
 			TFW_DBG3("Cookie name: <%.*s>\n",
-					(int)(p - data), data);
+			         (int)(p - data), data);
 			__FSM_I_CHUNK_FIXUP(msg, data, p - data + 1);
 			__FSM_I_MOVE(Req_I_CookieValStart);
 		}
@@ -1422,7 +1422,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_CookieValStart) {
 		if (unlikely(isspace(c) || c == ','
-					|| c == ';' || c == '\\'))
+		             || c == ';' || c == '\\'))
 			return CSTR_NEQ;
 		data = p;
 		__fsm_chunkflags |= TFW_STR_VALUE;
@@ -1432,7 +1432,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieVal) {
 		if (unlikely(c == ';' || c == '\r' || c == ' ')) {
 			TFW_DBG3("Cookie value: <%.*s>\n",
-					(int)(p - data), data);
+			         (int)(p - data), data);
 			__FSM_I_CHUNK_FIXUP(msg, data, p - data);
 			if (c == ';')
 				__FSM_I_MOVE(Req_I_CookieSP);
