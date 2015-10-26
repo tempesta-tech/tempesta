@@ -35,7 +35,6 @@ static struct {
 } tfw_inports __read_mostly;
 
 static TfwClassifier __rcu *classifier = NULL;
-static DEFINE_SPINLOCK(tfw_class_lock);
 
 /**
  * Shrink client connections hash and/or reduce QoS for blocked clients to
@@ -51,11 +50,13 @@ int
 tfw_classify_ipv4(struct sk_buff *skb)
 {
 	int r;
+	TfwClassifier *clfr;
 
 	rcu_read_lock();
 
-	r = (classifier && classifier->classify_ipv4)
-	    ? classifier->classify_ipv4(skb)
+	clfr = rcu_dereference(classifier);
+	r = (clfr && clfr->classify_ipv4)
+	    ? clfr->classify_ipv4(skb)
 	    : TFW_PASS;
 
 	rcu_read_unlock();
@@ -67,11 +68,13 @@ int
 tfw_classify_ipv6(struct sk_buff *skb)
 {
 	int r;
+	TfwClassifier *clfr;
 
 	rcu_read_lock();
 
-	r = (classifier && classifier->classify_ipv6)
-	    ? classifier->classify_ipv6(skb)
+	clfr = rcu_dereference(classifier);
+	r = (clfr && clfr->classify_ipv6)
+	    ? clfr->classify_ipv6(skb)
 	    : TFW_PASS;
 
 	rcu_read_unlock();
@@ -92,6 +95,7 @@ tfw_classify_conn_estab(struct sock *sk)
 {
 	int i;
 	unsigned short sport = tfw_addr_get_sk_sport(sk);
+	TfwClassifier *clfr;
 
 	/* Pass the packet if it's not for us. */
 	for (i = 0; i < tfw_inports.count; ++i)
@@ -102,8 +106,9 @@ tfw_classify_conn_estab(struct sock *sk)
 ours:
 	rcu_read_lock();
 
-	i = (classifier && classifier->classify_conn_estab)
-	    ? classifier->classify_conn_estab(sk)
+	clfr = rcu_dereference(classifier);
+	i = (clfr && clfr->classify_conn_estab)
+	    ? clfr->classify_conn_estab(sk)
 	    : TFW_PASS;
 
 	rcu_read_unlock();
@@ -114,10 +119,13 @@ ours:
 static void
 tfw_classify_conn_close(struct sock *sk)
 {
+	TfwClassifier *clfr;
+
 	rcu_read_lock();
 
-	if (classifier && classifier->classify_conn_close)
-		classifier->classify_conn_close(sk);
+	clfr = rcu_dereference(classifier);
+	if (clfr && clfr->classify_conn_close)
+		clfr->classify_conn_close(sk);
 
 	rcu_read_unlock();
 }
@@ -131,11 +139,13 @@ tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 {
 	int r;
 	struct tcphdr *th = tcp_hdr(skb);
+	TfwClassifier *clfr;
 
 	rcu_read_lock();
 
-	r = (classifier && classifier->classify_tcp)
-	    ? classifier->classify_tcp(th)
+	clfr = rcu_dereference(classifier);
+	r = (clfr && clfr->classify_tcp)
+	    ? clfr->classify_tcp(th)
 	    : TFW_PASS;
 
 	rcu_read_unlock();
@@ -143,28 +153,29 @@ tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 	return r;
 }
 
+/*
+ * tfw_classifier_register() and tfw_classifier_unregister()
+ * are called at Tempesta start/stop time. The execution is
+ * serialized with a mutex. There's no need for additional
+ * protection of rcu_assign_pointer() from concurrent use.
+ */
 void
 tfw_classifier_register(TfwClassifier *mod)
 {
 	TFW_LOG("Registering new classifier: %s\n", mod->name);
-	spin_lock(&tfw_class_lock);
 
 	BUG_ON(classifier);
-
 	rcu_assign_pointer(classifier, mod);
-
-	spin_unlock(&tfw_class_lock);
 }
 EXPORT_SYMBOL(tfw_classifier_register);
 
 void
 tfw_classifier_unregister(void)
 {
-	spin_lock(&tfw_class_lock);
+	TFW_LOG("Unregistering classifier: %s\n", classifier->name);
 
 	rcu_assign_pointer(classifier, NULL);
-
-	spin_unlock(&tfw_class_lock);
+	synchronize_rcu();
 }
 EXPORT_SYMBOL(tfw_classifier_unregister);
 
