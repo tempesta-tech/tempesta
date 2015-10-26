@@ -22,12 +22,9 @@
 #include <linux/ctype.h>
 #include <linux/hashtable.h>
 #include <linux/spinlock.h>
-#include <linux/slab.h>
 #include <linux/inet.h>
-#include <linux/module.h>
 #include <net/ipv6.h>
 #include <net/sock.h>
-#include <linux/socket.h>
 
 #include "../../classifier.h"
 #include "../../client.h"
@@ -36,7 +33,6 @@
 #include "../../gfsm.h"
 #include "../../http_msg.h"
 #include "../../log.h"
-#include "../../lib.h"
 #include "../../tempesta_fw.h"
 
 #include "addr.h"
