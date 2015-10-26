@@ -85,8 +85,8 @@
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete */
 #define TFW_STR_COMPLETE	0x02
-/* Some key starts at the string chunk */
-#define TFW_STR_KEY		0x04
+/* Some name starts at the string chunk */
+#define TFW_STR_NAME		0x04
 /* Some value starts at the string chunk */
 #define TFW_STR_VALUE		0x08
 
