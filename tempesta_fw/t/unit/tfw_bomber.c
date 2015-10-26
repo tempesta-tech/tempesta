@@ -1,5 +1,6 @@
-/*
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+/**
+ *		Tempesta FW
+ *
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -39,21 +40,23 @@
 
 static int tfw_threads = 4;
 static int tfw_connects = 16;
+static char *server = "127.0.0.1:80";
+
 module_param(tfw_threads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(tfw_connects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param(server, charp, 0);
+
+MODULE_PARM_DESC(server, "Server host address and optional port nunber");
+MODULE_LICENSE("GPL");
 
 #define TFW_BOMBER_WAIT_INTVL		(2)		/* in seconds */
 #define TFW_BOMBER_WAIT_MAX		(1 * 60)	/* in seconds */
 
 /* Flags for tfw_bomber_desc_t.flags */
-#define TFW_BOMBER_CONNECT_STARTED		(0x0001)
-#define TFW_BOMBER_CONNECT_ESTABLISHED		(0x0002)
-#define TFW_BOMBER_CONNECT_CLOSED		(0x0004)
-#define TFW_BOMBER_CONNECT_ERROR		(0x0100)
-
-#ifndef DEBUG
-#define DEBUG
-#endif
+#define TFW_BOMBER_CONNECT_STARTED	(0x0001)
+#define TFW_BOMBER_CONNECT_ESTABLISHED	(0x0002)
+#define TFW_BOMBER_CONNECT_CLOSED	(0x0004)
+#define TFW_BOMBER_CONNECT_ERROR	(0x0100)
 
 typedef struct tfw_bomber_desc {
 	SsProto		proto;
@@ -68,27 +71,20 @@ typedef struct tfw_bomber_desc {
  * array that can be passed around between callbacks.
  */
 static tfw_bomber_desc_t **tfw_bomber_desc;
+
 static struct task_struct **tfw_bomber_connect_task;
-static wait_queue_head_t *tfw_bomber_connect_wq;
-static atomic_t *tfw_bomber_nthread;
+static struct task_struct *tfw_bomber_finish_task;
 
-static struct task_struct **tfw_bomber_finish_task;
-static wait_queue_head_t *tfw_bomber_finish_wq;
+DECLARE_WAIT_QUEUE_HEAD(tfw_bomber_connect_wq);
+DECLARE_WAIT_QUEUE_HEAD(tfw_bomber_finish_wq);
 
-/* Successful attempts */
-static atomic_t *tfw_bomber_connect_nattempt;
-/* Connections established */
-static atomic_t *tfw_bomber_connect_ncomplete;
-/* Number of errors */
-static atomic_t *tfw_bomber_connect_nerror;
+static atomic_t tfw_bomber_nthread;
+static atomic_t tfw_bomber_connect_nattempt;  /* Successful attempts */
+static atomic_t tfw_bomber_connect_ncomplete; /* Connections established */
+static atomic_t tfw_bomber_connect_nerror;    /* Number of errors */
 
-static char *server = "127.0.0.1:8080";
 static TfwAddr tfw_bomber_server_address;
 static SsHooks tfw_bomber_hooks;
-
-module_param(server, charp, 0);
-MODULE_PARM_DESC(server, "Server host address and optional port nunber");
-MODULE_LICENSE("GPL");
 
 static int
 tfw_bomber_connect(int descidx)
@@ -103,7 +99,7 @@ tfw_bomber_connect(int descidx)
 	if (ret) {
 		SS_DBG("Unable to create kernel socket (%d)\n", ret);
 		desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-		atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
+		atomic_inc(&tfw_bomber_connect_nerror);
 		return ret;
 	}
 	ss_proto_init(&desc->proto, &tfw_bomber_hooks, descidx);
@@ -118,14 +114,14 @@ tfw_bomber_connect(int descidx)
 		ss_close(sk);
 		local_bh_enable();
 		desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-		atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
+		atomic_inc(&tfw_bomber_connect_nerror);
 		return ret;
 	}
 
 	local_bh_enable();
 	desc->sk = sk;
 	desc->flags |= TFW_BOMBER_CONNECT_STARTED;
-	atomic_inc(&tfw_bomber_connect_nattempt[descidx / tfw_connects]);
+	atomic_inc(&tfw_bomber_connect_nattempt);
 
 	return 0;
 }
@@ -133,41 +129,36 @@ tfw_bomber_connect(int descidx)
 static void
 msg_send(tfw_bomber_desc_t *desc)
 {
-	struct sock *sk = desc->sk;
+	struct sock *sk;
 	char *str;
 	int len, ret;
-
 	TfwStr msg;
 	TfwHttpMsg *req;
 	TfwMsgIter it;
 
+	sk = desc->sk;
 	BUG_ON(!sk);
 
 	len = 1 * 1024 * 1024;
 	str = vmalloc(len);
 	if(!str) {
-		printk("%s:could not allocate str\n", __func__);
+		SS_ERR("Could not allocate memory for request\n");
 		return;
 	}
 	ret = fuzz_gen(str, str + len, 0, 1, FUZZ_REQ);
 	if (ret == FUZZ_END)
-		printk("%s:FUZZ_END\n", __func__);
+		fuzz_reset();
 
 	msg.ptr = str;
 	msg.skb = NULL;
-	msg.len = strlen(str) - 1;
+	msg.len = strlen(str);
 	msg.flags = 0;
 
 	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
 	tfw_http_msg_write(&it, req, &msg);
-	printk("%s:sk:%p, sk->sk_socket %p, msg:%p\n",
-	       __func__, sk, sk->sk_socket, &msg);
 	local_bh_disable();
-	printk("%s:softirq disabled\n", __func__);
 	ss_send(sk, &req->msg.skb_list, false);
-	printk("%s:sent\n", __func__);
 	local_bh_enable();
-	printk("%s:softirq enabled\n", __func__);
 
 	vfree(str);
 }
@@ -189,11 +180,9 @@ tfw_bomber_connect_complete(struct sock *sk)
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:connect complete, thread:%d\n",
-	       __func__, descidx / tfw_connects);
 	desc->flags |= TFW_BOMBER_CONNECT_ESTABLISHED;
-	atomic_inc(&tfw_bomber_connect_ncomplete[descidx / tfw_connects]);
-	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
+	atomic_inc(&tfw_bomber_connect_ncomplete);
+	wake_up(&tfw_bomber_finish_wq);
 
 	return ret;
 }
@@ -215,11 +204,9 @@ tfw_bomber_connection_close(struct sock *sk)
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:close sk: %p, threadn %d\n",
-	       __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_CLOSED;
-	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
+	wake_up(&tfw_bomber_finish_wq);
 	return 0;
 }
 
@@ -240,12 +227,10 @@ tfw_bomber_connection_error(struct sock *sk)
 	BUG_ON(desc->proto.hooks != &tfw_bomber_hooks);
 	BUG_ON(desc->sk && (desc->sk != sk));
 
-	printk("%s:error sk: %p, threadn %d\n",
-	       __func__, desc->sk, descidx / tfw_connects);
 	desc->sk = NULL;
 	desc->flags |= TFW_BOMBER_CONNECT_ERROR;
-	atomic_inc(&tfw_bomber_connect_nerror[descidx / tfw_connects]);
-	wake_up(&tfw_bomber_finish_wq[descidx / tfw_connects]);
+	atomic_inc(&tfw_bomber_connect_nerror);
+	wake_up(&tfw_bomber_finish_wq);
 	return 0;
 }
 
@@ -256,29 +241,45 @@ static SsHooks tfw_bomber_hooks = {
 };
 
 static void
-tfw_bomber_send_msgs(int threadn)
+tfw_bomber_send_msgs(void)
 {
-	int i;
+	int i, k;
 
-	printk("%s:threadn:%d\n", __func__, threadn);
-	for (i = 0; i < tfw_connects; i++)
-		if (tfw_bomber_desc[threadn][i].sk)
-			msg_send(&tfw_bomber_desc[threadn][i]);
+	for (i = 0; i < tfw_threads; i++) {
+		for (k = 0; k < tfw_connects; k++) {
+			if (tfw_bomber_desc[i][k].sk)
+				msg_send(&tfw_bomber_desc[i][k]);
+		}
+	}
 }
 
 static void
-tfw_bomber_release_sockets(int threadn)
+bomber_report(void)
 {
-	int i;
+	SS_DBG("Initiated %d connects\n",
+		tfw_connects * tfw_threads);
+	SS_DBG("Of those %d connects initiated successfully\n",
+		atomic_read(&tfw_bomber_connect_nattempt));
+	SS_DBG("Of those %d connections were established successfully\n",
+		atomic_read(&tfw_bomber_connect_ncomplete));
+	SS_DBG("and %d connections completed with error\n",
+		atomic_read(&tfw_bomber_connect_nerror));
+}
 
-	printk("%s:threadn:%d\n", __func__, threadn);
-	for (i = 0; i < tfw_connects; i++) {
-		if (tfw_bomber_desc[threadn][i].sk) {
-			local_bh_disable();
-			tfw_bomber_desc[threadn][i].sk->sk_user_data = NULL;
-			ss_close(tfw_bomber_desc[threadn][i].sk);
-			local_bh_enable();
-			tfw_bomber_desc[threadn][i].sk = NULL;
+static void
+tfw_bomber_release_sockets(void)
+{
+	int i, k;
+
+	for (i = 0; i < tfw_threads; i++) {
+		for (k = 0; k < tfw_connects; k++) {
+			if (tfw_bomber_desc[i][k].sk) {
+				local_bh_disable();
+				tfw_bomber_desc[i][k].sk->sk_user_data = NULL;
+				ss_close(tfw_bomber_desc[i][k].sk);
+				local_bh_enable();
+				tfw_bomber_desc[i][k].sk = NULL;
+			}
 		}
 	}
 }
@@ -297,8 +298,8 @@ tfw_bomber_thread_connect(void *data)
 		}
 	}
 	tfw_bomber_connect_task[threadn] = NULL;
-	atomic_dec(&tfw_bomber_nthread[threadn]);
-	wake_up(&tfw_bomber_connect_wq[threadn]);
+	atomic_dec(&tfw_bomber_nthread);
+	wake_up(&tfw_bomber_connect_wq);
 	SS_DBG("Thread %d has initiated %d connects out of %d\n",
 	       threadn, nconnects, tfw_connects);
 	return 0;
@@ -309,41 +310,37 @@ tfw_bomber_stop_threads(void)
 {
 	int i;
 
-	SS_DBG("%s: stop all threads\n", __func__);
 	for (i = 0; i < tfw_threads; i++) {
 		if (tfw_bomber_connect_task[i]) {
 			kthread_stop(tfw_bomber_connect_task[i]);
 			tfw_bomber_connect_task[i] = NULL;
 		}
-		if (tfw_bomber_finish_task[i]) {
-			kthread_stop(tfw_bomber_finish_task[i]);
-			tfw_bomber_finish_task[i] = NULL;
-		}
-		tfw_bomber_release_sockets(i);
 	}
+
+	if (tfw_bomber_finish_task) {
+		kthread_stop(tfw_bomber_finish_task);
+		tfw_bomber_finish_task = NULL;
+	}
+	tfw_bomber_release_sockets();
 }
 
 static int
 tfw_bomber_thread_finish(void *data)
 {
-	int threadn = (int)(long)data;
-	int nattempt = atomic_read(&tfw_bomber_connect_nattempt[threadn]);
+	int nattempt = atomic_read(&tfw_bomber_connect_nattempt);
 	uint64_t time_max = (uint64_t)get_seconds() + TFW_BOMBER_WAIT_MAX;
 	int ret = 0;
 	int nerror, ncomplete;
 
-	printk("%s,nattempt:%d,thread:%d\n", __func__, nattempt, threadn);
 	set_freezable();
 	do {
-		nerror = atomic_read(&tfw_bomber_connect_nerror[threadn]);
-		ncomplete = atomic_read(&tfw_bomber_connect_ncomplete[threadn]);
+		nerror = atomic_read(&tfw_bomber_connect_nerror);
+		ncomplete = atomic_read(&tfw_bomber_connect_ncomplete);
 
-		printk("%s,ncomplete:%d,nerror:%d,threadn:%d\n",
-				__func__, ncomplete, nerror, threadn);
 		if (ncomplete + nerror == nattempt) {
 			break;
 		}
-		wait_event_freezable_timeout(tfw_bomber_finish_wq[threadn],
+		wait_event_freezable_timeout(tfw_bomber_finish_wq,
 				kthread_should_stop(),
 				TFW_BOMBER_WAIT_INTVL);
 		if ((uint64_t)get_seconds() > time_max) {
@@ -353,9 +350,9 @@ tfw_bomber_thread_finish(void *data)
 		}
 	} while (!kthread_should_stop() && ncomplete + nerror < nattempt);
 
-	tfw_bomber_send_msgs(threadn);
-	tfw_bomber_release_sockets(threadn);
-	tfw_bomber_finish_task[threadn] = NULL;
+	tfw_bomber_send_msgs();
+	tfw_bomber_release_sockets();
+	tfw_bomber_finish_task = NULL;
 
 	return ret;
 }
@@ -366,17 +363,17 @@ tfw_bomber_create_tasks(void)
 	int i, ret = 0;
 	struct task_struct *task;
 
-	for (i = 0; i < tfw_threads; i++) {
-		task = kthread_create(tfw_bomber_thread_finish, (void *)(long)i,
-				      "tfw_bomber_thread_finish_%02d", i);
-		if (IS_ERR_OR_NULL(task)) {
-			ret = PTR_ERR(task);
-			SS_ERR("Unable to create thread: %s%02d (%d)\n",
-			       "tfw_bomber_finish_task", i, ret);
-			break;
-		}
-		tfw_bomber_finish_task[i] = task;
+	task = kthread_create(tfw_bomber_thread_finish, 0,
+			      "tfw_bomber_thread_finish");
+	if (IS_ERR_OR_NULL(task)) {
+		ret = PTR_ERR(task);
+		SS_ERR("Unable to create thread: %s (%d)\n",
+		       "tfw_bomber_finish_task", ret);
+		return ret;
+	}
+	tfw_bomber_finish_task = task;
 
+	for (i = 0; i < tfw_threads; i++) {
 		task = kthread_create(tfw_bomber_thread_connect, (void *)(long)i,
 				      "tfw_bomber_thread_connect_%02d", i);
 		if (IS_ERR_OR_NULL(task)) {
@@ -387,9 +384,9 @@ tfw_bomber_create_tasks(void)
 		}
 		tfw_bomber_connect_task[i] = task;
 
-		atomic_set(&tfw_bomber_connect_nattempt[i], 0);
-		atomic_set(&tfw_bomber_connect_ncomplete[i], 0);
-		atomic_set(&tfw_bomber_connect_nerror[i], 0);
+		atomic_set(&tfw_bomber_connect_nattempt, 0);
+		atomic_set(&tfw_bomber_connect_ncomplete, 0);
+		atomic_set(&tfw_bomber_connect_nerror, 0);
 	}
 
 	return ret;
@@ -404,7 +401,7 @@ tfw_bomber_init(void)
 		SS_ERR("Unable to parse server's address: %s", server);
 		return -EINVAL;
 	}
-	SS_DBG("Started kclient module, server's address is %s\n", server);
+	SS_DBG("Started bomber module, server's address is %s\n", server);
 
 	tfw_bomber_desc = kmalloc(tfw_threads *
 		sizeof(tfw_bomber_desc_t *), GFP_KERNEL);
@@ -428,96 +425,27 @@ tfw_bomber_init(void)
 		ret = -ENOMEM;
 		goto err_connect_task;
 	}
-	tfw_bomber_connect_wq = kmalloc(tfw_threads *
-		sizeof(wait_queue_head_t), GFP_KERNEL);
-	if (!tfw_bomber_connect_wq) {
-		ret = -ENOMEM;
-		goto err_connect_wq;
-	}
-	tfw_bomber_nthread = kmalloc(tfw_threads *
-		sizeof(atomic_t), GFP_KERNEL);
-	if (!tfw_bomber_nthread) {
-		ret = -ENOMEM;
-		goto err_bomber_nthread;
-	}
-
-	tfw_bomber_finish_task = kmalloc(tfw_threads *
-		sizeof(struct task_struct *), GFP_KERNEL);
-	if (!tfw_bomber_finish_task) {
-		ret = -ENOMEM;
-		goto err_finish_task;
-	}
-	tfw_bomber_finish_wq = kmalloc(tfw_threads *
-		sizeof(wait_queue_head_t), GFP_KERNEL);
-	if (!tfw_bomber_finish_wq) {
-		ret = -ENOMEM;
-		goto err_finish_wq;
-	}
-
-	tfw_bomber_connect_nattempt = kmalloc(tfw_threads *
-		sizeof(atomic_t), GFP_KERNEL);
-	if (!tfw_bomber_connect_nattempt) {
-		ret = -ENOMEM;
-		goto err_connect_nattempt;
-	}
-	tfw_bomber_connect_ncomplete = kmalloc(tfw_threads *
-		sizeof(atomic_t), GFP_KERNEL);
-	if (!tfw_bomber_connect_ncomplete) {
-		ret = -ENOMEM;
-		goto err_connect_ncomplete;
-	}
-	tfw_bomber_connect_nerror = kmalloc(tfw_threads *
-		sizeof(atomic_t), GFP_KERNEL);
-	if (!tfw_bomber_connect_nerror) {
-		ret = -ENOMEM;
-		goto err_connect_error;
-	}
-
-	for (i = 0; i < tfw_threads; i++) {
-		init_waitqueue_head(&tfw_bomber_connect_wq[i]);
-		init_waitqueue_head(&tfw_bomber_finish_wq[i]);
-	}
-
-	fuzz_reset();
 
 	ret = tfw_bomber_create_tasks();
 
 	if (ret) {
 		goto err_create_tasks;
 	} else {
+		atomic_set(&tfw_bomber_nthread, tfw_threads);
 		for (i = 0; i < tfw_threads; i++) {
-			atomic_set(&tfw_bomber_nthread[i], 1);
 			wake_up_process(tfw_bomber_connect_task[i]);
-			// TODO: remove wait_event. Just connect
-			// and start tfw_bomber_finish_task.
-			wait_event_interruptible(tfw_bomber_connect_wq[i],
-						 atomic_read(&tfw_bomber_nthread[i]) == 0);
 		}
-		SS_ERR("Started %d threads to initiate %d connects each\n",
-		       tfw_threads, tfw_connects);
-
-		for (i = 0; i < tfw_threads; i++)
-			wake_up_process(tfw_bomber_finish_task[i]);
+		SS_DBG("Started %d threads to initiate %d connects each\n",
+			tfw_threads, tfw_connects);
+		wait_event_interruptible(tfw_bomber_connect_wq,
+					 atomic_read(&tfw_bomber_nthread) == 0);
+		wake_up_process(tfw_bomber_finish_task);
 	}
 
 	return ret;
 
 err_create_tasks:
 	tfw_bomber_stop_threads();
-	kfree(tfw_bomber_connect_nerror);
-err_connect_error:
-	kfree(tfw_bomber_connect_ncomplete);
-err_connect_ncomplete:
-	kfree(tfw_bomber_connect_nattempt);
-err_connect_nattempt:
-	kfree(tfw_bomber_finish_wq);
-err_finish_wq:
-	kfree(tfw_bomber_finish_task);
-err_finish_task:
-	kfree(tfw_bomber_nthread);
-err_bomber_nthread:
-	kfree(tfw_bomber_connect_wq);
-err_connect_wq:
 	kfree(tfw_bomber_connect_task);
 err_connect_task:
 	for (i = 0; i < tfw_threads; i++)
@@ -539,13 +467,9 @@ tfw_bomber_exit(void)
 		kfree(tfw_bomber_desc[i]);
 	kfree(tfw_bomber_desc);
 	kfree(tfw_bomber_connect_task);
-	kfree(tfw_bomber_connect_wq);
-	kfree(tfw_bomber_nthread);
-	kfree(tfw_bomber_finish_task);
-	kfree(tfw_bomber_finish_wq);
-	kfree(tfw_bomber_connect_nattempt);
-	kfree(tfw_bomber_connect_ncomplete);
-	kfree(tfw_bomber_connect_nerror);
+
+	bomber_report();
+	fuzz_reset();
 }
 
 module_init(tfw_bomber_init);
