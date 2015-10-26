@@ -114,10 +114,11 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		case StateVal:
 			next = chunk + 1;
 			if (likely(chunk == TFW_STR_LAST(cookie)
-					|| *(char*)next->ptr == ';'))
+			           || *(char*)next->ptr == ';'))
 			{
 				TFW_DBG3("%s: plain cookie value: %.*s\n",
-						__func__, (int)chunk->len, (char*)chunk->ptr);
+				         __func__, (int)chunk->len,
+				         (char*)chunk->ptr);
 				*val = *chunk;
 				return true;
 			}
@@ -131,7 +132,8 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 
 			s = tfw_str_add_compound(pool, val);
 			if (!s) {
-				TFW_DBG("%s: failed to extend value string\n", __func__);
+				TFW_DBG("%s: failed to extend value string\n",
+				        __func__);
 				return false;
 			}
 			*s = *chunk;
@@ -210,8 +212,9 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
 	if (ua_value.len) {
 		TFW_STR_FOR_EACH_CHUNK(c, &ua_value,
-				crypto_shash_update(shash_desc,
-					(u8 *)c->ptr, c->len));
+		                       crypto_shash_update(shash_desc,
+		                                          (u8 *)c->ptr,
+		                                           c->len));
 	}
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
