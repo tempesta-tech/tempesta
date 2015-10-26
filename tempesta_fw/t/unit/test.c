@@ -93,6 +93,7 @@ TEST_SUITE(sched_rr);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
 TEST_SUITE(frang);
+
 int
 test_run_all(void)
 {

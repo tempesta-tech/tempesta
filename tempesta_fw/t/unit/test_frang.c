@@ -1,6 +1,8 @@
 /**
  *  		Tempesta FW
+ *
  * Copyright (C) 2015 Tempesta Technologies, Inc.
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License,
@@ -20,15 +22,12 @@
 #include <linux/ctype.h>
 #include <linux/hashtable.h>
 #include <linux/spinlock.h>
-#include <linux/file.h>
-#include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/inet.h>
 #include <linux/module.h>
 #include <net/ipv6.h>
 #include <net/sock.h>
 #include <linux/socket.h>
-#include <linux/slab.h>
 
 #include "../../classifier.h"
 #include "../../client.h"
@@ -49,7 +48,8 @@
 
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
- typedef struct {
+
+typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
 	unsigned int	req;
@@ -97,20 +97,22 @@ typedef struct {
 
 FrangCfg *frang_cfg;
 const int (*frang_conn_new) (struct sock *);
+int (*frang_http_req_handler)(void *obj,struct sk_buff *skb, 
+			      unsigned int off);
 
 struct inet_sock *isk;
 struct sock mocksock;
 
-const char *inet_addr = "192.168.168.245.128";
+const char *inet_addr = "192.168.245.128";
 
-TfwConnection *
+static TfwConnection *
 test_conn_alloc(void)
 {
 	TfwConnection *conn;
-	static struct kmem_cache *test_conn_cache;
+	static struct kmem_cache *test_conn_cache = NULL;
 	if(!test_conn_cache)
 		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
-				       sizeof(TfwConnection), 0, 0, NULL);
+				        sizeof(TfwConnection), 0, 0, NULL);
 	BUG_ON(test_conn_cache == NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
@@ -118,37 +120,30 @@ test_conn_alloc(void)
 	return conn;
 }
 
-int
+static int
 req_handler(TfwHttpReq  *req)
 {
-	int res;  
-	int (*frang_http_req_handler)(void *obj,
-				     struct sk_buff *skb, unsigned int off);
-
 	TfwConnection *conn;
 
 	conn = test_conn_alloc();
-	BUG_ON(!conn);
 	conn->msg = &req->msg;
 	conn->sk = &mocksock;
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = htonl(in_aton(inet_addr));
 	if (!conn->sk->sk_security) {
-		res = frang_conn_new(conn->sk);
+		frang_conn_new(conn->sk);
 	}
 
-	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
-	BUG_ON(!frang_http_req_handler);
 	return frang_http_req_handler((void *) conn,
-				       req->msg.skb_list.first, 25);
+					       req->msg.skb_list.first, 25);
 }
 
-TfwHttpReq 
-*get_test_req(unsigned char *req)
+static TfwHttpReq *
+get_test_req(unsigned char *req)
 {
 	TfwHttpReq *test_req;
 	int len = strlen(req);
-
+	BUG_ON(len == 0);
 	test_req = test_req_alloc(len);
 	tfw_http_parse_req(test_req, req, len);
 	return test_req;
@@ -393,7 +388,9 @@ TEST_SUITE(frang)
 {
 	frang_cfg = (FrangCfg *) get_sym_ptr("frang_cfg");
 	frang_conn_new = get_sym_ptr("frang_conn_new");
+	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
 
+	BUG_ON(frang_http_req_handler == NULL);
 	BUG_ON(frang_conn_new == NULL);
 	BUG_ON(frang_cfg == NULL);
 
