@@ -59,6 +59,19 @@ __field_finish(TfwHttpMsg *hm, TfwStr *field,
 	field->flags |= TFW_STR_COMPLETE;
 }
 
+static inline void
+__chunk_finish(TfwHttpMsg *hm, unsigned char *data, int len,
+               unsigned int *flags)
+{
+	TFW_DBG3("parser: fixup chunk: <%.*s>\n", len, data);
+	tfw_http_msg_hdr_chunk_fixup(hm, data, len);
+	if (unlikely(*flags)) {
+		TFW_DBG3("parser: add chunk flags: %u\n", *flags);
+		TFW_STR_CURR(&hm->parser.hdr)->flags |= *flags;
+		*flags = 0;
+	}
+}
+
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -101,7 +114,7 @@ done:									\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	parser->to_go = len - (size_t)(p - data);
 
-#define ____FSM_MOVE_LAMBDA(to, n, field)				\
+#define __FSM_MOVE_nf(to, n, field)				\
 do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
@@ -115,8 +128,6 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_MOVE_nf(to, n, field)					\
-	____FSM_MOVE_LAMBDA(to, n, field)
 #define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, &msg->parser.hdr)
 #define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
 #define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
@@ -129,50 +140,45 @@ do {									\
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
 
-#define __FSM_I_CHUNK_FINISH(str, str_len)				\
+#define __FSM_I_EXIT()			goto done
+#define __FSM_I_CHUNK_FIXUP(n)						\
 do {									\
-	tfw_http_msg_hdr_chunk_fixup(msg, (str), (str_len));		\
-	if (unlikely(__fsm_chunkflags)) {				\
-		TFW_DBG3("parser: add chunk flag: %u\n",		\
-			__fsm_chunkflags);				\
-		TFW_STR_CURR(&msg->parser.hdr)->flags			\
-			|= __fsm_chunkflags;				\
-		__fsm_chunkflags = 0;					\
-	}								\
+	/* Save currently parsed symbols, plus n symbols more */	\
+	int slen = p - data + 1 + n;					\
+	__chunk_finish(msg, data, slen, &__fsm_chunkflags);		\
+	data += slen;							\
+	len -= slen;							\
 } while (0)
 
-#define ____FSM_I_MOVE_LAMBDA(to, n)					\
+#define __FSM_I_MOVE_n(to, n)						\
 do {									\
+	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
-		__FSM_I_CHUNK_FINISH(data, len);			\
+		__chunk_finish(msg, data, len, &__fsm_chunkflags);	\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
-
-#define __FSM_I_EXIT()			goto done
-#define __FSM_I_MOVE_n(to, n)						\
-do {									\
-	parser->_i_st = to;						\
-	____FSM_I_MOVE_LAMBDA(to, n);					\
-} while (0)
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_str(to, str)	__FSM_I_MOVE_n(to, sizeof(str) - 1)
+#define __FSM_I_MOVE_flags(to, flag)					\
+do {									\
+	__fsm_chunkflags |= flag;					\
+	__FSM_I_MOVE(to);						\
+} while (0)
+#define __FSM_I_MOVE_chunk_n(to, n)					\
+do {									\
+	__FSM_I_CHUNK_FIXUP(n);						\
+	__FSM_I_MOVE(to);						\
+} while (0)
+#define __FSM_I_MOVE_chunk(to) __FSM_I_MOVE_chunk_n(to, 0)
+
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
-
-#define __FSM_I_CHUNK_FIXUP(msg, str, str_len)				\
-do {									\
-	int slen = str_len;						\
-	__FSM_I_CHUNK_FINISH((str), (str_len));				\
-	data += slen;							\
-	len -= slen;							\
-} while (0)
 
 /* Conditional transition from state @st to @st_next. */
 #define __FSM_TX_COND(st, condition, st_next) 				\
@@ -1401,22 +1407,15 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_CookieStart) {
-
 		/* Name should contain at least 1 character */
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
-		data = p;
-		__fsm_chunkflags |= TFW_STR_NAME;
-		__FSM_I_MOVE(Req_I_CookieName);
+		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
 	}
 
 	__FSM_STATE(Req_I_CookieName) {
-		if (unlikely(c == '=')) {
-			TFW_DBG3("Cookie name: <%.*s>\n",
-			         (int)(p - data), data);
-			__FSM_I_CHUNK_FIXUP(msg, data, p - data + 1);
-			__FSM_I_MOVE(Req_I_CookieValStart);
-		}
+		if (unlikely(c == '='))
+			__FSM_I_MOVE_chunk(Req_I_CookieValStart);
 		__FSM_I_MOVE(Req_I_CookieName);
 	}
 
@@ -1424,20 +1423,17 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		if (unlikely(isspace(c) || c == ','
 		             || c == ';' || c == '\\'))
 			return CSTR_NEQ;
-		data = p;
-		__fsm_chunkflags |= TFW_STR_VALUE;
-		__FSM_I_MOVE(Req_I_CookieVal);
+		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_CookieVal) {
-		if (unlikely(c == ';' || c == '\r' || c == ' ')) {
-			TFW_DBG3("Cookie value: <%.*s>\n",
-			         (int)(p - data), data);
-			__FSM_I_CHUNK_FIXUP(msg, data, p - data);
-			if (c == ';')
-				__FSM_I_MOVE(Req_I_CookieSP);
-			else
-				return p - orig_data;
+		if (unlikely(c == ';'))
+			/* do not save ';' yet */
+			__FSM_I_MOVE_chunk_n(Req_I_CookieSP, -1);
+		if (unlikely(c == '\r' || c == ' ')) {
+			/* do not save LWS */
+			__FSM_I_CHUNK_FIXUP(-1);
+			return p - orig_data;
 		}
 		if (unlikely(c == ',' || c == '\\'))
 			return CSTR_NEQ;
@@ -1447,9 +1443,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		/* Save delimiter characters. */
-		__FSM_I_CHUNK_FIXUP(msg, data, p - data + 1);
-		__FSM_I_MOVE(Req_I_CookieStart);
+		__FSM_I_MOVE_chunk(Req_I_CookieStart);
 	}
 
 	} /* FSM END */
