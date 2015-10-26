@@ -20,8 +20,6 @@
  */
 
 #include <linux/ctype.h>
-#include <linux/hashtable.h>
-#include <linux/spinlock.h>
 #include <linux/inet.h>
 #include <net/ipv6.h>
 #include <net/sock.h>
@@ -30,7 +28,6 @@
 #include "../../client.h"
 #include "../../connection.h"
 #include "../../sync_socket.h"
-#include "../../gfsm.h"
 #include "../../http_msg.h"
 #include "../../log.h"
 #include "../../tempesta_fw.h"
