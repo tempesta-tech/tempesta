@@ -59,16 +59,6 @@ __field_finish(TfwHttpMsg *hm, TfwStr *field,
 	field->flags |= TFW_STR_COMPLETE;
 }
 
-static void
-add_chunk_flags(TfwStr *str, TfwHttpParser *parser)
-{
-	if (unlikely(parser->str_flags)) {
-		TFW_DBG3("parser: add chunk flag: %u\n", parser->str_flags);
-		TFW_STR_CURR(str)->flags |= parser->str_flags;
-		parser->str_flags = 0;
-	}
-}
-
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -81,7 +71,8 @@ int __fsm_const_state;							\
 int __fsm_n __attribute__((unused));					\
 size_t __fsm_sz __attribute__((unused));				\
 unsigned char *__fsm_ch __attribute__((unused));			\
-TfwStr *__fsm_str __attribute__((unused));
+TfwStr *__fsm_str __attribute__((unused));				\
+unsigned int __fsm_chunkflags __attribute__((unused)) = 0;
 
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
@@ -118,7 +109,6 @@ do {									\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		tfw_http_msg_field_chunk_fixup(msg, field, data, len);	\
-		add_chunk_flags(field, &msg->parser);			\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
@@ -138,24 +128,50 @@ do {									\
  * header values. That is done with separate, nested, or interior
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
+
+#define __FSM_I_CHUNK_FINISH(str, str_len)				\
+do {									\
+	tfw_http_msg_hdr_chunk_fixup(msg, (str), (str_len));		\
+	if (unlikely(__fsm_chunkflags)) {				\
+		TFW_DBG3("parser: add chunk flag: %u\n",		\
+			__fsm_chunkflags);				\
+		TFW_STR_CURR(&msg->parser.hdr)->flags			\
+			|= __fsm_chunkflags;				\
+		__fsm_chunkflags = 0;					\
+	}								\
+} while (0)
+
+#define ____FSM_I_MOVE_LAMBDA(to, n)					\
+do {									\
+	p += n;								\
+	if (unlikely(p >= data + len || !*p)) {				\
+		r = TFW_POSTPONE; /* postpone to more data available */	\
+		__fsm_const_state = to; /* start from state @to nest time */\
+		/* Close currently parsed field chunk. */		\
+		__FSM_I_CHUNK_FINISH(data, len);			\
+		__FSM_EXIT()						\
+	}								\
+	c = *p;								\
+	goto to;							\
+} while (0)
+
 #define __FSM_I_EXIT()			goto done
 #define __FSM_I_MOVE_n(to, n)						\
 do {									\
 	parser->_i_st = to;						\
-	____FSM_MOVE_LAMBDA(to, n, &msg->parser.hdr);			\
+	____FSM_I_MOVE_LAMBDA(to, n);					\
 } while (0)
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 #define __FSM_I_MOVE_str(to, str)	__FSM_I_MOVE_n(to, sizeof(str) - 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_I_CHUNK_FIXUP(msg, str, str_len) 		\
-do { 							\
-	int slen = str_len; 				\
-	tfw_http_msg_hdr_chunk_fixup(msg, str, slen); 	\
-	add_chunk_flags(&msg->parser.hdr, &msg->parser);\
-	data += slen; 					\
-	len -= slen; 					\
+#define __FSM_I_CHUNK_FIXUP(msg, str, str_len)				\
+do {									\
+	int slen = str_len;						\
+	__FSM_I_CHUNK_FINISH((str), (str_len));				\
+	data += slen;							\
+	len -= slen;							\
 } while (0)
 
 /* Conditional transition from state @st to @st_next. */
@@ -1390,7 +1406,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
 		data = p;
-		parser->str_flags |= TFW_STR_KEY;
+		__fsm_chunkflags |= TFW_STR_NAME;
 		__FSM_I_MOVE(Req_I_CookieName);
 	}
 
@@ -1409,7 +1425,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 					|| c == ';' || c == '\\'))
 			return CSTR_NEQ;
 		data = p;
-		parser->str_flags |= TFW_STR_VALUE;
+		__fsm_chunkflags |= TFW_STR_VALUE;
 		__FSM_I_MOVE(Req_I_CookieVal);
 	}
 

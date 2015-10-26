@@ -98,7 +98,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		switch (state) {
 
 		case StateName:
-			if ((chunk->flags & TFW_STR_KEY)
+			if ((chunk->flags & TFW_STR_NAME)
 			    && tfw_str_eq_cstr(chunk, str->ptr, str->len,
 			                       TFW_STR_EQ_PREFIX))
 			{
