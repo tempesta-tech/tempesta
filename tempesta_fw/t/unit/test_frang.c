@@ -36,6 +36,7 @@
 
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
+#define HANDLER_OFF	0
 
 typedef struct {
 	unsigned long	ts;
@@ -112,6 +113,7 @@ static int
 req_handler(TfwHttpReq  *req)
 {
 	TfwConnection *conn;
+	
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
@@ -123,17 +125,18 @@ req_handler(TfwHttpReq  *req)
 	}
 
 	return frang_http_req_handler((void *) conn,
-					       req->msg.skb_list.first, 25);
+					       req->msg.skb_list.first, HANDLER_OFF);
 }
 
 static TfwHttpReq *
-get_test_req(unsigned char *req)
+get_test_req(const char *req)
 {
 	TfwHttpReq *test_req;
+	unsigned char *req_data = (unsigned char *) req;
 	int len = strlen(req);
 	BUG_ON(len == 0);
 	test_req = test_req_alloc(len);
-	tfw_http_parse_req(test_req, req, len);
+	tfw_http_parse_req(test_req, req_data, len);
 	return test_req;
 }
 
