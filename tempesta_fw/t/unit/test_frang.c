@@ -19,10 +19,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/ctype.h>
 #include <linux/inet.h>
-#include <net/ipv6.h>
-#include <net/sock.h>
 
 #include "../../classifier.h"
 #include "../../client.h"
@@ -32,8 +29,6 @@
 #include "../../log.h"
 #include "../../tempesta_fw.h"
 
-#include "addr.h"
-#include "cfg.h"
 #include "helpers.h"
 #include "kallsyms_helper.h"
 #include "sched_helper.h"
@@ -50,7 +45,7 @@ typedef struct {
 
 typedef struct frang_account_t {
 	struct hlist_node hentry;
-	struct in6_addr addr;		/* client address */
+	struct in6_addr addr;	/* client address */
 	unsigned long last_ts;	/* last access time */
 	unsigned int conn_curr;	/* current connections number */
 	FrangRates history[FRANG_FREQ];
@@ -58,7 +53,7 @@ typedef struct frang_account_t {
 
 typedef struct {
 	char *str;
-	size_t len;			/* The pre-computed strlen(@str). */
+	size_t len;		/* The pre-computed strlen(@str). */
 } FrangCtVal;
 
 typedef struct {
