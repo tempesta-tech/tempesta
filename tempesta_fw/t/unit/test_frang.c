@@ -193,7 +193,7 @@ TEST(frang, ct_check)
 	TfwHttpReq *mockreq;
 	FrangCtVal ctval[1];
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;");;
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;");
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
 	frang_cfg->http_ct_vals = ctval;
