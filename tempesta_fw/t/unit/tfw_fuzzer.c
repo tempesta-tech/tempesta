@@ -169,7 +169,7 @@ static struct {
 	/* ACCEPT_RANGES */
 	{0, sizeof(accept_ranges) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* COOKIE */
-	{0, sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{0, sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* SET_COOKIE */
 	{0, sizeof(set_cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ETAG */
@@ -477,9 +477,8 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 		v |= add_header(&str, end, X_FORWARDED_FOR);
 		v |= add_duplicates(&str, end, X_FORWARDED_FOR);
 
-		/* TODO: The parser does not validate User-Agent now */
-		/*v |= */add_header(&str, end, USER_AGENT);
-		/*v |= */add_duplicates(&str, end, USER_AGENT);
+		v |= add_header(&str, end, USER_AGENT);
+		v |= add_duplicates(&str, end, USER_AGENT);
 	}
 	else if (type == FUZZ_RESP) {
 		v |= add_header(&str, end, ACCEPT_RANGES);
