@@ -22,16 +22,11 @@
 #include <linux/inet.h>
 
 #include "../../classifier.h"
-#include "../../client.h"
-#include "../../connection.h"
-#include "../../sync_socket.h"
-#include "../../http_msg.h"
+#include "../../http.h"
 #include "../../log.h"
-#include "../../tempesta_fw.h"
 
 #include "helpers.h"
 #include "kallsyms_helper.h"
-#include "sched_helper.h"
 #include "test.h"
 
 #define FRANG_HASH_BITS 17
@@ -99,7 +94,7 @@ test_conn_alloc(void)
 {
 	TfwConnection *conn;
 	static struct kmem_cache *test_conn_cache = NULL;
-	if(!test_conn_cache)
+	if(test_conn_cache == NULL)
 		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
 				        sizeof(TfwConnection), 0, 0, NULL);
 	BUG_ON(test_conn_cache == NULL);
@@ -113,7 +108,6 @@ static int
 req_handler(TfwHttpReq  *req)
 {
 	TfwConnection *conn;
-	
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
@@ -145,7 +139,6 @@ TEST(frang, max_conn)
 	int res;
 	int i;
 	TfwHttpReq *mockreq;
-	FrangAcc *ra;
 	unsigned long ts;
 
 	mockreq = get_test_req("GET / HTTP/1.1\r\n");
@@ -153,30 +146,30 @@ TEST(frang, max_conn)
 	isk = (struct inet_sock *) (&mocksock);
 	isk->inet_saddr = htonl(in_aton(inet_addr));
 	res = frang_conn_new(&mocksock);
-	ra = mocksock.sk_security;
-	ra->conn_curr = 5;
-	mocksock.sk_security = ra;
+	((FrangAcc*)mocksock.sk_security)->conn_curr = 5;
 
 	res = req_handler(mockreq);
+	/*conn_max*/
 	EXPECT_EQ(TFW_BLOCK, res);
+
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 5;
-	ra->history[i].conn_new = 5;
-	mocksock.sk_security = ra;
+	((FrangAcc*)mocksock.sk_security)->history[i].conn_new = 5;
 	res = req_handler(mockreq);
 	/*conn_rate */
 	EXPECT_EQ(TFW_BLOCK, res);
+
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 0;
 	frang_cfg->conn_burst = 5;
-	ra->history[i].conn_new = 5;
-	mocksock.sk_security = ra;
+((FrangAcc*)mocksock.sk_security)->history[i].conn_new = 5;
 
 	res = req_handler (mockreq);
-	/*conn_max */
+	/*conn_burst*/
 	EXPECT_EQ(TFW_BLOCK, res);
+
 	test_req_free(mockreq);
 }
 
@@ -306,12 +299,12 @@ TEST(frang, body_len)
 	TfwStr crlf;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
-	body.ptr = "GET http://natsys-lab.com/foo";
+	body.ptr = "<http><body></body></http>";
 	body.len = strlen(body.ptr);
 	crlf.len = 2;
 	crlf.ptr = "\r\n";
 	mockreq->crlf = crlf;
-	mockreq->body.len = 29;
+	mockreq->body = body;
 	frang_cfg->http_body_len = 3;
 	mockreq->frang_st = 0;
 
