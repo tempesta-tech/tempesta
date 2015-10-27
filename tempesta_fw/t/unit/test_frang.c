@@ -126,11 +126,12 @@ static TfwHttpReq *
 get_test_req(const char *req)
 {
 	TfwHttpReq *test_req;
-	unsigned char *req_data = (unsigned char *) req;
+	static char req_str_copy[PAGE_SIZE]; 
 	int len = strlen(req);
 	BUG_ON(len == 0);
+	strcpy(req_str_copy,req);
 	test_req = test_req_alloc(len);
-	tfw_http_parse_req(test_req, req_data, len);
+	tfw_http_parse_req(test_req, req_str_copy, len);
 	return test_req;
 }
 
@@ -374,19 +375,19 @@ TEST_SUITE(frang)
 	frang_conn_new = get_sym_ptr("frang_conn_new");
 	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
 
-	UG_ON(frang_cfg == NULL);
+	BUG_ON(frang_cfg == NULL);
 	BUG_ON(frang_conn_new == NULL);
 	BUG_ON(frang_http_req_handler == NULL);
 
-	TEST_RUN(frang, req_count);
 	TEST_RUN(frang, max_conn);
 	TEST_RUN(frang, uri);
-	TEST_RUN(frang, body_len);
 	TEST_RUN(frang, ct_check);
+	TEST_RUN(frang, req_method);
 	TEST_RUN(frang, field_len);
 	TEST_RUN(frang, host);
-	TEST_RUN(frang, req_method);
-	TEST_RUN(frang, chunk_cnt);
+	TEST_RUN(frang, req_count);
+	TEST_RUN(frang, body_len);
 	TEST_RUN(frang, body_timeout);
 	TEST_RUN(frang, hdr_timeout);
-}
+	TEST_RUN(frang, chunk_cnt);
+	}
