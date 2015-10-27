@@ -84,7 +84,6 @@ int __fsm_const_state;							\
 int __fsm_n __attribute__((unused));					\
 size_t __fsm_sz __attribute__((unused));				\
 unsigned char *__fsm_ch __attribute__((unused));			\
-TfwStr *__fsm_str __attribute__((unused));				\
 unsigned int __fsm_chunkflags __attribute__((unused)) = 0;
 
 #define __FSM_START(s)							\
