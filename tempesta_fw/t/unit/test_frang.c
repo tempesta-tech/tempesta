@@ -21,7 +21,7 @@
 
 #include <linux/inet.h>
 
-#include "../../classifier.h"
+#include "../../gfsm.h"
 #include "../../http.h"
 #include "../../log.h"
 
@@ -129,7 +129,7 @@ get_test_req(const char *req)
 	static char req_str_copy[PAGE_SIZE]; 
 	int len = strlen(req);
 	BUG_ON(len == 0);
-	strcpy(req_str_copy,req);
+	strcpy(req_str_copy, req);
 	test_req = test_req_alloc(len);
 	tfw_http_parse_req(test_req, req_str_copy, len);
 	return test_req;
@@ -167,7 +167,7 @@ TEST(frang, max_conn)
 	frang_cfg->conn_burst = 5;
 ((FrangAcc*)mocksock.sk_security)->history[i].conn_new = 5;
 
-	res = req_handler (mockreq);
+	res = req_handler(mockreq);
 	/*conn_burst*/
 	EXPECT_EQ(TFW_BLOCK, res);
 
@@ -390,4 +390,4 @@ TEST_SUITE(frang)
 	TEST_RUN(frang, body_timeout);
 	TEST_RUN(frang, hdr_timeout);
 	TEST_RUN(frang, chunk_cnt);
-	}
+}
