@@ -102,6 +102,7 @@ typedef struct {
 
 #define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
 						  sizeof(val) - 1, 0 }
+#define TFW_STR_FROM(s)         ((TfwStr){(char*)s, NULL, strlen(s)})
 
 /* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
@@ -131,7 +132,7 @@ typedef struct {
  */
 #define TFW_STR_CURR(s)							\
 ({									\
-	TfwStr *_tmp = TFW_STR_DUP(s)					\
+	typeof(s) _tmp = TFW_STR_DUP(s)					\
 		       ? (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1	\
 		       : (s);						\
 	(_tmp->flags & __TFW_STR_COMPOUND)				\
