@@ -382,7 +382,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		addr.v4.sin_addr.s_addr = INADDR_ANY;
 		addr.v4.sin_port = htons(port);
 	} else {
-		r = tfw_addr_pton(in_str, &addr);
+		r = tfw_addr_pton(&TFW_STR_FROM(in_str), &addr);
 		if (r)
 			goto parse_err;
 	}
