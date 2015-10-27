@@ -374,9 +374,9 @@ TEST_SUITE(frang)
 	frang_conn_new = get_sym_ptr("frang_conn_new");
 	frang_http_req_handler = get_sym_ptr("frang_http_req_handler");
 
-	BUG_ON(frang_http_req_handler == NULL);
+	UG_ON(frang_cfg == NULL);
 	BUG_ON(frang_conn_new == NULL);
-	BUG_ON(frang_cfg == NULL);
+	BUG_ON(frang_http_req_handler == NULL);
 
 	TEST_RUN(frang, req_count);
 	TEST_RUN(frang, max_conn);
