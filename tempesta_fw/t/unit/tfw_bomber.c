@@ -40,10 +40,12 @@
 
 static int tfw_threads = 4;
 static int tfw_connects = 16;
+static int tfw_messages = 4;
 static char *server = "127.0.0.1:80";
 
 module_param(tfw_threads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(tfw_connects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param(tfw_messages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(server, charp, 0);
 
 MODULE_PARM_DESC(server, "Server host address and optional port nunber");
@@ -243,12 +245,15 @@ static SsHooks tfw_bomber_hooks = {
 static void
 tfw_bomber_send_msgs(void)
 {
-	int i, k;
+	int i, k, m;
 
 	for (i = 0; i < tfw_threads; i++) {
 		for (k = 0; k < tfw_connects; k++) {
-			if (tfw_bomber_desc[i][k].sk)
-				msg_send(&tfw_bomber_desc[i][k]);
+			for (m = 0; m < tfw_messages; m++) {
+				if (tfw_bomber_desc[i][k].sk) {
+					msg_send(&tfw_bomber_desc[i][k]);
+				}
+			}
 		}
 	}
 }
