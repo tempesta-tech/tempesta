@@ -220,6 +220,7 @@ typedef struct {
 /**
  * HTTP Request.
  *
+ * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
@@ -233,6 +234,7 @@ typedef struct {
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
+	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
