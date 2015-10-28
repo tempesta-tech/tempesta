@@ -336,6 +336,10 @@ tfw_bomber_thread_finish(void *data)
 	uint64_t time_max = (uint64_t)get_seconds() + TFW_BOMBER_WAIT_MAX;
 	int ret = 0;
 	int nerror, ncomplete;
+	struct timeval tvs, tve;
+	int delta;
+
+	do_gettimeofday(&tvs);
 
 	set_freezable();
 	do {
@@ -358,6 +362,11 @@ tfw_bomber_thread_finish(void *data)
 	tfw_bomber_send_msgs();
 	tfw_bomber_release_sockets();
 	tfw_bomber_finish_task = NULL;
+
+	do_gettimeofday(&tve);
+
+	delta = (tve.tv_sec - tvs.tv_sec) * 1e6 + (tve.tv_usec - tvs.tv_usec);
+	printk("Total time: %d usec\n",delta);
 
 	return ret;
 }
