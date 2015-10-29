@@ -548,7 +548,9 @@ __FSM_STATE(prefix ## _Body) {						\
 		case CSTR_NEQ: /* bad header value */			\
 			return TFW_BLOCK;				\
 		default:						\
-			BUG_ON(__fsm_n <= 0);				\
+			BUG_ON(__fsm_n < 0);				\
+			if (unlikely(__fsm_n == 0))			\
+				return TFW_BLOCK;			\
 			parser->to_read = parser->_tmp_acc;		\
 			parser->_tmp_acc = 0;				\
 			__FSM_B_MOVE_n(prefix ## _BodyChunkEoL, __fsm_n); \
