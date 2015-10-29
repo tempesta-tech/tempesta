@@ -83,6 +83,7 @@ static atomic_t tfw_bomber_nthread;
 static atomic_t tfw_bomber_connect_nattempt;  /* Successful attempts */
 static atomic_t tfw_bomber_connect_ncomplete; /* Connections established */
 static atomic_t tfw_bomber_connect_nerror;    /* Number of errors */
+static atomic_t tfw_bomber_request_nsend;     /* Number of requests */
 
 static TfwAddr tfw_bomber_server_address;
 static SsHooks tfw_bomber_hooks;
@@ -139,6 +140,8 @@ msg_send(tfw_bomber_desc_t *desc)
 
 	sk = desc->sk;
 	BUG_ON(!sk);
+
+	atomic_inc(&tfw_bomber_request_nsend);
 
 	len = 1 * 1024 * 1024;
 	str = vmalloc(len);
@@ -268,6 +271,8 @@ bomber_report(void)
 		atomic_read(&tfw_bomber_connect_ncomplete));
 	printk("and %d connections completed with error\n",
 		atomic_read(&tfw_bomber_connect_nerror));
+	printk("and %d request sent\n",
+		atomic_read(&tfw_bomber_request_nsend));
 }
 
 static void
@@ -402,6 +407,7 @@ tfw_bomber_create_tasks(void)
 		atomic_set(&tfw_bomber_connect_nattempt, 0);
 		atomic_set(&tfw_bomber_connect_ncomplete, 0);
 		atomic_set(&tfw_bomber_connect_nerror, 0);
+		atomic_set(&tfw_bomber_request_nsend, 0);
 	}
 
 	return ret;
