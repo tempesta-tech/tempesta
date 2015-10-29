@@ -30,7 +30,6 @@
 #include "sync_socket.h"
 #include "connection.h"
 #include "http_msg.h"
-#include "sync_socket.h"
 #include "tfw_fuzzer.h"
 
 #ifdef SS_BANNER
@@ -261,13 +260,13 @@ tfw_bomber_send_msgs(void)
 static void
 bomber_report(void)
 {
-	SS_DBG("Initiated %d connects\n",
+	printk("Initiated %d connects\n",
 		tfw_connects * tfw_threads);
-	SS_DBG("Of those %d connects initiated successfully\n",
+	printk("Of those %d connects initiated successfully\n",
 		atomic_read(&tfw_bomber_connect_nattempt));
-	SS_DBG("Of those %d connections were established successfully\n",
+	printk("Of those %d connections were established successfully\n",
 		atomic_read(&tfw_bomber_connect_ncomplete));
-	SS_DBG("and %d connections completed with error\n",
+	printk("and %d connections completed with error\n",
 		atomic_read(&tfw_bomber_connect_nerror));
 }
 
@@ -364,6 +363,8 @@ tfw_bomber_thread_finish(void *data)
 	tfw_bomber_finish_task = NULL;
 
 	do_gettimeofday(&tve);
+
+	bomber_report();
 
 	delta = (tve.tv_sec - tvs.tv_sec) * 1e6 + (tve.tv_usec - tvs.tv_usec);
 	printk("Total time: %d usec\n",delta);
@@ -482,7 +483,6 @@ tfw_bomber_exit(void)
 	kfree(tfw_bomber_desc);
 	kfree(tfw_bomber_connect_task);
 
-	bomber_report();
 	fuzz_reset();
 }
 
