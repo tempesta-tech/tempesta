@@ -271,7 +271,7 @@ bomber_report(void)
 		atomic_read(&tfw_bomber_connect_ncomplete));
 	printk("and %d connections completed with error\n",
 		atomic_read(&tfw_bomber_connect_nerror));
-	printk("and %d request sent\n",
+	printk("and %d requests sent\n",
 		atomic_read(&tfw_bomber_request_nsend));
 }
 
@@ -403,12 +403,12 @@ tfw_bomber_create_tasks(void)
 			break;
 		}
 		tfw_bomber_connect_task[i] = task;
-
-		atomic_set(&tfw_bomber_connect_nattempt, 0);
-		atomic_set(&tfw_bomber_connect_ncomplete, 0);
-		atomic_set(&tfw_bomber_connect_nerror, 0);
-		atomic_set(&tfw_bomber_request_nsend, 0);
 	}
+
+	atomic_set(&tfw_bomber_connect_nattempt, 0);
+	atomic_set(&tfw_bomber_connect_ncomplete, 0);
+	atomic_set(&tfw_bomber_connect_nerror, 0);
+	atomic_set(&tfw_bomber_request_nsend, 0);
 
 	return ret;
 }
