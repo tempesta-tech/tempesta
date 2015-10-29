@@ -40,14 +40,14 @@
 static int tfw_threads = 4;
 static int tfw_connects = 16;
 static int tfw_messages = 4;
-static char *server = "127.0.0.1:80";
+static char *tfw_server = "127.0.0.1:80";
 
 module_param(tfw_threads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(tfw_connects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(tfw_messages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(server, charp, 0);
+module_param(tfw_server, charp, 0);
 
-MODULE_PARM_DESC(server, "Server host address and optional port nunber");
+MODULE_PARM_DESC(tfw_server, "Server host address and optional port nunber");
 MODULE_LICENSE("GPL");
 
 #define TFW_BOMBER_WAIT_INTVL		(2)		/* in seconds */
@@ -412,11 +412,11 @@ tfw_bomber_init(void)
 {
 	int i, j, ret = 0;
 
-	if (tfw_addr_pton(server, &tfw_bomber_server_address)) {
-		SS_ERR("Unable to parse server's address: %s", server);
+	if (tfw_addr_pton(tfw_server, &tfw_bomber_server_address)) {
+		SS_ERR("Unable to parse server's address: %s", tfw_server);
 		return -EINVAL;
 	}
-	SS_DBG("Started bomber module, server's address is %s\n", server);
+	SS_DBG("Started bomber module, server's address is %s\n", tfw_server);
 
 	tfw_bomber_desc = kmalloc(tfw_threads *
 		sizeof(tfw_bomber_desc_t *), GFP_KERNEL);
