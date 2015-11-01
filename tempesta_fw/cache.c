@@ -1,16 +1,9 @@
 /**
  *		Tempesta FW
  *
- * HTTP cache (see RFC 2616).
+ * HTTP cache (RFC 7234).
  * Here is implementation of expiration and validation models and other HTTP
  * specific stuff. The cache is backed by physical storage layer.
- *
- * TODO:
- * 1. Cache-Control, Expires, ETag, Last-Modified, Vary and some other
- *    RFC 2616 HTTP cache control facilities are not supported yet.
- *    RFC 3143 also affects the caching design.
- *
- * 2. Purge cache by individual entities (e.g. curl -X PURGE <URL>)
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
@@ -21,8 +14,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -42,65 +35,109 @@
 #include "cache.h"
 #include "http_msg.h"
 #include "lib.h"
+#include "ss_skb.h"
+
+#if MAX_NUMNODES > ((1 << 16) - 1)
+#warning "Please set CONFIG_NODES_SHIFT to less than 16"
+#endif
 
 /*
- * @trec	- Database record descriptor.
- * @key		- the cache enty key (URI + Host header)
- * @hdr_lens	- array of size @hdr_num with all HTTP header lengths
- * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs)
- * @body	- pointer to response body (with a prepending CRLF)
- * @resp	- Linked response if the entry is just created from recent
- * 		  message and NULL if loaded from database.
- *
- * Members from @trec to @body_len are directly written to database file.
- * Data pointers from @key to @body are converted from pointers to offsets
- * on database writing.
+ * @trec	- Database record descriptor;
+ * @key_len	- length of key (URI + Host header);
+ * @hdr_num	- numbder of headers;
+ * @hdr_len	- length of whole headers data;
+ * @key		- the cache enty key (URI + Host header);
+ * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
+ * @body	- pointer to response body (with a prepending CRLF);
  */
 typedef struct {
 	TdbVRec		trec;
-	/* TDB record body begins from the below. */
-#define ce_body		hdr_num
-	unsigned int	hdr_num;
+#define ce_body		key_len
 	unsigned int	key_len;
-	unsigned long	body_len;
-	/* db direct write bound */
-	char		*key;
-	unsigned int	*hdr_lens;
-	char		*hdrs;
-	char		*body;
-	/* db conversion bound */
-	TfwHttpResp	*resp;
+	unsigned int	hdr_num;
+	unsigned int	hdr_len;
+	long		key;
+	long		hdrs;
+	long		body;
 } TfwCacheEntry;
+
+/**
+ * String header for cache entries used for TfwStr serialization.
+ */
+typedef struct {
+	unsigned long	flags : 8,
+			len : 56;
+} TfwCStr;
+
+#define TFW_CSTR_MAXLEN		(1UL << 56)
+#define TFW_CSTR_HDRLEN		(sizeof(TfwCStr))
 
 /* Work to copy response body to database. */
 typedef struct tfw_cache_work_t {
 	struct work_struct	work;
-	union {
-		TfwCacheEntry			*ce;
-		struct {
-			TfwHttpReq		*req;
-			tfw_http_req_cache_cb_t	action;
-			void			*data;
-			unsigned long		key;
-		} _r;
-	} _u;
-#define cw_ce	_u.ce
-#define cw_req	_u._r.req
-#define cw_act	_u._r.action
-#define cw_data	_u._r.data
-#define cw_key	_u._r.key
+	TfwHttpReq		*req;
+	TfwHttpResp		*resp;
+	tfw_http_cache_cb_t	action;
+	unsigned long		key;
 } TfwCWork;
 
-static TDB *db;
+static struct {
+	int cache;
+	unsigned int db_size;
+	const char *db_path;
+} cache_cfg __read_mostly;
+
+/* Cache modes. */
+enum {
+	TFW_CACHE_NONE = 0,
+	TFW_CACHE_SHARD,
+	TFW_CACHE_REPLICA,
+};
+
+/*
+ * Non-cacheable hop-by-hop response headers in terms of RFC 2616.
+ * The table is used if server doesn't specify Cache-Control no-cache
+ * directive (RFC 7234 5.2.2.2) explicitly.
+ *
+ * We don't store the headers in cache and create then from scratch.
+ * Adding a header is faster then modify it, so this speeds up headers
+ * adjusting as well as saves cache storage.
+ *
+ * TODO process Cache-Control no-cache
+ */
+static const int hbh_hdrs[] = {
+	[0 ... TFW_HTTP_HDR_RAW]	= 0,
+	[TFW_HTTP_HDR_CONNECTION]	= 1,
+};
+
+static struct {
+	int	cpu;
+	TDB	*db;
+} c_nodes[MAX_NUMNODES] __read_mostly;
+
 static struct task_struct *cache_mgr_thr;
 static struct workqueue_struct *cache_wq;
 static struct kmem_cache *c_cache;
 
-static struct {
-	bool cache;
-	unsigned int db_size;
-	const char *db_path;
-} cache_cfg __read_mostly;
+/* Iterate over request URI and Host header to process request key. */
+#define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
+	if (TFW_STR_PLAIN(&req->uri_path)) {				\
+		c = &req->uri_path;					\
+		u_end = &req->uri_path + 1;				\
+	} else {							\
+		c = req->uri_path.ptr;					\
+		u_end = (TfwStr *)req->uri_path.ptr			\
+			+ TFW_STR_CHUNKN(&req->uri_path);		\
+	}								\
+	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
+		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
+		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
+	} else {							\
+		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr;	\
+		h_end = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr \
+			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
+	}								\
+	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
 
 
 /**
@@ -112,34 +149,96 @@ tfw_cache_key_calc(TfwHttpReq *req)
 	return tfw_http_req_key_calc(req);
 }
 
-/**
- * Cache entry key is the request URI + Host header value.
- */
-static int
-tfw_cache_entry_key_copy(TfwCacheEntry *ce, TfwHttpReq *req)
+static bool
+tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	/* TODO */
-	return 0;
+	/* Record key starts at first data chunk. */
+	int n, c_off = 0, t_off;
+	TdbVRec *trec = &ce->trec;
+	TfwStr *c, *h_start, *u_end, *h_end;
+
+	t_off = sizeof(*ce) - offsetof(TfwCacheEntry, ce_body);
+	TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end) {
+		if (!trec)
+			return false;
+this_chunk:
+		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
+		if (strnicmp((char *)c->ptr + c_off, trec->data + t_off, n))
+			return false;
+		if (n == c->len - c_off) {
+			c_off = 0;
+		} else {
+			c_off += n;
+		}
+		if (n == trec->len - t_off) {
+			t_off = 0;
+			trec = tdb_next_rec_chunk(db, trec);
+			if (trec && c_off)
+				goto this_chunk;
+		} else {
+			t_off += n;
+		}
+	}
+
+	return !trec;
 }
 
 /**
  * Get NUMA node by the cache key.
+ * The function gives different results if number of nodes changes,
+ * e.g. due to hot-plug CPU. Cache eviction restores memory acquired by
+ * inaccessible entries. The event of new/dead CPU is rare, so there is
+ * no sense to use expensive rendezvous hashing.
  */
-static int
+static unsigned short
 tfw_cache_key_node(unsigned long key)
 {
-	/* TODO distribute keys among NUMA nodes. */
-	return numa_node_id();
+	return key % num_online_nodes();
+}
+
+/**
+ * Just choose any CPU for each node to use queue_work_on() for
+ * nodes scheduling. Reserve 0th CPU for other tasks.
+ */
+static void
+tfw_init_node_cpus(void)
+{
+	int cpu, node;
+
+	for_each_online_cpu(cpu) {
+		node = cpu_to_node(cpu);
+		if (!c_nodes[node].cpu)
+			c_nodes[node].cpu = cpu;
+	}
+}
+
+static TDB *
+node_db(void)
+{
+	return c_nodes[numa_node_id()].db;
 }
 
 /**
  * Get a CPU identifier from @node to schedule a work.
  */
 static int
-tfw_cache_sched_work_cpu(int node)
+tfw_cache_sched_work_cpu(TfwHttpReq *req)
 {
-	/* TODO schedule the CPU */
-	return smp_processor_id();
+	return c_nodes[req->node].cpu;
+}
+
+static void
+tfw_cache_str_write_hdr(const TfwStr *str, char *p)
+{
+	TfwCStr *s = (TfwCStr *)p;
+
+	if (TFW_STR_DUP(str)) {
+		s->flags = TFW_STR_DUPLICATE;
+		s->len = TFW_STR_CHUNKN(str);
+	} else {
+		s->flags = 0;
+		s->len = str->len;
+	}
 }
 
 /**
@@ -159,23 +258,82 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 		int room = (char *)(*trec + 1) + (*trec)->len - *p;
 		BUG_ON(room < 0);
 
-		TFW_DBG3("Cache: copy [%.*s](%u) to rec=%p(len=%u), p=%p"
+		TFW_DBG3("Cache: copy [%.*s](%lu) to rec=%p(len=%u), p=%p"
 			 " tot_len=%lu room=%d copied=%ld\n",
-			 min(10, (int)src->len), (char *)src->ptr, src->len,
-			 *trec, (*trec)->len, *p, tot_len, room, copied);
+			 PR_TFW_STR(src), src->len, *trec, (*trec)->len,
+			 *p, tot_len, room, copied);
 
 		if (!room) {
 			BUG_ON(tot_len < copied);
-			*trec = tdb_entry_add(db, *trec, tot_len - copied);
+			*trec = tdb_entry_add(node_db(), *trec,
+					      tot_len - copied);
 			if (!*trec)
 				return -ENOMEM;
 			*p = (char *)(*trec + 1);
 			room = (*trec)->len;
 		}
-		room = min((long)room, src->len - copied);
+		room = min((unsigned long)room, src->len - copied);
 		memcpy(*p, (char *)src->ptr + copied, room);
 		*p += room;
 		copied += room;
+	}
+
+	return copied;
+}
+
+/**
+ * Deep TfwStr copy to TdbRec.
+ * @src is copied in depth first fasion to speed up upcoming scans.
+ * @return number of copied bytes on success and negative value otherwise.
+ */
+static long
+tfw_cache_deep_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
+{
+	long n = sizeof(TfwCStr), copied;
+	TfwStr *dup, *dup_end, *chunk, *chunk_end;
+
+	if (unlikely(src->len >= TFW_CSTR_MAXLEN)) {
+		TFW_WARN("Cache: trying to store too big string %lx\n",
+			 src->len);
+		return -E2BIG;
+	}
+	/* Don't split short strings. */
+	if (likely(!TFW_STR_DUP(src))
+	    && sizeof(TfwCStr) + src->len <= L1_CACHE_BYTES)
+		n += src->len;
+
+	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
+	if (!*p) {
+		TFW_WARN("Cache: cannot allocate TDB space\n");
+		return -ENOMEM;
+	}
+	tfw_cache_str_write_hdr(src, *p);
+	*p += TFW_CSTR_HDRLEN;
+	*tot_len += TFW_CSTR_HDRLEN;
+	copied = TFW_CSTR_HDRLEN;
+
+	if (TFW_STR_PLAIN(src)) {
+		n = tfw_cache_copy_str(p, trec, src, *tot_len);
+		if (n < 0)
+			return n;
+		*tot_len -= n;
+		return copied + n;
+	}
+
+	TFW_STR_FOR_EACH_DUP(dup, src, dup_end) {
+		if (dup != src) {
+			tfw_cache_str_write_hdr(dup, *p);
+			*p += TFW_CSTR_HDRLEN;
+			*tot_len += TFW_CSTR_HDRLEN;
+			copied += TFW_CSTR_HDRLEN;
+		}
+		TFW_STR_FOR_EACH_CHUNK(chunk, dup, chunk_end) {
+			n = tfw_cache_copy_str(p, trec, chunk, *tot_len);
+			if (n < 0)
+				return n;
+			*tot_len -= n;
+			copied += n;
+		}
 	}
 
 	return copied;
@@ -187,266 +345,358 @@ tfw_cache_copy_str(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
  * It's nasty to copy data on CPU, but we can't use DMA for mmaped file
  * as well as for unaligned memory areas.
  */
-static void
-tfw_cache_copy_resp(struct work_struct *work)
+static int
+tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
+		    size_t tot_len)
 {
-	int i;
-	size_t hlens, tot_len;
 	long n;
 	char *p;
-	TfwCWork *cw = (TfwCWork *)work;
-	TfwCacheEntry *ce = cw->cw_ce;
-	TdbVRec *trec;
-	TfwHttpHdrTbl *htbl;
-	TfwStr *field, *f_end, *end;
+	TdbVRec *trec = &ce->trec;
+	TfwStr *field, *start, *end1, *end2;
+	TDB *db = node_db();
 
-	BUG_ON(!ce->resp);
-
-	/* Write HTTP headers. */
-	htbl = ce->resp->h_tbl;
-	ce->hdr_num = htbl->off;
-
-	hlens = sizeof(ce->hdr_lens[0]) * ce->hdr_num;
-	tot_len = hlens + ce->resp->msg.len;
-
-	/*
-	 * Try to place the cached response in single memory chunk.
-	 *
-	 * Number of HTTP headers is unlimited while TDB is able to
-	 * a page at the most. So if number of HTTP message headers are
-	 * out of page size, the the response won't be cached.
-	 */
-	trec = tdb_entry_add(db, (TdbVRec *)ce, tot_len);
-	if (!trec || trec->len <= hlens) {
-		TFW_WARN("Cannot allocate memory to cache HTTP headers."
-			 " Probably TDB cache is exhausted.\n");
-		goto err;
-	}
-	/* FIXME write TDB offsets instead of pointers hereafter. */
-	ce->hdr_lens = (unsigned int *)(trec + 1);
-	p = (char *)(trec + 1) + hlens;
-	tot_len -= hlens;
-
-	TFW_DBG3("cache resp=%p/ce=%p: new_trec=%p(len=%u) hlens=%lu\n",
-		 ce->resp, ce, trec, trec->len, hlens);
-
-	/*
-	 * Set start of headers pointer just after array of
-	 * header length.
-	 */
-	ce->hdrs = p;
-	i = 0;
-	FOR_EACH_HDR_FIELD(field, f_end, ce->resp) {
-		TfwStr *dup, *dup_end;
-		ce->hdr_lens[i] = 0;
-		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
-			TfwStr *c;
-			TFW_STR_FOR_EACH_CHUNK(c, dup, end) {
-				n = tfw_cache_copy_str(&p, &trec, c, tot_len);
-				if (n < 0) {
-					TFW_ERR("Cache: cannot copy HTTP"
-						" header\n");
-					goto err;
-				}
-				BUG_ON(n > tot_len);
-				tot_len -= n;
-				/*
-				 * Write all duplicate headers one by one
-				 * and threat them later as signle header.
-				 */
-				ce->hdr_lens[i] += n;
-			}
+	/* Write record key (URI + Host header). */
+	p = (char *)(ce + 1);
+	ce->key = TDB_OFF(db->hdr, p);
+	TFW_CACHE_REQ_KEYITER(field, req, end1, start, end2) {
+		n = tfw_cache_copy_str(&p, &trec, field, tot_len);
+		if (n < 0) {
+			TFW_ERR("Cache: cannot copy request key\n");
+			return -ENOMEM;
 		}
-		i++;
+		BUG_ON(n > tot_len);
+		tot_len -= n;
+	}
+
+	ce->hdrs = TDB_OFF(db->hdr, p);
+	ce->hdr_len = 0;
+	FOR_EACH_HDR_FIELD(field, end1, resp) {
+		/* Skip hop-by-hop headers. */
+		if (hbh_hdrs[(field - resp->h_tbl->tbl) / sizeof(TfwStr)])
+			continue;
+		n = tfw_cache_deep_copy_str(&p, &trec, field, &tot_len);
+		if (n < 0) {
+			TFW_ERR("Cache: cannot copy HTTP header\n");
+			return -ENOMEM;
+		}
+		ce->hdr_len += n;
 	}
 
 	/* Write HTTP response body. */
-	ce->body = p;
-	ce->body_len = 0;
-	TFW_STR_FOR_EACH_CHUNK(field, &ce->resp->body, end) {
-		n = tfw_cache_copy_str(&p, &trec, field, tot_len);
-		if (n < 0) {
-			TFW_ERR("Cache: cannot copy HTTP body\n");
-			goto err;
-		}
-		tot_len -= n;
-		ce->body_len += n;
+	ce->body = TDB_OFF(db->hdr, p);
+	n = tfw_cache_deep_copy_str(&p, &trec, &resp->body, &tot_len);
+	if (n < 0) {
+		TFW_ERR("Cache: cannot copy HTTP body\n");
+		return -ENOMEM;
+	}
+	TFW_DBG("Cache: copied %ldB, tot_len=%lu content-length=%lu"
+		" msg_len=%lu",
+		n, tot_len, resp->content_length, resp->msg.len);
+
+	return 0;
+}
+
+static void
+__cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
+		 unsigned long key, size_t tot_len)
+{
+	TfwCacheEntry *ce, cdata = {{}};
+	size_t len = tot_len;
+
+	/* Try to place the cached response in single memory chunk. */
+	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
+	/*
+	 * TDB should provide enough space to plase at least head of
+	 * the record key at first chunk.
+	 */
+	BUG_ON(len <= sizeof(cdata));
+	if (!ce)
+		return;
+
+	TFW_DBG3("cache db=%p resp=%p/req=%p/ce=%p:"
+		 " tot_len=%lu alloc_len=%lu\n",
+		 db, resp, req, ce, tot_len, len);
+
+	ce->hdr_num = resp->h_tbl->off;
+	if (tfw_cache_copy_resp(ce, resp, req, tot_len)) {
+		/* TODO delete the probably partially built TDB entry. */
 	}
 
-err:
-	/* FIXME all allocated TDB blocks are leaked here. */
-	kmem_cache_free(c_cache, cw);
 }
 
 void
 tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
-	TfwCWork *cw;
-	TfwCacheEntry *ce, cdata = {{}};
 	unsigned long key;
-	size_t len = sizeof(cdata) - offsetof(TfwCacheEntry, ce_body);
+	size_t tot_len;
 
 	if (!cache_cfg.cache)
-		goto out;
+		return;
 
 	key = tfw_cache_key_calc(req);
 
-	/* TODO copy at least first part of URI here. */
+	tot_len = sizeof(TfwCacheEntry)
+		  + req->uri_path.len + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len
+		  + sizeof(TfwStr) * resp->h_tbl->off
+		  + resp->msg.len;
 
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
-	BUG_ON(len != sizeof(cdata)- offsetof(TfwCacheEntry, ce_body));
-	if (!ce)
-		/* TODO delete the TDB entry. */
-		goto out;
-
-	ce->resp = resp;
-
-	TFW_DBG3("cache resp=%p to ce=%p\n", resp, ce);
-
-	/*
-	 * We must write the entry key now because the request dies
-	 * when the function finishes.
-	 */
-	if (tfw_cache_entry_key_copy(ce, req))
-		goto out;
-
-	cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
-	if (!cw)
-		goto out;
-	INIT_WORK(&cw->work, tfw_cache_copy_resp);
-	cw->cw_ce = ce;
-	queue_work_on(tfw_cache_sched_work_cpu(numa_node_id()), cache_wq,
-		      (struct work_struct *)cw);
-
-	/*
-	 * Request isn't needed anymore, response is cached:
-	 * free the first one and unlink from the connection the second one,
-	 * so the server connection will create a new message when a new
-	 * data arrives.
-	 */
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	tfw_http_conn_msg_unlink((TfwHttpMsg *)resp);
-	return;
-out:
-	/* Now we don't need the request and the reponse anymore. */
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+	if (cache_cfg.cache == TFW_CACHE_SHARD) {
+		__cache_add_node(node_db(), resp, req, key, tot_len);
+	} else {
+		int nid;
+		/*
+		 * TODO probably it's better to do this in TDB per-node threads
+		 * rather than in softirq...
+		 */
+		for_each_node_with_cpus(nid)
+			__cache_add_node(c_nodes[nid].db, resp, req, key,
+					 tot_len);
+	}
 }
 
-#define SKB_HDR_SZ	(MAX_HEADER + sizeof(struct ipv6hdr)		\
-			 + sizeof(struct tcphdr))
+static void
+tfw_cache_resp_process_node(struct work_struct *work)
+{
+	TfwCWork *cw = (TfwCWork *)work;
+
+	cw->action(cw->req, cw->resp);
+
+	kmem_cache_free(c_cache, cw);
+}
+
+void
+tfw_cache_resp_process(TfwHttpResp *resp, TfwHttpReq *req,
+		       tfw_http_cache_cb_t action)
+{
+	TfwCWork *cw;
+
+	if (cache_cfg.cache != TFW_CACHE_SHARD) {
+		action(req, resp);
+		return;
+	}
+
+	cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
+	if (!cw) {
+		action(req, resp);
+		return;
+	}
+	INIT_WORK(&cw->work, tfw_cache_resp_process_node);
+	cw->req = req;
+	cw->resp = resp;
+	cw->action = action;
+	queue_work_on(tfw_cache_sched_work_cpu(req), cache_wq,
+		      (struct work_struct *)cw);
+}
+
+static int
+__write_field_val(TDB *db, TfwHttpResp *resp, TfwMsgIter *it, TdbVRec **trec,
+		 char **data, TfwStr *hdr)
+{
+	int r, copied = 0;
+	TdbVRec *tr = *trec;
+	TfwStr c;
+
+	while (1)  {
+		c.ptr = *data;
+		c.len = min(tr->data + tr->len - *data,
+			    (long)(hdr->len - copied));
+		r = tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c);
+		if (r)
+			return r;
+
+		copied += c.len;
+		*data += c.len;
+		if (copied == hdr->len)
+			break;
+
+		tr = *trec = tdb_next_rec_chunk(db, tr);
+		BUG_ON(!tr);
+		*data = tr->data;
+	}
+
+	return 0;
+}
 
 /**
- * Build ce->resp and ce->resp->msg that it can be sent via TCP socket.
- *
- * Cache entry data is set as paged fragments of skb.
+ * Write HTTP header to skb data.
+ * The headers are likely to be adjusted, so copy them.
+ */
+static int
+tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
+			 TdbVRec **trec, TfwMsgIter *it, char **p)
+{
+	int r, d, dn;
+	TfwStr *dups;
+	TfwCStr *s = (TfwCStr *)*p;
+
+	hdr->len = s->len;
+	hdr->flags = s->flags;
+	*p += TFW_CSTR_HDRLEN;
+
+	if (!TFW_STR_DUP(hdr)) {
+		if ((r = __write_field_val(db, resp, it, trec, p, hdr)))
+			return r;
+		return 0;
+	}
+
+	/* Process duplicated headers. */
+	dn = TFW_STR_CHUNKN(hdr);
+	dups = tfw_pool_alloc(resp->pool, dn * sizeof(TfwStr));
+	if (!dups)
+		return -ENOMEM;
+
+	for (d = 0; d < dn; ++d) {
+		s = (TfwCStr *)*p;
+		BUG_ON(s->flags);
+		dups[d].len = s->len;
+		dups[d].flags = s->flags;
+		*p += TFW_CSTR_HDRLEN;
+		if ((r = __write_field_val(db, resp, it, trec, p, hdr)))
+			return r;
+	}
+
+	return 0;
+}
+
+/**
+ * Build the message body as paged fragments of skb.
  * See do_tcp_sendpages() as reference.
+ */
+static int
+tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
+			  TfwMsgIter *it, char *p)
+{
+	int f, off, f_size;
+	size_t n;
+	struct sk_buff *skb;
+	TfwCStr *s = (TfwCStr *)p;
+
+	BUG_ON(!it->skb);
+	if (it->frag == MAX_SKB_FRAGS - 1) {
+		skb = ss_skb_alloc();
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(&resp->msg.skb_list, skb);
+		f = 0;
+	} else {
+		skb = it->skb;
+		f = it->frag;
+	}
+
+	for (n = s->len; n;
+	     trec = tdb_next_rec_chunk(db, trec), p = trec->data)
+	{
+		if (f == MAX_SKB_FRAGS) {
+			skb = ss_skb_alloc();
+			if (!skb)
+				return -ENOMEM;
+			ss_skb_queue_tail(&resp->msg.skb_list, skb);
+			f = 0;
+		}
+
+		/* TDB keeps data by pages and we can reuse the pages. */
+		off = (unsigned long)p & ~PAGE_MASK;
+		f_size = (char *)(trec + 1) + trec->len - p;
+		skb_fill_page_desc(skb, f, virt_to_page(p), off, f_size);
+		skb_frag_ref(skb, f);
+		if (tfw_http_msg_add_data_ptr((TfwHttpMsg *)resp, &resp->body,
+					      p, f_size))
+			return - ENOMEM;
+
+		++f;
+	}
+
+	return 0;
+}
+
+/**
+ * Build response that can be sent via TCP socket.
  *
  * We return skbs in the cache entry response w/o setting any
  * network headers - tcp_transmit_skb() will do it for us.
+ *
+ * TODO Prebuild the response and use clones for sending.
  */
-static int
+static TfwHttpResp *
 tfw_cache_build_resp(TfwCacheEntry *ce)
 {
-	int f = 0;
+	int h;
+	char *p, *crlf = "\r\n";
+	TfwHttpResp *resp;
 	TdbVRec *trec = &ce->trec;
-	char *data;
-	struct sk_buff *skb = NULL;
+	TDB *db = node_db();
+	TfwMsgIter it;
 
 	/*
 	 * Allocated response won't be checked by any filters and
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	ce->resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
-	if (!ce->resp)
-		return -ENOMEM;
+	resp = (TfwHttpResp *)tfw_http_msg_create(&it, Conn_Srv,
+						  ce->hdr_len + 2);
+	if (!resp)
+		return NULL;
 
-	/* Deserialize offsets to pointers. */
-	ce->key = TDB_PTR(db->hdr, (unsigned long)ce->key);
-	ce->hdr_lens = TDB_PTR(db->hdr, (unsigned long)ce->hdr_lens);
-	ce->hdrs = TDB_PTR(db->hdr, (unsigned long)ce->hdrs);
-	ce->body = TDB_PTR(db->hdr, (unsigned long)ce->body);
+	/*
+	 * Allocate HTTP headers table of proper size.
+	 * There were no other allocations since the table is allocated,
+	 * so realloc() just grows the table and returns the same pointer.
+	 */
+	h = (ce->hdr_num + 2 * TFW_HTTP_HDR_NUM - 1) & ~(TFW_HTTP_HDR_NUM - 1);
+	p = tfw_pool_realloc(resp->pool, resp->h_tbl, TFW_HHTBL_SZ(1),
+			     TFW_HHTBL_EXACTSZ(h));
+	BUG_ON(p != (char *)resp->h_tbl);
 
-	/* See tfw_cache_copy_resp(). */
-	BUG_ON((char *)(trec + 1) + trec->len <= ce->hdrs);
+	/* Skip record key until start of headers. */
+	for (p = TDB_PTR(db->hdr, ce->hdrs);
+	     (unsigned long)(p - trec->data) > trec->len;
+	     trec = tdb_next_rec_chunk(db, trec))
+		;
 
-	trec = TDB_PTR(db->hdr, TDB_DI2O(trec->chunk_next));
-	for (data = ce->hdrs;
-	     (long)trec != (long)db->hdr;
-	     trec = TDB_PTR(db->hdr, TDB_DI2O(trec->chunk_next)),
-		data = trec->data)
-	{
-		int off, size = trec->len;
+	for (h = 0; h < ce->hdr_num; ++h)
+		if (tfw_cache_build_resp_hdr(db, resp, resp->h_tbl->tbl + h,
+					     &trec, &it, &p))
+			goto err;
 
-		if (!skb || f == MAX_SKB_FRAGS) {
-			/* Protocol headers are placed in linear data only. */
-			skb = alloc_skb(SKB_HDR_SZ, GFP_ATOMIC);
-			if (!skb)
-				goto err_skb;
-			skb_reserve(skb, SKB_HDR_SZ);
-			ss_skb_queue_tail(&ce->resp->msg.skb_list, skb);
-			f = 0;
-		}
+	if (__write_field_val(db, resp, &it, &trec, &crlf, &resp->crlf))
+		goto err;
 
-		off = (unsigned long)data & ~PAGE_MASK;
-		size = (char *)(trec + 1) + trec->len - data;
+	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
+	if (tfw_cache_build_resp_body(db, resp, trec, &it, p))
+		goto err;
 
-		skb_fill_page_desc(skb, f, virt_to_page(data), off, size);
-
-		++f;
-	}
-
-	return 0;
-err_skb:
-	tfw_http_msg_free((TfwHttpMsg *)ce->resp);
-	return -ENOMEM;
+	return resp;
+err:
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+	return NULL;
 }
 
 static void
 __cache_req_process_node(TfwHttpReq *req, unsigned long key,
-			 void (*action)(TfwHttpReq *, TfwHttpResp *, void *),
-			 void *data)
+			 tfw_http_cache_cb_t action)
 {
-	TfwCacheEntry *ce;
+	TfwCacheEntry *ce = NULL;
 	TfwHttpResp *resp = NULL;
+	TDB *db = node_db();
+	TdbIter iter;
 
-	ce = tdb_rec_get(db, key);
-	if (!ce)
-		goto finish_req_processing;
+	iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(iter))
+		goto out;
 
-	/* TODO process collisions. */
+	for (ce = (TfwCacheEntry *)iter.rec;
+	     !tfw_cache_entry_key_eq(db, req, ce); )
+	{
+		tdb_rec_next(db, &iter);
+		if (!(ce = (TfwCacheEntry *)iter.rec))
+			goto out;
+	}
 
-	TFW_DBG("Cache: service request w/ key %lx\n", key);
-	if (!ce->resp)
-		if (tfw_cache_build_resp(ce))
-			/*
-			 * It seems we have the cache entry,
-			 * but there is memory issues.
-			 * Try to send send the request to backend in hope
-			 * that we have memory when we get an answer.
-			 */
-			goto finish_req_processing;
+	TFW_DBG("Cache: service request w/ key=%lx\n", key);
 
-	/* We have already assembled response. */
-	/*
-	 * FIXME #173 -> #122
-	 * The response must be adjusted independently for each client
-	 * and send to different sockets, so we can't use the same skb.
-	 * We must generate new skb with cached data as page fragments
-	 * and copy headers. The headers must be adjusted after the function.
-	 * Probably, we shouldn't copy to TDB headers which must be generated
-	 * from scratch (e.g. Server or Connection).
-	 */
-	resp = ce->resp;
-
-finish_req_processing:
-
-	/*
-	 * TODO perform the call on original CPU to avoid inter-node
-	 * memory transfers.
-	 */
-	action(req, resp, data);
+	resp = tfw_cache_build_resp(ce);
+out:
+	action(req, resp);
 
 	if (ce)
 		tdb_rec_put(ce);
@@ -456,11 +706,10 @@ static void
 tfw_cache_req_process_node(struct work_struct *work)
 {
 	TfwCWork *cw = (TfwCWork *)work;
-	TfwHttpReq *req = cw->cw_req;
-	tfw_http_req_cache_cb_t action = cw->cw_act;
-	void *data = cw->cw_data;
 
-	__cache_req_process_node(req, cw->cw_key, action, data);
+	__cache_req_process_node(cw->req, cw->key, cw->action);
+
+	kmem_cache_free(c_cache, cw);
 }
 
 /**
@@ -470,42 +719,37 @@ tfw_cache_req_process_node(struct work_struct *work)
  * the final response is sent by third node (see dev_queue_xmit()).
  */
 void
-tfw_cache_req_process(TfwHttpReq *req, tfw_http_req_cache_cb_t action,
-		      void *data)
+tfw_cache_req_process(TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
-	int node;
 	unsigned long key;
 
 	if (!cache_cfg.cache) {
-		action(req, NULL, data);
+		action(req, NULL);
 		return;
 	}
 
 	key = tfw_cache_key_calc(req);
+	req->node = tfw_cache_key_node(key);
 
-	node = tfw_cache_key_node(key);
-	if (node != numa_node_id()) {
-		/*
-		 * Schedule the cache entry to the right node.
-		 *
-		 * TODO work queues are slow, use common kernel threads.
-		 * Probably threading should be at TDB side...
-		 */
+	if (cache_cfg.cache == TFW_CACHE_REPLICA)
+		goto process_locally;
+
+	if (req->node != numa_node_id()) {
+		/* Schedule the cache entry to the right node. */
 		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
 		if (!cw)
 			goto process_locally;
 		INIT_WORK(&cw->work, tfw_cache_req_process_node);
-		cw->cw_req = req;
-		cw->cw_act = action;
-		cw->cw_data = data;
-		cw->cw_key = key;
-		queue_work_on(tfw_cache_sched_work_cpu(node), cache_wq,
+		cw->req = req;
+		cw->action = action;
+		cw->key = key;
+		queue_work_on(tfw_cache_sched_work_cpu(req), cache_wq,
 			      (struct work_struct *)cw);
 		return;
 	}
 
 process_locally:
-	__cache_req_process_node(req, key, action, data);
+	__cache_req_process_node(req, key, action);
 }
 
 /**
@@ -536,28 +780,43 @@ tfw_cache_mgr(void *arg)
 static int
 tfw_cache_start(void)
 {
-	int r = 0;
+	int nid, r = 1;
 
 	if (!cache_cfg.cache)
 		return 0;
 
-	/* TODO open db for each node. */
-	db = tdb_open(cache_cfg.db_path, cache_cfg.db_size, 0, numa_node_id());
-	if (!db)
-		return 1;
+	for_each_node_with_cpus(nid) {
+		c_nodes[nid].db = tdb_open(cache_cfg.db_path,
+					   cache_cfg.db_size, 0, nid);
+		if (!c_nodes[nid].db)
+			goto close_db;
+	}
 
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
 		TFW_ERR("Can't start cache manager, %d\n", r);
-		goto err_thr;
+		goto close_db;
 	}
 
 	c_cache = KMEM_CACHE(tfw_cache_work_t, 0);
 	if (!c_cache)
 		goto err_cache;
 
-	cache_wq = alloc_workqueue("tfw_cache_wq", WQ_MEM_RECLAIM, 0);
+	tfw_init_node_cpus();
+
+	/*
+	 * WQ_MEM_RECLAIM	- allow the workers to do progress
+	 * 			  in memory preasure;
+	 * WQ_UNBOUND		- schedule work to particular node and
+	 * 			  let the system scheduler to scheduler worker
+	 * 			  among node cpus.
+	 *
+	 * TODO work queues are slow, use common kernel threads.
+	 * Probably threading should be at TDB side...
+	 */
+	cache_wq = alloc_workqueue("tfw_cache_wq",
+				   WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	if (!cache_wq)
 		goto err_wq;
 
@@ -566,14 +825,17 @@ err_wq:
 	kmem_cache_destroy(c_cache);
 err_cache:
 	kthread_stop(cache_mgr_thr);
-err_thr:
-	tdb_close(db);
+close_db:
+	for_each_node_with_cpus(nid)
+		tdb_close(c_nodes[nid].db);
 	return r;
 }
 
 static void
 tfw_cache_stop(void)
 {
+	int nid;
+
 	if (!cache_cfg.cache)
 		return;
 
@@ -581,16 +843,15 @@ tfw_cache_stop(void)
 	kmem_cache_destroy(c_cache);
 	kthread_stop(cache_mgr_thr);
 
-	/* TODO destry all ce->resp and zero the pointers in TDB. */
-
-	tdb_close(db);
+	for_each_node_with_cpus(nid)
+		tdb_close(c_nodes[nid].db);
 }
 
 static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	{
 		"cache",
-		"on",
-		tfw_cfg_set_bool,
+		"2",
+		tfw_cfg_set_int,
 		&cache_cfg.cache
 	},
 	{

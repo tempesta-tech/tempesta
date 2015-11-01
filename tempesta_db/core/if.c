@@ -176,6 +176,7 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 static int
 tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	TdbIter iter;
 	unsigned long key;
 	TdbMsg *resp_m, *m = cb->data;
 	TdbRec *res;
@@ -204,7 +205,8 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 	 * 2. use many netlink frames to send probably large data set.
 	 */
 	key = tdb_hash_calc(m->recs[0].data, m->recs[0].klen);
-	res = tdb_rec_get(db, key);
+	iter = tdb_rec_get(db, key);
+	res = iter.rec;
 	if (res) {
 		resp_m->rec_n = 1;
 		if (TDB_HTRIE_VARLENRECS(db->hdr)) {

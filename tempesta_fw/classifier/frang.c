@@ -451,7 +451,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra)
 	s = TFW_STR_CHUNK(&field, 0);
 	if (s) {
 		frang_msg("restricted Content-Type", &ra->addr,
-			  ": %.*s\n", s->len, (char *)s->ptr);
+			  ": %.*s\n", PR_TFW_STR(s));
 	} else {
 		frang_msg("restricted empty Content-Type", &ra->addr, "\n");
 	}

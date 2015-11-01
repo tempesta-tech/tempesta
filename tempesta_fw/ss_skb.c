@@ -64,18 +64,16 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * Lower layers will take care of prepending all required headers.
  */
 struct sk_buff *
-ss_skb_alloc(size_t len)
+ss_skb_alloc_pages(size_t len)
 {
 	int i_frag, nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
 	struct sk_buff *skb;
 
 	BUG_ON(nr_frags > MAX_SKB_FRAGS);
 
-	skb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC);
+	skb = ss_skb_alloc();
 	if (!skb)
 		return NULL;
-
-	skb_reserve(skb, MAX_TCP_HEADER);
 
 	for (i_frag = 0; i_frag < nr_frags; ++i_frag) {
 		struct page *page = alloc_page(GFP_ATOMIC);
@@ -83,6 +81,9 @@ ss_skb_alloc(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
+		/* See __skb_alloc_page() in include/linux/skbuff.h. */
+		if (page->pfmemalloc)
+			skb->pfmemalloc = true;
 
 		__skb_fill_page_desc(skb, i_frag, page, 0, 0);
 		skb_shinfo(skb)->nr_frags++;
