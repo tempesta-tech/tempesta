@@ -89,19 +89,23 @@
 /*
  * @ptr		- pointer to string data or array of nested strings;
  * @skb		- socket buffer containign the string data;
- * @len		- total length of compund or plain string;
+ * @len		- total length of compund or plain string (HTTP message body
+ *		  size can be extreme large, so we need 64 bits to handle it);
  * @flags	- 3 most significant bytes for number of chunks of compound
  * 		  string and the least significant byte for flags;
  */
 typedef struct {
 	void		*ptr;
 	struct sk_buff	*skb;
-	unsigned int	len;
+	unsigned long	len;
 	unsigned int	flags;
 } TfwStr;
 
 #define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
 						  sizeof(val) - 1, 0 }
+
+/* Use this with "%.*s" in printing calls. */
+#define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr
 
 /* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)

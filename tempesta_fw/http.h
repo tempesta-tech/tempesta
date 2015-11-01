@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -172,8 +172,10 @@ typedef struct {
 } TfwHttpHdrTbl;
 
 #define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
-#define TFW_HHTBL_SZ(o)			(sizeof(TfwHttpHdrTbl)		\
-					 + sizeof(TfwStr) * __HHTBL_SZ(o))
+#define TFW_HHTBL_EXACTSZ(s)		(sizeof(TfwHttpHdrTbl)		\
+					 + sizeof(TfwStr) * (s))
+#define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
+
 
 /* Common flags for requests and responses. */
 #define TFW_HTTP_CONN_CLOSE		0x0001
@@ -200,7 +202,7 @@ typedef struct {
 	TfwHttpParser	parser;						\
 	TfwCacheControl	cache_ctl;					\
 	unsigned int	flags;						\
-	unsigned int	content_length;					\
+	unsigned long	content_length;					\
 	TfwConnection	*conn;						\
 	TfwStr		crlf;						\
 	TfwStr		body;
@@ -218,9 +220,10 @@ typedef struct {
 /**
  * HTTP Request.
  *
- * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
+ * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
@@ -233,11 +236,12 @@ typedef struct {
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
+	unsigned short		node;
 	unsigned int		frang_st;
+	unsigned int		chunk_cnt;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	unsigned int		chunk_cnt;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
@@ -277,7 +281,7 @@ typedef struct {
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
-typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
+typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 
 /* Internal (parser) HTTP functions. */
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);

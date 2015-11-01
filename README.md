@@ -298,7 +298,7 @@ The list of available options:
 Let's see a simple example to understand Tempesta filtering.
 
 Firstly, run Tempesta with enabled [Frang](#Frang) and put some load onto the
-system to make Frang generat a blocking rule:
+system to make Frang generate a blocking rule:
 
         $ dmesg | grep frang
         [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)

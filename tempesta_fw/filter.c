@@ -80,6 +80,7 @@ tfw_filter_block_ip(struct in6_addr *addr)
 	unsigned long key = tfw_ipv6_hash(addr);
 	size_t len = sizeof(rule);
 
+	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
 		TFW_WARN_ADDR6("cannot create blocking rule", addr);
 	} else {
@@ -97,20 +98,22 @@ EXPORT_SYMBOL(tfw_filter_block_ip);
 static int
 tfw_filter_check_ip(struct in6_addr *addr)
 {
-	int r;
-	TdbFRec *rec;
 	TfwFRule *rule;
+	TdbIter iter;
 
-	rec = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
-	if (!rec)
+	iter = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
+	if (TDB_ITER_BAD(iter))
 		return TFW_PASS;
 
-	rule = (TfwFRule *)rec->data;
-	r = rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+	for (rule = (TfwFRule *)iter.rec->data;
+	     memcmp(&rule->addr, addr, sizeof(*addr)); )
+	{
+		tdb_rec_next(ip_filter_db, &iter);
+		if (!(rule = (TfwFRule *)iter.rec->data))
+			return TFW_PASS;
+	}
 
-	tdb_rec_put(rec);
-
-	return r;
+	return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
 }
 
 /*

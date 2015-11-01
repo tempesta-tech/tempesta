@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -28,7 +28,7 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.14"
+#define TDB_VERSION	"0.1.15"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
@@ -61,6 +61,25 @@ tdb_entry_add(TDB *db, TdbVRec *r, size_t size)
 EXPORT_SYMBOL(tdb_entry_add);
 
 /**
+ * Check available room in @trec and allocate new record if it's not enough.
+ * Chop tail of @trec if we allocated more space, but can't use the tail
+ * w/o data fragmentation.
+ */
+void *
+tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
+		   size_t tot_size)
+{
+	if (likely((*r)->data + (*r)->len - curr_ptr >= tail_len))
+		return curr_ptr;
+
+	(*r)->len -= curr_ptr - (*r)->data;
+
+	*r = tdb_htrie_extend_rec(db->hdr, *r, tot_size);
+	return *r ? (*r)->data : NULL;
+}
+EXPORT_SYMBOL(tdb_entry_get_room);
+
+/**
  * Lookup and get a record.
  * Since we don't copy returned records, we have to lock the memory location
  * where the record is placed and the user must call tdb_rec_put() when finish
@@ -75,22 +94,46 @@ EXPORT_SYMBOL(tdb_entry_add);
  * @return pointer to record with acquired bucket lock if the record is
  * found and NULL without acquired locks otherwise.
  */
-void *
+TdbIter
 tdb_rec_get(TDB *db, unsigned long key)
 {
-	TdbBucket *b = tdb_htrie_lookup(db->hdr, key);
-	if (!b)
-		return NULL;
+	TdbIter iter = { NULL };
 
-	return tdb_htrie_bscan_for_rec(db->hdr, b, key);
+	iter.bckt = tdb_htrie_lookup(db->hdr, key);
+	if (!iter.bckt)
+		goto out;
+
+	iter.rec = tdb_htrie_bscan_for_rec(db->hdr, (TdbBucket **)&iter.bckt,
+					   key);
+out:
+	return iter;
 }
 EXPORT_SYMBOL(tdb_rec_get);
+
+/**
+ * Get next record from full key collision chain.
+ */
+void
+tdb_rec_next(TDB *db, TdbIter *iter)
+{
+	BUG_ON(!iter->bckt);
+
+	iter->rec = tdb_htrie_next_rec(db->hdr, iter->rec,
+				       (TdbBucket **)&iter->bckt,
+				       iter->rec->key);
+}
+EXPORT_SYMBOL(tdb_rec_next);
 
 void
 tdb_rec_put(void *rec)
 {
-	TdbBucket *b = (TdbBucket *)TDB_HTRIE_DALIGN((unsigned long)rec);
+	TdbBucket *b;
+
+	BUG_ON(!rec);
+
+	b = (TdbBucket *)TDB_HTRIE_DALIGN((unsigned long)rec);
 	BUG_ON(!b);
+
 	read_unlock_bh(&b->lock);
 }
 EXPORT_SYMBOL(tdb_rec_put);
@@ -121,14 +164,14 @@ tdb_info(char *buf, size_t len)
  * characters in long) followed by TDB_SUFFIX.
  */
 static TDB *
-tdb_get_db(const char *path)
+tdb_get_db(const char *path, int node)
 {
-	int len;
+	int full_len, len;
 	char *slash;
 	TDB *db;
 
-	len = strlen(path);
-	if (strncmp(path + len - sizeof(TDB_SUFFIX) + 1,
+	full_len = strlen(path);
+	if (strncmp(path + full_len - sizeof(TDB_SUFFIX) + 1,
 		    TDB_SUFFIX, sizeof(TDB_SUFFIX) - 1))
 	{
 		TDB_ERR("Bad table suffix for %s\n", path);
@@ -139,8 +182,8 @@ tdb_get_db(const char *path)
 		TDB_ERR("Please specify absolute path to %s\n", path);
 		return NULL;
 	}
-	len = len - (slash - path) - sizeof(TDB_SUFFIX);
-	if (len > TDB_TBLNAME_LEN) {
+	len = full_len - (slash - path) - sizeof(TDB_SUFFIX);
+	if (len >= TDB_TBLNAME_LEN) {
 		TDB_ERR("Too long table name %s\n", path);
 		return NULL;
 	}
@@ -154,8 +197,10 @@ tdb_get_db(const char *path)
 		TDB_ERR("Cannot allocate new db handler\n");
 		return NULL;
 	}
-	strncpy(db->path, path, TDB_PATH_LEN - 1);
-	strncpy(db->tbl_name, slash + 1, len);
+	snprintf(db->path, TDB_PATH_LEN, "%.*s%X.tdb",
+		 (int)(full_len - sizeof(TDB_SUFFIX)), path, node);
+	snprintf(db->tbl_name, TDB_TBLNAME_LEN, "%.*s%X.tdb",
+		 (int)(len - sizeof(TDB_SUFFIX)), slash + 1, node);
 
 	return tdb_get(db);
 }
@@ -176,7 +221,7 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 		return NULL;
 	}
 
-	db = tdb_get_db(path);
+	db = tdb_get_db(path, node);
 	if (!db)
 		return NULL;
 
@@ -223,6 +268,9 @@ __do_close_table(TDB *db)
 void
 tdb_close(TDB *db)
 {
+	if (!db)
+		return;
+
 	if (!atomic_dec_and_test(&db->count))
 		return;
 

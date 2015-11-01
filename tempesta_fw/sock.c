@@ -71,6 +71,9 @@ ss_pick_net(struct sk_buff *skb)
 
 /**
  * Reroute a packet to the destination for IPv4 and IPv6.
+ *
+ * TODO get route information for dst connection for retransmission
+ * or src for replying.
  */
 static bool
 ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)

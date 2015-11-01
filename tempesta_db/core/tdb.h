@@ -109,6 +109,16 @@ typedef struct {
 typedef TdbFRec TdbRec;
 
 /**
+ * Iterator for TDB full key collision chains.
+ */
+typedef struct {
+	TdbRec	*rec;
+	void	*bckt;
+} TdbIter;
+
+#define TDB_ITER_BAD(i)		(!(i).rec)
+
+/**
  * We use very small index nodes size of only one cache line.
  * So overall memory footprint of the index is mininal by a cost of more LLC
  * or main memory transfers. However, smaller memory usage means better TLB
@@ -123,8 +133,10 @@ typedef TdbFRec TdbRec;
  */
 #define TDB_HTRIE_MINDREC	(L1_CACHE_BYTES * 2)
 
-/* Convert internal offsets to system pointer. */
+/* Convert internal offset to system pointer. */
 #define TDB_PTR(h, o)		(void *)((char *)(h) + (o))
+/* Convert system pointer to internal offset. */
+#define TDB_OFF(h, p)		(long)((char *)(p) - (char *)(h))
 /* Get index and data block indexes by byte offset and vise versa. */
 #define TDB_O2DI(o)		((o) / TDB_HTRIE_MINDREC)
 #define TDB_O2II(o)		((o) / TDB_HTRIE_NODE_SZ)
@@ -151,7 +163,10 @@ typedef TdbFRec TdbRec;
  */
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
 TdbVRec *tdb_entry_add(TDB *db, TdbVRec *r, size_t size);
-void *tdb_rec_get(TDB *db, unsigned long key);
+void *tdb_entry_get_room(TDB *db, TdbVRec **r, char *curr_ptr, size_t tail_len,
+			 size_t tot_size);
+TdbIter tdb_rec_get(TDB *db, unsigned long key);
+void tdb_rec_next(TDB *db, TdbIter *iter);
 void tdb_rec_put(void *rec);
 int tdb_info(char *buf, size_t len);
 
@@ -173,6 +188,12 @@ tdb_put(TDB *db)
 {
 	if (atomic_dec_and_test(&db->count))
 		kfree(db);
+}
+
+static inline TdbVRec *
+tdb_next_rec_chunk(TDB *db, TdbVRec *r)
+{
+	return TDB_PTR(db->hdr, TDB_DI2O(r->chunk_next));
 }
 
 #endif /* __TDB_H__ */
