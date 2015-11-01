@@ -96,6 +96,37 @@ listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
 
+
+### Caching
+
+Tempesta caches Web-content by default, i.e. works as reverse proxy.
+Configuration option ```cache``` manages the cache befavior:
+
+* ```0``` - no caching at all, pure proxying mode;
+* ```1``` - cache sharding when each NUMA node contains independent shard
+	    of whole cache. This mode has the smallest memory requirements;
+* ```2``` - (default) replicated mode when each NUMA node has whole replica
+	    of the cache. It requires more RAM, but delivers the highest
+	    performance.
+
+```cache_db``` specifies path to a cache database files.
+The PATH must be absolute and the directory must exist. The database file
+must end with ```.tbd```. E.g. ```cache_db /opt/tempesta/db/cache.tdb``` is
+the right Tmpesta DB path. However, this is the only path pattern rather than
+real path. Tempesta creates per NUMA node database files, so if you have two
+processor packages on modern hardware, then follwoing files will be created
+(one for earch processor package) for the example above:
+
+        /opt/tempesta/db/cache0.tdb
+        /opt/tempesta/db/cache1.tdb
+
+
+```cache_size``` defines size (in bytes, suffixes like 'MB' are not supported
+yet) of each Tempesta DB file used as Web cache storage. The size must be
+multiple of 2MB (Tempesta DB extent size). Default value is ```268435456```
+(256MB).
+
+
 ### Server Load Balancing
 
 #### Servers
