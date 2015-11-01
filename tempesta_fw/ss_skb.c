@@ -81,10 +81,11 @@ ss_skb_alloc_pages(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
-		/* See __skb_alloc_page() in include/linux/skbuff.h. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
+		/* See __skb_alloc_pages() in include/linux/skbuff.h. */
 		if (page->pfmemalloc)
 			skb->pfmemalloc = true;
-
+#endif
 		__skb_fill_page_desc(skb, i_frag, page, 0, 0);
 		skb_shinfo(skb)->nr_frags++;
 	}

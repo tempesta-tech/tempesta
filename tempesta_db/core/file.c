@@ -276,7 +276,7 @@ tdb_file_open(TDB *db, unsigned long size)
 		TDB_ERR("Cannot open db file %s\n", db->path);
 		return PTR_ERR(filp);
 	}
-	BUG_ON(!filp || !filp->f_dentry);
+	BUG_ON(!filp || !filp->f_path.dentry);
 
 	if (!filp->f_op->fallocate) {
 		TDB_ERR("TDB requires filesystem with fallocate support\n");
