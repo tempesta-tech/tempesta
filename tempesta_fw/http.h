@@ -143,7 +143,7 @@ typedef struct tfw_http_parser {
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
- * repetition attacks. See __header_is_singular() and don't forget to
+ * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
  *
  * Note: don't forget to update hdr_val_eq() upon adding a new header.
@@ -151,12 +151,12 @@ typedef struct tfw_http_parser {
 typedef enum {
 	TFW_HTTP_HDR_HOST,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
+	TFW_HTTP_HDR_CONTENT_TYPE,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
-	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 
 	/* Start of list of generic (raw) headers. */

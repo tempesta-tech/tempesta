@@ -3,8 +3,10 @@
 # 2012-2014. Written by NatSys Lab. (info@natsys-lab.com).
 
 function run_test_mod() {
+	insmod $(dirname $0)/tfw_fuzzer.ko
 	insmod $(dirname $0)/tfw_test.ko
 	rmmod tfw_test
+	rmmod tfw_fuzzer
 }
 
 function show_last_run_log() {

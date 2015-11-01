@@ -22,50 +22,48 @@
 
 #include "test.h"
 #include "helpers.h"
+#include "tfw_fuzzer.h"
 
 TfwHttpReq *req;
+TfwHttpResp *resp;
 
-static void
-alloc_req(size_t data_len)
+static int
+split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
-	BUG_ON(req);
-	req = test_req_alloc(data_len);
-}
+	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
+	int r;
 
-static void
-free_req(void)
-{
-	if (req)
-		test_req_free(req);
-	req = NULL;
-}
+	while (pos < len) {
+		step = chlen;
+		if (rem) {
+			step += rem;
+			rem = 0;
+		}
 
-static void
-reset_req(size_t data_len)
-{
-	free_req();
-	alloc_req(data_len);
+		TEST_LOG("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
+			len, pos, chunks, step);
+		if (type == FUZZ_REQ)
+			r = tfw_http_parse_req(req, str + pos, step);
+		else
+			r = tfw_http_parse_resp(resp, str + pos, step);
+
+		pos += step;
+
+		if (r != TFW_POSTPONE)
+			return r;
+	}
+
+	return r;
 }
 
 /**
  * The function is designed to be called in a loop, e.g.
- *   while(!do_split_and_parse(req_str));
+ *   while(!do_split_and_parse(str, type));
  *
- * On each iteration it splits the @req_str into two fragments and pushes
+ * type may be FUZZ_REQ or FUZZ_RESP.
+ *
+ * On each iteration it splits the @str into fragments and pushes
  * them to the HTTP parser.
- *
- * For example, given the request:
- *    "GET / HTTP/1.1\r\n"
- * The function (being called in a loop) will do the following:
- *     parse("GET / HTTP/1.1\r\n");
- *     parse("G"); parse("ET / HTTP/1.1\r\n");
- *     parse("GE"); parse("T / HTTP/1.1\r\n");
- *     parse("GET"); parse(" / HTTP/1.1\r\n");
- *     parse("GET "); parse("/ HTTP/1.1\r\n");
- *     parse("GET /"); parse(" HTTP/1.1\r\n");
- *     ...
- *     parse("GET / HTTP/1.1"); parse("\r\n");
- *     parse("GET / HTTP/1.1\r"); parse("\n");
  *
  * That is done because:
  *  - HTTP pipelining: the feature implies that such a "split" may occur at
@@ -76,7 +74,8 @@ reset_req(size_t data_len)
  *    path" and "slow path" execution.
  *
  * The function is stateful:
- *  - It puts the parsed request to the global variable @req (on each call).
+ *  - It puts the parsed request or response to the global variable
+ *  @req or @resp (on each call, depending on the message type).
  *  - It maintains the internal state between calls.
  *
  * Return value:
@@ -84,86 +83,92 @@ reset_req(size_t data_len)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-int
-do_split_and_parse(unsigned char *req_str)
+static int chunks = 1;
+
+static int
+do_split_and_parse(unsigned char *str, int type)
 {
-	static char head_buf[PAGE_SIZE];
-	static char tail_buf[PAGE_SIZE];
-	static size_t req_len, head_len, tail_len;
 	int r;
+	static size_t len;
 
-	BUG_ON(!req_str);
-	BUG_ON(head_len > req_len);
-	BUG_ON(head_len > sizeof(head_buf));
-	BUG_ON(tail_len > sizeof(tail_buf));
-	reset_req(strlen(req_str));
+	BUG_ON(!str);
 
-	/* First iteration. */
-	if (!req_len) {
-		req_len = strlen(req_str);
-		head_len = 0;
-		tail_len = req_len - head_len;
-
-		BUG_ON(req_len > sizeof(head_buf));
-		memcpy(head_buf, req_str, req_len);
-
-		/* Parse request as a single chunk on the first iteration. */
-		return tfw_http_parse_req(req, head_buf, req_len);
+	if (chunks == 1) {
+		len = strlen(str);
 	}
 
-	++head_len;
-	--tail_len;
-
-	/* Done all iterations?. */
-	if (head_len == req_len) {
-		req_len = head_len = tail_len = 0;
+	if (chunks > 1/*TODO: len*/) {
 		return 1;
 	}
 
-	/* Put data to a separate buffers to guard bounds. */
-	memcpy(head_buf, req_str, head_len);
-	memset(head_buf + head_len, 0, sizeof(head_buf) - head_len);
-	memcpy(tail_buf, req_str + head_len, tail_len);
-	memset(tail_buf + tail_len, 0, sizeof(tail_buf) - tail_len);
+	if (type == FUZZ_REQ) {
+		if (req)
+			test_req_free(req);
 
-	TEST_LOG("split: head_len=%zu [%.*s], tail_len=%zu [%.*s]\n",
-		 head_len, (int)head_len, head_buf,
-		 tail_len, (int)tail_len, tail_buf);
+		req = test_req_alloc(len);
+	}
+	else if (type == FUZZ_RESP) {
+		if (resp)
+			test_resp_free(resp);
 
-	/* We expect that the parser requests more data. */
-	r = tfw_http_parse_req(req, head_buf, head_len);
-	if (r != TFW_POSTPONE)
-		return r;
+		resp = test_resp_alloc(len);
+	}
+	else {
+		BUG();
+	}
 
-	/* Parse the tail. */
-	return tfw_http_parse_req(req, tail_buf, tail_len);
+	r = split_and_parse_n(str, type, len, chunks);
+
+	++chunks;
+	return r;
 }
 
-#define TRY_PARSE_EXPECT_PASS(str)				\
+#define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
-	int _err = do_split_and_parse(str);			\
-	if (_err < 0)						\
-		TEST_FAIL("can't parse request (code=%d):\n%s",	\
+	int _err = do_split_and_parse(str, type);		\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE) {	\
+		chunks = 1;					\
+		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
+			  (type == FUZZ_REQ ? "request" :	\
+				              "response"),	\
 			  _err, (str)); 			\
-	!_err;							\
+	}							\
+	_err == TFW_PASS;					\
 })
 
-#define TRY_PARSE_EXPECT_BLOCK(str)		\
-({						\
-	int _err = do_split_and_parse(str);	\
-	if (!_err)				\
-		TEST_FAIL("request is not blocked as expected:\n%s", (str)); \
-	(_err < 0);				\
+#define TRY_PARSE_EXPECT_BLOCK(str, type)			\
+({								\
+	int _err = do_split_and_parse(str, type);		\
+	if (_err == TFW_PASS)					\
+		TEST_FAIL("%s is not blocked as expected:\n%s",	\
+			       (type == FUZZ_REQ ? "request" :	\
+						   "response"),	\
+			       (str));				\
+	_err == TFW_BLOCK || _err == TFW_POSTPONE;		\
 })
 
-#define FOR_REQ(req)						\
-	TEST_LOG("=== request: [%s]\n", req);			\
-	while(TRY_PARSE_EXPECT_PASS(req))
+#define FOR_REQ(str)						\
+	TEST_LOG("=== request: [%s]\n", str);			\
+	chunks = 1;						\
+	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
 
-#define EXPECT_BLOCK_REQ(req)					\
+#define EXPECT_BLOCK_REQ(str)					\
 do {								\
-	TEST_LOG("=== request: [%s]\n", req);			\
-	while(TRY_PARSE_EXPECT_BLOCK(req));			\
+	TEST_LOG("=== request: [%s]\n", str);			\
+	chunks = 1;						\
+	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
+} while (0)
+
+#define FOR_RESP(str)						\
+	TEST_LOG("=== response: [%s]\n", str);			\
+	chunks = 1;						\
+	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
+
+#define EXPECT_BLOCK_RESP(str)					\
+do {								\
+	TEST_LOG("=== response: [%s]\n", str);			\
+	chunks = 1;						\
+	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
 TEST(http_parser, parses_req_method)
@@ -231,10 +236,11 @@ TEST(http_parser, parses_req_uri)
 	}
 }
 
-TEST(http_parser, fills_hdr_tbl)
+TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc;
+	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc,
+	       *h_te;
 	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff;
 
 	/* Expected values for special headers. */
@@ -250,6 +256,7 @@ TEST(http_parser, fills_hdr_tbl)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
@@ -262,15 +269,16 @@ TEST(http_parser, fills_hdr_tbl)
 		"Dummy1: 1\r\n"
 		"Dummy2: 2\r\n"
 		"Dummy3: 3\r\n"
-		"Dummy4: 4\r\n"  /* That is done to check table reallocation. */
+		"Dummy4: 4\r\n"
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
 		"Content-Length: 0\r\n"
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
-		"Dummy8: 8\r\n"
+		"Dummy8: 8\r\n" /* That is done to check table reallocation. */
 		"Dummy9: 9\r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Transfer-Encoding: compress, deflate, gzip\r\n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
@@ -287,8 +295,8 @@ TEST(http_parser, fills_hdr_tbl)
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 				     TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
 
-		/* Common (raw) headers: 14 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+		/* Common (raw) headers: 20 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
 
 		h_user_agent = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
 		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
@@ -296,6 +304,7 @@ TEST(http_parser, fills_hdr_tbl)
 		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 7];
 		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
 		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
 					    strlen(s_host), 0));
@@ -320,6 +329,80 @@ TEST(http_parser, fills_hdr_tbl)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
 					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
+					    strlen(s_te), 0));
+	}
+}
+
+TEST(http_parser, fills_hdr_tbl_for_resp)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te;
+	TfwStr h_connection, h_contlen, h_conttype;
+
+	/* Expected values for special headers. */
+	const char *s_connection = "Keep-Alive";
+	const char *s_cl = "0";
+	const char *s_ct = "text/html; charset=iso-8859-1";
+	/* Expected values for raw headers. */
+	const char *s_dummy9 = "Dummy9: 9";
+	const char *s_dummy4 = "Dummy4: 4";
+	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		"Connection: Keep-Alive\r\n"
+		"Dummy0: 0\r\n"
+		"Dummy1: 1\r\n"
+		"Dummy2: 2\r\n"
+		"Dummy3: 3\r\n"
+		"Dummy4: 4\r\n"
+		"Dummy5: 5\r\n"
+		"Dummy6: 6\r\n"
+		"Content-Length: 0\r\n"
+		"Content-Type: text/html; charset=iso-8859-1\r\n"
+		"Dummy7: 7\r\n"
+		"Dummy8: 8\r\n"
+		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Dummy9: 9\r\n" /* That is done to check table reallocation. */
+		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+		"Keep-Alive: timeout=600, max=65526\r\n"
+		"Transfer-Encoding: compress, deflate, gzip\r\n"
+		"\r\n")
+	{
+		ht = resp->h_tbl;
+
+		/* Special headers: */
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+				     TFW_HTTP_HDR_CONNECTION, &h_connection);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
+				     TFW_HTTP_HDR_CONTENT_LENGTH, &h_contlen);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				     TFW_HTTP_HDR_CONTENT_TYPE, &h_conttype);
+
+		/* Common (raw) headers: 19 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+
+		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
+		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
+		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
+		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
+					    strlen(s_connection), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
+					    strlen(s_cl), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
+					    strlen(s_ct), 0));
+
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
+					    strlen(s_dummy4), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
+					    strlen(s_cc), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
+					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
+					    strlen(s_te), 0));
 	}
 }
 
@@ -365,13 +448,77 @@ TEST(http_parser, parses_connection_value)
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
 }
 
+TEST(http_parser, content_length_duplicate)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			  "Content-Length: 0\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: 0\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+}
+
+#define N 6	// Count of generations
+#define MOVE 1	// Mutations per generation
+
+TEST(http_parser, fuzzer)
+{
+	size_t len = 10 * 1024 * 1024;
+	char *str = vmalloc(len);
+	int field, i, ret;
+
+	for (field = SPACES; field < N_FIELDS; field++) {
+		for (i = 0; i < N; i++) {
+			TEST_LOG("start field: %d request: %d\n", field, i);
+			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_REQ);
+			switch (ret) {
+			case FUZZ_VALID:
+				FOR_REQ(str);
+				break;
+			case FUZZ_INVALID:
+				EXPECT_BLOCK_REQ(str);
+				break;
+			case FUZZ_END:
+			default:
+				goto resp;
+			}
+		}
+	}
+resp:
+	fuzz_reset();
+
+	for (field = SPACES; field < N_FIELDS; field++) {
+		for (i = 0; i < N; i++) {
+			TEST_LOG("start field: %d response: %d\n", field, i);
+			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_RESP);
+			switch (ret) {
+			case FUZZ_VALID:
+				FOR_RESP(str);
+				break;
+			case FUZZ_INVALID:
+				EXPECT_BLOCK_RESP(str);
+				break;
+			case FUZZ_END:
+			default:
+				goto end;
+			}
+		}
+	}
+end:
+	vfree(str);
+}
+
 TEST_SUITE(http_parser)
 {
-	TEST_TEARDOWN(free_req);
-
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
-	TEST_RUN(http_parser, fills_hdr_tbl);
+	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
+	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 	TEST_RUN(http_parser, parses_connection_value);
+	TEST_RUN(http_parser, content_length_duplicate);
+	TEST_RUN(http_parser, fuzzer);
 }
