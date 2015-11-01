@@ -27,8 +27,6 @@
 
 #include "ss_skb.h"
 
-#define SS_SOCK_ALIVE(s)	((s)->sk_state == TCP_ESTABLISHED)
-
 /* Protocol descriptor. */
 typedef struct ss_proto_t {
 	const struct ss_hooks	*hooks;

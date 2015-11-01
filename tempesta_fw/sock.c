@@ -51,6 +51,30 @@ static const char *ss_statename[] = {
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
+/*
+ * Socket locks have a specific property where a lock can be taken in
+ * the same thread on two different sockets at the same time. However,
+ * lockdep gets nervous when that happens, so there's a notion of nested
+ * locks that belong in the same class.
+ *
+ * Usually ss_tcp_data_ready(), and consequently ss_tcp_process_data()
+ * are called from tcp_rcv_established() where the socket is locked with
+ * bh_sock_lock_nested(). However, in a rare case they are called from
+ * tcp_child_process() right after the connection has been established.
+ * The socket is a child socket, and it is under bh_sock_lock(), while
+ * the parent listening socket is under bh_sock_lock_nested().
+ *
+ * A socket is unlocked, and then locked again in Tempesta. Instead of
+ * having to determine which lock to use to relock the socket, increase
+ * the level of nesting. That way the convention of nested socket locks
+ * is not broken, and lockdep is kept happy.
+ */
+#define DOUBLE_DEPTH_NESTING		(SINGLE_DEPTH_NESTING + 1)
+
+#define bh_lock_sock_double_nested(__sk)				\
+			spin_lock_nested(&((__sk)->sk_lock.slock),	\
+			DOUBLE_DEPTH_NESTING)
+
 /**
  * Copied from net/netfilter/xt_TEE.c.
  */
@@ -145,10 +169,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	BUG_ON(ss_skb_queue_empty(skb_list));
 
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	/* Synchronize concurrent socket writing in different softirqs. */
-	bh_lock_sock_nested(sk);
+	bh_lock_sock_double_nested(sk);
 
 	if (unlikely(!ss_can_send(sk)))
 		goto out;
@@ -192,8 +216,8 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		 */
 		tcp_mark_push(tp, skb);
 
-		SS_DBG("%s:%d entail skb=%p data_len=%u len=%u\n",
-		       __FUNCTION__, __LINE__, skb, skb->data_len, skb->len);
+		SS_DBG("%s: entail skb=%p data_len=%u len=%u\n",
+		       __func__, skb, skb->data_len, skb->len);
 
 		skb_entail(sk, skb);
 
@@ -209,8 +233,8 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		}
 	}
 
-	SS_DBG("%s:%d sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
-	       " sk->sk_state=%d\n", __FUNCTION__, __LINE__,
+	SS_DBG("%s: sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
+	       " sk->sk_state=%d\n", __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
@@ -248,7 +272,7 @@ __ss_do_close(struct sock *sk)
 
 	SS_DBG("Close socket %p (account=%d)\n", sk, sk_has_account(sk));
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (unlikely(!sk))
 		return;
@@ -534,35 +558,25 @@ ss_tcp_process_data(struct sock *sk)
 
 			r = SS_CALL(connection_recv, conn, skb, off);
 
-			bh_lock_sock_nested(sk);
+			bh_lock_sock_double_nested(sk);
 
 			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
-				SS_WARN("can't process app data on socket %p\n",
-					sk);
-				/*
-				 * Drop connection on internal errors as well
-				 * as on banned packets.
-				 *
-				 * ss_droplink() is responsible for calling
-				 * application layer connection closing
-				 * callback which will free all the passed and
-				 * linked with currently processed message skbs.
-				 */
+				SS_WARN("Error processing data: sk %p\n", sk);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
 			processed += count;
 
 			if (tcp_fin) {
-				SS_DBG("received FIN, do an active close\n");
+				SS_DBG("Data FIN received\n");
 				++tp->copied_seq;
 				goto out;
 			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("received FIN, do an active close\n");
+			SS_DBG("Link FIN received\n");
 			++tp->copied_seq;
 			goto out;
 		} else {
@@ -601,7 +615,7 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 	struct request_sock *req;
 #endif
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
+		__func__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -667,7 +681,7 @@ static void
 ss_tcp_data_ready(struct sock *sk, int bytes)
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -679,7 +693,7 @@ ss_tcp_data_ready(struct sock *sk, int bytes)
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk))
 			/*
-			 * Drop connection in case of FIN, internal errors,
+			 * Drop connection in case of internal errors,
 			 * or banned packets.
 			 *
 			 * ss_droplink() is responsible for calling application
@@ -708,7 +722,7 @@ static void
 ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__FUNCTION__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
@@ -746,13 +760,18 @@ ss_tcp_state_change(struct sock *sk)
 		}
 	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
-		 * Connection is being closed.
-		 * Either Tempesta sent FIN, or we received FIN.
+		 * Received FIN, connection is being closed.
 		 *
-		 * It may happen that FIN comes with a data SKB. In that
-		 * case this function is called before ss_tcp_data_ready()
-		 * is called. However the SKB needs to be processed before
-		 * the connection is closed.
+		 * When FIN is received from the other side of a connection,
+		 * this function is called first before ss_tcp_data_ready()
+		 * is called, as the kernel moves the socket's state to
+		 * TCP_CLOSE_WAIT. The usual action in Tempesta is to close
+		 * the connection.
+		 *
+		 * It may happen that FIN comes with a data SKB, or there's
+		 * still data in the socket's receive queue that hasn't been
+		 * processed yet. That data needs to be processed before the
+		 * connection is closed.
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);

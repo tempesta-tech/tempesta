@@ -266,7 +266,7 @@ tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 
 	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
 
-	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __FUNCTION__,
+	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
 		PR_TFW_STR(&tfw_cfg_sticky.name), len * 2, buf);
 
 	r = tfw_http_msg_hdr_add(hmresp, &set_cookie);
