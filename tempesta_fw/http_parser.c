@@ -257,8 +257,8 @@ __chunk_strncasecmp(TfwStr *chunk, unsigned char *p, size_t len,
  * @return number of parsed bytes.
  */
 static int
-parse_int_a(unsigned char *data, size_t len,
-	      const unsigned long *delimiter_a, unsigned int *acc)
+parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
+	    unsigned long *acc)
 {
 	unsigned char *p;
 
@@ -279,7 +279,7 @@ parse_int_a(unsigned char *data, size_t len,
  * Parse an integer followed by whit space.
  */
 static inline int
-parse_int_ws(unsigned char *data, size_t len, unsigned int *acc)
+parse_int_ws(unsigned char *data, size_t len, unsigned long *acc)
 {
 	/*
 	 * Standard white-space characters are:
@@ -300,7 +300,7 @@ parse_int_ws(unsigned char *data, size_t len, unsigned int *acc)
  * Parse an integer as part of HTTP list.
  */
 static inline int
-parse_int_list(unsigned char *data, size_t len, unsigned int *acc)
+parse_int_list(unsigned char *data, size_t len, unsigned long *acc)
 {
 	/*
 	 * Standard white-space plus comma characters are:
@@ -323,7 +323,7 @@ parse_int_list(unsigned char *data, size_t len, unsigned int *acc)
  * @return number of parsed bytes.
  */
 static int
-parse_int_hex(unsigned char *data, size_t len, unsigned int *acc)
+parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 {
 	unsigned char *p;
 
@@ -515,7 +515,7 @@ do {									\
 
 #define TFW_HTTP_INIT_BODY_PARSING(msg, to_state)			\
 do {									\
-	TFW_DBG3("parse msg body: flags=%#x content_length=%d\n",	\
+	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
 		 msg->flags, msg->content_length);			\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
@@ -538,7 +538,7 @@ __FSM_STATE(prefix ## _Body) {						\
 		__fsm_sz = len - (size_t)(p - data);			\
 		/* Read next chunk length. */				\
 		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_tmp_acc);\
-		TFW_DBG3("len=%zu ret=%d to_read=%d\n",			\
+		TFW_DBG3("len=%zu ret=%d to_read=%lu\n",		\
 			 __fsm_sz, __fsm_n, parser->_tmp_acc);		\
 		switch (__fsm_n) {					\
 		case CSTR_POSTPONE:					\
