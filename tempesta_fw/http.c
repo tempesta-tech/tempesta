@@ -53,7 +53,6 @@ int ghprio; /* GFSM hook priority. */
 #define S_F_CONTENT_LENGTH	"Content-Length: "
 #define S_F_LOCATION		"Location: "
 #define S_F_CONNECTION		"Connection: "
-#define S_F_SET_COOKIE		"Set-Cookie: "
 
 #define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
 #define S_V_CONTENT_LENGTH	"9999"
@@ -329,7 +328,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 }
 
 /**
- * TODO Initialize allocated Client structure by HTTP specific callbacks and FSM.
+ * TODO Initialize allocated Client structure by HTTP specific callbacks
+ * and FSM.
  */
 static int
 tfw_http_conn_init(TfwConnection *conn)
@@ -456,15 +456,20 @@ tfw_http_adjust_req(TfwHttpReq *req)
  * Adjust the response before proxying it to real client.
  */
 static int
-tfw_http_adjust_resp(TfwHttpResp *resp)
+tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 {
-	/*
-	 * TODO adjust Connection header and all connection-token headers
-	 * (e.g. Keep-Alive) according to our policy.
-	 */
-	(void)resp;
+	int r, conn_flg = req->flags & __TFW_HTTP_CONN_MASK;
+	TfwHttpMsg *m = (TfwHttpMsg *)resp;
 
-	return 0;
+	r = tfw_http_sticky_resp_process(m, (TfwHttpMsg *)req);
+	if (r < 0)
+		return r;
+
+	/*
+	 * TODO adjust Keep-Alive header.
+	 * See also rfc2616 13.5.1 and rfc7234
+	 */
+	return tfw_http_set_hdr_connection(m, conn_flg);
 }
 
 /*
@@ -473,7 +478,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
  * can be done for any reason, return HTTP 404 or 500 error to the client.
  */
 static void
-tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
+tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
 	TfwConnection *conn;
@@ -483,43 +488,53 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp, void *data)
 		 * We have prepared response, send it as is.
 		 * The response is pass through ot was generated from
 		 * the cache, so unrefer all its data.
-		 * TODO should we adjust it somehow?
 		 */
+		if (tfw_http_adjust_resp(resp, req))
+			return;
 		tfw_connection_send(req->conn, (TfwMsg *)resp, true);
 		return;
-	} else {
-		/*
-		 * Dispatch request to an appropriate server. Schedulers
-		 * should make a decision based on an unmodified request,
-		 * so this must be done before any request mangling.
-		 */
-		conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-		if (conn == NULL) {
-			TFW_ERR("Unable to find a backend server\n");
-			goto send_404;
-		}
-		r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
-		if (r < 0) {
-			goto send_500;
-		} else if (r > 0) {
-			/* Response sent, nothing to do */
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			goto conn_put;
-		}
-		if (tfw_http_adjust_req(req))
-			goto send_500;
+	}
 
-		/* Add request to the server connection. */
-		spin_lock(&conn->msg_qlock);
-		list_add_tail(&req->msg.msg_list, &conn->msg_queue);
-		spin_unlock(&conn->msg_qlock);
+	/*
+	 * Dispatch request to an appropriate server. Schedulers
+	 * should make a decision based on an unmodified request,
+	 * so this must be done before any request mangling.
+	 *
+	 * The below is typically called on remote NUMA node.
+	 * That's not good, but we must run TDB lookup on the node
+	 * before that to avoid unnecessary work in softirq and
+	 * speedup the cache operation.
+	 * Meantime, cache hits are expected to prevail over misses,
+	 * so this isn't frequent path.
+	 */
+	conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+	if (conn == NULL) {
+		TFW_ERR("Unable to find a backend server\n");
+		goto send_404;
+	}
 
-		/* Send request to the server. */
-		tfw_connection_send(conn, (TfwMsg *)req, false);
+	r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
+	if (r < 0) {
+		goto send_500;
+	}
+	else if (r > 0) {
+		/* Response sent, nothing to do */
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		goto conn_put;
 	}
-	BUG();	/* NOTREACHED */
 
+	if (tfw_http_adjust_req(req))
+		goto send_500;
+
+	/* Add request to the server connection. */
+	spin_lock(&conn->msg_qlock);
+	list_add_tail(&req->msg.msg_list, &conn->msg_queue);
+	spin_unlock(&conn->msg_qlock);
+
+	/* Send request to the server. */
+	tfw_connection_send(conn, (TfwMsg *)req, false);
+
+	goto conn_put;
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -530,7 +545,6 @@ send_500:
 conn_put:
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
-	return;
 }
 
 /**
@@ -637,7 +651,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
-				      tfw_http_req_cache_cb, NULL);
+				      tfw_http_req_cache_cb);
 
 		if (hmsib) {
 			/*
@@ -665,6 +679,59 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 }
 
 /**
+ * This is second half of tfw_http_resp_process().
+ * tfw_http_resp_process() runs in softirq while tfw_http_resp_cache_cb()
+ * runs by cache thread scheduled to appropriate TDB node.
+ *
+ * HTTP requests are usually much smaller responses, so it's better to transfer
+ * requests to TDB node to do all adjustments. The other benefit of the scheme
+ * is smaller work in softirq.
+ */
+static void
+tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	/* Cache original response before any mangling. */
+	tfw_cache_add((TfwHttpResp *)resp, (TfwHttpReq *)req);
+
+	/*
+	 * Typically we're at a node far from the node where @resp was
+	 * received, so we do inter-node transfer. However, this is the final
+	 * place where the response will be stored and all upcomming requests
+	 * will be replied by current node (see tfw_http_req_cache_cb()) w/o
+	 * inter-node data transfers.
+	 */
+	if (tfw_http_adjust_resp((TfwHttpResp *)resp, (TfwHttpReq*)req))
+		goto err;
+
+	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
+err:
+	/* Now we don't need the request and the reponse anymore. */
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+}
+
+static TfwHttpReq *
+__pop_req(TfwConnection *conn)
+{
+	TfwHttpReq *req;
+
+	spin_lock(&conn->msg_qlock);
+
+	if (unlikely(list_empty(&conn->msg_queue))) {
+		spin_unlock(&conn->msg_qlock);
+		TFW_WARN("Empty request queue\n");
+		return NULL;
+	}
+	req = (TfwHttpReq *)list_first_entry(&conn->msg_queue, TfwMsg,
+					     msg_list);
+	list_del(&req->msg.msg_list);
+
+	spin_unlock(&conn->msg_qlock);
+
+	return req;
+}
+
+/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -674,15 +741,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 {
 	int r;
 	unsigned int data_off = off;
-	TfwHttpMsg *hmreq, *hmresp = (TfwHttpMsg *)conn->msg;
+	TfwHttpResp *resp = (TfwHttpResp *)conn->msg;
+	TfwHttpReq *req;
 
-	BUG_ON(!hmresp);
+	BUG_ON(!resp);
 
 	TFW_DBG2("received %u server data bytes on conn=%p msg=%p\n",
-		skb->len - off, conn, hmresp);
+		skb->len - off, conn, resp);
 
-	r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
-	hmresp->msg.len += data_off - off;
+	r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, resp);
+	resp->msg.len += data_off - off;
 
 	TFW_DBG2("response parsed: len=%u parsed=%d res=%d\n",
 		skb->len - off, data_off - off, r);
@@ -704,7 +772,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		TFW_DBG2("Block invalid HTTP response\n");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
-		r = tfw_gfsm_move(&hmresp->msg.state,
+		r = tfw_gfsm_move(&resp->msg.state,
 				  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK)
@@ -728,19 +796,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		;
 	}
 
-	r = tfw_gfsm_move(&hmresp->msg.state,
+	r = tfw_gfsm_move(&resp->msg.state,
 			  TFW_HTTP_FSM_RESP_MSG, skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto delreq;
 
-	r = tfw_gfsm_move(&hmresp->msg.state,
+	r = tfw_gfsm_move(&resp->msg.state,
 			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_BLOCK)
-		goto delreq;
-
-	if (tfw_http_adjust_resp((TfwHttpResp *)hmresp))
 		goto delreq;
 
 	/*
@@ -748,28 +813,10 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * We get responses in the same order as requests,
 	 * so we can just pop the first request.
 	 */
-	spin_lock(&conn->msg_qlock);
-	if (unlikely(list_empty(&conn->msg_queue))) {
-		spin_unlock(&conn->msg_qlock);
-		TFW_WARN("Response w/o request\n");
+	if (!(req = __pop_req(conn)))
 		goto freeresp;
-	}
-	hmreq = (TfwHttpMsg *)
-		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
-	list_del(&hmreq->msg.msg_list);
-	spin_unlock(&conn->msg_qlock);
 
-	r = tfw_http_sticky_resp_process(hmresp, hmreq);
-	if (r < 0)
-		goto freereq;
-
-	/*
-	 * Send the response to client before caching it.
-	 * The cache frees the response and the request.
-	 * conn->msg will get NULLed in the process.
-	 */
-	tfw_connection_send(hmreq->conn, (TfwMsg *)hmresp, false);
-	tfw_cache_add((TfwHttpResp *)hmresp, (TfwHttpReq *)hmreq);
+	tfw_cache_resp_process(resp, req, tfw_http_resp_cache_cb);
 
 	return TFW_PASS;
 
@@ -780,21 +827,11 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * request, and keep the connection open for data exchange.
 	 */
 delreq:
-	spin_lock(&conn->msg_qlock);
-	if (unlikely(list_empty(&conn->msg_queue))) {
-		spin_unlock(&conn->msg_qlock);
-		TFW_WARN("Response w/o request\n");
-		goto freeresp;
-	}
-	hmreq = (TfwHttpMsg *)
-		list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
-	list_del(&hmreq->msg.msg_list);
-	spin_unlock(&conn->msg_qlock);
-freereq:
-	tfw_http_conn_msg_free(hmreq);
+	if ((req = __pop_req(conn)))
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 freeresp:
 	/* conn->msg will get NULLed in the process. */
-	tfw_http_conn_msg_free(hmresp);
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 
 	return TFW_PASS;
 }
