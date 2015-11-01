@@ -134,7 +134,7 @@ typedef struct tfw_http_parser {
 	int		state;
 	int		_i_st;
 	int		to_read;
-	unsigned int	_tmp_acc;
+	unsigned long	_tmp_acc;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 } TfwHttpParser;
