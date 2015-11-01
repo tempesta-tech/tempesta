@@ -1653,8 +1653,8 @@ handle_state_change(const char *old_state, const char *new_state)
  * Syctl handler for tempesta.state read/write operations.
  */
 static int
-handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
-		       size_t *lenp, loff_t *ppos)
+handle_sysctl_state_io(struct ctl_table *ctl, int is_write,
+		       void __user *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
 
@@ -1686,7 +1686,7 @@ out:
 }
 
 static struct ctl_table_header *tfw_cfg_sysctl_hdr;
-static ctl_table tfw_cfg_sysctl_tbl[] = {
+static struct ctl_table tfw_cfg_sysctl_tbl[] = {
 	{
 		.procname	= "state",
 		.data		= tfw_cfg_sysctl_state_buf,

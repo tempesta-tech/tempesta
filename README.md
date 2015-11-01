@@ -17,14 +17,14 @@ Socket API or even kernel sockets.
 
 #### Common
 
+* Linux CentOS/RHEL 7 or Debian 8;
 * x86-64 CPU with at least 1GB RAM, SSE 4.2 and preferably 2MB huge pages
   enabled (check pse and sse4\_2 flags in your /proc/cpuinfo);
 * RSS capable network adapter;
 * GNU Make 3.82 or higher;
-* GCC and G++ compilers of versions 4.8 or 4.9 (5.0 was not tested);
+* GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
-We have tested builds on Linux CentOS 7 and Debian 8.
 
 #### Kernel
 
@@ -38,17 +38,13 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta DB user-space library requires netlink mmap defined in standard
-headers, so preferably Linux distribution should have native 3.10 kernel.
-Currently CentOS 7 is shipped with an appropriate kernel.
-
 
 ### Build
 
 To build the module you need to do the following steps:
 
-1. Patch Linux kernel 3.10.10 with linux-3.10.10.patch or just download
-   [an already patched kernel](https://github.com/krizhanovsky/linux-3.10.10-sync_sockets)
+1. Patch Linux kernel 4.1.12 with linux-4.1-tfw.patch or just download
+   [an already patched kernel](https://github.com/tempesta-tech/linux-4.1-tfw)
 2. Build and load the kernel
 3. Run make to build Tempesta FW and Tempesta DB modules:
 
