@@ -21,6 +21,7 @@
 #ifndef __TFW_ADDR_H__
 #define __TFW_ADDR_H__
 
+#include <linux/version.h>
 #include <net/inet_sock.h>
 #include <net/ipv6.h>
 
@@ -69,8 +70,13 @@ tfw_addr_get_sk_saddr(struct sock *sk, TfwAddr *addr)
 	addr->v6.sin6_port = inet_sk(sk)->inet_sport;
 #if IS_ENABLED(CONFIG_IPV6)
 	if (inet6_sk(sk)) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
 		memcpy(&addr->v6.sin6_addr, &inet6_sk(sk)->daddr,
 		       sizeof(struct in6_addr));
+#else
+		memcpy(&addr->v6.sin6_addr, &sk->sk_v6_daddr,
+		       sizeof(struct in6_addr));
+#endif
 	} else
 #endif
 	{

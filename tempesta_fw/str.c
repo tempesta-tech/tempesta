@@ -269,8 +269,8 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		int r = stop
 			? __cstricmpspn((char *)c1->ptr + off1,
 					(char *)c2->ptr + off2, cn, stop)
-			: strnicmp((char *)c1->ptr + off1,
-				   (char *)c2->ptr + off2, cn);
+			: strncasecmp((char *)c1->ptr + off1,
+				      (char *)c2->ptr + off2, cn);
 		if (r)
 			return r;
 		n -= cn;
@@ -320,7 +320,9 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 {
 	int len, clen = cstr_len;
 	const TfwStr *chunk, *end;
-	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
+	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
+			       ? strncasecmp
+			       : strncmp;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		len = min(clen, (int)chunk->len);
