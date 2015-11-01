@@ -29,14 +29,22 @@
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
-/* Server groups management. */
+
+/*
+ * Server group management.
+ *
+ * All server groups are defined in configuration. As configuration
+ * is processed, server groups are placed in sg_list. After that
+ * the list of server groups does not change. No groups are added
+ * to or deleted from sg_list until Tempesta is stopped.
+ */
 static LIST_HEAD(sg_list);
 static DEFINE_RWLOCK(sg_lock);
 
 void
 tfw_destroy_server(TfwServer *srv)
 {
-	/* Close all connections before free the server! */
+	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 
 	kmem_cache_free(srv_cache, srv);
@@ -56,6 +64,14 @@ tfw_create_server(const TfwAddr *addr)
 	return srv;
 }
 
+/*
+ * Look up Server Group by name, and return it to caller.
+ *
+ * This function is called only when Tempesta is starting, during
+ * configuration processing. It's never called after tfw_sg_free()
+ * was called, so there's no need to worry about stale entries.
+ */
+
 TfwSrvGroup *
 tfw_sg_lookup(const char *name)
 {
@@ -73,6 +89,12 @@ tfw_sg_lookup(const char *name)
 }
 EXPORT_SYMBOL(tfw_sg_lookup);
 
+/*
+ * Create new Server Group and put it on the list.
+ *
+ * This function is called only when Tempesta is starting,
+ * during configuration processing.
+ */
 TfwSrvGroup *
 tfw_sg_new(const char *name, gfp_t flags)
 {
@@ -104,6 +126,10 @@ tfw_sg_new(const char *name, gfp_t flags)
 	return sg;
 }
 
+/*
+ * Remove Server Group from the list, and free it.
+ * This function is called only when Tempesta is stopping.
+ */
 void
 tfw_sg_free(TfwSrvGroup *sg)
 {
@@ -134,8 +160,9 @@ tfw_sg_count(void)
 	return count;
 }
 
-/**
- * Add a server to the server group. */
+/*
+ * Add server to a server group.
+ */
 void
 tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 {
@@ -158,8 +185,13 @@ tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
 	srv->sg = NULL;
 }
 
-/**
+/*
  * Notify @sg->sched that the group is updated.
+ *
+ * This function is called every time a server connection
+ * is established, broken, or failed. Usually it's called
+ * in SoftIRQ context, so it can't be blocked. It's also
+ * called in user context at the time Tempesta is stopped.
  */
 void
 tfw_sg_update(TfwSrvGroup *sg)
@@ -169,9 +201,9 @@ tfw_sg_update(TfwSrvGroup *sg)
 }
 
 int
-tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched)
+tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 {
-	TfwScheduler *s = tfw_sched_lookup(sched);
+	TfwScheduler *s = tfw_sched_lookup(sched_name);
 
 	if (!s)
 		return -EINVAL;
