@@ -325,11 +325,14 @@ tfw_http_sticky_found(TfwHttpMsg *hm, TfwStr *value)
 	/*
 	 * Do nothing for now. The request is passed to a backend server.
 	 */
-	if (likely(TFW_STR_PLAIN(value)))
-		TFW_DBG("Sticky cookie found: \"%.*s\"\n",
-			(int)value->len, (char *)value->ptr);
-	else
-		TFW_DBG("Sticky cookie found (compound)\n");
+	TFW_DBG("Sticky cookie found%s: \"%.*s\"\n",
+		TFW_STR_PLAIN(value) ? "" : ", starts with",
+		TFW_STR_PLAIN(value) ?
+			(int)value->len :
+			(int)((TfwStr*)value->ptr)->len,
+		TFW_STR_PLAIN(value) ?
+			(char*)value->ptr :
+			(char*)((TfwStr*)value->ptr)->ptr);
 
 	return 0;
 }
