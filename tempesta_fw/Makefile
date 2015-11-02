@@ -20,7 +20,6 @@
 EXTRA_CFLAGS += -Werror -I$(src)/../tempesta_db/core
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
-	EXTRA_CFLAGS += -O0
 endif
 
 obj-m	= tempesta_fw.o 
