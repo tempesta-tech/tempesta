@@ -85,6 +85,8 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	const TfwStr *const str = &tfw_cfg_sticky.prefix;
 	const TfwStr *chunk, *next;
 	TfwStr *s = NULL;
+	unsigned int n = TFW_STR_CHUNKN(cookie) + 1;
+	TfwStr tmp;
 	enum {
 		StateName,
 		StateSearchVal,
@@ -94,15 +96,28 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 
 	BUG_ON(!TFW_STR_PLAIN(str));
 
+	TFW_STR_INIT(&tmp);
+	tmp.flags = __TFW_STR_COMPOUND;
+
 	TFW_STR_FOR_EACH_CHUNK(chunk, cookie, {
+		--n;
 		switch (state) {
 
 		case StateName:
-			if ((chunk->flags & TFW_STR_NAME)
-			    && tfw_str_eq_cstr(chunk, str->ptr, str->len,
+			if (chunk->flags & TFW_STR_NAME) {
+				/*
+				 * Create temporary compound string, starting
+				 * with this chunk.
+				 * We do not use it's overall length now,
+				 * so do not set it.
+				 */
+				tmp.ptr = (void*)chunk;
+				__TFW_STR_CHUNKN_SET(&tmp, n);
+				if (tfw_str_eq_cstr(&tmp, str->ptr, str->len,
 			                       TFW_STR_EQ_PREFIX))
-			{
-				state = StateSearchVal;
+				{
+					state = StateSearchVal;
+				}
 			}
 			break;
 
