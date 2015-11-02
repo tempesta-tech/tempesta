@@ -131,7 +131,7 @@ static struct {
 	int singular;    /* only for headers; 0 - nonsingular, 1 - singular */
 	int dissipation; /* may be duplicates header has diferent values?;
 			   0 - no, 1 - yes */
-} gen_vector[] = {
+} gen_vector[N_FIELDS] = {
 	/* SPACES */
 	{0, sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* METHOD */
@@ -426,7 +426,7 @@ add_duplicates(char **p, char *end, int t)
 int
 fuzz_gen(char *str, char *end, field_t start, int move, int type)
 {
-	int i, n, ret, v = 0;
+	int i, n, ret = FUZZ_VALID, v = 0;
 
 	if (str == NULL)
 		return -EINVAL;
