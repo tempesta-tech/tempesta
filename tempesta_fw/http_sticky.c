@@ -37,7 +37,6 @@
 
 typedef struct sticky {
 	TfwStr		name;
-	TfwStr		prefix;
 	u_int		enabled : 1;
 	u_int		enforce : 1;
 } TfwCfgSticky;
@@ -82,7 +81,9 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 static bool
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
-	const TfwStr *const str = &tfw_cfg_sticky.prefix;
+	const char *const cstr = tfw_cfg_sticky.name.ptr;
+	const unsigned int clen = tfw_cfg_sticky.name.len + 1;
+
 	const TfwStr *chunk, *next;
 	TfwStr *s = NULL;
 	unsigned int n = TFW_STR_CHUNKN(cookie) + 1;
@@ -94,7 +95,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		StateValChunks,
 	} state = StateName;
 
-	BUG_ON(!TFW_STR_PLAIN(str));
+	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name));
 
 	TFW_STR_INIT(&tmp);
 	tmp.flags = __TFW_STR_COMPOUND;
@@ -113,8 +114,8 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 				 */
 				tmp.ptr = (void*)chunk;
 				__TFW_STR_CHUNKN_SET(&tmp, n);
-				if (tfw_str_eq_cstr(&tmp, str->ptr, str->len,
-			                       TFW_STR_EQ_PREFIX))
+				if (tfw_str_eq_cstr(&tmp, cstr, clen,
+				                    TFW_STR_EQ_PREFIX))
 				{
 					state = StateSearchVal;
 				}
@@ -382,17 +383,11 @@ tfw_http_sticky_init(void)
 	int ret;
 	u_char *ptr;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN, GFP_KERNEL)) == NULL) {
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
 		return -ENOMEM;
 	}
 	tfw_cfg_sticky.name.ptr = ptr;
 	tfw_cfg_sticky.name.len = 0;
-
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
-		return -ENOMEM;
-	}
-	tfw_cfg_sticky.prefix.ptr = ptr;
-	tfw_cfg_sticky.prefix.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
@@ -417,10 +412,6 @@ tfw_http_sticky_exit(void)
 {
 	u_char *ptr = tfw_cfg_sticky.name.ptr;
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	if (ptr) {
-		kfree(ptr);
-	}
-	ptr = tfw_cfg_sticky.prefix.ptr;
 	if (ptr) {
 		kfree(ptr);
 	}
@@ -472,11 +463,8 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if ((len == 0) || (len > STICKY_NAME_MAXLEN))
 		return -EINVAL;
 	memcpy(tfw_cfg_sticky.name.ptr, val, len);
+	((char*)tfw_cfg_sticky.name.ptr)[len] = '=';
 	tfw_cfg_sticky.name.len = len;
-
-	memcpy(tfw_cfg_sticky.prefix.ptr, val, len);
-	((char*)tfw_cfg_sticky.prefix.ptr)[len] = '=';
-	tfw_cfg_sticky.prefix.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		 if (!strcasecmp(val, "enforce")) {
