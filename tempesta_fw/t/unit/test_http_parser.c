@@ -31,7 +31,7 @@ static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
-	int r;
+	int r = 0;
 
 	while (pos < len) {
 		step = chlen;
