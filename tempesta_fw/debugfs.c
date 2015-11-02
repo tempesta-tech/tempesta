@@ -23,12 +23,18 @@
 #include <linux/slab.h>
 #include <linux/namei.h>
 #include <linux/string.h>
+#include <linux/version.h>
 
 #include "debugfs.h"
 #include "log.h"
 
-
 #ifdef DEBUG
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(3,10,10)
+extern int
+vfs_path_lookup(struct dentry *dentry, struct vfsmount *mnt, const char *name,
+		unsigned int flags, struct path *path);
+#endif
 
 /* The root directory for the Tempesta debugfs module.
  * All paths are referenced relative to this root. */
