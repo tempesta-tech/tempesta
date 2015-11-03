@@ -47,8 +47,6 @@ typedef struct frang_account_t {
 	FrangRates history[FRANG_FREQ];
 } FrangAcc;
 
-
-
 typedef struct {
 	char *str;
 	size_t len;		/* The pre-computed strlen(@str). */
@@ -135,6 +133,7 @@ get_test_req(const char *req)
 	tfw_http_parse_req(test_req, req_str_copy, len);
 	return test_req;
 }
+
 TEST(frang, uri)
 {
 	int res;
@@ -148,6 +147,7 @@ TEST(frang, uri)
 	EXPECT_EQ(TFW_BLOCK, res);
 	test_req_free(mockreq);
 }
+
 TEST(frang, req_count)
 {
 	int res;
@@ -387,7 +387,7 @@ TEST_SUITE(frang)
 	TEST_RUN(frang, req_method);
 	TEST_RUN(frang, field_len);
 	TEST_RUN(frang, host);
-		TEST_RUN(frang, body_len);
+	TEST_RUN(frang, body_len);
 	TEST_RUN(frang, body_timeout);
 	TEST_RUN(frang, hdr_timeout);
 	TEST_RUN(frang, chunk_cnt);
