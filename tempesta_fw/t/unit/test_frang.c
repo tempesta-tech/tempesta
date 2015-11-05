@@ -127,7 +127,7 @@ get_test_req(const char *req)
 	TfwHttpReq *test_req;
 	static char req_str_copy[PAGE_SIZE]; 
 	int len = strlen(req);
-	BUG_ON(len == 0);
+	BUG_ON(len+1 > sizeof(req_str_copy));
 	strcpy(req_str_copy, req);
 	test_req = test_req_alloc(len);
 	tfw_http_parse_req(test_req, req_str_copy, len);
