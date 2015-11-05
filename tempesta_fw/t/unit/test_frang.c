@@ -129,11 +129,11 @@ req_handler(TfwHttpReq  *req)
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
 	conn->sk = &mocksock;
-	isk = (struct inet_sock *) (&mocksock);
-	isk->inet_saddr = htonl(in_aton(inet_addr));
-	if (!conn->sk->sk_security) {
+	inet_sk(&mocksock)->inet_daddr = htonl(in_aton(inet_addr));
+
+	if (!conn->sk->sk_security) 
 		frang_conn_new(conn->sk);
-	}
+	
 
 	return frang_http_req_handler((void *) conn, 
 				 	       conn->msg->skb_list.first, 
@@ -215,9 +215,10 @@ TEST(frang, max_conn)
 
 	mockreq = get_test_req("GET / HTTP/1.1\r\n");
 	frang_cfg->conn_max = 5;
-	isk = (struct inet_sock *) (&mocksock);
+
 	isk->inet_saddr = htonl(in_aton(inet_addr));
-	res = frang_conn_new(&mocksock);
+	if(!mocksock.sk_security)
+		frang_conn_new(&mocksock);
 	((FrangAcc*)mocksock.sk_security)->conn_curr = 5;
 
 	res = req_handler(mockreq);
