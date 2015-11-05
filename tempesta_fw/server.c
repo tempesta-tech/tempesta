@@ -26,6 +26,7 @@
 #include "log.h"
 #include "sched.h"
 #include "server.h"
+#include "client.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
@@ -169,6 +170,7 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	BUG_ON(srv->sg);
 	srv->sg = sg;
 
+	TFW_DBG2("Add new backend server\n");
 	write_lock(&sg->lock);
 	list_add(&srv->list, &sg->srv_list);
 	write_unlock(&sg->lock);
@@ -220,8 +222,8 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
  */
-void
-tfw_sg_for_each_srv(void (*cb)(TfwServer *srv))
+int
+tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
 	TfwServer *srv;
 	TfwSrvGroup *sg;
@@ -231,13 +233,17 @@ tfw_sg_for_each_srv(void (*cb)(TfwServer *srv))
 	list_for_each_entry(sg, &sg_list, list) {
 		write_lock(&sg->lock);
 
-		list_for_each_entry(srv, &sg->srv_list, list)
-			cb(srv);
-
+		list_for_each_entry(srv, &sg->srv_list, list) {
+			int ret;
+			ret = cb(srv);
+			if (ret)
+				return ret;
+		}
 		write_unlock(&sg->lock);
 	}
 
 	write_unlock(&sg_lock);
+	return 0;
 }
 
 /**

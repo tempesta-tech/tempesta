@@ -45,6 +45,7 @@
 #include "lib.h"
 #include "log.h"
 #include "server.h"
+#include "client.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -387,7 +388,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
-static void
+static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
@@ -395,18 +396,20 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		if (tfw_sock_srv_connect_try(srv_conn))
 			tfw_sock_srv_connect_try_later(srv_conn);
+	return 0;
 }
 
 /**
  * There should be no server socket users when the function is called.
  */
-static void
+static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		tfw_sock_srv_disconnect(srv_conn);
+	return 0;
 }
 
 static int
@@ -484,7 +487,7 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 	return 0;
 }
 
-static void
+static int
 tfw_sock_srv_del_conns(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn, *tmp;
@@ -493,6 +496,7 @@ tfw_sock_srv_del_conns(TfwServer *srv)
 		tfw_connection_unlink_from_peer(&srv_conn->conn);
 		tfw_srv_conn_free(srv_conn);
 	}
+	return 0;
 }
 
 static void
