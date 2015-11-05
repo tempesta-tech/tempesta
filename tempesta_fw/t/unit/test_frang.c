@@ -23,7 +23,6 @@
 
 #include "../../gfsm.h"
 #include "../../http.h"
-//#include "../../log.h"
 
 #include "helpers.h"
 #include "kallsyms_helper.h"
@@ -58,19 +57,6 @@ typedef struct frang_account_t {
 	struct in6_addr		addr;
 	FrangRates		history[FRANG_FREQ];
 } FrangAcc;
-
-typedef struct {
-	struct hlist_head	list;
-	spinlock_t		lock;
-} FrangHashBucket;
-
-FrangHashBucket frang_hash[1 << FRANG_HASH_BITS] = {
-	[0 ... ((1 << FRANG_HASH_BITS) - 1)] = {
-		HLIST_HEAD_INIT,
-		__SPIN_LOCK_UNLOCKED(lock)
-	}
-};
-
 
 typedef struct {
 	char   *str;
@@ -125,8 +111,9 @@ test_conn_alloc(void)
 	TfwConnection *conn;
 	static struct kmem_cache *test_conn_cache = NULL;
 	if(test_conn_cache == NULL)
-		test_conn_cache = kmem_cache_create("tfw_test_conn_cache",
-				        sizeof(TfwConnection), 0, 0, NULL);
+		test_conn_cache = kmem_cache_create(
+					"tfw_test_conn_cache",
+				         sizeof(TfwConnection), 0, 0, NULL);
 	BUG_ON(test_conn_cache == NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
