@@ -91,6 +91,7 @@
 
 #include "addr.h"
 #include "log.h"
+#include "client.h"
 
 #include "cfg.h"
 
@@ -1466,6 +1467,13 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
 	if (ret) {
 		TFW_ERR("can't parse configuration data\n");
+		goto err_recover_cleanup;
+	}
+
+	TFW_DBG("Checking backends and listeners\n");
+	ret = tfw_sock_check_listeners();
+	if (ret) {
+		TFW_ERR("One of the backends is tempesta itself! Fix config\n");
 		goto err_recover_cleanup;
 	}
 

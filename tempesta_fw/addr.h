@@ -36,12 +36,23 @@
 #define TFW_ADDR_STR_BUF_SIZE \
 	sizeof("[FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:255.255.255.255]:65535")
 
+#define IN6_LOOPBACK(in6_addr)			\
+	((in6_addr.in6_u.u6_addr8[15] == 1) &&	\
+	!(in6_addr.in6_u.u6_addr32[0] |		\
+	in6_addr.in6_u.u6_addr32[1] |		\
+	in6_addr.in6_u.u6_addr32[2] |		\
+	in6_addr.in6_u.u6_addr8[12] |		\
+	in6_addr.in6_u.u6_addr8[13] |		\
+	in6_addr.in6_u.u6_addr8[14]))		\
+
 typedef union {
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
 	struct sockaddr sa;
 	sa_family_t family;
 } TfwAddr;
+
+int tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener);
 
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
 int tfw_addr_pton(const char *str, TfwAddr *addr);
