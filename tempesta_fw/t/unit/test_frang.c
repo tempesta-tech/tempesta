@@ -23,7 +23,7 @@
 
 #include "../../gfsm.h"
 #include "../../http.h"
-#include "../../log.h"
+//#include "../../log.h"
 
 #include "helpers.h"
 #include "kallsyms_helper.h"
@@ -32,55 +32,86 @@
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
 #define HANDLER_OFF	0
-
 typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
 	unsigned int	req;
 } FrangRates;
 
+/**
+ * Main descriptor of client resource accounting.
+ * @lock can be removed if RSS is tuned to schedule packets based on
+ * <proto, src_ip> touple. However, the hashing could produce bad CPU load
+ * balancing so, such settings are not desireble.
+ *
+ * @last_ts	- last access time to the descriptor;
+ * @conn_curr	- current connections number;
+ * @addr	- client IPv6 address (w/o port);
+ * @history	- bursts history organized as a ring-buffer;
+ */
+
 typedef struct frang_account_t {
-	struct hlist_node hentry;
-	struct in6_addr addr;	/* client address */
-	unsigned long last_ts;	/* last access time */
-	unsigned int conn_curr;	/* current connections number */
-	FrangRates history[FRANG_FREQ];
+	struct hlist_node	hentry;
+	unsigned long		last_ts;
+	unsigned int		conn_curr;
+	spinlock_t		lock;
+	struct in6_addr		addr;
+	FrangRates		history[FRANG_FREQ];
 } FrangAcc;
 
 typedef struct {
-	char *str;
-	size_t len;		/* The pre-computed strlen(@str). */
+	struct hlist_head	list;
+	spinlock_t		lock;
+} FrangHashBucket;
+
+FrangHashBucket frang_hash[1 << FRANG_HASH_BITS] = {
+	[0 ... ((1 << FRANG_HASH_BITS) - 1)] = {
+		HLIST_HEAD_INIT,
+		__SPIN_LOCK_UNLOCKED(lock)
+	}
+};
+
+
+typedef struct {
+	char   *str;
+	size_t len;	/* The pre-computed strlen(@str). */
 } FrangCtVal;
 
 typedef struct {
 	/* Limits (zero means unlimited). */
-	unsigned int req_rate;
-	unsigned int req_burst;
-	unsigned int conn_rate;
-	unsigned int conn_burst;
-	unsigned int conn_max;
+	unsigned int 	req_rate;
+	unsigned int 	req_burst;
+	unsigned int 	conn_rate;
+	unsigned int 	conn_burst;
+	unsigned int 	conn_max;
+
 	/*
-	Limits on time it takes to receive
-	 a full header or a body chunk.
-	*/
-	unsigned long clnt_hdr_timeout;
-	unsigned long clnt_body_timeout;
+	 * Limits on time it takes to receive
+	 * a full header or a body chunk.
+	 */
+	unsigned long	clnt_hdr_timeout;
+	unsigned long	clnt_body_timeout;
+
 	/* Limits for HTTP request contents: uri, headers, body, etc. */
-	unsigned int http_uri_len;
-	unsigned int http_field_len;
-	unsigned int http_body_len;
-	unsigned int http_hchunk_cnt;
-	unsigned int http_bchunk_cnt;
-	bool http_ct_required;
-	bool http_host_required;
+	unsigned int 	http_uri_len;
+	unsigned int 	http_field_len;
+	unsigned int 	http_body_len;
+	unsigned int	http_hchunk_cnt;
+	unsigned int	http_bchunk_cnt;
+	unsigned int	http_hdr_cnt;
+	bool 		http_ct_required;
+	bool 		http_host_required;
+
+	bool		ip_block;
+
 	/* The bitmask of allowed HTTP Method values. */
-	unsigned long http_methods_mask;
+	unsigned long 	http_methods_mask;
 	/* The list of allowed Content-Type values. */
-	FrangCtVal *http_ct_vals;
+	FrangCtVal	*http_ct_vals;
 } FrangCfg;
 
 const int (*frang_conn_new) (struct sock *);
-int (*frang_http_req_handler)(void *obj,struct sk_buff *skb, 
+int (*frang_http_req_handler)(void *obj, struct sk_buff *skb, 
 			      unsigned int off);
 
 struct inet_sock *isk;
@@ -117,8 +148,9 @@ req_handler(TfwHttpReq  *req)
 		frang_conn_new(conn->sk);
 	}
 
-	return frang_http_req_handler((void *) conn,
-					       req->msg.skb_list.first, HANDLER_OFF);
+	return frang_http_req_handler((void *) conn, 
+				 	       conn->msg->skb_list.first, 
+					       HANDLER_OFF);
 }
 
 static TfwHttpReq *
@@ -127,6 +159,7 @@ get_test_req(const char *req)
 	TfwHttpReq *test_req;
 	static char req_str_copy[PAGE_SIZE]; 
 	int len = strlen(req);
+	BUG_ON(len == 0);
 	BUG_ON(len+1 > sizeof(req_str_copy));
 	strcpy(req_str_copy, req);
 	test_req = test_req_alloc(len);
