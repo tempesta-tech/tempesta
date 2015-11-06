@@ -100,8 +100,7 @@ const int (*frang_conn_new) (struct sock *);
 int (*frang_http_req_handler)(void *obj, struct sk_buff *skb, 
 			      unsigned int off);
 
-struct inet_sock *isk;
-struct sock mocksock;
+struct inet_sock mocksock;
 const char *inet_addr = "192.168.245.128";
 FrangCfg *frang_cfg;
 
@@ -113,7 +112,7 @@ test_conn_alloc(void)
 	if(test_conn_cache == NULL)
 		test_conn_cache = kmem_cache_create(
 					"tfw_test_conn_cache",
-				         sizeof(TfwConnection), 0, 0, NULL);
+				        sizeof(TfwConnection), 0, 0, NULL);
 	BUG_ON(test_conn_cache == NULL);
 	conn = kmem_cache_alloc(test_conn_cache, GFP_ATOMIC);
 	BUG_ON(!conn);
@@ -128,8 +127,8 @@ req_handler(TfwHttpReq  *req)
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
-	conn->sk = &mocksock;
-	inet_sk(&mocksock)->inet_daddr = htonl(in_aton(inet_addr));
+	conn->sk = (struct sock*)&mocksock;
+	mocksock.inet_daddr = htonl(in_aton(inet_addr));
 
 	if (!conn->sk->sk_security) 
 		frang_conn_new(conn->sk);
@@ -172,34 +171,27 @@ TEST(frang, req_count)
 {
 	int res;
 	int i;
-	TfwConnection mockconn;
 	unsigned long ts;
 	TfwHttpReq *mockreq;
-	FrangAcc *ra;
 
 	mockreq = get_test_req("GET / HTTP/1.1\r\n");
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_burst = 0;
 	frang_cfg->conn_rate = 0;
 	frang_cfg->req_rate = 5;
-	isk = (struct inet_sock *) (&mocksock);
-	isk->inet_saddr = htonl(in_aton(inet_addr));
-	mockconn.sk = &mocksock;
+	mocksock.inet_saddr = htonl(in_aton(inet_addr));
 
-	res = frang_conn_new(&mocksock);
-	ra = mockconn.sk->sk_security;
+	res = frang_conn_new((struct sock*)&mocksock);
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
-	ra->history[i].req = 5;
-	mocksock.sk_security = ra;
+	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
 
 	frang_cfg->req_rate = 5;
 	frang_cfg->req_burst = 5;
-	ra->history[i].req = 5;
-	mocksock.sk_security = ra;
+	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
@@ -216,10 +208,10 @@ TEST(frang, max_conn)
 	mockreq = get_test_req("GET / HTTP/1.1\r\n");
 	frang_cfg->conn_max = 5;
 
-	isk->inet_saddr = htonl(in_aton(inet_addr));
-	if(!mocksock.sk_security)
-		frang_conn_new(&mocksock);
-	((FrangAcc*)mocksock.sk_security)->conn_curr = 5;
+	mocksock.inet_saddr = htonl(in_aton(inet_addr));
+	if(!mocksock.sk.sk_security)
+		frang_conn_new((struct sock *)&mocksock);
+	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
 
 	res = req_handler(mockreq);
 	/*conn_max*/
@@ -229,7 +221,7 @@ TEST(frang, max_conn)
 	i = ts % FRANG_FREQ;
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 5;
-	((FrangAcc*)mocksock.sk_security)->history[i].conn_new = 5;
+	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 	res = req_handler(mockreq);
 	/*conn_rate */
 	EXPECT_EQ(TFW_BLOCK, res);
@@ -237,7 +229,7 @@ TEST(frang, max_conn)
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 0;
 	frang_cfg->conn_burst = 5;
-((FrangAcc*)mocksock.sk_security)->history[i].conn_new = 5;
+((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 
 	res = req_handler(mockreq);
 	/*conn_burst*/
