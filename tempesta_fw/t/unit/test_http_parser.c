@@ -97,7 +97,7 @@ do_split_and_parse(unsigned char *str, int type)
 		len = strlen(str);
 	}
 
-	if (chunks > 1/*TODO: len*/) {
+	if (chunks > len) {
 		return 1;
 	}
 
