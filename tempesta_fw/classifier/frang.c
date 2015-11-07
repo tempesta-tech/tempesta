@@ -464,8 +464,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
 	TfwStr field;
-	char *buf;
-	int len;
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
 		frang_msg("Host header field", &ra->addr, " is missed\n");
@@ -482,17 +480,11 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	 * have a good regex library.
 	 * For now just linearize the Host header field TfwStr{} string.
 	 */
-	len = field.len + 1;
-	if ((buf = tfw_pool_alloc(req->pool, len)) == NULL)
-		return TFW_BLOCK;
-	tfw_str_to_cstr(&field, buf, len);
-	if (!tfw_addr_pton(buf, &addr)) {
+	if (!tfw_addr_pton(&field, &addr)) {
 		frang_msg("Host header field contains IP address",
 			  &ra->addr, "\n");
-		tfw_pool_free(req->pool, buf, len);
 		return TFW_BLOCK;
 	}
-	tfw_pool_free(req->pool, buf, len);
 	return TFW_PASS;
 }
 
