@@ -2159,14 +2159,16 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc;
 		parser->_tmp_acc = 0;
-		/* Skip seconds and a following ' GMT'. */
-		__FSM_I_MOVE_n(Resp_I_EoL, 6);
+		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
-		if (c == '\r')
-			return p - data;
-		return CSTR_NEQ;
+		/* Skip rest of line: ' GMT'. */
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\r', __fsm_sz);
+		if (__fsm_ch)
+			return __fsm_ch - data;
+		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
 	}
 
 	} /* FSM END */
