@@ -1445,6 +1445,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 		if (unlikely(c == '\n')) {
 			if (!(req->body.flags & TFW_STR_COMPLETE)) {
+				/*
+				 * RFC 7230 3.5 allows single LF
+				 * without CR as an exception.
+				 */
+				if (unlikely(!req->crlf.ptr))
+					tfw_http_msg_set_data(msg, &req->crlf,
+					                      p);
 				TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 			} else {
 				r = TFW_PASS;
@@ -2387,6 +2394,13 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 		if (unlikely(c == '\n')) {
 			if (!(resp->body.flags & TFW_STR_COMPLETE)) {
+				/*
+				 * RFC 7230 3.5 allows single LF
+				 * without CR as an exception.
+				 */
+				if (unlikely(!resp->crlf.ptr))
+					tfw_http_msg_set_data(msg, &resp->crlf,
+					                      p);
 				TFW_HTTP_INIT_BODY_PARSING(resp, Resp_Body);
 			} else {
 				r = TFW_PASS;
