@@ -99,7 +99,7 @@ void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_update(TfwSrvGroup *sg);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
-void tfw_sg_for_each_srv(void (*cb)(TfwServer *srv));
+int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
 #endif /* __SERVER_H__ */
