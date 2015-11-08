@@ -317,6 +317,55 @@ tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2)
 EXPORT_SYMBOL(tfw_addr_eq);
 
 /*
+ * Check, if listener addr matches server addr
+ * server - backend address:port
+ * listener - listener address:port, address can be 0.0.0.0
+ */
+int
+tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
+{
+	switch (server->family) {
+	case AF_INET:
+		do {
+			unsigned laddr = listener->v4.sin_addr.s_addr;
+			unsigned saddr = server->v4.sin_addr.s_addr;
+			if (listener->v4.sin_port != server->v4.sin_port)
+				return 0;
+			if (laddr == 0) {
+				if (IN_LOOPBACK(ntohl(saddr)))
+					return 1;
+				/* TODO: check if client addr is
+				* one of interface adresses */
+			}
+		} while (0);
+		return tfw_addr_eq_inet(&server->v4, &listener->v4);
+		break;
+	case AF_INET6:
+		if (listener->v6.sin6_port != server->v6.sin6_port)
+			return 0;
+		if (!(listener->v6.sin6_addr.in6_u.u6_addr32[0] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
+		{
+			/* listener = [::] */
+			if (IN6_LOOPBACK(server->v6.sin6_addr))
+			{
+				/* backend = [::1] */
+				return 1;
+			}
+			/* TODO: same as in v4 case */
+		}
+		return tfw_addr_eq_inet6(&server->v6, &listener->v6);
+	default:
+		TFW_ERR("Unknown protocol family\n");
+		BUG();
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_addr_ifmatch);
+
+/*
  * ------------------------------------------------------------------------
  *	tfw_addr_ntop() and its helpers
  * ------------------------------------------------------------------------
