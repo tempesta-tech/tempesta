@@ -883,9 +883,15 @@ enum {
 	Req_UriSchHttp,
 	Req_UriSchHttpColon,
 	Req_UriSchHttpColonSlash,
-	Req_UriHostStart,
-	Req_UriHost,
-	Req_UriHostEnd,
+	/* RFC 3986, 3.2:
+	 * authority = [userinfo@]host[:port]
+	 * We have special state for parsing :port, so
+	 * in Req_UriAuthority* we parse [userinfo@]host.
+	 */
+	Req_UriAuthorityStart,
+	Req_UriAuthority,
+	Req_UriAuthorityResetHost,
+	Req_UriAuthorityEnd,
 	Req_UriPort,
 	Req_UriAbsPath,
 	Req_HttpVer,
@@ -1311,7 +1317,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
 			   && *(p + 6) == '/'))
-			__FSM_MOVE_n(Req_UriHostStart, 7);
+			__FSM_MOVE_n(Req_UriAuthorityStart, 7);
 
 		/* "http://" slow path - step char-by-char. */
 		if (likely(LC(c) == 'h'))
@@ -1325,28 +1331,63 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 *
 	 * We must not rewrite abs_path, but still can cast host part
 	 * to lower case.
+	 *
+	 * RFC 3986 chapter 3.2:
+	 * authority = [userinfo@]host[:port]
+	 *
+	 * We parse authority. It can be "host" or "userinfo@host"
+	 * (port parsed later). At the begining we don't know,
+	 * which of variants we have.
+	 *
+	 * So we fill req->host, and if we get '@', we copy host to
+	 * req->userinfo, reset req->host and fill it.
 	 */
-	__FSM_STATE(Req_UriHostStart) {
+	__FSM_STATE(Req_UriAuthorityStart) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			*p = LC(*p);
+			tfw_http_msg_set_data(msg, &req->userinfo, p);
 			tfw_http_msg_set_data(msg, &req->host, p);
-			__FSM_MOVE_f(Req_UriHost, &req->host);
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		}
 		return TFW_BLOCK;
 	}
 
-	__FSM_STATE(Req_UriHost) {
-		if (likely(isalnum(c) || c == '.' || c == '-')) {
+	__FSM_STATE(Req_UriAuthority) {
+		if (likely(isalnum(c) || c == '.' || c == '-' || c == '@')) {
 			*p = LC(*p);
-			__FSM_MOVE_f(Req_UriHost, &req->host);
+
+			if (unlikely(c == '@')) {
+				if (!TFW_STR_EMPTY(&req->userinfo)) {
+					TFW_DBG("Second '@' in authority\n");
+					return TFW_BLOCK;
+				}
+				TFW_DBG3("Authority contains userinfo\n");
+				/* copy current host to userinfo */
+				req->userinfo = req->host;
+				__field_finish(msg, &req->userinfo, data, p);
+				TFW_STR_INIT(&req->host);
+
+				__FSM_MOVE(Req_UriAuthorityResetHost);
+			}
+
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		}
-		/* fall throught */
+		__FSM_JMP(Req_UriAuthorityEnd);
 	}
 
-	/* Host is read, start to read port or abs_path. */
-	__FSM_STATE(Req_UriHostEnd) {
-		__field_finish(msg, &req->host, data, p);
+	__FSM_STATE(Req_UriAuthorityResetHost) {
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			tfw_http_msg_set_data(msg, &req->host, p);
+			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		}
+		__FSM_JMP(Req_UriAuthorityEnd);
+	}
 
+	__FSM_STATE(Req_UriAuthorityEnd) {
+		/* Authority End */
+		__field_finish(msg, &req->host, data, p);
+		TFW_DBG3("Userinfo len = %i, host len = %i\n",
+			 (int)req->userinfo.len, (int)req->host.len);
 		if (likely(c == '/')) {
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
@@ -1649,7 +1690,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_LC(Req_UriSchHtt, 'p', Req_UriSchHttp);
 	__FSM_TX(Req_UriSchHttp, ':', Req_UriSchHttpColon);
 	__FSM_TX(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
-	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriHostStart);
+	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart);
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
 	__FSM_TX(Req_HttpVerT1, 'T', Req_HttpVerT2);
