@@ -45,6 +45,10 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 	TfwStr *c, *end;
 	int nlen = hdr_lens[id];
 
+	if (unlikely(TFW_STR_EMPTY(hdr))) {
+		TFW_STR_INIT(val);
+		return;
+	}
 	BUG_ON(TFW_STR_PLAIN(hdr));
 	BUG_ON(TFW_STR_DUP(hdr));
 	BUG_ON(nlen >= hdr->len);
