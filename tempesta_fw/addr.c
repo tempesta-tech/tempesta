@@ -45,11 +45,11 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 	int octet = -1, i = 0, port = 0, k;
 	unsigned char *a = (unsigned char *)&addr->sin_addr.s_addr;
 	const char *p;
-	const TfwStr *c;
+	const TfwStr *c, *end;
 
 	addr->sin_family = AF_INET;
 	addr->sin_addr.s_addr = 0;
-	TFW_STR_FOR_EACH_CHUNK(c, s, {
+	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
 			p = c->ptr + k;
 			if (isdigit(*p)) {
@@ -68,7 +68,7 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 			} else
 				return -EINVAL;
 		}
-	});
+	}
 	if (octet >= 0) {
 		if (i == 3) {
 			/* Default port. */
@@ -93,11 +93,11 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 	int words[9] = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 	int a, hole = -1, i = 0, port = -1, ipv4_mapped = 0, k;
 	const char *p;
-	const TfwStr *c;
+	const TfwStr *c, *end;
 
 	memset(addr, 0, sizeof(*addr));
 
-	TFW_STR_FOR_EACH_CHUNK(c, s, {
+	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
 			p = c->ptr + k;
 			if (i > 7 && !(i == 8 && port == 1))
@@ -181,7 +181,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				return -EINVAL;
 			}
 		}
-	});
+	}
 
 	/* Some sanity checks. */
 	if (!port || (port != -1 && words[8] <= 0)
@@ -241,15 +241,15 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 		mode = 6;
 	} else {
 		const char *pos = NULL;
-		const TfwStr *c;
-		TFW_STR_FOR_EACH_CHUNK(c, str, {
+		const TfwStr *c, *end;
+		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
 			for (i = 0; i != c->len; ++i) {
 				pos = c->ptr + i;
 				if (!isdigit(*pos))
 					goto delim;
 			}
-		});
+		}
 delim:
 		if (*pos == ':') {
 			mode = 6;
