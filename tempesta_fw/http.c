@@ -67,7 +67,7 @@ int ghprio; /* GFSM hook priority. */
 #define S_302_PART_01		S_302 S_CRLF S_F_DATE
 /* Insert current date */
 #define S_302_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF	\
-				S_F_LOCATION S_HTTP
+				S_F_LOCATION
 /* Insert full location URI */
 #define S_302_PART_03		S_CRLF S_F_SET_COOKIE
 /* Insert cookie name and value */
@@ -183,9 +183,11 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 
 	tfw_http_msg_hdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &host);
+	if (TFW_STR_EMPTY(&host))
+		host = req->host;
 
 	/* Add variable part of data length to get the total */
-	data_len += req->host.len ? : host.len;
+	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
 	data_len += req->uri_path.len + cookie->len;
 
 	resp = tfw_http_msg_create(&it, Conn_Srv, data_len);
@@ -194,10 +196,15 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
 	tfw_http_msg_write(&it, resp, &rh);
-	if (!TFW_STR_EMPTY(&req->host))
-		tfw_http_msg_write(&it, resp, &req->host);
-	else
+	/*
+	 * HTTP/1.0 can have no host part, so we create relative URI.
+	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
+	 */
+	if (host.len) {
+		tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_HTTP,
+							 .len = SLEN(S_HTTP)});
 		tfw_http_msg_write(&it, resp, &host);
+	}
 	tfw_http_msg_write(&it, resp, &req->uri_path);
 	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_03,
 						 .len = SLEN(S_302_PART_03)});
