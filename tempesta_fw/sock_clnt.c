@@ -37,6 +37,7 @@
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
+#include "server.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -345,6 +346,27 @@ tfw_listen_sock_stop_all(void)
 	 * can safely close server connections since there are no their users
 	 * any more.
 	 */
+}
+
+static int
+tfw_sock_check_lst(TfwServer *srv)
+{
+	TfwListenSock *ls;
+
+	TFW_DBG3("Checking server....\n");
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		TFW_DBG3("Iterating listener\n");
+		if (tfw_addr_ifmatch(&srv->addr, &ls->addr))
+			return -EINVAL;
+	}
+	return 0;
+}
+
+int
+tfw_sock_check_listeners(void)
+{
+	TFW_DBG3("Call %s\n", __func__);
+	return tfw_sg_for_each_srv(tfw_sock_check_lst);
 }
 
 /*

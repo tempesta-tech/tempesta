@@ -45,5 +45,6 @@ typedef struct {
 TfwClient *tfw_client_obtain(struct sock *sk);
 void tfw_client_put(TfwClient *cli);
 void tfw_cli_conn_release(TfwConnection *conn);
+int tfw_sock_check_listeners(void);
 
 #endif /* __TFW_CLIENT_H__ */
