@@ -1830,11 +1830,15 @@ enum {
 	/* Expires header */
 	Resp_I_Expires,
 	Resp_I_ExpDate,
+	Resp_I_ExpMonthSP,
 	Resp_I_ExpMonth,
 	Resp_I_ExpYearSP,
 	Resp_I_ExpYear,
+	Resp_I_ExpHourSP,
 	Resp_I_ExpHour,
+	Resp_I_ExpMinCln,
 	Resp_I_ExpMin,
+	Resp_I_ExpSecCln,
 	Resp_I_ExpSec,
 	/* Keep-Alive header. */
 	Resp_I_KeepAlive,
@@ -2046,8 +2050,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* Add seconds in full passed days. */
 		resp->expires = (parser->_tmp_acc - 1) * SEC24H;
 		parser->_tmp_acc = 0;
-		/* Skip a day and a following SP. */
-		__FSM_I_MOVE_n(Resp_I_ExpMonth, 3);
+		__FSM_I_MOVE_n(Resp_I_ExpMonthSP, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_ExpMonthSP) {
+		if (likely(isspace(c)))
+			__FSM_I_MOVE(Resp_I_ExpMonth);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_ExpMonth) {
@@ -2113,15 +2122,18 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		__fsm_n = __year_day_secs(parser->_tmp_acc, resp->expires);
-		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		resp->expires = __fsm_n;
+		resp->expires = __year_day_secs(parser->_tmp_acc,
+		                                resp->expires);
+		if (resp->expires < 0)
+			return CSTR_NEQ;
 		parser->_tmp_acc = 0;
-		/* Skip a year and a following SP. */
-		__FSM_I_MOVE_n(Resp_I_ExpHour, 5);
+		__FSM_I_MOVE_n(Resp_I_ExpHourSP, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_ExpHourSP) {
+		if (likely(isspace(c)))
+			__FSM_I_MOVE(Resp_I_ExpHour);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_ExpHour) {
@@ -2133,8 +2145,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc * 3600;
 		parser->_tmp_acc = 0;
-		/* Skip an hour and a following ':'. */
-		__FSM_I_MOVE_n(Resp_I_ExpMin, 3);
+		__FSM_I_MOVE_n(Resp_I_ExpMinCln, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_ExpMinCln) {
+		if (likely(c == ':'))
+			__FSM_I_MOVE(Resp_I_ExpMin);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_ExpMin) {
@@ -2146,8 +2163,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			return __fsm_n;
 		resp->expires = parser->_tmp_acc * 60;
 		parser->_tmp_acc = 0;
-		/* Skip minutes and a following ':'. */
-		__FSM_I_MOVE_n(Resp_I_ExpSec, 3);
+		__FSM_I_MOVE_n(Resp_I_ExpSecCln, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_ExpSecCln) {
+		if (likely(c == ':'))
+			__FSM_I_MOVE(Resp_I_ExpSec);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_ExpSec) {
