@@ -487,7 +487,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 			*pos++ = ':';
 		}
 		else if (!groups[i] && (groups[i + 1] || i == 6)) {
-			if (*(pos - 1) != ':')
+			if (pos == buf || *(pos - 1) != ':')
 				*pos++ = ':';
 			*pos++ = ':';
 			zeros_already_omitted = true;
