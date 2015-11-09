@@ -84,81 +84,72 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	const char *const cstr = tfw_cfg_sticky.name.ptr;
 	const unsigned int clen = tfw_cfg_sticky.name.len + 1;
 
-	const TfwStr *chunk, *next;
-	TfwStr *s = NULL;
+	const TfwStr *chunk, *end, *next;
+	TfwStr *s;
 	unsigned int n = TFW_STR_CHUNKN(cookie) + 1;
 	TfwStr tmp;
-	enum {
-		StateName,
-		StateSearchVal,
-		StateVal,
-		StateValChunks,
-	} state = StateName;
 
 	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name));
 
 	TFW_STR_INIT(&tmp);
 	tmp.flags = __TFW_STR_COMPOUND;
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, cookie, {
+	/* Search cookie name. */
+	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
+	for (chunk = cookie->ptr; chunk != end; ++chunk) {
 		--n;
-		switch (state) {
-
-		case StateName:
-			if (chunk->flags & TFW_STR_NAME) {
-				/*
-				 * Create temporary compound string, starting
-				 * with this chunk.
-				 * We do not use it's overall length now,
-				 * so do not set it.
-				 */
-				tmp.ptr = (void*)chunk;
-				__TFW_STR_CHUNKN_SET(&tmp, n);
-				if (tfw_str_eq_cstr(&tmp, cstr, clen,
-				                    TFW_STR_EQ_PREFIX))
-				{
-					state = StateSearchVal;
-				}
-			}
-			break;
-
-		case StateSearchVal:
-			if (!(chunk->flags & TFW_STR_VALUE))
-				break;
-			state = StateVal;
-			/* fall through */
-		case StateVal:
-			next = chunk + 1;
-			if (likely(chunk == TFW_STR_LAST(cookie)
-			           || *(char*)next->ptr == ';'))
+		if (chunk->flags & TFW_STR_NAME) {
+			/*
+			 * Create temporary compound string, starting
+			 * with this chunk.
+			 * We do not use it's overall length now,
+			 * so do not set it.
+			 */
+			tmp.ptr = (void*)chunk;
+			__TFW_STR_CHUNKN_SET(&tmp, n);
+			if (tfw_str_eq_cstr(&tmp, cstr, clen,
+			                    TFW_STR_EQ_PREFIX))
 			{
-				TFW_DBG3("%s: plain cookie value: %.*s\n",
-				         __func__, (int)chunk->len,
-				         (char*)chunk->ptr);
-				*val = *chunk;
-				return true;
+				break;
 			}
-			state = StateValChunks;
-			TFW_DBG3("%s: compound cookie value found\n", __func__);
-			/* fall through */
-		case StateValChunks:
-			if (*(char*)chunk->ptr == ';')
-				/* value chunks exhausted */
-				return true;
+		}
+	}
+	if (chunk == end)
+		return false;
 
-			s = tfw_str_add_compound(pool, val);
-			if (!s) {
-				TFW_DBG("%s: failed to extend value string\n",
-				        __func__);
-				return false;
-			}
-			*s = *chunk;
+	/* Search cookie value, starting with next chunk. */
+	for (++chunk; chunk != end; ++chunk)
+		if (chunk->flags & TFW_STR_VALUE)
 			break;
+	BUG_ON(chunk == end);
 
-		} /* switch (state) */
-	}); /* TFW_STR_FOR_EACH_CHUNK */
+	/* Check if value is plain string, just return it in this case. */
+	next = chunk + 1;
+	if (likely(next == end || *(char*)next->ptr == ';')) {
+		TFW_DBG3("%s: plain cookie value: %.*s\n",
+		         __func__, (int)chunk->len,
+		         (char*)chunk->ptr);
+		*val = *chunk;
+		return true;
+	}
 
-	return s != NULL;
+	/* Add value chunks to out-string. */
+	TFW_DBG3("%s: compound cookie value found\n", __func__);
+	for (; chunk != end; ++chunk) {
+		if (*(char*)chunk->ptr == ';')
+			/* value chunks exhausted */
+			return true;
+
+		s = tfw_str_add_compound(pool, val);
+		if (!s) {
+			TFW_DBG("%s: failed to extend value string\n",
+			        __func__);
+			return false;
+		}
+		*s = *chunk;
+	}
+
+	return true;
 }
 
 /*
@@ -202,7 +193,7 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	int addr_len;
 	TfwStr ua_value = { 0 };
 	TfwClient *client = (TfwClient *)hm->conn->peer;
-	TfwStr *hdr, *c;
+	TfwStr *hdr, *c, *end;
 
 	char desc[sizeof(struct shash_desc)
 		  + crypto_shash_descsize(tfw_sticky_shash)]
@@ -227,10 +218,8 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	crypto_shash_init(shash_desc);
 	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
 	if (ua_value.len) {
-		TFW_STR_FOR_EACH_CHUNK(c, &ua_value,
-		                       crypto_shash_update(shash_desc,
-		                                          (u8 *)c->ptr,
-		                                           c->len));
+		TFW_STR_FOR_EACH_CHUNK(c, &ua_value, end)
+			crypto_shash_update(shash_desc, (u8 *)c->ptr, c->len);
 	}
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
