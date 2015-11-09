@@ -83,8 +83,7 @@ int __fsm_const_state;							\
 /* Declare FSM automatic variables, the variables have only local sense. */ \
 int __fsm_n __attribute__((unused));					\
 size_t __fsm_sz __attribute__((unused));				\
-unsigned char *__fsm_ch __attribute__((unused));			\
-unsigned int __fsm_chunkflags __attribute__((unused)) = 0;
+unsigned char *__fsm_ch __attribute__((unused));
 
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
@@ -142,14 +141,14 @@ do {									\
 #define __FSM_I_EXIT()			goto done
 #define __FSM_I_CHUNK_FIXUP(n)						\
 do {									\
-	/* Save currently parsed symbols, plus n symbols more */	\
-	int slen = p - data + 1 + n;					\
+	/* Save symbols until current, plus n symbols more */	\
+	int slen = p - data + n;					\
 	__chunk_finish(msg, data, slen, &__fsm_chunkflags);		\
 	data += slen;							\
 	len -= slen;							\
 } while (0)
 
-#define __FSM_I_MOVE_n(to, n)						\
+#define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
 	parser->_i_st = to;						\
 	p += n;								\
@@ -157,24 +156,38 @@ do {									\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
-		__chunk_finish(msg, data, len, &__fsm_chunkflags);	\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		finish;                                                 \
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
+
+#define __FSM_I_chunk_flags()						\
+do {									\
+	if (unlikely(__fsm_chunkflags)) {				\
+		TFW_DBG3("parser: add chunk flags: %u\n", __fsm_chunkflags);\
+		TFW_STR_CURR(&msg->parser.hdr)->flags |= __fsm_chunkflags;\
+		__fsm_chunkflags = 0;					\
+	}								\
+} while (0)
+
+#define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
+#define __FSM_I_MOVE_flags(to) \
+	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags())
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_flags(to, flag)					\
+#define __FSM_I_MOVE_set_flags(to, flag)				\
 do {									\
 	__fsm_chunkflags |= flag;					\
 	__FSM_I_MOVE(to);						\
 } while (0)
-#define __FSM_I_MOVE_chunk_n(to, n)					\
+#define __FSM_I_MOVE_fixup_n(to, n)					\
 do {									\
 	__FSM_I_CHUNK_FIXUP(n);						\
 	__FSM_I_MOVE(to);						\
 } while (0)
-#define __FSM_I_MOVE_chunk(to) __FSM_I_MOVE_chunk_n(to, 0)
+#define __FSM_I_MOVE_fixup(to) __FSM_I_MOVE_fixup_n(to, 1)
 
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
@@ -425,7 +438,7 @@ enum {
  * (e.g. Content-Length which is doubled by TfwHttpMsg.conent_length)
  * to mangle row skb data.
  */
-#define TFW_HTTP_PARSE_SPECHDR_VAL_GEN(st_curr, st_i, hm, func, id, saveval) \
+#define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
 __FSM_STATE(st_curr) {							\
 	__fsm_sz = data + len - p;					\
 	BUG_ON(p > data + len);						\
@@ -465,7 +478,7 @@ __FSM_STATE(st_curr) {							\
 }
 
 #define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id) \
-	TFW_HTTP_PARSE_SPECHDR_VAL_GEN(st_curr, st_i, hm, func, id, 1)
+	__TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, 1)
 
 #define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func)		\
 __FSM_STATE(st_curr) {							\
@@ -1395,9 +1408,12 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	unsigned char *p = data;
 	unsigned char *orig_data = data;
 	unsigned char c = *p;
+	unsigned int __fsm_chunkflags = 0;
 	__FSM_DECLARE_VARS();
 
 	/*
+	 * Cookie header is parsed according to RFC 6265 4.2.1.
+	 *
 	 * Here we build header value string manually
 	 * to split it in chunks: chunk bounds are
 	 * at least at name start, value start and value end.
@@ -1409,40 +1425,40 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		/* Name should contain at least 1 character */
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
+		__FSM_I_MOVE_set_flags(Req_I_CookieName, TFW_STR_NAME);
 	}
 
 	__FSM_STATE(Req_I_CookieName) {
 		if (unlikely(c == '='))
-			__FSM_I_MOVE_chunk(Req_I_CookieValStart);
-		__FSM_I_MOVE(Req_I_CookieName);
+			__FSM_I_MOVE_fixup(Req_I_CookieValStart);
+		__FSM_I_MOVE_flags(Req_I_CookieName);
 	}
 
 	__FSM_STATE(Req_I_CookieValStart) {
 		if (unlikely(isspace(c) || c == ','
 		             || c == ';' || c == '\\'))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
+		__FSM_I_MOVE_set_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_CookieVal) {
 		if (unlikely(c == ';'))
 			/* do not save ';' yet */
-			__FSM_I_MOVE_chunk_n(Req_I_CookieSP, -1);
+			__FSM_I_MOVE_fixup_n(Req_I_CookieSP, 0);
 		if (unlikely(c == '\r' || c == ' ')) {
 			/* do not save LWS */
-			__FSM_I_CHUNK_FIXUP(-1);
+			__FSM_I_CHUNK_FIXUP(0);
 			return p - orig_data;
 		}
 		if (unlikely(c == ',' || c == '\\'))
 			return CSTR_NEQ;
-		__FSM_I_MOVE(Req_I_CookieVal);
+		__FSM_I_MOVE_flags(Req_I_CookieVal);
 	}
 
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_chunk(Req_I_CookieStart);
+		__FSM_I_MOVE_fixup(Req_I_CookieStart);
 	}
 
 	} /* FSM END */
@@ -1771,10 +1787,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
 			if (likely(p + 10 <= data + len
-				&& *(p + 1) == 's'
-				&& *(p + 1) == 'e'
-				&& C8_INT_LCM(p + 3, 'r', '-', 'a', 'g',
-				                     'e', 'n', 't', ':')))
+			           && C4_INT_LCM(p, 'u', 's', 'e', 'r')
+			           && *(p + 4) == '-'
+			           && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
+			           && *(p + 9) == 't'
+			           && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrUser_AgentV;
 				__FSM_MOVE_n(RGen_LWS, 11);
@@ -1890,9 +1907,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   TFW_HTTP_HDR_USER_AGENT);
 
 	/* 'Cookie:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL_GEN(Req_HdrCookieV, Req_I_CookieStart,
-				       msg, __req_parse_cookie,
-				       TFW_HTTP_HDR_COOKIE, 0);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, Req_I_CookieStart,
+				     msg, __req_parse_cookie,
+				     TFW_HTTP_HDR_COOKIE, 0);
 
 	TFW_HTTP_PARSE_HDR_OTHER(Req);
 
