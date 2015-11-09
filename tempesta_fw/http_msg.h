@@ -37,7 +37,7 @@ tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data)
 	str->skb = ss_skb_peek_tail(&hm->msg.skb_list);
 }
 
-void tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val);
+void tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val);
 
 int tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 			      size_t len);
