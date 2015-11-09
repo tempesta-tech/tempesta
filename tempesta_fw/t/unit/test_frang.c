@@ -186,6 +186,7 @@ TEST(frang, req_count)
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
+
 	res = req_handler (mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
 
@@ -193,6 +194,7 @@ TEST(frang, req_count)
 	frang_cfg->req_burst = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
+
 	res = req_handler(mockreq);
 	EXPECT_EQ(TFW_BLOCK, res);
 	test_req_free(mockreq);
@@ -222,6 +224,7 @@ TEST(frang, max_conn)
 	frang_cfg->conn_max = 0;
 	frang_cfg->conn_rate = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
+
 	res = req_handler(mockreq);
 	/*conn_rate */
 	EXPECT_EQ(TFW_BLOCK, res);
