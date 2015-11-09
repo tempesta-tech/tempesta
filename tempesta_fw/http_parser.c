@@ -59,19 +59,6 @@ __field_finish(TfwHttpMsg *hm, TfwStr *field,
 	field->flags |= TFW_STR_COMPLETE;
 }
 
-static inline void
-__chunk_finish(TfwHttpMsg *hm, unsigned char *data, int len,
-               unsigned int *flags)
-{
-	TFW_DBG3("parser: fixup chunk: <%.*s>\n", len, data);
-	tfw_http_msg_hdr_chunk_fixup(hm, data, len);
-	if (unlikely(*flags)) {
-		TFW_DBG3("parser: add chunk flags: %u\n", *flags);
-		TFW_STR_CURR(&hm->parser.hdr)->flags |= *flags;
-		*flags = 0;
-	}
-}
-
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -138,16 +125,6 @@ do {									\
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
 
-#define __FSM_I_EXIT()			goto done
-#define __FSM_I_CHUNK_FIXUP(n)						\
-do {									\
-	/* Save symbols until current, plus n symbols more */	\
-	int slen = p - data + n;					\
-	__chunk_finish(msg, data, slen, &__fsm_chunkflags);		\
-	data += slen;							\
-	len -= slen;							\
-} while (0)
-
 #define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
 	parser->_i_st = to;						\
@@ -174,20 +151,19 @@ do {									\
 } while (0)
 
 #define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
+#define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 #define __FSM_I_MOVE_flags(to) \
 	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags())
-#define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_set_flags(to, flag)				\
+#define __FSM_I_MOVE_fixup(to, n)					\
 do {									\
-	__fsm_chunkflags |= flag;					\
+	/* Save symbols until current, plus n symbols more */		\
+	int slen = p - data + n;					\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, slen);			\
+	__FSM_I_chunk_flags();						\
+	data += slen;							\
+	len -= slen;							\
 	__FSM_I_MOVE(to);						\
 } while (0)
-#define __FSM_I_MOVE_fixup_n(to, n)					\
-do {									\
-	__FSM_I_CHUNK_FIXUP(n);						\
-	__FSM_I_MOVE(to);						\
-} while (0)
-#define __FSM_I_MOVE_fixup(to) __FSM_I_MOVE_fixup_n(to, 1)
 
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
@@ -1425,12 +1401,13 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		/* Name should contain at least 1 character */
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_set_flags(Req_I_CookieName, TFW_STR_NAME);
+		__fsm_chunkflags = TFW_STR_NAME;
+		__FSM_I_MOVE(Req_I_CookieName);
 	}
 
 	__FSM_STATE(Req_I_CookieName) {
 		if (unlikely(c == '='))
-			__FSM_I_MOVE_fixup(Req_I_CookieValStart);
+			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1);
 		__FSM_I_MOVE_flags(Req_I_CookieName);
 	}
 
@@ -1438,16 +1415,18 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		if (unlikely(isspace(c) || c == ','
 		             || c == ';' || c == '\\'))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_set_flags(Req_I_CookieVal, TFW_STR_VALUE);
+		__fsm_chunkflags = TFW_STR_VALUE;
+		__FSM_I_MOVE(Req_I_CookieVal);
 	}
 
 	__FSM_STATE(Req_I_CookieVal) {
 		if (unlikely(c == ';'))
 			/* do not save ';' yet */
-			__FSM_I_MOVE_fixup_n(Req_I_CookieSP, 0);
+			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0);
 		if (unlikely(c == '\r' || c == ' ')) {
 			/* do not save LWS */
-			__FSM_I_CHUNK_FIXUP(0);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
+			__FSM_I_chunk_flags();
 			return p - orig_data;
 		}
 		if (unlikely(c == ',' || c == '\\'))
@@ -1458,7 +1437,7 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_fixup(Req_I_CookieStart);
+		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1);
 	}
 
 	} /* FSM END */
