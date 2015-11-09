@@ -40,6 +40,8 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 		[TFW_HTTP_HDR_CONTENT_TYPE] = sizeof("Content-Type:") - 1,
 		[TFW_HTTP_HDR_CONNECTION] = sizeof("Connection:") - 1,
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = sizeof("X-Forwarded-For:") - 1,
+		[TFW_HTTP_HDR_USER_AGENT] = sizeof("User-Agent:") - 1,
+		[TFW_HTTP_HDR_COOKIE] = sizeof("Cookie:") - 1,
 	};
 
 	TfwStr *c, *end;
@@ -110,7 +112,6 @@ __hdr_is_singular(const TfwStr *hdr)
 		TfwStr_string("max-forwards:"),
 		TfwStr_string("proxy-authorization:"),
 		TfwStr_string("referer:"),
-		TfwStr_string("user-agent:"),
 #undef TfwStr_string
 	};
 
