@@ -45,6 +45,7 @@
 enum {
 	RGen_LWS = 10000,
 	RGen_LF,
+	RGen_LWS_empty,
 };
 
 /**
@@ -104,7 +105,7 @@ do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
-		__fsm_const_state = to; /* start from state @to nest time */\
+		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		tfw_http_msg_field_chunk_fixup(msg, field, data, len);	\
 		__FSM_EXIT()						\
@@ -606,35 +607,53 @@ __FSM_STATE(prefix ## _Done) {						\
 	return TFW_BLOCK;						\
 }
 
-/*
+#define RGEN_LWS_common_cases(st)					\
+	case ' ':							\
+	case '\t':							\
+		__FSM_MOVE(st);						\
+	default:							\
+		parser->state = parser->_i_st;				\
+		parser->_i_st = 0;					\
+		BUG_ON(unlikely(p >= data + len || !*p));		\
+		goto fsm_reenter;
+
+/* In request we should pass empty headers:
+ * RFC 7230 5.4:
+ * ....
+ * ....
+ * If the authority component is missing or
+ * undefined for the target URI, then a client MUST send a Host header
+ * field with an empty field-value.
+ *
+ * NOTE: using of RGEN_LWS_empty should be matched with
+ * the BUG_ON() statements in tfw_http_msg_hdr_val function
+ *
  * Read LWS at arbitrary position and move to stashed state.
  * This is bit complicated (however you can think about this as
  * a plain pushdown automaton), but reduces FSM code size.
  */
+#define RGEN_LWS_empty()						\
+__FSM_STATE(RGen_LWS_empty) {						\
+	switch (c) {							\
+	case '\r':							\
+	case '\n':							\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);      \
+		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))      \
+			return TFW_BLOCK;				\
+		if (c == '\r')						\
+			__FSM_MOVE(RGen_LF);				\
+		__FSM_JMP(RGen_LF);					\
+	RGEN_LWS_common_cases(RGen_LWS_empty)				\
+	}								\
+}
+
 #define RGEN_LWS()							\
 __FSM_STATE(RGen_LWS) {							\
 	switch (c) {							\
-	case '\r':							\
-		if (likely(!(parser->flags & TFW_HTTP_PF_CRLF))) {	\
-			parser->flags |= TFW_HTTP_PF_CR;		\
-			__FSM_MOVE(RGen_LWS);				\
-		}							\
-		return TFW_BLOCK;					\
 	case '\n':							\
-		if (likely(!(parser->flags & TFW_HTTP_PF_LF))) {	\
-			parser->flags |= TFW_HTTP_PF_LF;		\
-			__FSM_MOVE(RGen_LWS);				\
-		}							\
+	case '\r':							\
 		return TFW_BLOCK;					\
-	case ' ':							\
-	case '\t':							\
-		__FSM_MOVE(RGen_LWS);					\
-	default:							\
-		parser->flags &= ~TFW_HTTP_PF_CRLF;			\
-		parser->state = parser->_i_st;				\
-		parser->_i_st = 0;					\
-		BUG_ON(unlikely(p >= data + len || !*p));		\
-		goto fsm_reenter;					\
+	RGEN_LWS_common_cases(RGen_LWS)					\
 	}								\
 }
 
@@ -1343,10 +1362,16 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
+		req->flags |= TFW_HTTP_URI_FULL;
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			*p = LC(*p);
 			tfw_http_msg_set_data(msg, &req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		} else if (likely(c == '/')) {
+			TFW_DBG3("Handling http:///path\n");
+			tfw_http_msg_set_data(msg, &req->host, p);
+			__field_finish(msg, &req->host, data, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		return TFW_BLOCK;
 	}
@@ -1480,8 +1505,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			if (!(req->body.flags & TFW_STR_COMPLETE)) {
 				tfw_http_msg_set_data(msg, &req->crlf, p);
 				__FSM_MOVE(Req_HdrDone);
-			} else
+			} else {
 				__FSM_MOVE(Req_Done);
+			}
 		}
 		if (unlikely(c == '\n')) {
 			if (!(req->body.flags & TFW_STR_COMPLETE)) {
@@ -1510,7 +1536,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'h':
 			if (likely(C4_INT_LCM(p + 1, 'o', 's', 't', ':'))) {
 				parser->_i_st = Req_HdrHostV;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				parser->_hdr_tag = TFW_HTTP_HDR_HOST;
+				__FSM_MOVE_n(RGen_LWS_empty, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
 		case 't':
@@ -1544,6 +1571,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 	}
 
+	RGEN_LWS_empty();
 	RGEN_LWS();
 
 	/* Parse headers starting from 'C'. */
@@ -1641,8 +1669,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* Request headers are fully read. */
 	__FSM_STATE(Req_HdrDone) {
-		if (c == '\n')
+		if (c == '\n') {
+			__field_finish(msg, &req->crlf, data, p + 1);
 			TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
+		}
 		return TFW_BLOCK;
 	}
 

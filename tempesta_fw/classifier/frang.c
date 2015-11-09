@@ -464,28 +464,79 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
 	TfwStr field;
+	int ret = TFW_BLOCK;
+	char *hdrhost = NULL;
+
+	/* 1) we check, if Host: header is present.
+	 * 2) we check, that Host: header is not a IP address.
+	 * 3) if URI has form "http://host:port/path", we check if host in URI
+	 * 	is equal to Host: header. As a particular case, if host
+	 * 	in uri is empty, Host: header also should be empty
+	 * 4) if URI has form "/path", we check, that host is not empty
+	 *
+	 * (RFC 7230 5.4):
+	 * 	A client MUST send a Host header field in all HTTP/1.1 request
+	 * 	messages.  If the target URI includes an authority component,
+	 * 	then a client MUST send a field-value for Host that is
+	 * 	identical to that authority component, excluding any userinfo
+	 * 	subcomponent and its "@" delimiter (Section 2.7.1).
+	 * 	If the authority component is missing or undefined for the
+	 * 	target URI, then a client MUST send a Host header field
+	 * 	with an empty field-value. */
+
+	TFW_DBG2("Start http host check\n");
+
+	BUG_ON(req == NULL);
+	BUG_ON(req->h_tbl == NULL);
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
+		TFW_DBG3("Host header is missed\n");
 		frang_msg("Host header field", &ra->addr, " is missed\n");
 		return TFW_BLOCK;
 	}
-
 	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &field);
 
-	/*
-	 * FIXME: here should be a check that the Host value is not an IP
-	 * address. Need a fast routine that supports compound TfwStr.
-	 * Perhaps should implement a tiny FSM or postpone the task until we
-	 * have a good regex library.
-	 * For now just linearize the Host header field TfwStr{} string.
-	 */
-	if (!tfw_addr_pton(&field, &addr)) {
-		frang_msg("Host header field contains IP address",
-			  &ra->addr, "\n");
-		return TFW_BLOCK;
+	if (!TFW_STR_EMPTY(&field) && field.len > 0) {
+		if (!tfw_addr_pton(&field, &addr)) {
+			frang_msg("Host header field contains IP address",
+				&ra->addr, "\n");
+			goto finish;
+		}
 	}
-	return TFW_PASS;
+
+	if (req->flags & TFW_HTTP_URI_FULL) {
+		if (!TFW_STR_EMPTY(&field)) {
+			if ((hdrhost = tfw_pool_alloc(req->pool,
+				field.len + 1)) == NULL)
+			{
+				TFW_ERR("Can not allocate memory\n");
+				goto finish;
+			}
+			tfw_str_to_cstr(&field, hdrhost, field.len + 1);
+		}
+
+		/* Host: header must be equal to host in URI */
+		if (!tfw_str_eq_cstr(&req->host, hdrhost,
+					 field.len, TFW_STR_EQ_CASEI))
+		{
+			frang_msg("Host header is not equal to host in URL",
+				  &ra->addr, "\n");
+			goto finish;
+		}
+	} else {
+		TFW_DBG3("No host in URI\n");
+		if (TFW_STR_EMPTY(&field) || field.len == 0) {
+			frang_msg("Host header is empty", &ra->addr, "\n");
+			goto finish;
+		}
+	}
+	ret = TFW_PASS;
+finish:
+	if (hdrhost)
+		tfw_pool_free(req->pool, hdrhost, field.len + 1);
+
+	return ret;
 }
 
 /*
@@ -499,7 +550,7 @@ enum {
 };
 
 enum {
-	Frang_Req_0,
+	Frang_Req_0 = 0,
 
 	Frang_Req_Hdr_Start,
 	Frang_Req_Hdr_Method,
@@ -532,16 +583,52 @@ int __fsm_const_state = Frang_Req_0; /* make compiler happy */
 #define __FRANG_FSM_START(st)						\
 switch(st)
 
+#if defined(DEBUG) && (DEBUG >= 3)
+const char *__state_name_array[] = {
+	"Frang_Req_0",
+
+	"Frang_Req_Hdr_Start",
+	"Frang_Req_Hdr_Method",
+	"Frang_Req_Hdr_UriLen",
+	"Frang_Req_Hdr_FieldDup",
+	"Frang_Req_Hdr_FieldLen",
+	"Frang_Req_Hdr_FieldLenFinal",
+	"Frang_Req_Hdr_Crlf",
+	"Frang_Req_Hdr_Host",
+	"Frang_Req_Hdr_ContentType",
+
+	"Frang_Req_Hdr_NoState",
+
+	"Frang_Req_Body_Start",
+	"Frang_Req_Body_Timeout",
+	"Frang_Req_Body_ChunkCnt",
+	"Frang_Req_Body_Len",
+
+	"Frang_Req_Body_NoState",
+
+	"Frang_Req_Done"
+};
+
+#define __state_name(state) ((state >= 0 && state <= Frang_Req_Done) ?	\
+				__state_name_array[state] :		\
+				"Wrong state")
+#endif /* defined(DEBUG) && (DEBUG >= 3) */
+
+/* NOTE: we use the fact, that if DEBUG < 3, TFW_DBG3() is empty, so
+ * we can use it with undefined arguments, such as
+ * __state_name(__fsm_const_state), which is defined only when DEBUG >= 3
+ */
 #define __FRANG_FSM_FINISH()						\
 done:									\
-	TFW_DBG3("Finish FRANG FSM at state %d\n", __fsm_const_state);	\
+	TFW_DBG3("Finish FRANG FSM at state %d = %s\n",			\
+		__fsm_const_state, __state_name(__fsm_const_state));	\
 	TFW_DBG3("Frang return %s\n", r == TFW_PASS ? "PASS" : "BLOCK");\
 	req->frang_st = __fsm_const_state;
 
 #define __FRANG_FSM_STATE(st)						\
 case st:								\
 st: __attribute__((unused))						\
-	TFW_DBG3("enter FRANG FSM at state %d\n", st);			\
+	TFW_DBG3("enter FRANG FSM at state %d = %s\n", st, __state_name(st));\
 	__fsm_const_state = st; /* optimized out to constant */
 
 #define __FRANG_FSM_EXIT()	goto done;
@@ -689,7 +776,7 @@ frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
 	 * If not, continue checks on header fields.
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_Crlf) {
-		if (!TFW_STR_EMPTY(&req->crlf))
+		if (req->crlf.flags & TFW_STR_COMPLETE)
 			__FRANG_FSM_JUMP(Frang_Req_Hdr_FieldLenFinal);
 		__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_FieldDup);
 	}
