@@ -910,6 +910,7 @@ enum {
 	Req_UriAuthorityStart,
 	Req_UriAuthority,
 	Req_UriAuthorityResetHost,
+	Req_UriAuthorityIPv6,
 	Req_UriAuthorityEnd,
 	Req_UriPort,
 	Req_UriAbsPath,
@@ -1030,7 +1031,10 @@ enum {
 	Req_I_0,
 
 	/* Host header */
+	Req_I_H_Start,
 	Req_I_H,
+	Req_I_H_v6,
+	Req_I_H_v6_End,
 	Req_I_H_Port,
 	/* Cache-Control header */
 	Req_I_CC,
@@ -1174,14 +1178,39 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st) {
 
+	__FSM_STATE(Req_I_H_Start) {
+		if (likely(isalnum(c) || c == '.' || c == '-'))
+			__FSM_I_MOVE(Req_I_H);
+		if (likely(c == '['))
+			__FSM_I_MOVE(Req_I_H_v6);
+		return CSTR_NEQ;
+	}
+
 	__FSM_STATE(Req_I_H) {
-		/* See Req_UriHost processing. */
+		/* See Req_UriAuthority processing. */
 		if (likely(isalnum(c) || c == '.' || c == '-'))
 			__FSM_I_MOVE(Req_I_H);
 		if (c == ':')
 			__FSM_I_MOVE(Req_I_H_Port);
 		if (isspace(c))
 			return p - data;
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_v6) {
+		/* See Req_UriAuthorityIPv6 processing. */
+		if (likely(isxdigit(c) || c == ':'))
+			__FSM_I_MOVE(Req_I_H_v6);
+		if (likely(c == ']'))
+			__FSM_I_MOVE(Req_I_H_v6_End);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_v6_End) {
+		if (likely(isspace(c)))
+			return p - data;
+		if (likely(c == ':'))
+			__FSM_I_MOVE(Req_I_H_Port);
 		return CSTR_NEQ;
 	}
 
@@ -1372,6 +1401,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			tfw_http_msg_set_data(msg, &req->host, p);
 			__field_finish(msg, &req->host, data, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+		} else if (c == '[') {
+			tfw_http_msg_set_data(msg, &req->host, p);
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
 		return TFW_BLOCK;
 	}
@@ -1399,10 +1431,23 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		__FSM_JMP(Req_UriAuthorityEnd);
 	}
 
+	__FSM_STATE(Req_UriAuthorityIPv6) {
+		if (likely(isxdigit(c) || c == ':')) {
+			*p = LC(*p);
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
+		} else if(c == ']') {
+			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
+		}
+		return TFW_BLOCK;
+	}
+
 	__FSM_STATE(Req_UriAuthorityResetHost) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			tfw_http_msg_set_data(msg, &req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
+		} else if (c == '[') {
+			tfw_http_msg_set_data(msg, &req->host, p);
+			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
 		__FSM_JMP(Req_UriAuthorityEnd);
 	}
@@ -1633,7 +1678,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	}
 
 	/* 'Host:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H, req,
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
 				   __req_parse_host, TFW_HTTP_HDR_HOST);
 
 	/* 'Cache-Control:*LWS' is read, process field-value. */
