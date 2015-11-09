@@ -70,8 +70,7 @@ int __fsm_const_state;							\
 /* Declare FSM automatic variables, the variables have only local sense. */ \
 int __fsm_n __attribute__((unused));					\
 size_t __fsm_sz __attribute__((unused));				\
-unsigned char *__fsm_ch __attribute__((unused));			\
-TfwStr *__fsm_str __attribute__((unused));
+unsigned char *__fsm_ch __attribute__((unused));
 
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
@@ -100,7 +99,7 @@ done:									\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	parser->to_go = len - (size_t)(p - data);
 
-#define ____FSM_MOVE_LAMBDA(to, n, field)				\
+#define __FSM_MOVE_nf(to, n, field)				\
 do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
@@ -114,8 +113,6 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_MOVE_nf(to, n, field)					\
-	____FSM_MOVE_LAMBDA(to, n, field)
 #define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, &msg->parser.hdr)
 #define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
 #define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
@@ -127,14 +124,47 @@ do {									\
  * header values. That is done with separate, nested, or interior
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
-#define __FSM_I_EXIT()			goto done
-#define __FSM_I_MOVE_n(to, n)						\
+
+#define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
 	parser->_i_st = to;						\
-	____FSM_MOVE_LAMBDA(to, n, &msg->parser.hdr);			\
+	p += n;								\
+	if (unlikely(p >= data + len || !*p)) {				\
+		r = TFW_POSTPONE; /* postpone to more data available */	\
+		__fsm_const_state = to; /* start from state @to nest time */\
+		/* Close currently parsed field chunk. */		\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		finish;                                                 \
+		__FSM_EXIT()						\
+	}								\
+	c = *p;								\
+	goto to;							\
 } while (0)
+
+#define __FSM_I_chunk_flags()						\
+do {									\
+	if (unlikely(__fsm_chunkflags)) {				\
+		TFW_DBG3("parser: add chunk flags: %u\n", __fsm_chunkflags);\
+		TFW_STR_CURR(&msg->parser.hdr)->flags |= __fsm_chunkflags;\
+		__fsm_chunkflags = 0;					\
+	}								\
+} while (0)
+
+#define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_str(to, str)	__FSM_I_MOVE_n(to, sizeof(str) - 1)
+#define __FSM_I_MOVE_flags(to) \
+	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags())
+#define __FSM_I_MOVE_fixup(to, n)					\
+do {									\
+	/* Save symbols until current, plus n symbols more */		\
+	int slen = p - data + n;					\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, slen);			\
+	__FSM_I_chunk_flags();						\
+	data += slen;							\
+	len -= slen;							\
+	__FSM_I_MOVE(to);						\
+} while (0)
+
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
 
@@ -384,7 +414,7 @@ enum {
  * (e.g. Content-Length which is doubled by TfwHttpMsg.conent_length)
  * to mangle row skb data.
  */
-#define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id)		\
+#define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
 __FSM_STATE(st_curr) {							\
 	__fsm_sz = data + len - p;					\
 	BUG_ON(p > data + len);						\
@@ -414,13 +444,17 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
+		if (saveval)						\
+			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);	\
 		if (tfw_http_msg_hdr_close(msg, id))			\
 			return TFW_BLOCK;				\
 		parser->_i_st = I_0;					\
 		__FSM_MOVE_n(RGen_LF, __fsm_n + 1); /* skip \r */	\
 	}								\
 }
+
+#define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id) \
+	__TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, 1)
 
 #define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func)		\
 __FSM_STATE(st_curr) {							\
@@ -459,7 +493,7 @@ __FSM_STATE(st_curr) {							\
 
 /*
  * Parse raw (common) HTTP headers.
- * Note that some of these (like Cookie or User-Agent) can be extremely large.
+ * Note that some of these can be extremely large.
  *
  * TODO: Here we should check if the rest of the header consists only of
  *       characters allowed by RFCs.
@@ -971,6 +1005,11 @@ enum {
 	Req_HdrContent_Typ,
 	Req_HdrContent_Type,
 	Req_HdrContent_TypeV,
+	Req_HdrCoo,
+	Req_HdrCook,
+	Req_HdrCooki,
+	Req_HdrCookie,
+	Req_HdrCookieV,
 	Req_HdrT,
 	Req_HdrTr,
 	Req_HdrTra,
@@ -1005,6 +1044,17 @@ enum {
 	Req_HdrX_Forwarded_Fo,
 	Req_HdrX_Forwarded_For,
 	Req_HdrX_Forwarded_ForV,
+	Req_HdrU,
+	Req_HdrUs,
+	Req_HdrUse,
+	Req_HdrUser,
+	Req_HdrUser_,
+	Req_HdrUser_A,
+	Req_HdrUser_Ag,
+	Req_HdrUser_Age,
+	Req_HdrUser_Agen,
+	Req_HdrUser_Agent,
+	Req_HdrUser_AgentV,
 	Req_HdrOther,
 	Req_HdrDone,
 	/* Body */
@@ -1046,6 +1096,14 @@ enum {
 	Req_I_XFF,
 	Req_I_XFF_Node_Id,
 	Req_I_XFF_Sep,
+	/* User-Agent */
+	Req_I_UserAgent,
+	/* Cookie header */
+	Req_I_CookieStart,
+	Req_I_CookieName,
+	Req_I_CookieValStart,
+	Req_I_CookieVal,
+	Req_I_CookieSP,
 };
 
 /**
@@ -1289,6 +1347,101 @@ __req_parse_x_forwarded_for(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	}
 
 	} /* FSM END */
+done:
+	return r;
+}
+
+static int
+__req_parse_user_agent(TfwHttpMsg *msg, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	TfwHttpParser *parser = &msg->parser;
+	unsigned char *p = data;
+	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_UserAgent) {
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\r', __fsm_sz);
+		if (__fsm_ch)
+			return __fsm_ch - data;
+		__FSM_I_MOVE_n(Req_I_UserAgent, __fsm_sz);
+	}
+
+	} /* FSM END */
+
+done:
+	return r;
+}
+
+static int
+__req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	TfwHttpParser *parser = &msg->parser;
+	unsigned char *p = data;
+	unsigned char *orig_data = data;
+	unsigned char c = *p;
+	unsigned int __fsm_chunkflags = 0;
+	__FSM_DECLARE_VARS();
+
+	/*
+	 * Cookie header is parsed according to RFC 6265 4.2.1.
+	 *
+	 * Here we build header value string manually
+	 * to split it in chunks: chunk bounds are
+	 * at least at name start, value start and value end.
+	 * This simplifies cookie search, http_sticky uses it.
+	 */
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_CookieStart) {
+		/* Name should contain at least 1 character */
+		if (unlikely(c == '=' || c == ';' || c == ','))
+			return CSTR_NEQ;
+		__fsm_chunkflags = TFW_STR_NAME;
+		__FSM_I_MOVE(Req_I_CookieName);
+	}
+
+	__FSM_STATE(Req_I_CookieName) {
+		if (unlikely(c == '='))
+			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1);
+		__FSM_I_MOVE_flags(Req_I_CookieName);
+	}
+
+	__FSM_STATE(Req_I_CookieValStart) {
+		if (unlikely(isspace(c) || c == ','
+		             || c == ';' || c == '\\'))
+			return CSTR_NEQ;
+		__fsm_chunkflags = TFW_STR_VALUE;
+		__FSM_I_MOVE(Req_I_CookieVal);
+	}
+
+	__FSM_STATE(Req_I_CookieVal) {
+		if (unlikely(c == ';'))
+			/* do not save ';' yet */
+			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0);
+		if (unlikely(c == '\r' || c == ' ')) {
+			/* do not save LWS */
+			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
+			__FSM_I_chunk_flags();
+			return p - orig_data;
+		}
+		if (unlikely(c == ',' || c == '\\'))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_flags(Req_I_CookieVal);
+	}
+
+	__FSM_STATE(Req_I_CookieSP) {
+		if (unlikely(c != ' '))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1);
+	}
+
+	} /* FSM END */
+
 done:
 	return r;
 }
@@ -1611,6 +1764,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_LWS, 16);
 			}
 			__FSM_MOVE(Req_HdrX);
+		case 'u':
+			if (likely(p + 10 <= data + len
+			           && C4_INT_LCM(p, 'u', 's', 'e', 'r')
+			           && *(p + 4) == '-'
+			           && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
+			           && *(p + 9) == 't'
+			           && *(p + 10) == ':'))
+			{
+				parser->_i_st = Req_HdrUser_AgentV;
+				__FSM_MOVE_n(RGen_LWS, 11);
+			}
+			__FSM_MOVE(Req_HdrU);
 		default:
 			__FSM_JMP(Req_HdrOther);
 		}
@@ -1645,6 +1810,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
 							't', 'i', 'o', 'n')))
 				__FSM_MOVE_n(Req_HdrConnection, 9);
+			if (likely(p + 5 <= data + len
+				   && C4_INT_LCM(p + 1, 'o', 'k', 'i', 'e')
+				   && *(p + 5) == ':'))
+			{
+				parser->_i_st = Req_HdrCookieV;
+				__FSM_MOVE_n(RGen_LWS, 6);
+			}
 			__FSM_MOVE(Req_HdrCo);
 		default:
 			__FSM_JMP(Req_HdrOther);
@@ -1707,6 +1879,16 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
 				   msg, __req_parse_x_forwarded_for,
 				   TFW_HTTP_HDR_X_FORWARDED_FOR);
+
+	/* 'User-Agent:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUser_AgentV, Req_I_UserAgent,
+				   msg, __req_parse_user_agent,
+				   TFW_HTTP_HDR_USER_AGENT);
+
+	/* 'Cookie:*LWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, Req_I_CookieStart,
+				     msg, __req_parse_cookie,
+				     TFW_HTTP_HDR_COOKIE, 0);
 
 	TFW_HTTP_PARSE_HDR_OTHER(Req);
 
@@ -1797,8 +1979,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrCache_Contro, 'l', Req_HdrCache_Control, Req_HdrOther);
 	__FSM_TX_AF_LWS(Req_HdrCache_Control, ':', Req_HdrCache_ControlV, Req_HdrOther);
 
+	__FSM_STATE(Req_HdrCo) {
+		switch (LC(c)) {
+		case 'n':
+			__FSM_MOVE(Req_HdrCon);
+		case 'o':
+			__FSM_MOVE(Req_HdrCoo);
+		default:
+			__FSM_JMP(Req_HdrOther);
+		}
+	}
+
 	/* Connection header processing. */
-	__FSM_TX_AF(Req_HdrCo, 'n', Req_HdrCon, Req_HdrOther);
 	__FSM_STATE(Req_HdrCon) {
 		switch (LC(c)) {
 		case 'n':
@@ -1879,6 +2071,24 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_For, Req_HdrOther);
 	/* NOTE: we don't eat LWS here because RGEN_LWS() doesn't allow '[' after LWS. */
 	__FSM_TX_AF_LWS(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, Req_HdrOther);
+
+	/* User-Agent header processing. */
+	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUs, 'e', Req_HdrUse, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUse, 'r', Req_HdrUser, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser, '-', Req_HdrUser_, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_, 'a', Req_HdrUser_A, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_A, 'g', Req_HdrUser_Ag, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Ag, 'e', Req_HdrUser_Age, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Agen, 't', Req_HdrUser_Agent, Req_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrUser_Agent, ':', Req_HdrUser_AgentV, Req_HdrOther);
+
+	/* Cookie header processing. */
+	__FSM_TX_AF(Req_HdrCoo, 'k', Req_HdrCook, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrCook, 'i', Req_HdrCooki, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie, Req_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrCookie, ':', Req_HdrCookieV, Req_HdrOther);
 
 	}
 	__FSM_FINISH(req);
