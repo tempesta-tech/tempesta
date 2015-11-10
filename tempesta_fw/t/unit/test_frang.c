@@ -331,6 +331,7 @@ TEST(frang, chunk_cnt)
 
 TEST_SUITE(frang)
 {
+	tfw_gfsm_register_fsm(TFW_FSM_HTTP,frang_http_req_handler);
 	frang_init();
 
 	TEST_RUN(frang, uri);
@@ -345,6 +346,5 @@ TEST_SUITE(frang)
 	TEST_RUN(frang, hdr_timeout);
 	TEST_RUN(frang, chunk_cnt);
 
-	if(false)
-		frang_exit();
+	frang_exit();
 }
