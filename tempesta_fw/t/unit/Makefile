@@ -51,5 +51,5 @@ tfw_fuzzer-obs = \
 	fuzzer.c
 
 obj-m += tfw_bomber.o
-tfw_bomber-obs = \
-	tfw_bomber.c
+tfw_bomber-objs = \
+	bomber.o
