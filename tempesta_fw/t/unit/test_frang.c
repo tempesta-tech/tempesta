@@ -22,21 +22,17 @@
 #include <linux/inet.h>
 #include <linux/module.h>
 #include "../../gfsm.h"
-#include "../../http.h"
-//#ifdef __init 
 #undef module_init
 #undef module_exit
 #define module_init(funk)
 #define module_exit(funk)
 #undef tfw_classifier_add_inport
 #include <linux/export.h>
-//#include "../../classifier.c"
 #undef EXPORT_SYMBOL
 #include "../../classifier/frang.c"
 #include "helpers.h"
 #include "kallsyms_helper.h"
 #include "test.h"
-#include "log.h"
 
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
