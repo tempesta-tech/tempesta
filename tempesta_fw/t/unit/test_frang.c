@@ -20,7 +20,6 @@
  */
 
 #include <linux/inet.h>
-#include <linux/module.h>
 #include "../../gfsm.h"
 #ifdef module_init
 #undef module_init
@@ -28,10 +27,8 @@
 #define module_init(funk)
 #define module_exit(funk)
 #endif
-#include <linux/export.h>
 #include "../../classifier/frang.c"
 #include "helpers.h"
-#include "kallsyms_helper.h"
 #include "test.h"
 
 #define FRANG_HASH_BITS 17
