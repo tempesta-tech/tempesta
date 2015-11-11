@@ -96,7 +96,7 @@ TEST(frang, uri)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("GET /home/index.html HTTP /1.1\r\n");
+	mockreq = get_test_req("GET /home/index.html HTTP /1.1\r\n\r\n");
 	frang_cfg.http_uri_len = 5;
 	mockreq->frang_st = 3;
 
@@ -112,7 +112,7 @@ TEST(frang, req_count)
 	unsigned long ts;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("GET / HTTP/1.1\r\n");
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	frang_cfg.conn_max = 0;
 	frang_cfg.conn_burst = 0;
 	frang_cfg.conn_rate = 0;
@@ -145,7 +145,7 @@ TEST(frang, max_conn)
 	TfwHttpReq *mockreq;
 	unsigned long ts;
 
-	mockreq = get_test_req("GET / HTTP/1.1\r\n");
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	frang_cfg.conn_max = 5;
 
 	mocksock.inet_saddr = htonl(in_aton(inet_addr));
@@ -186,7 +186,7 @@ TEST(frang, ct_check)
 	TfwHttpReq *mockreq;
 	FrangCtVal ctval[1];
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;\r\n\r\n");
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
 	frang_cfg.http_ct_vals = ctval;
@@ -197,7 +197,7 @@ TEST(frang, ct_check)
 	EXPECT_EQ(TFW_BLOCK, res);
 	test_req_free(mockreq);
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_ct_required = true;
 	mockreq->frang_st = 0;
 
@@ -212,7 +212,7 @@ TEST(frang, req_method)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_methods_mask = 2;
 
 	res = req_handler(mockreq);
@@ -225,7 +225,7 @@ TEST(frang, field_len)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_field_len = 3;
 
 	res = req_handler(mockreq);
@@ -238,7 +238,7 @@ TEST(frang, host)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("GET /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("GET /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_host_required = true;
 
 	res = req_handler(mockreq);
@@ -254,7 +254,7 @@ TEST(frang, body_len)
 	TfwStr body;
 	TfwStr crlf;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	body.ptr = "<http><body></body></http>";
 	body.len = strlen(body.ptr);
 	crlf.len = 2;
@@ -274,7 +274,7 @@ TEST(frang, body_timeout)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.clnt_body_timeout = 1;
 	mockreq->frang_st = 12;
 	mockreq->tm_bchunk = jiffies - 100;
@@ -289,7 +289,7 @@ TEST(frang, hdr_timeout)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.clnt_body_timeout = 0;
 	frang_cfg.clnt_hdr_timeout = 1;
 	mockreq->frang_st = 0;
@@ -305,7 +305,7 @@ TEST(frang, chunk_cnt)
 	int res;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_hchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
 	mockreq->frang_st = 0;
