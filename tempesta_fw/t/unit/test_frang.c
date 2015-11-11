@@ -46,6 +46,7 @@ test_conn_alloc(void)
 {
 	TfwConnection *conn;
 	static struct kmem_cache *test_conn_cache = NULL;
+
 	if(test_conn_cache == NULL)
 		test_conn_cache = kmem_cache_create(
 					"tfw_test_conn_cache",
@@ -84,6 +85,7 @@ get_test_req(const char *req)
 	TfwHttpReq *test_req;
 	static char req_str_copy[PAGE_SIZE]; 
 	int len = strlen(req);
+
 	BUG_ON(len == 0);
 	BUG_ON(len+1 > sizeof(req_str_copy));
 	strcpy(req_str_copy, req);
