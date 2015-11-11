@@ -53,7 +53,7 @@ endif
 	make -C $(KERNEL) M=$(PWD) modules
 
 test: build
-	./tempesta.sh -f --load
+	./tempesta.sh --load
 	./tempesta_fw/t/unit/run_all_tests.sh
 	./tempesta.sh --unload
 
