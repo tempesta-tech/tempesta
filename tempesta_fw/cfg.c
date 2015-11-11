@@ -91,6 +91,7 @@
 
 #include "addr.h"
 #include "log.h"
+#include "client.h"
 
 #include "cfg.h"
 
@@ -1469,6 +1470,13 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 		goto err_recover_cleanup;
 	}
 
+	TFW_DBG("Checking backends and listeners\n");
+	ret = tfw_sock_check_listeners();
+	if (ret) {
+		TFW_ERR("One of the backends is tempesta itself! Fix config\n");
+		goto err_recover_cleanup;
+	}
+
 	TFW_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
 		ret = mod_start(mod);
@@ -1653,8 +1661,8 @@ handle_state_change(const char *old_state, const char *new_state)
  * Syctl handler for tempesta.state read/write operations.
  */
 static int
-handle_sysctl_state_io(ctl_table *ctl, int is_write, void __user *user_buf,
-		       size_t *lenp, loff_t *ppos)
+handle_sysctl_state_io(struct ctl_table *ctl, int is_write,
+		       void __user *user_buf, size_t *lenp, loff_t *ppos)
 {
 	int r = 0;
 
@@ -1686,7 +1694,7 @@ out:
 }
 
 static struct ctl_table_header *tfw_cfg_sysctl_hdr;
-static ctl_table tfw_cfg_sysctl_tbl[] = {
+static struct ctl_table tfw_cfg_sysctl_tbl[] = {
 	{
 		.procname	= "state",
 		.data		= tfw_cfg_sysctl_state_buf,

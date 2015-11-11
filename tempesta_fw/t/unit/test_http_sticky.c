@@ -79,6 +79,53 @@ static struct {
 	struct sock     sock;
 } mock;
 
+/*
+ * Find a specific non-special header field in an HTTP message.
+ *
+ * This function assumes that the header field name is stored
+ * in TfwStr{} after an HTTP message is parsed.
+ */
+static TfwStr *
+tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
+{
+	int i;
+
+	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
+		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
+		if (tfw_str_eq_cstr(hdr_field, field_name, len,
+				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
+			return hdr_field;
+	}
+
+	return NULL;
+}
+
+static int
+tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
+{
+	char *buf, *ptr;
+	size_t len;
+	TfwStr *hdr_field;
+
+	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
+	if (hdr_field == NULL) {
+		return 0;
+	}
+	/*
+	 * XXX Linearize TfwStr{}. Should be eliminated
+	 * when better TfwStr{} functions are implemented.
+	 */
+	len = hdr_field->len + 1;
+	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
+		return -ENOMEM;
+	}
+	len = tfw_str_to_cstr(hdr_field, buf, len);
+	ptr = strim(buf + field_name->len);
+	value->ptr = ptr;
+	value->len = len - (ptr - buf);
+
+	return 1;
+}
 
 /* custom version for testing purposes */
 void
@@ -283,12 +330,10 @@ TEST(http_sticky, sticky_get_absent)
 	EXPECT_EQ(tfw_http_sticky_get(mock.hmreq, &value), 0);
 }
 
-TEST(http_sticky, sticky_get_present)
+static void
+test_sticky_present_helper(const char *s_req)
 {
 	TfwStr      value = {};
-	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-	                    "Cookie: __utmz=12345; " COOKIE_NAME "=67890; "
-	                    "q=aa\r\n\r\n";
 
 	append_string_to_msg(mock.hmreq, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
@@ -296,7 +341,34 @@ TEST(http_sticky, sticky_get_present)
 	EXPECT_EQ(tfw_http_sticky_get(mock.hmreq, &value), 1);
 
 	EXPECT_TRUE(value.len == 5);
-	EXPECT_TRUE(memcmp(value.ptr, "67890", 5) == 0);
+	EXPECT_TRUE(value.ptr && memcmp(value.ptr, "67890", 5) == 0);
+}
+
+TEST(http_sticky, sticky_get_present_begin)
+{
+	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
+	                    "Cookie: " COOKIE_NAME "=67890; __utmz=12345; "
+	                    "q=aa\r\n\r\n";
+
+	test_sticky_present_helper(s_req);
+}
+
+TEST(http_sticky, sticky_get_present_middle)
+{
+	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
+	                    "Cookie: __utmz=12345; " COOKIE_NAME "=67890; "
+	                    "q=aa\r\n\r\n";
+
+	test_sticky_present_helper(s_req);
+}
+
+TEST(http_sticky, sticky_get_present_end)
+{
+	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
+	                    "Cookie: __utmz=12345; q=aa; "
+	                     COOKIE_NAME "=67890\r\n\r\n";
+
+	test_sticky_present_helper(s_req);
 }
 
 /* request have no sticky cookie */
@@ -422,7 +494,9 @@ TEST_SUITE(http_sticky)
 	TEST_RUN(http_sticky, sending_302);
 	TEST_RUN(http_sticky, sending_502);
 	TEST_RUN(http_sticky, sticky_get_absent);
-	TEST_RUN(http_sticky, sticky_get_present);
+	TEST_RUN(http_sticky, sticky_get_present_begin);
+	TEST_RUN(http_sticky, sticky_get_present_middle);
+	TEST_RUN(http_sticky, sticky_get_present_end);
 	TEST_RUN(http_sticky, req_no_cookie);
 	TEST_RUN(http_sticky, req_have_cookie);
 

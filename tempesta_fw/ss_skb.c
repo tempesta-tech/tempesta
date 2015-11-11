@@ -64,18 +64,16 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * Lower layers will take care of prepending all required headers.
  */
 struct sk_buff *
-ss_skb_alloc(size_t len)
+ss_skb_alloc_pages(size_t len)
 {
 	int i_frag, nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
 	struct sk_buff *skb;
 
 	BUG_ON(nr_frags > MAX_SKB_FRAGS);
 
-	skb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC);
+	skb = ss_skb_alloc();
 	if (!skb)
 		return NULL;
-
-	skb_reserve(skb, MAX_TCP_HEADER);
 
 	for (i_frag = 0; i_frag < nr_frags; ++i_frag) {
 		struct page *page = alloc_page(GFP_ATOMIC);
@@ -83,7 +81,11 @@ ss_skb_alloc(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
+		/* See __skb_alloc_pages() in include/linux/skbuff.h. */
+		if (page->pfmemalloc)
+			skb->pfmemalloc = true;
+#endif
 		__skb_fill_page_desc(skb, i_frag, page, 0, 0);
 		skb_shinfo(skb)->nr_frags++;
 	}
@@ -615,10 +617,10 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 {
 	int r;
 	struct sk_buff *skb = NULL;
-	const TfwStr *c;
+	const TfwStr *c, *end;
 	TfwStr it;
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		if (c->len <= skip) {
 			skip -= c->len;
 			continue;
@@ -631,7 +633,7 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 			return r;
 
 		skip = 0;
-	});
+	}
 	BUG_ON(!skb);
 
 	/* Cut off the tail. */

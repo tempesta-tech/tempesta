@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -134,7 +134,9 @@ TdbVRec *tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size);
 TdbRec *tdb_htrie_insert(TdbHdr *dbh, unsigned long key, void *data,
 			 size_t *len);
 TdbBucket *tdb_htrie_lookup(TdbHdr *dbh, unsigned long key);
-TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket *b, unsigned long key);
+TdbRec *tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key);
+TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,
+			   unsigned long key);
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
 void tdb_htrie_exit(TdbHdr *dbh);
 

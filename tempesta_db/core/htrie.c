@@ -299,6 +299,9 @@ tdb_alloc_data(TdbHdr *dbh, size_t *len, int bucket_hdr)
 
 		max_data_len = TDB_BLK_SZ - (rptr & ~TDB_BLK_MASK);
 		if (res_len > max_data_len) {
+			TDB_DBG("cannot allocate %lu bytes,"
+				" %lu will be allocated instead\n",
+				res_len, max_data_len);
 			res_len = max_data_len;
 			*len = res_len - hdr_len;
 		}
@@ -795,34 +798,74 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
  * deleted/evicted records in it.
  */
 TdbRec *
-tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket *b, unsigned long key)
+tdb_htrie_bscan_for_rec(TdbHdr *dbh, TdbBucket **b, unsigned long key)
 {
 	TdbBucket *b_tmp;
 	TdbRec *r;
 
-	read_lock_bh(&b->lock);
+	read_lock_bh(&(*b)->lock);
 
 	do {
-		r = TDB_HTRIE_BCKT_1ST_REC(b);
+		r = TDB_HTRIE_BCKT_1ST_REC(*b);
 		do {
 			size_t rlen = sizeof(*r) + TDB_HTRIE_RBODYLEN(dbh, r);
 			rlen = TDB_HTRIE_RALIGN(rlen);
-			if ((char *)r + rlen - (char *)b > TDB_HTRIE_MINDREC
-			    && r != TDB_HTRIE_BCKT_1ST_REC(b))
+			if ((char *)r + rlen - (char *)*b > TDB_HTRIE_MINDREC
+			    && r != TDB_HTRIE_BCKT_1ST_REC(*b))
 				break;
 			if (tdb_live_rec(dbh, r) && r->key == key)
 				/* Unlock the bucket by tdb_rec_put(). */
 				return r;
 			r = (TdbRec *)((char *)r + rlen);
-		} while ((char *)r + sizeof(*r) - (char *)b
+		} while ((char *)r + sizeof(*r) - (char *)*b
 			 <= TDB_HTRIE_MINDREC);
 
-		b_tmp = TDB_HTRIE_BUCKET_NEXT(dbh, b);
+		b_tmp = TDB_HTRIE_BUCKET_NEXT(dbh, *b);
 		if (b_tmp)
 			read_lock_bh(&b_tmp->lock);
-		read_unlock_bh(&b->lock);
-		b = b_tmp;
-	} while (b);
+		read_unlock_bh(&(*b)->lock);
+		*b = b_tmp;
+	} while (*b);
+
+	return NULL;
+}
+
+/**
+ * Called with already locked bucket by tdb_htrie_lookup().
+ * Unlocks the last bucked when all records are read from it.
+ */
+TdbRec *
+tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b, unsigned long key)
+{
+	TdbBucket *_b = *b;
+
+	do {
+		size_t rlen = TDB_HTRIE_RALIGN(sizeof(*r)
+					       + TDB_HTRIE_RBODYLEN(dbh, r));
+		if ((char *)r + rlen - (char *)_b > TDB_HTRIE_MINDREC)
+			goto next_bckt;
+		r = (TdbRec *)((char *)r + rlen);
+
+		do {
+			rlen = TDB_HTRIE_RALIGN(sizeof(*r)
+						+ TDB_HTRIE_RBODYLEN(dbh, r));
+			if ((char *)r + rlen - (char *)_b > TDB_HTRIE_MINDREC)
+				break;
+			if (tdb_live_rec(dbh, r) && r->key == key)
+				/* Unlock the bucket by tdb_rec_put(). */
+				return r;
+			r = (TdbRec *)((char *)r + rlen);
+		} while ((char *)r + sizeof(*r) - (char *)_b
+			 <= TDB_HTRIE_MINDREC);
+next_bckt:
+		*b = TDB_HTRIE_BUCKET_NEXT(dbh, _b);
+		if (*b) {
+			read_lock_bh(&(*b)->lock);
+			r = TDB_HTRIE_BCKT_1ST_REC(*b);
+		}
+		read_unlock_bh(&_b->lock);
+		_b = *b;
+	} while (_b);
 
 	return NULL;
 }

@@ -2,7 +2,7 @@
  * Unit test for Tempesta DB HTrie storage.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -226,7 +226,7 @@ tdb_htrie_open(void *addr, const char *fname, size_t size, int *fd)
 	printf("maped to %p\n", p);
 
 	if (mlock(p, size)) {
-		perror("ERROR: mlock failure");
+		perror("ERROR: mlock failure, please check rlimit");
 		exit(1);
 	}
 
@@ -271,6 +271,7 @@ lookup_varsz_records(TdbHdr *dbh)
 {
 	int i;
 	TestUrl *u;
+	TdbRec *r;
 
 	for (i = 0, u = urls; i < DATA_N; ++u, ++i) {
 		unsigned long k = tdb_hash_calc(u->data, u->len);
@@ -288,8 +289,13 @@ lookup_varsz_records(TdbHdr *dbh)
 
 		BUG_ON(!TDB_HTRIE_VARLENRECS(dbh));
 
-		if (!tdb_htrie_bscan_for_rec(dbh, b, k))
+		r = tdb_htrie_bscan_for_rec(dbh, &b, k);
+		if (!r) {
 			fprintf(stderr, "ERROR: can't find URL %#lx\n", k);
+		} else {
+			while ((r = tdb_htrie_next_rec(dbh, r, &b, k)))
+				;
+		}
 	}
 }
 
@@ -347,6 +353,7 @@ static void
 lookup_fixsz_records(TdbHdr *dbh)
 {
 	int i;
+	TdbRec *r;
 
 	for (i = 0; i < DATA_N; ++i) {
 		TdbBucket *b;
@@ -364,8 +371,13 @@ lookup_fixsz_records(TdbHdr *dbh)
 
 		BUG_ON(TDB_HTRIE_VARLENRECS(dbh));
 
-		if (!tdb_htrie_bscan_for_rec(dbh, b, ints[i]))
+		r = tdb_htrie_bscan_for_rec(dbh, &b, ints[i]);
+		if (!r) {
 			fprintf(stderr, "ERROR: can't find int %u\n", ints[i]);
+		} else {
+			while ((r = tdb_htrie_next_rec(dbh, r, &b, ints[i])))
+				;
+		}
 	}
 }
 

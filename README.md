@@ -17,14 +17,14 @@ Socket API or even kernel sockets.
 
 #### Common
 
+* Linux CentOS/RHEL 7 or Debian 8;
 * x86-64 CPU with at least 1GB RAM, SSE 4.2 and preferably 2MB huge pages
   enabled (check pse and sse4\_2 flags in your /proc/cpuinfo);
 * RSS capable network adapter;
 * GNU Make 3.82 or higher;
-* GCC and G++ compilers of versions 4.8 or 4.9 (5.0 was not tested);
+* GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
-We have tested builds on Linux CentOS 7 and Debian 8.
 
 #### Kernel
 
@@ -38,17 +38,13 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta DB user-space library requires netlink mmap defined in standard
-headers, so preferably Linux distribution should have native 3.10 kernel.
-Currently CentOS 7 is shipped with an appropriate kernel.
-
 
 ### Build
 
 To build the module you need to do the following steps:
 
-1. Patch Linux kernel 3.10.10 with linux-3.10.10.patch or just download
-   [an already patched kernel](https://github.com/krizhanovsky/linux-3.10.10-sync_sockets)
+1. Patch Linux kernel 4.1.12 with linux-4.1-tfw.patch or just download
+   [an already patched kernel](https://github.com/tempesta-tech/linux-4.1-tfw)
 2. Build and load the kernel
 3. Run make to build Tempesta FW and Tempesta DB modules:
 
@@ -95,6 +91,37 @@ listen [::0]:80;
 listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
+
+
+### Caching
+
+Tempesta caches Web-content by default, i.e. works as reverse proxy.
+Configuration option ```cache``` manages the cache befavior:
+
+* ```0``` - no caching at all, pure proxying mode;
+* ```1``` - cache sharding when each NUMA node contains independent shard
+	    of whole cache. This mode has the smallest memory requirements;
+* ```2``` - (default) replicated mode when each NUMA node has whole replica
+	    of the cache. It requires more RAM, but delivers the highest
+	    performance.
+
+```cache_db``` specifies path to a cache database files.
+The PATH must be absolute and the directory must exist. The database file
+must end with ```.tbd```. E.g. ```cache_db /opt/tempesta/db/cache.tdb``` is
+the right Tmpesta DB path. However, this is the only path pattern rather than
+real path. Tempesta creates per NUMA node database files, so if you have two
+processor packages on modern hardware, then follwoing files will be created
+(one for earch processor package) for the example above:
+
+        /opt/tempesta/db/cache0.tdb
+        /opt/tempesta/db/cache1.tdb
+
+
+```cache_size``` defines size (in bytes, suffixes like 'MB' are not supported
+yet) of each Tempesta DB file used as Web cache storage. The size must be
+multiple of 2MB (Tempesta DB extent size). Default value is ```268435456```
+(256MB).
+
 
 ### Server Load Balancing
 
@@ -298,7 +325,7 @@ The list of available options:
 Let's see a simple example to understand Tempesta filtering.
 
 Firstly, run Tempesta with enabled [Frang](#Frang) and put some load onto the
-system to make Frang generat a blocking rule:
+system to make Frang generate a blocking rule:
 
         $ dmesg | grep frang
         [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)

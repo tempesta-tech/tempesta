@@ -37,6 +37,7 @@
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
+#include "server.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -347,6 +348,27 @@ tfw_listen_sock_stop_all(void)
 	 */
 }
 
+static int
+tfw_sock_check_lst(TfwServer *srv)
+{
+	TfwListenSock *ls;
+
+	TFW_DBG3("Checking server....\n");
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		TFW_DBG3("Iterating listener\n");
+		if (tfw_addr_ifmatch(&srv->addr, &ls->addr))
+			return -EINVAL;
+	}
+	return 0;
+}
+
+int
+tfw_sock_check_listeners(void)
+{
+	TFW_DBG3("Call %s\n", __func__);
+	return tfw_sg_for_each_srv(tfw_sock_check_lst);
+}
+
 /*
  * ------------------------------------------------------------------------
  *	configuration handling
@@ -382,7 +404,7 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		addr.v4.sin_addr.s_addr = INADDR_ANY;
 		addr.v4.sin_port = htons(port);
 	} else {
-		r = tfw_addr_pton(in_str, &addr);
+		r = tfw_addr_pton(&TFW_STR_FROM(in_str), &addr);
 		if (r)
 			goto parse_err;
 	}

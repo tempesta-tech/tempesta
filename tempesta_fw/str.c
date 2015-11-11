@@ -195,7 +195,7 @@ int
 tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 {
 	int n = TFW_STR_CHUNKN(src);
-	TfwStr *to, *c;
+	TfwStr *to, *c, *end;
 
 	BUG_ON(TFW_STR_DUP(dst));
 	BUG_ON(TFW_STR_DUP(src));
@@ -205,13 +205,13 @@ tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 		return -ENOMEM;
 
 	n = 0;
-	TFW_STR_FOR_EACH_CHUNK(c, src, {
+	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		n += c->len;
 		to->ptr = c->ptr;
 		to->len = c->len;
 		to->skb = c->skb;
 		++to;
-	});
+	}
 	dst->len += n;
 
 	return 0;
@@ -269,8 +269,8 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		int r = stop
 			? __cstricmpspn((char *)c1->ptr + off1,
 					(char *)c2->ptr + off2, cn, stop)
-			: strnicmp((char *)c1->ptr + off1,
-				   (char *)c2->ptr + off2, cn);
+			: strncasecmp((char *)c1->ptr + off1,
+				      (char *)c2->ptr + off2, cn);
 		if (r)
 			return r;
 		n -= cn;
@@ -319,10 +319,12 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                 tfw_str_eq_flags_t flags)
 {
 	int len, clen = cstr_len;
-	const TfwStr *chunk;
-	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI) ? strnicmp : strncmp;
+	const TfwStr *chunk, *end;
+	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
+			       ? strncasecmp
+			       : strncmp;
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		len = min(clen, (int)chunk->len);
 
 		if (cmp(cstr, chunk->ptr, len))
@@ -337,7 +339,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 
 		cstr += len;
 		clen -= len;
-	});
+	}
 
 	return !clen;
 }
@@ -366,7 +368,7 @@ EXPORT_SYMBOL(tfw_str_eq_cstr);
 size_t
 tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 {
-	const TfwStr *chunk;
+	const TfwStr *chunk, *end;
 	char *pos = out_buf;
 	int len;
 
@@ -374,7 +376,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 	--buf_size; /* Reserve one byte for '\0'. */
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, str, {
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		len = min(buf_size, (int)chunk->len);
 		strncpy(pos, chunk->ptr, len);
 		pos += len;
@@ -382,7 +384,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 		if (unlikely(!buf_size))
 			break;
-	});
+	}
 
 	*pos = '\0';
 

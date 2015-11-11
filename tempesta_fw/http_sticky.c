@@ -78,67 +78,78 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	return 0;
 }
 
-/*
- * Find a specific non-special header field in an HTTP message.
- *
- * This function assumes that the header field name is stored
- * in TfwStr{} after an HTTP message is parsed.
- */
-static TfwStr *
-tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
+static bool
+search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
-	int i;
+	const char *const cstr = tfw_cfg_sticky.name.ptr;
+	const unsigned int clen = tfw_cfg_sticky.name.len + 1;
 
-	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
-		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
-		if (tfw_str_eq_cstr(hdr_field, field_name, len,
-				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
-			return hdr_field;
-	}
+	const TfwStr *chunk, *end, *next;
+	TfwStr *s;
+	unsigned int n = TFW_STR_CHUNKN(cookie) + 1;
+	TfwStr tmp;
 
-	return NULL;
-}
+	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name));
 
-static int
-tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
-{
-	char *buf, *ptr;
-	size_t len;
-	TfwStr *hdr_field;
+	TFW_STR_INIT(&tmp);
+	tmp.flags = __TFW_STR_COMPOUND;
 
-	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
-	if (hdr_field == NULL) {
-		return 0;
-	}
-
-	if (TFW_STR_PLAIN(hdr_field)) {
-		buf = (char *)hdr_field->ptr + field_name->len;
-		len = hdr_field->len - field_name->len;
-
-		while (len > 0 && isspace(*buf)) {
-			buf++;
-			len--;
+	/* Search cookie name. */
+	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
+	for (chunk = cookie->ptr; chunk != end; ++chunk) {
+		--n;
+		if (chunk->flags & TFW_STR_NAME) {
+			/*
+			 * Create temporary compound string, starting
+			 * with this chunk.
+			 * We do not use it's overall length now,
+			 * so do not set it.
+			 */
+			tmp.ptr = (void*)chunk;
+			__TFW_STR_CHUNKN_SET(&tmp, n);
+			if (tfw_str_eq_cstr(&tmp, cstr, clen,
+			                    TFW_STR_EQ_PREFIX))
+			{
+				break;
+			}
 		}
-		while (len > 0 && isspace(*(buf + len - 1)))
-			len--;
+	}
+	if (chunk == end)
+		return false;
 
-		value->ptr = buf;
-		value->len = len;
-		value->flags = hdr_field->flags;
-		return 1;
+	/* Search cookie value, starting with next chunk. */
+	for (++chunk; chunk != end; ++chunk)
+		if (chunk->flags & TFW_STR_VALUE)
+			break;
+	BUG_ON(chunk == end);
+
+	/* Check if value is plain string, just return it in this case. */
+	next = chunk + 1;
+	if (likely(next == end || *(char*)next->ptr == ';')) {
+		TFW_DBG3("%s: plain cookie value: %.*s\n",
+		         __func__, (int)chunk->len,
+		         (char*)chunk->ptr);
+		*val = *chunk;
+		return true;
 	}
 
-	/* field consists of multiple chunks */
-	len = hdr_field->len + 1;
-	if ((buf = tfw_pool_alloc(hm->pool, len)) == NULL) {
-		return -ENOMEM;
-	}
-	len = tfw_str_to_cstr(hdr_field, buf, len);
-	ptr = strim(buf + field_name->len);
-	value->ptr = ptr;
-	value->len = len - (ptr - buf);
+	/* Add value chunks to out-string. */
+	TFW_DBG3("%s: compound cookie value found\n", __func__);
+	for (; chunk != end; ++chunk) {
+		if (*(char*)chunk->ptr == ';')
+			/* value chunks exhausted */
+			return true;
 
-	return 1;
+		s = tfw_str_add_compound(pool, val);
+		if (!s) {
+			TFW_DBG("%s: failed to extend value string\n",
+			        __func__);
+			return false;
+		}
+		*s = *chunk;
+	}
+
+	return true;
 }
 
 /*
@@ -147,10 +158,8 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 static int
 tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 {
-	int ret;
-	u_char *valptr, *endptr;
-	const DEFINE_TFW_STR(s_field_name, "Cookie:");
 	TfwStr value = { 0 };
+	TfwStr *hdr;
 
 	/*
 	 * Find a 'Cookie:' header field in the request.
@@ -159,26 +168,15 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	 * See RFC 6265 section 5.4.
 	 * NOTE: Irrelevant here, but there can be multiple 'Set-Cookie"
 	 * header fields as an exception. See RFC 7230 section 3.2.2.
+	 * In this case, client merges them into one 'Cookie' header field
+	 * in response.
 	 */
-	if ((ret = tfw_http_field_value(hm, &s_field_name, &value)) <= 0) {
-		return ret;
-	}
-	/*
-	 * XXX The following code assumes that TfwStr is linear.
-	 */
-	BUG_ON(!TFW_STR_PLAIN(&value));
-	valptr = strnstr(value.ptr, tfw_cfg_sticky.name.ptr, value.len);
-	if (!valptr)
+	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
+	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	cookie->ptr = valptr + tfw_cfg_sticky.name.len + 1;
+	tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
 
-	valptr = cookie->ptr;
-	endptr = value.ptr + value.len;
-	while((valptr < endptr) && (*valptr != ';') && !isspace(*valptr))
-		valptr++;
-	cookie->len = valptr - (u_char *)cookie->ptr;
-
-	return 1;
+	return search_cookie(hm->pool, &value, cookie);
 }
 
 /*
@@ -192,23 +190,20 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 static int
 tfw_http_sticky_set(TfwHttpMsg *hm)
 {
-	int ret, addr_len;
+	int addr_len;
 	TfwStr ua_value = { 0 };
-	const DEFINE_TFW_STR(s_field_name, "User-Agent:");
 	TfwClient *client = (TfwClient *)hm->conn->peer;
+	TfwStr *hdr, *c, *end;
 
 	char desc[sizeof(struct shash_desc)
 		  + crypto_shash_descsize(tfw_sticky_shash)]
 		  CRYPTO_MINALIGN_ATTR;
 	struct shash_desc *shash_desc = (struct shash_desc *)desc;
 
-	/*
-	 * XXX The code below assumes that ua_value is a linear TfwStr{}
-	 */
 	/* User-Agent header field is not mandatory and may be missing. */
-	if ((ret = tfw_http_field_value(hm, &s_field_name, &ua_value)) < 0) {
-		return ret;
-	}
+	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
+	if (!TFW_STR_EMPTY(hdr))
+		tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_USER_AGENT, &ua_value);
 
 	/* Set only once per client's session */
 	if (!client->cookie.ts.tv_sec) {
@@ -222,9 +217,10 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 
 	crypto_shash_init(shash_desc);
 	crypto_shash_update(shash_desc, (u8 *)&client->addr.sa, addr_len);
-	if (ua_value.len)
-		crypto_shash_update(shash_desc, (u8 *)ua_value.ptr,
-						      ua_value.len);
+	if (ua_value.len) {
+		TFW_STR_FOR_EACH_CHUNK(c, &ua_value, end)
+			crypto_shash_update(shash_desc, (u8 *)c->ptr, c->len);
+	}
 	crypto_shash_finup(shash_desc, (u8 *)&client->cookie.ts,
 					sizeof(client->cookie.ts),
 					client->cookie.hmac);
@@ -238,7 +234,6 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
  * Create a complete 'Set-Cookie:' header field, and add it
  * to the HTTP response' header block.
  */
-#define S_F_SET_COOKIE		"Set-Cookie: "
 #define SLEN(s)			(sizeof(s) - 1)
 
 #define S_SET_COOKIE_MAXLEN					\
@@ -248,7 +243,7 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 static int
 tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 {
-	unsigned int len = sizeof(((TfwClient *)0)->cookie.hmac);
+	unsigned int r, len = sizeof(((TfwClient *)0)->cookie.hmac);
 	TfwClient *client = (TfwClient *)hmreq->conn->peer;
 	char buf[len * 2];
 	TfwStr set_cookie = {
@@ -268,10 +263,13 @@ tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
 
 	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
-		tfw_cfg_sticky.name.len, (char *)tfw_cfg_sticky.name.ptr,
-		len * 2, buf);
+		PR_TFW_STR(&tfw_cfg_sticky.name), len * 2, buf);
 
-	return tfw_http_msg_hdr_add(hmresp, &set_cookie);
+	r = tfw_http_msg_hdr_add(hmresp, &set_cookie);
+	if (r)
+		TFW_WARN("Cannot add \"" S_F_SET_COOKIE "%.*s=%.*s\"\n",
+			 PR_TFW_STR(&tfw_cfg_sticky.name), len * 2, buf);
+	return r;
 }
 
 /*
@@ -316,9 +314,14 @@ tfw_http_sticky_found(TfwHttpMsg *hm, TfwStr *value)
 	/*
 	 * Do nothing for now. The request is passed to a backend server.
 	 */
-	/* XXX This assumes that 'value' is a linear TfwStr{}. */
-	TFW_DBG("Sticky cookie found: \"%.*s\"\n",
-		(int)value->len, (char *)value->ptr);
+	TFW_DBG("Sticky cookie found%s: \"%.*s\"\n",
+		TFW_STR_PLAIN(value) ? "" : ", starts with",
+		TFW_STR_PLAIN(value) ?
+			(int)value->len :
+			(int)((TfwStr*)value->ptr)->len,
+		TFW_STR_PLAIN(value) ?
+			(char*)value->ptr :
+			(char*)((TfwStr*)value->ptr)->ptr);
 
 	return 0;
 }
@@ -372,7 +375,7 @@ tfw_http_sticky_init(void)
 	int ret;
 	u_char *ptr;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN, GFP_KERNEL)) == NULL) {
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
 		return -ENOMEM;
 	}
 	tfw_cfg_sticky.name.ptr = ptr;
@@ -452,6 +455,7 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if ((len == 0) || (len > STICKY_NAME_MAXLEN))
 		return -EINVAL;
 	memcpy(tfw_cfg_sticky.name.ptr, val, len);
+	((char*)tfw_cfg_sticky.name.ptr)[len] = '=';
 	tfw_cfg_sticky.name.len = len;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {

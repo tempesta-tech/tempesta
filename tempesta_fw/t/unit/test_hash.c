@@ -119,20 +119,20 @@ TEST(tfw_hash_str, hashes_all_chars)
 		h2 = tfw_hash_str(&s2);
 		if (h1 == h2)
 			TEST_FAIL("Equal hashes (%#lx) for different strings:\n"
-			          " s1: %.*s (len %u)\n"
-			          " s2: %.*s (len %u)",
+			          " s1: %.*s (len %lu)\n"
+			          " s2: %.*s (len %lu)",
 			          h1,
-			          s1.len, (char *)s1.ptr, s1.len,
-			          s2.len, (char *)s2.ptr, s2.len);
+			          PR_TFW_STR(&s1), s1.len,
+			          PR_TFW_STR(&s2), s2.len);
 
 		buf2[i] = 'a';
 		h2 = tfw_hash_str(&s2);
 		if (h1 != h2)
 			TEST_FAIL("Different hashes for equal strings:\n"
-			          " s1: %#08lx: %.*s (len %u)\n"
-			          " s2: %#08lx: %.*s (len %u)",
-			          h1, s1.len, (char *)s1.ptr, s1.len,
-			          h2, s2.len, (char *)s2.ptr, s2.len);
+			          " s1: %#08lx: %.*s (len %lu)\n"
+			          " s2: %#08lx: %.*s (len %lu)",
+			          h1, PR_TFW_STR(&s1), s1.len,
+			          h2, PR_TFW_STR(&s2), s2.len);
 	}
 }
 

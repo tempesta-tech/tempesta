@@ -143,11 +143,11 @@ TEST(tfw_addr_ntop, omits_port_80)
 
 TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
 {
-        const char *s1 = "127.0.0.1";
-        const char *s2 = "127.0.0.1:8081";
-        const char *s3 = "1111::2:a:B";
-        const char *s4 = "[::1]:1234";
-        const char *s5 = "[::0]:5678";
+        DEFINE_TFW_STR(s1, "127.0.0.1");
+        DEFINE_TFW_STR(s2, "127.0.0.1:8081");
+        DEFINE_TFW_STR(s3, "1111::2:a:B");
+        DEFINE_TFW_STR(s4, "[::1]:1234");
+        DEFINE_TFW_STR(s5, "[::0]:5678");
 
         TfwAddr e1 = {
                 .v4.sin_family = AF_INET,
@@ -180,11 +180,11 @@ TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
         TfwAddr a1, a2, a3, a4, a5;
         int r1, r2, r3, r4, r5;
 
-        r1 = tfw_addr_pton(s1, &a1);
-        r2 = tfw_addr_pton(s2, &a2);
-        r3 = tfw_addr_pton(s3, &a3);
-        r4 = tfw_addr_pton(s4, &a4);
-        r5 = tfw_addr_pton(s5, &a5);
+        r1 = tfw_addr_pton(&s1, &a1);
+        r2 = tfw_addr_pton(&s2, &a2);
+        r3 = tfw_addr_pton(&s3, &a3);
+        r4 = tfw_addr_pton(&s4, &a4);
+        r5 = tfw_addr_pton(&s5, &a5);
 
         EXPECT_OK(r1);
         EXPECT_OK(r2);

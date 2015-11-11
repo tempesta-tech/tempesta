@@ -40,29 +40,34 @@ validate_addr(const TfwAddr *addr)
 }
 
 static int
-tfw_addr_pton_v4(const char *p, struct sockaddr_in *addr)
+tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 {
-	int octet = -1, i = 0, port = 0;
+	int octet = -1, i = 0, port = 0, k;
 	unsigned char *a = (unsigned char *)&addr->sin_addr.s_addr;
+	const char *p;
+	const TfwStr *c, *end;
 
 	addr->sin_family = AF_INET;
 	addr->sin_addr.s_addr = 0;
-	for ( ; *p; ++p) {
-		if (isdigit(*p)) {
-			octet = (octet == -1)
-				? *p - '0'
-				: octet * 10 + *p - '0';
-			if ((!port && octet > 255) || octet > 0xFFFF)
+	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
+		for (k = 0; k != c->len; ++k) {
+			p = c->ptr + k;
+			if (isdigit(*p)) {
+				octet = (octet == -1)
+					? *p - '0'
+					: octet * 10 + *p - '0';
+				if ((!port && octet > 255) || octet > 0xFFFF)
+					return -EINVAL;
+			}
+			else if (octet >= 0 && ((*p == '.' && i < 4)
+						|| (*p == ':' && i == 3)))
+			{
+				a[i++] = octet;
+				octet = -1;
+				port = *p == ':';
+			} else
 				return -EINVAL;
 		}
-		else if (octet >= 0 && ((*p == '.' && i < 4)
-					|| (*p == ':' && i == 3)))
-		{
-			a[i++] = octet;
-			octet = -1;
-			port = *p == ':';
-		} else
-			return -EINVAL;
 	}
 	if (octet >= 0) {
 		if (i == 3) {
@@ -81,83 +86,100 @@ tfw_addr_pton_v4(const char *p, struct sockaddr_in *addr)
 }
 
 static int
-tfw_addr_pton_v6(const char *p, struct sockaddr_in6 *addr)
+tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 {
 #define XD(x) ((x >= 'a') ? 10 + x - 'a' : x - '0')
 
 	int words[9] = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
-	int a, hole = -1, i = 0, port = -1, ipv4_mapped = 0;
+	int a, hole = -1, i = 0, port = -1, ipv4_mapped = 0, k;
+	const char *p;
+	const TfwStr *c, *end;
 
 	memset(addr, 0, sizeof(*addr));
 
-	for ( ; *p; ++p) {
-		if (i > 7 && !(i == 8 && port == 1))
-			return -EINVAL;
-
-		if (*p == '[') {
-			port = 0;
-		}
-		else if (*p == ':') {
-			if (*(p + 1) == ':') {
-				/*
-				 * Leave current (if empty) or next (otherwise)
-				 * word as a hole.
-				 */
-				++p;
-				hole = (words[i] != -1) ? ++i : i;
-			} else if (words[i] == -1)
+	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
+		for (k = 0; k != c->len; ++k) {
+			p = c->ptr + k;
+			if (i > 7 && !(i == 8 && port == 1))
 				return -EINVAL;
 
-			/* Store port in the last word. */
-			i = (port == 1) ? 8 : i + 1;
-		}
-		else if (*p == '.') {
-			++i;
-			if (ipv4_mapped)
-				continue;
-			if (words[0] != -1 || words[1] != 0xFFFF
-			   || words[2] == -1 || i != 3 || hole != 0)
-				return -EINVAL;
-			/*
-			 * IPv4 mapped address.
-			 * Recalculate the first 2 hexademical octets from to
-			 * 1 decimal octet.
-			 */
-			addr->sin6_family = AF_INET;
-			words[0] = ((words[2] & 0xF000) >> 12) * 1000
-				   + ((words[2] & 0x0F00) >> 8) * 100
-				   + ((words[2] & 0x00F0) >> 4) * 10
-				   + (words[2] & 0x000F);
-			if (words[0] > 255)
-				return -EINVAL;
-			ipv4_mapped = 1;
-			i = 1;
-			words[1] = words[2] = -1;
-		}
-		else if (isxdigit(*p)) {
-			words[i] = words[i] == -1 ? 0 : words[i];
-			if (ipv4_mapped || port == 1) {
-				if (!isdigit(*p))
+			if (*p == '[') {
+				port = 0;
+			}
+			else if (*p == ':') {
+				const char next = (k < c->len - 1) ?
+					*(p + 1) :
+					(c != TFW_STR_LAST(s)) ?
+						*(char*)((c + 1)->ptr) :
+						'\0';
+				if (next == ':') {
+					/*
+					 * Leave current (if empty) or next (otherwise)
+					 * word as a hole.
+					 */
+					if (k < c->len - 1) {
+						++k;
+						++p;
+					} else {
+						++c;
+						k = 0;
+						p = c->ptr;
+					}
+					hole = (words[i] != -1) ? ++i : i;
+				} else if (words[i] == -1)
 					return -EINVAL;
-				words[i] = words[i] * 10 + *p - '0';
-				if (port) {
+
+				/* Store port in the last word. */
+				i = (port == 1) ? 8 : i + 1;
+			}
+			else if (*p == '.') {
+				++i;
+				if (ipv4_mapped)
+					continue;
+				if (words[0] != -1 || words[1] != 0xFFFF
+				   || words[2] == -1 || i != 3 || hole != 0)
+					return -EINVAL;
+				/*
+				 * IPv4 mapped address.
+				 * Recalculate the first 2 hexademical octets from to
+				 * 1 decimal octet.
+				 */
+				addr->sin6_family = AF_INET;
+				words[0] = ((words[2] & 0xF000) >> 12) * 1000
+					   + ((words[2] & 0x0F00) >> 8) * 100
+					   + ((words[2] & 0x00F0) >> 4) * 10
+					   + (words[2] & 0x000F);
+				if (words[0] > 255)
+					return -EINVAL;
+				ipv4_mapped = 1;
+				i = 1;
+				words[1] = words[2] = -1;
+			}
+			else if (isxdigit(*p)) {
+				words[i] = words[i] == -1 ? 0 : words[i];
+				if (ipv4_mapped || port == 1) {
+					if (!isdigit(*p))
+						return -EINVAL;
+					words[i] = words[i] * 10 + *p - '0';
+					if (port) {
+						if (words[i] > 0xFFFF)
+							return -EINVAL;
+					}
+					else if (ipv4_mapped && words[i] > 255) {
+						return -EINVAL;
+					}
+				} else {
+					words[i] = (words[i] << 4) | XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
 				}
-				else if (ipv4_mapped && words[i] > 255) {
-					return -EINVAL;
-				}
-			} else {
-				words[i] = (words[i] << 4) | XD(tolower(*p));
-				if (words[i] > 0xFFFF)
-					return -EINVAL;
 			}
-		}
-		else if (*p == ']') {
-			port = 1;
-		}
-		else {
-			return -EINVAL;
+			else if (*p == ']') {
+				port = 1;
+			}
+			else {
+				return -EINVAL;
+			}
 		}
 	}
 
@@ -206,18 +228,29 @@ tfw_addr_pton_v6(const char *p, struct sockaddr_in6 *addr)
  * See RFC5952.
  */
 int
-tfw_addr_pton(const char *str, TfwAddr *addr)
+tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 {
 	int ret = -EINVAL;
 	int mode = 0;
+	const char first = TFW_STR_PLAIN(str) ?
+		*(char*)str->ptr :
+		*(char*)((TfwStr*)str->ptr)->ptr;
 
 	/* Determine type of the address (IPv4/IPv6). */
-	if (str[0] == '[' || isalpha(str[0])) {
+	if (first == '[' || isalpha(first)) {
 		mode = 6;
 	} else {
-		const char *pos = str;
-		while (*pos && isdigit(*pos))
-			pos++;
+		const char *pos = NULL;
+		const TfwStr *c, *end;
+		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+			int i;
+			for (i = 0; i != c->len; ++i) {
+				pos = c->ptr + i;
+				if (!isdigit(*pos))
+					goto delim;
+			}
+		}
+delim:
 		if (*pos == ':') {
 			mode = 6;
 		}
@@ -282,6 +315,55 @@ tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2)
 	return tfw_addr_eq_inet(&addr1->v4, &addr2->v4);
 }
 EXPORT_SYMBOL(tfw_addr_eq);
+
+/*
+ * Check, if listener addr matches server addr
+ * server - backend address:port
+ * listener - listener address:port, address can be 0.0.0.0
+ */
+int
+tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
+{
+	switch (server->family) {
+	case AF_INET:
+		do {
+			unsigned laddr = listener->v4.sin_addr.s_addr;
+			unsigned saddr = server->v4.sin_addr.s_addr;
+			if (listener->v4.sin_port != server->v4.sin_port)
+				return 0;
+			if (laddr == 0) {
+				if (IN_LOOPBACK(ntohl(saddr)))
+					return 1;
+				/* TODO: check if client addr is
+				* one of interface adresses */
+			}
+		} while (0);
+		return tfw_addr_eq_inet(&server->v4, &listener->v4);
+		break;
+	case AF_INET6:
+		if (listener->v6.sin6_port != server->v6.sin6_port)
+			return 0;
+		if (!(listener->v6.sin6_addr.in6_u.u6_addr32[0] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
+			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
+		{
+			/* listener = [::] */
+			if (IN6_LOOPBACK(server->v6.sin6_addr))
+			{
+				/* backend = [::1] */
+				return 1;
+			}
+			/* TODO: same as in v4 case */
+		}
+		return tfw_addr_eq_inet6(&server->v6, &listener->v6);
+	default:
+		TFW_ERR("Unknown protocol family\n");
+		BUG();
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_addr_ifmatch);
 
 /*
  * ------------------------------------------------------------------------
@@ -454,7 +536,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 			*pos++ = ':';
 		}
 		else if (!groups[i] && (groups[i + 1] || i == 6)) {
-			if (*(pos - 1) != ':')
+			if (pos == buf || *(pos - 1) != ':')
 				*pos++ = ':';
 			*pos++ = ':';
 			zeros_already_omitted = true;

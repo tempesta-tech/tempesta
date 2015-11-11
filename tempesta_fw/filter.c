@@ -80,6 +80,7 @@ tfw_filter_block_ip(struct in6_addr *addr)
 	unsigned long key = tfw_ipv6_hash(addr);
 	size_t len = sizeof(rule);
 
+	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
 		TFW_WARN_ADDR6("cannot create blocking rule", addr);
 	} else {
@@ -97,20 +98,22 @@ EXPORT_SYMBOL(tfw_filter_block_ip);
 static int
 tfw_filter_check_ip(struct in6_addr *addr)
 {
-	int r;
-	TdbFRec *rec;
 	TfwFRule *rule;
+	TdbIter iter;
 
-	rec = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
-	if (!rec)
+	iter = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
+	if (TDB_ITER_BAD(iter))
 		return TFW_PASS;
 
-	rule = (TfwFRule *)rec->data;
-	r = rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+	for (rule = (TfwFRule *)iter.rec->data;
+	     memcmp(&rule->addr, addr, sizeof(*addr)); )
+	{
+		tdb_rec_next(ip_filter_db, &iter);
+		if (!(rule = (TfwFRule *)iter.rec->data))
+			return TFW_PASS;
+	}
 
-	tdb_rec_put(rec);
-
-	return r;
+	return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
 }
 
 /*
@@ -142,10 +145,16 @@ __ipv4_hdr_check(struct sk_buff *skb)
 	return ih;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
 static unsigned int
 tfw_ipv4_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 		const struct net_device *in, const struct net_device *out,
 		int (*okfn)(struct sk_buff *))
+#else
+static unsigned int
+tfw_ipv4_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
+		 const struct nf_hook_state *state)
+#endif
 {
 	int r;
 	const struct iphdr *ih;
@@ -228,10 +237,16 @@ __ipv6_hdr_check(struct sk_buff *skb)
 	return ih;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
 static unsigned int
 tfw_ipv6_nf_hook(unsigned int hooknum, struct sk_buff *skb,
 		const struct net_device *in, const struct net_device *out,
 		int (*okfn)(struct sk_buff *))
+#else
+static unsigned int
+tfw_ipv6_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
+		 const struct nf_hook_state *state)
+#endif
 {
 	int r;
 	struct ipv6hdr *ih;

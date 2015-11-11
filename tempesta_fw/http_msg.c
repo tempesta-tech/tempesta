@@ -32,7 +32,7 @@
  * value.
  */
 void
-tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
+tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 {
 	static const size_t hdr_lens[] = {
 		[TFW_HTTP_HDR_HOST]	= sizeof("Host:") - 1,
@@ -40,19 +40,31 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 		[TFW_HTTP_HDR_CONTENT_TYPE] = sizeof("Content-Type:") - 1,
 		[TFW_HTTP_HDR_CONNECTION] = sizeof("Connection:") - 1,
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = sizeof("X-Forwarded-For:") - 1,
+		[TFW_HTTP_HDR_USER_AGENT] = sizeof("User-Agent:") - 1,
+		[TFW_HTTP_HDR_COOKIE] = sizeof("Cookie:") - 1,
 	};
 
-	TfwStr *c;
+	TfwStr *c, *end;
 	int nlen = hdr_lens[id];
 
-	BUG_ON(TFW_STR_PLAIN(hdr));
 	BUG_ON(TFW_STR_DUP(hdr));
-	BUG_ON(nlen >= hdr->len);
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
+
+	/* Only Host: header is allowed to be empty
+	 * If header string is plain, it is always empty header.
+	 * Not empty headers are compount strings. */
+	BUG_ON(id == TFW_HTTP_HDR_HOST ? (nlen > hdr->len) :
+		(nlen >= hdr->len || TFW_STR_PLAIN(hdr)));
 
 	*val = *hdr;
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, {
+	/* Field value, if it exist, lies in the separate chunk.
+	 * So we skip several first chunks, containing field name,
+	 * to get the field value. If we have field with empty value,
+	 * we get an empty string with val->len = 0 and val->ptr from the
+	 * last name's chunk, but it is unimportant.
+	 */
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		BUG_ON(!c->len);
 
 		if (nlen > 0) {
@@ -74,7 +86,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, int id, TfwStr *val)
 			break;
 		}
 		TFW_STR_CHUNKN_SUB(val, 1);
-	});
+	}
 
 	val->ptr = c;
 }
@@ -93,7 +105,6 @@ __hdr_is_singular(const TfwStr *hdr)
 	static const TfwStr hdr_singular[] __read_mostly = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
-		TfwStr_string("content-type:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
 		TfwStr_string("if-unmodified-since:"),
@@ -101,7 +112,6 @@ __hdr_is_singular(const TfwStr *hdr)
 		TfwStr_string("max-forwards:"),
 		TfwStr_string("proxy-authorization:"),
 		TfwStr_string("referer:"),
-		TfwStr_string("user-agent:"),
 #undef TfwStr_string
 	};
 
@@ -180,7 +190,7 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 {
 	BUG_ON(field->flags & TFW_STR_DUPLICATE);
 
-	TFW_DBG3("store field chunk len=%d data=%p field=<%#x,%u,%p>\n",
+	TFW_DBG3("store field chunk len=%d data=%p field=<%#x,%lu,%p>\n",
 		 len, data, field->flags, field->len, field->ptr);
 
 	/* The header should be open before. */
@@ -296,7 +306,7 @@ done:
 	*h = hm->parser.hdr;
 
 	TFW_STR_INIT(&hm->parser.hdr);
-	TFW_DBG3("store header w/ ptr=%p len=%d flags=%x id=%d\n",
+	TFW_DBG3("store header w/ ptr=%p len=%lu flags=%x id=%d\n",
 		 h->ptr, h->len, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
@@ -392,8 +402,7 @@ __hdr_append(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr)
 		return TFW_BLOCK;
 	if (tfw_strcat(hm->pool, orig_hdr, &it))
 		TFW_WARN("Cannot concatenate hdr %.*s with %.*s\n",
-			 orig_hdr->len, (char *)orig_hdr->ptr,
-			 hdr->len, (char *)hdr->ptr);
+			 PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
 
 	return 0;
 }
@@ -571,7 +580,8 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 	struct sk_buff *skb;
 
 	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
-		skb = ss_skb_alloc(min_t(size_t, len, SS_SKB_MAX_DATA_LEN));
+		skb = ss_skb_alloc_pages(min_t(size_t, len,
+					 SS_SKB_MAX_DATA_LEN));
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(&hm->msg.skb_list, skb);
@@ -610,20 +620,25 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 }
 
 /*
- * Fill up an HTTP message @hm with data from string @data. An iterator
- * @it is used to support multiple calls to this functions after set up.
- * This function can only be called after a call to tfw_http_msg_setup().
- * It works only with empty SKB space prepared by tfw_http_msg_setup().
- * It should not be used under any other circumstances.
+ * Fill up an HTTP message @hm with data from string @data.
+ * This is a quick message creator which doesn't properly initialized
+ * the message structure like headers table. So @hm couldn't be used in
+ * HTTP message transformations.
+ *
+ * An iterator @it is used to support multiple calls to this functions after
+ * set up. This function can only be called after a call to
+ * tfw_http_msg_create(). It works only with empty SKB space prepared by
+ * the function.
  */
 int
 tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
 {
-	const TfwStr *c;
+	const TfwStr *c, *end;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
-	TFW_STR_FOR_EACH_CHUNK(c, data, {
+	BUG_ON(TFW_STR_DUP(data));
+	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
 this_chunk:
 		if (!frag)
 			return -E2BIG;
@@ -664,12 +679,60 @@ this_chunk:
 				goto this_chunk;
 			}
 		}
-	});
+	}
 
 	return 0;
 }
 
-void
+/**
+ * Like tfw_http_msg_write(), but properly initialize HTTP message fields,
+ * so it can be used in regular transformations.
+ * However, the header name and value aren't splitted into different chunks,
+ * so advanced headers matching aren't available for @hm.
+ */
+int
+tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
+		      const TfwStr *data)
+{
+	char *p;
+	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+	unsigned int d_off = 0, f_size, d_size, f_room, n_copy;
+
+	BUG_ON(TFW_STR_DUP(data));
+	BUG_ON(!TFW_STR_PLAIN(data));
+
+next_frag:
+	if (!frag)
+		return -E2BIG;
+
+	d_size = data->len - d_off;
+	f_size = skb_frag_size(frag);
+	f_room = PAGE_SIZE - frag->page_offset - f_size;
+	n_copy = min(d_size, f_room);
+
+	p = (char *)skb_frag_address(frag) + f_size;
+	memcpy(p, (char *)data->ptr + d_off, n_copy);
+	skb_frag_size_add(frag, n_copy);
+	ss_skb_adjust_data_len(it->skb, n_copy);
+
+	if (tfw_http_msg_add_data_ptr(hm, field, p, n_copy))
+		return -ENOMEM;
+
+	if (d_size > f_room) {
+		/*
+		 * Current SKB fragment has no more room available.
+		 * Switch to next SKB fragment.
+		 */
+		frag = ss_skb_frag_next(&hm->msg.skb_list,
+					&it->skb, &it->frag);
+		d_off += n_copy;
+		goto next_frag;
+	}
+
+	return 0;
+}
+
+static void
 tfw_http_conn_msg_unlink(TfwHttpMsg *m)
 {
 	if (m->conn && m->conn->msg == (TfwMsg *)m)
@@ -735,4 +798,3 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
-

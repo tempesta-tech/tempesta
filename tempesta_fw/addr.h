@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -21,8 +21,10 @@
 #ifndef __TFW_ADDR_H__
 #define __TFW_ADDR_H__
 
+#include <linux/version.h>
 #include <net/inet_sock.h>
 #include <net/ipv6.h>
+#include "str.h"
 
 /**
  * The default port for textual IP address representations.
@@ -35,6 +37,15 @@
 #define TFW_ADDR_STR_BUF_SIZE \
 	sizeof("[FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:255.255.255.255]:65535")
 
+#define IN6_LOOPBACK(in6_addr)			\
+	((in6_addr.in6_u.u6_addr8[15] == 1) &&	\
+	!(in6_addr.in6_u.u6_addr32[0] |		\
+	in6_addr.in6_u.u6_addr32[1] |		\
+	in6_addr.in6_u.u6_addr32[2] |		\
+	in6_addr.in6_u.u6_addr8[12] |		\
+	in6_addr.in6_u.u6_addr8[13] |		\
+	in6_addr.in6_u.u6_addr8[14]))		\
+
 typedef union {
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
@@ -42,8 +53,10 @@ typedef union {
 	sa_family_t family;
 } TfwAddr;
 
+int tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener);
+
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
-int tfw_addr_pton(const char *str, TfwAddr *addr);
+int tfw_addr_pton(const TfwStr *str, TfwAddr *addr);
 size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
 /* A couple of lower-level functions faster than tfw_addr_ntop().
@@ -69,8 +82,13 @@ tfw_addr_get_sk_saddr(struct sock *sk, TfwAddr *addr)
 	addr->v6.sin6_port = inet_sk(sk)->inet_sport;
 #if IS_ENABLED(CONFIG_IPV6)
 	if (inet6_sk(sk)) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
 		memcpy(&addr->v6.sin6_addr, &inet6_sk(sk)->daddr,
 		       sizeof(struct in6_addr));
+#else
+		memcpy(&addr->v6.sin6_addr, &sk->sk_v6_daddr,
+		       sizeof(struct in6_addr));
+#endif
 	} else
 #endif
 	{
@@ -86,7 +104,5 @@ tfw_addr_get_sk_sport(struct sock *sk)
 {
 	return inet_sk(sk)->inet_sport;
 }
-
-
 
 #endif /* __TFW_ADDR_H__ */

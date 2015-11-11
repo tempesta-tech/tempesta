@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -77,13 +77,6 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/**
- * All helping information for current HTTP parsing state of a message.
- */
-#define TFW_HTTP_PF_CR			0x01
-#define TFW_HTTP_PF_LF			0x02
-#define TFW_HTTP_PF_CRLF		(TFW_HTTP_PF_CR | TFW_HTTP_PF_LF)
-
 typedef enum {
 	TFW_HTTP_METH_NONE,
 	TFW_HTTP_METH_GET,
@@ -119,22 +112,24 @@ typedef struct {
  * (e.g. process LWS using @state while current state is saved in @_i_st
  * or using @_i_st parse value of a header described.
  *
- * @state	- current parser state;
- * @_i_st	- helping (interior) state;
  * @to_go	- remaining number of bytes to process in the data chunk;
  *		  (limited by single packet size and never exceeds 64KB)
+ * @state	- current parser state;
+ * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
+ * @_hdr_tag	- describes, which header should be closed in case of
+ *		  the empty header (see RGEN_LWS_empty)
  * @_tmp_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
 typedef struct tfw_http_parser {
-	unsigned char	flags;
 	unsigned short	to_go;
 	int		state;
 	int		_i_st;
 	int		to_read;
-	unsigned int	_tmp_acc;
+	unsigned long	_tmp_acc;
+	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 } TfwHttpParser;
@@ -143,20 +138,24 @@ typedef struct tfw_http_parser {
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
- * repetition attacks. See __header_is_singular() and don't forget to
+ * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
  *
- * Note: don't forget to update hdr_val_eq() upon adding a new header.
+ * Note: don't forget to update tfw_http_msg_hdr_val() upon adding a new header.
+ *
+ * Cookie: singular according to RFC 6265 5.4.
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
+	TFW_HTTP_HDR_CONTENT_TYPE,
+	TFW_HTTP_HDR_USER_AGENT,
+	TFW_HTTP_HDR_COOKIE,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
-	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
 
 	/* Start of list of generic (raw) headers. */
@@ -172,8 +171,10 @@ typedef struct {
 } TfwHttpHdrTbl;
 
 #define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
-#define TFW_HHTBL_SZ(o)			(sizeof(TfwHttpHdrTbl)		\
-					 + sizeof(TfwStr) * __HHTBL_SZ(o))
+#define TFW_HHTBL_EXACTSZ(s)		(sizeof(TfwHttpHdrTbl)		\
+					 + sizeof(TfwStr) * (s))
+#define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
+
 
 /* Common flags for requests and responses. */
 #define TFW_HTTP_CONN_CLOSE		0x0001
@@ -184,6 +185,8 @@ typedef struct {
 /* Request flags */
 #define TFW_HTTP_STICKY_SET		0x0100	/* Need 'Set-Cookie` */
 #define TFW_HTTP_FIELD_DUPENTRY		0x0200	/* Duplicate field */
+/* URI has form http://authority/path, not just /path */
+#define TFW_HTTP_URI_FULL		0x0400
 
 /**
  * Common HTTP message members.
@@ -200,7 +203,7 @@ typedef struct {
 	TfwHttpParser	parser;						\
 	TfwCacheControl	cache_ctl;					\
 	unsigned int	flags;						\
-	unsigned int	content_length;					\
+	unsigned long	content_length;					\
 	TfwConnection	*conn;						\
 	TfwStr		crlf;						\
 	TfwStr		body;
@@ -218,9 +221,11 @@ typedef struct {
 /**
  * HTTP Request.
  *
- * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
+ * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
+ * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
@@ -230,14 +235,16 @@ typedef struct {
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
+	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
+	unsigned short		node;
 	unsigned int		frang_st;
+	unsigned int		chunk_cnt;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	unsigned int		chunk_cnt;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
@@ -277,7 +284,7 @@ typedef struct {
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
-typedef void (*tfw_http_req_cache_cb_t)(TfwHttpReq *, TfwHttpResp *, void *);
+typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 
 /* Internal (parser) HTTP functions. */
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);

@@ -31,7 +31,7 @@ static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
-	int r;
+	int r = 0;
 
 	while (pos < len) {
 		step = chlen;
@@ -97,7 +97,7 @@ do_split_and_parse(unsigned char *str, int type)
 		len = strlen(str);
 	}
 
-	if (chunks > 1/*TODO: len*/) {
+	if (chunks > len) {
 		return 1;
 	}
 
@@ -239,9 +239,10 @@ TEST(http_parser, parses_req_uri)
 TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_user_agent, *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc,
+	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc,
 	       *h_te;
-	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff;
+	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff,
+		   h_user_agent, h_cookie;
 
 	/* Expected values for special headers. */
 	const char *s_host = "localhost";
@@ -249,8 +250,9 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_xff = "127.0.0.1, example.com";
 	const char *s_cl = "0";
 	const char *s_ct = "text/html; charset=iso-8859-1";
+	const char *s_user_agent = "Wget/1.13.4 (linux-gnu)";
+	const char *s_cookie = "session=42; theme=dark";
 	/* Expected values for raw headers. */
-	const char *s_user_agent = "User-Agent: Wget/1.13.4 (linux-gnu)";
 	const char *s_accept = "Accept: */*";
 	const char *s_xch = "X-Custom-Hdr: custom header values";
 	const char *s_dummy9 = "Dummy9: 9";
@@ -279,6 +281,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		"Dummy9: 9\r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
 		"Transfer-Encoding: compress, deflate, gzip\r\n"
+		"Cookie: session=42; theme=dark\r\n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
@@ -294,17 +297,20 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 				     TFW_HTTP_HDR_CONTENT_TYPE, &h_conttype);
 		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 				     TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_USER_AGENT],
+				     TFW_HTTP_HDR_USER_AGENT, &h_user_agent);
+		tfw_http_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_COOKIE],
+				     TFW_HTTP_HDR_COOKIE, &h_cookie);
 
-		/* Common (raw) headers: 20 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
+		/* Common (raw) headers: 14 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
 
-		h_user_agent = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
-		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
-		h_xch        = &ht->tbl[TFW_HTTP_HDR_RAW + 2];
-		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 7];
-		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
+		h_xch        = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
+		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 6];
+		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
+		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
 					    strlen(s_host), 0));
@@ -316,9 +322,11 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 					    strlen(s_ct), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_xff, s_xff,
 					    strlen(s_xff), 0));
-
-		EXPECT_TRUE(tfw_str_eq_cstr(h_user_agent, s_user_agent,
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_user_agent, s_user_agent,
 					    strlen(s_user_agent), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_cookie, s_cookie,
+					    strlen(s_cookie), 0));
+
 		EXPECT_TRUE(tfw_str_eq_cstr(h_accept, s_accept,
 					    strlen(s_accept), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_xch, s_xch,
