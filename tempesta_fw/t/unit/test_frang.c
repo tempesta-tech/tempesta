@@ -26,7 +26,6 @@
 #undef module_exit
 #define module_init(funk)
 #define module_exit(funk)
-#undef tfw_classifier_add_inport
 #include <linux/export.h>
 #undef EXPORT_SYMBOL
 #include "../../classifier/frang.c"
@@ -64,8 +63,6 @@ req_handler(TfwHttpReq  *req)
 	TfwConnection *conn;
 
 	conn = test_conn_alloc();
-	if(conn)
-		TFW_DBG("req_handler%s", "conn - ok.");
 	conn->msg = &req->msg;
 	conn->sk = (struct sock*)&mocksock;
 	mocksock.inet_daddr = htonl(in_aton(inet_addr));
