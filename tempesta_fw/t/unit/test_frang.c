@@ -29,7 +29,6 @@
 #define module_exit(funk)
 #endif
 #include <linux/export.h>
-#undef EXPORT_SYMBOL
 #include "../../classifier/frang.c"
 #include "helpers.h"
 #include "kallsyms_helper.h"
@@ -71,7 +70,6 @@ req_handler(TfwHttpReq  *req)
 
 	if (!conn->sk->sk_security) 
 		frang_conn_new(conn->sk);
-	
 
 	return frang_http_req_handler((void *) conn, 
 				 	       conn->msg->skb_list.first, 
@@ -86,7 +84,7 @@ get_test_req(const char *req)
 	int len = strlen(req);
 
 	BUG_ON(len == 0);
-	BUG_ON(len+1 > sizeof(req_str_copy));
+	BUG_ON(len + 1 > sizeof(req_str_copy));
 	strcpy(req_str_copy, req);
 	test_req = test_req_alloc(len);
 	tfw_http_parse_req(test_req, req_str_copy, len);
