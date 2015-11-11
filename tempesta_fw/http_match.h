@@ -21,7 +21,6 @@
 #define __TFW_HTTP_MATCH_H__
 
 #include <linux/list.h>
-#include <linux/rcupdate.h>
 
 #include "addr.h"
 #include "pool.h"
@@ -95,20 +94,15 @@ typedef struct {
 
 /**
  * List of rules for matching.
- *
- * Generally considered as a read-mostly structure, so all elements are
- * allocated from the @pool and there is an @rcu head for updates.
  */
 typedef struct {
 	struct list_head list;
 	TfwPool *pool;
-	struct rcu_head rcu;
 } TfwHttpMatchList;
 
 
 TfwHttpMatchList *tfw_http_match_list_alloc(void);
 void tfw_http_match_list_free(TfwHttpMatchList *);
-void tfw_http_match_list_rcu_free(struct rcu_head *);
 
 /**
  * Match a HTTP request agains a list of rules.
