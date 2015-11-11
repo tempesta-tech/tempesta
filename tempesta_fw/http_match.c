@@ -454,17 +454,6 @@ tfw_http_match_list_free(TfwHttpMatchList *mlst)
 }
 EXPORT_SYMBOL(tfw_http_match_list_free);
 
-/**
- * call_rcu() callback for freeing the TfwHttpMatchList.
- */
-void
-tfw_http_match_list_rcu_free(struct rcu_head *r)
-{
-	TfwHttpMatchList *l = container_of(r, TfwHttpMatchList, rcu);
-	tfw_pool_destroy(l->pool);
-}
-EXPORT_SYMBOL(tfw_http_match_list_rcu_free);
-
 void
 tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg) {
