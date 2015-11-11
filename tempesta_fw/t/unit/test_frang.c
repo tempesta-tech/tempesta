@@ -170,7 +170,7 @@ TEST(frang, max_conn)
 	frang_cfg.conn_max = 0;
 	frang_cfg.conn_rate = 0;
 	frang_cfg.conn_burst = 5;
-((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
+//((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 
 	res = req_handler(mockreq);
 	/*conn_burst*/
@@ -178,7 +178,6 @@ TEST(frang, max_conn)
 
 	test_req_free(mockreq);
 }
-
 
 TEST(frang, ct_check)
 {
