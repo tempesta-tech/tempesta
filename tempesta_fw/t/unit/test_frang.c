@@ -22,10 +22,12 @@
 #include <linux/inet.h>
 #include <linux/module.h>
 #include "../../gfsm.h"
+#ifdef module_init
 #undef module_init
 #undef module_exit
 #define module_init(funk)
 #define module_exit(funk)
+#endif
 #include <linux/export.h>
 #undef EXPORT_SYMBOL
 #include "../../classifier/frang.c"
