@@ -321,7 +321,7 @@ TEST(frang, chunk_cnt)
 
 TEST_SUITE(frang)
 {
-	tfw_gfsm_register_fsm(TFW_FSM_HTTP,frang_http_req_handler);
+	tfw_gfsm_register_fsm(TFW_FSM_HTTP, frang_http_req_handler);
 	frang_init();
 
 	TEST_RUN(frang, uri);
