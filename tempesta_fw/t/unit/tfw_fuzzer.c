@@ -121,6 +121,7 @@ static char * keys[] = {
 #define A_HOST_INVAL A_URI_INVAL
 #define A_X_FF A_HOST
 #define A_X_FF_INVAL A_URI_INVAL
+#define MAX_CONTENT_LENGTH_LEN 8
 
 static const char *a_body = A_URI A_URI_INVAL;
 
@@ -133,6 +134,7 @@ static struct {
 	int singular;    /* only for headers; 0 - nonsingular, 1 - singular */
 	int dissipation; /* may be duplicates header has diferent values?;
 			   0 - no, 1 - yes */
+	int max_val_len;
 } gen_vector[N_FIELDS] = {
 	/* SPACES */
 	{0, sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
@@ -157,7 +159,8 @@ static struct {
 	/* CONTENT_TYPE */
 	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* CONTENT_LENGTH */
-	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1},
+	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1,
+		MAX_CONTENT_LENGTH_LEN},
 	/* TRANSFER_ENCODING */
 	{0, sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT */
@@ -188,6 +191,8 @@ static struct {
 	{0, 3, 0, NULL, NULL},
 };
 
+static bool is_only_valid = false;
+
 static int
 gen_vector_move(int i)
 {
@@ -197,11 +202,16 @@ gen_vector_move(int i)
 		return FUZZ_END;
 
 	max = gen_vector[i].size + gen_vector[i].over - 1;
-	if (gen_vector[i].i++ == max) {
-		gen_vector[i].i = 0;
-		if (gen_vector_move(i + 1) == FUZZ_END)
-			return FUZZ_END;
-	}
+	do {
+		if (gen_vector[i].i++ == max) {
+			gen_vector[i].i = 0;
+			if (gen_vector_move(i + 1) == FUZZ_END)
+				return FUZZ_END;
+		}
+	} while (is_only_valid &&
+		 vals[i] &&
+		 gen_vector[i].i < gen_vector[i].size &&
+		 vals[i][gen_vector[i].i].inval);
 
 	return FUZZ_VALID;
 }
@@ -237,7 +247,10 @@ add_rand_string(char **p, char *end, int n, const char *seed)
 		addch(p, end, seed[((i + 333) ^ seed[i % len]) % len]);
 }
 
+#define INVALID_FIELD_PERIOD 5
+
 static bool is_chancked_body = false;
+static char content_length[MAX_CONTENT_LENGTH_LEN + 1];
 
 static int
 __add_field(char **p, char *end, int t, int n)
@@ -261,17 +274,32 @@ __add_field(char **p, char *end, int t, int n)
 
 		return r.inval;
 	} else {
-		if (n % 2) {
-			add_rand_string(p, end, n * 256,
-				gen_vector[t].a_val);
-			return FUZZ_VALID;
-		} else {
-			add_rand_string(p, end, n * 256,
-				gen_vector[t].a_inval);
-		}
-	}
+		char *v = *p;
+		int len = n * 256;
+		int r;
 
-	return FUZZ_INVALID;
+		if (n % INVALID_FIELD_PERIOD ||
+		    is_only_valid) {
+			if (gen_vector[t].max_val_len)
+				len = gen_vector[t].max_val_len;
+			add_rand_string(p, end, len,
+				gen_vector[t].a_val);
+			r = FUZZ_VALID;
+		} else {
+			add_rand_string(p, end, len,
+				gen_vector[t].a_inval);
+			r = FUZZ_INVALID;
+		}
+
+		if (t == CONTENT_LENGTH && r == FUZZ_VALID) {
+			strncpy(content_length, v, len);
+			content_length[len] = '\0';
+		} else {
+			content_length[0] = '\0';
+		}
+
+		return r;
+	}
 }
 
 static int
@@ -314,7 +342,7 @@ add_header(char **p, char *end, int t)
 	return __add_header(p, end, t, 0);
 }
 
-#define INVALID_BODY_PERIOD 3
+#define INVALID_BODY_PERIOD 5
 
 static int
 add_body(char **p, char *end, int type)
@@ -324,9 +352,8 @@ add_body(char **p, char *end, int type)
 	int err, ret = FUZZ_VALID;
 
 	i = gen_vector[CONTENT_LENGTH].i;
-	len_str = (i < gen_vector[CONTENT_LENGTH].size)? content_len[i].s: NULL;
-	if (!len_str)
-		return FUZZ_INVALID;
+	len_str = (i < gen_vector[CONTENT_LENGTH].size)? content_len[i].s:
+							 content_length;
 
 	err = kstrtoul(len_str, 10, &len);
 	if (err) {
@@ -334,7 +361,8 @@ add_body(char **p, char *end, int type)
 	}
 
 	if (!is_chancked_body) {
-		if (len != 0 && !(i % INVALID_BODY_PERIOD)) {
+		if (!is_only_valid &&
+		    len != 0 && !(i % INVALID_BODY_PERIOD)) {
 			len /= 2;
 			ret = FUZZ_INVALID;
 		}
@@ -364,7 +392,8 @@ add_body(char **p, char *end, int type)
 				add_string(p, end, buf);
 				add_string(p, end, "\r\n");
 
-				if (step != 0 && !(i % INVALID_BODY_PERIOD)) {
+				if (!is_only_valid &&
+				    step != 0 && !(i % INVALID_BODY_PERIOD)) {
 					step /= 2;
 					ret = FUZZ_INVALID;
 				}
@@ -385,13 +414,17 @@ add_body(char **p, char *end, int type)
 #define DUPLICATES_PERIOD 10
 #define MAX_DUPLICATES 9
 
+static int curr_duplicates = 0;
+
 static int
 __add_duplicates(char **p, char *end, int t, int n)
 {
 	int i, tmp, v = FUZZ_VALID;
-	static int curr_duplicates = 0;
 
 	if (curr_duplicates++ % DUPLICATES_PERIOD)
+		return FUZZ_VALID;
+
+	if (is_only_valid)
 		return FUZZ_VALID;
 
 	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
@@ -517,7 +550,12 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 
 	v |= add_body(&str, end, type);
 
-	*str = '\0';
+	if (str < end) {
+		*str = '\0';
+	} else {
+		v = FUZZ_INVALID;
+		*(end - 1) = '\0';
+	}
 
 	for (i = 0; i < move; i++) {
 		ret = gen_vector_move(start);
@@ -531,12 +569,22 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 }
 EXPORT_SYMBOL(fuzz_gen);
 
-void fuzz_reset(void)
+void
+fuzz_reset(void)
 {
 	int i;
 	for (i = 0; i < N_FIELDS; i++)
 	{
 		gen_vector[i].i = 0;
 	}
+
+	curr_duplicates = 0;
 }
 EXPORT_SYMBOL(fuzz_reset);
+
+void
+fuzz_set_only_valid_gen(bool value)
+{
+	is_only_valid = value;
+}
+EXPORT_SYMBOL(fuzz_set_only_valid_gen);
