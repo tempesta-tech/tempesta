@@ -20,16 +20,20 @@
  */
 
 #include <linux/inet.h>
+
 #include "../../gfsm.h"
+#include "../../http.h"
+#include "helpers.h"
+#include "test.h"
+
 #ifdef module_init
 #undef module_init
 #undef module_exit
 #define module_init(funk)
 #define module_exit(funk)
 #endif
+
 #include "../../classifier/frang.c"
-#include "helpers.h"
-#include "test.h"
 
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
@@ -37,6 +41,12 @@
 
 struct inet_sock mocksock;
 const char *inet_addr = "192.168.245.128";
+
+static int
+mock_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+{
+	return TFW_PASS;
+}
 
 static TfwConnection *
 test_conn_alloc(void)
@@ -320,8 +330,9 @@ TEST(frang, chunk_cnt)
 }
 
 TEST_SUITE(frang)
-{
-	tfw_gfsm_register_fsm(TFW_FSM_HTTP, frang_http_req_handler);
+{	/*the frang inserts itself in the chain of the http process, so it
+   	needs the http fsm to be registered.*/
+	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
 
 	TEST_RUN(frang, uri);
