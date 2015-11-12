@@ -569,7 +569,8 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 }
 EXPORT_SYMBOL(fuzz_gen);
 
-void fuzz_reset(void)
+void
+fuzz_reset(void)
 {
 	int i;
 	for (i = 0; i < N_FIELDS; i++)
@@ -580,3 +581,10 @@ void fuzz_reset(void)
 	curr_duplicates = 0;
 }
 EXPORT_SYMBOL(fuzz_reset);
+
+void
+fuzz_set_only_valid_gen(bool value)
+{
+	is_only_valid = value;
+}
+EXPORT_SYMBOL(fuzz_set_only_valid_gen);
