@@ -85,6 +85,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 		else {
 			break;
 		}
+		BUG_ON(TFW_STR_CHUNKN(val) < 1);
 		TFW_STR_CHUNKN_SUB(val, 1);
 	}
 
