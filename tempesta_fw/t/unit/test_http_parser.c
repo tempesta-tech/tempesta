@@ -484,10 +484,12 @@ TEST(http_parser, fuzzer)
 			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
-				FOR_REQ(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ);
 				break;
 			case FUZZ_INVALID:
-				EXPECT_BLOCK_REQ(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ);
 				break;
 			case FUZZ_END:
 			default:
@@ -504,10 +506,12 @@ resp:
 			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
-				FOR_RESP(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP);
 				break;
 			case FUZZ_INVALID:
-				EXPECT_BLOCK_RESP(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP);
 				break;
 			case FUZZ_END:
 			default:
@@ -517,6 +521,23 @@ resp:
 	}
 end:
 	vfree(str);
+}
+
+TEST(http_parser, folding)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host:    \r\n"
+			 "   foo.com\r\n"
+			 "Connection: close\r\n"
+			 "\r\n");
+}
+
+TEST(http_parser, empty_host)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Connection: close\r\n"
+		"\r\n");
 }
 
 TEST_SUITE(http_parser)
@@ -529,4 +550,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_length_duplicate);
 	TEST_RUN(http_parser, fuzzer);
+	TEST_RUN(http_parser, folding);
+	TEST_RUN(http_parser, empty_host);
 }
