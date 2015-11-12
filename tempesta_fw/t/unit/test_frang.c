@@ -100,69 +100,64 @@ get_test_req(const char *req)
 
 TEST(frang, uri)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("GET /home/index.html HTTP /1.1\r\n\r\n");
-	frang_cfg.http_uri_len = 5;
 	mockreq->frang_st = 3;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	frang_cfg.http_uri_len = 5;
+
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 }
 
 TEST(frang, req_count)
 {
-	int res;
 	int i;
 	unsigned long ts;
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
-	frang_cfg.conn_max = 0;
-	frang_cfg.conn_burst = 0;
-	frang_cfg.conn_rate = 0;
-	frang_cfg.req_rate = 5;
 	mocksock.inet_saddr = htonl(in_aton(inet_addr));
-
-	res = frang_conn_new((struct sock*)&mocksock);
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
+	frang_conn_new((struct sock*)&mocksock);
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
 
-	res = req_handler (mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	frang_cfg.conn_max = 0;
+	frang_cfg.conn_burst = 0;
+	frang_cfg.conn_rate = 0;
+	frang_cfg.req_rate = 5;
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	frang_cfg.req_rate = 5;
 	frang_cfg.req_burst = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
 	mockreq->frang_st = 0;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, max_conn)
 {
-	int res;
 	int i;
 	TfwHttpReq *mockreq;
 	unsigned long ts;
-
-	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
-	frang_cfg.conn_max = 5;
 
 	mocksock.inet_saddr = htonl(in_aton(inet_addr));
 	if(!mocksock.sk.sk_security)
 		frang_conn_new((struct sock *)&mocksock);
 	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 
-	res = req_handler(mockreq);
+	frang_cfg.conn_max = 5;
+
+
 	/*conn_max*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
@@ -170,91 +165,83 @@ TEST(frang, max_conn)
 	frang_cfg.conn_rate = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 
-	res = req_handler(mockreq);
 	/*conn_rate */
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	frang_cfg.conn_max = 0;
 	frang_cfg.conn_rate = 0;
 	frang_cfg.conn_burst = 5;
 
-	res = req_handler(mockreq);
 	/*conn_burst*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
 }
 
 TEST(frang, ct_check)
 {
-	int res;
 	TfwHttpReq *mockreq;
 	FrangCtVal ctval[1];
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;\r\n\r\n");
+	mockreq->frang_st = 0;
+
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
 	frang_cfg.http_ct_vals = ctval;
-	mockreq->frang_st = 0;
 
-	res = req_handler(mockreq);
 	/*ct_vals*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	frang_cfg.http_ct_required = true;
 	mockreq->frang_st = 0;
 
-	res = req_handler(mockreq);
 	/*ct_required*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, req_method)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+
 	frang_cfg.http_methods_mask = 2;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, field_len)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+
 	frang_cfg.http_field_len = 3;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, host)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("GET /foo HTTP/1.1\r\n\r\n");
+
 	frang_cfg.http_host_required = true;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 
 TEST(frang, body_len)
 {
-	int res;
 	TfwHttpReq *mockreq;
 	TfwStr body;
 	TfwStr crlf;
@@ -266,48 +253,45 @@ TEST(frang, body_len)
 	crlf.ptr = "\r\n";
 	mockreq->crlf = crlf;
 	mockreq->body = body;
-	frang_cfg.http_body_len = 3;
-	mockreq->frang_st = 0;
+	mockreq->frang_st =0;
 
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	frang_cfg.http_body_len = 3;
+
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, body_timeout)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-	frang_cfg.clnt_body_timeout = 1;
 	mockreq->frang_st = 12;
 	mockreq->tm_bchunk = jiffies - 100;
-
-	res = req_handler(mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	
+	frang_cfg.clnt_body_timeout = 1;
+		
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, hdr_timeout)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-	frang_cfg.clnt_body_timeout = 0;
-	frang_cfg.clnt_hdr_timeout = 1;
 	mockreq->frang_st = 0;
 	mockreq->tm_header = jiffies - 100;
 
-	res = req_handler (mockreq);
-	EXPECT_EQ(TFW_BLOCK, res);
+	frang_cfg.clnt_body_timeout = 0;
+	frang_cfg.clnt_hdr_timeout = 1;
+
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
 TEST(frang, chunk_cnt)
 {
-	int res;
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
@@ -315,17 +299,15 @@ TEST(frang, chunk_cnt)
 	mockreq->chunk_cnt = 3;
 	mockreq->frang_st = 0;
 
-	res = req_handler (mockreq);
 	/*header chunk*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	frang_cfg.http_hchunk_cnt = 0;
 	frang_cfg.http_bchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
 
-	res = req_handler (mockreq);
 	/*body chunks*/
-	EXPECT_EQ(TFW_BLOCK, res);
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
 
