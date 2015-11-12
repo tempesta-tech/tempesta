@@ -523,6 +523,23 @@ end:
 	vfree(str);
 }
 
+TEST(http_parser, folding)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host:    \r\n"
+			 "   foo.com\r\n"
+			 "Connection: close\r\n"
+			 "\r\n");
+}
+
+TEST(http_parser, empty_host)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Connection: close\r\n"
+		"\r\n");
+}
+
 TEST_SUITE(http_parser)
 {
 	TEST_RUN(http_parser, parses_req_method);
@@ -533,4 +550,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_length_duplicate);
 	TEST_RUN(http_parser, fuzzer);
+	TEST_RUN(http_parser, folding);
+	TEST_RUN(http_parser, empty_host);
 }
