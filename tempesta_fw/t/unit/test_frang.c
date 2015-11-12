@@ -174,7 +174,6 @@ TEST(frang, max_conn)
 
 	/*conn_burst*/
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
-
 	test_req_free(mockreq);
 }
 
@@ -195,6 +194,7 @@ TEST(frang, ct_check)
 	test_req_free(mockreq);
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+
 	frang_cfg.http_ct_required = true;
 	mockreq->frang_st = 0;
 
@@ -296,6 +296,7 @@ TEST(frang, chunk_cnt)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+
 	frang_cfg.http_hchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
 	mockreq->frang_st = 0;
