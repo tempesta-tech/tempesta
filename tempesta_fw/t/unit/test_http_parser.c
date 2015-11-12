@@ -484,10 +484,12 @@ TEST(http_parser, fuzzer)
 			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
-				FOR_REQ(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ);
 				break;
 			case FUZZ_INVALID:
-				EXPECT_BLOCK_REQ(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ);
 				break;
 			case FUZZ_END:
 			default:
@@ -504,10 +506,12 @@ resp:
 			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
-				FOR_RESP(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP);
 				break;
 			case FUZZ_INVALID:
-				EXPECT_BLOCK_RESP(str);
+				chunks = 1;
+				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP);
 				break;
 			case FUZZ_END:
 			default:
