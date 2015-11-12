@@ -61,9 +61,17 @@ static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
 	if (str->flags & flag) {
-		unsigned int l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
-		void *p = tfw_pool_realloc(pool, str->ptr, l,
-					   l + n * sizeof(TfwStr));
+		unsigned int l;
+		void *p;
+
+		if (unlikely(TFW_STR_CHUNKN_LIM(str))) {
+			TFW_WARN("Reaching chunks hard limit\n");
+			return NULL;
+		}
+
+		l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
+		p = tfw_pool_realloc(pool, str->ptr, l,
+				     l + n * sizeof(TfwStr));
 		if (!p)
 			return NULL;
 		str->ptr = p;
@@ -97,8 +105,8 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 }
 
 /**
- * Add place for a new duplicate to string tree @str, a string wich is probably
- * alredy a set of duplicate compound strings).
+ * Add place for a new duplicate to string tree @str,
+ * the string is probably alredy a set of duplicate compound strings.
  */
 TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
