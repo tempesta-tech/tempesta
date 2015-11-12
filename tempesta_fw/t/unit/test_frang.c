@@ -330,8 +330,7 @@ TEST(frang, chunk_cnt)
 }
 
 TEST_SUITE(frang)
-{	/*the frang inserts itself in the chain of the http process, so it
-   	needs the http fsm to be registered.*/
+{	/* The initial FSM state isn't hookable. */
 	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
 
