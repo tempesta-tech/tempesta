@@ -263,6 +263,7 @@ TEST(frang, body_len)
 
 TEST(frang, body_timeout)
 {
+
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
@@ -313,7 +314,6 @@ TEST(frang, chunk_cnt)
 
 TEST_SUITE(frang)
 {	
-
 	/* The initial FSM state isn't hookable. */
 	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
