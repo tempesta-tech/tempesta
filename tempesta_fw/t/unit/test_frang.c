@@ -38,6 +38,8 @@
 #define FRANG_HASH_BITS 17
 #define FRANG_FREQ	8
 #define HANDLER_OFF	0
+#define MOCK_TIMEOUT	100
+#define MOCK_CHUNKNUM	3
 
 struct inet_sock mocksock;
 const char *inet_addr = "192.168.245.128";
@@ -132,11 +134,12 @@ TEST(frang, req_count)
 	frang_cfg.req_rate = 5;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
+	mockreq->frang_st = 0;
+
 	frang_cfg.req_rate = 5;
 	frang_cfg.req_burst = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
-	mockreq->frang_st = 0;
-
+	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
 }
@@ -194,9 +197,9 @@ TEST(frang, ct_check)
 	test_req_free(mockreq);
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+	mockreq->frang_st = 0;
 
 	frang_cfg.http_ct_required = true;
-	mockreq->frang_st = 0;
 
 	/*ct_required*/
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -268,7 +271,7 @@ TEST(frang, body_timeout)
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->frang_st = 12;
-	mockreq->tm_bchunk = jiffies - 100;
+	mockreq->tm_bchunk = jiffies - MOCK_TIMEOUT;
 	
 	frang_cfg.clnt_body_timeout = 1;
 		
@@ -282,7 +285,7 @@ TEST(frang, hdr_timeout)
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->frang_st = 0;
-	mockreq->tm_header = jiffies - 100;
+	mockreq->tm_header = jiffies - MOCK_TIMEOUT;
 
 	frang_cfg.clnt_body_timeout = 0;
 	frang_cfg.clnt_hdr_timeout = 1;
@@ -298,7 +301,7 @@ TEST(frang, chunk_cnt)
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 
 	frang_cfg.http_hchunk_cnt = 1;
-	mockreq->chunk_cnt = 3;
+	mockreq->chunk_cnt = MOCK_CHUNKNUM;
 	mockreq->frang_st = 0;
 
 	/*header chunk*/
@@ -306,7 +309,7 @@ TEST(frang, chunk_cnt)
 
 	frang_cfg.http_hchunk_cnt = 0;
 	frang_cfg.http_bchunk_cnt = 1;
-	mockreq->chunk_cnt = 3;
+	mockreq->chunk_cnt = MOCK_CHUNKNUM;
 
 	/*body chunks*/
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
