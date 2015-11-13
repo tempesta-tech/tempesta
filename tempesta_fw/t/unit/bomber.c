@@ -34,18 +34,21 @@
 #include "tfw_fuzzer.h"
 
 static int nthreads = 2;
+static int niter = 2;
 static int nconnects = 2;
 static int nmessages = 2;
 static char *server = "127.0.0.1:80";
 
 module_param(nthreads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param(niter, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(nconnects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(nmessages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param(server, charp, 0);
 
 MODULE_PARM_DESC(nthreads,
 		 "Number of threads (set this to the number of CPU cores)");
-MODULE_PARM_DESC(nconnects, "Number of concurrent connections");
+MODULE_PARM_DESC(niter, "Number of thread iterations");
+MODULE_PARM_DESC(nconnects, "Number of connections");
 MODULE_PARM_DESC(nmessages, "Number of messages by connection");
 MODULE_PARM_DESC(server, "Server host address and optional port nunber");
 
@@ -63,6 +66,8 @@ MODULE_LICENSE("GPL");
 #define TFW_BMB_CONNECT_ESTABLISHED	(0x0002)
 #define TFW_BMB_CONNECT_CLOSED		(0x0004)
 #define TFW_BMB_CONNECT_ERROR		(0x0100)
+
+#define BUF_SIZE 20 * 1024 * 1024
 
 typedef struct tfw_bmb_desc {
 	SsProto		proto;
@@ -90,6 +95,7 @@ static atomic_t tfw_bmb_request_nsend;	 /* Number of requests */
 static TfwAddr tfw_bmb_server_address;
 static SsHooks tfw_bmb_hooks;
 static struct timeval tvs, tve;
+static char **bufs;
 
 static int
 tfw_bmb_conn_complete(struct sock *sk)
@@ -213,22 +219,28 @@ tfw_bmb_release_sockets(int threadn)
 }
 
 static void
-tfw_bmb_msg_send(tfw_bmb_desc_t *desc)
+tfw_bmb_msg_send(int threadn, int connn)
 {
-	static char str[1 * 1024 * 1024];
+	tfw_bmb_desc_t *desc = &tfw_bmb_desc[threadn][connn];
+	char *s = bufs[threadn];
 	TfwStr msg;
 	TfwHttpMsg *req;
 	TfwMsgIter it;
+	int c = 0, r;
 
 	BUG_ON(!desc->sk);
 
-	if (fuzz_gen(str, str + sizeof(str), 0, 1, FUZZ_REQ) == FUZZ_END) {
-		fuzz_reset();
-	}
+	do {
+		c++;
+		r = fuzz_gen(s, s + BUF_SIZE, 0, 1, FUZZ_REQ);
+		if (r == FUZZ_END) {
+			fuzz_reset();
+		}
+	} while ((r == FUZZ_END || r == FUZZ_INVALID) && c < 3);
 
-	msg.ptr = str;
+	msg.ptr = s;
 	msg.skb = NULL;
-	msg.len = strlen(str);
+	msg.len = strlen(s);
 	msg.flags = 0;
 
 	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
@@ -245,41 +257,46 @@ tfw_bmb_worker(void *data)
 {
 	int threadn = (int)(long)data;
 	uint64_t time_max;
-	int nattempt, i, j;
+	int nattempt, k, i, j;
 
-	for (i = 0; i < nconnects; i++) {
-		tfw_bmb_connect(threadn * nconnects + i);	
-	}
-
-	set_freezable();
-	time_max = (uint64_t)get_seconds() + TFW_BMB_WAIT_MAX;
-	nattempt = atomic_read(&tfw_bmb_conn_nattempt[threadn]);
-	do {
-		int nerror = atomic_read(&tfw_bmb_conn_nerror[threadn]);
-		int ncomplete = atomic_read(&tfw_bmb_conn_ncomplete[threadn]);
-
-		if (ncomplete + nerror == nattempt) {
-			break;
+	for (k = 0; k < niter; k++)
+	{
+		for (i = 0; i < nconnects; i++) {
+			tfw_bmb_connect(threadn * nconnects + i);
 		}
-		wait_event_freezable_timeout(tfw_bmb_conn_wq,
-					     kthread_should_stop(),
-					     TFW_BMB_WAIT_INTVL);
-		if ((uint64_t)get_seconds() > time_max) {
-			SS_ERR("%s exceeded maximum wait time of %d seconds\n",
-				"worker", TFW_BMB_WAIT_MAX);
-			break;
-		}
-	} while (!kthread_should_stop());
 
-	for (i = 0; i < nconnects; i++) {
-		for (j = 0; j < nmessages; j++) {
-			if (tfw_bmb_desc[threadn][i].sk) {
-				tfw_bmb_msg_send(&tfw_bmb_desc[threadn][i]);
+		set_freezable();
+		time_max = (uint64_t)get_seconds() + TFW_BMB_WAIT_MAX;
+		nattempt = atomic_read(&tfw_bmb_conn_nattempt[threadn]);
+		do {
+			int nerror, ncompl;
+
+			nerror = atomic_read(&tfw_bmb_conn_nerror[threadn]);
+			ncompl = atomic_read(&tfw_bmb_conn_ncomplete[threadn]);
+			if (ncompl + nerror == nattempt) {
+				break;
+			}
+			wait_event_freezable_timeout(tfw_bmb_conn_wq,
+						     kthread_should_stop(),
+						     TFW_BMB_WAIT_INTVL);
+			if ((uint64_t)get_seconds() > time_max) {
+				SS_ERR("%s exceeded maximum wait time of \
+					%d sec\n",
+					"worker", TFW_BMB_WAIT_MAX);
+				break;
+			}
+		} while (!kthread_should_stop());
+
+		for (i = 0; i < nconnects; i++) {
+			for (j = 0; j < nmessages; j++) {
+				if (tfw_bmb_desc[threadn][i].sk) {
+					tfw_bmb_msg_send(threadn, i);
+				}
 			}
 		}
-	}
 
-	tfw_bmb_release_sockets(threadn);
+		tfw_bmb_release_sockets(threadn);
+	}
 
 	tfw_bmb_tasks[threadn] = NULL;
 	atomic_dec(&tfw_bmb_nthread);
@@ -315,7 +332,7 @@ tfw_bmb_report(void)
 		nerror += atomic_read(&tfw_bmb_conn_nerror[i]);
 	}
 
-	printk("Initiated %d connects\n", nconnects * nthreads);
+	printk("Initiated %d connects\n", nconnects * niter * nthreads);
 	printk("Of those %d connects initiated successfully\n",
 		nattempt);
 	printk("Of those %d connections were established successfully\n",
@@ -332,6 +349,8 @@ static int __init
 tfw_bmb_init(void)
 {
 	int i, j, ret = 0;
+
+	fuzz_set_only_valid_gen(true);
 
 	if (tfw_addr_pton(&TFW_STR_FROM(server), &tfw_bmb_server_address)) {
 		TFW_ERR("Unable to parse server's address: %s", server);
@@ -355,7 +374,7 @@ tfw_bmb_init(void)
 		}
 	}
 
-	tfw_bmb_tasks = kmalloc(nthreads * sizeof(struct task_struct *),
+	tfw_bmb_tasks = kzalloc(nthreads * sizeof(struct task_struct *),
 				GFP_KERNEL);
 	if (!tfw_bmb_tasks) {
 		ret = -ENOMEM;
@@ -383,7 +402,22 @@ tfw_bmb_init(void)
 		goto err_malloc_nerror;
 	}
 
-	memset(tfw_bmb_tasks, 0, nthreads);
+	bufs = kmalloc(nthreads * sizeof(char *), GFP_KERNEL);
+	if (!bufs) {
+		ret = -ENOMEM;
+		goto err_malloc_bufs;
+	}
+
+	for (i = 0; i < nthreads; i++) {
+		bufs[i] = vmalloc(BUF_SIZE * sizeof(char));
+		if (!bufs[i]) {
+			for (j = 0; j < i; j++)
+				vfree(bufs[i]);
+			ret = -ENOMEM;
+			goto err_malloc_buf;
+		}
+	}
+
 	for (i = 0; i < nthreads; i++) {
 		atomic_set(&tfw_bmb_conn_nattempt[i], 0);
 		atomic_set(&tfw_bmb_conn_ncomplete[i], 0);
@@ -413,11 +447,15 @@ tfw_bmb_init(void)
 				 atomic_read(&tfw_bmb_nthread) == 0);
 
 	tfw_bmb_report();
-
 	fuzz_reset();
 
 err_create_tasks:
 	tfw_bmb_stop_threads();
+
+err_malloc_buf:
+	kfree(bufs);
+
+err_malloc_bufs:
 	kfree(tfw_bmb_conn_nerror);
 
 err_malloc_nerror:
