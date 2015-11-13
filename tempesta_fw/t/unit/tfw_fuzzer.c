@@ -279,15 +279,14 @@ __add_field(char **p, char *end, int t, int n)
 		int r;
 
 		if (n % INVALID_FIELD_PERIOD ||
-		    is_only_valid) {
+		    is_only_valid)
+		{
 			if (gen_vector[t].max_val_len)
 				len = gen_vector[t].max_val_len;
-			add_rand_string(p, end, len,
-				gen_vector[t].a_val);
+			add_rand_string(p, end, len, gen_vector[t].a_val);
 			r = FUZZ_VALID;
 		} else {
-			add_rand_string(p, end, len,
-				gen_vector[t].a_inval);
+			add_rand_string(p, end, len, gen_vector[t].a_inval);
 			r = FUZZ_INVALID;
 		}
 
@@ -362,7 +361,8 @@ add_body(char **p, char *end, int type)
 
 	if (!is_chancked_body) {
 		if (!is_only_valid &&
-		    len != 0 && !(i % INVALID_BODY_PERIOD)) {
+		    len != 0 && !(i % INVALID_BODY_PERIOD))
+		{
 			len /= 2;
 			ret = FUZZ_INVALID;
 		}
@@ -393,7 +393,8 @@ add_body(char **p, char *end, int type)
 				add_string(p, end, "\r\n");
 
 				if (!is_only_valid &&
-				    step != 0 && !(i % INVALID_BODY_PERIOD)) {
+				    step != 0 && !(i % INVALID_BODY_PERIOD))
+				{
 					step /= 2;
 					ret = FUZZ_INVALID;
 				}
@@ -424,7 +425,7 @@ __add_duplicates(char **p, char *end, int t, int n)
 	if (curr_duplicates++ % DUPLICATES_PERIOD)
 		return FUZZ_VALID;
 
-	if (is_only_valid)
+	if (is_only_valid && gen_vector[t].singular)
 		return FUZZ_VALID;
 
 	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
