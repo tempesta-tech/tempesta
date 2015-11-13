@@ -40,6 +40,7 @@
 #define HANDLER_OFF	0
 #define MOCK_TIMEOUT	100
 #define MOCK_CHUNKNUM	3
+#define MOCK_CONNNUM	5
 
 struct inet_sock mocksock;
 const char *inet_addr = "192.168.245.128";
@@ -131,14 +132,14 @@ TEST(frang, req_count)
 	frang_cfg.conn_max = 0;
 	frang_cfg.conn_burst = 0;
 	frang_cfg.conn_rate = 0;
-	frang_cfg.req_rate = 5;
+	frang_cfg.req_rate = MOCK_CONNNUM;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	mockreq->frang_st = 0;
 
-	frang_cfg.req_rate = 5;
-	frang_cfg.req_burst = 5;
-	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
+	frang_cfg.req_rate = MOCK_CONNNUM;
+	frang_cfg.req_burst = MOCK_CONNNUM;
+	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = MOCK_CONNNUM;
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
@@ -156,7 +157,7 @@ TEST(frang, max_conn)
 	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
 	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 
-	frang_cfg.conn_max = 5;
+	frang_cfg.conn_max = MOCK_CONNNUM;
 
 
 	/*conn_max*/
@@ -165,7 +166,7 @@ TEST(frang, max_conn)
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	frang_cfg.conn_max = 0;
-	frang_cfg.conn_rate = 5;
+	frang_cfg.conn_rate = MOCK_CONNNUM;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 
 	/*conn_rate */
@@ -173,7 +174,7 @@ TEST(frang, max_conn)
 
 	frang_cfg.conn_max = 0;
 	frang_cfg.conn_rate = 0;
-	frang_cfg.conn_burst = 5;
+	frang_cfg.conn_burst = MOCK_CONNNUM;
 
 	/*conn_burst*/
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
