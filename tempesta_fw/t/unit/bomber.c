@@ -248,6 +248,7 @@ tfw_bmb_msg_send(int threadn, int connn)
 	local_bh_disable();
 	ss_send(desc->sk, &req->msg.skb_list, false);
 	local_bh_enable();
+	tfw_http_msg_free(req);
 
 	atomic_inc(&tfw_bmb_request_nsend);
 }
