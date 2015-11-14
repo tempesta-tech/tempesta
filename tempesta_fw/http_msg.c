@@ -771,6 +771,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_destroy(m->pool);
 }
+EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
  * Allocate a new HTTP message.
