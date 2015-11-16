@@ -194,6 +194,7 @@ TEST(frang, ct_check)
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
+
 	/*ct_required*/
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->frang_st = 0;
@@ -227,6 +228,7 @@ TEST(frang, field_len)
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 	test_req_free(mockreq);
+
 }
 
 TEST(frang, host)
