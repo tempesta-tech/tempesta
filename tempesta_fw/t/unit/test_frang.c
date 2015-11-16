@@ -227,6 +227,7 @@ TEST(frang, field_len)
 	frang_cfg.http_field_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 
 }
@@ -240,6 +241,7 @@ TEST(frang, host)
 	frang_cfg.http_host_required = true;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 }
 
@@ -262,6 +264,7 @@ TEST(frang, body_len)
 	frang_cfg.http_body_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 }
 
@@ -316,6 +319,7 @@ TEST(frang, chunk_cnt)
 	mockreq->chunk_cnt = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 }
 
