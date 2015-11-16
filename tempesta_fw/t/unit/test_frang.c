@@ -190,7 +190,6 @@ TEST(frang, ct_check)
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
 	frang_cfg.http_ct_vals = ctval;
-
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
