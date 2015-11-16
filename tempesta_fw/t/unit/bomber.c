@@ -69,29 +69,27 @@ MODULE_LICENSE("GPL");
 
 #define BUF_SIZE 20 * 1024 * 1024
 
+/*
+ * There's a descriptor for each connection that keeps the connection's
+ * state and status. SsProto.type field is used here to store the index into
+ * that array that can be passed around between callbacks.
+ */
 typedef struct tfw_bmb_desc {
 	SsProto		proto;
 	struct sock	*sk;
 	uint32_t	flags;
 } tfw_bmb_desc_t;
 
-/*
- * There's a descriptor for each connection that keeps the connection's
- * state and status. All descriptors are kept in a static two-dimensional
- * array. SsProto.type field is used here to store the index into that
- * array that can be passed around between callbacks.
- */
-
 DECLARE_WAIT_QUEUE_HEAD(tfw_bmb_task_wq);
 DECLARE_WAIT_QUEUE_HEAD(tfw_bmb_conn_wq);
 
-static struct task_struct **tfw_bmb_tasks;
 static tfw_bmb_desc_t **tfw_bmb_desc;
+static struct task_struct **tfw_bmb_tasks;
 static atomic_t tfw_bmb_nthread;
-static atomic_t *tfw_bmb_conn_nattempt;  /* Successful attempts */
-static atomic_t *tfw_bmb_conn_ncomplete; /* Connections established */
-static atomic_t *tfw_bmb_conn_nerror;    /* Number of errors */
-static atomic_t tfw_bmb_request_nsend;	 /* Number of requests */
+static atomic_t *tfw_bmb_conn_nattempt;		/* Successful attempts */
+static atomic_t *tfw_bmb_conn_ncomplete;	/* Connections established */
+static atomic_t *tfw_bmb_conn_nerror;		/* Number of errors */
+static atomic_t tfw_bmb_request_nsend;		/* Number of requests */
 static TfwAddr tfw_bmb_server_address;
 static SsHooks tfw_bmb_hooks;
 static struct timeval tvs, tve;
@@ -184,7 +182,7 @@ tfw_bmb_connect(int descidx)
 	ret = ss_sock_create(tfw_bmb_server_address.sa.sa_family,
 			     SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (ret) {
-		TFW_DBG("Unable to create kernel socket (%d)\n", ret);
+		TFW_ERR("Unable to create kernel socket (%d)\n", ret);
 		desc->flags |= TFW_BMB_CONNECT_ERROR;
 		return ret;
 	}
@@ -194,7 +192,7 @@ tfw_bmb_connect(int descidx)
 	ret = ss_connect(sk, &tfw_bmb_server_address.sa,
 			 tfw_addr_sa_len(&tfw_bmb_server_address), 0);
 	if (ret) {
-		TFW_DBG("Connect error on server socket sk %p (%d)\n", sk, ret);
+		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
 		ss_release(sk);
 		desc->flags |= TFW_BMB_CONNECT_ERROR;
 		return ret;
@@ -281,7 +279,7 @@ tfw_bmb_worker(void *data)
 						     kthread_should_stop(),
 						     TFW_BMB_WAIT_INTVL);
 			if ((uint64_t)get_seconds() > time_max) {
-				SS_ERR("%s exceeded maximum wait time of \
+				TFW_ERR("%s exceeded maximum wait time of \
 					%d sec\n",
 					"worker", TFW_BMB_WAIT_MAX);
 				break;
@@ -432,7 +430,7 @@ tfw_bmb_init(void)
 		task = kthread_create(tfw_bmb_worker, (void *)(long)i, "worker");
 		if (IS_ERR_OR_NULL(task)) {
 			ret = PTR_ERR(task);
-			SS_ERR("Unable to create thread: (%d)\n", ret);
+			TFW_ERR("Unable to create thread: (%d)\n", ret);
 			goto err_create_tasks;
 		}
 		tfw_bmb_tasks[i] = task;
