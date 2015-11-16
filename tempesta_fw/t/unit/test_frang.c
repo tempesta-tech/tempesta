@@ -193,6 +193,7 @@ TEST(frang, ct_check)
 
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 
 	/*ct_required*/
@@ -202,6 +203,7 @@ TEST(frang, ct_check)
 	frang_cfg.http_ct_required = true;
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
 }
 
