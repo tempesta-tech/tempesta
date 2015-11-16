@@ -56,50 +56,13 @@ int ghprio; /* GFSM hook priority. */
 
 #define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
 #define S_V_CONTENT_LENGTH	"9999"
+#define S_V_CONN_CLOSE		"close"
+#define S_V_CONN_KA		"keep-alive"
+
+#define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
+#define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
 #define SLEN(s)			(sizeof(s) - 1)
-
-/*
- * HTTP 302 response.
- * The response redirects the client to the same URI as the original request,
- * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
- */
-#define S_302_PART_01		S_302 S_CRLF S_F_DATE
-/* Insert current date */
-#define S_302_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF	\
-				S_F_LOCATION
-/* Insert full location URI */
-#define S_302_PART_03		S_CRLF S_F_SET_COOKIE
-/* Insert cookie name and value */
-#define S_302_PART_04		S_CRLFCRLF
-#define S_302_FIXLEN		SLEN(S_302_PART_01 S_V_DATE S_302_PART_02 \
-				     S_302_PART_03 S_302_PART_04)
-
-/*
- * HTTP 404 response: Tempesta is unable to find the requested data.
- */
-#define S_404_PART_01		S_404 S_CRLF S_F_DATE
-/* Insert current date */
-#define S_404_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
-#define S_404_FIXLEN		SLEN(S_404_PART_01 S_V_DATE S_404_PART_02)
-
-/*
- * HTTP 500 response: there was an internal error while forwarding
- * the request to a server.
- */
-#define S_500_PART_01		S_500 S_CRLF S_F_DATE
-/* Insert current date */
-#define S_500_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
-#define S_500_FIXLEN		SLEN(S_500_PART_01 S_V_DATE S_500_PART_02)
-
-/*
- * HTTP 502 response: Tempesta is unable to forward the request to
- * the designated server.
- */
-#define S_502_PART_01		S_502 S_CRLF S_F_DATE
-/* Insert current date */
-#define S_502_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLFCRLF
-#define S_502_FIXLEN		SLEN(S_502_PART_01 S_V_DATE S_502_PART_02)
 
 /*
  * Prepare current date in the format required for HTTP "Date:"
@@ -160,35 +123,62 @@ tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
 	}
 }
 
+#define S_302_PART_01	S_302 S_CRLF S_F_DATE
+#define S_302_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
+#define S_302_PART_03	S_CRLF S_F_SET_COOKIE
+#define S_302_FIXLEN	SLEN(S_302_PART_01 S_V_DATE S_302_PART_02 S_302_PART_03)
+#define S_302_KEEP	S_CRLF S_H_CONN_KA
+#define S_302_CLOSE	S_CRLF S_H_CONN_CLOSE
+/*
+ * HTTP 302 response.
+ * The response redirects the client to the same URI as the original request,
+ * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
+ */
 TfwHttpMsg *
-tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
+tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
+	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
+	TfwHttpReq *req = (TfwHttpReq *)hmreq;
 	TfwHttpMsg *resp;
-	TfwHttpReq *req = (TfwHttpReq *)hm;
 	TfwMsgIter it;
-	TfwStr host;
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_302_PART_01, .len = SLEN(S_302_PART_01) },
 			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .ptr = S_302_PART_02, .len = SLEN(S_302_PART_02) }
 		},
-		.len = SLEN(S_302_PART_01 S_302_PART_02 S_V_DATE),
+		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
+	static TfwStr part03 = {
+		.ptr = S_302_PART_03, .len = SLEN(S_302_PART_03) };
+	static TfwStr crlfcrlf = {
+		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	static TfwStr crlf_keep = {
+		.ptr = S_302_KEEP, .len = SLEN(S_302_KEEP) };
+	static TfwStr crlf_close = {
+		.ptr = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	TfwStr host, *crlf = &crlfcrlf;
 
-	if (!(hm->flags & TFW_HTTP_STICKY_SET))
+	if (!(req->flags & TFW_HTTP_STICKY_SET))
 		return NULL;
 
-	tfw_http_msg_hdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &host);
 	if (TFW_STR_EMPTY(&host))
 		host = req->host;
 
+	/* Set "Connection:" header field if needed. */
+	if (conn_flag == TFW_HTTP_CONN_CLOSE)
+		crlf = &crlf_close;
+	else if (conn_flag == TFW_HTTP_CONN_KA)
+		crlf = &crlf_keep;
+
 	/* Add variable part of data length to get the total */
 	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
 	data_len += req->uri_path.len + cookie->len;
+	data_len += crlf->len;
 
 	resp = tfw_http_msg_create(&it, Conn_Srv, data_len);
 	if (resp == NULL)
@@ -197,29 +187,48 @@ tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie)
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
 	tfw_http_msg_write(&it, resp, &rh);
 	/*
-	 * HTTP/1.0 can have no host part, so we create relative URI.
+	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_HTTP,
-							 .len = SLEN(S_HTTP)});
+		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
+		tfw_http_msg_write(&it, resp, &proto);
 		tfw_http_msg_write(&it, resp, &host);
 	}
 	tfw_http_msg_write(&it, resp, &req->uri_path);
-	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_03,
-						 .len = SLEN(S_302_PART_03)});
+	tfw_http_msg_write(&it, resp, &part03);
 	tfw_http_msg_write(&it, resp, cookie);
-	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_04,
-						 .len = SLEN(S_302_PART_04)});
+	tfw_http_msg_write(&it, resp, crlf);
 
 	return resp;
 }
 
+/*
+ * Perform operations common to sending an error response to a client.
+ * Set current date in the header of an HTTP error response, and set
+ * the "Connection:" header field if it was present in the request.
+ *
+ * NOTE: This function expects that the last chunk of @msg is CRLF.
+ */
 static int
-tfw_http_send_resp(TfwHttpMsg *hm, const TfwStr *msg, const TfwStr *date)
+tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 {
+	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
+	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
 	TfwHttpMsg *resp;
 	TfwMsgIter it;
+
+	if (conn_flag) {
+		unsigned long crlf_len = crlf->len;
+		if (conn_flag == TFW_HTTP_CONN_CLOSE) {
+			crlf->ptr = S_H_CONN_CLOSE;
+			crlf->len = SLEN(S_H_CONN_CLOSE);
+		} else if (conn_flag == TFW_HTTP_CONN_KA) {
+			crlf->ptr = S_H_CONN_KA;
+			crlf->len = SLEN(S_H_CONN_KA);
+		}
+		msg->len += crlf->len - crlf_len;
+	}
 
 	resp = tfw_http_msg_create(&it, Conn_Srv, msg->len);
 	if (resp == NULL)
@@ -228,64 +237,84 @@ tfw_http_send_resp(TfwHttpMsg *hm, const TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, resp, msg);
 
-	tfw_connection_send(hm->conn, (TfwMsg *)resp, true);
+	tfw_connection_send(hmreq->conn, (TfwMsg *)resp, true);
 	tfw_http_msg_free(resp);
 
 	return 0;
 }
 
+#define S_404_PART_01	S_404 S_CRLF S_F_DATE
+#define S_404_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 404 response: Tempesta is unable to find the requested data.
+ */
 static int
-tfw_http_send_404(TfwHttpMsg *hm)
+tfw_http_send_404(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
 			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .ptr = S_404_PART_02, .len = SLEN(S_404_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 		},
-		.len = S_404_FIXLEN,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
-	return tfw_http_send_resp(hm, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+#define S_500_PART_01	S_500 S_CRLF S_F_DATE
+#define S_500_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 500 response: there was an internal error while forwarding
+ * the request to a server.
+ */
 static int
-tfw_http_send_500(TfwHttpMsg *hm)
+tfw_http_send_500(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
 			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .ptr = S_500_PART_02, .len = SLEN(S_500_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 		},
-		.len = S_500_FIXLEN,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
 	TFW_DBG("Send HTTP 500 response to the client\n");
 
-	return tfw_http_send_resp(hm, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+#define S_502_PART_01	S_502 S_CRLF S_F_DATE
+#define S_502_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 502 response: Tempesta is unable to forward the request to
+ * the designated server.
+ */
 int
-tfw_http_send_502(TfwHttpMsg *hm)
+tfw_http_send_502(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
 			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .ptr = S_502_PART_02, .len = SLEN(S_502_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 		},
-		.len = S_502_FIXLEN,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
 
-	return tfw_http_send_resp(hm, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 /*
