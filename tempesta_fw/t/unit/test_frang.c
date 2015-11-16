@@ -105,7 +105,6 @@ TEST(frang, uri)
 	mockreq->frang_st = 3;
 
 	frang_cfg.http_uri_len = 5;
-
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
@@ -117,6 +116,7 @@ TEST(frang, req_count)
 	unsigned long ts;
 	TfwHttpReq *mockreq;
 	if(!mocksock.sk.sk_security){
+
 		mocksock.inet_saddr = htonl(in_aton(inet_addr));
 		frang_conn_new((struct sock*)&mocksock);
 	}
