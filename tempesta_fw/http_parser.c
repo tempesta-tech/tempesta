@@ -293,15 +293,16 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 {
 	unsigned char *p;
 
-	for (p = data; !IN_ALPHABET(*p, delimiter_a); ++p) {
-		if (unlikely(p - data == len))
-			return CSTR_POSTPONE;
+	for (p = data; p - data < len && !IN_ALPHABET(*p, delimiter_a); ++p) {
 		if (unlikely(!isdigit(*p)))
 			return CSTR_NEQ;
 		if (unlikely(*acc > (UINT_MAX - 10) / 10))
 			return CSTR_BADLEN;
 		*acc = *acc * 10 + *p - '0';
 	}
+
+	if (unlikely(p - data == len))
+		return CSTR_POSTPONE;
 
 	return p - data;
 }
@@ -358,15 +359,16 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 {
 	unsigned char *p;
 
-	for (p = data; !isspace(*p) && (*p != ';'); ++p) {
-		if (unlikely(p - data == len))
-			return CSTR_POSTPONE;
+	for (p = data; p - data < len && !isspace(*p) && (*p != ';'); ++p) {
 		if (!isxdigit(*p))
 			return CSTR_NEQ;
 		if (unlikely(*acc > (UINT_MAX - 16) / 16))
 			return CSTR_BADLEN;
 		*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;
 	}
+
+	if (unlikely(p - data == len))
+		return CSTR_POSTPONE;
 
 	return p - data;
 }
