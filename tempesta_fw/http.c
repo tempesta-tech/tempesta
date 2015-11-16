@@ -123,6 +123,12 @@ tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
 	}
 }
 
+#define S_302_PART_01	S_302 S_CRLF S_F_DATE
+#define S_302_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
+#define S_302_PART_03	S_CRLF S_F_SET_COOKIE
+#define S_302_FIXLEN	SLEN(S_302_PART_01 S_V_DATE S_302_PART_02 S_302_PART_03)
+#define S_302_KEEP	S_CRLF S_H_CONN_KA
+#define S_302_CLOSE	S_CRLF S_H_CONN_CLOSE
 /*
  * HTTP 302 response.
  * The response redirects the client to the same URI as the original request,
@@ -131,12 +137,6 @@ tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
 TfwHttpMsg *
 tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 {
-#define S_302_PART_01	S_302 S_CRLF S_F_DATE
-#define S_302_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
-#define S_302_PART_03	S_CRLF S_F_SET_COOKIE
-#define S_302_FIXLEN	SLEN(S_302_PART_01 S_V_DATE S_302_PART_02 S_302_PART_03)
-#define S_302_KEEP	S_CRLF S_H_CONN_KA
-#define S_302_CLOSE	S_CRLF S_H_CONN_CLOSE
 	size_t data_len = S_302_FIXLEN;
 	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
 	TfwHttpReq *req = (TfwHttpReq *)hmreq;
@@ -151,9 +151,14 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
-	TfwStr crlfcrlf = { .ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
-	TfwStr crlf_keep = { .ptr = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-	TfwStr crlf_close = { .ptr = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	static TfwStr part03 = {
+		.ptr = S_302_PART_03, .len = SLEN(S_302_PART_03) };
+	static TfwStr crlfcrlf = {
+		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	static TfwStr crlf_keep = {
+		.ptr = S_302_KEEP, .len = SLEN(S_302_KEEP) };
+	static TfwStr crlf_close = {
+		.ptr = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
 	if (!(req->flags & TFW_HTTP_STICKY_SET))
@@ -186,13 +191,12 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_HTTP,
-							 .len = SLEN(S_HTTP) });
+		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
+		tfw_http_msg_write(&it, resp, &proto);
 		tfw_http_msg_write(&it, resp, &host);
 	}
 	tfw_http_msg_write(&it, resp, &req->uri_path);
-	tfw_http_msg_write(&it, resp, &(TfwStr){ .ptr = S_302_PART_03,
-						 .len = SLEN(S_302_PART_03) });
+	tfw_http_msg_write(&it, resp, &part03);
 	tfw_http_msg_write(&it, resp, cookie);
 	tfw_http_msg_write(&it, resp, crlf);
 
@@ -203,7 +207,8 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
- * NOTE: The last chunk of @msg must be CRLF.
+ *
+ * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
 static int
 tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
@@ -238,14 +243,14 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	return 0;
 }
 
+#define S_404_PART_01	S_404 S_CRLF S_F_DATE
+#define S_404_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
 static int
 tfw_http_send_404(TfwHttpMsg *hmreq)
 {
-#define S_404_PART_01	S_404 S_CRLF S_F_DATE
-#define S_404_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
@@ -262,6 +267,8 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+#define S_500_PART_01	S_500 S_CRLF S_F_DATE
+#define S_500_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
  * HTTP 500 response: there was an internal error while forwarding
  * the request to a server.
@@ -269,8 +276,6 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 static int
 tfw_http_send_500(TfwHttpMsg *hmreq)
 {
-#define S_500_PART_01	S_500 S_CRLF S_F_DATE
-#define S_500_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
@@ -287,6 +292,8 @@ tfw_http_send_500(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+#define S_502_PART_01	S_502 S_CRLF S_F_DATE
+#define S_502_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
  * HTTP 502 response: Tempesta is unable to forward the request to
  * the designated server.
@@ -294,8 +301,6 @@ tfw_http_send_500(TfwHttpMsg *hmreq)
 int
 tfw_http_send_502(TfwHttpMsg *hmreq)
 {
-#define S_502_PART_01	S_502 S_CRLF S_F_DATE
-#define S_502_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 	TfwStr rh = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
