@@ -116,9 +116,6 @@ TEST(frang, req_count)
 	int i;
 	unsigned long ts;
 	TfwHttpReq *mockreq;
-	if(!mocksock.sk.sk_security){
-
-	}
 	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
@@ -224,7 +221,6 @@ TEST(frang, field_len)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-
 }
 
 TEST(frang, host)
@@ -263,7 +259,6 @@ TEST(frang, body_len)
 
 TEST(frang, body_timeout)
 {
-
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
@@ -322,7 +317,6 @@ TEST_SUITE(frang)
 	/* A new frang account for tests */ 
 	mocksock.inet_saddr = htonl(in_aton(inet_addr));
 	frang_conn_new((struct sock*)&mocksock);
-
 
 	TEST_RUN(frang, uri);
 	TEST_RUN(frang, req_count);
