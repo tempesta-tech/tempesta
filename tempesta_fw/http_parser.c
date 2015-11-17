@@ -293,7 +293,9 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 {
 	unsigned char *p;
 
-	for (p = data; p - data < len && !IN_ALPHABET(*p, delimiter_a); ++p) {
+	for (p = data; p - data < len; ++p) {
+		if (unlikely(IN_ALPHABET(*p, delimiter_a)))
+			return p - data;
 		if (unlikely(!isdigit(*p)))
 			return CSTR_NEQ;
 		if (unlikely(*acc > (UINT_MAX - 10) / 10))
@@ -301,10 +303,7 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 		*acc = *acc * 10 + *p - '0';
 	}
 
-	if (unlikely(p - data == len))
-		return CSTR_POSTPONE;
-
-	return p - data;
+	return CSTR_POSTPONE;
 }
 
 /**
@@ -359,18 +358,17 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 {
 	unsigned char *p;
 
-	for (p = data; p - data < len && !isspace(*p) && (*p != ';'); ++p) {
-		if (!isxdigit(*p))
+	for (p = data; p - data < len; ++p) {
+		if (unlikely(isspace(*p) || (*p == ';')))
+			return p - data;
+		if (unlikely(!isxdigit(*p)))
 			return CSTR_NEQ;
 		if (unlikely(*acc > (UINT_MAX - 16) / 16))
 			return CSTR_BADLEN;
 		*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;
 	}
 
-	if (unlikely(p - data == len))
-		return CSTR_POSTPONE;
-
-	return p - data;
+	return CSTR_POSTPONE;
 }
 
 /* Helping (inferior) states to process particular parts of HTTP message. */
