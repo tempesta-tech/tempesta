@@ -42,7 +42,6 @@
 #include "tempesta_fw.h"
 #include "connection.h"
 #include "addr.h"
-#include "lib.h"
 #include "log.h"
 #include "server.h"
 #include "client.h"

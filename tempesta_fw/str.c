@@ -22,7 +22,6 @@
 #include <linux/kernel.h>
 #include <linux/ctype.h>
 
-#include "lib.h"
 #include "str.h"
 
 void
