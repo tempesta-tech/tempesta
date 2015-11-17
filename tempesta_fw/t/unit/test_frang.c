@@ -126,7 +126,7 @@ TEST(frang, req_rate)
 	test_req_free(mockreq);
 	frang_cfg.req_rate = 5;
 }
-TEST(frang,req_burst)
+TEST(frang, req_burst)
 {
 	int i;
 	unsigned long ts;
@@ -176,7 +176,7 @@ TEST(frang,conn_rate)
 	frang_cfg.conn_rate = 0;
 }
 	
-TEST(frang,conn_burst)
+TEST(frang, conn_burst)
 {
 	int i;
 	TfwHttpReq *mockreq;
@@ -197,12 +197,13 @@ TEST(frang,conn_burst)
 TEST(frang, ct_vals)
 {
 	TfwHttpReq *mockreq;
-	FrangCtVal ctval[1];
+	FrangCtVal ctval[2];
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;\r\n\r\n");
 
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
+	ctval[1].str = NULL;
 
 	frang_cfg.http_ct_vals = ctval;
 
