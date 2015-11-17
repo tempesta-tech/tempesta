@@ -2032,7 +2032,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo, Req_HdrOther);
 	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos, Req_HdrOther);
 	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrHost, ':', Req_HdrHostV, Req_HdrOther);
+	/* NOTE: Allow empty host field-value there. RFC 7230 5.4. */
+	__FSM_STATE(Req_HdrHost) {
+		if (likely(tolower(c) == ':')) {
+			parser->_i_st = Req_HdrHostV;
+			__FSM_MOVE(RGen_LWS_empty);
+		}
+		/* It should be checked in Req_HdrOther if `:` is allowed */
+		__FSM_JMP(Req_HdrOther);
+	}
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, Req_HdrOther);
