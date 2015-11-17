@@ -29,8 +29,8 @@
 #ifdef module_init
 #undef module_init
 #undef module_exit
-#define module_init(funk)
-#define module_exit(funk)
+#define module_init(func)
+#define module_exit(func)
 #endif
 
 #include "../../classifier/frang.c"
@@ -68,15 +68,12 @@ test_conn_alloc(void)
 static int
 req_handler(TfwHttpReq  *req)
 {
+//	struct inet_sock mocksock;
 	TfwConnection *conn;
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
 	conn->sk = (struct sock*)&mocksock;
-	mocksock.inet_daddr = htonl(in_aton(inet_addr));
-
-	if (!conn->sk->sk_security) 
-		frang_conn_new(conn->sk);
 
 	return frang_http_req_handler((void *) conn, 
 				 	       conn->msg->skb_list.first, 
@@ -103,15 +100,15 @@ TEST(frang, uri)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("GET /home/index.html HTTP /1.1\r\n\r\n");
-	mockreq->frang_st = 3;
 
 	frang_cfg.http_uri_len = 5;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_uri_len =0;
 }
 
-TEST(frang, req_count)
+TEST(frang, req_rate)
 {
 	int i;
 	unsigned long ts;
@@ -121,82 +118,106 @@ TEST(frang, req_count)
 	i = ts % FRANG_FREQ;
 
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
-	mockreq->frang_st = 0;
 
-	/*req_rate*/
-	frang_cfg.conn_max = 0;
-	frang_cfg.conn_burst = 0;
-	frang_cfg.conn_rate = 0;
 	frang_cfg.req_rate = 5;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
-	/*req_burst*/	
-	mockreq->frang_st = 0;
+	test_req_free(mockreq);
+	frang_cfg.req_rate = 5;
+}
+TEST(frang,req_burst)
+{
+	int i;
+	unsigned long ts;
+	TfwHttpReq *mockreq;
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
+	ts = jiffies * FRANG_FREQ / HZ;
+	i = ts % FRANG_FREQ;
 
-	frang_cfg.req_rate = 0;
 	frang_cfg.req_burst = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
-	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.req_burst = 0;
 }
 
-TEST(frang, conn_count)
+TEST(frang, conn_max)
 {
-	int i;
 	TfwHttpReq *mockreq;
-	unsigned long ts;
 
-	/*conn_max*/
 	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
 	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 
 	frang_cfg.conn_max = 5;
-	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	
+	test_req_free(mockreq);
+	frang_cfg.conn_max = 0;
+}
+TEST(frang,conn_rate)
+{
+	int i;
+	TfwHttpReq *mockreq;
+	unsigned long ts;
 
-	/*conn_rate*/
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
-	frang_cfg.conn_max = 0;
 	frang_cfg.conn_rate = 5;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
-/*conn_burst*/
-	frang_cfg.conn_max = 0;
+	test_req_free(mockreq);
 	frang_cfg.conn_rate = 0;
+}
+	
+TEST(frang,conn_burst)
+{
+	int i;
+	TfwHttpReq *mockreq;
+	unsigned long ts;
+
+	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
+	ts = jiffies * FRANG_FREQ / HZ;
+	i = ts % FRANG_FREQ;
+	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 	frang_cfg.conn_burst = 5;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
+	frang_cfg.conn_burst = 0;
 }
 
-TEST(frang, ct_check)
+TEST(frang, ct_vals)
 {
 	TfwHttpReq *mockreq;
 	FrangCtVal ctval[1];
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\nContent-Type:text/html;\r\n\r\n");
-	mockreq->frang_st = 0;
-	/*ct_vals*/
+
 	ctval[0].str = "application/html";
 	ctval[0].len = strlen(ctval[0].str);
 	frang_cfg.http_ct_vals = ctval;
-	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
-	test_req_free(mockreq);
 
-	/*ct_required*/
+	test_req_free(mockreq);
+	frang_cfg.http_ct_vals = NULL;
+}
+
+TEST(frang,ct_required)
+{
+TfwHttpReq *mockreq;
+
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-	mockreq->frang_st = 0;
 
 	frang_cfg.http_ct_required = true;
-	
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
 	test_req_free(mockreq);
+	frang_cfg.http_ct_required = 0;
 }
 
 TEST(frang, req_method)
@@ -221,6 +242,7 @@ TEST(frang, field_len)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_field_len = 0; 
 }
 
 TEST(frang, host)
@@ -233,6 +255,7 @@ TEST(frang, host)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_host_required = 0;
 }
 
 
@@ -249,12 +272,12 @@ TEST(frang, body_len)
 	crlf.ptr = "\r\n";
 	mockreq->crlf = crlf;
 	mockreq->body = body;
-	mockreq->frang_st =0;
 
 	frang_cfg.http_body_len = 3;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_body_len = 0;
 }
 
 TEST(frang, body_timeout)
@@ -262,13 +285,13 @@ TEST(frang, body_timeout)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-	mockreq->frang_st = 12;
 	mockreq->tm_bchunk = jiffies - 100;
 	
 	frang_cfg.clnt_body_timeout = 1;
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.clnt_body_timeout = 0;
 }
 
 TEST(frang, hdr_timeout)
@@ -276,7 +299,6 @@ TEST(frang, hdr_timeout)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-	mockreq->frang_st = 0;
 	mockreq->tm_header = jiffies - 100;
 
 	frang_cfg.clnt_body_timeout = 0;
@@ -284,28 +306,37 @@ TEST(frang, hdr_timeout)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.clnt_hdr_timeout = 0;
 }
 
-TEST(frang, chunk_cnt)
+TEST(frang, header_chunks)
+{
+	TfwHttpReq *mockreq;
+
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+	mockreq->chunk_cnt = 3;
+
+	frang_cfg.http_hchunk_cnt = 1;
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	
+	test_req_free(mockreq);
+	frang_cfg.http_hchunk_cnt = 0;
+}
+
+TEST(frang,body_chunks)
 {
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 
-	/*header chunk*/
-	frang_cfg.http_hchunk_cnt = 1;
 	mockreq->chunk_cnt = 3;
-	mockreq->frang_st = 0;
 
-	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
-
-	/*body chunks*/
-	frang_cfg.http_hchunk_cnt = 0;
 	frang_cfg.http_bchunk_cnt = 1;
-	mockreq->chunk_cnt = 3;
-	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
+		EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_bchunk_cnt = 0;
 }
 
 TEST_SUITE(frang)
@@ -319,16 +350,22 @@ TEST_SUITE(frang)
 	frang_conn_new((struct sock*)&mocksock);
 
 	TEST_RUN(frang, uri);
-	TEST_RUN(frang, req_count);
-	TEST_RUN(frang, conn_count);
-	TEST_RUN(frang, ct_check);
+	TEST_RUN(frang, req_burst);
+	TEST_RUN(frang, req_rate);
+	TEST_RUN(frang, conn_burst);
+	TEST_RUN(frang, conn_rate);
+	TEST_RUN(frang, conn_max);
+	TEST_RUN(frang, ct_vals);
+	TEST_RUN(frang, ct_required);
+
 	TEST_RUN(frang, req_method);
 	TEST_RUN(frang, field_len);
 	TEST_RUN(frang, host);
 	TEST_RUN(frang, body_len);
 	TEST_RUN(frang, body_timeout);
 	TEST_RUN(frang, hdr_timeout);
-	TEST_RUN(frang, chunk_cnt);
+	TEST_RUN(frang, header_chunks);
+	TEST_RUN(frang, body_chunks);
 
 	frang_exit();
 }
