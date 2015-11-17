@@ -26,7 +26,6 @@
 #include <linux/in6.h>
 
 #include "addr.h"
-#include "lib.h"
 #include "log.h"
 
 static void

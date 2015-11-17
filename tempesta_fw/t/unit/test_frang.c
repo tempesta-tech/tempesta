@@ -35,8 +35,6 @@
 
 #include "../../classifier/frang.c"
 
-#define FRANG_HASH_BITS 17
-#define FRANG_FREQ	8
 #define HANDLER_OFF	0
 
 struct inet_sock mocksock;
@@ -124,8 +122,9 @@ TEST(frang, req_rate)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-	frang_cfg.req_rate = 5;
+	frang_cfg.req_rate = 0;
 }
+
 TEST(frang, req_burst)
 {
 	int i;
@@ -158,7 +157,8 @@ TEST(frang, conn_max)
 	test_req_free(mockreq);
 	frang_cfg.conn_max = 0;
 }
-TEST(frang,conn_rate)
+
+TEST(frang, conn_rate)
 {
 	int i;
 	TfwHttpReq *mockreq;
@@ -213,18 +213,17 @@ TEST(frang, ct_vals)
 	frang_cfg.http_ct_vals = NULL;
 }
 
-TEST(frang,ct_required)
+TEST(frang, ct_required)
 {
-TfwHttpReq *mockreq;
+	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-
 	frang_cfg.http_ct_required = true;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-	frang_cfg.http_ct_required = 0;
+	frang_cfg.http_ct_required = false;
 }
 
 TEST(frang, req_method)
@@ -232,12 +231,12 @@ TEST(frang, req_method)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-
 	frang_cfg.http_methods_mask = 2;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
+	frang_cfg.http_methods_mask = 0;
 }
 
 TEST(frang, field_len)
@@ -245,7 +244,6 @@ TEST(frang, field_len)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-
 	frang_cfg.http_field_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -259,7 +257,6 @@ TEST(frang, host)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("GET /foo HTTP/1.1\r\n\r\n");
-
 	frang_cfg.http_host_required = true;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -267,7 +264,6 @@ TEST(frang, host)
 	test_req_free(mockreq);
 	frang_cfg.http_host_required = 0;
 }
-
 
 TEST(frang, body_len)
 {
@@ -337,17 +333,16 @@ TEST(frang, header_chunks)
 	frang_cfg.http_hchunk_cnt = 0;
 }
 
-TEST(frang,body_chunks)
+TEST(frang, body_chunks)
 {
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
-
 	mockreq->chunk_cnt = 3;
 
 	frang_cfg.http_bchunk_cnt = 1;
 
-		EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
 	frang_cfg.http_bchunk_cnt = 0;
@@ -383,3 +378,4 @@ TEST_SUITE(frang)
 
 	frang_exit();
 }
+

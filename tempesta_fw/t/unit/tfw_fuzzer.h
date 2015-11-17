@@ -36,6 +36,8 @@ int fuzz_gen(char *str, char *end, field_t start, int move, int type);
 
 void fuzz_reset(void);
 
+void fuzz_set_only_valid_gen(bool value);
+
 enum {
 	FUZZ_VALID,
 	FUZZ_INVALID,
