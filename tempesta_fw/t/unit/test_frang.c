@@ -35,8 +35,6 @@
 
 #include "../../classifier/frang.c"
 
-#define FRANG_HASH_BITS 17
-#define FRANG_FREQ	8
 #define HANDLER_OFF	0
 
 struct inet_sock mocksock;
@@ -159,7 +157,7 @@ TEST(frang, conn_max)
 	frang_cfg.conn_max = 0;
 }
 TEST(frang, conn_rate)
-{:
+{
 	int i;
 	TfwHttpReq *mockreq;
 	unsigned long ts;
