@@ -333,6 +333,19 @@ index cd03a0f..6465166 100644
  	test_suspend=	[SUSPEND][,N]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
+diff --git a/arch/x86/kernel/xsave.c b/arch/x86/kernel/xsave.c
+index 87a815b..84b7399 100644
+--- a/arch/x86/kernel/xsave.c
++++ b/arch/x86/kernel/xsave.c
+@@ -565,7 +565,7 @@ static void __init setup_init_fpu_buf(void)
+ 	xsave_state_booting(init_xstate_buf, -1);
+ }
+ 
+-static enum { AUTO, ENABLE, DISABLE } eagerfpu = AUTO;
++static enum { AUTO, ENABLE, DISABLE } eagerfpu = ENABLE;
+ static int __init eager_fpu_setup(char *s)
+ {
+ 	if (!strcmp(s, "on"))
 diff --git a/include/linux/net.h b/include/linux/net.h
 index 738ea48..7944e97 100644
 --- a/include/linux/net.h
