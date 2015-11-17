@@ -213,7 +213,7 @@ TEST(frang, ct_vals)
 	frang_cfg.http_ct_vals = NULL;
 }
 
-TEST(frang,ct_required)
+TEST(frang, ct_required)
 {
 TfwHttpReq *mockreq;
 
@@ -337,7 +337,7 @@ TEST(frang, header_chunks)
 	frang_cfg.http_hchunk_cnt = 0;
 }
 
-TEST(frang,body_chunks)
+TEST(frang, body_chunks)
 {
 	TfwHttpReq *mockreq;
 
@@ -347,7 +347,7 @@ TEST(frang,body_chunks)
 
 	frang_cfg.http_bchunk_cnt = 1;
 
-		EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
 	frang_cfg.http_bchunk_cnt = 0;
