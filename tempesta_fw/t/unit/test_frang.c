@@ -158,8 +158,8 @@ TEST(frang, conn_max)
 	test_req_free(mockreq);
 	frang_cfg.conn_max = 0;
 }
-TEST(frang,conn_rate)
-{
+TEST(frang, conn_rate)
+{:
 	int i;
 	TfwHttpReq *mockreq;
 	unsigned long ts;
