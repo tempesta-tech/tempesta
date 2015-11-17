@@ -106,6 +106,8 @@ tfw_http_prep_date(char *buf)
 #undef PRINT_2DIGIT
 }
 
+unsigned long tfw_hash_str(const TfwStr *str);
+
 /*
  * Convert a C string to a printable hex string.
  *
@@ -599,6 +601,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 
 	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 		 skb_len - off, conn, conn->msg);
+
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -959,20 +962,22 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 }
 
 /**
- * Calculate key of a HTTP request by hashing its URI and Host header.
- *
- * Requests with the same URI and Host are mapped to the same key with
- * high probability. Different keys may be calculated for the same Host and URI
- * when they consist of many chunks.
+ * Calculate key of a HTTP request by hashing its URI and Host header value.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)
 {
+	TfwStr host;
+
 	if (req->hash)
 		return req->hash;
 
-	req->hash = tfw_hash_str(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])
-		    ^ tfw_hash_str(&req->uri_path);
+	req->hash = tfw_hash_str(&req->uri_path);
+
+	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+			     TFW_HTTP_HDR_HOST, &host);
+	if (!TFW_STR_EMPTY(&host))
+		req->hash ^= tfw_hash_str(&req->uri_path);
 
 	return req->hash;
 }
