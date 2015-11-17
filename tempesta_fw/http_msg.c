@@ -24,7 +24,6 @@
 
 #include "gfsm.h"
 #include "http_msg.h"
-#include "lib.h"
 #include "ss_skb.h"
 
 /**

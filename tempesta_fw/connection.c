@@ -22,7 +22,6 @@
  */
 #include "connection.h"
 #include "gfsm.h"
-#include "lib.h"
 #include "log.h"
 #include "sync_socket.h"
 
