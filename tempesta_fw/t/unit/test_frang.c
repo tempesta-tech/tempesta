@@ -101,6 +101,7 @@ TEST(frang, uri)
 	mockreq = get_test_req("GET /home/index.html HTTP /1.1\r\n\r\n");
 
 	frang_cfg.http_uri_len = 5;
+
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
