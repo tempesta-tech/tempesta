@@ -450,6 +450,8 @@ tfw_bmb_init(void)
 
 err_create_tasks:
 	tfw_bmb_stop_threads();
+	for (i = 0; i < nthreads; i++)
+		vfree(bufs[i]);
 
 err_malloc_buf:
 	kfree(bufs);
