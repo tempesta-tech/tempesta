@@ -94,6 +94,7 @@ static TfwAddr tfw_bmb_server_address;
 static SsHooks tfw_bmb_hooks;
 static struct timeval tvs, tve;
 static char **bufs;
+void *alloc_ptr;
 
 static int
 tfw_bmb_conn_complete(struct sock *sk)
@@ -219,15 +220,16 @@ tfw_bmb_release_sockets(int threadn)
 static void
 tfw_bmb_msg_send(int threadn, int connn)
 {
-	tfw_bmb_desc_t *desc = &tfw_bmb_desc[threadn][connn];
+	/*tfw_bmb_desc_t *desc = &tfw_bmb_desc[threadn][connn];
 	char *s = bufs[threadn];
 	TfwStr msg;
 	TfwHttpMsg *req;
 	TfwMsgIter it;
-	int c = 0, r;
+	int c, r;
 
 	BUG_ON(!desc->sk);
 
+	c = 0;
 	do {
 		c++;
 		r = fuzz_gen(s, s + BUF_SIZE, 0, 1, FUZZ_REQ);
@@ -246,7 +248,7 @@ tfw_bmb_msg_send(int threadn, int connn)
 	local_bh_disable();
 	ss_send(desc->sk, &req->msg.skb_list, false);
 	local_bh_enable();
-	tfw_http_msg_free(req);
+	tfw_http_msg_free(req);*/
 
 	atomic_inc(&tfw_bmb_request_nsend);
 }
@@ -344,10 +346,58 @@ tfw_bmb_report(void)
 					 (tve.tv_usec - tvs.tv_usec));
 }
 
+static int
+tfw_bmb_alloc(void)
+{
+	int i;
+	void *p;
+
+	alloc_ptr = p = vzalloc(nthreads * sizeof(tfw_bmb_desc_t *) +
+				nthreads * nconnects * sizeof(tfw_bmb_desc_t) +
+				nthreads * sizeof(struct task_struct *) +
+				nthreads * 3 * sizeof(atomic_t *) +
+				nthreads * sizeof(char *) +
+				nthreads * BUF_SIZE * sizeof(char));
+	if (!alloc_ptr) {
+		return -ENOMEM;
+	}
+
+	tfw_bmb_desc = p;
+	p += nthreads * sizeof(tfw_bmb_desc_t *);
+
+	for (i = 0; i < nthreads; i++) {
+		tfw_bmb_desc[i] = p + i * nconnects * sizeof(tfw_bmb_desc_t);
+	}
+	p += nthreads * nconnects * sizeof(tfw_bmb_desc_t);
+
+	tfw_bmb_tasks = p;
+	p += nthreads * sizeof(struct task_struct *);
+
+	tfw_bmb_conn_nattempt  = p + 0 * nthreads * sizeof(atomic_t *);
+	tfw_bmb_conn_ncomplete = p + 1 * nthreads * sizeof(atomic_t *);
+	tfw_bmb_conn_nerror    = p + 2 * nthreads * sizeof(atomic_t *);
+	p += nthreads * 3 * sizeof(atomic_t *);
+
+	bufs = p;
+	p += nthreads * sizeof(char *);
+
+	for (i = 0; i < nthreads; i++) {
+		bufs[i] = p + i * BUF_SIZE * sizeof(char);
+	}
+
+	return 0;
+}
+
+static void
+tfw_bmb_free(void)
+{
+	vfree(alloc_ptr);
+}
+
 static int __init
 tfw_bmb_init(void)
 {
-	int i, j, ret = 0;
+	int i;
 
 	fuzz_set_only_valid_gen(true);
 
@@ -357,81 +407,23 @@ tfw_bmb_init(void)
 	}
 	TFW_DBG("Started bomber module, server's address is %s\n", server);
 
-	tfw_bmb_desc = kmalloc(nthreads * sizeof(tfw_bmb_desc_t *), GFP_KERNEL);
-	if (!tfw_bmb_desc) {
-		return -ENOMEM;
+	if (tfw_bmb_alloc()) {
+		return -EINVAL;
 	}
 
-	for (i = 0; i < nthreads; i++) {
-		tfw_bmb_desc[i] = kzalloc(nconnects * sizeof(tfw_bmb_desc_t),
-					  GFP_KERNEL);
-		if (!tfw_bmb_desc[i]) {
-			for (j = 0; j < i; j++)
-				kfree(tfw_bmb_desc[i]);
-			ret = -ENOMEM;
-			goto err_malloc_desc;
-		}
-	}
-
-	tfw_bmb_tasks = kzalloc(nthreads * sizeof(struct task_struct *),
-				GFP_KERNEL);
-	if (!tfw_bmb_tasks) {
-		ret = -ENOMEM;
-		goto err_malloc_tasks;
-	}
-
-	tfw_bmb_conn_nattempt = kmalloc(nthreads * sizeof(atomic_t *),
-					GFP_KERNEL);
-	if (!tfw_bmb_conn_nattempt) {
-		ret = -ENOMEM;
-		goto err_malloc_nattempt;
-	}
-
-	tfw_bmb_conn_ncomplete = kmalloc(nthreads * sizeof(atomic_t *),
-					 GFP_KERNEL);
-	if (!tfw_bmb_conn_ncomplete) {
-		ret = -ENOMEM;
-		goto err_malloc_ncomplete;
-	}
-
-	tfw_bmb_conn_nerror = kmalloc(nthreads * sizeof(atomic_t *),
-				      GFP_KERNEL);
-	if (!tfw_bmb_conn_nerror) {
-		ret = -ENOMEM;
-		goto err_malloc_nerror;
-	}
-
-	bufs = kmalloc(nthreads * sizeof(char *), GFP_KERNEL);
-	if (!bufs) {
-		ret = -ENOMEM;
-		goto err_malloc_bufs;
-	}
-
-	for (i = 0; i < nthreads; i++) {
-		bufs[i] = vmalloc(BUF_SIZE * sizeof(char));
-		if (!bufs[i]) {
-			for (j = 0; j < i; j++)
-				vfree(bufs[i]);
-			ret = -ENOMEM;
-			goto err_malloc_buf;
-		}
-	}
-
-	for (i = 0; i < nthreads; i++) {
-		atomic_set(&tfw_bmb_conn_nattempt[i], 0);
-		atomic_set(&tfw_bmb_conn_ncomplete[i], 0);
-		atomic_set(&tfw_bmb_conn_nerror[i], 0);
-	}
 	atomic_set(&tfw_bmb_request_nsend, 0);
-
 	for (i = 0; i < nthreads; i++) {
 		struct task_struct *task;
 
+		atomic_set(&tfw_bmb_conn_nattempt[i], 0);
+		atomic_set(&tfw_bmb_conn_ncomplete[i], 0);
+		atomic_set(&tfw_bmb_conn_nerror[i], 0);
+
 		task = kthread_create(tfw_bmb_worker, (void *)(long)i, "worker");
 		if (IS_ERR_OR_NULL(task)) {
-			ret = PTR_ERR(task);
-			TFW_ERR("Unable to create thread: (%d)\n", ret);
-			goto err_create_tasks;
+			TFW_ERR("Unable to create thread\n");
+			tfw_bmb_free();
+			return -EINVAL;
 		}
 		tfw_bmb_tasks[i] = task;
 	}
@@ -445,35 +437,10 @@ tfw_bmb_init(void)
 	wait_event_interruptible(tfw_bmb_task_wq,
 				 atomic_read(&tfw_bmb_nthread) == 0);
 
-	tfw_bmb_report();
 	fuzz_reset();
-
-err_create_tasks:
+	tfw_bmb_report();
 	tfw_bmb_stop_threads();
-	for (i = 0; i < nthreads; i++)
-		vfree(bufs[i]);
-
-err_malloc_buf:
-	kfree(bufs);
-
-err_malloc_bufs:
-	kfree(tfw_bmb_conn_nerror);
-
-err_malloc_nerror:
-	kfree(tfw_bmb_conn_ncomplete);
-
-err_malloc_ncomplete:
-	kfree(tfw_bmb_conn_nattempt);
-
-err_malloc_nattempt:
-	kfree(tfw_bmb_tasks);
-
-err_malloc_tasks:
-	for (i = 0; i < nthreads; i++)
-		kfree(tfw_bmb_desc[i]);
-
-err_malloc_desc:
-	kfree(tfw_bmb_desc);
+	tfw_bmb_free();
 
 	return 0;
 }
