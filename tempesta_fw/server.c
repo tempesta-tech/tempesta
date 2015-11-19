@@ -22,7 +22,6 @@
  */
 #include <linux/slab.h>
 
-#include "lib.h"
 #include "log.h"
 #include "sched.h"
 #include "server.h"

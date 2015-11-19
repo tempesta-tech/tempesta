@@ -333,6 +333,19 @@ index cd03a0f..6465166 100644
  	test_suspend=	[SUSPEND][,N]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
+diff --git a/arch/x86/kernel/xsave.c b/arch/x86/kernel/xsave.c
+index 87a815b..84b7399 100644
+--- a/arch/x86/kernel/xsave.c
++++ b/arch/x86/kernel/xsave.c
+@@ -565,7 +565,7 @@ static void __init setup_init_fpu_buf(void)
+ 	xsave_state_booting(init_xstate_buf, -1);
+ }
+ 
+-static enum { AUTO, ENABLE, DISABLE } eagerfpu = AUTO;
++static enum { AUTO, ENABLE, DISABLE } eagerfpu = ENABLE;
+ static int __init eager_fpu_setup(char *s)
+ {
+ 	if (!strcmp(s, "on"))
 diff --git a/include/linux/net.h b/include/linux/net.h
 index 738ea48..7944e97 100644
 --- a/include/linux/net.h
@@ -837,6 +850,48 @@ index 0000000..3909f7f
 +}
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
+diff --git a/net/core/dev.c b/net/core/dev.c
+index a42b232..9896bc4 100644
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -138,6 +138,11 @@
+ 
+ #include "net-sysfs.h"
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/* Tempesta supports x86-64 only. */
++#include <asm/i387.h>
++#endif
++
+ /* Instead of increasing this, you should create a hash table. */
+ #define MAX_GRO_SKBS 8
+ 
+@@ -4620,6 +4625,15 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
+ 
+ 	weight = n->weight;
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * Switch FPU context once per budget packets to let Tempesta
++	 * run many vector operations w/o costly FPU switches.
++	 * Eager FPU must be enabled.
++	 */
++	kernel_fpu_begin();
++#endif
++
+ 	/* This NAPI_STATE_SCHED test is for avoiding a race
+ 	 * with netpoll's poll_napi().  Only the entity which
+ 	 * obtains the lock and sees NAPI_STATE_SCHED set will
+@@ -4666,6 +4680,9 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
+ 	list_add_tail(&n->poll_list, repoll);
+ 
+ out_unlock:
++#ifdef CONFIG_SECURITY_TEMPESTA
++	kernel_fpu_end();
++#endif
+ 	netpoll_poll_unlock(have);
+ 
+ 	return work;
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
 index b42f0e2..ef4362e 100644
 --- a/net/core/request_sock.c
