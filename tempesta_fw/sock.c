@@ -193,7 +193,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	/* Synchronize concurrent socket writing in different softirqs. */
 	bh_lock_sock_double_nested(sk);
 
-	if (unlikely(!ss_can_send(sk)))
+	if (unlikely(!ss_sock_active(sk)))
 		goto out;
 
 	tp = tcp_sk(sk);
@@ -474,15 +474,25 @@ EXPORT_SYMBOL(ss_close);
  * This function is for internal Sync Sockets use only.
  */
 static void
-ss_droplink(struct sock *sk)
+ss_do_droplink(struct sock *sk)
 {
 	/*
-	 * sk->sk_user_data may be zeroed here. It's a valid case
-	 * that may occur when classifier has blocked a connection.
-	 * connection_drop() callback is not called in that case.
+	 * sk->sk_user_data may be zeroed here. That's a valid
+	 * case that may occur when there's an error during
+	 * the allocation of resources for a client connection.
 	 */
+	BUG_ON(!ss_sock_active(sk));
+
 	ss_do_close(sk);
 	SS_CALL(connection_drop, sk);
+}
+
+void
+ss_droplink(struct sock *sk)
+{
+	bh_lock_sock_double_nested(sk);
+	ss_do_droplink(sk);
+	bh_unlock_sock(sk);
 }
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -581,13 +591,13 @@ ss_tcp_process_data(struct sock *sk)
 			processed += count;
 
 			if (tcp_fin) {
-				SS_DBG("Data FIN received\n");
+				SS_DBG("Data FIN received: sk %p\n", sk);
 				++tp->copied_seq;
 				goto out;
 			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("Link FIN received\n");
+			SS_DBG("Link FIN received: sk %p\n", sk);
 			++tp->copied_seq;
 			goto out;
 		} else {
@@ -699,16 +709,18 @@ ss_tcp_data_ready(struct sock *sk)
 		SS_ERR("error data on socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
-		if (ss_tcp_process_data(sk))
+		if (ss_tcp_process_data(sk)) {
 			/*
 			 * Drop connection in case of internal errors,
 			 * or banned packets.
 			 *
-			 * ss_droplink() is responsible for calling application
-			 * layer connection closing callback that will free all
-			 * SKBs linked with the currently processed message.
+			 * ss_do_droplink() is responsible for calling
+			 * application layer connection closing callback.
+			 * The callback will free all SKBs linked with
+			 * the message that is currently being processed.
 			 */
-			ss_droplink(sk);
+			ss_do_droplink(sk);
+		}
 	}
 	else {
 		/*
@@ -724,7 +736,7 @@ ss_tcp_data_ready(struct sock *sk)
 }
 
 /**
- * Socket state change callback.
+ * Socket state change callback. Called from tcp_rcv_state_process().
  */
 static void
 ss_tcp_state_change(struct sock *sk)
@@ -749,7 +761,7 @@ ss_tcp_state_change(struct sock *sk)
 		r = SS_CALL(connection_new, sk);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
-			ss_droplink(sk);
+			ss_do_droplink(sk);
 			return;
 		}
 		if (lsk) {
@@ -789,7 +801,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		SS_DBG("Peer connection closing\n");
-		ss_droplink(sk);
+		ss_do_droplink(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
