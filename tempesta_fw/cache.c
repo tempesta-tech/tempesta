@@ -22,6 +22,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
 #include <linux/freezer.h>
 #include <linux/ipv6.h>
 #include <linux/kthread.h>
@@ -34,7 +35,6 @@
 #include "tempesta_fw.h"
 #include "cache.h"
 #include "http_msg.h"
-#include "lib.h"
 #include "ss_skb.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
@@ -142,11 +142,26 @@ static struct kmem_cache *c_cache;
 
 /**
  * Calculates search key for the request URI and Host header.
+ *
+ * The function can be called from sotrirq as well as from work queue.
+ * Softirq saves FPU context, so we can execute tfw_http_req_key_calc()
+ * w/o explicit FPU context saving.
  */
 static unsigned long
 tfw_cache_key_calc(TfwHttpReq *req)
 {
-	return tfw_http_req_key_calc(req);
+	unsigned long h;
+
+	if (likely(in_softirq()))
+		return tfw_http_req_key_calc(req);
+
+	kernel_fpu_begin();
+
+	h = tfw_http_req_key_calc(req);
+
+	kernel_fpu_end();
+
+	return h;
 }
 
 static bool

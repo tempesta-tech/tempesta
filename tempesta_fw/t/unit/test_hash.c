@@ -21,8 +21,10 @@
 
 #include <linux/bug.h>
 
-#include "hash.h"
+#include "str.h"
 #include "test.h"
+
+unsigned long tfw_hash_str(const TfwStr *str);
 
 /* NOTE: hashing is a probabilistic thing. Some tests may give false results. */
 
@@ -162,7 +164,7 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 
 TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 {
-	char buf[256];
+	char buf[31]; /* maximum tail */
 	TfwStr str = {
 		.ptr = buf,
 		.len = sizeof(buf)
@@ -174,20 +176,26 @@ TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 	memset(buf, 'a', sizeof(buf));
 	h1 = tfw_hash_str(&str);
 
-	/* For a good hash function, a change of a single bit in the input will
+	/*
+	 * For a good hash function, a change of a single bit in the input will
 	 * cause changing many bits in the output (with high probability).
-	 * We don't write statistical tests here, just hope there is no
-	 * collisions and check a couple of bytes in the output hash.
-	 * Note that we check only low 32 bits since our hash function is a bit
-	 * weak here and it doesn't calculate the high 64 bits.
+	 * Our hash function calculates high and low halves of 64-bit output
+	 * key, so we chage two bits simultaneously in the test.
+	 * Probably, this is good to fix.
 	 */
-	for (i = 0; i < sizeof(buf); ++i) {
-		buf[i] = 'b';
+	for (i = 0; i < sizeof(buf) / 2; ++i) {
+		buf[i] = buf[i + 8] = 'b';
 		h2 = tfw_hash_str(&str);
-		buf[i] = 'a';
+		buf[i] = buf[i + 8] = 'a';
 
 		EXPECT_NE(h1 & 0x00000000000000FF, h2 & 0x00000000000000FF);
+		EXPECT_NE(h1 & 0x000000000000FF00, h2 & 0x000000000000FF00);
+		EXPECT_NE(h1 & 0x0000000000FF0000, h2 & 0x0000000000FF0000);
 		EXPECT_NE(h1 & 0x00000000FF000000, h2 & 0x00000000FF000000);
+		EXPECT_NE(h1 & 0x000000FF00000000, h2 & 0x000000FF00000000);
+		EXPECT_NE(h1 & 0x0000FF0000000000, h2 & 0x0000FF0000000000);
+		EXPECT_NE(h1 & 0x00FF000000000000, h2 & 0x00FF000000000000);
+		EXPECT_NE(h1 & 0xFF00000000000000, h2 & 0xFF00000000000000);
 	}
 }
 
