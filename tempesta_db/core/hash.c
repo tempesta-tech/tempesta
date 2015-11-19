@@ -19,64 +19,22 @@
  */
 #include <asm/i387.h>
 
-#define CRCQ(crc, data64) \
-	asm volatile("crc32q %2, %0" : "=r"(crc) : "0"(crc), "r"(data64))
+#include "hash.h"
 
+/**
+ * The function is used from process context only, so don't care about
+ * relatively slow FPU context switching.
+ */
 unsigned long
 tdb_hash_calc(const char *data, size_t len)
 {
-#define MUL	sizeof(long)
-	int i;
-	unsigned long crc0 = 0, crc1 = 0, h;
-	unsigned long *d = (unsigned long *)data;
-	size_t n = (len / MUL) & ~1UL;
+	unsigned long crc0 = 0, crc1 = 0;
 
-	/* TODO fallback to plain C for small data. */
 	kernel_fpu_begin();
 
-	for (i = 0; i < n; i += 2) {
-		CRCQ(crc0, d[i]);
-		CRCQ(crc1, d[i + 1]);
-	}
-
-	if (n * MUL + MUL <= len) {
-		CRCQ(crc0, d[n]);
-		n++;
-	}
+	__tdb_hash_calc(&crc0, &crc1, data, len);
 
 	kernel_fpu_end();
 
-	h = (crc1 << 32) | crc0;
-
-	/*
-	 * Generate relatively small and dense hash tail values - they are good
-	 * for short strings in htrie which uses less significant bits at root,
-	 * however collisions are very probable.
-	 */
-	n *= MUL;
-	switch (len - n) {
-	case 7:
-		h += data[n] * n;
-		++n;
-	case 6:
-		h += data[n] * n;
-		++n;
-	case 5:
-		h += data[n] * n;
-		++n;
-	case 4:
-		h += data[n] * n;
-		++n;
-	case 3:
-		h += data[n] * n;
-		++n;
-	case 2:
-		h += data[n] * n;
-		++n;
-	case 1:
-		h += data[n] * n;
-	}
-
-	return h;
-#undef MUL
+	return (crc1 << 32) | crc0;
 }
