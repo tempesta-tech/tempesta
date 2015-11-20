@@ -33,24 +33,23 @@
 #include "sync_socket.h"
 #include "tfw_fuzzer.h"
 
-static int nthreads = 2;
-static int niter = 2;
-static int nconnects = 2;
-static int nmessages = 2;
-static char *server = "127.0.0.1:80";
+static int nthreads	= 2;
+static int niter	= 2;
+static int nconnects	= 2;
+static int nmessages	= 2;
+static char *server	= "127.0.0.1:80";
 
-module_param(nthreads, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(niter, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(nconnects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(nmessages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-module_param(server, charp, 0);
+module_param_named(t, nthreads,  int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param_named(i, niter,     int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param_named(c, nconnects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param_named(m, nmessages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param_named(s, server, charp, 0);
 
-MODULE_PARM_DESC(nthreads,
-		 "Number of threads (set this to the number of CPU cores)");
-MODULE_PARM_DESC(niter, "Number of thread iterations");
-MODULE_PARM_DESC(nconnects, "Number of connections");
-MODULE_PARM_DESC(nmessages, "Number of messages by connection");
-MODULE_PARM_DESC(server, "Server host address and optional port nunber");
+MODULE_PARM_DESC(t, "Number of threads (set this to the number of CPU cores)");
+MODULE_PARM_DESC(i, "Number of thread iterations");
+MODULE_PARM_DESC(c, "Number of connections");
+MODULE_PARM_DESC(m, "Number of messages per connection");
+MODULE_PARM_DESC(s, "Server host address and optional port nunber");
 
 MODULE_LICENSE("GPL");
 
@@ -67,13 +66,14 @@ MODULE_LICENSE("GPL");
 #define TFW_BMB_CONNECT_CLOSED		(0x0004)
 #define TFW_BMB_CONNECT_ERROR		(0x0100)
 
-#define BUF_SIZE 20 * 1024 * 1024
+#define BUF_SIZE			(20 * 1024 * 1024)
 
 /*
  * There's a descriptor for each connection that keeps the connection's
  * state and status. SsProto.type field is used here to store the index into
  * that array that can be passed around between callbacks.
  */
+typedef struct task_struct tfw_bmb_task_t;
 typedef struct tfw_bmb_desc {
 	SsProto		proto;
 	struct sock	*sk;
@@ -83,18 +83,18 @@ typedef struct tfw_bmb_desc {
 DECLARE_WAIT_QUEUE_HEAD(tfw_bmb_task_wq);
 DECLARE_WAIT_QUEUE_HEAD(tfw_bmb_conn_wq);
 
-static tfw_bmb_desc_t **tfw_bmb_desc;
-static struct task_struct **tfw_bmb_tasks;
-static atomic_t tfw_bmb_nthread;
-static atomic_t *tfw_bmb_conn_nattempt;		/* Successful attempts */
-static atomic_t *tfw_bmb_conn_ncomplete;	/* Connections established */
-static atomic_t *tfw_bmb_conn_nerror;		/* Number of errors */
-static atomic_t tfw_bmb_request_nsend;		/* Number of requests */
-static TfwAddr tfw_bmb_server_address;
-static SsHooks tfw_bmb_hooks;
-static struct timeval tvs, tve;
-static char **bufs;
-void *alloc_ptr;
+static tfw_bmb_task_t	**tfw_bmb_tasks;
+static tfw_bmb_desc_t	**tfw_bmb_desc;
+static atomic_t		tfw_bmb_nthread;
+static atomic_t		*tfw_bmb_conn_nattempt;  /* Successful attempts */
+static atomic_t		*tfw_bmb_conn_ncomplete; /* Connections established */
+static atomic_t		*tfw_bmb_conn_nerror;    /* Number of errors */
+static atomic_t		tfw_bmb_request_nsend;   /* Number of requests */
+static TfwAddr		tfw_bmb_server_address;
+static SsHooks		tfw_bmb_hooks;
+static struct timeval	tvs, tve;
+static char		**bufs;
+static void		*alloc_ptr;
 
 static int
 tfw_bmb_conn_complete(struct sock *sk)
@@ -220,7 +220,7 @@ tfw_bmb_release_sockets(int threadn)
 static void
 tfw_bmb_msg_send(int threadn, int connn)
 {
-	/*tfw_bmb_desc_t *desc = &tfw_bmb_desc[threadn][connn];
+	tfw_bmb_desc_t *desc = &tfw_bmb_desc[threadn][connn];
 	char *s = bufs[threadn];
 	TfwStr msg;
 	TfwHttpMsg *req;
@@ -248,7 +248,7 @@ tfw_bmb_msg_send(int threadn, int connn)
 	local_bh_disable();
 	ss_send(desc->sk, &req->msg.skb_list, false);
 	local_bh_enable();
-	tfw_http_msg_free(req);*/
+	tfw_http_msg_free(req);
 
 	atomic_inc(&tfw_bmb_request_nsend);
 }
@@ -279,7 +279,7 @@ tfw_bmb_worker(void *data)
 			}
 			wait_event_freezable_timeout(tfw_bmb_conn_wq,
 						     kthread_should_stop(),
-						     TFW_BMB_WAIT_INTVL);
+						     TFW_BMB_WAIT_INTVL * HZ);
 			if ((uint64_t)get_seconds() > time_max) {
 				TFW_ERR("%s exceeded maximum wait time of \
 					%d sec\n",
@@ -408,7 +408,7 @@ tfw_bmb_init(void)
 	TFW_DBG("Started bomber module, server's address is %s\n", server);
 
 	if (tfw_bmb_alloc()) {
-		return -EINVAL;
+		return -ENOMEM;
 	}
 
 	atomic_set(&tfw_bmb_request_nsend, 0);
