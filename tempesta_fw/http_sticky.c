@@ -1,5 +1,5 @@
 /*
- *              Tempesta FW
+ *		Tempesta FW
  *
  * Handling of Tempesta sticky cookie.
  *
@@ -35,16 +35,20 @@
 #define STICKY_NAME_DEFAULT	"__tfw"
 #define STICKY_KEY_MAXLEN	(sizeof(((TfwClient *)0)->cookie.hmac))
 
+/**
+ * @name       - name of sticky cookie;
+ * @name_eq    - @name plus "=" to make some operations faster;
+ */
 typedef struct sticky {
 	TfwStr		name;
-	u_int		enabled : 1;
-	u_int		enforce : 1;
+       TfwStr		name_eq;
+       u_int		enabled : 1,
+			enforce : 1;
 } TfwCfgSticky;
 
 static TfwCfgSticky tfw_cfg_sticky;
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
-
 
 static int
 tfw_http_sticky_send_302(TfwHttpMsg *hm)
@@ -78,26 +82,20 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	return 0;
 }
 
-static bool
+static int
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
-	const char *const cstr = tfw_cfg_sticky.name.ptr;
-	const unsigned int clen = tfw_cfg_sticky.name.len + 1;
+       const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
+       const unsigned int clen = tfw_cfg_sticky.name_eq.len;
+       TfwStr *chunk, *end, *next;
+       TfwStr tmp = { .flags = 0, };
+       unsigned int n = TFW_STR_CHUNKN(cookie);
 
-	const TfwStr *chunk, *end, *next;
-	TfwStr *s;
-	unsigned int n = TFW_STR_CHUNKN(cookie) + 1;
-	TfwStr tmp;
-
-	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name));
-
-	TFW_STR_INIT(&tmp);
-	tmp.flags = __TFW_STR_COMPOUND;
+       BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
 
 	/* Search cookie name. */
 	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
-	for (chunk = cookie->ptr; chunk != end; ++chunk) {
-		--n;
+       for (chunk = cookie->ptr; chunk != end; ++chunk, --n) {
 		if (chunk->flags & TFW_STR_NAME) {
 			/*
 			 * Create temporary compound string, starting
@@ -105,17 +103,15 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 			 * We do not use it's overall length now,
 			 * so do not set it.
 			 */
-			tmp.ptr = (void*)chunk;
+			tmp.ptr = (void *)chunk;
 			__TFW_STR_CHUNKN_SET(&tmp, n);
 			if (tfw_str_eq_cstr(&tmp, cstr, clen,
-			                    TFW_STR_EQ_PREFIX))
-			{
+					    TFW_STR_EQ_PREFIX))
 				break;
-			}
 		}
 	}
 	if (chunk == end)
-		return false;
+		return 0;
 
 	/* Search cookie value, starting with next chunk. */
 	for (++chunk; chunk != end; ++chunk)
@@ -125,31 +121,28 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 
 	/* Check if value is plain string, just return it in this case. */
 	next = chunk + 1;
-	if (likely(next == end || *(char*)next->ptr == ';')) {
-		TFW_DBG3("%s: plain cookie value: %.*s\n",
-		         __func__, (int)chunk->len,
-		         (char*)chunk->ptr);
+       if (likely(next == end || *(char *)next->ptr == ';')) {
+		TFW_DBG3("%s: plain cookie value: %.*s\n", __func__,
+			 (int)chunk->len, (char *)chunk->ptr);
 		*val = *chunk;
-		return true;
+		return 1;
 	}
 
 	/* Add value chunks to out-string. */
 	TFW_DBG3("%s: compound cookie value found\n", __func__);
+       val->ptr = chunk;
+       TFW_STR_CHUNKN_ADD(val, 1);
+       val->len = chunk->len;
 	for (; chunk != end; ++chunk) {
-		if (*(char*)chunk->ptr == ';')
+		if (*(char *)chunk->ptr == ';')
 			/* value chunks exhausted */
-			return true;
-
-		s = tfw_str_add_compound(pool, val);
-		if (!s) {
-			TFW_DBG("%s: failed to extend value string\n",
-			        __func__);
-			return false;
-		}
-		*s = *chunk;
+			break;
+		TFW_STR_CHUNKN_ADD(val, 1);
+		val->len += chunk->len;
 	}
+       BUG_ON(TFW_STR_CHUNKN(val) < 2);
 
-	return true;
+       return 1;
 }
 
 /*
@@ -249,15 +242,14 @@ tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 	TfwStr set_cookie = {
 		.ptr = (TfwStr []) {
 			{ .ptr = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
-			{ .ptr = tfw_cfg_sticky.name.ptr,
-			  .len = tfw_cfg_sticky.name.len },
-			{ .ptr = "=", .len = 1 },
+			{ .ptr = tfw_cfg_sticky.name_eq.ptr,
+			  .len = tfw_cfg_sticky.name_eq.len },
 			{ .ptr = buf, .len = len * 2 },
 			{ .ptr = "\r\n", .len = 2 }
 		},
-		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name.len
-		       + 3 + len * 2,
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len
+		       + 2 + len * 2,
+		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
 	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
@@ -335,9 +327,9 @@ tfw_http_sticky_req_process(TfwHttpMsg *hm)
 	int ret;
 	TfwStr value = { 0 };
 
-	if (!tfw_cfg_sticky.enabled) {
+       if (!tfw_cfg_sticky.enabled)
 		return 0;
-	}
+
 	/*
 	 * See if the Tempesta sticky cookie is present in the request,
 	 * and act depending on the result.
@@ -378,8 +370,8 @@ tfw_http_sticky_init(void)
 	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
 		return -ENOMEM;
 	}
-	tfw_cfg_sticky.name.ptr = ptr;
-	tfw_cfg_sticky.name.len = 0;
+       tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
+       tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
@@ -402,29 +394,22 @@ tfw_http_sticky_init(void)
 void
 tfw_http_sticky_exit(void)
 {
-	u_char *ptr = tfw_cfg_sticky.name.ptr;
+       kfree(tfw_cfg_sticky.name.ptr);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	if (ptr) {
-		kfree(ptr);
-	}
 	crypto_free_shash(tfw_sticky_shash);
 }
 
 static int
 tfw_cfg_sticky_start(void)
 {
-	if (tfw_cfg_sticky.name.len) {
-		tfw_cfg_sticky.enabled = 1;
-	}
+       tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
+
 	return 0;
 }
 
 static void
 tfw_cfg_sticky_stop(void)
 {
-	u_char *ptr = tfw_cfg_sticky.name.ptr;
-	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	tfw_cfg_sticky.name.ptr = ptr;
 	tfw_cfg_sticky.enabled = 0;
 }
 
@@ -452,11 +437,12 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	val = tfw_http_sticky_get_attr(ce, "name", STICKY_NAME_DEFAULT);
 	len = strlen(val);
-	if ((len == 0) || (len > STICKY_NAME_MAXLEN))
+       if (len == 0 || len > STICKY_NAME_MAXLEN)
 		return -EINVAL;
 	memcpy(tfw_cfg_sticky.name.ptr, val, len);
-	((char*)tfw_cfg_sticky.name.ptr)[len] = '=';
 	tfw_cfg_sticky.name.len = len;
+       ((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
+       tfw_cfg_sticky.name_eq.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		 if (!strcasecmp(val, "enforce")) {
@@ -484,4 +470,3 @@ TfwCfgMod tfw_http_sticky_cfg_mod = {
 		{}
 	}
 };
-
