@@ -361,6 +361,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
 			: tfw_srv_conn_release(hm->conn);
+		hm->conn = NULL;
 	}
 	tfw_http_msg_free(hm);
 }
