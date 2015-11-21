@@ -64,12 +64,12 @@
 #include "helpers.h"
 #include "tfw_str_helper.h"
 
-#define COOKIE_NAME         "QWERTY_123"
+#define COOKIE_NAME	"QWERTY_123"
 
 static struct {
-	int             tfw_connection_send_was_called;
-	int             seen_set_cookie_header;
-	int             seen_cookie;
+	int		tfw_connection_send_was_called;
+	int		seen_set_cookie_header;
+	int		seen_cookie;
 	unsigned int    http_status;
 
 	TfwHttpMsg     *hmreq;
@@ -90,7 +90,7 @@ tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
 {
 	int i;
 
-	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->size; i++) {
+       for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->off; i++) {
 		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
 		if (tfw_str_eq_cstr(hdr_field, field_name, len,
 				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
@@ -146,7 +146,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 	while (skb) {
 		int ret;
 		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
-		                     mock.hmresp);
+				     mock.hmresp);
 		skb = ss_skb_next(&msg->skb_list, skb);
 	}
 
@@ -258,8 +258,8 @@ static void
 append_string_to_msg(TfwHttpMsg *hm, const char *s)
 {
 	struct sk_buff  *skb;
-	void            *ptr;
-	size_t           len;
+	void		*ptr;
+	size_t		len;
 
 	BUG_ON(!s);
 	len = strlen(s);
@@ -321,7 +321,7 @@ TEST(http_sticky, sticky_get_absent)
 {
 	TfwStr      value = {};
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
-	                    "Cookie: __utmz=12345; q=aa\r\n\r\n";
+			    "Cookie: __utmz=12345; q=aa\r\n\r\n";
 
 	append_string_to_msg(mock.hmreq, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
@@ -347,8 +347,8 @@ test_sticky_present_helper(const char *s_req)
 TEST(http_sticky, sticky_get_present_begin)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-	                    "Cookie: " COOKIE_NAME "=67890; __utmz=12345; "
-	                    "q=aa\r\n\r\n";
+			    "Cookie: " COOKIE_NAME "=67890; __utmz=12345; "
+			    "q=aa\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
 }
@@ -356,8 +356,8 @@ TEST(http_sticky, sticky_get_present_begin)
 TEST(http_sticky, sticky_get_present_middle)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-	                    "Cookie: __utmz=12345; " COOKIE_NAME "=67890; "
-	                    "q=aa\r\n\r\n";
+			    "Cookie: __utmz=12345; " COOKIE_NAME "=67890; "
+			    "q=aa\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
 }
@@ -365,8 +365,8 @@ TEST(http_sticky, sticky_get_present_middle)
 TEST(http_sticky, sticky_get_present_end)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-	                    "Cookie: __utmz=12345; q=aa; "
-	                     COOKIE_NAME "=67890\r\n\r\n";
+			    "Cookie: __utmz=12345; q=aa; "
+			    COOKIE_NAME "=67890\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
 }
@@ -401,7 +401,7 @@ TEST(http_sticky, req_no_cookie)
 TEST(http_sticky, req_have_cookie)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
-	                    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
+			    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
 	append_string_to_msg(mock.hmreq, s_req);
@@ -445,7 +445,7 @@ TEST(http_sticky, req_no_cookie_enforce)
 TEST(http_sticky, req_have_cookie_enforce)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
-	                    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
+			    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
 	append_string_to_msg(mock.hmreq, s_req);

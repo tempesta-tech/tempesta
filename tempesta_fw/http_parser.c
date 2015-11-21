@@ -133,34 +133,31 @@ do {									\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
 		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
-		finish;                                                 \
+		finish;							\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
 
-#define __FSM_I_chunk_flags()						\
+#define __FSM_I_chunk_flags(flag)					\
 do {									\
-	if (unlikely(__fsm_chunkflags)) {				\
-		TFW_DBG3("parser: add chunk flags: %u\n", __fsm_chunkflags);\
-		TFW_STR_CURR(&msg->parser.hdr)->flags |= __fsm_chunkflags;\
-		__fsm_chunkflags = 0;					\
-	}								\
+       TFW_DBG3("parser: add chunk flags: %u\n", flag);			\
+       TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
 } while (0)
 
 #define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_flags(to) \
-	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags())
-#define __FSM_I_MOVE_fixup(to, n)					\
+#define __FSM_I_MOVE_flags(to, flag)					\
+       __FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags(flag))
+#define __FSM_I_MOVE_fixup(to, n, flag)					\
 do {									\
 	/* Save symbols until current, plus n symbols more */		\
-	int slen = p - data + n;					\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, slen);			\
-	__FSM_I_chunk_flags();						\
-	data += slen;							\
-	len -= slen;							\
+       __fsm_n = p - data + n;						\
+       tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_n);		\
+       __FSM_I_chunk_flags(flag);					\
+       data += __fsm_n;							\
+       len -= __fsm_n;							\
 	__FSM_I_MOVE(to);						\
 } while (0)
 
@@ -1383,7 +1380,6 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	unsigned char *p = data;
 	unsigned char *orig_data = data;
 	unsigned char c = *p;
-	unsigned int __fsm_chunkflags = 0;
 	__FSM_DECLARE_VARS();
 
 	/*
@@ -1400,43 +1396,41 @@ __req_parse_cookie(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		/* Name should contain at least 1 character */
 		if (unlikely(c == '=' || c == ';' || c == ','))
 			return CSTR_NEQ;
-		__fsm_chunkflags = TFW_STR_NAME;
-		__FSM_I_MOVE(Req_I_CookieName);
+		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
 	}
 
 	__FSM_STATE(Req_I_CookieName) {
 		if (unlikely(c == '='))
-			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1);
-		__FSM_I_MOVE_flags(Req_I_CookieName);
+			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1,
+					   TFW_STR_NAME);
+		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
 	}
 
 	__FSM_STATE(Req_I_CookieValStart) {
-		if (unlikely(isspace(c) || c == ','
-		             || c == ';' || c == '\\'))
+		if (unlikely(isspace(c) || c == ',' || c == ';' || c == '\\'))
 			return CSTR_NEQ;
-		__fsm_chunkflags = TFW_STR_VALUE;
-		__FSM_I_MOVE(Req_I_CookieVal);
+		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_CookieVal) {
 		if (unlikely(c == ';'))
 			/* do not save ';' yet */
-			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0);
+			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0, TFW_STR_VALUE);
 		if (unlikely(c == '\r' || c == ' ')) {
 			/* do not save LWS */
 			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
-			__FSM_I_chunk_flags();
+			__FSM_I_chunk_flags(TFW_STR_VALUE);
 			return p - orig_data;
 		}
 		if (unlikely(c == ',' || c == '\\'))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_flags(Req_I_CookieVal);
+		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1);
+		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1, 0);
 	}
 
 	} /* FSM END */
@@ -1495,7 +1489,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'P':
 			__FSM_MOVE(Req_MethP);
 		}
-                return TFW_BLOCK; /* Unsupported method */
+		return TFW_BLOCK; /* Unsupported method */
 	}
 
 	/*
@@ -1714,7 +1708,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				 */
 				if (unlikely(!req->crlf.ptr))
 					tfw_http_msg_set_data(msg, &req->crlf,
-					                      p);
+							      p);
 				TFW_HTTP_INIT_BODY_PARSING(req, Req_Body);
 			} else {
 				r = TFW_PASS;
@@ -1757,7 +1751,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
 						    'r', 'w', 'a', 'r')
 				   && C8_INT_LCM(p + 8, 'd', 'e', 'd', '-',
-						        'f', 'o', 'r', ':')))
+							'f', 'o', 'r', ':')))
 			{
 				parser->_i_st = Req_HdrX_Forwarded_ForV;
 				__FSM_MOVE_n(RGen_LWS, 16);
@@ -1765,11 +1759,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
 			if (likely(p + 11 <= data + len
-			           && C4_INT_LCM(p, 'u', 's', 'e', 'r')
-			           && *(p + 4) == '-'
-			           && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
-			           && *(p + 9) == 't'
-			           && *(p + 10) == ':'))
+				   && C4_INT_LCM(p, 'u', 's', 'e', 'r')
+				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
+				   && *(p + 9) == 't'
+				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrUser_AgentV;
 				__FSM_MOVE_n(RGen_LWS, 11);
@@ -2415,7 +2409,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->expires = __year_day_secs(parser->_tmp_acc,
-		                                resp->expires);
+						resp->expires);
 		if (resp->expires < 0)
 			return CSTR_NEQ;
 		parser->_tmp_acc = 0;
@@ -2756,7 +2750,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				 */
 				if (unlikely(!resp->crlf.ptr))
 					tfw_http_msg_set_data(msg, &resp->crlf,
-					                      p);
+							      p);
 				TFW_HTTP_INIT_BODY_PARSING(resp, Resp_Body);
 			} else {
 				r = TFW_PASS;

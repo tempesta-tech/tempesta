@@ -98,7 +98,7 @@
  */
 static bool
 hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
-           int val_len, tfw_str_eq_flags_t f)
+	   int val_len, tfw_str_eq_flags_t f)
 {
 	TfwStr *hdr;
 	TfwStr hdr_val;
@@ -175,10 +175,10 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 	if (req->host.len)
 		return tfw_str_eq_cstr(&req->host, rule->arg.str,
-		                       rule->arg.len, flags);
+				       rule->arg.len, flags);
 
 	return hdr_val_eq(req, TFW_HTTP_HDR_HOST, rule->arg.str,
-	                  rule->arg.len, flags);
+			  rule->arg.len, flags);
 }
 
 static bool
@@ -215,7 +215,7 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	int i;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	for (i = 0; i < req->h_tbl->size; ++i) {
+       for (i = 0; i < req->h_tbl->off; ++i) {
 		const TfwStr *hdr, *dup, *end, *chunk;
 		const char *c, *cend, *p, *pend;
 		char prev;
@@ -361,8 +361,8 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_http_match_fld_t field;
 
 	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
-	          rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
-	          rule->arg.len, rule->arg.str);
+		 rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
+		 rule->arg.len, rule->arg.str);
 
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
@@ -456,7 +456,9 @@ EXPORT_SYMBOL(tfw_http_match_list_free);
 
 void
 tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
-	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg) {
+			 tfw_http_match_op_t op, tfw_http_match_arg_t type,
+			 const char *arg)
+{
 	rule->field = field;
 	rule->op = op;
 	rule->arg.type = type;
@@ -465,9 +467,8 @@ tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 
 	if (field == TFW_HTTP_MATCH_F_HDR_RAW) {
 		char *p = rule->arg.str;
-		while ((*p = tolower(*p))) {
+		while ((*p = tolower(*p)))
 			p++;
-		}
 	}
 }
 EXPORT_SYMBOL(tfw_http_match_rule_init);
