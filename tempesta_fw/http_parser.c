@@ -142,22 +142,22 @@ do {									\
 
 #define __FSM_I_chunk_flags(flag)					\
 do {									\
-       TFW_DBG3("parser: add chunk flags: %u\n", flag);			\
-       TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
+	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
+	TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
 } while (0)
 
 #define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 #define __FSM_I_MOVE_flags(to, flag)					\
-       __FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags(flag))
+	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags(flag))
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
 do {									\
 	/* Save symbols until current, plus n symbols more */		\
-       __fsm_n = p - data + n;						\
-       tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_n);		\
-       __FSM_I_chunk_flags(flag);					\
-       data += __fsm_n;							\
-       len -= __fsm_n;							\
+	__fsm_n = p - data + n;						\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_n);		\
+	__FSM_I_chunk_flags(flag);					\
+	data += __fsm_n;						\
+	len -= __fsm_n;							\
 	__FSM_I_MOVE(to);						\
 } while (0)
 
@@ -667,8 +667,8 @@ __FSM_STATE(RGen_LWS_empty) {						\
 	switch (c) {							\
 	case '\r':							\
 	case '\n':							\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);      \
-		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))      \
+		tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);	\
+		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))	\
 			return TFW_BLOCK;				\
 		if (c == '\r')						\
 			__FSM_MOVE(RGen_LF);				\

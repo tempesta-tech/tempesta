@@ -56,7 +56,7 @@
 #include "str.c"
 
 /* rename original tfw_connection_send(), a custom version will be used here */
-#define tfw_connection_send      divert_tfw_connection_send
+#define tfw_connection_send	divert_tfw_connection_send
 #include "connection.c"
 #undef tfw_connection_send
 
@@ -70,13 +70,13 @@ static struct {
 	int		tfw_connection_send_was_called;
 	int		seen_set_cookie_header;
 	int		seen_cookie;
-	unsigned int    http_status;
+	unsigned int	http_status;
 
-	TfwHttpMsg     *hmreq;
-	TfwHttpMsg     *hmresp;
+	TfwHttpMsg	*hmreq;
+	TfwHttpMsg	*hmresp;
 	TfwConnection   connection;
-	TfwClient       client;
-	struct sock     sock;
+	TfwClient	client;
+	struct sock	sock;
 } mock;
 
 /*
@@ -90,7 +90,7 @@ tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
 {
 	int i;
 
-       for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->off; i++) {
+	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->off; i++) {
 		TfwStr *hdr_field = &hm->h_tbl->tbl[i];
 		if (tfw_str_eq_cstr(hdr_field, field_name, len,
 				    TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI))
@@ -133,7 +133,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 		    bool unused __attribute__((unused)))
 {
 	struct sk_buff *skb;
-	unsigned int    data_off = 0;
+	unsigned int data_off = 0;
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
 	DEFINE_TFW_STR(hdr_value, NULL);
 
@@ -275,8 +275,8 @@ append_string_to_msg(TfwHttpMsg *hm, const char *s)
 static int
 http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 {
-	struct sk_buff  *skb;
-	unsigned int     off;
+	struct sk_buff *skb;
+	unsigned int off;
 
 	skb = hm->msg.skb_list.first;
 	BUG_ON(!skb);
@@ -319,7 +319,7 @@ http_parse_resp_helper(void)
 
 TEST(http_sticky, sticky_get_absent)
 {
-	TfwStr      value = {};
+	TfwStr value = {};
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
 			    "Cookie: __utmz=12345; q=aa\r\n\r\n";
 
@@ -333,7 +333,7 @@ TEST(http_sticky, sticky_get_absent)
 static void
 test_sticky_present_helper(const char *s_req)
 {
-	TfwStr      value = {};
+	TfwStr	value = {};
 
 	append_string_to_msg(mock.hmreq, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
