@@ -215,7 +215,7 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	int i;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-       for (i = 0; i < req->h_tbl->off; ++i) {
+	for (i = 0; i < req->h_tbl->off; ++i) {
 		const TfwStr *hdr, *dup, *end, *chunk;
 		const char *c, *cend, *p, *pend;
 		char prev;
