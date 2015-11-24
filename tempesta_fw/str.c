@@ -331,9 +331,9 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 			       ? strncasecmp
 			       : strncmp;
 
-	BUG_ON(TFW_STR_EMPTY(str) || !str->ptr);
+	BUG_ON(str->len && !str->ptr);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-		BUG_ON(TFW_STR_EMPTY(chunk) || !chunk->ptr);
+		BUG_ON(chunk->len &&  !chunk->ptr);
 
 		len = min(clen, (int)chunk->len);
 		if (cmp(cstr, chunk->ptr, len))
