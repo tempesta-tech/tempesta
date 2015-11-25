@@ -38,7 +38,7 @@
 #include "oid.h"
 #include "asn1write.h"
 
-#include <string.h>
+#include <linux/string.h>
 #include <stdlib.h>
 
 #if defined(MBEDTLS_PEM_WRITE_C)

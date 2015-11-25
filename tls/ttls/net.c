@@ -31,7 +31,7 @@
 
 #include "net.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if (defined(_WIN32) || defined(_WIN32_WCE)) && !defined(EFIX64) && \
     !defined(EFI32)
@@ -88,7 +88,7 @@ static int wsa_init_done = 0;
 
 #include <time.h>
 
-#include <stdint.h>
+#include <linux/types.h>
 
 /*
  * Prepare for using the sockets interface

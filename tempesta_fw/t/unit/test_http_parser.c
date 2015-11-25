@@ -477,11 +477,14 @@ TEST(http_parser, fuzzer)
 	size_t len = 10 * 1024 * 1024;
 	char *str = vmalloc(len);
 	int field, i, ret;
+	TfwFuzzContext context;
+
+	fuzz_init(&context, false);
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
 			TEST_LOG("start field: %d request: %d\n", field, i);
-			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_REQ);
+			ret = fuzz_gen(&context, str, str + len, field, MOVE, FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
 				chunks = 1;
@@ -498,12 +501,12 @@ TEST(http_parser, fuzzer)
 		}
 	}
 resp:
-	fuzz_reset();
+	fuzz_init(&context, false);
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
 			TEST_LOG("start field: %d response: %d\n", field, i);
-			ret = fuzz_gen(str, str + len, field, MOVE, FUZZ_RESP);
+			ret = fuzz_gen(&context, str, str + len, field, MOVE, FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
 				chunks = 1;

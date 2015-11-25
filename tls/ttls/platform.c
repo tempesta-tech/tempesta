@@ -29,15 +29,15 @@
 
 #if defined(MBEDTLS_PLATFORM_C)
 
+#include <linux/vmalloc.h>
+
 #include "platform.h"
 
 #if defined(MBEDTLS_PLATFORM_MEMORY)
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
 {
-    ((void) n);
-    ((void) size);
-    return( NULL );
+    return vmalloc(n * size);
 }
 
 #define MBEDTLS_PLATFORM_STD_CALLOC   platform_calloc_uninit
@@ -46,7 +46,7 @@ static void *platform_calloc_uninit( size_t n, size_t size )
 #if !defined(MBEDTLS_PLATFORM_STD_FREE)
 static void platform_free_uninit( void *ptr )
 {
-    ((void) ptr);
+    vfree(ptr);
 }
 
 #define MBEDTLS_PLATFORM_STD_FREE     platform_free_uninit
@@ -137,6 +137,7 @@ static int platform_printf_uninit( const char *format, ... )
 #endif /* !MBEDTLS_PLATFORM_STD_PRINTF */
 
 int (*mbedtls_printf)( const char *, ... ) = MBEDTLS_PLATFORM_STD_PRINTF;
+EXPORT_SYMBOL(mbedtls_printf);
 
 int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) )
 {
@@ -150,7 +151,7 @@ int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) )
 /*
  * Make dummy function to prevent NULL pointer dereferences
  */
-static int platform_fprintf_uninit( FILE *stream, const char *format, ... )
+static int platform_fprintf_uninit( void *stream, const char *format, ... )
 {
     ((void) stream);
     ((void) format);
@@ -160,10 +161,11 @@ static int platform_fprintf_uninit( FILE *stream, const char *format, ... )
 #define MBEDTLS_PLATFORM_STD_FPRINTF   platform_fprintf_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_FPRINTF */
 
-int (*mbedtls_fprintf)( FILE *, const char *, ... ) =
+int (*mbedtls_fprintf)( void *, const char *, ... ) =
                                         MBEDTLS_PLATFORM_STD_FPRINTF;
+EXPORT_SYMBOL(mbedtls_fprintf);
 
-int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *, const char *, ... ) )
+int mbedtls_platform_set_fprintf( int (*fprintf_func)( void *, const char *, ... ) )
 {
     mbedtls_fprintf = fprintf_func;
     return( 0 );

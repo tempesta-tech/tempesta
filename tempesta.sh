@@ -4,6 +4,20 @@
 #
 # Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
 # Copyright (C) 2015 Tempesta Technologies, Inc.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License,
+# or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program; if not, write to the Free Software Foundation, Inc., 59
+# Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 root=$(dirname "$0")
 name=`basename $0` # program name (comm name in ps)
@@ -115,8 +129,8 @@ unload_modules()
 
 args=$(getopt -o "f" -a -l "$long_opts" -- "$@")
 eval set -- "${args}"
-for opt; do
-	case "$opt" in
+while :; do
+	case "$1" in
 		# Selectors for internal usage.
 		--load)
 			load_modules
@@ -147,12 +161,12 @@ for opt; do
 			frang_enable=1
 			shift
 			;;
-		-h|--help)
+		--help)
 			usage
 			exit
 			;;
 		*)
-			error "Bad command line argument"
+			error "Bad command line argument: $opt"
 			exit 2
 			;;
 	esac

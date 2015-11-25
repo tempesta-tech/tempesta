@@ -37,7 +37,7 @@
 
 #include "blowfish.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if !defined(MBEDTLS_BLOWFISH_ALT)
 

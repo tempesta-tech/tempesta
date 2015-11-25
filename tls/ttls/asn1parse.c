@@ -31,7 +31,7 @@
 
 #include "asn1.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_BIGNUM_C)
 #include "bignum.h"
