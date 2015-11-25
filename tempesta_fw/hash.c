@@ -18,62 +18,54 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/kernel.h>
+#include "str.h"
+
 #include "hash.h"
-#include "lib.h"
 
-#define CRCQ(crc, data64) \
-	asm volatile("crc32q %2, %0" : "=r"(crc) : "0"(crc), "r"(data64))
-
-#define CRCB(crc, data8) \
-	asm volatile("crc32b %2, %0" : "=r"(crc) : "0"(crc), "r"(data8))
-
-/*
- * At this point the whole hash is just a regular CRC32 of all chunks.
- * The crc value is stored in the 32 least significant bits of the hash,
- * and the high 32 bits are always zero.
+/**
+ * Compute hash function exactly the same way as tdb_hash_calc() does it,
+ * but do this over chunked data.
  *
- * The CRC32 is used for performance purposes (the algorithm utilizes SSE4.2
- * hardware instructions).
+ * The function uses SSE extensions, so make sure that FPU context is
+ * properly stored/restored in the caller.
  */
 unsigned long
 tfw_hash_str(const TfwStr *str)
 {
-#define MUL sizeof(long)
-	const TfwStr *chunk, *end;
-	const char *pos;
-	const char *body_end;
-	const char *head_end;
-	const char *tail_end;
-	register unsigned long crc = 0xFFFFFFFF;
-	unsigned int len;
+	unsigned long crc0 = 0, crc1 = 0;
 
-	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-		len = chunk->len;
-		pos = chunk->ptr;
+	if (likely(TFW_STR_PLAIN(str))) {
+		__tdb_hash_calc(&crc0, &crc1, str->ptr, str->len);
+	}
+	else {
+		const TfwStr *c = (TfwStr *)str->ptr;
+		const TfwStr *end = c + TFW_STR_CHUNKN(str);
+		unsigned char *p, *e;
+		unsigned int tail = 0;
 
-		tail_end = pos + len;
-		head_end = PTR_ALIGN(pos, MUL);
-		body_end = PTR_ALIGN(tail_end, MUL) - MUL;
+		while (c < end) {
+			p = c->ptr;
+			e = p + c->len;
 
-		if (likely(len >= MUL)) {
-			while (pos != head_end) {
-				CRCB(crc, *pos);
-				++pos;
+			if (tail) {
+				for ( ; tail < 8; ++p, ++tail) {
+					if (unlikely(p == e))
+						goto next_chunk;
+					CRCB(crc0, *p);
+				}
+				for ( ; tail < 16; ++p, ++tail) {
+					if (unlikely(p == e))
+						goto next_chunk;
+					CRCB(crc1, *p);
+				}
 			}
-			while (pos != body_end) {
-				CRCQ(crc, *((unsigned long *)pos));
-				pos += MUL;
-			}
-		}
 
-		while (pos != tail_end) {
-			CRCB(crc, *pos);
-			++pos;
+			__tdb_hash_calc(&crc0, &crc1, p, e - p);
+			tail = c->len & 0xf;
+next_chunk:
+			++c;
 		}
 	}
 
-	return crc;
-#undef MUL
+	return (crc1 << 32) | crc0;
 }
-

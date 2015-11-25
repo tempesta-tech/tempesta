@@ -38,6 +38,10 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
 
+Tempesta aggressively uses CPU vector extensions, so FPU eager context
+switching must be enabled at kernel parameter. So add `eagerfpu=on` to
+your kernel command line.
+
 
 ### Build
 

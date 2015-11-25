@@ -22,7 +22,6 @@
 #include <linux/kernel.h>
 #include <linux/ctype.h>
 
-#include "lib.h"
 #include "str.h"
 
 void
@@ -324,7 +323,7 @@ EXPORT_SYMBOL(tfw_stricmpspn);
  */
 bool
 tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
-                tfw_str_eq_flags_t flags)
+		tfw_str_eq_flags_t flags)
 {
 	int len, clen = cstr_len;
 	const TfwStr *chunk, *end;
@@ -332,9 +331,11 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 			       ? strncasecmp
 			       : strncmp;
 
+	BUG_ON(str->len && !str->ptr);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-		len = min(clen, (int)chunk->len);
+		BUG_ON(chunk->len &&  !chunk->ptr);
 
+		len = min(clen, (int)chunk->len);
 		if (cmp(cstr, chunk->ptr, len))
 			return false;
 
