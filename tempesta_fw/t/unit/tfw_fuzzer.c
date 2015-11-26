@@ -265,7 +265,7 @@ __add_field(TfwFuzzContext *context, char **p, char *end, int t, int n)
 		add_string(p, end, r.s);
 
 		if (t == TRANSFER_ENCODING && n == 0) {
-			context->is_chancked_body = true;
+			context->is_chanked_body = true;
 		}
 
 		return r.inval;
@@ -353,7 +353,7 @@ add_body(TfwFuzzContext *context, char **p, char *end, int type)
 		return FUZZ_INVALID;
 	}
 
-	if (!context->is_chancked_body) {
+	if (!context->is_chanked_body) {
 		if (!context->is_only_valid &&
 		    len != 0 && !(i % INVALID_BODY_PERIOD))
 		{
@@ -453,7 +453,7 @@ fuzz_init(TfwFuzzContext *context, bool is_only_valid)
 	}
 
 	context->is_only_valid = is_only_valid;
-	context->is_chancked_body = false;
+	context->is_chanked_body = false;
 	context->curr_duplicates = 0;
 }
 EXPORT_SYMBOL(fuzz_init);
@@ -470,7 +470,7 @@ fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
 {
 	int i, n, ret = FUZZ_VALID, v = 0;
 
-	context->is_chancked_body = false;
+	context->is_chanked_body = false;
 
 	if (str == NULL)
 		return -EINVAL;
