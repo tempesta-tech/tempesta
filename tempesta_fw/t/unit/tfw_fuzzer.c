@@ -121,12 +121,14 @@ static char * keys[] = {
 #define A_HOST_INVAL A_URI_INVAL
 #define A_X_FF A_HOST
 #define A_X_FF_INVAL A_URI_INVAL
-#define MAX_CONTENT_LENGTH_LEN 8
+#define INVALID_FIELD_PERIOD 5
+#define DUPLICATES_PERIOD 10
+#define MAX_DUPLICATES 9
+#define INVALID_BODY_PERIOD 5
 
 static const char *a_body = A_URI A_URI_INVAL;
 
 static struct {
-	int i;
 	int size;        /* the number of preset values */
 	int over;        /* the number of generated values */
 	char *a_val;     /* the valid alphabet for generated values */
@@ -137,64 +139,62 @@ static struct {
 	int max_val_len;
 } gen_vector[N_FIELDS] = {
 	/* SPACES */
-	{0, sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
+	{sizeof(spaces) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* METHOD */
-	{0, sizeof(methods) / sizeof(fuzz_msg), 0, NULL, NULL},
+	{sizeof(methods) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* HTTP_VER */
-	{0, sizeof(versions) / sizeof(fuzz_msg), 0, NULL, NULL},
+	{sizeof(versions) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* RESP_CODE */
-	{0, sizeof(resp_code) / sizeof(fuzz_msg), 0, NULL, NULL},
+	{sizeof(resp_code) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* URI_PATH_START */
-	{0, sizeof(uri_path_start) / sizeof(fuzz_msg), 0, NULL, NULL},
+	{sizeof(uri_path_start) / sizeof(fuzz_msg), 0, NULL, NULL},
 	/* URI_FILE */
-	{0, sizeof(uri_file) / sizeof(fuzz_msg), 2, A_URI, A_URI_INVAL},
+	{sizeof(uri_file) / sizeof(fuzz_msg), 2, A_URI, A_URI_INVAL},
 	/* CONNECTION */
-	{0, sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 0},
+	{sizeof(conn_val) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 0},
 	/* USER_AGENT*/
-	{0, sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 1, 1},
+	{sizeof(ua_val) / sizeof(fuzz_msg), 2, A_UA, A_UA_INVAL, 1, 1},
 	/* HOST */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1, 1},
+	{sizeof(host_val) / sizeof(fuzz_msg), 2, A_HOST, A_HOST_INVAL, 1, 1},
 	/* X_FORWARDED_FOR */
-	{0, sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF_INVAL, 0, 1},
+	{sizeof(host_val) / sizeof(fuzz_msg), 2, A_X_FF, A_X_FF_INVAL, 0, 1},
 	/* CONTENT_TYPE */
-	{0, sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
+	{sizeof(content_type) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* CONTENT_LENGTH */
-	{0, sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1,
+	{sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1,
 		MAX_CONTENT_LENGTH_LEN},
 	/* TRANSFER_ENCODING */
-	{0, sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT */
-	{0, sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_LANGUAGE */
-	{0, sizeof(accept_language) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(accept_language) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_ENCODING */
-	{0, sizeof(accept_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(accept_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_RANGES */
-	{0, sizeof(accept_ranges) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(accept_ranges) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* COOKIE */
-	{0, sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
+	{sizeof(cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* SET_COOKIE */
-	{0, sizeof(set_cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(set_cookie) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ETAG */
-	{0, sizeof(etag) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(etag) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* SERVER */
-	{0, sizeof(server) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(server) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* CACHE_CONTROL */
-	{0, sizeof(cache_control) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(cache_control) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* EXPIRES */
-	{0, sizeof(expires) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(expires) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* TRANSFER_ENCODING_NUM */
-	{0, 2, 0, NULL, NULL},
+	{2, 0, NULL, NULL},
 	/* URI_PATH_DEPTH */
-	{0, 2, 0, NULL, NULL},
+	{2, 0, NULL, NULL},
 	/* BODY_CHUNKS_NUM */
-	{0, 3, 0, NULL, NULL},
+	{3, 0, NULL, NULL},
 };
 
-static bool is_only_valid = false;
-
 static int
-gen_vector_move(int i)
+gen_vector_move(TfwFuzzContext *context, int i)
 {
 	int max;
 
@@ -203,15 +203,16 @@ gen_vector_move(int i)
 
 	max = gen_vector[i].size + gen_vector[i].over - 1;
 	do {
-		if (gen_vector[i].i++ == max) {
-			gen_vector[i].i = 0;
-			if (gen_vector_move(i + 1) == FUZZ_END)
+		context->i[i]++;
+		if (context->i[i] > max) {
+			context->i[i] = 0;
+			if (gen_vector_move(context, i + 1) == FUZZ_END)
 				return FUZZ_END;
 		}
-	} while (is_only_valid &&
+	} while (context->is_only_valid &&
 		 vals[i] &&
-		 gen_vector[i].i < gen_vector[i].size &&
-		 vals[i][gen_vector[i].i].inval);
+		 context->i[i] < gen_vector[i].size &&
+		 vals[i][context->i[i]].inval);
 
 	return FUZZ_VALID;
 }
@@ -247,13 +248,8 @@ add_rand_string(char **p, char *end, int n, const char *seed)
 		addch(p, end, seed[((i + 333) ^ seed[i % len]) % len]);
 }
 
-#define INVALID_FIELD_PERIOD 5
-
-static bool is_chancked_body = false;
-static char content_length[MAX_CONTENT_LENGTH_LEN + 1];
-
 static int
-__add_field(char **p, char *end, int t, int n)
+__add_field(TfwFuzzContext *context, char **p, char *end, int t, int n)
 {
 	fuzz_msg *val;
 
@@ -269,7 +265,7 @@ __add_field(char **p, char *end, int t, int n)
 		add_string(p, end, r.s);
 
 		if (t == TRANSFER_ENCODING && n == 0) {
-			is_chancked_body = true;
+			context->is_chanked_body = true;
 		}
 
 		return r.inval;
@@ -279,7 +275,7 @@ __add_field(char **p, char *end, int t, int n)
 		int r;
 
 		if (n % INVALID_FIELD_PERIOD ||
-		    is_only_valid)
+		    context->is_only_valid)
 		{
 			if (gen_vector[t].max_val_len)
 				len = gen_vector[t].max_val_len;
@@ -291,10 +287,10 @@ __add_field(char **p, char *end, int t, int n)
 		}
 
 		if (t == CONTENT_LENGTH && r == FUZZ_VALID) {
-			strncpy(content_length, v, len);
-			content_length[len] = '\0';
+			strncpy(context->content_length, v, len);
+			context->content_length[len] = '\0';
 		} else {
-			content_length[0] = '\0';
+			context->content_length[0] = '\0';
 		}
 
 		return r;
@@ -302,13 +298,13 @@ __add_field(char **p, char *end, int t, int n)
 }
 
 static int
-add_field(char **p, char *end, int t)
+add_field(TfwFuzzContext *context, char **p, char *end, int t)
 {
-	return __add_field(p, end, t, gen_vector[t].i);
+	return __add_field(context, p, end, t, context->i[t]);
 }
 
 static int
-__add_header(char **p, char *end, int t, int n)
+__add_header(TfwFuzzContext *context, char **p, char *end, int t, int n)
 {
 	int v = 0, i;
 	char *key;
@@ -321,12 +317,12 @@ __add_header(char **p, char *end, int t, int n)
 	BUG_ON(!key);
 
 	add_string(p, end, key);
-	v |= add_field(p, end, SPACES);
-	v |= add_field(p, end, t);
+	v |= add_field(context, p, end, SPACES);
+	v |= add_field(context, p, end, t);
 	for (i = 0; i < n; ++i) {
 		addch(p, end, ',');
-		v |= add_field(p, end, SPACES);
-		v |= __add_field(p, end, t, (i * 256) %
+		v |= add_field(context, p, end, SPACES);
+		v |= __add_field(context, p, end, t, (i * 256) %
 			(gen_vector[t].size + gen_vector[t].over));
 	}
 
@@ -336,31 +332,29 @@ __add_header(char **p, char *end, int t, int n)
 }
 
 static int
-add_header(char **p, char *end, int t)
+add_header(TfwFuzzContext *context, char **p, char *end, int t)
 {
-	return __add_header(p, end, t, 0);
+	return __add_header(context, p, end, t, 0);
 }
 
-#define INVALID_BODY_PERIOD 5
-
 static int
-add_body(char **p, char *end, int type)
+add_body(TfwFuzzContext *context, char **p, char *end, int type)
 {
 	size_t len = 0, i, j;
 	char *len_str;
 	int err, ret = FUZZ_VALID;
 
-	i = gen_vector[CONTENT_LENGTH].i;
+	i = context->i[CONTENT_LENGTH];
 	len_str = (i < gen_vector[CONTENT_LENGTH].size)? content_len[i].s:
-							 content_length;
+							 context->content_length;
 
 	err = kstrtoul(len_str, 10, &len);
 	if (err) {
 		return FUZZ_INVALID;
 	}
 
-	if (!is_chancked_body) {
-		if (!is_only_valid &&
+	if (!context->is_chanked_body) {
+		if (!context->is_only_valid &&
 		    len != 0 && !(i % INVALID_BODY_PERIOD))
 		{
 			len /= 2;
@@ -370,7 +364,7 @@ add_body(char **p, char *end, int type)
 		add_rand_string(p, end, len, a_body);
 	}
 	else {
-		int chunks = gen_vector[BODY_CHUNKS_NUM].i + 1;
+		int chunks = context->i[BODY_CHUNKS_NUM] + 1;
 		size_t chlen, rem, step;
 
 		BUG_ON(chunks <= 0);
@@ -392,7 +386,7 @@ add_body(char **p, char *end, int type)
 				add_string(p, end, buf);
 				add_string(p, end, "\r\n");
 
-				if (!is_only_valid &&
+				if (!context->is_only_valid &&
 				    step != 0 && !(i % INVALID_BODY_PERIOD))
 				{
 					step /= 2;
@@ -412,32 +406,28 @@ add_body(char **p, char *end, int type)
 	return ret;
 }
 
-#define DUPLICATES_PERIOD 10
-#define MAX_DUPLICATES 9
-
-static int curr_duplicates = 0;
-
 static int
-__add_duplicates(char **p, char *end, int t, int n)
+__add_duplicates(TfwFuzzContext *context, char **p, char *end, int t, int n)
 {
-	int i, tmp, v = FUZZ_VALID;
+	int i, tmp = 0, v = FUZZ_VALID;
 
-	if (curr_duplicates++ % DUPLICATES_PERIOD)
+	if (context->curr_duplicates++ % DUPLICATES_PERIOD)
 		return FUZZ_VALID;
 
-	if (is_only_valid && gen_vector[t].singular)
+	if (context->is_only_valid && gen_vector[t].singular)
 		return FUZZ_VALID;
 
-	for (i = 0; i < curr_duplicates % MAX_DUPLICATES; ++i) {
+	for (i = 0; i < context->curr_duplicates % MAX_DUPLICATES; ++i) {
 		if (gen_vector[t].dissipation) {
-			tmp = gen_vector[t].i;
-			gen_vector[t].i = (gen_vector[t].i + i) % gen_vector[t].size;
+			tmp = context->i[t];
+			context->i[t] = (context->i[t] + i)
+						  % gen_vector[t].size;
 		}
 
-		v |= __add_header(p, end, t, n);
+		v |= __add_header(context, p, end, t, n);
 
 		if (gen_vector[t].dissipation) {
-			gen_vector[t].i = tmp;
+			context->i[t] = tmp;
 		}
 	}
 
@@ -448,10 +438,25 @@ __add_duplicates(char **p, char *end, int t, int n)
 }
 
 static int
-add_duplicates(char **p, char *end, int t)
+add_duplicates(TfwFuzzContext *context, char **p, char *end, int t)
 {
-	return __add_duplicates(p, end, t, 0);
+	return __add_duplicates(context, p, end, t, 0);
 }
+
+void
+fuzz_init(TfwFuzzContext *context, bool is_only_valid)
+{
+	int i;
+	for (i = 0; i < N_FIELDS; i++)
+	{
+		context->i[i] = 0;
+	}
+
+	context->is_only_valid = is_only_valid;
+	context->is_chanked_body = false;
+	context->curr_duplicates = 0;
+}
+EXPORT_SYMBOL(fuzz_init);
 
 /* Returns:
  * FUZZ_VALID if the result is a valid request,
@@ -460,96 +465,99 @@ add_duplicates(char **p, char *end, int t)
  * `move` is how many gen_vector's elements should be changed
  * each time a new request is generated, should be >= 1. */
 int
-fuzz_gen(char *str, char *end, field_t start, int move, int type)
+fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
+	 int move, int type)
 {
 	int i, n, ret = FUZZ_VALID, v = 0;
+
+	context->is_chanked_body = false;
 
 	if (str == NULL)
 		return -EINVAL;
 
 	if (type == FUZZ_REQ) {
-		v |= add_field(&str, end, METHOD);
+		v |= add_field(context, &str, end, METHOD);
 		addch(&str, end, ' ');
 
-		v |= add_field(&str, end, URI_PATH_START);
+		v |= add_field(context, &str, end, URI_PATH_START);
 		addch(&str, end, '/');
-		v |= add_field(&str, end, HOST);
-		for (i = 0; i < gen_vector[URI_PATH_DEPTH].i + 1; ++i) {
+		v |= add_field(context, &str, end, HOST);
+		for (i = 0; i < context->i[URI_PATH_DEPTH] + 1; ++i) {
 			addch(&str, end, '/');
-			v |= add_field(&str, end, URI_FILE);
+			v |= add_field(context, &str, end, URI_FILE);
 		}
 		addch(&str, end, ' ');
 	}
 
 	add_string(&str, end, "HTTP/");
-	v |= add_field(&str, end, HTTP_VER);
+	v |= add_field(context, &str, end, HTTP_VER);
 
 	if (type == FUZZ_RESP) {
 		addch(&str, end, ' ');
-		v |= add_field(&str, end, SPACES);
-		v |= add_field(&str, end, RESP_CODE);
+		v |= add_field(context, &str, end, SPACES);
+		v |= add_field(context, &str, end, RESP_CODE);
 	}
 
 	add_string(&str, end, "\r\n");
 
 	if (type == FUZZ_REQ) {
-		v |= add_header(&str, end, HOST);
-		v |= add_duplicates(&str, end, HOST);
+		v |= add_header(context, &str, end, HOST);
+		v |= add_duplicates(context, &str, end, HOST);
 
-		v |= add_header(&str, end, ACCEPT);
-		v |= add_duplicates(&str, end, ACCEPT);
+		v |= add_header(context, &str, end, ACCEPT);
+		v |= add_duplicates(context, &str, end, ACCEPT);
 
-		v |= add_header(&str, end, ACCEPT_LANGUAGE);
-		v |= add_duplicates(&str, end, ACCEPT_LANGUAGE);
+		v |= add_header(context, &str, end, ACCEPT_LANGUAGE);
+		v |= add_duplicates(context, &str, end, ACCEPT_LANGUAGE);
 
-		v |= add_header(&str, end, ACCEPT_ENCODING);
-		v |= add_duplicates(&str, end, ACCEPT_ENCODING);
+		v |= add_header(context, &str, end, ACCEPT_ENCODING);
+		v |= add_duplicates(context, &str, end, ACCEPT_ENCODING);
 
-		v |= add_header(&str, end, COOKIE);
-		v |= add_duplicates(&str, end, COOKIE);
+		v |= add_header(context, &str, end, COOKIE);
+		v |= add_duplicates(context, &str, end, COOKIE);
 
-		v |= add_header(&str, end, X_FORWARDED_FOR);
-		v |= add_duplicates(&str, end, X_FORWARDED_FOR);
+		v |= add_header(context, &str, end, X_FORWARDED_FOR);
+		v |= add_duplicates(context, &str, end, X_FORWARDED_FOR);
 
-		v |= add_header(&str, end, USER_AGENT);
-		v |= add_duplicates(&str, end, USER_AGENT);
+		v |= add_header(context, &str, end, USER_AGENT);
+		v |= add_duplicates(context, &str, end, USER_AGENT);
 	}
 	else if (type == FUZZ_RESP) {
-		v |= add_header(&str, end, ACCEPT_RANGES);
-		v |= add_duplicates(&str, end, ACCEPT_RANGES);
+		v |= add_header(context, &str, end, ACCEPT_RANGES);
+		v |= add_duplicates(context, &str, end, ACCEPT_RANGES);
 
-		v |= add_header(&str, end, SET_COOKIE);
-		v |= add_duplicates(&str, end, SET_COOKIE);
+		v |= add_header(context, &str, end, SET_COOKIE);
+		v |= add_duplicates(context, &str, end, SET_COOKIE);
 
-		v |= add_header(&str, end, ETAG);
-		v |= add_duplicates(&str, end, ETAG);
+		v |= add_header(context, &str, end, ETAG);
+		v |= add_duplicates(context, &str, end, ETAG);
 
-		v |= add_header(&str, end, SERVER);
-		v |= add_duplicates(&str, end, SERVER);
+		v |= add_header(context, &str, end, SERVER);
+		v |= add_duplicates(context, &str, end, SERVER);
 
-		v |= add_header(&str, end, EXPIRES);
-		v |= add_duplicates(&str, end, EXPIRES);
+		v |= add_header(context, &str, end, EXPIRES);
+		v |= add_duplicates(context, &str, end, EXPIRES);
 	}
 
-	v |= add_header(&str, end, CONNECTION);
-	v |= add_duplicates(&str, end, CONNECTION);
+	v |= add_header(context, &str, end, CONNECTION);
+	v |= add_duplicates(context, &str, end, CONNECTION);
 
-	v |= add_header(&str, end, CONTENT_TYPE);
-	v |= add_duplicates(&str, end, CONTENT_TYPE);
+	v |= add_header(context, &str, end, CONTENT_TYPE);
+	v |= add_duplicates(context, &str, end, CONTENT_TYPE);
 
-	v |= add_header(&str, end, CONTENT_LENGTH);
-	v |= add_duplicates(&str, end, CONTENT_LENGTH);
+	v |= add_header(context, &str, end, CONTENT_LENGTH);
+	v |= add_duplicates(context, &str, end, CONTENT_LENGTH);
 
-	n = gen_vector[TRANSFER_ENCODING_NUM].i;
-	v |= __add_header(&str, end, TRANSFER_ENCODING, n);
-	v |= __add_duplicates(&str, end, TRANSFER_ENCODING, n);
+	n = context->i[TRANSFER_ENCODING_NUM];
+	v |= __add_header(context, &str, end, TRANSFER_ENCODING, n);
+	v |= __add_duplicates(context, &str, end, TRANSFER_ENCODING, n);
 
-	v |= add_header(&str, end, CACHE_CONTROL);
-	v |= add_duplicates(&str, end, CACHE_CONTROL);
+	v |= add_header(context, &str, end, CACHE_CONTROL);
+	v |= add_duplicates(context, &str, end, CACHE_CONTROL);
 
 	add_string(&str, end, "\r\n");
 
-	v |= add_body(&str, end, type);
+	v |= add_body(context, &str, end, type);
 
 	if (str < end) {
 		*str = '\0';
@@ -559,7 +567,7 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 	}
 
 	for (i = 0; i < move; i++) {
-		ret = gen_vector_move(start);
+		ret = gen_vector_move(context, start);
 		if (ret == FUZZ_END)
 			break;
 	}
@@ -569,23 +577,3 @@ fuzz_gen(char *str, char *end, field_t start, int move, int type)
 	return ret;
 }
 EXPORT_SYMBOL(fuzz_gen);
-
-void
-fuzz_reset(void)
-{
-	int i;
-	for (i = 0; i < N_FIELDS; i++)
-	{
-		gen_vector[i].i = 0;
-	}
-
-	curr_duplicates = 0;
-}
-EXPORT_SYMBOL(fuzz_reset);
-
-void
-fuzz_set_only_valid_gen(bool value)
-{
-	is_only_valid = value;
-}
-EXPORT_SYMBOL(fuzz_set_only_valid_gen);
