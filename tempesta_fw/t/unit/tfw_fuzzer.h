@@ -3,6 +3,17 @@
 
 #define MAX_CONTENT_LENGTH_LEN 8
 
+enum {
+	FUZZ_VALID,
+	FUZZ_INVALID,
+	FUZZ_END
+};
+
+enum {
+	FUZZ_REQ,
+	FUZZ_RESP
+};
+
 typedef enum {
 	SPACES,
 	METHOD,
@@ -37,7 +48,7 @@ typedef enum {
 typedef struct {
 	int i[N_FIELDS];
 	bool is_only_valid;
-	bool is_chancked_body;
+	bool is_chanked_body;
 	char content_length[MAX_CONTENT_LENGTH_LEN + 1];
 	int curr_duplicates;
 } TfwFuzzContext;
@@ -46,16 +57,5 @@ void fuzz_init(TfwFuzzContext *context, bool is_only_valid);
 
 int fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
 	     int move, int type);
-
-enum {
-	FUZZ_VALID,
-	FUZZ_INVALID,
-	FUZZ_END
-};
-
-enum {
-	FUZZ_REQ,
-	FUZZ_RESP
-};
 
 #endif /* __TFW_FUZZER_H__ */
