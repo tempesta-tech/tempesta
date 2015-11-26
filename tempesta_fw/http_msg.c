@@ -618,6 +618,7 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 
 	return hm;
 }
+EXPORT_SYMBOL(tfw_http_msg_create);
 
 /*
  * Fill up an HTTP message @hm with data from string @data.
@@ -683,6 +684,7 @@ this_chunk:
 
 	return 0;
 }
+EXPORT_SYMBOL(tfw_http_msg_write);
 
 /**
  * Like tfw_http_msg_write(), but properly initialize HTTP message fields,
@@ -769,6 +771,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	}
 	tfw_pool_destroy(m->pool);
 }
+EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
  * Allocate a new HTTP message.
