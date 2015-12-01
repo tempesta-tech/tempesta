@@ -41,7 +41,7 @@
 #include "ssl.h"
 #include "ssl_internal.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_X509_CRT_PARSE_C) && \
     defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)

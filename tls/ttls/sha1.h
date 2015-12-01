@@ -32,7 +32,7 @@
 #endif
 
 #include <stddef.h>
-#include <stdint.h>
+#include <linux/types.h>
 
 #if !defined(MBEDTLS_SHA1_ALT)
 // Regular implementation

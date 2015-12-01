@@ -34,7 +34,7 @@
    is dependent upon MBEDTLS_PLATFORM_C */
 #include "platform.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_MEMORY_BACKTRACE)
 #include <execinfo.h>

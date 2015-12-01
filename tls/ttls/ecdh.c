@@ -38,7 +38,7 @@
 
 #include "ecdh.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 /*
  * Generate public key: simple wrapper around mbedtls_ecp_gen_keypair
