@@ -20,56 +20,21 @@
  */
 #include "sock_srv.c" 
 
-
 #include "connection.h"
 #include "sched_helper.h"
-#include "kallsyms_helper.h"
 #include "server.h"
-
-//TfwSrvConnection *tfw_srv_conn_alloc(void);
-//void tfw_srv_conn_free(TfwConnection *conn);
-
-/* Export syms*//*
-static TfwSrvGroup *(*tfw_sg_new_ptr)(const char *name, gfp_t flags);
-static int (*tfw_sg_set_sched_ptr)(TfwSrvGroup *sg, const char *sched);
-static TfwServer *(*tfw_create_server_ptr)(const TfwAddr *addr);
-static void (*tfw_sg_release_all_ptr)(void);
-static TfwSrvConnection *(*tfw_srv_conn_alloc_ptr)(void);
-static void (*tfw_srv_conn_free_ptr)(TfwSrvConnection *srv_conn);
-*/
-void
-sched_helper_init(void)
-{
-/*
-	tfw_sg_new_ptr = get_sym_ptr("tfw_sg_new");
-	tfw_sg_set_sched_ptr = get_sym_ptr("tfw_sg_set_sched");
-	tfw_create_server_ptr = get_sym_ptr("tfw_create_server");
-	tfw_sg_release_all_ptr = get_sym_ptr("tfw_sg_release_all");
-	tfw_srv_conn_alloc_ptr = get_sym_ptr("tfw_srv_conn_alloc");
-	tfw_srv_conn_free_ptr = get_sym_ptr("tfw_srv_conn_free");
-
-	BUG_ON(tfw_sg_new_ptr == NULL);
-	BUG_ON(tfw_sg_set_sched_ptr == NULL);
-	BUG_ON(tfw_create_server_ptr == NULL);
-	BUG_ON(tfw_sg_release_all_ptr == NULL);
-	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
-	BUG_ON(tfw_srv_conn_free_ptr == NULL);*/
-}
 
 TfwSrvGroup *
 test_create_sg(const char *name, const char *sched_name)
 {
 	TfwSrvGroup *sg;
 
-//	BUG_ON(tfw_sg_new_ptr == NULL);
 	sg = tfw_sg_new(name, GFP_KERNEL);
 	BUG_ON(!sg);
 
-//	BUG_ON(tfw_sg_set_sched_ptr == NULL);
 	{
 		int r = tfw_sg_set_sched(sg, sched_name);
-//		TFW_DBG("sched_sg_new:%d\n", r);
-//		BUG_ON(r);
+		BUG_ON(r);
 		if (r != 0)
 			sg = NULL;		
 	}
@@ -80,7 +45,6 @@ test_create_sg(const char *name, const char *sched_name)
 void
 test_sg_release_all(void)
 {
-//	BUG_ON(tfw_sg_release_all_ptr == NULL);
 	tfw_sg_release_all();
 }
 
@@ -95,7 +59,6 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 		BUG_ON(r);
 	}
 
-//	BUG_ON(tfw_create_server_ptr == NULL);
 	srv = tfw_create_server(&addr);
 	BUG_ON(!srv);
 
@@ -116,12 +79,6 @@ static struct sock __test_sock = {
 		test_conn_cache = kmem_cache_create("test_conn_cache", 
 						    sizeof(TestConnection), 0, 0, NULL);
 
-//	void (*tfw_connection_link_peer)(TfwConnection *conn,TfwPeer *peer);
-	
-//	tfw_connection_link_peer = get_sym_ptr("tfw_connection_link_peer");
-
-//	BUG_ON(tfw_connection_link_peer == NULL);
-//	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
 	srv_conn = (TestConnection *)kmem_cache_alloc(test_conn_cache, 
 						      GFP_ATOMIC);
 	tfw_connection_init(&srv_conn->conn);
@@ -150,7 +107,6 @@ test_conn_release_all(TfwSrvGroup *sg)
 			((TestConnection *)conn)->conn.sk = NULL;
 			tfw_connection_unlink_from_peer(
 					   &((TestConnection *)conn)->conn);
-//			BUG_ON(tfw_srv_conn_free_ptr == NULL);
 			test_conn_free((TestConnection *)conn);
 		}
 	}
