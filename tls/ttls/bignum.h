@@ -32,7 +32,7 @@
 #endif
 
 #include <stddef.h>
-#include <stdint.h>
+#include <linux/types.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>

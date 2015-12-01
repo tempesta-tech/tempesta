@@ -33,7 +33,7 @@
 #include "entropy_poll.h"
 
 #if defined(MBEDTLS_TIMING_C)
-#include <string.h>
+#include <linux/string.h>
 #include "timing.h"
 #endif
 #if defined(MBEDTLS_HAVEGE_C)

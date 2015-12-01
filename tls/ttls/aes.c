@@ -35,7 +35,7 @@
 
 #if defined(MBEDTLS_AES_C)
 
-#include <string.h>
+#include <linux/string.h>
 
 #include "aes.h"
 #if defined(MBEDTLS_PADLOCK_C)
