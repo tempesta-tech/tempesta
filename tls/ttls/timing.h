@@ -35,7 +35,7 @@
 // Regular implementation
 //
 
-#include <stdint.h>
+#include <linux/types.h>
 
 #ifdef __cplusplus
 extern "C" {

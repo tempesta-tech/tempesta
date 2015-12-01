@@ -29,7 +29,7 @@
 
 #if defined(MBEDTLS_ERROR_C) || defined(MBEDTLS_ERROR_STRERROR_DUMMY)
 #include "error.h"
-#include <string.h>
+#include <linux/string.h>
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)

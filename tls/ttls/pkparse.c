@@ -33,7 +33,7 @@
 #include "asn1.h"
 #include "oid.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_RSA_C)
 #include "rsa.h"
@@ -943,7 +943,7 @@ static int pk_parse_key_pkcs8_encrypted_der(
 {
     int ret, decrypted = 0;
     size_t len;
-    unsigned char buf[2048];
+    unsigned char buf[1024]; /*TODO: 2048*/
     unsigned char *p, *end;
     mbedtls_asn1_buf pbe_alg_oid, pbe_params;
 #if defined(MBEDTLS_PKCS12_C)

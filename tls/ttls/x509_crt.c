@@ -42,8 +42,8 @@
 #include "x509_crt.h"
 #include "oid.h"
 
-#include <stdio.h>
-#include <string.h>
+//#include <stdio.h> /*TODO: Uncomment*/
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
@@ -65,7 +65,7 @@
 #if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
 #include <windows.h>
 #else
-#include <time.h>
+//#include <time.h> /*TODO: Uncomment*/
 #endif
 
 #if defined(MBEDTLS_FS_IO)

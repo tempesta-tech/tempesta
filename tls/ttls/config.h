@@ -76,7 +76,7 @@
  *
  * Comment if your system does not support time functions
  */
-#define MBEDTLS_HAVE_TIME
+//#define MBEDTLS_HAVE_TIME
 
 /**
  * \def MBEDTLS_HAVE_TIME_DATE
@@ -88,7 +88,7 @@
  *
  * Comment if your system does not have a correct clock.
  */
-#define MBEDTLS_HAVE_TIME_DATE
+//#define MBEDTLS_HAVE_TIME_DATE
 
 /**
  * \def MBEDTLS_PLATFORM_MEMORY
@@ -112,7 +112,7 @@
  *
  * Enable this layer to allow use of alternative memory allocators.
  */
-//#define MBEDTLS_PLATFORM_MEMORY
+#define MBEDTLS_PLATFORM_MEMORY
 
 /**
  * \def MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
@@ -131,7 +131,7 @@
  * Uncomment to prevent default assignment of standard functions in the
  * platform layer.
  */
-//#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
+#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
 
 /**
  * \def MBEDTLS_PLATFORM_XXX_ALT
@@ -156,8 +156,8 @@
  */
 //#define MBEDTLS_PLATFORM_EXIT_ALT
 //#define MBEDTLS_PLATFORM_FPRINTF_ALT
-//#define MBEDTLS_PLATFORM_PRINTF_ALT
-//#define MBEDTLS_PLATFORM_SNPRINTF_ALT
+#define MBEDTLS_PLATFORM_PRINTF_ALT
+#define MBEDTLS_PLATFORM_SNPRINTF_ALT
 
 /**
  * \def MBEDTLS_DEPRECATED_WARNING
@@ -758,7 +758,7 @@
  *
  * Enable functions that use the filesystem.
  */
-#define MBEDTLS_FS_IO
+//#define MBEDTLS_FS_IO
 
 /**
  * \def MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES
@@ -782,7 +782,7 @@
  *
  * Uncomment this macro to disable the built-in platform entropy functions.
  */
-//#define MBEDTLS_NO_PLATFORM_ENTROPY
+#define MBEDTLS_NO_PLATFORM_ENTROPY
 
 /**
  * \def MBEDTLS_ENTROPY_FORCE_SHA256
@@ -1362,7 +1362,7 @@
  *
  * This modules adds support for the AES-NI instructions on x86-64
  */
-#define MBEDTLS_AESNI_C
+//#define MBEDTLS_AESNI_C
 
 /**
  * \def MBEDTLS_AES_C
@@ -1646,7 +1646,7 @@
  *
  * This module provides debugging functions.
  */
-#define MBEDTLS_DEBUG_C
+//#define MBEDTLS_DEBUG_C
 
 /**
  * \def MBEDTLS_DES_C
@@ -1776,7 +1776,7 @@
  *
  * This module enables mbedtls_strerror().
  */
-#define MBEDTLS_ERROR_C
+//#define MBEDTLS_ERROR_C
 
 /**
  * \def MBEDTLS_GCM_C
@@ -1905,7 +1905,7 @@
  *
  * This module provides TCP/IP networking routines.
  */
-#define MBEDTLS_NET_C
+//#define MBEDTLS_NET_C
 
 /**
  * \def MBEDTLS_OID_C
@@ -2021,7 +2021,7 @@
  *
  * Uncomment to enable generic public key write functions.
  */
-#define MBEDTLS_PK_WRITE_C
+//#define MBEDTLS_PK_WRITE_C
 
 /**
  * \def MBEDTLS_PKCS5_C
@@ -2273,7 +2273,7 @@
  *
  * This module is used by the HAVEGE random number generator.
  */
-#define MBEDTLS_TIMING_C
+//#define MBEDTLS_TIMING_C
 
 /**
  * \def MBEDTLS_VERSION_C
@@ -2358,7 +2358,7 @@
  *
  * This module is the basis for creating X.509 certificates and CSRs.
  */
-#define MBEDTLS_X509_CREATE_C
+//#define MBEDTLS_X509_CREATE_C
 
 /**
  * \def MBEDTLS_X509_CRT_WRITE_C
@@ -2371,7 +2371,7 @@
  *
  * This module is required for X.509 certificate creation.
  */
-#define MBEDTLS_X509_CRT_WRITE_C
+//#define MBEDTLS_X509_CRT_WRITE_C
 
 /**
  * \def MBEDTLS_X509_CSR_WRITE_C
@@ -2384,7 +2384,7 @@
  *
  * This module is required for X.509 certificate request writing.
  */
-#define MBEDTLS_X509_CSR_WRITE_C
+//#define MBEDTLS_X509_CSR_WRITE_C
 
 /**
  * \def MBEDTLS_XTEA_C
@@ -2414,7 +2414,7 @@
  */
 
 /* MPI / BIGNUM options */
-//#define MBEDTLS_MPI_WINDOW_SIZE            6 /**< Maximum windows size used. */
+#define MBEDTLS_MPI_WINDOW_SIZE            5 /*TODO: 6*/ /**< Maximum windows size used. */
 //#define MBEDTLS_MPI_MAX_SIZE            1024 /**< Maximum number of bytes for usable MPIs. */
 
 /* CTR_DRBG options */

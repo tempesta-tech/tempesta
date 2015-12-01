@@ -36,7 +36,7 @@
 
 #include "ctr_drbg.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
