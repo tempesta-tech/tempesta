@@ -18,9 +18,19 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
+//#include "sock_srv.c"
 #include "sched_helper.h"
 #include "test.h"
+
+#ifdef module_init
+#undef module_init
+#undef module_exit
+#define module_init(func)
+#define module_exit(func)
+#endif
+
+//#include "server.c"
+#include "../../sched/tfw_sched_rr.c"
 
 TEST(tfw_sched_rr, sg_empty)
 {
@@ -61,7 +71,7 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConnection *conn = test_create_conn((TfwPeer *)srv);
+		TestConnection *conn = test_create_conn((TfwPeer *)srv);
 		s ^= (long long)conn;
 	}
 	sg->sched->update_grp(sg);
@@ -108,7 +118,7 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *conn = test_create_conn((TfwPeer *)srv);
+			TestConnection *conn = test_create_conn((TfwPeer *)srv);
 			s ^= (long long)conn;
 		}
 	}
@@ -128,7 +138,9 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_rr)
 {
-	sched_helper_init();
+	tfw_server_init();
+	tfw_sched_rr_init();
+//	sched_helper_init();
 
 	TEST_RUN(tfw_sched_rr, sg_empty);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_zero_conn);

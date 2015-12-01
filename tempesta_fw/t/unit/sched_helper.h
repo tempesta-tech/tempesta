@@ -21,7 +21,13 @@
 
 #ifndef __TFW_SCHED_HELPER_H__
 #define __TFW_SCHED_HELPER_H__
-
+#include <linux/net.h>
+#include <linux/kthread.h>
+#include <linux/wait.h>
+#include <linux/freezer.h>
+#include <net/inet_sock.h>
+#include "tempesta_fw.h"
+#include "connection.h"
 #include "server.h"
 
 typedef struct {
@@ -29,8 +35,11 @@ typedef struct {
 	struct timer_list	retry_timer;
 	unsigned long		timeout;
 	unsigned int		attempts;
-} TfwSrvConnection;
+} TestConnection;
 
+//TfwSrvConnection *tfw_srv_conn_alloc(void);
+//void tfw_srv_conn_free( TfwSrvConnection *conn);
+int tfw_server_init(void);
 void sched_helper_init(void);
 
 TfwSrvGroup *test_create_sg(const char *name, const char *sched_name);
@@ -38,7 +47,7 @@ void test_sg_release_all(void);
 
 TfwServer *test_create_srv(const char *in_addr, TfwSrvGroup *sg);
 
-TfwSrvConnection *test_create_conn(TfwPeer *peer);
+TestConnection *test_create_conn(TfwPeer *peer);
 void test_conn_release_all(TfwSrvGroup *sg);
 
 #endif /* __TFW_SCHED_HELPER_H__ */

@@ -21,6 +21,7 @@
 #include "http_msg.h"
 #include "helpers.h"
 #include "kallsyms_helper.h"
+//#include "sock_srv.c"
 #include "sched_helper.h"
 #include "test.h"
 
@@ -60,7 +61,7 @@ cleanup_cfg(void)
 }
 
 static void
-test_req(char *req_str, TfwSrvConnection *expect_conn)
+test_req(char *req_str, TestConnection *expect_conn)
 {
 	TfwScheduler *sched;
 	TfwConnection *conn;
@@ -77,7 +78,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 
 	sched = tfw_sched_lookup_ptr("http");
 	conn = sched->sched_grp((TfwMsg *)req);
-	EXPECT_TRUE((TfwSrvConnection *)conn == expect_conn);
+	EXPECT_TRUE((TestConnection *)conn == expect_conn);
 
 	test_req_free(req);
 	tfw_connection_put(conn);
@@ -108,7 +109,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 {
 	TfwSrvGroup *sg;
 	TfwServer *srv;
-	TfwSrvConnection *expect_conn;
+	TestConnection *expect_conn;
 
 	sg = test_create_sg("default", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg);
@@ -130,7 +131,7 @@ TEST(tfw_sched_http, some_rules)
 {
 	TfwSrvGroup *sg1, *sg2, *sg3, *sg4, *sg5, *sg6, *sg7, *sg8, *sg9, *sg10;
 	TfwServer *srv;
-	TfwSrvConnection *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4, *expect_conn5,
+	TestConnection *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4, *expect_conn5,
 	                 *expect_conn6, *expect_conn7, *expect_conn8, *expect_conn9, *expect_conn10;
 
 	sg1 = test_create_sg("sg1", "round-robin");
@@ -291,7 +292,7 @@ TEST(tfw_sched_http, one_rule)
 	{
 		TfwSrvGroup *sg;
 		TfwServer *srv;
-		TfwSrvConnection *expect_conn;
+		TestConnection *expect_conn;
 
 		sg = test_create_sg("default", "round-robin");
 		srv = test_create_srv("127.0.0.1", sg);

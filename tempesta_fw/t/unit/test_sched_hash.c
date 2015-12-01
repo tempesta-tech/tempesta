@@ -22,14 +22,27 @@
 #include "http_msg.h"
 
 #include "helpers.h"
+//#include "sock_srv.c"
 #include "sched_helper.h"
 #include "test.h"
 #include "kallsyms_helper.h"
 
-char req_str1[] = "GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n";
-char req_str2[] = "GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n";
-char req_str3[] = "GET http://natsys-lab.com/foo/ HTTP/1.1\r\n\r\n";
-char req_str4[] = "GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n";
+#ifdef module_init
+#undef module_init
+#undef module_exit
+#define module_init(func)
+#define module_exit(func)
+#endif
+
+//#include "server.c"
+#include "../../sched/tfw_sched_hash.c"
+
+char req_str1[] =  "GET / HTTP/1.1\r\nhost:host1\r\n\r\n";
+char req_str2[] = "GET / HTTP/1.1\r\nhost:host2\r\n\r\n";
+char req_str3[] = "GET / HTTP/1.1\r\nhost:host3\r\n\r\n";
+
+char req_str4[] = "GET / HTTP/1.1\r\nhost:host4\r\n\r\n";
+
 
 char *req_strs[] = {
 	req_str1,
@@ -194,7 +207,9 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_hash)
 {
-	sched_helper_init();
+	tfw_sched_hash_init();
+	tfw_server_init();
+//	sched_helper_init();
 
 	tfw_http_parse_req_ptr = get_sym_ptr("tfw_http_parse_req");
 	BUG_ON(tfw_http_parse_req_ptr == NULL);
