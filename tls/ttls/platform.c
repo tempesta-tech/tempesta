@@ -29,15 +29,15 @@
 
 #if defined(MBEDTLS_PLATFORM_C)
 
+#include <linux/vmalloc.h>
+
 #include "platform.h"
 
 #if defined(MBEDTLS_PLATFORM_MEMORY)
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
 {
-    ((void) n);
-    ((void) size);
-    return( NULL );
+    return vmalloc(n * size);
 }
 
 #define MBEDTLS_PLATFORM_STD_CALLOC   platform_calloc_uninit
@@ -46,7 +46,7 @@ static void *platform_calloc_uninit( size_t n, size_t size )
 #if !defined(MBEDTLS_PLATFORM_STD_FREE)
 static void platform_free_uninit( void *ptr )
 {
-    ((void) ptr);
+    vfree(ptr);
 }
 
 #define MBEDTLS_PLATFORM_STD_FREE     platform_free_uninit
