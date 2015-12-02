@@ -262,7 +262,8 @@ tfw_bmb_msg_send(int threadn, int connn)
 	s = bmb_bufs[threadn];
 	do {
 		c++;
-		r = fuzz_gen(&bmb_contexts[threadn], s, s + BUF_SIZE, 0, 1, FUZZ_REQ);
+		r = fuzz_gen(&bmb_contexts[threadn], s, s + BUF_SIZE, 0, 1,
+			     FUZZ_REQ);
 		if (r == FUZZ_END) {
 			fuzz_init(&bmb_contexts[threadn], true);
 		}
@@ -274,6 +275,10 @@ tfw_bmb_msg_send(int threadn, int connn)
 	msg.flags = 0;
 
 	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
+	if (!req) {
+		TFW_WARN("Cannot create HTTP request.\n");
+		return;
+	}
 	tfw_http_msg_write(&it, req, &msg);
 	local_bh_disable();
 	ss_send(desc->sk, &req->msg.skb_list, false);
