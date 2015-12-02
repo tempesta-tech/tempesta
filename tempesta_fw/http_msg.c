@@ -584,6 +584,7 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 					 SS_SKB_MAX_DATA_LEN));
 		if (!skb)
 			return -ENOMEM;
+		TFW_DBG3("%s alloc skb=%p\n", __func__, skb);
 		ss_skb_queue_tail(&hm->msg.skb_list, skb);
 	}
 
@@ -605,7 +606,9 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 		return NULL;
 
 	hm = tfw_http_msg_alloc(type);
-	if (hm && __msg_alloc_skb_data(hm, data_len)) {
+	if (!hm)
+		return NULL;
+	if (__msg_alloc_skb_data(hm, data_len)) {
 		tfw_http_msg_free(hm);
 		return NULL;
 	}
