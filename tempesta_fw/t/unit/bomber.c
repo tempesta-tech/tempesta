@@ -58,7 +58,6 @@ MODULE_LICENSE("GPL");
 #endif
 #define TFW_BANNER		"[tfw_bomber] "
 
-#define WAIT_INTVL		(2)		/* in seconds */
 #define WAIT_MAX		(1 * 60)	/* in seconds */
 
 #define CONNECT_STARTED 	(0x0001)
@@ -91,6 +90,7 @@ static int **bmb_rdconn;
 static atomic_t bmb_conn_nattempt_all;
 static atomic_t bmb_conn_ncomplete_all;
 static atomic_t bmb_conn_nerror_all;
+static atomic_t bmb_conn_drop;
 static atomic_t bmb_request_nsend_all;
 
 static int *bmb_conn_nattempt;
@@ -128,65 +128,58 @@ tfw_bmb_conn_complete(struct sock *sk)
 	desc->flags |= CONNECT_ESTABLISHED;
 
 	end = atomic_read(&bmb_rdconn_end[threadn]);
-	bmb_rdconn[threadn][end + 1] = connn;
+	bmb_rdconn[threadn][end] = connn;
 	atomic_inc(&bmb_rdconn_end[threadn]);
 
 	atomic_inc(&bmb_conn_ncomplete[threadn]);
+
 	wake_up(&bmb_conn_wq[threadn]);
+
+	return 0;
+}
+
+static int
+__update_conn(struct sock *sk, int flags)
+{
+	int threadn, connn;
+	TfwConDesc *desc;
+	SsProto *proto;
+
+	proto = (SsProto *)sk->sk_user_data;
+	BUG_ON(proto == NULL);
+
+	threadn = proto->type / nconnects;
+	connn = proto->type % nconnects;
+
+	desc = &bmb_desc[threadn][connn];
+	BUG_ON(desc->proto.type != proto->type);
+	BUG_ON(desc->proto.listener != NULL);
+	BUG_ON(desc->proto.hooks != &bmb_hooks);
+	BUG_ON(desc->sk && (desc->sk != sk));
+
+	desc->sk = NULL;
+	desc->flags |= flags;
+
+	wake_up(&bmb_conn_wq[threadn]);
+
 	return 0;
 }
 
 static int
 tfw_bmb_conn_close(struct sock *sk)
 {
-	int idx, threadn, connn;
-	TfwConDesc *desc;
-	SsProto *proto;
-
-	proto = (SsProto *)sk->sk_user_data;
-	BUG_ON(proto == NULL);
-
-	idx = proto->type;
-	threadn = idx / nconnects;
-	connn = idx % nconnects;
-
-	desc = &bmb_desc[threadn][connn];
-	BUG_ON(desc->proto.type != idx);
-	BUG_ON(desc->proto.listener != NULL);
-	BUG_ON(desc->proto.hooks != &bmb_hooks);
-	BUG_ON(desc->sk && (desc->sk != sk));
-
-	desc->sk = NULL;
-	desc->flags |= CONNECT_CLOSED;
-	wake_up(&bmb_conn_wq[threadn]);
-	return 0;
+	return __update_conn(sk, CONNECT_CLOSED);
 }
 
 static int
 tfw_bmb_conn_error(struct sock *sk)
 {
-	int idx, threadn, connn;
-	TfwConDesc *desc;
-	SsProto *proto;
+	SsProto *proto = (SsProto *)sk->sk_user_data;
 
-	proto = (SsProto *)sk->sk_user_data;
 	BUG_ON(proto == NULL);
+	atomic_inc(&bmb_conn_nerror[proto->type / nconnects]);
 
-	idx = proto->type;
-	threadn = idx / nconnects;
-	connn = idx % nconnects;
-
-	desc = &bmb_desc[threadn][connn];
-	BUG_ON(desc->proto.type != idx);
-	BUG_ON(desc->proto.listener != NULL);
-	BUG_ON(desc->proto.hooks != &bmb_hooks);
-	BUG_ON(desc->sk && (desc->sk != sk));
-
-	desc->sk = NULL;
-	desc->flags |= CONNECT_ERROR;
-	atomic_inc(&bmb_conn_nerror[threadn]);
-	wake_up(&bmb_conn_wq[threadn]);
-	return 0;
+	return __update_conn(sk, CONNECT_ERROR);
 }
 
 static SsHooks bmb_hooks = {
@@ -198,11 +191,10 @@ static SsHooks bmb_hooks = {
 static int
 tfw_bmb_connect(int threadn, int connn)
 {
-	int idx, ret;
+	int ret;
 	struct sock *sk;
 	TfwConDesc *desc;
 
-	idx = threadn * nconnects + connn;
 	desc = &bmb_desc[threadn][connn];
 
 	ret = ss_sock_create(bmb_server_address.sa.sa_family, SOCK_STREAM,
@@ -213,7 +205,7 @@ tfw_bmb_connect(int threadn, int connn)
 		return ret;
 	}
 
-	ss_proto_init(&desc->proto, &bmb_hooks, idx);
+	ss_proto_init(&desc->proto, &bmb_hooks, threadn * nconnects + connn);
 	sk->sk_user_data = &desc->proto;
 	ss_set_callbacks(sk);
 
@@ -291,42 +283,36 @@ tfw_bmb_msg_send(int threadn, int connn)
 static int
 tfw_bmb_worker(void *data)
 {
-	int threadn = (int)(long)data;
+	int thr_n = (int)(long)data;
+	int nattempt, nsend, k, i;
 	uint64_t time_max;
-	int nattempt, ncompl, nerror, nsend, end, k, i, c;
 
-	fuzz_init(&bmb_contexts[threadn], true);
+	fuzz_init(&bmb_contexts[thr_n], true);
 
 	for (k = 0; k < niters; k++) {
-		bmb_conn_nattempt[threadn] = 0;
-		atomic_set(&bmb_conn_ncomplete[threadn], 0);
-		atomic_set(&bmb_conn_nerror[threadn], 0);
-		atomic_set(&bmb_rdconn_end[threadn], -1);
-		init_waitqueue_head(&bmb_conn_wq[threadn]);
+		bmb_conn_nattempt[thr_n] = 0;
+		atomic_set(&bmb_conn_ncomplete[thr_n], 0);
+		atomic_set(&bmb_conn_nerror[thr_n], 0);
+		atomic_set(&bmb_rdconn_end[thr_n], 0);
+		init_waitqueue_head(&bmb_conn_wq[thr_n]);
 
-		for (i = 0; i < nconnects; i++) {
-			tfw_bmb_connect(threadn, i);
-		}
+		for (i = 0; i < nconnects; i++)
+			tfw_bmb_connect(thr_n, i);
 
 		set_freezable();
 		time_max = (uint64_t)get_seconds() + WAIT_MAX;
-		nattempt = bmb_conn_nattempt[threadn];
-		ncompl = 0;
-		nerror = 0;
+		nattempt = bmb_conn_nattempt[thr_n];
 		do {
-			ncompl = atomic_read(&bmb_conn_ncomplete[threadn]);
-			if (ncompl > 0) {
+#define COND()	(atomic_read(&bmb_conn_ncomplete[thr_n]) > 0		\
+		 || atomic_read(&bmb_conn_nerror[thr_n]) == nattempt)
+
+			wait_event_freezable_timeout(bmb_conn_wq[thr_n],
+						     COND(), HZ);
+#undef COND
+			if (atomic_read(&bmb_conn_ncomplete[thr_n]) > 0)
 				break;
-			}
-
-			nerror = atomic_read(&bmb_conn_nerror[threadn]);
-			if (nerror == nattempt) {
+			if (atomic_read(&bmb_conn_nerror[thr_n]) == nattempt) 
 				goto release_sockets;
-			}
-
-			wait_event_freezable_timeout(bmb_conn_wq[threadn],
-						     kthread_should_stop(),
-						     WAIT_INTVL * HZ);
 			if ((uint64_t)get_seconds() > time_max) {
 				TFW_ERR("%s exceeded maximum wait time of \
 					%d sec\n", "worker", WAIT_MAX);
@@ -334,29 +320,32 @@ tfw_bmb_worker(void *data)
 			}
 		} while (!kthread_should_stop());
 
-		nsend = 0;
-		while (nsend < nconnects * nmessages) {
-			end = atomic_read(&bmb_rdconn_end[threadn]);
+		for (nsend = 0; nsend < nconnects * nmessages; ) {
+			int end = atomic_read(&bmb_rdconn_end[thr_n]);
 			for (i = 0; i < end; i++){
-				c = bmb_rdconn[threadn][i];
-				if (bmb_desc[threadn][c].sk) {
-					tfw_bmb_msg_send(threadn, c);
-				}
+				int c = bmb_rdconn[thr_n][i];
+				if (bmb_desc[thr_n][c].sk)
+					tfw_bmb_msg_send(thr_n, c);
+				else
+					/* Connection is dropped. */
+					atomic_inc(&bmb_conn_drop);
 				nsend++;
 			}
 		}
 
 release_sockets:
 		atomic_add(nattempt, &bmb_conn_nattempt_all);
-		atomic_add(ncompl, &bmb_conn_ncomplete_all);
-		atomic_add(nerror, &bmb_conn_nerror_all);
+		atomic_add(atomic_read(&bmb_conn_ncomplete[thr_n]),
+			   &bmb_conn_ncomplete_all);
+		atomic_add(atomic_read(&bmb_conn_nerror[thr_n]),
+			   &bmb_conn_nerror_all);
 
-		tfw_bmb_release_sockets(threadn);
+		tfw_bmb_release_sockets(thr_n);
 	}
 
 	do_gettimeofday(&bmb_tve);
 
-	bmb_tasks[threadn] = NULL;
+	bmb_tasks[thr_n] = NULL;
 	atomic_dec(&bmb_nthread);
 	wake_up(&bmb_task_wq);
 
@@ -379,26 +368,20 @@ tfw_bmb_stop_threads(void)
 static void
 tfw_bmb_report(void)
 {
-	int nattempt, ncomplete, nerror, nsend;
-	long usec;
-
-	nattempt = atomic_read(&bmb_conn_nattempt_all);
-	ncomplete = atomic_read(&bmb_conn_ncomplete_all);
-	nerror = atomic_read(&bmb_conn_nerror_all);
-	nsend = atomic_read(&bmb_request_nsend_all);
-	usec = (bmb_tve.tv_sec - bmb_tvs.tv_sec) * 1000000 +
-	       (bmb_tve.tv_usec - bmb_tvs.tv_usec);
-
-	printk("Initiated %d connects\n", nconnects * niters * nthreads);
-	printk("Of those %d connects initiated successfully\n",
-		nattempt);
-	printk("Of those %d connections were established successfully\n",
-		ncomplete);
-	printk("and %d connections completed with error\n",
-		nerror);
-	printk("and %d requests sent\n",
-		nsend);
-	printk("Total time: %ld usec\n", usec);
+	TFW_LOG("BOMBER SUMMARY:");
+	TFW_LOG("  total connections: %d\n", nconnects * niters * nthreads);
+	TFW_LOG("  attempred connections: %d\n",
+		atomic_read(&bmb_conn_nattempt_all));
+	TFW_LOG("  completed connections: %d\n",
+		atomic_read(&bmb_conn_ncomplete_all));
+	TFW_LOG("  error connections: %d\n",
+		atomic_read(&bmb_conn_nerror_all));
+	TFW_LOG("  dropped connections: %d\n", atomic_read(&bmb_conn_drop));
+	TFW_LOG("  total requests: %d\n",
+		atomic_read(&bmb_request_nsend_all));
+	TFW_LOG("  total time: %ldusec\n",
+		(bmb_tve.tv_sec - bmb_tvs.tv_sec) * 1000000
+		+ bmb_tve.tv_usec - bmb_tvs.tv_usec);
 }
 
 static int
@@ -447,7 +430,7 @@ tfw_bmb_alloc(void)
 		bmb_desc[i] = p;
 		p += nconnects * sizeof(TfwConDesc);
 
-		bmb_rdconn[i] = p;;
+		bmb_rdconn[i] = p;
 		p += nconnects * sizeof(int);
 
 		bmb_bufs[i] = p;
@@ -490,6 +473,7 @@ tfw_bmb_init(void)
 	atomic_set(&bmb_conn_nattempt_all, 0);
 	atomic_set(&bmb_conn_ncomplete_all, 0);
 	atomic_set(&bmb_conn_nerror_all, 0);
+	atomic_set(&bmb_conn_drop, 0);
 	atomic_set(&bmb_request_nsend_all, 0);
 	for (i = 0; i < nthreads; i++) {
 		task = kthread_create(tfw_bmb_worker, (void *)i, "worker");
