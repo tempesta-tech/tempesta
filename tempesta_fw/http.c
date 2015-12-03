@@ -404,6 +404,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
 
+	TFW_DBG2("Create sibling message: conn %p, skb %p\n", hm->conn, skb);
+
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
 	if (unlikely(!shm))
@@ -519,9 +521,9 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	int r, req_flags = req->flags;
-	void *req_sk = req->conn->sk;
-	TfwConnection *conn;
+	int r;
+	int req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE) != 0;
+	TfwConnection *srv_conn, *cli_conn = req->conn;
 
 	if (resp) {
 		/*
@@ -530,9 +532,9 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		 * it is generated from the cache, so unrefer all its data.
 		 */
 		if (tfw_http_adjust_resp(resp, req) == 0)
-			tfw_connection_send(req->conn, (TfwMsg *)resp, true);
-		if (req_flags & TFW_HTTP_CONN_CLOSE)
-			ss_droplink(req_sk);
+			tfw_connection_send(cli_conn, (TfwMsg *)resp, true);
+		if (req_conn_close)
+			tfw_connection_drop(cli_conn);
 		return;
 	}
 
@@ -548,8 +550,8 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * At the same time, cache hits are expected to prevail
 	 * over cache misses, so this is not a frequent path.
 	 */
-	conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-	if (conn == NULL) {
+	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+	if (srv_conn == NULL) {
 		TFW_ERR("Unable to find a backend server\n");
 		goto send_404;
 	}
@@ -573,28 +575,28 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		goto send_500;
 
 	/* Add request to the server connection. */
-	spin_lock(&conn->msg_qlock);
-	list_add_tail(&req->msg.msg_list, &conn->msg_queue);
-	spin_unlock(&conn->msg_qlock);
+	spin_lock(&srv_conn->msg_qlock);
+	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
+	spin_unlock(&srv_conn->msg_qlock);
 
 	/* Send request to the server. */
-	tfw_connection_send(conn, (TfwMsg *)req, false);
+	tfw_connection_send(srv_conn, (TfwMsg *)req, false);
 	goto conn_put;
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	if (req_flags & TFW_HTTP_CONN_CLOSE)
-		ss_droplink(req_sk);
+	if (req_conn_close)
+		tfw_connection_drop(cli_conn);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	if (req_flags & TFW_HTTP_CONN_CLOSE)
-		ss_droplink(req_sk);
+	if (req_conn_close)
+		tfw_connection_drop(cli_conn);
 conn_put:
-	if (tfw_connection_put(conn))
-		tfw_srv_conn_release(conn);
+	if (tfw_connection_put(srv_conn))
+		tfw_srv_conn_release(srv_conn);
 }
 
 /**
@@ -607,7 +609,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	int r = TFW_BLOCK;
 	unsigned int data_off = off;
 	unsigned int skb_len = skb->len;
-	void *req_sk = conn->sk;
 
 	BUG_ON(!conn->msg);
 	BUG_ON(off >= skb_len);
@@ -620,6 +621,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	 * until all data in the SKB is processed.
 	 */
 	while (data_off < skb_len) {
+		int req_conn_close;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpMsg *hmreq = (TfwHttpMsg *)conn->msg;
 		TfwHttpParser *parser = &hmreq->parser;
@@ -701,17 +703,24 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
+		 * As it may be released, save the needed flag for later use.
 		 */
+		req_conn_close = (hmreq->flags & TFW_HTTP_CONN_CLOSE) != 0;
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb);
 
 		/*
-		 * At this stage the connection may have been dropped
-		 * and the socket closed. Further processing of data
-		 * in the SKB makes little sense.
+		 * According to RFC 7230 6.3.2, connection with a client
+		 * must be dropped after a response is sent to that client,
+		 * if the client sends "Connection: close" header field in
+		 * the request. Subsequent requests from the client coming
+		 * over the same connection are ignored.
+		 *
+		 * Note: This connection's @conn must not be dereferenced
+		 * from this point on.
 		 */
-		if (unlikely(!ss_sock_active(req_sk)))
-			return TFW_PASS;
+		if (req_conn_close)
+			return TFW_STOP;
 
 		if (hmsib) {
 			/*
@@ -740,39 +749,39 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 
 /**
  * This is the second half of tfw_http_resp_process().
- * tfw_http_resp_process() runs in softirq while tfw_http_resp_cache_cb()
- * runs in cache thread scheduled at an appropriate TDB node.
+ * tfw_http_resp_process() runs in SoftIRQ whereas tfw_http_resp_cache_cb()
+ * runs in cache thread that is scheduled at an appropriate TDB node.
  *
- * HTTP requests are usually much smaller than HTTP responses, so it's better
- * to transfer requests to a TDB node to do all adjustments. The other benefit
- * of the scheme is lesser work in softirq.
+ * HTTP requests are usually much smaller than HTTP responses, so it's
+ * better to transfer requests to a TDB node to make any adjustments.
+ * The other benefit of the scheme is that less work is done in SoftIRQ.
  */
 static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	int req_flags = req->flags;
-	void *req_sk = req->conn->sk;
+	int req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE) != 0;
+	TfwConnection *cli_conn = req->conn;
 
 	/* Cache original response before any mangling. */
 	tfw_cache_add(resp, req);
 
 	/*
 	 * Typically we're at a node far from the node where @resp was
-	 * received, so we do inter-node transfer. However, this is the final
-	 * place where the response will be stored and all upcomming requests
-	 * will be replied by current node (see tfw_http_req_cache_cb()) w/o
-	 * inter-node data transfers.
+	 * received, so we do an inter-node transfer. However, this is
+	 * the final place where the response will be stored. Upcoming
+	 * requests will get responded to by the current node without
+	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
 	if (tfw_http_adjust_resp(resp, req))
 		goto err;
 
-	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
+	tfw_connection_send(cli_conn, (TfwMsg *)resp, false);
 err:
 	/* Now we don't need the request and the reponse anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	if (req_flags & TFW_HTTP_CONN_CLOSE)
-		ss_droplink(req_sk);
+	if (req_conn_close)
+		tfw_connection_drop(cli_conn);
 }
 
 /*

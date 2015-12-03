@@ -209,6 +209,12 @@ tfw_connection_live(TfwConnection *conn)
 	return conn->sk && ss_sock_live(conn->sk);
 }
 
+static inline void
+tfw_connection_drop(TfwConnection *conn)
+{
+	ss_droplink(conn->sk);
+}
+
 /**
  * Check that TfwConnection resources are cleaned up properly.
  */

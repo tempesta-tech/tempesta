@@ -553,36 +553,58 @@ ss_tcp_process_data(struct sock *sk)
 			void *conn = rcu_dereference_sk_user_data(sk);
 
 			/*
-			 * We're in softirq context and under the socket lock.
-			 * We're pretty sure RSS/RPS schedules ingress packets
-			 * for the same socket to exactly same softirq, so only
-			 * one ingress context can work on the socket at any
-			 * point of time.
-			 * FIXME the comment above is wrong if we run client
-			 * workload on the same host with Tempesta.
+			 * Data for processing is within the current SKB.
+			 * Hand the SKB to the upper layer for processing.
+			 */
+
+			/*
+			 * If @sk_user_data is unset, then this connection
+			 * had been dropped in a parallel thread. Dropping
+			 * a connection is serialized with the socket lock.
+			 * The receive queue must be empty in that case,
+			 * and the execution path should never reach here.
+			 */
+			BUG_ON(udata == NULL);
+
+			/*
+			 * This runs in SoftIRQ context and under the socket
+			 * lock. RSS/RPS schedules ingress packets destined
+			 * for a specific socket to exactly the same SoftIRQ,
+			 * so only one ingress context can work on the socket
+			 * at any given time.
 			 *
-			 * Deadlock: we may call ss_send() from an application
-			 * handler for a different socket while other softirq
-			 * is processing ingress data on the socket and is going
-			 * to send data through our socket. Generally there can
-			 * be multiple client ingress sockets sending data to
-			 * the same server socket that is returning upstream
-			 * data to the sockets.
+			 * After ingress data is processed, this SoftIRQ
+			 * may call ss_send() to send data through another
+			 * socket. At the same time the SoftIRQ for that
+			 * socket may call ss_send() to send data in the
+			 * opposite direction through this socket. If both
+			 * sockets are locked, that would cause a deadlock.
 			 *
-			 * Thus ss_send() works concurrenly on the same socket,
-			 * while ss_tcp_process_data() is not concurrent.
-			 * So unlock the socket and let others send through it.
-			 * ss_send() doesn't touch members of an ingress socket.
-			 * (moreover Linux is poor in that TCP ingress and
-			 * egress flows can't run concurrently on the same
-			 * socket).
+			 * Generally there can be multiple client ingress
+			 * sockets sending data through the same server
+			 * socket that returns upstream data to the client
+			 * sockets. Thus ss_send() can work concurrenly on
+			 * the same socket, whereas ss_tcp_process_data()
+			 * is not concurrent.
+			 *
+			 * Unlock the socket, let others send through it.
+			 * ss_send() doesn't touch members of an ingress
+			 * socket. (Linux is lacking in that TCP ingress
+			 * and egress flows cannot run concurrently on
+			 * the same socket).
 			 */
 			bh_unlock_sock(sk);
 
-			r = SS_CALL(connection_recv, conn, skb, off);
+			r = SS_CALL(connection_recv, udata, skb, off);
 
 			bh_lock_sock_double_nested(sk);
 
+			/*
+			 * The socket @sk may have been closed as a result
+			 * of data processing in this or in parallel thread.
+			 * However the socket is not destroyed until control
+			 * is returned back to the Linux kernel.
+			 */
 			if (r < 0) {
 				SS_WARN("Error processing data: sk %p\n", sk);
 				goto out; /* connection dropped */
@@ -594,6 +616,12 @@ ss_tcp_process_data(struct sock *sk)
 				SS_DBG("Data FIN received: sk %p\n", sk);
 				++tp->copied_seq;
 				goto out;
+			}
+
+			/* Stop processing data in the connection. */
+			if (r == SS_STOP) {
+				SS_DBG("Stop processing data: sk %p\n", sk);
+				break;
 			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
