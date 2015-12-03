@@ -69,10 +69,9 @@ ss_sock_live(struct sock *sk)
 }
 
 /*
- * Socket is in a usable state that allows processing and
- * sending of HTTP messages. This must be used consistently
- * across the following functions: ss_tcp_process_data(),
- * ss_send(), ss_do_droplink(), and tfw_http_req_process().
+ * Socket is in a usable state that allows processing
+ * and sending of HTTP messages. This function must
+ * be used consistently across all involved functions.
  * 
  */
 static inline bool ss_sock_active(struct sock *sk)

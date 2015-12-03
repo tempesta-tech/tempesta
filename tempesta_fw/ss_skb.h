@@ -38,6 +38,9 @@ enum {
 
 	/* The packet looks good and we can safely pass it. */
 	SS_OK		= 0,
+
+	/* Stop passing data to the upper layer for processing. */
+	SS_STOP		= 1,
 };
 
 typedef struct {
