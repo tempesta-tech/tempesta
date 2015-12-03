@@ -37,9 +37,9 @@ typedef struct {
 	unsigned int		attempts;
 } TestConnection;
 
-//TfwSrvConnection *tfw_srv_conn_alloc(void);
-//void tfw_srv_conn_free( TfwSrvConnection *conn);
+void test_spec_cleanup(TfwCfgSpec specs[]);
 int tfw_server_init(void);
+int tfw_sched_rr_init(void);
 void sched_helper_init(void);
 
 TfwSrvGroup *test_create_sg(const char *name, const char *sched_name);

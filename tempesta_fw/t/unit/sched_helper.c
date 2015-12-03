@@ -18,11 +18,136 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "sock_srv.c" 
+//#include "sock_srv.c" 
 
 #include "connection.h"
 #include "sched_helper.h"
 #include "server.h"
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	10
+#define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)
+void
+test_spec_cleanup(TfwCfgSpec specs[])
+{
+	TfwCfgSpec *spec;
+
+	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
+		if (spec->call_counter && spec->cleanup) {
+			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+			spec->cleanup(spec);
+		}
+		spec->call_counter = 0;
+
+		/**
+		 * When spec processing function is tfw_cfg_handle_children(),
+		 * a user-defined .cleanup function for that spec is not
+		 * allowed. Instead, an special .cleanup function is assigned
+		 * to that spec, thus overwriting the (zero) value there.
+		 * When the whole cleanup process completes, revert that spec
+		 * entry to original (zero) value. That will allow reuse of
+		 * the spec.
+		 */
+		if (spec->handler == &tfw_cfg_handle_children) {
+			spec->cleanup = NULL;
+		}
+	}
+}
+
+static int
+test_connect_try(TestConnection *srv_conn)
+{
+	int r;
+	TfwAddr *addr;
+	struct sock *sk;
+	TfwConnection *conn = &srv_conn->conn;
+
+	addr = &conn->peer->addr;
+
+	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
+	if (r) {
+		TFW_ERR("Unable to create server socket\n");
+		return r;
+	}
+
+	/*
+	 * Setup connection handlers before ss_connect() call. We can get
+	 * an established connection right when we're in the call in case
+	 * of a local peer connection, so all handlers must be installed
+	 * before the call.
+	 */
+	sock_set_flag(sk, SOCK_DBG);
+	tfw_connection_link_from_sk(conn, sk);
+	ss_set_callbacks(sk);
+
+	/*
+	 * There are two possible use patterns of this function:
+	 *
+	 * 1. tfw_sock_srv_connect_srv() called in system initialization
+	 *    phase before initialization of client listening interfaces,
+	 *    so there is no activity in the socket;
+	 *
+	 * 2. tfw_sock_srv_do_failover() upcalled from SS layer and with
+	 *    inactive conn->sk, so nobody can send through the socket.
+	 *    Also since the function is called by connection_error or
+	 *    connection_drop hook from SoftIRQ, there can't be another
+	 *    socket state change upcall from SS layer due to RSS.
+	 *
+	 * Thus we don't need syncronization for ss_connect().
+	 */
+	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
+	if (r) {
+		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
+		tfw_connection_unlink_from_sk(sk);
+		ss_close(sk);
+		return r;
+	}
+
+	return 0;
+}
+
+static inline void
+test_connect_try_later(TestConnection *srv_conn)
+{
+	/*
+	 * Timeout between connect attempts is increased with each
+	 * unsuccessful attempt. Length of the timeout is decided
+	 * with a variant of exponential backoff delay algorithm.
+	 */
+	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
+		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
+					TFW_SOCK_SRV_RETRY_TIMER_MIN
+					* (1 << srv_conn->attempts));
+		srv_conn->attempts++;
+	}
+	mod_timer(&srv_conn->retry_timer,
+		  jiffies + msecs_to_jiffies(srv_conn->timeout));
+}
+
+static void
+test_connect_retry_timer_cb(unsigned long data)
+{
+	TestConnection *srv_conn = (TestConnection *)data;
+
+	/* A new socket is created for each connect attempt. */
+	if (test_connect_try(srv_conn))
+		test_connect_try_later(srv_conn);
+}
+
+static inline void
+test_reset_retry_timer(TestConnection *srv_conn)
+{
+	srv_conn->timeout = 0;
+	srv_conn->attempts = 0;
+}
+
+static inline void
+test_setup_retry_timer(TestConnection *srv_conn)
+{
+	test_reset_retry_timer(srv_conn);
+	setup_timer(&srv_conn->retry_timer,
+		    test_connect_retry_timer_cb,
+		    (unsigned long)srv_conn);
+}
+
 
 TfwSrvGroup *
 test_create_sg(const char *name, const char *sched_name)
@@ -82,7 +207,7 @@ static struct sock __test_sock = {
 	srv_conn = (TestConnection *)kmem_cache_alloc(test_conn_cache, 
 						      GFP_ATOMIC);
 	tfw_connection_init(&srv_conn->conn);
-	__setup_retry_timer((TfwSrvConnection*)srv_conn);
+	test_setup_retry_timer((TestConnection*)srv_conn);
 	BUG_ON(!srv_conn);
 	tfw_connection_link_peer(&srv_conn->conn, peer);
 	srv_conn->conn.sk = &__test_sock;

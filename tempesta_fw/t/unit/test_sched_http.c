@@ -18,6 +18,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+
 #include "http_msg.h"
 #include "helpers.h"
 #include "kallsyms_helper.h"
@@ -30,19 +31,13 @@
 #define module_exit(func)
 #endif
 #include "../../sched/tfw_sched_http.c"
-/* Export syms*/
-static TfwScheduler *(*tfw_sched_lookup_ptr)(const char *name);
-static void (*spec_cleanup_ptr)(TfwCfgSpec specs[]);
 
 static int
 parse_cfg(const char *cfg_text)
 {
-	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
-	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
-	BUG_ON(tfw_cfg_mod_find == NULL);
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	
 	INIT_LIST_HEAD(&cfg_mod.list);
@@ -58,11 +53,9 @@ cleanup_cfg(void)
 	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	TfwCfgMod cfg_mod;
 
-	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
-	BUG_ON(tfw_cfg_mod_find == NULL);
 
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
-	spec_cleanup_ptr(cfg_mod.specs);
+	test_spec_cleanup(cfg_mod.specs);
 }
 
 static void
@@ -81,7 +74,7 @@ test_req(char *req_str, TestConnection *expect_conn)
 		tfw_http_parse_req(req, req_str_copy, req_str_len);
 	}
 
-	sched = tfw_sched_lookup_ptr("http");
+	sched = tfw_sched_lookup("http");
 	conn = sched->sched_grp((TfwMsg *)req);
 	EXPECT_TRUE((TestConnection *)conn == expect_conn);
 
@@ -91,14 +84,14 @@ test_req(char *req_str, TestConnection *expect_conn)
 
 TEST(tfw_sched_http, zero_rules_and_zero_conns)
 {
-	TfwScheduler *sched = tfw_sched_lookup_ptr("http");
+	TfwScheduler *sched = tfw_sched_lookup("http");
 
 	EXPECT_TRUE(sched->sched_grp(NULL) == NULL);
 }
 
 TEST(tfw_sched_http, one_rule_and_zero_conns)
 {
-	test_create_sg("default", "http");
+	test_create_sg("default", "round-robin");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -116,7 +109,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	TfwServer *srv;
 	TestConnection *expect_conn;
 
-	sg = test_create_sg("default", "http");
+	sg = test_create_sg("default", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg);
 	expect_conn = test_create_conn((TfwPeer *)srv);
 	sg->sched->update_grp(sg);
@@ -139,52 +132,52 @@ TEST(tfw_sched_http, some_rules)
 	TestConnection *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4, *expect_conn5,
 	                 *expect_conn6, *expect_conn7, *expect_conn8, *expect_conn9, *expect_conn10;
 
-	sg1 = test_create_sg("sg1", "http");
+	sg1 = test_create_sg("sg1", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg1);
 	expect_conn1 = test_create_conn((TfwPeer *)srv);
 	sg1->sched->update_grp(sg1);
 
-	sg2 = test_create_sg("sg2", "http");
+	sg2 = test_create_sg("sg2", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg2);
 	expect_conn2 = test_create_conn((TfwPeer *)srv);
 	sg2->sched->update_grp(sg2);
 
-	sg3 = test_create_sg("sg3", "http");
+	sg3 = test_create_sg("sg3", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg3);
 	expect_conn3 = test_create_conn((TfwPeer *)srv);
 	sg3->sched->update_grp(sg3);
 
-	sg4 = test_create_sg("sg4", "http");
+	sg4 = test_create_sg("sg4", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg4);
 	expect_conn4 = test_create_conn((TfwPeer *)srv);
 	sg4->sched->update_grp(sg4);
 
-	sg5 = test_create_sg("sg5", "http");
+	sg5 = test_create_sg("sg5", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg5);
 	expect_conn5 = test_create_conn((TfwPeer *)srv);
 	sg5->sched->update_grp(sg5);
 
-	sg6 = test_create_sg("sg6", "http");
+	sg6 = test_create_sg("sg6", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg6);
 	expect_conn6 = test_create_conn((TfwPeer *)srv);
 	sg6->sched->update_grp(sg6);
 
-	sg7 = test_create_sg("sg7", "http");
+	sg7 = test_create_sg("sg7", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg7);
 	expect_conn7 = test_create_conn((TfwPeer *)srv);
 	sg7->sched->update_grp(sg7);
 
-	sg8 = test_create_sg("sg8", "http");
+	sg8 = test_create_sg("sg8", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg8);
 	expect_conn8 = test_create_conn((TfwPeer *)srv);
 	sg8->sched->update_grp(sg8);
 
-	sg9 = test_create_sg("sg9", "http");
+	sg9 = test_create_sg("sg9", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg9);
 	expect_conn9 = test_create_conn((TfwPeer *)srv);
 	sg9->sched->update_grp(sg9);
 
-	sg10 = test_create_sg("sg10", "http");
+	sg10 = test_create_sg("sg10", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg10);
 	expect_conn10 = test_create_conn((TfwPeer *)srv);
 	sg10->sched->update_grp(sg10);
@@ -299,7 +292,7 @@ TEST(tfw_sched_http, one_rule)
 		TfwServer *srv;
 		TestConnection *expect_conn;
 
-		sg = test_create_sg("default", "http");
+		sg = test_create_sg("default", "round-robin");
 		srv = test_create_srv("127.0.0.1", sg);
 		expect_conn = test_create_conn((TfwPeer *)srv);
 		sg->sched->update_grp(sg);
@@ -320,15 +313,8 @@ TEST(tfw_sched_http, one_rule)
 TEST_SUITE(sched_http)
 {
 	tfw_sched_http_init();
+	tfw_sched_rr_init();
 	tfw_server_init();
-//	sched_helper_init();
-
-	tfw_sched_lookup_ptr = get_sym_ptr("tfw_sched_lookup");
-	spec_cleanup_ptr = get_sym_ptr("spec_cleanup");
-
-	BUG_ON(tfw_sched_lookup_ptr == NULL);
-	BUG_ON(spec_cleanup_ptr == NULL);
-
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_wildcard_rule);
