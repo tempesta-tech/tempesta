@@ -44,7 +44,7 @@ tfw_test-objs = \
 	test_sched_hash.o \
 	test_sched_http.o \
 	test_http_sticky.o \
-	kallsyms_helper.o \
+	kallsyms_helper.o
 
 obj-m += tfw_fuzzer.o
 tfw_fuzzer-obs = \
