@@ -18,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-//#include "sock_srv.c"
 #include "sched_helper.h"
 #include "test.h"
 
@@ -29,7 +28,6 @@
 #define module_exit(func)
 #endif
 
-//#include "server.c"
 #include "../../sched/tfw_sched_rr.c"
 
 TEST(tfw_sched_rr, sg_empty)

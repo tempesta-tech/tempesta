@@ -22,7 +22,6 @@
 #include "http_msg.h"
 
 #include "helpers.h"
-//#include "sock_srv.c"
 #include "sched_helper.h"
 #include "test.h"
 #include "kallsyms_helper.h"
@@ -33,8 +32,6 @@
 #define module_init(func)
 #define module_exit(func)
 #endif
-
-//#include "server.c"
 #include "../../sched/tfw_sched_hash.c"
 
 char req_str1[] =  "GET / HTTP/1.1\r\nhost:host1\r\n\r\n";
