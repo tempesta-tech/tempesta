@@ -64,9 +64,11 @@ extern "C" {
  * (eg two file descriptors for combined IPv4 + IPv6 support, or additional
  * structures for hand-made UDP demultiplexing).
  */
+#include <net/sock.h>
+
 typedef struct
 {
-    int fd;             /**< The underlying file descriptor                 */
+    struct socket *socket;
 }
 mbedtls_net_context;
 
