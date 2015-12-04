@@ -36,8 +36,8 @@
 #include "cipher.h"
 #include "cipher_internal.h"
 
-#include <stdlib.h>
-#include <string.h>
+//#include <stdlib.h> /*TODO: Uncomment*/
+#include <linux/string.h>
 
 #if defined(MBEDTLS_GCM_C)
 #include "gcm.h"

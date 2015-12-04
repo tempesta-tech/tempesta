@@ -35,7 +35,7 @@
 #include "ssl.h"
 
 // #include <stdlib.h>
-#include <string.h>
+#include <linux/string.h>
 
 /*
  * Ordered from most preferred to least preferred in terms of security.

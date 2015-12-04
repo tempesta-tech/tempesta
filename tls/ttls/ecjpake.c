@@ -36,7 +36,7 @@
 
 #include "ecjpake.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 /*
  * Convert a mbedtls_ecjpake_role to identifier string

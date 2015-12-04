@@ -44,7 +44,7 @@
 #define mbedtls_free       free
 #endif
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>

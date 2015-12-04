@@ -33,7 +33,7 @@
 #include "ssl.h"
 #include "ssl_internal.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
