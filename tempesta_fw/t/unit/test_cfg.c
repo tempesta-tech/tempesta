@@ -27,7 +27,9 @@
 #undef EXPORT_SYMBOL
 #define EXPORT_SYMBOL(func)
 #endif
+
 #include "cfg.c"
+
 /*
  * ------------------------------------------------------------------------
  *	Generic helpers common for all tests.

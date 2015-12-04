@@ -24,6 +24,9 @@
 #include "server.h"
 #define TFW_SOCK_SRV_RETRY_TIMER_MIN	10
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)
+
+static struct kmem_cache *test_conn_cache;
+
 void
 test_spec_cleanup(TfwCfgSpec specs[])
 {
@@ -146,7 +149,6 @@ test_setup_retry_timer(TestConnection *srv_conn)
 		    (unsigned long)srv_conn);
 }
 
-
 TfwSrvGroup *
 test_create_sg(const char *name, const char *sched_name)
 {
@@ -189,17 +191,17 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 
 	return srv;
 }
-static struct kmem_cache *test_conn_cache;
+
 TestConnection *
 test_create_conn(TfwPeer *peer)
 {
-static struct sock __test_sock = {
+	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
 	TestConnection *srv_conn;
 
 	if(!test_conn_cache)
-		test_conn_cache = kmem_cache_create("test_conn_cache", 
+		test_conn_cache = kmem_cache_create("test_conn_cache", \
 						    sizeof(TestConnection), 0, 0, NULL);
 
 	srv_conn = (TestConnection *)kmem_cache_alloc(test_conn_cache, 
@@ -212,6 +214,7 @@ static struct sock __test_sock = {
 
 	return srv_conn;
 }
+
 static void
 test_conn_free(TestConnection *srv_conn)
 {
@@ -219,6 +222,7 @@ test_conn_free(TestConnection *srv_conn)
 	tfw_connection_validate_cleanup(&srv_conn->conn);
 	kmem_cache_free(test_conn_cache,srv_conn);
 }
+
 void
 test_conn_release_all(TfwSrvGroup *sg)
 {

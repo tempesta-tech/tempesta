@@ -18,7 +18,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-
 #include "http_msg.h"
 #include "helpers.h"
 #include "sched_helper.h"
@@ -313,7 +312,7 @@ TEST_SUITE(sched_http)
 TfwScheduler *s;
 	
 	s = tfw_sched_lookup("round-robin");
-	if(!s)
+	if (!s)
 		tfw_sched_rr_init();
 
 		tfw_sched_http_init();
