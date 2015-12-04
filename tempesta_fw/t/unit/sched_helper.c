@@ -31,7 +31,6 @@ test_spec_cleanup(TfwCfgSpec specs[])
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		if (spec->call_counter && spec->cleanup) {
-			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
