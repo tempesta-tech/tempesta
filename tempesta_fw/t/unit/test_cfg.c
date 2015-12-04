@@ -22,7 +22,6 @@
 #include <linux/bug.h>
 
 #include "cfg.h"
-//#include "kallsyms_helper.h"
 #include "test.h"
 #ifdef EXPORT_SYMBOL
 #undef EXPORT_SYMBOL
