@@ -32,7 +32,7 @@
 #endif
 
 #include <stddef.h>
-#include <stdint.h>
+#include <linux/types.h>
 
 #if !defined(MBEDTLS_RIPEMD160_ALT)
 // Regular implementation

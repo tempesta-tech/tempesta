@@ -42,7 +42,7 @@
 #include "x509_csr.h"
 #include "oid.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"

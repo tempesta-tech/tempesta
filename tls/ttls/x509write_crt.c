@@ -40,7 +40,7 @@
 #include "asn1write.h"
 #include "sha1.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PEM_WRITE_C)
 #include "pem.h"

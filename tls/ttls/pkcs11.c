@@ -41,7 +41,7 @@
 #define mbedtls_free       free
 #endif
 
-#include <string.h>
+#include <linux/string.h>
 
 void mbedtls_pkcs11_init( mbedtls_pkcs11_context *ctx )
 {
