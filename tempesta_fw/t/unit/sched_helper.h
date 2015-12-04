@@ -21,12 +21,6 @@
 
 #ifndef __TFW_SCHED_HELPER_H__
 #define __TFW_SCHED_HELPER_H__
-#include <linux/net.h>
-#include <linux/kthread.h>
-#include <linux/wait.h>
-#include <linux/freezer.h>
-#include <net/inet_sock.h>
-#include "tempesta_fw.h"
 #include "connection.h"
 #include "server.h"
 
