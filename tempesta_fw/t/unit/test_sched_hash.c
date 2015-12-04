@@ -24,7 +24,6 @@
 #include "helpers.h"
 #include "sched_helper.h"
 #include "test.h"
-#include "kallsyms_helper.h"
 
 #ifdef module_init
 #undef module_init
@@ -49,7 +48,6 @@ char *req_strs[] = {
 };
 size_t req_strs_size = sizeof(req_strs) / sizeof(req_strs[0]);
 
-static int (*tfw_http_parse_req_ptr)(void *req_data, unsigned char *data, size_t len);
 
 TEST(tfw_sched_hash, sg_empty)
 {
@@ -62,7 +60,7 @@ TEST(tfw_sched_hash, sg_empty)
 			TfwConnection *conn;
 			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
-			tfw_http_parse_req_ptr(req, req_strs[i], strlen(req_strs[i]));
+			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
 
 			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
 			EXPECT_TRUE(conn == NULL);
@@ -206,10 +204,6 @@ TEST_SUITE(sched_hash)
 {
 	tfw_sched_hash_init();
 	tfw_server_init();
-//	sched_helper_init();
-
-	tfw_http_parse_req_ptr = get_sym_ptr("tfw_http_parse_req");
-	BUG_ON(tfw_http_parse_req_ptr == NULL);
 
 	TEST_RUN(tfw_sched_hash, sg_empty);
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_zero_conn);

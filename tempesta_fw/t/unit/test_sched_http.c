@@ -21,7 +21,6 @@
 
 #include "http_msg.h"
 #include "helpers.h"
-#include "kallsyms_helper.h"
 #include "sched_helper.h"
 #include "test.h"
 #ifdef module_init
