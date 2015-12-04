@@ -20,6 +20,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -1243,6 +1244,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
 
     return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
 }
+EXPORT_SYMBOL(mbedtls_pk_parse_key);
 
 /*
  * Parse a public key

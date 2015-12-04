@@ -20,6 +20,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -57,6 +58,7 @@ void mbedtls_pk_init( mbedtls_pk_context *ctx )
     ctx->pk_info = NULL;
     ctx->pk_ctx = NULL;
 }
+EXPORT_SYMBOL(mbedtls_pk_init);
 
 /*
  * Free (the components of) a mbedtls_pk_context
@@ -70,6 +72,7 @@ void mbedtls_pk_free( mbedtls_pk_context *ctx )
 
     mbedtls_zeroize( ctx, sizeof( mbedtls_pk_context ) );
 }
+EXPORT_SYMBOL(mbedtls_pk_free);
 
 /*
  * Get pk_info structure from type

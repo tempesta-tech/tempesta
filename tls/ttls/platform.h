@@ -111,8 +111,7 @@ int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
  */
 #if defined(MBEDTLS_PLATFORM_FPRINTF_ALT)
 /* We need FILE * */
-#include <stdio.h>
-extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
+extern int (*mbedtls_fprintf)( void *stream, const char *format, ... );
 
 /**
  * \brief   Set your own fprintf function pointer
@@ -121,7 +120,7 @@ extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
  *
  * \return              0
  */
-int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char *,
+int mbedtls_platform_set_fprintf( int (*fprintf_func)( void *stream, const char *,
                                                ... ) );
 #else
 #if defined(MBEDTLS_PLATFORM_FPRINTF_MACRO)
