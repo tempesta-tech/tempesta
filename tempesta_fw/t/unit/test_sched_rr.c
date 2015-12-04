@@ -138,7 +138,6 @@ TEST_SUITE(sched_rr)
 {
 	tfw_server_init();
 	tfw_sched_rr_init();
-//	sched_helper_init();
 
 	TEST_RUN(tfw_sched_rr, sg_empty);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_zero_conn);
