@@ -50,7 +50,7 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
+//	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	TfwCfgMod cfg_mod;
 
 
@@ -312,8 +312,14 @@ TEST(tfw_sched_http, one_rule)
 
 TEST_SUITE(sched_http)
 {
-	tfw_sched_http_init();
-	tfw_sched_rr_init();
+TfwScheduler *s;
+	
+	s = tfw_sched_lookup("round-robin");
+	if(!s)
+		tfw_sched_rr_init();
+
+		tfw_sched_http_init();
+	
 	tfw_server_init();
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);
