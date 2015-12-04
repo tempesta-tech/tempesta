@@ -33,7 +33,7 @@
 /* Even if RSA not activated, for the sake of RSA-alt */
 #include "rsa.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_ECP_C)
 #include "ecp.h"

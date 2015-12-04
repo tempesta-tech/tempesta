@@ -24,6 +24,7 @@
  * These session callbacks use a simple chained list
  * to store and retrieve the session information.
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -35,7 +36,7 @@
 
 #include "ssl_cache.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -56,6 +57,7 @@ void mbedtls_ssl_cache_init( mbedtls_ssl_cache_context *cache )
     mbedtls_mutex_init( &cache->mutex );
 #endif
 }
+EXPORT_SYMBOL(mbedtls_ssl_cache_init);
 
 int mbedtls_ssl_cache_get( void *data, mbedtls_ssl_session *session )
 {
@@ -135,6 +137,7 @@ exit:
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_ssl_cache_get);
 
 int mbedtls_ssl_cache_set( void *data, const mbedtls_ssl_session *session )
 {
@@ -283,6 +286,7 @@ exit:
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_ssl_cache_set);
 
 #if defined(MBEDTLS_HAVE_TIME)
 void mbedtls_ssl_cache_set_timeout( mbedtls_ssl_cache_context *cache, int timeout )
@@ -324,5 +328,6 @@ void mbedtls_ssl_cache_free( mbedtls_ssl_cache_context *cache )
     mbedtls_mutex_free( &cache->mutex );
 #endif
 }
+EXPORT_SYMBOL(mbedtls_ssl_cache_free);
 
 #endif /* MBEDTLS_SSL_CACHE_C */

@@ -31,7 +31,7 @@
 
 #include "xtea.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_SELF_TEST)
 #if defined(MBEDTLS_PLATFORM_C)

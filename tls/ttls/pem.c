@@ -36,7 +36,7 @@
 #include "md5.h"
 #include "cipher.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"

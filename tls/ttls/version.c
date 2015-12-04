@@ -30,7 +30,7 @@
 #if defined(MBEDTLS_VERSION_C)
 
 #include "version.h"
-#include <string.h>
+#include <linux/string.h>
 
 unsigned int mbedtls_version_get_number()
 {

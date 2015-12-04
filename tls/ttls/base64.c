@@ -31,10 +31,10 @@
 
 #include "base64.h"
 
-#include <stdint.h>
+#include <linux/types.h>
 
 #if defined(MBEDTLS_SELF_TEST)
-#include <string.h>
+#include <linux/string.h>
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
