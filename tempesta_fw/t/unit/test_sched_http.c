@@ -50,7 +50,6 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-//	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	TfwCfgMod cfg_mod;
 
 
