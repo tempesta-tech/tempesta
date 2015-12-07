@@ -239,7 +239,9 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	}
 
 	if (__extend_pgfrags(skb, pskb, i, shift)) {
-		if (!frag)
+		if (frag)
+			__skb_frag_unref(frag);
+		else
 			__free_page(page);
 		return -ENOMEM;
 	}
@@ -254,7 +256,6 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	}
 
 	__skb_fill_page_desc(skb, i, page, off, size);
-
 	ss_skb_adjust_data_len(skb, size);
 
 	return 0;
