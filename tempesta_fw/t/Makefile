@@ -17,5 +17,19 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-# This is just a stub for compiling unit tests subdirectory.
+EXTRA_CFLAGS += -Werror -I$(src)/..
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
+else
+	EXTRA_CFLAGS += -DDEBUG=0
+endif
+
 obj-m += sync_sockets/ unit/
+
+obj-m += tfw_fuzzer.o
+tfw_fuzzer-obs = \
+	fuzzer.c
+
+obj-m += tfw_bomber.o
+tfw_bomber-objs = \
+	bomber.o
