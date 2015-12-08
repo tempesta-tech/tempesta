@@ -42,6 +42,7 @@ void mbedtls_net_init( mbedtls_net_context *ctx )
 {
     ctx->socket = NULL;
 }
+EXPORT_SYMBOL(mbedtls_net_init);
 
 /*
  * Initiate a TCP connection with host:port and the given protocol
@@ -58,7 +59,7 @@ int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char 
 int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char *port, int proto )
 {
     int ret;
-    struct socket *srv_socket = ctx->socket;
+    struct socket *srv_socket;
     struct sockaddr_in sin;
 
     ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
@@ -70,7 +71,7 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
 
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(INADDR_ANY);
-    sin.sin_port = htons(2325);
+    sin.sin_port = htons(4433);
 
     ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin, sizeof(sin));
     if(ret < 0) {
@@ -224,6 +225,7 @@ void mbedtls_net_free( mbedtls_net_context *ctx )
         return;
 
     sock_release(ctx->socket);
+    ctx->socket = NULL;
 }
 EXPORT_SYMBOL(mbedtls_net_free);
 
