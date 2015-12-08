@@ -549,6 +549,8 @@ ss_tcp_process_data(struct sock *sk)
 			 * for the same socket to exactly same softirq, so only
 			 * one ingress context can work on the socket at any
 			 * point of time.
+			 * FIXME the comment above is wrong if we run client
+			 * workload on the same host.
 			 *
 			 * Deadlock: we may call ss_send() from an application
 			 * handler for a different socket while other softirq
@@ -570,6 +572,7 @@ ss_tcp_process_data(struct sock *sk)
 
 			r = SS_CALL(connection_recv, conn, skb, off);
 
+			/* FIXME soft lockup on tfw_bomber. */
 			bh_lock_sock_double_nested(sk);
 
 			read_unlock(&sk->sk_callback_lock);
