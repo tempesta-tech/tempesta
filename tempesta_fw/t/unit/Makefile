@@ -19,8 +19,8 @@
 
 tfw_root = $(src)/../../../
 
-EXTRA_CFLAGS += -Werror -I$(tfw_root)/tempesta_fw \
-		-I$(tfw_root)/tempesta_db/core -I$(tfw_root)/sync_socket
+EXTRA_CFLAGS += -Werror -I$(tfw_root)/tempesta_fw -I$(tfw_root)/tempesta_fw/t \
+		-I$(tfw_root)/tempesta_db/core
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 else
@@ -45,11 +45,3 @@ tfw_test-objs = \
 	test_sched_http.o \
 	test_http_sticky.o \
 	kallsyms_helper.o
-
-obj-m += tfw_fuzzer.o
-tfw_fuzzer-obs = \
-	fuzzer.c
-
-obj-m += tfw_bomber.o
-tfw_bomber-objs = \
-	bomber.o

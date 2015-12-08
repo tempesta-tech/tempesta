@@ -28,7 +28,7 @@ root="$(pwd)"
 popd > /dev/null
 
 # Path to testing modules.
-tm_path=${TFW_PATH:="$root/tempesta_fw/t/unit"}
+tm_path=${TFW_PATH:="$root/tempesta_fw/t"}
 
 declare conn= iter= msgs= srv= thr=
 

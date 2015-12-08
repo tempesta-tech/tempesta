@@ -584,7 +584,6 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 					 SS_SKB_MAX_DATA_LEN));
 		if (!skb)
 			return -ENOMEM;
-		TFW_DBG3("%s alloc skb=%p\n", __func__, skb);
 		ss_skb_queue_tail(&hm->msg.skb_list, skb);
 	}
 
@@ -762,10 +761,10 @@ tfw_http_msg_free(TfwHttpMsg *m)
 		struct sk_buff *skb = ss_skb_dequeue(&m->msg.skb_list);
 		if (!skb)
 			break;
-		TFW_DBG3("free skb %p: truesize=%d sk=%p, destructor=%p"
-			 " users=%d type=%s\n",
-			 skb, skb->truesize, skb->sk, skb->destructor,
-			 atomic_read(&skb->users),
+		TFW_DBG3("free skb %p: truesize=%d sk=%p data=%p,"
+			 " destructor=%p users=%d type=%s\n",
+			 skb, skb->truesize, skb->sk, skb->data,
+			 skb->destructor, atomic_read(&skb->users),
 			 m->conn && TFW_CONN_TYPE(m->conn) & Conn_Clnt
 			 ? "Conn_Clnt"
 			 : m->conn && TFW_CONN_TYPE(m->conn) & Conn_Srv
