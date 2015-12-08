@@ -33,7 +33,7 @@
 #include "ssl.h"
 #include "ssl_internal.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -43,7 +43,7 @@
 #define mbedtls_free       free
 #endif
 
-#include <stdint.h>
+#include <linux/types.h>
 
 #if defined(MBEDTLS_HAVE_TIME)
 #include <time.h>

@@ -40,7 +40,7 @@
 
 #include "ccm.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
 #if defined(MBEDTLS_PLATFORM_C)

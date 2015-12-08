@@ -28,6 +28,7 @@
  *  http://www.ietf.org/rfc/rfc2246.txt
  *  http://www.ietf.org/rfc/rfc4346.txt
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -41,7 +42,7 @@
 #include "ssl.h"
 #include "ssl_internal.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_X509_CRT_PARSE_C) && \
     defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)
@@ -5329,6 +5330,7 @@ void mbedtls_ssl_init( mbedtls_ssl_context *ssl )
 {
     memset( ssl, 0, sizeof( mbedtls_ssl_context ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_init);
 
 /*
  * Setup an SSL context
@@ -5389,6 +5391,7 @@ int mbedtls_ssl_setup( mbedtls_ssl_context *ssl,
 
     return( 0 );
 }
+EXPORT_SYMBOL(mbedtls_ssl_setup);
 
 /*
  * Reset an initialized and used SSL context for re-use while retaining
@@ -5504,6 +5507,7 @@ int mbedtls_ssl_session_reset( mbedtls_ssl_context *ssl )
 {
     return( ssl_session_reset_int( ssl, 0 ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_session_reset);
 
 /*
  * SSL set accessors
@@ -5562,6 +5566,7 @@ void mbedtls_ssl_conf_rng( mbedtls_ssl_config *conf,
     conf->f_rng      = f_rng;
     conf->p_rng      = p_rng;
 }
+EXPORT_SYMBOL(mbedtls_ssl_conf_rng);
 
 void mbedtls_ssl_conf_dbg( mbedtls_ssl_config *conf,
                   void (*f_dbg)(void *, int, const char *, int, const char *),
@@ -5570,6 +5575,7 @@ void mbedtls_ssl_conf_dbg( mbedtls_ssl_config *conf,
     conf->f_dbg      = f_dbg;
     conf->p_dbg      = p_dbg;
 }
+EXPORT_SYMBOL(mbedtls_ssl_conf_dbg);
 
 void mbedtls_ssl_set_bio( mbedtls_ssl_context *ssl,
         void *p_bio,
@@ -5582,6 +5588,7 @@ void mbedtls_ssl_set_bio( mbedtls_ssl_context *ssl,
     ssl->f_recv         = f_recv;
     ssl->f_recv_timeout = f_recv_timeout;
 }
+EXPORT_SYMBOL(mbedtls_ssl_set_bio);
 
 void mbedtls_ssl_conf_read_timeout( mbedtls_ssl_config *conf, uint32_t timeout )
 {
@@ -5611,6 +5618,7 @@ void mbedtls_ssl_conf_session_cache( mbedtls_ssl_config *conf,
     conf->f_get_cache = f_get_cache;
     conf->f_set_cache = f_set_cache;
 }
+EXPORT_SYMBOL(mbedtls_ssl_conf_session_cache);
 #endif /* MBEDTLS_SSL_SRV_C */
 
 #if defined(MBEDTLS_SSL_CLI_C)
@@ -5701,6 +5709,7 @@ int mbedtls_ssl_conf_own_cert( mbedtls_ssl_config *conf,
 {
     return( ssl_append_key_cert( &conf->key_cert, own_cert, pk_key ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_conf_own_cert);
 
 void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
                                mbedtls_x509_crt *ca_chain,
@@ -5709,6 +5718,7 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
     conf->ca_chain   = ca_chain;
     conf->ca_crl     = ca_crl;
 }
+EXPORT_SYMBOL(mbedtls_ssl_conf_ca_chain);
 #endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
@@ -6122,6 +6132,7 @@ const char *mbedtls_ssl_get_ciphersuite( const mbedtls_ssl_context *ssl )
 
     return mbedtls_ssl_get_ciphersuite_name( ssl->session->ciphersuite );
 }
+EXPORT_SYMBOL(mbedtls_ssl_get_ciphersuite);
 
 const char *mbedtls_ssl_get_version( const mbedtls_ssl_context *ssl )
 {
@@ -6289,6 +6300,7 @@ int mbedtls_ssl_handshake( mbedtls_ssl_context *ssl )
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_ssl_handshake);
 
 #if defined(MBEDTLS_SSL_RENEGOTIATION)
 #if defined(MBEDTLS_SSL_SRV_C)
@@ -6697,6 +6709,7 @@ int mbedtls_ssl_read( mbedtls_ssl_context *ssl, unsigned char *buf, size_t len )
 
     return( (int) n );
 }
+EXPORT_SYMBOL(mbedtls_ssl_read);
 
 /*
  * Send application data to be encrypted by the SSL layer,
@@ -6826,6 +6839,7 @@ int mbedtls_ssl_write( mbedtls_ssl_context *ssl, const unsigned char *buf, size_
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_ssl_write);
 
 /*
  * Notify the peer that the connection is being closed
@@ -6857,6 +6871,7 @@ int mbedtls_ssl_close_notify( mbedtls_ssl_context *ssl )
 
     return( 0 );
 }
+EXPORT_SYMBOL(mbedtls_ssl_close_notify);
 
 void mbedtls_ssl_transform_free( mbedtls_ssl_transform *transform )
 {
@@ -7064,6 +7079,7 @@ void mbedtls_ssl_free( mbedtls_ssl_context *ssl )
     /* Actually clear after last debug message */
     mbedtls_zeroize( ssl, sizeof( mbedtls_ssl_context ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_free);
 
 /*
  * Initialze mbedtls_ssl_config
@@ -7072,6 +7088,7 @@ void mbedtls_ssl_config_init( mbedtls_ssl_config *conf )
 {
     memset( conf, 0, sizeof( mbedtls_ssl_config ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_config_init);
 
 static int ssl_preset_suiteb_ciphersuites[] = {
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -7243,6 +7260,7 @@ int mbedtls_ssl_config_defaults( mbedtls_ssl_config *conf,
 
     return( 0 );
 }
+EXPORT_SYMBOL(mbedtls_ssl_config_defaults);
 
 /*
  * Free mbedtls_ssl_config
@@ -7272,6 +7290,7 @@ void mbedtls_ssl_config_free( mbedtls_ssl_config *conf )
 
     mbedtls_zeroize( conf, sizeof( mbedtls_ssl_config ) );
 }
+EXPORT_SYMBOL(mbedtls_ssl_config_free);
 
 #if defined(MBEDTLS_PK_C) && \
     ( defined(MBEDTLS_RSA_C) || defined(MBEDTLS_ECDSA_C) )
