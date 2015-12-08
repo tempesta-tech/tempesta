@@ -32,7 +32,7 @@
 #endif
 
 #include <stddef.h>
-#include <stdint.h>
+#include <linux/types.h>
 
 #define MBEDTLS_BLOWFISH_ENCRYPT     1
 #define MBEDTLS_BLOWFISH_DECRYPT     0

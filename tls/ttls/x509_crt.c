@@ -30,6 +30,7 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -42,8 +43,8 @@
 #include "x509_crt.h"
 #include "oid.h"
 
-#include <stdio.h>
-#include <string.h>
+//#include <stdio.h> /*TODO: Uncomment*/
+#include <linux/string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
@@ -65,7 +66,7 @@
 #if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
 #include <windows.h>
 #else
-#include <time.h>
+//#include <time.h> /*TODO: Uncomment*/
 #endif
 
 #if defined(MBEDTLS_FS_IO)
@@ -1071,6 +1072,7 @@ int mbedtls_x509_crt_parse( mbedtls_x509_crt *chain, const unsigned char *buf, s
     else
         return( MBEDTLS_ERR_X509_CERT_UNKNOWN_FORMAT );
 }
+EXPORT_SYMBOL(mbedtls_x509_crt_parse);
 
 #if defined(MBEDTLS_FS_IO)
 /*
@@ -2298,6 +2300,7 @@ void mbedtls_x509_crt_init( mbedtls_x509_crt *crt )
 {
     memset( crt, 0, sizeof(mbedtls_x509_crt) );
 }
+EXPORT_SYMBOL(mbedtls_x509_crt_init);
 
 /*
  * Unallocate all certificate data
@@ -2380,5 +2383,6 @@ void mbedtls_x509_crt_free( mbedtls_x509_crt *crt )
     }
     while( cert_cur != NULL );
 }
+EXPORT_SYMBOL(mbedtls_x509_crt_free);
 
 #endif /* MBEDTLS_X509_CRT_PARSE_C */

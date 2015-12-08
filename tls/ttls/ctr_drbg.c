@@ -25,6 +25,7 @@
  *
  *  http://csrc.nist.gov/publications/nistpubs/800-90/SP800-90revised_March2007.pdf
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -36,7 +37,7 @@
 
 #include "ctr_drbg.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
@@ -67,6 +68,7 @@ void mbedtls_ctr_drbg_init( mbedtls_ctr_drbg_context *ctx )
     mbedtls_mutex_init( &ctx->mutex );
 #endif
 }
+EXPORT_SYMBOL(mbedtls_ctr_drbg_init);
 
 /*
  * Non-public function wrapped by ctr_crbg_init(). Necessary to allow NIST
@@ -113,6 +115,7 @@ int mbedtls_ctr_drbg_seed( mbedtls_ctr_drbg_context *ctx,
     return( mbedtls_ctr_drbg_seed_entropy_len( ctx, f_entropy, p_entropy, custom, len,
                                        MBEDTLS_CTR_DRBG_ENTROPY_LEN ) );
 }
+EXPORT_SYMBOL(mbedtls_ctr_drbg_seed);
 
 void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx )
 {
@@ -125,6 +128,7 @@ void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx )
     mbedtls_aes_free( &ctx->aes_ctx );
     mbedtls_zeroize( ctx, sizeof( mbedtls_ctr_drbg_context ) );
 }
+EXPORT_SYMBOL(mbedtls_ctr_drbg_free);
 
 void mbedtls_ctr_drbg_set_prediction_resistance( mbedtls_ctr_drbg_context *ctx, int resistance )
 {
@@ -416,6 +420,7 @@ int mbedtls_ctr_drbg_random( void *p_rng, unsigned char *output, size_t output_l
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_ctr_drbg_random);
 
 #if defined(MBEDTLS_FS_IO)
 int mbedtls_ctr_drbg_write_seed_file( mbedtls_ctr_drbg_context *ctx, const char *path )

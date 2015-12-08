@@ -37,7 +37,7 @@
 
 #include "padlock.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #ifndef asm
 #define asm __asm

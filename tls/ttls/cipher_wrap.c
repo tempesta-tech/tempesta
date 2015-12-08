@@ -64,7 +64,7 @@
 #endif
 
 #if defined(MBEDTLS_CIPHER_NULL_CIPHER)
-#include <string.h>
+#include <linux/string.h>
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)

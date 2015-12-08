@@ -31,7 +31,7 @@
 
 #include "version.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 static const char *features[] = {
 #if defined(MBEDTLS_VERSION_FEATURES)
