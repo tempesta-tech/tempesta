@@ -38,7 +38,7 @@
 #include "ecdsa.h"
 #include "asn1write.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_ECDSA_DETERMINISTIC)
 #include "hmac_drbg.h"

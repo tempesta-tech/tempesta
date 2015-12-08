@@ -39,7 +39,7 @@
 #include "asn1.h"
 #include "cipher.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_ARC4_C)
 #include "arc4.h"

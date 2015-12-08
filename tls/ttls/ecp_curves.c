@@ -31,7 +31,7 @@
 
 #include "ecp.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
     !defined(inline) && !defined(__cplusplus)

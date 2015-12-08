@@ -20,6 +20,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -32,7 +33,7 @@
 #include "entropy.h"
 #include "entropy_poll.h"
 
-#include <string.h>
+#include <linux/string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
@@ -98,6 +99,7 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
 #endif
 #endif /* MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES */
 }
+EXPORT_SYMBOL(mbedtls_entropy_init);
 
 void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
 {
@@ -109,6 +111,7 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
 #endif
     mbedtls_zeroize( ctx, sizeof( mbedtls_entropy_context ) );
 }
+EXPORT_SYMBOL(mbedtls_entropy_free);
 
 int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
                         mbedtls_entropy_f_source_ptr f_source, void *p_source,
@@ -347,6 +350,7 @@ exit:
 
     return( ret );
 }
+EXPORT_SYMBOL(mbedtls_entropy_func);
 
 #if defined(MBEDTLS_FS_IO)
 int mbedtls_entropy_write_seed_file( mbedtls_entropy_context *ctx, const char *path )
