@@ -109,11 +109,7 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 	struct ipv6_pinfo *np = inet6_sk(&isk->sk);
 
 	if (np) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-		struct flowi6 fl6 = { .daddr = np->daddr };
-#else
 		struct flowi6 fl6 = { .daddr = isk->sk.sk_v6_daddr };
-#endif
 		struct dst_entry *dst;
 
 		BUG_ON(isk->sk.sk_family != AF_INET6);
@@ -242,11 +238,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	       " sk->sk_state=%d\n", __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
-#else
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size_goal);
-#endif
 
 out:
 	bh_unlock_sock(sk);
@@ -288,10 +280,6 @@ __ss_do_close(struct sock *sk)
 		return;
 
 	BUG_ON(sk->sk_state == TCP_LISTEN);
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sock_rps_reset_flow(sk);
-#endif
 
 	/*
 	 * Sanity checks.
@@ -663,11 +651,7 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 	 * @nsk is in ESTABLISHED state, so 3WHS has completed and
 	 * we can safely remove the request socket from accept queue of @lsk.
 	 */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	__reqsk_free(req);
-#else
 	reqsk_put(req);
-#endif
 }
 
 /*
@@ -681,13 +665,8 @@ static void ss_tcp_state_change(struct sock *sk);
  * Called when a new data received on the socket.
  * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
  */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-static void
-ss_tcp_data_ready(struct sock *sk, int bytes)
-#else
 static void
 ss_tcp_data_ready(struct sock *sk)
-#endif
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
@@ -926,30 +905,18 @@ ss_inet_create(struct net *net, int family,
 	}
 	WARN_ON(answer_prot->slab == NULL);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	if (unlikely(!inet_ehash_secret))
-		build_ehash_secret();
-#endif
-
 	err = -ENOBUFS;
 	if ((sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)) == NULL)
 		goto out;
 
 	err = 0;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sk->sk_no_check = 0;
-#endif
 
 	inet = inet_sk(sk);
 	inet->is_icsk = 1;
 	inet->nodefrag = 0;
 	inet->inet_id = 0;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	if (ipv4_config.no_pmtu_disc)
-#else
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
-#endif
 		inet->pmtudisc = IP_PMTUDISC_DONT;
 	else
 		inet->pmtudisc = IP_PMTUDISC_WANT;
@@ -972,11 +939,7 @@ ss_inet_create(struct net *net, int family,
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
 		np->mc_loop = 1;
 		np->pmtudisc = IPV6_PMTUDISC_WANT;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-		np->ipv6only = net->ipv6.sysctl.bindv6only;
-#else
 		sk->sk_ipv6only = net->ipv6.sysctl.bindv6only;
-#endif
 		inet->pinet6 = np;
 	}
 
@@ -1043,9 +1006,6 @@ ss_release(struct sock *sk)
 {
 	BUG_ON(sock_flag(sk, SOCK_LINGER));
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sock_rps_reset_flow(sk);
-#endif
 	sk->sk_prot->close(sk, 0);
 }
 EXPORT_SYMBOL(ss_release);
