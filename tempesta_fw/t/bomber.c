@@ -110,10 +110,9 @@ tfw_bmb_conn_complete(struct sock *sk)
 {
 	int idx, threadn, connn, end;
 	TfwConDesc *desc;
-	SsProto *proto;
+	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
 
-	proto = (SsProto *)sk->sk_user_data;
-	BUG_ON(proto == NULL);
+	BUG_ON(!proto);
 
 	idx = proto->type;
 	threadn = idx / nconnects;
@@ -143,9 +142,8 @@ __update_conn(struct sock *sk, int flags)
 {
 	int threadn, connn;
 	TfwConDesc *desc;
-	SsProto *proto;
+	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
 
-	proto = (SsProto *)sk->sk_user_data;
 	BUG_ON(proto == NULL);
 
 	threadn = proto->type / nconnects;
@@ -174,7 +172,7 @@ tfw_bmb_conn_close(struct sock *sk)
 static int
 tfw_bmb_conn_error(struct sock *sk)
 {
-	SsProto *proto = (SsProto *)sk->sk_user_data;
+	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
 
 	BUG_ON(proto == NULL);
 	atomic_inc(&bmb_conn_nerror[proto->type / nconnects]);
@@ -219,7 +217,7 @@ tfw_bmb_connect(int threadn, int connn)
 	}
 
 	ss_proto_init(&desc->proto, &bmb_hooks, threadn * nconnects + connn);
-	sk->sk_user_data = &desc->proto;
+	rcu_assign_sk_user_data(sk, &desc->proto);
 	ss_set_callbacks(sk);
 
 	ret = ss_connect(sk, &bmb_server_address.sa,

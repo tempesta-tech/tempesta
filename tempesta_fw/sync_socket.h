@@ -50,36 +50,28 @@ typedef struct ss_hooks {
 			       unsigned int off);
 } SsHooks;
 
-static inline void ss_callback_write_lock(struct sock *sk)
-{
-	write_lock(&sk->sk_callback_lock);
-}
-
-static inline void ss_callback_write_unlock(struct sock *sk)
-{
-	write_unlock(&sk->sk_callback_lock);
-}
-
-static inline void ss_sock_hold(struct sock *sk)
+static inline void
+ss_sock_hold(struct sock *sk)
 {
 	sock_hold(sk);
 }
 
-static inline void ss_sock_put(struct sock *sk)
+static inline void
+ss_sock_put(struct sock *sk)
 {
 	sock_put(sk);
 }
 
-static inline bool ss_sock_live(struct sock *sk)
+static inline bool
+ss_sock_live(struct sock *sk)
 {
-	return (sk->sk_state == TCP_ESTABLISHED);
+	return sk->sk_state == TCP_ESTABLISHED;
 }
 
-static inline bool ss_can_send(struct sock *sk)
+static inline bool
+ss_can_send(struct sock *sk)
 {
-	static const unsigned int send_states =
-		TCPF_ESTABLISHED | TCPF_CLOSE_WAIT;
-	return (((1 << sk->sk_state) & send_states) != 0);
+	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
 
 int ss_hooks_register(SsHooks* hooks);

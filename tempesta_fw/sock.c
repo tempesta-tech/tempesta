@@ -532,16 +532,7 @@ ss_tcp_process_data(struct sock *sk)
 			off--;
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
-			void *conn;
-
-			/*
-			 * We know that data for processing is within
-			 * the current SKB. Hand the SKB over to the
-			 * upper layer for processing.
-			 */
-			read_lock(&sk->sk_callback_lock);
-
-			conn = sk->sk_user_data;
+			void *conn = rcu_dereference_sk_user_data(sk);
 
 			/*
 			 * We're in softirq context and under the socket lock.
@@ -550,7 +541,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * one ingress context can work on the socket at any
 			 * point of time.
 			 * FIXME the comment above is wrong if we run client
-			 * workload on the same host.
+			 * workload on the same host with Tempesta.
 			 *
 			 * Deadlock: we may call ss_send() from an application
 			 * handler for a different socket while other softirq
@@ -572,10 +563,7 @@ ss_tcp_process_data(struct sock *sk)
 
 			r = SS_CALL(connection_recv, conn, skb, off);
 
-			/* FIXME soft lockup on tfw_bomber. */
 			bh_lock_sock_double_nested(sk);
-
-			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
 				SS_WARN("Error processing data: sk %p\n", sk);
@@ -747,15 +735,19 @@ ss_tcp_state_change(struct sock *sk)
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
-
-		SsProto *proto = sk->sk_user_data;
+		SsProto *proto = rcu_dereference_sk_user_data(sk);
 		struct sock *lsk = proto->listener;
 		int r;
 
-		/* The callback is called from tcp_rcv_state_process(). */
-		read_lock(&sk->sk_callback_lock);
+		/*
+		 * The callback is called from tcp_rcv_state_process().
+		 *
+		 * Server never sends data just after active connection opening
+		 * from our side. Passive open is processed from tcp_v4_rcv()
+		 * under socket lock. So there is no need synchronization
+		 * with ss_tcp_process_data().
+		 */
 		r = SS_CALL(connection_new, sk);
-		read_unlock(&sk->sk_callback_lock);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
 			ss_droplink(sk);
@@ -779,7 +771,8 @@ ss_tcp_state_change(struct sock *sk)
 			assert_spin_locked(&lsk->sk_lock.slock);
 			ss_drain_accept_queue(lsk, sk);
 		}
-	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
+	}
+	else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
 		 * Received FIN, connection is being closed.
 		 *
@@ -798,7 +791,8 @@ ss_tcp_state_change(struct sock *sk)
 			ss_tcp_process_data(sk);
 		SS_DBG("Peer connection closing\n");
 		ss_droplink(sk);
-	} else if (sk->sk_state == TCP_CLOSE) {
+	}
+	else if (sk->sk_state == TCP_CLOSE) {
 		/*
 		 * In current implementation we never reach TCP_CLOSE state
 		 * in regular course of action. When a socket is moved from
@@ -811,10 +805,13 @@ ss_tcp_state_change(struct sock *sk)
 		 * where the connection appears to be dead. In all of these
 		 * cases the socket is moved directly to TCP_CLOSE state
 		 * thus skipping all other states.
+		 *
+		 * It's safe to call the callback since we set socket callbacks
+		 * either for just created, not connected, sockets or in the
+		 * function above for ESTABLISHED state. sk_state_change()
+		 * callback is never called for the same socket concurrently.
 		 */
-		write_lock(&sk->sk_callback_lock);
 		SS_CALL(connection_error, sk);
-		write_unlock(&sk->sk_callback_lock);
 		ss_do_close(sk);
 	}
 }
@@ -844,7 +841,8 @@ ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
  * This function is called for each socket that is created by Tempesta.
  * It's run before a socket is bound or connected, so locking is not
  * required at that time. It's also called for each accepted socket,
- * and at that time it's run under sk_callback_lock.
+ * and at that time it's run under socket lock (see comment of TCP_ESTABLISHED
+ * case in ss_tcp_state_change()).
  */
 void
 ss_set_callbacks(struct sock *sk)
@@ -863,15 +861,16 @@ EXPORT_SYMBOL(ss_set_callbacks);
 /**
  * Store listening socket as parent for all accepted connections,
  * and initialize first callbacks.
+ *
+ * The function is called against just created and still inactive socket,
+ * so there is no need socket synchronization.
  */
 void
 ss_set_listen(struct sock *sk)
 {
 	((SsProto *)sk->sk_user_data)->listener = sk;
 
-	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_state_change = ss_tcp_state_change;
-	write_unlock_bh(&sk->sk_callback_lock);
 }
 EXPORT_SYMBOL(ss_set_listen);
 
