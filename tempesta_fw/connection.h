@@ -153,20 +153,9 @@ tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
 	atomic_set(&conn->refcnt, 1);
-	sk->sk_user_data = conn;
+	rcu_assign_sk_user_data(sk, conn);
 }
 
-/*
- * The four functions below, link/unlink to/from @sk are called under
- * sk->sk_callback_lock. The main reason for that was that there's
- * Tempesta shutdown procedure that runs parallel with Tempesta's main
- * activity.
- *
- * TODO: When the shutdown procedure is changed to run only when main
- * Tempesta activity has stopped, then sk->sk_callback_lock locks can
- * be eliminated in Sync Sockets. Also, Tempesta shutdown procedure
- * need to be verified that runs when Tempesta is unable to start.
- */
 /*
  * Link Tempesta with Sync Sockets layer. @conn instance now carries
  * a reference to @sk. When there's need to send data on a connection,
@@ -188,8 +177,8 @@ tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
 static inline void
 tfw_connection_unlink_from_sk(struct sock *sk)
 {
-	BUG_ON(sk->sk_user_data == NULL);
-	sk->sk_user_data = NULL;
+	BUG_ON(!sk->sk_user_data);
+	rcu_assign_sk_user_data(sk, NULL);
 }
 
 /*

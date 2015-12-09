@@ -98,8 +98,8 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * from referencing the TfwListenSock while a new TfwConnection object
 	 * is not yet allocated/initialized.
 	 */
-	listen_sock_proto = sk->sk_user_data;
-	sk->sk_user_data = NULL;
+	listen_sock_proto = rcu_dereference_sk_user_data(sk);
+	tfw_connection_unlink_from_sk(sk);
 
 	cli = tfw_client_obtain(sk);
 	if (!cli) {
@@ -147,7 +147,7 @@ err_client:
 static int
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConnection *conn = rcu_dereference_sk_user_data(sk);
 
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
@@ -280,7 +280,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	 * That must be done before calling ss_set_listen() that uses SsProto.
 	 */
 	ls->sk = sk;
-	sk->sk_user_data = ls;
+	rcu_assign_sk_user_data(sk, ls);
 
 	/*
 	 * For listening sockets we use
