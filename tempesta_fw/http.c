@@ -611,7 +611,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	unsigned int skb_len = skb->len;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb_len);
+	BUG_ON(data_off >= skb_len);
 
 	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 		 skb_len - off, conn, conn->msg);
@@ -701,6 +701,16 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			}
 		}
 		/*
+		 * Complete HTTP message has been collected and successfully
+		 * processed. Mark the message as complete in @conn, because
+		 * further handling of @conn depends on that. Future SKBs
+		 * will be put in a new message.
+		 * Otherwise, the function returns from inside the loop.
+		 * @conn->msg holds the reference to the message, which can
+		 * be used to release it.
+		 */
+		conn->msg = NULL;
+		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 * As it may be released, save the needed flag for later use.
@@ -732,17 +742,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			conn->msg = (TfwMsg *)hmsib;
 		}
 	}
-	/*
-	 * All data in the SKB has been successfully
-	 * processed. Complete HTTP messages have been
-	 * collected, and stored or released. Future SKBs
-	 * should be put in a new message.
-	 *
-	 * Otherwise, the function just returns from inside
-	 * the loop. @conn->msg contains the reference to
-	 * a message, which can be used to release it.
-	 */
-	conn->msg = NULL;
 
 	return r;
 }
@@ -796,7 +795,6 @@ tfw_http_popreq(TfwConnection *conn)
 	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
 		spin_unlock(&conn->msg_qlock);
-		TFW_WARN("Empty request queue\n");
 		return NULL;
 	}
 	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
@@ -836,7 +834,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	unsigned int skb_len = skb->len;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb_len);
+	BUG_ON(data_off >= skb_len);
 
 	TFW_DBG2("received %u server data bytes on conn=%p msg=%p\n",
 		skb->len - off, conn, conn->msg);
@@ -951,10 +949,22 @@ next_resp:
 		 * for data exchange until that gets impossible.
 		 */
 		if ((req = tfw_http_popreq(conn)) != NULL) {
+			/*
+			 * Complete HTTP message has been collected and
+			 * successfully processed. Mark the message as
+			 * complete in @conn, because further handling
+			 * of @conn depends on that. Future SKBs will
+			 * be put in a new message.
+			 * Otherwise, the function returns from inside
+			 * the loop. @conn->msg holds the reference to
+			 * the message, which can be used to release it.
+			 */
+			conn->msg = NULL;
 			tfw_cache_resp_process((TfwHttpResp *)hmresp,
 					       req, tfw_http_resp_cache_cb);
 		} else {
-			/* conn->msg will get NULLed in the process. */
+			/* @conn->msg will get NULLed in the process. */
+			TFW_WARN("Paired request missing\n");
 			tfw_http_conn_msg_free(hmresp);
 		}
 
@@ -968,18 +978,7 @@ next_resp:
 			conn->msg = (TfwMsg *)hmsib;
 		}
 	}
-	/*
-	 * All data in the SKB has been processed, and the processing
-	 * is successful. A complete HTTP message has been collected,
-	 * sent to a client, and then released.
-	 *
-	 * Otherwise, the function just returns from inside the loop.
-	 * conn->msg contains the reference to a message, which can
-	 * be used to release it.
-	 *
-	 * @conn->msg is NULLed when the message is freed/released.
-	 * Future SKBs will be put in a new message.
-	 */
+
 	return r;
 }
 
