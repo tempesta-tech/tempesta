@@ -2,6 +2,7 @@
  *  TCP/IP or UDP/IP networking functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -49,7 +50,6 @@ EXPORT_SYMBOL(mbedtls_net_init);
  */
 int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char *port, int proto )
 {
-    /* TODO */
     return( 0 );
 }
 
