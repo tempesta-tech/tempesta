@@ -4,6 +4,7 @@
  * \brief Object Identifier (OID) database
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,12 +35,12 @@
 #include "oid.h"
 #include "rsa.h"
 
-//#include <stdio.h> /*TODO: Uncomment*/
 #include <linux/string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
+#include <stdio.h>
 #define mbedtls_snprintf snprintf
 #endif
 

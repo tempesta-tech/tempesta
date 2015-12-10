@@ -33,7 +33,7 @@
 #include "asn1write.h"
 #include "oid.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 typedef struct {
     const char *name;

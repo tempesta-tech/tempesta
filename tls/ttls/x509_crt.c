@@ -2,6 +2,7 @@
  *  X.509 certificate parsing and verification
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,7 +44,6 @@
 #include "x509_crt.h"
 #include "oid.h"
 
-//#include <stdio.h> /*TODO: Uncomment*/
 #include <linux/string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
@@ -53,6 +53,7 @@
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
+#include <stdio.h>
 #include <stdlib.h>
 #define mbedtls_free       free
 #define mbedtls_calloc    calloc
@@ -66,7 +67,9 @@
 #if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
 #include <windows.h>
 #else
-//#include <time.h> /*TODO: Uncomment*/
+#if defined(MBEDTLS_HAVE_TIME_DATE)
+#include <time.h>
+#endif
 #endif
 
 #if defined(MBEDTLS_FS_IO)
