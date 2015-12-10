@@ -348,11 +348,9 @@ TEST(frang, body_chunks)
 }
 
 TEST_SUITE(frang)
-{	
-	/* The initial FSM state isn't hookable. */
+{	/* The initial FSM state isn't hookable. */
 	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
-	
 	/* A new frang account for tests */
 	mocksock.inet_saddr = htonl(in_aton(inet_addr));
 	frang_conn_new((struct sock*)&mocksock);
