@@ -89,10 +89,6 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 	ss_send(conn->sk, &msg->skb_list, unref_data);
 }
 
-/*
- * Must be called under a lock on sk->sk_callback_lock due to
- * the use of sk->sk_user_data.
- */
 int
 tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {

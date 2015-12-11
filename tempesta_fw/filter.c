@@ -145,16 +145,9 @@ __ipv4_hdr_check(struct sk_buff *skb)
 	return ih;
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-static unsigned int
-tfw_ipv4_nf_hook(unsigned int hooknum, struct sk_buff *skb,
-		const struct net_device *in, const struct net_device *out,
-		int (*okfn)(struct sk_buff *))
-#else
 static unsigned int
 tfw_ipv4_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
-#endif
 {
 	int r;
 	const struct iphdr *ih;
@@ -237,16 +230,9 @@ __ipv6_hdr_check(struct sk_buff *skb)
 	return ih;
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-static unsigned int
-tfw_ipv6_nf_hook(unsigned int hooknum, struct sk_buff *skb,
-		const struct net_device *in, const struct net_device *out,
-		int (*okfn)(struct sk_buff *))
-#else
 static unsigned int
 tfw_ipv6_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
-#endif
 {
 	int r;
 	struct ipv6hdr *ih;

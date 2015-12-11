@@ -81,11 +81,6 @@ ss_skb_alloc_pages(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-		/* See __skb_alloc_pages() in include/linux/skbuff.h. */
-		if (page->pfmemalloc)
-			skb->pfmemalloc = true;
-#endif
 		__skb_fill_page_desc(skb, i_frag, page, 0, 0);
 		skb_shinfo(skb)->nr_frags++;
 	}
@@ -239,7 +234,9 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	}
 
 	if (__extend_pgfrags(skb, pskb, i, shift)) {
-		if (!frag)
+		if (frag)
+			__skb_frag_unref(frag);
+		else
 			__free_page(page);
 		return -ENOMEM;
 	}
@@ -254,7 +251,6 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	}
 
 	__skb_fill_page_desc(skb, i, page, off, size);
-
 	ss_skb_adjust_data_len(skb, size);
 
 	return 0;

@@ -109,11 +109,7 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 	struct ipv6_pinfo *np = inet6_sk(&isk->sk);
 
 	if (np) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-		struct flowi6 fl6 = { .daddr = np->daddr };
-#else
 		struct flowi6 fl6 = { .daddr = isk->sk.sk_v6_daddr };
-#endif
 		struct dst_entry *dst;
 
 		BUG_ON(isk->sk.sk_family != AF_INET6);
@@ -242,11 +238,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	       " sk->sk_state=%d\n", __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH);
-#else
 	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size_goal);
-#endif
 
 out:
 	bh_unlock_sock(sk);
@@ -288,10 +280,6 @@ __ss_do_close(struct sock *sk)
 		return;
 
 	BUG_ON(sk->sk_state == TCP_LISTEN);
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sock_rps_reset_flow(sk);
-#endif
 
 	/*
 	 * Sanity checks.
@@ -532,16 +520,7 @@ ss_tcp_process_data(struct sock *sk)
 			off--;
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
-			void *conn;
-
-			/*
-			 * We know that data for processing is within
-			 * the current SKB. Hand the SKB over to the
-			 * upper layer for processing.
-			 */
-			read_lock(&sk->sk_callback_lock);
-
-			conn = sk->sk_user_data;
+			void *conn = rcu_dereference_sk_user_data(sk);
 
 			/*
 			 * We're in softirq context and under the socket lock.
@@ -549,6 +528,8 @@ ss_tcp_process_data(struct sock *sk)
 			 * for the same socket to exactly same softirq, so only
 			 * one ingress context can work on the socket at any
 			 * point of time.
+			 * FIXME the comment above is wrong if we run client
+			 * workload on the same host with Tempesta.
 			 *
 			 * Deadlock: we may call ss_send() from an application
 			 * handler for a different socket while other softirq
@@ -571,8 +552,6 @@ ss_tcp_process_data(struct sock *sk)
 			r = SS_CALL(connection_recv, conn, skb, off);
 
 			bh_lock_sock_double_nested(sk);
-
-			read_unlock(&sk->sk_callback_lock);
 
 			if (r < 0) {
 				SS_WARN("Error processing data: sk %p\n", sk);
@@ -672,11 +651,7 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 	 * @nsk is in ESTABLISHED state, so 3WHS has completed and
 	 * we can safely remove the request socket from accept queue of @lsk.
 	 */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	__reqsk_free(req);
-#else
 	reqsk_put(req);
-#endif
 }
 
 /*
@@ -690,13 +665,8 @@ static void ss_tcp_state_change(struct sock *sk);
  * Called when a new data received on the socket.
  * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
  */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-static void
-ss_tcp_data_ready(struct sock *sk, int bytes)
-#else
 static void
 ss_tcp_data_ready(struct sock *sk)
-#endif
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
@@ -744,15 +714,19 @@ ss_tcp_state_change(struct sock *sk)
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
-
-		SsProto *proto = sk->sk_user_data;
+		SsProto *proto = rcu_dereference_sk_user_data(sk);
 		struct sock *lsk = proto->listener;
 		int r;
 
-		/* The callback is called from tcp_rcv_state_process(). */
-		read_lock(&sk->sk_callback_lock);
+		/*
+		 * The callback is called from tcp_rcv_state_process().
+		 *
+		 * Server never sends data just after active connection opening
+		 * from our side. Passive open is processed from tcp_v4_rcv()
+		 * under socket lock. So there is no need synchronization
+		 * with ss_tcp_process_data().
+		 */
 		r = SS_CALL(connection_new, sk);
-		read_unlock(&sk->sk_callback_lock);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
 			ss_droplink(sk);
@@ -776,7 +750,8 @@ ss_tcp_state_change(struct sock *sk)
 			assert_spin_locked(&lsk->sk_lock.slock);
 			ss_drain_accept_queue(lsk, sk);
 		}
-	} else if (sk->sk_state == TCP_CLOSE_WAIT) {
+	}
+	else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
 		 * Received FIN, connection is being closed.
 		 *
@@ -795,7 +770,8 @@ ss_tcp_state_change(struct sock *sk)
 			ss_tcp_process_data(sk);
 		SS_DBG("Peer connection closing\n");
 		ss_droplink(sk);
-	} else if (sk->sk_state == TCP_CLOSE) {
+	}
+	else if (sk->sk_state == TCP_CLOSE) {
 		/*
 		 * In current implementation we never reach TCP_CLOSE state
 		 * in regular course of action. When a socket is moved from
@@ -808,10 +784,13 @@ ss_tcp_state_change(struct sock *sk)
 		 * where the connection appears to be dead. In all of these
 		 * cases the socket is moved directly to TCP_CLOSE state
 		 * thus skipping all other states.
+		 *
+		 * It's safe to call the callback since we set socket callbacks
+		 * either for just created, not connected, sockets or in the
+		 * function above for ESTABLISHED state. sk_state_change()
+		 * callback is never called for the same socket concurrently.
 		 */
-		write_lock(&sk->sk_callback_lock);
 		SS_CALL(connection_error, sk);
-		write_unlock(&sk->sk_callback_lock);
 		ss_do_close(sk);
 	}
 }
@@ -841,7 +820,8 @@ ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
  * This function is called for each socket that is created by Tempesta.
  * It's run before a socket is bound or connected, so locking is not
  * required at that time. It's also called for each accepted socket,
- * and at that time it's run under sk_callback_lock.
+ * and at that time it's run under socket lock (see comment of TCP_ESTABLISHED
+ * case in ss_tcp_state_change()).
  */
 void
 ss_set_callbacks(struct sock *sk)
@@ -860,15 +840,16 @@ EXPORT_SYMBOL(ss_set_callbacks);
 /**
  * Store listening socket as parent for all accepted connections,
  * and initialize first callbacks.
+ *
+ * The function is called against just created and still inactive socket,
+ * so there is no need socket synchronization.
  */
 void
 ss_set_listen(struct sock *sk)
 {
 	((SsProto *)sk->sk_user_data)->listener = sk;
 
-	write_lock_bh(&sk->sk_callback_lock);
 	sk->sk_state_change = ss_tcp_state_change;
-	write_unlock_bh(&sk->sk_callback_lock);
 }
 EXPORT_SYMBOL(ss_set_listen);
 
@@ -924,30 +905,18 @@ ss_inet_create(struct net *net, int family,
 	}
 	WARN_ON(answer_prot->slab == NULL);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	if (unlikely(!inet_ehash_secret))
-		build_ehash_secret();
-#endif
-
 	err = -ENOBUFS;
 	if ((sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)) == NULL)
 		goto out;
 
 	err = 0;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sk->sk_no_check = 0;
-#endif
 
 	inet = inet_sk(sk);
 	inet->is_icsk = 1;
 	inet->nodefrag = 0;
 	inet->inet_id = 0;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	if (ipv4_config.no_pmtu_disc)
-#else
 	if (net->ipv4.sysctl_ip_no_pmtu_disc)
-#endif
 		inet->pmtudisc = IP_PMTUDISC_DONT;
 	else
 		inet->pmtudisc = IP_PMTUDISC_WANT;
@@ -970,11 +939,7 @@ ss_inet_create(struct net *net, int family,
 		np->mcast_hops = IPV6_DEFAULT_MCASTHOPS;
 		np->mc_loop = 1;
 		np->pmtudisc = IPV6_PMTUDISC_WANT;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-		np->ipv6only = net->ipv6.sysctl.bindv6only;
-#else
 		sk->sk_ipv6only = net->ipv6.sysctl.bindv6only;
-#endif
 		inet->pinet6 = np;
 	}
 
@@ -1041,9 +1006,6 @@ ss_release(struct sock *sk)
 {
 	BUG_ON(sock_flag(sk, SOCK_LINGER));
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,1,12)
-	sock_rps_reset_flow(sk);
-#endif
 	sk->sk_prot->close(sk, 0);
 }
 EXPORT_SYMBOL(ss_release);
