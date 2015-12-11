@@ -258,10 +258,6 @@
  * of mbedtls_sha1_context, so your implementation of mbedtls_sha1_process must be compatible
  * with this definition.
  *
- * Note: if you use the AES_xxx_ALT macros, then is is recommended to also set
- * MBEDTLS_AES_ROM_TABLES in order to help the linker garbage-collect the AES
- * tables.
- *
  * Uncomment a macro to enable alternate implementation of the corresponding
  * function.
  */
@@ -292,15 +288,6 @@
  * Uncomment to use your own hardware entropy collector.
  */
 //#define MBEDTLS_ENTROPY_HARDWARE_ALT
-
-/**
- * \def MBEDTLS_AES_ROM_TABLES
- *
- * Store the AES tables in ROM.
- *
- * Uncomment this macro to store the AES tables in ROM.
- */
-//#define MBEDTLS_AES_ROM_TABLES
 
 /**
  * \def MBEDTLS_CAMELLIA_SMALL_MEMORY
