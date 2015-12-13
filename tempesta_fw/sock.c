@@ -143,6 +143,24 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 	return true;
 }
 
+static void
+ss_skb_entail(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
+
+	skb->csum    = 0;
+	tcb->seq     = tcb->end_seq = tp->write_seq;
+	tcb->tcp_flags = TCPHDR_ACK;
+	tcb->sacked  = 0;
+	skb_header_release(skb);
+	tcp_add_write_queue_tail(sk, skb);
+	sk->sk_wmem_queued += skb->truesize;
+	sk_mem_charge(sk, skb->truesize);
+	if (tp->nonagle & TCP_NAGLE_PUSH)
+		tp->nonagle &= ~TCP_NAGLE_PUSH;
+}
+
 /*
  * ------------------------------------------------------------------------
  *  	Server and client connections handling
@@ -220,7 +238,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		SS_DBG("%s: entail skb=%p data_len=%u len=%u\n",
 		       __func__, skb, skb->data_len, skb->len);
 
-		skb_entail(sk, skb);
+		ss_skb_entail(sk, skb);
 
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
@@ -510,8 +528,10 @@ ss_tcp_process_data(struct sock *sk)
 		 * parsed out HTTP data structures unchnaged).
 		 * So skb uncloning is enough here.
 		 */
-		if (skb_cloned(skb))
-			pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+		if (skb_unclone(skb, GFP_ATOMIC)) {
+			SS_WARN("cannot unclone ingress skb\n");
+			goto out;
+		}
 
 		/* SKB may be freed in processing. Save the flag. */
 		tcp_fin = tcp_hdr(skb)->fin;
