@@ -288,7 +288,7 @@ tfw_bmb_msg_send(int threadn, int connn)
 	}
 	tfw_http_msg_write(&it, req, &msg);
 	local_bh_disable();
-	ss_send(desc->sk, &req->msg.skb_list, false);
+	ss_send(desc->sk, &req->msg.skb_list, true);
 	local_bh_enable();
 	tfw_http_msg_free(req);
 
@@ -353,6 +353,12 @@ release_sockets:
 			   &bmb_conn_ncomplete_all);
 		atomic_add(atomic_read(&bmb_conn_nerror[thr_n]),
 			   &bmb_conn_nerror_all);
+
+		/*
+		 * FIXME workaround for ss_close() and ss_tcp_process_data()
+		 * receiving server reply.
+		 */
+		udelay(1000);
 
 		tfw_bmb_release_sockets(thr_n);
 	}
