@@ -37,23 +37,26 @@ static int nthreads	= 2;
 static int niters	= 2;
 static int nconnects	= 2;
 static int nmessages	= 2;
+static int verbose	= 0;
 static char *server	= "127.0.0.1:80";
 
 module_param_named(t, nthreads,  int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param_named(i, niters,    int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param_named(c, nconnects, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param_named(m, nmessages, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+module_param_named(v, verbose, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 module_param_named(s, server, charp, 0);
 
 MODULE_PARM_DESC(t, "Number of threads (set this to the number of CPU cores)");
 MODULE_PARM_DESC(i, "Number of thread iterations");
 MODULE_PARM_DESC(c, "Number of connections");
 MODULE_PARM_DESC(m, "Number of messages per connection");
+MODULE_PARM_DESC(v, "Verbosity level");
 MODULE_PARM_DESC(s, "Server host address and optional port nunber");
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta Boomber");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
 #ifdef TFW_BANNER
@@ -181,14 +184,24 @@ tfw_bmb_conn_error(struct sock *sk)
 }
 
 int
+tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len)
+{
+	printk(KERN_INFO "%.*s", (int)len, data);
+	return 0;
+}
+
+int
 tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
-	/*
-	 * Just drop any server data.
-	 * This is our response to free @skb.
-	 */
-	__kfree_skb(skb);
+	if (verbose) {
+		unsigned int data_off = 0;
 
+		TFW_LOG("Server response:\n------------------------------\n");
+		ss_skb_process(skb, &data_off, tfw_bmb_print_msg, NULL);
+		printk(KERN_INFO "\n------------------------------\n");
+	}
+
+	__kfree_skb(skb);
 	return TFW_PASS;
 }
 
@@ -271,9 +284,8 @@ tfw_bmb_msg_send(int threadn, int connn)
 		c++;
 		r = fuzz_gen(&bmb_contexts[threadn], s, s + BUF_SIZE, 0, 1,
 			     FUZZ_REQ);
-		if (r == FUZZ_END) {
+		if (r == FUZZ_END)
 			fuzz_init(&bmb_contexts[threadn], true);
-		}
 	} while ((r == FUZZ_END || r == FUZZ_INVALID) && c < 3);
 
 	msg.ptr = s;
@@ -286,6 +298,14 @@ tfw_bmb_msg_send(int threadn, int connn)
 		TFW_WARN("Cannot create HTTP request.\n");
 		return;
 	}
+
+	if (verbose)
+		TFW_LOG("Send request:\n"
+			"------------------------------\n"
+			"%s\n"
+			"------------------------------\n",
+			s);
+
 	tfw_http_msg_write(&it, req, &msg);
 	local_bh_disable();
 	ss_send(desc->sk, &req->msg.skb_list, true);
@@ -417,9 +437,8 @@ tfw_bmb_alloc(void)
 				    nthreads * nconnects * sizeof(int) +
 				    nthreads * BUF_SIZE * sizeof(char) +
 				    nthreads * 3 * sizeof(atomic_t));
-	if (!bmb_alloc_ptr) {
+	if (!bmb_alloc_ptr)
 		return -ENOMEM;
-	}
 
 	bmb_tasks = p;
 	p += nthreads * sizeof(struct task_struct *);
@@ -464,7 +483,10 @@ tfw_bmb_alloc(void)
 static void
 tfw_bmb_free(void)
 {
-	vfree(bmb_alloc_ptr);
+	if (bmb_alloc_ptr) {
+		vfree(bmb_alloc_ptr);
+		bmb_alloc_ptr = NULL;
+	}
 }
 
 static int __init
@@ -514,7 +536,11 @@ stop_threads:
 static void
 tfw_bmb_exit(void)
 {
-	/* TODO */
+	if (!bmb_alloc_ptr)
+		return; /* already stopped and freed */
+
+	tfw_bmb_stop_threads();
+	tfw_bmb_free();
 }
 
 module_init(tfw_bmb_init);
