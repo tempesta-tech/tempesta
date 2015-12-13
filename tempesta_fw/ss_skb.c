@@ -720,6 +720,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 
 	return r;
 }
+EXPORT_SYMBOL(ss_skb_process);
 
 /*
  * Split an SKB in two at a given offset. The original SKB is shrunk

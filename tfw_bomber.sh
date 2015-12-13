@@ -30,7 +30,7 @@ popd > /dev/null
 # Path to testing modules.
 tm_path=${TFW_PATH:="$root/tempesta_fw/t"}
 
-declare conn= iter= msgs= srv= thr=
+declare conn= iter= msgs= srv= thr= verbose=
 
 declare -r long_opts="help,start,stop"
 
@@ -48,6 +48,7 @@ usage()
 	echo -e "  -i <I>      Number of iterations, 2 by default."
 	echo -e "  -m <M>      Number messages per connection, 2 by default."
 	echo -e "  -t <T>      Number of client threads, 2 by default."
+	echo -e "  -v          Verbose output."
 	echo
 	echo -e "Actions:"
 	echo -e "  --help      Show this message and exit."
@@ -72,7 +73,7 @@ start()
 	insmod $tm_path/tfw_fuzzer.ko
 	[ $? -ne 0 ] && error "cannot load HTTP fuzzer"
 
-	insmod $tm_path/tfw_bomber.ko ${conn} ${iter} ${msgs} ${srv} ${thr}
+	insmod $tm_path/tfw_bomber.ko $conn $iter $msgs $srv $thr $verbose
 	[ $? -ne 0 ] && error "cannot start bomber"
 
 	echo "done"
@@ -80,11 +81,16 @@ start()
 
 stop()
 {
-	# TODO
-	echo "Not implemented :("
+	echo "Tempesta: stop and unload bomber..."
+
+	rmmod tfw_bomber
+	rmmod tfw_fuzzer
+	./tempesta.sh --unload
+
+	echo "done"
 }
 
-args=$(getopt -o "a:c:i:m:t:" -a -l "$long_opts" -- "$@")
+args=$(getopt -o "a:c:i:m:t:v" -a -l "$long_opts" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
@@ -117,6 +123,11 @@ while :; do
 			thr="t=$2"
 			shift 2
 			;;
+		-v)
+			verbose="v=1"
+			shift
+			;;
+
 		--help)
 			usage
 			exit
