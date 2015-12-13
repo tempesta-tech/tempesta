@@ -81,8 +81,7 @@ ss_skb_alloc_pages(size_t len)
 			kfree_skb(skb);
 			return NULL;
 		}
-		__skb_fill_page_desc(skb, i_frag, page, 0, 0);
-		skb_shinfo(skb)->nr_frags++;
+		skb_fill_page_desc(skb, i_frag, page, 0, 0);
 	}
 
 	return skb;
