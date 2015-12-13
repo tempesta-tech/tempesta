@@ -269,7 +269,7 @@ static void
 tfw_bmb_msg_send(int threadn, int connn)
 {
 	TfwConDesc *desc;
-	int c, r;
+	int fz_tries = 0, r;
 	char *s;
 	TfwStr msg;
 	TfwHttpMsg *req;
@@ -278,15 +278,21 @@ tfw_bmb_msg_send(int threadn, int connn)
 	desc = &bmb_desc[threadn][connn];
 	BUG_ON(!desc->sk);
 
-	c = 0;
 	s = bmb_bufs[threadn];
 	do {
-		c++;
+		if (++fz_tries > 10) {
+			TFW_ERR("Too many fuzzer tries to generate request\n");
+			return;
+		}
 		r = fuzz_gen(&bmb_contexts[threadn], s, s + BUF_SIZE, 0, 1,
 			     FUZZ_REQ);
+		if (r < 0) {
+			TFW_ERR("Cannot generate HTTP request, r=%d\n", r);
+			return;
+		}
 		if (r == FUZZ_END)
 			fuzz_init(&bmb_contexts[threadn], true);
-	} while ((r == FUZZ_END || r == FUZZ_INVALID) && c < 3);
+	} while (r != FUZZ_VALID);
 
 	msg.ptr = s;
 	msg.skb = NULL;
