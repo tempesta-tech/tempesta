@@ -463,6 +463,28 @@ ss_close(struct sock *sk)
 EXPORT_SYMBOL(ss_close);
 
 /*
+ * The functions ss_do_droplink() and ss_droplink() have the same body.
+ * The difference is that ss_do_droplink() is triggered by the kernel
+ * when FIN comes, whereas the ss_droplink() is called explicitly by
+ * Tempesta. It's essential that the body of these functions is called
+ * only once for a given socket. That is enforced by the following:
+ * - The body is protected by the socket lock which ensures that these
+ *   functions don't run concurrently.
+ * - A socket is no longer live after the body is executed by either
+ *   of these functions.
+ * - If ss_droplink() is called first, then ss_do_droplink() is never
+ *   called by the kernel as the socket will be closed.
+ * - If ss_do_droplink() is called first, then ss_droplink() sees that
+ *   the socket is not live and does not execute the body again.
+ *
+ * All of this ensures that there's always an extra reference to the
+ * socket from Tempesta, until Tempesta is done with the connection.
+ *
+ * XXX: The reasoning above may get invalid if Synchronous Sockets
+ * is changed in regards to the design of socket closing procedure.
+ */
+
+/*
  * Close the socket first. We're done with it anyway. Then release
  * all Tempesta resources linked with the socket, start failover
  * procedure if necessary, and cut all ties with Tempesta. That
@@ -471,7 +493,9 @@ EXPORT_SYMBOL(ss_close);
  * The order in which these actions are executed is important.
  * The failover procedure expects that the socket is inactive.
  *
- * This function is for internal Sync Sockets use only.
+ * This function is for internal Sync Sockets use only. It's called
+ * under the socket lock taken by the kernel, and in the context of
+ * the socket that is being closed.
  */
 static void
 ss_do_droplink(struct sock *sk)
@@ -487,10 +511,23 @@ ss_do_droplink(struct sock *sk)
 	SS_CALL(connection_drop, sk);
 }
 
+/*
+ * This function is for use by other Tempesta components. It may be
+ * called either in the context of the socket that is being closed,
+ * or in the context of a completely different socket.
+ *
+ * Note: the socket is never destroyed after this function is run.
+ * See comments in places where this function is called and used.
+ */
 void
 ss_droplink(struct sock *sk)
 {
 	bh_lock_sock_double_nested(sk);
+	if (!ss_sock_live(sk)) {
+		bh_unlock_sock(sk);
+		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
+		return;
+	}
 	ss_do_droplink(sk);
 	bh_unlock_sock(sk);
 }
@@ -850,8 +887,8 @@ ss_tcp_state_change(struct sock *sk)
 		 * function above for ESTABLISHED state. sk_state_change()
 		 * callback is never called for the same socket concurrently.
 		 */
-		SS_CALL(connection_error, sk);
 		ss_do_close(sk);
+		SS_CALL(connection_error, sk);
 	}
 }
 
