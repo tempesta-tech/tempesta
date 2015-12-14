@@ -522,7 +522,7 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
-	int req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE) != 0;
+	int req_conn_close = !!(req->flags & TFW_HTTP_CONN_CLOSE);
 	TfwConnection *srv_conn, *cli_conn = req->conn;
 
 	if (resp) {
@@ -585,15 +585,15 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	if (req_conn_close)
 		tfw_connection_drop(cli_conn);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	if (req_conn_close)
 		tfw_connection_drop(cli_conn);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 conn_put:
 	if (tfw_connection_put(srv_conn))
 		tfw_srv_conn_release(srv_conn);
@@ -715,7 +715,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * Otherwise we lose the reference to it and get a leak.
 		 * As it may be released, save the needed flag for later use.
 		 */
-		req_conn_close = (hmreq->flags & TFW_HTTP_CONN_CLOSE) != 0;
+		req_conn_close = !!(hmreq->flags & TFW_HTTP_CONN_CLOSE);
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb);
 
@@ -758,7 +758,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	int req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE) != 0;
+	int req_conn_close = !!(req->flags & TFW_HTTP_CONN_CLOSE);
 	TfwConnection *cli_conn = req->conn;
 
 	/* Cache original response before any mangling. */
@@ -777,10 +777,10 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	tfw_connection_send(cli_conn, (TfwMsg *)resp, false);
 err:
 	/* Now we don't need the request and the reponse anymore. */
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	if (req_conn_close)
 		tfw_connection_drop(cli_conn);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
 
 /*
