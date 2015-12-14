@@ -39,7 +39,8 @@
 /*
  * Initialize a context
  */
-void mbedtls_net_init( mbedtls_net_context *ctx )
+void
+mbedtls_net_init(mbedtls_net_context *ctx)
 {
     ctx->socket = NULL;
 }
@@ -48,24 +49,27 @@ EXPORT_SYMBOL(mbedtls_net_init);
 /*
  * Initiate a TCP connection with host:port and the given protocol
  */
-int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char *port, int proto )
+int
+mbedtls_net_connect(mbedtls_net_context *ctx,
+                    const char *host, const char *port, int proto)
 {
-    return( 0 );
+    return 0;
 }
 
 /*
  * Create a listening socket on bind_ip:port
  */
-int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char *port, int proto )
+int
+mbedtls_net_bind(mbedtls_net_context *ctx,
+                 const char *bind_ip, const char *port, int proto)
 {
     int ret;
     struct socket *srv_socket;
     struct sockaddr_in sin;
 
     ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
-    if(ret < 0) {
+    if(ret < 0)
         return ret;
-    }
 
     srv_socket->sk->sk_reuse = 1;
 
@@ -74,65 +78,65 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
     sin.sin_port = htons(4433);
 
     ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin, sizeof(sin));
-    if(ret < 0) {
+    if(ret < 0)
         return ret;
-    }
 
     ret = srv_socket->ops->listen(srv_socket, 5);
-    if(ret < 0) {
+    if(ret < 0)
         return ret;
-    }
 
     ctx->socket = srv_socket;
 
-    return ( 0 );
+    return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_bind);
 
 /*
  * Accept a connection from a remote client
  */
-int mbedtls_net_accept( mbedtls_net_context *bind_ctx,
-                        mbedtls_net_context *client_ctx,
-                        void *client_ip, size_t buf_size, size_t *ip_len )
+int
+mbedtls_net_accept(mbedtls_net_context *bind_ctx,
+                   mbedtls_net_context *client_ctx,
+                   void *client_ip, size_t buf_size, size_t *ip_len)
 {
     int ret;
     struct socket *srv_socket = bind_ctx->socket;
     struct socket *cl_socket;
 
     ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &cl_socket);
-    if(ret < 0) {
+    if(ret < 0)
         return ret;
-    }
 
     ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
-    if(ret < 0){
+    if(ret < 0)
         return ret;
-    }
 
     client_ctx->socket = cl_socket;
 
-    return( 0 );
+    return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_accept);
 
 /*
  * Set the socket blocking or non-blocking
  */
-int mbedtls_net_set_block( mbedtls_net_context *ctx )
+int
+mbedtls_net_set_block(mbedtls_net_context *ctx)
 {
-    return( 0 );
+    return 0;
 }
 
-int mbedtls_net_set_nonblock( mbedtls_net_context *ctx )
+int
+mbedtls_net_set_nonblock(mbedtls_net_context *ctx)
 {
-    return( 0 );
+    return 0;
 }
 
 /*
  * Portable usleep helper
  */
-void mbedtls_net_usleep( unsigned long usec )
+void
+mbedtls_net_usleep(unsigned long usec)
 {
 
 }
@@ -140,7 +144,8 @@ void mbedtls_net_usleep( unsigned long usec )
 /*
  * Read at most 'len' characters
  */
-int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len )
+int
+mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
     struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
     struct msghdr msg;
@@ -148,13 +153,11 @@ int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len )
     mm_segment_t oldfs;
     int size;
 
-    if(sock == NULL) {
+    if(sock == NULL)
         return -1;
-    }
 
-    if(sock->sk == NULL) {
+    if(sock->sk == NULL)
         return -1;
-    }
 
     iov.iov_base = buf;
     iov.iov_len = len;
@@ -177,16 +180,18 @@ EXPORT_SYMBOL(mbedtls_net_recv);
 /*
  * Read at most 'len' characters, blocking for at most 'timeout' ms
  */
-int mbedtls_net_recv_timeout( void *ctx, unsigned char *buf, size_t len,
-                      uint32_t timeout )
+int
+mbedtls_net_recv_timeout(void *ctx, unsigned char *buf, size_t len,
+                         uint32_t timeout)
 {
-    return( 0 );
+    return 0;
 }
 
 /*
  * Write at most 'len' characters
  */
-int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
+int
+mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 {
     struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
     struct msghdr msg;
@@ -194,9 +199,8 @@ int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
     int size;
     mm_segment_t oldfs;
 
-    if(sock == NULL) {
+    if(sock == NULL)
         return -1;
-    }
 
     iov.iov_base = (unsigned char *)buf;
     iov.iov_len = len;
@@ -219,7 +223,8 @@ EXPORT_SYMBOL(mbedtls_net_send);
 /*
  * Gracefully close the connection
  */
-void mbedtls_net_free( mbedtls_net_context *ctx )
+void
+mbedtls_net_free(mbedtls_net_context *ctx)
 {
     if (ctx->socket == NULL)
         return;
