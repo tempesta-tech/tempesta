@@ -164,7 +164,7 @@ static struct {
 	{sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1,
 		MAX_CONTENT_LENGTH_LEN},
 	/* TRANSFER_ENCODING */
-	{sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* ACCEPT */
 	{sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_LANGUAGE */
