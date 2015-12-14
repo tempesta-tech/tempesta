@@ -38,9 +38,7 @@
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
 {
-    void *p = vmalloc(n * size);
-    memset(p, 0, n * size);
-    return p;
+    return vzalloc(n * size);
 }
 
 #define MBEDTLS_PLATFORM_STD_CALLOC   platform_calloc_uninit
