@@ -42,7 +42,7 @@
 void
 mbedtls_net_init(mbedtls_net_context *ctx)
 {
-    ctx->socket = NULL;
+	ctx->socket = NULL;
 }
 EXPORT_SYMBOL(mbedtls_net_init);
 
@@ -51,9 +51,9 @@ EXPORT_SYMBOL(mbedtls_net_init);
  */
 int
 mbedtls_net_connect(mbedtls_net_context *ctx,
-                    const char *host, const char *port, int proto)
+		    const char *host, const char *port, int proto)
 {
-    return 0;
+	return 0;
 }
 
 /*
@@ -61,33 +61,34 @@ mbedtls_net_connect(mbedtls_net_context *ctx,
  */
 int
 mbedtls_net_bind(mbedtls_net_context *ctx,
-                 const char *bind_ip, const char *port, int proto)
+		 const char *bind_ip, const char *port, int proto)
 {
-    int ret;
-    struct socket *srv_socket;
-    struct sockaddr_in sin;
+	int ret;
+	struct socket *srv_socket;
+	struct sockaddr_in sin;
 
-    ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
-    if(ret < 0)
-        return ret;
+	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
+	if(ret < 0)
+		return ret;
 
-    srv_socket->sk->sk_reuse = 1;
+	srv_socket->sk->sk_reuse = 1;
 
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = htonl(INADDR_ANY);
-    sin.sin_port = htons(4433);
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = htonl(INADDR_ANY);
+	sin.sin_port = htons(4433);
 
-    ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin, sizeof(sin));
-    if(ret < 0)
-        return ret;
+	ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin,
+				    sizeof(sin));
+	if(ret < 0)
+		return ret;
 
-    ret = srv_socket->ops->listen(srv_socket, 5);
-    if(ret < 0)
-        return ret;
+	ret = srv_socket->ops->listen(srv_socket, 5);
+	if(ret < 0)
+		return ret;
 
-    ctx->socket = srv_socket;
+	ctx->socket = srv_socket;
 
-    return 0;
+	return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_bind);
 
@@ -96,24 +97,25 @@ EXPORT_SYMBOL(mbedtls_net_bind);
  */
 int
 mbedtls_net_accept(mbedtls_net_context *bind_ctx,
-                   mbedtls_net_context *client_ctx,
-                   void *client_ip, size_t buf_size, size_t *ip_len)
+		   mbedtls_net_context *client_ctx,
+		   void *client_ip, size_t buf_size,
+		   size_t *ip_len)
 {
-    int ret;
-    struct socket *srv_socket = bind_ctx->socket;
-    struct socket *cl_socket;
+	int ret;
+	struct socket *srv_socket = bind_ctx->socket;
+	struct socket *cl_socket;
 
-    ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &cl_socket);
-    if(ret < 0)
-        return ret;
+	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &cl_socket);
+	if(ret < 0)
+		return ret;
 
-    ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
-    if(ret < 0)
-        return ret;
+	ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
+	if(ret < 0)
+		return ret;
 
-    client_ctx->socket = cl_socket;
+	client_ctx->socket = cl_socket;
 
-    return 0;
+	return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_accept);
 
@@ -123,13 +125,13 @@ EXPORT_SYMBOL(mbedtls_net_accept);
 int
 mbedtls_net_set_block(mbedtls_net_context *ctx)
 {
-    return 0;
+	return 0;
 }
 
 int
 mbedtls_net_set_nonblock(mbedtls_net_context *ctx)
 {
-    return 0;
+	return 0;
 }
 
 /*
@@ -147,33 +149,33 @@ mbedtls_net_usleep(unsigned long usec)
 int
 mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
-    struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
-    struct msghdr msg;
-    struct iovec iov;
-    mm_segment_t oldfs;
-    int size;
+	struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
+	struct msghdr msg;
+	struct iovec iov;
+	mm_segment_t oldfs;
+	int size;
 
-    if(sock == NULL)
-        return -1;
+	if(sock == NULL)
+		return -1;
 
-    if(sock->sk == NULL)
-        return -1;
+	if(sock->sk == NULL)
+		return -1;
 
-    iov.iov_base = buf;
-    iov.iov_len = len;
+	iov.iov_base = buf;
+	iov.iov_len = len;
 
-    memset(&msg, 0, sizeof(msg));
-    msg.msg_iter.type = ITER_IOVEC;
-    msg.msg_iter.count = len;
-    msg.msg_iter.iov = &iov;
-    msg.msg_iter.nr_segs = 1;
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_iter.type = ITER_IOVEC;
+	msg.msg_iter.count = len;
+	msg.msg_iter.iov = &iov;
+	msg.msg_iter.nr_segs = 1;
 
-    oldfs = get_fs();
-    set_fs(KERNEL_DS);
-    size = sock_recvmsg(sock, &msg, len,0);
-    set_fs(oldfs);
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	size = sock_recvmsg(sock, &msg, len,0);
+	set_fs(oldfs);
 
-    return size;
+	return size;
 }
 EXPORT_SYMBOL(mbedtls_net_recv);
 
@@ -182,9 +184,9 @@ EXPORT_SYMBOL(mbedtls_net_recv);
  */
 int
 mbedtls_net_recv_timeout(void *ctx, unsigned char *buf, size_t len,
-                         uint32_t timeout)
+						 uint32_t timeout)
 {
-    return 0;
+	return 0;
 }
 
 /*
@@ -193,30 +195,30 @@ mbedtls_net_recv_timeout(void *ctx, unsigned char *buf, size_t len,
 int
 mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 {
-    struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
-    struct msghdr msg;
-    struct iovec iov;
-    int size;
-    mm_segment_t oldfs;
+	struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
+	struct msghdr msg;
+	struct iovec iov;
+	int size;
+	mm_segment_t oldfs;
 
-    if(sock == NULL)
-        return -1;
+	if(sock == NULL)
+		return -1;
 
-    iov.iov_base = (unsigned char *)buf;
-    iov.iov_len = len;
+	iov.iov_base = (unsigned char *)buf;
+	iov.iov_len = len;
 
-    memset(&msg, 0, sizeof(msg));
-    msg.msg_iter.type = ITER_IOVEC;
-    msg.msg_iter.count = len;
-    msg.msg_iter.iov = &iov;
-    msg.msg_iter.nr_segs = 1;
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_iter.type = ITER_IOVEC;
+	msg.msg_iter.count = len;
+	msg.msg_iter.iov = &iov;
+	msg.msg_iter.nr_segs = 1;
 
-    oldfs = get_fs();
-    set_fs(KERNEL_DS);
-    size = sock_sendmsg(sock, &msg);
-    set_fs(oldfs);
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	size = sock_sendmsg(sock, &msg);
+	set_fs(oldfs);
 
-    return size;
+	return size;
 }
 EXPORT_SYMBOL(mbedtls_net_send);
 
@@ -226,11 +228,11 @@ EXPORT_SYMBOL(mbedtls_net_send);
 void
 mbedtls_net_free(mbedtls_net_context *ctx)
 {
-    if (ctx->socket == NULL)
-        return;
+	if (ctx->socket == NULL)
+		return;
 
-    sock_release(ctx->socket);
-    ctx->socket = NULL;
+	sock_release(ctx->socket);
+	ctx->socket = NULL;
 }
 EXPORT_SYMBOL(mbedtls_net_free);
 
