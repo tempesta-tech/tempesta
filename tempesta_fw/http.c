@@ -385,6 +385,24 @@ tfw_http_conn_destruct(TfwConnection *conn)
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
+		/*
+		 * Connection with a server is closed, and there are
+		 * requests in the queue that are kept until a paired
+		 * response comes. That will never happen now. Send
+		 * a client an error response. If the connection with
+		 * a client must be closed after a response is sent
+		 * to that client, then close the connection now.
+		 *
+		 * Hold @msg->conn reference through @msg until
+		 * the connection is dropped.
+		 *
+		 * Note: It's essential that there's no incoming
+		 * data activity in the connection with a client
+		 * after a request with "Connection: close" header.
+		 */
+		tfw_http_send_404((TfwHttpMsg *)msg);
+		if (((TfwHttpMsg *)msg)->flags & TFW_HTTP_CONN_CLOSE)
+			tfw_connection_drop(((TfwHttpMsg *)msg)->conn);
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
