@@ -68,11 +68,12 @@ static int
 req_handler(TfwHttpReq  *req)
 {
 	TfwConnection *conn;
-	/* Some frang limits work only for the fragmented requests. */
 	struct sk_buff *second;
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
+
+	/* Some frang limits work only for the fragmented requests. */
 	second = ss_skb_alloc();
 	skb_reserve(second, MAX_TCP_HEADER);
 	ss_skb_queue_tail(&conn->msg->skb_list, second);
