@@ -296,15 +296,12 @@ TEST(frang, body_timeout)
 	mockreq->tm_bchunk = jiffies - 100;
 	body.ptr = "<http><body></body></http>";
 	body.len = strlen(body.ptr);
-
 	crlf.len = 2;
 	crlf.ptr = "\r\n";
 	crlf.flags = TFW_STR_COMPLETE;
 	mockreq->crlf = crlf;
 	mockreq->body = body;
 	mockreq->frang_st = Frang_Req_Body_Timeout;
-
-	
 	frang_cfg.clnt_body_timeout = 1;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -326,7 +323,7 @@ TEST(frang, hdr_timeout)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-	frang_cfg.clnt_hdr_timeout = 1;
+	frang_cfg.clnt_hdr_timeout = 0;
 }
 
 TEST(frang, header_chunks)
