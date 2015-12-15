@@ -373,7 +373,6 @@ TEST_SUITE(frang)
 	TEST_RUN(frang, conn_max);
 	TEST_RUN(frang, ct_vals);
 	TEST_RUN(frang, ct_required);
-
 	TEST_RUN(frang, req_method);
 	TEST_RUN(frang, field_len);
 	TEST_RUN(frang, host);
