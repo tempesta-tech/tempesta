@@ -47,10 +47,3 @@ tfw_test-objs = \
 	kallsyms_helper.o \
 	test_frang.o
 
-obj-m += tfw_fuzzer.o
-tfw_fuzzer-obs = \
-	fuzzer.c
-
-obj-m += tfw_bomber.o
-tfw_bomber-objs = \
-	bomber.o

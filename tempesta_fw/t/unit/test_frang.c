@@ -23,6 +23,7 @@
 
 #include "../../gfsm.h"
 #include "../../http.h"
+#include "../../ss_skb.h"
 #include "helpers.h"
 #include "test.h"
 
@@ -67,13 +68,19 @@ static int
 req_handler(TfwHttpReq  *req)
 {
 	TfwConnection *conn;
+	struct sk_buff *second;
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
+	/*The frang do not do some tests for the first buff.*/
+	second = ss_skb_alloc();
+	skb_reserve(second, MAX_TCP_HEADER);
+	ss_skb_queue_tail(&conn->msg->skb_list, second);
+
 	conn->sk = (struct sock*)&mocksock;
 
 	return frang_http_req_handler((void *) conn,
-				      conn->msg->skb_list.first,
+				      conn->msg->skb_list.last,
 				      HANDLER_OFF);
 }
 
@@ -146,51 +153,42 @@ TEST(frang, req_burst)
 
 TEST(frang, conn_max)
 {
-	TfwHttpReq *mockreq;
 
 	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
-	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
-
 	frang_cfg.conn_max = 5;
-	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+
+	EXPECT_EQ(TFW_BLOCK, frang_conn_new((struct sock *)&mocksock));
 	
-	test_req_free(mockreq);
 	frang_cfg.conn_max = 0;
 }
 
 TEST(frang, conn_rate)
 {
 	int i;
-	TfwHttpReq *mockreq;
 	unsigned long ts;
 
-	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 	frang_cfg.conn_rate = 5;
 
-	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	EXPECT_EQ(TFW_BLOCK, frang_conn_new((struct sock *)&mocksock));
 
-	test_req_free(mockreq);
 	frang_cfg.conn_rate = 0;
 }
 	
 TEST(frang, conn_burst)
 {
 	int i;
-	TfwHttpReq *mockreq;
 	unsigned long ts;
 
-	mockreq = get_test_req("GET / HTTP/1.1\r\n\r\n");
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].conn_new = 5;
 	frang_cfg.conn_burst = 5;
 
-	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
+	EXPECT_EQ(TFW_BLOCK, frang_conn_new((struct sock *)&mocksock));
 
-	test_req_free(mockreq);
 	frang_cfg.conn_burst = 0;
 }
 
@@ -243,7 +241,8 @@ TEST(frang, field_len)
 {
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\nhost:localhost\r\n");
+	mockreq->frang_st = Frang_Req_Hdr_FieldLen;
 	frang_cfg.http_field_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -276,9 +275,9 @@ TEST(frang, body_len)
 	body.len = strlen(body.ptr);
 	crlf.len = 2;
 	crlf.ptr = "\r\n";
+	crlf.flags = TFW_STR_COMPLETE;
 	mockreq->crlf = crlf;
 	mockreq->body = body;
-
 	frang_cfg.http_body_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -290,9 +289,21 @@ TEST(frang, body_len)
 TEST(frang, body_timeout)
 {
 	TfwHttpReq *mockreq;
+	TfwStr body;
+	TfwStr crlf;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->tm_bchunk = jiffies - 100;
+	body.ptr = "<http><body></body></http>";
+	body.len = strlen(body.ptr);
+
+	crlf.len = 2;
+	crlf.ptr = "\r\n";
+	crlf.flags = TFW_STR_COMPLETE;
+	mockreq->crlf = crlf;
+	mockreq->body = body;
+	mockreq->frang_st = Frang_Req_Body_Timeout;
+
 	
 	frang_cfg.clnt_body_timeout = 1;
 
@@ -306,15 +317,16 @@ TEST(frang, hdr_timeout)
 {
 	TfwHttpReq *mockreq;
 
-	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
+	mockreq = get_test_req("POST /foo HTTP/1.1\r\nhost:local\r\n\r\n");
+	mockreq->frang_st = 0;
 	mockreq->tm_header = jiffies - 100;
-
+	mockreq->frang_st = Frang_Req_Hdr_UriLen;
 	frang_cfg.clnt_hdr_timeout = 1;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-	frang_cfg.clnt_hdr_timeout = 0;
+	frang_cfg.clnt_hdr_timeout = 1;
 }
 
 TEST(frang, header_chunks)
@@ -323,7 +335,7 @@ TEST(frang, header_chunks)
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->chunk_cnt = 3;
-
+	mockreq->frang_st = Frang_Req_Hdr_UriLen;
 	frang_cfg.http_hchunk_cnt = 1;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -338,7 +350,7 @@ TEST(frang, body_chunks)
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\n\r\n");
 	mockreq->chunk_cnt = 3;
-
+	mockreq->frang_st = Frang_Req_Body_ChunkCnt;
 	frang_cfg.http_bchunk_cnt = 1;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
