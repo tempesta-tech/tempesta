@@ -68,11 +68,11 @@ static int
 req_handler(TfwHttpReq  *req)
 {
 	TfwConnection *conn;
+	/* Some frang limits work only for the fragmented requests. */
 	struct sk_buff *second;
 
 	conn = test_conn_alloc();
 	conn->msg = &req->msg;
-	/*The frang do not do some tests for the first buff.*/
 	second = ss_skb_alloc();
 	skb_reserve(second, MAX_TCP_HEADER);
 	ss_skb_queue_tail(&conn->msg->skb_list, second);
@@ -124,8 +124,8 @@ TEST(frang, req_rate)
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
-
 	frang_cfg.req_rate = 5;
+
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
@@ -143,8 +143,8 @@ TEST(frang, req_burst)
 	ts = jiffies * FRANG_FREQ / HZ;
 	i = ts % FRANG_FREQ;
 	((FrangAcc*)mocksock.sk.sk_security)->history[i].req = 5;
-
 	frang_cfg.req_burst = 5;
+
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
@@ -153,7 +153,6 @@ TEST(frang, req_burst)
 
 TEST(frang, conn_max)
 {
-
 	((FrangAcc*)mocksock.sk.sk_security)->conn_curr = 5;
 	frang_cfg.conn_max = 5;
 
@@ -242,7 +241,6 @@ TEST(frang, field_len)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\nhost:localhost\r\n");
-	mockreq->frang_st = Frang_Req_Hdr_FieldLen;
 	frang_cfg.http_field_len = 3;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
@@ -315,7 +313,6 @@ TEST(frang, hdr_timeout)
 	TfwHttpReq *mockreq;
 
 	mockreq = get_test_req("POST /foo HTTP/1.1\r\nhost:local\r\n\r\n");
-	mockreq->frang_st = 0;
 	mockreq->tm_header = jiffies - 100;
 	mockreq->frang_st = Frang_Req_Hdr_UriLen;
 	frang_cfg.clnt_hdr_timeout = 1;
@@ -359,10 +356,10 @@ TEST(frang, body_chunks)
 TEST_SUITE(frang)
 {
 	/* The initial FSM state isn't hookable. */
+/* A new frang account for tests */
 	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
-	/* A new frang account for tests */
-	mocksock.inet_saddr = htonl(in_aton(inet_addr));
+		mocksock.inet_saddr = htonl(in_aton(inet_addr));
 	frang_conn_new((struct sock*)&mocksock);
 
 	TEST_RUN(frang, uri);
@@ -384,4 +381,3 @@ TEST_SUITE(frang)
 
 	frang_exit();
 }
-
