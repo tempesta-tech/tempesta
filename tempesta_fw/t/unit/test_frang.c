@@ -111,7 +111,7 @@ TEST(frang, uri)
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
 
 	test_req_free(mockreq);
-	frang_cfg.http_uri_len =0;
+	frang_cfg.http_uri_len = 0;
 }
 
 TEST(frang, req_rate)
@@ -158,7 +158,7 @@ TEST(frang, conn_max)
 	frang_cfg.conn_max = 5;
 
 	EXPECT_EQ(TFW_BLOCK, frang_conn_new((struct sock *)&mocksock));
-	
+
 	frang_cfg.conn_max = 0;
 }
 
@@ -176,7 +176,7 @@ TEST(frang, conn_rate)
 
 	frang_cfg.conn_rate = 0;
 }
-	
+
 TEST(frang, conn_burst)
 {
 	int i;
@@ -334,7 +334,7 @@ TEST(frang, header_chunks)
 	frang_cfg.http_hchunk_cnt = 1;
 
 	EXPECT_EQ(TFW_BLOCK, req_handler(mockreq));
-	
+
 	test_req_free(mockreq);
 	frang_cfg.http_hchunk_cnt = 0;
 }
@@ -356,11 +356,13 @@ TEST(frang, body_chunks)
 
 TEST_SUITE(frang)
 {
+
 	/* The initial FSM state isn't hookable. */
-/* A new frang account for tests */
 	tfw_gfsm_register_fsm(TFW_FSM_HTTP, mock_http_req_handler);
 	frang_init();
-		mocksock.inet_saddr = htonl(in_aton(inet_addr));
+	mocksock.inet_saddr = htonl(in_aton(inet_addr));
+
+	/* A new frang account for tests */
 	frang_conn_new((struct sock*)&mocksock);
 
 	TEST_RUN(frang, uri);
