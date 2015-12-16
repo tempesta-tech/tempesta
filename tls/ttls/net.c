@@ -69,7 +69,7 @@ mbedtls_net_bind(mbedtls_net_context *ctx,
 
 	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
 	if(ret < 0)
-		return ret;
+		return MBEDTLS_ERR_NET_SOCKET_FAILED;
 
 	srv_socket->sk->sk_reuse = 1;
 
@@ -80,11 +80,11 @@ mbedtls_net_bind(mbedtls_net_context *ctx,
 	ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin,
 				    sizeof(sin));
 	if(ret < 0)
-		return ret;
+		return MBEDTLS_ERR_NET_BIND_FAILED;
 
 	ret = srv_socket->ops->listen(srv_socket, 5);
 	if(ret < 0)
-		return ret;
+		return MBEDTLS_ERR_NET_LISTEN_FAILED;
 
 	ctx->socket = srv_socket;
 
@@ -107,11 +107,22 @@ mbedtls_net_accept(mbedtls_net_context *bind_ctx,
 
 	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &cl_socket);
 	if(ret < 0)
-		return ret;
+		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
 
 	ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
-	if(ret < 0)
-		return ret;
+	if (ret < 0) {
+		switch(ret) {
+#if defined EAGAIN
+		case -EAGAIN:
+#endif
+#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
+		case -EWOULDBLOCK:
+#endif
+			return MBEDTLS_ERR_SSL_WANT_READ;
+		}
+printk("%i\n", ret);
+		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
+	}
 
 	client_ctx->socket = cl_socket;
 
@@ -140,7 +151,6 @@ mbedtls_net_set_nonblock(mbedtls_net_context *ctx)
 void
 mbedtls_net_usleep(unsigned long usec)
 {
-
 }
 
 /*
@@ -153,13 +163,13 @@ mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 	struct msghdr msg;
 	struct iovec iov;
 	mm_segment_t oldfs;
-	int size;
+	int ret;
 
 	if(sock == NULL)
-		return -1;
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
 	if(sock->sk == NULL)
-		return -1;
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
 	iov.iov_base = buf;
 	iov.iov_len = len;
@@ -172,10 +182,30 @@ mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
-	size = sock_recvmsg(sock, &msg, len,0);
+	ret = sock_recvmsg(sock, &msg, len, MSG_DONTWAIT);
 	set_fs(oldfs);
 
-	return size;
+	if(ret < 0) {
+		switch(ret) {
+#if defined EAGAIN
+		case -EAGAIN:
+#endif
+#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
+		case -EWOULDBLOCK:
+#endif
+			return MBEDTLS_ERR_SSL_WANT_READ;
+		}
+
+		if(ret == -EPIPE || ret == -ECONNRESET)
+			return MBEDTLS_ERR_NET_CONN_RESET;
+
+		if(ret == -EINTR)
+			return MBEDTLS_ERR_SSL_WANT_READ;
+
+		return MBEDTLS_ERR_NET_RECV_FAILED;
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL(mbedtls_net_recv);
 
@@ -198,11 +228,11 @@ mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 	struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
 	struct msghdr msg;
 	struct iovec iov;
-	int size;
 	mm_segment_t oldfs;
+	int ret;
 
 	if(sock == NULL)
-		return -1;
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
 	iov.iov_base = (unsigned char *)buf;
 	iov.iov_len = len;
@@ -215,10 +245,30 @@ mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
-	size = sock_sendmsg(sock, &msg);
+	ret = sock_sendmsg(sock, &msg);
 	set_fs(oldfs);
 
-	return size;
+	if(ret < 0) {
+		switch(ret) {
+#if defined EAGAIN
+		case -EAGAIN:
+#endif
+#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
+		case -EWOULDBLOCK:
+#endif
+			return MBEDTLS_ERR_SSL_WANT_WRITE;
+		}
+
+		if(ret == -EPIPE || ret == -ECONNRESET)
+			return MBEDTLS_ERR_NET_CONN_RESET;
+
+		if(ret == -EINTR)
+			return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+		return MBEDTLS_ERR_NET_SEND_FAILED;
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL(mbedtls_net_send);
 
