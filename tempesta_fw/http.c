@@ -352,7 +352,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * a connection structure. The message is then immediately destroyed,
  * and a simpler tfw_http_msg_free() can be used for that.
  */
-void
+static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
@@ -364,6 +364,29 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		hm->conn = NULL;
 	}
 	tfw_http_msg_free(hm);
+}
+
+static void
+tfw_http_conn_msg_dropfree(TfwConnection *conn, TfwHttpMsg *hm, int drop)
+{
+	BUG_ON(hm && (hm->conn != conn));
+
+	if (drop) {
+		ss_close(conn->sk);
+		TFW_CONN_TYPE(conn) & Conn_Clnt
+			? tfw_sock_clnt_drop(conn->sk)
+			: tfw_sock_srv_drop(conn->sk);
+	}
+	if (hm)
+		tfw_http_conn_msg_free(hm);
+}
+
+static inline void
+tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
+{
+	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
+	tfw_http_conn_msg_dropfree(hmreq->conn, hmreq,
+				   hmreq->flags & TFW_HTTP_CONN_CLOSE);
 }
 
 /**
@@ -390,20 +413,11 @@ tfw_http_conn_destruct(TfwConnection *conn)
 		 * requests in the queue that are kept until a paired
 		 * response comes. That will never happen now. Send
 		 * a client an error response. If the connection with
-		 * a client must be closed after a response is sent
-		 * to that client, then close the connection now.
-		 *
-		 * Hold @msg->conn reference through @msg until
-		 * the connection is dropped.
-		 *
-		 * Note: It's essential that there's no incoming
-		 * data activity in the connection with a client
-		 * after a request with "Connection: close" header.
+		 * a client must be dropped after a response is sent
+		 * to that client, then drop the connection now.
 		 */
 		tfw_http_send_404((TfwHttpMsg *)msg);
-		if (((TfwHttpMsg *)msg)->flags & TFW_HTTP_CONN_CLOSE)
-			tfw_connection_drop(((TfwHttpMsg *)msg)->conn);
-		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
 	spin_unlock(&conn->msg_qlock);
@@ -540,8 +554,7 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
-	int req_conn_close = !!(req->flags & TFW_HTTP_CONN_CLOSE);
-	TfwConnection *srv_conn, *cli_conn = req->conn;
+	TfwConnection *srv_conn;
 
 	if (resp) {
 		/*
@@ -550,9 +563,9 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		 * it is generated from the cache, so unrefer all its data.
 		 */
 		if (tfw_http_adjust_resp(resp, req) == 0)
-			tfw_connection_send(cli_conn, (TfwMsg *)resp, true);
-		if (req_conn_close)
-			tfw_connection_drop(cli_conn);
+			tfw_connection_send(req->conn, (TfwMsg *)resp, true);
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
 	}
 
@@ -603,15 +616,11 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
-	if (req_conn_close)
-		tfw_connection_drop(cli_conn);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
-	if (req_conn_close)
-		tfw_connection_drop(cli_conn);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 conn_put:
 	if (tfw_connection_put(srv_conn))
 		tfw_srv_conn_release(srv_conn);
@@ -698,7 +707,18 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
 
-		if (data_off < skb_len) {
+		/*
+		 * The request has been successfully parsed and processed.
+		 * If the connection will be closed after the response to
+		 * the request is sent to the client, then there's no need
+		 * to process pipelined requests. Also, the request may be
+		 * released when handled in tfw_cache_req_process() below.
+		 * So, save the needed request flag for later use as it
+		 * may not be accessible later through @req->flags.
+		 */
+		req_conn_close = (hmreq->flags & TFW_HTTP_CONN_CLOSE);
+
+		if (!req_conn_close && (data_off < skb_len)) {
 			/*
 			 * Pipelined requests: create a new sibling message.
 			 * @skb is replaced with pointer to a new SKB.
@@ -728,12 +748,11 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * be used to release it.
 		 */
 		conn->msg = NULL;
+
 		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
-		 * As it may be released, save the needed flag for later use.
 		 */
-		req_conn_close = !!(hmreq->flags & TFW_HTTP_CONN_CLOSE);
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb);
 
@@ -776,9 +795,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	int req_conn_close = !!(req->flags & TFW_HTTP_CONN_CLOSE);
-	TfwConnection *cli_conn = req->conn;
-
 	/* Cache original response before any mangling. */
 	tfw_cache_add(resp, req);
 
@@ -792,13 +808,11 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_http_adjust_resp(resp, req))
 		goto err;
 
-	tfw_connection_send(cli_conn, (TfwMsg *)resp, false);
+	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
 err:
 	/* Now we don't need the request and the reponse anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	if (req_conn_close)
-		tfw_connection_drop(cli_conn);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 }
 
 /*

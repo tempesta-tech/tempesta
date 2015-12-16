@@ -144,7 +144,7 @@ err_client:
 	return r;
 }
 
-static int
+int
 tfw_sock_clnt_drop(struct sock *sk)
 {
 	TfwConnection *conn = rcu_dereference_sk_user_data(sk);
