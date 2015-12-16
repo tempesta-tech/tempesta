@@ -209,23 +209,6 @@ tfw_connection_live(TfwConnection *conn)
 	return conn->sk && ss_sock_live(conn->sk);
 }
 
-/*
- * Drop a connection. This function may be called only when there's
- * at least one extra reference to the connection (@conn->refcnt),
- * so if the reference is dropped here it's never the last one.
- * See comments to ss_do_droplink() and ss_droplink().
- *
- * Note: Don't put a BUG_ON() on @conn->refcnt in this function to
- * enforce the condition mentioned above. That may lead to a race
- * condition with ss_tcp_process_data(). If this function is called
- * under wrong conditions, the check may also be invalid.
- */
-static inline void
-tfw_connection_drop(TfwConnection *conn)
-{
-	ss_droplink(conn->sk);
-}
-
 /**
  * Check that TfwConnection resources are cleaned up properly.
  */
