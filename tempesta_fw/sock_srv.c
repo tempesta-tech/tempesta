@@ -329,6 +329,16 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
+/*
+ * This function is called when a server connection is explicitly dropped
+ * by Tempesta.
+ */
+int
+tfw_sock_srv_drop(struct sock *sk)
+{
+	return tfw_sock_srv_do_failover(sk, "connection dropped");
+}
+
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_failover,

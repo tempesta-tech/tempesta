@@ -441,48 +441,30 @@ ss_do_close(struct sock *sk)
 /*
  * Close a socket.
  *
- * It's presumed that all Tempesta data linked to the socket
- * is released before or after calling this function. Also,
- * it's presumed that all activity in the socket is stopped
- * before this function is called. Both are rather important.
+ * This function is for use by other Tempesta components. It may be
+ * called either in the context of the socket that is being closed,
+ * or in the context of a completely different socket.
  *
- * This function may be used in process and SoftIRQ contexts.
- * Must be called with BH disabled in process context.
+ * This function may be used in process and SoftIRQ contexts. Must
+ * be called with BH disabled in process context.
  */
 void
 ss_close(struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
 
-	bh_lock_sock_nested(sk);
+	bh_lock_sock_double_nested(sk);
+	if (!ss_sock_live(sk)) {
+		bh_unlock_sock(sk);
+		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
+		return;
+	}
 	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
 }
 EXPORT_SYMBOL(ss_close);
-
-/*
- * The functions ss_do_droplink() and ss_droplink() have the same body.
- * The difference is that ss_do_droplink() is triggered by the kernel
- * when FIN comes, whereas the ss_droplink() is called explicitly by
- * Tempesta. It's essential that the body of these functions is called
- * only once for a given socket. That is enforced by the following:
- * - The body is protected by the socket lock which ensures that these
- *   functions don't run concurrently.
- * - A socket is no longer live after the body is executed by either
- *   of these functions.
- * - If ss_droplink() is called first, then ss_do_droplink() is never
- *   called by the kernel as the socket will be closed.
- * - If ss_do_droplink() is called first, then ss_droplink() sees that
- *   the socket is not live and does not execute the body again.
- *
- * All of this ensures that there's always an extra reference to the
- * socket from Tempesta, until Tempesta is done with the connection.
- *
- * XXX: The reasoning above may get invalid if Synchronous Sockets
- * is changed in regards to the design of socket closing procedure.
- */
 
 /*
  * Close the socket first. We're done with it anyway. Then release
@@ -511,26 +493,6 @@ ss_do_droplink(struct sock *sk)
 	SS_CALL(connection_drop, sk);
 }
 
-/*
- * This function is for use by other Tempesta components. It may be
- * called either in the context of the socket that is being closed,
- * or in the context of a completely different socket.
- *
- * Note: the socket is never destroyed after this function is run.
- * See comments in places where this function is called and used.
- */
-void
-ss_droplink(struct sock *sk)
-{
-	bh_lock_sock_double_nested(sk);
-	if (!ss_sock_live(sk)) {
-		bh_unlock_sock(sk);
-		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
-		return;
-	}
-	ss_do_droplink(sk);
-	bh_unlock_sock(sk);
-}
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
@@ -601,7 +563,7 @@ ss_tcp_process_data(struct sock *sk)
 			 * The receive queue must be empty in that case,
 			 * and the execution path should never reach here.
 			 */
-			BUG_ON(udata == NULL);
+			BUG_ON(conn == NULL);
 
 			/*
 			 * This runs in SoftIRQ context and under the socket
@@ -632,7 +594,7 @@ ss_tcp_process_data(struct sock *sk)
 			 */
 			bh_unlock_sock(sk);
 
-			r = SS_CALL(connection_recv, udata, skb, off);
+			r = SS_CALL(connection_recv, conn, skb, off);
 
 			bh_lock_sock_double_nested(sk);
 

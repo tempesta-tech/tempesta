@@ -72,7 +72,6 @@ ss_sock_live(struct sock *sk)
  * Socket is in a usable state that allows processing
  * and sending of HTTP messages. This function must
  * be used consistently across all involved functions.
- * 
  */
 static inline bool ss_sock_active(struct sock *sk)
 {
@@ -88,7 +87,6 @@ void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 void ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
 void ss_close(struct sock *sk);
-void ss_droplink(struct sock *sk);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
