@@ -164,7 +164,7 @@ static struct {
 	{sizeof(content_len) / sizeof(fuzz_msg), 2, "0123456789", A_URI, 1, 1,
 		MAX_CONTENT_LENGTH_LEN},
 	/* TRANSFER_ENCODING */
-	{sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
+	{sizeof(transfer_encoding) / sizeof(fuzz_msg), 0, NULL, NULL, 1, 1},
 	/* ACCEPT */
 	{sizeof(accept) / sizeof(fuzz_msg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_LANGUAGE */
@@ -537,6 +537,10 @@ fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
 
 		v |= add_header(context, &str, end, EXPIRES);
 		v |= add_duplicates(context, &str, end, EXPIRES);
+
+		n = context->i[TRANSFER_ENCODING_NUM];
+		v |= __add_header(context, &str, end, TRANSFER_ENCODING, n);
+		v |= __add_duplicates(context, &str, end, TRANSFER_ENCODING, n);
 	}
 
 	v |= add_header(context, &str, end, CONNECTION);
@@ -547,10 +551,6 @@ fuzz_gen(TfwFuzzContext *context, char *str, char *end, field_t start,
 
 	v |= add_header(context, &str, end, CONTENT_LENGTH);
 	v |= add_duplicates(context, &str, end, CONTENT_LENGTH);
-
-	n = context->i[TRANSFER_ENCODING_NUM];
-	v |= __add_header(context, &str, end, TRANSFER_ENCODING, n);
-	v |= __add_duplicates(context, &str, end, TRANSFER_ENCODING, n);
 
 	v |= add_header(context, &str, end, CACHE_CONTROL);
 	v |= add_duplicates(context, &str, end, CACHE_CONTROL);
