@@ -53,6 +53,8 @@ int
 mbedtls_net_connect(mbedtls_net_context *ctx,
 		    const char *host, const char *port, int proto)
 {
+	printk(KERN_ERR "mbedtls_net_connect need implement for client\n");
+	BUG();
 	return 0;
 }
 
@@ -131,29 +133,6 @@ printk("%i\n", ret);
 EXPORT_SYMBOL(mbedtls_net_accept);
 
 /*
- * Set the socket blocking or non-blocking
- */
-int
-mbedtls_net_set_block(mbedtls_net_context *ctx)
-{
-	return 0;
-}
-
-int
-mbedtls_net_set_nonblock(mbedtls_net_context *ctx)
-{
-	return 0;
-}
-
-/*
- * Portable usleep helper
- */
-void
-mbedtls_net_usleep(unsigned long usec)
-{
-}
-
-/*
  * Read at most 'len' characters
  */
 int
@@ -208,16 +187,6 @@ mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 	return ret;
 }
 EXPORT_SYMBOL(mbedtls_net_recv);
-
-/*
- * Read at most 'len' characters, blocking for at most 'timeout' ms
- */
-int
-mbedtls_net_recv_timeout(void *ctx, unsigned char *buf, size_t len,
-						 uint32_t timeout)
-{
-	return 0;
-}
 
 /*
  * Write at most 'len' characters
