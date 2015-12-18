@@ -379,8 +379,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * See the comment to ss_close().
  *
  * The connection may be dropped only by the party that closed the
- * socket. It's essential that the connection is dropped only when
- * there's at least one extra reference to it (@conn->refcnt).
+ * socket. Also, it's essential that the connection is dropped only
+ * when there's at least one extra reference to it (@conn->refcnt).
  * Then if the reference is dropped here it's never the last one.
  * That won't allow Sync Sockets to destroy the socket and the
  * connection completely until Tempesta is done with the connection.
@@ -393,7 +393,7 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
-		if (ss_close(hmreq->conn->sk) == 0)
+		if (ss_close(hmreq->conn->sk) == SS_OK)
 			tfw_sock_clnt_drop(hmreq->conn->sk);
 	}
 	tfw_http_conn_msg_free(hmreq);
