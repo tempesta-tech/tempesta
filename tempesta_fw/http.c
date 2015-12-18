@@ -366,27 +366,37 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 	tfw_http_msg_free(hm);
 }
 
-static void
-tfw_http_conn_msg_dropfree(TfwConnection *conn, TfwHttpMsg *hm, int drop)
-{
-	BUG_ON(hm && (hm->conn != conn));
-
-	if (drop) {
-		ss_close(conn->sk);
-		TFW_CONN_TYPE(conn) & Conn_Clnt
-			? tfw_sock_clnt_drop(conn->sk)
-			: tfw_sock_srv_drop(conn->sk);
-	}
-	if (hm)
-		tfw_http_conn_msg_free(hm);
-}
-
+/*
+ * Drop the client connection and destroy the request.
+ *
+ * A connection is dropped in two stages. The socket is closed first.
+ * Then the connection linked with the socket is withdrawed from all
+ * socket activity, and then deactivated.
+ *
+ * The socket may be closed either from Tempesta or in Sync Sockets
+ * as the reaction to incoming FIN. Both may occur at the same time.
+ * Socket lock permits one party only to proceed with the closing.
+ * See the comment to ss_close().
+ *
+ * The connection may be dropped only by the party that closed the
+ * socket. It's essential that the connection is dropped only when
+ * there's at least one extra reference to it (@conn->refcnt).
+ * Then if the reference is dropped here it's never the last one.
+ * That won't allow Sync Sockets to destroy the socket and the
+ * connection completely until Tempesta is done with the connection.
+ * The request holds that extra reference, so it must be freed only
+ * after the connection is dropped.
+ */
 static inline void
 tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 {
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
-	tfw_http_conn_msg_dropfree(hmreq->conn, hmreq,
-				   hmreq->flags & TFW_HTTP_CONN_CLOSE);
+
+	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
+		if (ss_close(hmreq->conn->sk) == 0)
+			tfw_sock_clnt_drop(hmreq->conn->sk);
+	}
+	tfw_http_conn_msg_free(hmreq);
 }
 
 /**

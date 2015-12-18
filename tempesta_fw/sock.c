@@ -447,22 +447,37 @@ ss_do_close(struct sock *sk)
  *
  * This function may be used in process and SoftIRQ contexts. Must
  * be called with BH disabled in process context.
+ *
+ * This function may be executed concurrently with ss_do_close()
+ * that is triggered by an incoming FIN. Only one of the two must
+ * be able to proceed with closing of the socket.
+ * - The body is protected by the socket lock which ensures
+ *   that these functions don't run concurrently.
+ * - A socket is no longer live after the body is executed
+ *   by either of these functions.
+ * - If ss_close() is called first, then ss_do_close() is never
+ *   called by the kernel as the socket will be closed.
+ * - If ss_do_close() is called first, then ss_close() sees that
+ *   the socket is not live and does not execute the body again.
+ *
+ * @return:
+ *   0 - the socket is closed in this call.
+ *   1 - the socket is closed or is being closed by someone else.
  */
-void
+int
 ss_close(struct sock *sk)
 {
-	BUG_ON(sk->sk_user_data);
-
 	bh_lock_sock_double_nested(sk);
 	if (!ss_sock_live(sk)) {
 		bh_unlock_sock(sk);
 		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
-		return;
+		return 1;
 	}
 	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
+	return 0;
 }
 EXPORT_SYMBOL(ss_close);
 
