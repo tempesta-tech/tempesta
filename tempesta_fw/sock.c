@@ -471,13 +471,13 @@ ss_close(struct sock *sk)
 	if (!ss_sock_live(sk)) {
 		bh_unlock_sock(sk);
 		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
-		return 1;
+		return SS_POSTPONE;
 	}
 	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
-	return 0;
+	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
 
