@@ -76,16 +76,27 @@ MODULE_LICENSE("GPL");
  * state and status. SsProto.type field is used here to store the index into
  * that array that can be passed around between callbacks.
  */
-struct bmb_conn {
+typedef struct bmb_conn {
 	SsProto		proto;
 	struct sock	*sk;
 	uint32_t	flags;
-};
+} TfwBmbConn;
 
-struct bmb_task {
+/*
+ * There's a descriptor for each thread.
+ * @conn		- connection descriptions
+ * @conn_rd		- array of ready connection indexes
+ * @conn_rd_tail	- end index in array of ready connection indexes
+ * @conn_attempt	- number of attempt connections
+ * @conn_compl		- number of complate connections
+ * @conn_error		- number of error connections
+ * @ctx		- context for fuzzer
+ * @buf		- request buffer for fuzzer
+ */
+typedef struct bmb_task {
 	struct task_struct	*task_struct;
 
-	struct bmb_conn		*conn;
+	TfwBmbConn		*conn;
 	int			*conn_rd;
 	atomic_t		conn_rd_tail;
 	wait_queue_head_t	conn_wq;
@@ -95,7 +106,7 @@ struct bmb_task {
 
 	TfwFuzzContext		ctx;
 	char 			*buf;
-};
+} TfwBmbTask;
 
 DECLARE_WAIT_QUEUE_HEAD(bmb_task_wq);
 
@@ -109,14 +120,14 @@ static atomic_t bmb_request_send	= ATOMIC_INIT(0);
 static TfwAddr bmb_server_address;
 static SsHooks bmb_hooks;
 static void *bmb_alloc_ptr;
-static struct bmb_task *bmb_task;
+static TfwBmbTask *bmb_task;
 
 static int
 tfw_bmb_conn_compl(struct sock *sk)
 {
 	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
-	struct bmb_task *task;
-	struct bmb_conn *conn;
+	TfwBmbTask *task;
+	TfwBmbConn *conn;
 	int tail;
 
 	BUG_ON(!proto);
@@ -146,8 +157,8 @@ static int
 __update_conn(struct sock *sk, int flags)
 {
 	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
-	struct bmb_task *task;
-	struct bmb_conn *conn;
+	TfwBmbTask *task;
+	TfwBmbConn *conn;
 
 	BUG_ON(proto == NULL);
 
@@ -218,7 +229,7 @@ tfw_bmb_connect(int tn, int cn)
 {
 	int ret;
 	struct sock *sk;
-	struct bmb_conn *conn;
+	TfwBmbConn *conn;
 
 	conn = &bmb_task[tn].conn[cn];
 
@@ -269,7 +280,7 @@ tfw_bmb_release_sockets(int tn)
 static void
 tfw_bmb_msg_send(int tn, int cn)
 {
-	struct bmb_task *task = &bmb_task[tn];
+	TfwBmbTask *task = &bmb_task[tn];
 	int fz_tries = 0, r;
 	TfwStr msg;
 	TfwHttpMsg *req;
@@ -324,7 +335,7 @@ static int
 tfw_bmb_worker(void *data)
 {
 	int tn = (int)(long)data;
-	struct bmb_task *task = &bmb_task[tn];
+	TfwBmbTask *task = &bmb_task[tn];
 	int attempt, send, k, i;
 	unsigned long time_max;
 
@@ -424,19 +435,23 @@ tfw_bmb_alloc(void)
 	int i;
 	void *p;
 
-	bmb_alloc_ptr = p = vzalloc(nthreads * sizeof(struct bmb_task) +
-				   nthreads * nconns * sizeof(struct bmb_conn) +
-				   nthreads * nconns * sizeof(int) +
-				   nthreads * BUF_SIZE * sizeof(char));
+	bmb_alloc_ptr = p = vzalloc(nthreads * (
+		sizeof(TfwBmbTask) +
+		nconns * (
+			sizeof(TfwBmbConn) +
+			sizeof(int)
+		) +
+		BUF_SIZE * sizeof(char)
+	));
 	if (!bmb_alloc_ptr)
 		return -ENOMEM;
 
 	bmb_task = p;
-	p += nthreads * sizeof(struct bmb_task);
+	p += nthreads * sizeof(TfwBmbTask);
 
 	for (i = 0; i < nthreads; i++) {
 		bmb_task[i].conn = p;
-		p += nconns * sizeof(struct bmb_conn);
+		p += nconns * sizeof(TfwBmbConn);
 
 		bmb_task[i].conn_rd = p;
 		p += nconns * sizeof(int);
