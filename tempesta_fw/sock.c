@@ -441,12 +441,12 @@ ss_do_close(struct sock *sk)
 /*
  * Close a socket.
  *
- * This function is for use by other Tempesta components. It may be
- * called either in the context of the socket that is being closed,
- * or in the context of a completely different socket.
+ * This function is for use by other Tempesta components. It may
+ * be called either in the context of the socket that is being
+ * closed, or in the context of a completely different socket.
  *
- * This function may be used in process and SoftIRQ contexts. Must
- * be called with BH disabled in process context.
+ * This function may be used in process and SoftIRQ contexts.
+ * Must be called with BH disabled in process context.
  *
  * This function may be executed concurrently with ss_do_close()
  * that is triggered by an incoming FIN. Only one of the two must
@@ -461,8 +461,8 @@ ss_do_close(struct sock *sk)
  *   the socket is not live and does not execute the body again.
  *
  * @return:
- *   0 - the socket is closed in this call.
- *   1 - the socket is closed or is being closed by someone else.
+ *   SS_OK - the socket is closed in this call.
+ *   SS_POSTPONE - the socket is (being) closed by someone else.
  */
 int
 ss_close(struct sock *sk)
@@ -778,7 +778,7 @@ ss_tcp_data_ready(struct sock *sk)
 }
 
 /**
- * Socket state change callback. Called from tcp_rcv_state_process().
+ * Socket state change callback.
  */
 static void
 ss_tcp_state_change(struct sock *sk)
