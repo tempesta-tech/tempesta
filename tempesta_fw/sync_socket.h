@@ -73,7 +73,8 @@ ss_sock_live(struct sock *sk)
  * and sending of HTTP messages. This function must
  * be used consistently across all involved functions.
  */
-static inline bool ss_sock_active(struct sock *sk)
+static inline bool
+ss_sock_active(struct sock *sk)
 {
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
