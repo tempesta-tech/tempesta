@@ -352,7 +352,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * a connection structure. The message is then immediately destroyed,
  * and a simpler tfw_http_msg_free() can be used for that.
  */
-void
+static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
@@ -364,6 +364,39 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		hm->conn = NULL;
 	}
 	tfw_http_msg_free(hm);
+}
+
+/*
+ * Drop the client connection and destroy the request.
+ *
+ * A connection is dropped in two stages. The socket is closed first.
+ * Then the connection linked with the socket is withdrawed from all
+ * socket activity, and then deactivated.
+ *
+ * The socket may be closed either from Tempesta or in Sync Sockets
+ * as the reaction to incoming FIN. Both may occur at the same time.
+ * Socket lock permits one party only to proceed with the closing.
+ * See the comment to ss_close().
+ *
+ * The connection may be dropped only by the party that closed the
+ * socket. Also, it's essential that the connection is dropped only
+ * when there's at least one extra reference to it (@conn->refcnt).
+ * Then if the reference is dropped here it's never the last one.
+ * That won't allow Sync Sockets to destroy the socket and the
+ * connection completely until Tempesta is done with the connection.
+ * The request holds that extra reference, so it must be freed only
+ * after the connection is dropped.
+ */
+static inline void
+tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
+{
+	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
+
+	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
+		if (ss_close(hmreq->conn->sk) == SS_OK)
+			tfw_sock_clnt_drop(hmreq->conn->sk);
+	}
+	tfw_http_conn_msg_free(hmreq);
 }
 
 /**
@@ -385,7 +418,16 @@ tfw_http_conn_destruct(TfwConnection *conn)
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
-		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
+		/*
+		 * Connection with a server is closed, and there are
+		 * requests in the queue that are kept until a paired
+		 * response comes. That will never happen now. Send
+		 * a client an error response. If the connection with
+		 * a client must be dropped after a response is sent
+		 * to that client, then drop the connection now.
+		 */
+		tfw_http_send_404((TfwHttpMsg *)msg);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
 	spin_unlock(&conn->msg_qlock);
@@ -403,6 +445,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 {
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
+
+	TFW_DBG2("Create sibling message: conn %p, skb %p\n", hm->conn, skb);
 
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
@@ -520,17 +564,18 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
-	TfwConnection *conn;
+	TfwConnection *srv_conn;
 
 	if (resp) {
 		/*
-		 * We have prepared response, send it as is.
-		 * The response is pass through ot was generated from
-		 * the cache, so unrefer all its data.
+		 * The response is prepared, send it as is. The response
+		 * is either passed through from the back-end server, or
+		 * it is generated from the cache, so unrefer all its data.
 		 */
-		if (tfw_http_adjust_resp(resp, req))
-			return;
-		tfw_connection_send(req->conn, (TfwMsg *)resp, true);
+		if (tfw_http_adjust_resp(resp, req) == 0)
+			tfw_connection_send(req->conn, (TfwMsg *)resp, true);
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
 	}
 
@@ -539,19 +584,24 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * should make a decision based on an unmodified request,
 	 * so this must be done before any request mangling.
 	 *
-	 * The below is typically called on remote NUMA node.
+	 * The code below is typically called on remote NUMA node.
 	 * That's not good, but we must run TDB lookup on the node
-	 * before that to avoid unnecessary work in softirq and
-	 * speedup the cache operation.
-	 * Meantime, cache hits are expected to prevail over misses,
-	 * so this isn't frequent path.
+	 * before this is executed, to avoid unnecessary work in
+	 * SoftIRQ and to speed up the cache operation.
+	 * At the same time, cache hits are expected to prevail
+	 * over cache misses, so this is not a frequent path.
 	 */
-	conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-	if (conn == NULL) {
+	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+	if (srv_conn == NULL) {
 		TFW_ERR("Unable to find a backend server\n");
 		goto send_404;
 	}
 
+	/*
+	 * Sticky cookie module may send a response to the client
+	 * when sticky cookie presence is enforced and the cookie
+	 * is missing from the request.
+	 */
 	r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
 	if (r < 0) {
 		goto send_500;
@@ -566,24 +616,24 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		goto send_500;
 
 	/* Add request to the server connection. */
-	spin_lock(&conn->msg_qlock);
-	list_add_tail(&req->msg.msg_list, &conn->msg_queue);
-	spin_unlock(&conn->msg_qlock);
+	spin_lock(&srv_conn->msg_qlock);
+	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
+	spin_unlock(&srv_conn->msg_qlock);
 
 	/* Send request to the server. */
-	tfw_connection_send(conn, (TfwMsg *)req, false);
-
+	tfw_connection_send(srv_conn, (TfwMsg *)req, false);
 	goto conn_put;
+
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 conn_put:
-	if (tfw_connection_put(conn))
-		tfw_srv_conn_release(conn);
+	if (tfw_connection_put(srv_conn))
+		tfw_srv_conn_release(srv_conn);
 }
 
 /**
@@ -598,7 +648,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	unsigned int skb_len = skb->len;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb_len);
+	BUG_ON(data_off >= skb_len);
 
 	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 		 skb_len - off, conn, conn->msg);
@@ -608,6 +658,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	 * until all data in the SKB is processed.
 	 */
 	while (data_off < skb_len) {
+		int req_conn_close;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpMsg *hmreq = (TfwHttpMsg *)conn->msg;
 		TfwHttpParser *parser = &hmreq->parser;
@@ -666,7 +717,18 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
 
-		if (data_off < skb_len) {
+		/*
+		 * The request has been successfully parsed and processed.
+		 * If the connection will be closed after the response to
+		 * the request is sent to the client, then there's no need
+		 * to process pipelined requests. Also, the request may be
+		 * released when handled in tfw_cache_req_process() below.
+		 * So, save the needed request flag for later use as it
+		 * may not be accessible later through @req->flags.
+		 */
+		req_conn_close = (hmreq->flags & TFW_HTTP_CONN_CLOSE);
+
+		if (!req_conn_close && (data_off < skb_len)) {
 			/*
 			 * Pipelined requests: create a new sibling message.
 			 * @skb is replaced with pointer to a new SKB.
@@ -687,11 +749,35 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			}
 		}
 		/*
+		 * Complete HTTP message has been collected and successfully
+		 * processed. Mark the message as complete in @conn, because
+		 * further handling of @conn depends on that. Future SKBs
+		 * will be put in a new message.
+		 * Otherwise, the function returns from inside the loop.
+		 * @conn->msg holds the reference to the message, which can
+		 * be used to release it.
+		 */
+		conn->msg = NULL;
+
+		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
 		tfw_cache_req_process((TfwHttpReq *)hmreq,
 				      tfw_http_req_cache_cb);
+
+		/*
+		 * According to RFC 7230 6.3.2, connection with a client
+		 * must be dropped after a response is sent to that client,
+		 * if the client sends "Connection: close" header field in
+		 * the request. Subsequent requests from the client coming
+		 * over the same connection are ignored.
+		 *
+		 * Note: This connection's @conn must not be dereferenced
+		 * from this point on.
+		 */
+		if (req_conn_close)
+			return TFW_STOP;
 
 		if (hmsib) {
 			/*
@@ -703,51 +789,40 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			conn->msg = (TfwMsg *)hmsib;
 		}
 	}
-	/*
-	 * All data in the SKB has been processed, and the processing
-	 * is successful. A complete HTTP message has been collected,
-	 * and stored or released. Future SKBs should be put in a new
-	 * message.
-	 *
-	 * Otherwise, the function just returns from inside the loop.
-	 * conn->msg contains the reference to a message, which can
-	 * be used to release it.
-	 */
-	conn->msg = NULL;
 
 	return r;
 }
 
 /**
- * This is second half of tfw_http_resp_process().
- * tfw_http_resp_process() runs in softirq while tfw_http_resp_cache_cb()
- * runs by cache thread scheduled to appropriate TDB node.
+ * This is the second half of tfw_http_resp_process().
+ * tfw_http_resp_process() runs in SoftIRQ whereas tfw_http_resp_cache_cb()
+ * runs in cache thread that is scheduled at an appropriate TDB node.
  *
- * HTTP requests are usually much smaller responses, so it's better to transfer
- * requests to TDB node to do all adjustments. The other benefit of the scheme
- * is smaller work in softirq.
+ * HTTP requests are usually much smaller than HTTP responses, so it's
+ * better to transfer requests to a TDB node to make any adjustments.
+ * The other benefit of the scheme is that less work is done in SoftIRQ.
  */
 static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	/* Cache original response before any mangling. */
-	tfw_cache_add((TfwHttpResp *)resp, (TfwHttpReq *)req);
+	tfw_cache_add(resp, req);
 
 	/*
 	 * Typically we're at a node far from the node where @resp was
-	 * received, so we do inter-node transfer. However, this is the final
-	 * place where the response will be stored and all upcomming requests
-	 * will be replied by current node (see tfw_http_req_cache_cb()) w/o
-	 * inter-node data transfers.
+	 * received, so we do an inter-node transfer. However, this is
+	 * the final place where the response will be stored. Upcoming
+	 * requests will get responded to by the current node without
+	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
-	if (tfw_http_adjust_resp((TfwHttpResp *)resp, (TfwHttpReq*)req))
+	if (tfw_http_adjust_resp(resp, req))
 		goto err;
 
 	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
 err:
 	/* Now we don't need the request and the reponse anymore. */
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 }
 
 /*
@@ -762,7 +837,6 @@ tfw_http_popreq(TfwConnection *conn)
 	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
 		spin_unlock(&conn->msg_qlock);
-		TFW_WARN("Empty request queue\n");
 		return NULL;
 	}
 	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
@@ -802,7 +876,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	unsigned int skb_len = skb->len;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb_len);
+	BUG_ON(data_off >= skb_len);
 
 	TFW_DBG2("received %u server data bytes on conn=%p msg=%p\n",
 		skb->len - off, conn, conn->msg);
@@ -917,10 +991,22 @@ next_resp:
 		 * for data exchange until that gets impossible.
 		 */
 		if ((req = tfw_http_popreq(conn)) != NULL) {
+			/*
+			 * Complete HTTP message has been collected and
+			 * successfully processed. Mark the message as
+			 * complete in @conn, because further handling
+			 * of @conn depends on that. Future SKBs will
+			 * be put in a new message.
+			 * Otherwise, the function returns from inside
+			 * the loop. @conn->msg holds the reference to
+			 * the message, which can be used to release it.
+			 */
+			conn->msg = NULL;
 			tfw_cache_resp_process((TfwHttpResp *)hmresp,
 					       req, tfw_http_resp_cache_cb);
 		} else {
-			/* conn->msg will get NULLed in the process. */
+			/* @conn->msg will get NULLed in the process. */
+			TFW_WARN("Paired request missing\n");
 			tfw_http_conn_msg_free(hmresp);
 		}
 
@@ -934,18 +1020,7 @@ next_resp:
 			conn->msg = (TfwMsg *)hmsib;
 		}
 	}
-	/*
-	 * All data in the SKB has been processed, and the processing
-	 * is successful. A complete HTTP message has been collected,
-	 * sent to a client, and then released.
-	 *
-	 * Otherwise, the function just returns from inside the loop.
-	 * conn->msg contains the reference to a message, which can
-	 * be used to release it.
-	 *
-	 * @conn->msg is NULLed when the message is freed/released.
-	 * Future SKBs will be put in a new message.
-	 */
+
 	return r;
 }
 

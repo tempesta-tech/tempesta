@@ -193,7 +193,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	/* Synchronize concurrent socket writing in different softirqs. */
 	bh_lock_sock_double_nested(sk);
 
-	if (unlikely(!ss_can_send(sk)))
+	if (unlikely(!ss_sock_active(sk)))
 		goto out;
 
 	tp = tcp_sk(sk);
@@ -441,24 +441,43 @@ ss_do_close(struct sock *sk)
 /*
  * Close a socket.
  *
- * It's presumed that all Tempesta data linked to the socket
- * is released before or after calling this function. Also,
- * it's presumed that all activity in the socket is stopped
- * before this function is called. Both are rather important.
+ * This function is for use by other Tempesta components. It may
+ * be called either in the context of the socket that is being
+ * closed, or in the context of a completely different socket.
  *
  * This function may be used in process and SoftIRQ contexts.
  * Must be called with BH disabled in process context.
+ *
+ * This function may be executed concurrently with ss_do_close()
+ * that is triggered by an incoming FIN. Only one of the two must
+ * be able to proceed with closing of the socket.
+ * - The body is protected by the socket lock which ensures
+ *   that these functions don't run concurrently.
+ * - A socket is no longer live after the body is executed
+ *   by either of these functions.
+ * - If ss_close() is called first, then ss_do_close() is never
+ *   called by the kernel as the socket will be closed.
+ * - If ss_do_close() is called first, then ss_close() sees that
+ *   the socket is not live and does not execute the body again.
+ *
+ * @return:
+ *   SS_OK - the socket is closed in this call.
+ *   SS_POSTPONE - the socket is (being) closed by someone else.
  */
-void
+int
 ss_close(struct sock *sk)
 {
-	BUG_ON(sk->sk_user_data);
-
-	bh_lock_sock_nested(sk);
+	bh_lock_sock_double_nested(sk);
+	if (!ss_sock_live(sk)) {
+		bh_unlock_sock(sk);
+		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
+		return SS_POSTPONE;
+	}
 	__ss_do_close(sk);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
+	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
 
@@ -471,19 +490,24 @@ EXPORT_SYMBOL(ss_close);
  * The order in which these actions are executed is important.
  * The failover procedure expects that the socket is inactive.
  *
- * This function is for internal Sync Sockets use only.
+ * This function is for internal Sync Sockets use only. It's called
+ * under the socket lock taken by the kernel, and in the context of
+ * the socket that is being closed.
  */
 static void
-ss_droplink(struct sock *sk)
+ss_do_droplink(struct sock *sk)
 {
 	/*
-	 * sk->sk_user_data may be zeroed here. It's a valid case
-	 * that may occur when classifier has blocked a connection.
-	 * connection_drop() callback is not called in that case.
+	 * sk->sk_user_data may be zeroed here. That's a valid
+	 * case that may occur when there's an error during
+	 * the allocation of resources for a client connection.
 	 */
+	BUG_ON(!ss_sock_active(sk));
+
 	ss_do_close(sk);
 	SS_CALL(connection_drop, sk);
 }
+
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
@@ -543,29 +567,45 @@ ss_tcp_process_data(struct sock *sk)
 			void *conn = rcu_dereference_sk_user_data(sk);
 
 			/*
-			 * We're in softirq context and under the socket lock.
-			 * We're pretty sure RSS/RPS schedules ingress packets
-			 * for the same socket to exactly same softirq, so only
-			 * one ingress context can work on the socket at any
-			 * point of time.
-			 * FIXME the comment above is wrong if we run client
-			 * workload on the same host with Tempesta.
+			 * Data for processing is within the current SKB.
+			 * Hand the SKB to the upper layer for processing.
+			 */
+
+			/*
+			 * If @sk_user_data is unset, then this connection
+			 * had been dropped in a parallel thread. Dropping
+			 * a connection is serialized with the socket lock.
+			 * The receive queue must be empty in that case,
+			 * and the execution path should never reach here.
+			 */
+			BUG_ON(conn == NULL);
+
+			/*
+			 * This runs in SoftIRQ context and under the socket
+			 * lock. RSS/RPS schedules ingress packets destined
+			 * for a specific socket to exactly the same SoftIRQ,
+			 * so only one ingress context can work on the socket
+			 * at any given time.
 			 *
-			 * Deadlock: we may call ss_send() from an application
-			 * handler for a different socket while other softirq
-			 * is processing ingress data on the socket and is going
-			 * to send data through our socket. Generally there can
-			 * be multiple client ingress sockets sending data to
-			 * the same server socket that is returning upstream
-			 * data to the sockets.
+			 * After ingress data is processed, this SoftIRQ
+			 * may call ss_send() to send data through another
+			 * socket. At the same time the SoftIRQ for that
+			 * socket may call ss_send() to send data in the
+			 * opposite direction through this socket. If both
+			 * sockets are locked, that would cause a deadlock.
 			 *
-			 * Thus ss_send() works concurrenly on the same socket,
-			 * while ss_tcp_process_data() is not concurrent.
-			 * So unlock the socket and let others send through it.
-			 * ss_send() doesn't touch members of an ingress socket.
-			 * (moreover Linux is poor in that TCP ingress and
-			 * egress flows can't run concurrently on the same
-			 * socket).
+			 * Generally there can be multiple client ingress
+			 * sockets sending data through the same server
+			 * socket that returns upstream data to the client
+			 * sockets. Thus ss_send() can work concurrenly on
+			 * the same socket, whereas ss_tcp_process_data()
+			 * is not concurrent.
+			 *
+			 * Unlock the socket, let others send through it.
+			 * ss_send() doesn't touch members of an ingress
+			 * socket. (Linux is lacking in that TCP ingress
+			 * and egress flows cannot run concurrently on
+			 * the same socket).
 			 */
 			bh_unlock_sock(sk);
 
@@ -573,6 +613,12 @@ ss_tcp_process_data(struct sock *sk)
 
 			bh_lock_sock_double_nested(sk);
 
+			/*
+			 * The socket @sk may have been closed as a result
+			 * of data processing in this or in parallel thread.
+			 * However the socket is not destroyed until control
+			 * is returned back to the Linux kernel.
+			 */
 			if (r < 0) {
 				SS_WARN("Error processing data: sk %p\n", sk);
 				goto out; /* connection dropped */
@@ -581,13 +627,19 @@ ss_tcp_process_data(struct sock *sk)
 			processed += count;
 
 			if (tcp_fin) {
-				SS_DBG("Data FIN received\n");
+				SS_DBG("Data FIN received: sk %p\n", sk);
 				++tp->copied_seq;
 				goto out;
 			}
+
+			/* Stop processing data in the connection. */
+			if (r == SS_STOP) {
+				SS_DBG("Stop processing data: sk %p\n", sk);
+				break;
+			}
 		} else if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("Link FIN received\n");
+			SS_DBG("Link FIN received: sk %p\n", sk);
 			++tp->copied_seq;
 			goto out;
 		} else {
@@ -699,16 +751,18 @@ ss_tcp_data_ready(struct sock *sk)
 		SS_ERR("error data on socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
-		if (ss_tcp_process_data(sk))
+		if (ss_tcp_process_data(sk)) {
 			/*
 			 * Drop connection in case of internal errors,
 			 * or banned packets.
 			 *
-			 * ss_droplink() is responsible for calling application
-			 * layer connection closing callback that will free all
-			 * SKBs linked with the currently processed message.
+			 * ss_do_droplink() is responsible for calling
+			 * application layer connection closing callback.
+			 * The callback will free all SKBs linked with
+			 * the message that is currently being processed.
 			 */
-			ss_droplink(sk);
+			ss_do_droplink(sk);
+		}
 	}
 	else {
 		/*
@@ -749,7 +803,7 @@ ss_tcp_state_change(struct sock *sk)
 		r = SS_CALL(connection_new, sk);
 		if (r) {
 			SS_DBG("New connection hook failed, r=%d\n", r);
-			ss_droplink(sk);
+			ss_do_droplink(sk);
 			return;
 		}
 		if (lsk) {
@@ -789,7 +843,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		SS_DBG("Peer connection closing\n");
-		ss_droplink(sk);
+		ss_do_droplink(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -810,8 +864,8 @@ ss_tcp_state_change(struct sock *sk)
 		 * function above for ESTABLISHED state. sk_state_change()
 		 * callback is never called for the same socket concurrently.
 		 */
-		SS_CALL(connection_error, sk);
 		ss_do_close(sk);
+		SS_CALL(connection_error, sk);
 	}
 }
 
