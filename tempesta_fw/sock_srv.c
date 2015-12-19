@@ -44,7 +44,6 @@
 #include "addr.h"
 #include "log.h"
 #include "server.h"
-#include "client.h"
 
 /*
  * ------------------------------------------------------------------------

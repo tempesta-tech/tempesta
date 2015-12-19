@@ -31,7 +31,10 @@
  *
  * @conn_users		- connections reference counter.
  * 			  The client is released, when the counter reaches zero:
- * 			  no connections to the srever - no client for us :)
+ * 			  no connections to the server - no client for us :)
+ * @cookie		- Tempesta sticky cookie;
+ * @cookie.ts		- timestamp for the client's session;
+ * @cookie.hmac		- crypto hash from values of an HTTP request;
  */
 typedef struct {
 	TFW_PEER_COMMON;
