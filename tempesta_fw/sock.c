@@ -210,9 +210,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		if (pass_skb) {
 			ss_skb_unlink(skb_list, skb);
 		} else {
-			skb = skb_clone(skb, GFP_ATOMIC);
+			/* tcp_transmit_skb() will clone the skb. */
+			skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!skb) {
-				SS_ERR("Unable to clone an egress SKB.\n");
+				SS_ERR("Unable to copy an egress SKB.\n");
 				/*
 				 * Send what we collected so far.
 				 * The peer should react somehow and we can
