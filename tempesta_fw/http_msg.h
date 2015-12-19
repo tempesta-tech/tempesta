@@ -48,7 +48,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 #define TFW_HTTP_MSG_HDR_XFRM(hm, name, val, hid, append)		\
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, val,		\
-			      sizeof(val) -1, hid, append)
+			      sizeof(val) - 1, hid, append)
 #define TFW_HTTP_MSG_HDR_DEL(hm, name, hid)				\
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 

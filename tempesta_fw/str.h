@@ -84,11 +84,11 @@
  * Duplicate strings are also always compound on root level.
  */
 #define TFW_STR_DUPLICATE	0x01
-/* The string is complete */
+/* The string is complete and will not grow. */
 #define TFW_STR_COMPLETE	0x02
-/* Some name starts at the string chunk */
+/* Some name starts at the string chunk. */
 #define TFW_STR_NAME		0x04
-/* Some value starts at the string chunk */
+/* Some value starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
 
 /*

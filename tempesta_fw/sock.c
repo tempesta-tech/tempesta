@@ -34,11 +34,6 @@
 #include "log.h"
 #include "sync_socket.h"
 
-#ifdef TFW_BANNER
-#undef TFW_BANNER
-#define TFW_BANNER	"[sync_sockets] "
-#endif
-
 #if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
@@ -203,7 +198,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
 		/*
-		 * Remvoe the skb from Tempesta lists if we won't use it
+		 * Remove the skb from Tempesta lists if we won't use it,
 		 * or clone it if it's going to be used by Tempesta during
 		 * and after the transmission.
 		 */
@@ -498,7 +493,7 @@ static void
 ss_do_droplink(struct sock *sk)
 {
 	/*
-	 * sk->sk_user_data may be zeroed here. That's a valid
+	 * sk->sk_user_data may come NULLed. That's a valid
 	 * case that may occur when there's an error during
 	 * the allocation of resources for a client connection.
 	 */
@@ -547,13 +542,13 @@ ss_tcp_process_data(struct sock *sk)
 		 * tcp_transmit_skb() as it is for all egress packets,
 		 * but packets on loopback go to us as is, i.e. cloned.
 		 *
-		 * Tempesta adjusts skb pointers, but leave original data
-		 * untouched (this is also required to keep pointers of
-		 * parsed out HTTP data structures unchnaged).
-		 * So skb uncloning is enough here.
+		 * Tempesta adjusts skb pointers, but leaves original
+		 * data untouched (this is also required in order to
+		 * keep pointers to our parsed HTTP data structures
+		 * unchanged). So skb uncloning is sufficient here.
 		 */
 		if (skb_unclone(skb, GFP_ATOMIC)) {
-			SS_WARN("cannot unclone ingress skb\n");
+			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
 			goto out;
 		}
 
@@ -748,7 +743,7 @@ ss_tcp_data_ready(struct sock *sk)
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		SS_ERR("error data on socket %p\n", sk);
+		SS_ERR("error data in socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk)) {
@@ -772,7 +767,7 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			SS_DBG("urgent data on socket %p\n", sk);
+			SS_DBG("urgent data in socket %p\n", sk);
 		}
 	}
 }
@@ -795,10 +790,10 @@ ss_tcp_state_change(struct sock *sk)
 		/*
 		 * The callback is called from tcp_rcv_state_process().
 		 *
-		 * Server never sends data just after active connection opening
-		 * from our side. Passive open is processed from tcp_v4_rcv()
-		 * under socket lock. So there is no need synchronization
-		 * with ss_tcp_process_data().
+		 * Server never sends data right after an active connection
+		 * opening from our side. Passive open is processed from
+		 * tcp_v4_rcv() under the socket lock. So there is no need
+		 * for synchronization with ss_tcp_process_data().
 		 */
 		r = SS_CALL(connection_new, sk);
 		if (r) {
@@ -894,8 +889,8 @@ ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type)
  * This function is called for each socket that is created by Tempesta.
  * It's run before a socket is bound or connected, so locking is not
  * required at that time. It's also called for each accepted socket,
- * and at that time it's run under socket lock (see comment of TCP_ESTABLISHED
- * case in ss_tcp_state_change()).
+ * and at that time it's run under the socket lock (see the comment
+ * to TCP_ESTABLISHED case in ss_tcp_state_change()).
  */
 void
 ss_set_callbacks(struct sock *sk)
@@ -916,7 +911,7 @@ EXPORT_SYMBOL(ss_set_callbacks);
  * and initialize first callbacks.
  *
  * The function is called against just created and still inactive socket,
- * so there is no need socket synchronization.
+ * so there is no need for socket synchronization.
  */
 void
 ss_set_listen(struct sock *sk)
