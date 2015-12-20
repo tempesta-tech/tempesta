@@ -381,7 +381,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 	char *pos = out_buf;
 	int len;
 
-	BUG_ON(!out_buf || (buf_size <= 0));
+	BUG_ON(!out_buf || buf_size <= 0);
 
 	--buf_size; /* Reserve one byte for '\0'. */
 

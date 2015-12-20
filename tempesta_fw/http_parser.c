@@ -1522,19 +1522,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/*
 	 * URI host part.
+	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
 	 *
-	 * We must not rewrite abs_path, but still can cast host part
-	 * to lower case.
-	 *
-	 * RFC 3986 chapter 3.2:
-	 * authority = [userinfo@]host[:port]
-	 *
-	 * We parse authority. It can be "host" or "userinfo@host"
-	 * (port parsed later). At the begining we don't know,
-	 * which of variants we have.
-	 *
-	 * So we fill req->host, and if we get '@', we copy host to
-	 * req->userinfo, reset req->host and fill it.
+	 * We must not rewrite abs_path, but still can cast host part to
+	 * lower case. Authority parsing: it can be "host" or "userinfo@host"
+	 * (port is parsed later). At the begining we don't know,
+	 * which of variants we have. So we fill req->host, and if we get '@',
+	 * we copy host to req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
 		req->flags |= TFW_HTTP_URI_FULL;
@@ -1666,7 +1660,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
+			req->version = TFW_HTTP_VER_11;
+			__FSM_MOVE_n(Req_EoL, 8);
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
+			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_n(Req_EoL, 8);
 		default:
 			return TFW_BLOCK;
@@ -1951,7 +1948,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_HttpVer12) {
 		switch(c) {
 		case '1':
+			req->version = TFW_HTTP_VER_11;
+			__FSM_MOVE(Req_EoL);
 		case '0':
+			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE(Req_EoL);
 		default:
 			return TFW_BLOCK;
@@ -2692,7 +2692,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
+			resp->version = TFW_HTTP_VER_11;
+			if (*(p + 8) == ' ')
+				__FSM_MOVE_n(Resp_StatusCode, 9);
+			return TFW_BLOCK;
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
+			resp->version = TFW_HTTP_VER_10;
 			if (*(p + 8) == ' ')
 				__FSM_MOVE_n(Resp_StatusCode, 9);
 			/* fall through */
@@ -2920,7 +2925,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_HttpVer12) {
 		switch (c) {
 		case '1':
+			resp->version = TFW_HTTP_VER_11;
+			__FSM_MOVE(Resp_SSpace);
 		case '0':
+			resp->version = TFW_HTTP_VER_10;
 			__FSM_MOVE(Resp_SSpace);
 		default:
 			return TFW_BLOCK;
