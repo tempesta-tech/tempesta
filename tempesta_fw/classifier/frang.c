@@ -471,8 +471,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	TfwStr field;
 	int ret = TFW_PASS;
 
-	TFW_DBG2("Start http host check\n");
-
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
 
