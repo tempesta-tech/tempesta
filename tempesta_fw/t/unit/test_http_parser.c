@@ -22,7 +22,7 @@
 
 #include "test.h"
 #include "helpers.h"
-#include "tfw_fuzzer.h"
+#include "fuzzer.h"
 
 TfwHttpReq *req;
 TfwHttpResp *resp;
