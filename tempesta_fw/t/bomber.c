@@ -31,7 +31,7 @@
 #include "http_msg.h"
 #include "log.h"
 #include "sync_socket.h"
-#include "tfw_fuzzer.h"
+#include "fuzzer.h"
 
 static int nthreads	= 2;
 static int niters	= 2;
@@ -391,7 +391,7 @@ release_sockets:
 		 * FIXME workaround for ss_close() and ss_tcp_process_data()
 		 * receiving server reply.
 		 */
-		udelay(1000);
+		msleep(10000);
 
 		tfw_bmb_release_sockets(tn);
 	}

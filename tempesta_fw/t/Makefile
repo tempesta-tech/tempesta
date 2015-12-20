@@ -27,8 +27,8 @@ endif
 obj-m += sync_sockets/ unit/
 
 obj-m += tfw_fuzzer.o
-tfw_fuzzer-obs = \
-	fuzzer.c
+tfw_fuzzer-objs = \
+	fuzzer.o
 
 obj-m += tfw_bomber.o
 tfw_bomber-objs = \
