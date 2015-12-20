@@ -119,15 +119,10 @@ ours:
 static void
 tfw_classify_conn_close(struct sock *sk)
 {
-	TfwClassifier *clfr;
+	TfwClassifier *clfr = rcu_dereference(classifier);
 
-	rcu_read_lock();
-
-	clfr = rcu_dereference(classifier);
 	if (clfr && clfr->classify_conn_close)
 		clfr->classify_conn_close(sk);
-
-	rcu_read_unlock();
 }
 
 /**
@@ -137,20 +132,10 @@ tfw_classify_conn_close(struct sock *sk)
 static int
 tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 {
-	int r;
 	struct tcphdr *th = tcp_hdr(skb);
-	TfwClassifier *clfr;
+	TfwClassifier *clfr = rcu_dereference(classifier);
 
-	rcu_read_lock();
-
-	clfr = rcu_dereference(classifier);
-	r = (clfr && clfr->classify_tcp)
-	    ? clfr->classify_tcp(th)
-	    : TFW_PASS;
-
-	rcu_read_unlock();
-
-	return r;
+	return clfr && clfr->classify_tcp ? clfr->classify_tcp(th) : TFW_PASS;
 }
 
 /*
