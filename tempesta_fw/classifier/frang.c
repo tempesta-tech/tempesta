@@ -58,7 +58,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.5");
+MODULE_VERSION("0.1.6");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -459,82 +459,79 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra)
 	return TFW_BLOCK;
 }
 
+/**
+ * Require host header in HTTP request (RFC 7230 5.4).
+ * Block HTTP/1.1 requiests w/o host header,
+ * but just print warning for older HTTP.
+ */
 static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
 	TfwStr field;
-	int ret = TFW_BLOCK;
-	char *hdrhost = NULL;
-
-	/* 1) we check, if Host: header is present.
-	 * 2) we check, that Host: header is not a IP address.
-	 * 3) if URI has form "http://host:port/path", we check if host in URI
-	 * 	is equal to Host: header. As a particular case, if host
-	 * 	in uri is empty, Host: header also should be empty
-	 * 4) if URI has form "/path", we check, that host is not empty
-	 *
-	 * (RFC 7230 5.4):
-	 * 	A client MUST send a Host header field in all HTTP/1.1 request
-	 * 	messages.  If the target URI includes an authority component,
-	 * 	then a client MUST send a field-value for Host that is
-	 * 	identical to that authority component, excluding any userinfo
-	 * 	subcomponent and its "@" delimiter (Section 2.7.1).
-	 * 	If the authority component is missing or undefined for the
-	 * 	target URI, then a client MUST send a Host header field
-	 * 	with an empty field-value. */
+	int ret = TFW_PASS;
 
 	TFW_DBG2("Start http host check\n");
 
-	BUG_ON(req == NULL);
-	BUG_ON(req->h_tbl == NULL);
+	BUG_ON(!req);
+	BUG_ON(!req->h_tbl);
 
+	/*
+	 * Host header must be presented,
+	 * but don't enforce the policy for HTTP older than 1.1.
+	 */
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {
-		TFW_DBG3("Host header is missed\n");
 		frang_msg("Host header field", &ra->addr, " is missed\n");
-		return TFW_BLOCK;
+		return req->version > TFW_HTTP_VER_10 ? TFW_BLOCK : TFW_PASS;
 	}
+
 	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &field);
-
-	if (!TFW_STR_EMPTY(&field) && field.len > 0) {
+	if (!TFW_STR_EMPTY(&field)) {
+		/* Check that host header is not a IP address. */
 		if (!tfw_addr_pton(&field, &addr)) {
 			frang_msg("Host header field contains IP address",
-				&ra->addr, "\n");
-			goto finish;
+				  &ra->addr, "\n");
+			return TFW_BLOCK;
 		}
 	}
 
 	if (req->flags & TFW_HTTP_URI_FULL) {
-		if (!TFW_STR_EMPTY(&field)) {
-			if ((hdrhost = tfw_pool_alloc(req->pool,
-				field.len + 1)) == NULL)
-			{
-				TFW_ERR("Can not allocate memory\n");
-				goto finish;
-			}
-			tfw_str_to_cstr(&field, hdrhost, field.len + 1);
+		char *hdrhost;
+
+		/* If host in URI is empty, host header also must be empty. */
+		if (TFW_STR_EMPTY(&field) + TFW_STR_EMPTY(&req->host) == 1) {
+			frang_msg("Host header and URI host mismatch",
+				  &ra->addr, "\n");
+			return TFW_BLOCK;
 		}
 
-		/* Host: header must be equal to host in URI */
-		if (!tfw_str_eq_cstr(&req->host, hdrhost,
-					 field.len, TFW_STR_EQ_CASEI))
+		hdrhost = tfw_pool_alloc(req->pool, field.len + 1);
+		if (unlikely(!hdrhost)) {
+			TFW_ERR("Can not allocate memory\n");
+			return TFW_BLOCK;
+		}
+		tfw_str_to_cstr(&field, hdrhost, field.len + 1);
+
+		/*
+		 * If URI has form "http://host:port/path",
+		 * then host header must be equal to host in URI.
+		 */
+		if (!tfw_str_eq_cstr(&req->host, hdrhost, field.len,
+				     TFW_STR_EQ_CASEI))
 		{
 			frang_msg("Host header is not equal to host in URL",
 				  &ra->addr, "\n");
-			goto finish;
+			ret = TFW_BLOCK;
 		}
-	} else {
-		TFW_DBG3("No host in URI\n");
-		if (TFW_STR_EMPTY(&field) || field.len == 0) {
-			frang_msg("Host header is empty", &ra->addr, "\n");
-			goto finish;
-		}
-	}
-	ret = TFW_PASS;
-finish:
-	if (hdrhost)
+
 		tfw_pool_free(req->pool, hdrhost, field.len + 1);
+	}
+	else if (TFW_STR_EMPTY(&field)) {
+		/* If URI has form "/path", then host is not empty. */
+		frang_msg("Host header is empty", &ra->addr, "\n");
+		ret = TFW_BLOCK;
+	}
 
 	return ret;
 }
@@ -1092,7 +1089,7 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		&frang_cfg.http_bchunk_cnt,
 	},
 	{
-		"http_host_required", "false",
+		"http_host_required", "true",
 		tfw_cfg_set_bool,
 		&frang_cfg.http_host_required,
 	},
