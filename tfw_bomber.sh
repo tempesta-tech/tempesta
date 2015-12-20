@@ -30,7 +30,7 @@ popd > /dev/null
 # Path to testing modules.
 tm_path=${TFW_PATH:="$root/tempesta_fw/t"}
 
-declare conn= iter= msgs= srv= thr= verbose=
+declare conn= iter= msgs= srv= thr= unload= verbose=
 
 declare -r long_opts="help,start,stop"
 
@@ -48,6 +48,7 @@ usage()
 	echo -e "  -i <I>      Number of iterations, 2 by default."
 	echo -e "  -m <M>      Number messages per connection, 2 by default."
 	echo -e "  -t <T>      Number of client threads, 2 by default."
+	echo -e "  -u          Unload Tempesta modules on stop action."
 	echo -e "  -v          Verbose output."
 	echo
 	echo -e "Actions:"
@@ -67,8 +68,10 @@ start()
 {
 	echo "Tempesta: bombing the server..."
 
-	./tempesta.sh --load
-	[ $? -ne 0 ] && error "cannot load TFW environment"
+	if [ -z "`lsmod | grep \"\<tempesta_fw\>\"`" ]; then
+		./tempesta.sh --load
+		[ $? -ne 0 ] && error "cannot load TFW environment"
+	fi
 
 	insmod $tm_path/tfw_fuzzer.ko
 	[ $? -ne 0 ] && error "cannot load HTTP fuzzer"
@@ -85,12 +88,12 @@ stop()
 
 	rmmod tfw_bomber
 	rmmod tfw_fuzzer
-	./tempesta.sh --unload
+	[ "$unload" ] && ./tempesta.sh --unload
 
 	echo "done"
 }
 
-args=$(getopt -o "a:c:i:m:t:v" -a -l "$long_opts" -- "$@")
+args=$(getopt -o "a:c:i:m:t:uv" -a -l "$long_opts" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
@@ -123,11 +126,14 @@ while :; do
 			thr="t=$2"
 			shift 2
 			;;
+		-u)
+			unload=1
+			shift
+			;;
 		-v)
 			verbose="v=1"
 			shift
 			;;
-
 		--help)
 			usage
 			exit
