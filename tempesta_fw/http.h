@@ -85,6 +85,15 @@ typedef enum {
 	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
+/* HTTP protocol versions. */
+enum {
+	__TFW_HTTP_VER_INVALID,
+	TFW_HTTP_VER_09,
+	TFW_HTTP_VER_10,
+	TFW_HTTP_VER_11,
+	TFW_HTTP_VER_20,
+};
+
 #define TFW_HTTP_CC_NO_CACHE		0x001
 #define TFW_HTTP_CC_NO_STORE		0x002
 #define TFW_HTTP_CC_NO_TRANS		0x004
@@ -175,7 +184,6 @@ typedef struct {
 					 + sizeof(TfwStr) * (s))
 #define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
 
-
 /* Common flags for requests and responses. */
 #define TFW_HTTP_CONN_CLOSE		0x0001
 #define TFW_HTTP_CONN_KA		0x0002
@@ -192,7 +200,8 @@ typedef struct {
  * Common HTTP message members.
  *
  * @conn	- connection which the message was received on;
- * @crlf	- pointer to CRLF between headers and body
+ * @crlf	- pointer to CRLF between headers and body;
+ * @version	- HTTP version (1.0 and 1.1 are only supported);
  *
  * TfwStr members must be the last for efficient scanning.
  */
@@ -202,6 +211,7 @@ typedef struct {
 	TfwHttpHdrTbl	*h_tbl;						\
 	TfwHttpParser	parser;						\
 	TfwCacheControl	cache_ctl;					\
+	unsigned char	version;					\
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
 	TfwConnection	*conn;						\

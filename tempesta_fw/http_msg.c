@@ -46,14 +46,20 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	TfwStr *c, *end;
 	int nlen = hdr_lens[id];
 
+	/* Empty and plain strings don't have header value part. */
+	if (unlikely(TFW_STR_PLAIN(hdr))) {
+		TFW_STR_INIT(val);
+		return;
+	}
 	BUG_ON(TFW_STR_DUP(hdr));
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
-	/* Only Host: header is allowed to be empty
+	/*
+	 * Only Host header is allowed to be empty.
 	 * If header string is plain, it is always empty header.
-	 * Not empty headers are compount strings. */
-	BUG_ON(id == TFW_HTTP_HDR_HOST ? (nlen > hdr->len) :
-		(nlen >= hdr->len || TFW_STR_PLAIN(hdr)));
+	 * Not empty headers are compound strings.
+	 */
+	BUG_ON(id == TFW_HTTP_HDR_HOST ? nlen > hdr->len : nlen >= hdr->len);
 
 	*val = *hdr;
 
@@ -63,7 +69,9 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	 * we get an empty string with val->len = 0 and val->ptr from the
 	 * last name's chunk, but it is unimportant.
 	 */
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+	for (c = hdr->ptr, end = (TfwStr *)hdr->ptr + TFW_STR_CHUNKN(hdr);
+	     c < end; ++c)
+	{
 		BUG_ON(!c->len);
 
 		if (nlen > 0) {
@@ -82,13 +90,15 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 			val->len -= c->len;
 		}
 		else {
-			break;
+			val->ptr = c;
+			return;
 		}
 		BUG_ON(TFW_STR_CHUNKN(val) < 1);
 		TFW_STR_CHUNKN_SUB(val, 1);
 	}
 
-	val->ptr = c;
+	/* Empty header value part. */
+	TFW_STR_INIT(val);
 }
 EXPORT_SYMBOL(tfw_http_msg_hdr_val);
 

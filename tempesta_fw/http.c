@@ -678,8 +678,9 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		hmreq->msg.len += data_off - off;
 
 		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
-			 " res=%d\n",
-			 skb_len - off, data_off - off, hmreq->msg.len, r);
+			 " ver=%d res=%d\n",
+			 skb_len - off, data_off - off, hmreq->msg.len,
+			 hmreq->version, r);
 
 		switch (r) {
 		default:
@@ -905,8 +906,9 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		hmresp->msg.len += data_off - off;
 
 		TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu"
-			 " res=%d\n",
-			 skb_len - off, data_off - off, hmresp->msg.len, r);
+			 " ver=%d res=%d\n",
+			 skb_len - off, data_off - off, hmresp->msg.len,
+			 hmresp->version, r);
 
 		switch (r) {
 		default:
