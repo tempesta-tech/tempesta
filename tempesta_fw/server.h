@@ -44,9 +44,6 @@ typedef struct {
 	int			stress;
 } TfwServer;
 
-/* The server should be considered online and used by schedulers. */
-#define TFW_SRV_F_ON	0x01U
-
 /**
  * The servers group with the same load balancing, failovering and eviction
  * policies.
@@ -74,18 +71,6 @@ typedef struct tfw_srv_group_t {
 
 TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
-
-static inline void
-tfw_server_online(TfwServer *srv)
-{
-	srv->flags |= TFW_SRV_F_ON;
-}
-
-static inline void
-tfw_server_offline(TfwServer *srv)
-{
-	srv->flags &= ~TFW_SRV_F_ON;
-}
 
 void tfw_srv_conn_release(TfwConnection *conn);
 int tfw_sock_srv_drop(struct sock *sk);
