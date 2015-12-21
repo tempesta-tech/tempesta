@@ -284,7 +284,7 @@ reset:
     }
 
     mbedtls_ssl_set_bio( &ssl, &client_fd,
-                         mbedtls_net_send, mbedtls_net_recv, mbedtls_net_recv_timeout );
+                         mbedtls_net_send, mbedtls_net_recv, NULL );
 
     printf( " ok\n" );
 
