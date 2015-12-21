@@ -94,7 +94,6 @@ int main( void )
 #define DFL_SERVER_ADDR         NULL
 #define DFL_SERVER_PORT         "4433"
 #define DFL_DEBUG_LEVEL         0
-#define DFL_NBIO                0
 #define DFL_READ_TIMEOUT        0
 #define DFL_CA_FILE             ""
 #define DFL_CA_PATH             ""
@@ -309,8 +308,6 @@ int main( void )
     "    server_addr=%%d      default: (all interfaces)\n"  \
     "    server_port=%%d      default: 4433\n"              \
     "    debug_level=%%d      default: 0 (disabled)\n"      \
-    "    nbio=%%d             default: 0 (blocking I/O)\n"  \
-    "                        options: 1 (non-blocking), 2 (added delays)\n" \
     "    read_timeout=%%d     default: 0 ms (no timeout)\n"    \
     "\n"                                                    \
     USAGE_DTLS                                              \
@@ -358,7 +355,6 @@ struct options
     const char *server_addr;    /* address on which the ssl service runs    */
     const char *server_port;    /* port on which the ssl service runs       */
     int debug_level;            /* level of debugging                       */
-    int nbio;                   /* should I/O be blocking?                  */
     uint32_t read_timeout;      /* timeout on mbedtls_ssl_read() in milliseconds    */
     const char *ca_file;        /* the file with the CA certificate(s)      */
     const char *ca_path;        /* the path with the CA certificate(s) reside */
@@ -901,7 +897,6 @@ int main( int argc, char *argv[] )
     opt.server_addr         = DFL_SERVER_ADDR;
     opt.server_port         = DFL_SERVER_PORT;
     opt.debug_level         = DFL_DEBUG_LEVEL;
-    opt.nbio                = DFL_NBIO;
     opt.read_timeout        = DFL_READ_TIMEOUT;
     opt.ca_file             = DFL_CA_FILE;
     opt.ca_path             = DFL_CA_PATH;
@@ -968,12 +963,6 @@ int main( int argc, char *argv[] )
         {
             opt.debug_level = atoi( q );
             if( opt.debug_level < 0 || opt.debug_level > 65535 )
-                goto usage;
-        }
-        else if( strcmp( p, "nbio" ) == 0 )
-        {
-            opt.nbio = atoi( q );
-            if( opt.nbio < 0 || opt.nbio > 2 )
                 goto usage;
         }
         else if( strcmp( p, "read_timeout" ) == 0 )
@@ -1830,11 +1819,7 @@ int main( int argc, char *argv[] )
         goto exit;
     }
 
-    if( opt.nbio == 2 )
-        mbedtls_ssl_set_bio( &ssl, &client_fd, my_send, my_recv, NULL );
-    else
-        mbedtls_ssl_set_bio( &ssl, &client_fd, mbedtls_net_send, mbedtls_net_recv,
-                             opt.nbio == 0 ? mbedtls_net_recv_timeout : NULL );
+    mbedtls_ssl_set_bio( &ssl, &client_fd, mbedtls_net_send, mbedtls_net_recv, NULL );
 
 #if defined(MBEDTLS_TIMING_C)
     mbedtls_ssl_set_timer_cb( &ssl, &timer, mbedtls_timing_set_delay,
@@ -1891,16 +1876,6 @@ reset:
 #endif
 
         mbedtls_printf( " failed\n  ! mbedtls_net_accept returned -0x%x\n\n", -ret );
-        goto exit;
-    }
-
-    if( opt.nbio > 0 )
-        ret = mbedtls_net_set_nonblock( &client_fd );
-    else
-        ret = mbedtls_net_set_block( &client_fd );
-    if( ret != 0 )
-    {
-        mbedtls_printf( " failed\n  ! net_set_(non)block() returned -0x%x\n\n", -ret );
         goto exit;
     }
 

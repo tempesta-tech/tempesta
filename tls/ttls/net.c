@@ -113,16 +113,11 @@ mbedtls_net_accept(mbedtls_net_context *bind_ctx,
 
 	ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
 	if (ret < 0) {
-		switch(ret) {
-#if defined EAGAIN
-		case -EAGAIN:
-#endif
-#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
-		case -EWOULDBLOCK:
-#endif
+		switch(-ret) {
+		case EAGAIN:
 			return MBEDTLS_ERR_SSL_WANT_READ;
 		}
-printk("%i\n", ret);
+
 		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
 	}
 
@@ -165,21 +160,15 @@ mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 	set_fs(oldfs);
 
 	if(ret < 0) {
-		switch(ret) {
-#if defined EAGAIN
-		case -EAGAIN:
-#endif
-#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
-		case -EWOULDBLOCK:
-#endif
+		switch(-ret) {
+		case EAGAIN:
+			return MBEDTLS_ERR_SSL_WANT_READ;
+		case EPIPE:
+		case ECONNRESET:
+			return MBEDTLS_ERR_NET_CONN_RESET;
+		case EINTR:
 			return MBEDTLS_ERR_SSL_WANT_READ;
 		}
-
-		if(ret == -EPIPE || ret == -ECONNRESET)
-			return MBEDTLS_ERR_NET_CONN_RESET;
-
-		if(ret == -EINTR)
-			return MBEDTLS_ERR_SSL_WANT_READ;
 
 		return MBEDTLS_ERR_NET_RECV_FAILED;
 	}
@@ -218,21 +207,15 @@ mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 	set_fs(oldfs);
 
 	if(ret < 0) {
-		switch(ret) {
-#if defined EAGAIN
-		case -EAGAIN:
-#endif
-#if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
-		case -EWOULDBLOCK:
-#endif
+		switch(-ret) {
+		case EAGAIN:
+			return MBEDTLS_ERR_SSL_WANT_WRITE;
+		case EPIPE:
+		case ECONNRESET:
+			return MBEDTLS_ERR_NET_CONN_RESET;
+		case EINTR:
 			return MBEDTLS_ERR_SSL_WANT_WRITE;
 		}
-
-		if(ret == -EPIPE || ret == -ECONNRESET)
-			return MBEDTLS_ERR_NET_CONN_RESET;
-
-		if(ret == -EINTR)
-			return MBEDTLS_ERR_SSL_WANT_WRITE;
 
 		return MBEDTLS_ERR_NET_SEND_FAILED;
 	}
