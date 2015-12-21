@@ -2,6 +2,7 @@
  *  X.509 Certidicate Revocation List (CRL) parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -61,7 +62,9 @@
 #if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
 #include <windows.h>
 #else
-//#include <time.h> /*TODO: Uncomment*/
+#if defined(MBEDTLS_HAVE_TIME_DATE)
+#include <time.h>
+#endif
 #endif
 
 #if defined(MBEDTLS_FS_IO) || defined(EFIX64) || defined(EFI32)

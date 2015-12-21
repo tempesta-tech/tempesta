@@ -2,6 +2,7 @@
  *  Platform abstraction layer
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -37,7 +38,7 @@
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
 {
-    return vmalloc(n * size);
+    return vzalloc(n * size);
 }
 
 #define MBEDTLS_PLATFORM_STD_CALLOC   platform_calloc_uninit

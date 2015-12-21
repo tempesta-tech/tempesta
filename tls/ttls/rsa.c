@@ -2,6 +2,7 @@
  *  The RSA public-key cryptosystem
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -44,14 +45,11 @@
 #include "md.h"
 #endif
 
-#if defined(MBEDTLS_PKCS1_V15) && !defined(__OpenBSD__)
-//#include <stdlib.h> /*TODO: Uncomment*/
-#endif
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
 #include <stdio.h>
+#include <stdlib.h>
 #define mbedtls_printf printf
 #define mbedtls_calloc calloc
 #define mbedtls_free   free
@@ -1555,16 +1553,14 @@ void mbedtls_rsa_free( mbedtls_rsa_context *ctx )
                 "\x11\x22\x33\x0A\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD"
 
 #if defined(MBEDTLS_PKCS1_V15)
+#include <linux/random.h>
 static int myrand( void *rng_state, unsigned char *output, size_t len )
 {
 #if !defined(__OpenBSD__)
-    size_t i;
-
     if( rng_state != NULL )
         rng_state  = NULL;
 
-    for( i = 0; i < len; ++i )
-        output[i] = 0;//rand(); /*TODO: Uncomment*/
+    get_random_bytes( output, len);
 #else
     if( rng_state != NULL )
         rng_state = NULL;
