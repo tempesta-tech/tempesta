@@ -56,7 +56,8 @@
  *
  * Comment to disable the use of assembly code.
  */
-#define MBEDTLS_HAVE_ASM
+//#define MBEDTLS_HAVE_ASM
+#define MBEDTLS_HAVE_INT32
 
 /**
  * \def MBEDTLS_HAVE_SSE2
@@ -1892,7 +1893,7 @@
  *
  * This module provides TCP/IP networking routines.
  */
-//#define MBEDTLS_NET_C
+#define MBEDTLS_NET_C
 
 /**
  * \def MBEDTLS_OID_C
@@ -1929,7 +1930,7 @@
  *
  * This modules adds support for the VIA PadLock on x86.
  */
-#define MBEDTLS_PADLOCK_C
+//#define MBEDTLS_PADLOCK_C
 
 /**
  * \def MBEDTLS_PEM_PARSE_C
