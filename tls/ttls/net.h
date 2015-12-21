@@ -4,6 +4,7 @@
  * \brief Network communication functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -64,9 +65,11 @@ extern "C" {
  * (eg two file descriptors for combined IPv4 + IPv6 support, or additional
  * structures for hand-made UDP demultiplexing).
  */
+#include <net/sock.h>
+
 typedef struct
 {
-    int fd;             /**< The underlying file descriptor                 */
+    struct socket *socket;
 }
 mbedtls_net_context;
 
@@ -134,34 +137,6 @@ int mbedtls_net_accept( mbedtls_net_context *bind_ctx,
                         void *client_ip, size_t buf_size, size_t *ip_len );
 
 /**
- * \brief          Set the socket blocking
- *
- * \param ctx      Socket to set
- *
- * \return         0 if successful, or a non-zero error code
- */
-int mbedtls_net_set_block( mbedtls_net_context *ctx );
-
-/**
- * \brief          Set the socket non-blocking
- *
- * \param ctx      Socket to set
- *
- * \return         0 if successful, or a non-zero error code
- */
-int mbedtls_net_set_nonblock( mbedtls_net_context *ctx );
-
-/**
- * \brief          Portable usleep helper
- *
- * \param usec     Amount of microseconds to sleep
- *
- * \note           Real amount of time slept will not be less than
- *                 select()'s timeout granularity (typically, 10ms).
- */
-void mbedtls_net_usleep( unsigned long usec );
-
-/**
  * \brief          Read at most 'len' characters. If no error occurs,
  *                 the actual amount read is returned.
  *
@@ -188,30 +163,6 @@ int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len );
  *                 MBEDTLS_ERR_SSL_WANT_WRITE indicates write() would block.
  */
 int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len );
-
-/**
- * \brief          Read at most 'len' characters, blocking for at most
- *                 'timeout' seconds. If no error occurs, the actual amount
- *                 read is returned.
- *
- * \param ctx      Socket
- * \param buf      The buffer to write to
- * \param len      Maximum length of the buffer
- * \param timeout  Maximum number of milliseconds to wait for data
- *                 0 means no timeout (wait forever)
- *
- * \return         the number of bytes received,
- *                 or a non-zero error code:
- *                 MBEDTLS_ERR_SSL_TIMEOUT if the operation timed out,
- *                 MBEDTLS_ERR_SSL_WANT_READ if interrupted by a signal.
- *
- * \note           This function will block (until data becomes available or
- *                 timeout is reached) even if the socket is set to
- *                 non-blocking. Handling timeouts with non-blocking reads
- *                 requires a different strategy.
- */
-int mbedtls_net_recv_timeout( void *ctx, unsigned char *buf, size_t len,
-                      uint32_t timeout );
 
 /**
  * \brief          Gracefully shutdown the connection and free associated data

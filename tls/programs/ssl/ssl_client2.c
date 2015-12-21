@@ -68,7 +68,6 @@ int main( void )
 #define DFL_REQUEST_PAGE        "/"
 #define DFL_REQUEST_SIZE        -1
 #define DFL_DEBUG_LEVEL         0
-#define DFL_NBIO                0
 #define DFL_READ_TIMEOUT        0
 #define DFL_MAX_RESEND          0
 #define DFL_CA_FILE             ""
@@ -231,8 +230,6 @@ int main( void )
     "    request_size=%%d     default: about 34 (basic request)\n" \
     "                        (minimum: 0, max: 16384)\n" \
     "    debug_level=%%d      default: 0 (disabled)\n"      \
-    "    nbio=%%d             default: 0 (blocking I/O)\n"  \
-    "                        options: 1 (non-blocking), 2 (added delays)\n" \
     "    read_timeout=%%d     default: 0 ms (no timeout)\n"    \
     "    max_resend=%%d       default: 0 (no resend on timeout)\n" \
     "\n"                                                    \
@@ -279,7 +276,6 @@ struct options
     const char *server_addr;    /* address of the server (client only)      */
     const char *server_port;    /* port on which the ssl service runs       */
     int debug_level;            /* level of debugging                       */
-    int nbio;                   /* should I/O be blocking?                  */
     uint32_t read_timeout;      /* timeout on mbedtls_ssl_read() in milliseconds    */
     int max_resend;             /* DTLS times to resend on read timeout     */
     const char *request_page;   /* page on server to request                */
@@ -331,44 +327,6 @@ static void my_debug( void *ctx, int level,
 
     mbedtls_fprintf( (FILE *) ctx, "%s:%04d: |%d| %s", basename, line, level, str );
     fflush(  (FILE *) ctx  );
-}
-
-/*
- * Test recv/send functions that make sure each try returns
- * WANT_READ/WANT_WRITE at least once before sucesseding
- */
-static int my_recv( void *ctx, unsigned char *buf, size_t len )
-{
-    static int first_try = 1;
-    int ret;
-
-    if( first_try )
-    {
-        first_try = 0;
-        return( MBEDTLS_ERR_SSL_WANT_READ );
-    }
-
-    ret = mbedtls_net_recv( ctx, buf, len );
-    if( ret != MBEDTLS_ERR_SSL_WANT_READ )
-        first_try = 1; /* Next call will be a new operation */
-    return( ret );
-}
-
-static int my_send( void *ctx, const unsigned char *buf, size_t len )
-{
-    static int first_try = 1;
-    int ret;
-
-    if( first_try )
-    {
-        first_try = 0;
-        return( MBEDTLS_ERR_SSL_WANT_WRITE );
-    }
-
-    ret = mbedtls_net_send( ctx, buf, len );
-    if( ret != MBEDTLS_ERR_SSL_WANT_WRITE )
-        first_try = 1; /* Next call will be a new operation */
-    return( ret );
 }
 
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
@@ -470,7 +428,6 @@ int main( int argc, char *argv[] )
     opt.server_addr         = DFL_SERVER_ADDR;
     opt.server_port         = DFL_SERVER_PORT;
     opt.debug_level         = DFL_DEBUG_LEVEL;
-    opt.nbio                = DFL_NBIO;
     opt.read_timeout        = DFL_READ_TIMEOUT;
     opt.max_resend          = DFL_MAX_RESEND;
     opt.request_page        = DFL_REQUEST_PAGE;
@@ -534,12 +491,6 @@ int main( int argc, char *argv[] )
         {
             opt.debug_level = atoi( q );
             if( opt.debug_level < 0 || opt.debug_level > 65535 )
-                goto usage;
-        }
-        else if( strcmp( p, "nbio" ) == 0 )
-        {
-            opt.nbio = atoi( q );
-            if( opt.nbio < 0 || opt.nbio > 2 )
                 goto usage;
         }
         else if( strcmp( p, "read_timeout" ) == 0 )
@@ -1060,16 +1011,6 @@ int main( int argc, char *argv[] )
         goto exit;
     }
 
-    if( opt.nbio > 0 )
-        ret = mbedtls_net_set_nonblock( &server_fd );
-    else
-        ret = mbedtls_net_set_block( &server_fd );
-    if( ret != 0 )
-    {
-        mbedtls_printf( " failed\n  ! net_set_(non)block() returned -0x%x\n\n", -ret );
-        goto exit;
-    }
-
     mbedtls_printf( " ok\n" );
 
     /*
@@ -1232,11 +1173,7 @@ int main( int argc, char *argv[] )
     }
 #endif
 
-    if( opt.nbio == 2 )
-        mbedtls_ssl_set_bio( &ssl, &server_fd, my_send, my_recv, NULL );
-    else
-        mbedtls_ssl_set_bio( &ssl, &server_fd, mbedtls_net_send, mbedtls_net_recv,
-                             opt.nbio == 0 ? mbedtls_net_recv_timeout : NULL );
+    mbedtls_ssl_set_bio( &ssl, &server_fd, mbedtls_net_send, mbedtls_net_recv, NULL );
 
 #if defined(MBEDTLS_TIMING_C)
     mbedtls_ssl_set_timer_cb( &ssl, &timer, mbedtls_timing_set_delay,
@@ -1601,17 +1538,6 @@ reconnect:
                                  MBEDTLS_NET_PROTO_TCP : MBEDTLS_NET_PROTO_UDP ) ) != 0 )
         {
             mbedtls_printf( " failed\n  ! mbedtls_net_connect returned -0x%x\n\n", -ret );
-            goto exit;
-        }
-
-        if( opt.nbio > 0 )
-            ret = mbedtls_net_set_nonblock( &server_fd );
-        else
-            ret = mbedtls_net_set_block( &server_fd );
-        if( ret != 0 )
-        {
-            mbedtls_printf( " failed\n  ! net_set_(non)block() returned -0x%x\n\n",
-                    -ret );
             goto exit;
         }
 

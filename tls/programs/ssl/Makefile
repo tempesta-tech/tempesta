@@ -15,5 +15,11 @@
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+# Also see "include/mbedtls/config.h"
 
-obj-m = ssl/
+EXTRA_CFLAGS += -Werror
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
+endif
+
+obj-m = ssl_server.o
