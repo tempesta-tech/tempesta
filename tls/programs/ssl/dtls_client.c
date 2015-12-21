@@ -195,7 +195,7 @@ int main( int argc, char *argv[] )
     }
 
     mbedtls_ssl_set_bio( &ssl, &server_fd,
-                         mbedtls_net_send, mbedtls_net_recv, mbedtls_net_recv_timeout );
+                         mbedtls_net_send, mbedtls_net_recv, NULL );
 
     mbedtls_ssl_set_timer_cb( &ssl, &timer, mbedtls_timing_set_delay,
                                             mbedtls_timing_get_delay );
