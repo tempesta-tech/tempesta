@@ -467,8 +467,8 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 
 	if (!TFW_STR_DUP(orig_hdr) && hdr.len <= orig_hdr->len) {
 		/* Rewrite the header in-place. */
-		if (ss_skb_cutoff_data(&hm->msg.skb_list, orig_hdr,
-				       orig_hdr->len - hdr.len, 2))
+		if (ss_skb_cutoff_data(&hm->msg.skb_list,
+				       orig_hdr, hdr.len, 2))
 			return TFW_BLOCK;
 		if (tfw_strcpy(orig_hdr, &hdr))
 			return TFW_BLOCK;
