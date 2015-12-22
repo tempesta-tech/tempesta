@@ -462,7 +462,7 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .ptr = "\r\n", .len = 2 }
 		},
 		.len = n_len + v_len + 4,
-		.flags = 4 << 8
+		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
 	if (!TFW_STR_DUP(orig_hdr) && hdr.len <= orig_hdr->len) {
@@ -531,7 +531,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
-		TFW_WARN("Try to append to nonsingular header %d\n", hid);
+		TFW_WARN("Appending to nonsingular header %d\n", hid);
 		return -ENOENT;
 	}
 

@@ -58,7 +58,7 @@ enum {
  * of those messages may stay longer in Tempesta after they're sent
  * out to their destinations. Requests are kept until a paired
  * response comes. By the time there's need to use the request's
- * connection to send the reponse on, it may already be destroyed.
+ * connection to send the response on, it may already be destroyed.
  * With that in mind, TfwConnection{} instance is not destroyed
  * along with the connection so that is can be safely dereferenced.
  * It's kept around until refcnt permits freeing of the instance,
