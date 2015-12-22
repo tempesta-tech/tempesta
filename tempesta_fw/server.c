@@ -59,7 +59,6 @@ tfw_create_server(const TfwAddr *addr)
 
 	tfw_peer_init((TfwPeer *)srv, addr);
 	INIT_LIST_HEAD(&srv->list);
-	srv->flags = TFW_SRV_F_ON;
 
 	return srv;
 }

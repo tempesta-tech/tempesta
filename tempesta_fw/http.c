@@ -525,7 +525,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 static int
 tfw_http_adjust_req(TfwHttpReq *req)
 {
-	int r = 0;
+	int r;
 	TfwHttpMsg *m = (TfwHttpMsg *)req;
 
 	r = tfw_http_add_x_forwarded_for(m);
@@ -821,7 +821,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
 err:
-	/* Now we don't need the request and the reponse anymore. */
+	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 }
@@ -854,9 +854,9 @@ tfw_http_popreq(TfwConnection *conn)
  * keep the connection open for data exchange.
  */
 static inline void
-tfw_http_delpair(TfwConnection *conn, TfwHttpMsg *hmresp)
+tfw_http_delpair(TfwHttpMsg *hmresp)
 {
-	TfwHttpMsg *hmreq = (TfwHttpMsg *)tfw_http_popreq(conn);
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp->conn);
 
 	if (hmreq)
 		tfw_http_conn_msg_free(hmreq);
@@ -955,7 +955,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 				  TFW_HTTP_FSM_RESP_MSG, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 		if (r == TFW_BLOCK) {
-			tfw_http_delpair(conn, hmresp);
+			tfw_http_delpair(hmresp);
 			goto next_resp;
 		}
 
@@ -963,7 +963,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 				  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 		if (r == TFW_BLOCK)
-			tfw_http_delpair(conn, hmresp);
+			tfw_http_delpair(hmresp);
 next_resp:
 		if (data_off < skb_len) {
 			/*
@@ -1040,7 +1040,7 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 }
 
 /**
- * Calculate key of a HTTP request by hashing its URI and Host header value.
+ * Calculate the key of an HTTP request by hashing URI and Host header values.
  */
 unsigned long
 tfw_http_req_key_calc(TfwHttpReq *req)

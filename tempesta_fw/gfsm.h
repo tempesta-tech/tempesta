@@ -120,16 +120,16 @@ enum {
 	TFW_PASS	= SS_OK,
 
 	/*
-	 * The message must be blocked, also all the packets associated with it
+	 * The message must be blocked. Also, all packets associated with it
 	 * and the client who sent the message will be prohibited from further
-	 * commpunications with defended server.
+	 * communication with a defended server.
 	 */
 	TFW_BLOCK	= SS_DROP,
 
 	/*
-	 * We need more requests (or parts of a request) to make a decision,
-	 * current message must be stashed and will be sent to the destination
-	 * (if is decided as innocent) with following message/packets at once.
+	 * We need more requests (or parts of a request) to make a decision.
+	 * Current message must be stashed and will be sent to the destination
+	 * (if it is deemed innocent) with subsequent message/packets at once.
 	 */
 	TFW_POSTPONE	= SS_POSTPONE,
 };
