@@ -581,6 +581,105 @@ done:
 	return 0;
 }
 
+/*
+ * Page memory for SKBs is allocated per CPU. There's skb_frag_t
+ * for each CPU that holds the page pointer, available page size,
+ * and current page offset. On request, a piece of that page is
+ * allocated to the caller. When one page is exhausted, another
+ * is allocated to serve request for page memory.
+ *
+ * A special note: Each time page area is allocated to a caller,
+ * the page gets an extra reference. However, there's an initial
+ * reference as well when a page is allocated. That prevents
+ * concurrency in page space allocation (see the algorithm in
+ * __check_frag_room()). The initial reference is dropped when
+ * a new page is allocated to replace an exhausted page.
+ *
+ * XXX When Tempesta is restarted or unloaded, up to NCPU pages
+ * may still have a reference and left hanging around in memory.
+ * To avoid that, @pcpu_pgfrag need to be taken care of at start
+ * and stop times.
+ */
+static DEFINE_PER_CPU(skb_frag_t, pcpu_pgfrag);
+
+/*
+ * Set a page fragment @pgfrag with page memory of size @size.
+ */
+static int
+ss_skb_set_pgfrag(skb_frag_t *pgfrag, size_t size)
+{
+	skb_frag_t *this_pgfrag;
+	struct page *page;
+
+	preempt_disable();
+	this_pgfrag = this_cpu_ptr(&pcpu_pgfrag);
+
+	if (unlikely(size > this_pgfrag->size)) {
+		page = alloc_page(GFP_ATOMIC);
+		if (!page) {
+			preempt_enable();
+			return -ENOMEM;
+		}
+		if (this_pgfrag->page.p)
+			__skb_frag_unref(this_pgfrag);
+		this_pgfrag->page.p = page;
+		this_pgfrag->page_offset = 0;
+		this_pgfrag->size = PAGE_SIZE;
+	}
+
+	pgfrag->page.p = this_pgfrag->page.p;
+	pgfrag->page_offset = this_pgfrag->page_offset;
+	pgfrag->size = size;
+	__skb_frag_ref(pgfrag);
+
+	this_pgfrag->page_offset += size;
+	this_pgfrag->size -= size;
+
+	preempt_enable();
+	return 0;
+}
+
+/*
+ * Convert SKB linear data to a page fragment.
+ *
+ * If skb->head is allocated from kmalloc(), then move the data
+ * to page fragments. SKB head is left without packet data, but
+ * memory allocated for skb->head is left intact and may be used
+ * for packet headers on an egress path.
+ */
+int
+ss_skb_set_headfrag(struct sk_buff *skb)
+{
+	int ret, idx, head_nr_frags;
+	size_t headlen = skb_headlen(skb);
+
+	if (skb->head_frag || (headlen == 0))
+		return 0;
+
+	head_nr_frags = DIV_ROUND_UP(headlen, PAGE_SIZE);
+	BUG_ON(head_nr_frags > MAX_SKB_FRAGS);
+
+	ret = __extend_pgfrags(skb, NULL, 0, head_nr_frags);
+	if (ret)
+		return ret;
+
+	for (idx = head_nr_frags - 1; idx >= 0; idx--) {
+		size_t fsize = min(PAGE_SIZE, headlen);
+		skb_frag_t *hfrag = &skb_shinfo(skb)->frags[idx];
+
+		ret = ss_skb_set_pgfrag(hfrag, fsize);
+		if (ret)
+			return ret;
+
+		headlen -= fsize;
+		memcpy(skb_frag_address(hfrag), skb->data + headlen, fsize);
+		skb->data_len += fsize;
+		skb->tail -= fsize;
+	}
+
+	return 0;
+}
+
 /**
  * Get room in @skb just before @pspt.
  *
