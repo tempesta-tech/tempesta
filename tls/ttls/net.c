@@ -31,10 +31,12 @@
 #if defined(MBEDTLS_NET_C)
 
 #include "net.h"
+#include "../../tempesta_fw/http.h"
+#include "../../tempesta_fw/http_msg.h"
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <net/sock.h>
+#include <linux/delay.h>
 
 /*
  * Initialize a context
@@ -42,7 +44,9 @@
 void
 mbedtls_net_init(mbedtls_net_context *ctx)
 {
-	ctx->socket = NULL;
+	ctx->sk = NULL;
+	memset(&ctx->proto, 0, sizeof(ctx->proto));
+	init_waitqueue_head(&ctx->proto.wq);
 }
 EXPORT_SYMBOL(mbedtls_net_init);
 
@@ -58,6 +62,54 @@ mbedtls_net_connect(mbedtls_net_context *ctx,
 	return 0;
 }
 
+static int
+mbedtls_net_read(void *data, struct sk_buff *skb, unsigned int off)
+{
+	TlsProto *proto = data;
+	mbedtls_net_context *ctx = proto->cli_ctx;
+	printk("read begin\n");
+
+	ss_skb_queue_tail(&ctx->skb_list, skb);
+
+	printk("read end\n");
+	return 0;
+}
+
+static int
+mbedtls_net_conn_new(struct sock *sk)
+{
+	TlsProto *proto = sk->sk_user_data;
+	printk("new begin %p %p\n", sk, sk->sk_user_data);
+
+	ss_set_callbacks(sk);
+	ss_sock_hold(sk);
+	proto->sk = sk;
+
+	wake_up(&proto->wq);
+	printk("new end\n");
+	return 0;
+}
+
+static int
+mbedtls_net_conn_drop(struct sock *sk)
+{
+	TlsProto *proto = sk->sk_user_data;
+	mbedtls_net_context *ctx = proto->cli_ctx;
+	printk("drop begin\n");
+
+	ss_sock_put(sk);
+	ctx->sk = NULL;
+
+	printk("drop end\n");
+	return 0;
+}
+
+static SsHooks ssocket_hooks = {
+	.connection_new		= mbedtls_net_conn_new,
+	.connection_drop	= mbedtls_net_conn_drop,
+	.connection_recv	= mbedtls_net_read,
+};
+
 /*
  * Create a listening socket on bind_ip:port
  */
@@ -66,30 +118,34 @@ mbedtls_net_bind(mbedtls_net_context *ctx,
 		 const char *bind_ip, const char *port, int proto)
 {
 	int ret;
-	struct socket *srv_socket;
+	struct sock *srv_sk;
 	struct sockaddr_in sin;
 
-	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_socket);
+	ret = ss_sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &srv_sk);
 	if(ret < 0)
 		return MBEDTLS_ERR_NET_SOCKET_FAILED;
 
-	srv_socket->sk->sk_reuse = 1;
+	srv_sk->sk_reuse = 1;
 
-	sin.sin_family = AF_INET;
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = PF_INET;
 	sin.sin_addr.s_addr = htonl(INADDR_ANY);
 	sin.sin_port = htons(4433);
 
-	ret = srv_socket->ops->bind(srv_socket, (struct sockaddr*)&sin,
-				    sizeof(sin));
-	if(ret < 0)
+	ss_proto_init((SsProto *)&ctx->proto, &ssocket_hooks, 0);
+	srv_sk->sk_user_data = &ctx->proto;
+	ss_set_listen(srv_sk);
+
+	printk("bind %p %p\n", srv_sk, srv_sk->sk_user_data);
+	ret = ss_bind(srv_sk, (struct sockaddr *)&sin, sizeof(sin));
+	if (ret)
 		return MBEDTLS_ERR_NET_BIND_FAILED;
 
-	ret = srv_socket->ops->listen(srv_socket, 5);
-	if(ret < 0)
+	ret = ss_listen(srv_sk, 1000);
+	if (ret)
 		return MBEDTLS_ERR_NET_LISTEN_FAILED;
 
-	ctx->socket = srv_socket;
-
+	ctx->sk = srv_sk;
 	return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_bind);
@@ -104,76 +160,78 @@ mbedtls_net_accept(mbedtls_net_context *bind_ctx,
 		   size_t *ip_len)
 {
 	int ret;
-	struct socket *srv_socket = bind_ctx->socket;
-	struct socket *cl_socket;
+	TlsProto *proto = &bind_ctx->proto;
 
-	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &cl_socket);
-	if(ret < 0)
-		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
-
-	ret = srv_socket->ops->accept(srv_socket, cl_socket, 0);
-	if (ret < 0) {
-		switch(-ret) {
-		case EAGAIN:
-			return MBEDTLS_ERR_SSL_WANT_READ;
-		}
-
+	ret = wait_event_interruptible(proto->wq, proto->sk != NULL);
+	if(ret < 0) {
 		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
 	}
 
-	client_ctx->socket = cl_socket;
+	client_ctx->sk = proto->sk;
+	proto->cli_ctx = client_ctx;
+
+	init_waitqueue_head(&proto->wq);
+	proto->sk = NULL;
+
+	ss_skb_queue_head_init(&client_ctx->skb_list);
+	client_ctx->off = 0;
 
 	return 0;
 }
 EXPORT_SYMBOL(mbedtls_net_accept);
 
+static int
+mbedtls_net_actor(void *ptr, unsigned char *buf, size_t buf_len)
+{
+	mbedtls_net_buf *data = ptr;
+	size_t len = buf_len < data->len? buf_len: data->len;
+
+	memcpy(data->buf, buf, len);
+
+	data->buf += len;
+	data->len -= len;
+
+	return buf_len > len? -1: 0;
+}
+
 /*
  * Read at most 'len' characters
  */
 int
-mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
+mbedtls_net_recv(void *ptr, unsigned char *buf, size_t len)
 {
-	struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
-	struct msghdr msg;
-	struct iovec iov;
-	mm_segment_t oldfs;
-	int ret;
+	mbedtls_net_context *ctx = ptr;
+	mbedtls_net_buf data;
+	struct sk_buff *skb;
+	printk("recv1 %lu\n", len);
 
-	if(sock == NULL)
-		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+	if (!ctx->sk)
+		return MBEDTLS_ERR_NET_CONN_RESET;
 
-	if(sock->sk == NULL)
-		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+	data.buf = buf;
+	data.len = len;
 
-	iov.iov_base = buf;
-	iov.iov_len = len;
+	skb = ss_skb_peek(&ctx->skb_list);
+	while (skb) {
+		ss_skb_process(skb, &ctx->off, mbedtls_net_actor, &data);
 
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_iter.type = ITER_IOVEC;
-	msg.msg_iter.count = len;
-	msg.msg_iter.iov = &iov;
-	msg.msg_iter.nr_segs = 1;
-
-	oldfs = get_fs();
-	set_fs(KERNEL_DS);
-	ret = sock_recvmsg(sock, &msg, len, MSG_DONTWAIT);
-	set_fs(oldfs);
-
-	if(ret < 0) {
-		switch(-ret) {
-		case EAGAIN:
-			return MBEDTLS_ERR_SSL_WANT_READ;
-		case EPIPE:
-		case ECONNRESET:
-			return MBEDTLS_ERR_NET_CONN_RESET;
-		case EINTR:
-			return MBEDTLS_ERR_SSL_WANT_READ;
+		if (data.len == 0) {
+			return len;
 		}
 
-		return MBEDTLS_ERR_NET_RECV_FAILED;
+		ctx->off = 0;
+		ss_skb_unlink(&ctx->skb_list, skb);
+		skb = ss_skb_peek(&ctx->skb_list);
 	}
 
-	return ret;
+	printk("recv2 %lu\n", len - data.len);
+	if (data.len < len) {
+		return len - data.len;
+	}
+	else {
+		msleep(1000);
+		return MBEDTLS_ERR_SSL_WANT_READ;
+	}
 }
 EXPORT_SYMBOL(mbedtls_net_recv);
 
@@ -181,46 +239,28 @@ EXPORT_SYMBOL(mbedtls_net_recv);
  * Write at most 'len' characters
  */
 int
-mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
+mbedtls_net_send(void *ptr, const unsigned char *buf, size_t len)
 {
-	struct socket *sock = ((mbedtls_net_context *)ctx)->socket;
-	struct msghdr msg;
-	struct iovec iov;
-	mm_segment_t oldfs;
-	int ret;
+	TfwStr msg;
+	TfwHttpMsg *req;
+	TfwMsgIter it;
+	mbedtls_net_context *ctx = ptr;
+	printk("send %lu\n", len);
 
-	if(sock == NULL)
-		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+	if (!ctx->sk)
+		return MBEDTLS_ERR_NET_CONN_RESET;
 
-	iov.iov_base = (unsigned char *)buf;
-	iov.iov_len = len;
+	msg.ptr = (unsigned char *)buf;
+	msg.skb = NULL;
+	msg.len = len;
+	msg.flags = 0;
 
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_iter.type = ITER_IOVEC;
-	msg.msg_iter.count = len;
-	msg.msg_iter.iov = &iov;
-	msg.msg_iter.nr_segs = 1;
+	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
+	tfw_http_msg_write(&it, req, &msg);
+	ss_send(ctx->sk, &req->msg.skb_list, false);
+	tfw_http_msg_free(req);
 
-	oldfs = get_fs();
-	set_fs(KERNEL_DS);
-	ret = sock_sendmsg(sock, &msg);
-	set_fs(oldfs);
-
-	if(ret < 0) {
-		switch(-ret) {
-		case EAGAIN:
-			return MBEDTLS_ERR_SSL_WANT_WRITE;
-		case EPIPE:
-		case ECONNRESET:
-			return MBEDTLS_ERR_NET_CONN_RESET;
-		case EINTR:
-			return MBEDTLS_ERR_SSL_WANT_WRITE;
-		}
-
-		return MBEDTLS_ERR_NET_SEND_FAILED;
-	}
-
-	return ret;
+	return len;
 }
 EXPORT_SYMBOL(mbedtls_net_send);
 
@@ -230,11 +270,11 @@ EXPORT_SYMBOL(mbedtls_net_send);
 void
 mbedtls_net_free(mbedtls_net_context *ctx)
 {
-	if (ctx->socket == NULL)
+	if (ctx->sk == NULL)
 		return;
 
-	sock_release(ctx->socket);
-	ctx->socket = NULL;
+	ss_release(ctx->sk);
+	ctx->sk = NULL;
 }
 EXPORT_SYMBOL(mbedtls_net_free);
 

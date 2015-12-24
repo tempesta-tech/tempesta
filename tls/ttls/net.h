@@ -65,13 +65,29 @@ extern "C" {
  * (eg two file descriptors for combined IPv4 + IPv6 support, or additional
  * structures for hand-made UDP demultiplexing).
  */
-#include <net/sock.h>
+#include "../../tempesta_fw/sync_socket.h"
 
-typedef struct
-{
-    struct socket *socket;
-}
-mbedtls_net_context;
+struct mbedtls_net_context;
+
+typedef struct {
+	SsProto proto;
+    struct mbedtls_net_context *cli_ctx;
+    struct sock *sk;
+    wait_queue_head_t wq;
+} TlsProto;
+
+typedef struct mbedtls_net_context {
+    struct sock *sk;
+
+    TlsProto proto;
+    SsSkbList skb_list;
+    unsigned int off;
+} mbedtls_net_context;
+
+typedef struct {
+    char *buf;
+    unsigned int len;
+} mbedtls_net_buf;
 
 /**
  * \brief          Initialize a context
