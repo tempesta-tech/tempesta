@@ -472,7 +472,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 }
 
 /**
- * Removes Connection header from HTTP message @msg if @conn_flg is zero,
+ * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
  *
  * skb's can be shared between number of HTTP messages. We don't copy skb if
@@ -495,6 +495,45 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	default:
 		return TFW_HTTP_MSG_HDR_DEL(hm, "Connection",
 					    TFW_HTTP_HDR_CONNECTION);
+	}
+}
+
+/*
+ * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
+ */
+static int
+tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
+{
+	int ret;
+
+	if ((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
+		return 0;
+
+	switch (conn_flg) {
+	case TFW_HTTP_CONN_CLOSE:
+		ret = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		return (ret == -ENOENT) ? 0 : ret;
+	case TFW_HTTP_CONN_KA:
+		/*
+		 * If present, "Keep-Alive" header informs the other side
+		 * of the timeout policy for a connection. Otherwise, it's
+		 * presumed that default policy is in action.
+		 *
+		 * TODO: Add/Replace "Keep-Alive" header when Tempesta
+		 * implements connection timeout policies and the policy
+		 * for the connection differs from default policy.
+		 */
+		return 0;
+	default:
+		/*
+		 * "Keep-Alive" header mandates that "Connection: keep-alive"
+		 * header in present in HTTP message. In HTTP/1.1 connections
+		 * are keep-alive by default. If we want to add "Keep-Alive"
+		 * header then "Connection: keep-alive" header must be added
+		 * as well. TFW_HTTP_CONN_KA flag will force the addition of
+		 * uConnection: keep-alive" header to HTTP message.
+		 */
+		return 0;
 	}
 }
 
@@ -548,10 +587,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	/*
-	 * TODO adjust Keep-Alive header.
-	 * See also rfc2616 13.5.1 and rfc7234
-	 */
+	r = tfw_http_set_hdr_keep_alive(m, conn_flg);
+	if (r < 0)
+		return r;
+
 	return tfw_http_set_hdr_connection(m, conn_flg);
 }
 

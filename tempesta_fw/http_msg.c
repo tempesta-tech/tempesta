@@ -527,7 +527,6 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
 		orig_hdr = &ht->tbl[hid];
-		BUG_ON(!TFW_STR_EMPTY(orig_hdr));
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
