@@ -45,8 +45,6 @@ void
 mbedtls_net_init(mbedtls_net_context *ctx)
 {
 	ctx->sk = NULL;
-	memset(&ctx->proto, 0, sizeof(ctx->proto));
-	init_waitqueue_head(&ctx->proto.wq);
 }
 EXPORT_SYMBOL(mbedtls_net_init);
 
@@ -63,27 +61,16 @@ mbedtls_net_connect(mbedtls_net_context *ctx,
 }
 
 static int
-mbedtls_net_read(void *data, struct sk_buff *skb, unsigned int off)
-{
-	TlsProto *proto = data;
-	mbedtls_net_context *ctx = proto->cli_ctx;
-	printk("read begin\n");
-
-	ss_skb_queue_tail(&ctx->skb_list, skb);
-
-	printk("read end\n");
-	return 0;
-}
-
-static int
 mbedtls_net_conn_new(struct sock *sk)
 {
 	TlsProto *proto = sk->sk_user_data;
-	printk("new begin %p %p\n", sk, sk->sk_user_data);
+	printk("new begin\n");
 
 	ss_set_callbacks(sk);
 	ss_sock_hold(sk);
-	proto->sk = sk;
+	proto->cli_ctx->sk = sk;
+	proto->cli_ctx->off = 0;
+	ss_skb_queue_head_init(&proto->cli_ctx->skb_list);
 
 	wake_up(&proto->wq);
 	printk("new end\n");
@@ -94,13 +81,24 @@ static int
 mbedtls_net_conn_drop(struct sock *sk)
 {
 	TlsProto *proto = sk->sk_user_data;
-	mbedtls_net_context *ctx = proto->cli_ctx;
 	printk("drop begin\n");
 
+	proto->cli_ctx->sk = NULL;
 	ss_sock_put(sk);
-	ctx->sk = NULL;
 
 	printk("drop end\n");
+	return 0;
+}
+
+static int
+mbedtls_net_read(void *data, struct sk_buff *skb, unsigned int off)
+{
+	TlsProto *proto = data;
+	printk("read begin\n");
+
+	ss_skb_queue_tail(&proto->cli_ctx->skb_list, skb);
+
+	printk("read end\n");
 	return 0;
 }
 
@@ -114,7 +112,7 @@ static SsHooks ssocket_hooks = {
  * Create a listening socket on bind_ip:port
  */
 int
-mbedtls_net_bind(mbedtls_net_context *ctx,
+mbedtls_net_bind(mbedtls_net_context *ctx, mbedtls_net_context *client_ctx,
 		 const char *bind_ip, const char *port, int proto)
 {
 	int ret;
@@ -127,14 +125,17 @@ mbedtls_net_bind(mbedtls_net_context *ctx,
 
 	srv_sk->sk_reuse = 1;
 
+	memset(&ctx->proto, 0, sizeof(ctx->proto));
+	ss_proto_init((SsProto *)&ctx->proto, &ssocket_hooks, 0);
+	init_waitqueue_head(&ctx->proto.wq);
+	ctx->proto.cli_ctx = client_ctx;
+	srv_sk->sk_user_data = &ctx->proto;
+	ss_set_listen(srv_sk);
+
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = PF_INET;
 	sin.sin_addr.s_addr = htonl(INADDR_ANY);
 	sin.sin_port = htons(4433);
-
-	ss_proto_init((SsProto *)&ctx->proto, &ssocket_hooks, 0);
-	srv_sk->sk_user_data = &ctx->proto;
-	ss_set_listen(srv_sk);
 
 	printk("bind %p %p\n", srv_sk, srv_sk->sk_user_data);
 	ret = ss_bind(srv_sk, (struct sockaddr *)&sin, sizeof(sin));
@@ -162,19 +163,12 @@ mbedtls_net_accept(mbedtls_net_context *bind_ctx,
 	int ret;
 	TlsProto *proto = &bind_ctx->proto;
 
-	ret = wait_event_interruptible(proto->wq, proto->sk != NULL);
+	ret = wait_event_interruptible(proto->wq, proto->cli_ctx->sk != NULL);
 	if(ret < 0) {
 		return MBEDTLS_ERR_NET_ACCEPT_FAILED;
 	}
 
-	client_ctx->sk = proto->sk;
-	proto->cli_ctx = client_ctx;
-
 	init_waitqueue_head(&proto->wq);
-	proto->sk = NULL;
-
-	ss_skb_queue_head_init(&client_ctx->skb_list);
-	client_ctx->off = 0;
 
 	return 0;
 }
@@ -185,13 +179,14 @@ mbedtls_net_actor(void *ptr, unsigned char *buf, size_t buf_len)
 {
 	mbedtls_net_buf *data = ptr;
 	size_t len = buf_len < data->len? buf_len: data->len;
+	printk("actor %lu\n", buf_len);
 
 	memcpy(data->buf, buf, len);
 
 	data->buf += len;
 	data->len -= len;
 
-	return buf_len > len? -1: 0;
+	return data->len != 0? -1: 0;
 }
 
 /*
@@ -213,9 +208,11 @@ mbedtls_net_recv(void *ptr, unsigned char *buf, size_t len)
 
 	skb = ss_skb_peek(&ctx->skb_list);
 	while (skb) {
-		ss_skb_process(skb, &ctx->off, mbedtls_net_actor, &data);
+		unsigned int off = ctx->off;
+		ss_skb_process(skb, &off, mbedtls_net_actor, &data);
 
 		if (data.len == 0) {
+			ctx->off += len;
 			return len;
 		}
 

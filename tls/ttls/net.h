@@ -71,22 +71,23 @@ struct mbedtls_net_context;
 
 typedef struct {
 	SsProto proto;
-    struct mbedtls_net_context *cli_ctx;
-    struct sock *sk;
-    wait_queue_head_t wq;
+
+	struct mbedtls_net_context *cli_ctx;
+	wait_queue_head_t wq;
 } TlsProto;
 
 typedef struct mbedtls_net_context {
-    struct sock *sk;
+	struct sock *sk;
 
-    TlsProto proto;
-    SsSkbList skb_list;
-    unsigned int off;
+	TlsProto proto;
+
+	SsSkbList skb_list;
+	unsigned int off;
 } mbedtls_net_context;
 
 typedef struct {
-    char *buf;
-    unsigned int len;
+	char *buf;
+	unsigned int len;
 } mbedtls_net_buf;
 
 /**
@@ -95,7 +96,7 @@ typedef struct {
  *
  * \param ctx      Context to initialize
  */
-void mbedtls_net_init( mbedtls_net_context *ctx );
+void mbedtls_net_init(mbedtls_net_context *ctx);
 
 /**
  * \brief          Initiate a connection with host:port in the given protocol
@@ -112,7 +113,8 @@ void mbedtls_net_init( mbedtls_net_context *ctx );
  *
  * \note           Sets the socket in connected mode even with UDP.
  */
-int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char *port, int proto );
+int mbedtls_net_connect(mbedtls_net_context *ctx, const char *host,
+			const char *port, int proto);
 
 /**
  * \brief          Create a receiving socket on bind_ip:port in the chosen
@@ -131,7 +133,8 @@ int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char 
  * \note           Regardless of the protocol, opens the sockets and binds it.
  *                 In addition, make the socket listening if protocol is TCP.
  */
-int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char *port, int proto );
+int mbedtls_net_bind(mbedtls_net_context *ctx, mbedtls_net_context *client_ctx,
+		     const char *bind_ip, const char *port, int proto );
 
 /**
  * \brief           Accept a connection from a remote client
@@ -148,9 +151,9 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
  *                  MBEDTLS_ERR_SSL_WANT_READ if bind_fd was set to
  *                  non-blocking and accept() would block.
  */
-int mbedtls_net_accept( mbedtls_net_context *bind_ctx,
-                        mbedtls_net_context *client_ctx,
-                        void *client_ip, size_t buf_size, size_t *ip_len );
+int mbedtls_net_accept(mbedtls_net_context *bind_ctx,
+		       mbedtls_net_context *client_ctx,
+		       void *client_ip, size_t buf_size, size_t *ip_len);
 
 /**
  * \brief          Read at most 'len' characters. If no error occurs,
@@ -164,7 +167,7 @@ int mbedtls_net_accept( mbedtls_net_context *bind_ctx,
  *                 or a non-zero error code; with a non-blocking socket,
  *                 MBEDTLS_ERR_SSL_WANT_READ indicates read() would block.
  */
-int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len );
+int mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
 /**
  * \brief          Write at most 'len' characters. If no error occurs,
@@ -178,14 +181,14 @@ int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len );
  *                 or a non-zero error code; with a non-blocking socket,
  *                 MBEDTLS_ERR_SSL_WANT_WRITE indicates write() would block.
  */
-int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len );
+int mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 
 /**
  * \brief          Gracefully shutdown the connection and free associated data
  *
  * \param ctx      The context to free
  */
-void mbedtls_net_free( mbedtls_net_context *ctx );
+void mbedtls_net_free(mbedtls_net_context *ctx);
 
 #ifdef __cplusplus
 }
