@@ -195,12 +195,14 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
  * @sk		- The underlying networking representation.
  * @list	- An entry in the tfw_listen_socks list.
  * @addr	- The IP address specified in the configuration.
+ * @ka_timeout	- The keep-alive timeout.
  */
 typedef struct {
 	SsProto			proto;
 	struct sock		*sk;
 	struct list_head	list;
 	TfwAddr			addr;
+	int			ka_timeout;
 } TfwListenSock;
 
 /**
@@ -219,7 +221,7 @@ static LIST_HEAD(tfw_listen_socks);
  * @type is the SsProto->type.
  */
 static int
-tfw_listen_sock_add(const TfwAddr *addr, int type)
+tfw_listen_sock_add(const TfwAddr *addr, int ka_timeout, int type)
 {
 	TfwListenSock *ls;
 
@@ -235,6 +237,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		return -EINVAL;
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
+	ls->ka_timeout = ka_timeout;
 
 	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
 	tfw_classifier_add_inport(addr->v4.sin_port);
@@ -375,11 +378,13 @@ tfw_sock_check_listeners(void)
  * ------------------------------------------------------------------------
  */
 
+static const char *tfw_cli_cfg_dflt_ka_timeout;
+
 static int
 tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	int port;
+	int port, ka_timeout;
 	TfwAddr addr;
 	const char *in_str = NULL;
 
@@ -413,17 +418,25 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto parse_err;
 
+	in_str = tfw_cfg_get_attr(ce, "keepalive_timeout",
+				  tfw_cli_cfg_dflt_ka_timeout
+				  ? tfw_cli_cfg_dflt_ka_timeout
+				  : "75");
+	r = tfw_cfg_parse_int(in_str, &ka_timeout);
+	if (r)
+		goto parse_err;
+
 	if (!ce->attr_n)
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTP);
 
 	in_str = tfw_cfg_get_attr(ce, "proto", NULL);
 	if (!in_str)
 		goto parse_err;
 
 	if (!strcasecmp(in_str, "http"))
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTP);
 	else if (!strcasecmp(in_str, "https"))
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
+		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTPS);
 	else
 		goto parse_err;
 
@@ -431,6 +444,34 @@ parse_err:
 	TFW_ERR("Unable to parse 'listen' value: '%s'\n",
 		in_str ? in_str : "No value specified");
 	return -EINVAL;
+}
+
+static int
+tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r, ka_timeout;
+
+	r = tfw_cfg_check_val_n(ce, 1);
+	if (r)
+		return -EINVAL;
+
+	tfw_cli_cfg_dflt_ka_timeout = ce->vals[0];
+	r = tfw_cfg_parse_int(tfw_cli_cfg_dflt_ka_timeout, &ka_timeout);
+	if (r) {
+		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			tfw_cli_cfg_dflt_ka_timeout
+			? tfw_cli_cfg_dflt_ka_timeout
+			: "No value specified");
+		return -EINVAL;
+	}
+
+	if (ka_timeout < 0) {
+		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			"Value less the zero");
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static void
@@ -448,6 +489,13 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			"listen",
 			"80",
 			tfw_sock_clnt_cfg_handle_listen,
+			.allow_repeat = true,
+			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
+		},
+		{
+			"keepalive_timeout",
+			"75",
+			tfw_sock_clnt_cfg_handle_keepalive,
 			.allow_repeat = true,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
 		},
