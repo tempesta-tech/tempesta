@@ -307,7 +307,7 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		BUG_ON(n && (!c1 || !c2));
 	}
 
-	return 0;
+	return stop ? -1 : 0;
 }
 EXPORT_SYMBOL(tfw_stricmpspn);
 
