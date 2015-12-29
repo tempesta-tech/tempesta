@@ -527,11 +527,11 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 	default:
 		/*
 		 * "Keep-Alive" header mandates that "Connection: keep-alive"
-		 * header in present in HTTP message. In HTTP/1.1 connections
+		 * header in present in HTTP message. HTTP/1.1 connections
 		 * are keep-alive by default. If we want to add "Keep-Alive"
 		 * header then "Connection: keep-alive" header must be added
 		 * as well. TFW_HTTP_CONN_KA flag will force the addition of
-		 * uConnection: keep-alive" header to HTTP message.
+		 * "Connection: keep-alive" header to HTTP message.
 		 */
 		return 0;
 	}
