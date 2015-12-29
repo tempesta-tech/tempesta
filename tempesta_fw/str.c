@@ -227,6 +227,12 @@ EXPORT_SYMBOL(tfw_strcat);
 
 /**
  * Core routine for tfw_stricmpspn() working on flat C strings.
+ *
+ * Returns:
+ *   0 - strings match;
+ *   1 - strings match and @stop is found;
+ *  -1 - strings do not match;
+ *
  * TODO too slow, rewrite on AVX2.
  */
 static int
@@ -238,9 +244,11 @@ __cstricmpspn(const char *s1, const char *s2, int n, int stop)
 		c1 = tolower(*s1++);
 		c2 = tolower(*s2++);
 		if (c1 != c2)
-			return c1 < c2 ? -1 : 1;
-		if (!c1 || c1 == stop)
-			break;
+			return -1;
+		if (!c1)
+			return 0;
+		if (c1 == stop)
+			return 1;
 		n--;
 	}
 
@@ -279,7 +287,8 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 			: strncasecmp((char *)c1->ptr + off1,
 				      (char *)c2->ptr + off2, cn);
 		if (r)
-			return r;
+			return stop ? !(r > 0) : r;
+
 		n -= cn;
 		if (cn == c1->len - off1) {
 			off1 = 0;
@@ -298,7 +307,7 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		BUG_ON(n && (!c1 || !c2));
 	}
 
-	return 0;
+	return stop ? -1 : 0;
 }
 EXPORT_SYMBOL(tfw_stricmpspn);
 
