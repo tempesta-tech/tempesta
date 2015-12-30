@@ -45,28 +45,73 @@
  * ------------------------------------------------------------------------
  */
 
+/**
+ * TfwConnection extension for client sockets.
+ *
+ * @conn		- The base structure. Must be the first member.
+ * @keepalive_timer	- The keep-alive timer for the connection.
+ * @timeout		- The keep-alive timeout for the connection.
+ *
+ */
+typedef struct {
+	TfwConnection		conn;
+	struct timer_list	keepalive_timer;
+	unsigned long		timeout;
+} TfwCliConnection;
+
+/**
+ * The listening socket representation.
+ * One such structure corresponds to one "listen" configuration entry.
+ *
+ * @proto	- protocol descriptor for the listening socket;
+ * @sk		- The underlying networking representation.
+ * @list	- An entry in the tfw_listen_socks list.
+ * @addr	- The IP address specified in the configuration.
+ * @ka_timeout	- The keep-alive timeout.
+ */
+typedef struct {
+	SsProto			proto;
+	struct sock		*sk;
+	struct list_head	list;
+	TfwAddr			addr;
+	int			ka_timeout;
+} TfwListenSock;
+
 static struct kmem_cache *tfw_cli_conn_cache;
 
-static TfwConnection *
+static void
+tfw_sock_cli_keepalive_timer_cb(unsigned long data)
+{
+	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
+	TFW_DBG("Client timeout end\n");
+	ss_close(cli_conn->conn.sk);
+}
+
+static TfwCliConnection *
 tfw_cli_conn_alloc(void)
 {
-	TfwConnection *conn;
+	TfwCliConnection *cli_conn;
 
-	conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
-	if (!conn)
+	cli_conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	if (!cli_conn)
 		return NULL;
 
-	tfw_connection_init(conn);
+	tfw_connection_init(&cli_conn->conn);
+	setup_timer(&cli_conn->keepalive_timer,
+		    tfw_sock_cli_keepalive_timer_cb,
+		    (unsigned long)cli_conn);
 
-	return conn;
+	return cli_conn;
 }
 
 static void
-tfw_cli_conn_free(TfwConnection *conn)
+tfw_cli_conn_free(TfwCliConnection *cli_conn)
 {
+	BUG_ON(timer_pending(&cli_conn->keepalive_timer));
+
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_cli_conn_cache, conn);
+	tfw_connection_validate_cleanup(&cli_conn->conn);
+	kmem_cache_free(tfw_cli_conn_cache, cli_conn);
 }
 
 void
@@ -76,7 +121,7 @@ tfw_cli_conn_release(TfwConnection *conn)
 		tfw_connection_unlink_to_sk(conn);
 	if (likely(conn->peer))
 		tfw_client_put((TfwClient *)conn->peer);
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free((TfwCliConnection *)conn);
 }
 
 /**
@@ -87,8 +132,10 @@ tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
 	TfwClient *cli;
+	TfwCliConnection *cli_conn;
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
+	TfwListenSock *ls;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 
@@ -99,6 +146,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * is not yet allocated/initialized.
 	 */
 	listen_sock_proto = rcu_dereference_sk_user_data(sk);
+	ls = (TfwListenSock*)listen_sock_proto;
 	tfw_connection_unlink_from_sk(sk);
 
 	cli = tfw_client_obtain(sk);
@@ -107,11 +155,14 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = tfw_cli_conn_alloc();
-	if (!conn) {
+	cli_conn = tfw_cli_conn_alloc();
+	if (!cli_conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
+
+	cli_conn->timeout = ls->ka_timeout;
+	conn = &cli_conn->conn;
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
@@ -138,7 +189,7 @@ err_conn:
 	 * to it yet. There's no need to play with conn->refcnt. We can
 	 * just free @conn unconditionally.
 	 */
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free(cli_conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
@@ -147,10 +198,13 @@ err_client:
 int
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	TfwConnection *conn = rcu_dereference_sk_user_data(sk);
+	TfwCliConnection *cli_conn = rcu_dereference_sk_user_data(sk);
+	TfwConnection *conn = &cli_conn->conn;
 
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
+
+	del_timer_sync(&cli_conn->keepalive_timer);
 
 	/*
 	 * Withdraw from socket activity. Connection is now closed,
@@ -173,10 +227,20 @@ tfw_sock_clnt_drop(struct sock *sk)
 	return 0;
 }
 
+int
+tfw_sock_clnt_recv(void *cdata, struct sk_buff *skb, unsigned int off)
+{
+	TfwCliConnection *cli_conn = cdata;
+
+	mod_timer(&cli_conn->keepalive_timer,
+		  jiffies + msecs_to_jiffies(cli_conn->timeout * 1000));
+	return tfw_connection_recv(cdata, skb, off);
+}
+
 static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_recv	= tfw_sock_clnt_recv,
 };
 
 /*
@@ -186,24 +250,6 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
  */
 
 #define TFW_LISTEN_SOCK_BACKLOG_LEN 	1024
-
-/**
- * The listening socket representation.
- * One such structure corresponds to one "listen" configuration entry.
- *
- * @proto	- protocol descriptor for the listening socket;
- * @sk		- The underlying networking representation.
- * @list	- An entry in the tfw_listen_socks list.
- * @addr	- The IP address specified in the configuration.
- * @ka_timeout	- The keep-alive timeout.
- */
-typedef struct {
-	SsProto			proto;
-	struct sock		*sk;
-	struct list_head	list;
-	TfwAddr			addr;
-	int			ka_timeout;
-} TfwListenSock;
 
 /**
  * The list of all existing TfwListenSock structures.
@@ -514,7 +560,7 @@ tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwConnection),
+					       sizeof(TfwCliConnection),
 					       0, 0, NULL);
 	return !tfw_cli_conn_cache ? -ENOMEM : 0;
 }
