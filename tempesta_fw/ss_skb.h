@@ -23,6 +23,7 @@
 #define __TFW_SS_SKB_H__
 
 #include <linux/skbuff.h>
+#include <net/tcp.h>
 
 #include "str.h"
 
@@ -220,6 +221,8 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
+
+int ss_skb_set_headfrag(struct sk_buff *skb);
 
 int ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len,
 		    TfwStr *it);

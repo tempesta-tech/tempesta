@@ -32,6 +32,7 @@
 #include <net/ip6_route.h>
 
 #include "log.h"
+#include "ss_skb.h"
 #include "sync_socket.h"
 
 #if defined(DEBUG) && (DEBUG >= 2)
@@ -550,6 +551,7 @@ ss_tcp_process_data(struct sock *sk)
 		 */
 		if (skb_unclone(skb, GFP_ATOMIC)) {
 			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
+			__kfree_skb(skb);
 			goto out;
 		}
 
@@ -566,6 +568,14 @@ ss_tcp_process_data(struct sock *sk)
 			 * Data for processing is within the current SKB.
 			 * Hand the SKB to the upper layer for processing.
 			 */
+
+			/* Make sure that SKB head is put in a page. */
+			if (ss_skb_set_headfrag(skb)) {
+				SS_WARN("Error moving skb head to a page: "
+					"sk %p\n", sk);
+				__kfree_skb(skb);
+				goto out;
+			}
 
 			/*
 			 * If @sk_user_data is unset, then this connection
@@ -634,8 +644,8 @@ ss_tcp_process_data(struct sock *sk)
 				break;
 			}
 		} else if (tcp_fin) {
-			__kfree_skb(skb);
 			SS_DBG("Link FIN received: sk %p\n", sk);
+			__kfree_skb(skb);
 			++tp->copied_seq;
 			goto out;
 		} else {
