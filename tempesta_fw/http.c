@@ -758,6 +758,31 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			return TFW_BLOCK;
 
 		/*
+		 * In HTTP 0.9 the server always closes the connection
+		 * after sending the response.
+		 *
+		 * In HTTP 1.0 the server always closes the connection
+		 * after sending the response unless the client sent a
+		 * a "Connection: keep-alive" request header, and the
+		 * server sent a "Connection: keep-alive" response header.
+		 *
+		 * This behavior was added to existing HTTP 1.0 protocol.
+		 * RFC 1945 section 1.3 says:
+		 * "Except for experimental applications, current practice
+		 * requires that the connection be established by the client
+		 * prior to each request and closed by the server after
+		 * sending the response."
+		 *
+		 * Make it work this way in Tempesta by setting the flag.
+		 */
+		if ((hmreq->version == TFW_HTTP_VER_09)
+		    || ((hmreq->version == TFW_HTTP_VER_10)
+			&& !(hmreq->flags & __TFW_HTTP_CONN_MASK)))
+		{
+			hmreq->flags |= TFW_HTTP_CONN_CLOSE;
+		}
+
+		/*
 		 * The request has been successfully parsed and processed.
 		 * If the connection will be closed after the response to
 		 * the request is sent to the client, then there's no need
