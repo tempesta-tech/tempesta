@@ -96,6 +96,9 @@ start()
 {
 	echo "Starting Tempesta..."
 
+	# Tempesta builds socket buffers by itself, don't cork TCP segments.
+	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
+
 	# Create database directory if it doesn't exist.
 	mkdir -p /opt/tempesta/db/
 
