@@ -74,6 +74,7 @@ tfw_init(void)
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
 	DO_INIT(cfg_if);
+	DO_INIT(procfs);
 
 	DO_INIT(classifier);
 
