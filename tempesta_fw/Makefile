@@ -42,6 +42,7 @@ tempesta_fw-objs = \
 	http_sticky.o \
 	main.o \
 	pool.o \
+	procfs.o \
 	sched.o \
 	server.o \
 	sock.o \
