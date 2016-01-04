@@ -44,6 +44,7 @@
 #include "addr.h"
 #include "log.h"
 #include "server.h"
+#include "procfs.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -177,8 +178,10 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	 *
 	 * Thus we don't need syncronization for ss_connect().
 	 */
+	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
+		TFW_INC_STAT_BH(serv.conn_disconnects);
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
 		tfw_connection_unlink_from_sk(sk);
 		ss_close(sk);
@@ -283,6 +286,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	__reset_retry_timer(srv_conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
+	TFW_INC_STAT_BH(serv.conn_established);
 	return 0;
 }
 
@@ -303,6 +307,7 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 
+	TFW_INC_STAT_BH(serv.conn_disconnects);
 	return 0;
 }
 
