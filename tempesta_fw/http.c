@@ -393,7 +393,8 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
-		if (ss_close(hmreq->conn->sk) == SS_OK)
+		/* FIXME HTTP callback can be called from workqueue context. */
+		if (ss_close_bh(hmreq->conn->sk) == SS_OK)
 			tfw_sock_clnt_drop(hmreq->conn->sk);
 	}
 	tfw_http_conn_msg_free(hmreq);

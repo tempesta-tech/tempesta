@@ -249,7 +249,7 @@ typedef struct {
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
-	unsigned short		node;
+	unsigned short		node; // TODO cpu/dev-queue?
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
 	unsigned long		tm_header;
