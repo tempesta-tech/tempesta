@@ -86,7 +86,8 @@ tfw_connection_destruct(TfwConnection *conn)
 void
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 {
-	ss_send(conn->sk, &msg->skb_list, unref_data);
+	/* FIXME the function could be called from workqueue callback. */
+	ss_send_bh(conn->sk, &msg->skb_list, unref_data);
 }
 
 int
