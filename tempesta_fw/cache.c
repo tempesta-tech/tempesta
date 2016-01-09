@@ -6,7 +6,7 @@
  * specific stuff. The cache is backed by physical storage layer.
  *
  * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -421,7 +421,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 	/* Try to place the cached response in single memory chunk. */
 	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
 	/*
-	 * TDB should provide enough space to plase at least head of
+	 * TDB should provide enough space to place at least head of
 	 * the record key at first chunk.
 	 */
 	BUG_ON(len <= sizeof(cdata));
@@ -630,7 +630,11 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * We return skbs in the cache entry response w/o setting any
  * network headers - tcp_transmit_skb() will do it for us.
  *
- * TODO Prebuild the response and use clones for sending.
+ * TODO Prebuild the response and use clones/copies for sending
+ * (copy the list of skbs is faster than scan TDB and build TfwHttpResp).
+ * TLS should encrypt the data in already prepared skbs.
+ *
+ * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
 tfw_cache_build_resp(TfwCacheEntry *ce)
@@ -730,8 +734,10 @@ tfw_cache_req_process_node(struct work_struct *work)
 /**
  * Process @req at node which possesses the cached data required to fulfill
  * the request. In worse case the request can be assembled in softirq at
- * one node, the cached response can be prepared at the second node while
- * the final response is sent by third node (see dev_queue_xmit()).
+ * one node and the cached response can be prepared at the second node.
+ * Note that RFS + XFS are responsible for processing the same socket only
+ * at one CPU, so response is always sent through the same CPU where a request
+ * was received.
  */
 void
 tfw_cache_req_process(TfwHttpReq *req, tfw_http_cache_cb_t action)
