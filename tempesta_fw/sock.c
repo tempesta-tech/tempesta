@@ -1,25 +1,7 @@
 /**
  *		Synchronous Socket API.
  *
- * Tempesta works with Linux internal sockets (struct sock), and it
- * does not need full BSD sockets (struct socket), nor does it need
- * file/inode operations on these sockets. Both take memory and system
- * resources. Here is a set of socket interface functions that accept
- * "struct sock" instead of "struct socket". With these we avoid taking
- * unnecessary system memory and resources.
- *
- * Some of these functions cover lots of cases that are not applicable
- * to Tempesta's use. As speed is important, shorter and faster variants
- * of those are implemented by removing unnecessary parts of code.
- *
- * Where there's little to gain by implementing a shorter variant,
- * an original kernel protocol interface function is called.
- * As a BSD socket (struct socket) is not allocated and populated,
- * a socket placeholder is used in these functions. A placeholder
- * is initialized with just enough data to satisfy an underlying
- * kernel function that still wants "struct socket" as an argument.
- *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -28,27 +10,23 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-/*
- * TODO:
- * -- Read cache objects by 64KB and use GSO?
- */
 #include <linux/module.h>
-#include <linux/version.h>
+#include <linux/tempesta.h>
 #include <net/protocol.h>
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
 #include "log.h"
 #include "sync_socket.h"
+#include "work_queue.h"
 
 #if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
@@ -57,6 +35,8 @@ static const char *ss_statename[] = {
 	"Close Wait",	"Last ACK",	"Listen",	"Closing"
 };
 #endif
+
+static TfwRBQueue si_wq;
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
@@ -115,23 +95,27 @@ ss_pick_net(struct sk_buff *skb)
 	return &init_net;
 }
 
+static void
+ss_skb_set_dst(struct sk_buff *skb, struct dst_entry *dst)
+{
+	skb_dst_drop(skb);
+	skb_dst_set(skb, dst);
+	skb->dev = dst->dev;
+}
+
 /**
  * Reroute a packet to the destination for IPv4 and IPv6.
- *
- * TODO get route information for dst connection for retransmission
- * or src for replying.
  */
-static bool
+static struct dst_entry *
 ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 {
-	struct rtable *rt;
 	struct inet_sock *isk = &tp->inet_conn.icsk_inet;
+	struct dst_entry *dst = NULL;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct ipv6_pinfo *np = inet6_sk(&isk->sk);
 
 	if (np) {
 		struct flowi6 fl6 = { .daddr = isk->sk.sk_v6_daddr };
-		struct dst_entry *dst;
 
 		BUG_ON(isk->sk.sk_family != AF_INET6);
 		BUG_ON(skb->protocol != htons(ETH_P_IPV6));
@@ -139,29 +123,23 @@ ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
 		dst = ip6_route_output(ss_pick_net(skb), NULL, &fl6);
 		if (dst->error) {
 			dst_release(dst);
-			return false;
+			return NULL;
 		}
-
-		skb_dst_drop(skb);
-		skb_dst_set(skb, dst);
-		skb->dev = dst->dev;
 	} else
 #endif
 	{
+		struct rtable *rt;
 		struct flowi4 fl4 = { .daddr = isk->inet_daddr };
 
 		BUG_ON(isk->sk.sk_family != AF_INET);
 
 		rt = ip_route_output_key(ss_pick_net(skb), &fl4);
 		if (IS_ERR(rt))
-			return false;
-
-		skb_dst_drop(skb);
-		skb_dst_set(skb, &rt->dst);
-		skb->dev = rt->dst.dev;
+			return NULL;
+		dst = &rt->dst;
 	}
 
-	return true;
+	return dst;
 }
 
 static void
@@ -226,6 +204,25 @@ ss_release_sock(struct sock *sk)
  *  	Server and client connections handling
  * ------------------------------------------------------------------------
  */
+static void
+ss_tx_action(void)
+{
+	int size, mss;
+	struct sock *sk;
+
+	while ((sk = tfw_wq_si_pop(&si_wq))) {
+		mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+
+		SS_DBG("%s: sk=%p queue_empty=%d send_head=%p sk_state=%d"
+		       " mss=%d size=%d\n", __func__,
+		       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+		       sk->sk_state, mss, size);
+
+		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH,
+			 size);
+	}
+}
+
 /**
  * Directly insert all skbs from @skb_list into @sk TCP write queue regardless
  * write buffer size. This allows directly forward modified packets without
@@ -236,13 +233,13 @@ ss_release_sock(struct sock *sk)
  *
  * TODO use MSG_MORE untill we reach end of message.
  */
-static void
+static int
 __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
+	int r = 0;
 	struct sk_buff *skb, *iskb;
 	struct tcp_sock *tp;
-	int flags = MSG_DONTWAIT; /* we can't sleep */
-	int size_goal, mss_now;
+	struct dst_entry *dst = NULL;
 
 	BUG_ON(sk == NULL);
 	BUG_ON(ss_skb_queue_empty(skb_list));
@@ -251,10 +248,9 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	       __func__, sk, ss_statename[sk->sk_state], sk->sk_socket);
 
 	if (unlikely(!ss_sock_active(sk)))
-		return;
+		return -EPIPE;
 
 	tp = tcp_sk(sk);
-	mss_now = tcp_send_mss(sk, &size_goal, flags);
 
 	for (iskb = ss_skb_peek(skb_list), skb = iskb;
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
@@ -270,13 +266,8 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 			/* tcp_transmit_skb() will clone the skb. */
 			skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!skb) {
-				SS_ERR("Unable to copy an egress SKB.\n");
-				/*
-				 * Send what we collected so far.
-				 * The peer should react somehow and we can
-				 * go further instead of hang on the socket.
-				 * FIXME seems dirty...
-				 */
+				SS_WARN("Unable to copy an egress SKB.\n");
+				r = -ENOMEM;
 				break;
 			}
 		}
@@ -289,7 +280,7 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		 * Mark all data with PUSH to force receiver to consume
 		 * the data. Currently we do this for debugging purposes.
 		 * We need to do this only for complete messages/skbs.
-		 * (Actually tcp_push() already does it for the last skb.)
+		 * Actually tcp_push() already does it for the last skb.
 		 */
 		tcp_mark_push(tp, skb);
 
@@ -301,20 +292,43 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 
-		if (!ss_skb_route(skb, tp)) {
-			/*
-			 * FIXME how to handle the error?
-			 * Just free the skb?
-			 */
-			SS_WARN("cannot route skb\n");
+		/*
+		 * Reuse routing information for the same connection.
+		 *
+		 * TODO should we rather use sk_dst_check()?
+		 *
+		 * TODO get route information for dst connection for
+		 * retransmission or src for replying.
+		 */
+		if (!dst) {
+			dst = ss_skb_route(skb, tp);
+			if (!dst) {
+				SS_WARN("cannot route skb\n");
+				r = -ENODEV;
+				break;
+			}
+		} else {
+			dst_hold(dst);
 		}
+		ss_skb_set_dst(skb, dst);
+		BUG_ON(!skb->dev);
 	}
 
-	SS_DBG("%s: sk=%p is_queue_empty=%d tcp_send_head(sk)=%p"
-	       " sk->sk_state=%d\n", __func__,
-	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk), sk->sk_state);
+	SS_DBG("%s: sk=%p send_head=%p sk_state=%d\n", __func__,
+	       sk, tcp_send_head(sk), sk->sk_state);
 
-	tcp_push(sk, flags, mss_now, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size_goal);
+	/*
+	 * Schedule the socket for TX softirq processing.
+	 * Only part of @skb_list could be passed to send queue.
+	 *
+	 * TODO schedule si_wq by NUMA node.
+	 */
+	if (tfw_wq_si_push(&si_wq, sk)) {
+		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
+		return -ENOMEM;
+	}
+
+	return r;
 }
 
 void
@@ -1210,3 +1224,24 @@ ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 		return inet6_getname(&sock, uaddr, uaddr_len, 1);
 }
 EXPORT_SYMBOL(ss_getpeername);
+
+int __init
+tfw_sync_socket_init(void)
+{
+	int r;
+
+	if ((r = tfw_wq_si_init(&si_wq))) {
+		SS_ERR("Cannot initialize softirq tx work queue\n");
+		return r;
+	}
+	tempesta_set_tx_action(ss_tx_action);
+
+	return 0;
+}
+
+void
+tfw_sync_socket_exit(void)
+{
+	tempesta_del_tx_action();
+	tfw_wq_si_destroy(&si_wq);
+}

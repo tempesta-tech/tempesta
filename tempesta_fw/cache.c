@@ -2,10 +2,8 @@
  *		Tempesta FW
  *
  * HTTP cache (RFC 7234).
- * Here is implementation of expiration and validation models and other HTTP
- * specific stuff. The cache is backed by physical storage layer.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -833,7 +831,7 @@ tfw_cache_start(void)
 	 * 			  let the system scheduler to scheduler worker
 	 * 			  among node cpus.
 	 *
-	 * TODO work queues are slow, use common kernel threads.
+	 * TODO use tasklets and TfwWorkQueue for cache processing
 	 * Probably threading should be at TDB side...
 	 */
 	cache_wq = alloc_workqueue("tfw_cache_wq",
