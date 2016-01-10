@@ -1,20 +1,6 @@
 /**
  *		Tempesta FW
  *
- * MPMC work queue on lock-free ring buffer.
- *
- * INVARIANTS:
- * 	1. tail <= head
- * 	2. last_tail <= tail
- * 	3. last_head <= head
- * 	4. tail == head <=> queue is empty
- * 	5. tail + size == head <=> queue is full
- * 	6. head <= last_tail + size
- * 	7. tail <= last_head
- *
- * 	2,6,7: head <= last_head + size
- *	3,6,7: tail <= last_tail + size
- *
  * Copyright (C) 2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -31,15 +17,35 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/interrupt.h>
+#include <linux/percpu.h>
 #include <linux/slab.h>
 
 #include "work_queue.h"
 
+/*
+ * ------------------------------------------------------------------------
+ *	MPMC queue on lock-free ring buffer.
+ *
+ * INVARIANTS:
+ * 	1. tail <= head
+ * 	2. last_tail <= tail
+ * 	3. last_head <= head
+ * 	4. tail == head <=> queue is empty
+ * 	5. tail + size == head <=> queue is full
+ * 	6. head <= last_tail + size
+ * 	7. tail <= last_head
+ *
+ * 	2,6,7: head <= last_head + size
+ *	3,6,7: tail <= last_tail + size
+ *
+ * ------------------------------------------------------------------------
+ */
 #define QSZ		1024
 #define QMASK		(QSZ - 1)
 
-int
-tfw_workqueue_init(TfwWorkQueue *q, int node)
+static int
+tfw_q_init(TfwRBQueue *q, int node)
 {
 	int cpu;
 
@@ -66,8 +72,8 @@ tfw_workqueue_init(TfwWorkQueue *q, int node)
 	return 0;
 }
 
-void
-tfw_workqueue_destroy(TfwWorkQueue *q)
+static void
+tfw_q_destroy(TfwRBQueue *q)
 {
 	kfree(q->array);
 	free_percpu(q->thr_pos);
@@ -79,7 +85,7 @@ tfw_workqueue_destroy(TfwWorkQueue *q)
  * per-cpu guards array traversing and number of slow path passing in callers.
  */
 static void
-__update_guards(TfwWorkQueue *q)
+__update_guards(TfwRBQueue *q)
 {
 	long long last_head = atomic64_read(&q->head);
 	long long last_tail = atomic64_read(&q->tail);
@@ -113,8 +119,8 @@ __update_guards(TfwWorkQueue *q)
 /**
  * @return false if the queue is full and true otherwise.
  */
-bool
-tfw_workqueue_push(TfwWorkQueue *q, void *ptr)
+static int
+tfw_q_push(TfwRBQueue *q, void *ptr)
 {
 	unsigned long long head;
 	__ThrPos *pos;
@@ -126,7 +132,7 @@ tfw_workqueue_push(TfwWorkQueue *q, void *ptr)
 	 */
 	local_bh_disable();
 
-	pos = this_cpu_read(q->thr_pos);
+	pos = this_cpu_ptr(q->thr_pos);
 
 	while (1) {
 		head = atomic64_read(&q->head);
@@ -138,7 +144,7 @@ tfw_workqueue_push(TfwWorkQueue *q, void *ptr)
 				/* The queue is full, don't wait consumers. */
 				local_bh_enable();
 				atomic64_set(&pos->head, LLONG_MAX);
-				return false;
+				return -ENOMEM;
 			}
 		}
 
@@ -154,7 +160,7 @@ tfw_workqueue_push(TfwWorkQueue *q, void *ptr)
 
 	local_bh_enable();
 
-	return true;
+	return 0;
 }
 
 /**
@@ -162,16 +168,16 @@ tfw_workqueue_push(TfwWorkQueue *q, void *ptr)
  *
  * @return NULL on shutdown only.
  */
-void *
-tfw_workqueue_pop(TfwWorkQueue *q)
+static void *
+tfw_q_pop(TfwRBQueue *q)
 {
 	unsigned long long tail;
 	__ThrPos *pos;
-	void *ret;
+	void *ret = NULL;
 
 	local_bh_disable();
 
-	pos = this_cpu_read(q->thr_pos);
+	pos = this_cpu_ptr(q->thr_pos);
 
 	while (1) {
 		tail = atomic64_read(&q->tail);
@@ -179,12 +185,9 @@ tfw_workqueue_pop(TfwWorkQueue *q)
 		if (unlikely(tail >= atomic64_read(&q->last_head))) {
 			__update_guards(q);
 			/* Second try. */
-			if (tail >= atomic64_read(&q->last_head)) {
+			if (tail >= atomic64_read(&q->last_head))
 				/* The queue is empty, don't wait producers. */
-				local_bh_enable();
-				atomic64_set(&pos->tail, LLONG_MAX);
-				return NULL;
-			}
+				goto out;
 		}
 
 		/* Set a guard for current position and move global head. */
@@ -194,10 +197,46 @@ tfw_workqueue_pop(TfwWorkQueue *q)
 	}
 
 	ret = q->array[tail & QMASK];
-
+out:
 	atomic64_set(&pos->tail, LLONG_MAX);
 
 	local_bh_enable();
 
 	return ret;
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * 	SoftIRQ work queue
+ *
+ * TODO should be per-cpu, and correspondingly linked list should be used.
+ * ------------------------------------------------------------------------
+ */
+int
+tfw_wq_si_init(TfwRBQueue *wq)
+{
+	return tfw_q_init(wq, numa_node_id());
+}
+
+void
+tfw_wq_si_destroy(TfwRBQueue *wq)
+{
+	tfw_q_destroy(wq);
+}
+
+int
+tfw_wq_si_push(TfwRBQueue *wq, void *ptr)
+{
+	int r = tfw_q_push(wq, ptr);
+
+	if (unlikely(!in_softirq()))
+		raise_softirq(NET_TX_SOFTIRQ);
+
+	return r;
+}
+
+void *
+tfw_wq_si_pop(TfwRBQueue *wq)
+{
+	return tfw_q_pop(wq);
 }

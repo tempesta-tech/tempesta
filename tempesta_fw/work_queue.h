@@ -20,8 +20,6 @@
 #ifndef __TFW_WORK_QUEUE_H__
 #define __TFW_WORK_QUEUE_H__
 
-#include <linux/percpu.h>
-
 typedef struct __ThrPos {
 	atomic64_t		tail, head;
 } __ThrPos;
@@ -33,11 +31,11 @@ typedef struct {
 	atomic64_t		tail ____cacheline_aligned;
 	atomic64_t		last_head ____cacheline_aligned;
 	atomic64_t		last_tail ____cacheline_aligned;
-} TfwWorkQueue;
+} TfwRBQueue;
 
-int tfw_workqueue_init(TfwWorkQueue *q, int node);
-void tfw_workqueue_destroy(TfwWorkQueue *q);
-bool tfw_workqueue_push(TfwWorkQueue *q, void *ptr);
-void *tfw_workqueue_pop(TfwWorkQueue *q);
+int tfw_wq_si_init(TfwRBQueue *wq);
+void tfw_wq_si_destroy(TfwRBQueue *wq);
+int tfw_wq_si_push(TfwRBQueue *wq, void *ptr);
+void *tfw_wq_si_pop(TfwRBQueue *wq);
 
 #endif /* __TFW_WORK_QUEUE_H__ */
