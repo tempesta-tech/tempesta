@@ -6,7 +6,7 @@ from http.server import *
 from threading import *
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 def start(*args, **kwargs):
