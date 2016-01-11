@@ -56,35 +56,24 @@
 typedef struct {
 	TfwConnection		conn;
 	struct timer_list	keepalive_timer;
-	unsigned long		timeout;
 } TfwCliConnection;
 
-/**
- * The listening socket representation.
- * One such structure corresponds to one "listen" configuration entry.
- *
- * @proto	- protocol descriptor for the listening socket;
- * @sk		- The underlying networking representation.
- * @list	- An entry in the tfw_listen_socks list.
- * @addr	- The IP address specified in the configuration.
- * @ka_timeout	- The keep-alive timeout.
- */
-typedef struct {
-	SsProto			proto;
-	struct sock		*sk;
-	struct list_head	list;
-	TfwAddr			addr;
-	int			ka_timeout;
-} TfwListenSock;
-
 static struct kmem_cache *tfw_cli_conn_cache;
+static int tfw_cli_cfg_ka_timeout = -1;
 
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
 	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
 	TFW_DBG("Client timeout end\n");
-	ss_close(cli_conn->conn.sk);
+	if (ss_close(cli_conn->conn.sk) == SS_OK) {
+		tfw_connection_unlink_from_sk(cli_conn->conn.sk);
+		tfw_connection_unlink_from_peer(&cli_conn->conn);
+		tfw_connection_destruct(&cli_conn->conn);
+
+		if (tfw_connection_put(&cli_conn->conn))
+			tfw_cli_conn_release(&cli_conn->conn);
+	}
 }
 
 static TfwCliConnection *
@@ -124,6 +113,16 @@ tfw_cli_conn_release(TfwConnection *conn)
 	tfw_cli_conn_free((TfwCliConnection *)conn);
 }
 
+void
+tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
+{
+	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
+
+	ss_send(conn->sk, &msg->skb_list, unref_data);
+	mod_timer(&cli_conn->keepalive_timer,
+		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
+}
+
 /**
  * This hook is called when a new client connection is established.
  */
@@ -135,7 +134,6 @@ tfw_sock_clnt_new(struct sock *sk)
 	TfwCliConnection *cli_conn;
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
-	TfwListenSock *ls;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 
@@ -146,7 +144,6 @@ tfw_sock_clnt_new(struct sock *sk)
 	 * is not yet allocated/initialized.
 	 */
 	listen_sock_proto = rcu_dereference_sk_user_data(sk);
-	ls = (TfwListenSock*)listen_sock_proto;
 	tfw_connection_unlink_from_sk(sk);
 
 	cli = tfw_client_obtain(sk);
@@ -161,7 +158,6 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_client;
 	}
 
-	cli_conn->timeout = ls->ka_timeout;
 	conn = &cli_conn->conn;
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
@@ -204,6 +200,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
 
+	/* Prevent races with timer callbacks. */
 	del_timer_sync(&cli_conn->keepalive_timer);
 
 	/*
@@ -227,20 +224,10 @@ tfw_sock_clnt_drop(struct sock *sk)
 	return 0;
 }
 
-int
-tfw_sock_clnt_recv(void *cdata, struct sk_buff *skb, unsigned int off)
-{
-	TfwCliConnection *cli_conn = cdata;
-
-	mod_timer(&cli_conn->keepalive_timer,
-		  jiffies + msecs_to_jiffies(cli_conn->timeout * 1000));
-	return tfw_connection_recv(cdata, skb, off);
-}
-
 static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_sock_clnt_recv,
+	.connection_recv	= tfw_connection_recv,
 };
 
 /*
@@ -250,6 +237,22 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
  */
 
 #define TFW_LISTEN_SOCK_BACKLOG_LEN 	1024
+
+/**
+ * The listening socket representation.
+ * One such structure corresponds to one "listen" configuration entry.
+ *
+ * @proto	- protocol descriptor for the listening socket;
+ * @sk		- The underlying networking representation.
+ * @list	- An entry in the tfw_listen_socks list.
+ * @addr	- The IP address specified in the configuration.
+ */
+typedef struct {
+	SsProto			proto;
+	struct sock		*sk;
+	struct list_head	list;
+	TfwAddr			addr;
+} TfwListenSock;
 
 /**
  * The list of all existing TfwListenSock structures.
@@ -267,7 +270,7 @@ static LIST_HEAD(tfw_listen_socks);
  * @type is the SsProto->type.
  */
 static int
-tfw_listen_sock_add(const TfwAddr *addr, int ka_timeout, int type)
+tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
 
@@ -283,7 +286,6 @@ tfw_listen_sock_add(const TfwAddr *addr, int ka_timeout, int type)
 		return -EINVAL;
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
-	ls->ka_timeout = ka_timeout;
 
 	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
 	tfw_classifier_add_inport(addr->v4.sin_port);
@@ -424,13 +426,11 @@ tfw_sock_check_listeners(void)
  * ------------------------------------------------------------------------
  */
 
-static const char *tfw_cli_cfg_dflt_ka_timeout;
-
 static int
 tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	int port, ka_timeout;
+	int port;
 	TfwAddr addr;
 	const char *in_str = NULL;
 
@@ -464,25 +464,17 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto parse_err;
 
-	in_str = tfw_cfg_get_attr(ce, "keepalive_timeout",
-				  tfw_cli_cfg_dflt_ka_timeout
-				  ? tfw_cli_cfg_dflt_ka_timeout
-				  : "75");
-	r = tfw_cfg_parse_int(in_str, &ka_timeout);
-	if (r)
-		goto parse_err;
-
 	if (!ce->attr_n)
-		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTP);
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 
 	in_str = tfw_cfg_get_attr(ce, "proto", NULL);
 	if (!in_str)
 		goto parse_err;
 
 	if (!strcasecmp(in_str, "http"))
-		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTP);
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 	else if (!strcasecmp(in_str, "https"))
-		return tfw_listen_sock_add(&addr, ka_timeout, TFW_FSM_HTTPS);
+		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
 	else
 		goto parse_err;
 
@@ -495,23 +487,22 @@ parse_err:
 static int
 tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r, ka_timeout;
+	int r;
 
 	r = tfw_cfg_check_val_n(ce, 1);
 	if (r)
 		return -EINVAL;
 
-	tfw_cli_cfg_dflt_ka_timeout = ce->vals[0];
-	r = tfw_cfg_parse_int(tfw_cli_cfg_dflt_ka_timeout, &ka_timeout);
+	r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout);
 	if (r) {
 		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			tfw_cli_cfg_dflt_ka_timeout
-			? tfw_cli_cfg_dflt_ka_timeout
+			ce->vals[0]
+			? ce->vals[0]
 			: "No value specified");
 		return -EINVAL;
 	}
 
-	if (ka_timeout < 0) {
+	if (tfw_cli_cfg_ka_timeout < 0) {
 		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
 			"Value less the zero");
 		return -EINVAL;

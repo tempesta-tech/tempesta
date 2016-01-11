@@ -96,6 +96,18 @@ listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
 
+### Keep-alive timeout
+
+Tempesta may use a single TCP connection to send and receive multiple HTTP requests/responses. The syntax is as follows:
+```
+keepalive_timeout TIMEOUT
+```
+`TIMEOUT` is a timeout in secounds during which a keep-alive client connection will stay open on the server side for each 'listen' entry. The zero value disables keep-alive client connections. Default value is 75.
+
+Below are examples of `keepalive_timeout` directive:
+```
+keepalive_timeout 75;
+```
 
 ### Caching
 
