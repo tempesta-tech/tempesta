@@ -102,7 +102,7 @@ Tempesta may use a single TCP connection to send and receive multiple HTTP reque
 ```
 keepalive_timeout TIMEOUT
 ```
-`TIMEOUT` is a timeout in secounds during which a keep-alive client connection will stay open on the server side for each 'listen' entry. The zero value disables keep-alive client connections. Default value is 75.
+`TIMEOUT` is a timeout in seconds during which a keep-alive client connection will stay open in Tempesta. The zero value disables keep-alive client connections. Default value is 75.
 
 Below are examples of `keepalive_timeout` directive:
 ```

@@ -264,6 +264,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
+
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
@@ -499,6 +500,17 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 }
 
 static int
+tfw_http_del_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
+{
+	if (conn_flg == TFW_HTTP_CONN_KA) {
+		return TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive",
+					    TFW_HTTP_HDR_RAW);
+	}
+
+	return 0;
+}
+
+static int
 tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
 	int r;
@@ -548,11 +560,15 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	/*
-	 * TODO adjust Keep-Alive header.
-	 * See also rfc2616 13.5.1 and rfc7234
-	 */
-	return tfw_http_set_hdr_connection(m, conn_flg);
+	r = tfw_http_set_hdr_connection(m, conn_flg);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_del_hdr_keep_alive(m, conn_flg);
+	if (r < 0)
+		return r;
+
+	return r;
 }
 
 /*
