@@ -34,6 +34,7 @@
 #include "classifier.h"
 #include "client.h"
 #include "connection.h"
+#include "http_msg.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
@@ -49,17 +50,38 @@
  * TfwConnection extension for client sockets.
  *
  * @conn		- The base structure. Must be the first member.
- * @keepalive_timer	- The keep-alive timer for the connection.
- * @timeout		- The keep-alive timeout for the connection.
+ * @ka_timer	- The keep-alive timer for the connection.
  *
  */
 typedef struct {
 	TfwConnection		conn;
-	struct timer_list	keepalive_timer;
+	struct timer_list	ka_timer;
 } TfwCliConnection;
 
 static struct kmem_cache *tfw_cli_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
+
+static void
+tfw_sock_cli_conn_drop(TfwConnection *conn, struct sock *sk)
+{
+	/*
+	 * Withdraw from socket activity. Connection is now closed,
+	 * and Tempesta is not called anymore on events in the socket.
+	 * Remove the connection from the list that is kept in @peer.
+	 * Release resources allocated in Tempesta for the connection.
+	 */
+	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_unlink_from_peer(conn);
+	tfw_connection_destruct(conn);
+
+	/*
+	 * Connection @conn, as well as @sk and @peer that make
+	 * the essence of it, remain accessible as long as there
+	 * are references to @conn.
+	 */
+	if (tfw_connection_put(conn))
+		tfw_cli_conn_release(conn);
+}
 
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
@@ -67,12 +89,7 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
 	TFW_DBG("Client timeout end\n");
 	if (ss_close(cli_conn->conn.sk) == SS_OK) {
-		tfw_connection_unlink_from_sk(cli_conn->conn.sk);
-		tfw_connection_unlink_from_peer(&cli_conn->conn);
-		tfw_connection_destruct(&cli_conn->conn);
-
-		if (tfw_connection_put(&cli_conn->conn))
-			tfw_cli_conn_release(&cli_conn->conn);
+		tfw_sock_cli_conn_drop(&cli_conn->conn, cli_conn->conn.sk);
 	}
 }
 
@@ -86,7 +103,7 @@ tfw_cli_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&cli_conn->conn);
-	setup_timer(&cli_conn->keepalive_timer,
+	setup_timer(&cli_conn->ka_timer,
 		    tfw_sock_cli_keepalive_timer_cb,
 		    (unsigned long)cli_conn);
 
@@ -96,7 +113,7 @@ tfw_cli_conn_alloc(void)
 static void
 tfw_cli_conn_free(TfwCliConnection *cli_conn)
 {
-	BUG_ON(timer_pending(&cli_conn->keepalive_timer));
+	BUG_ON(timer_pending(&cli_conn->ka_timer));
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(&cli_conn->conn);
@@ -117,9 +134,8 @@ void
 tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 {
 	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
-
-	ss_send(conn->sk, &msg->skb_list, unref_data);
-	mod_timer(&cli_conn->keepalive_timer,
+	tfw_connection_send(conn, msg, unref_data);
+	mod_timer(&cli_conn->ka_timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 }
 
@@ -201,25 +217,9 @@ tfw_sock_clnt_drop(struct sock *sk)
 		sk, conn, conn->peer);
 
 	/* Prevent races with timer callbacks. */
-	del_timer_sync(&cli_conn->keepalive_timer);
+	del_timer_sync(&cli_conn->ka_timer);
 
-	/*
-	 * Withdraw from socket activity. Connection is now closed,
-	 * and Tempesta is not called anymore on events in the socket.
-	 * Remove the connection from the list that is kept in @peer.
-	 * Release resources allocated in Tempesta for the connection.
-	 */
-	tfw_connection_unlink_from_sk(sk);
-	tfw_connection_unlink_from_peer(conn);
-	tfw_connection_destruct(conn);
-
-	/*
-	 * Connection @conn, as well as @sk and @peer that make
-	 * the essence of it, remain accessible as long as there
-	 * are references to @conn.
-	 */
-	if (tfw_connection_put(conn))
-		tfw_cli_conn_release(conn);
+	tfw_sock_cli_conn_drop(conn, sk);
 
 	return 0;
 }
@@ -533,7 +533,7 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			"keepalive_timeout",
 			"75",
 			tfw_sock_clnt_cfg_handle_keepalive,
-			.allow_repeat = true,
+			.allow_repeat = false,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
 		},
 		{}
