@@ -20,13 +20,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <asm/i387.h>
 #include <linux/freezer.h>
+#include <linux/irq_work.h>
 #include <linux/ipv6.h>
 #include <linux/kthread.h>
 #include <linux/tcp.h>
 #include <linux/topology.h>
-#include <linux/workqueue.h>
 
 #include "tdb.h"
 
@@ -34,6 +33,7 @@
 #include "cache.h"
 #include "http_msg.h"
 #include "ss_skb.h"
+#include "work_queue.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
@@ -71,13 +71,18 @@ typedef struct {
 #define TFW_CSTR_HDRLEN		(sizeof(TfwCStr))
 
 /* Work to copy response body to database. */
-typedef struct tfw_cache_work_t {
-	struct work_struct	work;
+typedef struct {
 	TfwHttpReq		*req;
 	TfwHttpResp		*resp;
 	tfw_http_cache_cb_t	action;
 	unsigned long		key;
 } TfwCWork;
+
+typedef struct {
+	struct tasklet_struct	tasklet;
+	struct irq_work		ipi_work;
+	TfwRBQueue		wq;
+} TfwWorkTasklet;
 
 static struct {
 	int cache;
@@ -114,8 +119,7 @@ static struct {
 } c_nodes[MAX_NUMNODES] __read_mostly;
 
 static struct task_struct *cache_mgr_thr;
-static struct workqueue_struct *cache_wq;
-static struct kmem_cache *c_cache;
+static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
 /* Iterate over request URI and Host header to process request key. */
 #define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
@@ -136,31 +140,6 @@ static struct kmem_cache *c_cache;
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
-
-
-/**
- * Calculates search key for the request URI and Host header.
- *
- * The function can be called from sotrirq as well as from work queue.
- * Softirq saves FPU context, so we can execute tfw_http_req_key_calc()
- * w/o explicit FPU context saving.
- */
-static unsigned long
-tfw_cache_key_calc(TfwHttpReq *req)
-{
-	unsigned long h;
-
-	if (likely(in_softirq()))
-		return tfw_http_req_key_calc(req);
-
-	kernel_fpu_begin();
-
-	h = tfw_http_req_key_calc(req);
-
-	kernel_fpu_end();
-
-	return h;
-}
 
 static bool
 tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
@@ -233,9 +212,10 @@ node_db(void)
 
 /**
  * Get a CPU identifier from @node to schedule a work.
+ * TODO do better CPU scheduling
  */
 static int
-tfw_cache_sched_work_cpu(TfwHttpReq *req)
+tfw_cache_sched_cpu(TfwHttpReq *req)
 {
 	return c_nodes[req->node].cpu;
 }
@@ -446,7 +426,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	if (!cache_cfg.cache)
 		return;
 
-	key = tfw_cache_key_calc(req);
+	key = tfw_http_req_key_calc(req);
 
 	tot_len = sizeof(TfwCacheEntry)
 		  + req->uri_path.len + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len
@@ -467,38 +447,29 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	}
 }
 
-static void
-tfw_cache_resp_process_node(struct work_struct *work)
+int
+tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
+		  tfw_http_cache_cb_t action)
 {
-	TfwCWork *cw = (TfwCWork *)work;
+	int cpu;
+	TfwWorkTasklet *ct;
+	TfwCWork cw;
 
-	cw->action(cw->req, cw->resp);
-
-	kmem_cache_free(c_cache, cw);
-}
-
-void
-tfw_cache_resp_process(TfwHttpResp *resp, TfwHttpReq *req,
-		       tfw_http_cache_cb_t action)
-{
-	TfwCWork *cw;
-
-	if (cache_cfg.cache != TFW_CACHE_SHARD) {
+	if (!cache_cfg.cache) {
 		action(req, resp);
-		return;
+		return 0;
 	}
 
-	cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
-	if (!cw) {
-		action(req, resp);
-		return;
-	}
-	INIT_WORK(&cw->work, tfw_cache_resp_process_node);
-	cw->req = req;
-	cw->resp = resp;
-	cw->action = action;
-	queue_work_on(tfw_cache_sched_work_cpu(req), cache_wq,
-		      (struct work_struct *)cw);
+	cw.req = req;
+	cw.resp = resp;
+	cw.action = action;
+	cw.key = tfw_http_req_key_calc(req);
+	req->node = (cache_cfg.cache == TFW_CACHE_SHARD)
+		    ? tfw_cache_key_node(cw.key)
+		    : numa_node_id();
+	cpu = tfw_cache_sched_cpu(req);
+	ct = &per_cpu(cache_wq, cpu);
+	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work);
 }
 
 static int
@@ -689,7 +660,7 @@ err:
 }
 
 static void
-__cache_req_process_node(TfwHttpReq *req, unsigned long key,
+cache_req_process_node(TfwHttpReq *req, unsigned long key,
 			 tfw_http_cache_cb_t action)
 {
 	TfwCacheEntry *ce = NULL;
@@ -720,55 +691,25 @@ out:
 }
 
 static void
-tfw_cache_req_process_node(struct work_struct *work)
+tfw_wq_tasklet(unsigned long data)
 {
-	TfwCWork *cw = (TfwCWork *)work;
+	TfwWorkTasklet *ct = (TfwWorkTasklet *)data;
+	TfwCWork cw;
 
-	__cache_req_process_node(cw->req, cw->key, cw->action);
-
-	kmem_cache_free(c_cache, cw);
+	while (!tfw_wq_pop(&ct->wq, &cw)) {
+		if (!cache_cfg.cache || cw.resp)
+			cw.action(cw.req, cw.resp);
+		else 
+			cache_req_process_node(cw.req, cw.key, cw.action);
+	}
 }
 
-/**
- * Process @req at node which possesses the cached data required to fulfill
- * the request. In worse case the request can be assembled in softirq at
- * one node and the cached response can be prepared at the second node.
- * Note that RFS + XFS are responsible for processing the same socket only
- * at one CPU, so response is always sent through the same CPU where a request
- * was received.
- */
-void
-tfw_cache_req_process(TfwHttpReq *req, tfw_http_cache_cb_t action)
+static void
+tfw_cache_ipi(struct irq_work *work)
 {
-	unsigned long key;
+	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
 
-	if (!cache_cfg.cache) {
-		action(req, NULL);
-		return;
-	}
-
-	key = tfw_cache_key_calc(req);
-	req->node = tfw_cache_key_node(key);
-
-	if (cache_cfg.cache == TFW_CACHE_REPLICA)
-		goto process_locally;
-
-	if (req->node != numa_node_id()) {
-		/* Schedule the cache entry to the right node. */
-		TfwCWork *cw = kmem_cache_alloc(c_cache, GFP_ATOMIC);
-		if (!cw)
-			goto process_locally;
-		INIT_WORK(&cw->work, tfw_cache_req_process_node);
-		cw->req = req;
-		cw->action = action;
-		cw->key = key;
-		queue_work_on(tfw_cache_sched_work_cpu(req), cache_wq,
-			      (struct work_struct *)cw);
-		return;
-	}
-
-process_locally:
-	__cache_req_process_node(req, key, action);
+	tasklet_schedule(&ct->tasklet);
 }
 
 /**
@@ -799,15 +740,15 @@ tfw_cache_mgr(void *arg)
 static int
 tfw_cache_start(void)
 {
-	int nid, r = 1;
+	int i, r = 1;
 
 	if (!cache_cfg.cache)
 		return 0;
 
-	for_each_node_with_cpus(nid) {
-		c_nodes[nid].db = tdb_open(cache_cfg.db_path,
-					   cache_cfg.db_size, 0, nid);
-		if (!c_nodes[nid].db)
+	for_each_node_with_cpus(i) {
+		c_nodes[i].db = tdb_open(cache_cfg.db_path,
+					 cache_cfg.db_size, 0, i);
+		if (!c_nodes[i].db)
 			goto close_db;
 	}
 
@@ -818,52 +759,40 @@ tfw_cache_start(void)
 		goto close_db;
 	}
 
-	c_cache = KMEM_CACHE(tfw_cache_work_t, 0);
-	if (!c_cache)
-		goto err_cache;
-
 	tfw_init_node_cpus();
 
-	/*
-	 * WQ_MEM_RECLAIM	- allow the workers to do progress
-	 * 			  in memory preasure;
-	 * WQ_UNBOUND		- schedule work to particular node and
-	 * 			  let the system scheduler to scheduler worker
-	 * 			  among node cpus.
-	 *
-	 * TODO use tasklets and TfwWorkQueue for cache processing
-	 * Probably threading should be at TDB side...
-	 */
-	cache_wq = alloc_workqueue("tfw_cache_wq",
-				   WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
-	if (!cache_wq)
-		goto err_wq;
+	TFW_WQ_CHECKSZ(TfwCWork);
+	for_each_online_cpu(i) {
+		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
+		tfw_wq_init(&ct->wq, cpu_to_node(i));
+		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
+		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
+	}
 
 	return 0;
-err_wq:
-	kmem_cache_destroy(c_cache);
-err_cache:
-	kthread_stop(cache_mgr_thr);
 close_db:
-	for_each_node_with_cpus(nid)
-		tdb_close(c_nodes[nid].db);
+	for_each_node_with_cpus(i)
+		tdb_close(c_nodes[i].db);
 	return r;
 }
 
 static void
 tfw_cache_stop(void)
 {
-	int nid;
+	int i;
 
 	if (!cache_cfg.cache)
 		return;
 
-	destroy_workqueue(cache_wq);
-	kmem_cache_destroy(c_cache);
+	for_each_online_cpu(i) {
+		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
+		tfw_wq_destroy(&ct->wq);
+		tasklet_kill(&ct->tasklet);
+	}
 	kthread_stop(cache_mgr_thr);
 
-	for_each_node_with_cpus(nid)
-		tdb_close(c_nodes[nid].db);
+	for_each_node_with_cpus(i)
+		tdb_close(c_nodes[i].db);
 }
 
 static TfwCfgSpec tfw_cache_cfg_specs[] = {

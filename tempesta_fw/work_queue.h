@@ -20,22 +20,44 @@
 #ifndef __TFW_WORK_QUEUE_H__
 #define __TFW_WORK_QUEUE_H__
 
+#include <linux/irq_work.h>
+
+#define WQ_ITEM_SZ		32
+#define TFW_WQ_CHECKSZ(t)	BUG_ON(sizeof(t) != WQ_ITEM_SZ)
+typedef struct {
+	long			_[WQ_ITEM_SZ / sizeof(long)];
+} __WqItem;
+
 typedef struct __ThrPos {
 	atomic64_t		tail, head;
 } __ThrPos;
 
 typedef struct {
 	__ThrPos __percpu	*thr_pos;
-	void			**array;
+	__WqItem		*array;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
 	atomic64_t		last_head ____cacheline_aligned;
 	atomic64_t		last_tail ____cacheline_aligned;
 } TfwRBQueue;
 
-int tfw_wq_si_init(TfwRBQueue *wq);
-void tfw_wq_si_destroy(TfwRBQueue *wq);
-int tfw_wq_si_push(TfwRBQueue *wq, void *ptr);
-void *tfw_wq_si_pop(TfwRBQueue *wq);
+int tfw_wq_init(TfwRBQueue *wq, int node);
+void tfw_wq_destroy(TfwRBQueue *wq);
+int __tfw_wq_push(TfwRBQueue *wq, void *ptr);
+int tfw_wq_pop(TfwRBQueue *wq, void *buf);
+
+static inline int
+tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work)
+{
+	int r = __tfw_wq_push(wq, ptr);
+
+	if (unlikely(r))
+		return r;
+
+	if (raw_smp_processor_id() != cpu)
+		irq_work_queue_on(work, cpu);
+
+	return 0;
+}
 
 #endif /* __TFW_WORK_QUEUE_H__ */
