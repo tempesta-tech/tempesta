@@ -35,7 +35,7 @@
  * @skb_list	- list of sk_buff's belonging to the message;
  * @len		- total body length;
  */
-typedef struct tfw_msg_t {
+typedef struct {
 	struct list_head	msg_list;
 	TfwGState		state;
 	SsSkbList		skb_list;
