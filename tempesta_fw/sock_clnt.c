@@ -39,6 +39,7 @@
 #include "sync_socket.h"
 #include "tempesta_fw.h"
 #include "server.h"
+#include "procfs.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -152,6 +153,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	SsProto *listen_sock_proto;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
+	TFW_INC_STAT_BH(clnt.conn_attempts);
 
 	/*
 	 * The new sk->sk_user_data points to the TfwListenSock of the parent
@@ -192,6 +194,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		sk, conn, cli);
+	TFW_INC_STAT_BH(clnt.conn_established);
 	return 0;
 
 err_conn:
@@ -221,6 +224,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 
 	tfw_sock_cli_conn_drop(conn, sk);
 
+	TFW_INC_STAT_BH(clnt.conn_disconnects);
 	return 0;
 }
 
