@@ -237,7 +237,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, resp, msg);
 
-	tfw_connection_send(hmreq->conn, (TfwMsg *)resp, true);
+	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)resp, true);
 	tfw_http_msg_free(resp);
 
 	return 0;
@@ -261,6 +261,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
+
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
@@ -611,7 +612,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		 * it is generated from the cache, so unrefer all its data.
 		 */
 		if (tfw_http_adjust_resp(resp, req) == 0)
-			tfw_connection_send(req->conn, (TfwMsg *)resp, true);
+			tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
@@ -887,7 +888,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_http_adjust_resp(resp, req))
 		goto err;
 
-	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
+	tfw_cli_conn_send(req->conn, (TfwMsg *)resp, false);
 err:
 	tfw_http_send_500((TfwHttpMsg *)req);
 	/* Now we don't need the request and the response anymore. */
