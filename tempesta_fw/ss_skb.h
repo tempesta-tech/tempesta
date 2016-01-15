@@ -30,15 +30,14 @@
  * Responses from socket hook functions.
  */
 enum {
+	/* Generic socket error. */
+	SS_ERR		= -3,
 	/* The packet must be dropped. */
 	SS_DROP		= -2,
-
 	/* The packet should be stashed (made by callback). */
 	SS_POSTPONE	= -1,
-
 	/* The packet looks good and we can safely pass it. */
 	SS_OK		= 0,
-
 	/* Stop passing data to the upper layer for processing. */
 	SS_STOP		= 1,
 };

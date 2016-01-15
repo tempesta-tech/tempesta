@@ -43,7 +43,7 @@
  *   - Handle LWS* between header and value for raw headers.
  *   - Case-sensitive matching for headers when required by RFC.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it

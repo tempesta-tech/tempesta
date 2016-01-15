@@ -14,7 +14,7 @@
  * These things are specific to Tempesta FW, so they are located here,
  * and generic testing functions/macros are located in test.c/test.h
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it

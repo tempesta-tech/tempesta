@@ -23,7 +23,7 @@
  * 5. This is the basic structure for data transformation logic (including TL),
  *    so we must keep skb pointers to be able to rewrite underlying packets.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
