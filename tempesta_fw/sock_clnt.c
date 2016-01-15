@@ -34,6 +34,7 @@
 #include "classifier.h"
 #include "client.h"
 #include "connection.h"
+#include "http_msg.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
@@ -45,28 +46,78 @@
  * ------------------------------------------------------------------------
  */
 
+/**
+ * TfwConnection extension for client sockets.
+ *
+ * @conn		- The base structure. Must be the first member.
+ * @ka_timer	- The keep-alive timer for the connection.
+ *
+ */
+typedef struct {
+	TfwConnection		conn;
+	struct timer_list	ka_timer;
+} TfwCliConnection;
+
 static struct kmem_cache *tfw_cli_conn_cache;
+static int tfw_cli_cfg_ka_timeout = -1;
 
-static TfwConnection *
-tfw_cli_conn_alloc(void)
+static void
+tfw_sock_cli_conn_drop(TfwConnection *conn, struct sock *sk)
 {
-	TfwConnection *conn;
+	/*
+	 * Withdraw from socket activity. Connection is now closed,
+	 * and Tempesta is not called anymore on events in the socket.
+	 * Remove the connection from the list that is kept in @peer.
+	 * Release resources allocated in Tempesta for the connection.
+	 */
+	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_unlink_from_peer(conn);
+	tfw_connection_destruct(conn);
 
-	conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
-	if (!conn)
-		return NULL;
-
-	tfw_connection_init(conn);
-
-	return conn;
+	/*
+	 * Connection @conn, as well as @sk and @peer that make
+	 * the essence of it, remain accessible as long as there
+	 * are references to @conn.
+	 */
+	if (tfw_connection_put(conn))
+		tfw_cli_conn_release(conn);
 }
 
 static void
-tfw_cli_conn_free(TfwConnection *conn)
+tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
+	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
+	TFW_DBG("Client timeout end\n");
+	if (ss_close(cli_conn->conn.sk) == SS_OK) {
+		tfw_sock_cli_conn_drop(&cli_conn->conn, cli_conn->conn.sk);
+	}
+}
+
+static TfwCliConnection *
+tfw_cli_conn_alloc(void)
+{
+	TfwCliConnection *cli_conn;
+
+	cli_conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	if (!cli_conn)
+		return NULL;
+
+	tfw_connection_init(&cli_conn->conn);
+	setup_timer(&cli_conn->ka_timer,
+		    tfw_sock_cli_keepalive_timer_cb,
+		    (unsigned long)cli_conn);
+
+	return cli_conn;
+}
+
+static void
+tfw_cli_conn_free(TfwCliConnection *cli_conn)
+{
+	BUG_ON(timer_pending(&cli_conn->ka_timer));
+
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_cli_conn_cache, conn);
+	tfw_connection_validate_cleanup(&cli_conn->conn);
+	kmem_cache_free(tfw_cli_conn_cache, cli_conn);
 }
 
 void
@@ -76,7 +127,16 @@ tfw_cli_conn_release(TfwConnection *conn)
 		tfw_connection_unlink_to_sk(conn);
 	if (likely(conn->peer))
 		tfw_client_put((TfwClient *)conn->peer);
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free((TfwCliConnection *)conn);
+}
+
+void
+tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
+{
+	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
+	tfw_connection_send(conn, msg, unref_data);
+	mod_timer(&cli_conn->ka_timer,
+		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 }
 
 /**
@@ -87,6 +147,7 @@ tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
 	TfwClient *cli;
+	TfwCliConnection *cli_conn;
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
 
@@ -107,11 +168,13 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = tfw_cli_conn_alloc();
-	if (!conn) {
+	cli_conn = tfw_cli_conn_alloc();
+	if (!cli_conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
+
+	conn = &cli_conn->conn;
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
@@ -138,7 +201,7 @@ err_conn:
 	 * to it yet. There's no need to play with conn->refcnt. We can
 	 * just free @conn unconditionally.
 	 */
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free(cli_conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
@@ -147,28 +210,16 @@ err_client:
 int
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	TfwConnection *conn = rcu_dereference_sk_user_data(sk);
+	TfwCliConnection *cli_conn = rcu_dereference_sk_user_data(sk);
+	TfwConnection *conn = &cli_conn->conn;
 
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		sk, conn, conn->peer);
 
-	/*
-	 * Withdraw from socket activity. Connection is now closed,
-	 * and Tempesta is not called anymore on events in the socket.
-	 * Remove the connection from the list that is kept in @peer.
-	 * Release resources allocated in Tempesta for the connection.
-	 */
-	tfw_connection_unlink_from_sk(sk);
-	tfw_connection_unlink_from_peer(conn);
-	tfw_connection_destruct(conn);
+	/* Prevent races with timer callbacks. */
+	del_timer_sync(&cli_conn->ka_timer);
 
-	/*
-	 * Connection @conn, as well as @sk and @peer that make
-	 * the essence of it, remain accessible as long as there
-	 * are references to @conn.
-	 */
-	if (tfw_connection_put(conn))
-		tfw_cli_conn_release(conn);
+	tfw_sock_cli_conn_drop(conn, sk);
 
 	return 0;
 }
@@ -433,6 +484,33 @@ parse_err:
 	return -EINVAL;
 }
 
+static int
+tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	r = tfw_cfg_check_val_n(ce, 1);
+	if (r)
+		return -EINVAL;
+
+	r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout);
+	if (r) {
+		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			ce->vals[0]
+			? ce->vals[0]
+			: "No value specified");
+		return -EINVAL;
+	}
+
+	if (tfw_cli_cfg_ka_timeout < 0) {
+		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			"Value less the zero");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void
 tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 {
@@ -451,6 +529,13 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			.allow_repeat = true,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
 		},
+		{
+			"keepalive_timeout",
+			"75",
+			tfw_sock_clnt_cfg_handle_keepalive,
+			.allow_repeat = false,
+			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
+		},
 		{}
 	}
 };
@@ -466,7 +551,7 @@ tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwConnection),
+					       sizeof(TfwCliConnection),
 					       0, 0, NULL);
 	return !tfw_cli_conn_cache ? -ENOMEM : 0;
 }
