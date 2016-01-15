@@ -132,7 +132,7 @@ typedef struct {
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
-typedef struct tfw_http_parser {
+typedef struct {
 	unsigned short	to_go;
 	int		state;
 	int		_i_st;
