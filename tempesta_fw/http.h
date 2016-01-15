@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -249,7 +249,7 @@ typedef struct {
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
-	unsigned short		node;
+	unsigned short		node; // TODO cpu/dev-queue?
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
 	unsigned long		tm_header;

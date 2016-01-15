@@ -3,7 +3,7 @@
  *
  * HTTP processing.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -394,7 +394,8 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
-		if (ss_close(hmreq->conn->sk) == SS_OK)
+		/* FIXME HTTP callback can be called from workqueue context. */
+		if (ss_close_bh(hmreq->conn->sk) == SS_OK)
 			tfw_sock_clnt_drop(hmreq->conn->sk);
 	}
 	tfw_http_conn_msg_free(hmreq);
@@ -473,7 +474,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 }
 
 /**
- * Removes Connection header from HTTP message @msg if @conn_flg is zero,
+ * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
  *
  * skb's can be shared between number of HTTP messages. We don't copy skb if
@@ -499,15 +500,43 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	}
 }
 
+/*
+ * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
+ */
 static int
-tfw_http_del_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
+tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 {
-	if (conn_flg == TFW_HTTP_CONN_KA) {
-		return TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive",
-					    TFW_HTTP_HDR_RAW);
-	}
+	int ret;
 
-	return 0;
+	if ((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
+		return 0;
+
+	switch (conn_flg) {
+	case TFW_HTTP_CONN_CLOSE:
+		ret = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		return (ret == -ENOENT) ? 0 : ret;
+	case TFW_HTTP_CONN_KA:
+		/*
+		 * If present, "Keep-Alive" header informs the other side
+		 * of the timeout policy for a connection. Otherwise, it's
+		 * presumed that default policy is in action.
+		 *
+		 * TODO: Add/Replace "Keep-Alive" header when Tempesta
+		 * implements connection timeout policies and the policy
+		 * for the connection differs from default policy.
+		 */
+		return 0;
+	default:
+		/*
+		 * "Keep-Alive" header mandates that "Connection: keep-alive"
+		 * header in present in HTTP message. HTTP/1.1 connections
+		 * are keep-alive by default. If we want to add "Keep-Alive"
+		 * header then "Connection: keep-alive" header must be added
+		 * as well. TFW_HTTP_CONN_KA flag will force the addition of
+		 * "Connection: keep-alive" header to HTTP message.
+		 */
+		return 0;
+	}
 }
 
 static int
@@ -560,15 +589,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_hdr_connection(m, conn_flg);
+	r = tfw_http_set_hdr_keep_alive(m, conn_flg);
 	if (r < 0)
 		return r;
 
-	r = tfw_http_del_hdr_keep_alive(m, conn_flg);
-	if (r < 0)
-		return r;
-
-	return r;
+	return tfw_http_set_hdr_connection(m, conn_flg);
 }
 
 /*
@@ -733,6 +758,31 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
+
+		/*
+		 * In HTTP 0.9 the server always closes the connection
+		 * after sending the response.
+		 *
+		 * In HTTP 1.0 the server always closes the connection
+		 * after sending the response unless the client sent a
+		 * a "Connection: keep-alive" request header, and the
+		 * server sent a "Connection: keep-alive" response header.
+		 *
+		 * This behavior was added to existing HTTP 1.0 protocol.
+		 * RFC 1945 section 1.3 says:
+		 * "Except for experimental applications, current practice
+		 * requires that the connection be established by the client
+		 * prior to each request and closed by the server after
+		 * sending the response."
+		 *
+		 * Make it work this way in Tempesta by setting the flag.
+		 */
+		if ((hmreq->version == TFW_HTTP_VER_09)
+		    || ((hmreq->version == TFW_HTTP_VER_10)
+			&& !(hmreq->flags & __TFW_HTTP_CONN_MASK)))
+		{
+			hmreq->flags |= TFW_HTTP_CONN_CLOSE;
+		}
 
 		/*
 		 * The request has been successfully parsed and processed.

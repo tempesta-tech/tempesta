@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -183,6 +183,7 @@ TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 	EXPECT_TRUE(tfw_stricmpspn(&s1, s2, 0) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(&s1, s3, 'f') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'z') == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s4, 0) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(&s1, s4, 't') == 0);
 }
@@ -200,7 +201,7 @@ TEST(tfw_stricmpspn, handles_empty_strs)
 	TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
-	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'a') == 0);
 }
