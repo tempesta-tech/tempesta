@@ -2,7 +2,7 @@
 #
 # Tempesta FW service script.
 #
-# Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
 # Copyright (C) 2015 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -95,6 +95,9 @@ load_modules()
 start()
 {
 	echo "Starting Tempesta..."
+
+	# Tempesta builds socket buffers by itself, don't cork TCP segments.
+	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
 
 	# Create database directory if it doesn't exist.
 	mkdir -p /opt/tempesta/db/

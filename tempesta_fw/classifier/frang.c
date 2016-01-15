@@ -23,7 +23,7 @@
  * For instance, if Host: header is present it may not contain an IP address.
  * Or, that singular header fields may not be duplicated in an HTTP header.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
