@@ -1,10 +1,8 @@
 /**
  *		Tempesta FW
  *
- * HTTP processing.
- *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -394,7 +392,7 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
 		/* FIXME HTTP callback can be called from workqueue context. */
-		if (ss_close_bh(hmreq->conn->sk) == SS_OK)
+		if (ss_close(hmreq->conn->sk) == SS_OK)
 			tfw_sock_clnt_drop(hmreq->conn->sk);
 	}
 	tfw_http_conn_msg_free(hmreq);
@@ -829,8 +827,13 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		tfw_cache_req_process((TfwHttpReq *)hmreq,
-				      tfw_http_req_cache_cb);
+		if (tfw_cache_process((TfwHttpReq *)hmreq, NULL,
+				      tfw_http_req_cache_cb))
+		{
+			tfw_http_send_500(hmreq);
+			tfw_http_conn_cli_dropfree(hmreq);
+			return TFW_PASS;
+		}
 
 		/*
 		 * According to RFC 7230 6.3.2, connection with a client
@@ -886,6 +889,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	tfw_connection_send(req->conn, (TfwMsg *)resp, false);
 err:
+	tfw_http_send_500((TfwHttpMsg *)req);
 	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
@@ -1069,8 +1073,14 @@ next_resp:
 			 * the message, which can be used to release it.
 			 */
 			conn->msg = NULL;
-			tfw_cache_resp_process((TfwHttpResp *)hmresp,
-					       req, tfw_http_resp_cache_cb);
+			if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
+					      tfw_http_resp_cache_cb))
+			{
+				tfw_http_send_500((TfwHttpMsg *)req);
+				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
+				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+				return TFW_PASS;
+			}
 		} else {
 			/* @conn->msg will get NULLed in the process. */
 			TFW_WARN("Paired request missing\n");

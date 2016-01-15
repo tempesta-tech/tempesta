@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/irq_work.h>
 #include <linux/module.h>
 #include <linux/tempesta.h>
 #include <net/protocol.h>
@@ -28,6 +29,17 @@
 #include "sync_socket.h"
 #include "work_queue.h"
 
+typedef enum {
+	SS_SEND,
+	SS_CLOSE,
+} SsAction;
+
+typedef struct {
+	struct sock	*sk;
+	SsSkbList	skb_list;
+	SsAction	action;
+} SsWork;
+
 #if defined(DEBUG) && (DEBUG >= 2)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
@@ -36,36 +48,30 @@ static const char *ss_statename[] = {
 };
 #endif
 
-static TfwRBQueue si_wq;
+static DEFINE_PER_CPU(TfwRBQueue, si_wq);
+static DEFINE_PER_CPU(struct irq_work, ipi_work);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
-/*
- * Socket locks have a specific property where a lock can be taken in
- * the same thread on two different sockets at the same time. However,
- * lockdep gets nervous when that happens, so there's a notion of nested
- * locks that belong in the same class.
- *
- * Usually ss_tcp_data_ready(), and consequently ss_tcp_process_data()
- * are called from tcp_rcv_established() where the socket is locked with
- * bh_sock_lock_nested(). However, in a rare case they are called from
- * tcp_child_process() right after the connection has been established.
- * The socket is a child socket, and it is under bh_sock_lock(), while
- * the parent listening socket is under bh_sock_lock_nested().
- *
- * A socket is unlocked, and then locked again in Tempesta. Instead of
- * having to determine which lock to use to relock the socket, increase
- * the level of nesting. That way the convention of nested socket locks
- * is not broken, and lockdep is kept happy.
- */
-#define DOUBLE_DEPTH_NESTING		(SINGLE_DEPTH_NESTING + 1)
+static void
+ss_ipi(struct irq_work *work)
+{
+	raise_softirq(NET_TX_SOFTIRQ);
+}
 
-#define bh_lock_sock_double_nested(__sk)				\
-			spin_lock_nested(&((__sk)->sk_lock.slock),	\
-			DOUBLE_DEPTH_NESTING)
+static int
+ss_wq_push(SsWork *sw)
+{
+	int cpu = sw->sk->sk_incoming_cpu;
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+	struct irq_work *iw = &per_cpu(ipi_work, cpu);
+
+	return tfw_wq_push(wq, sw, cpu, iw);
+}
+
 /*
  * Socket is in a usable state that allows processing
  * and sending of HTTP messages. This function must
@@ -160,124 +166,37 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 		tp->nonagle &= ~TCP_NAGLE_PUSH;
 }
 
-/**
- * Socket backlog processing from release_sock().
- */
-static void
-ss_tcp_procees_backlog(struct sock *sk)
-{
-	if (sk->sk_backlog.tail) {
-		struct sk_buff *skb = sk->sk_backlog.head;
-		do {
-			sk->sk_backlog.head = sk->sk_backlog.tail = NULL;
-			do {
-				struct sk_buff *next = skb->next;
-
-				prefetch(next);
-				WARN_ON_ONCE(skb_dst_is_noref(skb));
-				skb->next = NULL;
-
-				sk_backlog_rcv(sk, skb);
-
-				skb = next;
-			} while (skb);
-		} while ((skb = sk->sk_backlog.head));
-	}
-	sk->sk_backlog.len = 0;
-
-	if (sk->sk_prot->release_cb)
-		sk->sk_prot->release_cb(sk);
-}
-
-/**
- * Release socket lock w/o backlog processing, see release_sock().
- */
-static void
-ss_release_sock(struct sock *sk)
-{
-	mutex_release(&sk->sk_lock.dep_map, 1, _RET_IP_);
-	sock_release_ownership(sk);
-}
-
 /*
  * ------------------------------------------------------------------------
  *  	Server and client connections handling
  * ------------------------------------------------------------------------
  */
 static void
-ss_tx_action(void)
+ss_do_send(struct sock *sk, SsSkbList *skb_list)
 {
-	int size, mss;
-	struct sock *sk;
-
-	while ((sk = tfw_wq_si_pop(&si_wq))) {
-		mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-
-		SS_DBG("%s: sk=%p queue_empty=%d send_head=%p sk_state=%d"
-		       " mss=%d size=%d\n", __func__,
-		       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-		       sk->sk_state, mss, size);
-
-		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH,
-			 size);
-	}
-}
-
-/**
- * Directly insert all skbs from @skb_list into @sk TCP write queue regardless
- * write buffer size. This allows directly forward modified packets without
- * copying.
- * See do_tcp_sendpages() and tcp_sendmsg() in linux/net/ipv4/tcp.c.
- *
- * Called in softirq context.
- *
- * TODO use MSG_MORE untill we reach end of message.
- */
-static int
-__ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
-{
-	int r = 0;
+	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb, *iskb;
-	struct tcp_sock *tp;
 	struct dst_entry *dst = NULL;
+	int r = 0, size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	BUG_ON(sk == NULL);
-	BUG_ON(ss_skb_queue_empty(skb_list));
-
-	SS_DBG("%s: socket %p (%s), sk_socket=%p\n",
-	       __func__, sk, ss_statename[sk->sk_state], sk->sk_socket);
+	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
+	       " sk_state=%d mss=%d size=%d\n", __func__,
+	       raw_smp_processor_id(), sk, tcp_write_queue_empty(sk),
+	       tcp_send_head(sk), sk->sk_state, mss, size);
 
 	if (unlikely(!ss_sock_active(sk)))
-		return -EPIPE;
-
-	tp = tcp_sk(sk);
+		return;
 
 	for (iskb = ss_skb_peek(skb_list), skb = iskb;
 	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
 	{
-		/*
-		 * Remove the skb from Tempesta lists if we won't use it,
-		 * or clone it if it's going to be used by Tempesta during
-		 * and after the transmission.
-		 */
-		if (pass_skb) {
-			ss_skb_unlink(skb_list, skb);
-		} else {
-			/* tcp_transmit_skb() will clone the skb. */
-			skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
-			if (!skb) {
-				SS_WARN("Unable to copy an egress SKB.\n");
-				r = -ENOMEM;
-				break;
-			}
-		}
+		ss_skb_unlink(skb_list, skb);
 
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
 
 		/*
-		 * TODO
-		 * Mark all data with PUSH to force receiver to consume
+		 * TODO Mark all data with PUSH to force receiver to consume
 		 * the data. Currently we do this for debugging purposes.
 		 * We need to do this only for complete messages/skbs.
 		 * Actually tcp_push() already does it for the last skb.
@@ -303,7 +222,7 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		if (!dst) {
 			dst = ss_skb_route(skb, tp);
 			if (!dst) {
-				SS_WARN("cannot route skb\n");
+				SS_WARN("cannot route skb %p\n", skb);
 				r = -ENODEV;
 				break;
 			}
@@ -317,50 +236,79 @@ __ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	SS_DBG("%s: sk=%p send_head=%p sk_state=%d\n", __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
+	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
+
+	if (unlikely(r)) {
+		for (iskb = ss_skb_peek(skb_list), skb = iskb;
+		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
+		{
+			ss_skb_unlink(skb_list, skb);
+			kfree_skb(skb);
+		}
+	}
+}
+
+/**
+ * Directly insert all skbs from @skb_list into @sk TCP write queue regardless
+ * write buffer size. This allows directly forward modified packets without
+ * copying. See do_tcp_sendpages() and tcp_sendmsg() in linux/net/ipv4/tcp.c.
+ *
+ * Can be called in softirq context as well as from kernel thread.
+ *
+ * TODO use MSG_MORE untill we reach end of message.
+ */
+int
+ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
+{
+	int r = 0;
+	SsWork sw = {
+		.sk	= sk,
+		.action	= SS_SEND,
+	};
+
+	BUG_ON(!sk);
+	BUG_ON(ss_skb_queue_empty(skb_list));
+
+	SS_DBG("%s: cpu=%d sk=%p (%s)\n", __func__,
+	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+
+	/*
+	 * Remove the skb from Tempesta lists if we won't use it,
+	 * or clone it if it's going to be used by Tempesta during
+	 * and after the transmission.
+	 */
+	if (pass_skb) {
+		memcpy(&sw.skb_list, skb_list, sizeof(*skb_list));
+		ss_skb_queue_head_init(skb_list);
+	} else {
+		struct sk_buff *skb, *iskb;
+
+		ss_skb_queue_head_init(&sw.skb_list);
+		for (iskb = ss_skb_peek(skb_list), skb = iskb;
+		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
+		{
+			/* tcp_transmit_skb() will clone the skb. */
+			skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			if (!skb) {
+				SS_WARN("Unable to copy an egress SKB.\n");
+				r = -ENOMEM;
+				break;
+			}
+			ss_skb_queue_tail(&sw.skb_list, skb);
+		}
+	}
+
 	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
-	 *
-	 * TODO schedule si_wq by NUMA node.
 	 */
-	if (tfw_wq_si_push(&si_wq, sk)) {
+	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
-		return -ENOMEM;
+		r = r ? : -EBUSY;
 	}
 
 	return r;
 }
-
-void
-ss_send_bh(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
-{
-	BUG_ON(!in_softirq());
-
-	/* Synchronize concurrent socket writing in different softirqs. */
-	bh_lock_sock_double_nested(sk);
-	__ss_send(sk, skb_list, pass_skb);
-	bh_unlock_sock(sk);
-}
-EXPORT_SYMBOL(ss_send_bh);
-
-/**
- * Just like tcp_sendmsg(), but doesn't copy data from user space to skb.
- */
-void
-ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
-{
-	BUG_ON(in_softirq());
-
-	/* Kernel thread conext synchronization. */
-	lock_sock_nested(sk, DOUBLE_DEPTH_NESTING);
-	__ss_send(sk, skb_list, pass_skb);
-	ss_release_sock(sk);
-
-	spin_lock_bh(&sk->sk_lock.slock);
-	ss_tcp_procees_backlog(sk);
-	spin_unlock_bh(&sk->sk_lock.slock);
-}
-EXPORT_SYMBOL(ss_send);
 
 /**
  * This is main body of the socket close function in Sync Sockets.
@@ -371,8 +319,8 @@ EXPORT_SYMBOL(ss_send);
  * This function must be used only for data sockets.
  * Use standard sock_release() for listening sockets.
  *
- * In most cases it's called from softirq and from softirqd which processes data
- * from the socket (RSS and RPS distributes packets in such way).
+ * In most cases it's called from softirq and from softirqd which processes
+ * data from the socket (RSS and RPS distributes packets in such way).
  * However, it also can be called from process context,
  * e.g. on module unloading.
  *
@@ -393,9 +341,11 @@ ss_do_close(struct sock *sk)
 		return;
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 
-	SS_DBG("Close socket %p (%s): account=%d sk_socket=%p refcnt=%d\n",
+	SS_DBG("Close socket %p (%s): cpu=%d account=%d sk_socket=%p"
+	       " refcnt=%d\n",
 	       sk, ss_statename[sk->sk_state], sk_has_account(sk),
-	       sk->sk_socket, atomic_read(&sk->sk_refcnt));
+	       sk->sk_socket, atomic_read(&sk->sk_refcnt),
+	       raw_smp_processor_id());
 
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
@@ -466,7 +416,11 @@ adjudge_to_death:
 	if (likely(!in_softirq()))
 		bh_lock_sock(sk);
 
-	ss_tcp_procees_backlog(sk);
+	/*
+	 * SS sockets are processed in softirq only,
+	 * so backlog queue should be empty.
+	 */
+	WARN_ON(sk->sk_backlog.tail);
 
 	percpu_counter_inc(sk->sk_prot->orphan_count);
 
@@ -503,71 +457,18 @@ out:
 		bh_unlock_sock(sk);
 }
 
-/*
- * This function is for use by other Tempesta components. It may
- * be called either in the context of the socket that is being
- * closed, or in the context of a completely different socket.
- *
- * This function may be executed concurrently with ss_do_close()
- * that is triggered by an incoming FIN. Only one of the two must
- * be able to proceed with closing of the socket.
- * - The body is protected by the socket lock which ensures
- *   that these functions don't run concurrently.
- * - A socket is no longer live after the body is executed
- *   by either of these functions.
- * - If ss_close_bh() is called first, then ss_do_close() is never
- *   called by the kernel as the socket will be closed.
- * - If ss_do_close() is called first, then ss_close_bh() sees that
- *   the socket is not live and does not execute the body again.
- *
- * @return:
- *   SS_OK - the socket is closed in this call.
- *   SS_POSTPONE - the socket is (being) closed by someone else.
- */
-int
-ss_close_bh(struct sock *sk)
-{
-	BUG_ON(!in_softirq());
-
-	bh_lock_sock_double_nested(sk);
-
-	if (!ss_sock_live(sk)) {
-		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
-		bh_unlock_sock(sk);
-		return SS_POSTPONE;
-	}
-
-	ss_do_close(sk);
-
-	bh_unlock_sock(sk);
-
-	sock_put(sk);
-
-	return SS_OK;
-}
-EXPORT_SYMBOL(ss_close_bh);
-
 int
 ss_close(struct sock *sk)
 {
-	BUG_ON(in_softirq());
+	SsWork sw = {
+		.sk	= sk,
+		.action	= SS_CLOSE,
+	};
 
-	/* Synchronize with concurrent softirqs. */
-	spin_lock_bh(&sk->sk_lock.slock);
-	if (!ss_sock_live(sk)) {
-		SS_DBG("%s: Socket inactive: sk %p\n", __func__, sk);
-		bh_unlock_sock(sk);
-		return SS_POSTPONE;
+	if (ss_wq_push(&sw)) {
+		SS_WARN("Cannot schedule socket %p for closing\n", sk);
+		return SS_ERR;
 	}
-	sk->sk_data_ready = NULL;
-	sk->sk_state_change = NULL;
-	spin_unlock_bh(&sk->sk_lock.slock);
-
-	lock_sock(sk);
-	ss_do_close(sk);
-	ss_release_sock(sk);
-	sock_put(sk);
-
 	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
@@ -584,6 +485,8 @@ EXPORT_SYMBOL(ss_close);
  * This function is for internal Sync Sockets use only. It's called
  * under the socket lock taken by the kernel, and in the context of
  * the socket that is being closed.
+ *
+ * Called with locked socket.
  */
 static void
 ss_droplink(struct sock *sk)
@@ -656,8 +559,7 @@ ss_tcp_process_data(struct sock *sk)
 			off--;
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
-			// AK_DBG void *conn = rcu_dereference_sk_user_data(sk);
-			void *conn = rcu_dereference_raw(__sk_user_data((sk)));
+			void *conn = rcu_dereference_sk_user_data(sk);
 
 			/*
 			 * If @sk_user_data is unset, then this connection
@@ -668,41 +570,7 @@ ss_tcp_process_data(struct sock *sk)
 			 */
 			BUG_ON(conn == NULL);
 
-			/*
-			 * This runs in SoftIRQ context and under the socket
-			 * lock. RSS/RPS schedules ingress packets destined
-			 * for a specific socket to exactly the same SoftIRQ,
-			 * so only one ingress context can work on the socket
-			 * at any given time.
-			 * FIXME the comment above is wrong if we run client
-			 * workload on the same host with Tempesta.
-			 *
-			 * After ingress data is processed, this SoftIRQ
-			 * may call __ss_send() to send data through another
-			 * socket. At the same time the SoftIRQ for that
-			 * socket may call __ss_send() to send data in the
-			 * opposite direction through this socket. If both
-			 * sockets are locked, that would cause a deadlock.
-			 *
-			 * Generally there can be multiple client ingress
-			 * sockets sending data through the same server
-			 * socket that returns upstream data to the client
-			 * sockets. Thus __ss_send() can work concurrenly on
-			 * the same socket, whereas ss_tcp_process_data()
-			 * is not concurrent.
-			 *
-			 * Unlock the socket, let others send through it.
-			 * __ss_send() doesn't touch members of an ingress
-			 * socket. (Linux is lacking in that TCP ingress
-			 * and egress flows cannot run concurrently on
-			 * the same socket).
-			 */
-			BUG_ON(!spin_is_locked(&sk->sk_lock.slock));
-			bh_unlock_sock(sk);
-
 			r = SS_CALL(connection_recv, conn, skb, off);
-
-			bh_lock_sock_double_nested(sk);
 
 			/*
 			 * The socket @sk may have been closed as a result
@@ -723,7 +591,6 @@ ss_tcp_process_data(struct sock *sk)
 				goto out;
 			}
 
-			/* Stop processing data in the connection. */
 			if (r == SS_STOP) {
 				SS_DBG("Stop processing data: sk %p\n", sk);
 				break;
@@ -834,6 +701,8 @@ ss_tcp_data_ready(struct sock *sk)
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
 
+	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
+
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
 		 * Error packet received.
@@ -876,6 +745,8 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
 		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
+
+	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
@@ -1225,14 +1096,43 @@ ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 }
 EXPORT_SYMBOL(ss_getpeername);
 
+static void
+ss_tx_action(void)
+{
+	SsWork sw;
+
+	while (!tfw_wq_pop(this_cpu_ptr(&si_wq), &sw)) {
+		/* The socket should be accessed by one CPU only. */
+		WARN_ON(spin_is_locked(&sw.sk->sk_lock.slock));
+		spin_lock_bh(&sw.sk->sk_lock.slock);
+
+		switch (sw.action) {
+		case SS_SEND:
+			ss_do_send(sw.sk, &sw.skb_list);
+			break;
+		case SS_CLOSE:
+			ss_do_close(sw.sk);
+			sock_put(sw.sk);
+			break;
+		}
+
+		spin_unlock_bh(&sw.sk->sk_lock.slock);
+	}
+}
+
 int __init
 tfw_sync_socket_init(void)
 {
-	int r;
+	int r, cpu;
 
-	if ((r = tfw_wq_si_init(&si_wq))) {
-		SS_ERR("Cannot initialize softirq tx work queue\n");
-		return r;
+	TFW_WQ_CHECKSZ(SsWork);
+	for_each_possible_cpu(cpu) {
+		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
+			SS_ERR("Cannot initialize softirq tx work queue\n");
+			return r;
+		}
+		init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
 	}
 	tempesta_set_tx_action(ss_tx_action);
 
@@ -1242,6 +1142,9 @@ tfw_sync_socket_init(void)
 void
 tfw_sync_socket_exit(void)
 {
+	int cpu;
+
 	tempesta_del_tx_action();
-	tfw_wq_si_destroy(&si_wq);
+	for_each_possible_cpu(cpu)
+		tfw_wq_destroy(&per_cpu(si_wq, cpu));
 }

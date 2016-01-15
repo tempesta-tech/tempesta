@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/interrupt.h>
 #include <linux/percpu.h>
 #include <linux/slab.h>
 
@@ -44,8 +43,8 @@
 #define QSZ		1024
 #define QMASK		(QSZ - 1)
 
-static int
-tfw_q_init(TfwRBQueue *q, int node)
+int
+tfw_wq_init(TfwRBQueue *q, int node)
 {
 	int cpu;
 
@@ -63,7 +62,7 @@ tfw_q_init(TfwRBQueue *q, int node)
 	atomic64_set(&q->last_head, 0);
 	atomic64_set(&q->last_tail, 0);
 
-	q->array = kmalloc_node(QSZ * sizeof(void *), GFP_KERNEL, node);
+	q->array = kmalloc_node(QSZ * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
 		free_percpu(q->thr_pos);
 		return -ENOMEM;
@@ -72,8 +71,8 @@ tfw_q_init(TfwRBQueue *q, int node)
 	return 0;
 }
 
-static void
-tfw_q_destroy(TfwRBQueue *q)
+void
+tfw_wq_destroy(TfwRBQueue *q)
 {
 	kfree(q->array);
 	free_percpu(q->thr_pos);
@@ -119,8 +118,8 @@ __update_guards(TfwRBQueue *q)
 /**
  * @return false if the queue is full and true otherwise.
  */
-static int
-tfw_q_push(TfwRBQueue *q, void *ptr)
+int
+__tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
 	unsigned long long head;
 	__ThrPos *pos;
@@ -144,7 +143,7 @@ tfw_q_push(TfwRBQueue *q, void *ptr)
 				/* The queue is full, don't wait consumers. */
 				local_bh_enable();
 				atomic64_set(&pos->head, LLONG_MAX);
-				return -ENOMEM;
+				return -EBUSY;
 			}
 		}
 
@@ -154,7 +153,8 @@ tfw_q_push(TfwRBQueue *q, void *ptr)
 			break;
 	}
 
-	q->array[head & QMASK] = ptr;
+	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
+	wmb();
 
 	atomic64_set(&pos->head, LLONG_MAX);
 
@@ -168,12 +168,12 @@ tfw_q_push(TfwRBQueue *q, void *ptr)
  *
  * @return NULL on shutdown only.
  */
-static void *
-tfw_q_pop(TfwRBQueue *q)
+int
+tfw_wq_pop(TfwRBQueue *q, void *buf)
 {
 	unsigned long long tail;
 	__ThrPos *pos;
-	void *ret = NULL;
+	int ret = -EBUSY;
 
 	local_bh_disable();
 
@@ -196,47 +196,13 @@ tfw_q_pop(TfwRBQueue *q)
 			break;
 	}
 
-	ret = q->array[tail & QMASK];
+	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
+	mb();
+	ret = 0;
 out:
 	atomic64_set(&pos->tail, LLONG_MAX);
 
 	local_bh_enable();
 
 	return ret;
-}
-
-/*
- * ------------------------------------------------------------------------
- * 	SoftIRQ work queue
- *
- * TODO should be per-cpu, and correspondingly linked list should be used.
- * ------------------------------------------------------------------------
- */
-int
-tfw_wq_si_init(TfwRBQueue *wq)
-{
-	return tfw_q_init(wq, numa_node_id());
-}
-
-void
-tfw_wq_si_destroy(TfwRBQueue *wq)
-{
-	tfw_q_destroy(wq);
-}
-
-int
-tfw_wq_si_push(TfwRBQueue *wq, void *ptr)
-{
-	int r = tfw_q_push(wq, ptr);
-
-	if (unlikely(!in_softirq()))
-		raise_softirq(NET_TX_SOFTIRQ);
-
-	return r;
-}
-
-void *
-tfw_wq_si_pop(TfwRBQueue *wq)
-{
-	return tfw_q_pop(wq);
 }
