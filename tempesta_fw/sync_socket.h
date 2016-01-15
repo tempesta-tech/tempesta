@@ -1,8 +1,8 @@
 /**
  *		Synchronous Socket API.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -68,17 +68,6 @@ ss_sock_live(struct sock *sk)
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
-/*
- * Socket is in a usable state that allows processing
- * and sending of HTTP messages. This function must
- * be used consistently across all involved functions.
- */
-static inline bool
-ss_sock_active(struct sock *sk)
-{
-	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
-}
-
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
@@ -86,7 +75,7 @@ void ss_proto_init(SsProto *proto, const SsHooks *hooks, int type);
 void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
-void ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
+int ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
 int ss_close(struct sock *sk);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);

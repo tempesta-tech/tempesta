@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -48,6 +48,7 @@ typedef struct {
 TfwClient *tfw_client_obtain(struct sock *sk);
 void tfw_client_put(TfwClient *cli);
 void tfw_cli_conn_release(TfwConnection *conn);
+void tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data);
 int tfw_sock_clnt_drop(struct sock *sk);
 int tfw_sock_check_listeners(void);
 
