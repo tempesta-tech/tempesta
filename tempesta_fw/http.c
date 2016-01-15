@@ -30,6 +30,7 @@
 #include "log.h"
 #include "sched.h"
 #include "tls.h"
+#include "procfs.h"
 
 #include "sync_socket.h"
 
@@ -333,6 +334,11 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 	hm->conn = conn;
 	tfw_connection_get(conn);
 	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
+
+        if (TFW_CONN_TYPE(conn) & Conn_Clnt)
+                TFW_INC_STAT_BH(clnt.rx_messages);
+        else
+                TFW_INC_STAT_BH(serv.rx_messages);
 
 	return (TfwMsg *)hm;
 }
@@ -661,15 +667,18 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	/* Send request to the server. */
 	tfw_connection_send(srv_conn, (TfwMsg *)req, false);
+	TFW_INC_STAT_BH(clnt.msgs_forward);
 	goto conn_put;
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	if (tfw_connection_put(srv_conn))
 		tfw_srv_conn_release(srv_conn);
@@ -715,6 +724,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, hmreq);
 		data_off -= parser->to_go;
 		hmreq->msg.len += data_off - off;
+		TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
 
 		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
 			 " ver=%d res=%d\n",
@@ -728,13 +738,16 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
+			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&hmreq->msg.state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-			if (r == TFW_BLOCK)
+			if (r == TFW_BLOCK) {
+				TFW_INC_STAT_BH(clnt.msgs_filtout);
 				return TFW_BLOCK;
+			}
 			/*
 			 * TFW_POSTPONE status means that parsing succeeded
 			 * but more data is needed to complete it. Lower layers
@@ -754,8 +767,10 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				  TFW_HTTP_FSM_REQ_MSG, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
-		if (r == TFW_BLOCK)
+		if (r == TFW_BLOCK) {
+			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return TFW_BLOCK;
+		}
 
 		/*
 		 * In HTTP 0.9 the server always closes the connection
@@ -810,6 +825,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				 */
 				TFW_WARN("Not enough memory "
 					 "to create a request sibling\n");
+				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				return TFW_BLOCK;
 			}
 		}
@@ -885,13 +901,13 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * requests will get responded to by the current node without
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
-	if (tfw_http_adjust_resp(resp, req))
-		goto err;
-
-	tfw_cli_conn_send(req->conn, (TfwMsg *)resp, false);
-err:
-	tfw_http_send_500((TfwHttpMsg *)req);
-	/* Now we don't need the request and the response anymore. */
+	if (tfw_http_adjust_resp(resp, req)) {
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+	} else {
+		tfw_connection_send(req->conn, (TfwMsg *)resp, false);
+		TFW_INC_STAT_BH(serv.msgs_forward);
+	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 }
@@ -974,6 +990,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
 		data_off -= parser->to_go;
 		hmresp->msg.len += data_off - off;
+		TFW_ADD_STAT_BH(data_off - off, serv.rx_bytes);
 
 		TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu"
 			 " ver=%d res=%d\n",
@@ -995,17 +1012,16 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 * response messages.
 			 */
 			TFW_DBG2("Block invalid HTTP response\n");
+			TFW_INC_STAT_BH(serv.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&hmresp->msg.state,
 					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
-			if (r == TFW_BLOCK)
-				/*
-				 * We don't have a complete response. There's
-				 * no choice but report a critical error.
-				 */
+			if (r == TFW_BLOCK) {
+				TFW_INC_STAT_BH(serv.msgs_filtout);
 				return TFW_BLOCK;
+			}
 			/*
 			 * TFW_POSTPONE status means that parsing succeeded
 			 * but more data is needed to complete it. Lower layers
@@ -1026,14 +1042,17 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			tfw_http_delpair(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_filtout);
 			goto next_resp;
 		}
 
 		r = tfw_gfsm_move(&hmresp->msg.state,
 				  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
-		if (r == TFW_BLOCK)
+		if (r == TFW_BLOCK) {
 			tfw_http_delpair(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_filtout);
+		}
 next_resp:
 		if (data_off < skb_len) {
 			/*
@@ -1052,6 +1071,7 @@ next_resp:
 				 */
 				TFW_WARN("Not enough memory "
 					 "to create a response sibling\n");
+				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_BLOCK;
 			}
 		}
@@ -1086,6 +1106,7 @@ next_resp:
 			/* @conn->msg will get NULLed in the process. */
 			TFW_WARN("Paired request missing\n");
 			tfw_http_conn_msg_free(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 
 		if (hmsib) {
