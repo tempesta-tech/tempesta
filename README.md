@@ -281,25 +281,18 @@ Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta 
 Enable Tempesta sticky cookie. The name of the cookie is `__cookie__`. Tempesta expects that Tempesta sticky cookie is present in each HTTP request. If it is not present, Tempesta sends HTTP 302 response that redirects the client to the same URI and includes `Set-Cookie` header field, which prompts that Tempesta sticky cookie with the name `__cookie__` is set in requests from the client.
 
 
-### <a name="Frang"></a> Frang
+### Frang
 
-**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
-prevention. It uses static limiting and checking of ingress HTTP requests.
-The main portion of it's logic is at HTTP layer, so it's recomended to use
-*ip_block* option (switched on by default) to block malicious users at
-IP layer.
+**Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks prevention. It uses static limiting and checking of ingress HTTP requests. The main portion of it's logic is at HTTP layer, so it's recomended to use *ip_block* option (switched on by default) to block malicious users at IP layer.
 
 Use `-f` command key to start Tempesta with Frang:
-
-        $ ./tempesta.sh -f --start
-
+```
+$ ./tempesta.sh -f --start
+```
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:
 
-* **ip_block** - if the option is switched on, then Frang will add IP addresses
-		 of clients who reaches the limits to ```filter_db``` table,
-		 so that the clients traffic will be dropped much earlier.
-		 See also [Filter](#Filter) section.
+* **ip_block** - if the option is switched on, then Frang will add IP addresses of clients who reaches the limits to ```filter_db``` table, so that the clients traffic will be dropped much earlier. See also [Filter](#Filter) section.
 
 * **request_rate** - maximum number of requests per second from a client;
 
@@ -336,28 +329,46 @@ The list of available options:
 * **http_methods** - the list of accepted HTTP methods;
 
 
-### <a name="Filter"></a> Filter
+### Filter
 
 Let's see a simple example to understand Tempesta filtering.
 
-Firstly, run Tempesta with enabled [Frang](#Frang) and put some load onto the
-system to make Frang generate a blocking rule:
+Run Tempesta with enabled [Frang](#Frang) and put some load onto the system to make Frang generate a blocking rule:
+```
+$ dmesg | grep frang
+[tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
+```
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting calls the filter module that stores the blocked IPs in Tempesta DB, so now we can run some queries on the database (you can read more about [tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
+```
+# ./tdbq -a info
 
-        $ dmesg | grep frang
-        [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
+Tempesta DB version: 0.1.14
+Open tables: filter
 
-`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
-calls filter module which stores the blocked IPs in Tempesta DB, so now we can
-run some queries on the database (you can read more about
-[tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
-
-        # ./tdbq -a info
-
-        Tempesta DB version: 0.1.14
-        Open tables: filter
-
-        INFO: records=1 status=OK zero-copy
-
-The table ```filter``` contains all the blocked IP addresses.
+INFO: records=1 status=OK zero-copy
+```
+The table `filter` contains all blocked IP addresses.
 
 
+### Performance Statistics
+
+Tempesta has a set of performance statistics counters that show various aspects of Tempesta operation. The counters and their values are self-explanatory. Performance statistics can be shown when Tempesta is loaded and running. Below is an example of the command to show the statistics, and the output:
+```
+$ cat /proc/tempesta/perfstat
+Client messages received                : 450
+Client messages forwarded               : 450
+Client messages parsing errors          : 0
+Client messages filtered out            : 0
+Client messages other errors            : 0
+Client connections total                : 30
+Client connections active               : 0
+Client RX bytes                         : 47700
+Server messages received                : 447
+Server messages forwarded               : 447
+Server messages parsing errors          : 0
+Server messages filtered out            : 0
+Server messages other errors            : 0
+Server connections total                : 2220
+Server connections active               : 4
+Server RX bytes                         : 153145
+```
