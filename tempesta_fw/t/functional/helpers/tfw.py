@@ -11,7 +11,7 @@ import sys
 from . import teardown
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _functest_dir = os.path.dirname(os.path.realpath(sys.argv[0]))

@@ -11,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -56,7 +56,7 @@ MODULE_PARM_DESC(s, "Server host address and optional port nunber");
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta Boomber");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 #ifdef TFW_BANNER
@@ -64,38 +64,31 @@ MODULE_LICENSE("GPL");
 #endif
 #define TFW_BANNER		"[tfw_bomber] "
 
-#define CONNECT_STARTED 	0x0001
-#define CONNECT_ESTABLISHED	0x0002
-#define CONNECT_CLOSED		0x0004
-#define CONNECT_ERROR		0x0100
-
 #define BUF_SIZE		(20 * 1024 * 1024)
 
 /*
- * There's a descriptor for each connection that keeps the connection's
- * state and status. SsProto.type field is used here to store the index into
- * that array that can be passed around between callbacks.
+ * Connection descripton. SsProto.type field is used to store the index into
+ * array that can be passed around between callbacks.
  */
 typedef struct bmb_conn {
 	SsProto		proto;
 	struct sock	*sk;
-	uint32_t	flags;
 } TfwBmbConn;
 
 /*
- * There's a descriptor for each thread.
+ * Bomber task descriptor.
+ *
  * @conn		- connection descriptions
  * @conn_rd		- array of ready connection indexes
  * @conn_rd_tail	- end index in array of ready connection indexes
  * @conn_attempt	- number of attempt connections
  * @conn_compl		- number of complate connections
  * @conn_error		- number of error connections
- * @ctx		- context for fuzzer
- * @buf		- request buffer for fuzzer
+ * @ctx			- context for fuzzer
+ * @buf			- request buffer for fuzzer
  */
 typedef struct bmb_task {
 	struct task_struct	*task_struct;
-
 	TfwBmbConn		*conn;
 	int			*conn_rd;
 	atomic_t		conn_rd_tail;
@@ -103,7 +96,6 @@ typedef struct bmb_task {
 	int			conn_attempt;
 	atomic_t		conn_compl;
 	atomic_t		conn_error;
-
 	TfwFuzzContext		ctx;
 	char 			*buf;
 } TfwBmbTask;
@@ -138,14 +130,11 @@ tfw_bmb_conn_compl(struct sock *sk)
 	BUG_ON(conn->proto.type != proto->type);
 	BUG_ON(conn->proto.listener != NULL);
 	BUG_ON(conn->proto.hooks != &bmb_hooks);
-	BUG_ON(conn->sk && (conn->sk != sk));
-
-	conn->flags |= CONNECT_ESTABLISHED;
+	BUG_ON(conn->sk && conn->sk != sk);
 
 	tail = atomic_read(&task->conn_rd_tail);
 	task->conn_rd[tail] = proto->type % nconns;
 	atomic_inc(&task->conn_rd_tail);
-
 	atomic_inc(&task->conn_compl);
 
 	wake_up(&task->conn_wq);
@@ -154,7 +143,7 @@ tfw_bmb_conn_compl(struct sock *sk)
 }
 
 static int
-__update_conn(struct sock *sk, int flags)
+__update_conn(struct sock *sk)
 {
 	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
 	TfwBmbTask *task;
@@ -168,10 +157,7 @@ __update_conn(struct sock *sk, int flags)
 	BUG_ON(conn->proto.type != proto->type);
 	BUG_ON(conn->proto.listener != NULL);
 	BUG_ON(conn->proto.hooks != &bmb_hooks);
-	BUG_ON(conn->sk && (conn->sk != sk));
-
-	conn->sk = NULL;
-	conn->flags |= flags;
+	BUG_ON(conn->sk && conn->sk != sk);
 
 	wake_up(&task->conn_wq);
 
@@ -181,7 +167,9 @@ __update_conn(struct sock *sk, int flags)
 static int
 tfw_bmb_conn_close(struct sock *sk)
 {
-	return __update_conn(sk, CONNECT_CLOSED);
+	atomic_inc(&bmb_conn_drop);
+
+	return __update_conn(sk);
 }
 
 static int
@@ -192,7 +180,7 @@ tfw_bmb_conn_error(struct sock *sk)
 	BUG_ON(proto == NULL);
 	atomic_inc(&bmb_task[proto->type / nconns].conn_error);
 
-	return __update_conn(sk, CONNECT_ERROR);
+	return __update_conn(sk);
 }
 
 static int
@@ -237,7 +225,6 @@ tfw_bmb_connect(int tn, int cn)
 			     IPPROTO_TCP, &sk);
 	if (ret) {
 		TFW_ERR("Unable to create kernel socket (%d)\n", ret);
-		conn->flags |= CONNECT_ERROR;
 		return ret;
 	}
 
@@ -251,13 +238,12 @@ tfw_bmb_connect(int tn, int cn)
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
 		tfw_connection_unlink_from_sk(sk);
 		ss_close(sk);
-		conn->flags |= CONNECT_ERROR;
 		return ret;
         }
 
 	conn->sk = sk;
-	conn->flags |= CONNECT_STARTED;
 	bmb_task[tn].conn_attempt++;
+
 	return 0;
 }
 
@@ -266,13 +252,12 @@ tfw_bmb_release_sockets(int tn)
 {
 	int i;
 
-	TFW_DBG("Release connections.\n");
+	TFW_LOG("Release connections.\n");
 
 	for (i = 0; i < nconns; i++) {
 		if (bmb_task[tn].conn[i].sk) {
 			tfw_connection_unlink_from_sk(bmb_task[tn].conn[i].sk);
 			ss_close(bmb_task[tn].conn[i].sk);
-			bmb_task[tn].conn[i].sk = NULL;
 		}
 	}
 }
@@ -323,9 +308,7 @@ tfw_bmb_msg_send(int tn, int cn)
 			task->buf);
 
 	tfw_http_msg_write(&it, req, &msg);
-	local_bh_disable();
 	ss_send(task->conn[cn].sk, &req->msg.skb_list, true);
-	local_bh_enable();
 	tfw_http_msg_free(req);
 
 	atomic_inc(&bmb_request_send);
@@ -372,12 +355,7 @@ tfw_bmb_worker(void *data)
 		for (send = 0; send < nconns * nmessages; ) {
 			int tail = atomic_read(&task->conn_rd_tail);
 			for (i = 0; i < tail; i++){
-				int c = task->conn_rd[i];
-				if (task->conn[c].sk)
-					tfw_bmb_msg_send(tn, c);
-				else
-					/* Connection is dropped. */
-					atomic_inc(&bmb_conn_drop);
+				tfw_bmb_msg_send(tn, task->conn_rd[i]);
 				send++;
 			}
 		}
@@ -386,12 +364,6 @@ release_sockets:
 		atomic_add(attempt, &bmb_conn_attempt);
 		atomic_add(atomic_read(&task->conn_compl), &bmb_conn_compl);
 		atomic_add(atomic_read(&task->conn_error), &bmb_conn_error);
-
-		/*
-		 * FIXME workaround for ss_close() and ss_tcp_process_data()
-		 * receiving server reply.
-		 */
-		msleep(10000);
 
 		tfw_bmb_release_sockets(tn);
 	}

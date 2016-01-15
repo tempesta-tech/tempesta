@@ -3,7 +3,7 @@
  *
  * Generic protocol message.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@
  * @skb_list	- list of sk_buff's belonging to the message;
  * @len		- total body length;
  */
-typedef struct tfw_msg_t {
+typedef struct {
 	struct list_head	msg_list;
 	TfwGState		state;
 	SsSkbList		skb_list;

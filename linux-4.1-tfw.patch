@@ -333,6 +333,53 @@ index cd03a0f..6465166 100644
  	test_suspend=	[SUSPEND][,N]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
+diff --git a/arch/x86/kernel/entry_64.S b/arch/x86/kernel/entry_64.S
+index 6c9cb60..505dfd3 100644
+--- a/arch/x86/kernel/entry_64.S
++++ b/arch/x86/kernel/entry_64.S
+@@ -1128,7 +1128,11 @@ ENTRY(do_softirq_own_stack)
+ 	incl PER_CPU_VAR(irq_count)
+ 	cmove PER_CPU_VAR(irq_stack_ptr),%rsp
+ 	push  %rbp			# backlink for old unwinder
++#ifdef CONFIG_SECURITY_TEMPESTA
++	call __tempesta_do_softirq_fpusafe
++#else
+ 	call __do_softirq
++#endif
+ 	leaveq
+ 	CFI_RESTORE		rbp
+ 	CFI_DEF_CFA_REGISTER	rsp
+diff --git a/arch/x86/kernel/irq_64.c b/arch/x86/kernel/irq_64.c
+index 394e643..7c7f954 100644
+--- a/arch/x86/kernel/irq_64.c
++++ b/arch/x86/kernel/irq_64.c
+@@ -74,6 +74,26 @@ static inline void stack_overflow_check(struct pt_regs *regs)
+ #endif
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/* Tempesta supports x86-64 only. */
++#include <asm/i387.h>
++
++void
++__tempesta_do_softirq_fpusafe(void)
++{
++	/*
++	 * Switch FPU context once per budget packets to let Tempesta
++	 * run many vector operations w/o costly FPU switches.
++	 * Eager FPU must be enabled.
++	 */
++	kernel_fpu_begin();
++
++	__do_softirq();
++
++	kernel_fpu_end();
++}
++#endif
++
+ bool handle_irq(unsigned irq, struct pt_regs *regs)
+ {
+ 	struct irq_desc *desc;
 diff --git a/arch/x86/kernel/xsave.c b/arch/x86/kernel/xsave.c
 index 87a815b..84b7399 100644
 --- a/arch/x86/kernel/xsave.c
@@ -346,6 +393,35 @@ index 87a815b..84b7399 100644
  static int __init eager_fpu_setup(char *s)
  {
  	if (!strcmp(s, "on"))
+diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
+index 950ae45..0f1f587 100644
+--- a/include/linux/interrupt.h
++++ b/include/linux/interrupt.h
+@@ -402,13 +402,13 @@ extern bool force_irqthreads;
+    tasklets are more than enough. F.e. all serial device BHs et
+    al. should be converted to tasklets, not to softirqs.
+  */
+-
++/* Tempesta: process RX before TX to proxy traffic in one softirq shot. */
+ enum
+ {
+ 	HI_SOFTIRQ=0,
+ 	TIMER_SOFTIRQ,
+-	NET_TX_SOFTIRQ,
+ 	NET_RX_SOFTIRQ,
++	NET_TX_SOFTIRQ,
+ 	BLOCK_SOFTIRQ,
+ 	BLOCK_IOPOLL_SOFTIRQ,
+ 	TASKLET_SOFTIRQ,
+@@ -452,7 +452,7 @@ extern void softirq_init(void);
+ extern void __raise_softirq_irqoff(unsigned int nr);
+ 
+ extern void raise_softirq_irqoff(unsigned int nr);
+-extern void raise_softirq(unsigned int nr);
++void raise_softirq(unsigned int nr);
+ 
+ DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
+ 
 diff --git a/include/linux/net.h b/include/linux/net.h
 index 738ea48..7944e97 100644
 --- a/include/linux/net.h
@@ -418,15 +494,15 @@ index 4307e20..a6d7fa4 100644
  #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..f5f3f38
+index 0000000..55049bd
 --- /dev/null
 +++ b/include/linux/tempesta.h
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,54 @@
 +/**
-+ * Linux interface for Tempesta FW (FireWall and/or FrameWork).
++ * Linux interface for Tempesta FW.
 + *
-+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015 Tempesta Technologies, Inc.
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -434,8 +510,8 @@ index 0000000..f5f3f38
 + * or (at your option) any later version.
 + *
 + * This program is distributed in the hope that it will be useful, but WITHOUT
-+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-+ * FOR A PARTICULAR PURPOSE.
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.
 + * See the GNU General Public License for more details.
 + *
 + * You should have received a copy of the GNU General Public License along with
@@ -446,6 +522,8 @@ index 0000000..f5f3f38
 +#define __TEMPESTA_H__
 +
 +#include <net/sock.h>
++
++typedef void (*TempestaTxAction)(void);
 +
 +typedef struct {
 +	int (*sk_alloc)(struct sock *sk);
@@ -463,6 +541,10 @@ index 0000000..f5f3f38
 +void tempesta_register_ops(TempestaOps *tops);
 +void tempesta_unregister_ops(TempestaOps *tops);
 +
++/* Network hooks. */
++void tempesta_set_tx_action(TempestaTxAction action);
++void tempesta_del_tx_action(void);
++
 +/* Memory management. */
 +void tempesta_reserve_pages(void);
 +void tempesta_reserve_vmpages(void);
@@ -471,10 +553,24 @@ index 0000000..f5f3f38
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index ed01a01..2c29541 100644
+index ed01a01..5c44cb0 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
-@@ -1697,8 +1697,7 @@ unsigned long sock_i_ino(struct sock *sk);
+@@ -851,6 +851,13 @@ static inline int sk_backlog_rcv(struct sock *sk, struct sk_buff *skb)
+ 
+ static inline void sk_incoming_cpu_update(struct sock *sk)
+ {
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (unlikely(sk->sk_incoming_cpu != raw_smp_processor_id()))
++		net_warn_ratelimited("Warning: bad socket cpu locality:"
++				     " old_cpu=%d curr_cpu=%d\n",
++				     sk->sk_incoming_cpu,
++				     raw_smp_processor_id());
++#endif
+ 	sk->sk_incoming_cpu = raw_smp_processor_id();
+ }
+ 
+@@ -1697,8 +1704,7 @@ unsigned long sock_i_ino(struct sock *sk);
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -564,6 +660,18 @@ index 2a89545..0a24b7d 100644
  }
  
  asmlinkage __visible void __init start_kernel(void)
+diff --git a/kernel/softirq.c b/kernel/softirq.c
+index 479e443..f951010 100644
+--- a/kernel/softirq.c
++++ b/kernel/softirq.c
+@@ -423,6 +423,7 @@ void raise_softirq(unsigned int nr)
+ 	raise_softirq_irqoff(nr);
+ 	local_irq_restore(flags);
+ }
++EXPORT_SYMBOL(raise_softirq);
+ 
+ void __raise_softirq_irqoff(unsigned int nr)
+ {
 diff --git a/mm/Makefile b/mm/Makefile
 index 98c4eae..33cf154 100644
 --- a/mm/Makefile
@@ -864,47 +972,58 @@ index 0000000..3909f7f
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
 diff --git a/net/core/dev.c b/net/core/dev.c
-index a42b232..9896bc4 100644
+index a42b232..d9a3ba8 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
-@@ -138,6 +138,11 @@
- 
- #include "net-sysfs.h"
+@@ -3443,6 +3443,27 @@ int netif_rx_ni(struct sk_buff *skb)
+ }
+ EXPORT_SYMBOL(netif_rx_ni);
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+/* Tempesta supports x86-64 only. */
-+#include <asm/i387.h>
++#include <linux/tempesta.h>
++
++static TempestaTxAction __rcu tempesta_tx_action = NULL;
++
++void
++tempesta_set_tx_action(TempestaTxAction action)
++{
++	rcu_assign_pointer(tempesta_tx_action, action);
++}
++EXPORT_SYMBOL(tempesta_set_tx_action);
++
++void
++tempesta_del_tx_action(void)
++{
++	rcu_assign_pointer(tempesta_tx_action, NULL);
++	synchronize_rcu();
++}
++EXPORT_SYMBOL(tempesta_del_tx_action);
 +#endif
 +
- /* Instead of increasing this, you should create a hash table. */
- #define MAX_GRO_SKBS 8
- 
-@@ -4620,6 +4625,15 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
- 
- 	weight = n->weight;
+ static void net_tx_action(struct softirq_action *h)
+ {
+ 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+@@ -3468,6 +3489,20 @@ static void net_tx_action(struct softirq_action *h)
+ 		}
+ 	}
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	/*
-+	 * Switch FPU context once per budget packets to let Tempesta
-+	 * run many vector operations w/o costly FPU switches.
-+	 * Eager FPU must be enabled.
-+	 */
-+	kernel_fpu_begin();
++	{
++		TempestaTxAction action;
++
++		rcu_read_lock();
++
++		action = rcu_dereference(tempesta_tx_action);
++		if (likely(action))
++			action();
++
++		rcu_read_unlock();
++	}
 +#endif
 +
- 	/* This NAPI_STATE_SCHED test is for avoiding a race
- 	 * with netpoll's poll_napi().  Only the entity which
- 	 * obtains the lock and sees NAPI_STATE_SCHED set will
-@@ -4666,6 +4680,9 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
- 	list_add_tail(&n->poll_list, repoll);
+ 	if (sd->output_queue) {
+ 		struct Qdisc *head;
  
- out_unlock:
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	kernel_fpu_end();
-+#endif
- 	netpoll_poll_unlock(have);
- 
- 	return work;
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
 index b42f0e2..ef4362e 100644
 --- a/net/core/request_sock.c
@@ -1344,14 +1463,14 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..2a44ce3
+index 0000000..c8dc8ef
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,134 @@
 +/**
 + *		Tempesta FW
 + *
-+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
 + * Copyright (C) 2015 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
