@@ -3,7 +3,7 @@
  *
  * HTTP message manipulation helpers for the protocol processing.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -527,7 +527,6 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
 		orig_hdr = &ht->tbl[hid];
-		BUG_ON(!TFW_STR_EMPTY(orig_hdr));
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {

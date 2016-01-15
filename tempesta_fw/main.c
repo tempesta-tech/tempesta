@@ -1,8 +1,8 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -26,7 +26,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.4.8");
+MODULE_VERSION("0.5.0-pre0");
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);
@@ -61,9 +61,8 @@ tfw_exit(void)
 {
 	int i;
 	TFW_LOG("exiting...\n");
-	for (i = exit_hooks_n - 1; i >= 0; --i) {
+	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
-	}
 }
 
 static int __init
@@ -82,6 +81,7 @@ tfw_init(void)
 	DO_INIT(http);
 	DO_INIT(http_sticky);
 
+	DO_INIT(sync_socket);
 	DO_INIT(server);
 	DO_INIT(client);
 	DO_INIT(sock_srv);

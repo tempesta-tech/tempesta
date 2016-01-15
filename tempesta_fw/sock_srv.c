@@ -3,7 +3,7 @@
  *
  * Handling server connections.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -181,7 +181,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
 		tfw_connection_unlink_from_sk(sk);
-		ss_close(sk);
+		ss_close_bh(sk);
 		return r;
 	}
 

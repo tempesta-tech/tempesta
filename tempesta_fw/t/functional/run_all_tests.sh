@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 2012-2014. Written by NatSys Lab. (info@natsys-lab.com).
+# 2014. Written by NatSys Lab. (info@natsys-lab.com).
 
 function run() {
 	echo run: $1
