@@ -171,6 +171,9 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
  *  	Server and client connections handling
  * ------------------------------------------------------------------------
  */
+/**
+ * @skb_list can be invalid after the function call, don't try to use it.
+ */
 static void
 ss_do_send(struct sock *sk, SsSkbList *skb_list)
 {
@@ -238,14 +241,10 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
 
-	if (unlikely(r)) {
+	if (unlikely(r))
 		for (iskb = ss_skb_peek(skb_list), skb = iskb;
 		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
-		{
-			ss_skb_unlink(skb_list, skb);
 			kfree_skb(skb);
-		}
-	}
 }
 
 /**
@@ -261,6 +260,7 @@ int
 ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
 	int r = 0;
+	struct sk_buff *skb, *iskb;
 	SsWork sw = {
 		.sk	= sk,
 		.action	= SS_SEND,
@@ -273,16 +273,14 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
 
 	/*
-	 * Remove the skb from Tempesta lists if we won't use it,
-	 * or clone it if it's going to be used by Tempesta during
+	 * Remove the skbs from Tempesta lists if we won't use them,
+	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
 	if (pass_skb) {
 		memcpy(&sw.skb_list, skb_list, sizeof(*skb_list));
 		ss_skb_queue_head_init(skb_list);
 	} else {
-		struct sk_buff *skb, *iskb;
-
 		ss_skb_queue_head_init(&sw.skb_list);
 		for (iskb = ss_skb_peek(skb_list), skb = iskb;
 		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
@@ -292,7 +290,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 			if (!skb) {
 				SS_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
-				break;
+				goto err;
 			}
 			ss_skb_queue_tail(&sw.skb_list, skb);
 		}
@@ -304,9 +302,16 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 */
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
-		r = r ? : -EBUSY;
+		r = -EBUSY;
+		goto err;
 	}
 
+	return 0;
+err:
+	if (!pass_skb)
+		for (iskb = ss_skb_peek(&sw.skb_list), skb = iskb;
+		     iskb; iskb = ss_skb_next(&sw.skb_list, iskb), skb = iskb)
+			kfree_skb(skb);
 	return r;
 }
 
@@ -343,9 +348,8 @@ ss_do_close(struct sock *sk)
 
 	SS_DBG("Close socket %p (%s): cpu=%d account=%d sk_socket=%p"
 	       " refcnt=%d\n",
-	       sk, ss_statename[sk->sk_state], sk_has_account(sk),
-	       sk->sk_socket, atomic_read(&sk->sk_refcnt),
-	       raw_smp_processor_id());
+	       sk, ss_statename[sk->sk_state], raw_smp_processor_id(),
+	       sk_has_account(sk), sk->sk_socket, atomic_read(&sk->sk_refcnt));
 
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));

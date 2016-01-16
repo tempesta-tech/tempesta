@@ -221,18 +221,17 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 
 	if (conn_flag) {
 		unsigned long crlf_len = crlf->len;
-		if (conn_flag == TFW_HTTP_CONN_CLOSE) {
-			crlf->ptr = S_H_CONN_CLOSE;
-			crlf->len = SLEN(S_H_CONN_CLOSE);
-		} else if (conn_flag == TFW_HTTP_CONN_KA) {
+		if (conn_flag == TFW_HTTP_CONN_KA) {
 			crlf->ptr = S_H_CONN_KA;
 			crlf->len = SLEN(S_H_CONN_KA);
+		} else {
+			crlf->ptr = S_H_CONN_CLOSE;
+			crlf->len = SLEN(S_H_CONN_CLOSE);
 		}
 		msg->len += crlf->len - crlf_len;
 	}
 
-	resp = tfw_http_msg_create(&it, Conn_Srv, msg->len);
-	if (resp == NULL)
+	if (!(resp = tfw_http_msg_create(&it, Conn_Srv, msg->len)))
 		return -ENOMEM;
 
 	tfw_http_prep_date(date->ptr);
@@ -666,7 +665,8 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	spin_unlock(&srv_conn->msg_qlock);
 
 	/* Send request to the server. */
-	tfw_connection_send(srv_conn, (TfwMsg *)req, false);
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false))
+		goto send_500;
 	TFW_INC_STAT_BH(clnt.msgs_forward);
 	goto conn_put;
 
@@ -838,7 +838,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * @conn->msg holds the reference to the message, which can
 		 * be used to release it.
 		 */
-		conn->msg = NULL;
+		tfw_connection_unlink_msg(conn);
 
 		/*
 		 * The request should either be stored or released.
@@ -892,7 +892,7 @@ static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	/* Cache original response before any mangling. */
-	tfw_cache_add(resp, req);
+	bool unref_data = tfw_cache_add(resp, req);
 
 	/*
 	 * Typically we're at a node far from the node where @resp was
@@ -901,15 +901,22 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * requests will get responded to by the current node without
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
-	if (tfw_http_adjust_resp(resp, req)) {
-		tfw_http_send_500((TfwHttpMsg *)req);
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-	} else {
-		tfw_connection_send(req->conn, (TfwMsg *)resp, false);
-		TFW_INC_STAT_BH(serv.msgs_forward);
-	}
+	if (tfw_http_adjust_resp(resp, req))
+		goto err;
+
+	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, unref_data))
+		goto err;
+
+	TFW_INC_STAT_BH(serv.msgs_forward);
+out:
+	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	return;
+err:
+	tfw_http_send_500((TfwHttpMsg *)req);
+	TFW_INC_STAT_BH(serv.msgs_otherr);
+	goto out;
 }
 
 /*
@@ -1093,7 +1100,7 @@ next_resp:
 			 * the loop. @conn->msg holds the reference to
 			 * the message, which can be used to release it.
 			 */
-			conn->msg = NULL;
+			tfw_connection_unlink_msg(conn);
 			if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 					      tfw_http_resp_cache_cb))
 			{

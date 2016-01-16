@@ -83,11 +83,10 @@ tfw_connection_destruct(TfwConnection *conn)
  *
  * @unref_data is true if we won't use @msg any more.
  */
-void
+int
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 {
-	// TODO process return value
-	ss_send(conn->sk, &msg->skb_list, unref_data);
+	return ss_send(conn->sk, &msg->skb_list, unref_data);
 }
 
 int
