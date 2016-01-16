@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -128,7 +128,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 }
 
 /* custom version for testing purposes */
-void
+int
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 		    bool unused __attribute__((unused)))
 {
@@ -156,7 +156,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 	    tfw_http_field_value(mock.hmresp, &s_set_cookie, &hdr_value) > 0;
 
 	if (!mock.seen_set_cookie_header)
-		return;
+		return 0;
 
 	/* XXX assuming string is linear */
 	BUG_ON(!TFW_STR_PLAIN(&hdr_value));
@@ -164,6 +164,8 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 	/* cookie name should be somewhere in Set-Cookie header value */
 	mock.seen_cookie =
 	    strnstr(hdr_value.ptr, COOKIE_NAME, hdr_value.len) != NULL;
+
+	return 0;
 }
 
 /* setup/teardown helpers */

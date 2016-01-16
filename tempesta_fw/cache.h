@@ -23,7 +23,7 @@
 
 #include "http.h"
 
-void tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
+bool tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req);
 int tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		      tfw_http_cache_cb_t action);
 

@@ -417,14 +417,17 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 
 }
 
-void
+/**
+ * @return true if @resp is needed for caching.
+ */
+bool
 tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	unsigned long key;
 	size_t tot_len;
 
 	if (!cache_cfg.cache)
-		return;
+		return false;
 
 	key = tfw_http_req_key_calc(req);
 
@@ -445,6 +448,12 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 			__cache_add_node(c_nodes[nid].db, resp, req, key,
 					 tot_len);
 	}
+
+	/*
+	 * Cache population is synchronous now, change the return value
+	 * depending on the TODO above.
+	 */
+	return false;
 }
 
 int
