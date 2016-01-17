@@ -76,11 +76,10 @@ tfw_sock_cli_conn_drop(TfwConnection *conn, struct sock *sk)
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwCliConnection cli_conn = (TfwCliConnection *)data;
+	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
 
 	TFW_DBG("Client timeout end\n");
-	if (ss_close(cli_conn->conn.sk) == SS_OK)
-		tfw_sock_cli_conn_drop(&cli_conn->conn, cli_conn->conn.sk);
+	ss_close(cli_conn->conn.sk);
 }
 
 static TfwCliConnection *
@@ -113,6 +112,10 @@ tfw_cli_conn_free(TfwCliConnection *cli_conn)
 void
 tfw_cli_conn_release(TfwConnection *conn)
 {
+	TfwCliConnection *cli_conn = container_of(conn, TfwCliConnection,
+						  conn);
+	del_timer_sync(&cli_conn->ka_timer);
+
 	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
 	if (likely(conn->peer))
@@ -203,17 +206,14 @@ err_client:
 	return r;
 }
 
-int
+static int
 tfw_sock_clnt_drop(struct sock *sk)
 {
 	TfwCliConnection *cli_conn = rcu_dereference_sk_user_data(sk);
 	TfwConnection *conn = &cli_conn->conn;
 
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
-		sk, conn, conn->peer);
-
-	/* Prevent races with timer callbacks. */
-	del_timer_sync(&cli_conn->ka_timer);
+		 sk, conn, conn->peer);
 
 	tfw_sock_cli_conn_drop(conn, sk);
 
