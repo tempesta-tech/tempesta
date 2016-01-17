@@ -362,6 +362,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 	if (unlikely(hm == NULL))
 		return;
 	if (tfw_connection_put(hm->conn)) {
+		/* The connection and underlying socket seems closed. */
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
 			: tfw_srv_conn_release(hm->conn);
@@ -396,11 +397,8 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 {
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
-	if (hmreq->flags & TFW_HTTP_CONN_CLOSE) {
-		/* FIXME HTTP callback can be called from workqueue context. */
-		if (ss_close(hmreq->conn->sk) == SS_OK)
-			tfw_sock_clnt_drop(hmreq->conn->sk);
-	}
+	if (hmreq->flags & TFW_HTTP_CONN_CLOSE)
+		ss_close(hmreq->conn->sk);
 	tfw_http_conn_msg_free(hmreq);
 }
 

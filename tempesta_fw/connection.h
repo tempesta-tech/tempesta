@@ -124,6 +124,9 @@ tfw_connection_get(TfwConnection *conn)
 	atomic_inc(&conn->refcnt);
 }
 
+/**
+ * @return true if @conn has no more users.
+ */
 static inline bool
 tfw_connection_put(TfwConnection *conn)
 {
@@ -146,7 +149,6 @@ static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
-	atomic_set(&conn->refcnt, 1);
 	rcu_assign_sk_user_data(sk, conn);
 }
 
