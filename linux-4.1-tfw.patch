@@ -1,5 +1,5 @@
 diff --git a/Documentation/CodingStyle b/Documentation/CodingStyle
-index f4b78ea..f6376f4 100644
+index f4b78ea..b10de96 100644
 --- a/Documentation/CodingStyle
 +++ b/Documentation/CodingStyle
 @@ -1,5 +1,5 @@
@@ -62,7 +62,97 @@ index f4b78ea..f6376f4 100644
  Do not unnecessarily use braces where a single statement will do.
  
  	if (condition)
-@@ -375,7 +392,8 @@ In source files, separate functions with one blank line.  If the function is
+@@ -272,76 +289,27 @@ See chapter 6 (Functions).
+ 
+ 		Chapter 5: Typedefs
+ 
+-Please don't use things like "vps_t".
+-It's a _mistake_ to use typedef for structures and pointers. When you see a
++Linux kernel frowns on CamelCase and so we in general, but type names.
++Tempesta uses CamelCase usually prefixed with "Tfw" for type names and uses
++typedefs for them. So instead of
+ 
+ 	vps_t a;
+-
+-in the source, what does it mean?
+-In contrast, if it says
+-
+ 	struct virtual_container *a;
+ 
+-you can actually tell what "a" is.
+-
+-Lots of people think that typedefs "help readability". Not so. They are
+-useful only for:
+-
+- (a) totally opaque objects (where the typedef is actively used to _hide_
+-     what the object is).
+-
+-     Example: "pte_t" etc. opaque objects that you can only access using
+-     the proper accessor functions.
+-
+-     NOTE! Opaqueness and "accessor functions" are not good in themselves.
+-     The reason we have them for things like pte_t etc. is that there
+-     really is absolutely _zero_ portably accessible information there.
+-
+- (b) Clear integer types, where the abstraction _helps_ avoid confusion
+-     whether it is "int" or "long".
+-
+-     u8/u16/u32 are perfectly fine typedefs, although they fit into
+-     category (d) better than here.
+-
+-     NOTE! Again - there needs to be a _reason_ for this. If something is
+-     "unsigned long", then there's no reason to do
+-
+-	typedef unsigned long myflags_t;
+-
+-     but if there is a clear reason for why it under certain circumstances
+-     might be an "unsigned int" and under other configurations might be
+-     "unsigned long", then by all means go ahead and use a typedef.
+-
+- (c) when you use sparse to literally create a _new_ type for
+-     type-checking.
+-
+- (d) New types which are identical to standard C99 types, in certain
+-     exceptional circumstances.
++we write
+ 
+-     Although it would only take a short amount of time for the eyes and
+-     brain to become accustomed to the standard types like 'uint32_t',
+-     some people object to their use anyway.
++	TfwVps a;
++	TfwVirtualContainer *a;
+ 
+-     Therefore, the Linux-specific 'u8/u16/u32/u64' types and their
+-     signed equivalents which are identical to standard types are
+-     permitted -- although they are not mandatory in new code of your
+-     own.
++CamelCase helps to identify type name from other names while "_t" suffix just
++makes the name longer. We also use C++ for user-space code and this is quite
++unusual practice in C++ to write something like
+ 
+-     When editing existing code which already uses one or the other set
+-     of types, you should conform to the existing choices in that code.
++	struct A a(0);
++	class B b(a);
+ 
+- (e) Types safe for use in userspace.
+-
+-     In certain structures which are visible to userspace, we cannot
+-     require C99 types and cannot use the 'u32' form above. Thus, we
+-     use __u32 and similar types in all structures which are shared
+-     with userspace.
+-
+-Maybe there are other cases too, but the rule should basically be to NEVER
+-EVER use a typedef unless you can clearly match one of those rules.
+-
+-In general, a pointer, or a struct that has elements that can reasonably
+-be directly accessed should _never_ be a typedef.
++And we're trying to be good for C as well as for C++. Typedefs make C code
++look closer to C++ and that's also good for us.
+ 
+ 
+ 		Chapter 6: Functions
+@@ -375,7 +343,8 @@ In source files, separate functions with one blank line.  If the function is
  exported, the EXPORT* macro for it should follow immediately after the closing
  function brace line.  E.g.:
  
@@ -72,7 +162,7 @@ index f4b78ea..f6376f4 100644
  	{
  		return system_state == SYSTEM_RUNNING;
  	}
-@@ -385,6 +403,31 @@ In function prototypes, include parameter names with their data types.
+@@ -385,6 +354,31 @@ In function prototypes, include parameter names with their data types.
  Although this is not required by the C language, it is preferred in Linux
  because it is a simple way to add valuable information for the reader.
  
@@ -104,7 +194,7 @@ index f4b78ea..f6376f4 100644
  
  		Chapter 7: Centralized exiting of functions
  
-@@ -408,7 +451,8 @@ The rationale for using gotos is:
+@@ -408,7 +402,8 @@ The rationale for using gotos is:
      modifications are prevented
  - saves the compiler work to optimize redundant code away ;)
  
@@ -114,7 +204,7 @@ index f4b78ea..f6376f4 100644
  	{
  		int result = 0;
  		char *buffer;
-@@ -462,7 +506,8 @@ See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
+@@ -462,7 +457,8 @@ See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
  for details.
  
  Linux style for comments is the C89 "/* ... */" style.
@@ -124,7 +214,7 @@ index f4b78ea..f6376f4 100644
  
  The preferred style for long (multi-line) comments is:
  
-@@ -475,16 +520,6 @@ The preferred style for long (multi-line) comments is:
+@@ -475,16 +471,6 @@ The preferred style for long (multi-line) comments is:
  	 * with beginning and ending almost-blank lines.
  	 */
  
@@ -141,7 +231,7 @@ index f4b78ea..f6376f4 100644
  It's also important to comment data, whether they are basic types or derived
  types.  To this end, use just one data declaration per line (no commas for
  multiple data declarations).  This leaves you room for a small comment on each
-@@ -568,7 +603,15 @@ config AUDIT
+@@ -568,7 +554,15 @@ config AUDIT
  	  logging of avc messages output).  Does not do system-call
  	  auditing without CONFIG_AUDITSYSCALL.
  
@@ -158,7 +248,7 @@ index f4b78ea..f6376f4 100644
  filesystems) should advertise this prominently in their prompt string:
  
  config ADFS_FS_RW
-@@ -716,9 +759,8 @@ used.
+@@ -716,9 +710,8 @@ used.
  		Chapter 14: Allocating memory
  
  The kernel provides the following general purpose memory allocators:
@@ -170,7 +260,7 @@ index f4b78ea..f6376f4 100644
  
  The preferred form for passing a size of a struct is the following:
  
-@@ -732,17 +774,6 @@ Casting the return value which is a void pointer is redundant. The conversion
+@@ -732,17 +725,6 @@ Casting the return value which is a void pointer is redundant. The conversion
  from void pointer to any other pointer type is guaranteed by the C programming
  language.
  
@@ -188,7 +278,7 @@ index f4b78ea..f6376f4 100644
  
  		Chapter 15: The inline disease
  
-@@ -823,7 +854,109 @@ need them.  Feel free to peruse that header file to see what else is already
+@@ -823,7 +805,109 @@ need them.  Feel free to peruse that header file to see what else is already
  defined that you shouldn't reproduce in your code.
  
  
@@ -299,7 +389,7 @@ index f4b78ea..f6376f4 100644
  
  Some editors can interpret configuration information embedded in source files,
  indicated with special markers.  For example, emacs interprets lines marked
-@@ -850,7 +983,7 @@ own custom mode, or may have some other magic method for making indentation
+@@ -850,7 +934,7 @@ own custom mode, or may have some other magic method for making indentation
  work correctly.
  
  
@@ -308,7 +398,7 @@ index f4b78ea..f6376f4 100644
  
  In architecture-specific code, you may need to use inline assembly to interface
  with CPU or platform functionality.  Don't hesitate to do so when necessary.
-@@ -879,7 +1012,7 @@ next instruction in the assembly output:
+@@ -879,7 +963,7 @@ next instruction in the assembly output:
  	     : /* outputs */ : /* inputs */ : /* clobbers */);
  
  
@@ -553,24 +643,26 @@ index 0000000..55049bd
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index ed01a01..5c44cb0 100644
+index ed01a01..60a4392 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
-@@ -851,6 +851,13 @@ static inline int sk_backlog_rcv(struct sock *sk, struct sk_buff *skb)
- 
- static inline void sk_incoming_cpu_update(struct sock *sk)
- {
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	if (unlikely(sk->sk_incoming_cpu != raw_smp_processor_id()))
-+		net_warn_ratelimited("Warning: bad socket cpu locality:"
-+				     " old_cpu=%d curr_cpu=%d\n",
-+				     sk->sk_incoming_cpu,
-+				     raw_smp_processor_id());
-+#endif
- 	sk->sk_incoming_cpu = raw_smp_processor_id();
+@@ -849,9 +849,14 @@ static inline int sk_backlog_rcv(struct sock *sk, struct sk_buff *skb)
+ 	return sk->sk_backlog_rcv(sk, skb);
  }
  
-@@ -1697,8 +1704,7 @@ unsigned long sock_i_ino(struct sock *sk);
++#define TFW_SK_CPU_INIT	USHRT_MAX
++
+ static inline void sk_incoming_cpu_update(struct sock *sk)
+ {
+-	sk->sk_incoming_cpu = raw_smp_processor_id();
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (sk->sk_incoming_cpu == TFW_SK_CPU_INIT)
++#endif
++		sk->sk_incoming_cpu = raw_smp_processor_id();
+ }
+ 
+ static inline void sock_rps_record_flow_hash(__u32 hash)
+@@ -1697,8 +1702,7 @@ unsigned long sock_i_ino(struct sock *sk);
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -1435,14 +1527,15 @@ index 8e9b1f4..4d2ee48 100644
  
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 0000000..ba1859b
+index 0000000..0fa2cb4
 --- /dev/null
 +++ b/security/tempesta/Kconfig
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +config SECURITY_TEMPESTA
 +	bool "Tempesta FW Support"
 +	depends on SECURITY && NET && INET
 +	select SECURITY_NETWORK
++	select RPS
 +	select CRYPTO
 +	select CRYPTO_HMAC
 +	select CRYPTO_SHA1
