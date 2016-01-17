@@ -49,7 +49,6 @@ TfwClient *tfw_client_obtain(struct sock *sk);
 void tfw_client_put(TfwClient *cli);
 void tfw_cli_conn_release(TfwConnection *conn);
 int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data);
-int tfw_sock_clnt_drop(struct sock *sk);
 int tfw_sock_check_listeners(void);
 
 #endif /* __TFW_CLIENT_H__ */

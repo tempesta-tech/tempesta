@@ -342,6 +342,8 @@ err:
  * which says how to close the socket.
  * One of the examples is rcl_req_limit() (it should reset connections).
  * See tcp_sk(sk)->linger2 processing in standard tcp_close().
+ *
+ * Called with locked socket.
  */
 static void
 ss_do_close(struct sock *sk)
@@ -420,13 +422,6 @@ adjudge_to_death:
 	sock_orphan(sk);
 
 	/*
-	 * TODO the check looks very dirty...
-	 * Move it to user space ss_close()?
-	 */
-	if (likely(!in_softirq()))
-		bh_lock_sock(sk);
-
-	/*
 	 * SS sockets are processed in softirq only,
 	 * so backlog queue should be empty.
 	 */
@@ -435,7 +430,7 @@ adjudge_to_death:
 	percpu_counter_inc(sk->sk_prot->orphan_count);
 
 	if (state != TCP_CLOSE && sk->sk_state == TCP_CLOSE)
-		goto out;
+		return;
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
@@ -444,7 +439,7 @@ adjudge_to_death:
 						tmo - TCP_TIMEWAIT_LEN);
 		} else {
 			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
-			goto out;
+			return;
 		}
 	}
 	if (sk->sk_state != TCP_CLOSE) {
@@ -462,9 +457,19 @@ adjudge_to_death:
 			reqsk_fastopen_remove(sk, req, false);
 		inet_csk_destroy_sock(sk);
 	}
-out:
-	if (unlikely(!in_softirq()))
-		bh_unlock_sock(sk);
+}
+
+/*
+ * This function is for internal Sync Sockets use only. It's called
+ * under the socket lock taken by the kernel, and in the context of
+ * the socket that is being closed or designated TX softirq callback.
+ */
+static void
+ss_droplink(struct sock *sk)
+{
+	ss_do_close(sk);
+	SS_CALL(connection_drop, sk);
+	sock_put(sk);
 }
 
 int
@@ -475,6 +480,9 @@ ss_close(struct sock *sk)
 		.action	= SS_CLOSE,
 	};
 
+	if (unlikely(!sk))
+		return SS_OK;
+
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for closing\n", sk);
 		return SS_ERR;
@@ -482,36 +490,6 @@ ss_close(struct sock *sk)
 	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
-
-/*
- * Close the socket first. We're done with it anyway. Then release
- * all Tempesta resources linked with the socket, start failover
- * procedure if necessary, and cut all ties with Tempesta. That
- * stops all traffic from coming to Tempesta.
- *
- * The order in which these actions are executed is important.
- * The failover procedure expects that the socket is inactive.
- *
- * This function is for internal Sync Sockets use only. It's called
- * under the socket lock taken by the kernel, and in the context of
- * the socket that is being closed.
- *
- * Called with locked socket.
- */
-static void
-ss_droplink(struct sock *sk)
-{
-	/*
-	 * sk->sk_user_data may come NULLed. That's a valid
-	 * case that may occur when there's an error during
-	 * the allocation of resources for a client connection.
-	 */
-	BUG_ON(!ss_sock_active(sk));
-
-	ss_do_close(sk);
-	SS_CALL(connection_drop, sk);
-	sock_put(sk);
-}
 
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -1121,8 +1099,7 @@ ss_tx_action(void)
 			ss_do_send(sw.sk, &sw.skb_list);
 			break;
 		case SS_CLOSE:
-			ss_do_close(sw.sk);
-			sock_put(sw.sk);
+			ss_droplink(sw.sk);
 			break;
 		}
 
