@@ -109,15 +109,12 @@ __update_guards(TfwRBQueue *q)
 	 * Avoid unnecessary cache lines bouncing: write to the shared memory
 	 * only if head and tail pointers were changed.
 	 */
-	if (atomic64_read(&q->last_head) != last_head)
+	if (atomic64_read(&q->last_head) < last_head)
 		atomic64_set(&q->last_head, last_head);
-	if (atomic64_read(&q->last_tail) != last_tail)
+	if (atomic64_read(&q->last_tail) < last_tail)
 		atomic64_set(&q->last_tail, last_tail);
 }
 
-/**
- * @return false if the queue is full and true otherwise.
- */
 int
 __tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
@@ -141,8 +138,8 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 			/* Second try. */
 			if (head >= atomic64_read(&q->last_tail) + QSZ) {
 				/* The queue is full, don't wait consumers. */
-				local_bh_enable();
 				atomic64_set(&pos->head, LLONG_MAX);
+				local_bh_enable();
 				return -EBUSY;
 			}
 		}
@@ -163,17 +160,11 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	return 0;
 }
 
-/**
- * N producers, M consumers. Used for work queue.
- *
- * @return NULL on shutdown only.
- */
 int
 tfw_wq_pop(TfwRBQueue *q, void *buf)
 {
 	unsigned long long tail;
 	__ThrPos *pos;
-	int ret = -EBUSY;
 
 	local_bh_disable();
 
@@ -185,9 +176,12 @@ tfw_wq_pop(TfwRBQueue *q, void *buf)
 		if (unlikely(tail >= atomic64_read(&q->last_head))) {
 			__update_guards(q);
 			/* Second try. */
-			if (tail >= atomic64_read(&q->last_head))
+			if (tail >= atomic64_read(&q->last_head)) {
 				/* The queue is empty, don't wait producers. */
-				goto out;
+				atomic64_set(&pos->tail, LLONG_MAX);
+				local_bh_enable();
+				return -EBUSY;
+			}
 		}
 
 		/* Set a guard for current position and move global head. */
@@ -198,11 +192,10 @@ tfw_wq_pop(TfwRBQueue *q, void *buf)
 
 	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
 	mb();
-	ret = 0;
-out:
+
 	atomic64_set(&pos->tail, LLONG_MAX);
 
 	local_bh_enable();
 
-	return ret;
+	return 0;
 }

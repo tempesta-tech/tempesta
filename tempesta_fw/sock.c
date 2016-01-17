@@ -60,8 +60,9 @@ static inline void
 ss_sock_cpu_check(struct sock *sk)
 {
 	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
-		SS_WARN("Bad socket cpu locality: old_cpu=%d curr_cpu=%d\n",
-			sk->sk_incoming_cpu, raw_smp_processor_id());
+		SS_WARN("Bad socket cpu locality:"
+			" sk=%p old_cpu=%d curr_cpu=%d\n",
+			sk, sk->sk_incoming_cpu, raw_smp_processor_id());
 }
 
 static void
@@ -462,7 +463,7 @@ adjudge_to_death:
 /*
  * This function is for internal Sync Sockets use only. It's called
  * under the socket lock taken by the kernel, and in the context of
- * the socket that is being closed or designated TX softirq callback.
+ * the socket that is being closed.
  */
 static void
 ss_droplink(struct sock *sk)
@@ -689,7 +690,7 @@ ss_tcp_data_ready(struct sock *sk)
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
 	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk);
-	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
+	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -734,7 +735,7 @@ ss_tcp_state_change(struct sock *sk)
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
 	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk);
-	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
+	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
@@ -1090,20 +1091,25 @@ ss_tx_action(void)
 	SsWork sw;
 
 	while (!tfw_wq_pop(this_cpu_ptr(&si_wq), &sw)) {
-		/* The socket should be accessed by one CPU only. */
-		WARN_ON(spin_is_locked(&sw.sk->sk_lock.slock));
-		spin_lock_bh(&sw.sk->sk_lock.slock);
+		struct sock *sk = sw.sk;
 
+		/* The socket should be accessed by one CPU only. */
+		WARN_ON(spin_is_locked(&sk->sk_lock.slock));
+		bh_lock_sock(sk);
 		switch (sw.action) {
 		case SS_SEND:
-			ss_do_send(sw.sk, &sw.skb_list);
+			ss_do_send(sk, &sw.skb_list);
+			bh_unlock_sock(sk);
 			break;
 		case SS_CLOSE:
-			ss_droplink(sw.sk);
+			ss_do_close(sk);
+			bh_unlock_sock(sk);
+			SS_CALL(connection_drop, sk);
+			sock_put(sk);
 			break;
+		default:
+			BUG();
 		}
-
-		spin_unlock_bh(&sw.sk->sk_lock.slock);
 	}
 }
 
