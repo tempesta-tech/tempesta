@@ -17,26 +17,40 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#undef tfw_sock_srv_init
+#define tfw_sock_srv_init test_http_sock_srv_conn_init
+#undef tfw_sock_srv_exit
+#define tfw_sock_srv_exit test_http_sock_srv_exit
+#undef tfw_sock_srv_drop
+#define tfw_sock_srv_drop test_http_sock_srv_drop
+#undef tfw_srv_conn_release
+#define tfw_srv_conn_release test_http_srv_conn_release
+#undef tfw_sock_srv_cfg_mod
+#define tfw_sock_srv_cfg_mod test_http_sock_srv_cfg_mod
 
+#include "sock_srv.c"
+
+#ifdef module_init
+#undef module_init
+#undef module_exit
+#define module_init(func)
+#define module_exit(func)
+#endif
+
+#include "../../sched/tfw_sched_http.c"
+
+#include "cfg.h"
 #include "http_msg.h"
 #include "helpers.h"
-#include "kallsyms_helper.h"
 #include "sched_helper.h"
 #include "test.h"
-
-/* Export syms*/
-static TfwScheduler *(*tfw_sched_lookup_ptr)(const char *name);
-static void (*spec_cleanup_ptr)(TfwCfgSpec specs[]);
 
 static int
 parse_cfg(const char *cfg_text)
 {
-	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 
-	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
-	BUG_ON(tfw_cfg_mod_find == NULL);
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	
 	INIT_LIST_HEAD(&cfg_mod.list);
@@ -49,14 +63,11 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-	TfwCfgMod * (*tfw_cfg_mod_find)(const char *name);
 	TfwCfgMod cfg_mod;
 
-	tfw_cfg_mod_find = get_sym_ptr("tfw_cfg_mod_find");
-	BUG_ON(tfw_cfg_mod_find == NULL);
 
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
-	spec_cleanup_ptr(cfg_mod.specs);
+	test_spec_cleanup(cfg_mod.specs);
 }
 
 static void
@@ -75,7 +86,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 		tfw_http_parse_req(req, req_str_copy, req_str_len);
 	}
 
-	sched = tfw_sched_lookup_ptr("http");
+	sched = tfw_sched_lookup("http");
 	conn = sched->sched_grp((TfwMsg *)req);
 	EXPECT_TRUE((TfwSrvConnection *)conn == expect_conn);
 
@@ -85,7 +96,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 
 TEST(tfw_sched_http, zero_rules_and_zero_conns)
 {
-	TfwScheduler *sched = tfw_sched_lookup_ptr("http");
+	TfwScheduler *sched = tfw_sched_lookup("http");
 
 	EXPECT_TRUE(sched->sched_grp(NULL) == NULL);
 }
@@ -313,13 +324,13 @@ TEST(tfw_sched_http, one_rule)
 
 TEST_SUITE(sched_http)
 {
-	sched_helper_init();
-
-	tfw_sched_lookup_ptr = get_sym_ptr("tfw_sched_lookup");
-	spec_cleanup_ptr = get_sym_ptr("spec_cleanup");
-
-	BUG_ON(tfw_sched_lookup_ptr == NULL);
-	BUG_ON(spec_cleanup_ptr == NULL);
+	TfwScheduler *s;
+	
+	s = tfw_sched_lookup("round-robin");
+	if (!s)
+		tfw_sched_rr_init();
+	tfw_sched_http_init();	
+	tfw_server_init();
 
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);
