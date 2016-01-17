@@ -4,7 +4,7 @@
  * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,23 +12,13 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- */
-
-/*
- * TODO:
- * -- block/drop HTTP requests if they decided as malicious by a classifier
- *    (application firewall);
- * -- how do we send the buffers? By GSO (what is the maximum size which
- *    GSO can process)? How do we send buffer with size N if client reported
- *    only M (M < N) bytes in window (recalculate checksum or just wait)?
- *    See tcp_sendmsg(), tcp_write_xmit()
  */
 #include "cfg.h"
 #include "classifier.h"
@@ -50,9 +40,8 @@
 /**
  * TfwConnection extension for client sockets.
  *
- * @conn		- The base structure. Must be the first member.
+ * @conn	- The base structure. Must be the first member.
  * @ka_timer	- The keep-alive timer for the connection.
- *
  */
 typedef struct {
 	TfwConnection		conn;
@@ -87,11 +76,11 @@ tfw_sock_cli_conn_drop(TfwConnection *conn, struct sock *sk)
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
+	TfwCliConnection cli_conn = (TfwCliConnection *)data;
+
 	TFW_DBG("Client timeout end\n");
-	if (ss_close(cli_conn->conn.sk) == SS_OK) {
+	if (ss_close(cli_conn->conn.sk) == SS_OK)
 		tfw_sock_cli_conn_drop(&cli_conn->conn, cli_conn->conn.sk);
-	}
 }
 
 static TfwCliConnection *
