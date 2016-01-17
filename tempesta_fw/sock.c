@@ -56,6 +56,14 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
+static inline void
+ss_sock_cpu_check(struct sock *sk)
+{
+	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
+		SS_WARN("Bad socket cpu locality: old_cpu=%d curr_cpu=%d\n",
+			sk->sk_incoming_cpu, raw_smp_processor_id());
+}
+
 static void
 ss_ipi(struct irq_work *work)
 {
@@ -186,7 +194,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       " sk_state=%d mss=%d size=%d\n", __func__,
 	       raw_smp_processor_id(), sk, tcp_write_queue_empty(sk),
 	       tcp_send_head(sk), sk->sk_state, mss, size);
-
+	ss_sock_cpu_check(sk);
 	if (unlikely(!ss_sock_active(sk)))
 		return;
 
@@ -268,9 +276,9 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
-
-	SS_DBG("%s: cpu=%d sk=%p (%s)\n", __func__,
-	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	SS_DBG("%s: cpu=%d sk=%p (cpu=%d) state=%s\n", __func__,
+	       raw_smp_processor_id(), sk, sk->sk_incoming_cpu,
+	       ss_statename[sk->sk_state]);
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,
@@ -344,13 +352,11 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	BUG_ON(sk->sk_state == TCP_LISTEN);
-
-	SS_DBG("Close socket %p (%s): cpu=%d account=%d sk_socket=%p"
-	       " refcnt=%d\n",
+	SS_DBG("Close socket %p (%s): cpu=%d account=%d refcnt=%d\n",
 	       sk, ss_statename[sk->sk_state], raw_smp_processor_id(),
-	       sk_has_account(sk), sk->sk_socket, atomic_read(&sk->sk_refcnt));
-
+	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
+	ss_sock_cpu_check(sk);
+	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
 	/* We don't support virtual containers, so TCP_REPAIR is prohibited. */
@@ -702,9 +708,9 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
-
+	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
+	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	ss_sock_cpu_check(sk);
 	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
@@ -747,9 +753,9 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__func__, sk, sk->sk_socket, ss_statename[sk->sk_state]);
-
+	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
+	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	ss_sock_cpu_check(sk);
 	WARN_ON(!spin_is_locked(&sk->sk_lock.slock));
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -943,7 +949,7 @@ ss_inet_create(struct net *net, int family,
 	sock_init_data(NULL, sk);
 	sk->sk_type = type;
 	sk->sk_allocation = GFP_ATOMIC;
-
+	sk->sk_incoming_cpu = TFW_SK_CPU_INIT;
 	sk->sk_destruct = inet_sock_destruct;
 	sk->sk_protocol = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
