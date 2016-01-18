@@ -3,8 +3,8 @@
  *
  * Definitions for generic connection (at OSI level 4) management.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -124,6 +124,9 @@ tfw_connection_get(TfwConnection *conn)
 	atomic_inc(&conn->refcnt);
 }
 
+/**
+ * @return true if @conn has no more users.
+ */
 static inline bool
 tfw_connection_put(TfwConnection *conn)
 {
@@ -136,12 +139,6 @@ tfw_connection_put(TfwConnection *conn)
 	return true;
 }
 
-static inline bool
-tfw_connection_hasref(TfwConnection *conn)
-{
-	return atomic_read(&conn->refcnt) > 1;
-}
-
 /*
  * Link Sync Sockets layer with Tempesta. The socket @sk now carries
  * a reference to Tempesta's @conn instance. When a Tempesta's socket
@@ -152,7 +149,6 @@ static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
-	atomic_set(&conn->refcnt, 1);
 	rcu_assign_sk_user_data(sk, conn);
 }
 
@@ -203,6 +199,12 @@ tfw_connection_unlink_from_peer(TfwConnection *conn)
 	tfw_peer_del_conn(conn->peer, &conn->list);
 }
 
+static inline void
+tfw_connection_unlink_msg(TfwConnection *conn)
+{
+	conn->msg = NULL;
+}
+
 static inline bool
 tfw_connection_live(TfwConnection *conn)
 {
@@ -224,7 +226,7 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
-void tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data);
+int tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);

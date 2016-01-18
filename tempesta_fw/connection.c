@@ -3,8 +3,8 @@
  *
  * Generic connection management.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITFWOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -44,6 +44,7 @@ tfw_connection_init(TfwConnection *conn)
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->msg_queue);
 	spin_lock_init(&conn->msg_qlock);
+	atomic_set(&conn->refcnt, 1);
 }
 
 void
@@ -83,10 +84,10 @@ tfw_connection_destruct(TfwConnection *conn)
  *
  * @unref_data is true if we won't use @msg any more.
  */
-void
+int
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 {
-	ss_send(conn->sk, &msg->skb_list, unref_data);
+	return ss_send(conn->sk, &msg->skb_list, unref_data);
 }
 
 int

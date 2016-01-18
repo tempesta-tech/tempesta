@@ -2,8 +2,8 @@
 #
 # Tempesta FW service script.
 #
-# Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -11,8 +11,8 @@
 # or (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
@@ -28,6 +28,8 @@ pushd "$root" > /dev/null
 root="$(pwd)"
 popd > /dev/null
 
+NETDEV_PATH="/sys/class/net/"
+
 tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$root/tempesta_fw"}
 class_path="$tfw_path/classifier/"
@@ -38,15 +40,17 @@ tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
 frang_mod="tfw_frang"
+devs=$(ls $NETDEV_PATH)
 declare frang_enable=
-
 declare -r long_opts="help,load,unload,start,stop,restart"
 
 usage()
 {
 	echo -e "\nUsage: ${name} [options] {action}\n"
 	echo -e "Options:"
-	echo -e "  -f          Load Frang, HTTP DoS protection module.\n"
+	echo -e "  -f          Load Frang, HTTP DoS protection module."
+	echo -e "  -d <devs>   Ingress and egress network devices"
+	echo -e "              (ex. -d \"lo ens3\").\n"
 	echo -e "Actions:"
 	echo -e "  --help      Show this message and exit."
 	echo -e "  --load      Load Tempesta modules."
@@ -92,9 +96,31 @@ load_modules()
 	fi
 }
 
+# Enable RPS for specified, or all by default, networking interfaces.
+# This is required for loopback interface for proper local delivery,
+# but physical interfaces can have RSS.
+# TODO assign RSS queues as well.
+tfw_set_rps()
+{
+	cpu_n=$(grep -c processor /proc/cpuinfo)
+	cpu_mask=$(perl -le 'printf("%x", (1 << '$cpu_n') - 1)')
+
+	for dev in $devs; do
+		echo "...setup interface $dev"
+		for rx in $NETDEV_PATH/$dev/queues/rx-*; do
+			echo $cpu_mask > $rx/rps_cpus
+		done
+	done
+}
+
 start()
 {
 	echo "Starting Tempesta..."
+
+	# Tempesta builds socket buffers by itself, don't cork TCP segments.
+	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
+
+	tfw_set_rps
 
 	# Create database directory if it doesn't exist.
 	mkdir -p /opt/tempesta/db/
@@ -127,7 +153,7 @@ unload_modules()
 	rmmod $tdb_mod
 }
 
-args=$(getopt -o "f" -a -l "$long_opts" -- "$@")
+args=$(getopt -o "d:f" -a -l "$long_opts" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
@@ -157,6 +183,10 @@ while :; do
 			exit
 			;;
 		# Ignore any options after action.
+		-d)
+			devs=$2
+			shift 2
+			;;
 		-f)
 			frang_enable=1
 			shift

@@ -3,8 +3,8 @@
  *
  * HTTP message manipulation helpers for the protocol processing.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -527,7 +527,6 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
 		orig_hdr = &ht->tbl[hid];
-		BUG_ON(!TFW_STR_EMPTY(orig_hdr));
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
@@ -611,8 +610,7 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 {
 	TfwHttpMsg *hm;
 
-	if (data_len == 0)
-		return NULL;
+	TFW_DBG2("Create new HTTP message: type=%d len=%lu\n", type, data_len);
 
 	hm = tfw_http_msg_alloc(type);
 	if (!hm)
@@ -625,7 +623,7 @@ tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
 	it->skb = ss_skb_peek(&hm->msg.skb_list);
 	it->frag = 0;
 
-	BUG_ON(it->skb == NULL);
+	BUG_ON(!it->skb);
 	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
 	return hm;
@@ -757,7 +755,6 @@ void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
 	TFW_DBG3("Free msg=%p\n", m);
-
 	if (!m)
 		return;
 

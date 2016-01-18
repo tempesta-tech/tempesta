@@ -11,7 +11,7 @@
  *
  * 	- TODO write down other limits.
  *
- * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -214,10 +214,8 @@ __FSM_STATE(st) {							\
  * and type conversion to int or long type.
  */
 #define C4_INT_LCM(p, a, b, c, d)					\
-	 (p + 4 <= data + len) &&					\
 	 !((*(unsigned int *)(p) | TFW_LC_INT) ^ TFW_CHAR4_INT(a, b, c, d))
 #define C8_INT_LCM(p, a, b, c, d, e, f, g, h)				\
-	 (p + 8 <= data + len) &&					\
 	 !((*(unsigned long *)(p) | TFW_LC_LONG)			\
 	   ^ TFW_CHAR8_INT(a, b, c, d, e, f, g, h))
 
@@ -1722,7 +1720,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'c':
 			__FSM_MOVE(Req_HdrC);
 		case 'h':
-			if (likely(C4_INT_LCM(p + 1, 'o', 's', 't', ':'))) {
+			if (likely(p + 5 <= data + len
+				   && C4_INT_LCM(p + 1, 'o', 's', 't', ':'))) {
 				parser->_i_st = Req_HdrHostV;
 				parser->_hdr_tag = TFW_HTTP_HDR_HOST;
 				__FSM_MOVE_n(RGen_LWS_empty, 5);
@@ -2772,8 +2771,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case 'c':
 			__FSM_MOVE(Resp_HdrC);
 		case 'e':
-			if (likely(C8_INT_LCM(p, 'e', 'x', 'p', 'i',
-						 'r', 'e', 's', ':')))
+			if (likely(p + 8 <= data + len
+				   && C8_INT_LCM(p, 'e', 'x', 'p', 'i',
+						    'r', 'e', 's', ':')))
 			{
 				parser->_i_st = Resp_HdrExpiresV;
 				__FSM_MOVE_n(RGen_LWS, 8);
@@ -2833,8 +2833,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			{
 				__FSM_MOVE_n(Resp_HdrContent_, 7);
 			}
-			if (likely(C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
-						     't', 'i', 'o', 'n')))
+			if (likely(p + 9 <= data + len
+				   && C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
+						        't', 'i', 'o', 'n')))
 				__FSM_MOVE_n(Resp_HdrConnection, 9);
 			__FSM_MOVE(Resp_HdrCo);
 		default:

@@ -1,5 +1,5 @@
 diff --git a/Documentation/CodingStyle b/Documentation/CodingStyle
-index f4b78ea..f6376f4 100644
+index f4b78ea..b10de96 100644
 --- a/Documentation/CodingStyle
 +++ b/Documentation/CodingStyle
 @@ -1,5 +1,5 @@
@@ -62,7 +62,97 @@ index f4b78ea..f6376f4 100644
  Do not unnecessarily use braces where a single statement will do.
  
  	if (condition)
-@@ -375,7 +392,8 @@ In source files, separate functions with one blank line.  If the function is
+@@ -272,76 +289,27 @@ See chapter 6 (Functions).
+ 
+ 		Chapter 5: Typedefs
+ 
+-Please don't use things like "vps_t".
+-It's a _mistake_ to use typedef for structures and pointers. When you see a
++Linux kernel frowns on CamelCase and so we in general, but type names.
++Tempesta uses CamelCase usually prefixed with "Tfw" for type names and uses
++typedefs for them. So instead of
+ 
+ 	vps_t a;
+-
+-in the source, what does it mean?
+-In contrast, if it says
+-
+ 	struct virtual_container *a;
+ 
+-you can actually tell what "a" is.
+-
+-Lots of people think that typedefs "help readability". Not so. They are
+-useful only for:
+-
+- (a) totally opaque objects (where the typedef is actively used to _hide_
+-     what the object is).
+-
+-     Example: "pte_t" etc. opaque objects that you can only access using
+-     the proper accessor functions.
+-
+-     NOTE! Opaqueness and "accessor functions" are not good in themselves.
+-     The reason we have them for things like pte_t etc. is that there
+-     really is absolutely _zero_ portably accessible information there.
+-
+- (b) Clear integer types, where the abstraction _helps_ avoid confusion
+-     whether it is "int" or "long".
+-
+-     u8/u16/u32 are perfectly fine typedefs, although they fit into
+-     category (d) better than here.
+-
+-     NOTE! Again - there needs to be a _reason_ for this. If something is
+-     "unsigned long", then there's no reason to do
+-
+-	typedef unsigned long myflags_t;
+-
+-     but if there is a clear reason for why it under certain circumstances
+-     might be an "unsigned int" and under other configurations might be
+-     "unsigned long", then by all means go ahead and use a typedef.
+-
+- (c) when you use sparse to literally create a _new_ type for
+-     type-checking.
+-
+- (d) New types which are identical to standard C99 types, in certain
+-     exceptional circumstances.
++we write
+ 
+-     Although it would only take a short amount of time for the eyes and
+-     brain to become accustomed to the standard types like 'uint32_t',
+-     some people object to their use anyway.
++	TfwVps a;
++	TfwVirtualContainer *a;
+ 
+-     Therefore, the Linux-specific 'u8/u16/u32/u64' types and their
+-     signed equivalents which are identical to standard types are
+-     permitted -- although they are not mandatory in new code of your
+-     own.
++CamelCase helps to identify type name from other names while "_t" suffix just
++makes the name longer. We also use C++ for user-space code and this is quite
++unusual practice in C++ to write something like
+ 
+-     When editing existing code which already uses one or the other set
+-     of types, you should conform to the existing choices in that code.
++	struct A a(0);
++	class B b(a);
+ 
+- (e) Types safe for use in userspace.
+-
+-     In certain structures which are visible to userspace, we cannot
+-     require C99 types and cannot use the 'u32' form above. Thus, we
+-     use __u32 and similar types in all structures which are shared
+-     with userspace.
+-
+-Maybe there are other cases too, but the rule should basically be to NEVER
+-EVER use a typedef unless you can clearly match one of those rules.
+-
+-In general, a pointer, or a struct that has elements that can reasonably
+-be directly accessed should _never_ be a typedef.
++And we're trying to be good for C as well as for C++. Typedefs make C code
++look closer to C++ and that's also good for us.
+ 
+ 
+ 		Chapter 6: Functions
+@@ -375,7 +343,8 @@ In source files, separate functions with one blank line.  If the function is
  exported, the EXPORT* macro for it should follow immediately after the closing
  function brace line.  E.g.:
  
@@ -72,7 +162,7 @@ index f4b78ea..f6376f4 100644
  	{
  		return system_state == SYSTEM_RUNNING;
  	}
-@@ -385,6 +403,31 @@ In function prototypes, include parameter names with their data types.
+@@ -385,6 +354,31 @@ In function prototypes, include parameter names with their data types.
  Although this is not required by the C language, it is preferred in Linux
  because it is a simple way to add valuable information for the reader.
  
@@ -104,7 +194,7 @@ index f4b78ea..f6376f4 100644
  
  		Chapter 7: Centralized exiting of functions
  
-@@ -408,7 +451,8 @@ The rationale for using gotos is:
+@@ -408,7 +402,8 @@ The rationale for using gotos is:
      modifications are prevented
  - saves the compiler work to optimize redundant code away ;)
  
@@ -114,7 +204,7 @@ index f4b78ea..f6376f4 100644
  	{
  		int result = 0;
  		char *buffer;
-@@ -462,7 +506,8 @@ See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
+@@ -462,7 +457,8 @@ See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
  for details.
  
  Linux style for comments is the C89 "/* ... */" style.
@@ -124,7 +214,7 @@ index f4b78ea..f6376f4 100644
  
  The preferred style for long (multi-line) comments is:
  
-@@ -475,16 +520,6 @@ The preferred style for long (multi-line) comments is:
+@@ -475,16 +471,6 @@ The preferred style for long (multi-line) comments is:
  	 * with beginning and ending almost-blank lines.
  	 */
  
@@ -141,7 +231,7 @@ index f4b78ea..f6376f4 100644
  It's also important to comment data, whether they are basic types or derived
  types.  To this end, use just one data declaration per line (no commas for
  multiple data declarations).  This leaves you room for a small comment on each
-@@ -568,7 +603,15 @@ config AUDIT
+@@ -568,7 +554,15 @@ config AUDIT
  	  logging of avc messages output).  Does not do system-call
  	  auditing without CONFIG_AUDITSYSCALL.
  
@@ -158,7 +248,7 @@ index f4b78ea..f6376f4 100644
  filesystems) should advertise this prominently in their prompt string:
  
  config ADFS_FS_RW
-@@ -716,9 +759,8 @@ used.
+@@ -716,9 +710,8 @@ used.
  		Chapter 14: Allocating memory
  
  The kernel provides the following general purpose memory allocators:
@@ -170,7 +260,7 @@ index f4b78ea..f6376f4 100644
  
  The preferred form for passing a size of a struct is the following:
  
-@@ -732,17 +774,6 @@ Casting the return value which is a void pointer is redundant. The conversion
+@@ -732,17 +725,6 @@ Casting the return value which is a void pointer is redundant. The conversion
  from void pointer to any other pointer type is guaranteed by the C programming
  language.
  
@@ -188,7 +278,7 @@ index f4b78ea..f6376f4 100644
  
  		Chapter 15: The inline disease
  
-@@ -823,7 +854,109 @@ need them.  Feel free to peruse that header file to see what else is already
+@@ -823,7 +805,109 @@ need them.  Feel free to peruse that header file to see what else is already
  defined that you shouldn't reproduce in your code.
  
  
@@ -299,7 +389,7 @@ index f4b78ea..f6376f4 100644
  
  Some editors can interpret configuration information embedded in source files,
  indicated with special markers.  For example, emacs interprets lines marked
-@@ -850,7 +983,7 @@ own custom mode, or may have some other magic method for making indentation
+@@ -850,7 +934,7 @@ own custom mode, or may have some other magic method for making indentation
  work correctly.
  
  
@@ -308,7 +398,7 @@ index f4b78ea..f6376f4 100644
  
  In architecture-specific code, you may need to use inline assembly to interface
  with CPU or platform functionality.  Don't hesitate to do so when necessary.
-@@ -879,7 +1012,7 @@ next instruction in the assembly output:
+@@ -879,7 +963,7 @@ next instruction in the assembly output:
  	     : /* outputs */ : /* inputs */ : /* clobbers */);
  
  
@@ -333,6 +423,53 @@ index cd03a0f..6465166 100644
  	test_suspend=	[SUSPEND][,N]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
+diff --git a/arch/x86/kernel/entry_64.S b/arch/x86/kernel/entry_64.S
+index 6c9cb60..505dfd3 100644
+--- a/arch/x86/kernel/entry_64.S
++++ b/arch/x86/kernel/entry_64.S
+@@ -1128,7 +1128,11 @@ ENTRY(do_softirq_own_stack)
+ 	incl PER_CPU_VAR(irq_count)
+ 	cmove PER_CPU_VAR(irq_stack_ptr),%rsp
+ 	push  %rbp			# backlink for old unwinder
++#ifdef CONFIG_SECURITY_TEMPESTA
++	call __tempesta_do_softirq_fpusafe
++#else
+ 	call __do_softirq
++#endif
+ 	leaveq
+ 	CFI_RESTORE		rbp
+ 	CFI_DEF_CFA_REGISTER	rsp
+diff --git a/arch/x86/kernel/irq_64.c b/arch/x86/kernel/irq_64.c
+index 394e643..7c7f954 100644
+--- a/arch/x86/kernel/irq_64.c
++++ b/arch/x86/kernel/irq_64.c
+@@ -74,6 +74,26 @@ static inline void stack_overflow_check(struct pt_regs *regs)
+ #endif
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/* Tempesta supports x86-64 only. */
++#include <asm/i387.h>
++
++void
++__tempesta_do_softirq_fpusafe(void)
++{
++	/*
++	 * Switch FPU context once per budget packets to let Tempesta
++	 * run many vector operations w/o costly FPU switches.
++	 * Eager FPU must be enabled.
++	 */
++	kernel_fpu_begin();
++
++	__do_softirq();
++
++	kernel_fpu_end();
++}
++#endif
++
+ bool handle_irq(unsigned irq, struct pt_regs *regs)
+ {
+ 	struct irq_desc *desc;
 diff --git a/arch/x86/kernel/xsave.c b/arch/x86/kernel/xsave.c
 index 87a815b..84b7399 100644
 --- a/arch/x86/kernel/xsave.c
@@ -346,6 +483,35 @@ index 87a815b..84b7399 100644
  static int __init eager_fpu_setup(char *s)
  {
  	if (!strcmp(s, "on"))
+diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
+index 950ae45..0f1f587 100644
+--- a/include/linux/interrupt.h
++++ b/include/linux/interrupt.h
+@@ -402,13 +402,13 @@ extern bool force_irqthreads;
+    tasklets are more than enough. F.e. all serial device BHs et
+    al. should be converted to tasklets, not to softirqs.
+  */
+-
++/* Tempesta: process RX before TX to proxy traffic in one softirq shot. */
+ enum
+ {
+ 	HI_SOFTIRQ=0,
+ 	TIMER_SOFTIRQ,
+-	NET_TX_SOFTIRQ,
+ 	NET_RX_SOFTIRQ,
++	NET_TX_SOFTIRQ,
+ 	BLOCK_SOFTIRQ,
+ 	BLOCK_IOPOLL_SOFTIRQ,
+ 	TASKLET_SOFTIRQ,
+@@ -452,7 +452,7 @@ extern void softirq_init(void);
+ extern void __raise_softirq_irqoff(unsigned int nr);
+ 
+ extern void raise_softirq_irqoff(unsigned int nr);
+-extern void raise_softirq(unsigned int nr);
++void raise_softirq(unsigned int nr);
+ 
+ DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
+ 
 diff --git a/include/linux/net.h b/include/linux/net.h
 index 738ea48..7944e97 100644
 --- a/include/linux/net.h
@@ -418,15 +584,15 @@ index 4307e20..a6d7fa4 100644
  #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..f5f3f38
+index 0000000..55049bd
 --- /dev/null
 +++ b/include/linux/tempesta.h
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,54 @@
 +/**
-+ * Linux interface for Tempesta FW (FireWall and/or FrameWork).
++ * Linux interface for Tempesta FW.
 + *
-+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
-+ * Copyright (C) 2015 Tempesta Technologies, Inc.
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms of the GNU General Public License as published by
@@ -434,8 +600,8 @@ index 0000000..f5f3f38
 + * or (at your option) any later version.
 + *
 + * This program is distributed in the hope that it will be useful, but WITHOUT
-+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-+ * FOR A PARTICULAR PURPOSE.
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.
 + * See the GNU General Public License for more details.
 + *
 + * You should have received a copy of the GNU General Public License along with
@@ -446,6 +612,8 @@ index 0000000..f5f3f38
 +#define __TEMPESTA_H__
 +
 +#include <net/sock.h>
++
++typedef void (*TempestaTxAction)(void);
 +
 +typedef struct {
 +	int (*sk_alloc)(struct sock *sk);
@@ -463,6 +631,10 @@ index 0000000..f5f3f38
 +void tempesta_register_ops(TempestaOps *tops);
 +void tempesta_unregister_ops(TempestaOps *tops);
 +
++/* Network hooks. */
++void tempesta_set_tx_action(TempestaTxAction action);
++void tempesta_del_tx_action(void);
++
 +/* Memory management. */
 +void tempesta_reserve_pages(void);
 +void tempesta_reserve_vmpages(void);
@@ -470,6 +642,36 @@ index 0000000..f5f3f38
 +
 +#endif /* __TEMPESTA_H__ */
 +
+diff --git a/include/net/sock.h b/include/net/sock.h
+index ed01a01..60a4392 100644
+--- a/include/net/sock.h
++++ b/include/net/sock.h
+@@ -849,9 +849,14 @@ static inline int sk_backlog_rcv(struct sock *sk, struct sk_buff *skb)
+ 	return sk->sk_backlog_rcv(sk, skb);
+ }
+ 
++#define TFW_SK_CPU_INIT	USHRT_MAX
++
+ static inline void sk_incoming_cpu_update(struct sock *sk)
+ {
+-	sk->sk_incoming_cpu = raw_smp_processor_id();
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (sk->sk_incoming_cpu == TFW_SK_CPU_INIT)
++#endif
++		sk->sk_incoming_cpu = raw_smp_processor_id();
+ }
+ 
+ static inline void sock_rps_record_flow_hash(__u32 hash)
+@@ -1697,8 +1702,7 @@ unsigned long sock_i_ino(struct sock *sk);
+ static inline struct dst_entry *
+ __sk_dst_get(struct sock *sk)
+ {
+-	return rcu_dereference_check(sk->sk_dst_cache, sock_owned_by_user(sk) ||
+-						       lockdep_is_held(&sk->sk_lock.slock));
++	return rcu_dereference_raw(sk->sk_dst_cache);
+ }
+ 
+ static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
 index 6d204f3..ab4c696 100644
 --- a/include/net/tcp.h
@@ -550,6 +752,18 @@ index 2a89545..0a24b7d 100644
  }
  
  asmlinkage __visible void __init start_kernel(void)
+diff --git a/kernel/softirq.c b/kernel/softirq.c
+index 479e443..f951010 100644
+--- a/kernel/softirq.c
++++ b/kernel/softirq.c
+@@ -423,6 +423,7 @@ void raise_softirq(unsigned int nr)
+ 	raise_softirq_irqoff(nr);
+ 	local_irq_restore(flags);
+ }
++EXPORT_SYMBOL(raise_softirq);
+ 
+ void __raise_softirq_irqoff(unsigned int nr)
+ {
 diff --git a/mm/Makefile b/mm/Makefile
 index 98c4eae..33cf154 100644
 --- a/mm/Makefile
@@ -850,47 +1064,58 @@ index 0000000..3909f7f
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
 diff --git a/net/core/dev.c b/net/core/dev.c
-index a42b232..9896bc4 100644
+index a42b232..d9a3ba8 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
-@@ -138,6 +138,11 @@
- 
- #include "net-sysfs.h"
+@@ -3443,6 +3443,27 @@ int netif_rx_ni(struct sk_buff *skb)
+ }
+ EXPORT_SYMBOL(netif_rx_ni);
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+/* Tempesta supports x86-64 only. */
-+#include <asm/i387.h>
++#include <linux/tempesta.h>
++
++static TempestaTxAction __rcu tempesta_tx_action = NULL;
++
++void
++tempesta_set_tx_action(TempestaTxAction action)
++{
++	rcu_assign_pointer(tempesta_tx_action, action);
++}
++EXPORT_SYMBOL(tempesta_set_tx_action);
++
++void
++tempesta_del_tx_action(void)
++{
++	rcu_assign_pointer(tempesta_tx_action, NULL);
++	synchronize_rcu();
++}
++EXPORT_SYMBOL(tempesta_del_tx_action);
 +#endif
 +
- /* Instead of increasing this, you should create a hash table. */
- #define MAX_GRO_SKBS 8
- 
-@@ -4620,6 +4625,15 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
- 
- 	weight = n->weight;
+ static void net_tx_action(struct softirq_action *h)
+ {
+ 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+@@ -3468,6 +3489,20 @@ static void net_tx_action(struct softirq_action *h)
+ 		}
+ 	}
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	/*
-+	 * Switch FPU context once per budget packets to let Tempesta
-+	 * run many vector operations w/o costly FPU switches.
-+	 * Eager FPU must be enabled.
-+	 */
-+	kernel_fpu_begin();
++	{
++		TempestaTxAction action;
++
++		rcu_read_lock();
++
++		action = rcu_dereference(tempesta_tx_action);
++		if (likely(action))
++			action();
++
++		rcu_read_unlock();
++	}
 +#endif
 +
- 	/* This NAPI_STATE_SCHED test is for avoiding a race
- 	 * with netpoll's poll_napi().  Only the entity which
- 	 * obtains the lock and sees NAPI_STATE_SCHED set will
-@@ -4666,6 +4680,9 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
- 	list_add_tail(&n->poll_list, repoll);
+ 	if (sd->output_queue) {
+ 		struct Qdisc *head;
  
- out_unlock:
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	kernel_fpu_end();
-+#endif
- 	netpoll_poll_unlock(have);
- 
- 	return work;
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
 index b42f0e2..ef4362e 100644
 --- a/net/core/request_sock.c
@@ -1042,7 +1267,7 @@ index c9ab964..9f44b3e 100644
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
-index 441ca6f..0b2758b 100644
+index 441ca6f..65f7be9 100644
 --- a/net/ipv4/tcp_ipv4.c
 +++ b/net/ipv4/tcp_ipv4.c
 @@ -62,6 +62,7 @@
@@ -1053,7 +1278,28 @@ index 441ca6f..0b2758b 100644
  
  #include <net/net_namespace.h>
  #include <net/icmp.h>
-@@ -1318,6 +1319,14 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+@@ -157,8 +158,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+ 		return -EAFNOSUPPORT;
+ 
+ 	nexthop = daddr = usin->sin_addr.s_addr;
+-	inet_opt = rcu_dereference_protected(inet->inet_opt,
+-					     sock_owned_by_user(sk));
++	inet_opt = rcu_dereference_raw(inet->inet_opt);
+ 	if (inet_opt && inet_opt->opt.srr) {
+ 		if (!daddr)
+ 			return -EINVAL;
+@@ -875,9 +875,7 @@ struct tcp_md5sig_key *tcp_md5_do_lookup(struct sock *sk,
+ 	const struct tcp_md5sig_info *md5sig;
+ 
+ 	/* caller either holds rcu_read_lock() or socket lock */
+-	md5sig = rcu_dereference_check(tp->md5sig_info,
+-				       sock_owned_by_user(sk) ||
+-				       lockdep_is_held(&sk->sk_lock.slock));
++	md5sig = rcu_dereference_raw(tp->md5sig_info);
+ 	if (!md5sig)
+ 		return NULL;
+ #if IS_ENABLED(CONFIG_IPV6)
+@@ -1318,6 +1316,14 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
  	}
  #endif
  
@@ -1281,14 +1527,15 @@ index 8e9b1f4..4d2ee48 100644
  
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 0000000..ba1859b
+index 0000000..0fa2cb4
 --- /dev/null
 +++ b/security/tempesta/Kconfig
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +config SECURITY_TEMPESTA
 +	bool "Tempesta FW Support"
 +	depends on SECURITY && NET && INET
 +	select SECURITY_NETWORK
++	select RPS
 +	select CRYPTO
 +	select CRYPTO_HMAC
 +	select CRYPTO_SHA1
@@ -1309,14 +1556,14 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..2a44ce3
+index 0000000..c8dc8ef
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,134 @@
 +/**
 + *		Tempesta FW
 + *
-+ * Copyright (C) 2012-2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
 + * Copyright (C) 2015 Tempesta Technologies, Inc.
 + *
 + * This program is free software; you can redistribute it and/or modify it
