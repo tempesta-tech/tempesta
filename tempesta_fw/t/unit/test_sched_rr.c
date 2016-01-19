@@ -18,8 +18,30 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#undef tfw_sock_srv_init
+#define tfw_sock_srv_init test_rr_sock_srv_conn_init
+#undef tfw_sock_srv_exit
+#define tfw_sock_srv_exit test_rr_sock_srv_exit
+#undef tfw_sock_srv_drop
+#define tfw_sock_srv_drop test_rr_sock_srv_drop
+#undef tfw_srv_conn_release
+#define tfw_srv_conn_release test_rr_srv_conn_release
+#undef tfw_sock_srv_cfg_mod
+#define tfw_sock_srv_cfg_mod test_rr_srv_cfg_mod
+
+#include "sock_srv.c"
+
+#ifdef module_init
+#undef module_init
+#undef module_exit
+#define module_init(func)
+#define module_exit(func)
+#endif
+
+#include "../../sched/tfw_sched_rr.c"
 
 #include "sched_helper.h"
+#include "server.h"
 #include "test.h"
 
 TEST(tfw_sched_rr, sg_empty)
@@ -128,7 +150,8 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_rr)
 {
-	sched_helper_init();
+	tfw_server_init();
+	tfw_sched_rr_init();
 
 	TEST_RUN(tfw_sched_rr, sg_empty);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_zero_conn);

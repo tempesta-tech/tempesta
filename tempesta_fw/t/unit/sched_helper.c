@@ -18,37 +18,47 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
- 
+
+#undef tfw_sock_srv_init
+#define tfw_sock_srv_init test_sock_srv_conn_init
+#undef tfw_sock_srv_exit
+#define tfw_sock_srv_exit test_sock_srv_exit
+#undef tfw_sock_srv_drop
+#define tfw_sock_srv_drop test_sock_srv_drop
+#undef tfw_srv_conn_release
+#define tfw_srv_conn_release test_srv_conn_release
+#undef tfw_sock_srv_cfg_mod
+#define tfw_sock_srv_cfg_mod test_sock_srv_cfg_mod
+#include "sock_srv.c"
+
+#include "server.h"
 #include "sched_helper.h"
-#include "kallsyms_helper.h"
-
-TfwSrvConnection *tfw_srv_conn_alloc(void);
-void tfw_srv_conn_free(TfwConnection *conn);
-
-/* Export syms*/
-static TfwSrvGroup *(*tfw_sg_new_ptr)(const char *name, gfp_t flags);
-static int (*tfw_sg_set_sched_ptr)(TfwSrvGroup *sg, const char *sched);
-static TfwServer *(*tfw_create_server_ptr)(const TfwAddr *addr);
-static void (*tfw_sg_release_all_ptr)(void);
-static TfwSrvConnection *(*tfw_srv_conn_alloc_ptr)(void);
-static void (*tfw_srv_conn_free_ptr)(TfwSrvConnection *srv_conn);
 
 void
-sched_helper_init(void)
+test_spec_cleanup(TfwCfgSpec specs[])
 {
-	tfw_sg_new_ptr = get_sym_ptr("tfw_sg_new");
-	tfw_sg_set_sched_ptr = get_sym_ptr("tfw_sg_set_sched");
-	tfw_create_server_ptr = get_sym_ptr("tfw_create_server");
-	tfw_sg_release_all_ptr = get_sym_ptr("tfw_sg_release_all");
-	tfw_srv_conn_alloc_ptr = get_sym_ptr("tfw_srv_conn_alloc");
-	tfw_srv_conn_free_ptr = get_sym_ptr("tfw_srv_conn_free");
+	TfwCfgSpec *spec;
 
-	BUG_ON(tfw_sg_new_ptr == NULL);
-	BUG_ON(tfw_sg_set_sched_ptr == NULL);
-	BUG_ON(tfw_create_server_ptr == NULL);
-	BUG_ON(tfw_sg_release_all_ptr == NULL);
-	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
-	BUG_ON(tfw_srv_conn_free_ptr == NULL);
+	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
+		if (spec->call_counter && spec->cleanup) {
+			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+			spec->cleanup(spec);
+		}
+		spec->call_counter = 0;
+
+		/**
+		 * When spec processing function is tfw_cfg_handle_children(),
+		 * a user-defined .cleanup function for that spec is not
+		 * allowed. Instead, an special .cleanup function is assigned
+		 * to that spec, thus overwriting the (zero) value there.
+		 * When the whole cleanup process completes, revert that spec
+		 * entry to original (zero) value. That will allow reuse of
+		 * the spec.
+		 */
+		if (spec->handler == &tfw_cfg_handle_children) {
+			spec->cleanup = NULL;
+		}
+	}
 }
 
 TfwSrvGroup *
@@ -56,13 +66,11 @@ test_create_sg(const char *name, const char *sched_name)
 {
 	TfwSrvGroup *sg;
 
-	BUG_ON(tfw_sg_new_ptr == NULL);
-	sg = tfw_sg_new_ptr(name, GFP_KERNEL);
+	sg = tfw_sg_new(name, GFP_KERNEL);
 	BUG_ON(!sg);
 
-	BUG_ON(tfw_sg_set_sched_ptr == NULL);
 	{
-		int r = tfw_sg_set_sched_ptr(sg, sched_name);
+		int r = tfw_sg_set_sched(sg, sched_name);
 		BUG_ON(r);
 	}
 
@@ -72,8 +80,7 @@ test_create_sg(const char *name, const char *sched_name)
 void
 test_sg_release_all(void)
 {
-	BUG_ON(tfw_sg_release_all_ptr == NULL);
-	tfw_sg_release_all_ptr();
+	tfw_sg_release_all();
 }
 
 TfwServer *
@@ -87,8 +94,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 		BUG_ON(r);
 	}
 
-	BUG_ON(tfw_create_server_ptr == NULL);
-	srv = tfw_create_server_ptr(&addr);
+	srv = tfw_create_server(&addr);
 	BUG_ON(!srv);
 
 	tfw_sg_add(sg, srv);
@@ -99,17 +105,14 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 TfwSrvConnection *
 test_create_conn(TfwPeer *peer)
 {
-	void (*tfw_connection_link_peer)(TfwConnection *conn,TfwPeer *peer);
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
 	TfwSrvConnection *srv_conn;
+	if(!tfw_srv_conn_cache)
+		tfw_sock_srv_init();
+	srv_conn = tfw_srv_conn_alloc();
 
-	tfw_connection_link_peer = get_sym_ptr("tfw_connection_link_peer");
-
-	BUG_ON(tfw_connection_link_peer == NULL);
-	BUG_ON(tfw_srv_conn_alloc_ptr == NULL);
-	srv_conn = tfw_srv_conn_alloc_ptr();
 	BUG_ON(!srv_conn);
 	tfw_connection_link_peer(&srv_conn->conn, peer);
 	srv_conn->conn.sk = &__test_sock;
@@ -127,8 +130,7 @@ test_conn_release_all(TfwSrvGroup *sg)
 		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, list) {
 			conn->sk = NULL;
 			tfw_connection_unlink_from_peer(conn);
-			BUG_ON(tfw_srv_conn_free_ptr == NULL);
-			tfw_srv_conn_free_ptr((TfwSrvConnection *)conn);
+			tfw_srv_conn_free((TfwSrvConnection *)conn);
 		}
 	}
 }
