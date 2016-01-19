@@ -323,6 +323,7 @@ err:
 			kfree_skb(skb);
 	return r;
 }
+EXPORT_SYMBOL(ss_send);
 
 /**
  * This is main body of the socket close function in Sync Sockets.
