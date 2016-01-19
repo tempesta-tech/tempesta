@@ -20,10 +20,12 @@
 #ifndef __TFW_WORK_QUEUE_H__
 #define __TFW_WORK_QUEUE_H__
 
+#include <linux/interrupt.h>
 #include <linux/irq_work.h>
 
 #define WQ_ITEM_SZ		32
 #define TFW_WQ_CHECKSZ(t)	BUG_ON(sizeof(t) != WQ_ITEM_SZ)
+
 typedef struct {
 	long			_[WQ_ITEM_SZ / sizeof(long)];
 } __WqItem;
@@ -56,6 +58,8 @@ tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work)
 
 	if (raw_smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);
+	else
+		raise_softirq(NET_TX_SOFTIRQ);
 
 	return 0;
 }
