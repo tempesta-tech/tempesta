@@ -795,8 +795,9 @@ tfw_cache_stop(void)
 
 	for_each_online_cpu(i) {
 		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-		tfw_wq_destroy(&ct->wq);
 		tasklet_kill(&ct->tasklet);
+		irq_work_sync(&ct->ipi_work);
+		tfw_wq_destroy(&ct->wq);
 	}
 	kthread_stop(cache_mgr_thr);
 
