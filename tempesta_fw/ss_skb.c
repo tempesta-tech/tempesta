@@ -62,6 +62,8 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * An SKB is created complely headerless. The linear part of an SKB
  * is set apart for headers, and stream data is placed in paged fragments.
  * Lower layers will take care of prepending all required headers.
+ *
+ * TODO should we use alloc_skb_with_frags()?
  */
 struct sk_buff *
 ss_skb_alloc_pages(size_t len)
@@ -270,6 +272,7 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 	int alloc = len > 0, tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	struct page *page = virt_to_head_page(skb->head);
 
+	WARN_ON(!skb->head_frag);
 	BUG_ON(!(alloc | tail_len));
 
 	/*
@@ -278,9 +281,9 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 	 * pspt points at the start of a data chunk to remove. In that
 	 * case, tail_len can never be zero.
 	 */
-	if (unlikely(!tail_len && len <= ss_skb_tailroom(skb))) {
+	if (unlikely(!tail_len && len <= ss_skb_tailroom(skb)))
 		return ss_skb_put(skb, len);
-	}
+
 	/*
 	 * Quick and unlikely path: just move skb tail pointer backward.
 	 * Note that this only works when we remove data, and the data
