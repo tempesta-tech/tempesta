@@ -287,7 +287,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * and after the transmission.
 	 */
 	if (pass_skb) {
-		memcpy(&sw.skb_list, skb_list, sizeof(*skb_list));
+		memcpy(&sw.skb_list, skb_list, sizeof(sw.skb_list));
 		ss_skb_queue_head_init(skb_list);
 	} else {
 		ss_skb_queue_head_init(&sw.skb_list);
@@ -323,6 +323,7 @@ err:
 			kfree_skb(skb);
 	return r;
 }
+EXPORT_SYMBOL(ss_send);
 
 /**
  * This is main body of the socket close function in Sync Sockets.
@@ -1138,6 +1139,8 @@ tfw_sync_socket_exit(void)
 	int cpu;
 
 	tempesta_del_tx_action();
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
+		irq_work_sync(&per_cpu(ipi_work, cpu));
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
+	}
 }

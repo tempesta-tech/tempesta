@@ -54,6 +54,8 @@
 #include "cache.c"
 #include "http_parser.c"
 #include "str.c"
+#include "work_queue.c"
+#include "procfs.c"
 
 /* rename original tfw_connection_send(), a custom version will be used here */
 #define tfw_connection_send	divert_tfw_connection_send
