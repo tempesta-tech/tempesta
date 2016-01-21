@@ -24,7 +24,7 @@
 #include <linux/irq_work.h>
 
 #define WQ_ITEM_SZ		32
-#define TFW_WQ_CHECKSZ(t)	BUG_ON(sizeof(t) != WQ_ITEM_SZ)
+#define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
 typedef struct {
 	long			_[WQ_ITEM_SZ / sizeof(long)];
