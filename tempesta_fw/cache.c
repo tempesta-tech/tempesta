@@ -418,7 +418,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 }
 
 /**
- * @return true if @resp is needed for caching.
+ * @return false (i.e. don't reuse socket buffers)
+ * if @resp is needed for caching.
  */
 bool
 tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
@@ -427,7 +428,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	size_t tot_len;
 
 	if (!cache_cfg.cache)
-		return false;
+		return true;
 
 	key = tfw_http_req_key_calc(req);
 
@@ -453,7 +454,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	 * Cache population is synchronous now, change the return value
 	 * depending on the TODO above.
 	 */
-	return false;
+	return true;
 }
 
 int
@@ -629,7 +630,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	resp = (TfwHttpResp *)tfw_http_msg_create(&it, Conn_Srv,
+	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_Srv,
 						  ce->hdr_len + 2);
 	if (!resp)
 		return NULL;

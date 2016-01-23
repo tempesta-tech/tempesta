@@ -640,8 +640,7 @@ ss_skb_cutoff_data(SsSkbList *head, const TfwStr *hdr, int skip, int tail)
 		r = __skb_fragment(skb, NULL, p, -tail, &it);
 		if (r != -ENOENT)
 			return 0;
-		skb = ss_skb_next(head, skb);
-		if (skb)
+		if ((skb = ss_skb_next(skb)))
 			return __skb_fragment(skb, NULL, p, -tail, &it);
 		SS_WARN("Cannot delete hdr tail\n");
 	}
