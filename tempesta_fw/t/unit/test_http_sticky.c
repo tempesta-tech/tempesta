@@ -149,7 +149,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 		int ret;
 		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
 				     mock.hmresp);
-		skb = ss_skb_next(&msg->skb_list, skb);
+		skb = ss_skb_next(skb);
 	}
 
 	mock.http_status = ((TfwHttpResp *)mock.hmresp)->status;

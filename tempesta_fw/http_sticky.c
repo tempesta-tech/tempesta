@@ -3,7 +3,7 @@
  *
  * Handling of Tempesta sticky cookie.
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -11,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -53,11 +53,11 @@ static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 static int
 tfw_http_sticky_send_302(TfwHttpMsg *hm)
 {
-	TfwHttpMsg *resp;
 	TfwConnection *conn = hm->conn;
+	TfwClient *client = (TfwClient *)hm->conn->peer;
 	TfwStr chunks[3], cookie = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
-	TfwClient *client = (TfwClient *)hm->conn->peer;
+	TfwHttpMsg resp;
 	char buf[sizeof(client->cookie.hmac) * 2];
 
 	tfw_http_prep_hexstring(buf, client->cookie.hmac,
@@ -73,11 +73,9 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if ((resp = tfw_http_prep_302(hm, &cookie)) == NULL) {
+	if (tfw_http_prep_302(&resp, hm, &cookie))
 		return -1;
-	}
-	tfw_cli_conn_send(conn, (TfwMsg *)resp, true);
-	tfw_http_msg_free(resp);
+	tfw_cli_conn_send(conn, (TfwMsg *)&resp, true);
 
 	return 0;
 }

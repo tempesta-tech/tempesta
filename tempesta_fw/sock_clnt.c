@@ -133,6 +133,8 @@ tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
 	mod_timer(&cli_conn->ka_timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
+	if (r)
+		TFW_WARN("Cannot send data to client\n");
 	return r;
 }
 
