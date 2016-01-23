@@ -23,12 +23,12 @@
 #include <linux/interrupt.h>
 #include <linux/irq_work.h>
 
-#define WQ_ITEM_SZ		32
-#define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
-
 typedef struct {
-	long			_[WQ_ITEM_SZ / sizeof(long)];
+	long			_[4];
 } __WqItem;
+
+#define WQ_ITEM_SZ		sizeof(__WqItem)
+#define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
 typedef struct __ThrPos {
 	atomic64_t		tail, head;

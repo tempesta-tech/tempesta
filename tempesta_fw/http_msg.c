@@ -599,22 +599,29 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 	return 0;
 }
 
-/*
- * Allocate an HTTP message of type @type and set it up with empty SKB
- * space of size @data_len for data writing. An iterator @it is set up
- * to support consecutive writes. This function is intended to work
- * together with tfw_http_msg_write() that uses the @it iterator.
+/**
+ * Initialize @hm or allocate an HTTP message if it's NULL.
+ * Sets @hm up with empty SKB space of size @data_len for data writing.
+ * An iterator @it is set up to support consecutive writes.
+ *
+ * This function is intended to work together with tfw_http_msg_write()
+ * that uses the @it iterator.
+ * Use dynamic allocation if you need to do the message transformations
+ * (e.g. adjust headers) and avoid it if you just need to send the message.
  */
 TfwHttpMsg *
-tfw_http_msg_create(TfwMsgIter *it, int type, size_t data_len)
+tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 {
-	TfwHttpMsg *hm;
-
 	TFW_DBG2("Create new HTTP message: type=%d len=%lu\n", type, data_len);
 
-	hm = tfw_http_msg_alloc(type);
-	if (!hm)
-		return NULL;
+	if (hm) {
+		memset(hm, 0, sizeof(*hm));
+		ss_skb_queue_head_init(&hm->msg.skb_list);
+		INIT_LIST_HEAD(&hm->msg.msg_list);
+	} else {
+		if (!(hm = tfw_http_msg_alloc(type)))
+			return NULL;
+	}
 	if (__msg_alloc_skb_data(hm, data_len)) {
 		tfw_http_msg_free(hm);
 		return NULL;
@@ -754,20 +761,15 @@ tfw_http_conn_msg_unlink(TfwHttpMsg *m)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
+	struct sk_buff *skb;
+
 	TFW_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
 	tfw_http_conn_msg_unlink(m);
 
-	while (1) {
-		/*
-		 * The SKBs are handed to Tempesta from the lower layer.
-		 * Tempesta is responsible for releasing them.
-		 */
-		struct sk_buff *skb = ss_skb_dequeue(&m->msg.skb_list);
-		if (!skb)
-			break;
+	while ((skb = ss_skb_dequeue(&m->msg.skb_list))) {
 		TFW_DBG3("free skb %p: truesize=%d sk=%p data=%p,"
 			 " destructor=%p users=%d type=%s\n",
 			 skb, skb->truesize, skb->sk, skb->data,

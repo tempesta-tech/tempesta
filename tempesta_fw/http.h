@@ -249,7 +249,7 @@ typedef struct {
 	TfwStr			host;
 	TfwStr			uri_path;
 	unsigned char		method;
-	unsigned short		node; // TODO cpu/dev-queue?
+	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
 	unsigned long		tm_header;
@@ -311,7 +311,7 @@ void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
 /*
  * Functions to send an HTTP error response to a client.
  */
-TfwHttpMsg *tfw_http_prep_302(TfwHttpMsg *hm, TfwStr *cookie);
+int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hm, TfwStr *cookie);
 int tfw_http_send_502(TfwHttpMsg *hm);
 
 /*

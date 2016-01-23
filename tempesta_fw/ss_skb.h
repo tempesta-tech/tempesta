@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -11,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -31,7 +31,7 @@
  */
 enum {
 	/* Generic socket error. */
-	SS_ERR		= -3,
+	SS_BAD		= -3,
 	/* The packet must be dropped. */
 	SS_DROP		= -2,
 	/* The packet should be stashed (made by callback). */
@@ -49,21 +49,16 @@ typedef struct {
 
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
-/**
- * The functions below are full analogs of standard Linux functions
- * w/o "ss_" prefix.
- */
-
 static inline void
 ss_skb_queue_head_init(SsSkbList *list)
 {
-	list->first = list->last = (struct sk_buff *)list;
+	list->first = list->last = NULL;
 }
 
 static inline int
 ss_skb_queue_empty(const SsSkbList *list)
 {
-	return list->first == (struct sk_buff *)list;
+	return !list->first;
 }
 
 /**
@@ -74,11 +69,9 @@ ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	/* Don't link the skb twice. */
-	if (unlikely(ss_skb_passed(skb)))
-		return;
+	/* Don't try to link the skb twice. */
+	BUG_ON(ss_skb_passed(skb));
 
-	scb->next = (struct sk_buff *)list;
 	scb->prev = list->last;
 	if (ss_skb_queue_empty(list))
 		list->first = skb;
@@ -92,49 +85,35 @@ ss_skb_unlink(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	if (scb->next == (struct sk_buff *)list) {
-		list->last = scb->prev;
-	} else {
+	if (scb->next) {
 		TFW_SKB_CB(scb->next)->prev = scb->prev;
-	}
-	if (scb->prev == (struct sk_buff *)list) {
-		list->first = scb->next;
 	} else {
+		list->last = scb->prev;
+	}
+	if (scb->prev) {
 		TFW_SKB_CB(scb->prev)->next = scb->next;
+	} else {
+		list->first = scb->next;
 	}
 	scb->next = scb->prev = NULL;
 }
 
 static inline struct sk_buff *
-ss_skb_next(const SsSkbList *list, struct sk_buff *skb)
+ss_skb_next(struct sk_buff *skb)
 {
-	skb = TFW_SKB_CB(skb)->next;
-
-	if (skb == (struct sk_buff *)list)
-		return NULL;
-	return skb;
-
+	return TFW_SKB_CB(skb)->next;
 }
 
 static inline struct sk_buff *
 ss_skb_peek(const SsSkbList *list)
 {
-	struct sk_buff *skb = list->first;
-
-	if (skb == (struct sk_buff *)list)
-		return NULL;
-	return skb;
+	return list->first;
 }
 
 static inline struct sk_buff *
 ss_skb_peek_tail(const SsSkbList *list)
 {
-	struct sk_buff *skb = list->last;
-
-	if (skb == (struct sk_buff *)list)
-		return NULL;
-	return skb;
-
+	return list->last;
 }
 
 static inline struct sk_buff *
@@ -154,7 +133,7 @@ ss_skb_frag_next(const SsSkbList *list, struct sk_buff **skb, int *f)
 		return &skb_shinfo(*skb)->frags[*f];
 	}
 
-	*skb = ss_skb_next(list, *skb);
+	*skb = ss_skb_next(*skb);
 	if (!*skb || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
 	*f = 0;

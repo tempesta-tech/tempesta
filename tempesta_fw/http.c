@@ -135,13 +135,12 @@ tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
  * The response redirects the client to the same URI as the original request,
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
  */
-TfwHttpMsg *
-tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
+int
+tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
 	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
 	TfwHttpReq *req = (TfwHttpReq *)hmreq;
-	TfwHttpMsg *resp;
 	TfwMsgIter it;
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -163,7 +162,7 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 	TfwStr host, *crlf = &crlfcrlf;
 
 	if (!(req->flags & TFW_HTTP_STICKY_SET))
-		return NULL;
+		return TFW_BLOCK;
 
 	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &host);
@@ -181,9 +180,8 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 	data_len += req->uri_path.len + cookie->len;
 	data_len += crlf->len;
 
-	resp = tfw_http_msg_create(&it, Conn_Srv, data_len);
-	if (resp == NULL)
-		return NULL;
+	if (tfw_http_msg_create(resp, &it, Conn_Srv, data_len))
+		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
 	tfw_http_msg_write(&it, resp, &rh);
@@ -201,7 +199,7 @@ tfw_http_prep_302(TfwHttpMsg *hmreq, TfwStr *cookie)
 	tfw_http_msg_write(&it, resp, cookie);
 	tfw_http_msg_write(&it, resp, crlf);
 
-	return resp;
+	return TFW_PASS;
 }
 
 /*
@@ -216,7 +214,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 {
 	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
 	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
-	TfwHttpMsg *resp;
+	TfwHttpMsg resp;
 	TfwMsgIter it;
 
 	if (conn_flag) {
@@ -231,14 +229,13 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 		msg->len += crlf->len - crlf_len;
 	}
 
-	if (!(resp = tfw_http_msg_create(&it, Conn_Srv, msg->len)))
+	if (!tfw_http_msg_create(&resp, &it, Conn_Srv, msg->len))
 		return -ENOMEM;
 
 	tfw_http_prep_date(date->ptr);
-	tfw_http_msg_write(&it, resp, msg);
+	tfw_http_msg_write(&it, &resp, msg);
 
-	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)resp, true);
-	tfw_http_msg_free(resp);
+	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
 
 	return 0;
 }
@@ -261,7 +258,6 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
-
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
 

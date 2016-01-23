@@ -268,7 +268,7 @@ tfw_bmb_msg_send(int tn, int cn)
 	TfwBmbTask *task = &bmb_task[tn];
 	int fz_tries = 0, r;
 	TfwStr msg;
-	TfwHttpMsg *req;
+	TfwHttpMsg req;
 	TfwMsgIter it;
 
 	BUG_ON(!task->conn[cn].sk);
@@ -294,8 +294,7 @@ tfw_bmb_msg_send(int tn, int cn)
 	msg.len = strlen(msg.ptr);
 	msg.flags = 0;
 
-	req = tfw_http_msg_create(&it, Conn_Clnt, msg.len);
-	if (!req) {
+	if (!tfw_http_msg_create(&req, &it, Conn_Clnt, msg.len)) {
 		TFW_WARN("Cannot create HTTP request.\n");
 		return;
 	}
@@ -307,9 +306,8 @@ tfw_bmb_msg_send(int tn, int cn)
 			"------------------------------\n",
 			task->buf);
 
-	tfw_http_msg_write(&it, req, &msg);
-	ss_send(task->conn[cn].sk, &req->msg.skb_list, true);
-	tfw_http_msg_free(req);
+	tfw_http_msg_write(&it, &req, &msg);
+	ss_send(task->conn[cn].sk, &req.msg.skb_list, true);
 
 	atomic_inc(&bmb_request_send);
 }

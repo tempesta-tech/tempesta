@@ -56,7 +56,7 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
-static inline void
+static void
 ss_sock_cpu_check(struct sock *sk)
 {
 	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
@@ -86,7 +86,7 @@ ss_wq_push(SsWork *sw)
  * and sending of HTTP messages. This function must
  * be used consistently across all involved functions.
  */
-static inline bool
+static bool
 ss_sock_active(struct sock *sk)
 {
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
@@ -187,7 +187,7 @@ static void
 ss_do_send(struct sock *sk, SsSkbList *skb_list)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	struct sk_buff *skb, *iskb;
+	struct sk_buff *skb;
 	struct dst_entry *dst = NULL;
 	int r = 0, size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
@@ -199,10 +199,28 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	if (unlikely(!ss_sock_active(sk)))
 		return;
 
-	for (iskb = ss_skb_peek(skb_list), skb = iskb;
-	     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
-	{
-		ss_skb_unlink(skb_list, skb);
+	while ((skb = ss_skb_dequeue(skb_list))) {
+		/*
+		 * Reuse routing information for the same connection.
+		 *
+		 * TODO should we rather use sk_dst_check()?
+		 *
+		 * TODO get route information for dst connection for
+		 * retransmission or src for replying.
+		 */
+		if (!dst) {
+			dst = ss_skb_route(skb, tp);
+			if (!dst) {
+				SS_WARN("cannot route skb %p\n", skb);
+				r = -ENODEV;
+				kfree_skb(skb);
+				break;
+			}
+		} else {
+			dst_hold(dst);
+		}
+		ss_skb_set_dst(skb, dst);
+		BUG_ON(!skb->dev);
 
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
@@ -222,27 +240,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
-
-		/*
-		 * Reuse routing information for the same connection.
-		 *
-		 * TODO should we rather use sk_dst_check()?
-		 *
-		 * TODO get route information for dst connection for
-		 * retransmission or src for replying.
-		 */
-		if (!dst) {
-			dst = ss_skb_route(skb, tp);
-			if (!dst) {
-				SS_WARN("cannot route skb %p\n", skb);
-				r = -ENODEV;
-				break;
-			}
-		} else {
-			dst_hold(dst);
-		}
-		ss_skb_set_dst(skb, dst);
-		BUG_ON(!skb->dev);
 	}
 
 	SS_DBG("%s: sk=%p send_head=%p sk_state=%d\n", __func__,
@@ -251,8 +248,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
 
 	if (unlikely(r))
-		for (iskb = ss_skb_peek(skb_list), skb = iskb;
-		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
+		while ((skb = ss_skb_dequeue(skb_list)))
 			kfree_skb(skb);
 }
 
@@ -269,7 +265,7 @@ int
 ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
 	int r = 0;
-	struct sk_buff *skb, *iskb;
+	struct sk_buff *skb, *skb_copy;
 	SsWork sw = {
 		.sk	= sk,
 		.action	= SS_SEND,
@@ -287,21 +283,19 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * and after the transmission.
 	 */
 	if (pass_skb) {
-		memcpy(&sw.skb_list, skb_list, sizeof(sw.skb_list));
+		sw.skb_list = *skb_list;
 		ss_skb_queue_head_init(skb_list);
 	} else {
 		ss_skb_queue_head_init(&sw.skb_list);
-		for (iskb = ss_skb_peek(skb_list), skb = iskb;
-		     iskb; iskb = ss_skb_next(skb_list, iskb), skb = iskb)
-		{
+		for (skb = ss_skb_peek(skb_list); skb; skb = ss_skb_next(skb)) {
 			/* tcp_transmit_skb() will clone the skb. */
-			skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
-			if (!skb) {
+			skb_copy = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			if (!skb_copy) {
 				SS_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
 				goto err;
 			}
-			ss_skb_queue_tail(&sw.skb_list, skb);
+			ss_skb_queue_tail(&sw.skb_list, skb_copy);
 		}
 	}
 
@@ -318,8 +312,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	return 0;
 err:
 	if (!pass_skb)
-		for (iskb = ss_skb_peek(&sw.skb_list), skb = iskb;
-		     iskb; iskb = ss_skb_next(&sw.skb_list, iskb), skb = iskb)
+		while ((skb = ss_skb_dequeue(&sw.skb_list)))
 			kfree_skb(skb);
 	return r;
 }
@@ -359,6 +352,7 @@ ss_do_close(struct sock *sk)
 	SS_DBG("Close socket %p (%s): cpu=%d account=%d refcnt=%d\n",
 	       sk, ss_statename[sk->sk_state], raw_smp_processor_id(),
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
+	assert_spin_locked(&sk->sk_lock.slock);
 	ss_sock_cpu_check(sk);
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
@@ -487,7 +481,7 @@ ss_close(struct sock *sk)
 
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for closing\n", sk);
-		return SS_ERR;
+		return SS_BAD;
 	}
 	return SS_OK;
 }
@@ -569,7 +563,8 @@ ss_tcp_process_data(struct sock *sk)
 			 * is returned back to the Linux kernel.
 			 */
 			if (r < 0) {
-				SS_WARN("Error processing data: sk %p\n", sk);
+				SS_DBG("Bad socket %p data processing, %d\n",
+				       sk, r);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
