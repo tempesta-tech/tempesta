@@ -655,6 +655,10 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	/* Add request to the server connection. */
 	spin_lock(&srv_conn->msg_qlock);
+	if (unlikely(!tfw_connection_live(srv_conn))) {
+		spin_unlock(&srv_conn->msg_qlock);
+		goto send_500;
+	}
 	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
 	spin_unlock(&srv_conn->msg_qlock);
 
