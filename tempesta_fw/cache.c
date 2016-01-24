@@ -32,6 +32,7 @@
 #include "tempesta_fw.h"
 #include "cache.h"
 #include "http_msg.h"
+#include "procfs.h"
 #include "ss_skb.h"
 #include "work_queue.h"
 
@@ -679,18 +680,23 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TdbIter iter;
 
 	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter))
+	if (TDB_ITER_BAD(iter)) {
+		TFW_INC_STAT_BH(cache_miss);
 		goto out;
+	}
 
 	for (ce = (TfwCacheEntry *)iter.rec;
 	     !tfw_cache_entry_key_eq(db, req, ce); )
 	{
 		tdb_rec_next(db, &iter);
-		if (!(ce = (TfwCacheEntry *)iter.rec))
+		if (!(ce = (TfwCacheEntry *)iter.rec)) {
+			TFW_INC_STAT_BH(cache_miss);
 			goto out;
+		}
 	}
 
 	TFW_DBG("Cache: service request w/ key=%lx\n", key);
+	TFW_INC_STAT_BH(cache_hit);
 
 	resp = tfw_cache_build_resp(ce);
 out:
