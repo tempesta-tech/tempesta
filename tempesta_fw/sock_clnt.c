@@ -52,34 +52,12 @@ static struct kmem_cache *tfw_cli_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static void
-tfw_sock_cli_conn_drop(TfwConnection *conn, struct sock *sk)
-{
-	/*
-	 * Withdraw from socket activity. Connection is now closed,
-	 * and Tempesta is not called anymore on events in the socket.
-	 * Remove the connection from the list that is kept in @peer.
-	 * Release resources allocated in Tempesta for the connection.
-	 */
-	tfw_connection_unlink_from_sk(sk);
-	tfw_connection_unlink_from_peer(conn);
-	tfw_connection_destruct(conn);
-
-	/*
-	 * Connection @conn, as well as @sk and @peer that make
-	 * the essence of it, remain accessible as long as there
-	 * are references to @conn.
-	 */
-	if (tfw_connection_put(conn))
-		tfw_cli_conn_release(conn);
-}
-
-static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
+	TfwConnection *conn = (TfwConnection *)data;
 
 	TFW_DBG("Client timeout end\n");
-	ss_close(cli_conn->conn.sk);
+	ss_close(conn->sk);
 }
 
 static TfwCliConnection *
@@ -94,7 +72,7 @@ tfw_cli_conn_alloc(void)
 	tfw_connection_init(&cli_conn->conn);
 	setup_timer(&cli_conn->ka_timer,
 		    tfw_sock_cli_keepalive_timer_cb,
-		    (unsigned long)cli_conn);
+		    (unsigned long)&cli_conn->conn);
 
 	return cli_conn;
 }
@@ -112,8 +90,8 @@ tfw_cli_conn_free(TfwCliConnection *cli_conn)
 void
 tfw_cli_conn_release(TfwConnection *conn)
 {
-	TfwCliConnection *cli_conn = container_of(conn, TfwCliConnection,
-						  conn);
+	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
+
 	del_timer_sync(&cli_conn->ka_timer);
 
 	if (likely(conn->sk))
@@ -154,10 +132,10 @@ tfw_sock_clnt_new(struct sock *sk)
 	TFW_INC_STAT_BH(clnt.conn_attempts);
 
 	/*
-	 * The new sk->sk_user_data points to the TfwListenSock of the parent
-	 * listening socket. We set it to NULL here to prevent other functions
-	 * from referencing the TfwListenSock while a new TfwConnection object
-	 * is not yet allocated/initialized.
+	 * New sk->sk_user_data points to TfwListenSock{} of the parent
+	 * listening socket. We set it to NULL to stop other functions
+	 * from referencing TfwListenSock{} while a new TfwConnection{}
+	 * object is not yet allocated/initialized.
 	 */
 	listen_sock_proto = rcu_dereference_sk_user_data(sk);
 	tfw_connection_unlink_from_sk(sk);
@@ -216,8 +194,23 @@ tfw_sock_clnt_drop(struct sock *sk)
 
 	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
 		 sk, conn, conn->peer);
+	/*
+	 * Withdraw from socket activity. Connection is now closed,
+	 * and Tempesta is not called anymore on events in the socket.
+	 * Remove the connection from the list that is kept in @peer.
+	 * Release resources allocated in Tempesta for the connection.
+	 */
+	tfw_connection_unlink_from_sk(sk);
+	tfw_connection_unlink_from_peer(conn);
+	tfw_connection_destruct(conn);
 
-	tfw_sock_cli_conn_drop(conn, sk);
+	/*
+	 * Connection @conn, as well as @sk and @peer that make
+	 * the essence of it, remain accessible as long as there
+	 * are references to @conn.
+	 */
+	if (tfw_connection_put(conn))
+		tfw_cli_conn_release(conn);
 
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 	return 0;
@@ -391,10 +384,10 @@ tfw_listen_sock_stop_all(void)
 
 	/*
 	 * TODO #116, #254
-	 * Now all listening sockets are closed, so no new connection can
-	 * appear. Close all established client connections. After that we
-	 * can safely close server connections since there are no their users
-	 * any more.
+	 * Now all listening sockets are closed, so no new connections
+	 * can appear. Close all established client connections. After
+	 * that server connections can safely be closed as they have
+	 * no users any more.
 	 */
 }
 
