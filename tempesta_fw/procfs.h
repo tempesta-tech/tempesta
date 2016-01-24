@@ -17,7 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #ifndef __TFW_PROCFS_H__
 #define __TFW_PROCFS_H__
 
@@ -33,9 +32,9 @@
  *			  other errors.
  *
  * @conn_attempts	- Total number of connect attempts.
- * @conn_disconnects	- Total number of disconnects for any reason.
  * @conn_established	- Total number of connections ever established
  *			  with peers while Tempesta is active.
+ * @conn_disconnects	- Total number of disconnects for any reason.
  *
  * @rx_bytes		- Total number of bytes received from a peer and
  *			  processed by Tempesta.
@@ -54,7 +53,14 @@ typedef struct {
 	u64	rx_bytes;
 } TfwPeerStat;
 
+/*
+ * @cache_hit		- Number of Web-cache (if enabled) hits.
+ * @cache_miss		- Number of misses in Web-cache (if enabled).
+ */
 typedef struct {
+	u64	cache_hit;
+	u64	cache_miss;
+
 	TfwPeerStat	clnt;
 	TfwPeerStat	serv;
 } TfwPerfStat;

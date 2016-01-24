@@ -1136,6 +1136,10 @@ tfw_sync_socket_exit(void)
 	tempesta_del_tx_action();
 	for_each_possible_cpu(cpu) {
 		irq_work_sync(&per_cpu(ipi_work, cpu));
+		/*
+		 * FIXME the work queue can be destoryed from under
+		 * softirq TX handler.
+		 */
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
 	}
 }

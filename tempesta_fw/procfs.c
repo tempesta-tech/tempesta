@@ -17,7 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
@@ -31,6 +30,8 @@ static struct proc_dir_entry *tfw_procfs_perfstat;
 void
 tfw_perfstat_collect(TfwPerfStat *stat)
 {
+#define SADD(x)	stat->x += pcp_stat->x
+
 	int cpu;
 
 	/*
@@ -41,113 +42,81 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 	for_each_online_cpu(cpu) {
 		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
 
+		/* Cache statistics. */
+		SADD(cache_hit);
+		SADD(cache_miss);
+
 		/* Client related statistics. */
-		stat->clnt.rx_messages += pcp_stat->clnt.rx_messages;
-		stat->clnt.msgs_forward += pcp_stat->clnt.msgs_forward;
-		stat->clnt.msgs_parserr += pcp_stat->clnt.msgs_parserr;
-		stat->clnt.msgs_filtout += pcp_stat->clnt.msgs_filtout;
-		stat->clnt.msgs_otherr += pcp_stat->clnt.msgs_otherr;
-
-		stat->clnt.conn_attempts += pcp_stat->clnt.conn_attempts;
-		stat->clnt.conn_disconnects += pcp_stat->clnt.conn_disconnects;
-		stat->clnt.conn_established += pcp_stat->clnt.conn_established;
-
-		stat->clnt.rx_bytes += pcp_stat->clnt.rx_bytes;
+		SADD(clnt.rx_messages);
+		SADD(clnt.msgs_forward);
+		SADD(clnt.msgs_parserr);
+		SADD(clnt.msgs_filtout);
+		SADD(clnt.msgs_otherr);
+		SADD(clnt.conn_attempts);
+		SADD(clnt.conn_disconnects);
+		SADD(clnt.conn_established);
+		SADD(clnt.rx_bytes);
 
 		/* Server related statistics. */
-		stat->serv.rx_messages += pcp_stat->serv.rx_messages;
-		stat->serv.msgs_forward += pcp_stat->serv.msgs_forward;
-		stat->serv.msgs_parserr += pcp_stat->serv.msgs_parserr;
-		stat->serv.msgs_filtout += pcp_stat->serv.msgs_filtout;
-		stat->serv.msgs_otherr += pcp_stat->serv.msgs_otherr;
-
-		stat->serv.conn_attempts += pcp_stat->serv.conn_attempts;
-		stat->serv.conn_disconnects += pcp_stat->serv.conn_disconnects;
-		stat->serv.conn_established += pcp_stat->serv.conn_established;
-
-		stat->serv.rx_bytes += pcp_stat->serv.rx_bytes;
+		SADD(serv.rx_messages);
+		SADD(serv.msgs_forward);
+		SADD(serv.msgs_parserr);
+		SADD(serv.msgs_filtout);
+		SADD(serv.msgs_otherr);
+		SADD(serv.conn_attempts);
+		SADD(serv.conn_disconnects);
+		SADD(serv.conn_established);
+		SADD(serv.rx_bytes);
 	}
+#undef SADD
 }
 
 static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
+#define SPRNE(m, e)							\
+	if ((ret = seq_printf(seq, m": %llu\n", e)))			\
+		goto out;
+#define SPRN(m, c)							\
+	if ((ret = seq_printf(seq, m": %llu\n", stat.c)))		\
+		goto out;
+
 	int ret;
 	TfwPerfStat stat;
 
 	memset(&stat, 0, sizeof(stat));
 	tfw_perfstat_collect(&stat);
 
+	/* Cache statistics. */
+	SPRN("Cache hits\t\t\t\t", cache_hit);
+	SPRN("Cache misses\t\t\t\t", cache_miss);
+
 	/* Client related statistics. */
-	ret = seq_printf(seq, "Client messages received\t\t: %llu\n",
-			 stat.clnt.rx_messages);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client messages forwarded\t\t: %llu\n",
-			 stat.clnt.msgs_forward);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client messages parsing errors\t\t: %llu\n",
-			 stat.clnt.msgs_parserr);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client messages filtered out\t\t: %llu\n",
-			 stat.clnt.msgs_filtout);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client messages other errors\t\t: %llu\n",
-			 stat.clnt.msgs_otherr);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client connections total\t\t: %llu\n",
-			 stat.clnt.conn_established);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client connections active\t\t: %llu\n",
-			 stat.clnt.conn_attempts - stat.clnt.conn_disconnects);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Client RX bytes\t\t\t\t: %llu\n",
-			 stat.clnt.rx_bytes);
-	if (ret)
-		goto out;
+	SPRN("Client messages received\t\t", clnt.rx_messages);
+	SPRN("Client messages forwarded\t\t", clnt.msgs_forward);
+	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
+	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
+	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
+	SPRN("Client connections total\t\t", clnt.conn_established);
+	SPRNE("Client connections active\t\t",
+	      stat.clnt.conn_attempts - stat.clnt.conn_disconnects);
+	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
 
 	/* Server related statistics. */
-	ret = seq_printf(seq, "Server messages received\t\t: %llu\n",
-			 stat.serv.rx_messages);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server messages forwarded\t\t: %llu\n",
-			 stat.serv.msgs_forward);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server messages parsing errors\t\t: %llu\n",
-			 stat.serv.msgs_parserr);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server messages filtered out\t\t: %llu\n",
-			 stat.serv.msgs_filtout);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server messages other errors\t\t: %llu\n",
-			 stat.serv.msgs_otherr);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server connections total\t\t: %llu\n",
-			 stat.serv.conn_established);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server connections active\t\t: %llu\n",
-			 stat.serv.conn_attempts - stat.serv.conn_disconnects);
-	if (ret)
-		goto out;
-	ret = seq_printf(seq, "Server RX bytes\t\t\t\t: %llu\n",
-			 stat.serv.rx_bytes);
-	if (ret)
-		goto out;
+	SPRN("Server messages received\t\t", serv.rx_messages);
+	SPRN("Server messages forwarded\t\t", serv.msgs_forward);
+	SPRN("Server messages parsing errors\t\t", serv.msgs_parserr);
+	SPRN("Server messages filtered out\t\t", serv.msgs_filtout);
+	SPRN("Server messages other errors\t\t", serv.msgs_otherr);
+	SPRN("Server connections total\t\t", serv.conn_established);
+	SPRNE("Server connections active\t\t",
+	      stat.serv.conn_attempts - stat.serv.conn_disconnects);
+	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
 
 out:
 	return ret;
+#undef SPRN
+#undef SPRNE
 }
 
 static int
