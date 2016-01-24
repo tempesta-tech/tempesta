@@ -28,9 +28,9 @@
 #include "http_msg.h"
 #include "http_sticky.h"
 #include "log.h"
+#include "procfs.h"
 #include "sched.h"
 #include "tls.h"
-#include "procfs.h"
 
 #include "sync_socket.h"
 

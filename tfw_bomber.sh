@@ -2,7 +2,7 @@
 #
 # Tempesta Bomber: a tool for HTTP servers stress testing.
 #
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
 # or (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
@@ -64,6 +64,17 @@ error()
 	exit 1
 }
 
+stop()
+{
+	echo "Tempesta: stop and unload bomber..."
+
+	rmmod tfw_bomber
+	rmmod tfw_fuzzer
+	[ "$unload" ] && ./tempesta.sh --unload
+
+	echo "done"
+}
+
 start()
 {
 	echo "Tempesta: bombing the server..."
@@ -79,18 +90,7 @@ start()
 	insmod $tm_path/tfw_bomber.ko $conn $iter $msgs $srv $thr $verbose
 	[ $? -ne 0 ] && error "cannot start bomber"
 
-	echo "done"
-}
-
-stop()
-{
-	echo "Tempesta: stop and unload bomber..."
-
-	rmmod tfw_bomber
-	rmmod tfw_fuzzer
-	[ "$unload" ] && ./tempesta.sh --unload
-
-	echo "done"
+	stop
 }
 
 args=$(getopt -o "a:c:i:m:t:uv" -a -l "$long_opts" -- "$@")
