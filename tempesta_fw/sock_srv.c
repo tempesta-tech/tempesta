@@ -68,8 +68,8 @@
  * this "loop" of callbacks is stopped by tfw_sock_srv_disconnect()).
  */
 
-/** The wakeup interval between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MIN	10		/* in msecs */
+/* Min and max wakeup intervals between failed connection attempts. */
+#define TFW_SOCK_SRV_RETRY_TIMER_MIN	1		/* in msecs */
 #define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
 
 /**
@@ -198,6 +198,12 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * Timeout between connect attempts is increased with each
 	 * unsuccessful attempt. Length of the timeout is decided
 	 * with a variant of exponential backoff delay algorithm.
+	 *
+	 * It's essential that the connection is restored as fast
+	 * as possible, so the min retry interval is set to 1. That
+	 * yields the first few reconnect attempts in 1, 2, 4, 8, 16
+	 * milliseconds. The use of a small constant retry interval
+	 * for the first few attempts doesn't yield a better result.
 	 */
 	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
 		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
