@@ -49,7 +49,8 @@ int __tfw_wq_push(TfwRBQueue *wq, void *ptr);
 int tfw_wq_pop(TfwRBQueue *wq, void *buf);
 
 static inline int
-tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work)
+tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
+	    void (*local_cpu_cb)(struct irq_work *))
 {
 	int r = __tfw_wq_push(wq, ptr);
 
@@ -59,7 +60,7 @@ tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work)
 	if (raw_smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);
 	else
-		raise_softirq(NET_TX_SOFTIRQ);
+		local_cpu_cb(work);
 
 	return 0;
 }

@@ -458,6 +458,14 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	return true;
 }
 
+static void
+tfw_cache_ipi(struct irq_work *work)
+{
+	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
+
+	tasklet_schedule(&ct->tasklet);
+}
+
 int
 tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		  tfw_http_cache_cb_t action)
@@ -480,7 +488,12 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		    : numa_node_id();
 	cpu = tfw_cache_sched_cpu(req);
 	ct = &per_cpu(cache_wq, cpu);
-	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work);
+
+	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
+		 " req=%p resp=%p key=%lx\n", cpu, raw_smp_processor_id(),
+		 cw.req, cw.resp, cw.key);
+
+	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi);
 }
 
 static int
@@ -713,19 +726,11 @@ tfw_wq_tasklet(unsigned long data)
 	TfwCWork cw;
 
 	while (!tfw_wq_pop(&ct->wq, &cw)) {
-		if (!cache_cfg.cache || cw.resp)
+		if (cw.resp)
 			cw.action(cw.req, cw.resp);
 		else 
 			cache_req_process_node(cw.req, cw.key, cw.action);
 	}
-}
-
-static void
-tfw_cache_ipi(struct irq_work *work)
-{
-	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
-
-	tasklet_schedule(&ct->tasklet);
 }
 
 /**
