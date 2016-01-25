@@ -92,71 +92,6 @@ ss_sock_active(struct sock *sk)
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
 
-/**
- * Copied from net/netfilter/xt_TEE.c.
- */
-static struct net *
-ss_pick_net(struct sk_buff *skb)
-{
-#ifdef CONFIG_NET_NS
-	const struct dst_entry *dst;
-
-	if (skb->dev != NULL)
-		return dev_net(skb->dev);
-	dst = skb_dst(skb);
-	if (dst != NULL && dst->dev != NULL)
-		return dev_net(dst->dev);
-#endif
-	return &init_net;
-}
-
-static void
-ss_skb_set_dst(struct sk_buff *skb, struct dst_entry *dst)
-{
-	skb_dst_drop(skb);
-	skb_dst_set(skb, dst);
-	skb->dev = dst->dev;
-}
-
-/**
- * Reroute a packet to the destination for IPv4 and IPv6.
- */
-static struct dst_entry *
-ss_skb_route(struct sk_buff *skb, struct tcp_sock *tp)
-{
-	struct inet_sock *isk = &tp->inet_conn.icsk_inet;
-	struct dst_entry *dst = NULL;
-#if IS_ENABLED(CONFIG_IPV6)
-	struct ipv6_pinfo *np = inet6_sk(&isk->sk);
-
-	if (np) {
-		struct flowi6 fl6 = { .daddr = isk->sk.sk_v6_daddr };
-
-		BUG_ON(isk->sk.sk_family != AF_INET6);
-		BUG_ON(skb->protocol != htons(ETH_P_IPV6));
-
-		dst = ip6_route_output(ss_pick_net(skb), NULL, &fl6);
-		if (dst->error) {
-			dst_release(dst);
-			return NULL;
-		}
-	} else
-#endif
-	{
-		struct rtable *rt;
-		struct flowi4 fl4 = { .daddr = isk->inet_daddr };
-
-		BUG_ON(isk->sk.sk_family != AF_INET);
-
-		rt = ip_route_output_key(ss_pick_net(skb), &fl4);
-		if (IS_ERR(rt))
-			return NULL;
-		dst = &rt->dst;
-	}
-
-	return dst;
-}
-
 static void
 ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 {
@@ -188,7 +123,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
-	struct dst_entry *dst = NULL;
 	int r = 0, size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
 	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
@@ -200,28 +134,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		return;
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
-		/*
-		 * Reuse routing information for the same connection.
-		 *
-		 * TODO should we rather use sk_dst_check()?
-		 *
-		 * TODO get route information for dst connection for
-		 * retransmission or src for replying.
-		 */
-		if (!dst) {
-			dst = ss_skb_route(skb, tp);
-			if (!dst) {
-				SS_WARN("cannot route skb %p\n", skb);
-				r = -ENODEV;
-				kfree_skb(skb);
-				break;
-			}
-		} else {
-			dst_hold(dst);
-		}
-		ss_skb_set_dst(skb, dst);
-		BUG_ON(!skb->dev);
-
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
 
@@ -535,6 +447,10 @@ ss_tcp_process_data(struct sock *sk)
 			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
 			goto out;
 		}
+
+		/* @skb should be rerouted on forwarding. */
+		skb_dst_drop(skb);
+		skb->dev = NULL;
 
 		/* SKB may be freed in processing. Save the flag. */
 		tcp_fin = tcp_hdr(skb)->fin;
