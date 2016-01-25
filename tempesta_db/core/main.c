@@ -198,9 +198,9 @@ tdb_get_db(const char *path, int node)
 		return NULL;
 	}
 	snprintf(db->path, TDB_PATH_LEN, "%.*s%X.tdb",
-		 (int)(full_len - sizeof(TDB_SUFFIX)), path, node);
+		 (int)(full_len - sizeof(TDB_SUFFIX) + 1), path, node);
 	snprintf(db->tbl_name, TDB_TBLNAME_LEN, "%.*s%X.tdb",
-		 (int)(len - sizeof(TDB_SUFFIX)), slash + 1, node);
+		 len, slash + 1, node);
 
 	return tdb_get(db);
 }
