@@ -78,7 +78,7 @@ ss_wq_push(SsWork *sw)
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
 
-	return tfw_wq_push(wq, sw, cpu, iw);
+	return tfw_wq_push(wq, sw, cpu, iw, ss_ipi);
 }
 
 /*

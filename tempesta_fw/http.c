@@ -1157,7 +1157,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 			     TFW_HTTP_HDR_HOST, &host);
 	if (!TFW_STR_EMPTY(&host))
-		req->hash ^= tfw_hash_str(&req->uri_path);
+		req->hash ^= tfw_hash_str(&host);
 
 	return req->hash;
 }
