@@ -490,7 +490,7 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 	ct = &per_cpu(cache_wq, cpu);
 
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
-		 " req=%p resp=%p key=%lx\n", cpu, raw_smp_processor_id(),
+		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
 		 cw.req, cw.resp, cw.key);
 
 	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi);
