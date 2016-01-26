@@ -150,6 +150,10 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
 
+	if (req->uri_path.len + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len
+	    != ce->key_len)
+		return false;
+
 	t_off = sizeof(*ce) - offsetof(TfwCacheEntry, ce_body);
 	TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end) {
 		if (!trec)
@@ -173,7 +177,7 @@ this_chunk:
 		}
 	}
 
-	return !trec;
+	return true;
 }
 
 /**
@@ -352,6 +356,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	/* Write record key (URI + Host header). */
 	p = (char *)(ce + 1);
 	ce->key = TDB_OFF(db->hdr, p);
+	ce->key_len = 0;
 	TFW_CACHE_REQ_KEYITER(field, req, end1, start, end2) {
 		n = tfw_cache_copy_str(&p, &trec, field, tot_len);
 		if (n < 0) {
@@ -360,6 +365,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		}
 		BUG_ON(n > tot_len);
 		tot_len -= n;
+		ce->key_len += n;
 	}
 
 	ce->hdrs = TDB_OFF(db->hdr, p);
@@ -708,7 +714,8 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		}
 	}
 
-	TFW_DBG("Cache: service request w/ key=%lx\n", key);
+	TFW_DBG("Cache: service request w/ key=%lx, ce=%p\n",
+		ce->trec.key, ce);
 	TFW_INC_STAT_BH(cache_hit);
 
 	resp = tfw_cache_build_resp(ce);
