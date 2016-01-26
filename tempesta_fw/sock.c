@@ -142,6 +142,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		 * the data. Currently we do this for debugging purposes.
 		 * We need to do this only for complete messages/skbs.
 		 * Actually tcp_push() already does it for the last skb.
+		 * MSG_MORE should be used, probably by connection layer.
 		 */
 		tcp_mark_push(tp, skb);
 
