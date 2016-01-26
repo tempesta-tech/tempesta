@@ -246,8 +246,7 @@ tdb_htrie_init_bucket(TdbBucket *b)
 	b->coll_next = 0;
 	b->flags = 0;
 	rwlock_init(&b->lock);
-	lockdep_init_map(&b->lock.dep_map, "TdbBucket->lock",
-			 &__lockdep_no_validate__, SINGLE_DEPTH_NESTING);
+	lockdep_set_novalidate_class(&b->lock);
 }
 
 /**
