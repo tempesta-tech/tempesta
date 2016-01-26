@@ -129,9 +129,10 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       " sk_state=%d mss=%d size=%d\n", __func__,
 	       smp_processor_id(), sk, tcp_write_queue_empty(sk),
 	       tcp_send_head(sk), sk->sk_state, mss, size);
-	ss_sock_cpu_check(sk);
+
 	if (unlikely(!ss_sock_active(sk)))
 		return;
+	ss_sock_cpu_check(sk);
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		skb->ip_summed = CHECKSUM_PARTIAL;
