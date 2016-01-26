@@ -246,7 +246,10 @@ tdb_htrie_init_bucket(TdbBucket *b)
 	b->coll_next = 0;
 	b->flags = 0;
 	rwlock_init(&b->lock);
-	lockdep_set_novalidate_class(&b->lock);
+#ifdef CONFIG_LOCKDEP
+	lockdep_init_map(&b->lock.dep_map, "TdbBucket->lock",
+			 &__lockdep_no_validate__, SINGLE_DEPTH_NESTING);
+#endif
 }
 
 /**
@@ -783,8 +786,10 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
-	if (!o)
+	if (!o) {
+		TDB_DBG("...not found\n");
 		return NULL;
+	}
 
 	return TDB_PTR(dbh, o);
 }
