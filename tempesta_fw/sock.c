@@ -213,11 +213,19 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	}
 
 	/*
+	 * The socket may be closed and then reused in a parallel thread.
+	 * Hold the socket. That won't let the socket to be reused until
+	 * the scheduled transmission is completed. See ss_tx_action().
+	 */
+	sock_hold(sk);
+
+	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
 	 */
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
+		sock_put(sk);
 		r = -EBUSY;
 		goto err;
 	}
@@ -1013,12 +1021,13 @@ ss_tx_action(void)
 		case SS_SEND:
 			ss_do_send(sk, &sw.skb_list);
 			bh_unlock_sock(sk);
+			sock_put(sk); /* paired with ss_send() */
 			break;
 		case SS_CLOSE:
 			ss_do_close(sk);
 			bh_unlock_sock(sk);
 			SS_CALL(connection_drop, sk);
-			sock_put(sk);
+			sock_put(sk); /* paired with ss_do_close() */
 			break;
 		default:
 			BUG();
@@ -1054,7 +1063,7 @@ tfw_sync_socket_exit(void)
 	for_each_possible_cpu(cpu) {
 		irq_work_sync(&per_cpu(ipi_work, cpu));
 		/*
-		 * FIXME the work queue can be destoryed from under
+		 * FIXME the work queue can be destroyed from under
 		 * softirq TX handler.
 		 */
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
