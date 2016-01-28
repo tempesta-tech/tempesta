@@ -425,8 +425,10 @@ tfw_http_conn_destruct(TfwConnection *conn)
 		 * a client must be dropped after a response is sent
 		 * to that client, then drop the connection now.
 		 */
+		list_del(&msg->msg_list);
 		tfw_http_send_404((TfwHttpMsg *)msg);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
 	spin_unlock(&conn->msg_qlock);
@@ -659,8 +661,12 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	spin_unlock(&srv_conn->msg_qlock);
 
 	/* Send request to the server. */
-	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false))
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false)) {
+		spin_lock(&srv_conn->msg_qlock);
+		list_del(&req->msg.msg_list);
+		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
+	}
 	TFW_INC_STAT_BH(clnt.msgs_forward);
 	goto conn_put;
 
