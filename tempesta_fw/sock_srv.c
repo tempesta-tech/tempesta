@@ -244,6 +244,7 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 void
 tfw_srv_conn_release(TfwConnection *conn)
 {
+	tfw_connection_destruct(conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
@@ -309,7 +310,6 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 
 	/* Update Server Group and release resources. */
 	tfw_sg_update(srv->sg);
-	tfw_connection_destruct(conn);
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 
