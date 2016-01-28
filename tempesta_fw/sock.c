@@ -123,7 +123,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
-	int r = 0, size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
 	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
 	       " sk_state=%d mss=%d size=%d\n", __func__,
@@ -159,10 +159,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       sk, tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
-
-	if (unlikely(r))
-		while ((skb = ss_skb_dequeue(skb_list)))
-			kfree_skb(skb);
 }
 
 /**
