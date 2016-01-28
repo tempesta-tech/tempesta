@@ -62,7 +62,7 @@ ss_sock_cpu_check(struct sock *sk)
 	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
 		SS_WARN("Bad socket cpu locality:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
-			sk, sk->sk_incoming_cpu, raw_smp_processor_id());
+			sk, sk->sk_incoming_cpu, smp_processor_id());
 }
 
 static void
@@ -127,11 +127,12 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 
 	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
 	       " sk_state=%d mss=%d size=%d\n", __func__,
-	       raw_smp_processor_id(), sk, tcp_write_queue_empty(sk),
+	       smp_processor_id(), sk, tcp_write_queue_empty(sk),
 	       tcp_send_head(sk), sk->sk_state, mss, size);
-	ss_sock_cpu_check(sk);
+
 	if (unlikely(!ss_sock_active(sk)))
 		return;
+	ss_sock_cpu_check(sk);
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		skb->ip_summed = CHECKSUM_PARTIAL;
@@ -183,7 +184,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
 	SS_DBG("%s: cpu=%d sk=%p (cpu=%d) state=%s\n", __func__,
-	       raw_smp_processor_id(), sk, sk->sk_incoming_cpu,
+	       smp_processor_id(), sk, sk->sk_incoming_cpu,
 	       ss_statename[sk->sk_state]);
 
 	/*
@@ -209,11 +210,19 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	}
 
 	/*
+	 * The socket may be closed and then reused in a parallel thread.
+	 * Hold the socket. That won't let the socket to be reused until
+	 * the scheduled transmission is completed. See ss_tx_action().
+	 */
+	sock_hold(sk);
+
+	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
 	 */
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
+		sock_put(sk);
 		r = -EBUSY;
 		goto err;
 	}
@@ -259,7 +268,7 @@ ss_do_close(struct sock *sk)
 	if (unlikely(!sk))
 		return;
 	SS_DBG("Close socket %p (%s): cpu=%d account=%d refcnt=%d\n",
-	       sk, ss_statename[sk->sk_state], raw_smp_processor_id(),
+	       sk, ss_statename[sk->sk_state], smp_processor_id(),
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	ss_sock_cpu_check(sk);
@@ -597,7 +606,7 @@ static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -642,7 +651,7 @@ static void
 ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       raw_smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -1009,12 +1018,13 @@ ss_tx_action(void)
 		case SS_SEND:
 			ss_do_send(sk, &sw.skb_list);
 			bh_unlock_sock(sk);
+			sock_put(sk); /* paired with ss_send() */
 			break;
 		case SS_CLOSE:
 			ss_do_close(sk);
 			bh_unlock_sock(sk);
 			SS_CALL(connection_drop, sk);
-			sock_put(sk);
+			sock_put(sk); /* paired with ss_do_close() */
 			break;
 		default:
 			BUG();
@@ -1050,7 +1060,7 @@ tfw_sync_socket_exit(void)
 	for_each_possible_cpu(cpu) {
 		irq_work_sync(&per_cpu(ipi_work, cpu));
 		/*
-		 * FIXME the work queue can be destoryed from under
+		 * FIXME the work queue can be destroyed from under
 		 * softirq TX handler.
 		 */
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
