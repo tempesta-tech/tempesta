@@ -1021,6 +1021,12 @@ ss_tx_action(void)
 			sock_put(sk); /* paired with ss_send() */
 			break;
 		case SS_CLOSE:
+			if (!ss_sock_live(sk)) {
+				SS_DBG("%s: Socket inactive: sk %p\n",
+					__func__, sk);
+				bh_unlock_sock(sk);
+				break;
+			}
 			ss_do_close(sk);
 			bh_unlock_sock(sk);
 			SS_CALL(connection_drop, sk);
