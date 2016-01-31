@@ -74,11 +74,22 @@ ss_ipi(struct irq_work *work)
 static int
 ss_wq_push(SsWork *sw)
 {
-	int cpu = sw->sk->sk_incoming_cpu;
+	int r, cpu = sw->sk->sk_incoming_cpu;
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
 
-	return tfw_wq_push(wq, sw, cpu, iw, ss_ipi);
+	/*
+	 * It may happen that there are multiple action requests on
+	 * the same socket. Also, a request to close may be started
+	 * by the other side of a connection and executed outside
+	 * of this work queue. Hold the socket. That way the socket
+	 * won't be reused until the scheduled action is completed.
+	 * See ss_tx_action().
+	 */
+	sock_hold(sw->sk);
+	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi)))
+		sock_put(sw->sk);
+	return r;
 }
 
 /*
@@ -210,19 +221,11 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	}
 
 	/*
-	 * The socket may be closed and then reused in a parallel thread.
-	 * Hold the socket. That won't let the socket to be reused until
-	 * the scheduled transmission is completed. See ss_tx_action().
-	 */
-	sock_hold(sk);
-
-	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
 	 */
 	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
-		sock_put(sk);
 		r = -EBUSY;
 		goto err;
 	}
@@ -1018,7 +1021,6 @@ ss_tx_action(void)
 		case SS_SEND:
 			ss_do_send(sk, &sw.skb_list);
 			bh_unlock_sock(sk);
-			sock_put(sk); /* paired with ss_send() */
 			break;
 		case SS_CLOSE:
 			if (!ss_sock_live(sk)) {
@@ -1035,6 +1037,7 @@ ss_tx_action(void)
 		default:
 			BUG();
 		}
+		sock_put(sk); /* paired with tfw_wq_push() */
 	}
 }
 
