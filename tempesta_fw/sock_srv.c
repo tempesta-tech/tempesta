@@ -244,14 +244,14 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 void
 tfw_srv_conn_release(TfwConnection *conn)
 {
+	tfw_connection_release(conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
 	 * established yet, and conn->sk has not been set.
 	 */
-	if (likely(conn->sk)) {
+	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
-	}
 	/*
 	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer
@@ -309,10 +309,9 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 
 	/* Update Server Group and release resources. */
 	tfw_sg_update(srv->sg);
-	if (tfw_connection_put(conn)) {
-		tfw_connection_destruct(conn);
+	tfw_connection_drop(conn);
+	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
-	}
 
 	TFW_INC_STAT_BH(serv.conn_disconnects);
 	return 0;
@@ -391,11 +390,11 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	/*
 	 * Release resources.
 	 *
-	 * FIXME #116, #254: New messages may keep coming, and
-	 * that may lead to BUG() in fw_connection_destruct().
+	 * FIXME #116, #254: New messages may keep coming,
+	 * and that may lead to BUG() in fw_connection_drop().
 	 * See the problem description in #385.
 	 */
-	tfw_connection_destruct(conn);
+	tfw_connection_drop(conn);
 }
 
 /*

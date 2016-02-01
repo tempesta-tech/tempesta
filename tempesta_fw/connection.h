@@ -109,7 +109,13 @@ typedef struct {
 	 * as in conn_init()). This is required for modules that
 	 * maintain the number of established client connections.
 	 */
-	void (*conn_destruct)(TfwConnection *conn);
+	void (*conn_drop)(TfwConnection *conn);
+
+	/*
+	 * Called when there are no more users of a connection
+	 * and the connections's resources are finally released.
+	 */
+	void (*conn_release)(TfwConnection *conn);
 
 	/*
 	 * Higher level protocols should be able to allocate
@@ -233,7 +239,8 @@ void tfw_connection_init(TfwConnection *conn);
 void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConnection *conn);
-void tfw_connection_destruct(TfwConnection *conn);
+void tfw_connection_drop(TfwConnection *conn);
+void tfw_connection_release(TfwConnection *conn);
 
 int tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off);
 
