@@ -23,25 +23,27 @@
 #include "tempesta_fw.h"
 
 /*
- * @rx_messages		- Total number of messages received from peers.
- * @msgs_forward	- The number of forwarded messages.
+ * @rx_messages		- The number of messages received from peers.
+ * @msgs_forwarded	- The number of forwarded messages.
+ * @msgs_fromcache	- The number of messages served from cache.
  * @msgs_parserr	- The number of messages with parsing errors.
  * @msgs_filtout	- The number of messages that were filtered out
  *			  in accordance with the rules in configuration.
  * @msgs_otherr		- The number of messages not accepted due to
  *			  other errors.
  *
- * @conn_attempts	- Total number of connect attempts.
- * @conn_established	- Total number of connections ever established
+ * @conn_attempts	- The number of connect attempts.
+ * @conn_established	- The number of connections ever established
  *			  with peers while Tempesta is active.
- * @conn_disconnects	- Total number of disconnects for any reason.
+ * @conn_disconnects	- The number of disconnects for any reason.
  *
- * @rx_bytes		- Total number of bytes received from a peer and
+ * @rx_bytes		- The number of bytes received from peers and
  *			  processed by Tempesta.
  */
 typedef struct {
 	u64	rx_messages;
-	u64	msgs_forward;
+	u64	msgs_forwarded;
+	u64	msgs_fromcache;
 	u64	msgs_parserr;
 	u64	msgs_filtout;
 	u64	msgs_otherr;
@@ -54,15 +56,20 @@ typedef struct {
 } TfwPeerStat;
 
 /*
- * @cache_hit		- Number of Web-cache (if enabled) hits.
- * @cache_miss		- Number of misses in Web-cache (if enabled).
+ * If cache is enabled, the following stats are produced.
+ *
+ * @hits	- The number of cache hits.
+ * @misses	- The number of cache misses.
  */
 typedef struct {
-	u64	cache_hit;
-	u64	cache_miss;
+	u64	hits;
+	u64	misses;
+} TfwCacheStat;
 
+typedef struct {
 	TfwPeerStat	clnt;
 	TfwPeerStat	serv;
+	TfwCacheStat	cache;
 } TfwPerfStat;
 
 DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
