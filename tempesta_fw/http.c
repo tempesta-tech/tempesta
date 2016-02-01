@@ -609,17 +609,22 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	if (resp) {
 		/*
-		 * The response is prepared, send it as is. The response
-		 * is either passed through from the back-end server, or
-		 * it is generated from the cache, so unrefer all its data.
+		 * The request is served from cache.
+		 * Send the response as is and unrefer its data.
 		 */
-		if (!tfw_http_adjust_resp(resp, req))
-			tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true);
-		else
-			tfw_http_send_500((TfwHttpMsg *)req);
+		if (tfw_http_adjust_resp(resp, req))
+			goto resp_err;
+		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true))
+			goto resp_err;
+		TFW_INC_STAT_BH(clnt.msgs_fromcache);
+resp_out:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
+resp_err:
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		goto resp_out;
 	}
 
 	/*
@@ -670,7 +675,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
 	}
-	TFW_INC_STAT_BH(clnt.msgs_forward);
+	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	goto conn_put;
 
 send_404:
@@ -852,6 +857,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		{
 			tfw_http_send_500(hmreq);
 			tfw_http_conn_cli_dropfree(hmreq);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
 
@@ -910,7 +916,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, unref_data))
 		goto err;
 
-	TFW_INC_STAT_BH(serv.msgs_forward);
+	TFW_INC_STAT_BH(serv.msgs_forwarded);
 out:
 	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
@@ -1110,6 +1116,7 @@ next_resp:
 				tfw_http_send_500((TfwHttpMsg *)req);
 				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
 				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_PASS;
 			}
 		} else {
