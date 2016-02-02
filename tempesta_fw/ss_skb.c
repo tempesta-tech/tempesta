@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -15,8 +15,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -63,7 +63,8 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * is set apart for headers, and stream data is placed in paged fragments.
  * Lower layers will take care of prepending all required headers.
  *
- * TODO should we use alloc_skb_with_frags()?
+ * Similar to alloc_skb_with_frags() except it doesn't allocate multi-page
+ * frags and leave frags with zero size.
  */
 struct sk_buff *
 ss_skb_alloc_pages(size_t len)
@@ -84,6 +85,8 @@ ss_skb_alloc_pages(size_t len)
 			return NULL;
 		}
 		skb_fill_page_desc(skb, i_frag, page, 0, 0);
+		TFW_DBG3("Created new frag %d,%p for skb %p\n",
+			 i_frag, page_address(page), skb);
 	}
 
 	return skb;
@@ -567,6 +570,8 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 			return r;
 	}
 
+	TFW_WARN("Trying to fragment skb by invalid pointer (%p, %p:%u)\n",
+		 pspt, skb->head, skb->truesize);
 	return -ENOENT;
 done:
 	SS_DBG("%s: res=%p, skb: head=%p data=%p tail=%p end=%p"

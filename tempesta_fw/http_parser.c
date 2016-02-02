@@ -2684,21 +2684,29 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_HttpVer) {
 		if (unlikely(p + 9 > data + len)) {
 			/* Slow path. */
-			if (c == 'H')
-				__FSM_MOVE(Resp_HttpVerT1);
+			if (c == 'H') {
+				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__FSM_MOVE_f(Resp_HttpVerT1, &resp->s_line);
+			}
 			return TFW_BLOCK;
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
 			resp->version = TFW_HTTP_VER_11;
-			if (*(p + 8) == ' ')
-				__FSM_MOVE_n(Resp_StatusCode, 9);
+			if (*(p + 8) == ' ') {
+				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__FSM_MOVE_nf(Resp_StatusCode, 9,
+					      &resp->s_line);
+			}
 			return TFW_BLOCK;
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
 			resp->version = TFW_HTTP_VER_10;
-			if (*(p + 8) == ' ')
-				__FSM_MOVE_n(Resp_StatusCode, 9);
+			if (*(p + 8) == ' ') {
+				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__FSM_MOVE_nf(Resp_StatusCode, 9,
+					      &resp->s_line);
+			}
 			/* fall through */
 		default:
 			return TFW_BLOCK;
@@ -2713,16 +2721,18 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		switch (__fsm_n) {
 		case CSTR_POSTPONE:
 			/* Not all the header data is parsed. */
-			__FSM_MOVE_n(Resp_StatusCode, __fsm_sz);
+			__FSM_MOVE_nf(Resp_StatusCode, __fsm_sz,
+				      &resp->s_line);
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			/* bad status value */
 			return TFW_BLOCK;
 		default:
-			/* The header value is fully parsed, move forward. */
+			/* Status code is fully parsed, move forward. */
 			resp->status = parser->_tmp_acc;
 			parser->_tmp_acc = 0;
-			__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_n);
+			__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_n,
+				      &resp->s_line);
 		}
 	}
 
@@ -2730,9 +2740,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_ReasonPhrase) {
 		__fsm_sz = len - (size_t)(p - data);
 		__fsm_ch = memchr(p, '\n', __fsm_sz);
-		if (__fsm_ch)
+		if (__fsm_ch) {
+			__field_finish(msg, &resp->s_line, data, __fsm_ch + 1);
 			__FSM_MOVE_n(Resp_Hdr, __fsm_ch - p + 1);
-		__FSM_MOVE_n(Resp_ReasonPhrase, __fsm_sz);
+		}
+		__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_sz, &resp->s_line);
 	}
 
 	/* ----------------    Header Lines    ---------------- */

@@ -38,7 +38,6 @@
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
 
-#define S_CRLF			"\r\n"
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
@@ -60,8 +59,6 @@ int ghprio; /* GFSM hook priority. */
 
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
-
-#define SLEN(s)			(sizeof(s) - 1)
 
 /*
  * Prepare current date in the format required for HTTP "Date:"
@@ -505,15 +502,19 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 static int
 tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 {
-	int ret;
+	int r;
 
 	if ((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
 		return 0;
 
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
-		ret = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
-		return (ret == -ENOENT) ? 0 : ret;
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		if (unlikely(r && r != -ENOENT)) {
+			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
+			return r;
+		}
+		return 0;
 	case TFW_HTTP_CONN_KA:
 		/*
 		 * If present, "Keep-Alive" header informs the other side
@@ -612,8 +613,10 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		 * is either passed through from the back-end server, or
 		 * it is generated from the cache, so unrefer all its data.
 		 */
-		if (tfw_http_adjust_resp(resp, req) == 0)
+		if (!tfw_http_adjust_resp(resp, req))
 			tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true);
+		else
+			tfw_http_send_500((TfwHttpMsg *)req);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
