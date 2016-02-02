@@ -608,8 +608,6 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	/* Cannot extend fixed-size records. */
 	BUG_ON(!TDB_HTRIE_VARLENRECS(dbh));
 
-	TDB_DBG("Extend record: rec_ptr=%p to_copy=%lu\n", rec, size);
-
 	o = tdb_alloc_data(dbh, &size, 0);
 	if (!o)
 		return NULL;
@@ -619,14 +617,18 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	chunk->chunk_next = 0;
 	chunk->len = size;
 
-	/* A caller is appreciated to pass the last record chunk by @rec. */
 retry:
+	/* A caller is appreciated to pass the last record chunk by @rec. */
 	while (unlikely(rec->chunk_next))
 		rec = TDB_PTR(dbh, TDB_DI2O(rec->chunk_next));
 	BUG_ON(!tdb_live_vsrec(rec));
 
+	o = TDB_O2DI(o);
 	if (atomic_cmpxchg((atomic_t *)&rec->chunk_next, 0, o))
 		goto retry;
+
+	TDB_DBG("Extend record %p by new chunk %x, size=%lu\n",
+		rec, rec->chunk_next, size);
 
 	return chunk;
 }

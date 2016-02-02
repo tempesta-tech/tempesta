@@ -23,25 +23,6 @@
  * 5. This is the basic structure for data transformation logic (including TL),
  *    so we must keep skb pointers to be able to rewrite underlying packets.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License,
- * or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59
- * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- */
-
-/**
  * String can either contain plain data, in which case `ptr` field is used as
  * a pointer to a continuos region, or multiple chunks of data, in which case
  * `ptr` points to an array of plain TfwStr's. In other words, a single
@@ -51,19 +32,34 @@
  * a data in the region pointed to by `ptr`.
  *
  * Another possibility is a so called duplicate string. A duplicate string is
- * a bunch of strings that describe HTTP fields with the same name. For example,
- * an HTTP server can return mulitple Set-Cookie fields; all of those will end
- * up in a duplicate string. Such strings use `ptr` field as an array of
- * TfwStr's, each of which can be a compound string. A duplicate string can not
- * itself consist of duplicate strings.
+ * a bunch of strings that describe HTTP fields with the same name.
+ * For example, an HTTP server can return mulitple Set-Cookie fields;
+ * all of those will end up in a duplicate string. Such strings use `ptr`
+ * field as an array of TfwStr's, each of which can be a compound string.
+ * A duplicate string can not itself consist of duplicate strings.
  *
  * `flags` field is used for both discerning the types of strings and keeping
  * the number of elements in `ptr` array, if there are any. Lower 8 bits of
- * the field are reserved for flags. Remaining bits are used to store the number
- * of chunks in a compound string. Zero means a plain string.
- *
- */
+ * the field are reserved for flags. Remaining bits are used to store
+ * the number of chunks in a compound string. Zero means a plain string.
 
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
 #ifndef __TFW_STR_H__
 #define __TFW_STR_H__
 
@@ -217,5 +213,11 @@ bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
+
+#ifdef DEBUG
+void tfw_str_dprint(TfwStr *str, const char *msg);
+#else
+#define tfw_str_dprint(str, msg)
+#endif
 
 #endif /* __TFW_STR_H__ */
