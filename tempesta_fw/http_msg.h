@@ -24,6 +24,9 @@
 #include "http.h"
 
 #define S_F_SET_COOKIE		"Set-Cookie: "
+#define S_CRLF			"\r\n"
+
+#define SLEN(s)			(sizeof(s) - 1)
 
 typedef struct {
 	unsigned int	frag;
@@ -31,16 +34,22 @@ typedef struct {
 } TfwMsgIter;
 
 static inline void
-tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data)
+__tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data,
+			struct sk_buff *skb)
 {
 	str->ptr = data;
-	str->skb = ss_skb_peek_tail(&hm->msg.skb_list);
+	str->skb = skb ? : ss_skb_peek_tail(&hm->msg.skb_list);
 }
+
+#define tfw_http_msg_set_data(hm, str, data)				\
+	__tfw_http_msg_set_data(hm, str, data, NULL)
 
 void tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val);
 
-int tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
-			      size_t len);
+int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
+				size_t len, struct sk_buff *skb);
+#define tfw_http_msg_add_data_ptr(hm, str, data, len)			\
+	__tfw_http_msg_add_data_ptr(hm, str, data, len, NULL)
 
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,

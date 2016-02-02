@@ -131,7 +131,7 @@ tdb_rec_put(void *rec)
 
 	BUG_ON(!rec);
 
-	b = (TdbBucket *)TDB_HTRIE_DALIGN((unsigned long)rec);
+	b = (TdbBucket *)((unsigned long)rec & TDB_HTRIE_DMASK);
 	BUG_ON(!b);
 
 	read_unlock_bh(&b->lock);

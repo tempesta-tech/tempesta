@@ -126,7 +126,7 @@ ss_skb_dequeue(SsSkbList *list)
 }
 
 static inline skb_frag_t *
-ss_skb_frag_next(const SsSkbList *list, struct sk_buff **skb, int *f)
+ss_skb_frag_next(struct sk_buff **skb, int *f)
 {
 	if (skb_shinfo(*skb)->nr_frags > *f + 1) {
 		++*f;
@@ -196,9 +196,7 @@ ss_skb_alloc(void)
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
-
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-
 int ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len,
 		    TfwStr *it);
 int ss_skb_cutoff_data(SsSkbList *head, const TfwStr *it, int skip, int tail);

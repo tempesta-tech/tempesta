@@ -2,7 +2,7 @@
  *		Tempesta DB
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -40,17 +40,18 @@
 #define TDB_HTRIE_RALIGN(n)	(((unsigned long)(n) + 7) & ~7UL)
 #define TDB_HTRIE_IALIGN(n)	(((n) + L1_CACHE_BYTES - 1) &		\
 				 ~(L1_CACHE_BYTES - 1))
+#define TDB_HTRIE_DMASK		(~(TDB_HTRIE_MINDREC - 1))
 #define TDB_HTRIE_DALIGN(n)	(((n) + TDB_HTRIE_MINDREC - 1)		\
-				 & ~(TDB_HTRIE_MINDREC - 1))
+				 & TDB_HTRIE_DMASK)
 #define TDB_HTRIE_BITS		4
 #define TDB_HTRIE_FANOUT	(1 << TDB_HTRIE_BITS)
 #define TDB_HTRIE_KMASK		(TDB_HTRIE_FANOUT - 1) /* key mask */
 #define TDB_HTRIE_RESOLVED(b)	((b) + TDB_HTRIE_BITS > BITS_PER_LONG)
 /*
- * We use 31 bits to address index and data blocks.
- * The most significant bit is used to flag data pointer/offset.
- * Index blocks are addressed by index of a L1_CACHE_BYTES-byte blocks in the file,
- * while data blocks are addressed by indexes of TDB_HTRIE_MINDREC blocks.
+ * We use 31 bits to address index and data blocks. The most significant bit
+ * is used to flag data pointer/offset. Index blocks are addressed by index
+ * of a L1_CACHE_BYTES-byte blocks in he file, while data blocks are
+ * addressed by indexes of TDB_HTRIE_MINDREC blocks.
  *
  * So the maximum size of one database table is 128GB per processor package,
  * which is 1/3 of supported per-socket RAM by modern x86-64.

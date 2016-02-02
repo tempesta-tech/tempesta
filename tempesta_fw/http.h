@@ -267,9 +267,10 @@ typedef struct {
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
-	unsigned short	status;
-	unsigned int	keep_alive;
-	unsigned int	expires;
+	TfwStr			s_line;
+	unsigned short		status;
+	unsigned int		keep_alive;
+	unsigned int		expires;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)

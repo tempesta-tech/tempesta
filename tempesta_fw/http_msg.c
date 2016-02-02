@@ -327,18 +327,20 @@ done:
 }
 
 int
-tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data, size_t len)
+__tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
+			    size_t len, struct sk_buff *skb)
 {
 	if (TFW_STR_EMPTY(str)) {
-		tfw_http_msg_set_data(hm, str, data);
+		__tfw_http_msg_set_data(hm, str, data, skb);
 		str->len = len;
-	} else {
+	}
+	else if (likely(data)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
 		if (!sn) {
 			TFW_WARN("Cannot grow HTTP data string\n");
 			return -ENOMEM;
 		}
-		tfw_http_msg_set_data(hm, sn, data);
+		__tfw_http_msg_set_data(hm, sn, data, skb);
 		tfw_str_updlen(str, data + len);
 	}
 
@@ -379,10 +381,18 @@ __hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
 	r = ss_skb_get_room(hm->crlf.skb, h->ptr, hdr->len, &it);
 	if (r)
 		return r;
+	BUG_ON(!TFW_STR_PLAIN(&it));
 
-	hm->h_tbl->tbl[hid] = *hdr;
 	if (tfw_strcpy(&it, hdr))
 		return TFW_BLOCK;
+
+	/*
+	 * Initialize the header table item by the iterator chunks.
+	 * While the data references in the item are valid, some convetions
+	 * (e.g. header name and value are placed in different chunks) aren't
+	 * satisfied. So don't consider the header for normal HTTP processing.
+	 */
+	hm->h_tbl->tbl[hid] = it;
 
 	return 0;
 }
@@ -612,8 +622,6 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 TfwHttpMsg *
 tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 {
-	TFW_DBG2("Create new HTTP message: type=%d len=%lu\n", type, data_len);
-
 	if (hm) {
 		memset(hm, 0, sizeof(*hm));
 		ss_skb_queue_head_init(&hm->msg.skb_list);
@@ -633,6 +641,8 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 	BUG_ON(!it->skb);
 	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
+	TFW_DBG2("Created new HTTP message %p: type=%d len=%lu\n",
+		 hm, type, data_len);
 	return hm;
 }
 EXPORT_SYMBOL(tfw_http_msg_create);
@@ -679,12 +689,7 @@ this_chunk:
 			 */
 			c_off = 0;
 		} else {
-			/*
-			 * Current SKB fragment has no more room available.
-			 * Switch to next SKB fragment.
-			 */
-			frag = ss_skb_frag_next(&hm->msg.skb_list,
-						&it->skb, &it->frag);
+			frag = ss_skb_frag_next(&it->skb, &it->frag);
 			/*
 			 * If all data from the chunk has been copied,
 			 * then switch to next chunk. Otherwise, stay
@@ -728,22 +733,19 @@ next_frag:
 	f_size = skb_frag_size(frag);
 	f_room = PAGE_SIZE - frag->page_offset - f_size;
 	n_copy = min(d_size, f_room);
+	if (!n_copy)
+		return 0;
 
 	p = (char *)skb_frag_address(frag) + f_size;
 	memcpy(p, (char *)data->ptr + d_off, n_copy);
 	skb_frag_size_add(frag, n_copy);
 	ss_skb_adjust_data_len(it->skb, n_copy);
 
-	if (tfw_http_msg_add_data_ptr(hm, field, p, n_copy))
+	if (__tfw_http_msg_add_data_ptr(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;
 
 	if (d_size > f_room) {
-		/*
-		 * Current SKB fragment has no more room available.
-		 * Switch to next SKB fragment.
-		 */
-		frag = ss_skb_frag_next(&hm->msg.skb_list,
-					&it->skb, &it->frag);
+		frag = ss_skb_frag_next(&it->skb, &it->frag);
 		d_off += n_copy;
 		goto next_frag;
 	}
