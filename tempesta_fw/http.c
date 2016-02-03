@@ -177,7 +177,7 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	data_len += req->uri_path.len + cookie->len;
 	data_len += crlf->len;
 
-	if (tfw_http_msg_create(resp, &it, Conn_Srv, data_len))
+	if (!tfw_http_msg_create(resp, &it, Conn_Srv, data_len))
 		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
