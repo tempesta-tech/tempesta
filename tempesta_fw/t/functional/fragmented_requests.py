@@ -46,7 +46,7 @@ def validate_received_req_get(method, path, headers, body):
 def fragmentize_str(s, frag_size):
     """
     Split a string into a list of equal N-sized fragments.
-    
+
     >>> fragmentize_str("foo12bar34baz", 3)
     ['foo', '12b', 'ar3', '4ba', 'z']
     """
@@ -58,16 +58,14 @@ backend_callback_counter = 0
 def backend_callback(method, path, headers, body):
     ++backend_callback_counter;
     validate_received_req_get(method, path, headers, body)
-    return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.' 
-
+    return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
 tfw.start()
 be.start(backend_callback)
 
-
 # The test body:
-# 
+#
 # In the real world, HTTP messages, especially big ones, are often fragmented
 # (because of network MTU/MRU, TCP MSS, application buffer sizes, etc).
 # Fragments of the same HTTP request may have different sizes and arrive to
