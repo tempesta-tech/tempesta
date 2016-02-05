@@ -39,7 +39,13 @@ def validate_received_req_get(method, path, headers, body):
 	'Accept-Encoding': 'gzip, deflate',
 'DNT': '1',
 	'Referer': 'http://natsys-lab.com/cgi-bin/show.pl',
-	'Cookie': 'logged_in=yes; _ga=GA1.2.1404175546.1417001200; user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU9EYy68Dj7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; _gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJzcHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250ZXh0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a520f30fa481; tz=Europe%2FMoscow; _gat=1',
+	'Cookie': ''''logged_in=yes; _ga=GA1.2.1404175546.1417001200; \
+user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU9EYy68D \
+j7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; \
+_gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJz \
+cHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250Z \
+Xh0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319 \
+a520f30fa481; tz=Europe%2FMoscow; _gat=1''',
         'Connection': 'Keep-Alive',
 	'Cache-Control': 'max-age=0',
 }
