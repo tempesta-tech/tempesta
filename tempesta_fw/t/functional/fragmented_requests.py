@@ -7,18 +7,24 @@ __copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 req_get = '''\
-GET http://github.com/natsys/tempesta HTTP/1.1\r
+GET http://github.com/natsys/tempesta HTTP/1.1\r \
 Host: github.com\r
-User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0 Iceweasel/31.2.0\r
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r
-Accept-Language: en-US,en;q=0.5\r
-Accept-Encoding: gzip, deflate\r
-DNT: 1\r
-Referer: http://natsys-lab.com/cgi-bin/show.pl\r
-Cookie: logged_in=yes; _ga=GA1.2.1404175546.1417001200; user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU_9EYy68Dj7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; _gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJzcHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250ZXh0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a520f30fa481; tz=Europe%2FMoscow; _gat=1\r
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 \
+Firefox/31.0 Iceweasel/31.2.0\r \
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r \
+Accept-Language: en-US,en;q=0.5\r \
+Accept-Encoding: gzip, deflate\r \
+DNT: 1\r \
+Referer: http://natsys-lab.com/cgi-bin/show.pl\r \
+Cookie: logged_in=yes; _ga=GA1.2.1404175546.1417001200; \
+user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU_ \
+9EYy68Dj7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; \
+ _gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJz \
+cHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250ZX \
+h0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a5 \
+20f30fa481; tz=Europe%2FMoscow; _gat=1\r
 Connection: Keep-Alive\r
 Cache-Control: max-age=0\r
-
 '''
 
 def validate_received_req_get(method, path, headers, body):
