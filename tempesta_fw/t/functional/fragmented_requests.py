@@ -22,47 +22,44 @@ Cache-Control: max-age=0\r
 '''
 
 def validate_received_req_get(method, path, headers, body):
-    assert method == 'GET'
-    assert path == 'http://github.com/natsys/tempesta'
-    assert len(body) == 0
-    h = {
-        'Host': 'github.com',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0 Iceweasel/31.2.0',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate',
-        'DNT': '1',
-        'Referer': 'http://natsys-lab.com/cgi-bin/show.pl',
-        'Cookie': 'logged_in=yes; _ga=GA1.2.1404175546.1417001200; user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU_9EYy68Dj7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; _gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJzcHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250ZXh0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a520f30fa481; tz=Europe%2FMoscow; _gat=1',
+	assert method == 'GET'
+	assert path == 'http://github.com/natsys/tempesta'
+	assert len(body) == 0
+	h = {
+ 	'Host': 'github.com',
+	'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0 Iceweasel/31.2.0',
+	'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+	'Accept-Language': 'en-US,en;q=0.5',
+	'Accept-Encoding': 'gzip, deflate',
+'DNT': '1',
+	'Referer': 'http://natsys-lab.com/cgi-bin/show.pl',
+	'Cookie': 'logged_in=yes; _ga=GA1.2.1404175546.1417001200; user_session=EdI8qD-H305ePHXkP13VfCIDNAKgSSxdEGq25wtENSwxsxRKJVIDstdZLU9EYy68Dj7jBKVtF9G9Kxel; dotcom_user=vdmit11; _octo=GH1.1.1046670168.1410702951; _gh_sess=eyJzZXNba9WuX2lkIjoiMDY5ZmM5MGFmMTFjZDgxZTIxNzY0MTNlM2M3YzBmmMIiLCJzcHlfcmVwbyI6Im5hdHN5cy90ZW1ZwXN0YSIsInNweV9yZXBvX2F0IjoxNDE3NzM1MzQ5LCJjb250ZXh0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a520f30fa481; tz=Europe%2FMoscow; _gat=1',
         'Connection': 'Keep-Alive',
-        'Cache-Control': 'max-age=0',
-    }
-    for k in h.keys():
-        if h[k] != headers[k]:
-            msg = "Expected: %s, got: %s" % (h[k], headers[k])
-            raise Error(msg)
+	'Cache-Control': 'max-age=0',
+}
 
+	for k in h.keys():
+		if h[k] != headers[k]:
+			msg = "Expected: %s, got: %s" % (h[k], headers[k])
+	raise Error(msg)
 
 def fragmentize_str(s, frag_size):
-    """
-    Split a string into a list of equal N-sized fragments.
-
-    >>> fragmentize_str("foo12bar34baz", 3)
-    ['foo', '12b', 'ar3', '4ba', 'z']
-    """
-    return [ s[i:i+frag_size]  for i in range(0, len(s), frag_size) ]
-
-
-backend_callback_counter = 0
+	"""
+	Split a string into a list of equal N-sized fragmen.
+	>>> fragmentize_str("foo12bar34baz", 3)
+	['foo', '12b', 'ar3', '4ba', 'z']
+	"""
+	return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
+	backend_callback_counter = 0
 
 def backend_callback(method, path, headers, body):
-    ++backend_callback_counter;
-    validate_received_req_get(method, path, headers, body)
-    return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
+	++backend_callback_counter;
+	validate_received_req_get(method, path, headers, body)
+	return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
-tfw.start()
-be.start(backend_callback)
+	tfw.start()
+	be.start(backend_callback)
 
 # The test body:
 #
@@ -84,11 +81,9 @@ be.start(backend_callback)
 # [ 'GET http://', 'g', 'i', 't', 'h', 'u', 'b', '.', 'c', 'o', 'm', ... ]
 
 
-with cli.connect_to_tfw() as socket:
-    socket.sendall(bytes(req_get, 'UTF-8'))
+	with cli.connect_to_tfw() as socket:
+		socket.sendall(bytes(req_get, 'UTF-8'))
     # wait for a response from Tempesta, just receive anything, we don't care what
-    socket.recv(1)
-    assert backend_callback_counter == 1
-
-
+		socket.recv(1)
+	assert backend_callback_counter == 1
 
