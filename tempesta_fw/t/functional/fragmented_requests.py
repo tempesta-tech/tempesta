@@ -33,8 +33,10 @@ def validate_received_req_get(method, path, headers, body):
 	assert len(body) == 0
 	h = {
  	'Host': 'github.com',
-	'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0 Iceweasel/31.2.0',
-	'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+	'User-Agent': '''Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko \
+010101 Firefox/31.0 Iceweasel/31.2.0''',
+	'Accept': '''text/html,application/xhtml+xml,application/xml;q=0.9,\
+*/*; q= .8''',
 	'Accept-Language': 'en-US,en;q=0.5',
 	'Accept-Encoding': 'gzip, deflate',
 'DNT': '1',
@@ -62,6 +64,7 @@ def fragmentize_str(s, frag_size):
 	['foo', '12b', 'ar3', '4ba', 'z']
 	"""
 	return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
+
 	backend_callback_counter = 0
 
 def backend_callback(method, path, headers, body):
