@@ -333,8 +333,8 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 		TfwHttpReq *req;
 
 		spin_lock(&conn->msg_qlock);
-		req = (TfwHttpReq *)list_first_entry(&conn->msg_queue,
-						     TfwMsg, msg_list);
+		req = (TfwHttpReq *)list_first_entry_or_null(&conn->msg_queue,
+							     TfwMsg, msg_list);
 		spin_unlock(&conn->msg_qlock);
 		if (req && (req->method == TFW_HTTP_METH_HEAD))
 			hm->flags |= TFW_HTTP_VOID_BODY;
