@@ -185,16 +185,19 @@ typedef struct {
 #define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
 
 /* Common flags for requests and responses. */
-#define TFW_HTTP_CONN_CLOSE		0x0001
-#define TFW_HTTP_CONN_KA		0x0002
+#define TFW_HTTP_CONN_CLOSE		0x000001
+#define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
-#define TFW_HTTP_CHUNKED		0x0004
+#define TFW_HTTP_CHUNKED		0x000004
 
 /* Request flags */
-#define TFW_HTTP_STICKY_SET		0x0100	/* Need 'Set-Cookie` */
-#define TFW_HTTP_FIELD_DUPENTRY		0x0200	/* Duplicate field */
+#define TFW_HTTP_STICKY_SET		0x000100	/* Need 'Set-Cookie` */
+#define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
-#define TFW_HTTP_URI_FULL		0x0400
+#define TFW_HTTP_URI_FULL		0x000400
+
+/* Response flags */
+#define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
 
 /**
  * Common HTTP message members.
