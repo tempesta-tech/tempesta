@@ -65,14 +65,24 @@ tfw_connection_new(TfwConnection *conn)
 }
 
 /**
- * Publish the "connection is closed" event via TfwConnHooks.
+ * Publish the "connection is dropped" event via TfwConnHooks.
  */
 void
-tfw_connection_destruct(TfwConnection *conn)
+tfw_connection_drop(TfwConnection *conn)
 {
-	/* Ask higher levels to free resources. */
-	TFW_CONN_HOOK_CALL(conn, conn_destruct);
+	/* Ask higher levels to free resources at connection close. */
+	TFW_CONN_HOOK_CALL(conn, conn_drop);
 	BUG_ON(conn->msg);
+}
+
+/*
+ * Publish the "connection is released" event via TfwConnHooks.
+ */
+void
+tfw_connection_release(TfwConnection *conn)
+{
+	/* Ask higher levels to free resources at connection release. */
+	TFW_CONN_HOOK_CALL(conn, conn_release);
 	BUG_ON(!list_empty(&conn->msg_queue));
 }
 

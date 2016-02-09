@@ -174,7 +174,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	return 0;
 
 err_conn:
-	tfw_connection_destruct(conn);
+	tfw_connection_drop(conn);
 	/*
 	 * We have just created the connection and did not link anything
 	 * to it yet. There's no need to play with conn->refcnt. We can
@@ -202,7 +202,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	 */
 	tfw_connection_unlink_from_sk(sk);
 	tfw_connection_unlink_from_peer(conn);
-	tfw_connection_destruct(conn);
+	tfw_connection_drop(conn);
 
 	/*
 	 * Connection @conn, as well as @sk and @peer that make

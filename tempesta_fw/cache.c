@@ -755,7 +755,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 
 	iter = tdb_rec_get(db, key);
 	if (TDB_ITER_BAD(iter)) {
-		TFW_INC_STAT_BH(cache_miss);
+		TFW_INC_STAT_BH(cache.misses);
 		goto out;
 	}
 
@@ -764,7 +764,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	{
 		tdb_rec_next(db, &iter);
 		if (!(ce = (TfwCacheEntry *)iter.rec)) {
-			TFW_INC_STAT_BH(cache_miss);
+			TFW_INC_STAT_BH(cache.misses);
 			goto out;
 		}
 	}
@@ -775,7 +775,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		ce->trec.key, ce, ce->trec.len, ce->key_len, ce->status_len,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
 		ce->body);
-	TFW_INC_STAT_BH(cache_hit);
+	TFW_INC_STAT_BH(cache.hits);
 
 	resp = tfw_cache_build_resp(ce);
 out:
