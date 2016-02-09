@@ -55,7 +55,7 @@ a520f30fa481; tz=Europe%2FMoscow; _gat=1''',
 	for k in h.keys():
 		if h[k] != headers[k]:
 			msg = "Expected: %s, got: %s" % (h[k], headers[k])
-	raise Error(msg)
+			raise Error(msg)
 
 def fragmentize_str(s, frag_size):
 	"""
