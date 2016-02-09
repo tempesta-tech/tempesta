@@ -316,7 +316,7 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
  * the connection structure. Increment the number of users
  * of the connection structure. Initialize GFSM for the message.
  */
-TfwMsg *
+static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
 	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
@@ -405,31 +405,42 @@ tfw_http_conn_init(TfwConnection *conn)
 	return 0;
 }
 
+/*
+ * Connection with a peer is released.
+ *
+ * For server connections requests that were sent to that server are kept
+ * in the queue until a paired response comes. That will never happen now.
+ * For each request that has been unanswered send an error response, then
+ * delete the request and drop the connection with the client if required.
+ *
+ * Called when a connection is released. There are no users at that time,
+ * so locks are not needed.
+ */
 static void
-tfw_http_conn_destruct(TfwConnection *conn)
+tfw_http_conn_release(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
 
-	spin_lock(&conn->msg_qlock);
 	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
-		/*
-		 * Connection with a server is closed, and there are
-		 * requests in the queue that are kept until a paired
-		 * response comes. That will never happen now. Send
-		 * a client an error response. If the connection with
-		 * a client must be dropped after a response is sent
-		 * to that client, then drop the connection now.
-		 */
 		list_del(&msg->msg_list);
 		tfw_http_send_404((TfwHttpMsg *)msg);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
-	spin_unlock(&conn->msg_qlock);
+}
 
+/*
+ * Connection with a peer is dropped.
+ *
+ * Release resources that are not needed anymore, and keep other
+ * resources that are needed while there are users of the connection.
+ */
+static void
+tfw_http_conn_drop(TfwConnection *conn)
+{
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
@@ -609,17 +620,22 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	if (resp) {
 		/*
-		 * The response is prepared, send it as is. The response
-		 * is either passed through from the back-end server, or
-		 * it is generated from the cache, so unrefer all its data.
+		 * The request is served from cache.
+		 * Send the response as is and unrefer its data.
 		 */
-		if (!tfw_http_adjust_resp(resp, req))
-			tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true);
-		else
-			tfw_http_send_500((TfwHttpMsg *)req);
+		if (tfw_http_adjust_resp(resp, req))
+			goto resp_err;
+		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true))
+			goto resp_err;
+		TFW_INC_STAT_BH(clnt.msgs_fromcache);
+resp_out:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
+resp_err:
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		goto resp_out;
 	}
 
 	/*
@@ -670,7 +686,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
 	}
-	TFW_INC_STAT_BH(clnt.msgs_forward);
+	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	goto conn_put;
 
 send_404:
@@ -852,6 +868,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		{
 			tfw_http_send_500(hmreq);
 			tfw_http_conn_cli_dropfree(hmreq);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
 
@@ -910,7 +927,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, unref_data))
 		goto err;
 
-	TFW_INC_STAT_BH(serv.msgs_forward);
+	TFW_INC_STAT_BH(serv.msgs_forwarded);
 out:
 	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
@@ -1110,6 +1127,7 @@ next_resp:
 				tfw_http_send_500((TfwHttpMsg *)req);
 				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
 				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_PASS;
 			}
 		} else {
@@ -1170,7 +1188,8 @@ EXPORT_SYMBOL(tfw_http_req_key_calc);
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
-	.conn_destruct	= tfw_http_conn_destruct,
+	.conn_drop	= tfw_http_conn_drop,
+	.conn_release	= tfw_http_conn_release,
 	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
 };
 
