@@ -61,13 +61,13 @@ tfw_tls_conn_init(TfwConnection *conn)
 
 /* TODO */
 static void
-tfw_tls_conn_destruct(TfwConnection *conn)
+tfw_tls_conn_drop(TfwConnection *conn)
 {
 }
 
 static TfwConnHooks tls_conn_hooks = {
 	.conn_init	= tfw_tls_conn_init,
-	.conn_destruct	= tfw_tls_conn_destruct,
+	.conn_drop	= tfw_tls_conn_drop,
 	.conn_msg_alloc	= tfw_tls_conn_msg_alloc,
 };
 
