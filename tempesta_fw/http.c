@@ -327,10 +327,19 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 	tfw_connection_get(conn);
 	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
 
-        if (TFW_CONN_TYPE(conn) & Conn_Clnt)
+        if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
                 TFW_INC_STAT_BH(clnt.rx_messages);
-        else
+        } else {
+		TfwHttpReq *req;
+
+		spin_lock(&conn->msg_qlock);
+		req = (TfwHttpReq *)list_first_entry_or_null(&conn->msg_queue,
+							     TfwMsg, msg_list);
+		spin_unlock(&conn->msg_qlock);
+		if (req && (req->method == TFW_HTTP_METH_HEAD))
+			hm->flags |= TFW_HTTP_VOID_BODY;
                 TFW_INC_STAT_BH(serv.rx_messages);
+	}
 
 	return (TfwMsg *)hm;
 }

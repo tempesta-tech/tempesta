@@ -550,7 +550,9 @@ do {									\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_B_MOVE(to_state);					\
 	/* Next we check content length. */				\
-	if (msg->content_length) {					\
+	if (msg->content_length						\
+	    && !(msg->flags & TFW_HTTP_VOID_BODY))			\
+	{								\
 		parser->to_read = msg->content_length;			\
 		__FSM_B_MOVE(to_state);					\
 	}								\
