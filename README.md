@@ -42,6 +42,11 @@ Tempesta aggressively uses CPU vector extensions, so FPU eager context
 switching must be enabled at kernel parameter. So add `eagerfpu=on` to
 your kernel command line.
 
+We suggest to use CONFIG\_PREEMPT\_NONE for better throughput, however please
+use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes additional
+stress to synchronization of several algorithms. Also note that CONFIG\_PREEMPT
+is not supported at all.
+
 
 ### Build
 
