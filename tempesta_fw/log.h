@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -71,9 +71,17 @@
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 1)
-#define TFW_ERR(...)	printk(KERN_ERR TFW_BANNER "ERROR: " __VA_ARGS__)
-#define TFW_WARN(...)	printk(KERN_WARNING TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_LOG(...)	printk(KERN_INFO TFW_BANNER __VA_ARGS__)
+#define __CALLSTACK_MSG(...)						\
+do {									\
+	printk(__VA_ARGS__);						\
+	__WARN();							\
+} while (0)
+
+#define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
+					"ERROR: " __VA_ARGS__)
+#define TFW_WARN(...)	__CALLSTACK_MSG(KERN_WARNING TFW_BANNER		\
+					"Warning: " __VA_ARGS__)
+#define TFW_LOG(...)	pr_info(TFW_BANNER __VA_ARGS__)
 #else
 #include <linux/net.h>
 #define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
@@ -143,8 +151,10 @@ do {									\
 
 #if defined(DEBUG) && (DEBUG >= 2)
 #define SS_DBG(...)	pr_debug(SS_BANNER "  " __VA_ARGS__)
-#define SS_ERR(...)	pr_err(SS_BANNER "ERROR: " __VA_ARGS__)
-#define SS_WARN(...)	pr_warn(SS_BANNER "Warning: " __VA_ARGS__)
+#define SS_ERR(...)	__CALLSTACK_MSG(KERN_ERR SS_BANNER		\
+					"ERROR: " __VA_ARGS__)
+#define SS_WARN(...)	__CALLSTACK_MSG(KERN_WARNING SS_BANNER		\
+					"Warning: " __VA_ARGS__)
 #else
 #include <linux/net.h>
 #define SS_DBG(...)
