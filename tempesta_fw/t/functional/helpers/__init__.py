@@ -1,1 +1,1 @@
-__all__ = [ 'be', 'cli', 'tfw' ]
+__all__ = [ 'be', 'cli', 'tfw','conf' ]

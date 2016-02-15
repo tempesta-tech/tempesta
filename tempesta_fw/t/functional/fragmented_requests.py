@@ -73,6 +73,9 @@ def backend_callback(method, path, headers, body):
 	return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
+	c = Config('etc/tempesta.conf')
+	c.add_option('listen', '8081')
+	c.add_option('server', '127.0.0.1:8080')
 	tfw.start()
 	be.start(backend_callback)
 
