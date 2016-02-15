@@ -43,12 +43,13 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
 
 		/* Cache statistics. */
-		SADD(cache_hit);
-		SADD(cache_miss);
+		SADD(cache.hits);
+		SADD(cache.misses);
 
 		/* Client related statistics. */
 		SADD(clnt.rx_messages);
-		SADD(clnt.msgs_forward);
+		SADD(clnt.msgs_forwarded);
+		SADD(clnt.msgs_fromcache);
 		SADD(clnt.msgs_parserr);
 		SADD(clnt.msgs_filtout);
 		SADD(clnt.msgs_otherr);
@@ -59,7 +60,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 
 		/* Server related statistics. */
 		SADD(serv.rx_messages);
-		SADD(serv.msgs_forward);
+		SADD(serv.msgs_forwarded);
 		SADD(serv.msgs_parserr);
 		SADD(serv.msgs_filtout);
 		SADD(serv.msgs_otherr);
@@ -88,12 +89,13 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	tfw_perfstat_collect(&stat);
 
 	/* Cache statistics. */
-	SPRN("Cache hits\t\t\t\t", cache_hit);
-	SPRN("Cache misses\t\t\t\t", cache_miss);
+	SPRN("Cache hits\t\t\t\t", cache.hits);
+	SPRN("Cache misses\t\t\t\t", cache.misses);
 
 	/* Client related statistics. */
 	SPRN("Client messages received\t\t", clnt.rx_messages);
-	SPRN("Client messages forwarded\t\t", clnt.msgs_forward);
+	SPRN("Client messages forwarded\t\t", clnt.msgs_forwarded);
+	SPRN("Client messages served from cache\t", clnt.msgs_fromcache);
 	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
 	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
 	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
@@ -104,7 +106,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 
 	/* Server related statistics. */
 	SPRN("Server messages received\t\t", serv.rx_messages);
-	SPRN("Server messages forwarded\t\t", serv.msgs_forward);
+	SPRN("Server messages forwarded\t\t", serv.msgs_forwarded);
 	SPRN("Server messages parsing errors\t\t", serv.msgs_parserr);
 	SPRN("Server messages filtered out\t\t", serv.msgs_filtout);
 	SPRN("Server messages other errors\t\t", serv.msgs_otherr);
