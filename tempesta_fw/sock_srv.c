@@ -169,8 +169,10 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
+		sk_incoming_cpu_update(sk);
+		ss_close_sync(sk);
 		tfw_connection_unlink_from_sk(sk);
-		ss_close(sk);
+		TFW_INC_STAT_BH(serv.conn_disconnects);
 		return r;
 	}
 
@@ -243,11 +245,6 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * in deferred context after a short pause (in a timer
 	 * callback). Whatever the reason for a disconnect was,
 	 * this is uniform for any of them.
-	 *
-	 * Release of a server connection may occur in client's
-	 * SoftIRQ thread. That means that a connect attempt may
-	 * be started on a CPU that is different from the one
-	 * that received the disconnect event.
 	 */
 	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
 
@@ -354,6 +351,8 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * This function should be called only when all traffic through Tempesta
  * has stopped. Otherwise concurrent closing of live connections may lead
  * to kernel crashes or deadlocks.
+ *
+ * FIXME This function is seriously outdated and needs a complete overhaul.
  */
 static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
@@ -406,8 +405,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		if (tfw_sock_srv_connect_try(srv_conn))
-			tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_try_later(srv_conn);
 	return 0;
 }
 
