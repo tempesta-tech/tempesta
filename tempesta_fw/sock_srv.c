@@ -404,6 +404,14 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn;
 
+	/*
+	 * For each server connection, schedule an immediate connect
+	 * attempt in SoftIRQ context. Otherwise, in case of an error
+	 * in ss_connect() LOCKDEP detects that ss_close() is executed
+	 * in parallel in both user and SoftIRQ contexts as the socket
+	 * is locked, and spews lots of warnings. LOCKDEP doesn't know
+	 * that parallel execution can't happen with the same socket.
+	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		tfw_sock_srv_connect_try_later(srv_conn);
 	return 0;
