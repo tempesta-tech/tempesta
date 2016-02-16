@@ -248,10 +248,11 @@ EXPORT_SYMBOL(ss_send);
  * This function must be used only for data sockets.
  * Use standard sock_release() for listening sockets.
  *
- * In most cases it's called from softirq and from softirqd which processes
- * data from the socket (RSS and RPS distributes packets in such way).
- * However, it also can be called from process context,
- * e.g. on module unloading.
+ * In most cases it is called in softirq context and from ksoftirqd which
+ * processes data from the socket (RSS and RPS distribute packets that way).
+ *
+ * Note: it used to be called in process context as well, at the time when
+ * Tempesta starts or stops. That's not the case right now, but it may change.
  *
  * TODO In some cases we need to close socket agresively w/o FIN_WAIT_2 state,
  * e.g. by sending RST. So we need to add second parameter to the function
@@ -386,9 +387,14 @@ ss_droplink(struct sock *sk)
 {
 	ss_do_close(sk);
 	SS_CALL(connection_drop, sk);
-	sock_put(sk);
+	sock_put(sk);	/* paired with ss_do_close() */
 }
 
+/*
+ * Schedule a socket closing action on the CPU that is processing
+ * the connection. The closing action is executed asynchronously
+ * in the context of the socket that is being closed.
+ */
 int
 ss_close(struct sock *sk)
 {
@@ -407,6 +413,19 @@ ss_close(struct sock *sk)
 	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
+
+/*
+ * Close a socket unconditionally from Tempesta.
+ */
+void
+ss_close_sync(struct sock *sk)
+{
+	bh_lock_sock(sk);
+	ss_do_close(sk);
+	bh_unlock_sock(sk);
+	sock_put(sk);	/* paired with ss_do_close() */
+}
+EXPORT_SYMBOL(ss_close_sync);
 
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
