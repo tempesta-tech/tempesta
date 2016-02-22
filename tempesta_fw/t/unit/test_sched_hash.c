@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2015 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -68,7 +68,8 @@ TEST(tfw_sched_hash, sg_empty)
 			TfwConnection *conn;
 			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
 
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
+			tfw_http_parse_req(req, req_strs[i],
+					   strlen(req_strs[i]));
 
 			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
 			EXPECT_TRUE(conn == NULL);
@@ -112,9 +113,9 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		test_create_conn((TfwPeer *)srv);
+		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, &sconn->conn);
 	}
-	sg->sched->update_grp(sg);
 
 	for (i = 0; i < req_strs_size; ++i) {
 		TfwConnection *s = NULL;
@@ -171,17 +172,17 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
 TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 {
 	int i, j;
-
 	TfwSrvGroup *sg = test_create_sg("test", "hash");
+	TfwSrvConnection *sconn;
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			test_create_conn((TfwPeer *)srv);
+			sconn = test_create_conn((TfwPeer *)srv);
+			sg->sched->add_conn(sg, srv, &sconn->conn);
 		}
 	}
-	sg->sched->update_grp(sg);
 
 	for (i = 0; i < req_strs_size; ++i) {
 		TfwConnection *s = NULL;

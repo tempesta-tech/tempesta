@@ -109,6 +109,7 @@ test_create_conn(TfwPeer *peer)
 		.sk_state = TCP_ESTABLISHED,
 	};
 	TfwSrvConnection *srv_conn;
+
 	if(!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
 	srv_conn = tfw_srv_conn_alloc();
