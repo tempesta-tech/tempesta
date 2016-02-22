@@ -77,6 +77,7 @@ void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
 int ss_close(struct sock *sk);
+void ss_close_sync(struct sock *sk);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
