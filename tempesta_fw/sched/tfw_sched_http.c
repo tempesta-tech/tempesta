@@ -17,9 +17,9 @@
  * scheduler module allows you to reach that.
  *
  * We utilize rule-based HTTP matching logic from http_match.c here.
- * User defines a list of pattern-matching rules in a configuration file, and we
- * match every request against all rules, and the first matching rule determines
- * a back-end server to which the request is sent.
+ * User defines a list of pattern-matching rules in a configuration file,
+ * and we match every request against all rules, and the first matching rule
+ * determines a back-end server to which the request is sent.
  *
  * The configuration section for the example above looks like:
  *   srv_group webapp_site1 {
@@ -56,7 +56,7 @@
  *   - Extended string matching operators: "suffix", "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -64,31 +64,26 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/string.h>
 #include <linux/ctype.h>
 
+#include "tempesta_fw.h"
 #include "cfg.h"
 #include "http_match.h"
-#include "sched.h"
 #include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
 MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
-
-#define BANNER "tfw_sched_http: "
-#define ERR(...) TFW_ERR(BANNER __VA_ARGS__)
-#define DBG(...) TFW_DBG(BANNER __VA_ARGS__)
 
 typedef struct {
 	TfwSrvGroup *main_sg;
@@ -117,24 +112,26 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, tfw_sched_http_rules,
 					TfwSchedHttpRule, rule);
 	if (unlikely(!rule)) {
-		DBG("No matching rule found.\n");
+		TFW_DBG("sched_http: No matching rule found.\n");
 		return NULL;
 	}
 
 	sg = rule->main_sg;
 	BUG_ON(!sg);
-	DBG("use server group: '%s'\n", sg->name);
+	TFW_DBG("sched_http: use server group: '%s'\n", sg->name);
 
 	conn = sg->sched->sched_srv(msg, sg);
 
 	if (unlikely(!conn && rule->backup_sg)) {
 		sg = rule->backup_sg;
-		DBG("the main group is offline, use backup: '%s'\n", sg->name);
+		TFW_DBG("sched_http: the main group is offline, use backup:"
+			" '%s'\n", sg->name);
 		conn = sg->sched->sched_srv(msg, sg);
 	}
 
 	if (unlikely(!conn))
-		ERR("Unable to select server from group '%s'\n", sg->name);
+		TFW_WARN("sched_http: Unable to select server from group"
+			 " '%s'\n", sg->name);
 
 	return conn;
 }
@@ -198,7 +195,7 @@ __read_mostly tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 static int
 tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	DBG("begin sched_http_rules\n");
+	TFW_DBG("sched_http: begin sched_http_rules\n");
 
 	if (!tfw_sched_http_rules)
 		tfw_sched_http_rules = tfw_http_match_list_alloc();
@@ -211,7 +208,7 @@ tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_sched_http_cfg_finish_rules(TfwCfgSpec *cs)
 {
-	DBG("finish sched_http_rules\n");
+	TFW_DBG("sched_http: finish sched_http_rules\n");
 	BUG_ON(!tfw_sched_http_rules);
 	return 0;
 }
@@ -264,7 +261,8 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	main_sg = tfw_sg_lookup(in_main_sg);
 	if (!main_sg) {
-		ERR("srv_group is not found: '%s'\n", in_main_sg);
+		TFW_ERR("sched_http: srv_group is not found: '%s'\n",
+			in_main_sg);
 		return -EINVAL;
 	}
 
@@ -273,21 +271,23 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	} else {
 		backup_sg = tfw_sg_lookup(in_backup_sg);
 		if (!backup_sg) {
-			ERR("backup srv_group is not found: '%s'\n",
-				in_backup_sg);
+			TFW_ERR("sched_http: backup srv_group is not found:"
+				" '%s'\n", in_backup_sg);
 			return -EINVAL;
 		}
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum, in_field, &field);
 	if (r) {
-		ERR("invalid HTTP request field: '%s'\n", in_field);
+		TFW_ERR("sched_http: invalid HTTP request field: '%s'\n",
+			in_field);
 		return -EINVAL;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_op_enum, in_op, &op);
 	if (r) {
-		ERR("invalid matching operator: '%s'\n", in_op);
+		TFW_ERR("sched_http: invalid matching operator: '%s'\n",
+			in_op);
 		return -EINVAL;
 	}
 
@@ -297,11 +297,12 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule = tfw_http_match_entry_new(tfw_sched_http_rules,
 					TfwSchedHttpRule, rule, arg_size);
 	if (!rule) {
-		ERR("can't allocate memory for parsed rule\n");
+		TFW_ERR("sched_http: can't allocate memory for parsed rule\n");
 		return -ENOMEM;
 	}
 
-	DBG("parsed rule: match  '%s'=%p  '%s'=%d  '%s'=%d  '%s'\n",
+	TFW_DBG("sched_http: parsed rule: match"
+		" '%s'=%p '%s'=%d '%s'=%d '%s'\n",
 		in_main_sg, main_sg, in_field, field, in_op, op, in_arg);
 
 	if (type == TFW_HTTP_MATCH_A_STR || type == TFW_HTTP_MATCH_A_WILDCARD) {
@@ -431,17 +432,17 @@ tfw_sched_http_init(void)
 {
 	int ret;
 
-	DBG("init\n");
+	TFW_DBG("sched_http: init\n");
 
 	ret = tfw_cfg_mod_register(&tfw_sched_http_cfg_mod);
 	if (ret) {
-		ERR("can't register configuration module\n");
+		TFW_ERR("sched_http: can't register configuration module\n");
 		return ret;
 	}
 
 	ret = tfw_sched_register(&tfw_sched_http);
 	if (ret) {
-		ERR("can't register scheduler module\n");
+		TFW_ERR("sched_http: can't register scheduler module\n");
 		tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
 		return ret;
 	}
@@ -452,7 +453,7 @@ tfw_sched_http_init(void)
 void
 tfw_sched_http_exit(void)
 {
-	DBG("exit\n");
+	TFW_DBG("sched_http: exit\n");
 
 	BUG_ON(tfw_sched_http_rules);
 	tfw_sched_unregister(&tfw_sched_http);

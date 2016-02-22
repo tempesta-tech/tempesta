@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,26 +12,13 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- */
-
-/**
- * TODO
- * -- limit number of persistent connections to be able to work as forward
- *    (transparent) proxy (probably we need to switch on/off functionality for
- *    connections pool)
- * -- FIXME synchronize with sock operations.
- */
-/*
- * TODO In case of forward proxy manage connections to servers
- * we can have too many servers, so we need to prune low-active
- * connections from the connection pool.
  */
 #include <linux/net.h>
 #include <linux/kthread.h>
@@ -181,7 +168,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_INC_STAT_BH(serv.conn_disconnects);
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
 		tfw_connection_unlink_from_sk(sk);
 		ss_close(sk);
@@ -264,6 +250,8 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * that received the disconnect event.
 	 */
 	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
+
+	TFW_INC_STAT_BH(serv.conn_disconnects);
 }
 
 /**
@@ -286,8 +274,13 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
 	}
-	/* Notify scheduler of new connection. */
-	tfw_sg_update(srv->sg);
+
+	/*
+	 * Revert connection reference counter.
+	 * Schedulers can use the connection hereafter.
+	 */
+	BUG_ON(atomic_read(&conn->refcnt) > 1);
+	atomic_set(&conn->refcnt, 1);
 
 	__reset_retry_timer(srv_conn);
 
@@ -308,12 +301,10 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 	tfw_connection_unlink_from_sk(sk);
 
 	/* Update Server Group and release resources. */
-	tfw_sg_update(srv->sg);
 	tfw_connection_drop(conn);
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 
-	TFW_INC_STAT_BH(serv.conn_disconnects);
 	return 0;
 }
 
@@ -368,7 +359,6 @@ static void
 tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 {
 	TfwConnection *conn = &srv_conn->conn;
-	TfwServer *srv = (TfwServer *)conn->peer;
 	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
@@ -383,9 +373,6 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 		tfw_connection_unlink_to_sk(conn);
 		ss_close(sk);
 	}
-	/* Update Server Group. */
-	if (conn->peer)
-		tfw_sg_update(srv->sg);
 
 	/*
 	 * Release resources.
@@ -503,10 +490,10 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 	TfwSrvConnection *srv_conn;
 
 	for (i = 0; i < conns_n; ++i) {
-		srv_conn = tfw_srv_conn_alloc();
-		if (!srv_conn)
+		if (!(srv_conn = tfw_srv_conn_alloc()))
 			return -ENOMEM;
 		tfw_connection_link_peer(&srv_conn->conn, (TfwPeer *)srv);
+		tfw_sg_add_conn(srv->sg, srv, &srv_conn->conn);
 	}
 
 	return 0;

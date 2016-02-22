@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -9,8 +9,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -124,7 +124,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	sg = test_create_sg("default", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg);
 	expect_conn = test_create_conn((TfwPeer *)srv);
-	sg->sched->update_grp(sg);
+	sg->sched->add_conn(sg, srv, &expect_conn->conn);
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -139,60 +139,63 @@ TEST(tfw_sched_http, one_wildcard_rule)
 
 TEST(tfw_sched_http, some_rules)
 {
-	TfwSrvGroup *sg1, *sg2, *sg3, *sg4, *sg5, *sg6, *sg7, *sg8, *sg9, *sg10;
 	TfwServer *srv;
-	TfwSrvConnection *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4, *expect_conn5,
-	                 *expect_conn6, *expect_conn7, *expect_conn8, *expect_conn9, *expect_conn10;
+	TfwSrvGroup *sg1, *sg2, *sg3, *sg4, *sg5, *sg6, *sg7, *sg8,
+		    *sg9, *sg10;
+	TfwSrvConnection *expect_conn1, *expect_conn2, *expect_conn3,
+			 *expect_conn4, *expect_conn5, *expect_conn6,
+			 *expect_conn7, *expect_conn8, *expect_conn9,
+			 *expect_conn10;
 
 	sg1 = test_create_sg("sg1", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg1);
 	expect_conn1 = test_create_conn((TfwPeer *)srv);
-	sg1->sched->update_grp(sg1);
+	sg1->sched->add_conn(sg1, srv, &expect_conn1->conn);
 
 	sg2 = test_create_sg("sg2", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg2);
 	expect_conn2 = test_create_conn((TfwPeer *)srv);
-	sg2->sched->update_grp(sg2);
+	sg2->sched->add_conn(sg2, srv, &expect_conn2->conn);
 
 	sg3 = test_create_sg("sg3", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg3);
 	expect_conn3 = test_create_conn((TfwPeer *)srv);
-	sg3->sched->update_grp(sg3);
+	sg3->sched->add_conn(sg3, srv, &expect_conn3->conn);
 
 	sg4 = test_create_sg("sg4", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg4);
 	expect_conn4 = test_create_conn((TfwPeer *)srv);
-	sg4->sched->update_grp(sg4);
+	sg4->sched->add_conn(sg4, srv, &expect_conn4->conn);
 
 	sg5 = test_create_sg("sg5", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg5);
 	expect_conn5 = test_create_conn((TfwPeer *)srv);
-	sg5->sched->update_grp(sg5);
+	sg5->sched->add_conn(sg5, srv, &expect_conn5->conn);
 
 	sg6 = test_create_sg("sg6", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg6);
 	expect_conn6 = test_create_conn((TfwPeer *)srv);
-	sg6->sched->update_grp(sg6);
+	sg6->sched->add_conn(sg6, srv, &expect_conn6->conn);
 
 	sg7 = test_create_sg("sg7", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg7);
 	expect_conn7 = test_create_conn((TfwPeer *)srv);
-	sg7->sched->update_grp(sg7);
+	sg7->sched->add_conn(sg7, srv, &expect_conn7->conn);
 
 	sg8 = test_create_sg("sg8", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg8);
 	expect_conn8 = test_create_conn((TfwPeer *)srv);
-	sg8->sched->update_grp(sg8);
+	sg8->sched->add_conn(sg8, srv, &expect_conn8->conn);
 
 	sg9 = test_create_sg("sg9", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg9);
 	expect_conn9 = test_create_conn((TfwPeer *)srv);
-	sg9->sched->update_grp(sg9);
+	sg9->sched->add_conn(sg9, srv, &expect_conn9->conn);
 
 	sg10 = test_create_sg("sg10", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg10);
 	expect_conn10 = test_create_conn((TfwPeer *)srv);
-	sg10->sched->update_grp(sg10);
+	sg10->sched->add_conn(sg10, srv, &expect_conn10->conn);
 
 	if (parse_cfg("sched_http_rules {\nmatch sg1 uri eq /foo;\n\
 	                                   match sg2 uri prefix /foo/bar;\n\
@@ -307,7 +310,7 @@ TEST(tfw_sched_http, one_rule)
 		sg = test_create_sg("default", "round-robin");
 		srv = test_create_srv("127.0.0.1", sg);
 		expect_conn = test_create_conn((TfwPeer *)srv);
-		sg->sched->update_grp(sg);
+		sg->sched->add_conn(sg, srv, &expect_conn->conn);
 
 		if (parse_cfg(test_cases[i].rule_str)) {
 			TEST_FAIL("can't parse rules\n");
