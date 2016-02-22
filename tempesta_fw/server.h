@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -24,11 +24,18 @@
 #include "addr.h"
 #include "connection.h"
 #include "peer.h"
-#include "sched.h"
 
 #define TFW_SRV_MAX_CONN	32	/* TfwConnection per TfwServer */
 #define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
 #define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
+
+typedef enum {
+	TFW_SG_SRV_ADD,
+	TFW_SG_SRV_DEL,
+} TfwSgSrvUpdate;
+
+typedef struct tfw_srv_group_t TfwSrvGroup;
+typedef struct tfw_scheduler_t TfwScheduler;
 
 /**
  * Server descriptor, a TfwPeer successor.
@@ -39,7 +46,7 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
-	struct tfw_srv_group_t	*sg;
+	TfwSrvGroup		*sg;
 	unsigned int		flags;
 	int			stress;
 } TfwServer;
@@ -58,17 +65,50 @@ typedef struct {
  * @sched_data		- private scheduler data for the server group;
  * @name		- name of the group specified in the configuration;
  */
-typedef struct tfw_srv_group_t {
+struct tfw_srv_group_t {
 	struct list_head	list;
 	struct list_head	srv_list;
 	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void			*sched_data;
 	char			name[0];
-} TfwSrvGroup;
+};
+
+/**
+ * Requests scheduling algorithm handler.
+ *
+ * @name	- name of the algorithm;
+ * @list	- list of registered schedulers;
+ * @add_grp	- add server group to the scheduler;
+ * @del_grp	- delete server group from the scheduler;
+ * @add_conn	- add connection and server if it's new, called in process
+ * 		  context at configuration time;
+ * @sched_grp	- server scheduling virtual method;
+ * @sched_srv	- requests scheduling virtual method, can be called in heavy
+ *		  concurrent environment;
+ *
+ * All schedulers must be able to scheduler messages among servers of one
+ * server group, i.e. @sched_srv must be defined.
+ * However, not all the schedulers are able to designate target server group.
+ * If a scheduler determines server group, then it should register @sched_grp
+ * callback. The callback determines the target server group which references
+ * a scheduler responsible to distribute messages in the group.
+ * For the avoidance of unnecessary calls, any @sched_grp callback must call
+ * @sched_srv callback of the target scheduler.
+ */
+struct tfw_scheduler_t {
+	const char		*name;
+	struct list_head	list;
+	void			(*add_grp)(TfwSrvGroup *sg);
+	void			(*del_grp)(TfwSrvGroup *sg);
+	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
+					    TfwConnection *conn);
+	TfwConnection		*(*sched_grp)(TfwMsg *msg);
+	TfwConnection		*(*sched_srv)(TfwMsg *msg,
+					      TfwSrvGroup *sg);
+};
 
 /* Server specific routines. */
-
 TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
 
@@ -82,10 +122,15 @@ void tfw_sg_free(TfwSrvGroup *sg);
 int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_update(TfwSrvGroup *sg);
+void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
+
+/* Scheduler routines. */
+TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwScheduler *tfw_sched_lookup(const char *name);
+int tfw_sched_register(TfwScheduler *sched);
+void tfw_sched_unregister(TfwScheduler *sched);
 
 #endif /* __SERVER_H__ */

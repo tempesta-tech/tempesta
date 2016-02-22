@@ -99,9 +99,10 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
 	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
 	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
-	SPRN("Client connections total\t\t", clnt.conn_established);
+	SPRN("Client connection attempts\t\t", clnt.conn_attempts);
+	SPRN("Client established connections\t\t", clnt.conn_established);
 	SPRNE("Client connections active\t\t",
-	      stat.clnt.conn_attempts - stat.clnt.conn_disconnects);
+	      stat.clnt.conn_established - stat.clnt.conn_disconnects);
 	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
 
 	/* Server related statistics. */
@@ -110,9 +111,10 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Server messages parsing errors\t\t", serv.msgs_parserr);
 	SPRN("Server messages filtered out\t\t", serv.msgs_filtout);
 	SPRN("Server messages other errors\t\t", serv.msgs_otherr);
-	SPRN("Server connections total\t\t", serv.conn_established);
+	SPRN("Server connection attempts\t\t", serv.conn_attempts);
+	SPRN("Server established connections\t\t", serv.conn_established);
 	SPRNE("Server connections active\t\t",
-	      stat.serv.conn_attempts - stat.serv.conn_disconnects);
+	      stat.serv.conn_established - stat.serv.conn_disconnects);
 	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
 
 out:
