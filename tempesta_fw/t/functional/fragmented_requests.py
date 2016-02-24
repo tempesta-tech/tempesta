@@ -104,7 +104,6 @@ def run_test():
 		socket.sendall(bytes(req_get, 'UTF-8'))
     # wait for a response from Tempesta, just receive anything, we don't care what
 	res = socket.recv(1)
-	print("res:", res, "\n")
 	assert backend_callback_counter == 1
 	backend.stop()
 
