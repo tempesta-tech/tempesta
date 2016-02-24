@@ -78,7 +78,7 @@ def run_test():
 	c.add_option('listen', '8081')
 	c.add_option('server', '127.0.0.1:8080')
 	tfw.start()
-	be.start(backend_callback)
+	backend = be.start(backend_callback)
 
 # The test body:
 #
@@ -103,6 +103,8 @@ def run_test():
 	with cli.connect_to_tfw() as socket:
 		socket.sendall(bytes(req_get, 'UTF-8'))
     # wait for a response from Tempesta, just receive anything, we don't care what
-		socket.recv(1)
+	res = socket.recv(1)
+	print("res:", res, "\n")
 	assert backend_callback_counter == 1
+	backend.stop()
 

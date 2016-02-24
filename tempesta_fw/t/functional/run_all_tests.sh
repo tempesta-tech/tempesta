@@ -18,5 +18,4 @@ echo ------------------------------------------------------------------
 echo Running functional tests...
 echo ------------------------------------------------------------------
  
-# Doesn't pass yet.
-run fragmented_requests.py
+run fragmented_requests.py 
