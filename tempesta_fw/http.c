@@ -23,13 +23,12 @@
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"
-#include "server.h"
 #include "hash.h"
 #include "http_msg.h"
 #include "http_sticky.h"
 #include "log.h"
 #include "procfs.h"
-#include "sched.h"
+#include "server.h"
 #include "tls.h"
 
 #include "sync_socket.h"
@@ -661,7 +660,7 @@ resp_err:
 	 */
 	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 	if (srv_conn == NULL) {
-		TFW_ERR("Unable to find a backend server\n");
+		TFW_WARN("Unable to find a backend server\n");
 		goto send_404;
 	}
 
@@ -851,8 +850,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				 * is processed in full, and can't deal with
 				 * partially processed data.
 				 */
-				TFW_WARN("Not enough memory "
-					 "to create a request sibling\n");
+				TFW_WARN("Not enough memory to create"
+					 " a request sibling\n");
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				return TFW_BLOCK;
 			}

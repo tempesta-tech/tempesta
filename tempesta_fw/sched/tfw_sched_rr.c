@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -21,125 +21,113 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
+#include "tempesta_fw.h"
 #include "log.h"
 #include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
-#define BANNER "tfw_sched_rr: "
-#define ERR(...) TFW_ERR(BANNER __VA_ARGS__)
-#define DBG(...) TFW_DBG(BANNER __VA_ARGS__)
-
+/**
+ * List of connections to an upstream server.
+ * Connections can up and down during failover process and shouldn't be
+ * taken into account by the scheduler.
+ */
 typedef struct {
-	atomic_t	rr_counter;
-	size_t		conn_n;
-	TfwConnection	*conns[TFW_SRV_MAX_CONN];
-} TfwConnRrList;
-
-typedef struct {
-	atomic_t	rr_counter;
-	size_t		srv_n;
-	TfwConnRrList	conn_lists[TFW_SG_MAX_SRV];
-} TfwSrvRrList;
+	atomic64_t		rr_counter;
+	size_t			conn_n;
+	TfwServer		*srv;
+	TfwConnection 		*conns[TFW_SRV_MAX_CONN];
+} TfwRrSrv;
 
 /**
- * On each subsequent call the function returns the next server in the group.
- *
- * Parallel connections to the same server are also rotated in the
- * round-robin manner.
+ * List of upstream servers.
+ * The list is considered static, i.e. all the servers are alive during
+ * whole run-time. This can be changed in future.
  */
-static TfwConnection *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
-{
-	size_t idx;
-	TfwConnection *conn;
-	TfwSrvRrList *srv_list;
-	TfwConnRrList *conn_list;
-
-	srv_list = sg->sched_data;
-	BUG_ON(!srv_list);
-
-	/* 1. Select a server (represented by a list of connections). */
-	if (unlikely(!srv_list->srv_n))
-		return NULL;
-	idx = atomic_inc_return(&srv_list->rr_counter) % srv_list->srv_n;
-	conn_list = &srv_list->conn_lists[idx];
-
-	/* 2. Select a connection in the same round-robin manner. */
-	if (unlikely(!conn_list->conn_n))
-		return NULL;
-	idx = atomic_inc_return(&conn_list->rr_counter) % conn_list->conn_n;
-	conn = conn_list->conns[idx];
-	/*
-	 * Unfortunately, there's still a race condition here.
-	 * Please see the description here in the issue #236:
-	 * https://github.com/natsys/tempesta/issues/236#issuecomment-140868360
-	 */
-	if (likely(conn))
-		tfw_connection_get(conn);
-
-	return conn;
-}
+typedef struct {
+	atomic64_t		rr_counter;
+	size_t			srv_n;
+	TfwRrSrv		srvs[TFW_SG_MAX_SRV];
+} TfwRrSrvList;
 
 static void
 tfw_sched_rr_alloc_data(TfwSrvGroup *sg)
 {
-	BUG_ON(sg->sched_data);
-	sg->sched_data = kzalloc(sizeof(TfwSrvRrList), GFP_KERNEL);
+	sg->sched_data = kzalloc(sizeof(TfwRrSrvList), GFP_KERNEL);
 	BUG_ON(!sg->sched_data);
 }
 
 static void
 tfw_sched_rr_free_data(TfwSrvGroup *sg)
 {
-	BUG_ON(!sg->sched_data);
 	kfree(sg->sched_data);
-	sg->sched_data = NULL;
 }
 
+/**
+ * Add connection and server, if new, to the scheduler.
+ * Called at configuration phase, no synchronization is required.
+ */
 static void
-tfw_sched_rr_update_data(TfwSrvGroup *sg)
+tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	TfwServer *srv;
-	TfwConnection *conn;
-	TfwSrvRrList *srv_list;
-	TfwConnRrList *conn_list;
-	size_t srv_idx, conn_idx;
+	int s, c;
+	TfwRrSrv *srv_cl;
+	TfwRrSrvList *sl = sg->sched_data;
 
-	srv_list = sg->sched_data;
-	BUG_ON(!srv_list);
+	BUG_ON(!sl);
 
-	srv_idx = 0;
-	list_for_each_entry(srv, &sg->srv_list, list) {
-		if (list_empty(&srv->conn_list))
-			continue;
-
-		conn_idx = 0;
-		conn_list = &srv_list->conn_lists[srv_idx];
-
-		list_for_each_entry(conn, &srv->conn_list, list) {
-			/*
-			 * Skip not-yet-established connections.
-			 *
-			 * A connection may die by the time someone wants
-			 * to use it. That has to be dealt with elsewhere.
-			 * It should be assumed that scheduler's data is
-			 * only semi-accurate at any point of time.
-			 */
-			if (!tfw_connection_live(conn))
-				continue;
-
-			conn_list->conns[conn_idx] = conn;
-			++conn_idx;
-		}
-
-		conn_list->conn_n = conn_idx;
-		++srv_idx;
+	for (s = 0; s < sl->srv_n; ++s)
+		if (sl->srvs[s].srv == srv)
+			break;
+	if (s == sl->srv_n) {
+		sl->srvs[s].srv = srv;
+		++sl->srv_n;
+		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
 	}
-	srv_list->srv_n = srv_idx;
+
+	srv_cl = &sl->srvs[s];
+	for (c = 0; c < srv_cl->conn_n; ++c)
+		if (srv_cl->conns[c] == conn) {
+			TFW_WARN("sched_rr: Try to add existing connection,"
+				 " srv=%d conn=%d\n", s, c);
+			return;
+		}
+	srv_cl->conns[c] = conn;
+	++srv_cl->conn_n;
+	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
+}
+
+/**
+ * On each subsequent call the function returns the next server in the group.
+ * Parallel connections to the same server are also rotated in the
+ * round-robin manner.
+ * Dead connections and servers w/o live connections are skipped.
+ */
+static TfwConnection *
+tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+{
+	int c, s, i;
+	TfwConnection *conn;
+	TfwRrSrvList *sl = sg->sched_data;
+	TfwRrSrv *srv_cl;
+
+	BUG_ON(!sl);
+
+	for (s = 0; s < sl->srv_n; ++s) {
+		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
+		srv_cl = &sl->srvs[i];
+		for (c = 0; c < srv_cl->conn_n; ++c) {
+			i = atomic64_inc_return(&srv_cl->rr_counter)
+			    % srv_cl->conn_n;
+			conn = srv_cl->conns[i];
+			if (tfw_connection_get_if_nfo(conn))
+				return conn;
+		}
+	}
+	return NULL;
 }
 
 static TfwScheduler tfw_sched_rr = {
@@ -147,14 +135,14 @@ static TfwScheduler tfw_sched_rr = {
 	.list		= LIST_HEAD_INIT(tfw_sched_rr.list),
 	.add_grp	= tfw_sched_rr_alloc_data,
 	.del_grp	= tfw_sched_rr_free_data,
-	.update_grp	= tfw_sched_rr_update_data,
+	.add_conn	= tfw_sched_rr_add_conn,
 	.sched_srv	= tfw_sched_rr_get_srv_conn,
 };
 
 int
 tfw_sched_rr_init(void)
 {
-	DBG("init\n");
+	TFW_DBG("sched_rr: init\n");
 	return tfw_sched_register(&tfw_sched_rr);
 }
 module_init(tfw_sched_rr_init);
@@ -162,7 +150,7 @@ module_init(tfw_sched_rr_init);
 void
 tfw_sched_rr_exit(void)
 {
-	DBG("exit\n");
+	TFW_DBG("sched_rr: exit\n");
 	tfw_sched_unregister(&tfw_sched_rr);
 }
 module_exit(tfw_sched_rr_exit);

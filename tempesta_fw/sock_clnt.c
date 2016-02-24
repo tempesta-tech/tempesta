@@ -99,6 +99,7 @@ tfw_cli_conn_release(TfwConnection *conn)
 	if (likely(conn->peer))
 		tfw_client_put((TfwClient *)conn->peer);
 	tfw_cli_conn_free((TfwCliConnection *)conn);
+	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
 int
@@ -212,7 +213,6 @@ tfw_sock_clnt_drop(struct sock *sk)
 	if (tfw_connection_put(conn))
 		tfw_cli_conn_release(conn);
 
-	TFW_INC_STAT_BH(clnt.conn_disconnects);
 	return 0;
 }
 

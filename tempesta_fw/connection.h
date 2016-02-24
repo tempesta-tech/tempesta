@@ -131,6 +131,26 @@ tfw_connection_get(TfwConnection *conn)
 }
 
 /**
+ * Increment reference counter and return true if @conn isn't in failovering
+ * process, i.e. @refcnt wasn't zero.
+ */
+static inline bool
+tfw_connection_get_if_nfo(TfwConnection *conn)
+{
+	if (unlikely(!xadd(&conn->refcnt.counter, 1))) {
+		atomic_dec(&conn->refcnt);
+		return false;
+	}
+	return true;
+}
+
+static inline bool
+tfw_connection_nfo(TfwConnection *conn)
+{
+	return atomic_read(&conn->refcnt);
+}
+
+/**
  * @return true if @conn has no more users.
  */
 static inline bool
@@ -138,11 +158,9 @@ tfw_connection_put(TfwConnection *conn)
 {
 	if (unlikely(!conn))
 		return false;
-	if (likely(atomic_read(&conn->refcnt) == 1))
-		smp_rmb();
-	else if (likely(!atomic_dec_and_test(&conn->refcnt)))
-		return false;
-	return true;
+	if (unlikely(atomic_dec_and_test(&conn->refcnt)))
+		return true;
+	return false;
 }
 
 /*

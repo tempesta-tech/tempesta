@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -10,8 +10,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -64,7 +64,6 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_zero_conn)
 
 	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
 	test_create_srv("127.0.0.1", sg);
-	sg->sched->update_grp(sg);
 
 	for (i = 0; i < 3; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
@@ -83,10 +82,10 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConnection *conn = test_create_conn((TfwPeer *)srv);
-		s ^= (long long)conn;
+		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, &sconn->conn);
+		s ^= (long long)sconn;
 	}
-	sg->sched->update_grp(sg);
 
 	for (i = 0; i < 3 * TFW_SRV_MAX_CONN; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
@@ -106,10 +105,8 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_zero_conn)
 
 	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
 
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+	for (i = 0; i < TFW_SG_MAX_SRV; ++i)
 		test_create_srv("127.0.0.1", sg);
-	}
-	sg->sched->update_grp(sg);
 
 	for (i = 0; i < 2 * TFW_SG_MAX_SRV; ++i) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
@@ -123,18 +120,18 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 {
 	int i, j;
 	long long s = 0;
+	TfwSrvConnection *sconn;
 
 	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
-
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *conn = test_create_conn((TfwPeer *)srv);
-			s ^= (long long)conn;
+			sconn = test_create_conn((TfwPeer *)srv);
+			sg->sched->add_conn(sg, srv, &sconn->conn);
+			s ^= (long long)sconn;
 		}
 	}
-	sg->sched->update_grp(sg);
 
 	for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);

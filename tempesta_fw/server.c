@@ -4,7 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -23,7 +23,6 @@
 #include <linux/slab.h>
 
 #include "log.h"
-#include "sched.h"
 #include "server.h"
 #include "client.h"
 
@@ -70,7 +69,6 @@ tfw_create_server(const TfwAddr *addr)
  * configuration processing. It's never called after tfw_sg_free()
  * was called, so there's no need to worry about stale entries.
  */
-
 TfwSrvGroup *
 tfw_sg_lookup(const char *name)
 {
@@ -175,29 +173,10 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 }
 
 void
-tfw_sg_del(TfwSrvGroup *sg, TfwServer *srv)
+tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	write_lock(&sg->lock);
-	list_del(&srv->list);
-	write_unlock(&sg->lock);
-
-	BUG_ON(srv->sg != sg);
-	srv->sg = NULL;
-}
-
-/*
- * Notify @sg->sched that the group is updated.
- *
- * This function is called every time a server connection
- * is established, broken, or failed. Usually it's called
- * in SoftIRQ context, so it can't be blocked. It's also
- * called in user context at the time Tempesta is stopped.
- */
-void
-tfw_sg_update(TfwSrvGroup *sg)
-{
-	if (sg->sched && sg->sched->update_grp)
-		sg->sched->update_grp(sg);
+	if (sg->sched && sg->sched->add_conn)
+		sg->sched->add_conn(sg, srv, conn);
 }
 
 int
