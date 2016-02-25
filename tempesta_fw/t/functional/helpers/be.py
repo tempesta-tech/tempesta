@@ -32,7 +32,7 @@ class BackendHTTPServer(Thread, http.server.HTTPServer):
 	def __init__(self, backend_callback=_dummy_callback,
 			     port=8080, tfw_timeout_sec=20):
         	# Initialize HTTP server, bind/listen/etc.
-		self.accept_event = Event()
+#		self.accept_event = Event()
 		self.backend_callback = backend_callback
 		http.server.HTTPServer.__init__(self, ('127.0.0.1', port), BackendHTTPRequestHandler)
 
@@ -57,7 +57,7 @@ class BackendHTTPServer(Thread, http.server.HTTPServer):
 		self.serve_forever()
 
 	def stop(self):
-		self.shutdown()
+		self._Thread__stop()
 		self.socket.close()
 
 class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):

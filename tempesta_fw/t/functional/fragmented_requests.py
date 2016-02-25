@@ -56,6 +56,7 @@ a520f30fa481; tz=Europe%2FMoscow; _gat=1''',
 		if h[k] != headers[k]:
 			msg = "Expected: %s, got: %s" % (h[k], headers[k])
 			raise Error(msg)
+backend_callback_counter = 0
 
 def fragmentize_str(s, frag_size):
 	"""
@@ -65,20 +66,21 @@ def fragmentize_str(s, frag_size):
 	"""
 	return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
 
-	backend_callback_counter = 0
 
 def backend_callback(method, path, headers, body):
+	print("run_callback\n")
 	++backend_callback_counter;
 	validate_received_req_get(method, path, headers, body)
 	return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
 def run_test():
-	c = Config('etc/tempesta.conf')
+	print("config:\n")
+	c = conf.Config('etc/tempesta_fw.conf')
 	c.add_option('listen', '8081')
 	c.add_option('server', '127.0.0.1:8080')
 	tfw.start()
-	backend = be.start(backend_callback)
+	backend = be.start(backend_callback, 8080, 20)
 
 # The test body:
 #
@@ -100,10 +102,13 @@ def run_test():
 # [ 'GET http://', 'g', 'i', 't', 'h', 'u', 'b', '.', 'c', 'o', 'm', ... ]
 
 
-	with cli.connect_to_tfw() as socket:
+	with cli.connect_to_tfw(8081, 5) as socket:
 		socket.sendall(bytes(req_get, 'UTF-8'))
     # wait for a response from Tempesta, just receive anything, we don't care what
-	res = socket.recv(1)
-	assert backend_callback_counter == 1
+		res = socket.recv(1)
+	print("res:", res, "\n")
+	assert res is not None
 	backend.stop()
+	tfw.stop()
 
+run_test()
