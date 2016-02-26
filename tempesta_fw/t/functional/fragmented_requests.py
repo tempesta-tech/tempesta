@@ -109,6 +109,7 @@ def run_test():
 	print("res:", res, "\n")
 	assert res is not None
 	backend.stop()
-	tfw.stop()
+#	tfw.stop()
+	print("OK\n")
 
 run_test()

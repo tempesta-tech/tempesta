@@ -38,7 +38,7 @@ class BackendHTTPServer(Thread, http.server.HTTPServer):
 
         # Start a background thread that accept()s connections.
 		kwargs = dict(poll_interval = 0.05)
-		Thread.__init__(self, target=self.serve_forever, kwargs=kwargs)
+		super().__init__()
 		self.start()
 	# Synchronize with Tempesta FW.
 
@@ -57,7 +57,7 @@ class BackendHTTPServer(Thread, http.server.HTTPServer):
 		self.serve_forever()
 
 	def stop(self):
-		self._Thread__stop()
+		self.kill_received = True
 		self.socket.close()
 
 class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
