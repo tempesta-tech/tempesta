@@ -164,6 +164,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	}
 
 	/* Link Tempesta with the socket and the peer. */
+	tfw_connection_revive(conn);
 	tfw_connection_link_to_sk(conn, sk);
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
@@ -176,11 +177,6 @@ tfw_sock_clnt_new(struct sock *sk)
 
 err_conn:
 	tfw_connection_drop(conn);
-	/*
-	 * We have just created the connection and did not link anything
-	 * to it yet. There's no need to play with conn->refcnt. We can
-	 * just free @conn unconditionally.
-	 */
 	tfw_cli_conn_free(cli_conn);
 err_client:
 	tfw_client_put(cli);
