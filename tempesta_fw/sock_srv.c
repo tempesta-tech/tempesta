@@ -172,7 +172,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		sk_incoming_cpu_update(sk);
 		ss_close_sync(sk);
 		tfw_connection_unlink_from_sk(sk);
-		TFW_INC_STAT_BH(serv.conn_disconnects);
 		return r;
 	}
 
