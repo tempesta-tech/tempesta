@@ -271,12 +271,8 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
-	/*
-	 * Revert connection reference counter.
-	 * Schedulers can use the connection hereafter.
-	 */
-	BUG_ON(atomic_read(&conn->refcnt) > 1);
-	atomic_set(&conn->refcnt, 1);
+	/* Let schedulers use the connection hereafter. */
+	tfw_connection_revive(conn);
 
 	__reset_retry_timer(srv_conn);
 
@@ -294,6 +290,7 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 	TFW_DBG_ADDR(msg, &srv->addr);
 
 	/* Withdraw from socket activity. */
+	tfw_connection_put_to_death(conn);
 	tfw_connection_unlink_from_sk(sk);
 
 	/* Update Server Group and release resources. */
