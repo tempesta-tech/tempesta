@@ -92,6 +92,8 @@ typedef struct {
 	struct sock		*sk;
 } TfwConnection;
 
+#define TFW_CONN_DEATHCNT	(INT_MIN / 2)
+
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
@@ -124,6 +126,12 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
+static inline bool
+tfw_connection_nfo(TfwConnection *conn)
+{
+	return atomic_read(&conn->refcnt) > 0;
+}
+
 static inline void
 tfw_connection_get(TfwConnection *conn)
 {
@@ -137,17 +145,16 @@ tfw_connection_get(TfwConnection *conn)
 static inline bool
 tfw_connection_get_if_nfo(TfwConnection *conn)
 {
-	if (unlikely(!xadd(&conn->refcnt.counter, 1))) {
-		atomic_dec(&conn->refcnt);
-		return false;
-	}
-	return true;
-}
+	int old, rc = atomic_read(&conn->refcnt);
 
-static inline bool
-tfw_connection_nfo(TfwConnection *conn)
-{
-	return atomic_read(&conn->refcnt);
+	while (1) {
+		if (unlikely(rc < 1))
+			return false;
+		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
+		if (likely(old == rc))
+			return true;
+		rc = old;
+	}
 }
 
 /**
@@ -156,11 +163,27 @@ tfw_connection_nfo(TfwConnection *conn)
 static inline bool
 tfw_connection_put(TfwConnection *conn)
 {
+	int rc;
+
 	if (unlikely(!conn))
 		return false;
-	if (unlikely(atomic_dec_and_test(&conn->refcnt)))
+
+	rc = atomic_dec_return(&conn->refcnt);
+	if (unlikely(!rc || rc == TFW_CONN_DEATHCNT))
 		return true;
 	return false;
+}
+
+static inline void
+tfw_connection_put_to_death(TfwConnection *conn)
+{
+	atomic_add(TFW_CONN_DEATHCNT, &conn->refcnt);
+}
+
+static inline void
+tfw_connection_revive(TfwConnection *conn)
+{
+	atomic_set(&conn->refcnt, 1);
 }
 
 /*
