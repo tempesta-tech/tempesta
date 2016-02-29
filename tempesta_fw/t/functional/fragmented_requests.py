@@ -79,8 +79,8 @@ def run_test():
 	c = conf.Config('etc/tempesta_fw.conf')
 	c.add_option('listen', '8081')
 	c.add_option('server', '127.0.0.1:8080')
-	tfw.start()
 	backend = be.start(backend_callback, 8080, 20)
+	tfw.start()
 
 # The test body:
 #
@@ -108,8 +108,8 @@ def run_test():
 		res = socket.recv(1)
 	print("res:", res, "\n")
 	assert res is not None
+	tfw.stop()
 	backend.stop()
-#	tfw.stop()
 	print("OK\n")
 
 run_test()
