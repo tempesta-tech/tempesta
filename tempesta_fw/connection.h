@@ -87,6 +87,7 @@ typedef struct {
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
+	unsigned long		flags;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
@@ -95,6 +96,9 @@ typedef struct {
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/* Connection flags. */
+#define TFW_CONN_FWD_HOLD	0x0001		/* Hold sending messages */
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -267,7 +271,7 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
 	BUG_ON(!list_empty(&conn->msg_queue));
-	BUG_ON(atomic_read(&conn->refcnt) & ~1);
+	BUG_ON(atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT);
 	BUG_ON(conn->msg);
 }
 
