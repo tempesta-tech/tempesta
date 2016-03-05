@@ -169,7 +169,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
-		sk_incoming_cpu_update(sk);
 		ss_close_sync(sk);
 		tfw_connection_unlink_from_sk(sk);
 		return r;
@@ -323,16 +322,6 @@ tfw_sock_srv_connect_retry(struct sock *sk)
 	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
-/*
- * This function is called when a server connection is explicitly dropped
- * by Tempesta.
- */
-int
-tfw_sock_srv_drop(struct sock *sk)
-{
-	return tfw_sock_srv_do_failover(sk, "connection dropped");
-}
-
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_failover,
@@ -364,6 +353,10 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 * Close and release the socket.
 	 */
 	if (sk) {
+		/*
+		 * FIXME this can cause BUG() in ss_tcp_process_data() on
+		 * sk->sk_user_data == NULL.
+		 */
 		tfw_connection_unlink_from_sk(sk);
 		tfw_connection_unlink_to_sk(conn);
 		ss_close(sk);

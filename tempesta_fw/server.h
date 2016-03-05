@@ -113,7 +113,6 @@ TfwServer *tfw_create_server(const TfwAddr *addr);
 void tfw_destroy_server(TfwServer *srv);
 
 void tfw_srv_conn_release(TfwConnection *conn);
-int tfw_sock_srv_drop(struct sock *sk);
 
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name);
