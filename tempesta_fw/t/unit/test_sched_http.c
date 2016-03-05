@@ -21,8 +21,6 @@
 #define tfw_sock_srv_init test_http_sock_srv_conn_init
 #undef tfw_sock_srv_exit
 #define tfw_sock_srv_exit test_http_sock_srv_exit
-#undef tfw_sock_srv_drop
-#define tfw_sock_srv_drop test_http_sock_srv_drop
 #undef tfw_srv_conn_release
 #define tfw_srv_conn_release test_http_srv_conn_release
 #undef tfw_sock_srv_cfg_mod
