@@ -420,6 +420,8 @@ EXPORT_SYMBOL(ss_close);
 void
 ss_close_sync(struct sock *sk)
 {
+	sk_incoming_cpu_update(sk);
+
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
@@ -897,6 +899,7 @@ ss_inet_create(struct net *net, int family,
 
 	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
+		SS_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
 		return err;
 	}
