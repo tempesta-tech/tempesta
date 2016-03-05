@@ -56,7 +56,7 @@ MODULE_PARM_DESC(s, "Server host address and optional port nunber");
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta Boomber");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.2.2");
 MODULE_LICENSE("GPL");
 
 #ifdef TFW_BANNER
@@ -81,6 +81,7 @@ typedef struct bmb_conn {
  * @conn		- connection descriptions
  * @conn_rd		- array of ready connection indexes
  * @conn_rd_tail	- end index in array of ready connection indexes
+ * @conn_wq		- wait queue on all connections establishing
  * @conn_attempt	- number of attempt connections
  * @conn_compl		- number of complate connections
  * @conn_error		- number of error connections
@@ -114,23 +115,29 @@ static SsHooks bmb_hooks;
 static void *bmb_alloc_ptr;
 static TfwBmbTask *bmb_task;
 
-static int
-tfw_bmb_conn_compl(struct sock *sk)
+static inline void
+__check_conn(struct sock *sk, SsProto *proto, TfwBmbTask *task)
 {
-	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
-	TfwBmbTask *task;
-	TfwBmbConn *conn;
-	int tail;
-
-	BUG_ON(!proto);
-
-	task = &bmb_task[proto->type / nconns];
-	conn = &task->conn[proto->type % nconns];
+	TfwBmbConn *conn = &task->conn[proto->type % nconns];
 
 	BUG_ON(conn->proto.type != proto->type);
 	BUG_ON(conn->proto.listener != NULL);
 	BUG_ON(conn->proto.hooks != &bmb_hooks);
 	BUG_ON(conn->sk && conn->sk != sk);
+}
+
+static int
+tfw_bmb_conn_compl(struct sock *sk)
+{
+	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
+	TfwBmbTask *task;
+	int tail;
+
+	BUG_ON(!proto);
+
+	task = &bmb_task[proto->type / nconns];
+
+	__check_conn(sk, proto, task);
 
 	tail = atomic_read(&task->conn_rd_tail);
 	task->conn_rd[tail] = proto->type % nconns;
@@ -143,21 +150,17 @@ tfw_bmb_conn_compl(struct sock *sk)
 }
 
 static int
-__update_conn(struct sock *sk)
+tfw_bmb_conn_drop(struct sock *sk)
 {
 	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
 	TfwBmbTask *task;
-	TfwBmbConn *conn;
 
-	BUG_ON(proto == NULL);
-
+	BUG_ON(!proto);
 	task = &bmb_task[proto->type / nconns];
-	conn = &task->conn[proto->type % nconns];
+	__check_conn(sk, proto, task);
+	atomic_inc(&bmb_conn_drop);
 
-	BUG_ON(conn->proto.type != proto->type);
-	BUG_ON(conn->proto.listener != NULL);
-	BUG_ON(conn->proto.hooks != &bmb_hooks);
-	BUG_ON(conn->sk && conn->sk != sk);
+	tfw_connection_unlink_from_sk(sk);
 
 	wake_up(&task->conn_wq);
 
@@ -165,22 +168,19 @@ __update_conn(struct sock *sk)
 }
 
 static int
-tfw_bmb_conn_close(struct sock *sk)
-{
-	atomic_inc(&bmb_conn_drop);
-
-	return __update_conn(sk);
-}
-
-static int
 tfw_bmb_conn_error(struct sock *sk)
 {
 	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
+	TfwBmbTask *task;
 
-	BUG_ON(proto == NULL);
-	atomic_inc(&bmb_task[proto->type / nconns].conn_error);
+	BUG_ON(!proto);
+	task = &bmb_task[proto->type / nconns];
+	__check_conn(sk, proto, task);
+	atomic_inc(&task->conn_error);
 
-	return __update_conn(sk);
+	wake_up(&task->conn_wq);
+
+	return 0;
 }
 
 static int
@@ -207,7 +207,7 @@ tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 
 static SsHooks bmb_hooks = {
 	.connection_new		= tfw_bmb_conn_compl,
-	.connection_drop	= tfw_bmb_conn_close,
+	.connection_drop	= tfw_bmb_conn_drop,
 	.connection_error	= tfw_bmb_conn_error,
 	.connection_recv	= tfw_bmb_conn_recv,
 };
@@ -217,9 +217,7 @@ tfw_bmb_connect(int tn, int cn)
 {
 	int ret;
 	struct sock *sk;
-	TfwBmbConn *conn;
-
-	conn = &bmb_task[tn].conn[cn];
+	TfwBmbConn *conn = &bmb_task[tn].conn[cn];
 
 	ret = ss_sock_create(bmb_server_address.sa.sa_family, SOCK_STREAM,
 			     IPPROTO_TCP, &sk);
@@ -236,8 +234,8 @@ tfw_bmb_connect(int tn, int cn)
 			 tfw_addr_sa_len(&bmb_server_address), 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
+		ss_close_sync(sk);
 		tfw_connection_unlink_from_sk(sk);
-		ss_close(sk);
 		return ret;
         }
 
@@ -254,12 +252,9 @@ tfw_bmb_release_sockets(int tn)
 
 	TFW_LOG("Release connections.\n");
 
-	for (i = 0; i < nconns; i++) {
-		if (bmb_task[tn].conn[i].sk) {
-			tfw_connection_unlink_from_sk(bmb_task[tn].conn[i].sk);
+	for (i = 0; i < nconns; i++)
+		if (bmb_task[tn].conn[i].sk)
 			ss_close(bmb_task[tn].conn[i].sk);
-		}
-	}
 }
 
 static void
