@@ -65,8 +65,8 @@ To build the module you need to do the following steps:
 Use `tempesta.sh` script to run and stop Tempesta. The script provides help
 information with `--help` switch. Usage example:
 
-        $ ./tempesta.sh --start
-        $ ./tempesta.sh --stop
+        $ ./scripts/tempesta.sh --start
+        $ ./scripts/tempesta.sh --stop
 
 
 ### Configuration
@@ -75,7 +75,7 @@ Tempesta is configured via plain-text configuration file.
 
 The file location is determined by the `TFW_CFG_PATH` environment variable:
 
-        $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh --start
+        $ TFW_CFG_PATH="/opt/tempesta.conf" ./scripts/tempesta.sh --start
 
 By default, the `tempesta_fw.conf` from this directory is used.
 
@@ -377,7 +377,7 @@ layer.
 
 Use `-f` command key to start Tempesta with Frang:
 ```
-$ ./tempesta.sh -f --start
+$ ./scripts/tempesta.sh -f --start
 ```
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:
