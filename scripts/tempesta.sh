@@ -19,34 +19,24 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-root=$(dirname "$0")
-name=`basename $0` # program name (comm name in ps)
+. "$(dirname $0)/tfw_lib.sh"
 
-# Resolve root to absolute path which is handy for kernel.
-# pwd is used instead of readlink to avoid symlink resolution.
-pushd "$root" > /dev/null
-root="$(pwd)"
-popd > /dev/null
-
-NETDEV_PATH="/sys/class/net/"
-
-tdb_path=${TDB_PATH:="$root/tempesta_db/core"}
-tfw_path=${TFW_PATH:="$root/tempesta_fw"}
+tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
+tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
 class_path="$tfw_path/classifier/"
-tfw_cfg_path=${TFW_CFG_PATH:="$root/etc/tempesta_fw.conf"}
+tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 sched_ko_files=($(ls $tfw_path/sched/*.ko))
 
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
 frang_mod="tfw_frang"
-devs=$(ls $NETDEV_PATH)
 declare frang_enable=
-declare -r long_opts="help,load,unload,start,stop,restart"
+declare -r LONG_OPTS="help,load,unload,start,stop,restart"
 
 usage()
 {
-	echo -e "\nUsage: ${name} [options] {action}\n"
+	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
 	echo -e "Options:"
 	echo -e "  -f          Load Frang, HTTP DoS protection module."
 	echo -e "  -d <devs>   Ingress and egress network devices"
@@ -96,23 +86,6 @@ load_modules()
 	fi
 }
 
-# Enable RPS for specified, or all by default, networking interfaces.
-# This is required for loopback interface for proper local delivery,
-# but physical interfaces can have RSS.
-# TODO assign RSS queues as well.
-tfw_set_rps()
-{
-	cpu_n=$(grep -c processor /proc/cpuinfo)
-	cpu_mask=$(perl -le 'printf("%x", (1 << '$cpu_n') - 1)')
-
-	for dev in $devs; do
-		echo "...setup interface $dev"
-		for rx in $NETDEV_PATH/$dev/queues/rx-*; do
-			echo $cpu_mask > $rx/rps_cpus
-		done
-	done
-}
-
 start()
 {
 	echo "Starting Tempesta..."
@@ -153,7 +126,7 @@ unload_modules()
 	rmmod $tdb_mod
 }
 
-args=$(getopt -o "d:f" -a -l "$long_opts" -- "$@")
+args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
@@ -184,7 +157,7 @@ while :; do
 			;;
 		# Ignore any options after action.
 		-d)
-			devs=$2
+			TFW_DEVS=$2
 			shift 2
 			;;
 		-f)

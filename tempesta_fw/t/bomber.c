@@ -400,14 +400,11 @@ tfw_bmb_alloc(void)
 	int i;
 	void *p;
 
-	bmb_alloc_ptr = p = vzalloc(nthreads * (
-		sizeof(TfwBmbTask) +
-		nconns * (
-			sizeof(TfwBmbConn) +
-			sizeof(int)
-		) +
-		BUF_SIZE * sizeof(char)
-	));
+	bmb_alloc_ptr = p = vzalloc(nthreads
+				    * (sizeof(TfwBmbTask)
+				       + nconns
+				         * (sizeof(TfwBmbConn) + sizeof(int))
+				       + BUF_SIZE * sizeof(char)));
 	if (!bmb_alloc_ptr)
 		return -ENOMEM;
 
