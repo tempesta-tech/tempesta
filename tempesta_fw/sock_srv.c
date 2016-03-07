@@ -303,9 +303,13 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 /**
  * The hook is executed when a server connection is lost.
  * I.e. the connection was established before, but now it is closed.
+ *
+ * FIXME #254: the hook must be called when Tempesta intentionaly closes
+ * the connection during shutdown. SS layer must be adjusted correspondingly.
+ * Failovering must not be called by the function.
  */
 static int
-tfw_sock_srv_connect_failover(struct sock *sk)
+tfw_sock_srv_connect_drop(struct sock *sk)
 {
 	return tfw_sock_srv_do_failover(sk, "connection lost");
 }
@@ -315,17 +319,21 @@ tfw_sock_srv_connect_failover(struct sock *sk)
  * (and not executed when an established connection is closed as usual).
  * An error may occur in any TCP state. All Tempesta resources associated
  * with the socket must be released in case they were allocated before.
+ *
+ * FIXME #254: the hook must be called when a connection error occured
+ * and Tempesta must recover the connection.
+ * SS layer must be adjusted correspondingly.
  */
 static int
-tfw_sock_srv_connect_retry(struct sock *sk)
+tfw_sock_srv_connect_error(struct sock *sk)
 {
 	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
-	.connection_drop	= tfw_sock_srv_connect_failover,
-	.connection_error	= tfw_sock_srv_connect_retry,
+	.connection_drop	= tfw_sock_srv_connect_drop,
+	.connection_error	= tfw_sock_srv_connect_error,
 	.connection_recv	= tfw_connection_recv,
 };
 
