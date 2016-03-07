@@ -414,7 +414,7 @@ ss_close(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_close);
 
-/*
+/**
  * Close a socket unconditionally from Tempesta.
  */
 void
