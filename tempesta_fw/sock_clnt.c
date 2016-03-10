@@ -184,13 +184,13 @@ err_client:
 }
 
 static int
-tfw_sock_clnt_drop(struct sock *sk)
+tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
 	TfwCliConnection *cli_conn = rcu_dereference_sk_user_data(sk);
 	TfwConnection *conn = &cli_conn->conn;
 
-	TFW_DBG3("close client socket: sk=%p, conn=%p, client=%p\n",
-		 sk, conn, conn->peer);
+	TFW_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
+		 msg, sk, conn, conn->peer);
 	/*
 	 * Withdraw from socket activity. Connection is now closed,
 	 * and Tempesta is not called anymore on events in the socket.
@@ -212,9 +212,30 @@ tfw_sock_clnt_drop(struct sock *sk)
 	return 0;
 }
 
+/*
+ * The hook is executed when a client connection is closed by either
+ * side of the connection.
+ */
+static int
+tfw_sock_clnt_drop(struct sock *sk)
+{
+	return tfw_sock_clnt_do_drop(sk, "connection lost");
+}
+
+/*
+ * The hook is executed when a client connection is terminated due to
+ * an error of any kind.
+ */
+static int
+tfw_sock_clnt_error(struct sock *sk)
+{
+	return tfw_sock_clnt_do_drop(sk, "connection error");
+}
+
 static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
+	.connection_error	= tfw_sock_clnt_error,
 	.connection_recv	= tfw_connection_recv,
 };
 
