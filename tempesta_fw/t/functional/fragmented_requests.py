@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from helpers import *
+import socket
 
 __author__ = 'NatSys Lab'
 __copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
@@ -75,42 +76,27 @@ def backend_callback(method, path, headers, body):
 	return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
-def run_test():
-	print("config:\n")
+def run():
 	c = conf.Config('etc/tempesta_fw.conf')
+	c.add_option('cache', '0')
 	c.add_option('listen', '8081')
-	c.add_option('server', '127.0.0.1:8080')
-	backend = be.start(backend_callback, 8080, 20)
+	c.add_option('server', '127.0.0.1:80')
+#	c.del_option('listen')
+
+	b = be.BackendHTTPServer('127.0.0.1', 8080)
+	b.start()
+	print("be started\n")
 	tfw.start()
-
-# The test body:
-#
-# In the real world, HTTP messages, especially big ones, are often fragmented
-# (because of network MTU/MRU, TCP MSS, application buffer sizes, etc).
-# Fragments of the same HTTP request may have different sizes and arrive to
-# server at different time.
-#
-# The goal here is to simulate such situation and check that the parser of
-# Tempesta FW can handle messages broken to any number of such fragments.
-#
-# We would like to go the most extreme case: split the request to 1-byte chunks
-# to check that a gap may occur at any position of the message.
-# But Tempesta FW assumes (for optimization purposes) that first few bytes are
-# continuous (and indeed in the real world they are), so we put them as a solid
-# fragment, and split the rest of the message to single characters.
-#
-# So in the end we should get the following fragments sent to the server:
-# [ 'GET http://', 'g', 'i', 't', 'h', 'u', 'b', '.', 'c', 'o', 'm', ... ]
-
-
-	with cli.connect_to_tfw(8081, 5) as socket:
-		socket.sendall(bytes(req_get, 'UTF-8'))
-    # wait for a response from Tempesta, just receive anything, we don't care what
-		res = socket.recv(1)
-	print("res:", res, "\n")
-	assert res is not None
+	print("tfw started\n")
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.connect(("127.0.0.1",8080))
+	s.sendall(b'GET / HTTP/1.0\r\n\r\n')
+	data = s.recv(1024)
+	print("recv:", data)
 	tfw.stop()
-	backend.stop()
-	print("OK\n")
+	print("tfw stoped\n")
+	b.stop()
+	s.close()
+	print("Ok\n")
 
-run_test()
+run()
