@@ -18,10 +18,10 @@ _functest_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
 _tempesta_dir = os.path.normpath(os.path.join(_functest_dir, '../../../'))
 
 def start():
-	_sh("SYNC_SOCKET=./sync_socket TDB=./tempesta_db ./tempesta.sh --start")
+	_sh("SYNC_SOCKET=./sync_socket TDB=./tempesta_db ./scripts/tempesta.sh --start")
 
 def stop():
-	_sh("./tempesta.sh --stop")
+	_sh("./scripts/tempesta.sh --stop")
 
 def _sh(command):
 	return subprocess.check_output(command, shell=True, cwd=_tempesta_dir)
