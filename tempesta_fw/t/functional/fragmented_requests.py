@@ -7,8 +7,8 @@ __author__ = 'NatSys Lab'
 __copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
-req_get = '''\
-GET http://github.com/natsys/tempesta HTTP/1.1\r\n
+req_get = b'''\
+GET / HTTP/1.1\r\n
 Host: github.com\r\n
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 \
 Firefox/31.0 Iceweasel/31.2.0\r\n
@@ -73,25 +73,28 @@ def backend_callback(method, path, headers, body):
 	print("run_callback\n")
 	++backend_callback_counter;
 	validate_received_req_get(method, path, headers, body)
-	return 200, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
+	return 201, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
 # Start Tempesta FW and a back-end server with a default configuration.
 def run():
 	c = conf.Config('etc/tempesta_fw.conf')
 	c.add_option('cache', '0')
 	c.add_option('listen', '8081')
-	c.add_option('server', '127.0.0.1:80')
-#	c.del_option('listen')
+	c.add_option('server', '127.0.0.1:8080')
 
+	s_get = b"GET / HTTP/1.0\r\nConnection: Keep-Alive\r\n\
+	host: localhost\r\n\r\n"
 	b = be.BackendHTTPServer('127.0.0.1', 8080)
 	b.start()
 	print("be started\n")
 	tfw.start()
 	print("tfw started\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect(("127.0.0.1",8080))
-	s.sendall(b'GET / HTTP/1.0\r\n\r\n')
+	s.connect(("127.0.0.1",8081))
+	s.sendall(s_get)
+#	s.send(s_getf2)
 	data = s.recv(1024)
+#	res = data.decode('utf-8')
 	print("recv:", data)
 	tfw.stop()
 	print("tfw stoped\n")
