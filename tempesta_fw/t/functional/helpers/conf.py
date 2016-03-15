@@ -9,9 +9,11 @@ class Config:
 		self.name = name
 		open(self.name, "w")
 		return
+
 	def add_option(self, option, value):
 		with open(self.name, "a+") as conf:
 			conf.write(option + ' ' + value + ';\n')
+
 	def del_option(self, option):
 		temp = open(self.tmpname, 'a+')
 		for line in fileinput.input(self.name):
