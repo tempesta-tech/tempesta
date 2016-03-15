@@ -70,7 +70,6 @@ def fragmentize_str(s, frag_size):
 
 
 def backend_callback(method, path, headers, body):
-	print("run_callback\n")
 	++backend_callback_counter;
 	validate_received_req_get(method, path, headers, body)
 	return 201, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
@@ -86,21 +85,16 @@ def run():
 	host: localhost\r\n\r\n"
 	b = be.BackendHTTPServer('127.0.0.1', 8080)
 	b.start()
-	print("be started\n")
 	tfw.start()
-	print("tfw started\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(("127.0.0.1",8081))
-	parts = fragmentize_str(s_get, 25)
+	parts = fragmentize_str(s_get, 30)
 	for part in parts:
-		print("part:", part, "\n")
 		s.sendall(part)
 #	s.send(s_getf2)
 	data = s.recv(1024)
 #	res = data.decode('utf-8')
-	print("recv:", data)
 	tfw.stop()
-	print("tfw stoped\n")
 	b.stop()
 	s.close()
 	print("Ok\n")
