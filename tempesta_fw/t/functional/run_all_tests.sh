@@ -18,4 +18,4 @@ echo ------------------------------------------------------------------
 echo Running functional tests...
 echo ------------------------------------------------------------------
  
-run fragmented_requests.py 
+run bomber.py 
