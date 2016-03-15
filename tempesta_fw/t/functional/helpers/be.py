@@ -6,15 +6,15 @@ import http.server
 from threading import *
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2016 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 def start(*args, **kwargs):
-	"""A shortcut for BackendHTTPServer() constructor."""
+"""A shortcut for BackendHTTPServer() constructor."""
 	return BackendHTTPServer(*args, **kwargs)
 
 def _dummy_callback(method, uri, headers, body):
-	"""An example of a backend_callback passed to BackendHTTPServer()."""
+"""An example of a backend_callback passed to BackendHTTPServer()."""
 	ret_code = 200
 	ret_headers = { 'Content-Type': 'text/html; charset=utf-8' }
 	ret_body = '<html><body>Hello from dummy back-end callback</body></html>'
@@ -23,15 +23,14 @@ def _dummy_callback(method, uri, headers, body):
 class BackendHTTPServer(Thread):
 #Basically, this implementation does two things:
 # 1. It runs in a HTTP server in a separate thread.
-  # 2. It handles all HTTP requests with a single backend_callback function
- # passed to the constructor.
+# 2. It handles all HTTP requests with a single backend_callback function
+# passed to the constructor.
 #
- # Also, right after initialization it blocks until a first TCP connection is.
+# Also, right after initialization it blocks until a first TCP connection is.
 # accepted. That is done to wait until Tempesta FW is connected.
-#    So you have to start Tempesta first, and only then spawn the HTTP server.
+# So you have to start Tempesta first, and only then spawn the HTTP server.
 	def __init__(self, address, port=8080):
-        	# Initialize HTTP server, bind/listen/etc.
-#		self.accept_event = Event()
+# Initialize HTTP server, bind/listen/etc.
 		super(BackendHTTPServer, self).__init__()
 		self.httpd = http.server.HTTPServer((address, port), BackendHTTPRequestHandler)
 
@@ -89,8 +88,10 @@ def do_GET(self):
 	self.wfile.write(b"Ok\n")
 	self.wfile.flush()
 	return
+
 def process_request(self, request, client_address):
 	return
+
 # Add do_METHOD here if you need anything beyond GET and POST methods.
 # By default, the base class prints a message for every incoming request.
 # We don't want to see this flood in test results, so here is the stub.
