@@ -90,7 +90,6 @@ def do_GET(self):
 	self.wfile.flush()
 	return
 def process_request(self, request, client_address):
-	print("be process req\n")
 	return
 # Add do_METHOD here if you need anything beyond GET and POST methods.
 # By default, the base class prints a message for every incoming request.
