@@ -88,7 +88,6 @@ protocol_version = 'HTTP/1.1'
 def do_GET(self):
 	self.wfile.write(b"Ok\n")
 	self.wfile.flush()
-#	_handle_req_with_cb()
 	return
 def process_request(self, request, client_address):
 	print("be process req\n")
