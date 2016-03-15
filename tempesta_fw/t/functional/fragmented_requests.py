@@ -70,7 +70,7 @@ def fragmentize_str(s, frag_size):
 
 
 def backend_callback(method, path, headers, body):
-	++backend_callback_counter;
+	backend_callback_counter += 1
 	validate_received_req_get(method, path, headers, body)
 	return 201, { 'Content-Type': 'text/plan' }, 'Everything is OK.'
 
