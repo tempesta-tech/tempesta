@@ -49,14 +49,13 @@ class BackendHTTPServer(Thread):
 # get_request() calls accept() that blocks until the first connection.
 # We just inject a synchronization with wait_for_tfw() there.
 	def run(self):
-#		while True:
 		self.httpd.serve_forever()
 
 	def stop(self):
 		self.httpd.shutdown()
 		self.httpd.socket.close()
 		self.kill_received = True
-	
+
 class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 	def __init__(self, req, client_address, server):
