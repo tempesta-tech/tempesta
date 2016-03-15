@@ -91,7 +91,10 @@ def run():
 	print("tfw started\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(("127.0.0.1",8081))
-	s.sendall(s_get)
+	parts = fragmentize_str(s_get, 25)
+	for part in parts:
+		print("part:", part, "\n")
+		s.sendall(part)
 #	s.send(s_getf2)
 	data = s.recv(1024)
 #	res = data.decode('utf-8')
