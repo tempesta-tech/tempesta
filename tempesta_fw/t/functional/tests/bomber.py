@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-from helpers import *
+from helpers import conf
+from helpers import tfw
 
 c = conf.Config("etc/tempesta_fw.conf")
 
