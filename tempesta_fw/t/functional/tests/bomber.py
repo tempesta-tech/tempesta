@@ -4,6 +4,10 @@ from helpers import tfw
 
 c = conf.Config("etc/tempesta_fw.conf")
 
+class Test:
+	def get_name():
+		return 'bomber'
+
 def run():
 	c.add_option('cache', '0')
 	c.add_option('listen', '8081')
