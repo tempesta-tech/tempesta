@@ -165,7 +165,7 @@ tfw_http_sticky_get(TfwHttpMsg *hm, TfwStr *cookie)
 	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
+	tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
 
 	return search_cookie(hm->pool, &value, cookie);
 }
@@ -194,7 +194,8 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &hm->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
 	if (!TFW_STR_EMPTY(hdr))
-		tfw_http_msg_hdr_val(hdr, TFW_HTTP_HDR_USER_AGENT, &ua_value);
+		tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_USER_AGENT,
+					 &ua_value);
 
 	/* Set only once per client's session */
 	if (!client->cookie.ts.tv_sec) {
@@ -225,8 +226,6 @@ tfw_http_sticky_set(TfwHttpMsg *hm)
  * Create a complete 'Set-Cookie:' header field, and add it
  * to the HTTP response' header block.
  */
-#define SLEN(s)			(sizeof(s) - 1)
-
 #define S_SET_COOKIE_MAXLEN					\
 	SLEN(S_F_SET_COOKIE)					\
 	+ STICKY_NAME_MAXLEN + 1 + STICKY_KEY_MAXLEN * 2 + 2
