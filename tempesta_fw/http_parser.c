@@ -12,7 +12,7 @@
  * 	- TODO write down other limits.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -656,7 +656,7 @@ __FSM_STATE(prefix ## _Done) {						\
  * field with an empty field-value.
  *
  * NOTE: using of RGEN_LWS_empty should be matched with
- * the BUG_ON() statements in tfw_http_msg_hdr_val function
+ * the BUG_ON() statements in __http_msg_hdr_val function
  *
  * Read LWS at arbitrary position and move to stashed state.
  * This is bit complicated (however you can think about this as
@@ -2130,6 +2130,8 @@ enum {
 	/* Keep-Alive header. */
 	Resp_I_KeepAlive,
 	Resp_I_KeepAliveTO,
+	/* Server header. */
+	Resp_I_Server,
 
 	Resp_I_Ext,
 	Resp_I_EoT,
@@ -2553,6 +2555,40 @@ done:
 	return r;
 }
 
+static int
+__resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	TfwHttpParser *parser = &resp->parser;
+	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
+	unsigned char *p = data;
+	unsigned char c = *p;
+	__FSM_DECLARE_VARS();
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Resp_I_Server) {
+		/*
+		 * Just eat the header value: usually we just replace
+		 * the header value.
+		 *
+		 * TODO
+		 * - replace memchr() below by a strspn() analog
+		 *   that accepts string length instead of processing
+		 *   null-terminated strings.
+		 */
+		__fsm_sz = len - (size_t)(p - data);
+		__fsm_ch = memchr(p, '\r', __fsm_sz);
+		if (__fsm_ch)
+			return __fsm_ch - data;
+		__FSM_I_MOVE_n(Resp_I_Server, __fsm_sz);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
 /* Main (parent) HTTP response processing states. */
 enum {
 	Resp_0,
@@ -2630,6 +2666,13 @@ enum {
 	Resp_HdrKeep_Aliv,
 	Resp_HdrKeep_Alive,
 	Resp_HdrKeep_AliveV,
+	Resp_HdrS,
+	Resp_HdrSe,
+	Resp_HdrSer,
+	Resp_HdrServ,
+	Resp_HdrServe,
+	Resp_HdrServer,
+	Resp_HdrServerV,
 	Resp_HdrT,
 	Resp_HdrTr,
 	Resp_HdrTra,
@@ -2805,6 +2848,15 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_LWS, 11);
 			}
 			__FSM_MOVE(Resp_HdrK);
+		case 's':
+			if (likely(p + 7 <= data + len
+				   && C4_INT_LCM(p + 1, 'e', 'r', 'v', 'e')
+				   && *(p + 5) == 'r' && *(p + 6) == ':'))
+			{
+				parser->_i_st = Resp_HdrServerV;
+				__FSM_MOVE_n(RGen_LWS, 7);
+			}
+			__FSM_MOVE(Resp_HdrS);
 		case 't':
 			if (likely(p + 18 <= data + len
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
@@ -2908,6 +2960,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* 'Keep-Alive:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrKeep_AliveV, Resp_I_KeepAlive, resp,
 				  __resp_parse_keep_alive);
+
+	/* 'Server:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,
+				   __resp_parse_server, TFW_HTTP_HDR_SERVER);
 
 	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
@@ -3025,6 +3081,14 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrKeep_Ali, 'v', Resp_HdrKeep_Aliv, Resp_HdrOther);
 	__FSM_TX_AF(Resp_HdrKeep_Aliv, 'e', Resp_HdrKeep_Alive, Resp_HdrOther);
 	__FSM_TX_AF_LWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, Resp_HdrOther);
+
+	/* Server header processing. */
+	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrSe, 'r', Resp_HdrSer, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrServer, ':', Resp_HdrServerV, Resp_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr, Resp_HdrOther);
