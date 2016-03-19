@@ -150,15 +150,19 @@ typedef struct {
  * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
  *
- * Note: don't forget to update tfw_http_msg_hdr_val() upon adding a new header.
+ * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
  *
  * Cookie: singular according to RFC 6265 5.4.
+ *
+ * TODO split the enumeration to separate server and client sets to avoid
+ * vasting of headers array slots.
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
+	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
 
 	/* End of list of singular header. */

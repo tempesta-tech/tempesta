@@ -41,10 +41,22 @@ __tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 	str->skb = skb ? : ss_skb_peek_tail(&hm->msg.skb_list);
 }
 
+void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
+
+static inline void
+tfw_http_msg_clnthdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
+{
+	__http_msg_hdr_val(hdr, id, val, true);
+}
+
+static inline void
+tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
+{
+	__http_msg_hdr_val(hdr, id, val, false);
+}
+
 #define tfw_http_msg_set_data(hm, str, data)				\
 	__tfw_http_msg_set_data(hm, str, data, NULL)
-
-void tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val);
 
 int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 				size_t len, struct sk_buff *skb);
