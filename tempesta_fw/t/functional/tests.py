@@ -13,7 +13,7 @@ sys.path.append('/usr/src/projects/tempesta/tempesta_fw/t/functional/tests/helpe
 
 for loader, name, ispkg in pkgutil.iter_modules(path = tests.__path__, prefix = ''):
 	if not ispkg:
-		print(name, loader)
+		print(name)
 		test = loader.find_module(name).load_module(name)
 		tclass = getattr(test, 'Test')
 		print("test:", tclass().get_name())

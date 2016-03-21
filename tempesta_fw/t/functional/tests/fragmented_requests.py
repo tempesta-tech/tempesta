@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
-from helpers import *
+import sys
+sys.path.append('/usr/src/projects/tempesta/tempesta_fw/t/functional/tests/helpers')
+import conf
+import tfw
 import socket
 
 __author__ = 'NatSys Lab'
@@ -79,24 +82,33 @@ def run():
 	c = conf.Config('etc/tempesta_fw.conf')
 	c.add_option('cache', '0')
 	c.add_option('listen', '8081')
-	c.add_option('server', '127.0.0.1:8080')
+	c.add_option('server', '127.0.0.1:80')
 
-	s_get = b"GET / HTTP/1.0\r\nConnection: Keep-Alive\r\n\
+	s_get = b"GET http:/ HTTP/1.0\r\nConnection: Keep-Alive\r\n\
 host: localhost\r\n\r\n"
-	b = be.BackendHTTPServer('127.0.0.1', 8080)
-	b.start()
+#b = be.BackendHTTPServer('127.0.0.1', 8080)
+#b.start()
 	tfw.start()
+	print("tfw start\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(("127.0.0.1",8081))
-	parts = fragmentize_str(s_get, 30)
-	for part in parts:
-		s.sendall(part)
-#	s.send(s_getf2)
+#	parts = fragmentize_str(s_get, 30)
+#	for part in parts:
+#		s.sendall(part)
+	s.sendall(s_get)
 	data = s.recv(1024)
 #	res = data.decode('utf-8')
+	print("rec:", data)
 	tfw.stop()
-	b.stop()
+#	b.stop()
 	s.close()
 	print("Ok\n")
 
-run()
+#run()
+class Test:
+
+	def run(self):
+		run()
+
+	def get_name(self):
+		return 'fragmented_requests'

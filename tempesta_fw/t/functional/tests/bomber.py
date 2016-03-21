@@ -21,6 +21,7 @@ class Test:
 		print("tfw started\n")
 		tfw.start_bomber()
 		print("bomber started\n")
+		tfw.stop_bomber()
 		tfw.stop()
 		print("tfw stoped\n")
 

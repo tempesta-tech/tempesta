@@ -37,6 +37,9 @@ def _stop_if_started():
 
 def start_bomber():
 	_sh("./scripts/tfw_bomber.sh --start")
+
+def stop_bomber():
+	_sh("./scripts/tfw_bomber.sh --stop")
 # The teardown line is commented-out because we have the issue:
 #   #10 -Oops on shutdown
 # At this point it is not solved and Tempesta FW simply can't be stopped.
