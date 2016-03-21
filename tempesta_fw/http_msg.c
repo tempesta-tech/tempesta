@@ -31,20 +31,21 @@
  * value.
  */
 void
-tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
+__http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
 	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]	= sizeof("Host:") - 1,
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = sizeof("Content-Length:") - 1,
-		[TFW_HTTP_HDR_CONTENT_TYPE] = sizeof("Content-Type:") - 1,
-		[TFW_HTTP_HDR_CONNECTION] = sizeof("Connection:") - 1,
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = sizeof("X-Forwarded-For:") - 1,
-		[TFW_HTTP_HDR_USER_AGENT] = sizeof("User-Agent:") - 1,
-		[TFW_HTTP_HDR_COOKIE] = sizeof("Cookie:") - 1,
+		[TFW_HTTP_HDR_HOST]	= SLEN("Host:"),
+		[TFW_HTTP_HDR_CONTENT_LENGTH] = SLEN("Content-Length:"),
+		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
+		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
+		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
+		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
 	};
 
 	TfwStr *c, *end;
-	int nlen = hdr_lens[id];
+	int nlen;
 
 	/* Empty and plain strings don't have header value part. */
 	if (unlikely(TFW_STR_PLAIN(hdr))) {
@@ -53,6 +54,11 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	}
 	BUG_ON(TFW_STR_DUP(hdr));
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
+
+	if (unlikely(id == TFW_HTTP_HDR_SERVER && client))
+		nlen = SLEN("User-Agent:");
+	else
+		nlen = hdr_lens[id];
 
 	/*
 	 * Only Host header is allowed to be empty.
@@ -100,7 +106,7 @@ tfw_http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	/* Empty header value part. */
 	TFW_STR_INIT(val);
 }
-EXPORT_SYMBOL(tfw_http_msg_hdr_val);
+EXPORT_SYMBOL(__http_msg_hdr_val);
 
 /**
  * Slow check of generic (raw) header for singularity.
