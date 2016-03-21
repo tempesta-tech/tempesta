@@ -84,27 +84,19 @@ def run():
 	c.add_option('listen', '8081')
 	c.add_option('server', '127.0.0.1:80')
 
-	s_get = b"GET http:/ HTTP/1.0\r\nConnection: Keep-Alive\r\n\
+	s_get = b"GET http:localhost:80/ HTTP/1.0\r\nConnection: Keep-Alive\r\n\
 host: localhost\r\n\r\n"
-#b = be.BackendHTTPServer('127.0.0.1', 8080)
-#b.start()
 	tfw.start()
 	print("tfw start\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(("127.0.0.1",8081))
-#	parts = fragmentize_str(s_get, 30)
-#	for part in parts:
-#		s.sendall(part)
 	s.sendall(s_get)
 	data = s.recv(1024)
-#	res = data.decode('utf-8')
 	print("rec:", data)
 	tfw.stop()
-#	b.stop()
 	s.close()
 	print("Ok\n")
 
-#run()
 class Test:
 
 	def run(self):
