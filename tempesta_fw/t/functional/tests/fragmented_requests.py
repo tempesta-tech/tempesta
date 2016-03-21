@@ -84,13 +84,14 @@ def run():
 	c.add_option('listen', '8081')
 	c.add_option('server', '127.0.0.1:80')
 
-	s_get = b"GET http:localhost:80/ HTTP/1.0\r\nConnection: Keep-Alive\r\n\
+	vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n\r\n"
+	s_get = b"GET http:localhost:80/index.html HTTP/1.0\r\nConnection: Keep-Alive\r\n\
 host: localhost\r\n\r\n"
 	tfw.start()
 	print("tfw start\n")
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(("127.0.0.1",8081))
-	s.sendall(s_get)
+	s.sendall(vs_get)
 	data = s.recv(1024)
 	print("rec:", data)
 	tfw.stop()
