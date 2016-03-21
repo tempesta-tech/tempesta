@@ -8,17 +8,17 @@ import os
 import subprocess
 import sys
 
-from . import teardown
+import teardown
 
 __author__ = 'NatSys Lab'
 __copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _functest_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-_tempesta_dir = os.path.normpath(os.path.join(_functest_dir, '../../../../'))
+_tempesta_dir = '/usr/src/projects/tempesta'
 
 def start():
-	_sh("SYNC_SOCKET=./sync_socket TDB=./tempesta_db scripts/tempesta.sh --start")
+	_sh(_tempesta_dir + '/scripts/tempesta.sh --start')
 
 def stop():
 	_sh("./scripts/tempesta.sh --stop")
