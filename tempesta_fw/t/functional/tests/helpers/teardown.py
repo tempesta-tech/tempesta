@@ -13,7 +13,7 @@ import sys
 from threading import *
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2014-2016 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _main_thread = current_thread()
