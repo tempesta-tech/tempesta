@@ -67,9 +67,6 @@ class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 # That is done for simplicity. It is easier to code a single callback function
 # than a whole handler class. We have to code one in every test, and we don't
 # need much power in tests code, so we prefer a function over a class.
-#		def handle_error(self):
-#			print("handle error:\n", sys.exc_info)
-#			self.log_exception(sys.exc_info)
 
 # Pass HTTP request to backend_callback, send a response containing data
 # returned by the callback.
