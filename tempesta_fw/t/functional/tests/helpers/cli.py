@@ -10,7 +10,7 @@ from socket import *
 from contextlib import contextmanager
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2014-2016 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 @contextmanager
