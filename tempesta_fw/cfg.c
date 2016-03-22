@@ -1368,13 +1368,9 @@ mod_stop(TfwCfgMod *mod)
 static void
 print_parse_error(const TfwCfgParserState *ps)
 {
-	const char *start = max((ps->pos - 80), ps->in);
-	int len = ps->pos - start;
+	long unsigned int len = ps->pos - ps->in;
 
-	TFW_ERR("configuration parsing error:\n"
-		"%.*s\n"
-		"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
-		len, start);
+	TFW_ERR("configuration parsing error:%lu;%s\n", len, ps->e.name);
 }
 
 /*
