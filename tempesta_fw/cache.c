@@ -106,9 +106,12 @@ enum {
 };
 
 /*
- * Non-cacheable hop-by-hop response headers in terms of RFC 2616.
+ * Non-cacheable hop-by-hop response headers in terms of RFC 2068.
  * The table is used if server doesn't specify Cache-Control no-cache
  * directive (RFC 7234 5.2.2.2) explicitly.
+ *
+ * Server header isn't defined as hop-by-hop by the RFC, but we don't show
+ * protected server to world.
  *
  * We don't store the headers in cache and create then from scratch.
  * Adding a header is faster then modify it, so this speeds up headers
@@ -118,6 +121,7 @@ enum {
  */
 static const int hbh_hdrs[] = {
 	[0 ... TFW_HTTP_HDR_RAW]	= 0,
+        [TFW_HTTP_HDR_SERVER]		= 1,
 	[TFW_HTTP_HDR_CONNECTION]	= 1,
 };
 
@@ -368,6 +372,10 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
  *
  * It's nasty to copy data on CPU, but we can't use DMA for mmaped file
  * as well as for unaligned memory areas.
+ *
+ * TODO Store the cache entries as a templates with placeholders for
+ * changeable headers. That we can faster build the final answers instead
+ * of adjusting skb's.
  */
 static int
 tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,

@@ -57,12 +57,12 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	: 0)
 
 static void
-ss_sock_cpu_check(struct sock *sk)
+ss_sock_cpu_check(struct sock *sk, const char *op)
 {
 	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
-		SS_WARN("Bad socket cpu locality:"
+		SS_WARN("Bad socket cpu locality on <%s>:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
-			sk, sk->sk_incoming_cpu, smp_processor_id());
+			op, sk, sk->sk_incoming_cpu, smp_processor_id());
 }
 
 static void
@@ -143,7 +143,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 
 	if (unlikely(!ss_sock_active(sk)))
 		return;
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		skb->ip_summed = CHECKSUM_PARTIAL;
@@ -275,7 +275,7 @@ ss_do_close(struct sock *sk)
 	       sk, ss_statename[sk->sk_state], smp_processor_id(),
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "close");
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
@@ -414,12 +414,14 @@ ss_close(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_close);
 
-/*
+/**
  * Close a socket unconditionally from Tempesta.
  */
 void
 ss_close_sync(struct sock *sk)
 {
+	sk_incoming_cpu_update(sk);
+
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
@@ -629,7 +631,7 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
 	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
@@ -674,7 +676,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
 	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "state change");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -897,6 +899,7 @@ ss_inet_create(struct net *net, int family,
 
 	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
+		SS_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
 		return err;
 	}
