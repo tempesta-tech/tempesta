@@ -734,10 +734,9 @@ EXPORT_SYMBOL(ss_skb_process);
  * to specified 'len', and the remaining data is put into a new SKB.
  *
  * The implementation is very much like tcp_fragment() or tso_fragment()
- * in the Linux kernel. One major difference is that these SKBs were just
- * taken out of the receive queue, so they have not been out to the write
- * queue yet. The socket is unlocked when this function runs, which means
- * that we can't adjust socket accounting. The SKBs must come orphaned.
+ * in the Linux kernel. The major difference is that these SKBs were just
+ * taken out of the receive queue, and they have been orphaned. They have
+ * not been out to the write queue yet.
  */
 struct sk_buff *
 ss_skb_split(struct sk_buff *skb, int len)
@@ -766,13 +765,11 @@ ss_skb_split(struct sk_buff *skb, int len)
 	skb->truesize -= nlen;
 
 	/*
-	 * Correct the sequence numbers. There's no need to adjust
-	 * TCP flags as the lower layer knows the original SKB only.
-	 * Checksum is also irrelevant at this stage.
+	 * These are orphaned SKBs that are taken out of the TCP/IP
+	 * stack and are completely owned by Tempesta. There is no
+	 * need to correct the sequence numbers, adjust TCP flags,
+	 * or recalculate the checksum.
 	 */
-	TCP_SKB_CB(buff)->seq = TCP_SKB_CB(skb)->seq + len;
-	TCP_SKB_CB(buff)->end_seq = TCP_SKB_CB(skb)->end_seq;
-	TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(buff)->seq;
 
 	skb_split(skb, buff, len);
 
