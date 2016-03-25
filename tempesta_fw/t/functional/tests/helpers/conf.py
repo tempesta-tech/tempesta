@@ -1,8 +1,7 @@
 #!/usr/bin/env python
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2016 NatSys Lab. (info@natsys-lab.com).'
+__author__ = 'Tempesta Technologies Inc.'
+__copyright__ = 'Copyright (C) 2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
-
 
 import os
 import fileinput
