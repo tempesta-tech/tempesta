@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 2012-2016. Written by NatSys Lab. (info@natsys-lab.com).
+# 2014-2016. Tempesta Technologies Inc. (info@natsys-lab.com).
 
 function run() {
 	echo run: $1

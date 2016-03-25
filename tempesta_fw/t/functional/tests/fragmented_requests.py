@@ -1,16 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
-import sys
-sys.path.append('/usr/src/projects/tempesta/tempesta_fw/t/functional/tests/helpers')
+__author__ = 'Temesta Technologies Inc.'
+__copyright__ = 'Copyright (C) 2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
+__license__ = 'GPL2'
+
 import conf
 import tfw
 import socket
 
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2016 NatSys Lab. (info@natsys-lab.com).'
-__license__ = 'GPL2'
-
-req_get = b'''\
+req_get = b'\
 GET / HTTP/1.1\r
 Host: github.com\r
 User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 \
@@ -29,7 +27,7 @@ h0IjoiLyIsImxhc3Rfd3JpdGUijOE9MTc3MzUzNDk3NDN7--eed6d44a1be9e83a34dbf8d5e319a5 \
 20f30fa481; tz=Europe%2FMoscow; _gat=1\r
 Connection: Keep-Alive\r
 Cache-Control: max-age=0\r
-'''
+'
 
 def validate_received_req_get(method, path, headers, body):
 	assert method == 'GET'
@@ -85,7 +83,8 @@ def run():
 	c.add_option('server', '127.0.0.1:80')
 
 	vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n\r\n"
-	s_get = b"GET http:localhost:80/index.html HTTP/1.0\r\nConnection: Keep-Alive\r\n\
+	s_get = b"GET http:localhost:80/index.html HTTP/1.0\r\n\
+Connection: Keep-Alive\r\n\
 host: localhost\r\n\r\n"
 	tfw.start()
 	print("tfw start\n")
