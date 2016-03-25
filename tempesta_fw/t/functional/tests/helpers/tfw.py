@@ -15,8 +15,7 @@ __copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _functest_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-_tempesta_dir = '/usr/src/projects/tempesta'
-
+_tempesta_dir = os.path.realpath('.')
 def start():
 	_sh(_tempesta_dir + '/scripts/tempesta.sh --start')
 
