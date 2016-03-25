@@ -186,7 +186,7 @@ int
 ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
 	int r = 0;
-	struct sk_buff *skb, *skb_copy;
+	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
 		.action	= SS_SEND,
@@ -210,13 +210,13 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		ss_skb_queue_head_init(&sw.skb_list);
 		for (skb = ss_skb_peek(skb_list); skb; skb = ss_skb_next(skb)) {
 			/* tcp_transmit_skb() will clone the skb. */
-			skb_copy = pskb_copy_for_clone(skb, GFP_ATOMIC);
-			if (!skb_copy) {
+			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			if (!twin_skb) {
 				SS_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
 				goto err;
 			}
-			ss_skb_queue_tail(&sw.skb_list, skb_copy);
+			ss_skb_queue_tail(&sw.skb_list, twin_skb);
 		}
 	}
 
@@ -446,6 +446,7 @@ ss_tcp_process_data(struct sock *sk)
 	int processed = 0;
 	unsigned int off;
 	struct sk_buff *skb, *tmp;
+	struct sk_buff *frag_list = NULL;
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
@@ -463,10 +464,12 @@ ss_tcp_process_data(struct sock *sk)
 		if (skb_shared(skb))
 			BUG();
 		/*
-		 * Cloned SKBs come here if a client or a back end are
-		 * on the same host as Tempesta. Cloning is happen in
-		 * tcp_transmit_skb() as it is for all egress packets,
-		 * but packets on loopback go to us as is, i.e. cloned.
+		 * SKBs get here cloned when a client or a back end run
+		 * on the same host with Tempesta. SKBs are cloned in
+		 * tcp_transmit_skb() as it is invoked for all egress
+		 * packets. That's fine when packets go out on the wire,
+		 * but packets on the loopback interface get to Tempesta
+		 * as is, i.e. cloned.
 		 *
 		 * Tempesta adjusts skb pointers, but leaves original
 		 * data untouched (this is also required in order to
@@ -482,15 +485,39 @@ ss_tcp_process_data(struct sock *sk)
 		skb_dst_drop(skb);
 		skb->dev = NULL;
 
-		/* SKB may be freed in processing. Save the flag. */
-		tcp_fin = tcp_hdr(skb)->fin;
+		/*
+		 * When GRO is used, multiple SKBs may be joined in one
+		 * big SKB. These SKBs are attached through frag_list.
+		 * Interpret the big SKB as a set of separate smaller
+		 * SKBs for processing. Move the FIN flag if necessary.
+		 */
+		frag_list = skb_shinfo(skb)->frag_list;
+		if (frag_list) {
+			struct sk_buff *frag_skb, *last_skb = frag_list;
+			skb_walk_frags(skb, frag_skb) {
+				frag_skb->nohdr = 0;
+				ss_skb_adjust_data_len(skb, -frag_skb->len);
+				last_skb = frag_skb;
+			}
+			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN) {
+				TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_FIN;
+				TCP_SKB_CB(last_skb)->tcp_flags |= TCPHDR_FIN;
+			}
+			skb_shinfo(skb)->frag_list = NULL;
+		}
+
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
-		if (tcp_hdr(skb)->syn)
+		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
 			off--;
+repeat:
+		/* SKB may be freed in processing. Save the flag. */
+		tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
+
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
 			void *conn = rcu_dereference_sk_user_data(sk);
 
+			BUG_ON(tcp_fin && frag_list);
 			/*
 			 * If @sk_user_data is unset, then this connection
 			 * had been dropped in a parallel thread. Dropping
@@ -516,31 +543,46 @@ ss_tcp_process_data(struct sock *sk)
 			tp->copied_seq += count;
 			processed += count;
 
+			if (frag_list) {
+				off = 0;
+				skb = frag_list;
+				frag_list = frag_list->next;
+				skb->next = skb->prev = NULL;
+				goto repeat;
+			}
 			if (tcp_fin) {
 				SS_DBG("Data FIN received: sk %p\n", sk);
 				++tp->copied_seq;
 				goto out;
 			}
-
 			if (r == SS_STOP) {
 				SS_DBG("Stop processing data: sk %p\n", sk);
 				break;
 			}
-		} else if (tcp_fin) {
+			continue;
+		}
+		if (tcp_fin) {
 			__kfree_skb(skb);
 			SS_DBG("Link FIN received: sk %p\n", sk);
 			++tp->copied_seq;
 			goto out;
-		} else {
-			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
-				" seq %X rcvnxt %X len %x\n",
-				tp->copied_seq, TCP_SKB_CB(skb)->seq,
-				tp->rcv_nxt, skb->len);
-			__kfree_skb(skb);
 		}
+		SS_WARN("recvmsg bug: overlapping TCP segment at %X"
+			" seq %X rcvnxt %X len %x\n",
+			tp->copied_seq, TCP_SKB_CB(skb)->seq,
+			tp->rcv_nxt, skb->len);
+		/* Get the remains of frag_list freed as well. */
+		skb_shinfo(skb)->frag_list = frag_list;
+		frag_list = NULL;
+		__kfree_skb(skb);
 	}
 	droplink = false;
 out:
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+		__kfree_skb(skb);
+	}
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
 	 * and send ACK to a client with the new window.
@@ -645,7 +687,7 @@ ss_tcp_data_ready(struct sock *sk)
 		if (ss_tcp_process_data(sk)) {
 			/*
 			 * Drop connection in case of internal errors,
-			 * or banned packets.
+			 * banned packets, or FIN in the received packet.
 			 *
 			 * ss_droplink() is responsible for calling
 			 * application layer connection closing callback.
