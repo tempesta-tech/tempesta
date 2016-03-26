@@ -149,6 +149,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
 
+		/* @skb should be rerouted on forwarding. */
+		skb_dst_drop(skb);
+
 		/*
 		 * TODO Mark all data with PUSH to force receiver to consume
 		 * the data. Currently we do this for debugging purposes.
@@ -480,10 +483,6 @@ ss_tcp_process_data(struct sock *sk)
 			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
 			goto out;
 		}
-
-		/* @skb should be rerouted on forwarding. */
-		skb_dst_drop(skb);
-		skb->dev = NULL;
 
 		/*
 		 * When GRO is used, multiple SKBs may be joined in one
