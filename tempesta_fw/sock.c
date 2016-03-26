@@ -492,15 +492,10 @@ ss_tcp_process_data(struct sock *sk)
 		 */
 		frag_list = skb_shinfo(skb)->frag_list;
 		if (frag_list) {
-			struct sk_buff *frag_skb, *last_skb = frag_list;
+			struct sk_buff *frag_skb;
 			skb_walk_frags(skb, frag_skb) {
 				frag_skb->nohdr = 0;
 				ss_skb_adjust_data_len(skb, -frag_skb->len);
-				last_skb = frag_skb;
-			}
-			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN) {
-				TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_FIN;
-				TCP_SKB_CB(last_skb)->tcp_flags |= TCPHDR_FIN;
 			}
 			skb_shinfo(skb)->frag_list = NULL;
 		}
@@ -508,15 +503,14 @@ ss_tcp_process_data(struct sock *sk)
 		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
 		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
 			off--;
-repeat:
+
 		/* SKB may be freed in processing. Save the flag. */
 		tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
-
+repeat:
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
 			void *conn = rcu_dereference_sk_user_data(sk);
 
-			BUG_ON(tcp_fin && frag_list);
 			/*
 			 * If @sk_user_data is unset, then this connection
 			 * had been dropped in a parallel thread. Dropping
@@ -535,13 +529,21 @@ repeat:
 			 * is returned back to the Linux kernel.
 			 */
 			if (r < 0) {
-				SS_DBG("Bad socket %p data processing, %d\n",
-				       sk, r);
+				SS_DBG("Processing error: sk %p r %d\n", sk, r);
 				goto out; /* connection dropped */
 			}
 			tp->copied_seq += count;
 			processed += count;
 
+			if (r == SS_STOP) {
+				if (tcp_fin) {
+					SS_DBG("Data FIN: sk %p\n", sk);
+					++tp->copied_seq;
+					goto out;
+				}
+				SS_DBG("Stop processing: sk %p\n", sk);
+				break;
+			}
 			if (frag_list) {
 				off = 0;
 				skb = frag_list;
@@ -550,19 +552,15 @@ repeat:
 				goto repeat;
 			}
 			if (tcp_fin) {
-				SS_DBG("Data FIN received: sk %p\n", sk);
+				SS_DBG("Data FIN: sk %p\n", sk);
 				++tp->copied_seq;
 				goto out;
-			}
-			if (r == SS_STOP) {
-				SS_DBG("Stop processing data: sk %p\n", sk);
-				break;
 			}
 			continue;
 		}
 		if (tcp_fin) {
 			__kfree_skb(skb);
-			SS_DBG("Link FIN received: sk %p\n", sk);
+			SS_DBG("Link FIN: sk %p\n", sk);
 			++tp->copied_seq;
 			goto out;
 		}
@@ -570,7 +568,7 @@ repeat:
 			" seq %X rcvnxt %X len %x\n",
 			tp->copied_seq, TCP_SKB_CB(skb)->seq,
 			tp->rcv_nxt, skb->len);
-		/* Get the remains of frag_list freed as well. */
+		/* Have the remainder of frag_list freed as well. */
 		skb_shinfo(skb)->frag_list = frag_list;
 		frag_list = NULL;
 		__kfree_skb(skb);
