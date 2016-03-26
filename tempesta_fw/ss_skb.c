@@ -674,7 +674,6 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 	int i, r = SS_OK;
 	int headlen = skb_headlen(skb);
 	unsigned int offset = *off;
-	struct sk_buff *skb_frag;
 
 	/* Process linear data. */
 	if (offset < headlen) {
@@ -688,9 +687,8 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 	}
 
 	/*
-	 * Process paged data.
-	 * This is the common place for GROed data,
-	 * see ixgbe_fetch_rx_buffer() and tcp_gro_receive().
+	 * Process paged fragments. This is where GROed data is placed.
+	 * See ixgbe_fetch_rx_buffer() and tcp_gro_receive().
 	 */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
@@ -709,21 +707,11 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 	}
 
 	/*
-	 * Process packet fragments.
-	 * GRO skb fragments from gro_list - skb_gro_receive() adds skbs to the
-	 * list if page fragments is full.
+	 * GRO skb fragments from gro_list. If paged fragments are full,
+	 * then skb_gro_receive() adds SKBs to frag_list. However, SKBs
+	 * that have frag_list are split into separate SKBs before they
+	 * get to Tempesta for processing.
 	 */
-	skb_walk_frags(skb, skb_frag) {
-		if (offset < skb_frag->len) {
-			*off += skb_frag->len - offset;
-			r = ss_skb_process(skb_frag, &offset, actor, objdata);
-			if (r != SS_POSTPONE)
-				return r;
-			offset = 0;
-		} else {
-			offset -= skb_frag->len;
-		}
-	}
 
 	return r;
 }
