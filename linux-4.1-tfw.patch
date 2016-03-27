@@ -1909,6 +1909,18 @@ index e541d68..f382d15 100644
  
  static const struct inet6_protocol tcpv6_protocol = {
  	.early_demux	=	tcp_v6_early_demux,
+diff --git a/net/netlink/af_netlink.c b/net/netlink/af_netlink.c
+index d139c43..1e4da4e 100644
+--- a/net/netlink/af_netlink.c
++++ b/net/netlink/af_netlink.c
+@@ -2367,7 +2367,6 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+ 	 * sendmsg(), but that's what we've got...
+ 	 */
+ 	if (netlink_tx_is_mmaped(sk) &&
+-	    msg->msg_iter.type == ITER_IOVEC &&
+ 	    msg->msg_iter.nr_segs == 1 &&
+ 	    msg->msg_iter.iov->iov_base == NULL) {
+ 		err = netlink_mmap_sendmsg(sk, msg, dst_portid, dst_group,
 diff --git a/net/socket.c b/net/socket.c
 index 884e329..421ee32 100644
 --- a/net/socket.c
