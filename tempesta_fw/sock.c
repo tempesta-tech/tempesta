@@ -447,7 +447,7 @@ ss_tcp_process_data(struct sock *sk)
 {
 	bool tcp_fin, droplink = true;
 	int processed = 0;
-	unsigned int off;
+	unsigned int off, skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct sk_buff *frag_list = NULL;
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -484,11 +484,22 @@ ss_tcp_process_data(struct sock *sk)
 			goto out;
 		}
 
+		/* Save the original len and seq for reporting. */
+		skb_len = skb->len;
+		skb_seq = TCP_SKB_CB(skb)->seq;
+
+		off = tp->copied_seq - skb_seq;
+		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
+			off--;
+
+		/* SKB may be freed in processing. Save the flag. */
+		tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
+
 		/*
 		 * When GRO is used, multiple SKBs may be joined in one
 		 * big SKB. These SKBs are attached through frag_list.
 		 * Interpret the big SKB as a set of separate smaller
-		 * SKBs for processing. Move the FIN flag if necessary.
+		 * SKBs for processing.
 		 */
 		frag_list = skb_shinfo(skb)->frag_list;
 		if (frag_list) {
@@ -499,13 +510,6 @@ ss_tcp_process_data(struct sock *sk)
 			}
 			skb_shinfo(skb)->frag_list = NULL;
 		}
-
-		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
-		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
-			off--;
-
-		/* SKB may be freed in processing. Save the flag. */
-		tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 repeat:
 		if (likely(off < skb->len)) {
 			int r, count = skb->len - off;
@@ -548,7 +552,7 @@ repeat:
 				off = 0;
 				skb = frag_list;
 				frag_list = frag_list->next;
-				skb->next = skb->prev = NULL;
+				skb->next = NULL;
 				goto repeat;
 			}
 			if (tcp_fin) {
@@ -556,22 +560,24 @@ repeat:
 				++tp->copied_seq;
 				goto out;
 			}
-			continue;
-		}
-		if (tcp_fin) {
+		} else if (frag_list) {
+			off -= skb->len;
+			__kfree_skb(skb);
+			skb = frag_list;
+			frag_list = frag_list->next;
+			skb->next = NULL;
+			goto repeat;
+		} else if (tcp_fin) {
 			__kfree_skb(skb);
 			SS_DBG("Link FIN: sk %p\n", sk);
 			++tp->copied_seq;
 			goto out;
+		} else {
+			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
+				" seq %X rcvnxt %X len %x\n",
+				tp->copied_seq, skb_seq, tp->rcv_nxt, skb_len);
+			__kfree_skb(skb);
 		}
-		SS_WARN("recvmsg bug: overlapping TCP segment at %X"
-			" seq %X rcvnxt %X len %x\n",
-			tp->copied_seq, TCP_SKB_CB(skb)->seq,
-			tp->rcv_nxt, skb->len);
-		/* Have the remainder of frag_list freed as well. */
-		skb_shinfo(skb)->frag_list = frag_list;
-		frag_list = NULL;
-		__kfree_skb(skb);
 	}
 	droplink = false;
 out:
