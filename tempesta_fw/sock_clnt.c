@@ -283,6 +283,14 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
 
+	/* Is there such an address on the list already? */
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if (tfw_addr_eq(addr, &ls->addr)) {
+			TFW_LOG_ADDR("Duplicate listener with", addr);
+			return -EINVAL;
+		}
+	}
+
 	ls = kzalloc(sizeof(*ls), GFP_KERNEL);
 	if (!ls)
 		return -ENOMEM;
