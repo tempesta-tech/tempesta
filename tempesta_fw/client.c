@@ -52,6 +52,10 @@ tfw_client_obtain(struct sock *sk)
 	int daddr_len;
 	TfwAddr daddr;
 
+	/* Derive client's IP address from @sk. */
+	if (ss_getpeername(sk, &daddr.sa, &daddr_len))
+		return NULL;
+
 	/*
 	 * TODO: currently there is one to one socket-client
 	 * mapping, which isn't appropriate since a client can
@@ -64,11 +68,6 @@ tfw_client_obtain(struct sock *sk)
 	if (!cli)
 		return NULL;
 
-	/* Derive client's IP address from @sk. */
-	if (ss_getpeername(sk, &daddr.sa, &daddr_len)) {
-		kmem_cache_free(cli_cache, cli);
-		return NULL;
-	}
 	tfw_peer_init((TfwPeer *)cli, &daddr);
 	atomic_set(&cli->conn_users, 1);
 
