@@ -51,6 +51,7 @@ tfw_client_obtain(struct sock *sk)
 {
 	int daddr_len;
 	TfwAddr daddr;
+	TfwClient *cli;
 
 	/* Derive client's IP address from @sk. */
 	if (ss_getpeername(sk, &daddr.sa, &daddr_len))
@@ -64,8 +65,7 @@ tfw_client_obtain(struct sock *sk)
 	 * We need to look up a client by the socket and create
 	 * a new one only if it's really new.
 	 */
-	TfwClient *cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC);
-	if (!cli)
+	if (!(cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC)))
 		return NULL;
 
 	tfw_peer_init((TfwPeer *)cli, &daddr);
