@@ -232,6 +232,9 @@ tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *c, *next;
 
+	if (!p)
+		return;
+
 	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
