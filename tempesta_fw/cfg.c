@@ -110,6 +110,50 @@
  * but they have to be NULL-terminated, so we have to allocate space and copy
  * them. Helpers below facilitate that.
  */
+typedef enum {
+	TOKEN_NA = 0,
+	TOKEN_LBRACE,
+	TOKEN_RBRACE,
+	TOKEN_EQSIGN,
+	TOKEN_SEMICOLON,
+	TOKEN_LITERAL,
+	_TOKEN_COUNT,
+} token_t;
+
+typedef struct {
+	const char  *in;      /* The whole input buffer. */
+	const char  *pos;     /* Current position in the @in buffer. */
+	int line; 	      /* Current line. */
+
+	/* Current FSM state is saved to here. */
+	const void  *fsm_s;   /* Pointer to label (GCC extension). */
+	const char  *fsm_ss;  /* Label name as string (for debugging). */
+
+	/* Currently/previously processed character. */
+	char        c;
+	char        prev_c;
+
+	/* Currently/previously processed token.
+	 * The language is context-sensitive, so we need to store all these
+	 * previous tokens and literals to parse it without peek()'ing. */
+	token_t t;
+	token_t prev_t;
+
+	/* Literal value (not NULL only when @t == TOKEN_LITERAL). */
+	const char *lit;
+	const char *prev_lit;
+
+	/* Length of @lit (the @lit is not terminated). */
+	int lit_len;
+	int prev_lit_len;
+
+	int  err;  /* The latest error code. */
+
+	/* Currently parsed entry. Accumulates literals as values/attributes.
+	 * When current entry is done, a TfwCfgSpec->handler is called and a new
+	 * entry is started. */
+	TfwCfgEntry e;
+} TfwCfgParserState;
 
 static const char *
 alloc_and_copy_literal(const char *src, size_t len)
@@ -125,8 +169,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 		TFW_ERR("can't allocate memory\n");
 		return NULL;
 	}
-
-	/* Copy the string eating escaping backslashes. */
+		/* Copy the string eating escaping backslashes. */
 	/* FIXME: the logic looks like a tiny FSM,
 	 *        so perhaps it should be included to the TFSM. */
 	src_end = src + len;
@@ -145,9 +188,16 @@ alloc_and_copy_literal(const char *src, size_t len)
 		++src_pos;
 	}
 	*dst_pos = '\0';
-
 	return dst;
 }
+
+static void
+print_parse_error(const TfwCfgParserState *ps)
+{
+
+	TFW_ERR("configuration parsing error:%d;%s;e:%d\n", ps->e.line + 1 , ps->e.name, ps->err);
+	}
+
 
 /**
  * Check name of an attribute or name
@@ -211,6 +261,7 @@ entry_reset(TfwCfgEntry *e)
 static int
 entry_set_name(TfwCfgEntry *e, const char *name_src, size_t name_len)
 {
+	TFW_DBG("set_name:%s\n", name_src);
 	BUG_ON(!e || !name_src || !name_len);
 	BUG_ON(e->name);
 
@@ -304,49 +355,7 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
  * characters respectively).
  */
 
-typedef enum {
-	TOKEN_NA = 0,
-	TOKEN_LBRACE,
-	TOKEN_RBRACE,
-	TOKEN_EQSIGN,
-	TOKEN_SEMICOLON,
-	TOKEN_LITERAL,
-	_TOKEN_COUNT,
-} token_t;
 
-typedef struct {
-	const char  *in;      /* The whole input buffer. */
-	const char  *pos;     /* Current position in the @in buffer. */
-
-	/* Current FSM state is saved to here. */
-	const void  *fsm_s;   /* Pointer to label (GCC extension). */
-	const char  *fsm_ss;  /* Label name as string (for debugging). */
-
-	/* Currently/previously processed character. */
-	char        c;
-	char        prev_c;
-
-	/* Currently/previously processed token.
-	 * The language is context-sensitive, so we need to store all these
-	 * previous tokens and literals to parse it without peek()'ing. */
-	token_t t;
-	token_t prev_t;
-
-	/* Literal value (not NULL only when @t == TOKEN_LITERAL). */
-	const char *lit;
-	const char *prev_lit;
-
-	/* Length of @lit (the @lit is not terminated). */
-	int lit_len;
-	int prev_lit_len;
-
-	int  err;  /* The latest error code. */
-
-	/* Currently parsed entry. Accumulates literals as values/attributes.
-	 * When current entry is done, a TfwCfgSpec->handler is called and a new
-	 * entry is started. */
-	TfwCfgEntry e;
-} TfwCfgParserState;
 
 /* Macros common for both TFSM and PFSM. */
 
@@ -379,6 +388,9 @@ do {				\
 	ps->prev_c = ps->c;	\
 	ps->c = *(++ps->pos);	\
 	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
+	if (ps->prev_c == '\n') { \
+		++ps->line; \
+TFW_DBG("parse line:%d\n", ps->line);} \
 	FSM_JMP(to_state);	\
 } while (0)
 
@@ -600,6 +612,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
+		ps->e.line = ps->line;
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
 		PFSM_MOVE(PS_VAL_OR_ATTR);
@@ -1107,13 +1120,17 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
-			TFW_ERR("parser error\n");
+//			TFW_ERR("parser error\n");
+			ps->err = 100;
+			print_parse_error(ps);
 			return ps->err;
 		}
 
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
-			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
+//			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
+			ps->err = 101;
+			print_parse_error(ps);
 			return -EINVAL;
 		}
 
@@ -1365,13 +1382,6 @@ mod_stop(TfwCfgMod *mod)
 		mod->stop();
 }
 
-static void
-print_parse_error(const TfwCfgParserState *ps)
-{
-	long unsigned int len = ps->pos - ps->in;
-
-	TFW_ERR("configuration parsing error:%lu;%s\n", len, ps->e.name);
-}
 
 /*
  * Find configuration option specs by option name.
@@ -1410,8 +1420,11 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 	do {
 		parse_cfg_entry(&ps);
 		if (ps.err) {
-			TFW_ERR("syntax error\n");
-			goto err;
+//			TFW_ERR("syntax error\n");
+//			goto err;
+			ps.err = 102;
+			print_parse_error(&ps);
+			return -EINVAL;
 		}
 		if (!ps.e.name)
 			break; /* EOF - nothing is parsed and no error. */
@@ -1422,25 +1435,34 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 				break;
 		}
 		if (!matching_spec) {
-			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
-			goto err;
+//			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
+			ps.err = 103;
+			print_parse_error(&ps);
+			return -EINVAL;
+//			goto err;
 		}
 
 		r = spec_handle_entry(matching_spec, &ps.e);
-		if (r)
-			goto err;
+		if (r){
+			ps.err = 104;
+			print_parse_error(&ps);
+}
+//			goto err;
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
 		r = spec_finish_handling(mod->specs);
-		if (r)
-			goto err;
+		if (r){
+			ps.err = 105;
+//			goto err;
+			print_parse_error(&ps);
+}
 	}
 
 	return 0;
-err:
-	print_parse_error(&ps);
-	return -EINVAL;
+//err:
+//	print_parse_error(&ps);
+//	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
 
@@ -1462,7 +1484,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
 	if (ret) {
-		TFW_ERR("can't parse configuration data\n");
+		TFW_ERR("can't parse configuration data:%d\n", ret);
 		goto err_recover_cleanup;
 	}
 
