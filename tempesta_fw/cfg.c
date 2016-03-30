@@ -195,7 +195,7 @@ static void
 print_parse_error(const TfwCfgParserState *ps)
 {
 
-	TFW_ERR("configuration parsing error:%d;%s;e:%d\n", ps->e.line + 1 , ps->e.name, ps->err);
+	TFW_ERR("configuration parsing error str:%d;w:%s;e:%d\n", ps->e.line + 1 , ps->e.name, ps->err);
 	}
 
 
@@ -261,7 +261,6 @@ entry_reset(TfwCfgEntry *e)
 static int
 entry_set_name(TfwCfgEntry *e, const char *name_src, size_t name_len)
 {
-	TFW_DBG("set_name:%s\n", name_src);
 	BUG_ON(!e || !name_src || !name_len);
 	BUG_ON(e->name);
 
@@ -390,7 +389,7 @@ do {				\
 	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	if (ps->prev_c == '\n') { \
 		++ps->line; \
-TFW_DBG("parse line:%d\n", ps->line);} \
+} \
 	FSM_JMP(to_state);	\
 } while (0)
 
@@ -1120,16 +1119,12 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
-//			TFW_ERR("parser error\n");
-			ps->err = 100;
 			print_parse_error(ps);
 			return ps->err;
 		}
 
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
-//			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
-			ps->err = 101;
 			print_parse_error(ps);
 			return -EINVAL;
 		}
@@ -1419,10 +1414,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 
 	do {
 		parse_cfg_entry(&ps);
-		if (ps.err) {
-//			TFW_ERR("syntax error\n");
-//			goto err;
-			ps.err = 102;
+		if (ps.err){ 
 			print_parse_error(&ps);
 			return -EINVAL;
 		}
@@ -1435,34 +1427,23 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 				break;
 		}
 		if (!matching_spec) {
-//			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
-			ps.err = 103;
 			print_parse_error(&ps);
 			return -EINVAL;
-//			goto err;
 		}
 
 		r = spec_handle_entry(matching_spec, &ps.e);
-		if (r){
-			ps.err = 104;
+		if (r)
 			print_parse_error(&ps);
-}
-//			goto err;
+
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
 		r = spec_finish_handling(mod->specs);
-		if (r){
-			ps.err = 105;
-//			goto err;
+		if (r)
 			print_parse_error(&ps);
-}
-	}
 
+	}
 	return 0;
-//err:
-//	print_parse_error(&ps);
-//	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
 

@@ -74,7 +74,7 @@
 #define __CALLSTACK_MSG(...)						\
 do {									\
 	printk(__VA_ARGS__);						\
-	/*__WARN();*/							\
+								\
 } while (0)
 
 #define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
