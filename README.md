@@ -3,10 +3,10 @@
 
 ### What it is?
 
-**Tempesta FW** is a hybrid solution that combines reverse proxy and firewall
-at the same time. It accelerates Web applications and provide high performance
-framework with access to all network layers for running complex network traffic
-classification and blocking modules.
+**Tempesta FW** is a hybrid solution that combines a reverse proxy and
+a firewall at the same time. It accelerates Web applications and provides
+high performance framework with access to all network layers for running
+complex network traffic classification and blocking modules.
 
 **Tempesta FW** is built into Linux TCP/IP stack for better and more stable
 performance characteristics in comparison with TCP servers on top of common
@@ -39,13 +39,13 @@ switched on:
 * CONFIG\_NETLINK\_MMAP
 
 Tempesta aggressively uses CPU vector extensions, so FPU eager context
-switching must be enabled at kernel parameter. So add `eagerfpu=on` to
-your kernel command line.
+switching must be enabled in the kernel. So add `eagerfpu=on` to your
+kernel command line.
 
-We suggest to use CONFIG\_PREEMPT\_NONE for better throughput, however please
-use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes additional
-stress to synchronization of several algorithms. Also note that CONFIG\_PREEMPT
-is not supported at all.
+We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
+please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
+additional stress to synchronization of several algorithms. Also note that
+CONFIG\_PREEMPT is not supported at all.
 
 
 ### Build
@@ -65,8 +65,8 @@ To build the module you need to do the following steps:
 Use `tempesta.sh` script to run and stop Tempesta. The script provides help
 information with `--help` switch. Usage example:
 
-        $ ./tempesta.sh --start
-        $ ./tempesta.sh --stop
+        $ ./scripts/tempesta.sh --start
+        $ ./scripts/tempesta.sh --stop
 
 
 ### Configuration
@@ -75,7 +75,7 @@ Tempesta is configured via plain-text configuration file.
 
 The file location is determined by the `TFW_CFG_PATH` environment variable:
 
-        $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh --start
+        $ TFW_CFG_PATH="/opt/tempesta.conf" ./scripts/tempesta.sh --start
 
 By default, the `tempesta_fw.conf` from this directory is used.
 
@@ -377,7 +377,7 @@ layer.
 
 Use `-f` command key to start Tempesta with Frang:
 ```
-$ ./tempesta.sh -f --start
+$ ./scripts/tempesta.sh -f --start
 ```
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:

@@ -160,8 +160,8 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	if (!(req->flags & TFW_HTTP_STICKY_SET))
 		return TFW_BLOCK;
 
-	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-			     TFW_HTTP_HDR_HOST, &host);
+	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+				 TFW_HTTP_HDR_HOST, &host);
 	if (TFW_STR_EMPTY(&host))
 		host = req->host;
 
@@ -602,17 +602,22 @@ static int
 tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	int r, conn_flg = req->flags & __TFW_HTTP_CONN_MASK;
-	TfwHttpMsg *m = (TfwHttpMsg *)resp;
+	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 
-	r = tfw_http_sticky_resp_process(m, (TfwHttpMsg *)req);
+	r = tfw_http_sticky_resp_process(hm, (TfwHttpMsg *)req);
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_hdr_keep_alive(m, conn_flg);
+	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
 	if (r < 0)
 		return r;
 
-	return tfw_http_set_hdr_connection(m, conn_flg);
+	r = tfw_http_set_hdr_connection(hm, conn_flg);
+	if (r < 0)
+		return r;
+
+	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
+				     TFW_HTTP_HDR_SERVER, 0);
 }
 
 /*
@@ -1185,8 +1190,8 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	req->hash = tfw_hash_str(&req->uri_path);
 
-	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-			     TFW_HTTP_HDR_HOST, &host);
+	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+				 TFW_HTTP_HDR_HOST, &host);
 	if (!TFW_STR_EMPTY(&host))
 		req->hash ^= tfw_hash_str(&host);
 

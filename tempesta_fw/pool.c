@@ -54,7 +54,7 @@
 #define TFW_POOL_PGCACHE_SZ	512
 
 static DEFINE_PER_CPU(unsigned int, pg_next);
-static DEFINE_PER_CPU(unsigned long [TFW_POOL_PGCACHE_SZ], pg_cache);
+static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
 
 /*
  * Per-CPU page cache.
@@ -81,7 +81,7 @@ tfw_pool_alloc_pages(unsigned int order)
 
 	if (likely(*pgn && !order)) {
 		--*pgn;
-		pg_res = this_cpu_read(pg_cache[*pgn]);
+		pg_res = ((unsigned long *)this_cpu_ptr(pg_cache))[*pgn];
 
 		preempt_enable();
 
@@ -102,7 +102,7 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 	pgn = this_cpu_ptr(&pg_next);
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order)) {
-		*this_cpu_ptr(&pg_cache[*pgn]) = addr;
+		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
 		++*pgn;
 
 		preempt_enable();
@@ -232,9 +232,28 @@ tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *c, *next;
 
+	if (!p)
+		return;
+
 	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
 }
 EXPORT_SYMBOL(tfw_pool_destroy);
+
+int
+tfw_pool_init(void)
+{
+	pg_cache = alloc_percpu(unsigned long [TFW_POOL_PGCACHE_SZ]);
+	if (pg_cache == NULL)
+		return -ENOMEM;
+	return 0;
+}
+
+void
+tfw_pool_exit(void)
+{
+	free_percpu(pg_cache);
+}
+

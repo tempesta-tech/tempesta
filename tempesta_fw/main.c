@@ -25,8 +25,8 @@
 #include "log.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta FW");
-MODULE_VERSION("0.5.0-pre1");
+MODULE_DESCRIPTION(TFW_NAME);
+MODULE_VERSION(TFW_VERSION);
 MODULE_LICENSE("GPL");
 
 typedef void (*exit_fn)(void);
@@ -71,6 +71,8 @@ tfw_init(void)
 	int r;
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
+
+	DO_INIT(pool);
 
 	DO_INIT(cfg_if);
 	DO_INIT(procfs);
