@@ -384,7 +384,8 @@ __hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
-	r = ss_skb_get_room(hm->crlf.skb, h->ptr, hdr->len, &it);
+	r = ss_skb_get_room(&hm->msg.skb_list, hm->crlf.skb,
+			    h->ptr, hdr->len, &it);
 	if (r)
 		return r;
 	BUG_ON(!TFW_STR_PLAIN(&it));
@@ -419,8 +420,8 @@ __hdr_append(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr)
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
 
-	r = ss_skb_get_room(orig_hdr->skb, (char *)h->ptr + h->len,
-			    hdr->len, &it);
+	r = ss_skb_get_room(&hm->msg.skb_list, orig_hdr->skb,
+			    (char *)h->ptr + h->len, hdr->len, &it);
 	if (r)
 		return r;
 
@@ -605,8 +606,7 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 	struct sk_buff *skb;
 
 	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
-		skb = ss_skb_alloc_pages(min_t(size_t, len,
-					 SS_SKB_MAX_DATA_LEN));
+		skb = ss_skb_alloc_pages(min(len, SS_SKB_MAX_DATA_LEN));
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(&hm->msg.skb_list, skb);
