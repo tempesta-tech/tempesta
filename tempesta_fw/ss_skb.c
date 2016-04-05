@@ -176,7 +176,7 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 	BUG_ON(from > si->nr_frags);
 
 	/* No room for @n extra fragments in the SKB. */
-	if (si->nr_frags > MAX_SKB_FRAGS - n) {
+	if (si->nr_frags + n > MAX_SKB_FRAGS) {
 		skb_frag_t *f;
 		struct sk_buff *nskb;
 
@@ -186,8 +186,9 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 		 * Allocate a new SKB to hold @n_excess fragments.
 		 * Put it on frag_list of the current SKB.
 		 */
-		if ((nskb = alloc_skb(0, GFP_ATOMIC)) == NULL)
+		if ((nskb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC)) == NULL)
 			return -ENOMEM;
+		skb_reserve(nskb, MAX_TCP_HEADER);
 		si->frag_list = nskb;
 
 		/*
@@ -196,7 +197,7 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 		 */
 		n_excess = si->nr_frags + n - MAX_SKB_FRAGS;
 
-		/* Shift @n_excess number of fragments to another SKB. */
+		/* Shift @n_excess number of fragments to new SKB. */
 		if (from < si->nr_frags) {
 			for (i = n_excess - 1; i >= 0; --i) {
 				f = &si->frags[MAX_SKB_FRAGS - n + i];
@@ -207,9 +208,10 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 		}
 		skb_shinfo(nskb)->nr_frags += n_excess;
 	}
+
 	/* Make room for @n fragments in the SKB. */
 	n_shift = si->nr_frags - from - n_excess;
-	if (n_shift)
+	if (n_shift > 0)
 		memmove(&si->frags[from + n],
 			&si->frags[from], n_shift * sizeof(skb_frag_t));
 	si->nr_frags += n - n_excess;
@@ -239,7 +241,7 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	if (frag) {
 		page = skb_frag_page(frag);
 		off = ss_skb_frag_len(frag);
-		__skb_frag_ref(frag);
+		__skb_frag_ref(frag);	/* get_page(page); */
 	} else {
 		page = alloc_page(GFP_ATOMIC);
 		if (!page)
@@ -249,7 +251,7 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb, int size, int i,
 	/* Make room for @shift fragments starting with slot @i. */
 	if (__extend_pgfrags(skb, pskb, i, shift)) {
 		if (frag)
-			__skb_frag_unref(frag);
+			__skb_frag_unref(frag);	/* put_page(page); */
 		else
 			__free_page(page);
 		return -ENOMEM;
@@ -289,9 +291,10 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	struct page *page = virt_to_head_page(skb->head);
 
-	SS_DBG("%s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
-		__func__, skb, pspt, len, tail_len);
-	WARN_ON(!skb->head_frag);
+	SS_DBG("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
+		smp_processor_id(), __func__, skb, pspt, len, tail_len);
+	BUG_ON(!skb->head_frag);
+	BUG_ON(tail_len <= 0);
 	BUG_ON(!(alloc | tail_len));
 	BUG_ON(-len > tail_len);
 
@@ -362,7 +365,7 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 		skb->truesize += tail_len;
 
 		__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
-		skb_frag_ref(skb, alloc);
+		skb_frag_ref(skb, alloc);	/* get_page(page); */
 	}
 
 	return skb_frag_address(&skb_shinfo(skb)->frags[0]);
@@ -392,18 +395,16 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	struct sk_buff *skb_dst;
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 
-	SS_DBG("%s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		__func__, skb, i, off, len, skb_frag_size(frag));
-	BUG_ON((off < 0) || (off >= skb_frag_size(frag)));
-
+	SS_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+		smp_processor_id(), __func__,
+		skb, i, off, len, skb_frag_size(frag));
 	/*
-	 * Try to append data to the page fragment. If @off is zero,
-	 * then try to append data to the preceding page fragment
-	 * if there's any. Go for other solutions if there's no room.
+	 * If @off is zero and there's a preceding page fragment,
+	 * then try to append data to that fragment. Go for other
+	 * solutions if there's no room.
 	 */
-	if (off || i) {
-		frag_dst = (!off && i) ? frag - 1 : frag;
-		frag_dst = __check_frag_room(skb, frag_dst, len);
+	if (!off && i) {
+		frag_dst = __check_frag_room(skb, frag - 1, len);
 		if (frag_dst) {
 			/* Coalesce new data with the fragment. */
 			off = skb_frag_size(frag_dst);
@@ -479,18 +480,16 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	SS_DBG("%s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		__func__, skb, i, off, len, skb_frag_size(frag));
-	BUG_ON((off < 0) || (off >= skb_frag_size(frag)));
+	SS_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+		smp_processor_id(), __func__,
+		skb, i, off, len, skb_frag_size(frag));
 
 	if (unlikely(off + len > skb_frag_size(frag))) {
 		SS_WARN("Attempt to delete too much\n");
-		SS_DBG("%s: off [%d] len [%d] frag [%d] frag_size [%d]\n",
-			__func__, off, len, i, skb_frag_size(frag));
 		return NULL;
 	}
 
-	/* Quick path: delete a full fragment. */
+	/* Fast path: delete a full fragment. */
 	if (!off && len == skb_frag_size(frag)) {
 		ss_skb_adjust_data_len(skb, -len);
 		__skb_frag_unref(frag);
@@ -500,14 +499,14 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb, int i, int off,
 		--si->nr_frags;
 		goto lookup_next_ptr;
 	}
-	/* Quick path: delete the head part of a fragment. */
+	/* Fast path: delete the head part of a fragment. */
 	if (!off) {
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
 		return skb_frag_address(frag);
 	}
-	/* Quick path: delete the tail part of a fragment. */
+	/* Fast path: delete the tail part of a fragment. */
 	if (off + len == skb_frag_size(frag)) {
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
@@ -577,13 +576,13 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 {
 	unsigned int i, d_size, offset;
 
-	SS_DBG("skb fragmentation (len=%d pspt=%p, skb: head=%p data=%p"
-	       " tail=%p end=%p len=%u data_len=%u truesize=%u"
-	       " nr_frags=%u)...\n",
-	       len, pspt, skb->head, skb->data,
-	       skb_tail_pointer(skb), skb_end_pointer(skb),
-	       skb->len, skb->data_len, skb->truesize,
-	       skb_shinfo(skb)->nr_frags);
+	SS_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
+		" data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
+		" truesize [%u] nr_frags [%u]\n",
+		smp_processor_id(), __func__, len, pspt, skb->head,
+		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+		skb->len, skb->data_len, skb->truesize,
+		skb_shinfo(skb)->nr_frags);
 	BUG_ON(!len);
 
 	if ((len > (int)PAGE_SIZE) || (-len > (int)PAGE_SIZE)) {
@@ -623,12 +622,13 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb, char *pspt,
 	return -ENOENT;
 
 done:
-	SS_DBG("%s: res=%p, skb: head=%p data=%p tail=%p end=%p"
-	       " len=%u data_len=%u truesize=%u nr_frags=%u\n",
-	       __func__, it->ptr, skb->head, skb->data,
-	       skb_tail_pointer(skb), skb_end_pointer(skb),
-	       skb->len, skb->data_len, skb->truesize,
-	       skb_shinfo(skb)->nr_frags);
+	SS_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
+		" tail [%p] end [%p] len [%u] data_len [%u]"
+		" truesize [%u] nr_frags [%u]\n",
+		smp_processor_id(), __func__, it->ptr, skb->head,
+		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+		skb->len, skb->data_len, skb->truesize,
+		skb_shinfo(skb)->nr_frags);
 	/*
 	 * Note: If data was deleted, then it's possible that @it->ptr
 	 * actually points at the address in a different (new) SKB.
