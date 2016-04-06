@@ -17,6 +17,13 @@ class Config:
 	def add_option(self, option, value):
 		with open(self.name, "a+") as conf:
 			conf.write(option + ' ' + value + ';\n')
+	def add_section(self, section):
+		with open(self.name, "a+") as conf:
+			conf.write(section + '{\n')
+
+	def add_end_of_section(self):
+		with open(self.name, "a+") as conf:
+			conf.write('}')
 
 	def del_option(self, option):
 		temp = open(self.tmpname, 'a+')
