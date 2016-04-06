@@ -19,6 +19,9 @@ _tempesta_dir = os.path.realpath('.')
 def start():
 	_sh(_tempesta_dir + '/scripts/tempesta.sh --start')
 
+def start_with_frang():
+	_sh(_tempesta_dir + '/scripts/tempesta.sh -f --start')
+
 def stop():
 	_sh("./scripts/tempesta.sh --stop")
 
