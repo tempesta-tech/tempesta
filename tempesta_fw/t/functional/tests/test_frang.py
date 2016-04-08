@@ -5,13 +5,14 @@ __license__ = 'GPL2'
 import sys
 from os.path import dirname, realpath, sep
 import time
+import types
 #sys.path.append('./tests/helpers')
 sys.path.append(dirname(realpath(__file__))+ sep + sep + "helpers")
 
 
 import conf
 import tfw
-import socket
+from socket import *
 import select
 import binascii
 import struct
@@ -20,7 +21,7 @@ import struct
 class Test:
 	def __init__(self):
 		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n\r\n"
-		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.s = socket(AF_INET, SOCK_STREAM)
 
 		self.cfg = conf.Config('etc/tempesta_fw.conf')
 		self.cfg.add_option('cache', '0')
@@ -83,10 +84,12 @@ b"Connection: Keep-Alive\r\n\r\n"
 #			print("rec:", len(data))
 
 	def conn_rate(self):
+		self.res = False
 		print("conn_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
 		self.cfg.add_option('request_rate', '5')
+		self.cfg.add_option('concurrent_connections', '5')
 		self.cfg.add_option('connection_rate', '5')
 		self.cfg.add_option('connection_burst', '5')
 
@@ -95,30 +98,61 @@ b"Connection: Keep-Alive\r\n\r\n"
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
 		print("tfw start\n")
-		try:
-			for x in range(0,10):
-				self.s = socket.socket(socket.AF_INET,								   socket.SOCK_STREAM)
-				self.s.connect(("127.0.0.1", 8081))
-				self.s.close()
-				self.s.connect(('127.0.0.1', 8081))
-				self.s.send(self.vs_get)
-				data = self.s.recv(2048)
-#			print(data)
-		except OSError as e:
-			print("conn except:{}\n".format(e.errno))
+		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
+b"Connection: Keep-Alive\r\n\r\n"
 
+		try:
+			conncount = 0
+			for x in range(0,8):
+				self.s = socket(AF_INET, SOCK_STREAM)
+				self.s.connect(("127.0.0.1", 8081))
+				conncount += 1 
+#				time.sleep(0.2)
+#				self.s.send(self.vs_get)
+#				data = self.s.recv(1024)
+#				print(len(data))
+#				self.s.close()
+
+			self.s = socket(AF_INET, SOCK_STREAM)
+			self.s.connect(('127.0.0.1', 8081))
+			self.s.send(self.vs_get)
+		except OSError as e:
+			print("conn except:", e.strerror)
+			self.res = True
+		else:
+			self.res = False
+		finally:
+			pass
+		print("conncount:", conncount)
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
 
+	def header_timeout(self):
+		part1 = b'GET / HTTP/1.0\r\n'
+		part2 = b'host: loc\r\n\r\n'
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('client_header_timeout', '1')
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s = socket(AF_INET, SOCK_STREAM)
+		self.s.connect(('127.0.0.1', 8081))
+		self.s.send(part1)
+		time.sleep(1)		
+		self.s.send(part2)
+		data = self.s.recv(1024)
+		print(data)
 
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.conn_rate(), self.set_request_rate(), \
-			 self.set_uri()]
+		tests = [self.header_timeout()] 
 		for f in tests:
+			if hasattr(f, '__call__'):
 				f()
+				print("res:\n")
 
 
 t = Test()
