@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2016 NatSys Lab. (info@natsys-lab.com).'
+#!/usr/bin/env python
+__author__ = 'Tempesta Technologies'
+__copyright__ = 'Copyright (C) 2016 Tempesta Technologies. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 import sys
 from os.path import dirname, realpath, sep
