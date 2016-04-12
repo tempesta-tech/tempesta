@@ -52,7 +52,8 @@ class Test:
 		tfw.stop()
 		print("res:", self.res)
 
-	def set_request_rate(self):
+	def request_rate(self):
+		self.res = False
 		print("req_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
@@ -68,7 +69,7 @@ class Test:
 
 		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
 b"Connection: Keep-Alive\r\n\r\n"
-		startTime = time.clock()
+#		startTime = time.clock()
 		try:
 			for x in range(0, 9):
 				self.s.sendall(self.vs_get)
@@ -76,11 +77,12 @@ b"Connection: Keep-Alive\r\n\r\n"
 
 		except OSError as e:
 			print("req except:{}\n".format(e.errno))
+			self.res = True
 
 		self.s.close()
+		print("res:", self.res)
 		time.sleep(5)
 		tfw.stop()
-		print( "time:", (time.clock() - startTime))
 
 	def conn_rate(self):
 		self.res = False
@@ -112,13 +114,10 @@ b"Connection: Keep-Alive\r\n\r\n"
 
 				conncount += 1
 				port += conncount
-				print(conncount)
+
 		except OSError as e:
 			self.res = True
-		else:
-			self.res = False
-		finally:
-			pass
+
 		print("res:", self.res)
 		self.s.shutdown(SHUT_RDWR)
 		self.s.close()
@@ -146,7 +145,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.conn_rate(), self.uri_len()]
+		tests = [self.conn_rate(), self.uri_len(), self.request_rate()]
 		for f in tests:
 			if hasattr(f, '__call__'):
 				f()
