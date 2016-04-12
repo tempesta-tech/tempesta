@@ -432,6 +432,95 @@ ss_close_sync(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_close_sync);
 
+/*
+ * Process a single SKB.
+ */
+static int
+ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
+{
+	bool tcp_fin;
+	int r = 0, offset, count;
+	void *conn;
+	struct sk_buff *frag_list;
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/* Calculate the offset into the SKB. */
+	offset = tp->copied_seq - TCP_SKB_CB(skb)->seq;
+	if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
+		offset--;
+
+	/* SKB may be freed in processing. Save the flag. */
+	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
+
+	/*
+	 * When GRO is used, multiple SKBs may be merged into
+	 * one big SKB. These SKBs are linked in via frag_list.
+	 * Interpret the big SKB as a set of separate smaller
+	 * SKBs for processing. Make the top SKB first in the
+	 * frag_list.
+	 */
+	frag_list = skb_shinfo(skb)->frag_list;
+	if (frag_list) {
+		struct sk_buff *f_skb;
+		skb_walk_frags(skb, f_skb) {
+			f_skb->nohdr = 0;
+			ss_skb_adjust_data_len(skb, -f_skb->len);
+		}
+		skb_shinfo(skb)->frag_list = NULL;
+	}
+	skb->next = frag_list;
+	frag_list = skb;
+
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+
+		if (unlikely(offset >= skb->len)) {
+			offset -= skb->len;
+			__kfree_skb(skb);
+			continue;
+		}
+		skb->next = NULL;
+
+		count = skb->len - offset;
+		tp->copied_seq += count;
+		*processed += count;
+
+		conn = rcu_dereference_sk_user_data(sk);
+		/*
+		 * If @sk_user_data is unset, then this connection
+		 * had been dropped in a parallel thread. Dropping
+		 * a connection is serialized with the socket lock.
+		 * The receive queue must be empty in that case,
+		 * and the execution path should never reach here.
+		 */
+		BUG_ON(conn == NULL);
+
+		r = SS_CALL(connection_recv, conn, skb, offset);
+
+		if (r < 0) {
+			SS_DBG("Processing error: sk %p r %d\n", sk, r);
+			goto out; /* connection dropped */
+		} else if (r == SS_STOP) {
+			SS_DBG("Stop processing: sk %p\n", sk);
+			break;
+		}
+	}
+	if (tcp_fin) {
+		SS_DBG("Data FIN: sk %p\n", sk);
+		++tp->copied_seq;
+		r = SS_DROP;
+	}
+out:
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+		__kfree_skb(skb);
+	}
+
+	return r;
+}
+
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
@@ -445,11 +534,10 @@ EXPORT_SYMBOL(ss_close_sync);
 static bool
 ss_tcp_process_data(struct sock *sk)
 {
-	bool tcp_fin, droplink = true;
-	int processed = 0;
-	unsigned int off, skb_len, skb_seq;
+	bool droplink = true;
+	int r, count, processed = 0;
+	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
-	struct sk_buff *frag_list = NULL;
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
@@ -488,104 +576,21 @@ ss_tcp_process_data(struct sock *sk)
 		skb_len = skb->len;
 		skb_seq = TCP_SKB_CB(skb)->seq;
 
-		off = tp->copied_seq - skb_seq;
-		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
-			off--;
+		count = 0;
+		r = ss_tcp_process_skb(sk, skb, &count);
+		processed += count;
 
-		/* SKB may be freed in processing. Save the flag. */
-		tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
-
-		/*
-		 * When GRO is used, multiple SKBs may be joined in one
-		 * big SKB. These SKBs are attached through frag_list.
-		 * Interpret the big SKB as a set of separate smaller
-		 * SKBs for processing.
-		 */
-		frag_list = skb_shinfo(skb)->frag_list;
-		if (frag_list) {
-			struct sk_buff *frag_skb;
-			skb_walk_frags(skb, frag_skb) {
-				frag_skb->nohdr = 0;
-				ss_skb_adjust_data_len(skb, -frag_skb->len);
-			}
-			skb_shinfo(skb)->frag_list = NULL;
-		}
-repeat:
-		if (likely(off < skb->len)) {
-			int r, count = skb->len - off;
-			void *conn = rcu_dereference_sk_user_data(sk);
-
-			/*
-			 * If @sk_user_data is unset, then this connection
-			 * had been dropped in a parallel thread. Dropping
-			 * a connection is serialized with the socket lock.
-			 * The receive queue must be empty in that case,
-			 * and the execution path should never reach here.
-			 */
-			BUG_ON(conn == NULL);
-
-			r = SS_CALL(connection_recv, conn, skb, off);
-
-			/*
-			 * The socket @sk may have been closed as a result
-			 * of data processing in this or in parallel thread.
-			 * However the socket is not destroyed until control
-			 * is returned back to the Linux kernel.
-			 */
-			if (r < 0) {
-				SS_DBG("Processing error: sk %p r %d\n", sk, r);
-				goto out; /* connection dropped */
-			}
-			tp->copied_seq += count;
-			processed += count;
-
-			if (r == SS_STOP) {
-				if (tcp_fin) {
-					SS_DBG("Data FIN: sk %p\n", sk);
-					++tp->copied_seq;
-					goto out;
-				}
-				SS_DBG("Stop processing: sk %p\n", sk);
-				break;
-			}
-			if (frag_list) {
-				off = 0;
-				skb = frag_list;
-				frag_list = frag_list->next;
-				skb->next = NULL;
-				goto repeat;
-			}
-			if (tcp_fin) {
-				SS_DBG("Data FIN: sk %p\n", sk);
-				++tp->copied_seq;
-				goto out;
-			}
-		} else if (frag_list) {
-			off -= skb->len;
-			__kfree_skb(skb);
-			skb = frag_list;
-			frag_list = frag_list->next;
-			skb->next = NULL;
-			goto repeat;
-		} else if (tcp_fin) {
-			__kfree_skb(skb);
-			SS_DBG("Link FIN: sk %p\n", sk);
-			++tp->copied_seq;
+		if (r < 0)
 			goto out;
-		} else {
+		else if (r == SS_STOP)
+			break;
+		else if (!count)
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
 				" seq %X rcvnxt %X len %x\n",
 				tp->copied_seq, skb_seq, tp->rcv_nxt, skb_len);
-			__kfree_skb(skb);
-		}
 	}
 	droplink = false;
 out:
-	while (frag_list) {
-		skb = frag_list;
-		frag_list = frag_list->next;
-		__kfree_skb(skb);
-	}
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
 	 * and send ACK to a client with the new window.
