@@ -28,7 +28,8 @@ class Test:
 		self.cfg.add_option('listen', '8081')
 		self.cfg.add_option('server', '127.0.0.1:80')
 
-	def set_uri(self):
+	def uri_len(self):
+		self.res = False
 		print("uri\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
@@ -41,14 +42,15 @@ class Test:
 		try:
 			self.s.send(self.vs_get)
 			data = self.s.recv(1024)
-			print("data:", data)
-			print("uri ex\n")
-#			raise socket.error(9, 'frang')
+			print("data:", len(data))
+			if len(data) == 0:
+				self.res = True
 		except OSError as e:
 			print("except:".format(e.errno))
 
 		time.sleep(5)
 		tfw.stop()
+		print("res:", self.res)
 
 	def set_request_rate(self):
 		print("req_rate\n")
@@ -78,10 +80,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
-#			print("dt:", data)
 		print( "time:", (time.clock() - startTime))
-#			data = self.s.recv(5)
-#			print("rec:", len(data))
 
 	def conn_rate(self):
 		self.res = False
@@ -114,18 +113,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 				conncount += 1
 				port += conncount
 				print(conncount)
-#				time.sleep(0.2)
-#				self.s.send(self.vs_get)
-#				data = self.s.recv(1024)
-#				print(len(data))
-#				self.s.close()
-
-#			self.s = socket(AF_INET, SOCK_STREAM)
-#			self.s.connect(('127.0.0.1', 8081))
-#			self.s.send(self.vs_get)
-#			self.s.shutdown(1)
 		except OSError as e:
-#			print("conn except:", e)
 			self.res = True
 		else:
 			self.res = False
@@ -158,7 +146,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.conn_rate()]
+		tests = [self.conn_rate(), self.uri_len()]
 		for f in tests:
 			if hasattr(f, '__call__'):
 				f()
