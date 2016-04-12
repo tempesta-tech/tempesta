@@ -88,7 +88,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 		print("conn_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
-		self.cfg.add_option('request_rate', '5')
+		self.cfg.add_option('ip_block', 'on')
 		self.cfg.add_option('concurrent_connections', '5')
 		self.cfg.add_option('connection_rate', '5')
 		self.cfg.add_option('connection_burst', '5')
@@ -103,30 +103,40 @@ b"Connection: Keep-Alive\r\n\r\n"
 
 		try:
 			conncount = 0
-			for x in range(0,8):
+			port = 8095
+			for x in range(0,7):
 				self.s = socket(AF_INET, SOCK_STREAM)
+				self.s.settimeout(2)
+				self.s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+				self.s.bind(('127.0.0.5', port))
 				self.s.connect(("127.0.0.1", 8081))
-				conncount += 1 
+
+				conncount += 1
+				port += conncount
+				print(conncount)
 #				time.sleep(0.2)
 #				self.s.send(self.vs_get)
 #				data = self.s.recv(1024)
 #				print(len(data))
 #				self.s.close()
 
-			self.s = socket(AF_INET, SOCK_STREAM)
-			self.s.connect(('127.0.0.1', 8081))
-			self.s.send(self.vs_get)
+#			self.s = socket(AF_INET, SOCK_STREAM)
+#			self.s.connect(('127.0.0.1', 8081))
+#			self.s.send(self.vs_get)
+#			self.s.shutdown(1)
 		except OSError as e:
-			print("conn except:", e.strerror)
+#			print("conn except:", e)
 			self.res = True
 		else:
 			self.res = False
 		finally:
 			pass
-		print("conncount:", conncount)
+		print("res:", self.res)
+		self.s.shutdown(SHUT_RDWR)
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
+		tfw.del_db()
 
 	def header_timeout(self):
 		part1 = b'GET / HTTP/1.0\r\n'
@@ -148,11 +158,11 @@ b"Connection: Keep-Alive\r\n\r\n"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.header_timeout()] 
+		tests = [self.conn_rate()]
 		for f in tests:
 			if hasattr(f, '__call__'):
 				f()
-				print("res:\n")
+				print("res:\n", self.res)
 
 
 t = Test()
