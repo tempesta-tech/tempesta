@@ -42,12 +42,10 @@ class Test:
 		try:
 			self.s.send(self.vs_get)
 			data = self.s.recv(1024)
-			print("data:", len(data))
 			if len(data) == 0:
 				self.res = True
 		except OSError as e:
-			print("except:".format(e.errno))
-
+			print(e)
 		time.sleep(5)
 		tfw.stop()
 		print("res:", self.res)
@@ -69,14 +67,12 @@ class Test:
 
 		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
 b"Connection: Keep-Alive\r\n\r\n"
-#		startTime = time.clock()
 		try:
-			for x in range(0, 9):
+			for x in range(0, 8):
 				self.s.sendall(self.vs_get)
 				data = self.s.recv(1024)
 
 		except OSError as e:
-			print("req except:{}\n".format(e.errno))
 			self.res = True
 
 		self.s.close()
@@ -125,6 +121,29 @@ b"Connection: Keep-Alive\r\n\r\n"
 		tfw.stop()
 		tfw.del_db()
 
+	def ct_vals(self):
+		print("ct_vals")
+		self.res = False
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('http_ct_vals', '[\"text/html\"]')
+		self.cfg.add_end_of_section()
+		self.vs_get = b"POST / HTTP/1.0\r\nhost: loc\r\n" +\
+b"Content-type: application/xml\r\n\r\n"
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s = socket(AF_INET, SOCK_STREAM)
+		self.s.connect(('127.0.0.1', 8081))
+		self.s.send(self.vs_get)
+		data = self.s.recv(1024)
+		if len(data) == 0:
+			self.res = True
+
+		print("res:", self.res)
+		self.s.close()
+		time.sleep(5)
+		tfw.stop()
+
 	def header_timeout(self):
 		part1 = b'GET / HTTP/1.0\r\n'
 		part2 = b'host: loc\r\n\r\n'
@@ -137,7 +156,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 		self.s = socket(AF_INET, SOCK_STREAM)
 		self.s.connect(('127.0.0.1', 8081))
 		self.s.send(part1)
-		time.sleep(1)		
+		time.sleep(1)
 		self.s.send(part2)
 		data = self.s.recv(1024)
 		print(data)
@@ -145,7 +164,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.conn_rate(), self.uri_len(), self.request_rate()]
+		tests = [self.ct_vals(), self.uri_len(), self.request_rate(), self.conn_rate()]
 		for f in tests:
 			if hasattr(f, '__call__'):
 				f()
