@@ -92,6 +92,9 @@
  * @skb		- socket buffer containign the string data;
  * @len		- total length of compund or plain string (HTTP message body
  *		  size can be extreme large, so we need 64 bits to handle it);
+ * @eol_len     - the length of string's line endings, if present (as for now,
+ *                it should be 0 if the string has no EOL at all, 1 for LF and
+ *                2 for CRLF);
  * @flags	- 3 most significant bytes for number of chunks of compound
  * 		  string and the least significant byte for flags;
  */
@@ -99,6 +102,7 @@ typedef struct {
 	void		*ptr;
 	struct sk_buff	*skb;
 	unsigned long	len;
+	unsigned char   eol_len;
 	unsigned int	flags;
 } TfwStr;
 
@@ -191,6 +195,46 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 		n = curr_p - (char *)s->ptr;
 	}
 	s->len += n;
+}
+
+/**
+ * Returns EOL length
+ */
+static inline int
+tfw_str_eol_len(const TfwStr *s)
+{
+	return s->eol_len;
+}
+
+/**
+ * Updates EOL length value
+ */
+static inline void
+tfw_str_set_eol_len(TfwStr *s, unsigned int len)
+{
+	BUG_ON(len > 2); /* LF and CRLF is the only valid EOL markers */
+	s->eol_len = (unsigned char)len;
+}
+
+/**
+ * Returns total string length, including EOL
+ */
+static inline unsigned long
+tfw_str_total_len(const TfwStr *s)
+{
+	return s->len + s->eol_len;
+}
+
+/**
+ * Converts containig EOL string to string with EOL by cutting of @s
+ * length and setting @eol_len to @len. That function may be usefull
+ * with hand-crafted strings like `Cookie: SID=deadbeef\r\n`.
+ */
+static inline void
+tfw_str_fixup_eol(TfwStr *s, unsigned int len)
+{
+	BUG_ON(len > 2 || len > s->len); /* LF and CRLF is the only valid EOL markers */
+	s->len -= len, s->eol_len = len;
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
