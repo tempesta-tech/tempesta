@@ -56,7 +56,6 @@ class Test:
 		self.__init__()
 		self.cfg.add_section('frang_limits')
 		self.cfg.add_option('request_rate', '5')
-		self.cfg.add_option('connection_rate', '5')
 		self.cfg.add_option('request_burst', '5')
 
 		self.cfg.add_end_of_section()
@@ -166,6 +165,32 @@ b"Connection: Keep-alive\r\n\r\n"
 		time.sleep(5)
 		tfw.stop()
 
+	def body_len(self):
+		print("body_len")
+		self.res = False
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('http_ct_vals', '[\"text/html\"]')
+		self.cfg.add_option('http_body_len', '10')
+		self.cfg.add_end_of_section()
+		self.vs_get = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n" +\
+b"Content-Type: text/html\r\n" +\
+b"Content-Length: 20\r\n\r\n" +\
+b"<html>content</html>\r\n\r\n"
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s = socket(AF_INET, SOCK_STREAM)
+		self.s.connect(('127.0.0.1', 8081))
+		self.s.send(self.vs_get)
+		data = self.s.recv(1024)
+		if len(data) == 0:
+			self.res = True
+
+		print("res:", self.res)
+		self.s.close()
+		time.sleep(5)
+		tfw.stop()
+
 
 
 	def ct_vals(self):
@@ -234,8 +259,10 @@ b"Content-type: application/xml\r\n\r\n"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-		tests = [self.host_required(), self.ct_required(), \
-self.req_method(), self.ct_vals(), self.uri_len(), self.request_rate(),\
+#		tests = [self.request_rate()]
+		tests = [self.body_len(), self.host_required(), \
+ self.ct_required(), self.req_method(), self.ct_vals(), self.uri_len(),\
+ self.request_rate(),\
  self.conn_rate()]
 		tcount = 0
 		for f in tests:
