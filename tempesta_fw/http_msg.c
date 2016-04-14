@@ -444,7 +444,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 
 	/* Delete the underlying data. */
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (ss_skb_cutoff_data(dup, 0, 2))
+		if (ss_skb_cutoff_data(dup, 0, tfw_str_eolen(dup)))
 			return TFW_BLOCK;
 	};
 
@@ -475,21 +475,65 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .ptr = name,	.len = n_len },
 			{ .ptr = ": ",	.len = 2 },
 			{ .ptr = val,	.len = v_len },
-			{ .ptr = "\r\n", .len = 2 }
+			{ .ptr = "\r\n",.len = 2 } /* may be adjusted */
 		},
 		.len = n_len + v_len + 4,
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
+	TfwStr *hlc = TFW_STR_LAST(&hdr);
 
-	if (!TFW_STR_DUP(orig_hdr) && hdr.len <= orig_hdr->len) {
-		/* Rewrite the header in-place. */
-		if (ss_skb_cutoff_data(orig_hdr, hdr.len, 2))
-			return TFW_BLOCK;
-		if (tfw_strcpy(orig_hdr, &hdr))
-			return TFW_BLOCK;
-		return 0;
+	if (TFW_STR_DUP(orig_hdr))
+		goto slow_path;
+
+	BUG_ON(!tfw_str_eolen(orig_hdr));
+
+	/*
+	 * We are trying to keep line endings as they were received, so
+	 * adjustment of @hdr's last chunk is needed in case of single LF.
+	 */
+	if (tfw_str_eolen(orig_hdr) == 1)
+		++hlc->ptr, --hlc->len, --hdr.len;
+
+	/*
+	 * In general, there are 5 possible layouts for @hdr and @orig_hdr. And
+	 * in case of single LF used as EOL the 3-rd case is degenerated.
+	 *
+	 *   orig_hdr     | Header: Value | EOL    =  < LF | CRLF >
+	 *   ------------- --------------- ---------------------------------
+	 *
+	 *        hdr     | Foo: BarEOL.. |        1) cutoff, fast_path
+	 *        hdr     | Foo: ..BarEOL |        2) cutoff, fast_path
+	 *
+	 *        hdr     | Foo: ...BarEO | L      3) slow_path (CRLF only)
+	 *        hdr     | Foo: .....Bar | EOL    4) reuse EOL, fast_path
+	 *
+	 *        hdr     | Foo: ......Ba | rEOL   5) slow_path
+	 */
+	if (hdr.len > orig_hdr->len) {
+		/*
+		 * Indeed, 4) is the luckiest case and we can reuse @orig_hdr's
+		 * EOL space by cutting off the @hdr's EOL chunk at all.
+		 */
+		if ((hdr.len - hlc->len) == orig_hdr->len) {
+			hdr.len -= hlc->len, TFW_STR_CHUNKN_SUB(&hdr, 1);
+			goto fast_path;
+		}
+		/* 3) and 5) */
+		goto slow_path;
 	}
 
+	/*
+	 * In case of 1) and 2) we need to cut off @orig_hdr to @hdr length
+	 * including it's EOL value which is not a part of TfwStr.
+	 */
+	if (ss_skb_cutoff_data(orig_hdr, hdr.len, tfw_str_eolen(orig_hdr)))
+		return TFW_BLOCK;
+
+fast_path:
+	/* Rewrite the header in-place. */
+	return tfw_strcpy(orig_hdr, &hdr) ? TFW_BLOCK : 0;
+
+slow_path:
 	/* Generic and slower path. */
 	if (__hdr_del(hm, hid))
 		return TFW_BLOCK;
