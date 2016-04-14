@@ -130,6 +130,7 @@ typedef struct {
  *		  the empty header (see RGEN_LWS_empty)
  * @_tmp	- temporary register used to store context-specific data
  *                  acc) integer accumulator for parsing chunked integers;
+ *                  eol) track of CR/LF delimiters while hunting for EOL;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -140,6 +141,7 @@ typedef struct {
 	int		to_read;
 	union {
 		unsigned long acc;
+		unsigned long eol;
 	} _tmp;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
