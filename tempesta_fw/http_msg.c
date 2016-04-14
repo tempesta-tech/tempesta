@@ -444,7 +444,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 
 	/* Delete the underlying data. */
 	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-		if (ss_skb_cutoff_data(dup, 0, 2))
+		if (ss_skb_cutoff_data(dup, 0, tfw_str_eolen(dup)))
 			return TFW_BLOCK;
 	};
 
@@ -483,7 +483,7 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 
 	if (!TFW_STR_DUP(orig_hdr) && hdr.len <= orig_hdr->len) {
 		/* Rewrite the header in-place. */
-		if (ss_skb_cutoff_data(orig_hdr, hdr.len, 2))
+		if (ss_skb_cutoff_data(orig_hdr, hdr.len, tfw_str_eolen(orig_hdr)))
 			return TFW_BLOCK;
 		if (tfw_strcpy(orig_hdr, &hdr))
 			return TFW_BLOCK;
