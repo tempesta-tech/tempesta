@@ -741,10 +741,9 @@ frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
 	/* Ensure that length of URI is within limits. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_UriLen) {
 		if (frang_cfg.http_uri_len) {
-			if (!(req->uri_path.flags & TFW_STR_COMPLETE)) {
-				__FRANG_FSM_EXIT();
-			}
 			r = frang_http_uri_len(req, ra);
+			if (!(req->uri_path.flags & TFW_STR_COMPLETE))
+				__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_UriLen);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldDup);
 	}
