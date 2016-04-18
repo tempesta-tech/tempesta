@@ -464,7 +464,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		ss_skb_adjust_data_len(skb_dst, tail_len);
 	}
 
-	/* Get the SKB and the address of new data. */
+	/* Get the SKB and the address for new data. */
 	it->flags = !(i < MAX_SKB_FRAGS - 1);
 	frag_dst = it->flags ? &skb_shinfo(it->skb)->frags[0] : frag + 1;
 	it->ptr = skb_frag_address(frag_dst);
@@ -639,6 +639,9 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 	offset = pspt - (char *)skb->data;
 
 	if ((offset >= 0) && (offset < d_size)) {
+		int t_size = d_size - offset;
+		/* This affects only negative @len. */
+		len = (-len <= t_size) ? len : -t_size;
 		ret = __split_linear_data(skb, pspt, len, it);
 		goto done;
 	}
@@ -650,6 +653,9 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 		offset = pspt - (char *)skb_frag_address(frag);
 
 		if ((offset >= 0) && (offset < d_size)) {
+			int t_size = d_size - offset;
+			/* This affects only negative @len. */
+			len = (-len <= t_size) ? len : -t_size;
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
 		}
@@ -674,10 +680,10 @@ done:
 		skb->len, skb->data_len, skb->truesize,
 		skb_shinfo(skb)->nr_frags);
 
-	if (ret)
+	if (ret < 0)
 		return ret;
 
-	/* An indirect pointer to the next SKB fragment. */
+	/* An indirect/double pointer to the next SKB fragment. */
 	next_fdp = pskb ? &skb->next : &skb_shinfo(skb)->frag_list;
 	/*
 	 * If a new SKB was allocated while mangling @skb data, then
@@ -711,7 +717,8 @@ done:
 	it->flags = 0;
 	BUG_ON(it->skb == NULL);
 
-	return 0;
+	/* Return the length of processed data. */
+	return (len > 0 ? len : -len);
 }
 
 /**
@@ -724,7 +731,10 @@ done:
 int
 ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
 {
-	return __skb_fragment(skb, NULL, pspt, len, it);
+	int r = __skb_fragment(skb, NULL, pspt, len, it);
+	if (r == len)
+		return 0;
+	return r;
 }
 
 /**
@@ -735,30 +745,37 @@ int
 ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 {
 	int r;
+	TfwStr it;
 	const TfwStr *c, *end;
-	TfwStr it, it_zero = {0};
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		if (c->len <= skip) {
 			skip -= c->len;
 			continue;
 		}
-		it = it_zero;
+		memset(&it, 0, sizeof(TfwStr));
 		r = __skb_fragment(c->skb, NULL,
 				   (char *)c->ptr + skip, skip - c->len, &it);
-		if (r)
+		if (r < 0)
 			return r;
+		BUG_ON(r != c->len - skip);
 		skip = 0;
 	}
 
 	/* Cut off the tail. */
-	if (tail) {
-		BUG_ON(it.ptr == NULL);
-		BUG_ON(it.skb == NULL);
-		r = __skb_fragment(it.skb, NULL, it.ptr, -tail, &it_zero);
-		if (r)
+	while (tail) {
+		void *f_ptr = it.ptr;
+		struct sk_buff *f_skb = it.skb;
+		BUG_ON(f_ptr == NULL);
+		BUG_ON(f_skb == NULL);
+		memset(&it, 0, sizeof(TfwStr));
+		r = __skb_fragment(f_skb, NULL, f_ptr, -tail, &it);
+		if (r < 0) {
 			SS_WARN("Cannot delete hdr tail\n");
-		return r;
+			return r;
+		}
+		BUG_ON(r > tail);
+		tail -= r;
 	}
 
 	return 0;
