@@ -20,7 +20,7 @@ import struct
 
 class Test:
 	def __init__(self):
-		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n\r\n"
+		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n"
 		self.s = socket(AF_INET, SOCK_STREAM)
 
 		self.cfg = conf.Config('etc/tempesta_fw.conf')
@@ -55,8 +55,8 @@ class Test:
 		print("req_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
-		self.cfg.add_option('request_rate', '5')
-		self.cfg.add_option('request_burst', '5')
+#		self.cfg.add_option('request_rate', '5')
+		self.cfg.add_option('request_burst', '1')
 
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
@@ -67,9 +67,9 @@ class Test:
 		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
 b"Connection: Keep-Alive\r\n\r\n"
 		try:
-			for x in range(0, 8):
+			for x in range(0, 15):
 				self.s.sendall(self.vs_get)
-				data = self.s.recv(1024)
+#				data = self.s.recv(1024)
 
 		except OSError as e:
 			self.res = True
@@ -79,18 +79,92 @@ b"Connection: Keep-Alive\r\n\r\n"
 		time.sleep(5)
 		tfw.stop()
 
+	def request_burst(self):
+		self.res = False
+		print("req_burst\n")
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('request_burst', '1')
+
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s.connect(("127.0.0.1",8081))
+
+
+		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
+b"Connection: Keep-Alive\r\n\r\n"
+		try:
+			for x in range(0, 15):
+				self.s.sendall(self.vs_get)
+#				data = self.s.recv(1024)
+
+		except OSError as e:
+			self.res = True
+
+		self.s.close()
+		print("res:", self.res)
+		time.sleep(5)
+		tfw.stop()
+
+	def conn_max(self):
+		self.res = False
+		print("conn_max\n")
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('ip_block', 'on')
+		self.cfg.add_option('concurrent_connections', '5')
+
+
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
+b"Connection: Keep-Alive\r\n\r\n"
+
+		try:
+			socks = []
+			conncount = 0
+			port = 8095
+			for x in range(0,3):
+				s = socket(AF_INET, SOCK_STREAM)
+				s.settimeout(2)
+				s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+				s.bind(('127.0.0.6', port))
+				s.connect(("127.0.0.1", 8081))
+				socks.append(s)
+				print(len(socks)) 
+				conncount += 1
+				port += conncount
+#				time.sleep(0.55555)
+		except OSError as e:
+			print("max except:", e)
+			self.res = True
+
+		print("res:", self.res)
+#		self.s.shutdown(SHUT_RDWR)
+#		self.s.close()
+		for s in socks:
+			s.shutdown(SHUT_RDWR)
+			s.close()
+#			socks.remove(s)
+			del s
+#			time.sleep(0.2)
+
+		del socks
+		print("sks:", "after del")
+
+#		time.sleep(5)
+#		tfw.stop()
+#		tfw.del_db()
+
 	def conn_rate(self):
 		self.res = False
 		print("conn_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
 		self.cfg.add_option('ip_block', 'on')
-		self.cfg.add_option('concurrent_connections', '5')
 		self.cfg.add_option('connection_rate', '5')
-		self.cfg.add_option('connection_burst', '5')
-
-		self.cfg.add_option('request_burst', '5')
-
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
 		print("tfw start\n")
@@ -311,13 +385,15 @@ b"<html>content"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-#		tests = [self.body_timeout()]
-		tests = [self.body_timeout(), self.field_len(),\
+#		tests = [self.conn_rate()]
+		tests = [self.request_burst(), self.body_timeout(),\
+ self.field_len(),\
  self.body_len(),\
  self.host_required(), \
  self.ct_required(), self.req_method(), self.ct_vals(), self.uri_len(),\
  self.request_rate(),\
  self.conn_rate()]
+
 		tcount = 0
 		for f in tests:
 			tcount += 1
