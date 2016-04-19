@@ -92,6 +92,9 @@
  * @skb		- socket buffer containign the string data;
  * @len		- total length of compund or plain string (HTTP message body
  *		  size can be extreme large, so we need 64 bits to handle it);
+ * @eolen	- the length of string's line endings, if present (as for now,
+ *		  it should be 0 if the string has no EOL at all, 1 for LF and
+ *		  2 for CRLF);
  * @flags	- 3 most significant bytes for number of chunks of compound
  * 		  string and the least significant byte for flags;
  */
@@ -99,6 +102,7 @@ typedef struct {
 	void		*ptr;
 	struct sk_buff	*skb;
 	unsigned long	len;
+	unsigned char	eolen;
 	unsigned int	flags;
 } TfwStr;
 
@@ -191,6 +195,34 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 		n = curr_p - (char *)s->ptr;
 	}
 	s->len += n;
+}
+
+/**
+ * Returns EOL length
+ */
+static inline int
+tfw_str_eolen(const TfwStr *s)
+{
+	return s->eolen;
+}
+
+/**
+ * Updates EOL length value
+ */
+static inline void
+tfw_str_set_eolen(TfwStr *s, unsigned int eolen)
+{
+	BUG_ON(eolen > 2); /* LF and CRLF is the only valid EOL markers */
+	s->eolen = (unsigned char)eolen;
+}
+
+/**
+ * Returns total string length, including EOL
+ */
+static inline unsigned long
+tfw_str_total_len(const TfwStr *s)
+{
+	return s->len + s->eolen;
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
