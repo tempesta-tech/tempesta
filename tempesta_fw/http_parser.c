@@ -46,6 +46,9 @@ enum {
 	RGen_LWS_empty,
 	RGen_EoL, RGen__EoL,
 	RGen_Hdr,
+	RGen_HdrOther,
+	RGen_HdrOtherN,
+	RGen_HdrOtherV,
 	RGen_Body,
 	RGen_BodyChunkExt,
 	RGen_BodyReadChunk,
@@ -671,18 +674,30 @@ __FSM_STATE(st_curr) {							\
  * TODO Use AVX scan over _allowed_ alphabet.
  * TODO Split the headers to header name and header field as special headers.
  */
-#define TFW_HTTP_PARSE_HDR_OTHER(prefix)				\
-__FSM_STATE(prefix ## _HdrOther) {					\
+#define RGEN_HDR_OTHER()						\
+__FSM_STATE(RGen_HdrOther) {						\
+	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
+	/* Fall through */						\
+}									\
+__FSM_STATE(RGen_HdrOtherN) {						\
+	if (likely(IN_ALPHABET(c, hdr_a))) {				\
+		__FSM_MOVE(RGen_HdrOtherN);				\
+	} else if (likely(c == ':')) {					\
+		parser->_i_st = RGen_HdrOtherV;				\
+		__FSM_MOVE(RGen_LWS_empty);				\
+	}								\
+	return TFW_BLOCK;						\
+}									\
+__FSM_STATE(RGen_HdrOtherV) {						\
 	/* Just eat the header until EOL. */				\
 	__fsm_sz = len - (size_t)(p - data);				\
 	__fsm_ch = memchreol(p, __fsm_sz);				\
 	if (__fsm_ch) {							\
 		/* Get length of the header. */				\
 		tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_ch - data);\
-		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
 		__FSM_MOVE_n(RGen_EoL, __fsm_ch - p);			\
 	}								\
-	__FSM_MOVE_n(prefix ## _HdrOther, __fsm_sz);			\
+	__FSM_MOVE_n(RGen_HdrOtherV, __fsm_sz);				\
 }
 
 /*
@@ -1184,7 +1199,6 @@ enum {
 	Req_HdrUser_Agen,
 	Req_HdrUser_Agent,
 	Req_HdrUser_AgentV,
-	Req_HdrOther,
 	/* Body */
 	/* URI normalization. */
 	Req_UriNorm,
@@ -1880,7 +1894,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrU);
 		default:
-			__FSM_JMP(Req_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -1923,7 +1937,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrCo);
 		default:
-			__FSM_JMP(Req_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -1949,7 +1963,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrContent_T);
 		default:
-			__FSM_JMP(Req_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -1994,7 +2008,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				     msg, __req_parse_cookie,
 				     TFW_HTTP_HDR_COOKIE, 0);
 
-	TFW_HTTP_PARSE_HDR_OTHER(Req);
+	RGEN_HDR_OTHER();
 
 	/* ----------------    Request body    ---------------- */
 
@@ -2062,18 +2076,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	}
 
 	/* Cache-Control header processing. */
-	__FSM_TX_AF(Req_HdrCa, 'c', Req_HdrCac, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCac, 'h', Req_HdrCach, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCach, 'e', Req_HdrCache, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache, '-', Req_HdrCache_, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_, 'c', Req_HdrCache_C, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_C, 'o', Req_HdrCache_Co, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_Co, 'n', Req_HdrCache_Con, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_Con, 't', Req_HdrCache_Cont, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_Cont, 'r', Req_HdrCache_Contr, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_Contr, 'o', Req_HdrCache_Contro, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCache_Contro, 'l', Req_HdrCache_Control, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrCache_Control, ':', Req_HdrCache_ControlV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrCa, 'c', Req_HdrCac, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCac, 'h', Req_HdrCach, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCach, 'e', Req_HdrCache, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache, '-', Req_HdrCache_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_, 'c', Req_HdrCache_C, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_C, 'o', Req_HdrCache_Co, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_Co, 'n', Req_HdrCache_Con, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_Con, 't', Req_HdrCache_Cont, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_Cont, 'r', Req_HdrCache_Contr, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_Contr, 'o', Req_HdrCache_Contro, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCache_Contro, 'l', Req_HdrCache_Control, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrCache_Control, ':', Req_HdrCache_ControlV, RGen_HdrOther);
 
 	__FSM_STATE(Req_HdrCo) {
 		switch (LC(c)) {
@@ -2082,7 +2096,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'o':
 			__FSM_MOVE(Req_HdrCoo);
 		default:
-			__FSM_JMP(Req_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -2094,105 +2108,104 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 't':
 			__FSM_MOVE(Req_HdrCont);
 		default:
-			__FSM_JMP(Req_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
-	__FSM_TX_AF(Req_HdrConn, 'e', Req_HdrConne, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConne, 'c', Req_HdrConnec, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConnec, 't', Req_HdrConnect, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConnect, 'i', Req_HdrConnecti, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConnecti, 'o', Req_HdrConnectio, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConnectio, 'n', Req_HdrConnection, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrConnection, ':', Req_HdrConnectionV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrConn, 'e', Req_HdrConne, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConne, 'c', Req_HdrConnec, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConnec, 't', Req_HdrConnect, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConnect, 'i', Req_HdrConnecti, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConnecti, 'o', Req_HdrConnectio, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConnectio, 'n', Req_HdrConnection, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrConnection, ':', Req_HdrConnectionV, RGen_HdrOther);
 
 	/* Content-* headers processing. */
-	__FSM_TX_AF(Req_HdrCont, 'e', Req_HdrConte, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConte, 'n', Req_HdrConten, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrConten, 't', Req_HdrContent, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent, '-', Req_HdrContent_, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrCont, 'e', Req_HdrConte, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConte, 'n', Req_HdrConten, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrConten, 't', Req_HdrContent, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent, '-', Req_HdrContent_, RGen_HdrOther);
 
 	/* Content-Length header processing. */
-	__FSM_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Len, 'g', Req_HdrContent_Leng, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Leng, 't', Req_HdrContent_Lengt, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Lengt, 'h', Req_HdrContent_Length, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrContent_Length, ':', Req_HdrContent_LengthV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Len, 'g', Req_HdrContent_Leng, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Leng, 't', Req_HdrContent_Lengt, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Lengt, 'h', Req_HdrContent_Length, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrContent_Length, ':', Req_HdrContent_LengthV, RGen_HdrOther);
 
 	/* Content-Type header processing. */
-	__FSM_TX_AF(Req_HdrContent_T, 'y', Req_HdrContent_Ty, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrContent_Typ, 'e', Req_HdrContent_Type, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrContent_Type, ':', Req_HdrContent_TypeV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_T, 'y', Req_HdrContent_Ty, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrContent_Typ, 'e', Req_HdrContent_Type, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrContent_Type, ':', Req_HdrContent_TypeV, RGen_HdrOther);
 
 	/* Host header processing. */
-	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost, RGen_HdrOther);
 	/* NOTE: Allow empty host field-value there. RFC 7230 5.4. */
 	__FSM_STATE(Req_HdrHost) {
-		if (likely(tolower(c) == ':')) {
+		if (likely(c == ':')) {
 			parser->_i_st = Req_HdrHostV;
 			__FSM_MOVE(RGen_LWS_empty);
 		}
-		/* It should be checked in Req_HdrOther if `:` is allowed */
-		__FSM_JMP(Req_HdrOther);
+		__FSM_JMP(RGen_HdrOther);
 	}
 
 	/* Transfer-Encoding header processing. */
-	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTr, 'a', Req_HdrTra, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTra, 'n', Req_HdrTran, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTran, 's', Req_HdrTrans, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTrans, 'f', Req_HdrTransf, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransf, 'e', Req_HdrTransfe, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfe, 'r', Req_HdrTransfer, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer, '-', Req_HdrTransfer_, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_, 'e', Req_HdrTransfer_E, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_E, 'n', Req_HdrTransfer_En, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_En, 'c', Req_HdrTransfer_Enc, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_Enc, 'o', Req_HdrTransfer_Enco, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_Enco, 'd', Req_HdrTransfer_Encod, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_Encod, 'i', Req_HdrTransfer_Encodi, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_Encodi, 'n', Req_HdrTransfer_Encodin, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrTransfer_Encoding, ':', Req_HdrTransfer_EncodingV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTr, 'a', Req_HdrTra, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTra, 'n', Req_HdrTran, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTran, 's', Req_HdrTrans, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTrans, 'f', Req_HdrTransf, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransf, 'e', Req_HdrTransfe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfe, 'r', Req_HdrTransfer, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer, '-', Req_HdrTransfer_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_, 'e', Req_HdrTransfer_E, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_E, 'n', Req_HdrTransfer_En, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_En, 'c', Req_HdrTransfer_Enc, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_Enc, 'o', Req_HdrTransfer_Enco, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_Enco, 'd', Req_HdrTransfer_Encod, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_Encod, 'i', Req_HdrTransfer_Encodi, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_Encodi, 'n', Req_HdrTransfer_Encodin, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrTransfer_Encoding, ':', Req_HdrTransfer_EncodingV, RGen_HdrOther);
 
 	/* X-Forwarded-For header processing. */
-	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_, 'f', Req_HdrX_F, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forw, 'a', Req_HdrX_Forwa, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwa, 'r', Req_HdrX_Forwar, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwar, 'd', Req_HdrX_Forward, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forward, 'e', Req_HdrX_Forwarde, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwarde, 'd', Req_HdrX_Forwarded, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwarded, '-', Req_HdrX_Forwarded_, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwarded_, 'f', Req_HdrX_Forwarded_F, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_For, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_, 'f', Req_HdrX_F, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forw, 'a', Req_HdrX_Forwa, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwa, 'r', Req_HdrX_Forwar, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwar, 'd', Req_HdrX_Forward, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forward, 'e', Req_HdrX_Forwarde, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarde, 'd', Req_HdrX_Forwarded, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded, '-', Req_HdrX_Forwarded_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_, 'f', Req_HdrX_Forwarded_F, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_For, RGen_HdrOther);
 	/* NOTE: we don't eat LWS here because RGEN_LWS() doesn't allow '[' after LWS. */
-	__FSM_TX_AF_LWS(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, Req_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, RGen_HdrOther);
 
 	/* User-Agent header processing. */
-	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUs, 'e', Req_HdrUse, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUse, 'r', Req_HdrUser, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser, '-', Req_HdrUser_, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser_, 'a', Req_HdrUser_A, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser_A, 'g', Req_HdrUser_Ag, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser_Ag, 'e', Req_HdrUser_Age, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrUser_Agen, 't', Req_HdrUser_Agent, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrUser_Agent, ':', Req_HdrUser_AgentV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUs, 'e', Req_HdrUse, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUse, 'r', Req_HdrUser, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser, '-', Req_HdrUser_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_, 'a', Req_HdrUser_A, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_A, 'g', Req_HdrUser_Ag, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Ag, 'e', Req_HdrUser_Age, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrUser_Agen, 't', Req_HdrUser_Agent, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrUser_Agent, ':', Req_HdrUser_AgentV, RGen_HdrOther);
 
 	/* Cookie header processing. */
-	__FSM_TX_AF(Req_HdrCoo, 'k', Req_HdrCook, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCook, 'i', Req_HdrCooki, Req_HdrOther);
-	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie, Req_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrCookie, ':', Req_HdrCookieV, Req_HdrOther);
+	__FSM_TX_AF(Req_HdrCoo, 'k', Req_HdrCook, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCook, 'i', Req_HdrCooki, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrCookie, ':', Req_HdrCookieV, RGen_HdrOther);
 
 	}
 	__FSM_FINISH(req);
@@ -2792,7 +2805,6 @@ enum {
 	Resp_HdrTransfer_Encodin,
 	Resp_HdrTransfer_Encoding,
 	Resp_HdrTransfer_EncodingV,
-	Resp_HdrOther,
 	Resp_HdrDone,
 };
 
@@ -2943,7 +2955,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrT);
 		default:
-			__FSM_JMP(Resp_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -2979,7 +2991,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(Resp_HdrConnection, 9);
 			__FSM_MOVE(Resp_HdrCo);
 		default:
-			__FSM_JMP(Resp_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -3005,7 +3017,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrContent_T);
 		default:
-			__FSM_JMP(Resp_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
 
@@ -3043,7 +3055,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
 				  msg, __parse_transfer_encoding);
 
-	TFW_HTTP_PARSE_HDR_OTHER(Resp);
+	RGEN_HDR_OTHER();
 
 	/* ----------------    Response body    ---------------- */
 
@@ -3073,21 +3085,21 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCode);
 
 	/* Cache-Control header processing. */
-	__FSM_TX_AF(Resp_HdrCa, 'c', Resp_HdrCac, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCac, 'h', Resp_HdrCach, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCach, 'e', Resp_HdrCache, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache, '-', Resp_HdrCache_, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_, 'c', Resp_HdrCache_C, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_C, 'o', Resp_HdrCache_Co, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_Co, 'n', Resp_HdrCache_Con, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_Con, 't', Resp_HdrCache_Cont, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_Cont, 'r', Resp_HdrCache_Contr, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_Contr, 'o', Resp_HdrCache_Contro, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrCache_Contro, 'l', Resp_HdrCache_Control, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrCache_Control, ':', Resp_HdrCache_ControlV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrCa, 'c', Resp_HdrCac, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCac, 'h', Resp_HdrCach, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCach, 'e', Resp_HdrCache, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache, '-', Resp_HdrCache_, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_, 'c', Resp_HdrCache_C, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_C, 'o', Resp_HdrCache_Co, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_Co, 'n', Resp_HdrCache_Con, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_Con, 't', Resp_HdrCache_Cont, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_Cont, 'r', Resp_HdrCache_Contr, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_Contr, 'o', Resp_HdrCache_Contro, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrCache_Contro, 'l', Resp_HdrCache_Control, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrCache_Control, ':', Resp_HdrCache_ControlV, RGen_HdrOther);
 
 	/* Connection header processing. */
-	__FSM_TX_AF(Resp_HdrCo, 'n', Resp_HdrCon, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrCo, 'n', Resp_HdrCon, RGen_HdrOther);
 	__FSM_STATE(Resp_HdrCon) {
 		switch (LC(c)) {
 		case 'n':
@@ -3095,84 +3107,84 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case 't':
 			__FSM_MOVE(Resp_HdrCont);
 		default:
-			__FSM_JMP(Resp_HdrOther);
+			__FSM_JMP(RGen_HdrOther);
 		}
 	}
-	__FSM_TX_AF(Resp_HdrConn, 'e', Resp_HdrConne, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConne, 'c', Resp_HdrConnec, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConnec, 't', Resp_HdrConnect, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConnect, 'i', Resp_HdrConnecti, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConnecti, 'o', Resp_HdrConnectio, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConnectio, 'n', Resp_HdrConnection, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrConnection, ':', Resp_HdrConnectionV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrConn, 'e', Resp_HdrConne, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConne, 'c', Resp_HdrConnec, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConnec, 't', Resp_HdrConnect, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConnect, 'i', Resp_HdrConnecti, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConnecti, 'o', Resp_HdrConnectio, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConnectio, 'n', Resp_HdrConnection, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrConnection, ':', Resp_HdrConnectionV, RGen_HdrOther);
 
 	/* Content-* headers processing. */
-	__FSM_TX_AF(Resp_HdrCont, 'e', Resp_HdrConte, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConte, 'n', Resp_HdrConten, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrConten, 't', Resp_HdrContent, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent, '-', Resp_HdrContent_, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrCont, 'e', Resp_HdrConte, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConte, 'n', Resp_HdrConten, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrConten, 't', Resp_HdrContent, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent, '-', Resp_HdrContent_, RGen_HdrOther);
 
 	/* Content-Length header processing. */
-	__FSM_TX_AF(Resp_HdrContent_L, 'e', Resp_HdrContent_Le, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Le, 'n', Resp_HdrContent_Len, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Len, 'g', Resp_HdrContent_Leng, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Leng, 't', Resp_HdrContent_Lengt, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Lengt, 'h', Resp_HdrContent_Length, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrContent_Length, ':', Resp_HdrContent_LengthV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_L, 'e', Resp_HdrContent_Le, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Le, 'n', Resp_HdrContent_Len, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Len, 'g', Resp_HdrContent_Leng, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Leng, 't', Resp_HdrContent_Lengt, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Lengt, 'h', Resp_HdrContent_Length, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrContent_Length, ':', Resp_HdrContent_LengthV, RGen_HdrOther);
 
 	/* Content-Type header processing. */
-	__FSM_TX_AF(Resp_HdrContent_T, 'y', Resp_HdrContent_Ty, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Ty, 'p', Resp_HdrContent_Typ, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrContent_Typ, 'e', Resp_HdrContent_Type, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_T, 'y', Resp_HdrContent_Ty, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Ty, 'p', Resp_HdrContent_Typ, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrContent_Typ, 'e', Resp_HdrContent_Type, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, RGen_HdrOther);
 
 	/* Expires header processing. */
-	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrEx, 'p', Resp_HdrExp, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrExp, 'i', Resp_HdrExpi, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrExpi, 'r', Resp_HdrExpir, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrExpir, 'e', Resp_HdrExpire, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrExpire, 's', Resp_HdrExpires, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrExpires, ':', Resp_HdrExpiresV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrEx, 'p', Resp_HdrExp, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrExp, 'i', Resp_HdrExpi, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrExpi, 'r', Resp_HdrExpir, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrExpir, 'e', Resp_HdrExpire, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrExpire, 's', Resp_HdrExpires, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrExpires, ':', Resp_HdrExpiresV, RGen_HdrOther);
 
 	/* Keep-Alive header processing. */
-	__FSM_TX_AF(Resp_HdrK, 'e', Resp_HdrKe, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKe, 'e', Resp_HdrKee, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKee, 'p', Resp_HdrKeep, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep, '-', Resp_HdrKeep_, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep_, 'a', Resp_HdrKeep_A, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep_A, 'l', Resp_HdrKeep_Al, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep_Al, 'i', Resp_HdrKeep_Ali, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep_Ali, 'v', Resp_HdrKeep_Aliv, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrKeep_Aliv, 'e', Resp_HdrKeep_Alive, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrK, 'e', Resp_HdrKe, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKe, 'e', Resp_HdrKee, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKee, 'p', Resp_HdrKeep, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep, '-', Resp_HdrKeep_, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep_, 'a', Resp_HdrKeep_A, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep_A, 'l', Resp_HdrKeep_Al, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep_Al, 'i', Resp_HdrKeep_Ali, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep_Ali, 'v', Resp_HdrKeep_Aliv, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrKeep_Aliv, 'e', Resp_HdrKeep_Alive, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, RGen_HdrOther);
 
 	/* Server header processing. */
-	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrSe, 'r', Resp_HdrSer, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrServer, ':', Resp_HdrServerV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrSe, 'r', Resp_HdrSer, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrServer, ':', Resp_HdrServerV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
-	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTr, 'a', Resp_HdrTra, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTra, 'n', Resp_HdrTran, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTran, 's', Resp_HdrTrans, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTrans, 'f', Resp_HdrTransf, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransf, 'e', Resp_HdrTransfe, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfe, 'r', Resp_HdrTransfer, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer, '-', Resp_HdrTransfer_, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_, 'e', Resp_HdrTransfer_E, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_E, 'n', Resp_HdrTransfer_En, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_En, 'c', Resp_HdrTransfer_Enc, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_Enc, 'o', Resp_HdrTransfer_Enco, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_Enco, 'd', Resp_HdrTransfer_Encod, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_Encod, 'i', Resp_HdrTransfer_Encodi, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin, Resp_HdrOther);
-	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding, Resp_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrTransfer_Encoding, ':', Resp_HdrTransfer_EncodingV, Resp_HdrOther);
+	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTr, 'a', Resp_HdrTra, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTra, 'n', Resp_HdrTran, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTran, 's', Resp_HdrTrans, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTrans, 'f', Resp_HdrTransf, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransf, 'e', Resp_HdrTransfe, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfe, 'r', Resp_HdrTransfer, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer, '-', Resp_HdrTransfer_, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_, 'e', Resp_HdrTransfer_E, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_E, 'n', Resp_HdrTransfer_En, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_En, 'c', Resp_HdrTransfer_Enc, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_Enc, 'o', Resp_HdrTransfer_Enco, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_Enco, 'd', Resp_HdrTransfer_Encod, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_Encod, 'i', Resp_HdrTransfer_Encodi, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrTransfer_Encoding, ':', Resp_HdrTransfer_EncodingV, RGen_HdrOther);
 
 	}
 	__FSM_FINISH(resp);
