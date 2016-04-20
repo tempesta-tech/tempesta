@@ -216,6 +216,42 @@ b"Connection: Keep-alive\r\n\r\n"
 		time.sleep(5)
 		tfw.stop()
 
+	def conn_burst(self):
+		self.res = False
+		print("conn_burst\n")
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('ip_block', 'on')
+		self.cfg.add_option('connection_burst', '1')
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
+b"Connection: Keep-Alive\r\n\r\n"
+
+		try:
+			conncount = 0
+			port = 8095
+			for x in range(0,7):
+				self.s = socket(AF_INET, SOCK_STREAM)
+				self.s.settimeout(2)
+				self.s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+				self.s.bind(('127.0.0.7', port))
+				self.s.connect(("127.0.0.1", 8081))
+
+				conncount += 1
+				port += conncount
+
+		except OSError as e:
+			self.res = True
+
+		print("res:", self.res)
+		self.s.shutdown(SHUT_RDWR)
+		self.s.close()
+		time.sleep(5)
+		tfw.stop()
+		tfw.del_db()
+
 	def host_required(self):
 		print("host_required")
 		self.res = False
@@ -385,8 +421,9 @@ b"<html>content"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-#		tests = [self.conn_rate()]
-		tests = [self.request_burst(), self.body_timeout(),\
+#		tests = [self.conn_burst()]
+		tests = [self.conn_burst(), self.request_burst(),\
+ self.body_timeout(),\
  self.field_len(),\
  self.body_len(),\
  self.host_required(), \
