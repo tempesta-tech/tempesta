@@ -128,7 +128,9 @@ typedef struct {
  * @to_read	- remaining number of bytes to read;
  * @_hdr_tag	- describes, which header should be closed in case of
  *		  the empty header (see RGEN_LWS_empty)
- * @_tmp_acc	- integer accumulator for parsing chunked integers;
+ * @_tmp	- temporary register used to store context-specific data
+ *                  acc) integer accumulator for parsing chunked integers;
+ *                  eol) track of CR/LF delimiters while hunting for EOL;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -137,7 +139,10 @@ typedef struct {
 	int		state;
 	int		_i_st;
 	int		to_read;
-	unsigned long	_tmp_acc;
+	union {
+		unsigned long acc;
+		unsigned long eol;
+	} _tmp;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
