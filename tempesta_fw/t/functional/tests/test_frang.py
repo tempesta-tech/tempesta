@@ -449,12 +449,42 @@ b"<html>content"
 		time.sleep(5)
 		tfw.stop()
 
+	def body_chunks(self):
+		print("body_chunks")
+		part1 = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n" +\
+b"Content-Type: text/html\r\n" +\
+b"Content-Length: 30\r\n\r\n" +\
+b"<html><body>content" 
+		part2 = b"</body>"
+		part3 = b"<html>\r\n\r\n"
+
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('http_ct_vals', '[\"text/html\"]')
+		self.cfg.add_option('http_body_chunk_cnt', '1')
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s = socket(AF_INET, SOCK_STREAM)
+		self.s.connect(('127.0.0.1', 8081))
+		self.s.send(part1)
+		self.s.send(part2)
+		self.s.send(part3)
+		data = self.s.recv(1024)
+		if len(data) == 0:
+			self.res = True
+		print("res:", self.res)
+		time.sleep(5)
+		tfw.stop()
+
+
 
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-#		tests = [self.header_chunks()]
-		tests = [self.header_chunks(), self.conn_burst(),\
+#		tests = [self.body_chunks()]
+		tests = [self.body_chunks(), self.header_chunks(),\
+ self.conn_burst(),\
  self.request_burst(),\
  self.body_timeout(),\
  self.field_len(),\
