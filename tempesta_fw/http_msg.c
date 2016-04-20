@@ -463,6 +463,11 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 
 /**
  * Substitute header value.
+ *
+ * Note: The substitute string @hdr has CRLF as EOL. The original string
+ * @orig_hdr may have a single LF as EOL. We may want to follow the EOL
+ * pattern of the original. For that, the EOL of @hdr needs to be made
+ * the same as in the original header field string.
  */
 static int
 __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
@@ -483,25 +488,23 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 
 	/*
 	 * EOL bytes are not a part of a header field string in Tempesta.
-	 * Therefore only @orig_hdr->len bytes at most can be copied over. The
-	 * EOL has been normalized to be the same for both strings. If the
-	 * substitute string without the EOL fits into that space, then the fast
-	 * path can be used. Otherwise, go by the slow path.
+	 * Therefore only @orig_hdr->len bytes at most can be copied over.
+	 * If the substitute string without the EOL fits into that space,
+	 * then the fast path can be used. Otherwise, go by the slow path.
 	 */
-
 	if (!TFW_STR_DUP(orig_hdr) && ((hdr.len - 2) <= orig_hdr->len)) {
 		BUG_ON(!tfw_str_eolen(orig_hdr));
 
 		/*
-		 * We are trying to reuse EOL from the @orig_hdr, so removing
-		 * EOL chunk of the @hdr is needed.
+		 * We are trying to reuse EOL from the @orig_hdr,
+		 * so remove the EOL chunk of the @hdr.
 		 */
 		hdr.len -= 2;
 		TFW_STR_CHUNKN_SUB(&hdr, 1);
 
 		/*
-		 * Adjust @orig_hdr to fit no more than @hdr->len bytes. Do not
-		 * call @ss_skb_cutoff_data if no adjustment needs to be done.
+		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
+		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
 		 */
 		if (hdr.len != orig_hdr->len &&
 		    ss_skb_cutoff_data(orig_hdr, hdr.len, 0))
@@ -526,6 +529,11 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
  * If @append is true, then @val will be concatenated to current
  * header with @hid and @name, otherwise a new header will be created
  * if the message has no the header.
+ *
+ * Note: The substitute string @new_hdr has CRLF as EOL. The original
+ * string @orig_hdr may have a single LF as EOL. We may want to follow
+ * the EOL pattern of the original. For that, the EOL of @new_hdr needs
+ * to be made the same as in the original header field string.
  *
  * TODO accept TfwStr as header value.
  */
