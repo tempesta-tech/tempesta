@@ -3,7 +3,7 @@
  *
  * User-space communication routines.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -11,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -39,8 +39,8 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 	TdbMsg *m;
 	struct nlmsghdr *nlh;
 
-	nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
-			cb->nlh->nlmsg_type, TDB_NLMSG_MAXSZ, 0);
+	nlh = nlmsg_put_answer(skb, cb, cb->nlh->nlmsg_type,
+			       TDB_NLMSG_MAXSZ, 0);
 	if (!nlh)
 		return -EMSGSIZE;
 
@@ -52,6 +52,10 @@ tdb_if_info(struct sk_buff *skb, struct netlink_callback *cb)
 	m->rec_n = 1;
 	m->recs[0].klen = 0;
 	m->recs[0].dlen = tdb_info(m->recs[0].data, TDB_NLMSG_MAXSZ);
+	TDB_DBG("AK_DBG %s:%d nlh=%p m=%p nlmsg_type=%u nlmsg_len=%u dlen=%u"
+		" cb->data, skb->len=%u\n", __func__, __LINE__,
+		nlh, m, nlh->nlmsg_type,  nlh->nlmsg_len, m->recs[0].dlen,
+		cb->data, skb->len);
 	if (m->recs[0].dlen <= 0) {
 		nlmsg_cancel(skb, nlh);
 		return m->recs[0].dlen;
@@ -68,8 +72,8 @@ tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 	struct nlmsghdr *nlh;
 
 	/* Create status response. */
-	nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
-			cb->nlh->nlmsg_type, sizeof(TdbMsg), 0);
+	nlh = nlmsg_put_answer(skb, cb, cb->nlh->nlmsg_type,
+			       sizeof(TdbMsg), 0);
 	if (!nlh)
 		return -EMSGSIZE;
 
@@ -78,7 +82,8 @@ tdb_if_open_close(struct sk_buff *skb, struct netlink_callback *cb)
 
 	if (m->type == TDB_MSG_OPEN) {
 		resp_m->type = TDB_MSG_OPEN;
-		if (tdb_open(ct->path, ct->tbl_size, ct->rec_size, numa_node_id()))
+		if (tdb_open(ct->path, ct->tbl_size, ct->rec_size,
+			     numa_node_id()))
 			resp_m->type |= TDB_NLF_RESP_OK;
 	} else {
 		TDB *db;
@@ -276,6 +281,9 @@ tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	}
 
 	m = nlmsg_data(nlh);
+
+	TDB_DBG("netlink msg: %s, m=%p type=%u recs=%u\n",
+		m->t_name, m, m->type, m->rec_n);
 
 	/* Check the message type and do consistency checking for each type. */
 	switch (m->type) {

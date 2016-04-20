@@ -24,6 +24,8 @@
 
 #include "extent.h"
 
+#define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
+
 #ifndef NETLINK_TEMPESTA
 #define NETLINK_TEMPESTA	22
 #endif

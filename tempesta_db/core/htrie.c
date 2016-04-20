@@ -28,7 +28,6 @@
 
 #include "htrie.h"
 
-#define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
 #define TDB_BLK_SZ	PAGE_SIZE
 #define TDB_BLK_MASK	(~(TDB_BLK_SZ - 1))
 

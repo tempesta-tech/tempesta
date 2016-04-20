@@ -7,7 +7,7 @@
  * Update the code when the library support the feature,
  * track status of https://github.com/thom311/libnl/issues/33.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -15,8 +15,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -24,6 +24,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -31,9 +32,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <iostream> // AK_DBG
 #include <sstream>
+#include <boost/filesystem.hpp>
 
 #include "libtdb.h"
+
+namespace fs = boost::filesystem;
 
 bool debug = false;
 
@@ -106,7 +111,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 	// Call poll(2) just for internal netlink mmap flow control.
 	pollfd pfds[1];
 	do {
-		pfds[0].fd	= fd_;
+		pfds[0].fd	= sd_;
 		pfds[0].events	= POLLIN | POLLERR;
 		pfds[0].revents	= 0;
 		if ((poll(pfds, 1, -1) < 0 && errno != -EINTR)
@@ -119,6 +124,10 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 
 		// Get next frame header.
 		nl_mmap_hdr *hdr = (nl_mmap_hdr *)(rx_ring_ + rx_fr_off_);
+		std::cout << "AK_DBG hdr=" << (void *)hdr
+			<< " rx_ring=" << (void *)rx_ring_
+			<< " hdr->nm_status=" << hdr->nm_status
+			<< " hdr->nm_len=" << hdr->nm_len << std::endl;
 
 		if (hdr->nm_status == NL_MMAP_STATUS_VALID) {
 			last_status_.set_copying(false);
@@ -137,7 +146,7 @@ TdbHndl::msg_recv(std::function<bool (nlmsghdr *)> msg_cb)
 			lazy_buffer_alloc();
 
 			// Frame is queued to socket receive queue.
-			ssize_t r = recv(fd_, buf_, NL_FR_SZ, MSG_DONTWAIT);
+			ssize_t r = recv(sd_, buf_, NL_FR_SZ, MSG_DONTWAIT);
 			if (r <= 0)
 				throw TdbExcept("cannot copy msg");
 			nlh = (nlmsghdr *)buf_;
@@ -159,7 +168,7 @@ TdbHndl::send_to_kernel()
 	sockaddr_nl addr = {
 		.nl_family	= AF_NETLINK,
 	};
-	if (sendto(fd_, NULL, 0, 0, (const sockaddr *)&addr, sizeof(addr)) < 0)
+	if (sendto(sd_, NULL, 0, 0, (const sockaddr *)&addr, sizeof(addr)) < 0)
 		throw TdbExcept("cannot send msg to kernel");
 
 	advance_frame_offset(tx_fr_off_);
@@ -264,6 +273,8 @@ TdbHndl::get_info(std::function<void (char *)> data_cb)
 
 	msg_recv([this, &data_cb](nlmsghdr *nlh) -> bool {
 		// Consistency checking.
+		std::cout << "AK_DBG: msg->type = " << nlh->nlmsg_type
+			<< ", msg->len = " << nlh->nlmsg_len << std::endl;
 		if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(TdbMsg)
 				     + sizeof(TdbMsgRec))
 			throw TdbExcept("bad info msg len %u", nlh->nlmsg_len);
@@ -338,6 +349,44 @@ TdbHndl::open_table(std::string &db_path, std::string &tbl_name,
 
 		return false;
 	});
+
+	map_table(db_path, tbl_name);
+}
+
+typedef struct {
+	unsigned long		magic;
+	unsigned long		dbsz;
+	unsigned long		nwb;
+	void			*pcpu;
+	unsigned int		rec_len;
+	unsigned char		_padding[8 * 3 + 4];
+	unsigned long		ext_bmp[0];
+} __attribute__((packed)) TdbHdr;
+
+void
+TdbHndl::map_table(std::string &db_path, std::string &tbl_name, int node)
+{
+	fs::path path(db_path + "/" + tbl_name + std::to_string(node)
+		      + TDB_SUFFIX);
+	if (!fs::exists(path) || !fs::is_regular_file(path))
+		throw TdbExcept("bad file path: " + path.string());
+
+	size_t size = fs::file_size(path);
+	if (size & ~TDB_EXT_MASK)
+		throw TdbExcept("table size must be multiple of extent size");
+
+	// boost::mapped_file is poorly debugged piece of crap,
+	// so use nice and robust C for file mapping.
+	int fd = ::open(path.string().c_str(), O_RDWR);
+	if (fd < 0)
+		throw TdbExcept("cannot open " + path.string());
+	TdbHdr *hdr = static_cast<TdbHdr *>(::mmap(NULL, size,
+						   PROT_READ | PROT_WRITE,
+						   MAP_SHARED, fd, 0));
+	if (hdr == MAP_FAILED)
+		throw TdbExcept("cannot map file " + path.string());
+	if (hdr->magic != TDB_MAGIC)
+		throw TdbExcept("bad mapping " + path.string());
 }
 
 void
@@ -489,15 +538,15 @@ TdbHndl::TdbHndl(size_t mm_sz)
 	tx_fr_off_(0),
 	buf_(NULL)
 {
-	fd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_TEMPESTA);
-	if (fd_ < 0)
+	sd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_TEMPESTA);
+	if (sd_ < 0)
 		throw TdbExcept("cannot create netlink socket");
 
 	sockaddr_nl addr = {
 		.nl_family	= AF_NETLINK,
 	};
 	addr.nl_pid = getpid();
-	if (bind(fd_, (const sockaddr *)&addr, sizeof(addr)))
+	if (bind(sd_, (const sockaddr *)&addr, sizeof(addr)))
 		throw TdbExcept("cannot bind netlink socket");
 
 	unsigned int blk_sz = 16 * getpagesize();
@@ -509,16 +558,16 @@ TdbHndl::TdbHndl(size_t mm_sz)
 	};
 
 	// Configure ring parameters.
-	if (setsockopt(fd_, SOL_NETLINK, NETLINK_RX_RING,
+	if (setsockopt(sd_, SOL_NETLINK, NETLINK_RX_RING,
 		       &req, sizeof(req)) < 0)
 		throw TdbExcept("cannot setup netlink rx ring");
-	if (setsockopt(fd_, SOL_NETLINK, NETLINK_TX_RING,
+	if (setsockopt(sd_, SOL_NETLINK, NETLINK_TX_RING,
 		       &req, sizeof(req)) < 0)
 		throw TdbExcept("cannot setup netlink tx ring");
 
 	// Map RX/TX rings. The TX ring is located after the RX ring.
 	rx_ring_ = (char *)mmap(NULL, mm_sz, PROT_READ | PROT_WRITE,
-				MAP_SHARED, fd_, 0);
+				MAP_SHARED, sd_, 0);
 	if ((long)rx_ring_ == -1L)
 		throw TdbExcept("cannot mmap() netlink rings");
 
@@ -530,5 +579,5 @@ TdbHndl::~TdbHndl() noexcept
 	free(buf_);
 
 	munmap(rx_ring_, ring_sz_ * 2);
-	close(fd_);
+	close(sd_);
 }

@@ -1,7 +1,7 @@
 /**
  *		Tempesta DB User-space Library Definitions
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -9,8 +9,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -91,6 +91,8 @@ public:
 	void get_info(std::function<void (char *)> data_cb);
 	void open_table(std::string &db_path, std::string &tbl_name,
 			size_t pages, unsigned int rec_size);
+	void map_table(std::string &db_path, std::string &tbl_name,
+		       int node = 0);
 	void close_table(std::string &tbl_name);
 	void insert(std::string &tbl_name, size_t klen, size_t vlen,
 		    std::function<void (char *, char *)> placement_cb);
@@ -110,7 +112,7 @@ private:
 	void msg_send(std::function<void (nlmsghdr *)> msg_build_cb);
 
 private:
-	int fd_;
+	int sd_;
 	size_t ring_sz_;
 	unsigned int rx_fr_off_, tx_fr_off_;
 	char *rx_ring_, *tx_ring_;

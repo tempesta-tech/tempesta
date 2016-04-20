@@ -1,6 +1,6 @@
 #		Tempesta DB User-space Library
 #
-# Copyright (C) 2015 Tempesta Technologies.
+# Copyright (C) 2015-2016 Tempesta Technologies.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 CXX		= g++
 # Use gnu++11 instead of c++11 for standard C header compatibility.
 CFLAGS		= -O2 -std=gnu++11 -ggdb -Wall
-LDFLAGS		= -shared -fPIC
+LDFLAGS		= -shared -fPIC -lboost_filesystem
 INCLUDES	= -I../core
 
 OBJECTS	= handler.o

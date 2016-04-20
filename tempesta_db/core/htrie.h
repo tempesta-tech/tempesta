@@ -57,6 +57,7 @@
  * which is 1/3 of supported per-socket RAM by modern x86-64.
  */
 #define TDB_HTRIE_DBIT		(1U << (sizeof(int) * 8 - 1))
+// FIXME unused
 #define TDB_HTRIE_OMASK		(TDB_HTRIE_DBIT - 1) /* offset mask */
 #define TDB_HTRIE_IDX(k, b)	(((k) >> (b)) & TDB_HTRIE_KMASK)
 #define TDB_EXT_BMP_2L(h)	(((h)->dbsz / TDB_EXT_SZ + BITS_PER_LONG - 1)\

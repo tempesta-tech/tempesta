@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,10 +28,11 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.15"
+#define TDB_VERSION	"0.2.0"
+#define TDB_NAME	"Tempesta DB"
 
 MODULE_AUTHOR("Tempesta Technologies");
-MODULE_DESCRIPTION("Tempesta DB");
+MODULE_DESCRIPTION(TDB_NAME);
 MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
 
@@ -285,7 +286,7 @@ tdb_init(void)
 {
 	int r;
 
-	TDB_LOG("Start Tempesta DB\n");
+	TDB_LOG("Start " TDB_NAME " (v." TDB_VERSION ")\n");
 
 	r = tdb_init_mappings();
 	if (r)
@@ -301,7 +302,7 @@ tdb_init(void)
 static void __exit
 tdb_exit(void)
 {
-	TDB_LOG("Shutdown Tempesta DB\n");
+	TDB_LOG("Shutdown " TDB_NAME "\n");
 
 	tdb_if_exit();
 

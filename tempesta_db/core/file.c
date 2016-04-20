@@ -4,7 +4,7 @@
  * File mapping and IO.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,8 +12,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -102,17 +102,6 @@ ma_split(MArea *ma, unsigned long len)
 	return ret;
 }
 
-static MArea *
-ma_lookup(unsigned long addr, int node)
-{
-	MArea *ma;
-
-	for (ma = &mas[node]; ma; ma = ma->next)
-		if (ma->start == addr)
-			return ma;
-	return NULL;
-}
-
 /**
  * Merge two free memory areas if they aren't the same.
  */
@@ -139,7 +128,7 @@ __ma_merge(MArea *left, MArea *right)
  * Never tries to free staticaly allocated MArea.
  */
 static void
-__ma_free(MArea *ma)
+ma_free(MArea *ma)
 {
 	ma->flags &= ~MA_F_USED;
 	if (ma->prev)
@@ -148,28 +137,40 @@ __ma_free(MArea *ma)
 		__ma_merge(ma, ma->next);
 }
 
-static void
-ma_free(unsigned long addr, int node)
+static int
+tdb_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	MArea *ma;
+	MArea *ma = file_inode(file)->i_security;
+	unsigned long p, start, size = vma->vm_end - vma->vm_start;
+	int err;
 
-	ma = ma_lookup(addr, node);
-	if (!ma) {
-		TDB_ERR("Cannot find memory area for %#lx address at node %d\n",
-			addr, node);
-		return;
+	BUG_ON(!ma);
+	TDB_DBG("mmap(): addr=%#lx pages=%lu size=%lu\n",
+		ma->start, ma->pages, size);
+
+	start = vma->vm_start;
+	for (p = 0; p < ma->pages; ++p) {
+		struct page *pg = virt_to_page(ma->start + p * PAGE_SIZE);
+		if ((err = vm_insert_page(vma, start, pg)) < 0) {
+			TDB_ERR("Cannot populate page %p by %#lx\n",
+				page_address(pg), start);
+			return err;
+		}
+		start += PAGE_SIZE;
 	}
-	__ma_free(ma);
+
+	return 0;
 }
 
 /**
  * Map file to reserved set of unswappable pages.
  */
 static unsigned long
-tempesta_map_file(struct file *file, unsigned long len, int node)
+tdb_map_file(struct file *file, unsigned long len, int node)
 {
 	mm_segment_t oldfs;
 	MArea *ma;
+	struct file_operations *fops;
 	loff_t off = 0;
 	unsigned long addr = -ENOMEM;
 
@@ -179,6 +180,14 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 			file->f_inode->i_size, len);
 		return -EBADF;
 	}
+
+	fops = kmalloc(sizeof(*fops), GFP_KERNEL);
+	if (!fops) {
+		TDB_ERR("Cannot allocate file operations\n");
+		return -ENOMEM;
+	}
+	memcpy(fops, file_inode(file)->i_fop, sizeof(*fops));
+	fops->mmap = tdb_mmap;
 
 	mutex_lock(&map_mtx);
 
@@ -203,11 +212,15 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 		TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
 			len, (void *)ma->start, addr);
 		fput(file);
-		__ma_free(ma);
+		ma_free(ma);
 		goto err_fs;
 	}
 
 	addr = ma->start;
+	file_inode(file)->i_fop = fops;
+	BUG_ON(file_inode(file)->i_security);
+	file_inode(file)->i_security = ma;
+	TDB_DBG("open inode %p\n", file_inode(file));
 err_fs:
 	set_fs(oldfs);
 err:
@@ -221,22 +234,15 @@ err:
  * Called from process context.
  */
 static void
-tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
-		    int node)
+tdb_unmap_file(struct file *file, unsigned long addr, unsigned long len,
+	       int node)
 {
 	mm_segment_t oldfs;
-	MArea *ma;
+	MArea *ma = file_inode(file)->i_security;
 	loff_t off = 0;
 	ssize_t r;
 
 	mutex_lock(&map_mtx);
-
-	ma = ma_lookup(addr, node);
-	if (!ma) {
-		TDB_ERR("Cannot sync memory area for %#lx address at node %d\n",
-		     addr, node);
-		goto err;
-	}
 
 	oldfs = get_fs();
 	set_fs(get_ds());
@@ -250,9 +256,10 @@ tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 
 err_fs:
 	set_fs(oldfs);
-err:
+	// TODO free file->f_inode->i_fop and revert original functions table
+
 	fput(file);
-	ma_free(addr, node);
+	ma_free(ma);
 
 	mutex_unlock(&map_mtx);
 }
@@ -290,7 +297,7 @@ tdb_file_open(TDB *db, unsigned long size)
 	filp->f_op->fallocate(filp, 0, 0, size);
 	sb_end_write(inode->i_sb);
 
-	addr = tempesta_map_file(filp, size, db->node);
+	addr = tdb_map_file(filp, size, db->node);
 	if (IS_ERR((void *)addr)) {
 		TDB_ERR("Cannot map file\n");
 		filp_close(filp, NULL);
@@ -311,7 +318,7 @@ tdb_file_close(TDB *db)
 	if (!db->hdr || !db->hdr->dbsz)
 		return;
 
-	tempesta_unmap_file(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
+	tdb_unmap_file(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
 			    db->node);
 
 	filp_close(db->filp, NULL);

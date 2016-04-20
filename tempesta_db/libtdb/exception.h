@@ -3,7 +3,7 @@
  *
  * Error/exceptions handling.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -11,8 +11,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -50,17 +50,13 @@ public:
 		va_end(ap);
 		str_ = msg;
 
-		// Add system error code (errno).
-		if (errno) {
-			std::stringstream ss;
-			ss << " (" << strerror(errno)
-				<< ", errno=" << errno << ")";
-			str_ += ss.str();
-		}
+		err_sysinfo();
+	}
 
-		// Add call trace symbols.
-		if (debug)
-			call_trace();
+	TdbExcept(const std::string& msg) noexcept
+		: str_(msg)
+	{
+		err_sysinfo();
 	}
 
 	~TdbExcept() noexcept
@@ -93,6 +89,22 @@ private:
 			str_ += std::string("\n\t") + btrace[i];
 
 		free(btrace);
+	}
+
+	void
+	err_sysinfo() noexcept
+	{
+		// Add system error code (errno).
+		if (errno) {
+			std::stringstream ss;
+			ss << " (" << strerror(errno)
+				<< ", errno=" << errno << ")";
+			str_ += ss.str();
+		}
+
+		// Add call trace symbols.
+		if (debug)
+			call_trace();
 	}
 };
 
