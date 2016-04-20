@@ -373,6 +373,38 @@ b"Content-type: application/xml\r\n\r\n"
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
+	def header_chunks(self):
+		print("header_chunks\n")
+#		self.vs_get = b'GET / HTTP/1.0\r\nhost: local\r\n\r\n'
+
+#		self.vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
+#		b"Content-Type: application/xml\r\n" +\
+#		b"Content-Length: 20\r\n\r\n" +\
+#		b"<html>content</html>\r\n\r\n"
+
+		part1 = b'GET / HTTP/1.0\r\n'
+		part2 = b'host: loc\r\n'
+		part3 = b'Connection: close\r\n\r\n'
+		self.__init__()
+		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('http_header_chunk_cnt', '1')
+		self.cfg.add_end_of_section()
+		tfw.start_with_frang()
+		print("tfw start\n")
+		self.s = socket(AF_INET, SOCK_STREAM)
+		self.s.connect(('127.0.0.1', 8081))
+		self.s.send(part1)
+		self.s.send(part2)
+		self.s.send(part3)
+#		self.s.send(self.vs_get)
+		data = self.s.recv(1024)
+		if len(data) == 0:
+			self.res = True
+		self.s.close()
+		time.sleep(5)
+		tfw.stop()
+		print("res:", self.res)
+
 
 	def header_timeout(self):
 		part1 = b'GET / HTTP/1.0\r\n'
@@ -421,8 +453,9 @@ b"<html>content"
 	def get_name(self):
 		return 'test Frang'
 	def run(self):
-#		tests = [self.conn_burst()]
-		tests = [self.conn_burst(), self.request_burst(),\
+#		tests = [self.header_chunks()]
+		tests = [self.header_chunks(), self.conn_burst(),\
+ self.request_burst(),\
  self.body_timeout(),\
  self.field_len(),\
  self.body_len(),\
