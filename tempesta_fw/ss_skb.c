@@ -213,8 +213,7 @@ __skb_data_address(struct sk_buff *skb)
  * @return 0 on success, -errno on failure.
  */
 static int
-__extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb,
-		 int from, int n, TfwStr *it)
+__extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 {
 	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -241,7 +240,7 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb,
 		if (nskb && !skb_headlen(nskb)
 		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
 		{
-			int r = __extend_pgfrags(nskb, NULL, 0, n_excess, it);
+			int r = __extend_pgfrags(nskb, NULL, 0, n_excess);
 			if (r)
 				return r;
 		} else {
@@ -279,7 +278,7 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb,
  */
 static int
 __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb,
-	     int size, int i, int shift, TfwStr *it)
+	     int size, int i, int shift)
 {
 	int off = 0;
 	struct page *page = NULL;
@@ -303,7 +302,7 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb,
 	}
 
 	/* Make room for @shift fragments starting with slot @i. */
-	if (__extend_pgfrags(skb, pskb, i, shift, it)) {
+	if (__extend_pgfrags(skb, pskb, i, shift)) {
 		if (frag)
 			__skb_frag_unref(frag);	/* put_page(page); */
 		else
@@ -404,10 +403,10 @@ __split_linear_data(struct sk_buff *skb, struct sk_buff *pskb,
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, pskb, len, 0, alloc + !!tail_len, it))
+		if (__new_pgfrag(skb, pskb, len, 0, alloc + !!tail_len))
 			return -EFAULT;
 	} else {
-		if (__extend_pgfrags(skb, pskb, 0, 1, it))
+		if (__extend_pgfrags(skb, pskb, 0, 1))
 			return -EFAULT;
 		tail_len += len;	/* @len is negative. */
 	}
@@ -494,7 +493,7 @@ __split_pgfrag_add(struct sk_buff *skb, struct sk_buff *pskb,
 	 * a fragment in slot @i+1, and make an extra fragment
 	 * in slot @i+2 to hold the tail data.
 	 */
-	if (__new_pgfrag(skb, pskb, len, i + !!off, 1 + !!off, it))
+	if (__new_pgfrag(skb, pskb, len, i + !!off, 1 + !!off))
 		return -EFAULT;
 
 	/* If @off is zero, the job is done in __new_pgfrag(). */
@@ -607,7 +606,7 @@ __split_pgfrag_del(struct sk_buff *skb, struct sk_buff *pskb,
 	 * Make room for a fragment right after the @i fragment
 	 * to move the tail part of data there.
 	 */
-	if (__extend_pgfrags(skb, pskb, i + 1, 1, it))
+	if (__extend_pgfrags(skb, pskb, i + 1, 1))
 		return -EFAULT;
 
 	/* Find the SKB for tail data. */
