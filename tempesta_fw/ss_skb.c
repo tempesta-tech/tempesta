@@ -226,16 +226,30 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb,
 		skb_frag_t *f;
 		struct sk_buff *nskb;
 
-		/* Allocate a new SKB to hold @n_excess page fragments. */
-		nskb = alloc_skb(0, GFP_ATOMIC);
-		if (nskb == NULL)
-			return -ENOMEM;
 		/*
 		 * The number of page fragments that don't fit in the SKB
 		 * after the room is prepared for @n page fragments.
 		 */
 		n_excess = si->nr_frags + n - MAX_SKB_FRAGS;
 
+		/*
+		 * Use the next SKB fragment if there room there for
+		 * @n_excess page fragments. Otherwise, allocate a new
+		 * SKB fragment to hold @n_excess page fragments.
+		 */
+		nskb = __next_skb_frag(skb, pskb);
+		if (nskb && !skb_headlen(nskb)
+		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
+		{
+			int r = __extend_pgfrags(nskb, NULL, 0, n_excess, it);
+			if (r)
+				return r;
+		} else {
+			nskb = alloc_skb(0, GFP_ATOMIC);
+			if (nskb == NULL)
+				return -ENOMEM;
+			__insert_skb_frag(skb, pskb, nskb);
+		}
 		/* Shift @n_excess number of page fragments to new SKB. */
 		if (from < si->nr_frags) {
 			for (i = n_excess - 1; i >= 0; --i) {
@@ -246,7 +260,6 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb,
 			}
 		}
 		skb_shinfo(nskb)->nr_frags += n_excess;
-		__insert_skb_frag(skb, pskb, nskb);
 	}
 
 	/* Make room for @n page fragments in the SKB. */
