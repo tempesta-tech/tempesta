@@ -59,7 +59,7 @@ class Test:
 		print("req_rate\n")
 		self.__init__()
 		self.cfg.add_section('frang_limits')
-		self.cfg.add_option('request_burst', '1')
+		self.cfg.add_option('request_rate', '5')
 
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
@@ -84,6 +84,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 
 	def request_burst(self):
 		global tcount
+
 		self.res = False
 		print("req_burst\n")
 		self.__init__()
