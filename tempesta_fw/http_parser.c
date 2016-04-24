@@ -103,6 +103,20 @@ memchreol(const unsigned char *s, size_t n)
 #define IS_WS(c) (c == ' ' || c == '\t')
 
 /**
+ * When parsing it's necessary to not forget to update @data and @len
+ * properly. So, __data_{} macros help to reduce the amount of direct
+ * @data/@len manipulations.
+ */
+#define __data_offset(pos)						\
+	(size_t)((pos) - data)
+#define __data_remain(pos)						\
+	(len - __data_offset(pos))
+#define __data_rebase(pos)						\
+	len -= __data_offset(pos), data = pos;
+#define __data_available(pos, num)					\
+	(num <= __data_remain(pos))
+
+/**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
  * used in the defines below here to reduce stack frame usage.
@@ -145,12 +159,12 @@ do {									\
 done:									\
 	parser->state = __fsm_const_state;				\
 	/* Remaining number of bytes to process in the data chunk. */	\
-	parser->to_go = len - (size_t)(p - data);
+	parser->to_go = __data_remain(p);
 
 #define __FSM_MOVE_nf(to, n, field)				\
 do {									\
 	p += n;								\
-	if (unlikely(p >= data + len || !*p)) {				\
+	if (unlikely(__data_offset(p) >= len)) {			\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
@@ -177,7 +191,7 @@ do {									\
 do {									\
 	parser->_i_st = to;						\
 	p += n;								\
-	if (unlikely(p >= data + len || !*p)) {				\
+	if (unlikely(__data_offset(p) >= len)) {			\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
@@ -430,7 +444,7 @@ enum {
 
 /* Parsing helpers. */
 #define TRY_STR_LAMBDA(str, lambda, state)				\
-	r = __chunk_strncasecmp(chunk, p, len - (size_t)(p - data),	\
+	r = __chunk_strncasecmp(chunk, p, __data_remain(p),		\
 				str, sizeof(str) - 1);			\
 	switch (r) {							\
 	case CSTR_EQ:							\
@@ -597,8 +611,8 @@ good_looking_eol:							\
  */
 #define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
 __FSM_STATE(st_curr) {							\
-	__fsm_sz = data + len - p;					\
-	BUG_ON(p > data + len);						\
+	BUG_ON(__data_offset(p) > len);					\
+	__fsm_sz = __data_remain(p);					\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
 	/*								\
@@ -638,8 +652,8 @@ __FSM_STATE(st_curr) {							\
 
 #define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func)		\
 __FSM_STATE(st_curr) {							\
-	__fsm_sz = data + len - p;					\
-	BUG_ON(p > data + len);						\
+	BUG_ON(__data_offset(p) > len);					\
+	__fsm_sz = __data_remain(p);					\
 	if (parser->_i_st == I_0)					\
 		parser->_i_st = st_i;					\
 	/* In 'func' the  pointer at the beginning of this piece of the request
@@ -695,7 +709,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
 	/* Just eat the header until EOL. */				\
-	__fsm_sz = len - (size_t)(p - data);				\
+	__fsm_sz = __data_remain(p);					\
 	__fsm_ch = memchreol(p, __fsm_sz);				\
 	if (__fsm_ch) {							\
 		/* Get length of the header. */				\
@@ -716,7 +730,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 #define __FSM_B_MOVE_n(to, n)						\
 do {									\
 	p += n;								\
-	if (unlikely(p >= data + len)) {				\
+	if (unlikely(__data_offset(p) >= len)) {			\
 		/*							\
 		 * Postpone parsing until more data is available,	\
 		 * and start from state @to on next parser run.		\
@@ -755,7 +769,7 @@ do {									\
 __FSM_STATE(RGen_Body) {						\
 	TFW_DBG3("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
-		__fsm_sz = len - (size_t)(p - data);			\
+		__fsm_sz = __data_remain(p);				\
 		/* Read next chunk length. */				\
 		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_tmp.acc);\
 		TFW_DBG3("len=%zu ret=%d to_read=%lu\n",		\
@@ -782,7 +796,7 @@ __FSM_STATE(RGen_Body) {						\
 }									\
 /* Read parser->to_read bytes of message body. */			\
 __FSM_STATE(RGen_BodyReadChunk) {					\
-	__fsm_sz = min(parser->to_read, (int)(len - (size_t)(p - data))); \
+	__fsm_sz = min_t(int, parser->to_read, __data_remain(p));	\
 	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
 		return TFW_BLOCK;					\
 	parser->to_read -= __fsm_sz;					\
@@ -811,7 +825,7 @@ __FSM_STATE(RGen_BodyChunkExt) {					\
 	} else {							\
 		parser->state = parser->_i_st;				\
 		parser->_i_st = 0;					\
-		BUG_ON(unlikely(p >= data + len || !*p));		\
+		BUG_ON(unlikely(__data_offset(p) >= len));		\
 		goto fsm_reenter;					\
 	}
 
@@ -884,13 +898,13 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 *   null-terminated strings.
 		 */
 		unsigned char *comma;
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(I_ConnOther, __fsm_sz);
 	}
 
@@ -901,7 +915,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE_n(I_Conn, 0);
 		if (IS_CR_OR_LF(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -948,10 +962,10 @@ __parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(I_ContType, __fsm_sz);
 	}
 
@@ -988,13 +1002,13 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 *   null-terminated strings.
 		 */
 		unsigned char *comma;
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(I_TransEncodExt, __fsm_sz);
 	}
 
@@ -1005,7 +1019,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE(I_TransEncod);
 		if (IS_CR_OR_LF(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -1278,7 +1292,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
@@ -1290,7 +1304,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
@@ -1310,13 +1324,13 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		 *   null-terminated strings.
 		 */
 		unsigned char *comma;
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Req_I_CC_EoT, comma - p);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Req_I_CC_Ext, __fsm_sz);
 	}
 
@@ -1334,7 +1348,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE_n(Req_I_CC, 0);
 		if (IS_CR_OR_LF(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -1372,7 +1386,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == ':')
 			__FSM_I_MOVE(Req_I_H_Port);
 		if (isspace(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -1387,7 +1401,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H_v6_End) {
 		if (likely(isspace(c)))
-			return p - data;
+			return __data_offset(p);
 		if (likely(c == ':'))
 			__FSM_I_MOVE(Req_I_H_Port);
 		return CSTR_NEQ;
@@ -1398,7 +1412,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(isdigit(c)))
 			__FSM_I_MOVE(Req_I_H_Port);
 		if (isspace(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -1448,7 +1462,7 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * after the first node and we get EOL here.
 		 */
 		if (likely(IS_CR_OR_LF(c)))
-			return p - data;
+			return __data_offset(p);
 
 		/* OWS before comma or before EOL (is unusual). */
 		if (unlikely(IS_WS(c)))
@@ -1478,10 +1492,10 @@ __req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_UserAgent) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Req_I_UserAgent, __fsm_sz);
 	}
 
@@ -1600,7 +1614,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
 		/* Fast path: compare 4 characters at once. */
-		if (likely(p + 4 <= data + len)) {
+		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
 			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
 				req->method = TFW_HTTP_METH_GET;
@@ -1641,7 +1655,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			tfw_http_msg_set_data(msg, &req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
-		if (likely(p + 7 <= data + len
+		if (likely(__data_available(p, 7)
 			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
 			   && *(p + 6) == '/'))
@@ -1785,7 +1799,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* HTTP version */
 	__FSM_STATE(Req_HttpVer) {
-		if (unlikely(p + 8 > data + len)) {
+		if (unlikely(!__data_available(p, 8))) {
 			/* Slow path. */
 			if (c == 'H')
 				__FSM_MOVE(Req_HttpVerT1);
@@ -1820,7 +1834,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'c':
 			__FSM_MOVE(Req_HdrC);
 		case 'h':
-			if (likely(p + 5 <= data + len
+			if (likely(__data_available(p, 5)
 				   && C4_INT_LCM(p + 1, 'o', 's', 't', ':'))) {
 				parser->_i_st = Req_HdrHostV;
 				parser->_hdr_tag = TFW_HTTP_HDR_HOST;
@@ -1828,7 +1842,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrH);
 		case 't':
-			if (likely(p + 18 <= data + len
+			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
 					   	    's', 'f', 'e', 'r')
 				   && *(p + 8) == '-'
@@ -1841,7 +1855,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
-			if (likely(p + 16 <= data + len
+			if (likely(__data_available(p, 16)
 				   && *(p + 1) == '-'
 				   && *(p + 11) == '-'
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
@@ -1854,7 +1868,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
-			if (likely(p + 11 <= data + len
+			if (likely(__data_available(p, 11)
 				   && C4_INT_LCM(p, 'u', 's', 'e', 'r')
 				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
@@ -1878,7 +1892,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_HdrC) {
 		switch (LC(c)) {
 		case 'a':
-			if (likely(p + 13 <= data + len
+			if (likely(__data_available(p, 13)
 				   && C4_INT_LCM(p, 'a', 'c', 'h', 'e')
 				   && *(p + 4) == '-'
 				   && C8_INT_LCM(p + 5, 'c', 'o', 'n', 't',
@@ -1889,18 +1903,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrCa);
 		case 'o':
-			if (likely(p + 7 <= data + len
+			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'n', 't', 'e', 'n')
 				   && tolower(*(p + 5)) == 't'
 				   && *(p + 6) == '-'))
 			{
 				__FSM_MOVE_n(Req_HdrContent_, 7);
 			}
-			if (likely(p + 9 <= data + len
+			if (likely(__data_available(p, 9)
 				   && C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
 							't', 'i', 'o', 'n')))
 				__FSM_MOVE_n(Req_HdrConnection, 9);
-			if (likely(p + 6 <= data + len
+			if (likely(__data_available(p, 6)
 				   && C4_INT_LCM(p + 1, 'o', 'k', 'i', 'e')
 				   && *(p + 5) == ':'))
 			{
@@ -1917,7 +1931,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_HdrContent_) {
 		switch (LC(c)) {
 		case 'l':
-			if (likely(p + 7 <= data + len
+			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'n', 'g', 't')
 				   && tolower(*(p + 5)) == 'h'
 				   && *(p + 6) == ':'))
@@ -1927,7 +1941,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Req_HdrContent_L);
 		case 't':
-			if (likely(p + 5 <= data + len
+			if (likely(__data_available(p, 5)
 				   && C4_INT_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
 				parser->_i_st = Req_HdrContent_TypeV;
@@ -2275,7 +2289,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
@@ -2287,7 +2301,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
@@ -2307,13 +2321,13 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 *   null-terminated strings.
 		 */
 		unsigned char *comma;
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
 	}
 
@@ -2331,7 +2345,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE_n(Resp_I_CC, 0);
 		if (IS_CR_OR_LF(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -2394,7 +2408,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_Expires) {
 		/* Skip a weekday as redundant information. */
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchr(p, ' ', __fsm_sz);
 		if (__fsm_ch)
 			__FSM_I_MOVE_n(Resp_I_ExpDate, __fsm_ch - p + 1);
@@ -2402,7 +2416,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_ExpDate) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
@@ -2482,7 +2496,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* 4-digit year. */
 	__FSM_STATE(Resp_I_ExpYear) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
@@ -2503,7 +2517,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_ExpHour) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
@@ -2521,7 +2535,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_ExpMin) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
@@ -2539,7 +2553,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_ExpSec) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
@@ -2552,10 +2566,10 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_EoL) {
 		/* Skip rest of line: ' GMT'. */
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
 	}
 
@@ -2582,7 +2596,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
@@ -2599,13 +2613,13 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Resp_I_Ext) {
 		unsigned char *comma;
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
 			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
 	}
 
@@ -2618,7 +2632,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE(Resp_I_KeepAlive);
 		if (IS_CR_OR_LF(c))
-			return p - data;
+			return __data_offset(p);
 		return CSTR_NEQ;
 	}
 
@@ -2645,10 +2659,10 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 *   that accepts string length instead of processing
 		 *   null-terminated strings.
 		 */
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch)
-			return __fsm_ch - data;
+			return __data_offset(__fsm_ch);
 		__FSM_I_MOVE_n(Resp_I_Server, __fsm_sz);
 	}
 
@@ -2783,7 +2797,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* HTTP version */
 	__FSM_STATE(Resp_HttpVer) {
-		if (unlikely(p + 9 > data + len)) {
+		if (unlikely(!__data_available(p, 9))) {
 			/* Slow path. */
 			if (c == 'H') {
 				tfw_http_msg_set_data(msg, &resp->s_line, p);
@@ -2816,7 +2830,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Response Status-Code. */
 	__FSM_STATE(Resp_StatusCode) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
 		parser->_i_st = I_Conn;
 		switch (__fsm_n) {
@@ -2839,7 +2853,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Reason-Phrase: just skip. */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		__fsm_sz = len - (size_t)(p - data);
+		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch) {
 			__field_finish(msg, &resp->s_line, data, __fsm_ch);
@@ -2861,7 +2875,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case 'c':
 			__FSM_MOVE(Resp_HdrC);
 		case 'e':
-			if (likely(p + 8 <= data + len
+			if (likely(__data_available(p, 8)
 				   && C8_INT_LCM(p, 'e', 'x', 'p', 'i',
 						    'r', 'e', 's', ':')))
 			{
@@ -2870,7 +2884,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrE);
 		case 'k':
-			if (likely(p + 11 <= data + len
+			if (likely(__data_available(p, 11)
 				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
 				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
@@ -2882,7 +2896,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrK);
 		case 's':
-			if (likely(p + 7 <= data + len
+			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'r', 'v', 'e')
 				   && *(p + 5) == 'r' && *(p + 6) == ':'))
 			{
@@ -2891,7 +2905,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
-			if (likely(p + 18 <= data + len
+			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
 					   	    's', 'f', 'e', 'r')
 				   && *(p + 8) == '-'
@@ -2916,7 +2930,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_HdrC) {
 		switch (LC(c)) {
 		case 'a':
-			if (likely(p + 13 <= data + len
+			if (likely(__data_available(p, 13)
 				   && C4_INT_LCM(p, 'a', 'c', 'h', 'e')
 				   && *(p + 4) == '-'
 				   && C8_INT_LCM(p + 5, 'c', 'o', 'n', 't',
@@ -2927,14 +2941,14 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrCa);
 		case 'o':
-			if (likely(p + 7 <= data + len
+			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'n', 't', 'e', 'n')
 				   && tolower(*(p + 5)) == 't'
 				   && *(p + 6) == '-'))
 			{
 				__FSM_MOVE_n(Resp_HdrContent_, 7);
 			}
-			if (likely(p + 9 <= data + len
+			if (likely(__data_available(p, 9)
 				   && C8_INT_LCM(p + 1, 'n', 'n', 'e', 'c',
 						        't', 'i', 'o', 'n')))
 				__FSM_MOVE_n(Resp_HdrConnection, 9);
@@ -2948,7 +2962,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_HdrContent_) {
 		switch (LC(c)) {
 		case 'l':
-			if (likely(p + 7 <= data + len
+			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'n', 'g', 't')
 				   && tolower(*(p + 5)) == 'h'
 				   && *(p + 6) == ':'))
@@ -2958,7 +2972,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrContent_L);
 		case 't':
-			if (likely(p + 5 <= data + len
+			if (likely(__data_available(p, 5)
 				   && C4_INT_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
 				parser->_i_st = Resp_HdrContent_TypeV;
