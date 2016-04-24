@@ -569,6 +569,7 @@ ss_tcp_process_data(struct sock *sk)
 		 */
 		if (skb_unclone(skb, GFP_ATOMIC)) {
 			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
+			__kfree_skb(skb);
 			goto out;
 		}
 
