@@ -500,20 +500,32 @@ enum {
 	TRY_STR_LAMBDA(str, { }, state)
 
 /**
- * Close currently processed header and set it's EOL length value properly
- * according to parser's EOL state.
+ * Helper function that handles new lines. Closes currently processed header. If
+ * no header is processed, it checks for connection type to distinguish request
+ * and response. In case of response being processed, it converts @msg of type
+ * TfwHttpMsg to outer struct of type TfwHttpResp and checks if the EOL event
+ * belongs to status-line processing. In latter case it updates @s_line with
+ * setting it's EOL length.
  */
 static inline int
-__header_close_at_eol(TfwHttpMsg *msg)
+__handle_newline(TfwHttpMsg *msg)
 {
 	TfwHttpParser *parser = &msg->parser;
-	/* Skip headers that were not opened */
-	if (msg->parser.hdr.ptr) {
-		/* LF and CRLF are the only valid EOL values */
-		int eolen = 1 + !!(parser->_tmp.eol == 0xda);
+	int eolen = 1 + !!((parser->_tmp.eol & 0xff) == 0xda);
+
+	if (parser->hdr.ptr) {
 		tfw_str_set_eolen(&parser->hdr, eolen);
 		return tfw_http_msg_hdr_close(msg, parser->_hdr_tag);
 	}
+
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
+		TfwHttpResp *resp = (TfwHttpResp *)msg;
+		if ((resp->s_line.flags & TFW_STR_COMPLETE) &&
+		    !tfw_str_eolen(&resp->s_line)) {
+			tfw_str_set_eolen(&resp->s_line, eolen);
+		}
+	}
+
 	return TFW_PASS;
 }
 
@@ -550,7 +562,7 @@ __FSM_STATE(RGen__EoL) {						\
 		switch (parser->_tmp.eol) {				\
 		case 0xa:						\
 		case 0xda:						\
-			if (__header_close_at_eol(msg))			\
+			if (__handle_newline(msg))			\
 				return TFW_BLOCK;			\
 			/* Fall through */				\
 		case 0xd:						\
