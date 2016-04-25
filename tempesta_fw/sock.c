@@ -136,10 +136,11 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	struct sk_buff *skb;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
-	       " sk_state=%d mss=%d size=%d\n", __func__,
-	       smp_processor_id(), sk, tcp_write_queue_empty(sk),
-	       tcp_send_head(sk), sk->sk_state, mss, size);
+	SS_DBG("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
+	       " sk_state=%d mss=%d size=%d\n",
+	       smp_processor_id(), __func__,
+	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+	       sk->sk_state, mss, size);
 
 	if (unlikely(!ss_sock_active(sk)))
 		return;
@@ -161,8 +162,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		 */
 		tcp_mark_push(tp, skb);
 
-		SS_DBG("%s: entail skb=%p data_len=%u len=%u\n",
-		       __func__, skb, skb->data_len, skb->len);
+		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
+		       smp_processor_id(), __func__,
+		       skb, skb->data_len, skb->len);
 
 		ss_skb_entail(sk, skb);
 
@@ -170,7 +172,8 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	SS_DBG("%s: sk=%p send_head=%p sk_state=%d\n", __func__,
+	SS_DBG("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
@@ -197,9 +200,9 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
-	SS_DBG("%s: cpu=%d sk=%p (cpu=%d) state=%s\n", __func__,
-	       smp_processor_id(), sk, sk->sk_incoming_cpu,
-	       ss_statename[sk->sk_state]);
+	SS_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
+	       smp_processor_id(), __func__,
+	       sk, sk->sk_incoming_cpu, ss_statename[sk->sk_state]);
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,
@@ -274,8 +277,8 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	SS_DBG("Close socket %p (%s): cpu=%d account=%d refcnt=%d\n",
-	       sk, ss_statename[sk->sk_state], smp_processor_id(),
+	SS_DBG("[%d]: Close socket %p (%s): account=%d refcnt=%d\n",
+	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	ss_sock_cpu_check(sk, "close");
@@ -294,7 +297,7 @@ ss_do_close(struct sock *sk)
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
 		data_was_unread += len;
-		SS_DBG("free rcv skb %p\n", skb);
+		SS_DBG("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
 
@@ -499,15 +502,17 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, offset);
 
 		if (r < 0) {
-			SS_DBG("Processing error: sk %p r %d\n", sk, r);
+			SS_DBG("[%d]: Processing error: sk %p r %d\n",
+			       smp_processor_id(), sk, r);
 			goto out; /* connection dropped */
 		} else if (r == SS_STOP) {
-			SS_DBG("Stop processing: sk %p\n", sk);
+			SS_DBG("[%d]: Stop processing: sk %p\n",
+			       smp_processor_id(), sk);
 			break;
 		}
 	}
 	if (tcp_fin) {
-		SS_DBG("Data FIN: sk %p\n", sk);
+		SS_DBG("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
@@ -617,8 +622,9 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 #else
 	struct request_sock *req;
 #endif
-	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__func__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
+	SS_DBG("[%d]: %s: sk %p, sk->sk_socket %p, state (%s)\n",
+	       smp_processor_id(), __func__,
+	       lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -680,8 +686,8 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -714,7 +720,8 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			SS_DBG("urgent data in socket %p\n", sk);
+			SS_DBG("[%d]: urgent data in socket %p\n",
+			       smp_processor_id(), sk);
 		}
 	}
 }
@@ -725,8 +732,8 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
+	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk, "state change");
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -746,7 +753,8 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		r = SS_CALL(connection_new, sk);
 		if (r) {
-			SS_DBG("New connection hook failed, r=%d\n", r);
+			SS_DBG("[%d]: New connection hook failed, r=%d\n",
+			       smp_processor_id(), r);
 			ss_droplink(sk);
 			return;
 		}
@@ -786,7 +794,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
-		SS_DBG("Peer connection closing\n");
+		SS_DBG("[%d]: Peer connection closing\n", smp_processor_id());
 		ss_droplink(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
@@ -1101,8 +1109,8 @@ ss_tx_action(void)
 			break;
 		case SS_CLOSE:
 			if (!ss_sock_live(sk)) {
-				SS_DBG("%s: Socket inactive: sk %p\n",
-					__func__, sk);
+				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
+				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
