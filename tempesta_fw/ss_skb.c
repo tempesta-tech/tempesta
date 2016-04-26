@@ -150,7 +150,7 @@ __lookup_pgfrag_room(struct sk_buff *skb, int len)
 	 */
 	for (i = skb_shinfo(skb)->nr_frags - 1; i >= 0; --i) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		if (PAGE_SIZE - ss_skb_frag_len(frag) < len)
+		if ((int)PAGE_SIZE - ss_skb_frag_len(frag) < len)
 			continue;
 		frag = __check_frag_room(skb, frag, len);
 		if (frag)
