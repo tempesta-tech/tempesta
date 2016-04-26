@@ -652,13 +652,18 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
 	for (d = 0; d < dn; ++d) {
 		s = (TfwCStr *)*p;
 		BUG_ON(s->flags);
+		TFW_STR_INIT(&dups[d]);
 		dups[d].len = s->len;
 		dups[d].flags = s->flags;
 		*p += TFW_CSTR_HDRLEN;
 		if ((r = tfw_cache_write_field(db, trec, resp, it, p, s->len,
-					       hdr)))
+					       &dups[d])))
 			return r;
 	}
+
+	hdr->ptr = dups;
+	__TFW_STR_CHUNKN_SET(hdr, dn);
+	hdr->flags |= TFW_STR_DUPLICATE;
 
 	return 0;
 }
@@ -777,6 +782,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 		goto err;
 
 	for (h = 0; h < ce->hdr_num; ++h) {
+		TFW_STR_INIT(resp->h_tbl->tbl + h);
 		if (tfw_cache_build_resp_hdr(db, resp, resp->h_tbl->tbl + h,
 					     &trec, &it, &p))
 			goto err;
