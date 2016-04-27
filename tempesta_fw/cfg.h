@@ -29,6 +29,8 @@
  * ------------------------------------------------------------------------
  */
 
+#define TFW_CFG_PATH "/etc/tempesta/tempesta_fw.conf"
+
 /*
  * For simplicity, we store attributes and values as a static array,
  * so at this point we can't handle arbitrary many values like this:
