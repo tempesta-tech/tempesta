@@ -1557,6 +1557,11 @@ read_file_via_vfs(const char *path)
 	loff_t offset;
 	mm_segment_t oldfs;
 
+	if (!path || !*path) {
+		TFW_ERR("can't open file with empty name\n");
+		return NULL;
+	}
+
 	TFW_DBG2("reading file: %s\n", path);
 
 	oldfs = get_fs();
