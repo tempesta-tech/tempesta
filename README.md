@@ -25,6 +25,7 @@ Socket API or even kernel sockets.
 * GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
+Tempesta DB requires `fallocate(2)`. Please use filesystems that support this system call, such as **ext4**, **btrfs**, or **xfs**. Other filesystems such as ext3 don't support this system call, so they can't be used with Tempesta.
 
 #### Kernel
 
@@ -166,7 +167,7 @@ server <IPADDR>[:<PORT>] [conns_n=<N>]
 `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
 `PORT` defaults to 80 if not specified.
-`conns\_n=<N>` is the number of parallel connections to the server.
+`conns_n=<N>` is the number of parallel connections to the server.
 `N` defaults to 4 if not specified.
 
 Multiple back end servers may be defined. For example:
@@ -190,7 +191,7 @@ srv_group <NAME> [sched=<SCHED_NAME>] {
 ```
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
-`SCHED\_NAME` is the name of scheduler module that distributes load among
+`SCHED_NAME` is the name of scheduler module that distributes load among
 servers within the group. Default scheduler is used if `sched` parameter is
 not specified.
 
@@ -213,7 +214,7 @@ follows:
 ```
 sched <SCHED_NAME>
 ```
-`SCHED\_NAME` is the name of a scheduler available in Tempesta.
+`SCHED_NAME` is the name of a scheduler available in Tempesta.
 
 Currently there are two schedulers available:
 * **round-robin** - Rotates all servers in a group in round-robin manner so
@@ -226,7 +227,7 @@ always sent to the same server.
 If no scheduler is defined, then scheduler defaults to `round-robin`.
 
 The defined scheduler affects all server definitions that are missing a
-scheduler definition. If `srv\_group` is missing a scheduler definition,
+scheduler definition. If `srv_group` is missing a scheduler definition,
 and there is a scheduler defined, then that scheduler is set for the group.
 
 Multiple `sched` directives may be defined in the configuration file.
