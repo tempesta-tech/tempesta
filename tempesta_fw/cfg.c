@@ -1525,7 +1525,7 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 
 /* The file path is passed via the kernel module parameter.
  * Usually you would not like to change it on a running system. */
-static char *tfw_cfg_path;
+static char *tfw_cfg_path = TFW_CFG_PATH;
 module_param(tfw_cfg_path, charp, 0444);
 MODULE_PARM_DESC(tfw_cfg_path,
 		 "Path to Tempesta FW configuration file. Must be absolute.");
@@ -1556,6 +1556,11 @@ read_file_via_vfs(const char *path)
 	size_t bytes_read, read_size, buf_size;
 	loff_t offset;
 	mm_segment_t oldfs;
+
+	if (!path || !*path) {
+		TFW_ERR("can't open file with empty name\n");
+		return NULL;
+	}
 
 	TFW_DBG2("reading file: %s\n", path);
 
