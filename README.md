@@ -368,9 +368,9 @@ in requests from the client.
 
 **Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
 prevention. It uses static limiting and checking of ingress HTTP requests.
-The main portion of it's logic is at HTTP layer, so it's recomended to use
-*ip_block* option (switched on by default) to block malicious users at IP
-layer.
+The main portion of it's logic is at HTTP layer, so it's recommended that
+*ip_block* option (enabled by default) is used to block malicious users
+at IP layer.
 
 Use `-f` command key to start Tempesta with Frang:
 ```
@@ -428,13 +428,13 @@ request;
 
 Let's see a simple example to understand Tempesta filtering.
 
-Run Tempesta with enabled [Frang](#Frang) and put some load onto the system
+Run Tempesta with [Frang](#Frang) enabled and put some load onto the system
 to make Frang generate a blocking rule:
 ```
 $ dmesg | grep frang
 [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
 ```
-`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang's rate limiting
 calls the filter module that stores the blocked IPs in Tempesta DB, so now we
 can run some queries on the database (you can read more about
 [tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
