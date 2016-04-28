@@ -39,10 +39,6 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta aggressively uses CPU vector extensions, so FPU eager context
-switching must be enabled in the kernel. So add `eagerfpu=on` to your
-kernel command line.
-
 We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
 please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
 additional stress to synchronization of several algorithms. Also note that
