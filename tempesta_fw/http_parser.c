@@ -55,17 +55,6 @@ enum {
 };
 
 /**
- * Set final field length and mark it as finished.
- */
-static inline void
-__field_finish(TfwHttpMsg *hm, TfwStr *field,
-	       unsigned char *begin, unsigned char *end)
-{
-	tfw_http_msg_field_chunk_fixup(hm, field, begin, end - begin);
-	field->flags |= TFW_STR_COMPLETE;
-}
-
-/**
  * Check whether a character is CR or LF.
  */
 #define IS_CR_OR_LF(c) (c == '\r' || c == '\n')
@@ -112,6 +101,48 @@ memchreol(const unsigned char *s, size_t n)
 	(len - __data_offset(pos))
 #define __data_available(pos, num)					\
 	(num <= __data_remain(pos))
+
+/**
+ * The following set of macros is intended to use for generic fields processing
+ * while parsing HTTP status-line. As with headers, @__msg_field_open macro is
+ * used for field openning, @__msg_field_fixup is used for updating, and
+ * @__msg_field_finish is used when field needs to be finished. The latter means
+ * that the underlying TfwStr flag TFW_STR_COMPLETE must be raised.
+ */
+#define __msg_field_open(field, pos)					\
+do {									\
+	tfw_http_msg_set_data(msg, field, pos);				\
+} while (0)
+
+#define __msg_field_fixup(field, pos)					\
+do {									\
+	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
+		tfw_http_msg_field_chunk_fixup(msg, field, data,	\
+					       __data_offset(pos));	\
+} while (0)
+
+#define __msg_field_finish(field, pos)					\
+do {									\
+	__msg_field_fixup(field, pos);					\
+	(field)->flags |= TFW_STR_COMPLETE;				\
+} while (0)
+
+/**
+ * Special field @crlf is used to track HTTP empty-line while handling requests
+ * and responses. It can be treated as generic @msg field of type TfwStr but
+ * there is no reason to do any fixup on it as it always has zero length and
+ * non-zero EOL that must be updated properly at field closing. So finishing
+ * macro needs to be specific.
+ */
+#define __msg_crlf_open(pos)						\
+	__msg_field_open(&msg->crlf, pos)
+
+#define __msg_crlf_finish(pos)						\
+do {									\
+	int eolen = 1 + !!((msg->parser._tmp.eol & 0xff) == 0xda);	\
+	tfw_str_set_eolen(&msg->crlf, eolen);				\
+	msg->crlf.flags |= TFW_STR_COMPLETE;				\
+} while (0)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -166,8 +197,7 @@ do {									\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		if (fixup)						\
-			tfw_http_msg_field_chunk_fixup(msg, field,	\
-						       data, len);	\
+			__msg_field_fixup(field, data + len);		\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
@@ -539,12 +569,11 @@ good_looking_eol:							\
 									\
 		/*							\
 		 * Set empty-line mark only if LFxx or CRLFxx was	\
-		 * catched and crlf wasn't completed yet by		\
-		 * @__field_finish function.				\
+		 * catched and crlf wasn't completed yet.		\
 		 */							\
 		if ((parser->_tmp.eol & 0xf0) == 0xa0) {		\
 			if (!(msg->crlf.flags & TFW_STR_COMPLETE))	\
-				tfw_http_msg_set_data(msg, &msg->crlf, p); \
+				__msg_crlf_open(p);			\
 		}							\
 									\
 		/*							\
@@ -556,9 +585,9 @@ good_looking_eol:							\
 		case 0xada:						\
 		case 0xdaa:						\
 		case 0xdada:						\
-			parser->_tmp.eol = 0;				\
 			if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {	\
-				__field_finish(msg, &msg->crlf, data, p + 1); \
+				__msg_crlf_finish(p);			\
+				parser->_tmp.eol = 0;			\
 				TFW_HTTP_INIT_BODY_PARSING(msg, RGen_Body); \
 			} else if (msg->body.flags & TFW_STR_COMPLETE) { \
 				r = TFW_PASS;				\
@@ -1657,7 +1686,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_Uri) {
 		if (likely(c == '/')) {
-			tfw_http_msg_set_data(msg, &req->uri_path, p);
+			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		if (likely(__data_available(p, 7)
@@ -1687,15 +1716,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		req->flags |= TFW_HTTP_URI_FULL;
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			*p = LC(*p);
-			tfw_http_msg_set_data(msg, &req->host, p);
+			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (likely(c == '/')) {
 			TFW_DBG3("Handling http:///path\n");
-			tfw_http_msg_set_data(msg, &req->host, p);
-			__field_finish(msg, &req->host, data, p);
+			__msg_field_open(&req->host, p);
+			__msg_field_finish(&req->host, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {
-			tfw_http_msg_set_data(msg, &req->host, p);
+			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
 		return TFW_BLOCK;
@@ -1713,7 +1742,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				TFW_DBG3("Authority contains userinfo\n");
 				/* copy current host to userinfo */
 				req->userinfo = req->host;
-				__field_finish(msg, &req->userinfo, data, p);
+				__msg_field_finish(&req->userinfo, p);
 				TFW_STR_INIT(&req->host);
 
 				__FSM_MOVE(Req_UriAuthorityResetHost);
@@ -1736,10 +1765,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_UriAuthorityResetHost) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			tfw_http_msg_set_data(msg, &req->host, p);
+			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (c == '[') {
-			tfw_http_msg_set_data(msg, &req->host, p);
+			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
 		__FSM_JMP(Req_UriAuthorityEnd);
@@ -1747,11 +1776,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_UriAuthorityEnd) {
 		/* Authority End */
-		__field_finish(msg, &req->host, data, p);
+		__msg_field_finish(&req->host, p);
 		TFW_DBG3("Userinfo len = %i, host len = %i\n",
 			 (int)req->userinfo.len, (int)req->host.len);
 		if (likely(c == '/')) {
-			tfw_http_msg_set_data(msg, &req->uri_path, p);
+			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
@@ -1769,7 +1798,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		if (likely(isdigit(c)))
 			__FSM_MOVE(Req_UriPort);
 		else if (likely(c == '/')) {
-			tfw_http_msg_set_data(msg, &req->uri_path, p);
+			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
@@ -1790,7 +1819,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
 
 		if (likely(c == ' ')) {
-			__field_finish(msg, &req->uri_path, data, p);
+			__msg_field_finish(&req->uri_path, p);
 			__FSM_MOVE(Req_HttpVer);
 		}
 
@@ -2805,7 +2834,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		if (unlikely(!__data_available(p, 9))) {
 			/* Slow path. */
 			if (c == 'H') {
-				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__msg_field_open(&resp->s_line, p);
 				__FSM_MOVE_f(Resp_HttpVerT1, &resp->s_line);
 			}
 			return TFW_BLOCK;
@@ -2815,7 +2844,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
 			resp->version = TFW_HTTP_VER_11;
 			if (*(p + 8) == ' ') {
-				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__msg_field_open(&resp->s_line, p);
 				__FSM_MOVE_nf(Resp_StatusCode, 9,
 					      &resp->s_line);
 			}
@@ -2823,7 +2852,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
 			resp->version = TFW_HTTP_VER_10;
 			if (*(p + 8) == ' ') {
-				tfw_http_msg_set_data(msg, &resp->s_line, p);
+				__msg_field_open(&resp->s_line, p);
 				__FSM_MOVE_nf(Resp_StatusCode, 9,
 					      &resp->s_line);
 			}
@@ -2861,7 +2890,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch) {
-			__field_finish(msg, &resp->s_line, data, __fsm_ch);
+			__msg_field_finish(&resp->s_line, __fsm_ch);
 			__FSM_MOVE_n(RGen_EoL, __fsm_ch - p);
 		}
 		__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_sz, &resp->s_line);
