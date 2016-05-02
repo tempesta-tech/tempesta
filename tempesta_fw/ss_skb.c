@@ -248,6 +248,7 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 			if (nskb == NULL)
 				return -ENOMEM;
 			__insert_skb_frag(skb, pskb, nskb);
+			skb_shinfo(nskb)->nr_frags += n_excess;
 		}
 		/* Shift @n_excess number of page fragments to new SKB. */
 		if (from < si->nr_frags) {
@@ -258,7 +259,6 @@ __extend_pgfrags(struct sk_buff *skb, struct sk_buff *pskb, int from, int n)
 				ss_skb_adjust_data_len(nskb, skb_frag_size(f));
 			}
 		}
-		skb_shinfo(nskb)->nr_frags += n_excess;
 	}
 
 	/* Make room for @n page fragments in the SKB. */
@@ -294,7 +294,7 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb,
 	if (frag) {
 		page = skb_frag_page(frag);
 		off = ss_skb_frag_len(frag);
-		__skb_frag_ref(frag);	/* get_page(page); */
+		get_page(page);
 	} else {
 		page = alloc_page(GFP_ATOMIC);
 		if (!page)
@@ -303,10 +303,7 @@ __new_pgfrag(struct sk_buff *skb, struct sk_buff *pskb,
 
 	/* Make room for @shift fragments starting with slot @i. */
 	if (__extend_pgfrags(skb, pskb, i, shift)) {
-		if (frag)
-			__skb_frag_unref(frag);	/* put_page(page); */
-		else
-			__free_page(page);
+		put_page(page);
 		return -ENOMEM;
 	}
 
