@@ -167,7 +167,7 @@ ss_skb_tailroom(const struct sk_buff *skb)
  * works on a linear skb, while this one works on any skb.
  */
 static inline unsigned char *
-ss_skb_put(struct sk_buff *skb, unsigned int len)
+ss_skb_put(struct sk_buff *skb, const int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
 	skb->tail += len;
