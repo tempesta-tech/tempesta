@@ -1178,7 +1178,7 @@ index 075d2e7..cd94e94 100644
  /*
   * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
   * the caller if emergency pfmemalloc reserves are being used. If it is and
-@@ -148,6 +151,131 @@ out:
+@@ -148,6 +151,132 @@ out:
  
  	return obj;
  }
@@ -1253,13 +1253,14 @@ index 075d2e7..cd94e94 100644
 +{
 +	char *ptr;
 +	struct page *pg;
-+	TfwSkbMemPool *pools = this_cpu_ptr(pg_mpool);
++	TfwSkbMemPool *pools;
 +	unsigned int c, cn, o, l, po;
 +
 +	cn = PG_CHUNK_NUM(size);
 +	po = get_order(PG_ALLOC_SZ(size));
 +
 +	local_bh_disable();
++	pools = this_cpu_ptr(pg_mpool);
 +
 +	for (o = (cn == 1) ? 0 : (cn == 2) ? 1 : (cn <= 4) ? 2 : PG_LISTS_N;
 +	     o < PG_LISTS_N; ++o)
