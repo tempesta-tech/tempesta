@@ -303,6 +303,7 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * case, tail_len can never be zero.
 	 */
 	if (unlikely(!tail_len && len <= ss_skb_tailroom(skb))) {
+		BUG_ON(len < 0);
 		it->ptr = ss_skb_put(skb, len);
 		return 0;
 	}
@@ -602,8 +603,9 @@ static int
 __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 	       char *pspt, int len, TfwStr *it)
 {
-	int ret;
-	unsigned int i, d_size, offset;
+	int i, ret;
+	long offset;
+	unsigned int d_size;
 	struct sk_buff *f_skb, **next_fdp;
 
 	SS_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
@@ -615,7 +617,7 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 		skb_shinfo(skb)->nr_frags);
 	BUG_ON(!len);
 
-	if ((len > (int)PAGE_SIZE) || (-len > (int)PAGE_SIZE)) {
+	if (abs(len) > PAGE_SIZE) {
 		SS_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
 	}
@@ -640,8 +642,7 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 
 	if ((offset >= 0) && (offset < d_size)) {
 		int t_size = d_size - offset;
-		/* This affects only negative @len. */
-		len = (-len <= t_size) ? len : -t_size;
+		len = max(len, -t_size);
 		ret = __split_linear_data(skb, pspt, len, it);
 		goto done;
 	}
@@ -654,8 +655,7 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 
 		if ((offset >= 0) && (offset < d_size)) {
 			int t_size = d_size - offset;
-			/* This affects only negative @len. */
-			len = (-len <= t_size) ? len : -t_size;
+			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
 		}
@@ -747,6 +747,8 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 	int r;
 	TfwStr it;
 	const TfwStr *c, *end;
+
+	BUG_ON(skip >= hdr->len);
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		if (c->len <= skip) {
