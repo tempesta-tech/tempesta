@@ -569,6 +569,11 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		return r;
 
+	if (conns_n > TFW_SRV_MAX_CONN) {
+		TFW_ERR("can't use more than %d connections", TFW_SRV_MAX_CONN);
+		return -EINVAL;
+	}
+
 	srv = tfw_create_server(&addr);
 	if (!srv) {
 		TFW_ERR("can't create a server socket\n");
