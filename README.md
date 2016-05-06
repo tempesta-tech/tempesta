@@ -25,6 +25,7 @@ Socket API or even kernel sockets.
 * GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
+Tempesta DB requires `fallocate(2)`. Please use filesystems that support this system call, such as **ext4**, **btrfs**, or **xfs**. Other filesystems such as ext3 don't support this system call, so they can't be used with Tempesta.
 
 #### Kernel
 
@@ -37,10 +38,6 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
-
-Tempesta aggressively uses CPU vector extensions, so FPU eager context
-switching must be enabled in the kernel. So add `eagerfpu=on` to your
-kernel command line.
 
 We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
 please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
@@ -166,7 +163,7 @@ server <IPADDR>[:<PORT>] [conns_n=<N>]
 `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
 `PORT` defaults to 80 if not specified.
-`conns\_n=<N>` is the number of parallel connections to the server.
+`conns_n=<N>` is the number of parallel connections to the server.
 `N` defaults to 4 if not specified.
 
 Multiple back end servers may be defined. For example:
@@ -190,7 +187,7 @@ srv_group <NAME> [sched=<SCHED_NAME>] {
 ```
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
-`SCHED\_NAME` is the name of scheduler module that distributes load among
+`SCHED_NAME` is the name of scheduler module that distributes load among
 servers within the group. Default scheduler is used if `sched` parameter is
 not specified.
 
@@ -213,7 +210,7 @@ follows:
 ```
 sched <SCHED_NAME>
 ```
-`SCHED\_NAME` is the name of a scheduler available in Tempesta.
+`SCHED_NAME` is the name of a scheduler available in Tempesta.
 
 Currently there are two schedulers available:
 * **round-robin** - Rotates all servers in a group in round-robin manner so
@@ -226,7 +223,7 @@ always sent to the same server.
 If no scheduler is defined, then scheduler defaults to `round-robin`.
 
 The defined scheduler affects all server definitions that are missing a
-scheduler definition. If `srv\_group` is missing a scheduler definition,
+scheduler definition. If `srv_group` is missing a scheduler definition,
 and there is a scheduler defined, then that scheduler is set for the group.
 
 Multiple `sched` directives may be defined in the configuration file.
@@ -371,9 +368,9 @@ in requests from the client.
 
 **Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
 prevention. It uses static limiting and checking of ingress HTTP requests.
-The main portion of it's logic is at HTTP layer, so it's recomended to use
-*ip_block* option (switched on by default) to block malicious users at IP
-layer.
+The main portion of it's logic is at HTTP layer, so it's recommended that
+*ip_block* option (enabled by default) is used to block malicious users
+at IP layer.
 
 Use `-f` command key to start Tempesta with Frang:
 ```
@@ -431,13 +428,13 @@ request;
 
 Let's see a simple example to understand Tempesta filtering.
 
-Run Tempesta with enabled [Frang](#Frang) and put some load onto the system
+Run Tempesta with [Frang](#Frang) enabled and put some load onto the system
 to make Frang generate a blocking rule:
 ```
 $ dmesg | grep frang
 [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
 ```
-`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang's rate limiting
 calls the filter module that stores the blocked IPs in Tempesta DB, so now we
 can run some queries on the database (you can read more about
 [tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
