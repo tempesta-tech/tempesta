@@ -128,6 +128,21 @@ ss_skb_queue_purge(SsSkbList *list)
 		kfree_skb(skb);
 }
 
+static inline void
+ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
+{
+	skb->len += delta;
+	skb->data_len += delta;
+	skb->truesize += delta;
+}
+
+static inline void
+ss_bskb_adjust_len(struct sk_buff *skb, struct sk_buff *bskb, int delta)
+{
+	if (skb != bskb)
+		ss_skb_adjust_data_len(bskb, delta);
+}
+
 static inline skb_frag_t *
 ss_skb_frag_next(struct sk_buff **skb, int *f)
 {
@@ -141,14 +156,6 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 		return NULL;
 	*f = 0;
 	return &skb_shinfo(*skb)->frags[0];
-}
-
-static inline void
-ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
-{
-	skb->len += delta;
-	skb->data_len += delta;
-	skb->truesize += delta;
 }
 
 /*
