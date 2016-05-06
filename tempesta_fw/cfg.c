@@ -67,7 +67,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -191,7 +191,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 	return dst;
 }
 
-static void
+static inline void
 print_parse_error(const TfwCfgParserState *ps)
 {
 
@@ -382,10 +382,10 @@ do {					\
 
 /* Macros specific to TFSM. */
 
-#define TFSM_MOVE(to_state)	\
-do {				\
-	ps->prev_c = ps->c;	\
-	ps->c = *(++ps->pos);	\
+#define TFSM_MOVE(to_state)		\
+do {					\
+	ps->prev_c = ps->c;		\
+	ps->c = *(++ps->pos);		\
 	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	if (ps->prev_c == '\n') { \
 		++ps->line; \
@@ -1465,7 +1465,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
 	if (ret) {
-		TFW_ERR("can't parse configuration data:%d\n", ret);
+		TFW_ERR("can't parse configuration data, %d\n", ret);
 		goto err_recover_cleanup;
 	}
 
