@@ -57,12 +57,12 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	: 0)
 
 static void
-ss_sock_cpu_check(struct sock *sk)
+ss_sock_cpu_check(struct sock *sk, const char *op)
 {
 	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
-		SS_WARN("Bad socket cpu locality:"
+		SS_WARN("Bad socket cpu locality on <%s>:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
-			sk, sk->sk_incoming_cpu, smp_processor_id());
+			op, sk, sk->sk_incoming_cpu, smp_processor_id());
 }
 
 static void
@@ -136,18 +136,22 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	struct sk_buff *skb;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	SS_DBG("%s: cpu=%d sk=%p queue_empty=%d send_head=%p"
-	       " sk_state=%d mss=%d size=%d\n", __func__,
-	       smp_processor_id(), sk, tcp_write_queue_empty(sk),
-	       tcp_send_head(sk), sk->sk_state, mss, size);
+	SS_DBG("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
+	       " sk_state=%d mss=%d size=%d\n",
+	       smp_processor_id(), __func__,
+	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+	       sk->sk_state, mss, size);
 
 	if (unlikely(!ss_sock_active(sk)))
 		return;
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		skb_shinfo(skb)->gso_segs = 0;
+
+		/* @skb should be rerouted on forwarding. */
+		skb_dst_drop(skb);
 
 		/*
 		 * TODO Mark all data with PUSH to force receiver to consume
@@ -158,8 +162,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		 */
 		tcp_mark_push(tp, skb);
 
-		SS_DBG("%s: entail skb=%p data_len=%u len=%u\n",
-		       __func__, skb, skb->data_len, skb->len);
+		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
+		       smp_processor_id(), __func__,
+		       skb, skb->data_len, skb->len);
 
 		ss_skb_entail(sk, skb);
 
@@ -167,7 +172,8 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	SS_DBG("%s: sk=%p send_head=%p sk_state=%d\n", __func__,
+	SS_DBG("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
@@ -186,7 +192,7 @@ int
 ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 {
 	int r = 0;
-	struct sk_buff *skb, *skb_copy;
+	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
 		.action	= SS_SEND,
@@ -194,9 +200,9 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
-	SS_DBG("%s: cpu=%d sk=%p (cpu=%d) state=%s\n", __func__,
-	       smp_processor_id(), sk, sk->sk_incoming_cpu,
-	       ss_statename[sk->sk_state]);
+	SS_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
+	       smp_processor_id(), __func__,
+	       sk, sk->sk_incoming_cpu, ss_statename[sk->sk_state]);
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,
@@ -210,13 +216,13 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 		ss_skb_queue_head_init(&sw.skb_list);
 		for (skb = ss_skb_peek(skb_list); skb; skb = ss_skb_next(skb)) {
 			/* tcp_transmit_skb() will clone the skb. */
-			skb_copy = pskb_copy_for_clone(skb, GFP_ATOMIC);
-			if (!skb_copy) {
+			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			if (!twin_skb) {
 				SS_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
 				goto err;
 			}
-			ss_skb_queue_tail(&sw.skb_list, skb_copy);
+			ss_skb_queue_tail(&sw.skb_list, twin_skb);
 		}
 	}
 
@@ -271,11 +277,11 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	SS_DBG("Close socket %p (%s): cpu=%d account=%d refcnt=%d\n",
-	       sk, ss_statename[sk->sk_state], smp_processor_id(),
+	SS_DBG("[%d]: Close socket %p (%s): account=%d refcnt=%d\n",
+	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	ss_sock_cpu_check(sk);
+	ss_sock_cpu_check(sk, "close");
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
@@ -291,7 +297,7 @@ ss_do_close(struct sock *sk)
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
 		data_was_unread += len;
-		SS_DBG("free rcv skb %p\n", skb);
+		SS_DBG("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
 
@@ -414,18 +420,111 @@ ss_close(struct sock *sk)
 }
 EXPORT_SYMBOL(ss_close);
 
-/*
+/**
  * Close a socket unconditionally from Tempesta.
  */
 void
 ss_close_sync(struct sock *sk)
 {
+	sk_incoming_cpu_update(sk);
+
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 EXPORT_SYMBOL(ss_close_sync);
+
+/*
+ * Process a single SKB.
+ */
+static int
+ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
+{
+	bool tcp_fin;
+	int r = 0, offset, count;
+	void *conn;
+	struct sk_buff *frag_list;
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/* Calculate the offset into the SKB. */
+	offset = tp->copied_seq - TCP_SKB_CB(skb)->seq;
+	if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
+		offset--;
+
+	/* SKB may be freed in processing. Save the flag. */
+	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
+
+	/*
+	 * When GRO is used, multiple SKBs may be merged into
+	 * one big SKB. These SKBs are linked in via frag_list.
+	 * Interpret the big SKB as a set of separate smaller
+	 * SKBs for processing. Make the top SKB first in the
+	 * frag_list.
+	 */
+	frag_list = skb_shinfo(skb)->frag_list;
+	if (frag_list) {
+		struct sk_buff *f_skb;
+		skb_walk_frags(skb, f_skb) {
+			f_skb->nohdr = 0;
+			ss_skb_adjust_data_len(skb, -f_skb->len);
+		}
+		skb_shinfo(skb)->frag_list = NULL;
+	}
+	skb->next = frag_list;
+	frag_list = skb;
+
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+
+		if (unlikely(offset >= skb->len)) {
+			offset -= skb->len;
+			__kfree_skb(skb);
+			continue;
+		}
+		skb->next = NULL;
+
+		count = skb->len - offset;
+		tp->copied_seq += count;
+		*processed += count;
+
+		conn = rcu_dereference_sk_user_data(sk);
+		/*
+		 * If @sk_user_data is unset, then this connection
+		 * had been dropped in a parallel thread. Dropping
+		 * a connection is serialized with the socket lock.
+		 * The receive queue must be empty in that case,
+		 * and the execution path should never reach here.
+		 */
+		BUG_ON(conn == NULL);
+
+		r = SS_CALL(connection_recv, conn, skb, offset);
+
+		if (r < 0) {
+			SS_DBG("[%d]: Processing error: sk %p r %d\n",
+			       smp_processor_id(), sk, r);
+			goto out; /* connection dropped */
+		} else if (r == SS_STOP) {
+			SS_DBG("[%d]: Stop processing: sk %p\n",
+			       smp_processor_id(), sk);
+			break;
+		}
+	}
+	if (tcp_fin) {
+		SS_DBG("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
+		++tp->copied_seq;
+		r = SS_DROP;
+	}
+out:
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+		__kfree_skb(skb);
+	}
+
+	return r;
+}
 
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
@@ -440,9 +539,9 @@ EXPORT_SYMBOL(ss_close_sync);
 static bool
 ss_tcp_process_data(struct sock *sk)
 {
-	bool tcp_fin, droplink = true;
-	int processed = 0;
-	unsigned int off;
+	bool droplink = true;
+	int r, count, processed = 0;
+	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -461,10 +560,12 @@ ss_tcp_process_data(struct sock *sk)
 		if (skb_shared(skb))
 			BUG();
 		/*
-		 * Cloned SKBs come here if a client or a back end are
-		 * on the same host as Tempesta. Cloning is happen in
-		 * tcp_transmit_skb() as it is for all egress packets,
-		 * but packets on loopback go to us as is, i.e. cloned.
+		 * SKBs get here cloned when a client or a back end run
+		 * on the same host with Tempesta. SKBs are cloned in
+		 * tcp_transmit_skb() as it is invoked for all egress
+		 * packets. That's fine when packets go out on the wire,
+		 * but packets on the loopback interface get to Tempesta
+		 * as is, i.e. cloned.
 		 *
 		 * Tempesta adjusts skb pointers, but leaves original
 		 * data untouched (this is also required in order to
@@ -473,69 +574,26 @@ ss_tcp_process_data(struct sock *sk)
 		 */
 		if (skb_unclone(skb, GFP_ATOMIC)) {
 			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
+			__kfree_skb(skb);
 			goto out;
 		}
 
-		/* @skb should be rerouted on forwarding. */
-		skb_dst_drop(skb);
-		skb->dev = NULL;
+		/* Save the original len and seq for reporting. */
+		skb_len = skb->len;
+		skb_seq = TCP_SKB_CB(skb)->seq;
 
-		/* SKB may be freed in processing. Save the flag. */
-		tcp_fin = tcp_hdr(skb)->fin;
-		off = tp->copied_seq - TCP_SKB_CB(skb)->seq;
-		if (tcp_hdr(skb)->syn)
-			off--;
-		if (likely(off < skb->len)) {
-			int r, count = skb->len - off;
-			void *conn = rcu_dereference_sk_user_data(sk);
+		count = 0;
+		r = ss_tcp_process_skb(sk, skb, &count);
+		processed += count;
 
-			/*
-			 * If @sk_user_data is unset, then this connection
-			 * had been dropped in a parallel thread. Dropping
-			 * a connection is serialized with the socket lock.
-			 * The receive queue must be empty in that case,
-			 * and the execution path should never reach here.
-			 */
-			BUG_ON(conn == NULL);
-
-			r = SS_CALL(connection_recv, conn, skb, off);
-
-			/*
-			 * The socket @sk may have been closed as a result
-			 * of data processing in this or in parallel thread.
-			 * However the socket is not destroyed until control
-			 * is returned back to the Linux kernel.
-			 */
-			if (r < 0) {
-				SS_DBG("Bad socket %p data processing, %d\n",
-				       sk, r);
-				goto out; /* connection dropped */
-			}
-			tp->copied_seq += count;
-			processed += count;
-
-			if (tcp_fin) {
-				SS_DBG("Data FIN received: sk %p\n", sk);
-				++tp->copied_seq;
-				goto out;
-			}
-
-			if (r == SS_STOP) {
-				SS_DBG("Stop processing data: sk %p\n", sk);
-				break;
-			}
-		} else if (tcp_fin) {
-			__kfree_skb(skb);
-			SS_DBG("Link FIN received: sk %p\n", sk);
-			++tp->copied_seq;
+		if (r < 0)
 			goto out;
-		} else {
+		else if (r == SS_STOP)
+			break;
+		else if (!count)
 			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
 				" seq %X rcvnxt %X len %x\n",
-				tp->copied_seq, TCP_SKB_CB(skb)->seq,
-				tp->rcv_nxt, skb->len);
-			__kfree_skb(skb);
-		}
+				tp->copied_seq, skb_seq, tp->rcv_nxt, skb_len);
 	}
 	droplink = false;
 out:
@@ -564,8 +622,9 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 #else
 	struct request_sock *req;
 #endif
-	SS_DBG("%s: sk %p, sk->sk_socket %p, state (%s)\n",
-		__func__, lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
+	SS_DBG("[%d]: %s: sk %p, sk->sk_socket %p, state (%s)\n",
+	       smp_processor_id(), __func__,
+	       lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
 
 	/* Currently we process TCP only. */
 	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
@@ -627,9 +686,9 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk);
+	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
@@ -643,7 +702,7 @@ ss_tcp_data_ready(struct sock *sk)
 		if (ss_tcp_process_data(sk)) {
 			/*
 			 * Drop connection in case of internal errors,
-			 * or banned packets.
+			 * banned packets, or FIN in the received packet.
 			 *
 			 * ss_droplink() is responsible for calling
 			 * application layer connection closing callback.
@@ -661,7 +720,8 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			SS_DBG("urgent data in socket %p\n", sk);
+			SS_DBG("[%d]: urgent data in socket %p\n",
+			       smp_processor_id(), sk);
 		}
 	}
 }
@@ -672,9 +732,9 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("%s: cpu=%d sk=%p state=%s\n", __func__,
-	       smp_processor_id(), sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk);
+	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	ss_sock_cpu_check(sk, "state change");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -693,7 +753,8 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		r = SS_CALL(connection_new, sk);
 		if (r) {
-			SS_DBG("New connection hook failed, r=%d\n", r);
+			SS_DBG("[%d]: New connection hook failed, r=%d\n",
+			       smp_processor_id(), r);
 			ss_droplink(sk);
 			return;
 		}
@@ -733,7 +794,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
-		SS_DBG("Peer connection closing\n");
+		SS_DBG("[%d]: Peer connection closing\n", smp_processor_id());
 		ss_droplink(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
@@ -897,6 +958,7 @@ ss_inet_create(struct net *net, int family,
 
 	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
+		SS_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
 		return err;
 	}
@@ -1047,8 +1109,8 @@ ss_tx_action(void)
 			break;
 		case SS_CLOSE:
 			if (!ss_sock_live(sk)) {
-				SS_DBG("%s: Socket inactive: sk %p\n",
-					__func__, sk);
+				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
+				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}

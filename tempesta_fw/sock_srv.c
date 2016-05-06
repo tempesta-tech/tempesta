@@ -169,7 +169,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
-		sk_incoming_cpu_update(sk);
 		ss_close_sync(sk);
 		tfw_connection_unlink_from_sk(sk);
 		return r;
@@ -304,9 +303,13 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 /**
  * The hook is executed when a server connection is lost.
  * I.e. the connection was established before, but now it is closed.
+ *
+ * FIXME #254: the hook must be called when Tempesta intentionaly closes
+ * the connection during shutdown. SS layer must be adjusted correspondingly.
+ * Failovering must not be called by the function.
  */
 static int
-tfw_sock_srv_connect_failover(struct sock *sk)
+tfw_sock_srv_connect_drop(struct sock *sk)
 {
 	return tfw_sock_srv_do_failover(sk, "connection lost");
 }
@@ -316,27 +319,21 @@ tfw_sock_srv_connect_failover(struct sock *sk)
  * (and not executed when an established connection is closed as usual).
  * An error may occur in any TCP state. All Tempesta resources associated
  * with the socket must be released in case they were allocated before.
+ *
+ * FIXME #254: the hook must be called when a connection error occured
+ * and Tempesta must recover the connection.
+ * SS layer must be adjusted correspondingly.
  */
 static int
-tfw_sock_srv_connect_retry(struct sock *sk)
+tfw_sock_srv_connect_error(struct sock *sk)
 {
 	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
-/*
- * This function is called when a server connection is explicitly dropped
- * by Tempesta.
- */
-int
-tfw_sock_srv_drop(struct sock *sk)
-{
-	return tfw_sock_srv_do_failover(sk, "connection dropped");
-}
-
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
-	.connection_drop	= tfw_sock_srv_connect_failover,
-	.connection_error	= tfw_sock_srv_connect_retry,
+	.connection_drop	= tfw_sock_srv_connect_drop,
+	.connection_error	= tfw_sock_srv_connect_error,
 	.connection_recv	= tfw_connection_recv,
 };
 
@@ -364,6 +361,10 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	 * Close and release the socket.
 	 */
 	if (sk) {
+		/*
+		 * FIXME this can cause BUG() in ss_tcp_process_data() on
+		 * sk->sk_user_data == NULL.
+		 */
 		tfw_connection_unlink_from_sk(sk);
 		tfw_connection_unlink_to_sk(conn);
 		ss_close(sk);
@@ -567,6 +568,11 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	r = tfw_cfg_parse_int(in_conns_n, &conns_n);
 	if (r)
 		return r;
+
+	if (conns_n > TFW_SRV_MAX_CONN) {
+		TFW_ERR("can't use more than %d connections", TFW_SRV_MAX_CONN);
+		return -EINVAL;
+	}
 
 	srv = tfw_create_server(&addr);
 	if (!srv) {

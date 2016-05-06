@@ -85,16 +85,14 @@ ss_skb_unlink(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	if (scb->next) {
+	if (scb->next)
 		TFW_SKB_CB(scb->next)->prev = scb->prev;
-	} else {
+	else
 		list->last = scb->prev;
-	}
-	if (scb->prev) {
+	if (scb->prev)
 		TFW_SKB_CB(scb->prev)->next = scb->next;
-	} else {
+	else
 		list->first = scb->next;
-	}
 	scb->next = scb->prev = NULL;
 }
 
@@ -169,7 +167,7 @@ ss_skb_tailroom(const struct sk_buff *skb)
  * works on a linear skb, while this one works on any skb.
  */
 static inline unsigned char *
-ss_skb_put(struct sk_buff *skb, unsigned int len)
+ss_skb_put(struct sk_buff *skb, const int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
 	skb->tail += len;
@@ -197,9 +195,9 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-int ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len,
-		    TfwStr *it);
-int ss_skb_cutoff_data(SsSkbList *head, const TfwStr *it, int skip, int tail);
+int ss_skb_get_room(struct sk_buff *skb,
+		    char *pspt, unsigned int len, TfwStr *it);
+int ss_skb_cutoff_data(const TfwStr *it, int skip, int tail);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);

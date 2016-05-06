@@ -23,6 +23,8 @@
 #include <linux/interrupt.h>
 #include <linux/irq_work.h>
 
+#include "log.h"
+
 typedef struct {
 	long			_[4];
 } __WqItem;
@@ -54,8 +56,10 @@ tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
 {
 	int r = __tfw_wq_push(wq, ptr);
 
-	if (unlikely(r))
+	if (unlikely(r)) {
+		TFW_WARN("work queue overrun\n");
 		return r;
+	}
 
 	if (smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);

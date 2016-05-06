@@ -18,17 +18,10 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-root=$(dirname "$0")
-name=`basename $0` # program name (comm name in ps)
-
-# Resolve root to absolute path which is handy for kernel.
-# pwd is used instead of readlink to avoid symlink resolution.
-pushd "$root" > /dev/null
-root="$(pwd)"
-popd > /dev/null
+. "$(dirname $0)/tfw_lib.sh"
 
 # Path to testing modules.
-tm_path=${TFW_PATH:="$root/tempesta_fw/t"}
+tm_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw/t"}
 
 declare conn= iter= msgs= srv= thr= unload= verbose=
 
@@ -36,15 +29,20 @@ declare -r long_opts="help,start,stop"
 
 usage()
 {
-	echo -e "\nUsage: ${name} [options] {action}"
 	echo
-	echo -e "${name} runs T threads in I iterations. Each thread"
+	echo -e "Tempesta Bomber: a tool for HTTP servers stress testing"
+	echo
+	echo -e "The bomber runs T threads in I iterations. Each thread"
 	echo -e "establishes C connections to the server in each iteration"
 	echo -e "and sends M messages over each connection."
+	echo
+	echo -e "Usage: ${TFW_NAME} [options] {action}"
 	echo
 	echo -e "Options:"
 	echo -e "  -a <addr>   Server address, \"127.0.0.1:80\" by default."
 	echo -e "  -c <C>      Number of concurrent connections, 2 by default."
+	echo -e "  -d <devs>   Ingress and egress network devices"
+	echo -e "              (ex. -d \"lo ens3\").\n"
 	echo -e "  -i <I>      Number of iterations, 2 by default."
 	echo -e "  -m <M>      Number messages per connection, 2 by default."
 	echo -e "  -t <T>      Number of client threads, 2 by default."
@@ -70,17 +68,19 @@ stop()
 
 	rmmod tfw_bomber
 	rmmod tfw_fuzzer
-	[ "$unload" ] && ./tempesta.sh --unload
+	[ "$unload" ] && $TFW_SCRIPTS/tempesta.sh --unload
 
 	echo "done"
 }
 
 start()
 {
+	tfw_set_rps
+
 	echo "Tempesta: bombing the server..."
 
 	if [ -z "`lsmod | grep \"\<tempesta_fw\>\"`" ]; then
-		./tempesta.sh --load
+		$TFW_SCRIPTS/tempesta.sh --load
 		[ $? -ne 0 ] && error "cannot load TFW environment"
 	fi
 
@@ -93,7 +93,7 @@ start()
 	stop
 }
 
-args=$(getopt -o "a:c:i:m:t:uv" -a -l "$long_opts" -- "$@")
+args=$(getopt -o "a:c:d:i:m:t:uv" -a -l "$long_opts" -- "$@")
 eval set -- "${args}"
 while :; do
 	case "$1" in
@@ -112,6 +112,10 @@ while :; do
 			;;
 		-c)
 			conn="c=$2"
+			shift 2
+			;;
+		-d)
+			TFW_DEVS=$2
 			shift 2
 			;;
 		-i)

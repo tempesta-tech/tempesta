@@ -128,7 +128,9 @@ typedef struct {
  * @to_read	- remaining number of bytes to read;
  * @_hdr_tag	- describes, which header should be closed in case of
  *		  the empty header (see RGEN_LWS_empty)
- * @_tmp_acc	- integer accumulator for parsing chunked integers;
+ * @_tmp	- temporary register used to store context-specific data
+ *                  acc) integer accumulator for parsing chunked integers;
+ *                  eol) track of CR/LF delimiters while hunting for EOL;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -137,7 +139,10 @@ typedef struct {
 	int		state;
 	int		_i_st;
 	int		to_read;
-	unsigned long	_tmp_acc;
+	union {
+		unsigned long acc;
+		unsigned long eol;
+	} _tmp;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
@@ -150,15 +155,19 @@ typedef struct {
  * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
  *
- * Note: don't forget to update tfw_http_msg_hdr_val() upon adding a new header.
+ * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
  *
  * Cookie: singular according to RFC 6265 5.4.
+ *
+ * TODO split the enumeration to separate server and client sets to avoid
+ * vasting of headers array slots.
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
+	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
 
 	/* End of list of singular header. */

@@ -47,7 +47,7 @@
  * @hdr_num	- numbder of headers;
  * @hdr_len	- length of whole headers data;
  * @key		- the cache enty key (URI + Host header);
- * @status	- pointer to status line;
+ * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
  */
@@ -106,9 +106,12 @@ enum {
 };
 
 /*
- * Non-cacheable hop-by-hop response headers in terms of RFC 2616.
+ * Non-cacheable hop-by-hop response headers in terms of RFC 2068.
  * The table is used if server doesn't specify Cache-Control no-cache
  * directive (RFC 7234 5.2.2.2) explicitly.
+ *
+ * Server header isn't defined as hop-by-hop by the RFC, but we don't show
+ * protected server to world.
  *
  * We don't store the headers in cache and create then from scratch.
  * Adding a header is faster then modify it, so this speeds up headers
@@ -118,6 +121,7 @@ enum {
  */
 static const int hbh_hdrs[] = {
 	[0 ... TFW_HTTP_HDR_RAW]	= 0,
+        [TFW_HTTP_HDR_SERVER]		= 1,
 	[TFW_HTTP_HDR_CONNECTION]	= 1,
 };
 
@@ -289,6 +293,42 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 }
 
 /**
+ * Copies plain or compound (chunked) TfwStr @src to TdbRec @trec may be
+ * appending EOL marker at the end.
+ *
+ * @src is copied (possibly with EOL appended)
+ * @return number of copied bytes on success and negative value otherwise.
+ */
+static long
+tfw_cache_strcpy_eol(char **p, TdbVRec **trec,
+		   TfwStr *src, size_t *tot_len, bool eol)
+{
+	long n, copied = 0;
+	TfwStr *c, *end;
+
+	BUG_ON(TFW_STR_DUP(src));
+
+	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
+		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
+			TFW_ERR("Cache: cannot copy chunk of string\n");
+			return -ENOMEM;
+		}
+		*tot_len -= n;
+		copied += n;
+	}
+
+	if (eol) {
+		if ((n = tfw_cache_strcpy(p, trec, &g_crlf, *tot_len)) < 0)
+			return -ENOMEM;
+		BUG_ON(n != SLEN(S_CRLF));
+		*tot_len -= n;
+		copied += n;
+	}
+
+	return copied;
+}
+
+/**
  * Deep HTTP header copy to TdbRec.
  * @src is copied in depth first fashion to speed up upcoming scans.
  * @return number of copied bytes on success and negative value otherwise.
@@ -297,7 +337,7 @@ static long
 tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 {
 	long n = sizeof(TfwCStr), copied;
-	TfwStr *dup, *dup_end, *chunk, *chunk_end;
+	TfwStr *dup, *dup_end;
 
 	if (unlikely(src->len >= TFW_CSTR_MAXLEN)) {
 		TFW_WARN("Cache: trying to store too big string %lx\n",
@@ -326,17 +366,8 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 	if (!src->len)
 		return copied;
 
-	if (TFW_STR_PLAIN(src)) {
-		if ((n = tfw_cache_strcpy(p, trec, src, *tot_len)) < 0)
-			return n;
-		*tot_len -= n;
-		copied += n;
-		if ((n = tfw_cache_strcpy(p, trec, &g_crlf, *tot_len)) < 0)
-			return n;
-		BUG_ON(n != SLEN(S_CRLF));
-		*tot_len -= n;
-		return copied + n;
-	}
+	if (TFW_STR_PLAIN(src))
+		return tfw_cache_strcpy_eol(p, trec, src, tot_len, 1);
 
 	TFW_STR_FOR_EACH_DUP(dup, src, dup_end) {
 		if (dup != src) {
@@ -345,17 +376,8 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 			*tot_len -= TFW_CSTR_HDRLEN;
 			copied += TFW_CSTR_HDRLEN;
 		}
-		TFW_STR_FOR_EACH_CHUNK(chunk, dup, chunk_end) {
-			n = tfw_cache_strcpy(p, trec, chunk, *tot_len);
-			if (n < 0)
-				return n;
-			*tot_len -= n;
-			copied += n;
-		}
-		if ((n = tfw_cache_strcpy(p, trec, &g_crlf, *tot_len)) < 0)
+		if ((n = tfw_cache_strcpy_eol(p, trec, dup, tot_len, 1)) < 0)
 			return n;
-		BUG_ON(n != SLEN(S_CRLF));
-		*tot_len -= n;
 		copied += n;
 	}
 
@@ -368,6 +390,10 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
  *
  * It's nasty to copy data on CPU, but we can't use DMA for mmaped file
  * as well as for unaligned memory areas.
+ *
+ * TODO Store the cache entries as a templates with placeholders for
+ * changeable headers. That we can faster build the final answers instead
+ * of adjusting skb's.
  */
 static int
 tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
@@ -394,15 +420,11 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	}
 
 	ce->status = TDB_OFF(db->hdr, p);
-	TFW_STR_FOR_EACH_CHUNK(field, &resp->s_line, end1) {
-		if ((n = tfw_cache_strcpy(&p, &trec, field, tot_len)) < 0) {
-			TFW_ERR("Cache: cannot copy HTTP status line\n");
-			return -ENOMEM;
-		}
-		BUG_ON(n > tot_len);
-		tot_len -= n;
-		ce->status_len += n;
+	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->s_line, &tot_len, 1)) < 0) {
+		TFW_ERR("Cache: cannot copy HTTP status line\n");
+		return -ENOMEM;
 	}
+	ce->status_len += n;
 
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
@@ -422,12 +444,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
 	tot_len = resp->body.len;
-	TFW_STR_FOR_EACH_CHUNK(field, &resp->body, end1) {
-		if ((n = tfw_cache_strcpy(&p, &trec, field, tot_len)) < 0) {
-			TFW_ERR("Cache: cannot copy HTTP body\n");
-			return -ENOMEM;
-		}
-		tot_len -= n;
+	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len, 0)) < 0) {
+		TFW_ERR("Cache: cannot copy HTTP body\n");
+		return -ENOMEM;
 	}
 	BUG_ON(tot_len);
 

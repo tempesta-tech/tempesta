@@ -24,7 +24,7 @@
  * Or, that singular header fields may not be duplicated in an HTTP header.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,8 +32,8 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
@@ -429,8 +429,8 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra)
 		return TFW_BLOCK;
 	}
 
-	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
-			     TFW_HTTP_HDR_CONTENT_TYPE, &field);
+	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 TFW_HTTP_HDR_CONTENT_TYPE, &field);
 
 	/*
 	 * Verify that Content-Type value is on the list of allowed values.
@@ -483,8 +483,8 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return req->version > TFW_HTTP_VER_10 ? TFW_BLOCK : TFW_PASS;
 	}
 
-	tfw_http_msg_hdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-			     TFW_HTTP_HDR_HOST, &field);
+	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+				 TFW_HTTP_HDR_HOST, &field);
 	if (!TFW_STR_EMPTY(&field)) {
 		/* Check that host header is not a IP address. */
 		if (!tfw_addr_pton(&field, &addr)) {
@@ -741,10 +741,9 @@ frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
 	/* Ensure that length of URI is within limits. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_UriLen) {
 		if (frang_cfg.http_uri_len) {
-			if (!(req->uri_path.flags & TFW_STR_COMPLETE)) {
-				__FRANG_FSM_EXIT();
-			}
 			r = frang_http_uri_len(req, ra);
+			if (!(req->uri_path.flags & TFW_STR_COMPLETE))
+				__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_UriLen);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldDup);
 	}

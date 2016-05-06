@@ -3,10 +3,10 @@
 
 ### What it is?
 
-**Tempesta FW** is a hybrid solution that combines reverse proxy and firewall
-at the same time. It accelerates Web applications and provide high performance
-framework with access to all network layers for running complex network traffic
-classification and blocking modules.
+**Tempesta FW** is a hybrid solution that combines a reverse proxy and
+a firewall at the same time. It accelerates Web applications and provides
+high performance framework with access to all network layers for running
+complex network traffic classification and blocking modules.
 
 **Tempesta FW** is built into Linux TCP/IP stack for better and more stable
 performance characteristics in comparison with TCP servers on top of common
@@ -25,6 +25,7 @@ Socket API or even kernel sockets.
 * GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
+Tempesta DB requires `fallocate(2)`. Please use filesystems that support this system call, such as **ext4**, **btrfs**, or **xfs**. Other filesystems such as ext3 don't support this system call, so they can't be used with Tempesta.
 
 #### Kernel
 
@@ -38,14 +39,10 @@ switched on:
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
 * CONFIG\_NETLINK\_MMAP
 
-Tempesta aggressively uses CPU vector extensions, so FPU eager context
-switching must be enabled at kernel parameter. So add `eagerfpu=on` to
-your kernel command line.
-
-We suggest to use CONFIG\_PREEMPT\_NONE for better throughput, however please
-use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes additional
-stress to synchronization of several algorithms. Also note that CONFIG\_PREEMPT
-is not supported at all.
+We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
+please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
+additional stress to synchronization of several algorithms. Also note that
+CONFIG\_PREEMPT is not supported at all.
 
 
 ### Build
@@ -65,8 +62,8 @@ To build the module you need to do the following steps:
 Use `tempesta.sh` script to run and stop Tempesta. The script provides help
 information with `--help` switch. Usage example:
 
-        $ ./tempesta.sh --start
-        $ ./tempesta.sh --stop
+        $ ./scripts/tempesta.sh --start
+        $ ./scripts/tempesta.sh --stop
 
 
 ### Configuration
@@ -75,7 +72,7 @@ Tempesta is configured via plain-text configuration file.
 
 The file location is determined by the `TFW_CFG_PATH` environment variable:
 
-        $ TFW_CFG_PATH="/opt/tempesta.conf" ./tempesta.sh --start
+        $ TFW_CFG_PATH="/opt/tempesta.conf" ./scripts/tempesta.sh --start
 
 By default, the `tempesta_fw.conf` from this directory is used.
 
@@ -166,7 +163,7 @@ server <IPADDR>[:<PORT>] [conns_n=<N>]
 `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
 `PORT` defaults to 80 if not specified.
-`conns\_n=<N>` is the number of parallel connections to the server.
+`conns_n=<N>` is the number of parallel connections to the server.
 `N` defaults to 4 if not specified.
 
 Multiple back end servers may be defined. For example:
@@ -190,7 +187,7 @@ srv_group <NAME> [sched=<SCHED_NAME>] {
 ```
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
-`SCHED\_NAME` is the name of scheduler module that distributes load among
+`SCHED_NAME` is the name of scheduler module that distributes load among
 servers within the group. Default scheduler is used if `sched` parameter is
 not specified.
 
@@ -213,7 +210,7 @@ follows:
 ```
 sched <SCHED_NAME>
 ```
-`SCHED\_NAME` is the name of a scheduler available in Tempesta.
+`SCHED_NAME` is the name of a scheduler available in Tempesta.
 
 Currently there are two schedulers available:
 * **round-robin** - Rotates all servers in a group in round-robin manner so
@@ -226,7 +223,7 @@ always sent to the same server.
 If no scheduler is defined, then scheduler defaults to `round-robin`.
 
 The defined scheduler affects all server definitions that are missing a
-scheduler definition. If `srv\_group` is missing a scheduler definition,
+scheduler definition. If `srv_group` is missing a scheduler definition,
 and there is a scheduler defined, then that scheduler is set for the group.
 
 Multiple `sched` directives may be defined in the configuration file.
@@ -371,13 +368,13 @@ in requests from the client.
 
 **Frang** is a separate Tempesta module for HTTP DoS and DDoS attacks
 prevention. It uses static limiting and checking of ingress HTTP requests.
-The main portion of it's logic is at HTTP layer, so it's recomended to use
-*ip_block* option (switched on by default) to block malicious users at IP
-layer.
+The main portion of it's logic is at HTTP layer, so it's recommended that
+*ip_block* option (enabled by default) is used to block malicious users
+at IP layer.
 
 Use `-f` command key to start Tempesta with Frang:
 ```
-$ ./tempesta.sh -f --start
+$ ./scripts/tempesta.sh -f --start
 ```
 Frang has a separate section in the configuration file, *"frang_limits"*.
 The list of available options:
@@ -431,13 +428,13 @@ request;
 
 Let's see a simple example to understand Tempesta filtering.
 
-Run Tempesta with enabled [Frang](#Frang) and put some load onto the system
+Run Tempesta with [Frang](#Frang) enabled and put some load onto the system
 to make Frang generate a blocking rule:
 ```
 $ dmesg | grep frang
 [tempesta] Warning: frang: connections max num. exceeded for ::ffff:7f00:1: 9 (lim=8)
 ```
-`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang rate limiting
+`::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang's rate limiting
 calls the filter module that stores the blocked IPs in Tempesta DB, so now we
 can run some queries on the database (you can read more about
 [tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
