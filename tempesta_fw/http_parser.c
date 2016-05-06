@@ -142,19 +142,27 @@ done:									\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	parser->to_go = len - (size_t)(p - data);
 
-#define __FSM_MOVE_nf(to, n, field)				\
+#define __FSM_MOVE_nff(to, n, field, fixup)				\
 do {									\
 	p += n;								\
 	if (unlikely(p >= data + len || !*p)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
-		tfw_http_msg_field_chunk_fixup(msg, field, data, len);	\
+		if (fixup)						\
+			tfw_http_msg_field_chunk_fixup(msg, field,	\
+						       data, len);	\
 		__FSM_EXIT()						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
+
+#define __FSM_MOVE_nofixup(to)						\
+	__FSM_MOVE_nff(to, 1, NULL, 0)
+
+#define __FSM_MOVE_nf(to, n, field)					\
+	__FSM_MOVE_nff(to, n, field, 1)
 
 #define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, &msg->parser.hdr)
 #define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
@@ -550,7 +558,7 @@ good_looking_eol:							\
 		 * pass.						\
 		 */							\
 									\
-		__FSM_MOVE(RGen__EoL);					\
+		__FSM_MOVE_nofixup(RGen__EoL);				\
 	}								\
 									\
 	TFW_DBG3("parser: eol %08lx +%02x(%c)\n",			\
@@ -1621,7 +1629,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_0) {
 		if (unlikely(IS_CR_OR_LF(c)))
-			__FSM_MOVE(Req_0);
+			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
 	}
 
@@ -2828,7 +2836,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_0) {
 		if (unlikely(IS_CR_OR_LF(c)))
-			__FSM_MOVE(Resp_0);
+			__FSM_MOVE_nofixup(Resp_0);
 		/* fall through */
 	}
 
