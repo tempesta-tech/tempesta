@@ -124,18 +124,18 @@ keepalive_timeout 75;
 ### Caching
 
 Tempesta caches Web-content by default, i.e. works as reverse proxy.
-Configuration option ```cache``` manages the cache befavior:
+Configuration option `cache` manages the cache befavior:
 
-* ```0``` - no caching at all, pure proxying mode;
-* ```1``` - cache sharding when each NUMA node contains independent shard
+* `0` - no caching at all, pure proxying mode;
+* `1` - cache sharding when each NUMA node contains independent shard
 	    of whole cache. This mode has the smallest memory requirements;
-* ```2``` - (default) replicated mode when each NUMA node has whole replica
+* `2` - (default) replicated mode when each NUMA node has whole replica
 	    of the cache. It requires more RAM, but delivers the highest
 	    performance.
 
-```cache_db``` specifies path to a cache database files.
+`cache_db` specifies path to a cache database files.
 The PATH must be absolute and the directory must exist. The database file
-must end with ```.tbd```. E.g. ```cache_db /opt/tempesta/db/cache.tdb``` is
+must end with `.tbd`. E.g. `cache_db /opt/tempesta/db/cache.tdb` is
 the right Tmpesta DB path. However, this is the only path pattern rather than
 real path. Tempesta creates per NUMA node database files, so if you have two
 processor packages on modern hardware, then follwoing files will be created
@@ -145,9 +145,9 @@ processor packages on modern hardware, then follwoing files will be created
         /opt/tempesta/db/cache1.tdb
 
 
-```cache_size``` defines size (in bytes, suffixes like 'MB' are not supported
+`cache_size` defines size (in bytes, suffixes like 'MB' are not supported
 yet) of each Tempesta DB file used as Web cache storage. The size must be
-multiple of 2MB (Tempesta DB extent size). Default value is ```268435456```
+multiple of 2MB (Tempesta DB extent size). Default value is `268435456`
 (256MB).
 
 
@@ -320,7 +320,9 @@ are not used.
 The use and behaviour of Tempesta sticky cookies is controlled by a single
 configuration option that can have several parameters. The full form of
 the option and parameters is as follows:
-```sticky [name=<COOKIE_NAME>] [enforce];```
+```
+sticky [name=<COOKIE_NAME>] [enforce];
+```
 
 `name` parameter specifies a custom Tempesta sticky cookie name `COOKIE_NAME`
 for use in HTTP requests. It is expected that it is a single word without
@@ -423,6 +425,15 @@ request;
 
 * **http_methods** - the list of accepted HTTP methods;
 
+Various back end servers may differ in interpretation of certain aspects of
+the standards. Some may follow strict standards, whereas others may allow a
+more relaxed interpretation. An example of this is the `Host:` header field.
+It must be present in all HTTP/1.1 requests. However, the `Host:` field value
+may be empty in certain cases. Nginx is strict about that, while Apache allows
+an empty `Host:` field value in more cases. This can present an opportunity
+for a DoS attack. Frang's **http_host_required** option should be used in this
+case. That would leave handling of the `Host:` header field to Tempesta.
+Invalid requests would be denied before they reach a back end server.
 
 ### Filter
 
