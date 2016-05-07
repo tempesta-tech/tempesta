@@ -364,6 +364,65 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 		    TFW_STR_EQ_PREFIX_CASEI));
 }
 
+static const char *foxstr = "The quick brown fox jumps over the lazy dog";
+
+TEST(tfw_str_eq_cstr_pos, plain)
+{
+	TfwStr *fox = make_plain_str(foxstr), *c, *end;
+	long i, offset = 0, foxlen = fox->len;
+
+	TFW_STR_FOR_EACH_CHUNK(c, fox, end) {
+		for (i = 0; i < c->len; i++) {
+			EXPECT_TRUE(tfw_str_eq_cstr_pos(fox,
+							c->ptr + i,
+							foxstr + offset,
+							foxlen - offset,
+							TFW_STR_EQ_CASEI));
+			EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+							 c->ptr + i,
+							 "1234567890",
+							 10,
+							 TFW_STR_EQ_CASEI));
+			++offset;
+		}
+	}
+
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 (const char *)1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
+
+}
+
+TEST(tfw_str_eq_cstr_pos, compound)
+{
+	TfwStr *fox = make_compound_str(foxstr), *c, *end;
+	long i, offset = 0, foxlen = fox->len;
+
+	TFW_STR_FOR_EACH_CHUNK(c, fox, end) {
+		for (i = 0; i < c->len; i++) {
+			EXPECT_TRUE(tfw_str_eq_cstr_pos(fox,
+							c->ptr + i,
+							foxstr + offset,
+							foxlen - offset,
+							TFW_STR_EQ_CASEI));
+			EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+							 c->ptr + i,
+							 "1234567890",
+							 10,
+							 TFW_STR_EQ_CASEI));
+			++offset;
+		}
+	}
+
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 (const char *)1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -390,4 +449,7 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_cstr, handles_empty_strs);
 	TEST_RUN(tfw_str_eq_cstr, supports_casei);
 	TEST_RUN(tfw_str_eq_cstr, supports_prefix);
+
+	TEST_RUN(tfw_str_eq_cstr_pos, plain);
+	TEST_RUN(tfw_str_eq_cstr_pos, compound);
 }
