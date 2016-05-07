@@ -364,6 +364,53 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 EXPORT_SYMBOL(tfw_str_eq_cstr);
 
 /**
+ * Same as @tfw_str_eq_cstr, but compares a substring of @str taken from the
+ * position @pos with linear @cstr of length @cstr_len.
+ *
+ * Beware! The function has side effects and may and likely will **modify** a
+ * chunk of the source @str for a while...
+ *
+ * Uses the @tfw_str_eq_cstr as the basis.
+ */
+bool
+tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
+		    int cstr_len, tfw_str_eq_flags_t flags)
+{
+	bool r = false;
+	TfwStr tmp = *str;
+	const TfwStr *c, *end;
+
+	BUG_ON(TFW_STR_DUP(str));
+	BUG_ON(!pos || !cstr || !cstr_len);
+
+	TFW_STR_FOR_EACH_CHUNK(c, &tmp, end) {
+		long offset = pos - (char *)c->ptr;
+
+		if (offset >= 0 && (offset < c->len)) {
+			TfwStr t = *c, *v = (TfwStr *)c;
+
+			v->ptr += offset;
+			v->len -= offset;
+
+			r = tfw_str_eq_cstr(&tmp, cstr, cstr_len, flags);
+
+			*v = t; /* restore chunk */
+			goto out;
+		}
+
+		tmp.len -= c->len;
+		tmp.ptr += sizeof(TfwStr);
+
+		TFW_STR_CHUNKN_SUB(&tmp, 1);
+	}
+
+	TFW_WARN("Desired position is outside the string\n");
+out:
+	return r;
+}
+EXPORT_SYMBOL(tfw_str_eq_cstr_pos);
+
+/**
  * The function intentionaly brokes zero-copy string design. And should
  * be used for short-strings only.
  *
