@@ -830,8 +830,6 @@ __FSM_STATE(RGen_Body) {						\
 			return TFW_BLOCK;				\
 		default:						\
 			BUG_ON(__fsm_n < 0);				\
-			if (unlikely(__fsm_n == 0))			\
-				return TFW_BLOCK;			\
 			parser->to_read = parser->_tmp.acc;		\
 			if (!parser->to_read)				\
 				msg->body.flags |= TFW_STR_COMPLETE;	\
