@@ -69,9 +69,6 @@ ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	/* Don't try to link the skb twice. */
-	BUG_ON(ss_skb_passed(skb));
-
 	scb->prev = list->last;
 	if (ss_skb_queue_empty(list))
 		list->first = skb;

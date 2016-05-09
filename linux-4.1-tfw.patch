@@ -526,7 +526,7 @@ index 738ea48..7944e97 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 4307e20..1458202 100644
+index 4307e20..f915c87 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -538,8 +538,12 @@ struct sk_buff {
@@ -555,7 +555,7 @@ index 4307e20..1458202 100644
  	kmemcheck_bitfield_end(flags1);
  
  	/* fields enclosed in headers_start/headers_end are copied
-@@ -3452,5 +3458,43 @@ static inline unsigned int skb_gso_network_seglen(const struct sk_buff *skb)
+@@ -3452,5 +3458,28 @@ static inline unsigned int skb_gso_network_seglen(const struct sk_buff *skb)
  			       skb_network_header(skb);
  	return hdr_len + skb_gso_transport_seglen(skb);
  }
@@ -581,21 +581,6 @@ index 4307e20..1458202 100644
 +	TFW_SKB_CB(skb)->prev = NULL;					\
 +	TFW_SKB_CB(skb)->next = NULL;					\
 +} while (0)
-+
-+/**
-+ * Whether the @skb is passed to application layer.
-+ *
-+ * Linux TCP/IP code owns all socket buffers and can call __kfree_skb() at any
-+ * time. Meantime, we need to pass the buffers to Tempesta code to avoid data
-+ * copying.
-+ */
-+static inline bool
-+ss_skb_passed(const struct sk_buff *skb)
-+{
-+	SsSkbCb *scb = TFW_SKB_CB(skb);
-+
-+	return scb->next || scb->prev;
-+}
 +
  #endif	/* __KERNEL__ */
  #endif	/* _LINUX_SKBUFF_H */
@@ -1157,7 +1142,7 @@ index b42f0e2..ef4362e 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 075d2e7..cd94e94 100644
+index 075d2e7..910bf00 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -78,7 +78,9 @@
@@ -1311,7 +1296,7 @@ index 075d2e7..cd94e94 100644
  
  /* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
   *	'private' fields and also do memory statistics to find all the
-@@ -180,6 +308,49 @@ out:
+@@ -180,6 +309,49 @@ out:
  	return skb;
  }
  
@@ -1361,7 +1346,7 @@ index 075d2e7..cd94e94 100644
  /**
   *	__alloc_skb	-	allocate a network buffer
   *	@size: size to allocate
-@@ -197,6 +368,7 @@ out:
+@@ -197,6 +369,7 @@ out:
   *	Buffers may only be allocated from interrupts using a @gfp_mask of
   *	%GFP_ATOMIC.
   */
@@ -1369,7 +1354,7 @@ index 075d2e7..cd94e94 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
  			    int flags, int node)
  {
-@@ -235,41 +407,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+@@ -235,41 +408,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
  	size = SKB_WITH_OVERHEAD(ksize(data));
  	prefetchw(data + size);
  
@@ -1412,7 +1397,7 @@ index 075d2e7..cd94e94 100644
  out:
  	return skb;
  nodata:
-@@ -277,6 +415,42 @@ nodata:
+@@ -277,6 +416,42 @@ nodata:
  	skb = NULL;
  	goto out;
  }
@@ -1455,7 +1440,7 @@ index 075d2e7..cd94e94 100644
  EXPORT_SYMBOL(__alloc_skb);
  
  /**
-@@ -657,7 +831,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -657,7 +832,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  
  	switch (skb->fclone) {
  	case SKB_FCLONE_UNAVAILABLE:
@@ -1469,7 +1454,7 @@ index 075d2e7..cd94e94 100644
  		return;
  
  	case SKB_FCLONE_ORIG:
-@@ -678,7 +857,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -678,7 +858,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  	if (!atomic_dec_and_test(&fclones->fclone_ref))
  		return;
  fastpath:
@@ -1482,17 +1467,7 @@ index 075d2e7..cd94e94 100644
  }
  
  static void skb_release_head_state(struct sk_buff *skb)
-@@ -718,6 +902,9 @@ static void skb_release_all(struct sk_buff *skb)
- 
- void __kfree_skb(struct sk_buff *skb)
- {
-+	/* Can't free buffers owned by Tempesta. */
-+	BUG_ON((unlikely(ss_skb_passed(skb))));
-+
- 	skb_release_all(skb);
- 	kfree_skbmem(skb);
- }
-@@ -807,7 +994,8 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+@@ -807,7 +992,8 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
  	new->tstamp		= old->tstamp;
  	/* We do not copy old->sk */
  	new->dev		= old->dev;
@@ -1502,7 +1477,7 @@ index 075d2e7..cd94e94 100644
  	skb_dst_copy(new, old);
  #ifdef CONFIG_XFRM
  	new->sp			= secpath_get(old->sp);
-@@ -902,6 +1090,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
+@@ -902,6 +1088,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
  struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src)
  {
  	skb_release_all(dst);
@@ -1512,7 +1487,7 @@ index 075d2e7..cd94e94 100644
  	return __skb_clone(dst, src);
  }
  EXPORT_SYMBOL_GPL(skb_morph);
-@@ -995,6 +1186,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -995,6 +1184,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  	    atomic_read(&fclones->fclone_ref) == 1) {
  		n = &fclones->skb2;
  		atomic_set(&fclones->fclone_ref, 2);
@@ -1522,7 +1497,7 @@ index 075d2e7..cd94e94 100644
  	} else {
  		if (skb_pfmemalloc(skb))
  			gfp_mask |= __GFP_MEMALLOC;
-@@ -1005,6 +1199,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1005,6 +1197,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  
  		kmemcheck_annotate_bitfield(n, flags1);
  		n->fclone = SKB_FCLONE_UNAVAILABLE;
@@ -1532,7 +1507,7 @@ index 075d2e7..cd94e94 100644
  	}
  
  	return __skb_clone(n, skb);
-@@ -1175,15 +1372,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1175,15 +1370,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	if (skb_shared(skb))
  		BUG();
  
@@ -1558,7 +1533,7 @@ index 075d2e7..cd94e94 100644
  
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
-@@ -1216,7 +1420,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1216,7 +1418,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	off = (data + nhead) - skb->head;
  
  	skb->head     = data;
@@ -1570,7 +1545,7 @@ index 075d2e7..cd94e94 100644
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1233,7 +1441,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1233,7 +1439,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	return 0;
  
  nofrags:
@@ -1582,7 +1557,7 @@ index 075d2e7..cd94e94 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -3333,16 +3545,31 @@ done:
+@@ -3333,16 +3543,31 @@ done:
  
  void __init skb_init(void)
  {
@@ -1619,7 +1594,7 @@ index 075d2e7..cd94e94 100644
  }
  
  /**
-@@ -4042,7 +4269,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -4042,7 +4267,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
