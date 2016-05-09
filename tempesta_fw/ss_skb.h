@@ -199,4 +199,11 @@ int ss_skb_cutoff_data(const TfwStr *it, int skip, int tail);
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
 
+void __ss_skb_dprint(const struct sk_buff *skb, int depth);
+static inline void
+ss_skb_dprint(const struct sk_buff *skb)
+{
+	__ss_skb_dprint(skb, 0);
+}
+
 #endif /* __TFW_SS_SKB_H__ */

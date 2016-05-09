@@ -893,3 +893,55 @@ ss_skb_split(struct sk_buff *skb, int len)
 
 	return buff;
 }
+
+void
+__ss_skb_dprint(const struct sk_buff *skb, int depth)
+{
+	unsigned int i;
+	static const char *sprefix = "                ";
+	const struct sk_buff *frag_iter;
+	const SsSkbCb *scb = TFW_SKB_CB(skb);
+
+	if (depth >= (sizeof(sprefix) - 1))
+		return;
+
+#define pr_skb(fmt, args...)				\
+	pr_debug("%.*s" fmt, depth, sprefix, args)
+#define pr_skb_hexdump(ptr, len)					\
+	print_hex_dump_bytes("", DUMP_PREFIX_ADDRESS, ptr, len)
+
+	pr_skb("skb@%p (len=%u, data_len=%u)\n", skb, skb->len, skb->data_len);
+	pr_skb("    head : %p\n", skb->head);
+	pr_skb("    data : %p\n", skb->data);
+	pr_skb("    prev : %p\n", skb->prev);
+	pr_skb("    next : %p\n", skb->next);
+
+	if (skb_headlen(skb)) {
+		pr_debug("skb@%p (data)\n", skb);
+		pr_skb_hexdump(skb->data, skb_headlen(skb));
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
+		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+
+		pr_debug("skb@%p (frag#%u)\n", skb, i);
+		pr_debug("    page : %p\n", skb_frag_page(frag));
+		pr_debug("    size : %u\n", skb_frag_size(frag));
+		pr_skb_hexdump(skb_frag_address(frag), skb_frag_size(frag));
+	}
+
+	skb_walk_frags(skb, frag_iter) {
+		pr_debug("skb@%p (frag=%p)\n", skb, frag_iter);
+		__ss_skb_dprint(frag_iter, depth + 1);
+	}
+
+	if (scb->next) {
+		pr_debug("skb@%p (next=%p)\n", skb, scb->next);
+		__ss_skb_dprint(scb->next, depth);
+	}
+
+#undef pr_skb_hexdump
+#undef pr_skb
+
+}
+EXPORT_SYMBOL(__ss_skb_dprint);
