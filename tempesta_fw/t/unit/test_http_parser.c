@@ -113,13 +113,7 @@ do_split_and_parse(unsigned char *str, int type)
 	}
 
 	r = split_and_parse_n(str, type, len, chunks);
-
-#if 0
-	/* FIXME #207: we can't process too chunked messages. */
 	if (++chunks > len)
-#else
-	if (++chunks > 3)
-#endif
 		return TFW_STOP;
 
 	return r;
