@@ -3174,7 +3174,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer, RGen_HdrOther);
-	__FSM_TX_AF(Resp_HdrServer, ':', Resp_HdrServerV, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrServer, ':', Resp_HdrServerV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr, RGen_HdrOther);
