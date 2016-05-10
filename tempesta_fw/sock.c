@@ -686,7 +686,7 @@ static void ss_tcp_state_change(struct sock *sk);
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
@@ -732,7 +732,7 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("[%d]: %s: cpu=%d sk=%p state=%s\n",
+	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sock_cpu_check(sk, "state change");
 	assert_spin_locked(&sk->sk_lock.slock);
