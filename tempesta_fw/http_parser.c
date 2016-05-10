@@ -1277,6 +1277,9 @@ enum {
 	Req_I_H_Port,
 	/* Cache-Control header */
 	Req_I_CC,
+	Req_I_CC_m,
+	Req_I_CC_n,
+	Req_I_CC_o,
 	Req_I_CC_MaxAgeV,
 	Req_I_CC_MinFreshV,
 	Req_I_CC_Ext,
@@ -1309,31 +1312,42 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC) {
 		switch (tolower(c)) {
 		case 'm':
-			TRY_STR("max-age=", Req_I_CC_MaxAgeV);
-			TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
-			TRY_STR_LAMBDA("max-stale", {
-				req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-			}, Req_I_CC_EoT);
-			goto cache_extension;
+			__FSM_I_MOVE_n(Req_I_CC_m, 0);
 		case 'n':
-			TRY_STR_LAMBDA("no-cache", {
-				req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-			}, Req_I_CC_EoT);
-			TRY_STR_LAMBDA("no-store", {
-				req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-			}, Req_I_CC_EoT);
-			TRY_STR_LAMBDA("no-transform", {
-				req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
-			}, Req_I_CC_EoT);
-			goto cache_extension;
+			__FSM_I_MOVE_n(Req_I_CC_n, 0);
 		case 'o':
-			TRY_STR_LAMBDA("only-if-cached", {
-				req->cache_ctl.flags |= TFW_HTTP_CC_NO_OIC;
-			}, Req_I_CC_EoT);
-		default:
-		cache_extension:
-			__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+			__FSM_I_MOVE_n(Req_I_CC_o, 0);
 		}
+		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+	}
+
+	__FSM_STATE(Req_I_CC_m) {
+		TRY_STR("max-age=", Req_I_CC_MaxAgeV);
+		TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
+		TRY_STR_LAMBDA("max-stale", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+		}, Req_I_CC_EoT);
+		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+	}
+
+	__FSM_STATE(Req_I_CC_n) {
+		TRY_STR_LAMBDA("no-cache", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
+		}, Req_I_CC_EoT);
+		TRY_STR_LAMBDA("no-store", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
+		}, Req_I_CC_EoT);
+		TRY_STR_LAMBDA("no-transform", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+		}, Req_I_CC_EoT);
+		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+	}
+
+	__FSM_STATE(Req_I_CC_o) {
+		TRY_STR_LAMBDA("only-if-cached", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_OIC;
+		}, Req_I_CC_EoT);
+		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
@@ -2258,6 +2272,10 @@ enum {
 
 	/* Cache-Control header */
 	Resp_I_CC,
+	Resp_I_CC_m,
+	Resp_I_CC_n,
+	Resp_I_CC_p,
+	Resp_I_CC_s,
 	Resp_I_CC_MaxAgeV,
 	Resp_I_CC_SMaxAgeV,
 	/* Expires header */
@@ -2265,6 +2283,10 @@ enum {
 	Resp_I_ExpDate,
 	Resp_I_ExpMonthSP,
 	Resp_I_ExpMonth,
+	Resp_I_ExpMonth_A,
+	Resp_I_ExpMonth_J,
+	Resp_I_ExpMonth_M,
+	Resp_I_ExpMonth_Other,
 	Resp_I_ExpYearSP,
 	Resp_I_ExpYear,
 	Resp_I_ExpHourSP,
@@ -2298,39 +2320,54 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_CC) {
 		switch (tolower(c)) {
 		case 'm':
-			TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
-			TRY_STR_LAMBDA("must-revalidate", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REV;
-			}, Resp_I_EoT);
-			goto cache_extension;
+			__FSM_I_MOVE_n(Resp_I_CC_m, 0);
 		case 'n':
-			TRY_STR_LAMBDA("no-cache", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-			}, Resp_I_EoT);
-			TRY_STR_LAMBDA("no-store", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-			}, Resp_I_EoT);
-			TRY_STR_LAMBDA("no-transform", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
-			}, Resp_I_EoT);
-			goto cache_extension;
+			__FSM_I_MOVE_n(Resp_I_CC_n, 0);
 		case 'p':
-			TRY_STR_LAMBDA("public", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
-			}, Resp_I_EoT);
-			TRY_STR_LAMBDA("private", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
-			}, Resp_I_EoT);
-			TRY_STR_LAMBDA("proxy-revalidate", {
-				resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
-			}, Resp_I_EoT);
-			goto cache_extension;
+			__FSM_I_MOVE_n(Resp_I_CC_p, 0);
 		case 's':
-			TRY_STR("s-maxage=", Resp_I_CC_SMaxAgeV);
-		default:
-		cache_extension:
-			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+			__FSM_I_MOVE_n(Resp_I_CC_s, 0);
 		}
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+	}
+
+	__FSM_STATE(Resp_I_CC_m) {
+		TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
+		TRY_STR_LAMBDA("must-revalidate", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REV;
+		}, Resp_I_EoT);
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+	}
+
+	__FSM_STATE(Resp_I_CC_n) {
+		TRY_STR_LAMBDA("no-cache", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
+		}, Resp_I_EoT);
+		TRY_STR_LAMBDA("no-store", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
+		}, Resp_I_EoT);
+		TRY_STR_LAMBDA("no-transform", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+		}, Resp_I_EoT);
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+	}
+
+	__FSM_STATE(Resp_I_CC_p) {
+		TRY_STR_LAMBDA("public", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
+		}, Resp_I_EoT);
+		TRY_STR_LAMBDA("private", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
+		}, Resp_I_EoT);
+		TRY_STR_LAMBDA("proxy-revalidate", {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
+		}, Resp_I_EoT);
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+	}
+
+	__FSM_STATE(Resp_I_CC_s) {
+		TRY_STR("s-maxage=", Resp_I_CC_SMaxAgeV);
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
@@ -2487,49 +2524,64 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_ExpMonth) {
 		switch (c) {
 		case 'A':
-			TRY_STR_LAMBDA("Apr", {
-				resp->expires += SB_APR;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Aug", {
-				resp->expires += SB_AUG;
-			}, Resp_I_ExpYearSP);
-			return CSTR_NEQ;
+			__FSM_I_MOVE_n(Resp_I_ExpMonth_A, 0);
 		case 'J':
-			TRY_STR("Jan", Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Jun", {
-				resp->expires += SB_JUN;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Jul", {
-				resp->expires += SB_JUL;
-			}, Resp_I_ExpYearSP);
-			return CSTR_NEQ;
+			__FSM_I_MOVE_n(Resp_I_ExpMonth_J, 0);
 		case 'M':
-			TRY_STR_LAMBDA("Mar", {
-				/* Add SEC24H for leap year on year parsing. */
-				resp->expires += SB_MAR;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("May", {
-				resp->expires += SB_MAY;
-			}, Resp_I_ExpYearSP);
-			return CSTR_NEQ;
-		default:
-			TRY_STR_LAMBDA("Feb", {
-				resp->expires += SB_FEB;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Sep", {
-				resp->expires += SB_SEP;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Oct", {
-				resp->expires += SB_OCT;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Nov", {
-				resp->expires += SB_NOV;
-			}, Resp_I_ExpYearSP);
-			TRY_STR_LAMBDA("Dec", {
-				resp->expires += SB_DEC;
-			}, Resp_I_ExpYearSP);
-			return CSTR_NEQ;
+			__FSM_I_MOVE_n(Resp_I_ExpMonth_M, 0);
 		}
+		__FSM_I_MOVE_n(Resp_I_ExpMonth_Other, 0);
+	}
+
+	__FSM_STATE(Resp_I_ExpMonth_A) {
+		TRY_STR_LAMBDA("Apr", {
+			resp->expires += SB_APR;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Aug", {
+			resp->expires += SB_AUG;
+		}, Resp_I_ExpYearSP);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_ExpMonth_J) {
+		TRY_STR("Jan", Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Jun", {
+			resp->expires += SB_JUN;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Jul", {
+			resp->expires += SB_JUL;
+		}, Resp_I_ExpYearSP);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_ExpMonth_M) {
+		TRY_STR_LAMBDA("Mar", {
+			/* Add SEC24H for leap year on year parsing. */
+			resp->expires += SB_MAR;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("May", {
+			resp->expires += SB_MAY;
+		}, Resp_I_ExpYearSP);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_ExpMonth_Other) {
+		TRY_STR_LAMBDA("Feb", {
+			resp->expires += SB_FEB;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Sep", {
+			resp->expires += SB_SEP;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Oct", {
+			resp->expires += SB_OCT;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Nov", {
+			resp->expires += SB_NOV;
+		}, Resp_I_ExpYearSP);
+		TRY_STR_LAMBDA("Dec", {
+			resp->expires += SB_DEC;
+		}, Resp_I_ExpYearSP);
+		return CSTR_NEQ;
 	}
 
 	/* Eat SP between Month and Year. */
@@ -2632,12 +2684,8 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_KeepAlive) {
-		switch (tolower(c)) {
-		case 't':
-			TRY_STR("timeout=", Resp_I_KeepAliveTO);
-		default:
-			__FSM_I_MOVE_n(Resp_I_Ext, 0);
-		}
+		TRY_STR("timeout=", Resp_I_KeepAliveTO);
+		__FSM_I_MOVE_n(Resp_I_Ext, 0);
 	}
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
