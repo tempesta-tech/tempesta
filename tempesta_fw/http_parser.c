@@ -518,7 +518,8 @@ __handle_newline(TfwHttpMsg *msg)
 		return tfw_http_msg_hdr_close(msg, parser->_hdr_tag);
 	}
 
-	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
+	/* Note, that in case of testing @msg->conn may be unitialized */
+	if (msg->conn && (TFW_CONN_TYPE(msg->conn) & Conn_Srv)) {
 		TfwHttpResp *resp = (TfwHttpResp *)msg;
 		if ((resp->s_line.flags & TFW_STR_COMPLETE) &&
 		    !tfw_str_eolen(&resp->s_line)) {
