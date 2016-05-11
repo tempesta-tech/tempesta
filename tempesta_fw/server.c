@@ -202,6 +202,7 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 int
 tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
+	int ret = 0;
 	TfwServer *srv;
 	TfwSrvGroup *sg;
 
@@ -211,16 +212,18 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 		write_lock(&sg->lock);
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			int ret;
-			ret = cb(srv);
-			if (ret)
-				return ret;
+			if ((ret = cb(srv))) {
+				write_unlock(&sg->lock);
+				goto unlock;
+			}
 		}
+
 		write_unlock(&sg->lock);
 	}
 
+unlock:
 	write_unlock(&sg_lock);
-	return 0;
+	return ret;
 }
 
 /**
