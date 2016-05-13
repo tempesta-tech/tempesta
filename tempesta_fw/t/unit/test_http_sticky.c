@@ -44,7 +44,12 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "classifier.c"
+
+/* rename original tfw_cli_conn_send(), a custom version will be used here */
+#define tfw_cli_conn_send	divert_tfw_cli_conn_send
 #include "sock_clnt.c"
+#undef tfw_cli_conn_send
+
 #include "hash.c"
 #include "http.c"
 #include "addr.c"
@@ -168,6 +173,12 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 	    strnstr(hdr_value.ptr, COOKIE_NAME, hdr_value.len) != NULL;
 
 	return 0;
+}
+
+/* custom version for testing purposes */
+int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
+{
+	return tfw_connection_send(conn, msg, unref_data);
 }
 
 /* setup/teardown helpers */
@@ -298,7 +309,6 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 			return 0;
 
 		default:
-			BUG();
 			return -1;
 		}
 	}
