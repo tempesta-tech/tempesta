@@ -680,6 +680,9 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(PS_EXIT) {
+		/* Cleanup entry on error */
+		if (ps->err)
+			entry_reset(&ps->e);
 		TFW_DBG3("pfsm: exit\n");
 	}
 }
@@ -775,6 +778,7 @@ spec_handle_default(TfwCfgSpec *spec)
 	BUG_ON(ps.t != TOKEN_NA);
 
 	r = spec_handle_entry(spec, &ps.e);
+	entry_reset(&ps.e);
 	BUG_ON(r);
 }
 
@@ -1114,10 +1118,12 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
+			entry_reset(&ps->e);
 			return -EINVAL;
 		}
 
 		ret = spec_handle_entry(matching_spec, &ps->e);
+		entry_reset(&ps->e);
 		if (ret)
 			return ret;
 	}
@@ -1427,10 +1433,12 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 		}
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
+			entry_reset(&ps.e);
 			goto err;
 		}
 
 		r = spec_handle_entry(matching_spec, &ps.e);
+		entry_reset(&ps.e);
 		if (r)
 			goto err;
 	} while (ps.t);
@@ -1601,6 +1609,8 @@ read_file_via_vfs(const char *path)
 		TFW_ERR("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
+
+	filp_close(fp, NULL);
 
 	out_buf[offset] = '\0';
 	set_fs(oldfs);
