@@ -142,8 +142,13 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state, mss, size);
 
-	if (unlikely(!ss_sock_active(sk)))
+
+	/* If the socket is inactive, there's no recourse. Drop the data. */
+	if (unlikely(!ss_sock_active(sk))) {
+		ss_skb_queue_purge(skb_list);
 		return;
+	}
+
 	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
@@ -238,9 +243,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 
 	return 0;
 err:
-	if (!pass_skb)
-		while ((skb = ss_skb_dequeue(&sw.skb_list)))
-			kfree_skb(skb);
+	ss_skb_queue_purge(&sw.skb_list);
 	return r;
 }
 EXPORT_SYMBOL(ss_send);
