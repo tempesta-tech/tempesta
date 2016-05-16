@@ -120,6 +120,14 @@ ss_skb_dequeue(SsSkbList *list)
 	return skb;
 }
 
+static inline void
+ss_skb_queue_purge(SsSkbList *list)
+{
+	struct sk_buff *skb;
+	while ((skb = ss_skb_dequeue(list)) != NULL)
+		kfree_skb(skb);
+}
+
 static inline skb_frag_t *
 ss_skb_frag_next(struct sk_buff **skb, int *f)
 {
