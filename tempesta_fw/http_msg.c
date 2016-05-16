@@ -796,25 +796,14 @@ tfw_http_conn_msg_unlink(TfwHttpMsg *m)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	struct sk_buff *skb;
-
 	TFW_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
 	tfw_http_conn_msg_unlink(m);
 
-	while ((skb = ss_skb_dequeue(&m->msg.skb_list))) {
-		TFW_DBG3("free skb %p: truesize=%d sk=%p data=%p,"
-			 " destructor=%p users=%d type=%s\n",
-			 skb, skb->truesize, skb->sk, skb->data,
-			 skb->destructor, atomic_read(&skb->users),
-			 m->conn && TFW_CONN_TYPE(m->conn) & Conn_Clnt
-			 ? "Conn_Clnt"
-			 : m->conn && TFW_CONN_TYPE(m->conn) & Conn_Srv
-			   ? "Conn_Srv" : "Unknown");
-		kfree_skb(skb);
-	}
+	/* TODO: use ss_skb_list_print() to show SKBs queue */
+	ss_skb_queue_purge(&m->msg.skb_list);
 	tfw_pool_destroy(m->pool);
 }
 EXPORT_SYMBOL(tfw_http_msg_free);
