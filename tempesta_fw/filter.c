@@ -98,22 +98,19 @@ EXPORT_SYMBOL(tfw_filter_block_ip);
 static int
 tfw_filter_check_ip(struct in6_addr *addr)
 {
-	TfwFRule *rule;
 	TdbIter iter;
 
 	iter = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
-	if (TDB_ITER_BAD(iter))
-		return TFW_PASS;
-
-	for (rule = (TfwFRule *)iter.rec->data;
-	     memcmp(&rule->addr, addr, sizeof(*addr)); )
-	{
+	while (!TDB_ITER_BAD(iter)) {
+		const TfwFRule *rule = (TfwFRule *)iter.rec->data;
+		if (!memcmp(&rule->addr, addr, sizeof(*addr))) {
+			tdb_rec_put(iter.rec);
+			return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+		}
 		tdb_rec_next(ip_filter_db, &iter);
-		if (!(rule = (TfwFRule *)iter.rec->data))
-			return TFW_PASS;
 	}
 
-	return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
+	return TFW_PASS;
 }
 
 /*
