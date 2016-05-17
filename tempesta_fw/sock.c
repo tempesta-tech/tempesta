@@ -492,7 +492,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		tp->copied_seq += count;
 		*processed += count;
 
-		conn = rcu_dereference_sk_user_data(sk);
+		conn = sk->sk_user_data;
 		/*
 		 * If @sk_user_data is unset, then this connection
 		 * had been dropped in a parallel thread. Dropping
@@ -742,7 +742,7 @@ ss_tcp_state_change(struct sock *sk)
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
-		SsProto *proto = rcu_dereference_sk_user_data(sk);
+		SsProto *proto = sk->sk_user_data;
 		struct sock *lsk = proto->listener;
 		int r;
 

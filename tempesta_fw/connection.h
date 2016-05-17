@@ -196,7 +196,7 @@ static inline void
 tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
-	rcu_assign_sk_user_data(sk, conn);
+	sk->sk_user_data = conn;
 }
 
 /*
@@ -221,7 +221,7 @@ static inline void
 tfw_connection_unlink_from_sk(struct sock *sk)
 {
 	BUG_ON(!sk->sk_user_data);
-	rcu_assign_sk_user_data(sk, NULL);
+	sk->sk_user_data = NULL;
 }
 
 /*
