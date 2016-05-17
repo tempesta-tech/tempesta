@@ -1,4 +1,6 @@
-## Tempesta FW (FrameWork and/or FireWall)
+![Tempesta FW](http://tempesta-tech.com/images/tempesta_technologies_logo_small.png)
+
+# Tempesta FW
 
 
 ### What it is?
@@ -486,3 +488,8 @@ Server connections total                : 2220
 Server connections active               : 4
 Server RX bytes                         : 153145
 ```
+
+
+### Build Status
+
+[![Coverity](https://scan.coverity.com/projects/8336/badge.svg)](https://scan.coverity.com/projects/natsys-tempesta)
