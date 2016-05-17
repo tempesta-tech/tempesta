@@ -613,7 +613,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 
 		copied += c.len;
 		*data += c.len;
-		if (copied == hdr->len)
+		if (copied == len)
 			break;
 
 		tr = *trec = tdb_next_rec_chunk(db, tr);
@@ -653,8 +653,6 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
 		s = (TfwCStr *)*p;
 		BUG_ON(s->flags);
 		TFW_STR_INIT(&dups[d]);
-		dups[d].len = s->len;
-		dups[d].flags = s->flags;
 		*p += TFW_CSTR_HDRLEN;
 		if ((r = tfw_cache_write_field(db, trec, resp, it, p, s->len,
 					       &dups[d])))
