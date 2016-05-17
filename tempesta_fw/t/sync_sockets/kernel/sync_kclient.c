@@ -112,7 +112,7 @@ kclient_connect(int descidx)
 		return ret;
 	}
 	ss_proto_init(&desc->proto, &kclient_hooks, descidx);
-	rcu_assign_sk_user_data(sk, &desc->proto);
+	sk->sk_user_data = &desc->proto;
 	ss_set_callbacks(sk);
 	ret = ss_connect(sk, &kclient_server_address.sa,
 			 tfw_addr_sa_len(&kclient_server_address), 0);
@@ -134,7 +134,7 @@ kclient_connect_complete(struct sock *sk)
 {
 	int descidx;
 	kclient_desc_t *desc;
-	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
+	SsProto *proto = sk->sk_user_data;
 
 	BUG_ON(proto == NULL);
 
@@ -157,7 +157,7 @@ kclient_connection_close(struct sock *sk)
 {
 	int descidx;
 	kclient_desc_t *desc;
-	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
+	SsProto *proto = sk->sk_user_data;
 
 	BUG_ON(proto == NULL);
 
@@ -181,7 +181,7 @@ kclient_connection_error(struct sock *sk)
 {
 	int descidx;
 	kclient_desc_t *desc;
-	SsProto *proto = (SsProto *)rcu_dereference_sk_user_data(sk);
+	SsProto *proto = sk->sk_user_data;
 
 	BUG_ON(proto == NULL);
 
