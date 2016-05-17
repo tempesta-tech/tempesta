@@ -745,10 +745,11 @@ int
 ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 {
 	int r;
-	TfwStr it;
+	TfwStr it = {0};
 	const TfwStr *c, *end;
 
-	BUG_ON(skip >= hdr->len);
+	BUG_ON(tail < 0);
+	BUG_ON((skip < 0) || (skip >= hdr->len));
 
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		if (c->len <= skip) {
@@ -764,12 +765,13 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 		skip = 0;
 	}
 
+	BUG_ON(it.ptr == NULL);
+	BUG_ON(it.skb == NULL);
+
 	/* Cut off the tail. */
 	while (tail) {
 		void *f_ptr = it.ptr;
 		struct sk_buff *f_skb = it.skb;
-		BUG_ON(f_ptr == NULL);
-		BUG_ON(f_skb == NULL);
 		memset(&it, 0, sizeof(TfwStr));
 		r = __skb_fragment(f_skb, NULL, f_ptr, -tail, &it);
 		if (r < 0) {
