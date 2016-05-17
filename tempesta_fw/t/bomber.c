@@ -128,7 +128,7 @@ __check_conn(TfwBmbConn *conn)
 static int
 tfw_bmb_conn_compl(struct sock *sk)
 {
-	TfwBmbConn *conn = rcu_dereference_sk_user_data(sk);
+	TfwBmbConn *conn = sk->sk_user_data;
 
 	BUG_ON(!conn);
 	conn->proto.type = TFW_BMB_SK_ACTIVE;
@@ -143,7 +143,7 @@ tfw_bmb_conn_compl(struct sock *sk)
 static int
 tfw_bmb_conn_drop(struct sock *sk)
 {
-	TfwBmbConn *conn = rcu_dereference_sk_user_data(sk);
+	TfwBmbConn *conn = sk->sk_user_data;
 
 	BUG_ON(!conn);
 	__check_conn(conn);
@@ -202,7 +202,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	}
 
 	ss_proto_init(&conn->proto, &bmb_hooks, TFW_BMB_SK_INACTIVE);
-	rcu_assign_sk_user_data(sk, &conn->proto);
+	sk->sk_user_data = &conn->proto;
 	ss_set_callbacks(sk);
 	conn->sk = sk;
 	conn->task = task;
