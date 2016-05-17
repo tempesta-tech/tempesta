@@ -256,7 +256,7 @@ static int
 tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
-	TfwSrvConnection *srv_conn = rcu_dereference_sk_user_data(sk);
+	TfwSrvConnection *srv_conn = sk->sk_user_data;
 	TfwConnection *conn = &srv_conn->conn;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
@@ -283,7 +283,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 static int
 tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 {
-	TfwConnection *conn = rcu_dereference_sk_user_data(sk);
+	TfwConnection *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR(msg, &srv->addr);
