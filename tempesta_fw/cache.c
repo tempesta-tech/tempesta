@@ -406,8 +406,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	TDB *db = node_db();
 	TfwStr *field, *h, *end1, *end2, empty = {};
 
-	/* Write record key (URI + Host header). */
 	p = (char *)(ce + 1);
+	tot_len -= CE_BODY_SIZE;
+
+	/* Write record key (URI + Host header). */
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
 	TFW_CACHE_REQ_KEYITER(field, req, end1, h, end2) {
@@ -448,7 +450,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
-	BUG_ON(tot_len != CE_BODY_SIZE);
+	BUG_ON(tot_len != 0);
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
