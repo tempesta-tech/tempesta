@@ -128,6 +128,14 @@ ss_skb_queue_purge(SsSkbList *list)
 		kfree_skb(skb);
 }
 
+static inline void
+ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
+{
+	skb->len += delta;
+	skb->data_len += delta;
+	skb->truesize += delta;
+}
+
 static inline skb_frag_t *
 ss_skb_frag_next(struct sk_buff **skb, int *f)
 {
@@ -141,14 +149,6 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 		return NULL;
 	*f = 0;
 	return &skb_shinfo(*skb)->frags[0];
-}
-
-static inline void
-ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
-{
-	skb->len += delta;
-	skb->data_len += delta;
-	skb->truesize += delta;
 }
 
 /*
@@ -200,9 +200,10 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-int ss_skb_get_room(struct sk_buff *skb,
+int ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
-int ss_skb_cutoff_data(const TfwStr *it, int skip, int tail);
+int ss_skb_cutoff_data(SsSkbList *skb_list,
+		       const TfwStr *hdr, int skip, int tail);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
