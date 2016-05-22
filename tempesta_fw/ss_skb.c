@@ -160,18 +160,82 @@ __lookup_pgfrag_room(struct sk_buff *skb, int len)
 	return NULL;
 }
 
+/*
+ * Determine the address of data in @skb. Note that @skb is not
+ * expected to have SKB fragments.
+ */
+static inline void *
+__skb_data_address(struct sk_buff *skb)
+{
+	if (skb == NULL)
+		return NULL;
+	if (skb_headlen(skb))
+		return skb->data;
+	BUG_ON(!skb_is_nonlinear(skb));
+	if (skb_shinfo(skb)->nr_frags)
+		return skb_frag_address(&skb_shinfo(skb)->frags[0]);
+	BUG_ON(skb_has_frag_list(skb));
+	return NULL;
+}
+
+/*
+ * Set @it->ptr and @it->skb to proper values. The data should
+ * be located in the paged fragment @i of @skb. If the paged
+ * fragment is not there, then find the next data location.
+ */
+static inline void
+__it_next_data(struct sk_buff *skb, int i, TfwStr *it)
+{
+	struct skb_shared_info *si = skb_shinfo(skb);
+	if (i < si->nr_frags) {
+		it->ptr = skb_frag_address(&si->frags[i]);
+		it->skb = skb;
+	} else {
+		it->skb = ss_skb_next(skb);
+		it->ptr = __skb_data_address(it->skb);
+	}
+}
+
+/*
+ * Insert @nskb in the list after @skb. Note that the list's
+ * pointer to the last item is not updated here.
+ */
+static inline void
+__skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
+{
+	SsSkbCb *scb = TFW_SKB_CB(skb);
+	SsSkbCb *nscb = TFW_SKB_CB(nskb);
+
+	nscb->next = scb->next;
+	nscb->prev = skb;
+	scb->next = nskb;
+	if (nscb->next)
+		TFW_SKB_CB(nscb->next)->prev = nskb;
+}
+
+/*
+ * Update the skb list's pointer to the last item
+ * if a new skb has been added at the end of the list.
+ */
+static inline void
+__skb_skblist_fixup(SsSkbList *skb_list)
+{
+	SsSkbCb *lscb = TFW_SKB_CB(skb_list->last);
+
+	if (lscb->next)
+		skb_list->last = lscb->next;
+	BUG_ON(TFW_SKB_CB(skb_list->last)->next);
+}
+
 /**
- * Somewhat like skb_shift().
+ * Similar to skb_shift().
  * Make room for @n fragments starting with slot @from.
- *
- * Beware: @from can be equal to MAX_SKB_FRAGS when a new fragment
- * is inserted after the last one.
+ * Note that @from can be equal to MAX_SKB_FRAGS.
  *
  * @return 0 on success, -errno on failure.
- * @return New SKB in @it->skb if new SKB is allocated.
  */
 static int
-__extend_pgfrags(struct sk_buff *skb, int from, int n, TfwStr *it)
+__extend_pgfrags(struct sk_buff *skb, int from, int n)
 {
 	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -183,28 +247,42 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n, TfwStr *it)
 		skb_frag_t *f;
 		struct sk_buff *nskb;
 
-		/* Allocate a new SKB to hold @n_excess page fragments. */
-		nskb = alloc_skb(0, GFP_ATOMIC);
-		if (nskb == NULL)
-			return -ENOMEM;
-
 		/*
 		 * The number of page fragments that don't fit in the SKB
 		 * after the room is prepared for @n page fragments.
 		 */
 		n_excess = si->nr_frags + n - MAX_SKB_FRAGS;
 
+		/*
+		 * Use the next SKB if there's room there for @n_excess
+		 * page fragments. Otherwise, allocate a new SKB to hold
+		 * @n_excess page fragments.
+		 */
+		nskb = ss_skb_next(skb);
+		if (nskb && !skb_headlen(nskb)
+		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
+		{
+			int r = __extend_pgfrags(nskb, 0, n_excess);
+			if (r)
+				return r;
+		} else {
+			nskb = ss_skb_alloc();
+			if (nskb == NULL)
+				return -ENOMEM;
+			__skb_insert_after(skb, nskb);
+			skb_shinfo(nskb)->nr_frags = n_excess;
+		}
 		/* Shift @n_excess number of page fragments to new SKB. */
 		if (from < si->nr_frags) {
+			unsigned int e_size = 0;
 			for (i = n_excess - 1; i >= 0; --i) {
 				f = &si->frags[MAX_SKB_FRAGS - n + i];
 				skb_shinfo(nskb)->frags[i] = *f;
-				ss_skb_adjust_data_len(skb, -skb_frag_size(f));
-				ss_skb_adjust_data_len(nskb, skb_frag_size(f));
+				e_size += skb_frag_size(f);
 			}
+			ss_skb_adjust_data_len(skb, -e_size);
+			ss_skb_adjust_data_len(nskb, e_size);
 		}
-		skb_shinfo(nskb)->nr_frags += n_excess;
-		it->skb = nskb;
 	}
 
 	/* Make room for @n page fragments in the SKB. */
@@ -220,10 +298,10 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n, TfwStr *it)
 
 /*
  * Make room for @shift fragments starting with slot @i. Then make
- * a new fragment in slot @i that can hold @size bytes, and it set up.
+ * a new fragment in slot @i that can hold @size bytes, and set it up.
  */
 static int
-__new_pgfrag(struct sk_buff *skb, int size, int i, int shift, TfwStr *it)
+__new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 {
 	int off = 0;
 	struct page *page = NULL;
@@ -232,14 +310,14 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift, TfwStr *it)
 	BUG_ON(i > MAX_SKB_FRAGS);
 
 	/*
-	 * Try to find room for @size bytes in SKB fragments.
+	 * Try to find room for @size bytes in paged fragments.
 	 * If none found, then allocate a new page for the fragment.
 	 */
 	frag = __lookup_pgfrag_room(skb, size);
 	if (frag) {
 		page = skb_frag_page(frag);
 		off = ss_skb_frag_len(frag);
-		__skb_frag_ref(frag);	/* get_page(page); */
+		get_page(page);
 	} else {
 		page = alloc_page(GFP_ATOMIC);
 		if (!page)
@@ -247,22 +325,19 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift, TfwStr *it)
 	}
 
 	/* Make room for @shift fragments starting with slot @i. */
-	if (__extend_pgfrags(skb, i, shift, it)) {
-		if (frag)
-			__skb_frag_unref(frag);	/* put_page(page); */
-		else
-			__free_page(page);
+	if (__extend_pgfrags(skb, i, shift)) {
+		put_page(page);
 		return -ENOMEM;
 	}
 
 	/*
 	 * When the requested slot is right outside the range of the
-	 * array of paged fragments, then the new fragment is put as
-	 * the first fragment of the next SKB.
+	 * array of paged fragments, then the new paged fragment is
+	 * placed as the first fragment of the next SKB fragment.
 	 */
 	if (i == MAX_SKB_FRAGS) {
 		i = 0;
-		skb = it->skb;
+		skb = ss_skb_next(skb);
 	}
 
 	/* Set up the new fragment in slot @i to hold @size bytes. */
@@ -278,16 +353,17 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift, TfwStr *it)
  * if it's enough to hold @n bytes. Otherwise, allocate new linear data.
  *
  * @return 0 on success, -errno on failure.
- * @return SKB in @it->skb if new SKB is allocated.
  * @return pointer to the room for new data in @it->ptr if making room.
  * @return pointer to data right after the deleted fragment in @it->ptr.
+ * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
 __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 {
 	int alloc = len > 0;
-	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	struct page *page = virt_to_head_page(skb->head);
+	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
+	int tail_off = pspt - (char *)page_address(page);
 
 	SS_DBG("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
 		smp_processor_id(), __func__, skb, pspt, len, tail_len);
@@ -297,25 +373,13 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	BUG_ON(-len > tail_len);
 
 	/*
-	 * Quick and unlikely path: just advance the skb tail pointer.
-	 * Note that this only works when we make room. When we remove,
-	 * pspt points at the start of the data chunk to remove. In that
-	 * case, tail_len can never be zero.
-	 */
-	if (unlikely(!tail_len && len <= ss_skb_tailroom(skb))) {
-		BUG_ON(len < 0);
-		it->ptr = ss_skb_put(skb, len);
-		return 0;
-	}
-	/*
-	 * Quick and unlikely path: just move skb tail pointer backward.
+	 * Fast and unlikely path: just move skb tail pointer backward.
 	 * Note that this only works when we remove data, and the data
 	 * is located exactly at the end of the linear part of an skb.
 	 */
 	if (unlikely((len < 0) && (tail_len == -len))) {
 		ss_skb_put(skb, len);
-		if (skb_is_nonlinear(skb))
-			it->ptr = skb_frag_address(&skb_shinfo(skb)->frags[0]);
+		__it_next_data(skb, 0, it);
 		return 0;
 	}
 
@@ -323,11 +387,6 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * Data is inserted or deleted in the middle of the linear part,
 	 * or there's insufficient room in the linear part of an SKB to
 	 * insert @len bytes.
-	 *
-	 * Don't bother with skb tail room: if the linear part is large,
-	 * then it's likely that we'll do some smaller data insertions
-	 * later and go by the quick path above. Otherwise, the tail size
-	 * is also small.
 	 *
 	 * The inserted data is placed in a fragment. The tail part is
 	 * moved to yet another fragment. The linear part is trimmed to
@@ -337,37 +396,37 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, len, 0, alloc + !!tail_len, it))
+		if (__new_pgfrag(skb, len, 0, alloc + !!tail_len))
 			return -EFAULT;
 	} else {
-		if (__extend_pgfrags(skb, 0, 1, it))
+		if (__extend_pgfrags(skb, 0, 1))
 			return -EFAULT;
-		tail_len += len;	/* @len is negative. */
 	}
 
-	if (tail_len) {
-		int tail_off = pspt - (char *)page_address(page);
-
-		/*
-		 * Trim the linear part by |@len| bytes if data
-		 * is deleted. Then trim it further to exclude
-		 * the tail data. Finally, set up the fragment
-		 * allotted above with the tail data.
-		 */
-		if (len < 0) {
-			tail_off -= len;
-			skb->tail += len;
-			skb->len += len;
-		}
-		skb->tail -= tail_len;
-		skb->data_len += tail_len;
-		skb->truesize += tail_len;
-
-		__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
-		skb_frag_ref(skb, alloc);	/* get_page(page); */
+	/*
+	 * Trim the linear part by |@len| bytes if data is deleted.
+	 * Then trim it further to exclude the tail data.
+	 */
+	if (len < 0) {
+		skb->tail += len;
+		skb->len += len;
+		tail_len += len;
+		tail_off -= len;
 	}
+	skb->tail -= tail_len;
+	skb->data_len += tail_len;
 
+	/* Make the fragment with the tail part. */
+	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
+	get_page(page);
+
+	/*
+	 * Get the SKB and the address for data. It's either
+	 * the area for new data, or data after the deleted data.
+	 */
 	it->ptr = skb_frag_address(&skb_shinfo(skb)->frags[0]);
+	it->skb = skb;
+
 	return 0;
 }
 
@@ -386,20 +445,20 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
  * can be zero, but it can not be equal to the size of fragment @i.
  *
  * @return 0 on success, -errno on failure.
- * @return SKB in @it->skb if new SKB is allocated.
  * @return pointer to the room for new data in @it->ptr.
- * @return @it->flags is set if @it->ptr points to data in it->skb.
+ * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
 __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 {
 	int tail_len;
-	struct sk_buff *skb_dst;
+	struct sk_buff *skb_dst, *skb_new;
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 
 	SS_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
 		smp_processor_id(), __func__,
 		skb, i, off, len, skb_frag_size(frag));
+
 	/*
 	 * If @off is zero and there's a preceding page fragment,
 	 * then try to append data to that fragment. Go for other
@@ -413,6 +472,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 			skb_frag_size_add(frag_dst, len);
 			ss_skb_adjust_data_len(skb, len);
 			it->ptr = (char *)skb_frag_address(frag_dst) + off;
+			it->skb = skb;
 			return 0;
 		}
 	}
@@ -425,12 +485,13 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * a fragment in slot @i+1, and make an extra fragment
 	 * in slot @i+2 to hold the tail data.
 	 */
-	if (__new_pgfrag(skb, len, i + !!off, 1 + !!off, it))
+	if (__new_pgfrag(skb, len, i + !!off, 1 + !!off))
 		return -EFAULT;
 
 	/* If @off is zero, the job is done in __new_pgfrag(). */
 	if (!off) {
 		it->ptr = skb_frag_address(frag);
+		it->skb = skb;
 		return 0;
 	}
 
@@ -444,8 +505,11 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * be located in another SKB.
 	 */
 
+	/* New SKB is the next SKB now. */
+	skb_new = ss_skb_next(skb);
+
 	/* Find the SKB for tail data. */
-	skb_dst = (i < MAX_SKB_FRAGS - 2) ? skb : it->skb;
+	skb_dst = (i < MAX_SKB_FRAGS - 2) ? skb : skb_new;
 
 	/* Calculate the length of the tail part. */
 	tail_len = skb_frag_size(frag) - off;
@@ -466,9 +530,14 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	}
 
 	/* Get the SKB and the address for new data. */
-	it->flags = !(i < MAX_SKB_FRAGS - 1);
-	frag_dst = it->flags ? &skb_shinfo(it->skb)->frags[0] : frag + 1;
+	if (i < MAX_SKB_FRAGS - 1) {
+		frag_dst = frag + 1;
+	} else {
+		frag_dst = &skb_shinfo(skb_new)->frags[0];
+		skb = skb_new;
+	}
 	it->ptr = skb_frag_address(frag_dst);
+	it->skb = skb;
 
 	return 0;
 }
@@ -477,9 +546,8 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
  * Delete @len (the value is positive now) bytes from @frag.
  *
  * @return 0 on success, -errno on failure.
- * @return SKB in @it->skb if new SKB is allocated.
- * @return pointer to data after the deleted area in @it->ptr.
- * @return @it->flags is set if @it->ptr points to data in it->skb.
+ * @return pointer to data after the deleted data in @it->ptr.
+ * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
 __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
@@ -506,7 +574,8 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 			memmove(&si->frags[i], &si->frags[i + 1],
 				(si->nr_frags - i - 1) * sizeof(skb_frag_t));
 		--si->nr_frags;
-		goto lookup_next_ptr;
+		__it_next_data(skb, i, it);
+		return 0;
 	}
 	/* Fast path: delete the head part of a fragment. */
 	if (!off) {
@@ -514,14 +583,15 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
 		it->ptr = skb_frag_address(frag);
+		it->skb = skb;
 		return 0;
 	}
 	/* Fast path: delete the tail part of a fragment. */
 	if (off + len == skb_frag_size(frag)) {
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
-		++i;
-		goto lookup_next_ptr;
+		__it_next_data(skb, i + 1, it);
+		return 0;
 	}
 
 	/*
@@ -533,17 +603,14 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * Make room for a fragment right after the @i fragment
 	 * to move the tail part of data there.
 	 */
-	if (__extend_pgfrags(skb, i + 1, 1, it))
+	if (__extend_pgfrags(skb, i + 1, 1))
 		return -EFAULT;
 
 	/* Find the SKB for tail data. */
-	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : it->skb;
+	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : ss_skb_next(skb);
 
 	/* Calculate the length of the tail part. */
 	tail_len = skb_frag_size(frag) - off - len;
-
-	/* Trim the fragment with the head part. */
-	skb_frag_size_sub(frag, len + tail_len);
 
 	/* Make the fragment with the tail part. */
 	i = (i + 1) % MAX_SKB_FRAGS;
@@ -551,22 +618,20 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 			     frag->page_offset + off + len, tail_len);
 	__skb_frag_ref(frag);
 
+	/* Trim the fragment with the head part. */
+	skb_frag_size_sub(frag, len + tail_len);
+
 	/* Adjust SKB data lengths. */
-	ss_skb_adjust_data_len(skb, -len);
 	if (skb != skb_dst) {
 		ss_skb_adjust_data_len(skb, -tail_len);
 		ss_skb_adjust_data_len(skb_dst, tail_len);
 	}
+	ss_skb_adjust_data_len(skb, -len);
 
-	/* Get the SKB and the address of data after the deleted area. */
-	it->flags = (skb != skb_dst);
+	/* Get the SKB and the address for data after the deleted data. */
 	it->ptr = skb_frag_address(&skb_shinfo(skb_dst)->frags[i]);
-	return 0;
+	it->skb = skb_dst;
 
-lookup_next_ptr:
-	/* Get the next fragment after the deleted fragment. */
-	if (i < si->nr_frags)
-		it->ptr = skb_frag_address(&si->frags[i]);
 	return 0;
 }
 
@@ -578,43 +643,24 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		: __split_pgfrag_del(skb, i, off, -len, it);
 }
 
-/*
- * Determine the address of data in @skb.
- *
- * Note that @skb is not expected to have
- * SKB fragments without page fragments.
- */
-static inline void *
-ss_skb_data_address(struct sk_buff *skb)
-{
-	if (skb == NULL)
-		return NULL;
-	if (skb_headlen(skb))
-		return skb->data;
-	BUG_ON(!skb_is_nonlinear(skb));
-	BUG_ON(!skb_shinfo(skb)->nr_frags);
-	return skb_frag_address(&skb_shinfo(skb)->frags[0]);
-}
-
 /**
- * Fragment @skb to add some room if @len > 0 or delete data otherwise.
+ * Add room for data to @skb if @len > 0 or delete data otherwise.
+ * Most of the time that is done by fragmenting the @skb.
  */
 static int
-__skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
-	       char *pspt, int len, TfwStr *it)
+__skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 {
 	int i, ret;
 	long offset;
 	unsigned int d_size;
-	struct sk_buff *f_skb, **next_fdp;
+	struct skb_shared_info *si = skb_shinfo(skb);
 
 	SS_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
 		" data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
 		" truesize [%u] nr_frags [%u]\n",
 		smp_processor_id(), __func__, len, pspt, skb, skb->head,
 		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		skb->len, skb->data_len, skb->truesize,
-		skb_shinfo(skb)->nr_frags);
+		skb->len, skb->data_len, skb->truesize, si->nr_frags);
 	BUG_ON(!len);
 
 	if (abs(len) > PAGE_SIZE) {
@@ -624,15 +670,12 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 
 	/*
 	 * Use @it to hold the return values from __split_pgfrag()
-	 * and __split_linear_data(). @it->ptr, @it->skb, and
-	 * @it->flags may be set to actual values. If a new SKB is
-	 * allocated, then it is stored in @it->skb. @it->ptr holds
-	 * the pointer either to data after the deleted data, or to
-	 * the area for new data. @it->flags is set when @it->ptr
-	 * points to data in @it->skb. Otherwise, @it->ptr points
-	 * to data in @skb.
+	 * and __split_linear_data(). @it->ptr and @it->skb are set
+	 * to actual values. @it->ptr holds the address either of
+	 * data after the deleted data, or of the area for new data.
+	 * @it->skb is the SKB where @it->ptr address is located.
 	 *
-	 * Determine where the split begins within the SKB, then do
+	 * Determine where the split starts within the SKB, then do
 	 * the job using the right function.
 	 */
 
@@ -647,9 +690,25 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 		goto done;
 	}
 
+	/*
+	 * Fast path: Data is added, and the split is right between
+	 * the linear data and the first paged fragment. If there's
+	 * sufficient room in the linear part of the skb, then just
+	 * advance the skb tail pointer.
+	 */
+	if (len > 0) {
+		offset = pspt - (char *)skb_frag_address(&si->frags[0]);
+		if (unlikely(!offset && (len <= ss_skb_tailroom(skb)))) {
+			it->ptr = ss_skb_put(skb, len);
+			it->skb = skb;
+			ret = 0;
+			goto done;
+		}
+	}
+
 	/* See if the split starts in the page fragments data. */
-	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
-		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *frag = &si->frags[i];
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
@@ -661,11 +720,10 @@ __skb_fragment(struct sk_buff *skb, struct sk_buff *pskb,
 		}
 	}
 
-	/* See if the split starts in the SKB fragments data. */
-	skb_walk_frags(skb, f_skb) {
-		ret = __skb_fragment(f_skb, skb, pspt, len, it);
-		if (ret != -ENOENT)
-			return ret;
+	/* skbs with skb fragments are not expected. */
+	if (skb_has_frag_list(skb)) {
+		WARN_ON(skb_has_frag_list(skb));
+		return -ENOENT;
 	}
 
 	/* The split is not within the SKB. */
@@ -677,48 +735,25 @@ done:
 		" truesize [%u] nr_frags [%u]\n",
 		smp_processor_id(), __func__, it->ptr, skb, skb->head,
 		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		skb->len, skb->data_len, skb->truesize,
-		skb_shinfo(skb)->nr_frags);
+		skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;
-
-	/* An indirect/double pointer to the next SKB fragment. */
-	next_fdp = pskb ? &skb->next : &skb_shinfo(skb)->frag_list;
-	/*
-	 * If a new SKB was allocated while mangling @skb data, then
-	 * insert it at the correct location in the list of fragments
-	 * of the parent SKB. If @skb is one of the fragments, then
-	 * insert the new SKB after @skb in the frag_list. Otherwise,
-	 * insert the new SKB as the first fragment.
-	 */
-	if (it->skb) {
-		it->skb->next = *next_fdp;
-		*next_fdp = it->skb;
-	}
-	/*
-	 * The returned SKB can be the top-level SKB, or it can be
-	 * one of the SKB fragments.
-	 *
-	 * If the address of data has not been determined, then it
-	 * is located either in the next fragment or in the next SKB.
-	 * Otherwise, it's definitely in one of the SKB fragments.
-	 */
-	if (it->ptr == NULL) {
-		BUG_ON(it->skb);
-		it->skb = *next_fdp ? : ss_skb_next(pskb ? : skb);
-		it->ptr = ss_skb_data_address(it->skb);
-		if (it->ptr == NULL)
-			return -EFAULT;
-	} else if (it->flags == 0) {
-		it->skb = skb;
-	}
+	if ((it->ptr == NULL) || (it->skb == NULL))
+		return -EFAULT;
 	it->len = len;
-	it->flags = 0;
-	BUG_ON(it->skb == NULL);
 
 	/* Return the length of processed data. */
-	return (len > 0 ? len : -len);
+	return abs(len);
+}
+
+static inline int
+skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
+	     int len, TfwStr *it)
+{
+	int r = __skb_fragment(skb, pspt, len, it);
+	__skb_skblist_fixup(skb_list);
+	return r;
 }
 
 /**
@@ -729,9 +764,10 @@ done:
  * without the need for further modifications.
  */
 int
-ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
+ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
+		unsigned int len, TfwStr *it)
 {
-	int r = __skb_fragment(skb, NULL, pspt, len, it);
+	int r = skb_fragment(skb_list, skb, pspt, len, it);
 	if (r == len)
 		return 0;
 	return r;
@@ -742,10 +778,10 @@ ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
  * @skip bytes, and also cut off @tail bytes after @hdr.
  */
 int
-ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
+ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 {
 	int r;
-	TfwStr it = {0};
+	TfwStr it = {};
 	const TfwStr *c, *end;
 
 	BUG_ON(tail < 0);
@@ -757,8 +793,8 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 			continue;
 		}
 		memset(&it, 0, sizeof(TfwStr));
-		r = __skb_fragment(c->skb, NULL,
-				   (char *)c->ptr + skip, skip - c->len, &it);
+		r = skb_fragment(skb_list, c->skb,
+				 (char *)c->ptr + skip, skip - c->len, &it);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
@@ -770,10 +806,10 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 
 	/* Cut off the tail. */
 	while (tail) {
-		void *f_ptr = it.ptr;
-		struct sk_buff *f_skb = it.skb;
+		void *t_ptr = it.ptr;
+		struct sk_buff *t_skb = it.skb;
 		memset(&it, 0, sizeof(TfwStr));
-		r = __skb_fragment(f_skb, NULL, f_ptr, -tail, &it);
+		r = skb_fragment(skb_list, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
 			SS_WARN("Cannot delete hdr tail\n");
 			return r;
@@ -800,12 +836,13 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
  * FIXME it seems standard skb_seq_read() does the same.
  */
 int
-ss_skb_process(struct sk_buff *skb, unsigned int *off,
-	       ss_skb_actor_t actor, void *objdata)
+ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
+	       void *objdata)
 {
 	int i, r = SS_OK;
 	int headlen = skb_headlen(skb);
 	unsigned int offset = *off;
+	struct skb_shared_info *si = skb_shinfo(skb);
 
 	/* Process linear data. */
 	if (offset < headlen) {
@@ -822,8 +859,8 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off,
 	 * Process paged fragments. This is where GROed data is placed.
 	 * See ixgbe_fetch_rx_buffer() and tcp_gro_receive().
 	 */
-	for (i = 0; i < skb_shinfo(skb)->nr_frags; ++i) {
-		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *frag = &si->frags[i];
 		unsigned int frag_size = skb_frag_size(frag);
 		if (offset < frag_size) {
 			unsigned char *frag_addr = skb_frag_address(frag);
