@@ -97,6 +97,7 @@ typedef struct {
 
 static struct {
 	int cache;
+	unsigned int methods;
 	unsigned int db_size;
 	const char *db_path;
 } cache_cfg __read_mostly;
@@ -157,6 +158,38 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
+
+/*
+ * The mask of non-cacheable methods per RFC 7231 4.2.3.
+ * Currently none of the non-cacheable methods are supported.
+ * Note: POST method is cacheable but not supported at this time.
+ */
+static unsigned int tfw_cache_nc_methods = (1 << TFW_HTTP_METH_POST);
+
+static inline bool
+__cache_method_nc_test(tfw_http_meth_t method)
+{
+	return tfw_cache_nc_methods & (1 << method);
+}
+
+static inline void
+__cache_method_add(tfw_http_meth_t method)
+{
+	cache_cfg.methods |= (1 << method);
+}
+
+static inline bool
+__cache_method_test(tfw_http_meth_t method)
+{
+	return cache_cfg.methods & (1 << method);
+}
+
+static inline bool
+tfw_cache_msg_cacheable(TfwHttpReq *req)
+{
+	return __cache_method_test(req->method);
+}
+
 
 static bool
 tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
@@ -535,7 +568,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	unsigned long key;
 
-	if (!cache_cfg.cache)
+	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		return true;
 
 	key = tfw_http_req_key_calc(req);
@@ -575,7 +608,7 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
 
-	if (!cache_cfg.cache) {
+	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req)) {
 		action(req, resp);
 		return 0;
 	}
@@ -942,12 +975,55 @@ tfw_cache_stop(void)
 		tdb_close(c_nodes[i].db);
 }
 
+static int
+tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i, method;
+	const char *val;
+
+	BUILD_BUG_ON(sizeof(cache_cfg.methods) * 8 < _TFW_HTTP_METH_COUNT);
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (!strcasecmp(val, "GET")) {
+			method = TFW_HTTP_METH_GET;
+		} else if (!strcasecmp(val, "HEAD")) {
+			method = TFW_HTTP_METH_HEAD;
+		} else if (!strcasecmp(val, "POST")) {
+			method = TFW_HTTP_METH_POST;
+		} else {
+			TFW_ERR("%s: unsupported method: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		if (__cache_method_nc_test(method)) {
+			TFW_ERR("%s: non-cacheable method: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		if (__cache_method_test(method)) {
+			TFW_WARN("%s: duplicate method: '%s'\n",
+				 cs->name, val);
+			continue;
+		}
+		__cache_method_add(method);
+	}
+
+	return 0;
+}
+
 static TfwCfgSpec tfw_cache_cfg_specs[] = {
 	{
 		"cache",
 		"2",
 		tfw_cfg_set_int,
 		&cache_cfg.cache
+	},
+	{
+		"cache_methods",
+		"GET",
+		tfw_cache_cfg_method,
+		.allow_none = true,
+		.allow_repeat = false,
 	},
 	{
 		"cache_size",
