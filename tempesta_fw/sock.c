@@ -153,7 +153,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		skb->ip_summed = CHECKSUM_PARTIAL;
-		skb_shinfo(skb)->gso_segs = 0;
+		tcp_skb_pcount_set(skb, 0);
 
 		/* @skb should be rerouted on forwarding. */
 		skb_dst_drop(skb);
