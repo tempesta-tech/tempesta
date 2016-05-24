@@ -78,7 +78,8 @@ The file location is determined by the `TFW_CFG_PATH` environment variable:
 
 By default, the `tempesta_fw.conf` from this directory is used.
 
-See `tempesta_fw.conf` for the list of available options and their descriptions.
+See `tempesta_fw.conf` for the list of available configuration directives,
+options and their descriptions.
 
 
 ### Listening address
@@ -126,7 +127,7 @@ keepalive_timeout 75;
 ### Caching
 
 Tempesta caches Web-content by default, i.e. works as reverse proxy.
-Configuration option `cache` manages the cache befavior:
+Configuration directive `cache` manages the cache befavior:
 
 * `0` - no caching at all, pure proxying mode;
 * `1` - cache sharding when each NUMA node contains independent shard
@@ -151,6 +152,17 @@ processor packages on modern hardware, then follwoing files will be created
 yet) of each Tempesta DB file used as Web cache storage. The size must be
 multiple of 2MB (Tempesta DB extent size). Default value is `268435456`
 (256MB).
+
+`cache_methods` specifies the list of cacheable request methods. Responses
+to requests with these methods will be cached. If this directive is skipped,
+then the default cacheable request method is `GET`. Note that not all of
+HTTP request methods are cacheable by the HTTP standards. Besides, some
+request methods may be cachable only when certain additional restrictions
+are satisfied. Also, note that not all HTTP request methods may be supported
+by Tempesta at this time. Below is an example of this directive:
+```
+cache_methods GET HEAD;
+```
 
 
 ### Server Load Balancing
@@ -320,8 +332,8 @@ HTTP requests from a client. Default behaviour is that Tempesta sticky cookies
 are not used.
 
 The use and behaviour of Tempesta sticky cookies is controlled by a single
-configuration option that can have several parameters. The full form of
-the option and parameters is as follows:
+configuration directive that can have several parameters. The full form of
+the directive and parameters is as follows:
 ```
 sticky [name=<COOKIE_NAME>] [enforce];
 ```
@@ -336,7 +348,7 @@ response from Tempesta that redirects the client to the same URI, and prompts
 that Tempesta sticky cookie is set in requests from the client.
 
 
-Below are examples of Tempesta sticky cookie option.
+Below are examples of Tempesta sticky cookie directive.
 
 * **sticky;**
 Enable Tempesta sticky cookie. Default cookie name is used. Tempesta expects
