@@ -267,7 +267,7 @@ err:
 int
 tdb_file_open(TDB *db, unsigned long size)
 {
-	unsigned long addr;
+	unsigned long ret, addr;
 	struct file *filp;
 	struct inode *inode;
 
@@ -287,8 +287,13 @@ tdb_file_open(TDB *db, unsigned long size)
 	/* Allocate continous extents. */
 	inode = file_inode(filp);
 	sb_start_write(inode->i_sb);
-	filp->f_op->fallocate(filp, 0, 0, size);
+	ret = filp->f_op->fallocate(filp, 0, 0, size);
 	sb_end_write(inode->i_sb);
+	if (ret) {
+		TDB_ERR("Cannot fallocate file, %ld\n", ret);
+		filp_close(db->filp, NULL);
+		return ret;
+	}
 
 	addr = tempesta_map_file(filp, size, db->node);
 	if (IS_ERR((void *)addr)) {
