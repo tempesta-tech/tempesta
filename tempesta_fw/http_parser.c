@@ -672,8 +672,8 @@ __FSM_STATE(st_curr) {							\
 	/* Store header name and field in different chunks. */		\
 	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
-	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu""	\
-		 id=%d\n", __fsm_n, __fsm_sz, id);			\
+	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
+		 " id=%d\n", __fsm_n, __fsm_sz, id);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* The automaton state keeping is handled in @func. */	\
