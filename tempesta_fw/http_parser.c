@@ -751,8 +751,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 	if (likely(IN_ALPHABET(c, hdr_a))) {				\
 		__FSM_MOVE(RGen_HdrOtherN);				\
 	} else if (likely(c == ':')) {					\
-		parser->_i_st = RGen_HdrOtherV;				\
-		__FSM_MOVE(RGen_LWS_empty);				\
+		__FSM_MOVE(RGen_HdrOtherV);				\
 	}								\
 	return TFW_BLOCK;						\
 }									\
