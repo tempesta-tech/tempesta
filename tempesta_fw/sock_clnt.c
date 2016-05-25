@@ -283,6 +283,10 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 {
 	TfwListenSock *ls;
 
+	/* Check for supported types */
+	if (!(type == TFW_FSM_HTTP || type == TFW_FSM_HTTPS))
+		return -EINVAL;
+
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if (tfw_addr_eq(addr, &ls->addr)) {
@@ -299,8 +303,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpClnt);
 	else if (type == TFW_FSM_HTTPS)
 		ss_proto_init(&ls->proto, &tfw_sock_clnt_ss_hooks, Conn_HttpsClnt);
-	else
-		return -EINVAL;
+
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
 
