@@ -332,13 +332,23 @@ done:
 	return TFW_PASS;
 }
 
+/**
+ * Fixup the new data chunk to the @str.
+ *
+ * Like @tfw_http_msg_field_chunk_fixup, but besides the last one, it returns
+ * the operation result which can be checked on the caller side. One day, there
+ * must be only one of them.
+ *
+ * TODO: merge with @tfw_http_msg_field_chunk_fixup
+ */
 int
 __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
 	if (TFW_STR_EMPTY(str)) {
-		__tfw_http_msg_set_data(hm, str, data, skb);
-		str->len = len;
+		if (!str->ptr)
+			__tfw_http_msg_set_data(hm, str, data, skb);
+		str->len = data + len - str->ptr;
 	}
 	else if (likely(data)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
