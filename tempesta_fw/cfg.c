@@ -1561,7 +1561,8 @@ read_file_via_vfs(const char *path)
 {
 	char *out_buf;
 	struct file *fp;
-	size_t bytes_read, read_size, buf_size;
+	ssize_t bytes_read;
+	size_t read_size, buf_size;
 	loff_t offset;
 	mm_segment_t oldfs;
 
