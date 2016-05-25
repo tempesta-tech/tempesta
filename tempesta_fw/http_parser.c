@@ -448,7 +448,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 	unsigned char *p;
 
 	for (p = data; p - data < len; ++p) {
-		if (unlikely(isspace(*p) || (*p == ';')))
+		if (unlikely(IS_CR_OR_LF(*p) || (*p == ';')))
 			return p - data;
 		if (unlikely(!isxdigit(*p)))
 			return CSTR_NEQ;
