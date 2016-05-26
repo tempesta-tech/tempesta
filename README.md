@@ -420,7 +420,9 @@ message body of incoming request;
 * **http_uri_len** - maximum length of URI part in a request;
 
 * **http_field_len** - maximum length of a single HTTP header field of
-incoming request;
+incoming request. This limit is helpful to prevent
+[HTTP Response Splitting](http://projects.webappsec.org/w/page/13246931/HTTP-Response-Splitting)
+and other attacks using arbitrary injections in HTTP headers;
 
 * **http_body_len** - maximum length of HTTP message body of incoming request;
 
