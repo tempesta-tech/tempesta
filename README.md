@@ -464,7 +464,7 @@ $ dmesg | grep frang
 `::ffff:7f00:1` is IPv4 mapped loopback address 127.0.0.1. Frang's rate limiting
 calls the filter module that stores the blocked IPs in Tempesta DB, so now we
 can run some queries on the database (you can read more about
-[tdbq](https://github.com/natsys/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
+[tdbq](https://github.com/tempesta-tech/tempesta/tree/master/tempesta_db#tempesta-db-query-tool)):
 ```
 # ./tdbq -a info
 
@@ -506,4 +506,4 @@ Server RX bytes                         : 153145
 
 ### Build Status
 
-[![Coverity](https://scan.coverity.com/projects/8336/badge.svg)](https://scan.coverity.com/projects/natsys-tempesta)
+[![Coverity](https://scan.coverity.com/projects/8336/badge.svg)](https://scan.coverity.com/projects/tempesta-tech-tempesta)
