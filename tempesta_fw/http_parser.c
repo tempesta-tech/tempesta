@@ -44,14 +44,22 @@
 enum {
 	RGen_LWS = 10000,
 	RGen_LWS_empty,
-	RGen_EoL, RGen__EoL,
+
+	RGen_EoL,
+	RGen_EoLine,
+
 	RGen_Hdr,
 	RGen_HdrOther,
 	RGen_HdrOtherN,
 	RGen_HdrOtherV,
+
 	RGen_Body,
+	RGen_BodyChunk,
+	RGen_BodyChunkLen,
 	RGen_BodyChunkExt,
 	RGen_BodyReadChunk,
+	RGen_BodyEoL,
+	RGen_BodyEoLine,
 };
 
 /**
@@ -125,23 +133,6 @@ do {									\
 do {									\
 	__msg_field_fixup(field, pos);					\
 	(field)->flags |= TFW_STR_COMPLETE;				\
-} while (0)
-
-/**
- * Special field @crlf is used to track HTTP empty-line while handling requests
- * and responses. It can be treated as generic @msg field of type TfwStr but
- * there is no reason to do any fixup on it as it always has zero length and
- * non-zero EOL that must be updated properly at field closing. So finishing
- * macro needs to be specific.
- */
-#define __msg_crlf_open(pos)						\
-	__msg_field_open(&msg->crlf, pos)
-
-#define __msg_crlf_finish(pos)						\
-do {									\
-	int eolen = 1 + !!((msg->parser._tmp.eol & 0xff) == 0xda);	\
-	tfw_str_set_eolen(&msg->crlf, eolen);				\
-	msg->crlf.flags |= TFW_STR_COMPLETE;				\
 } while (0)
 
 /**
@@ -448,7 +439,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 	unsigned char *p;
 
 	for (p = data; p - data < len; ++p) {
-		if (unlikely(isspace(*p) || (*p == ';')))
+		if (unlikely(IS_CR_OR_LF(*p) || (*p == ';')))
 			return p - data;
 		if (unlikely(!isxdigit(*p)))
 			return CSTR_NEQ;
@@ -498,153 +489,51 @@ enum {
 	TRY_STR_LAMBDA(str, { }, state)
 
 /**
- * Helper function that handles new lines. Closes currently processed header. If
- * no header is processed, it checks for connection type to distinguish request
- * and response. In case of response being processed, it converts @msg of type
- * TfwHttpMsg to outer struct of type TfwHttpResp and checks if the EOL event
- * belongs to status-line processing. In latter case it updates @s_line with
- * setting it's EOL length.
+ * EOL processing
+ *
+ * In general, we need to have at least 2 states for the EOL handling - @EoL
+ * and @EoLine. The first one is the entry point for all the state users.
+ *
+ * To keep track of EOL characters we use special register. New characters are
+ * appended to it's beginning while old characters are shifted left. Even if
+ * RFC 7320 uses CRLF as a EOL delimiter for the purpose of robustness we allow
+ * LF as well as CRLF.
+ *
+ * Note also, that according to RFC 7230, HTTP-headers may appear in two
+ * cases. The first one is header section (3.2) and the second one is
+ * chunked-body trailer-part (4.1).
  */
-static inline int
-__handle_newline(TfwHttpMsg *msg)
-{
-	TfwHttpParser *parser = &msg->parser;
-	int eolen = 1 + !!((parser->_tmp.eol & 0xff) == 0xda);
-
-	if (parser->hdr.ptr) {
-		tfw_str_set_eolen(&parser->hdr, eolen);
-		return tfw_http_msg_hdr_close(msg, parser->_hdr_tag);
-	}
-
-	/* Note, that in case of testing @msg->conn may be unitialized */
-	if (msg->conn && (TFW_CONN_TYPE(msg->conn) & Conn_Srv)) {
-		TfwHttpResp *resp = (TfwHttpResp *)msg;
-		if ((resp->s_line.flags & TFW_STR_COMPLETE) &&
-		    !tfw_str_eolen(&resp->s_line)) {
-			tfw_str_set_eolen(&resp->s_line, eolen);
-		}
-	}
-
-	return TFW_PASS;
-}
 
 #define RGEN_EOL()							\
 __FSM_STATE(RGen_EoL) {							\
-	parser->_tmp.eol = 0;						\
-	/* Fall through */						\
+	parser->_eol = 0;						\
+	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen__EoL) {						\
-	if (likely(IS_CR_OR_LF(c))) {					\
-		/*							\
-		 * We use special register to track line endings. New	\
-		 * characters are appended to the beginning while old	\
-		 * characters are shifted left. The lower 4 bits used	\
-		 * to track CR/LF characters.				\
-		 */							\
-		parser->_tmp.eol = (parser->_tmp.eol << 4) | (c & 0xf);	\
-		TFW_DBG3("parser: eol %08lx\n", parser->_tmp.eol);	\
-									\
-		/*							\
-		 * We have a number of valid CR/LF mixtures. Any other	\
-		 * mixtures must be blocked:				\
-		 *							\
-		 *  LF          - next header / empty-line (incomplete)	\
-		 *  CR LF       - next header / empty-line (incomplete)	\
-		 *  CR          - (incomplete)				\
-		 *  LF CR       - empty-line (incomplete)		\
-		 *  LF LF       - empty-line				\
-		 *  LF CR LF    - empty-line				\
-		 *  CR LF CR    - empty-line (incomplete)		\
-		 *  CR LF LF    - empty-line				\
-		 *  CR LF CR LF - empty-line				\
-		 */							\
-		switch (parser->_tmp.eol) {				\
-		case 0xa:						\
-		case 0xda:						\
-			if (__handle_newline(msg))			\
-				return TFW_BLOCK;			\
-			/* Fall through */				\
-		case 0xd:						\
-		case 0xad:						\
-		case 0xaa:						\
-		case 0xada:						\
-		case 0xdad:						\
-		case 0xdaa:						\
-		case 0xdada:						\
-			goto good_looking_eol;				\
-		}							\
-									\
+__FSM_STATE(RGen_EoLine) {						\
+	parser->_eol = (parser->_eol << 4) | c;				\
+	TFW_DBG3("parser: eol %08lx\n", parser->_eol);			\
+	if (parser->_eol == 0xd)					\
+		__FSM_MOVE_nofixup(RGen_EoLine);			\
+	/* Allow only LF and CRLF as a newline delimiters. */		\
+	if (parser->_eol != 0xa && parser->_eol != 0xda)		\
 		return TFW_BLOCK;					\
-									\
-good_looking_eol:							\
-									\
-		/*							\
-		 * Set empty-line mark only if LFxx or CRLFxx was	\
-		 * catched and crlf wasn't completed yet.		\
-		 */							\
-		if ((parser->_tmp.eol & 0xf0) == 0xa0) {		\
-			if (!(msg->crlf.flags & TFW_STR_COMPLETE))	\
-				__msg_crlf_open(p);			\
+	/* The header may be unopened in case of parsing s_line. */	\
+	if (!parser->hdr.ptr)						\
+		__FSM_MOVE_nofixup(RGen_Hdr);				\
+	tfw_str_set_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));	\
+	/* Zero length means that we've got an empty-line. */		\
+	if (unlikely(!parser->hdr.len)) {				\
+		if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {		\
+			msg->crlf = parser->hdr;			\
+			msg->crlf.flags |= TFW_STR_COMPLETE;		\
+			TFW_HTTP_INIT_BODY_PARSING(msg);		\
 		}							\
-									\
-		/*							\
-		 * Check for the empty-line (EOL + EOL) mixture here as	\
-		 * it can be handled immediately.			\
-		 */							\
-		switch (parser->_tmp.eol) {				\
-		case 0xaa:						\
-		case 0xada:						\
-		case 0xdaa:						\
-		case 0xdada:						\
-			if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {	\
-				__msg_crlf_finish(p);			\
-				parser->_tmp.eol = 0;			\
-				TFW_HTTP_INIT_BODY_PARSING(msg, RGen_Body); \
-			} else if (msg->body.flags & TFW_STR_COMPLETE) { \
-				r = TFW_PASS;				\
-				FSM_EXIT();				\
-			} else {					\
-				return TFW_BLOCK;			\
-			}						\
-		}							\
-									\
-		/*							\
-		 * Can't make desicion right now as the EOL-sequence	\
-		 * is incomplete. So, let's try to do it on the next	\
-		 * pass.						\
-		 */							\
-									\
-		__FSM_MOVE_nofixup(RGen__EoL);				\
+		r = TFW_PASS;						\
+		FSM_EXIT();						\
 	}								\
-									\
-	TFW_DBG3("parser: eol %08lx +%02x(%c)\n",			\
-		 parser->_tmp.eol, c, isprint(c) ? c : '.');		\
-									\
-	/*								\
-	 * Non EOL character was received after some CR/LF		\
-	 * characters. This usually happens after the end of line, but	\
-	 * the tracked sequence may be incomplete. So, we need to	\
-	 * check for allowed line endings (LF or CRLF).			\
-	 */								\
-	if (!(parser->_tmp.eol == 0xa || parser->_tmp.eol == 0xda))	\
+	if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))		\
 		return TFW_BLOCK;					\
-									\
-	parser->_tmp.eol = 0;						\
-									\
-	/*								\
-	 * According to RFC 7230, HTTP-headers may appear in two	\
-	 * cases. The first one is parsing header section (3.2) and	\
-	 * the second one is parsing chunked-body trailer-part (4.1).	\
-	 */								\
-	if (!(msg->crlf.flags & TFW_STR_COMPLETE) ||			\
-	     (msg->body.flags & TFW_STR_COMPLETE))			\
-		__FSM_JMP(RGen_Hdr);					\
-									\
-	/*								\
-	 * The next chunk of chunked-body payload (RFC 7320, 4.1.2)	\
-	 * needs to be handled.						\
-	 */								\
-	__FSM_JMP(RGen_Body);						\
+	__FSM_MOVE_nofixup(RGen_Hdr);					\
 }
 
 /*
@@ -672,8 +561,8 @@ __FSM_STATE(st_curr) {							\
 	/* Store header name and field in different chunks. */		\
 	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
 	__fsm_n = func(hm, p, __fsm_sz);				\
-	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu""	\
-		 id=%d\n", __fsm_n, __fsm_sz, id);			\
+	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
+		 " id=%d\n", __fsm_n, __fsm_sz, id);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
 		/* The automaton state keeping is handled in @func. */	\
@@ -745,14 +634,13 @@ __FSM_STATE(st_curr) {							\
 #define RGEN_HDR_OTHER()						\
 __FSM_STATE(RGen_HdrOther) {						\
 	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
-	/* Fall through */						\
+	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_HdrOtherN) {						\
 	if (likely(IN_ALPHABET(c, hdr_a))) {				\
 		__FSM_MOVE(RGen_HdrOtherN);				\
 	} else if (likely(c == ':')) {					\
-		parser->_i_st = RGen_HdrOtherV;				\
-		__FSM_MOVE(RGen_LWS_empty);				\
+		__FSM_MOVE(RGen_HdrOtherV);				\
 	}								\
 	return TFW_BLOCK;						\
 }									\
@@ -774,7 +662,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
  * those for parsing of message headers (__FSM_*), or for parsing
  * of message header values (__FSM_I_*, where _I_ means "interior",
  * or nested FSM). The major difference from __FSM_* macros is that
- * there can be zeroes in a message body that cannot be in a header.
+ * in case of postpone they adds data to the body.
  */
 #define __FSM_B_MOVE_n(to, n)						\
 do {									\
@@ -786,29 +674,33 @@ do {									\
 		 */							\
 		r = TFW_POSTPONE;					\
 		__fsm_const_state = to;					\
+		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data, len)) \
+			return TFW_BLOCK;				\
 		goto done;						\
 	}								\
 	c = *p;								\
 	goto to;							\
 } while (0)
 
-#define __FSM_B_MOVE(to)	__FSM_B_MOVE_n(to, 1)
+#define __FSM_B_MOVE(to)						\
+	__FSM_B_MOVE_n(to, 1)
 
-#define TFW_HTTP_INIT_BODY_PARSING(msg, to_state)			\
+#define TFW_HTTP_INIT_BODY_PARSING(msg)					\
 do {									\
 	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
 		 msg->flags, msg->content_length);			\
 	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_B_MOVE(to_state);					\
+		__FSM_MOVE_nofixup(RGen_Body);				\
 	/* Next we check content length. */				\
 	if (msg->content_length						\
 	    && !(msg->flags & TFW_HTTP_VOID_BODY))			\
 	{								\
 		parser->to_read = msg->content_length;			\
-		__FSM_B_MOVE(to_state);					\
+		__FSM_MOVE_nofixup(RGen_Body);				\
 	}								\
 	/* There is no body at all. */					\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
 	r = TFW_PASS;							\
 	FSM_EXIT();							\
 } while (0)
@@ -816,54 +708,78 @@ do {									\
 #define TFW_HTTP_PARSE_BODY()						\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_Body) {						\
+	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	/* Fall through. */						\
+}									\
+__FSM_STATE(RGen_BodyChunk) {						\
 	TFW_DBG3("read body: to_read=%d\n", parser->to_read);		\
 	if (!parser->to_read) {						\
-		__fsm_sz = __data_remain(p);				\
-		/* Read next chunk length. */				\
-		__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_tmp.acc);\
-		TFW_DBG3("len=%zu ret=%d to_read=%lu\n",		\
-			 __fsm_sz, __fsm_n, parser->_tmp.acc);		\
-		switch (__fsm_n) {					\
-		case CSTR_POSTPONE:					\
-			/* Not all data has been parsed. */		\
-			__FSM_B_MOVE_n(RGen_Body, __fsm_sz);		\
-		case CSTR_BADLEN: /* bad header length */		\
-		case CSTR_NEQ: /* bad header value */			\
+		/* Prevent @parse_int_hex false positives. */		\
+		if (!isxdigit(c))					\
 			return TFW_BLOCK;				\
-		default:						\
-			BUG_ON(__fsm_n < 0);				\
-			parser->to_read = parser->_tmp.acc;		\
-			if (!parser->to_read)				\
-				msg->body.flags |= TFW_STR_COMPLETE;	\
-			parser->_tmp.acc = 0;				\
-			__FSM_B_MOVE_n(RGen_BodyChunkExt, __fsm_n);	\
-		}							\
+		__FSM_JMP(RGen_BodyChunkLen);				\
 	}								\
-	/* fall through */						\
+	/* Fall through. */						\
 }									\
-/* Read parser->to_read bytes of message body. */			\
 __FSM_STATE(RGen_BodyReadChunk) {					\
 	__fsm_sz = min_t(int, parser->to_read, __data_remain(p));	\
-	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
-		return TFW_BLOCK;					\
 	parser->to_read -= __fsm_sz;					\
-	/* Just skip required number of bytes. */			\
 	if (parser->to_read)						\
 		__FSM_B_MOVE_n(RGen_BodyReadChunk, __fsm_sz);		\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_B_MOVE_n(RGen_EoL, __fsm_sz);			\
+		__FSM_B_MOVE_n(RGen_BodyEoL, __fsm_sz);			\
 	/* We've fully read Content-Length bytes. */			\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
+	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
+		return TFW_BLOCK;					\
 	p += __fsm_sz;							\
 	r = TFW_PASS;							\
 	goto done;							\
 }									\
-__FSM_STATE(RGen_BodyChunkExt) {					\
-	if (likely(IS_CR_OR_LF(c))) {					\
-		__FSM_JMP(RGen_EoL);					\
-	} else if (c == ';' || c == '=' || IN_ALPHABET(c, hdr_a)) {	\
-		__FSM_B_MOVE(RGen_BodyChunkExt);			\
+__FSM_STATE(RGen_BodyChunkLen) {					\
+	__fsm_sz = __data_remain(p);					\
+	/* Read next chunk length. */					\
+	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc);		\
+	TFW_DBG3("len=%zu ret=%d to_read=%lu\n",			\
+		 __fsm_sz, __fsm_n, parser->_acc);			\
+	switch (__fsm_n) {						\
+	case CSTR_POSTPONE:						\
+		__FSM_B_MOVE_n(RGen_BodyChunkLen, __fsm_sz);		\
+	case CSTR_BADLEN:						\
+	case CSTR_NEQ:							\
+		return TFW_BLOCK;					\
+	default:							\
+		BUG_ON(__fsm_n < 0);					\
+		parser->to_read = parser->_acc;				\
+		if (!parser->to_read)					\
+			msg->body.flags |= TFW_STR_COMPLETE;		\
+		parser->_acc = 0;					\
+		__FSM_B_MOVE_n(RGen_BodyChunkExt, __fsm_n);		\
 	}								\
-	return TFW_BLOCK;						\
+}									\
+__FSM_STATE(RGen_BodyChunkExt) {					\
+	if (unlikely(c == ';' || c == '=' || IN_ALPHABET(c, hdr_a)))	\
+		__FSM_B_MOVE(RGen_BodyChunkExt);			\
+	/* Fall through. */						\
+}									\
+__FSM_STATE(RGen_BodyEoL) {						\
+	parser->_eol = 0;						\
+	/* Fall through. */						\
+}									\
+__FSM_STATE(RGen_BodyEoLine) {						\
+	parser->_eol = (parser->_eol << 4) | c;				\
+	TFW_DBG3("parser: eol %08lx\n", parser->_eol);			\
+	if (parser->_eol == 0xd)					\
+		__FSM_B_MOVE(RGen_BodyEoLine);				\
+	if (parser->_eol != 0xa && parser->_eol != 0xda)		\
+		return TFW_BLOCK;					\
+	if (!(msg->body.flags & TFW_STR_COMPLETE))			\
+		__FSM_B_MOVE(RGen_BodyChunk);				\
+	/* Add everything and the current character. */			\
+	if (tfw_http_msg_add_data_ptr(msg, &msg->body,			\
+				      data, __data_offset(p) + 1))	\
+		return TFW_BLOCK;					\
+	__FSM_MOVE_nofixup(RGen_Hdr);					\
 }
 
 #define RGEN_LWS_common_cases(st)					\
@@ -1359,25 +1275,25 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_age = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		req->cache_ctl.max_age = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		req->cache_ctl.max_fresh = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		req->cache_ctl.max_fresh = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
 
@@ -1891,10 +1807,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * There is a switch for first character of a header name.
 	 */
 	__FSM_STATE(RGen_Hdr) {
+		tfw_http_msg_hdr_open(msg, p);
+
+		if (unlikely(IS_CR_OR_LF((c))))
+			__FSM_JMP(RGen_EoL);
+
 		if (unlikely(!IN_ALPHABET(c, hdr_a)))
 			return TFW_BLOCK;
-
-		tfw_http_msg_hdr_open(msg, p);
 
 		switch (LC(c)) {
 		case 'c':
@@ -2383,25 +2302,25 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->cache_ctl.max_age = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		resp->cache_ctl.max_age = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->cache_ctl.s_maxage = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		resp->cache_ctl.s_maxage = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -2513,16 +2432,16 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		if (parser->_tmp.acc < 1)
+		if (parser->_acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
-		resp->expires = (parser->_tmp.acc - 1) * SEC24H;
-		parser->_tmp.acc = 0;
+		resp->expires = (parser->_acc - 1) * SEC24H;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpMonthSP, __fsm_n);
 	}
 
@@ -2609,16 +2528,16 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/* 4-digit year. */
 	__FSM_STATE(Resp_I_ExpYear) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = __year_day_secs(parser->_tmp.acc,
+		resp->expires = __year_day_secs(parser->_acc,
 						resp->expires);
 		if (resp->expires < 0)
 			return CSTR_NEQ;
-		parser->_tmp.acc = 0;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpHourSP, __fsm_n);
 	}
 
@@ -2630,13 +2549,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_ExpHour) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp.acc);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_tmp.acc * 3600;
-		parser->_tmp.acc = 0;
+		resp->expires = parser->_acc * 3600;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpMinCln, __fsm_n);
 	}
 
@@ -2648,13 +2567,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_ExpMin) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_tmp.acc);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_tmp.acc * 60;
-		parser->_tmp.acc = 0;
+		resp->expires = parser->_acc * 60;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpSecCln, __fsm_n);
 	}
 
@@ -2666,13 +2585,13 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_ExpSec) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		resp->expires = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
 	}
 
@@ -2706,13 +2625,13 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_KeepAliveTO) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->keep_alive = parser->_tmp.acc;
-		parser->_tmp.acc = 0;
+		resp->keep_alive = parser->_acc;
+		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -2940,7 +2859,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* Response Status-Code. */
 	__FSM_STATE(Resp_StatusCode) {
 		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_tmp.acc);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		parser->_i_st = I_Conn;
 		switch (__fsm_n) {
 		case CSTR_POSTPONE:
@@ -2953,8 +2872,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 		default:
 			/* Status code is fully parsed, move forward. */
-			resp->status = parser->_tmp.acc;
-			parser->_tmp.acc = 0;
+			resp->status = parser->_acc;
+			parser->_acc = 0;
 			__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_n,
 				      &resp->s_line);
 		}
@@ -2975,10 +2894,13 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(RGen_Hdr) {
+		tfw_http_msg_hdr_open(msg, p);
+
+		if (unlikely(IS_CR_OR_LF((c))))
+			__FSM_JMP(RGen_EoL);
+
 		if (unlikely(!IN_ALPHABET(c, hdr_a)))
 			return TFW_BLOCK;
-
-		tfw_http_msg_hdr_open(msg, p);
 
 		switch (LC(c)) {
 		case 'c':
