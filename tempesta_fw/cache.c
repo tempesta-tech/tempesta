@@ -479,7 +479,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len, 0)) < 0) {
+	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
+				      resp->flags & TFW_HTTP_CHUNKED)) < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
@@ -526,8 +527,10 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 	/* Add status line length + CRLF */
 	size += resp->s_line.len + SLEN(S_CRLF);
 
-	/* Add body size */
+	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
+	if (resp->flags & TFW_HTTP_CHUNKED)
+		size += SLEN(S_CRLF);
 
 	return size;
 }
