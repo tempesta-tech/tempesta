@@ -394,7 +394,7 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 
 			r = tfw_str_eq_cstr(&tmp, cstr, cstr_len, flags);
 
-			*v = t; /* restore chunk */
+			*v = t; /* Restore the chunk */
 			goto out;
 		}
 
@@ -410,8 +410,57 @@ out:
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_pos);
 
+/*
+ * Compare @str starting at offset @offset with a plain C string
+ * @cstr of size @len. Obey the comparison flags @flags.
+ *
+ * The function prepares a substring of @str and then calls
+ * tfw_str_eq_cstr(). Note that a chunk of @str is modified in the
+ * process, but the original contents is restored before the result
+ * is returned to the caller.
+ */
+bool
+tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
+		    int cstr_len, tfw_str_eq_flags_t flags)
+{
+	bool ret = false;
+	TfwStr t, tmp = *str;
+	TfwStr *c, *end;
+
+	BUG_ON(TFW_STR_DUP(str));
+	BUG_ON(!cstr || !cstr_len);
+
+	if (offset < 0)
+		return false;
+	if (offset == 0)
+		return tfw_str_eq_cstr(str, cstr, cstr_len, flags);
+	if (unlikely(offset + cstr_len > str->len))
+		return false;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &tmp, end) {
+		if (offset >= c->len) {
+			offset -= c->len;
+			tmp.len -= c->len;
+			tmp.ptr += sizeof(TfwStr);
+			TFW_STR_CHUNKN_SUB(&tmp, 1);
+			continue;
+		}
+		t = *c;
+		c->ptr += offset;
+		c->len -= offset;
+
+		ret = tfw_str_eq_cstr(&tmp, cstr, cstr_len, flags);
+
+		*c = t; /* Restore the chunk */
+		break;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(tfw_str_eq_cstr_off);
+
 /**
- * The function intentionaly brokes zero-copy string design. And should
+ * The function intentionaly breaks zero-copy string design. And should
  * be used for short-strings only.
  *
  * Join all chunks of @str to a single plain C string.

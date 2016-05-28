@@ -245,6 +245,8 @@ bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
+bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
+			 int cstr_len, tfw_str_eq_flags_t flags);
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
