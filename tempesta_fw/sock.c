@@ -464,12 +464,17 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	 * Interpret the big SKB as a set of separate smaller
 	 * SKBs for processing. Make the top SKB first in the
 	 * frag_list.
+	 *
+	 * Note, that skb_gro_receive() drops reference to the
+	 * SKB's header via the __skb_header_release(). So, to
+	 * not break the things we must take reference back.
 	 */
 	frag_list = skb_shinfo(skb)->frag_list;
 	if (frag_list) {
 		struct sk_buff *f_skb;
 		skb_walk_frags(skb, f_skb) {
 			f_skb->nohdr = 0;
+			atomic_sub(1 << SKB_DATAREF_SHIFT, &skb_shinfo(f_skb)->dataref);
 			ss_skb_adjust_data_len(skb, -f_skb->len);
 		}
 		skb_shinfo(skb)->frag_list = NULL;
