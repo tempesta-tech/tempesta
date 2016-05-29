@@ -211,8 +211,11 @@ entry_reset(TfwCfgEntry *e)
 static int
 entry_set_name(TfwCfgEntry *e, const char *name_src, size_t name_len)
 {
-	BUG_ON(!e || !name_src || !name_len);
+	BUG_ON(!e);
 	BUG_ON(e->name);
+
+	if (!name_src || !name_len)
+		return -EINVAL;
 
 	if (!check_identifier(name_src, name_len))
 		return -EINVAL;
@@ -229,7 +232,11 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 {
 	const char *val;
 
-	BUG_ON(!e || !val_src || e->val_n > ARRAY_SIZE(e->vals));
+	BUG_ON(!e);
+	BUG_ON(e->val_n > ARRAY_SIZE(e->vals));
+
+	if (!val_src || !val_len)
+		return -EINVAL;
 
 	if (e->val_n == ARRAY_SIZE(e->vals)) {
 		TFW_ERR("maximum number of values per entry reached\n");
@@ -250,12 +257,14 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 {
 	const char *key, *val;
 
-	BUG_ON(!e || !key_src || !val_src);
-	BUG_ON(!key_len); /* Although empty values are allowed. */
+	BUG_ON(!e);
 	BUG_ON(e->attr_n > ARRAY_SIZE(e->attrs));
 
+	if (!key_src || !key_len || !val_src || !val_len)
+		return -EINVAL;
+
 	if (e->attr_n == ARRAY_SIZE(e->attrs)) {
-		TFW_ERR("maximum numer of attributes per entry reached\n");
+		TFW_ERR("maximum number of attributes per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -623,6 +632,9 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		PFSM_COND_MOVE(ps->t == TOKEN_LITERAL, PS_MAYBE_EQSIGN);
 		FSM_COND_JMP(ps->t == TOKEN_SEMICOLON, PS_SEMICOLON);
 		FSM_COND_JMP(ps->t == TOKEN_LBRACE, PS_LBRACE);
+
+		ps->err = -EINVAL;
+		FSM_JMP(PS_EXIT);
 	}
 
 	FSM_STATE(PS_MAYBE_EQSIGN) {
