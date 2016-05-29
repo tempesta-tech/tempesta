@@ -76,6 +76,7 @@ tfw_init(void)
 
 	DO_INIT(cfg_if);
 	DO_INIT(procfs);
+	DO_INIT(tfwcfg);
 
 	DO_INIT(classifier);
 
@@ -90,6 +91,7 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 
+	DO_CFG_REG(tfwcfg);
 	DO_CFG_REG(filter);
 	DO_CFG_REG(cache);
 	DO_CFG_REG(http_sticky);

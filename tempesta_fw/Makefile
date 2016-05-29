@@ -50,6 +50,7 @@ tempesta_fw-objs = \
 	sock_srv.o \
 	ss_skb.o \
 	stress.o \
+	tfw_tfwcfg.o \
 	str.o \
 	tls.o \
 	work_queue.o
