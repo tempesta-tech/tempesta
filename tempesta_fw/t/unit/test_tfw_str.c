@@ -364,6 +364,53 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 		    TFW_STR_EQ_PREFIX_CASEI));
 }
 
+TEST(tfw_str_eq_cstr_off, supports_suffix)
+{
+	TFW_STR(s, "/foo/bar/baz.test");
+	const char *p1 = "/foo/bar/baz.test";
+	const char *p2 = "foo/bar/baz.test";
+	const char *p3 = "bar/baz.test";
+	const char *p4 = "/baz.test";
+	const char *p5 = ".test";
+	const char *p6 = "";
+	const char *f1 = "/bar/foo/baz.test";
+	const char *f2 = "/foo/bar/";
+	const char *extra = "/bar/foo/baz.test100";
+	const char *i1 = "/foo/bar/baz.tesT";
+	const char *i2 = ".TeSt";
+
+#define X_EXPECT_TRUE(s, p, flags)					\
+do {									\
+	int plen = strlen(p);						\
+	EXPECT_TRUE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+} while(0)
+#define X_EXPECT_FALSE(s, p, flags)					\
+do {									\
+	int plen = strlen(p);						\
+	EXPECT_FALSE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+} while(0)
+
+	X_EXPECT_TRUE(s, p1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p2, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p3, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p4, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p5, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p6, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, f1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, f2, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, extra, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+
+#undef X_EXPECT_TRUE
+#undef X_EXPECT_FALSE
+}
+
 static const char *foxstr = "The quick brown fox jumps over the lazy dog";
 
 TEST(tfw_str_eq_cstr_pos, plain)
@@ -395,6 +442,32 @@ TEST(tfw_str_eq_cstr_pos, plain)
 
 }
 
+TEST(tfw_str_eq_cstr_off, plain)
+{
+	TfwStr *fox = make_plain_str(foxstr);
+	long i, offset = 0, foxlen = fox->len;
+
+	for (i = 0; i < fox->len; i++) {
+		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, fox->len + i,
+						foxstr + offset,
+						foxlen - offset,
+						TFW_STR_EQ_CASEI));
+		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, fox->len + i,
+						 "1234567890", 10,
+						 TFW_STR_EQ_CASEI));
+		++offset;
+	}
+
+	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, foxlen,
+					foxstr, foxlen, TFW_STR_EQ_CASEI));
+
+	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, foxlen + 1,
+					 foxstr, foxlen, TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, -1,
+					 foxstr, foxlen, TFW_STR_EQ_CASEI));
+
+}
+
 TEST(tfw_str_eq_cstr_pos, compound)
 {
 	TfwStr *fox = make_compound_str(foxstr), *c, *end;
@@ -423,6 +496,32 @@ TEST(tfw_str_eq_cstr_pos, compound)
 					 TFW_STR_EQ_CASEI));
 }
 
+TEST(tfw_str_eq_cstr_off, compound)
+{
+	TfwStr *fox = make_compound_str(foxstr);
+	long i, offset = 0, foxlen = fox->len;
+
+	for (i = 0; i < fox->len; i++) {
+		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, fox->len + i,
+						foxstr + offset,
+						foxlen - offset,
+						TFW_STR_EQ_CASEI));
+		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, fox->len + i,
+						 "1234567890", 10,
+						 TFW_STR_EQ_CASEI));
+		++offset;
+	}
+
+	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, foxlen,
+					foxstr, foxlen, TFW_STR_EQ_CASEI));
+
+	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, foxlen + 1,
+					 foxstr, foxlen, TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, -1,
+					 foxstr, foxlen, TFW_STR_EQ_CASEI));
+
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -449,7 +548,10 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_cstr, handles_empty_strs);
 	TEST_RUN(tfw_str_eq_cstr, supports_casei);
 	TEST_RUN(tfw_str_eq_cstr, supports_prefix);
+	TEST_RUN(tfw_str_eq_cstr_off, supports_suffix);
 
 	TEST_RUN(tfw_str_eq_cstr_pos, plain);
+	TEST_RUN(tfw_str_eq_cstr_off, plain);
 	TEST_RUN(tfw_str_eq_cstr_pos, compound);
+	TEST_RUN(tfw_str_eq_cstr_off, compound);
 }
