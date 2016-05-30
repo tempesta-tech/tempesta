@@ -1391,7 +1391,7 @@ static void
 print_parse_error(const TfwCfgParserState *ps)
 {
 
-	TFW_ERR("configuration parsing error: str:%d;w:%s\n", ps->e.line,
+	TFW_ERR("configuration parsing error: str:%d;w:%s\n", ps->e.line + 1,
 		ps->e.name);
 }
 
