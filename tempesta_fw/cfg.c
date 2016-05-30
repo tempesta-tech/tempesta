@@ -348,6 +348,7 @@ typedef struct {
 	/* Length of @lit (the @lit is not terminated). */
 	int lit_len;
 	int prev_lit_len;
+	int line;
 
 	int  err;  /* The latest error code. */
 
@@ -389,6 +390,8 @@ do {				\
 	ps->c = *(++ps->pos);	\
 	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	FSM_JMP(to_state);	\
+	if ( ps->prev_c == '\n'){\
+		++ps->line; }	 \
 } while (0)
 
 #define TFSM_MOVE_EXIT(token_type)	\
@@ -609,6 +612,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
+		ps->e.line = ps->line;
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
 		PFSM_MOVE(PS_VAL_OR_ATTR);
@@ -1386,13 +1390,9 @@ mod_stop(TfwCfgMod *mod)
 static void
 print_parse_error(const TfwCfgParserState *ps)
 {
-	const char *start = max((ps->pos - 80), ps->in);
-	int len = ps->pos - start;
 
-	TFW_ERR("configuration parsing error:\n"
-		"%.*s\n"
-		"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
-		len, start);
+	TFW_ERR("configuration parsing error: str:%d;w:%s\n", ps->e.line,
+		ps->e.name);
 }
 
 /*
