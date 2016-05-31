@@ -862,13 +862,13 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			}
 		}
 		/*
-		 * Complete HTTP message has been collected and successfully
-		 * processed. Mark the message as complete in @conn, because
+		 * Complete HTTP message has been collected and processed
+		 * with success. Mark the message as complete in @conn as
 		 * further handling of @conn depends on that. Future SKBs
 		 * will be put in a new message.
-		 * Otherwise, the function returns from inside the loop.
-		 * @conn->msg holds the reference to the message, which can
-		 * be used to release it.
+		 * On an error the function returns from anywhere inside
+		 * the loop. @conn->msg holds the reference to the message,
+		 * which can be used to release it.
 		 */
 		tfw_connection_unlink_msg(conn);
 
@@ -955,15 +955,21 @@ err:
 /*
  * Request messages that were forwarded to a backend server are added
  * to and kept in @msg_queue of the connection @conn for that server.
+ * If a paired request is not found, then the response is deleted.
  */
 static TfwHttpReq *
-tfw_http_popreq(TfwConnection *conn)
+tfw_http_popreq(TfwHttpMsg *hmresp)
 {
 	TfwMsg *msg;
+	TfwConnection *conn = hmresp->conn;
 
 	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
 		spin_unlock(&conn->msg_qlock);
+		/* @conn->msg will get NULLed in the process. */
+		TFW_WARN("Paired request missing\n");
+		tfw_http_conn_msg_free(hmresp);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
 	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
@@ -974,20 +980,44 @@ tfw_http_popreq(TfwConnection *conn)
 }
 
 /*
- * A complete response message has been collected. However an error
- * occured on further processing. Such errors are considered rare.
- * Delete the response and the corresponding (paired) request, and
- * keep the connection open for data exchange.
+ * Post-process the response. Pass it to modules registered with GFSM
+ * for further processing. Finish the request/response exchange properly
+ * in case of an error.
  */
-static inline void
-tfw_http_delpair(TfwHttpMsg *hmresp)
+static int
+tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
 {
-	TfwHttpMsg *hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp->conn);
+	int r;
+	TfwHttpMsg *hmreq;
 
-	if (hmreq)
-		tfw_http_conn_msg_free(hmreq);
-	/* conn->msg will get NULLed in the process. */
-	tfw_http_conn_msg_free(hmresp);
+	r = tfw_gfsm_move(&hmresp->msg.state, TFW_HTTP_FSM_RESP_MSG, skb, off);
+	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	if (r == TFW_BLOCK)
+		goto error;
+	/* Proceed with the next GSFM processing */
+
+	r = tfw_gfsm_move(&hmresp->msg.state,
+			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
+	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
+	if (r == TFW_PASS)
+		return TFW_PASS;
+	/* Proceed with the error processing */
+error:
+	/*
+	 * Send an error response to the client, otherwise the pairing
+	 * of requests and responses will be broken. If a paired request
+	 * is not found, then something is terribly wrong.
+	 */
+	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
+	if (unlikely(hmreq == NULL)) {
+		r = TFW_STOP;
+	} else {
+		tfw_http_send_502(hmreq);
+		tfw_http_conn_msg_free(hmresp);
+		tfw_http_conn_cli_dropfree(hmreq);
+	}
+	TFW_INC_STAT_BH(serv.msgs_filtout);
+	return TFW_BLOCK;
 }
 
 /**
@@ -1077,82 +1107,74 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			;
 		}
 
-		r = tfw_gfsm_move(&hmresp->msg.state,
-				  TFW_HTTP_FSM_RESP_MSG, skb, off);
-		TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
-		if (r == TFW_BLOCK) {
-			tfw_http_delpair(hmresp);
-			TFW_INC_STAT_BH(serv.msgs_filtout);
-			goto next_resp;
-		}
-
-		r = tfw_gfsm_move(&hmresp->msg.state,
-				  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
-		TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
-		if (r == TFW_BLOCK) {
-			tfw_http_delpair(hmresp);
-			TFW_INC_STAT_BH(serv.msgs_filtout);
-		}
-next_resp:
+		/* Pass the response to GFSM for further processing. */
+		r = tfw_http_resp_gfsm(hmresp, skb, off);
+		if (unlikely(r == TFW_STOP))
+			return TFW_BLOCK;
+		/*
+		 * If @skb's data has not been processed in full, then
+		 * we have pipelined responses. Create a sibling message.
+		 * @skb is replaced with a pointer to a new SKB.
+		 */
 		if (data_off < skb_len) {
-			/*
-			 * Pipelined responses: create a new sibling message.
-			 * @skb is replaced with pointer to a new SKB.
-			 */
 			hmsib = tfw_http_msg_create_sibling(hmresp, &skb,
 							    data_off,
 							    Conn_Srv);
+			/*
+			 * In case of an error there's no recourse. The
+			 * caller expects that data is processed in full,
+			 * and can't deal with partially processed data.
+			 */
 			if (hmsib == NULL) {
-				/*
-				 * Not enough memory. Unfortunately, there's
-				 * no recourse. The caller expects that data
-				 * is processed in full, and can't deal with
-				 * partially processed data.
-				 */
-				TFW_WARN("Not enough memory "
+				TFW_WARN("Insufficient memory "
 					 "to create a response sibling\n");
 				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_BLOCK;
 			}
 		}
 		/*
+		 * If an error occured in further GFSM processing, then
+		 * the response and the paired request had been handled.
+		 * Keep the server connection open for data exchange.
+		 */
+		if (unlikely(r != TFW_PASS)) {
+			r = TFW_PASS;
+			goto next_resp;
+		}
+		/*
 		 * Cache adjusted and filtered responses only. Responses
 		 * are received in the same order as requests, so we can
 		 * just pop the first request. If a paired request is not
-		 * found, delete the response and keep the connection open
-		 * for data exchange until that gets impossible.
+		 * found, then something is terribly wrong, and pairing
+		 * of requests and responses is broken. The response is
+		 * deleted, and an error is returned.
 		 */
-		if ((req = tfw_http_popreq(conn)) != NULL) {
-			/*
-			 * Complete HTTP message has been collected and
-			 * successfully processed. Mark the message as
-			 * complete in @conn, because further handling
-			 * of @conn depends on that. Future SKBs will
-			 * be put in a new message.
-			 * Otherwise, the function returns from inside
-			 * the loop. @conn->msg holds the reference to
-			 * the message, which can be used to release it.
-			 */
-			tfw_connection_unlink_msg(conn);
-			if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
-					      tfw_http_resp_cache_cb))
-			{
-				tfw_http_send_500((TfwHttpMsg *)req);
-				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
-				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
-				TFW_INC_STAT_BH(serv.msgs_otherr);
-				return TFW_PASS;
-			}
-		} else {
-			/* @conn->msg will get NULLed in the process. */
-			TFW_WARN("Paired request missing\n");
+		req = tfw_http_popreq(hmresp);
+		if (unlikely(req == NULL))
+			return TFW_BLOCK;
+		/*
+		 * Complete HTTP message has been collected and processed
+		 * with success. Mark the message as complete in @conn as
+		 * further handling of @conn depends on that. Future SKBs
+		 * will be put in a new message.
+		 * On an error the function returns from anywhere inside
+		 * the loop. @conn->msg holds the reference to the message,
+		 * which can be used to release it.
+		 */
+		tfw_connection_unlink_msg(conn);
+		if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
+				      tfw_http_resp_cache_cb))
+		{
+			tfw_http_send_500((TfwHttpMsg *)req);
 			tfw_http_conn_msg_free(hmresp);
+			tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
+			/* Proceed with processing of the next response. */
 		}
-
+next_resp:
 		if (hmsib) {
 			/*
-			 * Switch connection to the new sibling message.
+			 * Switch the connection to the sibling message.
 			 * Data processing will continue with the new SKB.
 			 */
 			data_off = 0;
