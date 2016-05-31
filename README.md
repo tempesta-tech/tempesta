@@ -282,12 +282,14 @@ header. Host part in URI takes priority over the `Host` header value.
 * **hdr_conn**  The value of `Connection` header.
 * **hdr_raw** The contents of any other HTTP header field as specified by
 `ARG`. `ARG` must include contents of an HTTP header starting with the header
-field name. Processing of `hdr_raw` may be slow because it requires walking
-over all headers of an HTTP request.
+field name. The `suffix` `OP` is not supported for this `FIELD`. Processing
+of `hdr_raw` may be slow because it requires walking over all headers of an
+HTTP request.
 
 The following `OP` keywords are supported:
 * **eq** `FIELD` is fully equal to the string specified in `ARG`.
 * **prefix** `FIELD` starts with the string specified in `ARG`.
+* **suffix** `FIELD` ends with the string specified in `ARG`.
 
 Below are examples of pattern-matching rules that define the HTTP scheduler:
 ```
@@ -297,10 +299,14 @@ srv_group bar_app { ... }
 
 sched_http_rules {
 	match static   uri       prefix  "/static";
+	match static   uri       suffix  ".php";
 	match static   host      prefix  "static.";
+	match static   host      suffix  "tempesta-tech.com";
 	match foo_app  host      eq      "foo.example.com";
 	match bar_app  hdr_conn  eq      "keep-alive";
 	match bar_app  hdr_host  prefix  "bar.";
+	match bar_app  hdr_host  suffix  "natsys-lab.com";
+	match bar_app  hdr_host  eq      "bar.natsys-lab.com";
 	match bar_app  hdr_raw   prefix  "X-Custom-Bar-Hdr: ";
 }
 ```
