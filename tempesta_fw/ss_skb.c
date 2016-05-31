@@ -392,11 +392,25 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * moved to yet another fragment. The linear part is trimmed to
 	 * exclude the deleted data and the tail part.
 	 *
+	 * Whether the data is deleted or inserted, the tail of the
+	 * linear data needs to be moved to a new fragment. The value of
+	 * @alloc tells the number of the fragment that will hold the
+	 * tail of the linear data.
+	 *
+	 * In case of data insertion @alloc equals one.  The inserted data
+	 * is placed in the first fragment (number 0) which immediately
+	 * follows the linear data. The tail of the linear data is placed
+	 * in the next fragment (number 1, the value of @alloc).
+	 *
+	 * In case of data removal @alloc equals zero. Only the fragment
+	 * for the tail is needed, and that is the first fragment (number
+	 * 0, the value of @alloc).
+	 *
 	 * Do all allocations before moving the fragments to avoid complex
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, len, 0, alloc + !!tail_len))
+		if (__new_pgfrag(skb, len, 0, 1 + !!tail_len))
 			return -EFAULT;
 	} else {
 		if (__extend_pgfrags(skb, 0, 1))
@@ -408,8 +422,7 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * Then trim it further to exclude the tail data.
 	 */
 	if (len < 0) {
-		skb->tail += len;
-		skb->len += len;
+		ss_skb_put(skb, len);
 		tail_len += len;
 		tail_off -= len;
 	}
@@ -741,7 +754,7 @@ done:
 		return ret;
 	if ((it->ptr == NULL) || (it->skb == NULL))
 		return -EFAULT;
-	it->len = len;
+	it->len = max(0, len);
 
 	/* Return the length of processed data. */
 	return abs(len);
