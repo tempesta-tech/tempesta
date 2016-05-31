@@ -676,11 +676,6 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		skb->len, skb->data_len, skb->truesize, si->nr_frags);
 	BUG_ON(!len);
 
-	if (abs(len) > PAGE_SIZE) {
-		SS_WARN("Attempt to add or delete too much data: %u\n", len);
-		return -EINVAL;
-	}
-
 	/*
 	 * Use @it to hold the return values from __split_pgfrag()
 	 * and __split_linear_data(). @it->ptr and @it->skb are set
@@ -733,12 +728,6 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		}
 	}
 
-	/* skbs with skb fragments are not expected. */
-	if (skb_has_frag_list(skb)) {
-		WARN_ON(skb_has_frag_list(skb));
-		return -ENOENT;
-	}
-
 	/* The split is not within the SKB. */
 	return -ENOENT;
 
@@ -764,7 +753,20 @@ static inline int
 skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	int r = __skb_fragment(skb, pspt, len, it);
+	int r;
+
+	if (abs(len) > PAGE_SIZE) {
+		SS_WARN("Attempt to add or delete too much data: %u\n", len);
+		return -EINVAL;
+	}
+
+	/* skbs with skb fragments are not expected. */
+	if (skb_has_frag_list(skb)) {
+		WARN_ON(skb_has_frag_list(skb));
+		return -EINVAL;
+	}
+
+	r = __skb_fragment(skb, pspt, len, it);
 	__skb_skblist_fixup(skb_list);
 	return r;
 }
