@@ -5,6 +5,8 @@
 #include <assert.h>
 #include <ctype.h>
 
+#define FORCEINLINE  __attribute__((always_inline))
+
 #define XASSERT(xxx) assert(xxx)
 static void PRINTM(const char * vname, Vector vval) {
     printf("%s:\n+----+----+----+----+----+----+----+----"
@@ -233,6 +235,16 @@ Vector strToVec(const char * restrict str) {
 #define _mm_bm(n) _mm_lddqu_si128((__m128i*)(((char*)&cc.shuffle[2])+n))
 #define _mm_blend(a,b,mask) \
     _mm_or_si128(_mm_and_si128(mask, a),_mm_andnot_si128(mask, b))
+
+inline static __m128i _mm_align(__m128i pd, __m128i nd, int n) {
+    __m128i mask1 = _mm_rm(n);
+    __m128i mask2 = _mm_bm(n);
+    return _mm_blend(_mm_shuffle_epi8(pd, mask1), _mm_shuffle_epi8(nd, mask1), mask2);
+} FORCEINLINE
+
+inline  static __m128i _mm_align_up(__m128i data, int n) {
+    return _mm_shuffle_epi8(data, _mm_rm(n));
+} FORCEINLINE
 
 inline void initInputIterator(InputIterator * restrict i) {
     i->latch[0] = i->latch[1] = _mm_setzero_si128();
@@ -518,7 +530,7 @@ inline Vector decodeUrlEncoded(Vector data) {
 
 void initOutputIterator(OutputIterator * i, void * buffer, int size)
 {
-    i->bytesin = 0;
+    i->bytesin = -1;
     i->callback = 0;
     i->allocationSize = size;
     i->store = (__m128i*)buffer;
@@ -527,7 +539,7 @@ void initOutputIterator(OutputIterator * i, void * buffer, int size)
 
 int  initOutputIteratorEx(OutputIterator * i, BufferCallback cb, void * userarg, int allocsize)
 {
-    i->bytesin        = 0;
+    i->bytesin        = -1;
     i->callback       = cb;
     i->userarg        = userarg;
     i->allocationSize = allocsize;
@@ -537,6 +549,77 @@ int  initOutputIteratorEx(OutputIterator * i, BufferCallback cb, void * userarg,
     i->storesize = allocsize;
     return ret;
 }
+
+inline char * outputPushStart(OutputIterator * restrict i, Vector vec, int n) {
+    if (unlikely(i->storesize <= 16))
+        return (char*)&i->latch; //never return 0
+
+    if (i->bytesin > 0) {
+        Vector v = _mm_align(i->latch,
+                             _mm_setzero_si128(),
+                             16-i->bytesin);
+        _mm_store_si128(i->store, v);
+        ++i->store;
+        i->storesize -= 16;
+    } else if (i->bytesin == 0) {
+        _mm_store_si128(i->store, _mm_setzero_si128());
+        ++i->store;
+        i->storesize -= 16;
+    }
+
+    char * ret = (char*)i->store;
+    if (n == 16) {
+        _mm_store_si128(i->store, vec);
+        ++i->store;
+        i->storesize -= 16;
+        i->bytesin = 0;
+    } else {
+        i->latch = _mm_align_up(vec, n);
+        i->bytesin = n;
+    }
+    return ret;
+}
+
+inline void   outputPush(OutputIterator * restrict i, Vector vec, int n) {
+    if (unlikely(i->storesize <= 16))
+        return;
+
+    int k = n + i->bytesin;
+    if (k < 16) {
+        i->latch = _mm_align(i->latch, vec, n);
+        i->bytesin += n;
+    } else {
+        Vector v = _mm_align(i->latch, vec, 16-i->bytesin);
+        _mm_store_si128(i->store, v);
+        ++i->store;
+        i->storesize -= 16;
+
+        i->latch = _mm_align_up(vec, k - 16);
+        i->bytesin = k - 16;
+    }
+}
+
+//ensures output is finalized with \0 and checks if there were errors
+inline int    outputFinish(OutputIterator * restrict i) {
+    if (unlikely(i->storesize <= 16))
+        return -1;
+
+    if (i->bytesin > 0) {
+        Vector v = _mm_align(i->latch,
+                             _mm_setzero_si128(),
+                             16-i->bytesin);
+        _mm_store_si128(i->store, v);
+        ++i->store;
+        i->storesize -= 16;
+    } else if (i->bytesin == 0) {
+        _mm_store_si128(i->store, _mm_setzero_si128());
+        ++i->store;
+        i->storesize -= 16;
+    }
+
+    return 0;
+}
+
 
 enum ParserState {
     HTTP_REQ_METHOD,

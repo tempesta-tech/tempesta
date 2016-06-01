@@ -121,10 +121,10 @@ int  initOutputIteratorEx(OutputIterator * restrict i, BufferCallback cb, void *
  */
 
 //push n bytes to output
-void * outputPushStart(OutputIterator * restrict i, Vector vec, int n);
+char * outputPushStart(OutputIterator * restrict i, Vector vec, int n);
 void   outputPush(OutputIterator * restrict i, Vector vec, int n);
 //ensures output is finalized with \0 and checks if there were errors
-int    outputFinish(OutputIterator * i);
+int    outputFinish(OutputIterator * restrict i);
 
 /*****************************************************
  *****************************************************
