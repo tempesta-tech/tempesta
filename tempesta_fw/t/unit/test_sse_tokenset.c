@@ -54,7 +54,7 @@ int main()
         printf("|  %c ", isprint(data[n*16+i]) ? data[n*16+i] : '.');
         printf("|\n");
     }
-
+    //make sure all tokens were parsed successfully
     int fail = 0;
     for(int i = 0; tokens[i]; ++i) {
         int result = matchTokenSet(ts, strToVec(tokens[i]));
