@@ -6,6 +6,7 @@
 #define likely(a)	__builtin_expect((a), 1)
 #define unlikely(a)	__builtin_expect((a), 0)
 #define FORCEINLINE  __attribute__((always_inline))
+//comment out debug for testing performance
 #define __DEBUG__
 
 struct Constants {
@@ -36,6 +37,7 @@ struct Constants {
     __m128i headerNameBitmask;
     __m128i headerValueBitmask;
 };
+
 void sse_init_constants();
 
 #define _mm_blend(a,b,mask) \

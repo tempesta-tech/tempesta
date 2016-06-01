@@ -10,7 +10,6 @@ enum {
     PS_SkipSpaces,
     PS_BadState,
     PS_TooLong,
-
     PS_Method,
     PS_Schema,
     PS_HostnameStart,
