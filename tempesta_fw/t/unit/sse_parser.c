@@ -27,12 +27,13 @@ static void PRINTM(const char * vname, Vector vval) {
            "+----+----+----+----+----+----+----+----+\n");
 }
 #define PRINTSTATE(xxx) \
-    printf()
+    printf("State: %s\n", #xxx);
 
 #else
 
 #define XASSERT(xxx)
 #define PRINTM(vname, vval)
+#define PRINTSTATE(xxx)
 
 #endif
 
@@ -46,6 +47,12 @@ struct Constants {
     __m128i masktest1, masktest2;
     //token compare
     __m128i tokencmp;
+    //swap bytes
+    __m128i swapbytes16;
+    //digit conversion
+    __m128i cvt10_2_bytes;
+    __m128i cvt10_2_words;
+    __m128i cvt10_2_dwords;
     //symbols
     __m128i _r, _n;
     __m128i spaces, semicolons, slashes, tabs, plus, nine, zero;
@@ -55,8 +62,8 @@ struct Constants {
     __m128i newline1, newline2;
     //decode quoted
     __m128i dq0, dq1, dq2, dq3, dq4, dq5;
-    //http version
-    __m128i HTTP1x, HTTP1xHelper;
+    //digits
+    __m128i digits;
     //directories
     __m128i directoryPatterns;
     //bitmasks for different types of data
@@ -72,6 +79,14 @@ struct Constants {
         TokenSet ts;
         __m128i  buffer[25];
     } http_method;
+    union {
+        TokenSet ts;
+        __m128i  buffer[9];
+    } http_schema;
+    union {
+        TokenSet ts;
+        __m128i  buffer[9];
+    } http_version;
 };
 
 static struct Constants cc;
@@ -87,6 +102,9 @@ void sse_init_constants() {
     c->masktest1  = _mm_setr_epi8(1,2,4,8,16,32,64,128,0,0,0,0,0,0,0,0);
     c->masktest2  = _mm_set1_epi8(0xF);
     c->tokencmp   = _mm_setr_epi8(1, 0, 2, 0, 4, 0, 8, 0, 16, 0, 32, 0, 64, 0, 128, 0);
+    c->swapbytes16 = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    c->cvt10_2_bytes = _mm_set1_epi16(256+10);
+    c->cvt10_2_words = _mm_set1_epi32(65536+100);
 
     c->spaces = _mm_set1_epi8(0x20);
     c->semicolons = _mm_set1_epi8(':');
@@ -112,16 +130,6 @@ void sse_init_constants() {
                                 0xFF,0xFF,0xFF, 0  ,
                                 0xFF,0xFF,0xFF, 0  ,
                                 0xFF,0xFF,0xFF,0xFF);
-    c->HTTP1x =
-            _mm_setr_epi8('\r','\n','\n','H',
-                          'T' ,'T' ,'P' ,'/',
-                          '1' ,'.' ,'Z' ,'0',
-                          '1','\r','\n','\n');
-    c->HTTP1xHelper =
-            _mm_setr_epi8(0,  1,  0,  0,
-                          1,  2,  3,  4,
-                          5,  6,  0,  7,
-                          7,  8,  9,  8);
     c->dq0 = _mm_setr_epi8(
                 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02,
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
@@ -152,6 +160,24 @@ void sse_init_constants() {
     XASSERT(sizeof(c->http_method) >= tokenSetLength(http_m));
     initTokenSet(http_m, &c->http_method, sizeof(c->http_method));
 
+    static const char * http_sch[] = {
+        "https:", "http:", NULL
+    };
+    XASSERT(sizeof(c->http_schema) >= tokenSetLength(http_sch));
+    initTokenSet(http_sch, &c->http_schema, sizeof(&c->http_schema));
+
+    static const char * http_v[] = {
+        "\n", "\r\n", "HTTP/1.0\n", "HTTP/1.0\r\n",
+        "HTTP/1.1\n", "HTTP/1.1\r\n", NULL
+    };
+    XASSERT(sizeof(c->http_version) >= tokenSetLength(http_v));
+    initTokenSet(http_v, &c->http_version, sizeof(&c->http_version));
+
+    c->digits =
+            _mm_setr_epi8(0x08, 0x08, 0x08, 0x08,
+                          0x08, 0x08, 0x08, 0x08,
+                          0x08, 0x08, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x00);
     c->alnumDotMinusBitmask =
             _mm_setr_epi8(0xC8, 0xF8, 0xF8, 0xF8,
                           0xF8, 0xF8, 0xF8, 0xF8,
@@ -188,7 +214,6 @@ void sse_init_constants() {
                           0xFC, 0xFC, 0xFC, 0x5C,
                           0x5C, 0x5C, 0x5C, 0x5C);
 }
-
 
 Vector strToVec(const char * restrict str) {
     char tmp[16];
@@ -326,6 +351,34 @@ inline int matchSymbolsCount(SymbolMap sm, Vector v) {
 
     return __builtin_ctz(0x10000 | _mm_movemask_epi8(vec));
 }
+
+inline long long parseNumber(Vector vec, int * restrict p_len, char * restrict invchar) {
+    Vector mask = matchSymbolsMask(cc.digits, vec);
+    int len = __builtin_ctz(~_mm_movemask_epi8(mask));
+    int buf[4] __attribute__((aligned(16)));
+    Vector shuffle = _mm_rm(len);
+    vec = _mm_subs_epi8(vec, cc.zero);
+    vec = _mm_and_si128(vec, mask);    
+    vec = _mm_shuffle_epi8(vec, shuffle);
+
+    //save first wrong character
+    invchar[0] = (char)_mm_extract_epi16(
+                _mm_shuffle_epi8(vec, shuffle), 0);
+
+    if (!len) return -1;
+    //convert from bytes to dwords
+    vec = _mm_maddubs_epi16(vec, cc.cvt10_2_bytes);
+    vec = _mm_madd_epi16(vec, cc.cvt10_2_words);
+    _mm_store_si128((__m128i*)buf, vec);
+
+    long long result = buf[3];
+    result = 10000LL*result + buf[2];
+    result = 10000LL*result + buf[1];
+    result = 10000LL*result + buf[0];
+    *p_len = len;
+    return result;
+}
+
 
 MatchResult matchTokenSet(const TokenSet * ts, Vector vec) {
     __m128i cmp1, cmp2, carry;
@@ -488,17 +541,18 @@ int  initOutputIteratorEx(OutputIterator * i, BufferCallback cb, void * userarg,
 enum ParserState {
     HTTP_REQ_METHOD,
     HTTP_REQ_SCHEME,
-    HTTP_REQ_HOST,
+    HTTP_REQ_HOST, HTTP_REQ_HOST_C,
     HTTP_REQ_PORT,
-    HTTP_REQ_URI,
+    HTTP_REQ_URI, HTTP_REQ_URI_C,
     HTTP_REQ_ARGS,
-    HTTP_REQ_MAYBE_HTTPV,
+    HTTP_REQ_MAYBE_HTTPV, HTTP_REQ_MAYBE_HTTPV_C,
+    HTTP_REQ_HTTPV,
     HTTP_HDR_START,
     HTTP_HDR_CONT,
     HTTP_HDR_VAL,
     HTTP_FINISHED,
     HTTP_ERROR,
-    HTTP_SKIP_SPACE = 0x8000
+    HTTP_SKIP_SPACE = 0x8000,
 };
 
 int initHttpRequest(struct HttpRequest * r, void * outputbuffer, int buflen)
@@ -525,3 +579,789 @@ int initHttpRequest(struct HttpRequest * r, void * outputbuffer, int buflen)
 
     return 0;
 }
+
+#define STATE(s) case s: s: PRINTSTATE(s);
+#define GOTO(s) {state = s; goto s;}
+#define MOVE(s) {state = s; break; }
+#define GOTO_SS(s) {state = s|HTTP_SKIP_SPACE; goto HTTP_SKIP_SPACE;}
+#define MOVE_SS(s) {state = s|HTTP_SKIP_SPACE; break; }
+int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
+    static const int versions[] = {HTTP_0_9, HTTP_1_0, HTTP_1_1};
+    int consumed = 0;
+    int state = r->state;
+    for(;;) {
+        if (shouldAppendInputIterator(&r->input)) {
+            int read_from_buffer = appendInputIterator(&r->input, buffer, len);
+            buffer += read_from_buffer;
+            len -= read_from_buffer;
+        }
+        if (!inputIteratorReadable(&r->input))
+            return Parse_NeedMoreData;
+
+        Vector data = readIterator(&r->input);
+        PRINTM("data", data);
+
+        consumed = 0;
+        if (state & HTTP_SKIP_SPACE) {
+            int sm = _mm_movemask_epi8(_mm_cmpeq_epi8(data, cc.spaces));
+            if (!(sm & 1)) {
+                state = HTTP_ERROR;
+                break;
+            }
+            if (sm != 0xFFFF)
+                state &= ~ HTTP_SKIP_SPACE;
+            consumeInputIterator(&r->input, __builtin_ctz(~sm));
+            continue;
+        }
+
+        switch(state) {
+        STATE(HTTP_SKIP_SPACE) {
+            int sm = _mm_movemask_epi8(_mm_cmpeq_epi8(data, cc.spaces));
+            if (!(sm & 1)) GOTO(HTTP_ERROR);
+            if (sm != 0xFFFF)
+                state &= ~ HTTP_SKIP_SPACE;
+            consumed = __builtin_ctz(~sm);
+            break;
+        }
+        STATE(HTTP_REQ_METHOD) {
+            int method = matchTokenSet(&cc.http_method.ts, data);
+            if (!method) GOTO(HTTP_ERROR);
+            consumed  = MATCH_LENGTH(method);
+            r->method = MATCH_CODE(method);
+            MOVE_SS(HTTP_REQ_SCHEME);
+        }
+        STATE(HTTP_REQ_SCHEME) {
+            int schema = matchTokenSet(&cc.http_schema.ts, data);
+            if (!schema) GOTO(HTTP_REQ_HOST);
+            consumed  = MATCH_LENGTH(schema);
+            r->schema = MATCH_CODE(schema);
+            MOVE(HTTP_REQ_HOST);
+        }
+        STATE(HTTP_REQ_HOST) {
+            int ns = matchSymbolsCount(cc.alnumDotMinusBitmask, data);
+            if (ns) {
+                //check if host name starts with '.'
+                char c = (char)_mm_extract_epi16(data, 0);
+                if (c == '.') GOTO(HTTP_ERROR);
+
+                r->uri_host = outputPushStart(&r->output, data, ns);
+                consumed = ns;
+                if (ns == 16)
+                    MOVE(HTTP_REQ_HOST_C)
+                else
+                    MOVE(HTTP_REQ_PORT);
+            }
+            GOTO(HTTP_REQ_URI);
+        }
+        STATE(HTTP_REQ_HOST_C) {
+            int ns = matchSymbolsCount(cc.uriBitmask, data);
+            if (ns) {
+                outputPush(&r->output, data, ns);
+                consumed = ns;
+                if (ns == 16)
+                    break;
+                MOVE(HTTP_REQ_PORT);
+            }
+            GOTO(HTTP_REQ_PORT);
+        }
+        STATE(HTTP_REQ_PORT) {
+            short c2 = _mm_extract_epi16(data, 0);
+            char c = (char)c2;
+            if (c == ':') {
+                //remove ':' and leave only port
+                data = _mm_alignr_epi8(_mm_setzero_si128(), data, 1);
+
+                int portlen;
+                long long port = parseNumber(data, &portlen, &c);
+
+                if (port < 1 || port > 65535) GOTO(HTTP_ERROR);
+                consumed = portlen + 1;
+                MOVE(HTTP_REQ_URI);
+            }
+            switch(c) {
+            case '/':
+                GOTO(HTTP_REQ_URI);
+            case ' ':
+                MOVE_SS(HTTP_REQ_HTTPV);
+            case '\r':
+                if (c2 != 0x0A0D)
+                    GOTO(HTTP_ERROR);
+                ++consumed;
+            case '\n':
+                ++consumed;
+                MOVE(HTTP_FINISHED);
+            default:
+                GOTO(HTTP_ERROR);
+            }
+        }
+        STATE(HTTP_REQ_URI) {
+            char c = (char)_mm_extract_epi16(data, 0);
+            if (c == ' ') GOTO_SS(HTTP_REQ_HTTPV);
+            if (c != '/') GOTO(HTTP_ERROR);
+
+            int n = matchSymbolsCount(cc.uriBitmask, data);
+            r->uri_path = outputPushStart(&r->output, data, n);
+            if (n == 16) MOVE(HTTP_REQ_URI_C);
+
+            r->cut_point = r->uri_path+n;
+            MOVE(HTTP_REQ_MAYBE_HTTPV);
+        }
+        STATE(HTTP_REQ_URI_C) {
+            int n = matchSymbolsCount(cc.uriBitmask, data);
+            outputPush(&r->output, data, n);
+            if (n == 16) break;
+            r->cut_point = r->uri_path+n;
+            //FIXME: should we really check for this?
+            if (n == 0) GOTO(HTTP_REQ_MAYBE_HTTPV);
+            MOVE(HTTP_REQ_MAYBE_HTTPV);
+        }
+        STATE(HTTP_REQ_MAYBE_HTTPV) {
+            char x = _mm_extract_epi16(data, 0);
+            int n;
+
+            switch(x) {
+            case '\r':
+            case '\n':
+            case 'H':
+                n = matchTokenSet(&cc.http_version.ts, data);
+                if (!n) {
+                    if (x == 'H')
+                        GOTO(HTTP_REQ_URI_C);
+                    GOTO(HTTP_ERROR);
+                }
+                r->cut_point[0] = 0;
+                XASSERT(MATCH_CODE(n) < 3);
+                r->version = versions[MATCH_CODE(n)];
+                consumed = MATCH_LENGTH(n);
+                MOVE(HTTP_FINISHED);
+            case ' ':
+                n = _mm_movemask_epi8(_mm_cmpeq_epi8(data, cc.spaces));
+                consumed = __builtin_ctz(~n);
+                outputPush(&r->output, data, consumed);
+                break;//just go on with spaces
+            default:
+                GOTO(HTTP_REQ_URI_C);
+            }
+            break;
+        }
+        STATE(HTTP_REQ_HTTPV) {
+            int n = matchTokenSet(&cc.http_version.ts, data);
+            if (!n) GOTO(HTTP_ERROR);
+            XASSERT(MATCH_CODE(n) < 3);
+            r->version = versions[MATCH_CODE(n)];
+            consumed = MATCH_LENGTH(n);
+            MOVE(HTTP_FINISHED);
+        }
+        STATE(HTTP_ERROR) {
+            r->state = state;
+            return Parse_Failure;
+        }
+        STATE(HTTP_FINISHED) {
+            r->state = state;
+            //check if we have no buffer problems
+            if (outputFinish(&r->output))
+                return Parse_Failure;
+            return Parse_Success;
+        }
+        }
+
+        consumeInputIterator(&r->input, consumed);
+    }
+}
+/*
+int sse_parse_request(struct sse_ngx_http_request_t * r, unsigned const char * input, int size) {
+    const struct Constants * c = &C;
+
+    int state = r->state,
+        state_after_space = r->state_after_space,
+        after_space_if_not_version = r->state_after_space_if_not_version;
+    int bytes_in_pd = r->bytes_in_pd,
+        bytes_in_wd = r->bytes_in_wd,
+        consumed;
+
+    __m128i     data, pd, nd, wd, *destination, *edge;
+    const __m128i *source;
+
+    nd          = r->prev_data;
+    wd          = r->write_data;
+    source      = (const __m128i*)(input);
+    destination = r->wpos;
+    edge        = r->wend;
+    unsigned char tempbuf[16];
+
+    for(;;) {
+        consumed = 0;
+        switch(state) {
+        case PS_Initial:{
+            PRINTSTATE(PS_Initial);
+            __m128i tmp, mask1, mask2, mask3, mask4, mask5;
+
+            data = _mm_add_epi8(data,
+                     _mm_and_si128(c->tabs2spaces, \
+                       _mm_cmpeq_epi8(data, c->tabs)));
+            tmp  = _mm_shuffle_epi32(data, _MM_SHUFFLE(0,0,0,0));
+            mask1= _mm_cmpeq_epi32(c->method1, tmp);
+            mask2= _mm_cmpeq_epi32(c->method2, tmp);
+            mask3= _mm_cmpeq_epi32(c->method3, tmp);
+            tmp  = _mm_shuffle_epi32(data, _MM_SHUFFLE(1,1,0,0));
+            mask4= _mm_cmpeq_epi32(c->method4, tmp);
+            mask1= _mm_packs_epi32(mask1, mask2);
+            mask3= _mm_packs_epi32(mask3, mask4);
+            tmp = _mm_shuffle_epi8(data, c->method5);
+            mask5 = _mm_cmpeq_epi16(tmp, c->method6);
+            //mask id 0         1         2         3         4         5         6         7
+            //mask1 = GET       PUT       POST      COPY      MOVE      LOCK      HEAD      PROP
+            //        ****      ****      ****      ****      ****      ****      ****      ****
+            //mask3 = PATCH     TRACE     DELETE    UNLOCK    MKCOL     OPTIONS   PROPFIND  PROPPATCH
+            //        ****      ****      ****      ****      ****      ****          ****      ****
+            //mask5 = PATCH     TRACE     DELETE    UNLOCK    MKCOL     OPTIONS   OPTIONS   PROPPATCH
+            //            **        **        **        **        **        **          **          **
+            tmp   = _mm_shuffle_epi8(mask5, c->method7);
+            tmp   = _mm_and_si128(tmp, mask5);
+            tmp   = _mm_or_si128(tmp, c->method7);
+            tmp   = _mm_srai_epi16(tmp, 15);
+            mask3 = _mm_and_si128(mask3, tmp);
+            mask2 = _mm_or_si128(mask2, c->method8);
+            mask3 = _mm_and_si128(mask3, mask2);
+            //mask id 0         1         2         3         4         5         6         7
+            //mask1 = GET       PUT       POST      COPY      MOVE      LOCK      HEAD      PROP
+            //mask3 = PATCH     TRACE     DELETE    UNLOCK    MKCOL     OPTIONS   PROPFIND  PROPPATCH
+            mask1 = _mm_and_si128(mask1, c->method9);
+            mask3 = _mm_and_si128(mask3, c->method10);
+            tmp   = _mm_hadd_epi16(mask1, mask3);
+            tmp   = _mm_hadd_epi16(tmp, tmp);
+            tmp   = _mm_hadd_epi16(tmp, tmp);
+            tmp   = _mm_hadd_epi16(tmp, tmp);
+            int result = _mm_extract_epi16(tmp, 0);
+            if (!result) {
+                GOTO(PS_BadState)
+            }
+            r->method = 1 << (result & 0xF);
+            consumed  = result >> 8;
+            SKIPSPACES(PS_Schema)
+            break;
+        }
+        case PS_SkipSpaces: PS_SkipSpaces:{
+            PRINTSTATE(PS_SkipSpaces);
+            int bits = ~_mm_cmpmask_epi8(data, c->spaces);
+            bits = __builtin_ctz(0x10000 | bits);
+            if (bits == 0) {
+                GOTO(PS_BadState)
+            }
+            if (bits < 16) {
+                state = state_after_space;
+                state_after_space = PS_BadState;
+            }
+            consumed = bits;
+            break;
+        }
+        case PS_Schema: {
+            PRINTSTATE(PS_Schema);
+            //schema must start from A-Za-z
+            int ch = (0xFF & _mm_extract_epi16(data, 0));
+            if (ch == '/') {
+                GOTO(PS_UriStart)
+            }
+            ch |= 0x20;
+            if (ch < 'a' || ch > 'z') {
+                GOTO(PS_BadState)
+            }
+            //count number of A-Za-z0-9\.\- , more than 11 is too much
+            __m128i mask = _mm_masktest_si128(c, data, c->alnumDotMinusBitmask);
+            int bits = __builtin_ctz(0x8000 | _mm_movemask_epi8(mask));
+            if (unlikely(bits > 11)) {
+                MOVE(PS_BadState)
+            }
+            //check for "://" after schema
+            int sc = 0x1 & (_mm_cmpmask_epi8(data, c->semicolons)>>bits);
+            sc    |= 0x6 & (_mm_cmpmask_epi8(data, c->slashes)>>bits);
+            if (unlikely(sc !=7)) {
+                MOVE(PS_BadState)
+            }
+            //save schema position and consume sizeof(schema)+sizeof("://") bytes
+            r->schema_start = (unsigned char *)r->wpos;
+            r->schema_end   = r->schema_start + bits;
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            consumed = bits + 3;//schema + "://"
+            MOVE(PS_HostnameStart)
+        }
+        case PS_HostnameStart: {
+            PRINTSTATE(PS_HostnameStart);
+            int ch = 0xFF & _mm_extract_epi16(data, 0);
+            switch(ch) {
+            case '[':
+                r->host_start = (unsigned char*)destination;
+                consumed = 1;
+                MOVE(PS_HostnameLiteral)
+            case '.':
+            case '-':
+                GOTO(PS_BadState)
+            default: {
+                __m128i mask = _mm_masktest_si128(c, data, c->alnumDotMinusBitmask);
+                int bits = __builtin_ctz(0x10000 | _mm_movemask_epi8(mask));
+                if (!bits) {
+                    GOTO(PS_BadState)
+                }
+                consumed = bits;
+                r->host_start = (unsigned char*)destination;
+                r->host_end = r->host_start + bits;
+                _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+                if (bits == 16) {
+                    MOVE(PS_Hostname)
+                }
+                MOVE(PS_HostnameEnd)
+              }
+            }
+            break;
+        }
+        case PS_Hostname: {
+            PRINTSTATE(PS_Hostname);
+            int mask = _mm_masktest(c, data, c->alnumDotMinusBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            consumed = bits;
+            r->host_end = ((unsigned char*)destination) + bits;
+            //if bits == 0, then GOTO hostname_end
+            //if bits != 0, store data
+            //if bits < 16, then MOVE hostname_end
+            if (!bits) {
+                GOTO(PS_HostnameEnd)
+            }
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            if (bits < 16) {
+                MOVE(PS_HostnameEnd);
+            }
+            break;
+        }
+        case PS_HostnameEnd: PS_HostnameEnd:{
+            PRINTSTATE(PS_HostnameEnd);
+            int c = _mm_extract_epi16(data, 0);
+            switch (c & 0xFF) {
+            case ':':
+                GOTO(PS_Port)
+            case '/':
+                GOTO(PS_UriStart)
+            case '\r':
+            case '\n':
+                r->http_major = 0;
+                r->http_minor = 9;
+                r->uri_start = r->schema_end + 1;
+                r->uri_end = r->schema_end + 2;
+                GOTO(PS_Eol)
+            case ' ':
+                r->uri_start = r->schema_end + 1;
+                r->uri_end = r->schema_end + 2;
+                SKIPSPACES_NOW(PS_Version)
+            default:
+                GOTO(PS_BadState);
+            }
+            break;
+        }
+        case PS_Port: PS_Port:{
+            PRINTSTATE(PS_Port);
+            //beware: we arrive here with leading ':' !!
+            int mask = _mm_movemask_epi8(
+                          _mm_or_si128(
+                             _mm_cmpgt_epi8(data, c->nine),
+                             _mm_cmplt_epi8(data, c->zero)));
+            int bits = __builtin_ctz(0x8000 | (mask>>1));
+            if (!bits || bits > 8) {
+                GOTO(PS_BadState)
+            }
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            r->port_end = r->host_end + bits + 1;
+            consumed = bits+1;
+            MOVE(PS_PortEnd)
+        }
+        case PS_PortEnd: {
+            PRINTSTATE(PS_PortEnd);
+            int c = _mm_extract_epi16(data, 0);
+            switch (c & 0xFF) {
+            case '/':
+                GOTO(PS_UriStart)
+            case '\r':
+            case '\n':
+                r->http_major = 0;
+                r->http_minor = 9;
+                r->uri_start = r->schema_end + 1;
+                r->uri_end = r->schema_end + 2;
+                GOTO(PS_Eol)
+            case ' ':
+                r->uri_start = r->schema_end + 1;
+                r->uri_end = r->schema_end + 2;
+                SKIPSPACES_NOW(PS_Version);
+            default:
+                state = PS_BadState;
+            }
+            break;
+        }
+        case PS_HostnameLiteral: {
+            PRINTSTATE(PS_HostnameLiteral);
+            int mask = _mm_masktest(c, data, c->hostnameLiteralBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            consumed = bits;
+            r->host_end = ((unsigned char*)destination) + bits;
+            //if bits == 0, then GOTO hostname_end
+            //if bits != 0, store data
+            //if bits < 16, then MOVE hostname_end
+            if (!bits) {
+                GOTO(PS_HostnameEnd)
+            }
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            if (bits < 16) {
+                state = PS_HostnameLiteralEnd;
+            }
+            break;
+        }
+        case PS_HostnameLiteralEnd: {
+            PRINTSTATE(PS_HostnameLiteralEnd);
+            int c = _mm_extract_epi16(data, 0);
+            if ((c & 0xFF) != ']') {
+                GOTO(PS_BadState)
+            }
+            consumed = 1;
+            MOVE(PS_HostnameEnd)
+        }
+        case PS_Version: {
+            PRINTSTATE(PS_Version);
+            r->http_major = 0;
+            r->http_minor = 9;
+            //codes
+            //              0 1 2 3 4 5 6 7 8 9 A B C D E F
+            //              r n n H T T P / 1 . Z 0 1 r n n
+            //\n            0 0 1 0 ? ? ? ? ? ? 0 ? ? ? ? ?
+            //\r\n          1 1 0 0 0 ? ? ? ? ? 0 ? ? ? ? ?
+            //HTTP/1.0\n    0 0 0 1 1 1 1 1 1 1 0 1 0 0 0 1
+            //HTTP/1.1\n    0 0 0 1 1 1 1 1 1 1 0 0 1 0 0 1
+            //HTTP/1.0\r\n  0 0 0 1 1 1 1 1 1 1 0 1 0 1 1 0
+            //HTTP/1.1\r\n  0 0 0 1 1 1 1 1 1 1 0 0 1 1 1 0
+
+            //code + 0x2809
+            //              0 1 2 3 4 5 6 7 8 9 A B C D E F
+            //              r n n H T T P / 1 . Z 0 1 r n n
+            //\n            1 0 1 1 ? ? ? ? ? ? 0 ? ? ? ? ?
+            //\r\n          0 0 1 1 0 ? ? ? ? ? 0 ? ? ? ? ?
+            //HTTP/1.0\n    1 0 0 0 0 0 0 0 0 0 1 0 1 1 0 1
+            //HTTP/1.1\n    1 0 0 0 0 0 0 0 0 0 1 1 1 1 0 1
+            //HTTP/1.0\r\n  1 0 0 0 0 0 0 0 0 0 1 0 1 0 0 1
+            //HTTP/1.1\r\n  1 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1
+
+            //(code + 0x2809) & 0x9404
+            //              0 1 2 3 4 5 6 7 8 9 A B C D E F
+            //              r n n H T T P / 1 . Z 0 1 r n n
+            //\n            0 0 1 0 0 0 0 0 0 0 0 0 ? 0 0 ?
+            //\r\n          0 0 1 0 0 ? 0 0 0 0 0 0 ? 0 0 ?
+            //HTTP/1.0\n    0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 1
+            //HTTP/1.1\n    0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 1
+            //HTTP/1.0\r\n  0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 1
+            //HTTP/1.1\r\n  0 0 0 0 0 0 0 0 0 0 1 0 1 0 0 1
+            int mask = _mm_cmpmask_epi8(_mm_shuffle_epi8(data, c->HTTP1xHelper), c->HTTP1x);
+            int code = (mask + 0x2809) & 0x9404;
+
+            if (code & 0x4) {
+                _mm_flush(c, destination, edge, wd, bytes_in_wd, GOTO(PS_TooLong));
+                GOTO(PS_Eol)
+            }
+            if (code == 0x9400) {
+                int ch = _mm_extract_epi16(data, 3);
+                ch = (ch >> 8) - 0x30;
+                r->http_major = 1;
+                r->http_minor = ch;
+                consumed = 8;
+                _mm_flush(c, destination, edge, wd, bytes_in_wd, GOTO(PS_TooLong));
+                MOVE(PS_Eol)
+            }
+            state = after_space_if_not_version;
+            break;
+        }
+        case PS_UriStart: PS_UriStart:{
+            PRINTSTATE(PS_UriStart);
+
+            after_space_if_not_version = PS_UriAddSpace;
+            bytes_in_wd  = 0;
+            r->uri_start = (unsigned char *)destination;
+            GOTO(PS_UriCheckSymbols);
+        }
+        case PS_UriAddSpace:
+            _mm_store_1(c, destination, edge, wd, c->spaces, bytes_in_wd, GOTO(PS_TooLong));
+            //fall through
+        case PS_UriCheckSlash: PS_UriCheckSlash: {
+            PRINTSTATE(PS_UriCheckSlash);
+            int dirmask = ~_mm_cmpmask_epi8(_mm_shuffle_epi32(data, 0), c->directoryPatterns);
+            int mask    = _mm_masktest(c, data, c->uriBitmask);
+            if (!(dirmask & 0x000F)) {// "/../"
+                if (!r->path_depth) {
+                    GOTO(PS_BadState)
+                }
+                const unsigned char * newdest = r->uri_start + r->path_offsets[--r->path_depth];
+                _mm_revert(c, destination, wd, bytes_in_wd, newdest);
+                consumed = 3;
+                break;
+            }
+            if (!(dirmask & 0x0070)) {// "/./"
+                consumed = 2;
+                break;
+            }
+            if (!(dirmask & 0x0300)) { // "//"
+                consumed = 1;
+                break;
+            }
+            if (!(dirmask & 0x0100)) {
+                if (r->path_depth >= MAX_PATH_DEPTH) {
+                    GOTO(PS_BadState)
+                }
+                r->path_offsets[r->path_depth++] = (unsigned char*)destination + bytes_in_wd - r->uri_start;
+                mask &= 0xFFFE;
+            }
+            int bits = __builtin_ctz(0x10000 | mask);
+            if (bits) {
+                __m128i tmp = _mm_sub_epi8(data,
+                                           _mm_and_si128(c->plus2spaces, \
+                                           _mm_cmpeq_epi8(data, c->plus)));
+                _mm_store_n(c, destination, edge, wd, tmp, bytes_in_wd, bits, GOTO(PS_TooLong));
+                consumed = bits;
+            }
+            if (bits < 16) {
+                MOVE(PS_UriCheckSymbols)
+            }
+            break;
+        }
+        case PS_UriCheckSymbols: PS_UriCheckSymbols:{
+            PRINTSTATE(PS_UriCheckSymbols);
+            int ch = _mm_extract_epi16(data, 0) & 0xFF;
+            switch(ch) {
+            case '/':
+                GOTO(PS_UriCheckSlash)
+            case ' ':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                SKIPSPACES_NOW(PS_Version)
+            case '\r':
+            case '\n':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                r->http_major = 0;
+                r->http_minor = 9;
+                _mm_flush(c, destination, edge, wd, bytes_in_wd, GOTO(PS_TooLong));
+                GOTO(PS_Eol)
+            case '?':
+                r->args_start = (unsigned char*)destination + bytes_in_wd;
+                _mm_store_1(c, destination, edge, wd, data, bytes_in_wd, GOTO(PS_TooLong));
+                consumed = 1;
+                MOVE(PS_UriArgs)
+            case '#':
+                _mm_store_1(c, destination, edge, wd, data, bytes_in_wd, GOTO(PS_TooLong));
+                consumed = 1;
+                MOVE(PS_UriCopyAsIs)
+            case '%':{
+                __m128i dec = _mm_decode_quoted_si128(c, data);
+                if (!_mm_extract_epi16(dec, 0)) {
+                    GOTO(PS_BadState)
+                }
+                _mm_store_1(c, destination, edge, wd, dec, bytes_in_wd, GOTO(PS_TooLong));
+                consumed = 3;
+                break;}
+                //hex encoded
+            default:
+                if (!(0x1 & _mm_masktest(c, data, c->uriBitmask))) {
+                    GOTO(PS_UriCheckSlash)
+                }
+                GOTO(PS_BadState)
+            }
+            break;
+        }
+        case PS_UriArgs: PS_UriArgs: {
+            PRINTSTATE(PS_UriArgs);
+            after_space_if_not_version = PS_UriArgs;
+            int mask = _mm_masktest(c, data, c->uriArgsBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            if (bits) {
+                __m128i tmp = _mm_sub_epi8(data,
+                                           _mm_and_si128(c->plus2spaces, \
+                                           _mm_cmpeq_epi8(data, c->plus)));
+                _mm_store_n(c, destination, edge, wd, tmp, bytes_in_wd, bits, GOTO(PS_TooLong));
+                consumed = bits;
+            }
+            if (bits < 16) {
+                MOVE(PS_UriArgsCheckSymbols);
+            }
+            break;
+        }
+        case PS_UriArgsCheckSymbols: {
+            PRINTSTATE(PS_ArgsCheckSymbols);
+            int ch = _mm_extract_epi16(data, 0) & 0xFF;
+            switch(ch) {
+            case ' ':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                SKIPSPACES_NOW(PS_Version)
+            case '\r':
+            case '\n':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                r->http_major = 0;
+                r->http_minor = 9;
+                _mm_flush(c, destination, edge, wd, bytes_in_wd, GOTO(PS_TooLong));
+                GOTO(PS_Eol)
+            case '#':
+                GOTO(PS_UriCopyAsIs)
+            case '%':{
+                __m128i dec = _mm_decode_quoted_si128(c, data);
+                if (!_mm_extract_epi16(dec, 0)) {
+                    GOTO(PS_BadState)
+                }
+                _mm_store_1(c, destination, edge, wd, dec, bytes_in_wd, GOTO(PS_TooLong));
+                consumed = 3;
+                break;}
+                //hex encoded
+            default:
+                if (!(0x1 & _mm_masktest(c, data, c->uriArgsBitmask))) {
+                    GOTO(PS_UriArgs)
+                }
+                GOTO(PS_BadState)
+            }
+            break;
+        }
+        case PS_UriCopyAsIs: PS_UriCopyAsIs: {
+            PRINTSTATE(PS_UriCopyAsIs);
+            after_space_if_not_version = PS_UriCopyAsIs;
+            int mask = _mm_masktest(c, data, c->uriAsIsBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            if (bits) {
+                _mm_store_n(c, destination, edge, wd, data, bytes_in_wd, bits, GOTO(PS_TooLong));
+                consumed = bits;
+            }
+            if (bits < 16) {
+                MOVE(PS_UriCopyAsIsCheckSymbols)
+            }
+            break;
+        }
+        case PS_UriCopyAsIsCheckSymbols: {
+            PRINTSTATE(PS_UriCopyAsIsCheckSymbols);
+            int ch = _mm_extract_epi16(data, 0) & 0xFF;
+            switch(ch) {
+            case ' ':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                SKIPSPACES_NOW(PS_Version)
+            case '\r':
+            case '\n':
+                r->uri_end = (unsigned char*)destination + bytes_in_wd;
+                r->http_major = 0;
+                r->http_minor = 9;
+                _mm_flush(c, destination, edge, wd, bytes_in_wd, GOTO(PS_TooLong));
+                GOTO(PS_Eol)
+            default:
+                GOTO(PS_BadState)
+            }
+            break;
+        }
+        case PS_Eol: PS_Eol: {
+            PRINTSTATE(PS_Eol);
+            __m128i tmp = _mm_and_si128(
+                            c->newline2,
+                            _mm_cmpeq_epi8(
+                              c->newline1,
+                              _mm_shuffle_epi32(data, _MM_SHUFFLE(0,0,0,0))));
+            int flags_nn = _mm_movemask_epi8(
+                             _mm_cmpeq_epi32(tmp, c->newline2));
+            if (flags_nn) {
+                consumed = 0xF & (((flags_nn & 0x4332) * 0x1111) >> 12);
+                GOTO(PS_Finish);
+            }
+
+            consumed = 1;
+            //check \r\n and add 1 byte to consumed if there is \r\n
+            int ch = _mm_extract_epi16(tmp, 2);
+            if (ch == 0x00FF) {
+                GOTO(PS_BadState)
+            }
+            if (ch == 0xFFFF) {
+                ++consumed;
+            }
+            MOVE(r->state_after_newline)
+        }
+        case PS_HeaderStart: {
+            PRINTSTATE(PS_HeaderStart);
+            r->headers_start = (const unsigned char*)destination;
+            r->headers_end = (const unsigned char*)destination;
+            r->state_after_newline = PS_HeaderNext;
+            GOTO(PS_HeaderName)
+        }
+        case PS_HeaderNext: {
+            PRINTSTATE(PS_HeaderNext);
+            int ch = _mm_extract_epi16(data, 0) & 0xFF;
+            if (ch == ' ')
+                GOTO(PS_HeaderValue);
+        }
+        case PS_HeaderName: PS_HeaderName: {
+            PRINTSTATE(PS_HeaderName);
+            int mask = _mm_masktest(c, data, c->headerNameBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            consumed = bits;
+            //always store something to have \0 at the end of header name
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            if (bits < 16) {
+                MOVE(PS_HeaderNameCheckSymbols)
+            }
+            if (!bits) {
+                GOTO(PS_HeaderNameCheckSymbols)
+            }
+            break;
+        }
+        case PS_HeaderNameCheckSymbols: PS_HeaderNameCheckSymbols: {
+            PRINTSTATE(PS_HeaderNameCheckSymbols);
+            int ch = _mm_extract_epi16(data, 0);
+            switch(ch & 0xFF) {
+            case ':':
+                consumed = 1;
+                if (ch == 0x203A) {
+                    SKIPSPACES(PS_HeaderValue)
+                }
+                MOVE(PS_HeaderValue)
+            default:
+                GOTO(PS_BadState)
+            }
+            break;
+        }
+        case PS_HeaderValue: PS_HeaderValue: {
+            PRINTSTATE(PS_HeaderValue);
+            int mask = _mm_masktest(c, data, c->headerValueBitmask);
+            int bits = __builtin_ctz(0x10000 | mask);
+            consumed = bits;
+            _mm_store_a(c, destination, edge, _mm_mask(c, data, bits), GOTO(PS_TooLong));
+            if (bits < 16) {
+                MOVE(PS_HeaderValueCheckSymbols)
+            }
+            break;
+        }
+        case PS_HeaderValueCheckSymbols:{
+            PRINTSTATE(PS_HeaderValueCheckSymbols);
+            int ch = _mm_extract_epi16(data, 0);
+            switch(ch & 0xFF) {
+            case '\r':
+            case '\n':
+                r->headers_end = (const unsigned char*)destination;
+                GOTO(PS_Eol)
+            default:
+                GOTO(PS_BadState)
+            }
+        }
+        case PS_TooLong: PS_TooLong: {
+             PRINTSTATE(PS_TooLong);
+             return SPR_TOO_LONG;
+        }
+        case PS_Finish: PS_Finish: {
+            PRINTSTATE(PS_Finish);
+            //FIXME: return number of parsed bytes
+            return SPR_COMPLETED;
+        }
+        case PS_BadState: PS_BadState:
+        default:
+            PRINTSTATE(PS_BadState);
+            return SPR_BAD_REQUEST;
+        }
+        bytes_in_pd -= consumed;
+    }
+}
+
+*/
+
+
+
+
+

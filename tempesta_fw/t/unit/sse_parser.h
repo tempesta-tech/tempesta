@@ -17,6 +17,7 @@ typedef int (*BufferCallback)(void ** buf, int size, void * userarg);
  *
  ***************************************************/
 void sse_init_constants();
+long long parseNumber(Vector vec, int * restrict len, char * restrict invchar);
 
 #define vecToSymbolCount(vec)\
     (__builtin_ctz(_mm_movemask_epi8(vec) | 0x10000))
@@ -112,37 +113,18 @@ typedef struct {
     int     allocationSize;
 } OutputIterator;
 
-void initOutputIterator(OutputIterator * i, void * buffer, int size);
-int  initOutputIteratorEx(OutputIterator * i, BufferCallback cb, void * userarg, int allocsize);
+void initOutputIterator(OutputIterator * restrict i, void * buffer, int size);
+int  initOutputIteratorEx(OutputIterator * restrict i, BufferCallback cb, void * userarg, int allocsize);
 /*
  * storing aligned data: source data may be misaligned,
  * but destination will be always aligned.
  */
 
-//push all leading non-zero bytes to output
-void * outputPushU(OutputIterator * i, Vector vec);
-//flushed output iterator(it caches some bytes
-//internally to improve performance). It aligns
-//next pushU operations to 16 bytes boundary
-int    outputFlush(OutputIterator * i);
-
-/*
- * In order to save a string, use:
- * outputPushU(i, hdr)//parsed some bytes
- * outputPushU(i, hdr)//parsed some more bytes
- * outputFlush(i)
- * ...
- */
-
-//pushes 16 bytes and makes sure it will be aligned
-//previous string is \0 terminated
-void * outputPush(OutputIterator * i, Vector vec);
-//same like Push, but does not \0-terminate strings
-void * outputPushNT(OutputIterator * i, Vector vec);
-//converts to lowercase and pushes a string
-void * outputPushLC(OutputIterator * i, Vector vec);
-void * outputPushLCNT(OutputIterator * i, Vector vec);
-//all pushers return pointer to start of pushed sequence
+//push n bytes to output
+void * outputPushStart(OutputIterator * restrict i, Vector vec, int n);
+void   outputPush(OutputIterator * restrict i, Vector vec, int n);
+//ensures output is finalized with \0 and checks if there were errors
+int    outputFinish(OutputIterator * i);
 
 /*****************************************************
  *****************************************************
@@ -177,7 +159,13 @@ void * outputPushLCNT(OutputIterator * i, Vector vec);
 enum HttpVersionCodes {
     HTTP_1_0 = 100,
     HTTP_1_1 = 101,
+    HTTP_0_9 =   9,
 };
+enum SchemaCodes {
+    HTTP_SCHEMA_HTTPS,
+    HTTP_SCHEMA_HTTP,
+};
+
 enum ParseResult {
     Parse_NeedMoreData,
     Parse_Failure,
@@ -188,7 +176,16 @@ struct HttpRequest {
     InputIterator          input;
     OutputIterator         output;
     int                    state;
+    int                    method;
+    int                    schema;
     int                    version;
+    char                  *cut_point;//used to cut uri at \s
+
+    char                  *uri_host;
+    char                  *uri_path;
+    char                  *uri_args;
+    int                    uri_port;
+    //headers
     char                  *host;
     char                  *connection;
     char                  *if_modified_since;
