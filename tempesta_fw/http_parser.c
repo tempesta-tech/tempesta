@@ -2550,7 +2550,7 @@ done:
 #define SB_OCT		(SB_SEP + 30 * SEC24H)
 #define SB_NOV		(SB_OCT + 31 * SEC24H)
 #define SB_DEC		(SB_NOV + 30 * SEC24H)
-/* Number of days befor epoch including leap years. */
+/* Number of days before epoch including leap years. */
 #define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
 
 static int
@@ -2716,7 +2716,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc * 3600;
+		resp->expires += parser->_acc * 3600;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpMinCln, __fsm_n);
 	}
@@ -2734,7 +2734,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc * 60;
+		resp->expires += parser->_acc * 60;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_ExpSecCln, __fsm_n);
 	}
@@ -2752,7 +2752,7 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc;
+		resp->expires += parser->_acc;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
 	}
