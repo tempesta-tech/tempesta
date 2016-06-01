@@ -656,6 +656,16 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		: __split_pgfrag_del(skb, i, off, -len, it);
 }
 
+static inline int
+__split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
+{
+	if (len > skb_tailroom(skb))
+		return -ENOSPC;
+	it->ptr = ss_skb_put(skb, len);
+	it->skb = skb;
+	return 0;
+}
+
 /**
  * Add room for data to @skb if @len > 0 or delete data otherwise.
  * Most of the time that is done by fragmenting the @skb.
@@ -663,7 +673,7 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 static int
 __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 {
-	int i, ret;
+	int i = -1, ret;
 	long offset;
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -705,12 +715,12 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * advance the skb tail pointer.
 	 */
 	if (len > 0) {
-		offset = pspt - (char *)skb_frag_address(&si->frags[0]);
-		if (unlikely(!offset && (len <= ss_skb_tailroom(skb)))) {
-			it->ptr = ss_skb_put(skb, len);
-			it->skb = skb;
-			ret = 0;
-			goto done;
+		offset = unlikely(offset == d_size) ? 0 :
+			pspt - (char *)skb_frag_address(&si->frags[0]);
+		if (unlikely(!offset)) {
+			if (!(ret = __split_try_tailroom(skb, len, it)))
+				goto done;
+			goto append;
 		}
 	}
 
@@ -720,8 +730,10 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
-		if ((offset >= 0) && (offset < d_size)) {
+		if ((offset >= 0) && (offset <= d_size)) {
 			int t_size = d_size - offset;
+			if (unlikely(!t_size))
+				goto append;
 			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
@@ -730,6 +742,12 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 
 	/* The split is not within the SKB. */
 	return -ENOENT;
+
+append:
+	BUG_ON(len < 0);
+	/* Add new frag in case of splitting after the last chunk */
+	ret = __new_pgfrag(skb, len, i + 1, 1);
+	__it_next_data(skb, i + 1, it);
 
 done:
 	SS_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
