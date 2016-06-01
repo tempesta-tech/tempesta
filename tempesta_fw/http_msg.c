@@ -838,13 +838,18 @@ tfw_http_msg_alloc(int type)
 	if (!hm)
 		return NULL;
 
-	ss_skb_queue_head_init(&hm->msg.skb_list);
-
 	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	if (unlikely(!hm->h_tbl)) {
+		TFW_WARN("Insufficient memory to create message\n");
+		tfw_pool_destroy(hm->pool);
+		return NULL;
+	}
+
 	hm->h_tbl->size = __HHTBL_SZ(1);
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
+	ss_skb_queue_head_init(&hm->msg.skb_list);
 	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	return hm;
