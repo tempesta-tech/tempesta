@@ -61,7 +61,7 @@ int main()
         printf("token: %s: %04x: ", tokens[i], result);
         if (strlen(tokens[i]) != MATCH_LENGTH(result)) {
             ++fail;
-            printf("FAIL(lenght)\n");
+            printf("FAIL(length)\n");
         } else if (MATCH_CODE(result) != i) {
             ++fail;
             printf("FAIL(token index)\n");
