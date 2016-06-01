@@ -446,9 +446,16 @@ tfw_http_conn_release(TfwConnection *conn)
  * Release resources that are not needed anymore, and keep other
  * resources that are needed while there are users of the connection.
  */
+static void tfw_http_resp_terminate(TfwHttpMsg *hm);
+
 static void
 tfw_http_conn_drop(TfwConnection *conn)
 {
+	if (conn->msg && (TFW_CONN_TYPE(conn) & Conn_Srv)) {
+		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg)) {
+			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
+		}
+	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
@@ -1020,6 +1027,61 @@ error:
 	return TFW_BLOCK;
 }
 
+static int
+tfw_http_resp_cache(TfwHttpMsg *hmresp)
+{
+	TfwHttpMsg *hmreq;
+
+	/*
+	 * Cache adjusted and filtered responses only. Responses
+	 * are received in the same order as requests, so we can
+	 * just pop the first request. If a paired request is not
+	 * found, then something is terribly wrong, and pairing
+	 * of requests and responses is broken. The response is
+	 * deleted, and an error is returned.
+	 */
+	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
+	if (unlikely(hmreq == NULL))
+		return -ENOENT;
+	/*
+	 * Complete HTTP message has been collected and processed
+	 * with success. Mark the message as complete in @conn as
+	 * further handling of @conn depends on that. Future SKBs
+	 * will be put in a new message.
+	 * On an error the function returns from anywhere inside
+	 * the loop. @conn->msg holds the reference to the message,
+	 * which can be used to release it.
+	 */
+	tfw_connection_unlink_msg(hmresp->conn);
+	if (tfw_cache_process((TfwHttpReq *)hmreq, (TfwHttpResp *)hmresp,
+			      tfw_http_resp_cache_cb))
+	{
+		tfw_http_send_500(hmreq);
+		tfw_http_conn_msg_free(hmresp);
+		tfw_http_conn_cli_dropfree(hmreq);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		/* Proceed with processing of the next response. */
+	}
+
+	return 0;
+}
+
+/*
+ *
+ */
+static void
+tfw_http_resp_terminate(TfwHttpMsg *hm)
+{
+	struct sk_buff *skb = ss_skb_peek_tail(&hm->msg.skb_list);
+	unsigned int offset = ((TfwHttpResp *)hm)->skb_offset;
+
+	BUG_ON(!skb);
+
+	if (tfw_http_resp_gfsm(hm, skb, offset) != TFW_PASS)
+		return;
+	tfw_http_resp_cache(hm);
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -1042,7 +1104,6 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * until all data in the SKB is processed.
 	 */
 	while (data_off < skb_len) {
-		TfwHttpReq *req;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpMsg *hmresp = (TfwHttpMsg *)conn->msg;
 		TfwHttpParser *parser = &hmresp->parser;
@@ -1054,7 +1115,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		 * the SKB. After processing @data_off points at the end
 		 * of latest data chunk. However processing may have
 		 * stopped in the middle of the chunk. Adjust it to point 
-		 * to the right location within the chunk.
+		 * at correct location within the chunk.
 		 */
 		off = data_off;
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
@@ -1085,6 +1146,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			TFW_INC_STAT_BH(serv.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
+			((TfwHttpResp *)hmresp)->skb_offset = off;
 			r = tfw_gfsm_move(&hmresp->msg.state,
 					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
@@ -1142,35 +1204,11 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			goto next_resp;
 		}
 		/*
-		 * Cache adjusted and filtered responses only. Responses
-		 * are received in the same order as requests, so we can
-		 * just pop the first request. If a paired request is not
-		 * found, then something is terribly wrong, and pairing
-		 * of requests and responses is broken. The response is
-		 * deleted, and an error is returned.
+		 * Pass the response to cache for further processing.
+		 * In the end, the response is sent on to the client.
 		 */
-		req = tfw_http_popreq(hmresp);
-		if (unlikely(req == NULL))
+		if (!tfw_http_resp_cache(hmresp))
 			return TFW_BLOCK;
-		/*
-		 * Complete HTTP message has been collected and processed
-		 * with success. Mark the message as complete in @conn as
-		 * further handling of @conn depends on that. Future SKBs
-		 * will be put in a new message.
-		 * On an error the function returns from anywhere inside
-		 * the loop. @conn->msg holds the reference to the message,
-		 * which can be used to release it.
-		 */
-		tfw_connection_unlink_msg(conn);
-		if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
-				      tfw_http_resp_cache_cb))
-		{
-			tfw_http_send_500((TfwHttpMsg *)req);
-			tfw_http_conn_msg_free(hmresp);
-			tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
-			TFW_INC_STAT_BH(serv.msgs_otherr);
-			/* Proceed with processing of the next response. */
-		}
 next_resp:
 		if (hmsib) {
 			/*
