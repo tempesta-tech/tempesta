@@ -33,7 +33,7 @@ test_sse_tokenset: sse_parser.o test_sse_tokenset.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 test_sse_http_request: sse_parser.o test_sse_http_request.o
-$(CC) -o $@ $^ $(LDFLAGS)
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(EXTRA_CFLAGS)
