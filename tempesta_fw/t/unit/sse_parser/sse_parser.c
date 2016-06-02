@@ -1,11 +1,9 @@
 ﻿#include "sse_parser.h"
-#ifndef _NO_DEBUG_
+#ifndef _DEBUG_
 
 #include <stdio.h>
 #include <assert.h>
 #include <ctype.h>
-
-#define FORCEINLINE  __attribute__((always_inline))
 
 #define XASSERT(xxx) assert(xxx)
 static void PRINTM(const char * vname, Vector vval) {
@@ -15,7 +13,7 @@ static void PRINTM(const char * vname, Vector vval) {
            "|  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |\n");
     printf("+----+----+----+----+----+----+----+----"
            "+----+----+----+----+----+----+----+----+\n");
-    char data[16];
+    unsigned char data[16];
     _mm_storeu_si128((__m128i*)data, vval);
 
     for(int i = 0; i < 16; ++i)
@@ -39,6 +37,7 @@ static void PRINTM(const char * vname, Vector vval) {
 
 #endif
 
+#define FORCEINLINE  __attribute__((always_inline))
 #define likely(a)	__builtin_expect((a), 1)
 #define unlikely(a)	__builtin_expect((a), 0)
 
@@ -87,7 +86,7 @@ struct Constants {
     } http_schema;
     union {
         TokenSet ts;
-        __m128i  buffer[9];
+        __m128i  buffer[17];
     } http_version;
 };
 
@@ -163,17 +162,17 @@ void sse_init_constants() {
     initTokenSet(http_m, &c->http_method, sizeof(c->http_method));
 
     static const char * http_sch[] = {
-        "https:", "http:", NULL
+        "https://", "http://", NULL
     };
     XASSERT(sizeof(c->http_schema) >= tokenSetLength(http_sch));
-    initTokenSet(http_sch, &c->http_schema, sizeof(&c->http_schema));
+    initTokenSet(http_sch, &c->http_schema, sizeof(c->http_schema));
 
     static const char * http_v[] = {
         "\n", "\r\n", "HTTP/1.0\n", "HTTP/1.0\r\n",
         "HTTP/1.1\n", "HTTP/1.1\r\n", NULL
     };
     XASSERT(sizeof(c->http_version) >= tokenSetLength(http_v));
-    initTokenSet(http_v, &c->http_version, sizeof(&c->http_version));
+    initTokenSet(http_v, &c->http_version, sizeof(c->http_version));
 
     c->digits =
             _mm_setr_epi8(0x08, 0x08, 0x08, 0x08,
@@ -194,7 +193,7 @@ void sse_init_constants() {
             _mm_setr_epi8(0xC8, 0xFC, 0xF8, 0xF8,
                           0xFC, 0xF8, 0xF8, 0xF8,
                           0xFC, 0xFC, 0xF4, 0x54,
-                          0x54, 0x54, 0x54, 0x70);
+                          0x54, 0x54, 0x54, 0x74);
     c->uriArgsBitmask =
             _mm_setr_epi8(0xC8, 0xFC, 0xF8, 0xF8,
                           0xFC, 0xF8, 0xF8, 0xF8,
@@ -253,35 +252,16 @@ inline void initInputIterator(InputIterator * restrict i) {
     i->readlen = 0;
 }
 
-inline int appendInputIterator(InputIterator * restrict i, const char * restrict buf, int size) {
-    if (unlikely(size < 16)) {
-        char tmp[16];
-        int j;
-        for(j = 0; j < size; ++j)
-            tmp[j] = buf[j];
-        __m128i r = _mm_rm(size);
-        __m128i b = _mm_bm(size);
-
-        __m128i v1 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i*)tmp), r);
-        __m128i v2 = _mm_shuffle_epi8(i->latch[1], r);
-        i->latch[1] = _mm_blend(v2, v1, b);
-        i->latch[0] = v2;
-        i->bytesin += size;
-        i->position = 0;
-        i->readlen = 0;
-        return size;
-    } else {
-        i->latch[0] = i->latch[1];
-        i->latch[1] = _mm_lddqu_si128((const __m128i*)buf);
-        return 16;
-    }
+inline void appendInputIterator(InputIterator * restrict i, const char * restrict buf, int size) {
+    i->position = buf;
+    i->readlen = size;
 }
 
 inline int inputIteratorReadable(InputIterator * restrict i)
 {
     //test if there are >=16 bytes or there is a newline
     int q = 1;
-    if (i->bytesin < 16) {
+    if ((i->bytesin + i->readlen) < 16) {
         __m128i r = _mm_rm(32 - i->bytesin);
         __m128i b = _mm_bm(32 - i->bytesin);
 
@@ -296,6 +276,30 @@ inline int inputIteratorReadable(InputIterator * restrict i)
 
 inline Vector readIterator(InputIterator * restrict i)
 {
+    if (i->bytesin < 16) {
+        if (unlikely(i->readlen < 16)) {
+            char tmp[16];
+            int j;
+            for(j = 0; j < i->readlen; ++j)
+                tmp[j] = i->position[j];
+            i->readlen = 0;
+            i->position += j;
+
+            __m128i r = _mm_rm(j);
+            __m128i b = _mm_bm(j);
+            __m128i v1 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i*)tmp), r);
+            __m128i v2 = _mm_shuffle_epi8(i->latch[1], r);
+            i->latch[1] = _mm_blend(v2, v1, b);
+            i->latch[0] = v2;
+            i->bytesin += j;
+        } else {
+            i->latch[0] = i->latch[1];
+            i->latch[1] = _mm_lddqu_si128((const __m128i*)i->position);
+            i->bytesin += 16;
+            i->readlen -= 16;
+            i->position += 16;
+        }
+    }
     __m128i r = _mm_rm(32 - i->bytesin);
     __m128i b = _mm_bm(32 - i->bytesin);
 
@@ -365,28 +369,28 @@ inline int matchSymbolsCount(SymbolMap sm, Vector v) {
 }
 
 inline long long parseNumber(Vector vec, int * restrict p_len, char * restrict invchar) {
+printf("**********************\n");
     Vector mask = matchSymbolsMask(cc.digits, vec);
     int len = __builtin_ctz(~_mm_movemask_epi8(mask));
     int buf[4] __attribute__((aligned(16)));
     Vector shuffle = _mm_rm(len);
-    vec = _mm_subs_epi8(vec, cc.zero);
-    vec = _mm_and_si128(vec, mask);    
-    vec = _mm_shuffle_epi8(vec, shuffle);
+    Vector v = _mm_subs_epi8(vec, cc.zero);
+    v = _mm_and_si128(v, mask);
+    v = _mm_shuffle_epi8(v, shuffle);
 
     //save first wrong character
     invchar[0] = (char)_mm_extract_epi16(
                 _mm_shuffle_epi8(vec, shuffle), 0);
-
     if (!len) return -1;
     //convert from bytes to dwords
-    vec = _mm_maddubs_epi16(vec, cc.cvt10_2_bytes);
-    vec = _mm_madd_epi16(vec, cc.cvt10_2_words);
-    _mm_store_si128((__m128i*)buf, vec);
+    v = _mm_maddubs_epi16(v, cc.cvt10_2_bytes);
+    v = _mm_madd_epi16(v, cc.cvt10_2_words);
+    _mm_store_si128((__m128i*)buf, v);
 
-    long long result = buf[3];
-    result = 10000LL*result + buf[2];
+    long long result = buf[0];
     result = 10000LL*result + buf[1];
-    result = 10000LL*result + buf[0];
+    result = 10000LL*result + buf[2];
+    result = 10000LL*result + buf[3];
     *p_len = len;
     return result;
 }
@@ -398,7 +402,7 @@ MatchResult matchTokenSet(const TokenSet * ts, Vector vec) {
 
     carry = _mm_setzero_si128();
     maxn  = ts->iterations;
-    n     = 0;     
+    n     = 0;
     //we must fit this cycle into 28 instructions to make if fast!
     while(n < maxn) {
         //prepare comparison masks for first bundle
@@ -410,6 +414,7 @@ MatchResult matchTokenSet(const TokenSet * ts, Vector vec) {
         cmp2 = _mm_hadd_epi16(cmp2, cmp2);
         cmp2 = _mm_hadd_epi16(cmp2, cmp2);
         cmp2 = _mm_hadd_epi16(cmp2, cmp2);
+        cmp2 = _mm_and_si128(cmp2, ts->data[n]);
         cmp2 = _mm_cmpeq_epi16(cmp2, ts->data[n++]);
         mask = 0xFF & _mm_movemask_epi8(cmp2);
         cmp2 = _mm_and_si128(cmp2, ts->data[n++]);
@@ -599,6 +604,21 @@ inline void   outputPush(OutputIterator * restrict i, Vector vec, int n) {
     }
 }
 
+inline void   outputFlush(OutputIterator * restrict i) {
+    if (unlikely(i->storesize <= 16))
+        return;
+
+    if (i->bytesin >= 0) {
+        Vector v = _mm_align(i->latch,
+                             _mm_setzero_si128(),
+                             16-i->bytesin);
+        _mm_store_si128(i->store, v);
+        ++i->store;
+        i->storesize -= 16;
+        i->bytesin = -1;
+    }
+}
+
 //ensures output is finalized with \0 and checks if there were errors
 inline int    outputFinish(OutputIterator * restrict i) {
     if (unlikely(i->storesize <= 16))
@@ -623,10 +643,10 @@ inline int    outputFinish(OutputIterator * restrict i) {
 
 enum ParserState {
     HTTP_REQ_METHOD,
-    HTTP_REQ_SCHEME,
+    HTTP_REQ_SCHEMA,
     HTTP_REQ_HOST, HTTP_REQ_HOST_C,
     HTTP_REQ_PORT,
-    HTTP_REQ_URI, HTTP_REQ_URI_C,
+    HTTP_REQ_URI, HTTP_REQ_URI_C, HTTP_REQ_URI_SP,
     HTTP_REQ_ARGS,
     HTTP_REQ_MAYBE_HTTPV, HTTP_REQ_MAYBE_HTTPV_C,
     HTTP_REQ_HTTPV,
@@ -638,7 +658,7 @@ enum ParserState {
     HTTP_SKIP_SPACE = 0x8000,
 };
 
-int initHttpRequest(struct HttpRequest * r, void * outputbuffer, int buflen)
+int initHttpRequest(struct SSEHttpRequest * r, void * outputbuffer, int buflen)
 {
     //misaligned check
     if (((long)outputbuffer) & 15) return -1;
@@ -668,16 +688,14 @@ int initHttpRequest(struct HttpRequest * r, void * outputbuffer, int buflen)
 #define MOVE(s) {state = s; break; }
 #define GOTO_SS(s) {state = s|HTTP_SKIP_SPACE; goto HTTP_SKIP_SPACE;}
 #define MOVE_SS(s) {state = s|HTTP_SKIP_SPACE; break; }
-int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
+int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
     static const int versions[] = {HTTP_0_9, HTTP_1_0, HTTP_1_1};
     int consumed = 0;
     int state = r->state;
+
+    appendInputIterator(&r->input, buffer, len);
+
     for(;;) {
-        if (shouldAppendInputIterator(&r->input)) {
-            int read_from_buffer = appendInputIterator(&r->input, buffer, len);
-            buffer += read_from_buffer;
-            len -= read_from_buffer;
-        }
         if (!inputIteratorReadable(&r->input))
             return Parse_NeedMoreData;
 
@@ -711,9 +729,9 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
             if (!method) GOTO(HTTP_ERROR);
             consumed  = MATCH_LENGTH(method);
             r->method = MATCH_CODE(method);
-            MOVE_SS(HTTP_REQ_SCHEME);
+            MOVE_SS(HTTP_REQ_SCHEMA);
         }
-        STATE(HTTP_REQ_SCHEME) {
+        STATE(HTTP_REQ_SCHEMA) {
             int schema = matchTokenSet(&cc.http_schema.ts, data);
             if (!schema) GOTO(HTTP_REQ_HOST);
             consumed  = MATCH_LENGTH(schema);
@@ -750,10 +768,11 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
         STATE(HTTP_REQ_PORT) {
             short c2 = _mm_extract_epi16(data, 0);
             char c = (char)c2;
+            printf("C = %c\n", c);
             if (c == ':') {
                 //remove ':' and leave only port
                 data = _mm_alignr_epi8(_mm_setzero_si128(), data, 1);
-
+                PRINTM("port", data);
                 int portlen;
                 long long port = parseNumber(data, &portlen, &c);
 
@@ -772,10 +791,11 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
                 ++consumed;
             case '\n':
                 ++consumed;
-                MOVE(HTTP_FINISHED);
+                GOTO(HTTP_FINISHED);
             default:
                 GOTO(HTTP_ERROR);
             }
+            break;
         }
         STATE(HTTP_REQ_URI) {
             char c = (char)_mm_extract_epi16(data, 0);
@@ -784,19 +804,35 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
 
             int n = matchSymbolsCount(cc.uriBitmask, data);
             r->uri_path = outputPushStart(&r->output, data, n);
+            r->cut_point = r->uri_path+n;
+            consumed = n;
             if (n == 16) MOVE(HTTP_REQ_URI_C);
 
-            r->cut_point = r->uri_path+n;
-            MOVE(HTTP_REQ_MAYBE_HTTPV);
+            MOVE(HTTP_REQ_URI_SP);
         }
         STATE(HTTP_REQ_URI_C) {
             int n = matchSymbolsCount(cc.uriBitmask, data);
             outputPush(&r->output, data, n);
+            r->cut_point+=n;
+
             if (n == 16) break;
-            r->cut_point = r->uri_path+n;
+
             //FIXME: should we really check for this?
             if (n == 0) GOTO(HTTP_REQ_MAYBE_HTTPV);
             MOVE(HTTP_REQ_MAYBE_HTTPV);
+        }
+        STATE(HTTP_REQ_URI_SP) {
+            char c = (char)_mm_extract_epi16(data, 0);
+            switch(c) {
+            case ' ':
+            case '\r':
+            case '\n':
+                GOTO(HTTP_REQ_MAYBE_HTTPV);
+            case '?':
+                outputFlush(&r->output);
+                r->cut_point[0] = 0;
+            }
+            break;
         }
         STATE(HTTP_REQ_MAYBE_HTTPV) {
             char x = _mm_extract_epi16(data, 0);
@@ -812,11 +848,12 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
                         GOTO(HTTP_REQ_URI_C);
                     GOTO(HTTP_ERROR);
                 }
+                outputFlush(&r->output);
                 r->cut_point[0] = 0;
                 XASSERT(MATCH_CODE(n) < 3);
                 r->version = versions[MATCH_CODE(n)];
                 consumed = MATCH_LENGTH(n);
-                MOVE(HTTP_FINISHED);
+                GOTO(HTTP_FINISHED);
             case ' ':
                 n = _mm_movemask_epi8(_mm_cmpeq_epi8(data, cc.spaces));
                 consumed = __builtin_ctz(~n);
@@ -833,7 +870,7 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
             XASSERT(MATCH_CODE(n) < 3);
             r->version = versions[MATCH_CODE(n)];
             consumed = MATCH_LENGTH(n);
-            MOVE(HTTP_FINISHED);
+            GOTO(HTTP_FINISHED);
         }
         STATE(HTTP_ERROR) {
             r->state = state;
@@ -841,11 +878,22 @@ int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len) {
         }
         STATE(HTTP_FINISHED) {
             r->state = state;
+            consumeInputIterator(&r->input, consumed);
             //check if we have no buffer problems
             if (outputFinish(&r->output))
                 return Parse_Failure;
             return Parse_Success;
         }
+        }
+
+        //skip space quickly
+        if (state & HTTP_SKIP_SPACE) {
+            int sm = _mm_movemask_epi8(_mm_cmpeq_epi8(data, cc.spaces));
+            sm >>= consumed;
+
+            consumed += __builtin_ctz(~sm);
+            if (consumed != 16)
+                state &= ~ HTTP_SKIP_SPACE;
         }
 
         consumeInputIterator(&r->input, consumed);

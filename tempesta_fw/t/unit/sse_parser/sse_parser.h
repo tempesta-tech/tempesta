@@ -46,12 +46,12 @@ int matchSymbolsCount(SymbolMap sm, Vector v);
 typedef struct {
     __m128i latch[2];
     int     bytesin;
-    char *  position;
+    const char *  position;
     int     readlen;
 } InputIterator;
 
 void initInputIterator(InputIterator * restrict i);
-int  appendInputIterator(InputIterator * restrict i, const char * restrict buf, int size);
+void appendInputIterator(InputIterator * restrict i, const char * restrict buf, int size);
 #define shouldAppendInputIterator(i) ((i)->bytesin < 16)
 #define consumeInputIterator(i, n) {(i)->bytesin -= n;}
 int  inputIteratorReadable(InputIterator * restrict i);
@@ -123,6 +123,7 @@ int  initOutputIteratorEx(OutputIterator * restrict i, BufferCallback cb, void *
 //push n bytes to output
 char * outputPushStart(OutputIterator * restrict i, Vector vec, int n);
 void   outputPush(OutputIterator * restrict i, Vector vec, int n);
+void   outputFlush(OutputIterator * restrict i);
 //ensures output is finalized with \0 and checks if there were errors
 int    outputFinish(OutputIterator * restrict i);
 
@@ -172,7 +173,7 @@ enum ParseResult {
     Parse_Success
 };
 
-struct HttpRequest {
+struct SSEHttpRequest {
     InputIterator          input;
     OutputIterator         output;
     int                    state;
@@ -203,10 +204,10 @@ struct HttpRequest {
     char                  *upgrade;
 };
 
-int initHttpRequest(struct HttpRequest * r, void * outputbuffer, int buflen);
-int ParseHttpRequest(struct HttpRequest * r, void * buffer, int len);
-int ParseHttpResponse(struct HttpRequest * r, void * buffer, int len);
-int constructRequest(struct HttpRequest * r);
+int initHttpRequest(struct SSEHttpRequest * r, void * outputbuffer, int buflen);
+int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len);
+int ParseHttpResponse(struct SSEHttpRequest * r, const void * buffer, int len);
+int constructRequest(struct SSEHttpRequest * r);
 
 int copyHeader(const Vector * h, const Vector * v, OutputIterator * out);
 int copyHeaders(const Vector ** hdrs, OutputIterator * out);
