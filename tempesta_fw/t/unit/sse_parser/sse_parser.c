@@ -369,7 +369,6 @@ inline int matchSymbolsCount(SymbolMap sm, Vector v) {
 }
 
 inline long long parseNumber(Vector vec, int * restrict p_len, char * restrict invchar) {
-printf("**********************\n");
     Vector mask = matchSymbolsMask(cc.digits, vec);
     int len = __builtin_ctz(~_mm_movemask_epi8(mask));
     int buf[4] __attribute__((aligned(16)));
@@ -700,7 +699,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             return Parse_NeedMoreData;
 
         Vector data = readIterator(&r->input);
-        PRINTM("data", data);
+        //PRINTM("data", data);
 
         consumed = 0;
         if (state & HTTP_SKIP_SPACE) {
@@ -768,11 +767,9 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
         STATE(HTTP_REQ_PORT) {
             short c2 = _mm_extract_epi16(data, 0);
             char c = (char)c2;
-            printf("C = %c\n", c);
             if (c == ':') {
                 //remove ':' and leave only port
                 data = _mm_alignr_epi8(_mm_setzero_si128(), data, 1);
-                PRINTM("port", data);
                 int portlen;
                 long long port = parseNumber(data, &portlen, &c);
 
