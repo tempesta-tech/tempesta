@@ -180,6 +180,7 @@ struct SSEHttpRequest {
     int                    method;
     int                    schema;
     int                    version;
+    int                    complex_uri;
     char                  *cut_point;//used to cut uri at \s
 
     char                  *uri_host;

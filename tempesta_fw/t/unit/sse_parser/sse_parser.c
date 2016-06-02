@@ -665,6 +665,17 @@ int initHttpRequest(struct SSEHttpRequest * r, void * outputbuffer, int buflen)
     initInputIterator(&r->input);
     initOutputIterator(&r->output, outputbuffer, buflen);
 
+    r->method = -1;
+    r->schema = -1;
+    r->version = HTTP_0_9;
+    r->complex_uri = 0;
+    r->cut_point = 0;
+
+    r->uri_host = 0;
+    r->uri_path = 0;
+    r->uri_args = 0;
+    r->uri_port = 0;
+
     r->state = HTTP_REQ_METHOD;
     r->connection = 0;
     r->content_length = 0;
@@ -823,13 +834,14 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             if (n == 16) break;
 
             //FIXME: should we really check for this?
-            if (n == 0) GOTO(HTTP_REQ_MAYBE_HTTPV);
-            MOVE(HTTP_REQ_MAYBE_HTTPV);
+            if (n == 0) GOTO(HTTP_REQ_URI_SP);
+            MOVE(HTTP_REQ_URI_SP);
         }
         STATE(HTTP_REQ_URI_SP) {
             char c = (char)_mm_extract_epi16(data, 0);
             switch(c) {
             case ' ':
+                GOTO_SS(HTTP_REQ_MAYBE_HTTPV);
             case '\r':
             case '\n':
                 GOTO(HTTP_REQ_MAYBE_HTTPV);
