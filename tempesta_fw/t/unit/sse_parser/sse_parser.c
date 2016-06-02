@@ -699,7 +699,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             return Parse_NeedMoreData;
 
         Vector data = readIterator(&r->input);
-        //PRINTM("data", data);
+        PRINTM("data", data);
 
         consumed = 0;
         if (state & HTTP_SKIP_SPACE) {
@@ -783,7 +783,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             case ' ':
                 MOVE_SS(HTTP_REQ_HTTPV);
             case '\r':
-                if (c2 != 0x0A0D)
+                if (c2 != 0x0D0A)
                     GOTO(HTTP_ERROR);
                 ++consumed;
             case '\n':
@@ -795,17 +795,25 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             break;
         }
         STATE(HTTP_REQ_URI) {
+            int n;
             char c = (char)_mm_extract_epi16(data, 0);
-            if (c == ' ') GOTO_SS(HTTP_REQ_HTTPV);
-            if (c != '/') GOTO(HTTP_ERROR);
-
-            int n = matchSymbolsCount(cc.uriBitmask, data);
-            r->uri_path = outputPushStart(&r->output, data, n);
-            r->cut_point = r->uri_path+n;
-            consumed = n;
-            if (n == 16) MOVE(HTTP_REQ_URI_C);
-
-            MOVE(HTTP_REQ_URI_SP);
+            switch (c) {
+            case ' ':
+                GOTO_SS(HTTP_REQ_HTTPV);
+            case '\r':
+            case '\n':
+                GOTO(HTTP_REQ_HTTPV);
+            case '/':
+                n = matchSymbolsCount(cc.uriBitmask, data);
+                r->uri_path = outputPushStart(&r->output, data, n);
+                r->cut_point = r->uri_path+n;
+                consumed = n;
+                if (n == 16) MOVE(HTTP_REQ_URI_C);
+                MOVE(HTTP_REQ_URI_SP);
+            default:
+                GOTO(HTTP_ERROR);
+            }
+            break;
         }
         STATE(HTTP_REQ_URI_C) {
             int n = matchSymbolsCount(cc.uriBitmask, data);
