@@ -372,7 +372,6 @@ TEST(tfw_str_eq_cstr_off, supports_suffix)
 	const char *p3 = "bar/baz.test";
 	const char *p4 = "/baz.test";
 	const char *p5 = ".test";
-	const char *p6 = "";
 	const char *f1 = "/bar/foo/baz.test";
 	const char *f2 = "/foo/bar/";
 	const char *extra = "/bar/foo/baz.test100";
@@ -395,7 +394,6 @@ do {									\
 	X_EXPECT_TRUE(s, p3, TFW_STR_EQ_DEFAULT);
 	X_EXPECT_TRUE(s, p4, TFW_STR_EQ_DEFAULT);
 	X_EXPECT_TRUE(s, p5, TFW_STR_EQ_DEFAULT);
-	X_EXPECT_TRUE(s, p6, TFW_STR_EQ_DEFAULT);
 
 	X_EXPECT_FALSE(s, f1, TFW_STR_EQ_DEFAULT);
 	X_EXPECT_FALSE(s, f2, TFW_STR_EQ_DEFAULT);
