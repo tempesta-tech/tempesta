@@ -848,6 +848,8 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             case '?':
                 outputFlush(&r->output);
                 r->cut_point[0] = 0;
+            default:
+                GOTO(HTTP_REQ_URI_C);
             }
             break;
         }
@@ -867,8 +869,8 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
                 }
                 outputFlush(&r->output);
                 r->cut_point[0] = 0;
-                XASSERT(MATCH_CODE(n) < 3);
-                r->version = versions[MATCH_CODE(n)];
+                XASSERT(MATCH_CODE(n) < 6);
+                r->version = versions[MATCH_CODE(n)>>1];
                 consumed = MATCH_LENGTH(n);
                 GOTO(HTTP_FINISHED);
             case ' ':
