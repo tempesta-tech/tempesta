@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CC = gcc
-CFLAGS = -mssse3 -O3 -I.
+CFLAGS = -mssse3 -O3 -I. -std=c99
 LDFLAGS =
 
 ifdef DEBUG
@@ -29,10 +29,13 @@ endif
 
 DEPS = sse_parser.h
 
-test_sse_tokenset: sse_parser.o test_sse_tokenset.o
+all: test_sse_tokenset test_sse_http_request
+
+
+test_sse_tokenset: sse_parser.o sse_tokenset.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-test_sse_http_request: sse_parser.o test_sse_http_request.o
+test_sse_http_request: sse_parser.o sse_http_request.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c $(DEPS)
@@ -41,4 +44,4 @@ test_sse_http_request: sse_parser.o test_sse_http_request.o
 .PHONY: clean
 
 clean:
-	rm -f *.o *~
+	rm -f *.o *~ test_*
