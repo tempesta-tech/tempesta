@@ -499,6 +499,9 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		skb = frag_list;
 		frag_list = frag_list->next;
 
+		/* We don't expect to see such SKBs here */
+		WARN_ON(skb->tail_lock);
+
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
 			__kfree_skb(skb);
