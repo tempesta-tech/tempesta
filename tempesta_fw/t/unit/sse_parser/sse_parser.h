@@ -122,7 +122,7 @@ int  initOutputIteratorEx(OutputIterator * restrict i, BufferCallback cb, void *
 
 //push n bytes to output
 char * outputPushStart(OutputIterator * restrict i, Vector vec, int n);
-void   outputPush(OutputIterator * restrict i, Vector vec, int n);
+int    outputPush(OutputIterator * restrict i, Vector vec, int n);
 void   outputFlush(OutputIterator * restrict i);
 //ensures output is finalized with \0 and checks if there were errors
 int    outputFinish(OutputIterator * restrict i);
@@ -181,7 +181,8 @@ struct SSEHttpRequest {
     int                    schema;
     int                    version;
     int                    complex_uri;
-    char                  *cut_point;//used to cut uri at \s
+    int                    uri_lenght;//used to cut uri at \s
+    int                    uri_lenght_extra;
 
     char                  *uri_host;
     char                  *uri_path;

@@ -190,10 +190,10 @@ void sse_init_constants() {
                           0xFC, 0xFC, 0xFC, 0x5C,
                           0x74, 0x5C, 0xD4, 0x70);
     c->uriBitmask =
-            _mm_setr_epi8(0xC8, 0xFC, 0xF8, 0xF8,
-                          0xFC, 0xF8, 0xF8, 0xF8,
-                          0xFC, 0xFC, 0xF4, 0x54,
-                          0x54, 0x54, 0x54, 0x74);
+            _mm_setr_epi8(0xa8, 0xf8, 0xf8, 0xf8,
+                          0xf8, 0xf8, 0xf8, 0xf8,
+                          0xf8, 0xf8, 0xf0, 0x54,
+                          0x50, 0x54, 0x54, 0x54);
     c->uriArgsBitmask =
             _mm_setr_epi8(0xC8, 0xFC, 0xF8, 0xF8,
                           0xFC, 0xF8, 0xF8, 0xF8,
@@ -344,10 +344,13 @@ inline Vector matchSymbolsMask(SymbolMap sm, Vector v) {
     __m128i mask4 = _mm_and_si128(
                 mask3,
                 mask1);
-    __m128i vec = _mm_cmpgt_epi8(
+    __m128i vec1 = _mm_cmpgt_epi8(
                 mask4,
                 _mm_setzero_si128());
-    return vec;
+    __m128i vec2 = _mm_cmplt_epi8(
+                mask4,
+                _mm_setzero_si128());
+    return _mm_or_si128(vec1,vec2);
 }
 
 inline int matchSymbolsCount(SymbolMap sm, Vector v) {
@@ -393,7 +396,6 @@ inline long long parseNumber(Vector vec, int * restrict p_len, char * restrict i
     *p_len = len;
     return result;
 }
-
 
 MatchResult matchTokenSet(const TokenSet * ts, Vector vec) {
     __m128i cmp1, cmp2, carry;
@@ -507,6 +509,28 @@ TokenSet * initTokenSet(const char ** tokens,
     return ts;
 }
 
+struct UriResult {
+    int num_matched_symbols;
+    int num_extra_symbols;
+    Vector output; //symbols to push
+};
+
+inline static struct UriResult matchUri(Vector data) {
+    Vector spaces  = _mm_cmpeq_epi8(cc.spaces, data);
+    Vector matched = matchSymbolsMask(cc.uriBitmask, data);
+    Vector push = _mm_blend(data, cc.plus, spaces);
+    struct UriResult result;
+
+    //expand matched uri by
+    int nms = __builtin_ctz(~_mm_movemask_epi8(matched));
+    int nspaces = __builtin_ctz(~(_mm_movemask_epi8(spaces)>>nms));
+    printf("nms = %d, nspaces = %d\n", nms, nspaces);
+    result.num_matched_symbols = nms;
+    result.num_extra_symbols   = nms + nspaces;
+    result.output = push;
+    return result;
+}
+
 inline Vector decodeUrlEncoded(Vector data) {
     //для массового сравнения размножим байты 1 и 2 в последовательности "%xx"
     __m128i muxed = _mm_shuffle_epi8(data, cc.dq0);
@@ -584,9 +608,9 @@ inline char * outputPushStart(OutputIterator * restrict i, Vector vec, int n) {
     return ret;
 }
 
-inline void   outputPush(OutputIterator * restrict i, Vector vec, int n) {
+inline int   outputPush(OutputIterator * restrict i, Vector vec, int n) {
     if (unlikely(i->storesize <= 16))
-        return;
+        return 0;
 
     int k = n + i->bytesin;
     if (k < 16) {
@@ -601,6 +625,7 @@ inline void   outputPush(OutputIterator * restrict i, Vector vec, int n) {
         i->latch = _mm_align_up(vec, k - 16);
         i->bytesin = k - 16;
     }
+    return n;
 }
 
 inline void   outputFlush(OutputIterator * restrict i) {
@@ -669,7 +694,8 @@ int initHttpRequest(struct SSEHttpRequest * r, void * outputbuffer, int buflen)
     r->schema = -1;
     r->version = HTTP_0_9;
     r->complex_uri = 0;
-    r->cut_point = 0;
+    r->uri_lenght = 0;
+    r->uri_lenght_extra = 0;
 
     r->uri_host = 0;
     r->uri_path = 0;
@@ -794,7 +820,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             case ' ':
                 MOVE_SS(HTTP_REQ_HTTPV);
             case '\r':
-                if (c2 != 0x0D0A)
+                if (c2 != 0x0A0D)
                     GOTO(HTTP_ERROR);
                 ++consumed;
             case '\n':
@@ -807,6 +833,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
         }
         STATE(HTTP_REQ_URI) {
             int n;
+            struct UriResult mr;
             char c = (char)_mm_extract_epi16(data, 0);
             switch (c) {
             case ' ':
@@ -815,11 +842,14 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             case '\n':
                 GOTO(HTTP_REQ_HTTPV);
             case '/':
-                n = matchSymbolsCount(cc.uriBitmask, data);
-                r->uri_path = outputPushStart(&r->output, data, n);
-                r->cut_point = r->uri_path+n;
-                consumed = n;
-                if (n == 16) MOVE(HTTP_REQ_URI_C);
+                mr = matchUri(data);
+                r->uri_path = outputPushStart(&r->output, mr.output, mr.num_extra_symbols);
+                r->uri_lenght = mr.num_matched_symbols;
+                r->uri_lenght_extra = mr.num_extra_symbols;
+                consumed = mr.num_extra_symbols;
+                if (mr.num_extra_symbols == 16) MOVE(HTTP_REQ_URI_C);
+                if (mr.num_extra_symbols > mr.num_matched_symbols)
+                    MOVE(HTTP_REQ_MAYBE_HTTPV);
                 MOVE(HTTP_REQ_URI_SP);
             default:
                 GOTO(HTTP_ERROR);
@@ -827,14 +857,17 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             break;
         }
         STATE(HTTP_REQ_URI_C) {
-            int n = matchSymbolsCount(cc.uriBitmask, data);
-            outputPush(&r->output, data, n);
-            r->cut_point+=n;
+            struct UriResult mr;
+            mr = matchUri(data);
+            outputPush(&r->output, mr.output, mr.num_extra_symbols);
 
-            if (n == 16) break;
+            r->uri_lenght = r->uri_lenght_extra + mr.num_matched_symbols;
+            r->uri_lenght_extra += mr.num_extra_symbols;
+            consumed = mr.num_extra_symbols;
+            if (mr.num_extra_symbols == 16) break;
 
-            //FIXME: should we really check for this?
-            if (n == 0) GOTO(HTTP_REQ_URI_SP);
+            if (mr.num_extra_symbols > mr.num_matched_symbols)
+                MOVE(HTTP_REQ_MAYBE_HTTPV);
             MOVE(HTTP_REQ_URI_SP);
         }
         STATE(HTTP_REQ_URI_SP) {
@@ -847,7 +880,6 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
                 GOTO(HTTP_REQ_MAYBE_HTTPV);
             case '?':
                 outputFlush(&r->output);
-                r->cut_point[0] = 0;
             default:
                 GOTO(HTTP_REQ_URI_C);
             }
@@ -868,7 +900,6 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
                     GOTO(HTTP_ERROR);
                 }
                 outputFlush(&r->output);
-                r->cut_point[0] = 0;
                 XASSERT(MATCH_CODE(n) < 6);
                 r->version = versions[MATCH_CODE(n)>>1];
                 consumed = MATCH_LENGTH(n);
