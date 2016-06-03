@@ -20,7 +20,8 @@ int main()
         "GET http://yandex.ru\r\n",
         "GET   https://yandex.ru:80\r\n",
         "GET  yandex.ru/file\r\n",
-        "POST yandex.ru:80/file\n",
+        "GET  yandex.ru/file HTTP/1.0\r\n",
+        "POST yandex.ru:80/folderrrrr/file afterspace   HTTP/1.0\n",
         NULL,
     };
 
@@ -37,6 +38,13 @@ int main()
             break;
         case Parse_Success:
             printf("%s\n: Success\n",requests[i]);
+            printf("METHOD:\t%d\n"
+                   "SCHEMA:\t%d\n"
+                   "HOST:\t'%s'\n"
+                   "PORT:\t%d\n"
+                   "URI:\t'%s'\n",
+                   r.method, r.schema, r.uri_host, r.uri_port, r.uri_path);
+
             break;
         default:
             printf("%s\n: Unexpected error code\n",requests[i]);

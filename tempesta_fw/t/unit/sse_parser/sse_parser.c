@@ -810,6 +810,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
                 long long port = parseNumber(data, &portlen, &c);
 
                 if (port < 1 || port > 65535) GOTO(HTTP_ERROR);
+                r->uri_port = port;
                 consumed = portlen + 1;
                 MOVE(HTTP_REQ_URI);
             }
