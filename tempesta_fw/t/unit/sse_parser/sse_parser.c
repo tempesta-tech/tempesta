@@ -932,6 +932,10 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             //check if we have no buffer problems
             if (outputFinish(&r->output))
                 return Parse_Failure;
+            //finalize uri
+            if (r->uri_path)
+                r->uri_path[r->uri_lenght] = 0;
+
             return Parse_Success;
         }
         }
