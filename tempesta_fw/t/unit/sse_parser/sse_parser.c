@@ -524,7 +524,6 @@ inline static struct UriResult matchUri(Vector data) {
     //expand matched uri by
     int nms = __builtin_ctz(~_mm_movemask_epi8(matched));
     int nspaces = __builtin_ctz(~(_mm_movemask_epi8(spaces)>>nms));
-    printf("nms = %d, nspaces = %d\n", nms, nspaces);
     result.num_matched_symbols = nms;
     result.num_extra_symbols   = nms + nspaces;
     result.output = push;
