@@ -156,7 +156,23 @@ int    outputFinish(OutputIterator * restrict i);
  *
  ******************************************************
  ******************************************************/
-
+enum HttpMethodCodes {
+    HTTP_GET,
+    HTTP_PUT,
+    HTTP_POST,
+    HTTP_COPY,
+    HTTP_MOVE,
+    HTTP_LOCK,
+    HTTP_HEAD,
+    HTTP_PATCH,
+    HTTP_TRACK,
+    HTTP_DELETE,
+    HTTP_UNLOCK,
+    HTTP_MKCOL,
+    HTTP_OPTIONS,
+    HTTP_PROPFIND,
+    HTTP_PROPPATCH,
+};
 enum HttpVersionCodes {
     HTTP_1_0 = 100,
     HTTP_1_1 = 101,
