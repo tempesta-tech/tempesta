@@ -518,7 +518,7 @@ struct UriResult {
 inline static struct UriResult matchUri(Vector data) {
     Vector spaces  = _mm_cmpeq_epi8(cc.spaces, data);
     Vector matched = matchSymbolsMask(cc.uriBitmask, data);
-    Vector push = _mm_blend(data, cc.plus, spaces);
+    Vector push = _mm_blend(cc.plus, data, spaces);
     struct UriResult result;
 
     //expand matched uri by
@@ -735,7 +735,7 @@ int ParseHttpRequest(struct SSEHttpRequest * r, const void * buffer, int len) {
             return Parse_NeedMoreData;
 
         Vector data = readIterator(&r->input);
-        PRINTM("data", data);
+        //PRINTM("data", data);
 
         consumed = 0;
         if (state & HTTP_SKIP_SPACE) {
