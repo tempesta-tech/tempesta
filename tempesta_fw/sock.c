@@ -152,6 +152,19 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
+		/*
+		 * Zero-sized SKBs may appear when the message headers (or any
+		 * other contents) are modified or deleted by Tempesta. Drop
+		 * these SKBs.
+		 */
+		if (!skb->len) {
+			SS_DBG("[%d]: %s: drop skb=%p data_len=%u len=%u\n",
+			       smp_processor_id(), __func__,
+			       skb, skb->data_len, skb->len);
+			kfree_skb(skb);
+			continue;
+		}
+
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		tcp_skb_pcount_set(skb, 0);
 
