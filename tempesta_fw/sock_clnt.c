@@ -164,11 +164,13 @@ tfw_sock_clnt_new(struct sock *sk)
 	}
 
 	/* Link Tempesta with the socket and the peer. */
-	tfw_connection_revive(conn);
 	tfw_connection_link_to_sk(conn, sk);
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 	ss_set_callbacks(sk);
+
+	/* The connection is available to others now. */
+	tfw_connection_revive(conn);
 
 	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		sk, conn, cli);
@@ -197,6 +199,7 @@ tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 	 * Remove the connection from the list that is kept in @peer.
 	 * Release resources allocated in Tempesta for the connection.
 	 */
+	tfw_connection_put_to_death(conn);
 	tfw_connection_unlink_from_sk(sk);
 	tfw_connection_unlink_from_peer(conn);
 	tfw_connection_drop(conn);

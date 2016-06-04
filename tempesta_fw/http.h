@@ -202,16 +202,21 @@ typedef struct {
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
+#define TFW_HTTP_SYNC_REQ		0x000800	/* Sync req w/ resp */
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
+#define TFW_HTTP_UNREF_DATA		0x020000
 
 /**
  * Common HTTP message members.
  *
- * @conn	- connection which the message was received on;
- * @crlf	- pointer to CRLF between headers and body;
- * @version	- HTTP version (1.0 and 1.1 are only supported);
+ * @version	- HTTP version (only 1.0 and 1.1 are supported);
+ * @flags	- various flags;
+ * @content_length - the length from 'Content-Length' header;
+ * @conn	- connection the message was received on;
+ * @crlf	- CRLF between the headers and the body;
+ * @body	- the body of an HTTP message;
  *
  * TfwStr members must be the last for efficient scanning.
  */
@@ -265,6 +270,7 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	TfwHttpMsg		*resp;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)

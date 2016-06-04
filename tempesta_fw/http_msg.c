@@ -671,7 +671,8 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 	if (hm) {
 		memset(hm, 0, sizeof(*hm));
 		ss_skb_queue_head_init(&hm->msg.skb_list);
-		INIT_LIST_HEAD(&hm->msg.msg_list);
+		INIT_LIST_HEAD(&hm->msg.seq_list);
+		INIT_LIST_HEAD(&hm->msg.fwd_list);
 	} else {
 		if (!(hm = tfw_http_msg_alloc(type)))
 			return NULL;
@@ -845,7 +846,8 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
-	INIT_LIST_HEAD(&hm->msg.msg_list);
+	INIT_LIST_HEAD(&hm->msg.seq_list);
+	INIT_LIST_HEAD(&hm->msg.fwd_list);
 
 	return hm;
 }

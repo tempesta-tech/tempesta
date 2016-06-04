@@ -59,6 +59,9 @@ int ghprio; /* GFSM hook priority. */
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
+static void tfw_http_resp_forward(TfwHttpReq *req,
+				  TfwHttpResp *resp, bool unref_data);
+
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -210,7 +213,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 {
 	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
 	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
-	TfwHttpMsg resp;
+	TfwHttpMsg *hmresp;
 	TfwMsgIter it;
 
 	if (conn_flag) {
@@ -225,13 +228,13 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 		msg->len += crlf->len - crlf_len;
 	}
 
-	if (!tfw_http_msg_create(&resp, &it, Conn_Srv, msg->len))
+	if (!(hmresp = tfw_http_msg_create(NULL, &it, Conn_Srv, msg->len)))
 		return -ENOMEM;
 
 	tfw_http_prep_date(date->ptr);
-	tfw_http_msg_write(&it, &resp, msg);
+	tfw_http_msg_write(&it, hmresp, msg);
 
-	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
+	tfw_http_resp_forward((TfwHttpReq *)hmreq, (TfwHttpResp *)hmresp, true);
 
 	return 0;
 }
@@ -332,8 +335,8 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 		TfwHttpReq *req;
 
 		spin_lock(&conn->msg_qlock);
-		req = (TfwHttpReq *)list_first_entry_or_null(&conn->msg_queue,
-							     TfwMsg, msg_list);
+		req = list_first_entry_or_null(&conn->msg_queue,
+					       TfwHttpReq, msg.fwd_list);
 		spin_unlock(&conn->msg_qlock);
 		if (req && (req->method == TFW_HTTP_METH_HEAD))
 			hm->flags |= TFW_HTTP_VOID_BODY;
@@ -414,30 +417,45 @@ tfw_http_conn_init(TfwConnection *conn)
 }
 
 /*
- * Connection with a peer is released.
+ * Destroy server connection's resources.
  *
- * For server connections requests that were sent to that server are kept
+ * For server connections, requests that were sent to that server are kept
  * in the queue until a paired response comes. That will never happen now.
  * For each request that has been unanswered send an error response, then
  * delete the request and drop the connection with the client if required.
- *
- * Called when a connection is released. There are no users at that time,
- * so locks are not needed.
+ */
+static void
+tfw_http_conn_srv_release(TfwConnection *srv_conn)
+{
+	TfwHttpMsg *hmreq, *tmp;
+	struct list_head zap_queue;
+
+	TFW_DBG3("%s: conn = %p\n", __func__, srv_conn);
+	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
+
+	INIT_LIST_HEAD(&zap_queue);
+
+	spin_lock(&srv_conn->msg_qlock);
+	list_splice_tail_init(&srv_conn->msg_queue, &zap_queue);
+	spin_unlock(&srv_conn->msg_qlock);
+
+	list_for_each_entry_safe(hmreq, tmp, &zap_queue, msg.fwd_list) {
+		BUG_ON((hmreq)->conn && ((hmreq)->conn == srv_conn));
+		list_del_init(&hmreq->msg.fwd_list);
+		tfw_http_send_404(hmreq);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+}
+
+/*
+ * Connection with a peer is released.
+ * Destroy connection's remaining resources.
  */
 static void
 tfw_http_conn_release(TfwConnection *conn)
 {
-	TfwMsg *msg, *tmp;
-
-	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
-		BUG_ON(((TfwHttpMsg *)msg)->conn
-			&& (((TfwHttpMsg *)msg)->conn == conn));
-		list_del(&msg->msg_list);
-		tfw_http_send_404((TfwHttpMsg *)msg);
-		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}
-	INIT_LIST_HEAD(&conn->msg_queue);
+	if (TFW_CONN_TYPE(conn) & Conn_Srv)
+		tfw_http_conn_srv_release(conn);
 }
 
 /*
@@ -449,6 +467,7 @@ tfw_http_conn_release(TfwConnection *conn)
 static void
 tfw_http_conn_drop(TfwConnection *conn)
 {
+	TFW_DBG3("%s: conn = %p\n", __func__, conn);
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
@@ -620,10 +639,190 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 				     TFW_HTTP_HDR_SERVER, 0);
 }
 
+static inline bool
+tfw_http_req_is_idempotent(TfwHttpReq *req)
+{
+	return (req->method != TFW_HTTP_METH_POST);
+}
+
 /*
- * Depending on results of processing of a request, either send the request
- * to an appropriate server, or return the cached response. If none of that
- * can be done for any reason, return HTTP 404 or 500 error to the client.
+ * Forward request @req to server connection @srv_conn.
+ * Can be called in both SoftIRQ and kernel thread contexts.
+ */
+static void
+tfw_http_conn_req_forward(TfwConnection *srv_conn, TfwHttpReq *req)
+{
+	TFW_DBG3("%s: srv_conn = %p, req = %p\n", __func__, srv_conn, req);
+	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
+
+	spin_lock_bh(&srv_conn->msg_qlock);
+	if (!tfw_http_req_is_idempotent(req))
+		req->flags |= TFW_HTTP_SYNC_REQ;
+	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
+	if (srv_conn->flags & TFW_CONN_FWD_HOLD) {
+		spin_unlock_bh(&srv_conn->msg_qlock);
+		return;
+	}
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false)) {
+		list_del_init(&req->msg.fwd_list);
+		spin_unlock_bh(&srv_conn->msg_qlock);
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		return;
+	}
+	if (req->flags & TFW_HTTP_SYNC_REQ)
+		srv_conn->flags |= TFW_CONN_FWD_HOLD;
+	spin_unlock_bh(&srv_conn->msg_qlock);
+	TFW_INC_STAT_BH(clnt.msgs_forwarded);
+}
+
+/*
+ * Forward stalled requests in server connection @srv_conn.
+ * Can be called in both SoftIRQ and kernel thread contexts.
+ */
+static void
+tfw_http_conn_req_forward_stalled(TfwConnection *srv_conn)
+{
+	TfwHttpReq *req, *tmp, *end;
+	struct list_head zap_queue, err_queue;
+	struct list_head *fwd_queue = &srv_conn->msg_queue;
+
+	TFW_DBG3("%s: conn = %p\n", __func__, srv_conn);
+	BUG_ON(!(srv_conn->flags & TFW_CONN_FWD_HOLD));
+
+	INIT_LIST_HEAD(&zap_queue);
+	INIT_LIST_HEAD(&err_queue);
+
+	spin_lock_bh(&srv_conn->msg_qlock);
+	end = container_of(fwd_queue, TfwHttpReq, msg.fwd_list);
+	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
+		if (!tfw_connection_nfo(req->conn)) {
+			list_move_tail(&req->msg.fwd_list, &zap_queue);
+			continue;
+		}
+		if (!tfw_connection_nfo(srv_conn))
+			break;
+		if (tfw_connection_send(srv_conn, (TfwMsg *)req, false)) {
+			list_move_tail(&req->msg.fwd_list, &err_queue);
+			continue;
+		}
+		TFW_INC_STAT_BH(clnt.msgs_forwarded);
+		if (req->flags & TFW_HTTP_SYNC_REQ)
+			break;
+	}
+	if (req == end)
+		srv_conn->flags &= ~TFW_CONN_FWD_HOLD;
+	spin_unlock_bh(&srv_conn->msg_qlock);
+
+	/* Requests from dead client connections. */
+	list_for_each_entry_safe(req, tmp, &zap_queue, msg.fwd_list) {
+		list_del_init(&req->msg.fwd_list);
+		if (!list_empty_careful(&req->msg.seq_list)) {
+			spin_lock_bh(&req->conn->msg_qlock);
+			list_del_init(&req->msg.seq_list);
+			spin_unlock_bh(&req->conn->msg_qlock);
+		}
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	}
+
+	/* Requests that couldn't be forwarded due to an error. */
+	list_for_each_entry_safe(req, tmp, &err_queue, msg.fwd_list) {
+		list_del_init(&req->msg.fwd_list);
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+}
+
+/*
+ * Forward responses to the client in the correct order.
+ * Can be called in both SoftIRQ and kernel thread contexts.
+ */
+static void
+tfw_http_resp_forward(TfwHttpReq *req, TfwHttpResp *resp, bool unref_data)
+{
+	TfwHttpReq *tmp;
+	TfwConnection *cli_conn = req->conn;
+	struct list_head out_queue, *seq_queue = &cli_conn->msg_queue;
+
+	TFW_DBG3("%s: req = %p, resp = %p, unref = %d\n",
+		 __func__, req, resp, unref_data);
+
+	INIT_LIST_HEAD(&out_queue);
+	if (unref_data)
+		resp->flags |= TFW_HTTP_UNREF_DATA;
+	req->resp = (TfwHttpMsg *)resp;
+
+	spin_lock_bh(&cli_conn->msg_qlock);
+	/*
+	 * It the list is empty, then it's either a bug, or the client
+	 * connection had been closed. If it's a bug, then the correct
+	 * order of responses to requests may be broken.
+	 */
+	if (list_empty(seq_queue)) {
+		spin_unlock_bh(&cli_conn->msg_qlock);
+		req->flags |= TFW_HTTP_CONN_CLOSE;
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
+	/*
+	 * Starting with the first request on the list, pick consecutive
+	 * requests that have a paired response. Remove those requests
+	 * from the list, and put them into the list of outgoing responses.
+	 */
+	do {
+		req = list_first_entry(seq_queue, TfwHttpReq, msg.seq_list);
+		if (req->resp == NULL)
+			break;
+		list_move_tail(&req->msg.seq_list, &out_queue);
+	} while(!list_empty(seq_queue));
+	spin_unlock_bh(&cli_conn->msg_qlock);
+
+	/* Forward responses to the client. */
+	list_for_each_entry_safe(req, tmp, &out_queue, msg.seq_list) {
+		list_del_init(&req->msg.seq_list);
+		resp = (TfwHttpResp *)req->resp;
+		/*
+		 * Verify that the client connection is not closing.
+		 * If it is, then discard @req and @resp, and return.
+		 * Remaining requests from the client will be taken
+		 * care of when the connection is released.
+		 */
+		if (!tfw_connection_nfo(cli_conn))
+			goto loop_discard;
+		/*
+		 * Close the client connection in case of an error.
+		 * Otherwise, the correct order of responses may be broken.
+		 */
+		unref_data = (resp->flags & TFW_HTTP_UNREF_DATA);
+		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)resp, unref_data))
+			req->flags |= TFW_HTTP_CONN_CLOSE;
+		/*
+		 * If this is a response to a non-idempotent request, then
+		 * it is time to continue forwarding requests to the server
+		 * connection the response has come on. If the server is in
+		 * failover state, the stalled requests will be taken care
+		 * of by failover processing.
+		 */
+		if ((req->flags & TFW_HTTP_SYNC_REQ) && resp->conn
+		    && (tfw_connection_get_if_nfo(resp->conn)))
+		{
+			tfw_http_conn_req_forward_stalled(resp->conn);
+			tfw_connection_put(resp->conn);
+		}
+loop_discard:
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(serv.msgs_forwarded);
+	}
+}
+
+/*
+ * Depending on results of processing of a request, either forward
+ * the request to a back end server, or return the cached response.
+ * If none of that can be done for any reason, return an HTTP error
+ * response to the client.
  */
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
@@ -631,24 +830,21 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn;
 
+	TFW_DBG3("%s: req = %p, resp = %p\n", __func__, req, resp);
+
 	if (resp) {
 		/*
 		 * The request is served from cache.
 		 * Send the response as is and unrefer its data.
 		 */
-		if (tfw_http_adjust_resp(resp, req))
-			goto resp_err;
-		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true))
-			goto resp_err;
+		if (tfw_http_adjust_resp(resp, req)) {
+			tfw_http_send_500((TfwHttpMsg *)req);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			return;
+		}
+		tfw_http_resp_forward(req, resp, true);
 		TFW_INC_STAT_BH(clnt.msgs_fromcache);
-resp_out:
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 		return;
-resp_err:
-		tfw_http_send_500((TfwHttpMsg *)req);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		goto resp_out;
 	}
 
 	/*
@@ -663,10 +859,11 @@ resp_err:
 	 * At the same time, cache hits are expected to prevail
 	 * over cache misses, so this is not a frequent path.
 	 */
-	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
-	if (srv_conn == NULL) {
-		TFW_WARN("Unable to find a backend server\n");
-		goto send_404;
+	if ((srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req)) == NULL) {
+		TFW_ERR("Unable to find a backend server\n");
+		tfw_http_send_404((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		return;
 	}
 
 	/*
@@ -676,41 +873,20 @@ resp_err:
 	 */
 	r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
 	if (r < 0) {
-		goto send_500;
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-	else if (r > 0) {
-		/* Response sent, nothing to do */
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	if (r != 0)
+		goto conn_put;
+
+	if (tfw_http_adjust_req(req)) {
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		goto conn_put;
 	}
 
-	if (tfw_http_adjust_req(req))
-		goto send_500;
-
-	/* Add request to the server connection. */
-	spin_lock(&srv_conn->msg_qlock);
-	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
-	spin_unlock(&srv_conn->msg_qlock);
-
 	/* Send request to the server. */
-	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false)) {
-		spin_lock(&srv_conn->msg_qlock);
-		list_del(&req->msg.msg_list);
-		spin_unlock(&srv_conn->msg_qlock);
-		goto send_500;
-	}
-	TFW_INC_STAT_BH(clnt.msgs_forwarded);
-	goto conn_put;
-
-send_404:
-	tfw_http_send_404((TfwHttpMsg *)req);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
-	return;
-send_500:
-	tfw_http_send_500((TfwHttpMsg *)req);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	tfw_http_conn_req_forward(srv_conn, req);
 conn_put:
 	if (tfw_connection_put(srv_conn))
 		tfw_srv_conn_release(srv_conn);
@@ -873,6 +1049,14 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		tfw_connection_unlink_msg(conn);
 
 		/*
+		 * Add the request to the list of the client connection
+		 * to preserve the correct order of responses to requests.
+		 */
+		spin_lock(&conn->msg_qlock);
+		list_add_tail(&hmreq->msg.seq_list, &conn->msg_queue);
+		spin_unlock(&conn->msg_qlock);
+
+		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
@@ -880,7 +1064,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				      tfw_http_req_cache_cb))
 		{
 			tfw_http_send_500(hmreq);
-			tfw_http_conn_cli_dropfree(hmreq);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -927,6 +1110,8 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	/* Cache original response before any mangling. */
 	bool unref_data = tfw_cache_add(resp, req);
 
+	TFW_DBG2("%s: req = %p, resp = %p, unref = %d\n",
+		 __func__, req, resp, unref_data);
 	/*
 	 * Typically we're at a node far from the node where @resp was
 	 * received, so we do an inter-node transfer. However, this is
@@ -934,22 +1119,15 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * requests will get responded to by the current node without
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
-	if (tfw_http_adjust_resp(resp, req))
-		goto err;
-
-	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, unref_data))
-		goto err;
-
+	if (tfw_http_adjust_resp(resp, req)) {
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_send_500((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
+	tfw_http_resp_forward(req, resp, unref_data);
 	TFW_INC_STAT_BH(serv.msgs_forwarded);
-out:
-	/* Now we don't need the request and the response anymore. */
-	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 	return;
-err:
-	tfw_http_send_500((TfwHttpMsg *)req);
-	TFW_INC_STAT_BH(serv.msgs_otherr);
-	goto out;
 }
 
 /*
@@ -962,12 +1140,9 @@ tfw_http_popreq(TfwConnection *conn)
 	TfwMsg *msg;
 
 	spin_lock(&conn->msg_qlock);
-	if (unlikely(list_empty(&conn->msg_queue))) {
-		spin_unlock(&conn->msg_qlock);
-		return NULL;
-	}
-	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
-	list_del(&msg->msg_list);
+	msg = list_first_entry_or_null(&conn->msg_queue, TfwMsg, fwd_list);
+	if (msg)
+		list_del_init(&msg->fwd_list);
 	spin_unlock(&conn->msg_qlock);
 
 	return (TfwHttpReq *)msg;
@@ -1137,9 +1312,8 @@ next_resp:
 			if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 					      tfw_http_resp_cache_cb))
 			{
+				tfw_http_conn_msg_free(hmresp);
 				tfw_http_send_500((TfwHttpMsg *)req);
-				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
-				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
 				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_PASS;
 			}

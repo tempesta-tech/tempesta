@@ -270,10 +270,10 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
+	__reset_retry_timer(srv_conn);
+
 	/* Let schedulers use the connection hereafter. */
 	tfw_connection_revive(conn);
-
-	__reset_retry_timer(srv_conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	TFW_INC_STAT_BH(serv.conn_established);
