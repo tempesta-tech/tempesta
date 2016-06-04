@@ -254,7 +254,7 @@ tdb_if_check_tblname(const TdbMsg *m)
 {
 	int i, ret;
 
-	for (i = 0; m->t_name[i] && i <= TDB_TBLNAME_LEN; ++i)
+	for (i = 0; m->t_name[i] && i < TDB_TBLNAME_LEN; ++i)
 		if (!isalnum(m->t_name[i]))
 			return false;
 	ret = !m->t_name[i];
