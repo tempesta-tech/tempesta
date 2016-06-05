@@ -1224,6 +1224,13 @@ enum {
 	Req_HdrCooki,
 	Req_HdrCookie,
 	Req_HdrCookieV,
+	Req_HdrP,
+	Req_HdrPr,
+	Req_HdrPra,
+	Req_HdrPrag,
+	Req_HdrPragm,
+	Req_HdrPragma,
+	Req_HdrPragmaV,
 	Req_HdrT,
 	Req_HdrTr,
 	Req_HdrTra,
@@ -1301,6 +1308,9 @@ enum {
 	Req_I_CC_MinFreshV,
 	Req_I_CC_Ext,
 	Req_I_CC_EoT,
+	/* Pragma header */
+	Req_I_Pragma,
+	Req_I_Pragma_Ext,
 	/* X-Forwarded-For header */
 	Req_I_XFF,
 	Req_I_XFF_Node_Id,
@@ -1436,6 +1446,38 @@ done:
 	return r;
 }
 
+/**
+ * Parse request Pragma header field, RFC 7234 5.4.
+ * The meaning of "Pragma: no-cache" in responses is not specified.
+ */
+static int
+__req_parse_pragma(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Pragma) {
+		TRY_STR_LAMBDA("no-cache", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+		}, Req_I_Pragma_Ext);
+		TRY_STR_INIT();
+		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
+	}
+	__FSM_STATE(Req_I_Pragma_Ext) {
+		/* Just skip the extensions. */
+		__fsm_sz = __data_remain(p);
+		__fsm_ch = memchreol(p, __fsm_sz);
+		if (__fsm_ch)
+			return __data_offset(__fsm_ch);
+		__FSM_I_MOVE_n(Req_I_Pragma_Ext, __fsm_sz);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
 /**
  * Parse request Host header, RFC 7230 5.4.
  *
@@ -1923,6 +1965,16 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_LWS_empty, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
+		case 'p':
+			if (likely(__data_available(p, 7)
+				   && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
+				   && tolower(*(p + 5)) == 'a'
+				   && *(p + 6) == ':'))
+			{
+				parser->_i_st = Req_HdrPragmaV;
+				__FSM_MOVE_n(RGen_LWS, 7);
+			}
+			__FSM_MOVE(Req_HdrP);
 		case 't':
 			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
@@ -2056,6 +2108,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, I_ContType,
 				   msg, __parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
+
+	/* 'Pragma:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
+				  req, __req_parse_pragma);
 
 	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
@@ -2220,6 +2276,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 		__FSM_JMP(RGen_HdrOther);
 	}
+
+	/* Pragma header processing. */
+	__FSM_TX_AF(Req_HdrP, 'r', Req_HdrPr, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrPr, 'a', Req_HdrPra, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrPra, 'g', Req_HdrPrag, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrPragm, 'a', Req_HdrPragma, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrPragma, ':', Req_HdrPragmaV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, RGen_HdrOther);
