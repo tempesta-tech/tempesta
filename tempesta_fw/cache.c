@@ -30,7 +30,7 @@
 #include "tdb.h"
 
 #include "tempesta_fw.h"
-#include "tfw_tfwcfg.h"
+#include "vhost.h"
 #include "cache.h"
 #include "http_msg.h"
 #include "procfs.h"
@@ -192,24 +192,40 @@ tfw_cache_msg_cacheable(TfwHttpReq *req)
 }
 
 /*
- * Match the given request against strings specified in "location",
- * "cache_bypass", and "cache_fulfil" directives and according to
- * match operators specified in the directives.
- *
- * Return the constant that identifies the action on a request.
- * Currently the actions are "bypass", "fulfill", or "default".
+ * Find caching policy in specific vhost and location.
  */
-tfw_stmt_t
-tfw_cache_action(TfwHttpReq *req)
+static int
+tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 {
-	TfwCfgLocation *loc;
-	TfwCfgCacheMatch *cam;
+	TfwCaPolicy *capo;
 
-	loc = tfw_location_match(&req->uri_path);
-	cam = tfw_camatch_match(loc, &req->uri_path);
-	if (cam)
-		return cam->stmt;
-	return TFW_D_CACHE_DEFAULT;
+	/* Search locations in current vhost. */
+	if (loc && loc->capo_sz) {
+		if ((capo = tfw_capolicy_match(loc, arg)))
+			return capo->cmd;
+	}
+
+	/*
+	 * Search default policies in current vhost.
+	 * If there's none, then search global default policies.
+	 */
+	loc = vhost->loc_dflt;
+	if (loc && loc->capo_sz) {
+		if ((capo = tfw_capolicy_match(loc, arg)))
+			return capo->cmd;
+	} else {
+		TfwVhost *vhost_dflt = tfw_vhost_get_default();
+		if (vhost == vhost_dflt)
+			return TFW_D_CACHE_BYPASS;
+
+		loc = vhost_dflt->loc_dflt;
+		if (loc && loc->capo_sz) {
+			if ((capo = tfw_capolicy_match(loc, arg)))
+				return capo->cmd;
+		}
+	}
+
+	return TFW_D_CACHE_BYPASS;
 }
 
 /*
@@ -221,26 +237,25 @@ tfw_cache_action(TfwHttpReq *req)
  * the resulting decision.
  */
 static bool
-tfw_cache_employ(TfwHttpReq *req, TfwHttpResp *resp)
+tfw_cache_employ_req(TfwHttpReq *req)
 {
-	/*
-	 * Process requests according to "location", "cache_bypass",
-	 * and "cache_fulfill" directives.
-	 */
-	if (!resp) {
-		tfw_stmt_t stmt = tfw_cache_action(req);
-		if ((stmt == TFW_D_CACHE_DEFAULT)
-		    || (stmt == TFW_D_CACHE_BYPASS))
-		{
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-			return false;
-		}
-		/* cache_fulfill - work as usual in cache mode. */
-		BUG_ON(stmt != TFW_D_CACHE_FULFILL);
-	} else {
-		if (req->cache_ctl.flags & TFW_HTTP_CC_NO_STORE)
-			return false;
+	int cmd = tfw_cache_policy(req->vhost, req->location, &req->uri_path);
+
+	if (cmd == TFW_D_CACHE_BYPASS) {
+		req->cache_ctl.flags |= TFW_HTTP_CC_CFG_CACHE_BYPASS;
+		return false;
 	}
+	/* cache_fulfill - work as usual in cache mode. */
+	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
+
+	return true;
+}
+
+static bool
+tfw_cache_employ_resp(TfwHttpReq *req)
+{
+	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
+		return false;
 	return true;
 }
 
@@ -626,7 +641,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		return true;
-	if (!tfw_cache_employ(req, resp))
+	if (!tfw_cache_employ_resp(req))
 		return true;
 
 	key = tfw_http_req_key_calc(req);
@@ -668,7 +683,7 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		goto dont_cache;
-	if (!tfw_cache_employ(req, resp))
+	if (!resp && !tfw_cache_employ_req(req))
 		goto dont_cache;
 
 	cw.req = req;
