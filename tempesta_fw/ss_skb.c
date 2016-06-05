@@ -392,11 +392,25 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * moved to yet another fragment. The linear part is trimmed to
 	 * exclude the deleted data and the tail part.
 	 *
+	 * Whether the data is deleted or inserted, the tail of the
+	 * linear data needs to be moved to a new fragment. The value of
+	 * @alloc tells the number of the fragment that will hold the
+	 * tail of the linear data.
+	 *
+	 * In case of data insertion @alloc equals one.  The inserted data
+	 * is placed in the first fragment (number 0) which immediately
+	 * follows the linear data. The tail of the linear data is placed
+	 * in the next fragment (number 1, the value of @alloc).
+	 *
+	 * In case of data removal @alloc equals zero. Only the fragment
+	 * for the tail is needed, and that is the first fragment (number
+	 * 0, the value of @alloc).
+	 *
 	 * Do all allocations before moving the fragments to avoid complex
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, len, 0, alloc + !!tail_len))
+		if (__new_pgfrag(skb, len, 0, 1 + !!tail_len))
 			return -EFAULT;
 	} else {
 		if (__extend_pgfrags(skb, 0, 1))
@@ -408,8 +422,7 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * Then trim it further to exclude the tail data.
 	 */
 	if (len < 0) {
-		skb->tail += len;
-		skb->len += len;
+		ss_skb_put(skb, len);
 		tail_len += len;
 		tail_off -= len;
 	}
@@ -643,6 +656,16 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		: __split_pgfrag_del(skb, i, off, -len, it);
 }
 
+static inline int
+__split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
+{
+	if (len > skb_tailroom(skb))
+		return -ENOSPC;
+	it->ptr = ss_skb_put(skb, len);
+	it->skb = skb;
+	return 0;
+}
+
 /**
  * Add room for data to @skb if @len > 0 or delete data otherwise.
  * Most of the time that is done by fragmenting the @skb.
@@ -650,7 +673,7 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 static int
 __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 {
-	int i, ret;
+	int i = -1, ret;
 	long offset;
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -662,11 +685,6 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
 		skb->len, skb->data_len, skb->truesize, si->nr_frags);
 	BUG_ON(!len);
-
-	if (abs(len) > PAGE_SIZE) {
-		SS_WARN("Attempt to add or delete too much data: %u\n", len);
-		return -EINVAL;
-	}
 
 	/*
 	 * Use @it to hold the return values from __split_pgfrag()
@@ -697,12 +715,12 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * advance the skb tail pointer.
 	 */
 	if (len > 0) {
-		offset = pspt - (char *)skb_frag_address(&si->frags[0]);
-		if (unlikely(!offset && (len <= ss_skb_tailroom(skb)))) {
-			it->ptr = ss_skb_put(skb, len);
-			it->skb = skb;
-			ret = 0;
-			goto done;
+		offset = unlikely(offset == d_size) ? 0 :
+			pspt - (char *)skb_frag_address(&si->frags[0]);
+		if (unlikely(!offset)) {
+			if (!(ret = __split_try_tailroom(skb, len, it)))
+				goto done;
+			goto append;
 		}
 	}
 
@@ -712,22 +730,24 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
-		if ((offset >= 0) && (offset < d_size)) {
+		if ((offset >= 0) && (offset <= d_size)) {
 			int t_size = d_size - offset;
+			if (unlikely(!t_size))
+				goto append;
 			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
 		}
 	}
 
-	/* skbs with skb fragments are not expected. */
-	if (skb_has_frag_list(skb)) {
-		WARN_ON(skb_has_frag_list(skb));
-		return -ENOENT;
-	}
-
 	/* The split is not within the SKB. */
 	return -ENOENT;
+
+append:
+	BUG_ON(len < 0);
+	/* Add new frag in case of splitting after the last chunk */
+	ret = __new_pgfrag(skb, len, i + 1, 1);
+	__it_next_data(skb, i + 1, it);
 
 done:
 	SS_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
@@ -741,7 +761,7 @@ done:
 		return ret;
 	if ((it->ptr == NULL) || (it->skb == NULL))
 		return -EFAULT;
-	it->len = len;
+	it->len = max(0, len);
 
 	/* Return the length of processed data. */
 	return abs(len);
@@ -751,7 +771,20 @@ static inline int
 skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	int r = __skb_fragment(skb, pspt, len, it);
+	int r;
+
+	if (abs(len) > PAGE_SIZE) {
+		SS_WARN("Attempt to add or delete too much data: %u\n", len);
+		return -EINVAL;
+	}
+
+	/* skbs with skb fragments are not expected. */
+	if (skb_has_frag_list(skb)) {
+		WARN_ON(skb_has_frag_list(skb));
+		return -EINVAL;
+	}
+
+	r = __skb_fragment(skb, pspt, len, it);
 	__skb_skblist_fixup(skb_list);
 	return r;
 }
