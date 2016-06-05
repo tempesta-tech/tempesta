@@ -310,6 +310,7 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 /* Internal (parser) HTTP functions. */
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
 int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
+bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
