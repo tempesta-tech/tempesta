@@ -1211,7 +1211,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		 * Pass the response to cache for further processing.
 		 * In the end, the response is sent on to the client.
 		 */
-		if (!tfw_http_resp_cache(hmresp))
+		if (tfw_http_resp_cache(hmresp))
 			return TFW_BLOCK;
 next_resp:
 		if (hmsib) {
