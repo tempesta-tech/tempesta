@@ -424,13 +424,13 @@ static int
 __hdr_append(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr)
 {
 	int r;
-	TfwStr *h = TFW_STR_LAST(orig_hdr);
-	TfwStr it = {};
+	TfwStr *h, it = {};
 
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
+	h = TFW_STR_LAST(orig_hdr);
 
-	r = ss_skb_get_room(&hm->msg.skb_list, orig_hdr->skb,
+	r = ss_skb_get_room(&hm->msg.skb_list, h->skb,
 			    (char *)h->ptr + h->len, hdr->len, &it);
 	if (r)
 		return r;
