@@ -53,7 +53,8 @@ enum {
 	RGen_HdrOtherN,
 	RGen_HdrOtherV,
 
-	RGen_Body,
+	RGen_BodyInit,
+	RGen_BodyStart,
 	RGen_BodyChunk,
 	RGen_BodyChunkLen,
 	RGen_BodyChunkExt,
@@ -526,7 +527,7 @@ __FSM_STATE(RGen_EoLine) {						\
 		if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {		\
 			msg->crlf = parser->hdr;			\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
-			TFW_HTTP_INIT_BODY_PARSING(msg);		\
+			__FSM_JMP(RGen_BodyInit);			\
 		}							\
 		r = TFW_PASS;						\
 		FSM_EXIT();						\
@@ -662,7 +663,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
  * those for parsing of message headers (__FSM_*), or for parsing
  * of message header values (__FSM_I_*, where _I_ means "interior",
  * or nested FSM). The major difference from __FSM_* macros is that
- * in case of postpone they adds data to the body.
+ * in case of postpone they add data to the body.
  */
 #define __FSM_B_MOVE_n(to, n)						\
 do {									\
@@ -685,29 +686,89 @@ do {									\
 #define __FSM_B_MOVE(to)						\
 	__FSM_B_MOVE_n(to, 1)
 
-#define TFW_HTTP_INIT_BODY_PARSING(msg)					\
-do {									\
-	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
-		 msg->flags, msg->content_length);			\
-	/* RFC 2616 4.4: firstly check chunked transfer encoding. */	\
+/* Process according RFC 7230 3.3.3 */
+#define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
+__FSM_STATE(RGen_BodyInit) {						\
+	/*								\
+	 * TODO: If both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
+	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present,	\
+	 * then issue and error or remove "Content-Length:" header.	\
+	 */								\
+	/*								\
+	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
+	 * is present and "chunked" coding is the last in the list.	\
+	 */								\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE_nofixup(RGen_Body);				\
-	/* Next we check content length. */				\
-	if (msg->content_length						\
-	    && !(msg->flags & TFW_HTTP_VOID_BODY))			\
-	{								\
+		__FSM_MOVE_nofixup(RGen_BodyStart);			\
+	/*								\
+	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
+	 * is present and there's NO "chunked" coding.			\
+	 * Must send 400 (Bad Request) and close the connection.	\
+	 */								\
+	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
-		__FSM_MOVE_nofixup(RGen_Body);				\
+		__FSM_MOVE_nofixup(RGen_BodyStart);			\
 	}								\
-	/* There is no body at all. */					\
+	/* There is no body. */						\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	r = TFW_PASS;							\
 	FSM_EXIT();							\
-} while (0)
+}
+
+/* Process according RFC 7230 3.3.3 */
+#define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
+__FSM_STATE(RGen_BodyInit) {						\
+	TfwHttpResp *resp = (TfwHttpResp *)msg;				\
+									\
+	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
+		 msg->flags, msg->content_length);			\
+									\
+	/* There's no body. */						\
+	/* TODO: Add (req == CONNECT && resp == 2xx) */			\
+	if (((resp->status > 100) && (resp->status < 200))		\
+	    || (resp->status == 204) || (resp->status == 304)		\
+	    || (msg->flags & TFW_HTTP_VOID_BODY))			\
+	{								\
+		msg->body.flags |= TFW_STR_COMPLETE;			\
+		r = TFW_PASS;						\
+		FSM_EXIT();						\
+	}								\
+	/*								\
+	 * TODO: Both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
+	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present.	\
+	 * Issue and error or remove "Content-Length:" header.		\
+	 */								\
+	/*								\
+	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
+	 * is present and "chunked" coding is the last in the list.	\
+	 */								\
+	if (msg->flags & TFW_HTTP_CHUNKED)				\
+		__FSM_MOVE_nofixup(RGen_BodyStart);			\
+	/*								\
+	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
+	 * is present and there's NO "chunked" coding.			\
+	 * Process the body until the connection is closed.		\
+	 */								\
+	if (msg->content_length) {					\
+		parser->to_read = msg->content_length;			\
+		__FSM_MOVE_nofixup(RGen_BodyStart);			\
+	}								\
+	/* Process the body until the connection is closed. */		\
+	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
+}
+
+#define TFW_HTTP_PARSE_BODY_UNLIM()					\
+__FSM_STATE(Resp_BodyUnlimStart) {					\
+	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	/* fall through */						\
+}									\
+__FSM_STATE(Resp_BodyUnlimRead) {					\
+	__FSM_B_MOVE_n(Resp_BodyUnlimRead, __data_remain(p));		\
+}
 
 #define TFW_HTTP_PARSE_BODY()						\
 /* Read request|response body. */					\
-__FSM_STATE(RGen_Body) {						\
+__FSM_STATE(RGen_BodyStart) {						\
 	tfw_http_msg_set_data(msg, &msg->body, p);			\
 	/* Fall through. */						\
 }									\
@@ -898,6 +959,21 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int r;
 
+	/*
+	 * According to RFC 7230 section 3.3.2:
+	 *
+	 * TODO: If a message is received that has multiple Content-Length
+	 * header fields with field-values consisting of the same decimal
+	 * value, or a single Content-Length header field with a field
+	 * value containing a list of identical decimal values (e.g.,
+	 * "Content-Length: 42, 42"), indicating that duplicate
+	 * Content-Length header fields have been generated or combined by
+	 * an upstream message processor, then the recipient MUST either
+	 * reject the message as invalid or replace the duplicated
+	 * field-values with a single valid Content-Length field containing
+	 * that decimal value prior to determining the message body length
+	 * or forwarding the message.
+	 */
 	r = parse_int_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
 		tfw_http_msg_hdr_chunk_fixup(msg, data, len);
@@ -949,6 +1025,27 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st) {
 
+	/*
+	 * According to RFC 7230 section 3.3.1:
+	 *
+	 * TODO: In a response:
+	 * A server MUST NOT send a Transfer-Encoding header field in any
+	 * response with a status code of 1xx (Informational) or 204 (No
+	 * Content).  A server MUST NOT send a Transfer-Encoding header
+	 * field in any 2xx (Successful) response to a CONNECT request.
+	 *
+	 * TODO: A sender MUST NOT apply chunked more than once to a message
+	 * body (i.e., chunking an already chunked message is not allowed).
+	 *
+	 * TODO: in a request:
+	 * If any transfer coding other than chunked is applied to a request
+	 * payload body, the sender MUST apply chunked as the final transfer
+	 * coding to ensure that the message is properly framed.
+	 *
+	 * In a response, it's permissible to not have chunked transfer
+	 * coding. In that case the message is terminated by closing the
+	 * connection.
+	 */
 	__FSM_STATE(I_TransEncod) {
 		TRY_STR_LAMBDA("chunked", {
 			msg->flags |= TFW_HTTP_CHUNKED;
@@ -1983,6 +2080,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* ----------------    Request body    ---------------- */
 
+	TFW_HTTP_INIT_REQ_BODY_PARSING();
 	TFW_HTTP_PARSE_BODY();
 
 	/* ----------------    Improbable states    ---------------- */
@@ -2801,7 +2899,28 @@ enum {
 	Resp_HdrTransfer_Encoding,
 	Resp_HdrTransfer_EncodingV,
 	Resp_HdrDone,
+
+	Resp_BodyUnlimStart,
+	Resp_BodyUnlimRead,
 };
+
+/*
+ * The connection is being closed. Terminate the current message.
+ * Note that eolen is not set on the body string.
+ */
+bool
+tfw_http_parse_terminate(TfwHttpMsg *hm)
+{
+	BUG_ON(!hm);
+	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
+
+	if (hm->parser.state == Resp_BodyUnlimRead) {
+		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
+		hm->body.flags |= TFW_STR_COMPLETE;
+		return true;
+	}
+	return false;
+}
 
 int
 tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
@@ -3053,7 +3172,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* ----------------    Response body    ---------------- */
 
+	TFW_HTTP_INIT_RESP_BODY_PARSING();
 	TFW_HTTP_PARSE_BODY();
+	TFW_HTTP_PARSE_BODY_UNLIM();
 
 	/* ----------------    Improbable states    ---------------- */
 
