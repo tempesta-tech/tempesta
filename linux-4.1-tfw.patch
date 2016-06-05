@@ -526,7 +526,7 @@ index 738ea48..7944e97 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 4307e20..f915c87 100644
+index 4307e20..efbefac 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -538,8 +538,12 @@ struct sk_buff {
@@ -555,7 +555,45 @@ index 4307e20..f915c87 100644
  	kmemcheck_bitfield_end(flags1);
  
  	/* fields enclosed in headers_start/headers_end are copied
-@@ -3452,5 +3458,28 @@ static inline unsigned int skb_gso_network_seglen(const struct sk_buff *skb)
+@@ -616,6 +622,9 @@ struct sk_buff {
+ 	__u8			inner_protocol_type:1;
+ 	__u8			remcsum_offload:1;
+ 	/* 3 or 5 bit hole */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	__u8			tail_lock:1;
++#endif
+ 
+ #ifdef CONFIG_NET_SCHED
+ 	__u16			tc_index;	/* traffic control index */
+@@ -1554,7 +1563,7 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+ 
+ static inline bool skb_is_nonlinear(const struct sk_buff *skb)
+ {
+-	return skb->data_len;
++	return skb->tail_lock || skb->data_len;
+ }
+ 
+ static inline unsigned int skb_headlen(const struct sk_buff *skb)
+@@ -1741,6 +1750,18 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+ }
+ 
+ /**
++ *	skb_tailroom_locked - bytes at buffer end
++ *	@skb: buffer to check
++ *
++ *	Return the number of bytes of free space at the tail of an sk_buff with
++ *	respect to tail locking only.
++ */
++static inline int skb_tailroom_locked(const struct sk_buff *skb)
++{
++	return skb->tail_lock ? 0 : skb->end - skb->tail;
++}
++
++/**
+  *	skb_tailroom - bytes at buffer end
+  *	@skb: buffer to check
+  *
+@@ -3452,5 +3473,28 @@ static inline unsigned int skb_gso_network_seglen(const struct sk_buff *skb)
  			       skb_network_header(skb);
  	return hdr_len + skb_gso_transport_seglen(skb);
  }
@@ -1142,7 +1180,7 @@ index b42f0e2..ef4362e 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 075d2e7..910bf00 100644
+index 075d2e7..c1228b8 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -78,7 +78,9 @@
@@ -1533,19 +1571,20 @@ index 075d2e7..910bf00 100644
  
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
-@@ -1216,7 +1418,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1216,7 +1418,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	off = (data + nhead) - skb->head;
  
  	skb->head     = data;
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	skb->head_frag = 1;
++	skb->tail_lock = 0;
 +#else
  	skb->head_frag = 0;
 +#endif
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1233,7 +1439,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1233,7 +1440,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	return 0;
  
  nofrags:
@@ -1557,7 +1596,25 @@ index 075d2e7..910bf00 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -3333,16 +3543,31 @@ done:
+@@ -1342,7 +1553,7 @@ int skb_pad(struct sk_buff *skb, int pad)
+ 		return 0;
+ 	}
+ 
+-	ntail = skb->data_len + pad - (skb->end - skb->tail);
++	ntail = skb->data_len + pad - skb_tailroom_locked(skb);
+ 	if (likely(skb_cloned(skb) || ntail > 0)) {
+ 		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
+ 		if (unlikely(err))
+@@ -1577,7 +1788,7 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+ 	 * plus 128 bytes for future expansions. If we have enough
+ 	 * room at tail, reallocate without expansion only if skb is cloned.
+ 	 */
+-	int i, k, eat = (skb->tail + delta) - skb->end;
++	int i, k, eat = delta - skb_tailroom_locked(skb);
+ 
+ 	if (eat > 0 || skb_cloned(skb)) {
+ 		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
+@@ -3333,16 +3544,31 @@ done:
  
  void __init skb_init(void)
  {
@@ -1594,7 +1651,7 @@ index 075d2e7..910bf00 100644
  }
  
  /**
-@@ -4042,7 +4267,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -4042,7 +4268,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);

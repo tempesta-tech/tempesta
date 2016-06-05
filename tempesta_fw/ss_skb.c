@@ -433,6 +433,9 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
 	get_page(page);
 
+	/* Prevent @skb->tail from moving forward */
+	skb->tail_lock = 1;
+
 	/*
 	 * Get the SKB and the address for data. It's either
 	 * the area for new data, or data after the deleted data.
@@ -659,7 +662,7 @@ __split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 static inline int
 __split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
 {
-	if (len > skb_tailroom(skb))
+	if (len > skb_tailroom_locked(skb))
 		return -ENOSPC;
 	it->ptr = ss_skb_put(skb, len);
 	it->skb = skb;
