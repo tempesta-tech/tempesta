@@ -281,7 +281,6 @@ typedef struct {
 	unsigned short		status;
 	unsigned int		keep_alive;
 	unsigned int		expires;
-	unsigned int		skb_offset;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
