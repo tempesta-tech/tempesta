@@ -975,6 +975,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 		spin_unlock(&conn->msg_qlock);
 		/* @conn->msg will get NULLed in the process. */
 		TFW_WARN("Paired request missing\n");
+		TFW_WARN("Possible HTTP Response Splitting attack.\n");
 		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
@@ -1017,12 +1018,13 @@ error:
 	 */
 	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
 	if (unlikely(hmreq == NULL)) {
-		r = TFW_STOP;
-	} else {
-		tfw_http_send_502(hmreq);
-		tfw_http_conn_msg_free(hmresp);
-		tfw_http_conn_cli_dropfree(hmreq);
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return TFW_STOP;
 	}
+
+	tfw_http_send_502(hmreq);
+	tfw_http_conn_msg_free(hmresp);
+	tfw_http_conn_cli_dropfree(hmreq);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return TFW_BLOCK;
 }
@@ -1048,9 +1050,6 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * with success. Mark the message as complete in @conn as
 	 * further handling of @conn depends on that. Future SKBs
 	 * will be put in a new message.
-	 * On an error the function returns from anywhere inside
-	 * the loop. @conn->msg holds the reference to the message,
-	 * which can be used to release it.
 	 */
 	tfw_connection_unlink_msg(hmresp->conn);
 	if (tfw_cache_process((TfwHttpReq *)hmreq, (TfwHttpResp *)hmresp,
@@ -1067,17 +1066,23 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 }
 
 /*
- *
+ * Finish a response that is terminated by closing the connection.
  */
 static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	struct sk_buff *skb = ss_skb_peek_tail(&hm->msg.skb_list);
-	unsigned int offset = ((TfwHttpResp *)hm)->skb_offset;
 
 	BUG_ON(!skb);
 
-	if (tfw_http_resp_gfsm(hm, skb, offset) != TFW_PASS)
+	/*
+	 * Note that in this case we don't have data to process.
+	 * All data has been processed already. The response needs
+	 * to go through Tempesta's post-processing, and then be
+	 * sent to the client. The full skb->len is used as the
+	 * offset to mark this case in the post-processing phase.
+	 */
+	if (tfw_http_resp_gfsm(hm, skb, skb->len) != TFW_PASS)
 		return;
 	tfw_http_resp_cache(hm);
 }
@@ -1146,7 +1151,6 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			TFW_INC_STAT_BH(serv.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
-			((TfwHttpResp *)hmresp)->skb_offset = off;
 			r = tfw_gfsm_move(&hmresp->msg.state,
 					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
