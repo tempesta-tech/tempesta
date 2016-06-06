@@ -723,6 +723,14 @@ conn_put:
 		tfw_srv_conn_release(srv_conn);
 }
 
+static int
+tfw_http_req_set_context(TfwHttpReq *req)
+{
+	req->vhost = tfw_vhost_match(&req->uri_path);
+	req->location = tfw_location_match(req->vhost, &req->uri_path);
+	return (!req->vhost);
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -811,6 +819,10 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			return TFW_BLOCK;
 		}
 
+		/* Assign the right Vhost for this request. */
+		if (tfw_http_req_set_context((TfwHttpReq *)hmreq))
+			return TFW_BLOCK;
+
 		/*
 		 * In HTTP 0.9 the server always closes the connection
 		 * after sending the response.
@@ -868,6 +880,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				return TFW_BLOCK;
 			}
 		}
+
 		/*
 		 * Complete HTTP message has been collected and processed
 		 * with success. Mark the message as complete in @conn as

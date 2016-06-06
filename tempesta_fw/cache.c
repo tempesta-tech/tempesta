@@ -30,6 +30,7 @@
 #include "tdb.h"
 
 #include "tempesta_fw.h"
+#include "vhost.h"
 #include "cache.h"
 #include "http_msg.h"
 #include "procfs.h"
@@ -190,6 +191,73 @@ tfw_cache_msg_cacheable(TfwHttpReq *req)
 	return __cache_method_test(req->method);
 }
 
+/*
+ * Find caching policy in specific vhost and location.
+ */
+static int
+tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
+{
+	TfwCaPolicy *capo;
+
+	/* Search locations in current vhost. */
+	if (loc && loc->capo_sz) {
+		if ((capo = tfw_capolicy_match(loc, arg)))
+			return capo->cmd;
+	}
+
+	/*
+	 * Search default policies in current vhost.
+	 * If there's none, then search global default policies.
+	 */
+	loc = vhost->loc_dflt;
+	if (loc && loc->capo_sz) {
+		if ((capo = tfw_capolicy_match(loc, arg)))
+			return capo->cmd;
+	} else {
+		TfwVhost *vhost_dflt = tfw_vhost_get_default();
+		if (vhost == vhost_dflt)
+			return TFW_D_CACHE_BYPASS;
+
+		loc = vhost_dflt->loc_dflt;
+		if (loc && loc->capo_sz) {
+			if ((capo = tfw_capolicy_match(loc, arg)))
+				return capo->cmd;
+		}
+	}
+
+	return TFW_D_CACHE_BYPASS;
+}
+
+/*
+ * Decide if the cache can be employed. For a request that means
+ * that it can be served from cache if there's a cached response.
+ * For a response it means that the response can be stored in cache.
+ *
+ * Various cache action/control directives are consulted when making
+ * the resulting decision.
+ */
+static bool
+tfw_cache_employ_req(TfwHttpReq *req)
+{
+	int cmd = tfw_cache_policy(req->vhost, req->location, &req->uri_path);
+
+	if (cmd == TFW_D_CACHE_BYPASS) {
+		req->cache_ctl.flags |= TFW_HTTP_CC_CFG_CACHE_BYPASS;
+		return false;
+	}
+	/* cache_fulfill - work as usual in cache mode. */
+	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
+
+	return true;
+}
+
+static bool
+tfw_cache_employ_resp(TfwHttpReq *req)
+{
+	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
+		return false;
+	return true;
+}
 
 static bool
 tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
@@ -573,6 +641,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		return true;
+	if (!tfw_cache_employ_resp(req))
+		return true;
 
 	key = tfw_http_req_key_calc(req);
 
@@ -611,10 +681,10 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
 
-	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req)) {
-		action(req, resp);
-		return 0;
-	}
+	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
+		goto dont_cache;
+	if (!resp && !tfw_cache_employ_req(req))
+		goto dont_cache;
 
 	cw.req = req;
 	cw.resp = resp;
@@ -631,6 +701,10 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		 cw.req, cw.resp, cw.key);
 
 	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi);
+
+dont_cache:
+	action(req, resp);
+	return 0;
 }
 
 static int

@@ -22,6 +22,7 @@
 #define __TFW_HTTP_H__
 
 #include "connection.h"
+#include "vhost.h"
 #include "gfsm.h"
 #include "msg.h"
 #include "str.h"
@@ -104,6 +105,8 @@ enum {
 #define TFW_HTTP_CC_PUBLIC		0x00000080
 #define TFW_HTTP_CC_PRIVATE		0x00000100
 #define TFW_HTTP_CC_PRAGMA_NO_CACHE	0x00010000
+#define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x00100000
+
 typedef struct {
 	unsigned int	flags;
 	unsigned int	max_age;
@@ -256,6 +259,8 @@ typedef struct {
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
+	TfwVhost		*vhost;
+	TfwLocation		*location;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
