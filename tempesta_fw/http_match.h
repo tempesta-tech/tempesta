@@ -47,6 +47,8 @@ typedef enum {
 	_TFW_HTTP_MATCH_O_COUNT
 } tfw_http_match_op_t;
 
+typedef tfw_http_match_op_t	tfw_match_t;
+
 typedef enum {
 	TFW_HTTP_MATCH_A_NA = 0,
 	TFW_HTTP_MATCH_A_WILDCARD,
