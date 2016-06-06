@@ -164,6 +164,103 @@ by Tempesta at this time. Below is an example of this directive:
 cache_methods GET HEAD;
 ```
 
+#### Caching Policy
+
+Caching policy is controlled by rules that match the destination URL
+agsinst the pattern specified in the rule and using the match operator
+specified in the same rule. The full syntax is as follows:
+```
+<caching policy> <OP> <string> [<string>];
+```
+
+`<caching policy>` directive can be one of the following:
+* **cache_fulfill** - Serve the request from cache. If the response is not
+found in cache, then forward the request to a back end server, and store
+the response in cache to serve future requests for the same resource. Update
+the cached response when necessary.
+* **cache_bypass** - Skip the cache. Simply forward the request to a server.
+Do not store the response in cache.
+
+`<string>` is the anticipated substring of URL. It is matched against
+the URL in a request according to the match operator specified by `<OP>`.
+Note that the string must be verbatim. Regular expressions are not
+supported at this time.
+
+The following `<OP>` keywords (match operators) are supported:
+* **eq** - URL is fully equal to `<string>`.
+* **prefix** - URL starts with `<string>`.
+* **suffix** - URL ends with `<string>`.
+
+Caching policy directives are processed strictly in the order they
+are defined in the configuration file. Below are examples of caching
+policy directives:
+```
+cache_fulfill suffix ".jpg" ".png";
+cache_bypass suffix ".avi";
+cache_bypass prefix "/static/dynamic_zone/";
+cache_fulfill prefix "/static/";
+```
+
+Also, a special variant of wildcard matching is supported. It makes
+all requests and responses either use or skip the cache. It should
+be used with caution.
+```
+cache_fulfill * *;
+cache_bypass * *;
+```
+
+### Locations
+
+Location is a way of grouping certain directives that are applied only
+to that specific location. Location is defined by a string and a match
+operator that are used to match the string against URL in requests.
+The syntax is as follows:
+```
+location <OP> "<string>" {
+	<directive>;
+	...
+	<directive>;
+}
+```
+
+`<OP>` and `<string>` are specified the same way as defined in the
+[Caching Policy](#Caching Policy) section.
+
+Multiple locations may be defined. Location directives are processed
+strictly in the order they are defined in the configuration file.
+
+Only caching policy directives may currently be grouped by the location
+directive. Caching policy directives defined outside of any specific
+location are considered the default policy for all locations.
+
+When locations are defined in the configuration, the URL of each request
+is matched against strings specified in the location directives and using
+the corresponding match operator. If a matching location is found, then
+caching policy directives for that location are matched against the URL.
+
+In case there's no matching location, or there's no matching caching
+directive in the location, the default caching policy directives are
+matched against the URL.
+
+If a matching caching policy directive is not found, then the default
+action is to skip the cache - do not serve requests from cache, and
+do not store responses in cache.
+
+Below is an example of location directive definition:
+```
+cache_bypass suffix ".php";
+cache_fulfill suffix ".mp4";
+
+location prefix "/static/" {
+	cache_bypass prefix "/static/dynamic_zone/";
+	cache_fulfill * *;
+}
+location prefix "/society/" {
+	cache_bypass prefix "/society/breaking_news/";
+	cache_fulfill suffix ".jpg" ".png";
+	cache_fulfill suffix ".css";
+}
+```
 
 ### Server Load Balancing
 
@@ -172,7 +269,7 @@ cache_methods GET HEAD;
 A back end HTTP server is defined with `server` directive. The full syntax is
 as follows:
 ```
-server <IPADDR>[:<PORT>] [conns_n=<N>]
+server <IPADDR>[:<PORT>] [conns_n=<N>];
 ```
 `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
@@ -222,7 +319,7 @@ srv_group static_storage sched=hash {
 Scheduler is used to distribute load among known servers. The syntax is as
 follows:
 ```
-sched <SCHED_NAME>
+sched <SCHED_NAME>;
 ```
 `SCHED_NAME` is the name of a scheduler available in Tempesta.
 
@@ -317,7 +414,7 @@ If a default match rule is not defined, and there's the group `default` with
 servers defined outside of any group, then the default rule is added
 implicitly to route requests to the group `default`. The syntax is as follows:
 ```
-match <SRV_GROUP> * * *
+match <SRV_GROUP> * * * ;
 ```
 
 By default no rules are defined. If there's the group `default`,
