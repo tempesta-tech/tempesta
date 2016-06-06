@@ -22,6 +22,8 @@
 #include <linux/module.h>
 #include "test.h"
 
+#include "vhost.c"
+
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
 test_fixture_fn_t test_teardown_fn;
