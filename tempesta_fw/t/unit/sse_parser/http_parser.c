@@ -8,7 +8,7 @@
 
 #define TFW_DBG printf
 #define TFW_DBG3 printf
-#define __FSM_STATE(st) case st: st: printf("\n\tPos: %s\n\tState: %s\n", p, #st);
+#define __FSM_STATE(st) case st: st: TFW_DBG3("\n\tPos: %s\n\tState: %s\n", data, #st);
 #define BUG_ON(expr)							\
   ((expr)								\
    ? __assert_fail (__STRING(expr), __FILE__, __LINE__, __ASSERT_FUNCTION) \
@@ -260,7 +260,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         len, (int)len, data, req);
 
     for(;;) {
-        printf("bytes cached %d, bytes_shifted %d, len %d\n", bytes_cached, bytes_shifted, len);
         //read some bytes until we get a end of buffer or 16 bytes
         while (bytes_cached < 16 && len) {
             req->latch16[bytes_shifted + bytes_cached] = data[0];
@@ -268,7 +267,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             ++data;
             --len;
         }
-        printf("bytes cached %d, bytes_shifted %d, len %d\n", bytes_cached, bytes_shifted, len);
         //load bytes
         __m128i compresult;
         __m128i vec = _mm_loadu_si128((__m128i*)(req->latch16+bytes_shifted));
@@ -286,7 +284,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //   Req_UriAuthority
             //   Req_UriHost
             //   Req_UriAuthorityIPv6
-            //   Req_Hdr
+            //   Req_Hdr*
             //force field fixup if we ate all chars
             if (parser->state & Req_ForceStart) {
                 if (!bytes_cached) {
@@ -305,7 +303,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 }
             } else {
                 nc = _mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)__sse_newline)));
-                nc = __builtin_ctz(nc+1);
+                nc = __builtin_ctz(nc|0x10000);
                 if (nc > bytes_cached) {
                     req->bytes_cached = bytes_cached;
                     req->bytes_shifted = bytes_shifted;
@@ -371,9 +369,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             nc = __builtin_ctz(nc+1);
             if (nc > 0) {
                 //lowercase symbols
-                __msg_field_open(&req->host, p);
+                __msg_field_open(&req->host, data);
                 vec = __sse_lowercase(vec);
-                __store_symbols(p, nc, vec);
                 req->current_field = &req->host;
                 req->current_field_tail = p+nc;
                 bytes_shifted = nc;
@@ -566,7 +563,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             nc = (nc + 0x2809) & 0x9404;
 
             compresult = _mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_newline));
-            __print_sse("NL\n", compresult);
 
             if (nc & 0x4) {
                 req->version = TFW_HTTP_VER_09;
@@ -678,6 +674,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             break;
         }
 
+        if (parser->state & Req_Spaces) {
+            nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)__sse_spaces)));
+            nc = __builtin_ctz(nc>>bytes_shifted);
+            bytes_shifted += nc;
+            if (bytes_shifted < 16)
+                parser->state &= ~Req_Spaces;
+        }
         p += bytes_shifted;
         bytes_cached -= bytes_shifted;
 
