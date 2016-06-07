@@ -17,11 +17,30 @@ int do_parse_req(void * req, const unsigned char * text) {
         msg = "TFW_POSTPONE"; break;
     }
     printf("Result = %s\n", msg);
+    return ret;
 }
-
-int main() {
+int do_parse_mp_req(const unsigned char ** text) {
     TfwHttpReq req;
+    int r, i;
     memset(&req, 0, sizeof(req));
-    int result = do_parse_req(&req, "GET http://yandex.ru/file HTTP/1.0\r\nHost: yandex.ru\r\n\r\n");
-    return result;
+    for(i = 0; text[i]; ++i) {
+        r = do_parse_req(&req, text[i]);
+        if (r != TFW_POSTPONE) continue;
+    }
+    return r;
+}
+int main() {
+
+    const unsigned char * r1[] = {
+        "GET http://yandex.ru/file HTTP/1.0\r\nHost: yandex.ru\r\n\r\n",
+        NULL};
+    do_parse_mp_req(r1);
+    const unsigned char * r2[] = {
+        "G","E","T"," ","h","t",
+        "t","p",":","/","/","y",
+        "a","n","d","e","x",".",
+        "ru/file HTTP/1.0\r\nHost: yandex.ru\r\n\r\n",
+        NULL};
+    do_parse_mp_req(r2);
+    return 0;
 }
