@@ -1093,7 +1093,10 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 		"cache",
 		"2",
 		tfw_cfg_set_int,
-		&cache_cfg.cache
+		&cache_cfg.cache,
+		&(TfwCfgSpecInt) {
+			.range = { 0, 2 },
+		}
 	},
 	{
 		"cache_methods",
