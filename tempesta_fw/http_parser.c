@@ -388,7 +388,7 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 }
 
 /**
- * Parse an integer followed by whit space.
+ * Parse an integer followed by a white space.
  */
 static inline int
 parse_int_ws(unsigned char *data, size_t len, unsigned long *acc)
@@ -2351,6 +2351,122 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
  *	HTTP response parsing
  * ------------------------------------------------------------------------
  */
+/* Main (parent) HTTP response processing states. */
+enum {
+	Resp_0,
+	Resp_HttpVer,
+	Resp_HttpVerT1,
+	Resp_HttpVerT2,
+	Resp_HttpVerP,
+	Resp_HttpVerSlash,
+	Resp_HttpVer11,
+	Resp_HttpVerDot,
+	Resp_HttpVer12,
+	Resp_SSpace,
+	Resp_StatusCode,
+	Resp_ReasonPhrase,
+	/* Headers. */
+	Resp_Hdr,
+	Resp_HdrA,
+	Resp_HdrAg,
+	Resp_HdrAge,
+	Resp_HdrAgeV,
+	Resp_HdrC,
+	Resp_HdrCa,
+	Resp_HdrCac,
+	Resp_HdrCach,
+	Resp_HdrCache,
+	Resp_HdrCache_,
+	Resp_HdrCache_C,
+	Resp_HdrCache_Co,
+	Resp_HdrCache_Con,
+	Resp_HdrCache_Cont,
+	Resp_HdrCache_Contr,
+	Resp_HdrCache_Contro,
+	Resp_HdrCache_Control,
+	Resp_HdrCache_ControlV,
+	Resp_HdrCo,
+	Resp_HdrCon,
+	Resp_HdrConn,
+	Resp_HdrConne,
+	Resp_HdrConnec,
+	Resp_HdrConnect,
+	Resp_HdrConnecti,
+	Resp_HdrConnectio,
+	Resp_HdrConnection,
+	Resp_HdrConnectionV,
+	Resp_HdrCont,
+	Resp_HdrConte,
+	Resp_HdrConten,
+	Resp_HdrContent,
+	Resp_HdrContent_,
+	Resp_HdrContent_L,
+	Resp_HdrContent_Le,
+	Resp_HdrContent_Len,
+	Resp_HdrContent_Leng,
+	Resp_HdrContent_Lengt,
+	Resp_HdrContent_Length,
+	Resp_HdrContent_LengthV,
+	Resp_HdrContent_T,
+	Resp_HdrContent_Ty,
+	Resp_HdrContent_Typ,
+	Resp_HdrContent_Type,
+	Resp_HdrContent_TypeV,
+	Resp_HdrD,
+	Resp_HdrDa,
+	Resp_HdrDat,
+	Resp_HdrDate,
+	Resp_HdrDateV,
+	Resp_HdrE,
+	Resp_HdrEx,
+	Resp_HdrExp,
+	Resp_HdrExpi,
+	Resp_HdrExpir,
+	Resp_HdrExpire,
+	Resp_HdrExpires,
+	Resp_HdrExpiresV,
+	Resp_HdrK,
+	Resp_HdrKe,
+	Resp_HdrKee,
+	Resp_HdrKeep,
+	Resp_HdrKeep_,
+	Resp_HdrKeep_A,
+	Resp_HdrKeep_Al,
+	Resp_HdrKeep_Ali,
+	Resp_HdrKeep_Aliv,
+	Resp_HdrKeep_Alive,
+	Resp_HdrKeep_AliveV,
+	Resp_HdrS,
+	Resp_HdrSe,
+	Resp_HdrSer,
+	Resp_HdrServ,
+	Resp_HdrServe,
+	Resp_HdrServer,
+	Resp_HdrServerV,
+	Resp_HdrT,
+	Resp_HdrTr,
+	Resp_HdrTra,
+	Resp_HdrTran,
+	Resp_HdrTrans,
+	Resp_HdrTransf,
+	Resp_HdrTransfe,
+	Resp_HdrTransfer,
+	Resp_HdrTransfer_,
+	Resp_HdrTransfer_E,
+	Resp_HdrTransfer_En,
+	Resp_HdrTransfer_Enc,
+	Resp_HdrTransfer_Enco,
+	Resp_HdrTransfer_Encod,
+	Resp_HdrTransfer_Encodi,
+	Resp_HdrTransfer_Encodin,
+	Resp_HdrTransfer_Encoding,
+	Resp_HdrTransfer_EncodingV,
+	Resp_HdrDone,
+
+	Resp_BodyUnlimStart,
+	Resp_BodyUnlimRead,
+};
+
 /*
  * Helping (interior) FSM states
  * for processing specific parts of an HTTP request.
@@ -2358,6 +2474,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 enum {
 	Resp_I_0,
 
+	/* Age header */
+	Resp_I_Age,
+	Resp_I_AgeVal,
 	/* Cache-Control header */
 	Resp_I_CC,
 	Resp_I_CC_m,
@@ -2366,23 +2485,25 @@ enum {
 	Resp_I_CC_s,
 	Resp_I_CC_MaxAgeV,
 	Resp_I_CC_SMaxAgeV,
-	/* Expires header */
-	Resp_I_Expires,
-	Resp_I_ExpDate,
-	Resp_I_ExpMonthSP,
-	Resp_I_ExpMonth,
-	Resp_I_ExpMonth_A,
-	Resp_I_ExpMonth_J,
-	Resp_I_ExpMonth_M,
-	Resp_I_ExpMonth_Other,
-	Resp_I_ExpYearSP,
-	Resp_I_ExpYear,
-	Resp_I_ExpHourSP,
-	Resp_I_ExpHour,
-	Resp_I_ExpMinCln,
-	Resp_I_ExpMin,
-	Resp_I_ExpSecCln,
-	Resp_I_ExpSec,
+	/* Http-Date */
+	Resp_I_Date,
+	Resp_I_DateDay,
+	Resp_I_DateMonthSP,
+	Resp_I_DateMonth,
+	Resp_I_DateMonth_A,
+	Resp_I_DateMonth_J,
+	Resp_I_DateMonth_M,
+	Resp_I_DateMonth_Other,
+	Resp_I_DateYearSP,
+	Resp_I_DateYear,
+	Resp_I_DateHourSP,
+	Resp_I_DateHour,
+	Resp_I_DateMinCln,
+	Resp_I_DateMin,
+	Resp_I_DateSecCln,
+	Resp_I_DateSec,
+	Resp_I_DateSecSP,
+	Resp_I_DateZone,
 	/* Keep-Alive header. */
 	Resp_I_KeepAlive,
 	Resp_I_KeepAliveTO,
@@ -2569,7 +2690,7 @@ __year_day_secs(unsigned int year, unsigned int day_sec)
 }
 
 static int
-__resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
+__resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
 	static const unsigned long colon_a[] ____cacheline_aligned = {
 		/* ':' (0x3a)(58) Colon */
@@ -2580,16 +2701,16 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st) {
 
-	__FSM_STATE(Resp_I_Expires) {
+	__FSM_STATE(Resp_I_Date) {
 		/* Skip a weekday as redundant information. */
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchr(p, ' ', __fsm_sz);
 		if (__fsm_ch)
-			__FSM_I_MOVE_n(Resp_I_ExpDate, __fsm_ch - p + 1);
-		__FSM_I_MOVE_n(Resp_I_Expires, __fsm_sz);
+			__FSM_I_MOVE_n(Resp_I_DateDay, __fsm_ch - p + 1);
+		__FSM_I_MOVE_n(Resp_I_Date, __fsm_sz);
 	}
 
-	__FSM_STATE(Resp_I_ExpDate) {
+	__FSM_STATE(Resp_I_DateDay) {
 		__fsm_sz = __data_remain(p);
 		if (!isdigit(c))
 			return CSTR_NEQ;
@@ -2602,168 +2723,252 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (parser->_acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
-		resp->expires = (parser->_acc - 1) * SEC24H;
+		parser->_date = (parser->_acc - 1) * SEC24H;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpMonthSP, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateMonthSP, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpMonthSP) {
+	__FSM_STATE(Resp_I_DateMonthSP) {
 		if (likely(isspace(c)))
-			__FSM_I_MOVE(Resp_I_ExpMonth);
+			__FSM_I_MOVE(Resp_I_DateMonth);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth) {
+	__FSM_STATE(Resp_I_DateMonth) {
 		switch (c) {
 		case 'A':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_A, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_A, 0);
 		case 'J':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_J, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_J, 0);
 		case 'M':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_M, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_M, 0);
 		}
-		__FSM_I_MOVE_n(Resp_I_ExpMonth_Other, 0);
+		__FSM_I_MOVE_n(Resp_I_DateMonth_Other, 0);
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_A) {
+	__FSM_STATE(Resp_I_DateMonth_A) {
 		TRY_STR_LAMBDA("Apr", {
-			resp->expires += SB_APR;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_APR;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Aug", {
-			resp->expires += SB_AUG;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_AUG;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_J) {
-		TRY_STR("Jan", Resp_I_ExpYearSP);
+	__FSM_STATE(Resp_I_DateMonth_J) {
+		TRY_STR("Jan", Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Jun", {
-			resp->expires += SB_JUN;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_JUN;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Jul", {
-			resp->expires += SB_JUL;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_JUL;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_M) {
+	__FSM_STATE(Resp_I_DateMonth_M) {
 		TRY_STR_LAMBDA("Mar", {
 			/* Add SEC24H for leap year on year parsing. */
-			resp->expires += SB_MAR;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_MAR;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("May", {
-			resp->expires += SB_MAY;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_MAY;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_Other) {
+	__FSM_STATE(Resp_I_DateMonth_Other) {
 		TRY_STR_LAMBDA("Feb", {
-			resp->expires += SB_FEB;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_FEB;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Sep", {
-			resp->expires += SB_SEP;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_SEP;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Oct", {
-			resp->expires += SB_OCT;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_OCT;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Nov", {
-			resp->expires += SB_NOV;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_NOV;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Dec", {
-			resp->expires += SB_DEC;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_DEC;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	/* Eat SP between Month and Year. */
-	__FSM_STATE(Resp_I_ExpYearSP) {
+	__FSM_STATE(Resp_I_DateYearSP) {
 		if (c == ' ')
-			__FSM_I_MOVE(Resp_I_ExpYear);
+			__FSM_I_MOVE(Resp_I_DateYear);
 		return CSTR_NEQ;
 	}
 
 	/* 4-digit year. */
-	__FSM_STATE(Resp_I_ExpYear) {
+	__FSM_STATE(Resp_I_DateYear) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = __year_day_secs(parser->_acc,
-						resp->expires);
-		if (resp->expires < 0)
+		parser->_date = __year_day_secs(parser->_acc, parser->_date);
+		if (parser->_date < 0)
 			return CSTR_NEQ;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpHourSP, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateHourSP, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpHourSP) {
+	__FSM_STATE(Resp_I_DateHourSP) {
 		if (likely(isspace(c)))
-			__FSM_I_MOVE(Resp_I_ExpHour);
+			__FSM_I_MOVE(Resp_I_DateHour);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpHour) {
+	__FSM_STATE(Resp_I_DateHour) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires += parser->_acc * 3600;
+		parser->_date += parser->_acc * 3600;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpMinCln, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateMinCln, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpMinCln) {
+	__FSM_STATE(Resp_I_DateMinCln) {
 		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_ExpMin);
+			__FSM_I_MOVE(Resp_I_DateMin);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMin) {
+	__FSM_STATE(Resp_I_DateMin) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires += parser->_acc * 60;
+		parser->_date += parser->_acc * 60;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpSecCln, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateSecCln, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpSecCln) {
+	__FSM_STATE(Resp_I_DateSecCln) {
 		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_ExpSec);
+			__FSM_I_MOVE(Resp_I_DateSec);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpSec) {
+	__FSM_STATE(Resp_I_DateSec) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires += parser->_acc;
+		parser->_date += parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateSecSP, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_DateSecSP) {
+		if (likely(isspace(c)))
+			__FSM_I_MOVE(Resp_I_DateZone);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_DateZone) {
+		TRY_STR("GMT", Resp_I_EoL);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
-		/* Skip rest of line: ' GMT'. */
+		/* Skip the rest of the line. */
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
+		if (!__fsm_ch)
+			__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
+			resp->cache_ctl.expires = parser->_date;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
+			break;
+		case Resp_HdrDateV:
+			resp->date = parser->_date;
+			break;
+		default:
+			TFW_DBG2("%s: Unknown caller's FSM state: [%d]\n",
+				 __func__, parser->state);
+			BUG();
+			return CSTR_NEQ;
+		}
+		return __data_offset(__fsm_ch);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
+/*
+ * The value of "Expires:" header field is a date in HTTP-Date format.
+ * However, if the format of a date is invalid, that is interpreted
+ * as representing a time in the past (i.e., "already expired").
+ * See RFC 7234 5.3.
+ */
+static int
+__resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int ret = __resp_parse_http_date(resp, data, len);
+	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
+		BUG_ON(resp->parser.state != Resp_HdrExpiresV);
+		/*
+		 * On error just swallow the rest of the line.
+		 * @resp->expires stays zero - already expired.
+		 */
+		resp->parser._date = 0;
+		resp->parser._i_st = Resp_I_EoL;
+		ret = __resp_parse_http_date(resp, data, len);
+	}
+	return ret;
+}
+
+static int
+__resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(resp);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Resp_I_Age) {
+		/* Eat OWS before the node ID. */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE(Resp_I_Age);
+		__FSM_I_MOVE(Resp_I_AgeVal);
+	}
+	__FSM_STATE(Resp_I_AgeVal) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		resp->cache_ctl.age = parser->_acc;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
+	}
+	__FSM_STATE(Resp_I_EoL) {
+		if (IS_CR_OR_LF(c)) {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_AGE;
+			return __data_offset(p);
+		}
+		return CSTR_NEQ;
 	}
 
 	} /* FSM END */
@@ -2860,113 +3065,6 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 done:
 	return r;
 }
-
-/* Main (parent) HTTP response processing states. */
-enum {
-	Resp_0,
-	Resp_HttpVer,
-	Resp_HttpVerT1,
-	Resp_HttpVerT2,
-	Resp_HttpVerP,
-	Resp_HttpVerSlash,
-	Resp_HttpVer11,
-	Resp_HttpVerDot,
-	Resp_HttpVer12,
-	Resp_SSpace,
-	Resp_StatusCode,
-	Resp_ReasonPhrase,
-	/* Headers. */
-	Resp_Hdr,
-	Resp_HdrC,
-	Resp_HdrCa,
-	Resp_HdrCac,
-	Resp_HdrCach,
-	Resp_HdrCache,
-	Resp_HdrCache_,
-	Resp_HdrCache_C,
-	Resp_HdrCache_Co,
-	Resp_HdrCache_Con,
-	Resp_HdrCache_Cont,
-	Resp_HdrCache_Contr,
-	Resp_HdrCache_Contro,
-	Resp_HdrCache_Control,
-	Resp_HdrCache_ControlV,
-	Resp_HdrCo,
-	Resp_HdrCon,
-	Resp_HdrConn,
-	Resp_HdrConne,
-	Resp_HdrConnec,
-	Resp_HdrConnect,
-	Resp_HdrConnecti,
-	Resp_HdrConnectio,
-	Resp_HdrConnection,
-	Resp_HdrConnectionV,
-	Resp_HdrCont,
-	Resp_HdrConte,
-	Resp_HdrConten,
-	Resp_HdrContent,
-	Resp_HdrContent_,
-	Resp_HdrContent_L,
-	Resp_HdrContent_Le,
-	Resp_HdrContent_Len,
-	Resp_HdrContent_Leng,
-	Resp_HdrContent_Lengt,
-	Resp_HdrContent_Length,
-	Resp_HdrContent_LengthV,
-	Resp_HdrContent_T,
-	Resp_HdrContent_Ty,
-	Resp_HdrContent_Typ,
-	Resp_HdrContent_Type,
-	Resp_HdrContent_TypeV,
-	Resp_HdrE,
-	Resp_HdrEx,
-	Resp_HdrExp,
-	Resp_HdrExpi,
-	Resp_HdrExpir,
-	Resp_HdrExpire,
-	Resp_HdrExpires,
-	Resp_HdrExpiresV,
-	Resp_HdrK,
-	Resp_HdrKe,
-	Resp_HdrKee,
-	Resp_HdrKeep,
-	Resp_HdrKeep_,
-	Resp_HdrKeep_A,
-	Resp_HdrKeep_Al,
-	Resp_HdrKeep_Ali,
-	Resp_HdrKeep_Aliv,
-	Resp_HdrKeep_Alive,
-	Resp_HdrKeep_AliveV,
-	Resp_HdrS,
-	Resp_HdrSe,
-	Resp_HdrSer,
-	Resp_HdrServ,
-	Resp_HdrServe,
-	Resp_HdrServer,
-	Resp_HdrServerV,
-	Resp_HdrT,
-	Resp_HdrTr,
-	Resp_HdrTra,
-	Resp_HdrTran,
-	Resp_HdrTrans,
-	Resp_HdrTransf,
-	Resp_HdrTransfe,
-	Resp_HdrTransfer,
-	Resp_HdrTransfer_,
-	Resp_HdrTransfer_E,
-	Resp_HdrTransfer_En,
-	Resp_HdrTransfer_Enc,
-	Resp_HdrTransfer_Enco,
-	Resp_HdrTransfer_Encod,
-	Resp_HdrTransfer_Encodi,
-	Resp_HdrTransfer_Encodin,
-	Resp_HdrTransfer_Encoding,
-	Resp_HdrTransfer_EncodingV,
-	Resp_HdrDone,
-
-	Resp_BodyUnlimStart,
-	Resp_BodyUnlimRead,
-};
 
 /*
  * The connection is being closed. Terminate the current message.
@@ -3086,8 +3184,25 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		switch (LC(c)) {
+		case 'a':
+			if (likely(__data_available(p, 4)
+				   && C4_INT_LCM(p, 'a', 'g', 'e', ':')))
+			{
+				parser->_i_st = Resp_HdrAgeV;
+				__FSM_MOVE_n(RGen_LWS, 4);
+			}
+			__FSM_MOVE(Resp_HdrA);
 		case 'c':
 			__FSM_MOVE(Resp_HdrC);
+
+		case 'd':
+			if (likely(__data_available(p, 5)
+				   && C4_INT_LCM(p + 1, 'a', 't', 'e', ':')))
+			{
+				parser->_i_st = Resp_HdrDateV;
+				__FSM_MOVE_n(RGen_LWS, 5);
+			}
+			__FSM_MOVE(Resp_HdrD);
 		case 'e':
 			if (likely(__data_available(p, 8)
 				   && C8_INT_LCM(p, 'e', 'x', 'p', 'i',
@@ -3198,9 +3313,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 
+	/* 'Age:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, Resp_I_Age, resp,
+				  __resp_parse_age);
+
 	/* 'Cache-Control:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_ControlV, Resp_I_CC, resp,
 				  __resp_parse_cache_control);
+
+	/* 'Date:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
+				   __resp_parse_http_date, TFW_HTTP_HDR_DATE);
 
 	/* 'Connection:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, I_Conn, msg,
@@ -3217,7 +3340,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
 	/* 'Expires:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Expires, resp,
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Date, resp,
 				  __resp_parse_expires);
 
 	/* 'Keep-Alive:*LWS' is read, process field-value. */
@@ -3262,6 +3385,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCode);
+
+	/* Age header processing. */
+	__FSM_TX_AF(Resp_HdrA, 'g', Resp_HdrAg, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrAg, 'e', Resp_HdrAge, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrAge, ':', Resp_HdrAgeV, RGen_HdrOther);
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Resp_HdrCa, 'c', Resp_HdrCac, RGen_HdrOther);
@@ -3316,6 +3444,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrContent_Ty, 'p', Resp_HdrContent_Typ, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Typ, 'e', Resp_HdrContent_Type, RGen_HdrOther);
 	__FSM_TX_AF_LWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, RGen_HdrOther);
+
+	/* Date header processing. */
+	__FSM_TX_AF(Resp_HdrD, 'a', Resp_HdrDa, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrDa, 't', Resp_HdrDat, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrDat, 'e', Resp_HdrDate, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrDate, ':', Resp_HdrDateV, RGen_HdrOther);
 
 	/* Expires header processing. */
 	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, RGen_HdrOther);
