@@ -283,8 +283,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //потому что больше мы никогда не увидим этот SKB
         if (!len && !bytes_cached) {
             if (parser->current_field) {
-                __msg_field_fixup(parser->current_field, data);
-                parser->header_chunk_start = NULL;
+                if (parser->header_chunk_start) {
+                    tfw_http_msg_hdr_chunk_fixup(msg,
+                                                 parser->header_chunk_start,
+                                                 __fixup_address(data) - parser->header_chunk_start);
+                    parser->header_chunk_start = NULL;
+                } else {
+                    __msg_field_fixup(parser->current_field, data);
+                }
             }
             r = TFW_POSTPONE;
             break;
