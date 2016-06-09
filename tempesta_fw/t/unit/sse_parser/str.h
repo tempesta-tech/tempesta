@@ -139,7 +139,7 @@ typedef struct {
  */
 #define TFW_STR_CURR(s)							\
 ({									\
-	typeof(s) _tmp = TFW_STR_DUP(s)					\
+    __typeof__(s) _tmp = TFW_STR_DUP(s)					\
 		       ? (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1	\
 		       : (s);						\
 	(_tmp->flags & __TFW_STR_COMPOUND)				\

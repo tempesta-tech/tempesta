@@ -23,6 +23,7 @@
 #ifndef __TFW_MSG_H__
 #define __TFW_MSG_H__
 
+#include "helpers.h"
 #include "gfsm.h"
 #include "sync_socket.h"
 
@@ -34,7 +35,7 @@
  */
 typedef struct {
     struct list_head	msg_list;
-    TfwGState		state;
+    //TfwGState		state;
     SsSkbList		skb_list;
     size_t			len;
 } TfwMsg;

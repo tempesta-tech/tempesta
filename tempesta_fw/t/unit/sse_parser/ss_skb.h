@@ -48,15 +48,40 @@ enum {
 //====================================================
 // LINUX
 //====================================================
-struct sk_buff {
-    unsigned char * start;
-    size_t          lenght;
-};
+/*
+ * ------------------------------------------------------------------------
+ * 		Tempesta FW
+ * ------------------------------------------------------------------------
+ */
+/*
+ * We use this additional skb list to be able to reference skbs which are
+ * processed by standard Linux TCP/IP stack w/o skb cloning.
+ */
+typedef struct {
+    struct sk_buff	*next;
+    struct sk_buff	*prev;
+} SsSkbCb;
+
+#define TFW_SKB_CB(s)		((SsSkbCb *)((s)->cb + sizeof((s)->cb)	\
+                              - sizeof(SsSkbCb)))
+#define TFW_SKB_CB_INIT(skb)						\
+do {									\
+    TFW_SKB_CB(skb)->prev = NULL;					\
+    TFW_SKB_CB(skb)->next = NULL;					\
+} while (0)
+
 typedef struct {
     struct sk_buff	*first;
     struct sk_buff	*last;
 } SsSkbList;
+struct sk_buff {
+    char			cb[64] __attribute__((aligned(8)));
 
+    unsigned char * start;
+    size_t          lenght;
+};
+//======================================================
+/*
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
 static inline void
@@ -69,12 +94,12 @@ static inline int
 ss_skb_queue_empty(const SsSkbList *list)
 {
     return !list->first;
-}
+}*/
 
 /**
  * Add new @skb to the @list in FIFO order.
  */
-static inline void
+/*static inline void
 ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
     SsSkbCb *scb = TFW_SKB_CB(skb);
@@ -114,13 +139,13 @@ ss_skb_peek(const SsSkbList *list)
 {
     return list->first;
 }
-
+*/
 static inline struct sk_buff *
 ss_skb_peek_tail(const SsSkbList *list)
 {
     return list->last;
 }
-
+/*
 static inline struct sk_buff *
 ss_skb_dequeue(SsSkbList *list)
 {
@@ -159,7 +184,7 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
         return NULL;
     *f = 0;
     return &skb_shinfo(*skb)->frags[0];
-}
+}*/
 
 /*
  * skb_tailroom - number of bytes at buffer end
@@ -168,11 +193,11 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
  * in include/linux/skbuff.h. The difference is that the original
  * only works on a linear skb, while this one works on any skb.
  */
-static inline int
+/*static inline int
 ss_skb_tailroom(const struct sk_buff *skb)
 {
     return skb->end - skb->tail;
-}
+}*/
 
 /*
  * skb_put - add data to a buffer
@@ -181,7 +206,7 @@ ss_skb_tailroom(const struct sk_buff *skb)
  * in net/core/skbuff.c. The difference is that the original only
  * works on a linear skb, while this one works on any skb.
  */
-static inline unsigned char *
+/*static inline unsigned char *
 ss_skb_put(struct sk_buff *skb, const int len)
 {
     unsigned char *tmp = skb_tail_pointer(skb);
@@ -217,7 +242,7 @@ int ss_skb_cutoff_data(SsSkbList *skb_list,
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
            ss_skb_actor_t actor, void *objdata);
-
+*/
 #endif /* __TFW_SS_SKB_H__ */
 
 #endif // SS_SKB_H

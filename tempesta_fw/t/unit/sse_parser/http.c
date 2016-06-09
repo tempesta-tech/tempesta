@@ -18,20 +18,20 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/string.h>
+//#include <linux/string.h>
 
-#include "cache.h"
-#include "classifier.h"
-#include "client.h"
-#include "hash.h"
+//#include "cache.h"
+//#include "classifier.h"
+//#include "client.h"
+//#include "hash.h"
 #include "http_msg.h"
-#include "http_sticky.h"
+//#include "http_sticky.h"
 #include "log.h"
-#include "procfs.h"
-#include "server.h"
-#include "tls.h"
+//#include "procfs.h"
+//#include "server.h"
+//#include "tls.h"
 
-#include "sync_socket.h"
+//#include "sync_socket.h"
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);

@@ -27,9 +27,12 @@ else
 	EXTRA_CFLAGS += -DDEBUG=0
 endif
 
-DEPS = sse_parser.h http_parser.h
+DEPS = sse_parser.h http_parser.h pool.h test_helpers.h
 
 all: test_sse_symbolmap test_sse_tokenset test_sse_http_request http_parser
+
+pool: pool.o test_helpers.o
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 http_parser: http_parser.o http_parser_main.o
 	$(CC) -o $@ $^ $(LDFLAGS)

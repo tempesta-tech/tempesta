@@ -8,6 +8,8 @@
 #include <memory.h>
 #include <assert.h>
 
+#define DEBUG 3
+
 #define BUG_ON(expr)							\
   ((expr)								\
    ? __assert_fail (__STRING(expr), __FILE__, __LINE__, __ASSERT_FUNCTION) \
@@ -73,7 +75,6 @@ do {									\
 struct list_head {
     //empty at the moment
 };
-
 typedef unsigned char u_char;
 
 #endif // HELPERS_H

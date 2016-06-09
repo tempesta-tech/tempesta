@@ -54,28 +54,28 @@
  * 2. modules must register a callback only if it has work to do (not just when
  *    it's loaded into kernel).
  */
-#define TFW_GFSM_HTTP_STATE(s)	((TFW_FSM_HTTP << TFW_GFSM_FSM_SHIFT) | (s))
-enum {
-	/* HTTP FSM initial state, not hookable. */
-	TFW_HTTP_FSM_INIT		= TFW_GFSM_HTTP_STATE(0),
-
-	/* Called on request End-Of-Skb (EOS). */
-	TFW_HTTP_FSM_REQ_CHUNK		= TFW_GFSM_HTTP_STATE(1),
-
-	/* Whole request is read. */
-	TFW_HTTP_FSM_REQ_MSG		= TFW_GFSM_HTTP_STATE(2),
-
-	/* Called on response EOS. */
-	TFW_HTTP_FSM_RESP_CHUNK		= TFW_GFSM_HTTP_STATE(3),
-
-	/* Whole response is read. */
-	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
-
-	/* Run just before localy generated response sending. */
-	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
-
-	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
-};
+//#define TFW_GFSM_HTTP_STATE(s)	((TFW_FSM_HTTP << TFW_GFSM_FSM_SHIFT) | (s))
+//enum {
+//	/* HTTP FSM initial state, not hookable. */
+//	TFW_HTTP_FSM_INIT		= TFW_GFSM_HTTP_STATE(0),
+//
+//	/* Called on request End-Of-Skb (EOS). */
+//	TFW_HTTP_FSM_REQ_CHUNK		= TFW_GFSM_HTTP_STATE(1),
+//
+//	/* Whole request is read. */
+//	TFW_HTTP_FSM_REQ_MSG		= TFW_GFSM_HTTP_STATE(2),
+//
+//	/* Called on response EOS. */
+//	TFW_HTTP_FSM_RESP_CHUNK		= TFW_GFSM_HTTP_STATE(3),
+//
+//	/* Whole response is read. */
+//	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
+//
+//	/* Run just before localy generated response sending. */
+//	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
+//
+//	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
+//};
 
 typedef enum {
 	TFW_HTTP_METH_NONE,
@@ -121,8 +121,7 @@ typedef struct {
  *    rather than specific per-state checks
  *
  * @state	- current parser state;
- * @charset1-
- * @charset2- pointers to SSE charset structures
+ * @charset1- pointer to SSE charset structures
  *            parser uses them to calculate amount of
  *            symbols to be consumed at any arbitrary stage
  *            without diving into switch
@@ -139,12 +138,10 @@ typedef struct {
 typedef struct {
     int		            state;
     const unsigned char*charset1;
-    const unsigned char*charset2;
     int                 bytes_cached, bytes_shifted;
     unsigned char       latch16[32] __attribute__((aligned(16)));
-
+    unsigned char      *header_chunk_start;
     TfwStr             *current_field;
-    TfwStr             *aux_field;
     TfwStr		        hdr;
 } TfwHttpParser;
 
