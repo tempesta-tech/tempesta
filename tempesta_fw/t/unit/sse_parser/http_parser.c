@@ -294,11 +294,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //мы будем делать fuxupы относительно некоторого базового
         //указателя и количества байт опознаных алгоритмом.
         unsigned char * fixup_ptr = data - bytes_cached;
-        //парсер не может запуститься при условии что байт "хватает"
-        //и не выжрать ни одного байта, и при этом уйти на второй круг
-        //что-то пошло "не так"
-        if (bytes_cached >= 16)
-            return TFW_BLOCK;
 
         //мы дополняем буфер до 16 байт
         while (bytes_cached < 16 && len) {
@@ -316,8 +311,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //load bytes
         __m128i vec = _mm_loadu_si128((__m128i*)(parser->latch16+bytes_shifted));
         //match charset and auxillarycharset
-        __m128i charset1 = __match_charset(_r_charset, vec);
-        __m128i charset2 = _mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_spaces));
+        register __m128i charset1 = __match_charset(_r_charset, vec);
+        register __m128i charset2 = _mm_cmpeq_epi8(vec, _r_spaces);
         int avail_mask = 0xFFFFFFFF << bytes_cached;
         int mask1 = (~_mm_movemask_epi8(charset1))|avail_mask;
         int mask2 = (~_mm_movemask_epi8(charset2))|avail_mask;
@@ -333,8 +328,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         __print_sse("VEC", vec);
 #endif
         //pre-skip spaces if they are expected
-        if (parser->state & Req_Spaces) {
-            nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)__sse_spaces)));
+        if (unlikely(parser->state & Req_Spaces)) {
+            nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _r_spaces));
             nc = __builtin_ctz(nc);
             if (nc < bytes_cached) parser->state &= ~ Req_Spaces;
             //store bytes back to parser state for further realignment
@@ -712,14 +707,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
         _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
 
-        if (parser->state & Req_Spaces)
-        {
-            nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)__sse_spaces)));
-            nc = __builtin_ctz(nc>>bytes_shifted);
-            bytes_shifted += nc;
-            if (bytes_shifted < 16)
-                parser->state &= ~Req_Spaces;
-        }
         data = p;
         bytes_cached -= bytes_shifted;
         if (r == TFW_PASS)
