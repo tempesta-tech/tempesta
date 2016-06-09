@@ -167,9 +167,8 @@ static inline __m128i __sse_lowercase(__m128i data) {
     return _mm_or_si128(data, s);
 }
 
-static inline __m128i __match_charset(const unsigned char * charset, __m128i data)
+static inline __m128i __match_charset(__m128i sm, __m128i data)
 {
-    __m128i sm = _mm_load_si128((const __m128i*)charset);
     __m128i mask1 = _mm_shuffle_epi8(sm, data);
     __m128i mask2 = _mm_and_si128(
                 _mm_load_si128((const __m128i*)__sse_charset),
@@ -258,7 +257,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
     TfwHttpReq *req = (TfwHttpReq *)req_data;
     __FSM_DECLARE_VARS(req);
 
-    __m128i compresult;
+    register __m128i compresult;
+    register __m128i _r_charset;// asm("xmm15");
+    register __m128i _r_spaces;// asm("xmm14");
 
     unsigned char * base = data, * end = data + len;
     int bytes_cached = parser->bytes_cached;
@@ -268,6 +269,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
     if (unlikely(parser->state == Req_0)) {
         parser->state = Req_Method;
         parser->charset1 = __sse_method_charset;
+        _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
+        _r_spaces  = _mm_load_si128((const __m128i*)__sse_spaces);
         bytes_cached = 0;
         bytes_shifted = 0;
     }
@@ -313,7 +316,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //load bytes
         __m128i vec = _mm_loadu_si128((__m128i*)(parser->latch16+bytes_shifted));
         //match charset and auxillarycharset
-        __m128i charset1 = __match_charset(parser->charset1, vec);
+        __m128i charset1 = __match_charset(_r_charset, vec);
         __m128i charset2 = _mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_spaces));
         int avail_mask = 0xFFFFFFFF << bytes_cached;
         int mask1 = (~_mm_movemask_epi8(charset1))|avail_mask;
@@ -401,7 +404,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //nc        1 2 3 4 5 6 7 7
 
             //если скорее всего получили http://
-            if (nc == -128) {
+            if (likely(nc == -128)) {
                 bytes_shifted = 7;
                 TFW_STR_INIT(&req->host);
                 parser->current_field = NULL;
@@ -410,7 +413,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 break;
             }
 
-            if (nc > avail_mask) {
+            if (unlikely(nc > avail_mask)) {
                 if (nc > -32) {
                     parser->state = Req_Host;
                     break;
@@ -706,6 +709,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             TFW_DBG3("unexpected state %d\n", parser->state);
             return TFW_BLOCK;
         }
+
+        _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
 
         if (parser->state & Req_Spaces)
         {
