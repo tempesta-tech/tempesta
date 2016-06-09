@@ -209,9 +209,10 @@ static inline long long __parse_number(__m128i vec, int len) {
     return result;
 }
 
+#if defined(DEBUG) && (DEBUG >= 3)
 void __print_sse(const char * prefix, __m128i sm) {
     unsigned char * data = (unsigned char*)&sm;
-    printf(prefix);
+    (prefix);
     printf("|  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 "
            "|  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |\n");
 
@@ -224,6 +225,7 @@ void __print_sse(const char * prefix, __m128i sm) {
     printf("|  %c ", isprint(data[i]) ? data[i] : '.');
     printf("|\n");
 }
+#endif
 
 void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
@@ -274,17 +276,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         len, (int)len, data, req);
 
     for(;;) {
-        printf("\n\tPos: \"%s\"\n", data);
         //если пакет закончился, надо fixupнуть строки
-        if (!len) {
+        //потому что больше мы никогда не увидим этот SKB
+        if (!len && !bytes_cached) {
             if (parser->current_field) {
                 __msg_field_fixup(parser->current_field, data);
                 parser->header_chunk_start = NULL;
             }
-            if (!bytes_cached) {
-                r = TFW_POSTPONE;
-                break;
-            }
+            r = TFW_POSTPONE;
+            break;
         }
         unsigned char * p = data;
         //нам в дальнейшем потребуется указатель для fixupов
@@ -326,7 +326,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //========================================================
         //end of region to be optimized
         //========================================================
+#if defined(DEBUG) && (DEBUG >= 3)
         __print_sse("VEC", vec);
+#endif
         //pre-skip spaces if they are expected
         if (parser->state & Req_Spaces) {
             nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)__sse_spaces)));
