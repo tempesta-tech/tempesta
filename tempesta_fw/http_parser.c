@@ -1276,6 +1276,20 @@ enum {
 	Req_HdrUser_Agen,
 	Req_HdrUser_Agent,
 	Req_HdrUser_AgentV,
+	Req_HdrA,
+	Req_HdrAu,
+	Req_HdrAut,
+	Req_HdrAuth,
+	Req_HdrAutho,
+	Req_HdrAuthor,
+	Req_HdrAuthori,
+	Req_HdrAuthoriz,
+	Req_HdrAuthoriza,
+	Req_HdrAuthorizat,
+	Req_HdrAuthorizati,
+	Req_HdrAuthorizatio,
+	Req_HdrAuthorization,
+	Req_HdrAuthorizationV,
 	/* Body */
 	/* URI normalization. */
 	Req_UriNorm,
@@ -1323,6 +1337,7 @@ enum {
 	Req_I_CookieValStart,
 	Req_I_CookieVal,
 	Req_I_CookieSP,
+	Req_I_Auth,
 };
 
 /**
@@ -1712,6 +1727,29 @@ done:
 	return r;
 }
 
+static int
+__req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Auth) {
+		req->cache_ctl.flags |= TFW_HTTP_CC_HDR_AUTHORIZATION;
+		__fsm_sz = __data_remain(p);
+		__fsm_ch = memchreol(p, __fsm_sz);
+		if (__fsm_ch)
+			return __data_offset(__fsm_ch);
+		__FSM_I_MOVE_n(Req_I_Auth, __fsm_sz);
+	}
+
+	} /* FSM END */
+
+done:
+	return r;
+}
+
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
@@ -1955,6 +1993,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		switch (LC(c)) {
+		case 'a':
+			if (likely(__data_available(p, 14)
+				   && C8_INT_LCM(p + 1, 'u', 't', 'h', 'o',
+				   			'r', 'i', 'z', 'a')
+				   && C4_INT_LCM(p + 9, 't', 'i', 'o', 'n')
+				   && *(p + 13) == ':'))
+			{
+				parser->_i_st = Req_HdrAuthorizationV;
+				__FSM_MOVE_n(RGen_LWS_empty, 14);
+			}
+			__FSM_MOVE(Req_HdrA);
 		case 'c':
 			__FSM_MOVE(Req_HdrC);
 		case 'h':
@@ -2131,6 +2180,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, Req_I_CookieStart,
 				     msg, __req_parse_cookie,
 				     TFW_HTTP_HDR_COOKIE, 0);
+
+	/* 'Authorization:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrAuthorizationV, Req_I_Auth,
+				  req, __req_parse_authorization);
 
 	RGEN_HDR_OTHER();
 
@@ -2340,6 +2393,21 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie, RGen_HdrOther);
 	__FSM_TX_AF_LWS(Req_HdrCookie, ':', Req_HdrCookieV, RGen_HdrOther);
 
+	/* Authorization header processing. */
+	__FSM_TX_AF(Req_HdrA, 'u', Req_HdrAu, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAu, 't', Req_HdrAut, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAut, 'h', Req_HdrAuth, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuth, 'o', Req_HdrAutho, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAutho, 'r', Req_HdrAuthor, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthor, 'i', Req_HdrAuthori, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthori, 'z', Req_HdrAuthoriz, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthoriz, 'a', Req_HdrAuthoriza, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthoriza, 't', Req_HdrAuthorizat, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizat, 'i', Req_HdrAuthorizati, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizati, 'o', Req_HdrAuthorizatio, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizatio, 'n', Req_HdrAuthorization, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrAuthorization, ':', Req_HdrAuthorizationV, RGen_HdrOther);
+
 	}
 	__FSM_FINISH(req);
 
@@ -2481,6 +2549,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
 		resp->cache_ctl.s_maxage = parser->_acc;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);

@@ -252,10 +252,17 @@ tfw_cache_employ_req(TfwHttpReq *req)
 }
 
 static bool
-tfw_cache_employ_resp(TfwHttpReq *req)
+tfw_cache_employ_resp(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
 		return false;
+	if (req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION &&
+	    !(resp->cache_ctl.flags & TFW_HTTP_CC_PUBLIC) &&
+	    !(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE) &&
+	    !(resp->cache_ctl.flags & TFW_HTTP_CC_MUST_REV))
+	{
+		return false;
+	}
 	return true;
 }
 
@@ -641,7 +648,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		return true;
-	if (!tfw_cache_employ_resp(req))
+	if (!tfw_cache_employ_resp(resp, req))
 		return true;
 
 	key = tfw_http_req_key_calc(req);
