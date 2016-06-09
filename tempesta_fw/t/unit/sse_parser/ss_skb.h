@@ -45,41 +45,19 @@ enum {
     SS_STOP		= 1,
 };
 
-//====================================================
-// LINUX
-//====================================================
-/*
- * ------------------------------------------------------------------------
- * 		Tempesta FW
- * ------------------------------------------------------------------------
- */
-/*
- * We use this additional skb list to be able to reference skbs which are
- * processed by standard Linux TCP/IP stack w/o skb cloning.
- */
-typedef struct {
-    struct sk_buff	*next;
-    struct sk_buff	*prev;
-} SsSkbCb;
-
-#define TFW_SKB_CB(s)		((SsSkbCb *)((s)->cb + sizeof((s)->cb)	\
-                              - sizeof(SsSkbCb)))
-#define TFW_SKB_CB_INIT(skb)						\
-do {									\
-    TFW_SKB_CB(skb)->prev = NULL;					\
-    TFW_SKB_CB(skb)->next = NULL;					\
-} while (0)
-
 typedef struct {
     struct sk_buff	*first;
     struct sk_buff	*last;
 } SsSkbList;
 struct sk_buff {
-    char			cb[64] __attribute__((aligned(8)));
-
-    unsigned char * start;
-    size_t          lenght;
+    struct sk_buff  * next;
+    struct sk_buff  * prev;
+    unsigned char   * start;
+    size_t            length;
 };
+
+SsSkbList createSkbList(unsigned char ** text);
+void destroySkbList(SsSkbList list);
 //======================================================
 /*
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
