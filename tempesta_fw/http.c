@@ -40,7 +40,9 @@ int ghprio; /* GFSM hook priority. */
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
+#define S_200			"HTTP/1.1 200 OK"
 #define S_302			"HTTP/1.1 302 Found"
+#define S_403			"HTTP/1.1 403 Forbidden"
 #define S_404			"HTTP/1.1 404 Not Found"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
@@ -236,9 +238,55 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, &resp, msg);
 
-	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
+	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
+}
 
-	return 0;
+#define S_200_PART_01	S_200 S_CRLF S_F_DATE
+#define S_200_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 200 response: Success.
+ */
+int
+tfw_http_send_200(TfwHttpMsg *hmreq)
+{
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_200_PART_01, .len = SLEN(S_200_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_200_PART_02, .len = SLEN(S_200_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
+	};
+
+	TFW_DBG("Send HTTP 200 response to the client\n");
+
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+}
+
+#define S_403_PART_01	S_403 S_CRLF S_F_DATE
+#define S_403_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 403 response: Access is forbidden.
+ */
+int
+tfw_http_send_403(TfwHttpMsg *hmreq)
+{
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_403_PART_01, .len = SLEN(S_403_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_403_PART_02, .len = SLEN(S_403_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
+	};
+
+	TFW_DBG("Send HTTP 404 response to the client\n");
+
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_404_PART_01	S_404 S_CRLF S_F_DATE
@@ -246,7 +294,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 /*
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
-static int
+int
 tfw_http_send_404(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
