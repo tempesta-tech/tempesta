@@ -17,6 +17,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/inet.h>
 #include "tempesta_fw.h"
 #include "http_match.h"
 #include "vhost.h"
@@ -66,6 +67,16 @@ static TfwLocation tfw_location_dflt = {
 };
 
 /*
+ * IP addresses that make the ACL for cache purge operations are put
+ * into a fixed size array. The IP addresses are kept in form of an
+ * IPv6 address and the prefix size. sockaddr_in6.sin6_scope_id is
+ * used to store the prefix size.
+ */
+#define TFW_CAPUACL_ARRAY_SZ	(32)
+
+static TfwAddr		tfw_capuacl[TFW_CAPUACL_ARRAY_SZ];
+
+/*
  * Default vhost is a wildcard vhost. It matches any URI.
  * It may (or may not) ontain a set of various directives.
  *
@@ -80,8 +91,31 @@ static TfwVhost		tfw_vhost_dflt = {
 	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.loc		= tfw_location,
 	.loc_dflt	= &tfw_location_dflt,
-	.loc_dflt_sz	= 1
+	.loc_dflt_sz	= 1,
+	.capuacl	= tfw_capuacl,
 };
+
+/*
+ * Match the IP address @addr against the addresses in the ACL list.
+ * The addresses are compared according to the prefix length stored
+ * with each address in the ACL list.
+ * True is returned if the match is found.
+ * False is returned otherwise.
+ */
+bool
+tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr)
+{
+	int i;
+	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+
+	for (i = 0; i < vhost->capuacl_sz; ++i) {
+		TfwAddr *acl_addr = &vhost->capuacl[i];
+		if (ipv6_prefix_equal(inaddr, &acl_addr->v6.sin6_addr,
+					      acl_addr->in6_prefix))
+			return true;
+	}
+	return false;
+}
 
 /*
  * Matching functions for match operators. A TfwStr{} is compared
@@ -561,6 +595,138 @@ tfw_handle_out_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+/*
+ *  Match the ip address against the ACL list.
+ */
+static bool
+tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
+{
+	int i;
+	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+
+	for (i = 0; i < vhost->capuacl_sz; ++i) {
+		struct in6_addr *acl_inaddr = &vhost->capuacl[i].v6.sin6_addr;
+		if (ipv6_prefix_equal(inaddr, acl_inaddr, addr->in6_prefix))
+			return true;
+	}
+	return false;
+}
+
+/*
+ * Parse an IP address in CIDR format. Try to parse it as an IPv4
+ * address first. If successful, convert the IPv4 address to IPv6
+ * address. Otherwise, try to parse it as an IPv6 address.
+ * Returns a pointer to the next character after the parsed string
+ * if the result is positive. Returns NULL in case of an error.
+ */
+static const char *
+tfw_capuacl_parse_addr(const char *arg, TfwAddr *addr)
+{
+	char delim = '/';
+	TfwAddr tmpaddr = {};
+	const char *pptr;
+	__be32 *v4_saddr = &tmpaddr.v4.sin_addr.s_addr;
+	struct in6_addr *v6_inaddr = &tmpaddr.v6.sin6_addr;
+
+	if (in4_pton(arg, -1, (u8 *)v4_saddr, delim, &pptr)) {
+		ipv6_addr_set_v4mapped(*v4_saddr, v6_inaddr);
+		tmpaddr.family = AF_INET;
+		goto done;
+	}
+	if (*arg == '[') {
+		arg++;
+		delim = ']';
+	}
+	if (!in6_pton(arg, -1, (u8 *)&v6_inaddr->s6_addr, delim, &pptr))
+		return NULL;
+	tmpaddr.family = AF_INET6;
+	if (*pptr == ']')
+		++pptr;
+done:
+	if (*pptr == '/')
+		++pptr;
+
+	*addr = tmpaddr;
+	return pptr;
+}
+
+/*
+ * Parse an IP address in CIDR format specified in the cache_purge_acl
+ * directive. That include an IPv4 or IPv6 address, and a potential
+ * address prefix specified as the number of bits after the '/' char.
+ * Returns zero if the result is positive.
+ * Returns a negative error number in case of an error.
+ */
+static int
+tfw_capuacl_parse_value(const char *arg, TfwAddr *addr)
+{
+	u8 prefix;
+	const char *pptr;
+
+	if ((pptr = tfw_capuacl_parse_addr(arg, addr)) == NULL)
+		return -EINVAL;
+
+	/* Parse a possible prefix length. */
+	if (*pptr == '\0') {
+		addr->in6_prefix = 128;
+		return 0;
+	}
+	if (kstrtou8(pptr, 10, &prefix) || (prefix == 0))
+		return -EINVAL;
+	if (addr->family == AF_INET) {
+		if (prefix > 32)
+			return -EINVAL;
+		prefix += 128 - 32;
+		addr->family = AF_INET6;
+	} else if (prefix > 128) {
+		return -EINVAL;
+	}
+	addr->in6_prefix = prefix;
+
+	return 0;
+}
+
+/*
+ * Process the cache_purge_acl directive.
+ */
+static int
+tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		TfwAddr addr = {};
+
+		if (tfw_capuacl_parse_value(val, &addr)) {
+			TFW_ERR("%s: Invalid ACL entry: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		/* Make sure the address is not a duplicate. */
+		if (tfw_capuacl_lookup(vhost, &addr)) {
+			TFW_ERR("%s: Duplicate IP address or prefix: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		/* Add new ACL entry. */
+		if (vhost->capuacl_sz == TFW_CAPUACL_ARRAY_SZ) {
+			TFW_ERR("%s: Unable to add new ACL: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		vhost->capuacl[vhost->capuacl_sz++] = addr;
+	}
+	vhost->cache_purge_acl = 1;
+
+	return 0;
+}
 
 static void
 __tfw_cleanup_hdrvia(void)
@@ -574,6 +740,43 @@ static void
 tfw_cleanup_hdrvia(TfwCfgSpec *cs)
 {
 	__tfw_cleanup_hdrvia();
+}
+
+/*
+ * Process the cache_purge directive.
+ */
+static int
+tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (!ce->val_n) {
+		/* Default value for the cache_purge directive. */
+		vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
+		goto done;
+	}
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (!strcasecmp(val, "invalidate")) {
+			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
+		} else if (!strcasecmp(val, "purge")) {
+			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_PURGE;
+		} else {
+			TFW_ERR("%s: unsupported argument: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+	}
+done:
+	vhost->cache_purge = 1;
+
+	return 0;
 }
 
 static int
@@ -615,6 +818,20 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_cleanup_hdrvia
+	},
+	{
+		"cache_purge",
+		NULL,
+		tfw_handle_cache_purge,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		"cache_purge_acl",
+		NULL,
+		tfw_handle_cache_purge_acl,
+		.allow_none = true,
+		.allow_repeat = true,
 	},
 	{
 		"cache_bypass", NULL,

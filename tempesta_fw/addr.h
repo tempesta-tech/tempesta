@@ -50,6 +50,7 @@ typedef union {
 	struct sockaddr_in6 v6;
 	struct sockaddr sa;
 	sa_family_t family;
+#define in6_prefix	v6.sin6_scope_id
 } TfwAddr;
 
 int tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener);
