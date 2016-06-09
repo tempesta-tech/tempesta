@@ -64,10 +64,9 @@ int ghprio; /* GFSM hook priority. */
  * header field. See RFC 2616 section 3.3.
  */
 static void
-tfw_http_prep_date(char *buf)
+tfw_http_prep_date_from(char *buf, time_t date)
 {
 	struct tm tm;
-	struct timespec ts;
 	char *ptr = buf;
 
 	static char *wday[] __read_mostly =
@@ -81,8 +80,7 @@ tfw_http_prep_date(char *buf)
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;
 
-	getnstimeofday(&ts);
-	time_to_tm(ts.tv_sec, 0, &tm);
+	time_to_tm(date, 0, &tm);
 
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
@@ -99,6 +97,14 @@ tfw_http_prep_date(char *buf)
 	PRINT_2DIGIT(ptr, tm.tm_sec);
 	memcpy(ptr, " GMT", 4);
 #undef PRINT_2DIGIT
+}
+
+static inline void
+tfw_http_prep_date(char *buf)
+{
+	struct timespec ts;
+	getnstimeofday(&ts);
+	tfw_http_prep_date_from(buf, ts.tv_sec);
 }
 
 unsigned long tfw_hash_str(const TfwStr *str);
@@ -623,6 +629,23 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_set_hdr_date(TfwHttpMsg *hm)
+{
+	int r;
+	char *s_date = *this_cpu_ptr(&g_buf);
+
+	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
+	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
+				  s_date, SLEN(S_V_DATE),
+				  TFW_HTTP_HDR_DATE, 0);
+	if (r)
+		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
+	else
+		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
+	return r;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -667,6 +690,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	r = tfw_http_add_hdr_via(hm);
 	if (r)
 		return r;
+
+	if (TFW_STR_EMPTY(&resp->h_tbl->tbl[TFW_HTTP_HDR_DATE])) {
+		r =  tfw_http_set_hdr_date(hm);
+		if (r < 0)
+			return r;
+	}
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
@@ -1092,6 +1121,15 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpMsg *hmreq;
 
+	/*
+	 * If 'Date:' header is missing in the response, then set
+	 * the timestamp to the response's processing time/date.
+	 */
+	if (TFW_STR_EMPTY(&hmresp->h_tbl->tbl[TFW_HTTP_HDR_DATE])) {
+		struct timespec ts;
+		getnstimeofday(&ts);
+		((TfwHttpResp *)hmresp)->date = ts.tv_sec;
+	}
 	/*
 	 * Cache adjusted and filtered responses only. Responses
 	 * are received in the same order as requests, so we can
