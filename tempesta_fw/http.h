@@ -107,12 +107,17 @@ enum {
 #define TFW_HTTP_CC_PRIVATE		0x00000100
 #define TFW_HTTP_CC_PRAGMA_NO_CACHE	0x00010000
 #define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x00100000
+#define TFW_HTTP_CC_HDR_AGE		0x01000000
+#define TFW_HTTP_CC_HDR_EXPIRES		0x02000000
+
 
 typedef struct {
 	unsigned int	flags;
 	unsigned int	max_age;
 	unsigned int	s_maxage;
 	unsigned int	max_fresh;
+	time_t		age;
+	time_t		expires;
 } TfwCacheControl;
 
 /**
@@ -146,6 +151,7 @@ typedef struct {
 	int		to_read;
 	unsigned long	_acc;
 	unsigned long	_eol;
+	time_t		_date;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
@@ -167,6 +173,7 @@ typedef struct {
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
+	TFW_HTTP_HDR_DATE,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
@@ -287,7 +294,7 @@ typedef struct {
 	TfwStr			s_line;
 	unsigned short		status;
 	unsigned int		keep_alive;
-	unsigned int		expires;
+	time_t			date;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
