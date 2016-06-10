@@ -4,9 +4,11 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <memory.h>
 #include <assert.h>
+#include <errno.h>
 
 #define DEBUG 3
 
@@ -50,15 +52,16 @@
 
 #if defined(DEBUG) && (DEBUG >= 3)
 #define TFW_DBG3(...) __TFW_DBG3(__VA_ARGS__)
+#define TFW_PSSE(...) __print_sse(__VA_ARGS__)
 #else
 #define TFW_DBG3(...)
+#define TFW_PSSE(...)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 1)
 #define __CALLSTACK_MSG(...)						\
 do {									\
     printf(__VA_ARGS__);						\
-    __WARN();							\
 } while (0)
 
 #define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
@@ -72,9 +75,10 @@ do {									\
 #define TFW_LOG(...)	printf(TFW_BANNER __VA_ARGS__)
 #endif
 
-struct list_head {
-    //empty at the moment
-};
+#define EXPORT_SYMBOL(sym)
+
+#define min(a, b) ((a) < (b) ? (a):(b))
+
 typedef unsigned char u_char;
 
 #endif // HELPERS_H

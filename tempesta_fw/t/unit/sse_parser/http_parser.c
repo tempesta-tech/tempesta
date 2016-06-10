@@ -1,5 +1,5 @@
 #include "http_parser.h"
-#include "http_msg.h"
+#include "gfsm.h"
 
 #include <string.h>
 #include <assert.h>
@@ -52,12 +52,12 @@ static const unsigned char __sse_alignment[64] __attribute__((aligned(64))) = {
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
 static const unsigned char __sse_method[48] __attribute__((aligned(64))) = {
-        0, 1, 2, 0xFF, 0, 1, 2, 3,     0, 1, 2, 3, 0xFF, 0xFF, 0xFF, 0xFF,
-        'G','E','T',0, 'H','E','A','D','P','O','S','T',0,0,0,0,
+        0, 1, 2, 0xFF, 0, 1, 2, 3,     0, 1, 2, 3, 0, 1, 2, 0xFF,
+        'G','E','T',0, 'H','E','A','D','P','O','S','T','P','U','T',0,
         TFW_HTTP_METH_GET, 3,0,0,
         TFW_HTTP_METH_POST, 4,0,0,
         TFW_HTTP_METH_HEAD, 4,0,0,
-        TFW_HTTP_METH_NONE, 0,0,0,
+        TFW_HTTP_METH_PUT, 3,0,0,
 };
 static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
         'h', 't', 't', 'p', ':', '/', '/', 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -107,8 +107,7 @@ static const unsigned char __sse_null_charset[16] __attribute__((aligned(16))) =
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0
 };
 static const unsigned char __sse_uri_charset[16] __attribute__((aligned(16))) = {
-    0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-    0xf8, 0xf8, 0xf0, 0x54, 0x50, 0x54, 0x54, 0x54
+    0xa8, 0xf8, 0xf8, 0xfc, 0xf8, 0xfc, 0xfc, 0xf8, 0xf8, 0xf8, 0xf4, 0x54, 0x54, 0x5c, 0x54, 0x5c
 };
 static const unsigned char __sse_version_charset[16] __attribute__((aligned(16))) = {
     0x28, 0x08, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00,
@@ -212,48 +211,22 @@ void __check_hdraddr_impl(unsigned char * addr,
 #define __fixup_address(n) __fixup_address_impl(fixup_ptr, base, end, n)
 #define __check_hdraddr(n) __check_hdraddr_impl(n, base, end)
 
-#ifdef DEBUG
 void __msg_field_open(TfwStr * str, unsigned char * pos) {
-    printf("Open string at %p\n", pos);
+    TFW_DBG("Open string at %p\n", pos);
     str->ptr = pos;
 }
 void __msg_field_fixup(TfwStr * str, unsigned char * pos) {
-    printf("End string chunk at %p\n", pos);
+    TFW_DBG("End string chunk at %p\n", pos);
     str->ptr = pos;
 }
 void __msg_field_finish_n(TfwStr * str) {
-    printf("Finish string\n");
+    TFW_DBG("Finish string\n");
     str->flags |= TFW_STR_COMPLETE;				\
 }
 void __msg_field_finish(TfwStr * str, unsigned char * pos) {
     __msg_field_fixup(str, pos);
     __msg_field_finish_n(str);
 }
-
-#else
-
-#define __msg_field_open(field, pos)					\
-do {
-    tfw_http_msg_set_data(msg, field, pos);				\
-} while (0)
-
-#define __msg_field_fixup(field, pos)					\
-do {									\
-    if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-        tfw_http_msg_field_chunk_fixup(msg, field, data,	\
-                           __data_offset(pos));	\
-} while (0)
-
-#define __msg_field_finish(field, pos)					\
-do {									\
-    __msg_field_fixup(field, pos);					\
-    (field)->flags |= TFW_STR_COMPLETE;				\
-} while (0)
-#define __msg_field_finish_n(field)					\
-do {									\
-    (field)->flags |= TFW_STR_COMPLETE;				\
-} while (0)
-#endif
 
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
@@ -411,6 +384,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //сравним то что есть в лоб
             nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_schema)));
             nc |= avail_mask;
+            printf("NC = %08x\n", nc);
+            nc |= nc<<1;
+            nc |= nc<<2;
+            nc |= nc<<4;
+            nc |= nc<<8;
             //попробуем понять, точно ли перед нами http://
             //проверим, есть ли расхождения:
             //байт есть 1 2 3 4 5 6 7 8
@@ -429,6 +407,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             }
 
             if (unlikely(nc > avail_mask)) {
+                printf("NC = %d\n", nc);
                 if (nc > -32) {
                     state = Req_Host;
                     break;

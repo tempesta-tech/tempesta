@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include "str.h"
 
 //something wrong happens with GCC when i try to compile code
 //with this on Core i7-4820k: it generates invalid opcodes
@@ -14,6 +15,26 @@
 #include <tmmintrin.h>
 //#undef _MM_MALLOC_H_INCLUDED
 //#pragma GCC pop_options
+
+
+typedef enum {
+    TFW_HTTP_METH_NONE,
+    TFW_HTTP_METH_GET,
+    TFW_HTTP_METH_HEAD,
+    TFW_HTTP_METH_POST,
+    TFW_HTTP_METH_PUT,
+    _TFW_HTTP_METH_COUNT
+} tfw_http_meth_t;
+
+/* HTTP protocol versions. */
+enum {
+    __TFW_HTTP_VER_INVALID,
+    TFW_HTTP_VER_09,
+    TFW_HTTP_VER_10,
+    TFW_HTTP_VER_11,
+    TFW_HTTP_VER_20,
+};
+
 
 /**
  * A generic approach to SSE parser is incompatible with
@@ -54,6 +75,55 @@ typedef struct {
     TfwStr		        hdr;
 } TfwHttpParser;
 
+/**
+ * @msg_list	- messages queue to send to peer;
+ * @state	- message processing state;
+ * @skb_list	- list of sk_buff's belonging to the message;
+ * @len		- total body length;
+ */
+typedef struct {
+} TfwMsg;
+
+/**
+ * Http headers table.
+ *
+ * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
+ * repetition attacks. See __hdr_is_singular() and don't forget to
+ * update the static headers array when add a new singular header here.
+ *
+ * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
+ *
+ * Cookie: singular according to RFC 6265 5.4.
+ *
+ * TODO split the enumeration to separate server and client sets to avoid
+ * vasting of headers array slots.
+ */
+typedef enum {
+    TFW_HTTP_HDR_HOST,
+    TFW_HTTP_HDR_CONTENT_LENGTH,
+    TFW_HTTP_HDR_CONTENT_TYPE,
+    TFW_HTTP_HDR_USER_AGENT,
+    TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
+    TFW_HTTP_HDR_COOKIE,
+
+    /* End of list of singular header. */
+    TFW_HTTP_HDR_NONSINGULAR,
+
+    TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
+    TFW_HTTP_HDR_X_FORWARDED_FOR,
+
+    /* Start of list of generic (raw) headers. */
+    TFW_HTTP_HDR_RAW,
+
+    TFW_HTTP_HDR_NUM	= 16,
+} tfw_http_hdr_t;
+
+typedef struct {
+    unsigned int	size;	/* number of elements in the table */
+    unsigned int	off;
+    TfwStr		tbl[0];
+} TfwHttpHdrTbl;
+
 #define TFW_HTTP_MSG_COMMON						\
     TfwMsg		msg;						\
     TfwPool		*pool;						\
@@ -64,6 +134,9 @@ typedef struct {
     TfwStr		crlf;						\
     TfwStr		body;
 
+typedef struct {
+    TFW_HTTP_MSG_COMMON;
+} TfwHttpMsg;
 
 typedef struct {
     TFW_HTTP_MSG_COMMON;

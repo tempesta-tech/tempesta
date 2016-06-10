@@ -43,6 +43,7 @@
  */
 
 #include "pool.h"
+#include <stdlib.h>
 
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
 #define TFW_POOL_CHUNK_BASE(c)	((unsigned long)(c) & PAGE_MASK)
@@ -89,11 +90,11 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 		unsigned int off = TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)) + n;
 		unsigned int order = get_order(off);
 
-        //c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
-        //if (!c)
-        if (unlikely(posix_memalign(&c, 4096, order)))
-			return NULL;
-		c->next = curr;
+        c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+        if (!c)
+            return NULL;
+
+        c->next = curr;
 		c->order = order;
 
 		curr->off = p->off;
@@ -110,7 +111,7 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 
 	return a;
 }
-//EXPORT_SYMBOL(tfw_pool_alloc);
+EXPORT_SYMBOL(tfw_pool_alloc);
 
 void *
 tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
@@ -130,12 +131,12 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 	}
 
 	a = tfw_pool_alloc(p, new_n);
-	if (likely(a))
+    if (likely(a != NULL))
 		memcpy(a, ptr, old_n);
 
 	return a;
 }
-//EXPORT_SYMBOL(tfw_pool_realloc);
+EXPORT_SYMBOL(tfw_pool_realloc);
 
 /**
  * It's good to call the function against just allocated chunk in stack-manner.
@@ -176,10 +177,9 @@ __tfw_pool_new(size_t n)
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-    //c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
-    //if (unlikely(!c))
-    if (unlikely(posix_memalign(&c, 4096, order)))
-		return NULL;
+    c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+    if (unlikely(!c))
+        return NULL;
 
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
@@ -190,7 +190,7 @@ __tfw_pool_new(size_t n)
 
 	return p;
 }
-//EXPORT_SYMBOL(__tfw_pool_new);
+EXPORT_SYMBOL(__tfw_pool_new);
 
 void
 tfw_pool_destroy(TfwPool *p)
@@ -202,24 +202,19 @@ tfw_pool_destroy(TfwPool *p)
 
 	for (c = p->curr; c; c = next) {
 		next = c->next;
-        //tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
-        free(c);
-	}
+        tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+    }
 }
-//EXPORT_SYMBOL(tfw_pool_destroy);
+EXPORT_SYMBOL(tfw_pool_destroy);
 
 int
 tfw_pool_init(void)
 {
-	pg_cache = alloc_percpu(unsigned long [TFW_POOL_PGCACHE_SZ]);
-	if (pg_cache == NULL)
-		return -ENOMEM;
 	return 0;
 }
 
 void
 tfw_pool_exit(void)
 {
-	free_percpu(pg_cache);
 }
 

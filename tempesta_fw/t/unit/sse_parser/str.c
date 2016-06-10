@@ -21,8 +21,9 @@
 //#include <linux/bug.h>
 //#include <linux/kernel.h>
 //#include <linux/ctype.h>
-
+#include <ctype.h>
 #include "str.h"
+
 
 void
 tfw_str_del_chunk(TfwStr *str, int id)
@@ -336,7 +337,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 {
 	int len, clen = cstr_len;
 	const TfwStr *chunk, *end;
-	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
+    __typeof__(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
 			       ? strncasecmp
 			       : strncmp;
 
