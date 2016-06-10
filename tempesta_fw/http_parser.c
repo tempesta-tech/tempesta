@@ -2447,7 +2447,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("private", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PRIVATE;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("proxy-revalidate", {
 			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
