@@ -384,7 +384,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //сравним то что есть в лоб
             nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_schema)));
             nc |= avail_mask;
-            printf("NC = %08x\n", nc);
             nc |= nc<<1;
             nc |= nc<<2;
             nc |= nc<<4;
@@ -407,7 +406,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             }
 
             if (unlikely(nc > avail_mask)) {
-                printf("NC = %d\n", nc);
                 if (nc > -32) {
                     state = Req_Host;
                     break;
