@@ -64,7 +64,7 @@ enum {
 typedef struct {
     int		            state;
     int                 bytes_cached, bytes_shifted;
-    unsigned char       latch16[32] __attribute__((aligned(16)));
+    unsigned char       latch16[33] __attribute__((aligned(16)));
     const unsigned char*charset1;
     unsigned char      *header_chunk_start;
     TfwStr             *current_field;

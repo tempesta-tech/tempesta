@@ -7,6 +7,8 @@
 
 #define __FSM_STATE(st) case st: st: TFW_DBG("\n\tState: %s\n", #st);
 
+extern void __print_sse(const char * prefix, __m128i sm);
+
 /* Main (parent) HTTP request processing states. */
 enum {
     Req_0,
@@ -107,7 +109,8 @@ static const unsigned char __sse_null_charset[16] __attribute__((aligned(16))) =
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0
 };
 static const unsigned char __sse_uri_charset[16] __attribute__((aligned(16))) = {
-    0xa8, 0xf8, 0xf8, 0xfc, 0xf8, 0xfc, 0xfc, 0xf8, 0xf8, 0xf8, 0xf4, 0x54, 0x54, 0x5c, 0x54, 0x5c
+    0xa8, 0xf8, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xf8,
+    0xf8, 0xf8, 0xf4, 0x5c, 0x54, 0x5c, 0x54, 0x5c
 };
 static const unsigned char __sse_version_charset[16] __attribute__((aligned(16))) = {
     0x28, 0x08, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00,
@@ -286,7 +289,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //мы будем делать fuxupы относительно некоторого базового
         //указателя и количества байт опознаных алгоритмом.
         unsigned char * fixup_ptr = data - bytes_cached;
-
         //мы дополняем буфер до 16 байт
         while (bytes_cached < 16 && len) {
             parser->latch16[bytes_shifted + bytes_cached] = p[0];
@@ -314,6 +316,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //realign pending bytes
         _mm_store_si128((__m128i*)parser->latch16, vec);
         bytes_shifted = 0;
+
         //========================================================
         //end of region to be optimized
         //========================================================
@@ -541,12 +544,19 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             bytes_shifted = nchars1;
             if (nchars1 == bytes_cached) break;
 
-            __msg_field_finish(&req->uri_path, __fixup_address(nchars1));
+            if (nchars1)
+                __msg_field_finish(&req->uri_path, __fixup_address(nchars1));
+            else
+                __msg_field_finish_n(&req->uri_path);
             parser->current_field = NULL;
 
             unsigned char c = parser->latch16[nchars1];
             switch (c) {
-            case ' ': case '\r': case '\n':
+            case '\r': case '\n':
+                parser->charset1 = __sse_version_charset;
+                state = Req_HttpVersion;
+                break;
+            case ' ':
                 parser->charset1 = __sse_version_charset;
                 state = Req_HttpVersion|Req_Spaces;
                 break;
@@ -705,7 +715,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             TFW_DBG3("unexpected state %d\n", state);
             return TFW_BLOCK;
         }
-
         _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
 
         data = p;
