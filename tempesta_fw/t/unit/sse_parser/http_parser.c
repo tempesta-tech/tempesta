@@ -41,29 +41,6 @@ enum {
     TfwHttpParser *parser = &msg->parser;				\
     ;
 
-#define __msg_field_open(field, pos)					\
-do {									\
-    tfw_http_msg_set_data(msg, field, pos);				\
-} while (0)
-
-#define __msg_field_fixup(field, pos)					\
-do {									\
-    if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-        tfw_http_msg_field_chunk_fixup(msg, field, data,	\
-                           __data_offset(pos));	\
-} while (0)
-
-#define __msg_field_finish(field, pos)					\
-do {									\
-    __msg_field_fixup(field, pos);					\
-    (field)->flags |= TFW_STR_COMPLETE;				\
-} while (0)
-#define __msg_field_finish_n(field)					\
-do {									\
-    (field)->flags |= TFW_STR_COMPLETE;				\
-} while (0)
-
-
 //===========================================================
 // BEGIN SSE CONTSTANTS BLOCK
 //===========================================================
@@ -208,23 +185,6 @@ static inline long long __parse_number(__m128i vec, int len) {
     return result;
 }
 
-#if defined(DEBUG) && (DEBUG >= 3)
-void __print_sse(const char * prefix, __m128i sm) {
-    unsigned char * data = (unsigned char*)&sm;
-    (prefix);
-    printf("|  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 "
-           "|  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |\n");
-
-    printf("+----+----+----+----+----+----+----+----"
-           "+----+----+----+----+----+----+----+----+\n");
-    for(int i = 0; i < 16; ++i)
-    printf("| %02x ", data[i]);
-    printf("|\n");
-    for(int i = 0; i < 16; ++i)
-    printf("|  %c ", isprint(data[i]) ? data[i] : '.');
-    printf("|\n");
-}
-#endif
 
 void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
@@ -241,14 +201,59 @@ unsigned char * __fixup_address_impl(unsigned char * addr,
     assert(addr+offset <= end);
     return addr+offset;
 }
+
 void __check_hdraddr_impl(unsigned char * addr,
                           unsigned char * base,
                           unsigned char * end) {
     assert(addr >= base);
     assert(addr <= end);
 }
+
 #define __fixup_address(n) __fixup_address_impl(fixup_ptr, base, end, n)
 #define __check_hdraddr(n) __check_hdraddr_impl(n, base, end)
+
+#ifdef DEBUG
+void __msg_field_open(TfwStr * str, unsigned char * pos) {
+    printf("Open string at %p\n", pos);
+    str->ptr = pos;
+}
+void __msg_field_fixup(TfwStr * str, unsigned char * pos) {
+    printf("End string chunk at %p\n", pos);
+    str->ptr = pos;
+}
+void __msg_field_finish_n(TfwStr * str) {
+    printf("Finish string\n");
+    str->flags |= TFW_STR_COMPLETE;				\
+}
+void __msg_field_finish(TfwStr * str, unsigned char * pos) {
+    __msg_field_fixup(str, pos);
+    __msg_field_finish_n(str);
+}
+
+#else
+
+#define __msg_field_open(field, pos)					\
+do {
+    tfw_http_msg_set_data(msg, field, pos);				\
+} while (0)
+
+#define __msg_field_fixup(field, pos)					\
+do {									\
+    if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
+        tfw_http_msg_field_chunk_fixup(msg, field, data,	\
+                           __data_offset(pos));	\
+} while (0)
+
+#define __msg_field_finish(field, pos)					\
+do {									\
+    __msg_field_fixup(field, pos);					\
+    (field)->flags |= TFW_STR_COMPLETE;				\
+} while (0)
+#define __msg_field_finish_n(field)					\
+do {									\
+    (field)->flags |= TFW_STR_COMPLETE;				\
+} while (0)
+#endif
 
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
@@ -264,16 +269,19 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
     unsigned char * base = data, * end = data + len;
     int bytes_cached = parser->bytes_cached;
     int bytes_shifted = parser->bytes_shifted;
-    int nc, bc;
+    int nc, bc, state, prevstate;
 
-    if (unlikely(parser->state == Req_0)) {
-        parser->state = Req_Method;
+    state = parser->state;
+    prevstate = Req_0;
+    if (unlikely(state == Req_0)) {
+        state = Req_Method;
         parser->charset1 = __sse_method_charset;
-        _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
-        _r_spaces  = _mm_load_si128((const __m128i*)__sse_spaces);
         bytes_cached = 0;
         bytes_shifted = 0;
     }
+
+    _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
+    _r_spaces  = _mm_load_si128((const __m128i*)__sse_spaces);
 
     TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
         len, (int)len, data, req);
@@ -281,12 +289,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
     for(;;) {
         //если пакет закончился, надо fixupнуть строки
         //потому что больше мы никогда не увидим этот SKB
-        if (!len && !bytes_cached) {
+        if ((bytes_shifted == 0 && state == prevstate)
+            || (len + bytes_cached == 0))
+        {
             if (parser->current_field) {
                 if (parser->header_chunk_start) {
                     tfw_http_msg_hdr_chunk_fixup(msg,
                                                  parser->header_chunk_start,
-                                                 __fixup_address(data) - parser->header_chunk_start);
+                                                 data - parser->header_chunk_start);
                     parser->header_chunk_start = NULL;
                 } else {
                     __msg_field_fixup(parser->current_field, data);
@@ -295,6 +305,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             r = TFW_POSTPONE;
             break;
         }
+
+        prevstate = state;
+
         unsigned char * p = data;
         //нам в дальнейшем потребуется указатель для fixupов
         //мы будем делать fuxupы относительно некоторого базового
@@ -317,11 +330,12 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //load bytes
         __m128i vec = _mm_loadu_si128((__m128i*)(parser->latch16+bytes_shifted));
         //match charset and auxillarycharset
-        register __m128i charset1 = __match_charset(_r_charset, vec);
-        register __m128i charset2 = _mm_cmpeq_epi8(vec, _r_spaces);
+        __m128i charset1 = __match_charset(_r_charset, vec);
+        __m128i charset2 = _mm_cmpeq_epi8(vec, _r_spaces);
         int avail_mask = 0xFFFFFFFF << bytes_cached;
         int mask1 = (~_mm_movemask_epi8(charset1))|avail_mask;
         int mask2 = (~_mm_movemask_epi8(charset2))|avail_mask;
+
         //matched chars with 1st char
         int nchars1 = __builtin_ctz(mask1);
         //realign pending bytes
@@ -330,23 +344,22 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         //========================================================
         //end of region to be optimized
         //========================================================
-#if defined(DEBUG) && (DEBUG >= 3)
-        __print_sse("VEC", vec);
-#endif
         //pre-skip spaces if they are expected
-        if (unlikely(parser->state & Req_Spaces)) {
+        if (unlikely(state & Req_Spaces)) {
             nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _r_spaces));
             nc = __builtin_ctz(nc);
-            if (nc < bytes_cached) parser->state &= ~ Req_Spaces;
-            //store bytes back to parser state for further realignment
-            bytes_shifted = nc;
-            bytes_cached -= nc;
-            //move to the end of sequence
-            data = p;
-            continue;
+            if (nc < bytes_cached) state &= ~ Req_Spaces;
+            if (nc) {
+                //store bytes back to parser state for further realignment
+                bytes_shifted = nc;
+                bytes_cached -= nc;
+                //move to the end of sequence
+                data = p;
+                continue;
+            }
         }
 
-        switch (parser->state) {
+        switch (state) {
         __FSM_STATE(Req_Method) {
             //
             // в этом состоянии, мы уверены в следующем:
@@ -355,7 +368,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             // 3)у нас есть некоторое количество подходящих байт и некоторое количество пробелов после.
             //
             //если мы не нашли пробелов после строки, просто ожидаем
-            if (nchars1 == bytes_cached) break;
+            if (nchars1 >= bytes_cached) break;
             if (parser->latch16[nchars1] != ' ') return TFW_BLOCK;
             //we support only GET/HEAD/POST
             compresult = _mm_shuffle_epi8(vec, _mm_load_si128((__m128i*)__sse_method));
@@ -372,10 +385,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             parser->charset1 = __sse_host_charset;
             //schedule skip_spaces skip if we have parsed all available bytes
             if (bytes_shifted < bytes_cached) goto Req_BeginSchema;
-            parser->state = Req_BeginSchema|Req_Spaces;
+            state = Req_BeginSchema|Req_Spaces;
             break;}
         __FSM_STATE(Req_BeginSchema) {
-            parser->state = Req_Schema;
+            state = Req_Schema;
             parser->current_field = &req->host;
             __msg_field_open(&req->host, __fixup_address(bytes_shifted));
             if (bytes_shifted)break;}
@@ -397,6 +410,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
             //сравним то что есть в лоб
             nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_schema)));
+            nc |= avail_mask;
             //попробуем понять, точно ли перед нами http://
             //проверим, есть ли расхождения:
             //байт есть 1 2 3 4 5 6 7 8
@@ -410,13 +424,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 TFW_STR_INIT(&req->host);
                 parser->current_field = NULL;
                 parser->charset1 = __sse_host_charset;
-                parser->state = Req_HostReset;
+                state = Req_HostReset;
                 break;
             }
 
             if (unlikely(nc > avail_mask)) {
                 if (nc > -32) {
-                    parser->state = Req_Host;
+                    state = Req_Host;
                     break;
                 }
                 if (nc == -32) {
@@ -427,7 +441,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                     }
                     bytes_shifted = 5;
                     parser->charset1 = __sse_digit_charset;
-                    parser->state = Req_Port;
+                    state = Req_Port;
                     break;
                 }
                 return TFW_BLOCK;
@@ -441,6 +455,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         __FSM_STATE(Req_HostReset) {
             parser->current_field = &req->host;
             __msg_field_open(&req->host, __fixup_address(0));
+            state = Req_Host;
             /* continue */}
         __FSM_STATE(Req_Host) {
             bytes_shifted = nchars1;
@@ -461,7 +476,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 TFW_STR_INIT(&req->host);
                 parser->current_field = NULL;
                 bytes_shifted = nchars1 + 1;
-                parser->state = Req_HostReset;
+                state = Req_HostReset;
                 break;
             }
             if (c == '[') {
@@ -473,10 +488,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 parser->current_field = NULL;
                 bytes_shifted = 1;
                 parser->charset1 = __sse_host_ipv6_charset;
-                parser->state = Req_HostIpv6Reset;
+                state = Req_HostIpv6Reset;
                 break;
             }
-            __msg_field_finish(&req->host, __fixup_address(nchars1));
+            if (nchars1)
+                __msg_field_finish(&req->host, __fixup_address(nchars1));
+            else
+                __msg_field_finish_n(&req->host);
             parser->current_field = NULL;
             /* continue */}
         __FSM_STATE(Req_HostEnd) {
@@ -486,15 +504,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             case ':':
                 ++bytes_shifted;
                 parser->charset1 = __sse_digit_charset;
-                parser->state = Req_Port;
+                state = Req_Port;
                 break;
             case '/':
                 parser->charset1 = __sse_uri_charset;
-                parser->state = Req_Uri;
+                state = Req_Uri;
                 break;
             case ' ': case '\r': case '\n':
                 parser->charset1 = __sse_version_charset;
-                parser->state = Req_HttpVersion|Req_Spaces;
+                state = Req_HttpVersion|Req_Spaces;
                 break;
             default:
                 return TFW_BLOCK;
@@ -506,14 +524,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             /* continue */}
         __FSM_STATE(Req_HostIpv6) {
             bytes_shifted = nchars1;
-            if (nchars1 == bytes_cached) break;
+            if (nchars1 >= bytes_cached) break;
 
             unsigned char c = parser->latch16[nchars1];
             if (c != ']') return TFW_BLOCK;
             __msg_field_finish(&req->host, __fixup_address(nchars1));
             parser->current_field = NULL;
             parser->charset1 = __sse_null_charset;
-            parser->state = Req_HostEnd;
+            state = Req_HostEnd;
             break;}
         __FSM_STATE(Req_Port) {
             BUG_ON(parser->current_field);
@@ -527,11 +545,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             switch (c) {
             case '/':
                 parser->charset1 = __sse_uri_charset;
-                parser->state = Req_Uri;
+                state = Req_Uri;
                 break;
             case ' ': case '\r': case '\n':
                 parser->charset1 = __sse_version_charset;
-                parser->state = Req_HttpVersion|Req_Spaces;
+                state = Req_HttpVersion|Req_Spaces;
                 break;
             default:
                 return TFW_BLOCK;
@@ -540,7 +558,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         __FSM_STATE(Req_Uri) {
             parser->current_field = &req->uri_path;
             __msg_field_open(&req->uri_path, __fixup_address(0));
-            parser->state = Req_UriNext;
+            state = Req_UriNext;
             /* continue */}
         __FSM_STATE(Req_UriNext) {
             bytes_shifted = nchars1;
@@ -553,7 +571,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             switch (c) {
             case ' ': case '\r': case '\n':
                 parser->charset1 = __sse_version_charset;
-                parser->state = Req_HttpVersion|Req_Spaces;
+                state = Req_HttpVersion|Req_Spaces;
                 break;
             default:
                 return TFW_BLOCK;
@@ -565,7 +583,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             int nc = ~_mm_movemask_epi8(compresult);
             nc |= avail_mask;
             //need more data?
-            if (nc < avail_mask) break;
+            if (nc == -1) break;
 
             compresult = _mm_shuffle_epi8(vec, _mm_load_si128((const __m128i*)__sse_version));
             compresult = _mm_cmpeq_epi8(compresult, _mm_load_si128((const __m128i*)(__sse_version+16)));
@@ -582,7 +600,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             }
             bytes_shifted = __builtin_ctz(nc+1)+1;
             parser->charset1 = __sse_header_charset;
-            parser->state = Req_Hdr;
+            state = Req_Hdr;
             break;}
         __FSM_STATE(Req_Hdr) {
             BUG_ON(parser->current_field != NULL);
@@ -593,7 +611,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                     bytes_shifted = 1;
                     if (unlikely(bytes_cached < 2)) {
                         parser->charset1 = __sse_null_charset;
-                        parser->state = Req_HdrN;
+                        state = Req_HdrN;
                         break;
                     }
                 }
@@ -619,7 +637,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                         __builtin_ctz(mask2 >> (nchars1+1))
                         + 1;
                 parser->charset1 = __sse_value_charset;
-                parser->state = Req_HdrValue|Req_Spaces;
+                state = Req_HdrValue|Req_Spaces;
                 break;
             }
 
@@ -629,7 +647,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             parser->header_chunk_start = __fixup_address(0);
 
             bytes_shifted = nchars1;
-            parser->state = Req_HdrName;
+            state = Req_HdrName;
             break;}
         __FSM_STATE(Req_HdrN) {
             if (unlikely(parser->latch16[0] != '\n')) return TFW_BLOCK;
@@ -653,7 +671,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                         __builtin_ctz(mask2 >> (nchars1+1))
                         + 1;
                 parser->charset1 = __sse_value_charset;
-                parser->state = Req_HdrValue|Req_Spaces;
+                state = Req_HdrValue|Req_Spaces;
                 break;
             }
             //continue grabbing data
@@ -680,7 +698,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                     ++bytes_shifted;
                     if (unlikely(bytes_cached == bytes_shifted)) {
                         parser->charset1 = __sse_null_charset;
-                        parser->state = Req_HdrValueN;
+                        state = Req_HdrValueN;
                         break;
                     }
                 }
@@ -689,7 +707,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
                 ++bytes_shifted;
                 parser->charset1 = __sse_header_charset;
-                parser->state = Req_Hdr;
+                state = Req_Hdr;
                 break;
             }
             //continue grabbing data
@@ -701,13 +719,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             if (unlikely(parser->latch16[0] != '\n')) return TFW_BLOCK;
             ++bytes_shifted;
             parser->charset1 = __sse_header_charset;
-            parser->state = Req_Hdr;
+            state = Req_Hdr;
             break;}
         __FSM_STATE(Req_End)
             r = TFW_PASS;
             break;
         default:
-            TFW_DBG3("unexpected state %d\n", parser->state);
+            TFW_DBG3("unexpected state %d\n", state);
             return TFW_BLOCK;
         }
 
@@ -718,6 +736,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         if (r == TFW_PASS)
             break;
     }
+    parser->state = state;
+    parser->bytes_cached = bytes_cached;
+    parser->bytes_shifted = bytes_shifted;
     return r;
 }
 
