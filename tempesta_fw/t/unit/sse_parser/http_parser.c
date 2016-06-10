@@ -187,7 +187,22 @@ static inline long long __parse_number(__m128i vec, int len) {
     return result;
 }
 
+//#define NO_TEMPESTA_OVERHEAD
+#ifdef NO_TEMPESTA_OVERHEAD
 
+#define __fixup_address(n) n
+#define __check_hdraddr(n)
+
+#define tfw_http_msg_hdr_open(hm, hdr_start)
+#define tfw_http_msg_hdr_chunk_fixup(hm, data, len)
+#define tfw_http_msg_hdr_close(hm, id)
+
+#define __msg_field_open(str, pos)
+#define __msg_field_fixup(str, pos)
+#define __msg_field_finish_n(str)
+#define __msg_field_finish(str, pos)
+
+#else
 void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 void
@@ -214,22 +229,23 @@ void __check_hdraddr_impl(unsigned char * addr,
 #define __fixup_address(n) __fixup_address_impl(fixup_ptr, base, end, n)
 #define __check_hdraddr(n) __check_hdraddr_impl(n, base, end)
 
-void __msg_field_open(TfwStr * str, unsigned char * pos) {
+inline void __msg_field_open(TfwStr * str, unsigned char * pos) {
     TFW_DBG("Open string at %p\n", pos);
     str->ptr = pos;
 }
-void __msg_field_fixup(TfwStr * str, unsigned char * pos) {
+inline void __msg_field_fixup(TfwStr * str, unsigned char * pos) {
     TFW_DBG("End string chunk at %p\n", pos);
     str->ptr = pos;
 }
-void __msg_field_finish_n(TfwStr * str) {
+inline void __msg_field_finish_n(TfwStr * str) {
     TFW_DBG("Finish string\n");
     str->flags |= TFW_STR_COMPLETE;				\
 }
-void __msg_field_finish(TfwStr * str, unsigned char * pos) {
+inline void __msg_field_finish(TfwStr * str, unsigned char * pos) {
     __msg_field_fixup(str, pos);
     __msg_field_finish_n(str);
 }
+#endif
 
 int
 tfw_http_parse_header(void *req_data, unsigned char *data, size_t len)
@@ -263,6 +279,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         parser->charset1 = __sse_method_charset;
         bytes_cached = 0;
         bytes_shifted = 0;
+        parser->current_field = 0;
+        parser->header_chunk_start = 0;
     }
 
     _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
@@ -738,7 +756,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
     return r;
 }
 
-
+#ifndef NO_TEMPESTA_OVERHEAD
 /**
  * Open currently parsed header.
  */
@@ -784,3 +802,4 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
     TFW_DBG3("close header with id %d\n", id);
     return TFW_PASS;
 }
+#endif

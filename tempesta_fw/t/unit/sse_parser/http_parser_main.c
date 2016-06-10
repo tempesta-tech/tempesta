@@ -68,7 +68,7 @@ int tfw_parse_req(unsigned char * text, int pktsz, int expect) {
     }
 
     TfwHttpReq req;
-    memset(&req, 0, sizeof(req));
+    req.parser.state = 0;
 
     int r, i, j;
 
@@ -105,8 +105,7 @@ int tfw_parse_hdr(unsigned char * text, int pktsz, int expect) {
 #define test_goto(ctx, data, fn)							\
 do {									\
     gettimeofday(&tv0, NULL);					\
-                                    \
-    for (unsigned i = 0; i < 100 * 1000; ++i)				\
+    for (unsigned i = 0; i < 1000 * 1000; ++i)				\
         for (unsigned j = 0; j < sizeof(data)/sizeof(data[0]); ++j) { \
             ctx.state = ctx.lowcase_index = 0;			\
             fn(&ctx, (unsigned char *)data[j].str, data[j].len); \
@@ -141,13 +140,13 @@ int main() {
     {
         printf("Test(hdr) %d:", i);
 
-        if (!tfw_parse_hdr(headers[i].str,
+        if (!tfw_parse_hdr((unsigned char *)headers[i].str,
                            headers[i].len,
                            TFW_POSTPONE)) {
             printf("\tfull string: FAIL\n");
             return 1;
         }
-        if (!tfw_parse_hdr(headers[i].str,
+        if (!tfw_parse_hdr((unsigned char *)headers[i].str,
                            headers[i].len,
                            TFW_POSTPONE)) {
             printf("\tby bytes: FAIL\n");
@@ -157,43 +156,89 @@ int main() {
     }
     //as a last step: parser runs with all headers from above and
     int long_req_len = strlen(long_request_with_hdrs);
+    int test_result;
 
-    int test_result = tfw_parse_req(long_request_with_hdrs, long_req_len, TFW_PASS);
+    test_result = tfw_parse_req(long_request_with_hdrs, long_req_len, TFW_PASS);
     printf("Full request:\t%s\n",
            test_result ? "PASS":"FAIL");
     if (!test_result)
         return 1;
+    test_result = tfw_parse_req(long_request_with_hdrs, -1200, TFW_PASS);
+    printf("Chunked(1200b):\t%s\n",
+           test_result ? "PASS":"FAIL");
+    if (!test_result)
+        return 1;
+
     //end verify parser==============================
 
     //benchmark parser===============================
     ngx_http_request_t goto_ctx;
-    struct timeval tv0, tv1;					\
+    struct timeval tv0, tv1, tv2;					\
     test_goto(goto_ctx, requests, goto_request_line);
     printf("\tgoto_request_line:\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
     test_goto(goto_ctx, headers, goto_header_line);
     printf("\tgoto_header_line:\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
+
     gettimeofday(&tv0, NULL);
-    for (unsigned i = 0; i < 100 * 1000; ++i)
+    for (unsigned i = 0; i < 1000 * 1000; ++i)
         for (unsigned j = 0; j < sizeof(requests)/sizeof(requests[0]); ++j) {
-            tfw_parse_req(requests[j].str, requests[j].len, TFW_POSTPONE);
+            tfw_parse_req((unsigned char *)requests[j].str, requests[j].len, TFW_POSTPONE);
         }
     gettimeofday(&tv1, NULL);
     printf("\tsse_request_line:\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
     gettimeofday(&tv0, NULL);
-    for (unsigned i = 0; i < 100 * 1000; ++i)
+    for (unsigned i = 0; i < 1000 * 1000; ++i)
         for (unsigned j = 0; j < sizeof(headers)/sizeof(headers[0]); ++j) {
-            tfw_parse_hdr(headers[j].str, headers[j].len, TFW_POSTPONE);
+            tfw_parse_hdr((unsigned char *)headers[j].str, headers[j].len, TFW_POSTPONE);
         }
     gettimeofday(&tv1, NULL);
     printf("\tsse_header_line:\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
+
+    for (unsigned j = 0; j < sizeof(requests)/sizeof(requests[0]); ++j) {
+        gettimeofday(&tv0, NULL);
+        for (unsigned i = 0; i < 1000 * 1000; ++i) {
+            goto_ctx.state = goto_ctx.lowcase_index = 0;
+            goto_request_line(&goto_ctx, (unsigned char *)requests[j].str, requests[j].len);
+        }
+        gettimeofday(&tv1, NULL);
+        for (unsigned i = 0; i < 1000 * 1000; ++i) {
+            tfw_parse_req((unsigned char *)requests[j].str, requests[j].len, TFW_POSTPONE);
+        }
+        gettimeofday(&tv2, NULL);
+        printf("\trequest_line:\t%lums\t%lums\n",
+               tv_to_ms(&tv1) - tv_to_ms(&tv0),
+               tv_to_ms(&tv2) - tv_to_ms(&tv1));
+    }
+    for (unsigned j = 0; j < sizeof(headers)/sizeof(headers[0]); ++j) {
+        gettimeofday(&tv0, NULL);
+        for (unsigned i = 0; i < 1000 * 1000; ++i) {
+            goto_ctx.state = goto_ctx.lowcase_index = 0;
+            goto_header_line(&goto_ctx, (unsigned char *)headers[j].str, headers[j].len);
+        }
+        gettimeofday(&tv1, NULL);
+        for (unsigned i = 0; i < 1000 * 1000; ++i) {
+            tfw_parse_req((unsigned char *)headers[j].str, headers[j].len, TFW_POSTPONE);
+        }
+        gettimeofday(&tv2, NULL);
+        printf("\theader_line:\t%lums\t%lums\n",
+               tv_to_ms(&tv1) - tv_to_ms(&tv0),
+               tv_to_ms(&tv2) - tv_to_ms(&tv1));
+    }
+
     gettimeofday(&tv0, NULL);
-    for (unsigned i = 0; i < 100 * 1000; ++i)
+    for (unsigned i = 0; i < 1000 * 1000; ++i)
         tfw_parse_req(long_request_with_hdrs, long_req_len, TFW_PASS);
     gettimeofday(&tv1, NULL);
     printf("\tsse_full_request:\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
+
+    gettimeofday(&tv0, NULL);
+    for (unsigned i = 0; i < 1000 * 1000; ++i)
+        tfw_parse_req(long_request_with_hdrs, -1200, TFW_PASS);
+    gettimeofday(&tv1, NULL);
+    printf("\tchunked (1200b):\t%lums\n", tv_to_ms(&tv1) - tv_to_ms(&tv0));
 
     return 0;
 }
