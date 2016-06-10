@@ -159,7 +159,7 @@ int main() {
     int long_req_len = strlen(long_request_with_hdrs);
 
     int test_result = tfw_parse_req(long_request_with_hdrs, long_req_len, TFW_PASS);
-    printf("Full request: %s\n",
+    printf("Full request:\t%s\n",
            test_result ? "PASS":"FAIL");
     if (!test_result)
         return 1;
