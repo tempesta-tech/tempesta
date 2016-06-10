@@ -10,7 +10,7 @@
 #include <assert.h>
 #include <errno.h>
 
-#define DEBUG 3
+//#define DEBUG 3
 
 #define BUG_ON(expr)							\
   ((expr)								\

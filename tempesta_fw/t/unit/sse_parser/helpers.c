@@ -1,5 +1,7 @@
 #include "helpers.h"
 #include "str.h"
+#include <tmmintrin.h>
+#include <ctype.h>
 
 void __print_sse(const char * prefix, __m128i sm) {
     unsigned char * data = (unsigned char*)&sm;

@@ -155,7 +155,8 @@ typedef struct {
 
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
-
+int
+tfw_http_parse_header(void *req_data, unsigned char *data, size_t len);
 
 #endif // HTTP_PARSER_H
 

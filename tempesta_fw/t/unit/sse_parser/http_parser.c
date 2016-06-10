@@ -117,12 +117,12 @@ static const unsigned char __sse_version_charset[16] __attribute__((aligned(16))
     0x10, 0x00, 0x01, 0x00, 0x00, 0x01, 0x04, 0x04
 };
 static const unsigned char __sse_header_charset[16] __attribute__((aligned(16))) = {
-        0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-        0xf8, 0xf8, 0xf0, 0x50, 0x50, 0x54, 0x50, 0x50
+    0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
+    0xf8, 0xf8, 0xf0, 0x50, 0x50, 0x54, 0x50, 0x50
 };
 static const unsigned char __sse_value_charset[16] __attribute__((aligned(16))) = {
-        0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
-        0xf8, 0xf8, 0xf0, 0x54, 0x50, 0x54, 0x54, 0x54
+    0xac, 0xf8, 0xf8, 0xf8, 0xf8, 0xfc, 0xf8, 0xf8,
+    0xfc, 0xfc, 0xf4, 0x5c, 0xd4, 0x5c, 0x54, 0x74
 };
 static const unsigned short __sse_atoi_1[8] __attribute__((aligned(16))) = {
         266,266,266,266,266,266,266,266
@@ -232,6 +232,15 @@ void __msg_field_finish(TfwStr * str, unsigned char * pos) {
 }
 
 int
+tfw_http_parse_header(void *req_data, unsigned char *data, size_t len)
+{
+    TfwHttpReq *req = (TfwHttpReq *)req_data;
+    req->parser.state = Req_Hdr;
+    req->parser.charset1 = __sse_header_charset;
+    return tfw_http_parse_req(req, data, len);
+}
+
+int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
     int r = TFW_BLOCK;
@@ -334,6 +343,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 continue;
             }
         }
+        TFW_PSSE("DATA\n", vec);
 
         switch (state) {
         __FSM_STATE(Req_Method) {
