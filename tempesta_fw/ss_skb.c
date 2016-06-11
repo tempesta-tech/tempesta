@@ -476,24 +476,6 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		skb, i, off, len, skb_frag_size(frag));
 
 	/*
-	 * If @off is zero and there's a preceding page fragment,
-	 * then try to append data to that fragment. Go for other
-	 * solutions if there's no room.
-	 */
-	if (!off && i) {
-		frag_dst = __check_frag_room(skb, frag - 1, len);
-		if (frag_dst) {
-			/* Coalesce new data with the fragment. */
-			off = skb_frag_size(frag_dst);
-			skb_frag_size_add(frag_dst, len);
-			ss_skb_adjust_data_len(skb, len);
-			it->ptr = (char *)skb_frag_address(frag_dst) + off;
-			it->skb = skb;
-			return 0;
-		}
-	}
-
-	/*
 	 * Make a fragment that can hold @len bytes. If @off is
 	 * zero, then data is added at the start of fragment @i.
 	 * Make a fragment in slot @i, and the original fragment
