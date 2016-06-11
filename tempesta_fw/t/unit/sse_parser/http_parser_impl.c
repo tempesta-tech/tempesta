@@ -12,7 +12,7 @@ TFW_PARSE_HEADER_NAME
     req->parser.bytes_shifted = 0;
     req->parser.current_field = 0;
     req->parser.header_chunk_start = 0;
-    return tfw_http_parse_req(req, data, len);
+    return TFW_PARSE_REQ_NAME(req, data, len);
 }
 
 int

@@ -27,7 +27,7 @@ else
 	EXTRA_CFLAGS += -DDEBUG=0
 endif
 
-DEPS = sse_parser.h http_parser.h pool.h helpers.h
+DEPS = sse_parser.h http_parser.h pool.h helpers.h http_parser_impl.c
 
 all: test_sse_symbolmap test_sse_tokenset test_sse_http_request http_parser
 

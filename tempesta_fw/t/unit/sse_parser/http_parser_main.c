@@ -184,8 +184,13 @@ int main(int argc, char ** argv) {
         default:
             return 1;
         }
-        if (argv[1][1] >= '0' && argv[1][1] <= '9')
+        if (argv[1][1] >= '0' && argv[1][1] <= '9') {
             specific_test = argv[1][1] - '0';
+            if (argv[1][2] >= '0' && argv[1][2] <= '9') {
+                specific_test = specific_test*10 + argv[1][2] - '0';
+            }
+        }
+
 
         if (argc > 2) {
             duration = atol(argv[2])*100;
