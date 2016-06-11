@@ -29,6 +29,7 @@
 #include <net/tcp.h>
 
 #include "addr.h"
+#include "procfs.h"
 #include "ss_skb.h"
 
 /**
@@ -92,72 +93,100 @@ ss_skb_alloc_pages(size_t len)
 }
 
 static inline int
-ss_skb_frag_len(skb_frag_t *frag)
+ss_skb_frag_len(const skb_frag_t *frag)
 {
 	return frag->page_offset + frag->size;
 }
 
 /**
- * Scan paged fragments array for fragments placed in the same page
- * with @frag and check if the page has enough room to add @len bytes.
- * The fragments are scanned until @refcnt reaches zero. Otherwise,
- * the page is in use outside of the SKB, so give up on checking it.
- * @return pointer to the last fragment in the page.
+ * Find a page that has room for @len bytes.
+ * Return true if the room is found, or false otherwise.
+ * If the room is found, fill @f_out that describes the location of the room.
+ *
+ * The assumption is that there can be sufficient room available at the
+ * start or at the end of a page that holds this SKB's paged fragments.
+ *
+ * For a group of paged fragments located in the same page the available
+ * headroom and tailroom are calculated. If @len is more than both of
+ * those, then the next group of fragments and the page they're located in
+ * are considered. That is repeated until all paged fragments and the
+ * respective pages are checked. Of pages that do have sufficient room
+ * available, only those pages that don't have users outside of this SKB
+ * are suitable.
+ *
+ * Several notes regarding the algorithm and the underlinings:
+ * - If a page is still used for allocation of fragments by one of the
+ *   kernel's allocators, then that page is owned by the allocator. That
+ *   page's reference count will not get down to 1 until the page is released
+ *   by the allocator.
+ * - Tempesta's allocator has no notion of "owning" a page that is used
+ *   for allocation of fragments. These fragments are used for the SKB
+ *   structure itself, as well as for skb->head. The page used for these
+ *   parts of an SKB may propagate to a paged fragment when a part of the
+ *   linear data is mapped to a fragment. The algorithm skips those pages to
+ *   avoid an unwanted memory corruption.
+ * - map[] array is used to speed up the search. Once fragments that belong
+ *   in the same page are checked, there's no need to check them again in the
+ *   next iteration.
  */
-static skb_frag_t *
-__check_frag_room(struct sk_buff *skb, skb_frag_t *frag, int len)
+static bool
+__lookup_pgfrag_room(const struct sk_buff *skb, int len, skb_frag_t *f_out)
 {
-	int i, sz, sz2, refcnt;
-	struct page *pg = skb_frag_page(frag);
-	skb_frag_t *frag2, *ret = frag;
+	int i, k, refcnt;
+	char map[MAX_SKB_FRAGS];
+	const skb_frag_t *f_base, *f_this;
+	unsigned int p_size, h_room, t_room;
+	struct page *p_base, *p_skb_head = virt_to_head_page(skb->head);
 
-	if ((refcnt = page_count(pg)) == 1)
-		return frag; /* no other users */
+	memset(map, 0, sizeof(map));
 
-	sz = PAGE_SIZE - ss_skb_frag_len(frag);
-	for (i = skb_shinfo(skb)->nr_frags - 1; i >= 0 ; --i) {
-		frag2 = &skb_shinfo(skb)->frags[i];
-		if (frag2 == frag || pg != skb_frag_page(frag2))
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		if (map[i])
 			continue;
-		sz2 = PAGE_SIZE - ss_skb_frag_len(frag2);
-		if (sz2 < len)
-			return NULL;
-		if (sz2 < sz) {
-			sz = sz2;
-			ret = frag2;
+
+		f_base = &skb_shinfo(skb)->frags[i];
+		p_base = compound_head(skb_frag_page(f_base));
+		if (p_base == p_skb_head)
+			continue;
+
+		refcnt = page_count(p_base) - 1;
+		p_size = PAGE_SIZE << compound_order(p_base);
+
+		h_room = f_base->page_offset;
+		t_room = p_size - ss_skb_frag_len(f_base);
+		map[i] = !!(len > h_room && len > t_room);
+
+		for (k = i + 1; refcnt && (k < skb_shinfo(skb)->nr_frags); k++) {
+			if (map[k])
+				continue;
+
+			f_this = &skb_shinfo(skb)->frags[k];
+			if (compound_head(skb_frag_page(f_this)) != p_base)
+				continue;
+
+			--refcnt;
+			map[k] = 1;
+			if (map[i])
+				continue;
+
+			h_room = min(h_room, f_this->page_offset);
+			t_room = min(t_room, p_size - ss_skb_frag_len(f_this));
+			map[i] = !!(len > h_room && len > t_room);
 		}
-		/* Return localy referenced pages only. */
-		if (--refcnt == 1)
-			return ret;
+
+		if (!refcnt && !map[i])
+			goto success;
 	}
 
-	/* The page is used outside of this SKB. */
-	return NULL;
-}
+	TFW_INC_STAT_BH(ss.pfl_misses);
+	return false;
 
-/**
- * Look up a page fragment that has room for @len bytes.
- */
-static skb_frag_t *
-__lookup_pgfrag_room(struct sk_buff *skb, int len)
-{
-	int i;
-
-	/*
-	 * Iterate in reverse order to use likely moving fragments.
-	 * Thus we find free room more frequently and skb fragments
-	 * utilize memory limits better.
-	 */
-	for (i = skb_shinfo(skb)->nr_frags - 1; i >= 0; --i) {
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
-		if ((int)PAGE_SIZE - ss_skb_frag_len(frag) < len)
-			continue;
-		frag = __check_frag_room(skb, frag, len);
-		if (frag)
-			return frag;
-	}
-
-	return NULL;
+success:
+	BUG_ON(len > h_room && len > t_room);
+	f_out->page.p = p_base;
+	f_out->page_offset = len > h_room ? p_size - t_room : h_room - len;
+	TFW_INC_STAT_BH(ss.pfl_hits);
+	return true;
 }
 
 /*
@@ -304,8 +333,8 @@ static int
 __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 {
 	int off = 0;
+	skb_frag_t frag;
 	struct page *page = NULL;
-	skb_frag_t *frag;
 
 	BUG_ON(i > MAX_SKB_FRAGS);
 
@@ -313,10 +342,9 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 	 * Try to find room for @size bytes in paged fragments.
 	 * If none found, then allocate a new page for the fragment.
 	 */
-	frag = __lookup_pgfrag_room(skb, size);
-	if (frag) {
-		page = skb_frag_page(frag);
-		off = ss_skb_frag_len(frag);
+	if (__lookup_pgfrag_room(skb, size, &frag)) {
+		page = skb_frag_page(&frag);
+		off = frag.page_offset;
 		get_page(page);
 	} else {
 		page = alloc_page(GFP_ATOMIC);
@@ -450,10 +478,8 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
  * Get room for @len bytes of data starting from offset @off
  * in fragment @i.
  *
- * The room may be found in the preceding fragment if @off is zero.
- * Otherwise, a new fragment is allocated and fragments around the
- * fragment @i are rearranged so that data is not actually split
- * and copied.
+ * New fragment is allocated and fragments around the fragment @i
+ * are rearranged so that data is not actually split and copied.
  *
  * Note: @off is always within the borders of fragment @i. It can
  * point at the start of a fragment, but it can never point at the
