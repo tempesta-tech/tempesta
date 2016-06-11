@@ -31,7 +31,7 @@ DEPS = sse_parser.h http_parser.h pool.h helpers.h
 
 all: test_sse_symbolmap test_sse_tokenset test_sse_http_request http_parser
 
-http_parser: http_parser.o http_parser_main.o
+http_parser: http_parser.o goto_parser.o http_parser_main.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 test_sse_symbolmap: sse_parser.o sse_charset.o

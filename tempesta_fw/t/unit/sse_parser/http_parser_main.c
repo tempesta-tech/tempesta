@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include "http_parser.h"
-#include "http_parser_v2.h"
 #include "goto_parser.h"
 #include "gfsm.h"
 
@@ -176,8 +175,6 @@ int main(int argc, char ** argv) {
     int perform_tests = 'a'; 
     int specific_test = -1;   
     int i;
-
-    sse_init_constants();
 
     if (argc > 1) {
         switch (argv[1][0]) {
