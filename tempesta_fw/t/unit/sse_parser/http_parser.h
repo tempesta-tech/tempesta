@@ -64,7 +64,7 @@ enum {
 typedef struct {
     int		            state;
     int                 bytes_cached, bytes_shifted;
-    unsigned char       latch16[33] __attribute__((aligned(16)));
+    unsigned char       latch16[16] __attribute__((aligned(16)));
     const unsigned char*charset1;
     unsigned char      *header_chunk_start;
     TfwStr             *current_field;
@@ -154,9 +154,14 @@ typedef struct {
 
 
 int
-tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
+tfw_http_parse_req(void * restrict req_data, unsigned char * restrict data, size_t len);
 int
 tfw_http_parse_header(void *req_data, unsigned char *data, size_t len);
+
+int
+tfw_http_parse_req_ff(void * restrict req_data, unsigned char * restrict data, size_t len);
+int
+tfw_http_parse_header_ff(void *req_data, unsigned char *data, size_t len);
 
 #endif // HTTP_PARSER_H
 

@@ -78,6 +78,9 @@ do {									\
 #define EXPORT_SYMBOL(sym)
 
 #define min(a, b) ((a) < (b) ? (a):(b))
+#define max(a, b) ((a) > (b) ? (a):(b))
+
+#define __FSM_STATE(st) case st: st: TFW_DBG("\n\tState: %s\n", #st);
 
 typedef unsigned char u_char;
 
