@@ -113,7 +113,7 @@ TFW_PARSE_REQ_NAME
             data += n;
             len -= n;
         }
-        if (unlikely(unlikely(r == TFW_POSTPONE))) {
+        if (unlikely(r == TFW_POSTPONE)) {
             r = TFW_BLOCK;
             break;
         }
@@ -122,7 +122,8 @@ TFW_PARSE_REQ_NAME
         //THIS REGION MUST BE OPTIMIZED BY COMPILER
         //========================================================
         TFW_PSSE("DATA\n", vec);
-        //sleep(1);
+        //sleep(1);//uncomment this to see how parser eats symbols in DEBUG version
+
         int avail_mask = 0xFFFFFFFF << bytes_cached;
         //pre-skip spaces if they are expected
         if (unlikely(state & Req_Spaces)) {

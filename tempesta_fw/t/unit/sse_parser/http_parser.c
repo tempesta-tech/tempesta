@@ -74,12 +74,12 @@ static const unsigned char __sse_ffmethod[64] __attribute__((aligned(64))) = {
     ' ','t','t','p',':','/','/',
 };*/
 
-static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
-    'h', 't', 't', 'p', ':', '/', '/', 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
 static const unsigned char __sse_version[32] __attribute__((aligned(32))) = {
     0,  1,  0,  0,  1,  2,  3,  4,  5,  6,  0,  7,  7,  8,  9,  8,
     '\r','\n','\n','H', 'T' ,'T' ,'P' ,'/', '1' ,'.' ,'Z' ,'0', '1','\r','\n','\n'
+};
+static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
+    'h', 't', 't', 'p', ':', '/', '/', 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 static const unsigned char __sse_newline[16] __attribute__((aligned(16))) = {
     '\n','\n','\n','\n','\n','\n','\n','\n',
@@ -155,11 +155,13 @@ static const unsigned char __sse_lowecase_c[32]  __attribute__((aligned(32))) = 
 
 #define _mm_right(n) _mm_lddqu_si128((__m128i*)(__sse_alignment+16+(n)))
 #define _mm_left(n) _mm_lddqu_si128((__m128i*)(__sse_alignment+16-(n)))
+#define _mm_ref(ptr) _mm_load_si128((const __m128i*)(ptr))
+//#define _mm_ref(ptr) *((const __m128i*)(ptr)) -- this is slower
 
 static inline __m128i __sse_lowercase(__m128i data) {
-    __m128i l = _mm_cmplt_epi8(_mm_load_si128((const __m128i*)__sse_lowecase_c), data);
-    __m128i g = _mm_cmpgt_epi8(_mm_load_si128((const __m128i*)(__sse_lowecase_c+16)), data);
-    __m128i s = _mm_andnot_si128(_mm_or_si128(l, g), _mm_load_si128((const __m128i*)__sse_spaces));
+    __m128i l = _mm_cmplt_epi8(_mm_ref(__sse_lowecase_c), data);
+    __m128i g = _mm_cmpgt_epi8(_mm_ref(__sse_lowecase_c+16), data);
+    __m128i s = _mm_andnot_si128(_mm_or_si128(l, g), _mm_ref(__sse_spaces));
     return _mm_or_si128(data, s);
 } __attribute__((always_inline))
 
