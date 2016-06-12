@@ -113,6 +113,10 @@ TFW_PARSE_REQ_NAME
             data += n;
             len -= n;
         }
+        if (unlikely(unlikely(r == TFW_POSTPONE))) {
+            r = TFW_BLOCK;
+            break;
+        }
         bytes_shifted = 0;
         //========================================================
         //THIS REGION MUST BE OPTIMIZED BY COMPILER
