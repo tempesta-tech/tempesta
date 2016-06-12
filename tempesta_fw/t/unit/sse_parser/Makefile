@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CC = gcc
-CFLAGS = -mssse3 -O3 -I. -std=c99
+CFLAGS = -mssse3 -Os -ggdb -I. -std=c99
 LDFLAGS =
 
 ifdef DEBUG
@@ -31,7 +31,7 @@ DEPS = sse_parser.h http_parser.h pool.h helpers.h http_parser_impl.c
 
 all: test_sse_symbolmap test_sse_tokenset test_sse_http_request http_parser
 
-http_parser: http_parser.o goto_parser.o http_parser_main.o
+http_parser: http_parser.o goto_parser.o http_parser_main.o helpers.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 test_sse_symbolmap: sse_parser.o sse_charset.o
