@@ -57,29 +57,23 @@ static const unsigned char __sse_alignment[64] __attribute__((aligned(64))) = {
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
-static const unsigned char __sse_method[48] __attribute__((aligned(64))) = {
-    0, 1, 2, 0xFF, 0, 1, 2, 3,     0, 1, 2, 3, 0, 1, 2, 0xFF,
-    'G','E','T',0, 'H','E','A','D','P','O','S','T','P','U','T',0,
-    TFW_HTTP_METH_GET, 3,0,0,
-    TFW_HTTP_METH_POST, 4,0,0,
-    TFW_HTTP_METH_HEAD, 4,0,0,
-    TFW_HTTP_METH_PUT, 3,0,0,
+
+static const int allmethod_mask = ( 
+	(TFW_HTTP_METH_GET)|
+	(TFW_HTTP_METH_PUT<<4)|
+	(TFW_HTTP_METH_HEAD<<8)|
+	(TFW_HTTP_METH_POST<<12));
+static const int allmethod_len = 0x4433;
+
+static const unsigned char __sse_method[16] __attribute__((aligned(16))) = {
+    'G','E','T',' ','P','U','T',' ','H','E','A','D','P','O','S','T'
 };
-/*
-static const unsigned char __sse_ffmethod[64] __attribute__((aligned(64))) = {
-    'G','E','T',' ','H','E','A','D',
-    'P','O','S','T','P','U','T',' ',
-
-    'h','t','t','p',':','/','/',0,
-    ' ','t','t','p',':','/','/',
-};*/
-
+static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
+    'h','t','t','p',':','/','/',0,' ','h','t','t','p',':','/','/'
+};
 static const unsigned char __sse_version[32] __attribute__((aligned(32))) = {
     0,  1,  0,  0,  1,  2,  3,  4,  5,  6,  0,  7,  7,  8,  9,  8,
     '\r','\n','\n','H', 'T' ,'T' ,'P' ,'/', '1' ,'.' ,'Z' ,'0', '1','\r','\n','\n'
-};
-static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
-    'h', 't', 't', 'p', ':', '/', '/', 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 static const unsigned char __sse_newline[16] __attribute__((aligned(16))) = {
     '\n','\n','\n','\n','\n','\n','\n','\n',

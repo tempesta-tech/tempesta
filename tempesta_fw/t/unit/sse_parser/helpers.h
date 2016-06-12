@@ -12,10 +12,7 @@
 
 //#define DEBUG 3
 
-#define BUG_ON(expr)							\
-  ((expr)								\
-   ? __assert_fail (__STRING(expr), __FILE__, __LINE__, __ASSERT_FUNCTION) \
-   : __ASSERT_VOID_CAST(0));
+#define BUG_ON(expr) assert(!(expr))
 
 #define PAGE_SIZE 4096
 #define PAGE_MASK (~(PAGE_SIZE-1))

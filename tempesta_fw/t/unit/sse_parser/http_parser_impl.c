@@ -26,7 +26,6 @@ TFW_PARSE_REQ_NAME
     __FSM_DECLARE_VARS(req);
 
     register __m128i vec;
-    register __m128i compresult;
     register __m128i _r_charset;
     register __m128i _r_spaces;
     register __m128i _r_cset1;
@@ -39,47 +38,80 @@ TFW_PARSE_REQ_NAME
     unsigned char * base = data, * end = data + len;
     int bytes_cached = parser->bytes_cached;
     int bytes_shifted = parser->bytes_shifted;
-    int nc, bc, state;
+    int state;
+
+	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
+    len, (int)len, data, req);
 
     state = parser->state;
     vec   = _mm_load_si128((const __m128i*)parser->latch16);
     if (unlikely(state == Req_0)) {
-/*#ifdef ENABLE_FAST_FORWARD
+        bytes_cached = 0;
+        bytes_shifted = 0;
+        parser->current_field = 0;
+        parser->header_chunk_start = 0;
+        vec = _mm_setzero_si128();
+		TFW_STR_INIT(&req->host);
+		TFW_STR_INIT(&req->uri_path);
+#ifdef ENABLE_FAST_FORWARD
         if (len >= 16) {
-            vec = _mm_lddqu_si128((const __m128i*)data;
-            int m1 = 0x7FF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
-                        _mm_load_si128((const __m128i*)__sse_ffmethod));
-            int m2 = 0xFFF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
-                        _mm_load_si128((const __m128i*)__sse_ffmethod+16));
-            int m3 = 0xFFF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
-                        _mm_load_si128((const __m128i*)__sse_ffmethod+32));
-            int m4 = 0x7FF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
-                        _mm_load_si128((const __m128i*)__sse_ffmethod+48));
-            if (m1 == 0x7FF) {
-                r
-            }
+            vec = _mm_lddqu_si128((const __m128i*)data);
+			//check method
+			__m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
+			compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
+			int nc = _mm_movemask_epi8(compresult);
+			if (unlikely(!nc)) return TFW_BLOCK;
+			req->method = 0xF&((allmethod_mask & nc)*0x1111>>4);
+
+			//don't delete nc: we will need to combine it with next result
+			//check for "http:// " or " http://"
+			compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(2,1,2,1));
+			//here we have a bad byte #7
+			compresult = _mm_cmpeq_epi8(compresult, _mm_ref(__sse_schema));
+			//we have to deal with it without SSE
+			int sc = _mm_movemask_epi8(compresult);
+			sc |= 0x80 & (sc<<3);//don't use bit #6!!!
+			//sc must be 0xFF00 or 0x00FF, but due to per-byte comparisons, we will
+			//have 'parasitic' bits 
+			//h t t p : / /
+			//  h t t p : / /
+			//    *       *
+			// resulting in 0xFF44 and 0x44FF
+
+			//allowed combinations of nc and sc are:
+			//nc = 0x00FF and sc = anything; bytes_shifted = 4; state = Req_BeginSchema
+			//nc = 0x00FF and sc = 0x44FF; bytes_shifted = 11; state = Req_HostReset
+			//nc = 0xFF00 and sc = 0xFF44; bytes_shifted = 12; state = Req_HostReset
+			//nc = 0xFF00 and sc = 0x0100; bytes_shifted = 5; state = Req_BeginSchema
+			if (nc > 255) {
+				if (!sc & 0x100) return TFW_BLOCK;
+
+				bytes_shifted = 5;
+				if (sc == 0xFF44) bytes_shifted = 12;
+			} else {
+				bytes_shifted = 4;
+				if (sc == 0x44FF) bytes_shifted = 11;
+			}
+			bytes_cached = 16 - bytes_shifted;
+			data += 16;
+			len  -= 16;
+			parser->charset1 = __sse_host_charset;
+			state = Req_BeginSchema|Req_Spaces;
+			if (bytes_shifted > 10)
+				state = Req_HostReset|Req_Spaces;
         } else {
-#endif*/
-            state = Req_Method;
+#endif
             parser->charset1 = __sse_method_charset;
-            bytes_cached = 0;
-            bytes_shifted = 0;
-            parser->current_field = 0;
-            parser->header_chunk_start = 0;
-            vec = _mm_setzero_si128();
-/*#ifdef ENABLE_FAST_FORWARD
+            state = Req_Method;
+#ifdef ENABLE_FAST_FORWARD
         }
-#endif*/
+#endif
     }
     vec = _mm_shuffle_epi8(vec, _mm_right(bytes_shifted));
     _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
 
-    TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
-        len, (int)len, data, req);
-
     for(;;) {
         unsigned char * fixup_ptr = data - bytes_cached;
-
         if (bytes_cached < 16) {
             if (unlikely(r == TFW_POSTPONE || (len + bytes_cached == 0)))
             {
@@ -101,6 +133,7 @@ TFW_PARSE_REQ_NAME
             int n = min(16 - bytes_cached, len);
             //avoid page faults here
             long ldata = (long)data;
+			__m128i compresult;
             if (unlikely(len < 16 && (ldata&0xFF0 > 0xFF0))) {
                 compresult = _mm_lddqu_si128((const __m128i*)(ldata & ~0xFL));
                 compresult = _mm_shuffle_epi8(compresult, _mm_right(ldata & 0xF));
@@ -130,7 +163,7 @@ TFW_PARSE_REQ_NAME
             __m128i charset = _mm_cmpeq_epi8(vec, _r_spaces);
             int mask = (~_mm_movemask_epi8(charset))|avail_mask;
             if (unlikely((mask & 0x1)==0)) {
-                nc = __builtin_ctz(mask);
+                int nc = __builtin_ctz(mask);
                 vec = _mm_shuffle_epi8(vec, _mm_right(nc));
                 if (nc < bytes_cached) state &= ~ Req_Spaces;
                 //store bytes back to parser state for further realignment
@@ -187,16 +220,16 @@ TFW_PARSE_REQ_NAME
             }
             if (LAST != ' ') return TFW_BLOCK;
             //we support only GET/HEAD/POST
-            compresult = _mm_shuffle_epi8(vec, _mm_load_si128((__m128i*)__sse_method));
-            compresult = _mm_cmpeq_epi32(compresult, _mm_load_si128((__m128i*)(__sse_method+16)));
-            compresult = _mm_and_si128(compresult, _mm_load_si128((__m128i*)(__sse_method+32)));
-            compresult = _mm_hadd_epi32(compresult, compresult);
-            compresult = _mm_hadd_epi32(compresult, compresult);
-            nc = _mm_extract_epi16(compresult, 0);
-            //make sure we have parsed string correctly
-            if (!nc || (nc>>8)!= nchars1) return TFW_BLOCK;//unsupported method
-            req->method = 0xFF & nc;
-            //consume all bytes and spaces
+			__m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
+			compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
+            int nc = _mm_movemask_epi8(compresult);
+			if (!nc) return TFW_BLOCK;
+
+			req->method = 0xF&((allmethod_mask & nc)*0x1111>>12);
+			nc = 0xF&((allmethod_len & nc)*0x1111>>12);		
+            if (nc != nchars1) return TFW_BLOCK;//wrong lenght
+
+			//consume all bytes and spaces
             bytes_shifted = nchars1+1;
             parser->charset1 = __sse_host_charset;
             //schedule skip_spaces skip if we have parsed all available bytes
@@ -227,7 +260,8 @@ TFW_PARSE_REQ_NAME
             //при этом накапливать строку
 
             //сравним то что есть в лоб
-            nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_load_si128((const __m128i*)__sse_schema)));
+            int nc = ~_mm_movemask_epi8(_mm_cmpeq_epi8(vec, _mm_ref(__sse_schema)));
+			nc |= 0xFFFFFF80;
             nc |= avail_mask;
             //попробуем понять, точно ли перед нами http://
             //проверим, есть ли расхождения:
@@ -413,6 +447,8 @@ TFW_PARSE_REQ_NAME
             break;}
         __FSM_STATE(Req_HttpVersion) {
             BUG_ON(parser->current_field);
+			__m128i compresult;
+
             compresult = _mm_cmpeq_epi8(vec, _mm_load_si128((__m128i*)(__sse_newline)));
             int nc = ~_mm_movemask_epi8(compresult);
             nc |= avail_mask;
@@ -442,6 +478,7 @@ TFW_PARSE_REQ_NAME
             break;}
         __FSM_STATE(Req_Hdr) {
             BUG_ON(parser->current_field != NULL);
+			TFW_STR_INIT(&parser->hdr);
             //don't support multiline headers
             if (!nchars1) {
                 //check if headers are over
@@ -566,12 +603,12 @@ TFW_PARSE_REQ_NAME
             TFW_DBG3("unexpected state %d\n", state);
             return TFW_BLOCK;
         }
+        if (r == TFW_PASS)
+            break;
         vec = _mm_shuffle_epi8(vec, _mm_right(bytes_shifted));
         _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
 
         bytes_cached -= bytes_shifted;
-        if (r == TFW_PASS)
-            break;
     }
     parser->state = state;
     parser->bytes_cached = bytes_cached;
