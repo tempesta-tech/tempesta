@@ -65,6 +65,15 @@ static const unsigned char __sse_method[48] __attribute__((aligned(64))) = {
     TFW_HTTP_METH_HEAD, 4,0,0,
     TFW_HTTP_METH_PUT, 3,0,0,
 };
+/*
+static const unsigned char __sse_ffmethod[64] __attribute__((aligned(64))) = {
+    'G','E','T',' ','H','E','A','D',
+    'P','O','S','T','P','U','T',' ',
+
+    'h','t','t','p',':','/','/',0,
+    ' ','t','t','p',':','/','/',
+};*/
+
 static const unsigned char __sse_schema[16]  __attribute__((aligned(16))) = {
     'h', 't', 't', 'p', ':', '/', '/', 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
@@ -84,6 +93,7 @@ static const unsigned char __sse_spaces[16] __attribute__((aligned(16))) = {
     ' ',' ',' ',' ',' ',' ',' ',' ',
     ' ',' ',' ',' ',' ',' ',' ',' '
 };
+
 
 static const unsigned char __sse_method_charset[16] __attribute__((aligned(16))) = {
     0x20, 0x00, 0x00, 0x20, 0x20, 0x30, 0x00, 0x10,

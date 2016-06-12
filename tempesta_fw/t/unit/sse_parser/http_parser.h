@@ -64,7 +64,6 @@ enum {
 typedef struct {
     int		            state;
     int                 bytes_cached, bytes_shifted;
-    unsigned char       latch16[16] __attribute__((aligned(16)));
     const unsigned char*charset1;
     unsigned char      *header_chunk_start;
     TfwStr             *current_field;
@@ -73,6 +72,9 @@ typedef struct {
     //TfwStr(it can keep long strings, but also short buffers
     //for typical headers we need to parse
     TfwStr		        hdr;
+    unsigned char       guard1[64] __attribute__((aligned(64)));
+    unsigned char       latch16[16] __attribute__((aligned(64)));
+    unsigned char       guard2[64] __attribute__((aligned(64)));
 } TfwHttpParser;
 
 /**

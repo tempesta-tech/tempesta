@@ -44,13 +44,32 @@ TFW_PARSE_REQ_NAME
     state = parser->state;
     vec   = _mm_load_si128((const __m128i*)parser->latch16);
     if (unlikely(state == Req_0)) {
-        state = Req_Method;
-        parser->charset1 = __sse_method_charset;
-        bytes_cached = 0;
-        bytes_shifted = 0;
-        parser->current_field = 0;
-        parser->header_chunk_start = 0;
-        vec = _mm_setzero_si128();
+/*#ifdef ENABLE_FAST_FORWARD
+        if (len >= 16) {
+            vec = _mm_lddqu_si128((const __m128i*)data;
+            int m1 = 0x7FF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
+                        _mm_load_si128((const __m128i*)__sse_ffmethod));
+            int m2 = 0xFFF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
+                        _mm_load_si128((const __m128i*)__sse_ffmethod+16));
+            int m3 = 0xFFF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
+                        _mm_load_si128((const __m128i*)__sse_ffmethod+32));
+            int m4 = 0x7FF & _mm_movemask_epi8(_mm_cmpeq_epi8(vec, 
+                        _mm_load_si128((const __m128i*)__sse_ffmethod+48));
+            if (m1 == 0x7FF) {
+                r
+            }
+        } else {
+#endif*/
+            state = Req_Method;
+            parser->charset1 = __sse_method_charset;
+            bytes_cached = 0;
+            bytes_shifted = 0;
+            parser->current_field = 0;
+            parser->header_chunk_start = 0;
+            vec = _mm_setzero_si128();
+/*#ifdef ENABLE_FAST_FORWARD
+        }
+#endif*/
     }
     vec = _mm_shuffle_epi8(vec, _mm_right(bytes_shifted));
     _r_charset = _mm_load_si128((const __m128i*)parser->charset1);
@@ -59,28 +78,26 @@ TFW_PARSE_REQ_NAME
         len, (int)len, data, req);
 
     for(;;) {
-        //если пакет закончился, надо fixupнуть строки
-        //потому что больше мы никогда не увидим этот SKB
-        if (r == TFW_POSTPONE || (len + bytes_cached == 0))
-        {
-            if (bytes_cached >= 16)
-                return TFW_BLOCK;
-            if (parser->current_field) {
-                if (parser->header_chunk_start) {
-                    tfw_http_msg_hdr_chunk_fixup(msg,
-                                                 parser->header_chunk_start,
-                                                 data - parser->header_chunk_start);
-                    parser->header_chunk_start = NULL;
-                } else {
-                    __msg_field_fixup(parser->current_field, data);
-                }
-            }
-            r = TFW_POSTPONE;
-            break;
-        }
-
         unsigned char * fixup_ptr = data - bytes_cached;
+
         if (bytes_cached < 16) {
+            if (unlikely(r == TFW_POSTPONE || (len + bytes_cached == 0)))
+            {
+                //если пакет закончился, надо fixupнуть строки
+                //потому что больше мы никогда не увидим этот SKB
+                if (parser->current_field) {
+                    if (parser->header_chunk_start) {
+                        tfw_http_msg_hdr_chunk_fixup(msg,
+                                                     parser->header_chunk_start,
+                                                     data - parser->header_chunk_start);
+                        parser->header_chunk_start = NULL;
+                    } else {
+                        __msg_field_fixup(parser->current_field, data);
+                    }
+                }
+                r = TFW_POSTPONE;
+                break;
+            }
             int n = min(16 - bytes_cached, len);
             //avoid page faults here
             long ldata = (long)data;
@@ -101,9 +118,25 @@ TFW_PARSE_REQ_NAME
         //THIS REGION MUST BE OPTIMIZED BY COMPILER
         //========================================================
         TFW_PSSE("DATA\n", vec);
-
-        //match charset
+        //sleep(1);
         int avail_mask = 0xFFFFFFFF << bytes_cached;
+        //pre-skip spaces if they are expected
+        if (unlikely(state & Req_Spaces)) {
+            __m128i charset = _mm_cmpeq_epi8(vec, _r_spaces);
+            int mask = (~_mm_movemask_epi8(charset))|avail_mask;
+            if (unlikely((mask & 0x1)==0)) {
+                nc = __builtin_ctz(mask);
+                vec = _mm_shuffle_epi8(vec, _mm_right(nc));
+                if (nc < bytes_cached) state &= ~ Req_Spaces;
+                //store bytes back to parser state for further realignment
+                bytes_shifted = nc;
+                bytes_cached -= nc;
+                //move to the end of sequence
+                continue;
+            }
+            state &= ~ Req_Spaces;
+        } 
+        //match charset
         __m128i charset1 = __match_charset(_r_charset, vec, _r_cset1, _r_cset2);
         int mask1 = (_mm_movemask_epi8(charset1))|avail_mask;
 #ifdef ENABLE_FAST_FORWARD
@@ -131,23 +164,6 @@ TFW_PARSE_REQ_NAME
         #define LAST ((unsigned char)lastchar)
         #define LAST2 ((unsigned short)lastchar)
 
-        //pre-skip spaces if they are expected
-        __m128i charset2 = _mm_cmpeq_epi8(vec, _r_spaces);
-        int mask2 = (~_mm_movemask_epi8(charset2))|avail_mask;
-        if (unlikely(state & Req_Spaces)) {
-            if (mask2 & 0x1 == 1) {
-                state &= ~ Req_Spaces;
-            } else {
-                nc = __builtin_ctz(mask2);
-                vec = _mm_shuffle_epi8(vec, _mm_right(nc));
-                if (nc < bytes_cached) state &= ~ Req_Spaces;
-                //store bytes back to parser state for further realignment
-                bytes_shifted = nc;
-                bytes_cached -= nc;
-                //move to the end of sequence
-                continue;
-            }
-        } 
         //========================================================
         //end of region to be optimized
         //========================================================
@@ -176,12 +192,14 @@ TFW_PARSE_REQ_NAME
             if (!nc || (nc>>8)!= nchars1) return TFW_BLOCK;//unsupported method
             req->method = 0xFF & nc;
             //consume all bytes and spaces
-            bytes_shifted = nchars1 + __builtin_ctz(mask2 >> nchars1);
+            bytes_shifted = nchars1+1;
             parser->charset1 = __sse_host_charset;
             //schedule skip_spaces skip if we have parsed all available bytes
-            if (bytes_shifted < bytes_cached) goto Req_BeginSchema;
-            state = Req_BeginSchema|Req_Spaces;
-            break;}
+            state = Req_BeginSchema;
+            if (unlikely(LAST2 == 0x2020 || LAST2 == 0x0020)) {
+                state |= Req_Spaces;
+                break;
+            }}
         __FSM_STATE(Req_BeginSchema) {
             state = Req_Schema;
             parser->current_field = &req->host;
@@ -449,9 +467,8 @@ TFW_PARSE_REQ_NAME
                 parser->current_field = &parser->hdr;
                 parser->header_chunk_start = 0;
                 //continue with value
-                bytes_shifted= nchars1 +
-                        __builtin_ctz(mask2 >> (nchars1+1))
-                        + 1;
+                bytes_shifted= nchars1+1;
+                if (LAST2 == 0x203A) ++bytes_shifted;
                 parser->charset1 = __sse_value_charset;
                 state = Req_HdrValue|Req_Spaces;
                 break;
@@ -483,9 +500,8 @@ TFW_PARSE_REQ_NAME
                 //we don't start a chunk on spaces
                 parser->header_chunk_start = 0;
                 //continue with value
-                bytes_shifted= nchars1 +
-                        __builtin_ctz(mask2 >> (nchars1+1))
-                        + 1;
+                bytes_shifted= nchars1+1;
+                if (LAST2 == 0x203A) ++bytes_shifted;
                 parser->charset1 = __sse_value_charset;
                 state = Req_HdrValue|Req_Spaces;
                 break;
