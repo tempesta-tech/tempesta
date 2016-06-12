@@ -59,6 +59,9 @@ typedef struct {
 	unsigned int	status_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_len;
+	time_t		age;
+	time_t		date;
+	time_t		expires;
 	long		key;
 	long		status;
 	long		hdrs;
@@ -553,6 +556,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		return -ENOMEM;
 	}
 	BUG_ON(tot_len != 0);
+
+	ce->date = resp->date;
+	ce->age = resp->cache_ctl.age;
+	ce->expires = resp->cache_ctl.expires;
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
