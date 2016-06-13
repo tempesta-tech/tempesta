@@ -133,7 +133,7 @@ TFW_PARSE_REQ_NAME
             int n = min(16 - bytes_cached, len);
             //avoid page faults here
             long ldata = (long)data;
-			__m128i compresult;
+            __m128i compresult;
             if (unlikely(len < 16 && (ldata&0xFF0 > 0xFF0))) {
                 compresult = _mm_lddqu_si128((const __m128i*)(ldata & ~0xFL));
                 compresult = _mm_shuffle_epi8(compresult, _mm_right(ldata & 0xF));
@@ -145,6 +145,7 @@ TFW_PARSE_REQ_NAME
             bytes_cached += n;;
             data += n;
             len -= n;
+            r = TFW_BLOCK;
         }
         if (unlikely(r == TFW_POSTPONE)) {
             r = TFW_BLOCK;
