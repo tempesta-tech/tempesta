@@ -51,54 +51,54 @@ TFW_PARSE_REQ_NAME
         parser->current_field = 0;
         parser->header_chunk_start = 0;
         vec = _mm_setzero_si128();
-		TFW_STR_INIT(&req->host);
-		TFW_STR_INIT(&req->uri_path);
+        TFW_STR_INIT(&req->host);
+        TFW_STR_INIT(&req->uri_path);
 #ifdef ENABLE_FAST_FORWARD
         if (len >= 16) {
             vec = _mm_lddqu_si128((const __m128i*)data);
-			//check method
-			__m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
-			compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
-			int nc = _mm_movemask_epi8(compresult);
-			if (unlikely(!nc)) return TFW_BLOCK;
-			req->method = 0xF&((allmethod_mask & nc)*0x1111>>4);
+            //check method
+            __m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
+            compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
+            int nc = _mm_movemask_epi8(compresult);
+            if (unlikely(!nc)) return TFW_BLOCK;
+            req->method = 0xF&((allmethod_mask & nc)*0x1111>>4);
 
-			//don't delete nc: we will need to combine it with next result
-			//check for "http:// " or " http://"
-			compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(2,1,2,1));
-			//here we have a bad byte #7
-			compresult = _mm_cmpeq_epi8(compresult, _mm_ref(__sse_schema));
-			//we have to deal with it without SSE
-			int sc = _mm_movemask_epi8(compresult);
-			sc |= 0x80 & (sc<<3);//don't use bit #6!!!
-			//sc must be 0xFF00 or 0x00FF, but due to per-byte comparisons, we will
-			//have 'parasitic' bits 
-			//h t t p : / /
-			//  h t t p : / /
-			//    *       *
-			// resulting in 0xFF44 and 0x44FF
+            //don't delete nc: we will need to combine it with next result
+            //check for "http:// " or " http://"
+            compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(2,1,2,1));
+            //here we have a bad byte #7
+            compresult = _mm_cmpeq_epi8(compresult, _mm_ref(__sse_schema));
+            //we have to deal with it without SSE
+            int sc = _mm_movemask_epi8(compresult);
+            sc |= 0x80 & (sc<<3);//don't use bit #6!!!
+            //sc must be 0xFF00 or 0x00FF, but due to per-byte comparisons, we will
+            //have 'parasitic' bits
+            //h t t p : / /
+            //  h t t p : / /
+            //    *       *
+            // resulting in 0xFF44 and 0x44FF
 
-			//allowed combinations of nc and sc are:
-			//nc = 0x00FF and sc = anything; bytes_shifted = 4; state = Req_BeginSchema
-			//nc = 0x00FF and sc = 0x44FF; bytes_shifted = 11; state = Req_HostReset
-			//nc = 0xFF00 and sc = 0xFF44; bytes_shifted = 12; state = Req_HostReset
-			//nc = 0xFF00 and sc = 0x0100; bytes_shifted = 5; state = Req_BeginSchema
-			if (nc > 255) {
-				if (!sc & 0x100) return TFW_BLOCK;
+            //allowed combinations of nc and sc are:
+            //nc = 0x00FF and sc = anything; bytes_shifted = 4; state = Req_BeginSchema
+            //nc = 0x00FF and sc = 0x44FF; bytes_shifted = 11; state = Req_HostReset
+            //nc = 0xFF00 and sc = 0xFF44; bytes_shifted = 12; state = Req_HostReset
+            //nc = 0xFF00 and sc = 0x0100; bytes_shifted = 5; state = Req_BeginSchema
+            if (nc > 255) {
+                if (!sc & 0x100) return TFW_BLOCK;
 
-				bytes_shifted = 5;
-				if (sc == 0xFF44) bytes_shifted = 12;
-			} else {
-				bytes_shifted = 4;
-				if (sc == 0x44FF) bytes_shifted = 11;
-			}
-			bytes_cached = 16 - bytes_shifted;
-			data += 16;
-			len  -= 16;
-			parser->charset1 = __sse_host_charset;
-			state = Req_BeginSchema|Req_Spaces;
-			if (bytes_shifted > 10)
-				state = Req_HostReset|Req_Spaces;
+                bytes_shifted = 5;
+                if (sc == 0xFF44) bytes_shifted = 12;
+            } else {
+                bytes_shifted = 4;
+                if (sc == 0x44FF) bytes_shifted = 11;
+            }
+            bytes_cached = 16 - bytes_shifted;
+            data += 16;
+            len  -= 16;
+            parser->charset1 = __sse_host_charset;
+            state = Req_BeginSchema|Req_Spaces;
+            if (bytes_shifted > 10)
+                state = Req_HostReset|Req_Spaces;
         } else {
 #endif
             parser->charset1 = __sse_method_charset;
@@ -220,16 +220,16 @@ TFW_PARSE_REQ_NAME
             }
             if (LAST != ' ') return TFW_BLOCK;
             //we support only GET/HEAD/POST
-			__m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
-			compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
+            __m128i compresult = _mm_shuffle_epi32(vec, _MM_SHUFFLE(0,0,0,0));
+            compresult = _mm_cmpeq_epi32(compresult, _mm_ref(__sse_method));
             int nc = _mm_movemask_epi8(compresult);
-			if (!nc) return TFW_BLOCK;
+            if (!nc) return TFW_BLOCK;
 
-			req->method = 0xF&((allmethod_mask & nc)*0x1111>>12);
-			nc = 0xF&((allmethod_len & nc)*0x1111>>12);		
+            req->method = 0xF&((allmethod_mask & nc)*0x1111>>12);
+            nc = 0xF&((allmethod_len & nc)*0x1111>>12);
             if (nc != nchars1) return TFW_BLOCK;//wrong lenght
 
-			//consume all bytes and spaces
+            //consume all bytes and spaces
             bytes_shifted = nchars1+1;
             parser->charset1 = __sse_host_charset;
             //schedule skip_spaces skip if we have parsed all available bytes
