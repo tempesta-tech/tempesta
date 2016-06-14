@@ -62,6 +62,9 @@ typedef struct {
 	time_t		age;
 	time_t		date;
 	time_t		expires;
+	time_t		req_time;
+	time_t		resp_time;
+	time_t		lifetime;
 	long		key;
 	long		status;
 	long		hdrs;
@@ -251,15 +254,71 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	/* cache_fulfill - work as usual in cache mode. */
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
+	/* Assume there's no Date: header in the request. */
+	req->cache_ctl.timestamp = tfw_current_timestamp();
 	return true;
 }
 
 static bool
-tfw_cache_employ_resp(TfwHttpReq *req)
+tfw_cache_employ_resp(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
 		return false;
+
+	if (!resp->cache_ctl.timestamp)
+		resp->cache_ctl.timestamp = tfw_current_timestamp();
 	return true;
+}
+
+static time_t
+tfw_cache_calc_lifetime(TfwHttpResp *resp)
+{
+	unsigned int lifetime;
+
+	if (resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)
+		lifetime = resp->cache_ctl.s_maxage;
+	else if (resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
+		lifetime = resp->cache_ctl.max_age;
+	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
+		lifetime = resp->cache_ctl.expires;
+	else
+		lifetime = 0;	/* TODO: Heuristic lifetime. */
+
+	return lifetime;
+}
+
+static time_t
+tfw_cache_entry_age(TfwCacheEntry *ce)
+{
+	time_t apparent_age = max_t(time_t, 0, ce->resp_time - ce->date);
+	time_t corrected_age = ce->age + ce->resp_time - ce->req_time;
+	time_t initial_age = max(apparent_age, corrected_age);
+	return (initial_age + tfw_current_timestamp() - ce->resp_time);
+}
+
+static inline bool
+tfw_cache_entry_is_fresh(TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	time_t ce_age = tfw_cache_entry_age(ce);
+	time_t ce_lifetime = ce->lifetime;
+
+	if (req->cache_ctl.flags & (TFW_HTTP_CC_MAX_AGE
+				    | TFW_HTTP_CC_MAX_STALE
+				    | TFW_HTTP_CC_MIN_FRESH))
+	{
+		time_t lt_max_age, lt_max_stale, lt_min_fresh;
+
+		lt_max_age = lt_max_stale = lt_min_fresh = UINT_MAX;
+		if (req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
+			lt_max_age = req->cache_ctl.max_age;
+		if (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)
+			lt_max_stale += req->cache_ctl.max_stale;
+		if (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH)
+			lt_min_fresh -= req->cache_ctl.min_fresh;
+		ce_lifetime = min(min(lt_max_age, lt_max_stale), lt_min_fresh);
+	}
+
+	return ce_lifetime > ce_age;
 }
 
 static bool
@@ -560,6 +619,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
 	ce->expires = resp->cache_ctl.expires;
+	ce->req_time = req->cache_ctl.timestamp;
+	ce->resp_time = resp->cache_ctl.timestamp;
+	ce->lifetime = tfw_cache_calc_lifetime(resp);
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
@@ -648,7 +710,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		return true;
-	if (!tfw_cache_employ_resp(req))
+	if (!tfw_cache_employ_resp(req, resp))
 		return true;
 
 	key = tfw_http_req_key_calc(req);
@@ -944,6 +1006,9 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 			goto out;
 		}
 	}
+
+	if (!tfw_cache_entry_is_fresh(req, ce))
+		goto out;
 
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
 		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
