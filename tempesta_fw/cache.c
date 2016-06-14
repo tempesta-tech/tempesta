@@ -41,6 +41,11 @@
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
 #endif
 
+/* Flags stored in a Cache Entry. */
+#define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
+#define TFW_CE_NO_CACHE		0x0002		/* ALWAYS revalidate. */
+#define TFW_CE_INVALID		0x0100
+
 /*
  * @trec	- Database record descriptor;
  * @key_len	- length of key (URI + Host header);
@@ -59,6 +64,7 @@ typedef struct {
 	unsigned int	status_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_len;
+	unsigned int	flags;
 	time_t		age;
 	time_t		date;
 	time_t		expires;
@@ -254,15 +260,62 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	/* cache_fulfill - work as usual in cache mode. */
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
+	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
+		return false;
+
 	/* Assume there's no Date: header in the request. */
 	req->cache_ctl.timestamp = tfw_current_timestamp();
 	return true;
 }
 
+static inline bool
+tfw_cache_status_bydef(TfwHttpResp *resp)
+{
+	/*
+	 * TODO: Add 206 (Partial Content) status. Requires support
+	 * of incomplete responses, Range: and Content-Range: header
+	 * fields, and RANGE request method.
+	 */
+	switch (resp->status) {
+	case 200: case 203: case 204:
+	case 300: case 301:
+	case 404: case 405: case 410: case 414:
+	case 501:
+		return true;
+	}
+	return false;
+}
+
 static bool
 tfw_cache_employ_resp(TfwHttpReq *req, TfwHttpResp *resp)
 {
+	static const unsigned int __read_mostly cacheit =
+		TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE
+		| TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC;
+	static const unsigned int __read_mostly authcan =
+		TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC
+		| TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL;
+
 	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
+		return false;
+
+	if ((req->cache_ctl.flags|resp->cache_ctl.flags) & TFW_HTTP_CC_NO_STORE)
+		return false;
+	/*
+	 * TODO: no-cache -- should be cached.
+	 * Should turn on unconditional revalidation.
+	 */
+	if (resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
+		return false;
+	if (!(resp->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
+	    && (resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
+		return false;
+	if (resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE)
+		return false;
+	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
+	    && !(req->cache_ctl.flags & authcan))
+		return false;
+	if (!(resp->cache_ctl.flags & cacheit) && !tfw_cache_status_bydef(resp))
 		return false;
 
 	if (!resp->cache_ctl.timestamp)
@@ -296,7 +349,7 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
 	return (initial_age + tfw_current_timestamp() - ce->resp_time);
 }
 
-static inline bool
+static bool
 tfw_cache_entry_is_fresh(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	time_t ce_age = tfw_cache_entry_age(ce);
@@ -616,6 +669,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	}
 	BUG_ON(tot_len != 0);
 
+	if (resp->cache_ctl.flags
+	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_MUST_REVAL))
+		ce->flags |= TFW_CE_MUST_REVAL;
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
 	ce->expires = resp->cache_ctl.expires;
@@ -1020,7 +1076,10 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 
 	resp = tfw_cache_build_resp(ce);
 out:
-	action(req, resp);
+	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
+		tfw_http_send_502((TfwHttpMsg *)req); /* XXX: Change to 504. */
+	else
+		action(req, resp);
 
 	if (ce)
 		tdb_rec_put(ce);
