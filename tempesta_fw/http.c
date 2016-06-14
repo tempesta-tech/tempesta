@@ -638,7 +638,7 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
 	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
 				  s_date, SLEN(S_V_DATE),
-				  TFW_HTTP_HDR_DATE, 0);
+				  TFW_HTTP_HDR_RAW, 0);
 	if (r)
 		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
 	else
@@ -691,7 +691,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r)
 		return r;
 
-	if (TFW_STR_EMPTY(&resp->h_tbl->tbl[TFW_HTTP_HDR_DATE])) {
+	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
 		if (r < 0)
 			return r;
@@ -1123,12 +1123,13 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 
 	/*
 	 * If 'Date:' header is missing in the response, then set
-	 * the timestamp to the response's processing time/date.
+	 * the date to the time the response was received. That's
+	 * the same timestamp that is needed if cache is enabled.
 	 */
-	if (TFW_STR_EMPTY(&hmresp->h_tbl->tbl[TFW_HTTP_HDR_DATE])) {
-		struct timespec ts;
-		getnstimeofday(&ts);
-		((TfwHttpResp *)hmresp)->date = ts.tv_sec;
+	if (!(hmresp->flags & TFW_HTTP_HAS_HDR_DATE)) {
+		time_t timestamp = tfw_current_timestamp();
+		((TfwHttpResp *)hmresp)->date = timestamp;
+		hmresp->cache_ctl.timestamp = timestamp;
 	}
 	/*
 	 * Cache adjusted and filtered responses only. Responses

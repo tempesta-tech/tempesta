@@ -1306,6 +1306,8 @@ enum {
 	Req_I_CC_o,
 	Req_I_CC_MaxAgeV,
 	Req_I_CC_MinFreshV,
+	Req_I_CC_MaxStale,
+	Req_I_CC_MaxStaleV,
 	Req_I_CC_Ext,
 	Req_I_CC_EoT,
 	/* Pragma header */
@@ -1351,6 +1353,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_m) {
 		TRY_STR("max-age=", Req_I_CC_MaxAgeV);
 		TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
+		TRY_STR("max_stale", Req_I_CC_MaxStale);
 		TRY_STR_LAMBDA("max-stale", {
 			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 		}, Req_I_CC_EoT);
@@ -1366,7 +1369,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
 		}, Req_I_CC_EoT);
 		TRY_STR_LAMBDA("no-transform", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
 		}, Req_I_CC_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
@@ -1374,7 +1377,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_CC_o) {
 		TRY_STR_LAMBDA("only-if-cached", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_OIC;
+			req->cache_ctl.flags |= TFW_HTTP_CC_OIFCACHED;
 		}, Req_I_CC_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
@@ -1385,9 +1388,13 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		req->cache_ctl.max_age = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
@@ -1397,9 +1404,37 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		req->cache_ctl.max_fresh = parser->_acc;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
+		req->cache_ctl.min_fresh = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
+	}
+
+	__FSM_STATE(Req_I_CC_MaxStale) {
+		if (c == '=')
+			__FSM_I_MOVE(Req_I_CC_MaxStaleV);
+		req->cache_ctl.max_stale = UINT_MAX;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+		__FSM_I_MOVE_n(Req_I_CC_EoT, 0);
+	}
+
+	__FSM_STATE(Req_I_CC_MaxStaleV) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
+		req->cache_ctl.max_stale = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
@@ -1427,13 +1462,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_EoT) {
 		if (c == ' ' || c == ',')
 			__FSM_I_MOVE(Req_I_CC_EoT);
-		/*
-		 * TODO
-		 * - For the time being we don't support field values
-		 *   for the max-stale field, so just skip '=[hdr_a]*'.
-		 */
-		if (c == '=')
-			__FSM_I_MOVE(Req_I_CC_Ext);
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE_n(Req_I_CC, 0);
 		if (IS_CR_OR_LF(c))
@@ -2543,7 +2571,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_CC_m) {
 		TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
 		TRY_STR_LAMBDA("must-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REV;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REVAL;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2557,7 +2585,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("no-transform", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2571,7 +2599,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->cache_ctl.flags |= TFW_HTTP_CC_PRIVATE;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("proxy-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REVAL;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2584,25 +2612,41 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
+		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)) {
+			resp->cache_ctl.max_age = 0;
+			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		resp->cache_ctl.max_age = parser->_acc;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
+		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)) {
+			resp->cache_ctl.s_maxage = 0;
+			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		resp->cache_ctl.s_maxage = parser->_acc;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
@@ -2702,6 +2746,25 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_Date) {
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
+			/*
+			 * A duplicate invalidates the header's value.
+			 * @resp->expires is set to zero - already expired.
+			 */
+			if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
+				__FSM_I_MOVE_n(Resp_I_EoL, 0);
+			break;
+		case Resp_HdrDateV:
+			if (resp->flags & TFW_HTTP_HAS_HDR_DATE)
+				return CSTR_NEQ;
+			break;
+		default:
+			TFW_DBG2("%s: Unknown caller's FSM state: [%d]\n",
+				 __func__, parser->state);
+			BUG();
+			return CSTR_NEQ;
+		}
 		/* Skip a weekday as redundant information. */
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchr(p, ' ', __fsm_sz);
@@ -2902,12 +2965,8 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 			break;
 		case Resp_HdrDateV:
 			resp->date = parser->_date;
+			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
 			break;
-		default:
-			TFW_DBG2("%s: Unknown caller's FSM state: [%d]\n",
-				 __func__, parser->state);
-			BUG();
-			return CSTR_NEQ;
 		}
 		return __data_offset(__fsm_ch);
 	}
@@ -2928,11 +2987,11 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
 	int ret = __resp_parse_http_date(resp, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
-		BUG_ON(resp->parser.state != Resp_HdrExpiresV);
 		/*
 		 * On error just swallow the rest of the line.
-		 * @resp->expires stays zero - already expired.
+		 * @resp->expires is set to zero - already expired.
 		 */
+		BUG_ON(resp->parser.state != Resp_HdrExpiresV);
 		resp->parser._date = 0;
 		resp->parser._i_st = Resp_I_EoL;
 		ret = __resp_parse_http_date(resp, data, len);
@@ -3322,8 +3381,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				  __resp_parse_cache_control);
 
 	/* 'Date:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
-				   __resp_parse_http_date, TFW_HTTP_HDR_DATE);
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
+				  __resp_parse_http_date);
 
 	/* 'Connection:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, I_Conn, msg,
