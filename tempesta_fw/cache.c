@@ -64,7 +64,8 @@ typedef struct {
 	unsigned int	status_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_len;
-	unsigned int	flags;
+	unsigned int	method: 4;
+	unsigned int	flags: 28;
 	time_t		age;
 	time_t		date;
 	time_t		expires;
@@ -382,8 +383,10 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
 
-	if (req->uri_path.len + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len
-	    != ce->key_len)
+	if (ce->method != req->method)
+		return false;
+	if (req->uri_path.len
+	    + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
@@ -394,11 +397,7 @@ this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
 		if (strncasecmp((char *)c->ptr + c_off, trec->data + t_off, n))
 			return false;
-		if (n == c->len - c_off) {
-			c_off = 0;
-		} else {
-			c_off += n;
-		}
+		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
 			t_off = 0;
 			trec = tdb_next_rec_chunk(db, trec);
@@ -637,6 +636,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		tot_len -= n;
 		ce->key_len += n;
 	}
+	/* Request method is a part of the cache record key. */
+	ce->method = req->method;
 
 	ce->status = TDB_OFF(db->hdr, p);
 	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->s_line, &tot_len, 1)) < 0) {
