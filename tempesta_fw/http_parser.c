@@ -31,6 +31,7 @@
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 
+#include "avx_routines.h"
 #include "gfsm.h"
 #include "http_msg.h"
 
@@ -109,7 +110,6 @@ memchreol(const unsigned char *s, size_t n)
 	(len - __data_offset(pos))
 #define __data_available(pos, num)					\
 	(num <= __data_remain(pos))
-
 /**
  * The following set of macros is intended to use for generic fields processing
  * while parsing HTTP status-line. As with headers, @__msg_field_open macro is
@@ -1576,7 +1576,11 @@ done:
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
-	int r = TFW_BLOCK;
+#ifdef __AVX2__
+    __DEFINE_AVX_VARIABLES
+#endif
+
+    int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 
@@ -1809,11 +1813,77 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(RGen_Hdr) {
 		tfw_http_msg_hdr_open(msg, p);
 
-		if (unlikely(IS_CR_OR_LF((c))))
-			__FSM_JMP(RGen_EoL);
+        if (unlikely(IS_CR_OR_LF((c))))
+            __FSM_JMP(RGen_EoL);
 
-		if (unlikely(!IN_ALPHABET(c, hdr_a)))
-			return TFW_BLOCK;
+        if (unlikely(!IN_ALPHABET(c, hdr_a)))
+            return TFW_BLOCK;
+
+#ifdef __AVX2__
+        if (__data_available(p, 32)) {
+            __m256i text = _mm256_loadu(p);
+            AVX_LOWERCASE(text, text);
+            __m256i mask1, mask2;
+            //match operation is quite slow, and in most cases
+            //header name is 8-16 chars long, so we start 2 of them in parallel
+            //we will utilize later chars in order to fast-skip both header name,
+            //':', some spaces and part of header value if it is "other" type
+            AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);
+            AVX_MATCH_CHARSET(mask2, text, HVALUE_CHARSET);
+            //mask text for classification
+            int bitmask1 = _mm256_movemask_epi8(mask1);
+            int bitmask2 = _mm256_movemask_epi8(
+                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_SEMICOLON)));
+            int bitmask3 = _mm256_movemask_epi8(
+                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES)));
+            int bitmask4 = _mm256_movemask_epi8(mask2);
+            //at this point we must have something like this:
+            //           Host:   yandex.ru\n
+            //~bitmask1  ****    ****** **
+            // bitmask2      *
+            // bitmask3       ***
+            //~bitmask4  *****************
+
+            //check for long header name
+            if (unlikely(!bitmask1))
+                return TFW_BLOCK;
+
+            int tmp = (~bitmask1)+1;
+            //bitmask2[__builtin_ffs(bitmask1)] must be 01
+            // tmp           *    ****** **
+            // bitmask2      *
+            tmp &= bitmask2;
+            if (unlikely(!tmp))
+                return TFW_BLOCK;
+
+            //extract header name and test it against set of symbols
+            int headerid = 0;
+            mask1 = _mm256_andnot_si256(mask1, text);
+            AVX_MATCH_STRING(headerid, mask1, HEADER_NAMES);
+            parser->_hdr_tag = AVX_STRID_0(headerid);
+            parser->_i_st    = AVX_STRID_1(headerid);
+            //now skip spaces after "header_name:"
+            // tmp           *
+            // bitmask3       *** xxxxxxx
+            tmp = tmp + tmp + bitmask3;
+            // tmp               *xxxxxxx
+            if (unlikely(!tmp)) {
+                //we got header name and some spaces after it, but
+                //not header value at all
+                __FSM_MOVE_n(RGen_LWS, 32);
+            }
+            //test if header + header value fit into 31 bytes(not 32!!!!!)
+            bitmask4 &= tmp;
+            //now bitmask4 covers only header value
+            int hv_start = __builtin_ctz(bitmask4);
+            if (bitmask4 < 0) {
+                __FSM_MOVE_n(RGen_LWS, hv_start);
+            }
+            tmp = __builtin_ctz((bitmask4 >> hv_start)+1);
+            //TODO: place the header
+            __FSM_MOVE_n(RGen_EoL, hv_start+tmp);
+        }
+#endif
 
 		switch (LC(c)) {
 		case 'c':
