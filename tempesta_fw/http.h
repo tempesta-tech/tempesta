@@ -285,7 +285,7 @@ typedef struct {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
-	tfw_http_meth_t		method;
+	unsigned char		method;
 	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
