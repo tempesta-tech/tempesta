@@ -25,7 +25,7 @@ extern const unsigned int  __c_avx_header_names_len;
     __m256 HEADER_CHARSET   = __header_charset; \
     __m256 HVALUE_CHARSET   = __hvalue_charset; \
     __m256 __avx_constants1 = __constants1; \
-    __m256 __avx_constants1 = __constants1;
+    __m256 __avx_constants2 = __constants2;
 
 enum {
     __AVX_C1_LOWERCASE1  = 0x00,
