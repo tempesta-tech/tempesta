@@ -87,6 +87,24 @@ enum {
 static inline unsigned char *
 memchreol(const unsigned char *s, size_t n)
 {
+#ifdef __AVX2__
+    int k = -1;
+    while(n >= 32) {
+        __m256i text = _mm256_loadu(s);
+        __m256i mask1;
+        AVX_MATCH_CHARSET(mask1, text, HVALUE_CHARSET);
+        int mask2 = _mm256_movemask_epi8(mask1);
+        if (mask2) {
+            k = mask2;
+            break;
+        }
+        s += 32;
+        n -= 32;
+    };
+    k = __builtin_ctz(k);
+    s += k;
+    n -= k;
+#endif
 	while (n) {
 		if (IS_CR_OR_LF(*s))
 			return (unsigned char *)s;
