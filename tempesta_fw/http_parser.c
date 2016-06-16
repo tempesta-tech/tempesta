@@ -88,11 +88,13 @@ static inline unsigned char *
 memchreol(const unsigned char *s, size_t n)
 {
 #ifdef __AVX2__
+    __m256 __avx_constants2 = __constants2;
     int k = -1;
     while(n >= 32) {
         __m256i text = _mm256_loadu(s);
-        __m256i mask1;
-        AVX_MATCH_CHARSET(mask1, text, HVALUE_CHARSET);
+        mask1 = _mm256_or_si256(
+            _mm256_cmpgt_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1)),
+            _mm256_cmpgt_epi8(_mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1), text));
         int mask2 = _mm256_movemask_epi8(mask1);
         if (mask2) {
             k = mask2;
@@ -106,8 +108,12 @@ memchreol(const unsigned char *s, size_t n)
     n -= k;
 #endif
 	while (n) {
-		if (IS_CR_OR_LF(*s))
-			return (unsigned char *)s;
+        unsigned char c = *s;
+        if (c < 0x20 || c >= 0x7f) {
+            if (IS_CR_OR_LF(c))
+                return (unsigned char *)s;
+            return NULL;
+        }
 		s++, n--;
 	}
 	return NULL;
@@ -1847,11 +1853,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //we will utilize later chars in order to fast-skip both header name,
             //':', some spaces and part of header value if it is "other" type
             AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);
-            AVX_MATCH_CHARSET(mask2, text, HVALUE_CHARSET);
+            mask2 = _mm256_or_si256(
+                _mm256_cmpgt_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1)),
+                _mm256_cmpgt_epi8(_mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1), text));
             //mask text for classification
             int bitmask1 = _mm256_movemask_epi8(mask1);
             int bitmask2 = _mm256_movemask_epi8(
-                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_SEMICOLON)));
+                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SEMICOLON)));
             int bitmask3 = _mm256_movemask_epi8(
                 _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES)));
             int bitmask4 = _mm256_movemask_epi8(mask2);

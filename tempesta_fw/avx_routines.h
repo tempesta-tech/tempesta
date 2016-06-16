@@ -31,11 +31,11 @@ enum {
     __AVX_C1_LOWERCASE1  = 0x00,
     __AVX_C1_LOWERCASE2  = 0x55,
     __AVX_C1_SPACES      = 0xAA,
-    __AVX_C1_NEWLINE     = 0xFF,
+    __AVX_C1_SEMICOLON   = 0xFF,
     __AVX_C2_CHARSET_M1  = 0x00,
     __AVX_C2_CHARSET_M2  = 0x55,
-    __AVX_C2_SEMICOLON   = 0xAA,
-    __AVX_C2_NEWLINE     = 0xFF,
+    __AVX_C2_CONTORL1    = 0xAA,
+    __AVX_C2_CONTROL2    = 0xFF,
 };
 
 #define AVX_LOWERCASE(out, in) do { \
