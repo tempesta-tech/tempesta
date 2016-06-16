@@ -1873,7 +1873,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 __FSM_MOVE_n(RGen_LWS, 32);
             }
             //test if header + header value fit into 31 bytes(not 32!!!!!)
-            bitmask4 &= tmp;
+            tmp =
+            bitmask4 &= (tmp | (tmp>>1);
             //now bitmask4 covers only header value
             int hv_start = __builtin_ctz(bitmask4);
             if (bitmask4 < 0) {
