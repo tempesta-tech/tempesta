@@ -57,6 +57,7 @@ int tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener);
 
 bool tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2);
 int tfw_addr_pton(const TfwStr *str, TfwAddr *addr);
+int tfw_addr_pton_cidr(const char *str, TfwAddr *addr);
 size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
 /* A couple of lower-level functions faster than tfw_addr_ntop().
