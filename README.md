@@ -209,6 +209,42 @@ cache_fulfill * *;
 cache_bypass * *;
 ```
 
+#### Manual Cache Purging
+
+Cached responses may be purged manually using the PURGE request method
+and the URL of the cached response. A typical use case is that when some
+content is changed on the upstream server, then a PURGE request followed
+by a GET request will update an appropriate entry in the cache.
+
+This functionality is controlled with the following directives:
+* **cache_purge [invalidate];** - Defines the purge mode
+`invalidate` just makes the cache record invalid. The cached response may
+still be returned to a client under certain conditions. This is the default
+mode. Other modes will be added in future.
+* **cache_purge_acl <ip_address>;** - Specifies the IP addresses of hosts
+that are permitted to send PURGE requests. PURGE requests from all other
+hosts will be denied. That makes this directive mandatory when `cache_purge`
+directive is specified. Multilple addresses are separated with white spaces.
+
+`<ip_address>` can be an IPv4 or IPv6 address. An IP address can be specified
+in CIDR format where the address is followed by a slash character and the
+prefix (or mask) with the number of significant bits in the addresss. Below
+are examples of a valid IP address specification:
+```
+127.0.0.1
+192.168.10.50/24
+::ffff:c0a8:b0a
+[::ffff:c0a8:a0a]
+::ffff:c0a8:b0b/120
+[::ffff:c0a8:b0b]/120
+```
+
+A PURGE request can be issued using any tool that is convenient. Below is
+just one example:
+```
+curl -X PURGE http://192.168.10.10/
+```
+
 ### Locations
 
 Location is a way of grouping certain directives that are applied only
