@@ -17,7 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/inet.h>
 #include "tempesta_fw.h"
 #include "http_match.h"
 #include "vhost.h"
@@ -613,80 +612,6 @@ tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
 }
 
 /*
- * Parse an IP address in CIDR format. Try to parse it as an IPv4
- * address first. If successful, convert the IPv4 address to IPv6
- * address. Otherwise, try to parse it as an IPv6 address.
- * Returns a pointer to the next character after the parsed string
- * if the result is positive. Returns NULL in case of an error.
- */
-static const char *
-tfw_capuacl_parse_addr(const char *arg, TfwAddr *addr)
-{
-	char delim = '/';
-	TfwAddr tmpaddr = {};
-	const char *pptr;
-	__be32 *v4_saddr = &tmpaddr.v4.sin_addr.s_addr;
-	struct in6_addr *v6_inaddr = &tmpaddr.v6.sin6_addr;
-
-	if (in4_pton(arg, -1, (u8 *)v4_saddr, delim, &pptr)) {
-		ipv6_addr_set_v4mapped(*v4_saddr, v6_inaddr);
-		tmpaddr.family = AF_INET;
-		goto done;
-	}
-	if (*arg == '[') {
-		arg++;
-		delim = ']';
-	}
-	if (!in6_pton(arg, -1, (u8 *)&v6_inaddr->s6_addr, delim, &pptr))
-		return NULL;
-	tmpaddr.family = AF_INET6;
-	if (*pptr == ']')
-		++pptr;
-done:
-	if (*pptr == '/')
-		++pptr;
-
-	*addr = tmpaddr;
-	return pptr;
-}
-
-/*
- * Parse an IP address in CIDR format specified in the cache_purge_acl
- * directive. That include an IPv4 or IPv6 address, and a potential
- * address prefix specified as the number of bits after the '/' char.
- * Returns zero if the result is positive.
- * Returns a negative error number in case of an error.
- */
-static int
-tfw_capuacl_parse_value(const char *arg, TfwAddr *addr)
-{
-	u8 prefix;
-	const char *pptr;
-
-	if ((pptr = tfw_capuacl_parse_addr(arg, addr)) == NULL)
-		return -EINVAL;
-
-	/* Parse a possible prefix length. */
-	if (*pptr == '\0') {
-		addr->in6_prefix = 128;
-		return 0;
-	}
-	if (kstrtou8(pptr, 10, &prefix) || (prefix == 0))
-		return -EINVAL;
-	if (addr->family == AF_INET) {
-		if (prefix > 32)
-			return -EINVAL;
-		prefix += 128 - 32;
-		addr->family = AF_INET6;
-	} else if (prefix > 128) {
-		return -EINVAL;
-	}
-	addr->in6_prefix = prefix;
-
-	return 0;
-}
-
-/*
  * Process the cache_purge_acl directive.
  */
 static int
@@ -704,7 +629,7 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		TfwAddr addr = {};
 
-		if (tfw_capuacl_parse_value(val, &addr)) {
+		if (tfw_addr_pton_cidr(val, &addr)) {
 			TFW_ERR("%s: Invalid ACL entry: '%s'\n",
 				cs->name, val);
 			return -EINVAL;
