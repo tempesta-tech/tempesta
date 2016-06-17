@@ -765,8 +765,8 @@ tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "invalidate")) {
 			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
-		} else if (!strcasecmp(val, "purge")) {
-			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_PURGE;
+		} else if (!strcasecmp(val, "delete")) {
+			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_DELETE;
 		} else {
 			TFW_ERR("%s: unsupported argument: '%s'\n",
 				cs->name, val);
@@ -782,6 +782,9 @@ done:
 static int
 tfw_vhost_cfg_start(void)
 {
+	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
+		TFW_WARN("cache_purge directive works only in combination"
+			 " with cache_purge_acl directive.\n");
 	tfw_vhost_dflt.loc_sz = tfw_location_sz;
 	return 0;
 }

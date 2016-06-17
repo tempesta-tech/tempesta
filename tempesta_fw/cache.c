@@ -833,10 +833,10 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
 
-	if (!cache_cfg.cache)
-		goto dont_cache;
 	if (req->method == TFW_HTTP_METH_PURGE)
 		goto do_cache;
+	if (!cache_cfg.cache)
+		goto dont_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
 	if (!resp && !tfw_cache_employ_req(req))
@@ -1143,10 +1143,8 @@ tfw_cache_purge_set_expired(TfwHttpReq *req, unsigned long key)
 	TDB *db = node_db();
 	TfwCacheEntry *ce = NULL;
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key))) {
-		tfw_cache_dbce_put(ce);
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		return -ENOENT;
-	}
 
 	/* ce->lifetime = 0; */
 
@@ -1160,17 +1158,17 @@ tfw_cache_purge_set_expired(TfwHttpReq *req, unsigned long key)
 static int
 tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
 {
+	TfwAddr saddr;
 	TfwVhost *vhost = tfw_vhost_get_default();
 
-	if (!vhost->cache_purge)
+	/* Deny PURGE requests by default. */
+	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
 		return tfw_http_send_403((TfwHttpMsg *)req);
 
-	if (vhost->cache_purge_acl) {
-		TfwAddr saddr;
-		tfw_addr_get_sk_saddr(req->conn->sk, &saddr);
-		if (!tfw_capuacl_match(vhost, &saddr))
-			return tfw_http_send_403((TfwHttpMsg *)req);
-	}
+	/* Accept requests from configured hosts only. */
+	tfw_addr_get_sk_saddr(req->conn->sk, &saddr);
+	if (!tfw_capuacl_match(vhost, &saddr))
+		return tfw_http_send_403((TfwHttpMsg *)req);
 
 	if (tfw_cache_purge_set_expired(req, key))
 		return tfw_http_send_404((TfwHttpMsg *)req);
@@ -1224,8 +1222,9 @@ static int
 tfw_cache_start(void)
 {
 	int i, r = 1;
+	TfwVhost *vhost = tfw_vhost_get_default();
 
-	if (!cache_cfg.cache)
+	if (!(cache_cfg.cache || vhost->cache_purge))
 		return 0;
 
 	for_each_node_with_cpus(i) {
