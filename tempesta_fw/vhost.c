@@ -72,7 +72,12 @@ static TfwLocation tfw_location_dflt = {
  * Note that @loc_dflt in the default vhost serves as global
  * default caching policy.
  */
+static const char __read_mostly s_hdr_via_dflt[] =
+	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
+
 static TfwVhost		tfw_vhost_dflt = {
+	.hdr_via	= s_hdr_via_dflt,
+	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.loc		= tfw_location,
 	.loc_dflt	= &tfw_location_dflt,
 	.loc_dflt_sz	= 1
@@ -521,6 +526,56 @@ tfw_cleanup_locache(TfwCfgSpec *cs)
 	__tfw_cleanup_locache();
 }
 
+/*
+ * Process hdr_via directive.
+ * Default value is preset statically.
+ */
+static int
+tfw_handle_out_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int len;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n != 1) {
+		TFW_ERR("%s: Invalid number of arguments: %d\n",
+			cs->name, (int)ce->val_n);
+		return -EINVAL;
+	}
+
+	/*
+	 * If a value is specified in the configuration file, then
+	 * the default value is not used, even if the processing of
+	 * the specified value results in an error.
+	 */
+	len = strlen(ce->vals[0]);
+	if ((vhost->hdr_via = kmalloc(len + 1, GFP_KERNEL)) == NULL)
+		return -ENOMEM;
+	memcpy((void *)vhost->hdr_via, (void *)ce->vals[0], len + 1);
+	vhost->hdr_via_len = len;
+
+	return 0;
+}
+
+
+static void
+__tfw_cleanup_hdrvia(void)
+{
+	TfwVhost *vhost = &tfw_vhost_dflt;
+	if (vhost->hdr_via && (vhost->hdr_via != s_hdr_via_dflt))
+		kfree(vhost->hdr_via);
+}
+
+static void
+tfw_cleanup_hdrvia(TfwCfgSpec *cs)
+{
+	__tfw_cleanup_hdrvia();
+}
+
 static int
 tfw_vhost_cfg_start(void)
 {
@@ -531,6 +586,7 @@ tfw_vhost_cfg_start(void)
 static void
 tfw_vhost_cfg_stop(void)
 {
+	__tfw_cleanup_hdrvia();
 	__tfw_cleanup_locache();
 }
 
@@ -553,6 +609,13 @@ static TfwCfgSpec tfw_location_specs[] = {
 };
 
 static TfwCfgSpec tfw_vhost_cfg_specs[] = {
+	{
+		"hdr_via", NULL,
+		tfw_handle_out_hdr_via,
+		.allow_none = true,
+		.allow_repeat = false,
+		.cleanup = tfw_cleanup_hdrvia
+	},
 	{
 		"cache_bypass", NULL,
 		tfw_handle_out_cache_bypass,
