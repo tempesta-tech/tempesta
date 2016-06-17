@@ -64,7 +64,7 @@ typedef struct {
 /* Cache purge configuration modes. */
 enum {
 	TFW_D_CACHE_PURGE_INVALIDATE,
-	TFW_D_CACHE_PURGE_PURGE,
+	TFW_D_CACHE_PURGE_DELETE,
 };
 
 /*
