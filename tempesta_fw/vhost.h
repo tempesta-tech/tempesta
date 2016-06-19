@@ -70,6 +70,8 @@ typedef struct {
 typedef struct {
 	TfwLocation	*loc;
 	TfwLocation	*loc_dflt;
+	const char	*hdr_via;
+	unsigned int	hdr_via_len;
 	unsigned int	loc_sz;
 	unsigned int	loc_dflt_sz;
 } TfwVhost;
