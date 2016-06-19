@@ -586,6 +586,43 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_add_hdr_via(TfwHttpMsg *hm)
+{
+	int r;
+	static const char const * __read_mostly s_http_version[] = {
+		[0 ... _TFW_HTTP_VER_COUNT] = NULL,
+		[TFW_HTTP_VER_09] = "0.9 ",
+		[TFW_HTTP_VER_10] = "1.0 ",
+		[TFW_HTTP_VER_11] = "1.1 ",
+		[TFW_HTTP_VER_20] = "2.0 ",
+	};
+	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwStr rh = {
+#define S_VIA	"Via: "
+		.ptr = (TfwStr []) {
+			{ .ptr = S_VIA, .len = SLEN(S_VIA) },
+			{ .ptr = (void *)s_http_version[hm->version],
+			  .len = 4 },
+			{ .ptr = *this_cpu_ptr(&g_buf),
+			  .len = vhost->hdr_via_len },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = 4 + SLEN(S_VIA S_CRLF) + vhost->hdr_via_len,
+		.flags = 4 << TFW_STR_CN_SHIFT
+#undef S_VIA
+	};
+
+	memcpy(__TFW_STR_CH(&rh, 2)->ptr, vhost->hdr_via, vhost->hdr_via_len);
+
+	r = tfw_http_msg_hdr_add(hm, &rh);
+	if (r)
+		TFW_ERR("Unable to add Via: header to msg [%p]\n", hm);
+	else
+		TFW_DBG2("Added Via: header to msg [%p]\n", hm);
+	return r;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -593,13 +630,17 @@ static int
 tfw_http_adjust_req(TfwHttpReq *req)
 {
 	int r;
-	TfwHttpMsg *m = (TfwHttpMsg *)req;
+	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	r = tfw_http_add_x_forwarded_for(m);
+	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
 
-	return tfw_http_set_hdr_connection(m, TFW_HTTP_CONN_KA);
+	r = tfw_http_add_hdr_via(hm);
+	if (r)
+		return r;
+
+	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
 }
 
 /**
@@ -621,6 +662,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	r = tfw_http_set_hdr_connection(hm, conn_flg);
 	if (r < 0)
+		return r;
+
+	r = tfw_http_add_hdr_via(hm);
+	if (r)
 		return r;
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,

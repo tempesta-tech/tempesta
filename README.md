@@ -579,6 +579,20 @@ INFO: records=1 status=OK zero-copy
 The table `filter` contains all blocked IP addresses.
 
 
+### Additional Directives
+
+Tempesta has a number of additional directives that control varios aspects
+of a running system. Possible directives are listed below.
+
+* **hdr_via [string];** - As an intermediary between a client and a back end
+server, Tempesta adds HTTP Via: header field to each message. This directive
+sets the value of the header field, not includng the mandatory HTTP protocol
+version number. Note that the value should be a single token. Multiple tokens
+can be specified in apostrophes, however everything after the first token and
+a white space will be considered a Via: header field comment. If no value is
+specified in the directive, the default value is used.
+
+
 ### Performance Statistics
 
 Tempesta has a set of performance statistics counters that show various
