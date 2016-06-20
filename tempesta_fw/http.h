@@ -96,23 +96,41 @@ enum {
 	_TFW_HTTP_VER_COUNT
 };
 
+/* CC directives common to requests and responses. */
 #define TFW_HTTP_CC_NO_CACHE		0x00000001
 #define TFW_HTTP_CC_NO_STORE		0x00000002
-#define TFW_HTTP_CC_NO_TRANS		0x00000004
-#define TFW_HTTP_CC_NO_OIC		0x00000008
+#define TFW_HTTP_CC_NO_TRANSFORM	0x00000004
+#define TFW_HTTP_CC_MAX_AGE		0x00000008
+/* Request only CC directives. */
 #define TFW_HTTP_CC_MAX_STALE		0x00000010
-#define TFW_HTTP_CC_MUST_REV		0x00000020
-#define TFW_HTTP_CC_PROXY_REV		0x00000040
-#define TFW_HTTP_CC_PUBLIC		0x00000080
-#define TFW_HTTP_CC_PRIVATE		0x00000100
+#define TFW_HTTP_CC_MIN_FRESH		0x00000020
+#define TFW_HTTP_CC_OIFCACHED		0x00000040
+/* Response only CC directives. */
+#define TFW_HTTP_CC_MUST_REVAL		0x00000100
+#define TFW_HTTP_CC_PROXY_REVAL		0x00000200
+#define TFW_HTTP_CC_PUBLIC		0x00000400
+#define TFW_HTTP_CC_PRIVATE		0x00000800
+#define TFW_HTTP_CC_S_MAXAGE		0x00001000
+/* Mask to indicate that CC header is present. */
+#define TFW_HTTP_CC_IS_PRESENT		0x0000ffff
+/* Headers that affect Cache Control. */
 #define TFW_HTTP_CC_PRAGMA_NO_CACHE	0x00010000
-#define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x00100000
+#define TFW_HTTP_CC_HDR_AGE		0x00020000
+#define TFW_HTTP_CC_HDR_EXPIRES		0x00040000
+#define TFW_HTTP_CC_HDR_AUTHORIZATION	0x00080000
+/* Config directives that affect Cache Control. */
+#define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x01000000
+
 
 typedef struct {
 	unsigned int	flags;
 	unsigned int	max_age;
 	unsigned int	s_maxage;
-	unsigned int	max_fresh;
+	unsigned int	max_stale;
+	unsigned int	min_fresh;
+	time_t		timestamp;
+	time_t		age;
+	time_t		expires;
 } TfwCacheControl;
 
 /**
@@ -146,6 +164,7 @@ typedef struct {
 	int		to_read;
 	unsigned long	_acc;
 	unsigned long	_eol;
+	time_t		_date;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
@@ -210,6 +229,7 @@ typedef struct {
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
+#define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
 
 /**
  * Common HTTP message members.
@@ -265,7 +285,7 @@ typedef struct {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
-	tfw_http_meth_t		method;
+	unsigned char		method;
 	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
@@ -287,7 +307,7 @@ typedef struct {
 	TfwStr			s_line;
 	unsigned short		status;
 	unsigned int		keep_alive;
-	unsigned int		expires;
+	time_t			date;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
@@ -312,6 +332,15 @@ typedef struct {
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
+/* Get current timestamp in secs. */
+static inline time_t
+tfw_current_timestamp(void)
+{
+	struct timespec ts;
+	getnstimeofday(&ts);
+	return ts.tv_sec;
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 
 /* Internal (parser) HTTP functions. */
@@ -332,6 +361,7 @@ void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
  */
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hm, TfwStr *cookie);
 int tfw_http_send_502(TfwHttpMsg *hm);
+int tfw_http_send_504(TfwHttpMsg *hm);
 
 /*
  * Functions to create SKBs with data stream.
