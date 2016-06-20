@@ -43,7 +43,6 @@
 
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
-#define TFW_CE_NO_CACHE		0x0002		/* ALWAYS revalidate. */
 #define TFW_CE_INVALID		0x0100
 
 /*
@@ -52,6 +51,13 @@
  * @status_len	- length of response satus line;
  * @hdr_num	- numbder of headers;
  * @hdr_len	- length of whole headers data;
+ * @method	- request method, part of the key;
+ * @flags	- various cache entry flags;
+ * @age		- the value of response Age: header field;
+ * @date	- the value of response Date: header field;
+ * @req_time	- the time the request was issued;
+ * @resp_time	- the time the response was received;
+ * @lifetime	- the cache entry's current lifetime;
  * @key		- the cache enty key (URI + Host header);
  * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
@@ -68,7 +74,6 @@ typedef struct {
 	unsigned int	flags: 28;
 	time_t		age;
 	time_t		date;
-	time_t		expires;
 	time_t		req_time;
 	time_t		resp_time;
 	time_t		lifetime;
@@ -264,8 +269,6 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
 		return false;
 
-	/* Assume there's no Date: header in the request. */
-	req->cache_ctl.timestamp = tfw_current_timestamp();
 	return true;
 }
 
@@ -290,40 +293,45 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 static bool
 tfw_cache_employ_resp(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	static const unsigned int __read_mostly cacheit =
-		TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE
-		| TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC;
-	static const unsigned int __read_mostly authcan =
-		TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC
-		| TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL;
-
-	if (req->cache_ctl.flags & TFW_HTTP_CC_CFG_CACHE_BYPASS)
-		return false;
-
-	if ((req->cache_ctl.flags|resp->cache_ctl.flags) & TFW_HTTP_CC_NO_STORE)
-		return false;
+#define CC_REQ_DONTCACHE				\
+	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
+#define CC_RESP_DONTCACHE				\
+	(TFW_HTTP_CC_NO_STORE | TFW_HTTP_CC_PRIVATE	\
+	 | TFW_HTTP_CC_NO_CACHE)
+#define CC_RESP_CACHEIT					\
+	(TFW_HTTP_CC_HDR_EXPIRES | TFW_HTTP_CC_MAX_AGE	\
+	 | TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC)
+#define CC_RESP_AUTHCAN					\
+	(TFW_HTTP_CC_S_MAXAGE | TFW_HTTP_CC_PUBLIC	\
+	 | TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL)
 	/*
-	 * TODO: no-cache -- should be cached.
+	 * TODO: Response no-cache -- should be cached.
 	 * Should turn on unconditional revalidation.
 	 */
-	if (resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
+	if (req->cache_ctl.flags & CC_REQ_DONTCACHE)
+		return false;
+	if (resp->cache_ctl.flags & CC_RESP_DONTCACHE)
 		return false;
 	if (!(resp->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
 	    && (resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
-	if (resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE)
-		return false;
 	if ((req->cache_ctl.flags & TFW_HTTP_CC_HDR_AUTHORIZATION)
-	    && !(req->cache_ctl.flags & authcan))
+	    && !(req->cache_ctl.flags & CC_RESP_AUTHCAN))
 		return false;
-	if (!(resp->cache_ctl.flags & cacheit) && !tfw_cache_status_bydef(resp))
+	if (!(resp->cache_ctl.flags & CC_RESP_CACHEIT)
+	    && !tfw_cache_status_bydef(resp))
 		return false;
+#undef CC_RESP_AUTHCAN
+#undef CC_RESP_CACHEIT
+#undef CC_RESP_DONTCACHE
+#undef CC_REQ_DONTCACHE
 
-	if (!resp->cache_ctl.timestamp)
-		resp->cache_ctl.timestamp = tfw_current_timestamp();
 	return true;
 }
 
+/*
+ * Calculate freshness lifetime according to RFC 7234 4.2.1.
+ */
 static time_t
 tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
@@ -334,13 +342,16 @@ tfw_cache_calc_lifetime(TfwHttpResp *resp)
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
 		lifetime = resp->cache_ctl.max_age;
 	else if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
-		lifetime = resp->cache_ctl.expires;
+		lifetime = resp->cache_ctl.expires - resp->date;
 	else
 		lifetime = 0;	/* TODO: Heuristic lifetime. */
 
 	return lifetime;
 }
 
+/*
+ * Calculate the current entry age according to RFC 7234 4.2.3.
+ */
 static time_t
 tfw_cache_entry_age(TfwCacheEntry *ce)
 {
@@ -350,29 +361,45 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
 	return (initial_age + tfw_current_timestamp() - ce->resp_time);
 }
 
-static bool
-tfw_cache_entry_is_fresh(TfwHttpReq *req, TfwCacheEntry *ce)
+/*
+ * Given Cache Control arguments in the request and the response,
+ * as well as the stored cache entry parameters, determine if the
+ * cache entry is live and may be served to a client. For that,
+ * the cache entry freshness is calculated according to RFC 7234
+ * 4.2, 5.2.1.1, 5.2.1.2, and 5.2.1.3.
+ *
+ * Returns the value of calculated cache entry lifetime if the entry
+ * is live and may be served to a client. Returns zero if the entry
+ * may not be served.
+ *
+ * Note that if the returned value of lifetime is greater than
+ * ce->lifetime, then the entry is stale but still may be served
+ * to a client, provided that the cache policy allows that.
+ */
+static time_t
+tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	time_t ce_age = tfw_cache_entry_age(ce);
-	time_t ce_lifetime = ce->lifetime;
+	time_t ce_lifetime, lt_fresh = UINT_MAX;
 
-	if (req->cache_ctl.flags & (TFW_HTTP_CC_MAX_AGE
-				    | TFW_HTTP_CC_MAX_STALE
-				    | TFW_HTTP_CC_MIN_FRESH))
-	{
-		time_t lt_max_age, lt_max_stale, lt_min_fresh;
-
-		lt_max_age = lt_max_stale = lt_min_fresh = UINT_MAX;
+#define CC_LIFETIME_FRESH	(TFW_HTTP_CC_MAX_AGE | TFW_HTTP_CC_MIN_FRESH)
+	if (req->cache_ctl.flags & CC_LIFETIME_FRESH) {
+		time_t lt_max_age = UINT_MAX, lt_min_fresh = UINT_MAX;
 		if (req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)
 			lt_max_age = req->cache_ctl.max_age;
-		if (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)
-			lt_max_stale += req->cache_ctl.max_stale;
 		if (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH)
-			lt_min_fresh -= req->cache_ctl.min_fresh;
-		ce_lifetime = min(min(lt_max_age, lt_max_stale), lt_min_fresh);
+			lt_min_fresh = ce->lifetime - req->cache_ctl.min_fresh;
+		lt_fresh = min(lt_max_age, lt_min_fresh);
 	}
+	if (!(req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE)) {
+		ce_lifetime = min(lt_fresh, ce->lifetime);
+	} else {
+		time_t lt_max_stale = ce->lifetime + req->cache_ctl.max_stale;
+		ce_lifetime = min(lt_fresh, lt_max_stale);
+	}
+#undef CC_LIFETIME_FRESH
 
-	return ce_lifetime > ce_age;
+	return ce_lifetime > ce_age ? ce_lifetime : 0;
 }
 
 static bool
@@ -671,11 +698,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	BUG_ON(tot_len != 0);
 
 	if (resp->cache_ctl.flags
-	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_MUST_REVAL))
+	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
 		ce->flags |= TFW_CE_MUST_REVAL;
 	ce->date = resp->date;
 	ce->age = resp->cache_ctl.age;
-	ce->expires = resp->cache_ctl.expires;
 	ce->req_time = req->cache_ctl.timestamp;
 	ce->resp_time = resp->cache_ctl.timestamp;
 	ce->lifetime = tfw_cache_calc_lifetime(resp);
@@ -1064,7 +1090,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		}
 	}
 
-	if (!tfw_cache_entry_is_fresh(req, ce))
+	if (!tfw_cache_entry_is_live(req, ce))
 		goto out;
 
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
@@ -1078,7 +1104,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	resp = tfw_cache_build_resp(ce);
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-		tfw_http_send_502((TfwHttpMsg *)req); /* XXX: Change to 504. */
+		tfw_http_send_504((TfwHttpMsg *)req);
 	else
 		action(req, resp);
 

@@ -1353,10 +1353,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_m) {
 		TRY_STR("max-age=", Req_I_CC_MaxAgeV);
 		TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
-		TRY_STR("max_stale", Req_I_CC_MaxStale);
-		TRY_STR_LAMBDA("max-stale", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-		}, Req_I_CC_EoT);
+		TRY_STR("max-stale", Req_I_CC_MaxStale);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
 	}
@@ -3008,12 +3005,6 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_Age) {
-		/* Eat OWS before the node ID. */
-		if (unlikely(IS_WS(c)))
-			__FSM_I_MOVE(Resp_I_Age);
-		__FSM_I_MOVE(Resp_I_AgeVal);
-	}
-	__FSM_STATE(Resp_I_AgeVal) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n < 0)
