@@ -1159,6 +1159,7 @@ tfw_cache_purge_invalidate(TfwHttpReq *req, unsigned long key)
 static int
 tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
 {
+	int ret;
 	TfwAddr saddr;
 	TfwVhost *vhost = tfw_vhost_get_default();
 
