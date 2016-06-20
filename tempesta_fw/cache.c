@@ -43,7 +43,6 @@
 
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
-#define TFW_CE_INVALID		0x0100
 
 /*
  * @trec	- Database record descriptor;
@@ -381,6 +380,9 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	time_t ce_age = tfw_cache_entry_age(ce);
 	time_t ce_lifetime, lt_fresh = UINT_MAX;
+
+	if (ce->lifetime <= 0)
+		return 0;
 
 #define CC_LIFETIME_FRESH	(TFW_HTTP_CC_MAX_AGE | TFW_HTTP_CC_MIN_FRESH)
 	if (req->cache_ctl.flags & CC_LIFETIME_FRESH) {
@@ -833,11 +835,15 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
 
-	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
+	if (req->method == TFW_HTTP_METH_PURGE)
+		goto do_cache;
+	if (!cache_cfg.cache)
+		goto dont_cache;
+	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
 	if (!resp && !tfw_cache_employ_req(req))
 		goto dont_cache;
-
+do_cache:
 	cw.req = req;
 	cw.resp = resp;
 	cw.action = action;
@@ -1065,6 +1071,37 @@ err:
 	return NULL;
 }
 
+static TfwCacheEntry *
+tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req, unsigned long key)
+{
+	TfwCacheEntry *ce;
+
+	*iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(*iter)) {
+		TFW_INC_STAT_BH(cache.misses);
+		return NULL;
+	}
+	ce = (TfwCacheEntry *)iter->rec;
+	do {
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			break;
+		tdb_rec_next(db, iter);
+		if (!(ce = (TfwCacheEntry *)iter->rec)) {
+			TFW_INC_STAT_BH(cache.misses);
+			return NULL;
+		}
+	} while (true);
+
+	return ce;
+}
+
+static inline void
+tfw_cache_dbce_put(TfwCacheEntry *ce)
+{
+	if (ce)
+		tdb_rec_put(ce);
+}
+
 static void
 cache_req_process_node(TfwHttpReq *req, unsigned long key,
 			 tfw_http_cache_cb_t action)
@@ -1074,21 +1111,8 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TDB *db = node_db();
 	TdbIter iter;
 
-	iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(iter)) {
-		TFW_INC_STAT_BH(cache.misses);
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
-	}
-
-	for (ce = (TfwCacheEntry *)iter.rec;
-	     !tfw_cache_entry_key_eq(db, req, ce); )
-	{
-		tdb_rec_next(db, &iter);
-		if (!(ce = (TfwCacheEntry *)iter.rec)) {
-			TFW_INC_STAT_BH(cache.misses);
-			goto out;
-		}
-	}
 
 	if (!tfw_cache_entry_is_live(req, ce))
 		goto out;
@@ -1108,8 +1132,58 @@ out:
 	else
 		action(req, resp);
 
-	if (ce)
-		tdb_rec_put(ce);
+	tfw_cache_dbce_put(ce);
+}
+
+/*
+ * Invalidate a cache entry.
+ * In fact, this is implemented by making the cache entry stale.
+ */
+static int
+tfw_cache_purge_invalidate(TfwHttpReq *req, unsigned long key)
+{
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
+
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
+		return -ENOENT;
+	ce->lifetime = 0;
+	tfw_cache_dbce_put(ce);
+	return 0;
+}
+
+/*
+ * Process PURGE request method according to the configuration.
+ */
+static int
+tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
+{
+	TfwAddr saddr;
+	TfwVhost *vhost = tfw_vhost_get_default();
+
+	/* Deny PURGE requests by default. */
+	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
+		return tfw_http_send_403((TfwHttpMsg *)req);
+
+	/* Accept requests from configured hosts only. */
+	tfw_addr_get_sk_saddr(req->conn->sk, &saddr);
+	if (!tfw_capuacl_match(vhost, &saddr))
+		return tfw_http_send_403((TfwHttpMsg *)req);
+
+	/* Only "invalidate" option is implemented at this time. */
+	switch (vhost->cache_purge_mode) {
+	case TFW_D_CACHE_PURGE_INVALIDATE:
+		ret = tfw_cache_purge_invalidate(req, key);
+		break;
+	default:
+		return tfw_http_send_403((TfwHttpMsg *)req);
+	}
+
+	if (ret)
+		return tfw_http_send_404((TfwHttpMsg *)req);
+	else
+		return tfw_http_send_200((TfwHttpMsg *)req);
 }
 
 static void
@@ -1119,10 +1193,13 @@ tfw_wq_tasklet(unsigned long data)
 	TfwCWork cw;
 
 	while (!tfw_wq_pop(&ct->wq, &cw)) {
-		if (cw.resp)
+		if (cw.resp) {
 			cw.action(cw.req, cw.resp);
-		else 
+		} else if (cw.req->method == TFW_HTTP_METH_PURGE) {
+			tfw_cache_purge_method(cw.req, cw.key);
+		} else {
 			cache_req_process_node(cw.req, cw.key, cw.action);
+		}
 	}
 }
 
@@ -1155,8 +1232,9 @@ static int
 tfw_cache_start(void)
 {
 	int i, r = 1;
+	TfwVhost *vhost = tfw_vhost_get_default();
 
-	if (!cache_cfg.cache)
+	if (!(cache_cfg.cache || vhost->cache_purge))
 		return 0;
 
 	for_each_node_with_cpus(i) {

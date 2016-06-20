@@ -21,6 +21,7 @@
 #define __TFW_VHOST_H__
 
 #include "str.h"
+#include "addr.h"
 
 /* Cache policy configuration directives. */
 typedef enum {
@@ -60,6 +61,11 @@ typedef struct {
 	TfwCaPolicy	**capo;
 } TfwLocation;
 
+/* Cache purge configuration modes. */
+enum {
+	TFW_D_CACHE_PURGE_INVALIDATE,
+};
+
 /*
  * Virtual host defined by directives and policies.
  * @loc		- Array of groups of policies by specific location.
@@ -70,12 +76,18 @@ typedef struct {
 typedef struct {
 	TfwLocation	*loc;
 	TfwLocation	*loc_dflt;
+	TfwAddr		*capuacl;
 	const char	*hdr_via;
-	unsigned int	hdr_via_len;
 	unsigned int	loc_sz;
 	unsigned int	loc_dflt_sz;
+	unsigned int	capuacl_sz;
+	unsigned int	hdr_via_len;
+	u8		cache_purge:1;
+	u8		cache_purge_mode:2;
+	u8		cache_purge_acl:1;
 } TfwVhost;
 
+bool tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 TfwVhost *tfw_vhost_match(TfwStr *arg);

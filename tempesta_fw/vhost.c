@@ -66,6 +66,16 @@ static TfwLocation tfw_location_dflt = {
 };
 
 /*
+ * IP addresses that make the ACL for cache purge operations are put
+ * into a fixed size array. The IP addresses are kept in form of an
+ * IPv6 address and the prefix size. sockaddr_in6.sin6_scope_id is
+ * used to store the prefix size.
+ */
+#define TFW_CAPUACL_ARRAY_SZ	(32)
+
+static TfwAddr		tfw_capuacl[TFW_CAPUACL_ARRAY_SZ];
+
+/*
  * Default vhost is a wildcard vhost. It matches any URI.
  * It may (or may not) ontain a set of various directives.
  *
@@ -80,8 +90,31 @@ static TfwVhost		tfw_vhost_dflt = {
 	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.loc		= tfw_location,
 	.loc_dflt	= &tfw_location_dflt,
-	.loc_dflt_sz	= 1
+	.loc_dflt_sz	= 1,
+	.capuacl	= tfw_capuacl,
 };
+
+/*
+ * Match the IP address @addr against the addresses in the ACL list.
+ * The addresses are compared according to the prefix length stored
+ * with each address in the ACL list.
+ * True is returned if the match is found.
+ * False is returned otherwise.
+ */
+bool
+tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr)
+{
+	int i;
+	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+
+	for (i = 0; i < vhost->capuacl_sz; ++i) {
+		TfwAddr *acl_addr = &vhost->capuacl[i];
+		if (ipv6_prefix_equal(inaddr, &acl_addr->v6.sin6_addr,
+					      acl_addr->in6_prefix))
+			return true;
+	}
+	return false;
+}
 
 /*
  * Matching functions for match operators. A TfwStr{} is compared
@@ -527,11 +560,105 @@ tfw_cleanup_locache(TfwCfgSpec *cs)
 }
 
 /*
+ *  Match the ip address against the ACL list.
+ */
+static bool
+tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
+{
+	int i;
+	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+
+	for (i = 0; i < vhost->capuacl_sz; ++i) {
+		struct in6_addr *acl_inaddr = &vhost->capuacl[i].v6.sin6_addr;
+		if (ipv6_prefix_equal(inaddr, acl_inaddr, addr->in6_prefix))
+			return true;
+	}
+	return false;
+}
+
+/*
+ * Process the cache_purge_acl directive.
+ */
+static int
+tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		TfwAddr addr = {};
+
+		if (tfw_addr_pton_cidr(val, &addr)) {
+			TFW_ERR("%s: Invalid ACL entry: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		/* Make sure the address is not a duplicate. */
+		if (tfw_capuacl_lookup(vhost, &addr)) {
+			TFW_ERR("%s: Duplicate IP address or prefix: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		/* Add new ACL entry. */
+		if (vhost->capuacl_sz == TFW_CAPUACL_ARRAY_SZ) {
+			TFW_ERR("%s: Unable to add new ACL: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+		vhost->capuacl[vhost->capuacl_sz++] = addr;
+	}
+	vhost->cache_purge_acl = 1;
+
+	return 0;
+}
+
+/*
+ * Process the cache_purge directive.
+ */
+static int
+tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (!ce->val_n) {
+		/* Default value for the cache_purge directive. */
+		vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
+		goto done;
+	}
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (!strcasecmp(val, "invalidate")) {
+			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
+		} else {
+			TFW_ERR("%s: unsupported argument: '%s'\n",
+				cs->name, val);
+			return -EINVAL;
+		}
+	}
+done:
+	vhost->cache_purge = 1;
+
+	return 0;
+}
+
+/*
  * Process hdr_via directive.
  * Default value is preset statically.
  */
 static int
-tfw_handle_out_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int len;
 	TfwVhost *vhost = &tfw_vhost_dflt;
@@ -561,7 +688,6 @@ tfw_handle_out_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-
 static void
 __tfw_cleanup_hdrvia(void)
 {
@@ -579,6 +705,9 @@ tfw_cleanup_hdrvia(TfwCfgSpec *cs)
 static int
 tfw_vhost_cfg_start(void)
 {
+	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
+		TFW_WARN("cache_purge directive works only in combination"
+			 " with cache_purge_acl directive.\n");
 	tfw_vhost_dflt.loc_sz = tfw_location_sz;
 	return 0;
 }
@@ -611,10 +740,24 @@ static TfwCfgSpec tfw_location_specs[] = {
 static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 	{
 		"hdr_via", NULL,
-		tfw_handle_out_hdr_via,
+		tfw_handle_hdr_via,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_cleanup_hdrvia
+	},
+	{
+		"cache_purge",
+		NULL,
+		tfw_handle_cache_purge,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		"cache_purge_acl",
+		NULL,
+		tfw_handle_cache_purge_acl,
+		.allow_none = true,
+		.allow_repeat = true,
 	},
 	{
 		"cache_bypass", NULL,
