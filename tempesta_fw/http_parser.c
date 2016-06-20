@@ -109,11 +109,8 @@ memchreol(const unsigned char *s, size_t n)
 #endif
 	while (n) {
         unsigned char c = *s;
-        if (c < 0x20 || c >= 0x7f) {
-            if (IS_CR_OR_LF(c))
-                return (unsigned char *)s;
-            return NULL;
-        }
+        if (IS_CR_OR_LF(c))
+            return (unsigned char *)s;
 		s++, n--;
 	}
 	return NULL;
