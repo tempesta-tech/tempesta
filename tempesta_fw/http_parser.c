@@ -388,7 +388,7 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 }
 
 /**
- * Parse an integer followed by whit space.
+ * Parse an integer followed by a white space.
  */
 static inline int
 parse_int_ws(unsigned char *data, size_t len, unsigned long *acc)
@@ -1173,11 +1173,20 @@ enum {
 	Req_HttpVer12,
 	/* Headers. */
 	Req_Hdr,
-	Req_HdrH,
-	Req_HdrHo,
-	Req_HdrHos,
-	Req_HdrHost,
-	Req_HdrHostV,
+	Req_HdrA,
+	Req_HdrAu,
+	Req_HdrAut,
+	Req_HdrAuth,
+	Req_HdrAutho,
+	Req_HdrAuthor,
+	Req_HdrAuthori,
+	Req_HdrAuthoriz,
+	Req_HdrAuthoriza,
+	Req_HdrAuthorizat,
+	Req_HdrAuthorizati,
+	Req_HdrAuthorizatio,
+	Req_HdrAuthorization,
+	Req_HdrAuthorizationV,
 	Req_HdrC,
 	Req_HdrCa,
 	Req_HdrCac,
@@ -1224,6 +1233,11 @@ enum {
 	Req_HdrCooki,
 	Req_HdrCookie,
 	Req_HdrCookieV,
+	Req_HdrH,
+	Req_HdrHo,
+	Req_HdrHos,
+	Req_HdrHost,
+	Req_HdrHostV,
 	Req_HdrP,
 	Req_HdrPr,
 	Req_HdrPra,
@@ -1249,6 +1263,17 @@ enum {
 	Req_HdrTransfer_Encodin,
 	Req_HdrTransfer_Encoding,
 	Req_HdrTransfer_EncodingV,
+	Req_HdrU,
+	Req_HdrUs,
+	Req_HdrUse,
+	Req_HdrUser,
+	Req_HdrUser_,
+	Req_HdrUser_A,
+	Req_HdrUser_Ag,
+	Req_HdrUser_Age,
+	Req_HdrUser_Agen,
+	Req_HdrUser_Agent,
+	Req_HdrUser_AgentV,
 	Req_HdrX,
 	Req_HdrX_,
 	Req_HdrX_F,
@@ -1265,17 +1290,6 @@ enum {
 	Req_HdrX_Forwarded_Fo,
 	Req_HdrX_Forwarded_For,
 	Req_HdrX_Forwarded_ForV,
-	Req_HdrU,
-	Req_HdrUs,
-	Req_HdrUse,
-	Req_HdrUser,
-	Req_HdrUser_,
-	Req_HdrUser_A,
-	Req_HdrUser_Ag,
-	Req_HdrUser_Age,
-	Req_HdrUser_Agen,
-	Req_HdrUser_Agent,
-	Req_HdrUser_AgentV,
 	/* Body */
 	/* URI normalization. */
 	Req_UriNorm,
@@ -1300,12 +1314,15 @@ enum {
 	Req_I_H_v6_End,
 	Req_I_H_Port,
 	/* Cache-Control header */
+	Req_I_Auth,
 	Req_I_CC,
 	Req_I_CC_m,
 	Req_I_CC_n,
 	Req_I_CC_o,
 	Req_I_CC_MaxAgeV,
 	Req_I_CC_MinFreshV,
+	Req_I_CC_MaxStale,
+	Req_I_CC_MaxStaleV,
 	Req_I_CC_Ext,
 	Req_I_CC_EoT,
 	/* Pragma header */
@@ -1324,6 +1341,30 @@ enum {
 	Req_I_CookieVal,
 	Req_I_CookieSP,
 };
+
+static int
+__req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Auth) {
+		__fsm_sz = __data_remain(p);
+		__fsm_ch = memchreol(p, __fsm_sz);
+		if (__fsm_ch) {
+			return __data_offset(__fsm_ch);
+			req->cache_ctl.flags |= TFW_HTTP_CC_HDR_AUTHORIZATION;
+		}
+		__FSM_I_MOVE_n(Req_I_Auth, __fsm_sz);
+	}
+
+	} /* FSM END */
+
+done:
+	return r;
+}
 
 /**
  * Parse request Cache-Control, RFC 2616 14.9
@@ -1351,9 +1392,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_m) {
 		TRY_STR("max-age=", Req_I_CC_MaxAgeV);
 		TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
-		TRY_STR_LAMBDA("max-stale", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-		}, Req_I_CC_EoT);
+		TRY_STR("max-stale", Req_I_CC_MaxStale);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
 	}
@@ -1366,7 +1405,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
 		}, Req_I_CC_EoT);
 		TRY_STR_LAMBDA("no-transform", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
 		}, Req_I_CC_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
@@ -1374,7 +1413,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_CC_o) {
 		TRY_STR_LAMBDA("only-if-cached", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_OIC;
+			req->cache_ctl.flags |= TFW_HTTP_CC_OIFCACHED;
 		}, Req_I_CC_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
@@ -1385,9 +1424,13 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		req->cache_ctl.max_age = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
@@ -1397,9 +1440,37 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		req->cache_ctl.max_fresh = parser->_acc;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
+		req->cache_ctl.min_fresh = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
+	}
+
+	__FSM_STATE(Req_I_CC_MaxStale) {
+		if (c == '=')
+			__FSM_I_MOVE(Req_I_CC_MaxStaleV);
+		req->cache_ctl.max_stale = UINT_MAX;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+		__FSM_I_MOVE_n(Req_I_CC_EoT, 0);
+	}
+
+	__FSM_STATE(Req_I_CC_MaxStaleV) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
+		req->cache_ctl.max_stale = parser->_acc;
+		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
 	}
@@ -1427,13 +1498,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_EoT) {
 		if (c == ' ' || c == ',')
 			__FSM_I_MOVE(Req_I_CC_EoT);
-		/*
-		 * TODO
-		 * - For the time being we don't support field values
-		 *   for the max-stale field, so just skip '=[hdr_a]*'.
-		 */
-		if (c == '=')
-			__FSM_I_MOVE(Req_I_CC_Ext);
 		if (IN_ALPHABET(c, hdr_a))
 			__FSM_I_MOVE_n(Req_I_CC, 0);
 		if (IS_CR_OR_LF(c))
@@ -1442,186 +1506,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	} /* FSM END */
-done:
-	return r;
-}
-
-/**
- * Parse request Pragma header field, RFC 7234 5.4.
- * The meaning of "Pragma: no-cache" in responses is not specified.
- */
-static int
-__req_parse_pragma(TfwHttpReq *req, unsigned char *data, size_t len)
-{
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
-
-	__FSM_START(parser->_i_st) {
-
-	__FSM_STATE(Req_I_Pragma) {
-		TRY_STR_LAMBDA("no-cache", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		}, Req_I_Pragma_Ext);
-		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
-	}
-	__FSM_STATE(Req_I_Pragma_Ext) {
-		/* Just skip the extensions. */
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Req_I_Pragma_Ext, __fsm_sz);
-	}
-
-	} /* FSM END */
-done:
-	return r;
-}
-/**
- * Parse request Host header, RFC 7230 5.4.
- *
- * TODO Per RFC 1035, 2181, max length of FQDN is 255.
- * What if it's UTF-8 encoded?
- */
-static int
-__req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
-{
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
-
-	__FSM_START(parser->_i_st) {
-
-	__FSM_STATE(Req_I_H_Start) {
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
-		if (likely(c == '['))
-			__FSM_I_MOVE(Req_I_H_v6);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H) {
-		/* See Req_UriAuthority processing. */
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
-		if (c == ':')
-			__FSM_I_MOVE(Req_I_H_Port);
-		if (isspace(c))
-			return __data_offset(p);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_v6) {
-		/* See Req_UriAuthorityIPv6 processing. */
-		if (likely(isxdigit(c) || c == ':'))
-			__FSM_I_MOVE(Req_I_H_v6);
-		if (likely(c == ']'))
-			__FSM_I_MOVE(Req_I_H_v6_End);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_v6_End) {
-		if (likely(isspace(c)))
-			return __data_offset(p);
-		if (likely(c == ':'))
-			__FSM_I_MOVE(Req_I_H_Port);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_Port) {
-		/* See Req_UriPort processing. */
-		if (likely(isdigit(c)))
-			__FSM_I_MOVE(Req_I_H_Port);
-		if (isspace(c))
-			return __data_offset(p);
-		return CSTR_NEQ;
-	}
-
-	} /* FSM END */
-done:
-	return r;
-}
-
-/**
- * Parse X-Forwarded-For header, RFC 7239.
- */
-static int
-__req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
-{
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(hm);
-
-	__FSM_START(parser->_i_st) {
-
-	__FSM_STATE(Req_I_XFF) {
-		/* Eat OWS before the node ID. */
-		if (unlikely(IS_WS(c)))
-			__FSM_I_MOVE(Req_I_XFF);
-
-		/* Start of an IP address or a host name. */
-		if (likely(IN_ALPHABET(c, xff_a)))
-			__FSM_I_JMP(Req_I_XFF_Node_Id);
-
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_XFF_Node_Id) {
-		/* Eat IP address or host name.
-		 * TODO: parse/validate IP addresses and textual IDs.
-		 * Currently we just validate separate characters, but the
-		 * whole value may be invalid (e.g. "---[_..[[").
-		 */
-		if (likely(IN_ALPHABET(c, xff_a)))
-			__FSM_I_MOVE(Req_I_XFF_Node_Id);
-
-		__FSM_I_JMP(Req_I_XFF_Sep);
-	}
-
-	__FSM_STATE(Req_I_XFF_Sep) {
-		/*
-		 * Proxy chains are rare, so we expect that the list will end
-		 * after the first node and we get EOL here.
-		 */
-		if (likely(IS_CR_OR_LF(c)))
-			return __data_offset(p);
-
-		/* OWS before comma or before EOL (is unusual). */
-		if (unlikely(IS_WS(c)))
-			__FSM_I_MOVE(Req_I_XFF_Sep);
-
-		/*
-		 * Multiple subsequent commas look suspicious, so we don't
-		 * stay in this state after the first comma is met.
-		 */
-		if (likely(c == ','))
-			__FSM_I_MOVE(Req_I_XFF);
-
-		return CSTR_NEQ;
-	}
-
-	} /* FSM END */
-done:
-	return r;
-}
-
-static int
-__req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
-{
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(hm);
-
-	__FSM_START(parser->_i_st) {
-
-	__FSM_STATE(Req_I_UserAgent) {
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Req_I_UserAgent, __fsm_sz);
-	}
-
-	} /* FSM END */
-
 done:
 	return r;
 }
@@ -1708,6 +1592,187 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	} /* FSM END */
 
+done:
+	return r;
+}
+
+/**
+ * Parse request Host header, RFC 7230 5.4.
+ *
+ * TODO Per RFC 1035, 2181, max length of FQDN is 255.
+ * What if it's UTF-8 encoded?
+ */
+static int
+__req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_H_Start) {
+		if (likely(isalnum(c) || c == '.' || c == '-'))
+			__FSM_I_MOVE(Req_I_H);
+		if (likely(c == '['))
+			__FSM_I_MOVE(Req_I_H_v6);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H) {
+		/* See Req_UriAuthority processing. */
+		if (likely(isalnum(c) || c == '.' || c == '-'))
+			__FSM_I_MOVE(Req_I_H);
+		if (c == ':')
+			__FSM_I_MOVE(Req_I_H_Port);
+		if (isspace(c))
+			return __data_offset(p);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_v6) {
+		/* See Req_UriAuthorityIPv6 processing. */
+		if (likely(isxdigit(c) || c == ':'))
+			__FSM_I_MOVE(Req_I_H_v6);
+		if (likely(c == ']'))
+			__FSM_I_MOVE(Req_I_H_v6_End);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_v6_End) {
+		if (likely(isspace(c)))
+			return __data_offset(p);
+		if (likely(c == ':'))
+			__FSM_I_MOVE(Req_I_H_Port);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_H_Port) {
+		/* See Req_UriPort processing. */
+		if (likely(isdigit(c)))
+			__FSM_I_MOVE(Req_I_H_Port);
+		if (isspace(c))
+			return __data_offset(p);
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
+/**
+ * Parse request Pragma header field, RFC 7234 5.4.
+ * The meaning of "Pragma: no-cache" in responses is not specified.
+ */
+static int
+__req_parse_pragma(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Pragma) {
+		TRY_STR_LAMBDA("no-cache", {
+			req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+		}, Req_I_Pragma_Ext);
+		TRY_STR_INIT();
+		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
+	}
+	__FSM_STATE(Req_I_Pragma_Ext) {
+		/* Just skip the extensions. */
+		__fsm_sz = __data_remain(p);
+		__fsm_ch = memchreol(p, __fsm_sz);
+		if (__fsm_ch)
+			return __data_offset(__fsm_ch);
+		__FSM_I_MOVE_n(Req_I_Pragma_Ext, __fsm_sz);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
+static int
+__req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_UserAgent) {
+		__fsm_sz = __data_remain(p);
+		__fsm_ch = memchreol(p, __fsm_sz);
+		if (__fsm_ch)
+			return __data_offset(__fsm_ch);
+		__FSM_I_MOVE_n(Req_I_UserAgent, __fsm_sz);
+	}
+
+	} /* FSM END */
+
+done:
+	return r;
+}
+
+/**
+ * Parse X-Forwarded-For header, RFC 7239.
+ */
+static int
+__req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_XFF) {
+		/* Eat OWS before the node ID. */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE(Req_I_XFF);
+
+		/* Start of an IP address or a host name. */
+		if (likely(IN_ALPHABET(c, xff_a)))
+			__FSM_I_JMP(Req_I_XFF_Node_Id);
+
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_XFF_Node_Id) {
+		/* Eat IP address or host name.
+		 * TODO: parse/validate IP addresses and textual IDs.
+		 * Currently we just validate separate characters, but the
+		 * whole value may be invalid (e.g. "---[_..[[").
+		 */
+		if (likely(IN_ALPHABET(c, xff_a)))
+			__FSM_I_MOVE(Req_I_XFF_Node_Id);
+
+		__FSM_I_JMP(Req_I_XFF_Sep);
+	}
+
+	__FSM_STATE(Req_I_XFF_Sep) {
+		/*
+		 * Proxy chains are rare, so we expect that the list will end
+		 * after the first node and we get EOL here.
+		 */
+		if (likely(IS_CR_OR_LF(c)))
+			return __data_offset(p);
+
+		/* OWS before comma or before EOL (is unusual). */
+		if (unlikely(IS_WS(c)))
+			__FSM_I_MOVE(Req_I_XFF_Sep);
+
+		/*
+		 * Multiple subsequent commas look suspicious, so we don't
+		 * stay in this state after the first comma is met.
+		 */
+		if (likely(c == ','))
+			__FSM_I_MOVE(Req_I_XFF);
+
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
 done:
 	return r;
 }
@@ -1955,6 +2020,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		switch (LC(c)) {
+		case 'a':
+			if (likely(__data_available(p, 14)
+				   && C8_INT_LCM(p + 1, 'u', 't', 'h', 'o',
+							'r', 'i', 'z', 'a')
+				   && C4_INT_LCM(p + 9, 't', 'i', 'o', 'n')
+				   && *(p + 13) == ':'))
+			{
+				parser->_i_st = Req_HdrAuthorizationV;
+				__FSM_MOVE_n(RGen_LWS_empty, 14);
+			}
+			__FSM_MOVE(Req_HdrA);
 		case 'c':
 			__FSM_MOVE(Req_HdrC);
 		case 'h':
@@ -2087,9 +2163,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 	}
 
-	/* 'Host:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
-				   __req_parse_host, TFW_HTTP_HDR_HOST);
+	/* 'Authorization:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrAuthorizationV, Req_I_Auth,
+				  req, __req_parse_authorization);
 
 	/* 'Cache-Control:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrCache_ControlV, Req_I_CC, req,
@@ -2108,6 +2184,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, I_ContType,
 				   msg, __parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
+
+	/* 'Host:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
+				   __req_parse_host, TFW_HTTP_HDR_HOST);
 
 	/* 'Pragma:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
@@ -2199,6 +2279,21 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 		}
 	}
+
+	/* Authorization header processing. */
+	__FSM_TX_AF(Req_HdrA, 'u', Req_HdrAu, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAu, 't', Req_HdrAut, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAut, 'h', Req_HdrAuth, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuth, 'o', Req_HdrAutho, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAutho, 'r', Req_HdrAuthor, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthor, 'i', Req_HdrAuthori, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthori, 'z', Req_HdrAuthoriz, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthoriz, 'a', Req_HdrAuthoriza, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthoriza, 't', Req_HdrAuthorizat, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizat, 'i', Req_HdrAuthorizati, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizati, 'o', Req_HdrAuthorizatio, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAuthorizatio, 'n', Req_HdrAuthorization, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Req_HdrAuthorization, ':', Req_HdrAuthorizationV, RGen_HdrOther);
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Req_HdrCa, 'c', Req_HdrCac, RGen_HdrOther);
@@ -2351,6 +2446,122 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
  *	HTTP response parsing
  * ------------------------------------------------------------------------
  */
+/* Main (parent) HTTP response processing states. */
+enum {
+	Resp_0,
+	Resp_HttpVer,
+	Resp_HttpVerT1,
+	Resp_HttpVerT2,
+	Resp_HttpVerP,
+	Resp_HttpVerSlash,
+	Resp_HttpVer11,
+	Resp_HttpVerDot,
+	Resp_HttpVer12,
+	Resp_SSpace,
+	Resp_StatusCode,
+	Resp_ReasonPhrase,
+	/* Headers. */
+	Resp_Hdr,
+	Resp_HdrA,
+	Resp_HdrAg,
+	Resp_HdrAge,
+	Resp_HdrAgeV,
+	Resp_HdrC,
+	Resp_HdrCa,
+	Resp_HdrCac,
+	Resp_HdrCach,
+	Resp_HdrCache,
+	Resp_HdrCache_,
+	Resp_HdrCache_C,
+	Resp_HdrCache_Co,
+	Resp_HdrCache_Con,
+	Resp_HdrCache_Cont,
+	Resp_HdrCache_Contr,
+	Resp_HdrCache_Contro,
+	Resp_HdrCache_Control,
+	Resp_HdrCache_ControlV,
+	Resp_HdrCo,
+	Resp_HdrCon,
+	Resp_HdrConn,
+	Resp_HdrConne,
+	Resp_HdrConnec,
+	Resp_HdrConnect,
+	Resp_HdrConnecti,
+	Resp_HdrConnectio,
+	Resp_HdrConnection,
+	Resp_HdrConnectionV,
+	Resp_HdrCont,
+	Resp_HdrConte,
+	Resp_HdrConten,
+	Resp_HdrContent,
+	Resp_HdrContent_,
+	Resp_HdrContent_L,
+	Resp_HdrContent_Le,
+	Resp_HdrContent_Len,
+	Resp_HdrContent_Leng,
+	Resp_HdrContent_Lengt,
+	Resp_HdrContent_Length,
+	Resp_HdrContent_LengthV,
+	Resp_HdrContent_T,
+	Resp_HdrContent_Ty,
+	Resp_HdrContent_Typ,
+	Resp_HdrContent_Type,
+	Resp_HdrContent_TypeV,
+	Resp_HdrD,
+	Resp_HdrDa,
+	Resp_HdrDat,
+	Resp_HdrDate,
+	Resp_HdrDateV,
+	Resp_HdrE,
+	Resp_HdrEx,
+	Resp_HdrExp,
+	Resp_HdrExpi,
+	Resp_HdrExpir,
+	Resp_HdrExpire,
+	Resp_HdrExpires,
+	Resp_HdrExpiresV,
+	Resp_HdrK,
+	Resp_HdrKe,
+	Resp_HdrKee,
+	Resp_HdrKeep,
+	Resp_HdrKeep_,
+	Resp_HdrKeep_A,
+	Resp_HdrKeep_Al,
+	Resp_HdrKeep_Ali,
+	Resp_HdrKeep_Aliv,
+	Resp_HdrKeep_Alive,
+	Resp_HdrKeep_AliveV,
+	Resp_HdrS,
+	Resp_HdrSe,
+	Resp_HdrSer,
+	Resp_HdrServ,
+	Resp_HdrServe,
+	Resp_HdrServer,
+	Resp_HdrServerV,
+	Resp_HdrT,
+	Resp_HdrTr,
+	Resp_HdrTra,
+	Resp_HdrTran,
+	Resp_HdrTrans,
+	Resp_HdrTransf,
+	Resp_HdrTransfe,
+	Resp_HdrTransfer,
+	Resp_HdrTransfer_,
+	Resp_HdrTransfer_E,
+	Resp_HdrTransfer_En,
+	Resp_HdrTransfer_Enc,
+	Resp_HdrTransfer_Enco,
+	Resp_HdrTransfer_Encod,
+	Resp_HdrTransfer_Encodi,
+	Resp_HdrTransfer_Encodin,
+	Resp_HdrTransfer_Encoding,
+	Resp_HdrTransfer_EncodingV,
+	Resp_HdrDone,
+
+	Resp_BodyUnlimStart,
+	Resp_BodyUnlimRead,
+};
+
 /*
  * Helping (interior) FSM states
  * for processing specific parts of an HTTP request.
@@ -2358,6 +2569,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 enum {
 	Resp_I_0,
 
+	/* Age header */
+	Resp_I_Age,
+	Resp_I_AgeVal,
 	/* Cache-Control header */
 	Resp_I_CC,
 	Resp_I_CC_m,
@@ -2366,23 +2580,25 @@ enum {
 	Resp_I_CC_s,
 	Resp_I_CC_MaxAgeV,
 	Resp_I_CC_SMaxAgeV,
-	/* Expires header */
-	Resp_I_Expires,
-	Resp_I_ExpDate,
-	Resp_I_ExpMonthSP,
-	Resp_I_ExpMonth,
-	Resp_I_ExpMonth_A,
-	Resp_I_ExpMonth_J,
-	Resp_I_ExpMonth_M,
-	Resp_I_ExpMonth_Other,
-	Resp_I_ExpYearSP,
-	Resp_I_ExpYear,
-	Resp_I_ExpHourSP,
-	Resp_I_ExpHour,
-	Resp_I_ExpMinCln,
-	Resp_I_ExpMin,
-	Resp_I_ExpSecCln,
-	Resp_I_ExpSec,
+	/* Http-Date */
+	Resp_I_Date,
+	Resp_I_DateDay,
+	Resp_I_DateMonthSP,
+	Resp_I_DateMonth,
+	Resp_I_DateMonth_A,
+	Resp_I_DateMonth_J,
+	Resp_I_DateMonth_M,
+	Resp_I_DateMonth_Other,
+	Resp_I_DateYearSP,
+	Resp_I_DateYear,
+	Resp_I_DateHourSP,
+	Resp_I_DateHour,
+	Resp_I_DateMinCln,
+	Resp_I_DateMin,
+	Resp_I_DateSecCln,
+	Resp_I_DateSec,
+	Resp_I_DateSecSP,
+	Resp_I_DateZone,
 	/* Keep-Alive header. */
 	Resp_I_KeepAlive,
 	Resp_I_KeepAliveTO,
@@ -2393,6 +2609,36 @@ enum {
 	Resp_I_EoT,
 	Resp_I_EoL,
 };
+
+static int
+__resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(resp);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Resp_I_Age) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		resp->cache_ctl.age = parser->_acc;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
+	}
+	__FSM_STATE(Resp_I_EoL) {
+		if (IS_CR_OR_LF(c)) {
+			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_AGE;
+			return __data_offset(p);
+		}
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
 
 /**
  * Parse response Cache-Control, RFC 2616 14.9
@@ -2422,7 +2668,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_CC_m) {
 		TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
 		TRY_STR_LAMBDA("must-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REV;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REVAL;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2436,7 +2682,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("no-transform", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANS;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2450,7 +2696,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->cache_ctl.flags |= TFW_HTTP_CC_PRIVATE;
 		}, Resp_I_EoT);
 		TRY_STR_LAMBDA("proxy-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REV;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REVAL;
 		}, Resp_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Resp_I_Ext, 0);
@@ -2463,25 +2709,41 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
+		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)) {
+			resp->cache_ctl.max_age = 0;
+			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		resp->cache_ctl.max_age = parser->_acc;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
+		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)) {
+			resp->cache_ctl.s_maxage = 0;
+			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
+		if (__fsm_n < 0) {
+			if (__fsm_n != CSTR_BADLEN)
+				return __fsm_n;
+			parser->_acc = UINT_MAX;
+		}
 		resp->cache_ctl.s_maxage = parser->_acc;
+		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
@@ -2550,7 +2812,7 @@ done:
 #define SB_OCT		(SB_SEP + 30 * SEC24H)
 #define SB_NOV		(SB_OCT + 31 * SEC24H)
 #define SB_DEC		(SB_NOV + 30 * SEC24H)
-/* Number of days befor epoch including leap years. */
+/* Number of days before epoch including leap years. */
 #define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
 
 static int
@@ -2569,7 +2831,7 @@ __year_day_secs(unsigned int year, unsigned int day_sec)
 }
 
 static int
-__resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
+__resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
 	static const unsigned long colon_a[] ____cacheline_aligned = {
 		/* ':' (0x3a)(58) Colon */
@@ -2580,16 +2842,35 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st) {
 
-	__FSM_STATE(Resp_I_Expires) {
+	__FSM_STATE(Resp_I_Date) {
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
+			/*
+			 * A duplicate invalidates the header's value.
+			 * @resp->expires is set to zero - already expired.
+			 */
+			if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
+				__FSM_I_MOVE_n(Resp_I_EoL, 0);
+			break;
+		case Resp_HdrDateV:
+			if (resp->flags & TFW_HTTP_HAS_HDR_DATE)
+				return CSTR_NEQ;
+			break;
+		default:
+			TFW_DBG2("%s: Unknown caller's FSM state: [%d]\n",
+				 __func__, parser->state);
+			BUG();
+			return CSTR_NEQ;
+		}
 		/* Skip a weekday as redundant information. */
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchr(p, ' ', __fsm_sz);
 		if (__fsm_ch)
-			__FSM_I_MOVE_n(Resp_I_ExpDate, __fsm_ch - p + 1);
-		__FSM_I_MOVE_n(Resp_I_Expires, __fsm_sz);
+			__FSM_I_MOVE_n(Resp_I_DateDay, __fsm_ch - p + 1);
+		__FSM_I_MOVE_n(Resp_I_Date, __fsm_sz);
 	}
 
-	__FSM_STATE(Resp_I_ExpDate) {
+	__FSM_STATE(Resp_I_DateDay) {
 		__fsm_sz = __data_remain(p);
 		if (!isdigit(c))
 			return CSTR_NEQ;
@@ -2602,173 +2883,217 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (parser->_acc < 1)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
-		resp->expires = (parser->_acc - 1) * SEC24H;
+		parser->_date = (parser->_acc - 1) * SEC24H;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpMonthSP, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateMonthSP, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpMonthSP) {
+	__FSM_STATE(Resp_I_DateMonthSP) {
 		if (likely(isspace(c)))
-			__FSM_I_MOVE(Resp_I_ExpMonth);
+			__FSM_I_MOVE(Resp_I_DateMonth);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth) {
+	__FSM_STATE(Resp_I_DateMonth) {
 		switch (c) {
 		case 'A':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_A, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_A, 0);
 		case 'J':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_J, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_J, 0);
 		case 'M':
-			__FSM_I_MOVE_n(Resp_I_ExpMonth_M, 0);
+			__FSM_I_MOVE_n(Resp_I_DateMonth_M, 0);
 		}
-		__FSM_I_MOVE_n(Resp_I_ExpMonth_Other, 0);
+		__FSM_I_MOVE_n(Resp_I_DateMonth_Other, 0);
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_A) {
+	__FSM_STATE(Resp_I_DateMonth_A) {
 		TRY_STR_LAMBDA("Apr", {
-			resp->expires += SB_APR;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_APR;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Aug", {
-			resp->expires += SB_AUG;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_AUG;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_J) {
-		TRY_STR("Jan", Resp_I_ExpYearSP);
+	__FSM_STATE(Resp_I_DateMonth_J) {
+		TRY_STR("Jan", Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Jun", {
-			resp->expires += SB_JUN;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_JUN;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Jul", {
-			resp->expires += SB_JUL;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_JUL;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_M) {
+	__FSM_STATE(Resp_I_DateMonth_M) {
 		TRY_STR_LAMBDA("Mar", {
 			/* Add SEC24H for leap year on year parsing. */
-			resp->expires += SB_MAR;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_MAR;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("May", {
-			resp->expires += SB_MAY;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_MAY;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMonth_Other) {
+	__FSM_STATE(Resp_I_DateMonth_Other) {
 		TRY_STR_LAMBDA("Feb", {
-			resp->expires += SB_FEB;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_FEB;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Sep", {
-			resp->expires += SB_SEP;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_SEP;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Oct", {
-			resp->expires += SB_OCT;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_OCT;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Nov", {
-			resp->expires += SB_NOV;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_NOV;
+		}, Resp_I_DateYearSP);
 		TRY_STR_LAMBDA("Dec", {
-			resp->expires += SB_DEC;
-		}, Resp_I_ExpYearSP);
+			parser->_date += SB_DEC;
+		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	/* Eat SP between Month and Year. */
-	__FSM_STATE(Resp_I_ExpYearSP) {
+	__FSM_STATE(Resp_I_DateYearSP) {
 		if (c == ' ')
-			__FSM_I_MOVE(Resp_I_ExpYear);
+			__FSM_I_MOVE(Resp_I_DateYear);
 		return CSTR_NEQ;
 	}
 
 	/* 4-digit year. */
-	__FSM_STATE(Resp_I_ExpYear) {
+	__FSM_STATE(Resp_I_DateYear) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = __year_day_secs(parser->_acc,
-						resp->expires);
-		if (resp->expires < 0)
+		parser->_date = __year_day_secs(parser->_acc, parser->_date);
+		if (parser->_date < 0)
 			return CSTR_NEQ;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpHourSP, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateHourSP, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpHourSP) {
+	__FSM_STATE(Resp_I_DateHourSP) {
 		if (likely(isspace(c)))
-			__FSM_I_MOVE(Resp_I_ExpHour);
+			__FSM_I_MOVE(Resp_I_DateHour);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpHour) {
+	__FSM_STATE(Resp_I_DateHour) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc * 3600;
+		parser->_date += parser->_acc * 3600;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpMinCln, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateMinCln, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpMinCln) {
+	__FSM_STATE(Resp_I_DateMinCln) {
 		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_ExpMin);
+			__FSM_I_MOVE(Resp_I_DateMin);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpMin) {
+	__FSM_STATE(Resp_I_DateMin) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc * 60;
+		parser->_date += parser->_acc * 60;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_ExpSecCln, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateSecCln, __fsm_n);
 	}
 
-	__FSM_STATE(Resp_I_ExpSecCln) {
+	__FSM_STATE(Resp_I_DateSecCln) {
 		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_ExpSec);
+			__FSM_I_MOVE(Resp_I_DateSec);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Resp_I_ExpSec) {
+	__FSM_STATE(Resp_I_DateSec) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->expires = parser->_acc;
+		parser->_date += parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
+		__FSM_I_MOVE_n(Resp_I_DateSecSP, __fsm_n);
+	}
+
+	__FSM_STATE(Resp_I_DateSecSP) {
+		if (likely(isspace(c)))
+			__FSM_I_MOVE(Resp_I_DateZone);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_DateZone) {
+		TRY_STR("GMT", Resp_I_EoL);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
-		/* Skip rest of line: ' GMT'. */
+		/* Skip the rest of the line. */
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
+		if (!__fsm_ch)
+			__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
+			resp->cache_ctl.expires = parser->_date;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
+			break;
+		case Resp_HdrDateV:
+			resp->date = parser->_date;
+			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
+			break;
+		}
+		return __data_offset(__fsm_ch);
 	}
 
 	} /* FSM END */
 done:
 	return r;
+}
+
+/*
+ * The value of "Expires:" header field is a date in HTTP-Date format.
+ * However, if the format of a date is invalid, that is interpreted
+ * as representing a time in the past (i.e., "already expired").
+ * See RFC 7234 5.3.
+ */
+static int
+__resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int ret = __resp_parse_http_date(resp, data, len);
+	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
+		/*
+		 * On error just swallow the rest of the line.
+		 * @resp->expires is set to zero - already expired.
+		 */
+		BUG_ON(resp->parser.state != Resp_HdrExpiresV);
+		resp->parser._date = 0;
+		resp->parser._i_st = Resp_I_EoL;
+		ret = __resp_parse_http_date(resp, data, len);
+	}
+	return ret;
 }
 
 static int
@@ -2860,113 +3185,6 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 done:
 	return r;
 }
-
-/* Main (parent) HTTP response processing states. */
-enum {
-	Resp_0,
-	Resp_HttpVer,
-	Resp_HttpVerT1,
-	Resp_HttpVerT2,
-	Resp_HttpVerP,
-	Resp_HttpVerSlash,
-	Resp_HttpVer11,
-	Resp_HttpVerDot,
-	Resp_HttpVer12,
-	Resp_SSpace,
-	Resp_StatusCode,
-	Resp_ReasonPhrase,
-	/* Headers. */
-	Resp_Hdr,
-	Resp_HdrC,
-	Resp_HdrCa,
-	Resp_HdrCac,
-	Resp_HdrCach,
-	Resp_HdrCache,
-	Resp_HdrCache_,
-	Resp_HdrCache_C,
-	Resp_HdrCache_Co,
-	Resp_HdrCache_Con,
-	Resp_HdrCache_Cont,
-	Resp_HdrCache_Contr,
-	Resp_HdrCache_Contro,
-	Resp_HdrCache_Control,
-	Resp_HdrCache_ControlV,
-	Resp_HdrCo,
-	Resp_HdrCon,
-	Resp_HdrConn,
-	Resp_HdrConne,
-	Resp_HdrConnec,
-	Resp_HdrConnect,
-	Resp_HdrConnecti,
-	Resp_HdrConnectio,
-	Resp_HdrConnection,
-	Resp_HdrConnectionV,
-	Resp_HdrCont,
-	Resp_HdrConte,
-	Resp_HdrConten,
-	Resp_HdrContent,
-	Resp_HdrContent_,
-	Resp_HdrContent_L,
-	Resp_HdrContent_Le,
-	Resp_HdrContent_Len,
-	Resp_HdrContent_Leng,
-	Resp_HdrContent_Lengt,
-	Resp_HdrContent_Length,
-	Resp_HdrContent_LengthV,
-	Resp_HdrContent_T,
-	Resp_HdrContent_Ty,
-	Resp_HdrContent_Typ,
-	Resp_HdrContent_Type,
-	Resp_HdrContent_TypeV,
-	Resp_HdrE,
-	Resp_HdrEx,
-	Resp_HdrExp,
-	Resp_HdrExpi,
-	Resp_HdrExpir,
-	Resp_HdrExpire,
-	Resp_HdrExpires,
-	Resp_HdrExpiresV,
-	Resp_HdrK,
-	Resp_HdrKe,
-	Resp_HdrKee,
-	Resp_HdrKeep,
-	Resp_HdrKeep_,
-	Resp_HdrKeep_A,
-	Resp_HdrKeep_Al,
-	Resp_HdrKeep_Ali,
-	Resp_HdrKeep_Aliv,
-	Resp_HdrKeep_Alive,
-	Resp_HdrKeep_AliveV,
-	Resp_HdrS,
-	Resp_HdrSe,
-	Resp_HdrSer,
-	Resp_HdrServ,
-	Resp_HdrServe,
-	Resp_HdrServer,
-	Resp_HdrServerV,
-	Resp_HdrT,
-	Resp_HdrTr,
-	Resp_HdrTra,
-	Resp_HdrTran,
-	Resp_HdrTrans,
-	Resp_HdrTransf,
-	Resp_HdrTransfe,
-	Resp_HdrTransfer,
-	Resp_HdrTransfer_,
-	Resp_HdrTransfer_E,
-	Resp_HdrTransfer_En,
-	Resp_HdrTransfer_Enc,
-	Resp_HdrTransfer_Enco,
-	Resp_HdrTransfer_Encod,
-	Resp_HdrTransfer_Encodi,
-	Resp_HdrTransfer_Encodin,
-	Resp_HdrTransfer_Encoding,
-	Resp_HdrTransfer_EncodingV,
-	Resp_HdrDone,
-
-	Resp_BodyUnlimStart,
-	Resp_BodyUnlimRead,
-};
 
 /*
  * The connection is being closed. Terminate the current message.
@@ -3086,8 +3304,25 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 
 		switch (LC(c)) {
+		case 'a':
+			if (likely(__data_available(p, 4)
+				   && C4_INT_LCM(p, 'a', 'g', 'e', ':')))
+			{
+				parser->_i_st = Resp_HdrAgeV;
+				__FSM_MOVE_n(RGen_LWS, 4);
+			}
+			__FSM_MOVE(Resp_HdrA);
 		case 'c':
 			__FSM_MOVE(Resp_HdrC);
+
+		case 'd':
+			if (likely(__data_available(p, 5)
+				   && C4_INT_LCM(p + 1, 'a', 't', 'e', ':')))
+			{
+				parser->_i_st = Resp_HdrDateV;
+				__FSM_MOVE_n(RGen_LWS, 5);
+			}
+			__FSM_MOVE(Resp_HdrD);
 		case 'e':
 			if (likely(__data_available(p, 8)
 				   && C8_INT_LCM(p, 'e', 'x', 'p', 'i',
@@ -3198,6 +3433,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 
+	/* 'Age:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, Resp_I_Age, resp,
+				  __resp_parse_age);
+
 	/* 'Cache-Control:*LWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_ControlV, Resp_I_CC, resp,
 				  __resp_parse_cache_control);
@@ -3216,8 +3455,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   msg, __parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
+	/* 'Date:*LWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
+				  __resp_parse_http_date);
+
 	/* 'Expires:*LWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Expires, resp,
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Date, resp,
 				  __resp_parse_expires);
 
 	/* 'Keep-Alive:*LWS' is read, process field-value. */
@@ -3262,6 +3505,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCode);
+
+	/* Age header processing. */
+	__FSM_TX_AF(Resp_HdrA, 'g', Resp_HdrAg, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrAg, 'e', Resp_HdrAge, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrAge, ':', Resp_HdrAgeV, RGen_HdrOther);
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Resp_HdrCa, 'c', Resp_HdrCac, RGen_HdrOther);
@@ -3316,6 +3564,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrContent_Ty, 'p', Resp_HdrContent_Typ, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Typ, 'e', Resp_HdrContent_Type, RGen_HdrOther);
 	__FSM_TX_AF_LWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, RGen_HdrOther);
+
+	/* Date header processing. */
+	__FSM_TX_AF(Resp_HdrD, 'a', Resp_HdrDa, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrDa, 't', Resp_HdrDat, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrDat, 'e', Resp_HdrDate, RGen_HdrOther);
+	__FSM_TX_AF_LWS(Resp_HdrDate, ':', Resp_HdrDateV, RGen_HdrOther);
 
 	/* Expires header processing. */
 	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, RGen_HdrOther);

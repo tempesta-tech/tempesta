@@ -44,6 +44,7 @@ int ghprio; /* GFSM hook priority. */
 #define S_404			"HTTP/1.1 404 Not Found"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
+#define S_504			"HTTP/1.1 504 Gateway Timeout"
 
 #define S_F_HOST		"Host: "
 #define S_F_DATE		"Date: "
@@ -64,10 +65,9 @@ int ghprio; /* GFSM hook priority. */
  * header field. See RFC 2616 section 3.3.
  */
 static void
-tfw_http_prep_date(char *buf)
+tfw_http_prep_date_from(char *buf, time_t date)
 {
 	struct tm tm;
-	struct timespec ts;
 	char *ptr = buf;
 
 	static char *wday[] __read_mostly =
@@ -81,8 +81,7 @@ tfw_http_prep_date(char *buf)
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;
 
-	getnstimeofday(&ts);
-	time_to_tm(ts.tv_sec, 0, &tm);
+	time_to_tm(date, 0, &tm);
 
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
@@ -99,6 +98,12 @@ tfw_http_prep_date(char *buf)
 	PRINT_2DIGIT(ptr, tm.tm_sec);
 	memcpy(ptr, " GMT", 4);
 #undef PRINT_2DIGIT
+}
+
+static inline void
+tfw_http_prep_date(char *buf)
+{
+	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
 unsigned long tfw_hash_str(const TfwStr *str);
@@ -310,6 +315,31 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+#define S_504_PART_01	S_504 S_CRLF S_F_DATE
+#define S_504_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 504 response: did not receive a timely response from
+ * the designated server.
+ */
+int
+tfw_http_send_504(TfwHttpMsg *hmreq)
+{
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_504_PART_02, .len = SLEN(S_504_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
+	};
+
+	TFW_DBG("Send HTTP 504 response to the client\n");
+
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+}
+
 /*
  * Allocate a new HTTP message structure, and link it with
  * the connection structure. Increment the number of users
@@ -495,6 +525,23 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	return shm;
 }
 
+static int
+tfw_http_set_hdr_date(TfwHttpMsg *hm)
+{
+	int r;
+	char *s_date = *this_cpu_ptr(&g_buf);
+
+	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
+	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
+				  s_date, SLEN(S_V_DATE),
+				  TFW_HTTP_HDR_RAW, 0);
+	if (r)
+		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
+	else
+		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
+	return r;
+}
+
 /**
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
@@ -566,27 +613,6 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 }
 
 static int
-tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
-{
-	int r;
-	char *p, *buf = *this_cpu_ptr(&g_buf);
-
-	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
-
-	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
-				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
-				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
-	if (r)
-		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
-			(int)(p - buf), buf, hm);
-	else
-		TFW_DBG2("added X-Forwarded-For header for %*s\n",
-			 (int)(p - buf), buf);
-
-	return r;
-}
-
-static int
 tfw_http_add_hdr_via(TfwHttpMsg *hm)
 {
 	int r;
@@ -620,6 +646,26 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		TFW_ERR("Unable to add Via: header to msg [%p]\n", hm);
 	else
 		TFW_DBG2("Added Via: header to msg [%p]\n", hm);
+	return r;
+}
+
+static int
+tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
+{
+	int r;
+	char *p, *buf = *this_cpu_ptr(&g_buf);
+
+	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
+
+	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
+				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
+				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
+	if (r)
+		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
+			(int)(p - buf), buf, hm);
+	else
+		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+			 (int)(p - buf), buf);
 	return r;
 }
 
@@ -667,6 +713,12 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	r = tfw_http_add_hdr_via(hm);
 	if (r)
 		return r;
+
+	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
+		r =  tfw_http_set_hdr_date(hm);
+		if (r < 0)
+			return r;
+	}
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
@@ -863,6 +915,12 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return TFW_BLOCK;
 		}
+
+		/*
+		 * The time the request was received is used in cache
+		 * for age calculations, and for APM and Load Balancing.
+		 */
+		hmreq->cache_ctl.timestamp = tfw_current_timestamp();
 
 		/* Assign the right Vhost for this request. */
 		if (tfw_http_req_set_context((TfwHttpReq *)hmreq))
@@ -1091,7 +1149,19 @@ static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpMsg *hmreq;
+	time_t timestamp = tfw_current_timestamp();
 
+	/*
+	 * The time the response was received is used in cache
+	 * for age calculations, and for APM and Load Balancing.
+	 */
+	hmresp->cache_ctl.timestamp = timestamp;
+	/*
+	 * If 'Date:' header is missing in the response, then
+	 * set the date to the time the response was received.
+	 */
+	if (!(hmresp->flags & TFW_HTTP_HAS_HDR_DATE))
+		((TfwHttpResp *)hmresp)->date = timestamp;
 	/*
 	 * Cache adjusted and filtered responses only. Responses
 	 * are received in the same order as requests, so we can
@@ -1310,7 +1380,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (req->hash)
 		return req->hash;
 
-	req->hash = tfw_hash_str(&req->uri_path);
+	req->hash = tfw_hash_str(&req->uri_path) ^ req->method;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &host);
