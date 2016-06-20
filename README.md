@@ -217,11 +217,11 @@ content is changed on the upstream server, then a PURGE request followed
 by a GET request will update an appropriate entry in the cache.
 
 This functionality is controlled with the following directives:
-* **cache_purge [invalidate];** - Defines the purge mode
+* **cache_purge `[invalidate]`;** - Defines the purge mode
 `invalidate` just makes the cache record invalid. The cached response may
 still be returned to a client under certain conditions. This is the default
 mode. Other modes will be added in future.
-* **cache_purge_acl <ip_address>;** - Specifies the IP addresses of hosts
+* **cache_purge_acl `<ip_address>`;** - Specifies the IP addresses of hosts
 that are permitted to send PURGE requests. PURGE requests from all other
 hosts will be denied. That makes this directive mandatory when `cache_purge`
 directive is specified. Multilple addresses are separated with white spaces.
