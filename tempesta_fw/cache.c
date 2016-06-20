@@ -43,7 +43,6 @@
 
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
-#define TFW_CE_INVALID		0x0100
 
 /*
  * @trec	- Database record descriptor;
@@ -381,6 +380,9 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	time_t ce_age = tfw_cache_entry_age(ce);
 	time_t ce_lifetime, lt_fresh = UINT_MAX;
+
+	if (ce->lifetime <= 0)
+		return 0;
 
 #define CC_LIFETIME_FRESH	(TFW_HTTP_CC_MAX_AGE | TFW_HTTP_CC_MIN_FRESH)
 	if (req->cache_ctl.flags & CC_LIFETIME_FRESH) {
@@ -1135,9 +1137,10 @@ out:
 
 /*
  * Invalidate a cache entry.
+ * In fact, this is implemented by making the cache entry stale.
  */
 static int
-tfw_cache_purge_set_expired(TfwHttpReq *req, unsigned long key)
+tfw_cache_purge_invalidate(TfwHttpReq *req, unsigned long key)
 {
 	TdbIter iter;
 	TDB *db = node_db();
@@ -1145,9 +1148,7 @@ tfw_cache_purge_set_expired(TfwHttpReq *req, unsigned long key)
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		return -ENOENT;
-
-	/* ce->lifetime = 0; */
-
+	ce->lifetime = 0;
 	tfw_cache_dbce_put(ce);
 	return 0;
 }
@@ -1170,7 +1171,16 @@ tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
 	if (!tfw_capuacl_match(vhost, &saddr))
 		return tfw_http_send_403((TfwHttpMsg *)req);
 
-	if (tfw_cache_purge_set_expired(req, key))
+	/* Only "invalidate" option is implemented at this time. */
+	switch (vhost->cache_purge_mode) {
+	case TFW_D_CACHE_PURGE_INVALIDATE:
+		ret = tfw_cache_purge_invalidate(req, key);
+		break;
+	default:
+		return tfw_http_send_403((TfwHttpMsg *)req);
+	}
+
+	if (ret)
 		return tfw_http_send_404((TfwHttpMsg *)req);
 	else
 		return tfw_http_send_200((TfwHttpMsg *)req);
