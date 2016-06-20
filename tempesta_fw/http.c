@@ -44,6 +44,7 @@ int ghprio; /* GFSM hook priority. */
 #define S_404			"HTTP/1.1 404 Not Found"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
+#define S_504			"HTTP/1.1 504 Gateway Timeout"
 
 #define S_F_HOST		"Host: "
 #define S_F_DATE		"Date: "
@@ -312,6 +313,31 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 	};
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
+
+	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+}
+
+#define S_504_PART_01	S_504 S_CRLF S_F_DATE
+#define S_504_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 504 response: did not receive a timely response from
+ * the designated server.
+ */
+int
+tfw_http_send_504(TfwHttpMsg *hmreq)
+{
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_504_PART_02, .len = SLEN(S_504_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
+	};
+
+	TFW_DBG("Send HTTP 504 response to the client\n");
 
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -893,6 +919,12 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			return TFW_BLOCK;
 		}
 
+		/*
+		 * The time the request was received is used in cache
+		 * for age calculations, and for APM and Load Balancing.
+		 */
+		hmreq->cache_ctl.timestamp = tfw_current_timestamp();
+
 		/* Assign the right Vhost for this request. */
 		if (tfw_http_req_set_context((TfwHttpReq *)hmreq))
 			return TFW_BLOCK;
@@ -1120,17 +1152,19 @@ static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpMsg *hmreq;
+	time_t timestamp = tfw_current_timestamp();
 
 	/*
-	 * If 'Date:' header is missing in the response, then set
-	 * the date to the time the response was received. That's
-	 * the same timestamp that is needed if cache is enabled.
+	 * The time the response was received is used in cache
+	 * for age calculations, and for APM and Load Balancing.
 	 */
-	if (!(hmresp->flags & TFW_HTTP_HAS_HDR_DATE)) {
-		time_t timestamp = tfw_current_timestamp();
+	hmresp->cache_ctl.timestamp = timestamp;
+	/*
+	 * If 'Date:' header is missing in the response, then
+	 * set the date to the time the response was received.
+	 */
+	if (!(hmresp->flags & TFW_HTTP_HAS_HDR_DATE))
 		((TfwHttpResp *)hmresp)->date = timestamp;
-		hmresp->cache_ctl.timestamp = timestamp;
-	}
 	/*
 	 * Cache adjusted and filtered responses only. Responses
 	 * are received in the same order as requests, so we can

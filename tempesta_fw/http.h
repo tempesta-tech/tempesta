@@ -361,6 +361,7 @@ void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
  */
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hm, TfwStr *cookie);
 int tfw_http_send_502(TfwHttpMsg *hm);
+int tfw_http_send_504(TfwHttpMsg *hm);
 
 /*
  * Functions to create SKBs with data stream.
