@@ -1811,6 +1811,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
 				req->method = TFW_HTTP_METH_POST;
 				__FSM_MOVE_n(Req_MUSpace, 4);
+			case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
+				if (likely(__data_available(p, 5))
+				    && (*(p + 4) == 'E'))
+				{
+					req->method = TFW_HTTP_METH_PURGE;
+					__FSM_MOVE_n(Req_MUSpace, 5);
+				}
 			}
 			return TFW_BLOCK; /* Unsupported method */
 		}

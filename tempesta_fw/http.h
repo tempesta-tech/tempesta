@@ -83,6 +83,7 @@ typedef enum {
 	TFW_HTTP_METH_GET,
 	TFW_HTTP_METH_HEAD,
 	TFW_HTTP_METH_POST,
+	TFW_HTTP_METH_PURGE,
 	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
@@ -359,7 +360,10 @@ void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
 /*
  * Functions to send an HTTP error response to a client.
  */
+int tfw_http_send_200(TfwHttpMsg *hm);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hm, TfwStr *cookie);
+int tfw_http_send_403(TfwHttpMsg *hm);
+int tfw_http_send_404(TfwHttpMsg *hm);
 int tfw_http_send_502(TfwHttpMsg *hm);
 int tfw_http_send_504(TfwHttpMsg *hm);
 
