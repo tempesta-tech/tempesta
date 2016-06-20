@@ -560,41 +560,6 @@ tfw_cleanup_locache(TfwCfgSpec *cs)
 }
 
 /*
- * Process hdr_via directive.
- * Default value is preset statically.
- */
-static int
-tfw_handle_out_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int len;
-	TfwVhost *vhost = &tfw_vhost_dflt;
-
-	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
-
-	/*
-	 * If a value is specified in the configuration file, then
-	 * the default value is not used, even if the processing of
-	 * the specified value results in an error.
-	 */
-	len = strlen(ce->vals[0]);
-	if ((vhost->hdr_via = kmalloc(len + 1, GFP_KERNEL)) == NULL)
-		return -ENOMEM;
-	memcpy((void *)vhost->hdr_via, (void *)ce->vals[0], len + 1);
-	vhost->hdr_via_len = len;
-
-	return 0;
-}
-
-/*
  *  Match the ip address against the ACL list.
  */
 static bool
@@ -653,20 +618,6 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static void
-__tfw_cleanup_hdrvia(void)
-{
-	TfwVhost *vhost = &tfw_vhost_dflt;
-	if (vhost->hdr_via && (vhost->hdr_via != s_hdr_via_dflt))
-		kfree(vhost->hdr_via);
-}
-
-static void
-tfw_cleanup_hdrvia(TfwCfgSpec *cs)
-{
-	__tfw_cleanup_hdrvia();
-}
-
 /*
  * Process the cache_purge directive.
  */
@@ -690,8 +641,6 @@ tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "invalidate")) {
 			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
-		} else if (!strcasecmp(val, "delete")) {
-			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_DELETE;
 		} else {
 			TFW_ERR("%s: unsupported argument: '%s'\n",
 				cs->name, val);
@@ -702,6 +651,55 @@ done:
 	vhost->cache_purge = 1;
 
 	return 0;
+}
+
+/*
+ * Process hdr_via directive.
+ * Default value is preset statically.
+ */
+static int
+tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int len;
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n != 1) {
+		TFW_ERR("%s: Invalid number of arguments: %d\n",
+			cs->name, (int)ce->val_n);
+		return -EINVAL;
+	}
+
+	/*
+	 * If a value is specified in the configuration file, then
+	 * the default value is not used, even if the processing of
+	 * the specified value results in an error.
+	 */
+	len = strlen(ce->vals[0]);
+	if ((vhost->hdr_via = kmalloc(len + 1, GFP_KERNEL)) == NULL)
+		return -ENOMEM;
+	memcpy((void *)vhost->hdr_via, (void *)ce->vals[0], len + 1);
+	vhost->hdr_via_len = len;
+
+	return 0;
+}
+
+static void
+__tfw_cleanup_hdrvia(void)
+{
+	TfwVhost *vhost = &tfw_vhost_dflt;
+	if (vhost->hdr_via && (vhost->hdr_via != s_hdr_via_dflt))
+		kfree(vhost->hdr_via);
+}
+
+static void
+tfw_cleanup_hdrvia(TfwCfgSpec *cs)
+{
+	__tfw_cleanup_hdrvia();
 }
 
 static int
@@ -742,7 +740,7 @@ static TfwCfgSpec tfw_location_specs[] = {
 static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 	{
 		"hdr_via", NULL,
-		tfw_handle_out_hdr_via,
+		tfw_handle_hdr_via,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_cleanup_hdrvia
