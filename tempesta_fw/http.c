@@ -103,9 +103,7 @@ tfw_http_prep_date_from(char *buf, time_t date)
 static inline void
 tfw_http_prep_date(char *buf)
 {
-	struct timespec ts;
-	getnstimeofday(&ts);
-	tfw_http_prep_date_from(buf, ts.tv_sec);
+	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
 unsigned long tfw_hash_str(const TfwStr *str);
@@ -527,6 +525,23 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	return shm;
 }
 
+static int
+tfw_http_set_hdr_date(TfwHttpMsg *hm)
+{
+	int r;
+	char *s_date = *this_cpu_ptr(&g_buf);
+
+	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
+	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
+				  s_date, SLEN(S_V_DATE),
+				  TFW_HTTP_HDR_RAW, 0);
+	if (r)
+		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
+	else
+		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
+	return r;
+}
+
 /**
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
@@ -598,27 +613,6 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 }
 
 static int
-tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
-{
-	int r;
-	char *p, *buf = *this_cpu_ptr(&g_buf);
-
-	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
-
-	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
-				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
-				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
-	if (r)
-		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
-			(int)(p - buf), buf, hm);
-	else
-		TFW_DBG2("added X-Forwarded-For header for %*s\n",
-			 (int)(p - buf), buf);
-
-	return r;
-}
-
-static int
 tfw_http_add_hdr_via(TfwHttpMsg *hm)
 {
 	int r;
@@ -656,19 +650,22 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 }
 
 static int
-tfw_http_set_hdr_date(TfwHttpMsg *hm)
+tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
 	int r;
-	char *s_date = *this_cpu_ptr(&g_buf);
+	char *p, *buf = *this_cpu_ptr(&g_buf);
 
-	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
-	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
-				  s_date, SLEN(S_V_DATE),
-				  TFW_HTTP_HDR_RAW, 0);
+	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
+
+	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
+				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
+				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
 	if (r)
-		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
+		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
+			(int)(p - buf), buf, hm);
 	else
-		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
+		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+			 (int)(p - buf), buf);
 	return r;
 }
 
