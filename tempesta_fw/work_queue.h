@@ -47,14 +47,14 @@ typedef struct {
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
-int __tfw_wq_push(TfwRBQueue *wq, void *ptr);
+int __tfw_wq_push(TfwRBQueue *wq, void *ptr, bool sync);
 int tfw_wq_pop(TfwRBQueue *wq, void *buf);
 
 static inline int
 tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
-	    void (*local_cpu_cb)(struct irq_work *))
+	    void (*local_cpu_cb)(struct irq_work *), bool sync)
 {
-	int r = __tfw_wq_push(wq, ptr);
+	int r = __tfw_wq_push(wq, ptr, sync);
 
 	if (unlikely(r)) {
 		TFW_WARN("work queue overrun\n");
