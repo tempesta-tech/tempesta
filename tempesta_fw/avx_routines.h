@@ -112,19 +112,35 @@ enum {
 
 #define AVX_STRID_1(n) do {\
     static const int ids[9] = {\
-        RGen_HdrOther,
-        Req_HdrCache_ControlV,
-        Req_HdrTransfer_EncodingV,
-        Req_HdrTransfer_EncodingV,
-        Req_HdrX_Forwarded_ForV,
-        Req_HdrContent_LengthV,
-        Req_HdrContent_TypeV,
-        Req_HdrUser_AgentV,
-        Req_HdrConnectionV,
-        Req_HdrCookieV,
+        TFW_HTTP_HDR_RAW,\
+        TFW_HTTP_HDR_RAW,\
+        TFW_HTTP_HDR_CONTENT_TYPE,\
+        TFW_HTTP_HDR_RAW,\
+        TFW_HTTP_HDR_X_FORWARDED_FOR,\
+        TFW_HTTP_HDR_CONTENT_LENGTH,\
+        TFW_HTTP_HDR_RAW,\
+        TFW_HTTP_HDR_COOKIE,\
+        TFW_HTTP_HDR_CONNECTION,\
+        TFW_HTTP_HDR_USER_AGENT,\
     };\
+    BUG_ON(n < 0 || n >= 9);\
+    return ids[n];}
 
-}
+#define AVX_STRID_2(n) do {\
+    static const int ids[9] = {\
+        RGen_HdrOther,\
+        Req_HdrHostV,\
+        Req_HdrContent_TypeV,\
+        Req_HdrTransfer_EncodingV,\
+        Req_HdrX_Forwarded_ForV,\
+        Req_HdrContent_LengthV,\
+        Req_HdrCache_ControlV,\
+        Req_HdrCookieV,\
+        Req_HdrConnectionV,\
+        Req_HdrUser_AgentV,\
+    };\
+    BUG_ON(n < 0 || n >= 9);\
+    return ids[n];}
 
 #endif // AVX_ROUTINES_H
 
