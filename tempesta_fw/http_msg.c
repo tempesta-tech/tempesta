@@ -492,10 +492,10 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .ptr = name,	.len = n_len },
 			{ .ptr = ": ",	.len = 2 },
 			{ .ptr = val,	.len = v_len },
-			{ .ptr = "\r\n", .len = 2 }
 		},
-		.len = n_len + v_len + 4,
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
 	/*
@@ -504,15 +504,8 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 	 * If the substitute string without the EOL fits into that space,
 	 * then the fast path can be used. Otherwise, go by the slow path.
 	 */
-	if (!TFW_STR_DUP(orig_hdr) && ((hdr.len - 2) <= orig_hdr->len)) {
+	if (!TFW_STR_DUP(orig_hdr) && (hdr.len <= orig_hdr->len)) {
 		BUG_ON(!tfw_str_eolen(orig_hdr));
-
-		/*
-		 * We are trying to reuse EOL from the @orig_hdr,
-		 * so remove the EOL chunk of the @hdr.
-		 */
-		hdr.len -= 2;
-		TFW_STR_CHUNKN_SUB(&hdr, 1);
 
 		/*
 		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
@@ -561,10 +554,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			{ .ptr = name,	.len = n_len },
 			{ .ptr = ": ",	.len = 2 },
 			{ .ptr = val,	.len = v_len },
-			{ .ptr = "\r\n", .len = 2 }
 		},
-		.len = n_len + v_len + 4,
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
 	BUG_ON(!val && v_len);
