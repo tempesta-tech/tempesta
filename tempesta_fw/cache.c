@@ -858,7 +858,8 @@ do_cache:
 		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
 		 cw.req, cw.resp, cw.key);
 
-	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi);
+	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi,
+			   false);
 
 dont_cache:
 	action(req, resp);
