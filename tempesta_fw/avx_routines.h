@@ -9,8 +9,6 @@
 #pragma GCC pop_options
 
 extern const unsigned char __c_avx_data[];
-extern const unsigned char __c_avx_const1[];
-extern const unsigned char __c_avx_const2[];
 extern const unsigned char __c_avx_header_names[];
 
 #define __header_charset _mm256_loadu2_m128i((const __m128i*)__c_avx_data, (const __m128i*)__c_avx_data)
@@ -19,7 +17,9 @@ extern const unsigned char __c_avx_header_names[];
 #define _mm256_load(p)  _mm256_load_si256((const __m256*)p)
 
 #define __DEFINE_AVX_VARIABLES \
-    __m256 HEADER_CHARSET, __c_avx_constants1, __c_avx_constants2; do {\
+    __m256 HEADER_CHARSET, __c_avx_constants1, __c_avx_constants2; \
+    unsigned char __avx_realign[64] __attribute__((aligned(64))); \
+    do {\
         __m256 tmp = _mm256_load(__c_avx_data);\
         __m256 tmp2 = _mm256_load(__c_avx_data+32);\
         HEADER_CHARSET = _mm256_permute2f128_si256(tmp, tmp, 0x00);\
@@ -27,6 +27,12 @@ extern const unsigned char __c_avx_header_names[];
         tmp2 = _mm256_unpacklo_epi32(tmp3, tmp3);\
         __c_avx_constants1 = tmp3;\
         __c_avx_constants2 = tmp2;\
+    }while(0);
+
+#define __mm_align(value, n) do { \
+    _mm256_store_si256((__m256i*)__avx_realign, value);\
+    _mm256_store_si256((__m256i*)(__avx_realign+32, _mm256_setzero_si256()));\
+    value = _mm256_loadu_si256((__m256i*)(__avx_realign+n));\
     }while(0);
 
 enum {

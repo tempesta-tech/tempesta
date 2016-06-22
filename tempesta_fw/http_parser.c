@@ -1850,9 +1850,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //we will utilize later chars in order to fast-skip both header name,
             //':', some spaces and part of header value if it is "other" type
             AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);
-            mask2 = _mm256_or_si256(
+            mask2 = _mm256_and_si256(
                 _mm256_cmpgt_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1)),
-                _mm256_cmpgt_epi8(_mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1), text));
+                _mm256_cmpgt_epi8(_mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL2), text));
             //mask text for classification
             int bitmask1 = _mm256_movemask_epi8(mask1);
             int bitmask2 = _mm256_movemask_epi8(
@@ -1865,7 +1865,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
             //~bitmask1  ****    ****** **
             // bitmask2      *
             // bitmask3       ***
-            //~bitmask4  *****************
+            // bitmask4  *****************
 
             //check for long header name
             if (unlikely(!bitmask1))
@@ -1873,39 +1873,42 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
             int tmp = (~bitmask1)+1;
             //bitmask2[__builtin_ffs(bitmask1)] must be 01
-            // tmp           *    ****** **
+            // tmp           *   ****** **
             // bitmask2      *
             tmp &= bitmask2;
             if (unlikely(!tmp))
                 return TFW_BLOCK;
 
-            //extract header name and test it against set of symbols
             int headerid = 0;
             mask1 = _mm256_andnot_si256(mask1, text);
-            AVX_MATCH_STRING(headerid, mask1, HEADER_NAMES);
+            AVX_MATCH_HEADER_NAME(headerid, mask1);
             parser->_hdr_tag = AVX_STRID_0(headerid);
             parser->_i_st    = AVX_STRID_1(headerid);
             //now skip spaces after "header_name:"
             // tmp           *
             // bitmask3       *** xxxxxxx
             tmp = tmp + tmp + bitmask3;
-            // tmp               *xxxxxxx
+            //clear all bits except first '1'
+            tmp = ((~tmp)+1) & tmp;
+            //1st '1' bit hits first header value byte
+            //           Host:   yandex.ru\n
+            // tmp               *
             if (unlikely(!tmp)) {
                 //we got header name and some spaces after it, but
                 //not header value at all
                 __FSM_MOVE_n(RGen_LWS, 32);
             }
-            //test if header + header value fit into 31 bytes(not 32!!!!!)
-            tmp =
-            bitmask4 &= (tmp | (tmp>>1);
-            //now bitmask4 covers only header value
-            int hv_start = __builtin_ctz(bitmask4);
-            if (bitmask4 < 0) {
+            int hv_start = __builtin_ctz(tmp);
+            //add 1 to bitmask4
+            bitmask4 = bitmask4 + 1;
+            if (!bitmask4) {
                 __FSM_MOVE_n(RGen_LWS, hv_start);
             }
-            tmp = __builtin_ctz((bitmask4 >> hv_start)+1);
-            //TODO: place the header
-            __FSM_MOVE_n(RGen_EoL, hv_start+tmp);
+            //now we enter the most painful part of code: alignment of AVX register
+            _mm_align(text, hv_start);
+            hv_start += __builtin_ctz(bitmask4);
+            //TODO: copy here code for fast value parsing
+            __FSM_MOVE_n(RGen_EoL, hv_start);
         }
 #endif
 
