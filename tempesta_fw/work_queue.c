@@ -116,7 +116,7 @@ __update_guards(TfwRBQueue *q)
 }
 
 int
-__tfw_wq_push(TfwRBQueue *q, void *ptr)
+__tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 {
 	unsigned long long head;
 	__ThrPos *pos;
@@ -136,7 +136,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		if (unlikely(head >= atomic64_read(&q->last_tail) + QSZ)) {
 			__update_guards(q);
 			/* Second try. */
-			if (head >= atomic64_read(&q->last_tail) + QSZ) {
+			if (!sync && (head >= atomic64_read(&q->last_tail) + QSZ)) {
 				/* The queue is full, don't wait consumers. */
 				atomic64_set(&pos->head, LLONG_MAX);
 				local_bh_enable();

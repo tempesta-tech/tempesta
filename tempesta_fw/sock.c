@@ -72,7 +72,7 @@ ss_ipi(struct irq_work *work)
 }
 
 static int
-ss_wq_push(SsWork *sw)
+ss_wq_push(SsWork *sw, bool sync)
 {
 	int r, cpu = sw->sk->sk_incoming_cpu;
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
@@ -87,7 +87,7 @@ ss_wq_push(SsWork *sw)
 	 * See ss_tx_action().
 	 */
 	sock_hold(sw->sk);
-	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi)))
+	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync)))
 		sock_put(sw->sk);
 	return r;
 }
@@ -248,7 +248,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
 	 */
-	if (ss_wq_push(&sw)) {
+	if (ss_wq_push(&sw, false)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
 		r = -EBUSY;
 		goto err;
@@ -428,10 +428,8 @@ ss_close(struct sock *sk)
 	if (unlikely(!sk))
 		return SS_OK;
 
-	if (ss_wq_push(&sw)) {
-		SS_WARN("Cannot schedule socket %p for closing\n", sk);
-		return SS_BAD;
-	}
+	ss_wq_push(&sw, true);
+
 	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
