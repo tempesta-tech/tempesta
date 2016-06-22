@@ -388,18 +388,18 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
  * Add new header @hdr to the message @hm just before CRLF.
  */
 static int
-__hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
+__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
 {
 	int r;
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
-	r = ss_skb_get_room(&hm->msg.skb_list,
-			    hm->crlf.skb, h->ptr, hdr->len, &it);
+	r = ss_skb_get_room(&hm->msg.skb_list, hm->crlf.skb,
+			    h->ptr, tfw_str_total_len(hdr), &it);
 	if (r)
 		return r;
-	BUG_ON(!TFW_STR_PLAIN(&it));
 
+	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
 	if (tfw_strcpy(&it, hdr))
 		return TFW_BLOCK;
 
