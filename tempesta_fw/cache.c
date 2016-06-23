@@ -48,7 +48,7 @@
  * @trec	- Database record descriptor;
  * @key_len	- length of key (URI + Host header);
  * @status_len	- length of response satus line;
- * @hdr_num	- numbder of headers;
+ * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
@@ -61,6 +61,8 @@
  * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
+ * @version	- HTTP version of the response;
+ * @hmflags	- flags of the response after parsing and post-processing.
  */
 typedef struct {
 	TdbVRec		trec;
@@ -80,6 +82,8 @@ typedef struct {
 	long		status;
 	long		hdrs;
 	long		body;
+	unsigned char	version;
+	unsigned int	hmflags;
 } TfwCacheEntry;
 
 #define CE_BODY_SIZE							\
@@ -699,6 +703,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	}
 	BUG_ON(tot_len != 0);
 
+	ce->version = resp->version;
+	ce->hmflags = resp->flags;
+
 	if (resp->cache_ctl.flags
 	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
 		ce->flags |= TFW_CE_MUST_REVAL;
@@ -1069,6 +1076,9 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (tfw_cache_build_resp_body(db, resp, trec, &it, p))
 		goto err;
+
+	resp->version = ce->version;
+	resp->flags = ce->hmflags;
 
 	return resp;
 err:
