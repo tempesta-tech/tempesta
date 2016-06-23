@@ -729,6 +729,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 	    || (resp->status == 204) || (resp->status == 304)		\
 	    || (msg->flags & TFW_HTTP_VOID_BODY))			\
 	{								\
+		/* There is no body. */					\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		r = TFW_PASS;						\
 		FSM_EXIT();						\
@@ -749,9 +750,16 @@ __FSM_STATE(RGen_BodyInit) {						\
 	 * is present and there's NO "chunked" coding.			\
 	 * Process the body until the connection is closed.		\
 	 */								\
-	if (msg->content_length) {					\
-		parser->to_read = msg->content_length;			\
-		__FSM_MOVE_nofixup(RGen_BodyStart);			\
+	if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) \
+	{								\
+		if (msg->content_length) {				\
+			parser->to_read = msg->content_length;		\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		}							\
+		/* There is no body. */					\
+		msg->body.flags |= TFW_STR_COMPLETE;			\
+		r = TFW_PASS;						\
+		FSM_EXIT();						\
 	}								\
 	/* Process the body until the connection is closed. */		\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
