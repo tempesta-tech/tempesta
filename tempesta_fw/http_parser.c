@@ -1898,17 +1898,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
                 //not header value at all
                 __FSM_MOVE_n(RGen_LWS, 32);
             }
-            int hv_start = __builtin_ctz(tmp);
-            //add 1 to bitmask4
-            bitmask4 = bitmask4 + 1;
-            if (!bitmask4) {
-                __FSM_MOVE_n(RGen_LWS, hv_start);
-            }
-            //now we enter the most painful part of code: alignment of AVX register
-            _mm_align(text, hv_start);
-            hv_start += __builtin_ctz(bitmask4);
-            //TODO: copy here code for fast value parsing
-            __FSM_MOVE_n(RGen_EoL, hv_start);
+            __FSM_MOVE_n(RGen_LWS, __builtin_ctz(tmp));
         }
 #endif
 
