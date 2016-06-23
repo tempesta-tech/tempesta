@@ -225,6 +225,22 @@ tfw_str_total_len(const TfwStr *s)
 	return s->len + s->eolen;
 }
 
+/**
+ * Reduce @str length by @eolen bytes and fill the EOL.
+ */
+static inline void
+tfw_str_fixup_eol(TfwStr *str, int eolen)
+{
+	BUG_ON(eolen > 2); /* eolen = 0 is a legit value */
+	BUG_ON(!TFW_STR_PLAIN(str));
+
+	str->len -= (str->eolen = eolen);
+	if (eolen == 1)
+		*(char *)(str->ptr + str->len) = 0x0a; /* LF, '\n' */
+	else if (eolen == 2)
+		*(short *)(str->ptr + str->len) = 0x0a0d; /* CRLF, '\r\n' */
+}
+
 void tfw_str_del_chunk(TfwStr *str, int id);
 
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);

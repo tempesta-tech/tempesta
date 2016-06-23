@@ -242,11 +242,11 @@ tfw_http_sticky_add(TfwHttpMsg *hmresp, TfwHttpMsg *hmreq)
 			{ .ptr = tfw_cfg_sticky.name_eq.ptr,
 			  .len = tfw_cfg_sticky.name_eq.len },
 			{ .ptr = buf, .len = len * 2 },
-			{ .ptr = "\r\n", .len = 2 }
 		},
 		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len
-		       + 2 + len * 2,
-		.flags = 4 << TFW_STR_CN_SHIFT
+		       + len * 2,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
 	tfw_http_prep_hexstring(buf, client->cookie.hmac, len);
