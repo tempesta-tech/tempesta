@@ -680,10 +680,10 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 			  .len = 4 },
 			{ .ptr = *this_cpu_ptr(&g_buf),
 			  .len = vhost->hdr_via_len },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 		},
-		.len = 4 + SLEN(S_VIA S_CRLF) + vhost->hdr_via_len,
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
 #undef S_VIA
 	};
 
