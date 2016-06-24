@@ -976,3 +976,111 @@ ss_skb_split(struct sk_buff *skb, int len)
 
 	return buff;
 }
+
+static inline int
+__coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag)
+{
+	struct sk_buff *skb = ss_skb_peek_tail(skb_list);
+
+	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
+		skb = ss_skb_alloc();
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(skb_list, skb);
+	}
+
+	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
+	ss_skb_adjust_data_len(skb, frag->size);
+	__skb_frag_ref(frag);
+
+	return 0;
+}
+
+static int
+ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
+{
+	int i;
+	skb_frag_t head_frag;
+	unsigned int headlen = skb_headlen(skb);
+
+	if (headlen) {
+		BUG_ON(!skb->head_frag);
+		head_frag.size = headlen;
+		head_frag.page.p = virt_to_head_page(skb->head);
+		head_frag.page_offset = skb->data -
+			(unsigned char *)page_address(head_frag.page.p);
+		if (__coalesce_frag(skb_list, &head_frag))
+			return -ENOMEM;
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		if (__coalesce_frag(skb_list, &skb_shinfo(skb)->frags[i]))
+			return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static int
+ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
+{
+	struct sk_buff *f_skb;
+
+	if (ss_skb_queue_coalesce_tail(skb_list, skb))
+		goto cleanup;
+
+	skb_walk_frags(skb, f_skb) {
+		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
+			goto cleanup;
+	}
+
+	/* TODO: Optimize skb reallocation. Consider to place clone's shinfo
+	 * right after the origal's shinfo in case space to the chunk boundary
+	 * is available. It can save some allocations but keep in mind that tail
+	 * locking is required in such a technique. */
+
+	consume_skb(skb);
+	return 0;
+
+cleanup:
+	ss_skb_queue_purge(skb_list);
+	return -ENOMEM;
+}
+
+/*
+ * When GRO is used, multiple SKBs may be merged into
+ * one big SKB. These SKBs are linked in via frag_list.
+ * Interpret the big SKB as a set of separate smaller
+ * SKBs for processing. Make the top SKB first in the
+ * @skb_list.
+ */
+int
+ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
+{
+	struct sk_buff *f_skb;
+
+	ss_skb_queue_head_init(skb_list);
+
+	if (unlikely(skb_cloned(skb)))
+		return ss_skb_unroll_slow(skb_list, skb);
+
+	/*
+	 * Note, that skb_gro_receive() drops reference to the
+	 * SKB's header via the __skb_header_release(). So, to
+	 * not break the things we must take reference back.
+	 */
+	ss_skb_queue_tail(skb_list, skb);
+	skb_walk_frags(skb, f_skb) {
+		if (f_skb->nohdr) {
+			f_skb->nohdr = 0;
+			atomic_sub(1 << SKB_DATAREF_SHIFT,
+				   &skb_shinfo(f_skb)->dataref);
+		}
+		ss_skb_adjust_data_len(skb, -f_skb->len);
+		ss_skb_queue_tail(skb_list, f_skb);
+	}
+	skb_shinfo(skb)->frag_list = NULL;
+
+	return 0;
+}
+EXPORT_SYMBOL(ss_skb_unroll);
