@@ -89,7 +89,7 @@ enum {
 static inline unsigned char *
 memchreol(const unsigned char *s, size_t n)
 {
-#ifdef __AVX2__
+#ifdef __ENABLE_AVX__
     __DEFINE_AVX_C2;
     int k = -1;
     while(n >= 32) {
@@ -1597,7 +1597,7 @@ done:
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
-#ifdef __AVX2__
+#ifdef __ENABLE_AVX__
     __DEFINE_AVX_VARIABLES
 #endif
 
@@ -1840,7 +1840,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         if (unlikely(!IN_ALPHABET(c, hdr_a)))
             return TFW_BLOCK;
 
-#ifdef __AVX2__
+#ifdef __ENABLE_AVX__
         if (__data_available(p, 32)) {
             __m256i text = _mm256_loadu(p);
             AVX_LOWERCASE(text, text);

@@ -18,7 +18,8 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CC = gcc
-CFLAGS = -mavx2 -Os -ggdb -I. -std=c99
+CFLAGS = -Os -ggdb -I. -std=c99
+AVXFLAGS = -mavx2 -D__ENABLE_AVX__
 LDFLAGS =
 
 ifdef DEBUG
@@ -29,10 +30,25 @@ endif
 
 DEPS = sse_parser.h http_parser.h pool.h helpers.h http_parser_impl.c
 
-all: http_parser
+all: http_parser http_parser_avx
 
-http_parser: http_parser.o avx_routines.o http_msg.o pool.o str.o skbuff.o
+http_parser: http_parser.o http_msg.o str.o pool.o skbuff.o
 	$(CC) -o $@ $^ $(LDFLAGS)
+
+http_parser_avx: avx_parser.o avx_routines.o avx_http_msg.o avx_str.o pool.o skbuff.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+avx_http_parser.o:
+	$(CC) -c -o avx_parser.c http_parser.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
+
+avx_routines.o:
+	$(CC) -c -o avx_routines.o avx_routines.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
+
+avx_http_msg.o:
+	$(CC) -c -o avx_http_msg.o http_msg.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
+
+avx_str.o:
+	$(CC) -c -o avx_str.o str.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(EXTRA_CFLAGS)
