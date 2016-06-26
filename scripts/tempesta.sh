@@ -99,6 +99,7 @@ start()
 	mkdir -p /opt/tempesta/db/
 	# At this time we don't have stable TDB data format, so
 	# it would be nice to clean all the tables before the start.
+	# TODO: Remove the hack when TDB is fixed.
 	rm -f /opt/tempesta/db/*.tdb
 
 	sysctl -w net.tempesta.state=start
