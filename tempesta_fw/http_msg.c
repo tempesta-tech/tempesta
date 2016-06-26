@@ -567,12 +567,12 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		orig_hdr = &ht->tbl[hid];
 		if (TFW_STR_EMPTY(orig_hdr) && !val)
 			/* Not found, nothing to delete. */
-			return -ENOENT;
+			return 0;
 	} else {
 		hid = __hdr_lookup(hm, &new_hdr);
 		if (hid == ht->off && !val)
 			/* Not found, nothing to delete. */
-			return -ENOENT;
+			return 0;
 		if (hid == ht->size)
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
