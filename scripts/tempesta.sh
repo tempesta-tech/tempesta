@@ -97,6 +97,9 @@ start()
 
 	# Create database directory if it doesn't exist.
 	mkdir -p /opt/tempesta/db/
+	# At this time we don't have stable TDB data format, so
+	# it would be nice to clean all the tables before the start.
+	rm -f /opt/tempesta/db/*.tdb
 
 	sysctl -w net.tempesta.state=start
 	[ $? -ne 0 ] && error "cannot start Tempesta FW"
