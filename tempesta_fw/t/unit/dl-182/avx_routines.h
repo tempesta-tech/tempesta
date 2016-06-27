@@ -1,6 +1,7 @@
 #ifndef AVX_ROUTINES_H
 #define AVX_ROUTINES_H
 
+#ifdef __ENABLE_AVX__
 #pragma GCC push_options
 #pragma GCC target("sse","sse2","sse3","ssse3","sse4.1","avx","avx2")
 #define _MM_MALLOC_H_INCLUDED
@@ -156,6 +157,7 @@ enum {
     };\
     BUG_ON(n < 0 || n >= 10);\
     out = ids[n];}while(0);
+#endif
 
 #endif // AVX_ROUTINES_H
 
