@@ -32,10 +32,10 @@ DEPS = sse_parser.h http_parser.h pool.h helpers.h http_parser_impl.c
 
 all: http_parser http_parser_avx
 
-http_parser: http_parser.o http_msg.o str.o pool.o skbuff.o
+http_parser: http_parser.o http_msg.o str.o pool.o skbuff.o main.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-http_parser_avx: avx_http_parser.o avx_routines.o avx_http_msg.o avx_str.o pool.o skbuff.o
+http_parser_avx: avx_http_parser.o avx_routines.o avx_http_msg.o avx_str.o pool.o skbuff.o main.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 avx_http_parser.o:
