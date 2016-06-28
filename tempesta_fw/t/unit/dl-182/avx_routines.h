@@ -41,7 +41,7 @@ extern const unsigned char __c_avx_method[];
             __m256i text = _mm256_loadu(s), mask1;\
             AVX_HDR_VALUE(mask1, text);\
             mask = _mm256_movemask_epi8(mask1)+1;\
-            if (mask) break;
+            if (mask) break;\
             s += 32;\
             n -= 32;\
         };\
@@ -157,7 +157,7 @@ enum {
         TFW_HTTP_HDR_CONNECTION,\
         TFW_HTTP_HDR_USER_AGENT,\
     };\
-    BUG_ON(n < 0 || n >= 10);\
+    BUG_ON(n < 0 || n >= ARRAY_SIZE(ids));\
     out = ids[n];}while(0);
 
 #define AVX_HDRID_TO_STATE(out, n) do {\
@@ -173,7 +173,7 @@ enum {
         Req_HdrConnectionV,\
         Req_HdrUser_AgentV,\
     };\
-    BUG_ON(n < 0 || n >= 10);\
+    BUG_ON(n < 0 || n >= ARRAY_SIZE(ids));\
     out = ids[n];}while(0);
 
 #define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate) \
@@ -220,7 +220,7 @@ enum {
         auxmask = (auxmask + 0x00010081) & 0x08000800;\
         auxmask = (auxmask*0xF) & 0x08000700;\
         bpos = bpos + (auxmask>>8) + (auxmask>>24);\
-        method_name_out = methodname;
+        method_name_out = methodname;\
         __FSM_MOVE_n(nextstate, bpos);\
     }
 
