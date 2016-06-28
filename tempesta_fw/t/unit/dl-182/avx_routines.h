@@ -19,10 +19,10 @@ extern const unsigned char __c_avx_method[];
 #define _mm256_load(p)  _mm256_load_si256((const __m256i*)p)
 
 #define __DEFINE_AVX_VARIABLES \
-    register __m256i HEADER_CHARSET asm("xmm15"); \
-    register __m256i __avx_constants1 asm("xmm14"); \
-    register __m256i __avx_constants2 asm("xmm13"); \
-    register __m256i __avx_constants3 asm("xmm12"); \
+    register __m256i HEADER_CHARSET /*asm("xmm15")*/; \
+    register __m256i __avx_constants1 /*asm("xmm14")*/; \
+    register __m256i __avx_constants2 /*asm("xmm13")*/; \
+    register __m256i __avx_constants3 /*asm("xmm12")*/; \
     unsigned char __avx_realign[64] __attribute__((aligned(64))); \
     do {\
         __m256i tmp      = _mm256_load(__c_avx_data);\
@@ -46,8 +46,8 @@ extern const unsigned char __c_avx_method[];
             n -= 32;\
         };\
         mask = __builtin_ctz(mask);\
-        s += k;\
-        n -= k;\
+        s += mask;\
+        n -= mask;\
     }while(0);
 
 #define __mm_align(value, n) do { \
@@ -182,8 +182,8 @@ enum {
         __m256i text = _mm256_loadu(p);\
         __m256i tabs = _mm256_shuffle_epi32(__avx_constants3, __AVX_C3_TABS);\
         tabs = _mm256_cmpeq_epi8(text, tabs);\
-        text = _mm256_blendv_epi8(text, spaces, tabs);\
         __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES);\
+        text = _mm256_blendv_epi8(text, spaces, tabs);\
         text = _mm256_or_si256(text, spaces);\
         /* extract spaces mask: first space is end of method, next non-space */\
         /* after spaces after method is beginning of the url */\
@@ -200,8 +200,8 @@ enum {
         methodname &= 0xF;\
         /* if a mountain does not walk to muhammed, muhammed walks  */\
         /* to a mountain: instead of adjusting data, we adjust mask */\
-        mdata = _mm256_loadu2_m128i((const __m128i*)(__c_avx_method+16-bpos),\
-                                    (const __m128i*)(__c_avx_method+24-bpos));\
+        mdata = _mm256_loadu_si256((const __m256i*)(__c_avx_method+16-bpos));\
+        mdata = _mm256_permute4x64_epi64(mdata, 0x94);\
         /* we expect total length of method and following spaces */\
         /* less than 16 bytes. if scheme is located somewhere in */\
         /* bytes 8-23, we shift it 8 bytes right to bytes 0-15   */\
@@ -229,8 +229,16 @@ enum {
         __m256i text = _mm256_loadu(p);\
         __m256i tabs = _mm256_shuffle_epi32(__avx_constants3, __AVX_C3_TABS);\
         tabs = _mm256_cmpeq_epi8(text, tabs);\
-        AVX_LOWERCASE(text, text);\
+        /* lowercase */\
+        __m256i c1 = _mm256_cmpgt_epi8(\
+            text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_LOWERCASE2)); \
+        __m256i c2 = _mm256_cmpgt_epi8(\
+            _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_LOWERCASE1), text); \
+        __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES); \
+        c1 = _mm256_or_si256(c1, c2); \
+        c1 = _mm256_andnot_si256(c1, spaces); \
         text = _mm256_blendv_epi8(text, spaces, tabs);\
+        text = _mm256_or_si256(text, c1); \
         __m256i mask1;\
         AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);\
         int bitmask1 = _mm256_movemask_epi8(mask1);\
