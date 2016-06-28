@@ -31,7 +31,6 @@
 //#include <linux/ctype.h>
 //#include <linux/kernel.h>
 
-#include "avx_routines.h"
 #include "gfsm.h"
 #include "http_msg.h"
 #include "helpers.h"
@@ -70,51 +69,10 @@ enum {
  */
 #define IS_CR_OR_LF(c) (c == '\r' || c == '\n')
 
-/**
- * Scans the initial @n bytes of the memory area pointed to by @s for the first
- * occurance of EOL character.
- *
- * NOTE: We can use @strcspn here, but at the moment it's generic implementation
- * from the kernel's library is more badly than the @memchreol provided as: 1)
- * it uses for-in-for logic that can't be optimized at compile time 2) it
- * operates on zero-terminated strings so needless string boudary check occures
- * on every iteration 3) it returns not the pointer but the number of bytes, so
- * additinal logic needs to be implemented while preparing the result.
- *
- * In any case, it will be a good deal to rewrite such a function using
- * vectorized extenstions such as AVX/SSE in the future.
- *
- * Related to #182 (https://github.com/natsys/tempesta/issues/182)
- */
+#define MEMCHREOL_BAD ((unsigned char*)0x1)
 static inline unsigned char *
-memchreol(const unsigned char *s, size_t n)
-{
-#ifdef __ENABLE_AVX__
-    __DEFINE_AVX_C2;
-    int k = -1;
-    while(n >= 32) {
-        __m256i text = _mm256_loadu(s), mask1;
-        AVX_HDR_VALUE(mask1, text);
-        int mask2 = _mm256_movemask_epi8(mask1)+1;
-        if (mask2) {
-            k = mask2;
-            break;
-        }
-        s += 32;
-        n -= 32;
-    };
-    k = __builtin_ctz(k);
-    s += k;
-    n -= k;
-#endif
-	while (n) {
-        unsigned char c = *s;
-        if (IS_CR_OR_LF(c))
-            return (unsigned char *)s;
-		s++, n--;
-	}
-	return NULL;
-}
+memchreol(const unsigned char *s, size_t n);
+
 
 /**
  * Check whether a character is a whitespace (RWS/OWS/BWS according to RFC7230).
@@ -227,6 +185,9 @@ do {									\
 #define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)		do { goto to; } while (0)
+
+/* avx routines use macros which in turn use __FSM_MOVE_n and must be included here */
+#include "avx_routines.h"
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
@@ -1597,13 +1558,11 @@ done:
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
-#ifdef __ENABLE_AVX__
-    __DEFINE_AVX_VARIABLES
-#endif
 
     int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
+    __DEFINE_AVX_VARIABLES
 
 	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
 		len, (int)len, data, req);
@@ -1620,6 +1579,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
+        /* Very fast path: compare all methods at once, skip a space and
+         * possibly schema and go directly to uri */
+        AVX_QUICK_PARSE_METHOD(req->method, Req_UriAuthorityStart);
 		/* Fast path: compare 4 characters at once. */
 		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
@@ -1840,67 +1802,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         if (unlikely(!IN_ALPHABET(c, hdr_a)))
             return TFW_BLOCK;
 
-#ifdef __ENABLE_AVX__
-        if (__data_available(p, 32)) {
-            __m256i text = _mm256_loadu(p);
-            AVX_LOWERCASE(text, text);
-            __m256i mask1, mask2;
-            //match operation is quite slow, and in most cases
-            //header name is 8-16 chars long, so we start 2 of them in parallel
-            //we will utilize later chars in order to fast-skip both header name,
-            //':', some spaces and part of header value if it is "other" type
-            AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);
-            mask2 = _mm256_and_si256(
-                _mm256_cmpgt_epi8(text, _mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL1)),
-                _mm256_cmpgt_epi8(_mm256_shuffle_epi32(__avx_constants2, __AVX_C2_CONTROL2), text));
-            //mask text for classification
-            int bitmask1 = _mm256_movemask_epi8(mask1);
-            int bitmask2 = _mm256_movemask_epi8(
-                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SEMICOLON)));
-            int bitmask3 = _mm256_movemask_epi8(
-                _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES)));
-            int bitmask4 = _mm256_movemask_epi8(mask2);
-            //at this point we must have something like this:
-            //           Host:   yandex.ru\n
-            //~bitmask1  ****    ****** **
-            // bitmask2      *
-            // bitmask3       ***
-            // bitmask4  *****************
-
-            //check for long header name
-            if (unlikely(!bitmask1))
-                return TFW_BLOCK;
-
-            int tmp = (~bitmask1)+1;
-            //bitmask2[__builtin_ffs(bitmask1)] must be 01
-            // tmp           *   ****** **
-            // bitmask2      *
-            tmp &= bitmask2;
-            if (unlikely(!tmp))
-                return TFW_BLOCK;
-
-            int headerid = 0;
-            mask1 = _mm256_andnot_si256(mask1, text);
-            AVX_MATCH_HEADER_NAME(headerid, mask1);
-            AVX_HDRID_TO_TAG(parser->_hdr_tag, headerid);
-            AVX_HDRID_TO_STATE(parser->_i_st, headerid);
-            //now skip spaces after "header_name:"
-            // tmp           *
-            // bitmask3       *** xxxxxxx
-            tmp = tmp + tmp + bitmask3;
-            //clear all bits except first '1'
-            tmp = ((~tmp)+1) & tmp;
-            //1st '1' bit hits first header value byte
-            //           Host:   yandex.ru\n
-            // tmp               *
-            if (unlikely(!tmp)) {
-                //we got header name and some spaces after it, but
-                //not header value at all
-                __FSM_MOVE_n(RGen_LWS, 32);
-            }
-            __FSM_MOVE_n(RGen_LWS, __builtin_ctz(tmp));
-        }
-#endif
+        /* #182: quickly test header name and skip appropriate
+         * number of characters up to 32 bytes or header value */
+        AVX_QUICK_PARSE_HEADER(RGen_LWS);
 
 		switch (LC(c)) {
 		case 'c':
@@ -3271,4 +3175,40 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_FINISH(resp);
 
 	return r;
+}
+
+/**
+ * Scans the initial @n bytes of the memory area pointed to by @s for the first
+ * occurance of EOL character.
+ *
+ * NOTE: We can use @strcspn here, but at the moment it's generic implementation
+ * from the kernel's library is more badly than the @memchreol provided as: 1)
+ * it uses for-in-for logic that can't be optimized at compile time 2) it
+ * operates on zero-terminated strings so needless string boudary check occures
+ * on every iteration 3) it returns not the pointer but the number of bytes, so
+ * additinal logic needs to be implemented while preparing the result.
+ *
+ * In any case, it will be a good deal to rewrite such a function using
+ * vectorized extenstions such as AVX/SSE in the future.
+ *
+ * Related to #182 (https://github.com/natsys/tempesta/issues/182)
+ */
+static inline unsigned char *
+memchreol(const unsigned char *s, size_t n)
+{
+    /* #182: avx skips as many characters as possible using 32byte ops */
+    AVX_SKIP_HEADER_BODY(s, n);
+    while (n) {
+        unsigned char c = *s;
+        /* #182: at this moment, it is impossible to report bad
+         * character from memchreol so we keep changes commented
+         * for future use */
+        //if (c < 0x20 || c > 126) {
+            if (IS_CR_OR_LF(c))
+                return (unsigned char *)s;
+            //return MEMCHREOL_BAD;//special value
+        //}
+        s++, n--;
+    }
+    return NULL;
 }

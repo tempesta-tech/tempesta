@@ -12,6 +12,20 @@ const unsigned char __c_avx_data[64] __attribute__((aligned(64))) =
     1,  2,  4,  8,  16, 32, 64, 128,
     31 ,31 ,31 ,31 ,31 ,31 ,31 ,31 ,
     127,127,127,127,127,127,127,127
+    //constants3
+    '\t','\t','\t','\t','\t','\t','\t','\t',
+    //reserved right now
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+const unsigned char __c_avx_method[64] __attribute__((aligned(64))) =
+{
+    'g','e','t', 0 ,'h','e','a','d','p','o','s','t', 0 , 0 , 0 , 0 ,
+    'h','t','t','p',':','/','/', 0 ,'h','t','t','p','s',':','/','/',
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 const unsigned char __c_avx_header_names[4*64] __attribute__((aligned(64))) =

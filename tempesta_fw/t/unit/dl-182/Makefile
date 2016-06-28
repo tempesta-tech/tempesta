@@ -35,11 +35,11 @@ all: http_parser http_parser_avx
 http_parser: http_parser.o http_msg.o str.o pool.o skbuff.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-http_parser_avx: avx_parser.o avx_routines.o avx_http_msg.o avx_str.o pool.o skbuff.o
+http_parser_avx: avx_http_parser.o avx_routines.o avx_http_msg.o avx_str.o pool.o skbuff.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 avx_http_parser.o:
-	$(CC) -c -o avx_parser.c http_parser.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
+	$(CC) -c -o avx_http_parser.o http_parser.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
 
 avx_routines.o:
 	$(CC) -c -o avx_routines.o avx_routines.c $(AVXFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
