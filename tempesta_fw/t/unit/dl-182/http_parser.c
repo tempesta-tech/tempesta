@@ -3208,6 +3208,6 @@ memchreol(const unsigned char *s, size_t n)
 			//return MEMCHREOL_BAD;//special value
 		//}
 		s++, n--;
-		}
+	}
 	return NULL;
 }
