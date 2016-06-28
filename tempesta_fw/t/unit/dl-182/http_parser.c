@@ -1579,9 +1579,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
-        /* Very fast path: compare all methods at once, skip a space and
-         * possibly schema and go directly to uri */
-        AVX_QUICK_PARSE_METHOD(req->method, Req_UriAuthorityStart);
+		/* Very fast path: compare all methods at once, skip a space and
+		 * possibly schema and go directly to uri */
+		AVX_QUICK_PARSE_METHOD(req->method, Req_UriAuthorityStart);
 		/* Fast path: compare 4 characters at once. */
 		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
@@ -1802,9 +1802,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
         if (unlikely(!IN_ALPHABET(c, hdr_a)))
             return TFW_BLOCK;
 
-        /* #182: quickly test header name and skip appropriate
-         * number of characters up to 32 bytes or header value */
-        AVX_QUICK_PARSE_HEADER(RGen_LWS);
+		/* #182: quickly test header name and skip appropriate
+		 * number of characters up to 32 bytes or header value */
+		AVX_QUICK_PARSE_HEADER(RGen_LWS);
 
 		switch (LC(c)) {
 		case 'c':
@@ -3196,19 +3196,19 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 static inline unsigned char *
 memchreol(const unsigned char *s, size_t n)
 {
-    /* #182: avx skips as many characters as possible using 32byte ops */
-    AVX_SKIP_HEADER_BODY(s, n);
-    while (n) {
-        unsigned char c = *s;
-        /* #182: at this moment, it is impossible to report bad
-         * character from memchreol so we keep changes commented
-         * for future use */
-        //if (c < 0x20 || c > 126) {
-            if (IS_CR_OR_LF(c))
-                return (unsigned char *)s;
-            //return MEMCHREOL_BAD;//special value
-        //}
-        s++, n--;
-    }
-    return NULL;
+	/* #182: avx skips as many characters as possible using 32byte ops */
+	AVX_SKIP_HEADER_BODY(s, n);
+	while (n) {
+		unsigned char c = *s;
+		/* #182: at this moment, it is impossible to report bad
+		 * character from memchreol so we keep changes commented
+		 * for future use */
+		//if (c < 0x20 || c > 126) {
+			if (IS_CR_OR_LF(c))
+				return (unsigned char *)s;
+			//return MEMCHREOL_BAD;//special value
+		//}
+		s++, n--;
+		}
+	return NULL;
 }
