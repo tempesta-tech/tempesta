@@ -279,7 +279,7 @@ enum {
         if (unlikely(!tmp)) {\
             __FSM_MOVE_n(nextstate, 32);\
         }\
-        __FSM_MOVE_n(nextstate, __builtin_сtz(tmp));\
+        __FSM_MOVE_n(nextstate, __builtin_ctz(tmp));\
     }
 
 #else
