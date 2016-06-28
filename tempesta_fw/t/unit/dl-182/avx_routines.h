@@ -231,8 +231,8 @@ enum {
         /* and clear bits which we don't want to test            */\
         /* use addition to collect all bits set and a mask       */\
         auxmask = (auxmask >> bpos) & 0x00FF007F;\
-        auxmask = (auxmask + 0x00010081) & 0x08000800;\
-        auxmask = (auxmask - 0x00010001) & 0x00080007;\
+        auxmask = (auxmask + 0x00010081) & 0x08000800 >> 8;\
+        auxmask = (auxmask * 0xF) & 0x00080007;\
         bpos = bpos + auxmask + (auxmask>>16);\
         method_name_out = methodname;\
         __FSM_MOVE_n(nextstate, bpos);\
