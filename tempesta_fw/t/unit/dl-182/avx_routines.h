@@ -199,9 +199,9 @@ enum {
         int mask = _mm256_movemask_epi8(spaces);\
         /* mask(ored): ******* ?????????????????? */\
         /* mask(+1):          *?????????????????? */\
-        mask = (mask | (mask-1)) + 1;\
+        int mask2 = (mask | (mask-1)) + 1;\
         /* bpos will point to start of uri, but we will try to skip schema if possible */\
-        int bpos = __builtin_ctz(mask | 0x10000);\
+        int bpos = __builtin_ctz(mask2 | 0x10000);\
         /* we have a lot of latency at this point, so we will switch to another task: */\
         /* get method id from comparison mask */\
         int methodname = (TFW_HTTP_METH_POST<<8)|(TFW_HTTP_METH_HEAD<<4)|(TFW_HTTP_METH_GET);\
@@ -215,12 +215,16 @@ enum {
         /* we expect total length of method and following spaces */\
         /* less than 16 bytes. if scheme is located somewhere in */\
         /* bytes 8-23, we shift it 8 bytes right to bytes 0-15   */\
-        if (unlikely((mask & 0xFF)==0)) text = _mm256_permute4x64_epi64(text, 0xF9);\
+        if (unlikely((bpos > 16)) {\
+            text = _mm256_permute4x64_epi64(text, 0xF9); \
+            mdata = _mm256_permute4x64_epi64(mdata, 0xF9); \
+        }\
         /* then we clone scheme and compare it to adjusted mask  */\
         text  = _mm256_permute4x64_epi64(text, 0x44);\
         int auxmask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(mdata, text));\
         /* at this point, we should have already method name and */\
         /* beginning of url in first 16 bytes; if not bail out   */\
+        if (unlikely(!(mask & 0x18)) return TFW_BLOCK;\
         if (unlikely((bpos >= 16))) return TFW_BLOCK;\
         if (unlikely(!methodname)) return TFW_BLOCK;\
         /* adjust compare mask to possible beginning of schema   */\
