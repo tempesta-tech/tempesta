@@ -1558,11 +1558,10 @@ done:
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
-
-    int r = TFW_BLOCK;
+	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
-    __DEFINE_AVX_VARIABLES
+	__DEFINE_AVX_VARIABLES
 
 	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
 		len, (int)len, data, req);
@@ -1796,11 +1795,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(RGen_Hdr) {
 		tfw_http_msg_hdr_open(msg, p);
 
-        if (unlikely(IS_CR_OR_LF((c))))
-            __FSM_JMP(RGen_EoL);
+		if (unlikely(IS_CR_OR_LF((c))))
+			__FSM_JMP(RGen_EoL);
 
-        if (unlikely(!IN_ALPHABET(c, hdr_a)))
-            return TFW_BLOCK;
+		if (unlikely(!IN_ALPHABET(c, hdr_a)))
+			return TFW_BLOCK;
 
 		/* #182: quickly test header name and skip appropriate
 		 * number of characters up to 32 bytes or header value */
