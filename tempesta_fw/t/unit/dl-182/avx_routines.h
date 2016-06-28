@@ -178,28 +178,38 @@ enum {
 
 #define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate) \
     if (__data_available(p, 32)) {\
-        __m256i mdata = _mm256_load_si256((const __m256i*)__c_avx_method);\
+        /* load 32 bytes of text, and replace tabs with spaces */\
         __m256i text = _mm256_loadu(p);\
         __m256i tabs = _mm256_shuffle_epi32(__avx_constants3, __AVX_C3_TABS);\
         tabs = _mm256_cmpeq_epi8(text, tabs);\
         __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES);\
         text = _mm256_blendv_epi8(text, spaces, tabs);\
+        /* lowercase all characters */\
         text = _mm256_or_si256(text, spaces);\
+        __m256i mdata = _mm256_load_si256((const __m256i*)__c_avx_method);\
         /* extract spaces mask: first space is end of method, next non-space */\
         /* after spaces after method is beginning of the url */\
         spaces = _mm256_cmpeq_epi8(text, spaces);\
+        /* terminate method name with zero and compare it using 32bit comparisons */\
         __m256i method = _mm256_andnot_si256(spaces, text);\
         method = _mm256_cmpeq_epi32(_mm256_shuffle_epi32(method, 0), mdata);\
+        /* get space mask and transform it in such way it's first 1 bit will point to url: */\
+        /* request:    GET    http://yandex.ru... */\
+        /* mask:          **** ?????????????????? */\
         int mask = _mm256_movemask_epi8(spaces);\
+        /* mask(ored): ******* ?????????????????? */\
+        /* mask(+1):          *?????????????????? */\
         mask = (mask | (mask-1)) + 1;\
+        /* bpos will point to start of uri, but we will try to skip schema if possible */\
         int bpos = __builtin_ctz(mask | 0x10000);\
+        /* we have a lot of latency at this point, so we will switch to another task: */\
+        /* get method id from comparison mask */\
         int methodname = (TFW_HTTP_METH_POST<<8)|(TFW_HTTP_METH_HEAD<<4)|(TFW_HTTP_METH_GET);\
         methodname &= _mm256_movemask_epi8(method);\
         methodname |= methodname>>8;\
         methodname |= methodname>>4;\
         methodname &= 0xF;\
-        /* if a mountain does not walk to muhammed, muhammed walks  */\
-        /* to a mountain: instead of adjusting data, we adjust mask */\
+        /* instead of adjusting data, we adjust mask: it is faster */\
         mdata = _mm256_loadu_si256((const __m256i*)(__c_avx_method+16-bpos));\
         mdata = _mm256_permute4x64_epi64(mdata, 0x94);\
         /* we expect total length of method and following spaces */\
@@ -226,41 +236,50 @@ enum {
 
 #define AVX_QUICK_PARSE_HEADER(nextstate) \
     if (__data_available(p, 32)) {\
+        /* load 32 bytes of text, and replace tabs with spaces */\
         __m256i text = _mm256_loadu(p);\
         __m256i tabs = _mm256_shuffle_epi32(__avx_constants3, __AVX_C3_TABS);\
+        __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES); \
         tabs = _mm256_cmpeq_epi8(text, tabs);\
-        /* lowercase */\
+        /* lowercase all characters */\
         __m256i c1 = _mm256_cmpgt_epi8(\
             text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_LOWERCASE2)); \
         __m256i c2 = _mm256_cmpgt_epi8(\
             _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_LOWERCASE1), text); \
-        __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES); \
+        text = _mm256_blendv_epi8(text, spaces, tabs);\
         c1 = _mm256_or_si256(c1, c2); \
         c1 = _mm256_andnot_si256(c1, spaces); \
-        text = _mm256_blendv_epi8(text, spaces, tabs);\
         text = _mm256_or_si256(text, c1); \
+        /* extract spaces mask: first space is end of method, next non-space */\
+        /* after spaces after method is beginning of the header value */\
         __m256i mask1;\
         AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);\
         int bitmask1 = _mm256_movemask_epi8(mask1);\
         int bitmask2 = _mm256_movemask_epi8(\
             _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SEMICOLON)));\
-        int bitmask3 = _mm256_movemask_epi8(\
-            _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES)));\
-        if (unlikely(!bitmask1)) return TFW_BLOCK;\
+        int bitmask3 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(text, spaces));\
+        /* we need at least one valid character in header name */\
+        if (unlikely(!(bitmask1 & 0x1))) return TFW_BLOCK;\
+        /* first 1-bit in tmp will point to ':' position... */\
         int tmp = (~bitmask1)+1;\
         tmp &= bitmask2;\
+        /* ...and we make sure we have ':' there */\
         if (unlikely(!tmp)) return TFW_BLOCK;\
         int headerid = 0;\
+        /* zero-terminate header name before matching */\
         mask1 = _mm256_andnot_si256(mask1, text);\
         AVX_MATCH_HEADER_NAME(headerid, mask1);\
+        /* get next state id and header tag using 2 tables */\
         AVX_HDRID_TO_TAG(parser->_hdr_tag, headerid);\
         AVX_HDRID_TO_STATE(parser->_i_st, headerid);\
+        /* first bit in tmp will point to first byte of header value */\
         tmp = tmp + tmp + bitmask3;\
         tmp = ((~tmp)+1) & tmp;\
+        /* ctz makes undefined results if all bits set to zero */\
         if (unlikely(!tmp)) {\
             __FSM_MOVE_n(nextstate, 32);\
         }\
-        __FSM_MOVE_n(nextstate, __builtin_ctz(tmp));\
+        __FSM_MOVE_n(nextstate, __builtin_сtz(tmp));\
     }
 
 #else
