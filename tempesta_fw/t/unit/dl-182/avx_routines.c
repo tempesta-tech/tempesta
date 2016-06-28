@@ -1,5 +1,5 @@
 
-const unsigned char __c_avx_data[64] __attribute__((aligned(64))) =
+const unsigned char __c_avx_data[128] __attribute__((aligned(64))) =
 {
     //header charset
     0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
@@ -11,7 +11,7 @@ const unsigned char __c_avx_data[64] __attribute__((aligned(64))) =
     0xF,0xF,0xF,0xF,0xF,0xF,0xF,0xF,
     1,  2,  4,  8,  16, 32, 64, 128,
     31 ,31 ,31 ,31 ,31 ,31 ,31 ,31 ,
-    127,127,127,127,127,127,127,127
+    127,127,127,127,127,127,127,127,
     //constants3
     '\t','\t','\t','\t','\t','\t','\t','\t',
     //reserved right now
