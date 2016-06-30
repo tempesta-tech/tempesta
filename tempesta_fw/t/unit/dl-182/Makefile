@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 CC = gcc
-CFLAGS = -Os -ggdb -I. -std=c99
+CFLAGS = -Os -ggdb -I. -std=gnu99
 AVXFLAGS = -mavx2 -D__ENABLE_AVX__
 LDFLAGS =
 

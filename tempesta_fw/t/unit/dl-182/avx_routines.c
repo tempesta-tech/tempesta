@@ -4,20 +4,20 @@ const unsigned char __c_avx_data[128] __attribute__((aligned(64))) =
     //header charset
     0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
     0xf8, 0xf8, 0xf0, 0x50, 0x50, 0x54, 0x50, 0x50,
+    //uri charset
+    0xa8, 0xf8, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xf8,
+    0xf8, 0xf8, 0xf4, 0x5c, 0x54, 0x5c, 0x54, 0x5c,
     //constants1
     'A','A','A','A','Z','Z','Z','Z',
     ' ',' ',' ',' ',':',':',':',':',
     //constants2
+    '\t','\t','\t','\t',0,0,0,0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    //constants3
     0xF,0xF,0xF,0xF,0xF,0xF,0xF,0xF,
     1,  2,  4,  8,  16, 32, 64, 128,
     31 ,31 ,31 ,31 ,31 ,31 ,31 ,31 ,
     127,127,127,127,127,127,127,127,
-    //constants3
-    '\t','\t','\t','\t','\t','\t','\t','\t',
-    //reserved right now
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 const unsigned char __c_avx_method[64] __attribute__((aligned(64))) =

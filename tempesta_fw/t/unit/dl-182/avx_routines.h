@@ -15,27 +15,26 @@ extern const unsigned char __c_avx_header_names[];
 extern const unsigned char __c_avx_method[];
 
 #define __constants2 _mm256_loadu_si256((const __m256i*)(__c_avx_data+32)
-#define _mm256_loadu(p) _mm256_lddqu_si256((const __m256i*)p)
-#define _mm256_load(p)  _mm256_load_si256((const __m256i*)p)
+#define _mm256_loadu(p) _mm256_lddqu_si256((const __m256i*)(p))
+#define _mm256_load(p)  _mm256_load_si256((const __m256i*)(p))
 
 #define __DEFINE_AVX_VARIABLES \
-    register __m256i HEADER_CHARSET /*asm("xmm15")*/; \
+    register __m256i __avx_charsets; /*asm("xmm15")*/; \
     register __m256i __avx_constants1 /*asm("xmm14")*/; \
     register __m256i __avx_constants2 /*asm("xmm13")*/; \
     register __m256i __avx_constants3 /*asm("xmm12")*/; \
     unsigned char __avx_realign[64] __attribute__((aligned(64))); \
     do {\
-        __m256i tmp      = _mm256_load(__c_avx_data);\
-        HEADER_CHARSET   = _mm256_permute2f128_si256(tmp, tmp, 0x00);\
-        __m256i tmp3     = _mm256_permute4x64_epi64(tmp, 0xEE);\
-        tmp3 = _mm256_unpacklo_epi32(tmp3, tmp3);\
-        __avx_constants1 = tmp3;\
-        __avx_constants2 = _mm256_load(__c_avx_data+32);\
-        __avx_constants3 = _mm256_load(__c_avx_data+64);\
+        __avx_charsets   = _mm256_load(__c_avx_data);\
+        __m256i tmp = _mm256_load(__c_avx_data+32);\
+        __avx_constants1 = _mm256_unpacklo_epi16(tmp, tmp);\
+        __avx_constants2 = _mm256_load(__c_avx_data+64);\
+        __avx_constants3 = _mm256_unpackhi_epi16(tmp, tmp);\
     }while(0);
 
 #define AVX_SKIP_HEADER_BODY(s, n) do{ \
-        __m256i __avx_constants2 = _mm256_load(__c_avx_data+32);\
+        __m256i tmp = _mm256_load(__c_avx_data+32);\
+        __m256i __avx_constants2 = _mm256_unpackhi_epi16(tmp, tmp);\
         int mask = -1;\
         while(n >= 32) {\
             __m256i text = _mm256_loadu(s), mask1;\
@@ -176,7 +175,7 @@ enum {
     BUG_ON(n < 0 || n >= ARRAY_SIZE(ids));\
     out = ids[n];}while(0);
 
-#define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate) \
+#define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate, uristate) \
     if (__data_available(p, 32)) {\
         /* load 32 bytes of text, and replace tabs with spaces */\
         __m256i text = _mm256_loadu(p);\
@@ -212,30 +211,27 @@ enum {
         /* instead of adjusting data, we adjust mask: it is faster */\
         mdata = _mm256_loadu_si256((const __m256i*)(__c_avx_method+16-bpos));\
         mdata = _mm256_permute4x64_epi64(mdata, 0x94);\
-        /* we expect total length of method and following spaces */\
-        /* less than 16 bytes. if scheme is located somewhere in */\
-        /* bytes 8-23, we shift it 8 bytes right to bytes 0-15   */\
-        if (unlikely((bpos > 16)) {\
-            text = _mm256_permute4x64_epi64(text, 0xF9); \
-            mdata = _mm256_permute4x64_epi64(mdata, 0xF9); \
-        }\
         /* then we clone scheme and compare it to adjusted mask  */\
         text  = _mm256_permute4x64_epi64(text, 0x44);\
         int auxmask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(mdata, text));\
         /* at this point, we should have already method name and */\
         /* beginning of url in first 16 bytes; if not bail out   */\
-        if (unlikely(!(mask & 0x18)) return TFW_BLOCK;\
-        if (unlikely((bpos >= 16))) return TFW_BLOCK;\
+        if (unlikely(!(mask & 0x18))) return TFW_BLOCK;\
+        if (unlikely(bpos >= 16)) return TFW_BLOCK;\
         if (unlikely(!methodname)) return TFW_BLOCK;\
         /* adjust compare mask to possible beginning of schema   */\
         /* and clear bits which we don't want to test            */\
         /* use addition to collect all bits set and a mask       */\
         auxmask = (auxmask >> bpos) & 0x00FF007F;\
         auxmask = (auxmask + 0x00010081) & 0x08000800 >> 8;\
-        auxmask = (auxmask * 0xF) & 0x00080007;\
-        bpos = bpos + auxmask + (auxmask>>16);\
-        method_name_out = methodname;\
-        __FSM_MOVE_n(nextstate, bpos);\
+        if (auxmask) {\
+            auxmask = (auxmask * 0xF) & 0x00080007;\
+            bpos = bpos + auxmask + (auxmask>>16);\
+            method_name_out = methodname;\
+            __FSM_MOVE_n(nextstate, bpos);\
+        } else {\
+            __FSM_MOVE_n(uristate, bpos);\
+        }\
     }
 
 #define AVX_QUICK_PARSE_HEADER(nextstate) \
@@ -246,6 +242,8 @@ enum {
         __m256i spaces = _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SPACES); \
         tabs = _mm256_cmpeq_epi8(text, tabs);\
         /* lowercase all characters */\
+        __m256i mask1;\
+        AVX_MATCH_CHARSET(mask1, text, _mm256_permute2f128_si256(__avx_charsets,__avx_charsets,0));\
         __m256i c1 = _mm256_cmpgt_epi8(\
             text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_LOWERCASE2)); \
         __m256i c2 = _mm256_cmpgt_epi8(\
@@ -256,8 +254,6 @@ enum {
         text = _mm256_or_si256(text, c1); \
         /* extract spaces mask: first space is end of method, next non-space */\
         /* after spaces after method is beginning of the header value */\
-        __m256i mask1;\
-        AVX_MATCH_CHARSET(mask1, text, HEADER_CHARSET);\
         int bitmask1 = _mm256_movemask_epi8(mask1);\
         int bitmask2 = _mm256_movemask_epi8(\
             _mm256_cmpeq_epi8(text, _mm256_shuffle_epi32(__avx_constants1, __AVX_C1_SEMICOLON)));\
@@ -286,9 +282,28 @@ enum {
         __FSM_MOVE_n(nextstate, __builtin_ctz(tmp));\
     }
 
+#define AVX_QUICK_MATCH_URI(nextstate, uri_path) \
+    if (__data_available(p, 32)) {\
+        __m256i charset = _mm256_permute2f128_si256(__avx_charsets,__avx_charsets,0x55);\
+        __m256i mask1, mask2;\
+        mask2 = _mm256_setzero_si256();\
+        mask2 = _mm256_cmpeq_epi32(mask2,mask2);\
+        AVX_MATCH_CHARSET(mask1, _mm256_loadu(p), charset);\
+        if (__data_available(p, 64)) {\
+            AVX_MATCH_CHARSET(mask2, _mm256_loadu(p+32), charset);\
+        }\
+        long long bitmask1 = _mm256_movemask_epi8(mask1);\
+        long long bitmask2 = _mm256_movemask_epi8(mask2);\
+        bitmask1 |= (bitmask2<<32);\
+        int nbytes = bitmask1 ? __builtin_ctzl(bitmask1) : 64;\
+        if (nbytes) \
+        __FSM_MOVE_nf(TFW_HTTP_URI_HOOK, nbytes, &uri_path);\
+    }
+
 #else
 #define __DEFINE_AVX_VARIABLES
-#define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate)
+#define AVX_QUICK_PARSE_METHOD(method_name_out, nextstate, uristate)
+#define AVX_QUICK_MATCH_URI(nextstate, uri_path)
 #define AVX_QUICK_PARSE_HEADER(nextstate)
 #define AVX_SKIP_HEADER_BODY(s, n)
 #endif

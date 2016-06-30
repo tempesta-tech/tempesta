@@ -1580,7 +1580,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_Method) {
 		/* Very fast path: compare all methods at once, skip a space and
 		 * possibly schema and go directly to uri */
-		AVX_QUICK_PARSE_METHOD(req->method, Req_UriAuthorityStart);
+        AVX_QUICK_PARSE_METHOD(req->method, Req_UriAuthorityStart, Req_UriAbsPath);
 		/* Fast path: compare 4 characters at once. */
 		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
@@ -1748,6 +1748,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * as we should according to RFC 2616 (3.2.2) and RFC 7230 (2.7).
 	 */
 	__FSM_STATE(Req_UriAbsPath) {
+        AVX_QUICK_MATCH_URI(TFW_HTTP_URI_HOOK, req->uri_path);
+
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */
 			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
