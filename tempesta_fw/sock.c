@@ -87,8 +87,10 @@ ss_wq_push(SsWork *sw, bool sync)
 	 * See ss_tx_action().
 	 */
 	sock_hold(sw->sk);
-	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync)))
+	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync))) {
+		TFW_WARN("Socket work queue overrun: [%d]\n", sw->action);
 		sock_put(sw->sk);
+	}
 	return r;
 }
 

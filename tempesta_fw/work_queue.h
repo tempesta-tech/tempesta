@@ -55,11 +55,8 @@ tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
 	    void (*local_cpu_cb)(struct irq_work *), bool sync)
 {
 	int r = __tfw_wq_push(wq, ptr, sync);
-
-	if (unlikely(r)) {
-		TFW_WARN("work queue overrun\n");
+	if (unlikely(r))
 		return r;
-	}
 
 	if (smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);
