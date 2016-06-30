@@ -839,7 +839,7 @@ int
 tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		  tfw_http_cache_cb_t action)
 {
-	int cpu;
+	int r, cpu;
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
 
@@ -866,8 +866,11 @@ do_cache:
 		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
 		 cw.req, cw.resp, cw.key);
 
-	return tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi,
-			   false);
+	r = tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi, false);
+	if (unlikely(r))
+		TFW_WARN("Cache work queue overrun: [%s]\n",
+			 resp ? "response" : "request");
+	return r;
 
 dont_cache:
 	action(req, resp);
