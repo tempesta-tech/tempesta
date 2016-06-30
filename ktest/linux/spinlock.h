@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,6 +23,14 @@
 #include <pthread.h>
 
 #include "kernel.h"
+
+typedef pthread_mutex_t	spinlock_t;
+
+#define __RAW_SPIN_LOCK_UNLOCKED(lock)	PTHREAD_MUTEX_INITIALIZER
+
+#define spin_lock(lock)			pthread_mutex_lock(lock)
+#define spin_trylock(lock)		(!pthread_mutex_trylock(lock))
+#define spin_unlock(lock)		pthread_mutex_unlock(lock)
 
 /*
  * Pthread doesn't have RW spin-locks,
