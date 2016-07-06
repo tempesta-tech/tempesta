@@ -338,7 +338,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 /*
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
-static int
+int
 tfw_http_send_404(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
