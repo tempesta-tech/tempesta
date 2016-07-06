@@ -180,7 +180,7 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
-		h_start = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
+		h_start = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;\
 		h_end = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks \
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
@@ -911,7 +911,6 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		BUG_ON(!tr);
 		*data = tr->data;
 	}
-
 	/* Every non-empty header contains CRLF at the end. We need to translate
 	 * it to { str, eolen } presentation. */
 	if (hdr->len)
