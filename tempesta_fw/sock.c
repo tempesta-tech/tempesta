@@ -72,7 +72,7 @@ ss_ipi(struct irq_work *work)
 }
 
 static int
-ss_wq_push(SsWork *sw, bool sync)
+ss_wq_push(SsWork *sw)
 {
 	int r, cpu = sw->sk->sk_incoming_cpu;
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
@@ -87,10 +87,8 @@ ss_wq_push(SsWork *sw, bool sync)
 	 * See ss_tx_action().
 	 */
 	sock_hold(sw->sk);
-	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync))) {
-		TFW_WARN("Socket work queue overrun: [%d]\n", sw->action);
+	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi)))
 		sock_put(sw->sk);
-	}
 	return r;
 }
 
@@ -154,19 +152,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
-		/*
-		 * Zero-sized SKBs may appear when the message headers (or any
-		 * other contents) are modified or deleted by Tempesta. Drop
-		 * these SKBs.
-		 */
-		if (!skb->len) {
-			SS_DBG("[%d]: %s: drop skb=%p data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
-			continue;
-		}
-
 		skb->ip_summed = CHECKSUM_PARTIAL;
 		tcp_skb_pcount_set(skb, 0);
 
@@ -250,7 +235,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
 	 */
-	if (ss_wq_push(&sw, false)) {
+	if (ss_wq_push(&sw)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
 		r = -EBUSY;
 		goto err;
@@ -430,8 +415,10 @@ ss_close(struct sock *sk)
 	if (unlikely(!sk))
 		return SS_OK;
 
-	ss_wq_push(&sw, true);
-
+	if (ss_wq_push(&sw)) {
+		SS_WARN("Cannot schedule socket %p for closing\n", sk);
+		return SS_BAD;
+	}
 	return SS_OK;
 }
 EXPORT_SYMBOL(ss_close);
@@ -460,7 +447,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	bool tcp_fin;
 	int r = 0, offset, count;
 	void *conn;
-	SsSkbList skb_list;
+	struct sk_buff *frag_list;
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	/* Calculate the offset into the SKB. */
@@ -471,20 +458,40 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	/* SKB may be freed in processing. Save the flag. */
 	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 
-	if (ss_skb_unroll(&skb_list, skb)) {
-		__kfree_skb(skb);
-		return SS_DROP;
+	/*
+	 * When GRO is used, multiple SKBs may be merged into
+	 * one big SKB. These SKBs are linked in via frag_list.
+	 * Interpret the big SKB as a set of separate smaller
+	 * SKBs for processing. Make the top SKB first in the
+	 * frag_list.
+	 *
+	 * Note, that skb_gro_receive() drops reference to the
+	 * SKB's header via the __skb_header_release(). So, to
+	 * not break the things we must take reference back.
+	 */
+	frag_list = skb_shinfo(skb)->frag_list;
+	if (frag_list) {
+		struct sk_buff *f_skb;
+		skb_walk_frags(skb, f_skb) {
+			f_skb->nohdr = 0;
+			atomic_sub(1 << SKB_DATAREF_SHIFT, &skb_shinfo(f_skb)->dataref);
+			ss_skb_adjust_data_len(skb, -f_skb->len);
+		}
+		skb_shinfo(skb)->frag_list = NULL;
 	}
+	skb->next = frag_list;
+	frag_list = skb;
 
-	while ((skb = ss_skb_dequeue(&skb_list))) {
-		/* We don't expect to see such SKBs here */
-		WARN_ON(skb->tail_lock);
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
 			__kfree_skb(skb);
 			continue;
 		}
+		skb->next = NULL;
 
 		count = skb->len - offset;
 		tp->copied_seq += count;
@@ -518,8 +525,11 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_DROP;
 	}
 out:
-	if (!ss_skb_queue_empty(&skb_list))
-		ss_skb_queue_purge(&skb_list);
+	while (frag_list) {
+		skb = frag_list;
+		frag_list = frag_list->next;
+		__kfree_skb(skb);
+	}
 
 	return r;
 }
@@ -557,6 +567,24 @@ ss_tcp_process_data(struct sock *sk)
 		/* Shared SKBs shouldn't be seen here. */
 		if (skb_shared(skb))
 			BUG();
+		/*
+		 * SKBs get here cloned when a client or a back end run
+		 * on the same host with Tempesta. SKBs are cloned in
+		 * tcp_transmit_skb() as it is invoked for all egress
+		 * packets. That's fine when packets go out on the wire,
+		 * but packets on the loopback interface get to Tempesta
+		 * as is, i.e. cloned.
+		 *
+		 * Tempesta adjusts skb pointers, but leaves original
+		 * data untouched (this is also required in order to
+		 * keep pointers to our parsed HTTP data structures
+		 * unchanged). So skb uncloning is sufficient here.
+		 */
+		if (skb_unclone(skb, GFP_ATOMIC)) {
+			SS_WARN("Error uncloning ingress skb: sk %p\n", sk);
+			__kfree_skb(skb);
+			goto out;
+		}
 
 		/* Save the original len and seq for reporting. */
 		skb_len = skb->len;

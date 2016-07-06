@@ -37,7 +37,7 @@ static inline void
 __tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 			struct sk_buff *skb)
 {
-	str->ptr = data;
+	str->data = data;
 	str->skb = skb ? : ss_skb_peek_tail(&hm->msg.skb_list);
 }
 

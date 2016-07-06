@@ -258,9 +258,9 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			fuzz_init(&task->ctx, true);
 	} while (r != FUZZ_VALID);
 
-	msg.ptr = task->buf;
+	msg.data = task->buf;
 	msg.skb = NULL;
-	msg.len = strlen(msg.ptr);
+	msg.len = strlen(msg.data);
 	msg.flags = 0;
 	BUG_ON(msg.len > BUF_SIZE);
 

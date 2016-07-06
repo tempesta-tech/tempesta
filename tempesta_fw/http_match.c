@@ -86,7 +86,7 @@
 
 /**
  * Look up a header in the @req->h_tbl by given @id,
- * and compare @str with the header's value (skipping name and LWS).
+ * and compare @val with the header's value (skipping name and LWS).
  *
  * For example:
  *   hdr_val_eq(req, TFW_HTTP_HDR_HOST, "natsys-lab", 10, TFW_STR_EQ_PREFIX);
@@ -96,8 +96,8 @@
  *   "Host  :  natsys-lab.com"
  */
 static bool
-hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, tfw_http_match_op_t op,
-	   const char *str, int str_len, tfw_str_eq_flags_t flags)
+hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, const char *val,
+	   int val_len, tfw_str_eq_flags_t f)
 {
 	TfwStr *hdr;
 	TfwStr hdr_val;
@@ -110,11 +110,7 @@ hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, tfw_http_match_op_t op,
 
 	tfw_http_msg_clnthdr_val(hdr, id, &hdr_val);
 
-	if (op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(&hdr_val, hdr_val.len - str_len,
-					   str, str_len, flags);
-
-	return tfw_str_eq_cstr(&hdr_val, str, str_len, flags);
+	return tfw_str_eq_cstr(&hdr_val, val, val_len, f);
 }
 
 /**
@@ -127,7 +123,6 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 		[ 0 ... _TFW_HTTP_MATCH_O_COUNT ] = -1,
 		[TFW_HTTP_MATCH_O_EQ]     = TFW_STR_EQ_DEFAULT,
 		[TFW_HTTP_MATCH_O_PREFIX] = TFW_STR_EQ_PREFIX,
-		[TFW_HTTP_MATCH_O_SUFFIX] = TFW_STR_EQ_DEFAULT,
 	};
 	BUG_ON(flags_tbl[op] < 0);
 	return flags_tbl[op];
@@ -147,8 +142,6 @@ match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 static bool
 match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	const TfwStr *uri_path = &req->uri_path;
-	const TfwHttpMatchArg *arg = &rule->arg;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
 	/* RFC 7230:
@@ -159,18 +152,12 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 */
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(uri_path, uri_path->len - arg->len,
-					   arg->str, arg->len, flags);
-
-	return tfw_str_eq_cstr(uri_path, arg->str, arg->len, flags);
+	return tfw_str_eq_cstr(&req->uri_path, rule->arg.str, rule->arg.len, flags);
 }
 
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	const TfwStr *host = &req->host;
-	const TfwHttpMatchArg *arg = &rule->arg;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
 	/*
@@ -185,15 +172,12 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 	flags |= TFW_STR_EQ_CASEI;
 
-	if (host->len == 0)
-		return hdr_val_eq(req, TFW_HTTP_HDR_HOST,
-				  rule->op, arg->str, arg->len, flags);
+	if (req->host.len)
+		return tfw_str_eq_cstr(&req->host, rule->arg.str,
+				       rule->arg.len, flags);
 
-	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(host, host->len - arg->len,
-					   arg->str, arg->len, flags);
-
-	return tfw_str_eq_cstr(host, arg->str, arg->len, flags);
+	return hdr_val_eq(req, TFW_HTTP_HDR_HOST, rule->arg.str,
+			  rule->arg.len, flags);
 }
 
 static bool
@@ -205,7 +189,6 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		[TFW_HTTP_MATCH_F_HDR_HOST] = TFW_HTTP_HDR_HOST,
 	};
 
-	const TfwHttpMatchArg *arg = &rule->arg;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 	tfw_http_hdr_t id = id_tbl[rule->field];
 	BUG_ON(id < 0);
@@ -214,7 +197,7 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 * TODO: case-sensitive matching for headers when required by RFC. */
 	flags |= TFW_STR_EQ_CASEI;
 
-	return hdr_val_eq(req, id, rule->op, arg->str, arg->len, flags);
+	return hdr_val_eq(req, id, rule->arg.str, rule->arg.len, flags);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
@@ -251,16 +234,16 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			if (!chunk) {
 				return p == NULL;
 			}
-			c = chunk->ptr;
-			cend = chunk->ptr + chunk->len;
+			c = chunk->data;
+			cend = chunk->data + chunk->len;
 
 #define _TRY_NEXT_CHUNK(ok_code, err_code)		\
 	if (unlikely(c == cend))	{		\
 		++cnum;					\
 		chunk = TFW_STR_CHUNK(dup, cnum); 	\
 		if (chunk) {				\
-			c = chunk->ptr;			\
-			cend = chunk->ptr + chunk->len; \
+			c = chunk->data;			\
+			cend = chunk->data + chunk->len; \
 			ok_code;			\
 		} else {				\
 			err_code;			\
