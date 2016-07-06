@@ -224,7 +224,6 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
-<<<<<<< HEAD
 //	}
 	if (len) {
 		/*
@@ -453,6 +452,10 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	r = ss_skb_get_room(&hm->msg.skb_list, orig_hdr->skb,
 			    (char *)h->data + h->len, hdr->len, &it);
 	if (r)
+	BUG_ON(!append && (hdr->len < orig_hdr->len));
+
+	h = TFW_STR_LAST(orig_hdr);
+if (r)
 		return r;
 
 	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
