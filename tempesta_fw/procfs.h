@@ -23,15 +23,6 @@
 #include "tempesta_fw.h"
 
 /*
- * @pfl_hits		- The number of page frag lookup hits.
- * @pfl_misses		- The number of page frag lookup misses.
- */
-typedef struct {
-	u64	pfl_hits;
-	u64	pfl_misses;
-} TfwSsStat;
-
-/*
  * @rx_messages		- The number of messages received from peers.
  * @msgs_forwarded	- The number of forwarded messages.
  * @msgs_fromcache	- The number of messages served from cache.
@@ -76,7 +67,6 @@ typedef struct {
 } TfwCacheStat;
 
 typedef struct {
-	TfwSsStat	ss;
 	TfwPeerStat	clnt;
 	TfwPeerStat	serv;
 	TfwCacheStat	cache;
