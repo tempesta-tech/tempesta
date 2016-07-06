@@ -35,16 +35,16 @@ tfw_hash_str(const TfwStr *str)
 	unsigned long crc0 = 0, crc1 = 0;
 
 	if (likely(TFW_STR_PLAIN(str))) {
-		__tdb_hash_calc(&crc0, &crc1, str->ptr, str->len);
+		__tdb_hash_calc(&crc0, &crc1, str->data, str->len);
 	}
 	else {
-		const TfwStr *c = (TfwStr *)str->ptr;
+		const TfwStr *c = (TfwStr *)str->chunks;
 		const TfwStr *end = c + TFW_STR_CHUNKN(str);
 		unsigned char *p, *e;
 		unsigned int tail = 0;
 
 		while (c < end) {
-			p = c->ptr;
+			p = c->data;
 			e = p + c->len;
 
 			if (tail) {

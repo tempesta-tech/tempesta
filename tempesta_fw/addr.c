@@ -24,7 +24,6 @@
 #include <linux/ctype.h>
 #include <linux/in.h>
 #include <linux/in6.h>
-#include <linux/inet.h>
 
 #include "addr.h"
 #include "log.h"
@@ -51,7 +50,7 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 	addr->sin_addr.s_addr = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = c->data + k;
 			if (isdigit(*p)) {
 				octet = (octet == -1)
 					? *p - '0'
@@ -99,7 +98,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = c->data + k;
 			if (i > 7 && !(i == 8 && port == 1))
 				return -EINVAL;
 
@@ -110,7 +109,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				const char next = (k < c->len - 1) ?
 					*(p + 1) :
 					(c != TFW_STR_LAST(s)) ?
-						*(char*)((c + 1)->ptr) :
+						*(char*)((c + 1)->data) :
 						'\0';
 				if (next == ':') {
 					/*
@@ -123,7 +122,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 					} else {
 						++c;
 						k = 0;
-						p = c->ptr;
+						p = c->data;
 					}
 					hole = (words[i] != -1) ? ++i : i;
 				} else if (words[i] == -1)
@@ -233,8 +232,8 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-		*(char*)str->ptr :
-		*(char*)((TfwStr*)str->ptr)->ptr;
+		*(char*)str->data :
+		*(char*)((TfwStr*)str->chunks)->chunks;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
@@ -245,7 +244,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
 			for (i = 0; i != c->len; ++i) {
-				pos = c->ptr + i;
+				pos = c->data + i;
 				if (!isdigit(*pos))
 					goto delim;
 			}
@@ -267,82 +266,6 @@ delim:
 	return ret;
 }
 EXPORT_SYMBOL(tfw_addr_pton);
-
-/*
- * Parse an IP address. Try to parse it as an IPv4 address first.
- * If successful, convert the IPv4 address to IPv6 address. Otherwise,
- * try to parse it as an IPv6 address.
- *
- * Return a pointer to the next character after the parsed string
- * if the result is positive. Return NULL in case of an error.
- */
-static const char *
-tfw_addr_pton_addr(const char *str, TfwAddr *addr)
-{
-	char delim = '/';
-	TfwAddr tmpaddr = {};
-	const char *pptr;
-	__be32 *v4_saddr = &tmpaddr.v4.sin_addr.s_addr;
-	struct in6_addr *v6_inaddr = &tmpaddr.v6.sin6_addr;
-
-	if (in4_pton(str, -1, (u8 *)v4_saddr, delim, &pptr)) {
-		ipv6_addr_set_v4mapped(*v4_saddr, v6_inaddr);
-		tmpaddr.family = AF_INET;
-		goto done;
-	}
-	if (*str == '[') {
-		str++;
-		delim = ']';
-	}
-	if (!in6_pton(str, -1, (u8 *)&v6_inaddr->s6_addr, delim, &pptr))
-		return NULL;
-	tmpaddr.family = AF_INET6;
-	if (*pptr == ']')
-		++pptr;
-done:
-	*addr = tmpaddr;
-	return pptr;
-}
-
-/*
- * Parse an IP address in CIDR format. That include an IPv4 or IPv6
- * address, and a potential address prefix specified as the number
- * of significant bits in the address after the '/' char. The prefix
- * is stored in the unused field v6.sin6_scope_id.
- *
- * Return zero if the result is positive.
- * Return a negative error number in case of an error.
- */
-int
-tfw_addr_pton_cidr(const char *str, TfwAddr *addr)
-{
-	u8 prefix;
-	const char *pptr;
-
-	if ((pptr = tfw_addr_pton_addr(str, addr)) == NULL)
-		return -EINVAL;
-
-	/* Parse a possible prefix length. */
-	if (*pptr == '/')
-		++pptr;
-	if (*pptr == '\0') {
-		addr->in6_prefix = 128;
-		return 0;
-	}
-	if (kstrtou8(pptr, 10, &prefix) || (prefix == 0))
-		return -EINVAL;
-	if (addr->family == AF_INET) {
-		if (prefix > 32)
-			return -EINVAL;
-		prefix += 128 - 32;
-		addr->family = AF_INET6;
-	} else if (prefix > 128) {
-		return -EINVAL;
-	}
-	addr->in6_prefix = prefix;
-
-	return 0;
-}
 
 static bool
 tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
