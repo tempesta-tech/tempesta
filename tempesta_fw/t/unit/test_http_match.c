@@ -80,7 +80,7 @@ test_mlst_match(void)
 static void
 set_tfw_str(TfwStr *str, const char *cstr)
 {
-	str->ptr = (void *)cstr;
+	str->data = (char *)cstr;
 	str->len = strlen(cstr);
 }
 
@@ -135,37 +135,6 @@ TEST(http_match, uri_prefix)
 	EXPECT_EQ(-1, match_id);
 }
 
-TEST(http_match, uri_suffix)
-{
-	int match_id;
-
-	test_mlst_add(1, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_SUFFIX,
-	              ".jpg");
-	test_mlst_add(2, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_SUFFIX,
-	              "/people.html");
-	test_mlst_add(3, TFW_HTTP_MATCH_F_URI, TFW_HTTP_MATCH_O_SUFFIX,
-	              "/bar/folks.html");
-
-	set_tfw_str(&test_req->uri_path, "/foo/bar/picture.jpg");
-	match_id = test_mlst_match();
-	EXPECT_EQ(1, match_id);
-
-	set_tfw_str(&test_req->uri_path, "/foo/bar/people.html");
-	match_id = test_mlst_match();
-	EXPECT_EQ(2, match_id);
-
-	set_tfw_str(&test_req->uri_path, "/foo/bar/folks.html");
-	match_id = test_mlst_match();
-	EXPECT_EQ(3, match_id);
-
-	set_tfw_str(&test_req->uri_path, "../foo");
-	match_id = test_mlst_match();
-	EXPECT_EQ(-1, match_id);
-
-	set_tfw_str(&test_req->uri_path, "/foo/bar/picture.png");
-	match_id = test_mlst_match();
-	EXPECT_EQ(-1, match_id);
-}
 TEST(http_match, host_eq)
 {
 	int match_id;
@@ -230,7 +199,7 @@ TEST(http_match, hdr_host_prefix)
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 		match_id = test_mlst_match();
-		EXPECT_EQ(2, match_id);
+		EXPECT_EQ(-1, match_id);
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
 		match_id = test_mlst_match();
@@ -242,65 +211,7 @@ TEST(http_match, hdr_host_prefix)
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr4;
 		match_id = test_mlst_match();
-		EXPECT_EQ(3, match_id);
-	}
-
-	free_all_str();
-}
-
-TEST(http_match, hdr_host_suffix)
-{
-	create_str_pool();
-
-	{
-		int match_id;
-
-		/* Special headers must be compound */
-		TFW_STR2(hdr1, "Host: ", "example.biz");
-		TFW_STR2(hdr2, "Host: ", "example.com");
-		TFW_STR2(hdr3, "Host: ", "example.ru");
-		TFW_STR2(hdr4, "Host: ", "eXample.COM");
-		TFW_STR2(hdr5, "Host: ", "www");
-		TFW_STR2(hdr6, "Host: ", "TEST.FOLKS.COM");
-
-		test_mlst_add(1, TFW_HTTP_MATCH_F_HDR_CONN,
-			      TFW_HTTP_MATCH_O_EQ, "Connection:  Keep-Alive");
-		test_mlst_add(2, TFW_HTTP_MATCH_F_HDR_HOST,
-			      TFW_HTTP_MATCH_O_SUFFIX, ".ru");
-		test_mlst_add(3, TFW_HTTP_MATCH_F_HDR_HOST,
-			      TFW_HTTP_MATCH_O_SUFFIX, ".biz");
-		test_mlst_add(4, TFW_HTTP_MATCH_F_HDR_HOST,
-			      TFW_HTTP_MATCH_O_SUFFIX, ".folks.com");
-		test_mlst_add(5, TFW_HTTP_MATCH_F_HDR_HOST,
-			      TFW_HTTP_MATCH_O_SUFFIX, ".com");
-
-		set_tfw_str(&test_req->host, "example.com");
-		match_id = test_mlst_match();
 		EXPECT_EQ(-1, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
-		match_id = test_mlst_match();
-		EXPECT_EQ(3, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
-		match_id = test_mlst_match();
-		EXPECT_EQ(5, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr3;
-		match_id = test_mlst_match();
-		EXPECT_EQ(2, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr4;
-		match_id = test_mlst_match();
-		EXPECT_EQ(5, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr5;
-		match_id = test_mlst_match();
-		EXPECT_EQ(-1, match_id);
-
-		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr6;
-		match_id = test_mlst_match();
-		EXPECT_EQ(4, match_id);
 	}
 
 	free_all_str();
@@ -348,10 +259,8 @@ TEST_SUITE(http_match)
 
 	TEST_RUN(tfw_http_match_req, returns_first_matching_rule);
 	TEST_RUN(http_match, uri_prefix);
-	TEST_RUN(http_match, uri_suffix);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);
 	TEST_RUN(http_match, hdr_host_prefix);
-	TEST_RUN(http_match, hdr_host_suffix);
 	TEST_RUN(http_match, method_eq);
 }
