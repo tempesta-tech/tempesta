@@ -93,6 +93,7 @@ typedef struct {
 	bool have_children;
 	size_t val_n;
 	size_t attr_n;
+	int line; /* The current line */
 	const char *name;
 	const char *vals[TFW_CFG_ENTRY_VAL_MAX];
 	struct {
