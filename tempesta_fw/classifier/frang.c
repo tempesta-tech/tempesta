@@ -630,13 +630,17 @@ st: __attribute__((unused))						\
 
 #define __FRANG_FSM_JUMP(to)	goto to;
 #define __FRANG_FSM_MOVE(to)						\
+do {									\
 	if (r)								\
 		__FRANG_FSM_EXIT();					\
-	goto to;
+	goto to;							\
+} while (0)
 
 #define __FRANG_FSM_JUMP_EXIT(to)					\
+do {									\
 	__fsm_const_state = to; /* optimized out to constant */		\
-	__FRANG_FSM_EXIT()
+	__FRANG_FSM_EXIT();						\
+} while (0)
 
 static int
 frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
