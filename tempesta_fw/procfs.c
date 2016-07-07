@@ -42,6 +42,10 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 	for_each_online_cpu(cpu) {
 		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
 
+		/* Ss statistics. */
+		SADD(ss.pfl_hits);
+		SADD(ss.pfl_misses);
+
 		/* Cache statistics. */
 		SADD(cache.hits);
 		SADD(cache.misses);
@@ -87,6 +91,10 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 
 	memset(&stat, 0, sizeof(stat));
 	tfw_perfstat_collect(&stat);
+
+	/* Ss statistics. */
+	SPRN("SS pfl hits\t\t\t\t", ss.pfl_hits);
+	SPRN("SS pfl misses\t\t\t\t", ss.pfl_misses);
 
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
