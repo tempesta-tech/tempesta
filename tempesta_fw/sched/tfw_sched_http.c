@@ -173,7 +173,8 @@ static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_op_enum[] = {
 	{ "*",		TFW_HTTP_MATCH_O_WILDCARD },
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
-	/* TODO: suffix, substr, regex, case sensitive/insensitive versions. */
+	{ "suffix",	TFW_HTTP_MATCH_O_SUFFIX },
+	/* TODO: substr, regex, case sensitive/insensitive versions. */
 	{}
 };
 
