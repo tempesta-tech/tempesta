@@ -208,4 +208,6 @@ int ss_skb_cutoff_data(SsSkbList *skb_list,
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
 
+int ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb);
+
 #endif /* __TFW_SS_SKB_H__ */
