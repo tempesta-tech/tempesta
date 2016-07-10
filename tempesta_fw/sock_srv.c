@@ -169,7 +169,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
 		ss_close_sync(sk);
-		tfw_connection_unlink_from_sk(sk);
 		return r;
 	}
 
