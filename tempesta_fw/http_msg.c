@@ -415,33 +415,35 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
 }
 
 /**
- * Insert ', @hdr' at the end of @orig_hdr
+ * Expand @orig_hdr by appending or replacing with the @hdr.
  * (CRLF is not accounted in TfwStr representation of HTTP headers).
  *
- * Append to first duplicate header, do not produce more duplicates.
+ * Expand the first duplicate header, do not produce more duplicates.
  */
 static int
-__hdr_append(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr)
+__hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 {
 	int r;
 	TfwStr *h, it = {};
 
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
-	h = TFW_STR_LAST(orig_hdr);
+	BUG_ON(!append && (hdr->len < orig_hdr->len));
 
-	r = ss_skb_get_room(&hm->msg.skb_list, h->skb,
-			    (char *)h->ptr + h->len, hdr->len, &it);
+	h = TFW_STR_LAST(orig_hdr);
+	r = ss_skb_get_room(&hm->msg.skb_list,
+			    h->skb, (char *)h->ptr + h->len,
+			    append ? hdr->len : hdr->len - orig_hdr->len, &it);
 	if (r)
 		return r;
 
-	if (tfw_strcpy(&it, hdr))
-		return TFW_BLOCK;
-	if (tfw_strcat(hm->pool, orig_hdr, &it))
+	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
 		TFW_WARN("Cannot concatenate hdr %.*s with %.*s\n",
 			 PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
+		return TFW_BLOCK;
+	}
 
-	return 0;
+	return tfw_strcpy(append ? &it : orig_hdr, hdr) ? TFW_BLOCK : 0;
 }
 
 /**
@@ -476,17 +478,19 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 /**
  * Substitute header value.
  *
- * Note: The substitute string @hdr has CRLF as EOL. The original string
- * @orig_hdr may have a single LF as EOL. We may want to follow the EOL
- * pattern of the original. For that, the EOL of @hdr needs to be made
- * the same as in the original header field string.
+ * The original header may have LF or CRLF as it's EOL and such bytes are
+ * not a part of a header field string in Tempesta (at the moment). While
+ * substitution, we may want to follow the EOL pattern of the original. So,
+ * if the substitute string without the EOL fits into original header, then
+ * the fast path can be used. Otherwise, original header is expanded to fit
+ * substitute.
  */
 static int
 __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 	  int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr = &ht->tbl[hid];
+	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
 	TfwStr hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = name,	.len = n_len },
@@ -498,32 +502,36 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	/*
-	 * EOL bytes are not a part of a header field string in Tempesta.
-	 * Therefore only @orig_hdr->len bytes at most can be copied over.
-	 * If the substitute string without the EOL fits into that space,
-	 * then the fast path can be used. Otherwise, go by the slow path.
-	 */
-	if (!TFW_STR_DUP(orig_hdr) && (hdr.len <= orig_hdr->len)) {
-		BUG_ON(!tfw_str_eolen(orig_hdr));
-
+	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
+		if (dst->len < hdr.len)
+			continue;
 		/*
-		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
-		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
+		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
+		 * the header in-place. Do not call @ss_skb_cutoff_data if no
+		 * adjustment is needed.
 		 */
-		if (hdr.len != orig_hdr->len
-		    && ss_skb_cutoff_data(&hm->msg.skb_list,
-					  orig_hdr, hdr.len, 0))
+		if (dst->len != hdr.len
+		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
 			return TFW_BLOCK;
-
-		/* Rewrite the header in-place. */
-		return tfw_strcpy(orig_hdr, &hdr) ? TFW_BLOCK : 0;
+		if (tfw_strcpy(dst, &hdr))
+			return TFW_BLOCK;
+		goto cleanup;
 	}
 
-	/* Generic and slower path. */
-	if (__hdr_del(hm, hid))
+	if (__hdr_expand(hm, orig_hdr, &hdr, false))
 		return TFW_BLOCK;
-	return __hdr_add(hm, &hdr, hid);
+	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
+
+cleanup:
+	TFW_STR_FOR_EACH_DUP(tmp, orig_hdr, end) {
+		if (tmp != dst
+		    && ss_skb_cutoff_data(&hm->msg.skb_list,
+					  tmp, 0, tfw_str_eolen(tmp)))
+			return TFW_BLOCK;
+	}
+
+	*orig_hdr = *dst;
+	return TFW_PASS;
 }
 
 /**
@@ -602,7 +610,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			.len = v_len + 2,
 			.flags = 2 << TFW_STR_CN_SHIFT
 		};
-		return __hdr_append(hm, orig_hdr, &hdr_app);
+		return __hdr_expand(hm, orig_hdr, &hdr_app, true);
 	}
 
 	return __hdr_sub(hm, name, n_len, val, v_len, hid);
