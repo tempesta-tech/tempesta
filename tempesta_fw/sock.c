@@ -249,6 +249,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
+	 *
+	 * We can't transmit the data escaping the queueing because we have to
+	 * order transmissions and other CPUs can push data to transmit for
+	 * the socket while current CPU was servicing other sockets.
 	 */
 	if (ss_wq_push(&sw, false)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
@@ -422,15 +426,41 @@ ss_droplink(struct sock *sk)
 int
 ss_close(struct sock *sk)
 {
-	SsWork sw = {
-		.sk	= sk,
-		.action	= SS_CLOSE,
-	};
 
 	if (unlikely(!sk))
 		return SS_OK;
 
-	ss_wq_push(&sw, true);
+	if (smp_processor_id() != sk->sk_incoming_cpu || !in_softirq()) {
+		SsWork sw = {
+			.sk	= sk,
+			.action	= SS_CLOSE,
+		};
+
+		ss_wq_push(&sw, true);
+
+		return SS_OK;
+	}
+
+	/*
+	 * Don't put the work to work queue if we should execute it on current
+	 * CPU and we're in softirq now. We avoid overhead on work queue
+	 * operations and prevent infinite loop on synchronous push() if a
+	 * consumer is actually the same softirq context.
+	 *
+	 * Keep in mind possible ordering problem: the socket can already have
+	 * a queued work when we close it synchronously, so the socket can be
+	 * closed before processing the queued work. That's not a big deal if
+	 * the queued work is closing and simply pretend that socket closing
+	 * event happened before the socket transmission event.
+	 *
+	 * The socket is owned by current CPU, so don't need to check its
+	 * liveness.
+	 */
+	bh_lock_sock(sk);
+	ss_do_close(sk);
+	bh_unlock_sock(sk);
+	SS_CALL(connection_drop, sk);
+	sock_put(sk); /* paired with ss_do_close() */
 
 	return SS_OK;
 }

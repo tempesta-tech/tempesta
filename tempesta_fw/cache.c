@@ -862,6 +862,11 @@ do_cache:
 	cpu = tfw_cache_sched_cpu(req);
 	ct = &per_cpu(cache_wq, cpu);
 
+	/*
+	 * TODO don't queue the cache work if we should process it on this
+	 * CPU: we can do everything right now.
+	 */
+
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
 		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
 		 cw.req, cw.resp, cw.key);

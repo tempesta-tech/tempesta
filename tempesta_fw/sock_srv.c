@@ -21,7 +21,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/net.h>
-#include <linux/kthread.h>
 #include <linux/wait.h>
 #include <linux/freezer.h>
 #include <net/inet_sock.h>
