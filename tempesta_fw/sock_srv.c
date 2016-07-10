@@ -168,7 +168,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
-		ss_close_sync(sk);
+		ss_close_sync(sk, false);
 		return r;
 	}
 
@@ -365,15 +365,18 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 		 */
 		tfw_connection_unlink_from_sk(sk);
 		tfw_connection_unlink_to_sk(conn);
-		ss_close(sk);
+		ss_close_sync(sk, true);
 	}
 
 	/*
 	 * Release resources.
 	 *
 	 * FIXME #116, #254: New messages may keep coming,
-	 * and that may lead to BUG() in fw_connection_drop().
+	 * and that may lead to BUG() in tfw_connection_drop().
 	 * See the problem description in #385.
+	 *
+	 * FIXME Actually the call is performed in tfw_sock_srv_do_failover()
+	 * called by connection_drop callback from ss_close().
 	 */
 	tfw_connection_drop(conn);
 }
