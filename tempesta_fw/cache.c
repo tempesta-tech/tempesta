@@ -151,10 +151,14 @@ static const int hbh_hdrs[] = {
 	[TFW_HTTP_HDR_CONNECTION]	= 1,
 };
 
-static struct {
-	int	cpu;
-	TDB	*db;
-} c_nodes[MAX_NUMNODES] __read_mostly;
+typedef struct {
+	int		cpu[NR_CPUS];
+	atomic_t	cpu_idx;
+	unsigned int	nr_cpus;
+	TDB		*db;
+} CaNode;
+
+static CaNode c_nodes[MAX_NUMNODES];
 
 static struct task_struct *cache_mgr_thr;
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
@@ -469,8 +473,7 @@ tfw_init_node_cpus(void)
 
 	for_each_online_cpu(cpu) {
 		node = cpu_to_node(cpu);
-		if (!c_nodes[node].cpu)
-			c_nodes[node].cpu = cpu;
+		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
 	}
 }
 
@@ -482,12 +485,17 @@ node_db(void)
 
 /**
  * Get a CPU identifier from @node to schedule a work.
- * TODO do better CPU scheduling
+ *
+ * Note that atomic_t is a signed 32-bit value, and it's intentionally
+ * cast to unsigned type value before taking a modulo operation.
+ * If this place becomes a hot spot, then @cpu_idx may be made per_cpu.
  */
 static int
 tfw_cache_sched_cpu(TfwHttpReq *req)
 {
-	return c_nodes[req->node].cpu;
+	CaNode *node = &c_nodes[req->node];
+	unsigned int idx = atomic_inc_return(&node->cpu_idx);
+	return node->cpu[idx % node->nr_cpus];
 }
 
 static void
