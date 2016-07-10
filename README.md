@@ -51,8 +51,7 @@ CONFIG\_PREEMPT is not supported at all.
 
 To build the module you need to do the following steps:
 
-1. Patch Linux kernel 4.1.12 with linux-4.1-tfw.patch or just download
-   [an already patched kernel](https://github.com/tempesta-tech/linux-4.1-tfw)
+1. Download [patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
 2. Build and load the kernel
 3. Run make to build Tempesta FW and Tempesta DB modules:
 
