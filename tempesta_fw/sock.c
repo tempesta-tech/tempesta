@@ -418,27 +418,31 @@ ss_droplink(struct sock *sk)
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
-/*
- * Schedule a socket closing action on the CPU that is processing
- * the connection. The closing action is executed asynchronously
- * in the context of the socket that is being closed.
+/**
+ * The function should be called with @sync = true whenever possible to
+ * improve performance. If @sync = false, then return value must be checked
+ * and the call must be repeated in case of bad return value.
+ * @sync = true doesn't mean that the socket will be closed immediately,
+ * but rather it guarantees that the socket will be closed and the caller can
+ * not care about return value.
  */
 int
-ss_close(struct sock *sk)
+__ss_close(struct sock *sk, bool sync, bool need_drop)
 {
 
 	if (unlikely(!sk))
 		return SS_OK;
+	sk_incoming_cpu_update(sk);
 
-	if (smp_processor_id() != sk->sk_incoming_cpu || !in_softirq()) {
+	if (!sync || !in_softirq()
+	    || smp_processor_id() != sk->sk_incoming_cpu)
+	{
 		SsWork sw = {
 			.sk	= sk,
 			.action	= SS_CLOSE,
 		};
 
-		ss_wq_push(&sw, true);
-
-		return SS_OK;
+		return ss_wq_push(&sw, sync);
 	}
 
 	/*
@@ -459,27 +463,13 @@ ss_close(struct sock *sk)
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
-	SS_CALL(connection_drop, sk);
+	if (need_drop)
+		SS_CALL(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
 
 	return SS_OK;
 }
-EXPORT_SYMBOL(ss_close);
-
-/**
- * Close a socket unconditionally from Tempesta.
- */
-void
-ss_close_sync(struct sock *sk)
-{
-	sk_incoming_cpu_update(sk);
-
-	bh_lock_sock(sk);
-	ss_do_close(sk);
-	bh_unlock_sock(sk);
-	sock_put(sk);	/* paired with ss_do_close() */
-}
-EXPORT_SYMBOL(ss_close_sync);
+EXPORT_SYMBOL(__ss_close);
 
 /*
  * Process a single SKB.

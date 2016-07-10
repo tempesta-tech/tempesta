@@ -477,7 +477,7 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE)
-		ss_close(hmreq->conn->sk);
+		ss_close_sync(hmreq->conn->sk, true);
 	tfw_http_conn_msg_free(hmreq);
 }
 
