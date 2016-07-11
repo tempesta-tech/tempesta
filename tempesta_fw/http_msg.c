@@ -224,6 +224,7 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
+<<<<<<< HEAD
 //	}
 	if (len) {
 		/*
@@ -231,7 +232,7 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * There is at least one finished chunk, add a new one.
 		 */
 /*			last = tfw_str_add_compound(hm->pool, field);
-		if (unlikely(!last)) {
+	if (unlikely(!last)) {
 			TFW_WARN("Cannot store chunk [%.*s]\n",
 				 min((int)len, 10), data);
 			return;
@@ -547,7 +548,6 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		/*
 		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
 		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
->>>>>>> fix #215
 		 */
 		if (dst->len != hdr.len
 		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
