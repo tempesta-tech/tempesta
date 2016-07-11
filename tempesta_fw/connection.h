@@ -273,7 +273,7 @@ tfw_connection_validate_cleanup(TfwConnection *conn)
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
-int tfw_connection_send(TfwConnection *conn, TfwMsg *msg, bool unref_data);
+int tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConnection *conn);

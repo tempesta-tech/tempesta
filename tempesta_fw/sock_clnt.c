@@ -110,12 +110,12 @@ tfw_cli_conn_release(TfwConnection *conn)
 }
 
 int
-tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
+tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 {
 	int r;
 	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 
-	r = tfw_connection_send(conn, msg, unref_data);
+	r = tfw_connection_send(conn, msg);
 	mod_timer(&cli_conn->ka_timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
