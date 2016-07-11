@@ -97,7 +97,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		}
 		else {
 			val->chunks = (struct TfwStr *)c;
-			return;
+		return;
 		}
 		BUG_ON(TFW_STR_CHUNKN(val) < 1);
 		TFW_STR_CHUNKN_SUB(val, 1);
@@ -119,7 +119,12 @@ __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
 	static const TfwStr hdr_singular[] __read_mostly = {
+<<<<<<< HEAD
 #define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1, 0 }
+=======
+#define TfwStr_string(v) {.data = (v),.skb = NULL, .len = sizeof(v) - 1, \
+.flags = 0}
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
@@ -224,6 +229,7 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
+<<<<<<< HEAD
 //	}
 	if (len) {
 		field->len = data + len - field->data ;
@@ -231,6 +237,26 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 	else if (len) {
 		field->len = (strchr(field->data, '\n') - field->data) +1;
 		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
+=======
+		field->len = data + len - field->data ;
+	}
+	else if (len) {
+		/*
+		 * The data chunk doesn't lay at the header bounds.
+		 * There is at least one finished chunk, add a new one.
+		 */
+/*
+		TfwStr *last = tfw_str_add_compound(hm->pool, field);
+		if (unlikely(!last)) {
+			TFW_WARN("Cannot store chunk [%.*s]\n",
+				 min((int)len, 10), data);
+			return;
+		}*/
+		field->len = (strchr(field->data, '\n') - field->data) +1;
+		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
+//		tfw_http_msg_set_data(hm, field, data);
+//		tfw_str_updlen(field, data + len);
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	}
 	flen =  strchr(field->data, '\n') - field->data;	
 
@@ -404,12 +430,21 @@ __hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
+<<<<<<< HEAD
 	r = ss_skb_get_room(&hm->msg.skb_list,
 			    hm->crlf.skb, h->data, hdr->len, &it);
+=======
+	r = ss_skb_get_room(&hm->msg.skb_list, hm->crlf.skb,
+			    h->data, tfw_str_total_len(hdr), &it);
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	if (r)
 		return r;
 	BUG_ON(!TFW_STR_PLAIN(&it));
 
+<<<<<<< HEAD
+=======
+	tfw_str_set_eolen(&it, tfw_str_eolen(hdr));
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	if (tfw_strcpy(&it, hdr))
 		return TFW_BLOCK;
 
@@ -443,7 +478,11 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 
 	h = TFW_STR_LAST(orig_hdr);
 	r = ss_skb_get_room(&hm->msg.skb_list,
+<<<<<<< HEAD
 			    h->skb, (char *)h->data->len,
+=======
+			    h->skb, (char *)h->data + h->len,
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 			    append ? hdr->len : hdr->len - orig_hdr->len, &it);
 if (r)
 		return r;
@@ -507,10 +546,17 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
+<<<<<<< HEAD
 			{ .data = "\r\n", .len = 2 }
 		},
 		.len = n_len + v_len + 4,
 		.flags = 4
+=======
+		},
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	};
 
 <<<<<<< HEAD
@@ -595,10 +641,17 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
+<<<<<<< HEAD
 			{ .data = "\r\n", .len = 2 }
 		},
 		.len = n_len + v_len + 4,
 		.flags = 0
+=======
+		},
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3
+>>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	};
 
 	BUG_ON(!val && v_len);
