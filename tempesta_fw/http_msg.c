@@ -217,7 +217,7 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 	if (unlikely(!field->data))
 		return;
 
-//	if (TFW_STR_EMPTY(field)) {
+	if (TFW_STR_EMPTY(field)) {
 		/*
 		 * The first data chunk case.
 		 * The header chunk was explicitly opened at some data
@@ -226,25 +226,15 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		BUG_ON(!TFW_STR_PLAIN(field));
 //	}
 	if (len) {
-		/*
-		 * The data chunk doesn't lay at the header bounds.
-		 * There is at least one finished chunk, add a new one.
-		 */
-/*			last = tfw_str_add_compound(hm->pool, field);
-		if (unlikely(!last)) {
-			TFW_WARN("Cannot store chunk [%.*s]\n",
-				 min((int)len, 10), data);
-			return;
-		}*/
-		TFW_DBG("msg_fixup:bsd:fl:%lu;fd:%s\n", field->len, field->data);
-//		tfw_http_msg_set_data(hm, last, data);
-		TFW_DBG("msg_fixup:bul:ll:%lu;ld:%zu\n", field->len, SLEN(field->data));
-//		tfw_str_updlen(field, data + len);
+		field->len = data + len - field->data ;
+	}
+	else if (len) {
+		field->len = (strchr(field->data, '\n') - field->data) +1;
+		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
 	}
 	flen =  strchr(field->data, '\n') - field->data;	
 
 	field->len = flen + 1;
-	TFW_DBG("msg_fixup:end:fl:%lu;fd:%s\n", field->len, field->data);
 }
 
 /**
