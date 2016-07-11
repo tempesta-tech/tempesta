@@ -68,6 +68,9 @@ ss_sock_live(struct sock *sk)
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
+#define ss_close(sk)			__ss_close(sk, false, true)
+#define ss_close_sync(sk, need_drop)	__ss_close(sk, true, need_drop)
+
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
@@ -76,8 +79,7 @@ void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb);
-int ss_close(struct sock *sk);
-void ss_close_sync(struct sock *sk);
+int __ss_close(struct sock *sk, bool sync, bool need_drop);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);

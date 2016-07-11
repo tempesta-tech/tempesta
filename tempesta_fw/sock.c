@@ -249,6 +249,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
+	 *
+	 * We can't transmit the data escaping the queueing because we have to
+	 * order transmissions and other CPUs can push data to transmit for
+	 * the socket while current CPU was servicing other sockets.
 	 */
 	if (ss_wq_push(&sw, false)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
@@ -414,42 +418,58 @@ ss_droplink(struct sock *sk)
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
-/*
- * Schedule a socket closing action on the CPU that is processing
- * the connection. The closing action is executed asynchronously
- * in the context of the socket that is being closed.
+/**
+ * The function should be called with @sync = true whenever possible to
+ * improve performance. If @sync = false, then return value must be checked
+ * and the call must be repeated in case of bad return value.
+ * @sync = true doesn't mean that the socket will be closed immediately,
+ * but rather it guarantees that the socket will be closed and the caller can
+ * not care about return value.
  */
 int
-ss_close(struct sock *sk)
+__ss_close(struct sock *sk, bool sync, bool need_drop)
 {
-	SsWork sw = {
-		.sk	= sk,
-		.action	= SS_CLOSE,
-	};
 
 	if (unlikely(!sk))
 		return SS_OK;
-
-	ss_wq_push(&sw, true);
-
-	return SS_OK;
-}
-EXPORT_SYMBOL(ss_close);
-
-/**
- * Close a socket unconditionally from Tempesta.
- */
-void
-ss_close_sync(struct sock *sk)
-{
 	sk_incoming_cpu_update(sk);
 
+	if (!sync || !in_softirq()
+	    || smp_processor_id() != sk->sk_incoming_cpu)
+	{
+		SsWork sw = {
+			.sk	= sk,
+			.action	= SS_CLOSE,
+		};
+
+		return ss_wq_push(&sw, sync);
+	}
+
+	/*
+	 * Don't put the work to work queue if we should execute it on current
+	 * CPU and we're in softirq now. We avoid overhead on work queue
+	 * operations and prevent infinite loop on synchronous push() if a
+	 * consumer is actually the same softirq context.
+	 *
+	 * Keep in mind possible ordering problem: the socket can already have
+	 * a queued work when we close it synchronously, so the socket can be
+	 * closed before processing the queued work. That's not a big deal if
+	 * the queued work is closing and simply pretend that socket closing
+	 * event happened before the socket transmission event.
+	 *
+	 * The socket is owned by current CPU, so don't need to check its
+	 * liveness.
+	 */
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
-	sock_put(sk);	/* paired with ss_do_close() */
+	if (need_drop)
+		SS_CALL(connection_drop, sk);
+	sock_put(sk); /* paired with ss_do_close() */
+
+	return SS_OK;
 }
-EXPORT_SYMBOL(ss_close_sync);
+EXPORT_SYMBOL(__ss_close);
 
 /*
  * Process a single SKB.

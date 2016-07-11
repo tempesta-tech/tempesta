@@ -57,7 +57,14 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	TfwConnection *conn = (TfwConnection *)data;
 
 	TFW_DBG("Client timeout end\n");
-	ss_close(conn->sk);
+
+	/* Close socket asynchronously to avoid deadlock on del_timer_sync(). */
+	if (ss_close(conn->sk)) {
+		TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
+		/* Try to close the connection 1 second later. */
+		mod_timer(&cli_conn->ka_timer,
+			  jiffies + msecs_to_jiffies(1000));
+	}
 }
 
 static TfwCliConnection *
