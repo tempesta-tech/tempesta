@@ -119,12 +119,8 @@ __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
 	static const TfwStr hdr_singular[] __read_mostly = {
-<<<<<<< HEAD
-#define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1, 0 }
-=======
 #define TfwStr_string(v) {.data = (v),.skb = NULL, .len = sizeof(v) - 1, \
 .flags = 0}
->>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
@@ -256,7 +252,6 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
 //		tfw_http_msg_set_data(hm, field, data);
 //		tfw_str_updlen(field, data + len);
->>>>>>> 0d211560f79c4a8eea14c25c62686c81c322b778
 	}
 	flen =  strchr(field->data, '\n') - field->data;	
 
