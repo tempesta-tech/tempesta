@@ -513,7 +513,6 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		.flags = 4
 	};
 
-<<<<<<< HEAD
 	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
 		if (dst->len < hdr.len)
 			continue;
@@ -521,27 +520,6 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
 		 * the header in-place. Do not call @ss_skb_cutoff_data if no
 		 * adjustment is needed.
-=======
-	/*
-	 * EOL bytes are not a part of a header field string in Tempesta.
-	 * Therefore only @orig_hdr->len bytes at most can be copied over.
-	 * If the substitute string without the EOL fits into that space,
-	 * then the fast path can be used. Otherwise, go by the slow path.
-	 */
-	if (!TFW_STR_DUP(orig_hdr) && ((hdr.len - 2) <= orig_hdr->len)) {
-		BUG_ON(!tfw_str_eolen(orig_hdr));
-
-		/*
-		 * We are trying to reuse EOL from the @orig_hdr,
-		 * so remove the EOL chunk of the @hdr.
-		 */
-		hdr.len -= 2;
-		TFW_STR_CHUNKN_SUB(&hdr, 1);
-
-		/*
-		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
-		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
->>>>>>> fix #215
 		 */
 		if (dst->len != hdr.len
 		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
