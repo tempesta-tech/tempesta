@@ -44,6 +44,7 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "classifier.c"
+#include "vhost.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send

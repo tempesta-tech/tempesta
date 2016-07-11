@@ -221,21 +221,24 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
-		field->len = data + len - field->data;
+		field->len = data + len - field->data ;
 	}
 	else if (len) {
 		/*
 		 * The data chunk doesn't lay at the header bounds.
 		 * There is at least one finished chunk, add a new one.
 		 */
+/*
 		TfwStr *last = tfw_str_add_compound(hm->pool, field);
 		if (unlikely(!last)) {
 			TFW_WARN("Cannot store chunk [%.*s]\n",
 				 min((int)len, 10), data);
 			return;
-		}
-		tfw_http_msg_set_data(hm, last, data);
-		tfw_str_updlen(field, data + len);
+		}*/
+		field->len = (strchr(field->data, '\n') - field->data) +1;
+		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
+//		tfw_http_msg_set_data(hm, field, data);
+//		tfw_str_updlen(field, data + len);
 	}
 }
 
