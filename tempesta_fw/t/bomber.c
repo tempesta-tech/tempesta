@@ -211,8 +211,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 			 tfw_addr_sa_len(&bmb_server_address), 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
-		ss_close_sync(sk);
-		tfw_connection_unlink_from_sk(sk);
+		ss_close_sync(sk, false);
 		conn->sk = NULL;
 		return ret;
         }
@@ -229,7 +228,7 @@ tfw_bmb_release_sockets(TfwBmbTask *task)
 		if (task->conn[i].proto.type == TFW_BMB_SK_INACTIVE)
 			/* The socket is dead or softirq is killing it. */
 			continue;
-		if (ss_close(task->conn[i].sk))
+		if (ss_close_sync(task->conn[i].sk, true))
 			TFW_WARN("Cannot close %dth socket\n", i);
 	}
 }
@@ -359,7 +358,7 @@ release_sockets:
 				schedule();
 				if (++tries == DEAD_TRIES) {
 					local_bh_disable();
-					ss_close_sync(task->conn[c].sk);
+					ss_close_sync(task->conn[c].sk, false);
 					local_bh_enable();
 					break;
 				}
