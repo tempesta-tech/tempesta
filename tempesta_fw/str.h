@@ -218,7 +218,7 @@ tfw_str_eolen(const TfwStr *s)
  * Updates EOL length value
  */
 static inline void
-tfw_str_set_eolen(TfwStr *s, unsigned int eolen)
+tfw_str_fixup_eolen(TfwStr *s, unsigned int eolen)
 {
 	BUG_ON(eolen > 2); /* LF and CRLF is the only valid EOL markers */
 	s->eolen = (unsigned char)eolen;
