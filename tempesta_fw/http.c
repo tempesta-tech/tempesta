@@ -32,7 +32,6 @@
 #include "tls.h"
 
 #include "sync_socket.h"
-#include "vhost.h"
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
@@ -153,14 +152,13 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) }
 		},
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-		.flags = 0
+		.flags = 3
 	};
 	static TfwStr part03 = {
 		.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
 	static TfwStr crlfcrlf = {
 		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
 	static TfwStr crlf_keep = {
-	static TfwStr crlfcrlf = { .skb = NULL,
 		.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
 	static TfwStr crlf_close = {
 		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
@@ -243,7 +241,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
 }
 
-define S_200_PART_01	S_200 S_CRLF S_F_DATE
+#define S_200_PART_01	S_200 S_CRLF S_F_DATE
 #define S_200_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
  * HTTP 200 response: Success.
@@ -291,30 +289,6 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
-#define S_403_PART_01	S_403 S_CRLF S_F_DATE
-#define S_403_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
-/*
- * HTTP 403 response: Access is forbidden.
- */
-int
-tfw_http_send_403(TfwHttpMsg *hmreq)
-{
-	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_403_PART_01, .len = SLEN(S_403_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_403_PART_02, .len = SLEN(S_403_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-		.flags = 4
-	};
-
-	TFW_DBG("Send HTTP 404 response to the client\n");
-
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
-
-
 #define S_404_PART_01	S_404 S_CRLF S_F_DATE
 #define S_404_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
@@ -329,7 +303,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-	},
+		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
 		.flags = 4
 	};
@@ -389,7 +363,7 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
-define S_504_PART_01	S_504 S_CRLF S_F_DATE
+#define S_504_PART_01	S_504 S_CRLF S_F_DATE
 #define S_504_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
  * HTTP 504 response: did not receive a timely response from
@@ -503,7 +477,7 @@ tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
 	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
 
 	if (hmreq->flags & TFW_HTTP_CONN_CLOSE)
-		ss_close(hmreq->conn->sk);
+		ss_close_sync(hmreq->conn->sk, true);
 	tfw_http_conn_msg_free(hmreq);
 }
 
@@ -688,7 +662,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 }
 
 static int
-fw_http_add_hdr_via(TfwHttpMsg *hm)
+tfw_http_add_hdr_via(TfwHttpMsg *hm)
 {
 	int r;
 	static const char const * __read_mostly s_http_version[] = {
@@ -698,22 +672,23 @@ fw_http_add_hdr_via(TfwHttpMsg *hm)
 		[TFW_HTTP_VER_11] = "1.1 ",
 		[TFW_HTTP_VER_20] = "2.0 ",
 	};
-#define S_VIA	"Via: "
 	TfwVhost *vhost = tfw_vhost_get_default();
-	TfwStr rh = {.skb = NULL,
-
-		.chunks= (struct TfwStr *) (TfwStr[]){
-			{.skb = NULL, .data = (char *)S_VIA, .len = SLEN(S_VIA), .chunks = NULL },
-			{.skb = NULL, .data = (void *)s_http_version[hm->version], .len = 4, .chunks = NULL },
-			{.skb = NULL, .chunks = NULL, .data = *this_cpu_ptr(&g_buf), .len = vhost->hdr_via_len }
+	TfwStr rh = {
+#define S_VIA	"Via: "
+		.chunks = (struct TfwStr *)(TfwStr []) {
+			{ .data = S_VIA, .len = SLEN(S_VIA) },
+			{ .data = (void *)s_http_version[hm->version],
+			  .len = 4 },
+			{ .data = *this_cpu_ptr(&g_buf),
+			  .len = vhost->hdr_via_len },
 		},
 		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
 		.eolen = 2,
-		.flags = 0
-
-	};
+		.flags = 3
 #undef S_VIA
-	memcpy(__TFW_STR_CH(&rh, 2)->data, vhost->hdr_via, vhost->hdr_via_len);
+	};
+
+	memcpy(__TFW_STR_CH(&rh, 2)->chunks, vhost->hdr_via, vhost->hdr_via_len);
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
 	if (r)
