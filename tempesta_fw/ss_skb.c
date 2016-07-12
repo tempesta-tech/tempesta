@@ -766,7 +766,7 @@ done:
 		" truesize [%u] nr_frags [%u]\n",
 		smp_processor_id(), __func__, it->chunks, skb, skb->head,
 	skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		skb->len, skb->data_len, skb->truesize, si->nr_frags);
+	skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;

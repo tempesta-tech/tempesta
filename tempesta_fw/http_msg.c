@@ -227,6 +227,13 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		BUG_ON(!TFW_STR_PLAIN(field));
 //	}
 	if (len) {
+//	}
+	if (len) {
+		field->len = data + len - field->data ;
+	}
+	else if (len) {
+		field->len = (strchr(field->data, '\n') - field->data) +1;
+		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
 		/*
 		 * The data chunk doesn't lay at the header bounds.
 		 * There is at least one finished chunk, add a new one.
@@ -407,6 +414,8 @@ __hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
 
 	r = ss_skb_get_room(&hm->msg.skb_list,
 			    hm->crlf.skb, h->data, hdr->len, &it);
+	r = ss_skb_get_room(&hm->msg.skb_list,
+			    hm->crlf.skb, h->data, hdr->len, &it);
 	if (r)
 		return r;
 	BUG_ON(!TFW_STR_PLAIN(&it));
@@ -446,6 +455,8 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	BUG_ON(!append && (hdr->len < orig_hdr->len));
 
 	h = TFW_STR_LAST(orig_hdr);
+	r = ss_skb_get_room(&hm->msg.skb_list,
+			    h->skb, (char *)h->data->len,
 if (r)
 		return r;
 
@@ -508,6 +519,12 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
+<<<<<<< HEAD
+			{ .data = "\r\n", .len = 2 }
+		},
+		.len = n_len + v_len + 4,
+		.flags = 4
+=======
 			{ .data = "\r\n", .len = 2 }
 		},
 		.len = n_len + v_len + 4,
@@ -542,7 +559,7 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		/*
 		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
 		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
-		 */
+	 */
 		if (dst->len != hdr.len
 		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
 			return TFW_BLOCK;
@@ -599,7 +616,11 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		},
 		.len = n_len + v_len + 4,
 		.flags = 0
-	};
+			{ .data = "\r\n", .len = 2 }
+		},
+		.len = n_len + v_len + 4,
+		.flags = 0
+};
 
 	BUG_ON(!val && v_len);
 
