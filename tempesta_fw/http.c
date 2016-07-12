@@ -41,13 +41,10 @@ int ghprio; /* GFSM hook priority. */
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
-#define S_200			"HTTP/1.1 200 OK"
 #define S_302			"HTTP/1.1 302 Found"
-#define S_403			"HTTP/1.1 403 Forbidden"
 #define S_404			"HTTP/1.1 404 Not Found"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
-#define S_504			"HTTP/1.1 504 Gateway Timeout"
 
 #define S_F_HOST		"Host: "
 #define S_F_DATE		"Date: "
@@ -68,9 +65,10 @@ int ghprio; /* GFSM hook priority. */
  * header field. See RFC 2616 section 3.3.
  */
 static void
-tfw_http_prep_date_from(char *buf, time_t date)
+tfw_http_prep_date(char *buf)
 {
 	struct tm tm;
+	struct timespec ts;
 	char *ptr = buf;
 
 	static char *wday[] __read_mostly =
@@ -84,7 +82,8 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;
 
-	time_to_tm(date, 0, &tm);
+	getnstimeofday(&ts);
+	time_to_tm(ts.tv_sec, 0, &tm);
 
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
@@ -101,12 +100,6 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	PRINT_2DIGIT(ptr, tm.tm_sec);
 	memcpy(ptr, " GMT", 4);
 #undef PRINT_2DIGIT
-}
-
-static inline void
-tfw_http_prep_date(char *buf)
-{
-	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
 
 unsigned long tfw_hash_str(const TfwStr *str);
@@ -161,7 +154,7 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
 	static TfwStr crlf_keep = {
 	.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-	static TfwStr crlf_close = {
+static TfwStr crlf_close = {
 		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
@@ -239,9 +232,9 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->data);
 	tfw_http_msg_write(&it, &resp, msg);
 
-	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
-}
+	tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
 
+<<<<<<< HEAD
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
 #define S_200_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
@@ -290,7 +283,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
-}
+
 
 #define S_403_PART_01	S_403 S_CRLF S_F_DATE
 #define S_403_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
@@ -345,7 +338,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 /*
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
-int
+static int
 tfw_http_send_404(TfwHttpMsg *hmreq)
 {
 	TfwStr rh = {
@@ -354,7 +347,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
+	},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
 		.flags = 4
 	};
@@ -414,6 +407,7 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+<<<<<<< HEAD
 #define S_504_PART_01	S_504 S_CRLF S_F_DATE
 #define S_504_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 /*
@@ -575,16 +569,9 @@ tfw_http_conn_release(TfwConnection *conn)
  * Release resources that are not needed anymore, and keep other
  * resources that are needed while there are users of the connection.
  */
-static void tfw_http_resp_terminate(TfwHttpMsg *hm);
-
 static void
 tfw_http_conn_drop(TfwConnection *conn)
 {
-	if (conn->msg && (TFW_CONN_TYPE(conn) & Conn_Srv)) {
-		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg)) {
-			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
-		}
-	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
@@ -624,23 +611,6 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	return shm;
 }
 
-static int
-tfw_http_set_hdr_date(TfwHttpMsg *hm)
-{
-	int r;
-	char *s_date = *this_cpu_ptr(&g_buf);
-
-	tfw_http_prep_date_from(s_date, ((TfwHttpResp *)hm)->date);
-	r = tfw_http_msg_hdr_xfrm(hm, "Date", sizeof("Date") - 1,
-				  s_date, SLEN(S_V_DATE),
-				  TFW_HTTP_HDR_RAW, 0);
-	if (r)
-		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
-	else
-		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
-	return r;
-}
-
 /**
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
@@ -652,8 +622,7 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 {
-	if (((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
-	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION])))
+	if ((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
 		return 0;
 
 	switch (conn_flg) {
@@ -765,6 +734,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	else
 		TFW_DBG2("added X-Forwarded-For header for %*s\n",
 			 (int)(p - buf), buf);
+
 	return r;
 }
 
@@ -775,17 +745,13 @@ static int
 tfw_http_adjust_req(TfwHttpReq *req)
 {
 	int r;
-	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	TfwHttpMsg *m = (TfwHttpMsg *)req;
 
-	r = tfw_http_add_x_forwarded_for(hm);
+	r = tfw_http_add_x_forwarded_for(m);
 	if (r)
 		return r;
 
-	r = tfw_http_add_hdr_via(hm);
-	if (r)
-		return r;
-
-	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
+	return tfw_http_set_hdr_connection(m, TFW_HTTP_CONN_KA);
 }
 
 /**
@@ -808,16 +774,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	r = tfw_http_set_hdr_connection(hm, conn_flg);
 	if (r < 0)
 		return r;
-
-	r = tfw_http_add_hdr_via(hm);
-	if (r)
-		return r;
-
-	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
-		r =  tfw_http_set_hdr_date(hm);
-		if (r < 0)
-			return r;
-	}
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
@@ -919,14 +875,6 @@ conn_put:
 		tfw_srv_conn_release(srv_conn);
 }
 
-static int
-tfw_http_req_set_context(TfwHttpReq *req)
-{
-	req->vhost = tfw_vhost_match(&req->uri_path);
-	req->location = tfw_location_match(req->vhost, &req->uri_path);
-	return (!req->vhost);
-}
-
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -1016,16 +964,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		}
 
 		/*
-		 * The time the request was received is used in cache
-		 * for age calculations, and for APM and Load Balancing.
-		 */
-		hmreq->cache_ctl.timestamp = tfw_current_timestamp();
-
-		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context((TfwHttpReq *)hmreq))
-			return TFW_BLOCK;
-
-		/*
 		 * In HTTP 0.9 the server always closes the connection
 		 * after sending the response.
 		 *
@@ -1082,15 +1020,14 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				return TFW_BLOCK;
 			}
 		}
-
 		/*
-		 * Complete HTTP message has been collected and processed
-		 * with success. Mark the message as complete in @conn as
+		 * Complete HTTP message has been collected and successfully
+		 * processed. Mark the message as complete in @conn, because
 		 * further handling of @conn depends on that. Future SKBs
 		 * will be put in a new message.
-		 * On an error the function returns from anywhere inside
-		 * the loop. @conn->msg holds the reference to the message,
-		 * which can be used to release it.
+		 * Otherwise, the function returns from inside the loop.
+		 * @conn->msg holds the reference to the message, which can
+		 * be used to release it.
 		 */
 		tfw_connection_unlink_msg(conn);
 
@@ -1177,22 +1114,15 @@ err:
 /*
  * Request messages that were forwarded to a backend server are added
  * to and kept in @msg_queue of the connection @conn for that server.
- * If a paired request is not found, then the response is deleted.
  */
 static TfwHttpReq *
-tfw_http_popreq(TfwHttpMsg *hmresp)
+tfw_http_popreq(TfwConnection *conn)
 {
 	TfwMsg *msg;
-	TfwConnection *conn = hmresp->conn;
 
 	spin_lock(&conn->msg_qlock);
 	if (unlikely(list_empty(&conn->msg_queue))) {
 		spin_unlock(&conn->msg_qlock);
-		/* @conn->msg will get NULLed in the process. */
-		TFW_WARN("Paired request missing\n");
-		TFW_WARN("Possible HTTP Response Splitting attack.\n");
-		tfw_http_conn_msg_free(hmresp);
-		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
 	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
@@ -1203,115 +1133,20 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 }
 
 /*
- * Post-process the response. Pass it to modules registered with GFSM
- * for further processing. Finish the request/response exchange properly
- * in case of an error.
+ * A complete response message has been collected. However an error
+ * occured on further processing. Such errors are considered rare.
+ * Delete the response and the corresponding (paired) request, and
+ * keep the connection open for data exchange.
  */
-static int
-tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
+static inline void
+tfw_http_delpair(TfwHttpMsg *hmresp)
 {
-	int r;
-	TfwHttpMsg *hmreq;
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp->conn);
 
-	r = tfw_gfsm_move(&hmresp->msg.state, TFW_HTTP_FSM_RESP_MSG, skb, off);
-	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
-	if (r == TFW_BLOCK)
-		goto error;
-	/* Proceed with the next GSFM processing */
-
-	r = tfw_gfsm_move(&hmresp->msg.state,
-			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
-	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
-	if (r == TFW_PASS)
-		return TFW_PASS;
-	/* Proceed with the error processing */
-error:
-	/*
-	 * Send an error response to the client, otherwise the pairing
-	 * of requests and responses will be broken. If a paired request
-	 * is not found, then something is terribly wrong.
-	 */
-	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
-	if (unlikely(hmreq == NULL)) {
-		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return TFW_STOP;
-	}
-
-	tfw_http_send_502(hmreq);
+	if (hmreq)
+		tfw_http_conn_msg_free(hmreq);
+	/* conn->msg will get NULLed in the process. */
 	tfw_http_conn_msg_free(hmresp);
-	tfw_http_conn_cli_dropfree(hmreq);
-	TFW_INC_STAT_BH(serv.msgs_filtout);
-	return TFW_BLOCK;
-}
-
-static int
-tfw_http_resp_cache(TfwHttpMsg *hmresp)
-{
-	TfwHttpMsg *hmreq;
-	time_t timestamp = tfw_current_timestamp();
-
-	/*
-	 * The time the response was received is used in cache
-	 * for age calculations, and for APM and Load Balancing.
-	 */
-	hmresp->cache_ctl.timestamp = timestamp;
-	/*
-	 * If 'Date:' header is missing in the response, then
-	 * set the date to the time the response was received.
-	 */
-	if (!(hmresp->flags & TFW_HTTP_HAS_HDR_DATE))
-		((TfwHttpResp *)hmresp)->date = timestamp;
-	/*
-	 * Cache adjusted and filtered responses only. Responses
-	 * are received in the same order as requests, so we can
-	 * just pop the first request. If a paired request is not
-	 * found, then something is terribly wrong, and pairing
-	 * of requests and responses is broken. The response is
-	 * deleted, and an error is returned.
-	 */
-	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
-	if (unlikely(hmreq == NULL))
-		return -ENOENT;
-	/*
-	 * Complete HTTP message has been collected and processed
-	 * with success. Mark the message as complete in @conn as
-	 * further handling of @conn depends on that. Future SKBs
-	 * will be put in a new message.
-	 */
-	tfw_connection_unlink_msg(hmresp->conn);
-	if (tfw_cache_process((TfwHttpReq *)hmreq, (TfwHttpResp *)hmresp,
-			      tfw_http_resp_cache_cb))
-	{
-		tfw_http_send_500(hmreq);
-		tfw_http_conn_msg_free(hmresp);
-		tfw_http_conn_cli_dropfree(hmreq);
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		/* Proceed with processing of the next response. */
-	}
-
-	return 0;
-}
-
-/*
- * Finish a response that is terminated by closing the connection.
- */
-static void
-tfw_http_resp_terminate(TfwHttpMsg *hm)
-{
-	struct sk_buff *skb = ss_skb_peek_tail(&hm->msg.skb_list);
-
-	BUG_ON(!skb);
-
-	/*
-	 * Note that in this case we don't have data to process.
-	 * All data has been processed already. The response needs
-	 * to go through Tempesta's post-processing, and then be
-	 * sent to the client. The full skb->len is used as the
-	 * offset to mark this case in the post-processing phase.
-	 */
-	if (tfw_http_resp_gfsm(hm, skb, skb->len) != TFW_PASS)
-		return;
-	tfw_http_resp_cache(hm);
 }
 
 /**
@@ -1336,6 +1171,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 * until all data in the SKB is processed.
 	 */
 	while (data_off < skb_len) {
+		TfwHttpReq *req;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpMsg *hmresp = (TfwHttpMsg *)conn->msg;
 		TfwHttpParser *parser = &hmresp->parser;
@@ -1347,7 +1183,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		 * the SKB. After processing @data_off points at the end
 		 * of latest data chunk. However processing may have
 		 * stopped in the middle of the chunk. Adjust it to point 
-		 * at correct location within the chunk.
+		 * to the right location within the chunk.
 		 */
 		off = data_off;
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
@@ -1400,50 +1236,82 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			;
 		}
 
-		/* Pass the response to GFSM for further processing. */
-		r = tfw_http_resp_gfsm(hmresp, skb, off);
-		if (unlikely(r == TFW_STOP))
-			return TFW_BLOCK;
-		/*
-		 * If @skb's data has not been processed in full, then
-		 * we have pipelined responses. Create a sibling message.
-		 * @skb is replaced with a pointer to a new SKB.
-		 */
+		r = tfw_gfsm_move(&hmresp->msg.state,
+				  TFW_HTTP_FSM_RESP_MSG, skb, off);
+		TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+		if (r == TFW_BLOCK) {
+			tfw_http_delpair(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_filtout);
+			goto next_resp;
+		}
+
+		r = tfw_gfsm_move(&hmresp->msg.state,
+				  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
+		TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
+		if (r == TFW_BLOCK) {
+			tfw_http_delpair(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_filtout);
+		}
+next_resp:
 		if (data_off < skb_len) {
+			/*
+			 * Pipelined responses: create a new sibling message.
+			 * @skb is replaced with pointer to a new SKB.
+			 */
 			hmsib = tfw_http_msg_create_sibling(hmresp, &skb,
 							    data_off,
 							    Conn_Srv);
-			/*
-			 * In case of an error there's no recourse. The
-			 * caller expects that data is processed in full,
-			 * and can't deal with partially processed data.
-			 */
 			if (hmsib == NULL) {
-				TFW_WARN("Insufficient memory "
+				/*
+				 * Not enough memory. Unfortunately, there's
+				 * no recourse. The caller expects that data
+				 * is processed in full, and can't deal with
+				 * partially processed data.
+				 */
+				TFW_WARN("Not enough memory "
 					 "to create a response sibling\n");
 				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_BLOCK;
 			}
 		}
 		/*
-		 * If an error occured in further GFSM processing, then
-		 * the response and the paired request had been handled.
-		 * Keep the server connection open for data exchange.
+		 * Cache adjusted and filtered responses only. Responses
+		 * are received in the same order as requests, so we can
+		 * just pop the first request. If a paired request is not
+		 * found, delete the response and keep the connection open
+		 * for data exchange until that gets impossible.
 		 */
-		if (unlikely(r != TFW_PASS)) {
-			r = TFW_PASS;
-			goto next_resp;
+		if ((req = tfw_http_popreq(conn)) != NULL) {
+			/*
+			 * Complete HTTP message has been collected and
+			 * successfully processed. Mark the message as
+			 * complete in @conn, because further handling
+			 * of @conn depends on that. Future SKBs will
+			 * be put in a new message.
+			 * Otherwise, the function returns from inside
+			 * the loop. @conn->msg holds the reference to
+			 * the message, which can be used to release it.
+			 */
+			tfw_connection_unlink_msg(conn);
+			if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
+					      tfw_http_resp_cache_cb))
+			{
+				tfw_http_send_500((TfwHttpMsg *)req);
+				tfw_http_conn_msg_free((TfwHttpMsg *)hmresp);
+				tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(serv.msgs_otherr);
+				return TFW_PASS;
+			}
+		} else {
+			/* @conn->msg will get NULLed in the process. */
+			TFW_WARN("Paired request missing\n");
+			tfw_http_conn_msg_free(hmresp);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
-		/*
-		 * Pass the response to cache for further processing.
-		 * In the end, the response is sent on to the client.
-		 */
-		if (tfw_http_resp_cache(hmresp))
-			return TFW_BLOCK;
-next_resp:
+
 		if (hmsib) {
 			/*
-			 * Switch the connection to the sibling message.
+			 * Switch connection to the new sibling message.
 			 * Data processing will continue with the new SKB.
 			 */
 			data_off = 0;
@@ -1479,7 +1347,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (req->hash)
 		return req->hash;
 
-	req->hash = tfw_hash_str(&req->uri_path) ^ req->method;
+	req->hash = tfw_hash_str(&req->uri_path);
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &host);
