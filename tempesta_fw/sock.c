@@ -1021,6 +1021,8 @@ EXPORT_SYMBOL(ss_release);
 int
 ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
+	struct net *net = sock_net(sk);
+
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
@@ -1028,6 +1030,10 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 		return -EINVAL;
 	if (sk->sk_state != TCP_CLOSE)
 		return -EISCONN;
+
+	/* Prevent possible deadlock with inet_get_local_port_range() (#578) */
+	if (spin_is_locked(&net->ipv4.ip_local_ports.lock.lock))
+		return -EAGAIN;
 
 	return sk->sk_prot->connect(sk, uaddr, uaddr_len);
 }

@@ -176,7 +176,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 }
 
 static inline void
-tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn, bool again)
 {
 	/*
 	 * Timeout between connect attempts is increased with each
@@ -189,24 +189,25 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * milliseconds. The use of a small constant retry interval
 	 * for the first few attempts doesn't yield a better result.
 	 */
-	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
+	if (!again && (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX)) {
 		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
 					TFW_SOCK_SRV_RETRY_TIMER_MIN
 					* (1 << srv_conn->attempts));
 		srv_conn->attempts++;
 	}
 	mod_timer(&srv_conn->retry_timer,
-		  jiffies + msecs_to_jiffies(srv_conn->timeout));
+		  jiffies + msecs_to_jiffies(again ? 0 : srv_conn->timeout));
 }
 
 static void
 tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 {
+	int r;
 	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
 
 	/* A new socket is created for each connect attempt. */
-	if (tfw_sock_srv_connect_try(srv_conn))
-		tfw_sock_srv_connect_try_later(srv_conn);
+	if ((r = tfw_sock_srv_connect_try(srv_conn)))
+		tfw_sock_srv_connect_try_later(srv_conn, r == -EAGAIN);
 }
 
 static inline void
@@ -242,7 +243,7 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * callback). Whatever the reason for a disconnect was,
 	 * this is uniform for any of them.
 	 */
-	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
+	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn, false);
 
 	TFW_INC_STAT_BH(serv.conn_disconnects);
 }
@@ -411,7 +412,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * that parallel execution can't happen with the same socket.
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		tfw_sock_srv_connect_try_later(srv_conn);
+		tfw_sock_srv_connect_try_later(srv_conn, false);
 	return 0;
 }
 
