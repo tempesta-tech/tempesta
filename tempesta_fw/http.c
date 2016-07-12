@@ -159,8 +159,13 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	static TfwStr crlfcrlf = {
 		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
 	static TfwStr crlf_keep = {
+<<<<<<< HEAD
 	.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
 static TfwStr crlf_close = {
+=======
+		.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
+	static TfwStr crlf_close = {
+>>>>>>> 1474b9b8847a25d732527342f8901f328300ed8b
 		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
@@ -284,6 +289,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
 		.flags = 4
+<<<<<<< HEAD
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -332,6 +338,8 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
 		.flags = 4
+=======
+>>>>>>> 1474b9b8847a25d732527342f8901f328300ed8b
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -403,7 +411,11 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
 			{ .data = S_502_PART_02, .len = SLEN(S_502_PART_02) },
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+<<<<<<< HEAD
 	},
+=======
+		},
+>>>>>>> 1474b9b8847a25d732527342f8901f328300ed8b
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
 		.flags = 4
 	};

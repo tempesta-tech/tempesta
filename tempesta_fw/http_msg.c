@@ -227,13 +227,11 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		BUG_ON(!TFW_STR_PLAIN(field));
 //	}
 	if (len) {
-<<<<<<< HEAD
 		field->len = data + len - field->data ;
 	}
 	else if (len) {
 		field->len = (strchr(field->data, '\n') - field->data) +1;
 		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
-=======
 		/*
 		 * The data chunk doesn't lay at the header bounds.
 		 * There is at least one finished chunk, add a new one.
@@ -447,6 +445,9 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
+	r = ss_skb_get_room(&hm->msg.skb_list, orig_hdr->skb,
+			    (char *)h->data + h->len, hdr->len, &it);
+	if (r)
 	BUG_ON(!append && (hdr->len < orig_hdr->len));
 
 	h = TFW_STR_LAST(orig_hdr);
@@ -515,8 +516,6 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
-			{ .data = "\r\n", .len = 2 }
-		},
 		.len = n_len + v_len + 4,
 		.flags = 4
 	};
@@ -528,7 +527,27 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
 		 * the header in-place. Do not call @ss_skb_cutoff_data if no
 		 * adjustment is needed.
+=======
+	/*
+	 * EOL bytes are not a part of a header field string in Tempesta.
+	 * Therefore only @orig_hdr->len bytes at most can be copied over.
+	 * If the substitute string without the EOL fits into that space,
+	 * then the fast path can be used. Otherwise, go by the slow path.
+	 */
+	if (!TFW_STR_DUP(orig_hdr) && ((hdr.len - 2) <= orig_hdr->len)) {
+		BUG_ON(!tfw_str_eolen(orig_hdr));
+
+		/*
+		 * We are trying to reuse EOL from the @orig_hdr,
+		 * so remove the EOL chunk of the @hdr.
 		 */
+		hdr.len -= 2;
+		TFW_STR_CHUNKN_SUB(&hdr, 1);
+
+		/*
+		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
+		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
+	 */
 		if (dst->len != hdr.len
 		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
 			return TFW_BLOCK;
