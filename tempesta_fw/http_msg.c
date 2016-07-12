@@ -224,7 +224,6 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
-<<<<<<< HEAD
 //	}
 	if (len) {
 <<<<<<< HEAD
