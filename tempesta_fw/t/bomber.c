@@ -211,7 +211,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 			 tfw_addr_sa_len(&bmb_server_address), 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
-		ss_close_sync(sk);
+		ss_close_sync(sk, false);
 		tfw_connection_unlink_from_sk(sk);
 		conn->sk = NULL;
 		return ret;
@@ -359,7 +359,7 @@ release_sockets:
 				schedule();
 				if (++tries == DEAD_TRIES) {
 					local_bh_disable();
-					ss_close_sync(task->conn[c].sk);
+					ss_close_sync(task->conn[c].sk, true);
 					local_bh_enable();
 					break;
 				}
