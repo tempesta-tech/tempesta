@@ -188,9 +188,10 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
-	/* If connection close flag is specified, then @ss_do_close is used to
-	 * set FIN on final SKB and push all pending frames to the stack. */
-
+	/*
+	 * If connection close flag is specified, then @ss_do_close is used to
+	 * set FIN on final SKB and push all pending frames to the stack.
+	 */
 	if (flags & SS_F_CONN_CLOSE)
 		return;
 
@@ -439,7 +440,7 @@ __ss_close(struct sock *sk, int flags)
 			.action	= SS_CLOSE,
 		};
 
-		return ss_wq_push(&sw, false);
+		return ss_wq_push(&sw, (flags & SS_F_SYNC));
 	}
 
 	/*
@@ -1084,40 +1085,13 @@ ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 }
 EXPORT_SYMBOL(ss_getpeername);
 
-static inline void
-__ss_do_send(SsWork *sw)
-{
-	struct sock *sk = sw->sk;
-
-	bh_lock_sock(sk);
-	ss_do_send(sk, &sw->skb_list, sw->flags);
-	if (!(sw->flags & SS_F_CONN_CLOSE)) {
-		bh_unlock_sock(sk);
-		return;
-	}
-	ss_do_close(sk);
-	bh_unlock_sock(sk);
-	SS_CALL(connection_drop, sk);
-	sock_put(sk); /* paired with ss_do_close() */
-}
-
-static inline void
-__ss_do_close(SsWork *sw)
-{
-	struct sock *sk = sw->sk;
-
-	bh_lock_sock(sk);
-	if (!ss_sock_live(sk)) {
-		SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
-		       smp_processor_id(), __func__, sk);
-		bh_unlock_sock(sk);
-		return;
-	}
-	ss_do_close(sk);
-	bh_unlock_sock(sk);
-	SS_CALL(connection_drop, sk);
-	sock_put(sk); /* paired with ss_do_close() */
-}
+#define __sk_close_locked(sk)					\
+do {								\
+	ss_do_close(sk);					\
+	bh_unlock_sock(sk);					\
+	SS_CALL(connection_drop, sk);				\
+	sock_put(sk); /* paired with ss_do_close() */		\
+} while (0)
 
 static void
 ss_tx_action(void)
@@ -1133,12 +1107,24 @@ ss_tx_action(void)
 				sw.action, sk->sk_state,
 				sk->sk_incoming_cpu, smp_processor_id());
 
+		bh_lock_sock(sk);
 		switch (sw.action) {
 		case SS_SEND:
-			__ss_do_send(&sw);
+			ss_do_send(sk, &sw.skb_list, sw.flags);
+			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+				bh_unlock_sock(sk);
+				break;
+			}
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
-			__ss_do_close(&sw);
+			if (!ss_sock_live(sk)) {
+				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
+				       smp_processor_id(), __func__, sk);
+				bh_unlock_sock(sk);
+				break;
+			}
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		default:
 			BUG();
