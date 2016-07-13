@@ -119,8 +119,7 @@ __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
 	static const TfwStr hdr_singular[] __read_mostly = {
-#define TfwStr_string(v) {.data = (v),.skb = NULL, .len = sizeof(v) - 1, \
-.flags = 0}
+#define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
@@ -161,7 +160,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TFW_DBG("hdr_lookup:off:%d\n", ht->off);
+
 	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
 		TfwStr *h = &ht->tbl[id];
 		/* There is no sense to compare against all duplicates. */
@@ -184,7 +183,6 @@ void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 {
 	TfwStr *hdr = &hm->parser.hdr;
-	TFW_DBG("msg_hdr_open:hl:%lu;hd:%s\n", hdr->len, hdr->data);
 
 	BUG_ON(!TFW_STR_EMPTY(hdr));
 
@@ -192,7 +190,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 	hdr->skb = ss_skb_peek_tail(&hm->msg.skb_list);
 
 	BUG_ON(!hdr->skb);
-	TFW_DBG("msg_hdr_open:end:hl:%lu;hd:%s\n", hdr->len, hdr->data);
+
 	TFW_DBG3("open header at char [%c], skb=%p\n", *hdr_start, hdr->skb);
 }
 
@@ -206,13 +204,10 @@ void
 tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 			       char *data, int len)
 {
-//	TfwStr *last = NULL;
-	int flen = 0;
-
 	BUG_ON(field->flags & TFW_STR_DUPLICATE);
 
 	TFW_DBG3("store field chunk len=%d data=%p field=<%#x,%lu,%p>\n",
-		 len, data, field->flags, field->len, field->data);
+		 len, data, field->flags, field->len, field->ptr);
 
 	/* The header should be open before. */
 	if (unlikely(!field->data))
@@ -225,22 +220,22 @@ tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
 		 * position, so close the chunk by end of @data.
 		 */
 		BUG_ON(!TFW_STR_PLAIN(field));
-//	}
-	if (len) {
-		field->len = data + len - field->data ;
+		field->len = data + len - (char *)field->data;
 	}
 	else if (len) {
-		field->len = (strchr(field->data, '\n') - field->data) +1;
-		TFW_DBG("msg_fixup:len:l:%lu;d:%s\n", field->len, field->data);
 		/*
 		 * The data chunk doesn't lay at the header bounds.
 		 * There is at least one finished chunk, add a new one.
 		 */
-		field->len = data + len - field->data ;
+		TfwStr *last = tfw_str_add_compound(hm->pool, field);
+		if (unlikely(!last)) {
+			TFW_WARN("Cannot store chunk [%.*s]\n",
+				 min((int)len, 10), data);
+			return;
+		}
+		tfw_http_msg_set_data(hm, last, data);
+		tfw_str_updlen(field, data + len);
 	}
-	flen =  strchr(field->data, '\n') - field->data;	
-
-	field->len = flen + 1;
 }
 
 /**
@@ -262,11 +257,9 @@ tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
 int
 tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
 {
-	
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
-	TFW_DBG("msg_hdr_close:start:id:%d;hd:%s\n", id, hm->parser.hdr.data);
 	BUG_ON(hm->parser.hdr.flags & TFW_STR_DUPLICATE);
 	BUG_ON(id > TFW_HTTP_HDR_RAW);
 
@@ -278,7 +271,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
 		h = &ht->tbl[id];
 		if (TFW_STR_EMPTY(h))
 			/* Just store the special header in empty slot. */
-//			goto done;
+			goto done;
 
 		/*
 		 * Process duplicate header.
@@ -287,13 +280,13 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
 		 * headers must be blocked as early as possible,
 		 * just when parser reads them.
 		 */
-//		BUG_ON(id < TFW_HTTP_HDR_NONSINGULAR);
+		BUG_ON(id < TFW_HTTP_HDR_NONSINGULAR);
 		/*
 		 * RFC 7230 3.2.2: duplicate of non-singular special
 		 * header - leave the decision to classification layer.
 		 */
 		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-//		goto duplicate;
+		goto duplicate;
 	}
 
 	/*
@@ -302,49 +295,40 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
 	 * Both the headers, the new one and existing one, can already be
 	 * compound.
 	 */
-	if (id >= TFW_HTTP_HDR_RAW)
-		id = __hdr_lookup(hm, &hm->parser.hdr);
-
-	TFW_DBG("msg_hdr_close:lookup:id:%d\n", id);
+	id = __hdr_lookup(hm, &hm->parser.hdr);
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
-		if (tfw_http_msg_grow_hdr_tbl(hm)){
-			TFW_DBG("msg_hdr_close:a trouble with grow tbl:%d\n", id); 
+		if (tfw_http_msg_grow_hdr_tbl(hm))
 			return TFW_BLOCK;
-}
 
 		ht = hm->h_tbl;
 	}
 
 	h = &ht->tbl[id];
 
-//	if (TFW_STR_EMPTY(h))
+	if (TFW_STR_EMPTY(h))
 		/* Add the new header. */
-//		goto done;
+		goto done;
 
-//duplicate:
-	h = tfw_str_add_duplicate(hm->pool, &hm->parser.hdr);
-	TFW_DBG("msg_hdr_close:aft duphl:%zu;:hd:%s\n", SLEN(h->data),h->data);
+duplicate:
+	h = tfw_str_add_duplicate(hm->pool, h);
 	if (unlikely(!h)) {
 		TFW_WARN("Cannot close header %p id=%d\n", &hm->parser.hdr, id);
 		return TFW_BLOCK;
 	}
 
-//done:
-//	*h = hm->parser.hdr;
+done:
+	*h = hm->parser.hdr;
 
 	TFW_STR_INIT(&hm->parser.hdr);
-	TFW_DBG("msg_hdr_close:init:hd:%s\n", h->data);
-	ht->tbl[id] = *h;
 	TFW_DBG3("store header w/ ptr=%p len=%lu flags=%x id=%d\n",
-		 h->data, h->len, h->flags, id);
+		 h->ptr, h->len, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
 	if (id == ht->off)
 		ht->off++;
-	TFW_DBG("msg_hdr_close:tl:%lu;td:%s\n", hm->h_tbl->tbl[id].len, 
-		hm->h_tbl->tbl[id].data);
+
 	return TFW_PASS;
 }
 
@@ -404,18 +388,18 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
  * Add new header @hdr to the message @hm just before CRLF.
  */
 static int
-__hdr_add(TfwHttpMsg *hm, TfwStr *hdr, int hid)
+__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
 {
 	int r;
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
-	r = ss_skb_get_room(&hm->msg.skb_list,
-			    hm->crlf.skb, h->data, hdr->len, &it);
+	r = ss_skb_get_room(&hm->msg.skb_list, hm->crlf.skb,
+			    h->data, tfw_str_total_len(hdr), &it);
 	if (r)
 		return r;
-	BUG_ON(!TFW_STR_PLAIN(&it));
 
+	tfw_str_fixup_eolen(&it, tfw_str_eolen(hdr));
 	if (tfw_strcpy(&it, hdr))
 		return TFW_BLOCK;
 
@@ -440,21 +424,17 @@ static int
 __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 {
 	int r;
-	TfwStr *h = TFW_STR_LAST(orig_hdr);
-	TfwStr it = {};
+	TfwStr *h, it = {};
 
 	if (TFW_STR_DUP(orig_hdr))
 		orig_hdr = __TFW_STR_CH(orig_hdr, 0);
-	r = ss_skb_get_room(&hm->msg.skb_list, orig_hdr->skb,
-			    (char *)h->data + h->len, hdr->len, &it);
-	if (r)
 	BUG_ON(!append && (hdr->len < orig_hdr->len));
 
 	h = TFW_STR_LAST(orig_hdr);
 	r = ss_skb_get_room(&hm->msg.skb_list,
-			    h->skb, (char *)h->data->len,
+			    h->skb, (char *)h->data + h->len,
 			    append ? hdr->len : hdr->len - orig_hdr->len, &it);
-if (r)
+	if (r)
 		return r;
 
 	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
@@ -516,8 +496,10 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
-		.len = n_len + v_len + 4,
-		.flags = 4
+		},
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3
 	};
 
 	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
@@ -527,27 +509,7 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
 		 * the header in-place. Do not call @ss_skb_cutoff_data if no
 		 * adjustment is needed.
-=======
-	/*
-	 * EOL bytes are not a part of a header field string in Tempesta.
-	 * Therefore only @orig_hdr->len bytes at most can be copied over.
-	 * If the substitute string without the EOL fits into that space,
-	 * then the fast path can be used. Otherwise, go by the slow path.
-	 */
-	if (!TFW_STR_DUP(orig_hdr) && ((hdr.len - 2) <= orig_hdr->len)) {
-		BUG_ON(!tfw_str_eolen(orig_hdr));
-
-		/*
-		 * We are trying to reuse EOL from the @orig_hdr,
-		 * so remove the EOL chunk of the @hdr.
 		 */
-		hdr.len -= 2;
-		TFW_STR_CHUNKN_SUB(&hdr, 1);
-
-		/*
-		 * Adjust @orig_hdr to have no more than @hdr->len bytes.
-		 * Do not call @ss_skb_cutoff_data if no adjustment is needed.
-	 */
 		if (dst->len != hdr.len
 		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
 			return TFW_BLOCK;
@@ -600,10 +562,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			{ .data = name,	.len = n_len },
 			{ .data = ": ",	.len = 2 },
 			{ .data = val,	.len = v_len },
-			{ .data = "\r\n", .len = 2 }
 		},
-		.len = n_len + v_len + 4,
-		.flags = 0
+		.len = n_len + 2 + v_len,
+		.eolen = 2,
+		.flags = 3
 	};
 
 	BUG_ON(!val && v_len);
@@ -613,12 +575,12 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		orig_hdr = &ht->tbl[hid];
 		if (TFW_STR_EMPTY(orig_hdr) && !val)
 			/* Not found, nothing to delete. */
-			return -ENOENT;
+			return 0;
 	} else {
 		hid = __hdr_lookup(hm, &new_hdr);
 		if (hid == ht->off && !val)
 			/* Not found, nothing to delete. */
-			return -ENOENT;
+			return 0;
 		if (hid == ht->size)
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
@@ -643,8 +605,9 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		TfwStr hdr_app = {
 			.chunks = (struct TfwStr *)(TfwStr []){
 				{ .data = ", ",	.len = 2 },
-				{ .data = val,	.len = v_len }
+				{ .data = val,	.len = v_len },
 			},
+
 			.len = v_len + 2,
 			.flags = 2
 		};
@@ -877,13 +840,18 @@ tfw_http_msg_alloc(int type)
 	if (!hm)
 		return NULL;
 
-	ss_skb_queue_head_init(&hm->msg.skb_list);
-
 	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	if (unlikely(!hm->h_tbl)) {
+		TFW_WARN("Insufficient memory to create message\n");
+		tfw_pool_destroy(hm->pool);
+		return NULL;
+	}
+
 	hm->h_tbl->size = __HHTBL_SZ(1);
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
+	ss_skb_queue_head_init(&hm->msg.skb_list);
 	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	return hm;
