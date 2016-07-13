@@ -521,7 +521,7 @@ __FSM_STATE(RGen_EoLine) {						\
 	/* The header may be unopened in case of parsing s_line. */	\
 	if (!parser->hdr.data)						\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	tfw_str_set_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));	\
+	tfw_str_fixup_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));\
 	/* Zero length means that we've got an empty-line. */		\
 	if (unlikely(!parser->hdr.len)) {				\
 		if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {		\
