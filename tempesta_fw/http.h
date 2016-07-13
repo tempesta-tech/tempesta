@@ -376,17 +376,4 @@ int tfw_http_send_504(TfwHttpMsg *hm);
 void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
 void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
 
-static inline void
-__adjust_req_flags(TfwHttpReq *req)
-{
-	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
-}
-
-static inline void
-__adjust_resp_flags(TfwHttpResp *resp, const TfwHttpReq *req)
-{
-	if (req->flags & TFW_HTTP_CONN_CLOSE)
-		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
-}
-
 #endif /* __TFW_HTTP_H__ */
