@@ -391,7 +391,6 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 	const TfwStr *c, *end;
 
 	TFW_DBG("eq_cstr_pos:sl:%lu;c:%s\n", str->len, cstr);
-	BUG_ON(str->len > 100000);
 	BUG_ON(TFW_STR_DUP(str));
 	BUG_ON(!pos || !cstr || !cstr_len);
 
