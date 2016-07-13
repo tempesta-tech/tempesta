@@ -152,7 +152,7 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) }
 		},
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-		.flags = 3
+		.flags = 0
 	};
 	static TfwStr part03 = {
 		.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
