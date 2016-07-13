@@ -205,6 +205,19 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	return TFW_PASS;
 }
 
+static inline void
+__init_req_ss_flags(TfwHttpReq *req)
+{
+	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+}
+
+static inline void
+__init_resp_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
+{
+	if (req->flags & TFW_HTTP_CONN_CLOSE)
+		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
+}
+
 /*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
@@ -238,7 +251,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, &resp, msg);
 
-	__adjust_resp_flags((TfwHttpResp *)&resp, (TfwHttpReq *)hmreq);
+	__init_resp_ss_flags((TfwHttpResp *)&resp, (TfwHttpReq *)hmreq);
 
 	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp);
 }
@@ -698,7 +711,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	__adjust_req_flags(req);
+	__init_req_ss_flags(req);
 
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
@@ -720,7 +733,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	int r, conn_flg = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 
-	__adjust_resp_flags(resp, req);
+	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sticky_resp_process(hm, (TfwHttpMsg *)req);
 	if (r < 0)
