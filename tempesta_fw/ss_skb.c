@@ -1021,6 +1021,14 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * When the original SKB is a clone then its shinfo and payload cannot be
+ * modified as they are shared with other SKB users. As the SKB is unrolled,
+ * new SKBs are created and filled with paged fragments that refer to the
+ * paged fragments of the original SKB. Also, the linear data of each SKB
+ * from @frag_list is made a paged fragment and put into a new SKB that is
+ * currently filled with paged fragments.
+ */
 static int
 ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 {
@@ -1048,11 +1056,27 @@ cleanup:
 }
 
 /*
- * When GRO is used, multiple SKBs may be merged into
- * one big SKB. These SKBs are linked in via frag_list.
- * Interpret the big SKB as a set of separate smaller
- * SKBs for processing. Make the top SKB first in the
+ * When GRO is used, multiple SKBs may be merged into one big SKB. These
+ * SKBs are linked in via frag_list. Interpret the big SKB as a set of
+ * separate smaller SKBs for processing. Make the top SKB first in the
  * @skb_list.
+ *
+ * The major reason for splitting a GRO SKB is that the kernel's TCP stack
+ * uses skb_split() (called from tso_fragment() or tcp_fragment()) to split
+ * outgoing SKBs according to MSS. The same skb_split() is used in Tempesta
+ * to split SKBs with pipelined messages. However, this function can not
+ * handle frag_list fragments. Such SKBs lose data in frag_list and generally
+ * get malformed.
+ *
+ * TODO: It's conceiveable that skb_split() can be modified to handle data
+ * in frag_list. However a thorough research is required to see if such SKBs
+ * are handled properly in other parts of the kernel's stack.
+ *
+ * Note: If GRO SKBs are kept intact, then SKB modification code in this
+ * module (for HTTP headers, etc) will get significantly more complex in
+ * order to keep it effective. The issue is in having direct access to SKBs
+ * in frag_list, rather than to the root (parent) SKB. The proper support
+ * for that will require changes in multiple places in Tempesta.
  */
 int
 ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
