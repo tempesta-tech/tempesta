@@ -1021,6 +1021,25 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	return 0;
 }
 
+/**
+ * Tempesta makes use of the source IP address that is kept in the IP
+ * header of the original skb @from. Copy the needed IP header contents to
+ * the new skb @to.
+ */
+static inline void
+__copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
+{
+	const struct iphdr *ip4 = ip_hdr(from);
+	const struct ipv6hdr *ip6 = ipv6_hdr(from);
+
+	if (ip6->version == 6)
+		memcpy(to->data, ip6, sizeof(*ip6));
+	else
+		memcpy(to->data, ip4, sizeof(*ip4));
+
+	skb_reset_network_header(to);
+}
+
 /*
  * When the original SKB is a clone then its shinfo and payload cannot be
  * modified as they are shared with other SKB users. As the SKB is unrolled,
@@ -1041,6 +1060,10 @@ ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
 			goto cleanup;
 	}
+
+	/* Copy the IP header contents to the first skb in the chain. */
+	if (skb_list->first)
+		__copy_ip_header(skb_list->first, skb);
 
 	/* TODO: Optimize skb reallocation. Consider to place clone's shinfo
 	 * right after the origal's shinfo in case space to the chunk boundary
