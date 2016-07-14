@@ -243,8 +243,6 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * this is uniform for any of them.
 	 */
 	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
-
-	TFW_INC_STAT_BH(serv.conn_disconnects);
 }
 
 /**
@@ -286,12 +284,22 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 
 	TFW_DBG_ADDR(msg, &srv->addr);
 
-	/* Withdraw from socket activity. */
-	tfw_connection_put_to_death(conn);
+	/*
+	 * Distiguish connections that go to failover state from those that
+	 * are in that state already. In the latter case, take an extra
+	 * connection reference to indicate that the connection is in the
+	 * failover state.
+	 */
+	if (tfw_connection_nfo(conn)) {
+		tfw_connection_put_to_death(conn);
+		tfw_connection_drop(conn);
+		TFW_INC_STAT_BH(serv.conn_disconnects);
+	} else {
+		tfw_connection_get(conn);
+	}
+
 	tfw_connection_unlink_from_sk(sk);
 
-	/* Update Server Group and release resources. */
-	tfw_connection_drop(conn);
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 

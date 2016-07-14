@@ -163,12 +163,7 @@ tfw_connection_get_if_nfo(TfwConnection *conn)
 static inline bool
 tfw_connection_put(TfwConnection *conn)
 {
-	int rc;
-
-	if (unlikely(!conn))
-		return false;
-
-	rc = atomic_dec_return(&conn->refcnt);
+	int rc = atomic_dec_return(&conn->refcnt);
 	if (unlikely(!rc || rc == TFW_CONN_DEATHCNT))
 		return true;
 	return false;
