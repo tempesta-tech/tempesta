@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """
 Helpers for interacting with Tempesta FW (start/stop, configure, etc).
