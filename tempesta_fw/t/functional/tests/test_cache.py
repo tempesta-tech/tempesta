@@ -13,18 +13,31 @@ import tfw
 from socket import *
 
 
+class Test:
+	def __init__(self):
+		self.vs_get = b"GET http://localhost:80/ HTTP/1.1\r\n" + \
+b"Host: localhost\r\n" + \
+b"Connection: Keep-alive\r\n" + \
+b"Set-Cookie: session=42\r\n\r\n"
 
-def run():
-	vs_get = "GET http://localhost:80/ HTTP/1.1\r\nHost: localhost\r\n\r\n"
-	cfg = conf.Config("etc/tempesta_fw.conf")
-	cfg.add_option('cache', '2')
-	cfg.add_option('listen', '8081')
-	cfg.add_option('server', '127.0.0.1:80')
-	tfw.start()
-	s = socket(AF_INET, SOCK_STREAM)
-	s.connect(('127.0.0.1', 8081))
-	s.send(vs_get)
-	data = s.recv(1024)
-	print(data)
+		self.cfg = conf.Config("etc/tempesta_fw.conf")
+		self.cfg.add_option('cache', '1')
+		self.cfg.add_option('listen', '8081')
+		self.cfg.add_option('server', '127.0.0.1:80')
 
-run()
+	def get_name(self):
+		return 'Test cache'
+
+	def run(self):
+		tfw.start()
+
+		for x in range(0, 2):
+			print("loop:", x)
+			s = socket(AF_INET, SOCK_STREAM)
+			s.connect(('127.0.0.1', 8081))
+			s.sendall(self.vs_get)
+			data = s.recv(1024)
+			print(data)
+
+t = Test()
+t.run()
