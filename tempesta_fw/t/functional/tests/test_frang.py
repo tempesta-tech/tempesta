@@ -523,6 +523,3 @@ b"<html><body>content"
 
 		print("tests:{}/15".format(tcount))
 
-t = Test()
-t.run()
-
