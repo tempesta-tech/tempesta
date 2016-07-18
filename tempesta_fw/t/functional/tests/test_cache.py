@@ -32,12 +32,10 @@ b"Set-Cookie: session=42\r\n\r\n"
 		tfw.start()
 
 		for x in range(0, 2):
-			print("loop:", x)
 			s = socket(AF_INET, SOCK_STREAM)
 			s.connect(('127.0.0.1', 8081))
 			s.sendall(self.vs_get)
 			data = s.recv(1024)
-			print(data)
+		time.sleep(5)
+		tfw.stop()
 
-t = Test()
-t.run()
