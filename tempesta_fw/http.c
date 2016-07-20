@@ -683,6 +683,36 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 }
 
 static int
+tfw_http_add_hdr_110(TfwHttpMsg *hm)
+{
+	int r;
+	TfwVhost *vhost = tfw_vhost_get_default();
+	unsigned int vlen = SLEN("Response is stale. : ");
+
+	TfwStr rh = {
+#define S_Stale	"Warning: 110: "
+		.ptr = (TfwStr []) {
+			{ .ptr = S_Stale, .len = SLEN(S_Stale) },
+			{ .ptr = (void *)"Response is stale. : ",
+			  .len = vlen },
+			{ .ptr = *this_cpu_ptr(&g_buf),
+			  .len = vhost->hdr_via_len },
+		},
+		.len = SLEN(S_Stale) + vlen + vhost->hdr_via_len,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
+#undef S_Stale
+	};
+
+	r = tfw_http_msg_hdr_add(hm, &rh);
+	if (r)
+		TFW_ERR("Unable to add 110: header to msg [%p]\n", hm);
+	else
+		TFW_DBG2("Added 110: header to msg [%p]\n", hm);
+	return r;
+}
+
+static int
 tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
 	int r;
@@ -748,9 +778,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
+	if (tfw_cache_resp_is_stale(resp)) {
+		r = tfw_http_add_hdr_110(hm);
 	if (r)
 		return r;
-
+}
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
 		if (r < 0)
@@ -772,6 +804,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn;
 
+	TFW_DBG("http:req_cache_cb:\n");
 	if (resp) {
 		/*
 		 * The request is served from cache.

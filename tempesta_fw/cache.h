@@ -25,5 +25,6 @@
 
 int tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 		      tfw_http_cache_cb_t action);
+bool tfw_cache_resp_is_stale(TfwHttpResp *resp);
 
 #endif /* __TFW_CACHE_H__ */
