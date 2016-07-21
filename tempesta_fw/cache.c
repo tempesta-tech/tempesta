@@ -1163,7 +1163,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 
 	if (!tfw_cache_entry_is_live(req, ce))
 		goto out;
-
+	 
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
 		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
 		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
@@ -1173,6 +1173,8 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TFW_INC_STAT_BH(cache.hits);
 
 	resp = tfw_cache_build_resp(ce);
+	 if ( tfw_cache_entry_is_live(req, ce) > ce->lifetime)
+		resp->cache_ctl.flags |= TFW_HTTP_CC_STALE; 
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_504((TfwHttpMsg *)req);
