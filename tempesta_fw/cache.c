@@ -368,20 +368,7 @@ tfw_cache_entry_age(TfwCacheEntry *ce)
 	time_t initial_age = max(apparent_age, corrected_age);
 	return (initial_age + tfw_current_timestamp() - ce->resp_time);
 }
-/*RFC 7234 4.2.1
-* If the cache is shared and the s-maxage response directive is pressent,
-* use its value, or
-* If the max-age response directive is present use its value, or
-* if the Expires response header fild is present, use its value minus the
-* value of the Date response header field. */
-bool
-tfw_cache_resp_is_stale(TfwHttpResp *resp)
-{
-	bool r = false;
 
-	r = (tfw_cache_calc_lifetime(resp) < jiffies);
-	return r;
-}
 /*
  * Given Cache Control arguments in the request and the response,
  * as well as the stored cache entry parameters, determine if the
