@@ -778,7 +778,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
-	if (tfw_cache_resp_is_stale(resp)) {
+	if (resp->cache_ctl.flags & TFW_HTTP_CC_STALE) {
 		r = tfw_http_add_hdr_110(hm);
 	if (r)
 		return r;
