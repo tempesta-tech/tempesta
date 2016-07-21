@@ -804,7 +804,6 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn;
 
-	TFW_DBG("http:req_cache_cb:\n");
 	if (resp) {
 		/*
 		 * The request is served from cache.
