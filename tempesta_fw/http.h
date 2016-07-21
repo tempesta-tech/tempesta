@@ -107,11 +107,13 @@ enum {
 #define TFW_HTTP_CC_MIN_FRESH		0x00000020
 #define TFW_HTTP_CC_OIFCACHED		0x00000040
 /* Response only CC directives. */
+
 #define TFW_HTTP_CC_MUST_REVAL		0x00000100
 #define TFW_HTTP_CC_PROXY_REVAL		0x00000200
 #define TFW_HTTP_CC_PUBLIC		0x00000400
 #define TFW_HTTP_CC_PRIVATE		0x00000800
 #define TFW_HTTP_CC_S_MAXAGE		0x00001000
+#define TFW_HTTP_CC_STALE		0x00001100 /*is stale, but pass*/
 /* Mask to indicate that CC header is present. */
 #define TFW_HTTP_CC_IS_PRESENT		0x0000ffff
 /* Headers that affect Cache Control. */
