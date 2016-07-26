@@ -681,7 +681,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		TFW_DBG2("Added Via: header to msg [%p]\n", hm);
 	return r;
 }
-
+/*
 static int
 tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
 {
@@ -690,10 +690,10 @@ tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
 	unsigned int vlen = SLEN("Response is stale. : ");
 
 	TfwStr rh = {
-#define S_Stale	"Warning: 110."
+#define S_Stale	"Warning:"
 		.ptr = (TfwStr []) {
 			{ .ptr = S_Stale, .len = SLEN(S_Stale) },
-			{ .ptr = (void *)"Response is stale. : ",
+			{ .ptr = (void *)"110 - Response is stale. : ",
 			  .len = vlen },
 			{ .ptr = *this_cpu_ptr(&g_buf),
 			  .len = vhost->hdr_via_len },
@@ -711,7 +711,7 @@ tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
 		TFW_DBG2("Added 110: header to msg [%p]\n", hm);
 	return r;
 }
-
+*/
 static int
 tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
@@ -779,7 +779,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	r = tfw_http_add_hdr_via(hm);
 	if (resp->cache_ctl.flags & TFW_HTTP_RESP_STALE) {
-		r = tfw_http_add_hdr_warning_110(hm);
+		char *s_110_n = "Warning:";
+		char *s_110_v = "110 - Response is stale.";
+		r = tfw_http_msg_hdr_xfrm(hm, s_110_n, SLEN(s_110_n),
+					  s_110_v, SLEN(s_110_v), 
+					  TFW_HTTP_HDR_RAW, 0);
 	if (r)
 		return r;
 	}
