@@ -113,7 +113,8 @@ enum {
 #define TFW_HTTP_CC_PUBLIC		0x00000400
 #define TFW_HTTP_CC_PRIVATE		0x00000800
 #define TFW_HTTP_CC_S_MAXAGE		0x00001000
-#define TFW_HTTP_CC_STALE		0x00001100 /*is stale, but pass*/
+/* It iss stale, but pass with a warning */
+#define TFW_HTTP_RESP_STALE		0x00001100 
 /* Mask to indicate that CC header is present. */
 #define TFW_HTTP_CC_IS_PRESENT		0x0000ffff
 /* Headers that affect Cache Control. */
