@@ -1144,13 +1144,14 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TfwHttpResp *resp = NULL;
 	TDB *db = node_db();
 	TdbIter iter;
+	time_t is_live = tfw_cache_entry_is_live(req, ce);
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
 
-	if (!tfw_cache_entry_is_live(req, ce))
+	if (!is_live)
 		goto out;
-	 
+
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
 		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
 		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
@@ -1158,10 +1159,9 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
 		ce->body);
 	TFW_INC_STAT_BH(cache.hits);
-
 	resp = tfw_cache_build_resp(ce);
-	 if ( tfw_cache_entry_is_live(req, ce) > ce->lifetime)
-		resp->cache_ctl.flags |= TFW_HTTP_CC_STALE; 
+	if (is_live > ce->lifetime)
+		resp->cache_ctl.flags |= TFW_HTTP_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_504((TfwHttpMsg *)req);
