@@ -84,7 +84,7 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	*p++ = '0' + n % 10;
 
 	time_to_tm(date, 0, &tm);
-
+	TFW_DBG("http:date_from:h:%d;m:%d\n", tm.tm_hour, tm.tm_min);
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
 	PRINT_2DIGIT(ptr, tm.tm_mday);
@@ -683,7 +683,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 }
 
 static int
-tfw_http_add_hdr_110(TfwHttpMsg *hm)
+tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
 {
 	int r;
 	TfwVhost *vhost = tfw_vhost_get_default();
@@ -778,11 +778,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
-	if (resp->cache_ctl.flags & TFW_HTTP_CC_STALE) {
-		r = tfw_http_add_hdr_110(hm);
+	if (resp->cache_ctl.flags & TFW_HTTP_RESP_STALE) {
+		r = tfw_http_add_hdr_warning_110(hm);
 	if (r)
 		return r;
-}
+	}
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
 		if (r < 0)
@@ -804,6 +804,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn;
 
+	if (req->cache_ctl.flags & TFW_HTTP_RESP_STALE)
 	if (resp) {
 		/*
 		 * The request is served from cache.
@@ -815,6 +816,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 			goto resp_err;
 		TFW_INC_STAT_BH(clnt.msgs_fromcache);
 resp_out:
+		TFW_DBG("http:cache_cb:req:%p;resp:%p\n", req, resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		return;
@@ -856,7 +858,6 @@ resp_err:
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		goto conn_put;
 	}
-
 	if (tfw_http_adjust_req(req))
 		goto send_500;
 
