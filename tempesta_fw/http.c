@@ -681,37 +681,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		TFW_DBG2("Added Via: header to msg [%p]\n", hm);
 	return r;
 }
-/*
-static int
-tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
-{
-	int r;
-	TfwVhost *vhost = tfw_vhost_get_default();
-	unsigned int vlen = SLEN("Response is stale. : ");
 
-	TfwStr rh = {
-#define S_Stale	"Warning:"
-		.ptr = (TfwStr []) {
-			{ .ptr = S_Stale, .len = SLEN(S_Stale) },
-			{ .ptr = (void *)"110 - Response is stale. : ",
-			  .len = vlen },
-			{ .ptr = *this_cpu_ptr(&g_buf),
-			  .len = vhost->hdr_via_len },
-		},
-		.len = SLEN(S_Stale) + vlen + vhost->hdr_via_len,
-		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
-#undef S_Stale
-	};
-
-	r = tfw_http_msg_hdr_add(hm, &rh);
-	if (r)
-		TFW_ERR("Unable to add 110: header to msg [%p]\n", hm);
-	else
-		TFW_DBG2("Added 110: header to msg [%p]\n", hm);
-	return r;
-}
-*/
 static int
 tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 {
