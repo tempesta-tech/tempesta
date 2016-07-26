@@ -778,7 +778,6 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn;
 
-	if (req->cache_ctl.flags & TFW_HTTP_RESP_STALE)
 	if (resp) {
 		/*
 		 * The request is served from cache.
