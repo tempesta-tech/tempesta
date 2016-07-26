@@ -689,7 +689,7 @@ tfw_http_add_hdr_warning_110(TfwHttpMsg *hm)
 	unsigned int vlen = SLEN("Response is stale. : ");
 
 	TfwStr rh = {
-#define S_Stale	"Warning: 110: "
+#define S_Stale	"Warning: 110."
 		.ptr = (TfwStr []) {
 			{ .ptr = S_Stale, .len = SLEN(S_Stale) },
 			{ .ptr = (void *)"Response is stale. : ",
