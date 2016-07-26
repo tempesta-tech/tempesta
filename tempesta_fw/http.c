@@ -84,7 +84,6 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	*p++ = '0' + n % 10;
 
 	time_to_tm(date, 0, &tm);
-	TFW_DBG("http:date_from:h:%d;m:%d\n", tm.tm_hour, tm.tm_min);
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
 	PRINT_2DIGIT(ptr, tm.tm_mday);
@@ -816,7 +815,6 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 			goto resp_err;
 		TFW_INC_STAT_BH(clnt.msgs_fromcache);
 resp_out:
-		TFW_DBG("http:cache_cb:req:%p;resp:%p\n", req, resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		return;
