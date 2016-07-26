@@ -84,6 +84,7 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	*p++ = '0' + n % 10;
 
 	time_to_tm(date, 0, &tm);
+
 	memcpy(ptr, wday[tm.tm_wday], 5);
 	ptr += 5;
 	PRINT_2DIGIT(ptr, tm.tm_mday);
