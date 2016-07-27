@@ -455,7 +455,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (tfw_connection_put(hm->conn)) {
+	if (hm->conn && tfw_connection_put(hm->conn)) {
 		/* The connection and underlying socket seems closed. */
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
@@ -748,14 +748,14 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
-	if (resp->cache_ctl.flags & TFW_HTTP_RESP_STALE) {
-		char *s_110_n = "Warning:";
-		char *s_110_v = "110 - Response is stale.";
-		r = tfw_http_msg_hdr_xfrm(hm, s_110_n, SLEN(s_110_n),
-					  s_110_v, SLEN(s_110_v), 
-					  TFW_HTTP_HDR_RAW, 0);
-	if (r)
-		return r;
+	if (resp->flags & TFW_HTTP_RESP_STALE) {
+#define s_110_n "Warning:"
+#define s_110_v "110 - Response is stale"
+
+		r = tfw_http_msg_hdr_xfrm(hm, s_110_n, SLEN(s_110_n),  s_110_v,
+					  SLEN(s_110_v), TFW_HTTP_HDR_RAW, 0);
+		if (r)
+			return r;
 	}
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);

@@ -409,7 +409,6 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 		ce_lifetime = min(lt_fresh, lt_max_stale);
 	}
 #undef CC_LIFETIME_FRESH
-
 	return ce_lifetime > ce_age ? ce_lifetime : 0;
 }
 
@@ -1144,14 +1143,12 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TfwHttpResp *resp = NULL;
 	TDB *db = node_db();
 	TdbIter iter;
-	time_t is_live = tfw_cache_entry_is_live(req, ce);
+	time_t lifetime = 0;
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
-
-	if (!is_live)
+	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
 		goto out;
-
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
 		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
 		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
@@ -1160,8 +1157,8 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		ce->body);
 	TFW_INC_STAT_BH(cache.hits);
 	resp = tfw_cache_build_resp(ce);
-	if (is_live > ce->lifetime)
-		resp->cache_ctl.flags |= TFW_HTTP_RESP_STALE;
+	if (lifetime > ce->lifetime)
+		resp->flags |= TFW_HTTP_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_504((TfwHttpMsg *)req);

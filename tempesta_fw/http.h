@@ -107,14 +107,12 @@ enum {
 #define TFW_HTTP_CC_MIN_FRESH		0x00000020
 #define TFW_HTTP_CC_OIFCACHED		0x00000040
 /* Response only CC directives. */
-
 #define TFW_HTTP_CC_MUST_REVAL		0x00000100
 #define TFW_HTTP_CC_PROXY_REVAL		0x00000200
 #define TFW_HTTP_CC_PUBLIC		0x00000400
 #define TFW_HTTP_CC_PRIVATE		0x00000800
 #define TFW_HTTP_CC_S_MAXAGE		0x00001000
-/* It is stale, but pass with a warning */
-#define TFW_HTTP_RESP_STALE		0x00001100 
+ 
 /* Mask to indicate that CC header is present. */
 #define TFW_HTTP_CC_IS_PRESENT		0x0000ffff
 /* Headers that affect Cache Control. */
@@ -234,6 +232,8 @@ typedef struct {
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
+/* It is stale, but pass with a warning */
+#define TFW_HTTP_RESP_STALE		0x04000
 
 /**
  * Common HTTP message members.
