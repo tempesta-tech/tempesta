@@ -409,6 +409,7 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 		ce_lifetime = min(lt_fresh, lt_max_stale);
 	}
 #undef CC_LIFETIME_FRESH
+
 	return ce_lifetime > ce_age ? ce_lifetime : 0;
 }
 
@@ -1147,8 +1148,10 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
+
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
 		goto out;
+
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
 		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
 		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
@@ -1156,6 +1159,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
 		ce->body);
 	TFW_INC_STAT_BH(cache.hits);
+
 	resp = tfw_cache_build_resp(ce);
 	if (lifetime > ce->lifetime)
 		resp->flags |= TFW_HTTP_RESP_STALE;

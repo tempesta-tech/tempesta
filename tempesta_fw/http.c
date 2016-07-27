@@ -455,7 +455,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (hm->conn && tfw_connection_put(hm->conn)) {
+	if (tfw_connection_put(hm->conn)) {
 		/* The connection and underlying socket seems closed. */
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
