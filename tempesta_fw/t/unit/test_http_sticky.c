@@ -137,8 +137,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 
 /* custom version for testing purposes */
 int
-tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
-		    bool unused __attribute__((unused)))
+tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	unsigned int data_off = 0;
@@ -177,9 +176,9 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg,
 }
 
 /* custom version for testing purposes */
-int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg, bool unref_data)
+int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 {
-	return tfw_connection_send(conn, msg, unref_data);
+	return tfw_connection_send(conn, msg);
 }
 
 /* setup/teardown helpers */
@@ -407,7 +406,7 @@ TEST(http_sticky, req_no_cookie)
 
 	/* since response was modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg, false);
+	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 	EXPECT_TRUE(mock.seen_set_cookie_header);
@@ -434,7 +433,7 @@ TEST(http_sticky, req_have_cookie)
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg, false);
+	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);
@@ -478,7 +477,7 @@ TEST(http_sticky, req_have_cookie_enforce)
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg, false);
+	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);

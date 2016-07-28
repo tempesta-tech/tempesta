@@ -801,19 +801,16 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 
 }
 
-/**
- * @return false (i.e. don't reuse socket buffers)
- * if @resp is needed for caching.
- */
-bool
-tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
+static void
+tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
 	unsigned long key;
+	bool keep_skb = false;
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
-		return true;
+		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
-		return true;
+		goto out;
 
 	key = tfw_http_req_key_calc(req);
 
@@ -830,10 +827,14 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req)
 	}
 
 	/*
-	 * Cache population is synchronous now, change the return value
-	 * depending on the TODO above.
+	 * Cache population is synchronous now. Don't forget to set
+	 * @keep_skb properly in case of asynchronous operation is being
+	 * performed.
 	 */
-	return true;
+
+out:
+	((TfwMsg *)resp)->ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
+	action(req, resp);
 }
 
 static void
@@ -870,6 +871,11 @@ do_cache:
 		    : numa_node_id();
 	cpu = tfw_cache_sched_cpu(req);
 	ct = &per_cpu(cache_wq, cpu);
+
+	/*
+	 * TODO don't queue the cache work if we should process it on this
+	 * CPU: we can do everything right now.
+	 */
 
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
 		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
@@ -1222,7 +1228,7 @@ tfw_wq_tasklet(unsigned long data)
 
 	while (!tfw_wq_pop(&ct->wq, &cw)) {
 		if (cw.resp) {
-			cw.action(cw.req, cw.resp);
+			tfw_cache_add(cw.resp, cw.req, cw.action);
 		} else if (cw.req->method == TFW_HTTP_METH_PURGE) {
 			tfw_cache_purge_method(cw.req, cw.key);
 		} else {

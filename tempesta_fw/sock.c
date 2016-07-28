@@ -37,6 +37,7 @@ typedef enum {
 typedef struct {
 	struct sock	*sk;
 	SsSkbList	skb_list;
+	int		flags;
 	SsAction	action;
 } SsWork;
 
@@ -105,7 +106,7 @@ ss_sock_active(struct sock *sk)
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
 
-static void
+static inline void
 ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -115,7 +116,7 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 	tcb->seq     = tcb->end_seq = tp->write_seq;
 	tcb->tcp_flags = TCPHDR_ACK;
 	tcb->sacked  = 0;
-	skb_header_release(skb);
+	__skb_header_release(skb);
 	tcp_add_write_queue_tail(sk, skb);
 	sk->sk_wmem_queued += skb->truesize;
 	sk_mem_charge(sk, skb->truesize);
@@ -132,7 +133,7 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
  * @skb_list can be invalid after the function call, don't try to use it.
  */
 static void
-ss_do_send(struct sock *sk, SsSkbList *skb_list)
+ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
@@ -173,15 +174,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		/* @skb should be rerouted on forwarding. */
 		skb_dst_drop(skb);
 
-		/*
-		 * TODO Mark all data with PUSH to force receiver to consume
-		 * the data. Currently we do this for debugging purposes.
-		 * We need to do this only for complete messages/skbs.
-		 * Actually tcp_push() already does it for the last skb.
-		 * MSG_MORE should be used, probably by connection layer.
-		 */
-		tcp_mark_push(tp, skb);
-
 		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		       smp_processor_id(), __func__,
 		       skb, skb->data_len, skb->len);
@@ -196,6 +188,13 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
+	/*
+	 * If connection close flag is specified, then @ss_do_close is used to
+	 * set FIN on final SKB and push all pending frames to the stack.
+	 */
+	if (flags & SS_F_CONN_CLOSE)
+		return;
+
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
 }
 
@@ -205,16 +204,15 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
  * copying. See do_tcp_sendpages() and tcp_sendmsg() in linux/net/ipv4/tcp.c.
  *
  * Can be called in softirq context as well as from kernel thread.
- *
- * TODO use MSG_MORE untill we reach end of message.
  */
 int
-ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
+ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
 	int r = 0;
 	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
+		.flags  = flags,
 		.action	= SS_SEND,
 	};
 
@@ -229,7 +227,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
-	if (pass_skb) {
+	if (!(flags & SS_F_KEEP_SKB)) {
 		sw.skb_list = *skb_list;
 		ss_skb_queue_head_init(skb_list);
 	} else {
@@ -254,7 +252,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * order transmissions and other CPUs can push data to transmit for
 	 * the socket while current CPU was servicing other sockets.
 	 */
-	if (ss_wq_push(&sw, false)) {
+	if (ss_wq_push(&sw, flags & SS_F_SYNC)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
 		r = -EBUSY;
 		goto err;
@@ -419,30 +417,30 @@ ss_droplink(struct sock *sk)
 }
 
 /**
- * The function should be called with @sync = true whenever possible to
- * improve performance. If @sync = false, then return value must be checked
+ * The function should be called with SS_F_SYNC flag whenever possible to
+ * improve performance. Without SS_F_SYNC the return value must be checked
  * and the call must be repeated in case of bad return value.
- * @sync = true doesn't mean that the socket will be closed immediately,
+ * Note, that SS_F_SYNC doesn't mean that the socket will be closed immediately,
  * but rather it guarantees that the socket will be closed and the caller can
  * not care about return value.
  */
 int
-__ss_close(struct sock *sk, bool sync, bool need_drop)
+__ss_close(struct sock *sk, int flags)
 {
-
 	if (unlikely(!sk))
 		return SS_OK;
 	sk_incoming_cpu_update(sk);
 
-	if (!sync || !in_softirq()
+	if (!(flags & SS_F_SYNC) || !in_softirq()
 	    || smp_processor_id() != sk->sk_incoming_cpu)
 	{
 		SsWork sw = {
 			.sk	= sk,
+			.flags  = flags,
 			.action	= SS_CLOSE,
 		};
 
-		return ss_wq_push(&sw, sync);
+		return ss_wq_push(&sw, (flags & SS_F_SYNC));
 	}
 
 	/*
@@ -463,7 +461,7 @@ __ss_close(struct sock *sk, bool sync, bool need_drop)
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
-	if (need_drop)
+	if (flags & SS_F_CONN_CLOSE)
 		SS_CALL(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
 
@@ -1087,6 +1085,14 @@ ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
 }
 EXPORT_SYMBOL(ss_getpeername);
 
+#define __sk_close_locked(sk)					\
+do {								\
+	ss_do_close(sk);					\
+	bh_unlock_sock(sk);					\
+	SS_CALL(connection_drop, sk);				\
+	sock_put(sk); /* paired with ss_do_close() */		\
+} while (0)
+
 static void
 ss_tx_action(void)
 {
@@ -1104,8 +1110,12 @@ ss_tx_action(void)
 		bh_lock_sock(sk);
 		switch (sw.action) {
 		case SS_SEND:
-			ss_do_send(sk, &sw.skb_list);
-			bh_unlock_sock(sk);
+			ss_do_send(sk, &sw.skb_list, sw.flags);
+			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+				bh_unlock_sock(sk);
+				break;
+			}
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
 			if (!ss_sock_live(sk)) {
@@ -1114,10 +1124,7 @@ ss_tx_action(void)
 				bh_unlock_sock(sk);
 				break;
 			}
-			ss_do_close(sk);
-			bh_unlock_sock(sk);
-			SS_CALL(connection_drop, sk);
-			sock_put(sk); /* paired with ss_do_close() */
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		default:
 			BUG();

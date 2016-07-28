@@ -75,7 +75,7 @@ tfw_http_sticky_send_302(TfwHttpMsg *hm)
 
 	if (tfw_http_prep_302(&resp, hm, &cookie))
 		return -1;
-	tfw_cli_conn_send(conn, (TfwMsg *)&resp, true);
+	tfw_cli_conn_send(conn, (TfwMsg *)&resp);
 
 	return 0;
 }

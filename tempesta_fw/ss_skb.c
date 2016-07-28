@@ -1020,6 +1020,33 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	return 0;
 }
 
+/**
+ * Tempesta makes use of the source IP address that is kept in the IP
+ * header of the original skb @from. Copy the needed IP header contents to
+ * the new skb @to.
+ */
+static inline void
+__copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
+{
+	const struct iphdr *ip4 = ip_hdr(from);
+	const struct ipv6hdr *ip6 = ipv6_hdr(from);
+
+	if (ip6->version == 6)
+		memcpy(to->data, ip6, sizeof(*ip6));
+	else
+		memcpy(to->data, ip4, sizeof(*ip4));
+
+	skb_reset_network_header(to);
+}
+
+/*
+ * When the original SKB is a clone then its shinfo and payload cannot be
+ * modified as they are shared with other SKB users. As the SKB is unrolled,
+ * new SKBs are created and filled with paged fragments that refer to the
+ * paged fragments of the original SKB. Also, the linear data of each SKB
+ * from @frag_list is made a paged fragment and put into a new SKB that is
+ * currently filled with paged fragments.
+ */
 static int
 ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 {
@@ -1032,6 +1059,10 @@ ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
 			goto cleanup;
 	}
+
+	/* Copy the IP header contents to the first skb in the chain. */
+	if (skb_list->first)
+		__copy_ip_header(skb_list->first, skb);
 
 	/* TODO: Optimize skb reallocation. Consider to place clone's shinfo
 	 * right after the origal's shinfo in case space to the chunk boundary
@@ -1047,11 +1078,27 @@ cleanup:
 }
 
 /*
- * When GRO is used, multiple SKBs may be merged into
- * one big SKB. These SKBs are linked in via frag_list.
- * Interpret the big SKB as a set of separate smaller
- * SKBs for processing. Make the top SKB first in the
+ * When GRO is used, multiple SKBs may be merged into one big SKB. These
+ * SKBs are linked in via frag_list. Interpret the big SKB as a set of
+ * separate smaller SKBs for processing. Make the top SKB first in the
  * @skb_list.
+ *
+ * The major reason for splitting a GRO SKB is that the kernel's TCP stack
+ * uses skb_split() (called from tso_fragment() or tcp_fragment()) to split
+ * outgoing SKBs according to MSS. The same skb_split() is used in Tempesta
+ * to split SKBs with pipelined messages. However, this function can not
+ * handle frag_list fragments. Such SKBs lose data in frag_list and generally
+ * get malformed.
+ *
+ * TODO: It's conceiveable that skb_split() can be modified to handle data
+ * in frag_list. However a thorough research is required to see if such SKBs
+ * are handled properly in other parts of the kernel's stack.
+ *
+ * Note: If GRO SKBs are kept intact, then SKB modification code in this
+ * module (for HTTP headers, etc) will get significantly more complex in
+ * order to keep it effective. The issue is in having direct access to SKBs
+ * in frag_list, rather than to the root (parent) SKB. The proper support
+ * for that will require changes in multiple places in Tempesta.
  */
 int
 ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)

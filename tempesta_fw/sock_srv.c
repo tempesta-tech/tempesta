@@ -21,7 +21,6 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/net.h>
-#include <linux/kthread.h>
 #include <linux/wait.h>
 #include <linux/freezer.h>
 #include <net/inet_sock.h>
@@ -170,7 +169,6 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	if (r) {
 		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
 		ss_close_sync(sk, false);
-		tfw_connection_unlink_from_sk(sk);
 		return r;
 	}
 
@@ -245,8 +243,6 @@ tfw_srv_conn_release(TfwConnection *conn)
 	 * this is uniform for any of them.
 	 */
 	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
-
-	TFW_INC_STAT_BH(serv.conn_disconnects);
 }
 
 /**
@@ -288,12 +284,22 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 
 	TFW_DBG_ADDR(msg, &srv->addr);
 
-	/* Withdraw from socket activity. */
-	tfw_connection_put_to_death(conn);
+	/*
+	 * Distiguish connections that go to failover state from those that
+	 * are in that state already. In the latter case, take an extra
+	 * connection reference to indicate that the connection is in the
+	 * failover state.
+	 */
+	if (tfw_connection_nfo(conn)) {
+		tfw_connection_put_to_death(conn);
+		tfw_connection_drop(conn);
+		TFW_INC_STAT_BH(serv.conn_disconnects);
+	} else {
+		tfw_connection_get(conn);
+	}
+
 	tfw_connection_unlink_from_sk(sk);
 
-	/* Update Server Group and release resources. */
-	tfw_connection_drop(conn);
 	if (tfw_connection_put(conn))
 		tfw_srv_conn_release(conn);
 
@@ -367,15 +373,18 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 		 */
 		tfw_connection_unlink_from_sk(sk);
 		tfw_connection_unlink_to_sk(conn);
-		ss_close(sk);
+		ss_close_sync(sk, true);
 	}
 
 	/*
 	 * Release resources.
 	 *
 	 * FIXME #116, #254: New messages may keep coming,
-	 * and that may lead to BUG() in fw_connection_drop().
+	 * and that may lead to BUG() in tfw_connection_drop().
 	 * See the problem description in #385.
+	 *
+	 * FIXME Actually the call is performed in tfw_sock_srv_do_failover()
+	 * called by connection_drop callback from ss_close().
 	 */
 	tfw_connection_drop(conn);
 }

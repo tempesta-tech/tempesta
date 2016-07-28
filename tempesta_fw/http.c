@@ -205,6 +205,19 @@ static TfwStr crlf_close = {
 	return TFW_PASS;
 }
 
+static inline void
+__init_req_ss_flags(TfwHttpReq *req)
+{
+	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+}
+
+static inline void
+__init_resp_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
+{
+	if (req->flags & TFW_HTTP_CONN_CLOSE)
+		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
+}
+
 /*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
@@ -238,7 +251,9 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->data);
 	tfw_http_msg_write(&it, &resp, msg);
 
-	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp, true);
+	__init_resp_ss_flags((TfwHttpResp *)&resp, (TfwHttpReq *)hmreq);
+
+	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp);
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -450,37 +465,6 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 	tfw_http_msg_free(hm);
 }
 
-/*
- * Drop the client connection and destroy the request.
- *
- * A connection is dropped in two stages. The socket is closed first.
- * Then the connection linked with the socket is withdrawed from all
- * socket activity, and then deactivated.
- *
- * The socket may be closed either from Tempesta or in Sync Sockets
- * as the reaction to incoming FIN. Both may occur at the same time.
- * Socket lock permits one party only to proceed with the closing.
- * See the comment to ss_close().
- *
- * The connection may be dropped only by the party that closed the
- * socket. Also, it's essential that the connection is dropped only
- * when there's at least one extra reference to it (@conn->refcnt).
- * Then if the reference is dropped here it's never the last one.
- * That won't allow Sync Sockets to destroy the socket and the
- * connection completely until Tempesta is done with the connection.
- * The request holds that extra reference, so it must be freed only
- * after the connection is dropped.
- */
-static inline void
-tfw_http_conn_cli_dropfree(TfwHttpMsg *hmreq)
-{
-	BUG_ON(!(TFW_CONN_TYPE(hmreq->conn) & Conn_Clnt));
-
-	if (hmreq->flags & TFW_HTTP_CONN_CLOSE)
-		ss_close_sync(hmreq->conn->sk, true);
-	tfw_http_conn_msg_free(hmreq);
-}
-
 /**
  * TODO Initialize allocated Client structure by HTTP specific callbacks
  * and FSM.
@@ -512,7 +496,7 @@ tfw_http_conn_release(TfwConnection *conn)
 			&& (((TfwHttpMsg *)msg)->conn == conn));
 		list_del(&msg->msg_list);
 		tfw_http_send_404((TfwHttpMsg *)msg);
-		tfw_http_conn_cli_dropfree((TfwHttpMsg *)msg);
+		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	INIT_LIST_HEAD(&conn->msg_queue);
@@ -727,6 +711,8 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
+	__init_req_ss_flags(req);
+
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
@@ -746,6 +732,8 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	int r, conn_flg = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+
+	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sticky_resp_process(hm, (TfwHttpMsg *)req);
 	if (r < 0)
@@ -791,12 +779,12 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		 */
 		if (tfw_http_adjust_resp(resp, req))
 			goto resp_err;
-		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, true))
+		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp))
 			goto resp_err;
 		TFW_INC_STAT_BH(clnt.msgs_fromcache);
 resp_out:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		return;
 resp_err:
 		tfw_http_send_500((TfwHttpMsg *)req);
@@ -846,7 +834,7 @@ resp_err:
 	spin_unlock(&srv_conn->msg_qlock);
 
 	/* Send request to the server. */
-	if (tfw_connection_send(srv_conn, (TfwMsg *)req, false)) {
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
 		spin_lock(&srv_conn->msg_qlock);
 		list_del(&req->msg.msg_list);
 		spin_unlock(&srv_conn->msg_qlock);
@@ -857,12 +845,12 @@ resp_err:
 
 send_404:
 	tfw_http_send_404((TfwHttpMsg *)req);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
 	tfw_http_send_500((TfwHttpMsg *)req);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	if (tfw_connection_put(srv_conn))
@@ -1052,7 +1040,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				      tfw_http_req_cache_cb))
 		{
 			tfw_http_send_500(hmreq);
-			tfw_http_conn_cli_dropfree(hmreq);
+			tfw_http_conn_msg_free(hmreq);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -1096,9 +1084,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 static void
 tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	/* Cache original response before any mangling. */
-	bool unref_data = tfw_cache_add(resp, req);
-
 	/*
 	 * Typically we're at a node far from the node where @resp was
 	 * received, so we do an inter-node transfer. However, this is
@@ -1109,14 +1094,14 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_http_adjust_resp(resp, req))
 		goto err;
 
-	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp, unref_data))
+	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp))
 		goto err;
 
 	TFW_INC_STAT_BH(serv.msgs_forwarded);
 out:
 	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	tfw_http_conn_cli_dropfree((TfwHttpMsg *)req);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 err:
 	tfw_http_send_500((TfwHttpMsg *)req);
@@ -1189,7 +1174,7 @@ error:
 
 	tfw_http_send_502(hmreq);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_http_conn_cli_dropfree(hmreq);
+	tfw_http_conn_msg_free(hmreq);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return TFW_BLOCK;
 }
@@ -1234,7 +1219,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	{
 		tfw_http_send_500(hmreq);
 		tfw_http_conn_msg_free(hmresp);
-		tfw_http_conn_cli_dropfree(hmreq);
+		tfw_http_conn_msg_free(hmreq);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
 	}
