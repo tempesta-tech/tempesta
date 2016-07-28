@@ -749,13 +749,17 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	r = tfw_http_add_hdr_via(hm);
 	if (resp->flags & TFW_HTTP_RESP_STALE) {
-#define s_110_n "Warning:"
-#define s_110_v "110 - Response is stale"
+#define S_WARN_110_N "Warning:"
+#define S_WARN_110_V "110 - Response is stale"
 
-		r = tfw_http_msg_hdr_xfrm(hm, s_110_n, SLEN(s_110_n),  s_110_v,
-					  SLEN(s_110_v), TFW_HTTP_HDR_RAW, 0);
+		r = tfw_http_msg_hdr_xfrm(hm, S_WARN_110_N, SLEN(
+					  S_WARN_110_N), S_WARN_110_V, 
+				          SLEN(S_WARN_110_V), 
+					  TFW_HTTP_HDR_RAW, 0);
 		if (r)
 			return r;
+#undef S_WARN_110_N
+#undef S_WARN_110_V
 	}
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
