@@ -1401,6 +1401,9 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
+	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	ss_skb_queue_tail(&c->msg->skb_list, skb);
+
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, skb, off)
 		: tfw_http_resp_process(c, skb, off);

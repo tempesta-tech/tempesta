@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 EXTRA_CFLAGS += -Werror  -I$(src)/../ -I$(src)/../../tempesta_db/core \
-		-I$(src)/../../sync_socket
+		-I$(src)/../../sync_socket $(MBEDTLS_CFLAGS)
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif

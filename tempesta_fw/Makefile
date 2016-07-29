@@ -22,6 +22,13 @@ ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
+MBEDTLS = $(obj)/mbedtls
+MBEDTLS_CFLAGS = -I$(MBEDTLS)/include -I$(MBEDTLS)/mbedtls/include \
+	-include $(MBEDTLS)/lk.h -DMBEDTLS_CONFIG_FILE='"$(MBEDTLS)/config.h"'
+export MBEDTLS MBEDTLS_CFLAGS
+
+EXTRA_CFLAGS += $(MBEDTLS_CFLAGS)
+
 obj-m	= tempesta_fw.o 
 
 tempesta_fw-objs = \
@@ -55,4 +62,7 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= log/ classifier/ stress/ sched/ t/
+obj-m	+= log/ classifier/ sched/
+obj-y	+= mbedtls/
+
+tempesta_fw-objs += mbedtls/built-in.o
