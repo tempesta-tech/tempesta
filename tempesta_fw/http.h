@@ -231,6 +231,8 @@ typedef struct {
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
+/* It is stale, but pass with a warning */
+#define TFW_HTTP_RESP_STALE		0x040000
 
 /**
  * Common HTTP message members.
