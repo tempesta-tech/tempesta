@@ -47,7 +47,9 @@
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send
+#define tfw_tls_send_msg	divert_tfw_tls_send_msg
 #include "sock_clnt.c"
+#undef tfw_tls_send_msg
 #undef tfw_cli_conn_send
 
 #include "hash.c"
@@ -178,6 +180,12 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 {
 	return tfw_connection_send(conn, msg);
+}
+
+/* custom version for testing purposes */
+int tfw_tls_send_msg(TfwTlsContext *tls, TfwMsg *msg)
+{
+	return -EINVAL;
 }
 
 /* setup/teardown helpers */

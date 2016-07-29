@@ -94,6 +94,8 @@ tfw_connection_release(TfwConnection *conn)
 int
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
+	if (conn->tls)
+		return tfw_tls_send_msg(conn->tls, msg);
 	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
 }
 
@@ -111,9 +113,6 @@ tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 		TFW_DBG("Link new msg %p with connection %p\n",
 			conn->msg, conn);
 	}
-
-	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
-	ss_skb_queue_tail(&conn->msg->skb_list, skb);
 
 	return tfw_gfsm_dispatch(&conn->msg->state, conn, skb, off);
 }

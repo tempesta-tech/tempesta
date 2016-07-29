@@ -408,7 +408,7 @@ tfw_http_send_504(TfwHttpMsg *hmreq)
  * the connection structure. Increment the number of users
  * of the connection structure. Initialize GFSM for the message.
  */
-static TfwMsg *
+TfwMsg *
 tfw_http_conn_msg_alloc(TfwConnection *conn)
 {
 	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
@@ -417,7 +417,8 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 
 	hm->conn = conn;
 	tfw_connection_get(conn);
-	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
+	tfw_gfsm_state_init(&hm->msg.state, conn,
+			    conn->tls ? TFW_HTTPS_FSM_INIT : TFW_HTTP_FSM_INIT);
 
         if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
                 TFW_INC_STAT_BH(clnt.rx_messages);
@@ -453,7 +454,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * NOTE: @hm->conn might be NULL if @hm is the response that was served
  * from the cache.
  */
-static void
+void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
@@ -472,7 +473,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * TODO Initialize allocated Client structure by HTTP specific callbacks
  * and FSM.
  */
-static int
+int
 tfw_http_conn_init(TfwConnection *conn)
 {
 	return 0;
@@ -489,7 +490,7 @@ tfw_http_conn_init(TfwConnection *conn)
  * Called when a connection is released. There are no users at that time,
  * so locks are not needed.
  */
-static void
+void
 tfw_http_conn_release(TfwConnection *conn)
 {
 	TfwMsg *msg, *tmp;
@@ -513,7 +514,7 @@ tfw_http_conn_release(TfwConnection *conn)
  */
 static void tfw_http_resp_terminate(TfwHttpMsg *hm);
 
-static void
+void
 tfw_http_conn_drop(TfwConnection *conn)
 {
 	if (conn->msg && (TFW_CONN_TYPE(conn) & Conn_Srv)) {
@@ -1401,6 +1402,9 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
+	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	ss_skb_queue_tail(&c->msg->skb_list, skb);
+
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, skb, off)
 		: tfw_http_resp_process(c, skb, off);
@@ -1447,7 +1451,7 @@ tfw_http_init(void)
 	/* Must be last call - we can't unregister the hook. */
 	ghprio = tfw_gfsm_register_hook(TFW_FSM_HTTPS,
 					TFW_GFSM_HOOK_PRIORITY_ANY,
-					TFW_HTTPS_FSM_TODO_ISSUE_81,
+					TFW_HTTPS_FSM_CHUNK,
 					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
 	if (ghprio < 0)
 		return ghprio;
@@ -1458,8 +1462,7 @@ tfw_http_init(void)
 void
 tfw_http_exit(void)
 {
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio,
-				 TFW_HTTPS_FSM_TODO_ISSUE_81);
+	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio, TFW_HTTPS_FSM_CHUNK);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }

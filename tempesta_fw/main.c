@@ -91,6 +91,7 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 
+	DO_CFG_REG(tls);
 	DO_CFG_REG(vhost);
 	DO_CFG_REG(filter);
 	DO_CFG_REG(cache);
