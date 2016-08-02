@@ -67,7 +67,8 @@ enum {
  * Check whether a character is CR or LF.
  */
 #define IS_CR_OR_LF(c) (c == '\r' || c == '\n')
-
+#undef isspace
+#define isspace(c) (c == ' ' || c == '\t')
 /**
  * Scans the initial @n bytes of the memory area pointed to by @s for the first
  * occurance of EOL character.
