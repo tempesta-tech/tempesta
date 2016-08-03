@@ -449,13 +449,16 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * is prepared and sent by Tempesta, that HTTP message does not need
  * a connection structure. The message is then immediately destroyed,
  * and a simpler tfw_http_msg_free() can be used for that.
+ *
+ * NOTE: @hm->conn might be NULL if @hm is the response that was served
+ * from the cache.
  */
 static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (tfw_connection_put(hm->conn)) {
+	if (hm->conn && tfw_connection_put(hm->conn)) {
 		/* The connection and underlying socket seems closed. */
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
