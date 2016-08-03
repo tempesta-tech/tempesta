@@ -145,7 +145,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state, mss, size);
 
-
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
 		ss_skb_queue_purge(skb_list);

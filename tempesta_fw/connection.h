@@ -24,6 +24,7 @@
 #define __TFW_CONNECTION_H__
 
 #include <net/sock.h>
+#include <mbedtls/ssl.h>
 
 #include "gfsm.h"
 #include "msg.h"
@@ -49,6 +50,12 @@ enum {
 };
 
 #define TFW_CONN_TYPE2IDX(t)	TFW_FSM_TYPE(t)
+
+typedef struct {
+	mbedtls_ssl_context	ctx;
+	SsSkbList		rx_queue;
+	SsSkbList		tx_queue;
+} TfwTlsContext;
 
 /**
  * Session/Presentation layer (in OSI terms) handling.
@@ -77,6 +84,7 @@ enum {
  * @msg_queue	- queue of messages to be sent over the connection;
  * @msg_qlock	- lock for accessing @msg_queue;
  * @refcnt	- number of users of the connection structure instance;
+ * @tls		- TLS context, if present;
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
@@ -87,6 +95,7 @@ typedef struct {
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
+	TfwTlsContext		*tls;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
