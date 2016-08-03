@@ -761,6 +761,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 #undef S_WARN_110
 
 	}
+
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
 		if (r < 0)
