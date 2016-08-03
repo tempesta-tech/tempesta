@@ -1144,7 +1144,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TfwHttpResp *resp = NULL;
 	TDB *db = node_db();
 	TdbIter iter;
-	time_t lifetime = 0;
+	time_t lifetime;
 
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
