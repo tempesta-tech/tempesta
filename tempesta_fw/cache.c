@@ -434,7 +434,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
-		if (strncasecmp((char *)c->data + c_off, trec->data + t_off, n))
+		if (strncasecmp(c->data + c_off, trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -545,7 +545,7 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			 (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
-		memcpy(*p, (char *)src->data + copied, room);
+		memcpy(*p, src->data + copied, room);
 		*p += room;
 		copied += room;
 	}

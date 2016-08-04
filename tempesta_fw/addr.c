@@ -110,7 +110,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				const char next = (k < c->len - 1) ?
 					*(p + 1) :
 					(c != TFW_STR_LAST(s)) ?
-						*(char*)((c + 1)->data) :
+						*((c + 1)->data) :
 						'\0';
 				if (next == ':') {
 					/*
@@ -233,8 +233,8 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-		*(char*)str->data :
-		*(char*)((TfwStr*)str->chunks)->data;
+		*str->data :
+		*((TfwStr*)str->chunks)->data;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
