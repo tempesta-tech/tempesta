@@ -917,10 +917,12 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		BUG_ON(!tr);
 		*data = tr->data;
 	}
+
 	/* Every non-empty header contains CRLF at the end. We need to translate
 	 * it to { str, eolen } presentation. */
 	if (hdr->len)
 		tfw_str_fixup_eolen(hdr, SLEN(S_CRLF));
+
 	return 0;
 }
 
