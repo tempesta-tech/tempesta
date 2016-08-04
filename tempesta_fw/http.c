@@ -147,20 +147,21 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	TfwMsgIter it;
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_302_PART_01, .len = SLEN(S_302_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) }
+			{ .data = S_302_PART_01, .len = SLEN(S_302_PART_01)},
+			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE)
+			},
+			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
 		},
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
 		.flags = 0
-	};
+		};
 	static TfwStr part03 = {
 		.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
 	static TfwStr crlfcrlf = {
 		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
 	static TfwStr crlf_keep = {
 	.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-static TfwStr crlf_close = {
+	static TfwStr crlf_close = {
 		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
