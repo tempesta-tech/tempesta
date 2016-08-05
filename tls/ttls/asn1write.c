@@ -2,7 +2,7 @@
  * ASN.1 buffer writing functionality
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 
 #include "asn1write.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -315,7 +315,9 @@ mbedtls_asn1_named_data *mbedtls_asn1_store_named_data( mbedtls_asn1_named_data 
     {
         // Add new entry if not present yet based on OID
         //
-        if( ( cur = mbedtls_calloc( 1, sizeof(mbedtls_asn1_named_data) ) ) == NULL )
+        cur = (mbedtls_asn1_named_data*)mbedtls_calloc( 1,
+                                            sizeof(mbedtls_asn1_named_data) );
+        if( cur == NULL )
             return( NULL );
 
         cur->oid.len = oid_len;
@@ -342,19 +344,18 @@ mbedtls_asn1_named_data *mbedtls_asn1_store_named_data( mbedtls_asn1_named_data 
     }
     else if( cur->val.len < val_len )
     {
-        // Enlarge existing value buffer if needed
-        //
-        mbedtls_free( cur->val.p );
-        cur->val.p = NULL;
-
-        cur->val.len = val_len;
-        cur->val.p = mbedtls_calloc( 1, val_len );
-        if( cur->val.p == NULL )
-        {
-            mbedtls_free( cur->oid.p );
-            mbedtls_free( cur );
+        /*
+         * Enlarge existing value buffer if needed
+         * Preserve old data until the allocation succeeded, to leave list in
+         * a consistent state in case allocation fails.
+         */
+        void *p = mbedtls_calloc( 1, val_len );
+        if( p == NULL )
             return( NULL );
-        }
+
+        mbedtls_free( cur->val.p );
+        cur->val.p = p;
+        cur->val.len = val_len;
     }
 
     if( val != NULL )

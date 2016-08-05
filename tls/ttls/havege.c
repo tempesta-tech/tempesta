@@ -2,7 +2,7 @@
  *  \brief HAVEGE: HArdware Volatile Entropy Gathering and Expansion
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -40,7 +40,7 @@
 #include "havege.h"
 #include "timing.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -176,6 +176,8 @@ static void havege_fill( mbedtls_havege_state *hs )
 
     PTX  = U1 = 0;
     PTY  = U2 = 0;
+
+    (void)PTX;
 
     memset( RES, 0, sizeof( RES ) );
 

@@ -2,7 +2,7 @@
  *  CTR_DRBG implementation based on AES-256 (NIST SP 800-90)
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,6 @@
  *
  *  http://csrc.nist.gov/publications/nistpubs/800-90/SP800-90revised_March2007.pdf
  */
-#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -38,7 +37,7 @@
 
 #include "ctr_drbg.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
@@ -69,11 +68,10 @@ void mbedtls_ctr_drbg_init( mbedtls_ctr_drbg_context *ctx )
     mbedtls_mutex_init( &ctx->mutex );
 #endif
 }
-EXPORT_SYMBOL(mbedtls_ctr_drbg_init);
 
 /*
- * Non-public function wrapped by ctr_crbg_init(). Necessary to allow NIST
- * tests to succeed (which require known length fixed entropy)
+ * Non-public function wrapped by mbedtls_ctr_drbg_seed(). Necessary to allow
+ * NIST tests to succeed (which require known length fixed entropy)
  */
 int mbedtls_ctr_drbg_seed_entropy_len(
                    mbedtls_ctr_drbg_context *ctx,
@@ -116,7 +114,6 @@ int mbedtls_ctr_drbg_seed( mbedtls_ctr_drbg_context *ctx,
     return( mbedtls_ctr_drbg_seed_entropy_len( ctx, f_entropy, p_entropy, custom, len,
                                        MBEDTLS_CTR_DRBG_ENTROPY_LEN ) );
 }
-EXPORT_SYMBOL(mbedtls_ctr_drbg_seed);
 
 void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx )
 {
@@ -129,7 +126,6 @@ void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx )
     mbedtls_aes_free( &ctx->aes_ctx );
     mbedtls_zeroize( ctx, sizeof( mbedtls_ctr_drbg_context ) );
 }
-EXPORT_SYMBOL(mbedtls_ctr_drbg_free);
 
 void mbedtls_ctr_drbg_set_prediction_resistance( mbedtls_ctr_drbg_context *ctx, int resistance )
 {
@@ -421,7 +417,6 @@ int mbedtls_ctr_drbg_random( void *p_rng, unsigned char *output, size_t output_l
 
     return( ret );
 }
-EXPORT_SYMBOL(mbedtls_ctr_drbg_random);
 
 #if defined(MBEDTLS_FS_IO)
 int mbedtls_ctr_drbg_write_seed_file( mbedtls_ctr_drbg_context *ctx, const char *path )

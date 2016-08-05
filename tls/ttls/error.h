@@ -4,6 +4,7 @@
  * \brief Error to string translation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -81,7 +82,7 @@
  * ECP       4   8 (Started from top)
  * MD        5   4
  * CIPHER    6   6
- * SSL       6   16 (Started from top)
+ * SSL       6   17 (Started from top)
  * SSL       7   31
  *
  * Module dependent error code (5 bits 0x.00.-0x.F8.)

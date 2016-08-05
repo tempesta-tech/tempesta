@@ -4,6 +4,7 @@
  * \brief Diffie-Hellman-Merkle key exchange
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -223,7 +224,7 @@ int mbedtls_dhm_read_public( mbedtls_dhm_context *ctx,
  * \param ctx      DHM context
  * \param x_size   private value size in bytes
  * \param output   destination buffer
- * \param olen     must be equal to ctx->P.len
+ * \param olen     must be at least equal to the size of P, ctx->len
  * \param f_rng    RNG function
  * \param p_rng    RNG parameter
  *

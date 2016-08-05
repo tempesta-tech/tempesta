@@ -2,7 +2,7 @@
  *  Public Key layer for parsing key files and structures
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -35,7 +34,7 @@
 #include "asn1.h"
 #include "oid.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_RSA_C)
 #include "rsa.h"
@@ -945,7 +944,7 @@ static int pk_parse_key_pkcs8_encrypted_der(
 {
     int ret, decrypted = 0;
     size_t len;
-    unsigned char buf[1024]; /*TODO: 2048*/
+    unsigned char buf[2048];
     unsigned char *p, *end;
     mbedtls_asn1_buf pbe_alg_oid, pbe_params;
 #if defined(MBEDTLS_PKCS12_C)
@@ -1245,7 +1244,6 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
 
     return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
 }
-EXPORT_SYMBOL(mbedtls_pk_parse_key);
 
 /*
  * Parse a public key

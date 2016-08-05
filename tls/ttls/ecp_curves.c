@@ -2,7 +2,7 @@
  *  Elliptic curves over GF(p): curve-specific data and functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 
 #include "ecp.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
     !defined(inline) && !defined(__cplusplus)

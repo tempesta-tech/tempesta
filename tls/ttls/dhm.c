@@ -2,7 +2,7 @@
  *  Diffie-Hellman-Merkle key exchange
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,9 +22,12 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
- *  Reference:
+ *  The following sources were referenced in the design of this implementation
+ *  of the Diffie-Hellman-Merkle algorithm:
  *
- *  http://www.cacr.math.uwaterloo.ca/hac/ (chapter 12)
+ *  [1] Handbook of Applied Cryptography - 1997, Chapter 12
+ *      Menezes, van Oorschot and Vanstone
+ *
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
@@ -37,7 +40,7 @@
 
 #include "dhm.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"

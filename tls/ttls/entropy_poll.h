@@ -3,7 +3,8 @@
  *
  * \brief Platform-specific and custom entropy polling functions
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -45,6 +46,14 @@ extern "C" {
 #define MBEDTLS_ENTROPY_MIN_HARDCLOCK     4     /**< Minimum for mbedtls_timing_hardclock()        */
 #define MBEDTLS_ENTROPY_MIN_HARDWARE     32     /**< Minimum for the hardware source */
 
+/**
+ * \brief           Entropy poll callback that provides 0 entropy.
+ */
+#if defined(MBEDTLS_TEST_NULL_ENTROPY)
+    int mbedtls_null_entropy_poll( void *data,
+                                unsigned char *output, size_t len, size_t *olen );
+#endif
+
 #if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
 /**
  * \brief           Platform-specific entropy poll callback
@@ -82,6 +91,16 @@ int mbedtls_hardclock_poll( void *data,
  */
 int mbedtls_hardware_poll( void *data,
                            unsigned char *output, size_t len, size_t *olen );
+#endif
+
+#if defined(MBEDTLS_ENTROPY_NV_SEED)
+/**
+ * \brief           Entropy poll callback for a non-volatile seed file
+ *
+ * \note            This must accept NULL as its first argument.
+ */
+int mbedtls_nv_seed_poll( void *data,
+                          unsigned char *output, size_t len, size_t *olen );
 #endif
 
 #ifdef __cplusplus

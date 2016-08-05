@@ -2,7 +2,7 @@
  *  X.509 Certificate Signing Request (CSR) parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@
 #include "x509_csr.h"
 #include "oid.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
@@ -107,7 +107,7 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
     /*
      * Check for valid input
      */
-    if( csr == NULL || buf == NULL )
+    if( csr == NULL || buf == NULL || buflen == 0 )
         return( MBEDTLS_ERR_X509_BAD_INPUT_DATA );
 
     mbedtls_x509_csr_init( csr );
@@ -210,6 +210,13 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
 
     /*
      *  attributes    [0] Attributes
+     *
+     *  The list of possible attributes is open-ended, though RFC 2985
+     *  (PKCS#9) defines a few in section 5.4. We currently don't support any,
+     *  so we just ignore them. This is a safe thing to do as the worst thing
+     *  that could happen is that we issue a certificate that does not match
+     *  the requester's expectations - this cannot cause a violation of our
+     *  signature policies.
      */
     if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
             MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_CONTEXT_SPECIFIC ) ) != 0 )
@@ -217,7 +224,6 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
         mbedtls_x509_csr_free( csr );
         return( MBEDTLS_ERR_X509_INVALID_FORMAT + ret );
     }
-    // TODO Parse Attributes / extension requests
 
     p += len;
 
@@ -271,14 +277,14 @@ int mbedtls_x509_csr_parse( mbedtls_x509_csr *csr, const unsigned char *buf, siz
     /*
      * Check for valid input
      */
-    if( csr == NULL || buf == NULL )
+    if( csr == NULL || buf == NULL || buflen == 0 )
         return( MBEDTLS_ERR_X509_BAD_INPUT_DATA );
 
 #if defined(MBEDTLS_PEM_PARSE_C)
     mbedtls_pem_init( &pem );
 
     /* Avoid calling mbedtls_pem_read_buffer() on non-null-terminated string */
-    if( buflen == 0 || buf[buflen - 1] != '\0' )
+    if( buf[buflen - 1] != '\0' )
         ret = MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
     else
         ret = mbedtls_pem_read_buffer( &pem,

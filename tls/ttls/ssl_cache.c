@@ -2,7 +2,7 @@
  *  SSL session cache implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,7 +25,6 @@
  * These session callbacks use a simple chained list
  * to store and retrieve the session information.
  */
-#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -35,17 +34,19 @@
 
 #if defined(MBEDTLS_SSL_CACHE_C)
 
-#include "ssl_cache.h"
-
-#include <linux/string.h>
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
-#define mbedtls_free       free
+#define mbedtls_free      free
+#define mbedtls_time      time
+#define mbedtls_time_t    time_t
 #endif
+
+#include "ssl_cache.h"
+
+#include <string.h>
 
 void mbedtls_ssl_cache_init( mbedtls_ssl_cache_context *cache )
 {
@@ -58,13 +59,12 @@ void mbedtls_ssl_cache_init( mbedtls_ssl_cache_context *cache )
     mbedtls_mutex_init( &cache->mutex );
 #endif
 }
-EXPORT_SYMBOL(mbedtls_ssl_cache_init);
 
 int mbedtls_ssl_cache_get( void *data, mbedtls_ssl_session *session )
 {
     int ret = 1;
 #if defined(MBEDTLS_HAVE_TIME)
-    time_t t = time( NULL );
+    mbedtls_time_t t = mbedtls_time( NULL );
 #endif
     mbedtls_ssl_cache_context *cache = (mbedtls_ssl_cache_context *) data;
     mbedtls_ssl_cache_entry *cur, *entry;
@@ -138,13 +138,12 @@ exit:
 
     return( ret );
 }
-EXPORT_SYMBOL(mbedtls_ssl_cache_get);
 
 int mbedtls_ssl_cache_set( void *data, const mbedtls_ssl_session *session )
 {
     int ret = 1;
 #if defined(MBEDTLS_HAVE_TIME)
-    time_t t = time( NULL ), oldest = 0;
+    mbedtls_time_t t = time( NULL ), oldest = 0;
     mbedtls_ssl_cache_entry *old = NULL;
 #endif
     mbedtls_ssl_cache_context *cache = (mbedtls_ssl_cache_context *) data;
@@ -287,7 +286,6 @@ exit:
 
     return( ret );
 }
-EXPORT_SYMBOL(mbedtls_ssl_cache_set);
 
 #if defined(MBEDTLS_HAVE_TIME)
 void mbedtls_ssl_cache_set_timeout( mbedtls_ssl_cache_context *cache, int timeout )
@@ -329,6 +327,5 @@ void mbedtls_ssl_cache_free( mbedtls_ssl_cache_context *cache )
     mbedtls_mutex_free( &cache->mutex );
 #endif
 }
-EXPORT_SYMBOL(mbedtls_ssl_cache_free);
 
 #endif /* MBEDTLS_SSL_CACHE_C */

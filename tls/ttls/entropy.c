@@ -1,8 +1,8 @@
 /*
  *  Entropy accumulator implementation
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,7 +21,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include <linux/kernel.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -31,10 +30,16 @@
 
 #if defined(MBEDTLS_ENTROPY_C)
 
+#if defined(MBEDTLS_TEST_NULL_ENTROPY)
+#warning "**** WARNING!  MBEDTLS_TEST_NULL_ENTROPY defined! "
+#warning "**** THIS BUILD HAS NO DEFINED ENTROPY SOURCES "
+#warning "**** THIS BUILD IS *NOT* SUITABLE FOR PRODUCTION USE "
+#endif
+
 #include "entropy.h"
 #include "entropy_poll.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
@@ -77,6 +82,11 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
     mbedtls_havege_init( &ctx->havege_data );
 #endif
 
+#if defined(MBEDTLS_TEST_NULL_ENTROPY)
+    mbedtls_entropy_add_source( ctx, mbedtls_null_entropy_poll, NULL,
+                                1, MBEDTLS_ENTROPY_SOURCE_STRONG );
+#endif
+
 #if !defined(MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES)
 #if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
     mbedtls_entropy_add_source( ctx, mbedtls_platform_entropy_poll, NULL,
@@ -98,9 +108,13 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
                                 MBEDTLS_ENTROPY_MIN_HARDWARE,
                                 MBEDTLS_ENTROPY_SOURCE_STRONG );
 #endif
+#if defined(MBEDTLS_ENTROPY_NV_SEED)
+    mbedtls_entropy_add_source( ctx, mbedtls_nv_seed_poll, NULL,
+                                MBEDTLS_ENTROPY_BLOCK_SIZE,
+                                MBEDTLS_ENTROPY_SOURCE_STRONG );
+#endif
 #endif /* MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES */
 }
-EXPORT_SYMBOL(mbedtls_entropy_init);
 
 void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
 {
@@ -112,7 +126,6 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
 #endif
     mbedtls_zeroize( ctx, sizeof( mbedtls_entropy_context ) );
 }
-EXPORT_SYMBOL(mbedtls_entropy_free);
 
 int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
                         mbedtls_entropy_f_source_ptr f_source, void *p_source,
@@ -278,6 +291,18 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
     if( len > MBEDTLS_ENTROPY_BLOCK_SIZE )
         return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
 
+#if defined(MBEDTLS_ENTROPY_NV_SEED)
+    /* Update the NV entropy seed before generating any entropy for outside
+     * use.
+     */
+    if( ctx->initial_entropy_run == 0 )
+    {
+        ctx->initial_entropy_run = 1;
+        if( ( ret = mbedtls_entropy_update_nv_seed( ctx ) ) != 0 )
+            return( ret );
+    }
+#endif
+
 #if defined(MBEDTLS_THREADING_C)
     if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
         return( ret );
@@ -351,7 +376,27 @@ exit:
 
     return( ret );
 }
-EXPORT_SYMBOL(mbedtls_entropy_func);
+
+#if defined(MBEDTLS_ENTROPY_NV_SEED)
+int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx )
+{
+    int ret = MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR;
+    unsigned char buf[ MBEDTLS_ENTROPY_MAX_SEED_SIZE ];
+
+    /* Read new seed  and write it to NV */
+    if( ( ret = mbedtls_entropy_func( ctx, buf, MBEDTLS_ENTROPY_BLOCK_SIZE ) ) != 0 )
+        return( ret );
+
+    if( mbedtls_nv_seed_write( buf, MBEDTLS_ENTROPY_BLOCK_SIZE ) < 0 )
+        return( MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR );
+
+    /* Manually update the remaining stream with a separator value to diverge */
+    memset( buf, 0, MBEDTLS_ENTROPY_BLOCK_SIZE );
+    mbedtls_entropy_update_manual( ctx, buf, MBEDTLS_ENTROPY_BLOCK_SIZE );
+
+    return( 0 );
+}
+#endif /* MBEDTLS_ENTROPY_NV_SEED */
 
 #if defined(MBEDTLS_FS_IO)
 int mbedtls_entropy_write_seed_file( mbedtls_entropy_context *ctx, const char *path )

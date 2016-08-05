@@ -2,7 +2,7 @@
  *  SSLv3/TLSv1 server-side functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,22 +30,24 @@
 
 #if defined(MBEDTLS_SSL_SRV_C)
 
-#include "debug.h"
-#include "ssl.h"
-#include "ssl_internal.h"
-
-#include <linux/string.h>
-
-#if defined(MBEDTLS_ECP_C)
-#include "ecp.h"
-#endif
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
-#define mbedtls_free       free
+#define mbedtls_free      free
+#define mbedtls_time      time
+#define mbedtls_time_t    time_t
+#endif
+
+#include "debug.h"
+#include "ssl.h"
+#include "ssl_internal.h"
+
+#include <string.h>
+
+#if defined(MBEDTLS_ECP_C)
+#include "ecp.h"
 #endif
 
 #if defined(MBEDTLS_HAVE_TIME)
@@ -1508,192 +1510,200 @@ read_record_header:
         ssl->session_negotiate->compression = MBEDTLS_SSL_COMPRESS_NULL;
 #endif
 
-    /*
-     * Check the extension length
-     */
-    ext_offset = comp_offset + 1 + comp_len;
-    if( msg_len > ext_offset )
+    /* Do not parse the extensions if the protocol is SSLv3 */
+#if defined(MBEDTLS_SSL_PROTO_SSL3)
+    if( ( ssl->major_ver != 3 ) || ( ssl->minor_ver != 0 ) )
     {
-        if( msg_len < ext_offset + 2 )
+#endif
+        /*
+         * Check the extension length
+         */
+        ext_offset = comp_offset + 1 + comp_len;
+        if( msg_len > ext_offset )
         {
-            MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
-            return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            if( msg_len < ext_offset + 2 )
+            {
+                MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
+                return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            }
+
+            ext_len = ( buf[ext_offset + 0] << 8 )
+                    | ( buf[ext_offset + 1]      );
+
+            if( ( ext_len > 0 && ext_len < 4 ) ||
+                msg_len != ext_offset + 2 + ext_len )
+            {
+                MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
+                return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            }
         }
+        else
+            ext_len = 0;
 
-        ext_len = ( buf[ext_offset + 0] << 8 )
-                | ( buf[ext_offset + 1]      );
+        ext = buf + ext_offset + 2;
+        MBEDTLS_SSL_DEBUG_BUF( 3, "client hello extensions", ext, ext_len );
 
-        if( ( ext_len > 0 && ext_len < 4 ) ||
-            msg_len != ext_offset + 2 + ext_len )
+        while( ext_len != 0 )
         {
-            MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
-            return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
-        }
-    }
-    else
-        ext_len = 0;
+            unsigned int ext_id   = ( ( ext[0] <<  8 )
+                                    | ( ext[1]       ) );
+            unsigned int ext_size = ( ( ext[2] <<  8 )
+                                    | ( ext[3]       ) );
 
-    ext = buf + ext_offset + 2;
-    MBEDTLS_SSL_DEBUG_BUF( 3, "client hello extensions", ext, ext_len );
-
-    while( ext_len != 0 )
-    {
-        unsigned int ext_id   = ( ( ext[0] <<  8 )
-                                | ( ext[1]       ) );
-        unsigned int ext_size = ( ( ext[2] <<  8 )
-                                | ( ext[3]       ) );
-
-        if( ext_size + 4 > ext_len )
-        {
-            MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
-            return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
-        }
-        switch( ext_id )
-        {
+            if( ext_size + 4 > ext_len )
+            {
+                MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
+                return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            }
+            switch( ext_id )
+            {
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
-        case MBEDTLS_TLS_EXT_SERVERNAME:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found ServerName extension" ) );
-            if( ssl->conf->f_sni == NULL )
-                break;
+            case MBEDTLS_TLS_EXT_SERVERNAME:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found ServerName extension" ) );
+                if( ssl->conf->f_sni == NULL )
+                    break;
 
-            ret = ssl_parse_servername_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_servername_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
 
-        case MBEDTLS_TLS_EXT_RENEGOTIATION_INFO:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found renegotiation extension" ) );
+            case MBEDTLS_TLS_EXT_RENEGOTIATION_INFO:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found renegotiation extension" ) );
 #if defined(MBEDTLS_SSL_RENEGOTIATION)
-            renegotiation_info_seen = 1;
+                renegotiation_info_seen = 1;
 #endif
 
-            ret = ssl_parse_renegotiation_info( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_renegotiation_info( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2) && \
     defined(MBEDTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-        case MBEDTLS_TLS_EXT_SIG_ALG:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found signature_algorithms extension" ) );
+            case MBEDTLS_TLS_EXT_SIG_ALG:
+                    MBEDTLS_SSL_DEBUG_MSG( 3, ( "found signature_algorithms extension" ) );
 #if defined(MBEDTLS_SSL_RENEGOTIATION)
-            if( ssl->renego_status == MBEDTLS_SSL_RENEGOTIATION_IN_PROGRESS )
-                break;
+                if( ssl->renego_status == MBEDTLS_SSL_RENEGOTIATION_IN_PROGRESS )
+                    break;
 #endif
 
-            ret = ssl_parse_signature_algorithms_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_signature_algorithms_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_PROTO_TLS1_2 &&
           MBEDTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 #if defined(MBEDTLS_ECDH_C) || defined(MBEDTLS_ECDSA_C) || \
     defined(MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-        case MBEDTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found supported elliptic curves extension" ) );
+            case MBEDTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found supported elliptic curves extension" ) );
 
-            ret = ssl_parse_supported_elliptic_curves( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_supported_elliptic_curves( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 
-        case MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found supported point formats extension" ) );
-            ssl->handshake->cli_exts |= MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT;
+            case MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found supported point formats extension" ) );
+                ssl->handshake->cli_exts |= MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT;
 
-            ret = ssl_parse_supported_point_formats( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_supported_point_formats( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_ECDH_C || MBEDTLS_ECDSA_C ||
           MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-        case MBEDTLS_TLS_EXT_ECJPAKE_KKPP:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found ecjpake kkpp extension" ) );
+            case MBEDTLS_TLS_EXT_ECJPAKE_KKPP:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found ecjpake kkpp extension" ) );
 
-            ret = ssl_parse_ecjpake_kkpp( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_ecjpake_kkpp( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
 
 #if defined(MBEDTLS_SSL_MAX_FRAGMENT_LENGTH)
-        case MBEDTLS_TLS_EXT_MAX_FRAGMENT_LENGTH:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found max fragment length extension" ) );
+            case MBEDTLS_TLS_EXT_MAX_FRAGMENT_LENGTH:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found max fragment length extension" ) );
 
-            ret = ssl_parse_max_fragment_length_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_max_fragment_length_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_MAX_FRAGMENT_LENGTH */
 
 #if defined(MBEDTLS_SSL_TRUNCATED_HMAC)
-        case MBEDTLS_TLS_EXT_TRUNCATED_HMAC:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found truncated hmac extension" ) );
+            case MBEDTLS_TLS_EXT_TRUNCATED_HMAC:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found truncated hmac extension" ) );
 
-            ret = ssl_parse_truncated_hmac_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_truncated_hmac_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_TRUNCATED_HMAC */
 
 #if defined(MBEDTLS_SSL_ENCRYPT_THEN_MAC)
-        case MBEDTLS_TLS_EXT_ENCRYPT_THEN_MAC:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found encrypt then mac extension" ) );
+            case MBEDTLS_TLS_EXT_ENCRYPT_THEN_MAC:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found encrypt then mac extension" ) );
 
-            ret = ssl_parse_encrypt_then_mac_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_encrypt_then_mac_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_ENCRYPT_THEN_MAC */
 
 #if defined(MBEDTLS_SSL_EXTENDED_MASTER_SECRET)
-        case MBEDTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found extended master secret extension" ) );
+            case MBEDTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found extended master secret extension" ) );
 
-            ret = ssl_parse_extended_ms_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_extended_ms_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_EXTENDED_MASTER_SECRET */
 
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
-        case MBEDTLS_TLS_EXT_SESSION_TICKET:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found session ticket extension" ) );
+            case MBEDTLS_TLS_EXT_SESSION_TICKET:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found session ticket extension" ) );
 
-            ret = ssl_parse_session_ticket_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_session_ticket_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_SESSION_TICKETS */
 
 #if defined(MBEDTLS_SSL_ALPN)
-        case MBEDTLS_TLS_EXT_ALPN:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "found alpn extension" ) );
+            case MBEDTLS_TLS_EXT_ALPN:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "found alpn extension" ) );
 
-            ret = ssl_parse_alpn_ext( ssl, ext + 4, ext_size );
-            if( ret != 0 )
-                return( ret );
-            break;
+                ret = ssl_parse_alpn_ext( ssl, ext + 4, ext_size );
+                if( ret != 0 )
+                    return( ret );
+                break;
 #endif /* MBEDTLS_SSL_SESSION_TICKETS */
 
-        default:
-            MBEDTLS_SSL_DEBUG_MSG( 3, ( "unknown extension found: %d (ignoring)",
-                           ext_id ) );
-        }
+            default:
+                MBEDTLS_SSL_DEBUG_MSG( 3, ( "unknown extension found: %d (ignoring)",
+                               ext_id ) );
+            }
 
-        ext_len -= 4 + ext_size;
-        ext += 4 + ext_size;
+            ext_len -= 4 + ext_size;
+            ext += 4 + ext_size;
 
-        if( ext_len > 0 && ext_len < 4 )
-        {
-            MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
-            return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            if( ext_len > 0 && ext_len < 4 )
+            {
+                MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad client hello message" ) );
+                return( MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO );
+            }
         }
+#if defined(MBEDTLS_SSL_PROTO_SSL3)
     }
+#endif
 
 #if defined(MBEDTLS_SSL_FALLBACK_SCSV)
     for( i = 0, p = buf + 41 + sess_len; i < ciph_len; i += 2, p += 2 )
@@ -2213,7 +2223,7 @@ static int ssl_write_hello_verify_request( mbedtls_ssl_context *ssl )
 static int ssl_write_server_hello( mbedtls_ssl_context *ssl )
 {
 #if defined(MBEDTLS_HAVE_TIME)
-    time_t t;
+    mbedtls_time_t t;
 #endif
     int ret;
     size_t olen, ext_len = 0, n;
@@ -2256,7 +2266,7 @@ static int ssl_write_server_hello( mbedtls_ssl_context *ssl )
                         buf[4], buf[5] ) );
 
 #if defined(MBEDTLS_HAVE_TIME)
-    t = time( NULL );
+    t = mbedtls_time( NULL );
     *p++ = (unsigned char)( t >> 24 );
     *p++ = (unsigned char)( t >> 16 );
     *p++ = (unsigned char)( t >>  8 );
@@ -2305,7 +2315,7 @@ static int ssl_write_server_hello( mbedtls_ssl_context *ssl )
         ssl->state++;
 
 #if defined(MBEDTLS_HAVE_TIME)
-        ssl->session_negotiate->start = time( NULL );
+        ssl->session_negotiate->start = mbedtls_time( NULL );
 #endif
 
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
@@ -2364,6 +2374,12 @@ static int ssl_write_server_hello( mbedtls_ssl_context *ssl )
     MBEDTLS_SSL_DEBUG_MSG( 3, ( "server hello, compress alg.: 0x%02X",
                    ssl->session_negotiate->compression ) );
 
+    /* Do not write the extensions if the protocol is SSLv3 */
+#if defined(MBEDTLS_SSL_PROTO_SSL3)
+    if( ( ssl->major_ver != 3 ) || ( ssl->minor_ver != 0 ) )
+    {
+#endif
+
     /*
      *  First write extensions, then the total length
      */
@@ -2419,6 +2435,10 @@ static int ssl_write_server_hello( mbedtls_ssl_context *ssl )
         *p++ = (unsigned char)( ( ext_len      ) & 0xFF );
         p += ext_len;
     }
+
+#if defined(MBEDTLS_SSL_PROTO_SSL3)
+    }
+#endif
 
     ssl->out_msglen  = p - buf;
     ssl->out_msgtype = MBEDTLS_SSL_MSG_HANDSHAKE;
@@ -2587,7 +2607,9 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
     {
         dn_size = crt->subject_raw.len;
 
-        if( end < p || (size_t)( end - p ) < 2 + dn_size )
+        if( end < p ||
+            (size_t)( end - p ) < dn_size ||
+            (size_t)( end - p ) < 2 + dn_size )
         {
             MBEDTLS_SSL_DEBUG_MSG( 1, ( "skipping CAs: buffer too short" ) );
             break;
@@ -2719,7 +2741,8 @@ static int ssl_write_server_key_exchange( mbedtls_ssl_context *ssl )
     if( ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_DHE_PSK ||
         ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_ECDHE_PSK )
     {
-        /* TODO: Support identity hints */
+        /* Note: we don't support identity hints, until someone asks
+         * for them. */
         *(p++) = 0x00;
         *(p++) = 0x00;
 

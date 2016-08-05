@@ -4,6 +4,7 @@
  * \brief Elliptic curve J-PAKE
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -66,7 +67,7 @@ typedef enum {
  *
  * In order to benefit from this symmetry, we choose a different naming
  * convetion from the Thread v1.0 spec. Correspondance is indicated in the
- * description as a pair C: <client name>, S: <server name>
+ * description as a pair C: client name, S: server name
  */
 typedef struct
 {

@@ -2,7 +2,7 @@
  *  NIST SP800-38C compliant CCM implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -41,7 +41,7 @@
 
 #include "ccm.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
 #if defined(MBEDTLS_PLATFORM_C)
@@ -54,7 +54,7 @@
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
-    volatile unsigned char *p = v; while( n-- ) *p++ = 0;
+    volatile unsigned char *p = (unsigned char*)v; while( n-- ) *p++ = 0;
 }
 
 #define CCM_ENCRYPT 0

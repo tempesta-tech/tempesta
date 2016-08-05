@@ -2,7 +2,7 @@
  *  NIST SP800-38D compliant GCM implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -42,7 +42,7 @@
 
 #include "gcm.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_AESNI_C)
 #include "aesni.h"
@@ -365,7 +365,7 @@ int mbedtls_gcm_update( mbedtls_gcm_context *ctx,
     /* Total length is restricted to 2^39 - 256 bits, ie 2^36 - 2^5 bytes
      * Also check for possible overflow */
     if( ctx->len + length < ctx->len ||
-        (uint64_t) ctx->len + length > 0x03FFFFE0ull )
+        (uint64_t) ctx->len + length > 0xFFFFFFFE0ull )
     {
         return( MBEDTLS_ERR_GCM_BAD_INPUT );
     }

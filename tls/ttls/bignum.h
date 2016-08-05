@@ -4,6 +4,7 @@
  * \brief  Multi-precision integer library
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,7 +33,7 @@
 #endif
 
 #include <stddef.h>
-#include <linux/types.h>
+#include <stdint.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
@@ -124,6 +125,7 @@
      #define MBEDTLS_HAVE_INT64
      typedef  int64_t mbedtls_mpi_sint;
      typedef uint64_t mbedtls_mpi_uint;
+     /* mbedtls_t_udbl defined as 128-bit unsigned int */
      typedef unsigned int mbedtls_t_udbl __attribute__((mode(TI)));
      #define MBEDTLS_HAVE_UDBL
   #else
