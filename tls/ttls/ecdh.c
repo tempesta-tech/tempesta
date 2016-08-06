@@ -2,7 +2,7 @@
  *  Elliptic curve Diffie-Hellman
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@
 
 #include "ecdh.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 /*
  * Generate public key: simple wrapper around mbedtls_ecp_gen_keypair

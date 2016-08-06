@@ -2,6 +2,7 @@
  *  Debugging routines
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -29,20 +30,21 @@
 
 #if defined(MBEDTLS_DEBUG_C)
 
-#include "debug.h"
-
-#include <stdarg.h>
-#include <stdio.h>
-#include <linux/string.h>
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc      calloc
 #define mbedtls_free        free
+#define mbedtls_time_t      time_t
 #define mbedtls_snprintf    snprintf
 #endif
+
+#include "debug.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
 #if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
     !defined(inline) && !defined(__cplusplus)
@@ -87,7 +89,7 @@ void mbedtls_debug_print_msg( const mbedtls_ssl_context *ssl, int level,
     char str[DEBUG_BUF_SIZE];
     int ret;
 
-    if( ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold )
+    if( NULL == ssl || NULL == ssl->conf || NULL == ssl->conf->f_dbg || level > debug_threshold )
         return;
 
     va_start( argp, format );

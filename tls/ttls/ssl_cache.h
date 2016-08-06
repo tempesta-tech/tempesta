@@ -4,6 +4,7 @@
  * \brief SSL session cache implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -62,7 +63,7 @@ typedef struct mbedtls_ssl_cache_entry mbedtls_ssl_cache_entry;
 struct mbedtls_ssl_cache_entry
 {
 #if defined(MBEDTLS_HAVE_TIME)
-    time_t timestamp;           /*!< entry timestamp    */
+    mbedtls_time_t timestamp;           /*!< entry timestamp    */
 #endif
     mbedtls_ssl_session session;        /*!< entry session      */
 #if defined(MBEDTLS_X509_CRT_PARSE_C)

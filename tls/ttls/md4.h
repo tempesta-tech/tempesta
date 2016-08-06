@@ -1,10 +1,10 @@
 /**
- * \file mbedtls_md4.h
+ * \file md4.h
  *
  * \brief MD4 message digest algorithm (hash function)
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,7 +33,7 @@
 #endif
 
 #include <stddef.h>
-#include <linux/types.h>
+#include <stdint.h>
 
 #if !defined(MBEDTLS_MD4_ALT)
 // Regular implementation

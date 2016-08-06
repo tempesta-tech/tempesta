@@ -2,6 +2,7 @@
  *  Version feature information
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -31,7 +32,7 @@
 
 #include "version.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 static const char *features[] = {
 #if defined(MBEDTLS_VERSION_FEATURES)
@@ -56,6 +57,9 @@ static const char *features[] = {
 #if defined(MBEDTLS_PLATFORM_EXIT_ALT)
     "MBEDTLS_PLATFORM_EXIT_ALT",
 #endif /* MBEDTLS_PLATFORM_EXIT_ALT */
+#if defined(MBEDTLS_PLATFORM_TIME_ALT)
+    "MBEDTLS_PLATFORM_TIME_ALT",
+#endif /* MBEDTLS_PLATFORM_TIME_ALT */
 #if defined(MBEDTLS_PLATFORM_FPRINTF_ALT)
     "MBEDTLS_PLATFORM_FPRINTF_ALT",
 #endif /* MBEDTLS_PLATFORM_FPRINTF_ALT */
@@ -65,6 +69,9 @@ static const char *features[] = {
 #if defined(MBEDTLS_PLATFORM_SNPRINTF_ALT)
     "MBEDTLS_PLATFORM_SNPRINTF_ALT",
 #endif /* MBEDTLS_PLATFORM_SNPRINTF_ALT */
+#if defined(MBEDTLS_PLATFORM_NV_SEED_ALT)
+    "MBEDTLS_PLATFORM_NV_SEED_ALT",
+#endif /* MBEDTLS_PLATFORM_NV_SEED_ALT */
 #if defined(MBEDTLS_DEPRECATED_WARNING)
     "MBEDTLS_DEPRECATED_WARNING",
 #endif /* MBEDTLS_DEPRECATED_WARNING */
@@ -155,9 +162,15 @@ static const char *features[] = {
 #if defined(MBEDTLS_AES_DECRYPT_ALT)
     "MBEDTLS_AES_DECRYPT_ALT",
 #endif /* MBEDTLS_AES_DECRYPT_ALT */
+#if defined(MBEDTLS_TEST_NULL_ENTROPY)
+    "MBEDTLS_TEST_NULL_ENTROPY",
+#endif /* MBEDTLS_TEST_NULL_ENTROPY */
 #if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
     "MBEDTLS_ENTROPY_HARDWARE_ALT",
 #endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
+#if defined(MBEDTLS_AES_ROM_TABLES)
+    "MBEDTLS_AES_ROM_TABLES",
+#endif /* MBEDTLS_AES_ROM_TABLES */
 #if defined(MBEDTLS_CAMELLIA_SMALL_MEMORY)
     "MBEDTLS_CAMELLIA_SMALL_MEMORY",
 #endif /* MBEDTLS_CAMELLIA_SMALL_MEMORY */
@@ -287,6 +300,9 @@ static const char *features[] = {
 #if defined(MBEDTLS_ENTROPY_FORCE_SHA256)
     "MBEDTLS_ENTROPY_FORCE_SHA256",
 #endif /* MBEDTLS_ENTROPY_FORCE_SHA256 */
+#if defined(MBEDTLS_ENTROPY_NV_SEED)
+    "MBEDTLS_ENTROPY_NV_SEED",
+#endif /* MBEDTLS_ENTROPY_NV_SEED */
 #if defined(MBEDTLS_MEMORY_DEBUG)
     "MBEDTLS_MEMORY_DEBUG",
 #endif /* MBEDTLS_MEMORY_DEBUG */

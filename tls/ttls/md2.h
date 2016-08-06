@@ -1,9 +1,10 @@
 /**
- * \file mbedtls_md2.h
+ * \file md2.h
  *
  * \brief MD2 message digest algorithm (hash function)
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify

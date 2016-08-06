@@ -30,6 +30,7 @@
 #include "tempesta_fw.h"
 #include "server.h"
 #include "procfs.h"
+#include "tls.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -49,6 +50,7 @@ typedef struct {
 } TfwCliConnection;
 
 static struct kmem_cache *tfw_cli_conn_cache;
+static struct kmem_cache *tfw_cli_conn_tls_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static void
@@ -67,12 +69,19 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	}
 }
 
+#define cli_conn_tls_ptr(x)		\
+	(TfwTlsContext *)((char *)(x) + ALIGN(sizeof(*x), L1_CACHE_BYTES))
+
 static TfwCliConnection *
-tfw_cli_conn_alloc(void)
+tfw_cli_conn_alloc(int proto)
 {
 	TfwCliConnection *cli_conn;
+	struct kmem_cache *cachep = tfw_cli_conn_cache;
 
-	cli_conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	if (proto == Conn_HttpsClnt)
+		cachep = tfw_cli_conn_tls_cache;
+
+	cli_conn = kmem_cache_alloc(cachep, GFP_ATOMIC);
 	if (!cli_conn)
 		return NULL;
 
@@ -81,17 +90,25 @@ tfw_cli_conn_alloc(void)
 		    tfw_sock_cli_keepalive_timer_cb,
 		    (unsigned long)&cli_conn->conn);
 
+	if (proto == Conn_HttpsClnt)
+		cli_conn->conn.tls = cli_conn_tls_ptr(cli_conn);
+
 	return cli_conn;
 }
 
 static void
 tfw_cli_conn_free(TfwCliConnection *cli_conn)
 {
+	struct kmem_cache *cachep = tfw_cli_conn_cache;
+
 	BUG_ON(timer_pending(&cli_conn->ka_timer));
+
+	if (cli_conn->conn.tls)
+		cachep = tfw_cli_conn_tls_cache;
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(&cli_conn->conn);
-	kmem_cache_free(tfw_cli_conn_cache, cli_conn);
+	kmem_cache_free(cachep, cli_conn);
 }
 
 void
@@ -154,7 +171,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	cli_conn = tfw_cli_conn_alloc();
+	cli_conn = tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!cli_conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
@@ -576,15 +593,33 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 int
 tfw_sock_clnt_init(void)
 {
+	size_t size;
+
 	BUG_ON(tfw_cli_conn_cache);
+	BUG_ON(tfw_cli_conn_tls_cache);
+
+	size = sizeof(TfwCliConnection);
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwCliConnection),
-					       0, 0, NULL);
-	return !tfw_cli_conn_cache ? -ENOMEM : 0;
+					       size, 0, 0, NULL);
+
+	size = ALIGN(size, L1_CACHE_BYTES) + sizeof(TfwTlsContext);
+	tfw_cli_conn_tls_cache = kmem_cache_create("tfw_cli_conn_tls_cache",
+						   size, 0, 0, NULL);
+
+	if (tfw_cli_conn_cache && tfw_cli_conn_tls_cache)
+		return 0;
+
+	if (tfw_cli_conn_cache)
+		kmem_cache_destroy(tfw_cli_conn_cache);
+	if (tfw_cli_conn_tls_cache)
+		kmem_cache_destroy(tfw_cli_conn_tls_cache);
+
+	return -ENOMEM;
 }
 
 void
 tfw_sock_clnt_exit(void)
 {
 	kmem_cache_destroy(tfw_cli_conn_cache);
+	kmem_cache_destroy(tfw_cli_conn_tls_cache);
 }

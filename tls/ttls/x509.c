@@ -2,7 +2,7 @@
  *  X.509 common functions for parsing and verification
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -44,7 +44,8 @@
 #include "asn1.h"
 #include "oid.h"
 
-#include <linux/string.h>
+#include <stdio.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
@@ -55,18 +56,18 @@
 #else
 #include <stdio.h>
 #include <stdlib.h>
-#define mbedtls_free       free
+#define mbedtls_free      free
 #define mbedtls_calloc    calloc
-#define mbedtls_printf     printf
-#define mbedtls_snprintf   snprintf
+#define mbedtls_time      time
+#define mbedtls_time_t    time_t
+#define mbedtls_printf    printf
+#define mbedtls_snprintf  snprintf
 #endif
 
 #if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
 #include <windows.h>
 #else
-#if defined(MBEDTLS_HAVE_TIME_DATE)
 #include <time.h>
-#endif
 #endif
 
 #if defined(MBEDTLS_FS_IO)
@@ -847,7 +848,7 @@ static int x509_get_current_time( mbedtls_x509_time *now )
 static int x509_get_current_time( mbedtls_x509_time *now )
 {
     struct tm *lt;
-    time_t tt;
+    mbedtls_time_t tt;
     int ret = 0;
 
 #if defined(MBEDTLS_THREADING_C)
@@ -855,7 +856,7 @@ static int x509_get_current_time( mbedtls_x509_time *now )
         return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
 #endif
 
-    tt = time( NULL );
+    tt = mbedtls_time( NULL );
     lt = gmtime( &tt );
 
     if( lt == NULL )

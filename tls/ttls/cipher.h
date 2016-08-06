@@ -6,6 +6,7 @@
  * \author Adriaan de Jong <dejong@fox-it.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -59,6 +60,7 @@
 #define MBEDTLS_ERR_CIPHER_INVALID_PADDING                -0x6200  /**< Input data contains invalid padding and is rejected. */
 #define MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED            -0x6280  /**< Decryption of block requires a full block. */
 #define MBEDTLS_ERR_CIPHER_AUTH_FAILED                    -0x6300  /**< Authentication failed (for AEAD modes). */
+#define MBEDTLS_ERR_CIPHER_INVALID_CONTEXT              -0x6380  /**< The context is invalid, eg because it was free()ed. */
 
 #define MBEDTLS_CIPHER_VARIABLE_IV_LEN     0x01    /**< Cipher accepts IVs of variable length */
 #define MBEDTLS_CIPHER_VARIABLE_KEY_LEN    0x02    /**< Cipher accepts keys of variable length */

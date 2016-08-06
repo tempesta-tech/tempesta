@@ -4,7 +4,7 @@
  * \brief Blowfish block cipher
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,7 +33,7 @@
 #endif
 
 #include <stddef.h>
-#include <linux/types.h>
+#include <stdint.h>
 
 #define MBEDTLS_BLOWFISH_ENCRYPT     1
 #define MBEDTLS_BLOWFISH_DECRYPT     0

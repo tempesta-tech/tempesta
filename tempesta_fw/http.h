@@ -355,6 +355,12 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 
+/* Export HTTP connection hooks (for TLS) */
+int tfw_http_conn_init(TfwConnection *);
+void tfw_http_conn_drop(TfwConnection *);
+void tfw_http_conn_release(TfwConnection *);
+TfwMsg *tfw_http_conn_msg_alloc(TfwConnection *);
+
 /*
  * Helper functions for preparation of an HTTP message.
  */

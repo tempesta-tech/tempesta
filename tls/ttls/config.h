@@ -3,7 +3,12 @@
  *
  * \brief Configuration options (set of defines)
  *
+ *  This set of compile-time options may be used to enable
+ *  or disable features selectively, and reduce the global
+ *  memory footprint.
+ *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,12 +26,6 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-
-/*
- * This set of compile-time options may be used to enable
- * or disable features selectively, and reduce the global
- * memory footprint.
  */
 #ifndef MBEDTLS_CONFIG_H
 #define MBEDTLS_CONFIG_H
@@ -57,7 +56,6 @@
  * Comment to disable the use of assembly code.
  */
 //#define MBEDTLS_HAVE_ASM
-#define MBEDTLS_HAVE_INT32
 
 /**
  * \def MBEDTLS_HAVE_SSE2
@@ -113,7 +111,7 @@
  *
  * Enable this layer to allow use of alternative memory allocators.
  */
-#define MBEDTLS_PLATFORM_MEMORY
+//#define MBEDTLS_PLATFORM_MEMORY
 
 /**
  * \def MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
@@ -135,10 +133,10 @@
 #define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
 
 /**
- * \def MBEDTLS_PLATFORM_XXX_ALT
+ * \def MBEDTLS_PLATFORM_EXIT_ALT
  *
- * Uncomment a macro to let mbed TLS support the function in the platform
- * abstraction layer.
+ * MBEDTLS_PLATFORM_XXX_ALT: Uncomment a macro to let mbed TLS support the
+ * function in the platform abstraction layer.
  *
  * Example: In case you uncomment MBEDTLS_PLATFORM_PRINTF_ALT, mbed TLS will
  * provide a function "mbedtls_platform_set_printf()" that allows you to set an
@@ -156,9 +154,11 @@
  * platform function
  */
 //#define MBEDTLS_PLATFORM_EXIT_ALT
+//#define MBEDTLS_PLATFORM_TIME_ALT
 //#define MBEDTLS_PLATFORM_FPRINTF_ALT
-#define MBEDTLS_PLATFORM_PRINTF_ALT
-#define MBEDTLS_PLATFORM_SNPRINTF_ALT
+//#define MBEDTLS_PLATFORM_PRINTF_ALT
+//#define MBEDTLS_PLATFORM_SNPRINTF_ALT
+//#define MBEDTLS_PLATFORM_NV_SEED_ALT
 
 /**
  * \def MBEDTLS_DEPRECATED_WARNING
@@ -211,12 +211,12 @@
 //#define MBEDTLS_TIMING_ALT
 
 /**
- * \def MBEDTLS__MODULE_NAME__ALT
+ * \def MBEDTLS_AES_ALT
  *
- * Uncomment a macro to let mbed TLS use your alternate core implementation of
- * a symmetric crypto or hash module (e.g. platform specific assembly
- * optimized implementations). Keep in mind that the function prototypes
- * should remain the same.
+ * MBEDTLS__MODULE_NAME__ALT: Uncomment a macro to let mbed TLS use your
+ * alternate core implementation of a symmetric crypto or hash module (e.g.
+ * platform specific assembly optimized implementations). Keep in mind that
+ * the function prototypes should remain the same.
  *
  * This replaces the whole module. If you only want to replace one of the
  * functions, use one of the MBEDTLS__FUNCTION_NAME__ALT flags.
@@ -244,11 +244,11 @@
 //#define MBEDTLS_SHA512_ALT
 
 /**
- * \def MBEDTLS__FUNCTION_NAME__ALT
+ * \def MBEDTLS_MD2_PROCESS_ALT
  *
- * Uncomment a macro to let mbed TLS use you alternate core implementation of
- * symmetric crypto or hash function. Keep in mind that function prototypes
- * should remain the same.
+ * MBEDTLS__FUNCTION_NAME__ALT: Uncomment a macro to let mbed TLS use you
+ * alternate core implementation of symmetric crypto or hash function. Keep in
+ * mind that function prototypes should remain the same.
  *
  * This replaces only one function. The header file from mbed TLS is still
  * used, in contrast to the MBEDTLS__MODULE_NAME__ALT flags.
@@ -258,6 +258,10 @@
  * the other function (using your mbedtls_sha1_process() function) and the definition
  * of mbedtls_sha1_context, so your implementation of mbedtls_sha1_process must be compatible
  * with this definition.
+ *
+ * Note: if you use the AES_xxx_ALT macros, then is is recommended to also set
+ * MBEDTLS_AES_ROM_TABLES in order to help the linker garbage-collect the AES
+ * tables.
  *
  * Uncomment a macro to enable alternate implementation of the corresponding
  * function.
@@ -278,6 +282,23 @@
 //#define MBEDTLS_AES_DECRYPT_ALT
 
 /**
+ * \def MBEDTLS_TEST_NULL_ENTROPY
+ *
+ * Enables testing and use of mbed TLS without any configured entropy sources.
+ * This permits use of the library on platforms before an entropy source has
+ * been integrated (see for example the MBEDTLS_ENTROPY_HARDWARE_ALT or the
+ * MBEDTLS_ENTROPY_NV_SEED switches).
+ *
+ * WARNING! This switch MUST be disabled in production builds, and is suitable
+ * only for development.
+ * Enabling the switch negates any security provided by the library.
+ *
+ * Requires MBEDTLS_ENTROPY_C, MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES
+ *
+ */
+//#define MBEDTLS_TEST_NULL_ENTROPY
+
+/**
  * \def MBEDTLS_ENTROPY_HARDWARE_ALT
  *
  * Uncomment this macro to let mbed TLS use your own implementation of a
@@ -289,6 +310,15 @@
  * Uncomment to use your own hardware entropy collector.
  */
 //#define MBEDTLS_ENTROPY_HARDWARE_ALT
+
+/**
+ * \def MBEDTLS_AES_ROM_TABLES
+ *
+ * Store the AES tables in ROM.
+ *
+ * Uncomment this macro to store the AES tables in ROM.
+ */
+#define MBEDTLS_AES_ROM_TABLES
 
 /**
  * \def MBEDTLS_CAMELLIA_SMALL_MEMORY
@@ -354,10 +384,11 @@
 //#define MBEDTLS_CIPHER_NULL_CIPHER
 
 /**
- * \def MBEDTLS_CIPHER_PADDING_XXX
+ * \def MBEDTLS_CIPHER_PADDING_PKCS7
  *
- * Uncomment or comment macros to add support for specific padding modes
- * in the cipher layer with cipher modes that support padding (e.g. CBC)
+ * MBEDTLS_CIPHER_PADDING_XXX: Uncomment or comment macros to add support for
+ * specific padding modes in the cipher layer with cipher modes that support
+ * padding (e.g. CBC)
  *
  * If you disable all padding modes, only full blocks can be used with CBC.
  *
@@ -397,10 +428,10 @@
 #define MBEDTLS_REMOVE_ARC4_CIPHERSUITES
 
 /**
- * \def MBEDTLS_ECP_XXXX_ENABLED
+ * \def MBEDTLS_ECP_DP_SECP192R1_ENABLED
  *
- * Enables specific curves within the Elliptic Curve module.
- * By default all supported curves are enabled.
+ * MBEDTLS_ECP_XXXX_ENABLED: Enables specific curves within the Elliptic Curve
+ * module.  By default all supported curves are enabled.
  *
  * Comment macros to disable the curve and functions for it
  */
@@ -770,7 +801,7 @@
  *
  * Uncomment this macro to disable the built-in platform entropy functions.
  */
-//#define MBEDTLS_NO_PLATFORM_ENTROPY
+#define MBEDTLS_NO_PLATFORM_ENTROPY
 
 /**
  * \def MBEDTLS_ENTROPY_FORCE_SHA256
@@ -787,6 +818,34 @@
  * MBEDTLS_SHA512_C are defined. Otherwise the available hash module is used.
  */
 //#define MBEDTLS_ENTROPY_FORCE_SHA256
+
+/**
+ * \def MBEDTLS_ENTROPY_NV_SEED
+ *
+ * Enable the non-volatile (NV) seed file-based entropy source.
+ * (Also enables the NV seed read/write functions in the platform layer)
+ *
+ * This is crucial (if not required) on systems that do not have a
+ * cryptographic entropy source (in hardware or kernel) available.
+ *
+ * Requires: MBEDTLS_ENTROPY_C, MBEDTLS_PLATFORM_C
+ *
+ * \note The read/write functions that are used by the entropy source are
+ *       determined in the platform layer, and can be modified at runtime and/or
+ *       compile-time depending on the flags (MBEDTLS_PLATFORM_NV_SEED_*) used.
+ *
+ * \note If you use the default implementation functions that read a seedfile
+ *       with regular fopen(), please make sure you make a seedfile with the
+ *       proper name (defined in MBEDTLS_PLATFORM_STD_NV_SEED_FILE) and at
+ *       least MBEDTLS_ENTROPY_BLOCK_SIZE bytes in size that can be read from
+ *       and written to or you will get an entropy source error! The default
+ *       implementation will only use the first MBEDTLS_ENTROPY_BLOCK_SIZE
+ *       bytes from the file.
+ *
+ * \note The entropy collector will write to the seed file before entropy is
+ *       given to an external source, to update it.
+ */
+//#define MBEDTLS_ENTROPY_NV_SEED
 
 /**
  * \def MBEDTLS_MEMORY_DEBUG
@@ -1048,7 +1107,7 @@
  *
  * Comment this macro to disable support for SSL 3.0
  */
-#define MBEDTLS_SSL_PROTO_SSL3
+//#define MBEDTLS_SSL_PROTO_SSL3
 
 /**
  * \def MBEDTLS_SSL_PROTO_TLS1
@@ -1634,7 +1693,7 @@
  *
  * This module provides debugging functions.
  */
-//#define MBEDTLS_DEBUG_C
+#define MBEDTLS_DEBUG_C
 
 /**
  * \def MBEDTLS_DES_C
@@ -1764,7 +1823,7 @@
  *
  * This module enables mbedtls_strerror().
  */
-//#define MBEDTLS_ERROR_C
+#define MBEDTLS_ERROR_C
 
 /**
  * \def MBEDTLS_GCM_C
@@ -1887,13 +1946,21 @@
 /**
  * \def MBEDTLS_NET_C
  *
- * Enable the TCP/IP networking routines.
+ * Enable the TCP and UDP over IPv6/IPv4 networking routines.
+ *
+ * \note This module only works on POSIX/Unix (including Linux, BSD and OS X)
+ * and Windows. For other platforms, you'll want to disable it, and write your
+ * own networking callbacks to be passed to \c mbedtls_ssl_set_bio().
+ *
+ * \note See also our Knowledge Base article about porting to a new
+ * environment:
+ * https://tls.mbed.org/kb/how-to/how-do-i-port-mbed-tls-to-a-new-environment-OS
  *
  * Module:  library/net.c
  *
- * This module provides TCP/IP networking routines.
+ * This module provides networking routines.
  */
-#define MBEDTLS_NET_C
+//#define MBEDTLS_NET_C
 
 /**
  * \def MBEDTLS_OID_C
@@ -1964,7 +2031,7 @@
  *
  * This modules adds support for encoding / writing PEM files.
  */
-#define MBEDTLS_PEM_WRITE_C
+//#define MBEDTLS_PEM_WRITE_C
 
 /**
  * \def MBEDTLS_PK_C
@@ -2237,7 +2304,8 @@
  * By default mbed TLS assumes it is used in a non-threaded environment or that
  * contexts are not shared between threads. If you do intend to use contexts
  * between threads, you will need to enable this layer to prevent race
- * conditions.
+ * conditions. See also our Knowledge Base article about threading:
+ * https://tls.mbed.org/kb/development/thread-safety-and-multi-threading
  *
  * Module:  library/threading.c
  *
@@ -2254,7 +2322,18 @@
 /**
  * \def MBEDTLS_TIMING_C
  *
- * Enable the portable timing interface.
+ * Enable the semi-portable timing interface.
+ *
+ * \note The provided implementation only works on POSIX/Unix (including Linux,
+ * BSD and OS X) and Windows. On other platforms, you can either disable that
+ * module and provide your own implementations of the callbacks needed by
+ * \c mbedtls_ssl_set_timer_cb() for DTLS, or leave it enabled and provide
+ * your own implementation of the whole module by setting
+ * \c MBEDTLS_TIMING_ALT in the current file.
+ *
+ * \note See also our Knowledge Base article about porting to a new
+ * environment:
+ * https://tls.mbed.org/kb/how-to/how-do-i-port-mbed-tls-to-a-new-environment-OS
  *
  * Module:  library/timing.c
  * Caller:  library/havege.c
@@ -2402,7 +2481,7 @@
  */
 
 /* MPI / BIGNUM options */
-#define MBEDTLS_MPI_WINDOW_SIZE            5 /*TODO: 6*/ /**< Maximum windows size used. */
+#define MBEDTLS_MPI_WINDOW_SIZE            5 /**< Maximum windows size used. */
 //#define MBEDTLS_MPI_MAX_SIZE            1024 /**< Maximum number of bytes for usable MPIs. */
 
 /* CTR_DRBG options */
@@ -2435,20 +2514,30 @@
 //#define MBEDTLS_PLATFORM_STD_CALLOC        calloc /**< Default allocator to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_FREE            free /**< Default free to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_EXIT            exit /**< Default exit to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_TIME            time /**< Default time to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_FPRINTF      fprintf /**< Default fprintf to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_PRINTF        printf /**< Default printf to use, can be undefined */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
 //#define MBEDTLS_PLATFORM_STD_SNPRINTF    snprintf /**< Default snprintf to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS       0 /**< Default exit value to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE       1 /**< Default exit value to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_NV_SEED_WRITE  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_NV_SEED_FILE  "seedfile" /**< Seed file to read/write with default implementation */
 
 /* To Use Function Macros MBEDTLS_PLATFORM_C must be enabled */
 /* MBEDTLS_PLATFORM_XXX_MACRO and MBEDTLS_PLATFORM_XXX_ALT cannot both be defined */
 //#define MBEDTLS_PLATFORM_CALLOC_MACRO        calloc /**< Default allocator macro to use, can be undefined */
 //#define MBEDTLS_PLATFORM_FREE_MACRO            free /**< Default free macro to use, can be undefined */
 //#define MBEDTLS_PLATFORM_EXIT_MACRO            exit /**< Default exit macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_FPRINTF_MACRO      fprintf /**< Default fprintf macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_PRINTF_MACRO        printf /**< Default printf macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_TIME_MACRO            time /**< Default time macro to use, can be undefined */
+#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO       time_t /**< Default time macro to use, can be undefined */
+#define MBEDTLS_PLATFORM_FPRINTF_MACRO      ((void)0) /**< Default fprintf macro to use, can be undefined */
+#define MBEDTLS_PLATFORM_PRINTF_MACRO        printk /**< Default printf macro to use, can be undefined */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
-//#define MBEDTLS_PLATFORM_SNPRINTF_MACRO    snprintf /**< Default snprintf macro to use, can be undefined */
+#define MBEDTLS_PLATFORM_SNPRINTF_MACRO    snprintf /**< Default snprintf macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_NV_SEED_READ_MACRO   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
+//#define MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
 
 /* SSL Cache options */
 //#define MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT       86400 /**< 1 day  */
@@ -2477,11 +2566,10 @@
 /* X509 options */
 //#define MBEDTLS_X509_MAX_INTERMEDIATE_CA   8   /**< Maximum number of intermediate CAs in a verification chain. */
 
-/* \} name SECTION: Module configuration options */
+/* \} name SECTION: Customisation configuration options */
 
-#if defined(TARGET_LIKE_MBED)
-#include "target_config.h"
-#endif
+/* Target and application specific configurations */
+//#define YOTTA_CFG_MBEDTLS_USER_CONFIG_FILE "target_config.h"
 
 /*
  * Allow user to override any previous default.
@@ -2497,5 +2585,8 @@
 #endif
 
 #include "check_config.h"
+
+/* https://github.com/ARMmbed/mbedtls/issues/137#issuecomment-124117580 */
+#define MBEDTLS_HAVE_INT32
 
 #endif /* MBEDTLS_CONFIG_H */

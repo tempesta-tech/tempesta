@@ -2,7 +2,7 @@
  *  Buffer-based memory allocator
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -35,7 +35,7 @@
    is dependent upon MBEDTLS_PLATFORM_C */
 #include "platform.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_MEMORY_BACKTRACE)
 #include <execinfo.h>
@@ -420,6 +420,12 @@ static void buffer_alloc_free( void *ptr )
     heap.total_used -= hdr->size;
 #endif
 
+#if defined(MBEDTLS_MEMORY_BACKTRACE)
+    free( hdr->trace );
+    hdr->trace = NULL;
+    hdr->trace_count = 0;
+#endif
+
     // Regroup with block before
     //
     if( hdr->prev != NULL && hdr->prev->alloc == 0 )
@@ -435,9 +441,6 @@ static void buffer_alloc_free( void *ptr )
         if( hdr->next != NULL )
             hdr->next->prev = hdr;
 
-#if defined(MBEDTLS_MEMORY_BACKTRACE)
-        free( old->trace );
-#endif
         memset( old, 0, sizeof(memory_header) );
     }
 
@@ -477,9 +480,6 @@ static void buffer_alloc_free( void *ptr )
         if( hdr->next != NULL )
             hdr->next->prev = hdr;
 
-#if defined(MBEDTLS_MEMORY_BACKTRACE)
-        free( old->trace );
-#endif
         memset( old, 0, sizeof(memory_header) );
     }
 
@@ -493,11 +493,6 @@ static void buffer_alloc_free( void *ptr )
             heap.first_free->prev_free = hdr;
         heap.first_free = hdr;
     }
-
-#if defined(MBEDTLS_MEMORY_BACKTRACE)
-    hdr->trace = NULL;
-    hdr->trace_count = 0;
-#endif
 
     if( ( heap.verify & MBEDTLS_MEMORY_VERIFY_FREE ) && verify_chain() != 0 )
         mbedtls_exit( 1 );

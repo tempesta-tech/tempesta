@@ -5,6 +5,7 @@
  *        processors
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -44,7 +45,7 @@
 #define MBEDTLS_HAVE_X86
 #endif
 
-#include <linux/types.h>
+#include <stdint.h>
 
 #define MBEDTLS_PADLOCK_RNG 0x000C
 #define MBEDTLS_PADLOCK_ACE 0x00C0

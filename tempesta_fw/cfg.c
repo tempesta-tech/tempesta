@@ -1569,7 +1569,7 @@ bool tfw_cfg_mods_are_started;
  * The buffer must be freed with vfree().
  */
 void *
-read_file_via_vfs(const char *path)
+tfw_cfg_read_file(const char *path, size_t *file_size)
 {
 	char *out_buf;
 	struct file *fp;
@@ -1597,6 +1597,9 @@ read_file_via_vfs(const char *path)
 	buf_size = fp->f_inode->i_size;
 	TFW_DBG2("file size: %zu bytes\n", buf_size);
 	buf_size += 1; /* for '\0' */
+
+	if (file_size)
+		*file_size = buf_size;
 
 	out_buf = vmalloc(buf_size);
 	if (!out_buf) {
@@ -1657,7 +1660,7 @@ handle_state_change(const char *old_state, const char *new_state)
 		char *cfg_text_buf;
 
 		TFW_DBG3("reading configuration file...\n");
-		cfg_text_buf = read_file_via_vfs(tfw_cfg_path);
+		cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL);
 		if (!cfg_text_buf)
 			return -ENOENT;
 

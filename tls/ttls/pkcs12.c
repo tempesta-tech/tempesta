@@ -2,6 +2,7 @@
  *  PKCS#12 Personal Information Exchange Syntax
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,7 +40,7 @@
 #include "asn1.h"
 #include "cipher.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_ARC4_C)
 #include "arc4.h"
@@ -95,7 +96,7 @@ static int pkcs12_pbe_derive_key_iv( mbedtls_asn1_buf *pbe_params, mbedtls_md_ty
                                      unsigned char *key, size_t keylen,
                                      unsigned char *iv,  size_t ivlen )
 {
-    int ret, iterations;
+    int ret, iterations = 0;
     mbedtls_asn1_buf salt;
     size_t i;
     unsigned char unipwd[PKCS12_MAX_PWDLEN * 2 + 2];

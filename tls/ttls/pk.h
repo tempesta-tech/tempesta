@@ -4,6 +4,7 @@
  * \brief Public Key abstraction layer
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -498,11 +499,12 @@ int mbedtls_pk_parse_keyfile( mbedtls_pk_context *ctx,
  * \brief           Load and parse a public key
  *
  * \param ctx       key to be initialized
- * \param path      filename to read the private key from
+ * \param path      filename to read the public key from
  *
  * \note            On entry, ctx must be empty, either freshly initialised
- *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If you need a
- *                  specific key type, check the result with mbedtls_pk_can_do().
+ *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If
+ *                  you need a specific key type, check the result with
+ *                  mbedtls_pk_can_do().
  *
  * \note            The key is also checked for correctness.
  *

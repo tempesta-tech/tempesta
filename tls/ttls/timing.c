@@ -2,6 +2,7 @@
  *  Portable interface to the CPU cycle counter
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,6 +40,11 @@
 #include "timing.h"
 
 #if !defined(MBEDTLS_TIMING_ALT)
+
+#if !defined(unix) && !defined(__unix__) && !defined(__unix) && \
+    !defined(__APPLE__) && !defined(_WIN32)
+#error "This module only works on Unix and Windows, see MBEDTLS_TIMING_C in config.h"
+#endif
 
 #ifndef asm
 #define asm __asm

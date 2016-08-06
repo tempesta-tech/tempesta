@@ -2,6 +2,7 @@
  *  X.509 certificate writing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -40,7 +41,7 @@
 #include "asn1write.h"
 #include "sha1.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PEM_WRITE_C)
 #include "pem.h"

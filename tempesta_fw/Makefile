@@ -22,6 +22,10 @@ ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
+TTLS_CFLAGS += -I$(src)/../tls/ -I$(src)/../tls/ttls/dummy_headers
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
+export TTLS_CFLAGS
+
 obj-m	= tempesta_fw.o 
 
 tempesta_fw-objs = \

@@ -2,7 +2,7 @@
  *  Elliptic curves over GF(p): generic functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -53,7 +53,7 @@
 
 #include "ecp.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -1830,7 +1830,9 @@ int mbedtls_ecp_gen_keypair_base( mbedtls_ecp_group *grp,
         /* [M225] page 5 */
         size_t b;
 
-        MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( d, n_size, f_rng, p_rng ) );
+        do {
+            MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( d, n_size, f_rng, p_rng ) );
+        } while( mbedtls_mpi_bitlen( d ) == 0);
 
         /* Make sure the most significant bit is nbits */
         b = mbedtls_mpi_bitlen( d ) - 1; /* mbedtls_mpi_bitlen is one-based */

@@ -4,6 +4,7 @@
  * \brief Internal functions shared by the SSL modules
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -168,7 +169,6 @@ struct mbedtls_ssl_handshake_params
      * Handshake specific crypto variables
      */
     int sig_alg;                        /*!<  Hash algorithm for signature   */
-    int cert_type;                      /*!<  Requested cert type            */
     int verify_sig_alg;                 /*!<  Signature algorithm for verify */
 #if defined(MBEDTLS_DHM_C)
     mbedtls_dhm_context dhm_ctx;                /*!<  DHM key exchange        */

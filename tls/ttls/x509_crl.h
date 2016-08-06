@@ -1,9 +1,10 @@
 /**
- * \file mbedtls_x509_crl.h
+ * \file x509_crl.h
  *
  * \brief X.509 certificate revocation list parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -102,6 +103,7 @@ mbedtls_x509_crl;
  *
  * \param chain    points to the start of the chain
  * \param buf      buffer holding the CRL data in DER format
+ * \param buflen   size of the buffer
  *                 (including the terminating null byte for PEM data)
  *
  * \return         0 if successful, or a specific X509 or PEM error code

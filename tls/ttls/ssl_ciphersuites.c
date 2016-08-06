@@ -4,7 +4,7 @@
  * \brief SSL ciphersuites for mbed TLS
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,11 +32,17 @@
 
 #if defined(MBEDTLS_SSL_TLS_C)
 
+#if defined(MBEDTLS_PLATFORM_C)
+#include "platform.h"
+#else
+#include <stdlib.h>
+#define mbedtls_time_t    time_t
+#endif
+
 #include "ssl_ciphersuites.h"
 #include "ssl.h"
 
-// #include <stdlib.h>
-#include <linux/string.h>
+#include <string.h>
 
 /*
  * Ordered from most preferred to least preferred in terms of security.

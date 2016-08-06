@@ -6,7 +6,7 @@
  * \author Adriaan de Jong <dejong@fox-it.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -42,7 +42,7 @@
 #define mbedtls_free       free
 #endif
 
-#include <linux/string.h>
+#include <string.h>
 
 void mbedtls_pkcs11_init( mbedtls_pkcs11_context *ctx )
 {

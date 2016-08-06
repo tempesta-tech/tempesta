@@ -21,22 +21,27 @@
 #define __TFW_TLS_H__
 
 #include "gfsm.h"
+#include "ttls/ttls.h"
 
 /**
  * HTTPS states.
- *
- * TODO Issue #81: this is just PoC states, write the right states here.
  */
 #define TFW_GFSM_HTTPS_STATE(s)	((TFW_FSM_HTTPS << TFW_GFSM_FSM_SHIFT) | (s))
 enum {
 	/* HTTPS FSM initial state, not hookable. */
-	TFW_HTTPS_FSM_INIT		= TFW_GFSM_HTTPS_STATE(0),
-
-	/* TODO */
-	TFW_HTTPS_FSM_TODO_ISSUE_81	= TFW_GFSM_HTTPS_STATE(1),
-
+	TFW_HTTPS_FSM_INIT	= TFW_GFSM_HTTPS_STATE(0),
+	TFW_HTTPS_FSM_CHUNK	= TFW_GFSM_HTTPS_STATE(1),
 	TFW_HTTPS_FSM_DONE	= TFW_GFSM_HTTPS_STATE(TFW_GFSM_STATE_LAST)
 };
+
+typedef struct {
+	mbedtls_ssl_context	ssl;
+	SsSkbList		rx_queue;
+	SsSkbList		tx_queue;
+} TfwTlsContext;
+
+int
+tfw_tls_send_msg(TfwTlsContext *tls, TfwMsg *msg);
 
 #endif /* __TFW_TLS_H__ */
 

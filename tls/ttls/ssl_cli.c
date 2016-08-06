@@ -2,7 +2,7 @@
  *  SSLv3/TLSv1 client-side functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,21 +30,23 @@
 
 #if defined(MBEDTLS_SSL_CLI_C)
 
-#include "debug.h"
-#include "ssl.h"
-#include "ssl_internal.h"
-
-#include <linux/string.h>
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
-#define mbedtls_free       free
+#define mbedtls_free      free
+#define mbedtls_time      time
+#define mbedtls_time_t    time_t
 #endif
 
-#include <linux/types.h>
+#include "debug.h"
+#include "ssl.h"
+#include "ssl_internal.h"
+
+#include <string.h>
+
+#include <stdint.h>
 
 #if defined(MBEDTLS_HAVE_TIME)
 #include <time.h>
@@ -273,6 +275,12 @@ static void ssl_write_supported_elliptic_curves_ext( mbedtls_ssl_context *ssl,
     for( info = mbedtls_ecp_curve_list(); info->grp_id != MBEDTLS_ECP_DP_NONE; info++ )
     {
 #endif
+        if( info == NULL )
+        {
+            MBEDTLS_SSL_DEBUG_MSG( 1, ( "invalid curve in ssl configuration" ) );
+            return;
+        }
+
         elliptic_curve_len += 2;
     }
 
@@ -292,7 +300,6 @@ static void ssl_write_supported_elliptic_curves_ext( mbedtls_ssl_context *ssl,
     for( info = mbedtls_ecp_curve_list(); info->grp_id != MBEDTLS_ECP_DP_NONE; info++ )
     {
 #endif
-
         elliptic_curve_list[elliptic_curve_len++] = info->tls_id >> 8;
         elliptic_curve_list[elliptic_curve_len++] = info->tls_id & 0xFF;
     }
@@ -667,7 +674,7 @@ static int ssl_generate_random( mbedtls_ssl_context *ssl )
     int ret;
     unsigned char *p = ssl->handshake->randbytes;
 #if defined(MBEDTLS_HAVE_TIME)
-    time_t t;
+    mbedtls_time_t t;
 #endif
 
     /*
@@ -682,7 +689,7 @@ static int ssl_generate_random( mbedtls_ssl_context *ssl )
 #endif
 
 #if defined(MBEDTLS_HAVE_TIME)
-    t = time( NULL );
+    t = mbedtls_time( NULL );
     *p++ = (unsigned char)( t >> 24 );
     *p++ = (unsigned char)( t >> 16 );
     *p++ = (unsigned char)( t >>  8 );
@@ -1590,7 +1597,7 @@ static int ssl_parse_server_hello( mbedtls_ssl_context *ssl )
         ssl->state++;
         ssl->handshake->resume = 0;
 #if defined(MBEDTLS_HAVE_TIME)
-        ssl->session_negotiate->start = time( NULL );
+        ssl->session_negotiate->start = mbedtls_time( NULL );
 #endif
         ssl->session_negotiate->ciphersuite = i;
         ssl->session_negotiate->compression = comp;
@@ -1984,8 +1991,11 @@ static int ssl_parse_server_psk_hint( mbedtls_ssl_context *ssl,
         return( MBEDTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE );
     }
 
-    // TODO: Retrieve PSK identity hint and callback to app
-    //
+    /*
+     * Note: we currently ignore the PKS identity hint, as we only allow one
+     * PSK to be provisionned on the client. This could be changed later if
+     * someone needs that feature.
+     */
     *p += len;
     ret = 0;
 
@@ -2099,7 +2109,7 @@ static int ssl_parse_signature_algorithm( mbedtls_ssl_context *ssl,
      */
     if( ( *md_alg = mbedtls_ssl_md_alg_from_hash( (*p)[0] ) ) == MBEDTLS_MD_NONE )
     {
-        MBEDTLS_SSL_DEBUG_MSG( 2, ( "Server used unsupported "
+        MBEDTLS_SSL_DEBUG_MSG( 1, ( "Server used unsupported "
                             "HashAlgorithm %d", *(p)[0] ) );
         return( MBEDTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE );
     }
@@ -2109,7 +2119,7 @@ static int ssl_parse_signature_algorithm( mbedtls_ssl_context *ssl,
      */
     if( ( *pk_alg = mbedtls_ssl_pk_alg_from_sig( (*p)[1] ) ) == MBEDTLS_PK_NONE )
     {
-        MBEDTLS_SSL_DEBUG_MSG( 2, ( "server used unsupported "
+        MBEDTLS_SSL_DEBUG_MSG( 1, ( "server used unsupported "
                             "SignatureAlgorithm %d", (*p)[1] ) );
         return( MBEDTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE );
     }
@@ -2119,7 +2129,7 @@ static int ssl_parse_signature_algorithm( mbedtls_ssl_context *ssl,
      */
     if( mbedtls_ssl_check_sig_hash( ssl, *md_alg ) != 0 )
     {
-        MBEDTLS_SSL_DEBUG_MSG( 2, ( "server used HashAlgorithm "
+        MBEDTLS_SSL_DEBUG_MSG( 1, ( "server used HashAlgorithm "
                                     "that was not offered" ) );
         return( MBEDTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE );
     }
@@ -2532,8 +2542,8 @@ static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
 static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
 {
     int ret;
-    unsigned char *buf, *p;
-    size_t n = 0, m = 0;
+    unsigned char *buf;
+    size_t n = 0;
     size_t cert_type_len = 0, dn_len = 0;
     const mbedtls_ssl_ciphersuite_t *ciphersuite_info = ssl->transform_negotiate->ciphersuite_info;
 
@@ -2581,9 +2591,6 @@ static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
 
     ssl->record_read = 0;
 
-    // TODO: handshake_failure alert for an anonymous server to request
-    // client authentication
-
     /*
      *  struct {
      *      ClientCertificateType certificate_types<1..2^8-1>;
@@ -2591,11 +2598,26 @@ static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
      *        supported_signature_algorithms<2^16-1>; -- TLS 1.2 only
      *      DistinguishedName certificate_authorities<0..2^16-1>;
      *  } CertificateRequest;
+     *
+     *  Since we only support a single certificate on clients, let's just
+     *  ignore all the information that's supposed to help us pick a
+     *  certificate.
+     *
+     *  We could check that our certificate matches the request, and bail out
+     *  if it doesn't, but it's simpler to just send the certificate anyway,
+     *  and give the server the opportunity to decide if it should terminate
+     *  the connection when it doesn't like our certificate.
+     *
+     *  Same goes for the hash in TLS 1.2's signature_algorithms: at this
+     *  point we only have one hash available (see comments in
+     *  write_certificate_verify), so let's just use what we have.
+     *
+     *  However, we still minimally parse the message to check it is at least
+     *  superficially sane.
      */
     buf = ssl->in_msg;
 
-    // Retrieve cert types
-    //
+    /* certificate_types */
     cert_type_len = buf[mbedtls_ssl_hs_hdr_len( ssl )];
     n = cert_type_len;
 
@@ -2605,45 +2627,14 @@ static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
         return( MBEDTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST );
     }
 
-    p = buf + mbedtls_ssl_hs_hdr_len( ssl ) + 1;
-    while( cert_type_len > 0 )
-    {
-#if defined(MBEDTLS_RSA_C)
-        if( *p == MBEDTLS_SSL_CERT_TYPE_RSA_SIGN &&
-            mbedtls_pk_can_do( mbedtls_ssl_own_key( ssl ), MBEDTLS_PK_RSA ) )
-        {
-            ssl->handshake->cert_type = MBEDTLS_SSL_CERT_TYPE_RSA_SIGN;
-            break;
-        }
-        else
-#endif
-#if defined(MBEDTLS_ECDSA_C)
-        if( *p == MBEDTLS_SSL_CERT_TYPE_ECDSA_SIGN &&
-            mbedtls_pk_can_do( mbedtls_ssl_own_key( ssl ), MBEDTLS_PK_ECDSA ) )
-        {
-            ssl->handshake->cert_type = MBEDTLS_SSL_CERT_TYPE_ECDSA_SIGN;
-            break;
-        }
-        else
-#endif
-        {
-            ; /* Unsupported cert type, ignore */
-        }
-
-        cert_type_len--;
-        p++;
-    }
-
+    /* supported_signature_algorithms */
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
     if( ssl->minor_ver == MBEDTLS_SSL_MINOR_VERSION_3 )
     {
-        /* Ignored, see comments about hash in write_certificate_verify */
-        // TODO: should check the signature part against our pk_key though
         size_t sig_alg_len = ( ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 1 + n] <<  8 )
                              | ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 2 + n]       ) );
 
-        m += 2;
-        n += sig_alg_len;
+        n += 2 + sig_alg_len;
 
         if( ssl->in_hslen < mbedtls_ssl_hs_hdr_len( ssl ) + 2 + n )
         {
@@ -2653,13 +2644,12 @@ static int ssl_parse_certificate_request( mbedtls_ssl_context *ssl )
     }
 #endif /* MBEDTLS_SSL_PROTO_TLS1_2 */
 
-    /* Ignore certificate_authorities, we only have one cert anyway */
-    // TODO: should not send cert if no CA matches
-    dn_len = ( ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 1 + m + n] <<  8 )
-             | ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 2 + m + n]       ) );
+    /* certificate_authorities */
+    dn_len = ( ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 1 + n] <<  8 )
+             | ( buf[mbedtls_ssl_hs_hdr_len( ssl ) + 2 + n]       ) );
 
     n += dn_len;
-    if( ssl->in_hslen != mbedtls_ssl_hs_hdr_len( ssl ) + 3 + m + n )
+    if( ssl->in_hslen != mbedtls_ssl_hs_hdr_len( ssl ) + 3 + n )
     {
         MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad certificate request message" ) );
         return( MBEDTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST );

@@ -21,6 +21,7 @@ EXTRA_CFLAGS += -I$(src)/../../sync_socket -I$(src)/../../tempesta_db/core
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m = tfw_frang.o
 tfw_frang-objs = frang.o

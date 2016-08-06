@@ -2,6 +2,7 @@
  *  AES-NI support functions
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -102,7 +103,7 @@ int mbedtls_aesni_crypt_ecb( mbedtls_aes_context *ctx,
     asm( "movdqu    (%3), %%xmm0    \n\t" // load input
          "movdqu    (%1), %%xmm1    \n\t" // load round key 0
          "pxor      %%xmm1, %%xmm0  \n\t" // round 0
-         "addq      $16, %1         \n\t" // point to next round key
+         "add       $16, %1         \n\t" // point to next round key
          "subl      $1, %0          \n\t" // normal rounds = nr - 1
          "test      %2, %2          \n\t" // mode?
          "jz        2f              \n\t" // 0 = decrypt
@@ -110,7 +111,7 @@ int mbedtls_aesni_crypt_ecb( mbedtls_aes_context *ctx,
          "1:                        \n\t" // encryption loop
          "movdqu    (%1), %%xmm1    \n\t" // load round key
          AESENC     xmm1_xmm0      "\n\t" // do round
-         "addq      $16, %1         \n\t" // point to next round key
+         "add       $16, %1         \n\t" // point to next round key
          "subl      $1, %0          \n\t" // loop
          "jnz       1b              \n\t"
          "movdqu    (%1), %%xmm1    \n\t" // load round key
@@ -120,7 +121,7 @@ int mbedtls_aesni_crypt_ecb( mbedtls_aes_context *ctx,
          "2:                        \n\t" // decryption loop
          "movdqu    (%1), %%xmm1    \n\t"
          AESDEC     xmm1_xmm0      "\n\t" // do round
-         "addq      $16, %1         \n\t"
+         "add       $16, %1         \n\t"
          "subl      $1, %0          \n\t"
          "jnz       2b              \n\t"
          "movdqu    (%1), %%xmm1    \n\t" // load round key

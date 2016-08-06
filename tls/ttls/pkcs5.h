@@ -6,7 +6,7 @@
  * \author Mathias Olsson <mathias@kompetensum.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 #include "md.h"
 
 #include <stddef.h>
-#include <linux/types.h>
+#include <stdint.h>
 
 #define MBEDTLS_ERR_PKCS5_BAD_INPUT_DATA                  -0x2f80  /**< Bad input parameters to function. */
 #define MBEDTLS_ERR_PKCS5_INVALID_FORMAT                  -0x2f00  /**< Unexpected ASN.1 data. */

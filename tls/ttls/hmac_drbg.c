@@ -2,7 +2,7 @@
  *  HMAC_DRBG implementation (NIST SP 800-90)
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -38,7 +38,7 @@
 
 #include "hmac_drbg.h"
 
-#include <linux/string.h>
+#include <string.h>
 
 #if defined(MBEDTLS_FS_IO)
 #include <stdio.h>
