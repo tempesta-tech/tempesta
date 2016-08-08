@@ -23,10 +23,12 @@
 
 tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
+tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 class_path="$tfw_path/classifier/"
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 sched_ko_files=($(ls $tfw_path/sched/*.ko))
 
+tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
@@ -67,6 +69,9 @@ load_modules()
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
+
+	insmod $tls_path/$tls_mod.ko
+	[ $? -ne 0 ] && error "cannot load tempesta TLS module"
 
 	insmod $tdb_path/$tdb_mod.ko
 	[ $? -ne 0 ] && error "cannot load tempesta database module"
@@ -128,6 +133,7 @@ unload_modules()
 	[ "`lsmod | grep \"\<$frang_mod\>\"`" ] && rmmod $frang_mod
 	rmmod $tfw_mod
 	rmmod $tdb_mod
+	rmmod $tls_mod
 }
 
 args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")
