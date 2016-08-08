@@ -1,6 +1,6 @@
 #		Tempesta FW
 #
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -16,4 +16,15 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-obj-m = ttls/ programs/
+EXTRA_CFLAGS += -Werror -I$(src) -I$(src)/dummy_headers -include ttls.h
+ifdef DEBUG
+	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
+endif
+EXTRA_CFLAGS += -Wframe-larger-than=4096
+
+obj-m = tempesta_tls.o
+
+ttls-srcs = $(wildcard $(obj)/*.c)
+ttls-objs = $(patsubst %.c, %.o, $(ttls-srcs))
+
+tempesta_tls-objs = $(subst $(src)/,,$(ttls-objs))
