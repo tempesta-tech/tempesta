@@ -43,6 +43,35 @@ int rand(void)
 }
 #endif
 
+/**
+ * Threading support (locking)
+ */
+
+static void
+ttls_mutex_init(mbedtls_threading_mutex_t *mutex)
+{
+	spin_lock_init(mutex);
+}
+
+static void
+ttls_mutex_free(mbedtls_threading_mutex_t *mutex)
+{
+}
+
+static int
+ttls_mutex_lock(mbedtls_threading_mutex_t *mutex)
+{
+	spin_lock(mutex);
+	return 0;
+}
+
+static int
+ttls_mutex_unlock(mbedtls_threading_mutex_t *mutex)
+{
+	spin_unlock(mutex);
+	return 0;
+}
+
 #define DO_SELF_TEST(f)							\
 do {									\
 	int r;								\
@@ -76,14 +105,22 @@ ttls_self_test(void)
 static int __init
 ttls_init(void)
 {
+	/* Should preceed @ttls_self_test call */
+	mbedtls_threading_set_alt(ttls_mutex_init,
+				  ttls_mutex_free,
+				  ttls_mutex_lock,
+				  ttls_mutex_unlock);
+
 	if (ttls_self_test())
 		return -EINVAL;
+
 	return 0;
 }
 
 static void
 ttls_exit(void)
 {
+	mbedtls_threading_free_alt();
 }
 
 module_init(ttls_init);
