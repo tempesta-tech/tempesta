@@ -77,6 +77,7 @@ enum {
  * @msg_queue	- queue of messages to be sent over the connection;
  * @msg_qlock	- lock for accessing @msg_queue;
  * @refcnt	- number of users of the connection structure instance;
+ * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
@@ -87,6 +88,7 @@ typedef struct {
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
+	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
