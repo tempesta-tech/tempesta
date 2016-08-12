@@ -41,11 +41,9 @@
  * TfwConnection extension for client sockets.
  *
  * @conn	- The base structure. Must be the first member.
- * @ka_timer	- The keep-alive timer for the connection.
  */
 typedef struct {
 	TfwConnection		conn;
-	struct timer_list	ka_timer;
 } TfwCliConnection;
 
 static struct kmem_cache *tfw_cli_conn_cache;
@@ -62,7 +60,7 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	if (ss_close(conn->sk)) {
 		TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 		/* Try to close the connection 1 second later. */
-		mod_timer(&cli_conn->ka_timer,
+		mod_timer(&cli_conn->conn.timer,
 			  jiffies + msecs_to_jiffies(1000));
 	}
 }
@@ -77,7 +75,7 @@ tfw_cli_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&cli_conn->conn);
-	setup_timer(&cli_conn->ka_timer,
+	setup_timer(&cli_conn->conn.timer,
 		    tfw_sock_cli_keepalive_timer_cb,
 		    (unsigned long)&cli_conn->conn);
 
@@ -87,7 +85,7 @@ tfw_cli_conn_alloc(void)
 static void
 tfw_cli_conn_free(TfwCliConnection *cli_conn)
 {
-	BUG_ON(timer_pending(&cli_conn->ka_timer));
+	BUG_ON(timer_pending(&cli_conn->conn.timer));
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(&cli_conn->conn);
@@ -99,7 +97,7 @@ tfw_cli_conn_release(TfwConnection *conn)
 {
 	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 
-	del_timer_sync(&cli_conn->ka_timer);
+	del_timer_sync(&cli_conn->conn.timer);
 
 	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
@@ -116,7 +114,7 @@ tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 
 	r = tfw_connection_send(conn, msg);
-	mod_timer(&cli_conn->ka_timer,
+	mod_timer(&cli_conn->conn.timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
