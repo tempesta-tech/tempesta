@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -12,19 +12,39 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/hashtable.h>
 #include <linux/slab.h>
 
 #include "client.h"
 #include "connection.h"
+#include "hash.h"
 #include "log.h"
+
+#define CLI_HASH_BITS	17
+
+typedef struct {
+	struct hlist_head	list;
+	spinlock_t		lock;
+} CliHashBucket;
+
+/*
+ * TODO probably not the best container for the task and
+ * HTrie should be used instead.
+ */
+CliHashBucket cli_hash[1 << CLI_HASH_BITS] = {
+	[0 ... ((1 << CLI_HASH_BITS) - 1)] = {
+		HLIST_HEAD_INIT,
+		__SPIN_LOCK_UNLOCKED(lock)
+	}
+};
 
 static struct kmem_cache *cli_cache;
 
@@ -34,53 +54,80 @@ static struct kmem_cache *cli_cache;
 void
 tfw_client_put(TfwClient *clnt)
 {
+	TFW_DBG2("put client %p, conn_users=%d\n",
+		 clnt, atomic_read(&clnt->conn_users));
+
 	if (atomic_dec_and_test(&clnt->conn_users)) {
 		BUG_ON(!list_empty(&clnt->conn_list));
 		kmem_cache_free(cli_cache, clnt);
 	}
 }
+EXPORT_SYMBOL(tfw_client_put);
 
 /**
- * Find a client corresponding to the @sk.
+ * Find a client corresponding to the @sk by IP addres.
+ * More advanced identification is possible based on User-Agent,
+ * Cookie and other HTTP headers.
  *
  * The returned TfwClient reference must be released via tfw_client_put()
  * when the @sk is closed.
+ *
+ * TODO #100: evict connections and/or clients and drop their accouning.
+ * Probably FrangAcc.last_ts should be moved to TfwClient to the purpose.
  */
 TfwClient *
-tfw_client_obtain(struct sock *sk)
+tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 {
-	int daddr_len;
-	TfwAddr daddr;
 	TfwClient *cli;
+	CliHashBucket *hb;
+	struct hlist_node *tmp;
+	unsigned long key = 0, crc_tmp = 0;
+	TfwAddr addr;
 
-	/* Derive client's IP address from @sk. */
-	if (ss_getpeername(sk, &daddr.sa, &daddr_len))
+	ss_getpeername(sk, &addr);
+	__tdb_hash_calc(&key, &crc_tmp, (const char *)&addr.v6.sin6_addr,
+			sizeof(addr.v6.sin6_addr));
+	key |= crc_tmp << 32;
+
+	hb = &cli_hash[hash_min(key, CLI_HASH_BITS)];
+
+	spin_lock(&hb->lock);
+
+	hlist_for_each_entry_safe(cli, tmp, &hb->list, hentry)
+		if (ipv6_addr_equal(&addr.v6.sin6_addr,
+				    &cli->addr.v6.sin6_addr))
+			goto found;
+
+	if (!(cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC | __GFP_ZERO))) {
+		spin_unlock(&hb->lock);
 		return NULL;
+	}
 
-	/*
-	 * TODO: currently there is one to one socket-client
-	 * mapping, which isn't appropriate since a client can
-	 * have more than one socket with the server.
-	 *
-	 * We need to look up a client by the socket and create
-	 * a new one only if it's really new.
-	 */
-	if (!(cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC)))
-		return NULL;
-
-	tfw_peer_init((TfwPeer *)cli, &daddr);
-	atomic_set(&cli->conn_users, 1);
+	tfw_peer_init((TfwPeer *)cli, &addr);
+	hlist_add_head(&cli->hentry, &hb->list);
+	if (init)
+		init(cli);
 
 	TFW_DBG("new client: cli=%p\n", cli);
+	TFW_DBG_ADDR6("client address", &cli->addr.v6.sin6_addr);
+
+found:
+	atomic_inc(&cli->conn_users);
+
+	TFW_DBG2("client %p, conn_users=%d\n",
+		 cli, atomic_read(&cli->conn_users));
+
+	spin_unlock(&hb->lock);
 
 	return cli;
 }
+EXPORT_SYMBOL(tfw_client_obtain);
 
 int __init
 tfw_client_init(void)
 {
 	cli_cache = kmem_cache_create("tfw_cli_cache", sizeof(TfwClient),
-				       0, 0, NULL);
+				      0, 0, NULL);
 	if (!cli_cache)
 		return -ENOMEM;
 	return 0;
@@ -89,5 +136,21 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
+	int i;
+
+	/*
+	 * Free client records with classification modules accounting records.
+	 * There are must not be users.
+	 */
+	for (i = 0; i < (1 << CLI_HASH_BITS); ++i) {
+		TfwClient *c;
+		struct hlist_node *tmp;
+		CliHashBucket *hb = &cli_hash[i];
+
+		hlist_for_each_entry_safe(c, tmp, &hb->list, hentry) {
+			hash_del(&c->hentry);
+			kmem_cache_free(cli_cache, c);
+		}
+	}
 	kmem_cache_destroy(cli_cache);
 }

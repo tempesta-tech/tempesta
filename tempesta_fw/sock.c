@@ -25,6 +25,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#include "addr.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "work_queue.h"
@@ -1068,20 +1069,37 @@ ss_listen(struct sock *sk, int backlog)
 }
 EXPORT_SYMBOL(ss_listen);
 
-/*
- * The original functions are inet_getname() and inet6_getname().
- * There isn't much to make shorter there, so just invoke them directly.
+/**
+ * Mostly copy-pasted from inet_getname() and inet6_getname().
+ * All Tempesta internal operations are with IPv6 addresses only,
+ * as with more scalable and backward compatible with IPv4.
  */
-int
-ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
+void
+ss_getpeername(struct sock *sk, TfwAddr *addr)
 {
-	struct socket sock = { .sk = sk };
+	struct inet_sock *inet = inet_sk(sk);
 
-	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
-	if (sk->sk_family == AF_INET)
-		return inet_getname(&sock, uaddr, uaddr_len, 1);
-	else
-		return inet6_getname(&sock, uaddr, uaddr_len, 1);
+	if (unlikely(!inet->inet_dport
+		     || ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_SYN_SENT))))
+		SS_WARN("%s: bad socket dport=%x state=%x\n", __func__,
+			inet->inet_dport, sk->sk_state);
+
+	addr->family = AF_INET6;
+	addr->v6.sin6_port = inet->inet_sport;
+#if IS_ENABLED(CONFIG_IPV6)
+	if (inet6_sk(sk)) {
+		struct ipv6_pinfo *np = inet6_sk(sk);
+		addr->v6.sin6_addr = sk->sk_v6_daddr;
+		addr->v6.sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->in6_prefix = ipv6_iface_scope_id(&addr->v6.sin6_addr,
+						       sk->sk_bound_dev_if);
+	} else
+#endif
+	{
+		ipv6_addr_set_v4mapped(inet->inet_daddr, &addr->v6.sin6_addr);
+		addr->v6.sin6_flowinfo = 0;
+		addr->in6_prefix = 0;
+	}
 }
 EXPORT_SYMBOL(ss_getpeername);
 
