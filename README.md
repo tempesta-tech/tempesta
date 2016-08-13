@@ -517,6 +517,20 @@ the client to the same URI and includes `Set-Cookie` header field,
 which prompts that Tempesta sticky cookie with the name `__cookie__` is set
 in requests from the client.
 
+Sticky cookie value is calculated on top of client IP, User-Agent, session
+timestamp and the **secret** used as a key for HMAC. `sticky_secret` config
+option sets the secret string used for HMAC calculation. It's desirable to
+keep this value in secret to prevent automatic cookies generation on attacker
+side. By default Tempesta generates a new random value for the secret on start.
+This means that all user HTTP sessions are invalidated on Tempesta restart.
+Maximum length of the key is 20 bytes.
+
+`sess_lifetime` config option defines HTTP session lifetime in seconds. Default
+value is `0`, i.e. unlimited life time. When HTTP session expires the client
+receives 302 redirect with new cookie value if enforced sticky cookie is used.
+This option doesn't affect sticky cookie expire time - it's a session, temporal,
+cookie.
+
 
 ### Frang
 
@@ -588,6 +602,7 @@ an empty `Host:` field value in more cases. This can present an opportunity
 for a DoS attack. Frang's **http_host_required** option should be used in this
 case. That would leave handling of the `Host:` header field to Tempesta.
 Invalid requests would be denied before they reach a back end server.
+
 
 ### Filter
 

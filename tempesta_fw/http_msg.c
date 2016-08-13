@@ -818,6 +818,9 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	/* TODO: use ss_skb_list_print() to show SKBs queue */
 	ss_skb_queue_purge(&m->msg.skb_list);
+
+	if (m->destructor)
+		m->destructor(m);
 	tfw_pool_destroy(m->pool);
 }
 EXPORT_SYMBOL(tfw_http_msg_free);
@@ -852,6 +855,9 @@ tfw_http_msg_alloc(int type)
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 	INIT_LIST_HEAD(&hm->msg.msg_list);
+
+	if (type & Conn_Clnt)
+		hm->destructor = tfw_http_req_destruct;
 
 	return hm;
 }

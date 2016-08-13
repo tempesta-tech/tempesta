@@ -21,31 +21,28 @@
 #ifndef __TFW_CLIENT_H__
 #define __TFW_CLIENT_H__
 
-#include <crypto/sha.h>
-#include <linux/time.h>
-
+#include "classifier.h"
 #include "connection.h"
 
 /**
  * Client descriptor.
  *
+ * @hentry		- hash list entry for all clients hash;
  * @conn_users		- connections reference counter.
  * 			  The client is released, when the counter reaches zero:
  * 			  no connections to the server - no client for us :)
- * @cookie		- Tempesta sticky cookie;
- * @cookie.ts		- timestamp for the client's session;
- * @cookie.hmac		- crypto hash from values of an HTTP request;
+ * @class_prvt		- private client accounting data for classifier module.
+ *			  Typically it's large and vastes memory in vain if
+ *			  no any classification logic is used;
  */
 typedef struct {
 	TFW_PEER_COMMON;
-	atomic_t	conn_users;
-	struct {
-		struct timespec	ts;
-		unsigned char	hmac[SHA1_DIGEST_SIZE];
-	} cookie;
+	struct hlist_node	hentry;
+	atomic_t		conn_users;
+	TfwClassifierPrvt	class_prvt;
 } TfwClient;
 
-TfwClient *tfw_client_obtain(struct sock *sk);
+TfwClient *tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *));
 void tfw_client_put(TfwClient *cli);
 void tfw_cli_conn_release(TfwConnection *conn);
 int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg);
