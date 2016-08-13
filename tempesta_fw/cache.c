@@ -34,7 +34,7 @@
 #include "cache.h"
 #include "http_msg.h"
 #include "procfs.h"
-#include "ss_skb.h"
+#include "sync_socket.h"
 #include "work_queue.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
@@ -1162,7 +1162,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	resp = tfw_cache_build_resp(ce);
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-		tfw_http_send_504((TfwHttpMsg *)req);
+		tfw_http_send_504(req);
 	else
 		action(req, resp);
 
@@ -1199,12 +1199,12 @@ tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403((TfwHttpMsg *)req);
+		return tfw_http_send_403(req);
 
 	/* Accept requests from configured hosts only. */
-	tfw_addr_get_sk_saddr(req->conn->sk, &saddr);
+	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403((TfwHttpMsg *)req);
+		return tfw_http_send_403(req);
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
@@ -1212,13 +1212,13 @@ tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
 		ret = tfw_cache_purge_invalidate(req, key);
 		break;
 	default:
-		return tfw_http_send_403((TfwHttpMsg *)req);
+		return tfw_http_send_403(req);
 	}
 
 	if (ret)
-		return tfw_http_send_404((TfwHttpMsg *)req);
+		return tfw_http_send_404(req);
 	else
-		return tfw_http_send_200((TfwHttpMsg *)req);
+		return tfw_http_send_200(req);
 }
 
 static void

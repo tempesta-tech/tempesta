@@ -80,6 +80,8 @@ tfw_filter_block_ip(struct in6_addr *addr)
 	unsigned long key = tfw_ipv6_hash(addr);
 	size_t len = sizeof(rule);
 
+	TFW_DBG_ADDR6("filter: block", addr);
+
 	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
 		TFW_WARN_ADDR6("cannot create blocking rule", addr);
