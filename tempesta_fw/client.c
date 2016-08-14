@@ -52,15 +52,21 @@ static struct kmem_cache *cli_cache;
  * Called when a client socket is closed.
  */
 void
-tfw_client_put(TfwClient *clnt)
+tfw_client_put(TfwClient *cli)
 {
 	TFW_DBG2("put client %p, conn_users=%d\n",
-		 clnt, atomic_read(&clnt->conn_users));
+		 cli, atomic_read(&cli->conn_users));
 
-	if (atomic_dec_and_test(&clnt->conn_users)) {
-		BUG_ON(!list_empty(&clnt->conn_list));
-		kmem_cache_free(cli_cache, clnt);
-	}
+	if (!atomic_dec_and_test(&cli->conn_users))
+		return;
+
+	BUG_ON(!list_empty(&cli->conn_list));
+
+	spin_lock(cli->hb_lock);
+	hlist_del(&cli->hentry);
+	spin_unlock(cli->hb_lock);
+
+	kmem_cache_free(cli_cache, cli);
 }
 EXPORT_SYMBOL(tfw_client_put);
 
@@ -74,6 +80,9 @@ EXPORT_SYMBOL(tfw_client_put);
  *
  * TODO #100: evict connections and/or clients and drop their accouning.
  * Probably FrangAcc.last_ts should be moved to TfwClient to the purpose.
+ * For now a client is freed immediately when the last its connection is closed,
+ * probably we should evict clients after some timeout to keep their classifier
+ * statistic for following sessions...
  */
 TfwClient *
 tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
@@ -105,6 +114,7 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 
 	tfw_peer_init((TfwPeer *)cli, &addr);
 	hlist_add_head(&cli->hentry, &hb->list);
+	cli->hb_lock = &hb->lock;
 	if (init)
 		init(cli);
 
