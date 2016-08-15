@@ -273,6 +273,7 @@ typedef struct {
 	unsigned char	version;					\
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
+	unsigned long	jtstamp;					\
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
