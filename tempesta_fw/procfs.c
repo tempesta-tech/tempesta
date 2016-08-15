@@ -20,12 +20,14 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#include "apm.h"
+#include "server.h"
 #include "procfs.h"
 
+/*
+ * Common Tempesta statistics.
+ */
 DEFINE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
-
-static struct proc_dir_entry *tfw_procfs_tempesta;
-static struct proc_dir_entry *tfw_procfs_perfstat;
 
 void
 tfw_perfstat_collect(TfwPerfStat *stat)
@@ -137,6 +139,130 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 	return single_open(file, tfw_perfstat_seq_show, PDE_DATA(inode));
 }
 
+/*
+ * Individual server statistics.
+ */
+static int
+tfw_srvstats_seq_show(struct seq_file *seq, void *off)
+{
+#define SPRNE(m, e)							\
+	if ((ret = seq_printf(seq, m": %dms\n", e)))			\
+		goto out;
+
+	int i, ret;
+	TfwServer *srv = seq->private;
+	Percentile pcntl[] = { {1}, {50}, {75}, {90}, {95}, {99} };
+
+	tfw_apm_calc_user(srv->apm, pcntl, ARRAY_SIZE(pcntl));
+
+	SPRNE("Minimal response time\t\t", pcntl[0].val);
+	SPRNE("Maximum response time\t\t", pcntl[5].val);
+	SPRNE("Median  response time\t\t", pcntl[2].val);
+	if ((ret = seq_printf(seq, "Percentiles\n")))
+		goto out;
+	for (i = 1; i < 5; ++i) {
+		ret = seq_printf(seq, "%02d%%:\t%dms\n",
+				 pcntl[i].ith, pcntl[i].val);
+		if (ret)
+			goto out;
+	}
+out:
+	return ret;
+#undef SPRNE
+}
+
+static int
+tfw_srvstats_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tfw_srvstats_seq_show, PDE_DATA(inode));
+}
+
+/*
+ * Start/stop routines.
+ */
+static struct proc_dir_entry *tfw_procfs_tempesta;
+static struct proc_dir_entry *tfw_procfs_perfstat;
+static struct proc_dir_entry *tfw_procfs_srvstats;
+
+static struct file_operations tfw_srvstats_fops = {
+	.owner		= THIS_MODULE,
+	.open		= tfw_srvstats_seq_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+#define TFW_PROCFS_SRV_CNT_MAX		256
+static TfwServer *srvlst[TFW_PROCFS_SRV_CNT_MAX];
+static int slsz = 0;
+
+static int
+tfw_procfs_srv_collect(TfwServer *srv)
+{
+	int i;
+
+	if (slsz == TFW_PROCFS_SRV_CNT_MAX)
+		return 0;
+	for (i = 0; i < slsz; ++i)
+		if (tfw_addr_ifmatch(&srvlst[i]->addr, &srv->addr))
+			return 0;
+	srvlst[slsz++] = srv;
+	return 0;
+}
+
+static int
+tfw_procfs_srv_create(TfwServer *srv)
+{
+	struct proc_dir_entry *pfs_srv;
+	char srv_name[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+	tfw_addr_ntop(&srv->addr, srv_name, sizeof(srv_name));
+	pfs_srv = proc_create_data(srv_name, S_IRUGO,
+				   tfw_procfs_srvstats,
+				   &tfw_srvstats_fops, srv);
+	if (!pfs_srv)
+		return -ENOENT;
+	return 0;
+}
+
+static int
+tfw_procfs_cfg_start(void)
+{
+	int i, ret;
+
+	if (!tfw_procfs_tempesta)
+		return -ENOENT;
+	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
+	if (!tfw_procfs_srvstats)
+		return -ENOENT;
+	if ((ret = tfw_sg_for_each_srv(tfw_procfs_srv_collect)) != 0)
+		return ret;
+	for (i = 0; i < slsz; ++i)
+		if ((ret = tfw_procfs_srv_create(srvlst[i])))
+			return ret;
+	return 0;
+}
+
+static void
+tfw_procfs_cfg_stop(void)
+{
+	remove_proc_subtree("servers", tfw_procfs_tempesta);
+}
+
+static TfwCfgSpec tfw_procfs_cfg_specs[] = {
+	{},
+};
+
+TfwCfgMod tfw_procfs_cfg_mod = {
+        .name  = "procfs",
+        .start = tfw_procfs_cfg_start,
+        .stop  = tfw_procfs_cfg_stop,
+	.specs = tfw_procfs_cfg_specs,
+};
+
+/*
+ * Init/exit routines.
+ */
 static struct file_operations tfw_perfstat_fops = {
 	.owner		= THIS_MODULE,
 	.open		= tfw_perfstat_seq_open,
