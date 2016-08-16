@@ -83,7 +83,8 @@ struct tfw_srv_group_t {
  * @del_grp	- delete server group from the scheduler;
  * @add_conn	- add connection and server if it's new, called in process
  * 		  context at configuration time;
- * @sched_grp	- server scheduling virtual method;
+ * @sched_grp	- server group scheduling virtual method, typically returns
+ *		  result of underlying @sched_srv();
  * @sched_srv	- requests scheduling virtual method, can be called in heavy
  *		  concurrent environment;
  *
