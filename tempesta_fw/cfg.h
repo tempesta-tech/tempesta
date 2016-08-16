@@ -297,4 +297,6 @@ const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 TfwCfgSpec *tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name);
 int tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list);
 
+void *tfw_cfg_read_file(const char *path, size_t *file_size);
+
 #endif /* __TFW_CFG_H__ */
