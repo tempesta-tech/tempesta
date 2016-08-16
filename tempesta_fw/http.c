@@ -445,13 +445,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (hm->conn && tfw_connection_put(hm->conn)) {
-		/* The connection and underlying socket seems closed. */
-		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
-			? tfw_cli_conn_release(hm->conn)
-			: tfw_srv_conn_release(hm->conn);
-		hm->conn = NULL;
-	}
+	tfw_connection_put(hm->conn);
 	tfw_http_msg_free(hm);
 }
 
@@ -872,8 +866,7 @@ send_500:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
-	if (srv_conn && tfw_connection_put(srv_conn))
-		tfw_srv_conn_release(srv_conn);
+	tfw_connection_put(srv_conn);
 }
 
 static int

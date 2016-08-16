@@ -259,6 +259,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	/* Link Tempesta with the socket. */
 	tfw_connection_link_to_sk(conn, sk);
 
+	/* Set the destructor */
+	conn->destructor = (void *)tfw_srv_conn_release;
+
 	/* Notify higher level layers. */
 	r = tfw_connection_new(conn);
 	if (r) {
@@ -299,9 +302,7 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 	}
 
 	tfw_connection_unlink_from_sk(sk);
-
-	if (tfw_connection_put(conn))
-		tfw_srv_conn_release(conn);
+	tfw_connection_put(conn);
 
 	return 0;
 }
