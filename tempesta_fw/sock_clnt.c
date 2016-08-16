@@ -164,6 +164,9 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
+	/* Set the destructor */
+	conn->destructor = (void *)tfw_cli_conn_release;
+
 	r = tfw_connection_new(conn);
 	if (r) {
 		TFW_ERR("conn_init() hook returned error\n");
@@ -213,8 +216,7 @@ tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 	 * the essence of it, remain accessible as long as there
 	 * are references to @conn.
 	 */
-	if (tfw_connection_put(conn))
-		tfw_cli_conn_release(conn);
+	tfw_connection_put(conn);
 
 	return 0;
 }

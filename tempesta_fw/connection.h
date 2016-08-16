@@ -90,6 +90,7 @@ typedef struct {
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
+	void			(*destructor)(void *);
 } TfwConnection;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -170,13 +171,17 @@ tfw_connection_get_if_nfo(TfwConnection *conn)
 /**
  * @return true if @conn has no more users.
  */
-static inline bool
+static inline void
 tfw_connection_put(TfwConnection *conn)
 {
-	int rc = atomic_dec_return(&conn->refcnt);
-	if (unlikely(!rc || rc == TFW_CONN_DEATHCNT))
-		return true;
-	return false;
+	int rc;
+	if (unlikely(!conn))
+		return;
+	rc = atomic_dec_return(&conn->refcnt);
+	if (likely(rc && rc != TFW_CONN_DEATHCNT))
+		return;
+	if (conn->destructor)
+		conn->destructor(conn);
 }
 
 static inline void
