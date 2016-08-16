@@ -148,7 +148,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	listen_sock_proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
 
-	cli = tfw_client_obtain(sk);
+	cli = tfw_client_obtain(sk, NULL);
 	if (!cli) {
 		TFW_ERR("can't obtain a client for the new socket\n");
 		return -ENOENT;
@@ -178,7 +178,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	ss_set_callbacks(sk);
 
 	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
-		sk, conn, cli);
+		 sk, conn, cli);
 	TFW_INC_STAT_BH(clnt.conn_established);
 	return 0;
 

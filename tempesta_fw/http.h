@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,11 +21,13 @@
 #ifndef __TFW_HTTP_H__
 #define __TFW_HTTP_H__
 
+#include <crypto/sha.h>
+
 #include "connection.h"
-#include "vhost.h"
 #include "gfsm.h"
 #include "msg.h"
 #include "str.h"
+#include "vhost.h"
 
 /**
  * HTTP Generic FSM states.
@@ -223,7 +225,7 @@ typedef struct {
 #define TFW_HTTP_CHUNKED		0x000004
 
 /* Request flags */
-#define TFW_HTTP_STICKY_SET		0x000100	/* Need 'Set-Cookie` */
+#define TFW_HTTP_HAS_STICKY		0x000100
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
@@ -233,6 +235,25 @@ typedef struct {
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x040000
+
+/**
+ * HTTP session descriptor.
+ *
+ * @hmac	- crypto hash from values of an HTTP request;
+ * @hentry	- hash list entry for all sessions hash;
+ * @users	- the session use counter;
+ * @ts		- timestamp for the client's session;
+ * @expire	- expiration time for the session;
+ * @srv_conn	- upstream server connection servicing the session;
+ */
+typedef struct {
+	unsigned char		hmac[SHA1_DIGEST_SIZE];
+	struct hlist_node	hentry;
+	atomic_t		users;
+	unsigned long		ts;
+	unsigned long		expires;
+	TfwConnection		*srv_conn;
+} TfwHttpSess;
 
 /**
  * Common HTTP message members.
@@ -253,6 +274,7 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
 	TfwConnection	*conn;						\
+	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
 
@@ -269,6 +291,9 @@ typedef struct {
 /**
  * HTTP Request.
  *
+ * @vhost	- virtual host for the request;
+ * @location	- URI location;
+ * @sess	- HTTP session descriptor, required for scheduling;
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
@@ -277,7 +302,7 @@ typedef struct {
  * @frang_st	- current state of FRANG classifier;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
- * @hash	- hash value calculated for the request;
+ * @hash	- hash value for caching calculated for the request;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -285,6 +310,7 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwVhost		*vhost;
 	TfwLocation		*location;
+	TfwHttpSess		*sess;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
@@ -354,20 +380,17 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
+void tfw_http_req_destruct(void *msg);
 
-/*
- * Helper functions for preparation of an HTTP message.
- */
-void tfw_http_prep_hexstring(char *buf, u_char *value, size_t len);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_send_200(TfwHttpMsg *hm);
-int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hm, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpMsg *hm);
-int tfw_http_send_404(TfwHttpMsg *hm);
-int tfw_http_send_502(TfwHttpMsg *hm);
-int tfw_http_send_504(TfwHttpMsg *hm);
+int tfw_http_send_200(TfwHttpReq *req);
+int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
+int tfw_http_send_403(TfwHttpReq *req);
+int tfw_http_send_404(TfwHttpReq *req);
+int tfw_http_send_502(TfwHttpReq *req);
+int tfw_http_send_504(TfwHttpReq *req);
 
 /*
  * Functions to create SKBs with data stream.
@@ -377,5 +400,12 @@ int tfw_http_send_504(TfwHttpMsg *hm);
  */
 void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
 void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
+
+/*
+ * HTTP session routines.
+ */
+int tfw_http_sess_obtain(TfwHttpReq *req);
+int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
+void tfw_http_sess_put(TfwHttpSess *sess);
 
 #endif /* __TFW_HTTP_H__ */

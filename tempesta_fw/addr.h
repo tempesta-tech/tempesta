@@ -72,29 +72,6 @@ tfw_addr_sa_len(const TfwAddr *addr)
 	return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
 }
 
-/**
- * All Tempesta internal operations are with IPv6 addresses only,
- * as with more scalable and backward compatible with IPv4.
- */
-static inline void
-tfw_addr_get_sk_saddr(struct sock *sk, TfwAddr *addr)
-{
-	addr->family = AF_INET6;
-	addr->v6.sin6_port = inet_sk(sk)->inet_sport;
-#if IS_ENABLED(CONFIG_IPV6)
-	if (inet6_sk(sk)) {
-		memcpy(&addr->v6.sin6_addr, &sk->sk_v6_daddr,
-		       sizeof(struct in6_addr));
-	} else
-#endif
-	{
-		ipv6_addr_set_v4mapped(inet_sk(sk)->inet_daddr,
-				       &addr->v6.sin6_addr);
-	}
-	addr->v6.sin6_flowinfo = 0;
-	addr->v6.sin6_scope_id = 0;
-}
-
 static inline unsigned short
 tfw_addr_get_sk_sport(struct sock *sk)
 {
