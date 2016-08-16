@@ -79,7 +79,6 @@ EXPORT_SYMBOL(tfw_client_put);
  * when the @sk is closed.
  *
  * TODO #100: evict connections and/or clients and drop their accouning.
- * Probably FrangAcc.last_ts should be moved to TfwClient to the purpose.
  * For now a client is freed immediately when the last its connection is closed,
  * probably we should evict clients after some timeout to keep their classifier
  * statistic for following sessions...
