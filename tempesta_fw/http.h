@@ -225,7 +225,7 @@ typedef struct {
 #define TFW_HTTP_CHUNKED		0x000004
 
 /* Request flags */
-#define TFW_HTTP_HAS_STICKY_COOKIE	0x000100
+#define TFW_HTTP_HAS_STICKY		0x000100
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
