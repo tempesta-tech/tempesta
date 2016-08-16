@@ -28,6 +28,7 @@
 /**
  * @conn_list		- connections list associated with the peer;
  * @conn_lock		- protects @conn_list;
+ * @addr		- peer IPv6 address;
  */
 #define TFW_PEER_COMMON							\
 	struct list_head	conn_list;				\
