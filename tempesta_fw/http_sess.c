@@ -222,7 +222,7 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 }
 
 #ifdef DEBUG
-#define TFW_PRINT_STICKY_COOKIE(addr, ua, sv)				\
+#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)			\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	char hbuf[STICKY_KEY_MAXLEN * 2] = {0};				\
@@ -234,7 +234,7 @@ do {									\
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
-#define TFW_PRINT_STICKY_COOKIE(addr, ua, sv)
+#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)
 #endif
 
 /*
@@ -270,7 +270,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
-	TFW_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
+	TFW_DBG_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
 
 	if ((r = crypto_shash_init(shash_desc)))
 		return r;
@@ -338,8 +338,10 @@ tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 /*
  * No Tempesta sticky cookie found.
  *
- * Create Tempesta sticky cookie value, and store it for future use.
- * If configured, enforce Tempesta sticky cookie presence in requests.
+ * Calculate Tempesta sticky cookie and send redirection to the client if
+ * enforcement is configured. Since the client can be malicious, we don't
+ * store anything for now. HTTP session will be created when the client
+ * is successfully solves the cookie challenge.
  */
 static int
 tfw_http_sticky_notfound(TfwHttpReq *req)
@@ -431,7 +433,7 @@ ts_finished:
 	BUG_ON(i != STICKY_KEY_MAXLEN);
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
-	req->flags |= TFW_HTTP_HAS_STICKY_COOKIE;
+	req->flags |= TFW_HTTP_HAS_STICKY;
 
 	return TFW_PASS;
 }
@@ -488,7 +490,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 	 * it seems that we don't enforce them, we can just set the cookie in
 	 * each response forwarded to the client.
 	 */
-	if (req->flags & TFW_HTTP_HAS_STICKY_COOKIE)
+	if (req->flags & TFW_HTTP_HAS_STICKY)
 		return 0;
 	return tfw_http_sticky_add(resp, req);
 }
@@ -536,8 +538,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 
 	if (!sv.ts) {
 		/* No sticky cookie in request and no enforcement. */
-		sv.ts = jiffies;
-		if (__sticky_calc(req, &sv))
+		if (tfw_http_sticky_calc(req, &sv))
 			return -1;
 	}
 
@@ -566,7 +567,11 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 
 	memcpy(sess->hmac, sv.hmac, sizeof(sv.hmac));
 	hlist_add_head(&sess->hentry, &hb->list);
-	atomic_set(&sess->users, 0);
+	/*
+	 * Sessions are removed by the garbage collection above, so the hash
+	 * table is initial user of the session plus to the function caller.
+	 */
+	atomic_set(&sess->users, 1);
 	sess->ts = sv.ts;
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
@@ -695,8 +700,7 @@ tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
 	memcpy(tfw_sticky_key, ce->vals[0], len);
-	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key,
-				STICKY_KEY_MAXLEN);
+	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
 	if (r) {
 		crypto_free_shash(tfw_sticky_shash);
 		return r;

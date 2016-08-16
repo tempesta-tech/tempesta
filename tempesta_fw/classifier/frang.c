@@ -1091,10 +1091,7 @@ frang_init(void)
 {
 	int r;
 
-	if (unlikely(sizeof(FrangAcc) > sizeof(TfwClassifierPrvt))) {
-		TFW_ERR("frang: seems miscompilation problem\n");
-		return -EINVAL;
-	}
+	BUILD_BUG_ON((sizeof(FrangAcc) > sizeof(TfwClassifierPrvt)));
 
 	r = tfw_cfg_mod_register(&frang_cfg_mod);
 	if (r) {
