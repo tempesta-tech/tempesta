@@ -126,6 +126,16 @@ typedef struct {
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
 } TfwConnHooks;
 
+#define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
+
+extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
+
+/* This macros are intended to use to call certain proto hooks. */
+#define tfw_conn_hook_call(proto, c, f, ...)	\
+	conn_hooks[proto]->f ? conn_hooks[proto]->f(c, ## __VA_ARGS__) : 0
+#define TFW_CONN_HOOK_CALL(c, f...)		\
+	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
+
 static inline bool
 tfw_connection_nfo(TfwConnection *conn)
 {
