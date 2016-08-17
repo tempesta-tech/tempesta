@@ -449,14 +449,16 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 	tfw_http_msg_free(hm);
 }
 
-/**
- * TODO Initialize allocated Client structure by HTTP specific callbacks
- * and FSM.
- * TODO it seems the function is not used for long time. Just remove it?
+/*
+ * Connection with a peer is created.
+ *
+ * Called when a connection is created. We need to initialize connection
+ * state machine here.
  */
 static int
 tfw_http_conn_init(TfwConnection *conn)
 {
+	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
 }
 
@@ -1419,6 +1421,18 @@ int
 tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *c = (TfwConnection *)conn;
+
+	if (unlikely(!c->msg)) {
+		c->msg = tfw_http_conn_msg_alloc(c);
+		if (!c->msg) {
+			__kfree_skb(skb);
+			return -ENOMEM;
+		}
+		TFW_DBG("Link new msg %p with connection %p\n", c->msg, c);
+	}
+
+	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	ss_skb_queue_tail(&c->msg->skb_list, skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, skb, off)
