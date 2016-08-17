@@ -25,12 +25,7 @@
 #include "log.h"
 #include "sync_socket.h"
 
-#define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
-
-static TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
-
-#define TFW_CONN_HOOK_CALL(conn, hook_name) \
-	conn_hooks[TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(conn))]->hook_name(conn)
+TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
 /*
  * Initialize the connection structure.
