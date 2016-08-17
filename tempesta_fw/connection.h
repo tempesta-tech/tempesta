@@ -127,6 +127,12 @@ typedef struct {
 	 * messages with all required information.
 	 */
 	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
+
+	/*
+	 * Called by the connection layer when there is a message
+	 * that needs to be send.
+	 */
+	int (*conn_send)(TfwConnection *conn, TfwMsg *msg);
 } TfwConnHooks;
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N

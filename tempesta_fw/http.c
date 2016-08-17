@@ -506,6 +506,17 @@ tfw_http_conn_drop(TfwConnection *conn)
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
 
+/*
+ * Send a message through the connection.
+ *
+ * Called when the connection is used to send a message through.
+ */
+static int
+tfw_http_conn_send(TfwConnection *conn, TfwMsg *msg)
+{
+	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
+}
+
 /**
  * Create a sibling for @msg message.
  * Siblings in HTTP are pipelined requests that share the same SKB.
@@ -1441,6 +1452,7 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
 	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
+	.conn_send	= tfw_http_conn_send,
 };
 
 int __init

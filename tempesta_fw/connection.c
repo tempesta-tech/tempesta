@@ -89,7 +89,7 @@ tfw_connection_release(TfwConnection *conn)
 int
 tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
-	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
+	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
 }
 
 int
