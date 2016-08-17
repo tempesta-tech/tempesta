@@ -86,7 +86,7 @@ options and their descriptions.
 Tempesta listens to incoming connections on specified address and port.
 The syntax is as follows:
 ```
-listen <PORT> | <IPADDR>[:PORT]
+listen <PORT> | <IPADDR>[:PORT] [proto=http|https]
 ```
 `IPADDR` may be either IPv4 or IPv6 address. Host names are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
@@ -102,10 +102,27 @@ which is an equivalent to `listen 80` directive.
 Below are examples of `listen` directive:
 ```
 listen 80;
+listen 443 proto=https;
 listen [::0]:80;
 listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
+
+It is allowed to specify the type of listening socket via the `proto`. At
+the moment **HTTP** and **HTTPS** protos are supported. If no `proto`
+option was given, then **HTTP** is supposed by the default.
+
+### TLS/SSL support
+
+Tempesta allows to use TLS-encrypted HTTP connections (HTTPS). It is
+required that public certificate and private key have been configured as
+follows:
+```
+ssl_certificate /path/to/certificate.pem
+ssl_certificate_key /path/to/certificate-key.pem
+```
+
+Also, `proto=https` option is needed for the `listen` directive.
 
 ### Keep-alive timeout
 
