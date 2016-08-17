@@ -97,20 +97,7 @@ tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *conn = cdata;
 
-	if (!conn->msg) {
-		conn->msg = TFW_CONN_HOOK_CALL(conn, conn_msg_alloc);
-		if (!conn->msg) {
-			__kfree_skb(skb);
-			return -ENOMEM;
-		}
-		TFW_DBG("Link new msg %p with connection %p\n",
-			conn->msg, conn);
-	}
-
-	TFW_DBG("Add skb %p to message %p\n", skb, conn->msg);
-	ss_skb_queue_tail(&conn->msg->skb_list, skb);
-
-	return tfw_gfsm_dispatch(&conn->msg->state, conn, skb, off);
+	return tfw_gfsm_dispatch(&conn->state, conn, skb, off);
 }
 
 void

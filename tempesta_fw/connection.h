@@ -73,6 +73,7 @@ enum {
  * That is supported by a separate reference counter in @peer.
  *
  * @proto	- protocol handler. Base class, must be first;
+ * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
  * @msg_qlock	- lock for accessing @msg_queue;
@@ -84,6 +85,7 @@ enum {
  */
 typedef struct {
 	SsProto			proto;
+	TfwGState		state;
 	struct list_head	list;
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
