@@ -22,5 +22,6 @@ EXTRA_CFLAGS += -Werror  -I$(src)/../ -I$(src)/../../tempesta_db/core \
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m = tfw_sched_hash.o tfw_sched_http.o tfw_sched_rr.o

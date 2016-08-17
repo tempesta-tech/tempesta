@@ -38,7 +38,15 @@
  */
 
 static struct kmem_cache *tfw_cli_conn_cache;
+static struct kmem_cache *tfw_cli_conn_tls_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
+
+static inline struct kmem_cache *
+tfw_cli_cache(int type)
+{
+	return type == Conn_HttpClnt ?
+		tfw_cli_conn_cache : tfw_cli_conn_tls_cache;
+}
 
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
@@ -56,11 +64,11 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 }
 
 static TfwConnection *
-tfw_cli_conn_alloc(void)
+tfw_cli_conn_alloc(int type)
 {
 	TfwConnection *conn;
 
-	conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC);
 	if (!conn)
 		return NULL;
 
@@ -79,7 +87,7 @@ tfw_cli_conn_free(TfwConnection *conn)
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_cli_conn_cache, conn);
+	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(conn)), conn);
 }
 
 void
@@ -138,7 +146,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = tfw_cli_conn_alloc();
+	conn = tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
@@ -560,14 +568,29 @@ int
 tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
+	BUG_ON(tfw_cli_conn_tls_cache);
+
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
 					       sizeof(TfwConnection),
 					       0, 0, NULL);
-	return !tfw_cli_conn_cache ? -ENOMEM : 0;
+	tfw_cli_conn_tls_cache = kmem_cache_create("tfw_cli_conn_tls_cache",
+						   sizeof(TfwTlsConnection),
+						   0, 0, NULL);
+
+	if (tfw_cli_conn_cache && tfw_cli_conn_tls_cache)
+		return 0;
+
+	if (tfw_cli_conn_cache)
+		kmem_cache_destroy(tfw_cli_conn_cache);
+	if (tfw_cli_conn_tls_cache)
+		kmem_cache_destroy(tfw_cli_conn_tls_cache);
+
+	return -ENOMEM;
 }
 
 void
 tfw_sock_clnt_exit(void)
 {
+	kmem_cache_destroy(tfw_cli_conn_tls_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }
