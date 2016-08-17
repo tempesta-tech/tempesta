@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Definitions for generic connection (at OSI level 4) management.
+ * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
@@ -30,6 +30,7 @@
 #include "peer.h"
 
 #include "sync_socket.h"
+#include "tls.h"
 
 enum {
 	/* Protocol bits. */
@@ -100,6 +101,16 @@ typedef struct {
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/**
+ * TLS hardened connection.
+ */
+typedef struct {
+	TfwConnection		conn;
+	TfwTlsContext		tls;
+} TfwTlsConnection;
+
+#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConnection *)p)->tls)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
