@@ -147,6 +147,7 @@ EXPORT_SYMBOL(mbedtls_ssl_set_bio);
 EXPORT_SYMBOL(mbedtls_ssl_read);
 EXPORT_SYMBOL(mbedtls_ssl_write);
 EXPORT_SYMBOL(mbedtls_ssl_handshake);
+EXPORT_SYMBOL(mbedtls_ssl_close_notify);
 
 EXPORT_SYMBOL(mbedtls_ssl_config_init);
 EXPORT_SYMBOL(mbedtls_ssl_config_free);

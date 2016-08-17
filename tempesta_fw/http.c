@@ -1478,9 +1478,9 @@ tfw_http_init(void)
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	/* Must be last call - we can't unregister the hook. */
-	ghprio = tfw_gfsm_register_hook(TFW_FSM_HTTPS,
+	ghprio = tfw_gfsm_register_hook(TFW_FSM_TLS,
 					TFW_GFSM_HOOK_PRIORITY_ANY,
-					TFW_HTTPS_FSM_TODO_ISSUE_81,
+					TFW_TLS_FSM_DATA_READY,
 					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
 	if (ghprio < 0)
 		return ghprio;
@@ -1491,8 +1491,7 @@ tfw_http_init(void)
 void
 tfw_http_exit(void)
 {
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio,
-				 TFW_HTTPS_FSM_TODO_ISSUE_81);
+	tfw_gfsm_unregister_hook(TFW_FSM_TLS, ghprio, TFW_TLS_FSM_DATA_READY);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }
