@@ -1465,7 +1465,6 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
-	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
 	.conn_send	= tfw_http_conn_send,
 };
 
