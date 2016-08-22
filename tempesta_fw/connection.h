@@ -125,12 +125,6 @@ typedef struct {
 	void (*conn_release)(TfwConnection *conn);
 
 	/*
-	 * Higher level protocols should be able to allocate
-	 * messages with all required information.
-	 */
-	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
-
-	/*
 	 * Called by the connection layer when there is a message
 	 * that needs to be send.
 	 */
