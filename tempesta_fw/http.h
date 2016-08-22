@@ -258,9 +258,13 @@ typedef struct {
 /**
  * Common HTTP message members.
  *
- * @conn	- connection which the message was received on;
- * @crlf	- pointer to CRLF between headers and body;
- * @version	- HTTP version (1.0 and 1.1 are only supported);
+ * @version		- HTTP version (1.0 and 1.1 are only supported);
+ * @flags		- message related flags;
+ * @content_length	- the value of Content-Length header field;
+ * @conn		- connection which the message was received on;
+ * @jtstamp		- time the message has been received, in jiffies;
+ * @crlf		- pointer to CRLF between headers and body;
+ * @body		- pointer to the body of a message;
  *
  * TfwStr members must be the last for efficient scanning.
  */
