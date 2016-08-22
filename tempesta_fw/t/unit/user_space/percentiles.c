@@ -264,7 +264,7 @@ tfw_stat_adjust(TfwPcntRanges *rng, int r)
 		goto out;
 
 	printf("  -- range %d has outlier %lu (avg=%lu total=%lu) at"
-	       " bucket %lu\n", r, max, sum / cnt, cnt, i_max);
+	       " bucket %lu\n", r, max, sum / cnt, sum, i_max);
 
 	if (r && i_max == 0) {
 		/*
@@ -300,10 +300,11 @@ tfw_stat_adjust(TfwPcntRanges *rng, int r)
 	 * If servers are too fast (all responses within 1ms),
 	 * then there is nothing to do for us.
 	 */
-	pc.atomic = rng->ctl[r].atomic;
-	if (unlikely(!pc.order))
-		goto out;
-	__range_shrink_left(rng, &pc, r);
+	if (r) {
+		pc.atomic = rng->ctl[r].atomic;
+		if (likely(pc.order))
+			__range_shrink_left(rng, &pc, r);
+	}
 
 out:
 	spin_unlock(&sa_guard);
@@ -381,7 +382,7 @@ tfw_stat_calc(TfwPcntRanges *rng, Percentilie *pcnts, size_t np, bool clear)
 		for (b = 0; b < TFW_STAT_BCKTS; ++b) {
 			cnt += atomic_read(&rng->cnt[r][b]);
 			for ( ; p < np && pval[p] <= cnt; ++p) {
-				pcnts[p].ith = cnt * 100 / tot_cnt;
+//				pcnts[p].ith = cnt * 100 / tot_cnt;
 				pcnts[p].val = rng->ctl[r].begin
 					       + (b << rng->ctl[r].order);
 			}

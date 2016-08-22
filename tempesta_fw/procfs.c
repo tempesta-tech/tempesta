@@ -151,18 +151,22 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	int i, ret;
 	TfwServer *srv = seq->private;
-	Percentile pcntl[] = { {1}, {50}, {75}, {90}, {95}, {99} };
+	Percentile prcntl[] = {
+		{tfw_apm_prcntl_ith[0]}, {tfw_apm_prcntl_ith[1]},
+		{tfw_apm_prcntl_ith[2]}, {tfw_apm_prcntl_ith[3]},
+		{tfw_apm_prcntl_ith[4]}, {tfw_apm_prcntl_ith[5]},
+	};
 
-	tfw_apm_calc_user(srv->apm, pcntl, ARRAY_SIZE(pcntl));
+	tfw_apm_stats(srv->apm, prcntl, ARRAY_SIZE(prcntl));
 
-	SPRNE("Minimal response time\t\t", pcntl[0].val);
-	SPRNE("Maximum response time\t\t", pcntl[5].val);
-	SPRNE("Median  response time\t\t", pcntl[2].val);
+	SPRNE("Minimal response time\t\t", prcntl[0].val);
+	SPRNE("Median  response time\t\t", prcntl[2].val);
+	SPRNE("Maximum response time\t\t", prcntl[5].val);
 	if ((ret = seq_printf(seq, "Percentiles\n")))
 		goto out;
 	for (i = 1; i < 5; ++i) {
 		ret = seq_printf(seq, "%02d%%:\t%dms\n",
-				 pcntl[i].ith, pcntl[i].val);
+				 prcntl[i].ith, prcntl[i].val);
 		if (ret)
 			goto out;
 	}
@@ -229,9 +233,16 @@ static int
 tfw_procfs_cfg_start(void)
 {
 	int i, ret;
+	Percentile prcntl[] = {
+		{tfw_apm_prcntl_ith[0]}, {tfw_apm_prcntl_ith[1]},
+		{tfw_apm_prcntl_ith[2]}, {tfw_apm_prcntl_ith[3]},
+		{tfw_apm_prcntl_ith[4]}, {tfw_apm_prcntl_ith[5]},
+	};
 
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
+	if (tfw_apm_percentile_verify(prcntl, ARRAY_SIZE(prcntl)))
+		return -EINVAL;
 	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
 	if (!tfw_procfs_srvstats)
 		return -ENOENT;

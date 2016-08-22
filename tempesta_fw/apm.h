@@ -31,11 +31,12 @@ typedef struct {
 	int	val;
 } Percentile;
 
-void *tfw_apm_create(void);
-void tfw_apm_destroy(void *hndl);
-void tfw_apm_update(void *hndl, unsigned long jtstamp, unsigned long jrtime);
-int tfw_apm_calc(void *hndl, Percentile *pcntl, size_t plsz, TfwPool *pool);
+extern const unsigned int tfw_apm_prcntl_ith[];
 
-#define tfw_apm_calc_user(...)	tfw_apm_calc(__VA_ARGS__, NULL)
+void *tfw_apm_create(void);
+void tfw_apm_destroy(void *data);
+void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
+int tfw_apm_stats(void *data, Percentile *prcntl, size_t prcntlsz);
+int tfw_apm_percentile_verify(Percentile *prcntl, size_t prcntlsz);
 
 #endif /* __TFW_APM_H__ */
