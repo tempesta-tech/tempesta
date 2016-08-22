@@ -37,15 +37,6 @@
  * ------------------------------------------------------------------------
  */
 
-/**
- * TfwConnection extension for client sockets.
- *
- * @conn	- The base structure. Must be the first member.
- */
-typedef struct {
-	TfwConnection		conn;
-} TfwCliConnection;
-
 static struct kmem_cache *tfw_cli_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
@@ -58,52 +49,49 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 
 	/* Close socket asynchronously to avoid deadlock on del_timer_sync(). */
 	if (ss_close(conn->sk)) {
-		TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 		/* Try to close the connection 1 second later. */
-		mod_timer(&cli_conn->conn.timer,
+		mod_timer(&conn->timer,
 			  jiffies + msecs_to_jiffies(1000));
 	}
 }
 
-static TfwCliConnection *
+static TfwConnection *
 tfw_cli_conn_alloc(void)
 {
-	TfwCliConnection *cli_conn;
+	TfwConnection *conn;
 
-	cli_conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
-	if (!cli_conn)
+	conn = kmem_cache_alloc(tfw_cli_conn_cache, GFP_ATOMIC);
+	if (!conn)
 		return NULL;
 
-	tfw_connection_init(&cli_conn->conn);
-	setup_timer(&cli_conn->conn.timer,
+	tfw_connection_init(conn);
+	setup_timer(&conn->timer,
 		    tfw_sock_cli_keepalive_timer_cb,
-		    (unsigned long)&cli_conn->conn);
+		    (unsigned long)conn);
 
-	return cli_conn;
+	return conn;
 }
 
 static void
-tfw_cli_conn_free(TfwCliConnection *cli_conn)
+tfw_cli_conn_free(TfwConnection *conn)
 {
-	BUG_ON(timer_pending(&cli_conn->conn.timer));
+	BUG_ON(timer_pending(&conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(&cli_conn->conn);
-	kmem_cache_free(tfw_cli_conn_cache, cli_conn);
+	tfw_connection_validate_cleanup(conn);
+	kmem_cache_free(tfw_cli_conn_cache, conn);
 }
 
 void
 tfw_cli_conn_release(TfwConnection *conn)
 {
-	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
-
-	del_timer_sync(&cli_conn->conn.timer);
+	del_timer_sync(&conn->timer);
 
 	if (likely(conn->sk))
 		tfw_connection_unlink_to_sk(conn);
 	if (likely(conn->peer))
 		tfw_client_put((TfwClient *)conn->peer);
-	tfw_cli_conn_free((TfwCliConnection *)conn);
+	tfw_cli_conn_free(conn);
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
@@ -111,10 +99,9 @@ int
 tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 {
 	int r;
-	TfwCliConnection *cli_conn = (TfwCliConnection *)conn;
 
 	r = tfw_connection_send(conn, msg);
-	mod_timer(&cli_conn->conn.timer,
+	mod_timer(&conn->timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
@@ -130,7 +117,6 @@ tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
 	TfwClient *cli;
-	TfwCliConnection *cli_conn;
 	TfwConnection *conn;
 	SsProto *listen_sock_proto;
 
@@ -152,13 +138,11 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	cli_conn = tfw_cli_conn_alloc();
-	if (!cli_conn) {
+	conn = tfw_cli_conn_alloc();
+	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
-
-	conn = &cli_conn->conn;
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
@@ -185,7 +169,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 err_conn:
 	tfw_connection_drop(conn);
-	tfw_cli_conn_free(cli_conn);
+	tfw_cli_conn_free(conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
@@ -194,8 +178,7 @@ err_client:
 static int
 tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
-	TfwCliConnection *cli_conn = sk->sk_user_data;
-	TfwConnection *conn = &cli_conn->conn;
+	TfwConnection *conn = sk->sk_user_data;
 
 	TFW_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
 		 msg, sk, conn, conn->peer);
@@ -578,7 +561,7 @@ tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwCliConnection),
+					       sizeof(TfwConnection),
 					       0, 0, NULL);
 	return !tfw_cli_conn_cache ? -ENOMEM : 0;
 }
