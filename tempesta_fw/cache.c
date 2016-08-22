@@ -172,16 +172,16 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 		c = &req->uri_path;					\
 		u_end = &req->uri_path + 1;				\
 	} else {							\
-		c = (TfwStr *)req->uri_path.chunks;			\
-		u_end = (TfwStr *)req->uri_path.chunks			\
+		c = req->uri_path.chunks;				\
+		u_end = req->uri_path.chunks				\
 			+ TFW_STR_CHUNKN(&req->uri_path);		\
 	}								\
 	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
-		h_start = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;\
-		h_end = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks \
+		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;\
+		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks \
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)

@@ -36,7 +36,7 @@ tfw_str_del_chunk(TfwStr *str, int id)
 
 	if (TFW_STR_CHUNKN(str) == 2) {
 		/* Just fall back to plain string. */
-		*str = *((TfwStr *)str->chunks + (id ^ 1));
+		*str = *(str->chunks + (id ^ 1));
 		return;
 	}
 

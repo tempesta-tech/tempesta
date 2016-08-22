@@ -98,7 +98,7 @@
  * @flags	- 3 most significant bytes for number of chunks of compound
  * 		  string and the least significant byte for flags;
  */
-typedef struct {
+typedef struct TfwStr {
 	struct sk_buff	*skb;
 	unsigned long	len;
 	unsigned char	eolen;
