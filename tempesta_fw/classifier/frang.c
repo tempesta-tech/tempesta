@@ -832,7 +832,7 @@ frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
 
 	/* All limits are verified for current request. */
 	__FRANG_FSM_STATE(Frang_Req_Done) {
-		tfw_gfsm_move(&req->msg.state, TFW_FRANG_FSM_DONE, skb, off);
+		tfw_gfsm_move(&conn->state, TFW_FRANG_FSM_DONE, skb, off);
 		__FRANG_FSM_EXIT();
 	}
 
