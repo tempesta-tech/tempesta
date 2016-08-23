@@ -62,7 +62,6 @@
  * TfwConnection extension for server sockets.
  *
  * @conn	- The base structure. Must be the first member.
- * @retry_timer	- The timer makes a delay between connection attempts.
  *
  * A server connection differs from a client connection.
  * For client sockets, a new TfwConnection{} instance is created when
@@ -114,7 +113,6 @@
  */
 typedef struct {
 	TfwConnection		conn;
-	struct timer_list	retry_timer;
 	unsigned long		timeout;
 	unsigned int		attempts;
 } TfwSrvConnection;
@@ -195,7 +193,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 					* (1 << srv_conn->attempts));
 		srv_conn->attempts++;
 	}
-	mod_timer(&srv_conn->retry_timer,
+	mod_timer(&srv_conn->conn.timer,
 		  jiffies + msecs_to_jiffies(srv_conn->timeout));
 }
 
@@ -220,7 +218,7 @@ static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
-	setup_timer(&srv_conn->retry_timer,
+	setup_timer(&srv_conn->conn.timer,
 		    tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
 }
@@ -258,6 +256,9 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	/* Link Tempesta with the socket. */
 	tfw_connection_link_to_sk(conn, sk);
+
+	/* Set the destructor */
+	conn->destructor = (void *)tfw_srv_conn_release;
 
 	/* Notify higher level layers. */
 	r = tfw_connection_new(conn);
@@ -299,9 +300,7 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 	}
 
 	tfw_connection_unlink_from_sk(sk);
-
-	if (tfw_connection_put(conn))
-		tfw_srv_conn_release(conn);
+	tfw_connection_put(conn);
 
 	return 0;
 }
@@ -360,7 +359,7 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
-	del_timer_sync(&srv_conn->retry_timer);
+	del_timer_sync(&srv_conn->conn.timer);
 
 	/*
 	 * Withdraw from socket activity.
@@ -488,7 +487,7 @@ tfw_srv_conn_alloc(void)
 static void
 tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 {
-	BUG_ON(timer_pending(&srv_conn->retry_timer));
+	BUG_ON(timer_pending(&srv_conn->conn.timer));
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(&srv_conn->conn);

@@ -445,24 +445,20 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (hm->conn && tfw_connection_put(hm->conn)) {
-		/* The connection and underlying socket seems closed. */
-		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
-			? tfw_cli_conn_release(hm->conn)
-			: tfw_srv_conn_release(hm->conn);
-		hm->conn = NULL;
-	}
+	tfw_connection_put(hm->conn);
 	tfw_http_msg_free(hm);
 }
 
-/**
- * TODO Initialize allocated Client structure by HTTP specific callbacks
- * and FSM.
- * TODO it seems the function is not used for long time. Just remove it?
+/*
+ * Connection with a peer is created.
+ *
+ * Called when a connection is created. We need to initialize connection
+ * state machine here.
  */
 static int
 tfw_http_conn_init(TfwConnection *conn)
 {
+	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
 }
 
@@ -510,6 +506,17 @@ tfw_http_conn_drop(TfwConnection *conn)
 		}
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
+}
+
+/*
+ * Send a message through the connection.
+ *
+ * Called when the connection is used to send a message through.
+ */
+static int
+tfw_http_conn_send(TfwConnection *conn, TfwMsg *msg)
+{
+	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
 }
 
 /**
@@ -872,8 +879,7 @@ send_500:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
-	if (srv_conn && tfw_connection_put(srv_conn))
-		tfw_srv_conn_release(srv_conn);
+	tfw_connection_put(srv_conn);
 }
 
 static int
@@ -1416,6 +1422,18 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	TfwConnection *c = (TfwConnection *)conn;
 
+	if (unlikely(!c->msg)) {
+		c->msg = tfw_http_conn_msg_alloc(c);
+		if (!c->msg) {
+			__kfree_skb(skb);
+			return -ENOMEM;
+		}
+		TFW_DBG("Link new msg %p with connection %p\n", c->msg, c);
+	}
+
+	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	ss_skb_queue_tail(&c->msg->skb_list, skb);
+
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, skb, off)
 		: tfw_http_resp_process(c, skb, off);
@@ -1447,7 +1465,7 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
-	.conn_msg_alloc	= tfw_http_conn_msg_alloc,
+	.conn_send	= tfw_http_conn_send,
 };
 
 int __init
@@ -1460,9 +1478,9 @@ tfw_http_init(void)
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
 	/* Must be last call - we can't unregister the hook. */
-	ghprio = tfw_gfsm_register_hook(TFW_FSM_HTTPS,
+	ghprio = tfw_gfsm_register_hook(TFW_FSM_TLS,
 					TFW_GFSM_HOOK_PRIORITY_ANY,
-					TFW_HTTPS_FSM_TODO_ISSUE_81,
+					TFW_TLS_FSM_DATA_READY,
 					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
 	if (ghprio < 0)
 		return ghprio;
@@ -1473,8 +1491,7 @@ tfw_http_init(void)
 void
 tfw_http_exit(void)
 {
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTPS, ghprio,
-				 TFW_HTTPS_FSM_TODO_ISSUE_81);
+	tfw_gfsm_unregister_hook(TFW_FSM_TLS, ghprio, TFW_TLS_FSM_DATA_READY);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 }
