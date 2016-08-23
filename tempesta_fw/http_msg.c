@@ -84,8 +84,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			nlen -= c->len;
 			val->len -= c->len;
 		}
-		else if (unlikely(((char *)c->data)[0] == ' '
-				  || ((char *)c->data)[0] == '\t'))
+		else if (unlikely((c->data)[0] == ' '
+				  || (c->data)[0] == '\t'))
 		{
 			/*
 			 * RFC 7230: skip OWS before header field.
