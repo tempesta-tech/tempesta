@@ -135,7 +135,7 @@ typedef struct TfwStr {
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
-#define __TFW_STR_CH(s, c)	((TfwStr *)(s)->chunks + (c))
+#define __TFW_STR_CH(s, c)	((s)->chunks + (c))
 #define TFW_STR_CHUNK(s, c)	(((s)->chunknum)	\
 				 ? ((c) >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
@@ -148,10 +148,10 @@ typedef struct TfwStr {
 #define TFW_STR_CURR(s)							\
 ({									\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
-		       ? (TfwStr *)(s)->chunks + TFW_STR_CHUNKN(s) - 1	\
+		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1	\
 		       : (s);						\
 	(_tmp->flags & __TFW_STR_COMPOUND)				\
-		? (TfwStr *)_tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1	\
+		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1	\
 		: (_tmp);						\
  })
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
@@ -164,16 +164,16 @@ typedef struct TfwStr {
 		(c) = (s);						\
 		end = (s) + 1;						\
 	} else {							\
-		(c) = (TfwStr *)(s)->chunks;						\
-		end = (TfwStr *)(s)->chunks + TFW_STR_CHUNKN(s);		\
+		(c) = (s)->chunks;						\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);		\
 	}								\
 	for ( ; (c) < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		(end) = (TfwStr *)(s)->chunks + TFW_STR_CHUNKN(s);		\
-		(d) = (TfwStr *)(s)->chunks;						\
+		(end) = (s)->chunks + TFW_STR_CHUNKN(s);		\
+		(d) = (s)->chunks;						\
 	} else {							\
 		(d) = (s);						\
 		(end) = (s) + 1;					\
@@ -190,12 +190,12 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 
 	TFW_DBG("str_upd_len:start:sl:%lu;sf:%d\n", s->len, s->flags);
 	if (s->flags & __TFW_STR_COMPOUND) {
-		TfwStr *chunk = (TfwStr *)s->chunks + TFW_STR_CHUNKN(s) - 1;
+		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
 
 		BUG_ON(chunk->len);
-		BUG_ON(!chunk->chunks || curr_p <= (char *)chunk->chunks);
+		BUG_ON(!chunk->chunks || curr_p <= chunk->data);
 
-		n = curr_p - (char *)chunk->chunks;
+		n = curr_p - chunk->data;
 		TFW_DBG("str_upd_len:n:%u\n", n);
 		chunk->len = n;
 	} else {

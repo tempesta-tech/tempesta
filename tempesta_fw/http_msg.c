@@ -75,7 +75,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	 * we get an empty string with val->len = 0 and val->ptr from the
 	 * last name's chunk, but it is unimportant.
 	 */
-	for (c = (TfwStr *)hdr->chunks, end = (TfwStr *)hdr->chunks + TFW_STR_CHUNKN(hdr);
+	for (c = hdr->chunks, end = hdr->chunks + TFW_STR_CHUNKN(hdr);
 	     c < end; ++c)
 	{
 		BUG_ON(!c->len);
