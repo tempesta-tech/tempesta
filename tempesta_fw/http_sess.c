@@ -117,10 +117,10 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	memset(chunks, 0, sizeof(chunks));
 	chunks[0] = tfw_cfg_sticky.name;
 	chunks[1] = s_eq;
-	chunks[2].ptr = buf;
+	chunks[2].data = buf;
 	chunks[2].len = sizeof(*sv) * 2;
 
-	cookie.ptr = chunks;
+	cookie.chunks = chunks;
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
@@ -143,8 +143,8 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
 
 	/* Search cookie name. */
-	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
-	for (chunk = cookie->ptr; chunk != end; ++chunk, --n) {
+	end = cookie->chunks + TFW_STR_CHUNKN(cookie);
+	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
 		if (chunk->flags & TFW_STR_NAME) {
 			/*
 			 * Create temporary compound string, starting
@@ -152,7 +152,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 			 * We do not use it's overall length now,
 			 * so do not set it.
 			 */
-			tmp.ptr = (void *)chunk;
+			tmp.chunks = chunk;
 			__TFW_STR_CHUNKN_SET(&tmp, n);
 			if (tfw_str_eq_cstr(&tmp, cstr, clen,
 					    TFW_STR_EQ_PREFIX))
@@ -172,7 +172,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	next = chunk + 1;
 	if (likely(next == end || *next->data == ';')) {
 		TFW_DBG3("%s: plain cookie value: %.*s\n", __func__,
-			 (int)chunk->len, (chunk->data);
+			 (int)chunk->len, chunk->data);
 		*val = *chunk;
 		return 1;
 	}
@@ -393,7 +393,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 			(int)(value->chunks)->len,
 		TFW_STR_PLAIN(value) ?
 			value->data :
-			(value->chunks)->data);
+			value->chunks->data);
 
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
