@@ -36,7 +36,7 @@
 
 #include "http_msg.c"
 
-#include "http_sticky.c"
+#include "http_sess.c"
 
 #include "filter.c"
 #include "sock.c"
@@ -80,8 +80,8 @@ static struct {
 	int		seen_cookie;
 	unsigned int	http_status;
 
-	TfwHttpMsg	*hmreq;
-	TfwHttpMsg	*hmresp;
+	TfwHttpReq	*req;
+	TfwHttpResp	*resp;
 	TfwConnection   connection;
 	TfwClient	client;
 	struct sock	sock;
@@ -153,14 +153,15 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 	while (skb) {
 		int ret;
 		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
-				     mock.hmresp);
+				     mock.resp);
 		skb = ss_skb_next(skb);
 	}
 
-	mock.http_status = ((TfwHttpResp *)mock.hmresp)->status;
+	mock.http_status = mock.resp->status;
 
 	mock.seen_set_cookie_header =
-	    tfw_http_field_value(mock.hmresp, &s_set_cookie, &hdr_value) > 0;
+		tfw_http_field_value((TfwHttpMsg *)mock.resp,
+				     &s_set_cookie, &hdr_value) > 0;
 
 	if (!mock.seen_set_cookie_header)
 		return 0;
@@ -188,29 +189,29 @@ http_sticky_suite_setup(void)
 {
 	struct sk_buff *skb;
 
-	BUG_ON(mock.hmreq);
-	BUG_ON(mock.hmresp);
+	BUG_ON(mock.req);
+	BUG_ON(mock.resp);
 
 	memset(&mock, 0, sizeof(mock));
 
-	mock.hmreq = tfw_http_msg_alloc(Conn_Clnt);
-	mock.hmresp = tfw_http_msg_alloc(Conn_Srv);
+	mock.req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
+	mock.resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
 
-	BUG_ON(!mock.hmreq);
-	BUG_ON(!mock.hmresp);
-
-	skb = alloc_skb(PAGE_SIZE, GFP_ATOMIC);
-	BUG_ON(!skb);
-	skb_reserve(skb, MAX_TCP_HEADER);
-	ss_skb_queue_tail(&mock.hmreq->msg.skb_list, skb);
+	BUG_ON(!mock.req);
+	BUG_ON(!mock.resp);
 
 	skb = alloc_skb(PAGE_SIZE, GFP_ATOMIC);
 	BUG_ON(!skb);
 	skb_reserve(skb, MAX_TCP_HEADER);
-	ss_skb_queue_tail(&mock.hmresp->msg.skb_list, skb);
+	ss_skb_queue_tail(&mock.req->msg.skb_list, skb);
 
-	mock.hmreq->conn = &mock.connection;
-	mock.hmresp->conn = &mock.connection;
+	skb = alloc_skb(PAGE_SIZE, GFP_ATOMIC);
+	BUG_ON(!skb);
+	skb_reserve(skb, MAX_TCP_HEADER);
+	ss_skb_queue_tail(&mock.resp->msg.skb_list, skb);
+
+	mock.req->conn = &mock.connection;
+	mock.resp->conn = &mock.connection;
 	mock.connection.peer = (TfwPeer *)&mock.client;
 	mock.connection.sk = &mock.sock;
 	mock.sock.sk_family = AF_INET;
@@ -219,18 +220,20 @@ http_sticky_suite_setup(void)
 static void
 http_sticky_suite_teardown(void)
 {
-	tfw_http_msg_free(mock.hmreq);
-	tfw_http_msg_free(mock.hmresp);
+	tfw_http_msg_free((TfwHttpMsg *)mock.req);
+	tfw_http_msg_free((TfwHttpMsg *)mock.resp);
 
 	memset(&mock, 0, sizeof(mock));
 }
 
 TEST(http_sticky, sending_302_without_preparing)
 {
-	/* should fail -- cookie wasn't set */
-	EXPECT_EQ(tfw_http_sticky_send_302(mock.hmreq), -1);
+	StickyVal sv = {};
 
-	EXPECT_FALSE(mock.tfw_connection_send_was_called);
+	/* Cookie is calculated for zero HMAC. */
+	EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), TFW_PASS);
+
+	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 }
 
 TEST(http_sticky, sending_302)
@@ -238,6 +241,8 @@ TEST(http_sticky, sending_302)
 	create_str_pool();
 
 	{
+		StickyVal sv = { .ts = 1 };
+
 		/* Need host header and
 		 *it must be compound as special header
 		 */
@@ -247,8 +252,9 @@ TEST(http_sticky, sending_302)
 //		mock.hmreq->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 		tfw_http_parse_req(mock.hmreq, s_req, strlen(s_req));
 
-		EXPECT_EQ(tfw_http_sticky_set(mock.hmreq), 0);
-		EXPECT_EQ(tfw_http_sticky_send_302(mock.hmreq), 0);
+
+		EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
+		EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), 0);
 
 		EXPECT_TRUE(mock.tfw_connection_send_was_called);
 		EXPECT_TRUE(mock.seen_set_cookie_header);
@@ -261,8 +267,10 @@ TEST(http_sticky, sending_302)
 
 TEST(http_sticky, sending_502)
 {
-	EXPECT_EQ(tfw_http_sticky_set(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_send_502(mock.hmreq), 0);
+	StickyVal sv = { .ts = 1 };
+
+	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
+	EXPECT_EQ(tfw_http_send_502(mock.req), 0);
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
@@ -319,18 +327,18 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 static int
 http_parse_req_helper(void)
 {
-	return http_parse_helper(mock.hmreq, tfw_http_parse_req);
+	return http_parse_helper((TfwHttpMsg *)mock.req, tfw_http_parse_req);
 }
 
 static int
 http_parse_resp_helper(void)
 {
 	/* XXX reset parser explicitly to be able to call it multiple times */
-	memset(&mock.hmresp->parser, 0, sizeof(mock.hmresp->parser));
-	mock.hmresp->h_tbl->off = TFW_HTTP_HDR_RAW;
-	memset(mock.hmresp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
+	memset(&mock.resp->parser, 0, sizeof(mock.resp->parser));
+	mock.resp->h_tbl->off = TFW_HTTP_HDR_RAW;
+	memset(mock.resp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
-	return http_parse_helper(mock.hmresp, tfw_http_parse_resp);
+	return http_parse_helper((TfwHttpMsg *)mock.resp, tfw_http_parse_resp);
 }
 
 TEST(http_sticky, sticky_get_absent)
@@ -339,11 +347,11 @@ TEST(http_sticky, sticky_get_absent)
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
 			    "Cookie: __utmz=12345; q=aa\r\n\r\n";
 
-	append_string_to_msg(mock.hmreq, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
 
 	/* expecting no cookie */
-	EXPECT_EQ(tfw_http_sticky_get(mock.hmreq, &value), 0);
+	EXPECT_EQ(tfw_http_sticky_get(mock.req, &value), 0);
 }
 
 static void
@@ -351,10 +359,10 @@ test_sticky_present_helper(const char *s_req)
 {
 	TfwStr	value = {};
 
-	append_string_to_msg(mock.hmreq, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sticky_get(mock.hmreq, &value), 1);
+	EXPECT_EQ(tfw_http_sticky_get(mock.req, &value), 1);
 
 	EXPECT_TRUE(value.len == 5);
 	EXPECT_TRUE(value.data && memcmp(value.data, "67890", 5) == 0);
@@ -393,20 +401,20 @@ TEST(http_sticky, req_no_cookie)
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
-	append_string_to_msg(mock.hmreq, s_req);
-	append_string_to_msg(mock.hmresp, s_resp);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.resp, s_resp);
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sticky_req_process(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_sticky_resp_process(mock.hmresp, mock.hmreq), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* with no cookie enforcement, only backend response will be modified */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
 
 	/* since response was modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
+	tfw_connection_send(&mock.connection, &mock.resp->msg);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 	EXPECT_TRUE(mock.seen_set_cookie_header);
@@ -416,24 +424,36 @@ TEST(http_sticky, req_no_cookie)
 /* request have sticky cookie */
 TEST(http_sticky, req_have_cookie)
 {
-	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
-			    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
+	const char *s_req = "GET / HTTP/1.0\r\n"
+			    "Host: localhost\r\n"
+			    "Cookie: " COOKIE_NAME
+			    	     /* timestamp */
+			    	     "=0000000000000000"
+				     /*
+				      * HMAC for 24 zero bytes (IPv6 address and
+				      * zero timestamp):
+				      *
+				      * $ dd if=/dev/zero bs=24 count=1 of=z
+				      * $ cat z |openssl sha1 -hmac "top_secret"
+				      */
+				     "fce669f4ba84be12e6e04b496e4ff19989ae631d"
+			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
-	append_string_to_msg(mock.hmreq, s_req);
-	append_string_to_msg(mock.hmresp, s_resp);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.resp, s_resp);
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sticky_req_process(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_sticky_resp_process(mock.hmresp, mock.hmreq), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* expecting no immediate responses */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
+	tfw_connection_send(&mock.connection, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);
@@ -445,9 +465,9 @@ TEST(http_sticky, req_no_cookie_enforce)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
 
-	append_string_to_msg(mock.hmreq, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
-	EXPECT_EQ(tfw_http_sticky_req_process(mock.hmreq), 1);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 1);
 
 	/* in enforce mode, 302 response is sent to a client by Tempesta
 	 * before backend gets anything
@@ -460,24 +480,36 @@ TEST(http_sticky, req_no_cookie_enforce)
 /* request have sticky cookie set; enforce mode activated */
 TEST(http_sticky, req_have_cookie_enforce)
 {
-	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
-			    "Cookie: " COOKIE_NAME "=something\r\n\r\n";
+	const char *s_req = "GET / HTTP/1.0\r\n"
+			    "Host: localhost\r\n"
+			    "Cookie: " COOKIE_NAME
+			    	     /* timestamp */
+			    	     "=0000000000000000"
+				     /*
+				      * HMAC for 24 zero bytes (IPv6 address and
+				      * zero timestamp):
+				      *
+				      * $ dd if=/dev/zero bs=24 count=1 of=z
+				      * $ cat z |openssl sha1 -hmac "top_secret"
+				      */
+				     "fce669f4ba84be12e6e04b496e4ff19989ae631d"
+			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
-	append_string_to_msg(mock.hmreq, s_req);
-	append_string_to_msg(mock.hmresp, s_resp);
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	append_string_to_msg((TfwHttpMsg *)mock.resp, s_resp);
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sticky_req_process(mock.hmreq), 0);
-	EXPECT_EQ(tfw_http_sticky_resp_process(mock.hmresp, mock.hmreq), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* expecting no immediate responses */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.hmresp->msg);
+	tfw_connection_send(&mock.connection, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);
@@ -486,7 +518,7 @@ TEST(http_sticky, req_have_cookie_enforce)
 
 TEST_SUITE(http_sticky)
 {
-	TfwCfgEntry ce = {
+	TfwCfgEntry ce_sticky = {
 		.name = "sticky",
 		.val_n = 1,
 		.vals = { "enforce" },
@@ -494,17 +526,23 @@ TEST_SUITE(http_sticky)
 		.attrs = { { .key = "name", .val = COOKIE_NAME } },
 		.have_children = false
 	};
+	TfwCfgEntry ce_secret = {
+		.name = "sticky_secret",
+		.val_n = 1,
+		.vals = { "top_secret" },
+	};
 
 	TEST_SETUP(http_sticky_suite_setup);
 	TEST_TEARDOWN(http_sticky_suite_teardown);
 
-	tfw_http_sticky_init();
+	tfw_http_sess_init();
 
 	/* emulate configuration file */
-	ce.val_n = 0; /* remove "enforce" parameter */
-	tfw_http_sticky_cfg(&tfw_http_sticky_cfg_mod.specs[0], &ce);
+	ce_sticky.val_n = 0; /* remove "enforce" parameter */
+	tfw_http_sticky_cfg(&tfw_http_sess_cfg_mod.specs[0], &ce_sticky);
+	tfw_http_sticky_secret_cfg(&tfw_http_sess_cfg_mod.specs[1], &ce_secret);
 
-	tfw_cfg_sticky_start();
+	tfw_cfg_sess_start();
 
 	TEST_RUN(http_sticky, sending_302_without_preparing);
 	TEST_RUN(http_sticky, sending_302);
@@ -517,13 +555,13 @@ TEST_SUITE(http_sticky)
 	TEST_RUN(http_sticky, req_have_cookie);
 
 	/* test "enforce" mode */
-	ce.val_n = 1; /* return "enforce" parameter */
-	tfw_http_sticky_cfg(&tfw_http_sticky_cfg_mod.specs[0], &ce);
+	ce_sticky.val_n = 1; /* return "enforce" parameter */
+	tfw_http_sticky_cfg(&tfw_http_sess_cfg_mod.specs[0], &ce_sticky);
 
 	TEST_RUN(http_sticky, req_no_cookie_enforce);
 	TEST_RUN(http_sticky, req_have_cookie_enforce);
 
-	tfw_cfg_sticky_stop();
+	tfw_cfg_sess_stop();
 
-	tfw_http_sticky_exit();
+	tfw_http_sess_exit();
 }

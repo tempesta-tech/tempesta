@@ -25,6 +25,7 @@
 #include <net/tcp.h>
 #include <linux/skbuff.h>
 
+#include "addr.h"
 #include "ss_skb.h"
 
 /* Protocol descriptor. */
@@ -97,6 +98,6 @@ void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
 int ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen);
 int ss_listen(struct sock *sk, int backlog);
-int ss_getpeername(struct sock *sk, struct sockaddr *addr, int *addrlen);
+void ss_getpeername(struct sock *sk, TfwAddr *addr);
 
 #endif /* __SS_SOCK_H__ */

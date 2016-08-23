@@ -25,7 +25,6 @@
 #include "client.h"
 #include "hash.h"
 #include "http_msg.h"
-#include "http_sticky.h"
 #include "log.h"
 #include "procfs.h"
 #include "server.h"
@@ -110,23 +109,6 @@ tfw_http_prep_date(char *buf)
 
 unsigned long tfw_hash_str(const TfwStr *str);
 
-/*
- * Convert a C string to a printable hex string.
- *
- * Each character makes two hex digits, thus the size of the
- * output buffer must be twice of the length of input string.
- */
-void
-tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
-{
-	char *ptr = buf;
-
-	while (len--) {
-		*ptr++ = hex_asc_hi(*value);
-		*ptr++ = hex_asc_lo(*value++);
-	}
-}
-
 #define S_302_PART_01	S_302 S_CRLF S_F_DATE
 #define S_302_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
 #define S_302_PART_03	S_CRLF S_F_SET_COOKIE
@@ -139,11 +121,10 @@ tfw_http_prep_hexstring(char *buf, u_char *value, size_t len)
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
  */
 int
-tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
+tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
-	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
-	TfwHttpReq *req = (TfwHttpReq *)hmreq;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwMsgIter it;
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -164,9 +145,6 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpMsg *hmreq, TfwStr *cookie)
 	static TfwStr crlf_close = {
 		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
-
-	if (!(req->flags & TFW_HTTP_STICKY_SET))
-		return TFW_BLOCK;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &host);
@@ -227,9 +205,9 @@ __init_resp_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
 static int
-tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
+tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 {
-	int conn_flag = hmreq->flags & __TFW_HTTP_CONN_MASK;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
 	TfwHttpMsg resp;
 	TfwMsgIter it;
@@ -252,9 +230,9 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->data);
 	tfw_http_msg_write(&it, &resp, msg);
 
-	__init_resp_ss_flags((TfwHttpResp *)&resp, (TfwHttpReq *)hmreq);
+	__init_resp_ss_flags((TfwHttpResp *)&resp, req);
 
-	return tfw_cli_conn_send(hmreq->conn, (TfwMsg *)&resp);
+	return tfw_cli_conn_send(req->conn, (TfwMsg *)&resp);
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -263,7 +241,7 @@ tfw_http_send_resp(TfwHttpMsg *hmreq, TfwStr *msg, const TfwStr *date)
  * HTTP 200 response: Success.
  */
 int
-tfw_http_send_200(TfwHttpMsg *hmreq)
+tfw_http_send_200(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -278,7 +256,7 @@ tfw_http_send_200(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 200 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_403_PART_01	S_403 S_CRLF S_F_DATE
@@ -287,7 +265,7 @@ tfw_http_send_200(TfwHttpMsg *hmreq)
  * HTTP 403 response: Access is forbidden.
  */
 int
-tfw_http_send_403(TfwHttpMsg *hmreq)
+tfw_http_send_403(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -302,7 +280,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_404_PART_01	S_404 S_CRLF S_F_DATE
@@ -311,7 +289,7 @@ tfw_http_send_403(TfwHttpMsg *hmreq)
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
 int
-tfw_http_send_404(TfwHttpMsg *hmreq)
+tfw_http_send_404(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -326,7 +304,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_500_PART_01	S_500 S_CRLF S_F_DATE
@@ -336,7 +314,7 @@ tfw_http_send_404(TfwHttpMsg *hmreq)
  * the request to a server.
  */
 static int
-tfw_http_send_500(TfwHttpMsg *hmreq)
+tfw_http_send_500(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -351,7 +329,7 @@ tfw_http_send_500(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 500 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_502_PART_01	S_502 S_CRLF S_F_DATE
@@ -361,7 +339,7 @@ tfw_http_send_500(TfwHttpMsg *hmreq)
  * the designated server.
  */
 int
-tfw_http_send_502(TfwHttpMsg *hmreq)
+tfw_http_send_502(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -376,7 +354,7 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_504_PART_01	S_504 S_CRLF S_F_DATE
@@ -386,7 +364,7 @@ tfw_http_send_502(TfwHttpMsg *hmreq)
  * the designated server.
  */
 int
-tfw_http_send_504(TfwHttpMsg *hmreq)
+tfw_http_send_504(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -401,7 +379,7 @@ tfw_http_send_504(TfwHttpMsg *hmreq)
 
 	TFW_DBG("Send HTTP 504 response to the client\n");
 
-	return tfw_http_send_resp(hmreq, &rh, __TFW_STR_CH(&rh, 1));
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 /*
@@ -437,6 +415,15 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 	return (TfwMsg *)hm;
 }
 
+void
+tfw_http_req_destruct(void *msg)
+{
+	TfwHttpReq *req = msg;
+
+	if (req->sess)
+		tfw_http_sess_put(req->sess);
+}
+
 /*
  * Free an HTTP message.
  * Also, free the connection structure if there's no more references.
@@ -450,13 +437,16 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * is prepared and sent by Tempesta, that HTTP message does not need
  * a connection structure. The message is then immediately destroyed,
  * and a simpler tfw_http_msg_free() can be used for that.
+ *
+ * NOTE: @hm->conn might be NULL if @hm is the response that was served
+ * from the cache.
  */
 static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
 	if (unlikely(hm == NULL))
 		return;
-	if (tfw_connection_put(hm->conn)) {
+	if (hm->conn && tfw_connection_put(hm->conn)) {
 		/* The connection and underlying socket seems closed. */
 		TFW_CONN_TYPE(hm->conn) & Conn_Clnt
 			? tfw_cli_conn_release(hm->conn)
@@ -469,6 +459,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 /**
  * TODO Initialize allocated Client structure by HTTP specific callbacks
  * and FSM.
+ * TODO it seems the function is not used for long time. Just remove it?
  */
 static int
 tfw_http_conn_init(TfwConnection *conn)
@@ -496,7 +487,7 @@ tfw_http_conn_release(TfwConnection *conn)
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
 		list_del(&msg->msg_list);
-		tfw_http_send_404((TfwHttpMsg *)msg);
+		tfw_http_send_404((TfwHttpReq *)msg);
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -736,7 +727,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	__init_resp_ss_flags(resp, req);
 
-	r = tfw_http_sticky_resp_process(hm, (TfwHttpMsg *)req);
+	r = tfw_http_sess_resp_process(resp, req);
 	if (r < 0)
 		return r;
 
@@ -749,8 +740,15 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
-	if (r)
-		return r;
+	if (resp->flags & TFW_HTTP_RESP_STALE) {
+#define S_WARN_110 "Warning: 110 - Response is stale"
+		/* TODO: ajust for #215 */
+		TfwStr wh = {.ptr = S_WARN_110, .len = SLEN(S_WARN_110),.eolen = 2};
+		r = tfw_http_msg_hdr_add(hm, &wh);
+		if (r)
+			return r;
+#undef S_WARN_110
+	}
 
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
@@ -762,7 +760,32 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 				     TFW_HTTP_HDR_SERVER, 0);
 }
 
-/*
+/**
+ * The request is served from cache.
+ * Send the response as is and unrefer its data.
+ */
+static void
+tfw_http_req_cache_service(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	if (tfw_http_adjust_resp(resp, req))
+		goto resp_err;
+
+	if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp))
+		goto resp_err;
+
+	TFW_INC_STAT_BH(clnt.msgs_fromcache);
+
+resp_out:
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	return;
+resp_err:
+	tfw_http_send_500(req);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	goto resp_out;
+}
+
+/**
  * Depending on results of processing of a request, either send the request
  * to an appropriate server, or return the cached response. If none of that
  * can be done for any reason, return HTTP 404 or 500 error to the client.
@@ -771,26 +794,29 @@ static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
-	TfwConnection *srv_conn;
+	TfwConnection *srv_conn = NULL;
 
 	if (resp) {
-		/*
-		 * The request is served from cache.
-		 * Send the response as is and unrefer its data.
-		 */
-		if (tfw_http_adjust_resp(resp, req))
-			goto resp_err;
-		if (tfw_cli_conn_send(req->conn, (TfwMsg *)resp))
-			goto resp_err;
-		TFW_INC_STAT_BH(clnt.msgs_fromcache);
-resp_out:
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_req_cache_service(req, resp);
+		return;
+	}
+
+	/*
+	 * Sticky cookie module used for HTTP session identification may send
+	 * a response to the client when sticky cookie presence is enforced and
+	 * the cookie is missing from the request.
+	 *
+	 * HTTP session can be required for the request schduling, so obtain it
+	 * first. However, req->sess still can be NULL if sticky cookies aren't
+	 * enabled.
+	 */
+	r = tfw_http_sess_obtain(req);
+	if (r < 0)
+		goto send_500;
+	if (r > 0) {
+		/* Response sent, nothing to do. */
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		return;
-resp_err:
-		tfw_http_send_500((TfwHttpMsg *)req);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		goto resp_out;
 	}
 
 	/*
@@ -804,26 +830,19 @@ resp_err:
 	 * SoftIRQ and to speed up the cache operation.
 	 * At the same time, cache hits are expected to prevail
 	 * over cache misses, so this is not a frequent path.
+	 *
+	 * TODO #593: check whether req->sess->srv_conn is alive or
+	 * get a new connection for req->sess->srv_conn->peer from appropriate
+	 * scheduler otherwise. This eliminates long generic scheduling work
+	 * flow. When a first request in the session is scheduled by the generic
+	 * logic, TfwSession->srv_conn must be initialized by poniter to
+	 * appropriate TfwConnection, so all following session hits will be
+	 * scheduled much faster.
 	 */
 	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 	if (srv_conn == NULL) {
 		TFW_WARN("Unable to find a backend server\n");
 		goto send_404;
-	}
-
-	/*
-	 * Sticky cookie module may send a response to the client
-	 * when sticky cookie presence is enforced and the cookie
-	 * is missing from the request.
-	 */
-	r = tfw_http_sticky_req_process((TfwHttpMsg *)req);
-	if (r < 0) {
-		goto send_500;
-	}
-	else if (r > 0) {
-		/* Response sent, nothing to do */
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
-		goto conn_put;
 	}
 
 	if (tfw_http_adjust_req(req))
@@ -845,16 +864,16 @@ resp_err:
 	goto conn_put;
 
 send_404:
-	tfw_http_send_404((TfwHttpMsg *)req);
+	tfw_http_send_404(req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_500((TfwHttpMsg *)req);
+	tfw_http_send_500(req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
-	if (tfw_connection_put(srv_conn))
+	if (srv_conn && tfw_connection_put(srv_conn))
 		tfw_srv_conn_release(srv_conn);
 }
 
@@ -890,8 +909,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 	while (data_off < skb_len) {
 		int req_conn_close;
 		TfwHttpMsg *hmsib = NULL;
-		TfwHttpMsg *hmreq = (TfwHttpMsg *)conn->msg;
-		TfwHttpParser *parser = &hmreq->parser;
+		TfwHttpReq *req = (TfwHttpReq *)conn->msg;
+		TfwHttpParser *parser = &req->parser;
 
 		/*
 		 * Process/parse data in the SKB.
@@ -903,15 +922,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * to the right location within the chunk.
 		 */
 		off = data_off;
-		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, hmreq);
+		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, req);
 		data_off -= parser->to_go;
-		hmreq->msg.len += data_off - off;
+		req->msg.len += data_off - off;
 		TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
 
 		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
 			 " ver=%d res=%d\n",
-			 skb_len - off, data_off - off, hmreq->msg.len,
-			 hmreq->version, r);
+			 skb_len - off, data_off - off, req->msg.len,
+			 req->version, r);
 
 		switch (r) {
 		default:
@@ -923,7 +942,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&hmreq->msg.state,
+			r = tfw_gfsm_move(&req->msg.state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
@@ -945,7 +964,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			;
 		}
 
-		r = tfw_gfsm_move(&hmreq->msg.state,
+		r = tfw_gfsm_move(&req->msg.state,
 				  TFW_HTTP_FSM_REQ_MSG, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
@@ -958,10 +977,10 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The time the request was received is used in cache
 		 * for age calculations, and for APM and Load Balancing.
 		 */
-		hmreq->cache_ctl.timestamp = tfw_current_timestamp();
+		req->cache_ctl.timestamp = tfw_current_timestamp();
 
 		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context((TfwHttpReq *)hmreq))
+		if (tfw_http_req_set_context(req))
 			return TFW_BLOCK;
 
 		/*
@@ -982,11 +1001,11 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 *
 		 * Make it work this way in Tempesta by setting the flag.
 		 */
-		if ((hmreq->version == TFW_HTTP_VER_09)
-		    || ((hmreq->version == TFW_HTTP_VER_10)
-			&& !(hmreq->flags & __TFW_HTTP_CONN_MASK)))
+		if ((req->version == TFW_HTTP_VER_09)
+		    || ((req->version == TFW_HTTP_VER_10)
+			&& !(req->flags & __TFW_HTTP_CONN_MASK)))
 		{
-			hmreq->flags |= TFW_HTTP_CONN_CLOSE;
+			req->flags |= TFW_HTTP_CONN_CLOSE;
 		}
 
 		/*
@@ -998,15 +1017,15 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * So, save the needed request flag for later use as it
 		 * may not be accessible later through @req->flags.
 		 */
-		req_conn_close = (hmreq->flags & TFW_HTTP_CONN_CLOSE);
+		req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE);
 
 		if (!req_conn_close && (data_off < skb_len)) {
 			/*
 			 * Pipelined requests: create a new sibling message.
 			 * @skb is replaced with pointer to a new SKB.
 			 */
-			hmsib = tfw_http_msg_create_sibling(hmreq, &skb,
-							    data_off,
+			hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req,
+							    &skb, data_off,
 							    Conn_Clnt);
 			if (hmsib == NULL) {
 				/*
@@ -1037,11 +1056,10 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		if (tfw_cache_process((TfwHttpReq *)hmreq, NULL,
-				      tfw_http_req_cache_cb))
+		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb))
 		{
-			tfw_http_send_500(hmreq);
-			tfw_http_conn_msg_free(hmreq);
+			tfw_http_send_500(req);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -1105,7 +1123,7 @@ out:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 err:
-	tfw_http_send_500((TfwHttpMsg *)req);
+	tfw_http_send_500(req);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 	goto out;
 }
@@ -1147,7 +1165,7 @@ static int
 tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
 {
 	int r;
-	TfwHttpMsg *hmreq;
+	TfwHttpReq *req;
 
 	r = tfw_gfsm_move(&hmresp->msg.state, TFW_HTTP_FSM_RESP_MSG, skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
@@ -1167,15 +1185,15 @@ error:
 	 * of requests and responses will be broken. If a paired request
 	 * is not found, then something is terribly wrong.
 	 */
-	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
-	if (unlikely(hmreq == NULL)) {
+	req = tfw_http_popreq(hmresp);
+	if (unlikely(!req)) {
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return TFW_STOP;
 	}
 
-	tfw_http_send_502(hmreq);
+	tfw_http_send_502(req);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_http_conn_msg_free(hmreq);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return TFW_BLOCK;
 }
@@ -1183,7 +1201,7 @@ error:
 static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
-	TfwHttpMsg *hmreq;
+	TfwHttpReq *req;
 	time_t timestamp = tfw_current_timestamp();
 
 	/*
@@ -1205,8 +1223,8 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * of requests and responses is broken. The response is
 	 * deleted, and an error is returned.
 	 */
-	hmreq = (TfwHttpMsg *)tfw_http_popreq(hmresp);
-	if (unlikely(hmreq == NULL))
+	req = tfw_http_popreq(hmresp);
+	if (unlikely(!req))
 		return -ENOENT;
 	/*
 	 * Complete HTTP message has been collected and processed
@@ -1215,12 +1233,12 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * will be put in a new message.
 	 */
 	tfw_connection_unlink_msg(hmresp->conn);
-	if (tfw_cache_process((TfwHttpReq *)hmreq, (TfwHttpResp *)hmresp,
+	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 			      tfw_http_resp_cache_cb))
 	{
-		tfw_http_send_500(hmreq);
+		tfw_http_send_500(req);
 		tfw_http_conn_msg_free(hmresp);
-		tfw_http_conn_msg_free(hmreq);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
 	}
