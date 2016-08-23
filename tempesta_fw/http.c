@@ -395,7 +395,6 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 
 	hm->conn = conn;
 	tfw_connection_get(conn);
-	tfw_gfsm_state_init(&hm->msg.state, conn, TFW_HTTP_FSM_INIT);
 
         if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
                 TFW_INC_STAT_BH(clnt.rx_messages);
@@ -947,7 +946,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&req->msg.state,
+			r = tfw_gfsm_move(&conn->state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
@@ -969,7 +968,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			;
 		}
 
-		r = tfw_gfsm_move(&req->msg.state,
+		r = tfw_gfsm_move(&conn->state,
 				  TFW_HTTP_FSM_REQ_MSG, skb, off);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
@@ -1172,13 +1171,15 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
 	int r;
 	TfwHttpReq *req;
 
-	r = tfw_gfsm_move(&hmresp->msg.state, TFW_HTTP_FSM_RESP_MSG, skb, off);
+	BUG_ON(!hmresp->conn);
+
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto error;
 	/* Proceed with the next GSFM processing */
 
-	r = tfw_gfsm_move(&hmresp->msg.state,
+	r = tfw_gfsm_move(&hmresp->conn->state,
 			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_PASS)
@@ -1337,7 +1338,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			TFW_INC_STAT_BH(serv.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&hmresp->msg.state,
+			r = tfw_gfsm_move(&conn->state,
 					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
