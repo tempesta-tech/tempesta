@@ -26,6 +26,7 @@ ifdef DEBUG
 else
 	EXTRA_CFLAGS += -DDEBUG=0
 endif
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m += tfw_test.o
 tfw_test-objs = \
