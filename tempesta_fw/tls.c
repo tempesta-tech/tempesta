@@ -37,7 +37,7 @@ typedef struct {
 	mbedtls_pk_context	key;
 } TfwTls;
 
-static TfwTls tfw_tls = { 0 };
+static TfwTls tfw_tls;
 
 static inline int
 ttls_ssl_handshake(TfwTlsContext *tls)
