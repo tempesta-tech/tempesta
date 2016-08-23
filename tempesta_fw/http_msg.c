@@ -96,7 +96,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			val->len -= c->len;
 		}
 		else {
-			val->chunks = (struct TfwStr *)c;
+			val->chunks = c;
 			return;
 		}
 		BUG_ON(TFW_STR_CHUNKN(val) < 1);
@@ -119,7 +119,8 @@ __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
 	static const TfwStr hdr_singular[] __read_mostly = {
-#define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1, 0 }
+#define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1,\
+			   .flags = 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-modified-since:"),
