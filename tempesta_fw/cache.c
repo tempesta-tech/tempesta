@@ -177,8 +177,8 @@ typedef struct {
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
-		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;\
-		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks \
+		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
+		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks 	\
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
@@ -1150,9 +1150,9 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
 		goto out;
 
-	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
-		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
-		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
+	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u\
+status_len=%u hdr_num=%u hdr_len=%u key_off=%ld status_off=%ld hdrs_off=%ld \
+body_off=%ld)\n",
 		ce->trec.key, ce, ce->trec.len, ce->key_len, ce->status_len,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
 		ce->body);
@@ -1256,8 +1256,7 @@ tfw_cache_mgr(void *arg)
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule();
 			__set_current_state(TASK_RUNNING);
-		}
-		else
+		} else
 			try_to_freeze();
 	} while (!kthread_should_stop());
 
@@ -1292,6 +1291,7 @@ tfw_cache_start(void)
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
 		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
+
 		tfw_wq_init(&ct->wq, cpu_to_node(i));
 		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
 		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
@@ -1314,6 +1314,7 @@ tfw_cache_stop(void)
 
 	for_each_online_cpu(i) {
 		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
+
 		tasklet_kill(&ct->tasklet);
 		irq_work_sync(&ct->ipi_work);
 		tfw_wq_destroy(&ct->wq);
@@ -1400,7 +1401,7 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_cache_cfg_mod = {
-	.name 	= "cache",
+	.name = "cache",
 	.start	= tfw_cache_start,
 	.stop	= tfw_cache_stop,
 	.specs	= tfw_cache_cfg_specs,
