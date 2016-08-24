@@ -154,8 +154,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				ipv4_mapped = 1;
 				i = 1;
 				words[1] = words[2] = -1;
-			}
-			else if (isxdigit(*p)) {
+			} else if (isxdigit(*p)) {
 				words[i] = words[i] == -1 ? 0 : words[i];
 				if (ipv4_mapped || port == 1) {
 					if (!isdigit(*p))
@@ -164,20 +163,19 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 					if (port) {
 						if (words[i] > 0xFFFF)
 							return -EINVAL;
-					}
-					else if (ipv4_mapped && words[i] > 255) {
+					} else if (ipv4_mapped && words[i]
+> 255) {
 						return -EINVAL;
 					}
 				} else {
-					words[i] = (words[i] << 4) | XD(tolower(*p));
+					words[i] = (words[i] << 4) |\
+XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
 				}
-			}
-			else if (*p == ']') {
+			} else if (*p == ']') {
 				port = 1;
-			}
-			else {
+			} else {
 				return -EINVAL;
 			}
 		}
@@ -194,6 +192,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 	/* Copy parsed address. */
 	if (ipv4_mapped) {
 		struct sockaddr_in *addr4 = (struct sockaddr_in *)addr;
+
 		for (i = 0; i < 4; ++i)
 			addr4->sin_addr.s_addr |= words[i] << (3 - i) * 8;
 	} else {
@@ -233,8 +232,8 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-		*str->data :
-		*(str->chunks)->data;
+	*str->data :
+	*(str->chunks)->data;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
@@ -242,8 +241,10 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	} else {
 		const char *pos = NULL;
 		const TfwStr *c, *end;
+
 		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
+
 			for (i = 0; i != c->len; ++i) {
 				pos = c->data + i;
 				if (!isdigit(*pos))
@@ -253,8 +254,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 delim:
 		if (*pos == ':') {
 			mode = 6;
-		}
-		else if (*pos == '.') {
+		} else if (*pos == '.') {
 			mode = 4;
 		}
 	}
@@ -405,6 +405,7 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 		do {
 			unsigned laddr = listener->v4.sin_addr.s_addr;
 			unsigned saddr = server->v4.sin_addr.s_addr;
+
 			if (listener->v4.sin_port != server->v4.sin_port)
 				return 0;
 			if (laddr == 0) {
@@ -422,11 +423,9 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 		if (!(listener->v6.sin6_addr.in6_u.u6_addr32[0] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
-			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
-		{
+			listener->v6.sin6_addr.in6_u.u6_addr32[3])) {
 			/* listener = [::] */
-			if (IN6_LOOPBACK(server->v6.sin6_addr))
-			{
+			if (IN6_LOOPBACK(server->v6.sin6_addr)) {
 				/* backend = [::1] */
 				return 1;
 			}
@@ -474,7 +473,7 @@ tfw_put_dec(u32 q, char *out_buf)
 	 * Some programs treat leading zeros as an octal base mark,
 	 * so the switch(digits_n) is used to skip them.
 	 */
-	switch(digits_n) {
+	switch (digits_n) {
 	case 4:
 		r  = (q * 0x0ccd) >> 15;
 		out_buf[3] = (q - 10 * r) + '0';
@@ -518,15 +517,15 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 
 	out_buf += digits_n;
 
-	switch(digits_n) {
+	switch (digits_n) {
 	case 4:
-		out_buf[-4] = hex_asc[(group >> 12)      ];
+		out_buf[-4] = hex_asc[(group >> 12)];
 	case 3:
 		out_buf[-3] = hex_asc[(group >> 8)  & 0xF];
 	case 2:
 		out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
 	case 1:
-		out_buf[-1] = hex_asc[ group        & 0xF];
+		out_buf[-1] = hex_asc[group        & 0xF];
 	}
 
 	return out_buf;
@@ -610,8 +609,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 		if (groups[i] || zeros_already_omitted) {
 			pos = tfw_put_ipv6_digit_group(ntohs(groups[i]), pos);
 			*pos++ = ':';
-		}
-		else if (!groups[i] && (groups[i + 1] || i == 6)) {
+		} else if (!groups[i] && (groups[i + 1] || i == 6)) {
 			if (pos == buf || *(pos - 1) != ':')
 				*pos++ = ':';
 			*pos++ = ':';

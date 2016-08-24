@@ -74,7 +74,7 @@
 #define TFW_STR_CN_SHIFT	TFW_STR_FBITS
 #define __TFW_STR_CN_MAX	(~TFW_STR_FMASK)
 /* Str is compound from many chunks, use indirect table for the chunks. */
-#define __TFW_STR_COMPOUND	16 	
+#define __TFW_STR_COMPOUND	16
 /*
  * Str constists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
@@ -202,7 +202,6 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 		n = curr_p - (char *)s->data;
 	}
 	s->len += n;
-TFW_DBG("str_upd_len:end:sl:%lu;len:%u;\n", s->len, n);
 }
 
 /**
@@ -252,8 +251,7 @@ int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr, int cstr_len, tfw_str_eq_flags_t flags);
-bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
-			 int cstr_len, tfw_str_eq_flags_t flags); 
+bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr, int cstr_len, tfw_str_eq_flags_t flags);
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
 #ifdef DEBUG

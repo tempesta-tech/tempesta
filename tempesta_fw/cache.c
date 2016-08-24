@@ -158,12 +158,10 @@ typedef struct {
 	TDB		*db;
 } CaNode;
 
-static CaNode c_nodes[MAX_NUMNODES];
-
-static struct task_struct *cache_mgr_thr;
-static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
-
-static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
+	static CaNode c_nodes[MAX_NUMNODES];
+	static struct task_struct *cache_mgr_thr;
+	static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
+	static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 /* Iterate over request URI and Host header to process request key. */
 #define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
