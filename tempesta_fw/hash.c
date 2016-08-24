@@ -36,8 +36,7 @@ tfw_hash_str(const TfwStr *str)
 
 	if (likely(TFW_STR_PLAIN(str))) {
 		__tdb_hash_calc(&crc0, &crc1, str->data, str->len);
-	}
-	else {
+	} else {
 		const TfwStr *c = str->chunks;
 		const TfwStr *end = c + TFW_STR_CHUNKN(str);
 		unsigned char *p, *e;

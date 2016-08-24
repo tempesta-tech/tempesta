@@ -918,7 +918,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * @data_off is the current offset of data to process in
 		 * the SKB. After processing @data_off points at the end
 		 * of latest data chunk. However processing may have
-		 * stopped in the middle of the chunk. Adjust it to point 
+		 * stopped in the middle of the chunk. Adjust it to point
 		 * to the right location within the chunk.
 		 */
 		off = data_off;
@@ -1056,8 +1056,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb))
-		{
+		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
 			tfw_http_send_500(req);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -1234,8 +1233,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	tfw_connection_unlink_msg(hmresp->conn);
 	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
-			      tfw_http_resp_cache_cb))
-	{
+			      tfw_http_resp_cache_cb)) {
 		tfw_http_send_500(req);
 		tfw_http_conn_msg_free(hmresp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -1309,15 +1307,15 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		hmresp->msg.len += data_off - off;
 		TFW_ADD_STAT_BH(data_off - off, serv.rx_bytes);
 
-		TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu"
-			 " ver=%d res=%d\n",
+		TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu\
+ver=%d res=%d\n",
 			 skb_len - off, data_off - off, hmresp->msg.len,
 			 hmresp->version, r);
 
 		switch (r) {
 		default:
-			TFW_ERR("Unrecognized HTTP response "
-				"parser return code, %d\n", r);
+			TFW_ERR("Unrecognized HTTP response parser return \
+code, %d\n", r);
 			BUG();
 		case TFW_BLOCK:
 			/*
@@ -1373,8 +1371,8 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 * and can't deal with partially processed data.
 			 */
 			if (hmsib == NULL) {
-				TFW_WARN("Insufficient memory "
-					 "to create a response sibling\n");
+				TFW_WARN("Insufficient memory to create a \
+response sibling\n");
 				TFW_INC_STAT_BH(serv.msgs_otherr);
 				return TFW_BLOCK;
 			}
