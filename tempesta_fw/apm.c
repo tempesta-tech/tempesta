@@ -375,11 +375,11 @@ typedef struct {
 /*
  * The ring buffer list entry structure.
  * This is a supporting structure used in the calculation of percentiles.
- * @ctl		- A copy of response time ranges in the ring buffer entry.
+ * @ctl		- A pointer to the response time ranges data for the entry.
  * @pcntrng	- A pointer to the stats data for the ring buffer entry.
  */
 typedef struct {
-	TfwPcntCtl	ctl[TFW_STATS_RANGES];
+	TfwPcntCtl	*ctl;
 	TfwPcntRanges	*pcntrng;
 } TfwApmRBLstEnt;
 
@@ -389,6 +389,7 @@ typedef struct {
  * The list consists of entries of the ring buffer that take part in the
  * calculation of percentiles. Also it keeps related data that are useful
  * in making decisions on the recalculation of percentiles.
+ * @entry_ctl	- A copy of response time ranges of the current entry.
  * @rblstent	- The array of ring buffer entries for the calculation.
  * @rblstsz	- The current size of @rblstent.
  * @rblstmaxsz	- The maximum size of @rblstent.
@@ -397,6 +398,7 @@ typedef struct {
  * @total_cnt	- The number of hits within the current time window.
  */
 typedef struct {
+	TfwPcntCtl	entry_ctl[TFW_STATS_RANGES];
 	TfwApmRBLstEnt	*rblstent;
 	unsigned int	rblstsz;
 	unsigned int	rblstmaxsz;
@@ -553,16 +555,10 @@ tfw_apm_prnctl_calc(TfwApmRBLst *rblst, TfwApmPrcntl *prcntl)
 }
 
 static inline void
-__tfw_apm_rngctl_copy(TfwApmRBLstEnt *rblstent)
-{
-	memcpy(rblstent->ctl, rblstent->pcntrng->ctl, sizeof(rblstent->ctl));
-}
-
-static inline void
-tfw_apm_rngctl_copy(TfwApmRBLstEnt *rblstent, TfwApmRBufEnt *rbent)
+tfw_apm_rngctl_copy(TfwPcntCtl *ctl, TfwApmRBufEnt *rbent)
 {
 	spin_lock(&rbent->spinlock);
-	__tfw_apm_rngctl_copy(rblstent);
+	memcpy(ctl, rbent->pcntrng.ctl, TFW_STATS_RANGES * sizeof(TfwPcntCtl));
 	spin_unlock(&rbent->spinlock);
 }
 
@@ -579,15 +575,13 @@ tfw_apm_rblst_buildnew(TfwApmData *data, int entry, unsigned long jtmwstart)
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBufEnt *irbent, *crbent = &rbuf->rbent[entry];
 	TfwApmRBLst *rblst = &data->rblst;
+	TfwApmRBLstEnt *rblstent = rblst->rblstent;
 
-	/*
-	 * Get data from the current entry if it's active.
-	 * Locking is required as the entry's ranges may be
-	 * updated concurently.
-	 */
+	/* Get data from the current entry if it's active. */
 	if (crbent->jtmistamp >= jtmwstart) {
-		rblst->rblstent[rblstsz].pcntrng = &crbent->pcntrng;
-		tfw_apm_rngctl_copy(&rblst->rblstent[rblstsz], crbent);
+		rblstent[rblstsz].ctl = rblst->entry_ctl;
+		rblstent[rblstsz].pcntrng = &crbent->pcntrng;
+		tfw_apm_rngctl_copy(rblst->entry_ctl, crbent);
 		entry_cnt = atomic64_read(&crbent->pcntrng.total_cnt);
 		total_cnt += entry_cnt;
 		rblstsz++;
@@ -595,7 +589,6 @@ tfw_apm_rblst_buildnew(TfwApmData *data, int entry, unsigned long jtmwstart)
 	/*
 	 * Starting with the entry previous to the current one,
 	 * get data from entries that are within the time window.
-	 * All of them are inactive, so locking is not required.
 	 * Get the total number of hits across entries within
 	 * the time window for calculation of percentiles.
 	 */
@@ -604,8 +597,8 @@ tfw_apm_rblst_buildnew(TfwApmData *data, int entry, unsigned long jtmwstart)
 		irbent = &rbuf->rbent[ientry % rbuf->rbufsz];
 		if (irbent->jtmistamp < jtmwstart)
 			continue;
-		rblst->rblstent[rblstsz].pcntrng = &irbent->pcntrng;
-		__tfw_apm_rngctl_copy(&rblst->rblstent[rblstsz]);
+		rblstent[rblstsz].ctl = irbent->pcntrng.ctl;
+		rblstent[rblstsz].pcntrng = &irbent->pcntrng;
 		total_cnt += atomic64_read(&irbent->pcntrng.total_cnt);
 		rblstsz++;
 	}
@@ -668,7 +661,7 @@ tfw_apm_rblst_update(TfwApmData *data)
 
 	/* Update the current entry's ranges data. */
 	BUG_ON(rblst->rblstent[0].pcntrng != &crbent->pcntrng);
-	tfw_apm_rngctl_copy(&rblst->rblstent[0], crbent);
+	tfw_apm_rngctl_copy(rblst->entry_ctl, crbent);
 
 	/* Update the counts incrementally. */
 	rblst->total_cnt += entry_cnt - rblst->entry_cnt;
