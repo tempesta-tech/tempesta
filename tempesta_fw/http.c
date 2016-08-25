@@ -133,8 +133,8 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	},
 	{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
 	},
-	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-	.chunknum = 3, .flags = __TFW_STR_COMPOUND
+	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02), 
+	.flags = __TFW_STR_COMPOUND, .chunknum = 3
 	};
 	static TfwStr part03 = {
 	.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
@@ -251,7 +251,7 @@ tfw_http_send_200(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-	.chunknum = 4, .flags = __TFW_STR_COMPOUND
+	.flags = __TFW_STR_COMPOUND, .chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 200 response to the client\n");
@@ -275,7 +275,7 @@ tfw_http_send_403(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-	.chunknum = 4, .flags = __TFW_STR_COMPOUND
+	 .flags = __TFW_STR_COMPOUND, .chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -299,7 +299,7 @@ tfw_http_send_404(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
-	.chunknum =4, .flags = __TFW_STR_COMPOUND
+	.flags = __TFW_STR_COMPOUND, .chunknum =4
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -324,7 +324,7 @@ tfw_http_send_500(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
-	.chunknum= 4, .flags = __TFW_STR_COMPOUND
+	.flags = __TFW_STR_COMPOUND, .chunknum= 4
 	};
 
 	TFW_DBG("Send HTTP 500 response to the client\n");
@@ -349,7 +349,7 @@ tfw_http_send_502(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
-	.chunknum = 4, .flags = __TFW_STR_COMPOUND
+	.flags = __TFW_STR_COMPOUND, .chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
@@ -374,7 +374,7 @@ tfw_http_send_504(TfwHttpReq *req)
 	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
 	.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
-	.chunknum =4, .flags = __TFW_STR_COMPOUND
+	 .flags = __TFW_STR_COMPOUND, .chunknum =4
 	};
 
 	TFW_DBG("Send HTTP 504 response to the client\n");
@@ -657,7 +657,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	{ .data = *this_cpu_ptr(&g_buf), .len = vhost->hdr_via_len },
 	},
 	.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
-	.eolen = 2, .chunknum = 3, .flags = __TFW_STR_COMPOUND
+	.eolen = 2,  .flags = __TFW_STR_COMPOUND, .chunknum = 3
 #undef S_VIA
 	};
 
