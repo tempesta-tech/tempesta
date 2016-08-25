@@ -127,23 +127,23 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwMsgIter it;
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_302_PART_01, .len = SLEN(S_302_PART_01)},
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE)
-			},
-			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
-		},
-		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-		.flags = 0
-		};
+	.chunks = (TfwStr []){
+	{ .data = S_302_PART_01, .len = SLEN(S_302_PART_01)},
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE)
+	},
+	{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
+	},
+	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
+	.flags = 0
+	};
 	static TfwStr part03 = {
-		.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
+	.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
 	static TfwStr crlfcrlf = {
-		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
 	static TfwStr crlf_keep = {
 	.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
 	static TfwStr crlf_close = {
-		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
@@ -251,7 +251,7 @@ tfw_http_send_200(TfwHttpReq *req)
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-		.flags = 4
+		.chunknum = 4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 200 response to the client\n");
