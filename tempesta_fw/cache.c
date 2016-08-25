@@ -159,6 +159,7 @@ typedef struct {
 } CaNode;
 
 static CaNode c_nodes[MAX_NUMNODES];
+
 static struct task_struct *cache_mgr_thr;
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 static DEFINE_TFW_STR(g_crlf, S_CRLF);
