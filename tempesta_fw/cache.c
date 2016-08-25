@@ -1292,7 +1292,6 @@ tfw_cache_start(void)
 	TFW_WQ_CHECKSZ(TfwCWork);
 	for_each_online_cpu(i) {
 		TfwWorkTasklet *ct = &per_cpu(cache_wq, i);
-
 		tfw_wq_init(&ct->wq, cpu_to_node(i));
 		init_irq_work(&ct->ipi_work, tfw_cache_ipi);
 		tasklet_init(&ct->tasklet, tfw_wq_tasklet, (unsigned long)ct);
@@ -1402,8 +1401,8 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_cache_cfg_mod = {
-	.name = "cache",
-	.start	= tfw_cache_start,
-	.stop	= tfw_cache_stop,
-	.specs	= tfw_cache_cfg_specs,
+	  .name = "cache",
+	 .start	= tfw_cache_start,
+	 .stop	= tfw_cache_stop,
+	 .specs	= tfw_cache_cfg_specs,
 };
