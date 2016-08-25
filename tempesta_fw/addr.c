@@ -176,7 +176,8 @@ else {
 			}
 			else if (*p == ']') {
 				port = 1;
-			} else {
+			}
+			else {
 				return -EINVAL;
 			}
 		}
@@ -424,7 +425,8 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 		if (!(listener->v6.sin6_addr.in6_u.u6_addr32[0] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
-			listener->v6.sin6_addr.in6_u.u6_addr32[3])) {
+			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
+{
 			/* listener = [::] */
 			if (IN6_LOOPBACK(server->v6.sin6_addr)) {
 				/* backend = [::1] */
