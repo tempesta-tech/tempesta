@@ -69,12 +69,7 @@
 
 #include "pool.h"
 
-#define TFW_STR_FBITS		8
-#define TFW_STR_FMASK		((1U << TFW_STR_FBITS) - 1)
-#define TFW_STR_CN_SHIFT	TFW_STR_FBITS
-#define __TFW_STR_CN_MAX	(~TFW_STR_FMASK)
 /* Str is compound from many chunks, use indirect table for the chunks. */
-#define __TFW_STR_COMPOUND	16
 /*
  * Str constists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
@@ -131,7 +126,7 @@ typedef struct TfwStr {
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 
 #define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
-#define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))
+#define TFW_STR_PLAIN(s)	((s)->chunknum > 0)
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
