@@ -134,7 +134,7 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
 	},
 	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-	.flags = 0
+	.chunknum = 3, .flags = __TFW_STR_COMPOUND
 	};
 	static TfwStr part03 = {
 	.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
@@ -244,14 +244,14 @@ int
 tfw_http_send_200(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_200_PART_01, .len = SLEN(S_200_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_200_PART_02, .len = SLEN(S_200_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-		.chunknum = 4, .flags = __TFW_STR_COMPOUND
+	.chunks = (TfwStr []){
+	{ .data = S_200_PART_01, .len = SLEN(S_200_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_200_PART_02, .len = SLEN(S_200_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	},
+	.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
+	.chunknum = 4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 200 response to the client\n");
@@ -268,14 +268,14 @@ int
 tfw_http_send_403(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_403_PART_01, .len = SLEN(S_403_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_403_PART_02, .len = SLEN(S_403_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-		.flags = 4
+	.chunks = (TfwStr []){
+	{ .data = S_403_PART_01, .len = SLEN(S_403_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_403_PART_02, .len = SLEN(S_403_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	},
+	.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
+	.chunknum = 4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -292,14 +292,14 @@ int
 tfw_http_send_404(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_404_PART_01, .len = SLEN(S_404_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
-		.flags = 4
+		.chunks = (TfwStr []){
+	{ .data = S_404_PART_01, .len = SLEN(S_404_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	},
+	.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
+	.chunknum =4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -317,14 +317,14 @@ static int
 tfw_http_send_500(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_500_PART_01, .len = SLEN(S_500_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_500_PART_02, .len = SLEN(S_500_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
-		.flags = 4
+	.chunks = (TfwStr []){
+	{ .data = S_500_PART_01, .len = SLEN(S_500_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_500_PART_02, .len = SLEN(S_500_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	},
+	.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
+	.chunknum= 4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 500 response to the client\n");
@@ -342,14 +342,14 @@ int
 tfw_http_send_502(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_502_PART_01, .len = SLEN(S_502_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_502_PART_02, .len = SLEN(S_502_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	.chunks = (TfwStr []){
+	{ .data = S_502_PART_01, .len = SLEN(S_502_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_502_PART_02, .len = SLEN(S_502_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 	},
-		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
-		.flags = 4
+	.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
+	.chunknum = 4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
@@ -367,14 +367,14 @@ int
 tfw_http_send_504(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = S_504_PART_01, .len = SLEN(S_504_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .data = S_504_PART_02, .len = SLEN(S_504_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
-		},
-		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
-		.flags = 4
+	.chunks = (TfwStr []){
+	{ .data = S_504_PART_01, .len = SLEN(S_504_PART_01) },
+	{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+	{ .data = S_504_PART_02, .len = SLEN(S_504_PART_02) },
+	{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+	},
+	.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
+	.chunknum =4, .flags = __TFW_STR_COMPOUND
 	};
 
 	TFW_DBG("Send HTTP 504 response to the client\n");
@@ -651,16 +651,13 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	TfwVhost *vhost = tfw_vhost_get_default();
 	TfwStr rh = {
 #define S_VIA	"Via: "
-		.chunks = (struct TfwStr *)(TfwStr []) {
-			{ .data = S_VIA, .len = SLEN(S_VIA) },
-			{ .data = (void *)s_http_version[hm->version],
-			  .len = 4 },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = vhost->hdr_via_len },
-		},
-		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
-		.eolen = 2,
-		.flags = 3
+	.chunks = (TfwStr []) {
+	{ .data = S_VIA, .len = SLEN(S_VIA) },
+	{ .data = (void *)s_http_version[hm->version], .len = 4 },
+	{ .data = *this_cpu_ptr(&g_buf), .len = vhost->hdr_via_len },
+	},
+	.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
+	.eolen = 2, .chunknum = 3, .flags = __TFW_STR_COMPOUND
 #undef S_VIA
 	};
 
