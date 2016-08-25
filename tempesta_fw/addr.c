@@ -163,8 +163,8 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 					if (port) {
 						if (words[i] > 0xFFFF)
 							return -EINVAL;
-					} else if (ipv4_mapped && words[i]
-> 255) {
+					}
+else if (ipv4_mapped && words[i]> 255) {
 						return -EINVAL;
 					}
 				} else {
@@ -173,7 +173,8 @@ XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
 				}
-			} else if (*p == ']') {
+			}
+			else if (*p == ']') {
 				port = 1;
 			} else {
 				return -EINVAL;
@@ -232,8 +233,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-	*str->data :
-	*(str->chunks)->data;
+	*str->data : *(str->chunks)->data;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
