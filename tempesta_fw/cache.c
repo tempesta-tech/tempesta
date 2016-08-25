@@ -34,7 +34,6 @@
 #include "cache.h"
 #include "http_msg.h"
 #include "procfs.h"
-#include "str.h"
 #include "sync_socket.h"
 #include "work_queue.h"
 
