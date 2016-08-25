@@ -44,7 +44,6 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "classifier.c"
-#include "vhost.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send
@@ -246,12 +245,9 @@ TEST(http_sticky, sending_302)
 		/* Need host header and
 		 *it must be compound as special header
 		 */
-//		TFW_STR2(hdr1, "Host: ", "localhost");
-		char *s_req = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+		TFW_STR2(hdr1, "Host: ", "localhost");
 
-//		mock.hmreq->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
-		tfw_http_parse_req(mock.hmreq, s_req, strlen(s_req));
-
+		mock.req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 
 		EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
 		EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), 0);
