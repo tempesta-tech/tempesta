@@ -254,7 +254,8 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 delim:
 		if (*pos == ':') {
 			mode = 6;
-		} else if (*pos == '.') {
+		}
+		else if (*pos == '.') {
 			mode = 4;
 		}
 	}
