@@ -164,12 +164,12 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 						if (words[i] > 0xFFFF)
 							return -EINVAL;
 					}
-else if (ipv4_mapped && words[i]> 255) {
+			else if (ipv4_mapped && words[i]> 255) {
 						return -EINVAL;
 					}
-				} else {
-					words[i] = (words[i] << 4) |\
-XD(tolower(*p));
+				}
+else {
+	words[i] = (words[i] << 4) | XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
 				}
