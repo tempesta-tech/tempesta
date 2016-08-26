@@ -167,7 +167,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 			else if (ipv4_mapped && words[i]> 255) {
 						return -EINVAL;
 					}
-	} else {
+				} else {
 	words[i] = (words[i] << 4) | XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
