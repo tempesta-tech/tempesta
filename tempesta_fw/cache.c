@@ -1152,8 +1152,8 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 		goto out;
 
 	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
-"status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
-"status_off=%ld hdrs_off=%ld body_off=%ld)\n",
+		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
+		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
 		ce->trec.key, ce, ce->trec.len, ce->key_len, ce->status_len,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
 		ce->body);
