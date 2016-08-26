@@ -289,7 +289,7 @@ EXPORT_SYMBOL(ss_send);
  *
  * Called with locked socket.
  */
-static void
+void
 ss_do_close(struct sock *sk)
 {
 	struct sk_buff *skb;
