@@ -154,7 +154,8 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				ipv4_mapped = 1;
 				i = 1;
 				words[1] = words[2] = -1;
-			} else if (isxdigit(*p)) {
+			}
+			else if (isxdigit(*p)) {
 				words[i] = words[i] == -1 ? 0 : words[i];
 				if (ipv4_mapped || port == 1) {
 					if (!isdigit(*p))
@@ -242,7 +243,6 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 		const TfwStr *c, *end;
 		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
-
 			for (i = 0; i != c->len; ++i) {
 				pos = c->data + i;
 				if (!isdigit(*pos))
@@ -423,7 +423,7 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
 			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
-{
+		{
 			/* listener = [::] */
 			if (IN6_LOOPBACK(server->v6.sin6_addr)) {
 				/* backend = [::1] */
