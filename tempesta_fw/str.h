@@ -74,6 +74,7 @@
  * Str constists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
  */
+#define __TFW_STR_CN_MAX	UINT_MAX
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete and will not grow. */
 #define TFW_STR_COMPLETE	0x02
@@ -145,8 +146,8 @@ typedef struct TfwStr {
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
 		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1	\
 		       : (s);						\
-	(_tmp->flags & __TFW_STR_COMPOUND)				\
-		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1	\
+	TFW_STR_PLAIN(_tmp)						\
+		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
 		: (_tmp);						\
  })
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
@@ -184,7 +185,7 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 	unsigned int n;
 
 	TFW_DBG("str_upd_len:start:sl:%lu;sf:%d\n", s->len, s->flags);
-	if (s->flags & __TFW_STR_COMPOUND) {
+	if (TFW_STR_PLAIN(s)) {
 		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
 
 		BUG_ON(chunk->len);

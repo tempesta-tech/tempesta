@@ -106,7 +106,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 	/* Need to specify exact string duplicate to grow. */
 	BUG_ON(TFW_STR_DUP(str));
 
-	return __str_grow_tree(pool, str, __TFW_STR_COMPOUND, 1);
+	return __str_grow_tree(pool, str, 0, 1);
 }
 
 /**
@@ -216,7 +216,7 @@ tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 	BUG_ON(TFW_STR_DUP(dst));
 	BUG_ON(TFW_STR_DUP(src));
 
-	to = __str_grow_tree(pool, dst, __TFW_STR_COMPOUND, n ? : 1);
+	to = __str_grow_tree(pool, dst, 0, n ? : 1);
 	if (!to)
 		return -ENOMEM;
 

@@ -154,7 +154,6 @@ TEST(tfw_strcat, plain)
 	};
 
 	chunkscnt = TFW_STR_CHUNKN(&s1);
-	s1.flags = __TFW_STR_COMPOUND;
 	TFW_DBG("test:cat:plain\n");
 	EXPECT_ZERO(tfw_strcat(str_pool, &s1, &s2));
 	TFW_DBG("after cat:%lu;n:%d\n", s1.len, s1.chunknum);
@@ -169,29 +168,6 @@ TEST(tfw_strcat, compound)
 	int chunks1, chunks2;
 	TfwStr *s1 = make_compound_str2("abc", "defgh");
 	TfwStr *s2 = make_compound_str2("01234", "56789");
-//	DEFINE_TFW_STR(s1, "abcdefghijklmnop");
-
-
-	s1->flags = __TFW_STR_COMPOUND;
-/*		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "abcdefghijklmnop",
-			  .len = sizeof("abcdefghijklmnop") - 1 }
-		},
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.flags = __TFW_STR_COMPOUND, .chunknum = 1
-	};*/
-
-
-	s2->flags = __TFW_STR_COMPOUND;
-/*{
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "0123456789",
-			  .len = sizeof("0123456789") - 1 }
-		},
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.flags = __TFW_STR_COMPOUND, .chunknum = 1
-	};*/
-//	DEFINE_TFW_STR(s2, "0123456789");
 
 	chunks1 = TFW_STR_CHUNKN(s1);
 	chunks2 = TFW_STR_CHUNKN(s2);
