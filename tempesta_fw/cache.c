@@ -1257,7 +1257,8 @@ tfw_cache_mgr(void *arg)
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule();
 			__set_current_state(TASK_RUNNING);
-		} else
+		}
+		else
 			try_to_freeze();
 	} while (!kthread_should_stop());
 
@@ -1401,8 +1402,8 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_cache_cfg_mod = {
-	  .name = "cache",
-	 .start	= tfw_cache_start,
-	 .stop	= tfw_cache_stop,
-	 .specs	= tfw_cache_cfg_specs,
+	.name	= "cache",
+	.start	= tfw_cache_start,
+	.stop	= tfw_cache_stop,
+	.specs	= tfw_cache_cfg_specs,
 };
