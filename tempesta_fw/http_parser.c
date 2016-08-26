@@ -2887,15 +2887,13 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_DateDay) {
 		__fsm_sz = __data_remain(p);
-		if (!isdigit(c))
-			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		if (parser->_acc < 1)
+		if (parser->_acc < 1 || parser->_acc > 31)
 			return CSTR_BADLEN;
 		/* Add seconds in full passed days. */
 		parser->_date = (parser->_acc - 1) * SEC24H;

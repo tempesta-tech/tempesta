@@ -86,7 +86,7 @@ options and their descriptions.
 Tempesta listens to incoming connections on specified address and port.
 The syntax is as follows:
 ```
-listen <PORT> | <IPADDR>[:PORT]
+listen <PORT> | <IPADDR>[:PORT] [proto=http|https];
 ```
 `IPADDR` may be either IPv4 or IPv6 address. Host names are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
@@ -102,17 +102,34 @@ which is an equivalent to `listen 80` directive.
 Below are examples of `listen` directive:
 ```
 listen 80;
+listen 443 proto=https;
 listen [::0]:80;
 listen 127.0.0.1:8001;
 listen [::1]:8001;
 ```
+
+It is allowed to specify the type of listening socket via the `proto`. At
+the moment **HTTP** and **HTTPS** protos are supported. If no `proto`
+option was given, then **HTTP** is supposed by the default.
+
+### TLS/SSL support
+
+Tempesta allows to use TLS-encrypted HTTP connections (HTTPS). It is
+required that public certificate and private key have been configured as
+follows:
+```
+ssl_certificate /path/to/certificate.pem;
+ssl_certificate_key /path/to/certificate-key.pem;
+```
+
+Also, `proto=https` option is needed for the `listen` directive.
 
 ### Keep-alive timeout
 
 Tempesta may use a single TCP connection to send and receive multiple HTTP
 requests/responses. The syntax is as follows:
 ```
-keepalive_timeout TIMEOUT
+keepalive_timeout <TIMEOUT>;
 ```
 `TIMEOUT` is a timeout in seconds during which a keep-alive client connection
 will stay open in Tempesta. The zero value disables keep-alive client
@@ -140,8 +157,8 @@ The PATH must be absolute and the directory must exist. The database file
 must end with `.tbd`. E.g. `cache_db /opt/tempesta/db/cache.tdb` is
 the right Tmpesta DB path. However, this is the only path pattern rather than
 real path. Tempesta creates per NUMA node database files, so if you have two
-processor packages on modern hardware, then follwoing files will be created
-(one for earch processor package) for the example above:
+processor packages on modern hardware, then the following files will be
+created (one for each processor package) for the example above:
 
         /opt/tempesta/db/cache0.tdb
         /opt/tempesta/db/cache1.tdb
