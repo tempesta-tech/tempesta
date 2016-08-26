@@ -51,7 +51,7 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 	addr->sin_addr.s_addr = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = c->data + k;
 			if (isdigit(*p)) {
 				octet = (octet == -1)
 					? *p - '0'
@@ -99,7 +99,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = c->data + k;
 			if (i > 7 && !(i == 8 && port == 1))
 				return -EINVAL;
 
@@ -110,7 +110,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				const char next = (k < c->len - 1) ?
 					*(p + 1) :
 					(c != TFW_STR_LAST(s)) ?
-						*(char*)((c + 1)->ptr) :
+						*((c + 1)->data) :
 						'\0';
 				if (next == ':') {
 					/*
@@ -123,7 +123,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 					} else {
 						++c;
 						k = 0;
-						p = c->ptr;
+						p = c->data;
 					}
 					hole = (words[i] != -1) ? ++i : i;
 				} else if (words[i] == -1)
@@ -233,8 +233,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-		*(char*)str->ptr :
-		*(char*)((TfwStr*)str->ptr)->ptr;
+	*str->data : *(str->chunks)->data;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
@@ -245,7 +244,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
 			for (i = 0; i != c->len; ++i) {
-				pos = c->ptr + i;
+				pos = c->data + i;
 				if (!isdigit(*pos))
 					goto delim;
 			}
@@ -425,8 +424,7 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
 		{
 			/* listener = [::] */
-			if (IN6_LOOPBACK(server->v6.sin6_addr))
-			{
+			if (IN6_LOOPBACK(server->v6.sin6_addr)) {
 				/* backend = [::1] */
 				return 1;
 			}

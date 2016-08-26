@@ -125,7 +125,7 @@ do {									\
 
 #define __msg_field_fixup(field, pos)					\
 do {									\
-	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
+	if (TFW_STR_LAST((TfwStr *)field)->data != (char *)pos)		\
 		tfw_http_msg_field_chunk_fixup(msg, field, data,	\
 					       __data_offset(pos));	\
 } while (0)
@@ -356,7 +356,7 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 	 * implement our own strcasecmp() if it becomes a bottle neck.
 	 */
 	if (strncasecmp(p, str + offset, len) ||
-	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->ptr, str, chunk->len,
+	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->data, str, chunk->len,
 						TFW_STR_EQ_CASEI)))
 		return CSTR_NEQ;
 
@@ -472,8 +472,8 @@ enum {
 
 /* Parsing helpers. */
 #define TRY_STR_LAMBDA(str, lambda, state)				\
-	if (!chunk->ptr)						\
-		chunk->ptr = p;						\
+	if (!chunk->data)						\
+		chunk->data = p;					\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
 	if (__fsm_n > 0) {						\
@@ -519,9 +519,9 @@ __FSM_STATE(RGen_EoLine) {						\
 	if (parser->_eol != 0xa && parser->_eol != 0xda)		\
 		return TFW_BLOCK;					\
 	/* The header may be unopened in case of parsing s_line. */	\
-	if (!parser->hdr.ptr)						\
+	if (!parser->hdr.data)						\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	tfw_str_set_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));	\
+	tfw_str_set_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));\
 	/* Zero length means that we've got an empty-line. */		\
 	if (unlikely(!parser->hdr.len)) {				\
 		if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {		\

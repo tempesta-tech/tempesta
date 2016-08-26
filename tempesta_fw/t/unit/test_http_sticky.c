@@ -114,7 +114,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	size_t len;
 	TfwStr *hdr_field;
 
-	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
+	hdr_field = tfw_http_field_raw(hm, field_name->data, field_name->len);
 	if (hdr_field == NULL) {
 		return 0;
 	}
@@ -128,7 +128,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	}
 	len = tfw_str_to_cstr(hdr_field, buf, len);
 	ptr = strim(buf + field_name->len);
-	value->ptr = ptr;
+	value->data = ptr;
 	value->len = len - (ptr - buf);
 
 	return 1;
@@ -170,7 +170,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 
 	/* cookie name should be somewhere in Set-Cookie header value */
 	mock.seen_cookie =
-	    strnstr(hdr_value.ptr, COOKIE_NAME, hdr_value.len) != NULL;
+	    strnstr(hdr_value.data, COOKIE_NAME, hdr_value.len) != NULL;
 
 	return 0;
 }
@@ -361,7 +361,7 @@ test_sticky_present_helper(const char *s_req)
 	EXPECT_EQ(tfw_http_sticky_get(mock.req, &value), 1);
 
 	EXPECT_TRUE(value.len == 5);
-	EXPECT_TRUE(value.ptr && memcmp(value.ptr, "67890", 5) == 0);
+	EXPECT_TRUE(value.data && memcmp(value.data, "67890", 5) == 0);
 }
 
 TEST(http_sticky, sticky_get_present_begin)
