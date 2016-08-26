@@ -133,17 +133,16 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	},
 	{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) },
 	},
-	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02), 
+	.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
 	.chunknum = 3
 	};
-	static TfwStr part03 = {
-	.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
-	static TfwStr crlfcrlf = {
-	.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
-	static TfwStr crlf_keep = {
-	.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-	static TfwStr crlf_close = {
-	.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	static TfwStr part03 = {.data = S_302_PART_03,
+				.len = SLEN(S_302_PART_03) };
+	static TfwStr crlfcrlf = {.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	static TfwStr crlf_keep = {.data = S_302_KEEP,
+				   .len = SLEN(S_302_KEEP) };
+	static TfwStr crlf_close = {.data = S_302_CLOSE, 
+				    .len = SLEN(S_302_CLOSE) };
 	TfwStr host, *crlf = &crlfcrlf;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
