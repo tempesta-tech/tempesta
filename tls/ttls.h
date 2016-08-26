@@ -30,8 +30,8 @@
 #include <linux/random.h>
 #include <linux/string.h>
 
-extern void *calloc(size_t n, size_t size);
-extern void free(void *ptr);
+extern void *ttls_calloc(size_t n, size_t size);
+extern void ttls_free(void *ptr);
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PKCS1_V15)
 extern int rand(void);

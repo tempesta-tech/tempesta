@@ -26,15 +26,17 @@
  * carefully change all of them to appropriate kernel routines (probably SLAB
  * allocations can be used) or exclude at all (if the optimization is possible.
  */
-void *calloc(size_t n, size_t size)
+void *ttls_calloc(size_t n, size_t size)
 {
 	return kzalloc(n * size, GFP_ATOMIC);
 }
+EXPORT_SYMBOL(ttls_calloc);
 
-void free(void *ptr)
+void ttls_free(void *ptr)
 {
 	kfree(ptr);
 }
+EXPORT_SYMBOL(ttls_free);
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PKCS1_V15)
 int rand(void)
