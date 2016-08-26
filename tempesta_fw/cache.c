@@ -162,8 +162,7 @@ static CaNode c_nodes[MAX_NUMNODES];
 
 static struct task_struct *cache_mgr_thr;
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
-
-static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
+static DEFINE_TFW_STR(g_crlf, S_CRLF);
 
 /* Iterate over request URI and Host header to process request key. */
 #define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
@@ -171,16 +170,16 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
 		c = &req->uri_path;					\
 		u_end = &req->uri_path + 1;				\
 	} else {							\
-		c = req->uri_path.ptr;					\
-		u_end = (TfwStr *)req->uri_path.ptr			\
+		c = req->uri_path.chunks;				\
+		u_end = req->uri_path.chunks				\
 			+ TFW_STR_CHUNKN(&req->uri_path);		\
 	}								\
 	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
-		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr;	\
-		h_end = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr \
+		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
+		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks 	\
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
@@ -433,7 +432,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
-		if (strncasecmp((char *)c->ptr + c_off, trec->data + t_off, n))
+		if (strncasecmp(c->data + c_off, trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -544,7 +543,7 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			 (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
-		memcpy(*p, (char *)src->ptr + copied, room);
+		memcpy(*p, src->data + copied, room);
 		*p += room;
 		copied += room;
 	}
@@ -900,7 +899,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 	TfwStr c = { 0 };
 
 	while (1)  {
-		c.ptr = *data;
+		c.data = *data;
 		c.len = min(tr->data + tr->len - *data,
 			    (long)(len - copied));
 		r = tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c);
@@ -920,7 +919,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 	/* Every non-empty header contains CRLF at the end. We need to translate
 	 * it to { str, eolen } presentation. */
 	if (hdr->len)
-		tfw_str_fixup_eol(hdr, SLEN(S_CRLF));
+		tfw_str_fixup_eolen(hdr, SLEN(S_CRLF));
 
 	return 0;
 }
@@ -960,7 +959,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
 			return r;
 	}
 
-	hdr->ptr = dups;
+	hdr->chunks = dups;
 	__TFW_STR_CHUNKN_SET(hdr, dn);
 	hdr->flags |= TFW_STR_DUPLICATE;
 
@@ -1402,7 +1401,7 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_cache_cfg_mod = {
-	.name 	= "cache",
+	.name	= "cache",
 	.start	= tfw_cache_start,
 	.stop	= tfw_cache_stop,
 	.specs	= tfw_cache_cfg_specs,
