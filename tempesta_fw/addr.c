@@ -517,7 +517,7 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 
 	out_buf += digits_n;
 
-	switch (digits_n) {
+	switch(digits_n) {
 	case 4:
 		out_buf[-4] = hex_asc[(group >> 12)      ];
 	case 3:
@@ -525,7 +525,7 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 	case 2:
 		out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
 	case 1:
-		out_buf[-1] = hex_asc[group        & 0xF];
+		out_buf[-1] = hex_asc[ group        & 0xF];
 	}
 
 	return out_buf;
