@@ -193,7 +193,6 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 	/* Copy parsed address. */
 	if (ipv4_mapped) {
 		struct sockaddr_in *addr4 = (struct sockaddr_in *)addr;
-
 		for (i = 0; i < 4; ++i)
 			addr4->sin_addr.s_addr |= words[i] << (3 - i) * 8;
 	} else {
@@ -610,7 +609,8 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 		if (groups[i] || zeros_already_omitted) {
 			pos = tfw_put_ipv6_digit_group(ntohs(groups[i]), pos);
 			*pos++ = ':';
-		} else if (!groups[i] && (groups[i + 1] || i == 6)) {
+		}
+		else if (!groups[i] && (groups[i + 1] || i == 6)) {
 			if (pos == buf || *(pos - 1) != ':')
 				*pos++ = ':';
 			*pos++ = ':';
