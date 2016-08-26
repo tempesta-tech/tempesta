@@ -33,6 +33,7 @@ unsigned long
 tfw_hash_str(const TfwStr *str)
 {
 	unsigned long crc0 = 0, crc1 = 0;
+
 	if (likely(TFW_STR_PLAIN(str))) {
 		__tdb_hash_calc(&crc0, &crc1, str->data, str->len);
 	}
