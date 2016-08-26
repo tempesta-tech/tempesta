@@ -46,6 +46,7 @@ extern int rand(void);
 #include "md5.h"
 #include "sha1.h"
 #include "sha256.h"
+#include "sha512.h"
 #include "ssl.h"
 #include "net.h"
 #include "certs.h"

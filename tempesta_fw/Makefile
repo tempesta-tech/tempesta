@@ -56,6 +56,8 @@ tempesta_fw-objs = \
 	stress.o \
 	str.o \
 	tls.o \
+	tls_ssl.o \
+	tls_srv.o \
 	vhost.o \
 	work_queue.o
 
