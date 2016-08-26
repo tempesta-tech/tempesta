@@ -404,7 +404,6 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 		do {
 			unsigned laddr = listener->v4.sin_addr.s_addr;
 			unsigned saddr = server->v4.sin_addr.s_addr;
-
 			if (listener->v4.sin_port != server->v4.sin_port)
 				return 0;
 			if (laddr == 0) {
