@@ -473,7 +473,7 @@ tfw_put_dec(u32 q, char *out_buf)
 	 * Some programs treat leading zeros as an octal base mark,
 	 * so the switch(digits_n) is used to skip them.
 	 */
-	switch (digits_n) {
+	switch(digits_n) {
 	case 4:
 		r  = (q * 0x0ccd) >> 15;
 		out_buf[3] = (q - 10 * r) + '0';
@@ -519,13 +519,13 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
 
 	switch (digits_n) {
 	case 4:
-	out_buf[-4] = hex_asc[(group >> 12)];
+		out_buf[-4] = hex_asc[(group >> 12)      ];
 	case 3:
-	out_buf[-3] = hex_asc[(group >> 8)  & 0xF];
+		out_buf[-3] = hex_asc[(group >> 8)  & 0xF];
 	case 2:
-	out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
+		out_buf[-2] = hex_asc[(group >> 4)  & 0xF];
 	case 1:
-	out_buf[-1] = hex_asc[group        & 0xF];
+		out_buf[-1] = hex_asc[group        & 0xF];
 	}
 
 	return out_buf;
