@@ -168,7 +168,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 						return -EINVAL;
 					}
 				} else {
-	words[i] = (words[i] << 4) | XD(tolower(*p));
+					words[i] = (words[i] << 4) | XD(tolower(*p));
 					if (words[i] > 0xFFFF)
 						return -EINVAL;
 				}
