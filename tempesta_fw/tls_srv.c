@@ -17,6 +17,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include "tls.h"
+
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
@@ -3794,6 +3796,7 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
     switch( ssl->state )
     {
         case MBEDTLS_SSL_HELLO_REQUEST:
+            TFW_FSM_STEP( ssl, HELLO_REQUEST );
             ssl->state = MBEDTLS_SSL_CLIENT_HELLO;
             break;
 
@@ -3801,11 +3804,13 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
          *  <==   ClientHello
          */
         case MBEDTLS_SSL_CLIENT_HELLO:
+            TFW_FSM_STEP( ssl, CLIENT_HELLO );
             ret = ssl_parse_client_hello( ssl );
             break;
 
 #if defined(MBEDTLS_SSL_PROTO_DTLS)
         case MBEDTLS_SSL_SERVER_HELLO_VERIFY_REQUEST_SENT:
+            TFW_FSM_STEP( ssl, SERVER_HELLO_VERIFY_REQUEST_SENT );
             return( MBEDTLS_ERR_SSL_HELLO_VERIFY_REQUIRED );
 #endif
 
@@ -3817,22 +3822,27 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
          *        ServerHelloDone
          */
         case MBEDTLS_SSL_SERVER_HELLO:
+            TFW_FSM_STEP( ssl, SERVER_HELLO );
             ret = ssl_write_server_hello( ssl );
             break;
 
         case MBEDTLS_SSL_SERVER_CERTIFICATE:
+            TFW_FSM_STEP( ssl, SERVER_CERTIFICATE );
             ret = mbedtls_ssl_write_certificate( ssl );
             break;
 
         case MBEDTLS_SSL_SERVER_KEY_EXCHANGE:
+            TFW_FSM_STEP( ssl, SERVER_KEY_EXCHANGE );
             ret = ssl_write_server_key_exchange( ssl );
             break;
 
         case MBEDTLS_SSL_CERTIFICATE_REQUEST:
+            TFW_FSM_STEP( ssl, CERTIFICATE_REQUEST );
             ret = ssl_write_certificate_request( ssl );
             break;
 
         case MBEDTLS_SSL_SERVER_HELLO_DONE:
+            TFW_FSM_STEP( ssl, SERVER_HELLO_DONE );
             ret = ssl_write_server_hello_done( ssl );
             break;
 
@@ -3844,22 +3854,27 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
          *        Finished
          */
         case MBEDTLS_SSL_CLIENT_CERTIFICATE:
+            TFW_FSM_STEP( ssl, CLIENT_CERTIFICATE );
             ret = mbedtls_ssl_parse_certificate( ssl );
             break;
 
         case MBEDTLS_SSL_CLIENT_KEY_EXCHANGE:
+            TFW_FSM_STEP( ssl, CLIENT_KEY_EXCHANGE );
             ret = ssl_parse_client_key_exchange( ssl );
             break;
 
         case MBEDTLS_SSL_CERTIFICATE_VERIFY:
+            TFW_FSM_STEP( ssl, CERTIFICATE_VERIFY );
             ret = ssl_parse_certificate_verify( ssl );
             break;
 
         case MBEDTLS_SSL_CLIENT_CHANGE_CIPHER_SPEC:
+            TFW_FSM_STEP( ssl, CLIENT_CHANGE_CIPHER_SPEC );
             ret = mbedtls_ssl_parse_change_cipher_spec( ssl );
             break;
 
         case MBEDTLS_SSL_CLIENT_FINISHED:
+            TFW_FSM_STEP( ssl, CLIENT_FINISHED );
             ret = mbedtls_ssl_parse_finished( ssl );
             break;
 
@@ -3869,6 +3884,7 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
          *        Finished
          */
         case MBEDTLS_SSL_SERVER_CHANGE_CIPHER_SPEC:
+            TFW_FSM_STEP( ssl, SERVER_CHANGE_CIPHER_SPEC );
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
             if( ssl->handshake->new_session_ticket != 0 )
                 ret = ssl_write_new_session_ticket( ssl );
@@ -3878,15 +3894,18 @@ int mbedtls_ssl_handshake_server_step( mbedtls_ssl_context *ssl )
             break;
 
         case MBEDTLS_SSL_SERVER_FINISHED:
+            TFW_FSM_STEP( ssl, SERVER_FINISHED );
             ret = mbedtls_ssl_write_finished( ssl );
             break;
 
         case MBEDTLS_SSL_FLUSH_BUFFERS:
+            TFW_FSM_STEP( ssl, FLUSH_BUFFERS );
             MBEDTLS_SSL_DEBUG_MSG( 2, ( "handshake: done" ) );
             ssl->state = MBEDTLS_SSL_HANDSHAKE_WRAPUP;
             break;
 
         case MBEDTLS_SSL_HANDSHAKE_WRAPUP:
+            TFW_FSM_STEP( ssl, HANDSHAKE_WRAPUP );
             mbedtls_ssl_handshake_wrapup( ssl );
             break;
 
