@@ -400,7 +400,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
 	if (r)
 		return r;
 
-	tfw_str_set_eolen(&it, tfw_str_eolen(hdr));
+	tfw_str_fixup_eol(&it, tfw_str_eolen(hdr));
 	if (tfw_strcpy(&it, hdr))
 		return TFW_BLOCK;
 

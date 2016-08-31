@@ -218,6 +218,22 @@ tfw_str_set_eolen(TfwStr *s, unsigned int eolen)
 	BUG_ON(eolen > 2); /* LF and CRLF is the only valid EOL markers */
 	s->eolen = (unsigned char)eolen;
 }
+/**
+ * Reduce @str length by @eolen bytes and fill the EOL.
+ */
+static inline void
+tfw_str_fixup_eol(TfwStr *str, int eolen)
+{
+	BUG_ON(eolen > 2); /* eolen = 0 is a legit value */
+	BUG_ON(!TFW_STR_PLAIN(str));
+
+	str->len -= (str->eolen = eolen);
+	if (eolen == 1)
+		*(str->data + str->len) = 0x0a; /* LF, '\n' */
+	else if (eolen == 2)
+		*(short *)(str->data + str->len) = 0x0a0d; /* CRLF, '\r\n' */
+}
+
 
 /**
  * Returns total string length, including EOL
