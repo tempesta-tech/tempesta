@@ -132,7 +132,7 @@ typedef struct TfwStr {
 
 /* Get @c'th chunk of @s. */
 #define __TFW_STR_CH(s, c)	(!TFW_STR_PLAIN(s)? (s)->chunks + (c) : s)
-#define TFW_STR_CHUNK(s, c)	(((s)->chunknum)			\
+#define TFW_STR_CHUNK(s, c)	(!TFW_STR_PLAIN(s)			\
 				 ? ((c) >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
 				    : __TFW_STR_CH(s, (c)))		\
