@@ -135,7 +135,7 @@ __hdr_is_singular(const TfwStr *hdr)
 	fc = tolower(*TFW_STR_CHUNK(hdr, 0)->data);
 	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
 		const TfwStr *sh = &hdr_singular[i];
-		int sc = *sh->data;
+		int sc = *(unsigned char *)sh->data;
 		if (fc > sc)
 			continue;
 		if (fc < sc)
