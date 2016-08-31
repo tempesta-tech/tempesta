@@ -118,11 +118,33 @@ Tempesta allows to use TLS-encrypted HTTP connections (HTTPS). It is
 required that public certificate and private key have been configured as
 follows:
 ```
-ssl_certificate /path/to/certificate.pem;
-ssl_certificate_key /path/to/certificate-key.pem;
+ssl_certificate /path/to/tfw-root.crt;
+ssl_certificate_key /path/to/tfw-root.key;
 ```
 
 Also, `proto=https` option is needed for the `listen` directive.
+
+#### Self-signed certificate genration
+
+In case of using a self-signed certificate with Tempesta, it's
+convenient to use OpenSSL to generate a key and a certificate. The
+following shell command can be used:
+
+~~~
+openssl req -nodes -new -x509 -keyout tfw-root.key -out tfw-root.crt
+~~~
+
+You'll be prompted to fill out several X.509 certificate fields. The
+values are the same for the subject and the issuer in a self-signed
+certificate. Use any valid values as you like.
+
+The file `tfw-root.key` contains the private key, and the file
+`tfw-root.crt` contains the public X.509 certificate. Both are in PEM
+format. These files are used in Tempesta configuration as follows:
+```
+ssl_certificate /path/to/tfw-root.crt;
+ssl_certificate_key /path/to/tfw-root.key;
+```
 
 ### Keep-alive timeout
 
