@@ -135,7 +135,7 @@ __hdr_is_singular(const TfwStr *hdr)
 	fc = tolower(*TFW_STR_CHUNK(hdr, 0)->data);
 	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
 		const TfwStr *sh = &hdr_singular[i];
-		int sc = *(unsigned char *)sh->data;
+		int sc = *sh->data;
 		if (fc > sc)
 			continue;
 		if (fc < sc)
@@ -725,7 +725,7 @@ this_chunk:
 		f_room = PAGE_SIZE - frag->page_offset - f_size;
 		n_copy = min(c_size, f_room);
 
-		memcpy(skb_frag_address(frag) + f_size,
+		memcpy((char *)skb_frag_address(frag) + f_size,
 		       c->data + c_off, n_copy);
 		skb_frag_size_add(frag, n_copy);
 		ss_skb_adjust_data_len(it->skb, n_copy);
