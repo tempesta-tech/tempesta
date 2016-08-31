@@ -142,6 +142,10 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 /*
  * Individual server statistics.
  */
+static const Percentile __read_mostly tfw_procfs_prcntl[] = {
+	{1}, {50}, {75}, {90}, {95}, {99}
+};
+
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
@@ -151,11 +155,9 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	int i, ret;
 	TfwServer *srv = seq->private;
-	Percentile prcntl[] = {
-		{tfw_apm_prcntl_ith[0]}, {tfw_apm_prcntl_ith[1]},
-		{tfw_apm_prcntl_ith[2]}, {tfw_apm_prcntl_ith[3]},
-		{tfw_apm_prcntl_ith[4]}, {tfw_apm_prcntl_ith[5]},
-	};
+	Percentile prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
+
+	memcpy(prcntl, tfw_procfs_prcntl, sizeof(tfw_procfs_prcntl));
 
 	tfw_apm_stats(srv->apm, prcntl, ARRAY_SIZE(prcntl));
 
@@ -233,11 +235,9 @@ static int
 tfw_procfs_cfg_start(void)
 {
 	int i, ret;
-	Percentile prcntl[] = {
-		{tfw_apm_prcntl_ith[0]}, {tfw_apm_prcntl_ith[1]},
-		{tfw_apm_prcntl_ith[2]}, {tfw_apm_prcntl_ith[3]},
-		{tfw_apm_prcntl_ith[4]}, {tfw_apm_prcntl_ith[5]},
-	};
+	Percentile prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
+
+	memcpy(prcntl, tfw_procfs_prcntl, sizeof(tfw_procfs_prcntl));
 
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
