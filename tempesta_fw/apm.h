@@ -31,8 +31,6 @@ typedef struct {
 	int	val;
 } Percentile;
 
-extern const unsigned int tfw_apm_prcntl_ith[];
-
 void *tfw_apm_create(void);
 void tfw_apm_destroy(void *data);
 void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
