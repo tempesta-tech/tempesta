@@ -84,8 +84,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			nlen -= c->len;
 			val->len -= c->len;
 		}
-		else if (unlikely((c->data)[0] == ' '
-				  || (c->data)[0] == '\t'))
+		else if (unlikely(c->data[0] == ' '
+				  || c->data[0] == '\t'))
 		{
 			/*
 			 * RFC 7230: skip OWS before header field.
@@ -119,20 +119,17 @@ __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
 	static const TfwStr hdr_singular[] __read_mostly = {
-#define TfwStr_string(v) { .data = (v), .skb = NULL, .len = sizeof(v) - 1,\
-			   .flags = 0 }
-		TfwStr_string("authorization:"),
-		TfwStr_string("from:"),
-		TfwStr_string("if-modified-since:"),
-		TfwStr_string("if-unmodified-since:"),
-		TfwStr_string("location:"),
-		TfwStr_string("max-forwards:"),
-		TfwStr_string("proxy-authorization:"),
-		TfwStr_string("referer:"),
-#undef TfwStr_string
+		TFW_STR_FROM("authorization:"),
+		TFW_STR_FROM("from:"),
+		TFW_STR_FROM("if-modified-since:"),
+		TFW_STR_FROM("if-unmodified-since:"),
+		TFW_STR_FROM("location:"),
+		TFW_STR_FROM("max-forwards:"),
+		 TFW_STR_FROM("proxy-authorization:"),
+		 TFW_STR_FROM("referer:"),
 	};
 
-	fc = tolower(*TFW_STR_CHUNK(hdr, 0)->data);
+	fc = tolower(*(unsigned char *)TFW_STR_CHUNK(hdr, 0)->data);
 	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
 		const TfwStr *sh = &hdr_singular[i];
 		int sc = *(unsigned char *)sh->data;
@@ -349,7 +346,7 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->data)
 			__tfw_http_msg_set_data(hm, str, data, skb);
-		str->len = data + len - (void *)str->data;
+		str->len = (char *)data + len - str->data;
 	}
 	else if (likely(data)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
