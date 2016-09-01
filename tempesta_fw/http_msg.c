@@ -125,8 +125,8 @@ __hdr_is_singular(const TfwStr *hdr)
 		TFW_STR_FROM("if-unmodified-since:"),
 		TFW_STR_FROM("location:"),
 		TFW_STR_FROM("max-forwards:"),
-		 TFW_STR_FROM("proxy-authorization:"),
-		 TFW_STR_FROM("referer:"),
+		TFW_STR_FROM("proxy-authorization:"),
+		TFW_STR_FROM("referer:"),
 	};
 
 	fc = tolower(*(unsigned char *)TFW_STR_CHUNK(hdr, 0)->data);
