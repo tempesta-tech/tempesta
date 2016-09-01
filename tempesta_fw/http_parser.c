@@ -1634,7 +1634,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_H);
 		if (c == ':')
 			__FSM_I_MOVE(Req_I_H_Port);
-		if (isspace(c))
+		if (IS_CR_OR_LF(c))
 			return __data_offset(p);
 		return CSTR_NEQ;
 	}
@@ -1657,6 +1657,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_H_Port) {
+//		TFW_DBG("parse:isspace:1664:%d\n", c);
 		/* See Req_UriPort processing. */
 		if (likely(isdigit(c)))
 			__FSM_I_MOVE(Req_I_H_Port);
