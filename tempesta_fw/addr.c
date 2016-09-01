@@ -233,7 +233,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 	int ret = -EINVAL;
 	int mode = 0;
 	const char first = TFW_STR_PLAIN(str) ?
-	*str->data : *(str->chunks)->data;
+	*str->data : *str->chunks->data;
 
 	/* Determine type of the address (IPv4/IPv6). */
 	if (first == '[' || isalpha(first)) {
