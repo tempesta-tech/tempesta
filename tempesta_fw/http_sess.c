@@ -390,7 +390,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		TFW_STR_PLAIN(value) ? "" : ", starts with",
 		TFW_STR_PLAIN(value) ?
 			(int)value->len :
-			(int)(value->chunks)->len,
+			(int)value->chunks->len,
 		TFW_STR_PLAIN(value) ?
 			value->data :
 			value->chunks->data);
@@ -675,7 +675,7 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	memcpy(tfw_cfg_sticky.name.data, val, len);
 	tfw_cfg_sticky.name.len = len;
-	(tfw_cfg_sticky.name_eq.data)[len] = '=';
+	tfw_cfg_sticky.name_eq.data[len] = '=';
 	tfw_cfg_sticky.name_eq.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
