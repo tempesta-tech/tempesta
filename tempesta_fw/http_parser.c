@@ -1583,7 +1583,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (unlikely(c == ';'))
 			/* do not save ';' yet */
 			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0, TFW_STR_VALUE);
-		if (unlikely(isspace(c))) {
+		if (unlikely(IS_CR_OR_LF(c))) {
 			/* do not save LWS */
 			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
 			__FSM_I_chunk_flags(TFW_STR_VALUE);
