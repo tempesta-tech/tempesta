@@ -48,6 +48,12 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(ss.pfl_hits);
 		SADD(ss.pfl_misses);
 
+		/* APM statistics. */
+		SADD(apm.upd_misses);
+		SADD(apm.calc_misses);
+		SADD(apm.calc_races);
+		SADD(apm.calc_repeats);
+
 		/* Cache statistics. */
 		SADD(cache.hits);
 		SADD(cache.misses);
@@ -97,6 +103,12 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	/* Ss statistics. */
 	SPRN("SS pfl hits\t\t\t\t", ss.pfl_hits);
 	SPRN("SS pfl misses\t\t\t\t", ss.pfl_misses);
+
+	/* Ss statistics. */
+	SPRN("APM update misses\t\t\t", apm.upd_misses);
+	SPRN("APM calc misses\t\t\t\t", apm.calc_misses);
+	SPRN("APM calc races\t\t\t\t", apm.calc_races);
+	SPRN("APM calc repeats\t\t\t", apm.calc_repeats);
 
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
