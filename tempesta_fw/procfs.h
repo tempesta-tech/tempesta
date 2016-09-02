@@ -31,6 +31,12 @@ typedef struct {
 	u64	pfl_misses;
 } TfwSsStat;
 
+typedef struct {
+	u64	upd_misses;
+	u64	calc_misses;
+	u64	calc_races;
+	u64	calc_repeats;
+} TfwApmStat;
 /*
  * @rx_messages		- The number of messages received from peers.
  * @msgs_forwarded	- The number of forwarded messages.
@@ -77,6 +83,7 @@ typedef struct {
 
 typedef struct {
 	TfwSsStat	ss;
+	TfwApmStat	apm;
 	TfwPeerStat	clnt;
 	TfwPeerStat	serv;
 	TfwCacheStat	cache;
