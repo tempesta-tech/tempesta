@@ -60,10 +60,16 @@ tfw_client_put(TfwClient *cli)
 	if (!atomic_dec_and_test(&cli->conn_users))
 		return;
 
+	spin_lock(cli->hb_lock);
+
+	if (atomic_read(&cli->conn_users)) {
+		spin_unlock(cli->hb_lock);
+		return;
+	}
 	BUG_ON(!list_empty(&cli->conn_list));
 
-	spin_lock(cli->hb_lock);
 	hlist_del(&cli->hentry);
+
 	spin_unlock(cli->hb_lock);
 
 	kmem_cache_free(cli_cache, cli);
