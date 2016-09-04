@@ -279,6 +279,10 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	return true;
 }
 
+/**
+ * Check whether the response status code is defined as cacheable by default
+ * by RFC 7231 6.1.
+ */
 static inline bool
 tfw_cache_status_bydef(TfwHttpResp *resp)
 {
