@@ -83,7 +83,7 @@ tfw_init(void)
 	/* Register TLS before HTTP, so HTTP FSM can register TLS hooks. */
 	DO_INIT(tls);
 	DO_INIT(http);
-	DO_INIT(http_sticky);
+	DO_INIT(http_sess);
 
 	DO_INIT(sync_socket);
 	DO_INIT(server);
@@ -91,10 +91,11 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 
+	DO_CFG_REG(tls);
 	DO_CFG_REG(vhost);
 	DO_CFG_REG(filter);
 	DO_CFG_REG(cache);
-	DO_CFG_REG(http_sticky);
+	DO_CFG_REG(http_sess);
 	DO_CFG_REG(sock_srv);
 	DO_CFG_REG(sock_clnt);
 

@@ -51,8 +51,7 @@ CONFIG\_PREEMPT is not supported at all.
 
 To build the module you need to do the following steps:
 
-1. Patch Linux kernel 4.1.12 with linux-4.1-tfw.patch or just download
-   [an already patched kernel](https://github.com/tempesta-tech/linux-4.1-tfw)
+1. Download [patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
 2. Build and load the kernel
 3. Run make to build Tempesta FW and Tempesta DB modules:
 
@@ -87,7 +86,7 @@ options and their descriptions.
 Tempesta listens to incoming connections on specified address and port.
 The syntax is as follows:
 ```
-listen <PORT> | <IPADDR>[:PORT]
+listen <PORT> | <IPADDR>[:PORT] [proto=http|https];
 ```
 `IPADDR` may be either IPv4 or IPv6 address. Host names are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
@@ -103,9 +102,48 @@ which is an equivalent to `listen 80` directive.
 Below are examples of `listen` directive:
 ```
 listen 80;
+listen 443 proto=https;
 listen [::0]:80;
 listen 127.0.0.1:8001;
 listen [::1]:8001;
+```
+
+It is allowed to specify the type of listening socket via the `proto`. At
+the moment **HTTP** and **HTTPS** protos are supported. If no `proto`
+option was given, then **HTTP** is supposed by the default.
+
+### TLS/SSL support
+
+Tempesta allows to use TLS-encrypted HTTP connections (HTTPS). It is
+required that public certificate and private key have been configured as
+follows:
+```
+ssl_certificate /path/to/tfw-root.crt;
+ssl_certificate_key /path/to/tfw-root.key;
+```
+
+Also, `proto=https` option is needed for the `listen` directive.
+
+#### Self-signed certificate genration
+
+In case of using a self-signed certificate with Tempesta, it's
+convenient to use OpenSSL to generate a key and a certificate. The
+following shell command can be used:
+
+~~~
+openssl req -nodes -new -x509 -keyout tfw-root.key -out tfw-root.crt
+~~~
+
+You'll be prompted to fill out several X.509 certificate fields. The
+values are the same for the subject and the issuer in a self-signed
+certificate. Use any valid values as you like.
+
+The file `tfw-root.key` contains the private key, and the file
+`tfw-root.crt` contains the public X.509 certificate. Both are in PEM
+format. These files are used in Tempesta configuration as follows:
+```
+ssl_certificate /path/to/tfw-root.crt;
+ssl_certificate_key /path/to/tfw-root.key;
 ```
 
 ### Keep-alive timeout
@@ -113,7 +151,7 @@ listen [::1]:8001;
 Tempesta may use a single TCP connection to send and receive multiple HTTP
 requests/responses. The syntax is as follows:
 ```
-keepalive_timeout TIMEOUT
+keepalive_timeout <TIMEOUT>;
 ```
 `TIMEOUT` is a timeout in seconds during which a keep-alive client connection
 will stay open in Tempesta. The zero value disables keep-alive client
@@ -141,8 +179,8 @@ The PATH must be absolute and the directory must exist. The database file
 must end with `.tbd`. E.g. `cache_db /opt/tempesta/db/cache.tdb` is
 the right Tmpesta DB path. However, this is the only path pattern rather than
 real path. Tempesta creates per NUMA node database files, so if you have two
-processor packages on modern hardware, then follwoing files will be created
-(one for earch processor package) for the example above:
+processor packages on modern hardware, then the following files will be
+created (one for each processor package) for the example above:
 
         /opt/tempesta/db/cache0.tdb
         /opt/tempesta/db/cache1.tdb
@@ -518,6 +556,20 @@ the client to the same URI and includes `Set-Cookie` header field,
 which prompts that Tempesta sticky cookie with the name `__cookie__` is set
 in requests from the client.
 
+Sticky cookie value is calculated on top of client IP, User-Agent, session
+timestamp and the **secret** used as a key for HMAC. `sticky_secret` config
+option sets the secret string used for HMAC calculation. It's desirable to
+keep this value in secret to prevent automatic cookies generation on attacker
+side. By default Tempesta generates a new random value for the secret on start.
+This means that all user HTTP sessions are invalidated on Tempesta restart.
+Maximum length of the key is 20 bytes.
+
+`sess_lifetime` config option defines HTTP session lifetime in seconds. Default
+value is `0`, i.e. unlimited life time. When HTTP session expires the client
+receives 302 redirect with new cookie value if enforced sticky cookie is used.
+This option doesn't affect sticky cookie expire time - it's a session, temporal,
+cookie.
+
 
 ### Frang
 
@@ -589,6 +641,7 @@ an empty `Host:` field value in more cases. This can present an opportunity
 for a DoS attack. Frang's **http_host_required** option should be used in this
 case. That would leave handling of the `Host:` header field to Tempesta.
 Invalid requests would be denied before they reach a back end server.
+
 
 ### Filter
 

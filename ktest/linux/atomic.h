@@ -20,6 +20,8 @@
 #ifndef __ATOMIC_H__
 #define __ATOMIC_H__
 
+#include <stdbool.h>
+
 typedef struct {
 	int counter;
 } atomic_t;
@@ -33,6 +35,18 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 	__atomic_compare_exchange_n(&v->counter, &old, new, false,
 				    __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
 	return old;
+}
+
+static inline void
+atomic_add(int i, atomic_t *v)
+{
+	__atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
+}
+
+static inline void
+atomic_sub(int i, atomic_t *v)
+{
+	__atomic_sub_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 static inline int
@@ -66,6 +80,12 @@ static inline void
 atomic64_add(long i, atomic64_t *v)
 {
 	__atomic_fetch_add(&v->counter, i, __ATOMIC_SEQ_CST);
+}
+
+static inline void
+atomic64_inc(atomic64_t *v)
+{
+	__atomic_fetch_add(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 #endif /* __ATOMIC_H__ */

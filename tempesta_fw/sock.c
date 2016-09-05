@@ -25,6 +25,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#include "addr.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "work_queue.h"
@@ -37,6 +38,7 @@ typedef enum {
 typedef struct {
 	struct sock	*sk;
 	SsSkbList	skb_list;
+	int		flags;
 	SsAction	action;
 } SsWork;
 
@@ -87,8 +89,10 @@ ss_wq_push(SsWork *sw, bool sync)
 	 * See ss_tx_action().
 	 */
 	sock_hold(sw->sk);
-	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync)))
+	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync))) {
+		TFW_WARN("Socket work queue overrun: [%d]\n", sw->action);
 		sock_put(sw->sk);
+	}
 	return r;
 }
 
@@ -103,7 +107,7 @@ ss_sock_active(struct sock *sk)
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
 
-static void
+static inline void
 ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -113,7 +117,7 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
 	tcb->seq     = tcb->end_seq = tp->write_seq;
 	tcb->tcp_flags = TCPHDR_ACK;
 	tcb->sacked  = 0;
-	skb_header_release(skb);
+	__skb_header_release(skb);
 	tcp_add_write_queue_tail(sk, skb);
 	sk->sk_wmem_queued += skb->truesize;
 	sk_mem_charge(sk, skb->truesize);
@@ -130,7 +134,7 @@ ss_skb_entail(struct sock *sk, struct sk_buff *skb)
  * @skb_list can be invalid after the function call, don't try to use it.
  */
 static void
-ss_do_send(struct sock *sk, SsSkbList *skb_list)
+ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
@@ -171,15 +175,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 		/* @skb should be rerouted on forwarding. */
 		skb_dst_drop(skb);
 
-		/*
-		 * TODO Mark all data with PUSH to force receiver to consume
-		 * the data. Currently we do this for debugging purposes.
-		 * We need to do this only for complete messages/skbs.
-		 * Actually tcp_push() already does it for the last skb.
-		 * MSG_MORE should be used, probably by connection layer.
-		 */
-		tcp_mark_push(tp, skb);
-
 		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		       smp_processor_id(), __func__,
 		       skb, skb->data_len, skb->len);
@@ -194,6 +189,13 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state);
 
+	/*
+	 * If connection close flag is specified, then @ss_do_close is used to
+	 * set FIN on final SKB and push all pending frames to the stack.
+	 */
+	if (flags & SS_F_CONN_CLOSE)
+		return;
+
 	tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF|TCP_NAGLE_PUSH, size);
 }
 
@@ -203,16 +205,15 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list)
  * copying. See do_tcp_sendpages() and tcp_sendmsg() in linux/net/ipv4/tcp.c.
  *
  * Can be called in softirq context as well as from kernel thread.
- *
- * TODO use MSG_MORE untill we reach end of message.
  */
 int
-ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
+ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
 	int r = 0;
 	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
+		.flags  = flags,
 		.action	= SS_SEND,
 	};
 
@@ -227,7 +228,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
-	if (pass_skb) {
+	if (!(flags & SS_F_KEEP_SKB)) {
 		sw.skb_list = *skb_list;
 		ss_skb_queue_head_init(skb_list);
 	} else {
@@ -247,8 +248,12 @@ ss_send(struct sock *sk, SsSkbList *skb_list, bool pass_skb)
 	/*
 	 * Schedule the socket for TX softirq processing.
 	 * Only part of @skb_list could be passed to send queue.
+	 *
+	 * We can't transmit the data escaping the queueing because we have to
+	 * order transmissions and other CPUs can push data to transmit for
+	 * the socket while current CPU was servicing other sockets.
 	 */
-	if (ss_wq_push(&sw, false)) {
+	if (ss_wq_push(&sw, flags & SS_F_SYNC)) {
 		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
 		r = -EBUSY;
 		goto err;
@@ -412,42 +417,58 @@ ss_droplink(struct sock *sk)
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
-/*
- * Schedule a socket closing action on the CPU that is processing
- * the connection. The closing action is executed asynchronously
- * in the context of the socket that is being closed.
+/**
+ * The function should be called with SS_F_SYNC flag whenever possible to
+ * improve performance. Without SS_F_SYNC the return value must be checked
+ * and the call must be repeated in case of bad return value.
+ * Note, that SS_F_SYNC doesn't mean that the socket will be closed immediately,
+ * but rather it guarantees that the socket will be closed and the caller can
+ * not care about return value.
  */
 int
-ss_close(struct sock *sk)
+__ss_close(struct sock *sk, int flags)
 {
-	SsWork sw = {
-		.sk	= sk,
-		.action	= SS_CLOSE,
-	};
-
 	if (unlikely(!sk))
 		return SS_OK;
-
-	ss_wq_push(&sw, true);
-
-	return SS_OK;
-}
-EXPORT_SYMBOL(ss_close);
-
-/**
- * Close a socket unconditionally from Tempesta.
- */
-void
-ss_close_sync(struct sock *sk)
-{
 	sk_incoming_cpu_update(sk);
 
+	if (!(flags & SS_F_SYNC) || !in_softirq()
+	    || smp_processor_id() != sk->sk_incoming_cpu)
+	{
+		SsWork sw = {
+			.sk	= sk,
+			.flags  = flags,
+			.action	= SS_CLOSE,
+		};
+
+		return ss_wq_push(&sw, (flags & SS_F_SYNC));
+	}
+
+	/*
+	 * Don't put the work to work queue if we should execute it on current
+	 * CPU and we're in softirq now. We avoid overhead on work queue
+	 * operations and prevent infinite loop on synchronous push() if a
+	 * consumer is actually the same softirq context.
+	 *
+	 * Keep in mind possible ordering problem: the socket can already have
+	 * a queued work when we close it synchronously, so the socket can be
+	 * closed before processing the queued work. That's not a big deal if
+	 * the queued work is closing and simply pretend that socket closing
+	 * event happened before the socket transmission event.
+	 *
+	 * The socket is owned by current CPU, so don't need to check its
+	 * liveness.
+	 */
 	bh_lock_sock(sk);
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
-	sock_put(sk);	/* paired with ss_do_close() */
+	if (flags & SS_F_CONN_CLOSE)
+		SS_CALL(connection_drop, sk);
+	sock_put(sk); /* paired with ss_do_close() */
+
+	return SS_OK;
 }
-EXPORT_SYMBOL(ss_close_sync);
+EXPORT_SYMBOL(__ss_close);
 
 /*
  * Process a single SKB.
@@ -1048,22 +1069,47 @@ ss_listen(struct sock *sk, int backlog)
 }
 EXPORT_SYMBOL(ss_listen);
 
-/*
- * The original functions are inet_getname() and inet6_getname().
- * There isn't much to make shorter there, so just invoke them directly.
+/**
+ * Mostly copy-pasted from inet_getname() and inet6_getname().
+ * All Tempesta internal operations are with IPv6 addresses only,
+ * as with more scalable and backward compatible with IPv4.
  */
-int
-ss_getpeername(struct sock *sk, struct sockaddr *uaddr, int *uaddr_len)
+void
+ss_getpeername(struct sock *sk, TfwAddr *addr)
 {
-	struct socket sock = { .sk = sk };
+	struct inet_sock *inet = inet_sk(sk);
 
-	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
-	if (sk->sk_family == AF_INET)
-		return inet_getname(&sock, uaddr, uaddr_len, 1);
-	else
-		return inet6_getname(&sock, uaddr, uaddr_len, 1);
+	if (unlikely(!inet->inet_dport
+		     || ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_SYN_SENT))))
+		SS_WARN("%s: bad socket dport=%x state=%x\n", __func__,
+			inet->inet_dport, sk->sk_state);
+
+	addr->family = AF_INET6;
+	addr->v6.sin6_port = inet->inet_sport;
+#if IS_ENABLED(CONFIG_IPV6)
+	if (inet6_sk(sk)) {
+		struct ipv6_pinfo *np = inet6_sk(sk);
+		addr->v6.sin6_addr = sk->sk_v6_daddr;
+		addr->v6.sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->in6_prefix = ipv6_iface_scope_id(&addr->v6.sin6_addr,
+						       sk->sk_bound_dev_if);
+	} else
+#endif
+	{
+		ipv6_addr_set_v4mapped(inet->inet_daddr, &addr->v6.sin6_addr);
+		addr->v6.sin6_flowinfo = 0;
+		addr->in6_prefix = 0;
+	}
 }
 EXPORT_SYMBOL(ss_getpeername);
+
+#define __sk_close_locked(sk)					\
+do {								\
+	ss_do_close(sk);					\
+	bh_unlock_sock(sk);					\
+	SS_CALL(connection_drop, sk);				\
+	sock_put(sk); /* paired with ss_do_close() */		\
+} while (0)
 
 static void
 ss_tx_action(void)
@@ -1082,8 +1128,12 @@ ss_tx_action(void)
 		bh_lock_sock(sk);
 		switch (sw.action) {
 		case SS_SEND:
-			ss_do_send(sk, &sw.skb_list);
-			bh_unlock_sock(sk);
+			ss_do_send(sk, &sw.skb_list, sw.flags);
+			if (!(sw.flags & SS_F_CONN_CLOSE)) {
+				bh_unlock_sock(sk);
+				break;
+			}
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
 			if (!ss_sock_live(sk)) {
@@ -1092,10 +1142,7 @@ ss_tx_action(void)
 				bh_unlock_sock(sk);
 				break;
 			}
-			ss_do_close(sk);
-			bh_unlock_sock(sk);
-			SS_CALL(connection_drop, sk);
-			sock_put(sk); /* paired with ss_do_close() */
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		default:
 			BUG();

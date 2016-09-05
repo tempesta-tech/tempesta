@@ -23,6 +23,7 @@ ifdef DEBUG
 else
 	EXTRA_CFLAGS += -DDEBUG=0
 endif
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m += sync_sockets/ unit/
 

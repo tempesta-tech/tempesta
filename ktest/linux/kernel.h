@@ -22,6 +22,8 @@
 
 #include <stdio.h>
 
+#include "compiler.h"
+
 #ifndef NDEBUG
 #define DEBUG 1
 #endif

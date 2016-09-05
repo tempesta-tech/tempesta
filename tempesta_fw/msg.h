@@ -31,13 +31,13 @@
 
 /**
  * @msg_list	- messages queue to send to peer;
- * @state	- message processing state;
  * @skb_list	- list of sk_buff's belonging to the message;
+ * @ss_flags	- message processing flags;
  * @len		- total body length;
  */
 typedef struct {
 	struct list_head	msg_list;
-	TfwGState		state;
+	int			ss_flags;
 	SsSkbList		skb_list;
 	size_t			len;
 } TfwMsg;
