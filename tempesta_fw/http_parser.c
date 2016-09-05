@@ -2860,7 +2860,6 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Resp_I_Date) {
-		TFW_DBG("parse:isspace:resp_date:%s\n", p);
 		switch (parser->state) {
 		case Resp_HdrExpiresV:
 			/*
@@ -2890,7 +2889,6 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_DateDay) {
 		__fsm_sz = __data_remain(p);
-		TFW_DBG("parse:isspace:resp_dateday:%s\n", p);
 		if (!isdigit(c))
 			return CSTR_NEQ;
 		/* Parse a 2-digit day. */
@@ -2908,7 +2906,6 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonthSP) {
-		TFW_DBG("parse:isspace:resp_date:%s\n", p);
 		if (likely(isspace(c)))
 			__FSM_I_MOVE(Resp_I_DateMonth);
 		return CSTR_NEQ;
@@ -3004,7 +3001,6 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateHourSP) {
-		TFW_DBG("parse:isspace:date_hour:%d\n", c);
 		if (likely(isspace(c)))
 			__FSM_I_MOVE(Resp_I_DateHour);
 		return CSTR_NEQ;
