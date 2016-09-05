@@ -15,6 +15,7 @@ from socket import *
 
 class Test:
 	def __init__(self):
+		self.res = False
 		self.vs_get = b"GET http://localhost:80/ HTTP/1.1\r\n" + \
 b"Host: localhost\r\n" + \
 b"Connection: Keep-alive\r\n" + \
@@ -36,6 +37,11 @@ b"Set-Cookie: session=42\r\n\r\n"
 			s.connect(('127.0.0.1', 8081))
 			s.sendall(self.vs_get)
 			data = s.recv(1024)
+			if len(data) > 0:
+				self.res = True
+			else:
+				self.res = False
 		time.sleep(5)
 		tfw.stop()
+		print("Res:", self.res)
 
