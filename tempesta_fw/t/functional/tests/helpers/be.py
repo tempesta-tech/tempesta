@@ -11,20 +11,10 @@ A primitive back-end HTTP server implementation suitable for testing purposes.
 import http.server
 from threading import *
 
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2016 NatSys Lab. (info@natsys-lab.com).'
-__license__ = 'GPL2'
 
 def start(*args, **kwargs):
 	"""A shortcut for BackendHTTPServer() constructor."""
 	return BackendHTTPServer(*args, **kwargs)
-
-def _dummy_callback(method, uri, headers, body):
-	"""An example of a backend_callback passed to BackendHTTPServer()."""
-	ret_code = 200
-	ret_headers = { 'Content-Type': 'text/html; charset=utf-8' }
-	ret_body = '<html><body>Hello from dummy back-end callback</body></html>'
-	return (ret_code, ret_headers, ret_body)
 
 class BackendHTTPServer(Thread):
 	#Basically, this implementation does two things:
