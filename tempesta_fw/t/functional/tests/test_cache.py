@@ -12,7 +12,9 @@ import conf
 import tfw
 from socket import *
 
-
+# To check #490 duplicate headers issue we will need to set backend
+# return duplicated headers in response. For Apache it would be
+#mod_headers. If after two or more requests there aare responses - test pass.
 class Test:
 	def __init__(self):
 		self.vs_get = b"GET http://localhost:80/ HTTP/1.1\r\n" + \
