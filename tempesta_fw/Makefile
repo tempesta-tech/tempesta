@@ -17,10 +17,14 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers -include ttls.h
+export TTLS_CFLAGS
+
 EXTRA_CFLAGS += -Werror -I$(src)/../tempesta_db/core
 ifdef DEBUG
 	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
 endif
+EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m	= tempesta_fw.o 
 
@@ -39,7 +43,7 @@ tempesta_fw-objs = \
 	http_match.o \
 	http_msg.o \
 	http_parser.o \
-	http_sticky.o \
+	http_sess.o \
 	main.o \
 	pool.o \
 	procfs.o \
