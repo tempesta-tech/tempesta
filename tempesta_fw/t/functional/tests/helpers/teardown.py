@@ -13,7 +13,7 @@ import sys
 from threading import *
 
 __author__ = 'Tempesta Technologies Inc.'
-__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc.. (info@natsys-lab.com).'
+__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _main_thread = current_thread()
