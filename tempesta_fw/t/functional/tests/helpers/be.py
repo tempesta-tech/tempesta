@@ -74,7 +74,7 @@ class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 	# Send response fields provided by the callback.
 
 	# At this point Tempesta FW parser blocks HTTP/1.0 requests
-protocol_version = 'HTTP/1.1'
+	protocol_version = 'HTTP/1.1'
 
 	# Actual handler methods. We dispatch all them into our single function.
 	def do_GET(self):
