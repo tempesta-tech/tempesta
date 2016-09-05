@@ -11,7 +11,7 @@ import sys
 import teardown
 
 __author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc.
+__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc.\
 		 2014 NatSys Lab. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 

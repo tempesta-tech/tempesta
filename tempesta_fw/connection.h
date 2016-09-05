@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Definitions for generic connection (at OSI level 4) management.
+ * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
@@ -30,6 +30,7 @@
 #include "peer.h"
 
 #include "sync_socket.h"
+#include "tls.h"
 
 enum {
 	/* Protocol bits. */
@@ -73,28 +74,43 @@ enum {
  * That is supported by a separate reference counter in @peer.
  *
  * @proto	- protocol handler. Base class, must be first;
+ * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
  * @msg_qlock	- lock for accessing @msg_queue;
  * @refcnt	- number of users of the connection structure instance;
+ * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  */
 typedef struct {
 	SsProto			proto;
+	TfwGState		state;
 	struct list_head	list;
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
+	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
 	struct sock		*sk;
+	void			(*destructor)(void *);
 } TfwConnection;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/**
+ * TLS hardened connection.
+ */
+typedef struct {
+	TfwConnection		conn;
+	TfwTlsContext		tls;
+} TfwTlsConnection;
+
+#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConnection *)p)->tls)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -120,11 +136,21 @@ typedef struct {
 	void (*conn_release)(TfwConnection *conn);
 
 	/*
-	 * Higher level protocols should be able to allocate
-	 * messages with all required information.
+	 * Called by the connection layer when there is a message
+	 * that needs to be send.
 	 */
-	TfwMsg * (*conn_msg_alloc)(TfwConnection *conn);
+	int (*conn_send)(TfwConnection *conn, TfwMsg *msg);
 } TfwConnHooks;
+
+#define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
+
+extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
+
+/* This macros are intended to use to call certain proto hooks. */
+#define tfw_conn_hook_call(proto, c, f, ...)	\
+	conn_hooks[proto]->f ? conn_hooks[proto]->f(c, ## __VA_ARGS__) : 0
+#define TFW_CONN_HOOK_CALL(c, f...)		\
+	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
 
 static inline bool
 tfw_connection_nfo(TfwConnection *conn)
@@ -160,18 +186,17 @@ tfw_connection_get_if_nfo(TfwConnection *conn)
 /**
  * @return true if @conn has no more users.
  */
-static inline bool
+static inline void
 tfw_connection_put(TfwConnection *conn)
 {
 	int rc;
-
 	if (unlikely(!conn))
-		return false;
-
+		return;
 	rc = atomic_dec_return(&conn->refcnt);
-	if (unlikely(!rc || rc == TFW_CONN_DEATHCNT))
-		return true;
-	return false;
+	if (likely(rc && rc != TFW_CONN_DEATHCNT))
+		return;
+	if (conn->destructor)
+		conn->destructor(conn);
 }
 
 static inline void
