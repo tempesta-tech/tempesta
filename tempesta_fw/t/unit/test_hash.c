@@ -143,7 +143,7 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 	TfwStr s = {
 		.len = 0,
 		.data = buf,
-		.flags = 0
+		.chunknum = 0
 	};
 
 	unsigned long h1, h2;
