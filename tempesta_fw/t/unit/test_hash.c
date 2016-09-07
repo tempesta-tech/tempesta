@@ -34,12 +34,12 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 	 * The hashes should be different with high probability,
 	 * but at this point we are not going to write some statistical tests.
 	 */
-	TfwStr s1 = { .len = 10, .data = (void *)"foobarbaz1" };
-	TfwStr s2 = { .len = 10, .data = (void *)"Foobarbaz1" };
-	TfwStr s3 = { .len = 10, .data = (void *)"foobarbaz2" };
-	TfwStr s4 = { .len = 9, .data = (void *)"foobarbaz" };
-	TfwStr s5 = { .len = 11, .data = (void *)"foobarbaz11" };
-	TfwStr s6 = { .len = 0, .data = (void *)"" };
+	TfwStr s1 = { .len = 10, .data = "foobarbaz1" };
+	TfwStr s2 = { .len = 10, .data = "Foobarbaz1" };
+	TfwStr s3 = { .len = 10, .data = "foobarbaz2" };
+	TfwStr s4 = { .len = 9, .data = "foobarbaz" };
+	TfwStr s5 = { .len = 11, .data = "foobarbaz11" };
+	TfwStr s6 = { .len = 0, .data = "" };
 
 	unsigned long h[] = {
 		tfw_hash_str(&s1),
@@ -63,11 +63,9 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 {
 	unsigned long h1, h2, h3;
-
-	TfwStr s1 = { .len = 17, .data = (void *)"Host: example.com" };
-
-	TfwStr s2c1 = {	.len = 14, .data = (void *)"Host: example." };
-	TfwStr s2c2 = {	.len = 3, .data = (void *)"com" };
+	TfwStr s1 = { .len = 17, .data = "Host: example.com" };
+	TfwStr s2c1 = {	.len = 14, .data = "Host: example." };
+	TfwStr s2c2 = {	.len = 3, .data = "com" };
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
 
@@ -75,11 +73,11 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 		.chunks = s2chunks
 	};
 
-	TfwStr s3c1 = {	.len = 1, .data = (void *)"H" };
-	TfwStr s3c2 = {	.len = 0, .data = (void *)"" };
-	TfwStr s3c3 = {	.len = 3, .data = (void *)"ost" };
-	TfwStr s3c4 = {	.len = 1, .data = (void *)":" };
-	TfwStr s3c5 = {	.len = 12, .data = (void *)" example.com" };
+	TfwStr s3c1 = {	.len = 1, .data = "H" };
+	TfwStr s3c2 = {	.len = 0, .data = "" };
+	TfwStr s3c3 = {	.len = 3, .data = "ost" };
+	TfwStr s3c4 = {	.len = 1, .data = ":" };
+	TfwStr s3c5 = {	.len = 12, .data = " example.com" };
 	TfwStr s3c6 = {	.len = 0, .data = NULL };
 	TfwStr s3chunks[] = { s3c1, s3c2, s3c3, s3c4, s3c5, s3c6 };
 	TfwStr s3 = {
