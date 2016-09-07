@@ -114,8 +114,6 @@ TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 {
 	TfwStr *dup_str;
-
-	TFW_DBG("str_dup:str:%s\n", str->data);
 	dup_str = __str_grow_tree(pool, str, TFW_STR_DUPLICATE, 1);
 
 	/* Length for set of duplicate strings has no sense. */
