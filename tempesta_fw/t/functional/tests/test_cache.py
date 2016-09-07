@@ -17,9 +17,9 @@ class Test:
 	def __init__(self):
 		self.res = False
 		self.vs_get = b"GET http://localhost:80/ HTTP/1.1\r\n" + \
-b"Host: localhost\r\n" + \
-b"Connection: Keep-alive\r\n" + \
-b"Set-Cookie: session=42\r\n\r\n"
+		b"Host: localhost\r\n" + \
+		b"Connection: Keep-alive\r\n" + \
+		b"Set-Cookie: session=42\r\n\r\n"
 # to reproduce the bug, a backend (apache) has to return in response double
 # headers.
 		self.apache_cfg = conf.Config('/etc/apache2/apache2.conf',
