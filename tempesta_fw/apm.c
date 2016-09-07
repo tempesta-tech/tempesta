@@ -396,8 +396,8 @@ typedef struct {
  * @rwlock	- Protect updates.
  */
 typedef struct {
-	Percentile	*percentile;
-	unsigned int	prcntlsz;
+	PrcntlStats	*pstats;
+	unsigned int	pstsz;
 	rwlock_t	rwlock;
 } TfwApmPrcntl;
 
@@ -457,7 +457,7 @@ static const TfwPcntCtl __read_mostly tfw_rngctl_init[TFW_STATS_RANGES] = {
  * 99% percentiles are used to tell the minimum, the median, and the
  * maximum values correspondingly.
  */
-static const Percentile __read_mostly tfw_apm_prcntl[] = {
+static const PrcntlStats __read_mostly tfw_apm_pstats[] = {
 	{1}, {50}, {75}, {90}, {95}, {99}
 };
 
@@ -544,7 +544,7 @@ static int
 tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
 {
 	int i, p;
-	unsigned long cnt = 0, pval[prcntl->prcntlsz];
+	unsigned long cnt = 0, pval[prcntl->pstsz];
 	TfwApmRBEState st[rbuf->rbufsz];
 	TfwPcntRanges *pcntrng;
 	TfwApmRBEnt *rbent = rbuf->rbent;
@@ -554,12 +554,12 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
 		__tfw_apm_state_next(&rbent[i].pcntrng, &st[i]);
 	}
 	/* The number of items to collect for each percentile. */
-	for (i = 0, p = 0; i < prcntl->prcntlsz; ++i) {
-		pval[i] = rbctl->total_cnt * prcntl->percentile[i].ith / 100;
+	for (i = 0, p = 0; i < prcntl->pstsz; ++i) {
+		pval[i] = rbctl->total_cnt * prcntl->pstats[i].ith / 100;
 		if (!pval[i])
-			prcntl->percentile[p++].val = 0;
+			prcntl->pstats[p++].val = 0;
 	}
-	while (p < prcntl->prcntlsz) {
+	while (p < prcntl->pstsz) {
 		int v_min = USHRT_MAX;
 		for (i = 0; i < rbuf->rbufsz; i++) {
 			if (st[i].v < v_min)
@@ -586,8 +586,8 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
 			cnt += atomic_read(&pcntrng->cnt[st[i].r][st[i].b]);
 			tfw_apm_state_next(pcntrng, &st[i]);
 		}
-		for ( ; p < prcntl->prcntlsz && pval[p] <= cnt; ++p)
-			prcntl->percentile[p].val = v_min;
+		for ( ; p < prcntl->pstsz && pval[p] <= cnt; ++p)
+			prcntl->pstats[p].val = v_min;
 	}
 
 	return p;
@@ -743,11 +743,11 @@ static void
 tfw_apm_calc(TfwApmData *data)
 {
 	int nfilled, wridx, recalc;
-	Percentile percentile[ARRAY_SIZE(tfw_apm_prcntl)];
-	TfwApmPrcntl wrkprcntl = { percentile, ARRAY_SIZE(percentile) };
+	PrcntlStats pstats[ARRAY_SIZE(tfw_apm_pstats)];
+	TfwApmPrcntl wrkprcntl = { pstats, ARRAY_SIZE(pstats) };
 	TfwApmPrcntl *prcntl;
 
-	memcpy(percentile, tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
+	memcpy(pstats, tfw_apm_pstats, sizeof(tfw_apm_pstats));
 
 	smp_mb__before_atomic();
 	wridx = ((unsigned int)atomic_read(&data->stats.rdidx) + 1) % 2;
@@ -758,14 +758,14 @@ tfw_apm_calc(TfwApmData *data)
 
 	if (!nfilled) {
 		TFW_DBG3("%s: Percentile values DID NOT change.\n", __func__);
-	} else if (nfilled < prcntl->prcntlsz) {
+	} else if (nfilled < prcntl->pstsz) {
 		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
 		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	} else {
 		TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
 		write_lock(&prcntl->rwlock);
-		memcpy(prcntl->percentile, percentile,
-		       prcntl->prcntlsz * sizeof(Percentile));
+		memcpy(prcntl->pstats, pstats,
+		       prcntl->pstsz * sizeof(PrcntlStats));
 		atomic_inc(&data->stats.rdidx);
 		write_unlock(&prcntl->rwlock);
 	}
@@ -794,9 +794,9 @@ tfw_apm_prcntl_fn(unsigned long fndata)
  * Return 1 if potentially new percentile values were calculated.
  */
 int
-tfw_apm_stats(void *apmdata, Percentile *percentile, size_t prcntlsz)
+tfw_apm_stats(void *apmdata, Percentile *percentile)
 {
-	int rdidx;
+	int rdidx, seq = percentile->seq;
 	TfwApmData *data = apmdata;
 	TfwApmPrcntl *prcntl;
 
@@ -807,10 +807,12 @@ tfw_apm_stats(void *apmdata, Percentile *percentile, size_t prcntlsz)
 	prcntl = &data->stats.prcntl[rdidx];
 
 	read_lock(&prcntl->rwlock);
-	memcpy(percentile, prcntl->percentile, prcntlsz * sizeof(Percentile));
+	memcpy(percentile->pstats, prcntl->pstats,
+	       percentile->pstsz * sizeof(PrcntlStats));
 	read_unlock(&prcntl->rwlock);
+	percentile->seq = rdidx;
 
-	return 1;
+	return (seq != rdidx);
 }
 
 /*
@@ -820,14 +822,14 @@ tfw_apm_stats(void *apmdata, Percentile *percentile, size_t prcntlsz)
  * All APM Stats users must use the same set of percentiles.
  */
 int
-tfw_apm_percentile_verify(Percentile *prcntl, size_t prcntlsz)
+tfw_apm_percentile_verify(Percentile *percentile)
 {
 	int i;
 
-	if (prcntlsz != ARRAY_SIZE(tfw_apm_prcntl))
+	if (percentile->pstsz != ARRAY_SIZE(tfw_apm_pstats))
 		return 1;
-	for (i = 0; i < prcntlsz; ++i)
-		if (prcntl[i].ith != tfw_apm_prcntl[i].ith)
+	for (i = 0; i < percentile->pstsz; ++i)
+		if (percentile->pstats[i].ith != tfw_apm_pstats[i].ith)
 			return 1;
 	return 0;
 }
@@ -883,10 +885,10 @@ tfw_apm_create(void)
 {
 	TfwApmData *data;
 	TfwApmRBEnt *rbent;
-	Percentile *percentile[2];
+	PrcntlStats *pstats[2];
 	int i, size;
 	int rbufsz = tfw_apm_tmwscale;
-	int prcntlsz = ARRAY_SIZE(tfw_apm_prcntl);
+	int pstsz = ARRAY_SIZE(tfw_apm_pstats);
 
 	if (!tfw_apm_tmwscale) {
 		TFW_ERR("Late unitialization of `apm_stats` option\n");
@@ -895,28 +897,28 @@ tfw_apm_create(void)
 
 	/* Keep complete stats for the full time window. */
 	size = sizeof(TfwApmData) + rbufsz * sizeof(TfwApmRBEnt)
-				  + 2 * sizeof(tfw_apm_prcntl);
+				  + 2 * sizeof(tfw_apm_pstats);
 	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
 		return NULL;
 
 	rbent = (TfwApmRBEnt *)(data + 1);
-	percentile[0] = (Percentile *)(rbent + rbufsz);
-	percentile[1] = (Percentile *)(percentile[0] + prcntlsz);
+	pstats[0] = (PrcntlStats *)(rbent + rbufsz);
+	pstats[1] = (PrcntlStats *)(pstats[0] + pstsz);
 
 	data->rbuf.rbent = rbent;
 	data->rbuf.rbufsz = rbufsz;
 
-	data->stats.prcntl[0].percentile = percentile[0];
-	data->stats.prcntl[0].prcntlsz = prcntlsz;
+	data->stats.prcntl[0].pstats = pstats[0];
+	data->stats.prcntl[0].pstsz = pstsz;
 
-	data->stats.prcntl[1].percentile = percentile[1];
-	data->stats.prcntl[1].prcntlsz = prcntlsz;
+	data->stats.prcntl[1].pstats = pstats[1];
+	data->stats.prcntl[1].pstsz = pstsz;
 
 	for (i = 0; i < rbufsz; ++i)
 		tfw_apm_rbent_init(&rbent[i], 0);
 
-	memcpy(percentile[0], tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
-	memcpy(percentile[1], tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
+	memcpy(pstats[0], tfw_apm_pstats, sizeof(tfw_apm_pstats));
+	memcpy(pstats[1], tfw_apm_pstats, sizeof(tfw_apm_pstats));
 
 	rwlock_init(&data->stats.prcntl[0].rwlock);
 	rwlock_init(&data->stats.prcntl[1].rwlock);
