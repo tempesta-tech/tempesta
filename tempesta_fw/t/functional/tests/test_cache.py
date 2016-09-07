@@ -20,7 +20,12 @@ class Test:
 b"Host: localhost\r\n" + \
 b"Connection: Keep-alive\r\n" + \
 b"Set-Cookie: session=42\r\n\r\n"
-
+# to reproduce the bug, a backend (apache) has to return in response double
+# headers.
+		self.apache_cfg = conf.Config('/etc/apache2/apache2.conf',
+					      new=False)
+		self.apache_cfg.add_string('Header add Set-Cookie: \"s=42\"')
+		self.apache_cfg.add_string('Header add Set-Cookie: \"s=42\"')
 		self.cfg = conf.Config("etc/tempesta_fw.conf")
 		self.cfg.add_option('cache', '1')
 		self.cfg.add_option('listen', '8081')

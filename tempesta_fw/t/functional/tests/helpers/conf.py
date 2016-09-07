@@ -9,9 +9,12 @@ class Config:
 	name = '/etc/tempesta_fw.conf'
 	tmpname = 'etc/temp.conf'
 
-	def __init__(self, name):
+	def __init__(self, name, new=True):
 		self.name = name
-		open(self.name, "w")
+		if new == False:
+			open(self.name, "a+")
+		else:
+			open(self.name, "w")
 		return
 
 	def add_option(self, option, value):
@@ -20,6 +23,9 @@ class Config:
 	def add_section(self, section):
 		with open(self.name, "a+") as conf:
 			conf.write(section + '{\n')
+	def add_string(self, str):
+		with open(self.name, "a+") as conf:
+			conf.write('\n' + str)
 
 	def add_end_of_section(self):
 		with open(self.name, "a+") as conf:
