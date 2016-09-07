@@ -847,6 +847,7 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 
 	BUG_ON(it.chunks == NULL);
 	BUG_ON(it.skb == NULL);
+
 	/* Cut off the tail. */
 	while (tail) {
 		void *t_ptr = it.chunks;
