@@ -347,7 +347,6 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 	BUG_ON(str->len && !str->chunks);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		BUG_ON(chunk->len &&  !chunk->data);
-		TFW_DBG("eq_cstr:chl:%lu;sl:%d\n", chunk->len, clen);
 		len = min(clen, (int)chunk->len);
 		if (cmp(cstr, chunk->data, len))
 			return false;
@@ -384,10 +383,8 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 	TfwStr tmp = *str;
 	const TfwStr *c, *end;
 
-	TFW_DBG("eq_cstr_pos:sl:%lu;c:%s\n", str->len, cstr);
 	BUG_ON(TFW_STR_DUP(str));
 	BUG_ON(!pos || !cstr || !cstr_len);
-
 	TFW_STR_FOR_EACH_CHUNK(c, &tmp, end) {
 		long offset = pos - c->data;
 
