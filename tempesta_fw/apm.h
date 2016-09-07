@@ -23,18 +23,29 @@
 #include "pool.h"
 
 /*
- * @ith - percentile number;
- * @val - percentile value;
+ * @ith	- percentile number.
+ * @val	- percentile value.
  */
 typedef struct {
-	int	ith;
-	int	val;
+	unsigned int	ith;
+	unsigned int	val;
+} PrcntlStats;
+
+/*
+ * @stats	- Percentile Stats array.
+ * @stsz	- @stats array size.
+ * @seq		- opaque data related to percentiles calculation.
+ */
+typedef struct {
+	PrcntlStats	*pstats;
+	unsigned int	pstsz;
+	unsigned int	seq;
 } Percentile;
 
 void *tfw_apm_create(void);
 void tfw_apm_destroy(void *data);
 void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
-int tfw_apm_stats(void *data, Percentile *prcntl, size_t prcntlsz);
-int tfw_apm_percentile_verify(Percentile *prcntl, size_t prcntlsz);
+int tfw_apm_stats(void *data, Percentile *prcntl);
+int tfw_apm_percentile_verify(Percentile *prcntl);
 
 #endif /* __TFW_APM_H__ */
