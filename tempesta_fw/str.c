@@ -61,7 +61,6 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
 	TfwStr *a = NULL;
 
-	TFW_DBG("str_grow_tree:start:f:%d;f:%d;d:%s;\n", str->flags, flag,
 		str->data);
 	if (str->flags & flag) {
 		unsigned int l;
