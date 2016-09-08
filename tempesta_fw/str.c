@@ -60,7 +60,6 @@ static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
 	TfwStr *a = NULL;
-		str->data);
 	if (str->flags & flag) {
 		unsigned int l;
 		void *p;

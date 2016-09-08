@@ -107,7 +107,7 @@ typedef struct TfwStr {
 } TfwStr;
 
 #define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), .skb = NULL,	\
-						  .len = sizeof(val) - 1,	\ 
+						  .len = sizeof(val) - 1,	\
 						  .chunknum = 0, .flags = 0 }	
 #define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s, .skb = NULL, 	\
 					   .len = sizeof(s) - 1})
