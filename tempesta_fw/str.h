@@ -106,10 +106,11 @@ typedef struct TfwStr {
 };
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), .skb = NULL\
-, .len = sizeof(val) - 1, .chunknum = 0, .flags = 0 }
-#define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s, .skb = NULL,\
-  .len = sizeof(s) - 1})
+#define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), .skb = NULL,	\
+						  .len = sizeof(val) - 1,	\ 
+						  .chunknum = 0, .flags = 0 }	
+#define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s, .skb = NULL, 	\
+					   .len = sizeof(s) - 1})
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
