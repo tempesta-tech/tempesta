@@ -98,7 +98,6 @@ typedef struct TfwStr {
 	struct sk_buff	*skb;
 	unsigned long	len;
 	unsigned char	eolen;
-
 	unsigned int	chunknum : 24;
 	unsigned int	flags : 8;
 	union {
@@ -144,7 +143,7 @@ typedef struct TfwStr {
 #define TFW_STR_CURR(s)							\
 ({									\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
-		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1	\
+		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
 		       : (s);						\
 	(!TFW_STR_PLAIN(_tmp))						\
 		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
@@ -160,8 +159,8 @@ typedef struct TfwStr {
 		(c) = (s);						\
 		end = (s) + 1;						\
 	} else {							\
-		(c) = (s)->chunks;						\
-		end = (s)->chunks + TFW_STR_CHUNKN(s);		\
+		(c) = (s)->chunks;					\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
 	}								\
 	for ( ; (c) < end; ++(c))
 
@@ -169,7 +168,7 @@ typedef struct TfwStr {
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
 		(end) = (s)->chunks + TFW_STR_CHUNKN(s);		\
-		(d) = (s)->chunks;						\
+		(d) = (s)->chunks;					\
 	} else {							\
 		(d) = (s);						\
 		(end) = (s) + 1;					\
