@@ -75,7 +75,6 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		if (!p)
 			return NULL;
 		str->chunks = p;
-		TFW_DBG("str_grow_tree:reall:%s\n", str->data);
 		TFW_STR_CHUNKN_ADD(str, n);
 	}
 	else {
@@ -83,14 +82,14 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		if (!a)
 			return NULL;
 		a[0] = *str;
-		str->chunks = (struct TfwStr *)a;
+		str->chunks = a;
 		__TFW_STR_CHUNKN_SET(str, n + 1);
 	}
 
 	str = str->chunks + TFW_STR_CHUNKN(str) - n;
 	memset(str, 0, sizeof(TfwStr) * n);
 
-	return a;
+	return str;
 }
 
 /**
