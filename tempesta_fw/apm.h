@@ -29,23 +29,29 @@
 typedef struct {
 	unsigned int	ith;
 	unsigned int	val;
-} PrcntlStats;
+} TfwPrcntl;
 
 /*
  * @stats	- Percentile Stats array.
  * @stsz	- @stats array size.
+ * @min		- Minimal value.
+ * @max		- Maximal value.
+ * @avg		- Average value.
  * @seq		- opaque data related to percentiles calculation.
  */
 typedef struct {
-	PrcntlStats	*pstats;
-	unsigned int	pstsz;
+	TfwPrcntl	*prcntl;
+	unsigned int	prcntlsz;
+	unsigned int	min;
+	unsigned int	max;
+	unsigned int	avg;
 	unsigned int	seq;
-} Percentile;
+} TfwPrcntlStats;
 
 void *tfw_apm_create(void);
 void tfw_apm_destroy(void *data);
 void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
-int tfw_apm_stats(void *data, Percentile *prcntl);
-int tfw_apm_percentile_verify(Percentile *prcntl);
+int tfw_apm_stats(void *data, TfwPrcntlStats *pstats);
+int tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz);
 
 #endif /* __TFW_APM_H__ */

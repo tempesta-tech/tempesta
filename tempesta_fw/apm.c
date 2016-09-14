@@ -1,4 +1,4 @@
-/**
+/*
  *		Tempesta FW
  *
  * Copyright (C) 2016 Tempesta Technologies, Inc.
@@ -52,7 +52,6 @@
  *    may be returned that is in fact for a different percentile, e.g.
  *    81st. That is very possible if there is insufficient data for an
  *    accurate percentiles calculation.
- *
  */
 
 /*
@@ -67,9 +66,12 @@
  *		  less accurately;
  * @begin	- the start response time value of a range;
  * @end		- the end response time value of a range;
- * @__atomic	- atomic control handler to update all control fields
+ * @atomic	- atomic control handler to update all control fields
  * 		  above atomically with a single write operation;
- * @total_cnt	- global hits counter for all ranges;
+ * @tot_cnt	- global hits counter for all ranges;
+ * @tot_val	- the sum of all response time values, for AVG calculation;
+ * @min_val	- the minimum response time value;
+ * @max_val	- the maximum response time value;
  * @cnt		- the number of hits with a specific response time that
  *		  fall to a specific bucket in a range.
  *
@@ -93,25 +95,13 @@ typedef union {
 
 typedef struct {
 	TfwPcntCtl	ctl[TFW_STATS_RANGES];
-	atomic64_t	total_cnt;
-	unsigned long	__padding[TFW_STATS_RLAST];
+	atomic64_t	tot_cnt;
+	atomic64_t	tot_val;
+	atomic_t	min_val;
+	atomic_t	max_val;
+	unsigned long	__pad_ulong;
 	atomic_t	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
-
-/*
- * Updates always come to the data that represent the current time
- * interval within the overall time frame. There's no need to have
- * a separate lock for data in each time interval. Also, there's a
- * border case when the time interval changes. Some updates may go
- * to the data in one time interval, while some may go to the data
- * in the next time interval. In that case few updates may be lost
- * if a single lock is used for data in all time intervals. That's
- * acceptable. If there was a separate lock for data in each time
- * interval, that would require holding two locks at the time the
- * percentiles are calculated to cover the border case. That would
- * complicate things and yet would not provide better granularity.
- */
-static DEFINE_SPINLOCK(tfw_sa_guard);
 
 static inline atomic_t *
 __rng(TfwPcntCtl *pc, atomic_t *cnt, unsigned int r_time)
@@ -280,15 +270,52 @@ __tfw_stats_adjust(TfwPcntRanges *rng, int r)
  * Just skip the adjustment of ranges and do it next time.
  */
 static inline void
-tfw_stats_adjust(TfwPcntRanges *rng, int r)
+tfw_stats_adjust(TfwPcntRanges *rng, int r, spinlock_t *slock)
 {
-	if (!spin_trylock(&tfw_sa_guard)) {
-		TFW_INC_STAT_BH(apm.upd_misses);
+	if (!spin_trylock(slock))
 		return;
-	}
 	__tfw_stats_adjust(rng, r);
-	spin_unlock(&tfw_sa_guard);
+	spin_unlock(slock);
 }
+
+/*
+ * Set the new maximum value.
+ * Return true if the new value has been set.
+ * Return false if the maximum value remained the same.
+ */
+static inline bool
+tfw_stats_adj_max(TfwPcntRanges *rng, unsigned int r_time)
+{
+	int old_val, max_val = atomic_read(&rng->max_val);
+	while (1) {
+		if (r_time <= max_val)
+			return false;
+		old_val = atomic_cmpxchg(&rng->max_val, max_val, r_time);
+		if (likely(old_val == max_val))
+			return true;
+		max_val = old_val;
+	}
+}
+
+/*
+ * Set the new minimum value.
+ * Return true if the new value has been set.
+ * Return false if the minimum value remained the same.
+ */
+static inline bool
+tfw_stats_adj_min(TfwPcntRanges *rng, unsigned int r_time)
+{
+	int old_val, min_val = atomic_read(&rng->min_val);
+	while (1) {
+		if (r_time >= min_val)
+			return false;
+		old_val = atomic_cmpxchg(&rng->min_val, min_val, r_time);
+		if (likely(old_val == min_val))
+			return true;
+		min_val = old_val;
+	}
+}
+
 /**
  * Update server response time statistic.
  * @r_time is in milliseconds (1/HZ second), use jiffies to get it.
@@ -299,17 +326,23 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
  * We only care about correct array indexing.
  */
 static void
-tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
+tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time, spinlock_t *slock)
 {
 	TfwPcntCtl pc3, pc2 = { .atomic = rng->ctl[2].atomic };
+
+	/* Adjust min/max values. */
+	if (!tfw_stats_adj_min(rng, r_time))
+		tfw_stats_adj_max(rng, r_time);
+	/* Add to @tot_val for AVG calculation. */
+	atomic64_add(r_time, &rng->tot_val);
 
 	/* Binary search of an appropriate range. */
 	if (r_time <= pc2.end) {
 		TfwPcntCtl pc0, pc1 = { .atomic = rng->ctl[1].atomic };
 		if (pc1.end < r_time) {
 			atomic_inc(__rng(&pc2, rng->cnt[2], r_time));
-			tfw_stats_adjust(rng, 2);
-			atomic64_inc(&rng->total_cnt);
+			tfw_stats_adjust(rng, 2, slock);
+			atomic64_inc(&rng->tot_cnt);
 			return;
 		}
 
@@ -317,20 +350,18 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 		BUG_ON(pc0.begin != 1); /* left bound is never moved */
 		if (pc0.end < r_time) {
 			atomic_inc(__rng(&pc1, rng->cnt[1], r_time));
-			tfw_stats_adjust(rng, 1);
-			atomic64_inc(&rng->total_cnt);
+			tfw_stats_adjust(rng, 1, slock);
+			atomic64_inc(&rng->tot_cnt);
 			return;
 		}
 		atomic_inc(__rng(&pc0, rng->cnt[0], r_time));
-		tfw_stats_adjust(rng, 0);
-		atomic64_inc(&rng->total_cnt);
+		tfw_stats_adjust(rng, 0, slock);
+		atomic64_inc(&rng->tot_cnt);
 		return;
 	}
 
-	if (!spin_trylock(&tfw_sa_guard)) {
-		TFW_INC_STAT_BH(apm.upd_misses);
+	if (!spin_trylock(slock))
 		return;
-	}
 	pc3.atomic = rng->ctl[3].atomic;
 	if (unlikely(r_time > pc3.end)) {
 		tfw_stats_extend(rng, r_time);
@@ -338,8 +369,8 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 	}
 	atomic_inc(__rng(&pc3, rng->cnt[3], r_time));
 	__tfw_stats_adjust(rng, 3);
-	atomic64_inc(&rng->total_cnt);
-	spin_unlock(&tfw_sa_guard);
+	atomic64_inc(&rng->tot_cnt);
+	spin_unlock(slock);
 }
 
 /*
@@ -353,9 +384,8 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 /*
  * A ring buffer entry structure.
  * @pcntrng	- Struct for response time data by the percentiles algorithm.
- * @jtmistamp	- The time the ring buffer entry has been started, in jiffies.
+ * @jtmistamp	- The start of the time interval for the current entry.
  * @reset	- The entry can be reset by one thread at a time.
- * @lock	- The lock to adjust the ranges of response times.
  */
 typedef struct {
 	TfwPcntRanges	pcntrng;
@@ -381,38 +411,41 @@ typedef struct {
 /*
  * The ring buffer structure.
  * @rbent	- Array of ring buffer entries.
+ * @slock	- The lock to adjust the ranges in the current entry.
  * @rbufsz	- The size of @rbent.
  */
 typedef struct {
 	TfwApmRBEnt	*rbent;
+	spinlock_t	slock;
 	int		rbufsz;
 } TfwApmRBuf;
 
 /*
- * The percentiles data structure.
- * Keeps the latest calculated percentiles.
- * @percentile	- Array of percentiles.
- * @prcntlsz	- The size of @percentile.
+ * The stats entry data structure.
+ * Keeps the latest values of calculated percentiles.
+ * @pstats	- The percentile stats structure.
  * @rwlock	- Protect updates.
  */
 typedef struct {
-	PrcntlStats	*pstats;
-	unsigned int	pstsz;
+	TfwPrcntlStats	pstats;
 	rwlock_t	rwlock;
-} TfwApmPrcntl;
+} TfwApmSEnt;
 
 /*
  * The stats data structure.
- * There's only one updater that runs on timer and calculates the latest
- * percentiles. There may be multiple readers of the latest percentiles.
- * Readers read the latest percentiles at @prcntl[@rdidx % 2]. The writer
- * writes the new percentiles to @prcntl[(@rdidx + 1) % 2], and then
- * increments @rdidx. The reading and writing is protected by a rwlock.
- * @prcntl	- The percentiles for reading/writing (flip-flop manner).
+ * There's only one updater that runs on timer. It calculates the latest
+ * percentiles and updates the stored values. There are multiple readers
+ * of the stored values. The stored values of the latest percentiles are
+ * a shared resource that needs a lock to access. An array of two entries
+ * is used to decrease the lock contention. Readers read the stored values
+ * at @prcntl[@rdidx % 2]. The writer writes the new percentile values to
+ * @prcntl[(@rdidx + 1) % 2], and then increments @rdidx. The reading and
+ * the writing are protected by a rwlock.
+ * @asent	- The stats entries for reading/writing (flip-flop manner).
  * @rdidx	- The current index in @prcntl for readers.
  */
 typedef struct {
-	TfwApmPrcntl	prcntl[2];
+	TfwApmSEnt	asent[2];
 	atomic_t	rdidx;
 } TfwApmStats;
 
@@ -424,7 +457,7 @@ typedef struct {
  * If there are several different parties that do the calculation,
  * then the data may need to be organized differently.
  * @rbuf	- The ring buffer for the specified time window.
- * @rblst	- The list of ring buffer entries used in the calculation.
+ * @rbctl	- The control data helpful in taking optimizations.
  * @stats	- The latest percentiles.
  * @timer	- The periodic timer handle.
  * @flags	- The atomic flags (see below).
@@ -452,13 +485,9 @@ static const TfwPcntCtl __read_mostly tfw_rngctl_init[TFW_STATS_RANGES] = {
 	{{4, 109, 349}}
 };
 
-/*
- * A superset of percentiles for all users. Note that 1%, 50%, and
- * 99% percentiles are used to tell the minimum, the median, and the
- * maximum values correspondingly.
- */
-static const PrcntlStats __read_mostly tfw_apm_pstats[] = {
-	{1}, {50}, {75}, {90}, {95}, {99}
+/* A superset of percentiles for all users. */
+static const TfwPrcntl __read_mostly tfw_apm_prcntl[] = {
+	{50}, {75}, {90}, {95}, {99}
 };
 
 static int tfw_apm_jtmwindow;		/* Time window in jiffies. */
@@ -523,43 +552,40 @@ tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 /*
  * Calculate the latest percentiles from the current stats data.
  *
- * Note that a race condition exists due to mostly lockless nature of
- * the algorithm that runs concurently with stats updates. That makes
- * it possible for the algorithm to complete prematurely. When ranges
- * are shrunk or extended, the response time counter values may get
- * redistributed to the part of a range that had been counted already
- * in the calculation. In that case the algorithm may never reach the
- * target hits count value. That's acceptable in this model.
- *
- * The other issue is that after the bucket counters are redistrubuted
- * when a range is shrunk or extended, some individual updates may be
- * lost. The sum of all counters in all ranges and buckets then starts
- * to be less than the value of total_cnt. The percentiles calculation
- * is based on total_cnt. Again, in that case the algorithm may never
- * reach the target hits count value, and so it would exit prematurely.
+ * Note that the calculation is run under a lock that protects against
+ * concurrent updates to ranges in the current ring buffer entry. That
+ * makes the values of @tot_cnt and the hits numbers in the buckets
+ * mostly consistent. However, there's still a small chance for a race
+ * condition. @tot_cnt and the buckets' @cnt[][] are updated without
+ * a lock, asynchronously and at slightly different times. Due to a
+ * tiny discrepancy between @tot_cnt and the sum of hit counters in
+ * @cnt[][], the calculation may not be able to reach the target value.
+ * In that case the calculation exits prematurely, and a recalculation
+ * is scheduled at the next run of the timer.
  *
  * Returns the number of percentile values that have been filled.
  */
 static int
-tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
+tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats)
 {
 	int i, p;
-	unsigned long cnt = 0, pval[prcntl->pstsz];
+	unsigned long cnt = 0, val, pval[pstats->prcntlsz];
 	TfwApmRBEState st[rbuf->rbufsz];
 	TfwPcntRanges *pcntrng;
 	TfwApmRBEnt *rbent = rbuf->rbent;
 
 	for (i = 0; i < rbuf->rbufsz; i++) {
-		__tfw_apm_state_set(&st[i], rbent[i].pcntrng.ctl[0].begin, 0, 0, 0);
-		__tfw_apm_state_next(&rbent[i].pcntrng, &st[i]);
+		pcntrng = &rbent[i].pcntrng;
+		__tfw_apm_state_set(&st[i], pcntrng->ctl[0].begin, 0, 0, 0);
+		__tfw_apm_state_next(pcntrng, &st[i]);
 	}
 	/* The number of items to collect for each percentile. */
-	for (i = 0, p = 0; i < prcntl->pstsz; ++i) {
-		pval[i] = rbctl->total_cnt * prcntl->pstats[i].ith / 100;
+	for (i = 0, p = 0; i < pstats->prcntlsz; ++i) {
+		pval[i] = rbctl->total_cnt * pstats->prcntl[i].ith / 100;
 		if (!pval[i])
-			prcntl->pstats[p++].val = 0;
+			pstats->prcntl[p++].val = 0;
 	}
-	while (p < prcntl->pstsz) {
+	while (p < pstats->prcntlsz) {
 		int v_min = USHRT_MAX;
 		for (i = 0; i < rbuf->rbufsz; i++) {
 			if (st[i].v < v_min)
@@ -576,7 +602,6 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
 			TFW_DBG3("%s: [%lu] [%lu] [%lu] [%lu] [%lu] [%lu]\n",
 				 __func__, pval[0], pval[1], pval[2],
 				 pval[3], pval[4], pval[5]);
-			TFW_INC_STAT_BH(apm.calc_races);
 			break;
 		}
 		for (i = 0; i < rbuf->rbufsz; i++) {
@@ -586,19 +611,25 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwApmPrcntl *prcntl)
 			cnt += atomic_read(&pcntrng->cnt[st[i].r][st[i].b]);
 			tfw_apm_state_next(pcntrng, &st[i]);
 		}
-		for ( ; p < prcntl->pstsz && pval[p] <= cnt; ++p)
-			prcntl->pstats[p].val = v_min;
+		for ( ; p < pstats->prcntlsz && pval[p] <= cnt; ++p)
+			pstats->prcntl[p].val = v_min;
 	}
+	cnt = val = 0;
+	pstats->max = 0;
+	pstats->min = UINT_MAX;
+	for (i = 0; i < rbuf->rbufsz; i++) {
+		pcntrng = &rbent[i].pcntrng;
+		if (pstats->min > atomic_read(&pcntrng->min_val))
+			pstats->min = atomic_read(&pcntrng->min_val);
+		if (pstats->max < atomic_read(&pcntrng->max_val))
+			pstats->max = atomic_read(&pcntrng->max_val);
+		cnt += atomic64_read(&pcntrng->tot_cnt);
+		val += atomic64_read(&pcntrng->tot_val);
+	}
+	if (likely(cnt))
+		pstats->avg = val / cnt;
 
 	return p;
-}
-
-static inline void
-tfw_apm_rngctl_copy(TfwPcntCtl *ctl, TfwApmRBEnt *crbent)
-{
-	spin_lock(&tfw_sa_guard);
-	memcpy(ctl, crbent->pcntrng.ctl, TFW_STATS_RANGES * sizeof(TfwPcntCtl));
-	spin_unlock(&tfw_sa_guard);
 }
 
 /*
@@ -610,7 +641,7 @@ static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
 	memset(crbent->pcntrng.cnt, 0, sizeof(crbent->pcntrng.cnt));
-	atomic64_set(&crbent->pcntrng.total_cnt, 0);
+	atomic64_set(&crbent->pcntrng.tot_cnt, 0);
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);
@@ -666,7 +697,7 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 		tfw_apm_rbent_checkreset(&rbent[centry], jtmistart);
 
 		for (i = 0; i < rbuf->rbufsz; ++i)
-			total_cnt += atomic64_read(&rbent[i].pcntrng.total_cnt);
+			total_cnt += atomic64_read(&rbent[i].pcntrng.tot_cnt);
 
 		rbctl->entry_cnt = 0;
 		rbctl->total_cnt = total_cnt;
@@ -684,13 +715,12 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 	 */
 
 	/* Nothing to do if there were no stats updates. */
-	entry_cnt = atomic64_read(&rbent[centry].pcntrng.total_cnt);
+	entry_cnt = atomic64_read(&rbent[centry].pcntrng.tot_cnt);
 	if (unlikely(rbctl->entry_cnt == entry_cnt)) {
 		if (unlikely(recalc)) {
 			TFW_DBG3("%s: Old time window: recalculate: "
 				 "centry [%d] total_cnt [%lu]\n",
 				 __func__, centry, rbctl->total_cnt);
-			TFW_INC_STAT_BH(apm.calc_repeats);
 			return true;
 		}
 		return false;
@@ -716,17 +746,15 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
  * REturn -1 of the recalculation could not be performed.
  */
 static int
-__tfw_apm_calc(TfwApmData *data, TfwApmPrcntl *prcntl, int recalc)
+__tfw_apm_calc(TfwApmData *data, TfwPrcntlStats *pstats, int recalc)
 {
 	int ret;
 
-	if (!spin_trylock(&tfw_sa_guard)) {
-		TFW_INC_STAT_BH(apm.calc_misses);
+	if (!spin_trylock(&data->rbuf.slock))
 		return -1;
-	}
 	if ((ret = tfw_apm_rbctl_update(data, recalc)))
-		ret = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, prcntl);
-	spin_unlock(&tfw_sa_guard);
+		ret = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, pstats);
+	spin_unlock(&data->rbuf.slock);
 
 	return ret;
 }
@@ -737,37 +765,40 @@ __tfw_apm_calc(TfwApmData *data, TfwApmPrcntl *prcntl, int recalc)
  * Note that this function may also be used concurrently by other users
  * than the kernel timer function in this module, should the need arise.
  * That should only be done in exceptional cases (like testing), because
- * it would increase @tfw_sa_guard lock contention.
+ * it would increase @data->rbuf->slock lock contention.
  */
 static void
 tfw_apm_calc(TfwApmData *data)
 {
 	int nfilled, wridx, recalc;
-	PrcntlStats pstats[ARRAY_SIZE(tfw_apm_pstats)];
-	TfwApmPrcntl wrkprcntl = { pstats, ARRAY_SIZE(pstats) };
-	TfwApmPrcntl *prcntl;
+	TfwPrcntl prcntl[ARRAY_SIZE(tfw_apm_prcntl)];
+	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };
+	TfwApmSEnt *asent;
 
-	memcpy(pstats, tfw_apm_pstats, sizeof(tfw_apm_pstats));
+	memcpy(prcntl, tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
 
 	smp_mb__before_atomic();
 	wridx = ((unsigned int)atomic_read(&data->stats.rdidx) + 1) % 2;
-	prcntl = &data->stats.prcntl[wridx];
+	asent = &data->stats.asent[wridx];
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	nfilled = __tfw_apm_calc(data, &wrkprcntl, recalc);
+	nfilled = __tfw_apm_calc(data, &pstats, recalc);
 
 	if (!nfilled) {
 		TFW_DBG3("%s: Percentile values DID NOT change.\n", __func__);
-	} else if (nfilled < prcntl->pstsz) {
+	} else if (nfilled < asent->pstats.prcntlsz) {
 		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
 		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	} else {
 		TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
-		write_lock(&prcntl->rwlock);
-		memcpy(prcntl->pstats, pstats,
-		       prcntl->pstsz * sizeof(PrcntlStats));
+		write_lock(&asent->rwlock);
+		memcpy(asent->pstats.prcntl, prcntl,
+		       asent->pstats.prcntlsz * sizeof(TfwPrcntl));
+		asent->pstats.min = pstats.min;
+		asent->pstats.max = pstats.max;
+		asent->pstats.avg = pstats.avg;
 		atomic_inc(&data->stats.rdidx);
-		write_unlock(&prcntl->rwlock);
+		write_unlock(&asent->rwlock);
 	}
 }
 
@@ -794,23 +825,26 @@ tfw_apm_prcntl_fn(unsigned long fndata)
  * Return 1 if potentially new percentile values were calculated.
  */
 int
-tfw_apm_stats(void *apmdata, Percentile *percentile)
+tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 {
-	int rdidx, seq = percentile->seq;
+	int rdidx, seq = pstats->seq;
 	TfwApmData *data = apmdata;
-	TfwApmPrcntl *prcntl;
+	TfwApmSEnt *asent;
 
 	BUG_ON(!apmdata);
 
 	smp_mb__before_atomic();
 	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;
-	prcntl = &data->stats.prcntl[rdidx];
+	asent = &data->stats.asent[rdidx];
 
-	read_lock(&prcntl->rwlock);
-	memcpy(percentile->pstats, prcntl->pstats,
-	       percentile->pstsz * sizeof(PrcntlStats));
-	read_unlock(&prcntl->rwlock);
-	percentile->seq = rdidx;
+	read_lock(&asent->rwlock);
+	memcpy(pstats->prcntl, asent->pstats.prcntl,
+	       pstats->prcntlsz * sizeof(TfwPrcntl));
+	pstats->min = asent->pstats.min;
+	pstats->max = asent->pstats.max;
+	pstats->avg = asent->pstats.avg;
+	read_unlock(&asent->rwlock);
+	pstats->seq = rdidx;
 
 	return (seq != rdidx);
 }
@@ -822,34 +856,35 @@ tfw_apm_stats(void *apmdata, Percentile *percentile)
  * All APM Stats users must use the same set of percentiles.
  */
 int
-tfw_apm_percentile_verify(Percentile *percentile)
+tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz)
 {
 	int i;
 
-	if (percentile->pstsz != ARRAY_SIZE(tfw_apm_pstats))
+	if (prcntlsz != ARRAY_SIZE(tfw_apm_prcntl))
 		return 1;
-	for (i = 0; i < percentile->pstsz; ++i)
-		if (percentile->pstats[i].ith != tfw_apm_pstats[i].ith)
+	for (i = 0; i < prcntlsz; ++i)
+		if (prcntl[i].ith != tfw_apm_prcntl[i].ith)
 			return 1;
 	return 0;
 }
 
 static inline void
-__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned long jrtime)
+__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtime)
 {
 	int centry = (jtstamp / tfw_apm_jtmintrvl) % rbuf->rbufsz;
 	unsigned long jtmistart = jtstamp - (jtstamp % tfw_apm_jtmintrvl);
 	TfwApmRBEnt *crbent = &rbuf->rbent[centry];
 
 	tfw_apm_rbent_checkreset(crbent, jtmistart);
-	tfw_stats_update(&crbent->pcntrng, jiffies_to_msecs(jrtime));
+	tfw_stats_update(&crbent->pcntrng, rtime, &rbuf->slock);
 }
 
 void
 tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtime)
 {
 	BUG_ON(!apmdata);
-	__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, jrtime);
+	__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf,
+			 jtstamp, jiffies_to_msecs(jrtime));
 }
 
 /*
@@ -885,62 +920,65 @@ tfw_apm_create(void)
 {
 	TfwApmData *data;
 	TfwApmRBEnt *rbent;
-	PrcntlStats *pstats[2];
+	TfwPrcntl *prcntl[2];
 	int i, size;
 	int rbufsz = tfw_apm_tmwscale;
-	int pstsz = ARRAY_SIZE(tfw_apm_pstats);
+	int prcntlsz = ARRAY_SIZE(tfw_apm_prcntl);
 
 	if (!tfw_apm_tmwscale) {
-		TFW_ERR("Late unitialization of `apm_stats` option\n");
+		TFW_ERR("Late initialization of 'apm_stats' option\n");
 		return NULL;
 	}
 
 	/* Keep complete stats for the full time window. */
 	size = sizeof(TfwApmData) + rbufsz * sizeof(TfwApmRBEnt)
-				  + 2 * sizeof(tfw_apm_pstats);
+				  + 2 * sizeof(tfw_apm_prcntl);
 	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
 		return NULL;
 
+	/* Set up memory areas. */
 	rbent = (TfwApmRBEnt *)(data + 1);
-	pstats[0] = (PrcntlStats *)(rbent + rbufsz);
-	pstats[1] = (PrcntlStats *)(pstats[0] + pstsz);
+	prcntl[0] = (TfwPrcntl *)(rbent + rbufsz);
+	prcntl[1] = (TfwPrcntl *)(prcntl[0] + prcntlsz);
 
 	data->rbuf.rbent = rbent;
 	data->rbuf.rbufsz = rbufsz;
 
-	data->stats.prcntl[0].pstats = pstats[0];
-	data->stats.prcntl[0].pstsz = pstsz;
+	data->stats.asent[0].pstats.prcntl = prcntl[0];
+	data->stats.asent[0].pstats.prcntlsz = prcntlsz;
 
-	data->stats.prcntl[1].pstats = pstats[1];
-	data->stats.prcntl[1].pstsz = pstsz;
+	data->stats.asent[1].pstats.prcntl = prcntl[1];
+	data->stats.asent[1].pstats.prcntlsz = prcntlsz;
 
+	/* Initialize data. */
 	for (i = 0; i < rbufsz; ++i)
 		tfw_apm_rbent_init(&rbent[i], 0);
+	spin_lock_init(&data->rbuf.slock);
 
-	memcpy(pstats[0], tfw_apm_pstats, sizeof(tfw_apm_pstats));
-	memcpy(pstats[1], tfw_apm_pstats, sizeof(tfw_apm_pstats));
+	memcpy(prcntl[0], tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
+	memcpy(prcntl[1], tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
 
-	rwlock_init(&data->stats.prcntl[0].rwlock);
-	rwlock_init(&data->stats.prcntl[1].rwlock);
+	rwlock_init(&data->stats.asent[0].rwlock);
+	rwlock_init(&data->stats.asent[1].rwlock);
 	atomic_set(&data->stats.rdidx, 0);
 
+	/* Start the timer for the percentile calculation. */
 	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	smp_mb__after_atomic();
 	setup_timer(&data->timer, tfw_apm_prcntl_fn, (unsigned long)data);
 	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_TIMEOUT);
 
 	return data;
 }
 
-#define TFW_APM_MIN_TMWSCALE	1	/* Minimal time window scale. */
+#define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
 #define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
 #define TFW_APM_DEF_TMWSCALE	5	/* Default time window scale. */
 
-#define TFW_APM_MIN_TMWINDOW	60	/* Minimal time window (secs). */
+#define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
 #define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
 #define TFW_APM_DEF_TMWINDOW	300	/* Default time window (secs). */
 
-#define TFW_APM_MIN_TMINTRVL	5	/* Minimal time interval (secs). */
+#define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 static int
 tfw_apm_cfg_start(void)
