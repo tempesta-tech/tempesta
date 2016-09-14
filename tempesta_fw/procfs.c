@@ -48,12 +48,6 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(ss.pfl_hits);
 		SADD(ss.pfl_misses);
 
-		/* APM statistics. */
-		SADD(apm.upd_misses);
-		SADD(apm.calc_misses);
-		SADD(apm.calc_races);
-		SADD(apm.calc_repeats);
-
 		/* Cache statistics. */
 		SADD(cache.hits);
 		SADD(cache.misses);
@@ -87,11 +81,11 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)							\
-	if ((ret = seq_printf(seq, m": %llu\n", e)))			\
+#define SPRNE(m, e)						\
+	if ((ret = seq_printf(seq, m": %llu\n", e)))		\
 		goto out;
-#define SPRN(m, c)							\
-	if ((ret = seq_printf(seq, m": %llu\n", stat.c)))		\
+#define SPRN(m, c)						\
+	if ((ret = seq_printf(seq, m": %llu\n", stat.c)))	\
 		goto out;
 
 	int ret;
@@ -103,12 +97,6 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	/* Ss statistics. */
 	SPRN("SS pfl hits\t\t\t\t", ss.pfl_hits);
 	SPRN("SS pfl misses\t\t\t\t", ss.pfl_misses);
-
-	/* Ss statistics. */
-	SPRN("APM update misses\t\t\t", apm.upd_misses);
-	SPRN("APM calc misses\t\t\t\t", apm.calc_misses);
-	SPRN("APM calc races\t\t\t\t", apm.calc_races);
-	SPRN("APM calc repeats\t\t\t", apm.calc_repeats);
 
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
@@ -152,38 +140,38 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 }
 
 /*
- * Individual server statistics. Note that 1%, 50%, and 99% percentiles
- * are used to tell the minimum, the median, and the maximum values
- * correspondingly.
+ * Individual server statistics. Note that 50% percentile
+ * is used to tell the median value.
  */
-static const PrcntlStats __read_mostly tfw_procfs_pstats[] = {
-	{1}, {50}, {75}, {90}, {95}, {99}
+static const TfwPrcntl __read_mostly tfw_procfs_prcntl[] = {
+	{50}, {75}, {90}, {95}, {99}
 };
 
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)							\
-	if ((ret = seq_printf(seq, m": %dms\n", e)))			\
+#define SPRNE(m, e)						\
+	if ((ret = seq_printf(seq, m": %dms\n", e)))		\
 		goto out;
 
 	int i, ret;
 	TfwServer *srv = seq->private;
-	PrcntlStats pstats[ARRAY_SIZE(tfw_procfs_pstats)];
-	Percentile percentile = { pstats, ARRAY_SIZE(pstats) };
+	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
+	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };
 
-	memcpy(pstats, tfw_procfs_pstats, sizeof(pstats));
+	memcpy(prcntl, tfw_procfs_prcntl, sizeof(prcntl));
 
-	tfw_apm_stats(srv->apm, &percentile);
+	tfw_apm_stats(srv->apm, &pstats);
 
-	SPRNE("Minimal response time\t\t", pstats[0].val);
-	SPRNE("Median  response time\t\t", pstats[2].val);
-	SPRNE("Maximum response time\t\t", pstats[5].val);
+	SPRNE("Minimal response time\t\t", pstats.min);
+	SPRNE("Average response time\t\t", pstats.avg);
+	SPRNE("Median  response time\t\t", prcntl[0].val);
+	SPRNE("Maximum response time\t\t", pstats.max);
 	if ((ret = seq_printf(seq, "Percentiles\n")))
 		goto out;
-	for (i = 1; i < 5; ++i) {
+	for (i = 0; i < ARRAY_SIZE(prcntl); ++i) {
 		ret = seq_printf(seq, "%02d%%:\t%dms\n",
-				 pstats[i].ith, pstats[i].val);
+				 prcntl[i].ith, prcntl[i].val);
 		if (ret)
 			goto out;
 	}
@@ -250,14 +238,13 @@ static int
 tfw_procfs_cfg_start(void)
 {
 	int i, ret;
-	PrcntlStats pstats[ARRAY_SIZE(tfw_procfs_pstats)];
-	Percentile percentile = { pstats, ARRAY_SIZE(pstats) };
+	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
 
-	memcpy(pstats, tfw_procfs_pstats, sizeof(pstats));
+	memcpy(prcntl, tfw_procfs_prcntl, sizeof(prcntl));
 
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
-	if (tfw_apm_percentile_verify(&percentile))
+	if (tfw_apm_prcntl_verify(prcntl, ARRAY_SIZE(prcntl)))
 		return -EINVAL;
 	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
 	if (!tfw_procfs_srvstats)
