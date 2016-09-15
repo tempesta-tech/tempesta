@@ -567,13 +567,13 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(!tfw_srv_cfg_curr_group);
 
 	r = tfw_cfg_check_val_n(ce, 1);
+	TFW_DBG("cfg_error:srv:r:%d\n", r);
 	if (r)
 		return -EINVAL;
 
 	in_addr = ce->vals[0];
 	in_conns_n = tfw_cfg_get_attr(ce, "conns_n", TFW_SRV_CFG_DEF_CONNS_N);
-
-	r = tfw_addr_pton(&TFW_STR_FROM(in_addr), &addr);
+	r = tfw_addr_pton(&TFW_STR_FROMDS(in_addr), &addr);
 	if (r)
 		return r;
 	r = tfw_cfg_parse_int(in_conns_n, &conns_n);

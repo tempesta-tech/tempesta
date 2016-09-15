@@ -105,12 +105,16 @@ typedef struct TfwStr {
 	struct TfwStr *chunks;
 };
 } TfwStr;
-
 #define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), .skb = NULL,	\
 						  .len = sizeof(val) - 1,	\
 						  .chunknum = 0, .flags = 0 }	
-#define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s, .skb = NULL, 	\
-					   .len = sizeof(s) - 1})
+#define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s, .skb = NULL,\
+					   .len = sizeof(s) - 1 })
+/* For dynamic arrays of chars (by kmalloc() for example) the sizeof() 
+ * could be wrong. So we need a special initializer with the strlen()
+ */ 
+#define TFW_STR_FROMDS(s)         ((TfwStr){ .data = (char *)s, .skb = NULL,\
+					     .len = strlen(s) })
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
