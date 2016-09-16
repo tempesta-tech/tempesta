@@ -2904,7 +2904,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonthSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateMonth);
 		return CSTR_NEQ;
 	}
@@ -2999,7 +2999,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateHourSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateHour);
 		return CSTR_NEQ;
 	}
@@ -3053,7 +3053,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateSecSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateZone);
 		return CSTR_NEQ;
 	}
