@@ -436,15 +436,18 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 }
 
 static int
-tfw_sock_srv_connect_all(void)
+tfw_sock_srv_start(void)
 {
-	tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+	int ret;
 
-	return 0;
+	if ((ret = tfw_sg_for_each_srv(tfw_server_apm_create)) != 0)
+		return ret;
+
+	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
 }
 
 static void
-tfw_sock_srv_disconnect_all(void)
+tfw_sock_srv_stop(void)
 {
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
@@ -582,7 +585,7 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	srv = tfw_create_server(&addr);
+	srv = tfw_server_create(&addr);
 	if (!srv) {
 		TFW_ERR("can't create a server socket\n");
 		return -EPERM;
@@ -748,8 +751,8 @@ static TfwCfgSpec tfw_sock_srv_cfg_srv_group_specs[] = {
 
 TfwCfgMod tfw_sock_srv_cfg_mod = {
 	.name  = "sock_srv",
-	.start = tfw_sock_srv_connect_all,
-	.stop  = tfw_sock_srv_disconnect_all,
+	.start = tfw_sock_srv_start,
+	.stop  = tfw_sock_srv_stop,
 	.specs = (TfwCfgSpec[] ) {
 		{
 			"server",

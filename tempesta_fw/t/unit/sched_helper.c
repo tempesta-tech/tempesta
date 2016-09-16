@@ -92,7 +92,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 		BUG_ON(r);
 	}
 
-	srv = tfw_create_server(&addr);
+	srv = tfw_server_create(&addr);
 	BUG_ON(!srv);
 
 	tfw_sg_add(sg, srv);
