@@ -29,6 +29,7 @@
 #include "procfs.h"
 #include "server.h"
 #include "tls.h"
+#include "apm.h"
 
 #include "sync_socket.h"
 
@@ -922,7 +923,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * @data_off is the current offset of data to process in
 		 * the SKB. After processing @data_off points at the end
 		 * of latest data chunk. However processing may have
-		 * stopped in the middle of the chunk. Adjust it to point 
+		 * stopped in the middle of the chunk. Adjust it to point
 		 * to the right location within the chunk.
 		 */
 		off = data_off;
@@ -982,6 +983,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * for age calculations, and for APM and Load Balancing.
 		 */
 		req->cache_ctl.timestamp = tfw_current_timestamp();
+		req->jtstamp = jiffies;
 
 		/* Assign the right Vhost for this request. */
 		if (tfw_http_req_set_context(req))
@@ -1121,6 +1123,9 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		goto err;
 
 	TFW_INC_STAT_BH(serv.msgs_forwarded);
+	if (resp->conn)
+		tfw_apm_update(((TfwServer *)resp->conn->peer)->apm,
+			       resp->jtstamp, resp->jtstamp - req->jtstamp);
 out:
 	/* Now we don't need the request and the response anymore. */
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
@@ -1215,6 +1220,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * for age calculations, and for APM and Load Balancing.
 	 */
 	hmresp->cache_ctl.timestamp = timestamp;
+	hmresp->jtstamp = jiffies;
 	/*
 	 * If 'Date:' header is missing in the response, then
 	 * set the date to the time the response was received.
@@ -1306,7 +1312,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 		 * @data_off is the current offset of data to process in
 		 * the SKB. After processing @data_off points at the end
 		 * of latest data chunk. However processing may have
-		 * stopped in the middle of the chunk. Adjust it to point 
+		 * stopped in the middle of the chunk. Adjust it to point
 		 * at correct location within the chunk.
 		 */
 		off = data_off;

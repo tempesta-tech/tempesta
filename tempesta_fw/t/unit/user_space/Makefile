@@ -25,7 +25,7 @@ endif
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
 CFLAGS		= -O0 -ggdb -Wall -Werror \
-		  -lpthread -DL1_CACHE_BYTES=$(CACHELINE) \
+		  -pthread -DL1_CACHE_BYTES=$(CACHELINE) \
 		  -I../../../../ktest
 TARGETS		= percentiles
 

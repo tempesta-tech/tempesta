@@ -42,11 +42,13 @@ typedef struct tfw_scheduler_t TfwScheduler;
  *
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
+ * @apm		- opaque handle for APM stats;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	TfwSrvGroup		*sg;
+	void			*apm;
 	unsigned int		flags;
 	int			stress;
 } TfwServer;
@@ -110,8 +112,9 @@ struct tfw_scheduler_t {
 };
 
 /* Server specific routines. */
-TfwServer *tfw_create_server(const TfwAddr *addr);
-void tfw_destroy_server(TfwServer *srv);
+TfwServer *tfw_server_create(const TfwAddr *addr);
+int tfw_server_apm_create(TfwServer *srv);
+void tfw_server_destroy(TfwServer *srv);
 
 void tfw_srv_conn_release(TfwConnection *conn);
 
