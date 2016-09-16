@@ -777,7 +777,6 @@ tfw_apm_calc(TfwApmData *data)
 
 	memcpy(prcntl, tfw_apm_prcntl, sizeof(tfw_apm_prcntl));
 
-	smp_mb__before_atomic();
 	wridx = ((unsigned int)atomic_read(&data->stats.rdidx) + 1) % 2;
 	asent = &data->stats.asent[wridx];
 
