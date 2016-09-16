@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include "test.h"
 
+#include "apm.c"
 #include "vhost.c"
 
 int test_fail_counter;
