@@ -40,8 +40,8 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			rem = 0;
 		}
 
-		TEST_LOG("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
-			len, pos, chunks, step);
+		TFW_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
+			 len, pos, chunks, step);
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, step);
 		else
@@ -226,9 +226,12 @@ TEST(http_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/foo/");
 	}
 
-	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta HTTP/1.1\r\n\r\n") {
+	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta"
+		" HTTP/1.1\r\n\r\n")
+	{
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->uri_path, "/cgi-bin/show.pl?entry=tempesta");
+		EXPECT_TFWSTR_EQ(&req->uri_path,
+				 "/cgi-bin/show.pl?entry=tempesta");
 	}
 }
 
@@ -431,7 +434,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
-		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,  natsys-lab.com:65535  \r\n"
+		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,"
+		"  natsys-lab.com:65535  \r\n"
 		"\r\n")
 	{
 		const TfwStr *h = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
@@ -497,8 +501,9 @@ TEST(http_parser, fuzzer)
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
-			TEST_LOG("start field: %d request: %d\n", field, i);
-			ret = fuzz_gen(&context, str, str + len, field, MOVE, FUZZ_REQ);
+			TFW_DBG3("start field: %d request: %d\n", field, i);
+			ret = fuzz_gen(&context, str, str + len, field, MOVE,
+				       FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
 				chunks = 1;
@@ -519,8 +524,9 @@ resp:
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
-			TEST_LOG("start field: %d response: %d\n", field, i);
-			ret = fuzz_gen(&context, str, str + len, field, MOVE, FUZZ_RESP);
+			TFW_DBG3("start field: %d response: %d\n", field, i);
+			ret = fuzz_gen(&context, str, str + len, field, MOVE,
+				       FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
 				chunks = 1;
