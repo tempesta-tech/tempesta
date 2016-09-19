@@ -59,7 +59,6 @@ tfw_str_del_chunk(TfwStr *str, int id)
 static TfwStr *
 __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 {
-	TfwStr *a = NULL;
 	if (str->flags & flag) {
 		unsigned int l;
 		void *p;
@@ -78,7 +77,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		TFW_STR_CHUNKN_ADD(str, n);
 	}
 	else {
-		a = tfw_pool_alloc(pool, (n + 1) * sizeof(TfwStr));
+		TfwStr *a = tfw_pool_alloc(pool, (n + 1) * sizeof(TfwStr));
 		if (!a)
 			return NULL;
 		a[0] = *str;
