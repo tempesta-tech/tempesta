@@ -8,7 +8,7 @@ import conf
 import tfw
 import socket
 class Test:
-        def fragmentize_str(s, frag_size):
+	def fragmentize_str(self, s, frag_size):
 		"""
 		Split a string into a list of equal N-sized fragmen.
 		>>> fragmentize_str("foo12bar34baz", 3)
@@ -16,7 +16,7 @@ class Test:
 		"""
 		return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
 
-	def run():
+	def run(self):
         	c = conf.Config('etc/tempesta_fw.conf')
 		c.add_option('cache', '0')
 		c.add_option('listen', '8081')
@@ -26,7 +26,8 @@ class Test:
 		print("tfw start\n")
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		s.connect(("127.0.0.1",8081))
-		s.sendall(vs_get)
+		for fs in self.fragmentize_str(vs_get, 3):
+			s.sendall(fs)
 		data = s.recv(1024)
 		tfw.stop()
 		s.close()
