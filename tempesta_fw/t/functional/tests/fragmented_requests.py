@@ -7,37 +7,32 @@ __license__ = 'GPL2'
 import conf
 import tfw
 import socket
-
-def fragmentize_str(s, frag_size):
-	"""
-	Split a string into a list of equal N-sized fragmen.
-	>>> fragmentize_str("foo12bar34baz", 3)
-	['foo', '12b', 'ar3', '4ba', 'z']
-	"""
-	return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
-
-def run():
-	c = conf.Config('etc/tempesta_fw.conf')
-	c.add_option('cache', '0')
-	c.add_option('listen', '8081')
-	c.add_option('server', '127.0.0.1:80')
-
-	vs_get = b"GET / HTTP/1.0\r\nhost: localhost\r\n\r\n"
-	tfw.start()
-	print("tfw start\n")
-	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect(("127.0.0.1",8081))
-	s.sendall(vs_get)
-	data = s.recv(1024)
-	tfw.stop()
-	s.close()
-	if len(data) > 0:
-		print("Res:{}\n".format(True))
-
 class Test:
+        def fragmentize_str(s, frag_size):
+		"""
+		Split a string into a list of equal N-sized fragmen.
+		>>> fragmentize_str("foo12bar34baz", 3)
+		['foo', '12b', 'ar3', '4ba', 'z']
+		"""
+		return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
 
-	def run(self):
-		run()
+	def run():
+        	c = conf.Config('etc/tempesta_fw.conf')
+		c.add_option('cache', '0')
+		c.add_option('listen', '8081')
+		c.add_option('server', '127.0.0.1:80')
+		vs_get = b"GET / HTTP/1.0\r\nhost: localhost\r\n\r\n"
+		tfw.start()
+		print("tfw start\n")
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect(("127.0.0.1",8081))
+		s.sendall(vs_get)
+		data = s.recv(1024)
+		tfw.stop()
+		s.close()
+		if len(data) > 0:
+			print("Res:{}\n".format(True))
 
 	def get_name(self):
-		return 'fragmented_requests'
+		return 'fragmented request'
+
