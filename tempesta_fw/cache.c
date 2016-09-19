@@ -1405,7 +1405,7 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_cache_cfg_mod = {
-	.name	= "cache",
+	.name 	= "cache",
 	.start	= tfw_cache_start,
 	.stop	= tfw_cache_stop,
 	.specs	= tfw_cache_cfg_specs,
