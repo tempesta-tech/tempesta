@@ -567,7 +567,6 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(!tfw_srv_cfg_curr_group);
 
 	r = tfw_cfg_check_val_n(ce, 1);
-	TFW_DBG("cfg_error:srv:r:%d\n", r);
 	if (r)
 		return -EINVAL;
 
