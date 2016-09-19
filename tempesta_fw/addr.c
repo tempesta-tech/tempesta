@@ -424,7 +424,8 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
 		{
 			/* listener = [::] */
-			if (IN6_LOOPBACK(server->v6.sin6_addr)) {
+			if (IN6_LOOPBACK(server->v6.sin6_addr))
+			{
 				/* backend = [::1] */
 				return 1;
 			}
