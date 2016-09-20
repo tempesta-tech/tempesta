@@ -20,7 +20,7 @@ Socket API or even kernel sockets.
 #### Common
 
 * Linux CentOS/RHEL 7 or Debian 8;
-* x86-64 CPU with at least 1GB RAM, SSE 4.2 and preferably 2MB huge pages
+* x86-64 CPU with at least 2Gb RAM, SSE 4.2 and preferably 2MB huge pages
   enabled (check pse and sse4\_2 flags in your /proc/cpuinfo);
 * RSS capable network adapter;
 * GNU Make 3.82 or higher;
@@ -51,9 +51,18 @@ CONFIG\_PREEMPT is not supported at all.
 
 To build the module you need to do the following steps:
 
-1. Download [patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
-2. Build and load the kernel
-3. Run make to build Tempesta FW and Tempesta DB modules:
+* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
+* Build, install, and then boot the kernel. Classic build and install procedure
+  is used. For that, go to the directory with the patched kernel sources, make
+  sure you have a correct `.config` file, and then do the following (`<N>` is
+  the number of CPU cores on the system):
+
+        make -j<N>
+        make -j<N> modules
+        make -j<N> modules_install
+        make install
+
+* Run `make` to build Tempesta FW and Tempesta DB modules:
 
         $ cd tempesta && make
 
