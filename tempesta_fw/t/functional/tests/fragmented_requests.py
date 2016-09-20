@@ -17,7 +17,7 @@ class Test:
 		return [s[i:i+frag_size]  for i in range(0, len(s), frag_size)]
 
 	def run(self):
-        	c = conf.Config('etc/tempesta_fw.conf')
+		c = conf.Config('etc/tempesta_fw.conf')
 		c.add_option('cache', '0')
 		c.add_option('listen', '8081')
 		c.add_option('server', '127.0.0.1:80')
