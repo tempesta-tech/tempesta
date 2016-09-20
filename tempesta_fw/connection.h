@@ -91,6 +91,7 @@ typedef struct {
 	struct list_head	msg_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
+	unsigned long		flags;
 	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwPeer 		*peer;
@@ -101,6 +102,9 @@ typedef struct {
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/* Connection flags. */
+#define TFW_CONN_FWD_HOLD	0x0001		/* Hold sending messages */
 
 /**
  * TLS hardened connection.
@@ -153,7 +157,7 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
 
 static inline bool
-tfw_connection_nfo(TfwConnection *conn)
+tfw_connection_live(TfwConnection *conn)
 {
 	return atomic_read(&conn->refcnt) > 0;
 }
@@ -169,7 +173,7 @@ tfw_connection_get(TfwConnection *conn)
  * process, i.e. @refcnt > 0.
  */
 static inline bool
-tfw_connection_get_if_nfo(TfwConnection *conn)
+tfw_connection_get_if_live(TfwConnection *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 

@@ -146,7 +146,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
 		for (ch = sg->sched_data; ch->conn; ++ch) {
 			curr_weight = msg_hash ^ ch->hash;
-			if (likely(tfw_connection_nfo(ch->conn))
+			if (likely(tfw_connection_live(ch->conn))
 			    && curr_weight > best_weight)
 			{
 				best_weight = curr_weight;
@@ -156,7 +156,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 
 		if (unlikely(!best_conn))
 			return NULL;
-		if (tfw_connection_get_if_nfo(best_conn))
+		if (tfw_connection_get_if_live(best_conn))
 			return best_conn;
 	}
 	return NULL;

@@ -123,7 +123,7 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 			i = atomic64_inc_return(&srv_cl->rr_counter)
 			    % srv_cl->conn_n;
 			conn = srv_cl->conns[i];
-			if (tfw_connection_get_if_nfo(conn))
+			if (tfw_connection_get_if_live(conn))
 				return conn;
 		}
 	}
