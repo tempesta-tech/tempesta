@@ -1572,7 +1572,8 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CookieValStart) {
-		if (unlikely(isspace(c) || c == ',' || c == ';' || c == '\\'))
+		if (unlikely(c == ' ' || c == '\t' || c == ',' || c == ';'
+			  || c == '\\'))
 			return CSTR_NEQ;
 		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
@@ -1581,7 +1582,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (unlikely(c == ';'))
 			/* do not save ';' yet */
 			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0, TFW_STR_VALUE);
-		if (unlikely(isspace(c))) {
+		if (unlikely(IS_CR_OR_LF(c))) {
 			/* do not save LWS */
 			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
 			__FSM_I_chunk_flags(TFW_STR_VALUE);
@@ -1632,7 +1633,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_H);
 		if (c == ':')
 			__FSM_I_MOVE(Req_I_H_Port);
-		if (isspace(c))
+		if (IS_CR_OR_LF(c))
 			return __data_offset(p);
 		return CSTR_NEQ;
 	}
@@ -1647,7 +1648,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_H_v6_End) {
-		if (likely(isspace(c)))
+		if (likely(IS_CR_OR_LF(c)))
 			return __data_offset(p);
 		if (likely(c == ':'))
 			__FSM_I_MOVE(Req_I_H_Port);
@@ -1658,7 +1659,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		/* See Req_UriPort processing. */
 		if (likely(isdigit(c)))
 			__FSM_I_MOVE(Req_I_H_Port);
-		if (isspace(c))
+		if (IS_CR_OR_LF(c))
 			return __data_offset(p);
 		return CSTR_NEQ;
 	}
@@ -2902,7 +2903,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonthSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateMonth);
 		return CSTR_NEQ;
 	}
@@ -2997,7 +2998,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateHourSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateHour);
 		return CSTR_NEQ;
 	}
@@ -3051,7 +3052,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateSecSP) {
-		if (likely(isspace(c)))
+		if (likely(c == ' '))
 			__FSM_I_MOVE(Resp_I_DateZone);
 		return CSTR_NEQ;
 	}
