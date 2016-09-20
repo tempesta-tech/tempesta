@@ -25,6 +25,7 @@
 #include "log.h"
 #include "server.h"
 #include "client.h"
+#include "apm.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
@@ -41,16 +42,17 @@ static LIST_HEAD(sg_list);
 static DEFINE_RWLOCK(sg_lock);
 
 void
-tfw_destroy_server(TfwServer *srv)
+tfw_server_destroy(TfwServer *srv)
 {
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 
+	tfw_apm_destroy(srv->apm);
 	kmem_cache_free(srv_cache, srv);
 }
 
 TfwServer *
-tfw_create_server(const TfwAddr *addr)
+tfw_server_create(const TfwAddr *addr)
 {
 	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC | __GFP_ZERO);
 	if (!srv)
@@ -60,6 +62,16 @@ tfw_create_server(const TfwAddr *addr)
 	INIT_LIST_HEAD(&srv->list);
 
 	return srv;
+}
+
+int
+tfw_server_apm_create(TfwServer *srv)
+{
+	BUG_ON(!srv);
+
+	if (!(srv->apm = tfw_apm_create()))
+		return -ENOMEM;
+	return 0;
 }
 
 /*
@@ -241,7 +253,7 @@ tfw_sg_release_all(void)
 		write_lock(&sg->lock);
 
 		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
-			tfw_destroy_server(srv);
+			tfw_server_destroy(srv);
 
 		write_unlock(&sg->lock);
 
