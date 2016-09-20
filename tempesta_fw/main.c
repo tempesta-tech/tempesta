@@ -91,6 +91,7 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 
+	DO_CFG_REG(apm);
 	DO_CFG_REG(tls);
 	DO_CFG_REG(vhost);
 	DO_CFG_REG(filter);
@@ -98,6 +99,7 @@ tfw_init(void)
 	DO_CFG_REG(http_sess);
 	DO_CFG_REG(sock_srv);
 	DO_CFG_REG(sock_clnt);
+	DO_CFG_REG(procfs);
 
 	return 0;
 err:

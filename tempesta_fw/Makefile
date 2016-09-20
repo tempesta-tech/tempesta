@@ -30,6 +30,7 @@ obj-m	= tempesta_fw.o
 
 tempesta_fw-objs = \
 	addr.o \
+	apm.o \
 	cache.o \
 	cfg.o \
 	classifier.o \
