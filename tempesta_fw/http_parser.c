@@ -68,8 +68,6 @@ enum {
  */
 #define IS_CR_OR_LF(c) (c == '\r' || c == '\n')
 
-#undef isspace
-#define isspace(c) (c == ' ' || c == '\t')
 /**
  * Scans the initial @n bytes of the memory area pointed to by @s for the first
  * occurance of EOL character.
@@ -1574,7 +1572,8 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_CookieValStart) {
-		if (unlikely(isspace(c) || c == ',' || c == ';' || c == '\\'))
+		if (unlikely(c == ' ' || c == '\t' || c == ',' || c == ';'
+			  || c == '\\'))
 			return CSTR_NEQ;
 		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
