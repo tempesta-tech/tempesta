@@ -262,6 +262,7 @@ typedef struct {
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
+#define TFW_HTTP_NON_IDEMPOTENT		0x000800
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
@@ -364,6 +365,7 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	TfwHttpMsg		*resp;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
@@ -412,6 +414,19 @@ tfw_current_timestamp(void)
 	return ts.tv_sec;
 }
 
+static inline void
+__init_req_ss_flags(TfwHttpReq *req)
+{
+	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+}
+
+static inline void
+__init_resp_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
+{
+	if (req->flags & TFW_HTTP_CONN_CLOSE)
+		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 
 /* Internal (parser) HTTP functions. */
@@ -423,6 +438,7 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
+void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 
 /*
  * Functions to send an HTTP error response to a client.

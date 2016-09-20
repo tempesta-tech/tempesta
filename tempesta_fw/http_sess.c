@@ -94,13 +94,14 @@ static struct kmem_cache *sess_cache;
 static int
 tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 {
-	TfwConnection *conn = req->conn;
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr chunks[3], cookie = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
-	TfwHttpMsg resp;
+	TfwHttpMsg *hmresp;
 	char buf[sizeof(*sv) * 2];
 
+	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+		return -ENOMEM;
 	/*
 	 * Form the cookie as:
 	 *
@@ -124,9 +125,11 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if (tfw_http_prep_302(&resp, req, &cookie))
+	if (tfw_http_prep_302(hmresp, req, &cookie))
 		return -1;
-	tfw_cli_conn_send(conn, (TfwMsg *)&resp);
+
+	__init_resp_ss_flags((TfwHttpResp *)hmresp, req);
+	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
 	return 0;
 }
