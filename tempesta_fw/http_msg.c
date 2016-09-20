@@ -627,10 +627,12 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 }
 
 /**
- * Allocate skb space for further @hm data writing.
- * Put as much as possible to one skb, TCP GSO will care about segmentation.
+ * Given the total message length as @len, allocate an appropriate number
+ * of SKBs and page fragments to hold the payload, and add them to the
+ * message. Put as much as possible in one SKB. TCP GSO will take care of
+ * segmentation. The allocated payload space will be filled with data.
  *
- * tfw_http_msg_free() is expected to be called for @hm if the function fails.
+ * Call tfw_http_msg_free() is for @hm if the function fails.
  */
 static int
 __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
@@ -664,7 +666,8 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 	if (hm) {
 		memset(hm, 0, sizeof(*hm));
 		ss_skb_queue_head_init(&hm->msg.skb_list);
-		INIT_LIST_HEAD(&hm->msg.msg_list);
+		INIT_LIST_HEAD(&hm->msg.seq_list);
+		INIT_LIST_HEAD(&hm->msg.fwd_list);
 		if (__msg_alloc_skb_data(hm, data_len))
 			return NULL;
 	} else {
@@ -844,9 +847,7 @@ __hbh_parser_init_resp(TfwHttpResp *resp)
 
 /**
  * Allocate a new HTTP message.
- * Given the total message length as @data_len, it allocates an appropriate
- * number of SKBs and page fragments to hold the payload, and sets them up
- * in Tempesta message.
+ * The space to hold the payload is allocated separately.
  */
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
@@ -870,8 +871,9 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
+	INIT_LIST_HEAD(&hm->msg.fwd_list);
+	INIT_LIST_HEAD(&hm->msg.seq_list);
 	ss_skb_queue_head_init(&hm->msg.skb_list);
-	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	hm->parser.to_read = -1; /* unknown body size */
 	if (type & Conn_Clnt)

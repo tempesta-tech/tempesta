@@ -344,7 +344,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	 * connection reference to indicate that the connection is in the
 	 * failover state.
 	 */
-	if (tfw_connection_nfo(conn)) {
+	if (tfw_connection_live(conn)) {
 		tfw_connection_put_to_death(conn);
 		tfw_connection_drop(conn);
 		TFW_INC_STAT_BH(serv.conn_disconnects);

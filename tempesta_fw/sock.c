@@ -524,7 +524,7 @@ ss_linkerror(struct sock *sk)
 int
 __ss_close(struct sock *sk, int flags)
 {
-	if (unlikely(!sk))
+	if (unlikely(!(sk && ss_sock_live(sk))))
 		return SS_OK;
 	sk_incoming_cpu_update(sk);
 
