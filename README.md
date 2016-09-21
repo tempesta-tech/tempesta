@@ -718,6 +718,28 @@ Server connections active               : 4
 Server RX bytes                         : 153145
 ```
 
+Also, there's Application Performance Monitoring statistics. These stats show
+the time it takes to receive a complete HTTP response to a complete HTTP request.
+It's measured from the time Tempesta forwards an HTTP request to a back end server,
+and until the time it receives an HTTP response to the request (the turnaround
+time). The times are taken per each back end server. Minimum, maximim, median,
+and average times are measured, as well as 50th, 75th, 90th, 95th, and 99th
+percentiles. A file per each back end server/port is created in
+`/proc/tempesta/servers/` directory. The APM stats can be seen as follows:
+```
+# cat /proc/tempesta/servers/192.168.10.230\:8080 
+Minimal response time           : 0ms
+Average response time           : 4ms
+Median  response time           : 3ms
+Maximum response time           : 66ms
+Percentiles
+50%:    3ms
+75%:    7ms
+90%:    11ms
+95%:    15ms
+99%:    29ms
+```
+
 
 ### Build Status
 
