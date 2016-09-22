@@ -44,9 +44,10 @@ class Test:
 			data = s.recv(1024)
 			if len(data) > 0:
 				self.res = True
+				s.close()	
 			else:
 				self.res = False
+				s.close()
 		time.sleep(5)
 		tfw.stop()
 		print("Res:", self.res)
-
