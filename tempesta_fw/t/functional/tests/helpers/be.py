@@ -3,14 +3,12 @@ __author__ = 'Tempesta Technologies Inc.'
 __copyright__ = 'Copyright (C) 2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
-
 """
 A primitive back-end HTTP server implementation suitable for testing purposes.
 """
 
 import http.server
 from threading import *
-
 
 def start(*args, **kwargs):
 	"""A shortcut for BackendHTTPServer() constructor."""
@@ -59,7 +57,6 @@ class BackendHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 	# A wrapper for BackendHTTPServer.backend_callback.
 	# The class simply pushes HTTP requests to the callback, and then builds
 	# responses from data returned by the callback.
-
 	# That isdone for simplicity. It is easier to code a single callback function
 	#than a whole handler class. We have to code one in every test, and we don't
 	# need much power in tests code, so we prefer a function over a class.
