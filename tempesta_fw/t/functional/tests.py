@@ -12,7 +12,8 @@ from os.path import dirname, realpath, sep
 
 sys.path.append((dirname(realpath(__file__))+ sep + "tests" + sep + "helpers"))
 
-for loader, name, ispkg in pkgutil.iter_modules(path = tests.__path__, prefix = ''):
+for loader, name, ispkg in pkgutil.iter_modules(path = tests.__path__,
+						 prefix = ''):
 	if not ispkg:
 		print(name)
 		test = loader.find_module(name).load_module(name)
