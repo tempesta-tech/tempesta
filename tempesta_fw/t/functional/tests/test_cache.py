@@ -12,7 +12,6 @@ import conf
 import tfw
 from socket import *
 
-
 class Test:
 	def __init__(self):
 		self.res = False
