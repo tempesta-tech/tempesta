@@ -3,7 +3,6 @@ __author__ = 'Tempesta Technologies Inc.'
 __copyright__ = 'Copyright (C) 20115-2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
-
 import conf
 import tfw
 
