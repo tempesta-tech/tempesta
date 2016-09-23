@@ -66,7 +66,6 @@ class Test:
 		print("tfw start\n")
 		self.s.connect(("127.0.0.1",8081))
 
-
 		self.vs_get = b"GET / HTTP/1.0\r\nhost: loc\r\n" +\
 b"Connection: Keep-Alive\r\n\r\n"
 		try:
@@ -178,7 +177,6 @@ b"Connection: Keep-Alive\r\n\r\n"
 				self.s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 				self.s.bind(('127.0.0.5', port))
 				self.s.connect(("127.0.0.1", 8081))
-
 				conncount += 1
 				port += conncount
 
@@ -192,6 +190,7 @@ b"Connection: Keep-Alive\r\n\r\n"
 		time.sleep(5)
 		tfw.stop()
 		tfw.del_db()
+
 	def ct_required(self):
 		global tcount
 
@@ -341,7 +340,6 @@ b"<html>content</html>\r\n\r\n"
 		time.sleep(5)
 		tfw.stop()
 
-
 	def ct_vals(self):
 		global tcount
 
@@ -421,7 +419,6 @@ b"Content-type: application/xml\r\n\r\n"
 		tfw.stop()
 		print("res:", self.res)
 
-
 	def header_timeout(self):
 		global tcount
 		part1 = b'GET / HTTP/1.0\r\n'
@@ -449,10 +446,8 @@ b"Content-type: application/xml\r\n\r\n"
 	def body_timeout(self):
 		global tcount
 		print("body_timeout")
-		part1 = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n" +\
-b"Content-Type: text/html\r\n" +\
-b"Content-Length: 20\r\n\r\n" +\
-b"<html>content" 
+		part1 = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n\
+Content-Type: text/html\r\nContent-Length: 20\r\n\r\n<html>content"
 		part2 = b"</html>\r\n\r\n"
 
 		self.__init__()
@@ -477,10 +472,8 @@ b"<html>content"
 	def body_chunks(self):
 		global tcount
 		print("body_chunks")
-		part1 = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n" +\
-b"Content-Type: text/html\r\n" +\
-b"Content-Length: 30\r\n\r\n" +\
-b"<html><body>content" 
+		part1 = b"POST /a.html HTTP/1.0\r\nHost: loc\r\n\
+Content-Type: text/html\r\nContent-Length: 30\r\n\r\n<html><body>content"
 		part2 = b"</body>"
 		part3 = b"<html>\r\n\r\n"
 
@@ -504,10 +497,9 @@ b"<html><body>content"
 		time.sleep(5)
 		tfw.stop()
 
-
-
 	def get_name(self):
 		return 'test Frang'
+
 	def run(self):
 		tests = [self.body_chunks(), self.header_chunks(),\
  self.conn_burst(), self.request_burst(),\
