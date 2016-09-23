@@ -3,10 +3,8 @@ __author__ = 'Tempesta Technologies'
 __copyright__ = 'Copyright (C) 2016 Tempesta Technologies. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 import sys
-from os.path import dirname, realpath, sep
 import time
 import types
-sys.path.append(dirname(realpath(__file__))+ sep + sep + "helpers")
 
 import conf
 import tfw
