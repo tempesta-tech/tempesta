@@ -512,6 +512,5 @@ Content-Type: text/html\r\nContent-Length: 30\r\n\r\n<html><body>content"
 			if hasattr(f, '__call__'):
 				f()
 
-
 		print("tests:{}/15".format(tcount))
 
