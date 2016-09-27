@@ -176,7 +176,6 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 {
 	unsigned int n;
 
-	TFW_DBG("str_upd_len:start:sl:%lu;sf:%d\n", s->len, s->flags);
 	if (!TFW_STR_PLAIN(s)) {
 		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
 
@@ -184,7 +183,6 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 		BUG_ON(!chunk->chunks || curr_p <= chunk->data);
 
 		n = curr_p - chunk->data;
-		TFW_DBG("str_upd_len:n:%u\n", n);
 		chunk->len = n;
 	} else {
 		n = curr_p - s->data;
