@@ -188,7 +188,7 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 		TFW_DBG("str_upd_len:n:%u\n", n);
 		chunk->len = n;
 	} else {
-		n = curr_p - (char *)s->data;
+		n = curr_p - s->data;
 	}
 	s->len += n;
 }
@@ -227,7 +227,6 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 		*(short *)(str->data + str->len) = 0x0a0d; /* CRLF, '\r\n' */
 }
 
-
 /**
  * Returns total string length, including EOL
  */
@@ -255,8 +254,10 @@ int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
-bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr, int cstr_len, tfw_str_eq_flags_t flags);
-bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr, int cstr_len, tfw_str_eq_flags_t flags);
+bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
+			 int cstr_len, tfw_str_eq_flags_t flags);
+bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
+			 int cstr_len, tfw_str_eq_flags_t flags);
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
 #ifdef DEBUG
