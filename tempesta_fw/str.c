@@ -343,7 +343,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 
 	BUG_ON(str->len && !str->chunks);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-		BUG_ON(chunk->len &&  !chunk->data);
+		BUG_ON(chunk->len && !chunk->data);
 		len = min(clen, (int)chunk->len);
 		if (cmp(cstr, chunk->data, len))
 			return false;
