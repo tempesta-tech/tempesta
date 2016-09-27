@@ -106,22 +106,22 @@ typedef struct TfwStr {
 					     .len = strlen(s) })
 
 /* Use this with "%.*s" in printing calls. */
-#define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
+#define PR_TFW_STR(s)	(int)min(20UL, (s)->len), (s)->data
 
 /* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->chunknum)
 #define TFW_STR_CHUNKN_LIM(s)	((s)->chunknum >= __TFW_STR_CN_MAX)
-#define TFW_STR_CHUNKN_ADD(s, n) ((s)->chunknum += (n))
-#define TFW_STR_CHUNKN_SUB(s, n) ((s)->chunknum -= (n))
-#define __TFW_STR_CHUNKN_SET(s, n) ((s)->chunknum = (n))
+#define TFW_STR_CHUNKN_ADD(s, n)	((s)->chunknum += (n))
+#define TFW_STR_CHUNKN_SUB(s, n)	((s)->chunknum -= (n))
+#define __TFW_STR_CHUNKN_SET(s, n)	((s)->chunknum = (n))
 /* Compound string contains at least 2 chunks. */
 #define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
 
-#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
+#define TFW_STR_INIT(s)	memset(s, 0, sizeof(TfwStr))
 
 #define TFW_STR_EMPTY(s)	(!(s)->len && !(s)->chunknum)
 #define TFW_STR_PLAIN(s)	(!(s)->chunknum)
-#define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
+#define TFW_STR_DUP(s)	((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
 #define __TFW_STR_CH(s, c)	(!TFW_STR_PLAIN(s)? (s)->chunks + (c) : s)
@@ -134,8 +134,7 @@ typedef struct TfwStr {
  * Get last/current chunk of @s.
  * The most left leaf is taken as the current chunk for duplicate strings tree.
  */
-#define TFW_STR_CURR(s)							\
-({									\
+#define TFW_STR_CURR(s)	({						\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
 		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
 		       : (s);						\
@@ -143,7 +142,7 @@ typedef struct TfwStr {
 		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
 		: (_tmp);						\
  })
-#define TFW_STR_LAST(s)		TFW_STR_CURR(s)
+#define TFW_STR_LAST(s)	TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
