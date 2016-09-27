@@ -108,7 +108,6 @@ typedef struct TfwStr {
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)	(int)min(20UL, (s)->len), (s)->data
 
-/* Numner of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->chunknum)
 #define TFW_STR_CHUNKN_LIM(s)	((s)->chunknum >= __TFW_STR_CN_MAX)
 #define TFW_STR_CHUNKN_ADD(s, n)	((s)->chunknum += (n))
