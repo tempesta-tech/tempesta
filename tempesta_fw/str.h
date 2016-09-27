@@ -8,7 +8,7 @@
  *    only to actual data stored somewhere else, typically in skb;
  *
  * 2. the string handles possibly chunked data, e.g. splitted among different
- *    skbs. In this case COMPOUND flag is used;
+ *    skbs. In this case 'chunknum' field is not zero;
  *
  * 3. it is HTTP specific in that sense that the string aggregates duplicate
  *    headers, where duplicate is not necessary exact string matching
@@ -29,7 +29,7 @@
  * indirection is expected. If string have more than one chunk, it's called
  * a "compound" string. `len` field of a compound string contains total length
  * of all chunks combined. Same field for a plain string is just length of
- * a data in the region pointed to by `ptr`.
+ * a data in the region pointed to by `data`.
  *
  * Another possibility is a so called duplicate string. A duplicate string is
  * a bunch of strings that describe HTTP fields with the same name.
@@ -37,11 +37,7 @@
  * all of those will end up in a duplicate string. Such strings use `ptr`
  * field as an array of TfwStr's, each of which can be a compound string.
  * A duplicate string can not itself consist of duplicate strings.
- *
- * `flags` field is used for both discerning the types of strings and keeping
- * the number of elements in `ptr` array, if there are any. Lower 8 bits of
- * the field are reserved for flags. Remaining bits are used to store
- * the number of chunks in a compound string. Zero means a plain string.
+ * `flags` field is used for discerning the types of strings.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
@@ -69,11 +65,6 @@
 
 #include "pool.h"
 
-/* Str is compound from many chunks, use indirect table for the chunks. */
-/*
- * Str constists from compound or plain strings.
- * Duplicate strings are also always compound on root level.
- */
 #define __TFW_STR_CN_MAX	0xffffff
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete and will not grow. */
@@ -84,15 +75,15 @@
 #define TFW_STR_VALUE		0x08
 
 /*
- * @ptr		- pointer to string data or array of nested strings;
+ * @data	- pointer to string data;
+*  @chunks	- pointer to array of chunks of a chunked string;
  * @skb		- socket buffer containign the string data;
  * @len		- total length of compund or plain string (HTTP message body
  *		  size can be extreme large, so we need 64 bits to handle it);
  * @eolen	- the length of string's line endings, if present (as for now,
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
  *		  2 for CRLF);
- * @flags	- 3 most significant bytes for number of chunks of compound
- * 		  string and the least significant byte for flags;
+ * @flags	- 8-bit type of string;
  */
 typedef struct TfwStr {
 	struct sk_buff	*skb;
@@ -110,9 +101,7 @@ typedef struct TfwStr {
 						  	
 #define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s,\
 					   .len = sizeof(s) - 1 })
-/* For dynamic arrays of chars (by kmalloc(), for example) the sizeof() 
- * could be wrong. So we need a special initializer with the strlen().
- */ 
+/* For dynamic strings with the strlen().*/
 #define TFW_STR_FROMDS(s)         ((TfwStr){ .data = (char *)s,\
 					     .len = strlen(s) })
 
