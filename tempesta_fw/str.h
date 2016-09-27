@@ -101,9 +101,9 @@ typedef struct TfwStr {
 	unsigned int	chunknum : 24;
 	unsigned int	flags : 8;
 	union {
-	char *data;
-	struct TfwStr *chunks;
-};
+		char *data;
+		struct TfwStr *chunks;
+	};
 } TfwStr;
 #define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), .skb = NULL,	\
 						  .len = sizeof(val) - 1,	\
