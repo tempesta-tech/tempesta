@@ -459,7 +459,7 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 EXPORT_SYMBOL(tfw_str_eq_cstr_off);
 
 /**
- * The function intentionaly brokes zero-copy string design. And should
+ * The function intentionaly breaks zero-copy string design. And should
  * be used for short-strings only.
  *
  * Join all chunks of @str to a single plain C string.
