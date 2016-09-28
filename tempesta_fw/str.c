@@ -57,9 +57,9 @@ tfw_str_del_chunk(TfwStr *str, int id)
  * TODO do we need exponential growing?
  */
 static TfwStr *
-__str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
+__str_grow_tree(TfwPool *pool, TfwStr *str, bool is_duplicate, int n)
 {
-	if (str->flags & flag) {
+	if (is_duplicate) {
 		unsigned int l;
 		void *p;
 
@@ -111,7 +111,7 @@ TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 {
 	TfwStr *dup_str;
-	dup_str = __str_grow_tree(pool, str, TFW_STR_DUPLICATE, 1);
+	dup_str = __str_grow_tree(pool, str, 1, 1);
 
 	/* Length for set of duplicate strings has no sense. */
 	str->len = 0;
