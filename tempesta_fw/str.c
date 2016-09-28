@@ -398,7 +398,7 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 		}
 
 		tmp.len -= c->len;
-		tmp.data += sizeof(TfwStr);
+		tmp.chunks += sizeof(TfwStr);
 
 		TFW_STR_CHUNKN_SUB(&tmp, 1);
 	}
@@ -440,7 +440,7 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 		if (offset >= c->len) {
 			offset -= c->len;
 			tmp.len -= c->len;
-			tmp.data += sizeof(TfwStr);
+			tmp.chunks += sizeof(TfwStr);
 			TFW_STR_CHUNKN_SUB(&tmp, 1);
 			continue;
 		}
@@ -457,6 +457,7 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 	return ret;
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_off);
+
 /**
  * The function intentionaly brokes zero-copy string design. And should
  * be used for short-strings only.
