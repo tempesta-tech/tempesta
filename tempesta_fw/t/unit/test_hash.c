@@ -63,8 +63,8 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 {
 	unsigned long h1, h2, h3;
-	TfwStr s1 = { .len = 17, .data = "Host: example.com" };
-	TfwStr s2c1 = {	.len = 14, .data = "Host: example." };
+	TfwStr s1 = TFW_STR_FROM("Host: example.com");
+	TfwStr s2c1 = TFW_STR_FROM("Host: example.");
 	TfwStr s2c2 = {	.len = 3, .data = "com" };
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
@@ -72,11 +72,11 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 		.chunks = s2chunks
 	};
 
-	TfwStr s3c1 = {	.len = 1, .data = "H" };
-	TfwStr s3c2 = {	.len = 0, .data = "" };
-	TfwStr s3c3 = {	.len = 3, .data = "ost" };
-	TfwStr s3c4 = {	.len = 1, .data = ":" };
-	TfwStr s3c5 = {	.len = 12, .data = " example.com" };
+	TfwStr s3c1 = TFW_STR_FROM("H");
+	TfwStr s3c2 = TFW_STR_FROM("");
+	TfwStr s3c3 = TFW_STR_FROM("ost");
+	TfwStr s3c4 = TFW_STR_FROM(":");
+	TfwStr s3c5 = TFW_STR_FROM(" example.com");
 	TfwStr s3c6 = {	.len = 0, .data = NULL };
 	TfwStr s3chunks[] = { s3c1, s3c2, s3c3, s3c4, s3c5, s3c6 };
 	TfwStr s3 = {
@@ -105,8 +105,8 @@ TEST(tfw_hash_str, hashes_all_chars)
 	unsigned long h1, h2;
 	char buf1[256] = { 0 };
 	char buf2[256] = { 0 };
-	TfwStr s1 = { .len = 0,	.data = buf1 };
-	TfwStr s2 = { .len = 0, .data = buf2 };
+	TfwStr s1 = { .data = buf1 };
+	TfwStr s2 = { .data = buf2 };
 
 	/* Change of each individial byte in the string should change
 	 * the hash value. */
@@ -140,9 +140,7 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 {
 	char buf[256] = { 0 };
 	TfwStr s = {
-		.len = 0,
 		.data = buf,
-		.chunknum = 0
 	};
 
 	unsigned long h1, h2;
@@ -164,10 +162,7 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 {
 	char buf[31]; /* maximum tail */
-	TfwStr str = {
-		.data = buf,
-		.len = sizeof(buf)
-	};
+	TfwStr str = TFW_STR_FROM(buf);
 
 	unsigned long h1, h2;
 	int i;
