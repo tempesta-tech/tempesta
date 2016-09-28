@@ -356,8 +356,8 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 	 * implement our own strcasecmp() if it becomes a bottle neck.
 	 */
 	if (strncasecmp(p, str + offset, len) ||
-	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->data, str, chunk->len,
-						TFW_STR_EQ_CASEI)))
+	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->data, str, 
+						chunk->len, TFW_STR_EQ_CASEI)))
 		return CSTR_NEQ;
 
 	chunk->len += len;
