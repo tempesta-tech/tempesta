@@ -34,12 +34,12 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 	 * The hashes should be different with high probability,
 	 * but at this point we are not going to write some statistical tests.
 	 */
-	TfwStr s1 = { .len = 10, .data = "foobarbaz1" };
-	TfwStr s2 = { .len = 10, .data = "Foobarbaz1" };
-	TfwStr s3 = { .len = 10, .data = "foobarbaz2" };
-	TfwStr s4 = { .len = 9, .data = "foobarbaz" };
-	TfwStr s5 = { .len = 11, .data = "foobarbaz11" };
-	TfwStr s6 = { .len = 0, .data = "" };
+	TfwStr s1 = TFW_STR_FROM("foobarbaz1");
+	TfwStr s2 = TFW_STR_FROM("Foobarbaz1");
+	TfwStr s3 = TFW_STR_FROM("foobarbaz2");
+	TfwStr s4 = TFW_STR_FROM("foobarbaz");
+	TfwStr s5 = TFW_STR_FROM("foobarbaz11");
+	TfwStr s6 = TFW_STR_FROM("");
 
 	unsigned long h[] = {
 		tfw_hash_str(&s1),
