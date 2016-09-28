@@ -764,13 +764,13 @@ done:
 	SS_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
 		" tail [%p] end [%p] len [%u] data_len [%u]"
 		" truesize [%u] nr_frags [%u]\n",
-		smp_processor_id(), __func__, it->chunks, skb, skb->head,
+		smp_processor_id(), __func__, it->data, skb, skb->head,
 		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
 		skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;
-	if ((it->chunks == NULL) || (it->skb == NULL))
+	if ((it->data == NULL) || (it->skb == NULL))
 		return -EFAULT;
 	it->len = max(0, len);
 
@@ -845,12 +845,12 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 		skip = 0;
 	}
 
-	BUG_ON(it.chunks == NULL);
+	BUG_ON(it.data == NULL);
 	BUG_ON(it.skb == NULL);
 
 	/* Cut off the tail. */
 	while (tail) {
-		void *t_ptr = it.chunks;
+		char *t_ptr = it.data;
 		struct sk_buff *t_skb = it.skb;
 		memset(&it, 0, sizeof(TfwStr));
 		r = skb_fragment(skb_list, t_skb, t_ptr, -tail, &it);
