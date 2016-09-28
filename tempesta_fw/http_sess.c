@@ -594,12 +594,12 @@ int __init
 tfw_http_sess_init(void)
 {
 	int ret;
-	u_char *ptr;
+	u_char *data;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
+	if ((data = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
 		return -ENOMEM;
 	}
-	tfw_cfg_sticky.name.data = tfw_cfg_sticky.name_eq.data = ptr;
+	tfw_cfg_sticky.name.data = tfw_cfg_sticky.name_eq.data = data;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
