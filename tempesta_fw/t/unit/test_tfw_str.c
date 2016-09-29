@@ -79,19 +79,10 @@ TEST(tfw_strcpy, both_compound)
 	DEFINE_TFW_STR(s1, "abcdefghijklmnop");
 
 	TfwStr s2 = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "ab",	.len = 2 },
-			{ .data = "cde",	.len = 3 },
-			{ .data = "f",	.len = 1 },
-			{ .data = "g",	.len = 1 },
-			{ .data = "h",	.len = 1 },
-			{ .data = "ijklmno", .len = 7 },
-			{ .data = "p", .len = 1 }
-		},
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.flags = 0
-	};
-	TFW_DBG("test:both:cpy\n");
+		.chunks = (TfwStr *)(TfwStr []){	TFW_STR_FROM("ab"),
+TFW_STR_FROM("cde"), TFW_STR_FROM("f"),TFW_STR_FROM("g"), TFW_STR_FROM("h"),
+TFW_STR_FROM("ijklmno"), TFW_STR_FROM("p") },
+.len = sizeof("abcdefghijklmnop") - 1 };
 	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
