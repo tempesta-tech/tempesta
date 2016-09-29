@@ -27,15 +27,9 @@
 
 TEST(tfw_strcpy, zero_src)
 {
-	TfwStr s1 = {
-		.len = 0,
-		.data = NULL
-	};
-	TfwStr s2 = {
-		.len = 3,
-		.data = "abc"
-	};
-
+	TfwStr s1 = { 0 };
+	TfwStr s2 = TFW_STR_FROM("abc");
+	
 	/* @dest->ptr is static memory, but must not crash. */
 	EXPECT_ZERO(tfw_strcpy(&s2, &s1));
 	EXPECT_ZERO(s2.len);
@@ -43,32 +37,18 @@ TEST(tfw_strcpy, zero_src)
 
 TEST(tfw_strcpy, zero_dst)
 {
-	TfwStr s1 = {
-		.len = 0,
-		.data = NULL
-	};
-	TfwStr s2 = {
-		.len = 3,
-		.data = "abc"
-	};
+	TfwStr s1 = { 0	};
+	TfwStr s2 = TFW_STR_FROM("abc");
 
 	/* @dest->ptr is static memory, but must not crash. */
-	TFW_DBG("test_str:zerro:\n");
 	EXPECT_ZERO(!tfw_strcpy(&s1, &s2));
 }
 
 TEST(tfw_strcpy, both_plain)
 {
 	char buf1[4] = { 0 }, buf2[4] = "abc";
-	TfwStr s1 = {
-		.len = 4,
-		.data = buf1
-	};
-	TfwStr s2 = {
-		.len = 4,
-		.data = buf2
-	};
-	TFW_DBG("test:plain:cpy\n");
+	TfwStr s1 = TFW_STR_FROM(buf1);
+	TfwStr s2 = TFW_STR_FROM(buf2);
 	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
 	EXPECT_STR_EQ(s1.data, "abc");
 }
@@ -76,10 +56,7 @@ TEST(tfw_strcpy, both_plain)
 TEST(tfw_strcpy, src_compound)
 {
 	char buf1[32] = { 0 };
-	TfwStr s1 = {
-		.len = 32,
-		.data = buf1
-	};
+	TfwStr s1 = TFW_STR_FROM(buf1);
 	DEFINE_TFW_STR(s2, "abcdefghijklmnop");
 
 	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
@@ -89,14 +66,11 @@ TEST(tfw_strcpy, src_compound)
 TEST(tfw_strcpy, dst_compound)
 {
 	char buf[32] = { [0 ... 30] = 'a', 0 };
-	TfwStr s2 = {
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.data = "abcdefghijklmnop"
-	};
-	TFW_STR(s1, buf);
+	DEFINE_TFW_STR(s1, buf);
+	DEFINE_TFW_STR(s2, "abcdefghijklmnop");
 
-	EXPECT_ZERO(tfw_strcpy(s1, &s2));
-	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
+	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
 }
 
