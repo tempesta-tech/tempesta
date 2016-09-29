@@ -100,28 +100,8 @@ TEST(tfw_strcpy, both_compound)
 TEST(tfw_strcat, plain)
 {
 	int chunkscnt;
-/*	TfwStr s1 = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "ab",	.len = 2 },
-			{ .data = "cde",	.len = 3 },
-			{ .data = "f",	.len = 1 },
-			{ .data = "g",	.len = 1 },
-			{ .data = "h",	.len = 1 },
-			{ .data = "ijklmno", .len = 7 },
-			{ .data = "p", .len = 1 }
-		},
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.flags = 0
-	};*/
+
 	TfwStr s1 = {.data = "abcdefghijklmnop", .len = sizeof("abcdefghijklmnop") - 1,.skb = NULL};
-/*
-	TfwStr s1 = { .chunks = (struct TfwStr *)(TfwStr []){{
-			.data = "abcdefghijklmnop", .len = sizeof("abcdefghijklmnop") - 1,.skb = NULL}},
-		.len = sizeof("abcdefghijklmnop") - 1,
-		.skb = NULL,
-		.flags = 0
-		   };
-*/
 	TfwStr s2 = {
 		.len = sizeof("0123456789") - 1,
 		.data = "0123456789"
@@ -218,7 +198,6 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 			  .len = sizeof("cdefghijklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 0
 	};
 	TfwStr s2 = {
 		.chunks = (struct TfwStr *)(TfwStr []){
@@ -228,7 +207,6 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 			  .len = sizeof("jklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 0
 	};
 
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
