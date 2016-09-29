@@ -145,10 +145,7 @@ TFW_DBG("ret_true: second - ok\n");
 TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 {
 	int res;
-	TfwStr s1 = {
-		.len	= sizeof("abcdefghijklmnopqrst") - 1,
-		.data	= "abcdefghijklmnopqrst"
-	};
+	TfwStr s1 = TFW_STR_FROM("abcdefghijklmnopqrst");
 	DEFINE_TFW_STR(s2, "abcdefghijklmnopqrst");
 	DEFINE_TFW_STR(s3, "abcdefghi");
 	DEFINE_TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
@@ -165,7 +162,6 @@ TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 TEST(tfw_stricmpspn, handles_empty_strs)
 {
 	TfwStr s1 = {
-		.len	= 0,
 		.data	= "garbage"
 	};
 	TfwStr s2 = { .data= "trash" };
@@ -180,22 +176,14 @@ TEST(tfw_stricmpspn, handles_empty_strs)
 TEST(tfw_stricmpspn, handles_different_size_strs)
 {
 	TfwStr s1 = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "ab", .len = sizeof("ab") - 1 },
-			{ .data = "cdefghijklmnopqrst",
-			  .len = sizeof("cdefghijklmnopqrst") - 1 }
-		},
-		.len = sizeof("abcdefghijklmnopqrst") - 1,
-	};
+		.chunks = (TfwStr *)(TfwStr []){
+			 TFW_STR_FROM("ab"),
+TFW_STR_FROM("cdefghijklmnopqrst"), TFW_STR_FROM("cdefghijklmnopqrst")},
+		.len = sizeof("abcdefghijklmnopqrst") - 1};
 	TfwStr s2 = {
-		.chunks = (struct TfwStr *)(TfwStr []){
-			{ .data = "abcdefg", .len = sizeof("abcdefg") - 1 },
-			{ .data = "hi", .len = sizeof("hi") - 1 },
-			{ .data = "jklmnopqrst",
-			  .len = sizeof("jklmnopqrst") - 1 }
-		},
-		.len = sizeof("abcdefghijklmnopqrst") - 1,
-	};
+		.chunks = (TfwStr *)(TfwStr []){
+			TFW_STR_FROM("abcdefg"), TFW_STR_FROM("hi"),
+TFW_STR_FROM("jklmnopqrst")}, .len = sizeof("abcdefghijklmnopqrst") - 1};
 
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
