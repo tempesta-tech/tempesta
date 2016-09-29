@@ -259,32 +259,23 @@ TEST(tfw_str_eq_cstr, handles_unterminated_strs)
 TEST(tfw_str_eq_cstr, handles_empty_strs)
 {
 	TfwStr s1 = { .data = (char *)"garbage" };
-	TfwStr s2 = {
-		.len = 0,
-		.data = NULL
-	};
+	TfwStr s2 = { 0	};
 	TfwStr chunks[] = { s1, s2 };
-	TfwStr s3 = {
-		.len = 0,
-		.chunks = (struct TfwStr *)&chunks
-	};
-	TfwStr s_ne = {
-		.len = 3,
-		.data = (void *)"foo"
-	};
-	const char *cstr = "";
-	const char *cstr_ne = "bar";
-	size_t len = strlen(cstr_ne);
+	TfwStr s3 = { .chunks = (struct TfwStr *)&chunks };
+	TfwStr s_ne = TFW_STR_FROM("foo");
+	
+	const TfwStr str = TFW_STR_FROM("");
+	const TfwStr str_ne2 = TFW_STR_FROM("bar");
 
 	TFW_STR_CHUNKN_INIT(&s3);
 
-	EXPECT_TRUE(tfw_str_eq_cstr(&s1, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s2, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s3, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s_ne, cstr, 0, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s1, cstr_ne, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s2, cstr_ne, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s3, cstr_ne, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s1, str.data, str.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s2, str.data, str.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s3, str.data, str.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s_ne, str.data, str.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s1, str_ne2.data, str_ne2.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s2, str_ne2.data, str_ne2.len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s3, str_ne2.data, str_ne2.len, TFW_STR_EQ_DEFAULT));
 }
 
 TEST(tfw_str_eq_cstr, supports_casei)
