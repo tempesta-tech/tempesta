@@ -177,16 +177,13 @@ TEST(tfw_stricmpspn, handles_empty_strs)
 		.len	= 0,
 		.data	= "garbage"
 	};
-	TfwStr s2 = {
-		.len	= 0,
-		.data	= "trash"
-	};
-	TFW_STR(s3, "abcdefghijklmnopqrst");
+	TfwStr s2 = { .data= "trash" };
+	DEFINE_TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'a') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, &s3, 0) == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, &s3, 'a') == 0);
 }
 
 TEST(tfw_stricmpspn, handles_different_size_strs)
@@ -261,10 +258,7 @@ TEST(tfw_str_eq_cstr, handles_unterminated_strs)
 
 TEST(tfw_str_eq_cstr, handles_empty_strs)
 {
-	TfwStr s1 = {
-		.len = 0,
-		.data = (char *)"garbage"
-	};
+	TfwStr s1 = { .data = (char *)"garbage" };
 	TfwStr s2 = {
 		.len = 0,
 		.data = NULL
