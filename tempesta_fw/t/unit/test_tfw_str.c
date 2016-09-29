@@ -298,37 +298,36 @@ TEST(tfw_str_eq_cstr, supports_casei)
 TEST(tfw_str_eq_cstr, supports_prefix)
 {
 	DEFINE_TFW_STR(s, "/foo/bar/baz.test");
-	const char *p1 = "/foo/bar/baz.test";
-	const char *p2 = "/foo/bar/baz.tes";
-	const char *p3 = "/foo/bar/baz";
-	const char *p4 = "/foo/bar/";
-	const char *p5 = "/foo";
-	const char *p6 = "/";
-	const char *p7 = "";
-	const char *extra = "/foo/bar/baz.test/extra";
-	const char *p1_ci = "/foo/bar/";
-	const char *p5_ci = "/foo/bar/";
-	const char *p6_ci = "/foo/bar/p6_ci";
+	const TfwStr p1 = TFW_STR_FROM("/foo/bar/baz.test");
+	const TfwStr p2 = TFW_STR_FROM("/foo/bar/baz.tes");
+	const TfwStr p3 = TFW_STR_FROM("/foo/bar/baz");
+	const TfwStr p4 = TFW_STR_FROM("/foo/bar/");
+	const TfwStr p5 = TFW_STR_FROM("/foo");
+	const TfwStr p6 = TFW_STR_FROM("/");
+	const TfwStr p7 = TFW_STR_FROM("");
+	const TfwStr extra = TFW_STR_FROM("/foo/bar/baz.test/extra");
+	const TfwStr p1_ci = TFW_STR_FROM("/foo/bar/");
+	const TfwStr p5_ci = TFW_STR_FROM("/foo/bar/");
+	const TfwStr p6_ci = TFW_STR_FROM("/foo/bar/p6_ci");
 
-	TFW_DBG("before tests:s:%s\n", s.data);
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p1, strlen(p1), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p2, strlen(p2), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p3, strlen(p3), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p4, strlen(p4), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p5, strlen(p5), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p6, strlen(p6), TFW_STR_EQ_PREFIX));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p7, strlen(p7), TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p1.data, p1.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p2.data, p2.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p3.data, p3.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p4.data, p4.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p5.data, p5.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p6.data, p6.len, TFW_STR_EQ_PREFIX));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p7.data, p7.len, TFW_STR_EQ_PREFIX));
 
-	EXPECT_FALSE(tfw_str_eq_cstr(&s, extra, strlen(extra),
+	EXPECT_FALSE(tfw_str_eq_cstr(&s, extra.data, extra.len,
 		     TFW_STR_EQ_PREFIX));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s, p6_ci, strlen(p6_ci),
+	EXPECT_FALSE(tfw_str_eq_cstr(&s, p6_ci.data, p6_ci.len,
 		     TFW_STR_EQ_PREFIX));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s, p6_ci, strlen(p6_ci),
+	EXPECT_FALSE(tfw_str_eq_cstr(&s, p6_ci.data, p6_ci.len,
 		     TFW_STR_EQ_PREFIX));
 
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p1_ci, strlen(p1_ci),
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p1_ci.data, p1_ci.len,
 		    TFW_STR_EQ_PREFIX_CASEI));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, p5_ci, strlen(p5_ci),
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, p5_ci.data, p5_ci.len,
 		    TFW_STR_EQ_PREFIX_CASEI));
 }
 
