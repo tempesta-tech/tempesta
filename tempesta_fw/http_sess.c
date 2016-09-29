@@ -145,19 +145,17 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	/* Search cookie name. */
 	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
 	for (chunk = cookie->ptr; chunk != end; ++chunk, --n) {
-		if (chunk->flags & TFW_STR_NAME) {
-			/*
-			 * Create temporary compound string, starting
-			 * with this chunk.
-			 * We do not use it's overall length now,
-			 * so do not set it.
-			 */
-			tmp.ptr = (void *)chunk;
-			__TFW_STR_CHUNKN_SET(&tmp, n);
-			if (tfw_str_eq_cstr(&tmp, cstr, clen,
-					    TFW_STR_EQ_PREFIX))
-				break;
-		}
+		if (!(chunk->flags & TFW_STR_NAME))
+			continue;
+		/*
+		 * Create a temporary compound string, starting with this
+		 * chunk. The total string length is not used here, so it
+		 * is not set.
+		 */
+		tmp.ptr = (void *)chunk;
+		__TFW_STR_CHUNKN_SET(&tmp, n);
+		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
+			break;
 	}
 	if (chunk == end)
 		return 0;
@@ -196,6 +194,9 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 
 /*
  * Find Tempesta sticky cookie in an HTTP message.
+ *
+ * Return 1 if the cookie is found.
+ * Return 0 if the cookie is NOT found.
  */
 static int
 tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
@@ -204,14 +205,11 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 	TfwStr *hdr;
 
 	/*
-	 * Find a 'Cookie:' header field in the request.
-	 * Then search for Tempesta sticky cookie within the field.
-	 * NOTE: there can be only one "Cookie:" header field.
-	 * See RFC 6265 section 5.4.
+	 * Find a 'Cookie:' header field in the request. Then search for
+	 * Tempesta sticky cookie within the field. Note that there can
+	 * be only one "Cookie:" header field. See RFC 6265 section 5.4.
 	 * NOTE: Irrelevant here, but there can be multiple 'Set-Cookie"
 	 * header fields as an exception. See RFC 7230 section 3.2.2.
-	 * In this case, client merges them into one 'Cookie' header field
-	 * in response.
 	 */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
@@ -361,7 +359,7 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 
 	/* Create Tempesta sticky cookie and store it */
 	if (tfw_http_sticky_calc(req, &sv) != 0)
-		return tfw_http_send_502(req);
+		return -1;
 
 	r = tfw_http_sticky_send_302(req, &sv);
 
