@@ -99,7 +99,6 @@ TEST(tfw_strcat, plain)
 	};
 
 	chunkscnt = TFW_STR_CHUNKN(&s1);
-	TFW_DBG("test:cat:plain\n");
 	EXPECT_ZERO(tfw_strcat(str_pool, &s1, &s2));
 	TFW_DBG("after cat:%lu;n:%d\n", s1.len, s1.chunknum);
 	EXPECT_TRUE(TFW_STR_CHUNKN(&s1) == chunkscnt + 1);
@@ -261,7 +260,6 @@ TEST(tfw_str_eq_cstr, supports_casei)
 	size_t len1 = strlen(cstr1);
 	size_t len2 = strlen(cstr2);
 	size_t len3 = strlen(cstr3);
-	TFW_DBG("test_cassei:s:%s\n", s.data);
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr1, len1, TFW_STR_EQ_CASEI));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr2, len2, TFW_STR_EQ_CASEI));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr3, len3, TFW_STR_EQ_CASEI));
