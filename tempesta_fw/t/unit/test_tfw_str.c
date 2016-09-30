@@ -161,10 +161,8 @@ TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 
 TEST(tfw_stricmpspn, handles_empty_strs)
 {
-	TfwStr s1 = {
-		.data	= "garbage"
-	};
-	TfwStr s2 = { .data= "trash" };
+	DEFINE_TFW_STR(s1, "garbage");
+	DEFINE_TFW_STR(s2, "trash");
 	DEFINE_TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
@@ -228,16 +226,13 @@ TEST(tfw_str_eq_cstr, handles_unterminated_strs)
 {
 	const char *cstr = "foobarbaz [SOME GARBAGE]";
 	int cstr_len = 9;
-	TfwStr s = {
-		.len = cstr_len,
-		.data = (char *)"foobarbaz [ANOTHER GARBAGE]"
-	};
+	TfwStr s = TFW_STR_FROM("foobarbaz [ANOTHER GARBAGE]");
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr, cstr_len, TFW_STR_EQ_DEFAULT));
 }
 
 TEST(tfw_str_eq_cstr, handles_empty_strs)
 {
-	TfwStr s1 = { .data = (char *)"garbage" };
+	TfwStr s1 = TFW_STR_FROM("garbage");
 	TfwStr s2 = { 0	};
 	TfwStr chunks[] = { s1, s2 };
 	TfwStr s3 = { .chunks = (struct TfwStr *)&chunks };
