@@ -27,8 +27,8 @@
 
 /**
  * The default port for textual IP address representations.
- * I.e., "127.0.0.1" is equal to "127.0.0.1:80", but that is true only for
- * strings, and deserialized representation (TfwAddr) is not affected.
+ * I.e., "127.0.0.1" equals to "127.0.0.1:80", but that's true only for
+ * strings, and the deserialized representation (TfwAddr) is not affected.
  */
 #define TFW_ADDR_STR_DEF_PORT 80
 
@@ -60,11 +60,13 @@ int tfw_addr_pton(const TfwStr *str, TfwAddr *addr);
 int tfw_addr_pton_cidr(const char *str, TfwAddr *addr);
 size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
-/* A couple of lower-level functions faster than tfw_addr_ntop().
- * Note that they don't check input arguments and don't terminate output. */
+/*
+ * A couple of lower-level functions that are faster than tfw_addr_ntop().
+ * Note that they don't check the arguments and don't terminate the output.
+ */
 char *tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *out_buf);
 char *tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port,
-			char *out_buf);
+		      char *out_buf);
 
 static inline ssize_t
 tfw_addr_sa_len(const TfwAddr *addr)
