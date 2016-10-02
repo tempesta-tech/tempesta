@@ -137,7 +137,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	const char *const cstr = tfw_cfg_sticky.name_eq.data;
 	const unsigned int clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end, *next;
-	TfwStr tmp = { .flags = 0, };
+	TfwStr tmp = { 0 };
 	unsigned int n = TFW_STR_CHUNKN(cookie);
 
 	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
@@ -389,11 +389,8 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	TFW_DBG("Sticky cookie found%s: \"%.*s\"\n",
 		TFW_STR_PLAIN(value) ? "" : ", starts with",
 		TFW_STR_PLAIN(value) ?
-			(int)value->len :
-			(int)value->chunks->len,
-		TFW_STR_PLAIN(value) ?
-			value->data :
-			value->chunks->data);
+			(int)value->len : (int)value->chunks->len,
+		TFW_STR_PLAIN(value) ? value->data : value->chunks->data);
 
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
@@ -596,9 +593,8 @@ tfw_http_sess_init(void)
 	int ret;
 	u_char *data;
 
-	if ((data = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
+	if ((data = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
-	}
 	tfw_cfg_sticky.name.data = tfw_cfg_sticky.name_eq.data = data;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
@@ -618,7 +614,7 @@ tfw_http_sess_init(void)
 	}
 
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				      0, 0, NULL);
+				       0, 0, NULL);
 	if (!sess_cache) {
 		crypto_free_shash(tfw_sticky_shash);
 		return -ENOMEM;
