@@ -65,11 +65,12 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 	unsigned long h1, h2, h3;
 	TfwStr s1 = TFW_STR_FROM("Host: example.com");
 	TfwStr s2c1 = TFW_STR_FROM("Host: example.");
-	TfwStr s2c2 = {	.len = 3, .data = "com" };
+	TfwStr s2c2 = TFW_STR_FROM("com");
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
 		.len = s2c1.len + s2c2.len,
 		.chunks = s2chunks
+		.chunknum = ARRAY_SIZE(s2chunks),
 	};
 
 	TfwStr s3c1 = TFW_STR_FROM("H");
@@ -81,11 +82,9 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 	TfwStr s3chunks[] = { s3c1, s3c2, s3c3, s3c4, s3c5, s3c6 };
 	TfwStr s3 = {
 		.len = 1 + 0 + 3 + 1 + 12 + 0,
-		.chunks = s3chunks
+		.chunks = s3chunks,
+		.chunknum = ARRAY_SIZE(s3chunks),
 	};
-
-	TFW_STR_CHUNKN_INIT(&s2);
-	__TFW_STR_CHUNKN_SET(&s3, 6);
 
 	h1 = tfw_hash_str(&s1);
 	h2 = tfw_hash_str(&s2);
@@ -138,13 +137,10 @@ TEST(tfw_hash_str, hashes_all_chars)
 
 TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 {
-	char buf[256] = { 0 };
-	TfwStr s = {
-		.data = buf,
-	};
-
-	unsigned long h1, h2;
 	int i;
+	unsigned long h1, h2;
+	char buf[256] = { 0 };
+	TfwStr s = { .data = buf };
 
 	for (i = 0; i < 255; ++i) {
 		s.len = i;
@@ -161,11 +157,10 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 
 TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 {
+	int i;
+	unsigned long h1, h2;
 	char buf[31]; /* maximum tail */
 	TfwStr str = TFW_STR_FROM(buf);
-
-	unsigned long h1, h2;
-	int i;
 
 	memset(buf, 'a', sizeof(buf));
 	h1 = tfw_hash_str(&str);
