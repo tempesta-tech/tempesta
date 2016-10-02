@@ -306,6 +306,51 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 		    TFW_STR_EQ_PREFIX_CASEI));
 }
 
+TEST(tfw_str_eq_cstr_off, supports_suffix)
+{
+	TFW_STR(s, "/foo/bar/baz.test");
+	const char *p1 = "/foo/bar/baz.test";
+	const char *p2 = "foo/bar/baz.test";
+	const char *p3 = "bar/baz.test";
+	const char *p4 = "/baz.test";
+	const char *p5 = ".test";
+	const char *f1 = "/bar/foo/baz.test";
+	const char *f2 = "/foo/bar/";
+	const char *extra = "/bar/foo/baz.test100";
+	const char *i1 = "/foo/bar/baz.tesT";
+	const char *i2 = ".TeSt";
+
+#define X_EXPECT_TRUE(s, p, flags)					\
+do {									\
+	int plen = strlen(p);						\
+	EXPECT_TRUE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+} while(0)
+#define X_EXPECT_FALSE(s, p, flags)					\
+do {									\
+	int plen = strlen(p);						\
+	EXPECT_FALSE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+} while(0)
+
+	X_EXPECT_TRUE(s, p1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p2, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p3, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p4, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_TRUE(s, p5, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, f1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, f2, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, extra, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT);
+	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT);
+
+	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+
+#undef X_EXPECT_TRUE
+#undef X_EXPECT_FALSE
+}
+
 static const char *foxstr = "The quick brown fox jumps over the lazy dog";
 
 TEST(tfw_str_eq_cstr_pos, plain)
