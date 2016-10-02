@@ -34,14 +34,14 @@ void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
 	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]	= SLEN("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = SLEN("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
-		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
-		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
-		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
+		[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+		[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+		[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+		[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_USER_AGENT]	= SLEN("User-Agent:"),
+		[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
+		[TFW_HTTP_HDR_COOKIE]		= SLEN("Cookie:"),
 	};
 
 	TfwStr *c, *end;
