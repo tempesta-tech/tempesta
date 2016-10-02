@@ -490,9 +490,9 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
 	TfwStr hdr = {
 		.chunks = (TfwStr []){
-			{ .data = name,	.len = n_len },
-			{ .data = ": ",	.len = 2 },
-			{ .data = val,	.len = v_len },
+			TFW_STR_FROM_BUFLEN(name, n_len),
+			TFW_STR_FROM(": "),
+			TFW_STR_FROM_BUFLEN(val, v_len),
 		},
 		.len = n_len + 2 + v_len,
 		.eolen = 2,
@@ -556,9 +556,9 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	TfwStr *orig_hdr;
 	TfwStr new_hdr = {
 		.chunks = (TfwStr []){
-			{ .data = name,	.len = n_len },
-			{ .data = ": ",	.len = 2 },
-			{ .data = val,	.len = v_len },
+			TFW_STR_FROM_BUFLEN(name, n_len),
+			TFW_STR_FROM(": "),
+			TFW_STR_FROM_BUFLEN(val, v_len),
 		},
 		.len = n_len + 2 + v_len,
 		.eolen = 2,
@@ -601,10 +601,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	if (append) {
 		TfwStr hdr_app = {
 			.chunks = (TfwStr []){
-				{ .data = ", ",	.len = 2 },
-				{ .data = val,	.len = v_len },
+				TFW_STR_FROM(", "),
+				TFW_STR_FROM_BUFLEN(val, v_len),
 			},
-			.len = v_len + 2,
+			.len = 2 + v_len,
 			.chunknum = 2
 		};
 		return __hdr_expand(hm, orig_hdr, &hdr_app, true);

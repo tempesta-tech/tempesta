@@ -98,13 +98,12 @@ typedef struct TfwStr {
 	};
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val)	\
-		TfwStr name = { .data = (val), .len = sizeof(val) - 1 }
-#define TFW_STR_FROM(s)			\
-		((TfwStr){ .data = (char *)s, .len = sizeof(s) - 1 })
-/* For dynamic strings with the strlen().*/
-#define TFW_STR_FROMDS(s)		\
-		((TfwStr){ .data = (char *)s, .len = strlen(s) })
+/* For strings of length @slen in a buffer @buf. */
+#define TFW_STR_FROM_BUFLEN(buf, slen)	\
+		((TfwStr){ .data = (char *)buf, .len = slen })
+#define TFW_STR_FROM(s)			TFW_STR_FROM_BUFLEN(s, sizeof(s) - 1)
+#define TFW_STR_FROM_DS(s)		TFW_STR_FROM_BUFLEN(s, strlen(s))
+#define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_FROM(val)
 #define TFW_STR_INIT(s)			memset(s, 0, sizeof(TfwStr))
 
 /* Use this with "%.*s" in printing calls. */

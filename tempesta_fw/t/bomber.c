@@ -453,7 +453,7 @@ tfw_bmb_init(void)
 	struct task_struct *task;
 	int r = 0;
 
-	if (tfw_addr_pton(&TFW_STR_FROMDS(server), &bmb_server_address)) {
+	if (tfw_addr_pton(&TFW_STR_FROM_DS(server), &bmb_server_address)) {
 		TFW_ERR("Unable to parse server's address: %s", server);
 		return -EINVAL;
 	}

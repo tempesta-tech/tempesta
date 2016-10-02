@@ -573,7 +573,7 @@ tfw_srv_cfg_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	in_addr = ce->vals[0];
 	in_conns_n = tfw_cfg_get_attr(ce, "conns_n", TFW_SRV_CFG_DEF_CONNS_N);
 
-	r = tfw_addr_pton(&TFW_STR_FROMDS(in_addr), &addr);
+	r = tfw_addr_pton(&TFW_STR_FROM_DS(in_addr), &addr);
 	if (r)
 		return r;
 

@@ -62,6 +62,8 @@ int ghprio; /* GFSM hook priority. */
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
+#define TFW_STR_FROM_GBUF(l)	TFW_STR_FROM_BUFLEN(*this_cpu_ptr(&g_buf), l)
+
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -129,22 +131,17 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	TfwMsgIter it;
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_302_PART_01, .len = SLEN(S_302_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_302_PART_02, .len = SLEN(S_302_PART_02) }
+			TFW_STR_FROM(S_302_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_302_PART_02),
 		},
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
 		.chunknum = 3
 	};
-	static TfwStr part03 = {
-		.data = S_302_PART_03, .len = SLEN(S_302_PART_03) };
-	static TfwStr crlfcrlf = {
-		.data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
-	static TfwStr crlf_keep = {
-		.data = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-	static TfwStr crlf_close = {
-		.data = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	static TfwStr part03 = TFW_STR_FROM(S_302_PART_03);
+	static TfwStr crlfcrlf = TFW_STR_FROM(S_CRLFCRLF);
+	static TfwStr crlf_keep = TFW_STR_FROM(S_302_KEEP);
+	static TfwStr crlf_close = TFW_STR_FROM(S_302_CLOSE);
 	TfwStr host, *crlf = &crlfcrlf;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
@@ -173,7 +170,7 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		static TfwStr proto = { .data = S_HTTP, .len = SLEN(S_HTTP) };
+		static TfwStr proto = TFW_STR_FROM(S_HTTP);
 		tfw_http_msg_write(&it, resp, &proto);
 		tfw_http_msg_write(&it, resp, &host);
 	}
@@ -246,11 +243,10 @@ tfw_http_send_200(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_200_PART_01, .len = SLEN(S_200_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_200_PART_02, .len = SLEN(S_200_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_200_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_200_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
 		.chunknum = 4
@@ -271,11 +267,10 @@ tfw_http_send_403(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_403_PART_01, .len = SLEN(S_403_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_403_PART_02, .len = SLEN(S_403_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_403_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_403_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
 		.chunknum = 4
@@ -296,11 +291,10 @@ tfw_http_send_404(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_404_PART_01, .len = SLEN(S_404_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_404_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_404_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
 		.chunknum = 4
@@ -322,11 +316,10 @@ tfw_http_send_500(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_500_PART_01, .len = SLEN(S_500_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_500_PART_02, .len = SLEN(S_500_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_500_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_500_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
 		.chunknum = 4
@@ -348,11 +341,10 @@ tfw_http_send_502(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_502_PART_01, .len = SLEN(S_502_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_502_PART_02, .len = SLEN(S_502_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_502_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_502_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
 		.chunknum = 4
@@ -374,11 +366,10 @@ tfw_http_send_504(TfwHttpReq *req)
 {
 	TfwStr rh = {
 		.chunks = (TfwStr []){
-			{ .data = S_504_PART_01, .len = SLEN(S_504_PART_01) },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = SLEN(S_V_DATE) },
-			{ .data = S_504_PART_02, .len = SLEN(S_504_PART_02) },
-			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			TFW_STR_FROM(S_504_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_504_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
 		.chunknum = 4
@@ -665,11 +656,9 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	TfwStr rh = {
 #define S_VIA	"Via: "
 		.chunks = (TfwStr []) {
-			{ .data = S_VIA, .len = SLEN(S_VIA) },
-			{ .data = (char *)s_http_version[hm->version],
-			  .len = 4 },
-			{ .data = *this_cpu_ptr(&g_buf),
-			  .len = vhost->hdr_via_len },
+			TFW_STR_FROM(S_VIA),
+			TFW_STR_FROM_BUFLEN(s_http_version[hm->version], 4),
+			TFW_STR_FROM_GBUF(vhost->hdr_via_len),
 		},
 		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
 		.eolen = 2,
