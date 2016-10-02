@@ -255,17 +255,19 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 TEST(tfw_str_eq_cstr, supports_casei)
 {
 	DEFINE_TFW_STR(s, "FooBarBaz 123");
-	const char *cstr1 = "FooBarBaz 123";
-	const char *cstr2 = "fooBarBaz 123";
-	const char *cstr3 = "FooBarBaZ 123";
-	size_t len1 = strlen(cstr1);
-	size_t len2 = strlen(cstr2);
-	size_t len3 = strlen(cstr3);
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr1, len1, TFW_STR_EQ_CASEI));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr2, len2, TFW_STR_EQ_CASEI));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr3, len3, TFW_STR_EQ_CASEI));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s, cstr2, len2, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(&s, cstr3, len3, TFW_STR_EQ_DEFAULT));
+	DEFINE_TFW_STR(cstr1, "FooBarBaz 123");
+	DEFINE_TFW_STR(cstr2, "fooBarBaz 123");
+	TfwStr cstr3 = TFW_STR_FROM("FooBarBaZ 123");
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr1.data, cstr1.len,
+				    TFW_STR_EQ_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr2.data, cstr2.len,
+				    TFW_STR_EQ_CASEI));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s, cstr3.data, cstr3.len, 
+				    TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s, cstr2.data, cstr2.len, 
+				     TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&s, cstr3.data, cstr3.len, 
+				     TFW_STR_EQ_DEFAULT));
 }
 
 TEST(tfw_str_eq_cstr, supports_prefix)
