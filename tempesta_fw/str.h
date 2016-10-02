@@ -65,25 +65,26 @@
 
 #include "pool.h"
 
-#define __TFW_STR_CN_MAX	0xffffff
+#define __TFW_STR_CN_MAX	0xffffff	/* 24 bits */
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete and will not grow. */
 #define TFW_STR_COMPLETE	0x02
-/* Some name starts at the string chunk. */
+/* A name (of name/value pair) starts at the string chunk. */
 #define TFW_STR_NAME		0x04
-/* Some value starts at the string chunk. */
+/* A value (of name/value pair starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
 
 /*
- * @data	- pointer to string data;
-*  @chunks	- pointer to array of chunks of a chunked string;
- * @skb		- socket buffer containign the string data;
- * @len		- total length of compund or plain string (HTTP message body
- *		  size can be extreme large, so we need 64 bits to handle it);
- * @eolen	- the length of string's line endings, if present (as for now,
- *		  it should be 0 if the string has no EOL at all, 1 for LF and
- *		  2 for CRLF);
- * @flags	- 8-bit type of string;
+ * @skb		- socket buffer that contains the string data;
+ * @len		- total length of a compound or plain string (HTTP message body
+ *		  size can be extremely large, so we need 64 bits to handle it);
+ * @eolen	- the length of string's line endings, if present (for now,
+ *		  it should be 0 if the string has no EOL at all, 1 for LF,
+ *		  and 2 for CRLF);
+ * @chunknum	- The number of chunks in a chunked string;
+ * @flags	- various flags that tell the string's type or state.
+ * @data	- pointer to the string data;
+ * @chunks	- pointer to array of chunks of a chunked string;
  */
 typedef struct TfwStr {
 	struct sk_buff	*skb;
@@ -92,55 +93,54 @@ typedef struct TfwStr {
 	unsigned int	chunknum : 24;
 	unsigned int	flags : 8;
 	union {
-		char *data;
-		struct TfwStr *chunks;
+		char		*data;
+		struct TfwStr	*chunks;
 	};
 } TfwStr;
-#define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val),\
-						  .len = sizeof(val) - 1}
-						  	
-#define TFW_STR_FROM(s)         ((TfwStr){ .data = (char *)s,\
-					   .len = sizeof(s) - 1 })
+
+#define DEFINE_TFW_STR(name, val)	\
+		TfwStr name = { .data = (val), .len = sizeof(val) - 1 }
+#define TFW_STR_FROM(s)			\
+		((TfwStr){ .data = (char *)s, .len = sizeof(s) - 1 })
 /* For dynamic strings with the strlen().*/
-#define TFW_STR_FROMDS(s)         ((TfwStr){ .data = (char *)s,\
-					     .len = strlen(s) })
+#define TFW_STR_FROMDS(s)		\
+		((TfwStr){ .data = (char *)s, .len = strlen(s) })
+#define TFW_STR_INIT(s)			memset(s, 0, sizeof(TfwStr))
 
 /* Use this with "%.*s" in printing calls. */
-#define PR_TFW_STR(s)	(int)min(20UL, (s)->len), (s)->data
+#define PR_TFW_STR(s)			(int)min(20UL, (s)->len), (s)->data
 
-#define TFW_STR_CHUNKN(s)	((s)->chunknum)
-#define TFW_STR_CHUNKN_LIM(s)	((s)->chunknum >= __TFW_STR_CN_MAX)
+#define TFW_STR_CHUNKN(s)		((s)->chunknum)
+#define TFW_STR_CHUNKN_LIM(s)		((s)->chunknum >= __TFW_STR_CN_MAX)
 #define TFW_STR_CHUNKN_ADD(s, n)	((s)->chunknum += (n))
 #define TFW_STR_CHUNKN_SUB(s, n)	((s)->chunknum -= (n))
 #define __TFW_STR_CHUNKN_SET(s, n)	((s)->chunknum = (n))
 /* Compound string contains at least 2 chunks. */
-#define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
-
-#define TFW_STR_INIT(s)	memset(s, 0, sizeof(TfwStr))
+#define TFW_STR_CHUNKN_INIT(s)		__TFW_STR_CHUNKN_SET(s, 2)
 
 #define TFW_STR_EMPTY(s)	(!(s)->len && !(s)->chunknum)
 #define TFW_STR_PLAIN(s)	(!(s)->chunknum)
-#define TFW_STR_DUP(s)	((s)->flags & TFW_STR_DUPLICATE)
+#define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
-#define __TFW_STR_CH(s, c)	(!TFW_STR_PLAIN(s)? (s)->chunks + (c) : s)
+#define __TFW_STR_CH(s, c)	(!TFW_STR_PLAIN(s) ? (s)->chunks + (c) : s)
 #define TFW_STR_CHUNK(s, c)	(!TFW_STR_PLAIN(s)			\
 				 ? ((c) >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
-				    : __TFW_STR_CH(s, (c)))		\
+				    : __TFW_STR_CH(s, c))		\
 				 : (!(c) ? s : NULL))
 /*
- * Get last/current chunk of @s.
- * The most left leaf is taken as the current chunk for duplicate strings tree.
+ * Get the last/current chunk of @s.
+ * The leftmost leaf is taken as the current chunk for duplicate strings tree.
  */
 #define TFW_STR_CURR(s)	({						\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
 		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
-		       : (s);						\
+		       : s;						\
 	(!TFW_STR_PLAIN(_tmp))						\
 		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
-		: (_tmp);						\
- })
+		: _tmp;							\
+})
 #define TFW_STR_LAST(s)	TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
@@ -148,24 +148,24 @@ typedef struct TfwStr {
 	/* Iterate over chunks, not duplicates. */			\
 	BUG_ON(TFW_STR_DUP(s));						\
 	if (TFW_STR_PLAIN(s)) {						\
-		(c) = (s);						\
+		c = s;							\
 		end = (s) + 1;						\
 	} else {							\
-		(c) = (s)->chunks;					\
+		c = (s)->chunks;					\
 		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
 	}								\
-	for ( ; (c) < end; ++(c))
+	for ( ; c < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		(end) = (s)->chunks + TFW_STR_CHUNKN(s);		\
-		(d) = (s)->chunks;					\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
+		d = (s)->chunks;					\
 	} else {							\
-		(d) = (s);						\
-		(end) = (s) + 1;					\
+		d = s;							\
+		end = (s) + 1;						\
 	}								\
-	for ( ; (d) < (end); ++(d))
+	for ( ; d < end; ++(d))
 
 /**
  * Update length of the string which points to new data ending at @curr_p.
@@ -204,7 +204,7 @@ tfw_str_eolen(const TfwStr *s)
 static inline void
 tfw_str_set_eolen(TfwStr *s, unsigned int eolen)
 {
-	BUG_ON(eolen > 2); /* LF and CRLF is the only valid EOL markers */
+	BUG_ON(eolen > 2); /* LF and CRLF are the only valid EOL markers */
 	s->eolen = (unsigned char)eolen;
 }
 /**
