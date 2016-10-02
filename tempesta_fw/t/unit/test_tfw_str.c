@@ -82,7 +82,7 @@ TEST(tfw_strcpy, both_compound)
 		.chunks = (TfwStr *)(TfwStr []){	TFW_STR_FROM("ab"),
 TFW_STR_FROM("cde"), TFW_STR_FROM("f"),TFW_STR_FROM("g"), TFW_STR_FROM("h"),
 TFW_STR_FROM("ijklmno"), TFW_STR_FROM("p") },
-.len = sizeof("abcdefghijklmnop") - 1 };
+.len = sizeof("abcdefghijklmnop") - 1, .chunknum = 7 };
 	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
