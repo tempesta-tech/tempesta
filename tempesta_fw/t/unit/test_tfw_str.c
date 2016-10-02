@@ -76,7 +76,8 @@ TEST(tfw_strcpy, dst_compound)
 
 TEST(tfw_strcpy, both_compound)
 {
-	DEFINE_TFW_STR(s1, "abcdefghijklmnop");
+	char buf[32] = { [0 ... 30] = 'a', 0 };
+	DEFINE_TFW_STR(s1, buf);
 
 	TfwStr s2 = {
 		.chunks = (TfwStr *)(TfwStr []){	TFW_STR_FROM("ab"),
