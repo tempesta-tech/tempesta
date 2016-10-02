@@ -140,8 +140,8 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	unsigned int data_off = 0;
+	TfwStr hdr_value = { 0 };
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
-	DEFINE_TFW_STR(hdr_value, NULL);
 
 	BUG_ON(!msg);
 	BUG_ON(!conn);
@@ -227,7 +227,7 @@ http_sticky_suite_teardown(void)
 
 TEST(http_sticky, sending_302_without_preparing)
 {
-	StickyVal sv = {};
+	StickyVal sv = { 0 };
 
 	/* Cookie is calculated for zero HMAC. */
 	EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), TFW_PASS);
@@ -278,9 +278,9 @@ TEST(http_sticky, sending_502)
 static void
 append_string_to_msg(TfwHttpMsg *hm, const char *s)
 {
-	struct sk_buff  *skb;
-	void		*ptr;
-	size_t		len;
+	struct sk_buff *skb;
+	void *ptr;
+	size_t len;
 
 	BUG_ON(!s);
 	len = strlen(s);
@@ -339,7 +339,7 @@ http_parse_resp_helper(void)
 
 TEST(http_sticky, sticky_get_absent)
 {
-	TfwStr value = {};
+	TfwStr value = { 0 };
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
 			    "Cookie: __utmz=12345; q=aa\r\n\r\n";
 
@@ -353,7 +353,7 @@ TEST(http_sticky, sticky_get_absent)
 static void
 test_sticky_present_helper(const char *s_req)
 {
-	TfwStr	value = {};
+	TfwStr	value = { 0 };
 
 	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
