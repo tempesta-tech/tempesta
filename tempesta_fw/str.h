@@ -114,8 +114,6 @@ typedef struct TfwStr {
 #define TFW_STR_CHUNKN_ADD(s, n)	((s)->chunknum += (n))
 #define TFW_STR_CHUNKN_SUB(s, n)	((s)->chunknum -= (n))
 #define __TFW_STR_CHUNKN_SET(s, n)	((s)->chunknum = (n))
-/* Compound string contains at least 2 chunks. */
-#define TFW_STR_CHUNKN_INIT(s)		__TFW_STR_CHUNKN_SET(s, 2)
 
 #define TFW_STR_EMPTY(s)	(!(s)->len && !(s)->chunknum)
 #define TFW_STR_PLAIN(s)	(!(s)->chunknum)
