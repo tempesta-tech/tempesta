@@ -50,16 +50,16 @@ tfw_str_del_chunk(TfwStr *str, int id)
 /**
  * Grow @str for @n new chunks.
  * New branches of the string tree are created on 2nd level only,
- * i.e. there is no possibility to grow number of chunks of duplicate string.
- * Pass pointer to one of the duplicates to do so.
- * @return pointer to the first of newly added chunk.
+ * There is no way to grow the number of chunks of a duplicate string.
+ * Pass a pointer to one of the duplicates to do so.
+ * @return the pointer to the first of the added chunks.
  *
  * TODO do we need exponential growing?
  */
 static TfwStr *
-__str_grow_tree(TfwPool *pool, TfwStr *str, bool is_duplicate, int n)
+__str_grow_tree(TfwPool *pool, TfwStr *str, bool add_chunks, int n)
 {
-	if (is_duplicate) {
+	if (add_chunks) {
 		unsigned int l;
 		void *p;
 
@@ -92,7 +92,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, bool is_duplicate, int n)
 }
 
 /**
- * Add compound piece to @str and return pointer to the piece.
+ * Add a compound piece to @str and return the pointer to the piece.
  */
 TfwStr *
 tfw_str_add_compound(TfwPool *pool, TfwStr *str)
@@ -100,22 +100,24 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 	/* Need to specify exact string duplicate to grow. */
 	BUG_ON(TFW_STR_DUP(str));
 
-	return __str_grow_tree(pool, str, 0, 1);
+	return __str_grow_tree(pool, str, str->chunknum, 1);
 }
 
 /**
- * Add place for a new duplicate to string tree @str,
- * the string is probably alredy a set of duplicate compound strings.
+ * Add room for a new duplicate to the string tree @str.
+ * @str may be a set of duplicate compound strings.
  */
 TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 {
-	TfwStr *dup_str;
-	dup_str = __str_grow_tree(pool, str, 1, 1);
+	bool is_duplicate = str->flags & TFW_STR_DUPLICATE;
+	TfwStr *dup_str = __str_grow_tree(pool, str, is_duplicate, 1);
 
-	/* Length for set of duplicate strings has no sense. */
-	str->len = 0;
-	str->flags |= TFW_STR_DUPLICATE;
+	/* Length for a set of duplicate strings has no sense. */
+	if (!is_duplicate) {
+		str->len = 0;
+		str->flags |= TFW_STR_DUPLICATE;
+	}
 
 	return dup_str;
 }
@@ -208,7 +210,7 @@ tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 	BUG_ON(TFW_STR_DUP(dst));
 	BUG_ON(TFW_STR_DUP(src));
 
-	to = __str_grow_tree(pool, dst, 0, n ? : 1);
+	to = __str_grow_tree(pool, dst, dst->chunknum, n ? : 1);
 	if (!to)
 		return -ENOMEM;
 
