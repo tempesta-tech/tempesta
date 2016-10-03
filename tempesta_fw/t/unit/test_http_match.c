@@ -349,8 +349,10 @@ TEST_SUITE(http_match)
 
 	TEST_RUN(tfw_http_match_req, returns_first_matching_rule);
 	TEST_RUN(http_match, uri_prefix);
+	TEST_RUN(http_match, uri_suffix);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);
 	TEST_RUN(http_match, hdr_host_prefix);
+	TEST_RUN(http_match, hdr_host_suffix);
 	TEST_RUN(http_match, method_eq);
 }

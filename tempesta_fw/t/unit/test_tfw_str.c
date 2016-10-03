@@ -48,7 +48,7 @@ TEST(tfw_strcpy, both_plain)
 {
 	char buf1[4] = { 0 }, buf2[4] = "abc";
 	DEFINE_TFW_STR(s1, buf1);
-	DEFINE_TFW_STR(s1, buf2);
+	DEFINE_TFW_STR(s2, buf2);
 
 	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
 	EXPECT_STR_EQ(s1.data, "abc");
@@ -257,7 +257,7 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	EXPECT_FALSE(tfw_str_eq_cstr(&s1, s_ne2.data, s_ne2.len,
 				     TFW_STR_EQ_DEFAULT));
 	EXPECT_FALSE(tfw_str_eq_cstr(&s2, s_ne2.data, s_ne2.len,
-				     TFW_STR_EQ_DEFAULT))
+				     TFW_STR_EQ_DEFAULT));
 	EXPECT_FALSE(tfw_str_eq_cstr(&s3, s_ne2.data, s_ne2.len,
 				     TFW_STR_EQ_DEFAULT));
 }

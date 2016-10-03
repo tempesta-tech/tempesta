@@ -69,7 +69,7 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
 		.len = s2c1.len + s2c2.len,
-		.chunks = s2chunks
+		.chunks = s2chunks,
 		.chunknum = ARRAY_SIZE(s2chunks),
 	};
 
