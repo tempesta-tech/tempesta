@@ -655,7 +655,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	TfwVhost *vhost = tfw_vhost_get_default();
 	TfwStr rh = {
 #define S_VIA	"Via: "
-		.chunks = (TfwStr []) {
+		.chunks = (TfwStr []){
 			TFW_STR_FROM(S_VIA),
 			TFW_STR_FROM_BUFLEN(s_http_version[hm->version], 4),
 			TFW_STR_FROM_GBUF(vhost->hdr_via_len),

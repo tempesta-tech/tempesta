@@ -310,11 +310,11 @@ tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
 	TfwStr set_cookie = {
-		.chunks = (TfwStr []) {
-			{ .data = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
-			{ .data = tfw_cfg_sticky.name_eq.data,
-			  .len = tfw_cfg_sticky.name_eq.len },
-			{ .data = buf, .len = len },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_F_SET_COOKIE),
+			TFW_STR_FROM_BUFLEN(tfw_cfg_sticky.name_eq.data,
+					    tfw_cfg_sticky.name_eq.len),
+			TFW_STR_FROM_BUFLEN(buf, len),
 		},
 		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len + len,
 		.eolen = 2,
