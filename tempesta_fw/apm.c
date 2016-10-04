@@ -897,6 +897,8 @@ tfw_apm_destroy(void *apmdata)
 {
 	TfwApmData *data = apmdata;
 
+	if (!data)
+		return;
 	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
 	smp_mb__after_atomic();
 	del_timer_sync(&data->timer);
