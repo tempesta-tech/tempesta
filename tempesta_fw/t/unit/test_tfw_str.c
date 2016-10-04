@@ -432,12 +432,22 @@ TEST(tfw_str_eq_cstr_pos, plain)
 		}
 	}
 
+	TEST_LOG("Ignore next 3 warnings: \"Desired position is outside the string\"");
 	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
 					 (const char *)1,
 					 foxstr,
 					 foxlen,
 					 TFW_STR_EQ_CASEI));
-
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 fox->ptr - 1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 fox->ptr + foxlen + 1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
 }
 
 TEST(tfw_str_eq_cstr_off, plain)
@@ -486,8 +496,19 @@ TEST(tfw_str_eq_cstr_pos, compound)
 		}
 	}
 
+	TEST_LOG("Ignore next 3 warnings: \"Desired position is outside the string\"");
 	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
 					 (const char *)1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 fox->ptr - 1,
+					 foxstr,
+					 foxlen,
+					 TFW_STR_EQ_CASEI));
+	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
+					 fox->ptr + foxlen + 1,
 					 foxstr,
 					 foxlen,
 					 TFW_STR_EQ_CASEI));
