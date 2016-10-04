@@ -195,7 +195,7 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
 {
-	const char *cstr = "foo123 barbaz";
+	char *cstr = "foo123 barbaz";
 	int len = strlen(cstr);
 	DEFINE_TFW_STR(match, "foo123 barbaz");
 	TFW_STR(diff1, "aoo123 barbaz");
@@ -214,8 +214,8 @@ TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
 
 TEST(tfw_str_eq_cstr, handles_plain_str)
 {
-	const char *cstr1 = "foo";
-	const char *cstr2 = "bar baz";
+	char *cstr1 = "foo";
+	char *cstr2 = "bar baz";
 	size_t len1 = strlen(cstr1);
 	size_t len2 = strlen(cstr2);
 	TfwStr *s1 = make_plain_str(cstr1);
@@ -229,7 +229,7 @@ TEST(tfw_str_eq_cstr, handles_plain_str)
 
 TEST(tfw_str_eq_cstr, handles_unterminated_strs)
 {
-	const char *cstr = "foobarbaz [SOME GARBAGE]";
+	char *cstr = "foobarbaz [SOME GARBAGE]";
 	int cstr_len = 9;
 	TfwStr s = TFW_STR_FROM("foobarbaz [ANOTHER GARBAGE]");
 
@@ -243,7 +243,8 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	TfwStr chunks[] = { s1, s2 };
 	TfwStr s3 = {
 		.chunks = chunks,
-		.chunknum = ARRAY_SIZE(chunks)
+		.len = s1.len + s2.len,
+		.chunknum = ARRAY_SIZE(chunks),
 	};
 	TfwStr s = TFW_STR_FROM("");
 	TfwStr s_ne = TFW_STR_FROM("foo");
@@ -278,18 +279,18 @@ TEST(tfw_str_eq_cstr, supports_casei)
 
 TEST(tfw_str_eq_cstr, supports_prefix)
 {
-	const TfwStr s  = TFW_STR_FROM("/foo/bar/baz.test");
-	const TfwStr p1 = TFW_STR_FROM("/foo/bar/baz.test");
-	const TfwStr p2 = TFW_STR_FROM("/foo/bar/baz.tes");
-	const TfwStr p3 = TFW_STR_FROM("/foo/bar/baz");
-	const TfwStr p4 = TFW_STR_FROM("/foo/bar/");
-	const TfwStr p5 = TFW_STR_FROM("/foo");
-	const TfwStr p6 = TFW_STR_FROM("/");
-	const TfwStr p7 = TFW_STR_FROM("");
-	const TfwStr extra = TFW_STR_FROM("/foo/bar/baz.test/extra");
-	const TfwStr p1_ci = TFW_STR_FROM("/foo/bar/");
-	const TfwStr p5_ci = TFW_STR_FROM("/foo/bar/");
-	const TfwStr p6_ci = TFW_STR_FROM("/foo/bar/p6_ci");
+	TfwStr s  = TFW_STR_FROM("/foo/bar/baz.test");
+	TfwStr p1 = TFW_STR_FROM("/foo/bar/baz.test");
+	TfwStr p2 = TFW_STR_FROM("/foo/bar/baz.tes");
+	TfwStr p3 = TFW_STR_FROM("/foo/bar/baz");
+	TfwStr p4 = TFW_STR_FROM("/foo/bar/");
+	TfwStr p5 = TFW_STR_FROM("/foo");
+	TfwStr p6 = TFW_STR_FROM("/");
+	TfwStr p7 = TFW_STR_FROM("");
+	TfwStr extra = TFW_STR_FROM("/foo/bar/baz.test/extra");
+	TfwStr p1_ci = TFW_STR_FROM("/foo/bar/");
+	TfwStr p5_ci = TFW_STR_FROM("/foo/bar/");
+	TfwStr p6_ci = TFW_STR_FROM("/foo/bar/p6_ci");
 
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, p1.data, p1.len, TFW_STR_EQ_PREFIX));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s, p2.data, p2.len, TFW_STR_EQ_PREFIX));
@@ -315,16 +316,16 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 TEST(tfw_str_eq_cstr_off, supports_suffix)
 {
 	TFW_STR(s, "/foo/bar/baz.test");
-	const char *p1 = "/foo/bar/baz.test";
-	const char *p2 = "foo/bar/baz.test";
-	const char *p3 = "bar/baz.test";
-	const char *p4 = "/baz.test";
-	const char *p5 = ".test";
-	const char *f1 = "/bar/foo/baz.test";
-	const char *f2 = "/foo/bar/";
-	const char *extra = "/bar/foo/baz.test100";
-	const char *i1 = "/foo/bar/baz.tesT";
-	const char *i2 = ".TeSt";
+	char *p1 = "/foo/bar/baz.test";
+	char *p2 = "foo/bar/baz.test";
+	char *p3 = "bar/baz.test";
+	char *p4 = "/baz.test";
+	char *p5 = ".test";
+	char *f1 = "/bar/foo/baz.test";
+	char *f2 = "/foo/bar/";
+	char *extra = "/bar/foo/baz.test100";
+	char *i1 = "/foo/bar/baz.tesT";
+	char *i2 = ".TeSt";
 
 #define X_EXPECT_TRUE(s, p, flags)					\
 do {									\
