@@ -437,6 +437,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
+		// TODO #182 store the entris in low case to avoid 1 coversion
 		if (strncasecmp((char *)c->ptr + c_off, trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;

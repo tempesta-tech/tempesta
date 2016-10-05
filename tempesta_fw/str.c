@@ -233,7 +233,7 @@ EXPORT_SYMBOL(tfw_strcat);
  *   1 - strings match and @stop is found;
  *  -1 - strings do not match;
  *
- * TODO too slow, rewrite on AVX2.
+ * TODO #182 too slow, rewrite on AVX2.
  */
 static int
 __cstricmpspn(const char *s1, const char *s2, int n, int stop)
