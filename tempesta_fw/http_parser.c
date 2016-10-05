@@ -725,9 +725,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 									\
 	/* There's no body. */						\
 	/* TODO: Add (req == CONNECT && resp == 2xx) */			\
-	if (((resp->status > 100) && (resp->status < 200))		\
-	    || (resp->status == 204) || (resp->status == 304)		\
-	    || (msg->flags & TFW_HTTP_VOID_BODY))			\
+	if (resp->status - 101U < 99U || resp->status == 204		\
+	    || resp->status == 304 || msg->flags & TFW_HTTP_VOID_BODY)	\
 	{								\
 		/* There is no body. */					\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
@@ -1552,7 +1551,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 *                 | "/" | "[" | "]" | "?" | "="
 	 *                 | "{" | "}" | SP | HT
 	 *
-	 * TODO: validate `cookie-name` and `cookie-value`
+	 * TODO #182: validate `cookie-name` and `cookie-value`
 	 *       against allowed characters set
 	 */
 	__FSM_START(parser->_i_st) {
@@ -1568,6 +1567,10 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (unlikely(c == '='))
 			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1,
 					   TFW_STR_NAME);
+		/*
+		 * TODO #182 replace the state 1-char transition by
+		 * vector scaning until end of uri_path(??) of data.
+		 */
 		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
 	}
 
@@ -1589,6 +1592,10 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		if (unlikely(c == ',' || c == '\\'))
 			return CSTR_NEQ;
+		/*
+		 * TODO #182 replace the state 1-char transition by
+		 * vector scaning until end of uri_path(??) of data.
+		 */
 		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
 	}
 
@@ -1983,6 +1990,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_UriAbsPath) {
 		if (likely(IN_ALPHABET(c, uap_a)))
 			/* Move forward through possibly segmented data. */
+			/*
+			 * TODO #182 replace the state 1-char transition by
+			 * vector scaning until end of uri_path of data.
+			 */
 			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
 
 		if (likely(c == ' ')) {
@@ -2024,6 +2035,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/*
 	 * Start of HTTP header or end of header part of the request.
 	 * There is a switch for first character of a header name.
+	 *
+	 * TODO #182: try to match by 4 bytes
 	 */
 	__FSM_STATE(RGen_Hdr) {
 		tfw_http_msg_hdr_open(msg, p);
