@@ -371,6 +371,11 @@ EXPORT_SYMBOL(tfw_str_eq_cstr);
  * chunk of the source @str for a while...
  *
  * Uses the @tfw_str_eq_cstr as the basis.
+ *
+ * Althow @tfw_str_eq_cstr_pos and @tfw_str_eq_cstr_off look quite similar
+ * there is no easy way to convert one to another. That is because there is no
+ * direct conversion of character's offset in the string and pointer to it since
+ * string can be represented as set of separate bufers.
  */
 bool
 tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
@@ -410,7 +415,7 @@ out:
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_pos);
 
-/*
+/**
  * Compare @str starting at offset @offset with a plain C string
  * @cstr of size @len. Obey the comparison flags @flags.
  *
