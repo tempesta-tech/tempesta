@@ -206,6 +206,20 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 	return 0;
 }
 
+static int
+__tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
+{
+	int ret = 0;
+	TfwServer *srv;
+
+	write_lock(&sg->lock);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		if ((ret = cb(srv)))
+			break;
+	write_unlock(&sg->lock);
+	return ret;
+}
+
 /**
  * Iterate over all server groups and call @cb for each server.
  * @cb is called under spin-lock, so can't sleep.
@@ -215,25 +229,12 @@ int
 tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
 	int ret = 0;
-	TfwServer *srv;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-
-	list_for_each_entry(sg, &sg_list, list) {
-		write_lock(&sg->lock);
-
-		list_for_each_entry(srv, &sg->srv_list, list) {
-			if ((ret = cb(srv))) {
-				write_unlock(&sg->lock);
-				goto unlock;
-			}
-		}
-
-		write_unlock(&sg->lock);
-	}
-
-unlock:
+	list_for_each_entry(sg, &sg_list, list)
+		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
+			break;
 	write_unlock(&sg_lock);
 	return ret;
 }
