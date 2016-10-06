@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -26,38 +26,11 @@ pushd "$root" > /dev/null
 root="$(pwd)"
 popd > /dev/null
 
+echo -e "\n @@@ RUNNING UNIT TESTS..."
+insmod $root/../tfw_fuzzer.ko
+insmod $root/tfw_test.ko
+rmmod tfw_test
+rmmod tfw_fuzzer
 
-function run_test_mod() {
-	insmod $root/../tfw_fuzzer.ko
-	insmod $root/tfw_test.ko
-	rmmod tfw_test
-	rmmod tfw_fuzzer
-}
-
-function show_last_run_log() {
-	dmesg | tac | grep -m 1 -B 10000 "tfw_test: start" | tac
-}
-
-function show_last_run_summary() {
-	show_last_run_log | grep "tfw_test: " | grep -v "tfw_test: TEST_RUN"
-}
-
-function echo_header() {
-	echo
-	echo ------------------------------------------------------------------
-	echo $@
-	echo ------------------------------------------------------------------
-}
-
-
-echo_header Running unit tests...
-run_test_mod
-
-echo_header Unit test run full log:
-show_last_run_log
-
-echo_header Unit test output summary:
-show_last_run_summary
-
-show_last_run_summary | grep -iq 'FAIL' && exit -1
-exit 0
+echo -e "\n @@@ UNIT TEST OUTPUT SUMMARY (see dmesg for full log):\n"
+dmesg | grep tfw_test
