@@ -235,7 +235,7 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 	BUG_ON(!e);
 	BUG_ON(e->val_n > ARRAY_SIZE(e->vals));
 
-	if (!val_src || !val_len)
+	if (!val_src)
 		return -EINVAL;
 
 	if (e->val_n == ARRAY_SIZE(e->vals)) {
@@ -243,7 +243,14 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -ENOBUFS;
 	}
 
-	val = alloc_and_copy_literal(val_src, val_len);
+	if (val_len) {
+		val = alloc_and_copy_literal(val_src, val_len);
+	}
+	else {
+		/* incoming value - empty string, we still need to save it */
+		val = alloc_and_copy_literal("", 0);
+	}
+
 	if (!val)
 		return -ENOMEM;
 
