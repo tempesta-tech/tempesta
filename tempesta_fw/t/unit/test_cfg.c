@@ -178,6 +178,11 @@ TEST(cfg_parser, allows_optional_entries)
 	EXPECT_OK(r);
 	EXPECT_EQ(counter, 2);
 
+	TEST_LOG("Ignore next 3 ERRORS: \n"
+			 "\t\"ERROR: the required entry is not found: 'incr2'\"\n"
+			 "\t\"ERROR: configuration parsing error: str:1;w:(null)\"\n"
+			 "\t\"ERROR: can't parse configuration data\"\n"
+			 "We are checking invalid input values\n");
 	r = parse_cfg(cfg_text, specs_noopt);
 	EXPECT_ERROR(r);
 }
