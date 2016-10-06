@@ -795,6 +795,7 @@ TEST(tfw_cfg_set_int, maps_enum_keywords)
 
 TEST(tfw_cfg_set_str, sets_dest_str)
 {
+	int r;
 	const char *str1 = NULL;
 	const char *str2 = NULL;
 	const char *str3 = NULL;
@@ -812,7 +813,8 @@ TEST(tfw_cfg_set_str, sets_dest_str)
 		"str3 \"foo bar baz\";		"
 		"str4 \"\";			";
 
-	do_parse_cfg(cfg_text, specs);
+	r = do_parse_cfg(cfg_text, specs);
+	EXPECT_OK(r);
 
 	EXPECT_NOT_NULL(str1);
 	EXPECT_NOT_NULL(str2);
