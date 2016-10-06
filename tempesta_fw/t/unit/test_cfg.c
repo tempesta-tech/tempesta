@@ -123,7 +123,7 @@ TEST(cfg_paresr, invokes_specified_handler)
 
 	TfwCfgSpec specs[] = {
 		{ "foo", NULL, cb_incr_ctr, &ctr },
-		{}
+		{ 0 }
 	};
 
 	parse_cfg("foo;", specs);
@@ -140,7 +140,7 @@ TEST(cfg_parser, allows_repeating_entries)
 		{ "incr2", NULL, cb_incr_ctr, &ctr2, .allow_repeat = true },
 		{ "decr1", NULL, cb_decr_ctr, &ctr1, .allow_repeat = true },
 		{ "decr2", NULL, cb_decr_ctr, &ctr2, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 	const char *cfg_text =
 		"incr1; incr1; incr1;"
@@ -164,13 +164,13 @@ TEST(cfg_parser, allows_optional_entries)
 		{ "incr1", NULL, cb_incr_ctr, &counter },
 		{ "incr2", NULL, cb_incr_ctr, &counter, .allow_none = true },
 		{ "incr3", NULL, cb_incr_ctr, &counter },
-		{}
+		{ 0 }
 	};
 	TfwCfgSpec specs_noopt[] = {
 		{ "incr1", NULL, cb_incr_ctr, &counter },
 		{ "incr2", NULL, cb_incr_ctr, &counter },
 		{ "incr3", NULL, cb_incr_ctr, &counter },
-		{}
+		{ 0 }
 	};
 	const char *cfg_text = "incr1; incr3;";
 
@@ -280,7 +280,7 @@ TEST(cfg_parser, puts_parsed_vals_to_entry)
 		{ "option2", NULL, cb_option2, &option2_is_checked },
 		{ "option3", NULL, cb_option3, &option3_is_checked },
 		{ "option4", NULL, cb_option4, &option4_is_checked },
-		{}
+		{ 0 }
 	};
 
 	int r = parse_cfg(opts_cfg_text, specs);
@@ -312,7 +312,7 @@ TEST(cfg_parser, eats_comments_and_whitespace)
 	int ctr = 0;
 	TfwCfgSpec specs[] = {
 		{ "cmntws", NULL, cb_cmntws, &ctr, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 	const char *cfg_text =
 		"# this is a comment				\n"
@@ -344,7 +344,7 @@ TEST(cfg_parser, handles_quoted_strings)
 	int ctr = 0;
 	TfwCfgSpec specs[] = {
 		{ "qtdstr", NULL, cb_qtdstr, &ctr, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 	const char *cfg_text =
 		"qtdstr  \" foo \t\r\n bar \\\"#\\\" baz \\\\\";	\n"
@@ -376,7 +376,7 @@ TEST(cfg_parser, handles_escaped_special_characters)
 
 	TfwCfgSpec specs[] = {
 		{ "escaped", NULL, cb_escaped, &ctr },
-		{}
+		{ 0 }
 	};
 
 	/* The leaning toothpick syndrome here: have to escape backslahes and
@@ -442,7 +442,7 @@ TEST(cfg_parser, simulates_default_values)
 			&ctrs[2],
 			.allow_none = true
 		},
-		{}
+		{ 0 }
 	};
 	const char *cfg_text = "deflt_unused \"the value from cfg_text\";";
 
@@ -498,7 +498,7 @@ TEST(cfg_parser, invokes_cleanup_callback)
 			.cleanup = cleanup_incr_ctr,
 			.allow_none = true
 		},
-		{}
+		{ 0 }
 	};
 
 
@@ -572,7 +572,7 @@ TEST(tfw_cfg_set_bool, treats_noval_as_true_flag)
 			tfw_cfg_set_bool,
 			&flag4_def_false
 		},
-		{}
+		{ 0 }
 	};
 
 	int r = parse_cfg("flag1;", specs);
@@ -618,7 +618,7 @@ TEST(tfw_cfg_set_bool, recognizes_truthy_falsy_values)
 		{ "option10", NULL, tfw_cfg_set_bool, &b10 },
 		{ "option11", NULL, tfw_cfg_set_bool, &b11 },
 		{ "option12", NULL, tfw_cfg_set_bool, &b12 },
-		{}
+		{ 0 }
 	};
 
 	r = parse_cfg(cfg_text, specs);
@@ -643,7 +643,7 @@ TEST(tfw_cfg_set_int, sets_dest_value)
 	int val = 0;
 	TfwCfgSpec specs[] = {
 		{ "val", NULL, tfw_cfg_set_int, &val },
-		{}
+		{ 0 }
 	};
 
 	parse_cfg("val 42;", specs);
@@ -680,7 +680,7 @@ TEST(tfw_cfg_set_int, recognizes_dec_hex_bin_bases)
 		{ "bin1", NULL, tfw_cfg_set_int, &bin1 },
 		{ "bin2", NULL, tfw_cfg_set_int, &bin2 },
 		{ "bin3", NULL, tfw_cfg_set_int, &bin3 },
-		{}
+		{ 0 }
 	};
 
 	r = parse_cfg(cfg_text, specs);
@@ -712,7 +712,7 @@ TEST(tfw_cfg_set_int, checks_ext_restrictions)
 				.range = { 10, 20 }
 			}
 		},
-		{}
+		{ 0 }
 	};
 
 	/* Should pass only even numbers within range 10 to 20 (inclusive). */
@@ -757,7 +757,7 @@ TEST(tfw_cfg_set_int, maps_enum_keywords)
 	TfwCfgEnum val_mappings[] = {
 		{ "off", -1 },
 		{ "auto", 42 },
-		{}
+		{ 0 }
 	};
 	TfwCfgSpec specs[] = {
 		{
@@ -768,7 +768,7 @@ TEST(tfw_cfg_set_int, maps_enum_keywords)
 				.enums = val_mappings
 			}
 		},
-		{}
+		{ 0 }
 	};
 
 	r = parse_cfg("val 222;", specs);
@@ -799,7 +799,7 @@ TEST(tfw_cfg_set_str, sets_dest_str)
 		{ "str2", NULL, tfw_cfg_set_str, &str2 },
 		{ "str3", NULL, tfw_cfg_set_str, &str3 },
 		{ "str4", NULL, tfw_cfg_set_str, &str4 },
-		{}
+		{ 0 }
 	};
 	const char *cfg_text =
 		"str1 foo;			"
@@ -834,7 +834,7 @@ TEST(tfw_cfg_set_str, checks_strlen)
 				.len_range = { 2, 8 }
 			}
 		},
-		{}
+		{ 0 }
 	};
 
 	r = do_parse_cfg("str 1;", specs);
@@ -879,7 +879,7 @@ TEST(tfw_cfg_set_str, checks_character_set)
 				.cset = "1234567890abcdefABCDEF"
 			}
 		},
-		{}
+		{ 0 }
 	};
 
 	r = do_parse_cfg("hex \"\";", specs);
@@ -919,19 +919,19 @@ TEST(tfw_cfg_handle_children, parses_nested_entries_recursively)
 	TfwCfgSpec section1_specs[] = {
 		{ "incr", NULL, cb_incr_ctr, &counter1, .allow_repeat = true },
 		{ "decr", NULL, cb_decr_ctr, &counter1, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 	TfwCfgSpec section2_specs[] = {
 		{ "incr", NULL, cb_incr_ctr, &counter2, .allow_repeat = true },
 		{ "decr", NULL, cb_decr_ctr, &counter2, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 	TfwCfgSpec root_specs[] = {
 		{ "section1", NULL, tfw_cfg_handle_children, section1_specs },
 		{ "section2", NULL, tfw_cfg_handle_children, section2_specs },
 		{ "incr", NULL, cb_incr_ctr, &counter3, .allow_repeat = true },
 		{ "decr", NULL, cb_decr_ctr, &counter3, .allow_repeat = true },
-		{}
+		{ 0 }
 	};
 
 	const char *cfg_text =
@@ -975,7 +975,7 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 			.cleanup = cleanup_incr_ctr,
 			.allow_repeat = true
 		},
-		{}
+		{ 0 }
 	};
 	TfwCfgSpec root_specs[] = {
 		{
@@ -984,7 +984,7 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 			nested_specs,
 			.allow_repeat = true
 		},
-		{}
+		{ 0 }
 	};
 	const char *cfg_text =
 		"section {		\n"
