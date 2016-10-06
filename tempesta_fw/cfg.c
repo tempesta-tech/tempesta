@@ -1322,7 +1322,8 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 		min = cse->len_range.min;
 		max = cse->len_range.max;
-		if (min != max && (len < min || len > max)) {
+		if (((min != 0) && (max != 0)) &&
+			(len < min || len > max)) {
 			TFW_ERR("the string length (%d) is out of valid range "
 				" (%d, %d): '%s'\n", len, min, max, str);
 			return -EINVAL;
