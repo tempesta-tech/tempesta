@@ -828,10 +828,33 @@ TEST(tfw_cfg_set_str, sets_dest_str)
 	do_cleanup_cfg();
 }
 
+TEST(tfw_cfg_set_str, sets_dest_str_empty_string)
+{
+	int r;
+	const char *str = NULL;
+	TfwCfgSpec specs[] = {
+		{ "str", NULL, tfw_cfg_set_str, &str },
+		{ 0 }
+	};
+
+	r = do_parse_cfg("str;", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str ;", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str \"\";", specs);
+	EXPECT_OK(r);
+	EXPECT_STR_EQ(str, "");
+	do_cleanup_cfg();
+}
+
 TEST(tfw_cfg_set_str, checks_strlen)
 {
 	int r;
-	const char *str = "";
+	const char *str = NULL;
 	TfwCfgSpec specs[] = {
 		{
 			"str", NULL,
@@ -873,10 +896,53 @@ TEST(tfw_cfg_set_str, checks_strlen)
 	do_cleanup_cfg();
 }
 
+TEST(tfw_cfg_set_str, checks_strlen_exact_len)
+{
+	int r;
+	const char *str = NULL;
+	TfwCfgSpec specs[] = {
+		{
+			"str", NULL,
+			tfw_cfg_set_str,
+			&str,
+			&(TfwCfgSpecStr) {
+				.len_range = { 8, 8 }
+			}
+		},
+		{ 0 }
+	};
+
+	r = do_parse_cfg("str 12345;", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str \"12345\";", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str 12345678;", specs);
+	EXPECT_OK(r);
+	EXPECT_STR_EQ(str, "12345678");
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str \"12345678\";", specs);
+	EXPECT_OK(r);
+	EXPECT_STR_EQ(str, "12345678");
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str 123456789;", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+
+	r = do_parse_cfg("str \"123456789\";", specs);
+	EXPECT_ERROR(r);
+	do_cleanup_cfg();
+}
+
 TEST(tfw_cfg_set_str, checks_character_set)
 {
 	int r;
-	const char *str = "";
+	const char *str = NULL;
 	TfwCfgSpec specs[] = {
 		{
 			"hex", NULL,
@@ -1032,7 +1098,9 @@ TEST_SUITE(cfg)
 	TEST_RUN(tfw_cfg_set_int, checks_ext_restrictions);
 	TEST_RUN(tfw_cfg_set_int, maps_enum_keywords);
 	TEST_RUN(tfw_cfg_set_str, sets_dest_str);
+	TEST_RUN(tfw_cfg_set_str, sets_dest_str_empty_string);
 	TEST_RUN(tfw_cfg_set_str, checks_strlen);
+	TEST_RUN(tfw_cfg_set_str, checks_strlen_exact_len);
 	TEST_RUN(tfw_cfg_set_str, checks_character_set);
 	TEST_RUN(tfw_cfg_handle_children, parses_nested_entries_recursively);
 	TEST_RUN(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs);
