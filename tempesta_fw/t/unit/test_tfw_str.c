@@ -315,27 +315,27 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 
 TEST(tfw_str_eq_cstr_off, supports_suffix)
 {
-	TFW_STR(s, "/foo/bar/baz.test");
-	char *p1 = "/foo/bar/baz.test";
-	char *p2 = "foo/bar/baz.test";
-	char *p3 = "bar/baz.test";
-	char *p4 = "/baz.test";
-	char *p5 = ".test";
-	char *f1 = "/bar/foo/baz.test";
-	char *f2 = "/foo/bar/";
-	char *extra = "/bar/foo/baz.test100";
-	char *i1 = "/foo/bar/baz.tesT";
-	char *i2 = ".TeSt";
+	TfwStr s = TFW_STR_FROM("/foo/bar/baz.test");
+	const char *p1 = "/foo/bar/baz.test";
+	const char *p2 = "foo/bar/baz.test";
+	const char *p3 = "bar/baz.test";
+	const char *p4 = "/baz.test";
+	const char *p5 = ".test";
+	const char *f1 = "/bar/foo/baz.test";
+	const char *f2 = "/foo/bar/";
+	const char *extra = "/bar/foo/baz.test100";
+	const char *i1 = "/foo/bar/baz.tesT";
+	const char *i2 = ".TeSt";
 
 #define X_EXPECT_TRUE(s, p, flags)					\
 do {									\
 	int plen = strlen(p);						\
-	EXPECT_TRUE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+	EXPECT_TRUE(tfw_str_eq_cstr_off(&s, s.len - plen, p, plen, flags)); \
 } while(0)
 #define X_EXPECT_FALSE(s, p, flags)					\
 do {									\
 	int plen = strlen(p);						\
-	EXPECT_FALSE(tfw_str_eq_cstr_off(s, s->len - plen, p, plen, flags)); \
+	EXPECT_FALSE(tfw_str_eq_cstr_off(&s, s.len - plen, p, plen, flags)); \
 } while(0)
 
 	X_EXPECT_TRUE(s, p1, TFW_STR_EQ_DEFAULT);
@@ -417,7 +417,10 @@ TEST(tfw_str_eq_cstr_off, plain)
 
 TEST(tfw_str_eq_cstr_pos, compound)
 {
-	TfwStr *fox = make_compound_str(foxstr), *c, *end;
+ 	TfwStr *fox = make_compound_str2("The quick brown fox jumps ower",
+					 "the lasy dog");
+ 	TfwStr *c, *end;
+
 	long i, offset = 0, foxlen = fox->len;
 
 	TFW_STR_FOR_EACH_CHUNK(c, fox, end) {
@@ -442,7 +445,6 @@ TEST(tfw_str_eq_cstr_pos, compound)
 					 foxlen,
 					 TFW_STR_EQ_CASEI));
 }
-
 TEST(tfw_str_eq_cstr_off, compound)
 {
 	TfwStr *fox = make_compound_str(foxstr);
@@ -468,7 +470,6 @@ TEST(tfw_str_eq_cstr_off, compound)
 					 foxstr, foxlen, TFW_STR_EQ_CASEI));
 
 }
-
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
