@@ -58,27 +58,25 @@ TEST(tfw_strcpy, src_compound)
 {
 	char buf1[32] = { 0 };
 	DEFINE_TFW_STR(s1, buf1);
-	DEFINE_TFW_STR(s2, "abcdefghijklmnop");
+	TfwStr *s2 = make_compound_str2( "abcdefghij", "klmnop");
 
-	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
+	EXPECT_ZERO(tfw_strcpy(&s1, s2));
 	EXPECT_STR_EQ(s1.data, "abcdefghijklmnop");
 }
 
 TEST(tfw_strcpy, dst_compound)
 {
-	char buf[32] = { [0 ... 30] = 'a', 0 };
-	DEFINE_TFW_STR(s1, buf);
+	TfwStr *s1 = make_compound_str2("aaaaaaaaaaaaaaaaaaaa", ""); 
 	DEFINE_TFW_STR(s2, "abcdefghijklmnop");
 
-	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
+	EXPECT_ZERO(tfw_strcpy(s1, &s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
 }
 
 TEST(tfw_strcpy, both_compound)
 {
-	char buf[32] = { [0 ... 30] = 'a', 0 };
-	DEFINE_TFW_STR(s1, buf);
+	TfwStr *s1 = make_compound_str2("aaaaaaaaaaaaaaaaaaaa", "");
 	TfwStr s2 = {
 		.chunks = (TfwStr []){
 			TFW_STR_FROM("ab"),
@@ -93,8 +91,8 @@ TEST(tfw_strcpy, both_compound)
 		.chunknum = 7
 	};
 
-	EXPECT_ZERO(tfw_strcpy(&s1, &s2));
-	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
+	EXPECT_ZERO(tfw_strcpy(s1, &s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop",
 				    sizeof("abcdefghijklmnop") - 1, 0));
 }
 
