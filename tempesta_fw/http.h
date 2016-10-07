@@ -262,7 +262,9 @@ typedef struct {
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
-#define TFW_HTTP_NON_IDEMPOTENT		0x000800
+#define TFW_HTTP_CHG_IDEMP		0x001000
+#define TFW_HTTP_NON_IDEMP		0x002000
+#define __TFW_HTTP_IDEMP_MASK		(TFW_HTTP_CHG_IDEMP | TFW_HTTP_NON_IDEMP)
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
@@ -298,9 +300,9 @@ typedef struct {
  *			  aren't alowed. So use atomic operations if concurrent
  *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
- * @conn		- connection which the message was received on;
  * @jtstamp		- time the message has been received, in jiffies;
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @conn		- connection which the message was received on;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
