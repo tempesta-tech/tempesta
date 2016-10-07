@@ -144,20 +144,20 @@ TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 	DEFINE_TFW_STR(s1, "abcdefghijklmnopqrst");
 	DEFINE_TFW_STR(s2, "abcdefghijklmnopqrst");
 	DEFINE_TFW_STR(s3, "abcdefghi");
-	DEFINE_TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
+	TfwStr *s4 = make_compound_str2("abcdefghijklmnopqrst", "_the_tail");
 
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, &s3, 0) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s3, 'f') == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, &s3, 'z') == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, &s4, 0) == 0);
-	EXPECT_TRUE(tfw_stricmpspn(&s1, &s4, 't') == 0);
+	EXPECT_FALSE(tfw_stricmpspn(&s1, s4, 0) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, s4, 't') == 0);
 }
 
 TEST(tfw_stricmpspn, handles_empty_strs)
 {
-	DEFINE_TFW_STR(s1, "garbage");
-	DEFINE_TFW_STR(s2, "trash");
+	DEFINE_TFW_STR(s1, "");
+	DEFINE_TFW_STR(s2, "");
 	DEFINE_TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
