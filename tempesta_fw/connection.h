@@ -94,6 +94,7 @@ typedef struct {
 	unsigned long		flags;
 	struct timer_list	timer;
 	TfwMsg			*msg;
+	TfwMsg			*msg_sent;
 	TfwPeer 		*peer;
 	struct sock		*sk;
 	void			(*destructor)(void *);
