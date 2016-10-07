@@ -82,7 +82,11 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
 		sg->sched->add_conn(sg, srv, &sconn->conn);
-		s ^= (long long)sconn;
+		s ^= (long long)&sconn->conn;
+		/* connection reference count must be >0
+		 * otherwise connection will be scipped in scheduler
+		 */
+		tfw_connection_get(&sconn->conn);
 	}
 
 	for (i = 0; i < 3 * TFW_SRV_MAX_CONN; ++i) {
@@ -127,7 +131,11 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			sconn = test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, &sconn->conn);
-			s ^= (long long)sconn;
+			s ^= (long long)&(sconn->conn);
+			/* connection reference count must be >0
+			 * otherwise connection will be scipped in scheduler
+			 */
+			tfw_connection_get(&sconn->conn);
 		}
 	}
 
