@@ -42,60 +42,77 @@
 #include "server.h"
 #include "test.h"
 
+static TfwMsg *
+sched_rr_get_scheduler_arg (size_t connection_type __attribute__((unused)))
+{
+	return NULL;
+}
+
+static void
+sched_rr_free_scheduler_arg (TfwMsg * msg __attribute__((unused)))
+{
+	return;
+}
+
+static struct TestSchedHelper sched_helper_rr = {
+	.scheduler = "round-robin",
+	.connections_types = 1,
+	.get_scheduler_arg = &sched_rr_get_scheduler_arg,
+	.free_scheduler_arg = &sched_rr_free_scheduler_arg,
+};
+
 TEST(tfw_sched_rr, sg_empty)
 {
-	int i;
-
-	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
-
-	for (i = 0; i < 3; ++i) {
-		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
-		EXPECT_TRUE(conn == NULL);
-	}
-
-	test_sg_release_all();
+	test_sched_generic_empty_sg(&sched_helper_rr);
 }
 
 TEST(tfw_sched_rr, one_srv_in_sg_and_zero_conn)
 {
-	int i;
-
-	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
-	test_create_srv("127.0.0.1", sg);
-
-	for (i = 0; i < 3; ++i) {
-		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
-		EXPECT_TRUE(conn == NULL);
-	}
-
-	test_sg_release_all();
+	test_sched_generic_one_srv_in_sg_zero_conn(&sched_helper_rr);
 }
 
+/*
+ * This unit test is implementation aware and checks more than just interface.
+ * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
+ * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
+ * structure is changed, other mentioned in above tests should be also be updated
+ */
 TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 {
-	int i;
-	long long s = 0;
+	size_t i, j;
+	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.scheduler);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
 		sg->sched->add_conn(sg, srv, &sconn->conn);
-		s ^= (long long)&sconn->conn;
+		conn_acc ^= (long long)&sconn->conn;
 		/* connection reference count must be >0
 		 * otherwise connection will be scipped in scheduler
 		 */
 		tfw_connection_get(&sconn->conn);
 	}
 
-	for (i = 0; i < 3 * TFW_SRV_MAX_CONN; ++i) {
-		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
-		s ^= (long long)conn;
-		tfw_connection_put(conn);
-	}
+	/* Check that connections is scheduled in the fair way:
+	 * every connection will be scheduled only once
+	 */
+	for (i = 0; i < sched_helper_rr.connections_types; ++i) {
+		conn_acc_check = 0;
 
-	EXPECT_TRUE(s == 0);
+		for (j = 0; j < 3 * TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg * msg = sched_helper_rr.get_scheduler_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(conn);
+
+			conn_acc_check ^= (long long)conn;
+			tfw_connection_put(conn);
+			sched_helper_rr.free_scheduler_arg(msg);
+		}
+
+		EXPECT_EQ(conn_acc, conn_acc_check);
+	}
 
 	test_conn_release_all(sg);
 	test_sg_release_all();
@@ -103,35 +120,28 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 
 TEST(tfw_sched_rr, max_srv_in_sg_and_zero_conn)
 {
-	int i;
-
-	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
-
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i)
-		test_create_srv("127.0.0.1", sg);
-
-	for (i = 0; i < 2 * TFW_SG_MAX_SRV; ++i) {
-		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
-		EXPECT_TRUE(conn == NULL);
-	}
-
-	test_sg_release_all();
+	test_sched_generic_max_srv_in_sg_and_zero_conn(&sched_helper_rr);
 }
 
+/*
+ * This unit test is implementation aware and checks more than just interface.
+ * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
+ * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
+ * structure is changed, other mentioned in above tests should be also be updated
+ */
 TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 {
-	int i, j;
-	long long s = 0;
-	TfwSrvConnection *sconn;
+	size_t i, j;
+	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", "round-robin");
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.scheduler);
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			sconn = test_create_conn((TfwPeer *)srv);
+			TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, &sconn->conn);
-			s ^= (long long)&(sconn->conn);
+			conn_acc ^= (long long)&(sconn->conn);
 			/* connection reference count must be >0
 			 * otherwise connection will be scipped in scheduler
 			 */
@@ -139,13 +149,24 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		}
 	}
 
-	for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-		TfwConnection *conn = sg->sched->sched_srv(NULL, sg);
-		s ^= (long long)conn;
-		tfw_connection_put(conn);
-	}
+	/* Check that connections is scheduled in the fair way:
+	 * every connection will be scheduled only once
+	 */
+	for (i = 0; i < sched_helper_rr.connections_types; ++i) {
+		conn_acc_check = 0;
 
-	EXPECT_TRUE(s == 0);
+		for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_rr.get_scheduler_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(conn);
+
+			conn_acc_check ^= (long long)conn;
+			tfw_connection_put(conn);
+			sched_helper_rr.free_scheduler_arg(msg);
+		}
+
+		EXPECT_EQ(conn_acc, conn_acc_check);
+	}
 
 	test_conn_release_all(sg);
 	test_sg_release_all();
