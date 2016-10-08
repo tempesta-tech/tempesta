@@ -31,6 +31,7 @@
 
 #include "server.h"
 #include "sched_helper.h"
+#include "test.h"
 
 void
 test_spec_cleanup(TfwCfgSpec specs[])
@@ -132,4 +133,85 @@ test_conn_release_all(TfwSrvGroup *sg)
 			tfw_srv_conn_free((TfwSrvConnection *)conn);
 		}
 	}
+}
+
+void test_sched_generic_empty_sg(struct TestSchedHelper * sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->scheduler);
+	BUG_ON(!sched_helper->connections_types);
+	BUG_ON(!sched_helper->get_scheduler_arg);
+	BUG_ON(!sched_helper->free_scheduler_arg);
+
+	sg = test_create_sg("test", sched_helper->scheduler);
+
+	for (i = 0; i < sched_helper->connections_types; ++i) {
+		for (j = 0; j < 3; ++j) {
+			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NULL(conn);
+			sched_helper->free_scheduler_arg(msg);
+		}
+	}
+
+	test_sg_release_all();
+}
+
+void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper * sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->scheduler);
+	BUG_ON(!sched_helper->connections_types);
+	BUG_ON(!sched_helper->get_scheduler_arg);
+	BUG_ON(!sched_helper->free_scheduler_arg);
+
+	sg = test_create_sg("test", sched_helper->scheduler);
+
+	test_create_srv("127.0.0.1", sg);
+
+	for (i = 0; i < sched_helper->connections_types; ++i) {
+		for (j = 0; j < 3; ++j) {
+			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NULL(conn);
+			sched_helper->free_scheduler_arg(msg);
+		}
+	}
+
+	test_sg_release_all();
+}
+
+void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper * sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->scheduler);
+	BUG_ON(!sched_helper->connections_types);
+	BUG_ON(!sched_helper->get_scheduler_arg);
+	BUG_ON(!sched_helper->free_scheduler_arg);
+
+	sg = test_create_sg("test", sched_helper->scheduler);
+
+	for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
+		test_create_srv("127.0.0.1", sg);
+	}
+
+	for (i = 0; i < sched_helper->connections_types; ++i) {
+		for (j = 0; j < 2 * TFW_SG_MAX_SRV; ++j) {
+			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NULL(conn);
+			sched_helper->free_scheduler_arg(msg);
+		}
+	}
+
+	test_sg_release_all();
 }
