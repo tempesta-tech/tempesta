@@ -41,15 +41,15 @@ TfwSrvConnection *test_create_conn(TfwPeer *peer);
 void test_conn_release_all(TfwSrvGroup *sg);
 
 struct TestSchedHelper {
-	const char * scheduler;
-	size_t connections_types;
-	TfwMsg * (*get_scheduler_arg)(size_t connection_type);
-	void (*free_scheduler_arg)(TfwMsg *);
+	const char *sched;
+	size_t conn_types;
+	TfwMsg * (*get_sched_arg)(size_t connection_type);
+	void (*free_sched_arg)(TfwMsg *);
 };
 
-void test_sched_generic_empty_sg(struct TestSchedHelper * sched_helper);
-void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper * sched_helper);
-void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper * sched_helper);
+void test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper);
+void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper *sched_helper);
+void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper *sched_helper);
 
 
 #endif /* __TFW_SCHED_HELPER_H__ */

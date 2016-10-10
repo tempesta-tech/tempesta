@@ -50,27 +50,27 @@ static char *req_strs[] = {
 	"GET / HTTP/1.1\r\nhost:host4\r\n\r\n",
 };
 
-static TfwMsg * sched_hash_get_scheduler_arg (size_t connection_type);
+static TfwMsg *sched_hash_get_scheduler_arg(size_t connection_type);
 
 static void
-sched_hash_free_scheduler_arg (TfwMsg * msg)
+sched_hash_free_scheduler_arg(TfwMsg *msg)
 {
 	test_req_free((TfwHttpReq *)msg);
 }
 
 static struct TestSchedHelper sched_helper_hash = {
-	.scheduler = "hash",
-	.connections_types = sizeof(req_strs) / sizeof(req_strs[0]),
-	.get_scheduler_arg = &sched_hash_get_scheduler_arg,
-	.free_scheduler_arg = &sched_hash_free_scheduler_arg,
+	.sched = "hash",
+	.conn_types = ARRAY_SIZE(req_strs),
+	.get_sched_arg = &sched_hash_get_scheduler_arg,
+	.free_sched_arg = &sched_hash_free_scheduler_arg,
 };
 
 static TfwMsg *
-sched_hash_get_scheduler_arg (size_t connection_type)
+sched_hash_get_scheduler_arg(size_t connection_type)
 {
 	TfwHttpReq *req = NULL;
 
-	BUG_ON(connection_type >= sched_helper_hash.connections_types);
+	BUG_ON(connection_type >= sched_helper_hash.conn_types);
 
 	req = test_req_alloc(strlen(req_strs[connection_type]));
 	tfw_http_parse_req(req, (unsigned char *) req_strs[connection_type],
@@ -99,36 +99,34 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 {
 	size_t i, j;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.scheduler);
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+
 		sg->sched->add_conn(sg, srv, &sconn->conn);
-		/* connection reference count must be >0
-		 * otherwise connection will be scipped in scheduler
-		 */
+		/* A connection is skipped by schedulers if (refcnt <= 0). */
 		tfw_connection_get(&sconn->conn);
 	}
 
-	/*	Check if every single request is scheduled to the same connection
-	 */
-	for (i = 0; i < sched_helper_hash.connections_types; ++i) {
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
 		TfwConnection *expected_connection = NULL;
 
-		for (j = 0; j < 3 * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_hash.get_scheduler_arg(i);
+		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
 			EXPECT_NOT_NULL(conn);
 
-			if (!expected_connection) {
+			if (!expected_connection)
 				expected_connection = conn;
-			} else {
+			else
 				EXPECT_EQ(conn, expected_connection);
-			}
 
 			tfw_connection_put(conn);
-			sched_helper_hash.free_scheduler_arg(msg);
+			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
 
@@ -151,38 +149,37 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 {
 	size_t i, j;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.scheduler);
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
+
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+
 			sg->sched->add_conn(sg, srv, &sconn->conn);
-			/* connection reference count must be >0
-			 * otherwise connection will be scipped in scheduler
-			 */
+			/* A connection is skipped by schedulers if (refcnt <= 0). */
 			tfw_connection_get(&sconn->conn);
 		}
 	}
 
-	/*	Check if every single request is scheduled to the same connection
-	 */
-	for (i = 0; i < sched_helper_hash.connections_types; ++i) {
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
 		TfwConnection *expected_connection = NULL;
 
-		for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_hash.get_scheduler_arg(i);
+		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
 			EXPECT_NOT_NULL(conn);
 
-			if (!expected_connection) {
+			if (!expected_connection)
 				expected_connection = conn;
-			} else {
+			else
 				EXPECT_EQ(conn, expected_connection);
-			}
 
 			tfw_connection_put(conn);
-			sched_helper_hash.free_scheduler_arg(msg);
+			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
 

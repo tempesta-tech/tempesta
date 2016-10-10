@@ -178,11 +178,6 @@ TEST(cfg_parser, allows_optional_entries)
 	EXPECT_OK(r);
 	EXPECT_EQ(counter, 2);
 
-	TEST_LOG("Ignore next 3 ERRORS: \n"
-			 "\t\"ERROR: the required entry is not found: 'incr2'\"\n"
-			 "\t\"ERROR: configuration parsing error: str:1;w:(null)\"\n"
-			 "\t\"ERROR: can't parse configuration data\"\n"
-			 "We are checking invalid input values\n");
 	r = parse_cfg(cfg_text, specs_noopt);
 	EXPECT_ERROR(r);
 }
@@ -896,49 +891,6 @@ TEST(tfw_cfg_set_str, checks_strlen)
 	do_cleanup_cfg();
 }
 
-TEST(tfw_cfg_set_str, checks_strlen_exact_len)
-{
-	int r;
-	const char *str = NULL;
-	TfwCfgSpec specs[] = {
-		{
-			"str", NULL,
-			tfw_cfg_set_str,
-			&str,
-			&(TfwCfgSpecStr) {
-				.len_range = { 8, 8 }
-			}
-		},
-		{ 0 }
-	};
-
-	r = do_parse_cfg("str 12345;", specs);
-	EXPECT_ERROR(r);
-	do_cleanup_cfg();
-
-	r = do_parse_cfg("str \"12345\";", specs);
-	EXPECT_ERROR(r);
-	do_cleanup_cfg();
-
-	r = do_parse_cfg("str 12345678;", specs);
-	EXPECT_OK(r);
-	EXPECT_STR_EQ(str, "12345678");
-	do_cleanup_cfg();
-
-	r = do_parse_cfg("str \"12345678\";", specs);
-	EXPECT_OK(r);
-	EXPECT_STR_EQ(str, "12345678");
-	do_cleanup_cfg();
-
-	r = do_parse_cfg("str 123456789;", specs);
-	EXPECT_ERROR(r);
-	do_cleanup_cfg();
-
-	r = do_parse_cfg("str \"123456789\";", specs);
-	EXPECT_ERROR(r);
-	do_cleanup_cfg();
-}
-
 TEST(tfw_cfg_set_str, checks_character_set)
 {
 	int r;
@@ -1100,7 +1052,6 @@ TEST_SUITE(cfg)
 	TEST_RUN(tfw_cfg_set_str, sets_dest_str);
 	TEST_RUN(tfw_cfg_set_str, sets_dest_str_empty_string);
 	TEST_RUN(tfw_cfg_set_str, checks_strlen);
-	TEST_RUN(tfw_cfg_set_str, checks_strlen_exact_len);
 	TEST_RUN(tfw_cfg_set_str, checks_character_set);
 	TEST_RUN(tfw_cfg_handle_children, parses_nested_entries_recursively);
 	TEST_RUN(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs);
