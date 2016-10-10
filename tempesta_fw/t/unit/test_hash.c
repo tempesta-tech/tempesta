@@ -34,12 +34,12 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 	 * The hashes should be different with high probability,
 	 * but at this point we are not going to write some statistical tests.
 	 */
-	TfwStr s1 = { .len = 10, .ptr = (void *)"foobarbaz1" };
-	TfwStr s2 = { .len = 10, .ptr = (void *)"Foobarbaz1" };
-	TfwStr s3 = { .len = 10, .ptr = (void *)"foobarbaz2" };
-	TfwStr s4 = { .len = 9, .ptr = (void *)"foobarbaz" };
-	TfwStr s5 = { .len = 11, .ptr = (void *)"foobarbaz11" };
-	TfwStr s6 = { .len = 0, .ptr = (void *)"" };
+	TfwStr s1 = TFW_STR_FROM("foobarbaz1");
+	TfwStr s2 = TFW_STR_FROM("Foobarbaz1");
+	TfwStr s3 = TFW_STR_FROM("foobarbaz2");
+	TfwStr s4 = TFW_STR_FROM("foobarbaz");
+	TfwStr s5 = TFW_STR_FROM("foobarbaz11");
+	TfwStr s6 = TFW_STR_FROM("");
 
 	unsigned long h[] = {
 		tfw_hash_str(&s1),
@@ -63,31 +63,28 @@ TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)
 TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 {
 	unsigned long h1, h2, h3;
-
-	TfwStr s1 = { .len = 17, .ptr = (void *)"Host: example.com" };
-
-	TfwStr s2c1 = {	.len = 14, .ptr = (void *)"Host: example." };
-	TfwStr s2c2 = {	.len = 3, .ptr = (void *)"com" };
+	TfwStr s1 = TFW_STR_FROM("Host: example.com");
+	TfwStr s2c1 = TFW_STR_FROM("Host: example.");
+	TfwStr s2c2 = TFW_STR_FROM("com");
 	TfwStr s2chunks[] = { s2c1, s2c2 };
 	TfwStr s2 = {
-		.len = 14 + 3,
-		.ptr = s2chunks
+		.len = s2c1.len + s2c2.len,
+		.chunks = s2chunks,
+		.chunknum = ARRAY_SIZE(s2chunks),
 	};
 
-	TfwStr s3c1 = {	.len = 1, .ptr = (void *)"H" };
-	TfwStr s3c2 = {	.len = 0, .ptr = (void *)"" };
-	TfwStr s3c3 = {	.len = 3, .ptr = (void *)"ost" };
-	TfwStr s3c4 = {	.len = 1, .ptr = (void *)":" };
-	TfwStr s3c5 = {	.len = 12, .ptr = (void *)" example.com" };
-	TfwStr s3c6 = {	.len = 0, .ptr = NULL };
+	TfwStr s3c1 = TFW_STR_FROM("H");
+	TfwStr s3c2 = TFW_STR_FROM("");
+	TfwStr s3c3 = TFW_STR_FROM("ost");
+	TfwStr s3c4 = TFW_STR_FROM(":");
+	TfwStr s3c5 = TFW_STR_FROM(" example.com");
+	TfwStr s3c6 = {	.len = 0, .data = NULL };
 	TfwStr s3chunks[] = { s3c1, s3c2, s3c3, s3c4, s3c5, s3c6 };
 	TfwStr s3 = {
 		.len = 1 + 0 + 3 + 1 + 12 + 0,
-		.ptr = s3chunks
+		.chunks = s3chunks,
+		.chunknum = ARRAY_SIZE(s3chunks),
 	};
-
-	TFW_STR_CHUNKN_INIT(&s2);
-	__TFW_STR_CHUNKN_SET(&s3, 6);
 
 	h1 = tfw_hash_str(&s1);
 	h2 = tfw_hash_str(&s2);
@@ -107,8 +104,8 @@ TEST(tfw_hash_str, hashes_all_chars)
 	unsigned long h1, h2;
 	char buf1[256] = { 0 };
 	char buf2[256] = { 0 };
-	TfwStr s1 = { .len = 0,	.ptr = buf1 };
-	TfwStr s2 = { .len = 0, .ptr = buf2 };
+	TfwStr s1 = { .data = buf1 };
+	TfwStr s2 = { .data = buf2 };
 
 	/* Change of each individial byte in the string should change
 	 * the hash value. */
@@ -140,14 +137,10 @@ TEST(tfw_hash_str, hashes_all_chars)
 
 TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 {
-	char buf[256] = { 0 };
-	TfwStr s = {
-		.len = 0,
-		.ptr = buf
-	};
-
-	unsigned long h1, h2;
 	int i;
+	unsigned long h1, h2;
+	char buf[256] = { 0 };
+	TfwStr s = { .data = buf };
 
 	for (i = 0; i < 255; ++i) {
 		s.len = i;
@@ -164,14 +157,10 @@ TEST(tfw_hash_str, doesnt_read_behind_end_of_buf)
 
 TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 {
-	char buf[31]; /* maximum tail */
-	TfwStr str = {
-		.ptr = buf,
-		.len = sizeof(buf)
-	};
-
-	unsigned long h1, h2;
 	int i;
+	unsigned long h1, h2;
+	char buf[31]; /* maximum tail */
+	TfwStr str = TFW_STR_FROM(buf);
 
 	memset(buf, 'a', sizeof(buf));
 	h1 = tfw_hash_str(&str);

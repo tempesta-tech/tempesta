@@ -8,7 +8,7 @@
  *    only to actual data stored somewhere else, typically in skb;
  *
  * 2. the string handles possibly chunked data, e.g. splitted among different
- *    skbs. In this case COMPOUND flag is used;
+ *    skbs. In this case 'chunknum' field is not zero;
  *
  * 3. it is HTTP specific in that sense that the string aggregates duplicate
  *    headers, where duplicate is not necessary exact string matching
@@ -29,7 +29,7 @@
  * indirection is expected. If string have more than one chunk, it's called
  * a "compound" string. `len` field of a compound string contains total length
  * of all chunks combined. Same field for a plain string is just length of
- * a data in the region pointed to by `ptr`.
+ * a data in the region pointed to by `data`.
  *
  * Another possibility is a so called duplicate string. A duplicate string is
  * a bunch of strings that describe HTTP fields with the same name.
@@ -37,11 +37,7 @@
  * all of those will end up in a duplicate string. Such strings use `ptr`
  * field as an array of TfwStr's, each of which can be a compound string.
  * A duplicate string can not itself consist of duplicate strings.
- *
- * `flags` field is used for both discerning the types of strings and keeping
- * the number of elements in `ptr` array, if there are any. Lower 8 bits of
- * the field are reserved for flags. Remaining bits are used to store
- * the number of chunks in a compound string. Zero means a plain string.
+ * `flags` field is used for discerning the types of strings.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
@@ -69,111 +65,104 @@
 
 #include "pool.h"
 
-#define TFW_STR_FBITS		8
-#define TFW_STR_FMASK		((1U << TFW_STR_FBITS) - 1)
-#define TFW_STR_CN_SHIFT	TFW_STR_FBITS
-#define __TFW_STR_CN_MAX	(~TFW_STR_FMASK)
-/* Str is compound from many chunks, use indirect table for the chunks. */
-#define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
-/*
- * Str constists from compound or plain strings.
- * Duplicate strings are also always compound on root level.
- */
+#define __TFW_STR_CN_MAX	0xffffff	/* 24 bits */
 #define TFW_STR_DUPLICATE	0x01
 /* The string is complete and will not grow. */
 #define TFW_STR_COMPLETE	0x02
-/* Some name starts at the string chunk. */
+/* A name (of name/value pair) starts at the string chunk. */
 #define TFW_STR_NAME		0x04
-/* Some value starts at the string chunk. */
+/* A value (of name/value pair starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
 
 /*
- * @ptr		- pointer to string data or array of nested strings;
- * @skb		- socket buffer containign the string data;
- * @len		- total length of compund or plain string (HTTP message body
- *		  size can be extreme large, so we need 64 bits to handle it);
- * @eolen	- the length of string's line endings, if present (as for now,
- *		  it should be 0 if the string has no EOL at all, 1 for LF and
- *		  2 for CRLF);
- * @flags	- 3 most significant bytes for number of chunks of compound
- * 		  string and the least significant byte for flags;
+ * @skb		- socket buffer that contains the string data;
+ * @len		- total length of a compound or plain string (HTTP message body
+ *		  size can be extremely large, so we need 64 bits to handle it);
+ * @eolen	- the length of string's line endings, if present (for now,
+ *		  it should be 0 if the string has no EOL at all, 1 for LF,
+ *		  and 2 for CRLF);
+ * @chunknum	- The number of chunks in a chunked string;
+ * @flags	- various flags that tell the string's type or state.
+ * @data	- pointer to the string data;
+ * @chunks	- pointer to array of chunks of a chunked string;
  */
-typedef struct {
-	void		*ptr;
+typedef struct TfwStr {
 	struct sk_buff	*skb;
 	unsigned long	len;
 	unsigned char	eolen;
-	unsigned int	flags;
+	unsigned int	chunknum : 24;
+	unsigned int	flags : 8;
+	union {
+		char		*data;
+		struct TfwStr	*chunks;
+	};
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
-						  sizeof(val) - 1, 0 }
-#define TFW_STR_FROM(s)         ((TfwStr){(char*)s, NULL, strlen(s)})
+/* For strings of length @slen in a buffer @buf. */
+#define TFW_STR_FROM_BUFLEN(buf, slen)	\
+		((TfwStr){ .data = (char *)buf, .len = slen })
+#define TFW_STR_FROM(s)			TFW_STR_FROM_BUFLEN(s, sizeof(s) - 1)
+#define TFW_STR_FROM_DS(s)		TFW_STR_FROM_BUFLEN(s, strlen(s))
+#define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_FROM(val)
+#define TFW_STR_INIT(s)			memset(s, 0, sizeof(TfwStr))
 
 /* Use this with "%.*s" in printing calls. */
-#define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr
+#define PR_TFW_STR(s)			(int)min(20UL, (s)->len), (s)->data
 
-/* Numner of chunks in @s. */
-#define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
-#define TFW_STR_CHUNKN_LIM(s)	((s)->flags >= __TFW_STR_CN_MAX)
-#define TFW_STR_CHUNKN_ADD(s, n) ((s)->flags += ((n) << TFW_STR_CN_SHIFT))
-#define TFW_STR_CHUNKN_SUB(s, n) ((s)->flags -= ((n) << TFW_STR_CN_SHIFT))
-#define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags = ((s)->flags & TFW_STR_FMASK) \
-						  | ((n) << TFW_STR_CN_SHIFT))
-/* Compound string contains at least 2 chunks. */
-#define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
+#define TFW_STR_CHUNKN(s)		((s)->chunknum)
+#define TFW_STR_CHUNKN_LIM(s)		((s)->chunknum >= __TFW_STR_CN_MAX)
+#define TFW_STR_CHUNKN_ADD(s, n)	((s)->chunknum += (n))
+#define TFW_STR_CHUNKN_SUB(s, n)	((s)->chunknum -= (n))
+#define __TFW_STR_CHUNKN_SET(s, n)	((s)->chunknum = (n))
 
-#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
-
-#define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
-#define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))
+#define TFW_STR_EMPTY(s)	(!(s)->len && !(s)->chunknum)
+#define TFW_STR_PLAIN(s)	(!(s)->chunknum)
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
-#define __TFW_STR_CH(s, c)	((TfwStr *)(s)->ptr + (c))
-#define TFW_STR_CHUNK(s, c)	(((s)->flags & __TFW_STR_COMPOUND)	\
+#define __TFW_STR_CH(s, c)	(!TFW_STR_PLAIN(s) ? (s)->chunks + (c) : s)
+#define TFW_STR_CHUNK(s, c)	(!TFW_STR_PLAIN(s)			\
 				 ? ((c) >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
-				    : __TFW_STR_CH(s, (c)))		\
+				    : __TFW_STR_CH(s, c))		\
 				 : (!(c) ? s : NULL))
 /*
- * Get last/current chunk of @s.
- * The most left leaf is taken as the current chunk for duplicate strings tree.
+ * Get the last/current chunk of @s.
+ * The leftmost leaf is taken as the current chunk for duplicate strings tree.
  */
-#define TFW_STR_CURR(s)							\
-({									\
+#define TFW_STR_CURR(s)	({						\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
-		       ? (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1	\
-		       : (s);						\
-	(_tmp->flags & __TFW_STR_COMPOUND)				\
-		? (TfwStr *)_tmp->ptr + TFW_STR_CHUNKN(_tmp) - 1	\
-		: (_tmp);						\
- })
-#define TFW_STR_LAST(s)		TFW_STR_CURR(s)
+		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
+		       : s;						\
+	(!TFW_STR_PLAIN(_tmp))						\
+		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
+		: _tmp;							\
+})
+#define TFW_STR_LAST(s)	TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
 	/* Iterate over chunks, not duplicates. */			\
 	BUG_ON(TFW_STR_DUP(s));						\
 	if (TFW_STR_PLAIN(s)) {						\
-		(c) = (s);						\
+		c = s;							\
 		end = (s) + 1;						\
 	} else {							\
-		(c) = (s)->ptr;						\
-		end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
+		c = (s)->chunks;					\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
 	}								\
-	for ( ; (c) < end; ++(c))
+	for ( ; c < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		(end) = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
-		(d) = (s)->ptr;						\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
+		d = (s)->chunks;					\
 	} else {							\
-		(d) = (s);						\
-		(end) = (s) + 1;					\
+		d = s;							\
+		end = (s) + 1;						\
 	}								\
-	for ( ; (d) < (end); ++(d))
+	for ( ; d < end; ++(d))
 
 /**
  * Update length of the string which points to new data ending at @curr_p.
@@ -183,16 +172,16 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 {
 	unsigned int n;
 
-	if (s->flags & __TFW_STR_COMPOUND) {
-		TfwStr *chunk = (TfwStr *)s->ptr + TFW_STR_CHUNKN(s) - 1;
+	if (!TFW_STR_PLAIN(s)) {
+		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
 
 		BUG_ON(chunk->len);
-		BUG_ON(!chunk->ptr || curr_p <= (char *)chunk->ptr);
+		BUG_ON(!chunk->chunks || curr_p <= chunk->data);
 
-		n = curr_p - (char *)chunk->ptr;
+		n = curr_p - chunk->data;
 		chunk->len = n;
 	} else {
-		n = curr_p - (char *)s->ptr;
+		n = curr_p - s->data;
 	}
 	s->len += n;
 }
@@ -212,19 +201,9 @@ tfw_str_eolen(const TfwStr *s)
 static inline void
 tfw_str_set_eolen(TfwStr *s, unsigned int eolen)
 {
-	BUG_ON(eolen > 2); /* LF and CRLF is the only valid EOL markers */
+	BUG_ON(eolen > 2); /* LF and CRLF are the only valid EOL markers */
 	s->eolen = (unsigned char)eolen;
 }
-
-/**
- * Returns total string length, including EOL
- */
-static inline unsigned long
-tfw_str_total_len(const TfwStr *s)
-{
-	return s->len + s->eolen;
-}
-
 /**
  * Reduce @str length by @eolen bytes and fill the EOL.
  */
@@ -236,9 +215,18 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 
 	str->len -= (str->eolen = eolen);
 	if (eolen == 1)
-		*(char *)(str->ptr + str->len) = 0x0a; /* LF, '\n' */
+		*(str->data + str->len) = 0x0a; /* LF, '\n' */
 	else if (eolen == 2)
-		*(short *)(str->ptr + str->len) = 0x0a0d; /* CRLF, '\r\n' */
+		*(short *)(str->data + str->len) = 0x0a0d; /* CRLF, '\r\n' */
+}
+
+/**
+ * Returns total string length, including EOL
+ */
+static inline unsigned long
+tfw_str_total_len(const TfwStr *s)
+{
+	return s->len + s->eolen;
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
@@ -263,7 +251,6 @@ bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
-
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
 #ifdef DEBUG

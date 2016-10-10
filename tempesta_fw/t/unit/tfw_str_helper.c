@@ -59,7 +59,7 @@ make_plain_str(const char *data)
 	TfwStr *s = alloc_str();
 
 	s->len =  strlen(data);
-	s->ptr = (void *)data;
+	s->data = (char *)data;
 
 	return s;
 }
@@ -73,14 +73,14 @@ make_compound_str(const char *data)
 
 	str = alloc_str();
 	str->len = min(total_len, chunk_len);
-	str->ptr = (void *)data;
+	str->data = (char *)data;
 
 	for (total_len -= str->len; total_len > 0; total_len -= chunk->len) {
 		chunk = tfw_str_add_compound(str_pool, str);
 		if (!chunk)
 			return NULL;
 		chunk->len = min(total_len, ++chunk_len % 8);
-		chunk->ptr = (void *)(data + str->len);
+		chunk->data = (char *)(data + str->len);
 		str->len += chunk->len;
 	}
 
@@ -94,14 +94,14 @@ make_compound_str2(const char *data1, const char *data2)
 
 	str = alloc_str();
 	str->len = strlen(data1);
-	str->ptr = (void *)data1;
+	str->data = (char *)data1;
 
 	chunk = tfw_str_add_compound(str_pool, str);
 	if (!chunk)
 		return NULL;
 
 	chunk->len = strlen(data2);
-	chunk->ptr = (void *)data2;
+	chunk->data = (char *)data2;
 	str->len = strlen(data1) + strlen(data2);
 
 	return str;

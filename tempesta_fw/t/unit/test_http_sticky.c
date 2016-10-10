@@ -114,7 +114,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	size_t len;
 	TfwStr *hdr_field;
 
-	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
+	hdr_field = tfw_http_field_raw(hm, field_name->data, field_name->len);
 	if (hdr_field == NULL) {
 		return 0;
 	}
@@ -128,7 +128,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	}
 	len = tfw_str_to_cstr(hdr_field, buf, len);
 	ptr = strim(buf + field_name->len);
-	value->ptr = ptr;
+	value->data = ptr;
 	value->len = len - (ptr - buf);
 
 	return 1;
@@ -140,8 +140,8 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	unsigned int data_off = 0;
+	TfwStr hdr_value = { 0 };
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
-	DEFINE_TFW_STR(hdr_value, NULL);
 
 	BUG_ON(!msg);
 	BUG_ON(!conn);
@@ -170,7 +170,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 
 	/* cookie name should be somewhere in Set-Cookie header value */
 	mock.seen_cookie =
-	    strnstr(hdr_value.ptr, COOKIE_NAME, hdr_value.len) != NULL;
+	    strnstr(hdr_value.data, COOKIE_NAME, hdr_value.len) != NULL;
 
 	return 0;
 }
@@ -227,7 +227,7 @@ http_sticky_suite_teardown(void)
 
 TEST(http_sticky, sending_302_without_preparing)
 {
-	StickyVal sv = {};
+	StickyVal sv = { 0 };
 
 	/* Cookie is calculated for zero HMAC. */
 	EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), TFW_PASS);
@@ -278,9 +278,9 @@ TEST(http_sticky, sending_502)
 static void
 append_string_to_msg(TfwHttpMsg *hm, const char *s)
 {
-	struct sk_buff  *skb;
-	void		*ptr;
-	size_t		len;
+	struct sk_buff *skb;
+	void *ptr;
+	size_t len;
 
 	BUG_ON(!s);
 	len = strlen(s);
@@ -339,7 +339,7 @@ http_parse_resp_helper(void)
 
 TEST(http_sticky, sticky_get_absent)
 {
-	TfwStr value = {};
+	TfwStr value = { 0 };
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n"
 			    "Cookie: __utmz=12345; q=aa\r\n\r\n";
 
@@ -353,7 +353,7 @@ TEST(http_sticky, sticky_get_absent)
 static void
 test_sticky_present_helper(const char *s_req)
 {
-	TfwStr	value = {};
+	TfwStr	value = { 0 };
 
 	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
@@ -361,7 +361,7 @@ test_sticky_present_helper(const char *s_req)
 	EXPECT_EQ(tfw_http_sticky_get(mock.req, &value), 1);
 
 	EXPECT_TRUE(value.len == 5);
-	EXPECT_TRUE(value.ptr && memcmp(value.ptr, "67890", 5) == 0);
+	EXPECT_TRUE(value.data && memcmp(value.data, "67890", 5) == 0);
 }
 
 TEST(http_sticky, sticky_get_present_begin)

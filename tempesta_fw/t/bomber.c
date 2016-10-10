@@ -257,9 +257,9 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			fuzz_init(&task->ctx, true);
 	} while (r != FUZZ_VALID);
 
-	msg.ptr = task->buf;
+	msg.data = task->buf;
 	msg.skb = NULL;
-	msg.len = strlen(msg.ptr);
+	msg.len = strlen(msg.data);
 	msg.flags = 0;
 	BUG_ON(msg.len > BUF_SIZE);
 
@@ -453,7 +453,7 @@ tfw_bmb_init(void)
 	struct task_struct *task;
 	int r = 0;
 
-	if (tfw_addr_pton(&TFW_STR_FROM(server), &bmb_server_address)) {
+	if (tfw_addr_pton(&TFW_STR_FROM_DS(server), &bmb_server_address)) {
 		TFW_ERR("Unable to parse server's address: %s", server);
 		return -EINVAL;
 	}

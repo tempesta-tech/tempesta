@@ -62,6 +62,8 @@ int ghprio; /* GFSM hook priority. */
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
+#define TFW_STR_FROM_GBUF(l)	TFW_STR_FROM_BUFLEN(*this_cpu_ptr(&g_buf), l)
+
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -128,22 +130,18 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwMsgIter it;
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_302_PART_01, .len = SLEN(S_302_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_302_PART_02, .len = SLEN(S_302_PART_02) }
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_302_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_302_PART_02),
 		},
 		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.chunknum = 3
 	};
-	static TfwStr part03 = {
-		.ptr = S_302_PART_03, .len = SLEN(S_302_PART_03) };
-	static TfwStr crlfcrlf = {
-		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
-	static TfwStr crlf_keep = {
-		.ptr = S_302_KEEP, .len = SLEN(S_302_KEEP) };
-	static TfwStr crlf_close = {
-		.ptr = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
+	static TfwStr part03 = TFW_STR_FROM(S_302_PART_03);
+	static TfwStr crlfcrlf = TFW_STR_FROM(S_CRLFCRLF);
+	static TfwStr crlf_keep = TFW_STR_FROM(S_302_KEEP);
+	static TfwStr crlf_close = TFW_STR_FROM(S_302_CLOSE);
 	TfwStr host, *crlf = &crlfcrlf;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
@@ -165,14 +163,14 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	if (!tfw_http_msg_create(resp, &it, Conn_Srv, data_len))
 		return TFW_BLOCK;
 
-	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
+	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->data);
 	tfw_http_msg_write(&it, resp, &rh);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
+		static TfwStr proto = TFW_STR_FROM(S_HTTP);
 		tfw_http_msg_write(&it, resp, &proto);
 		tfw_http_msg_write(&it, resp, &host);
 	}
@@ -215,10 +213,10 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	if (conn_flag) {
 		unsigned long crlf_len = crlf->len;
 		if (conn_flag == TFW_HTTP_CONN_KA) {
-			crlf->ptr = S_H_CONN_KA;
+			crlf->data = S_H_CONN_KA;
 			crlf->len = SLEN(S_H_CONN_KA);
 		} else {
-			crlf->ptr = S_H_CONN_CLOSE;
+			crlf->data = S_H_CONN_CLOSE;
 			crlf->len = SLEN(S_H_CONN_CLOSE);
 		}
 		msg->len += crlf->len - crlf_len;
@@ -227,7 +225,7 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	if (!tfw_http_msg_create(&resp, &it, Conn_Srv, msg->len))
 		return -ENOMEM;
 
-	tfw_http_prep_date(date->ptr);
+	tfw_http_prep_date(date->data);
 	tfw_http_msg_write(&it, &resp, msg);
 
 	__init_resp_ss_flags((TfwHttpResp *)&resp, req);
@@ -244,14 +242,14 @@ int
 tfw_http_send_200(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_200_PART_01, .len = SLEN(S_200_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_200_PART_02, .len = SLEN(S_200_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_200_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_200_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 200 response to the client\n");
@@ -268,14 +266,14 @@ int
 tfw_http_send_403(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_403_PART_01, .len = SLEN(S_403_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_403_PART_02, .len = SLEN(S_403_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_403_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_403_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -292,14 +290,14 @@ int
 tfw_http_send_404(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_404_PART_02, .len = SLEN(S_404_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_404_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_404_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 404 response to the client\n");
@@ -317,14 +315,14 @@ static int
 tfw_http_send_500(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_500_PART_02, .len = SLEN(S_500_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_500_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_500_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 500 response to the client\n");
@@ -342,14 +340,14 @@ int
 tfw_http_send_502(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_502_PART_02, .len = SLEN(S_502_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_502_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_502_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 502 response to the client\n");
@@ -367,14 +365,14 @@ int
 tfw_http_send_504(TfwHttpReq *req)
 {
 	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_504_PART_02, .len = SLEN(S_504_PART_02) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_504_PART_01),
+			TFW_STR_FROM_GBUF(SLEN(S_V_DATE)),
+			TFW_STR_FROM(S_504_PART_02),
+			TFW_STR_FROM(S_CRLF),
 		},
 		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.chunknum = 4
 	};
 
 	TFW_DBG("Send HTTP 504 response to the client\n");
@@ -657,20 +655,18 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	TfwVhost *vhost = tfw_vhost_get_default();
 	TfwStr rh = {
 #define S_VIA	"Via: "
-		.ptr = (TfwStr []) {
-			{ .ptr = S_VIA, .len = SLEN(S_VIA) },
-			{ .ptr = (void *)s_http_version[hm->version],
-			  .len = 4 },
-			{ .ptr = *this_cpu_ptr(&g_buf),
-			  .len = vhost->hdr_via_len },
+		.chunks = (TfwStr []){
+			TFW_STR_FROM(S_VIA),
+			TFW_STR_FROM_BUFLEN(s_http_version[hm->version], 4),
+			TFW_STR_FROM_GBUF(vhost->hdr_via_len),
 		},
 		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
 		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.chunknum = 3
 #undef S_VIA
 	};
 
-	memcpy(__TFW_STR_CH(&rh, 2)->ptr, vhost->hdr_via, vhost->hdr_via_len);
+	memcpy(__TFW_STR_CH(&rh, 2)->data, vhost->hdr_via, vhost->hdr_via_len);
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
 	if (r)
@@ -749,7 +745,8 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (resp->flags & TFW_HTTP_RESP_STALE) {
 #define S_WARN_110 "Warning: 110 - Response is stale"
 		/* TODO: ajust for #215 */
-		TfwStr wh = {.ptr = S_WARN_110, .len = SLEN(S_WARN_110),.eolen = 2};
+		TfwStr wh = { .data = S_WARN_110, .len = SLEN(S_WARN_110),
+			      .eolen = 2 };
 		r = tfw_http_msg_hdr_add(hm, &wh);
 		if (r)
 			return r;
@@ -1178,7 +1175,8 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
 
 	BUG_ON(!hmresp->conn);
 
-	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, skb, off);
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG,
+			  skb, off);
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto error;

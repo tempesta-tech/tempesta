@@ -80,7 +80,7 @@ test_mlst_match(void)
 static void
 set_tfw_str(TfwStr *str, const char *cstr)
 {
-	str->ptr = (void *)cstr;
+	str->data = (char *)cstr;
 	str->len = strlen(cstr);
 }
 
@@ -166,6 +166,7 @@ TEST(http_match, uri_suffix)
 	match_id = test_mlst_match();
 	EXPECT_EQ(-1, match_id);
 }
+
 TEST(http_match, host_eq)
 {
 	int match_id;
@@ -230,7 +231,7 @@ TEST(http_match, hdr_host_prefix)
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 		match_id = test_mlst_match();
-		EXPECT_EQ(2, match_id);
+		EXPECT_EQ(-1, match_id);
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr2;
 		match_id = test_mlst_match();
@@ -242,7 +243,7 @@ TEST(http_match, hdr_host_prefix)
 
 		test_req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr4;
 		match_id = test_mlst_match();
-		EXPECT_EQ(3, match_id);
+		EXPECT_EQ(-1, match_id);
 	}
 
 	free_all_str();

@@ -251,16 +251,16 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			if (!chunk) {
 				return p == NULL;
 			}
-			c = chunk->ptr;
-			cend = chunk->ptr + chunk->len;
+			c = chunk->data;
+			cend = chunk->data + chunk->len;
 
 #define _TRY_NEXT_CHUNK(ok_code, err_code)		\
 	if (unlikely(c == cend))	{		\
 		++cnum;					\
 		chunk = TFW_STR_CHUNK(dup, cnum); 	\
 		if (chunk) {				\
-			c = chunk->ptr;			\
-			cend = chunk->ptr + chunk->len; \
+			c = chunk->data;		\
+			cend = chunk->data + chunk->len;\
 			ok_code;			\
 		} else {				\
 			err_code;			\
