@@ -109,7 +109,7 @@ test_create_conn(TfwPeer *peer)
 	};
 	TfwSrvConnection *srv_conn;
 
-	if(!tfw_srv_conn_cache)
+	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
 	srv_conn = tfw_srv_conn_alloc();
 
@@ -135,81 +135,79 @@ test_conn_release_all(TfwSrvGroup *sg)
 	}
 }
 
-void test_sched_generic_empty_sg(struct TestSchedHelper * sched_helper)
+void test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 {
-	size_t i, j;
+	size_t i;
 	TfwSrvGroup *sg;
 
 	BUG_ON(!sched_helper);
-	BUG_ON(!sched_helper->scheduler);
-	BUG_ON(!sched_helper->connections_types);
-	BUG_ON(!sched_helper->get_scheduler_arg);
-	BUG_ON(!sched_helper->free_scheduler_arg);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->scheduler);
+	sg = test_create_sg("test", sched_helper->sched);
 
-	for (i = 0; i < sched_helper->connections_types; ++i) {
-		for (j = 0; j < 3; ++j) {
-			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NULL(conn);
-			sched_helper->free_scheduler_arg(msg);
-		}
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
+		EXPECT_NULL(conn);
+		sched_helper->free_sched_arg(msg);
 	}
 
 	test_sg_release_all();
 }
 
-void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper * sched_helper)
+void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper *sched_helper)
 {
-	size_t i, j;
+	size_t i;
 	TfwSrvGroup *sg;
 
 	BUG_ON(!sched_helper);
-	BUG_ON(!sched_helper->scheduler);
-	BUG_ON(!sched_helper->connections_types);
-	BUG_ON(!sched_helper->get_scheduler_arg);
-	BUG_ON(!sched_helper->free_scheduler_arg);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->scheduler);
+	sg = test_create_sg("test", sched_helper->sched);
 
 	test_create_srv("127.0.0.1", sg);
 
-	for (i = 0; i < sched_helper->connections_types; ++i) {
-		for (j = 0; j < 3; ++j) {
-			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NULL(conn);
-			sched_helper->free_scheduler_arg(msg);
-		}
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
+		EXPECT_NULL(conn);
+		sched_helper->free_sched_arg(msg);
 	}
 
 	test_sg_release_all();
 }
 
-void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper * sched_helper)
+void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper *sched_helper)
 {
 	size_t i, j;
 	TfwSrvGroup *sg;
 
 	BUG_ON(!sched_helper);
-	BUG_ON(!sched_helper->scheduler);
-	BUG_ON(!sched_helper->connections_types);
-	BUG_ON(!sched_helper->get_scheduler_arg);
-	BUG_ON(!sched_helper->free_scheduler_arg);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->scheduler);
+	sg = test_create_sg("test", sched_helper->sched);
 
-	for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
+	for (j = 0; j < TFW_SG_MAX_SRV; ++j)
 		test_create_srv("127.0.0.1", sg);
-	}
 
-	for (i = 0; i < sched_helper->connections_types; ++i) {
-		for (j = 0; j < 2 * TFW_SG_MAX_SRV; ++j) {
-			TfwMsg * msg = sched_helper->get_scheduler_arg(i);
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
+			TfwMsg *msg = sched_helper->get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
 			EXPECT_NULL(conn);
-			sched_helper->free_scheduler_arg(msg);
+			sched_helper->free_sched_arg(msg);
 		}
 	}
 

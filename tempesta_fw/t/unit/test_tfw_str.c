@@ -416,10 +416,6 @@ TEST(tfw_str_eq_cstr_pos, plain)
 	TfwStr *fox = make_plain_str(foxstr), *c, *end;
 	long i, offset = 0, foxlen = fox->len;
 
-	/* unlike to tfw_str_eq_cstr_off we don't  know which pointer we should use
-	 * to address string element at 'offset' position from begging of the string.
-	 * go though chunks, manually to get needed pointers
-	 */
 	TFW_STR_FOR_EACH_CHUNK(c, fox, end) {
 		for (i = 0; i < c->len; i++) {
 			EXPECT_TRUE(tfw_str_eq_cstr_pos(fox,
@@ -436,12 +432,6 @@ TEST(tfw_str_eq_cstr_pos, plain)
 		}
 	}
 
-	/* Addressing substring which is actually not a part of string will
-	 * raise an error. That is expected behaviour and we should not worried
-	 * about that
-	*/
-	TEST_LOG("Ignore next warning: \"Desired position is outside the string\". "
-	         "We are checking invalid argument value\n");
 	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
 					 (const char *)1,
 					 foxstr,
@@ -479,10 +469,6 @@ TEST(tfw_str_eq_cstr_pos, compound)
 	TfwStr *fox = make_compound_str(foxstr), *c, *end;
 	long i, offset = 0, foxlen = fox->len;
 
-	/* unlike to tfw_str_eq_cstr_off we don't  know which pointer we should use
-	 * to address string element at 'offset' position from begging of the string.
-	 * go though chunks, manually to get needed pointers
-	 */
 	TFW_STR_FOR_EACH_CHUNK(c, fox, end) {
 		for (i = 0; i < c->len; i++) {
 			EXPECT_TRUE(tfw_str_eq_cstr_pos(fox,
@@ -499,17 +485,11 @@ TEST(tfw_str_eq_cstr_pos, compound)
 		}
 	}
 
-	/* Addressing substring which is actually not a part of string will
-	 * raise an error. That is expected behaviour and we should not worried
-	 * about that
-	*/
-	TEST_LOG("Ignore next warning: \"Desired position is outside the string\". "
-	         "We are checking invalid argument value\n");
 	EXPECT_FALSE(tfw_str_eq_cstr_pos(fox,
 					 (const char *)1,
 					 foxstr,
 					 foxlen,
-	                 TFW_STR_EQ_CASEI));
+					 TFW_STR_EQ_CASEI));
 }
 
 TEST(tfw_str_eq_cstr_off, compound)

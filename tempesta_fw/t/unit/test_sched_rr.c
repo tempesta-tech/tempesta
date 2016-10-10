@@ -43,22 +43,21 @@
 #include "test.h"
 
 static TfwMsg *
-sched_rr_get_scheduler_arg (size_t connection_type __attribute__((unused)))
+sched_rr_get_sched_arg(size_t connection_type __attribute__((unused)))
 {
 	return NULL;
 }
 
 static void
-sched_rr_free_scheduler_arg (TfwMsg * msg __attribute__((unused)))
+sched_rr_free_sched_arg(TfwMsg *msg __attribute__((unused)))
 {
-	return;
 }
 
 static struct TestSchedHelper sched_helper_rr = {
-	.scheduler = "round-robin",
-	.connections_types = 1,
-	.get_scheduler_arg = &sched_rr_get_scheduler_arg,
-	.free_scheduler_arg = &sched_rr_free_scheduler_arg,
+	.sched = "round-robin",
+	.conn_types = 1,
+	.get_sched_arg = &sched_rr_get_sched_arg,
+	.free_sched_arg = &sched_rr_free_sched_arg,
 };
 
 TEST(tfw_sched_rr, sg_empty)
@@ -82,33 +81,33 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	size_t i, j;
 	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.scheduler);
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.sched);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+
 		sg->sched->add_conn(sg, srv, &sconn->conn);
 		conn_acc ^= (long long)&sconn->conn;
-		/* connection reference count must be >0
-		 * otherwise connection will be scipped in scheduler
-		 */
+		/* A connection is skipped by schedulers if (refcnt <= 0). */
 		tfw_connection_get(&sconn->conn);
 	}
 
 	/* Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
-	for (i = 0; i < sched_helper_rr.connections_types; ++i) {
+	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
 		conn_acc_check = 0;
 
-		for (j = 0; j < 3 * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg * msg = sched_helper_rr.get_scheduler_arg(i);
+		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
 			EXPECT_NOT_NULL(conn);
 
 			conn_acc_check ^= (long long)conn;
 			tfw_connection_put(conn);
-			sched_helper_rr.free_scheduler_arg(msg);
+			sched_helper_rr.free_sched_arg(msg);
 		}
 
 		EXPECT_EQ(conn_acc, conn_acc_check);
@@ -134,17 +133,17 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 	size_t i, j;
 	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.scheduler);
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.sched);
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
+
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 			conn_acc ^= (long long)&(sconn->conn);
-			/* connection reference count must be >0
-			 * otherwise connection will be scipped in scheduler
-			 */
+			/* A connection is skipped by schedulers if (refcnt <= 0). */
 			tfw_connection_get(&sconn->conn);
 		}
 	}
@@ -152,17 +151,18 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 	/* Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
-	for (i = 0; i < sched_helper_rr.connections_types; ++i) {
+	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
 		conn_acc_check = 0;
 
-		for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_rr.get_scheduler_arg(i);
+		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+
 			EXPECT_NOT_NULL(conn);
 
 			conn_acc_check ^= (long long)conn;
 			tfw_connection_put(conn);
-			sched_helper_rr.free_scheduler_arg(msg);
+			sched_helper_rr.free_sched_arg(msg);
 		}
 
 		EXPECT_EQ(conn_acc, conn_acc_check);
