@@ -196,18 +196,18 @@ TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
 	char *cstr = "foo123 barbaz";
 	int len = strlen(cstr);
 	DEFINE_TFW_STR(match, "foo123 barbaz");
-	TFW_STR(diff1, "aoo123 barbaz");
-	TFW_STR(diff2, "foo123 barbaa");
-	TFW_STR(diff3, "Foo123 barbaz");
-	TFW_STR(crop,  "foo123 barba");
-	TFW_STR(extra, "foo123 barbazz");
+	DEFINE_TFW_STR(diff1, "aoo123 barbaz");
+	DEFINE_TFW_STR(diff2, "foo123 barbaa");
+	DEFINE_TFW_STR(diff3, "Foo123 barbaz");
+	DEFINE_TFW_STR(crop,  "foo123 barba");
+	DEFINE_TFW_STR(extra, "foo123 barbazz");
 
 	EXPECT_TRUE(tfw_str_eq_cstr(&match, cstr, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(diff1, cstr, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(diff2, cstr, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(diff3, cstr, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(crop,  cstr, len, TFW_STR_EQ_DEFAULT));
-	EXPECT_FALSE(tfw_str_eq_cstr(extra, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&diff1, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&diff2, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&diff3, cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&crop,  cstr, len, TFW_STR_EQ_DEFAULT));
+	EXPECT_FALSE(tfw_str_eq_cstr(&extra, cstr, len, TFW_STR_EQ_DEFAULT));
 }
 
 TEST(tfw_str_eq_cstr, handles_plain_str)
@@ -314,16 +314,16 @@ TEST(tfw_str_eq_cstr, supports_prefix)
 TEST(tfw_str_eq_cstr_off, supports_suffix)
 {
 	TfwStr s = TFW_STR_FROM("/foo/bar/baz.test");
-	const char *p1 = "/foo/bar/baz.test";
-	const char *p2 = "foo/bar/baz.test";
-	const char *p3 = "bar/baz.test";
-	const char *p4 = "/baz.test";
-	const char *p5 = ".test";
-	const char *f1 = "/bar/foo/baz.test";
-	const char *f2 = "/foo/bar/";
-	const char *extra = "/bar/foo/baz.test100";
-	const char *i1 = "/foo/bar/baz.tesT";
-	const char *i2 = ".TeSt";
+	char *p1 = "/foo/bar/baz.test";
+	char*p2 = "foo/bar/baz.test";
+	char *p3 = "bar/baz.test";
+	char *p4 = "/baz.test";
+	char *p5 = ".test";
+	char *f1 = "/bar/foo/baz.test";
+	char *f2 = "/foo/bar/";
+	char *extra = "/bar/foo/baz.test100";
+	char *i1 = "/foo/bar/baz.tesT";
+	char *i2 = ".TeSt";
 
 #define X_EXPECT_TRUE(s, p, flags)					\
 do {									\
@@ -349,14 +349,14 @@ do {									\
 	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT);
 	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT);
 
-	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
-	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_TRUE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_TRUE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
 
 #undef X_EXPECT_TRUE
 #undef X_EXPECT_FALSE
 }
 
-static const char *foxstr = "The quick brown fox jumps over the lazy dog";
+static char *foxstr = "The quick brown fox jumps over the lazy dog";
 
 TEST(tfw_str_eq_cstr_pos, plain)
 {
