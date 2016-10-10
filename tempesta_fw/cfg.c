@@ -243,13 +243,11 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -ENOBUFS;
 	}
 
-	if (val_len) {
+	/* Store an incoming value even if it's an empty string. */
+	if (val_len)
 		val = alloc_and_copy_literal(val_src, val_len);
-	}
-	else {
-		/* incoming value - empty string, we still need to save it */
+	else
 		val = alloc_and_copy_literal("", 0);
-	}
 
 	if (!val)
 		return -ENOMEM;
@@ -1322,8 +1320,7 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 		min = cse->len_range.min;
 		max = cse->len_range.max;
-		if (((min != 0) && (max != 0)) &&
-			(len < min || len > max)) {
+		if (min != max && (len < min || len > max)) {
 			TFW_ERR("the string length (%d) is out of valid range "
 				" (%d, %d): '%s'\n", len, min, max, str);
 			return -EINVAL;
