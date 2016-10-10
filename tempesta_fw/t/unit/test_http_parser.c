@@ -40,8 +40,8 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			rem = 0;
 		}
 
-		TFW_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
-			 len, pos, chunks, step);
+		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
+			  len, pos, chunks, step);
 		if (type == FUZZ_REQ)
 			r = tfw_http_parse_req(req, str + pos, step);
 		else
@@ -146,37 +146,40 @@ do_split_and_parse(unsigned char *str, int type)
 #define FOR_REQ(str)						\
 	TEST_LOG("=== request: [%s]\n", str);			\
 	chunks = 1;						\
-	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
+	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
 
 #define EXPECT_BLOCK_REQ(str)					\
 do {								\
 	TEST_LOG("=== request: [%s]\n", str);			\
 	chunks = 1;						\
-	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
+	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
 } while (0)
 
 #define FOR_RESP(str)						\
 	TEST_LOG("=== response: [%s]\n", str);			\
 	chunks = 1;						\
-	while(TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
+	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
 
 #define EXPECT_BLOCK_RESP(str)					\
 do {								\
 	TEST_LOG("=== response: [%s]\n", str);			\
 	chunks = 1;						\
-	while(TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
+	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
 TEST(http_parser, parses_req_method)
 {
-	FOR_REQ("GET / HTTP/1.1\r\n\r\n")
+	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
+	}
 
-	FOR_REQ("HEAD / HTTP/1.1\r\n\r\n")
+	FOR_REQ("HEAD / HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_HEAD);
+	}
 
-	FOR_REQ("POST / HTTP/1.1\r\n\r\n")
+	FOR_REQ("POST / HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+	}
 }
 
 #define EXPECT_TFWSTR_EQ(tfw_str, cstr) \
@@ -186,17 +189,22 @@ TEST(http_parser, parses_req_uri)
 {
 	/* Relative part of the URI only. */
 
-	FOR_REQ("GET / HTTP/1.1\r\n\r\n")
+	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
+	}
 
-	FOR_REQ("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n")
+	FOR_REQ("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/foo/b_a_r/baz.html");
+	}
 
-	FOR_REQ("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n")
+	FOR_REQ("GET /a/b/c/dir/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/a/b/c/dir/");
+	}
 
-	FOR_REQ("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n")
-		EXPECT_TFWSTR_EQ(&req->uri_path, "/a/b/c/dir/?foo=1&bar=2#abcd");
+	FOR_REQ("GET /a/b/c/dir/?foo=1&bar=2#abcd HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->uri_path,
+				 "/a/b/c/dir/?foo=1&bar=2#abcd");
+	}
 
 	/* Absolute URI. */
 	/* NOTE: we don't include port to the req->host */
@@ -235,13 +243,21 @@ TEST(http_parser, parses_req_uri)
 	}
 }
 
+/* TODO add HTTP attack examples. */
+TEST(http_parser, mangled_messages)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "POST / HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "\r\n");
+}
+
 TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc,
-	       *h_te;
+	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_te;
 	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff,
-		   h_user_agent, h_cookie;
+	       h_user_agent, h_cookie;
 
 	/* Expected values for special headers. */
 	const char *s_host = "localhost";
@@ -342,6 +358,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 					    strlen(s_cc), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
 					    strlen(s_te), 0));
+
+		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_HOST].eolen == 2);
 	}
 }
 
@@ -387,6 +405,9 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	{
 		ht = resp->h_tbl;
 
+		EXPECT_TRUE(tfw_str_eq_cstr(&resp->s_line, "HTTP/1.1 200 OK",
+			    strlen("HTTP/1.1 200 OK"), 0));
+
 		/* Special headers: */
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
 					TFW_HTTP_HDR_CONNECTION,
@@ -428,6 +449,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
 					    strlen(s_te), 0));
+
+		EXPECT_TRUE(h_dummy9->eolen == 2);
 	}
 }
 
@@ -442,23 +465,17 @@ TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
 		EXPECT_GT(h->len, 0);
 	}
 
-	EXPECT_BLOCK_REQ(
-		"GET / HTTP/1.1\r\n"
-		"X-Forwarded-For: 1.2.3.4, , 5.6.7.8\r\n"
-		"\r\n"
-	);
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "X-Forwarded-For: 1.2.3.4, , 5.6.7.8\r\n"
+			 "\r\n");
 
-	EXPECT_BLOCK_REQ(
-		"GET / HTTP/1.1\r\n"
-		"X-Forwarded-For: foo!\r\n"
-		"\r\n"
-	);
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "X-Forwarded-For: foo!\r\n"
+			 "\r\n");
 
-	EXPECT_BLOCK_REQ(
-		"GET / HTTP/1.1\r\n"
-		"X-Forwarded-For: \r\n"
-		"\r\n"
-	);
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "X-Forwarded-For: \r\n"
+			 "\r\n");
 }
 
 TEST(http_parser, parses_connection_value)
@@ -466,15 +483,20 @@ TEST(http_parser, parses_connection_value)
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Connection: Keep-Alive\r\n"
 		"\r\n")
+	{
 		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_KA);
+	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Connection: Close\r\n"
 		"\r\n")
-		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_CLOSE);
+	{
+		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK,
+			  TFW_HTTP_CONN_CLOSE);
+	}
 }
 
-TEST(http_parser, content_length_duplicate)
+TEST(http_parser, content_length)
 {
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			  "Content-Length: 0\r\n"
@@ -485,6 +507,196 @@ TEST(http_parser, content_length_duplicate)
 			  "Content-Length: 0\r\n"
 			  "Content-Length: 0\r\n"
 			  "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: -1\r\n"
+			  "\r\n"
+			  "aaaaaa\n"
+			  "\r\n");
+}
+
+TEST(http_parser, eol_crlf)
+{
+	FOR_REQ("\rGET / HTTP/1.1\r\n"
+		"Host: d.com\r\n"
+		"\r\n");
+
+	FOR_REQ("POST / HTTP/1.1\n"
+		"Host: a.com\n"
+		"Content-Length: 5\n"
+		"\n"
+		"a=24\n"
+		"\n") /* the LF is ignored. */
+	{
+		TfwHttpHdrTbl *ht = req->h_tbl;
+
+		EXPECT_TRUE(req->crlf.len == 1);
+		EXPECT_TRUE(req->body.len == 5);
+		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_HOST].eolen == 1);
+		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH].eolen == 1);
+	}
+
+	/*
+	 * It seems RFC 7230 3.3 doesn't prohibit message body
+	 * for GET requests.
+	 */
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host: b.com\n"
+		"Content-Length: 6\n"
+		"\r\n"
+		"b=24\r\n"
+		"\r\n") /* last CRLF is ignored */
+	{
+		EXPECT_TRUE(req->crlf.len == 2);
+		EXPECT_TRUE(req->body.len == 6);
+	}
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\r\n"
+			 "Host: c.com\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET\r/ HTTP/1.1\r\n"
+			 "Host: e.com\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: f.com\r\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: g.com\r\r\n"
+			 "\r\r\n");
+}
+
+TEST(http_parser, ows)
+{
+	FOR_REQ("GET /a.html HTTP/1.1\r\n"
+		"Host: 		 foo.com 	\r\n"
+		"Connection:   close   \r\n"
+		"\n");
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:foo.com\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host :foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET	/ HTTP/1.1\r\n"
+			 "Host: foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET /\tHTTP/1.1\r\n"
+			 "Host: foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1 \r\n"
+			 "Host: foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\t\r\n"
+			 "Host: foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r \n"
+			 "Host: foo.com\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 " Host: foo.com\r\n"
+			 "\r\n");
+}
+
+TEST(http_parser, folding)
+{
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host:    \r\n"
+			 "   foo.com\r\n"
+			 "Connection: close\r\n"
+			 "\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: 	foo.com\r\n"
+			 "Connection:\n"
+			 "	close\r\n"
+			 "\n");
+}
+
+TEST(http_parser, empty_host)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Connection: close\r\n"
+		"\r\n");
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:  \n"
+		"\n");
+}
+
+TEST(http_parser, chunked)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr h_connection;
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Content-Length: 5\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"\r\n"
+		"5;cext=val\r\n"
+		"abcde\r\n"
+		"a\r\n"
+		"f=01234567\r\n"
+		"2;a=1\n"
+		"89\r\n"
+		"0\n"
+		"Connection: close\r\n"
+		"\r\n")
+	{
+		ht = req->h_tbl;
+
+		EXPECT_TRUE(req->body.len == 46);
+
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+					TFW_HTTP_HDR_CONNECTION,
+					&h_connection);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, "close",
+					    sizeof("close") - 1, 0));
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 100\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\n"
+		 "5\r\n"
+		 "abcde\r\n"
+		 "0;test\n"
+		 "Connection: keep-alive\r\n"
+		 "\r\n")
+	{
+		ht = resp->h_tbl;
+
+		EXPECT_TRUE(resp->body.len == 17);
+
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+					TFW_HTTP_HDR_CONNECTION,
+					&h_connection);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, "keep-alive",
+					    sizeof("keep-alive") - 1, 0));
+	}
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "5;cext=val\r\n"
+			 "abcde\r\n"
+			 "10\r\n" /* decimal length instead of hex */
+			 "f=01234567\r\n"
+			 "2;a=1\n"
+			 "89\r\n"
+			 "0\n"
+			 "Connection: close\r\n"
+			 "\r\n");
 }
 
 #define N 6	// Count of generations
@@ -501,7 +713,7 @@ TEST(http_parser, fuzzer)
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
-			TFW_DBG3("start field: %d request: %d\n", field, i);
+			TEST_DBG3("start field: %d request: %d\n", field, i);
 			ret = fuzz_gen(&context, str, str + len, field, MOVE,
 				       FUZZ_REQ);
 			switch (ret) {
@@ -524,7 +736,7 @@ resp:
 
 	for (field = SPACES; field < N_FIELDS; field++) {
 		for (i = 0; i < N; i++) {
-			TFW_DBG3("start field: %d response: %d\n", field, i);
+			TEST_DBG3("start field: %d response: %d\n", field, i);
 			ret = fuzz_gen(&context, str, str + len, field, MOVE,
 				       FUZZ_RESP);
 			switch (ret) {
@@ -546,33 +758,20 @@ end:
 	vfree(str);
 }
 
-TEST(http_parser, folding)
-{
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-			 "Host:    \r\n"
-			 "   foo.com\r\n"
-			 "Connection: close\r\n"
-			 "\r\n");
-}
-
-TEST(http_parser, empty_host)
-{
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Host:\r\n"
-		"Connection: close\r\n"
-		"\r\n");
-}
-
 TEST_SUITE(http_parser)
 {
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
+	TEST_RUN(http_parser, mangled_messages);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
 	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
 	TEST_RUN(http_parser, parses_connection_value);
-	TEST_RUN(http_parser, content_length_duplicate);
-	TEST_RUN(http_parser, fuzzer);
+	TEST_RUN(http_parser, content_length);
+	TEST_RUN(http_parser, eol_crlf);
+	TEST_RUN(http_parser, ows);
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, empty_host);
+	TEST_RUN(http_parser, chunked);
+	TEST_RUN(http_parser, fuzzer);
 }

@@ -1,16 +1,6 @@
 /**
  *		Tempesta FW
  *
- * HTTP Parser.
- *
- * The parser enforces few sane limitations:
- *
- * 	- short fields (like numeric Content-Length) could be carried by not
- * 	  more than 2 data chunks - the bigger number of chunks means some
- * 	  dirty games like Slow HTTP attack.
- *
- * 	- TODO write down other limits.
- *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
@@ -42,11 +32,11 @@
 
 /* Common states. */
 enum {
-	RGen_LWS = 10000,
-	RGen_LWS_empty,
+	RGen_OWS = 10000,
 
 	RGen_EoL,
-	RGen_EoLine,
+	RGen_CR,
+	RGen_CRLFCR,
 
 	RGen_Hdr,
 	RGen_HdrOther,
@@ -60,7 +50,7 @@ enum {
 	RGen_BodyChunkExt,
 	RGen_BodyReadChunk,
 	RGen_BodyEoL,
-	RGen_BodyEoLine,
+	RGen_BodyCR,
 };
 
 /**
@@ -104,12 +94,9 @@ memchreol(const unsigned char *s, size_t n)
  * The following __data_{} macros help to reduce the amount of direct @data/@len
  * manipulations.
  */
-#define __data_offset(pos)						\
-	(size_t)((pos) - data)
-#define __data_remain(pos)						\
-	(len - __data_offset(pos))
-#define __data_available(pos, num)					\
-	(num <= __data_remain(pos))
+#define __data_offset(pos)		(size_t)((pos) - data)
+#define __data_remain(pos)		(len - __data_offset(pos))
+#define __data_available(pos, num)	(num <= __data_remain(pos))
 
 /**
  * The following set of macros is intended to use for generic fields processing
@@ -118,16 +105,13 @@ memchreol(const unsigned char *s, size_t n)
  * @__msg_field_finish is used when field needs to be finished. The latter means
  * that the underlying TfwStr flag TFW_STR_COMPLETE must be raised.
  */
-#define __msg_field_open(field, pos)					\
-do {									\
-	tfw_http_msg_set_data(msg, field, pos);				\
-} while (0)
+#define __msg_field_open(field, pos)	tfw_http_msg_set_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
 do {									\
 	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-		tfw_http_msg_field_chunk_fixup(msg, field, data,	\
-					       __data_offset(pos));	\
+		tfw_http_msg_add_data_ptr(msg, field, data,		\
+					  __data_offset(pos));		\
 } while (0)
 
 #define __msg_field_finish(field, pos)					\
@@ -152,7 +136,6 @@ do {									\
 	size_t		__maybe_unused __fsm_sz;			\
 	unsigned char	__maybe_unused *__fsm_ch;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
-	;
 
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
@@ -172,7 +155,7 @@ st: __attribute__((unused)) 						\
 #define FSM_EXIT()							\
 do {									\
 	p += 1; /* eat current character */				\
-	goto done;							\
+	__FSM_EXIT();							\
 } while (0)
 
 #define __FSM_FINISH(m)							\
@@ -181,14 +164,26 @@ done:									\
 	/* Remaining number of bytes to process in the data chunk. */	\
 	parser->to_go = __data_remain(p);
 
-#define __FSM_MOVE_nff(to, n, field, fixup)				\
+#define __FSM_MOVE_nofixup_n(to, n)					\
+do {									\
+	p += n;								\
+	if (unlikely(__data_offset(p) >= len)) {			\
+		r = TFW_POSTPONE; /* postpone to more data available */	\
+		__fsm_const_state = to; /* start from state @to next time */\
+		__FSM_EXIT()						\
+	}								\
+	c = *p;								\
+	goto to;							\
+} while (0)
+
+#define __FSM_MOVE_nf(to, n, field)					\
 do {									\
 	p += n;								\
 	if (unlikely(__data_offset(p) >= len)) {			\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
-		if (fixup)						\
+		if ((field)->ptr)					\
 			__msg_field_fixup(field, data + len);		\
 		__FSM_EXIT()						\
 	}								\
@@ -196,17 +191,12 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_MOVE_nofixup(to)						\
-	__FSM_MOVE_nff(to, 1, NULL, 0)
-
-#define __FSM_MOVE_nf(to, n, field)					\
-	__FSM_MOVE_nff(to, n, field, 1)
-
-#define __FSM_MOVE_n(to, n)	__FSM_MOVE_nf(to, n, &msg->parser.hdr)
-#define __FSM_MOVE_f(to, field)	__FSM_MOVE_nf(to, 1, field)
-#define __FSM_MOVE(to)		__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
+#define __FSM_MOVE_nofixup(to)		__FSM_MOVE_nofixup_n(to, 1)
+#define __FSM_MOVE_n(to, n)		__FSM_MOVE_nf(to, n, &msg->parser.hdr)
+#define __FSM_MOVE_f(to, field)		__FSM_MOVE_nf(to, 1, field)
+#define __FSM_MOVE(to)			__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
-#define __FSM_JMP(to)		do { goto to; } while (0)
+#define __FSM_JMP(to)			do { goto to; } while (0)
 
 /*
  * __FSM_I_* macros are intended to help with parsing of message
@@ -255,20 +245,33 @@ do {									\
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
 
 /* Conditional transition from state @st to @st_next. */
-#define __FSM_TX_COND(st, condition, st_next) 				\
+#define __FSM_TX_COND(st, condition, st_next, field) 			\
 __FSM_STATE(st) {							\
 	if (likely(condition))						\
-		__FSM_MOVE(st_next);					\
+		__FSM_MOVE_f(st_next, field);				\
+	return TFW_BLOCK;						\
+}
+
+#define __FSM_TX_COND_nofixup(st, condition, st_next) 			\
+__FSM_STATE(st) {							\
+	if (likely(condition))						\
+		__FSM_MOVE_nofixup(st_next);				\
 	return TFW_BLOCK;						\
 }
 
 /* Automaton transition from state @st to @st_next on character @ch. */
-#define __FSM_TX(st, ch, st_next) \
-	__FSM_TX_COND(st, c == (ch), st_next)
+#define __FSM_TX(st, ch, st_next)					\
+	__FSM_TX_COND(st, c == (ch), st_next, NULL)
+#define __FSM_TX_f(st, ch, st_next, field)				\
+	__FSM_TX_COND(st, c == (ch), st_next, field)
+#define __FSM_TX_nofixup(st, ch, st_next)				\
+	__FSM_TX_COND_nofixup(st, c == (ch), st_next)
 
 /* Case-insensitive version of __FSM_TX(). */
 #define __FSM_TX_LC(st, ch, st_next) 					\
 	__FSM_TX_COND(st, LC(c) == (ch), st_next)
+#define __FSM_TX_LC_nofixup(st, ch, st_next) 				\
+	__FSM_TX_COND_nofixup(st, LC(c) == (ch), st_next)
 
 /* Automaton transition with alphabet checking and fallback state. */
 #define __FSM_TX_AF(st, ch, st_next, st_fallback)			\
@@ -279,12 +282,12 @@ __FSM_STATE(st) {							\
 	__FSM_JMP(st_fallback);						\
 }
 
-/* As above, but reads LWS through transitional state. */
-#define __FSM_TX_AF_LWS(st, ch, st_next, st_fallback)			\
+/* As above, but reads OWS through transitional state. */
+#define __FSM_TX_AF_OWS(st, ch, st_next, st_fallback)			\
 __FSM_STATE(st) {							\
 	if (likely(tolower(c) == ch)) {					\
 		parser->_i_st = st_next;				\
-		__FSM_MOVE(RGen_LWS);					\
+		__FSM_MOVE(RGen_OWS);					\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
 	__FSM_JMP(st_fallback);						\
@@ -489,52 +492,84 @@ enum {
 #define TRY_STR(str, state)						\
 	TRY_STR_LAMBDA(str, { }, state)
 
-/**
- * EOL processing
- *
- * In general, we need to have at least 2 states for the EOL handling - @EoL
- * and @EoLine. The first one is the entry point for all the state users.
- *
- * To keep track of EOL characters we use special register. New characters are
- * appended to it's beginning while old characters are shifted left. Even if
- * RFC 7320 uses CRLF as a EOL delimiter for the purpose of robustness we allow
- * LF as well as CRLF.
+/*
+ * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
  *
  * Note also, that according to RFC 7230, HTTP-headers may appear in two
  * cases. The first one is header section (3.2) and the second one is
  * chunked-body trailer-part (4.1).
  */
-
 #define RGEN_EOL()							\
 __FSM_STATE(RGen_EoL) {							\
-	parser->_eol = 0;						\
-	/* Fall through. */						\
-}									\
-__FSM_STATE(RGen_EoLine) {						\
-	parser->_eol = (parser->_eol << 4) | c;				\
-	TFW_DBG3("parser: eol %08lx\n", parser->_eol);			\
-	if (parser->_eol == 0xd)					\
-		__FSM_MOVE_nofixup(RGen_EoLine);			\
-	/* Allow only LF and CRLF as a newline delimiters. */		\
-	if (parser->_eol != 0xa && parser->_eol != 0xda)		\
-		return TFW_BLOCK;					\
-	/* The header may be unopened in case of parsing s_line. */	\
-	if (!parser->hdr.ptr)						\
+	if (c == '\r') {						\
+		__FSM_MOVE_nofixup(RGen_CR);				\
+	}								\
+	else if (c == '\n') {						\
+		if (parser->hdr.ptr) {					\
+			tfw_str_set_eolen(&parser->hdr, 1);		\
+			if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag)) \
+				return TFW_BLOCK;			\
+		}							\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	tfw_str_set_eolen(&parser->hdr, 1 + !!(parser->_eol == 0xda));	\
-	/* Zero length means that we've got an empty-line. */		\
-	if (unlikely(!parser->hdr.len)) {				\
-		if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {		\
-			msg->crlf = parser->hdr;			\
+	}								\
+	else {								\
+		return TFW_BLOCK;					\
+	}								\
+}									\
+__FSM_STATE(RGen_CR) {							\
+	if (unlikely(c != '\n'))					\
+		return TFW_BLOCK;					\
+	if (parser->hdr.ptr) {						\
+		tfw_str_set_eolen(&parser->hdr, 2);			\
+		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))	\
+			return TFW_BLOCK;				\
+	}								\
+	/* Process next header if any. */				\
+	__FSM_MOVE_nofixup(RGen_Hdr);					\
+}
+
+/*
+ * Process final CRLF, i.e. end of headers part or whole HTTP message.
+ * Probably we're here after trailing-part headers, so @msg->crlf is already
+ * set and there is nothing to do.
+ */
+#define TFW_HTTP_PARSE_CRLF()						\
+do {									\
+	if (unlikely(c == '\r')) {					\
+		if (!msg->crlf.ptr)					\
+			/* End of headers part. */			\
+			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
+	}								\
+	else if (c == '\n') {						\
+		if (!msg->crlf.ptr) {					\
+			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+			msg->crlf.len = 1;				\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
 			__FSM_JMP(RGen_BodyInit);			\
+		} else {						\
+			r = TFW_PASS;					\
+			FSM_EXIT();					\
 		}							\
+	}								\
+} while (0)
+
+/*
+ * State processing a letter just after CRLFCR, i.e. final LF.
+ */
+#define RGEN_CRLF()							\
+__FSM_STATE(RGen_CRLFCR) {						\
+	if (unlikely(c != '\n'))					\
+		return TFW_BLOCK;					\
+	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
+		BUG_ON(!msg->crlf.ptr);					\
+		__msg_field_fixup(&msg->crlf, p + 1);			\
+		msg->crlf.flags |= TFW_STR_COMPLETE;			\
+		__FSM_JMP(RGen_BodyInit);				\
+	} else {							\
 		r = TFW_PASS;						\
 		FSM_EXIT();						\
 	}								\
-	if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))		\
-		return TFW_BLOCK;					\
-	__FSM_MOVE_nofixup(RGen_Hdr);					\
 }
 
 /*
@@ -580,7 +615,7 @@ __FSM_STATE(st_curr) {							\
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);	\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = id;					\
-		__FSM_MOVE_n(RGen_LWS_empty, __fsm_n); /* skip OWS */	\
+		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
 	}								\
 }
 
@@ -619,7 +654,7 @@ __FSM_STATE(st_curr) {							\
 		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
-		__FSM_MOVE_n(RGen_LWS_empty, __fsm_n); /* skip OWS */	\
+		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */	\
 	}								\
 }
 
@@ -656,35 +691,6 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	}								\
 	__FSM_MOVE_n(RGen_HdrOtherV, __fsm_sz);				\
 }
-
-/*
- * __FSM_B_* macros are intended to help with parsing of a message
- * body, hence the "_B_" in the names. The macros are similar to
- * those for parsing of message headers (__FSM_*), or for parsing
- * of message header values (__FSM_I_*, where _I_ means "interior",
- * or nested FSM). The major difference from __FSM_* macros is that
- * in case of postpone they add data to the body.
- */
-#define __FSM_B_MOVE_n(to, n)						\
-do {									\
-	p += n;								\
-	if (unlikely(__data_offset(p) >= len)) {			\
-		/*							\
-		 * Postpone parsing until more data is available,	\
-		 * and start from state @to on next parser run.		\
-		 */							\
-		r = TFW_POSTPONE;					\
-		__fsm_const_state = to;					\
-		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data, len)) \
-			return TFW_BLOCK;				\
-		goto done;						\
-	}								\
-	c = *p;								\
-	goto to;							\
-} while (0)
-
-#define __FSM_B_MOVE(to)						\
-	__FSM_B_MOVE_n(to, 1)
 
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
@@ -770,7 +776,7 @@ __FSM_STATE(Resp_BodyUnlimStart) {					\
 	/* fall through */						\
 }									\
 __FSM_STATE(Resp_BodyUnlimRead) {					\
-	__FSM_B_MOVE_n(Resp_BodyUnlimRead, __data_remain(p));		\
+	__FSM_MOVE_nf(Resp_BodyUnlimRead, __data_remain(p), &msg->body); \
 }
 
 #define TFW_HTTP_PARSE_BODY()						\
@@ -781,7 +787,7 @@ __FSM_STATE(RGen_BodyStart) {						\
 }									\
 __FSM_STATE(RGen_BodyChunk) {						\
 	TFW_DBG3("read body: to_read=%d\n", parser->to_read);		\
-	if (!parser->to_read) {						\
+	if (parser->to_read == -1) {					\
 		/* Prevent @parse_int_hex false positives. */		\
 		if (!isxdigit(c))					\
 			return TFW_BLOCK;				\
@@ -790,12 +796,15 @@ __FSM_STATE(RGen_BodyChunk) {						\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyReadChunk) {					\
+	BUG_ON(parser->to_read < 0);					\
 	__fsm_sz = min_t(int, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
-		__FSM_B_MOVE_n(RGen_BodyReadChunk, __fsm_sz);		\
-	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_B_MOVE_n(RGen_BodyEoL, __fsm_sz);			\
+		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \
+	if (msg->flags & TFW_HTTP_CHUNKED) {				\
+		parser->to_read = -1;					\
+		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
+	}								\
 	/* We've fully read Content-Length bytes. */			\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
@@ -808,87 +817,64 @@ __FSM_STATE(RGen_BodyChunkLen) {					\
 	__fsm_sz = __data_remain(p);					\
 	/* Read next chunk length. */					\
 	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc);		\
-	TFW_DBG3("len=%zu ret=%d to_read=%lu\n",			\
+	TFW_DBG3("data chunk: remain_len=%zu ret=%d to_read=%lu\n",	\
 		 __fsm_sz, __fsm_n, parser->_acc);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
-		__FSM_B_MOVE_n(RGen_BodyChunkLen, __fsm_sz);		\
+		__FSM_MOVE_nf(RGen_BodyChunkLen, __fsm_sz, &msg->body);	\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
 		return TFW_BLOCK;					\
 	default:							\
-		BUG_ON(__fsm_n < 0);					\
 		parser->to_read = parser->_acc;				\
-		if (!parser->to_read)					\
-			msg->body.flags |= TFW_STR_COMPLETE;		\
 		parser->_acc = 0;					\
-		__FSM_B_MOVE_n(RGen_BodyChunkExt, __fsm_n);		\
+		__FSM_MOVE_nf(RGen_BodyChunkExt, __fsm_n, &msg->body);	\
 	}								\
 }									\
 __FSM_STATE(RGen_BodyChunkExt) {					\
 	if (unlikely(c == ';' || c == '=' || IN_ALPHABET(c, hdr_a)))	\
-		__FSM_B_MOVE(RGen_BodyChunkExt);			\
+		__FSM_MOVE_f(RGen_BodyChunkExt, &msg->body);		\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyEoL) {						\
-	parser->_eol = 0;						\
+	if (likely(c == '\r'))						\
+		__FSM_MOVE_f(RGen_BodyCR, &msg->body);			\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyEoLine) {						\
-	parser->_eol = (parser->_eol << 4) | c;				\
-	TFW_DBG3("parser: eol %08lx\n", parser->_eol);			\
-	if (parser->_eol == 0xd)					\
-		__FSM_B_MOVE(RGen_BodyEoLine);				\
-	if (parser->_eol != 0xa && parser->_eol != 0xda)		\
+__FSM_STATE(RGen_BodyCR) {						\
+	if (unlikely(c != '\n'))					\
 		return TFW_BLOCK;					\
-	if (!(msg->body.flags & TFW_STR_COMPLETE))			\
-		__FSM_B_MOVE(RGen_BodyChunk);				\
-	/* Add everything and the current character. */			\
-	if (tfw_http_msg_add_data_ptr(msg, &msg->body,			\
-				      data, __data_offset(p) + 1))	\
-		return TFW_BLOCK;					\
-	__FSM_MOVE_nofixup(RGen_Hdr);					\
+	if (!parser->to_read) {						\
+		/*							\
+		 * We've fully read chunked body.			\
+		 * Add everything and the current character.		\
+		 */							\
+		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data,	\
+					      __data_offset(p) + 1))	\
+			return TFW_BLOCK;				\
+		msg->body.flags |= TFW_STR_COMPLETE;			\
+		/* Process trailer-part. */				\
+		__FSM_MOVE_nofixup(RGen_Hdr);				\
+	} else {							\
+		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
+	}								\
 }
 
-#define RGEN_LWS_common_cases(st)					\
-	else if (likely(IS_WS(c))) {					\
-		__FSM_MOVE(st);						\
+/*
+ * Read OWS at arbitrary position and move to stashed state.
+ * This is bit complicated (however you can think about this as
+ * a plain pushdown automaton), but reduces FSM code size.
+ */
+#define RGEN_OWS()							\
+__FSM_STATE(RGen_OWS) {							\
+	if (likely(IS_WS(c))) {						\
+		__FSM_MOVE(RGen_OWS);					\
 	} else {							\
 		parser->state = parser->_i_st;				\
 		parser->_i_st = 0;					\
 		BUG_ON(unlikely(__data_offset(p) >= len));		\
 		goto fsm_reenter;					\
-	}
-
-/* In request we should pass empty headers:
- * RFC 7230 5.4:
- * ....
- * ....
- * If the authority component is missing or
- * undefined for the target URI, then a client MUST send a Host header
- * field with an empty field-value.
- *
- * NOTE: using of RGEN_LWS_empty should be matched with
- * the BUG_ON() statements in __http_msg_hdr_val function
- *
- * Read LWS at arbitrary position and move to stashed state.
- * This is bit complicated (however you can think about this as
- * a plain pushdown automaton), but reduces FSM code size.
- */
-#define RGEN_LWS_empty()						\
-__FSM_STATE(RGen_LWS_empty) {						\
-	if (unlikely(IS_CR_OR_LF(c))) {					\
-		__FSM_JMP(RGen_EoL);					\
 	}								\
-	RGEN_LWS_common_cases(RGen_LWS_empty)				\
-}
-
-#define RGEN_LWS()							\
-__FSM_STATE(RGen_LWS) {							\
-	if (unlikely(IS_CR_OR_LF(c))) {					\
-		return TFW_BLOCK;					\
-	}								\
-	RGEN_LWS_common_cases(RGen_LWS)					\
 }
 
 /**
@@ -1301,6 +1287,7 @@ enum {
 	/* URI normalization. */
 	Req_UriNorm,
 };
+
 #ifdef TFW_HTTP_NORMALIZATION
 #define TFW_HTTP_URI_HOOK	Req_UriNorm
 #else
@@ -1585,7 +1572,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			/* do not save ';' yet */
 			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0, TFW_STR_VALUE);
 		if (unlikely(isspace(c))) {
-			/* do not save LWS */
+			/* do not save OWS */
 			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
 			__FSM_I_chunk_flags(TFW_STR_VALUE);
 			return p - orig_data;
@@ -1630,6 +1617,8 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_H);
 		if (likely(c == '['))
 			__FSM_I_MOVE(Req_I_H_v6);
+		if (unlikely(IS_CR_OR_LF(c)))
+			return 0; /* empty Host header */
 		return CSTR_NEQ;
 	}
 
@@ -1819,19 +1808,19 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			switch (*(unsigned int *)p) {
 			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
 				req->method = TFW_HTTP_METH_GET;
-				__FSM_MOVE_n(Req_Uri, 4);
+				__FSM_MOVE_nofixup_n(Req_Uri, 4);
 			case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
 				req->method = TFW_HTTP_METH_HEAD;
-				__FSM_MOVE_n(Req_MUSpace, 4);
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
 				req->method = TFW_HTTP_METH_POST;
-				__FSM_MOVE_n(Req_MUSpace, 4);
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
 				if (likely(__data_available(p, 5))
 				    && (*(p + 4) == 'E'))
 				{
 					req->method = TFW_HTTP_METH_PURGE;
-					__FSM_MOVE_n(Req_MUSpace, 5);
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
 				}
 			}
 			return TFW_BLOCK; /* Unsupported method */
@@ -1839,11 +1828,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		/* Slow path: step char-by-char. */
 		switch (c) {
 		case 'G':
-			__FSM_MOVE(Req_MethG);
+			__FSM_MOVE_nofixup(Req_MethG);
 		case 'H':
-			__FSM_MOVE(Req_MethH);
+			__FSM_MOVE_nofixup(Req_MethH);
 		case 'P':
-			__FSM_MOVE(Req_MethP);
+			__FSM_MOVE_nofixup(Req_MethP);
 		}
 		return TFW_BLOCK; /* Unsupported method */
 	}
@@ -1855,7 +1844,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_MUSpace) {
 		if (unlikely(c != ' '))
 			return TFW_BLOCK;
-		__FSM_MOVE(Req_Uri);
+		__FSM_MOVE_nofixup(Req_Uri);
 	}
 
 	__FSM_STATE(Req_Uri) {
@@ -1867,11 +1856,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
 			   && *(p + 6) == '/'))
-			__FSM_MOVE_n(Req_UriAuthorityStart, 7);
+			__FSM_MOVE_nofixup_n(Req_UriAuthorityStart, 7);
 
 		/* "http://" slow path - step char-by-char. */
 		if (likely(LC(c) == 'h'))
-			__FSM_MOVE(Req_UriSchH);
+			__FSM_MOVE_nofixup(Req_UriSchH);
 
 		return TFW_BLOCK;
 	}
@@ -1919,7 +1908,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__msg_field_finish(&req->userinfo, p);
 				TFW_STR_INIT(&req->host);
 
-				__FSM_MOVE(Req_UriAuthorityResetHost);
+				__FSM_MOVE_nofixup(Req_UriAuthorityResetHost);
 			}
 
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
@@ -1958,10 +1947,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
-			__FSM_MOVE(Req_HttpVer);
+			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		else if (c == ':') {
-			__FSM_MOVE(Req_UriPort);
+			__FSM_MOVE_nofixup(Req_UriPort);
 		}
 		else
 			return TFW_BLOCK;
@@ -1970,13 +1959,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort) {
 		if (likely(isdigit(c)))
-			__FSM_MOVE(Req_UriPort);
+			__FSM_MOVE_nofixup(Req_UriPort);
 		else if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
-			__FSM_MOVE(Req_HttpVer);
+			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		else
 			return TFW_BLOCK;
@@ -1998,7 +1987,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 		if (likely(c == ' ')) {
 			__msg_field_finish(&req->uri_path, p);
-			__FSM_MOVE(Req_HttpVer);
+			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 
 		return TFW_BLOCK;
@@ -2014,17 +2003,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		if (unlikely(!__data_available(p, 8))) {
 			/* Slow path. */
 			if (c == 'H')
-				__FSM_MOVE(Req_HttpVerT1);
+				__FSM_MOVE_nofixup(Req_HttpVerT1);
 			return TFW_BLOCK;
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '1'):
 			req->version = TFW_HTTP_VER_11;
-			__FSM_MOVE_n(RGen_EoL, 8);
+			__FSM_MOVE_nofixup_n(RGen_EoL, 8);
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
 			req->version = TFW_HTTP_VER_10;
-			__FSM_MOVE_n(RGen_EoL, 8);
+			__FSM_MOVE_nofixup_n(RGen_EoL, 8);
 		default:
 			return TFW_BLOCK;
 		}
@@ -2039,10 +2028,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * TODO #182: try to match by 4 bytes
 	 */
 	__FSM_STATE(RGen_Hdr) {
-		tfw_http_msg_hdr_open(msg, p);
+		TFW_HTTP_PARSE_CRLF();
 
-		if (unlikely(IS_CR_OR_LF((c))))
-			__FSM_JMP(RGen_EoL);
+		tfw_http_msg_hdr_open(msg, p);
 
 		if (unlikely(!IN_ALPHABET(c, hdr_a)))
 			return TFW_BLOCK;
@@ -2056,7 +2044,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 13) == ':'))
 			{
 				parser->_i_st = Req_HdrAuthorizationV;
-				__FSM_MOVE_n(RGen_LWS_empty, 14);
+				__FSM_MOVE_n(RGen_OWS, 14);
 			}
 			__FSM_MOVE(Req_HdrA);
 		case 'c':
@@ -2066,7 +2054,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p + 1, 'o', 's', 't', ':'))) {
 				parser->_i_st = Req_HdrHostV;
 				parser->_hdr_tag = TFW_HTTP_HDR_HOST;
-				__FSM_MOVE_n(RGen_LWS_empty, 5);
+				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
 		case 'p':
@@ -2076,7 +2064,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 6) == ':'))
 			{
 				parser->_i_st = Req_HdrPragmaV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Req_HdrP);
 		case 't':
@@ -2089,7 +2077,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 17) == ':'))
 			{
 				parser->_i_st = Req_HdrTransfer_EncodingV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				__FSM_MOVE_n(RGen_OWS, 18);
 			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
@@ -2102,7 +2090,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 							'f', 'o', 'r', ':')))
 			{
 				parser->_i_st = Req_HdrX_Forwarded_ForV;
-				__FSM_MOVE_n(RGen_LWS, 16);
+				__FSM_MOVE_n(RGen_OWS, 16);
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
@@ -2114,7 +2102,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrUser_AgentV;
-				__FSM_MOVE_n(RGen_LWS, 11);
+				__FSM_MOVE_n(RGen_OWS, 11);
 			}
 			__FSM_MOVE(Req_HdrU);
 		default:
@@ -2122,9 +2110,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 	}
 
+	RGEN_OWS();
 	RGEN_EOL();
-	RGEN_LWS();
-	RGEN_LWS_empty();
+	RGEN_CRLF();
 
 	/* Parse headers starting from 'C'. */
 	__FSM_STATE(Req_HdrC) {
@@ -2137,7 +2125,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 							'r', 'o', 'l', ':')))
 			{
 				parser->_i_st = Req_HdrCache_ControlV;
-				__FSM_MOVE_n(RGen_LWS, 13);
+				__FSM_MOVE_n(RGen_OWS, 13);
 			}
 			__FSM_MOVE(Req_HdrCa);
 		case 'o':
@@ -2157,7 +2145,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 5) == ':'))
 			{
 				parser->_i_st = Req_HdrCookieV;
-				__FSM_MOVE_n(RGen_LWS, 6);
+				__FSM_MOVE_n(RGen_OWS, 6);
 			}
 			__FSM_MOVE(Req_HdrCo);
 		default:
@@ -2175,7 +2163,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && *(p + 6) == ':'))
 			{
 				parser->_i_st = Req_HdrContent_LengthV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Req_HdrContent_L);
 		case 't':
@@ -2183,7 +2171,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
 				parser->_i_st = Req_HdrContent_TypeV;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Req_HdrContent_T);
 		default:
@@ -2191,51 +2179,51 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 	}
 
-	/* 'Authorization:*LWS' is read, process field-value. */
+	/* 'Authorization:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrAuthorizationV, Req_I_Auth,
 				  req, __req_parse_authorization);
 
-	/* 'Cache-Control:*LWS' is read, process field-value. */
+	/* 'Cache-Control:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrCache_ControlV, Req_I_CC, req,
 				  __req_parse_cache_control);
 
-	/* 'Connection:*LWS' is read, process field-value. */
+	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrConnectionV, I_Conn, msg,
 				   __parse_connection, TFW_HTTP_HDR_CONNECTION);
 
-	/* 'Content-Length:*LWS' is read, process field-value. */
+	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_LengthV, I_ContLen,
 				   msg, __parse_content_length,
 				   TFW_HTTP_HDR_CONTENT_LENGTH);
 
-	/* 'Content-Type:*LWS' is read, process field-value. */
+	/* 'Content-Type:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, I_ContType,
 				   msg, __parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
-	/* 'Host:*LWS' is read, process field-value. */
+	/* 'Host:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
 				   __req_parse_host, TFW_HTTP_HDR_HOST);
 
-	/* 'Pragma:*LWS' is read, process field-value. */
+	/* 'Pragma:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
 				  req, __req_parse_pragma);
 
-	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
+	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
 				  msg, __parse_transfer_encoding);
 
-	/* 'X-Forwarded-For:*LWS' is read, process field-value. */
+	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
 				   msg, __req_parse_x_forwarded_for,
 				   TFW_HTTP_HDR_X_FORWARDED_FOR);
 
-	/* 'User-Agent:*LWS' is read, process field-value. */
+	/* 'User-Agent:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUser_AgentV, Req_I_UserAgent,
 				   msg, __req_parse_user_agent,
 				   TFW_HTTP_HDR_USER_AGENT);
 
-	/* 'Cookie:*LWS' is read, process field-value. */
+	/* 'Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, Req_I_CookieStart,
 				     msg, __req_parse_cookie,
 				     TFW_HTTP_HDR_COOKIE, 0);
@@ -2254,55 +2242,55 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 *
 	 * GET
 	 */
-	__FSM_TX(Req_MethG, 'E', Req_MethGe);
+	__FSM_TX_nofixup(Req_MethG, 'E', Req_MethGe);
 	__FSM_STATE(Req_MethGe) {
 		if (unlikely(c != 'T'))
 			return TFW_BLOCK;
 		req->method = TFW_HTTP_METH_GET;
-		__FSM_MOVE(Req_MUSpace);
+		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
 	/* POST */
-	__FSM_TX(Req_MethP, 'O', Req_MethPo);
-	__FSM_TX(Req_MethPo, 'S', Req_MethPos);
+	__FSM_TX_nofixup(Req_MethP, 'O', Req_MethPo);
+	__FSM_TX_nofixup(Req_MethPo, 'S', Req_MethPos);
 	__FSM_STATE(Req_MethPos) {
 		if (unlikely(c != 'T'))
 			return TFW_BLOCK;
 		req->method = TFW_HTTP_METH_POST;
-		__FSM_MOVE(Req_MUSpace);
+		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
 	/* HEAD */
-	__FSM_TX(Req_MethH, 'E', Req_MethHe);
-	__FSM_TX(Req_MethHe, 'A', Req_MethHea);
+	__FSM_TX_nofixup(Req_MethH, 'E', Req_MethHe);
+	__FSM_TX_nofixup(Req_MethHe, 'A', Req_MethHea);
 	__FSM_STATE(Req_MethHea) {
 		if (unlikely(c != 'D'))
 			return TFW_BLOCK;
 		req->method = TFW_HTTP_METH_HEAD;
-		__FSM_MOVE(Req_MUSpace);
+		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
 
 	/* process URI scheme: "http://" */
-	__FSM_TX_LC(Req_UriSchH, 't', Req_UriSchHt);
-	__FSM_TX_LC(Req_UriSchHt, 't', Req_UriSchHtt);
-	__FSM_TX_LC(Req_UriSchHtt, 'p', Req_UriSchHttp);
-	__FSM_TX(Req_UriSchHttp, ':', Req_UriSchHttpColon);
-	__FSM_TX(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
-	__FSM_TX(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart);
+	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
+	__FSM_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt);
+	__FSM_TX_LC_nofixup(Req_UriSchHtt, 'p', Req_UriSchHttp);
+	__FSM_TX_nofixup(Req_UriSchHttp, ':', Req_UriSchHttpColon);
+	__FSM_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
+	__FSM_TX_nofixup(Req_UriSchHttpColonSlash, '/', Req_UriAuthorityStart);
 
 	/* Parse HTTP version (1.1 and 1.0 are supported). */
-	__FSM_TX(Req_HttpVerT1, 'T', Req_HttpVerT2);
-	__FSM_TX(Req_HttpVerT2, 'T', Req_HttpVerP);
-	__FSM_TX(Req_HttpVerP, 'P', Req_HttpVerSlash);
-	__FSM_TX(Req_HttpVerSlash, '/', Req_HttpVer11);
-	__FSM_TX(Req_HttpVer11, '1', Req_HttpVerDot);
-	__FSM_TX(Req_HttpVerDot, '.', Req_HttpVer12);
+	__FSM_TX_nofixup(Req_HttpVerT1, 'T', Req_HttpVerT2);
+	__FSM_TX_nofixup(Req_HttpVerT2, 'T', Req_HttpVerP);
+	__FSM_TX_nofixup(Req_HttpVerP, 'P', Req_HttpVerSlash);
+	__FSM_TX_nofixup(Req_HttpVerSlash, '/', Req_HttpVer11);
+	__FSM_TX_nofixup(Req_HttpVer11, '1', Req_HttpVerDot);
+	__FSM_TX_nofixup(Req_HttpVerDot, '.', Req_HttpVer12);
 	__FSM_STATE(Req_HttpVer12) {
 		switch(c) {
 		case '1':
 			req->version = TFW_HTTP_VER_11;
-			__FSM_MOVE(RGen_EoL);
+			__FSM_MOVE_nofixup(RGen_EoL);
 		case '0':
 			req->version = TFW_HTTP_VER_10;
-			__FSM_MOVE(RGen_EoL);
+			__FSM_MOVE_nofixup(RGen_EoL);
 		default:
 			return TFW_BLOCK;
 		}
@@ -2321,7 +2309,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrAuthorizat, 'i', Req_HdrAuthorizati, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrAuthorizati, 'o', Req_HdrAuthorizatio, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrAuthorizatio, 'n', Req_HdrAuthorization, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrAuthorization, ':', Req_HdrAuthorizationV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrAuthorization, ':', Req_HdrAuthorizationV, RGen_HdrOther);
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Req_HdrCa, 'c', Req_HdrCac, RGen_HdrOther);
@@ -2335,7 +2323,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrCache_Cont, 'r', Req_HdrCache_Contr, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrCache_Contr, 'o', Req_HdrCache_Contro, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrCache_Contro, 'l', Req_HdrCache_Control, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrCache_Control, ':', Req_HdrCache_ControlV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrCache_Control, ':', Req_HdrCache_ControlV, RGen_HdrOther);
 
 	__FSM_STATE(Req_HdrCo) {
 		switch (LC(c)) {
@@ -2365,7 +2353,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrConnect, 'i', Req_HdrConnecti, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrConnecti, 'o', Req_HdrConnectio, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrConnectio, 'n', Req_HdrConnection, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrConnection, ':', Req_HdrConnectionV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrConnection, ':', Req_HdrConnectionV, RGen_HdrOther);
 
 	/* Content-* headers processing. */
 	__FSM_TX_AF(Req_HdrCont, 'e', Req_HdrConte, RGen_HdrOther);
@@ -2379,13 +2367,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrContent_Len, 'g', Req_HdrContent_Leng, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrContent_Leng, 't', Req_HdrContent_Lengt, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrContent_Lengt, 'h', Req_HdrContent_Length, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrContent_Length, ':', Req_HdrContent_LengthV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrContent_Length, ':', Req_HdrContent_LengthV, RGen_HdrOther);
 
 	/* Content-Type header processing. */
 	__FSM_TX_AF(Req_HdrContent_T, 'y', Req_HdrContent_Ty, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrContent_Ty, 'p', Req_HdrContent_Typ, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrContent_Typ, 'e', Req_HdrContent_Type, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrContent_Type, ':', Req_HdrContent_TypeV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrContent_Type, ':', Req_HdrContent_TypeV, RGen_HdrOther);
 
 	/* Host header processing. */
 	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo, RGen_HdrOther);
@@ -2395,7 +2383,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_HdrHost) {
 		if (likely(c == ':')) {
 			parser->_i_st = Req_HdrHostV;
-			__FSM_MOVE(RGen_LWS_empty);
+			__FSM_MOVE(RGen_OWS);
 		}
 		__FSM_JMP(RGen_HdrOther);
 	}
@@ -2406,7 +2394,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrPra, 'g', Req_HdrPrag, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrPragm, 'a', Req_HdrPragma, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrPragma, ':', Req_HdrPragmaV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrPragma, ':', Req_HdrPragmaV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, RGen_HdrOther);
@@ -2425,7 +2413,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrTransfer_Encod, 'i', Req_HdrTransfer_Encodi, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrTransfer_Encodi, 'n', Req_HdrTransfer_Encodin, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrTransfer_Encoding, ':', Req_HdrTransfer_EncodingV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrTransfer_Encoding, ':', Req_HdrTransfer_EncodingV, RGen_HdrOther);
 
 	/* X-Forwarded-For header processing. */
 	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_, RGen_HdrOther);
@@ -2442,8 +2430,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrX_Forwarded_, 'f', Req_HdrX_Forwarded_F, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_For, RGen_HdrOther);
-	/* NOTE: we don't eat LWS here because RGEN_LWS() doesn't allow '[' after LWS. */
-	__FSM_TX_AF_LWS(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, RGen_HdrOther);
+	/* NOTE: we don't eat OWS here because RGEN_OWS() doesn't allow '[' after OWS. */
+	__FSM_TX_AF_OWS(Req_HdrX_Forwarded_For, ':', Req_HdrX_Forwarded_ForV, RGen_HdrOther);
 
 	/* User-Agent header processing. */
 	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs, RGen_HdrOther);
@@ -2455,13 +2443,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrUser_Ag, 'e', Req_HdrUser_Age, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrUser_Age, 'n', Req_HdrUser_Agen, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrUser_Agen, 't', Req_HdrUser_Agent, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrUser_Agent, ':', Req_HdrUser_AgentV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrUser_Agent, ':', Req_HdrUser_AgentV, RGen_HdrOther);
 
 	/* Cookie header processing. */
 	__FSM_TX_AF(Req_HdrCoo, 'k', Req_HdrCook, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrCook, 'i', Req_HdrCooki, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Req_HdrCookie, ':', Req_HdrCookieV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrCookie, ':', Req_HdrCookieV, RGen_HdrOther);
 
 	}
 	__FSM_FINISH(req);
@@ -3312,7 +3300,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		__fsm_ch = memchreol(p, __fsm_sz);
 		if (__fsm_ch) {
 			__msg_field_finish(&resp->s_line, __fsm_ch);
-			__FSM_MOVE_n(RGen_EoL, __fsm_ch - p);
+			__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_ch - p);
 		}
 		__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_sz, &resp->s_line);
 	}
@@ -3321,10 +3309,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Start of HTTP header or end of whole request. */
 	__FSM_STATE(RGen_Hdr) {
-		tfw_http_msg_hdr_open(msg, p);
+		TFW_HTTP_PARSE_CRLF();
 
-		if (unlikely(IS_CR_OR_LF((c))))
-			__FSM_JMP(RGen_EoL);
+		tfw_http_msg_hdr_open(msg, p);
 
 		if (unlikely(!IN_ALPHABET(c, hdr_a)))
 			return TFW_BLOCK;
@@ -3335,7 +3322,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p, 'a', 'g', 'e', ':')))
 			{
 				parser->_i_st = Resp_HdrAgeV;
-				__FSM_MOVE_n(RGen_LWS, 4);
+				__FSM_MOVE_n(RGen_OWS, 4);
 			}
 			__FSM_MOVE(Resp_HdrA);
 		case 'c':
@@ -3346,7 +3333,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p + 1, 'a', 't', 'e', ':')))
 			{
 				parser->_i_st = Resp_HdrDateV;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Resp_HdrD);
 		case 'e':
@@ -3355,7 +3342,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 						    'r', 'e', 's', ':')))
 			{
 				parser->_i_st = Resp_HdrExpiresV;
-				__FSM_MOVE_n(RGen_LWS, 8);
+				__FSM_MOVE_n(RGen_OWS, 8);
 			}
 			__FSM_MOVE(Resp_HdrE);
 		case 'k':
@@ -3367,7 +3354,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Resp_HdrKeep_AliveV;
-				__FSM_MOVE_n(RGen_LWS, 11);
+				__FSM_MOVE_n(RGen_OWS, 11);
 			}
 			__FSM_MOVE(Resp_HdrK);
 		case 's':
@@ -3376,7 +3363,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && *(p + 5) == 'r' && *(p + 6) == ':'))
 			{
 				parser->_i_st = Resp_HdrServerV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
@@ -3389,7 +3376,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && *(p + 17) == ':'))
 			{
 				parser->_i_st = Resp_HdrTransfer_EncodingV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				__FSM_MOVE_n(RGen_OWS, 18);
 			}
 			__FSM_MOVE(Resp_HdrT);
 		default:
@@ -3397,9 +3384,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 
+	RGEN_OWS();
 	RGEN_EOL();
-	RGEN_LWS();
-	RGEN_LWS_empty();
+	RGEN_CRLF();
 
 	/* Parse headers starting from 'C'. */
 	__FSM_STATE(Resp_HdrC) {
@@ -3412,7 +3399,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 							'r', 'o', 'l', ':')))
 			{
 				parser->_i_st = Resp_HdrCache_ControlV;
-				__FSM_MOVE_n(RGen_LWS, 13);
+				__FSM_MOVE_n(RGen_OWS, 13);
 			}
 			__FSM_MOVE(Resp_HdrCa);
 		case 'o':
@@ -3443,7 +3430,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && *(p + 6) == ':'))
 			{
 				parser->_i_st = Resp_HdrContent_LengthV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Resp_HdrContent_L);
 		case 't':
@@ -3451,7 +3438,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
 				parser->_i_st = Resp_HdrContent_TypeV;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Resp_HdrContent_T);
 		default:
@@ -3459,45 +3446,45 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 
-	/* 'Age:*LWS' is read, process field-value. */
+	/* 'Age:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, Resp_I_Age, resp,
 				  __resp_parse_age);
 
-	/* 'Cache-Control:*LWS' is read, process field-value. */
+	/* 'Cache-Control:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_ControlV, Resp_I_CC, resp,
 				  __resp_parse_cache_control);
 
-	/* 'Connection:*LWS' is read, process field-value. */
+	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, I_Conn, msg,
 				   __parse_connection, TFW_HTTP_HDR_CONNECTION);
 
-	/* 'Content-Length:*LWS' is read, process field-value. */
+	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LengthV, I_ContLen,
 				   msg, __parse_content_length,
 				   TFW_HTTP_HDR_CONTENT_LENGTH);
 
-	/* 'Content-Type:*LWS' is read, process field-value. */
+	/* 'Content-Type:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_TypeV, I_ContType,
 				   msg, __parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
-	/* 'Date:*LWS' is read, process field-value. */
+	/* 'Date:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
 				  __resp_parse_http_date);
 
-	/* 'Expires:*LWS' is read, process field-value. */
+	/* 'Expires:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Date, resp,
 				  __resp_parse_expires);
 
-	/* 'Keep-Alive:*LWS' is read, process field-value. */
+	/* 'Keep-Alive:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrKeep_AliveV, Resp_I_KeepAlive, resp,
 				  __resp_parse_keep_alive);
 
-	/* 'Server:*LWS' is read, process field-value. */
+	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,
 				   __resp_parse_server, TFW_HTTP_HDR_SERVER);
 
-	/* 'Transfer-Encoding:*LWS' is read, process field-value. */
+	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
 				  msg, __parse_transfer_encoding);
 
@@ -3512,30 +3499,30 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* ----------------    Improbable states    ---------------- */
 
 	/* Parse HTTP version and SP (1.1 and 1.0 are supported). */
-	__FSM_TX(Resp_HttpVerT1, 'T', Resp_HttpVerT2);
-	__FSM_TX(Resp_HttpVerT2, 'T', Resp_HttpVerP);
-	__FSM_TX(Resp_HttpVerP, 'P', Resp_HttpVerSlash);
-	__FSM_TX(Resp_HttpVerSlash, '/', Resp_HttpVer11);
-	__FSM_TX(Resp_HttpVer11, '1', Resp_HttpVerDot);
-	__FSM_TX(Resp_HttpVerDot, '.', Resp_HttpVer12);
+	__FSM_TX_f(Resp_HttpVerT1, 'T', Resp_HttpVerT2, &resp->s_line);
+	__FSM_TX_f(Resp_HttpVerT2, 'T', Resp_HttpVerP, &resp->s_line);
+	__FSM_TX_f(Resp_HttpVerP, 'P', Resp_HttpVerSlash, &resp->s_line);
+	__FSM_TX_f(Resp_HttpVerSlash, '/', Resp_HttpVer11, &resp->s_line);
+	__FSM_TX_f(Resp_HttpVer11, '1', Resp_HttpVerDot, &resp->s_line);
+	__FSM_TX_f(Resp_HttpVerDot, '.', Resp_HttpVer12, &resp->s_line);
 	__FSM_STATE(Resp_HttpVer12) {
 		switch (c) {
 		case '1':
 			resp->version = TFW_HTTP_VER_11;
-			__FSM_MOVE(Resp_SSpace);
+			__FSM_MOVE_f(Resp_SSpace, &resp->s_line);
 		case '0':
 			resp->version = TFW_HTTP_VER_10;
-			__FSM_MOVE(Resp_SSpace);
+			__FSM_MOVE_f(Resp_SSpace, &resp->s_line);
 		default:
 			return TFW_BLOCK;
 		}
 	}
-	__FSM_TX(Resp_SSpace, ' ', Resp_StatusCode);
+	__FSM_TX_f(Resp_SSpace, ' ', Resp_StatusCode, &resp->s_line);
 
 	/* Age header processing. */
 	__FSM_TX_AF(Resp_HdrA, 'g', Resp_HdrAg, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrAg, 'e', Resp_HdrAge, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrAge, ':', Resp_HdrAgeV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrAge, ':', Resp_HdrAgeV, RGen_HdrOther);
 
 	/* Cache-Control header processing. */
 	__FSM_TX_AF(Resp_HdrCa, 'c', Resp_HdrCac, RGen_HdrOther);
@@ -3549,7 +3536,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrCache_Cont, 'r', Resp_HdrCache_Contr, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrCache_Contr, 'o', Resp_HdrCache_Contro, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrCache_Contro, 'l', Resp_HdrCache_Control, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrCache_Control, ':', Resp_HdrCache_ControlV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrCache_Control, ':', Resp_HdrCache_ControlV, RGen_HdrOther);
 
 	/* Connection header processing. */
 	__FSM_TX_AF(Resp_HdrCo, 'n', Resp_HdrCon, RGen_HdrOther);
@@ -3569,7 +3556,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrConnect, 'i', Resp_HdrConnecti, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrConnecti, 'o', Resp_HdrConnectio, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrConnectio, 'n', Resp_HdrConnection, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrConnection, ':', Resp_HdrConnectionV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrConnection, ':', Resp_HdrConnectionV, RGen_HdrOther);
 
 	/* Content-* headers processing. */
 	__FSM_TX_AF(Resp_HdrCont, 'e', Resp_HdrConte, RGen_HdrOther);
@@ -3583,19 +3570,19 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrContent_Len, 'g', Resp_HdrContent_Leng, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Leng, 't', Resp_HdrContent_Lengt, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Lengt, 'h', Resp_HdrContent_Length, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrContent_Length, ':', Resp_HdrContent_LengthV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrContent_Length, ':', Resp_HdrContent_LengthV, RGen_HdrOther);
 
 	/* Content-Type header processing. */
 	__FSM_TX_AF(Resp_HdrContent_T, 'y', Resp_HdrContent_Ty, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Ty, 'p', Resp_HdrContent_Typ, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrContent_Typ, 'e', Resp_HdrContent_Type, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrContent_Type, ':', Resp_HdrContent_TypeV, RGen_HdrOther);
 
 	/* Date header processing. */
 	__FSM_TX_AF(Resp_HdrD, 'a', Resp_HdrDa, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrDa, 't', Resp_HdrDat, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrDat, 'e', Resp_HdrDate, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrDate, ':', Resp_HdrDateV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrDate, ':', Resp_HdrDateV, RGen_HdrOther);
 
 	/* Expires header processing. */
 	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, RGen_HdrOther);
@@ -3604,7 +3591,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrExpi, 'r', Resp_HdrExpir, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrExpir, 'e', Resp_HdrExpire, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrExpire, 's', Resp_HdrExpires, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrExpires, ':', Resp_HdrExpiresV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrExpires, ':', Resp_HdrExpiresV, RGen_HdrOther);
 
 	/* Keep-Alive header processing. */
 	__FSM_TX_AF(Resp_HdrK, 'e', Resp_HdrKe, RGen_HdrOther);
@@ -3616,7 +3603,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrKeep_Al, 'i', Resp_HdrKeep_Ali, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrKeep_Ali, 'v', Resp_HdrKeep_Aliv, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrKeep_Aliv, 'e', Resp_HdrKeep_Alive, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, RGen_HdrOther);
 
 	/* Server header processing. */
 	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, RGen_HdrOther);
@@ -3624,7 +3611,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrServer, ':', Resp_HdrServerV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrServer, ':', Resp_HdrServerV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr, RGen_HdrOther);
@@ -3643,7 +3630,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrTransfer_Encod, 'i', Resp_HdrTransfer_Encodi, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrTransfer_Encodi, 'n', Resp_HdrTransfer_Encodin, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrTransfer_Encodin, 'g', Resp_HdrTransfer_Encoding, RGen_HdrOther);
-	__FSM_TX_AF_LWS(Resp_HdrTransfer_Encoding, ':', Resp_HdrTransfer_EncodingV, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrTransfer_Encoding, ':', Resp_HdrTransfer_EncodingV, RGen_HdrOther);
 
 	}
 	__FSM_FINISH(resp);

@@ -512,14 +512,15 @@ tfw_str_dprint(TfwStr *str, const char *msg)
 {
 	TfwStr *dup, *dup_end, *c, *chunk_end;
 
-	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x:\n", msg,
-		str, str->skb, str->len, str->flags);
+	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
+		str, str->skb, str->len, str->flags, str->eolen);
 	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
-		TFW_DBG("  duplicate %p, len=%lu, flags=%x:\n",
-			dup, dup->len, dup->flags);
+		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
+			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, ptr=%p '%.*s'\n", c->len,
-				c->ptr, (int)c->len, (char *)c->ptr);
+			TFW_DBG("   len=%lu, eolen=%u ptr=%p '%.*s'\n",
+				c->len, c->eolen, c->ptr,
+				(int)c->len, (char *)c->ptr);
 	}
 }
 #endif
