@@ -43,13 +43,12 @@ void test_conn_release_all(TfwSrvGroup *sg);
 struct TestSchedHelper {
 	const char *sched;
 	size_t conn_types;
-	TfwMsg * (*get_sched_arg)(size_t connection_type);
+	TfwMsg *(*get_sched_arg)(size_t conn_type);
 	void (*free_sched_arg)(TfwMsg *);
 };
 
 void test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper);
-void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper *sched_helper);
-void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper *sched_helper);
-
+void test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper);
+void test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper);
 
 #endif /* __TFW_SCHED_HELPER_H__ */
