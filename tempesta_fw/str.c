@@ -410,7 +410,7 @@ out:
 }
 EXPORT_SYMBOL(tfw_str_eq_cstr_pos);
 
-/*
+/**
  * Compare @str starting at offset @offset with a plain C string
  * @cstr of size @len. Obey the comparison flags @flags.
  *
