@@ -87,7 +87,6 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
-
 		sg->sched->add_conn(sg, srv, &sconn->conn);
 		conn_acc ^= (long long)&sconn->conn;
 	}
@@ -102,7 +101,6 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-
 			EXPECT_NOT_NULL(conn);
 
 			conn_acc_check ^= (long long)conn;
@@ -142,7 +140,6 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwSrvConnection *sconn =
 					test_create_conn((TfwPeer *)srv);
-
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 			conn_acc ^= (long long)&(sconn->conn);
 		}
@@ -158,7 +155,6 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-
 			EXPECT_NOT_NULL(conn);
 
 			conn_acc_check ^= (long long)conn;
