@@ -43,71 +43,65 @@
 #include "sched_helper.h"
 #include "test.h"
 
-char req_str1[] = "GET / HTTP/1.1\r\nhost:host1\r\n\r\n";
-char req_str2[] = "GET / HTTP/1.1\r\nhost:host2\r\n\r\n";
-char req_str3[] = "GET / HTTP/1.1\r\nhost:host3\r\n\r\n";
-char req_str4[] = "GET / HTTP/1.1\r\nhost:host4\r\n\r\n";
-char *req_strs[] = {
-	req_str1,
-	req_str2,
-	req_str3,
-	req_str4,
+static char *req_strs[] = {
+	"GET / HTTP/1.1\r\nhost:host1\r\n\r\n",
+	"GET / HTTP/1.1\r\nhost:host2\r\n\r\n",
+	"GET / HTTP/1.1\r\nhost:host3\r\n\r\n",
+	"GET / HTTP/1.1\r\nhost:host4\r\n\r\n",
 };
-size_t req_strs_size = sizeof(req_strs) / sizeof(req_strs[0]);
+
+static TfwMsg *sched_hash_get_arg(size_t conn_type);
+
+static void
+sched_hash_free_arg(TfwMsg *msg)
+{
+	test_req_free((TfwHttpReq *)msg);
+}
+
+static struct TestSchedHelper sched_helper_hash = {
+	.sched = "hash",
+	.conn_types = ARRAY_SIZE(req_strs),
+	.get_sched_arg = &sched_hash_get_arg,
+	.free_sched_arg = &sched_hash_free_arg,
+};
+
+static TfwMsg *
+sched_hash_get_arg(size_t conn_type)
+{
+	TfwHttpReq *req = NULL;
+
+	BUG_ON(conn_type >= sched_helper_hash.conn_types);
+
+	req = test_req_alloc(strlen(req_strs[conn_type]));
+	tfw_http_parse_req(req,
+			   (unsigned char *) req_strs[conn_type],
+			   strlen(req_strs[conn_type]));
+
+	return (TfwMsg *) req;
+}
 
 TEST(tfw_sched_hash, sg_empty)
 {
-	int i, j;
-
-	TfwSrvGroup *sg = test_create_sg("test", "hash");
-
-	for (i = 0; i < req_strs_size; ++i) {
-		for (j = 0; j < 3; ++j) {
-			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
-
-			tfw_http_parse_req(req, req_strs[i],
-					   strlen(req_strs[i]));
-
-			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
-			EXPECT_TRUE(conn == NULL);
-
-			test_req_free(req);
-		}
-	}
-
-	test_sg_release_all();
+	test_sched_generic_empty_sg(&sched_helper_hash);
 }
 
 TEST(tfw_sched_hash, one_srv_in_sg_and_zero_conn)
 {
-	int i, j;
-
-	TfwSrvGroup *sg = test_create_sg("test", "hash");
-	test_create_srv("127.0.0.1", sg);
-
-	for (i = 0; i < req_strs_size; ++i) {
-		for (j = 0; j < 3; ++j) {
-			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
-
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
-
-			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
-			EXPECT_TRUE(conn == NULL);
-
-			test_req_free(req);
-		}
-	}
-
-	test_sg_release_all();
+	test_sched_generic_one_srv_zero_conn(&sched_helper_hash);
 }
 
+/*
+ * This unit test is implementation aware and checks more than just interface.
+ * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
+ * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
+ */
 TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 {
-	int i, j;
+	size_t i, j;
 
-	TfwSrvGroup *sg = test_create_sg("test", "hash");
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
@@ -115,24 +109,22 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 		sg->sched->add_conn(sg, srv, &sconn->conn);
 	}
 
-	for (i = 0; i < req_strs_size; ++i) {
-		TfwConnection *s = NULL;
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwConnection *exp_conn = NULL;
 
-		for (j = 0; j < 3 * TFW_SRV_MAX_CONN; ++j) {
-			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
+		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(conn);
 
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
+			if (!exp_conn)
+				exp_conn = conn;
+			else
+				EXPECT_EQ(conn, exp_conn);
 
-			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
-			if (!s) {
-				s = conn;
-			} else {
-				EXPECT_TRUE(conn == s);
-			}
-
-			test_req_free(req);
 			tfw_connection_put(conn);
+			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
 
@@ -142,64 +134,48 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
 {
-	int i, j;
-
-	TfwSrvGroup *sg = test_create_sg("test", "hash");
-
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
-		test_create_srv("127.0.0.1", sg);
-	}
-
-	for (i = 0; i < req_strs_size; ++i) {
-		for (j = 0; j < 2 * TFW_SG_MAX_SRV; ++j) {
-			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
-
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
-
-			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
-			EXPECT_TRUE(conn == NULL);
-
-			test_req_free(req);
-		}
-	}
-
-	test_sg_release_all();
+	test_sched_generic_max_srv_zero_conn(&sched_helper_hash);
 }
 
+/*
+ * This unit test is implementation aware and checks more than just interface.
+ * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
+ * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
+ */
 TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 {
-	int i, j;
-	TfwSrvGroup *sg = test_create_sg("test", "hash");
-	TfwSrvConnection *sconn;
+	size_t i, j;
+
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 
 	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			sconn = test_create_conn((TfwPeer *)srv);
+			TfwSrvConnection *sconn =
+					test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 		}
 	}
 
-	for (i = 0; i < req_strs_size; ++i) {
-		TfwConnection *s = NULL;
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwConnection *exp_conn = NULL;
 
-		for (j = 0; j < 3 * TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-			TfwConnection *conn;
-			TfwHttpReq *req = test_req_alloc(strlen(req_strs[i]));
+		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
+			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(conn);
 
-			tfw_http_parse_req(req, req_strs[i], strlen(req_strs[i]));
+			if (!exp_conn)
+				exp_conn = conn;
+			else
+				EXPECT_EQ(conn, exp_conn);
 
-			conn = sg->sched->sched_srv((TfwMsg *)req, sg);
-			if (!s) {
-				s = conn;
-			} else {
-				EXPECT_TRUE(conn == s);
-			}
-
-			test_req_free(req);
 			tfw_connection_put(conn);
+			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
 
