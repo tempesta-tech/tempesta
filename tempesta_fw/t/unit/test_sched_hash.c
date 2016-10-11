@@ -73,8 +73,9 @@ sched_hash_get_arg(size_t conn_type)
 	BUG_ON(conn_type >= sched_helper_hash.conn_types);
 
 	req = test_req_alloc(strlen(req_strs[conn_type]));
-	tfw_http_parse_req(req, (unsigned char *) req_strs[conn_type],
-					   strlen(req_strs[conn_type]));
+	tfw_http_parse_req(req,
+			   (unsigned char *) req_strs[conn_type],
+			   strlen(req_strs[conn_type]));
 
 	return (TfwMsg *) req;
 }
@@ -105,7 +106,6 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
-
 		sg->sched->add_conn(sg, srv, &sconn->conn);
 	}
 
@@ -116,7 +116,6 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-
 			EXPECT_NOT_NULL(conn);
 
 			if (!exp_conn)
@@ -157,7 +156,6 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwSrvConnection *sconn =
 					test_create_conn((TfwPeer *)srv);
-
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 		}
 	}
@@ -169,7 +167,6 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-
 			EXPECT_NOT_NULL(conn);
 
 			if (!exp_conn)
