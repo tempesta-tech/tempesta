@@ -402,8 +402,8 @@ do {									\
 	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT);
 	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT);
 
-	X_EXPECT_FALSE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
-	X_EXPECT_FALSE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_TRUE(s, i1, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
+	X_EXPECT_TRUE(s, i2, TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI);
 
 #undef X_EXPECT_TRUE
 #undef X_EXPECT_FALSE
@@ -437,26 +437,24 @@ TEST(tfw_str_eq_cstr_pos, plain)
 					 foxstr,
 					 foxlen,
 					 TFW_STR_EQ_CASEI));
-
 }
 
 TEST(tfw_str_eq_cstr_off, plain)
 {
 	TfwStr *fox = make_plain_str(foxstr);
-	long i, offset = 0, foxlen = fox->len;
+	long offset = 0, foxlen = fox->len;
 
-	for (i = 0; i < fox->len; i++) {
-		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, fox->len + i,
+	for (offset = 0; offset < fox->len; ++offset) {
+		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, offset,
 						foxstr + offset,
 						foxlen - offset,
 						TFW_STR_EQ_CASEI));
-		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, fox->len + i,
+		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, offset,
 						 "1234567890", 10,
 						 TFW_STR_EQ_CASEI));
-		++offset;
 	}
 
-	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, foxlen,
+	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, 0,
 					foxstr, foxlen, TFW_STR_EQ_CASEI));
 
 	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, foxlen + 1,
@@ -497,20 +495,19 @@ TEST(tfw_str_eq_cstr_pos, compound)
 TEST(tfw_str_eq_cstr_off, compound)
 {
 	TfwStr *fox = make_compound_str(foxstr);
-	long i, offset = 0, foxlen = fox->len;
+	long offset = 0, foxlen = fox->len;
 
-	for (i = 0; i < fox->len; i++) {
-		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, fox->len + i,
+	for (offset = 0; offset < fox->len; ++offset) {
+		EXPECT_TRUE(tfw_str_eq_cstr_off(fox, offset,
 						foxstr + offset,
 						foxlen - offset,
 						TFW_STR_EQ_CASEI));
-		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, fox->len + i,
+		EXPECT_FALSE(tfw_str_eq_cstr_off(fox, offset,
 						 "1234567890", 10,
 						 TFW_STR_EQ_CASEI));
-		++offset;
 	}
 
-	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, foxlen,
+	EXPECT_TRUE(tfw_str_eq_cstr_off(fox, 0,
 					foxstr, foxlen, TFW_STR_EQ_CASEI));
 
 	EXPECT_FALSE(tfw_str_eq_cstr_off(fox, foxlen + 1,

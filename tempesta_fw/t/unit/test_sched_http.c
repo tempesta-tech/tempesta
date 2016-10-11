@@ -86,7 +86,7 @@ test_req(char *req_str, TfwSrvConnection *expect_conn)
 
 	sched = tfw_sched_lookup("http");
 	conn = sched->sched_grp((TfwMsg *)req);
-	EXPECT_TRUE((TfwSrvConnection *)conn == expect_conn);
+	EXPECT_EQ(conn, &expect_conn->conn);
 
 	test_req_free(req);
 	tfw_connection_put(conn);
