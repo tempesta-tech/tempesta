@@ -135,7 +135,8 @@ test_conn_release_all(TfwSrvGroup *sg)
 	}
 }
 
-void test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
+void
+test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 {
 	size_t i;
 	TfwSrvGroup *sg;
@@ -159,7 +160,8 @@ void test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 	test_sg_release_all();
 }
 
-void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper *sched_helper)
+void
+test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 {
 	size_t i;
 	TfwSrvGroup *sg;
@@ -185,7 +187,8 @@ void test_sched_generic_one_srv_in_sg_zero_conn(struct TestSchedHelper *sched_he
 	test_sg_release_all();
 }
 
-void test_sched_generic_max_srv_in_sg_and_zero_conn(struct TestSchedHelper *sched_helper)
+void
+test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 {
 	size_t i, j;
 	TfwSrvGroup *sg;

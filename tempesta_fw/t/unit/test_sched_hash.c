@@ -50,10 +50,10 @@ static char *req_strs[] = {
 	"GET / HTTP/1.1\r\nhost:host4\r\n\r\n",
 };
 
-static TfwMsg *sched_hash_get_scheduler_arg(size_t connection_type);
+static TfwMsg *sched_hash_get_arg(size_t conn_type);
 
 static void
-sched_hash_free_scheduler_arg(TfwMsg *msg)
+sched_hash_free_arg(TfwMsg *msg)
 {
 	test_req_free((TfwHttpReq *)msg);
 }
@@ -61,20 +61,20 @@ sched_hash_free_scheduler_arg(TfwMsg *msg)
 static struct TestSchedHelper sched_helper_hash = {
 	.sched = "hash",
 	.conn_types = ARRAY_SIZE(req_strs),
-	.get_sched_arg = &sched_hash_get_scheduler_arg,
-	.free_sched_arg = &sched_hash_free_scheduler_arg,
+	.get_sched_arg = &sched_hash_get_arg,
+	.free_sched_arg = &sched_hash_free_arg,
 };
 
 static TfwMsg *
-sched_hash_get_scheduler_arg(size_t connection_type)
+sched_hash_get_arg(size_t conn_type)
 {
 	TfwHttpReq *req = NULL;
 
-	BUG_ON(connection_type >= sched_helper_hash.conn_types);
+	BUG_ON(conn_type >= sched_helper_hash.conn_types);
 
-	req = test_req_alloc(strlen(req_strs[connection_type]));
-	tfw_http_parse_req(req, (unsigned char *) req_strs[connection_type],
-					   strlen(req_strs[connection_type]));
+	req = test_req_alloc(strlen(req_strs[conn_type]));
+	tfw_http_parse_req(req, (unsigned char *) req_strs[conn_type],
+					   strlen(req_strs[conn_type]));
 
 	return (TfwMsg *) req;
 }
@@ -86,14 +86,15 @@ TEST(tfw_sched_hash, sg_empty)
 
 TEST(tfw_sched_hash, one_srv_in_sg_and_zero_conn)
 {
-	test_sched_generic_one_srv_in_sg_zero_conn(&sched_helper_hash);
+	test_sched_generic_one_srv_zero_conn(&sched_helper_hash);
 }
 
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
  * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be updated
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
  */
 TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 {
@@ -112,7 +113,7 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwConnection *expected_connection = NULL;
+		TfwConnection *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
@@ -120,10 +121,10 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 			EXPECT_NOT_NULL(conn);
 
-			if (!expected_connection)
-				expected_connection = conn;
+			if (!exp_conn)
+				exp_conn = conn;
 			else
-				EXPECT_EQ(conn, expected_connection);
+				EXPECT_EQ(conn, exp_conn);
 
 			tfw_connection_put(conn);
 			sched_helper_hash.free_sched_arg(msg);
@@ -136,14 +137,15 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
 {
-	test_sched_generic_max_srv_in_sg_and_zero_conn(&sched_helper_hash);
+	test_sched_generic_max_srv_zero_conn(&sched_helper_hash);
 }
 
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
  * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be updated
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
  */
 TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 {
@@ -155,17 +157,21 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+			TfwSrvConnection *sconn =
+					test_create_conn((TfwPeer *)srv);
 
 			sg->sched->add_conn(sg, srv, &sconn->conn);
-			/* A connection is skipped by schedulers if (refcnt <= 0). */
+			/*
+			 * A connection is skipped by schedulers
+			 * if (refcnt <= 0).
+			 */
 			tfw_connection_get(&sconn->conn);
 		}
 	}
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwConnection *expected_connection = NULL;
+		TfwConnection *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
@@ -173,10 +179,10 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 			EXPECT_NOT_NULL(conn);
 
-			if (!expected_connection)
-				expected_connection = conn;
+			if (!exp_conn)
+				exp_conn = conn;
 			else
-				EXPECT_EQ(conn, expected_connection);
+				EXPECT_EQ(conn, exp_conn);
 
 			tfw_connection_put(conn);
 			sched_helper_hash.free_sched_arg(msg);

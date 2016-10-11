@@ -43,21 +43,21 @@
 #include "test.h"
 
 static TfwMsg *
-sched_rr_get_sched_arg(size_t connection_type __attribute__((unused)))
+sched_rr_get_arg(size_t conn_type __attribute__((unused)))
 {
 	return NULL;
 }
 
 static void
-sched_rr_free_sched_arg(TfwMsg *msg __attribute__((unused)))
+sched_rr_free_arg(TfwMsg *msg __attribute__((unused)))
 {
 }
 
 static struct TestSchedHelper sched_helper_rr = {
 	.sched = "round-robin",
 	.conn_types = 1,
-	.get_sched_arg = &sched_rr_get_sched_arg,
-	.free_sched_arg = &sched_rr_free_sched_arg,
+	.get_sched_arg = &sched_rr_get_arg,
+	.free_sched_arg = &sched_rr_free_arg,
 };
 
 TEST(tfw_sched_rr, sg_empty)
@@ -67,14 +67,15 @@ TEST(tfw_sched_rr, sg_empty)
 
 TEST(tfw_sched_rr, one_srv_in_sg_and_zero_conn)
 {
-	test_sched_generic_one_srv_in_sg_zero_conn(&sched_helper_rr);
+	test_sched_generic_one_srv_zero_conn(&sched_helper_rr);
 }
 
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
  * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be updated
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
  */
 TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 {
@@ -93,7 +94,8 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 		tfw_connection_get(&sconn->conn);
 	}
 
-	/* Check that connections is scheduled in the fair way:
+	/*
+	 * Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
 	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
@@ -119,14 +121,15 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 
 TEST(tfw_sched_rr, max_srv_in_sg_and_zero_conn)
 {
-	test_sched_generic_max_srv_in_sg_and_zero_conn(&sched_helper_rr);
+	test_sched_generic_max_srv_zero_conn(&sched_helper_rr);
 }
 
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
  * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be updated
+ * structure is changed, other mentioned in above tests should be also be
+ * updated
  */
 TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 {
@@ -139,16 +142,21 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
+			TfwSrvConnection *sconn =
+					test_create_conn((TfwPeer *)srv);
 
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 			conn_acc ^= (long long)&(sconn->conn);
-			/* A connection is skipped by schedulers if (refcnt <= 0). */
+			/*
+			 * A connection is skipped by schedulers
+			 * if (refcnt <= 0).
+			*/
 			tfw_connection_get(&sconn->conn);
 		}
 	}
 
-	/* Check that connections is scheduled in the fair way:
+	/*
+	 * Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
 	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
