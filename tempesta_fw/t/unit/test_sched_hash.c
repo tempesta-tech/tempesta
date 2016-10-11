@@ -107,8 +107,6 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
 
 		sg->sched->add_conn(sg, srv, &sconn->conn);
-		/* A connection is skipped by schedulers if (refcnt <= 0). */
-		tfw_connection_get(&sconn->conn);
 	}
 
 	/* Check that every request is scheduled to the same connection. */
@@ -161,11 +159,6 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 					test_create_conn((TfwPeer *)srv);
 
 			sg->sched->add_conn(sg, srv, &sconn->conn);
-			/*
-			 * A connection is skipped by schedulers
-			 * if (refcnt <= 0).
-			 */
-			tfw_connection_get(&sconn->conn);
 		}
 	}
 
