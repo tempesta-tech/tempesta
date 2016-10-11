@@ -90,8 +90,6 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 
 		sg->sched->add_conn(sg, srv, &sconn->conn);
 		conn_acc ^= (long long)&sconn->conn;
-		/* A connection is skipped by schedulers if (refcnt <= 0). */
-		tfw_connection_get(&sconn->conn);
 	}
 
 	/*
@@ -147,11 +145,6 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 			sg->sched->add_conn(sg, srv, &sconn->conn);
 			conn_acc ^= (long long)&(sconn->conn);
-			/*
-			 * A connection is skipped by schedulers
-			 * if (refcnt <= 0).
-			*/
-			tfw_connection_get(&sconn->conn);
 		}
 	}
 
