@@ -823,14 +823,14 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 static inline bool
 tfw_http_req_is_nonidempotent(TfwHttpReq *req)
 {
-	return ((req->flags & __TFW_HTTP_IDEMP_MASK) == TFW_HTTP_NON_IDEMP);
+	return (req->flags & TFW_HTTP_NON_IDEMP);
 }
 
 /*
  * Tell if the server connection's forwarding queue is on hold.
  * It's on hold it the request that was sent last was non-idempotent.
  */
-static bool
+static inline bool
 __tfw_http_conn_on_hold(TfwConnection *srv_conn)
 {
 	TfwHttpReq *req = (TfwHttpReq *)srv_conn->msg_sent;
@@ -844,7 +844,7 @@ __tfw_http_conn_on_hold(TfwConnection *srv_conn)
  * It's drained if there're no requests in the queue after the
  * request that was sent last.
  */
-static bool
+static inline bool
 __tfw_http_conn_drained(TfwConnection *srv_conn)
 {
 	TfwMsg *lmsg;
@@ -865,28 +865,11 @@ __tfw_http_conn_drained(TfwConnection *srv_conn)
 	return false;
 }
 
-/*
- * Delete requests from dead client connections. The requests need
- * to be removed from @seq_list. The process for closing a client
- * connection does the same, so there may be certain concurrency.
- */
-static void
-tfw_http_req_zap_dead(struct list_head *zap_queue)
+static inline bool
+__tfw_http_conn_req_need_fwd(TfwConnection *srv_conn)
 {
-	TfwHttpReq *req, *tmp;
-
-	TFW_DBG2("%s: queue is %sempty\n",
-		 __func__, list_empty(zap_queue) ? "" : "NOT ");
-
-        list_for_each_entry_safe(req, tmp, zap_queue, msg.fwd_list) {
-                list_del_init(&req->msg.fwd_list);
-                if (!list_empty_careful(&req->msg.seq_list)) {
-                        spin_lock_bh(&req->conn->msg_qlock);
-                        list_del_init(&req->msg.seq_list);
-                        spin_unlock_bh(&req->conn->msg_qlock);
-                }
-                tfw_http_conn_msg_free((TfwHttpMsg *)req);
-        }
+	return (!__tfw_http_conn_on_hold(srv_conn)
+		&& !__tfw_http_conn_drained(srv_conn));
 }
 
 /*
@@ -910,48 +893,29 @@ tfw_http_req_zap_error(struct list_head *err_queue)
 
 /*
  * Forward requests in server connection @srv_conn. The requests are
- * forwarded until a non-idempotent requests is found in the queue.
+ * forwarded until a non-idempotent request is found in the queue.
  * Must be called with a lock on the server connection's @msg_queue.
  */
 static void
-__tfw_http_req_fwd_many(TfwConnection *srv_conn,
-			      struct list_head *zap_queue,
-			      struct list_head *err_queue)
+__tfw_http_req_fwd_many(TfwConnection *srv_conn, struct list_head *err_queue)
 {
-	TfwHttpReq *req = (TfwHttpReq *)srv_conn->msg_sent, *tmp;
+	TfwHttpReq *req, *tmp;
 	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
 	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	BUG_ON(list_empty(fwd_queue));
 
 	/*
 	 * Process the server connection's queue of pending requests.
 	 * The queue is locked against concurrent updates: inserts of
 	 * outgoing requests, or closing of the server connection. Do
 	 * it as fast as possible by moving failed requests to other
-	 * queues that can be processed without this lock.
+	 * queues that can be processed without the lock.
 	 */
-	list_for_each_entry_safe_continue(req, tmp, fwd_queue, msg.fwd_list) {
-		/*
-		 * If the client connection is dead, then don't send
-		 * the request to the server. Move it to @zap_queue
-		 * for deletion later.
-		 */
-		if (!tfw_connection_live(req->conn)) {
-			list_move_tail(&req->msg.fwd_list, zap_queue);
-			TFW_DBG2("%s: Client connection dead: conn=[%p]\n",
-				 __func__, req->conn);
-			continue;
-		}
-		/*
-		 * If the server connection is dead, then there's
-		 * nothing to do here. The procedure of closing the
-		 * server connection will do whatever is necessary.
-		 */
-		if (!tfw_connection_live(srv_conn)) {
-			TFW_DBG2("%s: Server connection dead: conn=[%p]\n",
-				 __func__, srv_conn);
-			break;
-		}
+	req = srv_conn->msg_sent
+	    ? (TfwHttpReq *)list_next_entry(srv_conn->msg_sent, fwd_list)
+	    : (TfwHttpReq *)list_first_entry(fwd_queue, TfwMsg, fwd_list);
+	list_for_each_entry_safe_from(req, tmp, fwd_queue, msg.fwd_list) {
 		/*
 		 * If unable to send to the server connection due to
 		 * an error, then move the request to @err_queue for
@@ -972,48 +936,28 @@ __tfw_http_req_fwd_many(TfwConnection *srv_conn,
 	}
 }
 
-#if 0
 /*
  * Forward stalled requests in server connection @srv_conn.
- * This is the locked version.
+ *
+ * This function expect that the queue in the server connection
+ * is locked. The queue in unlocked inside the function which is
+ * very non-traditional. Please use with caution.
  */
 static void
 __tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
 {
-	struct list_head zap_queue, err_queue;
+	struct list_head err_queue;
 
 	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	BUG_ON(!spin_is_locked(&srv_conn->msg_qlock));
 
-	INIT_LIST_HEAD(&zap_queue);
 	INIT_LIST_HEAD(&err_queue);
 
-	__tfw_http_req_fwd_many(srv_conn, &zap_queue, &err_queue);
-	tfw_http_req_zap_dead(&zap_queue);
-	tfw_http_req_zap_error(&err_queue);
-}
-#endif
-
-/*
- * Forward stalled requests in server connection @srv_conn.
- * This is the unlocked version.
- */
-static void
-tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
-{
-	struct list_head zap_queue, err_queue;
-
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
-
-	INIT_LIST_HEAD(&zap_queue);
-	INIT_LIST_HEAD(&err_queue);
-
-	spin_lock(&srv_conn->msg_qlock);
-	if (!__tfw_http_conn_drained(srv_conn))
-		__tfw_http_req_fwd_many(srv_conn, &zap_queue, &err_queue);
+	__tfw_http_req_fwd_many(srv_conn, &err_queue);
 	spin_unlock(&srv_conn->msg_qlock);
 
-	tfw_http_req_zap_dead(&zap_queue);
-	tfw_http_req_zap_error(&err_queue);
+	if (!list_empty(&err_queue))
+		tfw_http_req_zap_error(&err_queue);
 }
 
 /*
@@ -1048,18 +992,10 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 		return;
 	}
 	if (!drained) {
-		struct list_head zap_queue, err_queue;
-
 		TFW_DBG2("%s: Server connection is not drained: conn=[%p]\n",
 			 __func__, srv_conn);
-		INIT_LIST_HEAD(&zap_queue);
-		INIT_LIST_HEAD(&err_queue);
-
-		__tfw_http_req_fwd_many(srv_conn, &zap_queue, &err_queue);
-		spin_unlock(&srv_conn->msg_qlock);
-
-		tfw_http_req_zap_dead(&zap_queue);
-		tfw_http_req_zap_error(&err_queue);
+		/* The queue is unlocked inside the function. */
+		__tfw_http_req_fwd_stalled(srv_conn);
 		return;
 	}
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
@@ -1140,26 +1076,6 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 				 "conn=[%p] resp=[%p]\n",
 				 __func__, cli_conn, resp);
 			ss_close_sync(cli_conn->sk, true);
-			goto loop_discard;
-		}
-		/*
-		 * If this is a response to a non-idempotent request, then
-		 * it's time to continue forwarding requests to the server
-		 * connection the response has come on. If the server is in
-		 * failover state, then the stalled requests will be taken
-		 * care of by the failover processing.
-		 *
-		 * FIXME It might be better to mark the server connection
-		 * somehow, then forward stalled requests for each marked
-		 * server connection outside of the @out_queue processing.
-		 */
-		if (tfw_http_req_is_nonidempotent(req)
-		    && resp->conn && tfw_connection_get_if_live(resp->conn))
-		{
-			TFW_DBG2("%s: Response to non-idempotent request: "
-				 "conn=[%p]\n", __func__, resp->conn);
-			tfw_http_req_fwd_stalled(resp->conn);
-			tfw_connection_put(resp->conn);
 		}
 loop_discard:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
@@ -1288,7 +1204,7 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 	     ? list_last_entry(seq_queue, TfwHttpReq, msg.seq_list)
 	     : NULL;
 	if (preq && (preq->flags & TFW_HTTP_NON_IDEMP))
-		preq->flags |= TFW_HTTP_CHG_IDEMP;
+		preq->flags &= ~TFW_HTTP_NON_IDEMP;
 	list_add_tail(&req->msg.seq_list, seq_queue);
 	spin_unlock(&cli_conn->msg_qlock);
 }
@@ -1586,25 +1502,14 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	if (srv_conn->msg_sent == msg)
 		srv_conn->msg_sent = NULL;
 	/*
-	 * If the server connection is no longer on hold, and its queue
-	 * is not drained, then forward pending messages to the server.
+	 * If the server connection is no longer on hold, and the queue
+	 * is not drained, then forward pending requests to the server.
+	 * Note: The queue is unlocked inside __tfw_http_req_fwd_stalled().
 	 */
-	if (!__tfw_http_conn_on_hold(srv_conn)
-	    && !__tfw_http_conn_drained(srv_conn))
-	{
-		struct list_head zap_queue, err_queue;
-
-		INIT_LIST_HEAD(&zap_queue);
-		INIT_LIST_HEAD(&err_queue);
-
-		__tfw_http_req_fwd_many(srv_conn, &zap_queue, &err_queue);
+	if (__tfw_http_conn_req_need_fwd(srv_conn))
+		__tfw_http_req_fwd_stalled(srv_conn);
+	else
 		spin_unlock(&srv_conn->msg_qlock);
-
-		tfw_http_req_zap_dead(&zap_queue);
-		tfw_http_req_zap_error(&err_queue);
-	} else {
-		spin_unlock(&srv_conn->msg_qlock);
-	}
 
 	return req;
 }
