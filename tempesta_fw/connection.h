@@ -77,21 +77,26 @@ enum {
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
+ * @nip_queue	- queue of non-idempotent messages within @msg_queue;
  * @msg_qlock	- lock for accessing @msg_queue;
  * @refcnt	- number of users of the connection structure instance;
+ * @nipcnt	- number of non-idempotent requests in the connection;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
+ * @msg_sent	- message that was sent last in the connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
+ * @destructor	- called when a connection is destroyed;
  */
 typedef struct {
 	SsProto			proto;
 	TfwGState		state;
 	struct list_head	list;
 	struct list_head	msg_queue;
+	struct list_head	nip_queue;
 	spinlock_t		msg_qlock;
 	atomic_t		refcnt;
-	unsigned long		flags;
+	atomic_t		nipcnt;
 	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwMsg			*msg_sent;
@@ -103,9 +108,6 @@ typedef struct {
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
-
-/* Connection flags. */
-#define TFW_CONN_FWD_HOLD	0x0001		/* Hold sending messages */
 
 /**
  * TLS hardened connection.

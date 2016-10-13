@@ -370,6 +370,45 @@ tfw_http_send_504(TfwHttpReq *req, const char *reason)
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
+static inline bool
+tfw_http_req_is_nonidempotent(TfwHttpReq *req)
+{
+	return (req->flags & TFW_HTTP_NON_IDEMP);
+}
+
+static inline void
+__tfw_http_req_flip_nonidempotent(TfwConnection *srv_conn, TfwHttpReq *req)
+{
+	list_del_init(&req->nip_list);
+	atomic_dec(&srv_conn->nipcnt);
+}
+
+/*
+ * Flip a non-idempotent request. If @req in server connection @srv_conn
+ * is non-idempotent, then make it idempotent.
+ */
+static inline void
+tfw_http_req_flip_nonidempotent(TfwConnection *srv_conn, TfwHttpReq *req)
+{
+	if (!list_empty(&req->nip_list))
+		__tfw_http_req_flip_nonidempotent(srv_conn, req);
+}
+
+/*
+ * If a request on the list of non-idempotent requests in server
+ * connection @srv_conn had become an idempotent request, then flip it
+ * and make it idempotent.
+ */
+static inline void
+tfw_http_conn_flip_nonidempotent(TfwConnection *srv_conn)
+{
+	TfwHttpReq *req, *tmp;
+
+	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
+		if (!tfw_http_req_is_nonidempotent(req))
+			__tfw_http_req_flip_nonidempotent(srv_conn, req);
+}
+
 /*
  * Allocate a new HTTP message structure, and link it with
  * the connection structure. Increment the number of users
@@ -385,9 +424,10 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 	hm->conn = conn;
 	tfw_connection_get(conn);
 
-        if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
-                TFW_INC_STAT_BH(clnt.rx_messages);
-        } else {
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
+		TFW_INC_STAT_BH(clnt.rx_messages);
+	} else {
 		TfwHttpReq *req;
 
 		spin_lock(&conn->msg_qlock);
@@ -396,7 +436,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 		spin_unlock(&conn->msg_qlock);
 		if (req && (req->method == TFW_HTTP_METH_HEAD))
 			hm->flags |= TFW_HTTP_VOID_BODY;
-                TFW_INC_STAT_BH(serv.rx_messages);
+		TFW_INC_STAT_BH(serv.rx_messages);
 	}
 
 	return (TfwMsg *)hm;
@@ -406,6 +446,10 @@ void
 tfw_http_req_destruct(void *msg)
 {
 	TfwHttpReq *req = msg;
+
+	BUG_ON(!list_empty(&req->msg.seq_list));
+	BUG_ON(!list_empty(&req->msg.fwd_list));
+	BUG_ON(!list_empty(&req->nip_list));
 
 	if (req->sess)
 		tfw_http_sess_put(req->sess);
@@ -457,6 +501,10 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 static int
 tfw_http_conn_init(TfwConnection *conn)
 {
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		atomic_set(&conn->nipcnt, 0);
+		INIT_LIST_HEAD(&conn->nip_queue);
+	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
 }
@@ -477,24 +525,20 @@ static void
 tfw_http_conn_release(TfwConnection *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
-	struct list_head zap_queue;
+	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
 	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	INIT_LIST_HEAD(&zap_queue);
-
-	spin_lock(&srv_conn->msg_qlock);
-	list_splice_tail_init(&srv_conn->msg_queue, &zap_queue);
-	spin_unlock(&srv_conn->msg_qlock);
-
-	list_for_each_entry_safe(req, tmp, &zap_queue, msg.fwd_list) {
+	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
 		BUG_ON(req->conn && (req->conn == srv_conn));
 		list_del_init(&req->msg.fwd_list);
+		tfw_http_req_flip_nonidempotent(srv_conn, req);
 		tfw_http_send_404(req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-	INIT_LIST_HEAD(&srv_conn->msg_queue);
+	BUG_ON(atomic_read(&srv_conn->nipcnt) != 0);
+	BUG_ON(!list_empty(&srv_conn->nip_queue));
 }
 
 /*
@@ -820,12 +864,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 				     TFW_HTTP_HDR_SERVER, 0);
 }
 
-static inline bool
-tfw_http_req_is_nonidempotent(TfwHttpReq *req)
-{
-	return (req->flags & TFW_HTTP_NON_IDEMP);
-}
-
 /*
  * Tell if the server connection's forwarding queue is on hold.
  * It's on hold it the request that was sent last was non-idempotent.
@@ -933,6 +971,7 @@ __tfw_http_req_fwd_many(TfwConnection *srv_conn, struct list_head *err_queue)
 		/* Stop sending if the request is non-idempotent. */
 		if (tfw_http_req_is_nonidempotent(req))
 			break;
+		tfw_http_req_flip_nonidempotent(srv_conn, req);
 	}
 }
 
@@ -985,6 +1024,10 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	spin_lock(&srv_conn->msg_qlock);
 	drained = __tfw_http_conn_drained(srv_conn);
 	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
+	if (tfw_http_req_is_nonidempotent(req)) {
+		list_add_tail(&req->nip_list, &srv_conn->nip_queue);
+		atomic_inc(&srv_conn->nipcnt);
+	}
 	if (__tfw_http_conn_on_hold(srv_conn)) {
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Server connection is on hold: conn=[%p]\n",
@@ -1000,6 +1043,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	}
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
 		list_del_init(&req->msg.fwd_list);
+		tfw_http_req_flip_nonidempotent(srv_conn, req);
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Error sending to server connection: "
 			 "conn=[%p] req=[%p]\n", __func__, srv_conn, req);
@@ -1483,7 +1527,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 static TfwHttpReq *
 tfw_http_popreq(TfwHttpMsg *hmresp)
 {
-	TfwMsg *msg;
+	TfwHttpReq *req;
 	TfwConnection *srv_conn = hmresp->conn;
 	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
@@ -1497,10 +1541,12 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
-	msg = list_first_entry(fwd_queue, TfwMsg, fwd_list);
-	list_del_init(&msg->fwd_list);
-	if (srv_conn->msg_sent == msg)
+	req = list_first_entry(fwd_queue, TfwHttpReq, msg.fwd_list);
+	list_del_init(&req->msg.fwd_list);
+	if (srv_conn->msg_sent == (TfwMsg *)req)
 		srv_conn->msg_sent = NULL;
+	tfw_http_req_flip_nonidempotent(srv_conn, req);
+	tfw_http_conn_flip_nonidempotent(srv_conn);
 	/*
 	 * If the server connection is no longer on hold, and the queue
 	 * is not drained, then forward pending requests to the server.
