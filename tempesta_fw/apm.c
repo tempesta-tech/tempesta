@@ -95,12 +95,14 @@ typedef union {
 
 typedef struct {
 	TfwPcntCtl	ctl[TFW_STATS_RANGES];
+	char		__reset_from[0];
 	atomic64_t	tot_cnt;
 	atomic64_t	tot_val;
 	atomic_t	min_val;
 	atomic_t	max_val;
 	unsigned long	__pad_ulong;
 	atomic_t	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
+	char		__reset_till[0];
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
 
 static inline atomic_t *
@@ -640,8 +642,9 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
-	memset(crbent->pcntrng.cnt, 0, sizeof(crbent->pcntrng.cnt));
-	atomic64_set(&crbent->pcntrng.tot_cnt, 0);
+	memset(crbent->pcntrng.__reset_from, 0,
+	       offsetof(TfwPcntRanges, __reset_till) -
+	       offsetof(TfwPcntRanges, __reset_from));
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);
@@ -650,7 +653,7 @@ __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 /*
  * Reset a ring buffer entry if it needs to be reused. Only one thread
  * proceeds to reset the entry. While the entry is being reset a number
- * of stats updates is lost. That's acceptable.
+ * of stats updates may be lost. That's acceptable.
  */
 static inline void
 tfw_apm_rbent_checkreset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
@@ -894,6 +897,8 @@ tfw_apm_destroy(void *apmdata)
 {
 	TfwApmData *data = apmdata;
 
+	if (!data)
+		return;
 	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
 	smp_mb__after_atomic();
 	del_timer_sync(&data->timer);
