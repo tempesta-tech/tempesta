@@ -145,7 +145,7 @@ test_conn_release_all(TfwSrvGroup *sg)
 		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, list) {
 			conn->sk = NULL;
 			tfw_connection_unlink_from_peer(conn);
-			while (tfw_connection_nfo(conn)) {
+			while (tfw_connection_live(conn)) {
 				tfw_connection_put(conn);
 			}
 			tfw_srv_conn_free((TfwSrvConnection *)conn);
