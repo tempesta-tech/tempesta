@@ -101,31 +101,45 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 }
 
 /**
- * On each subsequent call the function returns the next server in the group.
- * Parallel connections to the same server are also rotated in the
- * round-robin manner.
+ * On each subsequent call the function returns the next server in the
+ * group. Parallel connections to the same server are also rotated in
+ * the round-robin manner.
+ *
  * Dead connections and servers w/o live connections are skipped.
+ * Initially, connections with non-idempotent requests are also skipped
+ * in attempt to increase throughput. However, if all live connections
+ * contain non-idempotent requests, then re-run the algorithm and get
+ * the first live connection as it is usually done.
  */
 static TfwConnection *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int c, s, i;
-	TfwConnection *conn;
+	unsigned long idx;
+	int c, s, skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
+	TfwConnection *conn;
 
 	BUG_ON(!sl);
-
+rerun:
 	for (s = 0; s < sl->srv_n; ++s) {
-		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		srv_cl = &sl->srvs[i];
+		idx = atomic64_inc_return(&sl->rr_counter);
+		srv_cl = &sl->srvs[idx % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-			    % srv_cl->conn_n;
-			conn = srv_cl->conns[i];
+			idx = atomic64_inc_return(&srv_cl->rr_counter);
+			conn = srv_cl->conns[idx % srv_cl->conn_n];
+			if (skipnip && atomic_read(&conn->nipcnt)) {
+				if (tfw_connection_live(conn))
+					nipconn++;
+				continue;
+			}
 			if (tfw_connection_get_if_live(conn))
 				return conn;
 		}
+	}
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
 	}
 	return NULL;
 }
