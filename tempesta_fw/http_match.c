@@ -198,9 +198,8 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
-	while((p) < (end) && !(cond)) {			\
-		(p)++;					\
-	}
+	while ((p) < (end) && !(cond))			\
+		(p)++;
 
 /* It would be hard to apply some header-specific rules here, so ignore
  * case for all headers according to the robustness principle.
