@@ -233,7 +233,7 @@ EXPORT_SYMBOL(tfw_strcat);
  *   1 - strings match and @stop is found;
  *  -1 - strings do not match;
  *
- * TODO too slow, rewrite on AVX2.
+ * TODO #182 too slow, rewrite on AVX2.
  */
 static int
 __cstricmpspn(const char *s1, const char *s2, int n, int stop)
@@ -512,14 +512,15 @@ tfw_str_dprint(TfwStr *str, const char *msg)
 {
 	TfwStr *dup, *dup_end, *c, *chunk_end;
 
-	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x:\n", msg,
-		str, str->skb, str->len, str->flags);
+	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
+		str, str->skb, str->len, str->flags, str->eolen);
 	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
-		TFW_DBG("  duplicate %p, len=%lu, flags=%x:\n",
-			dup, dup->len, dup->flags);
+		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
+			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, ptr=%p '%.*s'\n", c->len,
-				c->ptr, (int)c->len, (char *)c->ptr);
+			TFW_DBG("   len=%lu, eolen=%u ptr=%p '%.*s'\n",
+				c->len, c->eolen, c->ptr,
+				(int)c->len, (char *)c->ptr);
 	}
 }
 #endif

@@ -8,9 +8,8 @@
  * Later on we may decide to move them into user-space. These macros try to
  * imitate the GoogleTest API. That should facilitate the future migration.
  *
- *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -58,6 +57,23 @@ do {				\
 	printk("\n");		\
 } while (0)
 
+#if defined(DEBUG) && (DEBUG >= 1)
+#define TEST_DBG(...) pr_debug(TEST_BANNER "  " __VA_ARGS__)
+#else
+#define TEST_DBG(...)
+#endif
+
+#if defined(DEBUG) && (DEBUG >= 2)
+#define TEST_DBG2(...) pr_debug(TEST_BANNER "    " __VA_ARGS__)
+#else
+#define TEST_DBG2(...)
+#endif
+
+#if defined(DEBUG) && (DEBUG >= 3)
+#define TEST_DBG3(...) pr_debug(TEST_BANNER "      " __VA_ARGS__)
+#else
+#define TEST_DBG3(...)
+#endif
 
 #define TEST(unit, assertion)  static void test__ ##unit ##__ ##assertion(void)
 #define TEST_SUITE(name) void test_suite__##name(void)
@@ -145,7 +161,6 @@ do {							\
 
 #define EXPECT_ERROR(expr) \
 	__EXPECT_COND("EXPECT_ERROR", (expr), _val != 0)
-
 
 #define EXPECT_STR_EQ(str1, str2) 		\
 do {						\
