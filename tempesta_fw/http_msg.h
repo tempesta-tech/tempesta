@@ -92,7 +92,6 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
-void tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 

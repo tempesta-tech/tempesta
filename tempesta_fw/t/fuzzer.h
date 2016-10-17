@@ -67,7 +67,7 @@ typedef enum {
 typedef struct {
 	int i[N_FIELDS];
 	bool is_only_valid;
-	bool is_chanked_body;
+	bool is_chunked_body;
 	char content_length[MAX_CONTENT_LENGTH_LEN + 1];
 	int curr_duplicates;
 } TfwFuzzContext;
