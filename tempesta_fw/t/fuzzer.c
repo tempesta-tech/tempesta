@@ -335,7 +335,7 @@ __add_field(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 		add_string(p, end, r.s);
 
 		if (t == TRANSFER_ENCODING && !n)
-			ctx->is_chanked_body = true;
+			ctx->is_chunked_body = true;
 
 		if (FUZZ_MSG_INVAL(r))
 			TFW_DBG("generate ivalid field %d for header %d\n",
@@ -378,7 +378,7 @@ add_field(TfwFuzzContext *ctx, char **p, char *end, int t)
 	return __add_field(ctx, p, end, t, ctx->i[t]);
 }
 
-static int
+static unsigned int
 __add_header(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 {
 	unsigned int v = 0, i;
@@ -432,7 +432,7 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 		return FUZZ_INVALID;
 	}
 
-	if (!ctx->is_chanked_body) {
+	if (!ctx->is_chunked_body) {
 		if (!ctx->is_only_valid && len
 		    && !(i % INVALID_BODY_PERIOD))
 		{
@@ -529,7 +529,7 @@ fuzz_init(TfwFuzzContext *ctx, bool is_only_valid)
 {
 	memset(ctx->i, 0, sizeof(ctx->i));
 	ctx->is_only_valid = is_only_valid;
-	ctx->is_chanked_body = false;
+	ctx->is_chunked_body = false;
 	ctx->curr_duplicates = 0;
 }
 EXPORT_SYMBOL(fuzz_init);
@@ -548,7 +548,7 @@ fuzz_gen(TfwFuzzContext *ctx, char *str, char *end, field_t start,
 	int i, n, ret = FUZZ_VALID;
 	unsigned int v = 0;
 
-	ctx->is_chanked_body = false;
+	ctx->is_chunked_body = false;
 
 	if (str == NULL)
 		return -EINVAL;

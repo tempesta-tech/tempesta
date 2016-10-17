@@ -501,10 +501,9 @@ enum {
  */
 #define RGEN_EOL()							\
 __FSM_STATE(RGen_EoL) {							\
-	if (c == '\r') {						\
+	if (c == '\r')							\
 		__FSM_MOVE_nofixup(RGen_CR);				\
-	}								\
-	else if (c == '\n') {						\
+	if (c == '\n') {						\
 		if (parser->hdr.ptr) {					\
 			tfw_str_set_eolen(&parser->hdr, 1);		\
 			if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag)) \
@@ -512,9 +511,7 @@ __FSM_STATE(RGen_EoL) {							\
 		}							\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
 	}								\
-	else {								\
-		return TFW_BLOCK;					\
-	}								\
+	return TFW_BLOCK;						\
 }									\
 __FSM_STATE(RGen_CR) {							\
 	if (unlikely(c != '\n'))					\
@@ -541,16 +538,19 @@ do {									\
 			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
 		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
 	}								\
-	else if (c == '\n') {						\
+	if (c == '\n') {						\
 		if (!msg->crlf.ptr) {					\
+			/*						\
+			 * Set data and length explicitly for single LF	\
+			 * w/o calling complex __msg_field_fixup().	\
+			 */						\
 			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
 			msg->crlf.len = 1;				\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
 			__FSM_JMP(RGen_BodyInit);			\
-		} else {						\
-			r = TFW_PASS;					\
-			FSM_EXIT();					\
 		}							\
+		r = TFW_PASS;						\
+		FSM_EXIT();						\
 	}								\
 } while (0)
 
@@ -855,9 +855,8 @@ __FSM_STATE(RGen_BodyCR) {						\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		/* Process trailer-part. */				\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	} else {							\
-		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
 	}								\
+	__FSM_MOVE_f(RGen_BodyChunk, &msg->body);			\
 }
 
 /*
@@ -867,14 +866,12 @@ __FSM_STATE(RGen_BodyCR) {						\
  */
 #define RGEN_OWS()							\
 __FSM_STATE(RGen_OWS) {							\
-	if (likely(IS_WS(c))) {						\
+	if (likely(IS_WS(c)))						\
 		__FSM_MOVE(RGen_OWS);					\
-	} else {							\
-		parser->state = parser->_i_st;				\
-		parser->_i_st = 0;					\
-		BUG_ON(unlikely(__data_offset(p) >= len));		\
-		goto fsm_reenter;					\
-	}								\
+	parser->state = parser->_i_st;					\
+	parser->_i_st = 0;						\
+	BUG_ON(unlikely(__data_offset(p) >= len));			\
+	goto fsm_reenter;						\
 }
 
 /**
