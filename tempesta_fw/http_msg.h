@@ -63,6 +63,18 @@ int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 #define tfw_http_msg_add_data_ptr(hm, str, data, len)			\
 	__tfw_http_msg_add_data_ptr(hm, str, data, len, NULL)
 
+/**
+ * Fixup the new data chunk to currently parsed HTTP header.
+ *
+ * @len could be 0 if the header was fully read, but we realized this only
+ * now by facinng CRLF at begin of current data chunk.
+ */
+static inline void
+tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
+{
+	tfw_http_msg_add_data_ptr(hm, &hm->parser.hdr, data, len);
+}
+
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			  char *val, size_t v_len, int hid, bool append);
@@ -80,9 +92,6 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
-void tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len);
-void tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
-				    char *data, int len);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 

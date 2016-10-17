@@ -144,7 +144,7 @@ typedef struct {
  *
  * So we use states space splitting to avoid states explosion.
  * @_i_st is used to save current state and go to interior sub-automaton
- * (e.g. process LWS using @state while current state is saved in @_i_st
+ * (e.g. process OWS using @state while current state is saved in @_i_st
  * or using @_i_st parse value of a header described.
  *
  * @to_go	- remaining number of bytes to process in the data chunk;
@@ -152,11 +152,9 @@ typedef struct {
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
- * @_hdr_tag	- describes, which header should be closed in case of
- *		  the empty header (see RGEN_LWS_empty)
- * @_{acc,eol}	- used to store context-specific data
- *                  acc) integer accumulator for parsing chunked integers;
- *                  eol) track of CR/LF delimiters while hunting for EOL;
+ * @_hdr_tag	- stores header id which must be closed on generic EoL handling
+ *		  (see RGEN_EOL());
+ * @_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -166,7 +164,6 @@ typedef struct {
 	int		_i_st;
 	int		to_read;
 	unsigned long	_acc;
-	unsigned long	_eol;
 	time_t		_date;
 	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
