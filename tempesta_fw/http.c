@@ -1093,7 +1093,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 		if (req->resp == NULL)
 			break;
 		list_move_tail(&req->msg.seq_list, &out_queue);
-	} while(!list_empty(seq_queue));
+	} while (!list_empty(seq_queue));
 	spin_unlock(&cli_conn->msg_qlock);
 
 	/* Forward responses to the client. */
