@@ -25,7 +25,7 @@
 #include "str.h"
 
 /* Lower case conversion table. */
-static const unsigned char lct[] __attribute__((aligned(64))) = {
+const unsigned char __tfw_lct[] __attribute__((aligned(64))) = {
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 	0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
@@ -59,6 +59,7 @@ static const unsigned char lct[] __attribute__((aligned(64))) = {
 	0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
 	0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
 };
+EXPORT_SYMBOL(__tfw_lct);
 
 void
 tfw_str_del_chunk(TfwStr *str, int id)
@@ -277,8 +278,8 @@ __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
 	unsigned char c1, c2;
 
 	while (n) {
-		c1 = lct[*s1++];
-		c2 = lct[*s2++];
+		c1 = TFW_LC(*s1++);
+		c2 = TFW_LC(*s2++);
 		if (c1 != c2)
 			return -1;
 		if (unlikely(c1 == stop))
