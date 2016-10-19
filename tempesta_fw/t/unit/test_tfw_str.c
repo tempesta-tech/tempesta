@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,11 +19,33 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/bug.h>
+#include <linux/ctype.h>
 #include <linux/kernel.h>
 
 #include "str.h"
 #include "test.h"
 #include "tfw_str_helper.h"
+
+TEST(cstr, tolower)
+{
+	EXPECT_TRUE(TFW_LC('A') == tolower('A'));
+	EXPECT_TRUE(TFW_LC('Z') == tolower('Z'));
+	EXPECT_TRUE(TFW_LC('a') == tolower('a'));
+	EXPECT_TRUE(TFW_LC('z') == tolower('z'));
+	EXPECT_TRUE(TFW_LC('0') == tolower('0'));
+	EXPECT_TRUE(TFW_LC('9') == tolower('9'));
+	EXPECT_TRUE(TFW_LC('/') == tolower('/'));
+	EXPECT_TRUE(TFW_LC('@') == tolower('@'));
+	EXPECT_TRUE(TFW_LC('[') == tolower('['));
+	EXPECT_TRUE(TFW_LC('`') == tolower('`'));
+	EXPECT_TRUE(TFW_LC('{') == tolower('{'));
+	EXPECT_TRUE(TFW_LC('\r') == tolower('\r'));
+	EXPECT_TRUE(TFW_LC(0) == tolower(0));
+	EXPECT_TRUE(TFW_LC(127) == tolower(127));
+	/* tolower() somehow treats 200 as upper case character. */
+	EXPECT_TRUE(TFW_LC(200) != tolower(200));
+	EXPECT_TRUE(TFW_LC(255) == tolower(255));
+}
 
 TEST(tfw_strcpy, zero_src)
 {
@@ -521,6 +543,8 @@ TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
 	TEST_TEARDOWN(free_all_str);
+
+	TEST_RUN(cstr, tolower);
 
 	TEST_RUN(tfw_strcpy, zero_src);
 	TEST_RUN(tfw_strcpy, zero_dst);
