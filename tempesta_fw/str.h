@@ -69,6 +69,26 @@
 
 #include "pool.h"
 
+/*
+ * ------------------------------------------------------------------------
+ *	C strings
+ * ------------------------------------------------------------------------
+ */
+extern const unsigned char __tfw_lct[];
+
+/**
+ * Much faster implementation than standard tolower().
+ * Also it's safer than ((c) | 0x20) which for example can convert '\r' to '-'.
+ * Unsigned char must be used as @c.
+ */
+#define TFW_LC(c)	__tfw_lct[c]
+
+
+/*
+ * ------------------------------------------------------------------------
+ *	Tempesta chunked strings
+ * ------------------------------------------------------------------------
+ */
 #define TFW_STR_FBITS		8
 #define TFW_STR_FMASK		((1U << TFW_STR_FBITS) - 1)
 #define TFW_STR_CN_SHIFT	TFW_STR_FBITS
