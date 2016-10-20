@@ -145,15 +145,15 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
 		for (ch = sg->sched_data; ch->conn; ++ch) {
+			if (unlikely(tfw_connection_restricted(ch->conn))
+			    || unlikely(!tfw_connection_live(ch->conn)))
+				continue;
 			curr_weight = msg_hash ^ ch->hash;
-			if (likely(tfw_connection_live(ch->conn))
-			    && curr_weight > best_weight)
-			{
+			if (curr_weight > best_weight) {
 				best_weight = curr_weight;
 				best_conn = ch->conn;
 			}
 		}
-
 		if (unlikely(!best_conn))
 			return NULL;
 		if (tfw_connection_get_if_live(best_conn))

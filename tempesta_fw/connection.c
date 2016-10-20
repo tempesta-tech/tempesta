@@ -59,6 +59,15 @@ tfw_connection_new(TfwConnection *conn)
 }
 
 /**
+ * Call connection repairing via TfwConnHooks.
+ */
+void
+tfw_connection_repair(TfwConnection *conn)
+{
+	TFW_CONN_HOOK_CALL(conn, conn_repair);
+}
+
+/**
  * Publish the "connection is dropped" event via TfwConnHooks.
  */
 void
