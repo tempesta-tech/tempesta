@@ -308,14 +308,17 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	tfw_connection_link_to_sk(conn, sk);
 
 	/* Notify higher level layers. */
-	r = tfw_connection_new(conn);
-	if (r) {
+	if ((r = tfw_connection_new(conn))) {
 		TFW_ERR("conn_init() hook returned error\n");
 		return r;
 	}
 
 	/* Let schedulers use the connection hereafter. */
 	tfw_connection_revive(conn);
+
+	/* Repair the connection is necessary. */
+	if (unlikely(tfw_connection_restricted(conn)))
+		tfw_connection_repair(conn);
 
 	__reset_retry_timer(srv_conn);
 

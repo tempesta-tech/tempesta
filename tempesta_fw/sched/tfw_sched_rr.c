@@ -128,8 +128,10 @@ rerun:
 		for (c = 0; c < srv_cl->conn_n; ++c) {
 			idx = atomic64_inc_return(&srv_cl->rr_counter);
 			conn = srv_cl->conns[idx % srv_cl->conn_n];
-			if (skipnip && atomic_read(&conn->nipcnt)) {
-				if (tfw_connection_live(conn))
+			if (unlikely(tfw_connection_restricted(conn)))
+				continue;
+			if (skipnip && tfw_connection_hasnip(conn)) {
+				if (likely(tfw_connection_live(conn)))
 					nipconn++;
 				continue;
 			}
