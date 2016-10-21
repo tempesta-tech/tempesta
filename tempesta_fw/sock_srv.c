@@ -206,6 +206,12 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * starting from 100ms, which is a good RTT for a fast 10Gbps link.
 	 * The timeout is not increased after 1 second as it has moderate
 	 * overhead, and it's still good in response time.
+	 *
+	 * FIXME: The limit on the number of reconnect attempts is used
+	 * to re-schedule requests that would never be forwarded otherwise.
+	 * Still, attempts to reconnect may be continued in hopes that the
+	 * connection will be established sooner or later. Otherwise thei
+	 * connection will stay dead until restart.
 	 */
 	static const unsigned long timeouts[] = { 1, 10, 100, 250, 500, 1000 };
 
@@ -222,6 +228,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
 			 "The server connection [%s] is down permanently.\n",
 			 srv_conn->max_attempts, s_addr);
+		tfw_connection_repair(&srv_conn->conn);
 		return;
 	}
 	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
