@@ -569,6 +569,59 @@ tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
 		tfw_http_req_zap_error(&err_queue);
 }
 
+/*
+ * Forward the request @req to server connection @srv_conn.
+ *
+ * The request is added to the server connection (forwarding) queue.
+ * If forwarding is on hold at this moment, then the request will be
+ * forwarded later. Otherwise, if the queue is drained, then forward
+ * the request to the server immediately. If the queue is not drained,
+ * then forward all stalled requests to the server.
+ *
+ * Forwarding to a server is considered to be on hold after
+ * a non-idempotent request is forwarded to the server. The hold
+ * is removed when the holding non-idempotent request is followed
+ * by another request from the same client, which enables pipelining.
+ */
+static void
+tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
+{
+	bool drained;
+
+	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
+	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
+
+	spin_lock(&srv_conn->msg_qlock);
+	drained = tfw_http_conn_drained(srv_conn);
+	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
+	if (tfw_http_req_is_nonidempotent(req))
+		__tfw_http_req_set_nonidempotent(srv_conn, req);
+	if (tfw_http_conn_on_hold(srv_conn)) {
+		spin_unlock(&srv_conn->msg_qlock);
+		TFW_DBG2("%s: Server connection is on hold: conn=[%p]\n",
+			 __func__, srv_conn);
+		return;
+	}
+	if (!drained) {
+		TFW_DBG2("%s: Server connection is not drained: conn=[%p]\n",
+			 __func__, srv_conn);
+		tfw_http_req_fwd_stalled(srv_conn);
+		/* The queue is unlocked inside the function. */
+		return;
+	}
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
+		list_del_init(&req->msg.fwd_list);
+		tfw_http_req_flip_if_nonidempotent(srv_conn, req);
+		spin_unlock(&srv_conn->msg_qlock);
+		TFW_DBG2("%s: Error sending to server connection: "
+			 "conn=[%p] req=[%p]\n", __func__, srv_conn, req);
+		tfw_http_send_500(req);
+		return;
+	}
+	srv_conn->msg_sent = (TfwMsg *)req;
+	spin_unlock(&srv_conn->msg_qlock);
+}
+
 static void
 __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 			  bool one_msg, struct list_head *err_queue)
@@ -714,6 +767,45 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 }
 
 /*
+ * Re-schedule requests in a dead server connection's queue to a live
+ * server connection. Idempotent requests are always rescheduled.
+ * Non-idempotent requests are not re-scheduled by default, but it
+ * can be configured to re-schedule those requests as well.
+ *
+ * FIXME: It appears that a re-scheduled request should be put in a
+ * new server connection's queue according to its original timestamp,
+ * and NOT just added at the end of the queue. That will matter when
+ * eviction of old requests is implemented.
+ */
+static void
+tfw_http_req_fwd_resched(TfwConnection *srv_conn)
+{
+	TfwHttpReq *req, *tmp;
+	TfwConnection *new_conn;
+	struct list_head *fwd_queue = &srv_conn->msg_queue;
+
+	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+
+	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
+		list_del_init(&req->msg.fwd_list);
+		/* FIXME: Need config option. */
+		if (tfw_http_req_is_nonidempotent(req)) {
+			__tfw_http_req_set_idempotent(srv_conn, req);
+			goto send_err;
+		}
+		if (!(new_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+			TFW_WARN("Unable to find a backend server\n");
+			goto send_err;
+		}
+		tfw_http_req_fwd(new_conn, req);
+		continue;
+send_err:
+		tfw_http_send_404(req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+}
+
+/*
  * Find requests in the server's connection queue that were forwarded
  * to the server. These are unanswered requests. According to RFC 7230
  * 6.3.2, "a client MUST NOT pipeline immediately after connection
@@ -730,7 +822,13 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 	BUG_ON(!tfw_connection_restricted(srv_conn));
 
-	/* Resend the first unanswered request. */
+	/* See if requests need to be rescheduled. */
+	if (unlikely(!tfw_connection_live(srv_conn))) {
+		tfw_http_req_fwd_resched(srv_conn);
+		return;
+	}
+
+	/* Re-send the first unanswered request. */
 	spin_lock(&srv_conn->msg_qlock);
 	srv_conn->msg_resent = NULL;
 	if (srv_conn->msg_sent) {
@@ -1131,59 +1229,6 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	return TFW_HTTP_MSG_HDR_XFRM(hm, "Server", TFW_NAME "/" TFW_VERSION,
 				     TFW_HTTP_HDR_SERVER, 0);
-}
-
-/*
- * Forward the request @req to server connection @srv_conn.
- *
- * The request is added to the server connection (forwarding) queue.
- * If forwarding is on hold at this moment, then the request will be
- * forwarded later. Otherwise, if the queue is drained, then forward
- * the request to the server immediately. If the queue is not drained,
- * then forward all stalled requests to the server.
- *
- * Forwarding to a server is considered to be on hold after
- * a non-idempotent request is forwarded to the server. The hold
- * is removed when the holding non-idempotent request is followed
- * by another request from the same client, which enables pipelining.
- */
-static void
-tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
-{
-	bool drained;
-
-	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
-	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-
-	spin_lock(&srv_conn->msg_qlock);
-	drained = tfw_http_conn_drained(srv_conn);
-	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
-	if (tfw_http_req_is_nonidempotent(req))
-		__tfw_http_req_set_nonidempotent(srv_conn, req);
-	if (tfw_http_conn_on_hold(srv_conn)) {
-		spin_unlock(&srv_conn->msg_qlock);
-		TFW_DBG2("%s: Server connection is on hold: conn=[%p]\n",
-			 __func__, srv_conn);
-		return;
-	}
-	if (!drained) {
-		TFW_DBG2("%s: Server connection is not drained: conn=[%p]\n",
-			 __func__, srv_conn);
-		tfw_http_req_fwd_stalled(srv_conn);
-		/* The queue is unlocked inside the function. */
-		return;
-	}
-	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
-		list_del_init(&req->msg.fwd_list);
-		tfw_http_req_flip_if_nonidempotent(srv_conn, req);
-		spin_unlock(&srv_conn->msg_qlock);
-		TFW_DBG2("%s: Error sending to server connection: "
-			 "conn=[%p] req=[%p]\n", __func__, srv_conn, req);
-		tfw_http_send_500(req);
-		return;
-	}
-	srv_conn->msg_sent = (TfwMsg *)req;
-	spin_unlock(&srv_conn->msg_qlock);
 }
 
 /*
