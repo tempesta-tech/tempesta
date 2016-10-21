@@ -454,10 +454,11 @@ tfw_http_conn_on_hold(TfwConnection *srv_conn)
 static inline bool
 tfw_http_conn_drained(TfwConnection *srv_conn)
 {
-	TfwMsg *lmsg;
+	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-	if (list_empty(&srv_conn->msg_queue)) {
+
+	if (list_empty(fwd_queue)) {
 		TFW_DBG2("%s: Empty: srv_conn=[%p]\n", __func__, srv_conn);
 		return true;
 	}
@@ -465,9 +466,9 @@ tfw_http_conn_drained(TfwConnection *srv_conn)
 		TFW_DBG2("%s: None sent: srv_conn=[%p]\n", __func__, srv_conn);
 		return false;
 	}
-	lmsg = list_last_entry(&srv_conn->msg_queue, TfwMsg, seq_list);
-	if (srv_conn->msg_sent == lmsg)
+	if (srv_conn->msg_sent == list_last_entry(fwd_queue, TfwMsg, seq_list))
 		return true;
+
 	TFW_DBG2("%s: Some not sent: srv_conn=[%p]\n", __func__, srv_conn);
 	return false;
 }
@@ -509,7 +510,7 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *err_queue)
 	TfwHttpReq *req, *tmp;
 	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
 	/*
 	 * Process the server connection's queue of pending requests.
@@ -557,7 +558,7 @@ tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
 {
 	LIST_HEAD(err_queue);
 
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->msg_qlock));
 	BUG_ON(list_empty(&srv_conn->msg_queue));
 
@@ -575,12 +576,12 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 	TfwHttpReq *req, *tmp;
 	struct list_head *end, *fwd_queue = &srv_conn->msg_queue;
 
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p] one_msg=[%s]\n",
+		 __func__, srv_conn, one_msg ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
+	BUG_ON(list_empty(&srv_conn->msg_sent->fwd_list));
 
-	req = srv_conn->msg_resent
-	    ? (TfwHttpReq *)list_next_entry(srv_conn->msg_resent, fwd_list)
-	    : (TfwHttpReq *)list_first_entry(fwd_queue, TfwMsg, fwd_list);
+	req = list_first_entry(fwd_queue, TfwHttpReq, msg.fwd_list);
 	end = srv_conn->msg_sent->fwd_list.next;
 
 	/* An equivalent of list_for_each_entry_safe_from() */
@@ -605,6 +606,8 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 static void
 __tfw_http_req_fwd_qforwd(TfwConnection *srv_conn, struct list_head *err_queue)
 {
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+
 	__tfw_http_req_fwd_stalled(srv_conn, err_queue);
 	if (list_empty(&srv_conn->msg_queue)) {
 		srv_conn->forward = tfw_http_req_fwd_stalled;
@@ -618,19 +621,21 @@ tfw_http_req_fwd_repair(TfwConnection *srv_conn)
 {
 	LIST_HEAD(err_queue);
 
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->msg_qlock));
 	BUG_ON(list_empty(&srv_conn->msg_queue));
 
 	if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
 		__tfw_http_req_fwd_qforwd(srv_conn, &err_queue);
 	} else {
-		if (!srv_conn->msg_sent)
+		srv_conn->msg_resent = NULL;
+		if (srv_conn->msg_sent) {
 			__tfw_http_req_fwd_resend(srv_conn, false, &err_queue);
-		if (srv_conn->msg_resent == srv_conn->msg_sent) {
-			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-			__tfw_http_req_fwd_qforwd(srv_conn, &err_queue);
+			if (srv_conn->msg_resent != srv_conn->msg_sent)
+				srv_conn->msg_sent = srv_conn->msg_resent;
 		}
+		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+		__tfw_http_req_fwd_qforwd(srv_conn, &err_queue);
 	}
 	spin_unlock(&srv_conn->msg_qlock);
 
@@ -721,14 +726,18 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 {
 	LIST_HEAD(err_queue);
 
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 	BUG_ON(!tfw_connection_restricted(srv_conn));
 
 	/* Resend the first unanswered request. */
 	spin_lock(&srv_conn->msg_qlock);
-	if (!srv_conn->msg_sent)
+	srv_conn->msg_resent = NULL;
+	if (srv_conn->msg_sent) {
 		__tfw_http_req_fwd_resend(srv_conn, true, &err_queue);
+		if (!srv_conn->msg_resent)
+			srv_conn->msg_sent = NULL;
+	}
 	if (!srv_conn->msg_resent) {
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		__tfw_http_req_fwd_qforwd(srv_conn, &err_queue);
@@ -748,14 +757,16 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 static int
 tfw_http_conn_init(TfwConnection *conn)
 {
+	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		if (list_empty(&conn->msg_queue)) {
 			conn->forward = tfw_http_req_fwd_stalled;
 		} else {
-			conn->msg_resent = NULL;
 			conn->forward = tfw_http_req_fwd_repair;
 			set_bit(TFW_CONN_B_RESEND, &conn->flags);
 		}
+		INIT_LIST_HEAD(&conn->nip_queue);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
@@ -788,7 +799,7 @@ tfw_http_req_destruct(void *msg)
 static void
 tfw_http_conn_release(TfwConnection *srv_conn)
 {
-	TFW_DBG2("%s: conn = %p\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
@@ -815,7 +826,7 @@ tfw_http_conn_cli_drop(TfwConnection *cli_conn)
 	struct list_head *seq_queue = &cli_conn->msg_queue;
 	LIST_HEAD(zap_queue);
 
-	TFW_DBG2("%s: conn = %p\n", __func__, cli_conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
 	if (list_empty_careful(seq_queue))
@@ -840,6 +851,8 @@ static void tfw_http_resp_terminate(TfwHttpMsg *hm);
 static void
 tfw_http_conn_drop(TfwConnection *conn)
 {
+	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		tfw_http_conn_cli_drop(conn);
 	} else if (conn->msg) {
