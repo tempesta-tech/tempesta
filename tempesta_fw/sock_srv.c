@@ -500,6 +500,8 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&srv_conn->conn);
+	atomic_set(&srv_conn->conn.msg_qsize, 0);
+	INIT_LIST_HEAD(&srv_conn->conn.nip_queue);
 	__setup_retry_timer(srv_conn);
 	ss_proto_init(&srv_conn->conn.proto,
 		      &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
@@ -514,6 +516,9 @@ tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(&srv_conn->conn);
+	BUG_ON(atomic_read(&srv_conn->conn.msg_qsize));
+	BUG_ON(!list_empty(&srv_conn->conn.nip_queue));
+
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 

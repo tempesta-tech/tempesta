@@ -87,6 +87,8 @@ tfw_cli_conn_free(TfwConnection *conn)
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(conn);
+	BUG_ON(!list_empty(&conn->msg_queue));
+
 	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(conn)), conn);
 }
 
