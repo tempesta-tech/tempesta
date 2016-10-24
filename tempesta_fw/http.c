@@ -864,7 +864,6 @@ tfw_http_conn_init(TfwConnection *conn)
 			conn->forward = tfw_http_req_fwd_repair;
 			set_bit(TFW_CONN_B_RESEND, &conn->flags);
 		}
-		INIT_LIST_HEAD(&conn->nip_queue);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
