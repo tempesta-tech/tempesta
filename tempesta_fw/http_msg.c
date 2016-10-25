@@ -414,7 +414,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 	} else {
 		if (hid < ht->off - 1)
 			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
-				ht->off - hid - 1);
+				(ht->off - hid - 1) * sizeof(TfwStr));
 		--ht->off;
 	}
 
