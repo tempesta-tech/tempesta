@@ -128,7 +128,7 @@ module_exit(ttls_exit);
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_VERSION("2.3.0");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
 
 /*
  * ------------------------------------------------------------------------
