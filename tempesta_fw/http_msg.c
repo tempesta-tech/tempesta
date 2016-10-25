@@ -168,9 +168,12 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 			h = TFW_STR_CHUNK(h, 0);
 		if (tfw_stricmpspn(hdr, h, ':'))
 			continue;
+		break;
+	}
+
+	if (id <  ht->off) {
 		if (__hdr_is_singular(hdr))
 			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		break;
 	}
 
 	return id;
