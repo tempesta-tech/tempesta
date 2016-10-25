@@ -583,10 +583,6 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 {
-	if (((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
-	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION])))
-		return 0;
-
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "close",
@@ -641,6 +637,102 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 		 */
 		return 0;
 	}
+}
+
+static int
+tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
+{
+	int r;
+	TfwStr conn_val;
+	char *conn_val_cstr, *pos;
+	size_t len;
+	char * w_pos = NULL;
+	size_t w_len = 0;
+
+	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
+	if (r < 0)
+		return r;
+
+	/*
+	 * RFC7230:
+	 * A proxy or gateway MUST parse a received Connection header field before
+	 * a message is forwarded and, for each connection-option in this field,
+	 * remove any header field(s) from the message with the same name as the
+	 * connection-option, and then remove the Connection header field itself
+	 * (or replace it with the intermediary's own connection options for the
+	 * forwarded message).
+	 */
+	__http_msg_hdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
+			   TFW_HTTP_HDR_CONNECTION,
+			   &conn_val,
+			   false /* unused */ );
+
+	if (conn_val.len == 0)
+		return 0;
+
+	/* Connection header should not contain a lot of data */
+	len = conn_val.len;
+	if (TFW_STR_PLAIN(&conn_val)) {
+		conn_val_cstr = conn_val.ptr;
+	}
+	else {
+		conn_val_cstr = (char *) kzalloc(len+1, GFP_KERNEL);
+		BUG_ON(!conn_val_cstr);
+		len = tfw_str_to_cstr(&conn_val, conn_val_cstr, (int)len+1);
+	}
+
+	pos = conn_val_cstr;
+
+	while ((size_t)(pos - conn_val_cstr) <= len)
+	{
+		switch (*pos)
+		{
+		case ' ':
+		case '\t':
+		case ',':
+		case '\r':
+		case '\n':
+			if (w_pos != NULL) {
+				r = tfw_http_msg_hdr_xfrm(hm,
+							  w_pos, w_len,
+							  NULL, 0,
+							  TFW_HTTP_HDR_RAW,
+							  0);
+				if (unlikely(r && r != -ENOENT)) {
+					TFW_WARN("Cannot delete hbh header (%d)\n",
+						 r);
+				}
+				w_pos = NULL;
+				w_len = 1;
+			}
+			break;
+		default:
+			if (w_pos == NULL) {
+				w_pos = pos;
+				w_len = 1;
+			}
+			else if ((size_t)(pos - conn_val_cstr) < len) {
+				++w_len;
+			}
+			else {
+				r = tfw_http_msg_hdr_xfrm(hm,
+							  w_pos, w_len,
+							  NULL, 0,
+							  TFW_HTTP_HDR_RAW,
+							  0);
+				if (unlikely(r && r != -ENOENT)) {
+					TFW_WARN("Cannot delete hbh header (%d)\n",
+						 r);
+				}
+			}
+			break;
+		}
+		++pos;
+	}
+
+	if (!TFW_STR_PLAIN(&conn_val))
+		kfree(conn_val_cstr);
+	return 0;
 }
 
 static int
@@ -719,6 +811,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
+	r = tfw_http_rm_hbh_headers(hm, TFW_HTTP_CONN_KA);
+	if (r < 0)
+		return r;
+
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
 }
 
@@ -737,7 +833,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
+	r = tfw_http_rm_hbh_headers(hm, conn_flg);
 	if (r < 0)
 		return r;
 
