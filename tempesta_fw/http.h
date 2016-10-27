@@ -411,4 +411,22 @@ int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
 
+/**
+ * Hop-by-hop headers should be removed before message is cached but
+ * that can affect performance.
+ *
+ * Caching messages is done inside of SoftIRQs and removing hop-by-hop
+ * headers there can slow down packet processing. Serving requests
+ * from cache will have no need for removing hbh from responces.
+ *
+ * If we do not remove hbh headers before caching, then Connection header
+ * is also must be stored in cache. Parsing Connection header is the only
+ * way to remove hop-by-hop headers. For more information refer to
+ * RFC7230 Section-6.1
+ *
+ * TODO: Choose the right option according to performance testing:
+ * store unwanted headers in cache or burden SoftIRQ with exta tasks?
+*/
+#define TFW_RM_HBH_HDRS_IN_SIRQ 1
+
 #endif /* __TFW_HTTP_H__ */

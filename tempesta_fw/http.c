@@ -1165,6 +1165,14 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 */
 		tfw_connection_unlink_msg(conn);
 
+		/* Refer to @TFW_RM_HBH_HDRS_IN_SIRQ for more information */
+		if (TFW_RM_HBH_HDRS_IN_SIRQ)
+			if (tfw_http_rm_hbh_headers((TfwHttpMsg *)req, 0)) {
+				tfw_http_send_500(req);
+				tfw_http_conn_msg_free((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(clnt.msgs_otherr);
+				return TFW_PASS;
+			}
 		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
@@ -1352,6 +1360,17 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * will be put in a new message.
 	 */
 	tfw_connection_unlink_msg(hmresp->conn);
+
+	/* Refer to @TFW_RM_HBH_HDRS_IN_SIRQ for more information */
+	if (TFW_RM_HBH_HDRS_IN_SIRQ)
+		if (tfw_http_rm_hbh_headers(hmresp, 0)) {
+			tfw_http_send_500(req);
+			tfw_http_conn_msg_free(hmresp);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+			/* Proceed with processing of the next response. */
+		}
+
 	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 			      tfw_http_resp_cache_cb))
 	{
