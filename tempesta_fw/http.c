@@ -823,7 +823,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_rm_hbh_headers(hm, TFW_HTTP_CONN_KA);
-	if (r < 0)
+	if (r)
 		return r;
 
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
@@ -841,15 +841,15 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
-	if (r < 0)
+	if (r)
 		return r;
 
 	r = tfw_http_rm_hbh_headers(hm, conn_flg);
-	if (r < 0)
+	if (r)
 		return r;
 
 	r = tfw_http_set_hdr_connection(hm, conn_flg);
-	if (r < 0)
+	if (r)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
@@ -865,7 +865,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
-		if (r < 0)
+		if (r)
 			return r;
 	}
 
