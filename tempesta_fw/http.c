@@ -639,6 +639,9 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 	}
 }
 
+/**
+ * Remove all the hop-by-hop headers from the message
+ */
 static int
 tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 {
@@ -648,10 +651,7 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 	size_t len;
 	char * w_pos = NULL;
 	size_t w_len = 0;
-
-	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
-	if (r < 0)
-		return r;
+	bool rm_hdr = false;
 
 	/*
 	 * RFC7230:
@@ -667,7 +667,7 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 			   &conn_val,
 			   false /* unused */ );
 
-	if (conn_val.len == 0)
+	if (TFW_STR_EMPTY(&conn_val))
 		return 0;
 
 	/* Connection header should not contain a lot of data */
@@ -681,9 +681,7 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 		len = tfw_str_to_cstr(&conn_val, conn_val_cstr, (int)len+1);
 	}
 
-	pos = conn_val_cstr;
-
-	while ((size_t)(pos - conn_val_cstr) <= len)
+	for (pos = conn_val_cstr; pos <= conn_val_cstr + len; ++pos)
 	{
 		switch (*pos)
 		{
@@ -692,42 +690,49 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 		case ',':
 		case '\r':
 		case '\n':
-			if (w_pos != NULL) {
-				r = tfw_http_msg_hdr_xfrm(hm,
-							  w_pos, w_len,
-							  NULL, 0,
-							  TFW_HTTP_HDR_RAW,
-							  0);
-				if (unlikely(r && r != -ENOENT)) {
-					TFW_WARN("Cannot delete hbh header (%d)\n",
-						 r);
-				}
-				w_pos = NULL;
-				w_len = 1;
-			}
+			rm_hdr = (w_pos != NULL) ? 1 : 0;
 			break;
 		default:
 			if (w_pos == NULL) {
 				w_pos = pos;
 				w_len = 1;
 			}
-			else if ((size_t)(pos - conn_val_cstr) < len) {
+			else if (pos != conn_val_cstr + len) {
 				++w_len;
 			}
 			else {
+				rm_hdr = true;
+			}
+			break;
+		}
+
+		if (rm_hdr && (w_pos != NULL)) {
+			rm_hdr = false;
+
+			if ((w_len != sizeof ("Keep-Alive") - 1)
+			    || (*w_pos != 'k' && *w_pos != 'K')
+			    || strncasecmp(w_pos, "Keep-Alive",
+					   sizeof ("Keep-Alive") - 1)) {
 				r = tfw_http_msg_hdr_xfrm(hm,
 							  w_pos, w_len,
 							  NULL, 0,
 							  TFW_HTTP_HDR_RAW,
 							  0);
 				if (unlikely(r && r != -ENOENT)) {
-					TFW_WARN("Cannot delete hbh header (%d)\n",
-						 r);
+					TFW_WARN("Cannot delete hbh header (%d)"
+						 "\n", r);
+					return r;
 				}
 			}
-			break;
+			else {
+				r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
+				if (r < 0)
+					return r;
+			}
+
+			w_pos = NULL;
+			w_len = 0;
 		}
-		++pos;
 	}
 
 	if (!TFW_STR_PLAIN(&conn_val))
