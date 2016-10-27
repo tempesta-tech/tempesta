@@ -17,37 +17,44 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-PROC=$(shell cat /proc/cpuinfo)
+TFW_CFLAGS = $(DEFINES) -Werror
+ifdef NORMALIZATION
+	TFW_CFLAGS += -DTFW_HTTP_NORMALIZATION
+endif
+ifdef DEBUG
+	TFW_CFLAGS += -DDEBUG=$(DEBUG)
+endif
+
+PROC = $(shell cat /proc/cpuinfo)
 ARCH = $(shell uname -m)
 ifneq ($(ARCH), x86_64)
 	ERROR="Architecture $(ARCH) isn't supported"
 endif
-ifeq ("", $(findstring sse4_2, $(PROC)))
-	ERROR="SSE 4.2 support is required"
+ifeq (, $(findstring sse4_2, $(PROC)))
+	ERROR = "SSE 4.2 support is required"
 endif
-ifeq ("", $(findstring pse, $(PROC)))
-	ERROR="1MB huge pages support is required"
+ifneq (, $(findstring avx2, $(PROC)))
+	AVX2 = "y"
+	TFW_CFLAGS += -DAVX2=1
 endif
-
-EXTRA_CFLAGS = $(DEFINES)
-ifdef NORMALIZATION
-	EXTRA_FLAGS += -DTFW_HTTP_NORMALIZATION
-endif
-ifdef DEBUG
-	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
+ifeq (, $(findstring pse, $(PROC)))
+	ERROR = "1MB huge pages support is required"
 endif
 
 obj-m	+= tempesta_db/core/ tempesta_fw/ tls/
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
-export KERNEL EXTRA_CFLAGS
+export KERNEL TFW_CFLAGS AVX2
 
 all: build
 
 build:
 ifdef ERROR
 	$(error $(ERROR))
+endif
+ifndef AVX2
+	$(warning WARNING: NO AVX2 SUPPORT, YOU WILL BE SLOW)
 endif
 	make -C tempesta_db
 	make -C $(KERNEL) M=$(PWD) modules

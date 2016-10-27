@@ -64,6 +64,7 @@
 #define __TFW_STR_H__
 
 #include <linux/bug.h>
+#include <linux/ctype.h>
 #include <linux/skbuff.h>
 #include <linux/string.h>
 
@@ -74,15 +75,76 @@
  *	C strings
  * ------------------------------------------------------------------------
  */
-extern const unsigned char __tfw_lct[];
+void tfw_str_init_const(void);
+size_t tfw_match_uri(const char *s, size_t len);
+size_t tfw_match_token(const char *s, size_t len);
+size_t tfw_match_qetoken(const char *s, size_t len);
+size_t tfw_match_nctl(const char *s, size_t len);
+size_t tfw_match_ctext_vchar(const char *s, size_t len);
+size_t tfw_match_xff(const char *s, size_t len);
+size_t tfw_match_cookie(const char *s, size_t len);
+
+#ifdef AVX2
+void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
+			    size_t len);
+int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
+int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
+
+static inline void *
+tfw_strtolower(void *dest, const void *src, size_t len)
+{
+	__tfw_strtolower_avx2((unsigned char *)dest, (const unsigned char *)src,
+			      len);
+	return dest;
+}
 
 /**
- * Much faster implementation than standard tolower().
- * Also it's safer than ((c) | 0x20) which for example can convert '\r' to '-'.
- * Unsigned char must be used as @c.
+ * @return 0 if the strings match and non-zero otherwise.
  */
-#define TFW_LC(c)	__tfw_lct[c]
+static inline int
+tfw_stricmp(const char *s1, const char *s2, size_t len)
+{
+	return __tfw_stricmp_avx2(s1, s2, len);
+}
 
+/**
+ * Like GLIBC's strcasecmp(3), but:
+ * 1. requires @len <= min(strlen(s1), strlen(s2));
+ * 2. returns 0 if the strings match and 1 otherwise;
+ * 3. required @s2 is always in lower case.
+ */
+static inline int
+tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
+{
+	return __tfw_stricmp_avx2_2lc(s1, s2, len);
+}
+#else
+
+static inline void *
+tfw_strtolower(void *dest, const void *src, size_t len)
+{
+	int i;
+	unsigned char *d = dest;
+	const unsigned char *s = src;
+
+	for (i = 0; i < len; ++i)
+		d[i] = tolower(s[i]);
+
+	return dest;
+}
+
+static inline int
+tfw_stricmp(const char *s1, const char *s2, size_t len)
+{
+	return strncasecmp(s1, s2, len);
+}
+
+static inline int
+tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
+{
+	return strncasecmp(s1, s2, len);
+}
+#endif
 
 /*
  * ------------------------------------------------------------------------

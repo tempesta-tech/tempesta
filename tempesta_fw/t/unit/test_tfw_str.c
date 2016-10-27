@@ -21,7 +21,9 @@
 #include <linux/bug.h>
 #include <linux/ctype.h>
 #include <linux/kernel.h>
+#include <linux/string.h>
 
+#include "htype.h"
 #include "str.h"
 #include "test.h"
 #include "tfw_str_helper.h"
@@ -45,6 +47,200 @@ TEST(cstr, tolower)
 	/* tolower() somehow treats 200 as upper case character. */
 	EXPECT_TRUE(TFW_LC(200) != tolower(200));
 	EXPECT_TRUE(TFW_LC(255) == tolower(255));
+}
+
+#define ACCEPT_URI	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"			\
+			"aabcdefghijklmnopqrstuvwxyz"			\
+			"!#$%&'*+-._();:@=,/?[]~0123456789"
+
+#define __test_match(s)							\
+do {									\
+	EXPECT_TRUE(tfw_match_uri(s, sizeof(s) - 1) == strspn(s, ACCEPT_URI)); \
+} while (0)
+
+TEST(cstr, simd_match)
+{
+	__test_match("");
+	__test_match(" ");
+	__test_match("^");
+	__test_match("a");
+	__test_match("ab");
+	__test_match("{a");
+	__test_match("abc");
+	__test_match("a}b");
+	__test_match("abcd");
+	__test_match("abc}");
+	__test_match("abcde");
+	__test_match("\"abce");
+	__test_match("heLLo_24!");
+	__test_match("0123456789ab{c}def");
+	__test_match("!#$%&'*+-._();^abcde");
+	__test_match("0123456789abcdefghIjkl|\\Pmdsfdfew34////");
+	__test_match("0123456789abcdefghIjkl@?Pmdsfdfew34//^//");
+	__test_match("0123456789_0123456789_0123456789_0123456789_|abcdef");
+	__test_match("0123456789_0123456789_^0123456789_0123456789_abcdef");
+	__test_match("0123456789_0123456789_0123456789_0123456789_abcdef^");
+	__test_match("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		     "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11");
+	__test_match("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.^11_"
+		     "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11");
+	__test_match("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		     "(khtml._like_gecko)_chrome!17.^0.963.56_safari!535.11");
+	__test_match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		     "cccccccccccccccccccccccccccccccc"
+		     "dddddddddddddddddddddddddddddddd");
+	__test_match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		     "ccccccccccccccc^cccccccccccccccc"
+		     "dddddddddddddddddddddddddddddddd"
+		     "0123456|95");
+	__test_match("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		     "cccccccccccccccccccccccccccccccc"
+		     "dddddddddddddddddddddddddddddddd"
+		     "0123456|95");
+}
+
+static inline void *
+c_strtolower(unsigned char *dest, const unsigned char *src, size_t len)
+{
+	int i;
+
+	for (i = 0; i < len; ++i)
+		dest[i] = tolower(src[i]);
+
+	return dest;
+}
+
+#define __test_tolower(s)						\
+do {									\
+	size_t n = sizeof(s) - 1;					\
+	unsigned char *dst1, *dst2;					\
+	dst1 = kmalloc(n * 2, GFP_KERNEL);				\
+	BUG_ON(!dst1);							\
+	dst2 = dst1 + n;						\
+	dst1 = tfw_strtolower(dst1, s, n);				\
+	dst2 = c_strtolower(dst2, s, n);				\
+	EXPECT_TRUE(!strncmp(dst1, dst2, n));				\
+} while (0)
+
+TEST(cstr, simd_strtolower)
+{
+	__test_tolower("");
+	__test_tolower(" ");
+	__test_tolower("a");
+	__test_tolower("A");
+	__test_tolower("ab");
+	__test_tolower("AB");
+	__test_tolower("/!");
+	__test_tolower("{a");
+	__test_tolower("abc");
+	__test_tolower("ABC");
+	__test_tolower("a}b");
+	__test_tolower("abcd");
+	__test_tolower("ABCD");
+	__test_tolower("ABCd");
+	__test_tolower("abc}");
+	__test_tolower("abcde");
+	__test_tolower("ABCDE");
+	__test_tolower("AbCdE");
+	__test_tolower("\"abce");
+	__test_tolower("AbCdEm");
+	__test_tolower("AbCdEmN");
+	__test_tolower("heLLo_24!");
+	__test_tolower("!#$%&'*+-._();^abcDe");
+	__test_tolower("0123456789abcDefghIjkl|@?\\PmdSfdfew34//^//");
+	__test_tolower("0123456789_0123456789_0123456789_0123456789_abcdef^");
+	__test_tolower("MOZILLa!5.0_(wIndOws_nt_6.1!_WOW64)_APPLEwebkit!535.11_"
+		      "(khtml._liKE_GECKO)_CHROme!17.^0.963.56_safari!535.11");
+	__test_tolower("aaAAAAAAAAAAAAaaaaaAAAAAAAAaaaaa"
+		       "ABC");
+	__test_tolower("aaAAAAAAAAAAAAaaaaaAAAAAAAAaaaaa"
+		       "0123456|ABC");
+	__test_tolower("aaAAAAAAAAAAAAaaaaaAAAAAAAAaaaaa"
+		       "BBBBBBBBBbbbbbbbbBBBBBBBBBBBBBBB"
+		       "ABC");
+	__test_tolower("aaAAAAAAAAAAAAaaaaaAAAAAAAAaaaaa"
+		       "BBBBBBBBBbbbbbbbbBBBBBBBBBBBBBBB"
+		       "0123456|ABC");
+	__test_tolower("aaAAAAAAAAAAAAaaaaaAAAAAAAAaaaaa"
+		       "BBBBBBBBBbbbbbbbbBBBBBBBBBBBBBBB"
+		       "CcccccccCcccccc^CcccccCccccccccc"
+		       "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+		       "0123456|95");
+}
+
+#define __test_strcmp(s1, s2)						\
+do {									\
+	size_t n = min(sizeof(s1), sizeof(s2)) - 1;			\
+	EXPECT_TRUE(!tfw_stricmp(s1, s2, n) == !strncasecmp(s1, s2, n)); \
+	EXPECT_TRUE(!tfw_stricmp_2lc(s1, s2, n) == !strncasecmp(s1, s2, n)); \
+} while (0)
+
+TEST(cstr, simd_stricmp)
+{
+	/* Second string is always in lower case to fit *_2lc() requirement. */
+	__test_strcmp("", "");
+	__test_strcmp("", "a");
+	__test_strcmp("/!", "");
+	__test_strcmp("/!", "abc");
+	__test_strcmp("ABC", "abc");
+	__test_strcmp("ABC ", "abc@");
+	__test_strcmp("ABC@", "abc`");
+	__test_strcmp("ABCR", "abc2");
+	__test_strcmp("ABC[", "abc{");
+	__test_strcmp("ABC{", "abc[");
+	__test_strcmp("AbCdE", "abcde");
+	__test_strcmp("AbCdEm", "abcde");
+	__test_strcmp("AbCdE", "axcde");
+	__test_strcmp("/img/arrow-up.png", "/img/arrow-up.png");
+	__test_strcmp("0123456789abcdefghijklmno", "0123456789abcdefghijklmno");
+	__test_strcmp("0123456789abcdefghijkLmno", "0123456789abcdefghijkLmn0");
+	__test_strcmp("0123456789_0123456789_0123456789_zxfghert", "012345678");
+	__test_strcmp("0123456789_0123456789_0123456789_zxfghert", "0_zxfghrt");
+	__test_strcmp("0123456789_0123456789_0123456789_zX",
+		      "0123456789_0123456789_0123456789_zx");
+	__test_strcmp("0123456789_0123456789_0123456789_z;",
+		      "0123456789_0123456789_0123456789_z[");
+	__test_strcmp("0123456789_0123456789_0123456789_zXfGhERT",
+		      "0123456789_0123456789_0123456789_zxfghert");
+	__test_strcmp("0123456789_0123456789_0123456789_zXfGhERT",
+		      "0123456789_0123456789_0123456789t_zxfghert");
+	__test_strcmp("MOZILLA!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		      "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11",
+		      "mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		      "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11");
+	__test_strcmp("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		      "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11",
+		      "Internet Explorer!5.0_(windows_nt_6.1!_wow64)_applewebk"
+		      "it!535.11_(khtml._like_gecko)_chrome!17.0.963.56_safari"
+		      "!535.11");
+	__test_strcmp("mozilla@5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		      "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11",
+		      "MOZILLA`5.0_(windows_nt_6.1!_wow64)_applewebkit!535.11_"
+		      "(khtml._like_gecko)_chrome!17.0.963.56_safari!535.11");
+	__test_strcmp("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95",
+		      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95");
+	__test_strcmp("aaaaaaaaAAAAAAAAAAAAAAAAAAAAAAAA"
+		      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		      "CCCCCCCCCCCCCCCCCCCCCccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95",
+		      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95");
+
 }
 
 TEST(tfw_strcpy, zero_src)
@@ -545,6 +741,9 @@ TEST_SUITE(tfw_str)
 	TEST_TEARDOWN(free_all_str);
 
 	TEST_RUN(cstr, tolower);
+	TEST_RUN(cstr, simd_match);
+	TEST_RUN(cstr, simd_strtolower);
+	TEST_RUN(cstr, simd_stricmp);
 
 	TEST_RUN(tfw_strcpy, zero_src);
 	TEST_RUN(tfw_strcpy, zero_dst);
