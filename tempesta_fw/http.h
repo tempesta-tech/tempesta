@@ -345,9 +345,13 @@ typedef struct {
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
+ * @chunk_cnt	- header or body chunk count for Frang classifier;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
+ * @resp	- the response paired with this request;
+ * @rstatus	- response HTTP status until the response is prepared;
+ * @retries	- the number of re-send attempts;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -367,7 +371,11 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	TfwHttpMsg		*resp;
+	union {
+		TfwHttpMsg	*resp;
+		unsigned short	rstatus;
+		unsigned short	retries;
+	};
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)

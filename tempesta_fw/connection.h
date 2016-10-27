@@ -77,14 +77,15 @@ enum {
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
  * @msg_queue	- queue of messages to be sent over the connection;
- * @nip_queue	- queue of non-idempotent messages within @msg_queue;
+ * @nip_queue	- queue of non-idempotent messages in server's @msg_queue;
  * @msg_qlock	- lock for accessing @msg_queue;
- * @flags	- various atomic flags related to connection's state;
+ * @flags	- atomic flags related to server connection's state;
  * @refcnt	- number of users of the connection structure instance;
+ * @qsize	- current number of requests in server's @msg_queue;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
- * @msg_sent	- message that was sent last in the connection;
- * @msg_resent	- message that was re-sent last in the connection;
+ * @msg_sent	- message that was sent last in a server connection;
+ * @msg_resent	- message that was re-sent last in a server connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
@@ -99,6 +100,7 @@ typedef struct tfw_connection_t {
 	spinlock_t		msg_qlock;
 	unsigned long		flags;					/*srv*/
 	atomic_t		refcnt;
+	atomic_t		qsize;					/*srv*/
 	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwMsg			*msg_sent;				/*srv*/
@@ -106,7 +108,6 @@ typedef struct tfw_connection_t {
 	TfwPeer 		*peer;
 	struct sock		*sk;
 	void			(*destructor)(void *);
-	void			(*forward)(struct tfw_connection_t *);	/*srv*/
 } TfwConnection;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
