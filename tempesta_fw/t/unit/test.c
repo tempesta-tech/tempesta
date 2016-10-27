@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
+#include <asm/i387.h>
 #include <linux/module.h>
 #include "test.h"
 
@@ -99,6 +99,9 @@ TEST_SUITE(sched_http);
 int
 test_run_all(void)
 {
+	kernel_fpu_begin();
+	tfw_str_init_const();
+
 	test_fail_counter = 0;
 
 	TEST_SUITE_RUN(tfw_str);
@@ -111,6 +114,8 @@ test_run_all(void)
 	TEST_SUITE_RUN(sched_rr);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(sched_http);
+
+	kernel_fpu_end();
 
 	return test_fail_counter;
 }

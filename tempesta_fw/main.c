@@ -23,6 +23,7 @@
 
 #include "tempesta_fw.h"
 #include "log.h"
+#include "str.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -69,6 +70,9 @@ static int __init
 tfw_init(void)
 {
 	int r;
+
+	/* Initialize strings SIMD constants at first. */
+	tfw_str_init_const();
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 

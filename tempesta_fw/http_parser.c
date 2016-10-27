@@ -23,6 +23,7 @@
 
 #include "gfsm.h"
 #include "http_msg.h"
+#include "htype.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -54,52 +55,11 @@ enum {
 };
 
 /**
- * Check whether a character is CR or LF.
- */
-#define IS_CR_OR_LF(c) (c == '\r' || c == '\n')
-/**
- * Check whether a character is a whitespace (RWS/OWS/BWS according to RFC7230).
- */
-#define IS_WS(c)	(c == ' ' || c == '\t')
-/**
- * RFC 7230 3.2 allows OWS after header field, so the macro is used to identify
- * possible end of header field.
- */
-#define IS_CRLFWS(c)	(IS_WS(c) || IS_CR_OR_LF(c))
-
-/**
- * Scans the initial @n bytes of the memory area pointed to by @s for the first
- * occurance of EOL character.
- *
- * NOTE: We can use @strcspn here, but at the moment it's generic implementation
- * from the kernel's library is more badly than the @memchreol provided as: 1)
- * it uses for-in-for logic that can't be optimized at compile time 2) it
- * operates on zero-terminated strings so needless string boudary check occures
- * on every iteration 3) it returns not the pointer but the number of bytes, so
- * additinal logic needs to be implemented while preparing the result.
- *
- * In any case, it will be a good deal to rewrite such a function using
- * vectorized extenstions such as AVX/SSE in the future.
- *
- * Related to #182 (https://github.com/natsys/tempesta/issues/182)
- */
-static inline unsigned char *
-memchreol(const unsigned char *s, size_t n)
-{
-	while (n) {
-		if (IS_CR_OR_LF(*s))
-			return (unsigned char *)s;
-		s++, n--;
-	}
-	return NULL;
-}
-
-/**
  * The following __data_{} macros help to reduce the amount of direct @data/@len
  * manipulations.
  */
-#define __data_offset(pos)		(size_t)((pos) - data)
-#define __data_remain(pos)		(len - __data_offset(pos))
+#define __data_off(pos)			(size_t)((pos) - data)
+#define __data_remain(pos)		(len - __data_off(pos))
 #define __data_available(pos, num)	(num <= __data_remain(pos))
 
 /**
@@ -114,8 +74,7 @@ memchreol(const unsigned char *s, size_t n)
 #define __msg_field_fixup(field, pos)					\
 do {									\
 	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-		tfw_http_msg_add_data_ptr(msg, field, data,		\
-					  __data_offset(pos));		\
+		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos)); \
 } while (0)
 
 #define __msg_field_finish(field, pos)					\
@@ -138,7 +97,6 @@ do {									\
 	int		__fsm_const_state;				\
 	int		__maybe_unused __fsm_n;				\
 	size_t		__maybe_unused __fsm_sz;			\
-	unsigned char	__maybe_unused *__fsm_ch;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
 
 #define __FSM_START(s)							\
@@ -151,8 +109,8 @@ case st:								\
 st: __attribute__((unused)) 						\
  	__fsm_const_state = st; /* optimized out to constant */		\
 	c = *p;								\
-	TFW_DBG3("parser: " #st "(%d:%d): c=%#x(%c), r=%d\n",		\
-		 st, parser->_i_st, c, isprint(c) ? c : '.', r);
+	TFW_DBG3("parser: " #st "(%d:%d): c=%#x(%c), p_off=%ld\n",	\
+		 st, parser->_i_st, c, isprint(c) ? c : '.', p - data);
 
 #define __FSM_EXIT()			goto done;
 
@@ -171,27 +129,25 @@ done:									\
 #define __FSM_MOVE_nofixup_n(to, n)					\
 do {									\
 	p += n;								\
-	if (unlikely(__data_offset(p) >= len)) {			\
+	if (unlikely(__data_off(p) >= len)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		__FSM_EXIT()						\
 	}								\
-	c = *p;								\
 	goto to;							\
 } while (0)
 
 #define __FSM_MOVE_nf(to, n, field)					\
 do {									\
 	p += n;								\
-	if (unlikely(__data_offset(p) >= len)) {			\
+	if (unlikely(__data_off(p) >= len)) {				\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
-		if ((field)->ptr)					\
-			__msg_field_fixup(field, data + len);		\
+		BUG_ON(!(field)->ptr);					\
+		__msg_field_fixup(field, data + len);			\
 		__FSM_EXIT()						\
 	}								\
-	c = *p;								\
 	goto to;							\
 } while (0)
 
@@ -202,27 +158,29 @@ do {									\
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
+#define __FSM_MATCH_MOVE_f(alphabet, to, field)				\
+do {									\
+	__fsm_n = __data_remain(p);					\
+	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
+	if (unlikely(__fsm_sz == __fsm_n)) {				\
+		/* Continue field processing on next skb. */		\
+		BUG_ON(!(field)->ptr);					\
+		__msg_field_fixup(field, data + len);			\
+		__fsm_const_state = to;					\
+		r = TFW_POSTPONE;					\
+		p += __fsm_sz;						\
+		__FSM_EXIT()						\
+	}								\
+} while (0)
+
+#define __FSM_MATCH_MOVE(alphabet, to)	__FSM_MATCH_MOVE_f(alphabet, to, \
+							   &msg->parser.hdr)
+
 /*
  * __FSM_I_* macros are intended to help with parsing of message
  * header values. That is done with separate, nested, or interior
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
-
-#define __FSM_I_MOVE_finish_n(to, n, finish)				\
-do {									\
-	parser->_i_st = to;						\
-	p += n;								\
-	if (unlikely(__data_offset(p) >= len)) {			\
-		r = TFW_POSTPONE; /* postpone to more data available */	\
-		__fsm_const_state = to; /* start from state @to nest time */\
-		/* Close currently parsed field chunk. */		\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
-		finish;							\
-		__FSM_EXIT()						\
-	}								\
-	c = *p;								\
-	goto to;							\
-} while (0)
 
 #define __FSM_I_chunk_flags(flag)					\
 do {									\
@@ -230,23 +188,75 @@ do {									\
 	TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
 } while (0)
 
-#define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
-#define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
-#define __FSM_I_MOVE_flags(to, flag)					\
-	__FSM_I_MOVE_finish_n(to, 1, __FSM_I_chunk_flags(flag))
-#define __FSM_I_MOVE_fixup(to, n, flag)					\
+#define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
-	/* Save symbols until current, plus n symbols more */		\
-	__fsm_n = __data_offset(p + n);					\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_n);		\
-	__FSM_I_chunk_flags(flag);					\
-	data += __fsm_n;						\
-	len -= __fsm_n;							\
-	__FSM_I_MOVE(to);						\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		r = TFW_POSTPONE; /* postpone to more data available */	\
+		__fsm_const_state = to; /* start from state @to nest time */\
+		/* Close currently parsed field chunk. */		\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		finish;							\
+		__FSM_EXIT()						\
+	}								\
+	goto to;							\
 } while (0)
 
+#define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
+#define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
+
+#define __FSM_I_MATCH_MOVE(alphabet, to)				\
+do {									\
+	__fsm_n = __data_remain(p);					\
+	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
+	if (unlikely(__fsm_sz == __fsm_n)) {				\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		parser->_i_st = to;					\
+		__fsm_const_state = to;					\
+		r = TFW_POSTPONE;					\
+		__FSM_EXIT()						\
+	}								\
+} while (0)
+
+/*
+ * The macros at the below controls string chunks on their own:
+ * i.e. a caller can explicitly chop ingress contigous string to many chunks
+ * generating efficient key/value pairs.
+ *
+ * Fixup current chunk starting at current data pointer @p and with size
+ * @n. Move forward to just after the chunk.
+ * We have at least @n bytes since we parsed them before fixup.
+ */
+#define __FSM_I_MOVE_fixup(to, n, flag)					\
+do {									\
+	tfw_http_msg_hdr_chunk_fixup(msg, p, n);			\
+	__FSM_I_chunk_flags(flag);					\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		r = TFW_POSTPONE;					\
+		__fsm_const_state = to;					\
+		__FSM_EXIT()						\
+	}								\
+	goto to;							\
+} while (0)
+
+#define __FSM_I_MATCH_MOVE_fixup(alphabet, to, flag)			\
+do {									\
+	__fsm_n = __data_remain(p);					\
+	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
+	if (unlikely(__fsm_sz == __fsm_n)) {				\
+		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);		\
+		__FSM_I_chunk_flags(flag);				\
+		parser->_i_st = to;					\
+		__fsm_const_state = to;					\
+		r = TFW_POSTPONE;					\
+		__FSM_EXIT()						\
+	}								\
+} while (0)
 
 /* Conditional transition from state @st to @st_next. */
 #define __FSM_TX_COND(st, condition, st_next, field) 			\
@@ -319,17 +329,6 @@ __FSM_STATE(st) {							\
 	 !((*(unsigned long *)(p) | TFW_LC_LONG)			\
 	   ^ TFW_CHAR8_INT(a, b, c, d, e, f, g, h))
 
-/*
- * Alphabet for HTTP message header field-name (RFC 2616 4.2).
- * Computed as the above for
- *
- * 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
- * 	"!#$%&'*+-.^_`|~0123456789"
- */
-static const unsigned long hdr_a[] ____cacheline_aligned = {
-	0x3ff6cfa00000000UL, 0x57ffffffc7fffffeUL, 0, 0
-};
-
 #define IN_ALPHABET(c, a)	(a[c >> 6] & (1UL << (c & 0x3f)))
 
 #define CSTR_EQ			0
@@ -342,6 +341,8 @@ static const unsigned long hdr_a[] ____cacheline_aligned = {
  * the second string is yet unhandled data of length @len starting from @p. The
  * @chunk->ptr is used to refer to the start of the first string within the
  * @hdr, while the @chunk->len is used to track gathered length.
+ *
+ * @str is always in lower case.
  *
  * @return
  * 	CSTR_NEQ:		not equal
@@ -358,16 +359,9 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 		return CSTR_NEQ;
 
 	len = min(len, str_len - offset);
-
-	/*
-	 * TODO kernel has dummy C strcasecmp() implementation which converts
-	 * both the strings to low case while @str is always in lower case.
-	 * Also GLIBC has assembly implementation of the functions, so
-	 * implement our own strcasecmp() if it becomes a bottle neck.
-	 */
-	if (strncasecmp(p, str + offset, len) ||
-	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->ptr, str, chunk->len,
-						TFW_STR_EQ_CASEI)))
+	if (tfw_stricmp_2lc(p, str + offset, len) ||
+	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->ptr, str,
+						chunk->len, TFW_STR_EQ_CASEI)))
 		return CSTR_NEQ;
 
 	chunk->len += len;
@@ -450,7 +444,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 	unsigned char *p;
 
 	for (p = data; p - data < len; ++p) {
-		if (unlikely(IS_CR_OR_LF(*p) || (*p == ';')))
+		if (unlikely(IS_CRLF(*p) || (*p == ';')))
 			return p - data;
 		if (unlikely(!isxdigit(*p)))
 			return CSTR_NEQ;
@@ -480,7 +474,10 @@ enum {
 #define TRY_STR_INIT()							\
 	TFW_STR_INIT(chunk)
 
-/* Parsing helpers. */
+/**
+ * Parsing helpers.
+ * @str in TRY_STR_LAMBDA must be in lower case.
+ */
 #define TRY_STR_LAMBDA(str, lambda, state)				\
 	if (!chunk->ptr)						\
 		chunk->ptr = p;						\
@@ -588,7 +585,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
  */
 #define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
 __FSM_STATE(st_curr) {							\
-	BUG_ON(__data_offset(p) > len);					\
+	BUG_ON(__data_off(p) > len);					\
 	__fsm_sz = __data_remain(p);					\
 	if (parser->_i_st == I_0) {					\
 		TRY_STR_INIT();						\
@@ -631,7 +628,7 @@ __FSM_STATE(st_curr) {							\
 
 #define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func)		\
 __FSM_STATE(st_curr) {							\
-	BUG_ON(__data_offset(p) > len);					\
+	BUG_ON(__data_off(p) > len);					\
 	__fsm_sz = __data_remain(p);					\
 	if (parser->_i_st == I_0) {					\
 		TRY_STR_INIT();						\
@@ -669,9 +666,6 @@ __FSM_STATE(st_curr) {							\
  * Parse raw (common) HTTP headers.
  * Note that some of these can be extremely large.
  *
- * TODO: Here we should check if the rest of the header consists only of
- *       characters allowed by RFCs.
- * TODO Use AVX scan over _allowed_ alphabet.
  * TODO Split the headers to header name and header field as special headers.
  */
 #define RGEN_HDR_OTHER()						\
@@ -680,23 +674,23 @@ __FSM_STATE(RGen_HdrOther) {						\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_HdrOtherN) {						\
-	if (likely(IN_ALPHABET(c, hdr_a))) {				\
-		__FSM_MOVE(RGen_HdrOtherN);				\
-	} else if (likely(c == ':')) {					\
-		__FSM_MOVE(RGen_HdrOtherV);				\
+	__FSM_MATCH_MOVE(token, RGen_HdrOtherN);			\
+	if (likely(*(p + __fsm_sz) == ':')) {				\
+		parser->_i_st = RGen_HdrOtherV;				\
+		__FSM_MOVE_n(RGen_OWS, __fsm_sz + 1);			\
 	}								\
 	return TFW_BLOCK;						\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
-	/* Just eat the header until EOL. */				\
-	__fsm_sz = __data_remain(p);					\
-	__fsm_ch = memchreol(p, __fsm_sz);				\
-	if (__fsm_ch) {							\
-		/* Get length of the header. */				\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, __fsm_ch - data);\
-		__FSM_MOVE_n(RGen_EoL, __fsm_ch - p);			\
-	}								\
-	__FSM_MOVE_n(RGen_HdrOtherV, __fsm_sz);				\
+	/*								\
+	 * The header content is opaqueue for us,			\
+	 * so pass ctext and VCHAR.					\
+	 */								\
+	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
+	if (!IS_CRLF(*(p + __fsm_sz)))					\
+		return TFW_BLOCK;					\
+	tfw_http_msg_hdr_chunk_fixup(msg, data, __data_off(p + __fsm_sz)); \
+	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
 }
 
 /* Process according RFC 7230 3.3.3 */
@@ -839,7 +833,7 @@ __FSM_STATE(RGen_BodyChunkLen) {					\
 	}								\
 }									\
 __FSM_STATE(RGen_BodyChunkExt) {					\
-	if (unlikely(c == ';' || c == '=' || IN_ALPHABET(c, hdr_a)))	\
+	if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))		\
 		__FSM_MOVE_f(RGen_BodyChunkExt, &msg->body);		\
 	/* Fall through. */						\
 }									\
@@ -857,7 +851,7 @@ __FSM_STATE(RGen_BodyCR) {						\
 		 * Add everything and the current character.		\
 		 */							\
 		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data,	\
-					      __data_offset(p) + 1))	\
+					      __data_off(p) + 1))	\
 			return TFW_BLOCK;				\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		/* Process trailer-part. */				\
@@ -877,7 +871,7 @@ __FSM_STATE(RGen_OWS) {							\
 		__FSM_MOVE(RGen_OWS);					\
 	parser->state = parser->_i_st;					\
 	parser->_i_st = 0;						\
-	BUG_ON(unlikely(__data_offset(p) >= len));			\
+	BUG_ON(unlikely(__data_off(p) >= len));				\
 	goto fsm_reenter;						\
 }
 
@@ -913,31 +907,23 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * it could be names of any headers, including custom headers.
 	 */
 	__FSM_STATE(I_ConnOther) {
-		/*
-		 * TODO
-		 * - replace double memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
-		 */
-		unsigned char *comma;
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		comma = memchr(p, ',', __fsm_sz);
-		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(I_EoT, comma - p);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(I_ConnOther, __fsm_sz);
+		__FSM_I_MATCH_MOVE(token, I_ConnOther);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	/* End of token */
 	__FSM_STATE(I_EoT) {
-		if (c == ' ' || c == ',')
+		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
-		if (IN_ALPHABET(c, hdr_a))
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE_n(I_Conn, 0);
-		if (IS_CR_OR_LF(c))
-			return __data_offset(p);
+		if (IS_CRLF(c))
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -975,6 +961,8 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	if (r == CSTR_POSTPONE)
 		tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 
+	TFW_DBG3("%s: content_length=%lu\n", __func__, msg->content_length);
+
 	return r;
 }
 
@@ -994,16 +982,23 @@ __parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * Just eat the header value: we're interested in
 		 * type "/" subtype only and they're at begin of the value.
 		 *
-		 * TODO
-		 * - replace memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
+		 * RFC 7231 3.1.1.1 defines Media Type as
+		 *
+		 *	token "/" token *(OWS ";" OWS parameter)
+		 *	parameter = token "=" (token / quoted-string)
+		 *
+		 * RFC 7230 defines
+		 *
+		 * 	quoted-string = DQUOTE *(qdtext / quoted-pair) DQUOTE
+		 * 	qdtext = HTAB / SP / %x21 / %x23-5B / %x5D-7E / %x80-FF
+		 * 	quoted-pair = "\" (HTAB / SP / VCHAR / %x80-FF)
+		 *
+		 * , so this is essentially ctext | VCHAR.
 		 */
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(I_ContType, __fsm_sz);
+		__FSM_I_MATCH_MOVE(ctext_vchar, I_ContType);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	} /* FSM END */
@@ -1053,32 +1048,26 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_TransEncodExt) {
 		/*
-		 * TODO
-		 * - process transfer encodings:
-		 *   gzip, deflate, identity, compress;
-		 * - replace double memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
+		 * TODO: process transfer encodings: gzip, deflate, identity,
+		 * compress;
 		 */
-		unsigned char *comma;
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		comma = memchr(p, ',', __fsm_sz);
-		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(I_EoT, comma - p);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(I_TransEncodExt, __fsm_sz);
+		__FSM_I_MATCH_MOVE(token, I_TransEncodExt);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (c == ' ' || c == ',')
+		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
-		if (IN_ALPHABET(c, hdr_a))
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE(I_TransEncod);
-		if (IS_CR_OR_LF(c))
-			return __data_offset(p);
+		if (IS_CRLF(c))
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -1092,41 +1081,6 @@ done:
  *	HTTP request parsing
  * ------------------------------------------------------------------------
  */
-/*
- * TODO Performance.
- * The alphabets below are less than 8 ranges, so they can be handled
- * using CMPESTRI(_SIDD_CMP_RANGES).
- */
-/*
- * Alphabet for URI abs_path (RFC 3986).
- * The bitmap is generated by:
- *
- *	unsigned char *u = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
- *			   "abcdefghijklmnopqrstuvwxyz"
- *			   "0123456789-_.~!*'();:@&=+$,/?%#[]";
- * 	for ( ; *u; ++u)
- * 		uap_a[*u >> 6] |= 1UL << (*u & 0x3f);
- */
-/*
- * BUG: according to RFC 2616, absolute paths doesn't include the query string:
- *     http_URL = "http:" "//" host [ ":" port ] [ abs_path [ "?" query ]]
- * So the alphabet contains characters valid for query but invalid for abs_path.
- * In a similar way, that violates RFC 7230 that distinguishes "absolute-path"
- * from "query" and "fragment" components.
- */
-static const unsigned long uap_a[] ____cacheline_aligned = {
-	0xaffffffa00000000UL, 0x47fffffeafffffffUL, 0, 0
-};
-
-/*
- * Alphabet for X-Forwarded-For Node ID (RFC 7239).
- *
- * "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-[]:"
- */
-static const unsigned long xff_a[] ____cacheline_aligned = {
-	0x7ff600000000000UL, 0x7fffffeaffffffeUL, 0, 0
-};
-
 /* Main (parent) HTTP request processing states. */
 enum {
 	Req_0,
@@ -1322,7 +1276,6 @@ enum {
 	Req_I_CC_MaxStale,
 	Req_I_CC_MaxStaleV,
 	Req_I_CC_Ext,
-	Req_I_CC_EoT,
 	/* Pragma header */
 	Req_I_Pragma,
 	Req_I_Pragma_Ext,
@@ -1335,9 +1288,11 @@ enum {
 	/* Cookie header */
 	Req_I_CookieStart,
 	Req_I_CookieName,
-	Req_I_CookieValStart,
 	Req_I_CookieVal,
+	Req_I_CookieSemicolon,
 	Req_I_CookieSP,
+
+	Req_I_EoT,
 };
 
 static int
@@ -1349,13 +1304,16 @@ __req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_Auth) {
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch) {
-			return __data_offset(__fsm_ch);
+		/*
+		 * RFC 7235 requires handling quoted-string in auth-param,
+		 * so almost any character can appear in the field.
+		 */
+		__FSM_I_MATCH_MOVE(ctext_vchar, Req_I_Auth);
+		if (IS_CRLF(*(p + __fsm_sz))) {
 			req->cache_ctl.flags |= TFW_HTTP_CC_HDR_AUTHORIZATION;
+			return __data_off(p + __fsm_sz);
 		}
-		__FSM_I_MOVE_n(Req_I_Auth, __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	} /* FSM END */
@@ -1398,13 +1356,13 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_n) {
 		TRY_STR_LAMBDA("no-cache", {
 			req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-		}, Req_I_CC_EoT);
+		}, Req_I_EoT);
 		TRY_STR_LAMBDA("no-store", {
 			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-		}, Req_I_CC_EoT);
+		}, Req_I_EoT);
 		TRY_STR_LAMBDA("no-transform", {
 			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
-		}, Req_I_CC_EoT);
+		}, Req_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
 	}
@@ -1412,7 +1370,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_o) {
 		TRY_STR_LAMBDA("only-if-cached", {
 			req->cache_ctl.flags |= TFW_HTTP_CC_OIFCACHED;
-		}, Req_I_CC_EoT);
+		}, Req_I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
 	}
@@ -1430,7 +1388,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		req->cache_ctl.max_age = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
+		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MinFreshV) {
@@ -1446,7 +1404,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		req->cache_ctl.min_fresh = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
+		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStale) {
@@ -1454,7 +1412,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 			__FSM_I_MOVE(Req_I_CC_MaxStaleV);
 		req->cache_ctl.max_stale = UINT_MAX;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, 0);
+		__FSM_I_MOVE_n(Req_I_EoT, 0);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStaleV) {
@@ -1470,36 +1428,28 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		req->cache_ctl.max_stale = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Req_I_CC_EoT, __fsm_n);
+		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
 	__FSM_STATE(Req_I_CC_Ext) {
-		/*
-		 * TODO
-		 * - process cache extensions;
-		 * - replace double memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
-		 */
-		unsigned char *comma;
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		comma = memchr(p, ',', __fsm_sz);
-		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(Req_I_CC_EoT, comma - p);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Req_I_CC_Ext, __fsm_sz);
+		/* TODO: process cache extensions. */
+		__FSM_I_MATCH_MOVE(qetoken, Req_I_CC_Ext);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	/* End of term. */
-	__FSM_STATE(Req_I_CC_EoT) {
-		if (c == ' ' || c == ',')
-			__FSM_I_MOVE(Req_I_CC_EoT);
-		if (IN_ALPHABET(c, hdr_a))
+	__FSM_STATE(Req_I_EoT) {
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE(Req_I_EoT);
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE_n(Req_I_CC, 0);
-		if (IS_CR_OR_LF(c))
-			return __data_offset(p);
+		if (IS_CRLF(c))
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -1512,92 +1462,93 @@ static int
 __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
-	unsigned char *orig_data = data;
 	__FSM_DECLARE_VARS(hm);
 
 	/*
 	 * Cookie header is parsed according to RFC 6265 4.2.1.
 	 *
-	 * Here we build header value string manually
-	 * to split it in chunks: chunk bounds are
-	 * at least at name start, value start and value end.
+	 * Here we build header value string manually to split it in chunks:
+	 * chunk bounds are at least at name start, value start and value end.
 	 * This simplifies cookie search, http_sticky uses it.
-	 *
-	 * According to RFC 6265 the cookie header must
-	 * conform to the following grammar:
-	 *
-	 *   cookie-header = "Cookie:" OWS cookie-string OWS
-	 *   cookie-string = cookie-pair *( ";" SP cookie-pair )
-	 *
-	 *   cookie-pair   = cookie-name "=" cookie-value
-	 *
-	 *   cookie-name   = token
-	 *   cookie-value  = *cookie-octet / ( DQUOTE *cookie-octet DQUOTE )
-	 *
-	 * RFC 2616 (2.2) defines token as:
-	 *
-	 *   token         = 1*<any CHAR except CTLs or separators>
-	 *   separators    = "(" | ")" | "<" | ">" | "@"
-	 *                 | "," | ";" | ":" | "\" | <">
-	 *                 | "/" | "[" | "]" | "?" | "="
-	 *                 | "{" | "}" | SP | HT
-	 *
-	 * TODO #182: validate `cookie-name` and `cookie-value`
-	 *       against allowed characters set
 	 */
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_CookieStart) {
-		/* Name should contain at least 1 character */
-		if (unlikely(c == '=' || c == ';' || c == ','))
-			return CSTR_NEQ;
-		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
-	}
-
-	__FSM_STATE(Req_I_CookieName) {
-		if (unlikely(c == '='))
-			__FSM_I_MOVE_fixup(Req_I_CookieValStart, 1,
+		__FSM_I_MATCH_MOVE_fixup(token, Req_I_CookieName, TFW_STR_NAME);
+		/*
+		 * Name should contain at least 1 character.
+		 * Store "=" with cookie parameter name.
+		 */
+		if (likely(__fsm_sz && *(p + __fsm_sz) == '='))
+			__FSM_I_MOVE_fixup(Req_I_CookieVal, __fsm_sz + 1,
 					   TFW_STR_NAME);
-		/*
-		 * TODO #182 replace the state 1-char transition by
-		 * vector scaning until end of uri_path(??) of data.
-		 */
-		__FSM_I_MOVE_flags(Req_I_CookieName, TFW_STR_NAME);
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(Req_I_CookieValStart) {
-		if (unlikely(IS_WS(c) || c == ',' || c == ';' || c == '\\'))
+	/*
+	 * At this state we know that we saw at least one character as
+	 * cookie-name and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_CookieName) {
+		__FSM_I_MATCH_MOVE_fixup(token, Req_I_CookieName, TFW_STR_NAME);
+		if (*(p + __fsm_sz) != '=')
 			return CSTR_NEQ;
-		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
+		/* Store "=" with cookie parameter name. */
+		__FSM_I_MOVE_fixup(Req_I_CookieVal, __fsm_sz + 1, TFW_STR_NAME);
 	}
 
+	/*
+	 * Cookie-value can have zero length, but we still have to store it
+	 * in separate TfwStr chunk.
+	 */
 	__FSM_STATE(Req_I_CookieVal) {
-		if (unlikely(c == ';'))
-			/* do not save ';' yet */
-			__FSM_I_MOVE_fixup(Req_I_CookieSP, 0, TFW_STR_VALUE);
-		if (unlikely(IS_CRLFWS(c))) {
-			/* do not save OWS */
-			tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);
-			__FSM_I_chunk_flags(TFW_STR_VALUE);
-			return p - orig_data;
+		__FSM_I_MATCH_MOVE_fixup(cookie, Req_I_CookieVal, TFW_STR_VALUE);
+		c = *(p + __fsm_sz);
+		if (c == ';') {
+			if (likely(__fsm_sz)) {
+				/* Save cookie-value w/o ';'. */
+				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			__FSM_I_MOVE_n(Req_I_CookieSemicolon, __fsm_sz);
 		}
-		if (unlikely(c == ',' || c == '\\'))
-			return CSTR_NEQ;
+		if (unlikely(IS_CRLFWS(c))) {
+			/* End of cookie header. Do not save OWS. */
+			if (likely(__fsm_sz)) {
+				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	/* ';' was already matched. */
+	__FSM_STATE(Req_I_CookieSemicolon) {
 		/*
-		 * TODO #182 replace the state 1-char transition by
-		 * vector scaning until end of uri_path(??) of data.
+		 * Fixup current delimeters chunk and move to next parameter
+		 * if we can eat ';' and SP at once.
 		 */
-		__FSM_I_MOVE_flags(Req_I_CookieVal, TFW_STR_VALUE);
+		if (likely(__data_available(p, 2))) {
+			if (likely(*(p + 1) == ' '))
+				__FSM_I_MOVE_fixup(Req_I_CookieStart, 2, 0);
+			return CSTR_NEQ;
+		}
+		/*
+		 * Only ';' is available now: fixup ';' as independent chunk,
+		 * SP willbe fixed up at next enter to the FSM.
+		 */
+		__FSM_I_MOVE_fixup(Req_I_CookieSP, 1, 0);
 	}
 
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
+		/* Fixup current delimeters chunk and move to next parameter. */
 		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1, 0);
 	}
 
 	} /* FSM END */
-
 done:
 	return r;
 }
@@ -1633,7 +1584,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == ':')
 			__FSM_I_MOVE(Req_I_H_Port);
 		if (IS_CRLFWS(c))
-			return __data_offset(p);
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -1648,7 +1599,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H_v6_End) {
 		if (likely(IS_CRLFWS(c)))
-			return __data_offset(p);
+			return __data_off(p);
 		if (likely(c == ':'))
 			__FSM_I_MOVE(Req_I_H_Port);
 		return CSTR_NEQ;
@@ -1659,7 +1610,7 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(isdigit(c)))
 			__FSM_I_MOVE(Req_I_H_Port);
 		if (IS_CRLFWS(c))
-			return __data_offset(p);
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -1687,13 +1638,25 @@ __req_parse_pragma(TfwHttpReq *req, unsigned char *data, size_t len)
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
 	}
+
 	__FSM_STATE(Req_I_Pragma_Ext) {
-		/* Just skip the extensions. */
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Req_I_Pragma_Ext, __fsm_sz);
+		/* Verify and just skip the extensions. */
+		__FSM_I_MATCH_MOVE(qetoken, Req_I_Pragma_Ext);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
+	}
+
+	/* End of term. */
+	__FSM_STATE(Req_I_EoT) {
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE(Req_I_EoT);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
 	}
 
 	} /* FSM END */
@@ -1710,11 +1673,10 @@ __req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_UserAgent) {
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Req_I_UserAgent, __fsm_sz);
+		__FSM_I_MATCH_MOVE(ctext_vchar, Req_I_UserAgent);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	} /* FSM END */
@@ -1738,24 +1700,26 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		/* Eat OWS before the node ID. */
 		if (unlikely(IS_WS(c)))
 			__FSM_I_MOVE(Req_I_XFF);
-
-		/* Start of an IP address or a host name. */
-		if (likely(IN_ALPHABET(c, xff_a)))
-			__FSM_I_JMP(Req_I_XFF_Node_Id);
-
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_XFF_Node_Id) {
-		/* Eat IP address or host name.
+		/*
+		 * Eat IP address or host name.
+		 *
 		 * TODO: parse/validate IP addresses and textual IDs.
 		 * Currently we just validate separate characters, but the
 		 * whole value may be invalid (e.g. "---[_..[[").
 		 */
-		if (likely(IN_ALPHABET(c, xff_a)))
-			__FSM_I_MOVE(Req_I_XFF_Node_Id);
+		__FSM_I_MATCH_MOVE(xff, Req_I_XFF_Node_Id);
+		if (unlikely(!__fsm_sz))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_n(Req_I_XFF_Sep, __fsm_sz);
+	}
 
-		__FSM_I_JMP(Req_I_XFF_Sep);
+	/*
+	 * At this state we know that we saw at least one character as
+	 * a host address and now we can pass zero length token.
+	 */
+	__FSM_STATE(Req_I_XFF_Node_Id) {
+		__FSM_I_MATCH_MOVE(xff, Req_I_XFF_Node_Id);
+		__FSM_I_MOVE_n(Req_I_XFF_Sep, __fsm_sz);
 	}
 
 	__FSM_STATE(Req_I_XFF_Sep) {
@@ -1763,8 +1727,8 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * Proxy chains are rare, so we expect that the list will end
 		 * after the first node and we get EOL here.
 		 */
-		if (likely(IS_CR_OR_LF(c)))
-			return __data_offset(p);
+		if (likely(IS_CRLF(c)))
+			return __data_off(p);
 
 		/* OWS before comma or before EOL (is unusual). */
 		if (unlikely(IS_WS(c)))
@@ -1800,7 +1764,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* ----------------    Request Line    ---------------- */
 
 	__FSM_STATE(Req_0) {
-		if (unlikely(IS_CR_OR_LF(c)))
+		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
 	}
@@ -1975,26 +1939,33 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			return TFW_BLOCK;
 	}
 
-	/* URI abs_path */
-	/* BUG: the code parses not only "abs_path".
+	/*
+	 * URI abs_path.
+	 *
+	 * TODO: the code parses abs_path as well as query string.
 	 * E.g., we get "/foo/bar/baz?query#fragment" instead of "/foo/bar/baz"
-	 * as we should according to RFC 2616 (3.2.2) and RFC 7230 (2.7).
+	 * as we should according to RFC 2616 (3.2.2) and RFC 7230 (2.7):
+	 *
+	 * http_URL = "http:" "//" host [ ":" port ] [ abs_path [ "?" query ]]
+	 *
+	 * So the alphabet contains characters valid for query but invalid for
+	 * abs_path. In a similar way, that violates RFC 7230 that distinguishes
+	 * "absolute-path" from "query" and "fragment" components.
+	 *
+	 * Meantime it's unclear whether we really need to distinguish these two
+	 * string types, probably this work is for application layer...
 	 */
 	__FSM_STATE(Req_UriAbsPath) {
-		if (likely(IN_ALPHABET(c, uap_a)))
-			/* Move forward through possibly segmented data. */
-			/*
-			 * TODO #182 replace the state 1-char transition by
-			 * vector scaning until end of uri_path of data.
-			 */
-			__FSM_MOVE_f(TFW_HTTP_URI_HOOK, &req->uri_path);
-
-		if (likely(c == ' ')) {
+		/* Optimize single '/' case. */
+		if (c == ' ') {
 			__msg_field_finish(&req->uri_path, p);
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-
-		return TFW_BLOCK;
+		__FSM_MATCH_MOVE_f(uri, TFW_HTTP_URI_HOOK, &req->uri_path);
+		if (unlikely(*(p + __fsm_sz) != ' '))
+			return TFW_BLOCK;
+		__msg_field_finish(&req->uri_path, p + __fsm_sz);
+		__FSM_MOVE_nofixup_n(Req_HttpVer, __fsm_sz + 1);
 	}
 
 	/* URI normalization if enabled. */
@@ -2034,9 +2005,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 		tfw_http_msg_hdr_open(msg, p);
 
-		if (unlikely(!IN_ALPHABET(c, hdr_a)))
-			return TFW_BLOCK;
-
 		switch (TFW_LC(c)) {
 		case 'a':
 			if (likely(__data_available(p, 14)
@@ -2051,7 +2019,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrA);
 		case 'c':
 			/* Ensure we have enough data for largest match. */
-			if (unlikely(!__data_available(p, 13)))
+			if (unlikely(!__data_available(p, 14)))
 				__FSM_MOVE(Req_HdrC);
 			/* Qick switch for HTTP headers with the same prefix. */
 			switch (TFW_P2LCINT(p + 1)) {
@@ -2653,6 +2621,8 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_Age) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.age = parser->_acc;
@@ -2660,9 +2630,11 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
 	}
 	__FSM_STATE(Resp_I_EoL) {
-		if (IS_CRLFWS(c)) {
+		if (IS_WS(c))
+			__FSM_I_MOVE(Resp_I_EoL);
+		if (IS_CRLF(c)) {
 			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_AGE;
-			return __data_offset(p);
+			return __data_off(p);
 		}
 		return CSTR_NEQ;
 	}
@@ -2781,39 +2753,31 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_Ext) {
-		/*
-		 * TODO
-		 * - process cache extensions;
-		 * - replace double memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
-		 */
-		unsigned char *comma;
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		comma = memchr(p, ',', __fsm_sz);
-		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
+		/* TODO: process cache extensions. */
+		__FSM_I_MATCH_MOVE(qetoken, Resp_I_Ext);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(Resp_I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	/* End of term. */
 	__FSM_STATE(Resp_I_EoT) {
-		if (c == ' ' || c == ',')
+		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Resp_I_EoT);
 		/*
 		 * TODO
 		 * - For the time being we don't support field values for
-		 *   no-cache and private fields, so just skip '=[hdr_a]*'.
+		 *   no-cache and private fields, so just skip '=[token]*'.
 		 */
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
-		if (IN_ALPHABET(c, hdr_a))
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE_n(Resp_I_CC, 0);
-		if (IS_CR_OR_LF(c))
-			return __data_offset(p);
+		if (IS_CRLF(c))
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -2862,6 +2826,19 @@ __year_day_secs(unsigned int year, unsigned int day_sec)
 	return (days - EPOCH_DAYS) * SEC24H + day_sec;
 }
 
+static size_t
+__skip_weekday(unsigned char *p, size_t len)
+{
+	unsigned char lc, *c, *end = p + len;
+
+	for (c = p; c < end; ++c) {
+		lc = TFW_LC(*c);
+		if ((unsigned)(lc - 'a') > (unsigned)('z' - 'a') && lc != ',')
+			return (*c != ' ') ? CSTR_NEQ : c - p;
+	}
+	return len;
+}
+
 static int
 __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
@@ -2894,12 +2871,17 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 			BUG();
 			return CSTR_NEQ;
 		}
-		/* Skip a weekday as redundant information. */
+		/*
+		 * Skip a weekday with comma (e.g. "Sun,") as redundant
+		 * information.
+		 */
 		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchr(p, ' ', __fsm_sz);
-		if (__fsm_ch)
-			__FSM_I_MOVE_n(Resp_I_DateDay, __fsm_ch - p + 1);
-		__FSM_I_MOVE_n(Resp_I_Date, __fsm_sz);
+		__fsm_n = __skip_weekday(p, __fsm_sz);
+		if (__fsm_sz == __fsm_n)
+			__FSM_I_MOVE_n(Resp_I_Date, __fsm_sz);
+		if (unlikely(__fsm_n == CSTR_NEQ))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_n(Resp_I_DateDay, __fsm_n + 1);
 	}
 
 	__FSM_STATE(Resp_I_DateDay) {
@@ -2907,7 +2889,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		if (parser->_acc < 1 || parser->_acc > 31)
@@ -2937,10 +2919,10 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonth_A) {
-		TRY_STR_LAMBDA("Apr", {
+		TRY_STR_LAMBDA("apr", {
 			parser->_date += SB_APR;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Aug", {
+		TRY_STR_LAMBDA("aug", {
 			parser->_date += SB_AUG;
 		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
@@ -2948,11 +2930,11 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonth_J) {
-		TRY_STR("Jan", Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Jun", {
+		TRY_STR("jan", Resp_I_DateYearSP);
+		TRY_STR_LAMBDA("jun", {
 			parser->_date += SB_JUN;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Jul", {
+		TRY_STR_LAMBDA("jul", {
 			parser->_date += SB_JUL;
 		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
@@ -2960,11 +2942,11 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonth_M) {
-		TRY_STR_LAMBDA("Mar", {
+		TRY_STR_LAMBDA("mar", {
 			/* Add SEC24H for leap year on year parsing. */
 			parser->_date += SB_MAR;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("May", {
+		TRY_STR_LAMBDA("may", {
 			parser->_date += SB_MAY;
 		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
@@ -2972,19 +2954,19 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateMonth_Other) {
-		TRY_STR_LAMBDA("Feb", {
+		TRY_STR_LAMBDA("feb", {
 			parser->_date += SB_FEB;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Sep", {
+		TRY_STR_LAMBDA("sep", {
 			parser->_date += SB_SEP;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Oct", {
+		TRY_STR_LAMBDA("oct", {
 			parser->_date += SB_OCT;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Nov", {
+		TRY_STR_LAMBDA("nov", {
 			parser->_date += SB_NOV;
 		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("Dec", {
+		TRY_STR_LAMBDA("dec", {
 			parser->_date += SB_DEC;
 		}, Resp_I_DateYearSP);
 		TRY_STR_INIT();
@@ -3003,7 +2985,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date = __year_day_secs(parser->_acc, parser->_date);
@@ -3023,7 +3005,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 3600;
@@ -3041,7 +3023,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 60;
@@ -3059,7 +3041,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc;
@@ -3074,17 +3056,17 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_DateZone) {
-		TRY_STR("GMT", Resp_I_EoL);
+		TRY_STR("gmt", Resp_I_EoL);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
 		/* Skip the rest of the line. */
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (!__fsm_ch)
-			__FSM_I_MOVE_n(Resp_I_EoL, __fsm_sz);
+		__FSM_I_MATCH_MOVE(nctl, Resp_I_EoL);
+		if (!IS_CRLF(*(p + __fsm_sz)))
+			return CSTR_NEQ;
+		TFW_DBG3("%s: parsed date %lu", __func__, parser->_date);
 		switch (parser->state) {
 		case Resp_HdrExpiresV:
 			resp->cache_ctl.expires = parser->_date;
@@ -3095,7 +3077,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
 			break;
 		}
-		return __data_offset(__fsm_ch);
+		return __data_off(p + __fsm_sz);
 	}
 
 	} /* FSM END */
@@ -3144,7 +3126,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->keep_alive = parser->_acc;
@@ -3157,27 +3139,25 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 	 *	max=N
 	 */
 	__FSM_STATE(Resp_I_Ext) {
-		unsigned char *comma;
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		comma = memchr(p, ',', __fsm_sz);
-		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
+		__FSM_I_MATCH_MOVE(qetoken, Resp_I_Ext);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(Resp_I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	/* End of term. */
 	__FSM_STATE(Resp_I_EoT) {
-		if (c == ' ' || c == ',')
+		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Resp_I_EoT);
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
-		if (IN_ALPHABET(c, hdr_a))
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE(Resp_I_KeepAlive);
-		if (IS_CR_OR_LF(c))
-			return __data_offset(p);
+		if (IS_CRLF(c))
+			return __data_off(p);
 		return CSTR_NEQ;
 	}
 
@@ -3198,17 +3178,11 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/*
 		 * Just eat the header value: usually we just replace
 		 * the header value.
-		 *
-		 * TODO
-		 * - replace memchr() below by a strspn() analog
-		 *   that accepts string length instead of processing
-		 *   null-terminated strings.
 		 */
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch)
-			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_Server, __fsm_sz);
+		__FSM_I_MATCH_MOVE(ctext_vchar, Resp_I_Server);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
 	}
 
 	} /* FSM END */
@@ -3249,7 +3223,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* ----------------    Status Line    ---------------- */
 
 	__FSM_STATE(Resp_0) {
-		if (unlikely(IS_CR_OR_LF(c)))
+		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Resp_0);
 		/* fall through */
 	}
@@ -3312,13 +3286,13 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Reason-Phrase: just skip. */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		__fsm_sz = __data_remain(p);
-		__fsm_ch = memchreol(p, __fsm_sz);
-		if (__fsm_ch) {
-			__msg_field_finish(&resp->s_line, __fsm_ch);
-			__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_ch - p);
+		__FSM_MATCH_MOVE_f(ctext_vchar, Resp_ReasonPhrase,
+				   &resp->s_line);
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			__msg_field_finish(&resp->s_line, p + __fsm_sz);
+			__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);
 		}
-		__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_sz, &resp->s_line);
+		return TFW_BLOCK;
 	}
 
 	/* ----------------    Header Lines    ---------------- */
@@ -3328,9 +3302,6 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		TFW_HTTP_PARSE_CRLF();
 
 		tfw_http_msg_hdr_open(msg, p);
-
-		if (unlikely(!IN_ALPHABET(c, hdr_a)))
-			return TFW_BLOCK;
 
 		switch (TFW_LC(c)) {
 		case 'a':
@@ -3343,7 +3314,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Resp_HdrA);
 		case 'c':
 			/* Ensure we have enough data for largest match. */
-			if (unlikely(!__data_available(p, 13)))
+			if (unlikely(!__data_available(p, 14)))
 				__FSM_MOVE(Resp_HdrC);
 			/* Qick switch for HTTP headers with the same prefix. */
 			switch (TFW_P2LCINT(p + 1)) {
