@@ -683,7 +683,9 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 	}
 	else {
 		conn_val_cstr = (char *) kzalloc(len+1, GFP_KERNEL);
-		BUG_ON(!conn_val_cstr);
+		if(!conn_val_cstr)
+			return -ENOMEM;
+
 		len = tfw_str_to_cstr(&conn_val, conn_val_cstr, (int)len+1);
 	}
 
@@ -727,13 +729,13 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 				if (unlikely(r && r != -ENOENT)) {
 					TFW_WARN("Cannot delete hbh header (%d)"
 						 "\n", r);
-					return r;
+					goto err;
 				}
 			}
 			else {
 				r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
-				if (r < 0)
-					return r;
+				if (unlikely(r))
+					goto err;
 			}
 
 			w_pos = NULL;
@@ -741,9 +743,10 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 		}
 	}
 
+err:
 	if (!TFW_STR_PLAIN(&conn_val))
 		kfree(conn_val_cstr);
-	return 0;
+	return r;
 }
 
 static int
