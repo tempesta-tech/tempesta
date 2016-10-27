@@ -197,6 +197,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_KEEP_ALIVE,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
@@ -278,7 +279,8 @@ typedef struct {
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;
+	TfwStr		body;						\
+	unsigned int	keep_alive;
 
 /**
  * A helper structure for operations common for requests and responses.
@@ -337,7 +339,6 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
-	unsigned int		keep_alive;
 	time_t			date;
 } TfwHttpResp;
 
@@ -409,5 +410,23 @@ void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
+
+/**
+ * Hop-by-hop headers should be removed before message is cached but
+ * that can affect performance.
+ *
+ * Caching messages is done inside of SoftIRQs and removing hop-by-hop
+ * headers there can slow down packet processing. Serving requests
+ * from cache will have no need for removing hbh from responces.
+ *
+ * If we do not remove hbh headers before caching, then Connection header
+ * is also must be stored in cache. Parsing Connection header is the only
+ * way to remove hop-by-hop headers. For more information refer to
+ * RFC7230 Section-6.1
+ *
+ * TODO: Choose the right option according to performance testing:
+ * store unwanted headers in cache or burden SoftIRQ with exta tasks?
+*/
+#define TFW_RM_HBH_HDRS_IN_SIRQ 1
 
 #endif /* __TFW_HTTP_H__ */

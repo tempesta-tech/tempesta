@@ -467,6 +467,9 @@ enum {
 	I_ConnOther,
 	I_ContLen, /* Content-Length */
 	I_ContType, /* Content-Type */
+	I_KeepAlive, /* Keep-Alive header */
+	I_KeepAliveTO, /* Keep-Alive TimeOut */
+	I_KeepAliveExt,
 	I_TransEncod, /* Transfer-Encoding */
 	I_TransEncodExt,
 
@@ -1232,6 +1235,17 @@ enum {
 	Req_HdrHos,
 	Req_HdrHost,
 	Req_HdrHostV,
+	Req_HdrK,
+	Req_HdrKe,
+	Req_HdrKee,
+	Req_HdrKeep,
+	Req_HdrKeep_,
+	Req_HdrKeep_A,
+	Req_HdrKeep_Al,
+	Req_HdrKeep_Ali,
+	Req_HdrKeep_Aliv,
+	Req_HdrKeep_Alive,
+	Req_HdrKeep_AliveV,
 	Req_HdrP,
 	Req_HdrPr,
 	Req_HdrPra,
@@ -1782,6 +1796,9 @@ done:
 	return r;
 }
 
+static int
+__parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len);
+
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
@@ -2058,6 +2075,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
+		case 'k':
+			if (likely(__data_available(p, 11)
+				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
+				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
+				   && tolower(*(p + 9)) == 'e'
+				   && *(p + 10) == ':'))
+			{
+				parser->_i_st = Req_HdrKeep_AliveV;
+				__FSM_MOVE_n(RGen_OWS, 11);
+			}
+			__FSM_MOVE(Req_HdrK);
 		case 'p':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
@@ -2205,6 +2234,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* 'Host:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
 				   __req_parse_host, TFW_HTTP_HDR_HOST);
+
+	/* 'Keep-Alive:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrKeep_AliveV, I_KeepAlive, msg,
+				  __parse_keep_alive,
+				   TFW_HTTP_HDR_KEEP_ALIVE);
 
 	/* 'Pragma:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
@@ -2388,6 +2422,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 		__FSM_JMP(RGen_HdrOther);
 	}
+
+	/* Keep-Alive header processing. */
+	__FSM_TX_AF(Req_HdrK, 'e', Req_HdrKe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKe, 'e', Req_HdrKee, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKee, 'p', Req_HdrKeep, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep, '-', Req_HdrKeep_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_, 'a', Req_HdrKeep_A, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_A, 'l', Req_HdrKeep_Al, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Al, 'i', Req_HdrKeep_Ali, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Ali, 'v', Req_HdrKeep_Aliv, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Aliv, 'e', Req_HdrKeep_Alive, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrKeep_Alive, ':', Req_HdrKeep_AliveV, RGen_HdrOther);
 
 	/* Pragma header processing. */
 	__FSM_TX_AF(Req_HdrP, 'r', Req_HdrPr, RGen_HdrOther);
@@ -2616,9 +2662,6 @@ enum {
 	Resp_I_DateSec,
 	Resp_I_DateSecSP,
 	Resp_I_DateZone,
-	/* Keep-Alive header. */
-	Resp_I_KeepAlive,
-	Resp_I_KeepAliveTO,
 	/* Server header. */
 	Resp_I_Server,
 
@@ -3112,55 +3155,55 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 }
 
 static int
-__resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
+__parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(resp);
+	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st) {
 
-	__FSM_STATE(Resp_I_KeepAlive) {
-		TRY_STR("timeout=", Resp_I_KeepAliveTO);
+	__FSM_STATE(I_KeepAlive) {
+		TRY_STR("timeout=", I_KeepAliveTO);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_MOVE_n(I_KeepAliveExt, 0);
 	}
 
-	__FSM_STATE(Resp_I_KeepAliveTO) {
+	__FSM_STATE(I_KeepAliveTO) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->keep_alive = parser->_acc;
+		hm->keep_alive = parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
+		__FSM_I_MOVE_n(I_EoT, __fsm_n);
 	}
 
 	/*
 	 * Just ignore Keep-Alive extensions. Known extensions:
 	 *	max=N
 	 */
-	__FSM_STATE(Resp_I_Ext) {
+	__FSM_STATE(I_KeepAliveExt) {
 		unsigned char *comma;
 		__fsm_sz = __data_remain(p);
 		__fsm_ch = memchreol(p, __fsm_sz);
 		comma = memchr(p, ',', __fsm_sz);
 		if (comma && (!__fsm_ch || (__fsm_ch && (comma < __fsm_ch))))
-			__FSM_I_MOVE_n(Resp_I_EoT, comma - p);
+			__FSM_I_MOVE_n(I_EoT, comma - p);
 		if (__fsm_ch)
 			return __data_offset(__fsm_ch);
-		__FSM_I_MOVE_n(Resp_I_Ext, __fsm_sz);
+		__FSM_I_MOVE_n(I_KeepAliveExt, __fsm_sz);
 	}
 
 	/* End of term. */
-	__FSM_STATE(Resp_I_EoT) {
+	__FSM_STATE(I_EoT) {
 		if (c == ' ' || c == ',')
-			__FSM_I_MOVE(Resp_I_EoT);
+			__FSM_I_MOVE(I_EoT);
 		if (c == '=')
-			__FSM_I_MOVE(Resp_I_Ext);
+			__FSM_I_MOVE(I_KeepAliveExt);
 		if (IN_ALPHABET(c, hdr_a))
-			__FSM_I_MOVE(Resp_I_KeepAlive);
+			__FSM_I_MOVE(I_KeepAlive);
 		if (IS_CR_OR_LF(c))
 			return __data_offset(p);
 		return CSTR_NEQ;
@@ -3478,8 +3521,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				  __resp_parse_expires);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrKeep_AliveV, Resp_I_KeepAlive, resp,
-				  __resp_parse_keep_alive);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrKeep_AliveV, I_KeepAlive, msg,
+				  __parse_keep_alive,
+				   TFW_HTTP_HDR_KEEP_ALIVE);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,

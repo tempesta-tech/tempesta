@@ -39,6 +39,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
 		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
 		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
@@ -155,10 +156,10 @@ __hdr_is_singular(const TfwStr *hdr)
  * an HTTP message. Duplicate of a singular header fields is a bug worth
  * blocking the whole HTTP message.
  */
-static int
+static unsigned int
 __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
-	int id;
+	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
@@ -168,9 +169,12 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 			h = TFW_STR_CHUNK(h, 0);
 		if (tfw_stricmpspn(hdr, h, ':'))
 			continue;
+		break;
+	}
+
+	if (id <  ht->off) {
 		if (__hdr_is_singular(hdr))
 			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		break;
 	}
 
 	return id;
@@ -199,7 +203,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
  * HTTP message headers list.
  */
 int
-tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
+tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -334,7 +338,7 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
  * Add new header @hdr to the message @hm just before CRLF.
  */
 static int
-__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
+__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
 	int r;
 	TfwStr it = {};
@@ -396,7 +400,7 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
  * Delete header with identifier @hid from skb data and header table.
  */
 static int
-__hdr_del(TfwHttpMsg *hm, int hid)
+__hdr_del(TfwHttpMsg *hm, unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
@@ -433,7 +437,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
  */
 static int
 __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
-	  int hid)
+	  unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
@@ -499,7 +503,7 @@ cleanup:
  */
 int
 tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
-		      char *val, size_t v_len, int hid, bool append)
+		      char *val, size_t v_len, unsigned int hid, bool append)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *orig_hdr;
@@ -568,7 +572,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 int
 tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	int hid;
+	unsigned int hid;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	hid = ht->off;
