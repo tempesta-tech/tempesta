@@ -610,7 +610,8 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_KEEP_ALIVE);
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive",
+					 TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
 			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
@@ -646,11 +647,11 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 static int
 tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 {
-	int r;
+	int r = 0;
 	TfwStr conn_val;
 	char *conn_val_cstr, *pos;
 	size_t len;
-	char * w_pos = NULL;
+	char *w_pos = NULL;
 	size_t w_len = 0;
 	bool rm_hdr = false;
 
@@ -666,7 +667,7 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 	__http_msg_hdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
 			   TFW_HTTP_HDR_CONNECTION,
 			   &conn_val,
-			   false /* unused */ );
+			   false /* unused */);
 
 	if (TFW_STR_EMPTY(&conn_val))
 		return 0;
@@ -689,10 +690,8 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 		len = tfw_str_to_cstr(&conn_val, conn_val_cstr, (int)len+1);
 	}
 
-	for (pos = conn_val_cstr; pos <= conn_val_cstr + len; ++pos)
-	{
-		switch (*pos)
-		{
+	for (pos = conn_val_cstr; pos <= conn_val_cstr + len; ++pos) {
+		switch (*pos) {
 		case ' ':
 		case '\t':
 		case ',':
@@ -717,10 +716,10 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 		if (rm_hdr && (w_pos != NULL)) {
 			rm_hdr = false;
 
-			if ((w_len != sizeof ("Keep-Alive") - 1)
+			if ((w_len != sizeof("Keep-Alive") - 1)
 			    || (*w_pos != 'k' && *w_pos != 'K')
 			    || strncasecmp(w_pos, "Keep-Alive",
-					   sizeof ("Keep-Alive") - 1)) {
+					   sizeof("Keep-Alive") - 1)) {
 				r = tfw_http_msg_hdr_xfrm(hm,
 							  w_pos, w_len,
 							  NULL, 0,
