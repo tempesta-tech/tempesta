@@ -62,6 +62,7 @@ int ghprio; /* GFSM hook priority. */
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
+#define TFW_CONN_HDR_MAX_SIZE	512
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -672,6 +673,11 @@ tfw_http_rm_hbh_headers(TfwHttpMsg *hm, int conn_flg)
 
 	/* Connection header should not contain a lot of data */
 	len = conn_val.len;
+
+	/* Deny too big headers to prevent from memory exhaustion */
+	if (len >= TFW_CONN_HDR_MAX_SIZE)
+		return -EFBIG;
+
 	if (TFW_STR_PLAIN(&conn_val)) {
 		conn_val_cstr = conn_val.ptr;
 	}
