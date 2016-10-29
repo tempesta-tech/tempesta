@@ -65,7 +65,7 @@ test_create_sg(const char *name, const char *sched_name)
 {
 	TfwSrvGroup *sg;
 
-	sg = tfw_sg_new(name, GFP_KERNEL);
+	sg = tfw_sg_new(name, GFP_ATOMIC);
 	BUG_ON(!sg);
 
 	{
