@@ -72,7 +72,12 @@
 
 /*
  * ------------------------------------------------------------------------
- *	C strings
+ *	SIMD C strings
+ *
+ * BEWARE(!) using the functions in context different from softirq (any HTTP
+ * processing). Softirq context is explicitly protected by kernel_fpu_begin()
+ * and kernel_fpu_end(), so you must do the same if you need the functions in
+ * some other context. Keep in mind that TfwStr uses the functions as well.
  * ------------------------------------------------------------------------
  */
 void tfw_str_init_const(void);

@@ -117,7 +117,7 @@ c_strtolower(unsigned char *dest, const unsigned char *src, size_t len)
 do {									\
 	size_t n = sizeof(s) - 1;					\
 	unsigned char *dst1, *dst2;					\
-	dst1 = kmalloc(n * 2, GFP_KERNEL);				\
+	dst1 = kmalloc(n * 2, GFP_ATOMIC);				\
 	BUG_ON(!dst1);							\
 	dst2 = dst1 + n;						\
 	dst1 = tfw_strtolower(dst1, s, n);				\
