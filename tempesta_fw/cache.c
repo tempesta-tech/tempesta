@@ -570,7 +570,7 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 	return copied;
 }
 
-static long
+static inline long
 tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
 	return __tfw_cache_strcpy(p, trec, src, tot_len, memcpy);
@@ -579,7 +579,7 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 /**
  * The same as tfw_cache_strcpy(), but copies @src with lower case conversion.
  */
-static long
+static inline long
 tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
 	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_strtolower);

@@ -19,7 +19,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#pragma GCC target ("mmx", "avx2")
+#ifdef AVX2
+#pragma GCC target("mmx", "avx2")
+#else
+#pragma GCC target("mmx", "sse4.2")
+#endif
 #include <asm/bitops.h>
 #include <asm/i387.h>
 #include <x86intrin.h>
