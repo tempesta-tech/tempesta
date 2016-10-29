@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
 #include "http_msg.h"
 
 #include "test.h"
@@ -882,9 +883,13 @@ TEST(http_parser, cookie)
 TEST(http_parser, fuzzer)
 {
 	size_t len = 10 * 1024 * 1024;
-	char *str = vmalloc(len);
+	char *str;
 	int field, i, ret;
 	TfwFuzzContext context;
+
+	kernel_fpu_end();
+	str = vmalloc(len);
+	kernel_fpu_begin();
 
 	fuzz_init(&context, false);
 
@@ -932,7 +937,9 @@ resp:
 		}
 	}
 end:
+	kernel_fpu_end();
 	vfree(str);
+	kernel_fpu_begin();
 }
 
 TEST_SUITE(http_parser)

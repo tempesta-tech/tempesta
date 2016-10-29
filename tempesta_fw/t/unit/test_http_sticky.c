@@ -18,7 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
+#include <asm/i387.h>
 /* prevent exporting symbols */
 #include <linux/module.h>
 #undef EXPORT_SYMBOL
@@ -528,6 +528,8 @@ TEST_SUITE(http_sticky)
 		.vals = { "top_secret" },
 	};
 
+	kernel_fpu_end();
+
 	TEST_SETUP(http_sticky_suite_setup);
 	TEST_TEARDOWN(http_sticky_suite_teardown);
 
@@ -539,6 +541,8 @@ TEST_SUITE(http_sticky)
 	tfw_http_sticky_secret_cfg(&tfw_http_sess_cfg_mod.specs[1], &ce_secret);
 
 	tfw_cfg_sess_start();
+
+	kernel_fpu_begin();
 
 	TEST_RUN(http_sticky, sending_302_without_preparing);
 	TEST_RUN(http_sticky, sending_302);
@@ -557,7 +561,10 @@ TEST_SUITE(http_sticky)
 	TEST_RUN(http_sticky, req_no_cookie_enforce);
 	TEST_RUN(http_sticky, req_have_cookie_enforce);
 
-	tfw_cfg_sess_stop();
+	kernel_fpu_end();
 
+	tfw_cfg_sess_stop();
 	tfw_http_sess_exit();
+
+	kernel_fpu_begin();
 }
