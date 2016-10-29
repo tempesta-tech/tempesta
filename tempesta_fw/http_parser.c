@@ -1837,16 +1837,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * URI host part.
 	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
 	 *
-	 * We must not rewrite abs_path, but still can cast host part to
-	 * lower case. Authority parsing: it can be "host" or "userinfo@host"
-	 * (port is parsed later). At the begining we don't know,
-	 * which of variants we have. So we fill req->host, and if we get '@',
-	 * we copy host to req->userinfo, reset req->host and fill it.
+	 * Authority parsing: it can be "host" or "userinfo@host" (port is
+	 * parsed later). At the begining we don't know, which of variants we
+	 * have. So we fill req->host, and if we get '@', we copy host to
+	 * req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
 		req->flags |= TFW_HTTP_URI_FULL;
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			*p = TFW_LC(*p);
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (likely(c == '/')) {
@@ -1863,8 +1861,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_UriAuthority) {
 		if (likely(isalnum(c) || c == '.' || c == '-' || c == '@')) {
-			*p = TFW_LC(*p);
-
 			if (unlikely(c == '@')) {
 				if (!TFW_STR_EMPTY(&req->userinfo)) {
 					TFW_DBG("Second '@' in authority\n");
@@ -1886,7 +1882,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_UriAuthorityIPv6) {
 		if (likely(isxdigit(c) || c == ':')) {
-			*p = TFW_LC(*p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		} else if(c == ']') {
 			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
