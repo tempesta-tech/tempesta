@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,6 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
+
 #undef tfw_sock_srv_init
 #define tfw_sock_srv_init test_hash_sock_srv_conn_init
 #undef tfw_sock_srv_exit
@@ -185,8 +187,12 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_hash)
 {
+	kernel_fpu_end();
+
 	tfw_sched_hash_init();
 	tfw_server_init();
+
+	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_hash, sg_empty);
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_zero_conn);

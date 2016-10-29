@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
 
 #undef tfw_sock_srv_init
 #define tfw_sock_srv_init test_sock_srv_conn_init
@@ -65,6 +66,8 @@ test_create_sg(const char *name, const char *sched_name)
 {
 	TfwSrvGroup *sg;
 
+	kernel_fpu_end();
+
 	sg = tfw_sg_new(name, GFP_ATOMIC);
 	BUG_ON(!sg);
 
@@ -73,13 +76,19 @@ test_create_sg(const char *name, const char *sched_name)
 		BUG_ON(r);
 	}
 
+	kernel_fpu_begin();
+
 	return sg;
 }
 
 void
 test_sg_release_all(void)
 {
+	kernel_fpu_end();
+
 	tfw_sg_release_all();
+
+	kernel_fpu_begin();
 }
 
 TfwServer *
@@ -109,6 +118,8 @@ test_create_conn(TfwPeer *peer)
 	};
 	TfwSrvConnection *srv_conn;
 
+	kernel_fpu_end();
+
 	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
 	srv_conn = tfw_srv_conn_alloc();
@@ -118,6 +129,8 @@ test_create_conn(TfwPeer *peer)
 	srv_conn->conn.sk = &__test_sock;
 	/* A connection is skipped by schedulers if (refcnt <= 0). */
 	tfw_connection_revive(&srv_conn->conn);
+
+	kernel_fpu_begin();
 
 	return srv_conn;
 }
