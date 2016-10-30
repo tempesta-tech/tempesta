@@ -19,15 +19,18 @@ Socket API or even kernel sockets.
 
 #### Common
 
+* **x86-64 Haswell** or later CPU. Tempesta FW requires **SSE 4.2**, **AVX2**
+  and **2MB huge pages** enabled (check **sse4\_2**, **avx2** and **pse** flags
+  in your /proc/cpuinfo);
+* At least **2GB RAM**;
+* **RSS** capable network adapter;
 * Linux CentOS/RHEL 7 or Debian 8;
-* x86-64 CPU with at least 2Gb RAM, SSE 4.2 and preferably 2MB huge pages
-  enabled (check pse and sse4\_2 flags in your /proc/cpuinfo);
-* RSS capable network adapter;
+* Filesystem with `fallocate(2)` system call (e.g. **ext4**, **btrfs** or
+  **xfs**);
 * GNU Make 3.82 or higher;
 * GCC and G++ compilers of versions 4.8 or higher;
 * Boost library of version 1.53 or higher;
 
-Tempesta DB requires `fallocate(2)`. Please use filesystems that support this system call, such as **ext4**, **btrfs**, or **xfs**. Other filesystems such as ext3 don't support this system call, so they can't be used with Tempesta.
 
 #### Kernel
 

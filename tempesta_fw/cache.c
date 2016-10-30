@@ -319,6 +319,10 @@ tfw_cache_employ_resp(TfwHttpReq *req, TfwHttpResp *resp)
 	 * TODO: Response no-cache -- should be cached.
 	 * Should turn on unconditional revalidation.
 	 */
+	TFW_DBG3("AK_DBG %s:%d req->cache_ctl.flags=%x"
+		" resp->cache_ctl.flags=%x resp->status=%d\n",
+		__func__, __LINE__, req->cache_ctl.flags, resp->cache_ctl.flags,
+		resp->status);
 	if (req->cache_ctl.flags & CC_REQ_DONTCACHE)
 		return false;
 	if (resp->cache_ctl.flags & CC_RESP_DONTCACHE)
@@ -414,6 +418,8 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 	}
 #undef CC_LIFETIME_FRESH
 
+	TFW_DBG3("AK_DBG %s:%d tfw_cache_entry_is_live=%ld\n",
+		__func__, __LINE__, ce_lifetime > ce_age ? ce_lifetime : 0);
 	return ce_lifetime > ce_age ? ce_lifetime : 0;
 }
 
@@ -424,6 +430,11 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
+
+	TFW_DBG3("AK_DBG %s:%d method=%d/%d uri_len=%lu host_len=%lu key_len=%u\n",
+		__func__, __LINE__, req->method, ce->method,
+		req->uri_path.len, req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len,
+		ce->key_len);
 
 	if (ce->method != req->method)
 		return false;
@@ -437,8 +448,9 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
-		// TODO #182 store the entris in low case to avoid 1 coversion
-		if (strncasecmp((char *)c->ptr + c_off, trec->data + t_off, n))
+		/* Cache key is stored in lower case. */
+		if (tfw_stricmp_2lc((char *)c->ptr + c_off,
+				    trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -526,7 +538,8 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  * how many chunks are copied.
  */
 static long
-tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+__tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
+		   void *cpy(void *dest, const void *src, size_t n))
 {
 	long copied = 0;
 
@@ -549,12 +562,27 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			 (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
-		memcpy(*p, (char *)src->ptr + copied, room);
+		cpy(*p, (char *)src->ptr + copied, room);
 		*p += room;
 		copied += room;
 	}
 
 	return copied;
+}
+
+static inline long
+tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+{
+	return __tfw_cache_strcpy(p, trec, src, tot_len, memcpy);
+}
+
+/**
+ * The same as tfw_cache_strcpy(), but copies @src with lower case conversion.
+ */
+static inline long
+tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+{
+	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_strtolower);
 }
 
 /**
@@ -675,7 +703,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
 	TFW_CACHE_REQ_KEYITER(field, req, end1, h, end2) {
-		if ((n = tfw_cache_strcpy(&p, &trec, field, tot_len)) < 0) {
+		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			TFW_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
 		}
@@ -811,6 +839,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	unsigned long key;
 	bool keep_skb = false;
 
+	TFW_DBG3("AK_DBG %s:%d cfg_cache=%d cacheable=%d\n",
+		__func__, __LINE__, cache_cfg.cache, tfw_cache_msg_cacheable(req));
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
@@ -1116,6 +1146,8 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req, unsigned long key)
 	TfwCacheEntry *ce;
 
 	*iter = tdb_rec_get(db, key);
+	TFW_DBG3("AK_DBG %s:%d bad_iter=%d\n",
+			__func__, __LINE__, TDB_ITER_BAD(*iter));
 	if (TDB_ITER_BAD(*iter)) {
 		TFW_INC_STAT_BH(cache.misses);
 		return NULL;
@@ -1151,6 +1183,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TdbIter iter;
 	time_t lifetime;
 
+	TFW_DBG3("AK_DBG %s:%d\n", __func__, __LINE__);
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
 		goto out;
 

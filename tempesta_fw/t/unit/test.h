@@ -75,7 +75,13 @@ do {				\
 #define TEST_DBG3(...)
 #endif
 
-#define TEST(unit, assertion)  static void test__ ##unit ##__ ##assertion(void)
+/*
+ * Declare test functions as unused
+ * such that they can be easily commented out.
+ */
+#define TEST(unit, assertion)				\
+	static void __attribute__((unused)) test__ ##unit ##__ ##assertion(void)
+
 #define TEST_SUITE(name) void test_suite__##name(void)
 #define TEST_SETUP(fn) test_set_setup_fn(fn)
 #define TEST_TEARDOWN(fn) test_set_teardown_fn(fn)
