@@ -166,7 +166,12 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	for (++chunk; chunk != end; ++chunk)
 		if (chunk->flags & TFW_STR_VALUE)
 			break;
-	BUG_ON(chunk == end);
+	/*
+	 * The party can send us zero-value cookie,
+	 * treat this as not found cookie.
+	 */
+	if (unlikely(chunk == end))
+		return 0;
 
 	/* Check if value is plain string, just return it in this case. */
 	next = chunk + 1;

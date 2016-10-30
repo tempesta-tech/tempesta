@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
+#include <asm/i387.h>
 #include <linux/module.h>
 #include "test.h"
 
@@ -85,13 +85,13 @@ test_call_teardown_fn(void)
 		test_teardown_fn();
 }
 
+TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
 TEST_SUITE(http_parser);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
-TEST_SUITE(cfg);
 TEST_SUITE(sched_rr);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
@@ -101,16 +101,27 @@ test_run_all(void)
 {
 	test_fail_counter = 0;
 
+	/* Run sleeping tests first. */
+	TEST_SUITE_RUN(cfg);
+
+	kernel_fpu_begin();
+	tfw_str_init_const();
+
+	/*
+	 * Preemption is diabled by kernel_fpu_begin(), so
+	 * the tests can not sleep.
+	 */
 	TEST_SUITE_RUN(tfw_str);
 	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(http_sticky);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
-	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(sched_rr);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(sched_http);
+
+	kernel_fpu_end();
 
 	return test_fail_counter;
 }

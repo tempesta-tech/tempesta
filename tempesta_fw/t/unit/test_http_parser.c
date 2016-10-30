@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
 #include "http_msg.h"
 
 #include "test.h"
@@ -173,11 +174,11 @@ TEST(http_parser, parses_req_method)
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
 	}
 
-	FOR_REQ("HEAD / HTTP/1.1\r\n\r\n") {
+	FOR_REQ("HEAD /? HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_HEAD);
 	}
 
-	FOR_REQ("POST / HTTP/1.1\r\n\r\n") {
+	FOR_REQ("POST /a?p=1 HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
 	}
 }
@@ -191,6 +192,10 @@ TEST(http_parser, parses_req_uri)
 
 	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
+	}
+
+	FOR_REQ("GET /? HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/?");
 	}
 
 	FOR_REQ("GET /foo/b_a_r/baz.html HTTP/1.1\r\n\r\n") {
@@ -241,6 +246,14 @@ TEST(http_parser, parses_req_uri)
 		EXPECT_TFWSTR_EQ(&req->uri_path,
 				 "/cgi-bin/show.pl?entry=tempesta");
 	}
+
+	EXPECT_BLOCK_REQ("GET \x7f HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET /\x03uri HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "\r\n");
 }
 
 /* TODO add HTTP attack examples. */
@@ -250,12 +263,73 @@ TEST(http_parser, mangled_messages)
 			 "POST / HTTP/1.1\r\n"
 			 "Host: test\r\n"
 			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "\x1fX-Foo: test\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: test\r\n"
+			 "Connection: close, \"foo\"\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			 "Content-Type: foo/aa-\x19np\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: 0\r\n"
+			  "X-Foo: t\x7fst\r\n"
+			  "\r\n");
+}
+
+/**
+ * Test for allowed characters in different parts of HTTP message.
+ */
+TEST(http_parser, alphabets)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host: test\r\n"
+		/* We don't match open and closing quotes. */
+		"Content-Type: Text/HTML;Charset=utf-8\"\t  \n"
+		"Pragma: no-cache, fooo \r\n"
+		"\r\n");
+
+	/* Trailing SP in request. */
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
+		"Accept: */*\t \r\n"
+		"Host: localhost\t  \r\n"
+		"Connection: Keep-Alive \t \r\n"
+		"X-Custom-Hdr: custom header values \t  \r\n"
+		"X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
+		"Content-Length: 0  \t \r\n"
+		"Content-Type: text/html; charset=iso-8859-1  \t \r\n"
+		"Cache-Control: max-age=0, private, min-fresh=42 \t \r\n"
+		"Transfer-Encoding: compress, deflate, gzip\t  \r\n"
+		"Cookie: session=42; theme=dark  \t \r\n"
+		"\r\n");
+
+	/* Trailing SP in response. */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		"Connection: Keep-Alive \t \r\n"
+		"X-header: 6  \t  \t \r\n"
+		"Content-Length: 0 \t \r\n"
+		"Content-Type: text/html; charset=iso-8859-1 \t \r\n"
+		"Cache-Control: max-age=0, private, min-fresh=42 \t \r\n"
+		"Expires: Tue, 31 Jan 2012 15:02:53 GMT \t \r\n"
+		"Keep-Alive: timeout=600, max=65526 \t \r\n"
+		"Transfer-Encoding: compress, deflate, gzip \t \r\n"
+		"Server: Apache/2.4.6 (CentOS)  \t  \r\n"
+		"\r\n");
 }
 
 TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_te;
+	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_pragma,
+	       *h_auth;
 	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff,
 	       h_user_agent, h_cookie;
 
@@ -272,8 +346,12 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_xch = "X-Custom-Hdr: custom header values";
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
-	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
+	const char *s_cc  = "Cache-Control: max-age=1, no-store, min-fresh=30";
 	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
+	/* Trailing spaces are stored within header strings. */
+	const char *s_pragma =  "Pragma: no-cache, fooo ";
+	const char *s_auth =  "Authorization: "
+			      "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t ";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
@@ -294,9 +372,11 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n" /* That is done to check table reallocation. */
 		"Dummy9: 9\r\n"
-		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"
+		"Pragma: no-cache, fooo \r\n"
 		"Transfer-Encoding: compress, deflate, gzip\r\n"
 		"Cookie: session=42; theme=dark\r\n"
+		"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
@@ -321,15 +401,17 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_COOKIE],
 					 TFW_HTTP_HDR_COOKIE, &h_cookie);
 
-		/* Common (raw) headers: 14 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
-		h_accept     = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
-		h_xch        = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
-		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 6];
-		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
-		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_accept = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
+		h_xch = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
+		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 6];
+		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
+		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_pragma = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_auth = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
 					    strlen(s_host), 0));
@@ -358,7 +440,18 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 					    strlen(s_cc), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
 					    strlen(s_te), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_pragma, s_pragma,
+					    strlen(s_pragma), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_auth, s_auth,
+					    strlen(s_auth), 0));
 
+		EXPECT_TRUE(req->method = TFW_HTTP_METH_GET);
+		EXPECT_TRUE(req->content_length == 0);
+		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_NO_STORE);
+		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH);
+		EXPECT_TRUE(req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
+		EXPECT_TRUE(req->cache_ctl.min_fresh == 30);
+		EXPECT_TRUE(req->cache_ctl.max_age == 1);
 		EXPECT_TRUE(ht->tbl[TFW_HTTP_HDR_HOST].eolen == 2);
 	}
 }
@@ -366,20 +459,27 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_age, *h_date, *h_exp,
+	       *h_ka;
 	TfwStr h_connection, h_contlen, h_conttype, h_srv;
 
 	/* Expected values for special headers. */
 	const char *s_connection = "Keep-Alive";
-	const char *s_cl = "0";
+	const char *s_cl = "3";
 	const char *s_ct = "text/html; charset=iso-8859-1";
 	const char *s_srv = "Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 			    " mod_fcgid/2.3.9";
 	/* Expected values for raw headers. */
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
-	const char *s_cc  = "Cache-Control: max-age=0, private, min-fresh=42";
-	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
+	const char *s_cc = "Cache-Control: "
+			   "max-age=5, private, no-cache, ext=foo";
+	const char *s_te = "Transfer-Encoding: compress, deflate, gzip";
+	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
+	const char *s_ka = "Keep-Alive: timeout=600, max=65526";
+	/* Trailing spaces are stored within header strings. */
+	const char *s_age = "Age: 12  ";
+	const char *s_date = "Date: Sun, 9 Sep 2001 01:46:40 GMT\t";
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive\r\n"
@@ -390,18 +490,21 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Dummy4: 4\r\n"
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
-		"Content-Length: 0\r\n"
+		"Content-Length: 3\r\n"
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
-		"Cache-Control: max-age=0, private, min-fresh=42\r\n"
+		"Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"
 		"Dummy9: 9\r\n" /* That is done to check table reallocation. */
 		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
 		"Keep-Alive: timeout=600, max=65526\r\n"
 		"Transfer-Encoding: compress, deflate, gzip\r\n"
 		"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 		        " mod_fcgid/2.3.9\r\n"
-		"\r\n")
+		"Age: 12  \n"
+		"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"
+		"\r\n"
+		"012")
 	{
 		ht = resp->h_tbl;
 
@@ -423,14 +526,18 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
-		 * Expires, Keep-Alive, Transfer-Encoding.
+		 * Expires, Keep-Alive, Transfer-Encoding, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
-		h_dummy4     = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
-		h_cc         = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
-		h_dummy9     = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
-		h_te         = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
+		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
+		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
+		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
+		h_ka = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
@@ -447,14 +554,34 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_cc), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy9, s_dummy9,
 					    strlen(s_dummy9), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_exp, s_exp,
+					    strlen(s_exp), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_ka, s_ka,
+					    strlen(s_ka), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
 					    strlen(s_te), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_age, s_age,
+					    strlen(s_age), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(h_date, s_date,
+					    strlen(s_date), 0));
 
+		EXPECT_TRUE(resp->content_length == 3);
+		EXPECT_TRUE(resp->status == 200);
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE);
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE);
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
+		EXPECT_TRUE(resp->cache_ctl.max_age == 5);
+		EXPECT_TRUE(resp->keep_alive == 600);
+		/*
+		 *  $ date -u --date='@1000000000'
+		 *  Sun Sep  9 01:46:40 UTC 2001
+		 */
+		EXPECT_TRUE(resp->date == 1000000000);
 		EXPECT_TRUE(h_dummy9->eolen == 2);
 	}
 }
 
-TEST(http_parser, blocks_suspicious_x_forwarded_for_hdrs)
+TEST(http_parser, suspicious_x_forwarded_for)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"X-Forwarded-For:   [::1]:1234,5.6.7.8   ,"
@@ -707,15 +834,62 @@ TEST(http_parser, chunked)
 			 "\r\n");
 }
 
+TEST(http_parser, cookie)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Cookie: session=42; theme=dark\r\n"
+		"\r\n")
+	{
+		TfwStr *cookie = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
+		/* TODO it'd be good to accurately analyze Cookies content. */
+		EXPECT_TRUE(TFW_STR_CHUNKN(cookie) >= 4);
+	}
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: g.com\r\n"
+			 "Cookie: session=42;theme=dark\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: g.com\r\n"
+			 "Cookie: session=42, theme=dark\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: g.com\r\n"
+			 "Cookie: session=42 theme=dark\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Host: g.com\r\n"
+			 "Cookie: session=42\ttheme=dark\r\n"
+			 "\r\n");
+
+	/*
+	 * This actually should be blocked due to unclosed DQUOTE.
+	 * But cookie values are opaque for us, this is job for application
+	 * layer to accurately parse cookie values.
+	 */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host: g.com\r\n"
+		"Cookie: session=\"42; theme=dark\r\n"
+		"\r\n");
+}
+
 #define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
 TEST(http_parser, fuzzer)
 {
 	size_t len = 10 * 1024 * 1024;
-	char *str = vmalloc(len);
+	char *str;
 	int field, i, ret;
 	TfwFuzzContext context;
+
+	kernel_fpu_end();
+	str = vmalloc(len);
+	kernel_fpu_begin();
 
 	fuzz_init(&context, false);
 
@@ -763,7 +937,9 @@ resp:
 		}
 	}
 end:
+	kernel_fpu_end();
 	vfree(str);
+	kernel_fpu_begin();
 }
 
 TEST_SUITE(http_parser)
@@ -771,9 +947,10 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, mangled_messages);
+	TEST_RUN(http_parser, alphabets);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
-	TEST_RUN(http_parser, blocks_suspicious_x_forwarded_for_hdrs);
+	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
@@ -781,5 +958,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, empty_host);
 	TEST_RUN(http_parser, chunked);
+	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, fuzzer);
 }

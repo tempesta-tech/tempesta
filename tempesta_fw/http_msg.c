@@ -191,7 +191,8 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 
 	BUG_ON(!hdr->skb);
 
-	TFW_DBG3("open header at char [%c], skb=%p\n", *hdr_start, hdr->skb);
+	TFW_DBG3("open header at %p (char=[%c]), skb=%p\n",
+		 hdr_start, *hdr_start, hdr->skb);
 }
 
 /**
@@ -277,7 +278,7 @@ done:
 }
 
 /**
- * Fixup the new data chunk to the @str.
+ * Fixup the new data chunk starting at @data with length @len to @str.
  *
  * @len could be 0 if the field was fully read, but we realized this only
  * now by facinng CRLF at begin of current data chunk.
@@ -288,8 +289,9 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 {
 	BUG_ON(str->flags & TFW_STR_DUPLICATE);
 
-	TFW_DBG3("store field chunk len=%lu data=%p field=<%#x,%lu,%p>\n",
-		 len, data, str->flags, str->len, str->ptr);
+	TFW_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
+		 len, data, isprint(*(char *)data) ? *(char *)data : '.',
+		 str->flags, str->len, str->ptr);
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->ptr)

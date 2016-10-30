@@ -17,6 +17,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
+
 #undef tfw_sock_srv_init
 #define tfw_sock_srv_init test_http_sock_srv_conn_init
 #undef tfw_sock_srv_exit
@@ -48,6 +50,9 @@ parse_cfg(const char *cfg_text)
 {
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
+	int r;
+
+	kernel_fpu_end();
 
 	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
 	
@@ -55,7 +60,11 @@ parse_cfg(const char *cfg_text)
 	INIT_LIST_HEAD(&mod_list);
 	list_add(&cfg_mod.list, &mod_list);
 
-	return tfw_cfg_parse_mods_cfg(cfg_text, &mod_list);
+	r = tfw_cfg_parse_mods_cfg(cfg_text, &mod_list);
+
+	kernel_fpu_begin();
+
+	return r;
 }
 
 static void
@@ -327,11 +336,15 @@ TEST_SUITE(sched_http)
 {
 	TfwScheduler *s;
 
+	kernel_fpu_end();
+
 	s = tfw_sched_lookup("round-robin");
 	if (!s)
 		tfw_sched_rr_init();
 	tfw_sched_http_init();
 	tfw_server_init();
+
+	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
 	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);
