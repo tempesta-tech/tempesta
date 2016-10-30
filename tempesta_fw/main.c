@@ -18,11 +18,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 
 #include "tempesta_fw.h"
 #include "log.h"
+#include "str.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -60,6 +62,7 @@ static void
 tfw_exit(void)
 {
 	int i;
+
 	TFW_LOG("exiting...\n");
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
@@ -69,6 +72,11 @@ static int __init
 tfw_init(void)
 {
 	int r;
+
+	/* Initialize strings SIMD constants at first. */
+	kernel_fpu_begin();
+	tfw_str_init_const();
+	kernel_fpu_end();
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 

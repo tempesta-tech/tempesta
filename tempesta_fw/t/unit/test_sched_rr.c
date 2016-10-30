@@ -18,6 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/i387.h>
+
 #undef tfw_sock_srv_init
 #define tfw_sock_srv_init test_rr_sock_srv_conn_init
 #undef tfw_sock_srv_exit
@@ -171,8 +173,12 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 TEST_SUITE(sched_rr)
 {
+	kernel_fpu_end();
+
 	tfw_server_init();
 	tfw_sched_rr_init();
+
+	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_rr, sg_empty);
 	TEST_RUN(tfw_sched_rr, one_srv_in_sg_and_zero_conn);

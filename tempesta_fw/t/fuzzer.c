@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta HTTP fuzzer");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.1.2");
 MODULE_LICENSE("GPL");
 
 #define FUZZ_MSG_F_INVAL	FUZZ_INVALID
@@ -423,12 +423,17 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 	int err, ret = FUZZ_VALID;
 
 	i = ctx->i[CONTENT_LENGTH];
-	len_str = (i < gen_vector[CONTENT_LENGTH].size)? content_len[i].s:
-							 ctx->content_length;
+	len_str = (i < gen_vector[CONTENT_LENGTH].size)
+		  ? (content_len[i].rval & FUZZ_MSG_F_INVAL)
+		    ? "500" /* Generate content of arbitrary size for invalid
+			     * Content-Length value. */
+		    : content_len[i].s
+		  : ctx->content_length;
 
 	err = kstrtoul(len_str, 10, &len);
 	if (err) {
-		TFW_WARN("error %d on body generation -> invalid\n", err);
+		TFW_ERR("error %d on getting content length from \"%s\""
+			"(%lu)\n", err, len_str, i);
 		return FUZZ_INVALID;
 	}
 

@@ -1,7 +1,7 @@
 #		Tempesta DB
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,9 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-ifdef DEBUG
-	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
-endif
+EXTRA_CFLAGS += $(TFW_CFLAGS)
 
 obj-m	= tempesta_db.o
 tempesta_db-objs = file.o hash.o htrie.o if.o main.o table.o
