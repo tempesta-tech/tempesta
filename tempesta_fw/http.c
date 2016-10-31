@@ -802,11 +802,6 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	int r;
 	TfwConnection *srv_conn = NULL;
 
-	if (resp) {
-		tfw_http_req_cache_service(req, resp);
-		return;
-	}
-
 	/*
 	 * Sticky cookie module used for HTTP session identification may send
 	 * a response to the client when sticky cookie presence is enforced and
@@ -822,6 +817,11 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (r > 0) {
 		/* Response sent, nothing to do. */
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		return;
+	}
+
+	if (resp) {
+		tfw_http_req_cache_service(req, resp);
 		return;
 	}
 
