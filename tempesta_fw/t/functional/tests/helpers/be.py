@@ -79,7 +79,7 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 #		self.send_response(200)
 		resp = self.protocol_version + b' 200 - OK\r\n' +\
 b'Date: Mon, 31 Oct 2016 06:41:19 GMT\r\n' +\
-b'Server: python be\r\n\r\n'
+b'Server: python be\r\nContent-Length: 0\r\n\r\n'
 		print("be:", "do_GET")
 		self.wfile.write(resp)
 		self.wfile.flush()
