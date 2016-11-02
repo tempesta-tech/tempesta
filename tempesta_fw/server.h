@@ -29,11 +29,6 @@
 #define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
 #define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
 
-typedef enum {
-	TFW_SG_SRV_ADD,
-	TFW_SG_SRV_DEL,
-} TfwSgSrvUpdate;
-
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
 
@@ -46,6 +41,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @qsize_max	- maximum queue size of a server connection;
  * @qjtimeout	- maximum age of a request in a server connection, in jiffies;
  * @retry_max	- maximum number of tries for forwarding a request;
+ * @flags	- server related flags;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -56,7 +52,11 @@ typedef struct {
 	unsigned int		qsize_max;
 	unsigned long		qjtimeout;
 	unsigned int		retry_max;
+	unsigned int		flags;
 } TfwServer;
+
+/* Server related flags. */
+#define TFW_SRV_RETRY_NON_IDEMP		0x0001	/* Retry non-idemporent req. */
 
 /**
  * The servers group with the same load balancing, failovering and eviction
