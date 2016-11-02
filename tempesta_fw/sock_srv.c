@@ -569,15 +569,18 @@ tfw_sock_srv_delete_all_conns(void)
  * requests in the queue.
  */
 #define TFW_SRV_QUEUE_SIZE_DEF		1000	/* Max queue size */
-#define TFW_SRV_QUEUE_TIMEOUT_DEF	60	/* Default request timeout */
-#define TFW_SRV_QUEUE_TRIES_DEF		5	/* Default number of tries */
+#define TFW_SRV_SEND_TIMEOUT_DEF	60	/* Default request timeout */
+#define TFW_SRV_SEND_TRIES_DEF		5	/* Default number of tries */
+#define TFW_SRV_RETRY_NIP_DEF		0	/* Do NOT resend NIP reqs */
 
 static int tfw_cfg_in_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_in_queue_timeout = TFW_SRV_QUEUE_TIMEOUT_DEF;
-static int tfw_cfg_in_queue_tries = TFW_SRV_QUEUE_TRIES_DEF;
+static int tfw_cfg_in_send_timeout = TFW_SRV_SEND_TIMEOUT_DEF;
+static int tfw_cfg_in_send_tries = TFW_SRV_SEND_TRIES_DEF;
+static int tfw_cfg_in_retry_nip = TFW_SRV_RETRY_NIP_DEF;
 static int tfw_cfg_out_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_out_queue_timeout = TFW_SRV_QUEUE_TIMEOUT_DEF;
-static int tfw_cfg_out_queue_tries = TFW_SRV_QUEUE_TRIES_DEF;
+static int tfw_cfg_out_send_timeout = TFW_SRV_SEND_TIMEOUT_DEF;
+static int tfw_cfg_out_send_tries = TFW_SRV_SEND_TRIES_DEF;
+static int tfw_cfg_out_retry_nip = TFW_SRV_RETRY_NIP_DEF;
 
 static int tfw_cfg_in_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
 static int tfw_cfg_out_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
@@ -616,27 +619,50 @@ tfw_handle_out_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_handle_in_queue_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_handle_in_send_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_queue_timeout);
+	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_send_timeout);
 }
 
 static int
-tfw_handle_out_queue_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_handle_out_send_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_queue_timeout);
+	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_send_timeout);
 }
 
 static int
-tfw_handle_in_queue_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_handle_in_send_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_queue_tries);
+	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_send_tries);
 }
 
 static int
-tfw_handle_out_queue_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_handle_out_send_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_queue_tries);
+	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_send_tries);
+}
+
+static inline int
+__tfw_handle_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
+{
+	if (ce->attr_n || ce->val_n) {
+		TFW_ERR("%s: The option may not have arguments.\n", cs->name);
+		return -EINVAL;
+	}
+	*retry_nip = 1;
+	return 0;
+}
+
+static int
+tfw_handle_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return __tfw_handle_retry_nip(cs, ce, &tfw_cfg_in_retry_nip);
+}
+
+static int
+tfw_handle_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return __tfw_handle_retry_nip(cs, ce, &tfw_cfg_out_retry_nip);
 }
 
 static int
@@ -788,9 +814,12 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	tfw_cfg_set_conn_tries(srv, tfw_cfg_out_retry_attempts)
-	srv->qsize_max = tfw_cfg_out_queue_size;
-	srv->qjtimeout = msecs_to_jiffies(tfw_cfg_out_queue_timeout * 1000);
-	srv->retry_max = tfw_cfg_out_queue_tries;
+	srv->qsize_max = tfw_cfg_out_queue_size ? : UINT_MAX;
+	srv->qjtimeout = tfw_cfg_out_send_timeout
+		       ? msecs_to_jiffies(tfw_cfg_out_send_timeout * 1000)
+		       : ULONG_MAX;
+	srv->retry_max = tfw_cfg_out_send_tries ? : UINT_MAX;
+	srv->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NON_IDEMP : 0;
 
 	return 0;
 }
@@ -839,8 +868,9 @@ tfw_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_in_lstsz = 0;
 	tfw_cfg_in_retry_attempts = tfw_cfg_out_retry_attempts;
 	tfw_cfg_in_queue_size = tfw_cfg_out_queue_size;
-	tfw_cfg_in_queue_timeout = tfw_cfg_out_queue_timeout;
-	tfw_cfg_in_queue_tries = tfw_cfg_out_queue_tries;
+	tfw_cfg_in_send_timeout = tfw_cfg_out_send_timeout;
+	tfw_cfg_in_send_tries = tfw_cfg_out_send_tries;
+	tfw_cfg_in_retry_nip = tfw_cfg_out_retry_nip;
 
 	return 0;
 }
@@ -865,12 +895,15 @@ tfw_finish_srv_group(TfwCfgSpec *cs)
 	TFW_DBG("finish srv_group: %s\n", tfw_cfg_curr_group->name);
 
 	for (i = 0; i < tfw_cfg_in_lstsz; ++i) {
+		unsigned long jtmout =
+			msecs_to_jiffies(tfw_cfg_in_send_timeout * 1000);
 		tfw_cfg_set_conn_tries(tfw_cfg_in_lst[i],
 				       tfw_cfg_in_retry_attempts);
-		srv->qsize_max = tfw_cfg_in_queue_size;
-		srv->qjtimeout =
-			msecs_to_jiffies(tfw_cfg_in_queue_timeout * 1000);
-		srv->retry_max = tfw_cfg_in_queue_tries;
+		srv->qsize_max = tfw_cfg_in_queue_size ? : UINT_MAX;
+		srv->qjtimeout = tfw_cfg_in_send_timeout ? jtmout : ULONG_MAX;
+		srv->retry_max = tfw_cfg_in_send_tries ? : UINT_MAX;
+		srv->flags |= tfw_cfg_in_retry_nip ?
+			      TFW_SRV_RETRY_NON_IDEMP : 0;
 	}
 	tfw_cfg_curr_group = NULL;
 
@@ -918,17 +951,25 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_queue_timeout",
+		"server_send_timeout",
 		NULL,
-		tfw_handle_in_queue_timeout,
+		tfw_handle_in_send_timeout,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_queue_tries",
+		"server_send_tries",
 		NULL,
-		tfw_handle_in_queue_tries,
+		tfw_handle_in_send_tries,
+		.allow_none = true,
+		.allow_repeat = false,
+		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		"server_retry_non_idempotent",
+		NULL,
+		tfw_handle_in_retry_nip,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
@@ -966,17 +1007,25 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_queue_timeout",
+			"server_send_timeout",
 			NULL,
-			tfw_handle_out_queue_timeout,
+			tfw_handle_out_send_timeout,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_queue_tries",
+			"server_send_tries",
 			NULL,
-			tfw_handle_out_queue_tries,
+			tfw_handle_out_send_tries,
+			.allow_none = true,
+			.allow_repeat = true,
+			.cleanup = tfw_clean_srv_groups,
+		},
+		{
+			"server_retry_non_idempotent",
+			NULL,
+			tfw_handle_out_retry_nip,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,

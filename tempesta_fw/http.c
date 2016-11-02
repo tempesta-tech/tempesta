@@ -378,9 +378,10 @@ tfw_http_req_is_nonidempotent(TfwHttpReq *req)
 
 /*
  * Set the request @req in server connection @srv_conn as idempotent.
+ * Called only when a request turns idempotent from a non-idempotent.
  */
 static inline void
-__tfw_http_req_set_idempotent(TfwConnection *srv_conn, TfwHttpReq *req)
+__tfw_http_req_nonidemp_delist(TfwConnection *srv_conn, TfwHttpReq *req)
 {
 	list_del_init(&req->nip_list);
 	if (list_empty(&srv_conn->nip_queue))
@@ -388,49 +389,41 @@ __tfw_http_req_set_idempotent(TfwConnection *srv_conn, TfwHttpReq *req)
 }
 
 /*
- * If @req in server connection @srv_conn is non-idempotent, then set it
- * as idempotent.
- */
-static inline void
-tfw_http_req_flip_if_nonidempotent(TfwConnection *srv_conn, TfwHttpReq *req)
-{
-	if (!list_empty(&req->nip_list))
-		__tfw_http_req_set_idempotent(srv_conn, req);
-}
-
-/*
- * If a request on the list of non-idempotent requests in server
- * connection @srv_conn had become idempotent, then set it as idempotent.
- */
-static inline void
-tfw_http_conn_flip_if_nonidempotent(TfwConnection *srv_conn)
-{
-	TfwHttpReq *req, *tmp;
-
-	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
-		if (!tfw_http_req_is_nonidempotent(req))
-			__tfw_http_req_set_idempotent(srv_conn, req);
-}
-
-/*
  * Set the request @req in server connection @srv_conn as non-idempotent.
  */
 static inline void
-__tfw_http_req_set_nonidempotent(TfwConnection *srv_conn, TfwHttpReq *req)
+__tfw_http_req_nonidemp_enlist(TfwConnection *srv_conn, TfwHttpReq *req)
 {
+	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
 /*
- * Set the request @req in server connection @srv_conn is idempotent,
- * then set it as non-idempotent.
+ * If @req in server connection @srv_conn is non-idempotent, then set
+ * it as idempotent.
  */
 static inline void
-tfw_http_req_flip_if_idempotent(TfwConnection *srv_conn, TfwHttpReq *req)
+tfw_http_req_nonidemp_delist(TfwConnection *srv_conn, TfwHttpReq *req)
 {
-	if (list_empty(&req->nip_list))
-		__tfw_http_req_set_nonidempotent(srv_conn, req);
+	if (!list_empty(&req->nip_list))
+		__tfw_http_req_nonidemp_delist(srv_conn, req);
+}
+
+/*
+ * If a request on the list of non-idempotent requests in server
+ * connection @srv_conn had become idempotent, then set it as such.
+ */
+static inline void
+tfw_http_conn_nonidemp_delist(TfwConnection *srv_conn)
+{
+	TfwHttpReq *req, *tmp;
+
+	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
+		if (!tfw_http_req_is_nonidempotent(req)) {
+			BUG_ON(list_empty(&req->nip_list));
+			__tfw_http_req_nonidemp_delist(srv_conn, req);
+		}
 }
 
 /*
@@ -467,6 +460,10 @@ tfw_http_conn_drained(TfwConnection *srv_conn)
 	return false;
 }
 
+/*
+ * Tell if the server connection's forwarding queue has requests
+ * that need to be forwarded.
+ */
 static inline bool
 tfw_http_conn_need_fwd(TfwConnection *srv_conn)
 {
@@ -474,11 +471,16 @@ tfw_http_conn_need_fwd(TfwConnection *srv_conn)
 		&& !tfw_http_conn_drained(srv_conn));
 }
 
+/*
+ * Common actions in case of an error while forwarding requests.
+ * Erroneous requests are removed from the forwarding queue and placed
+ * in @equeue. The error code for an error response is saved as well.
+ */
 static inline void
 tfw_http_req_move2equeue(TfwConnection *srv_conn, TfwHttpReq *req,
 			 struct list_head *equeue, unsigned short status)
 {
-	tfw_http_req_flip_if_nonidempotent(srv_conn, req);
+	tfw_http_req_nonidemp_delist(srv_conn, req);
 	list_move_tail(&req->msg.fwd_list, equeue);
 	req->rstatus = status;
 	atomic_dec(&srv_conn->qsize);
@@ -505,6 +507,7 @@ tfw_http_req_zap_error(struct list_head *equeue)
 			tfw_http_send_504(req);
 		else
 			BUG();
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
 
@@ -532,6 +535,7 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 	req = srv_conn->msg_sent
 	    ? (TfwHttpReq *)list_next_entry(srv_conn->msg_sent, fwd_list)
 	    : (TfwHttpReq *)list_first_entry(fwd_queue, TfwMsg, fwd_list);
+
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, msg.fwd_list) {
 		unsigned long jtimeout = jiffies - req->jtstamp;
 		if (time_after(jtimeout, srv->qjtimeout)) {
@@ -560,8 +564,8 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 				 __func__, req);
 			break;
 		}
-		/* See if the request has become idempotent. */
-		tfw_http_req_flip_if_nonidempotent(srv_conn, req);
+		/* See if a non-idempotent request has become idempotent. */
+		tfw_http_req_nonidemp_delist(srv_conn, req);
 	}
 }
 
@@ -615,7 +619,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
 	atomic_inc(&srv_conn->qsize);
 	if (tfw_http_req_is_nonidempotent(req))
-		__tfw_http_req_set_nonidempotent(srv_conn, req);
+		__tfw_http_req_nonidemp_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)) {
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Server connection is on hold: conn=[%p]\n",
@@ -630,19 +634,56 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 		return;
 	}
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
+		tfw_http_req_nonidemp_delist(srv_conn, req);
 		list_del_init(&req->msg.fwd_list);
-		tfw_http_req_flip_if_nonidempotent(srv_conn, req);
 		atomic_dec(&srv_conn->qsize);
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		tfw_http_send_500(req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
 	}
 	srv_conn->msg_sent = (TfwMsg *)req;
 	spin_unlock(&srv_conn->msg_qlock);
 }
 
+/*
+ * Handle non-idempotent requests in case of a connection repair
+ * (re-send or re-schedule).
+ *
+ * Non-idempotent requests that were forwarded but not responded to
+ * are not re-sent or re-scheduled by default. Configuration option
+ * can be used to have those requests re-sent or re-scheduled as well.
+ *
+ * Note: @srv_conn->msg_sent may change in result.
+ */
+static inline void
+tfw_http_req_fwd_handlenip(TfwConnection *srv_conn)
+{
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
+
+	if (req_sent && tfw_http_req_is_nonidempotent(req_sent)
+	    && likely(!(srv->flags & TFW_SRV_RETRY_NON_IDEMP)))
+	{
+		struct list_head *lent = &req_sent->msg.fwd_list;
+		BUG_ON(list_empty(&req_sent->nip_list));
+		srv_conn->msg_sent = (lent == srv_conn->msg_queue.next)
+				   ? NULL
+				   : list_entry(lent->prev, TfwMsg, fwd_list);
+		__tfw_http_req_nonidemp_delist(srv_conn, req_sent);
+		list_del_init(&req_sent->msg.fwd_list);
+		atomic_dec(&srv_conn->qsize);
+		tfw_http_send_404(req_sent);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+}
+
+/*
+ * Re-forward requests in a server connection. Requests that exceed
+ * the set limits are evicted.
+ */
 static void
 __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 			  bool one_msg, struct list_head *equeue)
@@ -682,6 +723,11 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 	}
 }
 
+/*
+ * Handle the complete re-forwarding of requests in a server connection
+ * that is being repaired, after the first request had been re-forwarded.
+ * The connection is not scheduled until all requests in it are re-sent.
+ */
 static void
 tfw_http_req_fwd_repair(TfwConnection *srv_conn)
 {
@@ -787,8 +833,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 /*
  * Re-schedule requests in a dead server connection's queue to a live
  * server connection. Idempotent requests are always rescheduled.
- * Non-idempotent requests are not re-scheduled by default, but it
- * can be configured to re-schedule those requests as well.
+ * Non-idempotent requests may be rescheduled depending on the option
+ * in configuration.
  *
  * FIXME: It appears that a re-scheduled request should be put in a
  * new server connection's queue according to its original timestamp.
@@ -799,28 +845,35 @@ static void
 tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
-	TfwConnection *new_conn;
+	TfwConnection *sconn;
 	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
 
+	/* Handle non-idempotent requests. */
+	tfw_http_req_fwd_handlenip(srv_conn);
+
+	/* Process complete queue. */
 	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
+		tfw_http_req_nonidemp_delist(srv_conn, req);
 		list_del_init(&req->msg.fwd_list);
 		atomic_dec(&srv_conn->qsize);
-		/* FIXME: Need config option. */
-		if (tfw_http_req_is_nonidempotent(req)) {
-			__tfw_http_req_set_idempotent(srv_conn, req);
-			goto send_err;
-		}
-		if (!(new_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+		if (!(sconn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_WARN("Unable to find a backend server\n");
-			goto send_err;
+			tfw_http_send_404(req);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			continue;
 		}
-		tfw_http_req_fwd(new_conn, req);
-		continue;
-send_err:
-		tfw_http_send_404(req);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		if (req->retries++ >= ((TfwServer *)sconn->peer)->retry_max) {
+			TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
+				 __func__, req, req->retries);
+			tfw_http_send_504(req);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_connection_put(sconn);
+			continue;
+		}
+		tfw_http_req_fwd(sconn, req);
+		tfw_connection_put(sconn);
 	}
 	BUG_ON(atomic_read(&srv_conn->qsize));
 }
@@ -831,7 +884,7 @@ send_err:
  * 6.3.2, "a client MUST NOT pipeline immediately after connection
  * establishment". To address that, re-send the first request to the
  * server. When a response comes, that will trigger resending of the
- * rest of those unanswered requests.
+ * rest of those unanswered requests (tfw_http_req_fwd_repair()).
  */
 static void
 tfw_http_conn_repair(TfwConnection *srv_conn)
@@ -847,14 +900,17 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 		tfw_http_req_fwd_resched(srv_conn);
 		return;
 	}
-	/* Re-send the first unanswered request. */
 	spin_lock(&srv_conn->msg_qlock);
+	/* Handle non-idempotent requests. */
+	tfw_http_req_fwd_handlenip(srv_conn);
+	/* Re-send the first unanswered request. */
 	srv_conn->msg_resent = NULL;
 	if (srv_conn->msg_sent) {
 		__tfw_http_req_fwd_resend(srv_conn, true, &equeue);
 		if (!srv_conn->msg_resent)
 			srv_conn->msg_sent = NULL;
 	}
+	/* Send the remaining unsent requests. */
 	if (!srv_conn->msg_resent) {
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
@@ -1639,7 +1695,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 */
 		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
 			tfw_http_send_500(req, "request cache error");
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -1747,15 +1802,15 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	atomic_dec(&srv_conn->qsize);
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
-	tfw_http_req_flip_if_nonidempotent(srv_conn, req);
-	tfw_http_conn_flip_if_nonidempotent(srv_conn);
+	tfw_http_req_nonidemp_delist(srv_conn, req);
+	tfw_http_conn_nonidemp_delist(srv_conn);
 	/*
 	 * Perform special processing if the connection is in repair
 	 * mode. Otherwise, forward pending requests to the server.
 	 * Note: The queue is unlocked inside tfw_http_req_fwd_repair()
 	 * or tfw_http_req_fwd_stalled().
 	 */
-	if (tfw_connection_restricted(srv_conn))
+	if (unlikely(tfw_connection_restricted(srv_conn)))
 		tfw_http_req_fwd_repair(srv_conn);
 	else if (tfw_http_conn_need_fwd(srv_conn))
 		tfw_http_req_fwd_stalled(srv_conn);
