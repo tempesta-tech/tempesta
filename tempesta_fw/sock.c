@@ -1119,12 +1119,6 @@ ss_tx_action(void)
 	while (!tfw_wq_pop(this_cpu_ptr(&si_wq), &sw)) {
 		struct sock *sk = sw.sk;
 
-		if (unlikely(spin_is_locked(&sk->sk_lock.slock)))
-			SS_WARN("Socket is used by two cpus, action=%d"
-				" state=%d sk_cpu=%d curr_cpu=%d\n",
-				sw.action, sk->sk_state,
-				sk->sk_incoming_cpu, smp_processor_id());
-
 		bh_lock_sock(sk);
 		switch (sw.action) {
 		case SS_SEND:
