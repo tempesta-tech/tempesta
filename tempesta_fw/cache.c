@@ -1088,6 +1088,15 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * (copy the list of skbs is faster than scan TDB and build TfwHttpResp).
  * TLS should encrypt the data in already prepared skbs.
  *
+ * Basically, skb copy/clonning involves skb creation, so it seems performance
+ * of response body creation won't change since now we just reuse TDB pages.
+ * Perfromace benchmarks and profiling shows that cache_req_process_node()
+ * is the bottleneck, so the problem is either in tfw_cache_dbce_get() or this
+ * function, in headers compilation.
+ * Also it seems cachig prebuilt responses requires introducing
+ * TfwCacheEntry->resp pointer to avoid additional indexing data structure.
+ * However, the pointer must be zeroed on TDB shutdown and recovery.
+ *
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
