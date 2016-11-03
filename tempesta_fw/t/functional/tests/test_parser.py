@@ -12,7 +12,7 @@ import socket
 import tfw
 import conf
 import be
-
+import datetime
 
 class Test:
 	def __init__(self):
@@ -21,10 +21,16 @@ class Test:
 		self.cfg.add_option('listen', '8081')
 		self.cfg.add_option('server', '127.0.0.1:8080')	
 	def run(self):
+		resp = b'HTTP/1.0' + b' 200 - OK\r\n\r\n'
+		date = datetime.datetime.utcnow().strftime("%a,%d %b %Y" +\
+							   "%H:%M:%S GMT")
+		resp += b"Date: " + date + b"\r\n" 
+#		resp += b'Content-Length: 0\r\n\r\n'
+		resp += b'\r\n<html>content</html>\r\n\r\n'
 		vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
 		b"Connection: Keep-Alive\r\n\r\n"
 
-		be.start(True)	
+		be.start(True, resp)	
 		tfw.start()
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		s.connect(("127.0.0.1",8081))
