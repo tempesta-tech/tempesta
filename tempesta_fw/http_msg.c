@@ -823,3 +823,105 @@ tfw_http_msg_alloc(int type)
 
 	return hm;
 }
+
+/**
+ * Remove Hop-by-Hop headers in terms of RFC 7230 6.1
+ */
+int tfw_http_rm_hbh_hdrs(TfwHttpMsg *hm)
+{
+	unsigned int *hbh_heades = NULL;
+	int r = 0, i;
+
+	if (!(hm->flags & TFW_HTTP_CONN_EXTRA))
+		return 0;
+
+
+	hbh_heades = kcalloc(hm->h_tbl->off - TFW_HTTP_HDR_RAW,
+			     sizeof(unsigned int), GFP_ATOMIC);
+
+	r = tfw_http_find_hbh_hdrs(hm, hbh_heades);
+	if (unlikely(r))
+		goto out;
+
+	/* Removing must be from end to beginning */
+	for (i = hm->h_tbl->off - TFW_HTTP_HDR_RAW - 1; i >= 0; --i) {
+		if (hbh_heades[i]) {
+			r = __hdr_del(hm, i + TFW_HTTP_HDR_RAW);
+			if (unlikely(r))
+				goto out;
+		}
+	}
+
+out:
+	if (hbh_heades)
+		kfree(hbh_heades);
+
+	return r;
+}
+
+/**
+ * Locate all Hop-by-Hop headers among RAW headers. @idxs must be
+ * zero-initialised array size of (hm->h_tbl->off - TFW_HTTP_HDR_RAW).
+ */
+int tfw_http_find_hbh_hdrs(TfwHttpMsg *hm, unsigned int *idxs)
+{
+	TfwStr conn_h;
+
+	if (!(hm->flags & TFW_HTTP_CONN_EXTRA))
+		return 0;
+
+	tfw_http_msg_srvhdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
+				TFW_HTTP_HDR_CONNECTION,
+				&conn_h);
+	if (TFW_STR_EMPTY(&conn_h))
+		return 0;
+
+	{
+		TfwStr hbh_data[TFW_STR_CHUNKN(&conn_h) + 1];
+		TfwStr colon = { .ptr = ":", .len = 1};
+		TfwStr hbh_hdr;
+		TfwStr *c, *end;
+		TfwStr *curr = hbh_data;
+		unsigned int id;
+
+		TFW_STR_INIT(&hbh_hdr);
+		hbh_hdr.ptr = hbh_data;
+
+		TFW_STR_FOR_EACH_CHUNK(c, &conn_h, end) {
+			if (c->flags & TFW_STR_VALUE) {
+				*curr = *c;
+				hbh_hdr.ptr = curr;
+				hbh_hdr.len += c->len;
+				TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
+				++curr;
+			}
+			else if (curr != hbh_data) {
+				*curr = colon;
+				hbh_hdr.len += c->len;
+				TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
+
+				id = __hdr_lookup(hm, &hbh_hdr);
+				if (id < hm->h_tbl->off) {
+					idxs[id - TFW_HTTP_HDR_RAW] = 1;
+				}
+
+				curr = hbh_data;
+				TFW_STR_INIT(&hbh_hdr);
+				hbh_hdr.ptr = hbh_data;
+			}
+		}
+
+		if (curr != hbh_data) {
+			*curr = colon;
+			hbh_hdr.len += c->len;
+			TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
+
+			id = __hdr_lookup(hm, &hbh_hdr);
+			if (id < hm->h_tbl->off) {
+				idxs[id - TFW_HTTP_HDR_RAW] = 1;
+			}
+		}
+	}
+
+	return 0;
+}
