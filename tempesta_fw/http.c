@@ -713,11 +713,15 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	__init_req_ss_flags(req);
 
 	r = tfw_http_add_x_forwarded_for(hm);
-	if (r)
+	if (unlikely(r))
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
-	if (r)
+	if (unlikely(r))
+		return r;
+
+	r = tfw_http_rm_hbh_hdrs(hm);
+	if (unlikely(r))
 		return r;
 
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
@@ -735,15 +739,19 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
-	if (r < 0)
+	if (unlikely(r))
 		return r;
 
 	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
-	if (r < 0)
+	if (unlikely(r))
+		return r;
+
+	r = tfw_http_rm_hbh_hdrs(hm);
+	if (unlikely(r))
 		return r;
 
 	r = tfw_http_set_hdr_connection(hm, conn_flg);
-	if (r < 0)
+	if (unlikely(r))
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
@@ -752,14 +760,14 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		/* TODO: ajust for #215 */
 		TfwStr wh = {.ptr = S_WARN_110, .len = SLEN(S_WARN_110),.eolen = 2};
 		r = tfw_http_msg_hdr_add(hm, &wh);
-		if (r)
+		if (unlikely(r))
 			return r;
 #undef S_WARN_110
 	}
 
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
-		if (r < 0)
+		if (unlikely(r))
 			return r;
 	}
 
