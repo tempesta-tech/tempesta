@@ -520,6 +520,12 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	}
 	ce = (TfwCacheEntry *)iter->rec;
 	do {
+		/*
+		 * Basically we don't need to compare keys if only one record
+		 * is in the bucket. Checking for next record instead of
+		 * comparing the keys would has sense for long URI, but
+		 * performance benchmarks don't show any improvement.
+		 */
 		if (tfw_cache_entry_key_eq(db, req, ce))
 			break;
 		tdb_rec_next(db, iter);
@@ -940,10 +946,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		return tfw_http_send_403(req);
 	}
 
-	if (ret)
-		return tfw_http_send_404(req);
-	else
-		return tfw_http_send_200(req);
+	return ret ? tfw_http_send_404(req) : tfw_http_send_200(req);
 }
 
 static int
@@ -1252,8 +1255,12 @@ do_cache:
 		    : numa_node_id();
 
 	/*
-	 * Queue the cache work if it must be server by remote node only.
+	 * Queue the cache work only when it must be served by a remote node.
 	 * Otherwise we can do everything right now on local CPU.
+	 *
+	 * TODO #391: it appears that req->node is not really needed and can
+	 * be eliminated from TfwHttpReq{} structure and it can easily be
+	 * replaced by a local variable here.
 	 */
 	if (likely(req->node == numa_node_id())) {
 		tfw_cache_do_action(req, resp, action);
