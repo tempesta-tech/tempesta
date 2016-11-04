@@ -459,9 +459,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_age, *h_date, *h_exp,
-	       *h_ka;
-	TfwStr h_connection, h_contlen, h_conttype, h_srv;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_age, *h_date, *h_exp;
+	TfwStr h_connection, h_contlen, h_conttype, h_srv, h_ka;
 
 	/* Expected values for special headers. */
 	const char *s_connection = "Keep-Alive";
@@ -476,7 +475,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 			   "max-age=5, private, no-cache, ext=foo";
 	const char *s_te = "Transfer-Encoding: compress, deflate, gzip";
 	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
-	const char *s_ka = "Keep-Alive: timeout=600, max=65526";
+	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_age = "Age: 12  ";
 	const char *s_date = "Date: Sun, 9 Sep 2001 01:46:40 GMT\t";
@@ -523,21 +522,22 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					&h_conttype);
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_SERVER],
 					TFW_HTTP_HDR_SERVER, &h_srv);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_KEEP_ALIVE],
+					TFW_HTTP_HDR_KEEP_ALIVE, &h_ka);
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
-		 * Expires, Keep-Alive, Transfer-Encoding, Age, Date.
+		 * Expires, Transfer-Encoding, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
 
 		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
 		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
 		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
-		h_ka = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
-		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
+		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
@@ -547,6 +547,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_ct), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_srv, s_srv,
 					    strlen(s_srv), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_ka, s_ka,
+					    strlen(s_ka), 0));
 
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
@@ -556,8 +558,6 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_exp, s_exp,
 					    strlen(s_exp), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_ka, s_ka,
-					    strlen(s_ka), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
 					    strlen(s_te), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_age, s_age,

@@ -600,7 +600,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	}
 }
 
-/*
+/**
  * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
  */
 static int
@@ -613,7 +613,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
 			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
