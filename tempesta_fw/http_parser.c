@@ -465,6 +465,9 @@ enum {
 	I_ConnOther,
 	I_ContLen, /* Content-Length */
 	I_ContType, /* Content-Type */
+	I_KeepAlive, /* Keep-Alive header */
+	I_KeepAliveTO, /* Keep-Alive TimeOut */
+	I_KeepAliveExt,
 	I_TransEncod, /* Transfer-Encoding */
 	I_TransEncodExt,
 
@@ -491,6 +494,21 @@ enum {
 			__FSM_I_MOVE_n(state, __fsm_n);			\
 		}							\
 		__msg_hdr_chunk_fixup(data, len);			\
+		return CSTR_POSTPONE;					\
+	}
+
+#define TRY_STR_LAMBDA_fixup(str, lambda, state)				\
+	if (!chunk->ptr)						\
+		chunk->ptr = p;						\
+	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
+			    str, sizeof(str) - 1);			\
+	if (__fsm_n > 0) {						\
+		if (chunk->len == (sizeof(str) - 1)) {			\
+			lambda;						\
+			TRY_STR_INIT();					\
+			__FSM_I_MOVE_fixup(state, __fsm_n, 0);		\
+		}							\
+		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
 		return CSTR_POSTPONE;					\
 	}
 
@@ -876,6 +894,12 @@ __FSM_STATE(RGen_OWS) {							\
 
 /**
  * Parse Connection header value, RFC 2616 14.10.
+ *
+ * Most likely that Connection header contains only "close" or "keep-alive"
+ * tokens. If Connection header contains other tokens, message flag
+ * TFW_HTTP_CONN_EXTRA is set to indicate that hop-by-hop headers are set
+ * and must be processed later. Each value will be placed to its chunk marked
+ * with TFW_STR_VALUE flag.
  */
 static int
 __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -886,12 +910,12 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(I_Conn) {
-		TRY_STR_LAMBDA("close", {
+		TRY_STR_LAMBDA_fixup("close", {
 			if (msg->flags & TFW_HTTP_CONN_KA)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
 		}, I_EoT);
-		TRY_STR_LAMBDA("keep-alive", {
+		TRY_STR_LAMBDA_fixup("keep-alive", {
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
@@ -906,19 +930,25 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * it could be names of any headers, including custom headers.
 	 */
 	__FSM_STATE(I_ConnOther) {
-		__FSM_I_MATCH_MOVE(token, I_ConnOther);
+		msg->flags |= TFW_HTTP_CONN_EXTRA;
+		__FSM_I_MATCH_MOVE_fixup(token, I_ConnOther, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz, TFW_STR_VALUE);
+		if (IS_CRLF(c)) {
+			if (likely(__fsm_sz)) {
+				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
 	/* End of token */
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(I_EoT);
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
 		if (IS_TOKEN(c))
 			__FSM_I_MOVE_n(I_Conn, 0);
 		if (IS_CRLF(c))
@@ -1188,6 +1218,17 @@ enum {
 	Req_HdrHos,
 	Req_HdrHost,
 	Req_HdrHostV,
+	Req_HdrK,
+	Req_HdrKe,
+	Req_HdrKee,
+	Req_HdrKeep,
+	Req_HdrKeep_,
+	Req_HdrKeep_A,
+	Req_HdrKeep_Al,
+	Req_HdrKeep_Ali,
+	Req_HdrKeep_Aliv,
+	Req_HdrKeep_Alive,
+	Req_HdrKeep_AliveV,
 	Req_HdrP,
 	Req_HdrPr,
 	Req_HdrPra,
@@ -1748,6 +1789,9 @@ done:
 	return r;
 }
 
+static int
+__parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len);
+
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
@@ -2068,6 +2112,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
+		case 'k':
+			if (likely(__data_available(p, 11)
+				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
+				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
+				   && tolower(*(p + 9)) == 'e'
+				   && *(p + 10) == ':'))
+			{
+				parser->_i_st = Req_HdrKeep_AliveV;
+				__FSM_MOVE_n(RGen_OWS, 11);
+			}
+			__FSM_MOVE(Req_HdrK);
 		case 'p':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
@@ -2156,8 +2212,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				  __req_parse_cache_control);
 
 	/* 'Connection:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrConnectionV, I_Conn, msg,
-				   __parse_connection, TFW_HTTP_HDR_CONNECTION);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrConnectionV, I_Conn, msg,
+				   __parse_connection, TFW_HTTP_HDR_CONNECTION, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_LengthV, I_ContLen,
@@ -2172,6 +2228,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* 'Host:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
 				   __req_parse_host, TFW_HTTP_HDR_HOST);
+
+	/* 'Keep-Alive:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrKeep_AliveV, I_KeepAlive, msg,
+				  __parse_keep_alive,
+				   TFW_HTTP_HDR_KEEP_ALIVE);
 
 	/* 'Pragma:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
@@ -2370,6 +2431,18 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 		__FSM_JMP(RGen_HdrOther);
 	}
+
+	/* Keep-Alive header processing. */
+	__FSM_TX_AF(Req_HdrK, 'e', Req_HdrKe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKe, 'e', Req_HdrKee, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKee, 'p', Req_HdrKeep, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep, '-', Req_HdrKeep_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_, 'a', Req_HdrKeep_A, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_A, 'l', Req_HdrKeep_Al, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Al, 'i', Req_HdrKeep_Ali, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Ali, 'v', Req_HdrKeep_Aliv, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrKeep_Aliv, 'e', Req_HdrKeep_Alive, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrKeep_Alive, ':', Req_HdrKeep_AliveV, RGen_HdrOther);
 
 	/* Pragma header processing. */
 	__FSM_TX_AF(Req_HdrP, 'r', Req_HdrPr, RGen_HdrOther);
@@ -2598,9 +2671,6 @@ enum {
 	Resp_I_DateSec,
 	Resp_I_DateSecSP,
 	Resp_I_DateZone,
-	/* Keep-Alive header. */
-	Resp_I_KeepAlive,
-	Resp_I_KeepAliveTO,
 	/* Server header. */
 	Resp_I_Server,
 
@@ -3108,53 +3178,53 @@ __resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
 }
 
 static int
-__resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
+__parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(resp);
+	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st) {
 
-	__FSM_STATE(Resp_I_KeepAlive) {
-		TRY_STR("timeout=", Resp_I_KeepAliveTO);
+	__FSM_STATE(I_KeepAlive) {
+		TRY_STR("timeout=", I_KeepAliveTO);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_MOVE_n(I_KeepAliveExt, 0);
 	}
 
-	__FSM_STATE(Resp_I_KeepAliveTO) {
+	__FSM_STATE(I_KeepAliveTO) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
 			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
-		resp->keep_alive = parser->_acc;
+		hm->keep_alive = parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
+		__FSM_I_MOVE_n(I_EoT, __fsm_n);
 	}
 
 	/*
 	 * Just ignore Keep-Alive extensions. Known extensions:
 	 *	max=N
 	 */
-	__FSM_STATE(Resp_I_Ext) {
-		__FSM_I_MATCH_MOVE(qetoken, Resp_I_Ext);
+	__FSM_STATE(I_KeepAliveExt) {
+		__FSM_I_MATCH_MOVE(qetoken, I_KeepAliveExt);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(Resp_I_EoT, __fsm_sz + 1);
+			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c))
 			return __data_off(p + __fsm_sz);
 		return CSTR_NEQ;
 	}
 
 	/* End of term. */
-	__FSM_STATE(Resp_I_EoT) {
+	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(Resp_I_EoT);
+			__FSM_I_MOVE(I_EoT);
 		if (c == '=')
-			__FSM_I_MOVE(Resp_I_Ext);
+			__FSM_I_MOVE(I_KeepAliveExt);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE(Resp_I_KeepAlive);
+			__FSM_I_MOVE(I_KeepAlive);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -3439,8 +3509,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				  __resp_parse_cache_control);
 
 	/* 'Connection:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, I_Conn, msg,
-				   __parse_connection, TFW_HTTP_HDR_CONNECTION);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, I_Conn, msg,
+				   __parse_connection, TFW_HTTP_HDR_CONNECTION, 0);
 
 	/* 'Content-Length:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_LengthV, I_ContLen,
@@ -3461,8 +3531,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				  __resp_parse_expires);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrKeep_AliveV, Resp_I_KeepAlive, resp,
-				  __resp_parse_keep_alive);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrKeep_AliveV, I_KeepAlive, msg,
+				  __parse_keep_alive,
+				   TFW_HTTP_HDR_KEEP_ALIVE);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,

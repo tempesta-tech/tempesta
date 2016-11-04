@@ -220,7 +220,8 @@ typedef struct {
 #define TFW_HTTP_CONN_CLOSE		0x000001
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
-#define TFW_HTTP_CHUNKED		0x000004
+#define TFW_HTTP_CONN_EXTRA		0x000004 /* Hop-by-hop headers are set */
+#define TFW_HTTP_CHUNKED		0x000008
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
