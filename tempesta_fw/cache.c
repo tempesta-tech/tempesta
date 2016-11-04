@@ -719,7 +719,7 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
  */
 static int
 tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
-		    size_t tot_len)
+		    size_t tot_len, const unsigned int * const hbh_hdrs_raw)
 {
 	long n;
 	char *p;
@@ -759,6 +759,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		n = field - resp->h_tbl->tbl;
 		/* Skip hop-by-hop headers. */
 		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : field;
+		if (n >= TFW_HTTP_HDR_RAW && hbh_hdrs_raw
+		    && hbh_hdrs_raw[n-TFW_HTTP_HDR_RAW])
+			h = &empty;
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
@@ -799,7 +802,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 }
 
 static size_t
-__cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
+__cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req,
+		   const unsigned int * const hbh_hdrs_raw)
 {
 	long n;
 	size_t size = CE_BODY_SIZE;
@@ -809,11 +813,17 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 	size += req->uri_path.len;
 	size += req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len;
 
+
 	/* Add all the headers size */
 	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
 		/* Skip hop-by-hop headers. */
 		n = hdr - resp->h_tbl->tbl;
+
 		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : hdr;
+		if (n >= TFW_HTTP_HDR_RAW && hbh_hdrs_raw
+		    && hbh_hdrs_raw[n-TFW_HTTP_HDR_RAW])
+			h = &empty;
+
 		if (!TFW_STR_DUP(h)) {
 			size += sizeof(TfwCStr);
 			size += h->len ? (h->len + SLEN(S_CRLF)) : 0;
@@ -839,10 +849,10 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
-		 unsigned long key)
+		 unsigned long key, const unsigned int * const hbh_hdrs_raw)
 {
 	TfwCacheEntry *ce, cdata = {{}};
-	size_t data_len = __cache_entry_size(resp, req);
+	size_t data_len = __cache_entry_size(resp, req, hbh_hdrs_raw);
 	size_t len = data_len;
 
 	/*
@@ -858,7 +868,7 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 	TFW_DBG3("cache db=%p resp=%p/req=%p/ce=%p: alloc_len=%lu\n",
 		 db, resp, req, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, req, data_len)) {
+	if (tfw_cache_copy_resp(ce, resp, req, data_len, hbh_hdrs_raw)) {
 		/* TODO delete the probably partially built TDB entry. */
 	}
 
@@ -869,17 +879,28 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
 	unsigned long key;
 	bool keep_skb = false;
+	unsigned int *hbh_hds_raw = NULL;
 
 	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
 		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
 		goto out;
 
+	if (resp->flags & TFW_HTTP_CONN_EXTRA) {
+		/* Fill hop-by-hop identifiers for RAW headers */
+		hbh_hds_raw = kcalloc(resp->h_tbl->off - TFW_HTTP_HDR_RAW,
+				      sizeof(unsigned int), GFP_ATOMIC);
+		if (hbh_hds_raw)
+			tfw_http_find_hbh_hdrs((TfwHttpMsg *)resp, hbh_hds_raw);
+		else
+			goto out;
+	}
+
 	key = tfw_http_req_key_calc(req);
 
 	if (cache_cfg.cache == TFW_CACHE_SHARD) {
 		BUG_ON(req->node != numa_node_id());
-		__cache_add_node(node_db(), resp, req, key);
+		__cache_add_node(node_db(), resp, req, key, hbh_hds_raw);
 	} else {
 		int nid;
 		/*
@@ -887,7 +908,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 		 * rather than in softirq...
 		 */
 		for_each_node_with_cpus(nid)
-			__cache_add_node(c_nodes[nid].db, resp, req, key);
+			__cache_add_node(c_nodes[nid].db, resp, req, key,
+					 hbh_hds_raw);
 	}
 
 	/*
@@ -897,6 +919,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 */
 
 out:
+	if (hbh_hds_raw)
+		kfree(hbh_hds_raw);
 	((TfwMsg *)resp)->ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
 	action(req, resp);
 }

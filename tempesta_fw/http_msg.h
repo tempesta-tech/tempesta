@@ -87,5 +87,6 @@ TfwHttpMsg *tfw_http_msg_alloc(int type);
 void tfw_http_msg_free(TfwHttpMsg *m);
 
 int tfw_http_rm_hbh_hdrs(TfwHttpMsg *hm);
+int tfw_http_find_hbh_hdrs(TfwHttpMsg *hm, unsigned int *idxs);
 
 #endif /* __TFW_HTTP_MSG_H__ */
