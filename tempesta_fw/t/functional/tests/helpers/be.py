@@ -19,9 +19,10 @@ import SocketServer
 
 process_id = 0
 server = None
-def start(unlim):
+def start(unlim, resp):
 	httpd = Server(('127.0.0.1', 8080), BackendHTTPRequestHandler)
 	httpd.set_unlim(unlim)
+	httpd.set_resp(resp)
 	server = httpd
 	server.socket.setblocking(0)
 	pid = os.fork()
@@ -40,6 +41,9 @@ def stop():
 class Server(BaseHTTPServer.HTTPServer):
 	def set_unlim(self,unlim):
 		self.unlim = unlim
+	
+	def set_resp(self, resp):
+		self.resp = resp
 
 class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 	
@@ -47,12 +51,12 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 		self. protocol_version = b'HTTP/1.0'
 		SimpleHTTPRequestHandler.__init__(self, req, client_address,
 						  server)
-		print('be: handler_init:')
-
-	
-
-
+#	def parse_request(self):
+#		SimpleHTTPRequestHandler.parse_request(self)
+	def log_error(self, fmt, args):
+		pass
 	def handle(self):
+		self.resp = self.server.resp
 		if self.server.unlim == False: 
 			self.close_connection = 0
 		else:
@@ -64,20 +68,13 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 				raise
 
 	def handle_one_request(self):
-		print("me:handle_one:block")
 		self.rfile._sock.setblocking(0)
 		self.rfile._sock.settimeout(5)
 		SimpleHTTPServer.SimpleHTTPRequestHandler.handle_one_request(self)
 
 	def do_GET(self):
-		resp = self.protocol_version + b' 200 - OK\r\n' +\
-b'Date: Mon, 31 Oct 2016 06:41:19 GMT\r\n' +\
-b'Server: python be\r\n'
-		if self.server.unlim == False:
-			resp += b'Content-Length: 0\r\n\r\n'
-		else:
-			resp += b'\r\n<html>content</html>\r\n\r\n'
-		print("be:resp:{}".format(resp))
+		resp = self.server.resp
+
 		self.wfile.write(resp)
 		self.wfile.flush()
 		if self.server.unlim:
