@@ -55,27 +55,24 @@ enum {
 };
 
 /**
- * The following __data_{} macros help to reduce the amount of direct @data/@len
- * manipulations.
+ * The following __data_{} macros help to reduce the amount of direct
+ * @data/@len manipulations.
  */
 #define __data_off(pos)			(size_t)((pos) - data)
 #define __data_remain(pos)		(len - __data_off(pos))
 #define __data_available(pos, num)	(num <= __data_remain(pos))
 
 /**
- * The following set of macros is intended to use for generic fields processing
- * while parsing HTTP status-line. As with headers, @__msg_field_open macro is
- * used for field openning, @__msg_field_fixup is used for updating, and
- * @__msg_field_finish is used when field needs to be finished. The latter means
- * that the underlying TfwStr flag TFW_STR_COMPLETE must be raised.
+ * The following set of macros is for use in generic field processing.
+ * @__msg_field_open macro is used for field opening, @__msg_field_fixup
+ * is used for updating, and @__msg_field_finish is used when the field
+ * is finished. The latter means that the TfwStr{} flag TFW_STR_COMPLETE
+ * must be raised.
  */
 #define __msg_field_open(field, pos)	tfw_http_msg_set_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
-do {									\
-	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos)); \
-} while (0)
+		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos));
 
 #define __msg_field_finish(field, pos)					\
 do {									\
@@ -222,13 +219,13 @@ do {									\
 } while (0)
 
 /*
- * The macros at the below controls string chunks on their own:
- * i.e. a caller can explicitly chop ingress contigous string to many chunks
- * generating efficient key/value pairs.
+ * The macros below control chunks within a string:
+ * i.e. a caller can explicitly chop an ingress contiguous string
+ * into multiple chunks thus generating efficient key/value pairs.
  *
- * Fixup current chunk starting at current data pointer @p and with size
- * @n. Move forward to just after the chunk.
- * We have at least @n bytes since we parsed them before fixup.
+ * Fixup the current chunk that starts at the current data pointer
+ * @p and has the size @n. Move forward to just after the chunk.
+ * We have at least @n bytes as we parsed them before the fixup.
  */
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
 do {									\
@@ -530,23 +527,23 @@ __FSM_STATE(RGen_CR) {							\
 }
 
 /*
- * Process final CRLF, i.e. end of headers part or whole HTTP message.
- * Probably we're here after trailing-part headers, so @msg->crlf is already
- * set and there is nothing to do.
+ * Process the final CRLF, i.e. the end of the headers part or the whole
+ * HTTP message. Probably we're here after trailing-part headers, so
+ * @msg->crlf is already set and there is nothing to do.
  */
 #define TFW_HTTP_PARSE_CRLF()						\
 do {									\
 	if (unlikely(c == '\r')) {					\
 		if (!msg->crlf.ptr)					\
-			/* End of headers part. */			\
+			/* The end of the headers part. */		\
 			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
 		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
 	}								\
 	if (c == '\n') {						\
 		if (!msg->crlf.ptr) {					\
 			/*						\
-			 * Set data and length explicitly for single LF	\
-			 * w/o calling complex __msg_field_fixup().	\
+			 * Set data and length explicitly for a single	\
+			 * LF w/o calling complex __msg_field_fixup().	\
 			 */						\
 			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
 			msg->crlf.len = 1;				\
@@ -570,10 +567,9 @@ __FSM_STATE(RGen_CRLFCR) {						\
 		__msg_field_fixup(&msg->crlf, p + 1);			\
 		msg->crlf.flags |= TFW_STR_COMPLETE;			\
 		__FSM_JMP(RGen_BodyInit);				\
-	} else {							\
-		r = TFW_PASS;						\
-		FSM_EXIT();						\
 	}								\
+	r = TFW_PASS;							\
+	FSM_EXIT();							\
 }
 
 /*
@@ -807,9 +803,9 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
-	msg->body.flags |= TFW_STR_COMPLETE;				\
 	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
 		return TFW_BLOCK;					\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
 	p += __fsm_sz;							\
 	r = TFW_PASS;							\
 	goto done;							\
@@ -1848,9 +1844,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (likely(c == '/')) {
+			/*
+			 * The case where "Host:" header value is empty.
+			 * A special TfwStr{} string is created that has
+			 * a valid pointer and the length of zero.
+			 */
 			TFW_DBG3("Handling http:///path\n");
-			__msg_field_open(&req->host, p);
-			__msg_field_finish(&req->host, p);
+			tfw_http_msg_set_data(msg, &req->host, p);
+			req->host.flags |= TFW_STR_COMPLETE;
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {
 			__msg_field_open(&req->host, p);
@@ -3198,6 +3199,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	if (hm->parser.state == Resp_BodyUnlimRead) {
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
+		hm->content_length = hm->body.len;
 		return true;
 	}
 	return false;

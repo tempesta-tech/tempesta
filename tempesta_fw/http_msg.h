@@ -66,8 +66,8 @@ int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 /**
  * Fixup the new data chunk to currently parsed HTTP header.
  *
- * @len could be 0 if the header was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
+ * @len might be 0 if the header was fully read, but we have realized
+ * thatj ust now by facing CRLF at the start of the current data chunk.
  */
 static inline void
 tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
