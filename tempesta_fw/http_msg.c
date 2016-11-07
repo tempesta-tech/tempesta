@@ -280,8 +280,8 @@ done:
 /**
  * Fixup the new data chunk starting at @data with length @len to @str.
  *
- * @len could be 0 if the field was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
+ * @len might be 0 if the field was fully read, but we have realized
+ * that just now by facing CRLF at the start of the current data chunk.
  */
 int
 __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,

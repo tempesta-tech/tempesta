@@ -72,10 +72,7 @@ enum {
 #define __msg_field_open(field, pos)	tfw_http_msg_set_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
-do {									\
-	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos)); \
-} while (0)
+		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos));
 
 #define __msg_field_finish(field, pos)					\
 do {									\
@@ -3198,6 +3195,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	if (hm->parser.state == Resp_BodyUnlimRead) {
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
+		hm->content_length = hm->body.len;
 		return true;
 	}
 	return false;

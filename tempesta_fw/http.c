@@ -966,6 +966,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			 * The request is fully parsed,
 			 * fall through and process it.
 			 */
+			BUG_ON(req->content_length != req->body.len);
 			;
 		}
 
@@ -1363,6 +1364,7 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 * The response is fully parsed,
 			 * fall through and process it.
 			 */
+			BUG_ON(hmresp->content_length != hmresp->body.len);
 			;
 		}
 
