@@ -10,7 +10,7 @@ import re
 class TFWParser(HTMLParser):
 	status = ""
 	def set_status(self, data):
-		status = re.findall("\d{3}\s\w+\s?\w+", data)
+		status = re.findall("\d\d\d", data)
 		if len(status) > 0:
 			self.status = status[0]
 

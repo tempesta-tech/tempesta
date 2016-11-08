@@ -12,6 +12,7 @@ import socket
 import tfw
 import conf
 import be
+import tfwparser
 import datetime
 
 class Test:
@@ -24,7 +25,7 @@ class Test:
 		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
 		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
 							   " %H:%M:%S GMT")
-		print("date:{}".format(date))
+#		print("date:{}".format(date))
 		self.resp += b"Date: " + date + b"\r\n"
 		self.resp += b"Server: be python\r\n\r\n"
 
@@ -41,19 +42,25 @@ class Test:
 
 		vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
 		b"Connection: Keep-Alive\r\n\r\n"
-		try:
-			be.start(True, self.resp)	
-			tfw.start()
-			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			s.connect(("127.0.0.1",8081))
-			s.sendall(vs_get)
-			data = s.recv(1024)
-
-			s.close()
-			tfw.stop()
-		except socket.timeout as t:
-			print("my to:", t)
-		print('data:{}'.format(data))
+#		try:
+		be.start(True, self.resp)	
+		tfw.start()
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect(("127.0.0.1",8081))
+		s.sendall(vs_get)
+		data = s.recv(1024)
+		s.close()
+		tfw.stop()
+#		except socket.timeout as t:
+#			print("my to:", t)
+#		print('data:{}'.format(data))
+		if len(data) > 0:
+			print(data)
+			parser = tfwparser.TFWParser()
+			parser.set_status(data)
+			status = parser.get_status()
+			print("status:{}".format(status))
+			 
 		be.stop()
 	def run(self):
 #		self.run_no_length_body()
