@@ -63,18 +63,6 @@ int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 #define tfw_http_msg_add_data_ptr(hm, str, data, len)			\
 	__tfw_http_msg_add_data_ptr(hm, str, data, len, NULL)
 
-/**
- * Fixup the new data chunk to currently parsed HTTP header.
- *
- * @len might be 0 if the header was fully read, but we have realized
- * thatj ust now by facing CRLF at the start of the current data chunk.
- */
-static inline void
-tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
-{
-	tfw_http_msg_add_data_ptr(hm, &hm->parser.hdr, data, len);
-}
-
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			  char *val, size_t v_len, int hid, bool append);

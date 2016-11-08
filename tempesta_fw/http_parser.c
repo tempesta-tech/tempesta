@@ -80,6 +80,9 @@ do {									\
 	(field)->flags |= TFW_STR_COMPLETE;				\
 } while (0)
 
+#define __msg_hdr_chunk_fixup(data, len)				\
+		tfw_http_msg_add_data_ptr(msg, &msg->parser.hdr, data, len);
+
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
  * variables in nested blocks, so we declare all required temporal variables
@@ -193,7 +196,7 @@ do {									\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		finish;							\
 		__FSM_EXIT()						\
 	}								\
@@ -210,7 +213,7 @@ do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
 		r = TFW_POSTPONE;					\
@@ -229,7 +232,7 @@ do {									\
  */
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
 do {									\
-	tfw_http_msg_hdr_chunk_fixup(msg, p, n);			\
+	__msg_hdr_chunk_fixup(p, n);					\
 	__FSM_I_chunk_flags(flag);					\
 	parser->_i_st = to;						\
 	p += n;								\
@@ -246,7 +249,7 @@ do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);		\
+		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
 		__FSM_I_chunk_flags(flag);				\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
@@ -486,7 +489,7 @@ enum {
 			TRY_STR_INIT();					\
 			__FSM_I_MOVE_n(state, __fsm_n);			\
 		}							\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		return CSTR_POSTPONE;					\
 	}
 
@@ -595,7 +598,7 @@ __FSM_STATE(st_curr) {							\
 	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
 		return TFW_BLOCK;					\
 	/* Store header name and field in different chunks. */		\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
+	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
 		 " id=%d\n", __fsm_n, __fsm_sz, id);			\
@@ -612,7 +615,7 @@ __FSM_STATE(st_curr) {							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);	\
+			__msg_hdr_chunk_fixup(p, __fsm_n);		\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = id;					\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
@@ -635,7 +638,7 @@ __FSM_STATE(st_curr) {							\
 	 * correctly create a new chunk, which includes part of the request
 	 * before the header-value, and we lose this part. It should be forced
 	 * to save it.*/						\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
+	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
 		 __fsm_n, __fsm_sz);					\
@@ -651,7 +654,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
+		__msg_hdr_chunk_fixup(p, __fsm_n);			\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */	\
@@ -685,7 +688,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		return TFW_BLOCK;					\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, __data_off(p + __fsm_sz)); \
+	__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz)); 		\
 	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
 }
 
@@ -955,7 +958,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	 */
 	r = parse_int_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+		__msg_hdr_chunk_fixup(data, len);
 
 	TFW_DBG3("%s: content_length=%lu\n", __func__, msg->content_length);
 
@@ -1375,7 +1378,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1391,7 +1394,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1415,7 +1418,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1503,7 +1506,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (c == ';') {
 			if (likely(__fsm_sz)) {
 				/* Save cookie-value w/o ';'. */
-				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			__FSM_I_MOVE_n(Req_I_CookieSemicolon, __fsm_sz);
@@ -1511,7 +1514,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (unlikely(IS_CRLFWS(c))) {
 			/* End of cookie header. Do not save OWS. */
 			if (likely(__fsm_sz)) {
-				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			return __data_off(p + __fsm_sz);
@@ -2618,7 +2621,7 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.age = parser->_acc;
@@ -2716,7 +2719,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -2736,7 +2739,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -2885,7 +2888,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		if (parser->_acc < 1 || parser->_acc > 31)
@@ -2981,7 +2984,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date = __year_day_secs(parser->_acc, parser->_date);
@@ -3001,7 +3004,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 3600;
@@ -3019,7 +3022,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 60;
@@ -3037,7 +3040,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc;
@@ -3122,7 +3125,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->keep_alive = parser->_acc;
