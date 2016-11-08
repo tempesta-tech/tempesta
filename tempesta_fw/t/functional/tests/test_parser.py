@@ -21,30 +21,24 @@ class Test:
 		self.cfg.add_option('listen', '8081')
 		self.cfg.add_option('server', '127.0.0.1:8080')	
 	def run_no_length_no_body(self):
-		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n\r\n'
-		date = datetime.datetime.utcnow().strftime("%a,%d %b %Y" +\
-							   "%H:%M:%S GMT")
+		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
+		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
+							   " %H:%M:%S GMT")
+		print("date:{}".format(date))
 		self.resp += b"Date: " + date + b"\r\n"
-		self.resp += b"Server: be python\r\n\r\n\r\n\r\n"
-#		resp += b'Content-Length: 0\r\n\r\n'
-#		self.resp += b'\r\n<html>content</html>\r\n\r\n'
+		self.resp += b"Server: be python\r\n\r\n"
+
 		self.run_test()
 
 	def run_no_length_body(self):
-		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n\r\n'
-		date = datetime.datetime.utcnow().strftime("%a,%d %b %Y" +\
-							   "%H:%M:%S GMT")
+		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
+		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
+							   " %H:%M:%S GMT")
 		self.resp += b"Date: " + date + b"\r\n" 
-#		self.resp += b'Content-Length: 20\r\n\r\n'
 		self.resp += b'\r\n<html>content</html>\r\n\r\n'
 		self.run_test()
 	def run_test(self):
-#		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n\r\n'
-#		date = datetime.datetime.utcnow().strftime("%a,%d %b %Y" +\
-#							   "%H:%M:%S GMT")
-#		self.resp += b"Date: " + date + b"\r\n" 
-#		resp += b'Content-Length: 0\r\n\r\n'
-#		self.resp += b'\r\n<html>content</html>\r\n\r\n'
+
 		vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
 		b"Connection: Keep-Alive\r\n\r\n"
 		try:
