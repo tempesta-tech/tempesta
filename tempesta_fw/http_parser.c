@@ -69,10 +69,11 @@ enum {
  * is finished. The latter means that the TfwStr{} flag TFW_STR_COMPLETE
  * must be raised.
  */
-#define __msg_field_open(field, pos)	tfw_http_msg_set_data(msg, field, pos)
+#define __msg_field_open(field, pos)					\
+	tfw_http_msg_set_str_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
-		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos));
+	tfw_http_msg_add_str_data(msg, field, data, __data_off(pos))
 
 #define __msg_field_finish(field, pos)					\
 do {									\
@@ -81,7 +82,7 @@ do {									\
 } while (0)
 
 #define __msg_hdr_chunk_fixup(data, len)				\
-		tfw_http_msg_add_data_ptr(msg, &msg->parser.hdr, data, len);
+	tfw_http_msg_add_str_data(msg, &msg->parser.hdr, data, len)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -539,7 +540,7 @@ do {									\
 	if (unlikely(c == '\r')) {					\
 		if (!msg->crlf.ptr)					\
 			/* The end of the headers part. */		\
-			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
 		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
 	}								\
 	if (c == '\n') {						\
@@ -548,7 +549,7 @@ do {									\
 			 * Set data and length explicitly for a single	\
 			 * LF w/o calling complex __msg_field_fixup().	\
 			 */						\
-			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
 			msg->crlf.len = 1;				\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
 			__FSM_JMP(RGen_BodyInit);			\
@@ -772,7 +773,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 
 #define TFW_HTTP_PARSE_BODY_UNLIM()					\
 __FSM_STATE(Resp_BodyUnlimStart) {					\
-	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* fall through */						\
 }									\
 __FSM_STATE(Resp_BodyUnlimRead) {					\
@@ -782,7 +783,7 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 #define TFW_HTTP_PARSE_BODY()						\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart) {						\
-	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyChunk) {						\
@@ -806,7 +807,7 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
-	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
+	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
 		return TFW_BLOCK;					\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	p += __fsm_sz;							\
@@ -844,19 +845,18 @@ __FSM_STATE(RGen_BodyEoL) {						\
 __FSM_STATE(RGen_BodyCR) {						\
 	if (unlikely(c != '\n'))					\
 		return TFW_BLOCK;					\
-	if (!parser->to_read) {						\
-		/*							\
-		 * We've fully read chunked body.			\
-		 * Add everything and the current character.		\
-		 */							\
-		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data,	\
-					      __data_off(p) + 1))	\
-			return TFW_BLOCK;				\
-		msg->body.flags |= TFW_STR_COMPLETE;			\
-		/* Process trailer-part. */				\
-		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	}								\
-	__FSM_MOVE_f(RGen_BodyChunk, &msg->body);			\
+	if (parser->to_read)						\
+		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
+	/*								\
+	 * We've fully read the chunked body.				\
+	 * Add everything and the current character.			\
+	 */								\
+	if (tfw_http_msg_add_str_data(msg, &msg->body, data,		\
+				      __data_off(p) + 1))		\
+		return TFW_BLOCK;					\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
+	/* Process the trailer-part. */					\
+	__FSM_MOVE_nofixup(RGen_Hdr);					\
 }
 
 /*
@@ -1853,7 +1853,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			 * a valid pointer and the length of zero.
 			 */
 			TFW_DBG3("Handling http:///path\n");
-			tfw_http_msg_set_data(msg, &req->host, p);
+			tfw_http_msg_set_str_data(msg, &req->host, p);
 			req->host.flags |= TFW_STR_COMPLETE;
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {

@@ -291,7 +291,7 @@ done:
  * that just now by facing CRLF at the start of the current data chunk.
  */
 int
-__tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
+__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
 	BUG_ON(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE));
@@ -302,7 +302,7 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->ptr)
-			__tfw_http_msg_set_data(hm, str, data, skb);
+			__tfw_http_msg_set_str_data(str, data, skb);
 		str->len = data + len - str->ptr;
 		BUG_ON(!str->len);
 	}
@@ -312,7 +312,7 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 			TFW_WARN("Cannot grow HTTP data string\n");
 			return -ENOMEM;
 		}
-		__tfw_http_msg_set_data(hm, sn, data, skb);
+		__tfw_http_msg_set_str_data(sn, data, skb);
 		tfw_str_updlen(str, data + len);
 	}
 
@@ -744,7 +744,7 @@ next_frag:
 	skb_frag_size_add(frag, n_copy);
 	ss_skb_adjust_data_len(it->skb, n_copy);
 
-	if (__tfw_http_msg_add_data_ptr(hm, field, p, n_copy, it->skb))
+	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;
 
 	if (d_size > f_room) {
