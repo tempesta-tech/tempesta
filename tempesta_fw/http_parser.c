@@ -3199,7 +3199,9 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
-	if (hm->parser.state == Resp_BodyUnlimRead) {
+	if (hm->parser.state == Resp_BodyUnlimRead
+	    || hm->parser.state == Resp_BodyUnlimStart)
+	{
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
 		hm->content_length = hm->body.len;
