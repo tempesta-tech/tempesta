@@ -34,12 +34,14 @@ typedef struct {
 } TfwMsgIter;
 
 static inline void
-__tfw_http_msg_set_data(TfwHttpMsg *hm, TfwStr *str, void *data,
-			struct sk_buff *skb)
+__tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 {
 	str->ptr = data;
-	str->skb = skb ? : ss_skb_peek_tail(&hm->msg.skb_list);
+	str->skb = skb;
 }
+#define tfw_http_msg_set_str_data(hm, str, data)			\
+	__tfw_http_msg_set_str_data(str, data,				\
+				    ss_skb_peek_tail(&hm->msg.skb_list))
 
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
 
@@ -55,25 +57,11 @@ tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	__http_msg_hdr_val(hdr, id, val, false);
 }
 
-#define tfw_http_msg_set_data(hm, str, data)				\
-	__tfw_http_msg_set_data(hm, str, data, NULL)
-
-int __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
+int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 				size_t len, struct sk_buff *skb);
-#define tfw_http_msg_add_data_ptr(hm, str, data, len)			\
-	__tfw_http_msg_add_data_ptr(hm, str, data, len, NULL)
-
-/**
- * Fixup the new data chunk to currently parsed HTTP header.
- *
- * @len could be 0 if the header was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
- */
-static inline void
-tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
-{
-	tfw_http_msg_add_data_ptr(hm, &hm->parser.hdr, data, len);
-}
+#define tfw_http_msg_add_str_data(hm, str, data, len)			\
+	__tfw_http_msg_add_str_data(hm, str, data, len,			\
+				    ss_skb_peek_tail(&hm->msg.skb_list))
 
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
