@@ -55,33 +55,34 @@ enum {
 };
 
 /**
- * The following __data_{} macros help to reduce the amount of direct @data/@len
- * manipulations.
+ * The following __data_{} macros help to reduce the amount of direct
+ * @data/@len manipulations.
  */
 #define __data_off(pos)			(size_t)((pos) - data)
 #define __data_remain(pos)		(len - __data_off(pos))
 #define __data_available(pos, num)	(num <= __data_remain(pos))
 
 /**
- * The following set of macros is intended to use for generic fields processing
- * while parsing HTTP status-line. As with headers, @__msg_field_open macro is
- * used for field openning, @__msg_field_fixup is used for updating, and
- * @__msg_field_finish is used when field needs to be finished. The latter means
- * that the underlying TfwStr flag TFW_STR_COMPLETE must be raised.
+ * The following set of macros is for use in generic field processing.
+ * @__msg_field_open macro is used for field opening, @__msg_field_fixup
+ * is used for updating, and @__msg_field_finish is used when the field
+ * is finished. The latter means that the TfwStr{} flag TFW_STR_COMPLETE
+ * must be raised.
  */
-#define __msg_field_open(field, pos)	tfw_http_msg_set_data(msg, field, pos)
+#define __msg_field_open(field, pos)					\
+	tfw_http_msg_set_str_data(msg, field, pos)
 
 #define __msg_field_fixup(field, pos)					\
-do {									\
-	if (TFW_STR_LAST((TfwStr *)field)->ptr != pos)			\
-		tfw_http_msg_add_data_ptr(msg, field, data, __data_off(pos)); \
-} while (0)
+	tfw_http_msg_add_str_data(msg, field, data, __data_off(pos))
 
 #define __msg_field_finish(field, pos)					\
 do {									\
 	__msg_field_fixup(field, pos);					\
 	(field)->flags |= TFW_STR_COMPLETE;				\
 } while (0)
+
+#define __msg_hdr_chunk_fixup(data, len)				\
+	tfw_http_msg_add_str_data(msg, &msg->parser.hdr, data, len)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -196,7 +197,7 @@ do {									\
 		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		finish;							\
 		__FSM_EXIT()						\
 	}								\
@@ -213,7 +214,7 @@ do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
 		r = TFW_POSTPONE;					\
@@ -222,17 +223,17 @@ do {									\
 } while (0)
 
 /*
- * The macros at the below controls string chunks on their own:
- * i.e. a caller can explicitly chop ingress contigous string to many chunks
- * generating efficient key/value pairs.
+ * The macros below control chunks within a string:
+ * i.e. a caller can explicitly chop an ingress contiguous string
+ * into multiple chunks thus generating efficient key/value pairs.
  *
- * Fixup current chunk starting at current data pointer @p and with size
- * @n. Move forward to just after the chunk.
- * We have at least @n bytes since we parsed them before fixup.
+ * Fixup the current chunk that starts at the current data pointer
+ * @p and has the size @n. Move forward to just after the chunk.
+ * We have at least @n bytes as we parsed them before the fixup.
  */
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
 do {									\
-	tfw_http_msg_hdr_chunk_fixup(msg, p, n);			\
+	__msg_hdr_chunk_fixup(p, n);					\
 	__FSM_I_chunk_flags(flag);					\
 	parser->_i_st = to;						\
 	p += n;								\
@@ -249,7 +250,7 @@ do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);		\
+		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
 		__FSM_I_chunk_flags(flag);				\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
@@ -489,7 +490,7 @@ enum {
 			TRY_STR_INIT();					\
 			__FSM_I_MOVE_n(state, __fsm_n);			\
 		}							\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		return CSTR_POSTPONE;					\
 	}
 
@@ -530,25 +531,25 @@ __FSM_STATE(RGen_CR) {							\
 }
 
 /*
- * Process final CRLF, i.e. end of headers part or whole HTTP message.
- * Probably we're here after trailing-part headers, so @msg->crlf is already
- * set and there is nothing to do.
+ * Process the final CRLF, i.e. the end of the headers part or the whole
+ * HTTP message. Probably we're here after trailing-part headers, so
+ * @msg->crlf is already set and there is nothing to do.
  */
 #define TFW_HTTP_PARSE_CRLF()						\
 do {									\
 	if (unlikely(c == '\r')) {					\
 		if (!msg->crlf.ptr)					\
-			/* End of headers part. */			\
-			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+			/* The end of the headers part. */		\
+			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
 		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
 	}								\
 	if (c == '\n') {						\
 		if (!msg->crlf.ptr) {					\
 			/*						\
-			 * Set data and length explicitly for single LF	\
-			 * w/o calling complex __msg_field_fixup().	\
+			 * Set data and length explicitly for a single	\
+			 * LF w/o calling complex __msg_field_fixup().	\
 			 */						\
-			tfw_http_msg_set_data(msg, &msg->crlf, p);	\
+			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
 			msg->crlf.len = 1;				\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
 			__FSM_JMP(RGen_BodyInit);			\
@@ -570,10 +571,9 @@ __FSM_STATE(RGen_CRLFCR) {						\
 		__msg_field_fixup(&msg->crlf, p + 1);			\
 		msg->crlf.flags |= TFW_STR_COMPLETE;			\
 		__FSM_JMP(RGen_BodyInit);				\
-	} else {							\
-		r = TFW_PASS;						\
-		FSM_EXIT();						\
 	}								\
+	r = TFW_PASS;							\
+	FSM_EXIT();							\
 }
 
 /*
@@ -599,7 +599,7 @@ __FSM_STATE(st_curr) {							\
 	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
 		return TFW_BLOCK;					\
 	/* Store header name and field in different chunks. */		\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
+	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
 		 " id=%d\n", __fsm_n, __fsm_sz, id);			\
@@ -616,7 +616,7 @@ __FSM_STATE(st_curr) {							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
-			tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);	\
+			__msg_hdr_chunk_fixup(p, __fsm_n);		\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = id;					\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
@@ -639,7 +639,7 @@ __FSM_STATE(st_curr) {							\
 	 * correctly create a new chunk, which includes part of the request
 	 * before the header-value, and we lose this part. It should be forced
 	 * to save it.*/						\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, p - data);		\
+	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
 		 __fsm_n, __fsm_sz);					\
@@ -655,7 +655,7 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_n);		\
+		__msg_hdr_chunk_fixup(p, __fsm_n);			\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */	\
@@ -689,7 +689,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		return TFW_BLOCK;					\
-	tfw_http_msg_hdr_chunk_fixup(msg, data, __data_off(p + __fsm_sz)); \
+	__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz)); 		\
 	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
 }
 
@@ -773,7 +773,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 
 #define TFW_HTTP_PARSE_BODY_UNLIM()					\
 __FSM_STATE(Resp_BodyUnlimStart) {					\
-	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* fall through */						\
 }									\
 __FSM_STATE(Resp_BodyUnlimRead) {					\
@@ -783,7 +783,7 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 #define TFW_HTTP_PARSE_BODY()						\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart) {						\
-	tfw_http_msg_set_data(msg, &msg->body, p);			\
+	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyChunk) {						\
@@ -807,9 +807,9 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
-	msg->body.flags |= TFW_STR_COMPLETE;				\
-	if (tfw_http_msg_add_data_ptr(msg, &msg->body, p, __fsm_sz))	\
+	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
 		return TFW_BLOCK;					\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
 	p += __fsm_sz;							\
 	r = TFW_PASS;							\
 	goto done;							\
@@ -845,19 +845,18 @@ __FSM_STATE(RGen_BodyEoL) {						\
 __FSM_STATE(RGen_BodyCR) {						\
 	if (unlikely(c != '\n'))					\
 		return TFW_BLOCK;					\
-	if (!parser->to_read) {						\
-		/*							\
-		 * We've fully read chunked body.			\
-		 * Add everything and the current character.		\
-		 */							\
-		if (tfw_http_msg_add_data_ptr(msg, &msg->body, data,	\
-					      __data_off(p) + 1))	\
-			return TFW_BLOCK;				\
-		msg->body.flags |= TFW_STR_COMPLETE;			\
-		/* Process trailer-part. */				\
-		__FSM_MOVE_nofixup(RGen_Hdr);				\
-	}								\
-	__FSM_MOVE_f(RGen_BodyChunk, &msg->body);			\
+	if (parser->to_read)						\
+		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
+	/*								\
+	 * We've fully read the chunked body.				\
+	 * Add everything and the current character.			\
+	 */								\
+	if (tfw_http_msg_add_str_data(msg, &msg->body, data,		\
+				      __data_off(p) + 1))		\
+		return TFW_BLOCK;					\
+	msg->body.flags |= TFW_STR_COMPLETE;				\
+	/* Process the trailer-part. */					\
+	__FSM_MOVE_nofixup(RGen_Hdr);					\
 }
 
 /*
@@ -959,7 +958,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	 */
 	r = parse_int_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+		__msg_hdr_chunk_fixup(data, len);
 
 	TFW_DBG3("%s: content_length=%lu\n", __func__, msg->content_length);
 
@@ -1379,7 +1378,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1395,7 +1394,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1419,7 +1418,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -1507,7 +1506,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (c == ';') {
 			if (likely(__fsm_sz)) {
 				/* Save cookie-value w/o ';'. */
-				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			__FSM_I_MOVE_n(Req_I_CookieSemicolon, __fsm_sz);
@@ -1515,7 +1514,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (unlikely(IS_CRLFWS(c))) {
 			/* End of cookie header. Do not save OWS. */
 			if (likely(__fsm_sz)) {
-				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			return __data_off(p + __fsm_sz);
@@ -1848,9 +1847,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
 		} else if (likely(c == '/')) {
+			/*
+			 * The case where "Host:" header value is empty.
+			 * A special TfwStr{} string is created that has
+			 * a valid pointer and the length of zero.
+			 */
 			TFW_DBG3("Handling http:///path\n");
-			__msg_field_open(&req->host, p);
-			__msg_field_finish(&req->host, p);
+			tfw_http_msg_set_str_data(msg, &req->host, p);
+			req->host.flags |= TFW_STR_COMPLETE;
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		} else if (c == '[') {
 			__msg_field_open(&req->host, p);
@@ -2617,7 +2621,7 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.age = parser->_acc;
@@ -2715,7 +2719,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -2735,7 +2739,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -2884,7 +2888,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		if (parser->_acc < 1 || parser->_acc > 31)
@@ -2980,7 +2984,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date = __year_day_secs(parser->_acc, parser->_date);
@@ -3000,7 +3004,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 3600;
@@ -3018,7 +3022,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 60;
@@ -3036,7 +3040,7 @@ __resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc;
@@ -3121,7 +3125,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			tfw_http_msg_hdr_chunk_fixup(msg, data, len);
+			__msg_hdr_chunk_fixup(data, len);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->keep_alive = parser->_acc;
@@ -3198,6 +3202,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	if (hm->parser.state == Resp_BodyUnlimRead) {
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
+		hm->content_length = hm->body.len;
 		return true;
 	}
 	return false;

@@ -1066,7 +1066,7 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 		} else {
 			p = NULL;
 		}
-		if (__tfw_http_msg_add_data_ptr((TfwHttpMsg *)resp,
+		if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
 						&resp->body, p, f_size,
 						it->skb))
 			return - ENOMEM;
