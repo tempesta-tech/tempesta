@@ -56,11 +56,9 @@ class Test:
 		vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
 		b"Connection: Keep-Alive\r\n\r\n"
 		pid =  be.start(True, self.resp)
-		print("start pid:{}".format(pid))
 		tfw.start()
 		i = 0
 		while i < num:
-			print("loop:i:{}".format(i))
 			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			s.connect(("127.0.0.1",8081))
 			s.sendall(vs_get)
@@ -68,7 +66,6 @@ class Test:
 			s.close()
 			i += 1
 			if len(data) > 0:
-				print(data)
 				parser = tfwparser.TFWParser()
 				parser.set_status(data)
 				status = parser.get_status()
@@ -78,9 +75,7 @@ class Test:
 		be.stop(pid)
 
 	def run(self):
-		print("parent:{}".format(os.getpid()))		
 		self.run_no_length_body()
-#		print("run:test ended")
 		self.run_no_length_no_body()
 		self.run_with_cache()
 
