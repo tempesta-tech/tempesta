@@ -14,52 +14,38 @@ import SimpleHTTPServer
 import BaseHTTPServer
 from  SimpleHTTPServer import SimpleHTTPRequestHandler
 import socket
-import SocketServer
-import multiprocessing
-import psutil
-from ctypes import cdll, byref, create_string_buffer
 import datetime
 import time
-process_id = 0
 server = None
 
 def handler(signum, frame):
 	os.remove('be.pid')
 	os._exit(0)
+
 def start(unlim, resp):
-	
 	httpd = Server(('127.0.0.1', 8080), BackendHTTPRequestHandler)
 	httpd.set_unlim(unlim)
 	httpd.set_resp(resp)
 	server = httpd
 	server.socket.setblocking(0)
-	wp, rp = os.pipe()
 	pid = os.fork()
 	if pid == 0:
-		process_id = os.getpid()
 		os.setsid()
 		pid = os.fork()
 		if pid == 0:
-			process_id = os.getpid()
-			httpd.set_pid(process_id)
 			wd = os.open("be.pid", os.O_RDWR | os.O_CREAT)
 			w = os.fdopen(wd, 'w')
 			s_pid = str(os.getpid())
 			w.write(s_pid)
 			w.flush()
 			w.close()
-			server.set_pid(process_id)
 			signal.signal(signal.SIGUSR1, handler)
-			wd = os.open("be.pid", os.O_RDWR | os.O_CREAT)
-			w = os.fdopen(wd, 'w')
-			s_pid = str(process_id)
-			w.write(s_pid)
-			w.flush()
-			w.close()
 			server.serve_forever()
 		else:
 			os._exit(0)
-	time.sleep(2)
+# Wait while the child writes his pid. We can't wait it to the end (serve 
+# forever). So let it is one second. 
+	time.sleep(1)
 	rd = open("be.pid", 'a+')
 	r_pid = rd.read()
 	rd.close()
@@ -73,16 +59,12 @@ def stop(pid):
 	os.kill(pid, signal.SIGUSR1)
 
 class Server(BaseHTTPServer.HTTPServer):
-	pid = 1999
 	def set_unlim(self,unlim):
 		self.unlim = unlim
-	def set_pid(self, pid):
-		self.pid = pid
 	def set_resp(self, resp):
 		self.resp = resp
 
 class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
-	
 	def __init__(self, req, client_address, server):
 		self. protocol_version = b'HTTP/1.0'
 		SimpleHTTPRequestHandler.__init__(self, req, client_address,
@@ -103,7 +85,7 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
 	def handle_one_request(self):
 		self.rfile._sock.setblocking(0)
-		self.rfile._sock.settimeout(5)
+		self.rfile._sock.settimeout(1)
 		SimpleHTTPServer.SimpleHTTPRequestHandler.handle_one_request(self)
 
 	def do_GET(self):

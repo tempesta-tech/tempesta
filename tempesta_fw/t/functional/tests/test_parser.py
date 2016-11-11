@@ -22,6 +22,7 @@ class Test:
 		self.cfg.add_option('cache', '0')
 		self.cfg.add_option('listen', '8081')
 		self.cfg.add_option('server', '127.0.0.1:8080')
+# Send request twice and check responses.
 	def run_with_cache(self):
 		self.cfg.del_option('cache')
 		self.cfg.add_option('cache', '1')
@@ -33,12 +34,12 @@ class Test:
 		self.resp += b'\r\n<html>content</html>\r\n\r\n'
 		self.run_test(2)
 		 
-# A response without the Content-Length header an without a body.	
+# A response without the Content-Length header an without a body. 
+# For now (11.11.2016) tempesta's return status - 404.
 	def run_no_length_no_body(self):
 		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
 		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
 							   " %H:%M:%S GMT")
-#		print("date:{}".format(date))
 		self.resp += b"Date: " + date + b"\r\n"
 		self.resp += b"Server: be python\r\n\r\n"
 
