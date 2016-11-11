@@ -3,9 +3,8 @@ __author__ = 'Tempesta Technologies Inc.'
 __copyright__ = 'Copyright (C) 2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
-"""
-A primitive back-end HTTP server implementation suitable for testing purposes.
-"""
+# A primitive back-end HTTP server implementation suitable for testing purposes.
+
 import threading
 import os
 import sys
@@ -70,6 +69,7 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 		SimpleHTTPRequestHandler.__init__(self, req, client_address,
 						  server)
 	def log_error(self, fmt, args):
+# Supress a no essential timeout message.
 		pass
 	def handle(self):
 		self.resp = self.server.resp
