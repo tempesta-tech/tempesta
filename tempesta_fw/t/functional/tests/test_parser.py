@@ -14,13 +14,26 @@ import conf
 import be
 import tfwparser
 import datetime
+import os
 
 class Test:
 	def __init__(self):
 		self.cfg = conf.Config('etc/tempesta_fw.conf')
 		self.cfg.add_option('cache', '0')
 		self.cfg.add_option('listen', '8081')
-		self.cfg.add_option('server', '127.0.0.1:8080')	
+		self.cfg.add_option('server', '127.0.0.1:8080')
+	def run_with_cache(self):
+		self.cfg.del_option('cache')
+		self.cfg.add_option('cache', '1')
+		self.cfg.add_option('cache_fulfill', '* *')
+		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
+		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
+							   " %H:%M:%S GMT")
+		self.resp += b"Date: " + date + b"\r\n" 
+		self.resp += b'\r\n<html>content</html>\r\n\r\n'
+		self.run_test(2)
+		 
+# A response without the Content-Length header an without a body.	
 	def run_no_length_no_body(self):
 		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
 		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
@@ -29,42 +42,47 @@ class Test:
 		self.resp += b"Date: " + date + b"\r\n"
 		self.resp += b"Server: be python\r\n\r\n"
 
-		self.run_test()
-
+		self.run_test(1)
+# A response thithout the Content-Length header, but with a body.
 	def run_no_length_body(self):
 		self.resp = b'HTTP/1.0' + b' 200 - OK\r\n'
 		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
 							   " %H:%M:%S GMT")
 		self.resp += b"Date: " + date + b"\r\n" 
 		self.resp += b'\r\n<html>content</html>\r\n\r\n'
-		self.run_test()
-	def run_test(self):
+		self.run_test(1)
+	def run_test(self, num):
 
 		vs_get = b"GET / HTTP/1.0\r\nHost: loc\r\n" +\
 		b"Connection: Keep-Alive\r\n\r\n"
-#		try:
-		be.start(True, self.resp)	
+		pid =  be.start(True, self.resp)
+		print("start pid:{}".format(pid))
 		tfw.start()
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect(("127.0.0.1",8081))
-		s.sendall(vs_get)
-		data = s.recv(1024)
-		s.close()
-		tfw.stop()
-#		except socket.timeout as t:
-#			print("my to:", t)
-#		print('data:{}'.format(data))
-		if len(data) > 0:
-			print(data)
-			parser = tfwparser.TFWParser()
-			parser.set_status(data)
-			status = parser.get_status()
-			print("status:{}".format(status))
-			 
-		be.stop()
+		i = 0
+		while i < num:
+			print("loop:i:{}".format(i))
+			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			s.connect(("127.0.0.1",8081))
+			s.sendall(vs_get)
+			data = s.recv(1024)
+			s.close()
+			i += 1
+			if len(data) > 0:
+				print(data)
+				parser = tfwparser.TFWParser()
+				parser.set_status(data)
+				status = parser.get_status()
+				print("status:{}".format(status))
+			
+		tfw.stop()	 
+		be.stop(pid)
+
 	def run(self):
-#		self.run_no_length_body()
+		print("parent:{}".format(os.getpid()))		
+		self.run_no_length_body()
+#		print("run:test ended")
 		self.run_no_length_no_body()
+		self.run_with_cache()
 
 	def get_name(self):
 		return 'test_unlimited'
