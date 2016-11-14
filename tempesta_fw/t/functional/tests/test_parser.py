@@ -15,6 +15,7 @@ import be
 import tfwparser
 import datetime
 import os
+import requests
 
 class Test:
 	def __init__(self):
@@ -67,15 +68,20 @@ class Test:
 			s.close()
 			i += 1
 			if len(data) > 0:
+				print("data:{}".format(data))
 				parser = tfwparser.TFWParser()
 				parser.set_status(data)
 				status = parser.get_status()
 				print("status:{}".format(status))
+				parser.feed(data)
 			
 		tfw.stop()	 
 		be.stop(pid)
 
 	def run(self):
+#		parser = tfwparser.TFWParser()
+#		c_res = parser.compare2("sample1", "sample2")
+#		print("compare:{}".format(c_res))
 		self.run_no_length_body()
 		self.run_no_length_no_body()
 		self.run_with_cache()

@@ -8,7 +8,18 @@ from HTMLParser import HTMLParser
 import re
 
 class TFWParser(HTMLParser):
+	state = 0
 	status = ""
+	def compare2(self, data1, data2):
+#		len = 0
+		data_len = min(len(data1), len(data2))
+		i = 0
+		while i < data_len:
+			if data1[i] != data2[i]:
+				return False
+			i += 1
+		return True
+
 	def set_status(self, data):
 		status = re.findall("\d\d\d", data)
 		if len(status) > 0:
