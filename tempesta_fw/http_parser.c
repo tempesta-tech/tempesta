@@ -896,10 +896,8 @@ __FSM_STATE(RGen_OWS) {							\
  * Parse Connection header value, RFC 2616 14.10.
  *
  * Most likely that Connection header contains only "close" or "keep-alive"
- * tokens. If Connection header contains other tokens, message flag
- * TFW_HTTP_CONN_EXTRA is set to indicate that hop-by-hop headers are set
- * and must be processed later. Each value will be placed to its chunk marked
- * with TFW_STR_VALUE flag.
+ * tokens. Each chunk of a token other than the tokens mentioned above is
+ * marked with TFW_STR_VALUE flag.
  */
 static int
 __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -921,6 +919,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			msg->flags |= TFW_HTTP_CONN_KA;
 		}, I_EoT);
 		TRY_STR_INIT();
+		msg->flags |= TFW_HTTP_CONN_EXTRA;
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
 
@@ -930,7 +929,6 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * it could be names of any headers, including custom headers.
 	 */
 	__FSM_STATE(I_ConnOther) {
-		msg->flags |= TFW_HTTP_CONN_EXTRA;
 		__FSM_I_MATCH_MOVE_fixup(token, I_ConnOther, TFW_STR_VALUE);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
@@ -2114,8 +2112,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrH);
 		case 'k':
 			if (likely(__data_available(p, 11)
-				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
-				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 1, 'e', 'e', 'p', '-')
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
 				   && tolower(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
@@ -3437,8 +3434,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Resp_HdrE);
 		case 'k':
 			if (likely(__data_available(p, 11)
-				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
-				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 1, 'e', 'e', 'p', '-')
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
