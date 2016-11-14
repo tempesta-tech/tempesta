@@ -508,7 +508,7 @@ enum {
 			TRY_STR_INIT();					\
 			__FSM_I_MOVE_fixup(state, __fsm_n, 0);		\
 		}							\
-		tfw_http_msg_hdr_chunk_fixup(msg, data, len);		\
+		__msg_hdr_chunk_fixup(data, len);			\
 		return CSTR_POSTPONE;					\
 	}
 
@@ -935,7 +935,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz, TFW_STR_VALUE);
 		if (IS_CRLF(c)) {
 			if (likely(__fsm_sz)) {
-				tfw_http_msg_hdr_chunk_fixup(msg, p, __fsm_sz);
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
 				__FSM_I_chunk_flags(TFW_STR_VALUE);
 			}
 			return __data_off(p + __fsm_sz);
