@@ -62,9 +62,15 @@ class Test:
 		i = 0
 		while i < num:
 			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			data = ""
 			s.connect(("127.0.0.1",8081))
-			s.sendall(vs_get)
-			data = s.recv(1024)
+			s.settimeout(1)
+			try:
+				s.sendall(vs_get)
+				data = s.recv(1024)
+			except socket.error as e:
+				print("exception:{}".format(e))
+
 			s.close()
 			i += 1
 			if len(data) > 0:

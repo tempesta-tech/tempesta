@@ -44,7 +44,7 @@ def start(unlim, resp):
 			os._exit(0)
 # Wait while the child writes his pid. We can't wait it to the end (serve 
 # forever). So let it is one second. 
-	time.sleep(1)
+	time.sleep(0.2)
 	rd = open("be.pid", 'a+')
 	r_pid = rd.read()
 	rd.close()
@@ -85,7 +85,7 @@ class BackendHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
 	def handle_one_request(self):
 		self.rfile._sock.setblocking(0)
-		self.rfile._sock.settimeout(1)
+		self.rfile._sock.settimeout(0.2)
 		SimpleHTTPServer.SimpleHTTPRequestHandler.handle_one_request(self)
 
 	def do_GET(self):
