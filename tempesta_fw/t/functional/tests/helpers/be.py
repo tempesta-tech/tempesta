@@ -15,6 +15,7 @@ from  SimpleHTTPServer import SimpleHTTPRequestHandler
 import socket
 import datetime
 import time
+import setproctitle
 server = None
 
 def handler(signum, frame):
@@ -29,9 +30,11 @@ def start(unlim, resp):
 	server.socket.setblocking(0)
 	pid = os.fork()
 	if pid == 0:
+#		os.setpgid(0,0)
 		os.setsid()
 		pid = os.fork()
 		if pid == 0:
+			setproctitle.setproctitle("tfwbackend")
 			wd = os.open("be.pid", os.O_RDWR | os.O_CREAT)
 			w = os.fdopen(wd, 'w')
 			s_pid = str(os.getpid())
