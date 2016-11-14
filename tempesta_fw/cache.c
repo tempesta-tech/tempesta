@@ -108,7 +108,7 @@ typedef struct {
 	TfwHttpReq		*req;
 	TfwHttpResp		*resp;
 	tfw_http_cache_cb_t	action;
-	unsigned long		key;
+	unsigned long		__unused;
 } TfwCWork;
 
 typedef struct {
@@ -437,7 +437,9 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
-		if (strncasecmp((char *)c->ptr + c_off, trec->data + t_off, n))
+		/* Cache key is stored in lower case. */
+		if (tfw_stricmp_2lc((char *)c->ptr + c_off,
+				    trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -489,6 +491,8 @@ node_db(void)
 
 /**
  * Get a CPU identifier from @node to schedule a work.
+ * The request should be processed on remote node, use round robin strategy
+ * to distribute such requests.
  *
  * Note that atomic_t is a signed 32-bit value, and it's intentionally
  * cast to unsigned type value before taking a modulo operation.
@@ -499,7 +503,46 @@ tfw_cache_sched_cpu(TfwHttpReq *req)
 {
 	CaNode *node = &c_nodes[req->node];
 	unsigned int idx = atomic_inc_return(&node->cpu_idx);
+
 	return node->cpu[idx % node->nr_cpus];
+}
+
+static TfwCacheEntry *
+tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
+{
+	TfwCacheEntry *ce;
+	unsigned long key = tfw_http_req_key_calc(req);
+
+	*iter = tdb_rec_get(db, key);
+	if (TDB_ITER_BAD(*iter)) {
+		TFW_INC_STAT_BH(cache.misses);
+		return NULL;
+	}
+	ce = (TfwCacheEntry *)iter->rec;
+	do {
+		/*
+		 * Basically we don't need to compare keys if only one record
+		 * is in the bucket. Checking for next record instead of
+		 * comparing the keys would has sense for long URI, but
+		 * performance benchmarks don't show any improvement.
+		 */
+		if (tfw_cache_entry_key_eq(db, req, ce))
+			break;
+		tdb_rec_next(db, iter);
+		if (!(ce = (TfwCacheEntry *)iter->rec)) {
+			TFW_INC_STAT_BH(cache.misses);
+			return NULL;
+		}
+	} while (true);
+
+	return ce;
+}
+
+static inline void
+tfw_cache_dbce_put(TfwCacheEntry *ce)
+{
+	if (ce)
+		tdb_rec_put(ce);
 }
 
 static void
@@ -525,7 +568,8 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  * how many chunks are copied.
  */
 static long
-tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+__tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
+		   void *cpy(void *dest, const void *src, size_t n))
 {
 	long copied = 0;
 
@@ -548,12 +592,27 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 			 (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
-		memcpy(*p, (char *)src->ptr + copied, room);
+		cpy(*p, (char *)src->ptr + copied, room);
 		*p += room;
 		copied += room;
 	}
 
 	return copied;
+}
+
+static inline long
+tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+{
+	return __tfw_cache_strcpy(p, trec, src, tot_len, memcpy);
+}
+
+/**
+ * The same as tfw_cache_strcpy(), but copies @src with lower case conversion.
+ */
+static inline long
+tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
+{
+	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_strtolower);
 }
 
 /**
@@ -674,7 +733,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
 	TFW_CACHE_REQ_KEYITER(field, req, end1, h, end2) {
-		if ((n = tfw_cache_strcpy(&p, &trec, field, tot_len)) < 0) {
+		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			TFW_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
 		}
@@ -818,6 +877,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	key = tfw_http_req_key_calc(req);
 
 	if (cache_cfg.cache == TFW_CACHE_SHARD) {
+		BUG_ON(req->node != numa_node_id());
 		__cache_add_node(node_db(), resp, req, key);
 	} else {
 		int nid;
@@ -840,59 +900,53 @@ out:
 	action(req, resp);
 }
 
-static void
-tfw_cache_ipi(struct irq_work *work)
+/**
+ * Invalidate a cache entry.
+ * In fact, this is implemented by making the cache entry stale.
+ */
+static int
+tfw_cache_purge_invalidate(TfwHttpReq *req)
 {
-	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
 
-	tasklet_schedule(&ct->tasklet);
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
+		return -ENOENT;
+	ce->lifetime = 0;
+	tfw_cache_dbce_put(ce);
+	return 0;
 }
 
-int
-tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
-		  tfw_http_cache_cb_t action)
+/**
+ * Process PURGE request method according to the configuration.
+ */
+static int
+tfw_cache_purge_method(TfwHttpReq *req)
 {
-	int r, cpu;
-	TfwWorkTasklet *ct;
-	TfwCWork cw;
+	int ret;
+	TfwAddr saddr;
+	TfwVhost *vhost = tfw_vhost_get_default();
 
-	if (req->method == TFW_HTTP_METH_PURGE)
-		goto do_cache;
-	if (!cache_cfg.cache)
-		goto dont_cache;
-	if (!tfw_cache_msg_cacheable(req))
-		goto dont_cache;
-	if (!resp && !tfw_cache_employ_req(req))
-		goto dont_cache;
-do_cache:
-	cw.req = req;
-	cw.resp = resp;
-	cw.action = action;
-	cw.key = tfw_http_req_key_calc(req);
-	req->node = (cache_cfg.cache == TFW_CACHE_SHARD)
-		    ? tfw_cache_key_node(cw.key)
-		    : numa_node_id();
-	cpu = tfw_cache_sched_cpu(req);
-	ct = &per_cpu(cache_wq, cpu);
+	/* Deny PURGE requests by default. */
+	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
+		return tfw_http_send_403(req);
 
-	/*
-	 * TODO don't queue the cache work if we should process it on this
-	 * CPU: we can do everything right now.
-	 */
+	/* Accept requests from configured hosts only. */
+	ss_getpeername(req->conn->sk, &saddr);
+	if (!tfw_capuacl_match(vhost, &saddr))
+		return tfw_http_send_403(req);
 
-	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
-		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
-		 cw.req, cw.resp, cw.key);
+	/* Only "invalidate" option is implemented at this time. */
+	switch (vhost->cache_purge_mode) {
+	case TFW_D_CACHE_PURGE_INVALIDATE:
+		ret = tfw_cache_purge_invalidate(req);
+		break;
+	default:
+		return tfw_http_send_403(req);
+	}
 
-	r = tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi, false);
-	if (unlikely(r))
-		TFW_WARN("Cache work queue overrun: [%s]\n",
-			 resp ? "response" : "request");
-	return r;
-
-dont_cache:
-	action(req, resp);
-	return 0;
+	return ret ? tfw_http_send_404(req) : tfw_http_send_200(req);
 }
 
 static int
@@ -1037,6 +1091,15 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * (copy the list of skbs is faster than scan TDB and build TfwHttpResp).
  * TLS should encrypt the data in already prepared skbs.
  *
+ * Basically, skb copy/clonning involves skb creation, so it seems performance
+ * of response body creation won't change since now we just reuse TDB pages.
+ * Perfromace benchmarks and profiling shows that cache_req_process_node()
+ * is the bottleneck, so the problem is either in tfw_cache_dbce_get() or this
+ * function, in headers compilation.
+ * Also it seems cachig prebuilt responses requires introducing
+ * TfwCacheEntry->resp pointer to avoid additional indexing data structure.
+ * However, the pointer must be zeroed on TDB shutdown and recovery.
+ *
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
@@ -1109,40 +1172,8 @@ err:
 	return NULL;
 }
 
-static TfwCacheEntry *
-tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req, unsigned long key)
-{
-	TfwCacheEntry *ce;
-
-	*iter = tdb_rec_get(db, key);
-	if (TDB_ITER_BAD(*iter)) {
-		TFW_INC_STAT_BH(cache.misses);
-		return NULL;
-	}
-	ce = (TfwCacheEntry *)iter->rec;
-	do {
-		if (tfw_cache_entry_key_eq(db, req, ce))
-			break;
-		tdb_rec_next(db, iter);
-		if (!(ce = (TfwCacheEntry *)iter->rec)) {
-			TFW_INC_STAT_BH(cache.misses);
-			return NULL;
-		}
-	} while (true);
-
-	return ce;
-}
-
-static inline void
-tfw_cache_dbce_put(TfwCacheEntry *ce)
-{
-	if (ce)
-		tdb_rec_put(ce);
-}
-
 static void
-cache_req_process_node(TfwHttpReq *req, unsigned long key,
-			 tfw_http_cache_cb_t action)
+cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
 	TfwCacheEntry *ce = NULL;
 	TfwHttpResp *resp = NULL;
@@ -1150,7 +1181,7 @@ cache_req_process_node(TfwHttpReq *req, unsigned long key,
 	TdbIter iter;
 	time_t lifetime;
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
 		goto out;
 
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
@@ -1176,56 +1207,85 @@ out:
 	tfw_cache_dbce_put(ce);
 }
 
-/*
- * Invalidate a cache entry.
- * In fact, this is implemented by making the cache entry stale.
- */
-static int
-tfw_cache_purge_invalidate(TfwHttpReq *req, unsigned long key)
+static void
+tfw_cache_do_action(TfwHttpReq *req, TfwHttpResp *resp,
+		    tfw_http_cache_cb_t action)
 {
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
-
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req, key)))
-		return -ENOENT;
-	ce->lifetime = 0;
-	tfw_cache_dbce_put(ce);
-	return 0;
+	if (resp) {
+		tfw_cache_add(resp, req, action);
+	}
+	else if (req->method == TFW_HTTP_METH_PURGE) {
+		tfw_cache_purge_method(req);
+	}
+	else {
+		cache_req_process_node(req, action);
+	}
 }
 
-/*
- * Process PURGE request method according to the configuration.
- */
-static int
-tfw_cache_purge_method(TfwHttpReq *req, unsigned long key)
+static void
+tfw_cache_ipi(struct irq_work *work)
 {
-	int ret;
-	TfwAddr saddr;
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
 
-	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req);
+	tasklet_schedule(&ct->tasklet);
+}
 
-	/* Accept requests from configured hosts only. */
-	ss_getpeername(req->conn->sk, &saddr);
-	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req);
+int
+tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
+		  tfw_http_cache_cb_t action)
+{
+	int r, cpu;
+	unsigned long key;
+	TfwWorkTasklet *ct;
+	TfwCWork cw;
 
-	/* Only "invalidate" option is implemented at this time. */
-	switch (vhost->cache_purge_mode) {
-	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_purge_invalidate(req, key);
-		break;
-	default:
-		return tfw_http_send_403(req);
+	if (req->method == TFW_HTTP_METH_PURGE)
+		goto do_cache;
+	if (!cache_cfg.cache)
+		goto dont_cache;
+	if (!tfw_cache_msg_cacheable(req))
+		goto dont_cache;
+	if (!resp && !tfw_cache_employ_req(req))
+		goto dont_cache;
+
+do_cache:
+	key = tfw_http_req_key_calc(req);
+	req->node = (cache_cfg.cache == TFW_CACHE_SHARD)
+		    ? tfw_cache_key_node(key)
+		    : numa_node_id();
+
+	/*
+	 * Queue the cache work only when it must be served by a remote node.
+	 * Otherwise we can do everything right now on local CPU.
+	 *
+	 * TODO #391: it appears that req->node is not really needed and can
+	 * be eliminated from TfwHttpReq{} structure and it can easily be
+	 * replaced by a local variable here.
+	 */
+	if (likely(req->node == numa_node_id())) {
+		tfw_cache_do_action(req, resp, action);
+		return 0;
 	}
 
-	if (ret)
-		return tfw_http_send_404(req);
-	else
-		return tfw_http_send_200(req);
+	cw.req = req;
+	cw.resp = resp;
+	cw.action = action;
+	cpu = tfw_cache_sched_cpu(req);
+	ct = per_cpu_ptr(&cache_wq, cpu);
+
+	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
+		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
+		 cw.req, cw.resp, key);
+
+	r = tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi, false);
+	if (unlikely(r))
+		TFW_WARN("Cache work queue overrun: [%s]\n",
+			 resp ? "response" : "request");
+	return r;
+
+dont_cache:
+	action(req, resp);
+	return 0;
 }
 
 static void
@@ -1234,15 +1294,8 @@ tfw_wq_tasklet(unsigned long data)
 	TfwWorkTasklet *ct = (TfwWorkTasklet *)data;
 	TfwCWork cw;
 
-	while (!tfw_wq_pop(&ct->wq, &cw)) {
-		if (cw.resp) {
-			tfw_cache_add(cw.resp, cw.req, cw.action);
-		} else if (cw.req->method == TFW_HTTP_METH_PURGE) {
-			tfw_cache_purge_method(cw.req, cw.key);
-		} else {
-			cache_req_process_node(cw.req, cw.key, cw.action);
-		}
-	}
+	while (!tfw_wq_pop(&ct->wq, &cw))
+		tfw_cache_do_action(cw.req, cw.resp, cw.action);
 }
 
 /**

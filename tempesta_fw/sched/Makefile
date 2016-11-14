@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,11 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += -Werror  -I$(src)/../ -I$(src)/../../tempesta_db/core \
-		-I$(src)/../../sync_socket
-ifdef DEBUG
-	EXTRA_CFLAGS += -DDEBUG=$(DEBUG)
-endif
+EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../ -I$(src)/../../tempesta_db/core
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m = tfw_sched_hash.o tfw_sched_http.o tfw_sched_rr.o

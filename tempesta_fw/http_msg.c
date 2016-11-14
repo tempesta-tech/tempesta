@@ -191,63 +191,8 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 
 	BUG_ON(!hdr->skb);
 
-	TFW_DBG3("open header at char [%c], skb=%p\n", *hdr_start, hdr->skb);
-}
-
-/**
- * Fixup the new data chunk to currently parsed HTTP field.
- *
- * @len could be 0 if the field was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
- */
-void
-tfw_http_msg_field_chunk_fixup(TfwHttpMsg *hm, TfwStr *field,
-			       char *data, int len)
-{
-	BUG_ON(field->flags & TFW_STR_DUPLICATE);
-
-	TFW_DBG3("store field chunk len=%d data=%p field=<%#x,%lu,%p>\n",
-		 len, data, field->flags, field->len, field->ptr);
-
-	/* The header should be open before. */
-	if (unlikely(!field->ptr))
-		return;
-
-	if (TFW_STR_EMPTY(field)) {
-		/*
-		 * The first data chunk case.
-		 * The header chunk was explicitly opened at some data
-		 * position, so close the chunk by end of @data.
-		 */
-		BUG_ON(!TFW_STR_PLAIN(field));
-		field->len = data + len - (char *)field->ptr;
-	}
-	else if (len) {
-		/*
-		 * The data chunk doesn't lay at the header bounds.
-		 * There is at least one finished chunk, add a new one.
-		 */
-		TfwStr *last = tfw_str_add_compound(hm->pool, field);
-		if (unlikely(!last)) {
-			TFW_WARN("Cannot store chunk [%.*s]\n",
-				 min((int)len, 10), data);
-			return;
-		}
-		tfw_http_msg_set_data(hm, last, data);
-		tfw_str_updlen(field, data + len);
-	}
-}
-
-/**
- * Fixup the new data chunk to currently parsed HTTP header.
- *
- * @len could be 0 if the header was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
- */
-void
-tfw_http_msg_hdr_chunk_fixup(TfwHttpMsg *hm, char *data, int len)
-{
-	tfw_http_msg_field_chunk_fixup(hm, &hm->parser.hdr, data, len);
+	TFW_DBG3("open header at %p (char=[%c]), skb=%p\n",
+		 hdr_start, *hdr_start, hdr->skb);
 }
 
 /**
@@ -322,8 +267,8 @@ done:
 	*h = hm->parser.hdr;
 
 	TFW_STR_INIT(&hm->parser.hdr);
-	TFW_DBG3("store header w/ ptr=%p len=%lu flags=%x id=%d\n",
-		 h->ptr, h->len, h->flags, id);
+	TFW_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
+		 h->ptr, h->len, h->eolen, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
 	if (id == ht->off)
@@ -333,24 +278,27 @@ done:
 }
 
 /**
- * Fixup the new data chunk to the @str.
+ * Fixup the new data chunk starting at @data with length @len to @str.
  *
- * Like @tfw_http_msg_field_chunk_fixup, but besides the last one, it returns
- * the operation result which can be checked on the caller side. One day, there
- * must be only one of them.
- *
- * TODO: merge with @tfw_http_msg_field_chunk_fixup
+ * @len could be 0 if the field was fully read, but we realized this only
+ * now by facinng CRLF at begin of current data chunk.
  */
 int
 __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
+	BUG_ON(str->flags & TFW_STR_DUPLICATE);
+
+	TFW_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
+		 len, data, isprint(*(char *)data) ? *(char *)data : '.',
+		 str->flags, str->len, str->ptr);
+
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->ptr)
 			__tfw_http_msg_set_data(hm, str, data, skb);
 		str->len = data + len - str->ptr;
 	}
-	else if (likely(data)) {
+	else if (likely(len)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
 		if (!sn) {
 			TFW_WARN("Cannot grow HTTP data string\n");
@@ -468,7 +416,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
 	} else {
 		if (hid < ht->off - 1)
 			memmove(&ht->tbl[hid], &ht->tbl[hid + 1],
-				ht->off - hid - 1);
+				(ht->off - hid - 1) * sizeof(TfwStr));
 		--ht->off;
 	}
 
@@ -855,6 +803,8 @@ tfw_http_msg_alloc(int type)
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 	INIT_LIST_HEAD(&hm->msg.msg_list);
+
+	hm->parser.to_read = -1; /* unknown body size */
 
 	if (type & Conn_Clnt)
 		hm->destructor = tfw_http_req_destruct;

@@ -22,6 +22,7 @@
 #include <linux/kernel.h>
 #include <linux/ctype.h>
 
+#include "htype.h"
 #include "str.h"
 
 void
@@ -227,27 +228,25 @@ EXPORT_SYMBOL(tfw_strcat);
 
 /**
  * Core routine for tfw_stricmpspn() working on flat C strings.
+ * For now the function is used for very small strings, like matching HTTP
+ * headers until ':', so plain C is Ok for now.
  *
  * Returns:
  *   0 - strings match;
  *   1 - strings match and @stop is found;
  *  -1 - strings do not match;
- *
- * TODO too slow, rewrite on AVX2.
  */
-static int
-__cstricmpspn(const char *s1, const char *s2, int n, int stop)
+static inline int
+__cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
 {
 	unsigned char c1, c2;
 
 	while (n) {
-		c1 = tolower(*s1++);
-		c2 = tolower(*s2++);
+		c1 = TFW_LC(*s1++);
+		c2 = TFW_LC(*s2++);
 		if (c1 != c2)
 			return -1;
-		if (!c1)
-			return 0;
-		if (c1 == stop)
+		if (unlikely(c1 == stop))
 			return 1;
 		n--;
 	}
@@ -280,15 +279,22 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 	c1 = TFW_STR_CHUNK(s1, 0);
 	c2 = TFW_STR_CHUNK(s2, 0);
 	while (n) {
-		int cn = min(c1->len - off1, c2->len - off2);
-		int r = stop
-			? __cstricmpspn((char *)c1->ptr + off1,
-					(char *)c2->ptr + off2, cn, stop)
-			: strncasecmp((char *)c1->ptr + off1,
-				      (char *)c2->ptr + off2, cn);
-		if (r)
-			return stop ? !(r > 0) : r;
+		int r, cn = min(c1->len - off1, c2->len - off2);
 
+		if (stop) {
+			r = __cstricmpspn((unsigned char *)c1->ptr + off1,
+					  (unsigned char *)c2->ptr + off2,
+					  cn, stop);
+			if (r > 0)
+				return 0;
+			if (r < 0)
+				return 1;
+		} else {
+			r = tfw_stricmp((char *)c1->ptr + off1,
+					(char *)c2->ptr + off2, cn);
+			if (r)
+				return r;
+		}
 		n -= cn;
 		if (cn == c1->len - off1) {
 			off1 = 0;
@@ -337,7 +343,7 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 	int len, clen = cstr_len;
 	const TfwStr *chunk, *end;
 	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
-			       ? strncasecmp
+			       ? tfw_stricmp
 			       : strncmp;
 
 	BUG_ON(str->len && !str->ptr);
@@ -403,8 +409,6 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 
 		TFW_STR_CHUNKN_SUB(&tmp, 1);
 	}
-
-	TFW_WARN("Desired position is outside the string\n");
 out:
 	return r;
 }
@@ -512,14 +516,15 @@ tfw_str_dprint(TfwStr *str, const char *msg)
 {
 	TfwStr *dup, *dup_end, *c, *chunk_end;
 
-	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x:\n", msg,
-		str, str->skb, str->len, str->flags);
+	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
+		str, str->skb, str->len, str->flags, str->eolen);
 	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
-		TFW_DBG("  duplicate %p, len=%lu, flags=%x:\n",
-			dup, dup->len, dup->flags);
+		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
+			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, ptr=%p '%.*s'\n", c->len,
-				c->ptr, (int)c->len, (char *)c->ptr);
+			TFW_DBG("   len=%lu, eolen=%u ptr=%p '%.*s'\n",
+				c->len, c->eolen, c->ptr,
+				(int)c->len, (char *)c->ptr);
 	}
 }
 #endif
