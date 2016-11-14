@@ -173,6 +173,8 @@ tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
 #define TFW_STR_NAME		0x04
 /* Some value starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
+/* The string represents hop-by-hop header. */
+#define TFW_STR_HBH_HDR		0x10
 
 /*
  * @ptr		- pointer to string data or array of nested strings;

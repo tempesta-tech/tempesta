@@ -720,7 +720,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (unlikely(r))
 		return r;
 
-	r = tfw_http_rm_hbh_hdrs(hm);
+	r = tfw_http_msg_rm_hbh_hdrs(hm);
 	if (unlikely(r))
 		return r;
 
@@ -746,7 +746,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (unlikely(r))
 		return r;
 
-	r = tfw_http_rm_hbh_hdrs(hm);
+	r = tfw_http_msg_rm_hbh_hdrs(hm);
 	if (unlikely(r))
 		return r;
 

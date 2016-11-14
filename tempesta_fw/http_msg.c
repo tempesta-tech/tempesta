@@ -167,14 +167,39 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 		/* There is no sense to compare against all duplicates. */
 		if (h->flags & TFW_STR_DUPLICATE)
 			h = TFW_STR_CHUNK(h, 0);
-		if (tfw_stricmpspn(hdr, h, ':'))
-			continue;
-		break;
+		if (!tfw_stricmpspn(hdr, h, ':'))
+			break;
 	}
-
 	if (id <  ht->off) {
 		if (__hdr_is_singular(hdr))
 			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+	}
+
+	return id;
+}
+
+/**
+ * Look up for header named @name, same as @__hdr_lookup, but @name does
+ * not contain ':'.  Checkes for header singularity is skipped, since not needed
+ * outside parser.
+ */
+static unsigned int
+__hdr_lookup_hdr_name(TfwHttpMsg *hm, const TfwStr *name)
+{
+	unsigned int id;
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+
+	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
+		TfwStr *h = &ht->tbl[id];
+		/* Skip if header is already marked as hop-by-hop */
+		if (h->flags & TFW_STR_HBH_HDR)
+			continue;
+		/* There is no sense to compare against all duplicates. */
+		if (h->flags & TFW_STR_DUPLICATE)
+			h = TFW_STR_CHUNK(h, 0);
+		if (tfw_str_eq(name, h, name->len)
+		    && (':' == tfw_str_at_index(h, name->len)))
+			break;
 	}
 
 	return id;
@@ -824,104 +849,81 @@ tfw_http_msg_alloc(int type)
 	return hm;
 }
 
+static inline void
+__mark_hbh_header(TfwStr * hdr)
+{
+	if (!(TFW_STR_EMPTY(hdr)))
+		hdr->flags |= TFW_STR_HBH_HDR;
+}
+
+/**
+ * Locate and mark all Hop-by-Hop headers by setting TFW_STR_HBH_HDR
+ * flag to corresponding TfwStr's in header table.
+ */
+void tfw_http_msg_mark_hbh_hdrs(TfwHttpMsg *hm)
+{
+	TfwStr conn_h, hbh_hdr;
+	TfwStr *c, *end;
+	unsigned int id;
+
+	/*
+	 *  Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	__mark_hbh_header(&hm->h_tbl->tbl[TFW_HTTP_HDR_SERVER]);
+	__mark_hbh_header(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]);
+	__mark_hbh_header(&hm->h_tbl->tbl[TFW_HTTP_HDR_KEEP_ALIVE]);
+
+	if (!(hm->flags & TFW_HTTP_CONN_EXTRA))
+		return;
+
+	tfw_http_msg_srvhdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
+				TFW_HTTP_HDR_CONNECTION, &conn_h);
+
+	TFW_STR_FOR_EACH_CHUNK(c, &conn_h, end) {
+		if (c->flags & TFW_STR_VALUE) {
+			TFW_STR_INIT(&hbh_hdr);
+			hbh_hdr.ptr = c;
+			TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
+			while ((c->flags & TFW_STR_VALUE)
+			       && (c != end)) {
+				hbh_hdr.len += c->len;
+				++c;
+			}
+
+			id = __hdr_lookup_hdr_name(hm, &hbh_hdr);
+			if (id < hm->h_tbl->off) {
+				hm->h_tbl->tbl[id].flags |= TFW_STR_HBH_HDR;
+			}
+		}
+	}
+	/*
+	 * Unset TFW_HTTP_CONN_EXTRA flag:
+	 * @tfw_http_msg_mark_hbh_hdrs may be called more than once for same
+	 * message. Since marks stay in http message until it would be
+	 * destroyed, we can reuse marks later without heavy processing.
+	 */
+	hm->flags &= ~((unsigned int)TFW_HTTP_CONN_EXTRA);
+}
+EXPORT_SYMBOL(tfw_http_msg_mark_hbh_hdrs);
+
 /**
  * Remove Hop-by-Hop headers in terms of RFC 7230 6.1
  */
-int tfw_http_rm_hbh_hdrs(TfwHttpMsg *hm)
+int tfw_http_msg_rm_hbh_hdrs(TfwHttpMsg *hm)
 {
-	unsigned int *hbh_heades = NULL;
 	int r = 0, i;
 
-	if (!(hm->flags & TFW_HTTP_CONN_EXTRA))
-		return 0;
-
-
-	hbh_heades = kcalloc(hm->h_tbl->off - TFW_HTTP_HDR_RAW,
-			     sizeof(unsigned int), GFP_ATOMIC);
-
-	r = tfw_http_find_hbh_hdrs(hm, hbh_heades);
-	if (unlikely(r))
-		goto out;
+	tfw_http_msg_mark_hbh_hdrs(hm);
 
 	/* Removing must be from end to beginning */
-	for (i = hm->h_tbl->off - TFW_HTTP_HDR_RAW - 1; i >= 0; --i) {
-		if (hbh_heades[i]) {
-			r = __hdr_del(hm, i + TFW_HTTP_HDR_RAW);
+	for (i = hm->h_tbl->off -1; i >= 0; --i) {
+		if (hm->h_tbl->tbl[i].flags & TFW_STR_HBH_HDR) {
+			r = __hdr_del(hm, i);
 			if (unlikely(r))
-				goto out;
+				return r;
 		}
 	}
-
-out:
-	if (hbh_heades)
-		kfree(hbh_heades);
-
 	return r;
 }
-
-/**
- * Locate all Hop-by-Hop headers among RAW headers. @idxs must be
- * zero-initialised array size of (hm->h_tbl->off - TFW_HTTP_HDR_RAW).
- */
-int tfw_http_find_hbh_hdrs(TfwHttpMsg *hm, unsigned int *idxs)
-{
-	TfwStr conn_h;
-
-	if (!(hm->flags & TFW_HTTP_CONN_EXTRA))
-		return 0;
-
-	tfw_http_msg_srvhdr_val(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
-				TFW_HTTP_HDR_CONNECTION,
-				&conn_h);
-	if (TFW_STR_EMPTY(&conn_h))
-		return 0;
-
-	{
-		TfwStr hbh_data[TFW_STR_CHUNKN(&conn_h) + 1];
-		TfwStr colon = { .ptr = ":", .len = 1};
-		TfwStr hbh_hdr;
-		TfwStr *c, *end;
-		TfwStr *curr = hbh_data;
-		unsigned int id;
-
-		TFW_STR_INIT(&hbh_hdr);
-		hbh_hdr.ptr = hbh_data;
-
-		TFW_STR_FOR_EACH_CHUNK(c, &conn_h, end) {
-			if (c->flags & TFW_STR_VALUE) {
-				*curr = *c;
-				hbh_hdr.ptr = curr;
-				hbh_hdr.len += c->len;
-				TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
-				++curr;
-			}
-			else if (curr != hbh_data) {
-				*curr = colon;
-				hbh_hdr.len += c->len;
-				TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
-
-				id = __hdr_lookup(hm, &hbh_hdr);
-				if (id < hm->h_tbl->off) {
-					idxs[id - TFW_HTTP_HDR_RAW] = 1;
-				}
-
-				curr = hbh_data;
-				TFW_STR_INIT(&hbh_hdr);
-				hbh_hdr.ptr = hbh_data;
-			}
-		}
-
-		if (curr != hbh_data) {
-			*curr = colon;
-			hbh_hdr.len += c->len;
-			TFW_STR_CHUNKN_ADD(&hbh_hdr, 1);
-
-			id = __hdr_lookup(hm, &hbh_hdr);
-			if (id < hm->h_tbl->off) {
-				idxs[id - TFW_HTTP_HDR_RAW] = 1;
-			}
-		}
-	}
-
-	return 0;
-}
+EXPORT_SYMBOL(tfw_http_msg_rm_hbh_hdrs);
