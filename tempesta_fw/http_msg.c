@@ -918,6 +918,13 @@ int tfw_http_msg_rm_hbh_hdrs(TfwHttpMsg *hm)
 
 	/* Removing must be from end to beginning */
 	for (i = hm->h_tbl->off -1; i >= 0; --i) {
+		/*
+		 * Don't remove keep-alive header:
+		 * @tfw_http_set_hdr_keep_alive will remove it if necessary
+		 */
+		if (i == TFW_HTTP_HDR_KEEP_ALIVE)
+			continue;
+
 		if (hm->h_tbl->tbl[i].flags & TFW_STR_HBH_HDR) {
 			r = __hdr_del(hm, i);
 			if (unlikely(r))

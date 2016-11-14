@@ -742,11 +742,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r)
 		return r;
 
-	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
+	r = tfw_http_msg_rm_hbh_hdrs(hm);
 	if (r)
 		return r;
 
-	r = tfw_http_msg_rm_hbh_hdrs(hm);
+	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
 	if (r)
 		return r;
 
