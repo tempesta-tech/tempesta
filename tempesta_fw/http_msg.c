@@ -280,14 +280,21 @@ done:
 /**
  * Fixup the new data chunk starting at @data with length @len to @str.
  *
- * @len could be 0 if the field was fully read, but we realized this only
- * now by facinng CRLF at begin of current data chunk.
+ * If @str is an empty string, then @len may not be zero. Please use
+ * other means for making TfwStr{} strings with such special properties.
+ *
+ * If @str doesn't have the length set yet, then @len is more like
+ * an offset from @data which is the current position in the string.
+ * The actual length is set relative to the start of @str.
+ *
+ * @len might be 0 if the field was fully read, but we have realized
+ * that just now by facing CRLF at the start of the current data chunk.
  */
 int
-__tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
+__tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
-	BUG_ON(str->flags & TFW_STR_DUPLICATE);
+	BUG_ON(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE));
 
 	TFW_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
 		 len, data, isprint(*(char *)data) ? *(char *)data : '.',
@@ -295,8 +302,9 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->ptr)
-			__tfw_http_msg_set_data(hm, str, data, skb);
+			__tfw_http_msg_set_str_data(str, data, skb);
 		str->len = data + len - str->ptr;
+		BUG_ON(!str->len);
 	}
 	else if (likely(len)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
@@ -304,7 +312,7 @@ __tfw_http_msg_add_data_ptr(TfwHttpMsg *hm, TfwStr *str, void *data,
 			TFW_WARN("Cannot grow HTTP data string\n");
 			return -ENOMEM;
 		}
-		__tfw_http_msg_set_data(hm, sn, data, skb);
+		__tfw_http_msg_set_str_data(sn, data, skb);
 		tfw_str_updlen(str, data + len);
 	}
 
@@ -736,7 +744,7 @@ next_frag:
 	skb_frag_size_add(frag, n_copy);
 	ss_skb_adjust_data_len(it->skb, n_copy);
 
-	if (__tfw_http_msg_add_data_ptr(hm, field, p, n_copy, it->skb))
+	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;
 
 	if (d_size > f_room) {
