@@ -532,12 +532,14 @@ __FSM_STATE(RGen_CR) {							\
 
 /*
  * Process the final CRLF, i.e. the end of the headers part or the whole
- * HTTP message. Probably we're here after trailing-part headers, so
- * @msg->crlf is already set and there is nothing to do.
+ * HTTP message. We may get here after trailing-part headers. In that
+ * case @msg->crlf is already set and there is nothing to do.
  */
 #define TFW_HTTP_PARSE_CRLF()						\
 do {									\
 	if (unlikely(c == '\r')) {					\
+		if (msg->crlf.flags & TFW_STR_COMPLETE)			\
+			__FSM_MOVE_nofixup(RGen_CRLFCR);		\
 		if (!msg->crlf.ptr)					\
 			/* The end of the headers part. */		\
 			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
@@ -560,7 +562,7 @@ do {									\
 } while (0)
 
 /*
- * State processing a letter just after CRLFCR, i.e. final LF.
+ * State processing a character just after CRLFCR, i.e. the final LF.
  */
 #define RGEN_CRLF()							\
 __FSM_STATE(RGen_CRLFCR) {						\
@@ -568,8 +570,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
 		return TFW_BLOCK;					\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.ptr);					\
-		__msg_field_fixup(&msg->crlf, p + 1);			\
-		msg->crlf.flags |= TFW_STR_COMPLETE;			\
+		__msg_field_finish(&msg->crlf, p + 1);			\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
 	r = TFW_PASS;							\
@@ -696,21 +697,24 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
+	TFW_DBG3("parse request body: flags=%#x content_length=%lu\n",	\
+		 msg->flags, msg->content_length);			\
+									\
 	/*								\
-	 * TODO: If both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
-	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present,	\
-	 * then issue and error or remove "Content-Length:" header.	\
+	 * TODO: If both "Transfer-Encoding:" and "Content-Length:"	\
+	 * headers are present,	then issue an error or remove		\
+	 * "Content-Length:" header.					\
 	 */								\
 	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and "chunked" coding is the last in the list.	\
+	 * TODO: If "Transfer-Encoding:" header is present,		\
+	 * then "chunked" coding must be the last in the list.		\
 	 */								\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_MOVE_nofixup(RGen_BodyStart);			\
 	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and there's NO "chunked" coding.			\
-	 * Must send 400 (Bad Request) and close the connection.	\
+	 * TODO: If "Transfer-Encoding:" header is present and		\
+	 * there's NO "chunked" coding, then send 400 response		\
+	 * (Bad Request) and close the connection.			\
 	 */								\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
@@ -727,7 +731,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwHttpResp *resp = (TfwHttpResp *)msg;				\
 									\
-	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
+	TFW_DBG3("parse response body: flags=%#x content_length=%lu\n",	\
 		 msg->flags, msg->content_length);			\
 									\
 	/* There's no body. */						\
@@ -741,20 +745,20 @@ __FSM_STATE(RGen_BodyInit) {						\
 		FSM_EXIT();						\
 	}								\
 	/*								\
-	 * TODO: Both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
-	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present.	\
-	 * Issue and error or remove "Content-Length:" header.		\
+	 * TODO: If both "Transfer-Encoding:" and "Content-Length:"	\
+	 * headers are present,	then issue an error or remove		\
+	 * "Content-Length:" header.					\
 	 */								\
 	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and "chunked" coding is the last in the list.	\
+	 * TODO: If "Transfer-Encoding:" header is present,		\
+	 * then "chunked" coding must be the last in the list.		\
 	 */								\
 	if (msg->flags & TFW_HTTP_CHUNKED)				\
 		__FSM_MOVE_nofixup(RGen_BodyStart);			\
 	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and there's NO "chunked" coding.			\
-	 * Process the body until the connection is closed.		\
+	 * TODO: If "Transfer-Encoding:" header is present and		\
+	 * there's NO "chunked" coding, then process the body		\
+	 * until the connection is closed.				\
 	 */								\
 	if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) \
 	{								\
