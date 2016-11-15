@@ -774,7 +774,6 @@ TEST(http_parser, chunked)
 
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Host:\r\n"
-		"Content-Length: 5\r\n"
 		"Transfer-Encoding: chunked\r\n"
 		"\r\n"
 		"5;cext=val\r\n"
@@ -799,7 +798,6 @@ TEST(http_parser, chunked)
 	}
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
-		 "Content-Length: 100\r\n"
 		 "Transfer-Encoding: chunked\r\n"
 		 "\n"
 		 "5\r\n"
