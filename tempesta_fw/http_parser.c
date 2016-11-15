@@ -3199,13 +3199,27 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
+	/*
+	 * Set Content-Length header to warn client about end of message.
+	 * Other option is to close connection to client. All the situations
+	 * when Content-Length header must not present in responce were
+	 * checked earlier. Refer to RFC 7230 3.3.3
+	 */
 	if (hm->parser.state == Resp_BodyUnlimRead
 	    || hm->parser.state == Resp_BodyUnlimStart)
 	{
+		char c_len[20] = {0};
+		int r;
+
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
 		hm->content_length = hm->body.len;
-		return true;
+		sprintf(c_len, "%lu", hm->content_length);
+		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length:",
+					  sizeof("Content-Length:") - 1,
+					  c_len, strlen(c_len),
+					  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+		return (r == 0);
 	}
 	return false;
 }
