@@ -6,26 +6,31 @@ __license__ = 'GPL2'
 
 from HTMLParser import HTMLParser
 import re
+import hashlib
 
 class TFWParser(HTMLParser):
-	state = 0
 	status = ""
-	def compare2(self, data1, data2):
-#		len = 0
-		data_len = min(len(data1), len(data2))
-		i = 0
-		while i < data_len:
-			if data1[i] != data2[i]:
-				return False
-			i += 1
-		return True
+	def get_body_hash(self, data):
+		body = self.get_body(data)
+		hasher = hashlib.md5()
+		hasher.update(body)
+		hres = hasher.hexdigest()
+		return hres
+
+	def get_body(self, data):
+		bstart = data.find('<html>')
+		bstop = data.find('</html>')
+		bstop += len('</html>')
+		bres = data[bstart:bstop]
+		return bres
 
 	def set_status(self, data):
 		status = re.findall("\d\d\d", data)
 		if len(status) > 0:
 			self.status = status[0]
 
-	def get_status(self):
+	def get_status(self, data):
+		self.set_status(data)
 		return self.status	
 
 	def handle_data(self, data):

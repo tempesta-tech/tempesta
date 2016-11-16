@@ -1,11 +1,11 @@
 #!/usr/bin/env python
+
 __author__ = 'Tempesta Technologies'
 __copyright__ = 'Copyright (C) 2016 Tempesta Technologies. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 import sys
 from os.path import dirname, realpath, sep
-print(dirname(realpath(__file__)))
 sys.path.append((dirname(realpath(__file__)) + sep + "helpers"))
 
 import socket
@@ -48,7 +48,7 @@ class Test:
 		self.resp += b"Server: be python\r\n\r\n"
 
 		self.run_test(1)
-# A response thithout the Content-Length header, but with a body.
+# A test without the Content-Length header, but with a body in a response.     
 	def run_no_length_body(self):
 		self.res = "no Content-Length header, but is body:\n"
 		self.resp = b'HTTP/1.0' + b' 200 - OK\n'
@@ -64,7 +64,6 @@ class Test:
 		b"Connection: Keep-Alive\r\n\r\n"
 		parser = tfwparser.TFWParser()
 		body_hash = parser.get_body_hash(self.resp)
-		print("resp:b:", body_hash)
 		pid =  be.start(True, self.resp)
 		tfw.start()
 		i = 0
@@ -83,27 +82,19 @@ class Test:
 			s.close()
 			i += 1
 			if len(data) > 0:
-				print("data:{}".format(data))
 				parser = tfwparser.TFWParser()
-				parser.set_status(data)
 				b_hash = parser.get_body_hash(data)
-				print("real hash:", b_hash)
 				if b_hash != body_hash:
 					self.res += "a body hash not march"
 				else:
 					self.res += "bodies match\n"
-				status = parser.get_status()
-				self.res += "status:{}".format(status)
-#				print("status:{}\n".format(status))
-#				parser.feed(data)
+				status = parser.get_status(data)
+				self.res += "status:{}\n".format(status)
 			
 		tfw.stop()	 
 		be.stop(pid)
 		print(self.res)
 	def run(self):
-#		parser = tfwparser.TFWParser()
-#		c_res = parser.compare2("sample1", "sample2")
-#		print("compare:{}".format(c_res))
 		self.run_no_length_body()
 		self.run_no_length_no_body()
 		self.run_with_cache()
