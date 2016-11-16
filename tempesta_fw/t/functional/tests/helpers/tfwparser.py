@@ -32,8 +32,3 @@ class TFWParser(HTMLParser):
 	def get_status(self, data):
 		self.set_status(data)
 		return self.status	
-
-	def handle_data(self, data):
-		if data[0] == 'H':
-			self.set_status(data)
-
