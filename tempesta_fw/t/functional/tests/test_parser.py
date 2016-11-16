@@ -64,7 +64,7 @@ class Test:
 		b"Connection: Keep-Alive\r\n\r\n"
 		parser = tfwparser.TFWParser()
 		body_hash = parser.get_body_hash(self.resp)
-		pid =  be.start(True, self.resp)
+		be_pid =  be.start(True, self.resp)
 		tfw.start()
 		i = 0
 		while i < num:
@@ -83,16 +83,20 @@ class Test:
 			i += 1
 			if len(data) > 0:
 				parser = tfwparser.TFWParser()
-				b_hash = parser.get_body_hash(data)
-				if b_hash != body_hash:
-					self.res += "a body hash not march"
+				if len(parser.get_body(data)) == 0:
+					self.res += 'no body\n'
 				else:
-					self.res += "bodies match\n"
+					b_hash = parser.get_body_hash(data)
+					if b_hash != body_hash:
+						self.res += "bodies "
+						self.res += "not equals\n"
+					else:
+						self.res += "bodies equals\n"
 				status = parser.get_status(data)
 				self.res += "status:{}\n".format(status)
 			
 		tfw.stop()	 
-		be.stop(pid)
+		be.stop(be_pid)
 		print(self.res)
 	def run(self):
 		self.run_no_length_body()
