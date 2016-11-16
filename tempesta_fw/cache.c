@@ -736,8 +736,17 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->hdr_num = resp->h_tbl->off;
 	FOR_EACH_HDR_FIELD(field, end1, resp) {
 		n = field - resp->h_tbl->tbl;
-		/* Skip hop-by-hop headers. */
+		/*
+		 * Skip hop-by-hop headers. Special headers must be restored
+		 * in respect to current position during building responce from
+		 * cache, so replacement of Special hop-by-hop headers with
+		 *  empty header is needed. RAW headers can be skipped safely.
+		*/
 		h = (field->flags & TFW_STR_HBH_HDR) ? &empty : field;
+		if ((n > TFW_HTTP_HDR_RAW) && (h == &empty)) {
+			--ce->hdr_num;
+			continue;
+		}
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
@@ -793,6 +802,8 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 		/* Skip hop-by-hop headers. */
 		n = hdr - resp->h_tbl->tbl;
 		h = (hdr->flags & TFW_STR_HBH_HDR) ? &empty : hdr;
+		if ((n > TFW_HTTP_HDR_RAW) && (h == &empty))
+			continue;
 
 		if (!TFW_STR_DUP(h)) {
 			size += sizeof(TfwCStr);
