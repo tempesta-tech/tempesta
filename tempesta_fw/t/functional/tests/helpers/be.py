@@ -5,7 +5,6 @@ __license__ = 'GPL2'
 
 # A primitive back-end HTTP server implementation suitable for testing purposes.
 
-import threading
 import os
 import sys
 import signal
@@ -16,6 +15,7 @@ import socket
 import datetime
 import time
 import setproctitle
+
 server = None
 
 def handler(signum, frame):
@@ -30,7 +30,6 @@ def start(unlim, resp):
 	server.socket.setblocking(0)
 	pid = os.fork()
 	if pid == 0:
-#		os.setpgid(0,0)
 		os.setsid()
 		pid = os.fork()
 		if pid == 0:
@@ -46,7 +45,7 @@ def start(unlim, resp):
 		else:
 			os._exit(0)
 # Wait while the child writes his pid. We can't wait it to the end (serve 
-# forever). So let it is one second. 
+# forever). So let it is a fraction of a second. 
 	time.sleep(0.2)
 	rd = open("be.pid", 'a+')
 	r_pid = rd.read()
