@@ -3208,16 +3208,19 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	if (hm->parser.state == Resp_BodyUnlimRead
 	    || hm->parser.state == Resp_BodyUnlimStart)
 	{
-		char c_len[20] = {0};
+		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
+		size_t digs;
 		int r;
 
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
 		hm->content_length = hm->body.len;
-		sprintf(c_len, "%lu", hm->content_length);
-		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length:",
-					  sizeof("Content-Length:") - 1,
-					  c_len, strlen(c_len),
+		if (!(digs = tfw_ultoa(hm->content_length, c_len,
+				       TFW_ULTOA_BUF_SIZ)))
+			return false;
+		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
+					  sizeof("Content-Length") - 1,
+					  c_len, digs,
 					  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
 		return (r == 0);
 	}
