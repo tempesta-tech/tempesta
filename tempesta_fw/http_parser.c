@@ -768,6 +768,13 @@ __FSM_STATE(RGen_BodyInit) {						\
 		FSM_EXIT();						\
 	}								\
 	/* Process the body until the connection is closed. */		\
+	/*								\
+	 * TODO: Currently Tempesta fully assembles response before	\
+	 * transmitting it to a client. This behaviour is considered	\
+	 * dangerous and the issue must be solved in generic way:	\
+	 * Tempesta must use chunked transfer encoding for proxied	\
+	 * responses w/o lengths. Refer issue #534 for more information	\
+	 */								\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 }
 
@@ -3199,11 +3206,30 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
-	if (hm->parser.state == Resp_BodyUnlimRead) {
+	/*
+	 * Set Content-Length header to warn client about end of message.
+	 * Other option is to close connection to client. All the situations
+	 * when Content-Length header must not present in responce were
+	 * checked earlier. Refer to RFC 7230 3.3.3
+	 */
+	if (hm->parser.state == Resp_BodyUnlimRead
+	    || hm->parser.state == Resp_BodyUnlimStart)
+	{
+		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
+		size_t digs;
+		int r;
+
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
 		hm->content_length = hm->body.len;
-		return true;
+		if (!(digs = tfw_ultoa(hm->content_length, c_len,
+				       TFW_ULTOA_BUF_SIZ)))
+			return false;
+		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
+					  sizeof("Content-Length") - 1,
+					  c_len, digs,
+					  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+		return (r == 0);
 	}
 	return false;
 }
