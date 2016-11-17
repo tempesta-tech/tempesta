@@ -25,6 +25,78 @@
 #include "htype.h"
 #include "str.h"
 
+/**
+ * Quickly get number of digits - 1, e.g. returns '0' for '7' and '2' for '333'.
+ * It's assumed that small numbers are likely.
+ */
+static inline unsigned int
+__dig_num(unsigned long a)
+{
+	if (a < 10)
+		return 0;
+	if (a < 100)
+		return 1;
+	if (a < 1000)
+		return 2;
+	if (a < 10000)
+		return 3;
+	if (a < 100000)
+		return 4;
+	if (a < 1000000)
+		return 5;
+	if (a < 10000000)
+		return 6;
+	if (a < 100000000)
+		return 7;
+	if (a < 1000000000)
+		return 8;
+	if (a < 10000000000)
+		return 9;
+	if (a < 100000000000UL)
+		return 10;
+	if (a < 1000000000000UL)
+		return 11;
+	if (a < 10000000000000UL)
+		return 12;
+	if (a < 100000000000000UL)
+		return 13;
+	if (a < 1000000000000000UL)
+		return 14;
+	if (a < 10000000000000000UL)
+		return 15;
+	if (a < 100000000000000000UL)
+		return 16;
+	if (a < 1000000000000000000UL)
+		return 17;
+	if (a < 10000000000000000000UL)
+		return 18;
+	return 19;
+}
+
+/**
+ * Convert an integer @ai to a string @buf, don't insert training '\0'.
+ * @len - maximum string length.
+ * @return number of characters written.
+ */
+size_t
+tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
+{
+	size_t n = __dig_num(ai);
+	char *p = buf + n;
+
+	if (unlikely(n + 1 > len))
+		return 0;
+
+	do {
+		/* Compiled to only one MUL instruction with -O2. */
+		*p-- = "0123456789"[ai % 10];
+		ai /= 10;
+	} while (ai);
+
+	return n + 1;
+}
+EXPORT_SYMBOL(tfw_ultoa);
+
 void
 tfw_str_del_chunk(TfwStr *str, int id)
 {
