@@ -768,6 +768,13 @@ __FSM_STATE(RGen_BodyInit) {						\
 		FSM_EXIT();						\
 	}								\
 	/* Process the body until the connection is closed. */		\
+	/*								\
+	 * TODO: Currently Tempesta fully assembles response before	\
+	 * transmitting it to a client. This behaviour is considered	\
+	 * dangerous and the issue must be solved in generic way:	\
+	 * Tempesta must use chunked transfer encoding for proxied	\
+	 * responses w/o lengths. Refer issue #534 for more information	\
+	 */								\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 }
 
