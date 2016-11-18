@@ -477,6 +477,62 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 'r'));
 }
 
+TEST(tfw_str_eq, returns_true_only_for_equal_plain_strs)
+{
+	TFW_STR(str, "foo123 barbaz");
+
+	TFW_STR(match, "foo123 barbaz");
+	TFW_STR(diff1, "aoo123 barbaz");
+	TFW_STR(diff2, "foo123 barbaa");
+	TFW_STR(crop,  "foo123 barba");
+	TFW_STR(extra, "foo123 barbazz");
+	TFW_STR(casei, "Foo123 barbaz");
+
+	EXPECT_TRUE(tfw_str_eq(match, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(diff1, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(diff2, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(crop,  str, str->len));
+	EXPECT_TRUE(tfw_str_eq(extra, str, str->len));
+	EXPECT_TRUE(tfw_str_eq(casei, str, str->len));
+}
+
+TEST(tfw_str_eq, returns_true_only_for_equal_compound_strs)
+{
+	TfwStr *str = make_compound_str("foo123 barbaz");
+
+	TfwStr *match = make_compound_str("foo123 barbaz");
+	TfwStr *diff1 = make_compound_str("aoo123 barbaz");
+	TfwStr *diff2 = make_compound_str("foo123 barbaa");
+	TfwStr *crop = make_compound_str( "foo123 barba");
+	TfwStr *extra = make_compound_str("foo123 barbazz");
+	TfwStr *casei = make_compound_str("Foo123 barbaz");
+
+	EXPECT_TRUE(tfw_str_eq(match, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(diff1, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(diff2, str, str->len));
+	EXPECT_FALSE(tfw_str_eq(crop,  str, str->len));
+	EXPECT_TRUE(tfw_str_eq(extra, str, str->len));
+	EXPECT_TRUE(tfw_str_eq(casei, str, str->len));
+}
+
+TEST(tfw_str_eq, handles_empty_strs)
+{
+	TfwStr s1 = {
+		.len	= 0,
+		.ptr	= "garbage"
+	};
+	TfwStr s2 = {
+		.len	= 0,
+		.ptr	= "trash"
+	};
+	TFW_STR(s3, "abcdefghijklmnopqrst");
+
+	EXPECT_TRUE(tfw_str_eq(&s1, &s2, 0));
+	EXPECT_FALSE(tfw_str_eq(&s1, &s2, s3->len));
+	EXPECT_TRUE(tfw_str_eq(&s1, s3, 0));
+	EXPECT_FALSE(tfw_str_eq(&s1, s3, s3->len));
+}
+
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
 {
 	const char *cstr = "foo123 barbaz";
@@ -762,6 +818,22 @@ TEST(tfw_str_eq_cstr_off, compound)
 
 }
 
+TEST(tfw_str_at_index, plain)
+{
+	TfwStr *fox = make_plain_str(foxstr);
+
+	EXPECT_TRUE(foxstr[10] == tfw_str_at_index(fox, 10));
+	EXPECT_TRUE(0 == tfw_str_at_index(fox, fox->len));
+}
+
+TEST(tfw_str_at_index, compound)
+{
+	TfwStr *fox = make_compound_str(foxstr);
+
+	EXPECT_TRUE(foxstr[10] == tfw_str_at_index(fox, 10));
+	EXPECT_TRUE(0 == tfw_str_at_index(fox, fox->len));
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -789,6 +861,10 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_stricmpspn, handles_empty_strs);
 	TEST_RUN(tfw_stricmpspn, handles_different_size_strs);
 
+	TEST_RUN(tfw_str_eq, returns_true_only_for_equal_plain_strs);
+	TEST_RUN(tfw_str_eq, returns_true_only_for_equal_compound_strs);
+	TEST_RUN(tfw_str_eq, handles_empty_strs);
+
 	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strs);
 	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);
 	TEST_RUN(tfw_str_eq_cstr, handles_unterminated_strs);
@@ -801,4 +877,7 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_cstr_off, plain);
 	TEST_RUN(tfw_str_eq_cstr_pos, compound);
 	TEST_RUN(tfw_str_eq_cstr_off, compound);
+
+	TEST_RUN(tfw_str_at_index, plain);
+	TEST_RUN(tfw_str_at_index, compound);
 }

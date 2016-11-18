@@ -197,6 +197,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_KEEP_ALIVE,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
@@ -219,7 +220,8 @@ typedef struct {
 #define TFW_HTTP_CONN_CLOSE		0x000001
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
-#define TFW_HTTP_CHUNKED		0x000004
+#define TFW_HTTP_CONN_EXTRA		0x000004 /* Hop-by-hop headers are set */
+#define TFW_HTTP_CHUNKED		0x000008
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -278,7 +280,8 @@ typedef struct {
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
-	TfwStr		body;
+	TfwStr		body;						\
+	unsigned int	keep_alive;
 
 /**
  * A helper structure for operations common for requests and responses.
@@ -337,7 +340,6 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
-	unsigned int		keep_alive;
 	time_t			date;
 } TfwHttpResp;
 

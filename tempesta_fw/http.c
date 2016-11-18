@@ -583,7 +583,8 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 {
-	if (((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
+	if (!(hm->flags & TFW_HTTP_CONN_EXTRA)
+	    && ((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
 	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION])))
 		return 0;
 
@@ -600,7 +601,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	}
 }
 
-/*
+/**
  * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
  */
 static int
@@ -613,7 +614,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
 			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
@@ -719,6 +720,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
+	r = tfw_http_msg_rm_hbh_hdrs(hm);
+	if (r)
+		return r;
+
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
 }
 
@@ -734,15 +739,19 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
-	if (r < 0)
+	if (r)
+		return r;
+
+	r = tfw_http_msg_rm_hbh_hdrs(hm);
+	if (r)
 		return r;
 
 	r = tfw_http_set_hdr_keep_alive(hm, conn_flg);
-	if (r < 0)
+	if (r)
 		return r;
 
 	r = tfw_http_set_hdr_connection(hm, conn_flg);
-	if (r < 0)
+	if (r)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
@@ -758,7 +767,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 
 	if (!(resp->flags & TFW_HTTP_HAS_HDR_DATE)) {
 		r =  tfw_http_set_hdr_date(hm);
-		if (r < 0)
+		if (r)
 			return r;
 	}
 

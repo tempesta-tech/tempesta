@@ -177,6 +177,8 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_NAME		0x04
 /* Some value starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
+/* The string represents hop-by-hop header. */
+#define TFW_STR_HBH_HDR		0x10
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
@@ -348,6 +350,7 @@ int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
 int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
+bool tfw_str_eq(const TfwStr *s1, const TfwStr *s2, unsigned long len);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
                      tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
@@ -356,6 +359,8 @@ bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
+
+char tfw_str_at_index(const TfwStr *str, unsigned long idx);
 
 #ifdef DEBUG
 void tfw_str_dprint(TfwStr *str, const char *msg);

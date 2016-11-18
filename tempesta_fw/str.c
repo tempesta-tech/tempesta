@@ -390,6 +390,67 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 EXPORT_SYMBOL(tfw_stricmpspn);
 
 /**
+ * Generic function for comparing first @len symbols in TfwStrs.
+ * @s1,@s2 may be either plain or compound, but must be longer than @len symbols
+ * Do not use it for duplicate strings, rather call it for each duplicate
+ * substring separately.
+ *
+ * @return true if the strings are equal and false otherwise.
+ */
+bool tfw_str_eq(const TfwStr *s1, const TfwStr *s2, unsigned long len)
+{
+	unsigned int i1, i2;
+	const TfwStr *c1, *c2;
+	unsigned long n, off1, off2;
+
+	BUG_ON(s1->len && !s1->ptr);
+	BUG_ON(s2->len && !s2->ptr);
+	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
+
+	if (!len)
+		return true;
+
+	if ((s1->len < len) || (s2->len < len)) {
+		return false;
+	}
+
+	i1 = i2 = 0;
+	off1 = off2 = 0;
+	n = min(s1->len, s2->len);
+	c1 = TFW_STR_CHUNK(s1, 0);
+	c2 = TFW_STR_CHUNK(s2, 0);
+
+	while (n) {
+		int r;
+		unsigned long cn = min(c1->len - off1, c2->len - off2);
+
+		r = tfw_stricmp((char *)c1->ptr + off1,
+				(char *)c2->ptr + off2, cn);
+		if (r)
+			return false;
+
+		n -= cn;
+		if (cn == c1->len - off1) {
+			off1 = 0;
+			++i1;
+			c1 = TFW_STR_CHUNK(s1, i1);
+		} else {
+			off1 += cn;
+		}
+		if (cn == c2->len - off2) {
+			off2 = 0;
+			++i2;
+			c2 = TFW_STR_CHUNK(s2, i2);
+		} else {
+			off2 += cn;
+		}
+		BUG_ON(n && (!c1 || !c2));
+	}
+	return true;
+}
+EXPORT_SYMBOL(tfw_str_eq);
+
+/**
  * Generic function for comparing TfwStr and C strings.
  *
  * @str may be either plain or compound.
@@ -581,6 +642,27 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 	return (pos - out_buf);
 }
 EXPORT_SYMBOL(tfw_str_to_cstr);
+
+/**
+ * Returns symbol at position @idx. If @idx overflows string borders, return 0
+ */
+char tfw_str_at_index(const TfwStr *str, unsigned long idx)
+{
+	const TfwStr *chunk, *end;
+
+	if (idx > str->len)
+		return 0;
+
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
+		if (idx > chunk->len)
+			idx -= chunk->len;
+		else
+			return ((char *)chunk->ptr)[idx];
+	}
+	return 0;
+}
+EXPORT_SYMBOL(tfw_str_at_index);
+
 
 #ifdef DEBUG
 void

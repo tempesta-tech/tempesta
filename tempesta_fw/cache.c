@@ -131,26 +131,6 @@ enum {
 	TFW_CACHE_REPLICA,
 };
 
-/*
- * Non-cacheable hop-by-hop response headers in terms of RFC 2068.
- * The table is used if server doesn't specify Cache-Control no-cache
- * directive (RFC 7234 5.2.2.2) explicitly.
- *
- * Server header isn't defined as hop-by-hop by the RFC, but we don't show
- * protected server to world.
- *
- * We don't store the headers in cache and create then from scratch.
- * Adding a header is faster then modify it, so this speeds up headers
- * adjusting as well as saves cache storage.
- *
- * TODO process Cache-Control no-cache
- */
-static const int hbh_hdrs[] = {
-	[0 ... TFW_HTTP_HDR_RAW]	= 0,
-        [TFW_HTTP_HDR_SERVER]		= 1,
-	[TFW_HTTP_HDR_CONNECTION]	= 1,
-};
-
 typedef struct {
 	int		cpu[NR_CPUS];
 	atomic_t	cpu_idx;
@@ -756,8 +736,17 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->hdr_num = resp->h_tbl->off;
 	FOR_EACH_HDR_FIELD(field, end1, resp) {
 		n = field - resp->h_tbl->tbl;
-		/* Skip hop-by-hop headers. */
-		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : field;
+		/*
+		 * Skip hop-by-hop headers. Special headers must be restored
+		 * in respect to current position during building responce from
+		 * cache, so replacement of Special hop-by-hop headers with
+		 *  empty header is needed. RAW headers can be skipped safely.
+		*/
+		h = (field->flags & TFW_STR_HBH_HDR) ? &empty : field;
+		if ((n > TFW_HTTP_HDR_RAW) && (h == &empty)) {
+			--ce->hdr_num;
+			continue;
+		}
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
@@ -812,7 +801,10 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
 		/* Skip hop-by-hop headers. */
 		n = hdr - resp->h_tbl->tbl;
-		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : hdr;
+		h = (hdr->flags & TFW_STR_HBH_HDR) ? &empty : hdr;
+		if ((n > TFW_HTTP_HDR_RAW) && (h == &empty))
+			continue;
+
 		if (!TFW_STR_DUP(h)) {
 			size += sizeof(TfwCStr);
 			size += h->len ? (h->len + SLEN(S_CRLF)) : 0;
@@ -874,6 +866,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_cache_employ_resp(req, resp))
 		goto out;
 
+	tfw_http_msg_mark_hbh_hdrs((TfwHttpMsg *)resp);
 	key = tfw_http_req_key_calc(req);
 
 	if (cache_cfg.cache == TFW_CACHE_SHARD) {
