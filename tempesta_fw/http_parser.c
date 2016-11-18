@@ -1071,7 +1071,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE(I_TransEncod);
+			__FSM_I_MOVE_n(I_TransEncod, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -3161,7 +3161,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE(Resp_I_KeepAlive);
+			__FSM_I_MOVE_n(Resp_I_KeepAlive, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
