@@ -117,7 +117,7 @@ cleanup_incr_ctr(TfwCfgSpec *cs)
  * ------------------------------------------------------------------------
  */
 
-TEST(cfg_paresr, invokes_specified_handler)
+TEST(cfg_parser, invokes_specified_handler)
 {
 	int ctr = 0;
 
@@ -1033,7 +1033,7 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 
 TEST_SUITE(cfg)
 {
-	TEST_RUN(cfg_paresr, invokes_specified_handler);
+	TEST_RUN(cfg_parser, invokes_specified_handler);
 	TEST_RUN(cfg_parser, allows_repeating_entries);
 	TEST_RUN(cfg_parser, allows_optional_entries);
 	TEST_RUN(cfg_parser, puts_parsed_vals_to_entry);
