@@ -968,7 +968,6 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			 */
 			BUG_ON(!(req->flags & TFW_HTTP_CHUNKED)
 			       && (req->content_length != req->body.len));
-			;
 		}
 
 		r = tfw_gfsm_move(&conn->state,
@@ -1367,7 +1366,6 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 */
 			BUG_ON(!(hmresp->flags & TFW_HTTP_CHUNKED)
 			       && (hmresp->content_length != hmresp->body.len));
-			;
 		}
 
 		/* Pass the response to GFSM for further processing. */
