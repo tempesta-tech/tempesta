@@ -758,13 +758,6 @@ next_frag:
 	return 0;
 }
 
-static void
-tfw_http_conn_msg_unlink(TfwHttpMsg *m)
-{
-	if (m->conn && m->conn->msg == (TfwMsg *)m)
-		m->conn->msg = NULL;
-}
-
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
@@ -772,9 +765,6 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	if (!m)
 		return;
 
-	tfw_http_conn_msg_unlink(m);
-
-	/* TODO: use ss_skb_list_print() to show SKBs queue */
 	ss_skb_queue_purge(&m->msg.skb_list);
 
 	if (m->destructor)
