@@ -1064,8 +1064,6 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * compress;
 		 */
 		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
-		if (__fsm_sz)
-			msg->flags &= ~__TFW_HTTP_CHUNKED_LAST;
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
@@ -1078,8 +1076,11 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
-		if (IS_TOKEN(c))
+		if (IS_TOKEN(c)) {
+			/* "chunked" is not the last coding. */
+			msg->flags &= ~__TFW_HTTP_CHUNKED_LAST;
 			__FSM_I_MOVE_n(I_TransEncodChunked, 0);
+		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2011,8 +2012,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* ----------------    Header Lines    ---------------- */
 
 	/*
-	 * Start of HTTP header or end of header part of the request.
-	 * There is a switch for first character of a header name.
+	 * The start of an HTTP header or the end of the header part
+	 * of the request. There is a switch for the first character
+	 * of a header field name.
 	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
@@ -3330,7 +3332,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* ----------------    Header Lines    ---------------- */
 
-	/* Start of HTTP header or end of whole request. */
+	/*
+	 * The start of an HTTP header or the end of the header part
+	 * of the response. There is a switch for the first character
+	 * of a header field name.
+	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
 
