@@ -629,13 +629,15 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 		memset(hm, 0, sizeof(*hm));
 		ss_skb_queue_head_init(&hm->msg.skb_list);
 		INIT_LIST_HEAD(&hm->msg.msg_list);
+		if (__msg_alloc_skb_data(hm, data_len))
+			return NULL;
 	} else {
 		if (!(hm = tfw_http_msg_alloc(type)))
 			return NULL;
-	}
-	if (__msg_alloc_skb_data(hm, data_len)) {
-		tfw_http_msg_free(hm);
-		return NULL;
+		if (__msg_alloc_skb_data(hm, data_len)) {
+			tfw_http_msg_free(hm);
+			return NULL;
+		}
 	}
 
 	it->skb = ss_skb_peek(&hm->msg.skb_list);
