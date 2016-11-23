@@ -741,7 +741,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 									\
 	/* There's no body. */						\
 	/* TODO: Add (req == CONNECT && resp == 2xx) */			\
-	if (resp->status - 101U < 99U || resp->status == 204		\
+	if (resp->status - 100U < 100U || resp->status == 204		\
 	    || resp->status == 304 || msg->flags & TFW_HTTP_VOID_BODY)	\
 	{								\
 		/* There is no body. */					\
@@ -1036,9 +1036,11 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * in any 2xx (Successful) response to a CONNECT request.
 	 */
 	__FSM_STATE(I_TransEncod) {
-		TfwHttpResp *resp = (TfwHttpResp *)hm;
-		if ((resp->status - 101U < 99U) || (resp->status == 204))
-			return CSTR_NEQ;
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
+			unsigned int status = ((TfwHttpResp *)hm)->status;
+			if ((status - 100U < 100U) || (status == 204))
+				return CSTR_NEQ;
+		}
 		__FSM_I_JMP(I_TransEncodChunked);
 	}
 
