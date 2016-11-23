@@ -198,6 +198,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_KEEP_ALIVE,
 	TFW_HTTP_HDR_TRANSFER_ENCODING,
 
 	/* Start of list of generic (raw) headers. */
@@ -263,6 +264,7 @@ typedef struct {
  * @content_length	- the value of Content-Length header field;
  * @conn		- connection which the message was received on;
  * @jtstamp		- time the message has been received, in jiffies;
+ * @keep_alive		- keep-alive timeout
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
@@ -278,6 +280,7 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
 	unsigned long	jtstamp;					\
+	unsigned int	keep_alive;					\
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
@@ -340,7 +343,6 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
-	unsigned int		keep_alive;
 	time_t			date;
 } TfwHttpResp;
 
