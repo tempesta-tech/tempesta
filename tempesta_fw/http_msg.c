@@ -576,6 +576,27 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 }
 
 /**
+ * Remove hop-by-hop headers in the message
+ */
+int
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = ht->off;
+	int r = 0;
+
+	do {
+		hid--;
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+			if ((r = __hdr_del(hm, hid)))
+				return r;
+	} while (hid != 0);
+
+	return 0;
+}
+
+
+/**
  * Add a header, probably duplicated, without any checking of current headers.
  */
 int

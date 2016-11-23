@@ -177,6 +177,8 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_NAME		0x04
 /* Some value starts at the string chunk. */
 #define TFW_STR_VALUE		0x08
+/* The string represents hop-by-hop header, not end-to-end one */
+#define TFW_STR_HBH_HDR		0x10
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
