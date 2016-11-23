@@ -447,9 +447,13 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 		return;
 
 	if (hm->conn) {
-		/* Unlink connection while there is at least one reference. */
-		if (hm->conn->msg == (TfwMsg *)hm)
-			hm->conn->msg = NULL;
+		/*
+		 * Unlink connection while there is at least one reference.
+		 * Use atomic exchange to avoid races with new messages arrival
+		 * on the connection.
+		 */
+		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
+			  0UL, sizeof(long));
 		tfw_connection_put(hm->conn);
 	}
 
