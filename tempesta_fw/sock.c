@@ -174,6 +174,8 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 		/* @skb should be rerouted on forwarding. */
 		skb_dst_drop(skb);
+		/* Clear sender_cpu so flow_disscector can set it properly. */
+		skb_sender_cpu_clear(skb);
 
 		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		       smp_processor_id(), __func__,
