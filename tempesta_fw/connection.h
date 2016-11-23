@@ -183,15 +183,14 @@ tfw_connection_get_if_nfo(TfwConnection *conn)
 	}
 }
 
-/**
- * @return true if @conn has no more users.
- */
 static inline void
 tfw_connection_put(TfwConnection *conn)
 {
 	int rc;
+
 	if (unlikely(!conn))
 		return;
+
 	rc = atomic_dec_return(&conn->refcnt);
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
