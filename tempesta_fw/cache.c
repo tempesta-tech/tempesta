@@ -147,8 +147,9 @@ enum {
  */
 static const int hbh_hdrs[] = {
 	[0 ... TFW_HTTP_HDR_RAW]	= 0,
-        [TFW_HTTP_HDR_SERVER]		= 1,
+	[TFW_HTTP_HDR_SERVER]		= 1,
 	[TFW_HTTP_HDR_CONNECTION]	= 1,
+	[TFW_HTTP_HDR_KEEP_ALIVE]	= 1,
 };
 
 typedef struct {
