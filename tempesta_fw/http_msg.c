@@ -166,11 +166,13 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 		/* There is no sense to compare against all duplicates. */
 		if (h->flags & TFW_STR_DUPLICATE)
 			h = TFW_STR_CHUNK(h, 0);
-		if (tfw_stricmpspn(hdr, h, ':'))
-			continue;
+		if (!tfw_stricmpspn(hdr, h, ':'))
+			break;
+	}
+
+	if (id <  ht->off) {
 		if (__hdr_is_singular(hdr))
 			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		break;
 	}
 
 	return id;
