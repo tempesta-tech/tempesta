@@ -736,6 +736,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
+	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
 }
 
@@ -751,6 +755,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_msg_del_hbh_hdrs(hm);
 	if (r < 0)
 		return r;
 

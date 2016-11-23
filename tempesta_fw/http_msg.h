@@ -73,6 +73,8 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 #define TFW_HTTP_MSG_HDR_DEL(hm, name, hid)				\
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 
+int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
+
 TfwHttpMsg *tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type,
 				size_t data_len);
 int tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data);
