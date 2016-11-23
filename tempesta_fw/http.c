@@ -443,9 +443,20 @@ tfw_http_req_destruct(void *msg)
 static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
-	if (unlikely(hm == NULL))
+	if (unlikely(!hm))
 		return;
-	tfw_connection_put(hm->conn);
+
+	if (hm->conn) {
+		/*
+		 * Unlink connection while there is at least one reference.
+		 * Use atomic exchange to avoid races with new messages arrival
+		 * on the connection.
+		 */
+		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
+			  0UL, sizeof(long));
+		tfw_connection_put(hm->conn);
+	}
+
 	tfw_http_msg_free(hm);
 }
 
