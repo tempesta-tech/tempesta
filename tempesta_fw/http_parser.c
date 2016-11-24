@@ -466,6 +466,134 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 	return CSTR_POSTPONE;
 }
 
+/**
+ * Add unconditionaly hop-by-hop headers to list of hop-by-hop headers names.
+ * Do not init raw headers table until we found that Connection header contains
+ * atleast one raw header.
+ */
+static void
+__hbh_parser_init(TfwHttpHbhHdrs *hbh_hdrs, bool req)
+{
+	/*
+	 * Connection header is hop-by-hop header.
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world. User-agent and Server headers
+	 * have the same id in tfw_http_hdr_t, so Server header must be marked
+	 * only for responses.
+	 */
+	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_CONNECTION;
+	if (!req)
+		hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_SERVER;
+}
+
+#define MARK_SPEC_HBH(hid)						\
+	if ((msg->parser.hbh_parser.spec & (0x1 << hid))		\
+	    && !TFW_STR_EMPTY(&msg->parser.hdr))			\
+		msg->parser.hdr.flags |= TFW_STR_HBH_HDR;
+
+/**
+ * Mark raaw header @hdr as hop-by-hop if its name was listed in Connection
+ * header
+ */
+static void
+mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
+{
+	TfwHttpHdrTbl *ht = hm->parser.hbh_parser.raw;
+	unsigned int i;
+
+	if (!ht)
+		return;
+
+	for (i = 0; i < ht->off; ++i) {
+		if (!tfw_stricmpspn(&ht->tbl[i], hdr, ':')) {
+			hdr->flags |= TFW_STR_HBH_HDR;
+			break;
+		}
+	}
+}
+
+static int
+__hbh_parser_alloc_table(TfwHttpMsg *hm)
+{
+	hm->parser.hbh_parser.raw = (TfwHttpHdrTbl *)
+			tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	if (unlikely(!hm->parser.hbh_parser.raw)) {
+		return -ENOMEM;
+	}
+
+	hm->parser.hbh_parser.raw->size = __HHTBL_SZ(1);
+	hm->parser.hbh_parser.raw->off = 1;
+	memset(hm->parser.hbh_parser.raw->tbl, 0,
+	       __HHTBL_SZ(1) * sizeof(TfwStr));
+
+	return 0;
+}
+
+/**
+ * Add header name listed in Connection header to rable of raw headers.
+ * If @last is true then (@data, @len) represnts last chunk of header name and
+ * chunk with ':' will be added to the end. Otherwize last header in table stays
+ * open to add more data.
+ *
+ * After name of hop-by-hop header was completed, we will search for headers
+ * with that name and mark them as hop-by-hop.
+ */
+static int
+__hbb_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
+{
+	unsigned int hid;
+	TfwStr *hdr, *append;
+	int r;
+	TfwHttpHdrTbl *ht = hm->parser.hbh_parser.raw;
+	if (!ht) {
+		if ((r = __hbh_parser_alloc_table(hm)))
+			return r;
+		ht = hm->parser.hbh_parser.raw;
+	}
+
+	if (ht->tbl[ht->off - 1].flags & TFW_STR_COMPLETE) {
+		hid = ht->off;
+		if (hid == ht->size)
+			if (__tfw_http_msg_grow_hdr_tbl(&hm->parser.hbh_parser.raw,
+							hm->pool))
+				return -ENOMEM;
+		++ht->off;
+	}
+	else {
+		hid = ht->off - 1;
+	}
+
+	hdr = &ht->tbl[hid];
+	if (!TFW_STR_EMPTY(hdr)) {
+		append = tfw_str_add_compound(hm->pool, hdr);
+	}
+	else {
+		append = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
+		hdr->ptr = append;
+		__TFW_STR_CHUNKN_SET(hdr, 1);
+	}
+	if (!append)
+		return -ENOMEM;
+	append->len = len;
+	append->ptr = data;
+	hdr->len += len;
+
+	if (last) {
+		TfwStr s_colon = { .ptr = ":", .len = 1 };
+		append = tfw_str_add_compound(hm->pool, hdr);
+		if (!append)
+			return -ENOMEM;
+		*append = s_colon;
+		hdr->len += s_colon.len;
+		hdr->flags |= TFW_STR_COMPLETE;
+
+		tfw_http_msg_mark_hbh_hdr(hm, hdr);
+	};
+
+	return 0;
+}
+
 /* Helping (inferior) states to process particular parts of HTTP message. */
 enum {
 	I_0, /* initial state */
@@ -631,6 +759,7 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
+		MARK_SPEC_HBH(id);					\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = id;					\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
@@ -670,9 +799,10 @@ __FSM_STATE(st_curr) {							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
 		__msg_hdr_chunk_fixup(p, __fsm_n);			\
+		mark_raw_hbh(msg, &parser->hdr);			\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
-		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */	\
+		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
 	}								\
 }
 
@@ -704,6 +834,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		TFW_PARSER_BLOCK(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz)); 		\
+	mark_raw_hbh(msg, &parser->hdr);				\
 	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
 }
 
@@ -890,8 +1021,20 @@ __FSM_STATE(RGen_OWS) {							\
 	goto fsm_reenter;						\
 }
 
+#define TRY_SPEC_HBH_HDR_LAMBDA(name, hid, lambda)			\
+	TRY_STR_LAMBDA(name, {						\
+		parser->hbh_parser.spec |= 0x1 << hid;			\
+		if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))		\
+			msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;	\
+		lambda;							\
+	}, I_EoT);
+
+#define TRY_SPEC_HBH_HDR(name, hid) TRY_SPEC_HBH_HDR_LAMBDA(name, hid, {}})
+
 /**
- * Parse Connection header value, RFC 2616 14.10.
+ * Parse Connection header value, RFC 7230 6.1.
+ *
+ * Mark already parsed headers as hop-by-hop once they appear in the header.
  */
 static int
 __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -901,17 +1044,23 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st) {
 
+	/*
+	 * Currently none of headers parsed by TFW_HTTP_PARSE_SPECHDR_VAL
+	 * or except "Keep-Alive" can be hop-by-hop.
+	 * If such headers will be added, need to use TRY_SPEC_HBH_HDR macro
+	 * before TRY_STR_INIT() call.
+	 */
 	__FSM_STATE(I_Conn) {
 		TRY_STR_LAMBDA("close", {
 			if (msg->flags & TFW_HTTP_CONN_KA)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
 		}, I_EoT);
-		TRY_STR_LAMBDA("keep-alive", {
+		TRY_SPEC_HBH_HDR_LAMBDA("keep-alive", TFW_HTTP_HDR_KEEP_ALIVE, {
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
-		}, I_EoT);
+		});
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
@@ -922,8 +1071,24 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * it could be names of any headers, including custom headers.
 	 */
 	__FSM_STATE(I_ConnOther) {
-		__FSM_I_MATCH_MOVE(token, I_ConnOther);
+		/* Unwind __FSM_I_MATCH_MOVE(token, I_ConnOther): */
+		__fsm_n = __data_remain(p);
+		__fsm_sz = tfw_match_token(p, __fsm_n);
+		if (unlikely(__fsm_sz == __fsm_n)) {
+			__msg_hdr_chunk_fixup(data, len);
+			parser->_i_st = I_ConnOther;
+			__fsm_const_state = I_ConnOther;
+			if (__hbb_parser_add_data(hm, p, __fsm_sz, false))
+				r = CSTR_NEQ;
+			else
+				r = TFW_POSTPONE;
+			__FSM_EXIT()
+		}
+
+		msg->flags |= TFW_HTTP_CONN_EXTRA;
 		c = *(p + __fsm_sz);
+		if (__hbb_parser_add_data(hm, p, __fsm_sz, true))
+			return  CSTR_NEQ;
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c))
@@ -1845,6 +2010,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
+
+	__hbh_parser_init(&parser->hbh_parser, true);
 
 	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
@@ -3294,6 +3461,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
+
+	__hbh_parser_init(&parser->hbh_parser, false);
 
 	TFW_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", resp);
