@@ -123,13 +123,11 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err == TFW_BLOCK || _err == TFW_POSTPONE) {	\
-		chunks = 1;					\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE)		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" :	\
 				              "response"),	\
 			  _err, (str)); 			\
-	}							\
 	_err == TFW_PASS;					\
 })
 
