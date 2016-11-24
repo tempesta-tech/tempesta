@@ -601,7 +601,8 @@ static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 {
 	if (((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
-	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION])))
+	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]))
+	    && !(hm->flags & TFW_HTTP_CONN_EXTRA))
 		return 0;
 
 	switch (conn_flg) {
