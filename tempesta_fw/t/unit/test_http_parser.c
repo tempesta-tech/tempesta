@@ -952,6 +952,106 @@ TEST(http_parser, cookie)
 		"\r\n");
 }
 
+TEST(http_parser, req_hop_by_hop)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *field;
+	long id;
+#define REQ_HBH_START							\
+	"GET /foo HTTP/1.1\r\n"						\
+	"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"			\
+	"Accept: */*\r\n"						\
+	"Host: localhost\r\n"						\
+	"X-Custom-Hdr: custom header values\r\n"			\
+	"X-Forwarded-For: 127.0.0.1, example.com\r\n"			\
+	"Dummy0: 0\r\n"							\
+	"Dummy1: 1\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy2: 2\r\n"							\
+	"Dummy3: 3\r\n"							\
+	"Keep-Alive: timeout=600, max=65526\r\n"
+
+#define REQ_HBH_END							\
+	"Dummy4: 4\r\n"							\
+	"Dummy5: 5\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy6: 6\r\n"							\
+	"Content-Length: 0\r\n"						\
+	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
+	"Dummy7: 7\r\n"							\
+	"Dummy8: 8\r\n"							\
+	"Buzz: is hop-by-hop header\r\n"				\
+	"Dummy9: 9\r\n"							\
+	"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"		\
+	"Pragma: no-cache, fooo \r\n"					\
+	"Transfer-Encoding: compress, deflate, gzip\r\n"		\
+	"Cookie: session=42; theme=dark\r\n"				\
+	"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"	\
+	"\r\n"								\
+
+	/* No Hop-by-hop headers */
+	FOR_REQ(REQ_HBH_START
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 18 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive */
+	FOR_REQ(REQ_HBH_START
+		"Connection: Keep-Alive\r\n"
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 18 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive and user headers */
+	FOR_REQ(REQ_HBH_START
+		"Connection: Foo, Keep-Alive, Bar, Buzz\r\n"
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+			case TFW_HTTP_HDR_RAW + 4:
+			case TFW_HTTP_HDR_RAW + 12:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+}
+
 #define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
@@ -1034,5 +1134,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, empty_host);
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, cookie);
+	TEST_RUN(http_parser, req_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
 }
