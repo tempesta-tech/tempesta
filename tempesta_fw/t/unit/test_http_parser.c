@@ -1050,6 +1050,119 @@ TEST(http_parser, req_hop_by_hop)
 			}
 		}
 	}
+
+#undef REQ_HBH_START
+#undef REQ_HBH_END
+}
+
+TEST(http_parser, resp_hop_by_hop)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *field;
+	long id;
+#define RESP_HBH_START							\
+	"HTTP/1.1 200 OK\r\n"						\
+	"Dummy0: 0\r\n"							\
+	"Dummy1: 1\r\n"							\
+	"Dummy2: 2\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy3: 3\r\n"							\
+	"Dummy4: 4\r\n"							\
+	"Dummy5: 5\r\n"
+
+#define RESP_HBH_END							\
+	"Dummy6: 6\r\n"							\
+	"Content-Length: 3\r\n"						\
+	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
+	"Dummy7: 7\r\n"							\
+	"Buzz: is hop-by-hop header\r\n"				\
+	"Dummy8: 8\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"	\
+	"Dummy9: 9\r\n"							\
+	"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"			\
+	"Keep-Alive: timeout=600, max=65526\r\n"			\
+	"Transfer-Encoding: compress, deflate, gzip\r\n"		\
+	"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"		\
+		" mod_fcgid/2.3.9\r\n"					\
+	"Age: 12  \n"							\
+	"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"			\
+	"\r\n"								\
+	"012"
+
+	/* No Hop-by-hop headers */
+	FOR_RESP(RESP_HBH_START
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive */
+	FOR_RESP(RESP_HBH_START
+		 "Connection: Keep-Alive\r\n"
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive and user headers */
+	FOR_RESP(RESP_HBH_START
+		 "Connection: Foo, Keep-Alive, Bar, Buzz\r\n"
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+			case TFW_HTTP_HDR_RAW + 3:
+			case TFW_HTTP_HDR_RAW + 9:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+#undef RESP_HBH_START
+#undef RESP_HBH_END
 }
 
 #define N 6	// Count of generations
@@ -1135,5 +1248,6 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, req_hop_by_hop);
+	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
 }
