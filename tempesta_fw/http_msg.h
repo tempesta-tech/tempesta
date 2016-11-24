@@ -74,6 +74,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
+void tfw_http_msg_mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr);
 
 TfwHttpMsg *tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type,
 				size_t data_len);
@@ -83,7 +84,14 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
-int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
+
+int __tfw_http_msg_grow_hdr_tbl(TfwHttpHdrTbl **ht, TfwPool * pool);
+
+static inline int
+tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
+{
+	return __tfw_http_msg_grow_hdr_tbl(&hm->h_tbl, hm->pool);
+}
 
 TfwHttpMsg *tfw_http_msg_alloc(int type);
 void tfw_http_msg_free(TfwHttpMsg *m);

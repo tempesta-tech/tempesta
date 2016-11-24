@@ -323,22 +323,22 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 }
 
 int
-tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
+__tfw_http_msg_grow_hdr_tbl(TfwHttpHdrTbl **ht, TfwPool * pool)
 {
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	size_t order = ht->size / TFW_HTTP_HDR_NUM, new_order = order << 1;
+	TfwHttpHdrTbl *new_ht = *ht;
+	size_t order = new_ht->size / TFW_HTTP_HDR_NUM, new_order = order << 1;
 
-	ht = tfw_pool_realloc(hm->pool, ht, TFW_HHTBL_SZ(order),
+	new_ht = tfw_pool_realloc(pool, new_ht, TFW_HHTBL_SZ(order),
 			      TFW_HHTBL_SZ(new_order));
-	if (!ht)
+	if (!new_ht)
 		return -ENOMEM;
-	ht->size = __HHTBL_SZ(new_order);
-	ht->off = hm->h_tbl->off;
-	memset(ht->tbl + __HHTBL_SZ(order), 0,
+	new_ht->size = __HHTBL_SZ(new_order);
+	new_ht->off = (*ht)->off;
+	memset(new_ht->tbl + __HHTBL_SZ(order), 0,
 	       __HHTBL_SZ(order) * sizeof(TfwStr));
-	hm->h_tbl = ht;
+	*ht = new_ht;
 
-	TFW_DBG3("grow http headers table to %d items\n", ht->size);
+	TFW_DBG3("grow http headers table to %d items\n", new_ht->size);
 
 	return 0;
 }
@@ -577,6 +577,9 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 /**
  * Remove hop-by-hop headers in the message
+ *
+ * Connection header should not be removed, tfw_http_set_hdr_connection()
+ * optimize removal of the header.
  */
 int
 tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
@@ -587,6 +590,9 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
+
+		if (hid == TFW_HTTP_HDR_CONNECTION)
+			continue;
 		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
 			if ((r = __hdr_del(hm, hid)))
 				return r;
@@ -595,6 +601,29 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 	return 0;
 }
 
+/**
+ * Lookup for the header @hdr in already collected headers table @ht,
+ * and mark it as hop-by-hop. The lookup is performed untill ':', so header
+ * name only is enough in @hdr.
+ */
+void
+tfw_http_msg_mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *d, *end, *h;
+	unsigned int hid = __hdr_lookup(hm, hdr);
+
+	/*
+	 * This function is called before hm->h_tbl fully parsed,
+	 * If header is epmty, dont touch it
+	 */
+	if ((hid > ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
+		return;
+
+	h = &ht->tbl[hid];
+	TFW_STR_FOR_EACH_DUP(d, h, end)
+		d->flags |= TFW_STR_HBH_HDR;
+}
 
 /**
  * Add a header, probably duplicated, without any checking of current headers.
