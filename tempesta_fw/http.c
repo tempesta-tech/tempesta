@@ -487,17 +487,25 @@ tfw_http_conn_init(TfwConnection *conn)
 static void
 tfw_http_conn_release(TfwConnection *conn)
 {
-	TfwMsg *msg, *tmp;
+	TfwHttpReq *req, *tmp;
+	struct list_head zap_queue;
 
-	list_for_each_entry_safe(msg, tmp, &conn->msg_queue, msg_list) {
-		BUG_ON(((TfwHttpMsg *)msg)->conn
-			&& (((TfwHttpMsg *)msg)->conn == conn));
-		list_del(&msg->msg_list);
-		tfw_http_send_404((TfwHttpReq *)msg);
-		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
+	TFW_DBG3("%s: conn = %p\n", __func__, conn);
+	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Srv));
+
+	INIT_LIST_HEAD(&zap_queue);
+
+	spin_lock(&conn->msg_qlock);
+	list_splice_tail_init(&conn->msg_queue, &zap_queue);
+	spin_unlock(&conn->msg_qlock);
+
+	list_for_each_entry_safe(req, tmp, &zap_queue, msg.msg_list) {
+		BUG_ON(req->conn && (req->conn == conn));
+		list_del(&req->msg.msg_list);
+		tfw_http_send_404(req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-	INIT_LIST_HEAD(&conn->msg_queue);
 }
 
 /*
@@ -865,18 +873,22 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_http_adjust_req(req))
 		goto send_500;
 
-	/* Add request to the server connection. */
+	/*
+	 * Forwarding the request to the server and adding it to the
+	 * server connection's queue must be done under queue lock
+	 * in one go. Otherwise, the response may be received before
+	 * the request is added to the server connection's queue. Now
+	 * the request cannot be retrieved by a receive thread until
+	 * the lock is released. Also, it cannot be deleted from under
+	 * this thread by a thread that closes the server connection.
+	 */
 	spin_lock(&srv_conn->msg_qlock);
-	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
-	spin_unlock(&srv_conn->msg_qlock);
-
-	/* Send request to the server. */
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
-		spin_lock(&srv_conn->msg_qlock);
-		list_del(&req->msg.msg_list);
 		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
 	}
+	list_add_tail(&req->msg.msg_list, &srv_conn->msg_queue);
+	spin_unlock(&srv_conn->msg_qlock);
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	goto conn_put;
 
