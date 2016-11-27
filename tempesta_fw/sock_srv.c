@@ -131,6 +131,8 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 
 	addr = &conn->peer->addr;
 
+	TFW_DBG_ADDR("Try server connection", addr);
+
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
 		TFW_ERR("Unable to create server socket\n");
@@ -418,6 +420,9 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * that parallel execution can't happen with the same socket.
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
+		// TODO #439 sometimes we fail with the server
+		// connection attempt. We must connect BEFORE we return
+		// from the routine to avoid no server connection errors.
 		tfw_sock_srv_connect_try_later(srv_conn);
 	return 0;
 }
