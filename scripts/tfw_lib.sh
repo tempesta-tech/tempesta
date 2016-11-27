@@ -44,21 +44,15 @@ distribute_queues()
 	echo "...distribute $dev queues"
 
 	if [ "$RXQ_MAX" ]; then
-		echo "...configuring rx queues, please wait..."
-		if [ $RXQ_MAX -gt $CPUS_N ]; then
-			ethtool -L $dev rx $CPUS_N >/dev/null 2>&1
-		else
-			ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
-		fi
+		echo "...set rx channels to $RXQ_MAX, please wait..."
+		# Set maximum number of available channels for better
+		# packets hashing.
+		ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
 		# Wait for the interface reconfiguration.
 		opstate="/sys/class/net/$dev/operstate"
 		while [ "$(cat $opstate)" = "down" ]; do
 			sleep 1
 		done
-		# Sleep bit more - it seems NIC sometimes
-		# drops packets even after reporint UP state.
-		# TODO AK_DBG fix server connection reistablishing
-		sleep 5
 	fi
 
 	irqs=($(grep $dev /proc/interrupts \
