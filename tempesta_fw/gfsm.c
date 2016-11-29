@@ -111,8 +111,8 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 	int fsm_curr = state >> TFW_GFSM_FSM_SHIFT;
 	int free_slot;
 
-	TFW_DBG("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
-		fsm_curr, state, fsm_next, fsm_hooks[fsm_curr][shift].st0);
+	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
+		 fsm_curr, state, fsm_next, fsm_hooks[fsm_curr][shift].st0);
 
 	st->curr = __gfsm_fsm_lookup(st, fsm_next, &free_slot);
 	if (st->curr < 0) {
@@ -136,7 +136,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, struct sk_buff *skb,
 
 	FSM_STATE(st) |= TFW_GFSM_ONSTACK;
 
-	TFW_DBG("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
+	TFW_DBG3("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
 
 	r = fsm_htbl[fsm_id](st->obj, skb, off);
 
@@ -180,7 +180,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << state;
 
-	TFW_DBG("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
+	TFW_DBG3("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
 
 	/* Remember current FSM context. */
 	SET_STATE(st, state);
