@@ -115,6 +115,7 @@ typedef struct {
 	TfwConnection		conn;
 	unsigned long		timeout;
 	unsigned int		attempts;
+	struct sock		*tsk;
 } TfwSrvConnection;
 
 /**
@@ -169,6 +170,9 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		ss_close_sync(sk, false);
 		return r;
 	}
+
+	/* Save socket while it is not linked to the connection */
+	srv_conn->tsk = sk;
 
 	return 0;
 }
@@ -373,6 +377,11 @@ tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
 		tfw_connection_unlink_from_sk(sk);
 		tfw_connection_unlink_to_sk(conn);
 		ss_close_sync(sk, true);
+	} else if (srv_conn->tsk) {
+		extern void ss_do_close(struct sock *);
+		bh_lock_sock(srv_conn->tsk);
+		ss_do_close(srv_conn->tsk);
+		bh_unlock_sock(srv_conn->tsk);
 	}
 
 	/*
