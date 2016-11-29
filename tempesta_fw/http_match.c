@@ -64,26 +64,6 @@
 #include "http_match.h"
 #include "http_msg.h"
 
-/*
- * Use -DTFW_HTTP_MATCH_DBG_LVL=N to increase verbosity just for this unit.
- *
- * At the level 1 you get a log message for every processed HTTP message,
- * and at level 2 a message for each rule against which the request is matched.
- */
-#ifndef TFW_HTTP_MATCH_DBG_LVL
-#define TFW_HTTP_MATCH_DBG_LVL 0
-#endif
-
-#if (TFW_HTTP_MATCH_DBG_LVL >= 1)
-#undef TFW_DBG
-#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
-#endif
-
-#if (TFW_HTTP_MATCH_DBG_LVL >= 2)
-#undef TFW_DBG2
-#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
-#endif
-
 /**
  * Look up a header in the @req->h_tbl by given @id,
  * and compare @str with the header's value (skipping name and LWS).
@@ -402,7 +382,7 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 {
 	TfwHttpMatchRule *rule;
 
-	TFW_DBG("Matching request: %p, list: %p\n", req, mlst);
+	TFW_DBG2("Matching request: %p, list: %p\n", req, mlst);
 
 	list_for_each_entry(rule, &mlst->list, list) {
 		if (do_match(req, rule))
