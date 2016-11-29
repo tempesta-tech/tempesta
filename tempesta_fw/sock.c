@@ -61,10 +61,13 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 static void
 ss_sock_cpu_check(struct sock *sk, const char *op)
 {
-	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
+	if (unlikely(sk->sk_incoming_cpu != TFW_SK_CPU_INIT
+		     && sk->sk_incoming_cpu != smp_processor_id()))
+	{
 		SS_WARN("Bad socket cpu locality on <%s>:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
 			op, sk, sk->sk_incoming_cpu, smp_processor_id());
+	}
 }
 
 static void
