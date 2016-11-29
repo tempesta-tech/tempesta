@@ -140,7 +140,9 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	 * of a local peer connection, so all handlers must be installed
 	 * before the call.
 	 */
+#if defined(DEBUG) && (DEBUG >= 2)
 	sock_set_flag(sk, SOCK_DBG);
+#endif
 	tfw_connection_link_from_sk(conn, sk);
 	ss_set_callbacks(sk);
 
