@@ -707,12 +707,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 		/* The alternative: remove "Content-Length" header. */	\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			return TFW_BLOCK;				\
-		if (msg->flags & TFW_HTTP_CHUNKED) {			\
-			/* "chunked" must be the last in the list. */	\
-			if (!(msg->flags & __TFW_HTTP_CHUNKED_LAST))	\
-				return TFW_BLOCK;			\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
-		}							\
 		/*							\
 		 * TODO: If "Transfer-Encoding:" header is present and	\
 		 * there's NO "chunked" coding, then send 400 response	\
@@ -753,12 +749,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 		/* The alternative: remove "Content-Length" header. */	\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			return TFW_BLOCK;				\
-		if (msg->flags & TFW_HTTP_CHUNKED) {			\
-			/* "chunked" must be the last in the list. */	\
-			if (!(msg->flags & __TFW_HTTP_CHUNKED_LAST))	\
-				return TFW_BLOCK;			\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
-		}							\
 		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))		\
@@ -1053,8 +1045,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		TRY_STR_LAMBDA("chunked", {
 			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_CHUNKED
-				      | __TFW_HTTP_CHUNKED_LAST;
+			msg->flags |= TFW_HTTP_CHUNKED;
 		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_TransEncodOther, 0);
@@ -1069,8 +1060,12 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			/* "chunked" must be the last coding. */
+			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
+				return CSTR_NEQ;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -1078,11 +1073,8 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
-		if (IS_TOKEN(c)) {
-			/* "chunked" is not the last coding. */
-			msg->flags &= ~__TFW_HTTP_CHUNKED_LAST;
+		if (IS_TOKEN(c))
 			__FSM_I_MOVE_n(I_TransEncodChunked, 0);
-		}
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2099,8 +2091,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrP);
 		case 't':
 			if (likely(__data_available(p, 18)
-				   && C8_INT_LCM(p + 1, 'r', 'a', 'n', 's',
-							'f', 'e', 'r', '-')
+				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
+						    's', 'f', 'e', 'r')
+				   && *(p + 8) == '-'
 				   && C8_INT_LCM(p + 9, 'e', 'n', 'c', 'o',
 							'd', 'i', 'n', 'g')
 				   && *(p + 17) == ':'))
@@ -2124,8 +2117,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
 			if (likely(__data_available(p, 11)
-				   && C8_INT_LCM(p + 1, 's', 'e', 'r', '-',
-							'a', 'g', 'e', 'n')
+				   && C4_INT_LCM(p, 'u', 's', 'e', 'r')
+				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
 				   && TFW_LC(*(p + 9)) == 't'
 				   && *(p + 10) == ':'))
 			{
