@@ -21,7 +21,6 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/random.h>
 #include <linux/string.h>
 #include <linux/slab.h>
 
@@ -30,7 +29,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta HTTP fuzzer");
-MODULE_VERSION("0.1.2");
+MODULE_VERSION("0.1.3");
 MODULE_LICENSE("GPL");
 
 #define FUZZ_MSG_F_INVAL	FUZZ_INVALID
@@ -125,8 +124,8 @@ static FuzzMsg server[] = {
 	{"Apache/2.2.17 (Win32) PHP/5.3.5"}
 };
 static FuzzMsg cache_control[] = {
-	{"no-cache"}, {"no-cache"}, {"max-age=3600"}, {"no-store"},
-	{"max-stale=0"}, {"min-fresh=0"}, {"no-transform"}, {"only-if-cached"},
+	{"no-cache"}, {"max-age=3600"}, {"no-store"}, {"max-stale=0"},
+	{"min-fresh=0"}, {"no-transform"}, {"only-if-cached"},
 	{"cache-extension"}
 };
 static FuzzMsg expires[] = {
@@ -141,8 +140,8 @@ static FuzzMsg expires[] = {
  * The function must return the flags of the field ORed with the result
  * of either FUZZ_VALID or FUZZ_INVALID.
  */
-typedef unsigned int (*fld_func)(TfwFuzzContext *ctx,
-				 int type, int fld, int val);
+typedef unsigned int (*fld_func_t)(TfwFuzzContext *ctx,
+				   int type, int fld, int val);
 
 /*
  * Check various conditions that put limitations on correct values of
@@ -208,7 +207,7 @@ fld_expires(TfwFuzzContext *ctx, int type, int fld, int val)
 static struct {
 	char		*key;
 	FuzzMsg		*vals;
-	fld_func	func;
+	fld_func_t	func;
 } fld_data[N_FIELDS] = {
 	[0 ... N_FIELDS-1] = { 0 },
 	[SPACES]		= { NULL, spaces },
@@ -482,10 +481,10 @@ static unsigned int
 __add_header_rand(TfwFuzzContext *ctx, int type,
 		  char **p, char *end, int t, int n)
 {
-	unsigned int rand;
+	static unsigned int rand = 0;
 
-	get_random_bytes(&rand, sizeof(rand));
-	return rand % 2 ? __add_header(ctx, type, p, end, t, n) : FUZZ_VALID;
+	/* For now, just alternate between adding a header and not adding. */
+	return (++rand) % 2 ? __add_header(ctx, type, p, end, t, n) : FUZZ_VALID;
 }
 
 static unsigned int
