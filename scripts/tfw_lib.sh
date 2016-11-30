@@ -28,8 +28,6 @@ declare -r TFW_NETDEV_PATH="/sys/class/net/"
 declare -r TFW_SCRIPTS="$TFW_ROOT/scripts"
 declare -r CPUS_N=$(grep -c processor /proc/cpuinfo)
 
-declare TFW_DEVS=$(ifconfig | grep -o '^[a-z0-9]\+')
-
 calc()
 {
 	echo "$1" | bc -iq | tail -1
@@ -43,7 +41,7 @@ distribute_queues()
 
 	echo "...distribute $dev queues"
 
-	if [ "$RXQ_MAX" ]; then
+	if [ -n "$RXQ_MAX" -a $RXQ_MAX -gt 0 ]; then
 		echo "...set rx channels to $RXQ_MAX, please wait..."
 		# Set maximum number of available channels for better
 		# packets hashing.
@@ -53,10 +51,12 @@ distribute_queues()
 		while [ "$(cat $opstate)" = "down" ]; do
 			sleep 1
 		done
+	else
+		echo "...0 channels for $dev - skip"
+		return
 	fi
 
-	irqs=($(grep $dev /proc/interrupts \
-		| sed -e 's/\s*\|:.*//g'))
+	irqs=($(grep $dev /proc/interrupts | sed -e 's/\s*\|:.*//g'))
 	irq0=${irqs[0]}
 	for i in ${irqs[@]}; do
 		# Wrap around CPU mask if number of queues is
@@ -81,12 +81,13 @@ distribute_queues()
 # but physical interfaces can have RSS.
 tfw_set_net_queues()
 {
+	devs=$1
 	min_queues=$(calc "$CPUS_N / 2")
 	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
 
-	for dev in $TFW_DEVS; do
-		queues=$(ls -d /sys/class/net/$dev/queues/rx-*|wc -l)
-		if [ $queues -lt $min_queues ]; then
+	for dev in $devs; do
+		queues=$(ls -d /sys/class/net/$dev/queues/rx-* | wc -l)
+		if [ $queues -le $min_queues ]; then
 			echo "...enable RPS on $dev"
 			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
 				echo $cpu_mask > $rx/rps_cpus
