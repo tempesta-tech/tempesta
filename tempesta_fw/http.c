@@ -493,7 +493,7 @@ tfw_http_conn_release(TfwConnection *conn)
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
 		list_del(&msg->msg_list);
-		tfw_http_send_404((TfwHttpReq *)msg);
+		tfw_http_send_502((TfwHttpReq *)msg);
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -859,7 +859,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 	if (srv_conn == NULL) {
 		TFW_WARN("Unable to find a backend server\n");
-		goto send_404;
+		goto send_502;
 	}
 
 	if (tfw_http_adjust_req(req))
@@ -880,8 +880,8 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	goto conn_put;
 
-send_404:
-	tfw_http_send_404(req);
+send_502:
+	tfw_http_send_502(req);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
@@ -1451,7 +1451,7 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 		TFW_DBG("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
-	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	TFW_DBG2("Add skb %p to message %p\n", skb, c->msg);
 	ss_skb_queue_tail(&c->msg->skb_list, skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)

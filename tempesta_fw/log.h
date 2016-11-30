@@ -70,7 +70,7 @@
 #define TFW_DBG3(...)
 #endif
 
-#if defined(DEBUG) && (DEBUG >= 1)
+#if defined(DEBUG) && (DEBUG == 3)
 #define __CALLSTACK_MSG(...)						\
 do {									\
 	printk(__VA_ARGS__);						\
