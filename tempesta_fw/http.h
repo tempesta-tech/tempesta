@@ -152,9 +152,10 @@ typedef struct {
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
+ * @_acc	- integer accumulator for parsing chunked integers;
+ * @_date	- accumulator for a date in date related headers;
  * @_hdr_tag	- stores header id which must be closed on generic EoL handling
  *		  (see RGEN_EOL());
- * @_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -197,6 +198,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_TRANSFER_ENCODING,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
