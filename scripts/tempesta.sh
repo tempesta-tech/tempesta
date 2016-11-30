@@ -36,6 +36,8 @@ frang_mod="tfw_frang"
 declare frang_enable=
 declare -r LONG_OPTS="help,load,unload,start,stop,restart"
 
+declare devs=$(ifconfig | grep -o '^[a-z0-9\-]\+')
+
 usage()
 {
 	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
@@ -109,7 +111,7 @@ start()
 {
 	echo "Starting Tempesta..."
 
-	tfw_set_net_queues
+	tfw_set_net_queues "$devs"
 
 	# Tempesta builds socket buffers by itself, don't cork TCP segments.
 	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
@@ -179,7 +181,7 @@ while :; do
 			;;
 		# Ignore any options after action.
 		-d)
-			TFW_DEVS=$2
+			devs=$2
 			shift 2
 			;;
 		-f)
