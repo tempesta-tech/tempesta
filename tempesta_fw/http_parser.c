@@ -466,7 +466,8 @@ enum {
 	I_ContLen, /* Content-Length */
 	I_ContType, /* Content-Type */
 	I_TransEncod, /* Transfer-Encoding */
-	I_TransEncodExt,
+	I_TransEncodChunked,
+	I_TransEncodOther,
 
 	I_EoT, /* end of term */
 };
@@ -697,25 +698,24 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
+	TfwStr *tbl = msg->h_tbl->tbl;					\
+									\
 	TFW_DBG3("parse request body: flags=%#x content_length=%lu\n",	\
 		 msg->flags, msg->content_length);			\
 									\
-	/*								\
-	 * TODO: If both "Transfer-Encoding:" and "Content-Length:"	\
-	 * headers are present,	then issue an error or remove		\
-	 * "Content-Length:" header.					\
-	 */								\
-	/*								\
-	 * TODO: If "Transfer-Encoding:" header is present,		\
-	 * then "chunked" coding must be the last in the list.		\
-	 */								\
-	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE_nofixup(RGen_BodyStart);			\
-	/*								\
-	 * TODO: If "Transfer-Encoding:" header is present and		\
-	 * there's NO "chunked" coding, then send 400 response		\
-	 * (Bad Request) and close the connection.			\
-	 */								\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
+		/* The alternative: remove "Content-Length" header. */	\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
+			return TFW_BLOCK;				\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		/*							\
+		 * TODO: If "Transfer-Encoding:" header is present and	\
+		 * there's NO "chunked" coding, then send 400 response	\
+		 * (Bad Request) and close the connection.		\
+		 */							\
+		return TFW_BLOCK;					\
+	}								\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
 		__FSM_MOVE_nofixup(RGen_BodyStart);			\
@@ -729,6 +729,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
+	TfwStr *tbl = msg->h_tbl->tbl;					\
 	TfwHttpResp *resp = (TfwHttpResp *)msg;				\
 									\
 	TFW_DBG3("parse response body: flags=%#x content_length=%lu\n",	\
@@ -736,7 +737,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 									\
 	/* There's no body. */						\
 	/* TODO: Add (req == CONNECT && resp == 2xx) */			\
-	if (resp->status - 101U < 99U || resp->status == 204		\
+	if (resp->status - 100U < 100U || resp->status == 204		\
 	    || resp->status == 304 || msg->flags & TFW_HTTP_VOID_BODY)	\
 	{								\
 		/* There is no body. */					\
@@ -744,23 +745,15 @@ __FSM_STATE(RGen_BodyInit) {						\
 		r = TFW_PASS;						\
 		FSM_EXIT();						\
 	}								\
-	/*								\
-	 * TODO: If both "Transfer-Encoding:" and "Content-Length:"	\
-	 * headers are present,	then issue an error or remove		\
-	 * "Content-Length:" header.					\
-	 */								\
-	/*								\
-	 * TODO: If "Transfer-Encoding:" header is present,		\
-	 * then "chunked" coding must be the last in the list.		\
-	 */								\
-	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE_nofixup(RGen_BodyStart);			\
-	/*								\
-	 * TODO: If "Transfer-Encoding:" header is present and		\
-	 * there's NO "chunked" coding, then process the body		\
-	 * until the connection is closed.				\
-	 */								\
-	if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) \
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
+		/* The alternative: remove "Content-Length" header. */	\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
+			return TFW_BLOCK;				\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
+	}								\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))		\
 	{								\
 		if (msg->content_length) {				\
 			parser->to_read = msg->content_length;		\
@@ -1031,42 +1024,48 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * According to RFC 7230 section 3.3.1:
 	 *
 	 * TODO: In a response:
-	 * A server MUST NOT send a Transfer-Encoding header field in any
-	 * response with a status code of 1xx (Informational) or 204 (No
-	 * Content).  A server MUST NOT send a Transfer-Encoding header
-	 * field in any 2xx (Successful) response to a CONNECT request.
-	 *
-	 * TODO: A sender MUST NOT apply chunked more than once to a message
-	 * body (i.e., chunking an already chunked message is not allowed).
-	 *
-	 * TODO: in a request:
-	 * If any transfer coding other than chunked is applied to a request
-	 * payload body, the sender MUST apply chunked as the final transfer
-	 * coding to ensure that the message is properly framed.
-	 *
-	 * In a response, it's permissible to not have chunked transfer
-	 * coding. In that case the message is terminated by closing the
-	 * connection.
+	 * A server MUST NOT send a Transfer-Encoding header field
+	 * in any 2xx (Successful) response to a CONNECT request.
 	 */
 	__FSM_STATE(I_TransEncod) {
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
+			unsigned int status = ((TfwHttpResp *)hm)->status;
+			if ((status - 100U < 100U) || (status == 204))
+				return CSTR_NEQ;
+		}
+		__FSM_I_JMP(I_TransEncodChunked);
+	}
+
+	__FSM_STATE(I_TransEncodChunked) {
+		/*
+		 * A sender MUST NOT apply chunked more than once
+		 * to a message body (i.e., chunking an already
+		 * chunked message is not allowed). RFC 7230 3.3.1.
+		 */
 		TRY_STR_LAMBDA("chunked", {
+			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
+				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CHUNKED;
 		}, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_TransEncodExt, 0);
+		__FSM_I_MOVE_n(I_TransEncodOther, 0);
 	}
 
-	__FSM_STATE(I_TransEncodExt) {
+	__FSM_STATE(I_TransEncodOther) {
 		/*
 		 * TODO: process transfer encodings: gzip, deflate, identity,
 		 * compress;
 		 */
-		__FSM_I_MATCH_MOVE(token, I_TransEncodExt);
+		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			/* "chunked" must be the last coding. */
+			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
+				return CSTR_NEQ;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -1075,7 +1074,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(I_TransEncod, 0);
+			__FSM_I_MOVE_n(I_TransEncodChunked, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -1114,7 +1113,7 @@ enum {
 	Req_UriSchHttpColonSlash,
 	/* RFC 3986, 3.2:
 	 * authority = [userinfo@]host[:port]
-	 * We have special state for parsing :port, so
+	 * We have a special state for parsing :port, so
 	 * in Req_UriAuthority* we parse [userinfo@]host.
 	 */
 	Req_UriAuthorityStart,
@@ -2007,8 +2006,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* ----------------    Header Lines    ---------------- */
 
 	/*
-	 * Start of HTTP header or end of header part of the request.
-	 * There is a switch for first character of a header name.
+	 * The start of an HTTP header or the end of the header part
+	 * of the request. There is a switch for the first character
+	 * of a header field name.
 	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
@@ -2092,7 +2092,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 't':
 			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
-					   	    's', 'f', 'e', 'r')
+						    's', 'f', 'e', 'r')
 				   && *(p + 8) == '-'
 				   && C8_INT_LCM(p + 9, 'e', 'n', 'c', 'o',
 							'd', 'i', 'n', 'g')
@@ -2120,7 +2120,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p, 'u', 's', 'e', 'r')
 				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
-				   && *(p + 9) == 't'
+				   && TFW_LC(*(p + 9)) == 't'
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrUser_AgentV;
@@ -2189,8 +2189,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				  req, __req_parse_pragma);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
-				  msg, __parse_transfer_encoding);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
+				  msg, __parse_transfer_encoding,
+				  TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
@@ -3327,7 +3328,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* ----------------    Header Lines    ---------------- */
 
-	/* Start of HTTP header or end of whole request. */
+	/*
+	 * The start of an HTTP header or the end of the header part
+	 * of the response. There is a switch for the first character
+	 * of a header field name.
+	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
 
@@ -3499,8 +3504,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   __resp_parse_server, TFW_HTTP_HDR_SERVER);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
-				  msg, __parse_transfer_encoding);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
+				   msg, __parse_transfer_encoding,
+				   TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
