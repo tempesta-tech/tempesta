@@ -47,7 +47,7 @@ distribute_queues()
 		# packets hashing.
 		ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
 		# Wait for the interface reconfiguration.
-		opstate="/sys/class/net/$dev/operstate"
+		opstate="$TFW_NETDEV_PATH/$dev/operstate"
 		while [ "$(cat $opstate)" = "down" ]; do
 			sleep 1
 		done
