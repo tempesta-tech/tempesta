@@ -123,13 +123,11 @@ do_split_and_parse(unsigned char *str, int type)
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err == TFW_BLOCK || _err == TFW_POSTPONE) {	\
-		chunks = 1;					\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE)		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" :	\
 				              "response"),	\
 			  _err, (str)); 			\
-	}							\
 	_err == TFW_PASS;					\
 })
 
@@ -273,6 +271,46 @@ TEST(http_parser, mangled_messages)
 			 "Host: test\r\n"
 			 "Connection: close, \"foo\"\r\n"
 			 "\r\n");
+	/*
+	 * "Content-Length:" and "Transfer-Encoding:" header fields
+	 * may not be present together in a request.
+	 */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Content-Length: 4\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "4\r\n"
+			 "12345\r\n"
+			 "0\r\n"
+			 "\r\n");
+	/*
+	 * "chunked" coding must be present in a request if there's
+	 * any other coding (i.e. "Transfer-Encoding" is present).
+	 */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Transfer-Encoding: gzip\r\n"
+			 "\r\n"
+			 "4\r\n"
+			 "12345\r\n");
+
+	/* "chunked" conding must be the last coding. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Transfer-Encoding: chunked, gzip\r\n"
+			 "\r\n"
+			 "4\r\n"
+			 "12345\r\n"
+			 "0\r\n"
+			 "\r\n");
+
+	/* "chunked" coding may not be applied twice. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Transfer-Encoding: gzip, chunked\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "4\r\n"
+			 "12345\r\n"
+			 "0\r\n"
+			 "\r\n");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			 "Content-Type: foo/aa-\x19np\r\n"
@@ -281,6 +319,44 @@ TEST(http_parser, mangled_messages)
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
 			  "X-Foo: t\x7fst\r\n"
+			  "\r\n");
+	/*
+	 * "Content-Length:" and "Transfer-Encoding:" header fields
+	 * may not be present together in a response.
+	 */
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: 7\r\n"
+			  "Server: test server\r\n"
+			  "Transfer-Encoding: chunked\r\n"
+			  "\r\n"
+			  "7\r\n"
+			  "1234567\r\n"
+			  "0\r\n"
+			  "\r\n");
+	/*
+	 * "chunked" coding may be missing in a response, but that
+	 * means "unlimited body" which is tested by other means.
+	 */
+
+	/* "chunked" coding must be the last coding. */
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Server: test server\r\n"
+			  "Transfer-Encoding: chunked, gzip\r\n"
+			  "\r\n"
+			  "7\r\n"
+			  "1234567\r\n"
+			  "0\r\n"
+			  "\r\n");
+
+	/* "chunked" coding may not be applied twice. */
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Server: test server\r\n"
+			  "Transfer-Encoding: gzip, chunked\r\n"
+			  "Transfer-Encoding: chunked\r\n"
+			  "\r\n"
+			  "7\r\n"
+			  "1234567\r\n"
+			  "0\r\n"
 			  "\r\n");
 }
 
@@ -298,46 +374,51 @@ TEST(http_parser, alphabets)
 
 	/* Trailing SP in request. */
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"Host: localhost\t  \r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\t  \r\n"
 		"Accept: */*\t \r\n"
-		"Host: localhost\t  \r\n"
 		"Connection: Keep-Alive \t \r\n"
 		"X-Custom-Hdr: custom header values \t  \r\n"
 		"X-Forwarded-For: 127.0.0.1, example.com    \t \r\n"
-		"Content-Length: 0  \t \r\n"
 		"Content-Type: text/html; charset=iso-8859-1  \t \r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42 \t \r\n"
-		"Transfer-Encoding: compress, deflate, gzip\t  \r\n"
+		"Transfer-Encoding: compress, deflate, gzip, chunked\t  \r\n"
 		"Cookie: session=42; theme=dark  \t \r\n"
+		"\r\n"
+		"3\r\n"
+		"123\r\n"
+		"0\r\n"
 		"\r\n");
 
 	/* Trailing SP in response. */
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive \t \r\n"
 		"X-header: 6  \t  \t \r\n"
-		"Content-Length: 0 \t \r\n"
 		"Content-Type: text/html; charset=iso-8859-1 \t \r\n"
 		"Cache-Control: max-age=0, private, min-fresh=42 \t \r\n"
 		"Expires: Tue, 31 Jan 2012 15:02:53 GMT \t \r\n"
 		"Keep-Alive: timeout=600, max=65526 \t \r\n"
-		"Transfer-Encoding: compress, deflate, gzip \t \r\n"
+		"Transfer-Encoding: compress, deflate, gzip, chunked \t \r\n"
 		"Server: Apache/2.4.6 (CentOS)  \t  \r\n"
+		"\r\n"
+		"4\r\n"
+		"1234\r\n"
+		"0\r\n"
 		"\r\n");
 }
 
 TEST(http_parser, fills_hdr_tbl_for_req)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_pragma,
+	TfwStr *h_accept, *h_xch, *h_dummy4, *h_dummy9, *h_cc, *h_pragma,
 	       *h_auth;
-	TfwStr h_host, h_connection, h_contlen, h_conttype, h_xff,
-	       h_user_agent, h_cookie;
+	TfwStr h_host, h_connection, h_conttype, h_xff, h_user_agent, h_cookie,
+	       h_te;
 
 	/* Expected values for special headers. */
 	const char *s_host = "localhost";
 	const char *s_connection = "Keep-Alive";
 	const char *s_xff = "127.0.0.1, example.com";
-	const char *s_cl = "0";
 	const char *s_ct = "text/html; charset=iso-8859-1";
 	const char *s_user_agent = "Wget/1.13.4 (linux-gnu)";
 	const char *s_cookie = "session=42; theme=dark";
@@ -347,7 +428,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=1, no-store, min-fresh=30";
-	const char *s_te  = "Transfer-Encoding: compress, deflate, gzip";
+	const char *s_te  = "Transfer-Encoding: compress, gzip, chunked";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_pragma =  "Pragma: no-cache, fooo ";
 	const char *s_auth =  "Authorization: "
@@ -367,17 +448,20 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		"Dummy4: 4\r\n"
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
-		"Content-Length: 0\r\n"
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n" /* That is done to check table reallocation. */
 		"Dummy9: 9\r\n"
 		"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"
 		"Pragma: no-cache, fooo \r\n"
-		"Transfer-Encoding: compress, deflate, gzip\r\n"
+		"Transfer-Encoding: compress, gzip, chunked\r\n"
 		"Cookie: session=42; theme=dark\r\n"
 		"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"
-		"\r\n")
+		"\r\n"
+		"6\r\n"
+		"123456\r\n"
+		"0\r\n"
+		"\r\n");
 	{
 		ht = req->h_tbl;
 
@@ -387,9 +471,6 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
 					 TFW_HTTP_HDR_CONNECTION,
 					 &h_connection);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
-					 TFW_HTTP_HDR_CONTENT_LENGTH,
-					 &h_contlen);
 		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 					 TFW_HTTP_HDR_CONTENT_TYPE,
 					 &h_conttype);
@@ -398,11 +479,13 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_USER_AGENT],
 					 TFW_HTTP_HDR_USER_AGENT,
 					 &h_user_agent);
+		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
+					 TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
 		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_COOKIE],
 					 TFW_HTTP_HDR_COOKIE, &h_cookie);
 
 		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
 
 		h_accept = &ht->tbl[TFW_HTTP_HDR_RAW + 0];
 		h_xch = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
@@ -410,21 +493,20 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
 		h_pragma = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
-		h_auth = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
+		h_auth = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_host, s_host,
 					    strlen(s_host), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
-					    strlen(s_cl), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
 					    strlen(s_ct), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_xff, s_xff,
 					    strlen(s_xff), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_user_agent, s_user_agent,
 					    strlen(s_user_agent), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_te, s_te,
+					    strlen(s_te), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_cookie, s_cookie,
 					    strlen(s_cookie), 0));
 
@@ -438,8 +520,6 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_cc, s_cc,
 					    strlen(s_cc), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
-					    strlen(s_te), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_pragma, s_pragma,
 					    strlen(s_pragma), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_auth, s_auth,
@@ -459,13 +539,11 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_te, *h_age, *h_date, *h_exp,
-	       *h_ka;
-	TfwStr h_connection, h_contlen, h_conttype, h_srv;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_age, *h_date, *h_exp, *h_ka;
+	TfwStr h_connection, h_conttype, h_srv, h_te;
 
 	/* Expected values for special headers. */
 	const char *s_connection = "Keep-Alive";
-	const char *s_cl = "3";
 	const char *s_ct = "text/html; charset=iso-8859-1";
 	const char *s_srv = "Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 			    " mod_fcgid/2.3.9";
@@ -474,7 +552,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc = "Cache-Control: "
 			   "max-age=5, private, no-cache, ext=foo";
-	const char *s_te = "Transfer-Encoding: compress, deflate, gzip";
+	const char *s_te = "Transfer-Encoding: compress, gzip, chunked";
 	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
 	const char *s_ka = "Keep-Alive: timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
@@ -490,7 +568,6 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Dummy4: 4\r\n"
 		"Dummy5: 5\r\n"
 		"Dummy6: 6\r\n"
-		"Content-Length: 3\r\n"
 		"Content-Type: text/html; charset=iso-8859-1\r\n"
 		"Dummy7: 7\r\n"
 		"Dummy8: 8\r\n"
@@ -498,13 +575,16 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Dummy9: 9\r\n" /* That is done to check table reallocation. */
 		"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
 		"Keep-Alive: timeout=600, max=65526\r\n"
-		"Transfer-Encoding: compress, deflate, gzip\r\n"
+		"Transfer-Encoding: compress, gzip, chunked\r\n"
 		"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 		        " mod_fcgid/2.3.9\r\n"
 		"Age: 12  \n"
 		"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"
 		"\r\n"
-		"012")
+		"3\r\n"
+		"012\r\n"
+		"0\r\n"
+		"\r\n");
 	{
 		ht = resp->h_tbl;
 
@@ -515,38 +595,36 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
 					TFW_HTTP_HDR_CONNECTION,
 					&h_connection);
-		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH],
-					TFW_HTTP_HDR_CONTENT_LENGTH,
-					&h_contlen);
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 					TFW_HTTP_HDR_CONTENT_TYPE,
 					&h_conttype);
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_SERVER],
 					TFW_HTTP_HDR_SERVER, &h_srv);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
+					TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
 		 * Expires, Keep-Alive, Transfer-Encoding, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
 
 		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
 		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
 		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
 		h_ka = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_te = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
-		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 15];
+		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
+		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(&h_contlen, s_cl,
-					    strlen(s_cl), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_conttype, s_ct,
 					    strlen(s_ct), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_srv, s_srv,
 					    strlen(s_srv), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_te, s_te,
+					    strlen(s_te), 0));
 
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
@@ -558,14 +636,11 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_exp), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_ka, s_ka,
 					    strlen(s_ka), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_te, s_te,
-					    strlen(s_te), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_age, s_age,
 					    strlen(s_age), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_date, s_date,
 					    strlen(s_date), 0));
 
-		EXPECT_TRUE(resp->content_length == 3);
 		EXPECT_TRUE(resp->status == 200);
 		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE);
 		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE);
@@ -774,7 +849,6 @@ TEST(http_parser, chunked)
 
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Host:\r\n"
-		"Content-Length: 5\r\n"
 		"Transfer-Encoding: chunked\r\n"
 		"\r\n"
 		"5;cext=val\r\n"
@@ -799,7 +873,6 @@ TEST(http_parser, chunked)
 	}
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
-		 "Content-Length: 100\r\n"
 		 "Transfer-Encoding: chunked\r\n"
 		 "\n"
 		 "5\r\n"
