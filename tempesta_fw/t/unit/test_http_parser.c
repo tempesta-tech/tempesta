@@ -428,7 +428,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=1, no-store, min-fresh=30";
-	const char *s_te  = "Transfer-Encoding: compress, gzip, chunked";
+	const char *s_te  = "compress, gzip, chunked";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_pragma =  "Pragma: no-cache, fooo ";
 	const char *s_auth =  "Authorization: "
@@ -552,7 +552,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc = "Cache-Control: "
 			   "max-age=5, private, no-cache, ext=foo";
-	const char *s_te = "Transfer-Encoding: compress, gzip, chunked";
+	const char *s_te = "compress, gzip, chunked";
 	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
 	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
@@ -607,17 +607,16 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
-		 * Expires, Keep-Alive, Transfer-Encoding, Age, Date.
+		 * Expires, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
 
 		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
 		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
 		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
-		h_ka = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
@@ -984,7 +983,6 @@ TEST(http_parser, req_hop_by_hop)
 	"Dummy9: 9\r\n"							\
 	"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"		\
 	"Pragma: no-cache, fooo \r\n"					\
-	"Transfer-Encoding: compress, deflate, gzip\r\n"		\
 	"Cookie: session=42; theme=dark\r\n"				\
 	"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"	\
 	"\r\n"								\
@@ -994,8 +992,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 18 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -1009,8 +1007,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 18 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -1032,8 +1030,8 @@ TEST(http_parser, req_hop_by_hop)
 		REQ_HBH_END)
 	{
 		ht = req->h_tbl;
-		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 18);
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -1082,7 +1080,6 @@ TEST(http_parser, resp_hop_by_hop)
 	"Dummy9: 9\r\n"							\
 	"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"			\
 	"Keep-Alive: timeout=600, max=65526\r\n"			\
-	"Transfer-Encoding: compress, deflate, gzip\r\n"		\
 	"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"		\
 		" mod_fcgid/2.3.9\r\n"					\
 	"Age: 12  \n"							\
@@ -1095,8 +1092,8 @@ TEST(http_parser, resp_hop_by_hop)
 		 RESP_HBH_END)
 	{
 		ht = resp->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -1117,8 +1114,8 @@ TEST(http_parser, resp_hop_by_hop)
 		 RESP_HBH_END)
 	{
 		ht = resp->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
@@ -1142,7 +1139,7 @@ TEST(http_parser, resp_hop_by_hop)
 	{
 		ht = resp->h_tbl;
 		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
 
 		for(id = 0; id < ht->off; ++id) {
 			field = &ht->tbl[id];
