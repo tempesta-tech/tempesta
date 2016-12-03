@@ -85,13 +85,7 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
 
-int __tfw_http_msg_grow_hdr_tbl(TfwHttpHdrTbl **ht, TfwPool * pool);
-
-static inline int
-tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
-{
-	return __tfw_http_msg_grow_hdr_tbl(&hm->h_tbl, hm->pool);
-}
+int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 
 TfwHttpMsg *tfw_http_msg_alloc(int type);
 void tfw_http_msg_free(TfwHttpMsg *m);

@@ -499,35 +499,17 @@ __hbh_parser_init(TfwHttpHbhHdrs *hbh_hdrs, bool req)
 static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	TfwHttpHdrTbl *ht = hm->parser.hbh_parser.raw;
+	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 	unsigned int i;
 
-	if (!ht)
-		return;
-
-	for (i = 0; i < ht->off; ++i) {
-		if (!tfw_stricmpspn(&ht->tbl[i], hdr, ':')) {
+	for (i = 0; i < TFW_HTTP_HDR_NUM; ++i) {
+		if (TFW_STR_EMPTY(&hbh->raw[i]))
+			break;
+		if (!tfw_stricmpspn(&hbh->raw[i], hdr, ':')) {
 			hdr->flags |= TFW_STR_HBH_HDR;
 			break;
 		}
 	}
-}
-
-static int
-__hbh_parser_alloc_table(TfwHttpMsg *hm)
-{
-	hm->parser.hbh_parser.raw = (TfwHttpHdrTbl *)
-			tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
-	if (unlikely(!hm->parser.hbh_parser.raw)) {
-		return -ENOMEM;
-	}
-
-	hm->parser.hbh_parser.raw->size = __HHTBL_SZ(1);
-	hm->parser.hbh_parser.raw->off = 1;
-	memset(hm->parser.hbh_parser.raw->tbl, 0,
-	       __HHTBL_SZ(1) * sizeof(TfwStr));
-
-	return 0;
 }
 
 /**
@@ -542,30 +524,19 @@ __hbh_parser_alloc_table(TfwHttpMsg *hm)
 static int
 __hbb_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
-	unsigned int hid;
-	TfwStr *hdr, *append;
-	int r;
-	TfwHttpHdrTbl *ht = hm->parser.hbh_parser.raw;
+	unsigned int i;
+	TfwStr *hdr = NULL, *append;
+	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 
-	if (!ht) {
-		if ((r = __hbh_parser_alloc_table(hm)))
-			return r;
-		ht = hm->parser.hbh_parser.raw;
+	for (i = 0; i < TFW_HTTP_HDR_NUM; ++i) {
+		if (!(hbh->raw[i].flags & TFW_STR_COMPLETE)) {
+			hdr = &hbh->raw[i];
+			break;
+		}
 	}
+	if (hdr == NULL)
+		return CSTR_NEQ;
 
-	if (ht->tbl[ht->off - 1].flags & TFW_STR_COMPLETE) {
-		hid = ht->off;
-		if (hid == ht->size)
-			if (__tfw_http_msg_grow_hdr_tbl(&hm->parser.hbh_parser.raw,
-							hm->pool))
-				return -ENOMEM;
-		++ht->off;
-	}
-	else {
-		hid = ht->off - 1;
-	}
-
-	hdr = &ht->tbl[hid];
 	if (!TFW_STR_EMPTY(hdr)) {
 		append = tfw_str_add_compound(hm->pool, hdr);
 	}

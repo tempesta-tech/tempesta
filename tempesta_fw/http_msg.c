@@ -324,22 +324,22 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 }
 
 int
-__tfw_http_msg_grow_hdr_tbl(TfwHttpHdrTbl **ht, TfwPool * pool)
+tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
 {
-	TfwHttpHdrTbl *new_ht = *ht;
-	size_t order = new_ht->size / TFW_HTTP_HDR_NUM, new_order = order << 1;
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	size_t order = ht->size / TFW_HTTP_HDR_NUM, new_order = order << 1;
 
-	new_ht = tfw_pool_realloc(pool, new_ht, TFW_HHTBL_SZ(order),
+	ht = tfw_pool_realloc(hm->pool, ht, TFW_HHTBL_SZ(order),
 			      TFW_HHTBL_SZ(new_order));
-	if (!new_ht)
+	if (!ht)
 		return -ENOMEM;
-	new_ht->size = __HHTBL_SZ(new_order);
-	new_ht->off = (*ht)->off;
-	memset(new_ht->tbl + __HHTBL_SZ(order), 0,
+	ht->size = __HHTBL_SZ(new_order);
+	ht->off = hm->h_tbl->off;
+	memset(ht->tbl + __HHTBL_SZ(order), 0,
 	       __HHTBL_SZ(order) * sizeof(TfwStr));
-	*ht = new_ht;
+	hm->h_tbl = ht;
 
-	TFW_DBG3("grow http headers table to %d items\n", new_ht->size);
+	TFW_DBG3("grow http headers table to %d items\n", ht->size);
 
 	return 0;
 }
