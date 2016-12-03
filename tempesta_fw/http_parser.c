@@ -493,7 +493,7 @@ __hbh_parser_init(TfwHttpHbhHdrs *hbh_hdrs, bool req)
 		msg->parser.hdr.flags |= TFW_STR_HBH_HDR;
 
 /**
- * Mark raaw header @hdr as hop-by-hop if its name was listed in Connection
+ * Mark raw header @hdr as hop-by-hop if its name was listed in Connection
  * header
  */
 static void
@@ -531,7 +531,7 @@ __hbh_parser_alloc_table(TfwHttpMsg *hm)
 }
 
 /**
- * Add header name listed in Connection header to rable of raw headers.
+ * Add header name listed in Connection header to table of raw headers.
  * If @last is true then (@data, @len) represnts last chunk of header name and
  * chunk with ':' will be added to the end. Otherwize last header in table stays
  * open to add more data.
@@ -546,6 +546,7 @@ __hbb_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	int r;
 	TfwHttpHdrTbl *ht = hm->parser.hbh_parser.raw;
+
 	if (!ht) {
 		if ((r = __hbh_parser_alloc_table(hm)))
 			return r;
