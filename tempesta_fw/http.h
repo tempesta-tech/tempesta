@@ -202,7 +202,7 @@ typedef struct {
  */
 typedef struct {
 	unsigned int	spec;
-	TfwHttpHdrTbl	*raw;
+	TfwStr		raw[TFW_HTTP_HDR_NUM];
 } TfwHttpHbhHdrs;
 
 /**
