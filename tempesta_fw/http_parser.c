@@ -2332,7 +2332,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Req_HdrH);
 		case 'k':
 			if (likely(__data_available(p, 11)
-				   && C4_INT_LCM(p + 1, 'e', 'e', 'p', '-')
+				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
+				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
 				   && tolower(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
@@ -3621,7 +3622,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			__FSM_MOVE(Resp_HdrE);
 		case 'k':
 			if (likely(__data_available(p, 11)
-				   && C4_INT_LCM(p + 1, 'e', 'e', 'p', '-')
+				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
+				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
