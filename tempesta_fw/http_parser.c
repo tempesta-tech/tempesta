@@ -218,7 +218,7 @@ do {									\
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_I_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_I_MATCH_MOVE(alphabet, to)				\
+#define __FSM_I_MATCH_MOVE_finish(alphabet, to, finish)			\
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
@@ -227,9 +227,13 @@ do {									\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
 		r = TFW_POSTPONE;					\
+		finish;							\
 		__FSM_EXIT()						\
 	}								\
 } while (0)
+
+#define __FSM_I_MATCH_MOVE(alphabet, n)					\
+	__FSM_I_MATCH_MOVE_finish(alphabet, n, {})
 
 /*
  * The macros below control chunks within a string:
@@ -1043,20 +1047,10 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * it could be names of any headers, including custom headers.
 	 */
 	__FSM_STATE(I_ConnOther) {
-		/* Unwind __FSM_I_MATCH_MOVE(token, I_ConnOther): */
-		__fsm_n = __data_remain(p);
-		__fsm_sz = tfw_match_token(p, __fsm_n);
-		if (unlikely(__fsm_sz == __fsm_n)) {
-			__msg_hdr_chunk_fixup(data, len);
-			parser->_i_st = I_ConnOther;
-			__fsm_const_state = I_ConnOther;
+		__FSM_I_MATCH_MOVE_finish(token, I_ConnOther, {
 			if (__hbb_parser_add_data(hm, p, __fsm_sz, false))
 				r = CSTR_NEQ;
-			else
-				r = TFW_POSTPONE;
-			__FSM_EXIT()
-		}
-
+		});
 		msg->flags |= TFW_HTTP_CONN_EXTRA;
 		c = *(p + __fsm_sz);
 		if (__hbb_parser_add_data(hm, p, __fsm_sz, true))
