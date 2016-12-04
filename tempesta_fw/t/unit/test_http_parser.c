@@ -1084,6 +1084,12 @@ TEST(http_parser, req_hop_by_hop)
 			 "Connection: pragma\r\n"
 			 REQ_HBH_END);
 
+	/* Too lot of connection tokens */
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: t1, t2, t3, t4, t5, t6, t7, t8, t9, t10,"
+			 "t11, t12, t13, t14, t15, t16, t17\r\n"
+			 REQ_HBH_END);
+
 #undef REQ_HBH_START
 #undef REQ_HBH_END
 }
@@ -1236,6 +1242,12 @@ TEST(http_parser, resp_hop_by_hop)
 			  RESP_HBH_END);
 	EXPECT_BLOCK_RESP(RESP_HBH_START
 			  "Connection: pragma\r\n"
+			  RESP_HBH_END);
+
+	/* Too lot of connection tokens */
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: t1, t2, t3, t4, t5, t6, t7, t8, t9, t10,"
+			  "t11, t12, t13, t14, t15, t16, t17\r\n"
 			  RESP_HBH_END);
 
 #undef RESP_HBH_START
