@@ -23,6 +23,21 @@
 #include "str.h"
 #include "addr.h"
 
+/*
+ * Non-Idempotent Request definition.
+ *
+ * @method	- One bit for each value defined in tfw_http_meth_t.
+ * @op		- Match operator: eq, prefix, suffix, etc.
+ * @len		- Length of the string in @arg.
+ * @arg		- String for the match operator.
+ */
+typedef struct {
+	unsigned int	method;
+	short		op;
+	unsigned int	len;
+	const char	*arg;
+} TfwNipDef;
+
 /* Cache policy configuration directives. */
 typedef enum {
 	TFW_D_CACHE_BYPASS,
@@ -34,7 +49,7 @@ typedef enum {
  *
  * @cmd	- One of defined in tfw_capo_t.
  * @op	- Match operator: eq, prefix, suffix, etc.
- * @len	- Length of the sting in @arg.
+ * @len	- Length of the string in @arg.
  * @arg	- String for the match operator.
  */
 typedef struct {
@@ -49,16 +64,20 @@ typedef struct {
  *
  * @op		- Match operator: eq, prefix, suffix, etc.
  * @arg		- String for the match operator.
- * @len		- Length of the sting in @arg.
+ * @len		- Length of the string in @arg.
  * @capo_sz	- Size of @capo array.
+ * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.
+ * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
  */
 typedef struct {
 	short		op;
 	const char	*arg;
 	unsigned int	len;
 	unsigned int	capo_sz;
+	unsigned int	nipdef_sz;
 	TfwCaPolicy	**capo;
+	TfwNipDef	**nipdef;
 } TfwLocation;
 
 /* Cache purge configuration modes. */
@@ -87,6 +106,7 @@ typedef struct {
 	u8		cache_purge_acl:1;
 } TfwVhost;
 
+TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
 bool tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);

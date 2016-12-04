@@ -1470,8 +1470,40 @@ conn_put:
 static void
 tfw_http_req_mark_nonidempotent(TfwHttpReq *req)
 {
-	if (req->method == TFW_HTTP_METH_POST)
-		req->flags |= TFW_HTTP_NON_IDEMP;
+	/* See RFC 7231 4.2.1 */
+	static const unsigned int __read_mostly safe_methods =
+		(1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD);
+	TfwLocation *loc = req->location;
+	TfwLocation *loc_dflt = req->vhost->loc_dflt;
+	TfwLocation *base_loc = (tfw_vhost_get_default())->loc_dflt;
+
+	/*
+	 * Search in the current location of the current vhost. If there
+	 * are no entries there, then search in the default location of
+	 * the current vhost. If there are no entries there either, then
+	 * search in the default location of the default vhost - that is,
+	 * in the global policies.
+	 */
+	if (loc && loc->nipdef_sz) {
+		if (tfw_nipdef_match(loc, req->method, &req->uri_path))
+			goto nip_match;
+	} else if (loc_dflt && loc_dflt->nipdef_sz) {
+		if (tfw_nipdef_match(loc_dflt, req->method, &req->uri_path))
+			goto nip_match;
+	} else if ((base_loc != loc_dflt) && base_loc && base_loc->nipdef_sz) {
+		if (tfw_nipdef_match(base_loc, req->method, &req->uri_path))
+			goto nip_match;
+	}
+
+	if (safe_methods & (1 << req->method))
+		return;
+
+nip_match:
+	TFW_DBG2("non-idempotent: method=[%d] uri=[%.*s]\n",
+		 req->method, (int)TFW_STR_CHUNK(&req->uri_path, 0)->len,
+		 (char *)TFW_STR_CHUNK(&req->uri_path, 0)->ptr);
+	req->flags |= TFW_HTTP_NON_IDEMP;
+	return;
 }
 
 /*

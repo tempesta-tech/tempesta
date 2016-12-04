@@ -46,10 +46,10 @@
 	in6_addr.in6_u.u6_addr8[14]))		\
 
 typedef union {
+	sa_family_t family;
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
 	struct sockaddr sa;
-	sa_family_t family;
 #define in6_prefix	v6.sin6_scope_id
 } TfwAddr;
 
