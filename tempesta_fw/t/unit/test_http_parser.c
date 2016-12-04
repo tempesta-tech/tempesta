@@ -1049,6 +1049,41 @@ TEST(http_parser, req_hop_by_hop)
 		}
 	}
 
+	/* Connection header lists end-to-end spec headers */
+	FOR_REQ(REQ_HBH_START
+		"Connection: Host, Content-Length, Content-Type, Connection,"
+		"X-Forwarded-For, Transfer-Encoding, User-Agent, Server,"
+		" Cookie\r\n"
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_CONNECTION:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Connection header lists end-to-end raw headers */
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: authorization\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: cache-control\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: pragma\r\n"
+			 REQ_HBH_END);
+
 #undef REQ_HBH_START
 #undef REQ_HBH_END
 }
@@ -1157,6 +1192,51 @@ TEST(http_parser, resp_hop_by_hop)
 			}
 		}
 	}
+
+	/* Connection header lists end-to-end spec headers */
+	FOR_RESP(RESP_HBH_START
+		 "Connection: Host, Content-Length, Content-Type, Connection,"
+		 "X-Forwarded-For, Transfer-Encoding, User-Agent, Server,"
+		 " Cookie\r\n"
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_CONNECTION:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Connection header lists end-to-end raw headers */
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: age\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: authorization\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: cache-control\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: date\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: expires\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: pragma\r\n"
+			  RESP_HBH_END);
 
 #undef RESP_HBH_START
 #undef RESP_HBH_END
