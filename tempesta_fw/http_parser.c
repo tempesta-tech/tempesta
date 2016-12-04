@@ -505,14 +505,27 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 	unsigned int i;
+	bool match = false;
 
 	for (i = 0; i < TFW_HTTP_HDR_NUM; ++i) {
 		if (TFW_STR_EMPTY(&hbh->raw[i]))
 			break;
 		if (!tfw_stricmpspn(&hbh->raw[i], hdr, ':')) {
 			hdr->flags |= TFW_STR_HBH_HDR;
+			match = true;
 			break;
 		}
+	}
+
+	/*
+	 * Optimization: duplicated headers will take the same TfwStr container,
+	 * no need to compare current header name to all other headers.
+	*/
+	if (match) {
+		if (i < (TFW_HTTP_HDR_NUM - 1))
+			memmove(&hbh->raw[i], &hbh->raw[i + 1],
+				sizeof(TfwStr) * (TFW_HTTP_HDR_NUM - i -1));
+		TFW_STR_INIT(&hbh->raw[TFW_HTTP_HDR_NUM - 1]);
 	}
 }
 
