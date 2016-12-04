@@ -1022,9 +1022,22 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * Currently none of headers parsed by TFW_HTTP_PARSE_SPECHDR_VAL
-	 * or except "Keep-Alive" can be hop-by-hop.
-	 * If such headers will be added, need to use TRY_SPEC_HBH_HDR macro
-	 * before TRY_STR_INIT() call.
+	 * except "Keep-Alive" can be hop-by-hop. If any of them listed in
+	 * the header, parser->hbh_parser.raw table will be populated with
+	 * this header, but none of headers will be marked as hop-by-hop,
+	 * since parser->hbh_parser.raw table used for marking only raw
+	 * headers.
+	 *
+	 * Most of the headers listed in RFC 7231 are end-to-end and must not
+	 * be listed in the header. Instead of comparing connection tokens to
+	 * all end-to-end headrs compare only to headers parsed by
+	 * TFW_HTTP_PARSE_RAWHDR_VAL macro.
+	 *
+	 * TODO: WebSocket Protocol support
+	 * RFC 6455 describes usage of websockets. During handshake client
+	 * sets "Connection: upgrade" and corresponding "Update" header.
+	 * This headers should be passed to server unchanged to allow
+	 * WebSocket porotol.
 	 */
 	__FSM_STATE(I_Conn) {
 		TRY_STR_LAMBDA("close", {
@@ -1032,11 +1045,19 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
 		}, I_EoT);
+		/* Mark spec headers as hop-by-hop if applied */
 		TRY_SPEC_HBH_HDR_LAMBDA("keep-alive", TFW_HTTP_HDR_KEEP_ALIVE, {
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
 		});
+		/* Don't allow known end-to-end headers be marked as hop-by-hop */
+		TRY_STR_LAMBDA("age", {return CSTR_NEQ;}, I_EoT);
+		TRY_STR_LAMBDA("authorization", {return CSTR_NEQ;}, I_EoT);
+		TRY_STR_LAMBDA("cache-control", {return CSTR_NEQ;}, I_EoT);
+		TRY_STR_LAMBDA("date", {return CSTR_NEQ;}, I_EoT);
+		TRY_STR_LAMBDA("expires", {return CSTR_NEQ;}, I_EoT);
+		TRY_STR_LAMBDA("pragma", {return CSTR_NEQ;}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
