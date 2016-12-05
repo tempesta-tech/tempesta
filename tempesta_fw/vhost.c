@@ -54,13 +54,12 @@ static TfwCaPolicy	tfw_capolicy[TFW_CAPOLICY_ARRAY_SZ];
 static unsigned int	tfw_capolicy_sz = 0;	/* Current size. */
 
 /*
- * All non-idempotent request directives are put into a fixed size
- * array. The directives are deduplicated when put into the array.
+ * Each non-idempotent request definition directive is put into
+ * a separately allocated memory area. The pointers to the memory
+ * are put into a fixed size array of pointers within a location
+ * definition.
  */
 #define TFW_NIPDEF_ARRAY_SZ	(64)
-
-static TfwNipDef	tfw_nipdef[TFW_NIPDEF_ARRAY_SZ];
-static unsigned int	tfw_nipdef_sz = 0;	/* Current size. */
 
 /*
  * All 'location' directives are put into a fixed size array.
@@ -74,7 +73,7 @@ static unsigned int	tfw_location_sz = 0;	/* Current size. */
 /*
  * Default location is a wildcard location. It matches any URI.
  * It may (or may not) contain a set of cache matching directives,
- * or a set of non-idempotent request definitions.
+ * and/or a set of non-idempotent request definitions.
  */
 static TfwCaPolicy	*tfw_capolicy_dflt[TFW_CAPOLICY_ARRAY_SZ];
 static TfwNipDef	*tfw_nipdef_dflt[TFW_NIPDEF_ARRAY_SZ];
@@ -309,83 +308,78 @@ tfw_vhost_match(TfwStr *arg)
 static TfwLocation *tfwcfg_this_location;
 
 /*
- * Find a non-idempotent request entry in the array that holds
- * all non-idempotent request directives from all location sections.
+ * Find a non-idempotent request definition entry within specified location.
+ * Entries are processed in the order they are defined in the configuration.
+ * That means the matching entry must be the last entry in the array, and it
+ * must have the same match @op and the same @arg.
  */
 static TfwNipDef *
-tfw_nipdef_lookup_all(int method, int op, char *arg, int len)
+tfw_nipdef_lookup(TfwLocation *loc, int op, char *arg, int len)
 {
-	int i;
+	TfwNipDef *nipdef;
 
-	for (i = 0; i < tfw_nipdef_sz; ++i) {
-		TfwNipDef *nipdef = &tfw_nipdef[i];
-		if ((nipdef->method & method)
-		    && (nipdef->op == op)
-		    && (nipdef->len == len)
-		    && !strncasecmp(nipdef->arg, arg, len))
-			return nipdef;
-	}
+	if (!loc->nipdef_sz)
+		return NULL;
+
+	nipdef = loc->nipdef[loc->nipdef_sz - 1];
+	if ((nipdef->op == op) && (nipdef->len == len)
+	    && !strcasecmp(nipdef->arg, arg))
+		return nipdef;
 
 	return NULL;
 }
 
-/*
- * Find a non-idempotent request entry within specified location.
- */
 static TfwNipDef *
-tfw_nipdef_lookup_loc(TfwLocation *loc, int method, int op, char *arg)
+tfw_nipdef_lookup_dup(TfwLocation *loc, int method, int op, char *arg, int len)
 {
 	int i;
+	TfwNipDef *nipdef;
 
-	for (i = 0; i < loc->nipdef_sz; ++i) {
-		TfwNipDef *nipdef = loc->nipdef[i];
-		if ((nipdef->method & method)
-		    && (nipdef->op == op)
+	if (!loc->nipdef_sz)
+		return NULL;
+
+	/* Check all entries but the last one. */
+	for (i = 0; i < loc->nipdef_sz - 1; ++i) {
+		nipdef = loc->nipdef[i];
+		if ((nipdef->op == op) && (nipdef->len == len)
 		    && !strcasecmp(nipdef->arg, arg))
 			return nipdef;
 	}
+	/* Check the last entry. */
+	nipdef = loc->nipdef[i];
+	if ((nipdef->method & method) && (nipdef->op == op)
+	    && (nipdef->len == len) && !strcasecmp(nipdef->arg, arg))
+		return nipdef;
 
 	return NULL;
 }
 
 /*
- * Create and initialize a new non-idempotent request entry. The entry
- * is placed in the array for all non-idempotent request entries from
- * all location sections.
+ * Create and initialize a new non-idempotent request definition entry,
+ * and add it to the given location structure. The entry is added as
+ * a pointer to the memory allocated to hold the definition.
  */
 static TfwNipDef *
-tfw_nipdef_new(int method, int op, char *arg, int len)
+tfw_nipdef_addnew(TfwLocation *loc, int method, int op, char *arg, int len)
 {
-	char *argmem;
+	char *data;
 	TfwNipDef *nipdef;
 
-	if (tfw_nipdef_sz == TFW_NIPDEF_ARRAY_SZ)
+	if (loc->nipdef_sz == TFW_NIPDEF_ARRAY_SZ)
 		return NULL;
 
-	if ((argmem = kmalloc(len + 1, GFP_KERNEL)) == NULL)
+	if ((data = kmalloc(sizeof(TfwNipDef) + len + 1, GFP_KERNEL)) == NULL)
 		return NULL;
 
-	nipdef = &tfw_nipdef[tfw_nipdef_sz++];
+	nipdef = (TfwNipDef *)data;
 	nipdef->method = method;
 	nipdef->op = op;
-	nipdef->arg = argmem;
+	nipdef->arg = data + sizeof(TfwNipDef);
 	nipdef->len = len;
 	memcpy((void *)nipdef->arg, (void *)arg, len + 1);
 
-	return nipdef;
-}
-
-/*
- * Add a new non-idempotent request entry to the given location structure.
- * The entry is added as a pointer into the array for all non-idempotent
- * request entries.
- */
-static TfwNipDef *
-tfw_nipdef_add(TfwLocation *loc, TfwNipDef *nipdef)
-{
-	if (loc->nipdef_sz == TFW_NIPDEF_ARRAY_SZ)
-		return NULL;
 	loc->nipdef[loc->nipdef_sz++] = nipdef;
+
 	return nipdef;
 }
 
@@ -430,24 +424,29 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	arg = (char *)ce->vals[2];
 	len = strlen(arg);
 
-	/* Do not create a duplicate entry in the storage array. */
-	nipdef = tfw_nipdef_lookup_all(method, op, arg, len);
-	if (!nipdef) {
-		nipdef = tfw_nipdef_new(method, op, arg, len);
-		if (nipdef == NULL)
-			return -ENOMEM;
-	} else if (tfw_nipdef_lookup_loc(loc, method, op, arg)) {
-		/* Do not add a duplicate entry within a location. */
+	/*
+	 * Issue a warning if there's an entry with the same argument
+	 * (URI path) that is not the last entry.
+	 */
+	if (tfw_nipdef_lookup_dup(loc, method, op, arg, len))
 		TFW_WARN("%s: Duplicate entry in location '%s': "
 			 "'%s %s %s %s'\n", cs->name,
 			 loc == &tfw_location_dflt ? "default" : loc->arg,
 			 cs->name, in_method, in_op, arg);
-		return 0;
-	}
 
-	/* Add the entry to the location. */
-	if (!tfw_nipdef_add(loc, nipdef))
-		return -ENOENT;
+	/*
+	 * Do not add a "duplicate" entry within a location. If the
+	 * preceding entry has the same @op and @arg, then just add
+	 * the new method to the entry.
+	 */
+	nipdef = tfw_nipdef_lookup(loc, op, arg, len);
+	if (nipdef) {
+		nipdef->method |= method;
+	} else {
+		nipdef = tfw_nipdef_addnew(loc, method, op, arg, len);
+		if (nipdef == NULL)
+			return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -748,7 +747,7 @@ tfw_finish_location(TfwCfgSpec *cs)
 static void
 __tfw_cleanup_locache(void)
 {
-	int i;
+	int i, k;
 
 	for (i = 0; i < tfw_location_sz; ++i) {
 		TfwLocation *loc = &tfw_location[i];
@@ -756,6 +755,11 @@ __tfw_cleanup_locache(void)
 			kfree(loc->arg);
 			loc->arg = NULL;
 		}
+		for (k = 0; k < loc->nipdef_sz; ++k) {
+			if (loc->nipdef[k])
+				kfree(loc->nipdef[k]);
+		}
+		/* Free both loc->capo and loc->nipdef. */
 		if (loc->capo) {
 			kfree(loc->capo);
 			loc->capo = NULL;
@@ -768,6 +772,14 @@ __tfw_cleanup_locache(void)
 			capo->arg = NULL;
 		}
 	}
+	for (i = 0; i < tfw_location_dflt.nipdef_sz; ++i) {
+		if (tfw_location_dflt.nipdef[i])
+			kfree(tfw_location_dflt.nipdef[i]);
+	}
+	tfw_capolicy_sz = 0;
+	tfw_location_sz = 0;
+	tfw_location_dflt.capo_sz = 0;
+	tfw_location_dflt.nipdef_sz = 0;
 }
 
 static void
@@ -922,14 +934,18 @@ tfw_cleanup_hdrvia(TfwCfgSpec *cs)
 static int
 tfw_vhost_cfg_start(void)
 {
-	BUILD_BUG_ON(sizeof(tfw_nipdef[0].method)*8-1 < _TFW_HTTP_METH_COUNT);
-	BUILD_BUG_ON(sizeof(tfw_capolicy[0].op)*8-1 < _TFW_HTTP_MATCH_O_COUNT);
-	BUILD_BUG_ON(sizeof(tfw_location[0].op)*8-1 < _TFW_HTTP_MATCH_O_COUNT);
+	BUILD_BUG_ON(sizeof(tfw_nipdef_dflt[0]->method) * 8 - 1
+		     < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(tfw_capolicy_dflt[0]->op) * 8 - 1
+		     < _TFW_HTTP_MATCH_O_COUNT);
+	BUILD_BUG_ON(sizeof(tfw_location_dflt.op) * 8 - 1
+		     < _TFW_HTTP_MATCH_O_COUNT);
 
 	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
 		TFW_WARN("cache_purge directive works only in combination"
 			 " with cache_purge_acl directive.\n");
 	tfw_vhost_dflt.loc_sz = tfw_location_sz;
+
 	return 0;
 }
 
