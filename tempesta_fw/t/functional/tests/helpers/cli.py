@@ -9,8 +9,8 @@ It allows to connect to the Tempesta and send some data to it in various ways.
 from socket import *
 from contextlib import contextmanager
 
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
+__author__ = 'Tempesta Technologies Inc.'
+__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 @contextmanager
