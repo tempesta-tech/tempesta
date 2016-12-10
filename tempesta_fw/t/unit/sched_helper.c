@@ -105,6 +105,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	srv = tfw_server_create(&addr);
 	BUG_ON(!srv);
 
+	srv->qsize_max = 100;
 	tfw_sg_add(sg, srv);
 
 	return srv;
@@ -123,8 +124,8 @@ test_create_conn(TfwPeer *peer)
 	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
 	srv_conn = tfw_srv_conn_alloc();
-
 	BUG_ON(!srv_conn);
+
 	tfw_connection_link_peer(&srv_conn->conn, peer);
 	srv_conn->conn.sk = &__test_sock;
 	/* A connection is skipped by schedulers if (refcnt <= 0). */
