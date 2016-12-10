@@ -195,8 +195,8 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
 	/*
 	 * Timeout between connect attempts is increased with each
-	 * unsuccessful attempt. Length of the timeout is decided with
-	 * a variant of exponential backoff delay algorithm.
+	 * unsuccessful attempt. Length of the timeout is decided
+	 * with a variant of exponential backoff delay algorithm.
 	 *
 	 * It's essential that the new connection is established and the
 	 * failed connection is restored ASAP, so the min retry interval
@@ -677,11 +677,12 @@ tfw_handle_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_retry_attempts);
 }
 
+static int
 tfw_cfg_set_conn_tries(TfwServer *srv, int attempts)
 {
 	TfwSrvConnection *srv_conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list) {
+	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		srv_conn->max_attempts = attempts;
 
 	return 0;
@@ -813,7 +814,7 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!(srv = tfw_handle_server(cs, ce)))
 		return -EINVAL;
 
-	tfw_cfg_set_conn_tries(srv, tfw_cfg_out_retry_attempts)
+	tfw_cfg_set_conn_tries(srv, tfw_cfg_out_retry_attempts);
 	srv->qsize_max = tfw_cfg_out_queue_size ? : UINT_MAX;
 	srv->qjtimeout = tfw_cfg_out_send_timeout
 		       ? msecs_to_jiffies(tfw_cfg_out_send_timeout * 1000)
@@ -895,10 +896,10 @@ tfw_finish_srv_group(TfwCfgSpec *cs)
 	TFW_DBG("finish srv_group: %s\n", tfw_cfg_curr_group->name);
 
 	for (i = 0; i < tfw_cfg_in_lstsz; ++i) {
+		TfwServer *srv = tfw_cfg_in_lst[i];
 		unsigned long jtmout =
 			msecs_to_jiffies(tfw_cfg_in_send_timeout * 1000);
-		tfw_cfg_set_conn_tries(tfw_cfg_in_lst[i],
-				       tfw_cfg_in_retry_attempts);
+		tfw_cfg_set_conn_tries(srv, tfw_cfg_in_retry_attempts);
 		srv->qsize_max = tfw_cfg_in_queue_size ? : UINT_MAX;
 		srv->qjtimeout = tfw_cfg_in_send_timeout ? jtmout : ULONG_MAX;
 		srv->retry_max = tfw_cfg_in_send_tries ? : UINT_MAX;
