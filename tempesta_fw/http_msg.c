@@ -881,8 +881,10 @@ tfw_http_msg_alloc(int type)
 	else
 		__hbh_parser_init_resp((TfwHttpResp *)hm);
 
-	if (type & Conn_Clnt)
+	if (type & Conn_Clnt) {
+		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;
+	}
 
 	return hm;
 }
