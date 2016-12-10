@@ -81,7 +81,8 @@ static struct {
 
 	TfwHttpReq	*req;
 	TfwHttpResp	*resp;
-	TfwConnection   connection;
+	TfwConnection   conn_req;
+	TfwConnection   conn_resp;
 	TfwClient	client;
 	struct sock	sock;
 } mock;
@@ -209,19 +210,26 @@ http_sticky_suite_setup(void)
 	skb_reserve(skb, MAX_TCP_HEADER);
 	ss_skb_queue_tail(&mock.resp->msg.skb_list, skb);
 
-	mock.req->conn = &mock.connection;
-	mock.resp->conn = &mock.connection;
-	mock.connection.peer = (TfwPeer *)&mock.client;
-	mock.connection.sk = &mock.sock;
+	tfw_connection_init(&mock.conn_req);
+	tfw_connection_init(&mock.conn_resp);
+
+	tfw_connection_revive(&mock.conn_req);
+	mock.conn_req.peer = (TfwPeer *)&mock.client;
 	mock.sock.sk_family = AF_INET;
+	mock.conn_req.sk = &mock.sock;
+
+	mock.req->conn = &mock.conn_req;
+	mock.resp->conn = &mock.conn_resp;
+	mock.req->vhost = tfw_vhost_get_default();
+
+	tfw_http_req_add_seq_queue(mock.req);
+	mock.req->resp = (TfwHttpMsg *)mock.resp;
 }
 
 static void
 http_sticky_suite_teardown(void)
 {
-	tfw_http_msg_free((TfwHttpMsg *)mock.req);
-	tfw_http_msg_free((TfwHttpMsg *)mock.resp);
-
+	tfw_connection_put(mock.req->conn);
 	memset(&mock, 0, sizeof(mock));
 }
 
@@ -242,8 +250,9 @@ TEST(http_sticky, sending_302)
 	{
 		StickyVal sv = { .ts = 1 };
 
-		/* Need host header and
-		 *it must be compound as special header
+		/*
+		 * Need host header.
+		 * It must be compound as a special header.
 		 */
 		TFW_STR2(hdr1, "Host: ", "localhost");
 
@@ -413,7 +422,7 @@ TEST(http_sticky, req_no_cookie)
 
 	/* since response was modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.resp->msg);
+	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 	EXPECT_TRUE(mock.seen_set_cookie_header);
@@ -452,7 +461,7 @@ TEST(http_sticky, req_have_cookie)
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.resp->msg);
+	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);
@@ -508,7 +517,7 @@ TEST(http_sticky, req_have_cookie_enforce)
 
 	/* since response could be modified, we need to parse it again */
 	EXPECT_EQ(http_parse_resp_helper(), 0);
-	tfw_connection_send(&mock.connection, &mock.resp->msg);
+	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
 	EXPECT_FALSE(mock.seen_set_cookie_header);

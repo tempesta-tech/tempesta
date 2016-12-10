@@ -50,6 +50,7 @@ test_req_alloc(size_t data_len)
 	BUG_ON(!req);
 
 	memset(&conn_req, 0, sizeof(TfwConnection));
+	tfw_connection_init(&conn_req);
 	conn_req.proto.type = Conn_HttpClnt;
 	req->conn = &conn_req;
 
@@ -77,6 +78,7 @@ test_resp_alloc(size_t data_len)
 	BUG_ON(!resp);
 
 	memset(&conn_resp, 0, sizeof(TfwConnection));
+	tfw_connection_init(&conn_req);
 	conn_resp.proto.type = Conn_HttpSrv;
 	resp->conn = &conn_resp;
 
