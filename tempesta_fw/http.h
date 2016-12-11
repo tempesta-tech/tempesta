@@ -234,6 +234,7 @@ typedef struct {
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x040000
+#define TFW_HTTP_MSG_SENT		0x080000
 
 /**
  * HTTP session descriptor.
@@ -391,10 +392,10 @@ void tfw_http_req_destruct(void *msg);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpReq *req);
-int tfw_http_send_404(TfwHttpReq *req);
-int tfw_http_send_502(TfwHttpReq *req);
-int tfw_http_send_504(TfwHttpReq *req);
+int tfw_http_send_403(TfwHttpReq *req, const char *reason);
+int tfw_http_send_404(TfwHttpReq *req, const char *reason);
+int tfw_http_send_502(TfwHttpReq *req, const char *reason);
+int tfw_http_send_504(TfwHttpReq *req, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.
