@@ -222,6 +222,7 @@ typedef struct {
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x000004
+#define TFW_HTTP_MSG_SENT		0x000008
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -234,7 +235,6 @@ typedef struct {
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x040000
-#define TFW_HTTP_MSG_SENT		0x080000
 
 /**
  * HTTP session descriptor.

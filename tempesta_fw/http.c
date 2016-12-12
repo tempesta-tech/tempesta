@@ -887,7 +887,6 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
 	}
-	mb();
 	req->flags |= TFW_HTTP_MSG_SENT;
 
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
@@ -969,16 +968,16 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
-			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
-				TFW_INC_STAT_BH(clnt.msgs_filtout);
 				tfw_http_conn_msg_free((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(clnt.msgs_filtout);
 				return TFW_BLOCK;
 			}
 			/*
@@ -1002,8 +1001,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK) {
-			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return TFW_BLOCK;
 		}
 
@@ -1073,8 +1072,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				 */
 				TFW_WARN("Not enough memory to create"
 					 " a request sibling\n");
-				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_http_conn_msg_free((TfwHttpMsg *)req);
+				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				return TFW_BLOCK;
 			}
 		}
@@ -1174,7 +1173,7 @@ err:
  * to and kept in @msg_queue of the connection @conn for that server.
  * If a paired request is not found, then the response is deleted.
  *
- * If thre isn't paired client request, then it seems upsream server is
+ * If a paired client request is missing, then it seems upsream server is
  * misbehaving, so the caller has to drop the server connection.
  */
 static TfwHttpReq *
@@ -1234,16 +1233,16 @@ error:
 	 */
 	req = tfw_http_popreq(hmresp);
 	if (unlikely(!req)) {
-		TFW_INC_STAT_BH(serv.msgs_filtout);
 		tfw_http_conn_msg_free(hmresp);
-		return TFW_STOP;
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return TFW_BLOCK;
 	}
 
 	tfw_http_send_502(req, "response filtered");
 	tfw_http_conn_msg_free(hmresp);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
-	return TFW_BLOCK;
+	return r;
 }
 
 static int
@@ -1411,10 +1410,15 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			       && (hmresp->content_length != hmresp->body.len));
 		}
 
-		/* Pass the response to GFSM for further processing. */
+		/*
+		 * Pass the response to GFSM for further processing.
+		 * Drop server connection in case of serious error or security
+		 * event.
+		 */
 		r = tfw_http_resp_gfsm(hmresp, skb, off);
-		if (unlikely(r == TFW_STOP))
+		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
+
 		/*
 		 * If @skb's data has not been processed in full, then
 		 * we have pipelined responses. Create a sibling message.
@@ -1436,9 +1440,10 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 				return TFW_BLOCK;
 			}
 		}
+
 		/*
-		 * If an error occured in further GFSM processing, then
-		 * the response and the paired request had been handled.
+		 * If a non critical error occured in further GFSM processing,
+		 * then the response and the paired request had been handled.
 		 * Keep the server connection open for data exchange.
 		 */
 		if (unlikely(r != TFW_PASS)) {
