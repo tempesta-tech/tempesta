@@ -413,4 +413,7 @@ int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
 
+/* It is needed to place it here, to test it */
+int tfw_http_adjust_req(TfwHttpReq *req);
+
 #endif /* __TFW_HTTP_H__ */

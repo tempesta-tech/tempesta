@@ -720,7 +720,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 /**
  * Adjust the request before proxying it to real server.
  */
-static int
+int
 tfw_http_adjust_req(TfwHttpReq *req)
 {
 	int r;

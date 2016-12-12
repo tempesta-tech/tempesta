@@ -712,6 +712,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	d_size = skb_headlen(skb);
 	offset = pspt - (char *)skb->data;
 
+	printk(KERN_ALERT "OFFSET: %ld", offset);
 	if ((offset >= 0) && (offset < d_size)) {
 		int t_size = d_size - offset;
 		len = max(len, -t_size);
@@ -728,6 +729,8 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	if (len > 0) {
 		offset = unlikely(offset == d_size) ? 0 :
 			pspt - (char *)skb_frag_address(&si->frags[0]);
+
+	printk(KERN_ALERT "OFFSET: %ld", offset);
 		if (unlikely(!offset)) {
 			if (!(ret = __split_try_tailroom(skb, len, it)))
 				goto done;
@@ -741,6 +744,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
+	printk(KERN_ALERT "OFFSET: %ld", offset);
 		if ((offset >= 0) && (offset <= d_size)) {
 			int t_size = d_size - offset;
 			if (unlikely(!t_size))

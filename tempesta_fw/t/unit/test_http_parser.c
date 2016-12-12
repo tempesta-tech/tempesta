@@ -1015,6 +1015,28 @@ end:
 	kernel_fpu_begin();
 }
 
+TEST(http_parser, adjusts_req)
+{
+	long offset;
+	struct skb_shared_info *si;
+	/* TfwStr *hdr; */
+	struct iphdr *i4h;
+
+	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
+		i4h = ip_hdr(req->msg.skb_list.first);
+		/* i4h->version = 4; */
+		/*printk(KERN_ALERT "I4H: %x", i4h->saddr); */
+		/* i4h->saddr = 0x0100007f; */
+	}
+
+	si = skb_shinfo(req->msg.skb_list.last);
+	offset = (char*)(req->crlf.ptr) - (char *)skb_frag_address(&si->frags[0]);
+	printk(KERN_ALERT "TEST_OFFSET: %ld", offset);
+	EXPECT_OK(tfw_http_adjust_req(req));
+	EXPECT_TRUE(req->msg.ss_flags & SS_F_KEEP_SKB);
+	EXPECT_FALSE(TFW_STR_EMPTY(&req->h_tbl->tbl[X_FORWARDED_FOR]));
+}
+
 TEST_SUITE(http_parser)
 {
 	TEST_RUN(http_parser, parses_req_method);
@@ -1033,4 +1055,5 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, fuzzer);
+	TEST_RUN(http_parser, adjusts_req);
 }
