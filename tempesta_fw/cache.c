@@ -210,10 +210,10 @@ __cache_method_test(tfw_http_meth_t method)
 	return cache_cfg.methods & (1 << method);
 }
 
-static inline bool
+bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
-	return __cache_method_test(req->method);
+	return cache_cfg.cache && __cache_method_test(req->method);
 }
 
 /*
@@ -600,10 +600,19 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 	return copied;
 }
 
+/**
+ * We need the function wrapper if memcpy() is defined as __inline_memcpy().
+ */
+static void *
+__tfw_memcpy(void *dst ,const void *src, size_t n)
+{
+	return memcpy(dst, src, n);
+}
+
 static inline long
 tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
-	return __tfw_cache_strcpy(p, trec, src, tot_len, memcpy);
+	return __tfw_cache_strcpy(p, trec, src, tot_len, __tfw_memcpy);
 }
 
 /**
@@ -869,7 +878,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	unsigned long key;
 	bool keep_skb = false;
 
-	if (!cache_cfg.cache || !tfw_cache_msg_cacheable(req))
+	if (!tfw_cache_msg_cacheable(req))
 		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
 		goto out;
@@ -930,12 +939,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req);
+		return tfw_http_send_403(req, "unconfigured purge request");
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req);
+		return tfw_http_send_403(req, "purge request ACL violation");
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
@@ -943,10 +952,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		ret = tfw_cache_purge_invalidate(req);
 		break;
 	default:
-		return tfw_http_send_403(req);
+		return tfw_http_send_403(req, "bad purge option");
 	}
 
-	return ret ? tfw_http_send_404(req) : tfw_http_send_200(req);
+	return ret
+		? tfw_http_send_404(req, "purge error")
+		: tfw_http_send_200(req);
 }
 
 static int
@@ -1200,7 +1211,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		resp->flags |= TFW_HTTP_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-		tfw_http_send_504(req);
+		tfw_http_send_504(req, "resource not cached");
 	else
 		action(req, resp);
 
@@ -1241,8 +1252,6 @@ tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
 
 	if (req->method == TFW_HTTP_METH_PURGE)
 		goto do_cache;
-	if (!cache_cfg.cache)
-		goto dont_cache;
 	if (!tfw_cache_msg_cacheable(req))
 		goto dont_cache;
 	if (!resp && !tfw_cache_employ_req(req))
