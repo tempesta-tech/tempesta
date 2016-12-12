@@ -222,6 +222,7 @@ typedef struct {
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x000004
+#define TFW_HTTP_MSG_SENT		0x000008
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -391,10 +392,10 @@ void tfw_http_req_destruct(void *msg);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpReq *req);
-int tfw_http_send_404(TfwHttpReq *req);
-int tfw_http_send_502(TfwHttpReq *req);
-int tfw_http_send_504(TfwHttpReq *req);
+int tfw_http_send_403(TfwHttpReq *req, const char *reason);
+int tfw_http_send_404(TfwHttpReq *req, const char *reason);
+int tfw_http_send_502(TfwHttpReq *req, const char *reason);
+int tfw_http_send_504(TfwHttpReq *req, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.
