@@ -478,7 +478,7 @@ __hbh_parser_init_req(TfwHttpReq *req)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
 	/* Connection is hop-by-hop header by RFC 7230 6.1 */
-	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_CONNECTION;
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
 
 /**
@@ -494,8 +494,9 @@ __hbh_parser_init_resp(TfwHttpResp *resp)
 	 * Server header isn't defined as hop-by-hop by the RFC, but we
 	 * don't show protected server to world.
 	 */
-	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_CONNECTION;
-	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_SERVER;
+	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
+			 (0x1 << TFW_HTTP_HDR_SERVER);
+
 }
 
 /**
@@ -506,12 +507,10 @@ static void
 mark_spec_hbh(TfwHttpMsg *hm)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &hm->parser.hbh_parser;
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *hdr;
 	unsigned int id;
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
-		hdr = &ht->tbl[id];
+		TfwStr *hdr = &hm->h_tbl->tbl[id];
 		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr)))
 			hdr->flags |= TFW_STR_HBH_HDR;
 	}
@@ -525,7 +524,6 @@ static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
-	TfwStr * hbh_name;
 	unsigned int i;
 
 	/*
@@ -538,9 +536,10 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 	 * corresponding hop-by-hop header was found.
 	*/
 	for (i = 0; i < hbh->off; ++i) {
-		hbh_name = &hbh->raw[i];
+		TfwStr *hbh_name = &hbh->raw[i];
 		if ((hbh_name->flags & TFW_STR_HBH_HDR)
-		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':'))) {
+		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':')))
+		{
 			hdr->flags |= TFW_STR_HBH_HDR;
 			hbh_name->flags = hbh_name->flags &
 					~(unsigned int)TFW_STR_HBH_HDR;
@@ -1089,9 +1088,10 @@ __FSM_STATE(RGen_OWS) {							\
 	}, I_EoT)
 
 /* Add spec header of id @hid and @name to list of spec hop-by-hop headers */
-#define TRY_HBH_SPEC_HDR_LAMBDA(name, hid, lambda)				\
+#define TRY_HBH_SPEC_HDR_LAMBDA(name, hid, lambda)			\
 	TRY_HBH_TOKEN(name, {						\
-		BUG_ON(hid > sizeof(parser->hbh_parser.spec) * CHAR_BIT);\
+		BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * CHAR_BIT	\
+			     <  TFW_HTTP_HDR_RAW);			\
 		lambda;							\
 		parser->hbh_parser.spec |= 0x1 << hid;			\
 		if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))		\
@@ -1348,6 +1348,7 @@ done:
 /* Main (parent) HTTP request processing states. */
 enum {
 	Req_0,
+	Req_CRLF,
 	/* Request line. */
 	Req_Method,
 	Req_MethG,
@@ -2089,8 +2090,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 
-	__hbh_parser_init_req(req);
-
 	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
 
@@ -2098,7 +2097,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* ----------------    Request Line    ---------------- */
 
+	/* Parser internal initilizers, must be called once per message. */
 	__FSM_STATE(Req_0) {
+		__hbh_parser_init_req(req);
+		/* fall through */
+	}
+
+	__FSM_STATE(Req_CRLF) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
@@ -2816,6 +2821,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 /* Main (parent) HTTP response processing states. */
 enum {
 	Resp_0,
+	Resp_CRLF,
 	Resp_HttpVer,
 	Resp_HttpVerT1,
 	Resp_HttpVerT2,
@@ -3541,8 +3547,6 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
 
-	__hbh_parser_init_resp(resp);
-
 	TFW_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", resp);
 
@@ -3550,7 +3554,13 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* ----------------    Status Line    ---------------- */
 
+	/* Parser internal initilizers, must be called once per message. */
 	__FSM_STATE(Resp_0) {
+		__hbh_parser_init_resp(resp);
+		/* fall through */
+	}
+
+	__FSM_STATE(Resp_CRLF) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Resp_0);
 		/* fall through */
