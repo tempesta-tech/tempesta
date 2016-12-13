@@ -63,6 +63,7 @@ int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 	__tfw_http_msg_add_str_data(hm, str, data, len,			\
 				    ss_skb_peek_tail(&hm->msg.skb_list))
 
+unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			  char *val, size_t v_len, unsigned int hid, bool append);
@@ -74,7 +75,6 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	tfw_http_msg_hdr_xfrm(hm, name, sizeof(name) - 1, NULL, 0, hid, 0)
 
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
-void tfw_http_msg_mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr);
 
 TfwHttpMsg *tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type,
 				size_t data_len);

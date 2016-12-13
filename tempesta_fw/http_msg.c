@@ -152,13 +152,9 @@ __hdr_is_singular(const TfwStr *hdr)
  * i.e. check whether the header is duplicate.
  * The lookup is performed untill ':', so header name only is enough in @hdr.
  * @return the header id.
- *
- * Certain header fields are strictly singular and may not be repeated in
- * an HTTP message. Duplicate of a singular header fields is a bug worth
- * blocking the whole HTTP message.
  */
-static unsigned int
-__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+unsigned int
+tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -172,10 +168,21 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 			break;
 	}
 
-	if (id <  ht->off) {
-		if (__hdr_is_singular(hdr))
-			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-	}
+	return id;
+}
+
+/**
+ * Certain header fields are strictly singular and may not be repeated in
+ * an HTTP message. Duplicate of a singular header fields is a bug worth
+ * blocking the whole HTTP message.
+ */
+static inline unsigned int
+__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+{
+	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
+
+	if ((id <  hm->h_tbl->off) && __hdr_is_singular(hdr))
+		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 
 	return id;
 }
@@ -591,39 +598,14 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 
 	do {
 		hid--;
-
 		if (hid == TFW_HTTP_HDR_CONNECTION)
 			continue;
 		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
 			if ((r = __hdr_del(hm, hid)))
 				return r;
-	} while (hid != 0);
+	} while (hid);
 
 	return 0;
-}
-
-/**
- * Lookup for the header @hdr in already collected headers table @ht,
- * and mark it as hop-by-hop. The lookup is performed untill ':', so header
- * name only is enough in @hdr.
- */
-void
-tfw_http_msg_mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *d, *end, *h;
-	unsigned int hid = __hdr_lookup(hm, hdr);
-
-	/*
-	 * This function is called before hm->h_tbl fully parsed,
-	 * If header is epmty, dont touch it
-	 */
-	if ((hid > ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
-		return;
-
-	h = &ht->tbl[hid];
-	TFW_STR_FOR_EACH_DUP(d, h, end)
-		d->flags |= TFW_STR_HBH_HDR;
 }
 
 /**

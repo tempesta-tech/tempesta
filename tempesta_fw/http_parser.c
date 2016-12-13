@@ -471,30 +471,51 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 }
 
 /**
- * Add unconditionaly hop-by-hop headers to list of hop-by-hop headers names.
- * Do not init raw headers table until we found that Connection header contains
- * atleast one raw header.
+ * Add spec header indexes to list of hop-by-hop headers
  */
-static void
-__hbh_parser_init(TfwHttpHbhHdrs *hbh_hdrs, bool req)
+static inline void
+__hbh_parser_init_req(TfwHttpReq *req)
 {
-	/*
-	 * Connection header is hop-by-hop header.
-	 *
-	 * Server header isn't defined as hop-by-hop by the RFC, but we
-	 * don't show protected server to world. User-agent and Server headers
-	 * have the same id in tfw_http_hdr_t, so Server header must be marked
-	 * only for responses.
-	 */
+	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+	/* Connection is hop-by-hop header by RFC 7230 6.1 */
 	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_CONNECTION;
-	if (!req)
-		hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_SERVER;
 }
 
-#define MARK_SPEC_HBH(hid)						\
-	if ((msg->parser.hbh_parser.spec & (0x1 << hid))		\
-	    && !TFW_STR_EMPTY(&msg->parser.hdr))			\
-		msg->parser.hdr.flags |= TFW_STR_HBH_HDR;
+/**
+ * Same as @__hbh_parser_init_req for response
+ */
+static inline void
+__hbh_parser_init_resp(TfwHttpResp *resp)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+	/*
+	 * Connection is hop-by-hop header by RFC 7230 6.1
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_CONNECTION;
+	hbh_hdrs->spec |= 0x1 << TFW_HTTP_HDR_SERVER;
+}
+
+/**
+ * Mark existing spec headers of http message @hm as hop-by-hop if they was
+ * listed in Connection header or in @__hbh_parser_init_* function
+ */
+static void
+mark_spec_hbh(TfwHttpMsg *hm)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &hm->parser.hbh_parser;
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *hdr;
+	unsigned int id;
+
+	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
+		hdr = &ht->tbl[id];
+		if ((hbh_hdrs->spec & (0x1 << id)) && (!TFW_STR_EMPTY(hdr)))
+			hdr->flags |= TFW_STR_HBH_HDR;
+	}
+}
 
 /**
  * Mark raw header @hdr as hop-by-hop if its name was listed in Connection
@@ -504,29 +525,52 @@ static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	TfwStr * hbh_name;
 	unsigned int i;
-	bool match = false;
 
-	for (i = 0; i < TFW_HTTP_HDR_NUM; ++i) {
-		if (TFW_STR_EMPTY(&hbh->raw[i]))
-			break;
-		if (!tfw_stricmpspn(&hbh->raw[i], hdr, ':')) {
+	/*
+	 * Multiple headers with the same name are saved to the same TfwStr,
+	 * so once we bumped into the first of the headers and marked it with
+	 * TFW_STR_HBH_HDR flag no need to keep comparing the header name to
+	 * every other header in message.
+	 *
+	 * Unset TFW_STR_HBH_HDR flag for header name to indicate that
+	 * corresponding hop-by-hop header was found.
+	*/
+	for (i = 0; i < hbh->off; ++i) {
+		hbh_name = &hbh->raw[i];
+		if ((hbh_name->flags & TFW_STR_HBH_HDR)
+		    && !(tfw_stricmpspn(&hbh->raw[i], hdr, ':'))) {
 			hdr->flags |= TFW_STR_HBH_HDR;
-			match = true;
+			hbh_name->flags = hbh_name->flags &
+					~(unsigned int)TFW_STR_HBH_HDR;
 			break;
 		}
 	}
+}
+
+/**
+ * Lookup for the header @hdr in already collected headers table @ht,
+ * and mark it as hop-by-hop. The lookup is performed untill ':', so header
+ * name only is enough in @hdr.
+ *
+ * @return true if @hdr was found and marked as hop-by-hop
+ */
+static bool
+__mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = tfw_http_msg_hdr_lookup(hm, hdr);
 
 	/*
-	 * Optimization: duplicated headers will take the same TfwStr container,
-	 * no need to compare current header name to all other headers.
-	*/
-	if (match) {
-		if (i < (TFW_HTTP_HDR_NUM - 1))
-			memmove(&hbh->raw[i], &hbh->raw[i + 1],
-				sizeof(TfwStr) * (TFW_HTTP_HDR_NUM - i -1));
-		TFW_STR_INIT(&hbh->raw[TFW_HTTP_HDR_NUM - 1]);
-	}
+	 * This function is called before hm->h_tbl is fully parsed,
+	 * if header is epmty, don't touch it
+	 */
+	if ((hid >= ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
+		return false;
+
+	ht->tbl[hid].flags |= TFW_STR_HBH_HDR;
+	return true;
 }
 
 /**
@@ -535,24 +579,34 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
  * chunk with ':' will be added to the end. Otherwize last header in table stays
  * open to add more data.
  *
- * After name of hop-by-hop header was completed, we will search for headers
+ * After name of hop-by-hop header was completed, will search for headers
  * with that name and mark them as hop-by-hop.
+ *
+ * NOTE: Most of the headers listed in RFC 7231 are end-to-end and must not
+ * be listed in the header. Instead of comparing connection tokens to all
+ * end-to-end headers names compare only to headers parsed by
+ * TFW_HTTP_PARSE_RAWHDR_VAL macro.
  */
 static int
-__hbb_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
+__hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
-	unsigned int i;
 	TfwStr *hdr = NULL, *append;
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	unsigned long i;
+	static const TfwStr end_to_end[] __read_mostly = {
+#define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
+		TfwStr_string("age:"),
+		TfwStr_string("authorization:"),
+		TfwStr_string("cache-control:"),
+		TfwStr_string("date:"),
+		TfwStr_string("expires:"),
+		TfwStr_string("pragma:"),
+#undef TfwStr_string
+	};
 
-	for (i = 0; i < TFW_HTTP_HDR_NUM; ++i) {
-		if (!(hbh->raw[i].flags & TFW_STR_COMPLETE)) {
-			hdr = &hbh->raw[i];
-			break;
-		}
-	}
-	if (hdr == NULL)
+	if (hbh->off == TFW_HBH_TOKENS_MAX)
 		return CSTR_NEQ;
+	hdr = &hbh->raw[hbh->off];
 
 	if (!TFW_STR_EMPTY(hdr)) {
 		append = tfw_str_add_compound(hm->pool, hdr);
@@ -575,9 +629,19 @@ __hbb_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 			return -ENOMEM;
 		*append = s_colon;
 		hdr->len += s_colon.len;
-		hdr->flags |= TFW_STR_COMPLETE;
+		++hbh->off;
 
-		tfw_http_msg_mark_hbh_hdr(hm, hdr);
+		/* Drop message if header is end-to-end */
+		for (i = 0; i < ARRAY_SIZE(end_to_end); ++i)
+			if (!tfw_stricmpspn(hdr, &end_to_end[i], ':'))
+				return CSTR_NEQ;
+
+		/*
+		 * Don't set TFW_STR_HBH_HDR flag if such header was already
+		 * parsed. See comment in mark_raw_hbh()
+		 */
+		if (!__mark_hbh_hdr(hm, hdr))
+			hdr->flags |= TFW_STR_HBH_HDR;
 	};
 
 	return 0;
@@ -609,7 +673,7 @@ enum {
  * Parsing helpers.
  * @str in TRY_STR_LAMBDA must be in lower case.
  */
-#define TRY_STR_LAMBDA(str, lambda, state)				\
+#define TRY_STR_LAMBDA_finish(str, lambda, finish, state)		\
 	if (!chunk->ptr)						\
 		chunk->ptr = p;						\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
@@ -621,8 +685,12 @@ enum {
 			__FSM_I_MOVE_n(state, __fsm_n);			\
 		}							\
 		__msg_hdr_chunk_fixup(data, len);			\
+		finish;							\
 		return CSTR_POSTPONE;					\
 	}
+
+#define TRY_STR_LAMBDA(str, lambda, state)				\
+	TRY_STR_LAMBDA_finish(str, lambda, { }, state)
 
 #define TRY_STR(str, state)						\
 	TRY_STR_LAMBDA(str, { }, state)
@@ -698,6 +766,7 @@ do {									\
 __FSM_STATE(RGen_CRLFCR) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_CRLFCR);				\
+	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.ptr);					\
 		__msg_field_finish(&msg->crlf, p + 1);			\
@@ -748,7 +817,6 @@ __FSM_STATE(st_curr) {							\
 		/* The header value is fully parsed, move forward. */	\
 		if (saveval)						\
 			__msg_hdr_chunk_fixup(p, __fsm_n);		\
-		MARK_SPEC_HBH(id);					\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = id;					\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
@@ -1010,20 +1078,37 @@ __FSM_STATE(RGen_OWS) {							\
 	goto fsm_reenter;						\
 }
 
-#define TRY_SPEC_HBH_HDR_LAMBDA(name, hid, lambda)			\
-	TRY_STR_LAMBDA(name, {						\
+/*
+ * Save parsed data to list of raw hop-by-hop headers if data doesn't match
+ * to @name and do @lambda otherwize
+*/
+#define TRY_HBH_TOKEN(name, lambda)					\
+	TRY_STR_LAMBDA_finish(name, lambda, {				\
+		if (__hbh_parser_add_data(hm, data, len, false))	\
+			r = CSTR_NEQ;					\
+	}, I_EoT)
+
+/* Add spec header of id @hid and @name to list of spec hop-by-hop headers */
+#define TRY_HBH_SPEC_HDR_LAMBDA(name, hid, lambda)				\
+	TRY_HBH_TOKEN(name, {						\
+		BUG_ON(hid > sizeof(parser->hbh_parser.spec) * CHAR_BIT);\
+		lambda;							\
 		parser->hbh_parser.spec |= 0x1 << hid;			\
 		if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))		\
 			msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;	\
-		lambda;							\
-	}, I_EoT);
+	})
 
-#define TRY_SPEC_HBH_HDR(name, hid) TRY_SPEC_HBH_HDR_LAMBDA(name, hid, {}})
+#define TRY_SPEC_HBH_HDR(name, hid) TRY_SPEC_HBH_HDR_LAMBDA(name, hid, {})
 
 /**
  * Parse Connection header value, RFC 7230 6.1.
  *
- * Mark already parsed headers as hop-by-hop once they appear in the header.
+ * Store names of listed headers in @hm->parser.hbh_parser to mark them as
+ * hop-by-hop during parsing. Mark already parsed headers as hop-by-hop once
+ * they appear in the header.
+ *
+ * @return CSTR_NEQ if the header contains end-to-end headers or too lot of
+ * connection specific options/headers.
  */
 static int
 __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
@@ -1034,43 +1119,35 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	/*
-	 * Currently none of headers parsed by TFW_HTTP_PARSE_SPECHDR_VAL
-	 * except "Keep-Alive" can be hop-by-hop. If any of them listed in
-	 * the header, parser->hbh_parser.raw table will be populated with
-	 * this header, but none of headers will be marked as hop-by-hop,
-	 * since parser->hbh_parser.raw table used for marking only raw
-	 * headers.
+	 * Connection header lists either boolean connection tokens or
+	 * names of hop-by-hop headers.
 	 *
-	 * Most of the headers listed in RFC 7231 are end-to-end and must not
-	 * be listed in the header. Instead of comparing connection tokens to
-	 * all end-to-end headrs compare only to headers parsed by
-	 * TFW_HTTP_PARSE_RAWHDR_VAL macro.
+	 * Sender must not list end-to-end headers in Connection header.
+	 * We don't check if one of listed headers is spec end-to-end header,
+	 * instead it is treated as raw header so malicious agent couldn't
+	 * make us remove end-to-end spec header.
 	 *
-	 * TODO: WebSocket Protocol support
-	 * RFC 6455 describes usage of websockets. During handshake client
-	 * sets "Connection: upgrade" and corresponding "Update" header.
+	 * Raw headers listed in the header will be compared with names of raw
+	 * end-to-end headers during saving in __hbh_parser_add_data().
+	 *
+	 * TODO: RFC 6455 WebSocket Protocol
+	 * During handshake client sets "Connection: update" and "Update" header.
 	 * This headers should be passed to server unchanged to allow
 	 * WebSocket porotol.
 	 */
 	__FSM_STATE(I_Conn) {
-		TRY_STR_LAMBDA("close", {
+		/* Boolean connection tokens */
+		TRY_HBH_TOKEN("close", {
 			if (msg->flags & TFW_HTTP_CONN_KA)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
-		}, I_EoT);
-		/* Mark spec headers as hop-by-hop if applied */
-		TRY_SPEC_HBH_HDR_LAMBDA("keep-alive", TFW_HTTP_HDR_KEEP_ALIVE, {
+		});
+		/* Spec headers */
+		TRY_HBH_SPEC_HDR_LAMBDA("keep-alive", TFW_HTTP_HDR_KEEP_ALIVE, {
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
 		});
-		/* Don't allow known end-to-end headers be marked as hop-by-hop */
-		TRY_STR_LAMBDA("age", {return CSTR_NEQ;}, I_EoT);
-		TRY_STR_LAMBDA("authorization", {return CSTR_NEQ;}, I_EoT);
-		TRY_STR_LAMBDA("cache-control", {return CSTR_NEQ;}, I_EoT);
-		TRY_STR_LAMBDA("date", {return CSTR_NEQ;}, I_EoT);
-		TRY_STR_LAMBDA("expires", {return CSTR_NEQ;}, I_EoT);
-		TRY_STR_LAMBDA("pragma", {return CSTR_NEQ;}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
@@ -1079,15 +1156,16 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * Other connection tokens. Popular examples of the "Connection:"
 	 * header value are "Keep-Alive, TE" or "TE, close". However,
 	 * it could be names of any headers, including custom headers.
+	 * Raw headers: add to @hm->parser.hbh_parser.raw table.
 	 */
 	__FSM_STATE(I_ConnOther) {
 		__FSM_I_MATCH_MOVE_finish(token, I_ConnOther, {
-			if (__hbb_parser_add_data(hm, p, __fsm_sz, false))
+			if (__hbh_parser_add_data(hm, p, __fsm_sz, false))
 				r = CSTR_NEQ;
 		});
 		msg->flags |= TFW_HTTP_CONN_EXTRA;
 		c = *(p + __fsm_sz);
-		if (__hbb_parser_add_data(hm, p, __fsm_sz, true))
+		if (__hbh_parser_add_data(hm, p, __fsm_sz, true))
 			return  CSTR_NEQ;
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
@@ -2011,7 +2089,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 
-	__hbh_parser_init(&parser->hbh_parser, true);
+	__hbh_parser_init_req(req);
 
 	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
@@ -2334,7 +2412,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
 				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'l', 'i', 'v')
-				   && tolower(*(p + 9)) == 'e'
+				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrKeep_AliveV;
@@ -3463,7 +3541,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
 
-	__hbh_parser_init(&parser->hbh_parser, false);
+	__hbh_parser_init_resp(resp);
 
 	TFW_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", resp);

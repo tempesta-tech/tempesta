@@ -142,8 +142,9 @@ typedef struct {
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
  * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
- * If new header can be hop-by-hop header update of __parse_connection() is
- * also needed.
+ * If the new header is hop-by-hop (must not be forwarded and cached by Tempesta)
+ * it must be listed in __hbh_parser_init_req()/__hbh_parser_init_resp() for
+ * unconditionally hop-by-hop header or in __parse_connection() otherwize.
  *
  * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
  *
@@ -185,6 +186,9 @@ typedef struct {
 					 + sizeof(TfwStr) * (s))
 #define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
 
+/** Maximum of hop-by-hop tokens listed in Connection header. */
+#define TFW_HBH_TOKENS_MAX		16
+
 /**
  * Non-cacheable hop-by-hop headers in terms of RFC 7230.
  *
@@ -199,10 +203,12 @@ typedef struct {
  * @spec	- bit array for special headers. Hop-by-hop special header is
  *		  stored as (0x1 << tfw_http_hdr_t[hid]);
  * @raw		- table of raw headers names, parsed form connection field;
+ * @off		- offset of last added raw header name;
  */
 typedef struct {
 	unsigned int	spec;
-	TfwStr		raw[TFW_HTTP_HDR_NUM];
+	unsigned int	off;
+	TfwStr		raw[TFW_HBH_TOKENS_MAX];
 } TfwHttpHbhHdrs;
 
 /**
@@ -289,7 +295,7 @@ typedef struct {
  * @content_length	- the value of Content-Length header field;
  * @conn		- connection which the message was received on;
  * @jtstamp		- time the message has been received, in jiffies;
- * @keep_alive		- keep-alive timeout
+ * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
