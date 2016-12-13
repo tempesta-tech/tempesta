@@ -744,11 +744,10 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
 	FOR_EACH_HDR_FIELD(field, end1, resp) {
-		n = field - resp->h_tbl->tbl;
 		/* Skip hop-by-hop headers. */
 		if (!(field->flags & TFW_STR_HBH_HDR)) {
 			h = field;
-		} else if (n < TFW_HTTP_HDR_RAW) {
+		} else if (field - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW) {
 			h = &empty;
 		} else {
 			--ce->hdr_num;
@@ -796,7 +795,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 static size_t
 __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 {
-	long n;
 	size_t size = CE_BODY_SIZE;
 	TfwStr *h, *hdr, *hdr_end, *dup, *dup_end, empty = {};
 
@@ -807,10 +805,9 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 	/* Add all the headers size */
 	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
 		/* Skip hop-by-hop headers. */
-		n = hdr - resp->h_tbl->tbl;
 		if (!(hdr->flags & TFW_STR_HBH_HDR))
 			h = hdr;
-		else if (n < TFW_HTTP_HDR_RAW)
+		else if (hdr - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW)
 			h = &empty;
 		else
 			continue;
