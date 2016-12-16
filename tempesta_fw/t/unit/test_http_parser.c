@@ -166,6 +166,37 @@ do {								\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
+TEST(http_parser, leading_eol)
+{
+	FOR_REQ("GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\r\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\n\n\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\r\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\n\n\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+}
+
 TEST(http_parser, parses_req_method)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
@@ -1321,6 +1352,7 @@ end:
 
 TEST_SUITE(http_parser)
 {
+	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, mangled_messages);

@@ -477,6 +477,8 @@ static inline void
 __hbh_parser_init_req(TfwHttpReq *req)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
 	/* Connection is hop-by-hop header by RFC 7230 6.1 */
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
@@ -488,6 +490,8 @@ static inline void
 __hbh_parser_init_resp(TfwHttpResp *resp)
 {
 	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
 	/*
 	 * Connection is hop-by-hop header by RFC 7230 6.1
 	 *
@@ -1348,7 +1352,7 @@ done:
 /* Main (parent) HTTP request processing states. */
 enum {
 	Req_0,
-	Req_CRLF,
+	Req_0_CRLF,
 	/* Request line. */
 	Req_Method,
 	Req_MethG,
@@ -2103,9 +2107,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		/* fall through */
 	}
 
-	__FSM_STATE(Req_CRLF) {
+	__FSM_STATE(Req_0_CRLF) {
 		if (unlikely(IS_CRLF(c)))
-			__FSM_MOVE_nofixup(Req_0);
+			__FSM_MOVE_nofixup(Req_0_CRLF);
 		/* fall through */
 	}
 
@@ -2821,7 +2825,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 /* Main (parent) HTTP response processing states. */
 enum {
 	Resp_0,
-	Resp_CRLF,
+	Resp_0_CRLF,
 	Resp_HttpVer,
 	Resp_HttpVerT1,
 	Resp_HttpVerT2,
@@ -3560,9 +3564,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		/* fall through */
 	}
 
-	__FSM_STATE(Resp_CRLF) {
+	__FSM_STATE(Resp_0_CRLF) {
 		if (unlikely(IS_CRLF(c)))
-			__FSM_MOVE_nofixup(Resp_0);
+			__FSM_MOVE_nofixup(Resp_0_CRLF);
 		/* fall through */
 	}
 
