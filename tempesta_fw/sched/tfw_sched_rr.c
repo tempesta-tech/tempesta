@@ -32,8 +32,8 @@ MODULE_LICENSE("GPL");
 
 /**
  * List of connections to an upstream server.
- * Connections can up and down during failover process and shouldn't be
- * taken into account by the scheduler.
+ * Connections can go up and down during failover process. Only
+ * fully established connections are considered by the scheduler.
  */
 typedef struct {
 	atomic64_t		rr_counter;
@@ -44,8 +44,9 @@ typedef struct {
 
 /**
  * List of upstream servers.
- * The list is considered static, i.e. all the servers are alive during
- * whole run-time. This can be changed in future.
+ * The list is considered static, i.e. all servers, either dead
+ * or alive, are present in the list during the whole run-time.
+ * That may change in the future.
  */
 typedef struct {
 	atomic64_t		rr_counter;
@@ -67,8 +68,8 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
 }
 
 /**
- * Add connection and server, if new, to the scheduler.
- * Called at configuration phase, no synchronization is required.
+ * Add a connection and a server, if new, to the scheduler.
+ * Called at configuration stage, no synchronization is required.
  */
 static void
 tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
@@ -109,7 +110,8 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 static TfwConnection *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int c, s, i;
+	int c, s;
+	uint64_t idx;
 	TfwConnection *conn;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
@@ -117,12 +119,11 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!sl);
 
 	for (s = 0; s < sl->srv_n; ++s) {
-		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		srv_cl = &sl->srvs[i];
+		idx = atomic64_inc_return(&sl->rr_counter);
+		srv_cl = &sl->srvs[idx % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-			    % srv_cl->conn_n;
-			conn = srv_cl->conns[i];
+			idx = atomic64_inc_return(&srv_cl->rr_counter);
+			conn = srv_cl->conns[idx % srv_cl->conn_n];
 			if (tfw_connection_get_if_nfo(conn))
 				return conn;
 		}
