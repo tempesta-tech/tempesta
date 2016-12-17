@@ -23,36 +23,34 @@
 #include "pool.h"
 
 /*
- * @ith	- percentile number.
- * @val	- percentile value.
+ * @ith		- array of percentile numbers;
+ * @val		- array of percentile values;
+ * @psz		- size of @ith and @val arrays;
+ * @min		- minimal value;
+ * @max		- maximal value;
+ * @avg		- average value;
+ * @seq		- opaque data related to percentiles calculation;
  */
 typedef struct {
-	unsigned int	ith;
-	unsigned int	val;
-} TfwPrcntl;
-
-/*
- * @stats	- Percentile Stats array.
- * @stsz	- @stats array size.
- * @min		- Minimal value.
- * @max		- Maximal value.
- * @avg		- Average value.
- * @seq		- opaque data related to percentiles calculation.
- */
-typedef struct {
-	TfwPrcntl	*prcntl;
-	unsigned int	prcntlsz;
-	unsigned int	min;
-	unsigned int	max;
-	unsigned int	avg;
-	unsigned int	seq;
+	const unsigned int	*ith;
+	unsigned int		*val;
+	unsigned int		psz;
+	unsigned int		min;
+	unsigned int		max;
+	unsigned int		avg;
+	unsigned int		seq;
 } TfwPrcntlStats;
+
+/* A superset of percentiles for all users. */
+static const unsigned int __read_mostly tfw_pstats_ith[] = {
+	50, 75, 90, 95, 99
+};
 
 void *tfw_apm_create(void);
 void tfw_apm_destroy(void *data);
 void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats(void *data, TfwPrcntlStats *pstats);
 int tfw_apm_stats_bh(void *data, TfwPrcntlStats *pstats);
-int tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz);
+int tfw_apm_pstats_verify(TfwPrcntlStats *pstats);
 
 #endif /* __TFW_APM_H__ */
