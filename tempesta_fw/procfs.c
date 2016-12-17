@@ -141,14 +141,6 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 	return single_open(file, tfw_perfstat_seq_show, PDE_DATA(inode));
 }
 
-/*
- * Individual server statistics. Note that 50% percentile
- * is used to tell the median value.
- */
-static const TfwPrcntl __read_mostly tfw_procfs_prcntl[] = {
-	{50}, {75}, {90}, {95}, {99}
-};
-
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
@@ -157,21 +149,24 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	int i;
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
-	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
-	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };
-
-	memcpy(prcntl, tfw_procfs_prcntl, sizeof(prcntl));
+	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)];
+	TfwPrcntlStats pstats = {
+		.ith = tfw_pstats_ith,
+		.val = val,
+		.psz = ARRAY_SIZE(tfw_pstats_ith)
+	};
 
 	tfw_apm_stats_bh(srv->apm, &pstats);
 
 	SPRNE("Minimal response time\t\t", pstats.min);
 	SPRNE("Average response time\t\t", pstats.avg);
-	SPRNE("Median  response time\t\t", prcntl[0].val);
+	SPRNE("Median  response time\t\t", pstats.val[0]);
 	SPRNE("Maximum response time\t\t", pstats.max);
+
 	seq_printf(seq, "Percentiles\n");
-	for (i = 0; i < ARRAY_SIZE(prcntl); ++i)
-		seq_printf(seq, "\t%02d%%:\t%dms\n",
-				prcntl[i].ith, prcntl[i].val);
+	for (i = 0; i < ARRAY_SIZE(tfw_pstats_ith); ++i)
+		seq_printf(seq, "%02d%%:\t%dms\n",
+				pstats.ith[i], pstats.val[i]);
 	i = 0;
 	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
 			srv->sg->max_qsize);
@@ -241,13 +236,14 @@ static int
 tfw_procfs_cfg_start(void)
 {
 	int i, ret;
-	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
-
-	memcpy(prcntl, tfw_procfs_prcntl, sizeof(prcntl));
+	TfwPrcntlStats pstats = {
+		.ith = tfw_pstats_ith,
+		.psz = ARRAY_SIZE(tfw_pstats_ith)
+	};
 
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
-	if (tfw_apm_prcntl_verify(prcntl, ARRAY_SIZE(prcntl)))
+	if (tfw_apm_pstats_verify(&pstats))
 		return -EINVAL;
 	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
 	if (!tfw_procfs_srvstats)
