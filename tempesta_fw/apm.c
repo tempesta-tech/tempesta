@@ -567,6 +567,11 @@ tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 static int
 tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats)
 {
+#define IDX_MIN		TFW_PSTATS_IDX_MIN
+#define IDX_MAX		TFW_PSTATS_IDX_MAX
+#define IDX_AVG		TFW_PSTATS_IDX_AVG
+#define IDX_ITH		TFW_PSTATS_IDX_ITH
+
 	int i, p;
 	unsigned long cnt = 0, val, pval[pstats->psz];
 	TfwApmRBEState st[rbuf->rbufsz];
@@ -579,7 +584,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 		__tfw_apm_state_next(pcntrng, &st[i]);
 	}
 	/* The number of items to collect for each percentile. */
-	for (i = p = 0; i < pstats->psz; ++i) {
+	for (i = p = IDX_ITH; i < pstats->psz; ++i) {
 		pval[i] = rbctl->total_cnt * pstats->ith[i] / 100;
 		if (!pval[i])
 			pstats->val[p++] = 0;
@@ -599,8 +604,10 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 				 "cnt [%lu] total_cnt [%lu]\n",
 				 __func__, cnt, rbctl->total_cnt);
 			TFW_DBG3("%s: [%lu] [%lu] [%lu] [%lu] [%lu] [%lu]\n",
-				 __func__, pval[0], pval[1], pval[2],
-				 pval[3], pval[4], pval[5]);
+				 __func__,
+				 pval[IDX_ITH], pval[IDX_ITH + 1],
+				 pval[IDX_ITH + 2], pval[IDX_ITH + 3],
+				 pval[IDX_ITH + 4], pval[IDX_ITH + 5]);
 			break;
 		}
 		for (i = 0; i < rbuf->rbufsz; i++) {
@@ -614,21 +621,26 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 			pstats->val[p] = v_min;
 	}
 	cnt = val = 0;
-	pstats->max = 0;
-	pstats->min = UINT_MAX;
+	pstats->val[IDX_MAX] = 0;
+	pstats->val[IDX_MIN] = UINT_MAX;
 	for (i = 0; i < rbuf->rbufsz; i++) {
 		pcntrng = &rbent[i].pcntrng;
-		if (pstats->min > atomic_read(&pcntrng->min_val))
-			pstats->min = atomic_read(&pcntrng->min_val);
-		if (pstats->max < atomic_read(&pcntrng->max_val))
-			pstats->max = atomic_read(&pcntrng->max_val);
+		if (pstats->val[IDX_MIN] > atomic_read(&pcntrng->min_val))
+			pstats->val[IDX_MIN] = atomic_read(&pcntrng->min_val);
+		if (pstats->val[IDX_MAX] < atomic_read(&pcntrng->max_val))
+			pstats->val[IDX_MAX] = atomic_read(&pcntrng->max_val);
 		cnt += atomic64_read(&pcntrng->tot_cnt);
 		val += atomic64_read(&pcntrng->tot_val);
 	}
 	if (likely(cnt))
-		pstats->avg = val / cnt;
+		pstats->val[IDX_AVG] = val / cnt;
 
 	return p;
+
+#undef IDX_ITH
+#undef IDX_AVG
+#undef IDX_MAX
+#undef IDX_MIN
 }
 
 /*
@@ -771,7 +783,7 @@ static void
 tfw_apm_calc(TfwApmData *data)
 {
 	int nfilled, wridx, recalc;
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)];
+	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.val = val,
@@ -795,9 +807,6 @@ tfw_apm_calc(TfwApmData *data)
 		write_lock(&asent->rwlock);
 		memcpy(asent->pstats.val, pstats.val,
 		       asent->pstats.psz * sizeof(asent->pstats.val[0]));
-		asent->pstats.min = pstats.min;
-		asent->pstats.max = pstats.max;
-		asent->pstats.avg = pstats.avg;
 		atomic_inc(&data->stats.rdidx);
 		write_unlock(&asent->rwlock);
 	}
@@ -841,9 +850,6 @@ tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 	read_lock(&asent->rwlock);
 	memcpy(pstats->val, asent->pstats.val,
 	       pstats->psz * sizeof(pstats->val[0]));
-	pstats->min = asent->pstats.min;
-	pstats->max = asent->pstats.max;
-	pstats->avg = asent->pstats.avg;
 	read_unlock(&asent->rwlock);
 	pstats->seq = rdidx;
 

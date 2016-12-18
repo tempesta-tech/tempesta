@@ -148,7 +148,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	int i, ret;
 	TfwServer *srv = seq->private;
-	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)];
+	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.val = val,
@@ -157,13 +157,13 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	tfw_apm_stats(srv->apm, &pstats);
 
-	SPRNE("Minimal response time\t\t", pstats.min);
-	SPRNE("Average response time\t\t", pstats.avg);
-	SPRNE("Median  response time\t\t", pstats.val[0]);
-	SPRNE("Maximum response time\t\t", pstats.max);
+	SPRNE("Minimal response time\t\t", pstats.val[TFW_PSTATS_IDX_MIN]);
+	SPRNE("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);
+	SPRNE("Median  response time\t\t", pstats.val[TFW_PSTATS_IDX_P50]);
+	SPRNE("Maximum response time\t\t", pstats.val[TFW_PSTATS_IDX_MAX]);
 	if ((ret = seq_printf(seq, "Percentiles\n")))
 		goto out;
-	for (i = 0; i < ARRAY_SIZE(tfw_pstats_ith); ++i) {
+	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i) {
 		ret = seq_printf(seq, "%02d%%:\t%dms\n",
 				 pstats.ith[i], pstats.val[i]);
 		if (ret)

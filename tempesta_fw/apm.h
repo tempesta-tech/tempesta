@@ -23,27 +23,37 @@
 #include "pool.h"
 
 /*
- * @ith		- array of percentile numbers;
- * @val		- array of percentile values;
+ * @ith		- array of percentile numbers, with space for min/max/avg;
+ * @val		- array of percentile values, and values for min/max/avg;
  * @psz		- size of @ith and @val arrays;
- * @min		- minimal value;
- * @max		- maximal value;
- * @avg		- average value;
  * @seq		- opaque data related to percentiles calculation;
  */
 typedef struct {
 	const unsigned int	*ith;
 	unsigned int		*val;
 	unsigned int		psz;
-	unsigned int		min;
-	unsigned int		max;
-	unsigned int		avg;
 	unsigned int		seq;
 } TfwPrcntlStats;
 
-/* A superset of percentiles for all users. */
+enum {
+	TFW_PSTATS_IDX_MIN = 0,
+	TFW_PSTATS_IDX_MAX,
+	TFW_PSTATS_IDX_AVG,
+	TFW_PSTATS_IDX_ITH,
+	TFW_PSTATS_IDX_P50 = TFW_PSTATS_IDX_ITH,
+	TFW_PSTATS_IDX_P75,
+	TFW_PSTATS_IDX_P90,
+	TFW_PSTATS_IDX_P95,
+	TFW_PSTATS_IDX_P99,
+};
+
 static const unsigned int __read_mostly tfw_pstats_ith[] = {
-	50, 75, 90, 95, 99
+	[TFW_PSTATS_IDX_MIN ... TFW_PSTATS_IDX_AVG] = 0,
+	[TFW_PSTATS_IDX_P50] = 50,
+	[TFW_PSTATS_IDX_P75] = 75,
+	[TFW_PSTATS_IDX_P90] = 90,
+	[TFW_PSTATS_IDX_P95] = 95,
+	[TFW_PSTATS_IDX_P99] = 99,
 };
 
 void *tfw_apm_create(void);
