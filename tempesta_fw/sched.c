@@ -164,8 +164,8 @@ tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
 			return tfw_sched_get_srv_sticky_conn(msg, main_sg,
 							     backup_sg);
 
-		WARN_ONCE(tfw_cfg_sticky_sessions, TFW_BANNER "sticky sessions"
-			  "are enabled but sticky cookies are not enforced\n");
+		TFW_WARN("sticky sessions are enabled but sticky cookies are "
+			 "not enforced\n");
 	}
 
 	return sched_conn(msg, main_sg, backup_sg);
