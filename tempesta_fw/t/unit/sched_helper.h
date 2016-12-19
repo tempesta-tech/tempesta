@@ -28,6 +28,7 @@
 
 int tfw_server_init(void);
 int tfw_sched_rr_init(void);
+void tfw_sched_rr_exit(void);
 void sched_helper_init(void);
 
 void test_spec_cleanup(TfwCfgSpec specs[]);
