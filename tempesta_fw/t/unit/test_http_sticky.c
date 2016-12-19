@@ -95,7 +95,7 @@ static struct {
 static TfwStr *
 tfw_http_field_raw(TfwHttpMsg *hm, const char *field_name, size_t len)
 {
-	int i;
+	unsigned int i;
 
 	for (i = TFW_HTTP_HDR_RAW; i < hm->h_tbl->off; i++) {
 		TfwStr *hdr_field = &hm->h_tbl->tbl[i];

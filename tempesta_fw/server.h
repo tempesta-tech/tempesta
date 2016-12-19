@@ -124,7 +124,7 @@ void tfw_srv_conn_release(TfwConnection *conn);
 TfwSrvGroup *tfw_sg_lookup(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 void tfw_sg_free(TfwSrvGroup *sg);
-int tfw_sg_count(void);
+unsigned int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn);
