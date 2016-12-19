@@ -22,9 +22,10 @@
  */
 #include "tempesta_fw.h"
 #include "log.h"
+#include "http.h"
 #include "server.h"
 
-/*
+/**
  * Normally, schedulers are separate modules. Schedulers register
  * and deregister themselves via register()/unregister() functions.
  * Registered schedulers are placed on the list and can be used by
@@ -39,7 +40,139 @@
 static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
-/*
+/**
+ * Schedule connection to either to main @main_sg server group or to backup
+ * @backup_sg if scheduling to main group failed.
+ */
+static inline TfwConnection *
+sched_conn(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+{
+	TfwConnection *conn;
+	TfwSrvGroup *sg = main_sg;
+
+	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
+	conn = sg->sched->sched_sg_conn(msg, sg);
+
+	if (unlikely(!conn && backup_sg)) {
+		sg = backup_sg;
+		TFW_DBG("sched: the main group is offline, use backup:"
+			" '%s'\n", sg->name);
+		conn = sg->sched->sched_sg_conn(msg, sg);
+	}
+
+	if (unlikely(!conn))
+		TFW_DBG2("sched: Unable to select server from group"
+			 " '%s'\n", sg->name);
+
+	return conn;
+}
+
+/**
+ * Try to reuse last connection to @sg server group saved in http session.
+ * Fallback to scheduling from server group for newly setting connections to
+ * @sg or if sticky sessions failovering is enabled.
+ *
+ * @return TfwConnection *, NULL, or -1 if message cannot be scheduled and must
+ * be dropped.
+ */
+static TfwConnection *
+sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwConnection *conn;
+
+	conn = tfw_http_sess_get_conn(req, sg);
+	if (conn) {
+		TfwServer *srv = (TfwServer *)conn->peer;
+
+		if (tfw_connection_get_if_nfo(conn))
+			return conn;
+
+		if ((conn = srv->sg->sched->sched_srv_conn(msg, srv)))
+			return conn;
+
+		if (!tfw_cfg_sticky_sessions_failover) {
+			return (void *)(-1);
+		}
+		else {
+			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+			tfw_addr_fmt_v6(&srv->addr.v6.sin6_addr, 0, addr_str);
+			TFW_WARN("sched: Unable to reschedule request to the "
+				 "same server %s, schedule from server group\n",
+				 addr_str);
+		}
+	}
+
+	/*
+	 * Schedule message to main server group if the message is the first
+	 * to that server group or last connected server offline
+	 */
+	conn = sg->sched->sched_sg_conn(msg, sg);
+	if (unlikely(!conn))
+		TFW_DBG2("sched: Unable to select server from group"
+			 " '%s'\n", sg->name);
+	return conn;
+}
+
+/**
+ * Schedule connection to the same server used last time either from main
+ * @main_sg server group or from backup @backup_sg. Called only when sticky
+ * sessions are enabled.
+ */
+static inline TfwConnection *
+tfw_sched_get_srv_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			      TfwSrvGroup *backup_sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwConnection *conn;
+
+	TFW_DBG2("sched: use sticky connections\n");
+
+	conn = sched_conn_sticky(msg, main_sg);
+
+	if (unlikely(conn == (void *)(-1)))
+		return NULL;
+
+	if (unlikely(!conn && backup_sg)) {
+		conn = sched_conn_sticky(msg, backup_sg);
+		if (unlikely(conn == (void *)(-1)))
+			return NULL;
+	}
+
+	if (conn && tfw_http_sess_save_conn(req, main_sg, conn))
+		return NULL;
+
+	return conn;
+}
+
+/**
+ * Helper for group schedulers: schedule message for the most apropriate server.
+ * Supports sticky sessions.
+ */
+TfwConnection *
+tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
+			   TfwSrvGroup *backup_sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwHttpSess *sess = req->sess;
+
+	BUG_ON(!main_sg);
+
+	if (tfw_cfg_sticky_sessions) {
+		if (sess)
+			return tfw_sched_get_srv_sticky_conn(msg, main_sg,
+							     backup_sg);
+
+		WARN_ONCE(tfw_cfg_sticky_sessions, TFW_BANNER "sticky sessions"
+			  "are enabled but sticky cookies are not enforced\n");
+	}
+
+	return sched_conn(msg, main_sg, backup_sg);
+}
+EXPORT_SYMBOL(tfw_sched_get_conn_from_sg);
+
+/**
  * Find an outgoing connection for an HTTP message.
  *
  * Where an HTTP message goes in controlled by schedulers. It may
@@ -72,7 +205,7 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 	return NULL;
 }
 
-/*
+/**
  * Lookup a scheduler by name.
  *
  * If @name is NULL, then the first available scheduler is returned.
@@ -95,7 +228,7 @@ tfw_sched_lookup(const char *name)
 	return NULL;
 }
 
-/*
+/**
  * Register a new scheduler.
  * Called only in user context.
  */
@@ -117,7 +250,7 @@ tfw_sched_register(TfwScheduler *sched)
 }
 EXPORT_SYMBOL(tfw_sched_register);
 
-/*
+/**
  * Deregister a new scheduler.
  * Called only in user context.
  */

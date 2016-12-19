@@ -786,6 +786,8 @@ static void
 tfw_cfg_sess_stop(void)
 {
 	tfw_cfg_sticky.enabled = 0;
+	tfw_cfg_sticky_sessions = false;
+	tfw_cfg_sticky_sessions_failover = false;
 }
 
 static int

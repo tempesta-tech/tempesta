@@ -134,6 +134,8 @@ void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
 TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwConnection *tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
+					  TfwSrvGroup *backup_sg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
