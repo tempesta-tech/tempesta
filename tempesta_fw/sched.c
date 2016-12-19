@@ -266,5 +266,7 @@ tfw_sched_unregister(TfwScheduler *sched)
 
 	/* Make sure the removed @sched is not used. */
 	synchronize_rcu();
+	/* Clear up scheduler for future use */
+	INIT_LIST_HEAD(&sched->list);
 }
 EXPORT_SYMBOL(tfw_sched_unregister);
