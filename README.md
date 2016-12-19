@@ -589,6 +589,26 @@ receives 302 redirect with new cookie value if enforced sticky cookie is used.
 This option doesn't affect sticky cookie expire time - it's a session, temporal,
 cookie.
 
+### Sticky Sessions
+
+This option uses **Sticky cookie** for scheduling user requests to the same
+servers for session preservation. **Sticky cookie** must be enabled but
+`enforce` option is not a mandatory. Requests from clients which do not
+support cookies will be schedulled as usual without session preservation.
+
+With **Sticky Sessions** enabled Tempesta keep track of last used servers in
+every server group for every HTTP session. All user requests will be forwarded
+to the _same_ server in server group.
+
+`failover` option allow Tempesta to reschedule user requests to other server in
+primary or backup group if last used server would go offline. Otherwise event
+will be reported and client message will be dropped. If backup server is used
+for servicing requests for current session, it will continue play that role
+even when primary server group would go back online. If that backup server will
+go offline session will be rescheduled to any server in primary group.
+
+Note, that **Sticky Sessions** does not support setting different backup groups
+for the same primary group.
 
 ### Frang
 
