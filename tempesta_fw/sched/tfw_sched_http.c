@@ -137,9 +137,11 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 }
 
 static TfwConnection *
-tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
+	WARN_ONCE(true, TFW_BANNER "tfw_sched_http can't select a server from"
+			" a group\n");
+
 	return NULL;
 }
 
@@ -147,7 +149,7 @@ static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
-	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 };
 
 

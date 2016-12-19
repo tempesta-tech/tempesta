@@ -302,7 +302,7 @@ TestCase test_cases[] = {
 	},
 };
 
-size_t test_cases_size = sizeof(test_cases) / sizeof(test_cases[0]);
+size_t test_cases_size = ARRAY_SIZE(test_cases);
 
 TEST(tfw_sched_http, one_rule)
 {

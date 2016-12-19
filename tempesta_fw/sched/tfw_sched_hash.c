@@ -136,7 +136,7 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  *    a matching one with the highest weight. That adds some overhead.
  */
 static TfwConnection *
-tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
 	TfwConnection *best_conn = NULL;
@@ -162,6 +162,38 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	return NULL;
 }
 
+static TfwConnection *
+tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+	unsigned long tries, curr_weight, best_weight = 0;
+	TfwConnection *best_conn = NULL;
+	TfwConnHash *ch;
+
+	/*
+	 * Look for the connections on the exact server, no need to calculate
+	 * message hash
+	*/
+	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
+		for (ch = srv->sg->sched_data; ch->conn; ++ch) {
+			if ((TfwServer *)ch->conn->peer != srv)
+				continue;
+			curr_weight = ch->hash;
+			if (likely(tfw_connection_nfo(ch->conn))
+			    && curr_weight > best_weight)
+			{
+				best_weight = curr_weight;
+				best_conn = ch->conn;
+			}
+		}
+
+		if (unlikely(!best_conn))
+			return NULL;
+		if (tfw_connection_get_if_nfo(best_conn))
+			return best_conn;
+	}
+	return NULL;
+}
+
 
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
@@ -169,7 +201,8 @@ static TfwScheduler tfw_sched_hash = {
 	.add_grp	= tfw_sched_hash_alloc_data,
 	.del_grp	= tfw_sched_hash_free_data,
 	.add_conn	= tfw_sched_hash_add_conn,
-	.sched_srv	= tfw_sched_hash_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
+	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };
 
 int

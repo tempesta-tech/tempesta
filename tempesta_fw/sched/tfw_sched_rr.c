@@ -73,7 +73,7 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
 static void
 tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	int s, c;
+	size_t s, c;
 	TfwRrSrv *srv_cl;
 	TfwRrSrvList *sl = sg->sched_data;
 
@@ -92,7 +92,7 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
-				 " srv=%d conn=%d\n", s, c);
+				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
 	srv_cl->conns[c] = conn;
@@ -107,9 +107,9 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  * Dead connections and servers w/o live connections are skipped.
  */
 static TfwConnection *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_rr_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int c, s, i;
+	size_t c, s, i;
 	TfwConnection *conn;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
@@ -130,13 +130,40 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	return NULL;
 }
 
+static TfwConnection *
+tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+	int i;
+	size_t c, s;
+	TfwConnection *conn;
+	TfwRrSrvList *sl = srv->sg->sched_data;
+	TfwRrSrv *srv_cl;
+
+	BUG_ON(!sl);
+
+	for (s = 0; s < sl->srv_n; ++s) {
+		if (sl->srvs[s].srv == srv) {
+			srv_cl = &sl->srvs[s];
+			for (c = 0; c < srv_cl->conn_n; ++c) {
+				i = atomic64_inc_return(&srv_cl->rr_counter)
+						% srv_cl->conn_n;
+				conn = srv_cl->conns[i];
+				if (tfw_connection_get_if_nfo(conn))
+					return conn;
+			}
+		}
+	}
+	return NULL;
+}
+
 static TfwScheduler tfw_sched_rr = {
 	.name		= "round-robin",
 	.list		= LIST_HEAD_INIT(tfw_sched_rr.list),
 	.add_grp	= tfw_sched_rr_alloc_data,
 	.del_grp	= tfw_sched_rr_free_data,
 	.add_conn	= tfw_sched_rr_add_conn,
-	.sched_srv	= tfw_sched_rr_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_rr_get_sg_conn,
+	.sched_srv_conn	= tfw_sched_rr_get_srv_conn,
 };
 
 int
