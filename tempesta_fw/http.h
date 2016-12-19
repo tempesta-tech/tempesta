@@ -27,6 +27,7 @@
 #include "gfsm.h"
 #include "msg.h"
 #include "str.h"
+#include "server.h"
 #include "vhost.h"
 
 /**
@@ -244,7 +245,8 @@ typedef struct {
  * @users	- the session use counter;
  * @ts		- timestamp for the client's session;
  * @expire	- expiration time for the session;
- * @srv_conn	- upstream server connection servicing the session;
+ * @conns	- upstream server connections servicing the session;
+ * @conns_lock	- protects @conns
  */
 typedef struct {
 	unsigned char		hmac[SHA1_DIGEST_SIZE];
@@ -252,7 +254,8 @@ typedef struct {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
-	TfwConnection		*srv_conn;
+	struct list_head	conns;
+	rwlock_t		conns_lock;
 } TfwHttpSess;
 
 /**
@@ -412,5 +415,10 @@ void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
+extern bool tfw_cfg_sticky_sessions;
+extern bool tfw_cfg_sticky_sessions_failover;
+TfwConnection *tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg);
+int tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg,
+			    TfwConnection *conn);
 
 #endif /* __TFW_HTTP_H__ */

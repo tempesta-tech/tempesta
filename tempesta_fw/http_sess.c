@@ -77,12 +77,38 @@ typedef struct {
 	spinlock_t		lock;
 } SessHashBucket;
 
+/**
+  * List item of server connections binded to HTTP session.
+  *
+  * @list	- list of connections;
+  * @sg		- target server group;
+  * @conn	- connection can be established to server group differ from @sg,
+  *		in this case connection is established to server from back-up
+  *		group.
+  */
+typedef struct {
+	struct list_head	list;
+	TfwSrvGroup		*sg;
+	TfwConnection		*conn;
+} TfwHttpSessConns;
+
 static TfwCfgSticky tfw_cfg_sticky;
-/* Secret server value to genrate reliable client identifiers. */
+/**
+ * Enable sticky sessions. This option is partly incompatible with
+ * @tfw_sched_http_rules: one server group must not have multiple different
+ * backup server groups.
+ */
+bool tfw_cfg_sticky_sessions = false;
+/**
+ * Fallback to scheduling to any server in the same server group if desired
+ * server has no alive connections or print warning without lookup if disabled.
+ */
+bool tfw_cfg_sticky_sessions_failover = false;
+/** Secret server value to genrate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
-SessHashBucket sess_hash[1 << SESS_HASH_BITS] = {
+static SessHashBucket sess_hash[1 << SESS_HASH_BITS] = {
 	[0 ... ((1 << SESS_HASH_BITS) - 1)] = {
 		HLIST_HEAD_INIT,
 		__SPIN_LOCK_UNLOCKED(lock)
@@ -90,6 +116,7 @@ SessHashBucket sess_hash[1 << SESS_HASH_BITS] = {
 };
 
 static struct kmem_cache *sess_cache;
+static struct kmem_cache *sess_conn_cache;
 
 static int
 tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
@@ -135,7 +162,7 @@ static int
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
-	const unsigned int clen = tfw_cfg_sticky.name_eq.len;
+	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end, *next;
 	TfwStr tmp = { .flags = 0, };
 	unsigned int n = TFW_STR_CHUNKN(cookie);
@@ -197,7 +224,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	return 1;
 }
 
-/*
+/**
  * Find Tempesta sticky cookie in an HTTP message.
  *
  * Return 1 if the cookie is found.
@@ -240,7 +267,7 @@ do {									\
 #define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)
 #endif
 
-/*
+/**
  * Create Tempesta sticky cookie value.
  *
  * Tempesta sticky cookie is based on:
@@ -298,7 +325,7 @@ tfw_http_sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	return __sticky_calc(req, sv);
 }
 
-/*
+/**
  * Add Tempesta sticky cookie to an HTTP response.
  *
  * Create a complete 'Set-Cookie:' header field, and add it
@@ -308,7 +335,7 @@ static int
 tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	static const unsigned int len = sizeof(StickyVal) * 2;
-	unsigned int r;
+	int r;
 	TfwHttpSess *sess = req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
@@ -338,7 +365,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 	return r;
 }
 
-/*
+/**
  * No Tempesta sticky cookie found.
  *
  * Calculate Tempesta sticky cookie and send redirection to the client if
@@ -477,7 +504,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 	return -1;
 }
 
-/*
+/**
  * Add Tempesta sticky cookie to an HTTP response if needed.
  */
 int
@@ -501,12 +528,19 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
-	if (atomic_dec_and_test(&sess->users))
-		/*
-		 * Use counter reached 0, so session already expired and evicted
-		 * from the hash table.
-		 */
+	/*
+	 * Use counter reached 0, so session already expired and evicted
+	 * from the hash table.
+	 */
+	if (atomic_dec_and_test(&sess->users)) {
+		TfwHttpSessConns *conn, *tmp;
+		list_for_each_entry_safe(conn, tmp, &sess->conns, list) {
+			list_del(&conn->list);
+			kmem_cache_free(sess_conn_cache, sess);
+		}
 		kmem_cache_free(sess_cache, sess);
+	}
+
 }
 
 /**
@@ -579,7 +613,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
-	sess->srv_conn = NULL; /* TODO #593 not scheduled yet */
+	INIT_LIST_HEAD(&sess->conns);
+	rwlock_init(&sess->conns_lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -591,6 +626,76 @@ found:
 	req->sess = sess;
 
 	return 0;
+}
+
+/**
+ * Get last used connection to reach server group @sg. Even if no messsages in
+ * this http session were explicitly forwarded to @sg, there still can be
+ * known connections to @sg if it appear to be a back-up connection for some
+ * other server group.
+ */
+TfwConnection *
+tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
+{
+	TfwHttpSess *sess = req->sess;
+	TfwHttpSessConns *s_conn;
+	TfwConnection *conn = NULL, *backup_conn = NULL;
+
+	if (!sess)
+		return NULL;
+
+	read_lock(&sess->conns_lock);
+
+	list_for_each_entry(s_conn, &sess->conns, list) {
+		if (s_conn->sg == sg) {
+			conn = s_conn->conn;
+			break;
+		}
+		else if (s_conn->conn &&
+			 (((TfwServer *)s_conn->conn->peer)->sg == sg))
+		{
+			backup_conn = s_conn->conn;
+		}
+	};
+
+	read_unlock(&sess->conns_lock);
+	return conn ? : backup_conn;
+}
+
+/**
+ * Save connection @conn used to reach server group @sg
+ */
+int
+tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
+{
+	TfwHttpSess *sess = req->sess;
+	TfwHttpSessConns *s_conn;
+	int r = 0;
+
+	if (!sess)
+		return 0;
+
+	write_lock(&sess->conns_lock);
+
+	list_for_each_entry(s_conn, &sess->conns, list) {
+		if (s_conn->sg == sg) {
+			s_conn->conn = conn;
+			goto done;
+		}
+	};
+
+	if (!(s_conn = kmem_cache_alloc(sess_conn_cache, GFP_ATOMIC))) {
+		r = -ENOMEM;
+		goto done;
+	}
+	s_conn->conn = conn;
+	s_conn->sg = sg;
+	INIT_LIST_HEAD(&s_conn->list);
+	list_add_tail(&s_conn->list, &sess->conns);
+
+done:
+	write_unlock(&sess->conns_lock);
+	return r;
 }
 
 int __init
@@ -621,8 +726,16 @@ tfw_http_sess_init(void)
 	}
 
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				      0, 0, NULL);
+				       0, 0, NULL);
 	if (!sess_cache) {
+		crypto_free_shash(tfw_sticky_shash);
+		return -ENOMEM;
+	}
+
+	sess_conn_cache = kmem_cache_create("tfw_sess_conn_cache",
+					    sizeof(TfwHttpSessConns), 0, 0,
+					    NULL);
+	if (!sess_conn_cache) {
 		crypto_free_shash(tfw_sticky_shash);
 		return -ENOMEM;
 	}
@@ -641,10 +754,19 @@ tfw_http_sess_exit(void)
 		SessHashBucket *hb = &sess_hash[i];
 
 		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
+			TfwHttpSessConns *conn, *tmp_conn;
+
 			hash_del(&s->hentry);
+			list_for_each_entry_safe(conn, tmp_conn,
+						 &s->conns, list)
+			{
+				list_del(&conn->list);
+				kmem_cache_free(sess_conn_cache, conn);
+			}
 			kmem_cache_free(sess_cache, s);
 		}
 	}
+	kmem_cache_destroy(sess_conn_cache);
 	kmem_cache_destroy(sess_cache);
 
 	kfree(tfw_cfg_sticky.name.ptr);
@@ -711,6 +833,25 @@ tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_http_sticky_sessions_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	size_t i;
+	const char *val;
+
+	tfw_cfg_sticky_sessions = true;
+	tfw_cfg_sticky_sessions_failover = false;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		 if (!strcasecmp(val, "failover"))
+			tfw_cfg_sticky_sessions_failover = true;
+		 else
+			 return -EINVAL;
+	}
+
+	return 0;
+}
+
 TfwCfgMod tfw_http_sess_cfg_mod = {
 	.name = "http_sticky",
 	.start = tfw_cfg_sess_start,
@@ -731,6 +872,11 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 			.deflt = "0",
 			.handler = tfw_cfg_set_int,
 			.dest = &tfw_cfg_sticky.sess_lifetime,
+			.allow_none = true,
+		},
+		{
+			.name = "sticky_sessions",
+			.handler = tfw_http_sticky_sessions_cfg,
 			.allow_none = true,
 		},
 		{}
