@@ -773,12 +773,9 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
  * fake configuration text and parsing it as if it was a real configuration.
  * The parsed TfwCfgEntry then is passed to the TfwCfgSpec->handler as usual.
  *
- * The default value is specified in the source code, so you get a BUG() here
- * if it is not valid.
- *
  * TODO: refactoring. The code is not elegant.
  */
-static void
+static int
 spec_handle_default(TfwCfgSpec *spec)
 {
 	int len, r;
@@ -800,25 +797,26 @@ spec_handle_default(TfwCfgSpec *spec)
 
 	r = spec_handle_entry(spec, &ps.e);
 	entry_reset(&ps.e);
-	BUG_ON(r);
+	return r;
 }
 
 static int spec_finish_handling(TfwCfgSpec specs[]);
 
-static void
+static int
 spec_handle_default_section(TfwCfgSpec *spec)
 {
 	if (spec->handler != tfw_cfg_handle_children)
-		return;
+		return 0;
 	TFW_DBG2("use default values for section '%s'\n", spec->name);
 	if (spec->dest == NULL)
-		return;
-	spec_finish_handling(spec->dest);
+		return 0;
+	return spec_finish_handling(spec->dest);
 }
 
 static int
 spec_finish_handling(TfwCfgSpec specs[])
 {
+	int r;
 	TfwCfgSpec *spec;
 
 	/* Here we are interested in specs that were not triggered during
@@ -833,19 +831,19 @@ spec_finish_handling(TfwCfgSpec specs[])
 	 *     default value is provided, so issue an error.
 	 */
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (!spec->call_counter) {
-			if (spec->handler == tfw_cfg_handle_children) {
-				if (!spec->allow_none) {
-					/* Whole section absent */
-					spec_handle_default_section(spec);
-				}
-			} else if (spec->deflt) {
-				/* The default value shall not produce error. */
-				spec_handle_default(spec);
-			} else if (!spec->allow_none) {
-				/* Jump just because TFW_ERR() is ugly here. */
-				goto err_no_entry;
-			}
+		if (spec->call_counter)
+			continue;
+		if (spec->handler == tfw_cfg_handle_children) {
+			if (!spec->allow_none)
+				/* Whole section absent */
+				if ((r = spec_handle_default_section(spec)))
+					goto err_dflt_val;
+		} else if (spec->deflt) {
+			if ((r = spec_handle_default(spec)))
+				goto err_dflt_val;
+		} else if (!spec->allow_none) {
+			/* Jump just because TFW_ERR() is ugly here. */
+			goto err_no_entry;
 		}
 	}
 
@@ -854,6 +852,10 @@ spec_finish_handling(TfwCfgSpec specs[])
 err_no_entry:
 	TFW_ERR("the required entry is not found: '%s'\n", spec->name);
 	return -EINVAL;
+
+err_dflt_val:
+	TFW_ERR("Error handling default value for: '%s'\n", spec->name);
+	return r;
 }
 
 static void
