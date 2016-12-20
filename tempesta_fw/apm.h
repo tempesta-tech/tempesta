@@ -45,6 +45,7 @@ enum {
 	TFW_PSTATS_IDX_P90,
 	TFW_PSTATS_IDX_P95,
 	TFW_PSTATS_IDX_P99,
+	_TFW_PSTATS_IDX_COUNT
 };
 
 static const unsigned int __read_mostly tfw_pstats_ith[] = {
