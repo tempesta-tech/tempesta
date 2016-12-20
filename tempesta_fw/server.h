@@ -43,6 +43,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
+ * @weight	- static server weight for load balancers;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -51,6 +52,7 @@ typedef struct {
 	void			*apm;
 	unsigned int		flags;
 	int			stress;
+	unsigned char		weight;
 } TfwServer;
 
 /**
@@ -63,6 +65,7 @@ typedef struct {
  * @list		- member pointer in the list of server groups;
  * @srv_list		- list of servers belonging to the group;
  * @lock		- synchronizes the group readers with updaters;
+ * @flags		- various flags;
  * @sched		- requests scheduling handler;
  * @sched_data		- private scheduler data for the server group;
  * @name		- name of the group specified in the configuration;
@@ -71,16 +74,25 @@ struct tfw_srv_group_t {
 	struct list_head	list;
 	struct list_head	srv_list;
 	rwlock_t		lock;
+	unsigned int		flags;
 	TfwScheduler		*sched;
 	void			*sched_data;
 	char			name[0];
 };
 
+/*
+ * Lower 4 bits keep an index into APM stats array.
+ */
+#define TFW_SG_F_PSTATS_IDX_MASK	0x000f
+#define TFW_SG_F_SCHED_RATIO_STATIC	0x0010
+#define TFW_SG_F_SCHED_RATIO_DYNAMIC	0x0020
+#define TFW_SG_F_SCHED_RATIO_PREDICT	0x0040
+
 /**
  * Requests scheduling algorithm handler.
  *
  * @name	- name of the algorithm;
- * @list	- list of registered schedulers;
+ * @list	- member in the list of registered schedulers;
  * @add_grp	- add server group to the scheduler;
  * @del_grp	- delete server group from the scheduler;
  * @add_conn	- add connection and server if it's new, called in process

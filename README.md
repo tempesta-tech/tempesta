@@ -381,10 +381,11 @@ server [fc00::1]:80;
 Back end servers can be grouped together into a single unit for the purpose of
 load balancing. Servers within a group are considered interchangeable.
 The load is distributed evenly among servers within a group.
-If a server goes offline, other servers in a group take the load.
+If a server goes offline, then other servers in a group take the load.
 The full syntax is as follows:
 ```
-srv_group <NAME> [sched=<SCHED_NAME>] {
+srv_group <NAME> {
+	sched <SCHED_NAME>;
 	server <IPADDR>[:<PORT>] [conns_n=<N>];
 	...
 }
@@ -392,7 +393,7 @@ srv_group <NAME> [sched=<SCHED_NAME>] {
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
 `SCHED_NAME` is the name of scheduler module that distributes load among
-servers within the group. Default scheduler is used if `sched` parameter is
+servers within the group. Default scheduler is used if `sched` directive is
 not specified.
 
 Servers that are defined outside of any group implicitly form a special group
@@ -400,10 +401,11 @@ called `default`.
 
 Below is an example of server group definition:
 ```
-srv_group static_storage sched=hash {
+srv_group static_storage {
 	server 10.10.0.1:8080;
 	server 10.10.0.2:8080;
 	server [fc00::3]:8081 conns_n=1;
+	sched hash;
 }
 ```
 
@@ -424,14 +426,17 @@ scheduler.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
 
+Only one `sched` directive is allowed per group, either explicit or implicit.
+`sched` directive may be specified anywhere in the group. It applies to all
+servers within a group, so the scope of `sched` directive is limited by
+a current group.
+
+If there's a `sched` directive outside of any groups that comes before
+`srv_group` definitions, then it's considered global. Any subsequent server
+group that is missing `sched` directive inherits the global definition.
+
 If no scheduler is defined, then scheduler defaults to `round-robin`.
 
-The defined scheduler affects all server definitions that are missing a
-scheduler definition. If `srv_group` is missing a scheduler definition,
-and there is a scheduler defined, then that scheduler is set for the group.
-
-Multiple `sched` directives may be defined in the configuration file.
-Each directive affects server groups that follow it.
 
 #### HTTP Scheduler
 
