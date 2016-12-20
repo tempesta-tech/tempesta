@@ -465,7 +465,7 @@ with this directive. If not specified, the queue size is set to 1000.
 Back end servers can be grouped together into a single unit for the purpose of
 load balancing. Servers within a group are considered interchangeable.
 The load is distributed evenly among servers within a group.
-If a server goes offline, other servers in a group take the load.
+If a server goes offline, then other servers in a group take the load.
 The full syntax is as follows:
 ```
 srv_group <NAME> {
