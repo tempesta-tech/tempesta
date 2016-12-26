@@ -230,8 +230,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * This isn't reliable check, but rather just an optimization to
 	 * avoid expensive work queue operations.
 	 */
-	if (unlikely(!ss_sock_active(sk)))
-		return 0;
+	if (unlikely(!ss_sock_active(sk))) {
+		SS_DBG("Try to send on inactive socket %p\n", sk);
+		return -EBADF;
+	}
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,

@@ -124,7 +124,6 @@ enum {
 /* Config directives that affect Cache Control. */
 #define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x01000000
 
-
 typedef struct {
 	unsigned int	flags;
 	unsigned int	max_age;
@@ -259,7 +258,10 @@ typedef struct {
  * Common HTTP message members.
  *
  * @version		- HTTP version (1.0 and 1.1 are only supported);
- * @flags		- message related flags;
+ * @flags		- message related flags. The flags are used in
+ *			  concurrent read and writes, but concurrent writes
+ *			  aren't alowed. So use atomic operations if concurrent
+ *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
  * @conn		- connection which the message was received on;
  * @jtstamp		- time the message has been received, in jiffies;
