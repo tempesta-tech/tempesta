@@ -1093,8 +1093,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb))
-		{
+		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
 			tfw_http_send_500(req, "request cache error");
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -1179,23 +1178,34 @@ err:
 static TfwHttpReq *
 tfw_http_popreq(TfwHttpMsg *hmresp)
 {
-	TfwHttpReq *req;
+	TfwHttpReq *req = NULL;
 	TfwConnection *conn = hmresp->conn;
 
 	spin_lock(&conn->msg_qlock);
 
 	req = list_first_entry_or_null(&conn->msg_queue, TfwHttpReq,
 				       msg.msg_list);
-	if (unlikely(!req || !(req->flags & TFW_HTTP_MSG_SENT))) {
+	if (likely(req)) {
+		list_del(&req->msg.msg_list);
 		spin_unlock(&conn->msg_qlock);
+
+		while (unlikely(!(req->flags & TFW_HTTP_MSG_SENT))) {
+			/*
+			 * Wait for tfw_connection_send() completion, it
+			 * shouldn't take too long, but don't stress system
+			 * bus by too frequent access to the cache line.
+			 */
+			int i;
+			for (i = 0; i < 10; ++i)
+				cpu_relax();
+		}
+	} else {
+		spin_unlock(&conn->msg_qlock);
+
 		TFW_WARN("Paired request missing,"
 			 " HTTP Response Splitting attack?\n");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return NULL;
 	}
-	list_del(&req->msg.msg_list);
-
-	spin_unlock(&conn->msg_qlock);
 
 	return req;
 }
@@ -1234,7 +1244,6 @@ error:
 	req = tfw_http_popreq(hmresp);
 	if (unlikely(!req)) {
 		tfw_http_conn_msg_free(hmresp);
-		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return TFW_BLOCK;
 	}
 
