@@ -36,7 +36,7 @@ frang_mod="tfw_frang"
 declare frang_enable=
 declare -r LONG_OPTS="help,load,unload,start,stop,restart"
 
-declare devs=$(ifconfig | grep -o '^[a-z0-9\-]\+')
+declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
 
 usage()
 {
