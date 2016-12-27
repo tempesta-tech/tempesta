@@ -42,12 +42,14 @@ typedef struct tfw_scheduler_t TfwScheduler;
  *
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
+ * @sched_data	- private scheduler data for the server;
  * @apm		- opaque handle for APM stats;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	TfwSrvGroup		*sg;
+	void			*sched_data;
 	void			*apm;
 	unsigned int		flags;
 	int			stress;
