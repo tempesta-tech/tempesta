@@ -133,7 +133,7 @@ tfw_sched_rr_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static TfwConnection *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
-	int i;
+	long i;
 	size_t c, s;
 	TfwConnection *conn;
 	TfwRrSrvList *sl = srv->sg->sched_data;
@@ -142,15 +142,16 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 	BUG_ON(!sl);
 
 	for (s = 0; s < sl->srv_n; ++s) {
-		if (sl->srvs[s].srv == srv) {
-			srv_cl = &sl->srvs[s];
-			for (c = 0; c < srv_cl->conn_n; ++c) {
-				i = atomic64_inc_return(&srv_cl->rr_counter)
-						% srv_cl->conn_n;
-				conn = srv_cl->conns[i];
-				if (tfw_connection_get_if_nfo(conn))
-					return conn;
-			}
+		if (sl->srvs[s].srv != srv)
+			continue;
+
+		srv_cl = &sl->srvs[s];
+		for (c = 0; c < srv_cl->conn_n; ++c) {
+			i = atomic64_inc_return(&srv_cl->rr_counter)
+					% srv_cl->conn_n;
+			conn = srv_cl->conns[i];
+			if (tfw_connection_get_if_nfo(conn))
+				return conn;
 		}
 	}
 	return NULL;

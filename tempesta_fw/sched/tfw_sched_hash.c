@@ -165,19 +165,16 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static TfwConnection *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
-	unsigned long tries, curr_weight, best_weight = 0;
+	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
 	TfwConnection *best_conn = NULL;
 	TfwConnHash *ch;
 
-	/*
-	 * Look for the connections on the exact server, no need to calculate
-	 * message hash
-	*/
+	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
 		for (ch = srv->sg->sched_data; ch->conn; ++ch) {
 			if ((TfwServer *)ch->conn->peer != srv)
 				continue;
-			curr_weight = ch->hash;
+			curr_weight = msg_hash ^ ch->hash;
 			if (likely(tfw_connection_nfo(ch->conn))
 			    && curr_weight > best_weight)
 			{

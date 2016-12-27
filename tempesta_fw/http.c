@@ -857,16 +857,8 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * SoftIRQ and to speed up the cache operation.
 	 * At the same time, cache hits are expected to prevail
 	 * over cache misses, so this is not a frequent path.
-	 *
-	 * TODO #593: check whether req->sess->srv_conn is alive or
-	 * get a new connection for req->sess->srv_conn->peer from appropriate
-	 * scheduler otherwise. This eliminates long generic scheduling work
-	 * flow. When a first request in the session is scheduled by the generic
-	 * logic, TfwSession->srv_conn must be initialized by poniter to
-	 * appropriate TfwConnection, so all following session hits will be
-	 * scheduled much faster.
 	 */
-	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
+	srv_conn = tfw_sched_get_conn((TfwMsg *)req);
 	if (srv_conn == NULL) {
 		TFW_WARN("Unable to find a backend server\n");
 		goto send_502;
