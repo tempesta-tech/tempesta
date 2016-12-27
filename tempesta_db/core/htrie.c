@@ -6,7 +6,7 @@
  * chains of small records are protected by RW-spinlock.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -457,6 +457,8 @@ do {									\
 		if (sizeof(*r) + copied >= TDB_HTRIE_MINDREC)		\
 			break; /* end of records */			\
 		n = TDB_HTRIE_RECLEN(dbh, r);				\
+		if (n + copied >= TDB_HTRIE_MINDREC)			\
+			break; /* end of records */			\
 		if (!live)						\
 			continue;					\
 		/* Small record cannot exceed TDB_HTRIE_MINDREC. */	\
