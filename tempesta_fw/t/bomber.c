@@ -24,6 +24,7 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/wait.h>
+#include <linux/vmalloc.h>
 #include <net/inet_sock.h>
 
 #include "addr.h"
