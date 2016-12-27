@@ -188,10 +188,8 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 TEST_SUITE(sched_hash)
 {
 	kernel_fpu_end();
-
 	tfw_sched_hash_init();
 	tfw_server_init();
-
 	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_hash, sg_empty);
@@ -199,4 +197,8 @@ TEST_SUITE(sched_hash)
 	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_max_conn);
 	TEST_RUN(tfw_sched_hash, max_srv_in_sg_and_zero_conn);
 	TEST_RUN(tfw_sched_hash, max_srv_in_sg_and_max_conn);
+
+	kernel_fpu_end();
+	tfw_sched_hash_exit();
+	kernel_fpu_begin();
 }

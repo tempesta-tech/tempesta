@@ -174,10 +174,8 @@ TEST(tfw_sched_ratio, max_srv_in_sg_and_max_conn)
 TEST_SUITE(sched_ratio)
 {
 	kernel_fpu_end();
-
 	tfw_server_init();
 	tfw_sched_ratio_init();
-
 	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_ratio, sg_empty);
@@ -185,4 +183,9 @@ TEST_SUITE(sched_ratio)
 	TEST_RUN(tfw_sched_ratio, one_srv_in_sg_and_max_conn);
 	TEST_RUN(tfw_sched_ratio, max_srv_in_sg_and_zero_conn);
 	TEST_RUN(tfw_sched_ratio, max_srv_in_sg_and_max_conn);
+
+	kernel_fpu_end();
+	tfw_sched_ratio_exit();
+	tfw_server_exit();
+	kernel_fpu_begin();
 }

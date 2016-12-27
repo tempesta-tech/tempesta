@@ -334,16 +334,10 @@ TEST(tfw_sched_http, one_rule)
 
 TEST_SUITE(sched_http)
 {
-	TfwScheduler *s;
-
 	kernel_fpu_end();
-
-	s = tfw_sched_lookup("ratio");
-	if (!s)
-		tfw_sched_ratio_init();
-	tfw_sched_http_init();
 	tfw_server_init();
-
+	tfw_sched_ratio_init();
+	tfw_sched_http_init();
 	kernel_fpu_begin();
 
 	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
@@ -351,4 +345,10 @@ TEST_SUITE(sched_http)
 	TEST_RUN(tfw_sched_http, one_wildcard_rule);
 	TEST_RUN(tfw_sched_http, some_rules);
 	TEST_RUN(tfw_sched_http, one_rule);
+
+	kernel_fpu_end();
+	tfw_sched_http_exit();
+	tfw_sched_ratio_exit();
+	tfw_server_exit();
+	kernel_fpu_begin();
 }
