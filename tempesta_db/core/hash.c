@@ -23,19 +23,15 @@
 #include "hash.h"
 
 /**
- * The function is used from process context only, so don't care about
- * relatively slow FPU context switching.
+ * CRC32 instruction doesn't use FPU registers,
+ * so no need for FPU context protection.
  */
 unsigned long
 tdb_hash_calc(const char *data, size_t len)
 {
 	unsigned long crc0 = 0, crc1 = 0;
 
-	kernel_fpu_begin();
-
 	__tdb_hash_calc(&crc0, &crc1, data, len);
-
-	kernel_fpu_end();
 
 	return (crc1 << 32) | crc0;
 }
