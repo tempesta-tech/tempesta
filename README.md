@@ -362,13 +362,16 @@ location prefix "/society/" {
 A back end HTTP server is defined with `server` directive. The full syntax is
 as follows:
 ```
-server <IPADDR>[:<PORT>] [conns_n=<N>];
+server <IPADDR>[:<PORT>] [conns_n=<N>] [weight=<N>];
 ```
-`IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
+* `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
-`PORT` defaults to 80 if not specified.
-`conns_n=<N>` is the number of parallel connections to the server.
+* `PORT` defaults to 80 if not specified.
+* `conns_n=<N>` is the number of parallel connections to the server.
 `N` defaults to 4 if not specified.
+* `weight=<N>` is the static weight of the server. If not specified, then
+the default weight of 50 is used with the static ratio scheduler. Just the
+weight that is different from default may be specified for convenience.
 
 Multiple back end servers may be defined. For example:
 ```
@@ -386,7 +389,7 @@ The full syntax is as follows:
 ```
 srv_group <NAME> {
 	sched <SCHED_NAME>;
-	server <IPADDR>[:<PORT>] [conns_n=<N>];
+	server <IPADDR>[:<PORT>] [conns_n=<N>] [weight=<N>];
 	...
 }
 ```
@@ -414,14 +417,16 @@ srv_group static_storage {
 Scheduler is used to distribute load among known servers. The syntax is as
 follows:
 ```
-sched <SCHED_NAME>;
+sched <SCHED_NAME> [OPTIONS];
 ```
 `SCHED_NAME` is the name of a scheduler available in Tempesta.
+`OPTIONS` are optional. Not all schedulers have additional options.
 
 Currently there are two schedulers available:
-* **round-robin** - Rotates all servers in a group in round-robin manner so
-that requests are distributed uniformly across servers. This is the default
-scheduler.
+* **ratio** - Balances the load across servers in a group based on each
+server's weight. Requests are forwarded more to servers with more weight,
+and less to servers with less weight. As a result, each server in a group
+receives an optimal load. This is the default scheduler.
 * **hash** - Chooses a server based on a URI/Host hash of a request.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
@@ -435,8 +440,46 @@ If there's a `sched` directive outside of any groups that comes before
 `srv_group` definitions, then it's considered global. Any subsequent server
 group that is missing `sched` directive inherits the global definition.
 
-If no scheduler is defined, then scheduler defaults to `round-robin`.
+If no scheduler is defined, then scheduler defaults to `ratio`.
 
+**ratio** scheduler may have the following options:
+* **static** - The weight of each server in a group is defined statically
+with `[weight=<NN>]` option of the `server` directive. This is the default
+`ratio` scheduler option.
+* **dynamic** - The weight of each server in a group is defined dynamically.
+Specific type of dynamic weight is specified with additional options:
+    * **minimum** - The current minimum response time from a server;
+    * **maximum** - The current maximum response time from a server;
+    * **average** - The current average response time from a server;
+    * **percentile `[<NN>]`** - The current response time from a server that
+    is within specified percentile. The percentile may be one of 50, 75, 90,
+    95, 99. If none is given, then the default percentile of 90 is used.
+If a specific type of dynamic weight is not specified, then the default type
+of `average` is used.
+
+Naturally, if a dynamic scheduler is specified for a group, and there's
+a server in that group with the `weight` option, then an error is produced
+as that combination is incompatible.
+
+The following are examples of scheduler specification in configuration.
+Again, only one `sched` directive is allowed per group.
+```
+# Use hash scheduler
+sched hash;
+# Use ratio scheduler. By default, static weight distribution is used.
+sched ratio;
+# Use ratio scheduler with static weight distribution.
+sched ratio static;
+# Use dynamic scheduler. By default, current average response time is used
+# for weight distribution.
+sched dynamic;
+# Use dynamic scheduler with maximum response time for weight distribution.
+sched dynamic maximum;
+# Use dynamic scheduler, default percentile of 90 is used.
+sched dynamic percentile;
+# Use dynamic scheduler, percentile of 75 is used for weight distribution.
+sched dynamic percentile 75;
+```
 
 #### HTTP Scheduler
 
