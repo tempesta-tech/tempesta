@@ -135,7 +135,6 @@ tfw_sched_srv_get_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 	TFW_DBG2("sched: use sticky connections\n");
 
 	conn = sched_conn_sticky(msg, main_sg);
-
 	if (unlikely(IS_ERR(conn)))
 		return NULL;
 
