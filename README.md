@@ -42,7 +42,6 @@ switched on:
 * CONFIG\_SECURITY\_TEMPESTA
 * CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
-* CONFIG\_NETLINK\_MMAP
 
 We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
 please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
@@ -54,7 +53,7 @@ CONFIG\_PREEMPT is not supported at all.
 
 To build the module you need to do the following steps:
 
-* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
+* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.8.15-tfw)
 * Build, install, and then boot the kernel. Classic build and install procedure
   is used. For that, go to the directory with the patched kernel sources, make
   sure you have a correct `.config` file, and then do the following (`<N>` is
