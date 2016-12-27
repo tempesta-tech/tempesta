@@ -65,6 +65,13 @@ To build the module you need to do the following steps:
         make -j<N> modules_install
         make install
 
+* Optionally, add kernel parameter `tempesta_dbmem` to the kernel command line.
+  The value is the order of 2MB memory blocks reserved on each NUMA node for
+  Tempesta database. Huge pages are used if possible. The default value is 8
+  which stands for 512Mb reserved on each NUMA node.
+
+        tempesta_dbmem=1
+  
 * Run `make` to build Tempesta FW and Tempesta DB modules:
 
         $ cd tempesta && make

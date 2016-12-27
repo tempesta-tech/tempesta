@@ -61,10 +61,13 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 static void
 ss_sock_cpu_check(struct sock *sk, const char *op)
 {
-	if (unlikely(sk->sk_incoming_cpu != smp_processor_id()))
+	if (unlikely(sk->sk_incoming_cpu != TFW_SK_CPU_INIT
+		     && sk->sk_incoming_cpu != smp_processor_id()))
+	{
 		SS_WARN("Bad socket cpu locality on <%s>:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
 			op, sk, sk->sk_incoming_cpu, smp_processor_id());
+	}
 }
 
 static void
@@ -146,7 +149,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state, mss, size);
 
-
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
 		ss_skb_queue_purge(skb_list);
@@ -174,6 +176,8 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 		/* @skb should be rerouted on forwarding. */
 		skb_dst_drop(skb);
+		/* Clear sender_cpu so flow_disscector can set it properly. */
+		skb_sender_cpu_clear(skb);
 
 		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		       smp_processor_id(), __func__,
@@ -222,16 +226,19 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	SS_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
 	       smp_processor_id(), __func__,
 	       sk, sk->sk_incoming_cpu, ss_statename[sk->sk_state]);
+	/*
+	 * This isn't reliable check, but rather just an optimization to
+	 * avoid expensive work queue operations.
+	 */
+	if (unlikely(!ss_sock_active(sk)))
+		return 0;
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,
 	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
-	if (!(flags & SS_F_KEEP_SKB)) {
-		sw.skb_list = *skb_list;
-		ss_skb_queue_head_init(skb_list);
-	} else {
+	if (flags & SS_F_KEEP_SKB) {
 		ss_skb_queue_head_init(&sw.skb_list);
 		for (skb = ss_skb_peek(skb_list); skb; skb = ss_skb_next(skb)) {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -243,6 +250,9 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 			}
 			ss_skb_queue_tail(&sw.skb_list, twin_skb);
 		}
+	} else {
+		sw.skb_list = *skb_list;
+		ss_skb_queue_head_init(skb_list);
 	}
 
 	/*
@@ -815,6 +825,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * function above for ESTABLISHED state. sk_state_change()
 		 * callback is never called for the same socket concurrently.
 		 */
+		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
 		ss_do_close(sk);
 		SS_CALL(connection_error, sk);
 		sock_put(sk);
@@ -827,8 +838,10 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 	proto->hooks = hooks;
 	proto->type = type;
 
-	/* The memory allocated for @proto should be already zero'ed, so don't
-	 * initialize this field to NULL, but instead check the invariant. */
+	/*
+	 * The memory allocated for @proto should be already zero'ed, so don't
+	 * initialize this field to NULL, but instead check the invariant.
+	 */
 	BUG_ON(proto->listener);
 }
 EXPORT_SYMBOL(ss_proto_init);

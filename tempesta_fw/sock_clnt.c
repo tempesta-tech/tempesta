@@ -163,6 +163,10 @@ tfw_sock_clnt_new(struct sock *sk)
 		goto err_conn;
 	}
 
+#if defined(DEBUG) && (DEBUG == 3)
+	sock_set_flag(sk, SOCK_DBG);
+#endif
+
 	/* Link Tempesta with the socket and the peer. */
 	tfw_connection_revive(conn);
 	tfw_connection_link_to_sk(conn, sk);

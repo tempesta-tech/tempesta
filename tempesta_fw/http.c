@@ -187,7 +187,13 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 static inline void
 __init_req_ss_flags(TfwHttpReq *req)
 {
-	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+	/*
+	 * We need skb data only for calculating cache key by the request
+	 * fields. In all other cases we can just pass skb data to network
+	 * layer.
+	 */
+	if (tfw_cache_msg_cacheable(req))
+		((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
 }
 
 static inline void
@@ -265,7 +271,7 @@ tfw_http_send_200(TfwHttpReq *req)
  * HTTP 403 response: Access is forbidden.
  */
 int
-tfw_http_send_403(TfwHttpReq *req)
+tfw_http_send_403(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -278,7 +284,7 @@ tfw_http_send_403(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 404 response to the client\n");
+	TFW_DBG("Send HTTP 404 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -289,7 +295,7 @@ tfw_http_send_403(TfwHttpReq *req)
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
 int
-tfw_http_send_404(TfwHttpReq *req)
+tfw_http_send_404(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -302,7 +308,7 @@ tfw_http_send_404(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 404 response to the client\n");
+	TFW_DBG("Send HTTP 404 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -314,7 +320,7 @@ tfw_http_send_404(TfwHttpReq *req)
  * the request to a server.
  */
 static int
-tfw_http_send_500(TfwHttpReq *req)
+tfw_http_send_500(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -327,7 +333,7 @@ tfw_http_send_500(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 500 response to the client\n");
+	TFW_DBG("Send HTTP 500 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -339,7 +345,7 @@ tfw_http_send_500(TfwHttpReq *req)
  * the designated server.
  */
 int
-tfw_http_send_502(TfwHttpReq *req)
+tfw_http_send_502(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -352,7 +358,7 @@ tfw_http_send_502(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 502 response to the client\n");
+	TFW_DBG("Send HTTP 502 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -364,7 +370,7 @@ tfw_http_send_502(TfwHttpReq *req)
  * the designated server.
  */
 int
-tfw_http_send_504(TfwHttpReq *req)
+tfw_http_send_504(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -377,7 +383,7 @@ tfw_http_send_504(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 504 response to the client\n");
+	TFW_DBG("Send HTTP 504 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -443,9 +449,20 @@ tfw_http_req_destruct(void *msg)
 static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
 {
-	if (unlikely(hm == NULL))
+	if (unlikely(!hm))
 		return;
-	tfw_connection_put(hm->conn);
+
+	if (hm->conn) {
+		/*
+		 * Unlink connection while there is at least one reference.
+		 * Use atomic exchange to avoid races with new messages arrival
+		 * on the connection.
+		 */
+		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
+			  0UL, sizeof(long));
+		tfw_connection_put(hm->conn);
+	}
+
 	tfw_http_msg_free(hm);
 }
 
@@ -482,7 +499,8 @@ tfw_http_conn_release(TfwConnection *conn)
 		BUG_ON(((TfwHttpMsg *)msg)->conn
 			&& (((TfwHttpMsg *)msg)->conn == conn));
 		list_del(&msg->msg_list);
-		tfw_http_send_404((TfwHttpReq *)msg);
+		tfw_http_send_502((TfwHttpReq *)msg,
+				  "peer connection released");
 		tfw_http_conn_msg_free((TfwHttpMsg *)msg);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -501,9 +519,8 @@ static void
 tfw_http_conn_drop(TfwConnection *conn)
 {
 	if (conn->msg && (TFW_CONN_TYPE(conn) & Conn_Srv)) {
-		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg)) {
+		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
-		}
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
@@ -749,7 +766,11 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (resp->flags & TFW_HTTP_RESP_STALE) {
 #define S_WARN_110 "Warning: 110 - Response is stale"
 		/* TODO: ajust for #215 */
-		TfwStr wh = {.ptr = S_WARN_110, .len = SLEN(S_WARN_110),.eolen = 2};
+		TfwStr wh = {
+			.ptr	= S_WARN_110,
+			.len	= SLEN(S_WARN_110),
+			.eolen	= 2
+		};
 		r = tfw_http_msg_hdr_add(hm, &wh);
 		if (r)
 			return r;
@@ -786,7 +807,7 @@ resp_out:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 resp_err:
-	tfw_http_send_500(req);
+	tfw_http_send_500(req, "cannot send response from cache");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	goto resp_out;
 }
@@ -848,7 +869,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req);
 	if (srv_conn == NULL) {
 		TFW_WARN("Unable to find a backend server\n");
-		goto send_404;
+		goto send_502;
 	}
 
 	if (tfw_http_adjust_req(req))
@@ -866,16 +887,18 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		spin_unlock(&srv_conn->msg_qlock);
 		goto send_500;
 	}
+	req->flags |= TFW_HTTP_MSG_SENT;
+
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
 	goto conn_put;
 
-send_404:
-	tfw_http_send_404(req);
+send_502:
+	tfw_http_send_502(req, "request proxy error");
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_500(req);
+	tfw_http_send_500(req, "request proxy error");
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
@@ -887,7 +910,8 @@ tfw_http_req_set_context(TfwHttpReq *req)
 {
 	req->vhost = tfw_vhost_match(&req->uri_path);
 	req->location = tfw_location_match(req->vhost, &req->uri_path);
-	return (!req->vhost);
+
+	return !req->vhost;
 }
 
 /**
@@ -944,6 +968,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
@@ -951,6 +976,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
+				tfw_http_conn_msg_free((TfwHttpMsg *)req);
 				TFW_INC_STAT_BH(clnt.msgs_filtout);
 				return TFW_BLOCK;
 			}
@@ -966,8 +992,8 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 			 * The request is fully parsed,
 			 * fall through and process it.
 			 */
-			BUG_ON(req->content_length != req->body.len);
-			;
+			BUG_ON(!(req->flags & TFW_HTTP_CHUNKED)
+			       && (req->content_length != req->body.len));
 		}
 
 		r = tfw_gfsm_move(&conn->state,
@@ -975,6 +1001,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return TFW_BLOCK;
 		}
@@ -987,8 +1014,10 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		req->jtstamp = jiffies;
 
 		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context(req))
+		if (tfw_http_req_set_context(req)) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			return TFW_BLOCK;
+		}
 
 		/*
 		 * In HTTP 0.9 the server always closes the connection
@@ -1024,7 +1053,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * So, save the needed request flag for later use as it
 		 * may not be accessible later through @req->flags.
 		 */
-		req_conn_close = (req->flags & TFW_HTTP_CONN_CLOSE);
+		req_conn_close = req->flags & TFW_HTTP_CONN_CLOSE;
 
 		if (!req_conn_close && (data_off < skb_len)) {
 			/*
@@ -1043,6 +1072,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 				 */
 				TFW_WARN("Not enough memory to create"
 					 " a request sibling\n");
+				tfw_http_conn_msg_free((TfwHttpMsg *)req);
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				return TFW_BLOCK;
 			}
@@ -1065,7 +1095,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 */
 		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb))
 		{
-			tfw_http_send_500(req);
+			tfw_http_send_500(req, "request cache error");
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
@@ -1133,7 +1163,7 @@ out:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	return;
 err:
-	tfw_http_send_500(req);
+	tfw_http_send_500(req, "response proxy error");
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 	goto out;
 }
@@ -1142,28 +1172,32 @@ err:
  * Request messages that were forwarded to a backend server are added
  * to and kept in @msg_queue of the connection @conn for that server.
  * If a paired request is not found, then the response is deleted.
+ *
+ * If a paired client request is missing, then it seems upsream server is
+ * misbehaving, so the caller has to drop the server connection.
  */
 static TfwHttpReq *
 tfw_http_popreq(TfwHttpMsg *hmresp)
 {
-	TfwMsg *msg;
+	TfwHttpReq *req;
 	TfwConnection *conn = hmresp->conn;
 
 	spin_lock(&conn->msg_qlock);
-	if (unlikely(list_empty(&conn->msg_queue))) {
+
+	req = list_first_entry_or_null(&conn->msg_queue, TfwHttpReq,
+				       msg.msg_list);
+	if (unlikely(!req || !(req->flags & TFW_HTTP_MSG_SENT))) {
 		spin_unlock(&conn->msg_qlock);
-		/* @conn->msg will get NULLed in the process. */
-		TFW_WARN("Paired request missing\n");
-		TFW_WARN("Possible HTTP Response Splitting attack.\n");
-		tfw_http_conn_msg_free(hmresp);
+		TFW_WARN("Paired request missing,"
+			 " HTTP Response Splitting attack?\n");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
-	msg = list_first_entry(&conn->msg_queue, TfwMsg, msg_list);
-	list_del(&msg->msg_list);
+	list_del(&req->msg.msg_list);
+
 	spin_unlock(&conn->msg_qlock);
 
-	return (TfwHttpReq *)msg;
+	return req;
 }
 
 /*
@@ -1199,15 +1233,16 @@ error:
 	 */
 	req = tfw_http_popreq(hmresp);
 	if (unlikely(!req)) {
+		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_filtout);
-		return TFW_STOP;
+		return TFW_BLOCK;
 	}
 
-	tfw_http_send_502(req);
+	tfw_http_send_502(req, "response filtered");
 	tfw_http_conn_msg_free(hmresp);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
-	return TFW_BLOCK;
+	return r;
 }
 
 static int
@@ -1237,8 +1272,11 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * deleted, and an error is returned.
 	 */
 	req = tfw_http_popreq(hmresp);
-	if (unlikely(!req))
+	if (unlikely(!req)) {
+		tfw_http_conn_msg_free(hmresp);
 		return -ENOENT;
+	}
+
 	/*
 	 * Complete HTTP message has been collected and processed
 	 * with success. Mark the message as complete in @conn as
@@ -1249,7 +1287,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 			      tfw_http_resp_cache_cb))
 	{
-		tfw_http_send_500(req);
+		tfw_http_send_500(req, "response cache error");
 		tfw_http_conn_msg_free(hmresp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -1292,6 +1330,8 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	int r = TFW_BLOCK;
 	unsigned int data_off = off;
 	unsigned int skb_len = skb->len;
+	TfwHttpReq *bad_req;
+	TfwHttpMsg *hmresp;
 
 	BUG_ON(!conn->msg);
 	BUG_ON(data_off >= skb_len);
@@ -1304,8 +1344,10 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 	 */
 	while (data_off < skb_len) {
 		TfwHttpMsg *hmsib = NULL;
-		TfwHttpMsg *hmresp = (TfwHttpMsg *)conn->msg;
-		TfwHttpParser *parser = &hmresp->parser;
+		TfwHttpParser *parser;
+
+		hmresp = (TfwHttpMsg *)conn->msg;
+		parser = &hmresp->parser;
 
 		/*
 		 * Process/parse data in the SKB.
@@ -1343,14 +1385,14 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 */
 			TFW_DBG2("Block invalid HTTP response\n");
 			TFW_INC_STAT_BH(serv.msgs_parserr);
-			return TFW_BLOCK;
+			goto bad_msg;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state,
 					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
 				TFW_INC_STAT_BH(serv.msgs_filtout);
-				return TFW_BLOCK;
+				goto bad_msg;
 			}
 			/*
 			 * TFW_POSTPONE status means that parsing succeeded
@@ -1364,14 +1406,19 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 * The response is fully parsed,
 			 * fall through and process it.
 			 */
-			BUG_ON(hmresp->content_length != hmresp->body.len);
-			;
+			BUG_ON(!(hmresp->flags & TFW_HTTP_CHUNKED)
+			       && (hmresp->content_length != hmresp->body.len));
 		}
 
-		/* Pass the response to GFSM for further processing. */
+		/*
+		 * Pass the response to GFSM for further processing.
+		 * Drop server connection in case of serious error or security
+		 * event.
+		 */
 		r = tfw_http_resp_gfsm(hmresp, skb, off);
-		if (unlikely(r == TFW_STOP))
+		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
+
 		/*
 		 * If @skb's data has not been processed in full, then
 		 * we have pipelined responses. Create a sibling message.
@@ -1393,9 +1440,10 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 				return TFW_BLOCK;
 			}
 		}
+
 		/*
-		 * If an error occured in further GFSM processing, then
-		 * the response and the paired request had been handled.
+		 * If a non critical error occured in further GFSM processing,
+		 * then the response and the paired request had been handled.
 		 * Keep the server connection open for data exchange.
 		 */
 		if (unlikely(r != TFW_PASS)) {
@@ -1421,6 +1469,12 @@ next_resp:
 	}
 
 	return r;
+bad_msg:
+	bad_req = tfw_http_popreq(hmresp);
+	if (bad_req)
+		tfw_http_conn_msg_free((TfwHttpMsg *)bad_req);
+	tfw_http_conn_msg_free(hmresp);
+	return r;
 }
 
 /**
@@ -1437,10 +1491,10 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 			__kfree_skb(skb);
 			return -ENOMEM;
 		}
-		TFW_DBG("Link new msg %p with connection %p\n", c->msg, c);
+		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
-	TFW_DBG("Add skb %p to message %p\n", skb, c->msg);
+	TFW_DBG2("Add skb %p to message %p\n", skb, c->msg);
 	ss_skb_queue_tail(&c->msg->skb_list, skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)

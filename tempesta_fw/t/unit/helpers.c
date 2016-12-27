@@ -33,6 +33,8 @@
  */
 #include "http_msg.h"
 
+static TfwConnection conn_req, conn_resp;
+
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {
@@ -46,6 +48,10 @@ test_req_alloc(size_t data_len)
 	req = (TfwHttpReq *)tfw_http_msg_create(NULL, &it, Conn_HttpClnt,
 						data_len);
 	BUG_ON(!req);
+
+	memset(&conn_req, 0, sizeof(TfwConnection));
+	conn_req.proto.type = Conn_HttpClnt;
+	req->conn = &conn_req;
 
 	return req;
 }
@@ -69,6 +75,10 @@ test_resp_alloc(size_t data_len)
 	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_HttpSrv,
 						  data_len);
 	BUG_ON(!resp);
+
+	memset(&conn_resp, 0, sizeof(TfwConnection));
+	conn_resp.proto.type = Conn_HttpSrv;
+	resp->conn = &conn_resp;
 
 	return resp;
 }

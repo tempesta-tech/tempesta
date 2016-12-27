@@ -35,7 +35,6 @@
 /*
  * ------------------------------------------------------------------------
  *	Server connection establishment.
- * ------------------------------------------------------------------------
  *
  * This section of code is responsible for maintaining a server connection in
  * an established state, and doing so in an asynchronous (callback-based) way.
@@ -52,11 +51,9 @@
  * to re-establish the connection, and thus tfw_sock_srv_connect_try() is
  * called repeatedly until the connection is finally established (or until
  * this "loop" of callbacks is stopped by tfw_sock_srv_disconnect()).
+ *
+ * ------------------------------------------------------------------------
  */
-
-/* Min and max wakeup intervals between failed connection attempts. */
-#define TFW_SOCK_SRV_RETRY_TIMER_MIN	1		/* in msecs */
-#define TFW_SOCK_SRV_RETRY_TIMER_MAX	(1000 * 300)	/* 5 min in msecs */
 
 /**
  * TfwConnection extension for server sockets.
@@ -143,7 +140,9 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	 * of a local peer connection, so all handlers must be installed
 	 * before the call.
 	 */
+#if defined(DEBUG) && (DEBUG >= 2)
 	sock_set_flag(sk, SOCK_DBG);
+#endif
 	tfw_connection_link_from_sk(conn, sk);
 	ss_set_callbacks(sk);
 
@@ -170,6 +169,12 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 		return r;
 	}
 
+	/*
+	 * Set connection destructor such that connection failover can
+	 * take place if the connection attempt fails.
+	 */
+	conn->destructor = (void *)tfw_srv_conn_release;
+
 	return 0;
 }
 
@@ -177,22 +182,40 @@ static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
 	/*
-	 * Timeout between connect attempts is increased with each
-	 * unsuccessful attempt. Length of the timeout is decided
-	 * with a variant of exponential backoff delay algorithm.
+	 * Timeout between connect attempts is increased with each unsuccessful
+	 * attempt. Length of the timeout is decided with a variant of
+	 * exponential backoff delay algorithm.
 	 *
-	 * It's essential that the connection is restored as fast
-	 * as possible, so the min retry interval is set to 1. That
-	 * yields the first few reconnect attempts in 1, 2, 4, 8, 16
-	 * milliseconds. The use of a small constant retry interval
-	 * for the first few attempts doesn't yield a better result.
+	 * It's essential that the new connection is established and failed
+	 * connection is restored as fast as possible, so the min retry interval
+	 * is set to 1. The next, second, step is good for loopback
+	 * reconnection, e.g. if upstream is configured to reset connection
+	 * periodically. Following steps are almost pure backoff starting from
+	 * 100ms, good RTT for fast 10Gbps link. We do not increase timeout
+	 * after 1 second as it have moderate overhead and still good in
+	 * response time.
 	 */
-	if (srv_conn->timeout < TFW_SOCK_SRV_RETRY_TIMER_MAX) {
-		srv_conn->timeout = min(TFW_SOCK_SRV_RETRY_TIMER_MAX,
-					TFW_SOCK_SRV_RETRY_TIMER_MIN
-					* (1 << srv_conn->attempts));
-		srv_conn->attempts++;
+	static const unsigned long timeouts[] = { 1, 10, 100, 250, 500, 1000 };
+
+	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
+		srv_conn->timeout = timeouts[srv_conn->attempts];
+		TFW_DBG_ADDR("Cannot establish connection",
+			     &srv_conn->conn.peer->addr);
+	} else {
+		srv_conn->timeout = timeouts[ARRAY_SIZE(timeouts) - 1];
+		if (srv_conn->attempts == ARRAY_SIZE(timeouts)
+		    || !(srv_conn->attempts % 60))
+		{
+			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+			tfw_addr_fmt_v6(&srv_conn->conn.peer->addr.v6.sin6_addr,
+					0, addr_str);
+			TFW_WARN("Cannot establish connection with %s in %u"
+				 " tries, keep trying...\n",
+				 addr_str, srv_conn->attempts);
+		}
 	}
+	srv_conn->attempts++;
+
 	mod_timer(&srv_conn->conn.timer,
 		  jiffies + msecs_to_jiffies(srv_conn->timeout));
 }
@@ -257,9 +280,6 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	/* Link Tempesta with the socket. */
 	tfw_connection_link_to_sk(conn, sk);
 
-	/* Set the destructor */
-	conn->destructor = (void *)tfw_srv_conn_release;
-
 	/* Notify higher level layers. */
 	r = tfw_connection_new(conn);
 	if (r) {
@@ -274,6 +294,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	TFW_INC_STAT_BH(serv.conn_established);
+
 	return 0;
 }
 
@@ -419,6 +440,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
 		tfw_sock_srv_connect_try_later(srv_conn);
+
 	return 0;
 }
 

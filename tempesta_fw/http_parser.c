@@ -100,6 +100,15 @@ do {									\
 	size_t		__maybe_unused __fsm_sz;			\
 	TfwStr		__maybe_unused *chunk = &parser->_tmp_chunk;	\
 
+#define TFW_PARSER_BLOCK(st)						\
+do {									\
+	TFW_WARN("Parser error: state=" #st " input=%#x('%.*s')"	\
+		 " data_len=%lu off=%lu\n",				\
+		 (char)c, min(16U, (unsigned int)(data + len - p)), p,	\
+		 len, p - data);					\
+	return TFW_BLOCK;						\
+} while (0)
+
 #define __FSM_START(s)							\
 fsm_reenter: __attribute__((unused))					\
 	TFW_DBG3("enter FSM at state %d\n", s);				\
@@ -264,14 +273,14 @@ do {									\
 __FSM_STATE(st) {							\
 	if (likely(condition))						\
 		__FSM_MOVE_f(st_next, field);				\
-	return TFW_BLOCK;						\
+	TFW_PARSER_BLOCK(st);						\
 }
 
 #define __FSM_TX_COND_nofixup(st, condition, st_next) 			\
 __FSM_STATE(st) {							\
 	if (likely(condition))						\
 		__FSM_MOVE_nofixup(st_next);				\
-	return TFW_BLOCK;						\
+	TFW_PARSER_BLOCK(st);						\
 }
 
 /* Automaton transition from state @st to @st_next on character @ch. */
@@ -466,7 +475,8 @@ enum {
 	I_ContLen, /* Content-Length */
 	I_ContType, /* Content-Type */
 	I_TransEncod, /* Transfer-Encoding */
-	I_TransEncodExt,
+	I_TransEncodChunked,
+	I_TransEncodOther,
 
 	I_EoT, /* end of term */
 };
@@ -512,19 +522,19 @@ __FSM_STATE(RGen_EoL) {							\
 		if (parser->hdr.ptr) {					\
 			tfw_str_set_eolen(&parser->hdr, 1);		\
 			if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag)) \
-				return TFW_BLOCK;			\
+				TFW_PARSER_BLOCK(RGen_EoL);		\
 		}							\
 		__FSM_MOVE_nofixup(RGen_Hdr);				\
 	}								\
-	return TFW_BLOCK;						\
+	TFW_PARSER_BLOCK(RGen_EoL);					\
 }									\
 __FSM_STATE(RGen_CR) {							\
 	if (unlikely(c != '\n'))					\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_CR);				\
 	if (parser->hdr.ptr) {						\
 		tfw_str_set_eolen(&parser->hdr, 2);			\
 		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))	\
-			return TFW_BLOCK;				\
+			TFW_PARSER_BLOCK(RGen_CR);			\
 	}								\
 	/* Process next header if any. */				\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -532,12 +542,14 @@ __FSM_STATE(RGen_CR) {							\
 
 /*
  * Process the final CRLF, i.e. the end of the headers part or the whole
- * HTTP message. Probably we're here after trailing-part headers, so
- * @msg->crlf is already set and there is nothing to do.
+ * HTTP message. We may get here after trailing-part headers. In that
+ * case @msg->crlf is already set and there is nothing to do.
  */
 #define TFW_HTTP_PARSE_CRLF()						\
 do {									\
 	if (unlikely(c == '\r')) {					\
+		if (msg->crlf.flags & TFW_STR_COMPLETE)			\
+			__FSM_MOVE_nofixup(RGen_CRLFCR);		\
 		if (!msg->crlf.ptr)					\
 			/* The end of the headers part. */		\
 			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
@@ -560,16 +572,15 @@ do {									\
 } while (0)
 
 /*
- * State processing a letter just after CRLFCR, i.e. final LF.
+ * State processing a character just after CRLFCR, i.e. the final LF.
  */
 #define RGEN_CRLF()							\
 __FSM_STATE(RGen_CRLFCR) {						\
 	if (unlikely(c != '\n'))					\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_CRLFCR);				\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
 		BUG_ON(!msg->crlf.ptr);					\
-		__msg_field_fixup(&msg->crlf, p + 1);			\
-		msg->crlf.flags |= TFW_STR_COMPLETE;			\
+		__msg_field_finish(&msg->crlf, p + 1);			\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
 	r = TFW_PASS;							\
@@ -597,7 +608,7 @@ __FSM_STATE(st_curr) {							\
 	 */								\
 	if (id < TFW_HTTP_HDR_NONSINGULAR				\
 	    && unlikely(!TFW_STR_EMPTY(&(msg)->h_tbl->tbl[id])))	\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(st_curr);				\
 	/* Store header name and field in different chunks. */		\
 	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
@@ -611,7 +622,7 @@ __FSM_STATE(st_curr) {							\
 		goto done;						\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(st_curr);				\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
@@ -651,7 +662,7 @@ __FSM_STATE(st_curr) {							\
 		goto done;						\
 	case CSTR_BADLEN: /* bad header length */			\
 	case CSTR_NEQ: /* bad header value */				\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(st_curr);				\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
@@ -679,7 +690,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 		parser->_i_st = RGen_HdrOtherV;				\
 		__FSM_MOVE_n(RGen_OWS, __fsm_sz + 1);			\
 	}								\
-	return TFW_BLOCK;						\
+	TFW_PARSER_BLOCK(RGen_HdrOtherN);				\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
 	/*								\
@@ -688,7 +699,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	 */								\
 	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz)); 		\
 	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
 }
@@ -696,22 +707,24 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
-	/*								\
-	 * TODO: If both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
-	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present,	\
-	 * then issue and error or remove "Content-Length:" header.	\
-	 */								\
-	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and "chunked" coding is the last in the list.	\
-	 */								\
-	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE_nofixup(RGen_BodyStart);			\
-	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and there's NO "chunked" coding.			\
-	 * Must send 400 (Bad Request) and close the connection.	\
-	 */								\
+	TfwStr *tbl = msg->h_tbl->tbl;					\
+									\
+	TFW_DBG3("parse request body: flags=%#x content_length=%lu\n",	\
+		 msg->flags, msg->content_length);			\
+									\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
+		/* The alternative: remove "Content-Length" header. */	\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
+			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		/*							\
+		 * TODO: If "Transfer-Encoding:" header is present and	\
+		 * there's NO "chunked" coding, then send 400 response	\
+		 * (Bad Request) and close the connection.		\
+		 */							\
+		TFW_PARSER_BLOCK(RGen_BodyInit);			\
+	}								\
 	if (msg->content_length) {					\
 		parser->to_read = msg->content_length;			\
 		__FSM_MOVE_nofixup(RGen_BodyStart);			\
@@ -725,14 +738,15 @@ __FSM_STATE(RGen_BodyInit) {						\
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_RESP_BODY_PARSING()				\
 __FSM_STATE(RGen_BodyInit) {						\
+	TfwStr *tbl = msg->h_tbl->tbl;					\
 	TfwHttpResp *resp = (TfwHttpResp *)msg;				\
 									\
-	TFW_DBG3("parse msg body: flags=%#x content_length=%lu\n",	\
+	TFW_DBG3("parse response body: flags=%#x content_length=%lu\n",	\
 		 msg->flags, msg->content_length);			\
 									\
 	/* There's no body. */						\
 	/* TODO: Add (req == CONNECT && resp == 2xx) */			\
-	if (resp->status - 101U < 99U || resp->status == 204		\
+	if (resp->status - 100U < 100U || resp->status == 204		\
 	    || resp->status == 304 || msg->flags & TFW_HTTP_VOID_BODY)	\
 	{								\
 		/* There is no body. */					\
@@ -740,23 +754,15 @@ __FSM_STATE(RGen_BodyInit) {						\
 		r = TFW_PASS;						\
 		FSM_EXIT();						\
 	}								\
-	/*								\
-	 * TODO: Both msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]	\
-	 * and msg->h_tbl[TFW_HTTP_HDR_CONTENT_LENGTH] are present.	\
-	 * Issue and error or remove "Content-Length:" header.		\
-	 */								\
-	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and "chunked" coding is the last in the list.	\
-	 */								\
-	if (msg->flags & TFW_HTTP_CHUNKED)				\
-		__FSM_MOVE_nofixup(RGen_BodyStart);			\
-	/*								\
-	 * TODO: msg->h_tbl[TFW_HTTP_HDR_TRANSFER_ENCODING]		\
-	 * is present and there's NO "chunked" coding.			\
-	 * Process the body until the connection is closed.		\
-	 */								\
-	if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) \
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
+		/* The alternative: remove "Content-Length" header. */	\
+		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
+			TFW_PARSER_BLOCK(RGen_BodyInit);		\
+		if (msg->flags & TFW_HTTP_CHUNKED)			\
+			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
+	}								\
+	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))		\
 	{								\
 		if (msg->content_length) {				\
 			parser->to_read = msg->content_length;		\
@@ -768,6 +774,13 @@ __FSM_STATE(RGen_BodyInit) {						\
 		FSM_EXIT();						\
 	}								\
 	/* Process the body until the connection is closed. */		\
+	/*								\
+	 * TODO: Currently Tempesta fully assembles response before	\
+	 * transmitting it to a client. This behaviour is considered	\
+	 * dangerous and the issue must be solved in generic way:	\
+	 * Tempesta must use chunked transfer encoding for proxied	\
+	 * responses w/o lengths. Refer issue #534 for more information	\
+	 */								\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 }
 
@@ -791,7 +804,7 @@ __FSM_STATE(RGen_BodyChunk) {						\
 	if (parser->to_read == -1) {					\
 		/* Prevent @parse_int_hex false positives. */		\
 		if (!isxdigit(c))					\
-			return TFW_BLOCK;				\
+			TFW_PARSER_BLOCK(RGen_BodyChunk);		\
 		__FSM_JMP(RGen_BodyChunkLen);				\
 	}								\
 	/* Fall through. */						\
@@ -808,7 +821,7 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 	}								\
 	/* We've fully read Content-Length bytes. */			\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_BodyReadChunk);			\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	p += __fsm_sz;							\
 	r = TFW_PASS;							\
@@ -825,7 +838,7 @@ __FSM_STATE(RGen_BodyChunkLen) {					\
 		__FSM_MOVE_nf(RGen_BodyChunkLen, __fsm_sz, &msg->body);	\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_BodyChunkLen);			\
 	default:							\
 		parser->to_read = parser->_acc;				\
 		parser->_acc = 0;					\
@@ -844,7 +857,7 @@ __FSM_STATE(RGen_BodyEoL) {						\
 }									\
 __FSM_STATE(RGen_BodyCR) {						\
 	if (unlikely(c != '\n'))					\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_BodyCR);				\
 	if (parser->to_read)						\
 		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
 	/*								\
@@ -853,7 +866,7 @@ __FSM_STATE(RGen_BodyCR) {						\
 	 */								\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, data,		\
 				      __data_off(p) + 1))		\
-		return TFW_BLOCK;					\
+		TFW_PARSER_BLOCK(RGen_BodyCR);				\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
 	/* Process the trailer-part. */					\
 	__FSM_MOVE_nofixup(RGen_Hdr);					\
@@ -1020,42 +1033,48 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * According to RFC 7230 section 3.3.1:
 	 *
 	 * TODO: In a response:
-	 * A server MUST NOT send a Transfer-Encoding header field in any
-	 * response with a status code of 1xx (Informational) or 204 (No
-	 * Content).  A server MUST NOT send a Transfer-Encoding header
-	 * field in any 2xx (Successful) response to a CONNECT request.
-	 *
-	 * TODO: A sender MUST NOT apply chunked more than once to a message
-	 * body (i.e., chunking an already chunked message is not allowed).
-	 *
-	 * TODO: in a request:
-	 * If any transfer coding other than chunked is applied to a request
-	 * payload body, the sender MUST apply chunked as the final transfer
-	 * coding to ensure that the message is properly framed.
-	 *
-	 * In a response, it's permissible to not have chunked transfer
-	 * coding. In that case the message is terminated by closing the
-	 * connection.
+	 * A server MUST NOT send a Transfer-Encoding header field
+	 * in any 2xx (Successful) response to a CONNECT request.
 	 */
 	__FSM_STATE(I_TransEncod) {
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
+			unsigned int status = ((TfwHttpResp *)hm)->status;
+			if ((status - 100U < 100U) || (status == 204))
+				return CSTR_NEQ;
+		}
+		__FSM_I_JMP(I_TransEncodChunked);
+	}
+
+	__FSM_STATE(I_TransEncodChunked) {
+		/*
+		 * A sender MUST NOT apply chunked more than once
+		 * to a message body (i.e., chunking an already
+		 * chunked message is not allowed). RFC 7230 3.3.1.
+		 */
 		TRY_STR_LAMBDA("chunked", {
+			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
+				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CHUNKED;
 		}, I_EoT);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_TransEncodExt, 0);
+		__FSM_I_MOVE_n(I_TransEncodOther, 0);
 	}
 
-	__FSM_STATE(I_TransEncodExt) {
+	__FSM_STATE(I_TransEncodOther) {
 		/*
 		 * TODO: process transfer encodings: gzip, deflate, identity,
 		 * compress;
 		 */
-		__FSM_I_MATCH_MOVE(token, I_TransEncodExt);
+		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			/* "chunked" must be the last coding. */
+			if (unlikely(msg->flags & TFW_HTTP_CHUNKED))
+				return CSTR_NEQ;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -1064,7 +1083,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE(I_TransEncod);
+			__FSM_I_MOVE_n(I_TransEncodChunked, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -1103,7 +1122,7 @@ enum {
 	Req_UriSchHttpColonSlash,
 	/* RFC 3986, 3.2:
 	 * authority = [userinfo@]host[:port]
-	 * We have special state for parsing :port, so
+	 * We have a special state for parsing :port, so
 	 * in Req_UriAuthority* we parse [userinfo@]host.
 	 */
 	Req_UriAuthorityStart,
@@ -1755,8 +1774,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
 
-	TFW_DBG("parse %lu client data bytes (%.*s) on req=%p\n",
-		len, (int)len, data, req);
+	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
+		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state) {
 
@@ -1790,7 +1809,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
 				}
 			}
-			return TFW_BLOCK; /* Unsupported method */
+			TFW_PARSER_BLOCK(Req_Method); /* Unsupported method */
 		}
 		/* Slow path: step char-by-char. */
 		switch (c) {
@@ -1801,7 +1820,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 'P':
 			__FSM_MOVE_nofixup(Req_MethP);
 		}
-		return TFW_BLOCK; /* Unsupported method */
+		TFW_PARSER_BLOCK(Req_Method); /* Unsupported method */
 	}
 
 	/*
@@ -1810,7 +1829,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 */
 	__FSM_STATE(Req_MUSpace) {
 		if (unlikely(c != ' '))
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_MUSpace);
 		__FSM_MOVE_nofixup(Req_Uri);
 	}
 
@@ -1829,7 +1848,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		if (likely(TFW_LC(c) == 'h'))
 			__FSM_MOVE_nofixup(Req_UriSchH);
 
-		return TFW_BLOCK;
+		TFW_PARSER_BLOCK(Req_Uri);
 	}
 
 	/*
@@ -1860,7 +1879,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
 		}
-		return TFW_BLOCK;
+		TFW_PARSER_BLOCK(Req_UriAuthorityStart);
 	}
 
 	__FSM_STATE(Req_UriAuthority) {
@@ -1868,7 +1887,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			if (unlikely(c == '@')) {
 				if (!TFW_STR_EMPTY(&req->userinfo)) {
 					TFW_DBG("Second '@' in authority\n");
-					return TFW_BLOCK;
+					TFW_PARSER_BLOCK(Req_UriAuthority);
 				}
 				TFW_DBG3("Authority contains userinfo\n");
 				/* copy current host to userinfo */
@@ -1890,7 +1909,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		} else if(c == ']') {
 			__FSM_MOVE_f(Req_UriAuthorityEnd, &req->host);
 		}
-		return TFW_BLOCK;
+		TFW_PARSER_BLOCK(Req_UriAuthorityIPv6);
 	}
 
 	__FSM_STATE(Req_UriAuthorityResetHost) {
@@ -1919,8 +1938,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		else if (c == ':') {
 			__FSM_MOVE_nofixup(Req_UriPort);
 		}
-		else
-			return TFW_BLOCK;
+		else {
+			TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
+		}
 	}
 
 	/* Host port in URI */
@@ -1934,8 +1954,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		else
-			return TFW_BLOCK;
+		else {
+			TFW_PARSER_BLOCK(Req_UriPort);
+		}
 	}
 
 	/*
@@ -1962,7 +1983,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 		__FSM_MATCH_MOVE_f(uri, TFW_HTTP_URI_HOOK, &req->uri_path);
 		if (unlikely(*(p + __fsm_sz) != ' '))
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_UriAbsPath);
 		__msg_field_finish(&req->uri_path, p + __fsm_sz);
 		__FSM_MOVE_nofixup_n(Req_HttpVer, __fsm_sz + 1);
 	}
@@ -1978,7 +1999,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			/* Slow path. */
 			if (c == 'H')
 				__FSM_MOVE_nofixup(Req_HttpVerT1);
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_HttpVer);
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
@@ -1989,15 +2010,16 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_nofixup_n(RGen_EoL, 8);
 		default:
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_HttpVer);
 		}
 	}
 
 	/* ----------------    Header Lines    ---------------- */
 
 	/*
-	 * Start of HTTP header or end of header part of the request.
-	 * There is a switch for first character of a header name.
+	 * The start of an HTTP header or the end of the header part
+	 * of the request. There is a switch for the first character
+	 * of a header field name.
 	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
@@ -2081,7 +2103,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		case 't':
 			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
-					   	    's', 'f', 'e', 'r')
+						    's', 'f', 'e', 'r')
 				   && *(p + 8) == '-'
 				   && C8_INT_LCM(p + 9, 'e', 'n', 'c', 'o',
 							'd', 'i', 'n', 'g')
@@ -2109,7 +2131,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				   && C4_INT_LCM(p, 'u', 's', 'e', 'r')
 				   && *(p + 4) == '-'
 				   && C4_INT_LCM(p + 5, 'a', 'g', 'e', 'n')
-				   && *(p + 9) == 't'
+				   && TFW_LC(*(p + 9)) == 't'
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = Req_HdrUser_AgentV;
@@ -2178,8 +2200,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				  req, __req_parse_pragma);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
-				  msg, __parse_transfer_encoding);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
+				  msg, __parse_transfer_encoding,
+				  TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
@@ -2217,7 +2240,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_nofixup(Req_MethG, 'E', Req_MethGe);
 	__FSM_STATE(Req_MethGe) {
 		if (unlikely(c != 'T'))
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_MethGe);
 		req->method = TFW_HTTP_METH_GET;
 		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
@@ -2226,7 +2249,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_nofixup(Req_MethPo, 'S', Req_MethPos);
 	__FSM_STATE(Req_MethPos) {
 		if (unlikely(c != 'T'))
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_MethPos);
 		req->method = TFW_HTTP_METH_POST;
 		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
@@ -2235,7 +2258,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_nofixup(Req_MethHe, 'A', Req_MethHea);
 	__FSM_STATE(Req_MethHea) {
 		if (unlikely(c != 'D'))
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_MethHea);
 		req->method = TFW_HTTP_METH_HEAD;
 		__FSM_MOVE_nofixup(Req_MUSpace);
 	}
@@ -2264,7 +2287,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			req->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_nofixup(RGen_EoL);
 		default:
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Req_HttpVer12);
 		}
 	}
 
@@ -3154,7 +3177,7 @@ __resp_parse_keep_alive(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE(Resp_I_KeepAlive);
+			__FSM_I_MOVE_n(Resp_I_KeepAlive, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -3199,11 +3222,30 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
-	if (hm->parser.state == Resp_BodyUnlimRead) {
+	/*
+	 * Set Content-Length header to warn client about end of message.
+	 * Other option is to close connection to client. All the situations
+	 * when Content-Length header must not present in responce were
+	 * checked earlier. Refer to RFC 7230 3.3.3
+	 */
+	if (hm->parser.state == Resp_BodyUnlimRead
+	    || hm->parser.state == Resp_BodyUnlimStart)
+	{
+		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
+		size_t digs;
+		int r;
+
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
 		hm->content_length = hm->body.len;
-		return true;
+		if (!(digs = tfw_ultoa(hm->content_length, c_len,
+				       TFW_ULTOA_BUF_SIZ)))
+			return false;
+		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
+					  sizeof("Content-Length") - 1,
+					  c_len, digs,
+					  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+		return (r == 0);
 	}
 	return false;
 }
@@ -3215,8 +3257,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
 
-	TFW_DBG("parse %lu server data bytes (%.*s) on resp=%p\n",
-		len, (int)len, data, resp);
+	TFW_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
+		len, min(500, (int)len), data, len > 500 ? "..." : "", resp);
 
 	__FSM_START(parser->state) {
 
@@ -3236,7 +3278,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				__msg_field_open(&resp->s_line, p);
 				__FSM_MOVE_f(Resp_HttpVerT1, &resp->s_line);
 			}
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Resp_HttpVer);
 		}
 		/* Fast path. */
 		switch (*(unsigned long *)p) {
@@ -3247,7 +3289,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				__FSM_MOVE_nf(Resp_StatusCode, 9,
 					      &resp->s_line);
 			}
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Resp_HttpVer);
 		case TFW_CHAR8_INT('H', 'T', 'T', 'P', '/', '1', '.', '0'):
 			resp->version = TFW_HTTP_VER_10;
 			if (*(p + 8) == ' ') {
@@ -3257,7 +3299,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			/* fall through */
 		default:
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Resp_HttpVer);
 		}
 	}
 
@@ -3274,7 +3316,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		case CSTR_BADLEN:
 		case CSTR_NEQ:
 			/* bad status value */
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Resp_StatusCode);
 		default:
 			/* Status code is fully parsed, move forward. */
 			resp->status = parser->_acc;
@@ -3292,12 +3334,16 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			__msg_field_finish(&resp->s_line, p + __fsm_sz);
 			__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);
 		}
-		return TFW_BLOCK;
+		TFW_PARSER_BLOCK(Resp_ReasonPhrase);
 	}
 
 	/* ----------------    Header Lines    ---------------- */
 
-	/* Start of HTTP header or end of whole request. */
+	/*
+	 * The start of an HTTP header or the end of the header part
+	 * of the response. There is a switch for the first character
+	 * of a header field name.
+	 */
 	__FSM_STATE(RGen_Hdr) {
 		TFW_HTTP_PARSE_CRLF();
 
@@ -3469,8 +3515,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   __resp_parse_server, TFW_HTTP_HDR_SERVER);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
-				  msg, __parse_transfer_encoding);
+	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, I_TransEncod,
+				   msg, __parse_transfer_encoding,
+				   TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -3501,7 +3548,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			resp->version = TFW_HTTP_VER_10;
 			__FSM_MOVE_f(Resp_SSpace, &resp->s_line);
 		default:
-			return TFW_BLOCK;
+			TFW_PARSER_BLOCK(Resp_HttpVer12);
 		}
 	}
 	__FSM_TX_f(Resp_SSpace, ' ', Resp_StatusCode, &resp->s_line);

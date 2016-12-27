@@ -70,13 +70,7 @@
 #define TFW_DBG3(...)
 #endif
 
-#if defined(DEBUG) && (DEBUG >= 1)
-#define __CALLSTACK_MSG(...)						\
-do {									\
-	printk(__VA_ARGS__);						\
-	__WARN();							\
-} while (0)
-
+#if defined(DEBUG) && (DEBUG == 3)
 #define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
 					"ERROR: " __VA_ARGS__)
 #define TFW_WARN(...)	__CALLSTACK_MSG(KERN_WARNING TFW_BANNER		\
@@ -150,6 +144,12 @@ do {									\
 #define SS_BANNER	"[sync_sockets] "
 
 #if defined(DEBUG) && (DEBUG >= 2)
+#define __CALLSTACK_MSG(...)						\
+do {									\
+	printk(__VA_ARGS__);						\
+	__WARN();							\
+} while (0)
+
 #define SS_DBG(...)	pr_debug(SS_BANNER "  " __VA_ARGS__)
 #define SS_ERR(...)	__CALLSTACK_MSG(KERN_ERR SS_BANNER		\
 					"ERROR: " __VA_ARGS__)

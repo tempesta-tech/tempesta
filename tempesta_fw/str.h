@@ -151,6 +151,10 @@ tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
 }
 #endif
 
+/* Buffer size to hold all possible values of unsigned long */
+#define TFW_ULTOA_BUF_SIZ 20
+size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
+
 /*
  * ------------------------------------------------------------------------
  *	Tempesta chunked strings

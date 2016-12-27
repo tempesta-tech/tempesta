@@ -1,9 +1,16 @@
 
 # Tempesta FW Functional tests.
 
+## Prerequisites
+
+Before runing functional tests you need to compile the Tempesta with its prerequisites.
+Most of the functional test use the Apache web server as back-end. So you need to install it.
+A Integrated test back-end requires package python-setproctitle.
+
+
 ## Run tests
 
-To run one test you can use from the root tempesta directory:
+To run one test you can use from a tempesta directory:
 
   $ tempesta_fw/t/functional/run_tests.sh [test_name]
 

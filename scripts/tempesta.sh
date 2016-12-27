@@ -36,6 +36,8 @@ frang_mod="tfw_frang"
 declare frang_enable=
 declare -r LONG_OPTS="help,load,unload,start,stop,restart"
 
+declare devs=$(ifconfig | grep -o '^[a-z0-9\-]\+')
+
 usage()
 {
 	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
@@ -91,37 +93,6 @@ load_modules()
 	fi
 }
 
-start()
-{
-	echo "Starting Tempesta..."
-
-	# Tempesta builds socket buffers by itself, don't cork TCP segments.
-	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
-
-	tfw_set_rps
-
-	# Create database directory if it doesn't exist.
-	mkdir -p /opt/tempesta/db/
-	# At this time we don't have stable TDB data format, so
-	# it would be nice to clean all the tables before the start.
-	# TODO: Remove the hack when TDB is fixed.
-	rm -f /opt/tempesta/db/*.tdb
-
-	sysctl -w net.tempesta.state=start
-	[ $? -ne 0 ] && error "cannot start Tempesta FW"
-
-	echo "done"
-}
-
-stop()
-{
-	echo "Stopping Tempesta..."
-
-	sysctl -w net.tempesta.state=stop
-
-	echo "done"
-}
-
 unload_modules()
 {
 	echo "Un-loading Tempesta kernel modules..."
@@ -134,6 +105,51 @@ unload_modules()
 	rmmod $tfw_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
+}
+
+start()
+{
+	echo "Starting Tempesta..."
+
+	tfw_set_net_queues "$devs"
+
+	# Tempesta builds socket buffers by itself, don't cork TCP segments.
+	sysctl -w net.ipv4.tcp_autocorking=0 >/dev/null
+	# Sotfirqs are doing more work, so increase input queues.
+	sysctl -w net.core.netdev_max_backlog=10000 >/dev/null
+	sysctl -w net.core.somaxconn=131072 >/dev/null
+	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
+
+	echo "...load Tempesta modules"
+	load_modules
+
+	# Create database directory if it doesn't exist.
+	mkdir -p /opt/tempesta/db/
+	# At this time we don't have stable TDB data format, so
+	# it would be nice to clean all the tables before the start.
+	# TODO: Remove the hack when TDB is fixed.
+	rm -f /opt/tempesta/db/*.tdb
+
+	echo "...start Tempesta FW"
+	sysctl -w net.tempesta.state=start >/dev/null
+	if [ $? -ne 0 ]; then
+		unload_modules
+		error "cannot start Tempesta FW"
+	else
+		echo "done"
+	fi
+}
+
+stop()
+{
+	echo "Stopping Tempesta..."
+
+	sysctl -w net.tempesta.state=stop
+
+	echo "...unload Tempesta modules"
+	unload_modules
+
+	echo "done"
 }
 
 args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")
@@ -151,13 +167,11 @@ while :; do
 			;;
 		# User CLI.
 		--start)
-			load_modules
 			start
 			exit
 			;;
 		--stop)
 			stop
-			unload_modules
 			exit
 			;;
 		--restart)
@@ -167,7 +181,7 @@ while :; do
 			;;
 		# Ignore any options after action.
 		-d)
-			TFW_DEVS=$2
+			devs=$2
 			shift 2
 			;;
 		-f)

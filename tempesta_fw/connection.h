@@ -166,32 +166,31 @@ tfw_connection_get(TfwConnection *conn)
 
 /**
  * Increment reference counter and return true if @conn isn't in failovering
- * process, i.e. @refcnt wasn't zero.
+ * process, i.e. @refcnt > 0.
  */
 static inline bool
 tfw_connection_get_if_nfo(TfwConnection *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
-	while (1) {
-		if (unlikely(rc < 1))
-			return false;
+	while (likely(rc > 0)) {
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
 		if (likely(old == rc))
 			return true;
 		rc = old;
 	}
+
+	return false;
 }
 
-/**
- * @return true if @conn has no more users.
- */
 static inline void
 tfw_connection_put(TfwConnection *conn)
 {
 	int rc;
+
 	if (unlikely(!conn))
 		return;
+
 	rc = atomic_dec_return(&conn->refcnt);
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
@@ -260,8 +259,10 @@ tfw_connection_unlink_from_sk(struct sock *sk)
 static inline void
 tfw_connection_unlink_to_sk(TfwConnection *conn)
 {
-	ss_sock_put(conn->sk);
+	struct sock *sk = conn->sk;
+
 	conn->sk = NULL;
+	ss_sock_put(sk);
 }
 
 static inline void
@@ -275,12 +276,6 @@ static inline void
 tfw_connection_unlink_msg(TfwConnection *conn)
 {
 	conn->msg = NULL;
-}
-
-static inline bool
-tfw_connection_live(TfwConnection *conn)
-{
-	return conn->sk && ss_sock_live(conn->sk);
 }
 
 /**

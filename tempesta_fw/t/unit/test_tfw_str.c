@@ -243,6 +243,33 @@ TEST(cstr, simd_stricmp)
 
 }
 
+TEST(cstr, ultoa)
+{
+	char buf[TFW_ULTOA_BUF_SIZ + 1] = {0};
+
+	EXPECT_TRUE(tfw_ultoa(0, buf, TFW_ULTOA_BUF_SIZ) == 1);
+	EXPECT_ZERO(tfw_stricmp(buf, "0", 2));
+
+	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
+	EXPECT_TRUE(tfw_ultoa(5, buf, TFW_ULTOA_BUF_SIZ) == 1);
+	EXPECT_ZERO(tfw_stricmp(buf, "5", 2));
+
+	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
+	EXPECT_TRUE(tfw_ultoa(58743, buf, TFW_ULTOA_BUF_SIZ) == 5);
+	EXPECT_ZERO(tfw_stricmp(buf, "58743", 6));
+
+	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
+	EXPECT_TRUE(tfw_ultoa(0xaabbccff, buf, TFW_ULTOA_BUF_SIZ) == 10);
+	EXPECT_ZERO(tfw_stricmp(buf, "2864434431", 11));
+
+	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
+	EXPECT_TRUE(tfw_ultoa(18446744073709551615UL,
+			      buf, TFW_ULTOA_BUF_SIZ) == 20);
+	EXPECT_ZERO(tfw_stricmp(buf, "18446744073709551615", 21));
+
+	EXPECT_ZERO(tfw_ultoa(589, buf, 2));
+}
+
 TEST(tfw_strcpy, zero_src)
 {
 	TfwStr s1 = {
@@ -744,6 +771,8 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(cstr, simd_match);
 	TEST_RUN(cstr, simd_strtolower);
 	TEST_RUN(cstr, simd_stricmp);
+
+	TEST_RUN(cstr, ultoa);
 
 	TEST_RUN(tfw_strcpy, zero_src);
 	TEST_RUN(tfw_strcpy, zero_dst);

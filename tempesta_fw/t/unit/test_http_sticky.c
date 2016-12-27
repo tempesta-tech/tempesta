@@ -266,7 +266,7 @@ TEST(http_sticky, sending_502)
 	StickyVal sv = { .ts = 1 };
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-	EXPECT_EQ(tfw_http_send_502(mock.req), 0);
+	EXPECT_EQ(tfw_http_send_502(mock.req, __func__), 0);
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
@@ -333,6 +333,9 @@ http_parse_resp_helper(void)
 	memset(&mock.resp->parser, 0, sizeof(mock.resp->parser));
 	mock.resp->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(mock.resp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
+	TFW_STR_INIT(&mock.resp->crlf);
+	TFW_STR_INIT(&mock.resp->body);
+	TFW_STR_INIT(&mock.resp->s_line);
 
 	return http_parse_helper((TfwHttpMsg *)mock.resp, tfw_http_parse_resp);
 }

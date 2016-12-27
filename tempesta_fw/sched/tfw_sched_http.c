@@ -118,7 +118,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 
 	sg = rule->main_sg;
 	BUG_ON(!sg);
-	TFW_DBG("sched_http: use server group: '%s'\n", sg->name);
+	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
 
 	conn = sg->sched->sched_srv(msg, sg);
 
@@ -130,7 +130,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	}
 
 	if (unlikely(!conn))
-		TFW_WARN("sched_http: Unable to select server from group"
+		TFW_DBG2("sched_http: Unable to select server from group"
 			 " '%s'\n", sg->name);
 
 	return conn;

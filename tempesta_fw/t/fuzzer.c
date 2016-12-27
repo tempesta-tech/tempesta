@@ -29,18 +29,23 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta HTTP fuzzer");
-MODULE_VERSION("0.1.2");
+MODULE_VERSION("0.1.3");
 MODULE_LICENSE("GPL");
 
 #define FUZZ_MSG_F_INVAL	FUZZ_INVALID
-#define FUZZ_MSG_F_EMPTY_BODY	0x02
+#define FUZZ_MSG_F_EMPTY_BODY	0x10
+#define FUZZ_MSG_F_SHIFT	8
 
+/*
+ * @sval	- string value of the field contents;
+ * @flags	- message and contents related flags;
+ */
 typedef struct {
-	char		*s;
-	unsigned int	rval;
+	char		*sval;
+	unsigned int	flags;
 } FuzzMsg;
 
-#define FUZZ_MSG_INVAL(m)	((m).rval & FUZZ_MSG_F_INVAL)
+#define FUZZ_MSG_INVAL(m)	((m).flags & FUZZ_MSG_F_INVAL)
 
 static FuzzMsg spaces[] = {
 	{""}
@@ -57,11 +62,17 @@ static FuzzMsg uri_file[] = {
 static FuzzMsg versions[] = {
 	{"1.0"}, {"1.1"}, {"0.9", FUZZ_MSG_F_INVAL}
 };
+#define FUZZ_FLD_F_STATUS_100		(0x0001 << FUZZ_MSG_F_SHIFT)
+#define FUZZ_FLD_F_STATUS_204		(0x0002 << FUZZ_MSG_F_SHIFT)
+#define FUZZ_FLD_F_STATUS_304		(0x0004 << FUZZ_MSG_F_SHIFT)
 static FuzzMsg resp_code[] = {
-	{"100 Continue"}, {"200 OK"}, {"302 Found"},
-	{"304 Not Modified", FUZZ_MSG_F_EMPTY_BODY},
-	{"400 Bad Request"}, {"403 Forbidden"}, {"404 Not Found"},
-	{"500 Internal Server Error"}
+	{"100 Continue", FUZZ_FLD_F_STATUS_100 | FUZZ_MSG_F_EMPTY_BODY},
+	{"200 OK"},
+	{"204 No Content", FUZZ_FLD_F_STATUS_204 | FUZZ_MSG_F_EMPTY_BODY},
+	{"302 Found"},
+	{"304 Not Modified", FUZZ_FLD_F_STATUS_304 | FUZZ_MSG_F_EMPTY_BODY},
+	{"400 Bad Request"}, {"403 Forbidden"},
+	{"404 Not Found"}, {"500 Internal Server Error"}
 };
 static FuzzMsg conn_val[] = {
 	{"keep-alive"}, {"close"}, {"upgrade"}
@@ -80,8 +91,11 @@ static FuzzMsg content_len[] = {
 	{"10000"}, {"0"}, {"-42", FUZZ_MSG_F_INVAL},
 	{"146"}, {"0100"}, {"100500"}
 };
+#define FUZZ_FLD_F_CHUNKED		(0x0001 << FUZZ_MSG_F_SHIFT)
+#define FUZZ_FLD_F_CHUNKED_LAST		(0x0002 << FUZZ_MSG_F_SHIFT)
 static FuzzMsg transfer_encoding[] = {
-	{"chunked"}, {"identity"}, {"compress"}, {"deflate"}, {"gzip"}
+	{"chunked", FUZZ_FLD_F_CHUNKED},
+	{"identity"}, {"compress"}, {"deflate"}, {"gzip"}
 };
 static FuzzMsg accept[] = {
 	{"text/plain"}, {"text/html;q=0.5"}, {"application/xhtml+xml"},
@@ -110,8 +124,8 @@ static FuzzMsg server[] = {
 	{"Apache/2.2.17 (Win32) PHP/5.3.5"}
 };
 static FuzzMsg cache_control[] = {
-	{"no-cache"}, {"no-cache"}, {"max-age=3600"}, {"no-store"},
-	{"max-stale=0"}, {"min-fresh=0"}, {"no-transform"}, {"only-if-cached"},
+	{"no-cache"}, {"max-age=3600"}, {"no-store"}, {"max-stale=0"},
+	{"min-fresh=0"}, {"no-transform"}, {"only-if-cached"},
 	{"cache-extension"}
 };
 static FuzzMsg expires[] = {
@@ -119,64 +133,107 @@ static FuzzMsg expires[] = {
 	{"Tue, 999 Jan 2012 15:02:53 GMT", FUZZ_MSG_F_INVAL}
 };
 
-static FuzzMsg *vals[] = {
-	spaces,
-	methods,
-	versions,
-	resp_code,
-	uri_path_start,
-	uri_file,
-	conn_val,
-	ua_val,
-	host_val,
-	host_val,
-	content_type,
-	content_len,
-	transfer_encoding,
-	accept,
-	accept_language,
-	accept_encoding,
-	accept_ranges,
-	cookie,
-	set_cookie,
-	etag,
-	server,
-	cache_control,
-	expires,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-};
+/*
+ * A function that makes sure that the header field value is compatible
+ * with the RFC. That is needed in complex cases where the correctness
+ * may depend on internal or auxiliary values.
+ * The function must return the flags of the field ORed with the result
+ * of either FUZZ_VALID or FUZZ_INVALID.
+ */
+typedef unsigned int (*fld_func_t)(TfwFuzzContext *ctx,
+				   int type, int fld, int val);
 
-static char * keys[] = {
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	"Connection:",
-	"User-agent:",
-	"Host:",
-	"X-Forwarded-For:",
-	"Content-Type:",
-	"Content-Length:",
-	"Transfer-Encoding:",
-	"Accept:",
-	"Accept-Language:",
-	"Accept-Encoding:",
-	"Accept-Ranges:",
-	"Cookie:",
-	"Set-Cookie:",
-	"ETag:",
-	"Server:",
-	"Cache-Control:",
-	"Expires:",
-	NULL,
-	NULL,
-	NULL,
-	NULL,
+/*
+ * Check various conditions that put limitations on correct values of
+ * "Transfer-Encoding" header field. Mark the field as invalid in cases
+ * where the parser considers the value of this header field incorrect.
+ */
+static unsigned int
+fld_transfer_encoding(TfwFuzzContext *ctx, int type, int fld, int val)
+{
+	unsigned int fld_data_flags;
+
+	BUG_ON(fld != TRANSFER_ENCODING);
+	BUG_ON(val >= sizeof(transfer_encoding) / sizeof(FuzzMsg));
+
+	fld_data_flags = transfer_encoding[val].flags;
+
+	/*
+	 * In responses this header field may not be present
+	 * if the response status code is one of 1xx or 204.
+	 */
+	if (type == FUZZ_RESP) {
+		if (ctx->fld_flags[RESP_CODE]
+		    & (FUZZ_FLD_F_STATUS_100 | FUZZ_FLD_F_STATUS_204))
+			return fld_data_flags | FUZZ_INVALID;
+	}
+	/*
+	 * "chunked" coding may not be repeated. Also, mark cases
+	 * where "chunked" coding is the last coding. That is used
+	 * in verifications later.
+	 */
+	if (ctx->fld_flags[TRANSFER_ENCODING] & FUZZ_FLD_F_CHUNKED) {
+		if (fld_data_flags & FUZZ_FLD_F_CHUNKED)
+			return fld_data_flags | FUZZ_INVALID;
+		ctx->fld_flags[TRANSFER_ENCODING] &= ~FUZZ_FLD_F_CHUNKED_LAST;
+	} else if (fld_data_flags & FUZZ_FLD_F_CHUNKED) {
+		fld_data_flags |= FUZZ_FLD_F_CHUNKED_LAST;
+	}
+
+	return fld_data_flags | FUZZ_VALID;
+}
+
+/*
+ * The "Expires:" header field is generated only for responses. The value
+ * is the date in a special format. If the date is invalid in this header
+ * field, then the value is considered a date in the past, as if already
+ * expired.
+ */
+static unsigned int
+fld_expires(TfwFuzzContext *ctx, int type, int fld, int val)
+{
+	BUG_ON(type != FUZZ_RESP);
+	BUG_ON(fld != EXPIRES);
+	BUG_ON(val >= sizeof(expires) / sizeof(FuzzMsg));
+
+	return FUZZ_VALID;
+}
+
+/*
+ * @key		- the header field name;
+ * @vals	- the list of various values of the header field;
+ * @func	- the function to check the correctness of the values;
+ */
+static struct {
+	char		*key;
+	FuzzMsg		*vals;
+	fld_func_t	func;
+} fld_data[N_FIELDS] = {
+	[0 ... N_FIELDS-1] = { 0 },
+	[SPACES]		= { NULL, spaces },
+	[METHOD]		= { NULL, methods },
+	[HTTP_VER]		= { NULL, versions },
+	[RESP_CODE]		= { NULL, resp_code },
+	[URI_PATH_START]	= { NULL, uri_path_start },
+	[URI_FILE]		= { NULL, uri_file },
+	[CONNECTION]		= { "Connection:", conn_val },
+	[USER_AGENT]		= { "User-Agent:", ua_val },
+	[HOST]			= { "Host:", host_val },
+	[X_FORWARDED_FOR]	= { "X-Forwarded-For:", host_val },
+	[CONTENT_TYPE]		= { "Content-Type:", content_type },
+	[CONTENT_LENGTH]	= { "Content-Length:", content_len },
+	[TRANSFER_ENCODING]	= { "Transfer-Encoding:", transfer_encoding,
+				    fld_transfer_encoding },
+	[ACCEPT]		= { "Accept:", accept },
+	[ACCEPT_LANGUAGE]	= { "Accept-Language:", accept_language },
+	[ACCEPT_ENCODING]	= { "Accept-Encoding:", accept_encoding },
+	[ACCEPT_RANGES]		= { "Accept-Ranges:", accept_ranges },
+	[COOKIE]		= { "Cookie:", cookie },
+	[SET_COOKIE]		= { "Set-Cookie:", set_cookie },
+	[ETAG]			= { "ETag:", etag },
+	[SERVER]		= { "Server:", server },
+	[CACHE_CONTROL]		= { "Cache-Control:", cache_control },
+	[EXPIRES]		= { "Expires:", expires, fld_expires },
 };
 
 #define A_URI "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
@@ -199,14 +256,22 @@ static char * keys[] = {
 #define MAX_DUPLICATES 9
 #define INVALID_BODY_PERIOD 5
 
+/*
+ * @size	- the number of possible values;
+ * @over	- the number of generated values;
+ * @a_val	- the valid alphabet for generated values;
+ * @a_inval	- an invalid alphabet for generated values;
+ * @singular	- only for headers: 0 = nonsingular, 1 = singular;
+ * @dissipation	- duplicate header may have a different value: 0 = yes, 1 = no;
+ * @max_val_len	- the maximum length of the value;
+ */
 static struct {
-	int size;        /* the number of present values */
-	int over;        /* the number of generated values */
-	char *a_val;     /* the valid alphabet for generated values */
-	char *a_inval;   /* an invalid alphabet for generated values */
-	int singular;    /* only for headers; 0 - nonsingular, 1 - singular */
-	int dissipation; /* may be duplicates header has diferent values?;
-			   0 - no, 1 - yes */
+	int size;
+	int over;
+	char *a_val;
+	char *a_inval;
+	int singular;
+	int dissipation;
 	int max_val_len;
 } gen_vector[N_FIELDS] = {
 	/* SPACES */
@@ -223,7 +288,7 @@ static struct {
 	{sizeof(uri_file) / sizeof(FuzzMsg), 2, A_URI, A_URI_INVAL},
 	/* CONNECTION */
 	{sizeof(conn_val) / sizeof(FuzzMsg), 0, NULL, NULL, 0, 0},
-	/* USER_AGENT*/
+	/* USER_AGENT */
 	{sizeof(ua_val) / sizeof(FuzzMsg), 2, A_UA, A_UA_INVAL, 1, 1},
 	/* HOST */
 	{sizeof(host_val) / sizeof(FuzzMsg), 2, A_HOST, A_HOST_INVAL, 1, 1},
@@ -235,7 +300,7 @@ static struct {
 	{sizeof(content_len) / sizeof(FuzzMsg), 2, "0123456789", A_URI, 1, 1,
 		MAX_CONTENT_LENGTH_LEN},
 	/* TRANSFER_ENCODING */
-	{sizeof(transfer_encoding) / sizeof(FuzzMsg), 0, NULL, NULL, 1, 1},
+	{sizeof(transfer_encoding) / sizeof(FuzzMsg), 0, NULL, NULL, 0, 0},
 	/* ACCEPT */
 	{sizeof(accept) / sizeof(FuzzMsg), 0, NULL, NULL, 0, 1},
 	/* ACCEPT_LANGUAGE */
@@ -280,9 +345,9 @@ gen_vector_move(TfwFuzzContext *ctx, int i)
 			if (gen_vector_move(ctx, i + 1) == FUZZ_END)
 				return FUZZ_END;
 		}
-	} while (ctx->is_only_valid && vals[i]
+	} while (ctx->is_only_valid && fld_data[i].vals
 		 && ctx->i[i] < gen_vector[i].size
-		 && FUZZ_MSG_INVAL(vals[i][ctx->i[i]]));
+		 && FUZZ_MSG_INVAL(fld_data[i].vals[ctx->i[i]]));
 
 	return FUZZ_VALID;
 }
@@ -319,29 +384,33 @@ add_rand_string(char **p, char *end, int n, const char *seed)
 }
 
 static unsigned int
-__add_field(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
+__add_field(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 {
-	FuzzMsg *val;
-
 	BUG_ON(t < 0);
 	BUG_ON(t >= TRANSFER_ENCODING_NUM);
 
-	val = vals[t];
-
-	BUG_ON(!val);
+	BUG_ON(!fld_data[t].vals);
 
 	if (n < gen_vector[t].size) {
-		FuzzMsg r = val[n];
-		add_string(p, end, r.s);
+		unsigned int r;
+		FuzzMsg fmsg = fld_data[t].vals[n];
 
-		if (t == TRANSFER_ENCODING && !n)
-			ctx->is_chunked_body = true;
+		add_string(p, end, fmsg.sval);
 
-		if (FUZZ_MSG_INVAL(r))
-			TFW_DBG("generate ivalid field %d for header %d\n",
+		if (fld_data[t].func)
+			r = fld_data[t].func(ctx, type, t, n);
+		else
+			r = fmsg.flags;
+
+		if (r & FUZZ_MSG_F_INVAL) {
+			TFW_DBG("generate invalid field %d for header %d\n",
 				 n, t);
+			r |= FUZZ_INVALID;
+		}
 
-		return r.rval;
+		ctx->fld_flags[t] |= r;
+
+		return r;
 	} else {
 		char *v = *p;
 		int len = n * 256;
@@ -365,7 +434,7 @@ __add_field(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 		}
 
 		if (r == FUZZ_INVALID)
-			TFW_DBG("generate ivalid random field for header %d\n",
+			TFW_DBG("generate invalid random field for header %d\n",
 				t);
 
 		return r;
@@ -373,46 +442,55 @@ __add_field(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 }
 
 static unsigned int
-add_field(TfwFuzzContext *ctx, char **p, char *end, int t)
+add_field(TfwFuzzContext *ctx, int type, char **p, char *end, int t)
 {
-	return __add_field(ctx, p, end, t, ctx->i[t]);
+	return __add_field(ctx, type, p, end, t, ctx->i[t]);
 }
 
 static unsigned int
-__add_header(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
+__add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 {
 	unsigned int v = 0, i;
-	char *key;
 
 	BUG_ON(t < 0);
 	BUG_ON(t >= TRANSFER_ENCODING_NUM);
 
-	key = keys[t];
+	BUG_ON(!fld_data[t].key);
 
-	BUG_ON(!key);
-
-	add_string(p, end, key);
-	v |= add_field(ctx, p, end, SPACES);
-	v |= add_field(ctx, p, end, t);
+	add_string(p, end, fld_data[t].key);
+	v |= add_field(ctx, type, p, end, SPACES);
+	v |= add_field(ctx, type, p, end, t);
 	for (i = 0; i < n; ++i) {
 		addch(p, end, ',');
-		v |= add_field(ctx, p, end, SPACES);
-		v |= __add_field(ctx, p, end, t, (i * 256) %
+		v |= add_field(ctx, type, p, end, SPACES);
+		v |= __add_field(ctx, type, p, end, t, (i * 256) %
 			(gen_vector[t].size + gen_vector[t].over));
 	}
 
 	add_string(p, end, "\r\n");
 
 	if (v & FUZZ_INVALID)
-		TFW_DBG("generate ivalid header %d\n", t);
+		TFW_DBG("generate invalid header %d\n", t);
+
+	ctx->hdr_flags |= 1 << t;
 
 	return v;
 }
 
 static unsigned int
-add_header(TfwFuzzContext *ctx, char **p, char *end, int t)
+__add_header_rand(TfwFuzzContext *ctx, int type,
+		  char **p, char *end, int t, int n)
 {
-	return __add_header(ctx, p, end, t, 0);
+	static unsigned int rand = 0;
+
+	/* For now, just alternate between adding a header and not adding. */
+	return (++rand) % 2 ? __add_header(ctx, type, p, end, t, n) : FUZZ_VALID;
+}
+
+static unsigned int
+add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t)
+{
+	return __add_header(ctx, type, p, end, t, 0);
 }
 
 static unsigned int
@@ -424,10 +502,10 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 
 	i = ctx->i[CONTENT_LENGTH];
 	len_str = (i < gen_vector[CONTENT_LENGTH].size)
-		  ? (content_len[i].rval & FUZZ_MSG_F_INVAL)
+		  ? (content_len[i].flags & FUZZ_MSG_F_INVAL)
 		    ? "500" /* Generate content of arbitrary size for invalid
 			     * Content-Length value. */
-		    : content_len[i].s
+		    : content_len[i].sval
 		  : ctx->content_length;
 
 	err = kstrtoul(len_str, 10, &len);
@@ -437,10 +515,8 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 		return FUZZ_INVALID;
 	}
 
-	if (!ctx->is_chunked_body) {
-		if (!ctx->is_only_valid && len
-		    && !(i % INVALID_BODY_PERIOD))
-		{
+	if (!(ctx->fld_flags[TRANSFER_ENCODING] & FUZZ_FLD_F_CHUNKED)) {
+		if (!ctx->is_only_valid && len && !(i % INVALID_BODY_PERIOD)) {
 			len /= 2;
 			ret = FUZZ_INVALID;
 			TFW_DBG("1/2 invalid body %lu\n", len);
@@ -492,7 +568,8 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 }
 
 static unsigned int
-__add_duplicates(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
+__add_duplicates(TfwFuzzContext *ctx, int type,
+		 char **p, char *end, int t, int n)
 {
 	int i, tmp = 0;
 	unsigned int v = FUZZ_VALID;
@@ -509,7 +586,7 @@ __add_duplicates(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 			ctx->i[t] = (ctx->i[t] + i) % gen_vector[t].size;
 		}
 
-		v |= __add_header(ctx, p, end, t, n);
+		v |= __add_header(ctx, type, p, end, t, n);
 
 		if (gen_vector[t].dissipation)
 			ctx->i[t] = tmp;
@@ -524,27 +601,74 @@ __add_duplicates(TfwFuzzContext *ctx, char **p, char *end, int t, int n)
 }
 
 static unsigned int
-add_duplicates(TfwFuzzContext *ctx, char **p, char *end, int t)
+add_duplicates(TfwFuzzContext *ctx, int type, char **p, char *end, int t)
 {
-	return __add_duplicates(ctx, p, end, t, 0);
+	return __add_duplicates(ctx, type, p, end, t, 0);
+}
+
+/*
+ * Make sure that header fields and values in the set of headers
+ * are compatible with each other.
+ */
+static bool
+fuzz_hdrs_compatible(TfwFuzzContext *ctx, int type, unsigned int v)
+{
+	/*
+	 * RFC 7230 3.3.3: Any response with a 1xx (Informational),
+	 * 204 (No Content), or 304 (Not Modified) status code is
+	 * always terminated by the first empty line after the header
+	 * fields, regardless of the header fields present in the
+	 * message, and thus cannot contain a message body.
+	 */
+	if (type & FUZZ_RESP) {
+		if ((ctx->fld_flags[METHOD]
+		     & (FUZZ_FLD_F_STATUS_100
+			| FUZZ_FLD_F_STATUS_204
+			| FUZZ_FLD_F_STATUS_304))
+		    || (v & FUZZ_MSG_F_EMPTY_BODY))
+		{
+			return true;
+		}
+	}
+	/*
+	 * RFC 7230 3.3.2: A sender MUST NOT send a Content-Length
+	 * header field in any message that contains a Transfer-Encoding
+	 * header field.
+	 */
+	if (ctx->hdr_flags & (1 << TRANSFER_ENCODING)) {
+		unsigned int te_flags = ctx->fld_flags[TRANSFER_ENCODING];
+		if (ctx->hdr_flags & (1 << CONTENT_LENGTH))
+			return false;
+		if (te_flags & FUZZ_FLD_F_CHUNKED) {
+			if (!(te_flags & FUZZ_FLD_F_CHUNKED_LAST))
+				return false;
+		} else if (type == FUZZ_REQ) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 void
 fuzz_init(TfwFuzzContext *ctx, bool is_only_valid)
 {
+	/* Ensure that there's a bit for each header field. */
+	BUILD_BUG_ON(sizeof(ctx->hdr_flags) > N_FIELDS);
+
 	memset(ctx->i, 0, sizeof(ctx->i));
 	ctx->is_only_valid = is_only_valid;
-	ctx->is_chunked_body = false;
 	ctx->curr_duplicates = 0;
 }
 EXPORT_SYMBOL(fuzz_init);
 
 /**
- * @returns FUZZ_VALID if the result is a valid request, FUZZ_INVALID if it's
- * invalid, FUZZ_END if the request sequence is over.
+ * @returns FUZZ_VALID if the result is a valid HTTP message, FUZZ_INVALID
+ * if the result is an invalid HTTP message, FUZZ_END if the HTTP message
+ * sequence is over.
  *
  * @move is how many gen_vector's elements should be changed each time a new
- * request is generated, should be >= 1.
+ * HTTP message is generated, should be >= 1.
  */
 int
 fuzz_gen(TfwFuzzContext *ctx, char *str, char *end, field_t start,
@@ -553,90 +677,91 @@ fuzz_gen(TfwFuzzContext *ctx, char *str, char *end, field_t start,
 	int i, n, ret = FUZZ_VALID;
 	unsigned int v = 0;
 
-	ctx->is_chunked_body = false;
+	ctx->hdr_flags = 0;
+	memset(ctx->fld_flags, 0, sizeof(ctx->fld_flags));
 
 	if (str == NULL)
 		return -EINVAL;
 
 	if (type == FUZZ_REQ) {
-		v |= add_field(ctx, &str, end, METHOD);
+		v |= add_field(ctx, type, &str, end, METHOD);
 		addch(&str, end, ' ');
 
-		v |= add_field(ctx, &str, end, URI_PATH_START);
+		v |= add_field(ctx, type, &str, end, URI_PATH_START);
 		addch(&str, end, '/');
-		v |= add_field(ctx, &str, end, HOST);
+		v |= add_field(ctx, type, &str, end, HOST);
 		for (i = 0; i < ctx->i[URI_PATH_DEPTH] + 1; ++i) {
 			addch(&str, end, '/');
-			v |= add_field(ctx, &str, end, URI_FILE);
+			v |= add_field(ctx, type, &str, end, URI_FILE);
 		}
 		addch(&str, end, ' ');
 	}
 
 	add_string(&str, end, "HTTP/");
-	v |= add_field(ctx, &str, end, HTTP_VER);
+	v |= add_field(ctx, type, &str, end, HTTP_VER);
 
 	if (type == FUZZ_RESP) {
 		addch(&str, end, ' ');
-		v |= add_field(ctx, &str, end, SPACES);
-		v |= add_field(ctx, &str, end, RESP_CODE);
+		v |= add_field(ctx, type, &str, end, SPACES);
+		v |= add_field(ctx, type, &str, end, RESP_CODE);
 	}
 
 	add_string(&str, end, "\r\n");
 
 	if (type == FUZZ_REQ) {
-		v |= add_header(ctx, &str, end, HOST);
-		v |= add_duplicates(ctx, &str, end, HOST);
+		v |= add_header(ctx, type, &str, end, HOST);
+		v |= add_duplicates(ctx, type, &str, end, HOST);
 
-		v |= add_header(ctx, &str, end, ACCEPT);
-		v |= add_duplicates(ctx, &str, end, ACCEPT);
+		v |= add_header(ctx, type, &str, end, ACCEPT);
+		v |= add_duplicates(ctx, type, &str, end, ACCEPT);
 
-		v |= add_header(ctx, &str, end, ACCEPT_LANGUAGE);
-		v |= add_duplicates(ctx, &str, end, ACCEPT_LANGUAGE);
+		v |= add_header(ctx, type, &str, end, ACCEPT_LANGUAGE);
+		v |= add_duplicates(ctx, type, &str, end, ACCEPT_LANGUAGE);
 
-		v |= add_header(ctx, &str, end, ACCEPT_ENCODING);
-		v |= add_duplicates(ctx, &str, end, ACCEPT_ENCODING);
+		v |= add_header(ctx, type, &str, end, ACCEPT_ENCODING);
+		v |= add_duplicates(ctx, type, &str, end, ACCEPT_ENCODING);
 
-		v |= add_header(ctx, &str, end, COOKIE);
-		v |= add_duplicates(ctx, &str, end, COOKIE);
+		v |= add_header(ctx, type, &str, end, COOKIE);
+		v |= add_duplicates(ctx, type, &str, end, COOKIE);
 
-		v |= add_header(ctx, &str, end, X_FORWARDED_FOR);
-		v |= add_duplicates(ctx, &str, end, X_FORWARDED_FOR);
+		v |= add_header(ctx, type, &str, end, X_FORWARDED_FOR);
+		v |= add_duplicates(ctx, type, &str, end, X_FORWARDED_FOR);
 
-		v |= add_header(ctx, &str, end, USER_AGENT);
-		v |= add_duplicates(ctx, &str, end, USER_AGENT);
+		v |= add_header(ctx, type, &str, end, USER_AGENT);
+		v |= add_duplicates(ctx, type, &str, end, USER_AGENT);
 	}
 	else if (type == FUZZ_RESP) {
-		v |= add_header(ctx, &str, end, ACCEPT_RANGES);
-		v |= add_duplicates(ctx, &str, end, ACCEPT_RANGES);
+		v |= add_header(ctx, type, &str, end, ACCEPT_RANGES);
+		v |= add_duplicates(ctx, type, &str, end, ACCEPT_RANGES);
 
-		v |= add_header(ctx, &str, end, SET_COOKIE);
-		v |= add_duplicates(ctx, &str, end, SET_COOKIE);
+		v |= add_header(ctx, type, &str, end, SET_COOKIE);
+		v |= add_duplicates(ctx, type, &str, end, SET_COOKIE);
 
-		v |= add_header(ctx, &str, end, ETAG);
-		v |= add_duplicates(ctx, &str, end, ETAG);
+		v |= add_header(ctx, type, &str, end, ETAG);
+		v |= add_duplicates(ctx, type, &str, end, ETAG);
 
-		v |= add_header(ctx, &str, end, SERVER);
-		v |= add_duplicates(ctx, &str, end, SERVER);
+		v |= add_header(ctx, type, &str, end, SERVER);
+		v |= add_duplicates(ctx, type, &str, end, SERVER);
 
-		v |= add_header(ctx, &str, end, EXPIRES);
-		v |= add_duplicates(ctx, &str, end, EXPIRES);
-
-		n = ctx->i[TRANSFER_ENCODING_NUM];
-		v |= __add_header(ctx, &str, end, TRANSFER_ENCODING, n);
-		v |= __add_duplicates(ctx, &str, end, TRANSFER_ENCODING, n);
+		v |= add_header(ctx, type, &str, end, EXPIRES);
+		v |= add_duplicates(ctx, type, &str, end, EXPIRES);
 	}
 
-	v |= add_header(ctx, &str, end, CONNECTION);
-	v |= add_duplicates(ctx, &str, end, CONNECTION);
+	n = ctx->i[TRANSFER_ENCODING_NUM];
+	v |= __add_header_rand(ctx, type, &str, end, TRANSFER_ENCODING, n);
+	v |= __add_duplicates(ctx, type, &str, end, TRANSFER_ENCODING, n);
 
-	v |= add_header(ctx, &str, end, CONTENT_TYPE);
-	v |= add_duplicates(ctx, &str, end, CONTENT_TYPE);
+	v |= add_header(ctx, type, &str, end, CONNECTION);
+	v |= add_duplicates(ctx, type, &str, end, CONNECTION);
 
-	v |= add_header(ctx, &str, end, CONTENT_LENGTH);
-	v |= add_duplicates(ctx, &str, end, CONTENT_LENGTH);
+	v |= add_header(ctx, type, &str, end, CONTENT_TYPE);
+	v |= add_duplicates(ctx, type, &str, end, CONTENT_TYPE);
 
-	v |= add_header(ctx, &str, end, CACHE_CONTROL);
-	v |= add_duplicates(ctx, &str, end, CACHE_CONTROL);
+	v |= add_header(ctx, type, &str, end, CONTENT_LENGTH);
+	v |= add_duplicates(ctx, type, &str, end, CONTENT_LENGTH);
+
+	v |= add_header(ctx, type, &str, end, CACHE_CONTROL);
+	v |= add_duplicates(ctx, type, &str, end, CACHE_CONTROL);
 
 	add_string(&str, end, "\r\n");
 
@@ -653,6 +778,9 @@ fuzz_gen(TfwFuzzContext *ctx, char *str, char *end, field_t start,
 		v |= FUZZ_INVALID;
 		*(end - 1) = '\0';
 	}
+
+	if (!(v & FUZZ_INVALID) && !fuzz_hdrs_compatible(ctx, type, v))
+		v |= FUZZ_INVALID;
 
 	for (i = 0; i < move; i++) {
 		ret = gen_vector_move(ctx, start);

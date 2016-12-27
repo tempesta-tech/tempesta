@@ -26,7 +26,8 @@ class Test:
 		self.cfg = conf.TFWConfig()
 		self.cfg.add_option('cache', '0')
 		self.cfg.add_option('listen', '8081')
-		self.cfg.add_option('server', '127.0.0.1:8080')
+		self.cfg.add_option('server', '127.0.0.1:' +
+				    str(conf.get_beport()))
 # 	Send request twice and check responses.
 	def run_with_cache(self):
 		self.res = "cache - two queries and compare bodies:\n"

@@ -152,9 +152,10 @@ typedef struct {
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
+ * @_acc	- integer accumulator for parsing chunked integers;
+ * @_date	- accumulator for a date in date related headers;
  * @_hdr_tag	- stores header id which must be closed on generic EoL handling
  *		  (see RGEN_EOL());
- * @_acc	- integer accumulator for parsing chunked integers;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  */
@@ -197,6 +198,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_TRANSFER_ENCODING,
 
 	/* Start of list of generic (raw) headers. */
 	TFW_HTTP_HDR_RAW,
@@ -220,6 +222,7 @@ typedef struct {
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CHUNKED		0x000004
+#define TFW_HTTP_MSG_SENT		0x000008
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -389,10 +392,10 @@ void tfw_http_req_destruct(void *msg);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpReq *req);
-int tfw_http_send_404(TfwHttpReq *req);
-int tfw_http_send_502(TfwHttpReq *req);
-int tfw_http_send_504(TfwHttpReq *req);
+int tfw_http_send_403(TfwHttpReq *req, const char *reason);
+int tfw_http_send_404(TfwHttpReq *req, const char *reason);
+int tfw_http_send_502(TfwHttpReq *req, const char *reason);
+int tfw_http_send_504(TfwHttpReq *req, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.

@@ -32,6 +32,8 @@ def set_beport(_port):
 
 def get_beport():
 	global be_port
+	if be_port == 0:
+		be_port = 8080
 	return be_port
 
 class Config:

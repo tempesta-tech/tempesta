@@ -59,17 +59,21 @@ typedef enum {
 	EXPIRES,
 	TRANSFER_ENCODING_NUM,
 	URI_PATH_DEPTH,
-	DUPLICATES,
 	BODY_CHUNKS_NUM,
 	N_FIELDS,
 } field_t;
 
+/*
+ * @hdr_flags		- a flag for each header;
+ * @fld_flags		- message and contents flags;
+ */
 typedef struct {
 	int i[N_FIELDS];
 	bool is_only_valid;
-	bool is_chunked_body;
 	char content_length[MAX_CONTENT_LENGTH_LEN + 1];
 	int curr_duplicates;
+	unsigned int hdr_flags;
+	unsigned int fld_flags[N_FIELDS];
 } TfwFuzzContext;
 
 void fuzz_init(TfwFuzzContext *context, bool is_only_valid);

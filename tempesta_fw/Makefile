@@ -32,7 +32,6 @@ tempesta_fw-objs = \
 	classifier.o \
 	client.o \
 	connection.o \
-	debugfs.o \
 	filter.o \
 	gfsm.o \
 	hash.o \
