@@ -608,20 +608,20 @@ TEST(http_sticky_sched, sched_one_sg)
 		}
 	}
 
-	conn = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL);
+	conn = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL);
 	EXPECT_NOT_NULL((conn));
 
 	/* Round-robin is fair scheduller but the connection must be the same */
 	for (i = 0; i < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++i)
 		EXPECT_EQ(conn,
-			  tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL));
+			  tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL));
 
 	/*
 	 * Test connection failovering: schedule to the new connection to
 	 * the same server
 	*/
 	atomic_set(&conn->refcnt, 0);
-	conn_fail = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL);
+	conn_fail = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL);
 	EXPECT_NOT_NULL((conn_fail));
 	EXPECT_NE(conn, conn_fail);
 	EXPECT_EQ(conn->peer, conn_fail->peer);
@@ -676,7 +676,7 @@ TEST(http_sticky_sched, sched_one_sg_offline_srv)
 		}
 	}
 
-	conn = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL);
+	conn = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL);
 	EXPECT_NOT_NULL((conn));
 
 	/* Put setver to offline */
@@ -686,11 +686,11 @@ TEST(http_sticky_sched, sched_one_sg_offline_srv)
 
 	/* Deny fallback to server group */
 	sticky_sess_deny_sched();
-	EXPECT_NULL(tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL));
+	EXPECT_NULL(tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL));
 
 	/* Allow fallback to server group */
 	sticky_sess_allow_sched();
-	conn_fail = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL);
+	conn_fail = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL);
 	EXPECT_NOT_NULL((conn_fail));
 	EXPECT_NE(conn, conn_fail);
 	EXPECT_NE(conn->peer, conn_fail->peer);
@@ -702,7 +702,7 @@ TEST(http_sticky_sched, sched_one_sg_offline_srv)
 	list_for_each_entry(c, &offline_srv->conn_list, list)
 		tfw_connection_revive(c);
 	EXPECT_EQ(conn_fail,
-		  tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg, NULL));
+		  tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg, NULL));
 
 	test_conn_release_all(sg);
 	test_sg_release_all();
@@ -740,7 +740,7 @@ TEST(http_sticky_sched, sched_backup_sg)
 		}
 	}
 
-	conn = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_m, sg_b);
+	conn = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_m, sg_b);
 	EXPECT_NOT_NULL((conn));
 	b_srv = (TfwServer *)conn->peer;
 	EXPECT_EQ(sg_b, b_srv->sg);
@@ -754,16 +754,16 @@ TEST(http_sticky_sched, sched_backup_sg)
 			tfw_connection_revive(c);
 
 	EXPECT_EQ(conn,
-		  tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_m, sg_b));
+		  tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_m, sg_b));
 
 	/* Schedule to main server group if current server went offline */
 	list_for_each_entry(c, &b_srv->conn_list, list)
 		atomic_set(&c->refcnt, 0);
 
-	EXPECT_NULL(tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_m, sg_b));
+	EXPECT_NULL(tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_m, sg_b));
 
 	sticky_sess_allow_sched();
-	conn_m = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_m, sg_b);
+	conn_m = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_m, sg_b);
 	EXPECT_NOT_NULL((conn_m));
 	EXPECT_EQ(((TfwServer *)conn_m->peer)->sg, sg_m);
 
@@ -797,13 +797,13 @@ TEST(http_sticky_sched, resuse_conn)
 	}
 
 	/* Connect to backup server group explicitly */
-	conn_b = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_b, NULL);
+	conn_b = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_b, NULL);
 	EXPECT_NOT_NULL((conn_b));
 	b_srv = (TfwServer *)conn_b->peer;
 	EXPECT_EQ(sg_b, b_srv->sg);
 
 	/* Reuse connection to backup server group */
-	conn = tfw_sched_get_conn_from_sg((TfwMsg *)mock.req, sg_m, sg_b);
+	conn = tfw_sched_sg_get_conn((TfwMsg *)mock.req, sg_m, sg_b);
 	EXPECT_NOT_NULL((conn));
 	EXPECT_EQ(conn_b, conn);
 

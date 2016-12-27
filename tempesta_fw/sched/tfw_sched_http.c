@@ -114,7 +114,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		return NULL;
 	}
 
-	return tfw_sched_get_conn_from_sg(msg, rule->main_sg, rule->backup_sg);
+	return tfw_sched_sg_get_conn(msg, rule->main_sg, rule->backup_sg);
 }
 
 static TfwConnection *

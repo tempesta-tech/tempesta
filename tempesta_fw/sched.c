@@ -45,24 +45,24 @@ static DEFINE_SPINLOCK(sched_lock);
  * @backup_sg if scheduling to main group failed.
  */
 static inline TfwConnection *
-sched_conn(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+sched_sg_conn(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
 {
 	TfwConnection *conn;
-	TfwSrvGroup *sg = main_sg;
 
-	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
-	conn = sg->sched->sched_sg_conn(msg, sg);
+	TFW_DBG2("sched %s: schedule from group: '%s'\n", main_sg->sched->name,
+		 main_sg->name);
+	conn = main_sg->sched->sched_sg_conn(msg, main_sg);
 
 	if (unlikely(!conn && backup_sg)) {
-		sg = backup_sg;
-		TFW_DBG("sched: the main group is offline, use backup:"
-			" '%s'\n", sg->name);
-		conn = sg->sched->sched_sg_conn(msg, sg);
+		TFW_DBG("sched %s: the main group is offline, schedule from "
+			"backup group '%s'\n", backup_sg->sched->name,
+			backup_sg->name);
+		conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
 	}
 
 	if (unlikely(!conn))
-		TFW_DBG2("sched: Unable to select server from group"
-			 " '%s'\n", sg->name);
+		TFW_DBG2("sched: Unable to select server from main and buckup "
+			 "group\n");
 
 	return conn;
 }
@@ -88,11 +88,15 @@ sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
 		if (tfw_connection_get_if_nfo(conn))
 			return conn;
 
+		/*
+		 * @conn->peer->sg may differ from @sg if connection was
+		 * scheduled to backup group last time.
+		*/
 		if ((conn = srv->sg->sched->sched_srv_conn(msg, srv)))
 			return conn;
 
 		if (!tfw_cfg_sticky_sessions_failover) {
-			return (void *)(-1);
+			return ERR_PTR(-EINVAL);
 		}
 		else {
 			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
@@ -106,12 +110,13 @@ sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
 
 	/*
 	 * Schedule message to main server group if the message is the first
-	 * to that server group or last connected server offline
+	 * to that server group or last connected server offline.
 	 */
 	conn = sg->sched->sched_sg_conn(msg, sg);
 	if (unlikely(!conn))
-		TFW_DBG2("sched: Unable to select server from group"
-			 " '%s'\n", sg->name);
+		TFW_DBG2("sched %s: Unable to select server from group '%s'\n",
+			 sg->sched->name, sg->name);
+
 	return conn;
 }
 
@@ -121,7 +126,7 @@ sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
  * sessions are enabled.
  */
 static inline TfwConnection *
-tfw_sched_get_srv_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+tfw_sched_srv_get_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 			      TfwSrvGroup *backup_sg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)msg;
@@ -131,12 +136,12 @@ tfw_sched_get_srv_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 
 	conn = sched_conn_sticky(msg, main_sg);
 
-	if (unlikely(conn == (void *)(-1)))
+	if (unlikely(IS_ERR(conn)))
 		return NULL;
 
 	if (unlikely(!conn && backup_sg)) {
 		conn = sched_conn_sticky(msg, backup_sg);
-		if (unlikely(conn == (void *)(-1)))
+		if (unlikely(IS_ERR(conn)))
 			return NULL;
 	}
 
@@ -151,7 +156,7 @@ tfw_sched_get_srv_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
  * Supports sticky sessions.
  */
 TfwConnection *
-tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
+tfw_sched_sg_get_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 			   TfwSrvGroup *backup_sg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)msg;
@@ -159,18 +164,13 @@ tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
 
 	BUG_ON(!main_sg);
 
-	if (tfw_cfg_sticky_sessions) {
-		if (sess)
-			return tfw_sched_get_srv_sticky_conn(msg, main_sg,
-							     backup_sg);
+	if (tfw_cfg_sticky_sessions && sess)
+		return tfw_sched_srv_get_sticky_conn(msg, main_sg, backup_sg);
 
-		TFW_WARN("sticky sessions are enabled but sticky cookies are "
-			 "not enforced\n");
-	}
-
-	return sched_conn(msg, main_sg, backup_sg);
+	/* Sticky sessions are disabled or client does not support cookies */
+	return sched_sg_conn(msg, main_sg, backup_sg);
 }
-EXPORT_SYMBOL(tfw_sched_get_conn_from_sg);
+EXPORT_SYMBOL(tfw_sched_sg_get_conn);
 
 /**
  * Find an outgoing connection for an HTTP message.
@@ -185,7 +185,7 @@ EXPORT_SYMBOL(tfw_sched_get_conn_from_sg);
  * This function is always called in SoftIRQ context.
  */
 TfwConnection *
-tfw_sched_get_srv_conn(TfwMsg *msg)
+tfw_sched_get_conn(TfwMsg *msg)
 {
 	TfwConnection *conn;
 	TfwScheduler *sched;
