@@ -95,8 +95,8 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_zero_conn)
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
- * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be
+ * max_srv_in_sg_and_max_conn) for ratio and hash schedulers. So if test
+ * structure is changed, the other mentioned above tests should be also be
  * updated
  */
 TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
@@ -142,8 +142,8 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
 /*
  * This unit test is implementation aware and checks more than just interface.
  * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
- * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be
+ * max_srv_in_sg_and_max_conn) for ratio and hash schedulers. So if test
+ * structure is changed, the other mentioned above tests should be also be
  * updated
  */
 TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)

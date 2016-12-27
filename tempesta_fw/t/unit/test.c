@@ -22,6 +22,9 @@
 #include <linux/module.h>
 #include "test.h"
 
+#undef EXPORT_SYMBOL
+#define EXPORT_SYMBOL(...)
+
 #include "apm.c"
 #include "vhost.c"
 
@@ -92,9 +95,9 @@ TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
-TEST_SUITE(sched_rr);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
+TEST_SUITE(sched_ratio);
 
 int
 test_run_all(void)
@@ -117,9 +120,9 @@ test_run_all(void)
 	TEST_SUITE_RUN(http_sticky);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
-	TEST_SUITE_RUN(sched_rr);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(sched_http);
+	TEST_SUITE_RUN(sched_ratio);
 
 	kernel_fpu_end();
 

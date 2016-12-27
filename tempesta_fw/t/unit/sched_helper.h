@@ -27,7 +27,7 @@
 #include "connection.h"
 
 int tfw_server_init(void);
-int tfw_sched_rr_init(void);
+int tfw_sched_ratio_init(void);
 void sched_helper_init(void);
 
 void test_spec_cleanup(TfwCfgSpec specs[]);
