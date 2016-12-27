@@ -40,7 +40,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
 /**
  * Server descriptor, a TfwPeer successor.
  *
- * @list	- member pointer in the list of servers of a server group;
+ * @list	- member in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
  * @weight	- static server weight for load balancers;
@@ -62,7 +62,7 @@ typedef struct {
  * Reverse proxy must define load balancing policy. Forward proxy must define
  * eviction policy. While both of them should define failovering policy.
  *
- * @list		- member pointer in the list of server groups;
+ * @list		- member in the list of server groups;
  * @srv_list		- list of servers belonging to the group;
  * @lock		- synchronizes the group readers with updaters;
  * @flags		- various flags;

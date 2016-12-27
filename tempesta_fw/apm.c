@@ -855,6 +855,7 @@ tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 
 	return (seq != rdidx);
 }
+EXPORT_SYMBOL(tfw_apm_stats);
 
 /*
  * Verify that an APM Stats user using the same set of percentiles.
