@@ -526,6 +526,19 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 	return tfw_http_sticky_add(resp, req);
 }
 
+static inline void
+sess_destroy(TfwHttpSess *sess)
+{
+	TfwHttpSessConns *sess_conn, *tmp;
+
+	list_for_each_entry_safe(sess_conn, tmp, &sess->conns, list) {
+		list_del(&sess_conn->list);
+		kmem_cache_free(sess_conn_cache, sess_conn);
+	}
+	kmem_cache_free(sess_cache, sess);
+}
+
+
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
@@ -533,15 +546,8 @@ tfw_http_sess_put(TfwHttpSess *sess)
 	 * Use counter reached 0, so session already expired and evicted
 	 * from the hash table.
 	 */
-	if (atomic_dec_and_test(&sess->users)) {
-		TfwHttpSessConns *sess_conn, *tmp;
-		list_for_each_entry_safe(sess_conn, tmp, &sess->conns, list) {
-			list_del(&sess_conn->list);
-			kmem_cache_free(sess_conn_cache, sess_conn);
-		}
-		kmem_cache_free(sess_cache, sess);
-	}
-
+	if (atomic_dec_and_test(&sess->users))
+		sess_destroy(sess);
 }
 
 /**
@@ -758,16 +764,8 @@ tfw_http_sess_exit(void)
 		SessHashBucket *hb = &sess_hash[i];
 
 		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
-			TfwHttpSessConns *sess_conn, *tmp_sess_conn;
-
 			hash_del(&s->hentry);
-			list_for_each_entry_safe(sess_conn, tmp_sess_conn,
-						 &s->conns, list)
-			{
-				list_del(&sess_conn->list);
-				kmem_cache_free(sess_conn_cache, sess_conn);
-			}
-			kmem_cache_free(sess_cache, s);
+			sess_destroy(s);
 		}
 	}
 	kmem_cache_destroy(sess_conn_cache);
