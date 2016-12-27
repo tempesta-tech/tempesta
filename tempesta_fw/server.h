@@ -133,8 +133,8 @@ int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
-TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
-TfwConnection *tfw_sched_get_conn_from_sg(TfwMsg *msg, TfwSrvGroup *main_sg,
+TfwConnection *tfw_sched_get_conn(TfwMsg *msg);
+TfwConnection *tfw_sched_sg_get_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 					  TfwSrvGroup *backup_sg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);

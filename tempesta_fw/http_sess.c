@@ -82,9 +82,10 @@ typedef struct {
   *
   * @list	- list of connections;
   * @sg		- target server group;
-  * @conn	- connection can be established to server group differ from @sg,
-  *		in this case connection is established to server from back-up
-  *		group.
+  * @conn	- last used connection;
+  *
+  * Connection may be established to server in backup group which differs from
+  * @sg.
   */
 typedef struct {
 	struct list_head	list;
@@ -533,10 +534,10 @@ tfw_http_sess_put(TfwHttpSess *sess)
 	 * from the hash table.
 	 */
 	if (atomic_dec_and_test(&sess->users)) {
-		TfwHttpSessConns *conn, *tmp;
-		list_for_each_entry_safe(conn, tmp, &sess->conns, list) {
-			list_del(&conn->list);
-			kmem_cache_free(sess_conn_cache, sess);
+		TfwHttpSessConns *sess_conn, *tmp;
+		list_for_each_entry_safe(sess_conn, tmp, &sess->conns, list) {
+			list_del(&sess_conn->list);
+			kmem_cache_free(sess_conn_cache, sess_conn);
 		}
 		kmem_cache_free(sess_cache, sess);
 	}
@@ -638,7 +639,7 @@ TfwConnection *
 tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 {
 	TfwHttpSess *sess = req->sess;
-	TfwHttpSessConns *s_conn;
+	TfwHttpSessConns *sess_conn;
 	TfwConnection *conn = NULL, *backup_conn = NULL;
 
 	if (!sess)
@@ -646,17 +647,17 @@ tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 
 	read_lock(&sess->conns_lock);
 
-	list_for_each_entry(s_conn, &sess->conns, list) {
-		if (s_conn->sg == sg) {
-			conn = s_conn->conn;
+	list_for_each_entry(sess_conn, &sess->conns, list) {
+		if (sess_conn->sg == sg) {
+			conn = sess_conn->conn;
 			break;
 		}
-		else if (s_conn->conn &&
-			 (((TfwServer *)s_conn->conn->peer)->sg == sg))
+		if (sess_conn->conn &&
+		    (((TfwServer *)sess_conn->conn->peer)->sg == sg))
 		{
-			backup_conn = s_conn->conn;
+			backup_conn = sess_conn->conn;
 		}
-	};
+	}
 
 	read_unlock(&sess->conns_lock);
 	return conn ? : backup_conn;
@@ -682,7 +683,7 @@ tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
 			s_conn->conn = conn;
 			goto done;
 		}
-	};
+	}
 
 	if (!(s_conn = kmem_cache_alloc(sess_conn_cache, GFP_ATOMIC))) {
 		r = -ENOMEM;
@@ -701,46 +702,49 @@ done:
 int __init
 tfw_http_sess_init(void)
 {
-	int ret;
+	int err_val = -ENOMEM;
 	u_char *ptr;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
-		return -ENOMEM;
-	}
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
+		goto err;
+
 	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
 		pr_err("shash allocation failed\n");
-		return  PTR_ERR(tfw_sticky_shash);
+		err_val = PTR_ERR(tfw_sticky_shash);
+		goto err;
 	}
 
 	get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
-	ret = crypto_shash_setkey(tfw_sticky_shash,
-				  (u8 *)tfw_sticky_key,
-				  sizeof(tfw_sticky_key));
-	if (ret) {
-		crypto_free_shash(tfw_sticky_shash);
-		return ret;
-	}
+	err_val = crypto_shash_setkey(tfw_sticky_shash,
+				      (u8 *)tfw_sticky_key,
+				      sizeof(tfw_sticky_key));
+	if (err_val)
+		goto err_shash;
 
+	err_val = -ENOMEM;
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
 				       0, 0, NULL);
-	if (!sess_cache) {
-		crypto_free_shash(tfw_sticky_shash);
-		return -ENOMEM;
-	}
+	if (!sess_cache)
+		goto err_shash;
 
 	sess_conn_cache = kmem_cache_create("tfw_sess_conn_cache",
 					    sizeof(TfwHttpSessConns), 0, 0,
 					    NULL);
-	if (!sess_conn_cache) {
-		crypto_free_shash(tfw_sticky_shash);
-		return -ENOMEM;
-	}
+	if (!sess_conn_cache)
+		goto err_sess_conn_cache;
 
 	return 0;
+
+err_sess_conn_cache:
+	kmem_cache_destroy(sess_cache);
+err_shash:
+	crypto_free_shash(tfw_sticky_shash);
+err:
+	return err_val;
 }
 
 void
@@ -754,14 +758,14 @@ tfw_http_sess_exit(void)
 		SessHashBucket *hb = &sess_hash[i];
 
 		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
-			TfwHttpSessConns *conn, *tmp_conn;
+			TfwHttpSessConns *sess_conn, *tmp_sess_conn;
 
 			hash_del(&s->hentry);
-			list_for_each_entry_safe(conn, tmp_conn,
+			list_for_each_entry_safe(sess_conn, tmp_sess_conn,
 						 &s->conns, list)
 			{
-				list_del(&conn->list);
-				kmem_cache_free(sess_conn_cache, conn);
+				list_del(&sess_conn->list);
+				kmem_cache_free(sess_conn_cache, sess_conn);
 			}
 			kmem_cache_free(sess_cache, s);
 		}
@@ -841,7 +845,7 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r = tfw_cfg_set_int(cs, ce);
 
-	/* Value of 0 means unlimited */
+	/* sess_lifetime value of 0 means unlimited */
 	if (!r && !tfw_cfg_sticky.sess_lifetime)
 		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
 
@@ -851,17 +855,29 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_http_sticky_sessions_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	size_t i;
-	const char *val;
-
 	tfw_cfg_sticky_sessions = true;
 	tfw_cfg_sticky_sessions_failover = false;
 
-	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		 if (!strcasecmp(val, "failover"))
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n > 1) {
+		TFW_ERR("%s: Invalid number of arguments: %zu\n",
+			cs->name, ce->val_n);
+		return -EINVAL;
+	}
+
+	if (ce->val_n) {
+		if (!strcasecmp(ce->vals[0], "failover")) {
 			tfw_cfg_sticky_sessions_failover = true;
-		 else
-			 return -EINVAL;
+		}
+		else {
+			TFW_ERR("%s: Unsupported argument: %s\n",
+				cs->name, ce->vals[0]);
+			return  -EINVAL;
+		}
 	}
 
 	return 0;
