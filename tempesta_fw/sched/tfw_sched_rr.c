@@ -89,6 +89,9 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 	}
 
 	srv_cl = &sl->srvs[s];
+	if (!srv->sched_data)
+		srv->sched_data = srv_cl;
+
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
@@ -101,60 +104,63 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 }
 
 /**
+ * Returns the next connection for the server.
+ * Dead connections are skipped.
+ */
+static inline TfwConnection *
+sched_rr_get_conn(TfwRrSrv *srv_cl)
+{
+	size_t c;
+
+	for (c = 0; c < srv_cl->conn_n; ++c) {
+		size_t idx = atomic64_inc_return(&srv_cl->rr_counter)
+				% srv_cl->conn_n;
+		TfwConnection *conn = srv_cl->conns[idx];
+
+		if (tfw_connection_get_if_nfo(conn))
+			return conn;
+	}
+	return NULL;
+}
+
+/**
  * On each subsequent call the function returns the next server in the group.
  * Parallel connections to the same server are also rotated in the
  * round-robin manner.
  * Dead connections and servers w/o live connections are skipped.
  */
 static TfwConnection *
-tfw_sched_rr_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_rr_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	size_t c, s, i;
-	TfwConnection *conn;
+	size_t s;
 	TfwRrSrvList *sl = sg->sched_data;
-	TfwRrSrv *srv_cl;
 
 	BUG_ON(!sl);
 
 	for (s = 0; s < sl->srv_n; ++s) {
-		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		srv_cl = &sl->srvs[i];
-		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-			    % srv_cl->conn_n;
-			conn = srv_cl->conns[i];
-			if (tfw_connection_get_if_nfo(conn))
-				return conn;
-		}
+		size_t idx = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
+		TfwConnection *conn = sched_rr_get_conn(&sl->srvs[idx]);
+
+		if (conn)
+			return conn;
 	}
 	return NULL;
 }
 
+/**
+ * Returns live connection to the server @srv.
+ * Parallel connections to the server are rotated in the round-robin manner.
+ */
 static TfwConnection *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+tfw_sched_rr_srv_get_conn(TfwMsg *msg, TfwServer *srv)
 {
-	long i;
-	size_t c, s;
-	TfwConnection *conn;
-	TfwRrSrvList *sl = srv->sg->sched_data;
-	TfwRrSrv *srv_cl;
+	TfwRrSrv *srv_cl = srv->sched_data;
 
-	BUG_ON(!sl);
+	/* For @srv without connections srv_cl will be NULL */
+	if (!srv_cl)
+		return NULL;
 
-	for (s = 0; s < sl->srv_n; ++s) {
-		if (sl->srvs[s].srv != srv)
-			continue;
-
-		srv_cl = &sl->srvs[s];
-		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-					% srv_cl->conn_n;
-			conn = srv_cl->conns[i];
-			if (tfw_connection_get_if_nfo(conn))
-				return conn;
-		}
-	}
-	return NULL;
+	return sched_rr_get_conn(srv_cl);
 }
 
 static TfwScheduler tfw_sched_rr = {
@@ -163,8 +169,8 @@ static TfwScheduler tfw_sched_rr = {
 	.add_grp	= tfw_sched_rr_alloc_data,
 	.del_grp	= tfw_sched_rr_free_data,
 	.add_conn	= tfw_sched_rr_add_conn,
-	.sched_sg_conn	= tfw_sched_rr_get_sg_conn,
-	.sched_srv_conn	= tfw_sched_rr_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_rr_sg_get_conn,
+	.sched_srv_conn	= tfw_sched_rr_srv_get_conn,
 };
 
 int
