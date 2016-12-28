@@ -102,9 +102,9 @@ sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
 			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 
 			tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
-			TFW_WARN("sched: Unable to reschedule request to the "
-				 "same server %s, schedule from server group\n",
-				 addr_str);
+			TFW_WARN("sched %s: Unable to schedule new request in "
+				 "session to the same server %s in group %s\n",
+				 srv->sg->sched->name, addr_str, srv->sg->name);
 		}
 	}
 
