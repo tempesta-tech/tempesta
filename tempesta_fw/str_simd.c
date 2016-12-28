@@ -25,7 +25,7 @@
 #pragma GCC target("mmx", "sse4.2")
 #endif
 #include <asm/bitops.h>
-#include <asm/i387.h>
+#include <asm/fpu/api.h>
 #include <x86intrin.h>
 
 #include "htype.h"
