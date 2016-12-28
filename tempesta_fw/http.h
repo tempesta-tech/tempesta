@@ -197,7 +197,8 @@ typedef struct {
  * adjusting as well as saves cache storage.
  *
  * Headers unconditionaly treated as hop-by-hop must be listed in
- * __hbh_parser_init() function and must be members of Special headers
+ * __hbh_parser_init_req()/__hbh_parser_init_resp() functions and must be
+ * members of Special headers.
  * group.
  *
  * @spec	- bit array for special headers. Hop-by-hop special header is

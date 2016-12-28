@@ -810,6 +810,39 @@ tfw_http_msg_free(TfwHttpMsg *m)
 EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
+ * Add spec header indexes to list of hop-by-hop headers.
+ */
+static inline void
+__hbh_parser_init_req(TfwHttpReq *req)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/* Connection is hop-by-hop header by RFC 7230 6.1 */
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+}
+
+/**
+ * Same as @__hbh_parser_init_req for response.
+ */
+static inline void
+__hbh_parser_init_resp(TfwHttpResp *resp)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/*
+	 * Connection is hop-by-hop header by RFC 7230 6.1
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
+			 (0x1 << TFW_HTTP_HDR_SERVER);
+
+}
+
+/**
  * Allocate a new HTTP message.
  * Given the total message length as @data_len, it allocates an appropriate
  * number of SKBs and page fragments to hold the payload, and sets them up
@@ -841,6 +874,10 @@ tfw_http_msg_alloc(int type)
 	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	hm->parser.to_read = -1; /* unknown body size */
+	if (type & Conn_Clnt)
+		__hbh_parser_init_req((TfwHttpReq *)hm);
+	else
+		__hbh_parser_init_resp((TfwHttpResp *)hm);
 
 	if (type & Conn_Clnt)
 		hm->destructor = tfw_http_req_destruct;

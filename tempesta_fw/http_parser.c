@@ -471,41 +471,8 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 }
 
 /**
- * Add spec header indexes to list of hop-by-hop headers
- */
-static inline void
-__hbh_parser_init_req(TfwHttpReq *req)
-{
-	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
-
-	BUG_ON(hbh_hdrs->spec);
-	/* Connection is hop-by-hop header by RFC 7230 6.1 */
-	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
-}
-
-/**
- * Same as @__hbh_parser_init_req for response
- */
-static inline void
-__hbh_parser_init_resp(TfwHttpResp *resp)
-{
-	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
-
-	BUG_ON(hbh_hdrs->spec);
-	/*
-	 * Connection is hop-by-hop header by RFC 7230 6.1
-	 *
-	 * Server header isn't defined as hop-by-hop by the RFC, but we
-	 * don't show protected server to world.
-	 */
-	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
-			 (0x1 << TFW_HTTP_HDR_SERVER);
-
-}
-
-/**
- * Mark existing spec headers of http message @hm as hop-by-hop if they was
- * listed in Connection header or in @__hbh_parser_init_* function
+ * Mark existing spec headers of http message @hm as hop-by-hop if they were
+ * listed in Connection header or in @__hbh_parser_init_* function.
  */
 static void
 mark_spec_hbh(TfwHttpMsg *hm)
@@ -593,7 +560,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 static int
 __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
-	TfwStr *hdr = NULL, *append;
+	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 	unsigned long i;
 	static const TfwStr end_to_end[] __read_mostly = {
@@ -1102,8 +1069,6 @@ __FSM_STATE(RGen_OWS) {							\
 			msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;	\
 	})
 
-#define TRY_SPEC_HBH_HDR(name, hid) TRY_SPEC_HBH_HDR_LAMBDA(name, hid, {})
-
 /**
  * Parse Connection header value, RFC 7230 6.1.
  *
@@ -1352,7 +1317,6 @@ done:
 /* Main (parent) HTTP request processing states. */
 enum {
 	Req_0,
-	Req_0_CRLF,
 	/* Request line. */
 	Req_Method,
 	Req_MethG,
@@ -2103,13 +2067,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* Parser internal initilizers, must be called once per message. */
 	__FSM_STATE(Req_0) {
-		__hbh_parser_init_req(req);
-		/* fall through */
-	}
-
-	__FSM_STATE(Req_0_CRLF) {
 		if (unlikely(IS_CRLF(c)))
-			__FSM_MOVE_nofixup(Req_0_CRLF);
+			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
 	}
 
@@ -2825,7 +2784,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 /* Main (parent) HTTP response processing states. */
 enum {
 	Resp_0,
-	Resp_0_CRLF,
 	Resp_HttpVer,
 	Resp_HttpVerT1,
 	Resp_HttpVerT2,
@@ -3560,13 +3518,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* Parser internal initilizers, must be called once per message. */
 	__FSM_STATE(Resp_0) {
-		__hbh_parser_init_resp(resp);
-		/* fall through */
-	}
-
-	__FSM_STATE(Resp_0_CRLF) {
 		if (unlikely(IS_CRLF(c)))
-			__FSM_MOVE_nofixup(Resp_0_CRLF);
+			__FSM_MOVE_nofixup(Resp_0);
 		/* fall through */
 	}
 
