@@ -145,6 +145,7 @@ typedef struct {
  * If the new header is hop-by-hop (must not be forwarded and cached by Tempesta)
  * it must be listed in __hbh_parser_init_req()/__hbh_parser_init_resp() for
  * unconditionally hop-by-hop header or in __parse_connection() otherwize.
+ * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
  *
