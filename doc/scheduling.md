@@ -116,11 +116,14 @@ Scheduler name for use in configuration file: `round-robin`.
 #### Hash Scheduler
 
 Chooses server to schedule request to by hashed key value. Key is built using
-_uri_, _request method_ and host header of the request. In most cases load will
+_uri_, _request method_ and _host header_ of the request. In most cases load will
 be distributed among all the servers in group, but situations when single server
 pulls all the load are also possible. Although it is quite improbable, such 
 condition is quite stable: it cannot be fixed by adding/removing servers and 
 restarting Tempesta FW.
+
+Hash scheduler have an advantages though. It schedules requests of same resources
+to the same servers. That can reduce load of backend servers.
 
 Scheduler name for use in configuration file: `hash`.
 
@@ -136,11 +139,34 @@ session to the same server. [Sticky Sessions]() option should be used instead.
 
 #### Limitations
 
-- [HTTP Scheduler](#HTTP Scheduler) must not provide multiple backup groups to the same group
-if [Sticky Sessions]() are enabled.
+- [HTTP Scheduler](#HTTP Scheduler) must not provide multiple backup groups to 
+the same group if [Sticky Sessions]() are enabled.
+
+
+#### Effects
+
+- If [Sticky Sessions]() are enabled TempestaFW does its best to reuse last used
+connection for a server. That makes Server schedulers to distribute HTTP 
+sessions in among servers in server group, but not the requests. Situation when
+one server steals all the heavy sessions is possible.
 
 
 ### Troubleshooting
+
+- TempestaFW overloads some of my servers while others in the same group are
+almost unused. How can I fix that?
+
+Hash Server scheduler does not guarantee fair load of backend servers and
+can cause situations, when some servers pull most of the load. Round-robin
+scheduler should be used instead. Other configuration options can also affect
+schedulers behaviour, see [Effects caused to schedulers](#Effects caused to schedulers by other configuration options)
+
+- Why requests are still forwarded to servers from backup group while main is
+back online?
+
+This happens only if [Sticky Sessions]() are enabled. TempestaFW will stop
+forwarding requests to backup servers as soon as all the HTTP sessions, served
+by backup servers will be closed.
 
 
 ## Developer Guide
@@ -153,7 +179,7 @@ must implement `sched_sg_conn()` and `sched_srv_conn()` to schedule request to a
 exact server in the group. This functions must be designed to work in highly
 concurrent environment.
 
-Usually schedulers are implemented as a separate modules and register/deregister themselves 
+Normally schedulers are implemented as a separate modules and register/deregister themselves 
 in TempestaFW by calling `tfw_sched_register()`/`tfw_sched_unregister()` on module 
 initialization. Group schedulers are stored at the head of the list, Server schedulers -
 at the end.
