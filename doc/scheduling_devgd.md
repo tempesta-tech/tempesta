@@ -44,7 +44,30 @@ groups are called.
 
 If [Sticky Sessions]() enabled, but HTTP session for the request was not found
 situation is the same. That happens if client does not
-support cookies and [Sticky cookies are not enforsed]().
+support cookies and [Sticky cookies are not enforced]().
 
 Situation became a little bit tricky if [Sticky Sessions]() and HTTP session
-for request was found.
+for request was found. We must schedule request to the same servers whenever it
+is possible:
+
+- Current HTTP session was not scheduled to main server group.
+
+Schedule to any server in main group. If main group is offline, schedule to
+backup group. If the session was scheduled to backup group, last used connection
+must be reused, otherwise session must be scheduled to any server in backup
+group.
+
+There still can be a situation, when session _was_ scheduled to main server
+group. This happens when main server group is used as a backup group for some 
+other group. In that case we must reuse that connection.
+
+- Current session was scheduled to main server group before.
+
+Reuse last connection. Note, that last connection may lead to server in backup
+group. That is normal situation and we have to keep scheduling to that server
+even if main server group is back online. Connection must be rescheduled to
+main server group and to backup (if main is offline) only when last used server
+offline and [user allowed us to do so]().
+
+After connection to desired server group was obtained it saved in HTTP session.
+This logic is described in `tfw_sched_srv_get_sticky_conn()` in `sched.c`.
