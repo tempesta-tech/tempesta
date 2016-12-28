@@ -15,7 +15,7 @@ server in chosen [Server Group]().
 
 **HTTP Scheduler** inspects headers of an HTTP request and chooses target [Server Group]()
 according to scheduling rules. Scheduling rules are defined by user in TempestaFW
-configuration and map headers patterns to server groups. By default no rules 
+configuration and map headers patterns to server groups. By default no rules
 are defined. Syntax is:
 ```
 sched_http_rules {
@@ -23,12 +23,12 @@ sched_http_rules {
 	...
 }
 ```
-`SRV_GROUP` and `BACKUP_SRV_GROUP` -- the reference to a previously defined 
+`SRV_GROUP` and `BACKUP_SRV_GROUP` -- the reference to a previously defined
 server groups. `BACKUP_SRV_GROUP` is optional parameter and can be skipped, while
-main `SRV_GROUP` option is mandatory. 
+main `SRV_GROUP` option is mandatory.
 
 If whole `SRV_GROUP` group is offline, request
-will be scheduled to `BACKUP_SRV_GROUP`. Backup server groups are very handy for 
+will be scheduled to `BACKUP_SRV_GROUP`. Backup server groups are very handy for
 [A/B testing](https://en.wikipedia.org/wiki/A/B_testing) purposes: in that case
 `SRV_GROUP` can represent unstable/test service, and `BACKUP_SRV_GROUP` -- stable
 production service; if test service is under the maintenance users will be
@@ -88,7 +88,7 @@ match <SRV_GROUP> * * * ;
 
 ## Scheduling Requests inside Server Groups
 
-**Server Schedulers** are bound to exact server groups, see 
+**Server Schedulers** are bound to exact server groups, see
 [Setting scheduler]() section in [Server Group]() description.
 
 User can override default server scheduler for all groups using `sched`
@@ -102,8 +102,8 @@ sched <SCHED_NAME>;
 
 **TODO:** update to Ratio and extended weights.
 
-Rotates all servers in a group in round-robin manner, parallel connections to 
-the same server are also rotated in the round-robin manner, so requests are 
+Rotates all servers in a group in round-robin manner, parallel connections to
+the same server are also rotated in the round-robin manner, so requests are
 distributed to all the servers in a group in a fair way.
 
 Scheduler name for use in configuration file: `round-robin`.
@@ -114,8 +114,8 @@ Scheduler name for use in configuration file: `round-robin`.
 Chooses server to schedule request to by hashed key value. Key is built using
 _uri_, _request method_ and _host header_ of the request. In most cases load will
 be distributed among all the servers in group, but situations when single server
-pulls all the load are also possible. Although it is quite improbable, such 
-condition is quite stable: it cannot be fixed by adding/removing servers and 
+pulls all the load are also possible. Although it is quite improbable, such
+condition is quite stable: it cannot be fixed by adding/removing servers and
 restarting Tempesta FW.
 
 Hash scheduler have an advantages though. It schedules requests of same resources
@@ -135,16 +135,21 @@ session to the same server. [Sticky Sessions]() option should be used instead.
 
 ### Limitations
 
-- [HTTP Scheduler](#HTTP Scheduler) must not provide multiple backup groups to 
+- [HTTP Scheduler](#HTTP Scheduler) must not provide multiple backup groups to
 the same group if [Sticky Sessions]() are enabled.
 
 
 ### Effects
 
 - If [Sticky Sessions]() are enabled TempestaFW does its best to reuse last used
-connection for a server. That makes Server schedulers to distribute HTTP 
+connection for a server. That makes round-robin schedulers to distribute HTTP
 sessions in among servers in server group, but not the requests. Situation when
-one server steals all the heavy sessions is possible.
+one server steals all the heavy sessions is possible. Hash scheduler is not
+expected to work good with sticky sessions, most likely that one server will
+pull most of sessions.
+
+- With [Sticky Sessions]() switching from backup group to main require closing
+all live sessions to servers in backup group.
 
 
 ## Troubleshooting
@@ -163,4 +168,13 @@ back online.
 This happens only if [Sticky Sessions]() are enabled. TempestaFW will stop
 forwarding requests to backup servers as soon as all the HTTP sessions, served
 by backup servers will be closed.
+
+- Request is scheduled to a wrong server group or dropped while all the servers
+are reachable for TempestaFW.
+
+If request is scheduled to a wrong group it is most likely that there is an
+error in HTTP scheduler rules: request suit rule that is closer to the top
+of the list. Put more precise rules before more generic.
+
+Dropping of the message means that dropped request didn't match any rule.
 
