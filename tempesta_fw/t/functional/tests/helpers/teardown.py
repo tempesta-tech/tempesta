@@ -12,8 +12,8 @@ import os
 import sys
 from threading import *
 
-__author__ = 'NatSys Lab'
-__copyright__ = 'Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).'
+__author__ = 'Tempesta Technologies Inc.'
+__copyright__ = 'Copyright (C) 2014-2016 Tempesta Technologies Inc. (info@natsys-lab.com).'
 __license__ = 'GPL2'
 
 _main_thread = current_thread()
