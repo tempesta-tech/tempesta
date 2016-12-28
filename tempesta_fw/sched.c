@@ -144,6 +144,11 @@ tfw_sched_srv_get_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 			return NULL;
 	}
 
+	/*
+	 * Save only valid connections: saving NULL will remove binding
+	 * session with the server, and on next request session will be silently
+	 * rescheduled to other server
+	 */
 	if (conn && tfw_http_sess_save_conn(req, main_sg, conn))
 		return NULL;
 
