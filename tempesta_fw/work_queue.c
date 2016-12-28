@@ -184,7 +184,7 @@ tfw_wq_pop(TfwRBQueue *q, void *buf)
 			}
 		}
 
-		/* Set a guard for current position and move global head. */
+		/* Set a guard for current position and move global tail. */
 		atomic64_set(&pos->tail, tail);
 		if (atomic64_cmpxchg(&q->tail, tail, tail + 1) == tail)
 			break;
