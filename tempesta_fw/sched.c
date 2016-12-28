@@ -61,7 +61,7 @@ sched_sg_conn(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
 	}
 
 	if (unlikely(!conn))
-		TFW_DBG2("sched: Unable to select server from main and buckup "
+		TFW_DBG2("sched: Unable to select server from main and backup "
 			 "group\n");
 
 	return conn;
