@@ -106,26 +106,25 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
 	size_t s, c;
 	TfwHashSrv *srv_cl;
-	TfwHashSrvList *cl = sg->sched_data;
+	TfwHashSrvList *sl = sg->sched_data;
 
-	BUG_ON(!cl);
+	BUG_ON(!sl);
 
-	for (s = 0; s < cl->srv_n; ++s)
-		if (cl->srvs[s].srv == srv)
+	for (s = 0; s < sl->srv_n; ++s)
+		if (sl->srvs[s].srv == srv)
 			break;
-	if (s == cl->srv_n) {
-		cl->srvs[s].srv = srv;
-		++cl->srv_n;
-		BUG_ON(cl->srv_n > TFW_SG_MAX_SRV);
+	if (s == sl->srv_n) {
+		sl->srvs[s].srv = srv;
+		++sl->srv_n;
+		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
+		srv->sched_data = &sl->srvs[s];
 	}
 
-	srv_cl = &cl->srvs[s];
-	if (!srv->sched_data)
-		srv->sched_data = srv_cl;
+	srv_cl = &sl->srvs[s];
 
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conn[c] == conn) {
-			TFW_WARN("sched_rr: Try to add existing connection,"
+			TFW_WARN("sched_hash: Try to add existing connection,"
 				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
@@ -159,15 +158,15 @@ static TfwConnection *
 tfw_sched_hash_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long msg_hash, curr_weight, best_weight = 0;
-	TfwHashSrvList *cl = sg->sched_data;
+	TfwHashSrvList *sl = sg->sched_data;
 	TfwConnection *best_conn = NULL;
 	size_t s;
 
-	BUG_ON(!cl);
+	BUG_ON(!sl);
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (s = 0; s < cl->srv_n; ++s) {
-		TfwHashSrv *srv_cl =  &cl->srvs[s];
+	for (s = 0; s < sl->srv_n; ++s) {
+		TfwHashSrv *srv_cl =  &sl->srvs[s];
 		size_t c;
 
 		for (c = 0; c < srv_cl->conn_n; ++c) {
@@ -200,8 +199,11 @@ tfw_sched_hash_srv_get_conn(TfwMsg *msg, TfwServer *srv)
 	TfwConnection *best_conn = NULL;
 	size_t c;
 
-	/* For @srv without connections srv_cl will be NULL */
-	if (!srv_cl)
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
 		return NULL;
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);

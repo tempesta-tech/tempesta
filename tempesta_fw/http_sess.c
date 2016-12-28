@@ -80,7 +80,7 @@ typedef struct {
 /**
   * List item of server connections binded to HTTP session.
   *
-  * @list	- list of connections;
+  * @list	- member in the list of connections;
   * @sg		- target server group;
   * @conn	- last used connection;
   *
@@ -676,7 +676,7 @@ int
 tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
 {
 	TfwHttpSess *sess = req->sess;
-	TfwHttpSessConns *s_conn;
+	TfwHttpSessConns *sess_conn;
 	int r = 0;
 
 	if (!sess)
@@ -684,21 +684,21 @@ tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
 
 	write_lock(&sess->conns_lock);
 
-	list_for_each_entry(s_conn, &sess->conns, list) {
-		if (s_conn->sg == sg) {
-			s_conn->conn = conn;
+	list_for_each_entry(sess_conn, &sess->conns, list) {
+		if (sess_conn->sg == sg) {
+			sess_conn->conn = conn;
 			goto done;
 		}
 	}
 
-	if (!(s_conn = kmem_cache_alloc(sess_conn_cache, GFP_ATOMIC))) {
+	if (!(sess_conn = kmem_cache_alloc(sess_conn_cache, GFP_ATOMIC))) {
 		r = -ENOMEM;
 		goto done;
 	}
-	s_conn->conn = conn;
-	s_conn->sg = sg;
-	INIT_LIST_HEAD(&s_conn->list);
-	list_add_tail(&s_conn->list, &sess->conns);
+	sess_conn->conn = conn;
+	sess_conn->sg = sg;
+	INIT_LIST_HEAD(&sess_conn->list);
+	list_add_tail(&sess_conn->list, &sess->conns);
 
 done:
 	write_unlock(&sess->conns_lock);

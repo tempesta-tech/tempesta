@@ -86,12 +86,10 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 		sl->srvs[s].srv = srv;
 		++sl->srv_n;
 		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
+		srv->sched_data = &sl->srvs[s];
 	}
 
 	srv_cl = &sl->srvs[s];
-	if (!srv->sched_data)
-		srv->sched_data = srv_cl;
-
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
@@ -113,9 +111,8 @@ sched_rr_get_conn(TfwRrSrv *srv_cl)
 	size_t c;
 
 	for (c = 0; c < srv_cl->conn_n; ++c) {
-		size_t idx = atomic64_inc_return(&srv_cl->rr_counter)
-				% srv_cl->conn_n;
-		TfwConnection *conn = srv_cl->conns[idx];
+		uint64_t idx = atomic64_inc_return(&srv_cl->rr_counter);
+		TfwConnection *conn = srv_cl->conns[idx % srv_cl->conn_n];
 
 		if (tfw_connection_get_if_nfo(conn))
 			return conn;
@@ -138,8 +135,9 @@ tfw_sched_rr_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!sl);
 
 	for (s = 0; s < sl->srv_n; ++s) {
-		size_t idx = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		TfwConnection *conn = sched_rr_get_conn(&sl->srvs[idx]);
+		uint64_t idx = atomic64_inc_return(&sl->rr_counter);
+		TfwConnection *conn =
+				sched_rr_get_conn(&sl->srvs[idx % sl->srv_n]);
 
 		if (conn)
 			return conn;
@@ -156,8 +154,11 @@ tfw_sched_rr_srv_get_conn(TfwMsg *msg, TfwServer *srv)
 {
 	TfwRrSrv *srv_cl = srv->sched_data;
 
-	/* For @srv without connections srv_cl will be NULL */
-	if (!srv_cl)
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
 		return NULL;
 
 	return sched_rr_get_conn(srv_cl);
