@@ -563,8 +563,19 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 	unsigned long i;
-	static const TfwStr end_to_end[] __read_mostly = {
+	static const TfwStr block[] __read_mostly = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
+		/* End-to-end spec headers */
+		TfwStr_string("host:"),
+		TfwStr_string("content-length:"),
+		TfwStr_string("content-type:"),
+		TfwStr_string("connection:"),
+		TfwStr_string("x-forwarded-for:"),
+		TfwStr_string("transfer-encoding:"),
+		TfwStr_string("user-agent:"),
+		TfwStr_string("server:"),
+		TfwStr_string("cookie:"),
+		/* End-to-end raw headers. */
 		TfwStr_string("age:"),
 		TfwStr_string("authorization:"),
 		TfwStr_string("cache-control:"),
@@ -602,8 +613,8 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 		++hbh->off;
 
 		/* Drop message if header is end-to-end */
-		for (i = 0; i < ARRAY_SIZE(end_to_end); ++i)
-			if (!tfw_stricmpspn(hdr, &end_to_end[i], ':'))
+		for (i = 0; i < ARRAY_SIZE(block); ++i)
+			if (!tfw_stricmpspn(hdr, &block[i], ':'))
 				return CSTR_NEQ;
 
 		/*
@@ -1092,11 +1103,8 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * names of hop-by-hop headers.
 	 *
 	 * Sender must not list end-to-end headers in Connection header.
-	 * We don't check if one of listed headers is spec end-to-end header,
-	 * instead it is treated as raw header so malicious agent couldn't
-	 * make us remove end-to-end spec header.
-	 *
-	 * Raw headers listed in the header will be compared with names of raw
+	 * In this function we check only spec headers that can be hop-by-hop.
+	 * Other headers listed in the header will be compared with names of
 	 * end-to-end headers during saving in __hbh_parser_add_data().
 	 *
 	 * TODO: RFC 6455 WebSocket Protocol

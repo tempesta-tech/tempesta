@@ -1081,28 +1081,33 @@ TEST(http_parser, req_hop_by_hop)
 	}
 
 	/* Connection header lists end-to-end spec headers */
-	FOR_REQ(REQ_HBH_START
-		"Connection: Host, Content-Length, Content-Type, Connection,"
-		"X-Forwarded-For, Transfer-Encoding, User-Agent, Server,"
-		" Cookie\r\n"
-		REQ_HBH_END)
-	{
-		ht = req->h_tbl;
-		/* Common (raw) headers: 17 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
-
-		for(id = 0; id < ht->off; ++id) {
-			field = &ht->tbl[id];
-			switch (id) {
-			case TFW_HTTP_HDR_CONNECTION:
-				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
-				break;
-			default:
-				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
-				break;
-			}
-		}
-	}
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Host\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Content-Length\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Content-Type\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Connection\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: X-Forwarded-For\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Transfer-Encoding\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: User-Agent\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Server\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Cookie\r\n"
+			 REQ_HBH_END);
 
 	/* Connection header lists end-to-end raw headers */
 	EXPECT_BLOCK_REQ(REQ_HBH_START
@@ -1231,29 +1236,33 @@ TEST(http_parser, resp_hop_by_hop)
 	}
 
 	/* Connection header lists end-to-end spec headers */
-	FOR_RESP(RESP_HBH_START
-		 "Connection: Host, Content-Length, Content-Type, Connection,"
-		 "X-Forwarded-For, Transfer-Encoding, User-Agent, Server,"
-		 " Cookie\r\n"
-		 RESP_HBH_END)
-	{
-		ht = resp->h_tbl;
-		/* Common (raw) headers: 16 total with 10 dummies. */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
-
-		for(id = 0; id < ht->off; ++id) {
-			field = &ht->tbl[id];
-			switch (id) {
-			case TFW_HTTP_HDR_SERVER:
-			case TFW_HTTP_HDR_CONNECTION:
-				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
-				break;
-			default:
-				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
-				break;
-			}
-		}
-	}
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Host\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Content-Length\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Content-Type\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Connection\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: X-Forwarded-For\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Transfer-Encoding\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: User-Agent\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Server\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Cookie\r\n"
+			  RESP_HBH_END);
 
 	/* Connection header lists end-to-end raw headers */
 	EXPECT_BLOCK_RESP(RESP_HBH_START
