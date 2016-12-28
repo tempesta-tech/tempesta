@@ -773,7 +773,7 @@ TEST(http_sticky_sched, sched_backup_sg)
 	sticky_sess_deny_sched();
 }
 
-TEST(http_sticky_sched, resuse_conn)
+TEST(http_sticky_sched, reuse_conn)
 {
 	TfwSrvGroup *sg_m = test_create_sg("sg_m", "round-robin");
 	TfwSrvGroup *sg_b = test_create_sg("sg_b", "round-robin");
@@ -876,7 +876,7 @@ TEST_SUITE(http_sticky)
 	TEST_RUN(http_sticky_sched, sched_one_sg);
 	TEST_RUN(http_sticky_sched, sched_one_sg_offline_srv);
 	TEST_RUN(http_sticky_sched, sched_backup_sg);
-	TEST_RUN(http_sticky_sched, resuse_conn);
+	TEST_RUN(http_sticky_sched, reuse_conn);
 
 	kernel_fpu_end();
 
