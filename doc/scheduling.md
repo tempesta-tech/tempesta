@@ -1,10 +1,6 @@
-# Scheduling in TempestaFW
+# Scheduling in TempestaFW: User Guide
 
 TempestaFW uses various schedulers to distribute load among known servers.
-Every [Server Group]() uses independent scheduling policy.
-
-
-## User Guide
 
 TempestaFW implements two types of schedulers: **group** and **server** schedulers.
 **Group schedulers** are used to classify request and distribute it to corresponding
@@ -12,10 +8,10 @@ server group. **Server schedulers** are used to distribute request to specific
 server in chosen [Server Group]().
 
 
-### Scheduling Requests among Server Groups
+## Scheduling Requests among Server Groups
 
 
-#### HTTP Scheduler
+### HTTP Scheduler
 
 **HTTP Scheduler** inspects headers of an HTTP request and chooses target [Server Group]()
 according to scheduling rules. Scheduling rules are defined by user in TempestaFW
@@ -90,7 +86,7 @@ match <SRV_GROUP> * * * ;
 ```
 
 
-### Scheduling Requests inside Server Groups
+## Scheduling Requests inside Server Groups
 
 **Server Schedulers** are bound to exact server groups, see 
 [Setting scheduler]() section in [Server Group]() description.
@@ -102,7 +98,7 @@ sched <SCHED_NAME>;
 ```
 
 
-#### Round-Robin Scheduler
+### Round-Robin Scheduler
 
 **TODO:** update to Ratio and extended weights.
 
@@ -113,7 +109,7 @@ distributed to all the servers in a group in a fair way.
 Scheduler name for use in configuration file: `round-robin`.
 
 
-#### Hash Scheduler
+### Hash Scheduler
 
 Chooses server to schedule request to by hashed key value. Key is built using
 _uri_, _request method_ and _host header_ of the request. In most cases load will
@@ -128,22 +124,22 @@ to the same servers. That can reduce load of backend servers.
 Scheduler name for use in configuration file: `hash`.
 
 
-### Scheduling HTTP sessions to the same server
+## Scheduling HTTP sessions to the same server
 
 None of the schedulers is responsible for forwarding requests from the same HTTP
 session to the same server. [Sticky Sessions]() option should be used instead.
 
 
-### Effects caused to schedulers by other configuration options
+## Effects caused to schedulers by other configuration options
 
 
-#### Limitations
+### Limitations
 
 - [HTTP Scheduler](#HTTP Scheduler) must not provide multiple backup groups to 
 the same group if [Sticky Sessions]() are enabled.
 
 
-#### Effects
+### Effects
 
 - If [Sticky Sessions]() are enabled TempestaFW does its best to reuse last used
 connection for a server. That makes Server schedulers to distribute HTTP 
@@ -151,43 +147,20 @@ sessions in among servers in server group, but not the requests. Situation when
 one server steals all the heavy sessions is possible.
 
 
-### Troubleshooting
+## Troubleshooting
 
 - TempestaFW overloads some of my servers while others in the same group are
-almost unused. How can I fix that?
+almost unused.
 
 Hash Server scheduler does not guarantee fair load of backend servers and
 can cause situations, when some servers pull most of the load. Round-robin
 scheduler should be used instead. Other configuration options can also affect
 schedulers behaviour, see [Effects caused to schedulers](#Effects caused to schedulers by other configuration options)
 
-- Why requests are still forwarded to servers from backup group while main is
-back online?
+- Requests are still forwarded to servers from backup group while main is
+back online.
 
 This happens only if [Sticky Sessions]() are enabled. TempestaFW will stop
 forwarding requests to backup servers as soon as all the HTTP sessions, served
 by backup servers will be closed.
 
-
-## Developer Guide
-
-Both schedulers Group and Server are derived from the same `TfwScheduler` class,
-declared in `server.h`.
-Group schedulers must implement `sched_grp()` callback, where the scheduler must
-find target main and backup server groups for the request. Server schedulers
-must implement `sched_sg_conn()` and `sched_srv_conn()` to schedule request to any or
-exact server in the group. This functions must be designed to work in highly
-concurrent environment.
-
-Normally schedulers are implemented as a separate modules and register/deregister themselves 
-in TempestaFW by calling `tfw_sched_register()`/`tfw_sched_unregister()` on module 
-initialization. Group schedulers are stored at the head of the list, Server schedulers -
-at the end.
-
-
-### Schedulers work flow
-
-Each request that cannot be served from cache must be scheduled to appropriate 
-server. This happens in SoftIRQ during `tfw_http_req_cache_cb()` right after
-obtaining HTTP session for the request. 
- 
