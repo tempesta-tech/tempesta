@@ -1069,17 +1069,6 @@ __FSM_STATE(RGen_OWS) {							\
 			r = CSTR_NEQ;					\
 	}, I_EoT)
 
-/* Add spec header of id @hid and @name to list of spec hop-by-hop headers */
-#define TRY_HBH_SPEC_HDR_LAMBDA(name, hid, lambda)			\
-	TRY_HBH_TOKEN(name, {						\
-		BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * CHAR_BIT	\
-			     <  TFW_HTTP_HDR_RAW);			\
-		lambda;							\
-		parser->hbh_parser.spec |= 0x1 << hid;			\
-		if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))		\
-			msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;	\
-	})
-
 /**
  * Parse Connection header value, RFC 7230 6.1.
  *
@@ -1095,6 +1084,9 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
+
+	BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * CHAR_BIT
+		     < TFW_HTTP_HDR_RAW);
 
 	__FSM_START(parser->_i_st) {
 
@@ -1120,11 +1112,17 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			msg->flags |= TFW_HTTP_CONN_CLOSE;
 		});
 		/* Spec headers */
-		TRY_HBH_SPEC_HDR_LAMBDA("keep-alive", TFW_HTTP_HDR_KEEP_ALIVE, {
+		TRY_HBH_TOKEN("keep-alive", {
+			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
+
 			if (msg->flags & TFW_HTTP_CONN_CLOSE)
 				return CSTR_NEQ;
 			msg->flags |= TFW_HTTP_CONN_KA;
-		});
+
+			parser->hbh_parser.spec |= 0x1 << hid;
+			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
+				msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;
+			})
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_ConnOther, 0);
 	}
