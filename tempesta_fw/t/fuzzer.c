@@ -375,12 +375,15 @@ static void
 add_rand_string(char **p, char *end, int n, const char *seed)
 {
 	int i, len;
+	unsigned int idxval;
 
 	BUG_ON(!seed);
 
 	len = strlen(seed);
-	for (i = 0; i < n; ++i)
-		addch(p, end, seed[((i + 333) ^ seed[i % len]) % len]);
+	for (i = 0; i < n; ++i) {
+		idxval = (i + 333) ^ seed[i % len];
+		addch(p, end, seed[idxval % len]);
+	}
 }
 
 static unsigned int
