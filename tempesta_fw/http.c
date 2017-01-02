@@ -217,7 +217,7 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, hmresp, msg);
 
-	__init_resp_ss_flags((TfwHttpResp *)hmresp, req);
+	tfw_http_resp_init_ss_flags((TfwHttpResp *)hmresp, req);
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
 	return 0;
@@ -1232,7 +1232,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	__init_req_ss_flags(req);
+	tfw_http_req_init_ss_flags(req);
 
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
@@ -1258,7 +1258,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	int r, conn_flg = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 
-	__init_resp_ss_flags(resp, req);
+	tfw_http_resp_init_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
 	if (r < 0)
