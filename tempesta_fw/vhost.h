@@ -32,9 +32,9 @@
  * @arg		- String for the match operator.
  */
 typedef struct {
-	unsigned int	method;
+	int		method;
 	short		op;
-	unsigned int	len;
+	size_t		len;
 	const char	*arg;
 } TfwNipDef;
 
@@ -55,7 +55,7 @@ typedef enum {
 typedef struct {
 	short		cmd;
 	short		op;
-	unsigned int	len;
+	size_t		len;
 	const char	*arg;
 } TfwCaPolicy;
 
@@ -73,9 +73,9 @@ typedef struct {
 typedef struct {
 	short		op;
 	const char	*arg;
-	unsigned int	len;
-	unsigned int	capo_sz;
-	unsigned int	nipdef_sz;
+	size_t		len;
+	size_t		capo_sz;
+	size_t		nipdef_sz;
 	TfwCaPolicy	**capo;
 	TfwNipDef	**nipdef;
 } TfwLocation;
@@ -97,10 +97,10 @@ typedef struct {
 	TfwLocation	*loc_dflt;
 	TfwAddr		*capuacl;
 	const char	*hdr_via;
-	unsigned int	loc_sz;
-	unsigned int	loc_dflt_sz;
-	unsigned int	capuacl_sz;
-	unsigned int	hdr_via_len;
+	size_t		loc_sz;
+	size_t		loc_dflt_sz;
+	size_t		capuacl_sz;
+	size_t		hdr_via_len;
 	u8		cache_purge:1;
 	u8		cache_purge_mode:2;
 	u8		cache_purge_acl:1;
