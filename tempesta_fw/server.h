@@ -127,7 +127,7 @@ static inline bool
 tfw_server_queue_full(TfwConnection *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	return atomic_read(&srv_conn->qsize) >= srv->qsize_max;
+	return ACCESS_ONCE(srv_conn->qsize) >= srv->qsize_max;
 }
 
 /* Server group routines. */
