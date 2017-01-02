@@ -55,11 +55,6 @@
  * ------------------------------------------------------------------------
  */
 
-/*
- * Default number of reconnect attempts. Zero means unlimited number.
- */
-#define TFW_SRV_RETRY_ATTEMPTS_DEF	0		/* default value */
-
 /**
  * TfwConnection extension for server sockets.
  *
@@ -112,6 +107,9 @@
  *    the server, which requires that TfwSrvConnection{} instance can be
  *    reused. So the attempt to reconnect has to wait. It is started as
  *    soon as the last client releases the server connection.
+ */
+/**
+ * Note: `attempts` and `max_attempts` must be of the same type.
  */
 typedef struct {
 	TfwConnection		conn;
@@ -207,11 +205,11 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * The timeout is not increased after 1 second as it has moderate
 	 * overhead, and it's still good in response time.
 	 *
-	 * FIXME: The limit on the number of reconnect attempts is used
+	 * Note that the limit on the number of reconnect attempts is used
 	 * to re-schedule requests that would never be forwarded otherwise.
-	 * Still, attempts to reconnect may be continued in hopes that the
-	 * connection will be established sooner or later. Otherwise thei
-	 * connection will stay dead until restart.
+	 * However, the attempts to reconnect are continued in hopes that
+	 * the connection will be re-established sooner or later. Otherwise
+	 * the connection will stay dead until Tempesta's restart.
 	 */
 	static const unsigned long timeouts[] = { 1, 10, 100, 250, 500, 1000 };
 
@@ -219,9 +217,13 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	if (unlikely(!ss_active()))
 		return;
 
-	if (unlikely(srv_conn->max_attempts
-		     && (srv_conn->attempts >= srv_conn->max_attempts)))
-	{
+	/*
+	 * max_attempts can be the maximum value for the data type to mean
+	 * the unlimited number of attempts, which is the value that should
+	 * never be reached. UINT_MAX seconds is more than 136 years. It's
+	 * safe to assume that it's not reached in a single run of Tempesta.
+	 */
+	if (unlikely(srv_conn->attempts >= srv_conn->max_attempts)) {
 		TfwAddr *srv_addr = &srv_conn->conn.peer->addr;
 		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
@@ -229,7 +231,6 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 			 "The server connection [%s] is down permanently.\n",
 			 srv_conn->max_attempts, s_addr);
 		tfw_connection_repair(&srv_conn->conn);
-		return;
 	}
 	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
 		srv_conn->timeout = timeouts[srv_conn->attempts];
@@ -323,7 +324,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	/* Let schedulers use the connection hereafter. */
 	tfw_connection_revive(conn);
 
-	/* Repair the connection is necessary. */
+	/* Repair the connection if necessary. */
 	if (unlikely(tfw_connection_restricted(conn)))
 		tfw_connection_repair(conn);
 
@@ -565,24 +566,24 @@ tfw_sock_srv_delete_all_conns(void)
 #define TFW_SRV_CONNS_N_DEF		"32"
 
 /*
- * Server connection's maximum queue size, and default timeout for
- * requests in the queue.
+ * Default values for various configuration directives and options.
  */
 #define TFW_SRV_QUEUE_SIZE_DEF		1000	/* Max queue size */
 #define TFW_SRV_SEND_TIMEOUT_DEF	60	/* Default request timeout */
 #define TFW_SRV_SEND_TRIES_DEF		5	/* Default number of tries */
 #define TFW_SRV_RETRY_NIP_DEF		0	/* Do NOT resend NIP reqs */
+#define TFW_SRV_RETRY_ATTEMPTS_DEF	10	/* Reconnect attempts. */
 
 static int tfw_cfg_in_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
 static int tfw_cfg_in_send_timeout = TFW_SRV_SEND_TIMEOUT_DEF;
 static int tfw_cfg_in_send_tries = TFW_SRV_SEND_TRIES_DEF;
 static int tfw_cfg_in_retry_nip = TFW_SRV_RETRY_NIP_DEF;
+static int tfw_cfg_in_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
+
 static int tfw_cfg_out_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
 static int tfw_cfg_out_send_timeout = TFW_SRV_SEND_TIMEOUT_DEF;
 static int tfw_cfg_out_send_tries = TFW_SRV_SEND_TRIES_DEF;
 static int tfw_cfg_out_retry_nip = TFW_SRV_RETRY_NIP_DEF;
-
-static int tfw_cfg_in_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
 static int tfw_cfg_out_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
 
 static int
@@ -683,7 +684,7 @@ tfw_cfg_set_conn_tries(TfwServer *srv, int attempts)
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		srv_conn->max_attempts = attempts;
+		srv_conn->max_attempts = attempts ? : UINT_MAX;
 
 	return 0;
 }
