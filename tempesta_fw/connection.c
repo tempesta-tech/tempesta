@@ -38,6 +38,7 @@ tfw_connection_init(TfwConnection *conn)
 
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->msg_queue);
+	INIT_LIST_HEAD(&conn->nip_queue);
 	spin_lock_init(&conn->msg_qlock);
 }
 

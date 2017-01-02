@@ -482,8 +482,8 @@ tfw_http_req_move2equeue(TfwConnection *srv_conn, TfwHttpReq *req,
 {
 	tfw_http_req_nonidemp_delist(srv_conn, req);
 	list_move_tail(&req->msg.fwd_list, equeue);
+	srv_conn->qsize--;
 	req->rstatus = status;
-	atomic_dec(&srv_conn->qsize);
 }
 
 /*
@@ -617,7 +617,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	spin_lock(&srv_conn->msg_qlock);
 	drained = tfw_http_conn_drained(srv_conn);
 	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
-	atomic_inc(&srv_conn->qsize);
+	srv_conn->qsize++;
 	if (tfw_http_req_is_nonidempotent(req))
 		__tfw_http_req_nonidemp_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)) {
@@ -636,7 +636,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
 		tfw_http_req_nonidemp_delist(srv_conn, req);
 		list_del_init(&req->msg.fwd_list);
-		atomic_dec(&srv_conn->qsize);
+		srv_conn->qsize--;
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
@@ -674,7 +674,7 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn)
 				   : list_entry(lent->prev, TfwMsg, fwd_list);
 		__tfw_http_req_nonidemp_delist(srv_conn, req_sent);
 		list_del_init(&req_sent->msg.fwd_list);
-		atomic_dec(&srv_conn->qsize);
+		srv_conn->qsize--;
 		tfw_http_send_404(req_sent);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -856,7 +856,7 @@ tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
 		tfw_http_req_nonidemp_delist(srv_conn, req);
 		list_del_init(&req->msg.fwd_list);
-		atomic_dec(&srv_conn->qsize);
+		srv_conn->qsize--;
 		if (!(sconn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_WARN("Unable to find a backend server\n");
 			tfw_http_send_404(req);
@@ -874,7 +874,7 @@ tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 		tfw_http_req_fwd(sconn, req);
 		tfw_connection_put(sconn);
 	}
-	BUG_ON(atomic_read(&srv_conn->qsize));
+	BUG_ON(srv_conn->qsize);
 }
 
 /*
@@ -1819,7 +1819,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 
 	spin_lock(&srv_conn->msg_qlock);
 	if (unlikely(list_empty(fwd_queue))) {
-		BUG_ON(atomic_read(&srv_conn->qsize));
+		BUG_ON(srv_conn->qsize);
 		spin_unlock(&srv_conn->msg_qlock);
 		/* @conn->msg will get NULLed in the process. */
 		TFW_WARN("Paired request missing, "
@@ -1830,7 +1830,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	}
 	req = list_first_entry(fwd_queue, TfwHttpReq, msg.fwd_list);
 	list_del_init(&req->msg.fwd_list);
-	atomic_dec(&srv_conn->qsize);
+	srv_conn->qsize--;
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
 	tfw_http_req_nonidemp_delist(srv_conn, req);

@@ -100,7 +100,7 @@ typedef struct tfw_connection_t {
 	spinlock_t		msg_qlock;
 	unsigned long		flags;					/*srv*/
 	atomic_t		refcnt;
-	atomic_t		qsize;					/*srv*/
+	int			qsize;					/*srv*/
 	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwMsg			*msg_sent;				/*srv*/
