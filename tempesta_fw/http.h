@@ -425,13 +425,13 @@ tfw_current_timestamp(void)
 }
 
 static inline void
-__init_req_ss_flags(TfwHttpReq *req)
+tfw_http_req_init_ss_flags(TfwHttpReq *req)
 {
 	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
 }
 
 static inline void
-__init_resp_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
+tfw_http_resp_init_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
 {
 	if (req->flags & TFW_HTTP_CONN_CLOSE)
 		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
