@@ -124,7 +124,6 @@ enum {
 /* Config directives that affect Cache Control. */
 #define TFW_HTTP_CC_CFG_CACHE_BYPASS	0x01000000
 
-
 typedef struct {
 	unsigned int	flags;
 	unsigned int	max_age;
@@ -137,46 +136,15 @@ typedef struct {
 } TfwCacheControl;
 
 /**
- * We use goto/switch-driven automaton, so compiler typically generates binary
- * search code over jump labels, so it gives log(N) lookup complexity where
- * N is number of states. However, DFA for full HTTP processing can be quite
- * large and log(N) becomes expensive and hard to code.
- *
- * So we use states space splitting to avoid states explosion.
- * @_i_st is used to save current state and go to interior sub-automaton
- * (e.g. process OWS using @state while current state is saved in @_i_st
- * or using @_i_st parse value of a header described.
- *
- * @to_go	- remaining number of bytes to process in the data chunk;
- *		  (limited by single packet size and never exceeds 64KB)
- * @state	- current parser state;
- * @_i_st	- helping (interior) state;
- * @to_read	- remaining number of bytes to read;
- * @_acc	- integer accumulator for parsing chunked integers;
- * @_date	- accumulator for a date in date related headers;
- * @_hdr_tag	- stores header id which must be closed on generic EoL handling
- *		  (see RGEN_EOL());
- * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
- * @hdr		- currently parsed header.
- */
-typedef struct {
-	unsigned short	to_go;
-	int		state;
-	int		_i_st;
-	int		to_read;
-	unsigned long	_acc;
-	time_t		_date;
-	unsigned int	_hdr_tag;
-	TfwStr		_tmp_chunk;
-	TfwStr		hdr;
-} TfwHttpParser;
-
-/**
  * Http headers table.
  *
  * Singular headers (in terms of RFC 7230 3.2.2) go first to protect header
  * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
+ * If the new header is hop-by-hop (must not be forwarded and cached by Tempesta)
+ * it must be listed in __hbh_parser_init_req()/__hbh_parser_init_resp() for
+ * unconditionally hop-by-hop header or in __parse_connection() otherwize.
+ * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
  *
@@ -198,6 +166,7 @@ typedef enum {
 
 	TFW_HTTP_HDR_CONNECTION = TFW_HTTP_HDR_NONSINGULAR,
 	TFW_HTTP_HDR_X_FORWARDED_FOR,
+	TFW_HTTP_HDR_KEEP_ALIVE,
 	TFW_HTTP_HDR_TRANSFER_ENCODING,
 
 	/* Start of list of generic (raw) headers. */
@@ -217,12 +186,76 @@ typedef struct {
 					 + sizeof(TfwStr) * (s))
 #define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
 
+/** Maximum of hop-by-hop tokens listed in Connection header. */
+#define TFW_HBH_TOKENS_MAX		16
+
+/**
+ * Non-cacheable hop-by-hop headers in terms of RFC 7230.
+ *
+ * We don't store the headers in cache and create them from scratch if needed.
+ * Adding a header is faster then modify it, so this speeds up headers
+ * adjusting as well as saves cache storage.
+ *
+ * Headers unconditionaly treated as hop-by-hop must be listed in
+ * __hbh_parser_init_req()/__hbh_parser_init_resp() functions and must be
+ * members of Special headers.
+ * group.
+ *
+ * @spec	- bit array for special headers. Hop-by-hop special header is
+ *		  stored as (0x1 << tfw_http_hdr_t[hid]);
+ * @raw		- table of raw headers names, parsed form connection field;
+ * @off		- offset of last added raw header name;
+ */
+typedef struct {
+	unsigned int	spec;
+	unsigned int	off;
+	TfwStr		raw[TFW_HBH_TOKENS_MAX];
+} TfwHttpHbhHdrs;
+
+/**
+ * We use goto/switch-driven automaton, so compiler typically generates binary
+ * search code over jump labels, so it gives log(N) lookup complexity where
+ * N is number of states. However, DFA for full HTTP processing can be quite
+ * large and log(N) becomes expensive and hard to code.
+ *
+ * So we use states space splitting to avoid states explosion.
+ * @_i_st is used to save current state and go to interior sub-automaton
+ * (e.g. process OWS using @state while current state is saved in @_i_st
+ * or using @_i_st parse value of a header described.
+ *
+ * @to_go	- remaining number of bytes to process in the data chunk;
+ *		  (limited by single packet size and never exceeds 64KB)
+ * @state	- current parser state;
+ * @_i_st	- helping (interior) state;
+ * @to_read	- remaining number of bytes to read;
+ * @_hdr_tag	- stores header id which must be closed on generic EoL handling
+ *		  (see RGEN_EOL());
+ * @_acc	- integer accumulator for parsing chunked integers;
+ * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
+ * @hdr		- currently parsed header.
+ * @hbh_parser	- list of special and raw headers names to be treated as
+ *		  hop-by-hop
+ */
+typedef struct {
+	unsigned short	to_go;
+	int		state;
+	int		_i_st;
+	int		to_read;
+	unsigned long	_acc;
+	time_t		_date;
+	unsigned int	_hdr_tag;
+	TfwStr		_tmp_chunk;
+	TfwStr		hdr;
+	TfwHttpHbhHdrs	hbh_parser;
+} TfwHttpParser;
+
 /* Common flags for requests and responses. */
 #define TFW_HTTP_CONN_CLOSE		0x000001
 #define TFW_HTTP_CONN_KA		0x000002
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
-#define TFW_HTTP_CHUNKED		0x000004
-#define TFW_HTTP_MSG_SENT		0x000008
+#define TFW_HTTP_CONN_EXTRA		0x000004
+#define TFW_HTTP_CHUNKED		0x000008
+#define TFW_HTTP_MSG_SENT		0x000010
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -259,10 +292,14 @@ typedef struct {
  * Common HTTP message members.
  *
  * @version		- HTTP version (1.0 and 1.1 are only supported);
- * @flags		- message related flags;
+ * @flags		- message related flags. The flags are used in
+ *			  concurrent read and writes, but concurrent writes
+ *			  aren't alowed. So use atomic operations if concurrent
+ *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
  * @conn		- connection which the message was received on;
  * @jtstamp		- time the message has been received, in jiffies;
+ * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
@@ -278,6 +315,7 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
 	unsigned long	jtstamp;					\
+	unsigned int	keep_alive;					\
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
@@ -340,7 +378,6 @@ typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
-	unsigned int		keep_alive;
 	time_t			date;
 } TfwHttpResp;
 

@@ -34,12 +34,7 @@ class Test:
 		self.cfg.del_option('cache')
 		self.cfg.add_option('cache', '1')
 		self.cfg.add_option('cache_fulfill', '* *')
-		self.resp = b'HTTP/1.1' + b' 200 - OK\r\n'
-		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
-							   " %H:%M:%S GMT")
-		self.resp += b"Date: " + date + b"\r\n" 
-		self.resp += b"Server: be python\r\n\r\n"
-		self.resp += b'\r\n<html>content</html>\r\n\r\n'
+
 		self.run_test(2)
 		parser = tfwparser.TFWParser()
 		 
@@ -48,22 +43,13 @@ class Test:
 #	It checks state of the #629 issue.
 	def run_no_length_no_body(self):
 		self.res = "no Content-Length header and no body:\n"
-		self.resp = b'HTTP/1.1' + b' 200 - OK\r\n'
-		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
-							   " %H:%M:%S GMT")
-		self.resp += b"Date: " + date + b"\r\n"
-		self.resp += b"Server: be python\r\n\r\n"
+
 
 		self.run_test(1)
 # A test without the Content-Length header, but with a body in a response.     
 	def run_no_length_body(self):
 		self.res = "no Content-Length header, but is body:\n"
-		self.resp = b'HTTP/1.1' + b' 200 - OK\n'
-		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
-							   " %H:%M:%S GMT")
-		self.resp += b"Date: " + date + b"\r\n"
-		self.resp += b"Server: be python\r\n" 
-		self.resp += b'\r\n<html><body>content</body></html>\r\n\r\n'
+		
 		self.run_test(1)
 	def run_test(self, num):
 
@@ -71,7 +57,7 @@ class Test:
 		b"Connection: Keep-Alive\r\n\r\n"
 		parser = tfwparser.TFWParser()
 		body_hash = parser.get_body_hash(self.resp)
-		be_pid =  be.start(True, self.resp)
+		
 		tfw.start()
 		i = 0
 		while i < num:
@@ -106,13 +92,21 @@ class Test:
 			self.res +="perf stat: from cache="
 			self.res += str(cache_stat) + '\n'
 		tfw.stop()	 
-		be.stop(be_pid)
+		
 		print(self.res)
 
 	def run(self):
+		self.resp = b'HTTP/1.1' + b' 200 - OK\n'
+		date = datetime.datetime.utcnow().strftime("%a, %d %b %Y" +\
+							   " %H:%M:%S GMT")
+		self.resp += b"Date: " + date + b"\r\n"
+		self.resp += b"Server: be python\r\n" 
+		self.resp += b'\r\n<html><body>content</body></html>\r\n\r\n'
+		be_pid =  be.start(True, self.resp)
 		self.run_no_length_body()
 		self.run_no_length_no_body()
 		self.run_with_cache()
+		be.stop(be_pid) 
 
 	def get_name(self):
 		return 'test_unlimited'

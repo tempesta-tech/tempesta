@@ -601,7 +601,8 @@ static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 {
 	if (((hm->flags & __TFW_HTTP_CONN_MASK) == conn_flg)
-	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION])))
+	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]))
+	    && !(hm->flags & TFW_HTTP_CONN_EXTRA))
 		return 0;
 
 	switch (conn_flg) {
@@ -617,7 +618,7 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
 	}
 }
 
-/*
+/**
  * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
  */
 static int
@@ -630,7 +631,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
 
 	switch (conn_flg) {
 	case TFW_HTTP_CONN_CLOSE:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_RAW);
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
 			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
@@ -736,6 +737,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r)
 		return r;
 
+	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
 	return tfw_http_set_hdr_connection(hm, TFW_HTTP_CONN_KA);
 }
 
@@ -751,6 +756,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	__init_resp_ss_flags(resp, req);
 
 	r = tfw_http_sess_resp_process(resp, req);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_msg_del_hbh_hdrs(hm);
 	if (r < 0)
 		return r;
 
@@ -1093,8 +1102,7 @@ tfw_http_req_process(TfwConnection *conn, struct sk_buff *skb, unsigned int off)
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
-		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb))
-		{
+		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
 			tfw_http_send_500(req, "request cache error");
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -1179,23 +1187,34 @@ err:
 static TfwHttpReq *
 tfw_http_popreq(TfwHttpMsg *hmresp)
 {
-	TfwHttpReq *req;
+	TfwHttpReq *req = NULL;
 	TfwConnection *conn = hmresp->conn;
 
 	spin_lock(&conn->msg_qlock);
 
 	req = list_first_entry_or_null(&conn->msg_queue, TfwHttpReq,
 				       msg.msg_list);
-	if (unlikely(!req || !(req->flags & TFW_HTTP_MSG_SENT))) {
+	if (likely(req)) {
+		list_del(&req->msg.msg_list);
 		spin_unlock(&conn->msg_qlock);
+
+		while (unlikely(!(req->flags & TFW_HTTP_MSG_SENT))) {
+			/*
+			 * Wait for tfw_connection_send() completion, it
+			 * shouldn't take too long, but don't stress system
+			 * bus by too frequent access to the cache line.
+			 */
+			int i;
+			for (i = 0; i < 10; ++i)
+				cpu_relax();
+		}
+	} else {
+		spin_unlock(&conn->msg_qlock);
+
 		TFW_WARN("Paired request missing,"
 			 " HTTP Response Splitting attack?\n");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return NULL;
 	}
-	list_del(&req->msg.msg_list);
-
-	spin_unlock(&conn->msg_qlock);
 
 	return req;
 }
@@ -1234,7 +1253,6 @@ error:
 	req = tfw_http_popreq(hmresp);
 	if (unlikely(!req)) {
 		tfw_http_conn_msg_free(hmresp);
-		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return TFW_BLOCK;
 	}
 

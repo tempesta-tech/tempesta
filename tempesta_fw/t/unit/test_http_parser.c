@@ -18,7 +18,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <asm/i387.h>
+#include <asm/fpu/api.h>
+#include <linux/vmalloc.h>
+
 #include "http_msg.h"
 
 #include "test.h"
@@ -165,6 +167,37 @@ do {								\
 	chunks = 1;						\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
+
+TEST(http_parser, leading_eol)
+{
+	FOR_REQ("GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\r\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+	FOR_REQ("\n\n\nGET / HTTP/1.1\r\nHost: foo.com\r\n\r\n");
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\r\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+
+	FOR_RESP("\n\n\n"
+		 "HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		"\r\n"
+		"0123456789");
+}
 
 TEST(http_parser, parses_req_method)
 {
@@ -428,7 +461,7 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 	const char *s_dummy9 = "Dummy9: 9";
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc  = "Cache-Control: max-age=1, no-store, min-fresh=30";
-	const char *s_te  = "Transfer-Encoding: compress, gzip, chunked";
+	const char *s_te  = "compress, gzip, chunked";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_pragma =  "Pragma: no-cache, fooo ";
 	const char *s_auth =  "Authorization: "
@@ -539,8 +572,8 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 TEST(http_parser, fills_hdr_tbl_for_resp)
 {
 	TfwHttpHdrTbl *ht;
-	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_age, *h_date, *h_exp, *h_ka;
-	TfwStr h_connection, h_conttype, h_srv, h_te;
+	TfwStr *h_dummy4, *h_dummy9, *h_cc, *h_age, *h_date, *h_exp;
+	TfwStr h_connection, h_conttype, h_srv, h_te, h_ka;
 
 	/* Expected values for special headers. */
 	const char *s_connection = "Keep-Alive";
@@ -552,9 +585,9 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_dummy4 = "Dummy4: 4";
 	const char *s_cc = "Cache-Control: "
 			   "max-age=5, private, no-cache, ext=foo";
-	const char *s_te = "Transfer-Encoding: compress, gzip, chunked";
+	const char *s_te = "compress, gzip, chunked";
 	const char *s_exp = "Expires: Tue, 31 Jan 2012 15:02:53 GMT";
-	const char *s_ka = "Keep-Alive: timeout=600, max=65526";
+	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_age = "Age: 12  ";
 	const char *s_date = "Date: Sun, 9 Sep 2001 01:46:40 GMT\t";
@@ -602,20 +635,21 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					TFW_HTTP_HDR_SERVER, &h_srv);
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
 					TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
+		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_KEEP_ALIVE],
+					TFW_HTTP_HDR_KEEP_ALIVE, &h_ka);
 
 		/*
 		 * Common (raw) headers: 10 dummies, Cache-Control,
-		 * Expires, Keep-Alive, Transfer-Encoding, Age, Date.
+		 * Expires, Age, Date.
 		 */
-		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 15);
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 14);
 
 		h_dummy4 = &ht->tbl[TFW_HTTP_HDR_RAW + 4];
 		h_cc = &ht->tbl[TFW_HTTP_HDR_RAW + 9];
 		h_dummy9 = &ht->tbl[TFW_HTTP_HDR_RAW + 10];
 		h_exp = &ht->tbl[TFW_HTTP_HDR_RAW + 11];
-		h_ka = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
-		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
-		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 14];
+		h_age = &ht->tbl[TFW_HTTP_HDR_RAW + 12];
+		h_date = &ht->tbl[TFW_HTTP_HDR_RAW + 13];
 
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_connection, s_connection,
 					    strlen(s_connection), 0));
@@ -625,6 +659,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_srv), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_te, s_te,
 					    strlen(s_te), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_ka, s_ka,
+					    strlen(s_ka), 0));
 
 		EXPECT_TRUE(tfw_str_eq_cstr(h_dummy4, s_dummy4,
 					    strlen(s_dummy4), 0));
@@ -634,8 +670,6 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 					    strlen(s_dummy9), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_exp, s_exp,
 					    strlen(s_exp), 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(h_ka, s_ka,
-					    strlen(s_ka), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_age, s_age,
 					    strlen(s_age), 0));
 		EXPECT_TRUE(tfw_str_eq_cstr(h_date, s_date,
@@ -950,6 +984,318 @@ TEST(http_parser, cookie)
 		"\r\n");
 }
 
+TEST(http_parser, req_hop_by_hop)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *field;
+	long id;
+#define REQ_HBH_START							\
+	"GET /foo HTTP/1.1\r\n"						\
+	"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"			\
+	"Accept: */*\r\n"						\
+	"Host: localhost\r\n"						\
+	"X-Custom-Hdr: custom header values\r\n"			\
+	"X-Forwarded-For: 127.0.0.1, example.com\r\n"			\
+	"Dummy0: 0\r\n"							\
+	"Dummy1: 1\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy2: 2\r\n"							\
+	"Dummy3: 3\r\n"							\
+	"Keep-Alive: timeout=600, max=65526\r\n"
+
+#define REQ_HBH_END							\
+	"Dummy4: 4\r\n"							\
+	"Dummy5: 5\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy6: 6\r\n"							\
+	"Content-Length: 0\r\n"						\
+	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
+	"Dummy7: 7\r\n"							\
+	"Dummy8: 8\r\n"							\
+	"Buzz: is hop-by-hop header\r\n"				\
+	"Dummy9: 9\r\n"							\
+	"Cache-Control: max-age=1, no-store, min-fresh=30\r\n"		\
+	"Pragma: no-cache, fooo \r\n"					\
+	"Cookie: session=42; theme=dark\r\n"				\
+	"Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\t \n"	\
+	"\r\n"								\
+
+	/* No Hop-by-hop headers */
+	FOR_REQ(REQ_HBH_START
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive */
+	FOR_REQ(REQ_HBH_START
+		"Connection: Keep-Alive\r\n"
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive and user headers */
+	FOR_REQ(REQ_HBH_START
+		"Connection: Foo, Keep-Alive, Bar, Buzz\r\n"
+		REQ_HBH_END)
+	{
+		ht = req->h_tbl;
+		/* Common (raw) headers: 17 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 17);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+			case TFW_HTTP_HDR_RAW + 4:
+			case TFW_HTTP_HDR_RAW + 12:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Connection header lists end-to-end spec headers */
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Host\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Content-Length\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Content-Type\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Connection\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: X-Forwarded-For\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Transfer-Encoding\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: User-Agent\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Server\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: Cookie\r\n"
+			 REQ_HBH_END);
+
+	/* Connection header lists end-to-end raw headers */
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: authorization\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: cache-control\r\n"
+			 REQ_HBH_END);
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: pragma\r\n"
+			 REQ_HBH_END);
+
+	/* Too lot of connection tokens */
+	EXPECT_BLOCK_REQ(REQ_HBH_START
+			 "Connection: t1, t2, t3, t4, t5, t6, t7, t8, t9, t10,"
+			 "t11, t12, t13, t14, t15, t16, t17\r\n"
+			 REQ_HBH_END);
+
+#undef REQ_HBH_START
+#undef REQ_HBH_END
+}
+
+TEST(http_parser, resp_hop_by_hop)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr *field;
+	long id;
+#define RESP_HBH_START							\
+	"HTTP/1.1 200 OK\r\n"						\
+	"Dummy0: 0\r\n"							\
+	"Dummy1: 1\r\n"							\
+	"Dummy2: 2\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Dummy3: 3\r\n"							\
+	"Dummy4: 4\r\n"							\
+	"Dummy5: 5\r\n"
+
+#define RESP_HBH_END							\
+	"Dummy6: 6\r\n"							\
+	"Content-Length: 3\r\n"						\
+	"Content-Type: text/html; charset=iso-8859-1\r\n"		\
+	"Dummy7: 7\r\n"							\
+	"Buzz: is hop-by-hop header\r\n"				\
+	"Dummy8: 8\r\n"							\
+	"Foo: is hop-by-hop header\r\n"					\
+	"Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"	\
+	"Dummy9: 9\r\n"							\
+	"Expires: Tue, 31 Jan 2012 15:02:53 GMT\r\n"			\
+	"Keep-Alive: timeout=600, max=65526\r\n"			\
+	"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"		\
+		" mod_fcgid/2.3.9\r\n"					\
+	"Age: 12  \n"							\
+	"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"			\
+	"\r\n"								\
+	"012"
+
+	/* No Hop-by-hop headers */
+	FOR_RESP(RESP_HBH_START
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive */
+	FOR_RESP(RESP_HBH_START
+		 "Connection: Keep-Alive\r\n"
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Hop-by-hop headers: Connection, Keep-Alive and user headers */
+	FOR_RESP(RESP_HBH_START
+		 "Connection: Foo, Keep-Alive, Bar, Buzz\r\n"
+		 RESP_HBH_END)
+	{
+		ht = resp->h_tbl;
+		/* Common (raw) headers: 16 total with 10 dummies. */
+		EXPECT_EQ(ht->off, TFW_HTTP_HDR_RAW + 16);
+
+		for(id = 0; id < ht->off; ++id) {
+			field = &ht->tbl[id];
+			switch (id) {
+			case TFW_HTTP_HDR_SERVER:
+			case TFW_HTTP_HDR_CONNECTION:
+			case TFW_HTTP_HDR_KEEP_ALIVE:
+			case TFW_HTTP_HDR_RAW + 3:
+			case TFW_HTTP_HDR_RAW + 9:
+				EXPECT_TRUE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			default:
+				EXPECT_FALSE(field->flags & TFW_STR_HBH_HDR);
+				break;
+			}
+		}
+	}
+
+	/* Connection header lists end-to-end spec headers */
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Host\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Content-Length\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Content-Type\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Connection\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: X-Forwarded-For\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Transfer-Encoding\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: User-Agent\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Server\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: Cookie\r\n"
+			  RESP_HBH_END);
+
+	/* Connection header lists end-to-end raw headers */
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: age\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: authorization\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: cache-control\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: date\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: expires\r\n"
+			  RESP_HBH_END);
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: pragma\r\n"
+			  RESP_HBH_END);
+
+	/* Too lot of connection tokens */
+	EXPECT_BLOCK_RESP(RESP_HBH_START
+			  "Connection: t1, t2, t3, t4, t5, t6, t7, t8, t9, t10,"
+			  "t11, t12, t13, t14, t15, t16, t17\r\n"
+			  RESP_HBH_END);
+
+#undef RESP_HBH_START
+#undef RESP_HBH_END
+}
+
 #define N 6	// Count of generations
 #define MOVE 1	// Mutations per generation
 
@@ -1017,6 +1363,7 @@ end:
 
 TEST_SUITE(http_parser)
 {
+	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
 	TEST_RUN(http_parser, mangled_messages);
@@ -1032,5 +1379,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, empty_host);
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, cookie);
+	TEST_RUN(http_parser, req_hop_by_hop);
+	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
 }

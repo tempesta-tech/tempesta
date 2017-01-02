@@ -81,7 +81,7 @@ class Test:
 		self.res = False
 		self.__init__()
 		self.cfg.add_section('frang_limits')
-		self.cfg.add_option('request_rate', '5')
+		self.cfg.add_option('request_rate', '2')
 
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
@@ -90,8 +90,9 @@ class Test:
 		self.vs_get = b"GET / HTTP/1.1\r\nhost: loc\r\n"
 		self.vs_get += b"Connection: Keep-Alive\r\n\r\n"
 		try:
-			for x in range(0, 15):
+			for x in range(0, 5):
 				self.s.sendall(self.vs_get)
+				data = self.s.recv(1024)
 
 		except socket.error as e:
 			pass	
@@ -127,6 +128,7 @@ class Test:
 		try:
 			for x in range(0, 15):
 				self.s.sendall(self.vs_get)
+				data = self.s.recv(1024)
 
 		except socket.error as e:
 			pass
@@ -160,18 +162,14 @@ class Test:
 
 		try:
 			socks = []
-			conncount = 0
-			port = 8095
 			for x in range(0,7):
 				s = socket.socket(AF_INET, SOCK_STREAM)
 				s.settimeout(2)
 				s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-				s.bind(('127.0.0.6', port))
 				s.connect(("127.0.0.1", 8081))
 				s.send(self.vs_get)
+				data = s.recv(1024)
 				socks.append(s)
-				conncount += 1
-				port += conncount
 		except socket.error as e:
 			pass	
 		if self.parser.check_log("connections max num. exceeded"):
@@ -208,18 +206,13 @@ class Test:
 		self.vs_get += b"Connection: Keep-Alive\r\n\r\n"
 
 		socks = []
-		conncount = 0
-		port = 8095
 		try:
 			for x in range(0,15):
 				s = socket.socket(AF_INET, SOCK_STREAM)
 				s.settimeout(2)
 				s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-				s.bind(('127.0.0.5', port))
 				s.connect(("127.0.0.1", 8081))
 				socks.append(s)
-				conncount += 1
-				port += conncount
 
 		except socket.error as e:
 			pass
@@ -287,17 +280,11 @@ class Test:
 		try:
 			socks = []
 			conncount = 0
-			port = 8095
 			for x in range(0,7):
 				s = socket.socket(AF_INET, SOCK_STREAM)
 				s.settimeout(2)
-				s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-				s.bind(('127.0.0.7', port))
 				s.connect(("127.0.0.1", 8081))
 				socks.append(s)
-
-				conncount += 1
-				port += conncount
 
 		except socket.error as e:
 			pass
@@ -485,9 +472,6 @@ class Test:
 		if self.parser.check_log("header chunk count exceeded"):
 			self.res = True
 			tcount += 1
-#		if len(data) == 0:
-#			self.res = True
-#			tcount += 1
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
@@ -560,7 +544,9 @@ class Test:
 #	too And send the parts with a pause. The frang has to block the request.
 #	The Tempesta returns no data. 
 	def body_chunks(self):
+
 		global tcount
+		self.res = False
 		part1 = b"POST /a.html HTTP/1.1\r\nHost: loc\r\n\
 Content-Type: text/html\r\nContent-Length: 30\r\n\r\n<html><body>content"
 		part2 = b"</body>"
@@ -575,11 +561,13 @@ Content-Type: text/html\r\nContent-Length: 30\r\n\r\n<html><body>content"
 		self.s = socket.socket(AF_INET, SOCK_STREAM)
 		self.s.setsockopt(socket.IPPROTO_TCP, TCP_NODELAY, 1)
 		self.s.connect(('127.0.0.1', 8081))
-		self.s.send(part1)
-		self.s.send(part2)
-		self.s.send(part3)
-		data = self.s.recv(1024)
-		
+		try:
+			self.s.send(part1)
+			self.s.send(part2)
+			self.s.send(part3)
+			data = self.s.recv(1024)
+		except socket.error as e:
+			pass
 		
 		if self.parser.check_log("body chunk count exceed"):
 			self.res = True
@@ -593,13 +581,14 @@ Content-Type: text/html\r\nContent-Length: 30\r\n\r\n<html><body>content"
 		return 'test Frang'
 
 	def run(self):
-		tests = [self.body_chunks(), self.header_chunks(),
-			 self.conn_burst(), self.request_burst(),
-			 self.body_timeout(), self.field_len(),
-			 self.body_len(),self.host_required(),
-			 self.ct_required(), self.req_method(), self.ct_vals(),
-			 self.uri_len(), self.request_rate(), self.conn_rate(),
-			 self.conn_max()]
+		global tcount
+		conf.set_msg_cost()
+		tests = [self.request_burst(), self.body_chunks(),
+			 self.header_chunks(), self.body_timeout(),
+			 self.uri_len(), self.field_len(), self.body_len(),
+			 self.host_required(), self.ct_required(), 
+			 self.ct_vals(), self.conn_rate(), self.req_method(),
+			 self.request_rate(), self.conn_max(), self.conn_rate()] 
 		for f in tests:
 			if hasattr(f, '__call__'):
 				f()

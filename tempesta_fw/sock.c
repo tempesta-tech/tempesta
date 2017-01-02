@@ -64,10 +64,18 @@ ss_sock_cpu_check(struct sock *sk, const char *op)
 	if (unlikely(sk->sk_incoming_cpu != TFW_SK_CPU_INIT
 		     && sk->sk_incoming_cpu != smp_processor_id()))
 	{
-		SS_WARN("Bad socket cpu locality on <%s>:"
+		SS_DBG("Bad socket cpu locality on <%s>:"
 			" sk=%p old_cpu=%d curr_cpu=%d\n",
 			op, sk, sk->sk_incoming_cpu, smp_processor_id());
 	}
+}
+
+static inline void
+skb_sender_cpu_clear(struct sk_buff *skb)
+{
+#ifdef CONFIG_XPS
+	skb->sender_cpu = 0;
+#endif
 }
 
 static void
@@ -230,8 +238,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * This isn't reliable check, but rather just an optimization to
 	 * avoid expensive work queue operations.
 	 */
-	if (unlikely(!ss_sock_active(sk)))
-		return 0;
+	if (unlikely(!ss_sock_active(sk))) {
+		SS_DBG("Try to send on inactive socket %p\n", sk);
+		return -EBADF;
+	}
 
 	/*
 	 * Remove the skbs from Tempesta lists if we won't use them,
@@ -338,7 +348,7 @@ ss_do_close(struct sock *sk)
 		goto adjudge_to_death;
 
 	if (data_was_unread) {
-		NET_INC_STATS_USER(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
+		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTONCLOSE);
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	}
@@ -402,8 +412,8 @@ adjudge_to_death:
 		if (tcp_check_oom(sk, 0)) {
 			tcp_set_state(sk, TCP_CLOSE);
 			tcp_send_active_reset(sk, GFP_ATOMIC);
-			NET_INC_STATS_BH(sock_net(sk),
-					 LINUX_MIB_TCPABORTONMEMORY);
+			__NET_INC_STATS(sock_net(sk),
+					LINUX_MIB_TCPABORTONMEMORY);
 		}
 	}
 	if (sk->sk_state == TCP_CLOSE) {
@@ -669,10 +679,9 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
 	 * FIXME push any request from the queue,
 	 * doesn't matter which exactly.
 	 */
-	req = reqsk_queue_remove(queue);
+	req = reqsk_queue_remove(queue, lsk);
 #endif
 	BUG_ON(!req);
-	sk_acceptq_removed(lsk);
 
 	/*
 	 * @nsk is in ESTABLISHED state, so 3WHS has completed and
@@ -782,7 +791,6 @@ ss_tcp_state_change(struct sock *sk)
 			 * Just drain listening socket accept queue,
 			 * and don't care about the returned socket.
 			 */
-			assert_spin_locked(&lsk->sk_lock.slock);
 			ss_drain_accept_queue(lsk, sk);
 		}
 	}
@@ -925,7 +933,7 @@ ss_inet_create(struct net *net, int family,
 	}
 	WARN_ON(!answer_prot->slab);
 
-	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)))
+	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot, 1)))
 		return -ENOBUFS;
 
 	inet = inet_sk(sk);

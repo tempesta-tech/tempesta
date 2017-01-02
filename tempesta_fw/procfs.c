@@ -81,14 +81,9 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)						\
-	if ((ret = seq_printf(seq, m": %llu\n", e)))		\
-		goto out;
-#define SPRN(m, c)						\
-	if ((ret = seq_printf(seq, m": %llu\n", stat.c)))	\
-		goto out;
+#define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
+#define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
-	int ret;
 	TfwPerfStat stat;
 
 	memset(&stat, 0, sizeof(stat));
@@ -127,8 +122,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	      stat.serv.conn_established - stat.serv.conn_disconnects);
 	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
 
-out:
-	return ret;
+	return 0;
 #undef SPRN
 #undef SPRNE
 }
@@ -150,11 +144,9 @@ static const TfwPrcntl __read_mostly tfw_procfs_prcntl[] = {
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)						\
-	if ((ret = seq_printf(seq, m": %dms\n", e)))		\
-		goto out;
+#define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
 
-	int i, ret;
+	int i;
 	TfwServer *srv = seq->private;
 	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
 	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };
@@ -167,16 +159,12 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	SPRNE("Average response time\t\t", pstats.avg);
 	SPRNE("Median  response time\t\t", prcntl[0].val);
 	SPRNE("Maximum response time\t\t", pstats.max);
-	if ((ret = seq_printf(seq, "Percentiles\n")))
-		goto out;
-	for (i = 0; i < ARRAY_SIZE(prcntl); ++i) {
-		ret = seq_printf(seq, "%02d%%:\t%dms\n",
-				 prcntl[i].ith, prcntl[i].val);
-		if (ret)
-			goto out;
-	}
-out:
-	return ret;
+	seq_printf(seq, "Percentiles\n");
+	for (i = 0; i < ARRAY_SIZE(prcntl); ++i)
+		seq_printf(seq, "%02d%%:\t%dms\n", prcntl[i].ith,
+			   prcntl[i].val);
+
+	return 0;
 #undef SPRNE
 }
 

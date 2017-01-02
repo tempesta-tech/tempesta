@@ -39,6 +39,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
 		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
+		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
 		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
@@ -150,15 +152,11 @@ __hdr_is_singular(const TfwStr *hdr)
  * i.e. check whether the header is duplicate.
  * The lookup is performed untill ':', so header name only is enough in @hdr.
  * @return the header id.
- *
- * Certain header fields are strictly singular and may not be repeated in
- * an HTTP message. Duplicate of a singular header fields is a bug worth
- * blocking the whole HTTP message.
  */
-static int
-__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+unsigned int
+tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
-	int id;
+	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
@@ -166,12 +164,25 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 		/* There is no sense to compare against all duplicates. */
 		if (h->flags & TFW_STR_DUPLICATE)
 			h = TFW_STR_CHUNK(h, 0);
-		if (tfw_stricmpspn(hdr, h, ':'))
-			continue;
-		if (__hdr_is_singular(hdr))
-			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		break;
+		if (!tfw_stricmpspn(hdr, h, ':'))
+			break;
 	}
+
+	return id;
+}
+
+/**
+ * Certain header fields are strictly singular and may not be repeated in
+ * an HTTP message. Duplicate of a singular header fields is a bug worth
+ * blocking the whole HTTP message.
+ */
+static inline unsigned int
+__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+{
+	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
+
+	if ((id <  hm->h_tbl->off) && __hdr_is_singular(hdr))
+		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 
 	return id;
 }
@@ -200,7 +211,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
  * HTTP message headers list.
  */
 int
-tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
+tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -344,7 +355,7 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
  * Add new header @hdr to the message @hm just before CRLF.
  */
 static int
-__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
+__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
 	int r;
 	TfwStr it = {};
@@ -406,7 +417,7 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
  * Delete header with identifier @hid from skb data and header table.
  */
 static int
-__hdr_del(TfwHttpMsg *hm, int hid)
+__hdr_del(TfwHttpMsg *hm, unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
@@ -443,7 +454,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
  */
 static int
 __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
-	  int hid)
+	  unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
@@ -509,7 +520,7 @@ cleanup:
  */
 int
 tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
-		      char *val, size_t v_len, int hid, bool append)
+		      char *val, size_t v_len, unsigned int hid, bool append)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *orig_hdr;
@@ -573,12 +584,37 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 }
 
 /**
+ * Remove hop-by-hop headers in the message
+ *
+ * Connection header should not be removed, tfw_http_set_hdr_connection()
+ * optimize removal of the header.
+ */
+int
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = ht->off;
+	int r = 0;
+
+	do {
+		hid--;
+		if (hid == TFW_HTTP_HDR_CONNECTION)
+			continue;
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+			if ((r = __hdr_del(hm, hid)))
+				return r;
+	} while (hid);
+
+	return 0;
+}
+
+/**
  * Add a header, probably duplicated, without any checking of current headers.
  */
 int
 tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	int hid;
+	unsigned int hid;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	hid = ht->off;
@@ -774,6 +810,39 @@ tfw_http_msg_free(TfwHttpMsg *m)
 EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
+ * Add spec header indexes to list of hop-by-hop headers.
+ */
+static inline void
+__hbh_parser_init_req(TfwHttpReq *req)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/* Connection is hop-by-hop header by RFC 7230 6.1 */
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+}
+
+/**
+ * Same as @__hbh_parser_init_req for response.
+ */
+static inline void
+__hbh_parser_init_resp(TfwHttpResp *resp)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/*
+	 * Connection is hop-by-hop header by RFC 7230 6.1
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
+			 (0x1 << TFW_HTTP_HDR_SERVER);
+
+}
+
+/**
  * Allocate a new HTTP message.
  * Given the total message length as @data_len, it allocates an appropriate
  * number of SKBs and page fragments to hold the payload, and sets them up
@@ -805,6 +874,10 @@ tfw_http_msg_alloc(int type)
 	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	hm->parser.to_read = -1; /* unknown body size */
+	if (type & Conn_Clnt)
+		__hbh_parser_init_req((TfwHttpReq *)hm);
+	else
+		__hbh_parser_init_resp((TfwHttpResp *)hm);
 
 	if (type & Conn_Clnt)
 		hm->destructor = tfw_http_req_destruct;
