@@ -371,8 +371,8 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	TfwHttpMsg		*resp;
 	union {
-		TfwHttpMsg	*resp;
 		unsigned short	rstatus;
 		unsigned short	retries;
 	};
