@@ -30,15 +30,13 @@
 #include "sync_socket.h"
 
 /**
- * @seq_list	- member in the ordered queue of incoming requests;
- * @fwd_list	- member in the queue of forwarded/backlogged requests;
+ * @seq_list	- member in the ordered queue of messages;
  * @skb_list	- list of sk_buff that belong to the message;
  * @ss_flags	- message processing flags;
  * @len		- total message length;
  */
 typedef struct {
 	struct list_head	seq_list;
-	struct list_head	fwd_list;
 	int			ss_flags;
 	SsSkbList		skb_list;
 	size_t			len;
