@@ -122,7 +122,7 @@ unsigned long tfw_hash_str(const TfwStr *str);
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
  */
 int
-tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
+tfw_http_prep_302(TfwHttpMsg *hmresp, TfwHttpReq *req, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
@@ -162,24 +162,24 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	data_len += req->uri_path.len + cookie->len;
 	data_len += crlf->len;
 
-	if (!tfw_http_msg_create(resp, &it, Conn_Srv, data_len))
+	if (tfw_http_msg_setup(hmresp, &it, data_len))
 		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-	tfw_http_msg_write(&it, resp, &rh);
+	tfw_http_msg_write(&it, hmresp, &rh);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
 		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
-		tfw_http_msg_write(&it, resp, &proto);
-		tfw_http_msg_write(&it, resp, &host);
+		tfw_http_msg_write(&it, hmresp, &proto);
+		tfw_http_msg_write(&it, hmresp, &host);
 	}
-	tfw_http_msg_write(&it, resp, &req->uri_path);
-	tfw_http_msg_write(&it, resp, &part03);
-	tfw_http_msg_write(&it, resp, cookie);
-	tfw_http_msg_write(&it, resp, crlf);
+	tfw_http_msg_write(&it, hmresp, &req->uri_path);
+	tfw_http_msg_write(&it, hmresp, &part03);
+	tfw_http_msg_write(&it, hmresp, cookie);
+	tfw_http_msg_write(&it, hmresp, crlf);
 
 	return TFW_PASS;
 }
@@ -211,8 +211,12 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 		msg->len += crlf->len - crlf_len;
 	}
 
-	if (!(hmresp = tfw_http_msg_create(NULL, &it, Conn_Srv, msg->len)))
+	if (!(hmresp = tfw_http_msg_alloc_err_resp()))
 		return -ENOMEM;
+	if (tfw_http_msg_setup(hmresp, &it, msg->len)) {
+		tfw_http_msg_free(hmresp);
+		return -ENOMEM;
+	}
 
 	tfw_http_prep_date(date->ptr);
 	tfw_http_msg_write(&it, hmresp, msg);

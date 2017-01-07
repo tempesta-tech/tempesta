@@ -631,8 +631,6 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
  * of SKBs and page fragments to hold the payload, and add them to the
  * message. Put as much as possible in one SKB. TCP GSO will take care of
  * segmentation. The allocated payload space will be filled with data.
- *
- * Call tfw_http_msg_free() is for @hm if the function fails.
  */
 static int
 __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
@@ -651,33 +649,30 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 }
 
 /**
- * Initialize @hm or allocate an HTTP message if it's NULL.
- * Sets @hm up with empty SKB space of size @data_len for data writing.
- * An iterator @it is set up to support consecutive writes.
+ * Set up @hm with empty SKB space of size @data_len for data writing.
+ * Set up the iterator @it to support consecutive writes.
  *
  * This function is intended to work together with tfw_http_msg_write()
- * that uses the @it iterator.
- * Use dynamic allocation if you need to do the message transformations
- * (e.g. adjust headers) and avoid it if you just need to send the message.
+ * or tfw_http_msg_add_data() which use the @it iterator.
+ *
+ * @hm must be allocated dynamically (NOT statically) as it may have
+ * to sit in a queue long after the caller has finished. It's assumed
+ * that @hm is properly initialized.
+ *
+ * It's essential to understand, that "properly initialized" for @hm
+ * may mean different things depending on the intended use. Currently
+ * this function is called to send a response from cache, or to send
+ * an error response. An error response is not parsed or adjusted, so
+ * a shorter/faster version of message allocation and initialization
+ * may be used. (See tfw_http_msg_alloc_err_resp()).
  */
-TfwHttpMsg *
-tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
+int
+tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 {
-	if (hm) {
-		memset(hm, 0, sizeof(*hm));
-		ss_skb_queue_head_init(&hm->msg.skb_list);
-		INIT_LIST_HEAD(&hm->msg.seq_list);
-		INIT_LIST_HEAD(&hm->msg.fwd_list);
-		if (__msg_alloc_skb_data(hm, data_len))
-			return NULL;
-	} else {
-		if (!(hm = tfw_http_msg_alloc(type)))
-			return NULL;
-		if (__msg_alloc_skb_data(hm, data_len)) {
-			tfw_http_msg_free(hm);
-			return NULL;
-		}
-	}
+	int ret;
+
+	if ((ret = __msg_alloc_skb_data(hm, data_len)))
+		return ret;
 
 	it->skb = ss_skb_peek(&hm->msg.skb_list);
 	it->frag = 0;
@@ -685,22 +680,22 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 	BUG_ON(!it->skb);
 	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
-	TFW_DBG2("Created new HTTP message %p: type=%d len=%lu\n",
-		 hm, type, data_len);
-	return hm;
+	TFW_DBG2("Set up new HTTP message %p: len=%lu\n", hm, data_len);
+
+	return 0;
 }
-EXPORT_SYMBOL(tfw_http_msg_create);
+EXPORT_SYMBOL(tfw_http_msg_setup);
 
 /*
  * Fill up an HTTP message @hm with data from string @data.
- * This is a quick message creator which doesn't properly initialized
- * the message structure like headers table. So @hm couldn't be used in
- * HTTP message transformations.
+ * This is a quick message creator which doesn't maintain properly
+ * parts of the message structure like headers table. So @hm cannot
+ * be used where HTTP message transformations are required.
  *
- * An iterator @it is used to support multiple calls to this functions after
- * set up. This function can only be called after a call to
- * tfw_http_msg_create(). It works only with empty SKB space prepared by
- * the function.
+ * An iterator @it is used to support multiple calls to this function
+ * after the set up. This function can only be called after a call to
+ * tfw_http_msg_setup(). It works only with empty SKB space prepared
+ * by the function.
  */
 int
 tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
@@ -727,7 +722,7 @@ this_chunk:
 
 		if (c_size < f_room) {
 			/*
-			 * The chunk has fit in the SKB fragment with room
+			 * The chunk fits in the SKB fragment with room
 			 * to spare. Stay in the same SKB fragment, swith
 			 * to next chunk of the string.
 			 */
@@ -736,8 +731,8 @@ this_chunk:
 			frag = ss_skb_frag_next(&it->skb, &it->frag);
 			/*
 			 * If all data from the chunk has been copied,
-			 * then switch to next chunk. Otherwise, stay
-			 * in the current chunk.
+			 * then switch to the next chunk. Otherwise,
+			 * stay in the current chunk.
 			 */
 			if (c_size == f_room) {
 				c_off = 0;
@@ -753,10 +748,10 @@ this_chunk:
 EXPORT_SYMBOL(tfw_http_msg_write);
 
 /**
- * Like tfw_http_msg_write(), but properly initialize HTTP message fields,
- * so it can be used in regular transformations.
- * However, the header name and value aren't splitted into different chunks,
- * so advanced headers matching aren't available for @hm.
+ * Similar to tfw_http_msg_write(), but properly maintain @hm header
+ * fields, so that @hm can be used in regular transformations. However,
+ * the header name and the value are not split into different chunks,
+ * so advanced headers matching is not available for @hm.
  */
 int
 tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
@@ -813,6 +808,25 @@ tfw_http_msg_free(TfwHttpMsg *m)
 EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
+ * Allocate a new error response message.
+ * This type of message is not parsed or adjusted before it's sent out.
+ * That allows for a short (limited) initialization.
+ */
+TfwHttpMsg *
+tfw_http_msg_alloc_err_resp(void)
+{
+	TfwHttpMsg *hm;
+
+	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO)))
+		return NULL;
+
+	INIT_LIST_HEAD(&hm->msg.seq_list);
+	ss_skb_queue_head_init(&hm->msg.skb_list);
+
+	return hm;
+}
+
+/**
  * Add spec header indexes to list of hop-by-hop headers.
  */
 static inline void
@@ -842,12 +856,12 @@ __hbh_parser_init_resp(TfwHttpResp *resp)
 	 */
 	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
 			 (0x1 << TFW_HTTP_HDR_SERVER);
-
 }
 
 /**
  * Allocate a new HTTP message.
- * The space to hold the payload is allocated separately.
+ * The allocated message is set up and initialized with full support
+ * for parsing and subsequent adjustment.
  */
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
