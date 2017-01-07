@@ -451,6 +451,7 @@ tfw_http_conn_on_hold(TfwConnection *srv_conn)
 static inline bool
 tfw_http_conn_drained(TfwConnection *srv_conn)
 {
+	TfwMsg *msg;
 	struct list_head *fwd_queue = &srv_conn->msg_queue;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
@@ -459,7 +460,8 @@ tfw_http_conn_drained(TfwConnection *srv_conn)
 		return true;
 	if (!srv_conn->msg_sent)
 		return false;
-	if (srv_conn->msg_sent == list_last_entry(fwd_queue, TfwMsg, fwd_list))
+	msg = (TfwMsg *)list_last_entry(fwd_queue, TfwHttpReq, fwd_list);
+	if (srv_conn->msg_sent == msg)
 		return true;
 	return false;
 }
@@ -485,7 +487,7 @@ tfw_http_req_move2equeue(TfwConnection *srv_conn, TfwHttpReq *req,
 			 struct list_head *equeue, unsigned short status)
 {
 	tfw_http_req_nonidemp_delist(srv_conn, req);
-	list_move_tail(&req->msg.fwd_list, equeue);
+	list_move_tail(&req->fwd_list, equeue);
 	srv_conn->qsize--;
 	req->rstatus = status;
 }
@@ -503,8 +505,8 @@ tfw_http_req_zap_error(struct list_head *equeue)
 	TFW_DBG2("%s: queue is %sempty\n",
 		 __func__, list_empty(err_queue) ? "" : "NOT ");
 
-	list_for_each_entry_safe(req, tmp, equeue, msg.fwd_list) {
-		list_del_init(&req->msg.fwd_list);
+	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
+		list_del_init(&req->fwd_list);
 		if (req->rstatus == 500)
 			tfw_http_send_500(req);
 		else if (req->rstatus == 504)
@@ -537,10 +539,10 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 	 * queues that can be processed without the lock.
 	 */
 	req = srv_conn->msg_sent
-	    ? (TfwHttpReq *)list_next_entry(srv_conn->msg_sent, fwd_list)
-	    : (TfwHttpReq *)list_first_entry(fwd_queue, TfwMsg, fwd_list);
+	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
+	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
-	list_for_each_entry_safe_from(req, tmp, fwd_queue, msg.fwd_list) {
+	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		unsigned long jtimeout = jiffies - req->jtstamp;
 		if (time_after(jtimeout, srv->qjtimeout)) {
 			TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
@@ -620,7 +622,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 
 	spin_lock(&srv_conn->msg_qlock);
 	drained = tfw_http_conn_drained(srv_conn);
-	list_add_tail(&req->msg.fwd_list, &srv_conn->msg_queue);
+	list_add_tail(&req->fwd_list, &srv_conn->msg_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nonidempotent(req))
 		__tfw_http_req_nonidemp_enlist(srv_conn, req);
@@ -639,7 +641,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	}
 	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
 		tfw_http_req_nonidemp_delist(srv_conn, req);
-		list_del_init(&req->msg.fwd_list);
+		list_del_init(&req->fwd_list);
 		srv_conn->qsize--;
 		spin_unlock(&srv_conn->msg_qlock);
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
@@ -671,13 +673,12 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn)
 	if (req_sent && tfw_http_req_is_nonidempotent(req_sent)
 	    && likely(!(srv->flags & TFW_SRV_RETRY_NON_IDEMP)))
 	{
-		struct list_head *lent = &req_sent->msg.fwd_list;
 		BUG_ON(list_empty(&req_sent->nip_list));
-		srv_conn->msg_sent = (lent == srv_conn->msg_queue.next)
-				   ? NULL
-				   : list_entry(lent->prev, TfwMsg, fwd_list);
+		srv_conn->msg_sent =
+			(&req_sent->fwd_list == srv_conn->msg_queue.next) ?
+			NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
 		__tfw_http_req_nonidemp_delist(srv_conn, req_sent);
-		list_del_init(&req_sent->msg.fwd_list);
+		list_del_init(&req_sent->fwd_list);
 		srv_conn->qsize--;
 		tfw_http_send_404(req_sent);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -699,15 +700,15 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 	TFW_DBG2("%s: conn=[%p] one_msg=[%s]\n",
 		 __func__, srv_conn, one_msg ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
-	BUG_ON(list_empty(&srv_conn->msg_sent->fwd_list));
+	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
 
-	req = list_first_entry(fwd_queue, TfwHttpReq, msg.fwd_list);
-	end = srv_conn->msg_sent->fwd_list.next;
+	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
+	end = ((TfwHttpReq *)srv_conn->msg_sent)->fwd_list.next;
 
 	/* An equivalent of list_for_each_entry_safe_from() */
-	for (tmp = list_next_entry(req, msg.fwd_list);
-	     &req->msg.fwd_list != end;
-	     req = tmp, tmp = list_next_entry(tmp, msg.fwd_list))
+	for (tmp = list_next_entry(req, fwd_list);
+	     &req->fwd_list != end;
+	     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 	{
 		if (req->retries++ >= srv->retry_max) {
 			TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
@@ -786,7 +787,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 
 		spin_lock(&conn->msg_qlock);
 		req = list_first_entry_or_null(&conn->msg_queue,
-					       TfwHttpReq, msg.fwd_list);
+					       TfwHttpReq, fwd_list);
 		spin_unlock(&conn->msg_qlock);
 		if (req && (req->method == TFW_HTTP_METH_HEAD))
 			hm->flags |= TFW_HTTP_VOID_BODY;
@@ -857,9 +858,9 @@ tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 	tfw_http_req_fwd_handlenip(srv_conn);
 
 	/* Process complete queue. */
-	list_for_each_entry_safe(req, tmp, fwd_queue, msg.fwd_list) {
+	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
 		tfw_http_req_nonidemp_delist(srv_conn, req);
-		list_del_init(&req->msg.fwd_list);
+		list_del_init(&req->fwd_list);
 		srv_conn->qsize--;
 		if (!(sconn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_WARN("Unable to find a backend server\n");
@@ -950,7 +951,7 @@ tfw_http_req_destruct(void *msg)
 	TfwHttpReq *req = msg;
 
 	BUG_ON(!list_empty(&req->msg.seq_list));
-	BUG_ON(!list_empty(&req->msg.fwd_list));
+	BUG_ON(!list_empty(&req->fwd_list));
 	BUG_ON(!list_empty(&req->nip_list));
 
 	if (req->sess)
@@ -1832,8 +1833,8 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
-	req = list_first_entry(fwd_queue, TfwHttpReq, msg.fwd_list);
-	list_del_init(&req->msg.fwd_list);
+	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
+	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;

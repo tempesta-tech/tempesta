@@ -341,6 +341,7 @@ typedef struct {
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @node	- NUMA node where request is serviced;
@@ -363,6 +364,7 @@ typedef struct {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
+	struct list_head	fwd_list;
 	struct list_head	nip_list;
 	unsigned char		method;
 	unsigned short		node;
