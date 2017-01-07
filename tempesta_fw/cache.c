@@ -1120,14 +1120,14 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	TfwMsgIter it;
 
 	/*
-	 * Allocated response won't be checked by any filters and
+	 * The allocated response won't be checked by any filters and
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_Srv,
-						  ce->hdr_len + 2);
-	if (!resp)
+	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv))))
 		return NULL;
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
+		goto free;
 
 	/*
 	 * Allocate HTTP headers table of proper size.
@@ -1175,6 +1175,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	return resp;
 err:
 	TFW_WARN("Cannot use cached response, key=%lx\n", ce->key);
+free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return NULL;
 }
