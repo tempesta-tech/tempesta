@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -164,9 +164,15 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
 	if (r) {
-		TFW_ERR("Unable to initiate a connect to server: %d\n", r);
+		if (r != SS_SHUTDOWN)
+			TFW_ERR("Unable to initiate a connect to server: %d\n",
+				r);
 		ss_close_sync(sk, false);
-		return r;
+		/*
+		 * We hadle shutdown by closing the socket, so we can return
+		 * successful return code to upper layer.
+		 */
+		return r == SS_SHUTDOWN ? 0 : r;
 	}
 
 	/*
@@ -196,6 +202,10 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * response time.
 	 */
 	static const unsigned long timeouts[] = { 1, 10, 100, 250, 500, 1000 };
+
+	/* Don't rearm reconnection timer if we're about to shutdown. */
+	if (unlikely(!ss_active()))
+		return;
 
 	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
 		srv_conn->timeout = timeouts[srv_conn->attempts];
@@ -298,13 +308,34 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	return 0;
 }
 
-static int
-tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
+/**
+ * The hook is executed when we intentionally close a server connection during
+ * shutdown process. Now @sk is closed (but still alive) and we release all
+ * associated resources before SS put()'s the socket.
+ */
+static void
+tfw_sock_srv_connect_drop(struct sock *sk)
+{
+	TfwConnection *conn = sk->sk_user_data;
+
+	tfw_connection_drop(conn);
+	tfw_connection_put(conn);
+}
+
+/**
+ * The hook is executed when there's unrecoverable error in a connection
+ * (and not executed when an established connection is closed as usual).
+ * An error may occur in any TCP state including data processing on application
+ * layer. All Tempesta resources associated with the socket must be released in
+ * case they were allocated before. Server socket must be recovered.
+ */
+static void
+tfw_sock_srv_connect_failover(struct sock *sk)
 {
 	TfwConnection *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	TFW_DBG_ADDR(msg, &srv->addr);
+	TFW_DBG_ADDR("connection error", &srv->addr);
 
 	/*
 	 * Distiguish connections that go to failover state from those that
@@ -322,91 +353,27 @@ tfw_sock_srv_do_failover(struct sock *sk, const char *msg)
 
 	tfw_connection_unlink_from_sk(sk);
 	tfw_connection_put(conn);
-
-	return 0;
-}
-
-/**
- * The hook is executed when a server connection is lost.
- * I.e. the connection was established before, but now it is closed.
- *
- * FIXME #254: the hook must be called when Tempesta intentionaly closes
- * the connection during shutdown. SS layer must be adjusted correspondingly.
- * Failovering must not be called by the function.
- */
-static int
-tfw_sock_srv_connect_drop(struct sock *sk)
-{
-	return tfw_sock_srv_do_failover(sk, "connection lost");
-}
-
-/**
- * The hook is executed when there's unrecoverable error in a connection
- * (and not executed when an established connection is closed as usual).
- * An error may occur in any TCP state. All Tempesta resources associated
- * with the socket must be released in case they were allocated before.
- *
- * FIXME #254: the hook must be called when a connection error occured
- * and Tempesta must recover the connection.
- * SS layer must be adjusted correspondingly.
- */
-static int
-tfw_sock_srv_connect_error(struct sock *sk)
-{
-	return tfw_sock_srv_do_failover(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
-	.connection_error	= tfw_sock_srv_connect_error,
+	.connection_error	= tfw_sock_srv_connect_failover,
 	.connection_recv	= tfw_connection_recv,
 };
 
 /**
  * Close a server connection, or stop connection attempts if a connection
  * is not established. This is called only in user context at STOP time.
- *
- * This function should be called only when all traffic through Tempesta
- * has stopped. Otherwise concurrent closing of live connections may lead
- * to kernel crashes or deadlocks.
- *
- * FIXME This function is seriously outdated and needs a complete overhaul.
  */
-static void
-tfw_sock_srv_disconnect(TfwSrvConnection *srv_conn)
+static int
+tfw_sock_srv_disconnect(TfwConnection *conn)
 {
-	TfwConnection *conn = &srv_conn->conn;
-	struct sock *sk = conn->sk;
-
 	/* Prevent races with timer callbacks. */
-	del_timer_sync(&srv_conn->conn.timer);
+	del_timer_sync(&conn->timer);
 
-	/*
-	 * Withdraw from socket activity.
-	 * Close and release the socket.
-	 */
-	if (sk) {
-		/*
-		 * FIXME this can cause BUG() in ss_tcp_process_data() on
-		 * sk->sk_user_data == NULL.
-		 */
-		tfw_connection_unlink_from_sk(sk);
-		tfw_connection_unlink_to_sk(conn);
-		ss_close_sync(sk, true);
-	}
-
-	/*
-	 * Release resources.
-	 *
-	 * FIXME #116, #254: New messages may keep coming,
-	 * and that may lead to BUG() in tfw_connection_drop().
-	 * See the problem description in #385.
-	 *
-	 * FIXME Actually the call is performed in tfw_sock_srv_do_failover()
-	 * called by connection_drop callback from ss_close().
-	 */
-	tfw_connection_drop(conn);
+	/* Use synchronous closing to ensure that the job is enqueued. */
+	return ss_close_sync(conn->sk, true);
 }
 
 /*
@@ -450,10 +417,10 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn;
+	TfwConnection *conn;
 
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		tfw_sock_srv_disconnect(srv_conn);
+	tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
+
 	return 0;
 }
 
@@ -471,6 +438,10 @@ tfw_sock_srv_start(void)
 static void
 tfw_sock_srv_stop(void)
 {
+	/*
+	 * Connections list is read-only at run time for now, so no need
+	 * to synchronize the list access or disable softirqs.
+	 */
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 

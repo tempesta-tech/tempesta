@@ -71,7 +71,7 @@ typedef struct {
 	 */
 	int	(*classify_tcp_timer_keepalive)(void);
 	/*
-	 * TODO called when we choose a our window size to report to client.
+	 * TODO called when we choose our window size to report to client.
 	 */
 	int	(*classify_tcp_window)(void);
 	/*
