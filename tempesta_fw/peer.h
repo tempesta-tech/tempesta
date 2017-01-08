@@ -68,4 +68,15 @@ tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 	write_unlock(&p->conn_lock);
 }
 
+#define tfw_peer_for_each_conn(p, conn, member, cb)			\
+do {									\
+	int r;								\
+	write_lock(&(p)->conn_lock);					\
+	list_for_each_entry(conn, &(p)->conn_list, member)		\
+		if (unlikely(r = (cb)(conn)))				\
+			break;						\
+	write_unlock(&(p)->conn_lock);					\
+	return r;							\
+} while (0)
+
 #endif /* __PEER_H__ */
