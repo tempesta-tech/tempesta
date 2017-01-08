@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -785,10 +785,10 @@ tfw_apm_calc(TfwApmData *data)
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	nfilled = __tfw_apm_calc(data, &pstats, recalc);
+	if (!nfilled)
+		return;
 
-	if (!nfilled) {
-		TFW_DBG3("%s: Percentile values DID NOT change.\n", __func__);
-	} else if (nfilled < asent->pstats.prcntlsz) {
+	if (nfilled < asent->pstats.prcntlsz) {
 		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
 		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	} else {
@@ -1027,8 +1027,12 @@ tfw_apm_cfg_start(void)
 	return 0;
 }
 
+/**
+ * Cleanup the configuration values when when all server groups are stopped
+ * and the APM timers are deleted.
+ */
 static void
-tfw_apm_cfg_stop(void)
+tfw_apm_cfg_cleanup(TfwCfgSpec *cs)
 {
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
 }
@@ -1071,6 +1075,7 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 		tfw_handle_apm_stats,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup  = tfw_apm_cfg_cleanup,
 	},
 	{}
 };
@@ -1078,6 +1083,5 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 TfwCfgMod tfw_apm_cfg_mod = {
         .name  = "apm",
         .start = tfw_apm_cfg_start,
-        .stop  = tfw_apm_cfg_stop,
         .specs = tfw_apm_cfg_specs,
 };
