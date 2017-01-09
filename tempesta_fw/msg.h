@@ -34,6 +34,14 @@
  * @skb_list	- list of sk_buff that belong to the message;
  * @ss_flags	- message processing flags;
  * @len		- total message length;
+ *
+ * TODO: Currently seq_list is used only in requests. Responses are not
+ * put in any queues, they are simply attached to requests as req->resp.
+ * However, a queue for responses may also be needed to mitigate sending
+ * of responses and improve the distribution of load in Tempesta. Please
+ * refer to issues #391 and #488.
+ * After these issues are resolved, it may well be that seq_list is more
+ * suitable to stay in TfwHttpReq{} rather than here in TfwMsg{}.
  */
 typedef struct {
 	struct list_head	seq_list;

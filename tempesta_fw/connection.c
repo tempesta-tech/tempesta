@@ -35,11 +35,7 @@ void
 tfw_connection_init(TfwConnection *conn)
 {
 	memset(conn, 0, sizeof(*conn));
-
 	INIT_LIST_HEAD(&conn->list);
-	INIT_LIST_HEAD(&conn->msg_queue);
-	INIT_LIST_HEAD(&conn->nip_queue);
-	spin_lock_init(&conn->msg_qlock);
 }
 
 void
@@ -88,7 +84,7 @@ tfw_connection_release(TfwConnection *conn)
 	/* Ask higher levels to free resources at connection release. */
 	TFW_CONN_HOOK_CALL(conn, conn_release);
 	BUG_ON((TFW_CONN_TYPE(conn) & Conn_Clnt)
-	       && !list_empty(&conn->msg_queue));
+	       && !list_empty(&conn->seq_queue));
 }
 
 /*

@@ -500,6 +500,10 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init(&srv_conn->conn);
+	INIT_LIST_HEAD(&srv_conn->conn.fwd_queue);
+	INIT_LIST_HEAD(&srv_conn->conn.nip_queue);
+	spin_lock_init(&srv_conn->conn.fwd_qlock);
+
 	__setup_retry_timer(srv_conn);
 	ss_proto_init(&srv_conn->conn.proto,
 		      &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
