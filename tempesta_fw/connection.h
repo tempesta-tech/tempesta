@@ -76,9 +76,12 @@ enum {
  * @proto	- protocol handler. Base class, must be first;
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
- * @msg_queue	- queue of messages to be sent over the connection;
- * @nip_queue	- queue of non-idempotent messages in server's @msg_queue;
- * @msg_qlock	- lock for accessing @msg_queue;
+ * @fwd_queue	- queue of messages to be sent to a back-end server;
+ * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
+ * @seq_queue	- queue of client's messages in the order they came;
+ * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
+ * @seq_qlock	- lock for accessing @seq_queue;
+ * @ret_qlock	- lock for accessing @ret_queue;
  * @flags	- atomic flags related to server connection's state;
  * @refcnt	- number of users of the connection structure instance;
  * @qsize	- current number of requests in server's @msg_queue;
@@ -95,9 +98,16 @@ typedef struct tfw_connection_t {
 	SsProto			proto;
 	TfwGState		state;
 	struct list_head	list;
-	struct list_head	msg_queue;
-	struct list_head	nip_queue;				/*srv*/
-	spinlock_t		msg_qlock;
+	struct list_head	fwd_queue;				/*srv*/
+	union {
+		struct list_head	nip_queue;			/*srv*/
+		struct list_head	seq_queue;			/*cli*/
+	};
+	union {
+		spinlock_t		fwd_qlock;			/*srv*/
+		spinlock_t		seq_qlock;			/*cli*/
+	};
+	spinlock_t		ret_qlock;				/*cli*/
 	unsigned long		flags;					/*srv*/
 	atomic_t		refcnt;
 	int			qsize;					/*srv*/
@@ -185,7 +195,14 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
 /*
  * Tell if a connection is restricted. When restricted, a connection
- * cannot be scheduled.
+ * is not available to schedulers.
+ *
+ * The flag RESEND is set when a newly established server connection
+ * has messages in the forwarding queue. That means that the connection
+ * had been closed prematurely, and the messages in the queue need to
+ * be re-sent to a back-end server. The new connection is not available
+ * to schedulers (restricted) until all messages in the forwarding queue
+ * are re-sent.
  */
 static inline bool
 tfw_connection_restricted(TfwConnection *conn)

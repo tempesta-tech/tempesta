@@ -452,7 +452,7 @@ static inline bool
 tfw_http_conn_drained(TfwConnection *srv_conn)
 {
 	TfwMsg *msg;
-	struct list_head *fwd_queue = &srv_conn->msg_queue;
+	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
@@ -520,14 +520,14 @@ tfw_http_req_zap_error(struct list_head *equeue)
 /*
  * Forward requests in the server connection @srv_conn. The requests
  * are forwarded until a non-idempotent request is found in the queue.
- * Must be called with a lock on the server connection's @msg_queue.
+ * Must be called with a lock on the server connection's @fwd_queue.
  */
 static void
 __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 {
 	TfwHttpReq *req, *tmp;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	struct list_head *fwd_queue = &srv_conn->msg_queue;
+	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
@@ -588,11 +588,11 @@ tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
 	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-	WARN_ON(!spin_is_locked(&srv_conn->msg_qlock));
-	BUG_ON(list_empty(&srv_conn->msg_queue));
+	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
+	BUG_ON(list_empty(&srv_conn->fwd_queue));
 
 	__tfw_http_req_fwd_stalled(srv_conn, &equeue);
-	spin_unlock(&srv_conn->msg_qlock);
+	spin_unlock(&srv_conn->fwd_qlock);
 
 	if (!list_empty(&equeue))
 		tfw_http_req_zap_error(&equeue);
@@ -620,14 +620,14 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	spin_lock(&srv_conn->msg_qlock);
+	spin_lock(&srv_conn->fwd_qlock);
 	drained = tfw_http_conn_drained(srv_conn);
-	list_add_tail(&req->fwd_list, &srv_conn->msg_queue);
+	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nonidempotent(req))
 		__tfw_http_req_nonidemp_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)) {
-		spin_unlock(&srv_conn->msg_qlock);
+		spin_unlock(&srv_conn->fwd_qlock);
 		TFW_DBG2("%s: Server connection is on hold: conn=[%p]\n",
 			 __func__, srv_conn);
 		return;
@@ -643,7 +643,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 		tfw_http_req_nonidemp_delist(srv_conn, req);
 		list_del_init(&req->fwd_list);
 		srv_conn->qsize--;
-		spin_unlock(&srv_conn->msg_qlock);
+		spin_unlock(&srv_conn->fwd_qlock);
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		tfw_http_send_500(req);
@@ -651,7 +651,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 		return;
 	}
 	srv_conn->msg_sent = (TfwMsg *)req;
-	spin_unlock(&srv_conn->msg_qlock);
+	spin_unlock(&srv_conn->fwd_qlock);
 }
 
 /*
@@ -675,7 +675,7 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn)
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
 		srv_conn->msg_sent =
-			(&req_sent->fwd_list == srv_conn->msg_queue.next) ?
+			(&req_sent->fwd_list == srv_conn->fwd_queue.next) ?
 			NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
 		__tfw_http_req_nonidemp_delist(srv_conn, req_sent);
 		list_del_init(&req_sent->fwd_list);
@@ -695,7 +695,7 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 {
 	TfwHttpReq *req, *tmp;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	struct list_head *end, *fwd_queue = &srv_conn->msg_queue;
+	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
 	TFW_DBG2("%s: conn=[%p] one_msg=[%s]\n",
 		 __func__, srv_conn, one_msg ? "true" : "false");
@@ -739,10 +739,10 @@ tfw_http_req_fwd_repair(TfwConnection *srv_conn)
 	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-	WARN_ON(!spin_is_locked(&srv_conn->msg_qlock));
+	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
 	BUG_ON(!(srv_conn->flags & (TFW_CONN_B_QFORWD | TFW_CONN_B_RESEND)));
 
-	if (list_empty(&srv_conn->msg_queue)) {
+	if (list_empty(&srv_conn->fwd_queue)) {
 		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 	} else if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
@@ -759,7 +759,7 @@ tfw_http_req_fwd_repair(TfwConnection *srv_conn)
 		if (tfw_http_conn_need_fwd(srv_conn))
 			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
 	}
-	spin_unlock(&srv_conn->msg_qlock);
+	spin_unlock(&srv_conn->fwd_qlock);
 
 	if (!list_empty(&equeue))
 		tfw_http_req_zap_error(&equeue);
@@ -785,10 +785,10 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
 	} else {
 		TfwHttpReq *req;
 
-		spin_lock(&conn->msg_qlock);
-		req = list_first_entry_or_null(&conn->msg_queue,
+		spin_lock(&conn->fwd_qlock);
+		req = list_first_entry_or_null(&conn->fwd_queue,
 					       TfwHttpReq, fwd_list);
-		spin_unlock(&conn->msg_qlock);
+		spin_unlock(&conn->fwd_qlock);
 		if (req && (req->method == TFW_HTTP_METH_HEAD))
 			hm->flags |= TFW_HTTP_VOID_BODY;
 		TFW_INC_STAT_BH(serv.rx_messages);
@@ -850,7 +850,7 @@ tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
 	TfwConnection *sconn;
-	struct list_head *fwd_queue = &srv_conn->msg_queue;
+	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
 
@@ -904,7 +904,7 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 		tfw_http_req_fwd_resched(srv_conn);
 		return;
 	}
-	spin_lock(&srv_conn->msg_qlock);
+	spin_lock(&srv_conn->fwd_qlock);
 	/* Handle non-idempotent requests. */
 	tfw_http_req_fwd_handlenip(srv_conn);
 	/* Re-send the first unanswered request. */
@@ -920,7 +920,7 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 		if (tfw_http_conn_need_fwd(srv_conn))
 			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
 	}
-	spin_unlock(&srv_conn->msg_qlock);
+	spin_unlock(&srv_conn->fwd_qlock);
 
 	if (!list_empty(&equeue))
 		tfw_http_req_zap_error(&equeue);
@@ -938,7 +938,7 @@ tfw_http_conn_init(TfwConnection *conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
-		if (!list_empty(&conn->msg_queue))
+		if (!list_empty(&conn->fwd_queue))
 			set_bit(TFW_CONN_B_RESEND, &conn->flags);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
@@ -996,7 +996,7 @@ static void
 tfw_http_conn_cli_drop(TfwConnection *cli_conn)
 {
 	TfwHttpMsg *hmreq, *tmp;
-	struct list_head *seq_queue = &cli_conn->msg_queue;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
 	LIST_HEAD(zap_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
@@ -1005,9 +1005,9 @@ tfw_http_conn_cli_drop(TfwConnection *cli_conn)
 	if (list_empty_careful(seq_queue))
 		return;
 
-	spin_lock(&cli_conn->msg_qlock);
+	spin_lock(&cli_conn->seq_qlock);
 	list_splice_tail_init(seq_queue, &zap_queue);
-	spin_unlock(&cli_conn->msg_qlock);
+	spin_unlock(&cli_conn->seq_qlock);
 
 	list_for_each_entry_safe(hmreq, tmp, &zap_queue, msg.seq_list)
 		list_del_init(&hmreq->msg.seq_list);
@@ -1309,49 +1309,17 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 /*
  * Forward responses to the client in the correct order.
  */
-void
-tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
+static void
+__tfw_http_resp_fwd(TfwConnection *cli_conn, struct list_head *ret_queue)
 {
-	TfwHttpReq *tmp;
-	TfwConnection *cli_conn = req->conn;
-	struct list_head *seq_queue = &cli_conn->msg_queue;
-	LIST_HEAD(out_queue);
-
-	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
-
-	/*
-	 * Starting with the first request on the list, pick consecutive
-	 * requests that have a paired response. Remove those requests
-	 * from the list, and put them on the list of outgoing responses.
-	 *
-	 * However, if the list is empty, then then it's either a bug,
-	 * or the client connection had been closed. If it's a bug, then
-	 * the correct order of responses to requests may be broken. The
-	 * client connection needs to be closed.
-	 */
-	spin_lock(&cli_conn->msg_qlock);
-	if (list_empty(seq_queue)) {
-		spin_unlock(&cli_conn->msg_qlock);
-		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
-			 __func__, cli_conn);
-		ss_close_sync(cli_conn->sk, true);
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
-		return;
-	}
-	req->resp = (TfwHttpMsg *)resp;
-	do {
-		req = list_first_entry(seq_queue, TfwHttpReq, msg.seq_list);
-		if (req->resp == NULL)
-			break;
-		list_move_tail(&req->msg.seq_list, &out_queue);
-	} while (!list_empty(seq_queue));
-	spin_unlock(&cli_conn->msg_qlock);
+	TfwHttpReq *req, *tmp;
+	TfwHttpResp *resp;
 
 	/* Forward responses to the client. */
-	list_for_each_entry_safe(req, tmp, &out_queue, msg.seq_list) {
+	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
 		list_del_init(&req->msg.seq_list);
 		resp = (TfwHttpResp *)req->resp;
+		BUG_ON(!resp);
 		/*
 		 * If the client connection is dead, then discard all
 		 * @req and @resp in the @out_queue. Remaining requests
@@ -1376,6 +1344,55 @@ loop_discard:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	}
+}
+
+void
+tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	TfwConnection *cli_conn = req->conn;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+	struct list_head *req_retent = NULL;
+	LIST_HEAD(ret_queue);
+
+	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
+
+	/*
+	 * Starting with the first request on the list, pick consecutive
+	 * requests that have a paired response. Remove those requests
+	 * from the list, and put them on the list of outgoing responses.
+	 * Take care of concurrent calls to this function from different
+	 * CPUs, all going for the same client connection.
+	 *
+	 * If the list is empty, then it's either a bug, or the client
+	 * connection had been closed. If it's a bug, then the correct
+	 * order of responses to requests may be broken. The client
+	 * connection needs to be closed.
+	 */
+	spin_lock(&cli_conn->seq_qlock);
+	if (list_empty(seq_queue)) {
+		spin_unlock(&cli_conn->seq_qlock);
+		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
+			 __func__, cli_conn);
+		ss_close_sync(cli_conn->sk, true);
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		return;
+	}
+	req->resp = (TfwHttpMsg *)resp;
+	list_for_each_entry(req, seq_queue, msg.seq_list) {
+		if (req->resp == NULL)
+			break;
+		req_retent = &req->msg.seq_list;
+	}
+	if (!req_retent) {
+		spin_unlock(&cli_conn->seq_qlock);
+		return;
+	}
+	__list_cut_position(&ret_queue, seq_queue, req_retent);
+	spin_lock(&cli_conn->ret_qlock);
+	spin_unlock(&cli_conn->seq_qlock);
+	__tfw_http_resp_fwd(cli_conn, &ret_queue);
+	spin_unlock(&cli_conn->ret_qlock);
 }
 
 /**
@@ -1521,18 +1538,18 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 {
 	TfwHttpReq *preq;
 	TfwConnection *cli_conn = req->conn;
-	struct list_head *seq_queue = &cli_conn->msg_queue;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	tfw_http_req_mark_nonidempotent(req);
 
-	spin_lock(&cli_conn->msg_qlock);
+	spin_lock(&cli_conn->seq_qlock);
 	preq = !list_empty(seq_queue)
 	     ? list_last_entry(seq_queue, TfwHttpReq, msg.seq_list)
 	     : NULL;
 	if (preq && (preq->flags & TFW_HTTP_NON_IDEMP))
 		preq->flags &= ~TFW_HTTP_NON_IDEMP;
 	list_add_tail(&req->msg.seq_list, seq_queue);
-	spin_unlock(&cli_conn->msg_qlock);
+	spin_unlock(&cli_conn->seq_qlock);
 }
 
 static int
@@ -1809,7 +1826,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 /*
  * Request messages that were forwarded to a backend server are added
- * to and kept in @msg_queue of the connection @conn for that server.
+ * to and kept in @fwd_queue of the connection @conn for that server.
  * If a paired request is not found, then the response is deleted.
  *
  * If a paired client request is missing, then it seems upsream server is
@@ -1820,12 +1837,12 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req;
 	TfwConnection *srv_conn = hmresp->conn;
-	struct list_head *fwd_queue = &srv_conn->msg_queue;
+	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
-	spin_lock(&srv_conn->msg_qlock);
+	spin_lock(&srv_conn->fwd_qlock);
 	if (unlikely(list_empty(fwd_queue))) {
 		BUG_ON(srv_conn->qsize);
-		spin_unlock(&srv_conn->msg_qlock);
+		spin_unlock(&srv_conn->fwd_qlock);
 		/* @conn->msg will get NULLed in the process. */
 		TFW_WARN("Paired request missing, "
 			 "HTTP Response Splitting attack?\n");
@@ -1851,7 +1868,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	else if (tfw_http_conn_need_fwd(srv_conn))
 		tfw_http_req_fwd_stalled(srv_conn);
 	else
-		spin_unlock(&srv_conn->msg_qlock);
+		spin_unlock(&srv_conn->fwd_qlock);
 
 	return req;
 }

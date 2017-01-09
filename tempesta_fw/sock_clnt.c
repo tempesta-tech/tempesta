@@ -73,6 +73,10 @@ tfw_cli_conn_alloc(int type)
 		return NULL;
 
 	tfw_connection_init(conn);
+	INIT_LIST_HEAD(&conn->seq_queue);
+	spin_lock_init(&conn->seq_qlock);
+	spin_lock_init(&conn->ret_qlock);
+
 	setup_timer(&conn->timer,
 		    tfw_sock_cli_keepalive_timer_cb,
 		    (unsigned long)conn);
@@ -87,7 +91,7 @@ tfw_cli_conn_free(TfwConnection *conn)
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup(conn);
-	BUG_ON(!list_empty(&conn->msg_queue));
+	BUG_ON(!list_empty(&conn->seq_queue));
 
 	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(conn)), conn);
 }
