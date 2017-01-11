@@ -81,8 +81,8 @@ static struct {
 
 	TfwHttpReq	*req;
 	TfwHttpResp	*resp;
-	TfwConnection   conn_req;
-	TfwConnection   conn_resp;
+	TfwConnection	conn_req;
+	TfwConnection	conn_resp;
 	TfwClient	client;
 	struct sock	sock;
 } mock;

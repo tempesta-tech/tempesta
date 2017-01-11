@@ -517,6 +517,54 @@ tfw_http_req_zap_error(struct list_head *equeue)
 	}
 }
 
+static inline bool
+__tfw_http_req_evict_timeout(TfwConnection *srv_conn, TfwServer *srv,
+			     TfwHttpReq *req, struct list_head *equeue)
+{
+	unsigned long jtimeout = jiffies - req->jtstamp;
+
+	if (unlikely(time_after(jtimeout, srv->qjtimeout))) {
+		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
+			 __func__, req,
+			jiffies_to_msecs(jtimeout - srv->qjtimeout));
+		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
+		return true;
+	}
+	return false;
+}
+
+static inline bool
+__tfw_http_req_evict_retries(TfwConnection *srv_conn, TfwServer *srv,
+			     TfwHttpReq *req, struct list_head *equeue)
+{
+	if (unlikely(req->retries++ >= srv->retry_max)) {
+		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
+			 __func__, req, req->retries);
+		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
+		return true;
+	}
+	return false;
+}
+
+static inline bool
+__tfw_http_req_fwd_send(TfwConnection *srv_conn, TfwServer *srv,
+			TfwHttpReq *req, struct list_head *equeue)
+{
+	/*
+	 * If unable to send to the server connection due to an error,
+	 * then move the request to @err_queue for sending a 500 error
+	 * response later. That is safe as the response will be sent
+	 * in proper seq order.
+	 */
+	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
+		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
+			 __func__, srv_conn, req);
+		tfw_http_req_move2equeue(srv_conn, req, equeue, 500);
+		return false;
+	}
+	return true;
+}
+
 /*
  * Forward requests in the server connection @srv_conn. The requests
  * are forwarded until a non-idempotent request is found in the queue.
@@ -543,26 +591,10 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
-		unsigned long jtimeout = jiffies - req->jtstamp;
-		if (time_after(jtimeout, srv->qjtimeout)) {
-			TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
-				 __func__, req,
-				jiffies_to_msecs(jtimeout - srv->qjtimeout));
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
+		if (__tfw_http_req_evict_timeout(srv_conn, srv, req, equeue))
 			continue;
-		}
-		/*
-		 * If unable to send to the server connection due to
-		 * an error, then move the request to @err_queue for
-		 * sending a 500 error response later. That is safe
-		 * as the response will be sent in proper seq order.
-		 */
-		if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
-			TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
-				 __func__, srv_conn, req);
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 500);
+		if (!__tfw_http_req_fwd_send(srv_conn, srv, req, equeue))
 			continue;
-		}
 		srv_conn->msg_sent = (TfwMsg *)req;
 		/* Stop sending if the request is non-idempotent. */
 		if (tfw_http_req_is_nonidempotent(req)) {
@@ -685,15 +717,28 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn)
 	}
 }
 
+static inline bool
+__tfw_http_req_resend_one(TfwConnection *srv_conn, TfwServer *srv,
+			      TfwHttpReq *req, struct list_head *equeue)
+{
+	if (__tfw_http_req_evict_timeout(srv_conn, srv, req, equeue))
+		return false;
+	if (__tfw_http_req_evict_retries(srv_conn, srv, req, equeue))
+		return false;
+	if (!__tfw_http_req_fwd_send(srv_conn, srv, req, equeue))
+		return false;
+	return true;
+}
+
 /*
  * Re-forward requests in a server connection. Requests that exceed
  * the set limits are evicted.
  */
-static void
-__tfw_http_req_fwd_resend(TfwConnection *srv_conn,
-			  bool one_msg, struct list_head *equeue)
+static TfwMsg *
+__tfw_http_req_resend(TfwConnection *srv_conn,
+		      bool first, struct list_head *equeue)
 {
-	TfwHttpReq *req, *tmp;
+	TfwHttpReq *req, *tmp, *req_resent = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
@@ -705,27 +750,31 @@ __tfw_http_req_fwd_resend(TfwConnection *srv_conn,
 	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 	end = ((TfwHttpReq *)srv_conn->msg_sent)->fwd_list.next;
 
-	/* An equivalent of list_for_each_entry_safe_from() */
+	/* Similar to list_for_each_entry_safe() */
 	for (tmp = list_next_entry(req, fwd_list);
 	     &req->fwd_list != end;
 	     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 	{
-		if (req->retries++ >= srv->retry_max) {
-			TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
-				 __func__, req, req->retries);
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
-			continue;
+		if (__tfw_http_req_resend_one(srv_conn, srv, req, equeue)) {
+			req_resent = req;
+			if (unlikely(first))
+				break;
 		}
-		if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
-			TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
-				 __func__, srv_conn, req);
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 500);
-			continue;
-		}
-		srv_conn->msg_resent = (TfwMsg *)req;
-		if (unlikely(one_msg))
-			break;
 	}
+
+	return (TfwMsg *)req_resent;
+}
+
+static inline TfwMsg *
+__tfw_http_req_resend_first(TfwConnection *srv_conn, struct list_head *equeue)
+{
+	return __tfw_http_req_resend(srv_conn, true, equeue);
+}
+
+static inline TfwMsg *
+__tfw_http_req_resend_all(TfwConnection *srv_conn, struct list_head *equeue)
+{
+	return __tfw_http_req_resend(srv_conn, false, equeue);
 }
 
 /*
@@ -749,12 +798,9 @@ tfw_http_req_fwd_repair(TfwConnection *srv_conn)
 		if (tfw_http_conn_need_fwd(srv_conn))
 			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
 	} else {
-		srv_conn->msg_resent = NULL;
-		if (srv_conn->msg_sent) {
-			__tfw_http_req_fwd_resend(srv_conn, false, &equeue);
-			if (srv_conn->msg_resent != srv_conn->msg_sent)
-				srv_conn->msg_sent = srv_conn->msg_resent;
-		}
+		if (srv_conn->msg_sent)
+			srv_conn->msg_sent =
+				__tfw_http_req_resend_all(srv_conn, &equeue);
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
 			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
@@ -840,13 +886,18 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * Non-idempotent requests may be rescheduled depending on the option
  * in configuration.
  *
- * FIXME: It appears that a re-scheduled request should be put in a
- * new server connection's queue according to its original timestamp.
- * It may matter as old requests are evicted. However, that is time
- * consuming. For now just put them at the end of the queue.
+ * Note: re-scheduled requests are put at the tail of a new server's
+ * connection queue, and NOT according to their original timestamps.
+ * That's the indended behaviour. There requests are unlucky already.
+ * They had been delayed by the waiting in their original server
+ * connections, and then by the re-scheduling procedure itself. Now
+ * they have much greater chance to be evicted when it's their turn
+ * to be forwarded. The main effort is put into servicing requests
+ * that are on time. Unlucky requests are just given another chance
+ * with minimal effort.
  */
 static void
-tfw_http_req_fwd_resched(TfwConnection *srv_conn)
+tfw_http_req_resched(TfwConnection *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
 	TfwConnection *sconn;
@@ -893,6 +944,7 @@ tfw_http_req_fwd_resched(TfwConnection *srv_conn)
 static void
 tfw_http_conn_repair(TfwConnection *srv_conn)
 {
+	TfwMsg *msg_resent = NULL;
 	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
@@ -901,21 +953,20 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 
 	/* See if requests need to be rescheduled. */
 	if (unlikely(!tfw_connection_live(srv_conn))) {
-		tfw_http_req_fwd_resched(srv_conn);
+		tfw_http_req_resched(srv_conn);
 		return;
 	}
 	spin_lock(&srv_conn->fwd_qlock);
 	/* Handle non-idempotent requests. */
 	tfw_http_req_fwd_handlenip(srv_conn);
 	/* Re-send the first unanswered request. */
-	srv_conn->msg_resent = NULL;
 	if (srv_conn->msg_sent) {
-		__tfw_http_req_fwd_resend(srv_conn, true, &equeue);
-		if (!srv_conn->msg_resent)
+		msg_resent = __tfw_http_req_resend_first(srv_conn, &equeue);
+		if (unlikely(!msg_resent))
 			srv_conn->msg_sent = NULL;
 	}
-	/* Send the remaining unsent requests. */
-	if (!srv_conn->msg_resent) {
+	/* If none resent, then send the remaining unsent requests. */
+	if (!msg_resent) {
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
 			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
