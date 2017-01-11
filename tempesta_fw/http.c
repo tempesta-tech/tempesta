@@ -1440,10 +1440,12 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 		return;
 	}
 	__list_cut_position(&ret_queue, seq_queue, req_retent);
+	tfw_connection_get(cli_conn);
 	spin_lock(&cli_conn->ret_qlock);
 	spin_unlock(&cli_conn->seq_qlock);
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 	spin_unlock(&cli_conn->ret_qlock);
+	tfw_connection_put(cli_conn);
 }
 
 /**
