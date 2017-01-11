@@ -114,7 +114,6 @@ typedef struct tfw_connection_t {
 	struct timer_list	timer;
 	TfwMsg			*msg;
 	TfwMsg			*msg_sent;				/*srv*/
-	TfwMsg			*msg_resent;				/*srv*/
 	TfwPeer 		*peer;
 	struct sock		*sk;
 	void			(*destructor)(void *);
@@ -232,7 +231,7 @@ tfw_connection_get(TfwConnection *conn)
 }
 
 /**
- * Increment reference counter and return true if @conn isi not in
+ * Increment reference counter and return true if @conn is not in
  * failovering process, i.e. @refcnt wasn't less or equal to zero.
  */
 static inline bool
