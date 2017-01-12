@@ -87,7 +87,7 @@ enum {
  * @qsize	- current number of requests in server's @msg_queue;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
- * @msg_sent	- message that was sent last in a server connection;
+ * @req_sent	- request that was sent last in a server connection;
  * @msg_resent	- message that was re-sent last in a server connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
@@ -113,7 +113,7 @@ typedef struct tfw_connection_t {
 	int			qsize;					/*srv*/
 	struct timer_list	timer;
 	TfwMsg			*msg;
-	TfwMsg			*msg_sent;				/*srv*/
+	TfwMsg			*req_sent;				/*srv*/
 	TfwPeer 		*peer;
 	struct sock		*sk;
 	void			(*destructor)(void *);
