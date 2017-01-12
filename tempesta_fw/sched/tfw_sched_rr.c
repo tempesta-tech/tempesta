@@ -27,7 +27,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 /**
