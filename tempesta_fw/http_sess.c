@@ -91,7 +91,7 @@ typedef struct {
 	struct list_head	list;
 	TfwSrvGroup		*sg;
 	TfwConnection		*conn;
-} TfwHttpSessConns;
+} TfwHttpSessConn;
 
 static TfwCfgSticky tfw_cfg_sticky;
 /**
@@ -529,7 +529,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 static inline void
 sess_destroy(TfwHttpSess *sess)
 {
-	TfwHttpSessConns *sess_conn, *tmp;
+	TfwHttpSessConn *sess_conn, *tmp;
 
 	list_for_each_entry_safe(sess_conn, tmp, &sess->conns, list) {
 		list_del(&sess_conn->list);
@@ -645,7 +645,7 @@ TfwConnection *
 tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 {
 	TfwHttpSess *sess = req->sess;
-	TfwHttpSessConns *sess_conn;
+	TfwHttpSessConn *sess_conn;
 	TfwConnection *conn = NULL, *backup_conn = NULL;
 
 	if (!sess)
@@ -676,7 +676,7 @@ int
 tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
 {
 	TfwHttpSess *sess = req->sess;
-	TfwHttpSessConns *sess_conn;
+	TfwHttpSessConn *sess_conn;
 	int r = 0;
 
 	if (!sess)
@@ -738,7 +738,7 @@ tfw_http_sess_init(void)
 		goto err_shash;
 
 	sess_conn_cache = kmem_cache_create("tfw_sess_conn_cache",
-					    sizeof(TfwHttpSessConns), 0, 0,
+					    sizeof(TfwHttpSessConn), 0, 0,
 					    NULL);
 	if (!sess_conn_cache)
 		goto err_sess_conn_cache;
