@@ -962,28 +962,28 @@ tfw_vhost_cfg_stop(void)
 }
 
 static TfwCfgSpec tfw_location_specs[] = {
-        {
+	{
 		"cache_bypass", NULL,
 		tfw_handle_in_cache_bypass,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
-        {
+	},
+	{
 		"cache_fulfill", NULL,
 		tfw_handle_in_cache_fulfill,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
-        {
+	},
+	{
 		"nonidempotent", NULL,
 		tfw_handle_in_nonidempotent,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
-        { 0 }
+	},
+	{ 0 }
 };
 
 static TfwCfgSpec tfw_vhost_cfg_specs[] = {
@@ -1015,13 +1015,13 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
 	},
-        {
+	{
 		"cache_fulfill", NULL,
 		tfw_handle_out_cache_fulfill,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
+	},
 	{
 		"nonidempotent", NULL,
 		tfw_handle_out_nonidempotent,
