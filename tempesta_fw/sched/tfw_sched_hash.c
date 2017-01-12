@@ -157,16 +157,70 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 static TfwConnection *
 tfw_sched_hash_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	unsigned long msg_hash, curr_weight, best_weight = 0;
+	unsigned long msg_hash;
 	TfwHashSrvList *sl = sg->sched_data;
-	TfwConnection *best_conn = NULL;
-	size_t s;
+	size_t tries = TFW_SG_MAX_CONN;
 
 	BUG_ON(!sl);
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (s = 0; s < sl->srv_n; ++s) {
-		TfwHashSrv *srv_cl =  &sl->srvs[s];
+
+	/*
+	 * Choosing the best suitable connection can take a while and it can
+	 * fall into failovering state by the time we "get" it. We have to do
+	 * several clean tries.
+	 */
+	while (--tries) {
+		TfwConnection *best_conn = NULL;
+		unsigned long curr_weight, best_weight = 0;
+		size_t s;
+
+		for (s = 0; s < sl->srv_n; ++s) {
+			TfwHashSrv *srv_cl =  &sl->srvs[s];
+			size_t c;
+
+			for (c = 0; c < srv_cl->conn_n; ++c) {
+				curr_weight = msg_hash ^ srv_cl->hash[c];
+				if (likely(tfw_connection_nfo(srv_cl->conn[c]))
+				    && curr_weight > best_weight)
+				{
+					best_weight = curr_weight;
+					best_conn = srv_cl->conn[c];
+				}
+			}
+		}
+
+		if (unlikely(!best_conn))
+			return NULL;
+		if (tfw_connection_get_if_nfo(best_conn))
+			return best_conn;
+	}
+
+	return NULL;
+}
+
+/**
+ * Same as @tfw_sched_hash_sg_get_conn() but schedule for exact server
+ */
+static TfwConnection *
+tfw_sched_hash_srv_get_conn(TfwMsg *msg, TfwServer *srv)
+{
+	unsigned long msg_hash;
+	TfwHashSrv *srv_cl = srv->sched_data;
+	size_t tries = TFW_SRV_MAX_CONN;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+
+	while (--tries) {
+		unsigned long curr_weight, best_weight = 0;
+		TfwConnection *best_conn = NULL;
 		size_t c;
 
 		for (c = 0; c < srv_cl->conn_n; ++c) {
@@ -178,49 +232,12 @@ tfw_sched_hash_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 				best_conn = srv_cl->conn[c];
 			}
 		}
+
+		if (unlikely(!best_conn))
+			return NULL;
+		if (tfw_connection_get_if_nfo(best_conn))
+			return best_conn;
 	}
-
-	if (unlikely(!best_conn))
-		return NULL;
-	if (tfw_connection_get_if_nfo(best_conn))
-		return best_conn;
-
-	return NULL;
-}
-
-/**
- * Same as @tfw_sched_hash_sg_get_conn() but schedule for exact server
- */
-static TfwConnection *
-tfw_sched_hash_srv_get_conn(TfwMsg *msg, TfwServer *srv)
-{
-	unsigned long msg_hash, curr_weight, best_weight = 0;
-	TfwHashSrv *srv_cl = srv->sched_data;
-	TfwConnection *best_conn = NULL;
-	size_t c;
-
-	/*
-	 * For @srv without connections srv_cl will be NULL, that normally
-	 * does not happen in real life, but unit tests check that case.
-	*/
-	if (unlikely(!srv_cl))
-		return NULL;
-
-	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (c = 0; c < srv_cl->conn_n; ++c) {
-		curr_weight = msg_hash ^ srv_cl->hash[c];
-		if (likely(tfw_connection_nfo(srv_cl->conn[c]))
-		    && curr_weight > best_weight)
-		{
-			best_weight = curr_weight;
-			best_conn = srv_cl->conn[c];
-		}
-	}
-
-	if (unlikely(!best_conn))
-		return NULL;
-	if (tfw_connection_get_if_nfo(best_conn))
-		return best_conn;
 
 	return NULL;
 }
