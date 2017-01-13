@@ -463,7 +463,7 @@ tfw_http_conn_on_hold(TfwConnection *srv_conn)
 static inline bool
 tfw_http_conn_drained(TfwConnection *srv_conn)
 {
-	TfwMsg *msg;
+	TfwHttpReq *req_last;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
@@ -472,8 +472,8 @@ tfw_http_conn_drained(TfwConnection *srv_conn)
 		return true;
 	if (!srv_conn->req_sent)
 		return false;
-	msg = (TfwMsg *)list_last_entry(fwd_queue, TfwHttpReq, fwd_list);
-	if (srv_conn->req_sent == msg)
+	req_last = list_last_entry(fwd_queue, TfwHttpReq, fwd_list);
+	if (srv_conn->req_sent == (TfwMsg *)req_last)
 		return true;
 	return false;
 }
@@ -533,6 +533,8 @@ tfw_http_req_zap_error(struct list_head *equeue)
 			tfw_http_send_404(req);
 		else if (req->rstatus == 500)
 			tfw_http_send_500(req);
+		else if (req->rstatus == 502)
+			tfw_http_send_502(req);
 		else if (req->rstatus == 504)
 			tfw_http_send_504(req);
 		else
@@ -715,12 +717,15 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 }
 
 /*
- * Handle non-idempotent requests in case of a connection repair
- * (re-send or re-schedule).
+ * Handle a possible non-idempotent request in case of a connection
+ * repair (re-send or re-schedule).
  *
- * Non-idempotent requests that were forwarded but not responded to
- * are not re-sent or re-scheduled by default. Configuration option
- * can be used to have those requests re-sent or re-scheduled as well.
+ * A non-idempotent request that was forwarded but not responded to
+ * is not re-sent or re-scheduled by default. Configuration option
+ * can be used to have that request re-sent or re-scheduled as well.
+ *
+ * As forwarding is paused after a non-idempotent request is sent,
+ * there can be only one such request, and that's @srv_conn->req_sent.
  *
  * Note: @srv_conn->req_sent may change in result.
  */
@@ -737,7 +742,7 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn, struct list_head *equeue)
 		srv_conn->req_sent =
 			(srv_conn->fwd_queue.next == &req_sent->fwd_list) ?
 			NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
-		tfw_http_req_move2equeue(srv_conn, req_sent, equeue, 404);
+		tfw_http_req_move2equeue(srv_conn, req_sent, equeue, 504);
 	}
 }
 
@@ -943,7 +948,7 @@ tfw_http_req_resched(TfwConnection *srv_conn, struct list_head *equeue)
 			continue;
 		if (!(sconn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_WARN("Unable to find a backend server\n");
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 404);
+			tfw_http_req_move2equeue(srv_conn, req, equeue, 502);
 			continue;
 		}
 		tfw_http_req_delist(srv_conn, req);
@@ -1494,7 +1499,7 @@ resp_err:
 /**
  * Depending on results of processing of a request, either send the request
  * to an appropriate server, or return the cached response. If none of that
- * can be done for any reason, return HTTP 404 or 500 error to the client.
+ * can be done for any reason, return HTTP 500 or 502 error to the client.
  */
 static void
 tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
