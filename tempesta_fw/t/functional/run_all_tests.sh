@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 2014. Written by NatSys Lab. (info@natsys-lab.com).
+# 2014-2016. Tempesta Technologies Inc. (info@natsys-lab.com).
 
 function run() {
 	echo run: $1
@@ -18,5 +18,4 @@ echo ------------------------------------------------------------------
 echo Running functional tests...
 echo ------------------------------------------------------------------
  
-# Doesn't pass yet.
-# run fragmented_requests.py
+run tests.py 
