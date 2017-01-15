@@ -2,7 +2,7 @@
 #
 # User-space unit tests.
 #
-# Copyright (C) 2016 Tempesta Technologies, Inc.
+# Copyright (C) 2016-207 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,21 +21,24 @@
 ifndef CC
 	CC	= gcc
 endif
+ifndef CXX
+	CXX	= g++
+endif
 
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
 CFLAGS		= -O0 -ggdb -Wall -Werror \
 		  -pthread -DL1_CACHE_BYTES=$(CACHELINE) \
 		  -I../../../../ktest
-TARGETS		= percentiles
+TARGETS		= percentiles slr
 
 all : $(TARGETS)
 
-percentiles : percentiles.o
+percentiles : percentiles.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-%.o : %.cc
-	$(CC) $(CFLAGS) -c $< -o $@
+slr : slr.cc
+	$(CXX) $(CFLAGS) -o $@ $^
 
 clean : FORCE
 	rm -f *.o *~ *.orig $(TARGETS)
