@@ -154,7 +154,7 @@ tfw_sg_free(TfwSrvGroup *sg)
 	kfree(sg);
 }
 
-int
+unsigned int
 tfw_sg_count(void)
 {
 	int count = 0;

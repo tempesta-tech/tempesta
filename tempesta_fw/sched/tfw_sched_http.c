@@ -102,8 +102,6 @@ static TfwHttpMatchList *tfw_sched_http_rules;
 static TfwConnection *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
-	TfwSrvGroup *sg;
-	TfwConnection *conn;
 	TfwSchedHttpRule *rule;
 
 	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
@@ -116,30 +114,15 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		return NULL;
 	}
 
-	sg = rule->main_sg;
-	BUG_ON(!sg);
-	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
-
-	conn = sg->sched->sched_srv(msg, sg);
-
-	if (unlikely(!conn && rule->backup_sg)) {
-		sg = rule->backup_sg;
-		TFW_DBG("sched_http: the main group is offline, use backup:"
-			" '%s'\n", sg->name);
-		conn = sg->sched->sched_srv(msg, sg);
-	}
-
-	if (unlikely(!conn))
-		TFW_DBG2("sched_http: Unable to select server from group"
-			 " '%s'\n", sg->name);
-
-	return conn;
+	return tfw_sched_sg_get_conn(msg, rule->main_sg, rule->backup_sg);
 }
 
 static TfwConnection *
-tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
+	WARN_ONCE(true, TFW_BANNER "tfw_sched_http can't select a server from"
+			" a group\n");
+
 	return NULL;
 }
 
@@ -147,7 +130,7 @@ static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
-	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 };
 
 

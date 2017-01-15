@@ -73,7 +73,7 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
 static void
 tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	int s, c;
+	size_t s, c;
 	TfwRrSrv *srv_cl;
 	TfwRrSrvList *sl = sg->sched_data;
 
@@ -86,18 +86,38 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 		sl->srvs[s].srv = srv;
 		++sl->srv_n;
 		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
+		srv->sched_data = &sl->srvs[s];
 	}
 
 	srv_cl = &sl->srvs[s];
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
-				 " srv=%d conn=%d\n", s, c);
+				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
 	srv_cl->conns[c] = conn;
 	++srv_cl->conn_n;
 	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
+}
+
+/**
+ * Returns the next connection for the server.
+ * Dead connections are skipped.
+ */
+static inline TfwConnection *
+sched_rr_get_conn(TfwRrSrv *srv_cl)
+{
+	size_t c;
+
+	for (c = 0; c < srv_cl->conn_n; ++c) {
+		uint64_t idx = atomic64_inc_return(&srv_cl->rr_counter);
+		TfwConnection *conn = srv_cl->conns[idx % srv_cl->conn_n];
+
+		if (tfw_connection_get_if_nfo(conn))
+			return conn;
+	}
+	return NULL;
 }
 
 /**
@@ -107,27 +127,41 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  * Dead connections and servers w/o live connections are skipped.
  */
 static TfwConnection *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_rr_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int c, s, i;
-	TfwConnection *conn;
+	size_t s;
 	TfwRrSrvList *sl = sg->sched_data;
-	TfwRrSrv *srv_cl;
 
 	BUG_ON(!sl);
 
 	for (s = 0; s < sl->srv_n; ++s) {
-		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		srv_cl = &sl->srvs[i];
-		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-			    % srv_cl->conn_n;
-			conn = srv_cl->conns[i];
-			if (tfw_connection_get_if_nfo(conn))
-				return conn;
-		}
+		uint64_t idx = atomic64_inc_return(&sl->rr_counter);
+		TfwConnection *conn =
+				sched_rr_get_conn(&sl->srvs[idx % sl->srv_n]);
+
+		if (conn)
+			return conn;
 	}
 	return NULL;
+}
+
+/**
+ * Returns live connection to the server @srv.
+ * Parallel connections to the server are rotated in the round-robin manner.
+ */
+static TfwConnection *
+tfw_sched_rr_srv_get_conn(TfwMsg *msg, TfwServer *srv)
+{
+	TfwRrSrv *srv_cl = srv->sched_data;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+	return sched_rr_get_conn(srv_cl);
 }
 
 static TfwScheduler tfw_sched_rr = {
@@ -136,7 +170,8 @@ static TfwScheduler tfw_sched_rr = {
 	.add_grp	= tfw_sched_rr_alloc_data,
 	.del_grp	= tfw_sched_rr_free_data,
 	.add_conn	= tfw_sched_rr_add_conn,
-	.sched_srv	= tfw_sched_rr_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_rr_sg_get_conn,
+	.sched_srv_conn	= tfw_sched_rr_srv_get_conn,
 };
 
 int

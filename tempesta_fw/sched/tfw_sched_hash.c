@@ -49,18 +49,21 @@ MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	TfwConnection	*conn;
-	unsigned long	hash;
-} TfwConnHash;
+	size_t			conn_n;
+	TfwServer		*srv;
+	TfwConnection		*conn[TFW_SRV_MAX_CONN];
+	unsigned long		hash[TFW_SRV_MAX_CONN];
+} TfwHashSrv;
 
-/* The last item is used as the list teminator. */
-#define __HLIST_SZ(n)		((n) + 1)
-#define __HDATA_SZ(n)		(__HLIST_SZ(n) * sizeof(TfwConnHash))
+typedef struct {
+	size_t			srv_n;
+	TfwHashSrv		srvs[TFW_SG_MAX_SRV];
+} TfwHashSrvList;
 
 static void
 tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
 {
-	sg->sched_data = kzalloc(__HDATA_SZ(TFW_SG_MAX_CONN), GFP_KERNEL);
+	sg->sched_data = kzalloc(sizeof(TfwHashSrvList), GFP_KERNEL);
 	BUG_ON(!sg->sched_data);
 }
 
@@ -101,18 +104,34 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 static void
 tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	size_t i;
-	TfwConnHash *conn_hash = sg->sched_data;
+	size_t s, c;
+	TfwHashSrv *srv_cl;
+	TfwHashSrvList *sl = sg->sched_data;
 
-	BUG_ON(!conn_hash);
-	for (i = 0; i < __HLIST_SZ(TFW_SG_MAX_CONN); ++i) {
-		if (conn_hash[i].conn)
-			continue;
-		conn_hash[i].conn = conn;
-		conn_hash[i].hash = __calc_conn_hash(srv, i);
-		return;
+	BUG_ON(!sl);
+
+	for (s = 0; s < sl->srv_n; ++s)
+		if (sl->srvs[s].srv == srv)
+			break;
+	if (s == sl->srv_n) {
+		sl->srvs[s].srv = srv;
+		++sl->srv_n;
+		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
+		srv->sched_data = &sl->srvs[s];
 	}
-	BUG();
+
+	srv_cl = &sl->srvs[s];
+
+	for (c = 0; c < srv_cl->conn_n; ++c)
+		if (srv_cl->conn[c] == conn) {
+			TFW_WARN("sched_hash: Try to add existing connection,"
+				 " srv=%zu conn=%zu\n", s, c);
+			return;
+		}
+	srv_cl->conn[c] = conn;
+	srv_cl->hash[c] = __calc_conn_hash(srv, s * TFW_SRV_MAX_CONN + c);
+	++srv_cl->conn_n;
+	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
 
 /**
@@ -136,29 +155,73 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  *    a matching one with the highest weight. That adds some overhead.
  */
 static TfwConnection *
-tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_hash_sg_get_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
+	unsigned long msg_hash, curr_weight, best_weight = 0;
+	TfwHashSrvList *sl = sg->sched_data;
 	TfwConnection *best_conn = NULL;
-	TfwConnHash *ch;
+	size_t s;
+
+	BUG_ON(!sl);
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
-		for (ch = sg->sched_data; ch->conn; ++ch) {
-			curr_weight = msg_hash ^ ch->hash;
-			if (likely(tfw_connection_nfo(ch->conn))
+	for (s = 0; s < sl->srv_n; ++s) {
+		TfwHashSrv *srv_cl =  &sl->srvs[s];
+		size_t c;
+
+		for (c = 0; c < srv_cl->conn_n; ++c) {
+			curr_weight = msg_hash ^ srv_cl->hash[c];
+			if (likely(tfw_connection_nfo(srv_cl->conn[c]))
 			    && curr_weight > best_weight)
 			{
 				best_weight = curr_weight;
-				best_conn = ch->conn;
+				best_conn = srv_cl->conn[c];
 			}
 		}
-
-		if (unlikely(!best_conn))
-			return NULL;
-		if (tfw_connection_get_if_nfo(best_conn))
-			return best_conn;
 	}
+
+	if (unlikely(!best_conn))
+		return NULL;
+	if (tfw_connection_get_if_nfo(best_conn))
+		return best_conn;
+
+	return NULL;
+}
+
+/**
+ * Same as @tfw_sched_hash_sg_get_conn() but schedule for exact server
+ */
+static TfwConnection *
+tfw_sched_hash_srv_get_conn(TfwMsg *msg, TfwServer *srv)
+{
+	unsigned long msg_hash, curr_weight, best_weight = 0;
+	TfwHashSrv *srv_cl = srv->sched_data;
+	TfwConnection *best_conn = NULL;
+	size_t c;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	for (c = 0; c < srv_cl->conn_n; ++c) {
+		curr_weight = msg_hash ^ srv_cl->hash[c];
+		if (likely(tfw_connection_nfo(srv_cl->conn[c]))
+		    && curr_weight > best_weight)
+		{
+			best_weight = curr_weight;
+			best_conn = srv_cl->conn[c];
+		}
+	}
+
+	if (unlikely(!best_conn))
+		return NULL;
+	if (tfw_connection_get_if_nfo(best_conn))
+		return best_conn;
+
 	return NULL;
 }
 
@@ -169,7 +232,8 @@ static TfwScheduler tfw_sched_hash = {
 	.add_grp	= tfw_sched_hash_alloc_data,
 	.del_grp	= tfw_sched_hash_free_data,
 	.add_conn	= tfw_sched_hash_add_conn,
-	.sched_srv	= tfw_sched_hash_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_hash_sg_get_conn,
+	.sched_srv_conn	= tfw_sched_hash_srv_get_conn,
 };
 
 int

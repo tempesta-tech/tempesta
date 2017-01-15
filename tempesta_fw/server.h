@@ -42,12 +42,14 @@ typedef struct tfw_scheduler_t TfwScheduler;
  *
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
+ * @sched_data	- private scheduler data for the server;
  * @apm		- opaque handle for APM stats;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	TfwSrvGroup		*sg;
+	void			*sched_data;
 	void			*apm;
 	unsigned int		flags;
 	int			stress;
@@ -86,18 +88,20 @@ struct tfw_srv_group_t {
  * @add_conn	- add connection and server if it's new, called in process
  * 		  context at configuration time;
  * @sched_grp	- server group scheduling virtual method, typically returns
- *		  result of underlying @sched_srv();
- * @sched_srv	- requests scheduling virtual method, can be called in heavy
+ *		  result of underlying @sched_sg_conn();
+ * @sched_sg_conn - requests scheduling virtual method, can be called in heavy
  *		  concurrent environment;
+ * @sched_srv_conn - same as @sched_sg_conn, but schedule message to exact
+ *		  server;
  *
  * All schedulers must be able to scheduler messages among servers of one
- * server group, i.e. @sched_srv must be defined.
+ * server group, i.e. @sched_sg_conn and @sched_srv_conn must be defined.
  * However, not all the schedulers are able to designate target server group.
  * If a scheduler determines server group, then it should register @sched_grp
  * callback. The callback determines the target server group which references
  * a scheduler responsible to distribute messages in the group.
  * For the avoidance of unnecessary calls, any @sched_grp callback must call
- * @sched_srv callback of the target scheduler.
+ * @sched_sg_conn callback of the target scheduler.
  */
 struct tfw_scheduler_t {
 	const char		*name;
@@ -107,8 +111,8 @@ struct tfw_scheduler_t {
 	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
 					    TfwConnection *conn);
 	TfwConnection		*(*sched_grp)(TfwMsg *msg);
-	TfwConnection		*(*sched_srv)(TfwMsg *msg,
-					      TfwSrvGroup *sg);
+	TfwConnection		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
+	TfwConnection		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 };
 
 /* Server specific routines. */
@@ -122,7 +126,7 @@ void tfw_srv_conn_release(TfwConnection *conn);
 TfwSrvGroup *tfw_sg_lookup(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 void tfw_sg_free(TfwSrvGroup *sg);
-int tfw_sg_count(void);
+unsigned int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn);
@@ -131,7 +135,9 @@ int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
-TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwConnection *tfw_sched_get_conn(TfwMsg *msg);
+TfwConnection *tfw_sched_sg_get_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+					  TfwSrvGroup *backup_sg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
