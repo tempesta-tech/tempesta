@@ -67,7 +67,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -880,9 +880,8 @@ spec_cleanup(TfwCfgSpec specs[])
 		 * entry to original (zero) value. That will allow reuse of
 		 * the spec.
 		 */
-		if (spec->handler == &tfw_cfg_handle_children) {
+		if (spec->handler == &tfw_cfg_handle_children)
 			spec->cleanup = NULL;
-		}
 	}
 }
 
@@ -1540,14 +1539,25 @@ tfw_cfg_stop_mods(struct list_head *mod_list)
 {
 	TfwCfgMod *mod;
 
-	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+	MOD_FOR_EACH_REVERSE(mod, mod_list)
 		mod_stop(mod);
+
+	/*
+	 * Wait untill all networking activity is stopped before we can safely
+	 * cleanup modules data structures.
+	 */
+	ss_synchronize();
+
+	MOD_FOR_EACH_REVERSE(mod, mod_list)
 		spec_cleanup(mod->specs);
-	}
 }
 /*
  * ------------------------------------------------------------------------
  *	The list of registered modules, VFS and sysctl helpers.
+ *
+ * TODO sysctl routines must be moved to separate .c file: sysctl actions
+ * like start or stop have nothing common with configuration, but rather
+ * manage the whole server state.
  * ------------------------------------------------------------------------
  */
 
@@ -1569,7 +1579,7 @@ static DEFINE_RWLOCK(cfg_mods_lock);
 
 /* The deserialized value of tfw_cfg_sysctl_state_buf.
  * Indicates that all registered modules are started. */
-bool tfw_cfg_mods_are_started;
+static bool tfw_cfg_mods_are_started = false;
 
 
 /**
@@ -1656,23 +1666,30 @@ err_open:
 static int
 handle_state_change(const char *old_state, const char *new_state)
 {
-	TFW_LOG("got state via sysctl: %s\n", new_state);
+	TFW_DBG2("got state via sysctl: %s\n", new_state);
 
 	if (!strcasecmp(old_state, new_state)) {
-		TFW_LOG("the state '%s' isn't changed, nothing to do\n",
+		TFW_DBG2("the state '%s' isn't changed, nothing to do\n",
 			new_state);
 		return 0;
 	}
+
 	if (!strcasecmp("start", new_state)) {
 		int ret;
 		char *cfg_text_buf;
+
+		if (tfw_cfg_mods_are_started) {
+			TFW_WARN("Trying to start running system\n");
+			return -EINVAL;
+		}
 
 		TFW_DBG3("reading configuration file...\n");
 		cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL);
 		if (!cfg_text_buf)
 			return -ENOENT;
 
-		TFW_LOG("starting all modules...\n");
+		TFW_LOG("Starting all modules...\n");
+		ss_start();
 		ret = tfw_cfg_start_mods(cfg_text_buf, &tfw_cfg_mods);
 		if (ret)
 			TFW_ERR("failed to start modules\n");
@@ -1682,17 +1699,28 @@ handle_state_change(const char *old_state, const char *new_state)
 		vfree(cfg_text_buf);
 		return ret;
 	}
+
 	if (!strcasecmp("stop", new_state)) {
-		TFW_LOG("stopping all modules...\n");
-		if (tfw_cfg_mods_are_started)
+		TFW_LOG("Stopping all modules...\n");
+
+		if (!tfw_cfg_mods_are_started) {
+			TFW_WARN("Trying to stop inactive system\n");
+			return -EINVAL;
+		}
+
+		if (tfw_cfg_mods_are_started) {
+			ss_stop();
 			tfw_cfg_stop_mods(&tfw_cfg_mods);
+		}
 		tfw_cfg_mods_are_started = false;
+
 		return 0;
 	}
 
 	/* Neither "start" or "stop"? */
 	TFW_ERR("invalid state: '%s'. Should be either 'start' or 'stop'\n",
 		new_state);
+
 	return -EINVAL;
 }
 
