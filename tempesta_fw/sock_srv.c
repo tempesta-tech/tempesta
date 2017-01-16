@@ -228,9 +228,10 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
-			 "The server connection [%s] is down permanently.\n",
+			 "The server connection [%s] is down.\n",
 			 srv_conn->max_attempts, s_addr);
-		tfw_connection_repair(&srv_conn->conn);
+		if (unlikely(tfw_connection_restricted(&srv_conn->conn)))
+			tfw_connection_repair(&srv_conn->conn);
 	}
 	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
 		srv_conn->timeout = timeouts[srv_conn->attempts];
