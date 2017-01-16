@@ -40,13 +40,16 @@ class Test:
 		self.cfg.add_option('listen', '8081')
 		self.cfg.add_option('server', '127.0.0.1:80')
 
-#	The function checks the uri lengh frang limit, so we send 
-#	a request that
-#	contains the uri with length greater than limit was set. 
-#	If frang blocks
-#	request, the Tempesta  returns no data and the Frang writes a warning
-#	to the log.
+
 	def uri_len(self):
+		"""
+	The function checks the uri lengh frang limit, so we send 
+	a request that
+	contains the uri with length greater than limit was set. 
+	If frang blocks
+	request, the Tempesta  returns no data and the Frang writes a warning
+	to the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -69,13 +72,15 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks requests per second frang limit. We send a number 
-#	of requests from
-#	a connection. After a moment when amount of requests became greater 
-#	than
-#	set limit, the frang starts bloocking new requests 
-#	and client connection is closed,the Frang writes a warning to the log.
+
 	def request_rate(self):
+		"""
+	The function checks requests per second frang limit. We send a number
+	of requests from a connection. 
+	After a moment when amount of requests became greater 	than set limit,
+	the frang starts bloocking new requests
+	and client connection is closed,the Frang writes a warning to the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -104,14 +109,17 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the number of requests per fraction of a second 
-# 	frang limit.
-#	We send a number of requests. When amoun of requests became 
-#	greater them
-#	limit that was set, the frang blocks new requests and 
-#	the Tempesta closes a client connection. The Frang writes a warning in
-#	the log.
+
 	def request_burst(self):
+		"""
+	The function checks the number of requests per fraction of a second 
+ 	frang limit.
+	We send a number of requests. When amoun of requests became 
+	greater them
+	limit that was set, the frang blocks new requests and 
+	the Tempesta closes a client connection. The Frang writes a warning in
+	the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -140,14 +148,16 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the concurrent connections per client frang limit.
-#	We connecting to the Tempesta from one address, but from different
-#	ports.
-#	After a momet when amount of oconnections becames greater than limit,
-#	the Tempesta seases to accept new connection  and we will get 
-#	exception.
+
 
 	def conn_max(self):
+		"""
+	The function checks the concurrent connections per client frang limit.
+	We connecting to the Tempesta from one address, but from different
+	ports.
+	After a momet when amount of oconnections becames greater than limit,
+	the Tempesta seases to accept new connection  and the Frang writes a warning to a log.
+		"""
 		global tcount
 		self.res = False
 		self.__init__()
@@ -172,9 +182,6 @@ class Test:
 				socks.append(s)
 		except socket.error as e:
 			pass	
-		if self.parser.check_log("connections max num. exceeded"):
-			self.res = True
-			tcount += 1 
 		for s in socks:
 			s.shutdown(SHUT_RDWR)
 			s.close()
@@ -188,12 +195,15 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function  checks the connections from a client per second 
-#	frang limit.We connecting to the Tempesta from different ports 
-#	and one address.
-#	When number of connections exceeds limit the frang will block
-#	new connections and write a warning to the log.
+
 	def conn_rate(self):
+		"""
+	The function  checks the connections from a client per second 
+	frang limit.We connecting to the Tempesta from different ports 
+	and one address.
+	When number of connections exceeds limit the frang will block
+	new connections and write a warning to the log.
+		"""
 		global tcount
 		self.res = False
 		self.__init__()
@@ -229,12 +239,15 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the presence of the "Content-Type" header frang 
-#	limit.
-#	We set the ct_required frang limit and send a request without the header
-#	"Content-Type" and expect the frang blocks request, writes a warning 
-#	to the log.
+
 	def ct_required(self):
+		"""
+	The function checks the presence of the "Content-Type" header frang 
+	limit.
+	We set the ct_required frang limit and send a request without the header
+	"Content-Type" and expect the frang blocks request, writes a warning 
+	to the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -258,13 +271,15 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the connections per a fraction of a second 
-#	frang limit.
-#	We make a number of connections from different ports of one address.
-#	When amount of connections reaches the limit, the Tempesta
-#	ceases to acceptnew connections and we expect a corresponding 
-#	exception.
+
 	def conn_burst(self):
+		"""
+	The function checks the connections per a fraction of a second 
+	frang limit.
+	We make a number of connections from different ports of one address.
+	When amount of connections reaches the limit, the Frang writes a warning
+	at the log.
+		""" 
 		global tcount
 
 		self.res = False
@@ -299,11 +314,14 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
+
+	def host_required(self):
+		"""
 #	The function checks the presence of the "Host" header frang limit.
 #	We set the limit and send a requests without "Host" header. 
 #	So the frang block
-#	the request and the Tempesta returns no data.
-	def host_required(self):
+#	the request and the Frang writes a warning at the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -327,10 +345,13 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the length of request`s body frang limit. 
-#	We set the limit and send a request with a body greater than the limit.
-#	So the frang blocks the request and the Tempesta returns no data.
+
 	def body_len(self):
+		"""
+	The function checks the length of request`s body frang limit. 
+	We set the limit and send a request with a body greater than the limit.
+	So the frang blocks the request and writes a warning at the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -357,11 +378,14 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the header field length frang limit. We set 
-#	the limit and send a request with a header greater than limit.
-#	The frang blocks 
-#	the request and the Tempesta returns no data. 
+ 
 	def field_len(self):
+		"""
+	The function checks the header field length frang limit. We set 
+	the limit and send a request with a header greater than limit.
+	The frang blocks 
+	the request and the Frang writes a warning at the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -387,15 +411,18 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the permitted values of the "Content-Type" 
-#	header frang
-#	limit.
-#	We add a set of the "Content-Type" permitted values to the frang 
-#	section.
-#	And then send a request with a "Content-Type" header value witch is not
-#	present in the added set. The frang blocks the request and the Tempesta
-#	returns no data.
+
 	def ct_vals(self):
+		"""
+	The function checks the permitted values of the "Content-Type" 
+	header frang
+	limit.
+	We add a set of the "Content-Type" permitted values to the frang 
+	section.
+	And then send a request with a "Content-Type" header value witch is not
+	present in the added set. The frang blocks the request and the Frang
+	writes a warning at the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -419,12 +446,15 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the permitted request methods frang limit.
-#	We add a set of request method to the frang limits and send 
-#	a request with arequest method
-#	witch is not present in the set. So the frang have to block the request
-#	and write a warning to the log.
+
 	def req_method(self):
+		"""
+	The function checks the permitted request methods frang limit.
+	We add a set of request method to the frang limits and send 
+	a request with arequest method
+	witch is not present in the set. So the frang have to block the request
+	and write a warning to the log.
+		"""
 		global tcount
 
 		self.res = False
@@ -448,11 +478,14 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the amount of a header chunks frang limit. We set 
-#	the limit and divide request`s headers into parts and send parts 
-#	separate.
-#	So the frang blocks the request and the Tempesta returns no data.
+
 	def header_chunks(self):
+		"""
+	The function checks the amount of a header chunks frang limit. We set 
+	the limit and divide request`s headers into parts and send parts 
+	separate.
+	So the frang blocks the request and writes a warning at the log.
+		"""
 		global tcount
 		part1 = b'GET / HTTP/1.1\r\n'
 		part2 = b'host: loc\r\n'
@@ -476,13 +509,17 @@ class Test:
 		time.sleep(5)
 		tfw.stop()
 		print("header chunks:res:{}".format(self.res))
+		
 
-#	The function checks the timeout between a request header chunks 
-#	frang limit.
-#	We set the limit, then send a request header divided into parts with a pause
-#	between the parts. The frang blocks the request and 
-#	the Tempesta returns no data.
+
 	def header_timeout(self):
+		"""
+	The function checks the timeout between a request header chunks 
+	frang limit.
+	We set the limit, then send a request header divided into parts with a pause
+	between the parts. The frang blocks the request and 
+	writes a warning at the log.
+		"""
 		global tcount
 		part1 = b'GET / HTTP/1.1\r\n'
 		part2 = b'host: loc\r\n\r\n'
@@ -501,18 +538,23 @@ class Test:
 		if len(data) == 0:
 			tcount += 1
 			self.res = True
+		
 			print( "header timeout:res:{}".format(self.res))
 		self.s.close()
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the timeout between body chunks frang limit.
-#	We set the limit and divide our request into parts that a body is 
-#	divided.
-#	Then send the parts with a pause. The frang has to bock the request 
-#	and the Tempesta returns no data.
+
 	def body_timeout(self):
+		"""
+	The function checks the timeout between body chunks frang limit.
+	We set the limit and divide our request into parts that a body is 
+	divided.
+	Then send the parts with a pause. The frang has to bock the request 
+	and writes a warning at the log.
+		"""
 		global tcount
+		self.res = False
 		part1 = b"POST /a.html HTTP/1.1\r\nHost: loc\r\n"
 		part1 += b"Content-Type: text/html\r\nContent-Length: 20"
 		part1 += b"\r\n\r\n<html>content"
@@ -520,6 +562,7 @@ class Test:
 
 		self.__init__()
 		self.cfg.add_section('frang_limits')
+		self.cfg.add_option('http_ct_vals', '[\"text/html\"]')
 		self.cfg.add_option('client_body_timeout', '1')
 		self.cfg.add_end_of_section()
 		tfw.start_with_frang()
@@ -530,21 +573,24 @@ class Test:
 		time.sleep(1)
 		self.s.send(part2)
 		data = self.s.recv(1024)
-		if  self.parser.check_log("body timeout exceed"):
-			self.res = True
+		if self.parser.check_log("body timeout exceed"):
 			tcount += 1
+			self.res = True
+			
 		print("body timeout:res:{}".format(self.res))
 		time.sleep(5)
 		tfw.stop()
 
-#	The function checks the amount of a body chunks frang limit. We set 
-#	the limit.
-# 	Then divide our request into parts that the body of the request was 
-#	divided
-#	too And send the parts with a pause. The frang has to block the request.
-#	The Tempesta returns no data. 
+ 
 	def body_chunks(self):
-
+		"""
+	The function checks the amount of a body chunks frang limit. We set 
+	the limit.
+ 	Then divide our request into parts that the body of the request was 
+	divided
+	too And send the parts with a pause. The frang has to block the request.
+	and to write a warnining at the log.
+		"""
 		global tcount
 		self.res = False
 		part1 = b"POST /a.html HTTP/1.1\r\nHost: loc\r\n\
