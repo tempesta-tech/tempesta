@@ -298,7 +298,6 @@ typedef struct {
  *			  aren't alowed. So use atomic operations if concurrent
  *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
- * @jtstamp		- time the message has been received, in jiffies;
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @conn		- connection which the message was received on;
  * @crlf		- pointer to CRLF between headers and body;
@@ -315,7 +314,6 @@ typedef struct {
 	unsigned char	version;					\
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
-	unsigned long	jtstamp;					\
 	unsigned int	keep_alive;					\
 	TfwConnection	*conn;						\
 	void (*destructor)(void *msg);					\
@@ -347,6 +345,8 @@ typedef struct {
  * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
  * @chunk_cnt	- header or body chunk count for Frang classifier;
+ * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
+ * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
@@ -370,6 +370,8 @@ typedef struct {
 	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
+	unsigned long		jtxtstamp;
+	unsigned long		jrxtstamp;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
@@ -385,14 +387,16 @@ typedef struct {
 
 /**
  * HTTP Response.
- *
  * TfwStr members must be the first for efficient scanning.
+ *
+ * @jrxtstamp	- time the message has been received, in jiffies;
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
+	unsigned long		jrxtstamp;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
