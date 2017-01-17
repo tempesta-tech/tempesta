@@ -81,14 +81,13 @@ enum {
  * @seq_queue	- queue of client's messages in the order they came;
  * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
  * @seq_qlock	- lock for accessing @seq_queue;
- * @ret_qlock	- lock for accessing @ret_queue;
+ * @ret_qlock	- lock for serializing sets of responses;
  * @flags	- atomic flags related to server connection's state;
  * @refcnt	- number of users of the connection structure instance;
  * @qsize	- current number of requests in server's @msg_queue;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
- * @req_sent	- request that was sent last in a server connection;
- * @msg_resent	- message that was re-sent last in a server connection;
+ * @msg_sent	- request that was sent last in a server connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
@@ -113,7 +112,7 @@ typedef struct tfw_connection_t {
 	int			qsize;					/*srv*/
 	struct timer_list	timer;
 	TfwMsg			*msg;
-	TfwMsg			*req_sent;				/*srv*/
+	TfwMsg			*msg_sent;				/*srv*/
 	TfwPeer 		*peer;
 	struct sock		*sk;
 	void			(*destructor)(void *);
