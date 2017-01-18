@@ -820,7 +820,7 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	tfw_cfg_set_conn_tries(srv, tfw_cfg_out_retry_attempts);
 	srv->qsize_max = tfw_cfg_out_queue_size ? : UINT_MAX;
-	srv->qjtimeout = tfw_cfg_out_send_timeout
+	srv->qjtmo_max = tfw_cfg_out_send_timeout
 		       ? msecs_to_jiffies(tfw_cfg_out_send_timeout * 1000)
 		       : ULONG_MAX;
 	srv->retry_max = tfw_cfg_out_send_tries ? : UINT_MAX;
@@ -905,7 +905,7 @@ tfw_finish_srv_group(TfwCfgSpec *cs)
 			msecs_to_jiffies(tfw_cfg_in_send_timeout * 1000);
 		tfw_cfg_set_conn_tries(srv, tfw_cfg_in_retry_attempts);
 		srv->qsize_max = tfw_cfg_in_queue_size ? : UINT_MAX;
-		srv->qjtimeout = tfw_cfg_in_send_timeout ? jtmout : ULONG_MAX;
+		srv->qjtmo_max = tfw_cfg_in_send_timeout ? jtmout : ULONG_MAX;
 		srv->retry_max = tfw_cfg_in_send_tries ? : UINT_MAX;
 		srv->flags |= tfw_cfg_in_retry_nip ?
 			      TFW_SRV_RETRY_NON_IDEMP : 0;
