@@ -514,9 +514,14 @@ tfw_http_req_move2equeue(TfwConnection *srv_conn, TfwHttpReq *req,
 }
 
 /*
+ * Forwarding of requests to a back end server is run under a lock
+ * on the server connection's forwarding queue. It's performed as
+ * fast as possible by moving failed requests to the error queue
+ * that can be processed without the lock.
+ *
  * Delete requests that were not forwarded due to an error. Send an
  * error response to a client. The response will be attached to the
- * request and sent to the client in proper seq order.
+ * request and then sent to the client in proper seq order.
  */
 static void
 tfw_http_req_zap_error(struct list_head *equeue)
@@ -599,37 +604,60 @@ tfw_http_req_fwd_send(TfwConnection *srv_conn, TfwServer *srv,
 }
 
 /*
- * Forward requests in the server connection @srv_conn. The requests
+ * Forward one request @req to server connection @srv_conn.
+ * Return false if forwarding must be stopped, or true otherwise.
+ */
+static inline bool
+__tfw_http_req_fwd_single(TfwConnection *srv_conn, TfwServer *srv,
+			  TfwHttpReq *req, struct list_head *equeue)
+{
+	if (tfw_http_req_evict_timeout(srv_conn, srv, req, equeue))
+		return false;
+	if (!tfw_http_req_fwd_send(srv_conn, srv, req, equeue))
+		return false;
+	srv_conn->msg_sent = (TfwMsg *)req;
+	TFW_INC_STAT_BH(clnt.msgs_forwarded);
+	return true;
+}
+
+/*
+ * Forward unsent requests in server connection @srv_conn. The requests
  * are forwarded until a non-idempotent request is found in the queue.
- * Must be called with a lock on the server connection's @fwd_queue.
+ * It's assumed that the forwarding queue in @srv_conn is locked.
+ * IT's also assumed that the forwarding queue is NOT drained.
  */
 static void
-__tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
+__tfw_http_req_fwd_unsent(TfwConnection *srv_conn, struct list_head *equeue)
 {
 	TfwHttpReq *req, *tmp;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
+	BUG_ON(tfw_http_conn_drained(srv_conn));
 
-	/*
-	 * Process the server connection's queue of pending requests.
-	 * The queue is locked against concurrent updates: inserts of
-	 * outgoing requests, or closing of the server connection. Do
-	 * it as fast as possible by moving failed requests to other
-	 * queues that can be processed without the lock.
-	 */
 	req = srv_conn->msg_sent
 	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
+	/* A frequent case: there's just one request in the queue. */
+	if (likely(list_is_singular(fwd_queue))) {
+		__tfw_http_req_fwd_single(srv_conn, srv, req, equeue);
+		/* See if the idempotent request was non-idempotent. */
+		tfw_http_req_nip_delist(srv_conn, req);
+		return;
+	}
+	/*
+	 * A less frequent case: the queue was on hold due to forwarding
+	 * a non-idempotent request, and a number of subsequent requests
+	 * had piled up. Process the server connection's full queue of
+	 * pending requests.
+	 */
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
-		if (tfw_http_req_evict_timeout(srv_conn, srv, req, equeue))
+		if (!__tfw_http_req_fwd_single(srv_conn, srv, req, equeue))
 			continue;
-		if (!tfw_http_req_fwd_send(srv_conn, srv, req, equeue))
-			continue;
-		srv_conn->msg_sent = (TfwMsg *)req;
-		/* Stop sending if the request is non-idempotent. */
+		/* Stop forwarding if the request is non-idempotent. */
 		if (tfw_http_req_is_nip(req))
 			break;
 		/* See if the idempotent request was non-idempotent. */
@@ -638,57 +666,40 @@ __tfw_http_req_fwd_stalled(TfwConnection *srv_conn, struct list_head *equeue)
 }
 
 /*
- * Forward stalled requests in server connection @srv_conn.
- *
- * This function expects that the queue in the server connection
- * is locked. The queue in unlocked inside the function which is
- * very non-traditional. Please use with caution.
+ * Forward unsent requests in server connection @srv_conn.
+ * It's assumed that the forwarding queue in @srv_conn is locked.
  */
-static void
-tfw_http_req_fwd_stalled(TfwConnection *srv_conn)
+static inline void
+tfw_http_req_fwd_unsent(TfwConnection *srv_conn, struct list_head *equeue)
 {
-	LIST_HEAD(equeue);
-
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
-	BUG_ON(list_empty(&srv_conn->fwd_queue));
 
-	__tfw_http_req_fwd_stalled(srv_conn, &equeue);
-	spin_unlock(&srv_conn->fwd_qlock);
-
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+	if (tfw_http_conn_need_fwd(srv_conn))
+		__tfw_http_req_fwd_unsent(srv_conn, equeue);
 }
 
 /*
  * Forward the request @req to server connection @srv_conn.
  *
- * The request is added to the server connection (forwarding) queue.
- * If forwarding is on hold at this moment, then the request will be
- * forwarded later. Otherwise, if the queue is drained, then forward
- * the request to the server immediately. If the queue is not drained,
- * then forward all stalled requests to the server.
- *
- * The forwarding queue may not be drained only if it was on hold, and
- * a number of requests had piled up. That would be a rather infrequent
- * case. A regular case would be forwarding a single request, and that
- * can be done in a simple fashion.
+ * The request is added to the server connection's forwarding queue.
+ * If forwarding is on hold at the moment, then the request will be
+ * forwarded later. Otherwise, forward the request to the server now.
  *
  * Forwarding to a server is considered to be on hold after
  * a non-idempotent request is forwarded. The hold is removed when
  * the holding non-idempotent request is followed by another request
  * from the same client. Effectively, that re-enables pipelining.
+ * See RFC 7230 6.3.2.
  */
 static void
 tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 {
-	bool drained;
+	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock(&srv_conn->fwd_qlock);
-	drained = tfw_http_conn_drained(srv_conn);
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
@@ -697,23 +708,11 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
 		spin_unlock(&srv_conn->fwd_qlock);
 		return;
 	}
-	if (!drained) {
-		tfw_http_req_fwd_stalled(srv_conn);
-		/* The queue is unlocked inside the function. */
-		return;
-	}
-	req->jtxtstamp = jiffies;
-	if (tfw_connection_send(srv_conn, (TfwMsg *)req)) {
-		tfw_http_req_delist(srv_conn, req);
-		spin_unlock(&srv_conn->fwd_qlock);
-		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
-			 __func__, srv_conn, req);
-		tfw_http_send_500(req);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		return;
-	}
-	srv_conn->msg_sent = (TfwMsg *)req;
+	__tfw_http_req_fwd_unsent(srv_conn, &equeue);
 	spin_unlock(&srv_conn->fwd_qlock);
+
+	if (!list_empty(&equeue))
+		tfw_http_req_zap_error(&equeue);
 }
 
 /*
@@ -725,7 +724,8 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
  * can be used to have that request re-sent or re-scheduled as well.
  *
  * As forwarding is paused after a non-idempotent request is sent,
- * there can be only one such request, and that's @srv_conn->msg_sent.
+ * there can be only one such request among those that were forwarded,
+ * and that's @srv_conn->msg_sent.
  *
  * Note: @srv_conn->msg_sent may change in result.
  */
@@ -751,7 +751,7 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn, struct list_head *equeue)
  * Re-forward requests in a server connection. Requests that exceed
  * the set limits are evicted.
  */
-static TfwMsg *
+static TfwHttpReq *
 tfw_http_req_resend(TfwConnection *srv_conn,
 		      bool first, struct list_head *equeue)
 {
@@ -783,16 +783,16 @@ tfw_http_req_resend(TfwConnection *srv_conn,
 			break;
 	}
 
-	return (TfwMsg *)req_resent;
+	return req_resent;
 }
 
-static inline TfwMsg *
+static inline TfwHttpReq *
 tfw_http_req_resend_first(TfwConnection *srv_conn, struct list_head *equeue)
 {
 	return tfw_http_req_resend(srv_conn, true, equeue);
 }
 
-static inline TfwMsg *
+static inline TfwHttpReq *
 tfw_http_req_resend_all(TfwConnection *srv_conn, struct list_head *equeue)
 {
 	return tfw_http_req_resend(srv_conn, false, equeue);
@@ -804,45 +804,37 @@ tfw_http_req_resend_all(TfwConnection *srv_conn, struct list_head *equeue)
  * The connection is not scheduled until all requests in it are re-sent.
  */
 static void
-tfw_http_req_fwd_repair(TfwConnection *srv_conn)
+__tfw_http_req_fwd_repair(TfwConnection *srv_conn, struct list_head *equeue)
 {
-	LIST_HEAD(equeue);
-
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
-	BUG_ON(!(srv_conn->flags & (TFW_CONN_B_QFORWD | TFW_CONN_B_RESEND)));
+	BUG_ON(!tfw_connection_restricted(srv_conn));
 
 	if (list_empty(&srv_conn->fwd_queue)) {
 		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 	} else if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
-		if (tfw_http_conn_need_fwd(srv_conn))
-			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
+		tfw_http_req_fwd_unsent(srv_conn, equeue);
 	} else {
 		/*
 		 * After all previously forwarded requests are re-sent,
-		 * srv_conn->msg_sent will be either NULL or the last
+		 * @srv_conn->msg_sent will be either NULL or the last
 		 * request that was re-sent successfully. If re-sending
 		 * of non-idempotent requests is allowed, then that last
 		 * request may be non-idempotent. Continue with sending
 		 * requests that were never forwarded only if the last
 		 * request that was re-sent was NOT non-idempotent.
 		 */
-		if (srv_conn->msg_sent)
-			srv_conn->msg_sent =
-				tfw_http_req_resend_all(srv_conn, &equeue);
-		if (!srv_conn->msg_sent
-		    || !tfw_http_req_is_nip((TfwHttpReq *)srv_conn->msg_sent))
-		{
+		TfwHttpReq *req_resent = (TfwHttpReq *)srv_conn->msg_sent;
+		if (req_resent) {
+			req_resent = tfw_http_req_resend_all(srv_conn, equeue);
+			srv_conn->msg_sent = (TfwMsg *)req_resent;
+		}
+		if (!(req_resent && tfw_http_req_is_nip(req_resent))) {
 			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-			if (tfw_http_conn_need_fwd(srv_conn))
-				__tfw_http_req_fwd_stalled(srv_conn, &equeue);
+			tfw_http_req_fwd_unsent(srv_conn, equeue);
 		}
 	}
-	spin_unlock(&srv_conn->fwd_qlock);
-
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
 }
 
 /*
@@ -892,7 +884,7 @@ tfw_http_conn_msg_alloc(TfwConnection *conn)
  * and a simpler tfw_http_msg_free() can be used for that.
  *
  * NOTE: @hm->conn might be NULL if @hm is the response that was served
- * from the cache.
+ * from cache.
  */
 static void
 tfw_http_conn_msg_free(TfwHttpMsg *hm)
@@ -922,13 +914,12 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  *
  * Note: re-scheduled requests are put at the tail of a new server's
  * connection queue, and NOT according to their original timestamps.
- * That's the indended behaviour. There requests are unlucky already.
- * They had been delayed by the waiting in their original server
- * connections, and then by the re-scheduling procedure itself. Now
- * they have much greater chance to be evicted when it's their turn
- * to be forwarded. The main effort is put into servicing requests
- * that are on time. Unlucky requests are just given another chance
- * with minimal effort.
+ * That's the intended behaviour. These requests are unlucky already.
+ * They were delayed by waiting in their original server connections,
+ * and then by the re-scheduling procedure itself. Now they have much
+ * greater chance to be evicted when it's their turn to be forwarded.
+ * The main effort is put into servicing requests that are on time.
+ * Unlucky requests are just given another chance with minimal effort.
  */
 static void
 tfw_http_req_resched(TfwConnection *srv_conn, struct list_head *equeue)
@@ -965,12 +956,12 @@ tfw_http_req_resched(TfwConnection *srv_conn, struct list_head *equeue)
  * 6.3.2, "a client MUST NOT pipeline immediately after connection
  * establishment". To address that, re-send the first request to the
  * server. When a response comes, that will trigger resending of the
- * rest of those unanswered requests (tfw_http_req_fwd_repair()).
+ * rest of those unanswered requests (__tfw_http_req_fwd_repair()).
  */
 static void
 tfw_http_conn_repair(TfwConnection *srv_conn)
 {
-	TfwMsg *req_resent = NULL;
+	TfwHttpReq *req_resent = NULL;
 	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
@@ -995,8 +986,7 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 	/* If none resent, then send the remaining unsent requests. */
 	if (!req_resent) {
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		if (tfw_http_conn_need_fwd(srv_conn))
-			__tfw_http_req_fwd_stalled(srv_conn, &equeue);
+		tfw_http_req_fwd_unsent(srv_conn, &equeue);
 	}
 	spin_unlock(&srv_conn->fwd_qlock);
 zap_error:
@@ -1419,6 +1409,7 @@ __tfw_http_resp_fwd(TfwConnection *cli_conn, struct list_head *ret_queue)
 				 __func__, cli_conn, resp);
 			ss_close_sync(cli_conn->sk, true);
 		}
+		TFW_INC_STAT_BH(serv.msgs_forwarded);
 loop_discard:
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
@@ -1438,7 +1429,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	/*
 	 * Starting with the first request on the list, pick consecutive
 	 * requests that have a paired response. Remove those requests
-	 * from the list, and put them on the list of outgoing responses.
+	 * from the list, and put them on the list of returned responses.
 	 * Take care of concurrent calls to this function from different
 	 * CPUs, all going for the same client connection.
 	 *
@@ -1620,18 +1611,17 @@ nip_match:
 static void
 tfw_http_req_add_seq_queue(TfwHttpReq *req)
 {
-	TfwHttpReq *preq;
+	TfwHttpReq *req_prev;
 	TfwConnection *cli_conn = req->conn;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	tfw_http_req_mark_nip(req);
 
 	spin_lock(&cli_conn->seq_qlock);
-	preq = !list_empty(seq_queue)
-	     ? list_last_entry(seq_queue, TfwHttpReq, msg.seq_list)
-	     : NULL;
-	if (preq && tfw_http_req_is_nip(preq))
-		preq->flags &= ~TFW_HTTP_NON_IDEMP;
+	req_prev = list_empty(seq_queue) ?
+		   NULL : list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
+	if (req_prev && tfw_http_req_is_nip(req_prev))
+		req_prev->flags &= ~TFW_HTTP_NON_IDEMP;
 	list_add_tail(&req->msg.seq_list, seq_queue);
 	spin_unlock(&cli_conn->seq_qlock);
 }
@@ -1903,7 +1893,6 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 					resp->jrxtstamp, rtt);
 	}
 	tfw_http_resp_fwd(req, resp);
-	TFW_INC_STAT_BH(serv.msgs_forwarded);
 	return;
 }
 
@@ -1921,6 +1910,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	TfwHttpReq *req;
 	TfwConnection *srv_conn = hmresp->conn;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
+	LIST_HEAD(equeue);
 
 	spin_lock(&srv_conn->fwd_qlock);
 	if (unlikely(list_empty(fwd_queue))) {
@@ -1941,15 +1931,15 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	/*
 	 * Perform special processing if the connection is in repair
 	 * mode. Otherwise, forward pending requests to the server.
-	 * Note: The queue is unlocked inside tfw_http_req_fwd_repair()
-	 * or tfw_http_req_fwd_stalled().
 	 */
 	if (unlikely(tfw_connection_restricted(srv_conn)))
-		tfw_http_req_fwd_repair(srv_conn);
+		__tfw_http_req_fwd_repair(srv_conn, &equeue);
 	else if (tfw_http_conn_need_fwd(srv_conn))
-		tfw_http_req_fwd_stalled(srv_conn);
-	else
-		spin_unlock(&srv_conn->fwd_qlock);
+		__tfw_http_req_fwd_unsent(srv_conn, &equeue);
+	spin_unlock(&srv_conn->fwd_qlock);
+
+	if (!list_empty(&equeue))
+		tfw_http_req_zap_error(&equeue);
 
 	return req;
 }
