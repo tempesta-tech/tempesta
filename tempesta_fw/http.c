@@ -557,10 +557,10 @@ tfw_http_req_evict_timeout(TfwConnection *srv_conn, TfwServer *srv,
 {
 	unsigned long jtimeout = jiffies - req->jrxtstamp;
 
-	if (unlikely(time_after(jtimeout, srv->qjtimeout))) {
+	if (unlikely(time_after(jtimeout, srv->qjtmo_max))) {
 		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 			 __func__, req,
-			jiffies_to_msecs(jtimeout - srv->qjtimeout));
+			jiffies_to_msecs(jtimeout - srv->qjtmo_max));
 		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
 		return true;
 	}
