@@ -39,7 +39,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
  * @qsize_max	- maximum queue size of a server connection;
- * @qjtimeout	- maximum age of a request in a server connection, in jiffies;
+ * @qjtmo_max	- maximum age of a request in a server connection, in jiffies;
  * @retry_max	- maximum number of tries for forwarding a request;
  * @flags	- server related flags;
  */
@@ -50,7 +50,7 @@ typedef struct {
 	void			*apm;
 	int			stress;
 	unsigned int		qsize_max;
-	unsigned long		qjtimeout;
+	unsigned long		qjtmo_max;
 	unsigned int		retry_max;
 	unsigned int		flags;
 } TfwServer;
