@@ -149,6 +149,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 #define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
 
 	int i;
+	TfwConnection *srv_conn;
 	TfwServer *srv = seq->private;
 	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
 	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };
@@ -163,8 +164,14 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	SPRNE("Maximum response time\t\t", pstats.max);
 	seq_printf(seq, "Percentiles\n");
 	for (i = 0; i < ARRAY_SIZE(prcntl); ++i)
-		seq_printf(seq, "%02d%%:\t%dms\n", prcntl[i].ith,
-			   prcntl[i].val);
+		seq_printf(seq, "\t%02d%%:\t%dms\n",
+				prcntl[i].ith, prcntl[i].val);
+	i = 0;
+	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
+			srv->qsize_max);
+	list_for_each_entry(srv_conn, &srv->conn_list, list)
+		seq_printf(seq, "\tConnection %03d queue size\t: %d\n",
+				++i, ACCESS_ONCE(srv_conn->qsize));
 
 	return 0;
 #undef SPRNE
