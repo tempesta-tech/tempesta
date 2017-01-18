@@ -76,12 +76,12 @@ sched_sg_conn(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
  * be dropped.
  */
 static TfwConnection *
-sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg)
+sched_conn_sticky(TfwMsg *msg, TfwSrvGroup *sg, bool main_sg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwConnection *conn;
 
-	conn = tfw_http_sess_get_conn(req, sg);
+	conn = tfw_http_sess_get_conn(req, sg, main_sg);
 	if (conn) {
 		TfwServer *srv = (TfwServer *)conn->peer;
 
@@ -134,12 +134,12 @@ tfw_sched_srv_get_sticky_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 
 	TFW_DBG2("sched: use sticky connections\n");
 
-	conn = sched_conn_sticky(msg, main_sg);
+	conn = sched_conn_sticky(msg, main_sg, true);
 	if (unlikely(IS_ERR(conn)))
 		return NULL;
 
 	if (unlikely(!conn && backup_sg)) {
-		conn = sched_conn_sticky(msg, backup_sg);
+		conn = sched_conn_sticky(msg, backup_sg, false);
 		if (unlikely(IS_ERR(conn)))
 			return NULL;
 	}

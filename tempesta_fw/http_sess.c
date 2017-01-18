@@ -636,17 +636,17 @@ found:
 }
 
 /**
- * Get last used connection to reach server group @sg. Even if no messsages in
- * this http session were explicitly forwarded to @sg, there still can be
- * known connections to @sg if it appear to be a back-up connection for some
- * other server group.
+ * Get last used connection to reach server group @sg. 'True' value of @main_sg
+ * means that @sg is primary server group
+ *  if
+ *
  */
 TfwConnection *
-tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
+tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg, bool main_sg)
 {
 	TfwHttpSess *sess = req->sess;
 	TfwHttpSessConn *sess_conn;
-	TfwConnection *conn = NULL, *backup_conn = NULL;
+	TfwConnection *conn = NULL;
 
 	if (!sess)
 		return NULL;
@@ -654,19 +654,22 @@ tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 	read_lock(&sess->conns_lock);
 
 	list_for_each_entry(sess_conn, &sess->conns, list) {
-		if (sess_conn->sg == sg) {
+		TfwSrvGroup *conn_sg = ((TfwServer *)sess_conn->conn->peer)->sg;
+
+		/*
+		 * Allow connection to backup server group only if @sg is
+		 * primary one.
+		 */
+		if (main_sg && (sess_conn->sg == sg)) {
 			conn = sess_conn->conn;
 			break;
 		}
-		if (sess_conn->conn &&
-		    (((TfwServer *)sess_conn->conn->peer)->sg == sg))
-		{
-			backup_conn = sess_conn->conn;
-		}
+		if (conn_sg == sg)
+			conn = sess_conn->conn;
 	}
 
 	read_unlock(&sess->conns_lock);
-	return conn ? : backup_conn;
+	return conn;
 }
 
 /**
@@ -681,6 +684,8 @@ tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg, TfwConnection *conn)
 
 	if (!sess)
 		return 0;
+
+	BUG_ON(!conn);
 
 	write_lock(&sess->conns_lock);
 

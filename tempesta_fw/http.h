@@ -454,7 +454,7 @@ int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
 extern bool tfw_cfg_sticky_sessions;
 extern bool tfw_cfg_sticky_sessions_failover;
-TfwConnection *tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg);
+TfwConnection *tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg, bool main_sg);
 int tfw_http_sess_save_conn(TfwHttpReq *req, TfwSrvGroup *sg,
 			    TfwConnection *conn);
 

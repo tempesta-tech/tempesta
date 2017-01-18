@@ -562,27 +562,45 @@ TEST(http_sticky_sched, add_conns)
 
 	init_sess_for_msg();
 
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_1));
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2));
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3));
+	/* No saved connections. */
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_1, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_1, false));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2, false));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, false));
 
-	/* Add connection to main sg */
-	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_1,  conn_1), 0);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1), conn_1);
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2));
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3));
+	/* Add primary connection to sg1. */
+	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_1, conn_1), 0);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1, true),  conn_1);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1, false), conn_1);
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_2, false));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, false));
 
-	/* Add connection to backup sg */
-	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_2,  conn_2), 0);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1), conn_1);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2), conn_2);
-	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3));
+	/* Add primary connection to sg1. */
+	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_2, conn_2), 0);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1, true),  conn_1);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1, false), conn_1);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2, true),  conn_2);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2, false), conn_2);
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, true));
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_3, false));
 
-	/* Failover connection from sg_1 to backup sg_3 */
-	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_1,  conn_3), 0);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1), conn_3);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2), conn_2);
-	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_3), conn_3);
+	/* Failover connection from sg_1 to backup sg_3. */
+	EXPECT_EQ(tfw_http_sess_save_conn(mock.req, sg_1, conn_3), 0);
+	/* Get connection to sg_1. Sg_1 has backup group. */
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_1, true),  conn_3);
+	/*
+	 * Get connection to sg_1. Sg_1 is a backup group, and can't have
+	 * its own backup group.
+	*/
+	EXPECT_NULL(tfw_http_sess_get_conn(mock.req, sg_1, false));
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2, true),  conn_2);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_2, false), conn_2);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_3, true),  conn_3);
+	EXPECT_EQ(tfw_http_sess_get_conn(mock.req, sg_3, false), conn_3);
 
 	test_conn_release_all(sg_1);
 	test_conn_release_all(sg_2);
