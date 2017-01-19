@@ -1398,6 +1398,7 @@ __tfw_http_resp_fwd(TfwConnection *cli_conn, struct list_head *ret_queue)
 		if (!tfw_connection_live(cli_conn)) {
 			TFW_DBG2("%s: Client connection dead: conn=[%p]\n",
 				 __func__, cli_conn);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto loop_discard;
 		}
 		/*
@@ -1408,6 +1409,7 @@ __tfw_http_resp_fwd(TfwConnection *cli_conn, struct list_head *ret_queue)
 			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
 				 __func__, cli_conn, resp);
 			ss_close_sync(cli_conn->sk, true);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 loop_discard:
@@ -1446,6 +1448,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 		ss_close_sync(cli_conn->sk, true);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
 	req->resp = (TfwHttpMsg *)resp;
