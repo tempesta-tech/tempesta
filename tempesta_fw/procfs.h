@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,7 +62,44 @@ typedef struct {
 	u64	conn_disconnects;
 
 	u64	rx_bytes;
-} TfwPeerStat;
+} TfwSrvStat;
+
+/*
+ * @rx_messages		- The number of messages received from peers.
+ * @msgs_forwarded	- The number of forwarded messages.
+ * @msgs_fromcache	- The number of messages served from cache.
+ * @msgs_parserr	- The number of messages with parsing errors.
+ * @msgs_filtout	- The number of messages that were filtered out
+ *			  in accordance with the rules in configuration.
+ * @msgs_otherr		- The number of messages not accepted due to
+ *			  other errors.
+ *
+ * @online		- The number of clients online.
+ *
+ * @conn_attempts	- The number of connect attempts.
+ * @conn_established	- The number of connections ever established
+ *			  with peers while Tempesta is active.
+ * @conn_disconnects	- The number of disconnects for any reason.
+ *
+ * @rx_bytes		- The number of bytes received from peers and
+ *			  processed by Tempesta.
+ */
+typedef struct {
+	u64	rx_messages;
+	u64	msgs_forwarded;
+	u64	msgs_fromcache;
+	u64	msgs_parserr;
+	u64	msgs_filtout;
+	u64	msgs_otherr;
+
+	u64	online;
+
+	u64	conn_attempts;
+	u64	conn_established;
+	u64	conn_disconnects;
+
+	u64	rx_bytes;
+} TfwClntStat;
 
 /*
  * If cache is enabled, the following stats are produced.
@@ -77,8 +114,8 @@ typedef struct {
 
 typedef struct {
 	TfwSsStat	ss;
-	TfwPeerStat	clnt;
-	TfwPeerStat	serv;
+	TfwClntStat	clnt;
+	TfwSrvStat	serv;
 	TfwCacheStat	cache;
 } TfwPerfStat;
 
@@ -91,6 +128,7 @@ DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
  * reason the definitions below cannot be used with ?: operator.
  */
 #define TFW_INC_STAT_BH(...)	this_cpu_inc(tfw_perfstat.__VA_ARGS__)
+#define TFW_DEC_STAT_BH(...)	this_cpu_dec(tfw_perfstat.__VA_ARGS__)
 #define TFW_ADD_STAT_BH(val, ...)	\
 		this_cpu_add(tfw_perfstat.__VA_ARGS__, val)
 

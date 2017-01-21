@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(clnt.msgs_parserr);
 		SADD(clnt.msgs_filtout);
 		SADD(clnt.msgs_otherr);
+		SADD(clnt.online);
 		SADD(clnt.conn_attempts);
 		SADD(clnt.conn_disconnects);
 		SADD(clnt.conn_established);
@@ -104,6 +105,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
 	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
 	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
+	SPRN("Clients online\t\t\t\t", clnt.online);
 	SPRN("Client connection attempts\t\t", clnt.conn_attempts);
 	SPRN("Client established connections\t\t", clnt.conn_established);
 	SPRNE("Client connections active\t\t",
