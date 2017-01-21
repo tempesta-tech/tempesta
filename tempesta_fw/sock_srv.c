@@ -113,10 +113,24 @@
  */
 typedef struct {
 	TfwConnection		conn;
-	unsigned long		timeout;
 	unsigned int		attempts;
 	unsigned int		max_attempts;
 } TfwSrvConnection;
+
+/*
+ * Timeout between connect attempts is increased with each unsuccessful
+ * attempt. Length of the timeout for each attempt is chosen to follow
+ * a variant of exponential backoff delay algorithm.
+ *
+ * It's essential that the new connection is established and the failed
+ * connection is restored ASAP, so the min retry interval is set to 1.
+ * The next step is good for a cyclic reconnect, e.g. if an upstream
+ * ia configured to reset a connection periodically. The next steps are
+ * almost a pure backoff algo starting from 100ms, which is a good RTT
+ * for a fast 10Gbps link. The timeout is not increased after 1 second
+ * as it has moderate overhead, and it's still good in response time.
+ */
+static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 
 /**
  * Initiate a non-blocking connect attempt.
@@ -188,30 +202,22 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	return 0;
 }
 
+/*
+ * max_attempts can be the maximum value for the data type to mean
+ * the unlimited number of attempts, which is the value that should
+ * never be reached. UINT_MAX seconds is more than 136 years. It's
+ * safe to assume that it's not reached in a single run of Tempesta.
+ *
+ * The limit on the number of reconnect attempts is used to re-schedule
+ * requests that would never be forwarded otherwise. Then, the attempts
+ * to reconnect are continued in anticipation that the connection will
+ * be re-established sooner or later. Otherwise the connection would
+ * stay dead until Tempesta is restarted.
+ */
 static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
-	/*
-	 * Timeout between connect attempts is increased with each
-	 * unsuccessful attempt. Length of the timeout is decided
-	 * with a variant of exponential backoff delay algorithm.
-	 *
-	 * It's essential that the new connection is established and the
-	 * failed connection is restored ASAP, so the min retry interval
-	 * is set to 1. The next step is good for loopback reconnection,
-	 * e.g. if an upstream is configured to reset a connection
-	 * periodically. The following steps are almost pure backoff algo
-	 * starting from 100ms, which is a good RTT for a fast 10Gbps link.
-	 * The timeout is not increased after 1 second as it has moderate
-	 * overhead, and it's still good in response time.
-	 *
-	 * Note that the limit on the number of reconnect attempts is used
-	 * to re-schedule requests that would never be forwarded otherwise.
-	 * However, the attempts to reconnect are continued in hopes that
-	 * the connection will be re-established sooner or later. Otherwise
-	 * the connection will stay dead until Tempesta's restart.
-	 */
-	static const unsigned long timeouts[] = { 1, 10, 100, 250, 500, 1000 };
+	unsigned long timeout;
 
 	/* Don't rearm reconnection timer if we're about to shutdown. */
 	if (unlikely(!ss_active()))
@@ -223,23 +229,25 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * never be reached. UINT_MAX seconds is more than 136 years. It's
 	 * safe to assume that it's not reached in a single run of Tempesta.
 	 */
-	if (unlikely(srv_conn->attempts >= srv_conn->max_attempts)) {
+	if (unlikely((srv_conn->attempts >= srv_conn->max_attempts)
+		     && !test_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags)))
+	{
 		TfwAddr *srv_addr = &srv_conn->conn.peer->addr;
 		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
 			 "The server connection [%s] is down.\n",
 			 srv_conn->max_attempts, s_addr);
-		if (unlikely(tfw_connection_restricted(&srv_conn->conn)))
-			tfw_connection_repair(&srv_conn->conn);
+		tfw_connection_repair(&srv_conn->conn);
+		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags);
 	}
-	if (srv_conn->attempts < ARRAY_SIZE(timeouts)) {
-		srv_conn->timeout = timeouts[srv_conn->attempts];
+	if (srv_conn->attempts < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		timeout = tfw_srv_tmo_vals[srv_conn->attempts];
 		TFW_DBG_ADDR("Cannot establish connection",
 			     &srv_conn->conn.peer->addr);
 	} else {
-		srv_conn->timeout = timeouts[ARRAY_SIZE(timeouts) - 1];
-		if (srv_conn->attempts == ARRAY_SIZE(timeouts)
+		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
+		if (srv_conn->attempts == ARRAY_SIZE(tfw_srv_tmo_vals)
 		    || !(srv_conn->attempts % 60))
 		{
 			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
@@ -252,8 +260,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	}
 	srv_conn->attempts++;
 
-	mod_timer(&srv_conn->conn.timer,
-		  jiffies + msecs_to_jiffies(srv_conn->timeout));
+	mod_timer(&srv_conn->conn.timer, jiffies + msecs_to_jiffies(timeout));
 }
 
 static void
@@ -269,7 +276,6 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 static inline void
 __reset_retry_timer(TfwSrvConnection *srv_conn)
 {
-	srv_conn->timeout = 0;
 	srv_conn->attempts = 0;
 }
 
@@ -687,7 +693,13 @@ tfw_cfg_set_conn_tries(TfwServer *srv, int attempts)
 	TfwSrvConnection *srv_conn;
 
 	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		srv_conn->max_attempts = attempts ? : UINT_MAX;
+		if (!attempts) {
+			srv_conn->max_attempts = UINT_MAX;
+		} else if (attempts < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+			srv_conn->max_attempts = ARRAY_SIZE(tfw_srv_tmo_vals);
+		} else {
+			srv_conn->max_attempts = attempts;
+		}
 
 	return 0;
 }
