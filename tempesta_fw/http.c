@@ -912,6 +912,8 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * Non-idempotent requests may be rescheduled depending on the option
  * in configuration.
  *
+ * No locks are needed as the server connection is dead at the moment.
+ *
  * Note: re-scheduled requests are put at the tail of a new server's
  * connection queue, and NOT according to their original timestamps.
  * That's the intended behaviour. These requests are unlucky already.
@@ -966,13 +968,16 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-	BUG_ON(!tfw_connection_restricted(srv_conn));
 
 	/* See if requests need to be rescheduled. */
 	if (unlikely(!tfw_connection_live(srv_conn))) {
+		if (list_empty(&srv_conn->fwd_queue))
+			return;
 		tfw_http_req_resched(srv_conn, &equeue);
 		goto zap_error;
 	}
+
+	BUG_ON(!tfw_connection_restricted(srv_conn));
 
 	spin_lock(&srv_conn->fwd_qlock);
 	/* Handle the non-idempotent request if any. */
@@ -983,7 +988,7 @@ tfw_http_conn_repair(TfwConnection *srv_conn)
 		if (unlikely(!req_resent))
 			srv_conn->msg_sent = NULL;
 	}
-	/* If none resent, then send the remaining unsent requests. */
+	/* If none re-sent, then send the remaining unsent requests. */
 	if (!req_resent) {
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		tfw_http_req_fwd_unsent(srv_conn, &equeue);
@@ -1008,6 +1013,7 @@ tfw_http_conn_init(TfwConnection *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		if (!list_empty(&conn->fwd_queue))
 			set_bit(TFW_CONN_B_RESEND, &conn->flags);
+		clear_bit(TFW_CONN_B_ISDEAD, &conn->flags);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
