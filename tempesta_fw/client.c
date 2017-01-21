@@ -27,6 +27,7 @@
 #include "connection.h"
 #include "hash.h"
 #include "log.h"
+#include "procfs.h"
 
 #define CLI_HASH_BITS	17
 #define CLI_HASH_SZ	(1 << CLI_HASH_BITS)
@@ -73,6 +74,7 @@ tfw_client_put(TfwClient *cli)
 	spin_unlock(cli->hb_lock);
 
 	kmem_cache_free(cli_cache, cli);
+	TFW_DEC_STAT_BH(clnt.online);
 }
 EXPORT_SYMBOL(tfw_client_put);
 
@@ -123,6 +125,7 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 	if (init)
 		init(cli);
 
+	TFW_INC_STAT_BH(clnt.online);
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR6("client address", &cli->addr.v6.sin6_addr);
 
