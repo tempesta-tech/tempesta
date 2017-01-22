@@ -429,6 +429,8 @@ tfw_sock_clnt_stop_all(void)
 {
 	TfwListenSock *ls;
 
+	might_sleep();
+
 	/* Stop listening sockets. */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		BUG_ON(!ls->sk);

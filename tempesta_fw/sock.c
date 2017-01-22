@@ -50,14 +50,14 @@ static const char *ss_statename[] = {
 };
 #endif
 
-#define SS_LISTEN_VAL		0x00000001
-#define SS_LISTEN_VAL_MASK	0x0000ffff
-#define SS_SOFTIRQ_VAL		0x00010000
-#define SS_STOP_VAL		0x10000000
+#define SS_LISTEN_VAL		0x0000000000000001UL
+#define SS_LISTEN_VAL_MASK	0x000000000000ffffUL
+#define SS_SOFTIRQ_VAL		0x0000000000010000UL
+#define SS_STOP_VAL		0x0100000000000000UL
 
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
-static DEFINE_PER_CPU(atomic_t, __ss_active) ____cacheline_aligned
+static DEFINE_PER_CPU(atomic64_t, __ss_active) ____cacheline_aligned
 	= ATOMIC_INIT(SS_STOP_VAL);
 
 #define SS_CALL(f, ...)							\
@@ -96,17 +96,17 @@ skb_sender_cpu_clear(struct sk_buff *skb)
  * process in progress and we can't enter the section.
  */
 static int
-ss_active_guard_enter(int val)
+__active_guard_enter(unsigned long val, int cpu)
 {
-	atomic_t *active = this_cpu_ptr(&__ss_active);
-	int a_new, a_old = atomic_read(active);
+	atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
+	unsigned long a_new, a_old = atomic64_read(active);
 
 	while (1) {
 		if (unlikely(a_old >= SS_STOP_VAL))
 			return SS_BAD;
 
 		a_new = a_old + val;
-		a_new = atomic_cmpxchg(active, a_old, a_new);
+		a_new = atomic64_cmpxchg(active, a_old, a_new);
 		if (likely(a_new == a_old))
 			return SS_OK;
 		a_old = a_new;
@@ -114,10 +114,33 @@ ss_active_guard_enter(int val)
 }
 
 static void
-ss_active_guard_exit(int val)
+__active_guard_exit(unsigned long val, int cpu)
 {
-	atomic_sub(val, this_cpu_ptr(&__ss_active));
+	atomic64_sub(val, per_cpu_ptr(&__ss_active, cpu));
 }
+
+#define ss_active_guard_enter(v)	__active_guard_enter(v,		\
+							     smp_processor_id())
+#define ss_active_guard_exit(v)		__active_guard_exit(v,		\
+							    smp_processor_id())
+
+/**
+ * Guard for calling connection error/drop callback for each established socket,
+ * so we guarantee that all upper layer connections are closed.
+ */
+#define SS_CALL_GUARD_ENTER(cb, sk)					\
+({									\
+	BUG_ON(sk->sk_incoming_cpu == TFW_SK_CPU_INIT);			\
+	__active_guard_enter(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
+	SS_CALL(cb, sk);						\
+})
+
+#define SS_CALL_GUARD_EXIT(cb, sk)					\
+do {									\
+	BUG_ON(sk->sk_incoming_cpu == TFW_SK_CPU_INIT);			\
+	SS_CALL(cb, sk);						\
+	__active_guard_exit(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
+} while (0)
 
 static void
 ss_ipi(struct irq_work *work)
@@ -478,7 +501,7 @@ static void
 ss_droplink(struct sock *sk)
 {
 	ss_do_close(sk);
-	SS_CALL(connection_error, sk);
+	SS_CALL_GUARD_EXIT(connection_error, sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -528,7 +551,7 @@ __ss_close(struct sock *sk, int flags)
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)
-		SS_CALL(connection_drop, sk);
+		SS_CALL_GUARD_EXIT(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
 
 	return SS_OK;
@@ -740,8 +763,6 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
  *  	Socket callbacks
  * ------------------------------------------------------------------------
  */
-static void ss_tcp_state_change(struct sock *sk);
-
 /*
  * Called when a new data received on the socket.
  * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
@@ -823,7 +844,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * tcp_v4_rcv() under the socket lock. So there is no need
 		 * for synchronization with ss_tcp_process_data().
 		 */
-		r = SS_CALL(connection_new, sk);
+		r = SS_CALL_GUARD_ENTER(connection_new, sk);
 		if (r) {
 			SS_DBG("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
@@ -903,7 +924,7 @@ ss_tcp_state_change(struct sock *sk)
 			return;
 
 		ss_do_close(sk);
-		SS_CALL(connection_error, sk);
+		SS_CALL_GUARD_EXIT(connection_error, sk);
 		sock_put(sk);
 
 		ss_active_guard_exit(SS_SOFTIRQ_VAL);
@@ -1207,7 +1228,7 @@ EXPORT_SYMBOL(ss_getpeername);
 do {								\
 	ss_do_close(sk);					\
 	bh_unlock_sock(sk);					\
-	SS_CALL(connection_drop, sk);				\
+	SS_CALL_GUARD_EXIT(connection_drop, sk);		\
 	sock_put(sk); /* paired with ss_do_close() */		\
 } while (0)
 
@@ -1255,7 +1276,8 @@ dead_sock:
 #define HANDLE_TOO_LONG_WAIT(t0, job)					\
 do {									\
 	if (t0 + HZ * 5 < jiffies) {					\
-		SS_WARN("Pending " job " for 5s\n");			\
+		SS_WARN("cpu %d: pending " job " for 5s (__ss_active=%#lx)\n",\
+			cpu, atomic64_read(active));			\
 		t0 = jiffies;						\
 	}								\
 } while (0)
@@ -1268,9 +1290,9 @@ ss_wait_listeners(void)
 	might_sleep();
 	for_each_online_cpu(cpu) {
 		unsigned long t0 = jiffies;
-		atomic_t *active = per_cpu_ptr(&__ss_active, cpu);
+		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
 
-		while (atomic_read(active) & SS_LISTEN_VAL_MASK) {
+		while (atomic64_read(active) & SS_LISTEN_VAL_MASK) {
 			schedule();
 			HANDLE_TOO_LONG_WAIT(t0, "listeners");
 		}
@@ -1293,9 +1315,10 @@ ss_synchronize(void)
 	for_each_online_cpu(cpu) {
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 		unsigned long t0 = jiffies;
-		atomic_t *active = per_cpu_ptr(&__ss_active, cpu);
+		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
 
-		while (tfw_wq_size(wq) || atomic_read(active) != SS_STOP_VAL) {
+		while (tfw_wq_size(wq) || atomic64_read(active) != SS_STOP_VAL)
+		{
 			schedule();
 			irq_work_sync(&per_cpu(ipi_work, cpu));
 			HANDLE_TOO_LONG_WAIT(t0, "softiq works");
@@ -1320,7 +1343,7 @@ ss_start(void)
 	int cpu;
 
 	for_each_online_cpu(cpu) {
-		atomic_t *active = per_cpu_ptr(&__ss_active, cpu);
+		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
 
 		/*
 		 * Synchronization against concurrent starts: if a user is
@@ -1329,8 +1352,8 @@ ss_start(void)
 		 * Upper sysctl layer cares about start only after competed
 		 * shutdown.
 		 */
-		WARN_ON(atomic_read(active) != SS_STOP_VAL);
-		atomic_cmpxchg(active, SS_STOP_VAL, 0);
+		WARN_ON(atomic64_read(active) != SS_STOP_VAL);
+		atomic64_cmpxchg(active, SS_STOP_VAL, 0);
 	}
 }
 EXPORT_SYMBOL(ss_start);
@@ -1341,12 +1364,12 @@ ss_stop(void)
 	int cpu;
 
 	for_each_online_cpu(cpu) {
-		atomic_t *active = per_cpu_ptr(&__ss_active, cpu);
-		int old = atomic_read(active), new;
+		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
+		unsigned long old = atomic64_read(active), new;
 
 		while (old < SS_STOP_VAL) {
 			new = old + SS_STOP_VAL;
-			new = atomic_cmpxchg(active, old, new);
+			new = atomic64_cmpxchg(active, old, new);
 			if (new == old)
 				break;
 			old = new;
@@ -1359,7 +1382,7 @@ EXPORT_SYMBOL(ss_stop);
 bool
 ss_active(void)
 {
-	return atomic_read(this_cpu_ptr(&__ss_active)) < SS_STOP_VAL;
+	return atomic64_read(this_cpu_ptr(&__ss_active)) < SS_STOP_VAL;
 }
 EXPORT_SYMBOL(ss_active);
 

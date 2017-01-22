@@ -155,9 +155,11 @@ tfw_client_for_each(int (*fn)(TfwClient *))
 
 		spin_lock(&hb->lock);
 
-		hlist_for_each_entry(c, &hb->list, hentry)
-			if (unlikely(r = fn(c)))
+		hlist_for_each_entry(c, &hb->list, hentry) {
+			r = fn(c);
+			if (unlikely(r))
 				break;
+		}
 
 		spin_unlock(&hb->lock);
 	}
