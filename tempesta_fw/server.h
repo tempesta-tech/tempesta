@@ -38,10 +38,6 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
- * @max_qsize	- maximum queue size of a server connection;
- * @max_jqage	- maximum age of a request in a server connection, in jiffies;
- * @max_refwd	- maximum number of tries for forwarding a request;
- * @flags	- server related flags;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -49,14 +45,7 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*apm;
 	int			stress;
-	unsigned int		max_qsize;
-	unsigned long		max_jqage;
-	unsigned int		max_refwd;
-	unsigned int		flags;
 } TfwServer;
-
-/* Server related flags. */
-#define TFW_SRV_RETRY_NON_IDEMP		0x0001	/* Retry non-idemporent req. */
 
 /**
  * The servers group with the same load balancing, failovering and eviction
@@ -65,12 +54,17 @@ typedef struct {
  * Reverse proxy must define load balancing policy. Forward proxy must define
  * eviction policy. While both of them should define failovering policy.
  *
- * @list		- member pointer in the list of server groups;
- * @srv_list		- list of servers belonging to the group;
- * @lock		- synchronizes the group readers with updaters;
- * @sched		- requests scheduling handler;
- * @sched_data		- private scheduler data for the server group;
- * @name		- name of the group specified in the configuration;
+ * @list	- member pointer in the list of server groups;
+ * @srv_list	- list of servers belonging to the group;
+ * @lock	- synchronizes the group readers with updaters;
+ * @sched	- requests scheduling handler;
+ * @sched_data	- private scheduler data for the server group;
+ * @max_qsize	- maximum queue size of a server connection;
+ * @max_jqage	- maximum age of a request in a server connection, in jiffies;
+ * @max_refwd	- maximum number of tries for forwarding a request;
+ * @max_recons	- maximum number of reconnect attempts;
+ * @flags	- server group related flags;
+ * @name	- name of the group specified in the configuration;
  */
 struct tfw_srv_group_t {
 	struct list_head	list;
@@ -78,8 +72,16 @@ struct tfw_srv_group_t {
 	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void			*sched_data;
+	unsigned int		max_qsize;
+	unsigned int		max_refwd;
+	unsigned long		max_jqage;
+	unsigned int		max_recons;
+	unsigned int		flags;
 	char			name[0];
 };
+
+/* Server related flags. */
+#define TFW_SRV_RETRY_NIP	0x0001	/* Retry non-idemporent req. */
 
 /**
  * Requests scheduling algorithm handler.
@@ -126,8 +128,8 @@ void tfw_srv_conn_release(TfwConnection *conn);
 static inline bool
 tfw_server_queue_full(TfwConnection *srv_conn)
 {
-	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	return ACCESS_ONCE(srv_conn->qsize) >= srv->max_qsize;
+	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
+	return ACCESS_ONCE(srv_conn->qsize) >= sg->max_qsize;
 }
 
 /* Server group routines. */
