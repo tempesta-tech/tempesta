@@ -110,12 +110,10 @@
  */
 /**
  * @recons	- the number of reconnect attempts;
- * @max_recons	- the maximum number of reconnect attempts;
  */
 typedef struct {
 	TfwConnection		conn;
 	unsigned int		recons;
-	unsigned int		max_recons;
 } TfwSrvConnection;
 
 /*
@@ -218,6 +216,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
+	TfwSrvGroup *sg = ((TfwServer *)srv_conn->conn.peer)->sg;
 	unsigned long timeout;
 
 	/* Don't rearm reconnection timer if we're about to shutdown. */
@@ -230,7 +229,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * never be reached. UINT_MAX seconds is more than 136 years. It's
 	 * safe to assume that it's not reached in a single run of Tempesta.
 	 */
-	if (unlikely((srv_conn->recons >= srv_conn->max_recons)
+	if (unlikely((srv_conn->recons >= sg->max_recons)
 		     && !test_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags)))
 	{
 		TfwAddr *srv_addr = &srv_conn->conn.peer->addr;
@@ -238,7 +237,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
 			 "The server connection [%s] is down.\n",
-			 srv_conn->max_recons, s_addr);
+			 sg->max_recons, s_addr);
 		tfw_connection_repair(&srv_conn->conn);
 		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags);
 	}
@@ -689,18 +688,15 @@ tfw_handle_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfg_set_conn_tries(TfwServer *srv, int recons)
+tfw_cfg_set_conn_tries(TfwSrvGroup *sg, int recons)
 {
-	TfwSrvConnection *srv_conn;
-
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
-		if (!recons) {
-			srv_conn->max_recons = UINT_MAX;
-		} else if (recons < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-			srv_conn->max_recons = ARRAY_SIZE(tfw_srv_tmo_vals);
-		} else {
-			srv_conn->max_recons = recons;
-		}
+	if (!recons) {
+		sg->max_recons = UINT_MAX;
+	} else if (recons < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		sg->max_recons = ARRAY_SIZE(tfw_srv_tmo_vals);
+	} else {
+		sg->max_recons = recons;
+	}
 
 	return 0;
 }
@@ -831,13 +827,13 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!(srv = tfw_handle_server(cs, ce)))
 		return -EINVAL;
 
-	tfw_cfg_set_conn_tries(srv, tfw_cfg_out_retry_attempts);
-	srv->max_qsize = tfw_cfg_out_queue_size ? : UINT_MAX;
-	srv->max_jqage = tfw_cfg_out_fwd_timeout
+	tfw_cfg_set_conn_tries(sg, tfw_cfg_out_retry_attempts);
+	sg->max_qsize = tfw_cfg_out_queue_size ? : UINT_MAX;
+	sg->max_jqage = tfw_cfg_out_fwd_timeout
 		      ? msecs_to_jiffies(tfw_cfg_out_fwd_timeout * 1000)
 		      : ULONG_MAX;
-	srv->max_refwd = tfw_cfg_out_fwd_retries ? : UINT_MAX;
-	srv->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NON_IDEMP : 0;
+	sg->max_refwd = tfw_cfg_out_fwd_retries ? : UINT_MAX;
+	sg->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NIP : 0;
 
 	return 0;
 }
@@ -906,23 +902,18 @@ tfw_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_finish_srv_group(TfwCfgSpec *cs)
 {
-	int i;
+	unsigned long jqage = msecs_to_jiffies(tfw_cfg_in_fwd_timeout * 1000);
+	TfwSrvGroup *sg = tfw_cfg_curr_group;
 
-	BUG_ON(!tfw_cfg_curr_group);
-	BUG_ON(list_empty(&tfw_cfg_curr_group->srv_list));
-	TFW_DBG("finish srv_group: %s\n", tfw_cfg_curr_group->name);
+	BUG_ON(!sg);
+	BUG_ON(list_empty(&sg->srv_list));
+	TFW_DBG("finish srv_group: %s\n", sg->name);
 
-	for (i = 0; i < tfw_cfg_in_lstsz; ++i) {
-		TfwServer *srv = tfw_cfg_in_lst[i];
-		unsigned long jqage =
-			msecs_to_jiffies(tfw_cfg_in_fwd_timeout * 1000);
-		tfw_cfg_set_conn_tries(srv, tfw_cfg_in_retry_attempts);
-		srv->max_qsize = tfw_cfg_in_queue_size ? : UINT_MAX;
-		srv->max_jqage = tfw_cfg_in_fwd_timeout ? jqage : ULONG_MAX;
-		srv->max_refwd = tfw_cfg_in_fwd_retries ? : UINT_MAX;
-		srv->flags |= tfw_cfg_in_retry_nip ?
-			      TFW_SRV_RETRY_NON_IDEMP : 0;
-	}
+	tfw_cfg_set_conn_tries(sg, tfw_cfg_in_retry_attempts);
+	sg->max_qsize = tfw_cfg_in_queue_size ? : UINT_MAX;
+	sg->max_jqage = tfw_cfg_in_fwd_timeout ? jqage : ULONG_MAX;
+	sg->max_refwd = tfw_cfg_in_fwd_retries ? : UINT_MAX;
+	sg->flags |= tfw_cfg_in_retry_nip ? TFW_SRV_RETRY_NIP : 0;
 	tfw_cfg_curr_group = NULL;
 
 	return 0;
