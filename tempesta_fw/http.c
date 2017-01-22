@@ -557,7 +557,7 @@ tfw_http_req_evict_timeout(TfwConnection *srv_conn, TfwServer *srv,
 {
 	unsigned long jqage = jiffies - req->jrxtstamp;
 
-	if (unlikely(time_after(jqage, srv->max_jqage))) {
+	if (unlikely(time_after(jqage, srv->sg->max_jqage))) {
 		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 			 __func__, req,
 			 jiffies_to_msecs(jqage - srv->max_jqage));
@@ -575,7 +575,7 @@ static inline bool
 tfw_http_req_evict_retries(TfwConnection *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *equeue)
 {
-	if (unlikely(req->retries++ >= srv->max_refwd)) {
+	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
 		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
@@ -736,7 +736,7 @@ tfw_http_req_fwd_handlenip(TfwConnection *srv_conn, struct list_head *equeue)
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
 	if (req_sent && tfw_http_req_is_nip(req_sent)
-	    && likely(!(srv->flags & TFW_SRV_RETRY_NON_IDEMP)))
+	    && likely(!(srv->sg->flags & TFW_SRV_RETRY_NIP)))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
 		srv_conn->msg_sent =

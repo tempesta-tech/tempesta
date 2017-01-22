@@ -76,6 +76,8 @@ test_create_sg(const char *name, const char *sched_name)
 		BUG_ON(r);
 	}
 
+	sg->max_qsize = 100;
+
 	kernel_fpu_begin();
 
 	return sg;
@@ -105,7 +107,6 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	srv = tfw_server_create(&addr);
 	BUG_ON(!srv);
 
-	srv->max_qsize = 100;
 	tfw_sg_add(sg, srv);
 
 	return srv;
