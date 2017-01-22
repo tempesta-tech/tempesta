@@ -38,9 +38,9 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
- * @qsize_max	- maximum queue size of a server connection;
- * @qjtmo_max	- maximum age of a request in a server connection, in jiffies;
- * @retry_max	- maximum number of tries for forwarding a request;
+ * @max_qsize	- maximum queue size of a server connection;
+ * @max_jqage	- maximum age of a request in a server connection, in jiffies;
+ * @max_refwd	- maximum number of tries for forwarding a request;
  * @flags	- server related flags;
  */
 typedef struct {
@@ -49,9 +49,9 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*apm;
 	int			stress;
-	unsigned int		qsize_max;
-	unsigned long		qjtmo_max;
-	unsigned int		retry_max;
+	unsigned int		max_qsize;
+	unsigned long		max_jqage;
+	unsigned int		max_refwd;
 	unsigned int		flags;
 } TfwServer;
 
@@ -127,7 +127,7 @@ static inline bool
 tfw_server_queue_full(TfwConnection *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	return ACCESS_ONCE(srv_conn->qsize) >= srv->qsize_max;
+	return ACCESS_ONCE(srv_conn->qsize) >= srv->max_qsize;
 }
 
 /* Server group routines. */

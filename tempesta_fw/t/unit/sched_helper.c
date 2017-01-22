@@ -105,7 +105,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	srv = tfw_server_create(&addr);
 	BUG_ON(!srv);
 
-	srv->qsize_max = 100;
+	srv->max_qsize = 100;
 	tfw_sg_add(sg, srv);
 
 	return srv;
