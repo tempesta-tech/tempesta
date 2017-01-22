@@ -385,8 +385,8 @@ tfw_http_req_is_nip(TfwHttpReq *req)
 
 /*
  * Remove @req from the list of non-idempotent requests in @srv_conn.
- * If it is the last requests on the list, then clear the flag that
- * @srv_conn has non-idempotent requests.
+ * If it is the last request on the list, then clear the flag saying
+ * that @srv_conn has non-idempotent requests.
  *
  * @req must be confirmed to be on the list.
  */
@@ -401,7 +401,7 @@ __tfw_http_req_nip_delist(TfwConnection *srv_conn, TfwHttpReq *req)
 
 /*
  * Put @req on the list of non-idempotent requests in @srv_conn. 
- * Raise the flag that the connection has non-idempotent requests.
+ * Raise the flag saying that the connection has non-idempotent requests.
  */
 static inline void
 __tfw_http_req_nip_enlist(TfwConnection *srv_conn, TfwHttpReq *req)
@@ -724,7 +724,7 @@ tfw_http_req_fwd(TfwConnection *srv_conn, TfwHttpReq *req)
  * can be used to have that request re-sent or re-scheduled as well.
  *
  * As forwarding is paused after a non-idempotent request is sent,
- * there can be only one such request among those that were forwarded,
+ * there can be only one such request among forwarded requests,
  * and that's @srv_conn->msg_sent.
  *
  * Note: @srv_conn->msg_sent may change in result.
@@ -786,12 +786,18 @@ tfw_http_req_resend(TfwConnection *srv_conn,
 	return req_resent;
 }
 
+/*
+ * Re-send only the first unanswered request in the forwarding queue.
+ */
 static inline TfwHttpReq *
 tfw_http_req_resend_first(TfwConnection *srv_conn, struct list_head *equeue)
 {
 	return tfw_http_req_resend(srv_conn, true, equeue);
 }
 
+/*
+ * Re-send all unanswered requests in the forwarding queue.
+ */
 static inline TfwHttpReq *
 tfw_http_req_resend_all(TfwConnection *srv_conn, struct list_head *equeue)
 {
@@ -835,75 +841,6 @@ __tfw_http_req_fwd_repair(TfwConnection *srv_conn, struct list_head *equeue)
 			tfw_http_req_fwd_unsent(srv_conn, equeue);
 		}
 	}
-}
-
-/*
- * Allocate a new HTTP message structure, and link it with
- * the connection structure. Increment the number of users
- * of the connection structure. Initialize GFSM for the message.
- */
-static TfwMsg *
-tfw_http_conn_msg_alloc(TfwConnection *conn)
-{
-	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
-	if (unlikely(!hm))
-		return NULL;
-
-	hm->conn = conn;
-	tfw_connection_get(conn);
-
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
-		TFW_INC_STAT_BH(clnt.rx_messages);
-	} else {
-		TfwHttpReq *req;
-
-		spin_lock(&conn->fwd_qlock);
-		req = list_first_entry_or_null(&conn->fwd_queue,
-					       TfwHttpReq, fwd_list);
-		spin_unlock(&conn->fwd_qlock);
-		if (req && (req->method == TFW_HTTP_METH_HEAD))
-			hm->flags |= TFW_HTTP_VOID_BODY;
-		TFW_INC_STAT_BH(serv.rx_messages);
-	}
-
-	return (TfwMsg *)hm;
-}
-
-/*
- * Free an HTTP message.
- * Also, free the connection structure if there's no more references.
- *
- * This function should be used anytime when there's a chance that
- * a connection structure may belong to multiple messages, which is
- * almost always. If a connection is suddenly closed then it still
- * can be safely dereferenced and used in the code.
- * In rare cases we're sure that a connection structure in a message
- * doesn't have multiple users. For instance, when an error response
- * is prepared and sent by Tempesta, that HTTP message does not need
- * a connection structure. The message is then immediately destroyed,
- * and a simpler tfw_http_msg_free() can be used for that.
- *
- * NOTE: @hm->conn might be NULL if @hm is the response that was served
- * from cache.
- */
-static void
-tfw_http_conn_msg_free(TfwHttpMsg *hm)
-{
-	if (unlikely(!hm))
-		return;
-
-	if (hm->conn) {
-		/*
-		 * Unlink connection while there is at least one reference.
-		 * Use atomic exchange to avoid races with new messages arrival
-		 * on the connection.
-		 */
-		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
-			  0UL, sizeof(long));
-		tfw_connection_put(hm->conn);
-	}
-
-	tfw_http_msg_free(hm);
 }
 
 /*
@@ -1000,6 +937,91 @@ zap_error:
 }
 
 /*
+ * Destructor for a request message.
+ */
+void
+tfw_http_req_destruct(void *msg)
+{
+	TfwHttpReq *req = msg;
+
+	BUG_ON(!list_empty(&req->msg.seq_list));
+	BUG_ON(!list_empty(&req->fwd_list));
+	BUG_ON(!list_empty(&req->nip_list));
+
+	if (req->sess)
+		tfw_http_sess_put(req->sess);
+}
+
+/*
+ * Allocate a new HTTP message structure, and link it with
+ * the connection structure. Increment the number of users
+ * of the connection structure. Initialize GFSM for the message.
+ */
+static TfwMsg *
+tfw_http_conn_msg_alloc(TfwConnection *conn)
+{
+	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
+	if (unlikely(!hm))
+		return NULL;
+
+	hm->conn = conn;
+	tfw_connection_get(conn);
+
+	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+		TFW_INC_STAT_BH(clnt.rx_messages);
+	} else {
+		TfwHttpReq *req;
+
+		spin_lock(&conn->fwd_qlock);
+		req = list_first_entry_or_null(&conn->fwd_queue,
+					       TfwHttpReq, fwd_list);
+		spin_unlock(&conn->fwd_qlock);
+		if (req && (req->method == TFW_HTTP_METH_HEAD))
+			hm->flags |= TFW_HTTP_VOID_BODY;
+		TFW_INC_STAT_BH(serv.rx_messages);
+	}
+
+	return (TfwMsg *)hm;
+}
+
+/*
+ * Free an HTTP message.
+ * Also, free the connection structure if there's no more references.
+ *
+ * This function should be used anytime when there's a chance that
+ * a connection structure may belong to multiple messages, which is
+ * almost always. If a connection is suddenly closed then it still
+ * can be safely dereferenced and used in the code.
+ * In rare cases we're sure that a connection structure in a message
+ * doesn't have multiple users. For instance, when an error response
+ * is prepared and sent by Tempesta, that HTTP message does not need
+ * a connection structure. The message is then immediately destroyed,
+ * and a simpler tfw_http_msg_free() can be used for that.
+ *
+ * NOTE: @hm->conn might be NULL if @hm is the response that was served
+ * from cache.
+ */
+static void
+tfw_http_conn_msg_free(TfwHttpMsg *hm)
+{
+	if (unlikely(!hm))
+		return;
+
+	if (hm->conn) {
+		/*
+		 * Unlink connection while there is at least one reference.
+		 * Use atomic exchange to avoid races with new messages
+		 * arriving on the connection.
+		 */
+		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
+			  0UL, sizeof(long));
+		tfw_connection_put(hm->conn);
+	}
+
+	tfw_http_msg_free(hm);
+}
+
+/*
  * Connection with a peer is created.
  *
  * Called when a connection is created. We need to initialize connection
@@ -1017,19 +1039,6 @@ tfw_http_conn_init(TfwConnection *conn)
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
-}
-
-void
-tfw_http_req_destruct(void *msg)
-{
-	TfwHttpReq *req = msg;
-
-	BUG_ON(!list_empty(&req->msg.seq_list));
-	BUG_ON(!list_empty(&req->fwd_list));
-	BUG_ON(!list_empty(&req->nip_list));
-
-	if (req->sess)
-		tfw_http_sess_put(req->sess);
 }
 
 /*
@@ -1054,23 +1063,36 @@ tfw_http_conn_release(TfwConnection *srv_conn)
 }
 
 /*
+ * Dequeue the request from @seq_queue and free the request
+ * and the paired response.
+ */
+static inline void
+__tfw_http_resp_pair_free(TfwHttpReq *req)
+{
+	list_del_init(&req->msg.seq_list);
+	tfw_http_conn_msg_free(req->resp);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+}
+
+/*
  * Drop client connection's resources.
  *
- * Desintegrate the list, but do not free the requests. These requests
- * have not been answered yet. They are held in the lists of respective
- * server connections until paired responses come. If a response comes
- * after the list is destroyed, then both the request and the response
- * are dropped at the sight of an empty list. The requests from the
- * dead client connection are then removed from that server connection
- * and freed.
+ * Desintegrate the client connection's @seq_list. Requests that have
+ * a paired response can be freed. Move those to @zap_queue for doing
+ * it without the lock. Requests without a paired response have not
+ * been answered yet. They are held in the lists of server connections
+ * until responses come. Don't free those requests.
  *
- * Locking is necessary as the list is constantly probed from server
+ * If a response comes after @seq_list is desintegrated, then both the
+ * request and the response are dropped at the sight of an empty list.
+ *
+ * Locking is necessary as @seq_list is constantly probed from server
  * connection threads.
  */
 static void
 tfw_http_conn_cli_drop(TfwConnection *cli_conn)
 {
-	TfwHttpMsg *hmreq, *tmp;
+	TfwHttpReq *req, *tmp;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 	LIST_HEAD(zap_queue);
 
@@ -1081,11 +1103,19 @@ tfw_http_conn_cli_drop(TfwConnection *cli_conn)
 		return;
 
 	spin_lock(&cli_conn->seq_qlock);
-	list_splice_tail_init(seq_queue, &zap_queue);
+	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
+		if (req->resp)
+			list_move_tail(&req->msg.seq_list, &zap_queue);
+		else
+			list_del_init(&req->msg.seq_list);
+	}
 	spin_unlock(&cli_conn->seq_qlock);
 
-	list_for_each_entry_safe(hmreq, tmp, &zap_queue, msg.seq_list)
-		list_del_init(&hmreq->msg.seq_list);
+	list_for_each_entry_safe(req, tmp, &zap_queue, msg.seq_list) {
+		BUG_ON(!list_empty(&req->fwd_list));
+		BUG_ON(!list_empty(&req->nip_list));
+		__tfw_http_resp_pair_free(req);
+	}
 }
 
 /*
@@ -1382,48 +1412,35 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 }
 
 /*
- * Forward responses to the client in the correct order.
+ * Forward responses in @ret_queue to the client in correct order.
+ *
+ * In case of error the client connection must be closed immediately.
+ * Otherwise, the correct order of responses will be broken. Unsent
+ * responses are taken care of by the caller.
  */
 static void
 __tfw_http_resp_fwd(TfwConnection *cli_conn, struct list_head *ret_queue)
 {
 	TfwHttpReq *req, *tmp;
-	TfwHttpResp *resp;
 
-	/* Forward responses to the client. */
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
-		list_del_init(&req->msg.seq_list);
-		resp = (TfwHttpResp *)req->resp;
-		BUG_ON(!resp);
-		/*
-		 * If the client connection is dead, then discard all
-		 * @req and @resp in the @out_queue. Remaining requests
-		 * from the client in the @seq_queue will be handled at
-		 * the time the client connection is released.
-		 */
-		if (!tfw_connection_live(cli_conn)) {
-			TFW_DBG2("%s: Client connection dead: conn=[%p]\n",
-				 __func__, cli_conn);
-			TFW_INC_STAT_BH(serv.msgs_otherr);
-			goto loop_discard;
-		}
-		/*
-		 * Close the client connection in case of an error.
-		 * Otherwise, the correct order of responses may be broken.
-		 */
-		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)resp)) {
-			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
-				 __func__, cli_conn, resp);
+		BUG_ON(!req->resp);
+		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
 			ss_close_sync(cli_conn->sk, true);
-			TFW_INC_STAT_BH(serv.msgs_otherr);
+			return;
 		}
+		__tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
-loop_discard:
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	}
 }
 
+/*
+ * Pair response @resp with request @req in @seq_queue. Then, starting
+ * with the first request in @seq_queue, pick consecutive requests that
+ * have a paired response. Move those requests to the list of returned
+ * responses @ret_queue. Sequentially send responses from @ret_queue to
+ * the client.
+ */
 void
 tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 {
@@ -1435,19 +1452,13 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 
 	/*
-	 * Starting with the first request on the list, pick consecutive
-	 * requests that have a paired response. Remove those requests
-	 * from the list, and put them on the list of returned responses.
-	 * Take care of concurrent calls to this function from different
-	 * CPUs, all going for the same client connection.
-	 *
 	 * If the list is empty, then it's either a bug, or the client
 	 * connection had been closed. If it's a bug, then the correct
-	 * order of responses to requests may be broken. The client
-	 * connection needs to be closed.
+	 * order of responses to requests may be broken. The connection
+	 * with the client must to be closed immediately.
 	 */
 	spin_lock(&cli_conn->seq_qlock);
-	if (list_empty(seq_queue)) {
+	if (unlikely(list_empty(seq_queue))) {
 		spin_unlock(&cli_conn->seq_qlock);
 		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
 			 __func__, cli_conn);
@@ -1457,7 +1468,9 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
+	BUG_ON(list_empty(&req->msg.seq_list));
 	req->resp = (TfwHttpMsg *)resp;
+	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
 		if (req->resp == NULL)
 			break;
@@ -1469,6 +1482,21 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	}
 	__list_cut_position(&ret_queue, seq_queue, req_retent);
 
+	/*
+	 * The function may be called concurrently on different CPUs,
+	 * all going for the same client connection. In some threads
+	 * a response is paired with a request, but the first response
+	 * in the queue is not ready yet, so it can't be sent out. When
+	 * there're responses to send, sending must be in correct order
+	 * which is controlled by the lock. To allow other threads pair
+	 * requests with responses, unlock the seq_queue lock and use
+	 * different lock @ret_qlock for sending.
+	 *
+	 * A client may close the connection at any time. A connection
+	 * is destroyed when the last reference goes, so the argument
+	 * to spin_unlock() may get invalid. Hold the connection until
+	 * sending is done.
+	 */
 	tfw_connection_get(cli_conn);
 	spin_lock(&cli_conn->ret_qlock);
 	spin_unlock(&cli_conn->seq_qlock);
@@ -1477,6 +1505,18 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 
 	spin_unlock(&cli_conn->ret_qlock);
 	tfw_connection_put(cli_conn);
+
+	/* Zap request/responses that were not sent due to an error. */
+	if (!list_empty(&ret_queue)) {
+		TfwHttpReq *tmp;
+		list_for_each_entry_safe(req, tmp, &ret_queue, msg.seq_list) {
+			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
+				 __func__, cli_conn, req->resp);
+			BUG_ON(!req->resp);
+			__tfw_http_resp_pair_free(req);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+		}
+	}
 }
 
 /**
