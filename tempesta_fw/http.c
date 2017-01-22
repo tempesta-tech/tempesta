@@ -555,12 +555,12 @@ static inline bool
 tfw_http_req_evict_timeout(TfwConnection *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *equeue)
 {
-	unsigned long jtimeout = jiffies - req->jrxtstamp;
+	unsigned long jqage = jiffies - req->jrxtstamp;
 
-	if (unlikely(time_after(jtimeout, srv->qjtmo_max))) {
+	if (unlikely(time_after(jqage, srv->max_jqage))) {
 		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 			 __func__, req,
-			jiffies_to_msecs(jtimeout - srv->qjtmo_max));
+			 jiffies_to_msecs(jqage - srv->max_jqage));
 		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
 		return true;
 	}
@@ -575,7 +575,7 @@ static inline bool
 tfw_http_req_evict_retries(TfwConnection *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *equeue)
 {
-	if (unlikely(req->retries++ >= srv->retry_max)) {
+	if (unlikely(req->retries++ >= srv->max_refwd)) {
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
 		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
