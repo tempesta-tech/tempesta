@@ -168,7 +168,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 				prcntl[i].ith, prcntl[i].val);
 	i = 0;
 	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
-			srv->qsize_max);
+			srv->max_qsize);
 	list_for_each_entry(srv_conn, &srv->conn_list, list)
 		seq_printf(seq, "\tConnection %03d queue size\t: %d\n",
 				++i, ACCESS_ONCE(srv_conn->qsize));
