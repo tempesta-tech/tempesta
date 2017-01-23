@@ -1042,6 +1042,34 @@ tfw_http_conn_init(TfwConnection *conn)
 }
 
 /*
+ * Release server connection's resources.
+ *
+ * Drop and free the requests in server connection's @fwd_queue.
+ * Called only when Tempesta is stopped.
+ */
+static void
+tfw_http_conn_srv_release(TfwConnection *srv_conn)
+{
+	TfwHttpReq *req, *tmp;
+	struct list_head *fwd_queue = &srv_conn->fwd_queue;
+	LIST_HEAD(zap_queue);
+
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
+
+	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
+		tfw_http_req_delist(srv_conn, req);
+		if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
+			spin_lock(&req->conn->seq_qlock);
+			if (unlikely(!list_empty(&req->msg.seq_list)))
+				list_del_init(&req->msg.seq_list);
+			spin_unlock(&req->conn->seq_qlock);
+		}
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	}
+}
+
+/*
  * Connection with a peer is released.
  *
  * For server connections the requests that were sent to that server are
@@ -1058,6 +1086,10 @@ tfw_http_conn_release(TfwConnection *srv_conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
+	if (unlikely(test_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags))) {
+		tfw_http_conn_srv_release(srv_conn);
+		return;
+	}
 	clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 	clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 }
