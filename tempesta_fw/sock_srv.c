@@ -458,28 +458,6 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 	return tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
 }
 
-static int
-tfw_sock_srv_start(void)
-{
-	int ret;
-
-	if ((ret = tfw_sg_for_each_srv(tfw_server_apm_create)) != 0)
-		return ret;
-
-	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
-}
-
-static void
-tfw_sock_srv_stop(void)
-{
-	/*
-	 * Connections list is read-only at run time for now, so no need
-	 * to synchronize the list access or disable softirqs.
-	 */
-	while (tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv))
-		schedule();
-}
-
 /*
  * ------------------------------------------------------------------------
  *	TfwServer creation/deletion helpers.
@@ -571,32 +549,38 @@ tfw_sock_srv_delete_all_conns(void)
  * ------------------------------------------------------------------------
  */
 
-/* Default number of connections per server. */
-#define TFW_SRV_CONNS_N_DEF		"32"
-
 /*
  * Default values for various configuration directives and options.
  */
-#define TFW_SRV_QUEUE_SIZE_DEF		1000	/* Max queue size */
-#define TFW_SRV_FWD_TIMEOUT_DEF		60	/* Default request timeout */
-#define TFW_SRV_FWD_RETRIES_DEF		5	/* Default number of tries */
-#define TFW_SRV_RETRY_NIP_DEF		0	/* Do NOT resend NIP reqs */
-#define TFW_SRV_RETRY_ATTEMPTS_DEF	10	/* Reconnect attempts. */
+#define TFW_CFG_SRV_CONNS_N_DEF		32	/* Default # of connections */
+#define TFW_CFG_SRV_QUEUE_SIZE_DEF	1000	/* Max queue size */
+#define TFW_CFG_SRV_FWD_TIMEOUT_DEF	60	/* Default request timeout */
+#define TFW_CFG_SRV_FWD_RETRIES_DEF	5	/* Default number of tries */
+#define TFW_CFG_SRV_RETRY_NIP_DEF	0	/* Do NOT resend NIP reqs */
+#define TFW_CFG_SRV_RETRY_ATTEMPTS_DEF	10	/* Reconnect attempts. */
 
-static int tfw_cfg_in_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_in_fwd_timeout = TFW_SRV_FWD_TIMEOUT_DEF;
-static int tfw_cfg_in_fwd_retries = TFW_SRV_FWD_RETRIES_DEF;
-static int tfw_cfg_in_retry_nip = TFW_SRV_RETRY_NIP_DEF;
-static int tfw_cfg_in_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
+static TfwServer *tfw_cfg_in_slst[TFW_SG_MAX_SRV];
+static TfwServer *tfw_cfg_out_slst[TFW_SG_MAX_SRV];
+static int tfw_cfg_in_nconn[TFW_SG_MAX_SRV];
+static int tfw_cfg_out_nconn[TFW_SG_MAX_SRV];
+static int tfw_cfg_in_slstsz, tfw_cfg_out_slstsz;
+static TfwScheduler *tfw_cfg_in_sched, *tfw_cfg_out_sched;
+static TfwSrvGroup *tfw_cfg_in_sg, *tfw_cfg_out_sg;
 
-static int tfw_cfg_out_queue_size = TFW_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_out_fwd_timeout = TFW_SRV_FWD_TIMEOUT_DEF;
-static int tfw_cfg_out_fwd_retries = TFW_SRV_FWD_RETRIES_DEF;
-static int tfw_cfg_out_retry_nip = TFW_SRV_RETRY_NIP_DEF;
-static int tfw_cfg_out_retry_attempts = TFW_SRV_RETRY_ATTEMPTS_DEF;
+static int tfw_cfg_in_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
+static int tfw_cfg_in_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
+static int tfw_cfg_in_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
+static int tfw_cfg_in_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
+static int tfw_cfg_in_retry_attempts = TFW_CFG_SRV_RETRY_ATTEMPTS_DEF;
+
+static int tfw_cfg_out_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
+static int tfw_cfg_out_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
+static int tfw_cfg_out_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
+static int tfw_cfg_out_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
+static int tfw_cfg_out_retry_attempts = TFW_CFG_SRV_RETRY_ATTEMPTS_DEF;
 
 static int
-tfw_handle_opt_val(TfwCfgSpec *cs, TfwCfgEntry *ce, int *optval)
+tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 {
 	int ret;
 
@@ -610,50 +594,50 @@ tfw_handle_opt_val(TfwCfgSpec *cs, TfwCfgEntry *ce, int *optval)
 			cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
-	if ((ret = tfw_cfg_parse_int(ce->vals[0], optval)))
+	if ((ret = tfw_cfg_parse_int(ce->vals[0], intval)))
 		return ret;
 
 	return 0;
 }
 
 static int
-tfw_handle_in_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_queue_size);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_queue_size);
 }
 
 static int
-tfw_handle_out_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_queue_size);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_queue_size);
 }
 
 static int
-tfw_handle_in_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_fwd_timeout);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_fwd_timeout);
 }
 
 static int
-tfw_handle_out_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_fwd_timeout);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_fwd_timeout);
 }
 
 static int
-tfw_handle_in_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_fwd_retries);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_fwd_retries);
 }
 
 static int
-tfw_handle_out_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_fwd_retries);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_fwd_retries);
 }
 
 static inline int
-__tfw_handle_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
+tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 {
 	if (ce->attr_n || ce->val_n) {
 		TFW_ERR("%s: The option may not have arguments.\n", cs->name);
@@ -664,31 +648,31 @@ __tfw_handle_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 }
 
 static int
-tfw_handle_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return __tfw_handle_retry_nip(cs, ce, &tfw_cfg_in_retry_nip);
+	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_in_retry_nip);
 }
 
 static int
-tfw_handle_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return __tfw_handle_retry_nip(cs, ce, &tfw_cfg_out_retry_nip);
+	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_out_retry_nip);
 }
 
 static int
-tfw_handle_in_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_in_retry_attempts);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_retry_attempts);
 }
 
 static int
-tfw_handle_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_opt_val(cs, ce, &tfw_cfg_out_retry_attempts);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_retry_attempts);
 }
 
 static int
-tfw_cfg_set_conn_tries(TfwSrvGroup *sg, int recons)
+tfw_cfgop_set_conn_tries(TfwSrvGroup *sg, int recons)
 {
 	if (!recons) {
 		sg->max_recons = UINT_MAX;
@@ -701,12 +685,77 @@ tfw_cfg_set_conn_tries(TfwSrvGroup *sg, int recons)
 	return 0;
 }
 
-/**
- * A "srv_group" which is currently being parsed.
- * All "server" entries are added to this group.
- */
-static TfwSrvGroup *tfw_cfg_curr_group;
-static TfwScheduler *tfw_cfg_dflt_sched;
+static int
+tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
+		 TfwSrvGroup *sg, TfwServer **arg_srv, int *arg_conns_n)
+{
+	TfwAddr addr;
+	TfwServer *srv;
+	int i, conns_n = 0;
+	bool has_conns_n = false;
+	const char *key, *val, *saddr;
+
+	if (ce->val_n != 1) {
+		TFW_ERR("%s: %s %s: Invalid number of arguments: %zd\n",
+			sg->name, cs->name, ce->val_n ? ce->vals[0] : "",
+			ce->val_n);
+		return -EINVAL;
+	}
+	if (ce->attr_n > 2) {
+		TFW_ERR("%s: %s %s: Invalid number of key=value pairs: %zd\n",
+			sg->name, cs->name, ce->vals[0], ce->attr_n);
+		return -EINVAL;
+	}
+
+	saddr = ce->vals[0];
+
+	if (tfw_addr_pton(&TFW_STR_FROM(saddr), &addr)) {
+		TFW_ERR("%s: %s %s: Invalid IP address: '%s'\n",
+			sg->name, cs->name, saddr, saddr);
+		return -EINVAL;
+	}
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "conns_n")) {
+			if (has_conns_n) {
+				TFW_ERR("%s: %s %s: Duplicate arg: '%s=%s'\n",
+					sg->name, cs->name, saddr, key, val);
+				return -EINVAL;
+			}
+			if (tfw_cfg_parse_int(val, &conns_n)) {
+				TFW_ERR("%s: %s %s: Invalid value: '%s=%s'\n",
+					sg->name, cs->name, saddr, key, val);
+				return -EINVAL;
+			}
+			has_conns_n = true;
+		} else {
+			TFW_ERR("%s: %s %s: Unsupported argument: '%s=%s'\n",
+				sg->name, cs->name, saddr, key, val);
+			return -EINVAL;
+		}
+	}
+
+	if (!has_conns_n) {
+		conns_n = TFW_CFG_SRV_CONNS_N_DEF;
+	} else if ((conns_n < 1) || (conns_n > TFW_SRV_MAX_CONN)) {
+		TFW_ERR("%s: %s %s: Out of range of [1..%d]: 'conns_n=%d'\n",
+			sg->name, cs->name, saddr, TFW_SRV_MAX_CONN, conns_n);
+		return -EINVAL;
+	}
+
+
+	if (!(srv = tfw_server_create(&addr))) {
+		TFW_ERR("%s: %s %s: Error handling the server\n",
+			sg->name, cs->name, saddr);
+		return -EINVAL;
+	}
+	tfw_sg_add(sg, srv);
+
+	*arg_srv = srv;
+	*arg_conns_n = conns_n;
+
+	return 0;
+}
 
 /**
  * Handle "server" within an "srv_group", e.g.:
@@ -718,60 +767,18 @@ static TfwScheduler *tfw_cfg_dflt_sched;
  *
  * Every server is simply added to the tfw_srv_cfg_curr_group.
  */
-static TfwServer *
-tfw_handle_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	TfwAddr addr;
-	TfwServer *srv;
-	int r, conns_n;
-	const char *in_addr, *in_conns_n;
-
-	BUG_ON(!tfw_cfg_curr_group);
-
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return NULL;
-
-	in_addr = ce->vals[0];
-	in_conns_n = tfw_cfg_get_attr(ce, "conns_n", TFW_SRV_CONNS_N_DEF);
-
-	if ((r = tfw_addr_pton(&TFW_STR_FROM(in_addr), &addr)))
-		return NULL;
-	if ((r = tfw_cfg_parse_int(in_conns_n, &conns_n)))
-		return NULL;
-
-	if (conns_n > TFW_SRV_MAX_CONN) {
-		TFW_ERR("can't use more than %d connections", TFW_SRV_MAX_CONN);
-		return NULL;
-	}
-
-	if (!(srv = tfw_server_create(&addr))) {
-		TFW_ERR("can't create a server socket\n");
-		return NULL;
-	}
-	tfw_sg_add(tfw_cfg_curr_group, srv);
-
-	if ((r = tfw_sock_srv_add_conns(srv, conns_n))) {
-		TFW_ERR("can't add connections to the server\n");
-		return NULL;
-	}
-
-	return srv;
-}
-
-static TfwServer *tfw_cfg_in_lst[TFW_SG_MAX_SRV];
-static int tfw_cfg_in_lstsz = 0;
-static int tfw_cfg_out_lstsz = 0;
-
 static int
-tfw_handle_in_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	int nconn;
 	TfwServer *srv;
 
-	if (tfw_cfg_in_lstsz >= TFW_SG_MAX_SRV)
+	if (tfw_cfg_in_slstsz >= TFW_SG_MAX_SRV)
 		return -EINVAL;
-	if (!(srv = tfw_handle_server(cs, ce)))
+	if (tfw_cfgop_server(cs, ce, tfw_cfg_in_sg, &srv, &nconn))
 		return -EINVAL;
-	tfw_cfg_in_lst[tfw_cfg_in_lstsz++] = srv;
+	tfw_cfg_in_nconn[tfw_cfg_in_slstsz] = nconn;
+	tfw_cfg_in_slst[tfw_cfg_in_slstsz++] = srv;
 
 	return 0;
 }
@@ -796,44 +803,30 @@ tfw_handle_in_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
  *    }
  */
 static int
-tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int ret;
+	int nconn;
 	TfwServer *srv;
-	const char *dflt_sched_name;
-	static const char __read_mostly s_default[] = "default";
-	TfwSrvGroup *sg = tfw_sg_lookup(s_default);
 
-	if (tfw_cfg_out_lstsz >= TFW_SG_MAX_SRV)
+	if (tfw_cfg_out_slstsz >= TFW_SG_MAX_SRV)
 		return -EINVAL;
-	/* The group "default" is created implicitly. */
-	if (sg == NULL) {
-		if ((sg = tfw_sg_new(s_default, GFP_KERNEL)) == NULL) {
-			TFW_ERR("Unable to add server group '%s'\n", s_default);
+	/*
+	 * The group "default" is created implicitly, and only when
+	 * a server outside of any group is found in the configuration.
+	 */
+	if (!tfw_cfg_out_sg) {
+		static const char __read_mostly s_default[] = "default";
+
+		if (!(tfw_cfg_out_sg = tfw_sg_new(s_default, GFP_KERNEL))) {
+			TFW_ERR("Unable to add default server group\n");
 			return -EINVAL;
 		}
-		dflt_sched_name = tfw_cfg_dflt_sched
-				  ? tfw_cfg_dflt_sched->name
-				  : "round-robin";
-		if ((ret = tfw_sg_set_sched(sg, dflt_sched_name)) != 0) {
-			TFW_ERR("Unable to set scheduler '%s' "
-				"for server group '%s'\n",
-				dflt_sched_name, s_default);
-			return ret;
-		}
 	}
-	tfw_cfg_curr_group = sg;
 
-	if (!(srv = tfw_handle_server(cs, ce)))
+	if (tfw_cfgop_server(cs, ce, tfw_cfg_out_sg, &srv, &nconn))
 		return -EINVAL;
-
-	tfw_cfg_set_conn_tries(sg, tfw_cfg_out_retry_attempts);
-	sg->max_qsize = tfw_cfg_out_queue_size ? : UINT_MAX;
-	sg->max_jqage = tfw_cfg_out_fwd_timeout
-		      ? msecs_to_jiffies(tfw_cfg_out_fwd_timeout * 1000)
-		      : ULONG_MAX;
-	sg->max_refwd = tfw_cfg_out_fwd_retries ? : UINT_MAX;
-	sg->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NIP : 0;
+	tfw_cfg_out_nconn[tfw_cfg_out_slstsz] = nconn;
+	tfw_cfg_out_slst[tfw_cfg_out_slstsz++] = srv;
 
 	return 0;
 }
@@ -841,7 +834,7 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 /**
  * The callback is invoked on entering an "srv_group", e.g:
  *
- *   srv_group foo sched=hash {  <--- The position at the moment of call.
+ *   srv_group foo {  <--- The position at the moment of call.
  *       server ...;
  *       server ...;
  *       ...
@@ -851,35 +844,28 @@ tfw_handle_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * new TfwSrvGroup object and sets the context for parsing nested "server"s.
  */
 static int
-tfw_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r;
-	TfwSrvGroup *sg;
-	const char *sg_name, *sched_name, *dflt_sched_name;
-
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return r;
-	sg_name = ce->vals[0];
-	dflt_sched_name = tfw_cfg_dflt_sched
-			  ? tfw_cfg_dflt_sched->name : "round-robin";
-	sched_name = tfw_cfg_get_attr(ce, "sched", dflt_sched_name);
-
-	TFW_DBG("begin srv_group: %s\n", sg_name);
-
-	if (!(sg = tfw_sg_new(sg_name, GFP_KERNEL))) {
-		TFW_ERR("Unable to add server group '%s'\n", sg_name);
+	if (ce->val_n != 1) {
+		TFW_ERR("%s %s: Invalid number of arguments: %zd\n",
+			cs->name, ce->val_n ? ce->vals[0] : "", ce->val_n);
+			return -EINVAL;
+        }
+	if (ce->attr_n) {
+		TFW_ERR("%s %s: Arguments may not have the \'=\' sign\n",
+			cs->name, ce->vals[0]);
 		return -EINVAL;
 	}
-	if ((r = tfw_sg_set_sched(sg, sched_name))) {
-		TFW_ERR("Unable to set scheduler '%s' "
-			"for server group '%s'\n", sched_name, sg_name);
-		return r;
+
+	if (!(tfw_cfg_in_sg = tfw_sg_new(ce->vals[0], GFP_KERNEL))) {
+		TFW_ERR("%s %s: Unable to add group\n", cs->name, ce->vals[0]);
+		return -EINVAL;
 	}
 
-	/* Set the current group. All nested "server"s are added to it. */
-	tfw_cfg_curr_group = sg;
+	TFW_DBG("begin srv_group: %s\n", sg->name);
 
-	tfw_cfg_in_lstsz = 0;
+        tfw_cfg_in_slstsz = 0;
+        tfw_cfg_in_sched = tfw_cfg_out_sched;
 	tfw_cfg_in_retry_attempts = tfw_cfg_out_retry_attempts;
 	tfw_cfg_in_queue_size = tfw_cfg_out_queue_size;
 	tfw_cfg_in_fwd_timeout = tfw_cfg_out_fwd_timeout;
@@ -893,44 +879,89 @@ tfw_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * The callback is invoked upon exit from a "srv_group" when all nested
  * "server"s are parsed, e.g.:
  *
- *   srv_group foo sched=hash {
+ *   srv_group foo {
  *       server ...;
  *       server ...;
  *       ...
  *   }  <--- The position at the moment of call.
  */
 static int
-tfw_finish_srv_group(TfwCfgSpec *cs)
+tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 {
-	unsigned long jqage = msecs_to_jiffies(tfw_cfg_in_fwd_timeout * 1000);
-	TfwSrvGroup *sg = tfw_cfg_curr_group;
+	int i;
+	TfwSrvGroup *sg = tfw_cfg_in_sg;
 
 	BUG_ON(!sg);
 	BUG_ON(list_empty(&sg->srv_list));
+	BUG_ON(!tfw_cfg_in_sched);
 	TFW_DBG("finish srv_group: %s\n", sg->name);
 
-	tfw_cfg_set_conn_tries(sg, tfw_cfg_in_retry_attempts);
+	tfw_cfgop_set_conn_tries(sg, tfw_cfg_in_retry_attempts);
 	sg->max_qsize = tfw_cfg_in_queue_size ? : UINT_MAX;
-	sg->max_jqage = tfw_cfg_in_fwd_timeout ? jqage : ULONG_MAX;
+	sg->max_jqage = tfw_cfg_in_fwd_timeout
+		      ? msecs_to_jiffies(tfw_cfg_in_fwd_timeout * 1000)
+		      : ULONG_MAX;
 	sg->max_refwd = tfw_cfg_in_fwd_retries ? : UINT_MAX;
 	sg->flags |= tfw_cfg_in_retry_nip ? TFW_SRV_RETRY_NIP : 0;
-	tfw_cfg_curr_group = NULL;
+
+	if (tfw_sg_set_sched(sg, tfw_cfg_in_sched->name)) {
+		TFW_ERR("%s %s: Unable to set scheduler: '%s'\n",
+			cs->name, sg->name, tfw_cfg_in_sched->name);
+		return -EINVAL;
+	}
+	/* Add connections only after a scheduler is set. */
+	for (i = 0; i < tfw_cfg_in_slstsz; ++i) {
+		TfwServer *srv = tfw_cfg_in_slst[i];
+		if (tfw_sock_srv_add_conns(srv, tfw_cfg_in_nconn[i])) {
+			char as[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+			tfw_addr_ntop(&srv->addr, as, sizeof(as));
+			TFW_ERR("%s %s: server '%s': "
+				"Error adding connections\n",
+				cs->name, sg->name, as);
+			return -EINVAL;
+		}
+	}
 
 	return 0;
 }
 
 static int
-tfw_handle_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched)
 {
-	if (tfw_cfg_check_val_n(ce, 1))
-		return -EINVAL;
+	TfwScheduler *sched;
 
-	if (!(tfw_cfg_dflt_sched = tfw_sched_lookup(ce->vals[0]))) {
-		TFW_ERR("Unrecognized scheduler: '%s'\n", ce->vals[0]);
+	if (!ce->val_n) {
+		TFW_ERR("%s: Invalid number of arguments: %zd\n",
+			cs->name, ce->val_n);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR("%s %s: Arguments may not have the \'=\' sign\n",
+			cs->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
+	if (!(sched = tfw_sched_lookup(ce->vals[0]))) {
+		TFW_ERR("%s %s: Unrecognized scheduler: '%s'\n",
+			cs->name, ce->vals[0], ce->vals[0]);
+		return -EINVAL;
+	}
+
+	*arg_sched = sched;
+
 	return 0;
+}
+
+static int
+tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_sched(cs, ce, &tfw_cfg_in_sched);
+}
+
+static int
+tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_sched(cs, ce, &tfw_cfg_out_sched);
 }
 
 /**
@@ -941,52 +972,109 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 {
 	tfw_sock_srv_delete_all_conns();
 	tfw_sg_release_all();
-	tfw_cfg_curr_group = NULL;
+
+	tfw_cfg_in_sg = tfw_cfg_out_sg = NULL;
+	tfw_cfg_in_sched = tfw_cfg_out_sched = NULL;
+	tfw_cfg_in_slstsz = tfw_cfg_out_slstsz = 0;
+}
+
+static int
+tfw_sock_srv_start(void)
+{
+	int i, ret;
+	TfwSrvGroup *sg = tfw_cfg_out_sg;
+
+	if (sg) {
+		BUG_ON(!tfw_cfg_out_sched);
+
+		tfw_cfgop_set_conn_tries(sg, tfw_cfg_out_retry_attempts);
+		sg->max_qsize = tfw_cfg_out_queue_size ? : UINT_MAX;
+		sg->max_jqage = tfw_cfg_out_fwd_timeout
+			      ? msecs_to_jiffies(tfw_cfg_out_fwd_timeout * 1000)
+			      : ULONG_MAX;
+		sg->max_refwd = tfw_cfg_out_fwd_retries ? : UINT_MAX;
+		sg->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NIP : 0;
+
+		if (tfw_sg_set_sched(sg, tfw_cfg_out_sched->name)) {
+			TFW_ERR("srv_group %s: Unable to set scheduler: "
+				"'%s'\n", sg->name, tfw_cfg_out_sched->name);
+			return -EINVAL;
+		}
+		/* Add connections only after a scheduler is set. */
+		for (i = 0; i < tfw_cfg_out_slstsz; ++i) {
+			TfwServer *srv = tfw_cfg_out_slst[i];
+			if (tfw_sock_srv_add_conns(srv, tfw_cfg_out_nconn[i])) {
+				char as[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+				tfw_addr_ntop(&srv->addr, as, sizeof(as));
+				TFW_ERR("srv_group %s: server '%s': "
+					"Error adding connections\n",
+					sg->name, as);
+				return -EINVAL;
+			}
+		}
+	}
+	/*
+	 * This must be executed only after the complete configuration
+	 * has been processed as it depends on configuration directives
+	 * that can be located anywhere in the configuration file.
+	 */
+	if ((ret = tfw_sg_for_each_srv(tfw_server_apm_create)) != 0)
+		return ret;
+
+	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
+}
+
+static void
+tfw_sock_srv_stop(void)
+{
+	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 
 static TfwCfgSpec tfw_srv_group_specs[] = {
 	{
 		"server", NULL,
-		tfw_handle_in_server,
+		tfw_cfgop_in_server,
 		.allow_repeat = true,
 		.cleanup = tfw_clean_srv_groups
 	},
 	{
-		"server_queue_size",
-		NULL,
-		tfw_handle_in_queue_size,
+		"sched", "round-robin",
+		tfw_cfgop_in_sched,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_forward_timeout",
-		NULL,
-		tfw_handle_in_fwd_timeout,
+		"server_queue_size", NULL,
+		tfw_cfgop_in_queue_size,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_forward_retries",
-		NULL,
-		tfw_handle_in_fwd_retries,
+		"server_forward_timeout", NULL,
+		tfw_cfgop_in_fwd_timeout,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_retry_non_idempotent",
-		NULL,
-		tfw_handle_in_retry_nip,
+		"server_forward_retries", NULL,
+		tfw_cfgop_in_fwd_retries,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"connect_tries",
-		NULL,
-		tfw_handle_in_conn_tries,
+		"server_retry_non_idempotent", NULL,
+		tfw_cfgop_in_retry_nip,
+		.allow_none = true,
+		.allow_repeat = false,
+		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		"connect_tries", NULL,
+		tfw_cfgop_in_conn_tries,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
@@ -1000,69 +1088,61 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 	.stop  = tfw_sock_srv_stop,
 	.specs = (TfwCfgSpec[] ) {
 		{
-			"server",
-			NULL,
-			tfw_handle_out_server,
+			"server", NULL,
+			tfw_cfgop_out_server,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_queue_size",
-			NULL,
-			tfw_handle_out_queue_size,
+			"sched", "round-robin",
+			tfw_cfgop_out_sched,
+			.allow_none = true,
+			.allow_repeat = false,
+			.cleanup = tfw_clean_srv_groups,
+		},
+		{
+			"server_queue_size", NULL,
+			tfw_cfgop_out_queue_size,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_forward_timeout",
-			NULL,
-			tfw_handle_out_fwd_timeout,
+			"server_forward_timeout", NULL,
+			tfw_cfgop_out_fwd_timeout,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_forward_retries",
-			NULL,
-			tfw_handle_out_fwd_retries,
+			"server_forward_retries", NULL,
+			tfw_cfgop_out_fwd_retries,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_retry_non_idempotent",
-			NULL,
-			tfw_handle_out_retry_nip,
+			"server_retry_non_idempotent", NULL,
+			tfw_cfgop_out_retry_nip,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"connect_tries",
-			NULL,
-			tfw_handle_out_conn_tries,
+			"connect_tries", NULL,
+			tfw_cfgop_out_conn_tries,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"sched",
-			NULL,
-			tfw_handle_sched,
-			.allow_none = true,
-			.allow_repeat = true,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{
-			"srv_group",
-			NULL,
+			"srv_group", NULL,
 			tfw_cfg_handle_children,
 			tfw_srv_group_specs,
 			&(TfwCfgSpecChild ) {
-				.begin_hook = tfw_begin_srv_group,
-				.finish_hook = tfw_finish_srv_group
+				.begin_hook = tfw_cfgop_begin_srv_group,
+				.finish_hook = tfw_cfgop_finish_srv_group
 			},
 			.allow_none = true,
 			.allow_repeat = true,
