@@ -73,7 +73,7 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
 static void
 tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 {
-	int s, c;
+	size_t s, c;
 	TfwRrSrv *srv_cl;
 	TfwRrSrvList *sl = sg->sched_data;
 
@@ -92,7 +92,7 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
-				 " srv=%d conn=%d\n", s, c);
+				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
 	srv_cl->conns[c] = conn;
@@ -108,14 +108,21 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  * Dead connections and servers w/o live connections are skipped.
  * Initially, connections with non-idempotent requests are also skipped
  * in attempt to increase throughput. However, if all live connections
- * contain non-idempotent requests, then re-run the algorithm and get
- * the first live connection as it is usually done.
+ * contain a non-idempotent request, then re-run the algorithm and get
+ * the first live connection they way it is usually done.
+ *
+ * RR scheduler must be the fastest scheduler. Also, it's essential
+ * to maintain strict round-robin fashion of getting the next server.
+ * Usually the optimistic approach gives the fastest solution: we are
+ * optimistic in that there are not many non-idempotent requests, and
+ * there are available server connections.
  */
 static TfwConnection *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	unsigned long idx;
-	int c, s, skipnip = 1, nipconn = 0;
+	size_t c, s;
+	unsigned long idxval;
+	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
 	TfwConnection *conn;
@@ -123,11 +130,11 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!sl);
 rerun:
 	for (s = 0; s < sl->srv_n; ++s) {
-		idx = atomic64_inc_return(&sl->rr_counter);
-		srv_cl = &sl->srvs[idx % sl->srv_n];
+		idxval = atomic64_inc_return(&sl->rr_counter);
+		srv_cl = &sl->srvs[idxval % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
-			idx = atomic64_inc_return(&srv_cl->rr_counter);
-			conn = srv_cl->conns[idx % srv_cl->conn_n];
+			idxval = atomic64_inc_return(&srv_cl->rr_counter);
+			conn = srv_cl->conns[idxval % srv_cl->conn_n];
 			if (unlikely(tfw_connection_restricted(conn))
 			    || unlikely(tfw_server_queue_full(conn)))
 				continue;
