@@ -246,7 +246,7 @@ tfw_http_send_200(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 200 response to the client\n");
+	TFW_DBG("Send HTTP 200 response\n");
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -294,7 +294,7 @@ tfw_http_send_404(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 404 response: %s\n", reason);
+	TFW_DBG("Send HTTP 404 response\n");
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -1558,14 +1558,14 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 static void
 tfw_http_req_cache_service(TfwHttpReq *req, TfwHttpResp *resp)
 {
-	if (tfw_http_adjust_resp(resp, req))
-		goto resp_err;
+	if (tfw_http_adjust_resp(resp, req)) {
+		tfw_http_send_500(req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		return;
+	}
 	tfw_http_resp_fwd(req, resp);
 	TFW_INC_STAT_BH(clnt.msgs_fromcache);
-	return;
-resp_err:
-	tfw_http_send_500(req);
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 }
 
@@ -1955,8 +1955,8 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
 	if (tfw_http_adjust_resp(resp, req)) {
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_send_500(req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
@@ -2068,6 +2068,11 @@ error:
 	return r;
 }
 
+/*
+ * Set up the response @hmresp with data needed down the road,
+ * get the paired request, and then pass the response to cache
+ * for further processing.
+ */
 static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
