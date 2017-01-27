@@ -25,7 +25,7 @@
 #include "connection.h"
 #include "peer.h"
 
-#define TFW_SRV_MAX_CONN	32	/* TfwConnection per TfwServer */
+#define TFW_SRV_MAX_CONN	32	/* TfwSrvConnection per TfwServer */
 #define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
 #define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
 
@@ -62,7 +62,7 @@ typedef struct {
  * @max_qsize	- maximum queue size of a server connection;
  * @max_jqage	- maximum age of a request in a server connection, in jiffies;
  * @max_refwd	- maximum number of tries for forwarding a request;
- * @max_recons	- maximum number of reconnect attempts;
+ * @max_recns	- maximum number of reconnect attempts;
  * @flags	- server group related flags;
  * @name	- name of the group specified in the configuration;
  */
@@ -75,7 +75,7 @@ struct tfw_srv_group_t {
 	unsigned int		max_qsize;
 	unsigned int		max_refwd;
 	unsigned long		max_jqage;
-	unsigned int		max_recons;
+	unsigned int		max_recns;
 	unsigned int		flags;
 	char			name[0];
 };
@@ -112,10 +112,9 @@ struct tfw_scheduler_t {
 	void			(*add_grp)(TfwSrvGroup *sg);
 	void			(*del_grp)(TfwSrvGroup *sg);
 	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
-					    TfwConnection *conn);
-	TfwConnection		*(*sched_grp)(TfwMsg *msg);
-	TfwConnection		*(*sched_srv)(TfwMsg *msg,
-					      TfwSrvGroup *sg);
+					    TfwSrvConnection *srv_conn);
+	TfwSrvConnection	*(*sched_grp)(TfwMsg *msg);
+	TfwSrvConnection	*(*sched_srv)(TfwMsg *msg, TfwSrvGroup *sg);
 };
 
 /* Server specific routines. */
@@ -123,10 +122,10 @@ TfwServer *tfw_server_create(const TfwAddr *addr);
 int tfw_server_apm_create(TfwServer *srv);
 void tfw_server_destroy(TfwServer *srv);
 
-void tfw_srv_conn_release(TfwConnection *conn);
+void tfw_srv_conn_release(TfwSrvConnection *srv_conn);
 
 static inline bool
-tfw_server_queue_full(TfwConnection *srv_conn)
+tfw_server_queue_full(TfwSrvConnection *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return ACCESS_ONCE(srv_conn->qsize) >= sg->max_qsize;
@@ -139,13 +138,14 @@ void tfw_sg_free(TfwSrvGroup *sg);
 int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn);
+void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv,
+		     TfwSrvConnection *srv_conn);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
-TfwConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwSrvConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);

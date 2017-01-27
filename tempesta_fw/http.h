@@ -351,7 +351,7 @@ typedef struct {
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
  * @resp	- the response paired with this request;
- * @rstatus	- response HTTP status until the response is prepared;
+ * @rstatus	- error response status until the response is prepared;
  * @retries	- the number of re-send attempts;
  *
  * TfwStr members must be the first for efficient scanning.

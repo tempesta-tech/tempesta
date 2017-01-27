@@ -36,37 +36,32 @@
  * ------------------------------------------------------------------------
  *	Server connection establishment.
  *
- * This section of code is responsible for maintaining a server connection in
- * an established state, and doing so in an asynchronous (callback-based) way.
+ * This is responsible for maintaining a server connection in established
+ * state, and doing so in an asynchronous (callback-based) way.
  *
  * The entry point is the tfw_sock_srv_connect_try() function.
  * It initiates a connect attempt and just exits without blocking.
  *
  * Later on, when connection state is changed, a callback is invoked:
- *  - tfw_sock_srv_connect_retry() - a connect attempt has failed.
+ *  - tfw_sock_srv_connect_retry()    - a connect attempt has failed.
  *  - tfw_sock_srv_connect_complete() - a connection is established.
  *  - tfw_sock_srv_connect_failover() - an established connection is closed.
  *
- * Both retry() and failover() call tfw_sock_srv_connect_try() again
- * to re-establish the connection, and thus tfw_sock_srv_connect_try() is
- * called repeatedly until the connection is finally established (or until
- * this "loop" of callbacks is stopped by tfw_sock_srv_disconnect()).
- *
+ * Both retry() and failover() call connect_try() again to re-establish the
+ * connection. Thus connect_try() is called repeatedly until the connection
+ * is finally established (or until this "loop" of callbacks is stopped by
+ * tfw_sock_srv_disconnect()).
  * ------------------------------------------------------------------------
  */
 
 /**
- * TfwConnection extension for server sockets.
- *
- * @conn	- The base structure. Must be the first member.
- *
  * A server connection differs from a client connection.
- * For client sockets, a new TfwConnection{} instance is created when
- * a new client socket is accepted (the connection is established at
- * that point). For server sockets, we create a socket first, and then
- * some time passes while a connection is being established.
+ * For clients, a new TfwCliConnection{} instance is created when a new
+ * client socket is accepted (the connection is established at that point).
+ * For servers, a socket is created first, and then some time passes while
+ * a connection is being established.
  *
- * Therefore, this extension structure has slightly different semantics:
+ * TfwSrvConnection{} instance goes though the following periods of life:
  * - First, a TfwSrvConnection{} instance is allocated and set up with
  *   data from configuration file.
  * - When a server socket is created, the TfwSrvConnection{} instance
@@ -108,13 +103,6 @@
  *    reused. So the attempt to reconnect has to wait. It is started as
  *    soon as the last client releases the server connection.
  */
-/**
- * @recons	- the number of reconnect attempts;
- */
-typedef struct {
-	TfwConnection		conn;
-	unsigned int		recons;
-} TfwSrvConnection;
 
 /*
  * Timeout between connect attempts is increased with each unsuccessful
@@ -141,9 +129,8 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	int r;
 	TfwAddr *addr;
 	struct sock *sk;
-	TfwConnection *conn = &srv_conn->conn;
 
-	addr = &conn->peer->addr;
+	addr = &srv_conn->peer->addr;
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
@@ -160,7 +147,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 #if defined(DEBUG) && (DEBUG >= 2)
 	sock_set_flag(sk, SOCK_DBG);
 #endif
-	tfw_connection_link_from_sk(conn, sk);
+	tfw_connection_link_from_sk((TfwConnection *)srv_conn, sk);
 	ss_set_callbacks(sk);
 
 	/*
@@ -171,7 +158,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	 *    so there is no activity in the socket;
 	 *
 	 * 2. tfw_sock_srv_do_failover() upcalled from SS layer and with
-	 *    inactive conn->sk, so nobody can send through the socket.
+	 *    inactive @srv_conn->sk, so nobody can send through the socket.
 	 *    Also since the function is called by connection_error or
 	 *    connection_drop hook from SoftIRQ, there can't be another
 	 *    socket state change upcall from SS layer due to RSS.
@@ -196,13 +183,13 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 	 * Set connection destructor such that connection failover can
 	 * take place if the connection attempt fails.
 	 */
-	conn->destructor = (void *)tfw_srv_conn_release;
+	srv_conn->destructor = (void *)tfw_srv_conn_release;
 
 	return 0;
 }
 
 /*
- * @max_recons can be the maximum value for the data type to mean
+ * @max_recns can be the maximum value for the data type to mean
  * the unlimited number of attempts, which is the value that should
  * never be reached. UINT_MAX seconds is more than 136 years. It's
  * safe to assume that it's not reached in a single run of Tempesta.
@@ -216,7 +203,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 {
-	TfwSrvGroup *sg = ((TfwServer *)srv_conn->conn.peer)->sg;
+	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	unsigned long timeout;
 
 	/* Don't rearm reconnection timer if we're about to shutdown. */
@@ -229,38 +216,38 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 	 * never be reached. UINT_MAX seconds is more than 136 years. It's
 	 * safe to assume that it's not reached in a single run of Tempesta.
 	 */
-	if (unlikely((srv_conn->recons >= sg->max_recons)
-		     && !test_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags)))
+	if (unlikely((srv_conn->recns >= sg->max_recns)
+		     && !test_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags)))
 	{
-		TfwAddr *srv_addr = &srv_conn->conn.peer->addr;
+		TfwAddr *srv_addr = &srv_conn->peer->addr;
 		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
 			 "The server connection [%s] is down.\n",
-			 sg->max_recons, s_addr);
-		tfw_connection_repair(&srv_conn->conn);
-		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->conn.flags);
+			 sg->max_recns, s_addr);
+		tfw_connection_repair((TfwConnection *)srv_conn);
+		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags);
 	}
-	if (srv_conn->recons < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		timeout = tfw_srv_tmo_vals[srv_conn->recons];
+	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 		TFW_DBG_ADDR("Cannot establish connection",
-			     &srv_conn->conn.peer->addr);
+			     &srv_conn->peer->addr);
 	} else {
 		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
-		if (srv_conn->recons == ARRAY_SIZE(tfw_srv_tmo_vals)
-		    || !(srv_conn->recons % 60))
+		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
+		    || !(srv_conn->recns % 60))
 		{
 			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
-			tfw_addr_fmt_v6(&srv_conn->conn.peer->addr.v6.sin6_addr,
+			tfw_addr_fmt_v6(&srv_conn->peer->addr.v6.sin6_addr,
 					0, addr_str);
 			TFW_WARN("Cannot establish connection with %s in %u"
 				 " tries, keep trying...\n",
-				 addr_str, srv_conn->recons);
+				 addr_str, srv_conn->recns);
 		}
 	}
-	srv_conn->recons++;
+	srv_conn->recns++;
 
-	mod_timer(&srv_conn->conn.timer, jiffies + msecs_to_jiffies(timeout));
+	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
 }
 
 static void
@@ -276,36 +263,36 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 static inline void
 __reset_retry_timer(TfwSrvConnection *srv_conn)
 {
-	srv_conn->recons = 0;
+	srv_conn->recns = 0;
 }
 
 static inline void
 __setup_retry_timer(TfwSrvConnection *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
-	setup_timer(&srv_conn->conn.timer,
+	setup_timer(&srv_conn->timer,
 		    tfw_sock_srv_connect_retry_timer_cb,
 		    (unsigned long)srv_conn);
 }
 
 void
-tfw_srv_conn_release(TfwConnection *conn)
+tfw_srv_conn_release(TfwSrvConnection *srv_conn)
 {
-	tfw_connection_release(conn);
+	tfw_connection_release((TfwConnection *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
 	 * established yet, and conn->sk has not been set.
 	 */
-	if (likely(conn->sk))
-		tfw_connection_unlink_to_sk(conn);
+	if (likely(srv_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConnection *)srv_conn);
 	/*
 	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer
 	 * callback). Whatever the reason for a disconnect was,
 	 * this is uniform for any of them.
 	 */
-	tfw_sock_srv_connect_try_later((TfwSrvConnection *)conn);
+	tfw_sock_srv_connect_try_later(srv_conn);
 }
 
 /**
@@ -315,8 +302,7 @@ static int
 tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
-	TfwSrvConnection *srv_conn = sk->sk_user_data;
-	TfwConnection *conn = &srv_conn->conn;
+	TfwConnection *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	/* Link Tempesta with the socket. */
@@ -332,10 +318,10 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	tfw_connection_revive(conn);
 
 	/* Repair the connection if necessary. */
-	if (unlikely(tfw_connection_restricted(conn)))
+	if (unlikely(tfw_srv_conn_restricted((TfwSrvConnection *)conn)))
 		tfw_connection_repair(conn);
 
-	__reset_retry_timer(srv_conn);
+	__reset_retry_timer((TfwSrvConnection *)conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	TFW_INC_STAT_BH(serv.conn_established);
@@ -441,7 +427,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * is locked, and spews lots of warnings. LOCKDEP doesn't know
 	 * that parallel execution can't happen with the same socket.
 	 */
-	list_for_each_entry(srv_conn, &srv->conn_list, conn.list)
+	list_for_each_entry(srv_conn, &srv->conn_list, list)
 		tfw_sock_srv_connect_try_later(srv_conn);
 
 	return 0;
@@ -455,7 +441,13 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwConnection *conn;
 
+<<<<<<< 760ea44c0912d51bf97bb4ce7da4ed59151e545e
 	return tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
+=======
+	list_for_each_entry(srv_conn, &srv->conn_list, list)
+		tfw_sock_srv_disconnect(srv_conn);
+	return 0;
+>>>>>>> Split TfwConnection{} into TfwCliConnection{} and TfwSrvConnection{}.
 }
 
 /*
@@ -484,14 +476,13 @@ tfw_srv_conn_alloc(void)
 	if (!(srv_conn = kmem_cache_alloc(tfw_srv_conn_cache, GFP_ATOMIC)))
 		return NULL;
 
-	tfw_connection_init(&srv_conn->conn);
-	INIT_LIST_HEAD(&srv_conn->conn.fwd_queue);
-	INIT_LIST_HEAD(&srv_conn->conn.nip_queue);
-	spin_lock_init(&srv_conn->conn.fwd_qlock);
+	tfw_connection_init((TfwConnection *)srv_conn);
+	INIT_LIST_HEAD(&srv_conn->fwd_queue);
+	INIT_LIST_HEAD(&srv_conn->nip_queue);
+	spin_lock_init(&srv_conn->fwd_qlock);
 
 	__setup_retry_timer(srv_conn);
-	ss_proto_init(&srv_conn->conn.proto,
-		      &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
+	ss_proto_init(&srv_conn->proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
 	return srv_conn;
 }
@@ -499,12 +490,12 @@ tfw_srv_conn_alloc(void)
 static void
 tfw_srv_conn_free(TfwSrvConnection *srv_conn)
 {
-	BUG_ON(timer_pending(&srv_conn->conn.timer));
+	BUG_ON(timer_pending(&srv_conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(&srv_conn->conn);
-	BUG_ON(!list_empty(&srv_conn->conn.nip_queue));
-	BUG_ON(ACCESS_ONCE(srv_conn->conn.qsize));
+	tfw_connection_validate_cleanup((TfwConnection *)srv_conn);
+	BUG_ON(!list_empty(&srv_conn->nip_queue));
+	BUG_ON(ACCESS_ONCE(srv_conn->qsize));
 
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
@@ -518,8 +509,9 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 	for (i = 0; i < conns_n; ++i) {
 		if (!(srv_conn = tfw_srv_conn_alloc()))
 			return -ENOMEM;
-		tfw_connection_link_peer(&srv_conn->conn, (TfwPeer *)srv);
-		tfw_sg_add_conn(srv->sg, srv, &srv_conn->conn);
+		tfw_connection_link_peer((TfwConnection *)srv_conn,
+					 (TfwPeer *)srv);
+		tfw_sg_add_conn(srv->sg, srv, srv_conn);
 	}
 
 	return 0;
@@ -530,8 +522,8 @@ tfw_sock_srv_del_conns(TfwServer *srv)
 {
 	TfwSrvConnection *srv_conn, *tmp;
 
-	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, conn.list) {
-		tfw_connection_unlink_from_peer(&srv_conn->conn);
+	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list) {
+		tfw_connection_unlink_from_peer((TfwConnection *)srv_conn);
 		tfw_srv_conn_free(srv_conn);
 	}
 	return 0;
@@ -672,14 +664,14 @@ tfw_cfgop_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_set_conn_tries(TfwSrvGroup *sg, int recons)
+tfw_cfgop_set_conn_tries(TfwSrvGroup *sg, int recns)
 {
-	if (!recons) {
-		sg->max_recons = UINT_MAX;
-	} else if (recons < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		sg->max_recons = ARRAY_SIZE(tfw_srv_tmo_vals);
+	if (!recns) {
+		sg->max_recns = UINT_MAX;
+	} else if (recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		sg->max_recns = ARRAY_SIZE(tfw_srv_tmo_vals);
 	} else {
-		sg->max_recons = recons;
+		sg->max_recns = recns;
 	}
 
 	return 0;

@@ -262,7 +262,7 @@ tfw_tls_conn_dtor(TfwConnection *c)
 	TfwTlsContext *tls = tfw_tls_context(c);
 
 	mbedtls_ssl_free(&tls->ssl);
-	tfw_cli_conn_release(c);
+	tfw_cli_conn_release((TfwCliConnection *)c);
 }
 
 static int

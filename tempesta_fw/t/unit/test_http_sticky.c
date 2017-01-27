@@ -177,9 +177,9 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 }
 
 /* custom version for testing purposes */
-int tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
+int tfw_cli_conn_send(TfwCliConnection *cli_conn, TfwMsg *msg)
 {
-	return tfw_connection_send(conn, msg);
+	return tfw_connection_send((TfwConnection *)cli_conn, msg);
 }
 
 /* setup/teardown helpers */
