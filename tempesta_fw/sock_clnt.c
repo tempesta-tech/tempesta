@@ -51,7 +51,7 @@ tfw_cli_cache(int type)
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwConnection *conn = (TfwConnection *)data;
+	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
 
 	TFW_DBG("Client timeout end\n");
 
@@ -60,64 +60,62 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	 * a deadlock on del_timer_sync(). In case of error try to close
 	 * it one second later.
 	 */
-	if (ss_close(conn->sk))
-		mod_timer(&conn->timer,
-			  jiffies + msecs_to_jiffies(1000));
+	if (ss_close(cli_conn->sk))
+		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
 }
 
-static TfwConnection *
+static TfwCliConnection *
 tfw_cli_conn_alloc(int type)
 {
-	TfwConnection *conn;
+	TfwCliConnection *cli_conn;
 
-	conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC);
-	if (!conn)
+	if (!(cli_conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC)))
 		return NULL;
 
-	tfw_connection_init(conn);
-	INIT_LIST_HEAD(&conn->seq_queue);
-	spin_lock_init(&conn->seq_qlock);
-	spin_lock_init(&conn->ret_qlock);
+	tfw_connection_init((TfwConnection *)cli_conn);
+	INIT_LIST_HEAD(&cli_conn->seq_queue);
+	spin_lock_init(&cli_conn->seq_qlock);
+	spin_lock_init(&cli_conn->ret_qlock);
 
-	setup_timer(&conn->timer,
+	setup_timer(&cli_conn->timer,
 		    tfw_sock_cli_keepalive_timer_cb,
-		    (unsigned long)conn);
+		    (unsigned long)cli_conn);
 
-	return conn;
+	return cli_conn;
 }
 
 static void
-tfw_cli_conn_free(TfwConnection *conn)
+tfw_cli_conn_free(TfwCliConnection *cli_conn)
 {
-	BUG_ON(timer_pending(&conn->timer));
+	BUG_ON(timer_pending(&cli_conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(conn);
-	BUG_ON(!list_empty(&conn->seq_queue));
+	tfw_connection_validate_cleanup((TfwConnection *)cli_conn);
+	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
-	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(conn)), conn);
+	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
 }
 
 void
-tfw_cli_conn_release(TfwConnection *conn)
+tfw_cli_conn_release(TfwCliConnection *cli_conn)
 {
-	del_timer_sync(&conn->timer);
+	del_timer_sync(&cli_conn->timer);
 
-	if (likely(conn->sk))
-		tfw_connection_unlink_to_sk(conn);
-	if (likely(conn->peer))
-		tfw_client_put((TfwClient *)conn->peer);
-	tfw_cli_conn_free(conn);
+	if (likely(cli_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConnection *)cli_conn);
+	if (likely(cli_conn->peer))
+		tfw_client_put((TfwClient *)cli_conn->peer);
+	tfw_cli_conn_free(cli_conn);
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
 int
-tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
+tfw_cli_conn_send(TfwCliConnection *cli_conn, TfwMsg *msg)
 {
 	int r;
 
-	r = tfw_connection_send(conn, msg);
-	mod_timer(&conn->timer,
+	r = tfw_connection_send((TfwConnection *)cli_conn, msg);
+	mod_timer(&cli_conn->timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
@@ -156,7 +154,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = tfw_cli_conn_alloc(listen_sock_proto->type);
+	conn = (TfwConnection *)tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
@@ -190,7 +188,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 err_conn:
 	tfw_connection_drop(conn);
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free((TfwCliConnection *)conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
@@ -621,7 +619,7 @@ tfw_sock_clnt_init(void)
 	BUG_ON(tfw_cli_conn_tls_cache);
 
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwConnection),
+					       sizeof(TfwCliConnection),
 					       0, 0, NULL);
 	if (!tfw_cli_conn_cache)
 		return -ENOMEM;

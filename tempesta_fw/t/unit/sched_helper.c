@@ -118,38 +118,37 @@ test_create_conn(TfwPeer *peer)
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
-	TfwSrvConnection *srv_conn;
+	TfwConnection *conn;
 
 	kernel_fpu_end();
 
 	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
-	srv_conn = tfw_srv_conn_alloc();
-	BUG_ON(!srv_conn);
+	conn = (TfwConnection *)tfw_srv_conn_alloc();
+	BUG_ON(!conn);
 
-	tfw_connection_link_peer(&srv_conn->conn, peer);
-	srv_conn->conn.sk = &__test_sock;
+	tfw_connection_link_peer(conn, peer);
+	conn->sk = &__test_sock;
 	/* A connection is skipped by schedulers if (refcnt <= 0). */
-	tfw_connection_revive(&srv_conn->conn);
+	tfw_connection_revive(conn);
 
 	kernel_fpu_begin();
 
-	return srv_conn;
+	return (TfwSrvConnection *)conn;
 }
 
 void
 test_conn_release_all(TfwSrvGroup *sg)
 {
-	TfwConnection *conn, *conn_tmp;
-	TfwServer *srv, *srv_tmp;
+	TfwServer *srv;
+	TfwConnection *conn, *tmp;
 
-	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list) {
-		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, list) {
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
 			conn->sk = NULL;
 			tfw_connection_unlink_from_peer(conn);
-			while (tfw_connection_live(conn)) {
+			while (tfw_connection_live(conn))
 				tfw_connection_put(conn);
-			}
 			tfw_srv_conn_free((TfwSrvConnection *)conn);
 		}
 	}
@@ -171,9 +170,9 @@ test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConnection *srv_conn = sg->sched->sched_srv(msg, sg);
 
-		EXPECT_NULL(conn);
+		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
 	}
 
@@ -198,9 +197,9 @@ test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConnection *srv_conn = sg->sched->sched_srv(msg, sg);
 
-		EXPECT_NULL(conn);
+		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
 	}
 
@@ -227,9 +226,10 @@ test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
 			TfwMsg *msg = sched_helper->get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			TfwSrvConnection *srv_conn =
+				sg->sched->sched_srv(msg, sg);
 
-			EXPECT_NULL(conn);
+			EXPECT_NULL(srv_conn);
 			sched_helper->free_sched_arg(msg);
 		}
 	}

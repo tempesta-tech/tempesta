@@ -39,7 +39,7 @@ typedef struct {
 	atomic64_t		rr_counter;
 	size_t			conn_n;
 	TfwServer		*srv;
-	TfwConnection 		*conns[TFW_SRV_MAX_CONN];
+	TfwSrvConnection	*srv_conns[TFW_SRV_MAX_CONN];
 } TfwRrSrv;
 
 /**
@@ -71,7 +71,8 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
  * Called at configuration phase, no synchronization is required.
  */
 static void
-tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
+tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv,
+		      TfwSrvConnection *srv_conn)
 {
 	size_t s, c;
 	TfwRrSrv *srv_cl;
@@ -90,12 +91,12 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 
 	srv_cl = &sl->srvs[s];
 	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->conns[c] == conn) {
+		if (srv_cl->srv_conns[c] == srv_conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
 				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
-	srv_cl->conns[c] = conn;
+	srv_cl->srv_conns[c] = srv_conn;
 	++srv_cl->conn_n;
 	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
@@ -117,7 +118,7 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  * optimistic in that there are not many non-idempotent requests, and
  * there are available server connections.
  */
-static TfwConnection *
+static TfwSrvConnection *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	size_t c, s;
@@ -125,7 +126,7 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
-	TfwConnection *conn;
+	TfwSrvConnection *srv_conn;
 
 	BUG_ON(!sl);
 rerun:
@@ -134,17 +135,17 @@ rerun:
 		srv_cl = &sl->srvs[idxval % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
 			idxval = atomic64_inc_return(&srv_cl->rr_counter);
-			conn = srv_cl->conns[idxval % srv_cl->conn_n];
-			if (unlikely(tfw_connection_restricted(conn))
-			    || unlikely(tfw_server_queue_full(conn)))
+			srv_conn = srv_cl->srv_conns[idxval % srv_cl->conn_n];
+			if (unlikely(tfw_srv_conn_restricted(srv_conn)
+				     || tfw_server_queue_full(srv_conn)))
 				continue;
-			if (skipnip && tfw_connection_hasnip(conn)) {
-				if (likely(tfw_connection_live(conn)))
+			if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+				if (likely(tfw_srv_conn_live(srv_conn)))
 					nipconn++;
 				continue;
 			}
-			if (tfw_connection_get_if_live(conn))
-				return conn;
+			if (tfw_srv_conn_get_if_live(srv_conn))
+				return srv_conn;
 		}
 	}
 	if (skipnip && nipconn) {

@@ -149,7 +149,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 #define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
 
 	int i;
-	TfwConnection *srv_conn;
+	TfwSrvConnection *srv_conn;
 	TfwServer *srv = seq->private;
 	TfwPrcntl prcntl[ARRAY_SIZE(tfw_procfs_prcntl)];
 	TfwPrcntlStats pstats = { prcntl, ARRAY_SIZE(prcntl) };

@@ -54,73 +54,93 @@ enum {
 /**
  * Session/Presentation layer (in OSI terms) handling.
  *
- * An instance of TfwConnection{} structure links each HTTP message
- * to the attributes of a connection the message has come on. Some
- * of those messages may stay longer in Tempesta after they're sent
- * out to their destinations. Requests are kept until a paired
- * response comes. By the time there's need to use the request's
- * connection to send the response on, it may already be destroyed.
- * With that in mind, TfwConnection{} instance is not destroyed
- * along with the connection so that is can be safely dereferenced.
- * It's kept around until refcnt permits freeing of the instance,
- * so it may have longer lifetime than the connection itself.
+ * An instance of TfwConnection{} structure links each HTTP message to
+ * attributes of a connection the message has come on. Some of those
+ * messages may stay longer in Tempesta after they're sent out to their
+ * destinations. Requests are kept until a paired response comes. By the
+ * time the request's connection is needed for sending the response, it
+ * may already be destroyed. With that in mind, TfwConnection{} instance
+ * is not destroyed along with the connection so that it can be safely
+ * dereferenced. It's kept around until refcnt permits freeing of the
+ * instance, so it may have longer lifetime than the connection itself.
  *
  * @sk is an intrinsic property of TfwConnection{}.
  * It has exactly the same lifetime as an instance of TfwConnection{}.
  *
- * @peer is major property of TfwConnection{}. An instance of @peer
- * has longer lifetime expectation than a connection. @peer is always
- * valid while it's referenced from an instance of TfwConnection{}.
- * That is supported by a separate reference counter in @peer.
+ * @peer is major property of TfwConnection{}. An instance of @peer has
+ * longer lifetime expectation than a connection. @peer is always valid
+ * while it's referenced from an instance of TfwConnection{}. That is
+ * supported by a separate reference counter in @peer.
+ *
+ * These are the properties of a connection that are common to client
+ * and server connections.
  *
  * @proto	- protocol handler. Base class, must be first;
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
- * @fwd_queue	- queue of messages to be sent to a back-end server;
- * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
- * @seq_queue	- queue of client's messages in the order they came;
- * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
- * @seq_qlock	- lock for accessing @seq_queue;
- * @ret_qlock	- lock for serializing sets of responses;
- * @flags	- atomic flags related to server connection's state;
  * @refcnt	- number of users of the connection structure instance;
- * @qsize	- current number of requests in server's @msg_queue;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
- * @msg_sent	- request that was sent last in a server connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
  * @forward	- called when a request is forwarded to server;
  */
-typedef struct tfw_connection_t {
-	SsProto			proto;
-	TfwGState		state;
-	struct list_head	list;
-	struct list_head	fwd_queue;				/*srv*/
-	union {
-		struct list_head	nip_queue;			/*srv*/
-		struct list_head	seq_queue;			/*cli*/
-	};
-	union {
-		spinlock_t		fwd_qlock;			/*srv*/
-		spinlock_t		seq_qlock;			/*cli*/
-	};
-	spinlock_t		ret_qlock;				/*cli*/
-	unsigned long		flags;					/*srv*/
-	atomic_t		refcnt;
-	int			qsize;					/*srv*/
-	struct timer_list	timer;
-	TfwMsg			*msg;
-	TfwMsg			*msg_sent;				/*srv*/
-	TfwPeer 		*peer;
-	struct sock		*sk;
+#define TFW_CONNECTION_COMMON				\
+	SsProto			proto;			\
+	TfwGState		state;			\
+	struct list_head	list;			\
+	atomic_t		refcnt;			\
+	struct timer_list	timer;			\
+	TfwMsg			*msg;			\
+	TfwPeer 		*peer;			\
+	struct sock		*sk;			\
 	void			(*destructor)(void *);
+
+typedef struct {
+	TFW_CONNECTION_COMMON;
 } TfwConnection;
 
-#define TFW_CONN_DEATHCNT	(INT_MIN / 2)
-
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/*
+ * These are specific properties that are relevant to client connections.
+ *
+ * @seq_queue	- queue of client's messages in the order they came;
+ * @seq_qlock	- lock for accessing @seq_queue;
+ * @ret_qlock	- lock for serializing sets of responses;
+ */
+typedef struct {
+	TFW_CONNECTION_COMMON;
+	struct list_head	seq_queue;
+	spinlock_t		seq_qlock;
+	spinlock_t		ret_qlock;
+} TfwCliConnection;
+
+/*
+ * These are specific properties that are relevant to server connections.
+ * See the description of special features of this structure in sock_srv.c.
+ *
+ * @fwd_queue	- queue of messages to be sent to a back-end server;
+ * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
+ * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
+ * @flags	- atomic flags related to server connection's state;
+ * @qsize	- current number of requests in server's @msg_queue;
+ * @recns	- the number of reconnect attempts;
+ * @msg_sent	- request that was sent last in a server connection;
+ */
+typedef struct {
+	TFW_CONNECTION_COMMON;
+	struct list_head	fwd_queue;
+	struct list_head	nip_queue;
+	spinlock_t		fwd_qlock;
+	unsigned long		flags;
+	unsigned int		qsize;
+	unsigned int		recns;
+	TfwMsg			*msg_sent;
+} TfwSrvConnection;
+
+#define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
 /* Connection flags are defined by the bit number. */
 enum {
@@ -187,15 +207,15 @@ typedef struct {
 
 extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
-/* This macros are intended to use to call certain proto hooks. */
+/* These macros are for calling the defined proto hooks. */
 #define tfw_conn_hook_call(proto, c, f, ...)	\
 	conn_hooks[proto]->f ? conn_hooks[proto]->f(c, ## __VA_ARGS__) : 0
 #define TFW_CONN_HOOK_CALL(c, f...)		\
 	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
 
 /*
- * Tell if a connection is restricted. When restricted, a connection
- * is not available to schedulers.
+ * Tell if a server connection connection is restricted. A restricted
+ * server connection is not available to schedulers.
  *
  * The flag RESEND is set when a newly established server connection
  * has messages in the forwarding queue. That means that the connection
@@ -205,18 +225,18 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
  * are re-sent.
  */
 static inline bool
-tfw_connection_restricted(TfwConnection *conn)
+tfw_srv_conn_restricted(TfwSrvConnection *srv_conn)
 {
-	return test_bit(TFW_CONN_B_RESEND, &conn->flags);
+	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 }
 
 /*
  * Tell if a connection has non-idempotent requests.
  */
 static inline bool
-tfw_connection_hasnip(TfwConnection *conn)
+tfw_srv_conn_hasnip(TfwSrvConnection *srv_conn)
 {
-	return test_bit(TFW_CONN_B_HASNIP, &conn->flags);
+	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
 static inline bool
@@ -224,11 +244,26 @@ tfw_connection_live(TfwConnection *conn)
 {
 	return atomic_read(&conn->refcnt) > 0;
 }
+static inline bool
+tfw_srv_conn_live(TfwSrvConnection *srv_conn)
+{
+	return tfw_connection_live((TfwConnection *)srv_conn);
+}
 
 static inline void
 tfw_connection_get(TfwConnection *conn)
 {
 	atomic_inc(&conn->refcnt);
+}
+static inline void
+tfw_cli_conn_get(TfwCliConnection *cli_conn)
+{
+	tfw_connection_get((TfwConnection *)cli_conn);
+}
+static inline void
+tfw_srv_conn_get(TfwSrvConnection *srv_conn)
+{
+	tfw_connection_get((TfwConnection *)srv_conn);
 }
 
 /**
@@ -236,7 +271,7 @@ tfw_connection_get(TfwConnection *conn)
  * failovering process, i.e. @refcnt wasn't less or equal to zero.
  */
 static inline bool
-tfw_connection_get_if_live(TfwConnection *conn)
+__tfw_connection_get_if_live(TfwConnection *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
@@ -248,6 +283,11 @@ tfw_connection_get_if_live(TfwConnection *conn)
 	}
 
 	return false;
+}
+static inline bool
+tfw_srv_conn_get_if_live(TfwSrvConnection *srv_conn)
+{
+	return __tfw_connection_get_if_live((TfwConnection *)srv_conn);
 }
 
 static inline void
@@ -263,6 +303,16 @@ tfw_connection_put(TfwConnection *conn)
 		return;
 	if (conn->destructor)
 		conn->destructor(conn);
+}
+static inline void
+tfw_cli_conn_put(TfwCliConnection *cli_conn)
+{
+	tfw_connection_put((TfwConnection *)cli_conn);
+}
+static inline void
+tfw_srv_conn_put(TfwSrvConnection *srv_conn)
+{
+	tfw_connection_put((TfwConnection *)srv_conn);
 }
 
 static inline void

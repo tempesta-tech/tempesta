@@ -51,20 +51,19 @@ static DEFINE_SPINLOCK(sched_lock);
  *
  * This function is always called in SoftIRQ context.
  */
-TfwConnection *
+TfwSrvConnection *
 tfw_sched_get_srv_conn(TfwMsg *msg)
 {
-	TfwConnection *conn;
+	TfwSrvConnection *srv_conn;
 	TfwScheduler *sched;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sched, &sched_list, list) {
 		if (!sched->sched_grp)
 			break;
-		conn = sched->sched_grp(msg);
-		if (conn) {
+		if ((srv_conn = sched->sched_grp(msg))) {
 			rcu_read_unlock();
-			return conn;
+			return srv_conn;
 		}
 	}
 	rcu_read_unlock();
