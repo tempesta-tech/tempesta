@@ -286,7 +286,7 @@ typedef struct {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
-	TfwConnection		*srv_conn;
+	TfwSrvConn		*srv_conn;
 } TfwHttpSess;
 
 /**
@@ -315,7 +315,7 @@ typedef struct {
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
 	unsigned int	keep_alive;					\
-	TfwConnection	*conn;						\
+	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;

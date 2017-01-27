@@ -36,10 +36,10 @@ MODULE_LICENSE("GPL");
  * taken into account by the scheduler.
  */
 typedef struct {
-	atomic64_t		rr_counter;
-	size_t			conn_n;
-	TfwServer		*srv;
-	TfwSrvConnection	*srv_conns[TFW_SRV_MAX_CONN];
+	atomic64_t	rr_counter;
+	size_t		conn_n;
+	TfwServer	*srv;
+	TfwSrvConn	*conns[TFW_SRV_MAX_CONN];
 } TfwRrSrv;
 
 /**
@@ -48,9 +48,9 @@ typedef struct {
  * whole run-time. This can be changed in future.
  */
 typedef struct {
-	atomic64_t		rr_counter;
-	size_t			srv_n;
-	TfwRrSrv		srvs[TFW_SG_MAX_SRV];
+	atomic64_t	rr_counter;
+	size_t		srv_n;
+	TfwRrSrv	srvs[TFW_SG_MAX_SRV];
 } TfwRrSrvList;
 
 static void
@@ -71,8 +71,7 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
  * Called at configuration phase, no synchronization is required.
  */
 static void
-tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv,
-		      TfwSrvConnection *srv_conn)
+tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	size_t s, c;
 	TfwRrSrv *srv_cl;
@@ -91,12 +90,12 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv,
 
 	srv_cl = &sl->srvs[s];
 	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->srv_conns[c] == srv_conn) {
+		if (srv_cl->conns[c] == srv_conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
 				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
-	srv_cl->srv_conns[c] = srv_conn;
+	srv_cl->conns[c] = srv_conn;
 	++srv_cl->conn_n;
 	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
@@ -118,7 +117,7 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv,
  * optimistic in that there are not many non-idempotent requests, and
  * there are available server connections.
  */
-static TfwSrvConnection *
+static TfwSrvConn *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	size_t c, s;
@@ -126,7 +125,7 @@ tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sl);
 rerun:
@@ -135,7 +134,7 @@ rerun:
 		srv_cl = &sl->srvs[idxval % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
 			idxval = atomic64_inc_return(&srv_cl->rr_counter);
-			srv_conn = srv_cl->srv_conns[idxval % srv_cl->conn_n];
+			srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
 			if (unlikely(tfw_srv_conn_restricted(srv_conn)
 				     || tfw_server_queue_full(srv_conn)))
 				continue;

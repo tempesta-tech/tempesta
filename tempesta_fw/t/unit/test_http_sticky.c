@@ -81,8 +81,8 @@ static struct {
 
 	TfwHttpReq	*req;
 	TfwHttpResp	*resp;
-	TfwConnection	conn_req;
-	TfwConnection	conn_resp;
+	TfwConn		conn_req;
+	TfwConn		conn_resp;
 	TfwClient	client;
 	struct sock	sock;
 } mock;
@@ -137,7 +137,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 
 /* custom version for testing purposes */
 int
-tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	unsigned int data_off = 0;
@@ -177,9 +177,9 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 }
 
 /* custom version for testing purposes */
-int tfw_cli_conn_send(TfwCliConnection *cli_conn, TfwMsg *msg)
+int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
-	return tfw_connection_send((TfwConnection *)cli_conn, msg);
+	return tfw_connection_send((TfwConn *)cli_conn, msg);
 }
 
 /* setup/teardown helpers */

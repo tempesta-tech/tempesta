@@ -55,25 +55,25 @@
  */
 
 /**
- * A server connection differs from a client connection.
- * For clients, a new TfwCliConnection{} instance is created when a new
- * client socket is accepted (the connection is established at that point).
- * For servers, a socket is created first, and then some time passes while
+ * A server connection differs from a client connection. For clients,
+ * a new TfwCliConn{} instance is created when a new client socket is
+ * accepted (the connection is established at that point). For servers,
+ * a socket is created first, and then there's a period of time while
  * a connection is being established.
  *
- * TfwSrvConnection{} instance goes though the following periods of life:
- * - First, a TfwSrvConnection{} instance is allocated and set up with
+ * TfwSrvConn{} instance goes though the following periods of life:
+ * - First, a TfwSrvConn{} instance is allocated and set up with
  *   data from configuration file.
- * - When a server socket is created, the TfwSrvConnection{} instance
+ * - When a server socket is created, the TfwSrvConn{} instance
  *   is partially initialized to allow a connect attempt to complete.
- * - When a connection is established, the TfwSrvConnection{} instance
+ * - When a connection is established, the TfwSrvConn{} instance
  *   is fully initialized and set up.
- * - If a connect attempt has failed, or the connection has been reset
- *   or closed, the same TfwSrvConnection{} instance is reused with
+ * - If a connect attempt has failed, or the connection has been
+ *   reset or closed, the same TfwSrvConn{} instance is reused with
  *   a new socket. Another attempt to establish a connection is made.
  *
- * So a TfwSrvConnection{} instance has a longer lifetime. In a sense,
- * a TfwSrvConnection{} instance is persistent. It lives from the time
+ * So a TfwSrvConn{} instance has a longer lifetime. In a sense,
+ * a TfwSrvConn{} instance is persistent. It lives from the time
  * it is created when Tempesta is started, and until the time it is
  * destroyed when Tempesta is stopped.
  *
@@ -84,13 +84,13 @@
  * reused for a new connection, and a new socket is created. Note that
  * @sk member is not cleared when it is no longer valid, and there is
  * a time frame until new connection is actually established. An old
- * non-valid @sk stays a member of an TfwSrvConnection{} instance during
+ * non-valid @sk stays a member of an TfwSrvConn{} instance during
  * that time frame. However, the condition for reuse of an instance is
  * that there're no more users of the instance, so no thread can make
  * use of an old socket @sk. Should something bad happen, then having
  * a stale pointer in conn->sk is no different than having a NULL pointer.
  *
- * The reference counter is still needed for TfwSrvConnection{} instances.
+ * The reference counter is still needed for TfwSrvConn{} instances.
  * It tells when an instance can be reused for a new connect attempt.
  * A scenario that may occur is as follows:
  * 1. There's a client's request, so scheduler finds a server connection
@@ -99,7 +99,7 @@
  * 2. At that time the server sends RST on that connection in response
  *    to an earlier request. It starts the failover procedure that runs
  *    in parallel. Part of the procedure is a new attempt to connect to
- *    the server, which requires that TfwSrvConnection{} instance can be
+ *    the server, which requires that TfwSrvConn{} instance can be
  *    reused. So the attempt to reconnect has to wait. It is started as
  *    soon as the last client releases the server connection.
  */
@@ -124,7 +124,7 @@ static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
  * Returns immediately without waiting until a connection is established.
  */
 static int
-tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
 	TfwAddr *addr;
@@ -147,7 +147,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
 #if defined(DEBUG) && (DEBUG >= 2)
 	sock_set_flag(sk, SOCK_DBG);
 #endif
-	tfw_connection_link_from_sk((TfwConnection *)srv_conn, sk);
+	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
 	ss_set_callbacks(sk);
 
 	/*
@@ -201,7 +201,7 @@ tfw_sock_srv_connect_try(TfwSrvConnection *srv_conn)
  * stay dead until Tempesta is restarted.
  */
 static inline void
-tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
+tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	unsigned long timeout;
@@ -225,7 +225,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
 			 "The server connection [%s] is down.\n",
 			 sg->max_recns, s_addr);
-		tfw_connection_repair((TfwConnection *)srv_conn);
+		tfw_connection_repair((TfwConn *)srv_conn);
 		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags);
 	}
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
@@ -253,7 +253,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConnection *srv_conn)
 static void
 tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 {
-	TfwSrvConnection *srv_conn = (TfwSrvConnection *)data;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)data;
 
 	/* A new socket is created for each connect attempt. */
 	if (tfw_sock_srv_connect_try(srv_conn))
@@ -261,13 +261,13 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 }
 
 static inline void
-__reset_retry_timer(TfwSrvConnection *srv_conn)
+__reset_retry_timer(TfwSrvConn *srv_conn)
 {
 	srv_conn->recns = 0;
 }
 
 static inline void
-__setup_retry_timer(TfwSrvConnection *srv_conn)
+__setup_retry_timer(TfwSrvConn *srv_conn)
 {
 	__reset_retry_timer(srv_conn);
 	setup_timer(&srv_conn->timer,
@@ -276,16 +276,16 @@ __setup_retry_timer(TfwSrvConnection *srv_conn)
 }
 
 void
-tfw_srv_conn_release(TfwSrvConnection *srv_conn)
+tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
-	tfw_connection_release((TfwConnection *)srv_conn);
+	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
 	 * connect attempt. In that case no connection has been
 	 * established yet, and conn->sk has not been set.
 	 */
 	if (likely(srv_conn->sk))
-		tfw_connection_unlink_to_sk((TfwConnection *)srv_conn);
+		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
 	/*
 	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer
@@ -302,7 +302,7 @@ static int
 tfw_sock_srv_connect_complete(struct sock *sk)
 {
 	int r;
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	/* Link Tempesta with the socket. */
@@ -318,10 +318,10 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	tfw_connection_revive(conn);
 
 	/* Repair the connection if necessary. */
-	if (unlikely(tfw_srv_conn_restricted((TfwSrvConnection *)conn)))
+	if (unlikely(tfw_srv_conn_restricted((TfwSrvConn *)conn)))
 		tfw_connection_repair(conn);
 
-	__reset_retry_timer((TfwSrvConnection *)conn);
+	__reset_retry_timer((TfwSrvConn *)conn);
 
 	TFW_DBG_ADDR("connected", &srv->addr);
 	TFW_INC_STAT_BH(serv.conn_established);
@@ -337,7 +337,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 static void
 tfw_sock_srv_connect_drop(struct sock *sk)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConn *conn = sk->sk_user_data;
 
 	TFW_INC_STAT_BH(serv.conn_disconnects);
 	tfw_connection_drop(conn);
@@ -354,7 +354,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 static void
 tfw_sock_srv_connect_failover(struct sock *sk)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
 	TFW_DBG_ADDR("connection error", &srv->addr);
@@ -389,7 +389,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * is not established. This is called only in user context at STOP time.
  */
 static int
-tfw_sock_srv_disconnect(TfwConnection *conn)
+tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&conn->timer);
@@ -410,14 +410,14 @@ tfw_sock_srv_disconnect(TfwConnection *conn)
  * This behavior may change in future for a forward proxy implementation.
  * Then we will have a lot of short-living connections. We should keep it in
  * mind to avoid possible bottlenecks. In particular, this is the reason why we
- * don't have a global list of all TfwSrvConnection objects and store
+ * don't have a global list of all TfwSrvConn{} objects and store
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 
 	/*
 	 * For each server connection, schedule an immediate connect
@@ -439,15 +439,9 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
-	TfwConnection *conn;
+	TfwConn *conn;
 
-<<<<<<< 760ea44c0912d51bf97bb4ce7da4ed59151e545e
 	return tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
-=======
-	list_for_each_entry(srv_conn, &srv->conn_list, list)
-		tfw_sock_srv_disconnect(srv_conn);
-	return 0;
->>>>>>> Split TfwConnection{} into TfwCliConnection{} and TfwSrvConnection{}.
 }
 
 /*
@@ -455,28 +449,28 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
  *	TfwServer creation/deletion helpers.
  * ------------------------------------------------------------------------
  *
- * This section of code is responsible for allocating TfwSrvConnection objects
+ * This section of code is responsible for allocating TfwSrvConn{} objects
  * and linking them with a TfwServer object.
  *
- * All server connections (TfwSrvConnection objects) are pre-allocated  when a
- * TfwServer is created. That happens when at the configuration parsing stage.
+ * All server connections (TfwSrvConn{} objects) are pre-allocated when
+ * TfwServer{} is created. That happens at the configuration parsing stage.
  *
- * Later on, when Tempesta FW is started, these TfwSrvConnection objects are
- * used to establish connections. These connection objects are re-used (but not
- * re-allocated) when connections are re-established.
+ * Later on, when Tempesta FW is started, these TfwSrvConn{} objects are
+ * used to establish connections. These connection objects are re-used
+ * (but not re-allocated) when connections are re-established.
  */
 
 static struct kmem_cache *tfw_srv_conn_cache;
 
-static TfwSrvConnection *
+static TfwSrvConn *
 tfw_srv_conn_alloc(void)
 {
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 
 	if (!(srv_conn = kmem_cache_alloc(tfw_srv_conn_cache, GFP_ATOMIC)))
 		return NULL;
 
-	tfw_connection_init((TfwConnection *)srv_conn);
+	tfw_connection_init((TfwConn *)srv_conn);
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
@@ -488,12 +482,12 @@ tfw_srv_conn_alloc(void)
 }
 
 static void
-tfw_srv_conn_free(TfwSrvConnection *srv_conn)
+tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
 	BUG_ON(timer_pending(&srv_conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup((TfwConnection *)srv_conn);
+	tfw_connection_validate_cleanup((TfwConn *)srv_conn);
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
 	BUG_ON(ACCESS_ONCE(srv_conn->qsize));
 
@@ -504,12 +498,12 @@ static int
 tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 {
 	int i;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 
 	for (i = 0; i < conns_n; ++i) {
 		if (!(srv_conn = tfw_srv_conn_alloc()))
 			return -ENOMEM;
-		tfw_connection_link_peer((TfwConnection *)srv_conn,
+		tfw_connection_link_peer((TfwConn *)srv_conn,
 					 (TfwPeer *)srv);
 		tfw_sg_add_conn(srv->sg, srv, srv_conn);
 	}
@@ -520,10 +514,10 @@ tfw_sock_srv_add_conns(TfwServer *srv, int conns_n)
 static int
 tfw_sock_srv_del_conns(TfwServer *srv)
 {
-	TfwSrvConnection *srv_conn, *tmp;
+	TfwSrvConn *srv_conn, *tmp;
 
 	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list) {
-		tfw_connection_unlink_from_peer((TfwConnection *)srv_conn);
+		tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 		tfw_srv_conn_free(srv_conn);
 	}
 	return 0;
@@ -677,6 +671,9 @@ tfw_cfgop_set_conn_tries(TfwSrvGroup *sg, int recns)
 	return 0;
 }
 
+/*
+ * Common code to handle 'server' directive.
+ */
 static int
 tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		 TfwSrvGroup *sg, TfwServer **arg_srv, int *arg_conns_n)
@@ -832,8 +829,8 @@ tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
  *       ...
  *   }
  *
- * Basically it parses the group name and the "sched" attribute, creates a
- * new TfwSrvGroup object and sets the context for parsing nested "server"s.
+ * Basically it parses the group name, creates a new TfwSrvGroup{} object
+ * and sets the context for parsing nested directives.
  */
 static int
 tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -869,7 +866,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 /**
  * The callback is invoked upon exit from a "srv_group" when all nested
- * "server"s are parsed, e.g.:
+ * directives are parsed, e.g.:
  *
  *   srv_group foo {
  *       server ...;
@@ -917,6 +914,9 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 	return 0;
 }
 
+/*
+ * Common code to handle 'sched' directive.
+ */
 static int
 tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched)
 {
@@ -1154,8 +1154,7 @@ tfw_sock_srv_init(void)
 {
 	BUG_ON(tfw_srv_conn_cache);
 	tfw_srv_conn_cache = kmem_cache_create("tfw_srv_conn_cache",
-					       sizeof(TfwSrvConnection),
-					       0, 0, NULL);
+					       sizeof(TfwSrvConn), 0, 0, NULL);
 	return !tfw_srv_conn_cache ? -ENOMEM : 0;
 }
 

@@ -49,8 +49,8 @@ MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	TfwSrvConnection	*srv_conn;
-	unsigned long		hash;
+	TfwSrvConn	*srv_conn;
+	unsigned long	hash;
 } TfwConnHash;
 
 /* The last item is used as the list teminator. */
@@ -99,8 +99,7 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 }
 
 static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv,
-			TfwSrvConnection *srv_conn)
+tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	size_t i;
 	TfwConnHash *conn_hash = sg->sched_data;
@@ -136,11 +135,11 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv,
  *  - For every HTTP request, we have to scan the list of all servers to find
  *    a matching one with the highest weight. That adds some overhead.
  */
-static TfwSrvConnection *
+static TfwSrvConn *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
-	TfwSrvConnection *best_srv_conn = NULL;
+	TfwSrvConn *best_srv_conn = NULL;
 	TfwConnHash *ch;
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
