@@ -99,11 +99,11 @@ static TfwHttpMatchList *tfw_sched_http_rules;
  * The search is based on contents of an HTTP request and match rules
  * that specify which Server Group the request should be forwarded to.
  */
-static TfwSrvConnection *
+static TfwSrvConn *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
 	TfwSrvGroup *sg;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 	TfwSchedHttpRule *rule;
 
 	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
@@ -136,7 +136,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	return srv_conn;
 }
 
-static TfwSrvConnection *
+static TfwSrvConn *
 tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");

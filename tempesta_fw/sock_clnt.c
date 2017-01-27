@@ -38,20 +38,20 @@
  */
 
 static struct kmem_cache *tfw_cli_conn_cache;
-static struct kmem_cache *tfw_cli_conn_tls_cache;
+static struct kmem_cache *tfw_tls_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
 	return type == Conn_HttpClnt ?
-		tfw_cli_conn_cache : tfw_cli_conn_tls_cache;
+		tfw_cli_conn_cache : tfw_tls_conn_cache;
 }
 
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwCliConnection *cli_conn = (TfwCliConnection *)data;
+	TfwCliConn *cli_conn = (TfwCliConn *)data;
 
 	TFW_DBG("Client timeout end\n");
 
@@ -64,15 +64,15 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
 }
 
-static TfwCliConnection *
+static TfwCliConn *
 tfw_cli_conn_alloc(int type)
 {
-	TfwCliConnection *cli_conn;
+	TfwCliConn *cli_conn;
 
 	if (!(cli_conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC)))
 		return NULL;
 
-	tfw_connection_init((TfwConnection *)cli_conn);
+	tfw_connection_init((TfwConn *)cli_conn);
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
@@ -85,24 +85,24 @@ tfw_cli_conn_alloc(int type)
 }
 
 static void
-tfw_cli_conn_free(TfwCliConnection *cli_conn)
+tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
 	BUG_ON(timer_pending(&cli_conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup((TfwConnection *)cli_conn);
+	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
 
 	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
 }
 
 void
-tfw_cli_conn_release(TfwCliConnection *cli_conn)
+tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
 	del_timer_sync(&cli_conn->timer);
 
 	if (likely(cli_conn->sk))
-		tfw_connection_unlink_to_sk((TfwConnection *)cli_conn);
+		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
 	if (likely(cli_conn->peer))
 		tfw_client_put((TfwClient *)cli_conn->peer);
 	tfw_cli_conn_free(cli_conn);
@@ -110,11 +110,11 @@ tfw_cli_conn_release(TfwCliConnection *cli_conn)
 }
 
 int
-tfw_cli_conn_send(TfwCliConnection *cli_conn, TfwMsg *msg)
+tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	int r;
 
-	r = tfw_connection_send((TfwConnection *)cli_conn, msg);
+	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	mod_timer(&cli_conn->timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
@@ -133,7 +133,7 @@ tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
 	TfwClient *cli;
-	TfwConnection *conn;
+	TfwConn *conn;
 	SsProto *listen_sock_proto;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
@@ -142,8 +142,8 @@ tfw_sock_clnt_new(struct sock *sk)
 	/*
 	 * New sk->sk_user_data points to TfwListenSock{} of the parent
 	 * listening socket. We set it to NULL to stop other functions
-	 * from referencing TfwListenSock{} while a new TfwConnection{}
-	 * object is not yet allocated/initialized.
+	 * from referencing TfwListenSock{} while a new TfwConn{} object
+	 * is not yet allocated/initialized.
 	 */
 	listen_sock_proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
@@ -154,7 +154,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = (TfwConnection *)tfw_cli_conn_alloc(listen_sock_proto->type);
+	conn = (TfwConn *)tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
@@ -188,7 +188,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 err_conn:
 	tfw_connection_drop(conn);
-	tfw_cli_conn_free((TfwCliConnection *)conn);
+	tfw_cli_conn_free((TfwCliConn *)conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
@@ -201,7 +201,7 @@ err_client:
 static void
 tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConn *conn = sk->sk_user_data;
 
 	TFW_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
 		 msg, sk, conn, conn->peer);
@@ -251,7 +251,7 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
 };
 
 static int
-__cli_conn_close_cb(TfwConnection *conn)
+__cli_conn_close_cb(TfwConn *conn)
 {
 	/*
 	 * Use assynchronous closing to release peer connection list and
@@ -264,7 +264,7 @@ __cli_conn_close_cb(TfwConnection *conn)
 static int
 tfw_cli_conn_close_all(TfwClient *cli)
 {
-	TfwConnection *conn;
+	TfwConn *conn;
 
 	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
 }
@@ -616,21 +616,20 @@ int
 tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
-	BUG_ON(tfw_cli_conn_tls_cache);
+	BUG_ON(tfw_tls_conn_cache);
 
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwCliConnection),
-					       0, 0, NULL);
-	if (!tfw_cli_conn_cache)
-		return -ENOMEM;
+					       sizeof(TfwCliConn), 0, 0, NULL);
+	tfw_tls_conn_cache = kmem_cache_create("tfw_tls_conn_cache",
+					       sizeof(TfwTlsConn), 0, 0, NULL);
 
-	tfw_cli_conn_tls_cache = kmem_cache_create("tfw_cli_conn_tls_cache",
-						   sizeof(TfwTlsConnection),
-						   0, 0, NULL);
-	if (!tfw_cli_conn_tls_cache) {
+	if (tfw_cli_conn_cache && tfw_tls_conn_cache)
+		return 0;
+
+	if (tfw_cli_conn_cache)
 		kmem_cache_destroy(tfw_cli_conn_cache);
-		return -ENOMEM;
-	}
+	if (tfw_tls_conn_cache)
+		kmem_cache_destroy(tfw_tls_conn_cache);
 
 	return 0;
 }
@@ -638,6 +637,6 @@ tfw_sock_clnt_init(void)
 void
 tfw_sock_clnt_exit(void)
 {
-	kmem_cache_destroy(tfw_cli_conn_tls_cache);
+	kmem_cache_destroy(tfw_tls_conn_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }

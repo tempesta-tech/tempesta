@@ -25,8 +25,8 @@
 #include "connection.h"
 #include "peer.h"
 
-#define TFW_SRV_MAX_CONN	32	/* TfwSrvConnection per TfwServer */
-#define TFW_SG_MAX_SRV		32	/* TfwServer per TfwSrvGroup */
+#define TFW_SRV_MAX_CONN	32	/* TfwSrvConn{} per TfwServer{} */
+#define TFW_SG_MAX_SRV		32	/* TfwServer{} per TfwSrvGroup{} */
 #define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
 
 typedef struct tfw_srv_group_t TfwSrvGroup;
@@ -112,9 +112,9 @@ struct tfw_scheduler_t {
 	void			(*add_grp)(TfwSrvGroup *sg);
 	void			(*del_grp)(TfwSrvGroup *sg);
 	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
-					    TfwSrvConnection *srv_conn);
-	TfwSrvConnection	*(*sched_grp)(TfwMsg *msg);
-	TfwSrvConnection	*(*sched_srv)(TfwMsg *msg, TfwSrvGroup *sg);
+					    TfwSrvConn *srv_conn);
+	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
+	TfwSrvConn		*(*sched_srv)(TfwMsg *msg, TfwSrvGroup *sg);
 };
 
 /* Server specific routines. */
@@ -122,10 +122,10 @@ TfwServer *tfw_server_create(const TfwAddr *addr);
 int tfw_server_apm_create(TfwServer *srv);
 void tfw_server_destroy(TfwServer *srv);
 
-void tfw_srv_conn_release(TfwSrvConnection *srv_conn);
+void tfw_srv_conn_release(TfwSrvConn *srv_conn);
 
 static inline bool
-tfw_server_queue_full(TfwSrvConnection *srv_conn)
+tfw_server_queue_full(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return ACCESS_ONCE(srv_conn->qsize) >= sg->max_qsize;
@@ -138,14 +138,13 @@ void tfw_sg_free(TfwSrvGroup *sg);
 int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv,
-		     TfwSrvConnection *srv_conn);
+void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
-TfwSrvConnection *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);

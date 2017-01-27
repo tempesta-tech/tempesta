@@ -78,10 +78,10 @@ cleanup_cfg(void)
 }
 
 static void
-test_req(char *req_str, TfwSrvConnection *expect_conn)
+test_req(char *req_str, TfwSrvConn *expect_conn)
 {
 	TfwScheduler *sched;
-	TfwSrvConnection *srv_conn;
+	TfwSrvConn *srv_conn;
 	TfwHttpReq *req = test_req_alloc(req_str? strlen(req_str): 1);
 
 	if (req_str) {
@@ -126,7 +126,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 {
 	TfwSrvGroup *sg;
 	TfwServer *srv;
-	TfwSrvConnection *expect_conn;
+	TfwSrvConn *expect_conn;
 
 	sg = test_create_sg("default", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg);
@@ -149,10 +149,9 @@ TEST(tfw_sched_http, some_rules)
 	TfwServer *srv;
 	TfwSrvGroup *sg1, *sg2, *sg3, *sg4, *sg5, *sg6, *sg7, *sg8,
 		    *sg9, *sg10;
-	TfwSrvConnection *expect_conn1, *expect_conn2, *expect_conn3,
-			 *expect_conn4, *expect_conn5, *expect_conn6,
-			 *expect_conn7, *expect_conn8, *expect_conn9,
-			 *expect_conn10;
+	TfwSrvConn *expect_conn1, *expect_conn2, *expect_conn3, *expect_conn4,
+		   *expect_conn5, *expect_conn6, *expect_conn7, *expect_conn8,
+		   *expect_conn9, *expect_conn10;
 
 	sg1 = test_create_sg("sg1", "round-robin");
 	srv = test_create_srv("127.0.0.1", sg1);
@@ -312,7 +311,7 @@ TEST(tfw_sched_http, one_rule)
 	{
 		TfwSrvGroup *sg;
 		TfwServer *srv;
-		TfwSrvConnection *expect_conn;
+		TfwSrvConn *expect_conn;
 
 		sg = test_create_sg("default", "round-robin");
 		srv = test_create_srv("127.0.0.1", sg);
