@@ -84,7 +84,7 @@ tfw_connection_release(TfwConnection *conn)
 	/* Ask higher levels to free resources at connection release. */
 	TFW_CONN_HOOK_CALL(conn, conn_release);
 	BUG_ON((TFW_CONN_TYPE(conn) & Conn_Clnt)
-	       && !list_empty(&conn->seq_queue));
+	       && !list_empty(&((TfwCliConnection *)conn)->seq_queue));
 }
 
 /*

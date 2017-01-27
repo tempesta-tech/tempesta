@@ -88,9 +88,9 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
-		sg->sched->add_conn(sg, srv, &sconn->conn);
-		conn_acc ^= (long long)&sconn->conn;
+		TfwSrvConnection *srv_conn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, srv_conn);
+		conn_acc ^= (long long)srv_conn;
 	}
 
 	/*
@@ -102,11 +102,12 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NOT_NULL(conn);
+			TfwSrvConnection *srv_conn =
+				sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(srv_conn);
 
-			conn_acc_check ^= (long long)conn;
-			tfw_connection_put(conn);
+			conn_acc_check ^= (long long)srv_conn;
+			tfw_srv_conn_put(srv_conn);
 			sched_helper_rr.free_sched_arg(msg);
 		}
 
@@ -140,10 +141,10 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *sconn =
+			TfwSrvConnection *srv_conn =
 					test_create_conn((TfwPeer *)srv);
-			sg->sched->add_conn(sg, srv, &sconn->conn);
-			conn_acc ^= (long long)&(sconn->conn);
+			sg->sched->add_conn(sg, srv, srv_conn);
+			conn_acc ^= (long long)srv_conn;
 		}
 	}
 
@@ -156,11 +157,12 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NOT_NULL(conn);
+			TfwSrvConnection *srv_conn =
+				sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(srv_conn);
 
-			conn_acc_check ^= (long long)conn;
-			tfw_connection_put(conn);
+			conn_acc_check ^= (long long)srv_conn;
+			tfw_srv_conn_put(srv_conn);
 			sched_helper_rr.free_sched_arg(msg);
 		}
 

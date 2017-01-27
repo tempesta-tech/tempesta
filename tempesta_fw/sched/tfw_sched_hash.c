@@ -49,8 +49,8 @@ MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	TfwConnection	*conn;
-	unsigned long	hash;
+	TfwSrvConnection	*srv_conn;
+	unsigned long		hash;
 } TfwConnHash;
 
 /* The last item is used as the list teminator. */
@@ -99,16 +99,17 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 }
 
 static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
+tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv,
+			TfwSrvConnection *srv_conn)
 {
 	size_t i;
 	TfwConnHash *conn_hash = sg->sched_data;
 
 	BUG_ON(!conn_hash);
 	for (i = 0; i < __HLIST_SZ(TFW_SG_MAX_CONN); ++i) {
-		if (conn_hash[i].conn)
+		if (conn_hash[i].srv_conn)
 			continue;
-		conn_hash[i].conn = conn;
+		conn_hash[i].srv_conn = srv_conn;
 		conn_hash[i].hash = __calc_conn_hash(srv, i);
 		return;
 	}
@@ -135,30 +136,30 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  *  - For every HTTP request, we have to scan the list of all servers to find
  *    a matching one with the highest weight. That adds some overhead.
  */
-static TfwConnection *
+static TfwSrvConnection *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
-	TfwConnection *best_conn = NULL;
+	TfwSrvConnection *best_srv_conn = NULL;
 	TfwConnHash *ch;
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
-		for (ch = sg->sched_data; ch->conn; ++ch) {
-			if (unlikely(tfw_connection_restricted(ch->conn))
-			    || unlikely(tfw_server_queue_full(ch->conn))
-			    || unlikely(!tfw_connection_live(ch->conn)))
+		for (ch = sg->sched_data; ch->srv_conn; ++ch) {
+			if (unlikely(tfw_srv_conn_restricted(ch->srv_conn)
+				     || tfw_server_queue_full(ch->srv_conn)
+				     || !tfw_srv_conn_live(ch->srv_conn)))
 				continue;
 			curr_weight = msg_hash ^ ch->hash;
 			if (curr_weight > best_weight) {
 				best_weight = curr_weight;
-				best_conn = ch->conn;
+				best_srv_conn = ch->srv_conn;
 			}
 		}
-		if (unlikely(!best_conn))
+		if (unlikely(!best_srv_conn))
 			return NULL;
-		if (tfw_connection_get_if_live(best_conn))
-			return best_conn;
+		if (tfw_srv_conn_get_if_live(best_srv_conn))
+			return best_srv_conn;
 	}
 	return NULL;
 }
