@@ -185,7 +185,7 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 }
 
 void
-tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConnection *srv_conn)
+tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	if (sg->sched && sg->sched->add_conn)
 		sg->sched->add_conn(sg, srv, srv_conn);

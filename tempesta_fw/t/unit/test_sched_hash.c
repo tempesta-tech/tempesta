@@ -107,18 +107,17 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConnection *srv_conn = test_create_conn((TfwPeer *)srv);
+		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
 		sg->sched->add_conn(sg, srv, srv_conn);
 	}
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwSrvConnection *expect_conn = NULL;
+		TfwSrvConn *expect_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwSrvConnection *srv_conn =
-				sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
 			if (!expect_conn)
@@ -157,20 +156,18 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *srv_conn =
-				test_create_conn((TfwPeer *)srv);
+			TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, srv_conn);
 		}
 	}
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwSrvConnection *expect_conn = NULL;
+		TfwSrvConn *expect_conn = NULL;
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwSrvConnection *srv_conn =
-				sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
 			if (!expect_conn)

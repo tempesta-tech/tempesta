@@ -36,7 +36,7 @@ void test_sg_release_all(void);
 
 TfwServer *test_create_srv(const char *in_addr, TfwSrvGroup *sg);
 
-TfwSrvConnection *test_create_conn(TfwPeer *peer);
+TfwSrvConn *test_create_conn(TfwPeer *peer);
 
 void test_conn_release_all(TfwSrvGroup *sg);
 

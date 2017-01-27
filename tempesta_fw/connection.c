@@ -32,14 +32,14 @@ TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
  * It's not on any list yet, so it's safe to do so without locks.
  */
 void
-tfw_connection_init(TfwConnection *conn)
+tfw_connection_init(TfwConn *conn)
 {
 	memset(conn, 0, sizeof(*conn));
 	INIT_LIST_HEAD(&conn->list);
 }
 
 void
-tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
+tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer)
 {
 	BUG_ON(conn->peer || !list_empty(&conn->list));
 	conn->peer = peer;
@@ -50,7 +50,7 @@ tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer)
  * Publish the "connection is established" event via TfwConnHooks.
  */
 int
-tfw_connection_new(TfwConnection *conn)
+tfw_connection_new(TfwConn *conn)
 {
 	return TFW_CONN_HOOK_CALL(conn, conn_init);
 }
@@ -59,7 +59,7 @@ tfw_connection_new(TfwConnection *conn)
  * Call connection repairing via TfwConnHooks.
  */
 void
-tfw_connection_repair(TfwConnection *conn)
+tfw_connection_repair(TfwConn *conn)
 {
 	TFW_CONN_HOOK_CALL(conn, conn_repair);
 }
@@ -68,7 +68,7 @@ tfw_connection_repair(TfwConnection *conn)
  * Publish the "connection is dropped" event via TfwConnHooks.
  */
 void
-tfw_connection_drop(TfwConnection *conn)
+tfw_connection_drop(TfwConn *conn)
 {
 	/* Ask higher levels to free resources at connection close. */
 	TFW_CONN_HOOK_CALL(conn, conn_drop);
@@ -79,12 +79,12 @@ tfw_connection_drop(TfwConnection *conn)
  * Publish the "connection is released" event via TfwConnHooks.
  */
 void
-tfw_connection_release(TfwConnection *conn)
+tfw_connection_release(TfwConn *conn)
 {
 	/* Ask higher levels to free resources at connection release. */
 	TFW_CONN_HOOK_CALL(conn, conn_release);
 	BUG_ON((TFW_CONN_TYPE(conn) & Conn_Clnt)
-	       && !list_empty(&((TfwCliConnection *)conn)->seq_queue));
+	       && !list_empty(&((TfwCliConn *)conn)->seq_queue));
 }
 
 /*
@@ -94,7 +94,7 @@ tfw_connection_release(TfwConnection *conn)
  * only on an active socket.
  */
 int
-tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
+tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
 	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
 }
@@ -102,7 +102,7 @@ tfw_connection_send(TfwConnection *conn, TfwMsg *msg)
 int
 tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
-	TfwConnection *conn = cdata;
+	TfwConn *conn = cdata;
 
 	return tfw_gfsm_dispatch(&conn->state, conn, skb, off);
 }
