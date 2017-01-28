@@ -130,14 +130,14 @@ __active_guard_exit(unsigned long val, int cpu)
  */
 #define SS_CALL_GUARD_ENTER(cb, sk)					\
 ({									\
-	BUG_ON(sk->sk_incoming_cpu == TFW_SK_CPU_INIT);			\
 	__active_guard_enter(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
 	SS_CALL(cb, sk);						\
 })
 
 #define SS_CALL_GUARD_EXIT(cb, sk)					\
 do {									\
-	BUG_ON(sk->sk_incoming_cpu == TFW_SK_CPU_INIT);			\
+	if (unlikely(sk->sk_incoming_cpu == TFW_SK_CPU_INIT))		\
+		break;							\
 	SS_CALL(cb, sk);						\
 	__active_guard_exit(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
 } while (0)
@@ -818,7 +818,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk, "state change");
+	sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -830,9 +830,11 @@ ss_tcp_state_change(struct sock *sk)
 		if (ss_active_guard_enter(SS_LISTEN_VAL)) {
 			/*
 			 * Tempesta is shutting down. However, Tempesta isn't
-			 * aware about @sk, so we have to close it on our own.
+			 * aware about @sk, so we have to close it on our own
+			 * without calling upper layer hooks.
 			 */
-			ss_droplink(sk);
+			ss_do_close(sk);
+			sock_put(sk);
 			return;
 		}
 
@@ -911,23 +913,9 @@ ss_tcp_state_change(struct sock *sk)
 		 * callback is never called for the same socket concurrently.
 		 */
 		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
-
-		/*
-		 * Don't care about connection errors if we're closing all
-		 * connections at shutdown. We have to do this under the active
-		 * guard to prevent failover timers rearming and appearing
-		 * new connections. A user sysctl process is currently closing
-		 * all open connections, so we must guarantee that no new
-		 * connections appear.
-		 */
-		if (ss_active_guard_enter(SS_SOFTIRQ_VAL))
-			return;
-
 		ss_do_close(sk);
 		SS_CALL_GUARD_EXIT(connection_error, sk);
 		sock_put(sk);
-
-		ss_active_guard_exit(SS_SOFTIRQ_VAL);
 	}
 }
 
@@ -1278,7 +1266,7 @@ do {									\
 	if (t0 + HZ * 5 < jiffies) {					\
 		SS_WARN("cpu %d: pending " job " for 5s (__ss_active=%#lx)\n",\
 			cpu, atomic64_read(active));			\
-		t0 = jiffies;						\
+		return;	/* give up - everything should be finished now */\
 	}								\
 } while (0)
 
@@ -1343,17 +1331,8 @@ ss_start(void)
 	int cpu;
 
 	for_each_online_cpu(cpu) {
-		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
-
-		/*
-		 * Synchronization against concurrent starts: if a user is
-		 * running concurrent starts, then they're doing bad things,
-		 * so here is the warning for them.
-		 * Upper sysctl layer cares about start only after competed
-		 * shutdown.
-		 */
-		WARN_ON(atomic64_read(active) != SS_STOP_VAL);
-		atomic64_cmpxchg(active, SS_STOP_VAL, 0);
+		/* Concurrent starts are synchronized at sysctl layer. */
+		atomic64_set(per_cpu_ptr(&__ss_active, cpu), 0);
 	}
 }
 EXPORT_SYMBOL(ss_start);

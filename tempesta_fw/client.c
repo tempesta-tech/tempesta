@@ -194,8 +194,6 @@ tfw_client_exit(void)
 
 	/*
 	 * Free client records with classification modules accounting records.
-	 * Clients are freed at module exit to keep their classifier statistic
-	 * for further sessions if any.
 	 * There are must not be users.
 	 */
 	for (i = 0; i < (1 << CLI_HASH_BITS); ++i) {
@@ -204,7 +202,7 @@ tfw_client_exit(void)
 		CliHashBucket *hb = &cli_hash[i];
 
 		hlist_for_each_entry_safe(c, tmp, &hb->list, hentry) {
-			BUG_ON(list_empty(&c->conn_list));
+			BUG_ON(!list_empty(&c->conn_list));
 			hash_del(&c->hentry);
 			kmem_cache_free(cli_cache, c);
 		}
