@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -41,23 +41,23 @@
  * Instead, we create a dummy TfwCfgMod and pass it to them as if it was real.
  */
 
-LIST_HEAD(test_mod_list);
 TfwCfgMod test_dummy_mod = { .name = "test_dummy_mod" };
 
 static int
 do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 {
-	BUG_ON(!list_empty(&test_mod_list));
+	BUG_ON(!list_empty(&tfw_cfg_mods));
 	test_dummy_mod.specs = specs;
-	list_add(&test_dummy_mod.list, &test_mod_list);
-	return tfw_cfg_start_mods(cfg_text, &test_mod_list);
+	list_add(&test_dummy_mod.list, &tfw_cfg_mods);
+
+	return tfw_cfg_start_mods(cfg_text);
 }
 
 static void
 do_cleanup_cfg(void)
 {
-	BUG_ON(list_empty(&test_mod_list));
-	tfw_cfg_stop_mods(&test_mod_list);
+	BUG_ON(list_empty(&tfw_cfg_mods));
+	tfw_cfg_stop();
 	list_del(&test_dummy_mod.list);
 }
 

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,10 +21,13 @@
 #include <asm/fpu/api.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <net/net_namespace.h> /* for sysctl */
 
 #include "tempesta_fw.h"
+#include "cfg.h"
 #include "log.h"
 #include "str.h"
+#include "sync_socket.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -34,6 +37,107 @@ MODULE_LICENSE("GPL");
 typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
 size_t  exit_hooks_n;
+
+DEFINE_MUTEX(tfw_sysctl_mtx);
+static bool tfw_started = false;
+
+/**
+ * Process command received from sysctl as string (either "start" or "stop").
+ * Do corresponding actions, but only if the state is changed.
+ */
+static int
+handle_state_change(const char *old_state, const char *new_state)
+{
+	TFW_DBG2("got state via sysctl: %s\n", new_state);
+
+	if (!strcasecmp(old_state, new_state)) {
+		TFW_DBG2("the state '%s' isn't changed, nothing to do\n",
+			 new_state);
+		return 0;
+	}
+
+	if (!strcasecmp("start", new_state)) {
+		int r;
+
+		if (tfw_started) {
+			TFW_WARN("Trying to start running system\n");
+			return -EINVAL;
+		}
+
+		ss_start();
+		if (!(r = tfw_cfg_start()))
+			tfw_started = true;
+
+		return r;
+	}
+
+	if (!strcasecmp("stop", new_state)) {
+		if (!tfw_started) {
+			TFW_WARN("Trying to stop inactive system\n");
+			return -EINVAL;
+		}
+
+		ss_stop();
+		tfw_cfg_stop();
+		tfw_started = false;
+
+		return 0;
+	}
+
+	TFW_ERR("invalid state: '%s'. Should be either 'start' or 'stop'\n",
+		new_state);
+
+	return -EINVAL;
+}
+
+/**
+ * Syctl handler for tempesta.state read/write operations.
+ */
+static int
+handle_sysctl_state_io(struct ctl_table *ctl, int is_write,
+		       void __user *user_buf, size_t *lenp, loff_t *ppos)
+{
+	int r = 0;
+
+	mutex_lock(&tfw_sysctl_mtx);
+
+	if (is_write) {
+		char new_state_buf[ctl->maxlen];
+		char *new_state, *old_state;
+		size_t copied_data_len;
+
+		copied_data_len = min((size_t)ctl->maxlen, *lenp);
+		r = strncpy_from_user(new_state_buf, user_buf, copied_data_len);
+		if (r < 0)
+			goto out;
+
+		new_state_buf[r] = 0;
+		new_state = strim(new_state_buf);
+		old_state = ctl->data;
+
+		r = handle_state_change(old_state, new_state);
+		if (r)
+			goto out;
+	}
+
+	r = proc_dostring(ctl, is_write, user_buf, lenp, ppos);
+out:
+	mutex_unlock(&tfw_sysctl_mtx);
+	return r;
+}
+
+static char tfw_sysctl_state_buf[32];
+static struct ctl_table_header *tfw_sysctl_hdr;
+static struct ctl_table tfw_sysctl_tbl[] = {
+	{
+		.procname	= "state",
+		.data		= tfw_sysctl_state_buf,
+		.maxlen		= sizeof(tfw_sysctl_state_buf) - 1,
+		.mode		= 0644,
+		.proc_handler	= handle_sysctl_state_io,
+	},
+	{}
+};
 
 #define DO_INIT(mod)						\
 do {								\
@@ -66,6 +170,8 @@ tfw_exit(void)
 	TFW_LOG("exiting...\n");
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
+
+	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
 
 static int __init
@@ -80,9 +186,15 @@ tfw_init(void)
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
-	DO_INIT(pool);
+	tfw_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
+					     tfw_sysctl_tbl);
+	if (!tfw_sysctl_hdr) {
+		TFW_ERR("can't register sysctl table\n");
+		return -1;
+	}
 
-	DO_INIT(cfg_if);
+	DO_INIT(pool);
+	DO_INIT(cfg);
 	DO_INIT(procfs);
 	DO_INIT(vhost);
 
