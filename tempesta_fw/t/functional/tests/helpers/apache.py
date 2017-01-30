@@ -6,6 +6,11 @@ __license__ = 'GPL2'
 
 import subprocess
 
+def link_vhost(name):
+	p = subprocess.Popen(["ln", "-s", "/etc/apache2/sites-available/" 
++ name, "/etc/apache2/sites-enabled"], stdout=subprocess.PIPE)
+
+
 def is_apache():
 	try:
 		dist = get_dist()
@@ -34,6 +39,17 @@ def get_dist():
 		if out.find("ID=\"centos\"") > 0:
 			return "centos"
 
+def stop():
+	distr = get_dist()
+	if is_apache():
+		if distr == "debian":
+			subprocess.call("service apache2 stop", shell = True)
+		elif distr == "centos":
+			subprocess.call("service httpd stop", shell = True)
+
+	else:
+		print("apache is not installed\n")
+
 def start():
 	distr = get_dist()
 	if is_apache():
@@ -44,3 +60,18 @@ def start():
 
 	else:
 		print("apache is not installed\n")
+	p = subprocess.Popen(["ab", "http://127.0.0.1:8081/"], stdout=subprocess.PIPE)
+	out = p.stdout.read()
+	if len(out) > 0:
+		for s in out.split('\n'):
+			print(s)
+
+def run_ab():
+	p = subprocess.Popen(["ab", "-n 10", "http://127.0.0.1:8081/"],
+			     stdout=subprocess.PIPE)
+	out = p.stdout.read()
+	for line in out.split('\n'):
+		print(line)
+
+
+
