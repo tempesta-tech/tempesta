@@ -401,7 +401,7 @@ __tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 
 /*
  * Put @req on the list of non-idempotent requests in @srv_conn. 
- * Raise the flag saying that the connection has non-idempotent requests.
+ * Raise the flag saying that @srv_conn has non-idempotent requests.
  */
 static inline void
 __tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -413,8 +413,7 @@ __tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 
 /*
  * Remove @req from the list of non-idempotent requests in @srv_conn.
- * @req is verified to be on the list. Does nothing if @req is NOT on
- * the list.
+ * Does nothing if @req is NOT on the list.
  */
 static inline void
 tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -623,8 +622,8 @@ __tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 /*
  * Forward unsent requests in server connection @srv_conn. The requests
  * are forwarded until a non-idempotent request is found in the queue.
- * It's assumed that the forwarding queue in @srv_conn is locked.
- * IT's also assumed that the forwarding queue is NOT drained.
+ * It's assumed that the forwarding queue in @srv_conn is locked and
+ * NOT drained.
  */
 static void
 __tfw_http_req_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
@@ -687,9 +686,10 @@ tfw_http_req_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
  *
  * Forwarding to a server is considered to be on hold after
  * a non-idempotent request is forwarded. The hold is removed when
- * the holding non-idempotent request is followed by another request
- * from the same client. Effectively, that re-enables pipelining.
- * See RFC 7230 6.3.2.
+ * a response is received to the holding request. The hold is also
+ * removed when the holding non-idempotent request is followed by
+ * another request from the same client. Effectively, that re-enables
+ * pipelining. See RFC 7230 6.3.2.
  */
 static void
 tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -721,11 +721,11 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
  *
  * A non-idempotent request that was forwarded but not responded to
  * is not re-sent or re-scheduled by default. Configuration option
- * can be used to have that request re-sent or re-scheduled as well.
+ * can be used to have that request re-sent or re-scheduled.
  *
  * As forwarding is paused after a non-idempotent request is sent,
- * there can be only one such request among forwarded requests,
- * and that's @srv_conn->msg_sent.
+ * there can be only one such request among forwarded requests, and
+ * that's @srv_conn->msg_sent.
  *
  * Note: @srv_conn->msg_sent may change in result.
  */
@@ -854,10 +854,11 @@ __tfw_http_req_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
  * connection queue, and NOT according to their original timestamps.
  * That's the intended behaviour. These requests are unlucky already.
  * They were delayed by waiting in their original server connections,
- * and then by the re-scheduling procedure itself. Now they have much
- * greater chance to be evicted when it's their turn to be forwarded.
- * The main effort is put into servicing requests that are on time.
- * Unlucky requests are just given another chance with minimal effort.
+ * and then by the time spent on multiple attempts to reconnect. Now
+ * they have much greater chance to be evicted when it's their turn
+ * to be forwarded. The main effort is put into servicing requests
+ * that are on time. Unlucky requests are just given another chance
+ * with minimal effort.
  */
 static void
 tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
@@ -869,7 +870,7 @@ tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
 
-	/* Treat the non-idempotent request if any. */
+	/* Treat a non-idempotent request if any. */
 	tfw_http_req_fwd_treatnip(srv_conn, equeue);
 
 	/* Process complete queue. */
@@ -889,7 +890,7 @@ tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 }
 
 /*
- * Repair a connection. MAkes sense only for server connections.
+ * Repair a connection. Makes sense only for server connections.
  *
  * Find requests in the server's connection queue that were forwarded
  * to the server. These are unanswered requests. According to RFC 7230
@@ -897,6 +898,10 @@ tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
  * establishment". To address that, re-send the first request to the
  * server. When a response comes, that will trigger resending of the
  * rest of those unanswered requests (__tfw_http_req_fwd_repair()).
+ *
+ * No need to take a reference on the server connection here as this
+ * is executed as part of establishing the connection. It definitely
+ * can't go away.
  */
 static void
 tfw_http_conn_repair(TfwConn *conn)
@@ -919,7 +924,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	BUG_ON(!tfw_srv_conn_restricted(srv_conn));
 
 	spin_lock(&srv_conn->fwd_qlock);
-	/* Treat the non-idempotent request if any. */
+	/* Treat a non-idempotent request if any. */
 	tfw_http_req_fwd_treatnip(srv_conn, &equeue);
 	/* Re-send the first unanswered request. */
 	if (srv_conn->msg_sent) {
@@ -955,9 +960,9 @@ tfw_http_req_destruct(void *msg)
 }
 
 /*
- * Allocate a new HTTP message structure, and link it with
- * the connection structure. Increment the number of users
- * of the connection structure. Initialize GFSM for the message.
+ * Allocate a new HTTP message structure and link it with the connection
+ * instance. Increment the number of users of the instance. Initialize
+ * GFSM for the message.
  */
 static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn)
@@ -989,19 +994,19 @@ tfw_http_conn_msg_alloc(TfwConn *conn)
 
 /*
  * Free an HTTP message.
- * Also, free the connection structure if there's no more references.
+ * Also, free the connection instance if there's no more references.
  *
  * This function should be used anytime when there's a chance that
- * a connection structure may belong to multiple messages, which is
+ * a connection instance may belong to multiple messages, which is
  * almost always. If a connection is suddenly closed then it still
  * can be safely dereferenced and used in the code.
- * In rare cases we're sure that a connection structure in a message
- * doesn't have multiple users. For instance, when an error response
+ * In rare cases we're sure that a connection instance in a message
+ * doesn't have multiple users. For example, when an error response
  * is prepared and sent by Tempesta, that HTTP message does not need
- * a connection structure. The message is then immediately destroyed,
+ * a connection instance. The message is then immediately destroyed,
  * and a simpler tfw_http_msg_free() can be used for that.
  *
- * NOTE: @hm->conn might be NULL if @hm is the response that was served
+ * NOTE: @hm->conn may be NULL if @hm is the response that was served
  * from cache.
  */
 static void
@@ -1012,9 +1017,9 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 
 	if (hm->conn) {
 		/*
-		 * Unlink connection while there is at least one reference.
-		 * Use atomic exchange to avoid races with new messages
-		 * arriving on the connection.
+		 * Unlink the connection while there is at least one
+		 * reference. Use atomic exchange to avoid races with
+		 * new messages arriving on the connection.
 		 */
 		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
 			  0UL, sizeof(long));
@@ -1027,7 +1032,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 /*
  * Connection with a peer is created.
  *
- * Called when a connection is created. We need to initialize connection
+ * Called when a connection is created. Initialize the connection's
  * state machine here.
  */
 static int
@@ -1171,7 +1176,7 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		tfw_http_conn_cli_drop((TfwCliConn *)conn);
-	} else if (conn->msg) {
+	} else if (conn->msg) {		/* Conn_Srv */
 		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
 	}
@@ -1208,11 +1213,10 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		return NULL;
 
 	/*
-	 * The sibling message is set up with a new SKB as
-	 * the starting SKB. The new SKB is split off from
-	 * the original SKB and contains the first part of
-	 * new message. The original SKB is shrunk to have
-	 * just data from the original message.
+	 * The sibling message is set up to start with a new SKB.
+	 * The new SKB is split off from the original SKB and has
+	 * the first part of the new message. The original SKB is
+	 * shrunk to have just data from the original message.
 	 */
 	nskb = ss_skb_split(*skb, split_offset);
 	if (!nskb) {
@@ -1225,6 +1229,9 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	return shm;
 }
 
+/*
+ * Add 'Date:' header field to an HTTP message.
+ */
 static int
 tfw_http_set_hdr_date(TfwHttpMsg *hm)
 {
@@ -1246,9 +1253,8 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
  *
- * skb's can be shared between number of HTTP messages. We don't copy skb if
- * it's shared - we modify skb's safely and shared skb is still owned by one
- * CPU.
+ * SKBs may be shared by several HTTP messages. A shared SKB is not copied
+ * but safely modified. Thus, a shared SKB is still owned by one CPU.
  */
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
@@ -1970,17 +1976,18 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * Responses from cache don't have @resp->conn. Also, for those
 	 * responses @req->jtxtstamp is not set and remains zero.
 	 *
-	 * APM stats can't handle response times that are >= USHORT_MAX
-	 * which is about 65 secs.
+	 * TODO: Currently APM holds the pure roundtrip time (RTT) from
+	 * the time a request is forwarded to the time a response to it
+	 * is received and parsed. Perhaps it makes sense to penalize
+	 * server connections which get broken too often. What would be
+	 * a fast and simple algorithm for that? Keep in mind, that the
+	 * value of RTT has an upper boundary in the APM.
 	 */
-	if (resp->conn) {
-		unsigned long rtt = resp->jrxtstamp - req->jtxtstamp;
-		if (likely(rtt < USHRT_MAX))
-			tfw_apm_update(((TfwServer *)resp->conn->peer)->apm,
-					resp->jrxtstamp, rtt);
-	}
+	if (resp->conn)
+		tfw_apm_update(((TfwServer *)resp->conn->peer)->apm,
+				resp->jrxtstamp,
+				resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_resp_fwd(req, resp);
-	return;
 }
 
 /*
@@ -2016,8 +2023,12 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	tfw_http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_delist(srv_conn);
 	/*
-	 * Perform special processing if the connection is in repair
+	 * Run special processing if the connection is in repair
 	 * mode. Otherwise, forward pending requests to the server.
+	 *
+	 * @hmresp is holding a reference to the server connection
+	 * while forwarding is done, so there's no need to take an
+	 * additional reference.
 	 */
 	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
 		__tfw_http_req_fwd_repair(srv_conn, &equeue);

@@ -157,7 +157,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 		}
 		if (unlikely(!best_srv_conn))
 			return NULL;
-		if (tfw_srv_conn_get_if_live(best_srv_conn))
+		if (likely(tfw_srv_conn_get_if_live(best_srv_conn)))
 			return best_srv_conn;
 	}
 	return NULL;

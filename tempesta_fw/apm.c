@@ -528,14 +528,14 @@ static inline void
 __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
 	int i = st->i, r, b;
-	unsigned short rtime;
+	unsigned short rtt;
 
 	for (r = i / TFW_STATS_BCKTS; r < TFW_STATS_RANGES; ++r) {
 		for (b = i % TFW_STATS_BCKTS; b < TFW_STATS_BCKTS; ++b, ++i) {
 			if (!atomic_read(&rng->cnt[r][b]))
 				continue;
-			rtime = rng->ctl[r].begin + (b << rng->ctl[r].order);
-			__tfw_apm_state_set(st, rtime, i, r, b);
+			rtt = rng->ctl[r].begin + (b << rng->ctl[r].order);
+			__tfw_apm_state_set(st, rtt, i, r, b);
 			return;
 		}
 	}
@@ -871,22 +871,29 @@ tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz)
 }
 
 static inline void
-__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtime)
+__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtt)
 {
 	int centry = (jtstamp / tfw_apm_jtmintrvl) % rbuf->rbufsz;
 	unsigned long jtmistart = jtstamp - (jtstamp % tfw_apm_jtmintrvl);
 	TfwApmRBEnt *crbent = &rbuf->rbent[centry];
 
 	tfw_apm_rbent_checkreset(crbent, jtmistart);
-	tfw_stats_update(&crbent->pcntrng, rtime, &rbuf->slock);
+	tfw_stats_update(&crbent->pcntrng, rtt, &rbuf->slock);
 }
 
 void
-tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtime)
+tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
 {
+	unsigned int rtt = jiffies_to_msecs(jrtt);
+
 	BUG_ON(!apmdata);
-	__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf,
-			 jtstamp, jiffies_to_msecs(jrtime));
+	/*
+	 * APM stats can't handle response times that are greater than
+	 * the maximum value possible for TfwPcntCtl{}->end. Currently
+	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
+	 */
+	if (likely(rtt < (1UL << sizeof(((TfwPcntCtl *)0)->end) * 8)))
+		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
 }
 
 /*

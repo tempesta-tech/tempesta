@@ -143,7 +143,7 @@ rerun:
 					nipconn++;
 				continue;
 			}
-			if (tfw_srv_conn_get_if_live(srv_conn))
+			if (likely(tfw_srv_conn_get_if_live(srv_conn)))
 				return srv_conn;
 		}
 	}
