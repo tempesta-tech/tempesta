@@ -104,6 +104,39 @@ typedef struct {
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
 
 /*
+ * Queues in client and server connections provide support for correct
+ * handlng of requests and responses.
+ *
+ * Incoming requests are put on client connection's @seq_queue in the
+ * order they come in. When responses to these requests come, they're
+ * sent back to client in exactly the same order the requests came in.
+ * @seq_queue is contended by threads that process requests, as well
+ * as by threads that process responses. In the latter case that may
+ * not lead to sending a response. Thus a separate @ret_qlock is used
+ * for sending responses to decrease the time @seq_qlock is taken for.
+ *
+ * Unless serviced from cache, each request is forwarded to a server
+ * over specific server connection. It's put on server connection's
+ * @fwd_queue, and also on @nip_queue if it's non-idempotent. Requests
+ * must be forwarded in the same order they're put on @fwd_queue, so
+ * it must be done under the queue lock. Otherwise pairing of requests
+ * to responses may get broken. When a response comes then the first
+ * request is taken out of @fwd_queue, and that's the paired request.
+ * There're two types of requests in @fwd_queue: those that were sent
+ * out, and those that were not sent out yet. @msg_sent points at the
+ * latest request that was sent out. That is helpful when repairing
+ * a server connection that had gone bad.
+ *
+ * A request is in @seq_queue until it's deleted, and may also be in
+ * @fwd_queue if it's forwarded to a server. @nip_queue supplements
+ * @fwd_queue and may be considered as part of @fwd_queue for this
+ * description. A response is never put on any queue. Instead, it's
+ * attached to a paired request as @req->resp. A request is always
+ * processed in the context of just one queue at any given moment.
+ * That way NO locking hierarchy is involved. Please see the code.
+ */
+
+/*
  * These are specific properties that are relevant to client connections.
  *
  * @seq_queue	- queue of client's messages in the order they came;
