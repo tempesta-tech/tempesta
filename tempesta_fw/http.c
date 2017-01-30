@@ -690,6 +690,14 @@ tfw_http_req_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
  * removed when the holding non-idempotent request is followed by
  * another request from the same client. Effectively, that re-enables
  * pipelining. See RFC 7230 6.3.2.
+ *
+ * Requests must be forwarded in the same order they are put in the
+ * queue, and so it must be done under the queue lock, otherwise
+ * pairing of requests with responses may get broken. Take a simple
+ * scenario. CPU-1 locks the queue, adds a request to it, unlocks
+ * the queue. CPU-2 does the same after CPU-1 (the queue was locked).
+ * After that CPU2 and CPU2 are fully concurrent. If CPU2 happens to
+ * proceed first with forwarding, then pairing gets broken.
  */
 static void
 tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
