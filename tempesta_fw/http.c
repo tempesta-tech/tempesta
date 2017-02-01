@@ -528,7 +528,7 @@ tfw_http_req_zap_error(struct list_head *equeue)
 	TfwHttpReq *req, *tmp;
 
 	TFW_DBG2("%s: queue is %sempty\n",
-		 __func__, list_empty(err_queue) ? "" : "NOT ");
+		 __func__, list_empty(equeue) ? "" : "NOT ");
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
@@ -559,7 +559,7 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (unlikely(time_after(jqage, srv->sg->max_jqage))) {
 		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 			 __func__, req,
-			 jiffies_to_msecs(jqage - srv->max_jqage));
+			 jiffies_to_msecs(jqage - srv->sg->max_jqage));
 		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
 		return true;
 	}
@@ -696,8 +696,8 @@ tfw_http_req_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
  * pairing of requests with responses may get broken. Take a simple
  * scenario. CPU-1 locks the queue, adds a request to it, unlocks
  * the queue. CPU-2 does the same after CPU-1 (the queue was locked).
- * After that CPU2 and CPU2 are fully concurrent. If CPU2 happens to
- * proceed first with forwarding, then pairing gets broken.
+ * After that CPU-1 and CPU-2 are fully concurrent. If CPU-2 happens
+ * to proceed first with forwarding, then pairing gets broken.
  */
 static void
 tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -767,7 +767,7 @@ tfw_http_req_resend(TfwSrvConn *srv_conn, bool first, struct list_head *equeue)
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
 	TFW_DBG2("%s: conn=[%p] one_msg=[%s]\n",
-		 __func__, srv_conn, one_msg ? "true" : "false");
+		 __func__, srv_conn, first ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
 
@@ -876,7 +876,7 @@ tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
 	/* Treat a non-idempotent request if any. */
 	tfw_http_req_fwd_treatnip(srv_conn, equeue);
@@ -906,6 +906,8 @@ tfw_http_req_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
  * establishment". To address that, re-send the first request to the
  * server. When a response comes, that will trigger resending of the
  * rest of those unanswered requests (__tfw_http_req_fwd_repair()).
+ *
+ * The connection is not scheduled until all requests in it are re-sent.
  *
  * No need to take a reference on the server connection here as this
  * is executed as part of establishing the connection. It definitely
@@ -1130,7 +1132,7 @@ __tfw_http_resp_pair_free(TfwHttpReq *req)
  *
  * Desintegrate the client connection's @seq_list. Requests that have
  * a paired response can be freed. Move those to @zap_queue for doing
- * it without the lock. Requests without a paired response have not
+ * that without the lock. Requests without a paired response have not
  * been answered yet. They are held in the lists of server connections
  * until responses come. Don't free those requests.
  *
@@ -1153,6 +1155,12 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	if (list_empty_careful(seq_queue))
 		return;
 
+	/*
+	 * Desintegration of the list must be done under the lock.
+	 * The list can't be just detached from seq_queue, and then
+	 * be desintegrated without the lock. That would open a race
+	 * condition with freeing of a request in tfw_http_resp_fwd().
+	 */
 	spin_lock(&cli_conn->seq_qlock);
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		if (req->resp)

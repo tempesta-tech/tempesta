@@ -230,8 +230,9 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 	}
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
 		timeout = tfw_srv_tmo_vals[srv_conn->recns];
-		TFW_DBG_ADDR("Cannot establish connection",
-			     &srv_conn->peer->addr);
+		if (srv_conn->recns)
+			TFW_DBG_ADDR("Cannot establish connection",
+				     &srv_conn->peer->addr);
 	} else {
 		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
 		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
@@ -471,6 +472,8 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init((TfwConn *)srv_conn);
+	memset((char *)srv_conn + sizeof(TfwConn), 0,
+	       sizeof(TfwSrvConn) - sizeof(TfwConn));
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
@@ -851,7 +854,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	TFW_DBG("begin srv_group: %s\n", sg->name);
+	TFW_DBG("begin srv_group: %s\n", tfw_cfg_in_sg->name);
 
         tfw_cfg_in_slstsz = 0;
         tfw_cfg_in_sched = tfw_cfg_out_sched;
