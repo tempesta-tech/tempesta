@@ -438,7 +438,6 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
-	BUG_ON(atomic_read(&conn->refcnt) & ~1);	/* FIXME */
 	BUG_ON(conn->msg);
 
 	rc = atomic_read(&conn->refcnt);
