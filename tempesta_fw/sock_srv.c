@@ -318,6 +318,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 {
 	TfwConnection *conn = sk->sk_user_data;
 
+	TFW_INC_STAT_BH(serv.conn_disconnects);
 	tfw_connection_drop(conn);
 	tfw_connection_put(conn);
 }
