@@ -1346,7 +1346,7 @@ EXPORT_SYMBOL(tfw_cfg_set_str);
 
 /*
  * ------------------------------------------------------------------------
- *	TfwCfgMod list related routines, the top-level parsing routine.
+ *	Handling list of modules, the top-level parsing routines.
  * ------------------------------------------------------------------------
  */
 /*
@@ -1590,7 +1590,7 @@ tfw_cfg_stop(void)
 
 /*
  * ------------------------------------------------------------------------
- *	The list of registered modules and VFS helpers.
+ *	VFS helpers.
  * ------------------------------------------------------------------------
  */
 /**

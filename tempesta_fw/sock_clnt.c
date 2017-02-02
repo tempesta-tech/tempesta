@@ -245,7 +245,7 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
 };
 
 static int
-__cli_clonn_close_cb(TfwConnection *conn)
+__cli_conn_close_cb(TfwConnection *conn)
 {
 	/*
 	 * Use assynchronous closing to release peer connection list and
@@ -260,9 +260,7 @@ tfw_cli_conn_close_all(TfwClient *cli)
 {
 	TfwConnection *conn;
 
-	tfw_peer_for_each_conn(cli, conn, list, __cli_clonn_close_cb);
-
-	return 0;
+	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
 }
 
 /*
@@ -449,7 +447,7 @@ tfw_sock_clnt_stop_all(void)
 	local_bh_disable();
 	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
 		/*
-		 * SS trasport is overloaded: let softirqs make progress and
+		 * SS transport is overloaded: let softirqs make progress and
 		 * repeat again. Not a big deal that we'll probably close the
 		 * same connections - SS can handle it and it's expected that
 		 * softirqs close some of them while we wait.

@@ -43,10 +43,10 @@ typedef struct ss_hooks {
 	/*
 	 * Drop TCP connection associated with the socket.
 	 * The callback is called on intentional socket closing when the socket
-	 * is already (i.e. there could not be ingress data on it) and we can
-	 * safely do some clenup stuff. We need the callback sine socket closing
-	 * always has chance to run asynchronously on other CPU and a caller
-	 * doesn't know the it completes.
+	 * is already closed (i.e. there could not be ingress data on it) and we
+	 * can safely do some clenup stuff. We need the callback sine socket
+	 * closing always has chance to run asynchronously on other CPU and a
+	 * caller doesn't know the it completes.
 	 */
 	void (*connection_drop)(struct sock *sk);
 

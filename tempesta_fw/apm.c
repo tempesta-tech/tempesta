@@ -1081,7 +1081,7 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 };
 
 TfwCfgMod tfw_apm_cfg_mod = {
-        .name  = "apm",
-        .start = tfw_apm_cfg_start,
-        .specs = tfw_apm_cfg_specs,
+	.name  = "apm",
+	.start = tfw_apm_cfg_start,
+	.specs = tfw_apm_cfg_specs,
 };
