@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,8 +27,10 @@
 #include "connection.h"
 #include "hash.h"
 #include "log.h"
+#include "procfs.h"
 
 #define CLI_HASH_BITS	17
+#define CLI_HASH_SZ	(1 << CLI_HASH_BITS)
 
 typedef struct {
 	struct hlist_head	list;
@@ -39,10 +41,9 @@ typedef struct {
  * TODO probably not the best container for the task and
  * HTrie should be used instead.
  */
-CliHashBucket cli_hash[1 << CLI_HASH_BITS] = {
-	[0 ... ((1 << CLI_HASH_BITS) - 1)] = {
+CliHashBucket cli_hash[CLI_HASH_SZ] = {
+	[0 ... (CLI_HASH_SZ - 1)] = {
 		HLIST_HEAD_INIT,
-		__SPIN_LOCK_UNLOCKED(lock)
 	}
 };
 
@@ -73,6 +74,7 @@ tfw_client_put(TfwClient *cli)
 	spin_unlock(cli->hb_lock);
 
 	kmem_cache_free(cli_cache, cli);
+	TFW_DEC_STAT_BH(clnt.online);
 }
 EXPORT_SYMBOL(tfw_client_put);
 
@@ -123,6 +125,7 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 	if (init)
 		init(cli);
 
+	TFW_INC_STAT_BH(clnt.online);
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR6("client address", &cli->addr.v6.sin6_addr);
 
@@ -138,13 +141,49 @@ found:
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 
+/**
+ * Beware: @fn is called under client hash bucket spin lock.
+ */
+int
+tfw_client_for_each(int (*fn)(TfwClient *))
+{
+	int i, r = 0;
+
+	for (i = 0; i < CLI_HASH_SZ && !r; ++i) {
+		TfwClient *c;
+		CliHashBucket *hb = &cli_hash[i];
+
+		spin_lock(&hb->lock);
+
+		hlist_for_each_entry(c, &hb->list, hentry) {
+			r = fn(c);
+			if (unlikely(r))
+				break;
+		}
+
+		spin_unlock(&hb->lock);
+	}
+
+	return r;
+}
+
 int __init
 tfw_client_init(void)
 {
+	int i;
+
 	cli_cache = kmem_cache_create("tfw_cli_cache", sizeof(TfwClient),
 				      0, 0, NULL);
 	if (!cli_cache)
 		return -ENOMEM;
+
+	/*
+	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
+	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
+	 */
+	for (i = 0; i < CLI_HASH_SZ; ++i)
+		spin_lock_init(&cli_hash[i].lock);
+
 	return 0;
 }
 
@@ -163,6 +202,7 @@ tfw_client_exit(void)
 		CliHashBucket *hb = &cli_hash[i];
 
 		hlist_for_each_entry_safe(c, tmp, &hb->list, hentry) {
+			BUG_ON(!list_empty(&c->conn_list));
 			hash_del(&c->hentry);
 			kmem_cache_free(cli_cache, c);
 		}

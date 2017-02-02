@@ -4,7 +4,7 @@
  * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -113,7 +113,9 @@ tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
-		TFW_WARN("Cannot send data to client (%d)\n", r);
+		/* Quite usual on system shutdown. */
+		TFW_DBG("Cannot send data to client (%d)\n", r);
+
 	return r;
 }
 
@@ -154,7 +156,6 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
-	/* Set the destructor */
 	conn->destructor = (void *)tfw_cli_conn_release;
 
 	r = tfw_connection_new(conn);
@@ -187,7 +188,11 @@ err_client:
 	return r;
 }
 
-static int
+/**
+ * Do the same stuff for intetional client connection closing and due to some
+ * error on TCP socket or application layers.
+ */
+static void
 tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
 	TfwConnection *conn = sk->sk_user_data;
@@ -210,28 +215,26 @@ tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 	 * are references to @conn.
 	 */
 	tfw_connection_put(conn);
-
-	return 0;
 }
 
 /*
  * The hook is executed when a client connection is closed by either
  * side of the connection.
  */
-static int
+static void
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	return tfw_sock_clnt_do_drop(sk, "connection lost");
+	tfw_sock_clnt_do_drop(sk, "connection lost");
 }
 
 /*
  * The hook is executed when a client connection is terminated due to
  * an error of any kind.
  */
-static int
+static void
 tfw_sock_clnt_error(struct sock *sk)
 {
-	return tfw_sock_clnt_do_drop(sk, "connection error");
+	tfw_sock_clnt_do_drop(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_clnt_ss_hooks = {
@@ -240,6 +243,25 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_error	= tfw_sock_clnt_error,
 	.connection_recv	= tfw_connection_recv,
 };
+
+static int
+__cli_conn_close_cb(TfwConnection *conn)
+{
+	/*
+	 * Use assynchronous closing to release peer connection list and
+	 * client hash bucket locks as soon as possible and let softirq
+	 * do all the jobs.
+	 */
+	return ss_close(conn->sk);
+}
+
+static int
+tfw_cli_conn_close_all(TfwClient *cli)
+{
+	TfwConnection *conn;
+
+	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -369,7 +391,6 @@ tfw_listen_sock_start(TfwListenSock *ls)
 		return r;
 	}
 
-	/* TODO adjust /proc/sys/net/core/somaxconn */
 	TFW_DBG("start listening on socket: sk=%p\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
@@ -402,23 +423,40 @@ tfw_listen_sock_start_all(void)
 }
 
 static void
-tfw_listen_sock_stop_all(void)
+tfw_sock_clnt_stop_all(void)
 {
 	TfwListenSock *ls;
 
+	might_sleep();
+
+	/* Stop listening sockets. */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		BUG_ON(!ls->sk);
 		ss_release(ls->sk);
 		ls->sk = NULL;
 	}
+	ss_wait_listeners();
 
 	/*
-	 * TODO #116, #254
 	 * Now all listening sockets are closed, so no new connections
-	 * can appear. Close all established client connections. After
-	 * that server connections can safely be closed as they have
-	 * no users any more.
+	 * can appear. Close all established client connections.
+	 * We're going to acquie client hash bucket and peer connection list
+	 * locks, so disable softiqs to avoid deadlock with the sockets closing
+	 * in softiq context.
 	 */
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		/*
+		 * SS transport is overloaded: let softirqs make progress and
+		 * repeat again. Not a big deal that we'll probably close the
+		 * same connections - SS can handle it and it's expected that
+		 * softirqs close some of them while we wait.
+		 */
+		local_bh_enable();
+		schedule();
+		local_bh_disable();
+	}
+	local_bh_enable();
 }
 
 static int
@@ -542,7 +580,7 @@ tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 	.name	= "sock_clnt",
 	.start	= tfw_listen_sock_start_all,
-	.stop	= tfw_listen_sock_stop_all,
+	.stop	= tfw_sock_clnt_stop_all,
 	.specs	= (TfwCfgSpec[]){
 		{
 			"listen",
@@ -577,19 +615,18 @@ tfw_sock_clnt_init(void)
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
 					       sizeof(TfwConnection),
 					       0, 0, NULL);
+	if (!tfw_cli_conn_cache)
+		return -ENOMEM;
+
 	tfw_cli_conn_tls_cache = kmem_cache_create("tfw_cli_conn_tls_cache",
 						   sizeof(TfwTlsConnection),
 						   0, 0, NULL);
-
-	if (tfw_cli_conn_cache && tfw_cli_conn_tls_cache)
-		return 0;
-
-	if (tfw_cli_conn_cache)
+	if (!tfw_cli_conn_tls_cache) {
 		kmem_cache_destroy(tfw_cli_conn_cache);
-	if (tfw_cli_conn_tls_cache)
-		kmem_cache_destroy(tfw_cli_conn_tls_cache);
+		return -ENOMEM;
+	}
 
-	return -ENOMEM;
+	return 0;
 }
 
 void

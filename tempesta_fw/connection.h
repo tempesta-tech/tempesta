@@ -284,11 +284,15 @@ tfw_connection_unlink_msg(TfwConnection *conn)
 static inline void
 tfw_connection_validate_cleanup(TfwConnection *conn)
 {
+	int rc;
+
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
 	BUG_ON(!list_empty(&conn->msg_queue));
-	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
+
+	rc = atomic_read(&conn->refcnt);
+	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
