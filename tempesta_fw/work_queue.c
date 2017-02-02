@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -74,6 +74,9 @@ tfw_wq_init(TfwRBQueue *q, int node)
 void
 tfw_wq_destroy(TfwRBQueue *q)
 {
+	/* Ensure that there is no peding work. */
+	BUG_ON(tfw_wq_size(q));
+
 	kfree(q->array);
 	free_percpu(q->thr_pos);
 }

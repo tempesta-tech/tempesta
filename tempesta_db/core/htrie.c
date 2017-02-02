@@ -549,8 +549,6 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 		o = (*node)->shifts[TDB_HTRIE_IDX(key, *bits)];
 
-		TDB_DBG("Descend iblk=%p key=%#lx bits=%d -> %#lx\n",
-			*node, key, *bits, o);
 		BUG_ON(o
 		       && (TDB_DI2O(o & ~TDB_HTRIE_DBIT)
 				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
@@ -790,10 +788,8 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
-	if (!o) {
-		TDB_DBG("...not found\n");
+	if (!o)
 		return NULL;
-	}
 
 	return TDB_PTR(dbh, o);
 }

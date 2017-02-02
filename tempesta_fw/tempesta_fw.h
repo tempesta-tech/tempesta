@@ -30,7 +30,7 @@
 #include "cfg.h"
 #include "tdb.h"
 
-#define TFW_AUTHOR		"Tempesta Technologies"
+#define TFW_AUTHOR		"Tempesta Technologies, Inc"
 #define TFW_NAME		"Tempesta FW"
 #define TFW_VERSION		"0.5.0-pre6"
 

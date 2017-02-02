@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -51,10 +51,10 @@ int __tfw_wq_push(TfwRBQueue *wq, void *ptr, bool sync);
 int tfw_wq_pop(TfwRBQueue *wq, void *buf);
 
 static inline int
-tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
+tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	    void (*local_cpu_cb)(struct irq_work *), bool sync)
 {
-	int r = __tfw_wq_push(wq, ptr, sync);
+	int r = __tfw_wq_push(q, ptr, sync);
 	if (unlikely(r))
 		return r;
 
@@ -64,6 +64,15 @@ tfw_wq_push(TfwRBQueue *wq, void *ptr, int cpu, struct irq_work *work,
 		local_cpu_cb(work);
 
 	return 0;
+}
+
+static inline int
+tfw_wq_size(TfwRBQueue *q)
+{
+	long long t = atomic64_read(&q->tail);
+	long long h = atomic64_read(&q->head);
+
+	return t > h ? 0 : h - t;
 }
 
 #endif /* __TFW_WORK_QUEUE_H__ */

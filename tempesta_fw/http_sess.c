@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -50,6 +50,7 @@
 #define STICKY_KEY_MAXLEN	(sizeof(((TfwHttpSess *)0)->hmac))
 
 #define SESS_HASH_BITS		17
+#define SESS_HASH_SZ		(1 << SESS_HASH_BITS)
 
 /**
  * @name		- name of sticky cookie;
@@ -82,10 +83,9 @@ static TfwCfgSticky tfw_cfg_sticky;
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
-SessHashBucket sess_hash[1 << SESS_HASH_BITS] = {
-	[0 ... ((1 << SESS_HASH_BITS) - 1)] = {
+SessHashBucket sess_hash[SESS_HASH_SZ] = {
+	[0 ... (SESS_HASH_SZ - 1)] = {
 		HLIST_HEAD_INIT,
-		__SPIN_LOCK_UNLOCKED(lock)
 	}
 };
 
@@ -596,7 +596,7 @@ found:
 int __init
 tfw_http_sess_init(void)
 {
-	int ret;
+	int ret, i;
 	u_char *ptr;
 
 	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
@@ -627,6 +627,13 @@ tfw_http_sess_init(void)
 		return -ENOMEM;
 	}
 
+	/*
+	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
+	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
+	 */
+	for (i = 0; i < SESS_HASH_SZ; ++i)
+		spin_lock_init(&sess_hash[i].lock);
+
 	return 0;
 }
 
@@ -635,7 +642,7 @@ tfw_http_sess_exit(void)
 {
 	int i;
 
-	for (i = 0; i < (1 << SESS_HASH_BITS); ++i) {
+	for (i = 0; i < SESS_HASH_SZ; ++i) {
 		TfwHttpSess *s;
 		struct hlist_node *tmp;
 		SessHashBucket *hb = &sess_hash[i];

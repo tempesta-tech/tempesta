@@ -3,7 +3,7 @@
  *
  * Tempesta Bomber: a tool for HTTP servers stress testing.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -141,7 +141,7 @@ tfw_bmb_conn_compl(struct sock *sk)
 	return 0;
 }
 
-static int
+static void
 tfw_bmb_conn_drop(struct sock *sk)
 {
 	TfwBmbConn *conn = sk->sk_user_data;
@@ -156,8 +156,6 @@ tfw_bmb_conn_drop(struct sock *sk)
 	conn->proto.type = TFW_BMB_SK_INACTIVE;
 
 	wake_up(&conn->task->conn_wq);
-
-	return 0;
 }
 
 static int
