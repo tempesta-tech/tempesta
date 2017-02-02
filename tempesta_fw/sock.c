@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -50,6 +50,30 @@ static const char *ss_statename[] = {
 };
 #endif
 
+/**
+ * Constants for active socket operations.
+ * SS uses downcalls (SS functions calls from Tempesta layer) and upcalls
+ * (SS callbacks), but all of them are executed in softirq context.
+ * Meantime, system shutdown is performed in process context.
+ * So __ss_act_cnt and the constants at the below are used to count number of
+ * upcalls and downcalls on the fly and synchronize shutdown process with the
+ * calls: the shutdown process must wait untill all the calls finished and
+ * no new calls can be executed.
+ *
+ * However, softirqs can call SS down- or upcall any time. Moreover, there could
+ * be an ingress packet for some Tempesta's socket and it initiates new
+ * Tempesta's calls in softirq. So to guarantee shutdown process convergence we
+ * firstly finish all new established connections activity using
+ * SS_V_ACT_NEWCONN and next we wait for finishing all active connections
+ * using SS_V_ACT_LIVECONN.
+ */
+#define SS_V_ACT_NEWCONN	0x0000000000000001UL
+#define SS_M_ACT_NEWCONN	0x00000000ffffffffUL
+#define SS_V_ACT_LIVECONN	0x0000000100000000UL
+
+static bool __ss_active = false;
+static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
+	= ATOMIC_INIT(0);
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
 
@@ -77,6 +101,54 @@ skb_sender_cpu_clear(struct sk_buff *skb)
 	skb->sender_cpu = 0;
 #endif
 }
+
+/**
+ * Enters critical section synchronized with ss_synchronize().
+ * Active networking operations which involves SS callback calls must be
+ * protected by the guard: don't enter the section if the system is about
+ * to shutdown. The only exception is closing activity - this is the only
+ * activity allowed in progress of shutdown process.
+ *
+ * Returns zero (SS_OK) if we're in critical section and SS_BAD if shutdown
+ * process in progress and we can't enter the section.
+ */
+static int
+ss_active_guard_enter(unsigned long val)
+{
+	atomic64_t *acnt = this_cpu_ptr(&__ss_act_cnt);
+
+	if (unlikely(!READ_ONCE(__ss_active)))
+		return SS_BAD;
+	atomic64_add(val, acnt);
+	if (unlikely(!READ_ONCE(__ss_active))) {
+		atomic64_sub(val, acnt);
+		return SS_BAD;
+	}
+
+	return SS_OK;
+}
+
+static void
+ss_active_guard_exit(unsigned long val)
+{
+	atomic64_sub(val, this_cpu_ptr(&__ss_act_cnt));
+}
+
+/**
+ * Guard for calling connection error/drop callback for each established socket,
+ * so we guarantee that all upper layer connections are closed.
+ */
+#define SS_CALL_GUARD_ENTER(cb, sk)					\
+({									\
+	ss_active_guard_enter(SS_V_ACT_LIVECONN);			\
+	SS_CALL(cb, sk);						\
+})
+
+#define SS_CALL_GUARD_EXIT(cb, sk)					\
+do {									\
+	SS_CALL(cb, sk);						\
+	ss_active_guard_exit(SS_V_ACT_LIVECONN);			\
+} while (0)
 
 static void
 ss_ipi(struct irq_work *work)
@@ -424,16 +496,20 @@ adjudge_to_death:
 	}
 }
 
-/*
- * This function is for internal Sync Sockets use only. It's called
- * under the socket lock taken by the kernel, and in the context of
- * the socket that is being closed.
+/**
+ * This function is for internal Sync Sockets use only. It's called under the
+ * socket lock taken by the kernel, and in the context of the socket that is
+ * being closed.
+ *
+ * This is unintentional connection closing, usually due to some data errors.
+ * This is not socket error, but still must lead to connection failovering
+ * for server sockets. So connection_error callback is called here.
  */
 static void
-ss_droplink(struct sock *sk)
+ss_linkerror(struct sock *sk)
 {
 	ss_do_close(sk);
-	SS_CALL(connection_drop, sk);
+	SS_CALL_GUARD_EXIT(connection_error, sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -483,7 +559,7 @@ __ss_close(struct sock *sk, int flags)
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)
-		SS_CALL(connection_drop, sk);
+		SS_CALL_GUARD_EXIT(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
 
 	return SS_OK;
@@ -695,8 +771,6 @@ ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
  *  	Socket callbacks
  * ------------------------------------------------------------------------
  */
-static void ss_tcp_state_change(struct sock *sk);
-
 /*
  * Called when a new data received on the socket.
  * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
@@ -722,12 +796,12 @@ ss_tcp_data_ready(struct sock *sk)
 			 * Drop connection in case of internal errors,
 			 * banned packets, or FIN in the received packet.
 			 *
-			 * ss_droplink() is responsible for calling
+			 * ss_linkerror() is responsible for calling
 			 * application layer connection closing callback.
 			 * The callback will free all SKBs linked with
 			 * the message that is currently being processed.
 			 */
-			ss_droplink(sk);
+			ss_linkerror(sk);
 		}
 	}
 	else {
@@ -752,7 +826,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk, "state change");
+	sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -761,6 +835,17 @@ ss_tcp_state_change(struct sock *sk)
 		struct sock *lsk = proto->listener;
 		int r;
 
+		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
+			/*
+			 * Tempesta is shutting down. However, Tempesta isn't
+			 * aware about @sk, so we have to close it on our own
+			 * without calling upper layer hooks.
+			 */
+			ss_do_close(sk);
+			sock_put(sk);
+			return;
+		}
+
 		/*
 		 * The callback is called from tcp_rcv_state_process().
 		 *
@@ -768,12 +853,18 @@ ss_tcp_state_change(struct sock *sk)
 		 * opening from our side. Passive open is processed from
 		 * tcp_v4_rcv() under the socket lock. So there is no need
 		 * for synchronization with ss_tcp_process_data().
+		 *
+		 * Acquire SS active guard for sockets established through
+		 * a listening socket. ss_connect() cares about established
+		 * sockets on it's own.
 		 */
-		r = SS_CALL(connection_new, sk);
+		r = lsk ? SS_CALL_GUARD_ENTER(connection_new, sk)
+			: SS_CALL(connection_new, sk);
 		if (r) {
 			SS_DBG("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
-			ss_droplink(sk);
+			ss_linkerror(sk);
+			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
 		}
 		if (lsk) {
@@ -793,6 +884,7 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			ss_drain_accept_queue(lsk, sk);
 		}
+		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
 	else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
@@ -812,7 +904,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		SS_DBG("[%d]: Peer connection closing\n", smp_processor_id());
-		ss_droplink(sk);
+		ss_linkerror(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -834,9 +926,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * callback is never called for the same socket concurrently.
 		 */
 		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
-		ss_do_close(sk);
-		SS_CALL(connection_error, sk);
-		sock_put(sk);
+		ss_linkerror(sk);
 	}
 }
 
@@ -1041,6 +1131,8 @@ EXPORT_SYMBOL(ss_release);
 int
 ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
+	int r;
+
 	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
 
@@ -1049,7 +1141,20 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	if (sk->sk_state != TCP_CLOSE)
 		return -EISCONN;
 
-	return sk->sk_prot->connect(sk, uaddr, uaddr_len);
+	if (ss_active_guard_enter(SS_V_ACT_LIVECONN))
+		return SS_SHUTDOWN;
+
+	r = sk->sk_prot->connect(sk, uaddr, uaddr_len);
+
+	/*
+	 * If connect() successfully returns, then the soket is living somewhere
+	 * in TCP code and it will move to established or closed state.
+	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
+	 */
+	if (unlikely(r))
+		ss_active_guard_exit(SS_V_ACT_LIVECONN);
+
+	return r;
 }
 EXPORT_SYMBOL(ss_connect);
 
@@ -1128,7 +1233,7 @@ EXPORT_SYMBOL(ss_getpeername);
 do {								\
 	ss_do_close(sk);					\
 	bh_unlock_sock(sk);					\
-	SS_CALL(connection_drop, sk);				\
+	SS_CALL_GUARD_EXIT(connection_drop, sk);		\
 	sock_put(sk); /* paired with ss_do_close() */		\
 } while (0)
 
@@ -1137,10 +1242,16 @@ ss_tx_action(void)
 {
 	SsWork sw;
 
+	/* FIXME The loop is unlimited, so we can face live lock in softirq. */
 	while (!tfw_wq_pop(this_cpu_ptr(&si_wq), &sw)) {
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
+		if (sock_flag(sk, SOCK_DEAD)) {
+			/* We've closed the socket on earlier job. */
+			bh_unlock_sock(sk);
+			goto dead_sock;
+		}
 		switch (sw.action) {
 		case SS_SEND:
 			ss_do_send(sk, &sw.skb_list, sw.flags);
@@ -1162,9 +1273,118 @@ ss_tx_action(void)
 		default:
 			BUG();
 		}
+dead_sock:
 		sock_put(sk); /* paired with tfw_wq_push() */
 	}
 }
+
+#define HANDLE_TOO_LONG_WAIT(t0, job)					\
+do {									\
+	if (t0 + HZ * 5 < jiffies) {					\
+		SS_WARN("pending " job " for 5s (connections count %#lx)\n",\
+			acc);						\
+		/*							\
+		 * Something is very wrong with socket accounting.	\
+		 * Give up waiting and hope for the best.		\
+		 */							\
+		return;							\
+	}								\
+} while (0)
+
+void
+ss_wait_listeners(void)
+{
+	int cpu;
+	long acc = 0, acc_old = 0;
+	unsigned long t0 = jiffies;
+
+	might_sleep();
+	while (1) {
+		for_each_online_cpu(cpu)
+			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
+		BUG_ON(acc < 0);
+		if (!(acc & SS_M_ACT_NEWCONN))
+			break;
+		schedule();
+		if (acc == acc_old) {
+			HANDLE_TOO_LONG_WAIT(t0, "listening sockets");
+		} else {
+			acc_old = acc;
+			acc = 0;
+		}
+	}
+}
+EXPORT_SYMBOL(ss_wait_listeners);
+
+/**
+ * Wait until there are no queued works and no runnign tasklets.
+ * The function should be used when all sockets are closed.
+ * SS upcalls are protected with SS_V_ACT_LIVECONN.
+ * Can sleep, so must be called from user-space context.
+ */
+void
+ss_synchronize(void)
+{
+	int cpu, wq_acc = 0, wq_acc_old = 0;
+	long acc = 0, acc_old = 0;
+	unsigned long t0 = jiffies;
+
+	might_sleep();
+	while (1) {
+		for_each_online_cpu(cpu) {
+			TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+
+			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
+			wq_acc += tfw_wq_size(wq);
+		}
+		BUG_ON(acc < 0);
+		if (!acc && !wq_acc)
+			break;
+		schedule();
+		for_each_online_cpu(cpu)
+			irq_work_sync(&per_cpu(ipi_work, cpu));
+		if (acc == acc_old && wq_acc == wq_acc_old) {
+			HANDLE_TOO_LONG_WAIT(t0, "active connections");
+		} else {
+			acc_old = acc;
+			wq_acc_old = wq_acc;
+			acc = wq_acc = 0;
+		}
+	}
+}
+EXPORT_SYMBOL(ss_synchronize);
+
+/**
+ * We need the explicit flag about Tempesta intention to shutdown.
+ * The problem is that there are upcalls from Linux TCP/IP layer allocating
+ * new connections and downcalls from Tempesta layer working with sockets.
+ * Shutdown code is also downcall executed in user context. There are socket
+ * jobs waiting for tasklet to execute them. All in all we need the flag to be
+ * able to wait while all upcalls are finished at each of several shutdown
+ * stages such as closing listening sockets, closing client sockets and
+ * finally closing server sockets.
+ */
+void
+ss_start(void)
+{
+	/* Concurrent starts are synchronized at sysctl layer. */
+	WRITE_ONCE(__ss_active, true);
+}
+EXPORT_SYMBOL(ss_start);
+
+void
+ss_stop(void)
+{
+	WRITE_ONCE(__ss_active, false);
+}
+EXPORT_SYMBOL(ss_stop);
+
+bool
+ss_active(void)
+{
+	return READ_ONCE(__ss_active);
+}
+EXPORT_SYMBOL(ss_active);
 
 int __init
 tfw_sync_socket_init(void)
@@ -1172,7 +1392,7 @@ tfw_sync_socket_init(void)
 	int r, cpu;
 
 	TFW_WQ_CHECKSZ(SsWork);
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
 			SS_ERR("Cannot initialize softirq tx work queue\n");
@@ -1191,12 +1411,8 @@ tfw_sync_socket_exit(void)
 	int cpu;
 
 	tempesta_del_tx_action();
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		irq_work_sync(&per_cpu(ipi_work, cpu));
-		/*
-		 * FIXME the work queue can be destroyed from under
-		 * softirq TX handler.
-		 */
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
 	}
 }

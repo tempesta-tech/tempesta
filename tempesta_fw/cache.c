@@ -140,7 +140,13 @@ typedef struct {
 
 static CaNode c_nodes[MAX_NUMNODES];
 
+/*
+ * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
+ * on restarts, so comment to logic out.
+ */
+#if 0
 static struct task_struct *cache_mgr_thr;
+#endif
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
 static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
@@ -1301,6 +1307,7 @@ tfw_wq_tasklet(unsigned long data)
  * Cache management thread.
  * The thread loads and preprcess static Web content using inotify (TODO).
  */
+#if 0
 static int
 tfw_cache_mgr(void *arg)
 {
@@ -1321,6 +1328,7 @@ tfw_cache_mgr(void *arg)
 
 	return 0;
 }
+#endif
 
 static int
 tfw_cache_start(void)
@@ -1337,14 +1345,14 @@ tfw_cache_start(void)
 		if (!c_nodes[i].db)
 			goto close_db;
 	}
-
+#if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
 		TFW_ERR("Can't start cache manager, %d\n", r);
 		goto close_db;
 	}
-
+#endif
 	tfw_init_node_cpus();
 
 	TFW_WQ_CHECKSZ(TfwCWork);
@@ -1376,7 +1384,9 @@ tfw_cache_stop(void)
 		irq_work_sync(&ct->ipi_work);
 		tfw_wq_destroy(&ct->wq);
 	}
+#if 0
 	kthread_stop(cache_mgr_thr);
+#endif
 
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);

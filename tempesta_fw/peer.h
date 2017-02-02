@@ -32,7 +32,7 @@
  */
 #define TFW_PEER_COMMON							\
 	struct list_head	conn_list;				\
-	rwlock_t		conn_lock;				\
+	spinlock_t		conn_lock;				\
 	TfwAddr			addr;
 
 typedef struct {
@@ -43,7 +43,7 @@ static inline void
 tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
 {
 	INIT_LIST_HEAD(&p->conn_list);
-	rwlock_init(&p->conn_lock);
+	spin_lock_init(&p->conn_lock);
 
 	memcpy(&p->addr, addr, sizeof(p->addr));
 }
@@ -51,21 +51,34 @@ tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
 static inline void
 tfw_peer_add_conn(TfwPeer *p, struct list_head *conn_list)
 {
-	write_lock(&p->conn_lock);
+	spin_lock(&p->conn_lock);
 
 	list_add(conn_list, &p->conn_list);
 
-	write_unlock(&p->conn_lock);
+	spin_unlock(&p->conn_lock);
 }
 
 static inline void
 tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 {
-	write_lock(&p->conn_lock);
+	spin_lock(&p->conn_lock);
 
 	list_del_init(conn_list);
 
-	write_unlock(&p->conn_lock);
+	spin_unlock(&p->conn_lock);
 }
+
+#define tfw_peer_for_each_conn(p, conn, member, cb)			\
+({									\
+	int r = 0;							\
+	spin_lock(&(p)->conn_lock);					\
+	list_for_each_entry(conn, &(p)->conn_list, member) {		\
+		r = (cb)(conn);						\
+		if (unlikely((r)))					\
+			break;						\
+	}								\
+	spin_unlock(&(p)->conn_lock);					\
+	r;								\
+})
 
 #endif /* __PEER_H__ */

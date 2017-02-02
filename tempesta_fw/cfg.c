@@ -67,7 +67,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -88,13 +88,11 @@
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 #include <linux/vmalloc.h>
-#include <net/net_namespace.h> /* for sysctl */
 
 #include "addr.h"
-#include "log.h"
-#include "client.h"
-
 #include "cfg.h"
+#include "client.h"
+#include "log.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -880,9 +878,8 @@ spec_cleanup(TfwCfgSpec specs[])
 		 * entry to original (zero) value. That will allow reuse of
 		 * the spec.
 		 */
-		if (spec->handler == &tfw_cfg_handle_children) {
+		if (spec->handler == &tfw_cfg_handle_children)
 			spec->cleanup = NULL;
-		}
 	}
 }
 
@@ -1349,9 +1346,25 @@ EXPORT_SYMBOL(tfw_cfg_set_str);
 
 /*
  * ------------------------------------------------------------------------
- *	TfwCfgMod list related routines, the top-level parsing routine.
+ *	Handling list of modules, the top-level parsing routines.
  * ------------------------------------------------------------------------
  */
+/*
+ * The global list of all registered modules (consists of TfwCfgMod objects).
+ *
+ * TODO the architecture is broken. List of all loaded modules must be handled
+ * by main Tempesta's module (main.c) and Cfg must use the list.
+ */
+static LIST_HEAD(tfw_cfg_mods);
+static DEFINE_RWLOCK(cfg_mods_lock);
+/*
+ * The file path is passed via the kernel module parameter.
+ * Usually you would not like to change it on a running system.
+ */
+static char *tfw_cfg_path = TFW_CFG_PATH;
+module_param(tfw_cfg_path, charp, 0444);
+MODULE_PARM_DESC(tfw_cfg_path, "Path to Tempesta FW configuration file."
+			       " Must be absolute.");
 
 #define MOD_FOR_EACH(pos, head) \
 	list_for_each_entry(pos, head, list)
@@ -1484,15 +1497,15 @@ EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
  * already started, it stops them and so on.
  */
 static int
-tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
+tfw_cfg_start_mods(const char *cfg_text)
 {
 	int ret;
 	TfwCfgMod *mod, *tmp_mod;
 
-	BUG_ON(list_empty(mod_list));
+	BUG_ON(list_empty(&tfw_cfg_mods));
 
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
-	ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list);
+	ret = tfw_cfg_parse_mods_cfg(cfg_text, &tfw_cfg_mods);
 	if (ret) {
 		TFW_ERR("can't parse configuration data\n");
 		goto err_recover_cleanup;
@@ -1506,7 +1519,7 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 	}
 
 	TFW_DBG2("starting modules...\n");
-	MOD_FOR_EACH(mod, mod_list) {
+	MOD_FOR_EACH(mod, &tfw_cfg_mods) {
 		ret = mod_start(mod);
 		if (ret)
 			goto err_recover_stop;
@@ -1517,16 +1530,36 @@ tfw_cfg_start_mods(const char *cfg_text, struct list_head *mod_list)
 
 err_recover_stop:
 	TFW_DBG2("stopping already stared modules\n");
-	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, mod_list) {
+	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, &tfw_cfg_mods) {
 		mod_stop(tmp_mod);
 	}
 
 err_recover_cleanup:
-	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods) {
 		spec_cleanup(mod->specs);
 	}
 
 	return ret;
+}
+
+int
+tfw_cfg_start(void)
+{
+	int r;
+	char *cfg_text_buf;
+
+	TFW_DBG3("reading configuration file...\n");
+	cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL);
+	if (!cfg_text_buf)
+		return -ENOENT;
+
+	TFW_LOG("Starting all modules...\n");
+	if ((r = tfw_cfg_start_mods(cfg_text_buf)))
+		TFW_ERR("failed to start modules\n");
+
+	vfree(cfg_text_buf);
+
+	return r;
 }
 
 /**
@@ -1536,42 +1569,30 @@ err_recover_cleanup:
  * (modules are started/stopped in LIFO manner).
  */
 void
-tfw_cfg_stop_mods(struct list_head *mod_list)
+tfw_cfg_stop(void)
 {
 	TfwCfgMod *mod;
 
-	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+	TFW_LOG("Stopping all modules...\n");
+	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods)
 		mod_stop(mod);
+
+	/*
+	 * Wait untill all networking activity is stopped before we can safely
+	 * cleanup modules data structures.
+	 * TODO the call shouldn't be here, see comment for tfw_cfg_mods.
+	 */
+	ss_synchronize();
+
+	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods)
 		spec_cleanup(mod->specs);
-	}
 }
+
 /*
  * ------------------------------------------------------------------------
- *	The list of registered modules, VFS and sysctl helpers.
+ *	VFS helpers.
  * ------------------------------------------------------------------------
  */
-
-/* The file path is passed via the kernel module parameter.
- * Usually you would not like to change it on a running system. */
-static char *tfw_cfg_path = TFW_CFG_PATH;
-module_param(tfw_cfg_path, charp, 0444);
-MODULE_PARM_DESC(tfw_cfg_path,
-		 "Path to Tempesta FW configuration file. Must be absolute.");
-
-/* The buffer net.tempesta.state value as a string.
- * We need to store it to avoid double start or stop action. */
-static char tfw_cfg_sysctl_state_buf[32];
-DEFINE_MUTEX(tfw_cfg_sysctl_state_buf_mtx);
-
-/* The global list of all registered modules (consists of TfwCfgMod objects). */
-static LIST_HEAD(tfw_cfg_mods);
-static DEFINE_RWLOCK(cfg_mods_lock);
-
-/* The deserialized value of tfw_cfg_sysctl_state_buf.
- * Indicates that all registered modules are started. */
-bool tfw_cfg_mods_are_started;
-
-
 /**
  * The functions returns a buffer containing the whole file.
  * The buffer must be freed with vfree().
@@ -1649,111 +1670,9 @@ err_open:
 	return NULL;
 }
 
-/**
- * Process command received from sysctl as string (either "start" or "stop").
- * Do corresponding actions, but only if the state is changed.
- */
-static int
-handle_state_change(const char *old_state, const char *new_state)
-{
-	TFW_LOG("got state via sysctl: %s\n", new_state);
-
-	if (!strcasecmp(old_state, new_state)) {
-		TFW_LOG("the state '%s' isn't changed, nothing to do\n",
-			new_state);
-		return 0;
-	}
-	if (!strcasecmp("start", new_state)) {
-		int ret;
-		char *cfg_text_buf;
-
-		TFW_DBG3("reading configuration file...\n");
-		cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL);
-		if (!cfg_text_buf)
-			return -ENOENT;
-
-		TFW_LOG("starting all modules...\n");
-		ret = tfw_cfg_start_mods(cfg_text_buf, &tfw_cfg_mods);
-		if (ret)
-			TFW_ERR("failed to start modules\n");
-		else
-			tfw_cfg_mods_are_started = true;
-
-		vfree(cfg_text_buf);
-		return ret;
-	}
-	if (!strcasecmp("stop", new_state)) {
-		TFW_LOG("stopping all modules...\n");
-		if (tfw_cfg_mods_are_started)
-			tfw_cfg_stop_mods(&tfw_cfg_mods);
-		tfw_cfg_mods_are_started = false;
-		return 0;
-	}
-
-	/* Neither "start" or "stop"? */
-	TFW_ERR("invalid state: '%s'. Should be either 'start' or 'stop'\n",
-		new_state);
-	return -EINVAL;
-}
-
-/**
- * Syctl handler for tempesta.state read/write operations.
- */
-static int
-handle_sysctl_state_io(struct ctl_table *ctl, int is_write,
-		       void __user *user_buf, size_t *lenp, loff_t *ppos)
-{
-	int r = 0;
-
-	mutex_lock(&tfw_cfg_sysctl_state_buf_mtx);
-
-	if (is_write) {
-		char new_state_buf[ctl->maxlen];
-		char *new_state, *old_state;
-		size_t copied_data_len;
-
-		copied_data_len = min((size_t)ctl->maxlen, *lenp);
-		r = strncpy_from_user(new_state_buf, user_buf, copied_data_len);
-		if (r < 0)
-			goto out;
-
-		new_state_buf[r] = 0;
-		new_state = strim(new_state_buf);
-		old_state = ctl->data;
-
-		r = handle_state_change(old_state, new_state);
-		if (r)
-			goto out;
-	}
-
-	r = proc_dostring(ctl, is_write, user_buf, lenp, ppos);
-out:
-	mutex_unlock(&tfw_cfg_sysctl_state_buf_mtx);
-	return r;
-}
-
-static struct ctl_table_header *tfw_cfg_sysctl_hdr;
-static struct ctl_table tfw_cfg_sysctl_tbl[] = {
-	{
-		.procname	= "state",
-		.data		= tfw_cfg_sysctl_state_buf,
-		.maxlen		= sizeof(tfw_cfg_sysctl_state_buf) - 1,
-		.mode		= 0644,
-		.proc_handler	= handle_sysctl_state_io,
-	},
-	{}
-};
-
 int
-tfw_cfg_if_init(void)
+tfw_cfg_init(void)
 {
-	tfw_cfg_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
-						 tfw_cfg_sysctl_tbl);
-	if (!tfw_cfg_sysctl_hdr) {
-		TFW_ERR("can't register sysctl table\n");
-		return -1;
-	}
-
 	return 0;
 }
 
@@ -1762,19 +1681,14 @@ tfw_cfg_if_init(void)
  * and then un-register the sysctl interface.
  */
 void
-tfw_cfg_if_exit(void)
+tfw_cfg_exit(void)
 {
 	TfwCfgMod *mod, *tmp;
 
 	TFW_DBG2("stopping and unregistering all cfg modules...\n");
 
-	if (tfw_cfg_mods_are_started)
-		tfw_cfg_stop_mods(&tfw_cfg_mods);
-
-	list_for_each_entry_safe_reverse(mod, tmp, &tfw_cfg_mods, list) {
+	list_for_each_entry_safe_reverse(mod, tmp, &tfw_cfg_mods, list)
 		tfw_cfg_mod_unregister(mod);
-	}
-	unregister_net_sysctl_table(tfw_cfg_sysctl_hdr);
 }
 
 /**
@@ -1789,12 +1703,6 @@ tfw_cfg_mod_register(TfwCfgMod *mod)
 	BUG_ON(!mod || !mod->name);
 
 	TFW_DBG2("register cfg: %s\n", mod->name);
-
-	if (tfw_cfg_mods_are_started) {
-		TFW_ERR("can't register module: %s - Tempesta FW is running\n",
-			mod->name);
-		return -EPERM;
-	}
 
 	write_lock(&cfg_mods_lock);
 
@@ -1817,26 +1725,11 @@ tfw_cfg_mod_unregister(TfwCfgMod *mod)
 
 	TFW_DBG2("unregister cfg: %s\n", mod->name);
 
-	/* We can't return an error code here because the function may be called
-	 * from a module_exit() routine that shall not fail.
-	 * Also we can't produce BUG() here because it may hang the system on
-	 * forced module removal. */
-	WARN(tfw_cfg_mods_are_started,
-	     "Module '%s' is unregistered while Tempesta FW is running.\n"
-	     "Other modules may still reference this unloaded module.\n"
-	     "This is dangerous. Continuing with fingers crossed...\n",
-	     mod->name);
-
 	write_lock(&cfg_mods_lock);
 
 	list_del(&mod->list);
 
 	write_unlock(&cfg_mods_lock);
-
-	if (tfw_cfg_mods_are_started) {
-		mod_stop(mod);
-		spec_cleanup(mod->specs);
-	}
 }
 EXPORT_SYMBOL(tfw_cfg_mod_unregister);
 

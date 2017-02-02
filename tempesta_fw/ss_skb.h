@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,6 +30,12 @@
  * Responses from socket hook functions.
  */
 enum {
+	/*
+	 * SS functions must return the code on shutdown process.
+	 * This code means that we can't finish requested operation due to
+	 * shutdown process, but this isn't error.
+	 */
+	SS_SHUTDOWN	= -4,
 	/* Generic socket error. */
 	SS_BAD		= -3,
 	/* The packet must be dropped. */

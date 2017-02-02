@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -40,11 +40,22 @@ typedef struct ss_hooks {
 	/* New connection accepted. */
 	int (*connection_new)(struct sock *sk);
 
-	/* Drop TCP connection associated with the socket. */
-	int (*connection_drop)(struct sock *sk);
+	/*
+	 * Drop TCP connection associated with the socket.
+	 * The callback is called on intentional socket closing when the socket
+	 * is already closed (i.e. there could not be ingress data on it) and we
+	 * can safely do some clenup stuff. We need the callback sine socket
+	 * closing always has chance to run asynchronously on other CPU and a
+	 * caller doesn't know the it completes.
+	 */
+	void (*connection_drop)(struct sock *sk);
 
-	/* Error on TCP connection associated with the socket. */
-	int (*connection_error)(struct sock *sk);
+	/*
+	 * Error on TCP connection (on Linux TCP socket layer) associated
+	 * with the socket or at application (data processing) layer,
+	 * i.e. unintentional connection closing.
+	 */
+	void (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(void *conn, struct sk_buff *skb,
@@ -99,5 +110,10 @@ int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
 int ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen);
 int ss_listen(struct sock *sk, int backlog);
 void ss_getpeername(struct sock *sk, TfwAddr *addr);
+void ss_wait_listeners(void);
+void ss_synchronize(void);
+void ss_start(void);
+void ss_stop(void);
+bool ss_active(void);
 
 #endif /* __SS_SOCK_H__ */
