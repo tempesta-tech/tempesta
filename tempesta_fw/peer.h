@@ -69,8 +69,8 @@ tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 }
 
 #define tfw_peer_for_each_conn(p, conn, member, cb)			\
-do {									\
-	int r;								\
+({									\
+	int r = 0;							\
 	spin_lock(&(p)->conn_lock);					\
 	list_for_each_entry(conn, &(p)->conn_list, member) {		\
 		r = (cb)(conn);						\
@@ -78,7 +78,7 @@ do {									\
 			break;						\
 	}								\
 	spin_unlock(&(p)->conn_lock);					\
-	return r;							\
-} while (0)
+	r;								\
+})
 
 #endif /* __PEER_H__ */

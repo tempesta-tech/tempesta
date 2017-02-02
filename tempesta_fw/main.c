@@ -59,27 +59,27 @@ handle_state_change(const char *old_state, const char *new_state)
 	if (!strcasecmp("start", new_state)) {
 		int r;
 
-		if (tfw_started) {
+		if (READ_ONCE(tfw_started)) {
 			TFW_WARN("Trying to start running system\n");
 			return -EINVAL;
 		}
 
 		ss_start();
 		if (!(r = tfw_cfg_start()))
-			tfw_started = true;
+			WRITE_ONCE(tfw_started, true);
 
 		return r;
 	}
 
 	if (!strcasecmp("stop", new_state)) {
-		if (!tfw_started) {
+		if (!READ_ONCE(tfw_started)) {
 			TFW_WARN("Trying to stop inactive system\n");
 			return -EINVAL;
 		}
 
 		ss_stop();
 		tfw_cfg_stop();
-		tfw_started = false;
+		WRITE_ONCE(tfw_started, false);
 
 		return 0;
 	}

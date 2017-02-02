@@ -34,7 +34,6 @@ typedef struct {
 /*
  * @rx_messages		- The number of messages received from peers.
  * @msgs_forwarded	- The number of forwarded messages.
- * @msgs_fromcache	- The number of messages served from cache.
  * @msgs_parserr	- The number of messages with parsing errors.
  * @msgs_filtout	- The number of messages that were filtered out
  *			  in accordance with the rules in configuration.
@@ -49,56 +48,29 @@ typedef struct {
  * @rx_bytes		- The number of bytes received from peers and
  *			  processed by Tempesta.
  */
-typedef struct {
-	u64	rx_messages;
-	u64	msgs_forwarded;
-	u64	msgs_fromcache;
-	u64	msgs_parserr;
-	u64	msgs_filtout;
-	u64	msgs_otherr;
-
-	u64	conn_attempts;
-	u64	conn_established;
-	u64	conn_disconnects;
-
+#define TFW_STAT_COMMON							\
+	u64	rx_messages;						\
+	u64	msgs_forwarded;						\
+	u64	msgs_parserr;						\
+	u64	msgs_filtout;						\
+	u64	msgs_otherr;						\
+	u64	conn_attempts;						\
+	u64	conn_established;					\
+	u64	conn_disconnects;					\
 	u64	rx_bytes;
+
+typedef struct {
+	TFW_STAT_COMMON;
 } TfwSrvStat;
 
 /*
- * @rx_messages		- The number of messages received from peers.
- * @msgs_forwarded	- The number of forwarded messages.
  * @msgs_fromcache	- The number of messages served from cache.
- * @msgs_parserr	- The number of messages with parsing errors.
- * @msgs_filtout	- The number of messages that were filtered out
- *			  in accordance with the rules in configuration.
- * @msgs_otherr		- The number of messages not accepted due to
- *			  other errors.
- *
  * @online		- The number of clients online.
- *
- * @conn_attempts	- The number of connect attempts.
- * @conn_established	- The number of connections ever established
- *			  with peers while Tempesta is active.
- * @conn_disconnects	- The number of disconnects for any reason.
- *
- * @rx_bytes		- The number of bytes received from peers and
- *			  processed by Tempesta.
  */
 typedef struct {
-	u64	rx_messages;
-	u64	msgs_forwarded;
+	TFW_STAT_COMMON;
 	u64	msgs_fromcache;
-	u64	msgs_parserr;
-	u64	msgs_filtout;
-	u64	msgs_otherr;
-
 	u64	online;
-
-	u64	conn_attempts;
-	u64	conn_established;
-	u64	conn_disconnects;
-
-	u64	rx_bytes;
 } TfwClntStat;
 
 /*

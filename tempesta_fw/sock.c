@@ -50,15 +50,32 @@ static const char *ss_statename[] = {
 };
 #endif
 
-#define SS_LISTEN_VAL		0x0000000000000001UL
-#define SS_LISTEN_VAL_MASK	0x000000000000ffffUL
-#define SS_SOFTIRQ_VAL		0x0000000000010000UL
-#define SS_STOP_VAL		0x0100000000000000UL
+/**
+ * Constants for active socket operations.
+ * SS uses downcalls (SS functions calls from Tempesta layer) and upcalls
+ * (SS callbacks), but all of them are executed in softirq context.
+ * Meantime, system shutdown is performed in process context.
+ * So __ss_act_cnt and the constants at the below are used to count number of
+ * upcalls and downcalls on the fly and synchronize shutdown process with the
+ * calls: the shutdown process must wait untill all the calls finished and
+ * no new calls can be executed.
+ *
+ * However, softirqs can call SS down- or upcall any time. Moreover, there could
+ * be an ingress packet for some Tempesta's socket and it initiates new
+ * Tempesta's calls in softirq. So to guarantee shutdown process convergence we
+ * firstly finish all new established connections activity using
+ * SS_V_ACT_NEWCONN and next we wait for finishing all active connections
+ * using SS_V_ACT_LIVECONN.
+ */
+#define SS_V_ACT_NEWCONN	0x0000000000000001UL
+#define SS_M_ACT_NEWCONN	0x00000000ffffffffUL
+#define SS_V_ACT_LIVECONN	0x0000000100000000UL
 
+static bool __ss_active = false;
+static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
+	= ATOMIC_INIT(0);
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
-static DEFINE_PER_CPU(atomic64_t, __ss_active) ____cacheline_aligned
-	= ATOMIC_INIT(SS_STOP_VAL);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
@@ -96,33 +113,26 @@ skb_sender_cpu_clear(struct sk_buff *skb)
  * process in progress and we can't enter the section.
  */
 static int
-__active_guard_enter(unsigned long val, int cpu)
+ss_active_guard_enter(unsigned long val)
 {
-	atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
-	unsigned long a_new, a_old = atomic64_read(active);
+	atomic64_t *acnt = this_cpu_ptr(&__ss_act_cnt);
 
-	while (1) {
-		if (unlikely(a_old >= SS_STOP_VAL))
-			return SS_BAD;
-
-		a_new = a_old + val;
-		a_new = atomic64_cmpxchg(active, a_old, a_new);
-		if (likely(a_new == a_old))
-			return SS_OK;
-		a_old = a_new;
+	if (unlikely(!READ_ONCE(__ss_active)))
+		return SS_BAD;
+	atomic64_add(val, acnt);
+	if (unlikely(!READ_ONCE(__ss_active))) {
+		atomic64_sub(val, acnt);
+		return SS_BAD;
 	}
+
+	return SS_OK;
 }
 
 static void
-__active_guard_exit(unsigned long val, int cpu)
+ss_active_guard_exit(unsigned long val)
 {
-	atomic64_sub(val, per_cpu_ptr(&__ss_active, cpu));
+	atomic64_sub(val, this_cpu_ptr(&__ss_act_cnt));
 }
-
-#define ss_active_guard_enter(v)	__active_guard_enter(v,		\
-							     smp_processor_id())
-#define ss_active_guard_exit(v)		__active_guard_exit(v,		\
-							    smp_processor_id())
 
 /**
  * Guard for calling connection error/drop callback for each established socket,
@@ -130,16 +140,14 @@ __active_guard_exit(unsigned long val, int cpu)
  */
 #define SS_CALL_GUARD_ENTER(cb, sk)					\
 ({									\
-	__active_guard_enter(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
+	ss_active_guard_enter(SS_V_ACT_LIVECONN);			\
 	SS_CALL(cb, sk);						\
 })
 
 #define SS_CALL_GUARD_EXIT(cb, sk)					\
 do {									\
-	if (unlikely(sk->sk_incoming_cpu == TFW_SK_CPU_INIT))		\
-		break;							\
 	SS_CALL(cb, sk);						\
-	__active_guard_exit(SS_SOFTIRQ_VAL, sk->sk_incoming_cpu);	\
+	ss_active_guard_exit(SS_V_ACT_LIVECONN);			\
 } while (0)
 
 static void
@@ -827,7 +835,7 @@ ss_tcp_state_change(struct sock *sk)
 		struct sock *lsk = proto->listener;
 		int r;
 
-		if (ss_active_guard_enter(SS_LISTEN_VAL)) {
+		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
 			/*
 			 * Tempesta is shutting down. However, Tempesta isn't
 			 * aware about @sk, so we have to close it on our own
@@ -845,13 +853,18 @@ ss_tcp_state_change(struct sock *sk)
 		 * opening from our side. Passive open is processed from
 		 * tcp_v4_rcv() under the socket lock. So there is no need
 		 * for synchronization with ss_tcp_process_data().
+		 *
+		 * Acquire SS active guard for sockets established through
+		 * a listening socket. ss_connect() cares about established
+		 * sockets on it's own.
 		 */
-		r = SS_CALL_GUARD_ENTER(connection_new, sk);
+		r = lsk ? SS_CALL_GUARD_ENTER(connection_new, sk)
+			: SS_CALL(connection_new, sk);
 		if (r) {
 			SS_DBG("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
 			ss_droplink(sk);
-			ss_active_guard_exit(SS_LISTEN_VAL);
+			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
 		}
 		if (lsk) {
@@ -871,7 +884,7 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			ss_drain_accept_queue(lsk, sk);
 		}
-		ss_active_guard_exit(SS_LISTEN_VAL);
+		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
 	else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
@@ -1130,12 +1143,18 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	if (sk->sk_state != TCP_CLOSE)
 		return -EISCONN;
 
-	if (ss_active_guard_enter(SS_SOFTIRQ_VAL))
+	if (ss_active_guard_enter(SS_V_ACT_LIVECONN))
 		return SS_SHUTDOWN;
 
 	r = sk->sk_prot->connect(sk, uaddr, uaddr_len);
 
-	ss_active_guard_exit(SS_SOFTIRQ_VAL);
+	/*
+	 * If connect() successfully returns, then the soket is living somewhere
+	 * in TCP code and it will move to established or closed state.
+	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
+	 */
+	if (unlikely(r))
+		ss_active_guard_exit(SS_V_ACT_LIVECONN);
 
 	return r;
 }
@@ -1264,9 +1283,13 @@ dead_sock:
 #define HANDLE_TOO_LONG_WAIT(t0, job)					\
 do {									\
 	if (t0 + HZ * 5 < jiffies) {					\
-		SS_WARN("cpu %d: pending " job " for 5s (__ss_active=%#lx)\n",\
-			cpu, atomic64_read(active));			\
-		return;	/* give up - everything should be finished now */\
+		SS_WARN("pending " job " for 5s (connections count %#lx)\n",\
+			acc);						\
+		/*							\
+		 * Something is very wrong with socket accounting.	\
+		 * Give up waiting and hope for the best.		\
+		 */							\
+		return;							\
 	}								\
 } while (0)
 
@@ -1274,15 +1297,22 @@ void
 ss_wait_listeners(void)
 {
 	int cpu;
+	long acc = 0, acc_old = 0;
+	unsigned long t0 = jiffies;
 
 	might_sleep();
-	for_each_online_cpu(cpu) {
-		unsigned long t0 = jiffies;
-		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
-
-		while (atomic64_read(active) & SS_LISTEN_VAL_MASK) {
-			schedule();
+	while (1) {
+		for_each_online_cpu(cpu)
+			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
+		BUG_ON(acc < 0);
+		if (!(acc & SS_M_ACT_NEWCONN))
+			break;
+		schedule();
+		if (acc == acc_old) {
 			HANDLE_TOO_LONG_WAIT(t0, "listeners");
+		} else {
+			acc_old = acc;
+			acc = 0;
 		}
 	}
 }
@@ -1291,25 +1321,36 @@ EXPORT_SYMBOL(ss_wait_listeners);
 /**
  * Wait until there are no queued works and no runnign tasklets.
  * The function should be used when all sockets are closed.
- * SS upcalls are protected with SS_SOFTIRQ_VAL.
+ * SS upcalls are protected with SS_V_ACT_LIVECONN.
  * Can sleep, so must be called from user-space context.
  */
 void
 ss_synchronize(void)
 {
-	int cpu;
+	int cpu, wq_acc = 0, wq_acc_old = 0;
+	long acc = 0, acc_old = 0;
+	unsigned long t0 = jiffies;
 
 	might_sleep();
-	for_each_online_cpu(cpu) {
-		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
-		unsigned long t0 = jiffies;
-		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
+	while (1) {
+		for_each_online_cpu(cpu) {
+			TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
-		while (tfw_wq_size(wq) || atomic64_read(active) != SS_STOP_VAL)
-		{
-			schedule();
+			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
+			wq_acc += tfw_wq_size(wq);
+		}
+		BUG_ON(acc < 0);
+		if (!acc && !wq_acc)
+			break;
+		schedule();
+		for_each_online_cpu(cpu)
 			irq_work_sync(&per_cpu(ipi_work, cpu));
+		if (acc == acc_old && wq_acc == wq_acc_old) {
 			HANDLE_TOO_LONG_WAIT(t0, "softiq works");
+		} else {
+			acc_old = acc;
+			wq_acc_old = wq_acc;
+			acc = wq_acc = 0;
 		}
 	}
 }
@@ -1328,40 +1369,22 @@ EXPORT_SYMBOL(ss_synchronize);
 void
 ss_start(void)
 {
-	int cpu;
-
-	for_each_online_cpu(cpu) {
-		/* Concurrent starts are synchronized at sysctl layer. */
-		atomic64_set(per_cpu_ptr(&__ss_active, cpu), 0);
-	}
+	/* Concurrent starts are synchronized at sysctl layer. */
+	WRITE_ONCE(__ss_active, true);
 }
 EXPORT_SYMBOL(ss_start);
 
 void
 ss_stop(void)
 {
-	int cpu;
-
-	for_each_online_cpu(cpu) {
-		atomic64_t *active = per_cpu_ptr(&__ss_active, cpu);
-		unsigned long old = atomic64_read(active), new;
-
-		while (old < SS_STOP_VAL) {
-			new = old + SS_STOP_VAL;
-			new = atomic64_cmpxchg(active, old, new);
-			if (new == old)
-				break;
-			old = new;
-		}
-
-	}
+	WRITE_ONCE(__ss_active, false);
 }
 EXPORT_SYMBOL(ss_stop);
 
 bool
 ss_active(void)
 {
-	return atomic64_read(this_cpu_ptr(&__ss_active)) < SS_STOP_VAL;
+	return READ_ONCE(__ss_active);
 }
 EXPORT_SYMBOL(ss_active);
 
