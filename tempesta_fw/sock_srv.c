@@ -420,9 +420,7 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	TfwConnection *conn;
 
-	tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
-
-	return 0;
+	return tfw_peer_for_each_conn(srv, conn, list, tfw_sock_srv_disconnect);
 }
 
 static int
@@ -443,7 +441,8 @@ tfw_sock_srv_stop(void)
 	 * Connections list is read-only at run time for now, so no need
 	 * to synchronize the list access or disable softirqs.
 	 */
-	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
+	while (tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv))
+		schedule();
 }
 
 /*

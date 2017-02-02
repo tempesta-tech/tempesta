@@ -506,7 +506,7 @@ adjudge_to_death:
  * for server sockets. So connection_error callback is called here.
  */
 static void
-ss_droplink(struct sock *sk)
+ss_linkerror(struct sock *sk)
 {
 	ss_do_close(sk);
 	SS_CALL_GUARD_EXIT(connection_error, sk);
@@ -796,12 +796,12 @@ ss_tcp_data_ready(struct sock *sk)
 			 * Drop connection in case of internal errors,
 			 * banned packets, or FIN in the received packet.
 			 *
-			 * ss_droplink() is responsible for calling
+			 * ss_linkerror() is responsible for calling
 			 * application layer connection closing callback.
 			 * The callback will free all SKBs linked with
 			 * the message that is currently being processed.
 			 */
-			ss_droplink(sk);
+			ss_linkerror(sk);
 		}
 	}
 	else {
@@ -863,7 +863,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (r) {
 			SS_DBG("[%d]: New connection hook failed, r=%d\n",
 			       smp_processor_id(), r);
-			ss_droplink(sk);
+			ss_linkerror(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
 		}
@@ -904,7 +904,7 @@ ss_tcp_state_change(struct sock *sk)
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		SS_DBG("[%d]: Peer connection closing\n", smp_processor_id());
-		ss_droplink(sk);
+		ss_linkerror(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -926,9 +926,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * callback is never called for the same socket concurrently.
 		 */
 		WARN_ON(!skb_queue_empty(&sk->sk_receive_queue));
-		ss_do_close(sk);
-		SS_CALL_GUARD_EXIT(connection_error, sk);
-		sock_put(sk);
+		ss_linkerror(sk);
 	}
 }
 
@@ -1309,7 +1307,7 @@ ss_wait_listeners(void)
 			break;
 		schedule();
 		if (acc == acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "listeners");
+			HANDLE_TOO_LONG_WAIT(t0, "listening sockets");
 		} else {
 			acc_old = acc;
 			acc = 0;
@@ -1346,7 +1344,7 @@ ss_synchronize(void)
 		for_each_online_cpu(cpu)
 			irq_work_sync(&per_cpu(ipi_work, cpu));
 		if (acc == acc_old && wq_acc == wq_acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "softiq works");
+			HANDLE_TOO_LONG_WAIT(t0, "active connections");
 		} else {
 			acc_old = acc;
 			wq_acc_old = wq_acc;
