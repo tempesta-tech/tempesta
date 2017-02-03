@@ -1424,7 +1424,8 @@ tfw_http_resp_process(TfwConnection *conn, struct sk_buff *skb,
 			 * The response is fully parsed,
 			 * fall through and process it.
 			 */
-			BUG_ON(!(hmresp->flags & TFW_HTTP_CHUNKED)
+			BUG_ON(!(hmresp->flags
+				 & (TFW_HTTP_CHUNKED | TFW_HTTP_VOID_BODY))
 			       && (hmresp->content_length != hmresp->body.len));
 		}
 
