@@ -801,6 +801,58 @@ TEST(http_parser, eol_crlf)
 			 "\r\r\n");
 }
 
+/*
+ * This test ensures that there's not retrogression in handling CRLF.
+ * The bug was that in case of trailing headers CRLF that was set to
+ * point at location after the headers at the beginning of a message
+ * was later reset to point at location after the trailing headers.
+ */
+TEST(http_parser, crlf_trailer)
+{
+	unsigned int id;
+	DEFINE_TFW_STR(s_custom, "Custom-Hdr:");
+
+	/*
+	 * Use a trick with different CRLF length to differentiate
+	 * between the correct CRLF and an incorrect CRLF.
+	 */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"\n"
+		"4\r\n"
+		"1234\r\n"
+		"0\r\n"
+		"\r\n"
+		"Custom-Hdr: custom-data\r\n"
+		"\r\n")
+	{
+		/* 'Custom-Hdr:' is the first raw header in this example. */
+		id = tfw_http_msg_hdr_lookup((TfwHttpMsg *)req, &s_custom);
+
+		EXPECT_TRUE(id == TFW_HTTP_HDR_RAW);
+		EXPECT_TRUE(req->body.len == 12);
+		EXPECT_TRUE(req->crlf.len == 1);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Transfer-Encoding: chunked\r\n"
+		 "\n"
+		 "5\r\n"
+		 "abcde\r\n"
+		 "0\r\n"
+		 "\r\n"
+		 "Custom-Hdr: custom-data\r\n"
+		 "\r\n")
+	{
+		/* 'Custom-Hdr:' is the first raw header in this example. */
+		id = tfw_http_msg_hdr_lookup((TfwHttpMsg *)resp, &s_custom);
+
+		EXPECT_TRUE(id == TFW_HTTP_HDR_RAW);
+		EXPECT_TRUE(resp->body.len == 13);
+		EXPECT_TRUE(resp->crlf.len == 1);
+	}
+}
+
 TEST(http_parser, ows)
 {
 	FOR_REQ("GET /a.html HTTP/1.1\r\n"
@@ -1374,6 +1426,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_length);
 	TEST_RUN(http_parser, eol_crlf);
+	TEST_RUN(http_parser, crlf_trailer);
 	TEST_RUN(http_parser, ows);
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, empty_host);
