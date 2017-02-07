@@ -144,6 +144,8 @@ class Nginx():
         self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
         self.state = 'down'
+        # Configure number of connections used by TempestaFW.
+        self.conns_n = tempesta.server_conns_default()
 
     def start(self):
         if self.state != 'down':
