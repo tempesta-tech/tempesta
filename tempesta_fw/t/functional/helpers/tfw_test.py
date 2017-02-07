@@ -21,14 +21,24 @@ class Loader(unittest.TestCase):
         self.tempesta = control.Tempesta()
 
     def configure_tempesta(self):
-        """ Must be overriden. """
-        cfg = self.tempesta.config
-        assert(cfg.get_config())
+        """ Add all servers to default server group with default scheduler. """
+        sg = tempesta.ServerGroup('default')
+        ip = tf_cfg.cfg.get('Server', 'ip')
+        for s in self.servers:
+            sg.add_server(ip, s.config.port, s.conns_n)
+        self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
         """ Overrirde to create needed amount of upstream servers. """
         port = tempesta.upstream_port_start_from()
         self.servers = [ control.Nginx(listen_port = port) ]
+
+    def create_servers_helper(self, count,
+                              start_port = tempesta.upstream_port_start_from()):
+        """ Helper function to spawn `count` servers in default configuration"""
+        self.servers = []
+        for i in range(count):\
+            self.servers.append(control.Nginx(listen_port = (start_port + i)))
 
     def setUp(self):
         tf_cfg.dbg() # Step to the next line after name of test case.
@@ -75,10 +85,12 @@ class Loader(unittest.TestCase):
         # Nothing to do for nginx in default configuration.
         pass
 
-    def generic_test_routine(self):
+    def generic_test_routine(self, tempesta_defconfig):
         """ Make necessary updates to configs of servers, create tempesta config
         and run the routine in you `test_*()` function.
         """
+        # Set defconfig for Tempesta.
+        self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
         for s in self.servers:
             self.assertEqual(s.start(), True)
