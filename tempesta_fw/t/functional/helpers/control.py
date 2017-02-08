@@ -116,6 +116,7 @@ class Tempesta():
         return r
 
     def stop(self):
+        """ Stop and unload all TempestaFW modules. """
         hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
         tf_cfg.dbg('\tStoping TempestaFW on %s' % hostname)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
@@ -179,6 +180,9 @@ class Nginx():
         return r
 
     def get_stats(self):
+        """ Nginx doesn't have counters for every virtual host. Spawn separate
+        instances instead
+        """
         self.stats_ask_times += 1
         # Just ask servver to get stats for us. 'node.run_cmd' will also tell
         # us if server is dead.
