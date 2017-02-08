@@ -58,16 +58,25 @@ class Loader(unittest.TestCase):
         for s in self.servers:
             assert(s.stop())
 
+    def show_performance(self):
+        if tf_cfg.v_level() < 2:
+            return
+        if tf_cfg.v_level() == 2:
+            # Go to new line, don't mess up output.
+            print()
+        for c in self.clients:
+            ret, req, err = c.results()
+            status = 'Ok' if ret else 'Failed'
+            print('\tClient: finished: %s, errors: %d, requests: %d' %
+                  (status, err, req))
+
+
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         for c in self.clients:
-            ret, perf, err = c.results()
-            cl_req_cnt += perf
-            if tf_cfg.v_level() >= 2:
-                status = 'Ok' if ret else 'Failed'
-                print('\tClient: finished: %s, errors: %d, requests: %d' %
-                      (status, err, perf))
+            ret, req, err = c.results()
+            cl_req_cnt += req
             self.assertEqual(ret, True)
             self.assertEqual(err, 0)
         # Wrk counts only complited requests and closes connections before
@@ -103,6 +112,7 @@ class Loader(unittest.TestCase):
             cl.run()
         for cl in self.clients:
             cl.wait()
+        self.show_performance()
 
         # Tempesta statistics is valueble to client assertions.
         self.assertEqual(self.tempesta.get_stats(), True)
