@@ -117,7 +117,7 @@ user = root
 port = 22
 # Absolute path to NGINX binary.
 nginx = /usr/bin/nginx
-# Absolute path to sample nginx root location. Must be reacheble by nginx.
+# Absolute path to sample nginx root location. Must be reachable by nginx.
 resourses = /srv/http/
         """)
 

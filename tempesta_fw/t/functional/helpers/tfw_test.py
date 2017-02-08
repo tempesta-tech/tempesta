@@ -35,7 +35,10 @@ class Loader(unittest.TestCase):
 
     def create_servers_helper(self, count,
                               start_port = tempesta.upstream_port_start_from()):
-        """ Helper function to spawn `count` servers in default configuration"""
+        """ Helper function to spawn `count` servers in default configuration.
+
+        See comment in Nginx.get_stats().
+        """
         self.servers = []
         for i in range(count):\
             self.servers.append(control.Nginx(listen_port = (start_port + i)))
