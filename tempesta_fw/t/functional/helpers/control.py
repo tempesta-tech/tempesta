@@ -13,34 +13,87 @@ __license__ = 'GPL2'
 #-------------------------------------------------------------------------------
 
 class Client():
-    """ Base class for managing HTTP benchmark utilities. """
+    """ Base class for managing HTTP benchmark utilities.
 
-    def __init__(self, type, threads=-1, connections=-1, uri='/'):
+    Command-line options can be added by appending `Client.options` list.
+    Also see comment in `Client.add_option_file()` function.
+    """
+
+    def __init__(self, bin, threads=-1, uri=''):
+        """ `uri` must be relative to server root.
+
+        DO NOT format command line options in constructor! Instead format them
+        in `form_command()` function. This would allow to update options until
+        client will be started. See `Wrk` class for example
+        """
         self.node = remote.client
         self.threads = threads
-        self.connections = connections
-        self.uri = uri
+        self.connections = tf_cfg.cfg.get('General', 'concurent_connections')
+        self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
+        # Some clients don't use uri as parameter, instead they use file
+        # with list of uris. Don't force clients to use iri field.
+        if uri:
+            server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
+            self.uri = 'http://' + server_addr + uri
+        self.bin = tf_cfg.cfg.get_binary('Client', bin)
+        # List of command-line options.
+        self.options = []
+        # List tuples (filename, content) to create corresponding files on
+        # remote node.
+        self.files = []
+        # List of files to be removed from remote node after client finish.
+        self.cleanup_files = []
+
+    def cleanup(self):
+        for file in self.cleanup_files:
+            self.node.remove_file(file)
+
+    def copy_files(self):
+        dir = tf_cfg.cfg.get('Client', 'workdir')
+        for (name, content) in self.files:
+            if not self.node.copy_file(dir, name, content):
+                return false
+        return True
+
+    def parse_out(self, ret, out):
+        """ Parse framework results. """
+        print(ret, out.decode('ascii'))
+
+    def th_routine(self, command):
+        self.ret, out = self.node.run_cmd(command, timeout = self.duration * 2)
+        self.parse_out(self.ret, out)
+        self.cleanup()
+
+    def form_command(self):
+        """ Prepare run command for benchmark to run on remote node. """
+        cmd = self.bin
+        for opt in self.options:
+            cmd += ' %s' % opt
+        cmd += ' ' + self.uri
+        return cmd
 
     def run(self):
         """ Run benchmark in background thread. """
         hostname = tf_cfg.cfg.get('Client', 'hostname')
-        duration = tf_cfg.cfg.get('General', 'Duration')
         tf_cfg.dbg('\tRun client on %s for %s seconds ...' %
-                   (hostname, duration))
+                   (hostname, self.duration))
         if self.threads == -1:
             ret, out = self.node.run_cmd('grep -c processor /proc/cpuinfo')
             if (not ret) or (not re.match(b'^\d+$', out)):
                 return False
-            self.threads = re.match(b'^(\d+)$', out).group(1).decode('ascii')
+            self.threads = int(
+                    re.match(b'^(\d+)$', out).group(1).decode('ascii'))
 
-        bin = tf_cfg.cfg.get('Client', 'wrk')
-        server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
-        cmd = self.form_command(bin, duration, server_addr)
+        cmd = self.form_command()
+
+        self.ret = False
+        if not self.copy_files():
+            return
 
         self.requests = 0
         self.errors = 0
         self.th = threading.Thread(target=self.th_routine,
-                                   args=(cmd, int(duration),))
+                                   args=(cmd,))
         self.th.start()
 
     def wait(self):
@@ -50,31 +103,35 @@ class Client():
     def results(self):
         return self.ret, self.requests, self.errors
 
-    def th_routine(self, command, duration):
-        self.ret, out = self.node.run_cmd(command, timeout = duration * 2)
-        self.parse_out(self.ret, out)
-
-    def parse_out(self, ret, out):
-        """ Parse framework results. """
-        print(ret, out.decode('ascii'))
-
-    def form_command(self, bin, duration, server_addr):
-        """ Prepare run command for benchmark to run on remote node. """
-        cmd = bin +' -t ' + duration + ' http://' + server_addr + self.uri
-        return cmd
+    def add_option_file(self, option, filename, content):
+        """ Helper for using files as client options: normaly file must be
+        copied to remote node, present in command line as parameter and
+        removed after client finish.
+        """
+        dir = tf_cfg.cfg.get('Tempesta', 'workdir')
+        if not dir.endswith('/'):
+            dir = dir + '/'
+        full_name = dir + filename
+        self.files.append(filename, content)
+        self.options.append('%s %s' % (option, full_name))
+        self.cleanup_files.append(full_name)
 
 
 
 class Wrk(Client):
+    """ wrk - HTTP benchmark utility. """
 
-    def __init__(self, threads=-1, connections=-1, uri='/', script='',
-                 headers=[]):
-        Client.__init__(self, 'wrk', threads, connections, uri)
+    def __init__(self, threads=-1, uri='/'):
+        Client.__init__(self, 'wrk', threads, uri)
 
-    def form_command(self, bin, duration, server_addr):
-        cmd = (bin + ' -t ' + str(self.threads) + ' -d ' + duration +
-               ' http://' + server_addr + self.uri)
-        return cmd
+    def form_command(self):
+        self.options.append('-d %d' % self.duration)
+        # At this moment threads equals user defined value or maximum theads
+        # count for remote node.
+        self.options.append('-t %d' % self.threads)
+        if self.connections != -1:
+            self.options.append('-c %d' % self.duration)
+        return Client.form_command(self)
 
     def parse_out(self, ret, out):
         if not ret:
