@@ -79,21 +79,25 @@ class Loader(unittest.TestCase):
             cl_req_cnt += req
             self.assertEqual(ret, True)
             self.assertEqual(err, 0)
-        # Wrk counts only complited requests and closes connections before
-        # Tempesta can send responses. So recieved reived requests count differ
-        # from request count shown by wrk. Didn't find any way how to fix it.
-        # Just check that less than 0.05% requests was lost in counters.
-        self.assertTrue((self.tempesta.stats.cl_msg_received - cl_req_cnt) <
-                        (0.0005 * cl_req_cnt))
+        # Clients counts only complited requests and closes connections before
+        # Tempesta can send responses. So Tempesta recieved requests count
+        # differ from request count shown by clients. Didn't find any way how to
+        # fix that.
+        # Just check that difference is less than concurrent connections count.
+        expected_diff = int(tf_cfg.cfg.get('General', 'concurent_connections'))
+        self.assertTrue((self.tempesta.stats.cl_msg_received - cl_req_cnt) <=
+                        expected_diff)
 
     def assert_tempesta(self):
         """ Assert that tempesta had no errors during test. """
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0)
-        # FIXME: dont check other errors, when runningg wrk
-        # self.assertEqual(self.tempesta.stats.cl_msg_other_errors, 0)
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0)
-        # FIXME: dont check other errors, when runningg wrk
-        #self.assertEqual(self.tempesta.stats.srv_msg_other_errors, 0)
+        # See comment in `assert_clients()`
+        expected_err = int(tf_cfg.cfg.get('General', 'concurent_connections'))
+        self.assertTrue(self.tempesta.stats.cl_msg_other_errors <=
+                        expected_err)
+        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <=
+                        expected_err)
 
     def assert_servers(self):
         # Nothing to do for nginx in default configuration.
