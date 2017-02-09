@@ -1,7 +1,7 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
 import paramiko, subprocess, re, threading
-from . import tf_cfg, remote, nginx, tempesta
+from . import tf_cfg, remote, nginx, tempesta, siege
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -19,7 +19,7 @@ class Client():
     Also see comment in `Client.add_option_file()` function.
     """
 
-    def __init__(self, bin, threads=-1, uri=''):
+    def __init__(self, bin, uri=''):
         """ `uri` must be relative to server root.
 
         DO NOT format command line options in constructor! Instead format them
@@ -27,14 +27,9 @@ class Client():
         client will be started. See `Wrk` class for example
         """
         self.node = remote.client
-        self.threads = threads
         self.connections = int(tf_cfg.cfg.get('General', 'concurent_connections'))
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
-        # Some clients don't use uri as parameter, instead they use file
-        # with list of uris. Don't force clients to use iri field.
-        if uri:
-            server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
-            self.uri = 'http://' + server_addr + uri
+        self.set_uri(uri)
         self.bin = tf_cfg.cfg.get_binary('Client', bin)
         # List of command-line options.
         self.options = []
@@ -43,6 +38,17 @@ class Client():
         self.files = []
         # List of files to be removed from remote node after client finish.
         self.cleanup_files = []
+
+    def set_uri(self, uri):
+        """ For some clients uri is an optional parameter, e.g. for Siege.
+        They use file with list of uris instead. Don't force clients to use
+        iri field.
+        """
+        if uri:
+            server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
+            self.uri = 'http://' + server_addr + uri
+        else:
+            self.uri = ''
 
     def cleanup(self):
         for file in self.cleanup_files:
@@ -77,12 +83,6 @@ class Client():
         hostname = tf_cfg.cfg.get('Client', 'hostname')
         tf_cfg.dbg('\tRun client on %s for %s seconds ...' %
                    (hostname, self.duration))
-        if self.threads == -1:
-            ret, out = self.node.run_cmd('grep -c processor /proc/cpuinfo')
-            if (not ret) or (not re.match(b'^\d+$', out)):
-                return False
-            self.threads = int(
-                    re.match(b'^(\d+)$', out).group(1).decode('ascii'))
 
         cmd = self.form_command()
 
@@ -108,29 +108,30 @@ class Client():
         copied to remote node, present in command line as parameter and
         removed after client finish.
         """
-        dir = tf_cfg.cfg.get('Tempesta', 'workdir')
+        dir = tf_cfg.cfg.get('Client', 'workdir')
         if not dir.endswith('/'):
             dir = dir + '/'
         full_name = dir + filename
-        self.files.append(filename, content)
+        self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
-
 
 
 class Wrk(Client):
     """ wrk - HTTP benchmark utility. """
 
     def __init__(self, threads=-1, uri='/'):
-        Client.__init__(self, 'wrk', threads, uri)
+        Client.__init__(self, 'wrk', uri)
+        self.threads = threads
 
     def form_command(self):
         self.options.append('-d %d' % self.duration)
         # At this moment threads equals user defined value or maximum theads
         # count for remote node.
+        if self.threads == -1:
+            self.threads = remote.get_max_thread_count(self.node)
         self.options.append('-t %d' % self.threads)
-        if self.connections != -1:
-            self.options.append('-c %d' % self.connections)
+        self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
@@ -155,8 +156,7 @@ class Ab(Client):
         # Don't show progress.
         self.options.append('-q')
         self.options.append('-t %d' % self.duration)
-        if self.connections != -1:
-            self.options.append('-c %d' % self.connections)
+        self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
@@ -169,6 +169,36 @@ class Ab(Client):
         m = re.search(b'Failed requests:\s+(\d+)', out)
         if m:
             self.errors += int(m.group(1))
+
+
+class Siege(Client):
+    """ HTTP regression test and benchmark utility. """
+
+    def __init__(self, uri=''):
+        Client.__init__(self, 'siege', uri = uri)
+        self.rc = siege.Config()
+
+    def form_command(self):
+        # Benchmark: no delays between requests.
+        self.options.append('-b')
+        self.options.append('-t %dS' % self.duration)
+        self.options.append('-c %d' % self.connections)
+        # Add RC file.
+        self.add_option_file('-R', self.rc.filename, self.rc.get_config())
+        # Note: Siege sends statistics to stderr.
+        return Client.form_command(self)
+
+    def parse_out(self, ret, out):
+        print()
+        Client.parse_out(self, ret, out)
+        print()
+        m = re.search(b'Successful transactions:\s+(\d+)', out)
+        if m:
+            self.requests = int(m.group(1))
+        m = re.search(b'Failed transactions:\s+(\d+)', out)
+        if m:
+            self.errors = int(m.group(1))
+
 
 #-------------------------------------------------------------------------------
 # Tempesta
