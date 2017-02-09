@@ -7,6 +7,9 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
+# Don't remove files from remote node. Helpful for tests development.
+debug_files = False
+
 class Node:
     """ Node representation: can be local machine or remote one. Helps running
     commands on remote hosts.
@@ -99,6 +102,8 @@ class Node:
 
     def remove_file(self, filename):
         """ Remove `filename` from node. """
+        if debug_files:
+            return True
         if self.remote:
             try:
                 sftp = self.ssh.open_sftp()
