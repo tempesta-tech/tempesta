@@ -28,7 +28,7 @@ class Client():
         """
         self.node = remote.client
         self.threads = threads
-        self.connections = tf_cfg.cfg.get('General', 'concurent_connections')
+        self.connections = int(tf_cfg.cfg.get('General', 'concurent_connections'))
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
         # Some clients don't use uri as parameter, instead they use file
         # with list of uris. Don't force clients to use iri field.
@@ -130,7 +130,7 @@ class Wrk(Client):
         # count for remote node.
         self.options.append('-t %d' % self.threads)
         if self.connections != -1:
-            self.options.append('-c %d' % self.duration)
+            self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
@@ -143,6 +143,32 @@ class Wrk(Client):
         m = re.search(b'Non-2xx or 3xx responses: (\d+)', out)
         if m:
             self.errors = int(m.group(1))
+
+
+class Ab(Client):
+    """ Apache benchmark. """
+
+    def __init__(self, uri='/'):
+        Client.__init__(self, 'ab', uri = uri)
+
+    def form_command(self):
+        # Don't show progress.
+        self.options.append('-q')
+        self.options.append('-t %d' % self.duration)
+        if self.connections != -1:
+            self.options.append('-c %d' % self.connections)
+        return Client.form_command(self)
+
+    def parse_out(self, ret, out):
+        m = re.search(b'Complete requests:\s+(\d+)', out)
+        if m:
+            self.requests = int(m.group(1))
+        m = re.search(b'Non-2xx responses:\s+(\d+)', out)
+        if m:
+            self.errors = int(m.group(1))
+        m = re.search(b'Failed requests:\s+(\d+)', out)
+        if m:
+            self.errors += int(m.group(1))
 
 #-------------------------------------------------------------------------------
 # Tempesta
