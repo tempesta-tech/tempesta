@@ -57,7 +57,7 @@ class Node:
             try:
                 stdin, stdout, stderr = self.ssh.exec_command(cmd,
                                                               timeout=timeout)
-                out = stdout.read()
+                out = stdout.read() + stderr.read()
                 ret = stdout.channel.recv_exit_status() == 0
             except paramiko.ssh_exception.SSHException as e:
                 print('SSH connection error:', e)
@@ -163,6 +163,17 @@ class ArpSetter():
                    (neigh_ip, neigh_hwa, dev))
             ret, _ = self.node.run_cmd(cmd)
         return ret
+
+#-------------------------------------------------------------------------------
+# Helper functions.
+#-------------------------------------------------------------------------------
+
+def get_max_thread_count(node):
+    ret, out = node.run_cmd('grep -c processor /proc/cpuinfo')
+    if (not ret) or (not re.match(b'^\d+$', out)):
+        return 1
+    threads = int(re.match(b'^(\d+)$', out).group(1).decode('ascii'))
+    return threads
 
 #-------------------------------------------------------------------------------
 # Global accessable SSH/Local connections
