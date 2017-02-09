@@ -74,6 +74,9 @@ if not tf_cfg.cfg.check():
 # Verbose level for unit tests must be > 1.
 v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1
 
+# Install Ctrl-C handler for graceful stop.
+unittest.installHandler()
+
 print("""
 ----------------------------------------------------------------------
 Running functional tests...
