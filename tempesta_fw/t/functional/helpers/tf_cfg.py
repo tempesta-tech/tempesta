@@ -14,28 +14,30 @@ class TestFrameworkCfg():
 
     def defaults(self):
         self.config = configparser.SafeConfigParser()
-        self.config.read_dict({'General': {'Verbose': '0',
-                                           'Duration': '10',
-                                           'ARP': 'True'},
-                               'Client': {'Ip': '127.0.0.1',
-                                          'Mac': 'ff:ff:ff:ff:ff:ff',
-                                          'Hostname': 'localhost',
-                                          'User': 'root',
-                                          'Port': '22',
+        self.config.read_dict({'General': {'verbose': '0',
+                                           'duration': '10',
+                                           'arp': 'True',
+                                           'concurent_connections': '-1'},
+                               'Client': {'ip': '127.0.0.1',
+                                          'mac': 'ff:ff:ff:ff:ff:ff',
+                                          'hostname': 'localhost',
+                                          'user': 'root',
+                                          'port': '22',
                                           'ab': 'ab',
                                           'wrk': 'wrk',
-                                          'siege': 'siege'},
-                               'Tempesta': {'Ip': '127.0.0.1',
-                                            'Mac': 'ff:ff:ff:ff:ff:ff',
-                                            'Hostname': 'localhost',
-                                            'User': 'root',
-                                            'Port': '22',
+                                          'siege': 'siege',
+                                          'workdir': '/root/client',},
+                               'Tempesta': {'ip': '127.0.0.1',
+                                            'mac': 'ff:ff:ff:ff:ff:ff',
+                                            'hostname': 'localhost',
+                                            'user': 'root',
+                                            'port': '22',
                                             'dir': '/root/tempesta',},
-                               'Server': {'Ip': '127.0.0.1',
-                                          'Mac': 'ff:ff:ff:ff:ff:ff',
-                                          'Hostname': 'localhost',
-                                          'User': 'root',
-                                          'Port': '22',
+                               'Server': {'ip': '127.0.0.1',
+                                          'mac': 'ff:ff:ff:ff:ff:ff',
+                                          'hostname': 'localhost',
+                                          'user': 'root',
+                                          'port': '22',
                                           'nginx': 'nginx',
                                           'workdir': '/root/nginx',
                                           'resourses': '/srv/http/'}
@@ -58,6 +60,12 @@ class TestFrameworkCfg():
 
     def get(self, type, opt):
         return self.config[type][opt]
+
+    def get_binary(self, type, bin):
+        if self.config.has_option(type, bin):
+            return self.config[type][bin]
+        else:
+            return bin
 
     def save_defaults(self):
         self.defaults()
