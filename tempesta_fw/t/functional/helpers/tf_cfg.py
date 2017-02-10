@@ -16,7 +16,7 @@ class TestFrameworkCfg():
         self.config = configparser.SafeConfigParser()
         self.config.read_dict({'General': {'verbose': '0',
                                            'duration': '10',
-                                           'concurent_connections': '-1'},
+                                           'concurent_connections': '10'},
                                'Client': {'ip': '127.0.0.1',
                                           'hostname': 'localhost',
                                           'user': 'root',
