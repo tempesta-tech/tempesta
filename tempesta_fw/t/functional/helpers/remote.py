@@ -152,14 +152,14 @@ class ArpSetter():
         # ip neighbor add ${ip} lladdr ${hw_addr} dev ${dev} nud permanent
         """
         if self.is_same_machine(neigh):
-            return # Nothing to do.
+            return True # Nothing to do.
 
         node_ip = tf_cfg.cfg.get(self.node.machine, 'Ip')
         neigh_ip = tf_cfg.cfg.get(neigh, 'Ip')
         neigh_hwa = tf_cfg.cfg.get(neigh, 'Mac')
         if (node_ip == '127.0.0.1' or
             neigh_ip == '127.0.0.1' or neigh_hwa == 'ff:ff:ff:ff:ff:ff'):
-            return
+            return True # Nothing to do.
         cmd = 'ip -o addr show | grep %s | awk \'{print $2}\'' % node_ip
         ret, iface = self.node.run_cmd(cmd)
         if ret and re.match(b'^(\w+)$', iface):
