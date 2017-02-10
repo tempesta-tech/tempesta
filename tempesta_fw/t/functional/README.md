@@ -102,13 +102,6 @@ failed, `u` - unexpected success, `x` - expected failure. `s` - skipped;
 values to obtain results quickly add large for more heavy stress tests. Default
 is `10` seconds.
 
-`ARP`. Sometimes it is useful to reduce Linux network stack load and load
-TempestaFW internals more, e.g. for performance or stress tests. That can be
-achieved by populating ARP/Neighbour tables on each host. In that case all hosts
-except one running testing framework must be in one subnet. See fully
-distributed configuration. Possible options: `True` or `False`. Default is
-`False`.
-
 This group of options can be overridden by command line options, for more
 information run tests with `-h` key.
 ```sh
@@ -119,10 +112,6 @@ $ ./run_tests.py -h
 
 `ip` - IPv4/IPv6 address of the host in test network. Used to run `wrk`,
 `tempesta`, `nginx` and others with right parameters. Default is `127.0.0.1`.
-
-`mac` - hardware address of interface in test network. Used for populating
-ARP/Neighbour tables. Default is `ff:ff:ff:ff:ff:ff`, which means that ARP
-feature is disabled.
 
 `hostname`, `port`, `user` - this options describes "management" interface of
 the host. Testing framework uses this fields to connect to each test node.
@@ -135,15 +124,15 @@ present in each section.
 
 #### Tempesta Section
 
-Options listed in [Client Section](#client-section): `ip`, `mac`, `hostname`,
+Options listed in [Client Section](#client-section): `ip`, `hostname`,
 `port`, `user` are also applied to this section. Note, that the `user` must be
 able to load kernel modules.
 
 `dir` - Directory with TempestaFW sources. Must be absolute path.
 
-#### Tempesta Section
+#### Server Section
 
-Options listed in [Client Section](#client-section): `ip`, `mac`, `hostname`,
+Options listed in [Client Section](#client-section): `ip`, `hostname`,
 `port`, `user` are also applied to this section.
 
 `nginx` - absolute path to corresponding binary.
