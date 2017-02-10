@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 
 import unittest, getopt, sys
 from helpers import tf_cfg
