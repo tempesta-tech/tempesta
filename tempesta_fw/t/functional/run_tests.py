@@ -25,8 +25,6 @@ key, not password. `ssh-copy-id` can be used for that.
 -d, --defaults                    - Save defaut configuration to config file
                                     and exit.
 -t, --duration <seconds>          - Duration of every single test.
--a, --arp                         - Populate ARP/Neighbour tables before running
-                                    tests.
 -f, --failfast                    - Stop tests after first error.
 -e, --example-config              - Show example config file for tests.
 """
@@ -36,8 +34,8 @@ key, not password. `ssh-copy-id` can be used for that.
 fail_fast = False
 
 try:
-    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:afe',
-                                       ['help', 'verbose', 'defaults', 'arp',
+    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fe',
+                                       ['help', 'verbose', 'defaults',
                                         'duration=', 'failfast',
                                         'example-config'])
 
@@ -49,8 +47,6 @@ except getopt.GetoptError as e:
 for opt, arg in options:
     if opt in ('-f', '--failfast'):
         fail_fast = True
-    if opt in ('-a', '--arp'):
-        tf_cfg.cfg.fill_arp()
     if opt in ('-v', '--verbose'):
         tf_cfg.cfg.inc_verbose()
     if opt in ('-t', '--duration'):

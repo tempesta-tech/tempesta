@@ -16,10 +16,8 @@ class TestFrameworkCfg():
         self.config = configparser.SafeConfigParser()
         self.config.read_dict({'General': {'verbose': '0',
                                            'duration': '10',
-                                           'arp': 'True',
                                            'concurent_connections': '-1'},
                                'Client': {'ip': '127.0.0.1',
-                                          'mac': 'ff:ff:ff:ff:ff:ff',
                                           'hostname': 'localhost',
                                           'user': 'root',
                                           'port': '22',
@@ -28,13 +26,11 @@ class TestFrameworkCfg():
                                           'siege': 'siege',
                                           'workdir': '/root/client',},
                                'Tempesta': {'ip': '127.0.0.1',
-                                            'mac': 'ff:ff:ff:ff:ff:ff',
                                             'hostname': 'localhost',
                                             'user': 'root',
                                             'port': '22',
                                             'dir': '/root/tempesta',},
                                'Server': {'ip': '127.0.0.1',
-                                          'mac': 'ff:ff:ff:ff:ff:ff',
                                           'hostname': 'localhost',
                                           'user': 'root',
                                           'port': '22',
@@ -46,9 +42,6 @@ class TestFrameworkCfg():
     def inc_verbose(self):
         v_level = int(self.config['General']['Verbose']) + 1
         self.config['General']['Verbose'] = str(v_level)
-
-    def fill_arp(self):
-        self.config['General']['ARP'] = 'True'
 
     def set_duration(self, val):
         try:
@@ -86,17 +79,11 @@ class TestFrameworkCfg():
 verbose = 1
 # Duration of every single test which uses HTTP benchmarks utilities, in seconds.
 duration = 10
-# Populate ARP/Neighbour tables with static entries before running tests. Cause
-# more load to TempestaFW internasl, since CPU time is not waisted for
-# ARP/Neighbour protocols.
-arp = False
 
 [Client]
 # IP and of interface used for testing, both IPv4 and IPv6 are supported.
 # The Test Suite inserts the value into TempestaFW
 ip = 127.0.0.1
-# Mac address for populating ARP tables. Filled with 'F's to disable.
-mac = ff:ff:ff:ff:ff:ff
 # SSH credentials for remote control.
 hostname = localhost
 user = root
@@ -110,7 +97,6 @@ siege = /usr/bin/siege
 
 [Tempesta]
 ip = 127.0.0.1
-mac = ff:ff:ff:ff:ff:ff
 hostname = localhost
 user = root
 port = 22
@@ -119,7 +105,6 @@ dir = /root/tempesta
 
 [Server]
 ip = 127.0.0.1
-mac = ff:ff:ff:ff:ff:ff
 hostname = localhost
 user = root
 port = 22
