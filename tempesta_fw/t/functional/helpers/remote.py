@@ -119,57 +119,6 @@ class Node:
             return True
 
 #-------------------------------------------------------------------------------
-# ARP configuration
-#-------------------------------------------------------------------------------
-class ArpSetter():
-    """ Set ARP/Neighbour static entries on Node. """
-
-    def __init__(self, node):
-        self.node = node
-        self.machine = node.machine
-
-    def fill_arp(self):
-        if self.machine == 'Client':
-            return self.add_neigh('Tempesta')
-        if self.machine == 'Tempesta':
-            return self.add_neigh('Client') and self.add_neigh('Server')
-        if self.machine == 'Server':
-            return self.add_neigh('Tempesta')
-
-    def is_same_machine(self, machine):
-        assert(machine != self.machine)
-        return (tf_cfg.cfg.get(self.machine, 'hostname') ==
-                tf_cfg.cfg.get(machine, 'hostname'))
-
-    def add_neigh(self, neigh):
-        """ Fill neighbour tables in order not to waist cycles for ARP/Neighbour
-        protocol and make tests more stressfull
-
-        This is done by executing two commands:
-        Retrieve target net device
-        # ip -o addr show | grep ${machine_ip} | awk '{print $2}'
-        Set neigbour address:
-        # ip neighbor add ${ip} lladdr ${hw_addr} dev ${dev} nud permanent
-        """
-        if self.is_same_machine(neigh):
-            return True # Nothing to do.
-
-        node_ip = tf_cfg.cfg.get(self.node.machine, 'Ip')
-        neigh_ip = tf_cfg.cfg.get(neigh, 'Ip')
-        neigh_hwa = tf_cfg.cfg.get(neigh, 'Mac')
-        if (node_ip == '127.0.0.1' or
-            neigh_ip == '127.0.0.1' or neigh_hwa == 'ff:ff:ff:ff:ff:ff'):
-            return True # Nothing to do.
-        cmd = 'ip -o addr show | grep %s | awk \'{print $2}\'' % node_ip
-        ret, iface = self.node.run_cmd(cmd)
-        if ret and re.match(b'^(\w+)$', iface):
-            dev = re.match(b'^(\w+)$', iface).group(1).decode('ascii')
-            cmd = ('ip neighbor add %s lladdr %s dev %s nud permanent' %
-                   (neigh_ip, neigh_hwa, dev))
-            ret, _ = self.node.run_cmd(cmd)
-        return ret
-
-#-------------------------------------------------------------------------------
 # Helper functions.
 #-------------------------------------------------------------------------------
 
@@ -186,9 +135,3 @@ def get_max_thread_count(node):
 client = Node('Client')
 tempesta = Node('Tempesta')
 server = Node('Server')
-
-# Setup ARP tables once.
-if tf_cfg.cfg.get('General', 'ARP') == 'True':
-    for m in [client, tempesta, server]:
-        setter = ArpSetter(m)
-        assert(setter.fill_arp())
