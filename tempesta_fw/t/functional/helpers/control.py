@@ -189,9 +189,6 @@ class Siege(Client):
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
-        print()
-        Client.parse_out(self, ret, out)
-        print()
         m = re.search(b'Successful transactions:\s+(\d+)', out)
         if m:
             self.requests = int(m.group(1))
