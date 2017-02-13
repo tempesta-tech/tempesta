@@ -26,7 +26,6 @@ key, not password. `ssh-copy-id` can be used for that.
                                     and exit.
 -t, --duration <seconds>          - Duration of every single test.
 -f, --failfast                    - Stop tests after first error.
--e, --example-config              - Show example config file for tests.
 """
     )
 
@@ -34,10 +33,9 @@ key, not password. `ssh-copy-id` can be used for that.
 fail_fast = False
 
 try:
-    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fe',
+    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:f',
                                        ['help', 'verbose', 'defaults',
-                                        'duration=', 'failfast',
-                                        'example-config'])
+                                        'duration=', 'failfast'])
 
 except getopt.GetoptError as e:
     print(e)
@@ -54,9 +52,6 @@ for opt, arg in options:
             print('Invalid option: ', opt, arg)
             usage()
             sys.exit(0)
-    elif opt in ('-e', '--example-config'):
-        tf_cfg.cfg.example()
-        sys.exit(0)
     elif opt in ('-d', '--save'):
         tf_cfg.cfg.save_defaults()
         sys.exit(0)
@@ -64,7 +59,9 @@ for opt, arg in options:
         usage()
         sys.exit(0)
 
-if not tf_cfg.cfg.check():
+r, reason = tf_cfg.cfg.check()
+if not r:
+    print(reason)
     sys.exit(0)
 
 # Verbose level for unit tests must be > 1.

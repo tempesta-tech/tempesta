@@ -8,16 +8,18 @@ __license__ = 'GPL2'
 
 class TestFrameworkCfg():
 
-    def __init__(self):
+    def __init__(self, cfg_file):
         self.defaults()
-        config_path = os.path.dirname(os.path.realpath(__file__ + '/..'))
-        self.config.read(config_path + '/tests_config.ini')
+        self.file_err = True
+        if os.path.isfile(cfg_file):
+            self.file_err = False
+            self.config.read(cfg_file)
 
     def defaults(self):
         self.config = configparser.SafeConfigParser()
         self.config.read_dict({'General': {'verbose': '0',
                                            'duration': '10',
-                                           'concurent_connections': '10'},
+                                           'concurrent_connections': '10'},
                                'Client': {'ip': '127.0.0.1',
                                           'hostname': 'localhost',
                                           'user': 'root',
@@ -37,7 +39,7 @@ class TestFrameworkCfg():
                                           'port': '22',
                                           'nginx': 'nginx',
                                           'workdir': '/root/nginx',
-                                          'resourses': '/srv/http/'}
+                                          'resources': '/var/www/html/'}
                                })
 
     def inc_verbose(self):
@@ -67,53 +69,10 @@ class TestFrameworkCfg():
             self.config.write(configfile)
 
     def check(self):
+        if self.file_err:
+            return False, 'Configuration file "tests_config.ini" not found.'
         #TODO: check configuration options
-        return True
-
-
-    def example(self):
-        print(""" #Sample Test Frame work config file:
-
-[General]
-# Verbose level. 0 - Disabled, 1 - Show test names, 2 - Show performance and
-# error counters, 3 - Full debug output.
-verbose = 1
-# Duration of every single test which uses HTTP benchmarks utilities, in seconds.
-duration = 10
-
-[Client]
-# IP and of interface used for testing, both IPv4 and IPv6 are supported.
-# The Test Suite inserts the value into TempestaFW
-ip = 127.0.0.1
-# SSH credentials for remote control.
-hostname = localhost
-user = root
-port = 22
-# Absolute path to Apache Benchmark binary.
-ab = /usr/bin/ab
-# Absolute path to wrk benchmark utility binary.
-wrk = /usr/bin/wrk
-# Absolute path to Siege benchmark utility binary.
-siege = /usr/bin/siege
-
-[Tempesta]
-ip = 127.0.0.1
-hostname = localhost
-user = root
-port = 22
-# Absolute path to TempestaFW sources directory.
-dir = /root/tempesta
-
-[Server]
-ip = 127.0.0.1
-hostname = localhost
-user = root
-port = 22
-# Absolute path to NGINX binary.
-nginx = /usr/bin/nginx
-# Absolute path to sample nginx root location. Must be reachable by nginx.
-resourses = /srv/http/
-        """)
+        return True, ''
 
 def debug():
     return int(cfg.get('General', 'Verbose')) >= 3
@@ -125,4 +84,5 @@ def dbg(*args, **kwargs):
     if (debug()):
         print(*args, **kwargs)
 
-cfg = TestFrameworkCfg()
+cfg_file = os.path.dirname(os.path.realpath(__file__))  + '/../tests_config.ini'
+cfg = TestFrameworkCfg(cfg_file)

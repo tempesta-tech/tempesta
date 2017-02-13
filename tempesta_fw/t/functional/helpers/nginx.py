@@ -86,6 +86,6 @@ http {
 
     def set_resourse_location(self, location=''):
         if not location:
-            location = tf_cfg.cfg.get('Server', 'resourses')
+            location = tf_cfg.cfg.get('Server', 'resources')
         r = re.compile('root[ ]+([\w._/]+);')
         self.config = r.sub('root ' + location + ';', self.config)
