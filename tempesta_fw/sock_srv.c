@@ -216,9 +216,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 	 * never be reached. UINT_MAX seconds is more than 136 years. It's
 	 * safe to assume that it's not reached in a single run of Tempesta.
 	 */
-	if (unlikely((srv_conn->recns >= sg->max_recns)
-		     && !test_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags)))
-	{
+	if (unlikely(srv_conn->recns == sg->max_recns)) {
 		TfwAddr *srv_addr = &srv_conn->peer->addr;
 		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
@@ -226,7 +224,6 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 			 "The server connection [%s] is down.\n",
 			 sg->max_recns, s_addr);
 		tfw_connection_repair((TfwConn *)srv_conn);
-		set_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags);
 	}
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
 		timeout = tfw_srv_tmo_vals[srv_conn->recns];
@@ -404,14 +401,14 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  *	Global connect/disconnect routines.
  * ------------------------------------------------------------------------
  *
- * At this point, we support only the reverse proxy mode, so we connect to all
- * servers when the Tempesta FW is started, and close all connections when the
- * Tempesta FW is stopped. This section of code is responsible for that.
+ * At this time, only reverse proxy mode is supported. All servers are
+ * connected to when Tempesta is started, and all connections are closed
+ * when Tempesta is stopped. The code in this section takes care of that.
  *
  * This behavior may change in future for a forward proxy implementation.
- * Then we will have a lot of short-living connections. We should keep it in
- * mind to avoid possible bottlenecks. In particular, this is the reason why we
- * don't have a global list of all TfwSrvConn{} objects and store
+ * Then there will be lots of short-living connections. That should be kept
+ * in mind to avoid possible bottlenecks. In particular, that is the reason
+ * for not having a global list of all TfwSrvConn{} objects, and for storing
  * not-yet-established connections in the TfwServer->conn_list.
  */
 
