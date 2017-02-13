@@ -27,7 +27,7 @@ class Client():
         client will be started. See `Wrk` class for example
         """
         self.node = remote.client
-        self.connections = int(tf_cfg.cfg.get('General', 'concurent_connections'))
+        self.connections = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
         self.set_uri(uri)
         self.bin = tf_cfg.cfg.get_binary('Client', bin)
