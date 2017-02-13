@@ -524,7 +524,7 @@ ss_linkerror(struct sock *sk)
 int
 __ss_close(struct sock *sk, int flags)
 {
-	if (unlikely(!(sk && ss_sock_live(sk))))
+	if (unlikely(!sk))
 		return SS_OK;
 	sk_incoming_cpu_update(sk);
 
@@ -552,10 +552,15 @@ __ss_close(struct sock *sk, int flags)
 	 * the queued work is closing and simply pretend that socket closing
 	 * event happened before the socket transmission event.
 	 *
-	 * The socket is owned by current CPU, so don't need to check its
-	 * liveness.
+	 * The socket is owned by current CPU, so there's no need to check
+	 * if it's live. However, in some cases this may be called multiple
+	 * times on the same socket. Do it only once for the socket.
 	 */
 	bh_lock_sock(sk);
+	if (unlikely(!ss_sock_live(sk))) {
+		bh_unlock_sock(sk);
+		return SS_OK;
+	}
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)

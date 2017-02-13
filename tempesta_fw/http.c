@@ -1054,7 +1054,6 @@ tfw_http_conn_init(TfwConn *conn)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue))
 			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
-		clear_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
@@ -1107,7 +1106,7 @@ tfw_http_conn_release(TfwConn *conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	if (unlikely(test_bit(TFW_CONN_B_ISDEAD, &srv_conn->flags))) {
+	if (unlikely(!ss_active())) {
 		tfw_http_conn_srv_release(srv_conn);
 		return;
 	}
@@ -1516,6 +1515,10 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * connection had been closed. If it's a bug, then the correct
 	 * order of responses to requests may be broken. The connection
 	 * with the client must to be closed immediately.
+	 *
+	 * Doing ss_close_sync() on client connection's socket is safe
+	 * as long as @req that holds a reference to the connection is
+	 * not freed.
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	if (unlikely(list_empty(seq_queue))) {
