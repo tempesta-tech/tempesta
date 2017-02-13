@@ -84,7 +84,7 @@ class Loader(unittest.TestCase):
         # differ from request count shown by clients. Didn't find any way how to
         # fix that.
         # Just check that difference is less than concurrent connections count.
-        expected_diff = int(tf_cfg.cfg.get('General', 'concurent_connections'))
+        expected_diff = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.assertTrue((self.tempesta.stats.cl_msg_received - cl_req_cnt) <=
                         expected_diff)
 
@@ -93,7 +93,7 @@ class Loader(unittest.TestCase):
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0)
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0)
         # See comment in `assert_clients()`
-        expected_err = int(tf_cfg.cfg.get('General', 'concurent_connections'))
+        expected_err = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.assertTrue(self.tempesta.stats.cl_msg_other_errors <=
                         expected_err)
         self.assertTrue(self.tempesta.stats.srv_msg_other_errors <=

@@ -1,0 +1,148 @@
+[General]
+# This section refer to testing framework itself.
+
+# Verbose level:
+# 0 - quiet mode, result of each test is shown by symbols:
+#   `.` - passed,
+#   `F` - failed,
+#   `u` - unexpected success,
+#   `x` - expected failure.
+#   `s` - skipped;
+# 1 - Show test names and doc strings;
+# 2 - Show tests names and performance counters;
+# 3 - Full debug output.
+#
+# ex.: verbose = 2 (default 0)
+#
+verbose = 1
+
+# Duration of every single test involving HTTP benchmarks utilities, in seconds.
+# Use small values to obtain results quickly add large for more heavy stress
+# tests. Default is 10 seconds.
+#
+# ex.: duration = 60 (default 10)
+#
+duration = 10
+
+# Number of concurrent connections for HTTP benchmarks utilities.
+# Larger values stress TempestaFW better, but require more resources.
+#
+# ex.: concurrent_connections = 10 (default 10)
+#
+concurrent_connections = 10
+
+
+[Client]
+# Configuration for the host running HTTP clients. Host may be remote or local
+# one. Refer to Readmi.md for more information.
+
+# IPv4/IPv6 address of interface used for testing. This value will be used
+# as a parameter in commands or configuration files.
+#
+# ex.: ip = 192.168.11.5 (default 127.0.0.1)
+#
+ip = 127.0.0.1
+
+# Target host description. Host can be remote or local one. Remote hosts are
+# controlled via SSH protocol.
+#
+# ex.: Use remote host to run HTTP clients:
+#       hostname = client.test  (default localhost)
+#       user = rtest            (default root)
+#       port = 22022            (default 22)
+#
+# ex.: Use the local host to run HTTP clients (default):
+#       hostname = localhost
+#
+hostname = localhost
+
+
+# Binaries of utilities used for testing. Must be present in PATH or
+# absolute paths must be given.
+#
+# Apache Benchmark binary.
+#
+# ex.: ab = /usr/bin/ab (default ab)
+#
+ab = ab
+#
+# wrk benchmark utility.
+#
+# ex.: wrk = /home/user/wrk/wrk (default wrk)
+#
+wrk = wrk
+#
+# Siege benchmark utility.
+#
+# ex.: siege = /usr/bin/siege (default siege)
+#
+siege = /usr/bin/siege
+
+
+[Tempesta]
+# Configuration for the host running TempesaFW. Host may be remote or local
+# one. Refer to Readmi.md for more information.
+
+# IPv4/IPv6 address of interface used for testing. This value will be used
+# as a parameter in commands or configuration files.
+#
+# ex.: ip = 192.168.11.6 (default 127.0.0.1)
+#
+ip = 127.0.0.1
+
+# Target host description. Host can be remote or local one. Remote hosts are
+# controlled via SSH protocol.
+#
+# ex.: Use remote host to run TempestaFW:
+#       hostname = tempesta.test  (default localhost)
+#       user = rtest              (default root)
+#       port = 22022              (default 22)
+#
+# ex.: Use the local host to run HTTP clients (default):
+#       hostname = localhost
+#
+hostname = localhost
+
+# Absolute path to TempestaFW sources directory.
+#
+# ex.: dir = /home/user/tempesta (default /root/tempesta)
+#
+dir = /root/tempesta
+
+
+[Server]
+# Configuration for the host running HTTP servers. Host may be remote or local
+# one. Refer to Readmi.md for more information.
+
+# IPv4/IPv6 address of interface used for testing. This value will be used
+# as a parameter in commands or configuration files.
+#
+# ex.: ip = 192.168.11.7 (default 127.0.0.1)
+#
+ip = 127.0.0.1
+
+# Target host description. Host can be remote or local one. Remote hosts are
+# controlled via SSH protocol.
+#
+# ex.: Use remote host to run HTTP servers:
+#       hostname = remote.com   (default localhost)
+#       user = rtest            (default root)
+#       port = 22022            (default 22)
+#
+# ex.: Use the local host to run HTTP clients (default):
+#       hostname = localhost
+#
+hostname = localhost
+
+# NGINX binary. Must be present in PATH or absolute path must be given.
+#
+# ex.: nginx = /usr/bin/nginx (default nginx)
+#
+nginx = nginx
+
+# Absolute path to sample HTTP root location. Must be reachable by nginx.
+#
+# ex.: resources = /usr/share/nginx/http/ (default /var/www/html/)
+#
+resources = /var/www/html/
+
