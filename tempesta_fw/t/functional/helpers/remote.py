@@ -1,5 +1,6 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
+from __future__ import print_function
 import paramiko, subprocess, re, threading
 from . import tf_cfg
 
@@ -38,8 +39,8 @@ class Node:
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.ssh.connect(hostname = self.host, username = self.user,
                              port = self.port, timeout = 5)
-        except paramiko.ssh_exception.SSHException as e:
-            print('SSH connection error:', e)
+        except Exception as e:
+            print('Remote host connection error:', e)
             return False
         return True
 
@@ -62,7 +63,7 @@ class Node:
                                                               timeout=timeout)
                 out = stdout.read() + stderr.read()
                 ret = stdout.channel.recv_exit_status() == 0
-            except paramiko.ssh_exception.SSHException as e:
+            except Exception as e:
                 print('SSH connection error:', e)
                 return False, None
         else:
@@ -90,7 +91,7 @@ class Node:
                 sfile.write(content)
                 sfile.flush()
                 sftp.close()
-            except paramiko.ssh_exception.SSHException as e:
+            except Exception as e:
                 print('SSH connection error:', e)
                 return False
             return True
@@ -109,7 +110,7 @@ class Node:
                 sftp = self.ssh.open_sftp()
                 sftp.unlink(filename)
                 sftp.close()
-            except paramiko.ssh_exception.SSHException as e:
+            except Exception as e:
                 print('SSH connection error:', e)
                 return False
             return True
