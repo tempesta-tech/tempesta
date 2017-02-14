@@ -142,7 +142,7 @@ ssl_certificate_key /path/to/tfw-root.key;
 
 Also, `proto=https` option is needed for the `listen` directive.
 
-#### Self-signed certificate genration
+#### Self-signed certificate generation
 
 In case of using a self-signed certificate with Tempesta, it's
 convenient to use OpenSSL to generate a key and a certificate. The
@@ -301,6 +301,31 @@ just one example:
 curl -X PURGE http://192.168.10.10/
 ```
 
+#### Non-Idempotent Requests
+
+The consideration of whether a request is considered non-idempotent may
+depend on specific application, server, and/or service. A special directive
+allows the definition of a request that will be considered non-idempotent:
+```
+nonidempotent <METHOD> <OP> <ARG>;
+```
+`METHOD` is one of supported HTTP methods, such as GET, HEAD, POST, etc.
+`OP` is a string matching operator, such as `eq`, `prefix`, etc.
+`ARG` is an argument for `OP`, such as `/foo/bar.html`, `example.com`, etc.
+
+One or more of this directive may be specified. The directives apply to one
+or more locations as defined below in the [Locations](#Locations) section.
+
+If this directive is not specified, then a non-idempotent request in defined
+as a request that has an unsafe method.
+
+Below are examples of this directive:
+```
+nonidempotent GET prefix "/users/";
+nonidempotent POST prefix "/users/";
+nonidempotent GET suffix "/data";
+```
+
 ### Locations
 
 Location is a way of grouping certain directives that are applied only
@@ -321,9 +346,10 @@ location <OP> "<string>" {
 Multiple locations may be defined. Location directives are processed
 strictly in the order they are defined in the configuration file.
 
-Only caching policy directives may currently be grouped by the location
-directive. Caching policy directives defined outside of any specific
-location are considered the default policy for all locations.
+Only caching policy directives and the `nonidempotent` directive may
+currently be grouped by the location directive. The directives defined
+outside of any specific location are considered the default policy for
+all locations.
 
 When locations are defined in the configuration, the URL of each request
 is matched against strings specified in the location directives and using
@@ -351,6 +377,7 @@ location prefix "/society/" {
 	cache_bypass prefix "/society/breaking_news/";
 	cache_fulfill suffix ".jpg" ".png";
 	cache_fulfill suffix ".css";
+	nonidempotent GET prefix "/society/users/";
 }
 ```
 
@@ -367,13 +394,62 @@ server <IPADDR>[:<PORT>] [conns_n=<N>];
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
 `PORT` defaults to 80 if not specified.
 `conns_n=<N>` is the number of parallel connections to the server.
-`N` defaults to 4 if not specified.
+`N` defaults to 32 if not specified.
 
 Multiple back end servers may be defined. For example:
 ```
 server 10.1.0.1;
 server [fc00::1]:80;
 ```
+
+if a connection with a server is terminated for any reason, an effort is made
+to restore the connection. Sometimes the effort is futile. The directive
+`connect_tries` sets the maximum number of re-connect attempts after which
+the server connection is considered dead. It is defined as follows:
+```
+connect_tries <N>;
+```
+If this directive is not defined, then the number of re-connect attempts
+defaults to 10. A value of zero specified for `N` means unlimited number
+of attempts.
+
+This is an important directive which controls how Tempesta deals with
+outstanding requests in a failed connection. If the connection is restored
+within the specified number of attempts, then all outstanding requests are
+re-forwarded to the server. However if it's not restored, then the server
+connection is considered dead, and all outstanding requests are re-scheduled
+to other servers and/or connections.
+
+If a server connection fails intermittenly, then requests may sit in the
+connection's forwarding queue for some time. The following directives set
+certain allowed limits before these requests are considered failed:
+```
+server_forward_retries <N>;
+server_forward_timeout <N>;
+```
+`server_forward_retries` sets the maximum number of attempts to re-forward
+a request to a server. If not defined, the default number of attempts is 5.
+`server_forward_timeout` set the maximum time frame in seconds within which
+a request may still be forwarded. If not defined, the default time frame
+is 60 seconds. When one or both of these limits is exceeded for a request,
+the request is evicted and an error is returned to a client.
+
+When re-forwarding or re-scheduling requests in a failed server connection,
+a special consideration is given to non-idempotent requests. Usually
+a non-idempotent request is not re-forwarded or re-scheduled. That may be
+changed with the following directive that doesn't have arguments:
+```
+server_retry_non_idempotent;
+```
+
+Each server connection has a queue of forwarded requests. The size of the
+queue is limited with `server_queue_size` directive as follows:
+```
+server_queue_size <N>;
+```
+Each connection to the server has the same limit on the queue size set
+with this directive. If not specified, the queue size is set to 1000.
+
 
 #### Server Groups
 
@@ -383,33 +459,39 @@ The load is distributed evenly among servers within a group.
 If a server goes offline, other servers in a group take the load.
 The full syntax is as follows:
 ```
-srv_group <NAME> [sched=<SCHED_NAME>] {
+srv_group <NAME> {
 	server <IPADDR>[:<PORT>] [conns_n=<N>];
 	...
 }
 ```
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
-`SCHED_NAME` is the name of scheduler module that distributes load among
-servers within the group. Default scheduler is used if `sched` parameter is
-not specified.
 
 Servers that are defined outside of any group implicitly form a special group
 called `default`.
 
+All server-related directives listed in [Servers](#Servers) section above
+are applicable for definition for a server group. Also, a scheduler may be
+speficied for a group.
+
 Below is an example of server group definition:
 ```
-srv_group static_storage sched=hash {
+srv_group static_storage {
+	sched hash;
 	server 10.10.0.1:8080;
 	server 10.10.0.2:8080;
 	server [fc00::3]:8081 conns_n=1;
+	server_queue_size 500;
+	server_forward_timeout 30;
+	connect_tries 15;
 }
 ```
 
 #### Schedulers
 
-Scheduler is used to distribute load among known servers. The syntax is as
-follows:
+Scheduler is used to distribute load among servers within a group. The group
+can be either explicit, defined with `srv_group` directive, or implicit.
+The syntax is as follows:
 ```
 sched <SCHED_NAME>;
 ```
@@ -423,14 +505,14 @@ scheduler.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
 
-If no scheduler is defined, then scheduler defaults to `round-robin`.
+Only one `sched` directive is allowed per explicit or implicit group.
+A scheduler defined for the implicit group becomes the scheduler for an
+explicit group defined with `srv_group` directive if the explicit group
+is missing the `sched` directive.
 
-The defined scheduler affects all server definitions that are missing a
-scheduler definition. If `srv_group` is missing a scheduler definition,
-and there is a scheduler defined, then that scheduler is set for the group.
+If no scheduler is defined for a group, then scheduler defaults
+to `round-robin`.
 
-Multiple `sched` directives may be defined in the configuration file.
-Each directive affects server groups that follow it.
 
 #### HTTP Scheduler
 
