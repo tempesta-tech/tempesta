@@ -1,5 +1,6 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
+from __future__ import print_function
 import paramiko, subprocess, re, threading
 from . import tf_cfg, remote, nginx, tempesta, siege
 
