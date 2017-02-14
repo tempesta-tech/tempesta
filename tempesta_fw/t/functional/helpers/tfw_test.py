@@ -1,3 +1,4 @@
+from __future__ import print_function
 import unittest, sys
 from . import tf_cfg, control, tempesta
 
