@@ -708,69 +708,6 @@ out:
 	return droplink;
 }
 
-/**
- * Just drain accept queue of listening socket &lsk.
- * See implementation of standard inet_csk_accept().
- */
-static void
-ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
-{
-	struct inet_connection_sock *icsk = inet_csk(lsk);
-	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
-#if 0
-	struct request_sock *prev_r, *req;
-#else
-	struct request_sock *req;
-#endif
-	SS_DBG("[%d]: %s: sk %p, sk->sk_socket %p, state (%s)\n",
-	       smp_processor_id(), __func__,
-	       lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
-
-	/* Currently we process TCP only. */
-	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
-
-	WARN(reqsk_queue_empty(queue),
-	     "drain empty accept queue for socket %p", lsk);
-
-#if 0
-	/* TODO it works to slowly, need to patch Linux kernel to make it faster. */
-	for (prev_r = NULL, req = queue->rskq_accept_head; req;
-	     prev_r = req, req = req->dl_next)
-	{
-		if (req->sk != nsk)
-			continue;
-		/* We found the socket, remove it. */
-		if (prev_r) {
-			/* There are some items before @req in the queue. */
-			prev_r->dl_next = req->dl_next;
-			if (queue->rskq_accept_tail == req)
-				/* @req is the last item. */
-				queue->rskq_accept_tail = prev_r;
-		} else {
-			/* @req is the first item in the queue. */
-			queue->rskq_accept_head = req->dl_next;
-			if (queue->rskq_accept_head == NULL)
-				/* The queue contained only this one item. */
-				queue->rskq_accept_tail = NULL;
-		}
-		break;
-	}
-#else
-	/*
-	 * FIXME push any request from the queue,
-	 * doesn't matter which exactly.
-	 */
-	req = reqsk_queue_remove(queue, lsk);
-#endif
-	BUG_ON(!req);
-
-	/*
-	 * @nsk is in ESTABLISHED state, so 3WHS has completed and
-	 * we can safely remove the request socket from accept queue of @lsk.
-	 */
-	reqsk_put(req);
-}
-
 /*
  * ------------------------------------------------------------------------
  *  	Socket callbacks
@@ -872,6 +809,8 @@ ss_tcp_state_change(struct sock *sk)
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
 		}
+
+		sock_set_flag(sk, SOCK_TEMPESTA);
 		if (lsk) {
 			/*
 			 * This is a new socket for an accepted connect
@@ -881,13 +820,6 @@ ss_tcp_state_change(struct sock *sk)
 			 * so set it to atomic allocation.
 			 */
 			sk->sk_allocation = GFP_ATOMIC;
-
-			/*
-			 * We know which socket is just accepted.
-			 * Just drain listening socket accept queue,
-			 * and don't care about the returned socket.
-			 */
-			ss_drain_accept_queue(lsk, sk);
 		}
 		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
@@ -992,6 +924,7 @@ ss_set_listen(struct sock *sk)
 	((SsProto *)sk->sk_user_data)->listener = sk;
 
 	sk->sk_state_change = ss_tcp_state_change;
+	sock_set_flag(sk, SOCK_TEMPESTA);
 }
 EXPORT_SYMBOL(ss_set_listen);
 
