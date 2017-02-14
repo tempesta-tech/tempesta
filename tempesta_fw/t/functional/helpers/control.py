@@ -174,7 +174,7 @@ class Ab(Client):
 class Siege(Client):
     """ HTTP regression test and benchmark utility. """
 
-    def __init__(self, uri=''):
+    def __init__(self, uri='/'):
         Client.__init__(self, 'siege', uri = uri)
         self.rc = siege.Config()
 
