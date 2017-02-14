@@ -154,11 +154,23 @@ To run all the tests simply run:
 $ ./run_tests.py
 ```
 
-You can run only desired tests modules, by running:
+The unittest module can be used from the command line to run tests from modules,
+classes or even individual test methods:
 ```sh
-$ python -m unittest <path/to/test/module>
-$ python -m unittest sched/test_sched_rr.py
+$ python -m unittest test_module1 test_module2
+$ python -m unittest test_module.TestClass
+$ python -m unittest test_module.TestClass.test_method
 ```
+In this case verbosity of the tests names is controlled separately from
+configuration flie:
+```sh
+$ python -m unittest -v test_module.TestClass
+```
+For a list of all the command-line options:
+```sh
+$ python -m unittest -h
+```
+
 
 ## Adding new tests
 
