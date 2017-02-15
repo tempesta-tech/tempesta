@@ -125,10 +125,23 @@ void tfw_server_destroy(TfwServer *srv);
 void tfw_srv_conn_release(TfwSrvConn *srv_conn);
 
 static inline bool
-tfw_server_queue_full(TfwSrvConn *srv_conn)
+tfw_srv_conn_queue_full(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return ACCESS_ONCE(srv_conn->qsize) >= sg->max_qsize;
+}
+
+/*
+ * max_recns can be the maximum value for the data type to mean
+ * the unlimited number of attempts, which is the value that should
+ * never be reached. UINT_MAX seconds is more than 136 years. It's
+ * safe to assume that it's not reached in a single run of Tempesta.
+ */
+static inline bool
+tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
+{       
+	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
+	return (srv_conn->recns == sg->max_recns);
 }
 
 /* Server group routines. */
