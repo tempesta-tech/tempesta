@@ -136,7 +136,7 @@ rerun:
 			idxval = atomic64_inc_return(&srv_cl->rr_counter);
 			srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
 			if (unlikely(tfw_srv_conn_restricted(srv_conn)
-				     || tfw_server_queue_full(srv_conn)))
+				     || tfw_srv_conn_queue_full(srv_conn)))
 				continue;
 			if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
 				if (likely(tfw_srv_conn_live(srv_conn)))
