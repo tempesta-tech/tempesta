@@ -117,6 +117,9 @@ class Client():
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
 
+    def set_user_agent(self, ua):
+        self.options.append('-H \'User-Agent: %s\'' % ua)
+
 
 class Wrk(Client):
     """ wrk - HTTP benchmark utility. """
@@ -131,7 +134,8 @@ class Wrk(Client):
         # count for remote node.
         if self.threads == -1:
             self.threads = remote.get_max_thread_count(self.node)
-        self.options.append('-t %d' % self.threads)
+        threads = self.threads if self.connections > 1 else 1
+        self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
@@ -196,6 +200,9 @@ class Siege(Client):
         m = re.search(b'Failed transactions:\s+(\d+)', out)
         if m:
             self.errors = int(m.group(1))
+
+    def set_user_agent(self, ua):
+        self.options.append('-A \'%s\'' % ua)
 
 
 #-------------------------------------------------------------------------------
