@@ -188,50 +188,21 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	return 0;
 }
 
-/*
- * @max_recns can be the maximum value for the data type to mean
- * the unlimited number of attempts, which is the value that should
- * never be reached. UINT_MAX seconds is more than 136 years. It's
- * safe to assume that it's not reached in a single run of Tempesta.
- *
- * The limit on the number of reconnect attempts is used to re-schedule
- * requests that would never be forwarded otherwise. Then, the attempts
- * to reconnect are continued in anticipation that the connection will
- * be re-established sooner or later. Otherwise the connection would
- * stay dead until Tempesta is restarted.
- */
 static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 {
-	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	unsigned long timeout;
 
 	/* Don't rearm reconnection timer if we're about to shutdown. */
 	if (unlikely(!ss_active()))
 		return;
 
-	/*
-	 * max_attempts can be the maximum value for the data type to mean
-	 * the unlimited number of attempts, which is the value that should
-	 * never be reached. UINT_MAX seconds is more than 136 years. It's
-	 * safe to assume that it's not reached in a single run of Tempesta.
-	 */
-	if (unlikely(srv_conn->recns == sg->max_recns)) {
-		TfwAddr *srv_addr = &srv_conn->peer->addr;
-		char s_addr[TFW_ADDR_STR_BUF_SIZE] = { 0 };
-		tfw_addr_ntop(srv_addr, s_addr, sizeof(s_addr));
-		TFW_WARN("The limit of [%d] on reconnect attempts exceeded. "
-			 "The server connection [%s] is down.\n",
-			 sg->max_recns, s_addr);
-		tfw_connection_repair((TfwConn *)srv_conn);
-	}
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 		if (srv_conn->recns)
 			TFW_DBG_ADDR("Cannot establish connection",
 				     &srv_conn->peer->addr);
+		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 	} else {
-		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
 		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
 		    || !(srv_conn->recns % 60))
 		{
@@ -242,6 +213,9 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 				 " tries, keep trying...\n",
 				 addr_str, srv_conn->recns);
 		}
+
+		tfw_connection_repair((TfwConn *)srv_conn);
+		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
 	}
 	srv_conn->recns++;
 
@@ -542,8 +516,8 @@ tfw_sock_srv_delete_all_conns(void)
 #define TFW_CFG_SRV_QUEUE_SIZE_DEF	1000	/* Max queue size */
 #define TFW_CFG_SRV_FWD_TIMEOUT_DEF	60	/* Default request timeout */
 #define TFW_CFG_SRV_FWD_RETRIES_DEF	5	/* Default number of tries */
+#define TFW_CFG_SRV_CNS_RETRIES_DEF	10	/* Reconnect tries. */
 #define TFW_CFG_SRV_RETRY_NIP_DEF	0	/* Do NOT resend NIP reqs */
-#define TFW_CFG_SRV_RETRY_ATTEMPTS_DEF	10	/* Reconnect attempts. */
 
 static TfwServer *tfw_cfg_in_slst[TFW_SG_MAX_SRV];
 static TfwServer *tfw_cfg_out_slst[TFW_SG_MAX_SRV];
@@ -556,14 +530,14 @@ static TfwSrvGroup *tfw_cfg_in_sg, *tfw_cfg_out_sg;
 static int tfw_cfg_in_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
 static int tfw_cfg_in_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
 static int tfw_cfg_in_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
+static int tfw_cfg_in_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
 static int tfw_cfg_in_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
-static int tfw_cfg_in_retry_attempts = TFW_CFG_SRV_RETRY_ATTEMPTS_DEF;
 
 static int tfw_cfg_out_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
 static int tfw_cfg_out_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
 static int tfw_cfg_out_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
+static int tfw_cfg_out_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
 static int tfw_cfg_out_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
-static int tfw_cfg_out_retry_attempts = TFW_CFG_SRV_RETRY_ATTEMPTS_DEF;
 
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
@@ -646,19 +620,19 @@ tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_in_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_retry_attempts);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_in_cns_retries);
 }
 
 static int
-tfw_cfgop_out_conn_tries(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_retry_attempts);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_cns_retries);
 }
 
 static int
-tfw_cfgop_set_conn_tries(TfwSrvGroup *sg, int recns)
+tfw_cfgop_set_conn_retries(TfwSrvGroup *sg, int recns)
 {
 	if (!recns) {
 		sg->max_recns = UINT_MAX;
@@ -855,10 +829,10 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
         tfw_cfg_in_slstsz = 0;
         tfw_cfg_in_sched = tfw_cfg_out_sched;
-	tfw_cfg_in_retry_attempts = tfw_cfg_out_retry_attempts;
 	tfw_cfg_in_queue_size = tfw_cfg_out_queue_size;
 	tfw_cfg_in_fwd_timeout = tfw_cfg_out_fwd_timeout;
 	tfw_cfg_in_fwd_retries = tfw_cfg_out_fwd_retries;
+	tfw_cfg_in_cns_retries = tfw_cfg_out_cns_retries;
 	tfw_cfg_in_retry_nip = tfw_cfg_out_retry_nip;
 
 	return 0;
@@ -885,7 +859,7 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 	BUG_ON(!tfw_cfg_in_sched);
 	TFW_DBG("finish srv_group: %s\n", sg->name);
 
-	tfw_cfgop_set_conn_tries(sg, tfw_cfg_in_retry_attempts);
+	tfw_cfgop_set_conn_retries(sg, tfw_cfg_in_cns_retries);
 	sg->max_qsize = tfw_cfg_in_queue_size ? : UINT_MAX;
 	sg->max_jqage = tfw_cfg_in_fwd_timeout
 		      ? msecs_to_jiffies(tfw_cfg_in_fwd_timeout * 1000)
@@ -979,7 +953,7 @@ tfw_sock_srv_start(void)
 	if (sg) {
 		BUG_ON(!tfw_cfg_out_sched);
 
-		tfw_cfgop_set_conn_tries(sg, tfw_cfg_out_retry_attempts);
+		tfw_cfgop_set_conn_retries(sg, tfw_cfg_out_cns_retries);
 		sg->max_qsize = tfw_cfg_out_queue_size ? : UINT_MAX;
 		sg->max_jqage = tfw_cfg_out_fwd_timeout
 			      ? msecs_to_jiffies(tfw_cfg_out_fwd_timeout * 1000)
@@ -1058,15 +1032,15 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_retry_non_idempotent", NULL,
+		"server_retry_nonidempotent", NULL,
 		tfw_cfgop_in_retry_nip,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"connect_tries", NULL,
-		tfw_cfgop_in_conn_tries,
+		"server_connect_retries", NULL,
+		tfw_cfgop_in_conn_retries,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
@@ -1122,8 +1096,8 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"connect_tries", NULL,
-			tfw_cfgop_out_conn_tries,
+			"server_connect_retries", NULL,
+			tfw_cfgop_out_conn_retries,
 			.allow_none = true,
 			.allow_repeat = true,
 			.cleanup = tfw_clean_srv_groups,

@@ -146,7 +146,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
 		for (ch = sg->sched_data; ch->srv_conn; ++ch) {
 			if (unlikely(tfw_srv_conn_restricted(ch->srv_conn)
-				     || tfw_server_queue_full(ch->srv_conn)
+				     || tfw_srv_conn_queue_full(ch->srv_conn)
 				     || !tfw_srv_conn_live(ch->srv_conn)))
 				continue;
 			curr_weight = msg_hash ^ ch->hash;

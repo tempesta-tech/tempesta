@@ -404,10 +404,10 @@ server [fc00::1]:80;
 
 if a connection with a server is terminated for any reason, an effort is made
 to restore the connection. Sometimes the effort is futile. The directive
-`connect_tries` sets the maximum number of re-connect attempts after which
-the server connection is considered dead. It is defined as follows:
+`server_connect_retries` sets the maximum number of re-connect attempts after
+which the server connection is considered dead. It is defined as follows:
 ```
-connect_tries <N>;
+server_connect_retries <N>;
 ```
 If this directive is not defined, then the number of re-connect attempts
 defaults to 10. A value of zero specified for `N` means unlimited number
@@ -439,7 +439,7 @@ a special consideration is given to non-idempotent requests. Usually
 a non-idempotent request is not re-forwarded or re-scheduled. That may be
 changed with the following directive that doesn't have arguments:
 ```
-server_retry_non_idempotent;
+server_retry_nonidempotent;
 ```
 
 Each server connection has a queue of forwarded requests. The size of the
@@ -483,7 +483,7 @@ srv_group static_storage {
 	server [fc00::3]:8081 conns_n=1;
 	server_queue_size 500;
 	server_forward_timeout 30;
-	connect_tries 15;
+	server_connect_retries 15;
 }
 ```
 
