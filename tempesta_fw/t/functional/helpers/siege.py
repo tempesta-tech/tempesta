@@ -53,7 +53,5 @@ class Config:
 
 
     def get_config(self):
-        cfg = ''
-        for opt in self.options:
-            cfg += '%s = %s\n' % opt
+        cfg = '\n'.join(['%s = %s' % opt for opt in self.options])
         return cfg

@@ -48,7 +48,7 @@ class Client():
         """
         if uri:
             server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
-            self.uri = 'http://' + server_addr + uri
+            self.uri = ''.join(['http://', server_addr, uri])
         else:
             self.uri = ''
 
@@ -78,16 +78,13 @@ class Client():
 
     def form_command(self):
         """ Prepare run command for benchmark to run on remote node. """
-        cmd = self.bin
-        for opt in self.options:
-            cmd += ' %s' % opt
-        cmd += ' ' + self.uri
+        cmd = ' '.join([self.bin] + self.options + [self.uri])
         return cmd
 
     def run(self):
         """ Run benchmark in background thread. """
         hostname = tf_cfg.cfg.get('Client', 'hostname')
-        tf_cfg.dbg('\tRun client on %s for %s seconds ...' %
+        tf_cfg.dbg(3, '\tRun client on %s for %s seconds ...' %
                    (hostname, self.duration))
 
         cmd = self.form_command()
@@ -113,7 +110,7 @@ class Client():
         removed after client finish.
         """
         dir = tf_cfg.cfg.get('Client', 'workdir')
-        full_name = dir + filename
+        full_name = ''.join([dir, filename])
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
@@ -226,10 +223,10 @@ class Tempesta():
 
     def start(self):
         hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
-        tf_cfg.dbg('\tStarting TempestaFW on %s' % hostname)
+        tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % hostname)
         self.stats.clear()
         # Use relative path to work dir to get rid of extra mkdir command.
-        r = self.node.copy_file('etc/' + self.config_name,
+        r = self.node.copy_file(''.join(['etc/', self.config_name]),
                                 self.config.get_config())
         if not r:
             return False
@@ -240,7 +237,7 @@ class Tempesta():
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
         hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
-        tf_cfg.dbg('\tStoping TempestaFW on %s' % hostname)
+        tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % hostname)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
         r, _ = self.node.run_cmd(cmd)
         return r
@@ -275,15 +272,15 @@ class Nginx():
         if self.state != 'down':
             return False
         hostname = tf_cfg.cfg.get('Server', 'hostname')
-        tf_cfg.dbg('\tStarting Nginx on %s' % self.get_name())
+        tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
         r = self.node.copy_file(self.config.config_name, self.config.config)
         if not r:
             return False
         # Nginx forks on start, no background threads needed.
-        config_file = self.workdir + self.config.config_name
-        cmd = tf_cfg.cfg.get('Server', 'nginx') + ' -c ' + config_file
+        config_file = ''.join([self.workdir, self.config.config_name])
+        cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
         r, _ = self.node.run_cmd(cmd)
         self.state = 'up' if r else 'error'
         return r
@@ -292,9 +289,9 @@ class Nginx():
         if self.state != 'up':
             return True
         hostname = tf_cfg.cfg.get('Server', 'hostname')
-        tf_cfg.dbg('\tStoping Nginx on %s' % self.get_name())
-        pid_file = self.workdir + self.config.pidfile_name
-        config_file = self.workdir + self.config.config_name
+        tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
+        pid_file = ''.join([self.workdir, self.config.pidfile_name])
+        config_file = ''.join([self.workdir, self.config.config_name])
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
         r, _ = self.node.run_cmd(cmd)
         r &= self.node.remove_file(config_file)
