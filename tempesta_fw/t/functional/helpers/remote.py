@@ -81,8 +81,6 @@ class Node:
         r, _ = self.run_cmd('mkdir -p %s' % dir)
         if not r:
             return False # SSH error or no enough rights.
-        if not dir.endswith('/'):
-            dir = dir + '/'
         filename = dir + filename
         if self.remote:
             try:

@@ -110,8 +110,6 @@ class Client():
         removed after client finish.
         """
         dir = tf_cfg.cfg.get('Client', 'workdir')
-        if not dir.endswith('/'):
-            dir = dir + '/'
         full_name = dir + filename
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
@@ -214,9 +212,7 @@ class Tempesta():
 
     def __init__(self):
         self.node = remote.tempesta
-        self.workdir = tf_cfg.cfg.get('Tempesta', 'dir')
-        if not self.workdir.endswith('/'):
-            self.workdir = self.workdir + '/'
+        self.workdir = tf_cfg.cfg.get('Tempesta', 'workdir')
         self.config_name = 'tempesta_fw.conf'
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
@@ -258,8 +254,6 @@ class Nginx():
     def __init__(self, listen_port, workers=1):
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
-        if not self.workdir.endswith('/'):
-            self.workdir = self.workdir + '/'
         self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
         self.state = 'down'

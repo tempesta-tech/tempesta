@@ -78,8 +78,6 @@ http {
 
     def set_workdir(self, dir):
         assert(len(dir))
-        if not dir.endswith('/'):
-            dir = dir + '/'
         pid = dir + self.pidfile_name
         root = dir + 'http'
         r = re.compile('pid[ ]+([\w._/]+);')
