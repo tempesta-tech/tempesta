@@ -41,7 +41,7 @@ class Loader(unittest.TestCase):
         See comment in Nginx.get_stats().
         """
         self.servers = []
-        for i in range(count):\
+        for i in range(count):
             self.servers.append(control.Nginx(listen_port = (start_port + i)))
 
     def setUp(self):
@@ -56,8 +56,13 @@ class Loader(unittest.TestCase):
         so mark test as failed even if eveything other is fine.
         """
         assert(self.tempesta.stop())
+        r = True
+        failed_servers = []
         for s in self.servers:
-            assert(s.stop())
+            if not s.stop():
+                failed_servers.append(s.get_name())
+                r = False
+        assert r, "Can't stop HTTP servers: %s" % ','.join(failed_servers)
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
@@ -112,7 +117,9 @@ class Loader(unittest.TestCase):
         self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
         for s in self.servers:
-            self.assertEqual(s.start(), True)
+            self.assertEqual(
+                s.start(), True,
+                msg = "Can't start HTTP server %s" % s.get_name())
         self.assertEqual(self.tempesta.start(), True)
 
         for cl in self.clients:

@@ -19,6 +19,7 @@ class Node:
     def __init__(self, machine):
         self.machine = machine
         self.host = tf_cfg.cfg.get(machine, 'hostname')
+        self.workdir = tf_cfg.cfg.get(machine, 'workdir')
 
         self.remote = (self.host != 'localhost')
         if self.remote:
@@ -72,15 +73,19 @@ class Node:
             ret = proc.returncode == 0
         return ret, out
 
-    def copy_file(self, dir, filename, content):
-        """ Create file `dir`/`filename` on node with specified `content`.
+    def copy_file(self, filename, content, dir = None):
+        """ Create file with specified content in `dir`. If `dir` is not
+        specified, Create in default work dir.
 
         Returns False on errors.
         """
         # Create dir first.
-        r, _ = self.run_cmd('mkdir -p %s' % dir)
-        if not r:
-            return False # SSH error or no enough rights.
+        if dir == None:
+            dir = self.workdir
+        else:
+            r, _ = self.run_cmd('mkdir -p %s' % dir)
+            if not r:
+                return False # SSH error or no enough rights.
         filename = dir + filename
         if self.remote:
             try:
@@ -134,3 +139,9 @@ def get_max_thread_count(node):
 client = Node('Client')
 tempesta = Node('Tempesta')
 server = Node('Server')
+
+# Create working directories on client and server nodes. Work directory on
+# Tempesta contains sources and must exist.
+for node in [client, server]:
+    assert node.run_cmd('mkdir -p %s' % node.workdir), \
+        'Can\'t create workdir on %s' % node.host

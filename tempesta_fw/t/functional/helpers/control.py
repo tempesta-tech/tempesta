@@ -62,9 +62,8 @@ class Client():
             self.node.remove_file(file)
 
     def copy_files(self):
-        dir = tf_cfg.cfg.get('Client', 'workdir')
         for (name, content) in self.files:
-            if not self.node.copy_file(dir, name, content):
+            if not self.node.copy_file(name, content):
                 return False
         return True
 
@@ -220,7 +219,7 @@ class Tempesta():
 
     def __init__(self):
         self.node = remote.tempesta
-        self.workdir = tf_cfg.cfg.get('Tempesta', 'workdir')
+        self.workdir = self.node.workdir
         self.config_name = 'tempesta_fw.conf'
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
@@ -229,7 +228,8 @@ class Tempesta():
         hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
         tf_cfg.dbg('\tStarting TempestaFW on %s' % hostname)
         self.stats.clear()
-        r = self.node.copy_file(self.workdir + 'etc/', self.config_name,
+        # Use relative path to work dir to get rid of extra mkdir command.
+        r = self.node.copy_file('etc/' + self.config_name,
                                 self.config.get_config())
         if not r:
             return False
@@ -268,15 +268,17 @@ class Nginx():
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
 
+    def get_name(self):
+        return ':'.join([self.node.host, str(self.config.port)])
+
     def start(self):
         if self.state != 'down':
             return False
         hostname = tf_cfg.cfg.get('Server', 'hostname')
-        tf_cfg.dbg('\tStarting Nginx on %s:%d' % (hostname, self.config.port))
+        tf_cfg.dbg('\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
-        r = self.node.copy_file(self.workdir, self.config.config_name,
-                                self.config.config)
+        r = self.node.copy_file(self.config.config_name, self.config.config)
         if not r:
             return False
         # Nginx forks on start, no background threads needed.
@@ -290,7 +292,7 @@ class Nginx():
         if self.state != 'up':
             return True
         hostname = tf_cfg.cfg.get('Server', 'hostname')
-        tf_cfg.dbg('\tStoping Nginx on %s:%d' % (hostname, self.config.port))
+        tf_cfg.dbg('\tStoping Nginx on %s' % self.get_name())
         pid_file = self.workdir + self.config.pidfile_name
         config_file = self.workdir + self.config.config_name
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
