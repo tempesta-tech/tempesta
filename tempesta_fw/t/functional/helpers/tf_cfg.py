@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 import configparser
 import os
 
@@ -16,7 +16,7 @@ class TestFrameworkCfg():
             self.config.read(cfg_file)
 
     def defaults(self):
-        self.config = configparser.SafeConfigParser()
+        self.config = configparser.ConfigParser()
         self.config.read_dict({'General': {'verbose': '0',
                                            'duration': '10',
                                            'concurrent_connections': '10'},
@@ -83,11 +83,12 @@ def debug():
 def v_level():
     return int(cfg.get('General', 'Verbose'))
 
-def dbg(*args, **kwargs):
-    if (debug()):
+def dbg(level, *args, **kwargs):
+    if (int(cfg.get('General', 'Verbose')) >= level):
         print(*args, **kwargs)
 
-cfg_file = os.path.dirname(os.path.realpath(__file__))  + '/../tests_config.ini'
+cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                    '/../tests_config.ini'])
 cfg = TestFrameworkCfg(cfg_file)
 r, error = cfg.check()
 assert r, error

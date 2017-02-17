@@ -45,8 +45,8 @@ class Loader(unittest.TestCase):
             self.servers.append(control.Nginx(listen_port = (start_port + i)))
 
     def setUp(self):
-        tf_cfg.dbg() # Step to the next line after name of test case.
-        tf_cfg.dbg('\tInit test case...')
+        tf_cfg.dbg(3) # Step to the next line after name of test case.
+        tf_cfg.dbg(3, '\tInit test case...')
         self.create_clients()
         self.create_servers()
         self.create_tempesta()
@@ -70,11 +70,22 @@ class Loader(unittest.TestCase):
         if tf_cfg.v_level() == 2:
             # Go to new line, don't mess up output.
             print()
+        failed = 0
+        req_total = err_total = 0
         for c in self.clients:
             ret, req, err = c.results()
-            status = 'Ok' if ret else 'Failed'
-            print('\tClient: finished: %s, errors: %d, requests: %d' %
-                  (status, err, req))
+            status = 'Ok'
+            req_total += req
+            err_total += err
+            if not ret:
+                status = 'Failed'
+                failed += 1
+            tf_cfg.dbg(3, '\tClient: finished: %s, errors: %d, requests: %d' %
+                       (status, err, req))
+        tf_cfg.dbg(
+            2, '\tClients: finished OK %d out of %d, errors: %d, requests: %d' %
+            (len(self.clients) - failed, len(self.clients), err_total,
+             req_total))
 
 
     def assert_clients(self):

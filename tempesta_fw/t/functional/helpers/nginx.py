@@ -61,30 +61,33 @@ http {
     def set_ka(self, req, timeout=65):
         """ Set Keepalive parameters for server. """
         r = re.compile('keepalive_timeout[ ]+(\d+);')
-        self.config = r.sub('keepalive_timeout ' + str(timeout) + ';', self.config)
+        self.config = r.sub(' '.join(['keepalive_timeout', str(timeout), ';']),
+                            self.config)
         r = re.compile('keepalive_requests[ ]+(\d+);')
-        self.config = r.sub('keepalive_requests ' + str(req) + ';', self.config)
+        self.config = r.sub(' '.join(['keepalive_requests', str(req), ';']),
+                            self.config)
 
     def set_workers(self, workers='auto'):
         r = re.compile('worker_processes[ ]+(\w+);')
-        self.config = r.sub('worker_processes ' + str(workers) + ';', self.config)
+        self.config = r.sub(' '.join(['worker_processes', str(workers), ';']),
+                            self.config)
 
     def set_port(self, port):
         self.port = int(port)
         self.config_name = 'nginx_%d.conf' % port
         self.pidfile_name = 'nginx_%d.pid' % port
         r = re.compile('listen[ ]+(\w+);')
-        self.config = r.sub('listen ' + str(port) + ';', self.config)
+        self.config = r.sub(' '.join(['listen', str(port), ';']), self.config)
 
     def set_workdir(self, dir):
         assert(len(dir))
-        pid = dir + self.pidfile_name
-        root = dir + 'http'
+        pid = ''.join([dir, self.pidfile_name])
+        root = ''.join([dir, 'http'])
         r = re.compile('pid[ ]+([\w._/]+);')
-        self.config = r.sub('pid ' + pid + ';', self.config)
+        self.config = r.sub(' '.join(['pid', pid, ';']), self.config)
 
     def set_resourse_location(self, location=''):
         if not location:
             location = tf_cfg.cfg.get('Server', 'resources')
         r = re.compile('root[ ]+([\w._/]+);')
-        self.config = r.sub('root ' + location + ';', self.config)
+        self.config = r.sub(' '.join(['root', location, ';']), self.config)
