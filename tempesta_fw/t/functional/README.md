@@ -134,7 +134,7 @@ Options listed in [Client Section](#client-section): `ip`, `hostname`,
 `port`, `user` are also applied to this section. Note, that the `user` must be
 able to load kernel modules.
 
-`dir` - Directory with TempestaFW sources. Must be absolute path.
+`workdir` - Directory with TempestaFW sources. Must be absolute path.
 
 #### Server Section
 

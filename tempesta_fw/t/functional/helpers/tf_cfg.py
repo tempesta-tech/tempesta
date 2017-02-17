@@ -32,7 +32,7 @@ class TestFrameworkCfg():
                                             'hostname': 'localhost',
                                             'user': 'root',
                                             'port': '22',
-                                            'dir': '/root/tempesta',},
+                                            'workdir': '/root/tempesta',},
                                'Server': {'ip': '127.0.0.1',
                                           'hostname': 'localhost',
                                           'user': 'root',
@@ -72,6 +72,9 @@ class TestFrameworkCfg():
         if self.file_err:
             return False, 'Configuration file "tests_config.ini" not found.'
         #TODO: check configuration options
+        for host in ['Client', 'Tempesta', 'Server']:
+            if not self.config[host]['workdir'].endswith('/'):
+                self.config[host]['workdir'] += '/'
         return True, ''
 
 def debug():
@@ -86,3 +89,5 @@ def dbg(*args, **kwargs):
 
 cfg_file = os.path.dirname(os.path.realpath(__file__))  + '/../tests_config.ini'
 cfg = TestFrameworkCfg(cfg_file)
+r, error = cfg.check()
+assert r, error
