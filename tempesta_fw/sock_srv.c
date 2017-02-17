@@ -359,15 +359,37 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 /**
  * Close a server connection, or stop connection attempts if a connection
  * is not established. This is called only in user context at STOP time.
+ *
+ * There are two corner cases. In both cases calling ss_close_sync() won't
+ * cause any effect as the connection is closed already. Instead, just free
+ * the connection's resources directly.
+ * 1. A connection has just been closed by the other side. A reconnect is
+ *    prevented by stopping the timer. Yet the connection may have unfreed
+ *    resources as closing was done as part of failover.
+ * 2. A connection is being closed by the other side just as Tempesta is
+ *    moved to STOP state. Both threads may call tfw_connection_release()
+ *    at the same time. See the implementation of the underlying function
+ *    tfw_srv_conn_release().
  */
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
+	int ret = 0;
+
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&conn->timer);
 
-	/* Use synchronous closing to ensure that the job is enqueued. */
-	return ss_close_sync(conn->sk, true);
+	/*
+	 * If the connection is closed already, then simply release its
+	 * resources. Otherwise, use synchronous closing to ensure that
+	 * the job is enqueued.
+	 */
+	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
+		tfw_connection_release(conn);
+	else
+		ret = ss_close_sync(conn->sk, true);
+
+	return ret;
 }
 
 /*
