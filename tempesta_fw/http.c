@@ -1085,21 +1085,28 @@ tfw_http_conn_init(TfwConn *conn)
 
 /*
  * Release server connection's resources.
- *
  * Drop and free the requests in server connection's @fwd_queue.
- * Called only when Tempesta is stopped.
+ *
+ * This function is called only when connection is completely destroyed.
+ * Depending on Tempesta's state, both user and kernel context threads
+ * may try to do that at the same time. As @fwd_queue is moved atomically
+ * to local @zap_queue, only one thread is able to proceed and release
+ * the resources.
  */
 static void
 tfw_http_conn_srv_release(TfwSrvConn *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
-	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 	LIST_HEAD(zap_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
+	spin_lock(&srv_conn->fwd_qlock);
+	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
+	spin_unlock(&srv_conn->fwd_qlock);
+
+	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		tfw_http_req_delist(srv_conn, req);
 		if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
