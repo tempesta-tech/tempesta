@@ -32,6 +32,7 @@ class Client():
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
         self.set_uri(uri)
         self.bin = tf_cfg.cfg.get_binary('Client', bin)
+        self.clear_stats()
         # List of command-line options.
         self.options = []
         # List tuples (filename, content) to create corresponding files on
@@ -51,6 +52,11 @@ class Client():
         else:
             self.uri = ''
 
+    def clear_stats(self):
+        self.ret = False
+        self.requests = 0
+        self.errors = 0
+
     def cleanup(self):
         for file in self.cleanup_files:
             self.node.remove_file(file)
@@ -59,7 +65,7 @@ class Client():
         dir = tf_cfg.cfg.get('Client', 'workdir')
         for (name, content) in self.files:
             if not self.node.copy_file(dir, name, content):
-                return false
+                return False
         return True
 
     def parse_out(self, ret, out):
@@ -87,19 +93,17 @@ class Client():
 
         cmd = self.form_command()
 
-        self.ret = False
+        self.clear_stats()
         if not self.copy_files():
             return
-
-        self.requests = 0
-        self.errors = 0
-        self.th = threading.Thread(target=self.th_routine,
-                                   args=(cmd,))
+        self.th = threading.Thread(target=self.th_routine, args=(cmd,))
         self.th.start()
 
     def wait(self):
         """ Wait for completion. """
-        self.th.join()
+        # Thread might not exist if run() has failed.
+        if hasattr(self, 'th'):
+            self.th.join()
 
     def results(self):
         return self.ret, self.requests, self.errors
@@ -163,6 +167,8 @@ class Ab(Client):
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
+        if not ret:
+            return
         m = re.search(b'Complete requests:\s+(\d+)', out)
         if m:
             self.requests = int(m.group(1))
@@ -192,6 +198,8 @@ class Siege(Client):
         return Client.form_command(self)
 
     def parse_out(self, ret, out):
+        if not ret:
+            return
         m = re.search(b'Successful transactions:\s+(\d+)', out)
         if m:
             self.requests = int(m.group(1))
