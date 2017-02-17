@@ -57,12 +57,13 @@ class Node:
         Returns (return_code, stdout) if node available, (False, None)
         otherwise.
         """
+        tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
         ret = False
         if self.remote:
             try:
                 stdin, stdout, stderr = self.ssh.exec_command(cmd,
                                                               timeout=timeout)
-                out = stdout.read() + stderr.read()
+                out = ''.join([stdout.read(), stderr.read()])
                 ret = stdout.channel.recv_exit_status() == 0
             except Exception as e:
                 print('SSH connection error:', e)
@@ -86,7 +87,7 @@ class Node:
             r, _ = self.run_cmd('mkdir -p %s' % dir)
             if not r:
                 return False # SSH error or no enough rights.
-        filename = dir + filename
+        filename = ''.join([dir, filename])
         if self.remote:
             try:
                 sftp = self.ssh.open_sftp()
