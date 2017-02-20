@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -810,7 +810,7 @@ EXPORT_SYMBOL(tfw_http_msg_free);
 /**
  * Allocate a new error response message.
  * This type of message is not parsed or adjusted before it's sent out.
- * That allows for a short (limited) initialization.
+ * That allows for a shorter (limited) initialization.
  */
 TfwHttpMsg *
 tfw_http_msg_alloc_err_resp(void)

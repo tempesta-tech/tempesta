@@ -623,8 +623,8 @@ tfw_http_sess_init(void)
 		return ret;
 	}
 
-	sess_cache = kmem_cache_create("tfw_sess_cache",
-				       sizeof(TfwHttpSess), 0, 0, NULL);
+	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
+				       0, 0, NULL);
 	if (!sess_cache) {
 		crypto_free_shash(tfw_sticky_shash);
 		return -ENOMEM;
