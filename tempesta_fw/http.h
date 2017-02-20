@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -255,7 +255,6 @@ typedef struct {
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CONN_EXTRA		0x000004
 #define TFW_HTTP_CHUNKED		0x000008
-#define TFW_HTTP_MSG_SENT		0x000010
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
@@ -430,10 +429,15 @@ tfw_current_timestamp(void)
 	return ts.tv_sec;
 }
 
+/*
+ * SKB data is needed only for calculation of a cache key from request
+ * fields. In all other cases it can just be passed to the network layer.
+ */
 static inline void
 tfw_http_req_init_ss_flags(TfwHttpReq *req)
 {
-	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+	if (tfw_cache_msg_cacheable(req))
+		((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
 }
 
 static inline void

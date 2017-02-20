@@ -849,8 +849,8 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_DBG("begin srv_group: %s\n", tfw_cfg_in_sg->name);
 
-        tfw_cfg_in_slstsz = 0;
-        tfw_cfg_in_sched = tfw_cfg_out_sched;
+	tfw_cfg_in_slstsz = 0;
+	tfw_cfg_in_sched = tfw_cfg_out_sched;
 	tfw_cfg_in_queue_size = tfw_cfg_out_queue_size;
 	tfw_cfg_in_fwd_timeout = tfw_cfg_out_fwd_timeout;
 	tfw_cfg_in_fwd_retries = tfw_cfg_out_fwd_retries;

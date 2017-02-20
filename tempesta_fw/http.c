@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -122,7 +122,7 @@ unsigned long tfw_hash_str(const TfwStr *str);
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
  */
 int
-tfw_http_prep_302(TfwHttpMsg *hmresp, TfwHttpReq *req, TfwStr *cookie)
+tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
@@ -162,24 +162,24 @@ tfw_http_prep_302(TfwHttpMsg *hmresp, TfwHttpReq *req, TfwStr *cookie)
 	data_len += req->uri_path.len + cookie->len;
 	data_len += crlf->len;
 
-	if (tfw_http_msg_setup(hmresp, &it, data_len))
+	if (tfw_http_msg_setup(resp, &it, data_len))
 		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-	tfw_http_msg_write(&it, hmresp, &rh);
+	tfw_http_msg_write(&it, resp, &rh);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
 		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
-		tfw_http_msg_write(&it, hmresp, &proto);
-		tfw_http_msg_write(&it, hmresp, &host);
+		tfw_http_msg_write(&it, resp, &proto);
+		tfw_http_msg_write(&it, resp, &host);
 	}
-	tfw_http_msg_write(&it, hmresp, &req->uri_path);
-	tfw_http_msg_write(&it, hmresp, &part03);
-	tfw_http_msg_write(&it, hmresp, cookie);
-	tfw_http_msg_write(&it, hmresp, crlf);
+	tfw_http_msg_write(&it, resp, &req->uri_path);
+	tfw_http_msg_write(&it, resp, &part03);
+	tfw_http_msg_write(&it, resp, cookie);
+	tfw_http_msg_write(&it, resp, crlf);
 
 	return TFW_PASS;
 }
@@ -400,7 +400,7 @@ __tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 }
 
 /*
- * Put @req on the list of non-idempotent requests in @srv_conn. 
+ * Put @req on the list of non-idempotent requests in @srv_conn.
  * Raise the flag saying that @srv_conn has non-idempotent requests.
  */
 static inline void
@@ -532,16 +532,25 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if (req->rstatus == 404)
+		switch(req->rstatus) {
+		case 404:
 			tfw_http_send_404(req);
-		else if (req->rstatus == 500)
+			break;
+		case 500:
 			tfw_http_send_500(req);
-		else if (req->rstatus == 502)
+			break;
+		case 502:
 			tfw_http_send_502(req);
-		else if (req->rstatus == 504)
+			break;
+		case 504:
 			tfw_http_send_504(req);
-		else
-			BUG();
+			break;
+		default:
+			TFW_WARN("Unexpected response error code: [%d]\n",
+				 req->rstatus);
+			tfw_http_send_500(req);
+			break;
+		}
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
@@ -747,8 +756,12 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *equeue)
 	    && likely(!(srv->sg->flags & TFW_SRV_RETRY_NIP)))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
+		/*
+		 * There's list_is_last() function in the Linux kernel,
+		 * but there's no list_is_first. The condition that is
+		 * checked in an implementation of list_is_first().
+		 */
 		srv_conn->msg_sent =
-			/* list_is_first(&req_sent->fwd_list, fwd_queue); */
 			(srv_conn->fwd_queue.next == &req_sent->fwd_list) ?
 			NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
 		tfw_http_req_move2equeue(srv_conn, req_sent, equeue, 504);
@@ -766,7 +779,7 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *equeue)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
-	TFW_DBG2("%s: conn=[%p] one_msg=[%s]\n",
+	TFW_DBG2("%s: conn=[%p] first=[%s]\n",
 		 __func__, srv_conn, first ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
@@ -1084,23 +1097,38 @@ tfw_http_conn_init(TfwConn *conn)
 }
 
 /*
- * Release server connection's resources.
- * Drop and free the requests in server connection's @fwd_queue.
+ * Connection with a peer is released.
  *
- * This function is called only when connection is completely destroyed.
+ * This function is called when all users of a server connection are gone,
+ * and the connection's resources can be released.
+ *
+ * If a server connection is in failover state, then the requests that were
+ * sent to that server are kept in the queue until a paired response comes.
+ * The responses will never come now. Keep the queue. When the connection
+ * is restored the requests will be re-sent to the server.
+ *
+ * If a server connection is completely destroyed (on Tempesta's shutdown),
+ * then all outstanding requests in @fwd_queue are dropped and released.
  * Depending on Tempesta's state, both user and kernel context threads
  * may try to do that at the same time. As @fwd_queue is moved atomically
  * to local @zap_queue, only one thread is able to proceed and release
  * the resources.
  */
 static void
-tfw_http_conn_srv_release(TfwSrvConn *srv_conn)
+tfw_http_conn_release(TfwConn *conn)
 {
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	TfwHttpReq *req, *tmp;
 	LIST_HEAD(zap_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
+
+	if (likely(ss_active())) {
+		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+		clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+		return;
+	}
 
 	spin_lock(&srv_conn->fwd_qlock);
 	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
@@ -1116,33 +1144,6 @@ tfw_http_conn_srv_release(TfwSrvConn *srv_conn)
 		}
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	}
-}
-
-/*
- * Connection with a peer is released.
- *
- * For server connections the requests that were sent to that server are
- * kept in the queue until a paired response comes. That will never happen
- * now. Keep the queue. When the connection is restored the requests will
- * be re-sent to the server.
- *
- * Called when a connection is released. There are no users at that time,
- * so locks are not needed.
- */
-static void
-tfw_http_conn_release(TfwConn *conn)
-{
-	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
-
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-
-	if (unlikely(!ss_active())) {
-		tfw_http_conn_srv_release(srv_conn);
-		return;
-	}
-	clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-	clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 }
 
 /*
@@ -1564,7 +1565,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
 	req->resp = (TfwHttpMsg *)resp;
-	/* Move consecutive requests with @req->resp to @ret_queue. */
+	/* Move consecutive requests with @req->resp to @req_retent. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
 		if (req->resp == NULL)
 			break;
@@ -2060,9 +2061,9 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	if (unlikely(list_empty(fwd_queue))) {
 		BUG_ON(srv_conn->qsize);
 		spin_unlock(&srv_conn->fwd_qlock);
-		/* @conn->msg will get NULLed in the process. */
 		TFW_WARN("Paired request missing, "
 			 "HTTP Response Splitting attack?\n");
+		/* @conn->msg will get NULLed in the process. */
 		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;

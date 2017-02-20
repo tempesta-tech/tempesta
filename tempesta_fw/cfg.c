@@ -88,7 +88,6 @@
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 #include <linux/vmalloc.h>
-#include <net/net_namespace.h> /* for sysctl */
 
 #include "addr.h"
 #include "cfg.h"

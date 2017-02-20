@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -139,7 +139,7 @@ tfw_srv_conn_queue_full(TfwSrvConn *srv_conn)
  */
 static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
-{       
+{
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return (srv_conn->recns == sg->max_recns);
 }
