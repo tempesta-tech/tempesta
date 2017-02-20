@@ -122,26 +122,20 @@ class ServerGroup:
         self.servers = []
 
     def add_server(self, ip, port, conns = server_conns_default()):
-        assert(conns < server_conns_max())
-        assert(len(self.servers) < servers_in_group())
-        conns_str = ''
+        assert conns < server_conns_max()
+        assert len(self.servers) < servers_in_group()
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
                      else '')
         self.servers.append('server %s:%d%s;' % (ip, port, conns_str))
 
     def get_config(self):
-        sg = ('srv_group %s ' % name) if (self.name != 'default') else ''
-        sched_space = '=' if (self.name != 'default') else ' '
-        sg += 'sched%s%s' % (sched_space, self.sched)
-        if self.name != 'default':
-            sg += ' {\n'
+        sg = ''
+        if self.name == 'default':
+            sg = '\n'.join(['sched %s;' % self.sched] + self.servers)
         else:
-            sg += ';\n'
-        ident = '\t' if self.name != 'default' else ''
-        for s in self.servers:
-            sg += '%s%s\n' % (ident, s)
-        if self.name != 'default':
-            sg += '}\n\n'
+            sg = '\n'.join(
+                ['srv_group %s sched=%s {' % (self.name, self.sched)] +
+                self.servers + ['}'])
         return sg
 
 class Config:
@@ -155,9 +149,8 @@ class Config:
         self.server_groups.append(new_sg)
 
     def get_config(self):
-        cfg = self.defconfig + '\n'
-        for sg in self.server_groups:
-            cfg += sg.get_config()
+        cfg = '\n'.join([self.defconfig] +
+                        [sg.get_config() for sg in self.server_groups])
         return cfg
 
     def set_defconfig(self, config):

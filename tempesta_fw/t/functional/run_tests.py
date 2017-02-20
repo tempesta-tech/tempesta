@@ -62,7 +62,7 @@ for opt, arg in options:
 r, reason = tf_cfg.cfg.check()
 if not r:
     print(reason)
-    sys.exit(0)
+    sys.exit(1)
 
 # Verbose level for unit tests must be > 1.
 v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1

@@ -25,7 +25,7 @@ class Node:
         if self.remote:
             self.user = tf_cfg.cfg.get(machine, 'user')
             self.port = int(tf_cfg.cfg.get(machine, 'port'))
-        assert(self.connect())
+        assert self.connect(), "Can't connect to host %s" % self.host
 
     def connect(self):
         """ Open SSH connection to node if remote. Returns False on SSH errors.
