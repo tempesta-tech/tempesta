@@ -555,6 +555,11 @@ __ss_close(struct sock *sk, int flags)
 	 * The socket is owned by current CPU, so there's no need to check
 	 * if it's live. However, in some cases this may be called multiple
 	 * times on the same socket. Do it only once for the socket.
+	 *
+	 * TODO: Calling ss_close_sync() multiple times on the same socket
+	 * doesn't look like a reasonable thing to do. Please see the comment
+	 * in tfw_http_resp_fwd() for the reasons this may be called multiple
+	 * times. Perhaps there's a better way. Please see the issue #687.
 	 */
 	bh_lock_sock(sk);
 	if (unlikely(!ss_sock_live(sk))) {
