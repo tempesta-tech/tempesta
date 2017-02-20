@@ -51,7 +51,7 @@ class Node:
             return
         self.ssh.close()
 
-    def run_cmd(self, cmd, timeout=10):
+    def run_cmd(self, cmd, timeout=10, ignore_stderr=False):
         """ Run command on remote or local host.
 
         Returns (return_code, stdout) if node available, (False, None)
@@ -59,20 +59,27 @@ class Node:
         """
         tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
         ret = False
+        stdout = ''
+        stderr = ''
         if self.remote:
             try:
-                stdin, stdout, stderr = self.ssh.exec_command(cmd,
-                                                              timeout=timeout)
-                out = ''.join([stdout.read(), stderr.read()])
-                ret = stdout.channel.recv_exit_status() == 0
+                stdin, out_f, err_f = self.ssh.exec_command(cmd, timeout=timeout)
+                stdout = out_f.read()
+                if not ignore_stderr:
+                    stderr = err_f.read()
+                ret = out_f.channel.recv_exit_status() == 0
             except Exception as e:
                 print('SSH connection error:', e)
-                return False, None
+                return False, '', ''
         else:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-            out = proc.communicate()[0]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, shell=True)
+            proc.wait()
+            stdout = proc.stdout.read()
+            if not ignore_stderr:
+                stderr = proc.stderr.read()
             ret = proc.returncode == 0
-        return ret, out
+        return ret, stdout, stderr
 
     def copy_file(self, filename, content, dir = None):
         """ Create file with specified content in `dir`. If `dir` is not
@@ -84,7 +91,7 @@ class Node:
         if dir == None:
             dir = self.workdir
         else:
-            r, _ = self.run_cmd('mkdir -p %s' % dir)
+            r, _, _ = self.run_cmd('mkdir -p %s' % dir)
             if not r:
                 return False # SSH error or no enough rights.
         filename = ''.join([dir, filename])
@@ -128,7 +135,7 @@ class Node:
 #-------------------------------------------------------------------------------
 
 def get_max_thread_count(node):
-    ret, out = node.run_cmd('grep -c processor /proc/cpuinfo')
+    ret, out, _ = node.run_cmd('grep -c processor /proc/cpuinfo')
     if (not ret) or (not re.match(b'^\d+$', out)):
         return 1
     threads = int(re.match(b'^(\d+)$', out).group(1).decode('ascii'))
@@ -144,5 +151,5 @@ server = Node('Server')
 # Create working directories on client and server nodes. Work directory on
 # Tempesta contains sources and must exist.
 for node in [client, server]:
-    assert node.run_cmd('mkdir -p %s' % node.workdir), \
-        'Can\'t create workdir on %s' % node.host
+    r, _, _ = node.run_cmd('mkdir -p %s' % node.workdir)
+    assert r, "Can't create workdir %s on %s" % (node.workdir, node.host)
