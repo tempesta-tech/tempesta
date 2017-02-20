@@ -707,6 +707,16 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
  * the queue. CPU-2 does the same after CPU-1 (the queue was locked).
  * After that CPU-1 and CPU-2 are fully concurrent. If CPU-2 happens
  * to proceed first with forwarding, then pairing gets broken.
+ *
+ * TODO: In current design @fwd_queue is locked until after a request
+ * is submitted to SS for sending. It shouldn't be necessary to lock
+ * @fwd_queue for that. There's the ordered @fwd_queue. Also there's
+ * the ordered work queue in SS layer. Perhaps the right way of ordering
+ * these actions is to use message tickets according to the ordering of
+ * requests in @fwd_queue. Typically tfw_connection_send() or its pure
+ * server variant must care about ticket ordering. Backoff and per-cpu
+ * lock data structures could be used just like in Linux MCS locking.
+ * Please see the issue #687.
  */
 static void
 tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -1551,6 +1561,20 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * Doing ss_close_sync() on client connection's socket is safe
 	 * as long as @req that holds a reference to the connection is
 	 * not freed.
+	 *
+	 * TODO: Responses come from different server connections and on
+	 * different threads/CPUs. This code is called for each response.
+	 * If @seq_queue is empty, then ss_close_sync() may get called
+	 * multiple times, which doesn't look like a reasonable thing to
+	 * do. Perhaps, ss_close_sync() can be called only if ss_close()
+	 * fails. Also, perhaps the state of the client connection can be
+	 * checked in attempt to avoid a call to ss_close() altogether.
+	 * Note that ss_close_sync() is used because otherwise queueing
+	 * of the close() action is not guaranteed. Also note that calling
+	 * of ss_close_sync() multiple times is supported by the code in
+	 * __ss_close() that prevents closing of a socket (and a connection)
+	 * that is closed already. Please see a comment there, and the
+	 * issue #687.
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	if (unlikely(list_empty(seq_queue))) {
@@ -1591,6 +1615,12 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * is destroyed when the last reference goes, so the argument
 	 * to spin_unlock() may get invalid. Hold the connection until
 	 * sending is done.
+	 *
+	 * TODO: There's a lock contention here as multiple threads/CPUs
+	 * go for the same client connection's queue. Perhaps there's a
+	 * better way of doing this that is more effective. Please see
+	 * the TODO comment above and to the function tfw_http_popreq().
+	 * Also, please see the issue #687.
 	 */
 	tfw_cli_conn_get(cli_conn);
 	spin_lock(&cli_conn->ret_qlock);
@@ -2046,8 +2076,15 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
  * to and kept in @fwd_queue of the connection @conn for that server.
  * If a paired request is not found, then the response is deleted.
  *
- * If a paired client request is missing, then it seems upsream server is
- * misbehaving, so the caller has to drop the server connection.
+ * If a paired client request is missing, then it seems upsream server
+ * is misbehaving, so the caller has to drop the server connection.
+ *
+ * TODO: When a response is received and a paired request is found,
+ * pending (unsent) requests in the connection are forwarded to the
+ * server right away. In current design, @fwd_queue is locked until
+ * after a request is submitted to SS for sending. It shouldn't be
+ * necessary to lock @fwd_queue for that. Please see a similar TODO
+ * comment to tfw_http_req_fwd(). Also, please see the issue #687.
  */
 static TfwHttpReq *
 tfw_http_popreq(TfwHttpMsg *hmresp)
