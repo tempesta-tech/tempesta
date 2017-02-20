@@ -433,6 +433,8 @@ tfw_current_timestamp(void)
  * SKB data is needed only for calculation of a cache key from request
  * fields. In all other cases it can just be passed to the network layer.
  */
+extern bool tfw_cache_msg_cacheable(TfwHttpReq *req);
+
 static inline void
 tfw_http_req_init_ss_flags(TfwHttpReq *req)
 {
