@@ -67,13 +67,14 @@ class Client():
                 return False
         return True
 
-    def parse_out(self, ret, out):
+    def parse_out(self, ret, stdout, stderr):
         """ Parse framework results. """
-        print(ret, out.decode('ascii'))
+        print(ret, stdout.decode('ascii'), stderr.decode('ascii'))
 
     def th_routine(self, command):
-        self.ret, out = self.node.run_cmd(command, timeout = self.duration * 2)
-        self.parse_out(self.ret, out)
+        self.ret, stdout, stderr = self.node.run_cmd(command,
+            timeout = self.duration + 5)
+        self.parse_out(self.ret, stdout, stderr)
         self.cleanup()
 
     def form_command(self):
@@ -137,14 +138,14 @@ class Wrk(Client):
         self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
-    def parse_out(self, ret, out):
+    def parse_out(self, ret, stdout, stderr):
         if not ret:
             # WRK failed, nothing to parse
             return
-        m = re.search(b'(\d+) requests in ', out)
+        m = re.search(b'(\d+) requests in ', stdout)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Non-2xx or 3xx responses: (\d+)', out)
+        m = re.search(b'Non-2xx or 3xx responses: (\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
 
@@ -162,16 +163,16 @@ class Ab(Client):
         self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
-    def parse_out(self, ret, out):
+    def parse_out(self, ret, stdout, stderr):
         if not ret:
             return
-        m = re.search(b'Complete requests:\s+(\d+)', out)
+        m = re.search(b'Complete requests:\s+(\d+)', stdout)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Non-2xx responses:\s+(\d+)', out)
+        m = re.search(b'Non-2xx responses:\s+(\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
-        m = re.search(b'Failed requests:\s+(\d+)', out)
+        m = re.search(b'Failed requests:\s+(\d+)', stdout)
         if m:
             self.errors += int(m.group(1))
 
@@ -193,13 +194,14 @@ class Siege(Client):
         # Note: Siege sends statistics to stderr.
         return Client.form_command(self)
 
-    def parse_out(self, ret, out):
+    def parse_out(self, ret, stdout, stderr):
+        """ Siege prints results to stderr. """
         if not ret:
             return
-        m = re.search(b'Successful transactions:\s+(\d+)', out)
+        m = re.search(b'Successful transactions:\s+(\d+)', stderr)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Failed transactions:\s+(\d+)', out)
+        m = re.search(b'Failed transactions:\s+(\d+)', stderr)
         if m:
             self.errors = int(m.group(1))
 
@@ -231,22 +233,22 @@ class Tempesta():
         if not r:
             return False
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
-        r, _ = self.node.run_cmd(cmd)
+        r, _, _ = self.node.run_cmd(cmd)
         return r
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
-        r, _ = self.node.run_cmd(cmd)
+        r, _, _ = self.node.run_cmd(cmd)
         return r
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'
-        r, out = self.node.run_cmd(cmd)
+        r, stdout, _ = self.node.run_cmd(cmd)
         if not r:
             return r
-        self.stats.parse(out)
+        self.stats.parse(stdout)
         return r
 
 #-------------------------------------------------------------------------------
@@ -280,7 +282,7 @@ class Nginx():
         # Nginx forks on start, no background threads needed.
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
-        r, _ = self.node.run_cmd(cmd)
+        r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
         self.state = 'up' if r else 'error'
         return r
 
@@ -292,7 +294,7 @@ class Nginx():
         pid_file = ''.join([self.workdir, self.config.pidfile_name])
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
-        r, _ = self.node.run_cmd(cmd)
+        r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
         r &= self.node.remove_file(config_file)
         self.state = 'down' if r else 'error'
         return r
@@ -306,7 +308,7 @@ class Nginx():
         # us if server is dead.
         uri = 'http://localhost:%d/nginx_status' % self.config.port
         cmd = 'curl %s' % uri
-        r, out = self.node.run_cmd(cmd)
+        r, out, _ = self.node.run_cmd(cmd)
         if not r:
             return False, None
         m = re.search(b'Active connections: (\d+) \nserver accepts handled requests\n \d+ \d+ (\d+)',
