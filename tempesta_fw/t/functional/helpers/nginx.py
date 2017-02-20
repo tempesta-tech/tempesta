@@ -80,7 +80,7 @@ http {
         self.config = r.sub(' '.join(['listen', str(port), ';']), self.config)
 
     def set_workdir(self, dir):
-        assert(len(dir))
+        assert len(dir)
         pid = ''.join([dir, self.pidfile_name])
         root = ''.join([dir, 'http'])
         r = re.compile('pid[ ]+([\w._/]+);')
