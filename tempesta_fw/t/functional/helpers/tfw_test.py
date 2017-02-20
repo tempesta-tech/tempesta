@@ -55,7 +55,8 @@ class Loader(unittest.TestCase):
         """ Carefully stop all servers. Error on stop will make next test fail,
         so mark test as failed even if eveything other is fine.
         """
-        assert(self.tempesta.stop())
+        assert self.tempesta.stop(), \
+            "Can't stop TempestaFW on %s" % self.tempesta.host
         r = True
         failed_servers = []
         for s in self.servers:
@@ -94,7 +95,7 @@ class Loader(unittest.TestCase):
         for c in self.clients:
             ret, req, err = c.results()
             cl_req_cnt += req
-            self.assertEqual(ret, True)
+            self.assertTrue(ret)
             self.assertEqual(err, 0)
         # Clients counts only complited requests and closes connections before
         # Tempesta can send responses. So Tempesta recieved requests count
@@ -128,10 +129,10 @@ class Loader(unittest.TestCase):
         self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
         for s in self.servers:
-            self.assertEqual(
-                s.start(), True,
-                msg = "Can't start HTTP server %s" % s.get_name())
-        self.assertEqual(self.tempesta.start(), True)
+            self.assertTrue(s.start(),
+                            msg = "Can't start HTTP server %s" % s.get_name())
+        self.assertTrue(self.tempesta.start(),
+                        msg="Can't start TempestaFW on %s" % self.tempesta.host)
 
         for cl in self.clients:
             cl.run()
@@ -140,7 +141,7 @@ class Loader(unittest.TestCase):
         self.show_performance()
 
         # Tempesta statistics is valueble to client assertions.
-        self.assertEqual(self.tempesta.get_stats(), True)
+        self.assertTrue(self.tempesta.get_stats())
 
         self.assert_clients()
         self.assert_tempesta()

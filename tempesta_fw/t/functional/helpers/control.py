@@ -220,10 +220,10 @@ class Tempesta():
         self.config_name = 'tempesta_fw.conf'
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
+        self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
 
     def start(self):
-        hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
-        tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % hostname)
+        tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % self.host)
         self.stats.clear()
         # Use relative path to work dir to get rid of extra mkdir command.
         r = self.node.copy_file(''.join(['etc/', self.config_name]),
@@ -236,8 +236,7 @@ class Tempesta():
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
-        hostname = tf_cfg.cfg.get('Tempesta', 'hostname')
-        tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % hostname)
+        tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
         r, _ = self.node.run_cmd(cmd)
         return r
