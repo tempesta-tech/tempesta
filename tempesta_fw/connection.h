@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -84,7 +84,6 @@ enum {
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
- * @forward	- called when a request is forwarded to server;
  */
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
@@ -247,8 +246,8 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
 
 /*
- * Tell if a server connection connection is restricted. A restricted
- * server connection is not available to schedulers.
+ * Tell if a server connection is restricted. A restricted connection
+ * is not available to schedulers.
  *
  * The flag RESEND is set when a newly established server connection
  * has messages in the forwarding queue. That means that the connection
@@ -286,27 +285,17 @@ tfw_connection_live(TfwConn *conn)
 {
 	return atomic_read(&conn->refcnt) > 0;
 }
-static inline bool
-tfw_srv_conn_live(TfwSrvConn *srv_conn)
-{
-	return tfw_connection_live((TfwConn *)srv_conn);
-}
+
+#define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
 
 static inline void
 tfw_connection_get(TfwConn *conn)
 {
 	atomic_inc(&conn->refcnt);
 }
-static inline void
-tfw_cli_conn_get(TfwCliConn *cli_conn)
-{
-	tfw_connection_get((TfwConn *)cli_conn);
-}
-static inline void
-tfw_srv_conn_get(TfwSrvConn *srv_conn)
-{
-	tfw_connection_get((TfwConn *)srv_conn);
-}
+
+#define tfw_cli_conn_get(c)	tfw_connection_get((TfwConn *)(c))
+#define tfw_srv_conn_get(c)	tfw_connection_get((TfwConn *)(c))
 
 /**
  * Increment reference counter and return true if @conn is not in
@@ -326,11 +315,9 @@ __tfw_connection_get_if_live(TfwConn *conn)
 
 	return false;
 }
-static inline bool
-tfw_srv_conn_get_if_live(TfwSrvConn *srv_conn)
-{
-	return __tfw_connection_get_if_live((TfwConn *)srv_conn);
-}
+
+#define tfw_srv_conn_get_if_live(c)	\
+	__tfw_connection_get_if_live((TfwConn *)(c))
 
 static inline void
 tfw_connection_put(TfwConn *conn)
@@ -346,16 +333,9 @@ tfw_connection_put(TfwConn *conn)
 	if (conn->destructor)
 		conn->destructor(conn);
 }
-static inline void
-tfw_cli_conn_put(TfwCliConn *cli_conn)
-{
-	tfw_connection_put((TfwConn *)cli_conn);
-}
-static inline void
-tfw_srv_conn_put(TfwSrvConn *srv_conn)
-{
-	tfw_connection_put((TfwConn *)srv_conn);
-}
+
+#define tfw_cli_conn_put(c)	tfw_connection_put((TfwConn *)(c))
+#define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
 
 static inline void
 tfw_connection_put_to_death(TfwConn *conn)

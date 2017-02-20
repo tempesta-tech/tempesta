@@ -505,6 +505,14 @@ scheduler.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
 
+The round-robin scheduler is the fastest scheduler. However, the presence
+of a non-idempotent request in a connection means that subsequent requests
+may not be sent out until a response is received to the non-idempotent
+request. With that in mind, an attempt is made to put new requests to
+connections that don't currently have non-idempotent requests. If all
+connections have a non-idempotent request in them, then such a connection
+is used as there's no other choice.
+
 Only one `sched` directive is allowed per explicit or implicit group.
 A scheduler defined for the implicit group becomes the scheduler for an
 explicit group defined with `srv_group` directive if the explicit group
