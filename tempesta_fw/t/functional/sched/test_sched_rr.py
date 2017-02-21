@@ -41,9 +41,7 @@ class FairLoadEqualConns(RRTester):
         self.create_servers_helper(tempesta.servers_in_group())
 
     def assert_servers(self):
-        for s in self.servers:
-            self.assertTrue(s.get_stats())
-
+        self.servers_get_stats()
         cl_reqs = self.tempesta.stats.cl_msg_forwarded
         s_reqs_expected = cl_reqs / len(self.servers)
         s_reqs = 0

@@ -57,13 +57,7 @@ class Loader(unittest.TestCase):
         """
         assert self.tempesta.stop(), \
             "Can't stop TempestaFW on %s" % self.tempesta.host
-        r = True
-        failed_servers = []
-        for s in self.servers:
-            if not s.stop():
-                failed_servers.append(s.get_name())
-                r = False
-        assert r, "Can't stop HTTP servers: %s" % ','.join(failed_servers)
+        assert control.servers_stop(self.servers), "Can't stop HTTP servers"
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
@@ -121,6 +115,9 @@ class Loader(unittest.TestCase):
         # Nothing to do for nginx in default configuration.
         pass
 
+    def servers_get_stats(self):
+        self.assertTrue(control.servers_get_stats(self.servers))
+
     def generic_test_routine(self, tempesta_defconfig):
         """ Make necessary updates to configs of servers, create tempesta config
         and run the routine in you `test_*()` function.
@@ -128,16 +125,11 @@ class Loader(unittest.TestCase):
         # Set defconfig for Tempesta.
         self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
-        for s in self.servers:
-            self.assertTrue(s.start(),
-                            msg = "Can't start HTTP server %s" % s.get_name())
+        self.assertTrue(control.servers_start(self.servers))
         self.assertTrue(self.tempesta.start(),
                         msg="Can't start TempestaFW on %s" % self.tempesta.host)
 
-        for cl in self.clients:
-            cl.run()
-        for cl in self.clients:
-            cl.wait()
+        self.assertTrue(control.clients_run_parallel(self.clients))
         self.show_performance()
 
         # Tempesta statistics is valueble to client assertions.

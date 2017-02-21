@@ -48,8 +48,7 @@ class BindToServer(HashTester):
         self.create_servers_helper(tempesta.servers_in_group())
 
     def assert_servers(self):
-        for s in self.servers:
-            self.assertTrue(s.get_stats())
+        self.servers_get_stats()
         reqs = self.tempesta.stats.cl_msg_forwarded
         # Only one server must pull all the load.
         loaded = 0

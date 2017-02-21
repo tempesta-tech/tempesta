@@ -1,6 +1,5 @@
 from __future__ import print_function, unicode_literals
-import configparser
-import os
+import configparser, os, sys
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -27,7 +26,7 @@ class TestFrameworkCfg():
                                           'ab': 'ab',
                                           'wrk': 'wrk',
                                           'siege': 'siege',
-                                          'workdir': '/root/client',},
+                                          'workdir': '/tmp/client',},
                                'Tempesta': {'ip': '127.0.0.1',
                                             'hostname': 'localhost',
                                             'user': 'root',
@@ -38,7 +37,7 @@ class TestFrameworkCfg():
                                           'user': 'root',
                                           'port': '22',
                                           'nginx': 'nginx',
-                                          'workdir': '/root/nginx',
+                                          'workdir': '/tmp/nginx',
                                           'resources': '/var/www/html/'}
                                })
 
@@ -75,6 +74,9 @@ class TestFrameworkCfg():
         for host in ['Client', 'Tempesta', 'Server']:
             if not self.config[host]['workdir'].endswith('/'):
                 self.config[host]['workdir'] += '/'
+
+        if self.config['Client']['hostname'] != 'localhost':
+            return False, "Running clients on remote host is not supported yet."
         return True, ''
 
 def debug():
@@ -90,5 +92,8 @@ def dbg(level, *args, **kwargs):
 cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
                     '/../tests_config.ini'])
 cfg = TestFrameworkCfg(cfg_file)
-r, error = cfg.check()
-assert r, error
+
+r, reason = cfg.check()
+if not r:
+    print("Error:", reason)
+    sys.exit(1)
