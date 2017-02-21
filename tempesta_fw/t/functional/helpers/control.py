@@ -209,6 +209,8 @@ def __clients_parse_output(args):
     return client.parse_out(ret, stdout, stderr)
 
 def clients_run_parallel(clients):
+    tf_cfg.dbg(3, '\tRunning %d HTTP clients on %s' %
+                  (len(clients), remote.client.host))
     if not len(clients):
         return True
     # In most cases all Siege instances use the same config file. no need to
@@ -236,6 +238,7 @@ def clients_run_parallel(clients):
     return all(r)
 
 def client_run_blocking(client):
+    tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
     client.prepare()
     ret, stdout, stderr = remote.client.run_cmd(client.cmd)
     client.parse_out(ret, stdout, stderr)
