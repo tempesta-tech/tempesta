@@ -29,7 +29,6 @@ key, not password. `ssh-copy-id` can be used for that.
 """
     )
 
-
 fail_fast = False
 
 try:

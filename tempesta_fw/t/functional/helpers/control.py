@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 import paramiko, subprocess, re, threading
+import multiprocessing.dummy as multiprocessing
 from . import tf_cfg, remote, nginx, tempesta, siege
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -69,38 +70,21 @@ class Client():
 
     def parse_out(self, ret, stdout, stderr):
         """ Parse framework results. """
+        self.ret = ret
         print(ret, stdout.decode('ascii'), stderr.decode('ascii'))
-
-    def th_routine(self, command):
-        self.ret, stdout, stderr = self.node.run_cmd(command,
-            timeout = self.duration + 5)
-        self.parse_out(self.ret, stdout, stderr)
-        self.cleanup()
+        return True
 
     def form_command(self):
         """ Prepare run command for benchmark to run on remote node. """
         cmd = ' '.join([self.bin] + self.options + [self.uri])
         return cmd
 
-    def run(self):
-        """ Run benchmark in background thread. """
-        hostname = tf_cfg.cfg.get('Client', 'hostname')
-        tf_cfg.dbg(3, '\tRun client on %s for %s seconds ...' %
-                   (hostname, self.duration))
-
-        cmd = self.form_command()
-
+    def prepare(self):
+        self.cmd = self.form_command()
         self.clear_stats()
         if not self.copy_files():
-            return
-        self.th = threading.Thread(target=self.th_routine, args=(cmd,))
-        self.th.start()
-
-    def wait(self):
-        """ Wait for completion. """
-        # Thread might not exist if run() has failed.
-        if hasattr(self, 'th'):
-            self.th.join()
+            return False
+        return True
 
     def results(self):
         return self.ret, self.requests, self.errors
@@ -139,15 +123,17 @@ class Wrk(Client):
         return Client.form_command(self)
 
     def parse_out(self, ret, stdout, stderr):
+        self.ret = ret
         if not ret:
             # WRK failed, nothing to parse
-            return
+            return True
         m = re.search(b'(\d+) requests in ', stdout)
         if m:
             self.requests = int(m.group(1))
         m = re.search(b'Non-2xx or 3xx responses: (\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
+        return True
 
 
 class Ab(Client):
@@ -164,8 +150,9 @@ class Ab(Client):
         return Client.form_command(self)
 
     def parse_out(self, ret, stdout, stderr):
+        self.ret = ret
         if not ret:
-            return
+            return True
         m = re.search(b'Complete requests:\s+(\d+)', stdout)
         if m:
             self.requests = int(m.group(1))
@@ -175,6 +162,7 @@ class Ab(Client):
         m = re.search(b'Failed requests:\s+(\d+)', stdout)
         if m:
             self.errors += int(m.group(1))
+        return True
 
 
 class Siege(Client):
@@ -183,6 +171,7 @@ class Siege(Client):
     def __init__(self, uri='/'):
         Client.__init__(self, 'siege', uri = uri)
         self.rc = siege.Config()
+        self.copy_rc = True
 
     def form_command(self):
         # Benchmark: no delays between requests.
@@ -190,23 +179,67 @@ class Siege(Client):
         self.options.append('-t %dS' % self.duration)
         self.options.append('-c %d' % self.connections)
         # Add RC file.
-        self.add_option_file('-R', self.rc.filename, self.rc.get_config())
+        if self.copy_rc:
+            self.add_option_file('-R', self.rc.filename, self.rc.get_config())
         # Note: Siege sends statistics to stderr.
         return Client.form_command(self)
 
     def parse_out(self, ret, stdout, stderr):
         """ Siege prints results to stderr. """
+        self.ret = ret
         if not ret:
-            return
+            return True
         m = re.search(b'Successful transactions:\s+(\d+)', stderr)
         if m:
             self.requests = int(m.group(1))
         m = re.search(b'Failed transactions:\s+(\d+)', stderr)
         if m:
             self.errors = int(m.group(1))
+        return True
 
     def set_user_agent(self, ua):
         self.options.append('-A \'%s\'' % ua)
+
+#-------------------------------------------------------------------------------
+# Client helpers
+#-------------------------------------------------------------------------------
+
+def __clients_parse_output(args):
+    client, (ret, stdout, stderr) = args
+    return client.parse_out(ret, stdout, stderr)
+
+def clients_run_parallel(clients):
+    if not len(clients):
+        return True
+    # In most cases all Siege instances use the same config file. no need to
+    # copy in many times.
+    if (isinstance(clients[0], Siege)):
+        for i in range(1,len(clients)):
+            clients[i].copy_rc = False
+
+    pool = multiprocessing.Pool(len(clients))
+    prepare = clients[0].prepare.__func__
+    results = pool.map(prepare, clients)
+    if not all(results):
+        return False
+
+    run_args = [c.cmd for c in clients]
+    results = pool.map(remote.client.run_cmd,run_args)
+
+    parse_args = [(clients[i], results[i]) for i in range(len(clients))]
+    pool.map(__clients_parse_output, parse_args)
+
+    cleanup =  clients[0].cleanup.__func__
+    pool.map(cleanup,clients)
+
+    r = [ret for ret, _, _ in results]
+    return all(r)
+
+def client_run_blocking(client):
+    client.prepare()
+    ret, stdout, stderr = remote.client.run_cmd(client.cmd)
+    client.parse_out(ret, stdout, stderr)
+    client.cleanup()
 
 
 #-------------------------------------------------------------------------------
@@ -272,7 +305,6 @@ class Nginx():
     def start(self):
         if self.state != 'down':
             return False
-        hostname = tf_cfg.cfg.get('Server', 'hostname')
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
@@ -289,7 +321,6 @@ class Nginx():
     def stop(self):
         if self.state != 'up':
             return True
-        hostname = tf_cfg.cfg.get('Server', 'hostname')
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
         pid_file = ''.join([self.workdir, self.config.pidfile_name])
         config_file = ''.join([self.workdir, self.config.config_name])
@@ -304,11 +335,11 @@ class Nginx():
         instances instead
         """
         self.stats_ask_times += 1
-        # Just ask servver to get stats for us. 'node.run_cmd' will also tell
-        # us if server is dead.
-        uri = 'http://localhost:%d/nginx_status' % self.config.port
+        # In default tests configuration Nginx status available on
+        # `nginx_status` page.
+        uri = 'http://%s:%d/nginx_status' % (self.node.host, self.config.port)
         cmd = 'curl %s' % uri
-        r, out, _ = self.node.run_cmd(cmd)
+        r, out, _ = remote.client.run_cmd(cmd)
         if not r:
             return False, None
         m = re.search(b'Active connections: (\d+) \nserver accepts handled requests\n \d+ \d+ (\d+)',
@@ -324,3 +355,32 @@ class Nginx():
         self.active_conns = 0
         self.requests = 0
         self.stats_ask_times = 0
+
+#-------------------------------------------------------------------------------
+# Server helpers
+#-------------------------------------------------------------------------------
+
+def __servers_pool_size(n_servers):
+    if remote.server.remote:
+        # By default MasSessions in sshd config is 10. Do not overflow it.
+        return 4
+    else:
+        return n_servers
+
+def servers_start(servers):
+    threads = __servers_pool_size(len(servers))
+    pool = multiprocessing.Pool(threads)
+    results = pool.map(Nginx.start,servers)
+    return all(results)
+
+def servers_stop(servers):
+    threads = __servers_pool_size(len(servers))
+    pool = multiprocessing.Pool(threads)
+    results = pool.map(Nginx.stop,servers)
+    return all(results)
+
+def servers_get_stats(servers):
+    threads = __servers_pool_size(len(servers))
+    pool = multiprocessing.Pool(threads)
+    results = pool.map(Nginx.get_stats,servers)
+    return all(results)
