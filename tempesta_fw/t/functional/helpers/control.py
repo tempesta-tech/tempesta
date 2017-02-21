@@ -210,6 +210,8 @@ class Siege(Client):
 
 def __clients_parse_output(args):
     client, (ret, stdout, stderr) = args
+    if tf_cfg.v_level() >= 5:
+        Client.parse_out(client, ret, stdout, stderr)
     return client.parse_out(ret, stdout, stderr)
 
 def __clients_run(client):
@@ -304,7 +306,6 @@ class Nginx():
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
         self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
-        self.state = 'down'
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
 
@@ -312,8 +313,6 @@ class Nginx():
         return ':'.join([self.node.host, str(self.config.port)])
 
     def start(self):
-        if self.state != 'down':
-            return False
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
@@ -324,19 +323,15 @@ class Nginx():
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
         r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
-        self.state = 'up' if r else 'error'
         return r
 
     def stop(self):
-        if self.state != 'up':
-            return True
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
         pid_file = ''.join([self.workdir, self.config.pidfile_name])
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
         r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
         r &= self.node.remove_file(config_file)
-        self.state = 'down' if r else 'error'
         return r
 
     def get_stats(self):
