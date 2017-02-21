@@ -1,8 +1,9 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
 from __future__ import print_function
-import paramiko, subprocess, re, threading
+import paramiko, re, threading
 import multiprocessing.dummy as multiprocessing
+import subprocess32 as subprocess
 from . import tf_cfg, remote, nginx, tempesta, siege
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -181,6 +182,9 @@ class Siege(Client):
         # Add RC file.
         if self.copy_rc:
             self.add_option_file('-R', self.rc.filename, self.rc.get_config())
+        else:
+            dir = tf_cfg.cfg.get('Client', 'workdir')
+            self.options.append('-R %s%s' % (dir, self.rc.filename))
         # Note: Siege sends statistics to stderr.
         return Client.form_command(self)
 
@@ -208,6 +212,9 @@ def __clients_parse_output(args):
     client, (ret, stdout, stderr) = args
     return client.parse_out(ret, stdout, stderr)
 
+def __clients_run(client):
+    return remote.client.run_cmd(client.cmd, timeout = client.duration + 5)
+
 def clients_run_parallel(clients):
     tf_cfg.dbg(3, '\tRunning %d HTTP clients on %s' %
                   (len(clients), remote.client.host))
@@ -225,8 +232,7 @@ def clients_run_parallel(clients):
     if not all(results):
         return False
 
-    run_args = [c.cmd for c in clients]
-    results = pool.map(remote.client.run_cmd,run_args)
+    results = pool.map(__clients_run,clients)
 
     parse_args = [(clients[i], results[i]) for i in range(len(clients))]
     pool.map(__clients_parse_output, parse_args)

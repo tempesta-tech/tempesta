@@ -1,7 +1,8 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
 from __future__ import print_function
-import paramiko, subprocess, re, threading
+import paramiko, re, threading, os
+import subprocess32 as subprocess
 from . import tf_cfg
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -72,9 +73,16 @@ class Node:
                 print('SSH connection error:', e)
                 return False, '', ''
         else:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, shell=True)
-            proc.wait()
+            if ignore_stderr:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
+            else:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, shell=True)
+            try:
+                proc.wait(timeout)
+            except Exception as e:
+                print(e)
+                return False, '', ''
             stdout = proc.stdout.read()
             if not ignore_stderr:
                 stderr = proc.stderr.read()
@@ -126,8 +134,8 @@ class Node:
                 return False
             return True
         else:
-            if os.path.isfile(path):
-                    os.remove(path)
+            if os.path.isfile(filename):
+                    os.remove(filename)
             return True
 
 #-------------------------------------------------------------------------------
