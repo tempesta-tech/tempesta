@@ -350,8 +350,9 @@ typedef struct {
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
  * @resp	- the response paired with this request;
- * @rstatus	- error response status until the response is prepared;
+ * @reason	- the string with the reason for an error response;
  * @retries	- the number of re-send attempts;
+ * @status	- error response status until the response is prepared;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -374,9 +375,12 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	TfwHttpMsg		*resp;
 	union {
-		unsigned short	rstatus;
+		TfwHttpMsg	*resp;
+		const char	*reason;
+	};
+	union {
+		unsigned short	status;
 		unsigned short	retries;
 	};
 } TfwHttpReq;
@@ -467,10 +471,10 @@ void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpReq *req);
-int tfw_http_send_404(TfwHttpReq *req);
-int tfw_http_send_502(TfwHttpReq *req);
-int tfw_http_send_504(TfwHttpReq *req);
+int tfw_http_send_403(TfwHttpReq *req, const char *source, const char *reason);
+int tfw_http_send_404(TfwHttpReq *req, const char *source, const char *reason);
+int tfw_http_send_502(TfwHttpReq *req, const char *source, const char *reason);
+int tfw_http_send_504(TfwHttpReq *req, const char *source, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.
