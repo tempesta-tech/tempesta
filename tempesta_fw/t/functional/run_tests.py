@@ -79,5 +79,6 @@ Running functional tests...
 loader = unittest.TestLoader()
 tests = loader.discover('.')
 testRunner = unittest.runner.TextTestRunner(verbosity = v_level,
-                                            failfast=fail_fast)
+                                            failfast = fail_fast,
+                                            descriptions = False)
 testRunner.run(tests)
