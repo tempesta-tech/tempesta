@@ -62,6 +62,21 @@ int ghprio; /* GFSM hook priority. */
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
+const char *s_source_proxy = "proxy forward";
+const char *s_source_cache = "proxy cache";
+
+static const char *s_reason_evict_timeout = "request evicted: timed out";
+static const char *s_reason_evict_retries = "request evicted: the number"
+					    " of retries exceeded";
+static const char *s_reason_fwd = "request dropped: forwarding error";
+static const char *s_reason_nip = "request dropped: non-idempotent requests"
+				  "are not re-forwarded or re-scheduled";
+static const char *s_reason_sched = "request dropped: unable to find "
+				    "an available back end server";
+static const char *s_reason_req_common = "request dropped: processing error";
+static const char *s_reason_resp_common = "response dropped: processing error";
+static const char *s_reason_resp_filter = "response dropped: filtered out";
+
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -257,7 +272,7 @@ tfw_http_send_200(TfwHttpReq *req)
  * HTTP 403 response: Access is forbidden.
  */
 int
-tfw_http_send_403(TfwHttpReq *req)
+tfw_http_send_403(TfwHttpReq *req, const char *source, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -270,7 +285,7 @@ tfw_http_send_403(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 403 response\n");
+	TFW_DBG("Send HTTP 403 response: %s: %s\n", source, reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -281,7 +296,7 @@ tfw_http_send_403(TfwHttpReq *req)
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
 int
-tfw_http_send_404(TfwHttpReq *req)
+tfw_http_send_404(TfwHttpReq *req, const char *source, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -294,7 +309,7 @@ tfw_http_send_404(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 404 response\n");
+	TFW_DBG("Send HTTP 404 response: %s: %s\n", source, reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -306,7 +321,7 @@ tfw_http_send_404(TfwHttpReq *req)
  * the request to a server.
  */
 static int
-tfw_http_send_500(TfwHttpReq *req)
+tfw_http_send_500(TfwHttpReq *req, const char *source, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -319,7 +334,7 @@ tfw_http_send_500(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 500 response\n");
+	TFW_DBG("Send HTTP 500 response: %s: %s\n", source, reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -331,7 +346,7 @@ tfw_http_send_500(TfwHttpReq *req)
  * the designated server.
  */
 int
-tfw_http_send_502(TfwHttpReq *req)
+tfw_http_send_502(TfwHttpReq *req, const char *source, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -344,7 +359,7 @@ tfw_http_send_502(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 502 response\n");
+	TFW_DBG("Send HTTP 502 response: %s: %s:\n", source, reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -356,7 +371,7 @@ tfw_http_send_502(TfwHttpReq *req)
  * the designated server.
  */
 int
-tfw_http_send_504(TfwHttpReq *req)
+tfw_http_send_504(TfwHttpReq *req, const char *source, const char *reason)
 {
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -369,7 +384,7 @@ tfw_http_send_504(TfwHttpReq *req)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 504 response\n");
+	TFW_DBG("Send HTTP 504 response: %s: %s:\n", source, reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -505,11 +520,13 @@ tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
  */
 static inline void
 tfw_http_req_move2equeue(TfwSrvConn *srv_conn, TfwHttpReq *req,
-			 struct list_head *equeue, unsigned short status)
+			 struct list_head *equeue, unsigned short status,
+			 const char *reason)
 {
 	tfw_http_req_delist(srv_conn, req);
 	list_add_tail(&req->fwd_list, equeue);
-	req->rstatus = status;
+	req->status = status;
+	req->reason = reason;
 }
 
 /*
@@ -523,7 +540,7 @@ tfw_http_req_move2equeue(TfwSrvConn *srv_conn, TfwHttpReq *req,
  * request and then sent to the client in proper seq order.
  */
 static void
-tfw_http_req_zap_error(struct list_head *equeue)
+tfw_http_req_zap_error(struct list_head *equeue, const char *source)
 {
 	TfwHttpReq *req, *tmp;
 
@@ -532,23 +549,23 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		switch(req->rstatus) {
+		switch(req->status) {
 		case 404:
-			tfw_http_send_404(req);
+			tfw_http_send_404(req, source, req->reason);
 			break;
 		case 500:
-			tfw_http_send_500(req);
+			tfw_http_send_500(req, source, req->reason);
 			break;
 		case 502:
-			tfw_http_send_502(req);
+			tfw_http_send_502(req, source, req->reason);
 			break;
 		case 504:
-			tfw_http_send_504(req);
+			tfw_http_send_504(req, source, req->reason);
 			break;
 		default:
 			TFW_WARN("Unexpected response error code: [%d]\n",
-				 req->rstatus);
-			tfw_http_send_500(req);
+				 req->status);
+			tfw_http_send_500(req, source, req->reason);
 			break;
 		}
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -569,7 +586,8 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
 			 __func__, req,
 			 jiffies_to_msecs(jqage - srv->sg->max_jqage));
-		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
+		tfw_http_req_move2equeue(srv_conn, req, equeue,
+					 504, s_reason_evict_timeout);
 		return true;
 	}
 	return false;
@@ -586,7 +604,8 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
-		tfw_http_req_move2equeue(srv_conn, req, equeue, 504);
+		tfw_http_req_move2equeue(srv_conn, req, equeue,
+					 504, s_reason_evict_retries);
 		return true;
 	}
 	return false;
@@ -605,7 +624,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
-		tfw_http_req_move2equeue(srv_conn, req, equeue, 500);
+		tfw_http_req_move2equeue(srv_conn, req, equeue,
+					 500, s_reason_fwd);
 		return false;
 	}
 	return true;
@@ -719,10 +739,9 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
  * Please see the issue #687.
  */
 static void
-tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_fwd(TfwSrvConn *srv_conn,
+		 TfwHttpReq *req, struct list_head *equeue)
 {
-	LIST_HEAD(equeue);
-
 	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
@@ -735,11 +754,8 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		spin_unlock(&srv_conn->fwd_qlock);
 		return;
 	}
-	__tfw_http_conn_fwd_unsent(srv_conn, &equeue);
+	__tfw_http_conn_fwd_unsent(srv_conn, equeue);
 	spin_unlock(&srv_conn->fwd_qlock);
-
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
 }
 
 /*
@@ -774,7 +790,8 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *equeue)
 		srv_conn->msg_sent =
 			(srv_conn->fwd_queue.next == &req_sent->fwd_list) ?
 			NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
-		tfw_http_req_move2equeue(srv_conn, req_sent, equeue, 504);
+		tfw_http_req_move2equeue(srv_conn, req_sent, equeue,
+					 504, s_reason_nip);
 	}
 }
 
@@ -910,11 +927,12 @@ tfw_http_conn_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 			continue;
 		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_WARN("Unable to find a backend server\n");
-			tfw_http_req_move2equeue(srv_conn, req, equeue, 502);
+			tfw_http_req_move2equeue(srv_conn, req, equeue,
+						 502, s_reason_sched);
 			continue;
 		}
 		tfw_http_req_delist(srv_conn, req);
-		tfw_http_req_fwd(sch_conn, req);
+		tfw_http_req_fwd(sch_conn, req, equeue);
 		tfw_srv_conn_put(sch_conn);
 	}
 	BUG_ON(srv_conn->qsize);
@@ -996,7 +1014,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	spin_unlock(&srv_conn->fwd_qlock);
 zap_error:
 	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+		tfw_http_req_zap_error(&equeue, s_source_proxy);
 }
 
 /*
@@ -1645,14 +1663,14 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 }
 
 /**
- * The request is served from cache.
+ * The request is serviced from cache.
  * Send the response as is and unrefer its data.
  */
 static void
 tfw_http_req_cache_service(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	if (tfw_http_adjust_resp(resp, req)) {
-		tfw_http_send_500(req);
+		tfw_http_send_500(req, s_source_proxy, s_reason_resp_common);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
@@ -1672,6 +1690,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	int r;
 	TfwSrvConn *srv_conn = NULL;
+	LIST_HEAD(equeue);
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 
@@ -1723,15 +1742,17 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		goto send_500;
 
 	/* Forward request to the server. */
-	tfw_http_req_fwd(srv_conn, req);
+	tfw_http_req_fwd(srv_conn, req, &equeue);
+	if (!list_empty(&equeue))
+		tfw_http_req_zap_error(&equeue, s_source_proxy);
 	goto conn_put;
 
 send_502:
-	tfw_http_send_502(req);
+	tfw_http_send_502(req, s_source_proxy, s_reason_req_common);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_500(req);
+	tfw_http_send_500(req, s_source_proxy, s_reason_req_common);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	tfw_srv_conn_put(srv_conn);
@@ -1995,7 +2016,8 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
 		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
-			tfw_http_send_500(req);
+			tfw_http_send_500(req, s_source_cache,
+					  s_reason_req_common);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -2048,7 +2070,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
 	if (tfw_http_adjust_resp(resp, req)) {
-		tfw_http_send_500(req);
+		tfw_http_send_500(req, s_source_proxy, s_reason_resp_common);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
@@ -2125,7 +2147,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	spin_unlock(&srv_conn->fwd_qlock);
 
 	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+		tfw_http_req_zap_error(&equeue, s_source_proxy);
 
 	return req;
 }
@@ -2167,7 +2189,7 @@ error:
 		return TFW_BLOCK;
 	}
 
-	tfw_http_send_502(req);
+	tfw_http_send_502(req, s_source_proxy, s_reason_resp_filter);
 	tfw_http_conn_msg_free(hmresp);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
@@ -2220,7 +2242,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 			      tfw_http_resp_cache_cb))
 	{
-		tfw_http_send_500(req);
+		tfw_http_send_500(req, s_source_cache, s_reason_resp_common);
 		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */
