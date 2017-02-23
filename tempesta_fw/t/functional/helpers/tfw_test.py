@@ -55,10 +55,8 @@ class Loader(unittest.TestCase):
         """ Carefully stop all servers. Error on stop will make next test fail,
         so mark test as failed even if eveything other is fine.
         """
-        assert self.tempesta.stop(), \
-            "Can't stop TempestaFW on %s" % self.tempesta.host
-        assert control.servers_stop(self.servers), \
-            "Can't stop HTTP servers on %s" % remote.server.host
+        self.tempesta.stop()
+        control.servers_stop(self.servers)
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
@@ -66,31 +64,23 @@ class Loader(unittest.TestCase):
         if tf_cfg.v_level() == 2:
             # Go to new line, don't mess up output.
             print()
-        failed = 0
         req_total = err_total = 0
         for c in self.clients:
-            ret, req, err = c.results()
-            status = 'Ok'
+            req, err = c.results()
             req_total += req
             err_total += err
-            if not ret:
-                status = 'Failed'
-                failed += 1
-            tf_cfg.dbg(3, '\tClient: finished: %s, errors: %d, requests: %d' %
-                       (status, err, req))
+            tf_cfg.dbg(3, '\tClient: errors: %d, requests: %d' % (err, req))
         tf_cfg.dbg(
-            2, '\tClients: finished OK %d out of %d, errors: %d, requests: %d' %
-            (len(self.clients) - failed, len(self.clients), err_total,
-             req_total))
+            2, '\tClients in total: errors: %d, requests: %d' %
+            (err_total, req_total))
 
 
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         for c in self.clients:
-            ret, req, err = c.results()
+            req, err = c.results()
             cl_req_cnt += req
-            assert ret, 'HTTP client exited with non-zero code'
             self.assertEqual(err, 0, msg = 'HTTP client detected errors')
         # Clients counts only complited requests and closes connections before
         # Tempesta can send responses. So Tempesta recieved requests count
@@ -120,8 +110,7 @@ class Loader(unittest.TestCase):
         pass
 
     def servers_get_stats(self):
-        assert control.servers_get_stats(self.servers), \
-            "Can't get HTTP servers statistics."
+        control.servers_get_stats(self.servers)
 
     def generic_test_routine(self, tempesta_defconfig):
         """ Make necessary updates to configs of servers, create tempesta config
@@ -130,17 +119,14 @@ class Loader(unittest.TestCase):
         # Set defconfig for Tempesta.
         self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
-        assert control.servers_start(self.servers), \
-            "Can't start HTTP servers on %s" % remote.server.host
-        assert self.tempesta.start(), \
-            "Can't start TempestaFW on %s" % remote.tempesta.host
+        control.servers_start(self.servers)
+        self.tempesta.start()
 
-        assert control.clients_run_parallel(self.clients), \
-            "Can't start HTTP clients on %s" % remote.client.host
+        control.clients_run_parallel(self.clients)
         self.show_performance()
 
         # Tempesta statistics is valueble to client assertions.
-        assert self.tempesta.get_stats(), "Cant get Tempesta statistics."
+        self.tempesta.get_stats()
 
         self.assert_clients()
         self.assert_tempesta()

@@ -55,7 +55,6 @@ class Client():
             self.uri = ''
 
     def clear_stats(self):
-        self.ret = False
         self.requests = 0
         self.errors = 0
 
@@ -65,14 +64,11 @@ class Client():
 
     def copy_files(self):
         for (name, content) in self.files:
-            if not self.node.copy_file(name, content):
-                return False
-        return True
+            self.node.copy_file(name, content)
 
-    def parse_out(self, ret, stdout, stderr):
+    def parse_out(self, stdout, stderr):
         """ Parse framework results. """
-        self.ret = ret
-        print(ret, stdout.decode('ascii'), stderr.decode('ascii'))
+        print(stdout.decode('ascii'), stderr.decode('ascii'))
         return True
 
     def form_command(self):
@@ -83,12 +79,11 @@ class Client():
     def prepare(self):
         self.cmd = self.form_command()
         self.clear_stats()
-        if not self.copy_files():
-            return False
+        self.copy_files()
         return True
 
     def results(self):
-        return self.ret, self.requests, self.errors
+        return self.requests, self.errors
 
     def add_option_file(self, option, filename, content):
         """ Helper for using files as client options: normaly file must be
@@ -123,11 +118,7 @@ class Wrk(Client):
         self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
-    def parse_out(self, ret, stdout, stderr):
-        self.ret = ret
-        if not ret:
-            # WRK failed, nothing to parse
-            return True
+    def parse_out(self, stdout, stderr):
         m = re.search(b'(\d+) requests in ', stdout)
         if m:
             self.requests = int(m.group(1))
@@ -150,10 +141,7 @@ class Ab(Client):
         self.options.append('-c %d' % self.connections)
         return Client.form_command(self)
 
-    def parse_out(self, ret, stdout, stderr):
-        self.ret = ret
-        if not ret:
-            return True
+    def parse_out(self, stdout, stderr):
         m = re.search(b'Complete requests:\s+(\d+)', stdout)
         if m:
             self.requests = int(m.group(1))
@@ -185,14 +173,10 @@ class Siege(Client):
         else:
             dir = tf_cfg.cfg.get('Client', 'workdir')
             self.options.append('-R %s%s' % (dir, self.rc.filename))
-        # Note: Siege sends statistics to stderr.
         return Client.form_command(self)
 
-    def parse_out(self, ret, stdout, stderr):
+    def parse_out(self, stdout, stderr):
         """ Siege prints results to stderr. """
-        self.ret = ret
-        if not ret:
-            return True
         m = re.search(b'Successful transactions:\s+(\d+)', stderr)
         if m:
             self.requests = int(m.group(1))
@@ -208,14 +192,25 @@ class Siege(Client):
 # Client helpers
 #-------------------------------------------------------------------------------
 
-def __clients_parse_output(args):
-    client, (ret, stdout, stderr) = args
-    if tf_cfg.v_level() >= 5:
-        Client.parse_out(client, ret, stdout, stderr)
-    return client.parse_out(ret, stdout, stderr)
+def client_run_blocking(client):
+    tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
+    assert client.prepare()
+    stdout, stderr = remote.client.run_cmd(client.cmd)
+    assert client.parse_out(stdout, stderr)
+    client.cleanup()
+
+def __clients_prepare(client):
+    return client.prepare()
 
 def __clients_run(client):
     return remote.client.run_cmd(client.cmd, timeout = client.duration + 5)
+
+def __clients_parse_output(args):
+    client, (stdout, stderr) = args
+    return client.parse_out(stdout, stderr)
+
+def __clients_cleanup(client):
+    return client.cleanup()
 
 def clients_run_parallel(clients):
     tf_cfg.dbg(3, '\tRunning %d HTTP clients on %s' %
@@ -229,28 +224,14 @@ def clients_run_parallel(clients):
             clients[i].copy_rc = False
 
     pool = multiprocessing.Pool(len(clients))
-    prepare = clients[0].prepare.__func__
-    results = pool.map(prepare, clients)
-    if not all(results):
-        return False
+    results = pool.map(__clients_prepare, clients)
+    assert all(results), 'Some HTTP clients failed on prepare stage!'
 
     results = pool.map(__clients_run,clients)
 
     parse_args = [(clients[i], results[i]) for i in range(len(clients))]
     pool.map(__clients_parse_output, parse_args)
-
-    cleanup =  clients[0].cleanup.__func__
-    pool.map(cleanup,clients)
-
-    r = [ret for ret, _, _ in results]
-    return all(r)
-
-def client_run_blocking(client):
-    tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
-    client.prepare()
-    ret, stdout, stderr = remote.client.run_cmd(client.cmd)
-    client.parse_out(ret, stdout, stderr)
-    client.cleanup()
+    pool.map(__clients_cleanup,clients)
 
 
 #-------------------------------------------------------------------------------
@@ -267,33 +248,28 @@ class Tempesta():
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
         self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
+        self.err_msg = ' '.join(["Can't %s TempestaFW on", self.host])
 
     def start(self):
         tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % self.host)
         self.stats.clear()
         # Use relative path to work dir to get rid of extra mkdir command.
-        r = self.node.copy_file(''.join(['etc/', self.config_name]),
-                                self.config.get_config())
-        if not r:
-            return False
+        self.node.copy_file(''.join(['etc/', self.config_name]),
+                            self.config.get_config())
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
-        r, _, _ = self.node.run_cmd(cmd)
-        return r
+        self.node.run_cmd(cmd, err_msg = self.err_msg % 'start')
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
-        r, _, _ = self.node.run_cmd(cmd)
-        return r
+        self.node.run_cmd(cmd, err_msg = self.err_msg % 'stop')
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'
-        r, stdout, _ = self.node.run_cmd(cmd)
-        if not r:
-            return r
+        stdout, _ = self.node.run_cmd(cmd,
+                                      err_msg = self.err_msg % 'get stats of')
         self.stats.parse(stdout)
-        return r
 
 #-------------------------------------------------------------------------------
 # Server
@@ -308,6 +284,7 @@ class Nginx():
         self.clear_stats()
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
+        self.err_msg = "Can't %s Nginx on %s"
 
     def get_name(self):
         return ':'.join([self.node.host, str(self.config.port)])
@@ -316,23 +293,22 @@ class Nginx():
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
-        r = self.node.copy_file(self.config.config_name, self.config.config)
-        if not r:
-            return False
-        # Nginx forks on start, no background threads needed.
+        self.node.copy_file(self.config.config_name, self.config.config)
+        # Nginx forks on start, no background threads needed,
+        # but it holds stderr open after demonisation.
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
-        r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
-        return r
+        self.node.run_cmd(cmd, ignore_stderr=True,
+                          err_msg = self.err_msg % ('start', self.get_name()))
 
     def stop(self):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
         pid_file = ''.join([self.workdir, self.config.pidfile_name])
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
-        r, _, _ = self.node.run_cmd(cmd, ignore_stderr=True)
-        r &= self.node.remove_file(config_file)
-        return r
+        self.node.run_cmd(cmd, ignore_stderr=True,
+                          err_msg = self.err_msg % ('stop', self.get_name()))
+        self.node.remove_file(config_file)
 
     def get_stats(self):
         """ Nginx doesn't have counters for every virtual host. Spawn separate
@@ -343,9 +319,8 @@ class Nginx():
         # `nginx_status` page.
         uri = 'http://%s:%d/nginx_status' % (self.node.host, self.config.port)
         cmd = 'curl %s' % uri
-        r, out, _ = remote.client.run_cmd(cmd)
-        if not r:
-            return False, None
+        out, _ = remote.client.run_cmd(
+            cmd, err_msg = self.err_msg % ('get stats of', self.get_name()))
         m = re.search(b'Active connections: (\d+) \nserver accepts handled requests\n \d+ \d+ (\d+)',
                       out)
         if m:
@@ -353,7 +328,6 @@ class Nginx():
             self.active_conns = int(m.group(1)) - 1
             # Get rid of stats requests influence to statistics.
             self.requests = int(m.group(2)) - self.stats_ask_times
-        return r
 
     def clear_stats(self):
         self.active_conns = 0
@@ -365,7 +339,7 @@ class Nginx():
 #-------------------------------------------------------------------------------
 
 def __servers_pool_size(n_servers):
-    if remote.server.remote:
+    if remote.server.is_remote():
         # By default MasSessions in sshd config is 10. Do not overflow it.
         return 4
     else:
@@ -374,17 +348,14 @@ def __servers_pool_size(n_servers):
 def servers_start(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    results = pool.map(Nginx.start,servers)
-    return all(results)
+    pool.map(Nginx.start,servers)
 
 def servers_stop(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    results = pool.map(Nginx.stop,servers)
-    return all(results)
+    pool.map(Nginx.stop,servers)
 
 def servers_get_stats(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    results = pool.map(Nginx.get_stats,servers)
-    return all(results)
+    pool.map(Nginx.get_stats,servers)
