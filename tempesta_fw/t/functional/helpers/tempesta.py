@@ -1,5 +1,4 @@
 import re
-from . import tf_cfg
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -24,7 +23,7 @@ def upstream_port_start_from():
 
 
 
-class Stats:
+class Stats(object):
     """ Parser for TempestaFW performance statistics (/proc/tempesta/perfstat).
     """
 
@@ -64,47 +63,47 @@ class Stats:
         self.cache_misses = self.parse_option(stats, 'Cache misses')
 
         self.cl_msg_received = self.parse_option(
-                stats, 'Client messages received')
+            stats, 'Client messages received')
         self.cl_msg_forwarded = self.parse_option(
-                stats, 'Client messages forwarded')
+            stats, 'Client messages forwarded')
         self.cl_msg_served_from_cache = self.parse_option(
-                stats, 'Client messages served from cache')
+            stats, 'Client messages served from cache')
         self.cl_msg_parsing_errors = self.parse_option(
-                stats, 'Client messages parsing errors')
+            stats, 'Client messages parsing errors')
         self.cl_msg_filtered_out = self.parse_option(
-                stats, 'Client messages filtered out')
+            stats, 'Client messages filtered out')
         self.cl_msg_other_errors = self.parse_option(
-                stats, 'Client messages other errors')
+            stats, 'Client messages other errors')
         self.cl_conn_attempts = self.parse_option(
-                stats, 'Client connection attempts')
+            stats, 'Client connection attempts')
         self.cl_established_connections = self.parse_option(
-                stats, 'Client established connections')
+            stats, 'Client established connections')
         self.cl_conns_active = self.parse_option(
-                stats, 'Client connections active')
+            stats, 'Client connections active')
         self.cl_rx_bytes = self.parse_option(
-                stats, 'Client RX bytes')
+            stats, 'Client RX bytes')
 
         self.srv_msg_received = self.parse_option(
-                stats, 'Server messages received')
+            stats, 'Server messages received')
         self.srv_msg_forwarded = self.parse_option(
-                stats, 'Server messages forwarded')
+            stats, 'Server messages forwarded')
         self.srv_msg_parsing_errors = self.parse_option(
-                stats, 'Server messages parsing errors')
+            stats, 'Server messages parsing errors')
         self.srv_msg_filtered_out = self.parse_option(
-                stats, 'Server messages filtered out')
+            stats, 'Server messages filtered out')
         self.srv_msg_other_errors = self.parse_option(
-                stats, 'Server messages other errors')
+            stats, 'Server messages other errors')
         self.srv_conn_attempts = self.parse_option(
-                stats, 'Server connection attempts')
+            stats, 'Server connection attempts')
         self.srv_established_connections = self.parse_option(
-                stats, 'Server established connections')
+            stats, 'Server established connections')
         self.srv_conns_active = self.parse_option(
-                stats, 'Server connections active')
+            stats, 'Server connections active')
         self.srv_rx_bytes = self.parse_option(
-                stats, 'Server RX bytes')
+            stats, 'Server RX bytes')
 
     def parse_option(self, stats, name):
-        s = '%s\s+: (\d+)' % name
+        s = r'%s\s+: (\d+)' % name
         m = re.search(s.encode('ascii'), stats)
         if m:
             return int(m.group(1))
@@ -114,14 +113,14 @@ class Stats:
 # Config Helpers
 #-------------------------------------------------------------------------------
 
-class ServerGroup:
+class ServerGroup(object):
 
-    def __init__(self, name, sched = 'round-robin'):
+    def __init__(self, name, sched='round-robin'):
         self.name = name
         self.sched = sched
         self.servers = []
 
-    def add_server(self, ip, port, conns = server_conns_default()):
+    def add_server(self, ip, port, conns=server_conns_default()):
         assert conns < server_conns_max()
         assert len(self.servers) < servers_in_group()
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
@@ -138,10 +137,11 @@ class ServerGroup:
                 self.servers + ['}'])
         return sg
 
-class Config:
+class Config(object):
     """ Creates Tempesta config file. """
     def __init__(self):
         self.server_groups = []
+        self.defconfig = ''
 
     def add_sg(self, new_sg):
         for sg in self.server_groups:

@@ -1,1 +1,1 @@
-__all__ = [ 'test_cookies' ]
+__all__ = ['test_cookies']

@@ -1,28 +1,28 @@
 """ Controlls node over SSH if remote, or via OS if local one. """
 
 from __future__ import print_function
-import paramiko, re, threading
+import abc
+import re
 import multiprocessing.dummy as multiprocessing
-import subprocess32 as subprocess
 from . import tf_cfg, remote, nginx, tempesta, siege
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-
 #-------------------------------------------------------------------------------
 # Clients
 #-------------------------------------------------------------------------------
 
-class Client():
+class Client(object):
+    __metaclass__ = abc.ABCMeta
     """ Base class for managing HTTP benchmark utilities.
 
     Command-line options can be added by appending `Client.options` list.
     Also see comment in `Client.add_option_file()` function.
     """
 
-    def __init__(self, bin, uri=''):
+    def __init__(self, binary, uri=''):
         """ `uri` must be relative to server root.
 
         DO NOT format command line options in constructor! Instead format them
@@ -32,8 +32,10 @@ class Client():
         self.node = remote.client
         self.connections = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
+        self.workdir = tf_cfg.cfg.get('Client', 'workdir')
         self.set_uri(uri)
-        self.bin = tf_cfg.cfg.get_binary('Client', bin)
+        self.bin = tf_cfg.cfg.get_binary('Client', binary)
+        self.cmd = ''
         self.clear_stats()
         # List of command-line options.
         self.options = []
@@ -59,13 +61,14 @@ class Client():
         self.errors = 0
 
     def cleanup(self):
-        for file in self.cleanup_files:
-            self.node.remove_file(file)
+        for f in self.cleanup_files:
+            self.node.remove_file(f)
 
     def copy_files(self):
         for (name, content) in self.files:
             self.node.copy_file(name, content)
 
+    @abc.abstractmethod
     def parse_out(self, stdout, stderr):
         """ Parse framework results. """
         print(stdout.decode('ascii'), stderr.decode('ascii'))
@@ -90,8 +93,7 @@ class Client():
         copied to remote node, present in command line as parameter and
         removed after client finish.
         """
-        dir = tf_cfg.cfg.get('Client', 'workdir')
-        full_name = ''.join([dir, filename])
+        full_name = ''.join([self.workdir, filename])
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
@@ -119,10 +121,10 @@ class Wrk(Client):
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
-        m = re.search(b'(\d+) requests in ', stdout)
+        m = re.search(r'(\d+) requests in ', stdout)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Non-2xx or 3xx responses: (\d+)', stdout)
+        m = re.search(r'Non-2xx or 3xx responses: (\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
         return True
@@ -132,7 +134,7 @@ class Ab(Client):
     """ Apache benchmark. """
 
     def __init__(self, uri='/'):
-        Client.__init__(self, 'ab', uri = uri)
+        Client.__init__(self, 'ab', uri=uri)
 
     def form_command(self):
         # Don't show progress.
@@ -142,13 +144,13 @@ class Ab(Client):
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
-        m = re.search(b'Complete requests:\s+(\d+)', stdout)
+        m = re.search(r'Complete requests:\s+(\d+)', stdout)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Non-2xx responses:\s+(\d+)', stdout)
+        m = re.search(r'Non-2xx responses:\s+(\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
-        m = re.search(b'Failed requests:\s+(\d+)', stdout)
+        m = re.search(r'Failed requests:\s+(\d+)', stdout)
         if m:
             self.errors += int(m.group(1))
         return True
@@ -158,7 +160,7 @@ class Siege(Client):
     """ HTTP regression test and benchmark utility. """
 
     def __init__(self, uri='/'):
-        Client.__init__(self, 'siege', uri = uri)
+        Client.__init__(self, 'siege', uri=uri)
         self.rc = siege.Config()
         self.copy_rc = True
 
@@ -171,16 +173,15 @@ class Siege(Client):
         if self.copy_rc:
             self.add_option_file('-R', self.rc.filename, self.rc.get_config())
         else:
-            dir = tf_cfg.cfg.get('Client', 'workdir')
-            self.options.append('-R %s%s' % (dir, self.rc.filename))
+            self.options.append('-R %s%s' % (self.workdir, self.rc.filename))
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
         """ Siege prints results to stderr. """
-        m = re.search(b'Successful transactions:\s+(\d+)', stderr)
+        m = re.search(r'Successful transactions:\s+(\d+)', stderr)
         if m:
             self.requests = int(m.group(1))
-        m = re.search(b'Failed transactions:\s+(\d+)', stderr)
+        m = re.search(r'Failed transactions:\s+(\d+)', stderr)
         if m:
             self.errors = int(m.group(1))
         return True
@@ -203,7 +204,7 @@ def __clients_prepare(client):
     return client.prepare()
 
 def __clients_run(client):
-    return remote.client.run_cmd(client.cmd, timeout = client.duration + 5)
+    return remote.client.run_cmd(client.cmd, timeout=(client.duration + 5))
 
 def __clients_parse_output(args):
     client, (stdout, stderr) = args
@@ -213,25 +214,25 @@ def __clients_cleanup(client):
     return client.cleanup()
 
 def clients_run_parallel(clients):
-    tf_cfg.dbg(3, '\tRunning %d HTTP clients on %s' %
-                  (len(clients), remote.client.host))
+    tf_cfg.dbg(3, ('\tRunning %d HTTP clients on %s' %
+                   (len(clients), remote.client.host)))
     if not len(clients):
         return True
     # In most cases all Siege instances use the same config file. no need to
     # copy in many times.
-    if (isinstance(clients[0], Siege)):
-        for i in range(1,len(clients)):
+    if isinstance(clients[0], Siege):
+        for i in range(1, len(clients)):
             clients[i].copy_rc = False
 
     pool = multiprocessing.Pool(len(clients))
     results = pool.map(__clients_prepare, clients)
     assert all(results), 'Some HTTP clients failed on prepare stage!'
 
-    results = pool.map(__clients_run,clients)
+    results = pool.map(__clients_run, clients)
 
     parse_args = [(clients[i], results[i]) for i in range(len(clients))]
     pool.map(__clients_parse_output, parse_args)
-    pool.map(__clients_cleanup,clients)
+    pool.map(__clients_cleanup, clients)
 
 
 #-------------------------------------------------------------------------------
@@ -239,7 +240,7 @@ def clients_run_parallel(clients):
 #-------------------------------------------------------------------------------
 
 
-class Tempesta():
+class Tempesta(object):
 
     def __init__(self):
         self.node = remote.tempesta
@@ -257,25 +258,25 @@ class Tempesta():
         self.node.copy_file(''.join(['etc/', self.config_name]),
                             self.config.get_config())
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
-        self.node.run_cmd(cmd, err_msg = self.err_msg % 'start')
+        self.node.run_cmd(cmd, err_msg=(self.err_msg % 'start'))
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
-        self.node.run_cmd(cmd, err_msg = self.err_msg % 'stop')
+        self.node.run_cmd(cmd, err_msg=(self.err_msg % 'stop'))
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'
         stdout, _ = self.node.run_cmd(cmd,
-                                      err_msg = self.err_msg % 'get stats of')
+                                      err_msg=(self.err_msg % 'get stats of'))
         self.stats.parse(stdout)
 
 #-------------------------------------------------------------------------------
 # Server
 #-------------------------------------------------------------------------------
 
-class Nginx():
+class Nginx(object):
 
     def __init__(self, listen_port, workers=1):
         self.node = remote.server
@@ -285,6 +286,8 @@ class Nginx():
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
         self.err_msg = "Can't %s Nginx on %s"
+        self.active_conns = 0
+        self.requests = 0
 
     def get_name(self):
         return ':'.join([self.node.host, str(self.config.port)])
@@ -299,7 +302,7 @@ class Nginx():
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
         self.node.run_cmd(cmd, ignore_stderr=True,
-                          err_msg = self.err_msg % ('start', self.get_name()))
+                          err_msg=(self.err_msg % ('start', self.get_name())))
 
     def stop(self):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
@@ -307,7 +310,7 @@ class Nginx():
         config_file = ''.join([self.workdir, self.config.config_name])
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
         self.node.run_cmd(cmd, ignore_stderr=True,
-                          err_msg = self.err_msg % ('stop', self.get_name()))
+                          err_msg=(self.err_msg % ('stop', self.get_name())))
         self.node.remove_file(config_file)
 
     def get_stats(self):
@@ -320,8 +323,9 @@ class Nginx():
         uri = 'http://%s:%d/nginx_status' % (self.node.host, self.config.port)
         cmd = 'curl %s' % uri
         out, _ = remote.client.run_cmd(
-            cmd, err_msg = self.err_msg % ('get stats of', self.get_name()))
-        m = re.search(b'Active connections: (\d+) \nserver accepts handled requests\n \d+ \d+ (\d+)',
+            cmd, err_msg=(self.err_msg % ('get stats of', self.get_name())))
+        m = re.search(r'Active connections: (\d+) \n'
+                      r'server accepts handled requests\n \d+ \d+ (\d+)',
                       out)
         if m:
             # Current request increments active connections for nginx.
@@ -348,14 +352,14 @@ def __servers_pool_size(n_servers):
 def servers_start(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    pool.map(Nginx.start,servers)
+    pool.map(Nginx.start, servers)
 
 def servers_stop(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    pool.map(Nginx.stop,servers)
+    pool.map(Nginx.stop, servers)
 
 def servers_get_stats(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
-    pool.map(Nginx.get_stats,servers)
+    pool.map(Nginx.get_stats, servers)
