@@ -1,6 +1,6 @@
 from __future__ import print_function
-import unittest, sys
-from . import tf_cfg, control, tempesta, remote
+import unittest
+from . import tf_cfg, control, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -13,7 +13,7 @@ class Loader(unittest.TestCase):
 
     def create_clients(self):
         """ Override to set desired list of benchmarkers and their options. """
-        self.clients = [ control.Wrk() ]
+        self.clients = [control.Wrk()]
 
     def create_tempesta(self):
         """ Normally no override is needed.
@@ -32,17 +32,17 @@ class Loader(unittest.TestCase):
     def create_servers(self):
         """ Overrirde to create needed amount of upstream servers. """
         port = tempesta.upstream_port_start_from()
-        self.servers = [ control.Nginx(listen_port = port) ]
+        self.servers = [control.Nginx(listen_port=port)]
 
     def create_servers_helper(self, count,
-                              start_port = tempesta.upstream_port_start_from()):
+                              start_port=tempesta.upstream_port_start_from()):
         """ Helper function to spawn `count` servers in default configuration.
 
         See comment in Nginx.get_stats().
         """
         self.servers = []
         for i in range(count):
-            self.servers.append(control.Nginx(listen_port = (start_port + i)))
+            self.servers.append(control.Nginx(listen_port=(start_port + i)))
 
     def setUp(self):
         tf_cfg.dbg(3) # Step to the next line after name of test case.
@@ -81,7 +81,7 @@ class Loader(unittest.TestCase):
         for c in self.clients:
             req, err = c.results()
             cl_req_cnt += req
-            self.assertEqual(err, 0, msg = 'HTTP client detected errors')
+            self.assertEqual(err, 0, msg='HTTP client detected errors')
         # Clients counts only complited requests and closes connections before
         # Tempesta can send responses. So Tempesta recieved requests count
         # differ from request count shown by clients. Didn't find any way how to
@@ -95,15 +95,15 @@ class Loader(unittest.TestCase):
         """ Assert that tempesta had no errors during test. """
         msg = 'Tempesta have errors in processing HTTP %s.'
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
-                         msg = msg % 'requests')
+                         msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
-                         msg = msg % 'responses')
+                         msg=(msg % 'responses'))
         # See comment in `assert_clients()`
         expected_err = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.assertTrue(self.tempesta.stats.cl_msg_other_errors <=
-                        expected_err, msg = msg % 'requests')
+                        expected_err, msg=(msg % 'requests'))
         self.assertTrue(self.tempesta.stats.srv_msg_other_errors <=
-                        expected_err, msg = msg % 'responses')
+                        expected_err, msg=(msg % 'responses'))
 
     def assert_servers(self):
         # Nothing to do for nginx in default configuration.
@@ -133,4 +133,4 @@ class Loader(unittest.TestCase):
         self.assert_servers()
 
 if __name__ == '__main__':
-	unittest.main()
+    unittest.main()
