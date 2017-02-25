@@ -1,5 +1,5 @@
 from __future__ import print_function
-import unittest, sys
+import sys
 from helpers import tfw_test, tf_cfg, control
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -54,3 +54,9 @@ class StressEnforcedCookies(StressCookies):
 
     def create_clients(self):
         self.create_clients_helper(control.Siege)
+
+    def test_cookies(self):
+        # FIXME: #383 workaround
+        for s in self.servers:
+            s.config.set_ka(sys.maxsize)
+        self.generic_test_routine(config_cookies_enforced)

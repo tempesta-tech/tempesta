@@ -1,4 +1,5 @@
-import unittest, sys
+import unittest
+import sys
 from helpers import tfw_test, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -49,7 +50,6 @@ class BindToServer(HashTester):
 
     def assert_servers(self):
         self.servers_get_stats()
-        reqs = self.tempesta.stats.cl_msg_forwarded
         # Only one server must pull all the load.
         loaded = 0
         for s in self.servers:

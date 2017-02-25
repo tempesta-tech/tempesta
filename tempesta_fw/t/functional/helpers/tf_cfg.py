@@ -1,11 +1,16 @@
+""" Test framework configuration options.
+"""
+
 from __future__ import print_function, unicode_literals
-import configparser, os, sys
+import os
+import sys
+import configparser
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class TestFrameworkCfg():
+class TestFrameworkCfg(object):
 
     def __init__(self, cfg_file):
         self.defaults()
@@ -39,28 +44,27 @@ class TestFrameworkCfg():
                                           'nginx': 'nginx',
                                           'workdir': '/tmp/nginx',
                                           'resources': '/var/www/html/'}
-                               })
+                              })
 
     def inc_verbose(self):
-        v_level = int(self.config['General']['Verbose']) + 1
-        self.config['General']['Verbose'] = str(v_level)
+        verbose = int(self.config['General']['Verbose']) + 1
+        self.config['General']['Verbose'] = str(verbose)
 
     def set_duration(self, val):
         try:
-            seconds = int(val)
+            int(val)
         except ValueError:
             return False
         self.config['General']['Duration'] = val
         return True
 
-    def get(self, type, opt):
-        return self.config[type][opt]
+    def get(self, section, opt):
+        return self.config[section][opt]
 
-    def get_binary(self, type, bin):
-        if self.config.has_option(type, bin):
-            return self.config[type][bin]
-        else:
-            return bin
+    def get_binary(self, section, binary):
+        if self.config.has_option(section, binary):
+            return self.config[section][binary]
+        return binary
 
     def save_defaults(self):
         self.defaults()
@@ -86,12 +90,12 @@ def v_level():
     return int(cfg.get('General', 'Verbose'))
 
 def dbg(level, *args, **kwargs):
-    if (int(cfg.get('General', 'Verbose')) >= level):
+    if int(cfg.get('General', 'Verbose')) >= level:
         print(*args, **kwargs)
 
-cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
+CFG_FILE = ''.join([os.path.dirname(os.path.realpath(__file__)),
                     '/../tests_config.ini'])
-cfg = TestFrameworkCfg(cfg_file)
+cfg = TestFrameworkCfg(CFG_FILE)
 
 r, reason = cfg.check()
 if not r:

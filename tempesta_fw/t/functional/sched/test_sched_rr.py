@@ -1,5 +1,8 @@
-import unittest, sys, math, random
-from helpers import tfw_test, tf_cfg, control, tempesta
+import unittest
+import sys
+import math
+import random
+from helpers import tfw_test, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
