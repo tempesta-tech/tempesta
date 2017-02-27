@@ -128,7 +128,6 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	if (tfw_http_prep_302(hmresp, req, &cookie))
 		return -1;
 
-	tfw_http_resp_init_ss_flags((TfwHttpResp *)hmresp, req);
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
 	return 0;
