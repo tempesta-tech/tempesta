@@ -4,7 +4,7 @@ from __future__ import print_function
 import abc
 import re
 import multiprocessing.dummy as multiprocessing
-from . import tf_cfg, remote, nginx, tempesta, siege
+from . import tf_cfg, remote, framework, nginx, tempesta, siege
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -195,9 +195,9 @@ class Siege(Client):
 
 def client_run_blocking(client):
     tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
-    assert client.prepare()
+    framework.assertTrue(client.prepare())
     stdout, stderr = remote.client.run_cmd(client.cmd)
-    assert client.parse_out(stdout, stderr)
+    framework.assertTrue(client.parse_out(stdout, stderr))
     client.cleanup()
 
 def __clients_prepare(client):
@@ -226,7 +226,8 @@ def clients_run_parallel(clients):
 
     pool = multiprocessing.Pool(len(clients))
     results = pool.map(__clients_prepare, clients)
-    assert all(results), 'Some HTTP clients failed on prepare stage!'
+    framework.assertTrue(all(results),
+                         'Some HTTP clients failed on prepare stage!')
 
     results = pool.map(__clients_run, clients)
 
