@@ -367,9 +367,9 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	 * failover state.
 	 */
 	if (tfw_connection_live(conn)) {
+		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_put_to_death(conn);
 		tfw_connection_drop(conn);
-		TFW_INC_STAT_BH(serv.conn_disconnects);
 	} else {
 		tfw_connection_get(conn);
 	}
