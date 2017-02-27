@@ -410,7 +410,7 @@ which the server connection is considered dead. It is defined as follows:
 server_connect_retries <N>;
 ```
 If this directive is not defined, then the number of re-connect attempts
-defaults to 10. A value of zero specified for `N` means unlimited number
+defaults to 10. The value of zero specified for `N` means unlimited number
 of attempts.
 
 This is an important directive which controls how Tempesta deals with
@@ -427,29 +427,17 @@ certain allowed limits before these requests are considered failed:
 server_forward_retries <N>;
 server_forward_timeout <N>;
 ```
+
 `server_forward_retries` sets the maximum number of attempts to re-forward
 a request to a server. If not defined, the default number of attempts is 5.
-The value of zero prohibits re-forwarding of requests completely.
-
-Note that this value affects certain aspects of Tempesta when forwarding
-requests to a server. If a request may be re-sent, then the request's
-data have to be kept around, and only a copy of the data can be sent out.
-If a request may NOT be re-sent to a server, then the data can be sent
-out as is without copying. Copying of data of each request for a chance
-that the request may be re-sent may get quite expensive and may affect
-performance.
-
-If connections with back end servers are stable and are not reset every
-so often, then it would make sense to prohibit re-forwarding of requests
-for better performance. Otherwise, if may be useful to permit re-forwarding
-of requests. That would significantly decrease the number of error responses
-due to temporary unavailability of a live connection to a back end server.
-
+The value of zero specified for `N` means unlimited number of attempts.
 
 `server_forward_timeout` set the maximum time frame in seconds within which
 a request may still be forwarded. If not defined, the default time frame
-is 60 seconds. When one or both of these limits is exceeded for a request,
-the request is evicted and an error is returned to a client.
+is 60 seconds. The value of zero specified for `N` means unlimited timeout.
+
+When one or both of these limits is exceeded for a request, the request is
+evicted and an error is returned to a client.
 
 When re-forwarding or re-scheduling requests in a failed server connection,
 a special consideration is given to non-idempotent requests. Usually
