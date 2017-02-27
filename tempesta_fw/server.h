@@ -60,8 +60,8 @@ typedef struct {
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
  * @max_qsize	- maximum queue size of a server connection;
- * @max_jqage	- maximum age of a request in a server connection, in jiffies;
  * @max_refwd	- maximum number of tries for forwarding a request;
+ * @max_jqage	- maximum age of a request in a server connection, in jiffies;
  * @max_recns	- maximum number of reconnect attempts;
  * @flags	- server group related flags;
  * @name	- name of the group specified in the configuration;
