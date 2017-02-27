@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 import re
-from . import tf_cfg
+from . import tf_cfg, framework
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -81,7 +81,7 @@ http {
                        ' '.join(['listen', str(port), ';']))
 
     def set_workdir(self, workdir):
-        assert workdir
+        framework.assertTrue(workdir)
         self.__replace(r'pid[ ]+([\w._/]+);',
                        ''.join(['pid ', workdir, self.pidfile_name, ' ;']))
 
