@@ -651,6 +651,13 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 /*
  * If forwarding of @req to server @srv_conn is not successful, then
  * move it to the error queue @equeue for sending an error response later.
+ *
+ * TODO: Perhaps, there's a small optimization. Ultimately, the thread
+ * ends up in ss_send(). In some cases a connection is still active when
+ * it's obtained, but not active by the time the thread is in ss_send().
+ * In that case -EBADF is returned, and nothing destructive happens to
+ * the request. So, perhaps, instead of sending an error in that case
+ * these unlucky requests can be re-sent when the connection is restored.
  */
 static inline bool
 tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
