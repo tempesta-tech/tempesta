@@ -73,7 +73,7 @@ class LocalNode(Node):
             path = self.workdir
         else:
             self.mkdir(path)
-        filename = ''.join([dir, filename])
+        filename = ''.join([path, filename])
         with open(filename, 'w') as f:
             f.write(content)
 
