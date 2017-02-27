@@ -2199,8 +2199,6 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 		spin_unlock(&srv_conn->fwd_qlock);
 		TFW_WARN("Paired request missing, "
 			 "HTTP Response Splitting attack?\n");
-		/* @conn->msg will get NULLed in the process. */
-		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return NULL;
 	}
