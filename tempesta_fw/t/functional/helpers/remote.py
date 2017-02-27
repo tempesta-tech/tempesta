@@ -47,7 +47,8 @@ class LocalNode(Node):
         tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
         stdout = ''
         stderr = ''
-        stderr_pipe = None if ignore_stderr else subprocess.PIPE
+        stderr_pipe = (open(os.devnull, 'w') if ignore_stderr
+                       else subprocess.PIPE)
         with subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                               stderr=stderr_pipe) as p:
             try:
