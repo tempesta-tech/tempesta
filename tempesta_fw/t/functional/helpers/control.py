@@ -343,12 +343,14 @@ class Nginx(object):
 # Server helpers
 #-------------------------------------------------------------------------------
 
+MAX_THREADS = 32
+
 def __servers_pool_size(n_servers):
     if remote.server.is_remote():
         # By default MasSessions in sshd config is 10. Do not overflow it.
         return 4
     else:
-        return n_servers
+        return min(n_servers, MAX_THREADS)
 
 def servers_start(servers):
     threads = __servers_pool_size(len(servers))
