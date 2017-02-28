@@ -1,2 +1,2 @@
-__all__ = ['be', 'cli', 'tfw', 'tfw_test', 'tf_cfg',
+__all__ = ['be', 'tfw_test', 'tf_cfg',
            'nginx', 'tempesta', 'siege', 'framework']
