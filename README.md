@@ -439,6 +439,10 @@ is 60 seconds. The value of zero specified for `N` means unlimited timeout.
 When one or both of these limits is exceeded for a request, the request is
 evicted and an error is returned to a client.
 
+Note that while requests in a connection are re-forwarded or re-scheduled,
+that connection is not schedulable, which means it's not available to
+schedulers for new incoming requests.
+
 When re-forwarding or re-scheduling requests in a failed server connection,
 a special consideration is given to non-idempotent requests. Usually
 a non-idempotent request is not re-forwarded or re-scheduled. That may be
@@ -804,22 +808,31 @@ and running. Below is an example of the command to show the statistics,
 and the output:
 ```
 $ cat /proc/tempesta/perfstat
-Client messages received                : 450
-Client messages forwarded               : 450
+SS pfl hits                             : 5836412
+SS pfl misses                           : 5836412
+Cache hits                              : 0
+Cache misses                            : 0
+Client messages received                : 2918206
+Client messages forwarded               : 2918206
+Client messages served from cache       : 0
 Client messages parsing errors          : 0
 Client messages filtered out            : 0
 Client messages other errors            : 0
-Client connections total                : 30
+Clients online                          : 0
+Client connection attempts              : 2048
+Client established connections          : 2048
 Client connections active               : 0
-Client RX bytes                         : 47700
-Server messages received                : 447
-Server messages forwarded               : 447
+Client RX bytes                         : 309329836
+Server messages received                : 2918206
+Server messages forwarded               : 2918206
 Server messages parsing errors          : 0
 Server messages filtered out            : 0
 Server messages other errors            : 0
-Server connections total                : 2220
-Server connections active               : 4
-Server RX bytes                         : 153145
+Server connection attempts              : 8896
+Server established connections          : 8896
+Server connections active               : 32
+Server connections schedulable          : 32
+Server RX bytes                         : 11494813434
 ```
 
 Also, there's Application Performance Monitoring statistics. These stats show
