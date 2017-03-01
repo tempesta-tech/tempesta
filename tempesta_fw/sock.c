@@ -311,7 +311,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * avoid expensive work queue operations.
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
-		SS_DBG("Try to send on inactive socket %p\n", sk);
+		SS_DBG("Attempt to send on inactive socket %p\n", sk);
 		return -EBADF;
 	}
 

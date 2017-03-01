@@ -61,6 +61,7 @@ typedef struct {
 
 typedef struct {
 	TFW_STAT_COMMON;
+	u64	conn_restricted;
 } TfwSrvStat;
 
 /*

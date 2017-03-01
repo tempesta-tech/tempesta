@@ -885,7 +885,10 @@ __tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
 
 	if (list_empty(&srv_conn->fwd_queue)) {
 		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+		if (test_bit(TFW_CONN_B_RESEND, &srv_conn->flags)) {
+			TFW_DEC_STAT_BH(serv.conn_restricted);
+			clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+		}
 	} else if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
 		tfw_http_conn_fwd_unsent(srv_conn, equeue);
 	} else {
@@ -1019,8 +1022,10 @@ tfw_http_conn_evict_timeout(TfwSrvConn *srv_conn, struct list_head *equeue)
 		{
 			tfw_http_req_evict_timeout(srv_conn, srv, req, equeue);
 		}
-
-		/* Process the request that was forwarded last. */
+		/*
+		 * Process the request that was forwarded last.
+		 * @req is now the same as @srv_conn->msg_sent.
+		 */
 		msg_sent_prev = __tfw_http_conn_msg_sent_prev(srv_conn);
 		if (tfw_http_req_evict_timeout(srv_conn, srv, req, equeue))
 			srv_conn->msg_sent = msg_sent_prev;
@@ -1092,6 +1097,7 @@ tfw_http_conn_repair(TfwConn *conn)
 		tfw_http_conn_fwd_unsent(srv_conn, &equeue);
 	}
 	spin_unlock(&srv_conn->fwd_qlock);
+
 zap_error:
 	if (!list_empty(&equeue))
 		tfw_http_req_zap_error(&equeue, s_source_proxy);
@@ -1196,8 +1202,10 @@ tfw_http_conn_init(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
-		if (!list_empty(&srv_conn->fwd_queue))
+		if (!list_empty(&srv_conn->fwd_queue)) {
 			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+			TFW_INC_STAT_BH(serv.conn_restricted);
+		}
 		clear_bit(TFW_CONN_B_FAULTY, &srv_conn->flags);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
@@ -1234,7 +1242,10 @@ tfw_http_conn_release(TfwConn *conn)
 
 	if (likely(ss_active())) {
 		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+		if (test_bit(TFW_CONN_B_RESEND, &srv_conn->flags)) {
+			TFW_DEC_STAT_BH(serv.conn_restricted);
+			clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+		}
 		return;
 	}
 
@@ -1673,6 +1684,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	if (unlikely(list_empty(seq_queue))) {
+		BUG_ON(!list_empty(&req->msg.seq_list));
 		spin_unlock(&cli_conn->seq_qlock);
 		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
 			 __func__, cli_conn);
@@ -1684,7 +1696,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
 	req->resp = (TfwHttpMsg *)resp;
-	/* Move consecutive requests with @req->resp to @req_retent. */
+	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
 		if (req->resp == NULL)
 			break;
@@ -1811,7 +1823,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * all subsequent session hits are scheduled much faster.
 	 */
 	if (!(srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
-		TFW_WARN("Unable to find a backend server\n");
+		TFW_WARN("Unable to find a back end server\n");
 		goto send_502;
 	}
 
