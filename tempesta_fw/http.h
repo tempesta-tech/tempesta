@@ -451,10 +451,10 @@ void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_send_403(TfwHttpReq *req, const char *source, const char *reason);
-int tfw_http_send_404(TfwHttpReq *req, const char *source, const char *reason);
-int tfw_http_send_502(TfwHttpReq *req, const char *source, const char *reason);
-int tfw_http_send_504(TfwHttpReq *req, const char *source, const char *reason);
+int tfw_http_send_403(TfwHttpReq *req, const char *reason);
+int tfw_http_send_404(TfwHttpReq *req, const char *reason);
+int tfw_http_send_502(TfwHttpReq *req, const char *reason);
+int tfw_http_send_504(TfwHttpReq *req, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.
