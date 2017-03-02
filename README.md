@@ -280,11 +280,11 @@ mode. Other modes will be added in future.
 * **cache_purge_acl `<ip_address>`;** - Specifies the IP addresses of hosts
 that are permitted to send PURGE requests. PURGE requests from all other
 hosts will be denied. That makes this directive mandatory when `cache_purge`
-directive is specified. Multilple addresses are separated with white spaces.
+directive is specified. Multiple addresses are separated with white spaces.
 
 `<ip_address>` can be an IPv4 or IPv6 address. An IP address can be specified
 in CIDR format where the address is followed by a slash character and the
-prefix (or mask) with the number of significant bits in the addresss. Below
+prefix (or mask) with the number of significant bits in the addresses. Below
 are examples of a valid IP address specification:
 ```
 127.0.0.1
@@ -534,7 +534,7 @@ to `round-robin`.
 #### HTTP Scheduler
 
 HTTP scheduler plays a special role as it distributes HTTP requests among
-groups of back end servers. Then requests are futher distributed among
+groups of back end servers. Then requests are further distributed among
 individual back end servers within a chosen group.
 
 HTTP scheduler is able to look inside of an HTTP request and examine its
@@ -544,7 +544,7 @@ by pattern-matching rules that map certain header field values to server
 groups. The full syntax is as follows:
 ```
 sched_http_rules {
-	match <SRV_GROUP> <FIELD> <OP> <ARG>;
+	match <SRV_GROUP> <FIELD> <OP> <ARG>  [backup=<BKP_SRV_GROUP>];
 	...
 }
 ```
@@ -553,10 +553,14 @@ sched_http_rules {
 `OP` is a string comparison operator, such as `eq`, `prefix`, etc.
 `ARG` is an argument for the operator, such as `/foo/bar.html`, `example.com`,
 etc.
+`BKP_SRV_GROUP` is a reference to a previously defined server group, optional
+parameter.
 
 A `match` entry is a single instruction for the load balancer that says:
 take `FIELD` of an HTTP request, compare it with `ARG` using `OP`.
-If they match, then send the request to the specified `SRV_GROUP`.
+If they match, then send the request to the specified `SRV_GROUP`,
+if none of the servers in the `SRV_GROUP` are available, send to backup
+`BKP_SRV_GROUP` if specified.
 For every HTTP request, the load balancer executes all `match` instructions
 sequentially until it finds a match. If no match is found, then the request
 is dropped.
@@ -590,7 +594,7 @@ sched_http_rules {
 	match static   uri       suffix  ".php";
 	match static   host      prefix  "static.";
 	match static   host      suffix  "tempesta-tech.com";
-	match foo_app  host      eq      "foo.example.com";
+	match foo_app  host      eq      "foo.example.com" backup=foo_app_backup;
 	match bar_app  hdr_conn  eq      "keep-alive";
 	match bar_app  hdr_host  prefix  "bar.";
 	match bar_app  hdr_host  suffix  "natsys-lab.com";
@@ -787,12 +791,12 @@ The table `filter` contains all blocked IP addresses.
 
 ### Additional Directives
 
-Tempesta has a number of additional directives that control varios aspects
+Tempesta has a number of additional directives that control various aspects
 of a running system. Possible directives are listed below.
 
 * **hdr_via [string];** - As an intermediary between a client and a back end
 server, Tempesta adds HTTP Via: header field to each message. This directive
-sets the value of the header field, not includng the mandatory HTTP protocol
+sets the value of the header field, not including the mandatory HTTP protocol
 version number. Note that the value should be a single token. Multiple tokens
 can be specified in apostrophes, however everything after the first token and
 a white space will be considered a Via: header field comment. If no value is
@@ -839,7 +843,7 @@ Also, there's Application Performance Monitoring statistics. These stats show
 the time it takes to receive a complete HTTP response to a complete HTTP request.
 It's measured from the time Tempesta forwards an HTTP request to a back end server,
 and until the time it receives an HTTP response to the request (the turnaround
-time). The times are taken per each back end server. Minimum, maximim, median,
+time). The times are taken per each back end server. Minimum, maximum, median,
 and average times are measured, as well as 50th, 75th, 90th, 95th, and 99th
 percentiles. A file per each back end server/port is created in
 `/proc/tempesta/servers/` directory. The APM stats can be seen as follows:
