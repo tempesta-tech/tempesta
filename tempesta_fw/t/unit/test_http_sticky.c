@@ -275,8 +275,7 @@ TEST(http_sticky, sending_502)
 	StickyVal sv = { .ts = 1 };
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-	EXPECT_EQ(tfw_http_send_502(mock.req, __func__,
-				    "sticky calculation"), 0);
+	EXPECT_EQ(tfw_http_send_502(mock.req, "sticky calculation"), 0);
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
