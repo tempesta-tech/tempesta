@@ -41,8 +41,6 @@
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
 #endif
 
-extern const char *s_source_cache;
-
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
 
@@ -937,14 +935,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req, s_source_cache,
-					 "purge: not configured");
+		return tfw_http_send_403(req, "purge: not configured");
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req, s_source_cache,
-					 "purge: ACL violation");
+		return tfw_http_send_403(req, "purge: ACL violation");
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
@@ -952,13 +948,11 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		ret = tfw_cache_purge_invalidate(req);
 		break;
 	default:
-		return tfw_http_send_403(req, s_source_cache,
-					 "purge: invalid option");
+		return tfw_http_send_403(req, "purge: invalid option");
 	}
 
 	return ret
-		? tfw_http_send_404(req, s_source_cache,
-				    "purge: processing error")
+		? tfw_http_send_404(req, "purge: processing error")
 		: tfw_http_send_200(req);
 }
 
@@ -1214,7 +1208,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		resp->flags |= TFW_HTTP_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
-		tfw_http_send_504(req, s_source_cache, "resource not cached");
+		tfw_http_send_504(req, "resource not cached");
 	else
 		action(req, resp);
 
