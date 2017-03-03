@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -36,10 +36,10 @@ MODULE_LICENSE("GPL");
  * taken into account by the scheduler.
  */
 typedef struct {
-	atomic64_t		rr_counter;
-	size_t			conn_n;
-	TfwServer		*srv;
-	TfwConnection 		*conns[TFW_SRV_MAX_CONN];
+	atomic64_t	rr_counter;
+	size_t		conn_n;
+	TfwServer	*srv;
+	TfwSrvConn	*conns[TFW_SRV_MAX_CONN];
 } TfwRrSrv;
 
 /**
@@ -48,9 +48,9 @@ typedef struct {
  * whole run-time. This can be changed in future.
  */
 typedef struct {
-	atomic64_t		rr_counter;
-	size_t			srv_n;
-	TfwRrSrv		srvs[TFW_SG_MAX_SRV];
+	atomic64_t	rr_counter;
+	size_t		srv_n;
+	TfwRrSrv	srvs[TFW_SG_MAX_SRV];
 } TfwRrSrvList;
 
 static void
@@ -71,9 +71,9 @@ tfw_sched_rr_free_data(TfwSrvGroup *sg)
  * Called at configuration phase, no synchronization is required.
  */
 static void
-tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
+tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
-	int s, c;
+	size_t s, c;
 	TfwRrSrv *srv_cl;
 	TfwRrSrvList *sl = sg->sched_data;
 
@@ -90,42 +90,66 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 
 	srv_cl = &sl->srvs[s];
 	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->conns[c] == conn) {
+		if (srv_cl->conns[c] == srv_conn) {
 			TFW_WARN("sched_rr: Try to add existing connection,"
-				 " srv=%d conn=%d\n", s, c);
+				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
-	srv_cl->conns[c] = conn;
+	srv_cl->conns[c] = srv_conn;
 	++srv_cl->conn_n;
 	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
 
 /**
- * On each subsequent call the function returns the next server in the group.
- * Parallel connections to the same server are also rotated in the
- * round-robin manner.
+ * On each subsequent call the function returns the next server in the
+ * group. Parallel connections to the same server are also rotated in
+ * the round-robin manner.
+ *
  * Dead connections and servers w/o live connections are skipped.
+ * Initially, connections with non-idempotent requests are also skipped
+ * in attempt to increase throughput. However, if all live connections
+ * contain a non-idempotent request, then re-run the algorithm and get
+ * the first live connection they way it is usually done.
+ *
+ * RR scheduler must be the fastest scheduler. Also, it's essential
+ * to maintain strict round-robin fashion of getting the next server.
+ * Usually the optimistic approach gives the fastest solution: we are
+ * optimistic in that there are not many non-idempotent requests, and
+ * there are available server connections.
  */
-static TfwConnection *
+static TfwSrvConn *
 tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	int c, s, i;
-	TfwConnection *conn;
+	size_t c, s;
+	unsigned long idxval;
+	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
 	TfwRrSrv *srv_cl;
+	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sl);
-
+rerun:
 	for (s = 0; s < sl->srv_n; ++s) {
-		i = atomic64_inc_return(&sl->rr_counter) % sl->srv_n;
-		srv_cl = &sl->srvs[i];
+		idxval = atomic64_inc_return(&sl->rr_counter);
+		srv_cl = &sl->srvs[idxval % sl->srv_n];
 		for (c = 0; c < srv_cl->conn_n; ++c) {
-			i = atomic64_inc_return(&srv_cl->rr_counter)
-			    % srv_cl->conn_n;
-			conn = srv_cl->conns[i];
-			if (tfw_connection_get_if_nfo(conn))
-				return conn;
+			idxval = atomic64_inc_return(&srv_cl->rr_counter);
+			srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
+			if (unlikely(tfw_srv_conn_restricted(srv_conn)
+				     || tfw_srv_conn_queue_full(srv_conn)))
+				continue;
+			if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+				if (likely(tfw_srv_conn_live(srv_conn)))
+					nipconn++;
+				continue;
+			}
+			if (likely(tfw_srv_conn_get_if_live(srv_conn)))
+				return srv_conn;
 		}
+	}
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
 	}
 	return NULL;
 }

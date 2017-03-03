@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -76,6 +76,8 @@ test_create_sg(const char *name, const char *sched_name)
 		BUG_ON(r);
 	}
 
+	sg->max_qsize = 100;
+
 	kernel_fpu_begin();
 
 	return sg;
@@ -110,45 +112,44 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	return srv;
 }
 
-TfwSrvConnection *
+TfwSrvConn *
 test_create_conn(TfwPeer *peer)
 {
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
-	TfwSrvConnection *srv_conn;
+	TfwConn *conn;
 
 	kernel_fpu_end();
 
 	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
-	srv_conn = tfw_srv_conn_alloc();
+	conn = (TfwConn *)tfw_srv_conn_alloc();
+	BUG_ON(!conn);
 
-	BUG_ON(!srv_conn);
-	tfw_connection_link_peer(&srv_conn->conn, peer);
-	srv_conn->conn.sk = &__test_sock;
+	tfw_connection_link_peer(conn, peer);
+	conn->sk = &__test_sock;
 	/* A connection is skipped by schedulers if (refcnt <= 0). */
-	tfw_connection_revive(&srv_conn->conn);
+	tfw_connection_revive(conn);
 
 	kernel_fpu_begin();
 
-	return srv_conn;
+	return (TfwSrvConn *)conn;
 }
 
 void
 test_conn_release_all(TfwSrvGroup *sg)
 {
-	TfwConnection *conn, *conn_tmp;
-	TfwServer *srv, *srv_tmp;
+	TfwServer *srv;
+	TfwConn *conn, *tmp;
 
-	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list) {
-		list_for_each_entry_safe(conn, conn_tmp, &srv->conn_list, list) {
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		list_for_each_entry_safe(conn, tmp, &srv->conn_list, list) {
 			conn->sk = NULL;
 			tfw_connection_unlink_from_peer(conn);
-			while (tfw_connection_nfo(conn)) {
+			while (tfw_connection_live(conn))
 				tfw_connection_put(conn);
-			}
-			tfw_srv_conn_free((TfwSrvConnection *)conn);
+			tfw_srv_conn_free((TfwSrvConn *)conn);
 		}
 	}
 }
@@ -169,9 +170,9 @@ test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 
-		EXPECT_NULL(conn);
+		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
 	}
 
@@ -196,9 +197,9 @@ test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 
-		EXPECT_NULL(conn);
+		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
 	}
 
@@ -225,9 +226,9 @@ test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
 			TfwMsg *msg = sched_helper->get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 
-			EXPECT_NULL(conn);
+			EXPECT_NULL(srv_conn);
 			sched_helper->free_sched_arg(msg);
 		}
 	}

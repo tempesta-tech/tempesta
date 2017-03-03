@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -33,27 +33,31 @@
  */
 #include "http_msg.h"
 
-static TfwConnection conn_req, conn_resp;
+static TfwConn conn_req, conn_resp;
 
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {
-	TfwHttpReq *req;
+	int ret;
 	TfwMsgIter it;
+	TfwHttpMsg *hmreq;
 
 	/* Actually there were more code here, mostly it was copy-paste from
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	req = (TfwHttpReq *)tfw_http_msg_create(NULL, &it, Conn_HttpClnt,
-						data_len);
-	BUG_ON(!req);
+	hmreq = tfw_http_msg_alloc(Conn_HttpClnt);
+	BUG_ON(!hmreq);
 
-	memset(&conn_req, 0, sizeof(TfwConnection));
+	ret = tfw_http_msg_setup(hmreq, &it, data_len);
+	BUG_ON(ret);
+
+	memset(&conn_req, 0, sizeof(TfwConn));
+	tfw_connection_init(&conn_req);
 	conn_req.proto.type = Conn_HttpClnt;
-	req->conn = &conn_req;
+	hmreq->conn = &conn_req;
 
-	return req;
+	return (TfwHttpReq *)hmreq;
 }
 
 void
@@ -69,18 +73,22 @@ test_req_free(TfwHttpReq *req)
 TfwHttpResp *
 test_resp_alloc(size_t data_len)
 {
-	TfwHttpResp *resp;
+	int ret;
 	TfwMsgIter it;
+	TfwHttpMsg *hmresp;
 
-	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_HttpSrv,
-						  data_len);
-	BUG_ON(!resp);
+	hmresp = tfw_http_msg_alloc(Conn_HttpSrv);
+	BUG_ON(!hmresp);
 
-	memset(&conn_resp, 0, sizeof(TfwConnection));
+	ret = tfw_http_msg_setup(hmresp, &it, data_len);
+	BUG_ON(ret);
+
+	memset(&conn_resp, 0, sizeof(TfwConn));
+	tfw_connection_init(&conn_req);
 	conn_resp.proto.type = Conn_HttpSrv;
-	resp->conn = &conn_resp;
+	hmresp->conn = &conn_resp;
 
-	return resp;
+	return (TfwHttpResp *)hmresp;
 }
 
 void

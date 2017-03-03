@@ -44,7 +44,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -198,9 +198,8 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
-	while((p) < (end) && !(cond)) {			\
-		(p)++;					\
-	}
+	while ((p) < (end) && !(cond))			\
+		(p)++;
 
 /* It would be hard to apply some header-specific rules here, so ignore
  * case for all headers according to the robustness principle.
