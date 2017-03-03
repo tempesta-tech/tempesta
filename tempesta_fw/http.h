@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -255,13 +255,13 @@ typedef struct {
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CONN_EXTRA		0x000004
 #define TFW_HTTP_CHUNKED		0x000008
-#define TFW_HTTP_MSG_SENT		0x000010
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
+#define TFW_HTTP_NON_IDEMP		0x000800
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
@@ -285,7 +285,7 @@ typedef struct {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
-	TfwConnection		*srv_conn;
+	TfwSrvConn		*srv_conn;
 } TfwHttpSess;
 
 /**
@@ -297,9 +297,8 @@ typedef struct {
  *			  aren't alowed. So use atomic operations if concurrent
  *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
- * @conn		- connection which the message was received on;
- * @jtstamp		- time the message has been received, in jiffies;
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @conn		- connection which the message was received on;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
@@ -314,9 +313,8 @@ typedef struct {
 	unsigned char	version;					\
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
-	unsigned long	jtstamp;					\
 	unsigned int	keep_alive;					\
-	TfwConnection	*conn;						\
+	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
@@ -340,12 +338,21 @@ typedef struct {
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @fwd_list	- member in the queue of forwarded/backlogged requests;
+ * @nip_list	- member in the queue of non-idempotent requests;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
+ * @chunk_cnt	- header or body chunk count for Frang classifier;
+ * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
+ * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
+ * @resp	- the response paired with this request;
+ * @reason	- the string with the reason for an error response;
+ * @retries	- the number of re-send attempts;
+ * @status	- error response status until the response is prepared;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -357,13 +364,25 @@ typedef struct {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
+	struct list_head	fwd_list;
+	struct list_head	nip_list;
 	unsigned char		method;
 	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
+	unsigned long		jtxtstamp;
+	unsigned long		jrxtstamp;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	union {
+		TfwHttpMsg	*resp;
+		const char	*reason;
+	};
+	union {
+		unsigned short	status;
+		unsigned short	retries;
+	};
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
@@ -371,14 +390,16 @@ typedef struct {
 
 /**
  * HTTP Response.
- *
  * TfwStr members must be the first for efficient scanning.
+ *
+ * @jrxtstamp	- time the message has been received, in jiffies;
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
+	unsigned long		jrxtstamp;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
@@ -423,6 +444,7 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
+void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 
 /*
  * Functions to send an HTTP error response to a client.

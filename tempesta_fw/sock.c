@@ -311,7 +311,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * avoid expensive work queue operations.
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
-		SS_DBG("Try to send on inactive socket %p\n", sk);
+		SS_DBG("Attempt to send on inactive socket %p\n", sk);
 		return -EBADF;
 	}
 
@@ -552,10 +552,20 @@ __ss_close(struct sock *sk, int flags)
 	 * the queued work is closing and simply pretend that socket closing
 	 * event happened before the socket transmission event.
 	 *
-	 * The socket is owned by current CPU, so don't need to check its
-	 * liveness.
+	 * The socket is owned by current CPU, so there's no need to check
+	 * if it's live. However, in some cases this may be called multiple
+	 * times on the same socket. Do it only once for the socket.
+	 *
+	 * TODO: Calling ss_close_sync() multiple times on the same socket
+	 * doesn't look like a reasonable thing to do. Please see the comment
+	 * in tfw_http_resp_fwd() for the reasons this may be called multiple
+	 * times. Perhaps there's a better way. Please see the issue #687.
 	 */
 	bh_lock_sock(sk);
+	if (unlikely(!ss_sock_live(sk))) {
+		bh_unlock_sock(sk);
+		return SS_OK;
+	}
 	ss_do_close(sk);
 	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)
