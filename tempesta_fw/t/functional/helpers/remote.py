@@ -14,7 +14,8 @@ __license__ = 'GPL2'
 
 # Don't remove files from remote node. Helpful for tests development.
 DEBUG_FILES = False
-
+# Defult timeout for SSH sessions and command processing.
+DEFAULT_TIMEOUT = 5
 
 class Node(object):
     __metaclass__ = abc.ABCMeta
@@ -27,7 +28,8 @@ class Node(object):
         return self.host != 'localhost'
 
     @abc.abstractmethod
-    def run_cmd(self, cmd, timeout=10, ignore_stderr=False, err_msg=''): pass
+    def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
+                err_msg=''): pass
 
     @abc.abstractmethod
     def mkdir(self, path): pass
@@ -43,7 +45,8 @@ class LocalNode(Node):
     def __init__(self, hostname, workdir):
         Node.__init__(self, hostname, workdir)
 
-    def run_cmd(self, cmd, timeout=10, ignore_stderr=False, err_msg=''):
+    def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
+                err_msg=''):
         tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
         stdout = ''
         stderr = ''
@@ -103,7 +106,7 @@ class RemoteNode(Node):
             # key to known_hosts.
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.ssh.connect(hostname=self.host, username=self.user,
-                             port=self.port, timeout=5)
+                             port=self.port, timeout=DEFAULT_TIMEOUT)
         except Exception as e:
             framework.bug("Error connecting %s: %s" % (self.host, e))
 
@@ -111,7 +114,8 @@ class RemoteNode(Node):
         """ Release SSH connection without waitning for GC. """
         self.ssh.close()
 
-    def run_cmd(self, cmd, timeout=10, ignore_stderr=False, err_msg=''):
+    def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
+                err_msg=''):
         tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
         stderr = ''
         stdout = ''
