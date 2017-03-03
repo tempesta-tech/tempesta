@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,10 +46,10 @@
 	in6_addr.in6_u.u6_addr8[14]))		\
 
 typedef union {
+	sa_family_t family;
 	struct sockaddr_in v4;
 	struct sockaddr_in6 v6;
 	struct sockaddr sa;
-	sa_family_t family;
 #define in6_prefix	v6.sin6_scope_id
 } TfwAddr;
 

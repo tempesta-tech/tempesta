@@ -4,7 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -185,10 +185,10 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 }
 
 void
-tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
+tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	if (sg->sched && sg->sched->add_conn)
-		sg->sched->add_conn(sg, srv, conn);
+		sg->sched->add_conn(sg, srv, srv_conn);
 }
 
 int
@@ -206,6 +206,20 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 	return 0;
 }
 
+static int
+__tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
+{
+	int ret = 0;
+	TfwServer *srv;
+
+	write_lock(&sg->lock);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		if ((ret = cb(srv)))
+			break;
+	write_unlock(&sg->lock);
+	return ret;
+}
+
 /**
  * Iterate over all server groups and call @cb for each server.
  * @cb is called under spin-lock, so can't sleep.
@@ -215,25 +229,12 @@ int
 tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
 	int ret = 0;
-	TfwServer *srv;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-
-	list_for_each_entry(sg, &sg_list, list) {
-		write_lock(&sg->lock);
-
-		list_for_each_entry(srv, &sg->srv_list, list) {
-			if ((ret = cb(srv))) {
-				write_unlock(&sg->lock);
-				goto unlock;
-			}
-		}
-
-		write_unlock(&sg->lock);
-	}
-
-unlock:
+	list_for_each_entry(sg, &sg_list, list)
+		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
+			break;
 	write_unlock(&sg_lock);
 	return ret;
 }

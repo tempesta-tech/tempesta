@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -76,8 +76,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
 
-TfwHttpMsg *tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type,
-				size_t data_len);
+int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len);
 int tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data);
 int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
@@ -88,6 +87,7 @@ int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 
 TfwHttpMsg *tfw_http_msg_alloc(int type);
+TfwHttpMsg *tfw_http_msg_alloc_err_resp(void);
 void tfw_http_msg_free(TfwHttpMsg *m);
 
 #endif /* __TFW_HTTP_MSG_H__ */

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -107,25 +107,25 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConnection *sconn = test_create_conn((TfwPeer *)srv);
-		sg->sched->add_conn(sg, srv, &sconn->conn);
+		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, srv_conn);
 	}
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwConnection *exp_conn = NULL;
+		TfwSrvConn *expect_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NOT_NULL(conn);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(srv_conn);
 
-			if (!exp_conn)
-				exp_conn = conn;
+			if (!expect_conn)
+				expect_conn = srv_conn;
 			else
-				EXPECT_EQ(conn, exp_conn);
+				EXPECT_EQ(srv_conn, expect_conn);
 
-			tfw_connection_put(conn);
+			tfw_srv_conn_put(srv_conn);
 			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
@@ -156,27 +156,26 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConnection *sconn =
-					test_create_conn((TfwPeer *)srv);
-			sg->sched->add_conn(sg, srv, &sconn->conn);
+			TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
+			sg->sched->add_conn(sg, srv, srv_conn);
 		}
 	}
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwConnection *exp_conn = NULL;
+		TfwSrvConn *expect_conn = NULL;
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwConnection *conn = sg->sched->sched_srv(msg, sg);
-			EXPECT_NOT_NULL(conn);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+			EXPECT_NOT_NULL(srv_conn);
 
-			if (!exp_conn)
-				exp_conn = conn;
+			if (!expect_conn)
+				expect_conn = srv_conn;
 			else
-				EXPECT_EQ(conn, exp_conn);
+				EXPECT_EQ(srv_conn, expect_conn);
 
-			tfw_connection_put(conn);
+			tfw_srv_conn_put(srv_conn);
 			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
