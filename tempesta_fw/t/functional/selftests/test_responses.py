@@ -16,21 +16,56 @@ class ParseResponse(unittest.TestCase):
         self.duplicated = deproxy.Response(DUPLICATED)
         self.o_status = deproxy.Response(OTHER_STATUS)
 
-    def test_parse(self):
+    def test_equal(self):
         # Reordering of headers is allowed.
-        self.assertTrue(self.plain.is_equal(self.reordered))
+        self.assertTrue(self.plain == self.reordered)
+        self.assertFalse(self.plain != self.reordered)
 
-        responses = [self.no_body, self.o_body, self.duplicated, self.o_status]
-        for response in responses:
-            self.assertFalse(self.plain.is_equal(response))
+        for resp in [self.no_body, self.o_body, self.duplicated, self.o_status]:
+            self.assertFalse(self.plain == resp)
+            self.assertTrue(self.plain != resp)
 
-        responses_same_headers = [self.reordered, self.no_body, self.o_body]
-        for response in responses_same_headers:
-            self.assertFalse(self.plain.is_equal(response, header_only=True))
+        for resp in [self.no_body, self.o_body, self.duplicated, self.o_status]:
+            self.assertFalse(self.reordered == resp)
+            self.assertTrue(self.reordered != resp)
 
-        responses_differ_headers = [self.duplicated, self.o_status]
-        for response in responses_differ_headers:
-            self.assertFalse(self.plain.is_equal(response, header_only=True))
+        for resp in [self.o_body, self.duplicated, self.o_status]:
+            self.assertFalse(self.no_body == resp)
+            self.assertTrue(self.no_body != resp)
+
+        for resp in [self.duplicated, self.o_status]:
+            self.assertFalse(self.o_body == resp)
+            self.assertTrue(self.o_body != resp)
+
+        self.assertFalse(self.duplicated == self.o_status)
+        self.assertTrue(self.duplicated != self.o_status)
+
+    def test_parse(self):
+        self.assertEqual(self.plain.status, '200')
+        self.assertEqual(self.plain.reason, 'OK')
+        self.assertEqual(self.plain.version, 'HTTP/1.1')
+
+        headers = [('Date', 'Mon, 23 May 2005 22:38:34 GMT'),
+                   ('Content-Type', 'text/html; charset=UTF-8'),
+                   ('Content-Encoding', 'UTF-8'),
+                   ('Content-Length', '138'),
+                   ('Last-Modified', 'Wed, 08 Jan 2003 23:11:55 GMT'),
+                   ('Server', 'Apache/1.3.3.7 (Unix) (Red-Hat/Linux)'),
+                   ('ETag', '"3f80f-1b6-3e1cb03b"'),
+                   ('Accept-Ranges', 'bytes'),
+                   ('Connection', 'close')]
+        for header, value in headers:
+            self.assertEqual(self.plain.headers[header], value.strip())
+
+        self.assertEqual(self.plain.body,
+                         ("<html>\n"
+                          "<head>\n"
+                          "  <title>An Example Page</title>\n"
+                          "</head>\n"
+                          "<body>\n"
+                          "  Hello World, this is a very simple HTML document.\n"
+                          "</body>\n"
+                          "</html>\n\n"))
 
 
 PLAIN = """HTTP/1.1 200 OK
@@ -119,7 +154,7 @@ Server: Apache/1.3.3.7 (Unix) (Red-Hat/Linux)
 ETag: "3f80f-1b6-3e1cb03b"
 Accept-Ranges: bytes
 Connection: close
-Connection: close
+Connection: aloha
 
 <html>
 <head>

@@ -1,6 +1,7 @@
 from __future__ import print_function
 import abc
 from BaseHTTPServer import BaseHTTPRequestHandler
+import httplib
 from StringIO import StringIO
 from . import framework
 
@@ -123,48 +124,92 @@ class HeaderCollection(object):
 
     def __repr__(self):
         return self.headers.__repr__()
-class Request(BaseHTTPRequestHandler):
-    """HTTP request representation."""
 
-    def __init__(self, request_text, is_raw=False):
-        """
-        Build request from text representation. If is_raw is true - do not parse
-        request, allow sending messages that break the RFC.
-        """
-        self.msg = request_text
-        self.is_raw = is_raw
-        if not self.is_raw:
-            self.rfile = StringIO(request_text)
-            self.raw_requestline = self.rfile.readline()
-            self.error_code = self.error_message = None
-            assert self.parse_request(), \
-                "Cannot parse HTTP request: %s!" % self.error_message
-            # parse_request doesnot save the body
-            self.body = self.rfile.read()
 
-    def send_error(self, code, message):
-        """Dummy send error function. Just save the error."""
-        self.error_code = code
-        self.error_message = message
+class HttpMessage(object):
+    __metaclass__ = abc.ABCMeta
 
-    def is_equal(self, other):
-        """Assert that two requests are the same."""
-        if self.is_raw or other.is_raw:
-            raise framework.Error("Comparing raw requests is not supported!")
+    def __init__(self, message_text=None):
+        self.msg = message_text
+        self.headers = HeaderCollection()
+        self.body = ''
+        if message_text:
+            stream = StringIO(self.msg)
+            self.parse(stream)
 
-        return ((self.command == other.command)
-                and (self.path == other.path)
-                and (self.request_version == other.request_version)
-                and (len(self.headers.headers) == len(other.headers.headers))
-                and (set(self.headers.headers) == set(other.headers.headers))
-                and (self.body == other.body))
+    def parse(self, stream):
+        self.parse_firstline(stream)
+        self.parse_headers(stream)
+        self.parse_body(stream)
+
+    @abc.abstractmethod
+    def parse_firstline(self, stream):
+        pass
+
+    def parse_headers(self, stream):
+        self.headers = HeaderCollection().from_stream(stream)
+
+    def parse_body(self, stream):
+        self.body = stream.read()
+
+    @abc.abstractmethod
+    def __eq__(left, right):
+        return (left.headers == right.headers) and (left.body == right.body)
+
+    @abc.abstractmethod
+    def __ne__(left, right):
+        return not HttpMessage.__eq__(left, right)
 
     def __str__(self):
-        if self.is_raw:
-            return self.msg
-        else:
-            return ''.join(["Method:\t", self.command,
-                            "URI:\t", self.path,
-                            "Protocol:\t", self.request_version,
-                            "Headers:\t", self.headers.headers.__str__(),
-                            "Body:\t", self.body])
+        return self.__dict__.__str__()
+
+class Request(HttpMessage):
+
+    def __init__(self, *args, **kwargs):
+        self.method = None
+        self.version = "HTTP/0.9" # default version.
+        self.uri = None
+        HttpMessage.__init__(self, *args, **kwargs)
+
+    def parse_firstline(self, stream):
+        requestline = stream.readline()
+        words = requestline.rstrip('\r\n').split()
+        if len(words) == 3:
+            self.method, self.uri, self.version = words
+        elif len(words) == 2:
+            self.method, self.uri = words
+
+    def __eq__(left, right):
+        return ((left.method == right.method)
+                and (left.version == right.version)
+                and (left.uri == right.uri)
+                and HttpMessage.__eq__(left, right))
+
+    def __ne__(left, right):
+        return not Request.__eq__(left, right)
+
+
+class Response(HttpMessage):
+
+    def __init__(self, *args, **kwargs):
+        self.version = "HTTP/0.9" # default version.
+        self.status = None  # Status-Code
+        self.reason = None  # Reason-Phrase
+        HttpMessage.__init__(self, *args, **kwargs)
+
+    def parse_firstline(self, stream):
+        statusline = stream.readline()
+        words = statusline.rstrip('\r\n').split()
+        if len(words) == 3:
+            self.version, self.status, self.reason = words
+        elif len(words) == 2:
+            self.version, self.status = words
+
+    def __eq__(left, right):
+        return ((left.status == right.status)
+                and (left.version == right.version)
+                and (left.reason == right.reason)
+                and HttpMessage.__eq__(left, right))
+
+    def __ne__(left, right):
+        return not Response.__eq__(left, right)
