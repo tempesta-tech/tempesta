@@ -15,23 +15,49 @@ class ParseRequest(unittest.TestCase):
         self.body2 = deproxy.Request(WITH_BODY_2)
         self.duplicated = deproxy.Request(DUPLICATED)
 
-    def test_parse(self):
+    def test_equal(self):
         # Reordering of headers is allowed.
-        self.assertTrue(self.plain.is_equal(self.reordered))
+        self.assertTrue(self.plain == self.reordered)
+        self.assertFalse(self.plain != self.reordered)
 
         # Headers and Body must be the same:
-        self.assertFalse(self.plain.is_equal(self.body))
-        self.assertFalse(self.plain.is_equal(self.body2))
-        self.assertFalse(self.plain.is_equal(self.duplicated))
+        for req in [self.body, self.body2, self.duplicated]:
+            self.assertFalse(self.plain == req)
+            self.assertTrue(self.plain != req)
 
-        self.assertFalse(self.reordered.is_equal(self.body))
-        self.assertFalse(self.reordered.is_equal(self.body2))
-        self.assertFalse(self.reordered.is_equal(self.duplicated))
+        for req in [self.body, self.body2, self.duplicated]:
+            self.assertFalse(self.reordered == req)
+            self.assertTrue(self.reordered != req)
 
-        self.assertFalse(self.body.is_equal(self.body2))
-        self.assertFalse(self.body.is_equal(self.duplicated))
+        for req in [self.body2, self.duplicated]:
+            self.assertFalse(self.body == req)
+            self.assertTrue(self.body != req)
 
-        self.assertFalse(self.body.is_equal(self.duplicated))
+        self.assertFalse(self.body2 == self.duplicated)
+        self.assertTrue(self.body2 != self.duplicated)
+
+    def test_parse(self):
+        self.assertEqual(self.body.method, 'GET')
+        self.assertEqual(self.body.uri, '/foo')
+        self.assertEqual(self.body.version, 'HTTP/1.1')
+
+        headers = [('User-Agent', 'Wget/1.13.4 (linux-gnu)'),
+                   ('Accept', '*/*'),
+                   ('Host', 'localhost'),
+                   ('Connection', 'Keep-Alive'),
+                   ('X-Custom-Hdr', 'custom header values'),
+                   ('X-Forwarded-For', '127.0.0.1, example.com'),
+                   ('Content-Type', 'text/html; charset=iso-8859-1'),
+                   ('Cache-Control', 'max-age=1, no-store, min-fresh=30'),
+                   ('Pragma', 'no-cache, fooo'),
+                   ('Transfer-Encoding', 'compress, gzip, chunked'),
+                   ('Cookie', 'session=42; theme=dark'),
+                   ('Authorization', 'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==')]
+        for header, value in headers:
+            self.assertEqual(self.body.headers[header], value.strip())
+
+        self.assertEqual(self.body.body,
+                         'id=7cf02319db002de9d962021aab8a9e1e\n\n')
 
 
 PLAIN = """GET /foo HTTP/1.1
