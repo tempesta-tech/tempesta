@@ -154,6 +154,10 @@ $ python2 -m unittest test_module1 test_module2
 $ python2 -m unittest test_module.TestClass
 $ python2 -m unittest test_module.TestClass.test_method
 ```
+Next command will run all tests from specified directory:
+```sh
+$ python2 -m unittest discover <directory>
+```
 In this case verbosity of the tests names is controlled separately from
 configuration flie:
 ```sh
