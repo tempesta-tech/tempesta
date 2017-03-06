@@ -6,29 +6,20 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class Request(unittest.TestCase):
+class ParseRequest(unittest.TestCase):
 
-    def create_reqs(self, is_raw):
-        self.plain = deproxy.Request(PLAIN, is_raw)
-        self.reordered = deproxy.Request(REORDERED, is_raw)
-        self.body = deproxy.Request(WITH_BODY, is_raw)
-        self.body2 = deproxy.Request(WITH_BODY_2, is_raw)
-        self.duplicated = deproxy.Request(DUPLICATED, is_raw)
+    def setUp(self):
+        self.plain = deproxy.Request(PLAIN)
+        self.reordered = deproxy.Request(REORDERED)
+        self.body = deproxy.Request(WITH_BODY)
+        self.body2 = deproxy.Request(WITH_BODY_2)
+        self.duplicated = deproxy.Request(DUPLICATED)
 
-    def test_raw(self):
-        self.create_reqs(True)
-        self.reqs = [self.plain, self.reordered, self.body, self.body2,
-                     self.duplicated]
-        for first in self.reqs:
-            for second in self.reqs:
-                with self.assertRaises(framework.Error):
-                    first.is_equal(second)
-
-    def test_parsed(self):
-        self.create_reqs(False)
-
+    def test_parse(self):
+        # Reordering of headers is allowed.
         self.assertTrue(self.plain.is_equal(self.reordered))
 
+        # Headers and Body must be the same:
         self.assertFalse(self.plain.is_equal(self.body))
         self.assertFalse(self.plain.is_equal(self.body2))
         self.assertFalse(self.plain.is_equal(self.duplicated))
@@ -92,6 +83,7 @@ Cookie: session=42; theme=dark
 Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
 
 id=7cf02319db002de9d962021aab8a9e1e
+
 """
 
 # With other body:
@@ -111,6 +103,7 @@ Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
 
 id=7cf02319db002de9d962021aab8a9e1e
 id=7cf02319db002de9d962021aab8a9e1e
+
 """
 
 # With duplicated header:
@@ -129,7 +122,7 @@ Cookie: session=42; theme=dark
 Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
 X-Custom-Hdr: other custom header values
 
-    """
+"""
 
 if __name__ == '__main__':
     unittest.main()

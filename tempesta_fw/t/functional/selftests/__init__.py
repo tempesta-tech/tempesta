@@ -1,1 +1,1 @@
-__all__ = ['test_requests']
+__all__ = ['test_requests', 'test_responses', 'test_headercollection']
