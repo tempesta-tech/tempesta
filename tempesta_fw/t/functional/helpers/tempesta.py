@@ -1,5 +1,5 @@
 import re
-from . import framework
+from . import error
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -122,8 +122,8 @@ class ServerGroup(object):
         self.servers = []
 
     def add_server(self, ip, port, conns=server_conns_default()):
-        framework.assertTrue(conns < server_conns_max())
-        framework.assertTrue(len(self.servers) < servers_in_group())
+        error.assertTrue(conns < server_conns_max())
+        error.assertTrue(len(self.servers) < servers_in_group())
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
                      else '')
         self.servers.append('server %s:%d%s;' % (ip, port, conns_str))
@@ -146,7 +146,7 @@ class Config(object):
 
     def add_sg(self, new_sg):
         for sg in self.server_groups:
-            framework.assertTrue(sg.name != new_sg.name)
+            error.assertTrue(sg.name != new_sg.name)
         self.server_groups.append(new_sg)
 
     def get_config(self):

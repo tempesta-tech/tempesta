@@ -1,6 +1,6 @@
 from __future__ import print_function
 import unittest
-from helpers import deproxy, framework
+from helpers import deproxy
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'

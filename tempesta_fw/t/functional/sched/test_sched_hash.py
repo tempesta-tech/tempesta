@@ -1,15 +1,16 @@
 import unittest
 import sys
-from helpers import tfw_test, tempesta
+from helpers import tempesta
+from testers import stress
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class HashTester(tfw_test.Loader):
+class HashTester(stress.StressTest):
 
     def configure_tempesta(self):
-        tfw_test.Loader.configure_tempesta(self)
+        stress.StressTest.configure_tempesta(self)
         # Use hash scheduler instead of Round-Robin
         for sg in self.tempesta.config.server_groups:
             sg.sched = 'hash'
