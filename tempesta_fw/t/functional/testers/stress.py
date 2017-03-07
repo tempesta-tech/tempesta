@@ -34,12 +34,13 @@ class StressTest(unittest.TestCase):
         port = tempesta.upstream_port_start_from()
         self.servers = [control.Nginx(listen_port=port)]
 
-    def create_servers_helper(self, count,
-                              start_port=tempesta.upstream_port_start_from()):
+    def create_servers_helper(self, count, start_port=None):
         """ Helper function to spawn `count` servers in default configuration.
 
         See comment in Nginx.get_stats().
         """
+        if start_port == None:
+            start_port=tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):
             self.servers.append(control.Nginx(listen_port=(start_port + i)))
