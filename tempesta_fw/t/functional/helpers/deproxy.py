@@ -256,3 +256,145 @@ class Response(HttpMessage):
 
     def __ne__(left, right):
         return not Response.__eq__(left, right)
+
+#-------------------------------------------------------------------------------
+# HTTP Client/Server
+#-------------------------------------------------------------------------------
+MAX_MESSAGE_SIZE = 65536
+
+class Client(asyncore.dispatcher):
+
+    def __init__(self, host=None, port=80):
+        asyncore.dispatcher.__init__(self)
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        if host == None:
+            self.host = tf_cfg.cfg.get('Client', 'hostname')
+        self.connect((host, port))
+        self.request_bufer = ''
+        self.responce_bufer = ''
+        self.tester = None
+
+    def clear(self):
+        self.request_bufer = ''
+        self.responce_bufer = ''
+
+    def set_request(self, request):
+        self.request_bufer = request.msg
+
+    def set_tester(self, tester):
+        self.tester = tester
+
+    def handle_connect(self):
+        pass
+
+    def handle_close(self):
+        self.close()
+
+    def handle_read(self):
+        buffer += self.recv(MAX_MESSAGE_SIZE)
+        response = Response(buffer)
+        tester.recieved_response(response)
+
+    def writable(self):
+        return (len(self.bufer) > 0)
+
+    def handle_write(self):
+        sent = self.send(self.buffer)
+        self.buffer = self.buffer[sent:]
+
+
+class ServerConnection(asyncore.dispatcher_with_send):
+
+    def __init__(self, tester, server, sock=None):
+        asyncore.dispatcher_with_send.__init__(self, sock)
+        self.tester = tester
+        self.server = server
+
+    def handle_read(self):
+        buffer = self.recv(MAX_MESSAGE_SIZE)
+        request = Request(buffer)
+        response = tester.recieved_forwarded_request(request, self)
+        if response.msg:
+            self.send(response.msg)
+
+class Server(asyncore.dispatcher):
+
+    def __init__(self, id, port, host=None):
+        asyncore.dispatcher.__init__(self)
+        self.id = id
+        self.tester = None
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        if host == None:
+            self.host = tf_cfg.cfg.get('Client', 'hostname')
+        self.bind((host, port))
+        self.listen(socket.SOMAXCON)
+
+    def handle_accept(self):
+        pair = self.accept()
+        if pair is not None:
+            sock, addr = pair
+            tf_cfg.dbg(4, 'Incoming connection from %s' % repr(addr))
+            handler = EchoHandler(sock)
+
+
+#-------------------------------------------------------------------------------
+# Message Chain
+#-------------------------------------------------------------------------------
+TEST_CHAIN_TIMEOUT = 1
+
+class MessageChain(object):
+
+    def __init__(self, request, expected_response, forwarded_request=None,
+                 server_response=None):
+        # Request to be sent from Client.
+        self.request = request
+        # Response recieved on client.
+        self.response = expected_response if expected_response else Response()
+        # Expexted request forwarded to server by Tempesta to server.
+        self.fwd_request = forwarded_request if forwarded_request else Request()
+        # Server response in reply to forwarded request.
+        self.server_response = server_response
+
+class Deproxy(object):
+
+    def __init__(self, message_chains, client, servers):
+        self.message_chains = message_chains
+        self.client = client
+        self.servers = servers
+        # Current chain of expected messages
+        self.current_chain = None
+        # Current chain of recieved messages
+        self.recieved_chain = None
+        self.timeout = TEST_CHAIN_TIMEOUT
+        client.set_tester(self)
+        for server in servers:
+            server.set_tester(self)
+
+    def run(self):
+        for self.current_chain in self.message_chains:
+            self.recieved_chain = MessageChain(None, None)
+            self.client.clear()
+            self.client.set_request(self.current_chain.request)
+            try:
+                asyncore.loop(timeout=self.timeout)
+            except asyncore.ExitNow:
+                pass
+            self.check_expectations()
+
+    def check_expectations(self):
+        for message in ['response', 'fwd_request']:
+            expected = get_attr(self.current_chain, message)
+            recieved = get_attr(self.recieved_chain, message)
+            assert expected == recieved \
+                ("Recieved message does not suit expected one!\n"
+                 "\tRecieved:\t%s\n\tExpected:\t%s\n" % (expected, recieved))
+
+    def recieved_response(self, response, client):
+        """Client recieved response for its request."""
+        recieved_chain.response = response
+        raise asyncore.ExitNow
+
+    def recieved_forwarded_request(self, request, connection):
+        recieved_chain.fwd_request = request
+        return self.current_chain.server_response
