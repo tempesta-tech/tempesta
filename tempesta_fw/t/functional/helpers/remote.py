@@ -6,7 +6,7 @@ import os
 import abc
 import paramiko
 import subprocess32 as subprocess
-from . import tf_cfg, framework
+from . import tf_cfg, error
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -61,7 +61,7 @@ class LocalNode(Node):
                 if not err_msg:
                     err_msg = ("Error running command '%s' on %s: %s" %
                                (cmd, self.host, e))
-                framework.bug(err_msg)
+                error.bug(err_msg)
         return stdout, stderr
 
     def mkdir(self, path):
@@ -108,7 +108,7 @@ class RemoteNode(Node):
             self.ssh.connect(hostname=self.host, username=self.user,
                              port=self.port, timeout=DEFAULT_TIMEOUT)
         except Exception as e:
-            framework.bug("Error connecting %s: %s" % (self.host, e))
+            error.bug("Error connecting %s: %s" % (self.host, e))
 
     def close(self):
         """ Release SSH connection without waitning for GC. """
@@ -129,7 +129,7 @@ class RemoteNode(Node):
             if not err_msg:
                 err_msg = ("Error running command '%s' on %s: %s" %
                            (cmd, self.host, e))
-            framework.bug(err_msg)
+            error.bug(err_msg)
         return stdout, stderr
 
     def mkdir(self, path):
@@ -149,8 +149,8 @@ class RemoteNode(Node):
             sfile.flush()
             sftp.close()
         except Exception as e:
-            framework.bug(("Error copying file %s to %s: %s" %
-                           (filename, self.host, e)))
+            error.bug(("Error copying file %s to %s: %s" %
+                      (filename, self.host, e)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:
@@ -160,8 +160,8 @@ class RemoteNode(Node):
             sftp.unlink(filename)
             sftp.close()
         except Exception as e:
-            framework.bug(("Error removing file %s on %s: %s" %
-                           (filename, self.host, e)))
+            error.bug(("Error removing file %s on %s: %s" %
+                      (filename, self.host, e)))
 
 
 

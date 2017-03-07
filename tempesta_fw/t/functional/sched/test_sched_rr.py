@@ -2,14 +2,15 @@ import unittest
 import sys
 import math
 import random
-from helpers import tfw_test, tempesta
+from helpers import tempesta
+from testers import stress
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 
-class RRTester(tfw_test.Loader):
+class RRTester(stress.StressTest):
 
     def run_test(self, ka_reqs):
         for s in self.servers:

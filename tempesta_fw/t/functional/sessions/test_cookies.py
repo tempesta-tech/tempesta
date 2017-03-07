@@ -1,6 +1,7 @@
 from __future__ import print_function
 import sys
-from helpers import tfw_test, tf_cfg, control
+from helpers import tf_cfg, control
+from testers import stress
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -22,7 +23,7 @@ sess_lifetime 100;
 # UserAgent headers example, id must be filled before using
 ua_example = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:47.0; id:%d) Gecko/20100101 Firefox/47.0'
 
-class StressCookies(tfw_test.Loader):
+class StressCookies(stress.StressTest):
     """ Stress test for cookies. Clients do not support cookies. """
 
     def create_clients_helper(self, client_class):
