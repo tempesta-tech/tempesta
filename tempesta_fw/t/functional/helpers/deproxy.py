@@ -125,10 +125,10 @@ class HeaderCollection(object):
         return not HeaderCollection.__eq__(left, right)
 
     def __str__(self):
-        return self.headers.__str__()
+        return str(self.headers)
 
     def __repr__(self):
-        return self.headers.__repr__()
+        return repr(self.headers)
 
 
 #-------------------------------------------------------------------------------
@@ -203,7 +203,7 @@ class HttpMessage(object):
         return not HttpMessage.__eq__(left, right)
 
     def __str__(self):
-        return self.__dict__.__str__()
+        return str(self.__dict__)
 
 
 class Request(HttpMessage):
