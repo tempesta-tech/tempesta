@@ -4,6 +4,7 @@ import httplib
 from StringIO import StringIO
 import asyncore
 import socket
+import sys
 from . import error, tf_cfg
 
 
@@ -150,9 +151,9 @@ class HttpMessage(object):
         self.body_parsing = body_parsing
         self.msg = message_text
         stream = StringIO(self.msg)
-        self.parse(stream)
+        self.__parse(stream)
 
-    def parse(self, stream):
+    def __parse(self, stream):
         self.parse_firstline(stream)
         self.parse_headers(stream)
         self.parse_body(stream)
@@ -266,20 +267,21 @@ class Client(asyncore.dispatcher):
 
     def __init__(self, host=None, port=80):
         asyncore.dispatcher.__init__(self)
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        if host == None:
-            self.host = tf_cfg.cfg.get('Client', 'hostname')
-        self.connect((host, port))
-        self.request_bufer = ''
-        self.responce_bufer = ''
+        self.request_buffer = ''
         self.tester = None
+        if host == None:
+            host = 'Tempesta'
+        addr = tf_cfg.cfg.get(host, 'ip')
+        tf_cfg.dbg(4, 'Deproxy: Client: Conect to %s:%d.' % (addr, port))
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.connect((addr, port))
 
     def clear(self):
-        self.request_bufer = ''
-        self.responce_bufer = ''
+        self.request_buffer = ''
 
     def set_request(self, request):
-        self.request_bufer = request.msg
+        self.request_buffer = request.msg
+        error.assertTrue(self.request_buffer, "Request is empty!")
 
     def set_tester(self, tester):
         self.tester = tester
@@ -291,16 +293,22 @@ class Client(asyncore.dispatcher):
         self.close()
 
     def handle_read(self):
-        buffer += self.recv(MAX_MESSAGE_SIZE)
+        tf_cfg.dbg(4, 'Deproxy: Client: Recieve response from server.')
+        buffer = self.recv(MAX_MESSAGE_SIZE)
         response = Response(buffer)
-        tester.recieved_response(response)
+        self.tester.recieved_response(response)
 
     def writable(self):
-        return (len(self.bufer) > 0)
+        return (len(self.request_buffer) > 0)
 
     def handle_write(self):
-        sent = self.send(self.buffer)
-        self.buffer = self.buffer[sent:]
+        tf_cfg.dbg(4, 'Deproxy: Client: Send request to server.')
+        sent = self.send(self.request_buffer)
+        self.request_buffer = self.request_buffer[sent:]
+
+    def handle_error(self):
+        t, v, tb = sys.exc_info()
+        error.bug('Deproxy: Client: %s' % v)
 
 
 class ServerConnection(asyncore.dispatcher_with_send):
@@ -309,33 +317,50 @@ class ServerConnection(asyncore.dispatcher_with_send):
         asyncore.dispatcher_with_send.__init__(self, sock)
         self.tester = tester
         self.server = server
+        tf_cfg.dbg(4, 'Deproxy: SrvConnection: New server connection.')
 
     def handle_read(self):
+        tf_cfg.dbg(4, 'Deproxy: SrvConnection: Recieve request from client.')
         buffer = self.recv(MAX_MESSAGE_SIZE)
         request = Request(buffer)
-        response = tester.recieved_forwarded_request(request, self)
+        response = self.tester.recieved_forwarded_request(request, self)
         if response.msg:
+            tf_cfg.dbg(4, 'Deproxy: SrvConnection: Send response to client.')
             self.send(response.msg)
+        else:
+            tf_cfg.dbg(4, 'Deproxy: SrvConnection: Try send invalid response.')
+
+    def handle_error(self):
+        t, v, tb = sys.exc_info()
+        error.bug('Deproxy: SrvConnection: %s' % v)
 
 class Server(asyncore.dispatcher):
 
-    def __init__(self, id, port, host=None):
+    def __init__(self, port, host=None):
         asyncore.dispatcher.__init__(self)
-        self.id = id
         self.tester = None
+        self.port = port
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
         if host == None:
-            self.host = tf_cfg.cfg.get('Client', 'hostname')
-        self.bind((host, port))
-        self.listen(socket.SOMAXCON)
+            host == 'Client'
+        addr = tf_cfg.cfg.get('Client', 'ip')
+        tf_cfg.dbg(4, 'Deproxy: Server: Start on %s:%d.' % (addr, port))
+        self.bind((addr, port))
+        self.listen(socket.SOMAXCONN)
+
+    def set_tester(self, tester):
+        self.tester = tester
 
     def handle_accept(self):
         pair = self.accept()
         if pair is not None:
             sock, addr = pair
-            tf_cfg.dbg(4, 'Incoming connection from %s' % repr(addr))
-            handler = EchoHandler(sock)
+            handler = ServerConnection(self.tester, server=self, sock=sock)
+
+    def handle_error(self):
+        t, v, tb = sys.exc_info()
+        error.bug('Deproxy: Server: %s' % v)
 
 
 #-------------------------------------------------------------------------------
@@ -384,17 +409,19 @@ class Deproxy(object):
 
     def check_expectations(self):
         for message in ['response', 'fwd_request']:
-            expected = get_attr(self.current_chain, message)
-            recieved = get_attr(self.recieved_chain, message)
-            assert expected == recieved \
-                ("Recieved message does not suit expected one!\n"
-                 "\tRecieved:\t%s\n\tExpected:\t%s\n" % (expected, recieved))
+            expected = getattr(self.current_chain, message)
+            recieved = getattr(self.recieved_chain, message)
+            assert expected == recieved, \
+                ("Recieved message (%s) does not suit expected one!\n\n"
+                 "\tRecieved:\n<<<<<<<<<\n%s>>>>>>>>>\n"
+                 "\tExpected:\n<<<<<<<<<\n%s>>>>>>>>>\n"
+                 % (message, recieved.msg, expected.msg))
 
-    def recieved_response(self, response, client):
+    def recieved_response(self, response):
         """Client recieved response for its request."""
-        recieved_chain.response = response
+        self.recieved_chain.response = response
         raise asyncore.ExitNow
 
     def recieved_forwarded_request(self, request, connection):
-        recieved_chain.fwd_request = request
+        self.recieved_chain.fwd_request = request
         return self.current_chain.server_response
