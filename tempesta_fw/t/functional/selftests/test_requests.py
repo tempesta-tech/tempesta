@@ -57,7 +57,7 @@ class ParseRequest(unittest.TestCase):
             self.assertEqual(self.body.headers[header], value.strip())
 
         self.assertEqual(self.body.body,
-                         'id=7cf02319db002de9d962021aab8a9e1e\n\n')
+                         'id=7cf02319db002de9d962021aab8a9e1e\n')
 
 
 PLAIN = """GET /foo HTTP/1.1
