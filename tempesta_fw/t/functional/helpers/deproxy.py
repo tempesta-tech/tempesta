@@ -1,14 +1,19 @@
 from __future__ import print_function
 import abc
-from BaseHTTPServer import BaseHTTPRequestHandler
 import httplib
 from StringIO import StringIO
-from . import framework
+import asyncore
+import socket
+from . import framework, tf_cfg
 
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
+
+#-------------------------------------------------------------------------------
+# Utils
+#-------------------------------------------------------------------------------
 
 class HeaderCollection(object):
     """
@@ -126,16 +131,26 @@ class HeaderCollection(object):
         return self.headers.__repr__()
 
 
+#-------------------------------------------------------------------------------
+# HTTP Messages
+#-------------------------------------------------------------------------------
+
 class HttpMessage(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, message_text=None):
-        self.msg = message_text
+    def __init__(self, message_text=None, body_parsing=True):
+        self.msg = ''
+        self.body_parsing = True
         self.headers = HeaderCollection()
         self.body = ''
         if message_text:
-            stream = StringIO(self.msg)
-            self.parse(stream)
+            self.parse_text(message_text, body_parsing)
+
+    def parse_text(self, message_text, body_parsing=True):
+        self.body_parsing = body_parsing
+        self.msg = message_text
+        stream = StringIO(self.msg)
+        self.parse(stream)
 
     def parse(self, stream):
         self.parse_firstline(stream)
@@ -150,7 +165,34 @@ class HttpMessage(object):
         self.headers = HeaderCollection().from_stream(stream)
 
     def parse_body(self, stream):
-        self.body = stream.read()
+        if self.body_parsing and 'Transfer-Encoding' in self.headers:
+            chunked = False
+            enc = self.headers['Transfer-Encoding']
+            option = enc.split(',')[-1] # take the last option
+
+            if option.strip().lower() == 'chunked':
+                self.read_chunked_body(stream)
+                # TODO: read trailer.
+            else:
+                framework.bug('Not implemented!')
+        elif self.body_parsing and 'Content-Length' in self.headers:
+            length = int(self.headers['Content-Length'])
+            self.read_sized_body(stream, length)
+        else:
+            self.body = stream.read()
+
+    def read_chunked_body(self, stream):
+        line = stream.readline()
+        while line and not (line == '\r\n' or line == '\n'):
+            self.body += line
+            line = stream.readline()
+
+    def read_sized_body(self, stream, size):
+        self.body = stream.read(size)
+        # Remove CRLF
+        stream.readline()
+        assert (len(self.body) == size), \
+            "Wrong body size: expect %d but got %d!" % (size, len(self.body))
 
     @abc.abstractmethod
     def __eq__(left, right):
@@ -162,6 +204,7 @@ class HttpMessage(object):
 
     def __str__(self):
         return self.__dict__.__str__()
+
 
 class Request(HttpMessage):
 
