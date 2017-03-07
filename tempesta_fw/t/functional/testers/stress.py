@@ -1,12 +1,12 @@
 from __future__ import print_function
 import unittest
-from . import tf_cfg, control, tempesta
+from helpers import tf_cfg, control, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class Loader(unittest.TestCase):
+class StressTest(unittest.TestCase):
     """ Test Suite to use HTTP benchmarkers as a clients. Can be used for
     functional testing of schedulers and stress testing for other components.
     """

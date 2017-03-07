@@ -4,7 +4,7 @@ import httplib
 from StringIO import StringIO
 import asyncore
 import socket
-from . import framework, tf_cfg
+from . import error, tf_cfg
 
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -174,7 +174,7 @@ class HttpMessage(object):
                 self.read_chunked_body(stream)
                 # TODO: read trailer.
             else:
-                framework.bug('Not implemented!')
+                error.bug('Not implemented!')
         elif self.body_parsing and 'Content-Length' in self.headers:
             length = int(self.headers['Content-Length'])
             self.read_sized_body(stream, length)
