@@ -116,7 +116,7 @@ class Stats(object):
 
 class ServerGroup(object):
 
-    def __init__(self, name, sched='round-robin'):
+    def __init__(self, name='default', sched='round-robin'):
         self.name = name
         self.sched = sched
         self.servers = []
