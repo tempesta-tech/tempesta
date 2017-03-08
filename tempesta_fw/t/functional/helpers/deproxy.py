@@ -3,9 +3,11 @@ import abc
 import httplib
 from StringIO import StringIO
 import asyncore
+import select
 import socket
 import sys
-from . import error, tf_cfg
+import time
+from . import error, tf_cfg, tempesta
 
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -144,6 +146,7 @@ class HttpMessage(object):
         self.body_parsing = True
         self.headers = HeaderCollection()
         self.body = ''
+        self.version = "HTTP/0.9" # default version.
         if message_text:
             self.parse_text(message_text, body_parsing)
 
@@ -211,7 +214,6 @@ class Request(HttpMessage):
 
     def __init__(self, *args, **kwargs):
         self.method = None
-        self.version = "HTTP/0.9" # default version.
         self.uri = None
         HttpMessage.__init__(self, *args, **kwargs)
 
@@ -236,7 +238,6 @@ class Request(HttpMessage):
 class Response(HttpMessage):
 
     def __init__(self, *args, **kwargs):
-        self.version = "HTTP/0.9" # default version.
         self.status = None  # Status-Code
         self.reason = None  # Reason-Phrase
         HttpMessage.__init__(self, *args, **kwargs)
@@ -272,7 +273,7 @@ class Client(asyncore.dispatcher):
         if host == None:
             host = 'Tempesta'
         addr = tf_cfg.cfg.get(host, 'ip')
-        tf_cfg.dbg(4, 'Deproxy: Client: Conect to %s:%d.' % (addr, port))
+        tf_cfg.dbg(4, '\tDeproxy: Client: Conect to %s:%d.' % (addr, port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect((addr, port))
 
@@ -293,59 +294,88 @@ class Client(asyncore.dispatcher):
         self.close()
 
     def handle_read(self):
-        tf_cfg.dbg(4, 'Deproxy: Client: Recieve response from server.')
         buffer = self.recv(MAX_MESSAGE_SIZE)
+        if not buffer:
+            return
+        tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from server.')
+        tf_cfg.dbg(5, buffer)
         response = Response(buffer)
         self.tester.recieved_response(response)
 
     def writable(self):
-        return (len(self.request_buffer) > 0)
+        return self.tester.is_srvs_ready() and (len(self.request_buffer) > 0)
 
     def handle_write(self):
-        tf_cfg.dbg(4, 'Deproxy: Client: Send request to server.')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Send request to server.')
+        tf_cfg.dbg(5, self.request_buffer)
         sent = self.send(self.request_buffer)
         self.request_buffer = self.request_buffer[sent:]
 
     def handle_error(self):
         t, v, tb = sys.exc_info()
-        error.bug('Deproxy: Client: %s' % v)
+        error.bug('\tDeproxy: Client: %s' % v)
 
 
 class ServerConnection(asyncore.dispatcher_with_send):
 
-    def __init__(self, tester, server, sock=None):
+    def __init__(self, tester, server, sock=None, keep_alive=None):
         asyncore.dispatcher_with_send.__init__(self, sock)
         self.tester = tester
         self.server = server
-        tf_cfg.dbg(4, 'Deproxy: SrvConnection: New server connection.')
+        self.keep_alive = keep_alive
+        self.responses_done = 0
+        self.tester.register_srv_connection(self)
+        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: New server connection.')
 
     def handle_read(self):
-        tf_cfg.dbg(4, 'Deproxy: SrvConnection: Recieve request from client.')
         buffer = self.recv(MAX_MESSAGE_SIZE)
+        # Hande will be called even if buffer is empty.
+        if not buffer:
+            return
+        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from client.')
+        tf_cfg.dbg(5, buffer)
         request = Request(buffer)
         response = self.tester.recieved_forwarded_request(request, self)
         if response.msg:
-            tf_cfg.dbg(4, 'Deproxy: SrvConnection: Send response to client.')
+            tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to client.')
+            tf_cfg.dbg(5, response.msg)
             self.send(response.msg)
         else:
-            tf_cfg.dbg(4, 'Deproxy: SrvConnection: Try send invalid response.')
+            tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Try send invalid response.')
+        if self.keep_alive:
+            self.responses_done += 1
+            if self.responses_done == self.keep_alive:
+                self.handle_close()
 
     def handle_error(self):
         t, v, tb = sys.exc_info()
-        error.bug('Deproxy: SrvConnection: %s' % v)
+        error.bug('\tDeproxy: SrvConnection: %s' % v)
+
+    def handle_close(self):
+        self.tester.remove_srv_connection(self)
+        asyncore.dispatcher_with_send.handle_close(self)
+
+    def close(self):
+        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Close connection.')
+        asyncore.dispatcher_with_send.close(self)
+
 
 class Server(asyncore.dispatcher):
 
-    def __init__(self, port, host=None):
+    def __init__(self, port, host=None, connections=None, keep_alive=None):
         asyncore.dispatcher.__init__(self)
         self.tester = None
         self.port = port
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.set_reuse_addr()
+        if connections == None:
+            connections = tempesta.server_conns_default()
+        self.conns_n = connections
+        self.keep_alive = keep_alive
         if host == None:
             host == 'Client'
         addr = tf_cfg.cfg.get('Client', 'ip')
-        tf_cfg.dbg(4, 'Deproxy: Server: Start on %s:%d.' % (addr, port))
+        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (addr, port))
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
         self.bind((addr, port))
         self.listen(socket.SOMAXCONN)
 
@@ -356,17 +386,18 @@ class Server(asyncore.dispatcher):
         pair = self.accept()
         if pair is not None:
             sock, addr = pair
-            handler = ServerConnection(self.tester, server=self, sock=sock)
+            handler = ServerConnection(self.tester, server=self, sock=sock,
+                                       keep_alive=self.keep_alive)
 
     def handle_error(self):
         t, v, tb = sys.exc_info()
-        error.bug('Deproxy: Server: %s' % v)
+        error.bug('\tDeproxy: Server: %s' % v)
 
 
 #-------------------------------------------------------------------------------
 # Message Chain
 #-------------------------------------------------------------------------------
-TEST_CHAIN_TIMEOUT = 1
+TEST_CHAIN_TIMEOUT = 1.0
 
 class MessageChain(object):
 
@@ -387,24 +418,40 @@ class Deproxy(object):
         self.message_chains = message_chains
         self.client = client
         self.servers = servers
-        # Current chain of expected messages
+        # Current chain of expected messages.
         self.current_chain = None
-        # Current chain of recieved messages
+        # Current chain of recieved messages.
         self.recieved_chain = None
-        self.timeout = TEST_CHAIN_TIMEOUT
+        # Timeout to wait for test completion.
+        self.timeout = 1
+        # Registered connections.
+        self.srv_connections = []
         client.set_tester(self)
         for server in servers:
             server.set_tester(self)
+
+    def loop(self, timeout=TEST_CHAIN_TIMEOUT):
+        """Poll for socket events no more than `timeout` seconds."""
+        try:
+            eta = time.time() + timeout
+            map =  asyncore.socket_map
+
+            if hasattr(select, 'poll'):
+                poll_fun = asyncore.poll2
+            else:
+                poll_fun = asyncore.poll
+
+            while (eta > time.time()) and map:
+                poll_fun(min(self.timeout, timeout), map)
+        except asyncore.ExitNow:
+            pass
 
     def run(self):
         for self.current_chain in self.message_chains:
             self.recieved_chain = MessageChain(None, None)
             self.client.clear()
             self.client.set_request(self.current_chain.request)
-            try:
-                asyncore.loop(timeout=self.timeout)
-            except asyncore.ExitNow:
-                pass
+            self.loop()
             self.check_expectations()
 
     def check_expectations(self):
@@ -425,3 +472,25 @@ class Deproxy(object):
     def recieved_forwarded_request(self, request, connection):
         self.recieved_chain.fwd_request = request
         return self.current_chain.server_response
+
+    def register_srv_connection(self, connection):
+        self.srv_connections.append(connection)
+
+    def remove_srv_connection(self, connection):
+        # Normaly we have the connection in the list, but do not crash test
+        # framework if that is not true.
+        try:
+            self.srv_connections.remove(connection)
+        except:
+            pass
+
+    def is_srvs_ready(self):
+        expected_conns_n = sum([s.conns_n for s in self.servers])
+        return expected_conns_n == len(self.srv_connections)
+
+    def close_all(self):
+        self.client.close()
+        for conn in self.srv_connections:
+            conn.close()
+        for server in self.servers:
+            server.close()
