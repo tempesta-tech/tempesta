@@ -47,7 +47,7 @@ class LocalNode(Node):
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
                 err_msg=''):
-        tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
         stdout = ''
         stderr = ''
         stderr_pipe = (open(os.devnull, 'w') if ignore_stderr
@@ -116,7 +116,7 @@ class RemoteNode(Node):
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
                 err_msg=''):
-        tf_cfg.dbg(4, "Run command '%s' on host %s" % (cmd, self.host))
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
         stderr = ''
         stdout = ''
         try:

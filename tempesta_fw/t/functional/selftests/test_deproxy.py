@@ -1,5 +1,6 @@
 from __future__ import print_function
 import unittest
+import asyncore
 from helpers import deproxy, tf_cfg, tempesta
 from testers import functional
 
@@ -78,19 +79,22 @@ class DeproxyDummyTest(functional.FunctionalTest):
     def tearDown(self):
         if self.client:
             self.client.close()
-        for s in self.servers:
-            s.close()
+        if self.tester:
+            self.tester.close_all()
 
     def create_clients(self):
         port = tempesta.upstream_port_start_from()
         self.client = deproxy.Client(port=port, host='Client')
+
+    def create_servers(self):
+        port = tempesta.upstream_port_start_from()
+        self.servers = [deproxy.Server(port=port, connections=1)]
 
     def routine(self, message_chains):
         self.create_servers()
         self.create_clients()
         self.create_tester(message_chains)
         self.tester.run()
-
 
     def test_deproxy_one_chain(self):
         chain = sample_rule()
@@ -108,3 +112,22 @@ class DeproxyTest(functional.FunctionalTest):
         message_chains = [sample_rule()]
         self.generic_test_routine(defconfig(), message_chains)
 
+
+class DeproxyTestFailOver(DeproxyTest):
+
+    def create_servers(self):
+        port = tempesta.upstream_port_start_from()
+        self.servers = [deproxy.Server(port=port, keep_alive=1)]
+
+    def create_tester(self, message_chain):
+
+        class DeproxyFailOver(deproxy.Deproxy):
+            def check_expectations(self):
+                # We closed server connection after response. Tempesta must
+                # failover the connection. Run asyncore loop with small timeout
+                # once again to pocess events.
+                self.loop(0.1)
+                assert self.is_srvs_ready(), 'Failovering failed!'
+                deproxy.Deproxy.check_expectations(self)
+
+        self.tester = DeproxyFailOver(message_chain, self.client, self.servers)
