@@ -24,7 +24,7 @@ class FunctionalTest(unittest.TestCase):
         # We run server on the Client host.
         ip = tf_cfg.cfg.get('Client', 'ip')
         for s in self.servers:
-            sg.add_server(ip, s.port)
+            sg.add_server(ip, s.port, s.conns_n)
             self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
@@ -32,14 +32,15 @@ class FunctionalTest(unittest.TestCase):
         port = tempesta.upstream_port_start_from()
         self.servers = [deproxy.Server(port=port)]
 
-    def create_servers_helper(self, count, start_port=None):
+    def create_servers_helper(self, count, start_port=None, keep_alive=None):
         """ Helper function to spawn `count` servers in default configuration.
         """
         if start_port == None:
             start_port=tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):
-            self.servers.append(deproxy.Server(port=(start_port + i)))
+            self.servers.append(deproxy.Server(port=(start_port + i),
+                                               keep_alive=keep_alive))
 
     def setUp(self):
         self.client = None
@@ -50,19 +51,13 @@ class FunctionalTest(unittest.TestCase):
         self.create_tempesta()
 
     def tearDown(self):
-        """ Carefully stop all servers. Error on stop will make next test fail,
-        so mark test as failed even if eveything other is fine.
-        """
-        if self.tempesta:
-            self.tempesta.get_stats()
-            self.assert_tempesta()
-
+        # Close client connection before stopping the TempestaFW.
         if self.client:
             self.client.close()
         if self.tempesta:
             self.tempesta.stop()
-        for s in self.servers:
-            s.close()
+        if self.tester:
+            self.tester.close_all()
 
     def assert_tempesta(self):
         """ Assert that tempesta had no errors during test. """
@@ -94,6 +89,9 @@ class FunctionalTest(unittest.TestCase):
 
         self.create_tester(message_chains)
         self.tester.run()
+
+        self.tempesta.get_stats()
+        self.assert_tempesta()
 
 if __name__ == '__main__':
     unittest.main()
