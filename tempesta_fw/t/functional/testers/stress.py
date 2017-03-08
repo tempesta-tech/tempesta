@@ -46,6 +46,9 @@ class StressTest(unittest.TestCase):
             self.servers.append(control.Nginx(listen_port=(start_port + i)))
 
     def setUp(self):
+        # Init members used in tearDown function.
+        self.tempesta = None
+        self.servers = []
         tf_cfg.dbg(3) # Step to the next line after name of test case.
         tf_cfg.dbg(3, '\tInit test case...')
         self.create_clients()
@@ -56,8 +59,12 @@ class StressTest(unittest.TestCase):
         """ Carefully stop all servers. Error on stop will make next test fail,
         so mark test as failed even if eveything other is fine.
         """
-        self.tempesta.stop()
-        control.servers_stop(self.servers)
+        # Call functions only if variables not None: there might be an error
+        # before tempesta would be created.
+        if self.tempesta:
+            self.tempesta.stop()
+        if self.servers:
+            control.servers_stop(self.servers)
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
