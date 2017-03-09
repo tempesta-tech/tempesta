@@ -388,7 +388,6 @@ class Client(asyncore.dispatcher):
     def set_request(self, request):
         if request:
             self.request_buffer = request.msg
-            error.assertTrue(self.request_buffer, "Request is empty!")
 
     def set_tester(self, tester):
         self.tester = tester
