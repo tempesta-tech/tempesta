@@ -73,7 +73,7 @@ class LocalNode(Node):
 
     def copy_file(self, filename, content, path=None):
         # Create dir first.
-        if path == None:
+        if path is None:
             path = self.workdir
         else:
             self.mkdir(path)
@@ -137,7 +137,7 @@ class RemoteNode(Node):
 
     def copy_file(self, filename, content, path=None):
         # Create directory it is not default workdir.
-        if path == None:
+        if path is None:
             path = self.workdir
         else:
             self.mkdir(path)

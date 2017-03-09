@@ -302,7 +302,6 @@ class Request(HttpMessage):
         if not self.method in self.methods:
             raise ParseError('Invalid request method!')
 
-
     def __eq__(left, right):
         return ((left.method == right.method)
                 and (left.version == right.version)
@@ -375,7 +374,7 @@ class Client(asyncore.dispatcher):
         self.request_buffer = ''
         self.response_buffer = ''
         self.tester = None
-        if host == None:
+        if host is None:
             host = 'Tempesta'
         addr = tf_cfg.cfg.get(host, 'ip')
         tf_cfg.dbg(4, '\tDeproxy: Client: Conect to %s:%d.' % (addr, port))
@@ -459,7 +458,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
         # Hande will be called even if buffer is empty.
         if not self.request_buffer:
             return
-        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from client.')
+        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from Tempesta.')
         tf_cfg.dbg(5, self.request_buffer)
         if not self.tester:
             return
@@ -468,7 +467,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
         if not response:
             return
         if response.msg:
-            tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to client.')
+            tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to Tempesta.')
             tf_cfg.dbg(5, response.msg)
             self.send(response.msg)
         else:
@@ -498,12 +497,12 @@ class Server(asyncore.dispatcher):
         asyncore.dispatcher.__init__(self)
         self.tester = None
         self.port = port
-        if connections == None:
+        if connections is None:
             connections = tempesta.server_conns_default()
         self.conns_n = connections
         self.keep_alive = keep_alive
-        if host == None:
-            host == 'Client'
+        if host is None:
+            host = 'Client'
         addr = tf_cfg.cfg.get('Client', 'ip')
         tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (addr, port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -538,11 +537,23 @@ class MessageChain(object):
         # Request to be sent from Client.
         self.request = request
         # Response recieved on client.
-        self.response = expected_response if expected_response else Response()
+        self.response = expected_response
         # Expexted request forwarded to server by Tempesta to server.
         self.fwd_request = forwarded_request if forwarded_request else Request()
         # Server response in reply to forwarded request.
-        self.server_response = server_response
+        self.server_response = (
+            server_response if expected_response else Response())
+
+    def no_forward(self):
+        # Expexted request forwarded to server by Tempesta to server.
+        self.fwd_request = Request()
+        # Server response in reply to forwarded request.
+        self.server_response = Response()
+
+    @staticmethod
+    def empty():
+        return MessageChain(Request(), Response())
+
 
 class Deproxy(object):
 
@@ -584,7 +595,7 @@ class Deproxy(object):
 
     def run(self):
         for self.current_chain in self.message_chains:
-            self.recieved_chain = MessageChain(None, None)
+            self.recieved_chain = MessageChain.empty()
             self.client.clear()
             self.client.set_request(self.current_chain.request)
             self.loop()
@@ -596,8 +607,8 @@ class Deproxy(object):
             recieved = getattr(self.recieved_chain, message)
             assert expected == recieved, \
                 ("Recieved message (%s) does not suit expected one!\n\n"
-                 "\tRecieved:\n<<<<<<<<<\n%s>>>>>>>>>\n"
-                 "\tExpected:\n<<<<<<<<<\n%s>>>>>>>>>\n"
+                 "\tRecieved:\n<<<<<|\n%s|>>>>>\n"
+                 "\tExpected:\n<<<<<|\n%s|>>>>>\n"
                  % (message, recieved.msg, expected.msg))
 
     def recieved_response(self, response):
