@@ -1,6 +1,5 @@
 from __future__ import print_function
 import unittest
-import asyncore
 from helpers import deproxy, tf_cfg, tempesta
 from testers import functional
 
@@ -57,7 +56,51 @@ def sample_rule():
         "<body>\r\n"
         "  Hello World, this is a very simple HTML document.\r\n"
         "</body>\r\n"
-        "</html>\r\n"
+        "</html>\r\n")
+    return deproxy.MessageChain(request=request, expected_response=response,
+                                forwarded_request=fwd_request,
+                                server_response=server_response)
+
+def sample_rule_chunked():
+    request = deproxy.Request(
+        "GET / HTTP/1.1\r\n"
+        "Host: 10.0.10.2\r\n"
+        "User-Agent: curl/7.53.1\r\n"
+        "Accept: */*\r\n"
+        "\r\n")
+    response = deproxy.Response(
+        "HTTP/1.0 200 OK\r\n"
+        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
+        "Content-type: text/html\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
+        "Server: Tempesta FW/0.5.0-pre6\r\n"
+        "Via: 1.0 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
+        "\r\n"
+        "4\r\n"
+        "1234\r\n"
+        "0\r\n"
+        "\r\n")
+    fwd_request = deproxy.Request(
+        "GET / HTTP/1.1\r\n"
+        "Host: 10.0.10.2\r\n"
+        "User-Agent: curl/7.53.1\r\n"
+        "Accept: */*\r\n"
+        "Connection: keep-alive\r\n"
+        "Via: 1.1 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
+        "X-Forwarded-For: 10.0.10.1\r\n"
+        "\r\n")
+    server_response = deproxy.Response(
+        "HTTP/1.0 200 OK\r\n"
+        "Server: SimpleHTTP/0.6 Python/3.6.0\r\n"
+        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
+        "Content-type: text/html\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
+        "\r\n"
+        "4\r\n"
+        "1234\r\n"
+        "0\r\n"
         "\r\n")
     return deproxy.MessageChain(request=request, expected_response=response,
                                 forwarded_request=fwd_request,
@@ -113,6 +156,13 @@ class DeproxyTest(functional.FunctionalTest):
         self.generic_test_routine(defconfig(), message_chains)
 
 
+class DeproxyChunkedTest(functional.FunctionalTest):
+
+    def test_deproxy_one_chain(self):
+        message_chains = [sample_rule_chunked()]
+        self.generic_test_routine(defconfig(), message_chains)
+
+
 class DeproxyTestFailOver(DeproxyTest):
 
     def create_servers(self):
@@ -124,7 +174,7 @@ class DeproxyTestFailOver(DeproxyTest):
         class DeproxyFailOver(deproxy.Deproxy):
             def check_expectations(self):
                 # We closed server connection after response. Tempesta must
-                # failover the connection. Run asyncore loop with small timeout
+                # failover the connection. Run loop with small timeout
                 # once again to pocess events.
                 self.loop(0.1)
                 assert self.is_srvs_ready(), 'Failovering failed!'

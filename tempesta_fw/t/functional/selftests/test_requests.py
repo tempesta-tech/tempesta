@@ -11,8 +11,6 @@ class ParseRequest(unittest.TestCase):
     def setUp(self):
         self.plain = deproxy.Request(PLAIN)
         self.reordered = deproxy.Request(REORDERED)
-        self.body = deproxy.Request(WITH_BODY)
-        self.body2 = deproxy.Request(WITH_BODY_2)
         self.duplicated = deproxy.Request(DUPLICATED)
 
     def test_equal(self):
@@ -20,26 +18,16 @@ class ParseRequest(unittest.TestCase):
         self.assertTrue(self.plain == self.reordered)
         self.assertFalse(self.plain != self.reordered)
 
-        # Headers and Body must be the same:
-        for req in [self.body, self.body2, self.duplicated]:
-            self.assertFalse(self.plain == req)
-            self.assertTrue(self.plain != req)
+        self.assertFalse(self.plain == self.duplicated)
+        self.assertTrue(self.plain != self.duplicated)
 
-        for req in [self.body, self.body2, self.duplicated]:
-            self.assertFalse(self.reordered == req)
-            self.assertTrue(self.reordered != req)
-
-        for req in [self.body2, self.duplicated]:
-            self.assertFalse(self.body == req)
-            self.assertTrue(self.body != req)
-
-        self.assertFalse(self.body2 == self.duplicated)
-        self.assertTrue(self.body2 != self.duplicated)
+        self.assertFalse(self.reordered == self.duplicated)
+        self.assertTrue(self.reordered != self.duplicated)
 
     def test_parse(self):
-        self.assertEqual(self.body.method, 'GET')
-        self.assertEqual(self.body.uri, '/foo')
-        self.assertEqual(self.body.version, 'HTTP/1.1')
+        self.assertEqual(self.plain.method, 'GET')
+        self.assertEqual(self.plain.uri, '/foo')
+        self.assertEqual(self.plain.version, 'HTTP/1.1')
 
         headers = [('User-Agent', 'Wget/1.13.4 (linux-gnu)'),
                    ('Accept', '*/*'),
@@ -50,14 +38,12 @@ class ParseRequest(unittest.TestCase):
                    ('Content-Type', 'text/html; charset=iso-8859-1'),
                    ('Cache-Control', 'max-age=1, no-store, min-fresh=30'),
                    ('Pragma', 'no-cache, fooo'),
-                   ('Transfer-Encoding', 'compress, gzip, chunked'),
                    ('Cookie', 'session=42; theme=dark'),
                    ('Authorization', 'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==')]
         for header, value in headers:
-            self.assertEqual(self.body.headers[header], value.strip())
+            self.assertEqual(self.plain.headers[header], value.strip())
 
-        self.assertEqual(self.body.body,
-                         'id=7cf02319db002de9d962021aab8a9e1e\n')
+        self.assertEqual(self.plain.body, '')
 
 
 PLAIN = """GET /foo HTTP/1.1
@@ -70,7 +56,6 @@ X-Forwarded-For: 127.0.0.1, example.com
 Content-Type: text/html; charset=iso-8859-1
 Cache-Control: max-age=1, no-store, min-fresh=30
 Pragma: no-cache, fooo
-Transfer-Encoding: compress, gzip, chunked
 Cookie: session=42; theme=dark
 Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
 
@@ -87,48 +72,8 @@ X-Custom-Hdr: custom header values
 X-Forwarded-For: 127.0.0.1, example.com
 Content-Type: text/html; charset=iso-8859-1
 Pragma: no-cache, fooo
-Transfer-Encoding: compress, gzip, chunked
 Cookie: session=42; theme=dark
 Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
-
-"""
-
-# With body:
-WITH_BODY = """GET /foo HTTP/1.1
-User-Agent: Wget/1.13.4 (linux-gnu)
-Accept: */*
-Host: localhost
-Connection: Keep-Alive
-X-Custom-Hdr: custom header values
-X-Forwarded-For: 127.0.0.1, example.com
-Content-Type: text/html; charset=iso-8859-1
-Cache-Control: max-age=1, no-store, min-fresh=30
-Pragma: no-cache, fooo
-Transfer-Encoding: compress, gzip, chunked
-Cookie: session=42; theme=dark
-Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
-
-id=7cf02319db002de9d962021aab8a9e1e
-
-"""
-
-# With other body:
-WITH_BODY_2 = """GET /foo HTTP/1.1
-User-Agent: Wget/1.13.4 (linux-gnu)
-Accept: */*
-Host: localhost
-Connection: Keep-Alive
-X-Custom-Hdr: custom header values
-X-Forwarded-For: 127.0.0.1, example.com
-Content-Type: text/html; charset=iso-8859-1
-Cache-Control: max-age=1, no-store, min-fresh=30
-Pragma: no-cache, fooo
-Transfer-Encoding: compress, gzip, chunked
-Cookie: session=42; theme=dark
-Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
-
-id=7cf02319db002de9d962021aab8a9e1e
-id=7cf02319db002de9d962021aab8a9e1e
 
 """
 
@@ -143,7 +88,6 @@ X-Forwarded-For: 127.0.0.1, example.com
 Content-Type: text/html; charset=iso-8859-1
 Cache-Control: max-age=1, no-store, min-fresh=30
 Pragma: no-cache, fooo
-Transfer-Encoding: compress, gzip, chunked
 Cookie: session=42; theme=dark
 Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
 X-Custom-Hdr: other custom header values
