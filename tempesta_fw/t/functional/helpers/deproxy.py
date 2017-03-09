@@ -413,10 +413,13 @@ class Client(asyncore.dispatcher):
             tf_cfg.dbg(4, ('Deproxy: Client: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.response_buffer))
-        self.tester.recieved_response(response)
+        if self.tester:
+            self.tester.recieved_response(response)
         self.response_buffer = ''
 
     def writable(self):
+        if not self.tester:
+            return False
         return self.tester.is_srvs_ready() and (len(self.request_buffer) > 0)
 
     def handle_write(self):
@@ -457,7 +460,8 @@ class ServerConnection(asyncore.dispatcher_with_send):
             return
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from client.')
         tf_cfg.dbg(5, self.request_buffer)
-        response = self.tester.recieved_forwarded_request(request, self)
+        if self.tester:
+            response = self.tester.recieved_forwarded_request(request, self)
         self.request_buffer = ''
         if response.msg:
             tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to client.')
@@ -475,7 +479,8 @@ class ServerConnection(asyncore.dispatcher_with_send):
         error.bug('\tDeproxy: SrvConnection: %s' % v)
 
     def handle_close(self):
-        self.tester.remove_srv_connection(self)
+        if self.tester:
+            self.tester.remove_srv_connection(self)
         asyncore.dispatcher_with_send.handle_close(self)
 
     def close(self):
@@ -537,7 +542,7 @@ class MessageChain(object):
 
 class Deproxy(object):
 
-    def __init__(self, message_chains, client, servers):
+    def __init__(self, message_chains, client, servers, register=True):
         self.message_chains = message_chains
         self.client = client
         self.servers = servers
@@ -549,8 +554,12 @@ class Deproxy(object):
         self.timeout = 1
         # Registered connections.
         self.srv_connections = []
-        client.set_tester(self)
-        for server in servers:
+        if register:
+            self.register_tester()
+
+    def register_tester(self):
+        self.client.set_tester(self)
+        for server in self.servers:
             server.set_tester(self)
 
     def loop(self, timeout=TEST_CHAIN_TIMEOUT):
