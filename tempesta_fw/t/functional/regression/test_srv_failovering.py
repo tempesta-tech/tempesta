@@ -33,7 +33,8 @@ class FailoveringTest(functional.FunctionalTest):
 
         self.tempesta.start()
         self.create_client()
-        self.create_tester([deproxy.MessageChain(None, None)])
+        chains = [deproxy.MessageChain.empty()]
+        self.create_tester(chains)
 
     def test_on_close(self):
         self.init()

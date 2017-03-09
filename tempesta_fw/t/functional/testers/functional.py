@@ -1,5 +1,6 @@
 from __future__ import print_function
 import unittest
+import copy
 from helpers import tf_cfg, control, tempesta, deproxy
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -35,7 +36,7 @@ class FunctionalTest(unittest.TestCase):
     def create_servers_helper(self, count, start_port=None, keep_alive=None):
         """ Helper function to spawn `count` servers in default configuration.
         """
-        if start_port == None:
+        if start_port is None:
             start_port=tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):
@@ -93,6 +94,59 @@ class FunctionalTest(unittest.TestCase):
 
         self.tempesta.get_stats()
         self.assert_tempesta()
+
+
+def base_message_chain(uri='/'):
+    """Base message chain. Looks like simple Curl request to Tempesta and
+    response for it.
+
+    Return new message chain.
+    """
+
+
+    request_headers = [ 'Host: %s' % tf_cfg.cfg.get('Tempesta', 'ip'),
+                        'User-Agent: curl/7.53.1',
+                        'Connection: keep-alive',
+                        'Accept: */*']
+    request = deproxy.Request.create('GET', request_headers, uri=uri)
+
+    fwd_request_headers = (
+        request_headers +
+        ['Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version(),
+         'X-Forwarded-For: %s' % tf_cfg.cfg.get('Client', 'ip')])
+    fwd_request = deproxy.Request.create('GET', fwd_request_headers, uri=uri)
+
+    response_headers = ['Content-type: text/html',
+                        'Connection: keep-alive',
+                        'Content-Length: 138',
+                        'Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT']
+    body = ("<html>\r\n"
+            "<head>\r\n"
+            "  <title>An Example Page</title>\r\n"
+            "</head>\r\n"
+            "<body>\r\n"
+            "  Hello World, this is a very simple HTML document.\r\n"
+            "</body>\r\n"
+            "</html>\r\n")
+
+    server_headers = response_headers + ['Server: Deproxy Server']
+    server_response = deproxy.Response.create(
+        200, server_headers, date=True, body=body)
+
+    tempesta_headers = (
+        response_headers +
+        ['Server: Tempesta FW/%s' % tempesta.version(),
+         'Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version(),
+         'Date: %s' % server_response.headers['Date']])
+    tempesta_response = deproxy.Response.create(
+        200, tempesta_headers, body=body)
+
+    base_chain = deproxy.MessageChain(request=request,
+                                      expected_response=tempesta_response,
+                                      forwarded_request=fwd_request,
+                                      server_response=server_response)
+
+    return copy.copy(base_chain)
 
 if __name__ == '__main__':
     unittest.main()
