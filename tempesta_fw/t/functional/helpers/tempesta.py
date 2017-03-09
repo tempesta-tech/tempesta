@@ -154,7 +154,7 @@ class ServerGroup(object):
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers)
         else:
             sg = '\n'.join(
-                ['srv_group %s sched=%s {' % (self.name, self.sched)] +
+                ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +
                 self.servers + ['}'])
         return sg
 
@@ -170,8 +170,8 @@ class Config(object):
         self.server_groups.append(new_sg)
 
     def get_config(self):
-        cfg = '\n'.join([self.defconfig] +
-                        [sg.get_config() for sg in self.server_groups])
+        cfg = '\n'.join([sg.get_config() for sg in self.server_groups] +
+                        [self.defconfig])
         return cfg
 
     def set_defconfig(self, config):
