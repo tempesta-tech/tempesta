@@ -7,6 +7,7 @@ import select
 import socket
 import sys
 import time
+from  BaseHTTPServer import BaseHTTPRequestHandler
 from . import error, tf_cfg, tempesta
 
 
@@ -226,7 +227,7 @@ class HttpMessage(object):
         self.body = stream.read(size)
         # Remove CRLF
         line = stream.readline()
-        if not (line == '\r\n' or line == '\n' or not line):
+        if line.rstrip('\r\n'):
             raise ParseError('No CRLF after body.')
         if len(self.body) != size:
             raise ParseError(("Wrong body size: expect %d but got %d!"
@@ -248,8 +249,38 @@ class HttpMessage(object):
     def __str__(self):
         return str(self.__dict__)
 
+    @staticmethod
+    def date_time_string(timestamp=None):
+        """Return the current date and time formatted for a message header."""
+        weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        monthname = [None,
+                     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        if timestamp is None:
+            timestamp = time.time()
+        year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+        s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
+            weekdayname[wd], day, monthname[month], year, hh, mm, ss)
+        return s
+
+    @staticmethod
+    def create(first_line, headers, date=False, srv_version=None, body=None):
+        if date:
+            date = ''.join(['Date: ', HttpMessage.date_time_string()])
+            headers.append(date)
+        if srv_version:
+            version = ''.join(['Server: ', srv_version])
+            headers.append(version)
+        end = ['\r\n']
+        if body != None:
+            end = ['', body]
+        return '\r\n'.join([first_line] + headers + end)
+
 
 class Request(HttpMessage):
+
+    methods = ['OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'TRACE',
+               'CONNECT', 'PATCH']
 
     def __init__(self, *args, **kwargs):
         self.method = None
@@ -258,11 +289,19 @@ class Request(HttpMessage):
 
     def parse_firstline(self, stream):
         requestline = stream.readline()
+        if requestline[-1] != '\n':
+            raise IncompliteMessage('Incomplite request line!')
+
         words = requestline.rstrip('\r\n').split()
         if len(words) == 3:
             self.method, self.uri, self.version = words
         elif len(words) == 2:
             self.method, self.uri = words
+        else:
+            raise ParseError('Invalid request line!')
+        if not self.method in self.methods:
+            raise ParseError('Invalid request method!')
+
 
     def __eq__(left, right):
         return ((left.method == right.method)
@@ -272,6 +311,13 @@ class Request(HttpMessage):
 
     def __ne__(left, right):
         return not Request.__eq__(left, right)
+
+    @staticmethod
+    def create(method, headers, uri='/', version='HTTP/1.1', date=False,
+               body=None):
+        first_line = ' '.join([method, uri, version])
+        msg = HttpMessage.create(first_line, headers, date=date, body=body)
+        return Request(msg)
 
 
 class Response(HttpMessage):
@@ -307,6 +353,15 @@ class Response(HttpMessage):
 
     def __ne__(left, right):
         return not Response.__eq__(left, right)
+
+    @staticmethod
+    def create(status, headers, version='HTTP/1.1', date=False,
+               srv_version=None, body=None):
+        reason = BaseHTTPRequestHandler.responses
+        first_line = ' '.join([version, str(status), reason[status][0]])
+        msg = HttpMessage.create(first_line, headers, date=date,
+                                 srv_version=srv_version, body=body)
+        return Response(msg)
 
 #-------------------------------------------------------------------------------
 # HTTP Client/Server

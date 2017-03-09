@@ -1,4 +1,5 @@
 import re
+import os
 from . import error
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -21,6 +22,19 @@ def server_conns_max():
 def upstream_port_start_from():
     """ Start value for upstream servers listen port. Just for convinence. """
     return 8000
+
+def version():
+    """TempestaFW current version."""
+    #define TFW_VERSION		"0.5.0-pre6"
+    version_header = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                        '/../../../tempesta_fw.h'])
+    print version_header
+    with open(version_header, 'r') as header:
+        read_data = header.read()
+        m = re.search(r'#define TFW_VERSION\s+"([0-9a-z.-]+)"', read_data)
+        error.assertTrue(m)
+        return m.group(1)
+    error.bug()
 
 
 
