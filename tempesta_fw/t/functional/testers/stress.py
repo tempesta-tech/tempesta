@@ -39,7 +39,7 @@ class StressTest(unittest.TestCase):
 
         See comment in Nginx.get_stats().
         """
-        if start_port == None:
+        if start_port is None:
             start_port=tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):

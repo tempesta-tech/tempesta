@@ -23,19 +23,25 @@ def upstream_port_start_from():
     """ Start value for upstream servers listen port. Just for convinence. """
     return 8000
 
+# Vesion_info_cache
+tfw_version = ''
+
 def version():
-    """TempestaFW current version."""
+    """TempestaFW current version. Defined in tempesta_fw.h:
     #define TFW_VERSION		"0.5.0-pre6"
+    """
+    global tfw_version
+    if tfw_version:
+        return tfw_version
     version_header = ''.join([os.path.dirname(os.path.realpath(__file__)),
                         '/../../../tempesta_fw.h'])
-    print version_header
     with open(version_header, 'r') as header:
         read_data = header.read()
         m = re.search(r'#define TFW_VERSION\s+"([0-9a-z.-]+)"', read_data)
         error.assertTrue(m)
-        return m.group(1)
+        tfw_version = m.group(1)
+        return tfw_version
     error.bug()
-
 
 
 class Stats(object):
