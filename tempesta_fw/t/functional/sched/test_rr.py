@@ -1,5 +1,11 @@
+"""
+Round-robin scheduler is fast and fair scheduler. First it choses server in
+round-robin manner, then does the same to choose connection to server. Load of
+all servers is quite identical even for servers with different connections
+count.
+"""
+
 import unittest
-import sys
 import math
 import random
 from helpers import tempesta
@@ -10,33 +16,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 
-class RRTester(stress.StressTest):
-
-    def run_test(self, ka_reqs):
-        for s in self.servers:
-            s.config.set_ka(ka_reqs)
-        self.generic_test_routine('cache 0;\n')
-
-
-class Issue383(RRTester):
-    """ #383 Regression test.
-
-    Some requests will be dropped if all the connections across all
-    servers are in the failovering state.
-    More info at: https://github.com/tempesta-tech/tempesta/issues/383
-    """
-
-    @unittest.expectedFailure
-    def test_limited_ka(self):
-        """ #383: Few upstream connections cause requests drops. """
-        self.run_test(100)
-
-    def test_unlimited_ka(self):
-        """ #383: Unlimited upstream keepalive preset saves from drops. """
-        self.run_test(sys.maxsize)
-
-
-class FairLoadEqualConns(RRTester):
+class FairLoadEqualConns(stress.StressTest):
     """ Round-Robin scheduler loads all the upstream servers in the fair
         way. In this test servers have the same connections count.
         """
@@ -55,18 +35,14 @@ class FairLoadEqualConns(RRTester):
             s_reqs += s.requests
         self.assertEqual(s_reqs, self.tempesta.stats.cl_msg_forwarded)
 
-    @unittest.skip('Unreliable due to #383')
-    def test_limited_ka(self):
-        self.run_test(100)
-
-    def test_unlimited_ka(self):
-        self.run_test(sys.maxsize)
-
+    def test_rr(self):
+        self.generic_test_routine('cache 0;\n')
 
 
 class FairLoadRandConns(FairLoadEqualConns):
     """ Same as FairLoadEqualConns, but in this test servers have random
-    connections count.
+    connections count. Roun-robin scheduler still distributes load uniformely
+    arcross all the servers.
     """
 
     def create_servers(self):
