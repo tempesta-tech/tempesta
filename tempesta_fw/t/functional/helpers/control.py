@@ -265,7 +265,9 @@ class Tempesta(object):
         """ Stop and unload all TempestaFW modules. """
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
-        self.node.run_cmd(cmd, err_msg=(self.err_msg % 'stop'))
+        # Tempesta waits for active connections 5 secs before closing.
+        timeout = remote.DEFAULT_TIMEOUT + 5
+        self.node.run_cmd(cmd, timeout=timeout, err_msg=(self.err_msg % 'stop'))
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'

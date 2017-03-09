@@ -25,7 +25,7 @@ class FunctionalTest(unittest.TestCase):
         ip = tf_cfg.cfg.get('Client', 'ip')
         for s in self.servers:
             sg.add_server(ip, s.port, s.conns_n)
-            self.tempesta.config.add_sg(sg)
+        self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
         """ Overrirde to create needed amount of upstream servers. """
