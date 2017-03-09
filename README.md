@@ -42,7 +42,6 @@ switched on:
 * CONFIG\_SECURITY\_TEMPESTA
 * CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
 * CONFIG\_DEFAULT\_SECURITY="tempesta"
-* CONFIG\_NETLINK\_MMAP
 
 We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
 please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
@@ -54,7 +53,7 @@ CONFIG\_PREEMPT is not supported at all.
 
 To build the module you need to do the following steps:
 
-* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.1.27-tfw)
+* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.8.15-tfw)
 * Build, install, and then boot the kernel. Classic build and install procedure
   is used. For that, go to the directory with the patched kernel sources, make
   sure you have a correct `.config` file, and then do the following (`<N>` is
@@ -143,7 +142,7 @@ ssl_certificate_key /path/to/tfw-root.key;
 
 Also, `proto=https` option is needed for the `listen` directive.
 
-#### Self-signed certificate genration
+#### Self-signed certificate generation
 
 In case of using a self-signed certificate with Tempesta, it's
 convenient to use OpenSSL to generate a key and a certificate. The
@@ -281,11 +280,11 @@ mode. Other modes will be added in future.
 * **cache_purge_acl `<ip_address>`;** - Specifies the IP addresses of hosts
 that are permitted to send PURGE requests. PURGE requests from all other
 hosts will be denied. That makes this directive mandatory when `cache_purge`
-directive is specified. Multilple addresses are separated with white spaces.
+directive is specified. Multiple addresses are separated with white spaces.
 
 `<ip_address>` can be an IPv4 or IPv6 address. An IP address can be specified
 in CIDR format where the address is followed by a slash character and the
-prefix (or mask) with the number of significant bits in the addresss. Below
+prefix (or mask) with the number of significant bits in the addresses. Below
 are examples of a valid IP address specification:
 ```
 127.0.0.1
@@ -300,6 +299,31 @@ A PURGE request can be issued using any tool that is convenient. Below is
 just one example:
 ```
 curl -X PURGE http://192.168.10.10/
+```
+
+#### Non-Idempotent Requests
+
+The consideration of whether a request is considered non-idempotent may
+depend on specific application, server, and/or service. A special directive
+allows the definition of a request that will be considered non-idempotent:
+```
+nonidempotent <METHOD> <OP> <ARG>;
+```
+`METHOD` is one of supported HTTP methods, such as GET, HEAD, POST, etc.
+`OP` is a string matching operator, such as `eq`, `prefix`, etc.
+`ARG` is an argument for `OP`, such as `/foo/bar.html`, `example.com`, etc.
+
+One or more of this directive may be specified. The directives apply to one
+or more locations as defined below in the [Locations](#Locations) section.
+
+If this directive is not specified, then a non-idempotent request in defined
+as a request that has an unsafe method.
+
+Below are examples of this directive:
+```
+nonidempotent GET prefix "/users/";
+nonidempotent POST prefix "/users/";
+nonidempotent GET suffix "/data";
 ```
 
 ### Locations
@@ -322,9 +346,10 @@ location <OP> "<string>" {
 Multiple locations may be defined. Location directives are processed
 strictly in the order they are defined in the configuration file.
 
-Only caching policy directives may currently be grouped by the location
-directive. Caching policy directives defined outside of any specific
-location are considered the default policy for all locations.
+Only caching policy directives and the `nonidempotent` directive may
+currently be grouped by the location directive. The directives defined
+outside of any specific location are considered the default policy for
+all locations.
 
 When locations are defined in the configuration, the URL of each request
 is matched against strings specified in the location directives and using
@@ -352,6 +377,7 @@ location prefix "/society/" {
 	cache_bypass prefix "/society/breaking_news/";
 	cache_fulfill suffix ".jpg" ".png";
 	cache_fulfill suffix ".css";
+	nonidempotent GET prefix "/society/users/";
 }
 ```
 
@@ -368,7 +394,7 @@ server <IPADDR>[:<PORT>] [conns_n=<N>] [weight=<N>];
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
 * `PORT` defaults to 80 if not specified.
 * `conns_n=<N>` is the number of parallel connections to the server.
-`N` defaults to 4 if not specified.
+`N` defaults to 32 if not specified.
 * `weight=<N>` is the static weight of the server. If not specified, then
 the default weight of 50 is used with the static ratio scheduler. Just the
 weight that is different from default may be specified for convenience.
@@ -378,6 +404,64 @@ Multiple back end servers may be defined. For example:
 server 10.1.0.1;
 server [fc00::1]:80;
 ```
+
+if a connection with a server is terminated for any reason, an effort is made
+to restore the connection. Sometimes the effort is futile. The directive
+`server_connect_retries` sets the maximum number of re-connect attempts after
+which the server connection is considered dead. It is defined as follows:
+```
+server_connect_retries <N>;
+```
+If this directive is not defined, then the number of re-connect attempts
+defaults to 10. The value of zero specified for `N` means unlimited number
+of attempts.
+
+This is an important directive which controls how Tempesta deals with
+outstanding requests in a failed connection. If the connection is restored
+within the specified number of attempts, then all outstanding requests are
+re-forwarded to the server. However if it's not restored, then the server
+connection is considered dead, and all outstanding requests are re-scheduled
+to other servers and/or connections.
+
+If a server connection fails intermittenly, then requests may sit in the
+connection's forwarding queue for some time. The following directives set
+certain allowed limits before these requests are considered failed:
+```
+server_forward_retries <N>;
+server_forward_timeout <N>;
+```
+
+`server_forward_retries` sets the maximum number of attempts to re-forward
+a request to a server. If not defined, the default number of attempts is 5.
+The value of zero specified for `N` means unlimited number of attempts.
+
+`server_forward_timeout` set the maximum time frame in seconds within which
+a request may still be forwarded. If not defined, the default time frame
+is 60 seconds. The value of zero specified for `N` means unlimited timeout.
+
+When one or both of these limits is exceeded for a request, the request is
+evicted and an error is returned to a client.
+
+Note that while requests in a connection are re-forwarded or re-scheduled,
+that connection is not schedulable, which means it's not available to
+schedulers for new incoming requests.
+
+When re-forwarding or re-scheduling requests in a failed server connection,
+a special consideration is given to non-idempotent requests. Usually
+a non-idempotent request is not re-forwarded or re-scheduled. That may be
+changed with the following directive that doesn't have arguments:
+```
+server_retry_nonidempotent;
+```
+
+Each server connection has a queue of forwarded requests. The size of the
+queue is limited with `server_queue_size` directive as follows:
+```
+server_queue_size <N>;
+```
+Each connection to the server has the same limit on the queue size set
+with this directive. If not specified, the queue size is set to 1000.
+
 
 #### Server Groups
 
@@ -402,20 +486,28 @@ not specified.
 Servers that are defined outside of any group implicitly form a special group
 called `default`.
 
+All server-related directives listed in [Servers](#Servers) section above
+are applicable for definition for a server group. Also, a scheduler may be
+speficied for a group.
+
 Below is an example of server group definition:
 ```
 srv_group static_storage {
 	server 10.10.0.1:8080;
 	server 10.10.0.2:8080;
 	server [fc00::3]:8081 conns_n=1;
+	server_queue_size 500;
+	server_forward_timeout 30;
+	server_connect_retries 15;
 	sched hash;
 }
 ```
 
 #### Schedulers
 
-Scheduler is used to distribute load among known servers. The syntax is as
-follows:
+Scheduler is used to distribute load among servers within a group. The group
+can be either explicit, defined with `srv_group` directive, or implicit.
+The syntax is as follows:
 ```
 sched <SCHED_NAME> [OPTIONS];
 ```
@@ -484,7 +576,7 @@ sched dynamic percentile 75;
 #### HTTP Scheduler
 
 HTTP scheduler plays a special role as it distributes HTTP requests among
-groups of back end servers. Then requests are futher distributed among
+groups of back end servers. Then requests are further distributed among
 individual back end servers within a chosen group.
 
 HTTP scheduler is able to look inside of an HTTP request and examine its
@@ -494,7 +586,7 @@ by pattern-matching rules that map certain header field values to server
 groups. The full syntax is as follows:
 ```
 sched_http_rules {
-	match <SRV_GROUP> <FIELD> <OP> <ARG>;
+	match <SRV_GROUP> <FIELD> <OP> <ARG>  [backup=<BKP_SRV_GROUP>];
 	...
 }
 ```
@@ -503,10 +595,14 @@ sched_http_rules {
 `OP` is a string comparison operator, such as `eq`, `prefix`, etc.
 `ARG` is an argument for the operator, such as `/foo/bar.html`, `example.com`,
 etc.
+`BKP_SRV_GROUP` is a reference to a previously defined server group, optional
+parameter.
 
 A `match` entry is a single instruction for the load balancer that says:
 take `FIELD` of an HTTP request, compare it with `ARG` using `OP`.
-If they match, then send the request to the specified `SRV_GROUP`.
+If they match, then send the request to the specified `SRV_GROUP`,
+if none of the servers in the `SRV_GROUP` are available, send to backup
+`BKP_SRV_GROUP` if specified.
 For every HTTP request, the load balancer executes all `match` instructions
 sequentially until it finds a match. If no match is found, then the request
 is dropped.
@@ -540,7 +636,7 @@ sched_http_rules {
 	match static   uri       suffix  ".php";
 	match static   host      prefix  "static.";
 	match static   host      suffix  "tempesta-tech.com";
-	match foo_app  host      eq      "foo.example.com";
+	match foo_app  host      eq      "foo.example.com" backup=foo_app_backup;
 	match bar_app  hdr_conn  eq      "keep-alive";
 	match bar_app  hdr_host  prefix  "bar.";
 	match bar_app  hdr_host  suffix  "natsys-lab.com";
@@ -737,12 +833,12 @@ The table `filter` contains all blocked IP addresses.
 
 ### Additional Directives
 
-Tempesta has a number of additional directives that control varios aspects
+Tempesta has a number of additional directives that control various aspects
 of a running system. Possible directives are listed below.
 
 * **hdr_via [string];** - As an intermediary between a client and a back end
 server, Tempesta adds HTTP Via: header field to each message. This directive
-sets the value of the header field, not includng the mandatory HTTP protocol
+sets the value of the header field, not including the mandatory HTTP protocol
 version number. Note that the value should be a single token. Multiple tokens
 can be specified in apostrophes, however everything after the first token and
 a white space will be considered a Via: header field comment. If no value is
@@ -758,29 +854,38 @@ and running. Below is an example of the command to show the statistics,
 and the output:
 ```
 $ cat /proc/tempesta/perfstat
-Client messages received                : 450
-Client messages forwarded               : 450
+SS pfl hits                             : 5836412
+SS pfl misses                           : 5836412
+Cache hits                              : 0
+Cache misses                            : 0
+Client messages received                : 2918206
+Client messages forwarded               : 2918206
+Client messages served from cache       : 0
 Client messages parsing errors          : 0
 Client messages filtered out            : 0
 Client messages other errors            : 0
-Client connections total                : 30
+Clients online                          : 0
+Client connection attempts              : 2048
+Client established connections          : 2048
 Client connections active               : 0
-Client RX bytes                         : 47700
-Server messages received                : 447
-Server messages forwarded               : 447
+Client RX bytes                         : 309329836
+Server messages received                : 2918206
+Server messages forwarded               : 2918206
 Server messages parsing errors          : 0
 Server messages filtered out            : 0
 Server messages other errors            : 0
-Server connections total                : 2220
-Server connections active               : 4
-Server RX bytes                         : 153145
+Server connection attempts              : 8896
+Server established connections          : 8896
+Server connections active               : 32
+Server connections schedulable          : 32
+Server RX bytes                         : 11494813434
 ```
 
 Also, there's Application Performance Monitoring statistics. These stats show
 the time it takes to receive a complete HTTP response to a complete HTTP request.
 It's measured from the time Tempesta forwards an HTTP request to a back end server,
 and until the time it receives an HTTP response to the request (the turnaround
-time). The times are taken per each back end server. Minimum, maximim, median,
+time). The times are taken per each back end server. Minimum, maximum, median,
 and average times are measured, as well as 50th, 75th, 90th, 95th, and 99th
 percentiles. A file per each back end server/port is created in
 `/proc/tempesta/servers/` directory. The APM stats can be seen as follows:

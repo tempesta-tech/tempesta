@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,21 @@
 #include "str.h"
 #include "addr.h"
 
+/*
+ * Non-Idempotent Request definition.
+ *
+ * @method	- One bit for each value defined in tfw_http_meth_t.
+ * @op		- Match operator: eq, prefix, suffix, etc.
+ * @len		- Length of the string in @arg.
+ * @arg		- String for the match operator.
+ */
+typedef struct {
+	int		method;
+	short		op;
+	size_t		len;
+	const char	*arg;
+} TfwNipDef;
+
 /* Cache policy configuration directives. */
 typedef enum {
 	TFW_D_CACHE_BYPASS,
@@ -34,13 +49,13 @@ typedef enum {
  *
  * @cmd	- One of defined in tfw_capo_t.
  * @op	- Match operator: eq, prefix, suffix, etc.
- * @len	- Length of the sting in @arg.
+ * @len	- Length of the string in @arg.
  * @arg	- String for the match operator.
  */
 typedef struct {
 	short		cmd;
 	short		op;
-	unsigned int	len;
+	size_t		len;
 	const char	*arg;
 } TfwCaPolicy;
 
@@ -49,16 +64,20 @@ typedef struct {
  *
  * @op		- Match operator: eq, prefix, suffix, etc.
  * @arg		- String for the match operator.
- * @len		- Length of the sting in @arg.
+ * @len		- Length of the string in @arg.
  * @capo_sz	- Size of @capo array.
+ * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.
+ * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
  */
 typedef struct {
 	short		op;
 	const char	*arg;
-	unsigned int	len;
-	unsigned int	capo_sz;
+	size_t		len;
+	size_t		capo_sz;
+	size_t		nipdef_sz;
 	TfwCaPolicy	**capo;
+	TfwNipDef	**nipdef;
 } TfwLocation;
 
 /* Cache purge configuration modes. */
@@ -78,15 +97,16 @@ typedef struct {
 	TfwLocation	*loc_dflt;
 	TfwAddr		*capuacl;
 	const char	*hdr_via;
-	unsigned int	loc_sz;
-	unsigned int	loc_dflt_sz;
-	unsigned int	capuacl_sz;
-	unsigned int	hdr_via_len;
+	size_t		loc_sz;
+	size_t		loc_dflt_sz;
+	size_t		capuacl_sz;
+	size_t		hdr_via_len;
 	u8		cache_purge:1;
 	u8		cache_purge_mode:2;
 	u8		cache_purge_acl:1;
 } TfwVhost;
 
+TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
 bool tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);

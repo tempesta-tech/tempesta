@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(clnt.msgs_parserr);
 		SADD(clnt.msgs_filtout);
 		SADD(clnt.msgs_otherr);
+		SADD(clnt.online);
 		SADD(clnt.conn_attempts);
 		SADD(clnt.conn_disconnects);
 		SADD(clnt.conn_established);
@@ -73,6 +74,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		SADD(serv.conn_attempts);
 		SADD(serv.conn_disconnects);
 		SADD(serv.conn_established);
+		SADD(serv.conn_restricted);
 		SADD(serv.rx_bytes);
 	}
 #undef SADD
@@ -81,15 +83,11 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 static int
 tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)						\
-	if ((ret = seq_printf(seq, m": %llu\n", e)))		\
-		goto out;
-#define SPRN(m, c)						\
-	if ((ret = seq_printf(seq, m": %llu\n", stat.c)))	\
-		goto out;
+#define SPRNE(m, e)	seq_printf(seq, m": %llu\n", e)
+#define SPRN(m, c)	seq_printf(seq, m": %llu\n", stat.c)
 
-	int ret;
 	TfwPerfStat stat;
+	u64 serv_conn_active, serv_conn_sched;
 
 	memset(&stat, 0, sizeof(stat));
 	tfw_perfstat_collect(&stat);
@@ -109,6 +107,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Client messages parsing errors\t\t", clnt.msgs_parserr);
 	SPRN("Client messages filtered out\t\t", clnt.msgs_filtout);
 	SPRN("Client messages other errors\t\t", clnt.msgs_otherr);
+	SPRN("Clients online\t\t\t\t", clnt.online);
 	SPRN("Client connection attempts\t\t", clnt.conn_attempts);
 	SPRN("Client established connections\t\t", clnt.conn_established);
 	SPRNE("Client connections active\t\t",
@@ -116,6 +115,10 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Client RX bytes\t\t\t\t", clnt.rx_bytes);
 
 	/* Server related statistics. */
+	serv_conn_active = stat.serv.conn_established
+			   - stat.serv.conn_disconnects;
+	serv_conn_sched = serv_conn_active - stat.serv.conn_restricted;
+
 	SPRN("Server messages received\t\t", serv.rx_messages);
 	SPRN("Server messages forwarded\t\t", serv.msgs_forwarded);
 	SPRN("Server messages parsing errors\t\t", serv.msgs_parserr);
@@ -123,12 +126,11 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SPRN("Server messages other errors\t\t", serv.msgs_otherr);
 	SPRN("Server connection attempts\t\t", serv.conn_attempts);
 	SPRN("Server established connections\t\t", serv.conn_established);
-	SPRNE("Server connections active\t\t",
-	      stat.serv.conn_established - stat.serv.conn_disconnects);
+	SPRNE("Server connections active\t\t", serv_conn_active);
+	SPRNE("Server connections schedulable\t\t", serv_conn_sched);
 	SPRN("Server RX bytes\t\t\t\t", serv.rx_bytes);
 
-out:
-	return ret;
+	return 0;
 #undef SPRN
 #undef SPRNE
 }
@@ -142,11 +144,10 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
-#define SPRNE(m, e)						\
-	if ((ret = seq_printf(seq, m": %dms\n", e)))		\
-		goto out;
+#define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
 
-	int i, ret;
+	int i;
+	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
@@ -161,16 +162,18 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	SPRNE("Average response time\t\t", pstats.val[TFW_PSTATS_IDX_AVG]);
 	SPRNE("Median  response time\t\t", pstats.val[TFW_PSTATS_IDX_P50]);
 	SPRNE("Maximum response time\t\t", pstats.val[TFW_PSTATS_IDX_MAX]);
-	if ((ret = seq_printf(seq, "Percentiles\n")))
-		goto out;
-	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i) {
-		ret = seq_printf(seq, "%02d%%:\t%dms\n",
-				 pstats.ith[i], pstats.val[i]);
-		if (ret)
-			goto out;
-	}
-out:
-	return ret;
+	seq_printf(seq, "Percentiles\n");
+	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i)
+		seq_printf(seq, "\t%02d%%:\t%dms\n",
+				pstats.ith[i], pstats.val[i]);
+	i = 0;
+	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
+			srv->sg->max_qsize);
+	list_for_each_entry(srv_conn, &srv->conn_list, list)
+		seq_printf(seq, "\tConnection %03d queue size\t: %d\n",
+				++i, ACCESS_ONCE(srv_conn->qsize));
+
+	return 0;
 #undef SPRNE
 }
 

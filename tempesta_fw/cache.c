@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -131,26 +131,6 @@ enum {
 	TFW_CACHE_REPLICA,
 };
 
-/*
- * Non-cacheable hop-by-hop response headers in terms of RFC 2068.
- * The table is used if server doesn't specify Cache-Control no-cache
- * directive (RFC 7234 5.2.2.2) explicitly.
- *
- * Server header isn't defined as hop-by-hop by the RFC, but we don't show
- * protected server to world.
- *
- * We don't store the headers in cache and create then from scratch.
- * Adding a header is faster then modify it, so this speeds up headers
- * adjusting as well as saves cache storage.
- *
- * TODO process Cache-Control no-cache
- */
-static const int hbh_hdrs[] = {
-	[0 ... TFW_HTTP_HDR_RAW]	= 0,
-        [TFW_HTTP_HDR_SERVER]		= 1,
-	[TFW_HTTP_HDR_CONNECTION]	= 1,
-};
-
 typedef struct {
 	int		cpu[NR_CPUS];
 	atomic_t	cpu_idx;
@@ -160,7 +140,13 @@ typedef struct {
 
 static CaNode c_nodes[MAX_NUMNODES];
 
+/*
+ * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
+ * on restarts, so comment to logic out.
+ */
+#if 0
 static struct task_struct *cache_mgr_thr;
+#endif
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
 static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
@@ -764,9 +750,15 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
 	FOR_EACH_HDR_FIELD(field, end1, resp) {
-		n = field - resp->h_tbl->tbl;
 		/* Skip hop-by-hop headers. */
-		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : field;
+		if (!(field->flags & TFW_STR_HBH_HDR)) {
+			h = field;
+		} else if (field - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW) {
+			h = &empty;
+		} else {
+			--ce->hdr_num;
+			continue;
+		}
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
@@ -809,7 +801,6 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 static size_t
 __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 {
-	long n;
 	size_t size = CE_BODY_SIZE;
 	TfwStr *h, *hdr, *hdr_end, *dup, *dup_end, empty = {};
 
@@ -820,8 +811,13 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 	/* Add all the headers size */
 	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
 		/* Skip hop-by-hop headers. */
-		n = hdr - resp->h_tbl->tbl;
-		h = (n < TFW_HTTP_HDR_RAW && hbh_hdrs[n]) ? &empty : hdr;
+		if (!(hdr->flags & TFW_STR_HBH_HDR))
+			h = hdr;
+		else if (hdr - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW)
+			h = &empty;
+		else
+			continue;
+
 		if (!TFW_STR_DUP(h)) {
 			size += sizeof(TfwCStr);
 			size += h->len ? (h->len + SLEN(S_CRLF)) : 0;
@@ -939,12 +935,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req, "unconfigured purge request");
+		return tfw_http_send_403(req, "purge: not configured");
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req, "purge request ACL violation");
+		return tfw_http_send_403(req, "purge: ACL violation");
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
@@ -952,11 +948,11 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		ret = tfw_cache_purge_invalidate(req);
 		break;
 	default:
-		return tfw_http_send_403(req, "bad purge option");
+		return tfw_http_send_403(req, "purge: invalid option");
 	}
 
 	return ret
-		? tfw_http_send_404(req, "purge error")
+		? tfw_http_send_404(req, "purge: processing error")
 		: tfw_http_send_200(req);
 }
 
@@ -1124,14 +1120,14 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	TfwMsgIter it;
 
 	/*
-	 * Allocated response won't be checked by any filters and
+	 * The allocated response won't be checked by any filters and
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_Srv,
-						  ce->hdr_len + 2);
-	if (!resp)
+	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv))))
 		return NULL;
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
+		goto free;
 
 	/*
 	 * Allocate HTTP headers table of proper size.
@@ -1179,6 +1175,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	return resp;
 err:
 	TFW_WARN("Cannot use cached response, key=%lx\n", ce->key);
+free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return NULL;
 }
@@ -1311,6 +1308,7 @@ tfw_wq_tasklet(unsigned long data)
  * Cache management thread.
  * The thread loads and preprcess static Web content using inotify (TODO).
  */
+#if 0
 static int
 tfw_cache_mgr(void *arg)
 {
@@ -1331,6 +1329,7 @@ tfw_cache_mgr(void *arg)
 
 	return 0;
 }
+#endif
 
 static int
 tfw_cache_start(void)
@@ -1347,14 +1346,14 @@ tfw_cache_start(void)
 		if (!c_nodes[i].db)
 			goto close_db;
 	}
-
+#if 0
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
 		TFW_ERR("Can't start cache manager, %d\n", r);
 		goto close_db;
 	}
-
+#endif
 	tfw_init_node_cpus();
 
 	TFW_WQ_CHECKSZ(TfwCWork);
@@ -1386,7 +1385,9 @@ tfw_cache_stop(void)
 		irq_work_sync(&ct->ipi_work);
 		tfw_wq_destroy(&ct->wq);
 	}
+#if 0
 	kthread_stop(cache_mgr_thr);
+#endif
 
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);

@@ -4,7 +4,7 @@
  * TCP/IP stack hooks and socket routines to handle client traffic.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,82 +38,90 @@
  */
 
 static struct kmem_cache *tfw_cli_conn_cache;
-static struct kmem_cache *tfw_cli_conn_tls_cache;
+static struct kmem_cache *tfw_tls_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
 	return type == Conn_HttpClnt ?
-		tfw_cli_conn_cache : tfw_cli_conn_tls_cache;
+		tfw_cli_conn_cache : tfw_tls_conn_cache;
 }
 
 static void
 tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
-	TfwConnection *conn = (TfwConnection *)data;
+	TfwCliConn *cli_conn = (TfwCliConn *)data;
 
 	TFW_DBG("Client timeout end\n");
 
-	/* Close socket asynchronously to avoid deadlock on del_timer_sync(). */
-	if (ss_close(conn->sk)) {
-		/* Try to close the connection 1 second later. */
-		mod_timer(&conn->timer,
-			  jiffies + msecs_to_jiffies(1000));
-	}
+	/*
+	 * Close the socket (and the connection) asynchronously to avoid
+	 * a deadlock on del_timer_sync(). In case of error try to close
+	 * it one second later.
+	 */
+	if (ss_close(cli_conn->sk))
+		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
 }
 
-static TfwConnection *
+static TfwCliConn *
 tfw_cli_conn_alloc(int type)
 {
-	TfwConnection *conn;
+	TfwCliConn *cli_conn;
 
-	conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC);
-	if (!conn)
+	if (!(cli_conn = kmem_cache_alloc(tfw_cli_cache(type), GFP_ATOMIC)))
 		return NULL;
 
-	tfw_connection_init(conn);
-	setup_timer(&conn->timer,
-		    tfw_sock_cli_keepalive_timer_cb,
-		    (unsigned long)conn);
+	tfw_connection_init((TfwConn *)cli_conn);
+	INIT_LIST_HEAD(&cli_conn->seq_queue);
+	spin_lock_init(&cli_conn->seq_qlock);
+	spin_lock_init(&cli_conn->ret_qlock);
 
-	return conn;
+	setup_timer(&cli_conn->timer,
+		    tfw_sock_cli_keepalive_timer_cb,
+		    (unsigned long)cli_conn);
+
+	return cli_conn;
 }
 
 static void
-tfw_cli_conn_free(TfwConnection *conn)
+tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
-	BUG_ON(timer_pending(&conn->timer));
+	BUG_ON(timer_pending(&cli_conn->timer));
 
 	/* Check that all nested resources are freed. */
-	tfw_connection_validate_cleanup(conn);
-	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(conn)), conn);
+	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
+	BUG_ON(!list_empty(&cli_conn->seq_queue));
+
+	kmem_cache_free(tfw_cli_cache(TFW_CONN_TYPE(cli_conn)), cli_conn);
 }
 
 void
-tfw_cli_conn_release(TfwConnection *conn)
+tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
-	del_timer_sync(&conn->timer);
+	del_timer_sync(&cli_conn->timer);
 
-	if (likely(conn->sk))
-		tfw_connection_unlink_to_sk(conn);
-	if (likely(conn->peer))
-		tfw_client_put((TfwClient *)conn->peer);
-	tfw_cli_conn_free(conn);
+	if (likely(cli_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
+	if (likely(cli_conn->peer))
+		tfw_client_put((TfwClient *)cli_conn->peer);
+	tfw_cli_conn_free(cli_conn);
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
 int
-tfw_cli_conn_send(TfwConnection *conn, TfwMsg *msg)
+tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	int r;
 
-	r = tfw_connection_send(conn, msg);
-	mod_timer(&conn->timer,
+	r = tfw_connection_send((TfwConn *)cli_conn, msg);
+	mod_timer(&cli_conn->timer,
 		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
-		TFW_WARN("Cannot send data to client\n");
+		/* Quite usual on system shutdown. */
+		TFW_DBG("Cannot send data to client (%d)\n", r);
+
 	return r;
 }
 
@@ -125,7 +133,7 @@ tfw_sock_clnt_new(struct sock *sk)
 {
 	int r = -ENOMEM;
 	TfwClient *cli;
-	TfwConnection *conn;
+	TfwConn *conn;
 	SsProto *listen_sock_proto;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
@@ -134,8 +142,8 @@ tfw_sock_clnt_new(struct sock *sk)
 	/*
 	 * New sk->sk_user_data points to TfwListenSock{} of the parent
 	 * listening socket. We set it to NULL to stop other functions
-	 * from referencing TfwListenSock{} while a new TfwConnection{}
-	 * object is not yet allocated/initialized.
+	 * from referencing TfwListenSock{} while a new TfwConn{} object
+	 * is not yet allocated/initialized.
 	 */
 	listen_sock_proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
@@ -146,7 +154,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		return -ENOENT;
 	}
 
-	conn = tfw_cli_conn_alloc(listen_sock_proto->type);
+	conn = (TfwConn *)tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!conn) {
 		TFW_ERR("can't allocate a new client connection\n");
 		goto err_client;
@@ -154,7 +162,6 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	ss_proto_inherit(listen_sock_proto, &conn->proto, Conn_Clnt);
 
-	/* Set the destructor */
 	conn->destructor = (void *)tfw_cli_conn_release;
 
 	r = tfw_connection_new(conn);
@@ -181,16 +188,20 @@ tfw_sock_clnt_new(struct sock *sk)
 
 err_conn:
 	tfw_connection_drop(conn);
-	tfw_cli_conn_free(conn);
+	tfw_cli_conn_free((TfwCliConn *)conn);
 err_client:
 	tfw_client_put(cli);
 	return r;
 }
 
-static int
+/**
+ * Do the same stuff for intetional client connection closing and due to some
+ * error on TCP socket or application layers.
+ */
+static void
 tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
-	TfwConnection *conn = sk->sk_user_data;
+	TfwConn *conn = sk->sk_user_data;
 
 	TFW_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
 		 msg, sk, conn, conn->peer);
@@ -210,28 +221,26 @@ tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 	 * are references to @conn.
 	 */
 	tfw_connection_put(conn);
-
-	return 0;
 }
 
 /*
  * The hook is executed when a client connection is closed by either
  * side of the connection.
  */
-static int
+static void
 tfw_sock_clnt_drop(struct sock *sk)
 {
-	return tfw_sock_clnt_do_drop(sk, "connection lost");
+	tfw_sock_clnt_do_drop(sk, "connection lost");
 }
 
 /*
  * The hook is executed when a client connection is terminated due to
  * an error of any kind.
  */
-static int
+static void
 tfw_sock_clnt_error(struct sock *sk)
 {
-	return tfw_sock_clnt_do_drop(sk, "connection error");
+	tfw_sock_clnt_do_drop(sk, "connection error");
 }
 
 static const SsHooks tfw_sock_clnt_ss_hooks = {
@@ -240,6 +249,25 @@ static const SsHooks tfw_sock_clnt_ss_hooks = {
 	.connection_error	= tfw_sock_clnt_error,
 	.connection_recv	= tfw_connection_recv,
 };
+
+static int
+__cli_conn_close_cb(TfwConn *conn)
+{
+	/*
+	 * Use assynchronous closing to release peer connection list and
+	 * client hash bucket locks as soon as possible and let softirq
+	 * do all the jobs.
+	 */
+	return ss_close(conn->sk);
+}
+
+static int
+tfw_cli_conn_close_all(TfwClient *cli)
+{
+	TfwConn *conn;
+
+	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -369,7 +397,6 @@ tfw_listen_sock_start(TfwListenSock *ls)
 		return r;
 	}
 
-	/* TODO adjust /proc/sys/net/core/somaxconn */
 	TFW_DBG("start listening on socket: sk=%p\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
@@ -402,23 +429,40 @@ tfw_listen_sock_start_all(void)
 }
 
 static void
-tfw_listen_sock_stop_all(void)
+tfw_sock_clnt_stop_all(void)
 {
 	TfwListenSock *ls;
 
+	might_sleep();
+
+	/* Stop listening sockets. */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		BUG_ON(!ls->sk);
 		ss_release(ls->sk);
 		ls->sk = NULL;
 	}
+	ss_wait_listeners();
 
 	/*
-	 * TODO #116, #254
 	 * Now all listening sockets are closed, so no new connections
-	 * can appear. Close all established client connections. After
-	 * that server connections can safely be closed as they have
-	 * no users any more.
+	 * can appear. Close all established client connections.
+	 * We're going to acquie client hash bucket and peer connection list
+	 * locks, so disable softiqs to avoid deadlock with the sockets closing
+	 * in softiq context.
 	 */
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		/*
+		 * SS transport is overloaded: let softirqs make progress and
+		 * repeat again. Not a big deal that we'll probably close the
+		 * same connections - SS can handle it and it's expected that
+		 * softirqs close some of them while we wait.
+		 */
+		local_bh_enable();
+		schedule();
+		local_bh_disable();
+	}
+	local_bh_enable();
 }
 
 static int
@@ -542,7 +586,7 @@ tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 	.name	= "sock_clnt",
 	.start	= tfw_listen_sock_start_all,
-	.stop	= tfw_listen_sock_stop_all,
+	.stop	= tfw_sock_clnt_stop_all,
 	.specs	= (TfwCfgSpec[]){
 		{
 			"listen",
@@ -572,29 +616,27 @@ int
 tfw_sock_clnt_init(void)
 {
 	BUG_ON(tfw_cli_conn_cache);
-	BUG_ON(tfw_cli_conn_tls_cache);
+	BUG_ON(tfw_tls_conn_cache);
 
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
-					       sizeof(TfwConnection),
-					       0, 0, NULL);
-	tfw_cli_conn_tls_cache = kmem_cache_create("tfw_cli_conn_tls_cache",
-						   sizeof(TfwTlsConnection),
-						   0, 0, NULL);
+					       sizeof(TfwCliConn), 0, 0, NULL);
+	tfw_tls_conn_cache = kmem_cache_create("tfw_tls_conn_cache",
+					       sizeof(TfwTlsConn), 0, 0, NULL);
 
-	if (tfw_cli_conn_cache && tfw_cli_conn_tls_cache)
+	if (tfw_cli_conn_cache && tfw_tls_conn_cache)
 		return 0;
 
 	if (tfw_cli_conn_cache)
 		kmem_cache_destroy(tfw_cli_conn_cache);
-	if (tfw_cli_conn_tls_cache)
-		kmem_cache_destroy(tfw_cli_conn_tls_cache);
+	if (tfw_tls_conn_cache)
+		kmem_cache_destroy(tfw_tls_conn_cache);
 
-	return -ENOMEM;
+	return 0;
 }
 
 void
 tfw_sock_clnt_exit(void)
 {
-	kmem_cache_destroy(tfw_cli_conn_tls_cache);
+	kmem_cache_destroy(tfw_tls_conn_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }

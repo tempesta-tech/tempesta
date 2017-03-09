@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -54,63 +54,148 @@ enum {
 /**
  * Session/Presentation layer (in OSI terms) handling.
  *
- * An instance of TfwConnection{} structure links each HTTP message
- * to the attributes of a connection the message has come on. Some
- * of those messages may stay longer in Tempesta after they're sent
- * out to their destinations. Requests are kept until a paired
- * response comes. By the time there's need to use the request's
- * connection to send the response on, it may already be destroyed.
- * With that in mind, TfwConnection{} instance is not destroyed
- * along with the connection so that is can be safely dereferenced.
- * It's kept around until refcnt permits freeing of the instance,
- * so it may have longer lifetime than the connection itself.
+ * An instance of TfwConn{} structure links each HTTP message to properties
+ * of a connection the message has come on. Some messages may stay longer
+ * in Tempesta after they're sent out to their destinations. Requests are
+ * kept until a paired response comes. By the time the request's connection
+ * is needed for sending the response, it may be destroyed already. Thus,
+ * TfwConn{} instance is not destroyed along with the connection so that
+ * it can be safely dereferenced. It's kept around until refcnt's value
+ * permits freeing of the instance, so it may have longer lifetime than
+ * the connection itself.
  *
- * @sk is an intrinsic property of TfwConnection{}.
- * It has exactly the same lifetime as an instance of TfwConnection{}.
+ * @sk is an intrinsic property of TfwConn{}.
+ * It has exactly the same lifetime as an instance of TfwConn{}.
  *
- * @peer is major property of TfwConnection{}. An instance of @peer
- * has longer lifetime expectation than a connection. @peer is always
- * valid while it's referenced from an instance of TfwConnection{}.
- * That is supported by a separate reference counter in @peer.
+ * @peer is major property of TfwConn{}. An instance of @peer has longer
+ * lifetime expectation than a connection. @peer is always valid while
+ * it's referenced from an instance of TfwConn{}. That is supported by
+ * a separate reference counter in @peer.
+ *
+ * These are the properties of a connection that are common to client
+ * and server connections.
  *
  * @proto	- protocol handler. Base class, must be first;
  * @state	- connection processing state;
  * @list	- member in the list of connections with @peer;
- * @msg_queue	- queue of messages to be sent over the connection;
- * @msg_qlock	- lock for accessing @msg_queue;
  * @refcnt	- number of users of the connection structure instance;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
+ * @destructor	- called when a connection is destroyed;
+ */
+#define TFW_CONN_COMMON					\
+	SsProto			proto;			\
+	TfwGState		state;			\
+	struct list_head	list;			\
+	atomic_t		refcnt;			\
+	struct timer_list	timer;			\
+	TfwMsg			*msg;			\
+	TfwPeer 		*peer;			\
+	struct sock		*sk;			\
+	void			(*destructor)(void *);
+
+typedef struct {
+	TFW_CONN_COMMON;
+} TfwConn;
+
+#define TFW_CONN_TYPE(c)	((c)->proto.type)
+
+/*
+ * Queues in client and server connections provide support for correct
+ * handlng of requests and responses.
+ *
+ * Incoming requests are put on client connection's @seq_queue in the
+ * order they come in. When responses to these requests come, they're
+ * sent back to client in exactly the same order the requests came in.
+ * @seq_queue is contended by threads that process requests, as well
+ * as by threads that process responses. In the latter case that may
+ * not lead to sending a response. Thus a separate @ret_qlock is used
+ * for sending responses to decrease the time @seq_qlock is taken for.
+ *
+ * Unless serviced from cache, each request is forwarded to a server
+ * over specific server connection. It's put on server connection's
+ * @fwd_queue, and also on @nip_queue if it's non-idempotent. Requests
+ * must be forwarded in the same order they're put on @fwd_queue, so
+ * it must be done under the queue lock. Otherwise pairing of requests
+ * to responses may get broken. When a response comes then the first
+ * request is taken out of @fwd_queue, and that's the paired request.
+ * There're two types of requests in @fwd_queue: those that were sent
+ * out, and those that were not sent out yet. @msg_sent points at the
+ * latest request that was sent out. That is helpful when repairing
+ * a server connection that had gone bad.
+ *
+ * A request is in @seq_queue until it's deleted, and may also be in
+ * @fwd_queue if it's forwarded to a server. @nip_queue supplements
+ * @fwd_queue and may be considered as part of @fwd_queue for this
+ * description. A response is never put on any queue. Instead, it's
+ * attached to a paired request as @req->resp. A request is always
+ * processed in the context of just one queue at any given moment.
+ * That way NO locking hierarchy is involved. Please see the code.
+ */
+
+/*
+ * These are specific properties that are relevant to client connections.
+ *
+ * @seq_queue	- queue of client's messages in the order they came;
+ * @seq_qlock	- lock for accessing @seq_queue;
+ * @ret_qlock	- lock for serializing sets of responses;
  */
 typedef struct {
-	SsProto			proto;
-	TfwGState		state;
-	struct list_head	list;
-	struct list_head	msg_queue;
-	spinlock_t		msg_qlock;
-	atomic_t		refcnt;
-	struct timer_list	timer;
-	TfwMsg			*msg;
-	TfwPeer 		*peer;
-	struct sock		*sk;
-	void			(*destructor)(void *);
-} TfwConnection;
+	TFW_CONN_COMMON;
+	struct list_head	seq_queue;
+	spinlock_t		seq_qlock;
+	spinlock_t		ret_qlock;
+} TfwCliConn;
+
+/*
+ * These are specific properties that are relevant to server connections.
+ * See the description of special features of this structure in sock_srv.c.
+ *
+ * @fwd_queue	- queue of messages to be sent to a back-end server;
+ * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
+ * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
+ * @flags	- atomic flags related to server connection's state;
+ * @qsize	- current number of requests in server's @msg_queue;
+ * @recns	- the number of reconnect attempts;
+ * @msg_sent	- request that was sent last in a server connection;
+ */
+typedef struct {
+	TFW_CONN_COMMON;
+	struct list_head	fwd_queue;
+	struct list_head	nip_queue;
+	spinlock_t		fwd_qlock;
+	unsigned long		flags;
+	unsigned int		qsize;
+	unsigned int		recns;
+	TfwMsg			*msg_sent;
+} TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
 
-#define TFW_CONN_TYPE(c)	((c)->proto.type)
+/* Connection flags are defined by the bit number. */
+enum {
+	TFW_CONN_B_RESEND = 0,	/* Need to re-send requests. */
+	TFW_CONN_B_QFORWD,	/* Need to forward requests in the queue. */
+	TFW_CONN_B_HASNIP,	/* Has non-idempotent requests. */
+	TFW_CONN_B_FAULTY,	/* Reconnects failed, need to re-schedule. */
+};
+
+#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
+#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
+#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
+#define TFW_CONN_F_FAULTY	(1 << TFW_CONN_B_FAULTY)
 
 /**
  * TLS hardened connection.
  */
 typedef struct {
-	TfwConnection		conn;
-	TfwTlsContext		tls;
-} TfwTlsConnection;
+	TfwConn		conn;
+	TfwTlsContext	tls;
+} TfwTlsConn;
 
-#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConnection *)p)->tls)
+#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConn *)p)->tls)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -120,56 +205,104 @@ typedef struct {
 	 * This is a good place to handle Access or GEO modules
 	 * (block a client or bind its descriptor with GEO data).
 	 */
-	int (*conn_init)(TfwConnection *conn);
+	int (*conn_init)(TfwConn *conn);
+
+	/*
+	 * Called when a new connection is initialized and before
+	 * the initialization is complete. Makes sense only for
+	 * server connections. Used to re-send requests that were
+	 * left in the connection queue.
+	 */
+	void (*conn_repair)(TfwConn *conn);
 
 	/*
 	 * Called when closing a connection (client or server,
 	 * as in conn_init()). This is required for modules that
 	 * maintain the number of established client connections.
 	 */
-	void (*conn_drop)(TfwConnection *conn);
+	void (*conn_drop)(TfwConn *conn);
 
 	/*
 	 * Called when there are no more users of a connection
 	 * and the connections's resources are finally released.
 	 */
-	void (*conn_release)(TfwConnection *conn);
+	void (*conn_release)(TfwConn *conn);
 
 	/*
 	 * Called by the connection layer when there is a message
 	 * that needs to be send.
 	 */
-	int (*conn_send)(TfwConnection *conn, TfwMsg *msg);
+	int (*conn_send)(TfwConn *conn, TfwMsg *msg);
 } TfwConnHooks;
 
 #define TFW_CONN_MAX_PROTOS	TFW_GFSM_FSM_N
 
 extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
-/* This macros are intended to use to call certain proto hooks. */
+/* These macros are for calling the defined proto hooks. */
 #define tfw_conn_hook_call(proto, c, f, ...)	\
 	conn_hooks[proto]->f ? conn_hooks[proto]->f(c, ## __VA_ARGS__) : 0
 #define TFW_CONN_HOOK_CALL(c, f...)		\
 	tfw_conn_hook_call(TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c)), c, f)
 
+/*
+ * Tell if a server connection is restricted. A restricted connection
+ * is not available to schedulers.
+ *
+ * The flag RESEND is set when a newly established server connection
+ * has messages in the forwarding queue. That means that the connection
+ * had been closed prematurely, and the messages in the queue need to
+ * be re-sent to a back-end server. The new connection is not available
+ * to schedulers (restricted) until all messages in the forwarding queue
+ * are re-sent.
+ */
 static inline bool
-tfw_connection_nfo(TfwConnection *conn)
+tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+}
+
+/*
+ * Tell if a connection has non-idempotent requests.
+ */
+static inline bool
+tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+}
+
+/*
+ * Tell if all attempts to re-connect had failed.
+ */
+static inline bool
+tfw_srv_conn_faulty(TfwSrvConn *srv_conn)
+{
+	return test_bit(TFW_CONN_B_FAULTY, &srv_conn->flags);
+}
+
+static inline bool
+tfw_connection_live(TfwConn *conn)
 {
 	return atomic_read(&conn->refcnt) > 0;
 }
 
+#define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
+
 static inline void
-tfw_connection_get(TfwConnection *conn)
+tfw_connection_get(TfwConn *conn)
 {
 	atomic_inc(&conn->refcnt);
 }
 
+#define tfw_cli_conn_get(c)	tfw_connection_get((TfwConn *)(c))
+#define tfw_srv_conn_get(c)	tfw_connection_get((TfwConn *)(c))
+
 /**
- * Increment reference counter and return true if @conn isn't in failovering
- * process, i.e. @refcnt > 0.
+ * Increment reference counter and return true if @conn is not in
+ * failovering process, i.e. @refcnt wasn't less or equal to zero.
  */
 static inline bool
-tfw_connection_get_if_nfo(TfwConnection *conn)
+__tfw_connection_get_if_live(TfwConn *conn)
 {
 	int old, rc = atomic_read(&conn->refcnt);
 
@@ -183,8 +316,11 @@ tfw_connection_get_if_nfo(TfwConnection *conn)
 	return false;
 }
 
+#define tfw_srv_conn_get_if_live(c)	\
+	__tfw_connection_get_if_live((TfwConn *)(c))
+
 static inline void
-tfw_connection_put(TfwConnection *conn)
+tfw_connection_put(TfwConn *conn)
 {
 	int rc;
 
@@ -198,14 +334,17 @@ tfw_connection_put(TfwConnection *conn)
 		conn->destructor(conn);
 }
 
+#define tfw_cli_conn_put(c)	tfw_connection_put((TfwConn *)(c))
+#define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
+
 static inline void
-tfw_connection_put_to_death(TfwConnection *conn)
+tfw_connection_put_to_death(TfwConn *conn)
 {
 	atomic_add(TFW_CONN_DEATHCNT, &conn->refcnt);
 }
 
 static inline void
-tfw_connection_revive(TfwConnection *conn)
+tfw_connection_revive(TfwConn *conn)
 {
 	atomic_set(&conn->refcnt, 1);
 }
@@ -217,7 +356,7 @@ tfw_connection_revive(TfwConnection *conn)
  * the reference to @conn instance for the socket can be found quickly.
  */
 static inline void
-tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
+tfw_connection_link_from_sk(TfwConn *conn, struct sock *sk)
 {
 	BUG_ON(sk->sk_user_data);
 	sk->sk_user_data = conn;
@@ -230,7 +369,7 @@ tfw_connection_link_from_sk(TfwConnection *conn, struct sock *sk)
  * get a hold of the socket to avoid premature socket release.
  */
 static inline void
-tfw_connection_link_to_sk(TfwConnection *conn, struct sock *sk)
+tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 {
 	ss_sock_hold(sk);
 	conn->sk = sk;
@@ -257,7 +396,7 @@ tfw_connection_unlink_from_sk(struct sock *sk)
  * on the socket. A zeroed conn->sk is that indicator.
  */
 static inline void
-tfw_connection_unlink_to_sk(TfwConnection *conn)
+tfw_connection_unlink_to_sk(TfwConn *conn)
 {
 	struct sock *sk = conn->sk;
 
@@ -266,42 +405,46 @@ tfw_connection_unlink_to_sk(TfwConnection *conn)
 }
 
 static inline void
-tfw_connection_unlink_from_peer(TfwConnection *conn)
+tfw_connection_unlink_from_peer(TfwConn *conn)
 {
 	BUG_ON(!conn->peer || list_empty(&conn->list));
 	tfw_peer_del_conn(conn->peer, &conn->list);
 }
 
 static inline void
-tfw_connection_unlink_msg(TfwConnection *conn)
+tfw_connection_unlink_msg(TfwConn *conn)
 {
 	conn->msg = NULL;
 }
 
 /**
- * Check that TfwConnection resources are cleaned up properly.
+ * Check that TfwConn{} resources are cleaned up properly.
  */
 static inline void
-tfw_connection_validate_cleanup(TfwConnection *conn)
+tfw_connection_validate_cleanup(TfwConn *conn)
 {
+	int rc;
+
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
-	BUG_ON(!list_empty(&conn->msg_queue));
-	BUG_ON(atomic_read(&conn->refcnt) & ~1);
 	BUG_ON(conn->msg);
+
+	rc = atomic_read(&conn->refcnt);
+	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
 }
 
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
-int tfw_connection_send(TfwConnection *conn, TfwMsg *msg);
+int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
 
 /* Generic helpers, used for both client and server connections. */
-void tfw_connection_init(TfwConnection *conn);
-void tfw_connection_link_peer(TfwConnection *conn, TfwPeer *peer);
+void tfw_connection_init(TfwConn *conn);
+void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
-int tfw_connection_new(TfwConnection *conn);
-void tfw_connection_drop(TfwConnection *conn);
-void tfw_connection_release(TfwConnection *conn);
+int tfw_connection_new(TfwConn *conn);
+void tfw_connection_repair(TfwConn *conn);
+void tfw_connection_drop(TfwConn *conn);
+void tfw_connection_release(TfwConn *conn);
 
 int tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off);
 

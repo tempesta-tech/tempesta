@@ -145,7 +145,7 @@ __ipv4_hdr_check(struct sk_buff *skb)
 }
 
 static unsigned int
-tfw_ipv4_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
+tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
 	int r;
@@ -230,7 +230,7 @@ __ipv6_hdr_check(struct sk_buff *skb)
 }
 
 static unsigned int
-tfw_ipv6_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
+tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
 	int r;
@@ -258,14 +258,12 @@ tfw_ipv6_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
 static struct nf_hook_ops tfw_nf_ops[] __read_mostly = {
 	{
 		.hook		= tfw_ipv4_nf_hook,
-		.owner		= THIS_MODULE,
 		.pf		= PF_INET,
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_CONNTRACK_DEFRAG + 1,
 	},
 	{
 		.hook		= tfw_ipv6_nf_hook,
-		.owner		= THIS_MODULE,
 		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP6_PRI_CONNTRACK_DEFRAG + 1,

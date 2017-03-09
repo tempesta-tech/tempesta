@@ -4,7 +4,7 @@
  * Requst schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -51,20 +51,19 @@ static DEFINE_SPINLOCK(sched_lock);
  *
  * This function is always called in SoftIRQ context.
  */
-TfwConnection *
+TfwSrvConn *
 tfw_sched_get_srv_conn(TfwMsg *msg)
 {
-	TfwConnection *conn;
+	TfwSrvConn *srv_conn;
 	TfwScheduler *sched;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sched, &sched_list, list) {
 		if (!sched->sched_grp)
 			break;
-		conn = sched->sched_grp(msg);
-		if (conn) {
+		if ((srv_conn = sched->sched_grp(msg))) {
 			rcu_read_unlock();
-			return conn;
+			return srv_conn;
 		}
 	}
 	rcu_read_unlock();

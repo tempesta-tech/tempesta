@@ -59,7 +59,7 @@ typedef struct {
 	atomic64_t		counter;
 	size_t			conn_n;
 	TfwServer		*srv;
-	TfwConnection 		*conns[TFW_SRV_MAX_CONN];
+	TfwSrvConn 		*conns[TFW_SRV_MAX_CONN];
 } TfwRatioSrv;
 
 /*
@@ -211,7 +211,7 @@ tfw_sched_ratio_static(TfwSrvGroup *sg, int *ratio)
  * Called at configuration stage, no synchronization is required.
  */
 static void
-tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
+tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	size_t s, c;
 	TfwRatioSrv *cl;
@@ -247,7 +247,7 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 	}
 
 	for (c = 0; c < cl->conn_n; ++c) {
-		if (cl->conns[c] == conn) {
+		if (cl->conns[c] == srv_conn) {
 			TFW_WARN("sched=[%s]: attempt to add an existing "
 				 "connection: sg=[%s] srv=[%zd] conn=[%zd]\n",
 				 sg->sched->name, sg->name, s, c);
@@ -256,7 +256,7 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
 	}
 	BUG_ON(c == TFW_SRV_MAX_CONN);
 
-	cl->conns[c] = conn;
+	cl->conns[c] = srv_conn;
 	++cl->conn_n;
 }
 
@@ -268,12 +268,12 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwConnection *conn)
  * more often than servers with less weight. 
  * Dead connections and servers w/o live connections are skipped.
  */
-static TfwConnection *
+static TfwSrvConn *
 tfw_sched_ratio_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	size_t s, c, n;
 	uint64_t idx;
-	TfwConnection *conn;
+	TfwSrvConn *srv_conn;
 	TfwRatioSrvList *sl = sg->sched_data;
 	TfwRatioSrv *cl, *cl_down = NULL;
 	TfwRatioRated *rated;
@@ -296,10 +296,10 @@ tfw_sched_ratio_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 
 		for (c = 0; c < cl->conn_n; ++c) {
 			idx = atomic64_inc_return(&cl->counter);
-			conn = cl->conns[idx % cl->conn_n];
-			if (tfw_connection_get_if_nfo(conn)) {
+			srv_conn = cl->conns[idx % cl->conn_n];
+			if (tfw_srv_conn_get_if_live(srv_conn)) {
 				rcu_read_unlock();
-				return conn;
+				return srv_conn;
 			}
 		}
 		cl_down = cl;

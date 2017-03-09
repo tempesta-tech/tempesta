@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -39,6 +39,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
 		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
+		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
 		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
@@ -150,15 +152,11 @@ __hdr_is_singular(const TfwStr *hdr)
  * i.e. check whether the header is duplicate.
  * The lookup is performed untill ':', so header name only is enough in @hdr.
  * @return the header id.
- *
- * Certain header fields are strictly singular and may not be repeated in
- * an HTTP message. Duplicate of a singular header fields is a bug worth
- * blocking the whole HTTP message.
  */
-static int
-__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+unsigned int
+tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
-	int id;
+	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	for (id = TFW_HTTP_HDR_RAW; id < ht->off; ++id) {
@@ -166,12 +164,25 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 		/* There is no sense to compare against all duplicates. */
 		if (h->flags & TFW_STR_DUPLICATE)
 			h = TFW_STR_CHUNK(h, 0);
-		if (tfw_stricmpspn(hdr, h, ':'))
-			continue;
-		if (__hdr_is_singular(hdr))
-			hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
-		break;
+		if (!tfw_stricmpspn(hdr, h, ':'))
+			break;
 	}
+
+	return id;
+}
+
+/**
+ * Certain header fields are strictly singular and may not be repeated in
+ * an HTTP message. Duplicate of a singular header fields is a bug worth
+ * blocking the whole HTTP message.
+ */
+static inline unsigned int
+__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+{
+	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
+
+	if ((id <  hm->h_tbl->off) && __hdr_is_singular(hdr))
+		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 
 	return id;
 }
@@ -200,7 +211,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
  * HTTP message headers list.
  */
 int
-tfw_http_msg_hdr_close(TfwHttpMsg *hm, int id)
+tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -344,7 +355,7 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
  * Add new header @hdr to the message @hm just before CRLF.
  */
 static int
-__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, int hid)
+__hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
 	int r;
 	TfwStr it = {};
@@ -406,7 +417,7 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
  * Delete header with identifier @hid from skb data and header table.
  */
 static int
-__hdr_del(TfwHttpMsg *hm, int hid)
+__hdr_del(TfwHttpMsg *hm, unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dup, *end, *hdr = &ht->tbl[hid];
@@ -443,7 +454,7 @@ __hdr_del(TfwHttpMsg *hm, int hid)
  */
 static int
 __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
-	  int hid)
+	  unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
@@ -509,7 +520,7 @@ cleanup:
  */
 int
 tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
-		      char *val, size_t v_len, int hid, bool append)
+		      char *val, size_t v_len, unsigned int hid, bool append)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *orig_hdr;
@@ -573,12 +584,37 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 }
 
 /**
+ * Remove hop-by-hop headers in the message
+ *
+ * Connection header should not be removed, tfw_http_set_hdr_connection()
+ * optimize removal of the header.
+ */
+int
+tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	unsigned int hid = ht->off;
+	int r = 0;
+
+	do {
+		hid--;
+		if (hid == TFW_HTTP_HDR_CONNECTION)
+			continue;
+		if (ht->tbl[hid].flags & TFW_STR_HBH_HDR)
+			if ((r = __hdr_del(hm, hid)))
+				return r;
+	} while (hid);
+
+	return 0;
+}
+
+/**
  * Add a header, probably duplicated, without any checking of current headers.
  */
 int
 tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	int hid;
+	unsigned int hid;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
 	hid = ht->off;
@@ -591,10 +627,10 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
 }
 
 /**
- * Allocate skb space for further @hm data writing.
- * Put as much as possible to one skb, TCP GSO will care about segmentation.
- *
- * tfw_http_msg_free() is expected to be called for @hm if the function fails.
+ * Given the total message length as @len, allocate an appropriate number
+ * of SKBs and page fragments to hold the payload, and add them to the
+ * message. Put as much as possible in one SKB. TCP GSO will take care of
+ * segmentation. The allocated payload space will be filled with data.
  */
 static int
 __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
@@ -613,32 +649,30 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 }
 
 /**
- * Initialize @hm or allocate an HTTP message if it's NULL.
- * Sets @hm up with empty SKB space of size @data_len for data writing.
- * An iterator @it is set up to support consecutive writes.
+ * Set up @hm with empty SKB space of size @data_len for data writing.
+ * Set up the iterator @it to support consecutive writes.
  *
  * This function is intended to work together with tfw_http_msg_write()
- * that uses the @it iterator.
- * Use dynamic allocation if you need to do the message transformations
- * (e.g. adjust headers) and avoid it if you just need to send the message.
+ * or tfw_http_msg_add_data() which use the @it iterator.
+ *
+ * @hm must be allocated dynamically (NOT statically) as it may have
+ * to sit in a queue long after the caller has finished. It's assumed
+ * that @hm is properly initialized.
+ *
+ * It's essential to understand, that "properly initialized" for @hm
+ * may mean different things depending on the intended use. Currently
+ * this function is called to send a response from cache, or to send
+ * an error response. An error response is not parsed or adjusted, so
+ * a shorter/faster version of message allocation and initialization
+ * may be used. (See tfw_http_msg_alloc_err_resp()).
  */
-TfwHttpMsg *
-tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
+int
+tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 {
-	if (hm) {
-		memset(hm, 0, sizeof(*hm));
-		ss_skb_queue_head_init(&hm->msg.skb_list);
-		INIT_LIST_HEAD(&hm->msg.msg_list);
-		if (__msg_alloc_skb_data(hm, data_len))
-			return NULL;
-	} else {
-		if (!(hm = tfw_http_msg_alloc(type)))
-			return NULL;
-		if (__msg_alloc_skb_data(hm, data_len)) {
-			tfw_http_msg_free(hm);
-			return NULL;
-		}
-	}
+	int ret;
+
+	if ((ret = __msg_alloc_skb_data(hm, data_len)))
+		return ret;
 
 	it->skb = ss_skb_peek(&hm->msg.skb_list);
 	it->frag = 0;
@@ -646,22 +680,22 @@ tfw_http_msg_create(TfwHttpMsg *hm, TfwMsgIter *it, int type, size_t data_len)
 	BUG_ON(!it->skb);
 	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
-	TFW_DBG2("Created new HTTP message %p: type=%d len=%lu\n",
-		 hm, type, data_len);
-	return hm;
+	TFW_DBG2("Set up new HTTP message %p: len=%lu\n", hm, data_len);
+
+	return 0;
 }
-EXPORT_SYMBOL(tfw_http_msg_create);
+EXPORT_SYMBOL(tfw_http_msg_setup);
 
 /*
  * Fill up an HTTP message @hm with data from string @data.
- * This is a quick message creator which doesn't properly initialized
- * the message structure like headers table. So @hm couldn't be used in
- * HTTP message transformations.
+ * This is a quick message creator which doesn't maintain properly
+ * parts of the message structure like headers table. So @hm cannot
+ * be used where HTTP message transformations are required.
  *
- * An iterator @it is used to support multiple calls to this functions after
- * set up. This function can only be called after a call to
- * tfw_http_msg_create(). It works only with empty SKB space prepared by
- * the function.
+ * An iterator @it is used to support multiple calls to this function
+ * after the set up. This function can only be called after a call to
+ * tfw_http_msg_setup(). It works only with empty SKB space prepared
+ * by the function.
  */
 int
 tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
@@ -688,7 +722,7 @@ this_chunk:
 
 		if (c_size < f_room) {
 			/*
-			 * The chunk has fit in the SKB fragment with room
+			 * The chunk fits in the SKB fragment with room
 			 * to spare. Stay in the same SKB fragment, swith
 			 * to next chunk of the string.
 			 */
@@ -697,8 +731,8 @@ this_chunk:
 			frag = ss_skb_frag_next(&it->skb, &it->frag);
 			/*
 			 * If all data from the chunk has been copied,
-			 * then switch to next chunk. Otherwise, stay
-			 * in the current chunk.
+			 * then switch to the next chunk. Otherwise,
+			 * stay in the current chunk.
 			 */
 			if (c_size == f_room) {
 				c_off = 0;
@@ -714,10 +748,10 @@ this_chunk:
 EXPORT_SYMBOL(tfw_http_msg_write);
 
 /**
- * Like tfw_http_msg_write(), but properly initialize HTTP message fields,
- * so it can be used in regular transformations.
- * However, the header name and value aren't splitted into different chunks,
- * so advanced headers matching aren't available for @hm.
+ * Similar to tfw_http_msg_write(), but properly maintain @hm header
+ * fields, so that @hm can be used in regular transformations. However,
+ * the header name and the value are not split into different chunks,
+ * so advanced headers matching is not available for @hm.
  */
 int
 tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
@@ -774,10 +808,60 @@ tfw_http_msg_free(TfwHttpMsg *m)
 EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
+ * Allocate a new error response message.
+ * This type of message is not parsed or adjusted before it's sent out.
+ * That allows for a shorter (limited) initialization.
+ */
+TfwHttpMsg *
+tfw_http_msg_alloc_err_resp(void)
+{
+	TfwHttpMsg *hm;
+
+	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO)))
+		return NULL;
+
+	INIT_LIST_HEAD(&hm->msg.seq_list);
+	ss_skb_queue_head_init(&hm->msg.skb_list);
+
+	return hm;
+}
+
+/**
+ * Add spec header indexes to list of hop-by-hop headers.
+ */
+static inline void
+__hbh_parser_init_req(TfwHttpReq *req)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/* Connection is hop-by-hop header by RFC 7230 6.1 */
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+}
+
+/**
+ * Same as @__hbh_parser_init_req for response.
+ */
+static inline void
+__hbh_parser_init_resp(TfwHttpResp *resp)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+
+	BUG_ON(hbh_hdrs->spec);
+	/*
+	 * Connection is hop-by-hop header by RFC 7230 6.1
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
+			 (0x1 << TFW_HTTP_HDR_SERVER);
+}
+
+/**
  * Allocate a new HTTP message.
- * Given the total message length as @data_len, it allocates an appropriate
- * number of SKBs and page fragments to hold the payload, and sets them up
- * in Tempesta message.
+ * The allocated message is set up and initialized with full support
+ * for parsing and subsequent adjustment.
  */
 TfwHttpMsg *
 tfw_http_msg_alloc(int type)
@@ -801,13 +885,20 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
+	INIT_LIST_HEAD(&hm->msg.seq_list);
 	ss_skb_queue_head_init(&hm->msg.skb_list);
-	INIT_LIST_HEAD(&hm->msg.msg_list);
 
 	hm->parser.to_read = -1; /* unknown body size */
-
 	if (type & Conn_Clnt)
+		__hbh_parser_init_req((TfwHttpReq *)hm);
+	else
+		__hbh_parser_init_resp((TfwHttpResp *)hm);
+
+	if (type & Conn_Clnt) {
+		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
+		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;
+	}
 
 	return hm;
 }

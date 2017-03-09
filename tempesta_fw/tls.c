@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) implementation.
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -19,6 +19,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/vmalloc.h>
+
 #include "cfg.h"
 #include "connection.h"
 #include "client.h"
@@ -95,7 +97,7 @@ static int
 tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 {
 	int r;
-	TfwConnection *c = conn;
+	TfwConn *c = conn;
 	TfwTlsContext *tls = tfw_tls_context(c);
 
 	tls_dbg(c, "=>");
@@ -147,7 +149,7 @@ tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
  * Send @buf of length @len using TLS context @tls.
  */
 static inline int
-tfw_tls_send_buf(TfwConnection *c, const unsigned char *buf, size_t len)
+tfw_tls_send_buf(TfwConn *c, const unsigned char *buf, size_t len)
 {
 	int r;
 	TfwTlsContext *tls = tfw_tls_context(c);
@@ -170,7 +172,7 @@ tfw_tls_send_buf(TfwConnection *c, const unsigned char *buf, size_t len)
  * Send @skb using TLS context @tls.
  */
 static inline int
-tfw_tls_send_skb(TfwConnection *c, struct sk_buff *skb)
+tfw_tls_send_skb(TfwConn *c, struct sk_buff *skb)
 {
 	int i;
 
@@ -198,7 +200,7 @@ tfw_tls_send_skb(TfwConnection *c, struct sk_buff *skb)
 static int
 tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 {
-	TfwConnection *c = conn;
+	TfwConn *c = conn;
 	TfwTlsContext *tls = tfw_tls_context(c);
 	struct sk_buff *skb;
 
@@ -229,7 +231,7 @@ tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 static int
 tfw_tls_recv_cb(void *conn, unsigned char *buf, size_t len)
 {
-	TfwConnection *c = conn;
+	TfwConn *c = conn;
 	TfwTlsContext *tls = tfw_tls_context(c);
 	struct sk_buff *skb = ss_skb_peek_tail(&tls->rx_queue);
 
@@ -255,16 +257,16 @@ tfw_tls_recv_cb(void *conn, unsigned char *buf, size_t len)
 }
 
 static void
-tfw_tls_conn_dtor(TfwConnection *c)
+tfw_tls_conn_dtor(TfwConn *c)
 {
 	TfwTlsContext *tls = tfw_tls_context(c);
 
 	mbedtls_ssl_free(&tls->ssl);
-	tfw_cli_conn_release(c);
+	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
 static int
-tfw_tls_conn_init(TfwConnection *c)
+tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
 	TfwTlsContext *tls = tfw_tls_context(c);
@@ -304,7 +306,7 @@ tfw_tls_conn_init(TfwConnection *c)
 }
 
 static void
-tfw_tls_conn_drop(TfwConnection *c)
+tfw_tls_conn_drop(TfwConn *c)
 {
 	TfwTlsContext *tls = tfw_tls_context(c);
 
@@ -316,7 +318,7 @@ tfw_tls_conn_drop(TfwConnection *c)
 }
 
 static int
-tfw_tls_conn_send(TfwConnection *c, TfwMsg *msg)
+tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	struct sk_buff *skb;
 	TfwTlsContext *tls = tfw_tls_context(c);

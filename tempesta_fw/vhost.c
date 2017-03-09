@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,17 +18,28 @@
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "tempesta_fw.h"
+#include "http.h"
 #include "http_match.h"
 #include "vhost.h"
 #include "str.h"
 
 /* Mappings for match operators. */
-static const TfwCfgEnum const __read_mostly tfw_match_enum[] = {
+static TfwCfgEnum const __read_mostly tfw_match_enum[] = {
 	{ "*",		TFW_HTTP_MATCH_O_WILDCARD },
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
 	{ "suffix",	TFW_HTTP_MATCH_O_SUFFIX },
-	{}
+	{ 0 }
+};
+
+/* Mappings for HTTP request methods. */
+static TfwCfgEnum const __read_mostly tfw_method_enum[] = {
+	{ "*",		UINT_MAX },
+	{ "GET",	1 << TFW_HTTP_METH_GET },
+	{ "HEAD",	1 << TFW_HTTP_METH_HEAD },
+	{ "POST",	1 << TFW_HTTP_METH_POST },
+	{ "PURGE",	1 << TFW_HTTP_METH_PURGE },
+	{ 0 }
 };
 
 /*
@@ -40,7 +51,15 @@ static const TfwCfgEnum const __read_mostly tfw_match_enum[] = {
 #define TFW_CAPOLICY_ARRAY_SZ	(64)
 
 static TfwCaPolicy	tfw_capolicy[TFW_CAPOLICY_ARRAY_SZ];
-static unsigned int	tfw_capolicy_sz = 0;	/* Current size. */
+static size_t		tfw_capolicy_sz = 0;	/* Current size. */
+
+/*
+ * Each non-idempotent request definition directive is put into
+ * a separately allocated memory area. The pointers to the memory
+ * are put into a fixed size array of pointers within a location
+ * definition.
+ */
+#define TFW_NIPDEF_ARRAY_SZ	(64)
 
 /*
  * All 'location' directives are put into a fixed size array.
@@ -49,13 +68,15 @@ static unsigned int	tfw_capolicy_sz = 0;	/* Current size. */
 #define TFW_LOCATION_ARRAY_SZ	(64)
 
 static TfwLocation	tfw_location[TFW_LOCATION_ARRAY_SZ];
-static unsigned int	tfw_location_sz = 0;	/* Current size. */
+static size_t		tfw_location_sz = 0;	/* Current size. */
 
 /*
  * Default location is a wildcard location. It matches any URI.
- * It may (or may not) contain a set of cache matching directives.
+ * It may (or may not) contain a set of cache matching directives,
+ * and/or a set of non-idempotent request definitions.
  */
-static TfwCaPolicy *tfw_capolicy_dflt[TFW_CAPOLICY_ARRAY_SZ];
+static TfwCaPolicy	*tfw_capolicy_dflt[TFW_CAPOLICY_ARRAY_SZ];
+static TfwNipDef	*tfw_nipdef_dflt[TFW_NIPDEF_ARRAY_SZ];
 
 static TfwLocation tfw_location_dflt = {
 	.op = TFW_HTTP_MATCH_O_WILDCARD,
@@ -63,6 +84,8 @@ static TfwLocation tfw_location_dflt = {
 	.len = 1,
 	.capo = tfw_capolicy_dflt,
 	.capo_sz = 0,
+	.nipdef = tfw_nipdef_dflt,
+	.nipdef_sz = 0,
 };
 
 /*
@@ -77,12 +100,12 @@ static TfwAddr		tfw_capuacl[TFW_CAPUACL_ARRAY_SZ];
 
 /*
  * Default vhost is a wildcard vhost. It matches any URI.
- * It may (or may not) ontain a set of various directives.
+ * It may (or may not) contain a set of various directives.
  *
  * Note that @loc_dflt in the default vhost serves as global
  * default caching policy.
  */
-static const char __read_mostly s_hdr_via_dflt[] =
+static char const __read_mostly s_hdr_via_dflt[] =
 	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
 
 static TfwVhost		tfw_vhost_dflt = {
@@ -104,7 +127,7 @@ static TfwVhost		tfw_vhost_dflt = {
 bool
 tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr)
 {
-	int i;
+	size_t i;
 	struct in6_addr *inaddr = &addr->v6.sin6_addr;
 
 	for (i = 0; i < vhost->capuacl_sz; ++i) {
@@ -122,42 +145,74 @@ tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr)
  * The functions are generic.
  */
 static bool
-__tfw_match_wildcard(tfw_match_t op, const char *cstr, int len, TfwStr *arg)
+__tfw_match_wildcard(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 {
 	return ((op == TFW_HTTP_MATCH_O_WILDCARD)
 		&& (len == 1) && (*cstr == '*'));
 }
 
 static bool
-__tfw_match_suffix(tfw_match_t op, const char *cstr, int len, TfwStr *arg)
+__tfw_match_suffix(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 {
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI;
 	return tfw_str_eq_cstr_off(arg, arg->len - len, cstr, len, flags);
 }
 
 static bool
-__tfw_match_eq(tfw_match_t op, const char *cstr, int len, TfwStr *arg)
+__tfw_match_eq(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 {
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_DEFAULT | TFW_STR_EQ_CASEI;
 	return tfw_str_eq_cstr(arg, cstr, len, flags);
 }
 
 static bool
-__tfw_match_prefix(tfw_match_t op, const char *cstr, int len, TfwStr *arg)
+__tfw_match_prefix(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 {
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI;
 	return tfw_str_eq_cstr(arg, cstr, len, flags);
 }
 
-typedef bool (*__tfw_match_fn)(tfw_match_t, const char *, int, TfwStr *);
+typedef bool (*__tfw_match_fn)(tfw_match_t, const char *, size_t, TfwStr *);
 
-static const __tfw_match_fn const __read_mostly __tfw_match_fn_tbl[] = {
+static __tfw_match_fn const __read_mostly __tfw_match_fn_tbl[] = {
 	[0 ... _TFW_HTTP_MATCH_O_COUNT] = NULL,
 	[TFW_HTTP_MATCH_O_WILDCARD]	= __tfw_match_wildcard,
 	[TFW_HTTP_MATCH_O_EQ]		= __tfw_match_eq,
 	[TFW_HTTP_MATCH_O_PREFIX]	= __tfw_match_prefix,
 	[TFW_HTTP_MATCH_O_SUFFIX]	= __tfw_match_suffix,
 };
+
+/*
+ * Find a matching non-idempotent request directive. Strings
+ * are compared according to the match operator in the directive.
+ * A pointer to the matching TfwNipDef structure is returned if
+ * the match is found. NULL is returned if there's no match.
+ */
+static inline bool
+__tfw_nipdef_match_fn(TfwNipDef *nipdef, TfwStr *arg)
+{
+	__tfw_match_fn match_fn = __tfw_match_fn_tbl[nipdef->op];
+	BUG_ON(!match_fn);
+
+	return match_fn(nipdef->op, nipdef->arg, nipdef->len, arg);
+}
+
+TfwNipDef *
+tfw_nipdef_match(TfwLocation *loc, unsigned char method, TfwStr *arg)
+{
+	size_t i;
+
+	BUG_ON(!loc);
+	BUG_ON(!arg);
+
+	for (i = 0; i < loc->nipdef_sz; ++i) {
+		TfwNipDef *nipdef = loc->nipdef[i];
+		if ((nipdef->method & (1 << method))
+		    && __tfw_nipdef_match_fn(nipdef, arg))
+			return nipdef;
+	}
+	return NULL;
+}
 
 /*
  * Find a matching cache policy directive. Strings are compared
@@ -177,7 +232,7 @@ __tfw_capolicy_match_fn(TfwCaPolicy *capo, TfwStr *arg)
 TfwCaPolicy *
 tfw_capolicy_match(TfwLocation *loc, TfwStr *arg)
 {
-	int i;
+	size_t i;
 
 	BUG_ON(!loc);
 	BUG_ON(!arg);
@@ -207,7 +262,7 @@ __tfw_location_match(TfwLocation *loc, TfwStr *arg)
 TfwLocation *
 tfw_location_match(TfwVhost *vhost, TfwStr *arg)
 {
-	int i;
+	size_t i;
 
 	BUG_ON(!vhost);
 	BUG_ON(!arg);
@@ -225,6 +280,7 @@ tfw_location_match(TfwVhost *vhost, TfwStr *arg)
  * to the match operator in the directive. A pointer to the matching
  * TfwVhost structure is returned if the match is found. A pointer
  * to the default vhost structure is returned if there's no match.
+ * Thus the returned value is always a valid address.
  */
 TfwVhost *
 tfw_vhost_get_default(void)
@@ -247,9 +303,170 @@ tfw_vhost_match(TfwStr *arg)
 
 /*
  * Pointer to the current location structure.
- * The pointer is shared among several functions below.
+ * The pointer is shared among multiple functions below.
  */
 static TfwLocation *tfwcfg_this_location;
+
+/*
+ * Find a non-idempotent request definition entry within specified location.
+ * Entries are processed in the order they are defined in the configuration.
+ * That means the matching entry must be the last entry in the array, and it
+ * must have the same match @op and the same @arg.
+ */
+static TfwNipDef *
+tfw_nipdef_lookup(TfwLocation *loc, int op, const char *arg, size_t len)
+{
+	TfwNipDef *nipdef;
+
+	if (!loc->nipdef_sz)
+		return NULL;
+
+	nipdef = loc->nipdef[loc->nipdef_sz - 1];
+	if ((nipdef->op == op) && (nipdef->len == len)
+	    && !strcasecmp(nipdef->arg, arg))
+		return nipdef;
+
+	return NULL;
+}
+
+static TfwNipDef *
+tfw_nipdef_lookup_dup(TfwLocation *loc, int method,
+		      int op, const char *arg, size_t len)
+{
+	size_t i;
+	TfwNipDef *nipdef;
+
+	if (!loc->nipdef_sz)
+		return NULL;
+
+	/* Check all entries but the last one. */
+	for (i = 0; i < loc->nipdef_sz - 1; ++i) {
+		nipdef = loc->nipdef[i];
+		if ((nipdef->op == op) && (nipdef->len == len)
+		    && !strcasecmp(nipdef->arg, arg))
+			return nipdef;
+	}
+	/* Check the last entry. */
+	nipdef = loc->nipdef[i];
+	if ((nipdef->method & method) && (nipdef->op == op)
+	    && (nipdef->len == len) && !strcasecmp(nipdef->arg, arg))
+		return nipdef;
+
+	return NULL;
+}
+
+/*
+ * Create and initialize a new non-idempotent request definition entry,
+ * and add it to the given location structure. The entry is added as
+ * a pointer to the memory allocated to hold the definition.
+ */
+static TfwNipDef *
+tfw_nipdef_addnew(TfwLocation *loc, int method,
+		  int op, const char *arg, size_t len)
+{
+	char *data;
+	TfwNipDef *nipdef;
+
+	if (loc->nipdef_sz == TFW_NIPDEF_ARRAY_SZ)
+		return NULL;
+
+	if ((data = kmalloc(sizeof(TfwNipDef) + len + 1, GFP_KERNEL)) == NULL)
+		return NULL;
+
+	nipdef = (TfwNipDef *)data;
+	nipdef->method = method;
+	nipdef->op = op;
+	nipdef->arg = data + sizeof(TfwNipDef);
+	nipdef->len = len;
+	memcpy((void *)nipdef->arg, (void *)arg, len + 1);
+
+	loc->nipdef[loc->nipdef_sz++] = nipdef;
+
+	return nipdef;
+}
+
+static int
+tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	size_t len;
+	int ret, method, op;
+	const char *in_method, *in_op, *arg;
+	TfwLocation *loc = tfwcfg_this_location;
+	TfwNipDef *nipdef;
+
+	BUG_ON(!tfwcfg_this_location);
+
+	if (ce->attr_n) {
+		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+			cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n != 3) {
+		TFW_ERR("%s: Invalid number of arguments.\n", cs->name);
+		return -EINVAL;
+	}
+
+	/* The method: one of GET, PUT, POST, etc. in form of a bitmask. */
+	in_method = ce->vals[0];
+	ret = tfw_cfg_map_enum(tfw_method_enum, in_method, &method);
+	if (ret) {
+		TFW_ERR("Unsupported HTTP method: '%s %s'\n",
+			cs->name, in_method);
+		return -EINVAL;
+	}
+
+	/* The match operator. */
+	in_op = ce->vals[1];
+	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
+	if (ret) {
+		TFW_ERR("Unsupported match OP: '%s %s'\n", cs->name, in_op);
+		return -EINVAL;
+	}
+
+	/* The match string. */
+	arg = ce->vals[2];
+	len = strlen(arg);
+
+	/*
+	 * Issue a warning if there's an entry with the same argument
+	 * (URI path) that is not the last entry.
+	 */
+	if (tfw_nipdef_lookup_dup(loc, method, op, arg, len))
+		TFW_WARN("%s: Duplicate entry in location '%s': "
+			 "'%s %s %s %s'\n", cs->name,
+			 loc == &tfw_location_dflt ? "default" : loc->arg,
+			 cs->name, in_method, in_op, arg);
+
+	/*
+	 * Do not add a "duplicate" entry within a location. If the
+	 * preceding entry has the same @op and @arg, then just add
+	 * the new method to the entry.
+	 */
+	nipdef = tfw_nipdef_lookup(loc, op, arg, len);
+	if (nipdef) {
+		nipdef->method |= method;
+	} else {
+		nipdef = tfw_nipdef_addnew(loc, method, op, arg, len);
+		if (nipdef == NULL)
+			return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static int
+tfw_handle_in_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_handle_nonidempotent(cs, ce);
+}
+
+static int
+tfw_handle_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfwcfg_this_location)
+		tfwcfg_this_location = &tfw_location_dflt;
+	return tfw_handle_nonidempotent(cs, ce);
+}
 
 /*
  * Find a cache policy directive entry. The entry is looked up
@@ -257,9 +474,9 @@ static TfwLocation *tfwcfg_this_location;
  * location sections.
  */
 static TfwCaPolicy *
-tfw_capolicy_lookup(const short cmd, const short op, const char *arg, int len)
+tfw_capolicy_lookup(int cmd, int op, const char *arg, size_t len)
 {
-	int i;
+	size_t i;
 
 	for (i = 0; i < tfw_capolicy_sz; ++i) {
 		TfwCaPolicy *capo = &tfw_capolicy[i];
@@ -276,7 +493,7 @@ tfw_capolicy_lookup(const short cmd, const short op, const char *arg, int len)
  * in the array for all cache policy entries from all location sections.
  */
 static TfwCaPolicy *
-tfw_capolicy_new(const short cmd, const short op, const char *arg, int len)
+tfw_capolicy_new(int cmd, int op, const char *arg, size_t len)
 {
 	char *argmem;
 	TfwCaPolicy *capo;
@@ -319,11 +536,12 @@ tfw_capolicy_add(TfwLocation *loc, TfwCaPolicy *capo)
  * string that is listed.
  */
 static int
-tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, const short cmd)
+tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 {
-	int i, ret, in_len;
+	int ret;
+	size_t i, len;
 	tfw_match_t op;
-	const char *in_op, *in_arg;
+	const char *in_op, *arg;
 
 	BUG_ON(!tfwcfg_this_location);
 	BUG_ON((cmd != TFW_D_CACHE_BYPASS) && (cmd != TFW_D_CACHE_FULFILL));
@@ -352,17 +570,17 @@ tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, const short cmd)
 	for (i = 1; i < ce->val_n; ++i) {
 		TfwCaPolicy *capo;
 
-		in_arg = ce->vals[i];
-		in_len = strlen(in_arg);
+		arg = ce->vals[i];
+		len = strlen(arg);
 
 		/* Get the cache policy entry. */
-		capo = tfw_capolicy_lookup(cmd, op, in_arg, in_len);
+		capo = tfw_capolicy_lookup(cmd, op, arg, len);
 		if (capo) {
 			TFW_WARN("%s: Duplicate entry: '%s %s %s'\n",
-				 cs->name, cs->name, in_op, in_arg);
+				 cs->name, cs->name, in_op, arg);
 			continue;
 		}
-		capo = tfw_capolicy_new(cmd, op, in_arg, in_len);
+		capo = tfw_capolicy_new(cmd, op, arg, len);
 		if (!capo)
 			return -ENOMEM;
 		/* Link the cache policy entry with the location entry. */
@@ -413,9 +631,9 @@ tfw_handle_out_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * in the array that holds all location directives.
  */
 static TfwLocation *
-tfw_location_lookup(tfw_match_t op, const char *arg, int len)
+tfw_location_lookup(tfw_match_t op, const char *arg, size_t len)
 {
-	int i;
+	size_t i;
 
 	for (i = 0; i < tfw_location_sz; ++i) {
 		TfwLocation *loc = &tfw_location[i];
@@ -432,19 +650,19 @@ tfw_location_lookup(tfw_match_t op, const char *arg, int len)
  * The entry is placed in the array that holds all location directives.
  */
 static TfwLocation *
-tfw_location_new(tfw_match_t op, const char *arg, int len)
+tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 {
-	char *argmem;
 	TfwLocation *loc;
-	TfwCaPolicy **capo;
-	size_t size = sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ;
+	char *argmem, *data;
+	size_t size = sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
+		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ;
 
 	if (tfw_location_sz == TFW_LOCATION_ARRAY_SZ)
 		return NULL;
 
 	if ((argmem = kmalloc(len + 1, GFP_KERNEL)) == NULL)
 		return NULL;
-	if ((capo = kmalloc(size, GFP_KERNEL)) == NULL) {
+	if ((data = kmalloc(size, GFP_KERNEL)) == NULL) {
 		kfree(argmem);
 		return NULL;
 	}
@@ -453,8 +671,10 @@ tfw_location_new(tfw_match_t op, const char *arg, int len)
 	loc->op = op;
 	loc->arg = argmem;
 	loc->len = len;
-	loc->capo = capo;
+	loc->capo = (TfwCaPolicy **)data;
 	loc->capo_sz = 0;
+	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
+	loc->nipdef_sz = 0;
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
 	return loc;
@@ -467,9 +687,10 @@ tfw_location_new(tfw_match_t op, const char *arg, int len)
 static int
 tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int ret, in_len;
+	int ret;
+	size_t len;
 	tfw_match_t op;
-	const char *in_op, *in_arg;
+	const char *in_op, *arg;
 
 	if (ce->attr_n) {
 		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
@@ -484,29 +705,29 @@ tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	/* Get the values of the 'location' directive. */
 	in_op = ce->vals[0];	/* Match operator. */
-	in_arg = ce->vals[1];	/* String for the match operator. */
-	in_len = strlen(in_arg);
+	arg = ce->vals[1];	/* String for the match operator. */
+	len = strlen(arg);
 
 	/* Convert the match operator string to the enum value. */
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
 		TFW_ERR("%s: Unknown match OP: '%s %s %s'\n",
-			cs->name, cs->name, in_op, in_arg);
+			cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Make sure the location is not a duplicate. */
-	if (tfw_location_lookup(op, in_arg, in_len)) {
+	if (tfw_location_lookup(op, arg, len)) {
 		TFW_ERR("%s: Duplicate entry: '%s %s %s'\n",
-			cs->name, cs->name, in_op, in_arg);
+			cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Add new location and set it to be the current one. */
-	tfwcfg_this_location = tfw_location_new(op, in_arg, in_len);
+	tfwcfg_this_location = tfw_location_new(op, arg, len);
 	if (tfwcfg_this_location == NULL) {
 		TFW_ERR("%s: Unable to add new location: '%s %s %s'\n",
-			cs->name, cs->name, in_op, in_arg);
+			cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
@@ -531,7 +752,7 @@ tfw_finish_location(TfwCfgSpec *cs)
 static void
 __tfw_cleanup_locache(void)
 {
-	int i;
+	size_t i, k;
 
 	for (i = 0; i < tfw_location_sz; ++i) {
 		TfwLocation *loc = &tfw_location[i];
@@ -539,6 +760,11 @@ __tfw_cleanup_locache(void)
 			kfree(loc->arg);
 			loc->arg = NULL;
 		}
+		for (k = 0; k < loc->nipdef_sz; ++k) {
+			if (loc->nipdef[k])
+				kfree(loc->nipdef[k]);
+		}
+		/* Free both loc->capo and loc->nipdef. */
 		if (loc->capo) {
 			kfree(loc->capo);
 			loc->capo = NULL;
@@ -551,6 +777,14 @@ __tfw_cleanup_locache(void)
 			capo->arg = NULL;
 		}
 	}
+	for (i = 0; i < tfw_location_dflt.nipdef_sz; ++i) {
+		if (tfw_location_dflt.nipdef[i])
+			kfree(tfw_location_dflt.nipdef[i]);
+	}
+	tfw_capolicy_sz = 0;
+	tfw_location_sz = 0;
+	tfw_location_dflt.capo_sz = 0;
+	tfw_location_dflt.nipdef_sz = 0;
 }
 
 static void
@@ -565,7 +799,7 @@ tfw_cleanup_locache(TfwCfgSpec *cs)
 static bool
 tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
 {
-	int i;
+	size_t i;
 	struct in6_addr *inaddr = &addr->v6.sin6_addr;
 
 	for (i = 0; i < vhost->capuacl_sz; ++i) {
@@ -582,7 +816,7 @@ tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
 static int
 tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	unsigned int i;
+	size_t i;
 	const char *val;
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
@@ -592,7 +826,7 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		TfwAddr addr = {};
+		TfwAddr addr = { 0 };
 
 		if (tfw_addr_pton_cidr(val, &addr)) {
 			TFW_ERR("%s: Invalid ACL entry: '%s'\n",
@@ -624,7 +858,7 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	unsigned int i;
+	size_t i;
 	const char *val;
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
@@ -660,7 +894,7 @@ done:
 static int
 tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int len;
+	size_t len;
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
 	if (ce->attr_n) {
@@ -705,10 +939,18 @@ tfw_cleanup_hdrvia(TfwCfgSpec *cs)
 static int
 tfw_vhost_cfg_start(void)
 {
+	BUILD_BUG_ON(sizeof(tfw_nipdef_dflt[0]->method) * 8 - 1
+		     < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(tfw_capolicy_dflt[0]->op) * 8 - 1
+		     < _TFW_HTTP_MATCH_O_COUNT);
+	BUILD_BUG_ON(sizeof(tfw_location_dflt.op) * 8 - 1
+		     < _TFW_HTTP_MATCH_O_COUNT);
+
 	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
 		TFW_WARN("cache_purge directive works only in combination"
 			 " with cache_purge_acl directive.\n");
 	tfw_vhost_dflt.loc_sz = tfw_location_sz;
+
 	return 0;
 }
 
@@ -720,21 +962,28 @@ tfw_vhost_cfg_stop(void)
 }
 
 static TfwCfgSpec tfw_location_specs[] = {
-        {
+	{
 		"cache_bypass", NULL,
 		tfw_handle_in_cache_bypass,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
-        {
+	},
+	{
 		"cache_fulfill", NULL,
 		tfw_handle_in_cache_fulfill,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
-        {}
+	},
+	{
+		"nonidempotent", NULL,
+		tfw_handle_in_nonidempotent,
+		.allow_none = true,
+		.allow_repeat = true,
+		.cleanup = tfw_cleanup_locache
+	},
+	{ 0 }
 };
 
 static TfwCfgSpec tfw_vhost_cfg_specs[] = {
@@ -766,13 +1015,20 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
 	},
-        {
+	{
 		"cache_fulfill", NULL,
 		tfw_handle_out_cache_fulfill,
 		.allow_none = true,
 		.allow_repeat = true,
 		.cleanup = tfw_cleanup_locache
-        },
+	},
+	{
+		"nonidempotent", NULL,
+		tfw_handle_out_nonidempotent,
+		.allow_none = true,
+		.allow_repeat = true,
+		.cleanup = tfw_cleanup_locache
+	},
 	{
 		"location", NULL,
 		tfw_cfg_handle_children,
@@ -786,7 +1042,7 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 		/* .cleanup function in a section with
 		   children causes a BUG_ON in cfg.c. */
 	},
-	{},
+	{ 0 },
 };
 
 TfwCfgMod tfw_vhost_cfg_mod = {
@@ -805,7 +1061,7 @@ tfw_vhost_init(void)
 void
 tfw_vhost_exit(void)
 {
-	int i;
+	size_t i;
 
 	for (i = 0; i < tfw_location_sz; ++i)
 		if (tfw_location[i].capo)

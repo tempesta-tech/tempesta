@@ -53,10 +53,10 @@
  * "srv_group") are handled in other modules.
  *
  * TODO:
- *   - Extended string matching operators: "suffix", "regex", "substring".
+ *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -99,11 +99,11 @@ static TfwHttpMatchList *tfw_sched_http_rules;
  * The search is based on contents of an HTTP request and match rules
  * that specify which Server Group the request should be forwarded to.
  */
-static TfwConnection *
+static TfwSrvConn *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
 	TfwSrvGroup *sg;
-	TfwConnection *conn;
+	TfwSrvConn *srv_conn;
 	TfwSchedHttpRule *rule;
 
 	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
@@ -120,23 +120,23 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	BUG_ON(!sg);
 	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
 
-	conn = sg->sched->sched_srv(msg, sg);
+	srv_conn = sg->sched->sched_srv(msg, sg);
 
-	if (unlikely(!conn && rule->backup_sg)) {
+	if (unlikely(!srv_conn && rule->backup_sg)) {
 		sg = rule->backup_sg;
 		TFW_DBG("sched_http: the main group is offline, use backup:"
 			" '%s'\n", sg->name);
-		conn = sg->sched->sched_srv(msg, sg);
+		srv_conn = sg->sched->sched_srv(msg, sg);
 	}
 
-	if (unlikely(!conn))
+	if (unlikely(!srv_conn))
 		TFW_DBG2("sched_http: Unable to select server from group"
 			 " '%s'\n", sg->name);
 
-	return conn;
+	return srv_conn;
 }
 
-static TfwConnection *
+static TfwSrvConn *
 tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");

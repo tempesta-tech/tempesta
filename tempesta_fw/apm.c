@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -525,14 +525,14 @@ static inline void
 __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
 	int i = st->i, r, b;
-	unsigned short rtime;
+	unsigned short rtt;
 
 	for (r = i / TFW_STATS_BCKTS; r < TFW_STATS_RANGES; ++r) {
 		for (b = i % TFW_STATS_BCKTS; b < TFW_STATS_BCKTS; ++b, ++i) {
 			if (!atomic_read(&rng->cnt[r][b]))
 				continue;
-			rtime = rng->ctl[r].begin + (b << rng->ctl[r].order);
-			__tfw_apm_state_set(st, rtime, i, r, b);
+			rtt = rng->ctl[r].begin + (b << rng->ctl[r].order);
+			__tfw_apm_state_set(st, rtt, i, r, b);
 			return;
 		}
 	}
@@ -796,10 +796,10 @@ tfw_apm_calc(TfwApmData *data)
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	nfilled = __tfw_apm_calc(data, &pstats, recalc);
+	if (!nfilled)
+		return;
 
-	if (!nfilled) {
-		TFW_DBG3("%s: Percentile values DID NOT change.\n", __func__);
-	} else if (nfilled < asent->pstats.psz) {
+	if (nfilled < asent->pstats.psz) {
 		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
 		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	} else {
@@ -890,22 +890,29 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
 }
 
 static inline void
-__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtime)
+__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtt)
 {
 	int centry = (jtstamp / tfw_apm_jtmintrvl) % rbuf->rbufsz;
 	unsigned long jtmistart = jtstamp - (jtstamp % tfw_apm_jtmintrvl);
 	TfwApmRBEnt *crbent = &rbuf->rbent[centry];
 
 	tfw_apm_rbent_checkreset(crbent, jtmistart);
-	tfw_stats_update(&crbent->pcntrng, rtime, &rbuf->slock);
+	tfw_stats_update(&crbent->pcntrng, rtt, &rbuf->slock);
 }
 
 void
-tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtime)
+tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
 {
+	unsigned int rtt = jiffies_to_msecs(jrtt);
+
 	BUG_ON(!apmdata);
-	__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf,
-			 jtstamp, jiffies_to_msecs(jrtime));
+	/*
+	 * APM stats can't handle response times that are greater than
+	 * the maximum value possible for TfwPcntCtl{}->end. Currently
+	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
+	 */
+	if (likely(rtt < (1UL << sizeof(((TfwPcntCtl *)0)->end) * 8)))
+		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
 }
 
 /*
@@ -1045,8 +1052,12 @@ tfw_apm_cfg_start(void)
 	return 0;
 }
 
+/**
+ * Cleanup the configuration values when when all server groups are stopped
+ * and the APM timers are deleted.
+ */
 static void
-tfw_apm_cfg_stop(void)
+tfw_apm_cfg_cleanup(TfwCfgSpec *cs)
 {
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
 }
@@ -1089,13 +1100,13 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 		tfw_handle_apm_stats,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup  = tfw_apm_cfg_cleanup,
 	},
 	{}
 };
 
 TfwCfgMod tfw_apm_cfg_mod = {
-        .name  = "apm",
-        .start = tfw_apm_cfg_start,
-        .stop  = tfw_apm_cfg_stop,
-        .specs = tfw_apm_cfg_specs,
+	.name  = "apm",
+	.start = tfw_apm_cfg_start,
+	.specs = tfw_apm_cfg_specs,
 };

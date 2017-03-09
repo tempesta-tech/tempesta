@@ -6,7 +6,7 @@
  * chains of small records are protected by RW-spinlock.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -457,6 +457,8 @@ do {									\
 		if (sizeof(*r) + copied >= TDB_HTRIE_MINDREC)		\
 			break; /* end of records */			\
 		n = TDB_HTRIE_RECLEN(dbh, r);				\
+		if (n + copied >= TDB_HTRIE_MINDREC)			\
+			break; /* end of records */			\
 		if (!live)						\
 			continue;					\
 		/* Small record cannot exceed TDB_HTRIE_MINDREC. */	\
@@ -547,8 +549,6 @@ tdb_htrie_descend(TdbHdr *dbh, TdbHtrieNode **node, unsigned long key,
 
 		o = (*node)->shifts[TDB_HTRIE_IDX(key, *bits)];
 
-		TDB_DBG("Descend iblk=%p key=%#lx bits=%d -> %#lx\n",
-			*node, key, *bits, o);
 		BUG_ON(o
 		       && (TDB_DI2O(o & ~TDB_HTRIE_DBIT)
 				< TDB_HDR_SZ(dbh) + sizeof(TdbExt)
@@ -788,10 +788,8 @@ tdb_htrie_lookup(TdbHdr *dbh, unsigned long key)
 	TdbHtrieNode *root = TDB_HTRIE_ROOT(dbh);
 
 	o = tdb_htrie_descend(dbh, &root, key, &bits);
-	if (!o) {
-		TDB_DBG("...not found\n");
+	if (!o)
 		return NULL;
-	}
 
 	return TDB_PTR(dbh, o);
 }
