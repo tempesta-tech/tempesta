@@ -67,6 +67,7 @@ class TestHeaderCollection(unittest.TestCase):
                         ('Host', '   localhost  '),
                         ('Connection', ' Keep-Alive'),
                         ('X-Custom-Hdr', 'custom header values'),
+                        ('x-custom-hdr', 'custom header values 2'),
                         ('X-Forwarded-For', '127.0.0.1, example.com'),
                         ('Content-Type', 'text/html; charset=iso-8859-1'),
                         ('Cache-Control', 'max-age=1, no-store, min-fresh=30'),
@@ -81,11 +82,17 @@ class TestHeaderCollection(unittest.TestCase):
         self.assertEqual(len(parsed_headers), len(test_headers))
 
         for header, value in test_headers:
+            if header.lower() == 'x-custom-hdr':
+                continue
             self.assertEqual(parsed_headers[header], value.strip())
-        for header, value in test_headers:
             self.assertEqual(parsed_headers[header.lower()], value.strip())
 
-        expect_headers = [ (header.strip().lower(), value.strip())
+        for header in ['X-Custom-Hdr', 'x-custom-hdr']:
+            self.assertEqual(
+                set(parsed_headers.find_all(header)),
+                set(['custom header values', 'custom header values 2']))
+
+        expect_headers = [ (header.strip(), value.strip())
                             for (header, value) in test_headers]
         self.assertEqual(expect_headers, parsed_headers.items())
 

@@ -74,7 +74,7 @@ class HeaderCollection(object):
         return self.iterkeys()
 
     def add(self, name, value):
-        self.headers.append((name.lower(), value,))
+        self.headers.append((name, value,))
 
     def find_all(self, name):
         name = name.lower()
@@ -100,7 +100,7 @@ class HeaderCollection(object):
             yield header
 
     def keys(self):
-        return [key for key in self.iterkeys()]
+        return [key.lower() for key in self.iterkeys()]
 
     def values(self):
         return [value for value in self.itervalues()]
@@ -343,8 +343,9 @@ class Response(HttpMessage):
             raise IncompliteMessage('Incomplite Status line!')
 
         words = statusline.rstrip('\r\n').split()
-        if len(words) == 3:
-            self.version, self.status, self.reason = words
+        if len(words) >= 3:
+            self.version, self.status = words[0:2]
+            self.reason = words[2:]
         elif len(words) == 2:
             self.version, self.status = words
         else:
@@ -429,6 +430,7 @@ class Client(asyncore.dispatcher):
             tf_cfg.dbg(4, ('Deproxy: Client: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.response_buffer))
+            raise
         if self.tester:
             self.tester.recieved_response(response)
         self.response_buffer = ''
