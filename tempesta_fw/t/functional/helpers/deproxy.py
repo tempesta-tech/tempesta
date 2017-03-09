@@ -18,6 +18,13 @@ __license__ = 'GPL2'
 # Utils
 #-------------------------------------------------------------------------------
 
+class ParseError(Exception):
+    pass
+
+class IncompliteMessage(ParseError):
+    pass
+
+
 class HeaderCollection(object):
     """
     A collection class for HTTP Headers. This class combines aspects of a list
@@ -106,11 +113,19 @@ class HeaderCollection(object):
         return default
 
     @staticmethod
-    def from_stream(rfile):
+    def from_stream(rfile, no_crlf=False):
         headers = HeaderCollection()
         line = rfile.readline()
-        while line and not (line == '\r\n' or line == '\n'):
-            name, value = line.split(':', 1)
+        while not (line == '\r\n' or line == '\n'):
+            if no_crlf and not line:
+                break
+            if not line or (line[-1] != '\n'):
+                raise IncompliteMessage('Incomplite headers')
+            line = line.rstrip('\r\n')
+            try:
+                name, value = line.split(':', 1)
+            except:
+                raise ParseError('Invalid header format')
             name = name.strip()
             value = value.strip()
             line = rfile.readline()
@@ -145,6 +160,7 @@ class HttpMessage(object):
         self.msg = ''
         self.body_parsing = True
         self.headers = HeaderCollection()
+        self.trailer = HeaderCollection()
         self.body = ''
         self.version = "HTTP/0.9" # default version.
         if message_text:
@@ -176,7 +192,6 @@ class HttpMessage(object):
 
             if option.strip().lower() == 'chunked':
                 self.read_chunked_body(stream)
-                # TODO: read trailer.
             else:
                 error.bug('Not implemented!')
         elif self.body_parsing and 'Content-Length' in self.headers:
@@ -186,21 +201,45 @@ class HttpMessage(object):
             self.body = stream.read()
 
     def read_chunked_body(self, stream):
-        line = stream.readline()
-        while line and not (line == '\r\n' or line == '\n'):
-            self.body += line
+        while True:
             line = stream.readline()
+            self.body += line
+            try:
+                size = int(line.rstrip('\r\n'))
+                assert size >= 0
+                chunk = stream.readline()
+                self.body += chunk
+
+                assert len(chunk.rstrip('\r\n')) == size
+                assert chunk[-1] == '\n'
+                if size == 0:
+                    break
+            except:
+                raise ParseError('Error in chuncked body')
+
+        # Parsing trailer will eat last CRLF
+        self.parse_trailer(stream)
 
     def read_sized_body(self, stream, size):
+        if size == 0:
+            return
         self.body = stream.read(size)
         # Remove CRLF
-        stream.readline()
-        assert (len(self.body) == size), \
-            "Wrong body size: expect %d but got %d!" % (size, len(self.body))
+        line = stream.readline()
+        if not (line == '\r\n' or line == '\n' or not line):
+            raise ParseError('No CRLF after body.')
+        if len(self.body) != size:
+            raise ParseError(("Wrong body size: expect %d but got %d!"
+                              % (size, len(self.body))))
+
+    def parse_trailer(self, stream):
+        self.trailer = HeaderCollection().from_stream(stream, no_crlf=True)
 
     @abc.abstractmethod
     def __eq__(left, right):
-        return (left.headers == right.headers) and (left.body == right.body)
+        return ((left.headers == right.headers) and
+                (left.body == right.body) and
+                (left.trailer == right.trailer))
 
     @abc.abstractmethod
     def __ne__(left, right):
@@ -244,11 +283,21 @@ class Response(HttpMessage):
 
     def parse_firstline(self, stream):
         statusline = stream.readline()
+        if statusline[-1] != '\n':
+            raise IncompliteMessage('Incomplite Status line!')
+
         words = statusline.rstrip('\r\n').split()
         if len(words) == 3:
             self.version, self.status, self.reason = words
         elif len(words) == 2:
             self.version, self.status = words
+        else:
+            raise ParseError('Invalid Status line!')
+        try:
+            status = int(self.status)
+            assert status > 100 and status < 600
+        except:
+            raise ParseError('Invalid Status code!')
 
     def __eq__(left, right):
         return ((left.status == right.status)
@@ -269,6 +318,7 @@ class Client(asyncore.dispatcher):
     def __init__(self, host=None, port=80):
         asyncore.dispatcher.__init__(self)
         self.request_buffer = ''
+        self.response_buffer = ''
         self.tester = None
         if host == None:
             host = 'Tempesta'
@@ -279,6 +329,7 @@ class Client(asyncore.dispatcher):
 
     def clear(self):
         self.request_buffer = ''
+        self.response_buffer = ''
 
     def set_request(self, request):
         self.request_buffer = request.msg
@@ -294,13 +345,21 @@ class Client(asyncore.dispatcher):
         self.close()
 
     def handle_read(self):
-        buffer = self.recv(MAX_MESSAGE_SIZE)
-        if not buffer:
+        self.response_buffer += self.recv(MAX_MESSAGE_SIZE)
+        if not self.response_buffer:
             return
         tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from server.')
-        tf_cfg.dbg(5, buffer)
-        response = Response(buffer)
+        tf_cfg.dbg(5, self.response_buffer)
+        try:
+            response = Response(self.response_buffer)
+        except IncompliteMessage:
+            return
+        except ParseError:
+            tf_cfg.dbg(4, ('Deproxy: Client: Can\'t parse message\n'
+                           '<<<<<\n%s>>>>>'
+                           % self.response_buffer))
         self.tester.recieved_response(response)
+        self.response_buffer = ''
 
     def writable(self):
         return self.tester.is_srvs_ready() and (len(self.request_buffer) > 0)
@@ -324,18 +383,27 @@ class ServerConnection(asyncore.dispatcher_with_send):
         self.server = server
         self.keep_alive = keep_alive
         self.responses_done = 0
+        self.request_buffer = ''
         self.tester.register_srv_connection(self)
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: New server connection.')
 
     def handle_read(self):
-        buffer = self.recv(MAX_MESSAGE_SIZE)
+        self.request_buffer += self.recv(MAX_MESSAGE_SIZE)
+        try:
+            request = Request(self.request_buffer)
+        except IncompliteMessage:
+            return
+        except ParseError:
+            tf_cfg.dbg(4, ('Deproxy: SrvConnection: Can\'t parse message\n'
+                           '<<<<<\n%s>>>>>'
+                           % self.request_buffer))
         # Hande will be called even if buffer is empty.
-        if not buffer:
+        if not self.request_buffer:
             return
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from client.')
-        tf_cfg.dbg(5, buffer)
-        request = Request(buffer)
+        tf_cfg.dbg(5, self.request_buffer)
         response = self.tester.recieved_forwarded_request(request, self)
+        self.request_buffer = ''
         if response.msg:
             tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to client.')
             tf_cfg.dbg(5, response.msg)
