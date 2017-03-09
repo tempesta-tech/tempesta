@@ -387,8 +387,9 @@ class Client(asyncore.dispatcher):
         self.response_buffer = ''
 
     def set_request(self, request):
-        self.request_buffer = request.msg
-        error.assertTrue(self.request_buffer, "Request is empty!")
+        if request:
+            self.request_buffer = request.msg
+            error.assertTrue(self.request_buffer, "Request is empty!")
 
     def set_tester(self, tester):
         self.tester = tester
@@ -460,9 +461,12 @@ class ServerConnection(asyncore.dispatcher_with_send):
             return
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from client.')
         tf_cfg.dbg(5, self.request_buffer)
-        if self.tester:
-            response = self.tester.recieved_forwarded_request(request, self)
+        if not self.tester:
+            return
+        response = self.tester.recieved_forwarded_request(request, self)
         self.request_buffer = ''
+        if not response:
+            return
         if response.msg:
             tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to client.')
             tf_cfg.dbg(5, response.msg)
