@@ -13,7 +13,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 
-class BindToServer(stress.StressTest)):
+class BindToServer(stress.StressTest):
     """ Hash scheduler binds URIs to specific connections, so only one server
     must pull all the load if we try to get the same resource over and over
     again.
