@@ -21,6 +21,9 @@ class FairLoadEqualConns(stress.StressTest):
         way. In this test servers have the same connections count.
         """
 
+    # Precision of fair loading.
+    precision = 0.02
+
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
 
@@ -31,7 +34,7 @@ class FairLoadEqualConns(stress.StressTest):
         s_reqs = 0
         for s in self.servers:
             self.assertTrue(math.fabs(s.requests - s_reqs_expected) <
-                            (0.005 * s_reqs_expected))
+                            (self.precision * s_reqs_expected))
             s_reqs += s.requests
         self.assertEqual(s_reqs, self.tempesta.stats.cl_msg_forwarded)
 
