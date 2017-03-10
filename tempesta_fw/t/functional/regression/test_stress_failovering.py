@@ -9,7 +9,7 @@ Refer to issue #383 for more information.
 from __future__ import print_function
 import unittest
 import sys
-from helpers import tempesta
+from helpers import tempesta, control
 from testers import stress
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -26,6 +26,14 @@ class RoudRobinFailovering(stress.StressTest):
     We do not need a lot of connections for this test: it will just make
     connections to live a little bit more under load.
     """
+
+    def create_servers(self):
+        """Create sever with very little connections count.
+        """
+        port = tempesta.upstream_port_start_from()
+        server = control.Nginx(listen_port=port)
+        server.conns_n = 4
+        self.servers = [server]
 
     def run_test(self, ka_reqs):
         """Configure server's keep-alive requests count for one session and
