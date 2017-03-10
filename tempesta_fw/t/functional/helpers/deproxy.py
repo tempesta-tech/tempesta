@@ -138,13 +138,15 @@ class HeaderCollection(object):
         return headers
 
     def __eq__(left, right):
-        return set(left.items()) == set(right.items())
+        h_left = set([(hed.lower(), val) for hed, val in left.items()])
+        h_right = set([(hed.lower(), val) for hed, val in right.items()])
+        return h_left == h_right
 
     def __ne__(left, right):
         return not HeaderCollection.__eq__(left, right)
 
     def __str__(self):
-        return str(self.headers)
+        return ''.join(['%s: %s\r\n' % (hed, val) for hed, val in self.items()])
 
     def __repr__(self):
         return repr(self.headers)
@@ -176,6 +178,7 @@ class HttpMessage(object):
     def __parse(self, stream):
         self.parse_firstline(stream)
         self.parse_headers(stream)
+        self.body = ''
         self.parse_body(stream)
 
     @abc.abstractmethod
@@ -247,7 +250,11 @@ class HttpMessage(object):
         return not HttpMessage.__eq__(left, right)
 
     def __str__(self):
-        return str(self.__dict__)
+        return ''.join([str(self.headers), '\r\n', self.body, str(self.trailer)])
+
+    def update(self, firstline):
+        message = '\r\n'.join([firstline, str(self)])
+        self.parse_text(message)
 
     @staticmethod
     def date_time_string(timestamp=None):
@@ -311,6 +318,10 @@ class Request(HttpMessage):
     def __ne__(left, right):
         return not Request.__eq__(left, right)
 
+    def update(self):
+        HttpMessage.update(self,
+                           ' '.join([self.method, self.uri, self.version]))
+
     @staticmethod
     def create(method, headers, uri='/', version='HTTP/1.1', date=False,
                body=None):
@@ -352,6 +363,12 @@ class Response(HttpMessage):
 
     def __ne__(left, right):
         return not Response.__eq__(left, right)
+
+    def update(self):
+        status = int(self.status)
+        reason = reason = BaseHTTPRequestHandler.responses[status][0]
+        HttpMessage.update(self,
+                           ' '.join([self.version, self.status, reason]))
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
