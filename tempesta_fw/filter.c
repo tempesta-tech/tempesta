@@ -145,7 +145,7 @@ __ipv4_hdr_check(struct sk_buff *skb)
 }
 
 static unsigned int
-tfw_ipv4_nf_hook(void *priv, struct sk_buff *skb,
+tfw_ipv4_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
 	int r;
@@ -230,7 +230,7 @@ __ipv6_hdr_check(struct sk_buff *skb)
 }
 
 static unsigned int
-tfw_ipv6_nf_hook(void *priv, struct sk_buff *skb,
+tfw_ipv6_nf_hook(const struct nf_hook_ops *ops, struct sk_buff *skb,
 		 const struct nf_hook_state *state)
 {
 	int r;

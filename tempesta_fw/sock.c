@@ -94,14 +94,6 @@ ss_sock_cpu_check(struct sock *sk, const char *op)
 	}
 }
 
-static inline void
-skb_sender_cpu_clear(struct sk_buff *skb)
-{
-#ifdef CONFIG_XPS
-	skb->sender_cpu = 0;
-#endif
-}
-
 /**
  * Enters critical section synchronized with ss_synchronize().
  * Active networking operations which involves SS callback calls must be
@@ -484,8 +476,8 @@ adjudge_to_death:
 		if (tcp_check_oom(sk, 0)) {
 			tcp_set_state(sk, TCP_CLOSE);
 			tcp_send_active_reset(sk, GFP_ATOMIC);
-			__NET_INC_STATS(sock_net(sk),
-					LINUX_MIB_TCPABORTONMEMORY);
+			NET_INC_STATS_BH(sock_net(sk),
+					 LINUX_MIB_TCPABORTONMEMORY);
 		}
 	}
 	if (sk->sk_state == TCP_CLOSE) {
@@ -766,6 +758,42 @@ ss_tcp_data_ready(struct sock *sk)
 }
 
 /**
+ * Just drain accept queue of listening socket &lsk.
+ * See implementation of standard inet_csk_accept().
+ */
+static void
+ss_drain_accept_queue(struct sock *lsk, struct sock *nsk)
+{
+	struct inet_connection_sock *icsk = inet_csk(lsk);
+	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
+	struct request_sock *req;
+
+	SS_DBG("[%d]: %s: sk %p, sk->sk_socket %p, state (%s)\n",
+	       smp_processor_id(), __func__,
+	       lsk, lsk->sk_socket, ss_statename[lsk->sk_state]);
+
+	/* Currently we process TCP only. */
+	BUG_ON(lsk->sk_protocol != IPPROTO_TCP);
+
+	WARN(reqsk_queue_empty(queue),
+	     "drain empty accept queue for socket %p", lsk);
+
+	/*
+	 * FIXME push any request from the queue,
+	 * doesn't matter which exactly.
+	 */
+	req = reqsk_queue_remove(queue);
+	BUG_ON(!req);
+	sk_acceptq_removed(lsk);
+
+	/*
+	 * @nsk is in ESTABLISHED state, so 3WHS has completed and
+	 * we can safely remove the request socket from accept queue of @lsk.
+	 */
+	reqsk_put(req);
+}
+
+/**
  * Socket state change callback.
  */
 static void
@@ -815,7 +843,6 @@ ss_tcp_state_change(struct sock *sk)
 			return;
 		}
 
-		sock_set_flag(sk, SOCK_TEMPESTA);
 		if (lsk) {
 			/*
 			 * This is a new socket for an accepted connect
@@ -825,6 +852,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * so set it to atomic allocation.
 			 */
 			sk->sk_allocation = GFP_ATOMIC;
+			ss_drain_accept_queue(lsk, sk);
 		}
 		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
@@ -929,7 +957,6 @@ ss_set_listen(struct sock *sk)
 	((SsProto *)sk->sk_user_data)->listener = sk;
 
 	sk->sk_state_change = ss_tcp_state_change;
-	sock_set_flag(sk, SOCK_TEMPESTA);
 }
 EXPORT_SYMBOL(ss_set_listen);
 
@@ -966,7 +993,7 @@ ss_inet_create(struct net *net, int family,
 	}
 	WARN_ON(!answer_prot->slab);
 
-	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot, 1)))
+	if (!(sk = sk_alloc(net, pfinet, GFP_ATOMIC, answer_prot)))
 		return -ENOBUFS;
 
 	inet = inet_sk(sk);
