@@ -7,6 +7,7 @@ Refer to issue #383 for more information.
 """
 
 from __future__ import print_function
+import unittest
 import sys
 from helpers import tempesta
 from testers import stress
