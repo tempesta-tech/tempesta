@@ -102,8 +102,6 @@ def base_message_chain(uri='/'):
 
     Return new message chain.
     """
-
-
     request_headers = [ 'Host: %s' % tf_cfg.cfg.get('Tempesta', 'ip'),
                         'User-Agent: curl/7.53.1',
                         'Connection: keep-alive',
@@ -147,6 +145,25 @@ def base_message_chain(uri='/'):
                                       server_response=server_response)
 
     return copy.copy(base_chain)
+
+
+def base_message_chain_chunked(uri='/'):
+    """Same as base_message_chain, but returns a copy of message chain with
+    chunked body.
+    """
+    rule = base_message_chain()
+    body = ("4\r\n"
+            "1234\r\n"
+            "0\r\n"
+            "\r\n")
+
+    for response in [rule.response, rule.server_response]:
+        response.headers.delete_all('Content-Length')
+        response.headers.add('Transfer-Encoding', 'chunked')
+        response.body = body
+        response.update()
+
+    return rule
 
 if __name__ == '__main__':
     unittest.main()

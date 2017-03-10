@@ -8,103 +8,10 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 def sample_rule():
-    request = deproxy.Request(
-        "GET / HTTP/1.1\r\n"
-        "Host: 10.0.10.2\r\n"
-        "User-Agent: curl/7.53.1\r\n"
-        "Accept: */*\r\n"
-        "\r\n")
-    response = deproxy.Response(
-        "HTTP/1.0 200 OK\r\n"
-        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
-        "Content-type: text/html\r\n"
-        "Content-Length: 138\r\n"
-        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
-        "Server: Tempesta FW/0.5.0-pre6\r\n"
-        "Via: 1.0 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
-        "\r\n"
-        "<html>\r\n"
-        "<head>\r\n"
-        "  <title>An Example Page</title>\r\n"
-        "</head>\r\n"
-        "<body>\r\n"
-        "  Hello World, this is a very simple HTML document.\r\n"
-        "</body>\r\n"
-        "</html>\r\n"
-        "\r\n")
-    fwd_request = deproxy.Request(
-        "GET / HTTP/1.1\r\n"
-        "Host: 10.0.10.2\r\n"
-        "User-Agent: curl/7.53.1\r\n"
-        "Accept: */*\r\n"
-        "Connection: keep-alive\r\n"
-        "Via: 1.1 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
-        "X-Forwarded-For: 10.0.10.1\r\n"
-        "\r\n")
-    server_response = deproxy.Response(
-        "HTTP/1.0 200 OK\r\n"
-        "Server: SimpleHTTP/0.6 Python/3.6.0\r\n"
-        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
-        "Content-type: text/html\r\n"
-        "Content-Length: 138\r\n"
-        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
-        "\r\n"
-        "<html>\r\n"
-        "<head>\r\n"
-        "  <title>An Example Page</title>\r\n"
-        "</head>\r\n"
-        "<body>\r\n"
-        "  Hello World, this is a very simple HTML document.\r\n"
-        "</body>\r\n"
-        "</html>\r\n")
-    return deproxy.MessageChain(request=request, expected_response=response,
-                                forwarded_request=fwd_request,
-                                server_response=server_response)
+    return functional.base_message_chain()
 
 def sample_rule_chunked():
-    request = deproxy.Request(
-        "GET / HTTP/1.1\r\n"
-        "Host: 10.0.10.2\r\n"
-        "User-Agent: curl/7.53.1\r\n"
-        "Accept: */*\r\n"
-        "\r\n")
-    response = deproxy.Response(
-        "HTTP/1.0 200 OK\r\n"
-        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
-        "Content-type: text/html\r\n"
-        "Transfer-Encoding: chunked\r\n"
-        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
-        "Server: Tempesta FW/0.5.0-pre6\r\n"
-        "Via: 1.0 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
-        "\r\n"
-        "4\r\n"
-        "1234\r\n"
-        "0\r\n"
-        "\r\n")
-    fwd_request = deproxy.Request(
-        "GET / HTTP/1.1\r\n"
-        "Host: 10.0.10.2\r\n"
-        "User-Agent: curl/7.53.1\r\n"
-        "Accept: */*\r\n"
-        "Connection: keep-alive\r\n"
-        "Via: 1.1 tempesta_fw (Tempesta FW 0.5.0-pre6)\r\n"
-        "X-Forwarded-For: 10.0.10.1\r\n"
-        "\r\n")
-    server_response = deproxy.Response(
-        "HTTP/1.0 200 OK\r\n"
-        "Server: SimpleHTTP/0.6 Python/3.6.0\r\n"
-        "Date: Tue, 07 Mar 2017 19:09:02 GMT\r\n"
-        "Content-type: text/html\r\n"
-        "Transfer-Encoding: chunked\r\n"
-        "Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT\r\n"
-        "\r\n"
-        "4\r\n"
-        "1234\r\n"
-        "0\r\n"
-        "\r\n")
-    return deproxy.MessageChain(request=request, expected_response=response,
-                                forwarded_request=fwd_request,
-                                server_response=server_response)
+    return functional.base_message_chain_chunked()
 
 def defconfig():
     return 'cache 0;\n'
