@@ -13,7 +13,7 @@ def servers_in_group():
 
 def server_conns_default():
     """ Default connections to single upstream server. """
-    return 4
+    return 32
 
 def server_conns_max():
     """ Maximum connections to single upstream server. """
@@ -142,7 +142,7 @@ class ServerGroup(object):
         self.servers = []
 
     def add_server(self, ip, port, conns=server_conns_default()):
-        error.assertTrue(conns < server_conns_max())
+        error.assertTrue(conns <= server_conns_max())
         error.assertTrue(len(self.servers) < servers_in_group())
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
                      else '')
