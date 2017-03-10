@@ -118,3 +118,12 @@ class TestHeaderCollection(unittest.TestCase):
         same_keys.add('A', 'jkl;')
         self.assertTrue(self.headers != same_keys)
         self.assertFalse(self.headers == same_keys)
+
+        lowed = deproxy.HeaderCollection()
+        lowed.add('c', 'zxcv')
+        lowed.add('a', 'uiop')
+        lowed.add('A', 'jkl;')
+        lowed.add('a', 'qwerty')
+        lowed.add('b', 'asdf')
+        self.assertTrue(self.headers == lowed)
+        self.assertFalse(self.headers != lowed)
