@@ -288,27 +288,58 @@ typedef struct {
 	TfwSrvConn		*srv_conn;
 } TfwHttpSess;
 
+/*
+ * The structure to hold data for an HTTP error response.
+ * An error response is sent later in an unlocked queue context.
+ *
+ * @reason	- the error response message;
+ * @status	- HTTP error response status;
+ */
+typedef struct {
+	const char	*reason;
+	unsigned short	status;
+}TfwHttpError;
+
 /**
  * Common HTTP message members.
  *
+ * @msg			- the base data of an HTTP message;
+ * @pool		- message's memory allocation pool;
+ * @h_tbl		- table of message's HTTP headers in internal form;
+ * @parser		- parser state data while a message is parsed;
+ * @httperr		- HTTP error data used to form an error response;
+ * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
- * @flags		- message related flags. The flags are used in
- *			  concurrent read and writes, but concurrent writes
- *			  aren't alowed. So use atomic operations if concurrent
+ * @flags		- message related flags. The flags are tested
+ *			  concurrently, but concurrent updates aren't
+ *			  allowed. Use atomic operations if concurrent
  *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
  * @conn		- connection which the message was received on;
+ * @destructor		- called when a connection is destroyed;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
  * TfwStr members must be the last for efficient scanning.
+ *
+ * NOTE: The space taken by @parser member is shared with @httperr member.
+ * When a message results in an error, the parser state data is not used
+ * anymore, so this is safe. The reason for reuse is that it's imperative
+ * that saving the error data succeeds. If it fails, that will lead to
+ * a request without a response - a hole in @seq_queue. Alternatively,
+ * memory allocation from pool may fail, even if that's a rare case.
+ * BUILD_BUG_ON() is used in tfw_http_init() to ensure that @httperr
+ * doesn't make the whole structure bigger.
  */
 #define TFW_HTTP_MSG_COMMON						\
 	TfwMsg		msg;						\
 	TfwPool		*pool;						\
 	TfwHttpHdrTbl	*h_tbl;						\
-	TfwHttpParser	parser;						\
+	union {								\
+		TfwHttpParser	parser;					\
+		TfwHttpError	httperr;				\
+	};								\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
 	unsigned int	flags;						\
@@ -350,9 +381,7 @@ typedef struct {
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
  * @resp	- the response paired with this request;
- * @reason	- the string with the reason for an error response;
  * @retries	- the number of re-send attempts;
- * @status	- error response status until the response is prepared;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -375,14 +404,8 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	union {
-		TfwHttpMsg	*resp;
-		const char	*reason;
-	};
-	union {
-		unsigned short	status;
-		unsigned short	retries;
-	};
+	TfwHttpMsg		*resp;
+	unsigned short		retries;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
