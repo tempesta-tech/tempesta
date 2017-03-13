@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * HTTP/2 Huffman decoder test and benchmark (fragmented version).
+ * HTTP/2 HPack parser test (fragmented version).
  *
  * Copyright (C) 2017 Tempesta Technologies, Inc.
  *
@@ -30,21 +30,20 @@
 #include "../../pool.h"
 #include "../../str.h"
 #include "../buffers.h"
-#include "../huffman.h"
+#include "../hpack.h"
 
 typedef struct {
-	const char *source;
-	uint32 source_len;
-	const char *encoded;
 	uint32 encoded_len;
-} HTestData;
+	int32 window;
+	const char *encoded;
+} HPackTestData;
 
-#include "hftestdata.h"
+#include "hptestdata.h"
 
-#define ITEMS (sizeof(test) / sizeof(HTestData))
+#define ITEMS (sizeof(test) / sizeof(HPackTestData))
 
-#define With_Compare 1
-#define Iterations 768
+#define Print_Results 1
+#define Iterations 2048
 
 #define rm_a 1664525
 #define rm_b 22695477
@@ -87,16 +86,46 @@ Random32_Index(const ufast n)
 	}
 }
 
+#if Print_Results
+
+static void
+Print_TfwStr(TfwStr * __restrict str)
+{
+	static char buf[1024];
+	ufast length = str->len;
+
+	if (TFW_STR_PLAIN(str)) {
+		memcpy(buf, str->ptr, length);
+	} else {
+		char *__restrict bp = buf;
+		TfwStr *__restrict fp = (TfwStr *) str->ptr;
+		const ufast count = TFW_STR_CHUNKN(str);
+		ufast cnt = count;
+
+		do {
+			const ufast m = fp->len;
+
+			memcpy(bp, fp->ptr, m);
+			bp += m;
+			fp++;
+		} while (--cnt);
+	}
+	buf[length] = 0;
+	printf("%s", buf);
+}
+#endif
+
 int common_cdecl
 main(void)
 {
 	static TfwStr fragments[3];
 	static TfwStr root;
-	static char buf1[4 * 64];
-	static char buf2[4 * 64];
-	static char buf3[4 * 64];
+	static char buf1[256];
+	static char buf2[256];
+	static char buf3[256];
 	static HTTP2Input in;
 	static HTTP2Output out;
+	HPack *hp;
 	ufast k, i;
 	uwide ts;
 	double tm;
@@ -106,11 +135,13 @@ main(void)
 	fragments[1].ptr = buf1;
 	fragments[2].ptr = buf3;
 	buffer_new(&out, NULL);
+	hp = hpack_new(4096, NULL);
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
+			fast window;
+			HTTP2Field *fields;
 			const char *__restrict encoded = test[i].encoded;
 			ufast rc;
-			uwide n;
 			ufast length = test[i].encoded_len;
 
 			if (length == 1) {
@@ -158,68 +189,38 @@ main(void)
 				}
 			}
 			buffer_from_tfwstr(&in, &root);
-			rc = huffman_decode_fragments(&in, &out, length);
-			if (rc) {
-				printf("Bug #1: Iteration: %u, "
-				       "rc = %u...\n", i, rc);
-				return 1;
-			}
-			n = out.str.len;
-			if (n != test[i].source_len) {
-				printf("Bug #3: Iteration: %u, "
-				       "length = %u...\n", i, (ufast) n);
-				return 1;
-			}
-#if With_Compare
-			{
-				const char *source = test[i].source;
-
-				if (TFW_STR_PLAIN(&out.str)) {
-					if (memcmp(source, out.str.ptr, n)) {
-						printf("Bug #2: Iteration: %u, "
-						       "Invalid decoded data...\n",
-						       i);
-						return 1;
-					}
-				} else {
-					TfwStr *__restrict fp =
-					    (TfwStr *) out.str.ptr;
-					const ufast count =
-					    TFW_STR_CHUNKN(&out.str);
-					ufast cnt = count;
-
-					do {
-						const ufast m = fp->len;
-
-						if (m == 0) {
-							printf
-							    ("Bug #4: Iteration: %u, "
-							     "Zero-length fragment...\n",
-							     i);
-							return 1;
-						}
-						if (memcmp(source, fp->ptr, m)) {
-							printf
-							    ("Bug #2: Iteration: %u, "
-							     "Invalid decoded data...\n",
-							     i);
-							return 1;
-						}
-						source += m;
-						fp++;
-					} while (--cnt);
-					tfw_pool_free(NULL, out.str.ptr,
-						      sizeof(TfwStr) * count);
+			window = test[i].window;
+			if (window) {
+				if (window < 0) {
+					hpack_set_window(hp, 0);
+					window = -window;
 				}
+				hpack_set_window(hp, window);
 			}
-#else
-			if (!TFW_STR_PLAIN(&out.str)) {
-				const ufast count = TFW_STR_CHUNKN(&out.str);
-
-				tfw_pool_free(NULL, out.str.ptr,
-					      sizeof(TfwStr) * count);
+			fields = hpack_decode(hp, &in, length, &out, &rc);
+			if (rc) {
+				printf("Bug #1: Iteration: %u, rc = %u...\n", i,
+				       rc);
+				return 1;
 			}
+			if (fields == NULL) {
+				printf
+				    ("Bug #2: Iteration: %u, no headers decoded...\n",
+				     i);
+				return 1;
+			}
+			do {
+#if Print_Results
+				Print_TfwStr(&fields->name);
+				printf(":");
+				Print_TfwStr(&fields->value);
+				printf("\n");
 #endif
+				buffer_str_free(NULL, &fields->name);
+				buffer_str_free(NULL, &fields->value);
+				fields = fields->next;
+			} while (fields);
+			hpack_free_list(&out, fields);
 		}
 	}
 	tm = (double)(clock() - ts) / CLOCKS_PER_SEC;

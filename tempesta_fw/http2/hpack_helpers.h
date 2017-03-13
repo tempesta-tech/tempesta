@@ -26,61 +26,8 @@
 #include "common.h"
 #include "netconv.h"
 
-#ifdef Platform_Alignment
-
-#define GET_INT32(p, n, x)			\
-	do {					\
-		if (n < 4) {			\
-			goto Incomplete;	\
-		}				\
-		x = Bit_Join(p[3], 24,		\
-		    Bit_Join(p[2], 16,		\
-		    Bit_Join8(p[1], p[0])));	\
-		p += 4; 			\
-		n -= 4; 			\
-	} while (0)
-
-#define GET_INT16(p, n, x)			\
-	do {					\
-		if (n < 2) {			\
-			goto Incomplete;	\
-		}				\
-		x = Bit_Join8(p[1], p[0]);	\
-		p += 2; 			\
-		n -= 2; 			\
-	} while (0)
-
-#else
-
-#define GET_INT32(p, n, x)			\
-	do {					\
-		if (n < 4) {			\
-			goto Incomplete;	\
-		}				\
-		x = Little32(* (uint32 *) p);	\
-		p += 4; 			\
-		n -= 4; 			\
-	} while (0)
-
-#define GET_INT16(p, n, x)			\
-	do {					\
-		if (n < 2) {			\
-			goto Incomplete;	\
-		}				\
-		x = Little16(* (uint16 *) p);	\
-		p += 2; 			\
-		n -= 2; 			\
-	} while (0)
-
-#endif
-
-#ifdef Platform_64bit
-	#define HPACK_LIMIT 63
-	#define HPACK_LAST 1
-#else
-	#define HPACK_LIMIT 28
-	#define HPACK_LAST 15
-#endif
+#define HPACK_LIMIT (Bit_Capacity / 7) * 7
+#define HPACK_LAST ((1 << (Bit_Capacity % 7)) - 1)
 
 /* Flexible integer decoding as specified */
 /* in the HPACK RFC-7541: */
@@ -90,7 +37,7 @@
 		ufast __m = 0;						\
 		ufast __c;						\
 		do {							\
-			if (Opt_Unlikely(m == 0)) {			\
+			if (unlikely(m == 0)) { 			\
 				if (n) {				\
 					src = buffer_next(source, &m);	\
 				}					\
@@ -137,7 +84,7 @@
 			goto Overflow;					\
 		}							\
 		while (__c > 127) {					\
-			if (Opt_Unlikely(m == 0)) {			\
+			if (unlikely(m == 0)) { 			\
 				if (n) {				\
 					src = buffer_next(source, &m);	\
 				}					\

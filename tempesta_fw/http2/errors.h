@@ -28,19 +28,31 @@
 #ifndef HTTP2_ERRORS_H
 #define HTTP2_ERRORS_H
 
-/* NB! All protocol-related errors moved to */
-/*     "official" API header file ("http2.h"). */
-
 enum {
-   HTTP2Error_Huffman_InvalidCode = 0x1000, /* 4096 */
-   HTTP2Error_Huffman_UnexpectedEOS,	    /* 4097 */
-   HTTP2Error_Huffman_CodeTooShort,	    /* 4098 */
-   HTTP2Error_Huffman_CodeTooLong,	    /* 4099 */
-   HTTP2Error_HPack_Unknown_Index,	    /* 4100 */
-   HTTP2Error_HPack_Invalid_Index,	    /* 4101 */
-   HTTP2Error_HPack_Invalid_Name_Length,    /* 4102 */
-   HTTP2Error_Out_Of_Memory = 0x2000,	    /* 8192 */
-   HTTP2Error_Integer_Overflow		    /* 8193 */
+	Err_HTTP2_NoError = 0,		       /* 0    */
+	Err_HTTP2_ProtocolError      = 0x1,    /* 1    */
+	Err_HTTP2_InternalError      = 0x2,    /* 2    */
+	Err_HTTP2_FlowControlError   = 0x3,    /* 3    */
+	Err_HTTP2_SettingsTimeout    = 0x4,    /* 4    */
+	Err_HTTP2_StreamClosed	     = 0x5,    /* 5    */
+	Err_HTTP2_FrameSizeError     = 0x6,    /* 6    */
+	Err_HTTP2_RefusedStream      = 0x7,    /* 7    */
+	Err_HTTP2_Cancel	     = 0x8,    /* 8    */
+	Err_HTTP2_CompressionError   = 0x9,    /* 9    */
+	Err_HTTP2_ConnectError	     = 0xA,    /* 10   */
+	Err_HTTP2_EnhanceYourCalm    = 0xB,    /* 11   */
+	Err_HTTP2_InadequateSecurity = 0xC,    /* 12   */
+	Err_HTTP2_HTTP11Required     = 0xD,    /* 13   */
+	Err_HTTP2_OutOfMemory	     = 0x400,  /* 1024 */
+	Err_HTTP2_IntegerOverflow,	       /* 1025 */
+	Err_Huffman_InvalidCode      = 0x1000, /* 4096 */
+	Err_Huffman_UnexpectedEOS,	       /* 4097 */
+	Err_Huffman_CodeTooShort,	       /* 4098 */
+	Err_Huffman_CodeTooLong,	       /* 4099 */
+	Err_HPack_UnknownIndex, 	       /* 4100 */
+	Err_HPack_InvalidIndex, 	       /* 4101 */
+	Err_HPack_InvalidNameLength,	       /* 4102 */
+	Err_HPack_InvalidTableSize	       /* 4103 */
 };
 
 #endif

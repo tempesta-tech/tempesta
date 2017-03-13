@@ -40,8 +40,7 @@
  *     minus three.
  * shift > 0 ---> normal symbol:
  *    offset = signed char representation of the decoded symbol.
- * shift < 0 && offset == -1 ---> EOS.
- * shift < 0 && offset == -2 ---> Bug, we need to stop decoder:
+ * shift < 0 && offset == 0 ---> EOS.
  *    |shift| = number of bits in the truncated path.
  * shift < 0 && offset > 0 ---> jump to next table:
  *    offset = offset of the next table.
@@ -54,20 +53,20 @@ typedef struct {
 #include "hfstate.h"
 
 static fast
-http2_huffman_decode_tail (ufast		      c,
-			   char 	 * __restrict dst,
-			   fast 		      current,
-			   const HTState * __restrict state)
+huffman_decode_tail(ufast c,
+		    char *__restrict dst,
+		    fast current, const HTState * __restrict state)
 {
 	ufast i;
+
 	for (;;) {
 		fast shift;
-		if (Opt_Unlikely(current == -HT_NBITS)) {
-			if (Opt_Likely(state == HTDecode)) {
+
+		if (unlikely(current == -HT_NBITS)) {
+			if (likely(state == ht_decode)) {
 				return 0;
-			}
-			else {
-				return HTTP2Error_Huffman_CodeTooShort;
+			} else {
+				return Err_Huffman_CodeTooShort;
 			}
 		}
 		i = (c << -current) & HT_NMASK;
@@ -76,183 +75,387 @@ http2_huffman_decode_tail (ufast		      c,
 			if (shift > current + HT_NBITS) {
 				break;
 			}
-			* dst++ = (char) state[i].offset;
+			*dst++ = (char)state[i].offset;
 			current -= shift;
-			state = HTDecode;
-		}
-		else {
+			state = ht_decode;
+		} else {
 			/*
 			 * Last full prefix also processed here, to allow
 			 * EOS padding detection. Condition here equivalent to
 			 * the "-shift >= current + HT_NBITS", but working faster:
 			 */
-			if (Opt_Likely(shift <= -HT_NBITS - current)) {
+			if (likely(shift <= -HT_NBITS - current)) {
 				break;
 			}
-			return state[i].offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-						      HTTP2Error_Huffman_InvalidCode;
+			return state[i].offset ==
+			    0 ? Err_Huffman_UnexpectedEOS :
+			    Err_Huffman_InvalidCode;
 		}
 	}
-	if (Opt_Likely(state == HTDecode &&
-	       (i ^ (HT_EOS_HIGH >> 1)) < (1U << -current)))
-	{
+	if (state == ht_decode && (i ^ (HT_EOS_HIGH >> 1)) < (1U << -current)) {
 		return 0;
-	}
-	else {
-		return HTTP2Error_Huffman_CodeTooShort;
+	} else {
+		return Err_Huffman_CodeTooShort;
 	}
 }
 
 static fast
-http2_huffman_decode_tail_s (ufast			c,
-			     char	   * __restrict dst,
-			     fast			current,
-			     const HTState * __restrict state)
+huffman_decode_tail_s(ufast c,
+		      char *__restrict dst,
+		      fast current, const HTState * __restrict state)
 {
 	int16 offset;
 	fast shift;
 	ufast i;
-	if (Opt_Unlikely(current == -HT_MBITS)) {
-		return HTTP2Error_Huffman_CodeTooShort;
+
+	if (unlikely(current == -HT_MBITS)) {
+		return Err_Huffman_CodeTooShort;
 	}
 	i = (c << -current) & HT_MMASK;
 	shift = state[i].shift;
 	offset = state[i].offset;
-	if (Opt_Likely(shift >= 0)) {
-		if (Opt_Unlikely(shift > current + HT_NBITS)) {
-			return HTTP2Error_Huffman_CodeTooShort;
+	if (likely(shift >= 0)) {
+		if (unlikely(shift > current + HT_NBITS)) {
+			return Err_Huffman_CodeTooShort;
 		}
-		* dst++ = (char) offset;
+		*dst++ = (char)offset;
 		current -= shift;
-		return http2_huffman_decode_tail(c, dst, current, HTDecode);
-	}
-	else {
+		return huffman_decode_tail(c, dst, current, ht_decode);
+	} else {
 		/*
 		 * Condition here equivalent to the "-shift > current + HT_NBITS",
 		 * but working faster:
 		 */
-		if (Opt_Unlikely(shift < -HT_NBITS - current)) {
-			return HTTP2Error_Huffman_CodeTooShort;
+		if (unlikely(shift < -HT_NBITS - current)) {
+			return Err_Huffman_CodeTooShort;
 		}
-		return offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-				     HTTP2Error_Huffman_InvalidCode;
+		return offset == 0 ? Err_Huffman_UnexpectedEOS :
+		    Err_Huffman_InvalidCode;
 	}
 }
 
+#define GET_UWIDE(tail) 	       \
+do {				       \
+	current = Bit_Capacity - tail; \
+	c = BigWide(* (uwide *) src);  \
+	src += Word_Size;	       \
+	n -= Word_Size; 	       \
+} while (0)
+
+#define GET_UINT(bits)				       \
+do {						       \
+	current += bits;			       \
+	c = Bit_Join(c, bits,			       \
+		     Big##bits(* (uint##bits *) src)); \
+	src += bits / 8;			       \
+	n -= bits / 8;				       \
+} while (0)
+
+#define GET_FIRST_UINT(bits, tail)	     \
+do {					     \
+	current = bits - tail;		     \
+	c = Big##bits(* (uint##bits *) src); \
+	src += bits / 8;		     \
+	n -= bits / 8;			     \
+} while (0)
+
+#define GET_BYTE()		   \
+do {				   \
+	current += 8;		   \
+	c = Bit_Join8(c, * src++); \
+	n--;			   \
+} while (0)
+
+#define GET_FIRST_BYTE(tail) \
+do {			     \
+	current = 8 - tail;  \
+	c = * src++;	     \
+	n--;		     \
+} while (0)
+
+#define GET_OCTETS_BY_8(tail)		   \
+do {					   \
+	current += 8;			   \
+	c = Bit_Join8(c, * src++);	   \
+	if (--n) {			   \
+		current += 8;		   \
+		c = Bit_Join8(c, * src++); \
+		if (--n) {		   \
+			GET_BYTE();	   \
+		}			   \
+	}				   \
+} while (0)
+
+#define GET_FIRST_BY_8(tail)		   \
+do {					   \
+	current = 8 - tail;		   \
+	c = * src++;			   \
+	if (--n) {			   \
+		current += 8;		   \
+		c = Bit_Join8(c, * src++); \
+		if (--n) {		   \
+			GET_BYTE();	   \
+		}			   \
+	}				   \
+} while (0)
+
+#ifdef Platform_Alignment
+
+#define GET_OCTETS(tail)		     \
+	if (current != -tail || 	     \
+	    (uwide) src & (Word_Size - 1) || \
+	    n < Word_Size)		     \
+		GET_OCTETS_BY_8(tail);	     \
+	else				     \
+		GET_UWIDE(tail)
+
+#define GET_FIRST(tail) 			    \
+	if (((uwide) src & (Word_Size - 1)) == 0 && \
+	    n >= Word_Size)			    \
+		GET_UWIDE(tail);		    \
+	else					    \
+		GET_FIRST_BY_8(tail)
+
+#else
+
+#define GET_OCTETS(tail)		       \
+	if (current != -tail || n < Word_Size) \
+		GET_OCTETS_BY_8(tail);	       \
+	else				       \
+		GET_UWIDE(tail)
+
+#define GET_FIRST(tail) 	     \
+	if (n >= Word_Size)	     \
+		GET_UWIDE(tail);     \
+	else			     \
+		GET_FIRST_BY_8(tail)
+
+#endif
+
 fast
-http2_huffman_decode (const char * __restrict source,
-			    char * __restrict dst,
-			    uwide	      n)
+huffman_decode(const char *__restrict source, char *__restrict dst, uwide n)
 {
 	if (n) {
-		const uchar * __restrict src = (const uchar *) source;
-		ufast c = * src++;
-		fast current = 8 - HT_NBITS;
+		const uchar *__restrict src = (const uchar *)source;
+		uwide c;
+		fast current;
 		int16 offset;
-		n--;
+
+#ifdef Platform_32bit
+		GET_FIRST(HT_NBITS);
+#else
+		current = Bit_Capacity - HT_NBITS;
+		if (((uwide) src & (Word_Size - 1)) == 0) {
+			if (n < Word_Size) {
+				goto Z0;
+			}
+			c = BigWide(*(uwide *) src);
+			src += Word_Size;
+		} else {
+			ufast space = 0;
+
+			if (n < Word_Size) {
+ Z0:
+				space = Bit_Capacity - n * 8;
+				n = Word_Size;
+				current -= space;
+			}
+			c = 0;
+			if ((uwide) src & 1) {
+				c = *src++;
+				space += 8;
+			}
+			if ((uwide) src & 2) {
+				if (space <= Bit_Capacity - 16) {
+					space += 16;
+					c = Bit_Join(c, 16,
+						     Big16(*(uint16 *) src));
+					src += 2;
+ L0:
+					if (space <= Bit_Capacity - 32) {
+						space += 32;
+						c = Bit_Join(c, 32,
+							     Big32(*(uint32 *)
+								   src));
+						src += 4;
+					}
+					if (space <= Bit_Capacity - 16) {
+						space += 16;
+						c = Bit_Join(c, 16,
+							     Big16(*(uint16 *)
+								   src));
+						src += 2;
+					}
+				}
+				if (space <= Bit_Capacity - 8) {
+					c = Bit_Join8(c, *src++);
+				}
+			} else if (space) {
+				goto L0;
+			} else {
+				c = BigWide(Bit_Join
+					    ((uwide) * (uint32 *) (src + 4), 32,
+					     *(uint32 *) src)
+				    );
+				src += Word_Size;
+			}
+		}
+		n -= Word_Size;
+#endif
 		for (;;) {
-			const HTState * __restrict state;
-Root:			state = HTDecode;
+			const HTState *__restrict state;
+
+ Root:
+			state = ht_decode;
 			for (;;) {
 				fast shift;
 				ufast i;
+
 				if (current <= 0) {
-					if (Opt_Likely(n)) {
-						current += 8;
-						c = Bit_Join8(c, * src++);
-						n--;
-					}
-					else {
-					     /* Last full prefix also processed here */
-					     /* (see current <= 0 above): */
-						return http2_huffman_decode_tail(
-							c, dst, current, state
-						);
+					if (likely(n)) {
+						GET_OCTETS_BY_8(HT_NBITS);
+					} else {
+						/* Last full prefix also processed here */
+						/* (see current <= 0 above): */
+						return huffman_decode_tail(c,
+									   dst,
+									   current,
+									   state);
 					}
 				}
 				i = (c >> current) & HT_NMASK;
 				shift = state[i].shift;
 				offset = state[i].offset;
 				if (shift >= 0) {
-					* dst++ = (char) offset;
+					*dst++ = (char)offset;
 					current -= shift;
 					goto Root;
-				}
-				else {
+				} else {
 					current += shift;
-				#ifdef HT_BALANCED_TREE
-					if (Opt_Likely(offset)) {
-				#else
-					if (Opt_Likely(offset > 0)) {
-				#endif
-						state = HTDecode + offset;
-						if (offset >= HT_SMALL) {
-							break;
-						}
-					}
-					else {
+					if (unlikely(offset == 0)) {
 						goto End;
+					}
+					state = ht_decode + offset;
+					if (offset >= HT_SMALL) {
+						break;
 					}
 				}
 			}
 			current += HT_NBITS - HT_MBITS;
+			/* With various optimization options, the anonymous block */
+			/* here leads to the generation of more efficient code:   */
 			{
 				fast shift;
 				ufast i;
+
 				if (current < 0) {
-					if (Opt_Likely(n)) {
-						current += 8;
-						c = Bit_Join8(c, * src++);
-						n--;
-					}
-					else {
-						return http2_huffman_decode_tail_s(
-							c, dst, current, state
-						);
+					if (likely(n)) {
+#ifdef Platform_32bit
+						GET_OCTETS(HT_MBITS);
+#else
+						ufast space = 0;
+
+						if (n < Word_Size - 1) {
+							space =
+							    (Bit_Capacity - 8) -
+							    n * 8;
+							n = Word_Size - 1;
+							current -= space;
+						}
+						if ((uwide) src & 1) {
+							c = Bit_Join8(c,
+								      *src++);
+							space += 8;
+						}
+						current += (Word_Size - 1) * 8;
+						n -= Word_Size - 1;
+						if ((uwide) src & 2) {
+							if (space <=
+							    (Bit_Capacity - 8) -
+							    16) {
+								space += 16;
+								c = Bit_Join(c,
+									     16,
+									     Big16
+									     (*
+									      (uint16
+									       *)
+									      src));
+								src += 2;
+ L1:
+								if (space <=
+								    (Bit_Capacity
+								     - 8) -
+								    32) {
+									space +=
+									    32;
+									c = Bit_Join(c, 32, Big32(*(uint32 *) src));
+									src +=
+									    4;
+								}
+								if (space <=
+								    (Bit_Capacity
+								     - 8) -
+								    16) {
+									space +=
+									    16;
+									c = Bit_Join(c, 16, Big16(*(uint16 *) src));
+									src +=
+									    2;
+								}
+							}
+							if (space <=
+							    (Bit_Capacity - 8) -
+							    8) {
+								c = Bit_Join8(c,
+									      *src++);
+							}
+						} else {
+							goto L1;
+						}
+#endif
+					} else {
+						return huffman_decode_tail_s(c,
+									     dst,
+									     current,
+									     state);
 					}
 				}
 				i = (c >> current) & HT_MMASK;
 				shift = state[i].shift;
 				offset = state[i].offset;
-				if (Opt_Likely(shift >= 0)) {
-					* dst++ = (char) offset;
+				if (likely(shift >= 0)) {
+					*dst++ = (char)offset;
 					current -= shift;
-				}
-				else {
+				} else {
 					break;
 				}
 			}
 		}
-	     /* Optimization pass in MSVC generates non-optimal code here: */
-		#if defined(HT_BALANCED_TREE) && ! defined(_MSC_VER)
-End:			return HTTP2Error_Huffman_UnexpectedEOS;
-		#else
-End:			return offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-					     HTTP2Error_Huffman_InvalidCode;
-		#endif
-	}
-	else {
+ End:
+		return Err_Huffman_UnexpectedEOS;
+	} else {
 		return 0;
 	}
 }
 
 static fast
-http2_huffman_decode_tail_fragment (ufast		       c,
-				    HTTP2Output   * __restrict destination,
-				    fast		       current,
-				    const HTState * __restrict state,
-				    uchar	  * __restrict dst,
-				    ufast		       k)
+huffman_decode_tail_f(ufast c,
+		      HTTP2Output * __restrict destination,
+		      fast current,
+		      const HTState * __restrict state,
+		      uchar * __restrict dst, ufast k)
 {
 	ufast i;
+
 	for (;;) {
 		fast shift;
-		if (Opt_Unlikely(current == -HT_NBITS)) {
-			if (Opt_Likely(state == HTDecode)) {
+
+		if (unlikely(current == -HT_NBITS)) {
+			if (likely(state == ht_decode)) {
 				return buffer_emit(destination, k);
-			}
-			else {
-				return HTTP2Error_Huffman_CodeTooShort;
+			} else {
+				return Err_Huffman_CodeTooShort;
 			}
 		}
 		i = (c << -current) & HT_NMASK;
@@ -261,208 +464,449 @@ http2_huffman_decode_tail_fragment (ufast		       c,
 			if (shift > current + HT_NBITS) {
 				break;
 			}
-			if (Opt_Unlikely(k == 0)) {
+			if (unlikely(k == 0)) {
 				dst = buffer_expand(destination, &k);
-				if (Opt_Unlikely(k == 0)) {
-					return HTTP2Error_Out_Of_Memory;
+				if (unlikely(k == 0)) {
+					return Err_HTTP2_OutOfMemory;
 				}
 			}
-			* dst++ = (uchar) state[i].offset;
+			*dst++ = (uchar) state[i].offset;
 			k--;
 			current -= shift;
-			state = HTDecode;
-		}
-		else {
+			state = ht_decode;
+		} else {
 			/*
 			 * Last full prefix also processed here, to allow
 			 * EOS padding detection. Condition here equivalent to
 			 * the "-shift >= current + HT_NBITS", but working faster:
 			 */
-			if (Opt_Likely(shift <= -HT_NBITS - current)) {
+			if (likely(shift <= -HT_NBITS - current)) {
 				break;
 			}
-			return state[i].offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-						      HTTP2Error_Huffman_InvalidCode;
+			return state[i].offset ==
+			    0 ? Err_Huffman_UnexpectedEOS :
+			    Err_Huffman_InvalidCode;
 		}
 	}
-	if (Opt_Likely(state == HTDecode &&
-	       (i ^ (HT_EOS_HIGH >> 1)) < (1U << -current)))
-	{
+	if (state == ht_decode && (i ^ (HT_EOS_HIGH >> 1)) < (1U << -current)) {
 		return buffer_emit(destination, k);
-	}
-	else {
-		return HTTP2Error_Huffman_CodeTooShort;
+	} else {
+		return Err_Huffman_CodeTooShort;
 	}
 }
 
 static fast
-http2_huffman_decode_tail_s_fragment (ufast			 c,
-				      HTTP2Output   * __restrict destination,
-				      fast			 current,
-				      const HTState * __restrict state,
-				      uchar	    * __restrict dst,
-				      ufast			 k)
+huffman_decode_tail_s_f(ufast c,
+			HTTP2Output * __restrict destination,
+			fast current,
+			const HTState * __restrict state,
+			uchar * __restrict dst, ufast k)
 {
 	int16 offset;
 	fast shift;
 	ufast i;
-	if (Opt_Unlikely(current == -HT_MBITS)) {
-		return HTTP2Error_Huffman_CodeTooShort;
+
+	if (unlikely(current == -HT_MBITS)) {
+		return Err_Huffman_CodeTooShort;
 	}
 	i = (c << -current) & HT_MMASK;
 	shift = state[i].shift;
 	offset = state[i].offset;
-	if (Opt_Likely(shift >= 0)) {
-		if (Opt_Unlikely(shift > current + HT_NBITS)) {
-			return HTTP2Error_Huffman_CodeTooShort;
+	if (likely(shift >= 0)) {
+		if (unlikely(shift > current + HT_NBITS)) {
+			return Err_Huffman_CodeTooShort;
 		}
-		if (Opt_Unlikely(k == 0)) {
+		if (unlikely(k == 0)) {
 			dst = buffer_expand(destination, &k);
-			if (Opt_Unlikely(k == 0)) {
-				return HTTP2Error_Out_Of_Memory;
+			if (unlikely(k == 0)) {
+				return Err_HTTP2_OutOfMemory;
 			}
 		}
-		* dst++ = (uchar) offset;
+		*dst++ = (uchar) offset;
 		k--;
 		current -= shift;
-		return http2_huffman_decode_tail_fragment(
-			c, destination, current, HTDecode, dst, k
-		);
-	}
-	else {
+		return huffman_decode_tail_f(c, destination, current, ht_decode,
+					     dst, k);
+	} else {
 		/*
 		 * Condition here equivalent to the "-shift > current + HT_NBITS",
 		 * but working faster:
 		 */
-		if (Opt_Unlikely(shift < -HT_NBITS - current)) {
-			return HTTP2Error_Huffman_CodeTooShort;
+		if (unlikely(shift < -HT_NBITS - current)) {
+			return Err_Huffman_CodeTooShort;
 		}
-		return offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-				     HTTP2Error_Huffman_InvalidCode;
+		return offset == 0 ? Err_Huffman_UnexpectedEOS :
+		    Err_Huffman_InvalidCode;
 	}
 }
 
+#define GET_UWIDE_FR(tail)	       \
+do {				       \
+	current = Bit_Capacity - tail; \
+	c = BigWide(* (uwide *) src);  \
+	src += Word_Size;	       \
+	n -= Word_Size; 	       \
+	m -= Word_Size; 	       \
+} while (0)
+
+#define GET_UINT_FR(bits)			       \
+do {						       \
+	current += bits;			       \
+	c = Bit_Join(c, bits,			       \
+		     Big##bits(* (uint##bits *) src)); \
+	src += bits / 8;			       \
+	n -= bits / 8;				       \
+	m -= bits / 8;				       \
+} while (0)
+
+#define GET_FIRST_UINT_FR(bits, tail)	     \
+do {					     \
+	current = bits - tail;		     \
+	c = Big##bits(* (uint##bits *) src); \
+	src += bits / 8;		     \
+	n -= bits / 8;			     \
+	m -= bits / 8;			     \
+} while (0)
+
+#define GET_BYTE_FR()		   \
+do {				   \
+	current += 8;		   \
+	c = Bit_Join8(c, * src++); \
+	n--;			   \
+	m--;			   \
+} while (0)
+
+#define GET_FIRST_BYTE_FR(tail) \
+do {				\
+	current = 8 - tail;	\
+	c = * src++;		\
+	n--;			\
+	m--;			\
+} while (0)
+
+#define GET_OCTETS_BY_8_FR(tail)	   \
+do {					   \
+	current += 8;			   \
+	c = Bit_Join8(c, * src++);	   \
+	--n;				   \
+	if (--m && n) { 		   \
+		current += 8;		   \
+		c = Bit_Join8(c, * src++); \
+		--n;			   \
+		if (--m && n) { 	   \
+			GET_BYTE_FR();	   \
+		}			   \
+	}				   \
+} while (0)
+
+#define GET_FIRST_BY_8_FR(tail) 	   \
+do {					   \
+	current = 8 - tail;		   \
+	c = * src++;			   \
+	--n;				   \
+	if (--m && n) { 		   \
+		current += 8;		   \
+		c = Bit_Join8(c, * src++); \
+		--n;			   \
+		if (--m && n) { 	   \
+			GET_BYTE_FR();	   \
+		}			   \
+	}				   \
+} while (0)
+
+#ifdef Platform_Alignment
+
+#define GET_OCTETS_FR(tail)		     \
+	if (current != -tail || 	     \
+	    (uwide) src & (Word_Size - 1) || \
+	    n < Word_Size || m < Word_Size)  \
+		GET_OCTETS_BY_8_FR(tail);    \
+	else				     \
+		GET_UWIDE_FR(tail)
+
+#define GET_FIRST_FR(tail)			    \
+	if (((uwide) src & (Word_Size - 1)) == 0 && \
+	    n >= Word_Size && m >= Word_Size)	    \
+		GET_UWIDE_FR(tail);		    \
+	else					    \
+		GET_FIRST_BY_8_FR(tail)
+
+#else
+
+#define GET_OCTETS_FR(tail)		       \
+	if (current != -tail || n < Word_Size  \
+			     || m < Word_Size) \
+		GET_OCTETS_BY_8_FR(tail);      \
+	else				       \
+		GET_UWIDE_FR(tail)
+
+#define GET_FIRST_FR(tail)		      \
+	if (n >= Word_Size && m >= Word_Size) \
+		GET_UWIDE_FR(tail);	      \
+	else				      \
+		GET_FIRST_BY_8_FR(tail)
+
+#endif
+
 fast
-http2_huffman_decode_fragments (HTTP2Input  * __restrict source,
-				HTTP2Output * __restrict destination,
-				uwide			 n)
+huffman_decode_fragments(HTTP2Input * __restrict source,
+			 HTTP2Output * __restrict destination, uwide n)
 {
 	if (n) {
 		uwide m;
-		const uchar * __restrict src = buffer_get(source, &m);
-		ufast c = * src++;
-		fast current = 8 - HT_NBITS;
+		const uchar *__restrict src = buffer_get(source, &m);
+		uwide c;
+		fast current;
 		int16 offset;
 		ufast k;
-		uchar * __restrict dst = buffer_open(destination, &k);
-		n--;
-		m--;
+		uchar *__restrict dst = buffer_open(destination, &k);
+
+#ifdef Platform_32bit
+		GET_FIRST_FR(HT_NBITS);
+#else
+		ufast space = m;
+
+		if (m > n) {
+			space = n;
+		}
+		current = Bit_Capacity - HT_NBITS;
+		if (((uwide) src & (Word_Size - 1)) == 0) {
+			if (space < Word_Size) {
+				goto Z0;
+			}
+			c = BigWide(*(uwide *) src);
+			src += Word_Size;
+		} else {
+			if (space >= Word_Size) {
+				space = 0;
+			} else {
+ Z0:
+				space = Word_Size - space;
+				n += space;
+				m += space;
+				space <<= 3;
+				current -= space;
+			}
+			c = 0;
+			if ((uwide) src & 1) {
+				c = *src++;
+				space += 8;
+			}
+			if ((uwide) src & 2) {
+				if (space <= Bit_Capacity - 16) {
+					space += 16;
+					c = Bit_Join(c, 16,
+						     Big16(*(uint16 *) src));
+					src += 2;
+ L0:
+					if (space <= Bit_Capacity - 32) {
+						space += 32;
+						c = Bit_Join(c, 32,
+							     Big32(*(uint32 *)
+								   src));
+						src += 4;
+					}
+					if (space <= Bit_Capacity - 16) {
+						space += 16;
+						c = Bit_Join(c, 16,
+							     Big16(*(uint16 *)
+								   src));
+						src += 2;
+					}
+				}
+				if (space <= Bit_Capacity - 8) {
+					c = Bit_Join8(c, *src++);
+				}
+			} else if (space) {
+				goto L0;
+			} else {
+				c = BigWide(Bit_Join
+					    ((uwide) * (uint32 *) (src + 4), 32,
+					     *(uint32 *) src)
+				    );
+				src += Word_Size;
+			}
+		}
+		n -= Word_Size;
+		m -= Word_Size;
+#endif
 		for (;;) {
-			const HTState * __restrict state;
-Root:			state = HTDecode;
+			const HTState *__restrict state;
+
+ Root:
+			state = ht_decode;
 			for (;;) {
 				fast shift;
 				ufast i;
+
 				if (current <= 0) {
-					if (Opt_Likely(n)) {
-						if (Opt_Unlikely(m == 0)) {
-							src = buffer_next(source, &m);
+					if (likely(n)) {
+						if (unlikely(m == 0)) {
+							src =
+							    buffer_next(source,
+									&m);
 						}
-						current += 8;
-						c = Bit_Join8(c, * src++);
-						n--;
-						m--;
-					}
-					else {
-					     /* Last full prefix also processed here */
-					     /* (see current <= 0 above): */
+						GET_OCTETS_BY_8_FR(HT_NBITS);
+					} else {
+						/* Last full prefix also processed here */
+						/* (see current <= 0 above): */
 						buffer_close(source, m);
-						return http2_huffman_decode_tail_fragment(
-							c, destination, current, state, dst, k
-						);
+						return huffman_decode_tail_f(c,
+									     destination,
+									     current,
+									     state,
+									     dst,
+									     k);
 					}
 				}
 				i = (c >> current) & HT_NMASK;
 				shift = state[i].shift;
 				offset = state[i].offset;
 				if (shift >= 0) {
-					if (Opt_Unlikely(k == 0)) {
-						dst = buffer_expand(destination, &k);
-						if (Opt_Unlikely(k == 0)) {
-							return HTTP2Error_Out_Of_Memory;
+					if (unlikely(k == 0)) {
+						dst =
+						    buffer_expand(destination,
+								  &k);
+						if (unlikely(k == 0)) {
+							return
+							    Err_HTTP2_OutOfMemory;
 						}
 					}
-					* dst++ = (uchar) offset;
+					*dst++ = (uchar) offset;
 					k--;
 					current -= shift;
 					goto Root;
-				}
-				else {
+				} else {
 					current += shift;
-				#ifdef HT_BALANCED_TREE
-					if (Opt_Likely(offset)) {
-				#else
-					if (Opt_Likely(offset > 0)) {
-				#endif
-						state = HTDecode + offset;
-						if (offset >= HT_SMALL) {
-							break;
-						}
-					}
-					else {
+					if (unlikely(offset == 0)) {
 						goto End;
+					}
+					state = ht_decode + offset;
+					if (offset >= HT_SMALL) {
+						break;
 					}
 				}
 			}
+			/* With various optimization options, the anonymous block */
+			/* here leads to the generation of more efficient code:   */
 			current += HT_NBITS - HT_MBITS;
 			{
 				fast shift;
 				ufast i;
+
 				if (current < 0) {
-					if (Opt_Likely(n)) {
-						if (Opt_Unlikely(m == 0)) {
-							src = buffer_next(source, &m);
+					if (likely(n)) {
+						if (unlikely(m == 0)) {
+							src =
+							    buffer_next(source,
+									&m);
 						}
-						current += 8;
-						c = Bit_Join8(c, * src++);
-						n--;
-						m--;
-					}
-					else {
+#ifdef Platform_32bit
+						GET_OCTETS_FR(HT_MBITS);
+#else
+						space = m;
+						if (m > n) {
+							space = n;
+						}
+						if (space >= Word_Size - 1) {
+							space = 0;
+						} else {
+							space =
+							    Word_Size - 1 -
+							    space;
+							n += space;
+							m += space;
+							space <<= 3;
+							current -= space;
+						}
+						if ((uwide) src & 1) {
+							c = Bit_Join8(c,
+								      *src++);
+							space += 8;
+						}
+						current += (Word_Size - 1) * 8;
+						n -= Word_Size - 1;
+						m -= Word_Size - 1;
+						if ((uwide) src & 2) {
+							if (space <=
+							    (Bit_Capacity - 8) -
+							    16) {
+								space += 16;
+								c = Bit_Join(c,
+									     16,
+									     Big16
+									     (*
+									      (uint16
+									       *)
+									      src));
+								src += 2;
+ L1:
+								if (space <=
+								    (Bit_Capacity
+								     - 8) -
+								    32) {
+									space +=
+									    32;
+									c = Bit_Join(c, 32, Big32(*(uint32 *) src));
+									src +=
+									    4;
+								}
+								if (space <=
+								    (Bit_Capacity
+								     - 8) -
+								    16) {
+									space +=
+									    16;
+									c = Bit_Join(c, 16, Big16(*(uint16 *) src));
+									src +=
+									    2;
+								}
+							}
+							if (space <=
+							    (Bit_Capacity - 8) -
+							    8) {
+								c = Bit_Join8(c,
+									      *src++);
+							}
+						} else {
+							goto L1;
+						}
+#endif
+					} else {
 						buffer_close(source, m);
-						return http2_huffman_decode_tail_s_fragment(
-							c, destination, current, state, dst, k
-						);
+						return
+						    huffman_decode_tail_s_f(c,
+									    destination,
+									    current,
+									    state,
+									    dst,
+									    k);
 					}
 				}
 				i = (c >> current) & HT_MMASK;
 				shift = state[i].shift;
 				offset = state[i].offset;
-				if (Opt_Likely(shift >= 0)) {
-					if (Opt_Unlikely(k == 0)) {
-						dst = buffer_expand(destination, &k);
-						if (Opt_Unlikely(k == 0)) {
-							return HTTP2Error_Out_Of_Memory;
+				if (likely(shift >= 0)) {
+					if (unlikely(k == 0)) {
+						dst =
+						    buffer_expand(destination,
+								  &k);
+						if (unlikely(k == 0)) {
+							return
+							    Err_HTTP2_OutOfMemory;
 						}
 					}
-					* dst++ = (uchar) offset;
+					*dst++ = (uchar) offset;
 					k--;
 					current -= shift;
-				}
-				else {
+				} else {
 					break;
 				}
 			}
 		}
-	     /* Optimization pass in MSVC generates non-optimal code here: */
-		#if defined(HT_BALANCED_TREE) && ! defined(_MSC_VER)
-End:			return HTTP2Error_Huffman_UnexpectedEOS;
-		#else
-End:			return offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
-					     HTTP2Error_Huffman_InvalidCode;
-		#endif
-	}
-	else {
+ End:
+		return Err_Huffman_UnexpectedEOS;
+	} else {
 		return 0;
 	}
 }
@@ -501,120 +945,121 @@ End:			return offset == 0 ? HTTP2Error_Huffman_UnexpectedEOS :
 #endif
 
 uwide
-http2_huffman_encode (const char * __restrict source,
-			    char * __restrict dst,
-			    uwide	      n)
+huffman_encode(const char *__restrict source, char *__restrict dst, uwide n)
 {
-	char * __restrict const dst_saved = dst;
+	char *__restrict const dst_saved = dst;
+
 	if (n) {
-		const uchar * __restrict src = (const uchar *) source;
+		const uchar *__restrict src = (const uchar *)source;
 		fast current = 0;
 		uwide aux = 0;
+
 		do {
-			const ufast s = * src++;
+			const ufast s = *src++;
 			const ufast d = Bit_Capacity - current;
-			const ufast c = HTEncode[s];
-			const ufast m = HTLength[s];
+			const ufast c = ht_encode[s];
+			const ufast m = ht_length[s];
+
 			current += m;
 			if (m <= d) {
 				aux = Bit_Join(aux, m, c);
-			}
-			else {
+			} else {
 				current -= Bit_Capacity;
 				aux = Bit_Join(aux, d, c >> current);
-				#ifndef Platform_Alignment
-					#ifdef Platform_Little
-					   aux = SwapBytes(aux);
-					#endif
-					* (uwide *) dst = aux;
-				#else
-					WriteAux();
-				#endif
+#ifndef Platform_Alignment
+#ifdef Platform_Little
+				aux = SwapBytes(aux);
+#endif
+				*(uwide *) dst = aux;
+#else
+				WriteAux();
+#endif
 				dst += Word_Size;
 				aux = c;
 			}
 		} while (--n);
 		if (current) {
 			ufast tail = current & 7;
+
 			if (tail) {
 				ufast d = 8 - tail;
+
 				aux = Bit_Join(aux, d, HT_EOS_HIGH >> tail);
 				current += d;
 			}
 			aux <<= Bit_Capacity - current;
-			#if defined(Platform_Little) && !defined(Platform_Alignment)
-			   aux = SwapBytes(aux);
-			#endif
-			#ifdef Platform_64bit
-				if (current == Bit_Capacity) {
-					#ifndef Platform_Alignment
-						* (uwide *) dst = aux;
-					#else
-						WriteAux();
-					#endif
-					dst += Word_Size;
-					goto Exit;
-				}
-			#endif
+#if defined(Platform_Little) && !defined(Platform_Alignment)
+			aux = SwapBytes(aux);
+#endif
+#ifdef Platform_64bit
+			if (current == Bit_Capacity) {
+#ifdef Platform_Alignment
+				WriteAux();
+#else
+				*(uwide *) dst = aux;
+#endif
+				dst += Word_Size;
+				goto Exit;
+			}
+#endif
 			if (current > 31) {
-				#ifndef Platform_Alignment
-					* (uint32 *) dst = (uint32) aux;
-				#else
-					Write4();
-				#endif
+#ifdef Platform_Alignment
+				Write4();
+#else
+				*(uint32 *) dst = (uint32) aux;
+#endif
 				dst += 4;
-				#ifdef Platform_32bit
-					goto Exit;
-				#else
-					#ifndef Platform_Alignment
-						aux >>= 32;
-					#else
-						aux <<= 32;
-					#endif
-					current -= 32;
-				#endif
+#ifdef Platform_32bit
+				goto Exit;
+#else
+#ifndef Platform_Alignment
+				aux >>= 32;
+#else
+				aux <<= 32;
+#endif
+				current -= 32;
+#endif
 			}
 			if (current > 15) {
-				#ifndef Platform_Alignment
-					* (uint16 *) dst = (uint16) aux;
-				#else
-					Write2();
-				#endif
+#ifndef Platform_Alignment
+				*(uint16 *) dst = (uint16) aux;
+#else
+				Write2();
+#endif
 				dst += 2;
-				#ifndef Platform_Alignment
-					aux >>= 16;
-				#else
-					aux <<= 16;
-				#endif
+#ifndef Platform_Alignment
+				aux >>= 16;
+#else
+				aux <<= 16;
+#endif
 				current -= 16;
 			}
 			if (current) {
-				#ifndef Platform_Alignment
-					* dst++ = (char) aux;
-				#else
-					Write1();
-					dst++;
-				#endif
+#ifndef Platform_Alignment
+				*dst++ = (char)aux;
+#else
+				Write1();
+				dst++;
+#endif
 			}
 		}
 	}
-Exit:
+ Exit:
 	return dst - dst_saved;
 }
 
 uwide
-http2_huffman_encode_length (const char * __restrict source,
-				   uwide	     n)
+huffman_encode_length(const char *__restrict source, uwide n)
 {
 	if (n) {
-		const uchar * __restrict src = (const uchar *) source;
-		uwide current = HTLength[* src++];
+		const uchar *__restrict src = (const uchar *)source;
+		uwide current = ht_length[*src++];
+
 		while (--n) {
-			current += HTLength[* src++];
+			current += ht_length[*src++];
 		}
 		return (current + 7) >> 3;
-	}
-	else {
+	} else {
 		return 0;
 	}
 }
@@ -623,19 +1068,18 @@ http2_huffman_encode_length (const char * __restrict source,
 /* length if encoding longer than source: */
 
 uwide
-http2_huffman_encode_check (const char * __restrict source,
-				  uwide 	    n)
+huffman_encode_check(const char *__restrict source, uwide n)
 {
 	if (n) {
-		const uchar * __restrict src = (const uchar *) source;
-		uwide current = HTLength[* src++];
+		const uchar *__restrict src = (const uchar *)source;
+		uwide current = ht_length[*src++];
 		uwide limit = n << 3;
+
 		while (--n && current < limit) {
-			current += HTLength[* src++];
+			current += ht_length[*src++];
 		}
 		return (current + 7) >> 3;
-	}
-	else {
+	} else {
 		return 0;
 	}
 }
