@@ -55,16 +55,28 @@ of tests is used for schedulers, stress and performance testing.
 
 Pure functional tests check internal logic. Here combined HTTP client-server
 server is used. It sends HTTP messages to TempestaFW, analyses how they are
-forwarded to server, and vice versa. [This tests are still under development.]
+forwarded to server, and vice versa, which server connections are used.
 
 
 ## Requirements
 
-- Host for testing framework: `Pyhon2`, `pyhon2-paramiko`,
+- Host for testing framework: `Python2`, `python2-paramiko`,
 `python-configparser`, `python-subprocess32`, `wrk`, `ab`, `siege`
 - All hosts except previous one: `sftp-server`
 - Host for running TempestaFW: Linux kernel with Tempesta, TempestaFW sources
 - Host for running server: `nginx`, web content directory accessible by nginx
+
+`wrk` is an HTTP benchmarking tool, available from [Github](https://github.com/wg/wrk).
+
+`ab` is Apache benchmark tool, that can be found in `apache2-utils` package in
+Debian or `httpd-tools` in CentOS.
+
+`siege` is an HTTP benchmarking tool, available in `siege` package in Debian
+and `siege` in [EPEL repository](https://dl.fedoraproject.org/pub/epel/7/x86_64/s/siege-4.0.2-2.el7.x86_64.rpm)
+in CentOS.
+
+Unfortunately, CentOS does not have `python-subprocess32` package, but it can be
+downloaded from [CentOS CBS](https://cbs.centos.org/koji/buildinfo?buildID=10904)
 
 Testing framework manages other hosts via SSH protocol, so the host running
 testing framework must be able to be authenticated on other hosts by the key.
@@ -128,7 +140,7 @@ section.
 
 #### Server Section
 
-Options listed in [Temoesta Section](#tempesta-section): `ip`, `hostname`,
+Options listed in [Tempesta Section](#tempesta-section): `ip`, `hostname`,
 `port`, `user` are also applied to this section.
 
 `workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
@@ -171,22 +183,24 @@ $ python2 -m unittest -h
 
 ## Adding new tests
 
-Adding new tests are easy:
-1. Create new Python file to new Python module (directory) or existing one.
+Adding new tests is easy. First, create new Python file in the new Python module
+(directory) or existing one.
 Name of the file must be started with `test_`
 ```sh
 $ mkdir my_test
 $ touch my_test/test_some_feature.py
 $ echo "__all__ = [ 'test_some_feature' ]" >> my_test/__init.py__
 ```
-2. Import module `unittest`, and derive you test class from `tfw_test.Loader`
-class from `helpers` module. Add functions started with `test_`. Test class may
+
+Import module `unittest`, and derive you test class from `stress.StressTest`
+or `functional.FunctionalTest`
+class from `testers` module. Add functions started with `test_`. Test class may
 have any name. Here is example of `my_test/test_some_feature.py`:
 ```python
 import unittest
-from helpers import tfw_test
+from testers import stress
 
-class MyTester(tfw_test.Loader):
+class MyTester(stress.StressTest):
     """ Test class documentation. """
 
     tempesta_defconfig = 'cache 0;\n'
