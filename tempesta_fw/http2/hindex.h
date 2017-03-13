@@ -30,47 +30,77 @@
 #include "errors.h"
 #include "hpack.h"
 
-typedef struct {
-	TfwStr name;
-	TfwStr value;
-} HPackEntry;
+/* HPack string (used for the ring buffer): */
 
-struct HTTP2Index {
-	ufast	  window;  /* Maximal pseudo-length of the dynamic */
-			   /* table (in bytes). This value used as */
-			   /* threshold to flushing old entries. */
-	ufast	  size;    /* Current pseudo-length of the dynamic */
-			   /* table (in bytes). */
-	ufast	  n;	   /* Current length of the dynamic table */
-			   /* (in entries). */
-	ufast	  current; /* Circular buffer pointer to recent entry. */
-	ufast	  length;  /* Real number of allocated entries. */
-	HPackEntry
-		* entries; /* Dynamic tabl entries. */
-	TfwPool * pool;    /* Memory pool, which used for dynamic */
-			   /* headers table. */
+enum {
+	HPack_Arena_Static,	/* String resides in the static memory.     */
+	HPack_Arena_Dynamic,	/* String allocated from the classic heap.  */
+	HPack_Arena_User	/* String allocated from the user-conrolled */
+	    /* memory (in form of the TfwStr).          */
 };
 
-ufast
-hpack_add (HTTP2Index * __restrict ip,
-	   HTTP2Field * __restrict fp,
-	   ufast		   flags);
+/* ptr:   Pointer to the static memory block (plain, may be directly  */
+/*	  copied via memcpy), or pointer to the dynamically allocated */
+/*	  memory block (allocated from the classic heap, data may be  */
+/*	  directly copyied via memcpy), or pointer to the TfwStr      */
+/*	  descriptor (when the data resides in the user-contolled     */
+/*	  memory and must be manipulated taking into account TfwStr   */
+/*	  structure).						      */
+/* len:   Total length of the string.				      */
+/* arena: Allocator that is used for this memory block. 	      */
+/* count: Reference counter.					      */
 
-ufast
-hpack_add_index (HTTP2Index * __restrict ip,
-		 HTTP2Field * __restrict fp,
-		 ufast			 index,
-		 ufast			 flags);
+typedef struct {
+	void *ptr;
+	uwide len;
+	uint8 arena;
+	uint32 count;
+} HPackStr;
 
-void
-hpack_set_window (HTTP2Index * __restrict ip,
-		  ufast 		  window);
+/* Ring buffer (dictionary) entry: */
 
-HTTP2Index *
-hpack_new_index (ufast		      window,
-		 TfwPool * __restrict pool);
+typedef struct {
+	HPackStr name;
+	HPackStr value;
+} HPackEntry;
 
-void
-hpack_free_index (HTTP2Index * __restrict ip);
+/* HPack index structure: */
+
+/* n:	    Current length of the dynamic table      */
+/*	    (in entries).			     */
+/* current: Circular buffer pointer to recent entry. */
+/* length:  Real number of allocated entries.	     */
+/* size:    Current pseudo-length of the dynamic     */
+/*	    headers table (in bytes).		     */
+/* window:  Maximum pseudo-length of the dynamic     */
+/*	    table (in bytes). This value used as     */
+/*	    threshold to flushing old entries.	     */
+/* entries: Dynamic table entries.		     */
+/* pool:    Memory pool, which used for dynamic      */
+/*	    table.				     */
+
+struct HTTP2Index {
+	ufast n;
+	ufast current;
+	ufast length;
+	ufast size;
+	ufast window;
+	 HPackEntry * entries;
+	 TfwPool * pool;
+};
+
+ufast hpack_add(HTTP2Index * __restrict ip,
+		HTTP2Field * __restrict fp,
+		ufast flags, HTTP2Output * __restrict out);
+
+ufast hpack_add_index(HTTP2Index * __restrict ip,
+		      HTTP2Field * __restrict fp,
+		      ufast index, ufast flags, HTTP2Output * __restrict out);
+
+void hpack_set_length(HTTP2Index * __restrict ip, ufast window);
+
+HTTP2Index *hpack_new_index(ufast window, TfwPool * __restrict pool);
+
+void hpack_free_index(HTTP2Index * __restrict ip);
 
 #endif

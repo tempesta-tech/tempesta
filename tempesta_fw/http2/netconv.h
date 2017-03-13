@@ -33,11 +33,7 @@
 
 #define SwapBytes16_Defined
 #define SwapBytes32_Defined
-#ifdef Platform_64bit
-	#define SwapBytes64_Defined
-#else
-	#define SwapBytesDWide_Defined
-#endif
+#define SwapBytes64_Defined
 
 #ifdef _MSC_VER
 	#ifndef __INTRIN_H_
@@ -65,7 +61,7 @@ extern "C" {
 		}))
 	#ifdef Compiler_GCC43
 		#define SwapBytes32F(x) (uint32) __builtin_bswap32(x)
-		#define SwapBytes64(x) (uint64) __builtin_bswap64(x)
+		#define SwapBytes64F(x) (uint64) __builtin_bswap64(x)
 	#else
 		#define SwapBytes32F(x) \
 			(__extension__ ({ \
@@ -75,7 +71,7 @@ extern "C" {
 				); \
 				__r; \
 			}))
-		#define SwapBytes64(x) \
+		#define SwapBytes64F(x) \
 			(__extension__ ({ \
 				register uwide __r = x; \
 				__asm__( \
@@ -98,9 +94,9 @@ extern "C" {
 			__r; \
 		}))
 #elif defined(_MSC_VER)
-	#define SwapBytes16F(x) (ushort) _byteswap_ushort(x)
-	#define SwapBytes32F(x) (uint) _byteswap_ulong(x)
-	#define SwapBytes64(x) (uwide) _byteswap_uint64(x)
+	#define SwapBytes16F(x) _byteswap_ushort(x)
+	#define SwapBytes32F(x) _byteswap_ulong(x)
+	#define SwapBytes64F(x) _byteswap_uint64(x)
 #else
 	#error Unsupported compiler...
 #endif
@@ -108,21 +104,21 @@ extern "C" {
 #else
 
 #ifdef _MSC_VER
-	#define SwapBytes16F(x) (uint) _byteswap_ushort(x)
-	#define SwapBytes32F(x) (uint) _byteswap_ulong(x)
-	#define SwapBytesDWide(x) (uint64) _byteswap_uint64(x)
+	#define SwapBytes16F(x) _byteswap_ushort(x)
+	#define SwapBytes32F(x) _byteswap_ulong(x)
+	#define SwapBytes64F(x) _byteswap_uint64(x)
 #elif defined(__GNUC__)
 	#define SwapBytes16F(x) \
 		(__extension__ ({ \
 			register uint __r = (uint16) x; \
 			__asm__( \
-				"xchgb %b0,%h0" : "=q" (__r) : "0" (__r) \
+				"xchgb %b0,%h0" : "=Q" (__r) : "0" (__r) \
 			); \
 			__r; \
 		}))
 	#ifdef Compiler_GCC43
 		#define SwapBytes32F(x) (uint32) __builtin_bswap32(x)
-		#define SwapBytesDWide(x) (uint64) __builtin_bswap64(x)
+		#define SwapBytes64F(x) (uint64) __builtin_bswap64(x)
 	#else
 		#define SwapBytes32F(x) \
 			(__extension__ ({ \
@@ -132,7 +128,7 @@ extern "C" {
 				); \
 				__r; \
 			}))
-		#define SwapBytesDWide(x) \
+		#define SwapBytes64F(x) \
 			(__extension__ ({ \
 				register uint64 __r; \
 				register uint __x; \
@@ -158,19 +154,31 @@ extern "C" {
 
 #ifdef __GNUC__
 	#define SwapBytes16C(x) \
-		(uint) (((uint8) ((x) >> 8)) | \
-			((uint8)  (x) << 8))
+		(uint16) (((uint16) (x) >> 8) | \
+			  ((uint16) (x) << 8))
 	#define SwapBytes32C(x) \
-		(uint) (((uint8)  (x) << 24) | \
-		       (((uint32) (x) & 0x0000FF00U) << 8) | \
-		       (((uint32) (x) & 0x00FF0000U) >> 8) | \
-			((uint8) ((x) >> 24)))
+		(((uint32) (x) << 24) | \
+		(((uint32) (x) & 0x0000FF00U) << 8) | \
+		(((uint32) (x) & 0x00FF0000U) >> 8) | \
+		 ((uint32) (x) >> 24))
+	#define SwapBytes64C(x) \
+		(((uint64) (x)				<< 56) | \
+		(((uint64) (x) & 0x000000000000FF00ULL) << 40) | \
+		(((uint64) (x) & 0x0000000000FF0000ULL) << 24) | \
+		(((uint64) (x) & 0x00000000FF000000ULL) <<  8) | \
+		(((uint64) (x) & 0x000000FF00000000ULL) >>  8) | \
+		(((uint64) (x) & 0x0000FF0000000000ULL) >> 24) | \
+		(((uint64) (x) & 0x00FF000000000000ULL) >> 40) | \
+		 ((uint64) (x)				>> 56))
 	#define SwapBytes16(x) \
 		(__builtin_constant_p((uint16) (x)) ? \
 			SwapBytes16C(x) : SwapBytes16F(x))
 	#define SwapBytes32(x) \
 		(__builtin_constant_p((uint32) (x)) ? \
 			SwapBytes32C(x) : SwapBytes32F(x))
+	#define SwapBytes64(x) \
+		(__builtin_constant_p((uint64) (x)) ? \
+			SwapBytes64C(x) : SwapBytes64F(x))
 	#ifndef SwapBytesDWide_Defined
 		#if defined(Platform_64bit) || defined(Hardware_Swap)
 			#define SwapBytesDWide_Defined
@@ -196,14 +204,23 @@ extern "C" {
 #else
 	#define SwapBytes16 SwapBytes16F
 	#define SwapBytes32 SwapBytes32F
+	#define SwapBytes64 SwapBytes64F
 #endif
 
 #ifdef Platform_32bit
-   #define SwapBytes SwapBytes32
-   #define SwapBytes64 SwapBytesDWide
+	#define SwapBytes SwapBytes32
+	#ifndef SwapBytes64_Defined
+		#define SwapBytes64_Defined
+		#define SwapBytes64F SwapBytesDWide
+	#else
+		#ifndef SwapBytesDWide_Defined
+		#define SwapBytesDWide_Defined
+		#define SwapBytesDWide SwapBytes64
+		#endif
+	#endif
 #else
-   #define SwapBytes SwapBytes64
-   #define SwapBytes128 SwapBytesDWide
+	#define SwapBytes SwapBytes64
+	#define SwapBytes128 SwapBytesDWide
 #endif
 
 #ifdef __cplusplus
@@ -245,7 +262,7 @@ extern "C" {
 #ifndef SwapBytes64_Defined
 
 Attribute_Const common_inline uint64
-SwapBytes64 (const uint64 x)
+SwapBytes64F (const uint64 x)
 {
 	uint64 y;
 	y = Bit_Join8(x & 0x00FF00FF00FF00FF, (x >> 8) & 0x00FF00FF00FF00FF);
@@ -285,6 +302,8 @@ SwapBytesDWide (const udwide x)
 
 #endif
 
+#ifdef Platform_32bit
+
 #ifndef SwapBytesDWide_Defined
 
 Attribute_Const common_inline
@@ -321,6 +340,8 @@ uint64 SwapBytesDWide (const uint64 x)
 		return r;
 	#endif
 }
+
+#endif
 
 #endif
 

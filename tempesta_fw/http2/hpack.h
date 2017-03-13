@@ -36,7 +36,7 @@
 typedef struct HTTP2Index HTTP2Index;
 
 typedef struct HTTP2Field {
-	struct HTTP2Field * next;
+	struct HTTP2Field *next;
 	TfwStr name;
 	TfwStr value;
 } HTTP2Field;
@@ -55,48 +55,54 @@ enum {
 
 #define HPack_State_Mask 15
 
-#define HPack_Flags_Add 	  0x010 /* Field must be added to dynamic table. */
-#define HPack_Flags_No_Value	  0x020 /* Index without literal value. */
-#define HPack_Flags_Transit	  0x040 /* Transit header field. */
-#define HPack_Flags_Huffman_Name  0x080 /* Huffman encoding used for field name. */
-#define HPack_Flags_Huffman_Value 0x100 /* Huffman encoding used for field value. */
+#define HPack_Flags_Add 	  0x010	/* Field must be added to dynamic table. */
+#define HPack_Flags_No_Value	  0x020	/* Index without literal value. */
+#define HPack_Flags_Transit	  0x040	/* Transit header field. */
+#define HPack_Flags_Huffman_Name  0x080	/* Huffman encoding used for field name. */
+#define HPack_Flags_Huffman_Value 0x100	/* Huffman encoding used for field value. */
+
+/* state:      Current state.			      */
+/* shift:      Current shift, used when integer       */
+/*	       decoding interrupted due to absence    */
+/*	       of the next fragment.		      */
+/* saved:      Current integer value (see above).     */
+/* field:      Last header field name and value,      */
+/*	       used when decoding proccess interruped */
+/*	       due to absence of the next fragment.   */
+/* pool:       Memory pool.			      */
+/* dynamic:    Dynamic table for headers compression. */
+/* max_window: Maximum allowed dynamic table size.    */
+/* window:     Current dynamic table size (in bytes). */
 
 typedef struct {
-	ufast	  state;   /* Current state. */
-	ufast	  shift;   /* Current shift, used when integer */
-			   /* decoding interrupted due to absence */
-			   /* of the next fragment. */
-	ufast	  saved;   /* Current integer value (see above). */
-	HTTP2Field
-		* field;   /* Last header field name and value, */
-			   /* used when decoding proccess interruped */
-			   /* due to absence of the next fragment. */
-	TfwPool * pool;    /* Memory pool. */
-	HTTP2Index
-		* dynamic; /* Dynamic headers table. */
+	ufast state;
+	ufast shift;
+	uwide saved;
+	 HTTP2Field * field;
+	 TfwPool * pool;
+	 HTTP2Index * dynamic;
+	ufast max_window;
+	ufast window;
 } HPack;
 
-HTTP2Field *
-hpack_decode (HPack	  * __restrict hp,
-	      HTTP2Input  * __restrict source,
-	      uwide		       n,
-	      HTTP2Output * __restrict buffer,
-	      ufast	  * __restrict rc);
+HTTP2Field *hpack_decode(HPack * __restrict hp,
+			 HTTP2Input * __restrict source,
+			 uwide n,
+			 HTTP2Output * __restrict buffer,
+			 ufast * __restrict rc);
 
-void
-hpack_free_chain (HPack      * __restrict hp,
-		  HTTP2Field * __restrict fp);
+void hpack_free_list(HTTP2Output * __restrict hp, HTTP2Field * __restrict fp);
 
-ufast
-hpack_encode (HPack		  * __restrict hp,
-	      const TfwHttpHdrTbl * __restrict source,
-	      HTTP2Output	  * __restrict buffer);
+ufast hpack_encode(HPack * __restrict hp,
+		   const TfwHttpHdrTbl * __restrict source,
+		   HTTP2Output * __restrict buffer);
 
-HPack *
-hpack_new (ufast		window,
-	   TfwPool * __restrict pool);
+ufast hpack_set_max_window(HPack * __restrict hp, ufast max_window);
 
-void
-hpack_free (HPack * __restrict hp);
+ufast hpack_set_window(HPack * __restrict hp, ufast window);
+
+HPack *hpack_new(ufast max_window, TfwPool * __restrict pool);
+
+void hpack_free(HPack * __restrict hp);
 
 #endif

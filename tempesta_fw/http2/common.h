@@ -46,6 +46,11 @@
 #define Platform_Little
 
 /*
+ * Platform_Alignment: plafrom requires aligned access to the memory.
+ */
+/* #define Platform_Alignment */
+
+/*
  * Hardware_Predicates: hardware support for boolean predicates.
  */
 #define Hardware_Predicates
@@ -157,11 +162,6 @@
  * Maximal available length in the shift instructions:
  */
 #define Shift_Length (Bit_Capacity - 1)
-
-/*
- * Platform_Alignment: plafrom requires aligned access to the memory.
- */
-/* #define Platform_Alignment */
 
 /*
  * Integer logarithm-related definitions,
@@ -315,6 +315,9 @@
 	#if defined(__EMX__) && ! defined(__STRICT_ANSI__)
 		#define Compiler_Rotate
 	#endif
+	#ifndef __CHAR_UNSIGNED__
+		#define Compiler_SignedChar
+	#endif
 	#define Internal_int64
 	typedef long long int64;
 	typedef unsigned long long uint64;
@@ -359,6 +362,9 @@
 	#ifndef __cplusplus
 		#define common_inline static __inline
 	#endif
+	#ifndef __CHAR_UNSIGNED__
+		#define Compiler_SignedChar
+	#endif
 	#define Internal_int64
 	typedef __int64 int64;
 	typedef unsigned __int64 uint64;
@@ -375,6 +381,14 @@
 	#endif
 	#define Attribute_Align(x) __declspec(align(x))
 	#define Attribute_NoReturn __declspec(noreturn)
+#endif
+
+#ifndef likely
+#define likely Opt_Likely
+#endif
+
+#ifndef unlikely
+#define unlikely Opt_Unlikely
 #endif
 
 #ifndef common_cdecl

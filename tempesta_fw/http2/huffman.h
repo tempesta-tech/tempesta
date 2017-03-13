@@ -27,30 +27,21 @@
 #include "errors.h"
 #include "buffers.h"
 
-fast
-http2_huffman_decode (const char * __restrict source,
-			    char * __restrict dst,
-			    uwide	      n);
+fast huffman_decode(const char *__restrict source,
+		    char *__restrict dst, uwide n);
 
-fast
-http2_huffman_decode_fragments (HTTP2Input  * __restrict source,
-				HTTP2Output * __restrict destination,
-				uwide			 n);
+fast huffman_decode_fragments(HTTP2Input * __restrict source,
+			      HTTP2Output * __restrict destination, uwide n);
 
-uwide
-http2_huffman_encode (const char * __restrict source,
-			    char * __restrict dst,
-			    uwide	      n);
+uwide huffman_encode(const char *__restrict source,
+		     char *__restrict dst, uwide n);
 
-uwide
-http2_huffman_encode_length (const char * __restrict source,
-				   uwide	     n);
+uwide huffman_encode_length(const char *__restrict source, uwide n);
 
-/* Same as http2_huffman_encode_check, but stops check */
-/* if encoding longer than source: */
+/* Same as http2_huffman_encode_check, */
+/* but stops check if encoding longer  */
+/* than source: 		       */
 
-uwide
-http2_huffman_encode_check (const char * __restrict source,
-				  uwide 	    n);
+uwide huffman_encode_check(const char *__restrict source, uwide n);
 
 #endif

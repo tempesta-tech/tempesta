@@ -20,6 +20,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <string.h>
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
@@ -31,329 +32,464 @@
 #include "hpack_helpers.h"
 #include "hpack.h"
 
-#define HPACK_COPY_STRING(value)				\
-do {								\
-	n -= length;						\
-	src = buffer_copy(					\
-		source, &m, src, m, length, &field->value, pool \
-	);							\
-	if (Opt_Unlikely(src == NULL)) {			\
-		goto Out_Of_Memory;				\
-	}							\
+#define HPACK_COPY_STRING(value)    \
+do {				    \
+	n -= length;		    \
+	src = buffer_copy(	    \
+		source, &m, src, m, \
+		length, buffer, rc  \
+	);			    \
+	if (unlikely(rc != 0)) {    \
+		goto Bug;	    \
+	}			    \
+	field->value = buffer->str; \
 } while (0)
 
 HTTP2Field *
-hpack_decode (HPack	  * __restrict hp,
-	      HTTP2Input  * __restrict source,
-	      uwide		       n,
-	      HTTP2Output * __restrict buffer,
-	      ufast	  * __restrict rc)
+hpack_decode(HPack * __restrict hp,
+	     HTTP2Input * __restrict source,
+	     uwide n, HTTP2Output * __restrict buffer, ufast * __restrict rc)
 {
-	TfwPool * __restrict pool = buffer->pool;
-	HTTP2Field * __restrict field = hp->field;
-	HTTP2Field * fp = NULL;
-     /* Initialized only to prevent compiler warnings: */
-	HTTP2Field * bp = NULL;
-	* rc = 0;
+	TfwPool *const __restrict pool = buffer->pool;
+	HTTP2Field *__restrict field = hp->field;
+	HTTP2Field *fp = NULL;
+
+	/* Initialized only to prevent compiler warnings: */
+	HTTP2Field *bp = NULL;
+
+	*rc = 0;
 	if (n) {
 		uwide m;
-		const uchar * __restrict src = buffer_get(source, &m);
+		const uchar *__restrict src = buffer_get(source, &m);
 		ufast state = hp->state;
+
 		do {
-		     /* Initialized only to prevent compiler warnings: */
-			ufast index  = 0;
-			ufast length = 0;
+			/* Initialized only to prevent compiler warnings: */
+			uwide index = 0;
+			uwide length = 0;
+
 			switch (state & HPack_State_Mask) {
 			case HPack_State_Index:
 				GET_CONTINUE(index);
 				if ((state & HPack_Flags_No_Value) == 0) {
 					if (n) {
 						goto Get_Value;
-					}
-					else {
+					} else {
 						state &= ~HPack_State_Mask;
-						state |=  HPack_State_Value;
+						state |= HPack_State_Value;
 						goto Incomplete;
 					}
-				}
-				else {
+				} else {
 					goto Duplicate;
 				}
 				break;
 			case HPack_State_Window:
 				GET_CONTINUE(index);
-Set_Window:			state = HPack_State_Ready;
-				hpack_set_window(hp->dynamic, index);
+ Set_Window:
+				if (index <= hp->max_window) {
+					hp->window = index;
+					hpack_set_length(hp->dynamic, index);
+					state = HPack_State_Ready;
+				} else {
+					*rc = Err_HPack_InvalidTableSize;
+					goto Bug;
+				}
 				break;
 			case HPack_State_Name_Length:
 				GET_CONTINUE(length);
 				if (n >= length) {
 					goto Get_Name_Text;
-				}
-				else {
+				} else {
 					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Name_Text;
+					state |= HPack_State_Name_Text;
 					goto Incomplete;
 				}
 			case HPack_State_Value_Length:
 				GET_CONTINUE(length);
 				if (n >= length) {
 					goto Get_Value_Text;
-				}
-				else {
+				} else {
 					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Value_Text;
+					state |= HPack_State_Value_Text;
 					goto Incomplete;
 				}
 			default:
-		     /* case HPack_State_Ready: */
-			{
-				uchar c;
-				field = tfw_pool_alloc(pool, sizeof(HTTP2Field));
-				if (Opt_Unlikely(field == NULL)) {
-					goto Out_Of_Memory;
-				}
-				memset(field, 0, sizeof(HTTP2Field));
-				if (Opt_Unlikely(m == 0)) {
-					src = buffer_next(source, &m);
-				}
-				c = * src++;
-				n--;
-				m--;
-				if (c & 0x80) {
-					state = HPack_State_Index | HPack_Flags_No_Value;
-					index = c & 0x7F;
-					if (index == 0x7F) {
-						GET_FLEXIBLE(index);
+				/* case HPack_State_Ready: */
+				{
+					uchar c;
+
+					field =
+					    tfw_pool_alloc(pool,
+							   sizeof(HTTP2Field));
+					if (unlikely(field == NULL)) {
+						goto Out_Of_Memory;
 					}
-					else if (Opt_Unlikely(index == 0)) {
-						* rc = HTTP2Error_HPack_Invalid_Index;
-						goto Bug;
+					memset(field, 0, sizeof(HTTP2Field));
+					if (unlikely(m == 0)) {
+						src = buffer_next(source, &m);
 					}
-					goto Duplicate;
-				}
-				else if (c & 0x40) {
-					state = HPack_State_Index | HPack_Flags_Add;
-					index = c & 0x3F;
-					if (index == 0x3F) {
-Index:						GET_FLEXIBLE(index);
-						state = HPack_State_Value;
-						goto Get_Value;
-					}
-				}
-				else if (c & 0x20) {
-					index = c & 0x1F;
-					if (index == 0x1F) {
-						state = HPack_State_Window;
-						GET_FLEXIBLE(index);
-					}
-					goto Set_Window;
-				}
-				else {
-					state = HPack_State_Index;
-					if (c & 0x10) {
-						state = HPack_State_Index | HPack_Flags_Transit;
-					}
-					index = c & 15;
-					if (index == 15) {
-						goto Index;
-					}
-				}
-				if (n) {
-					if (index) {
-						goto Get_Value;
-					}
-				}
-				else {
-					state &= ~HPack_State_Mask;
-					state |= index ? HPack_State_Value :
-							 HPack_State_Name;
-					goto Incomplete;
-				}
-			}
-			case HPack_State_Name:
-			{
-				uchar c;
-				if (Opt_Unlikely(m == 0)) {
-					src = buffer_next(source, &m);
-				}
-				c = * src++;
-				n--;
-				m--;
-				length = c & 0x7F;
-				if (Opt_Likely(c & 0x80)) {
-					state |= HPack_Flags_Huffman_Name;
-				}
-				if (Opt_Unlikely(length == 0x7F)) {
-					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Name_Length;
-					GET_FLEXIBLE(length);
-				}
-				else if (Opt_Unlikely(length == 0)) {
-					* rc = HTTP2Error_HPack_Invalid_Name_Length;
-					goto Bug;
-				}
-				if (n >= length) {
-					goto Get_Name_Text;
-				}
-				else {
-					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Name_Text;
-					goto Incomplete;
-				}
-			}
-			case HPack_State_Name_Text:
-			{
-				if (Opt_Unlikely(n < length)) {
-					break;
-				}
-Get_Name_Text:
-				if (state & HPack_Flags_Huffman_Name) {
-					ufast hrc;
-					buffer_close(source, m);
-					hrc = http2_huffman_decode_fragments(source, buffer, length);
-					if (Opt_Unlikely(hrc)) {
-						* rc = hrc;
-						goto Bug;
-					}
-					field->name = buffer->str;
-					n -= length;
-					if (Opt_Likely(n)) {
-						src = buffer_get(source, &m);
-					}
-				}
-				else {
-					HPACK_COPY_STRING(name);
-				}
-				if (Opt_Unlikely(n == 0)) {
-					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Value;
-				}
-			}
-			case HPack_State_Value:
-			{
-				uchar c;
-Get_Value:
-				if (Opt_Unlikely(m == 0)) {
-					src = buffer_next(source, &m);
-				}
-				c = * src++;
-				n--;
-				m--;
-				length = c & 0x7F;
-				if (Opt_Likely(c & 0x80)) {
-					state |= HPack_Flags_Huffman_Value;
-				}
-				if (Opt_Unlikely(length == 0x7F)) {
-					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Value_Length;
-					GET_FLEXIBLE(length);
-				}
-				if (n >= length) {
-					goto Get_Value_Text;
-				}
-				else {
-					state &= ~HPack_State_Mask;
-					state |=  HPack_State_Value_Text;
-					goto Incomplete;
-				}
-			}
-			case HPack_State_Value_Text:
-			{
-				ufast hrc;
-				if (Opt_Unlikely(n < length)) {
-					break;
-				}
-Get_Value_Text:
-				if (length) {
-					if (state & HPack_Flags_Huffman_Value) {
-						buffer_close(source, m);
-						hrc = http2_huffman_decode_fragments(source, buffer, length);
-						if (Opt_Unlikely(hrc)) {
-							* rc = hrc;
+					c = *src++;
+					n--;
+					m--;
+					if (c & 0x80) {
+						state =
+						    HPack_State_Index |
+						    HPack_Flags_No_Value;
+						index = c & 0x7F;
+						if (index == 0x7F) {
+							GET_FLEXIBLE(index);
+						} else if (unlikely(index == 0)) {
+							*rc =
+							    Err_HPack_InvalidIndex;
 							goto Bug;
 						}
-						field->value = buffer->str;
-						n -= length;
-						if (Opt_Likely(n)) {
-							src = buffer_get(source, &m);
+						goto Duplicate;
+					} else if (c & 0x40) {
+						state =
+						    HPack_State_Index |
+						    HPack_Flags_Add;
+						index = c & 0x3F;
+						if (index == 0x3F) {
+ Index:
+							GET_FLEXIBLE(index);
+							state =
+							    HPack_State_Value;
+							goto Get_Value;
+						}
+					} else if (c & 0x20) {
+						index = c & 0x1F;
+						if (index == 0x1F) {
+							state =
+							    HPack_State_Window;
+							GET_FLEXIBLE(index);
+						}
+						goto Set_Window;
+					} else {
+						state = HPack_State_Index;
+						if (c & 0x10) {
+							state =
+							    HPack_State_Index |
+							    HPack_Flags_Transit;
+						}
+						index = c & 15;
+						if (index == 15) {
+							goto Index;
 						}
 					}
-					else {
-						HPACK_COPY_STRING(value);
+					if (n) {
+						if (index) {
+							goto Get_Value;
+						}
+					} else {
+						state &= ~HPack_State_Mask;
+						state |=
+						    index ? HPack_State_Value :
+						    HPack_State_Name;
+						goto Incomplete;
 					}
 				}
-				if (index) {
-Duplicate:				hrc = hpack_add_index(hp->dynamic, field, index, state);
-				}
-				else {
-					hrc = hpack_add(hp->dynamic, field, state);
-				}
-				if (hrc) {
-					if (fp) {
-						bp->next = field;
+			case HPack_State_Name:
+				{
+					uchar c;
+
+					if (unlikely(m == 0)) {
+						src = buffer_next(source, &m);
 					}
-					else {
-						fp = field;
+					c = *src++;
+					n--;
+					m--;
+					length = c & 0x7F;
+					if (c & 0x80) {
+						state |=
+						    HPack_Flags_Huffman_Name;
 					}
-					bp = field;
-					field = NULL;
-					state = HPack_State_Ready;
+					if (unlikely(length == 0x7F)) {
+						state &= ~HPack_State_Mask;
+						state |=
+						    HPack_State_Name_Length;
+						GET_FLEXIBLE(length);
+					} else if (unlikely(length == 0)) {
+						*rc =
+						    Err_HPack_InvalidNameLength;
+						goto Bug;
+					}
+					if (n >= length) {
+						goto Get_Name_Text;
+					} else {
+						state &= ~HPack_State_Mask;
+						state |= HPack_State_Name_Text;
+						goto Incomplete;
+					}
 				}
-				else {
-					* rc = hrc;
-					goto Bug;
+			case HPack_State_Name_Text:
+				{
+					if (unlikely(n < length)) {
+						break;
+					}
+ Get_Name_Text:
+					if (state & HPack_Flags_Huffman_Name) {
+						ufast hrc;
+
+						buffer_close(source, m);
+						hrc =
+						    huffman_decode_fragments
+						    (source, buffer, length);
+						if (unlikely(hrc)) {
+							*rc = hrc;
+							goto Bug;
+						}
+						field->name = buffer->str;
+						n -= length;
+						if (likely(n)) {
+							src =
+							    buffer_get(source,
+								       &m);
+						}
+					} else {
+						HPACK_COPY_STRING(name);
+					}
+					if (unlikely(n == 0)) {
+						state &= ~HPack_State_Mask;
+						state |= HPack_State_Value;
+					}
 				}
-			}
+			case HPack_State_Value:
+				{
+					uchar c;
+
+ Get_Value:
+					if (unlikely(m == 0)) {
+						src = buffer_next(source, &m);
+					}
+					c = *src++;
+					n--;
+					m--;
+					length = c & 0x7F;
+					if (c & 0x80) {
+						state |=
+						    HPack_Flags_Huffman_Value;
+					}
+					if (unlikely(length == 0x7F)) {
+						state &= ~HPack_State_Mask;
+						state |=
+						    HPack_State_Value_Length;
+						GET_FLEXIBLE(length);
+					}
+					if (n >= length) {
+						goto Get_Value_Text;
+					} else {
+						state &= ~HPack_State_Mask;
+						state |= HPack_State_Value_Text;
+						goto Incomplete;
+					}
+				}
+			case HPack_State_Value_Text:
+				{
+					ufast hrc;
+
+					if (unlikely(n < length)) {
+						break;
+					}
+ Get_Value_Text:
+					if (length) {
+						if (state &
+						    HPack_Flags_Huffman_Value) {
+							buffer_close(source, m);
+							hrc =
+							    huffman_decode_fragments
+							    (source, buffer,
+							     length);
+							if (unlikely(hrc)) {
+								*rc = hrc;
+								goto Bug;
+							}
+							field->value =
+							    buffer->str;
+							n -= length;
+							if (likely(n)) {
+								src =
+								    buffer_get
+								    (source,
+								     &m);
+							}
+						} else {
+							HPACK_COPY_STRING
+							    (value);
+						}
+					}
+					if (index) {
+ Duplicate:
+						hrc =
+						    hpack_add_index(hp->dynamic,
+								    field,
+								    index,
+								    state,
+								    buffer);
+					} else {
+						hrc =
+						    hpack_add(hp->dynamic,
+							      field, state,
+							      buffer);
+					}
+					if (hrc) {
+						if (fp) {
+							bp->next = field;
+						} else {
+							fp = field;
+						}
+						bp = field;
+						field = NULL;
+						state = HPack_State_Ready;
+					} else {
+						*rc = hrc;
+						goto Bug;
+					}
+				}
 			}
 		} while (n);
-Incomplete:	hp->state = state;
+ Incomplete:
+		hp->state = state;
 		hp->field = field;
 		buffer_close(source, m);
 	}
 	return fp;
-Overflow:
-	* rc = HTTP2Error_Integer_Overflow;
-Bug:
+ Overflow:
+	*rc = Err_HTTP2_IntegerOverflow;
+ Bug:
 	if (field) {
 		hp->field = NULL;
-		buffer_free_tfwstr(pool, &field->name);
-		buffer_free_tfwstr(pool, &field->value);
+		buffer_str_free(pool, &field->name);
+		buffer_str_free(pool, &field->value);
 	}
 	if (fp) {
-		hpack_free_chain(hp, fp);
+		hpack_free_list(buffer, fp);
 	}
 	return NULL;
-Out_Of_Memory:
-	* rc = HTTP2Error_Out_Of_Memory;
+ Out_Of_Memory:
+	*rc = Err_HTTP2_OutOfMemory;
 	goto Bug;
 }
 
-HPack *
-hpack_new (ufast		window,
-	   TfwPool * __restrict pool)
+static HTTP2Field *
+hpack_list_reverse(HTTP2Field * const list)
 {
-	HPack * __restrict hp =
-		tfw_pool_alloc(pool, sizeof(HPack));
-	if (hp) {
-		hp->state = HPack_State_Ready;
-		hp->shift = 0;
-		hp->saved = 0;
-		hp->field = NULL;
-		hp->pool = pool;
-		hp->dynamic = hpack_new_index(window, pool);
+	HTTP2Field *p = list;
+	HTTP2Field *q = p->next;
+
+	if (q) {
+		p->next = NULL;
+		do {
+			HTTP2Field *n;
+
+			n = q->next;
+			q->next = p;
+			if (n == NULL) {
+				return q;
+			}
+			p = n->next;
+			n->next = q;
+			if (p == NULL) {
+				return n;
+			}
+			q = p->next;
+			p->next = n;
+		} while (q);
 	}
-	return hp;
+	return p;
 }
 
 void
-hpack_free (HPack * __restrict hp)
+hpack_free_list(HTTP2Output * __restrict buffer, HTTP2Field * __restrict p)
 {
-	HTTP2Field * __restrict field = hp->field;
-	TfwPool * __restrict pool = hp->pool;
+	TfwPool *__restrict pool = buffer->pool;
+
+	if (p) {
+		p = hpack_list_reverse(p);
+		do {
+			HTTP2Field *n = p->next;
+
+			buffer_str_free(pool, &p->value);
+			buffer_str_free(pool, &p->name);
+			tfw_pool_free(pool, p, sizeof(HTTP2Field));
+			p = n;
+		} while (p);
+	}
+}
+
+ufast
+hpack_set_max_window(HPack * __restrict hp, ufast max_window)
+{
+#if Fast_Capacity > 32
+	if (unlikely(max_window > (uint32) - 1)) {
+		return Err_HPack_InvalidTableSize;
+	}
+#endif
+	if (max_window == 0) {
+		max_window = (uint32) - 1;
+	}
+	hp->max_window = max_window;
+	if (unlikely(hp->window > max_window)) {
+		hp->window = max_window;
+		hpack_set_length(hp->dynamic, max_window);
+	}
+	return 0;
+}
+
+ufast
+hpack_set_window(HPack * __restrict hp, ufast window)
+{
+	if (window <= hp->max_window) {
+		hp->window = window;
+		hpack_set_length(hp->dynamic, window);
+		return 0;
+	} else {
+		return Err_HPack_InvalidTableSize;
+	}
+}
+
+HPack *
+hpack_new(ufast max_window, TfwPool * __restrict pool)
+{
+	HTTP2Index *__restrict dynamic;
+
+#if Fast_Capacity > 32
+	if (unlikely(max_window > (uint32) - 1)) {
+		return NULL;
+	}
+#endif
+	if (max_window == 0) {
+		max_window = (uint32) - 1;
+	}
+	dynamic = hpack_new_index(max_window, pool);
+	if (dynamic) {
+		HPack *const __restrict hp =
+		    tfw_pool_alloc(pool, sizeof(HPack));
+		if (hp) {
+			hp->state = HPack_State_Ready;
+			hp->shift = 0;
+			hp->saved = 0;
+			hp->max_window = max_window;
+			hp->window = max_window;
+			hp->field = NULL;
+			hp->pool = pool;
+			hp->dynamic = dynamic;
+		} else {
+			hpack_free_index(dynamic);
+		}
+		return hp;
+	}
+	return NULL;
+}
+
+void
+hpack_free(HPack * __restrict hp)
+{
+	HTTP2Field *const __restrict field = hp->field;
+	TfwPool *const __restrict pool = hp->pool;
+
 	if (field) {
-		buffer_free_tfwstr(pool, &field->name);
-		buffer_free_tfwstr(pool, &field->value);
+		buffer_str_free(pool, &field->name);
+		buffer_str_free(pool, &field->value);
 	}
 	hpack_free_index(hp->dynamic);
 	tfw_pool_free(pool, hp, sizeof(HPack));
