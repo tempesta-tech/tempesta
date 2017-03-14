@@ -162,7 +162,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	memcpy(prcntl, tfw_procfs_prcntl, sizeof(prcntl));
 
-	tfw_apm_stats(srv->apm, &pstats);
+	tfw_apm_stats_bh(srv->apm, &pstats);
 
 	SPRNE("Minimal response time\t\t", pstats.min);
 	SPRNE("Average response time\t\t", pstats.avg);
