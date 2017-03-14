@@ -555,8 +555,9 @@ tfw_http_req_error(TfwSrvConn *srv_conn, TfwHttpReq *req,
 {
 	tfw_http_req_delist(srv_conn, req);
 	list_add_tail(&req->fwd_list, equeue);
-	req->status = status;
-	req->reason = reason;
+
+	req->httperr.status = status;
+	req->httperr.reason = reason;
 }
 
 /*
@@ -565,9 +566,9 @@ tfw_http_req_error(TfwSrvConn *srv_conn, TfwHttpReq *req,
  * fast as possible by moving failed requests to the error queue
  * that can be processed without the lock.
  *
- * Delete requests that were not forwarded due to an error. Send an
- * error response to a client. The response will be attached to the
- * request and then sent to the client in proper seq order.
+ * Process requests that were not forwarded due to an error. Send
+ * an error response to a client. The response will be attached to
+ * the request and then sent to the client in proper seq order.
  */
 static void
 tfw_http_req_zap_error(struct list_head *equeue)
@@ -579,23 +580,23 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		switch(req->status) {
+		switch(req->httperr.status) {
 		case 404:
-			tfw_http_send_404(req, req->reason);
+			tfw_http_send_404(req, req->httperr.reason);
 			break;
 		case 500:
-			tfw_http_send_500(req, req->reason);
+			tfw_http_send_500(req, req->httperr.reason);
 			break;
 		case 502:
-			tfw_http_send_502(req, req->reason);
+			tfw_http_send_502(req, req->httperr.reason);
 			break;
 		case 504:
-			tfw_http_send_504(req, req->reason);
+			tfw_http_send_504(req, req->httperr.reason);
 			break;
 		default:
 			TFW_WARN("Unexpected response error code: [%d]\n",
-				 req->status);
-			tfw_http_send_500(req, req->reason);
+				 req->httperr.status);
+			tfw_http_send_500(req, req->httperr.reason);
 			break;
 		}
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -2573,7 +2574,12 @@ static TfwConnHooks http_conn_hooks = {
 int __init
 tfw_http_init(void)
 {
-	int r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
+	int r;
+	/* Make sure @req->httperr doesn't take too much space. */
+	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, httperr)
+		     > FIELD_SIZEOF(TfwHttpMsg, parser));
+
+	r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
 	if (r)
 		return r;
 
