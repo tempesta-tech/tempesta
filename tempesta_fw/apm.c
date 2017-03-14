@@ -825,30 +825,43 @@ tfw_apm_prcntl_fn(unsigned long fndata)
  *
  * Return 0 if the percentile values didn't need recalculation.
  * Return 1 if potentially new percentile values were calculated.
+ *
+ * The two functions below differ only by the type of lock used.
+ * tfw_apm_stats() should be used for calls in kernel context.
+ * tfw_apm_stats_bh() should be used for calls in user context.
  */
+#define __tfw_apm_stats_body(apmdata, pstats, fn_lock, fn_unlock)	\
+	int rdidx, seq = pstats->seq;					\
+	TfwApmData *data = apmdata;					\
+	TfwApmSEnt *asent;						\
+									\
+	BUG_ON(!apmdata);						\
+									\
+	smp_mb__before_atomic();					\
+	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;	\
+	asent = &data->stats.asent[rdidx];				\
+									\
+	fn_lock(&asent->rwlock);					\
+	memcpy(pstats->prcntl, asent->pstats.prcntl,			\
+	       pstats->prcntlsz * sizeof(TfwPrcntl));			\
+	pstats->min = asent->pstats.min;				\
+	pstats->max = asent->pstats.max;				\
+	pstats->avg = asent->pstats.avg;				\
+	fn_unlock(&asent->rwlock);					\
+	pstats->seq = rdidx;						\
+									\
+	return (seq != rdidx);
+
+int
+tfw_apm_stats_bh(void *apmdata, TfwPrcntlStats *pstats)
+{
+	__tfw_apm_stats_body(apmdata, pstats, read_lock_bh, read_unlock_bh);
+}
+
 int
 tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 {
-	int rdidx, seq = pstats->seq;
-	TfwApmData *data = apmdata;
-	TfwApmSEnt *asent;
-
-	BUG_ON(!apmdata);
-
-	smp_mb__before_atomic();
-	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;
-	asent = &data->stats.asent[rdidx];
-
-	read_lock(&asent->rwlock);
-	memcpy(pstats->prcntl, asent->pstats.prcntl,
-	       pstats->prcntlsz * sizeof(TfwPrcntl));
-	pstats->min = asent->pstats.min;
-	pstats->max = asent->pstats.max;
-	pstats->avg = asent->pstats.avg;
-	read_unlock(&asent->rwlock);
-	pstats->seq = rdidx;
-
-	return (seq != rdidx);
+	__tfw_apm_stats_body(apmdata, pstats, read_lock, read_unlock);
 }
 
 /*
