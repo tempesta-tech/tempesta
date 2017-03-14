@@ -2576,8 +2576,8 @@ tfw_http_init(void)
 {
 	int r;
 	/* Make sure @req->httperr doesn't take too much space. */
-	BUILD_BUG_ON(sizeof(((TfwHttpMsg *)0)->httperr)
-		     > sizeof(((TfwHttpMsg *)0)->parser));
+	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, httperr)
+		     > FIELD_SIZEOF(TfwHttpMsg, parser));
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
 	if (r)

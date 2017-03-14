@@ -892,7 +892,7 @@ tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
 	 * the maximum value possible for TfwPcntCtl{}->end. Currently
 	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
 	 */
-	if (likely(rtt < (1UL << sizeof(((TfwPcntCtl *)0)->end) * 8)))
+	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
 		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
 }
 
