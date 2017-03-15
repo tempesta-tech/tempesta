@@ -169,6 +169,22 @@ typedef struct {
  * system is stopped, or new configuration is available, or an error occurred).
  * The @cleanup callback is invoked when @handler was called at least once
  * regardless of the handler's return value.
+ *
+ * Configuration specification may have nested entries. In that case @handler
+ * must be filled with pointer to function @tfw_cfg_handle_children(),
+ * @dest - null-terminated array of nested specifications, @spec_ext -
+ * poitner to instance of @TfwCfgSpecChild struct. @cleanup function cleaning
+ * specification and all the nested entries is a mandatory in this case.
+ * Generic @tfw_cfg_cleanup_children() function calls @cleanup functions for all
+ * the nested entries and may be used here. Or user-defined function may be
+ * provided, if so it takes responsibility to clean up all the nested entries.
+ *
+ * Note: There is special case of repeatable specifications containing
+ * non-repeatable nested entries. Such entries need @call_counter values
+ * of non-repeatable child entries to be reset before using specs in the
+ * configuration parser. That breaks generic @cleanup approach based on
+ * @call_counter values, so reset will take place only if user-defined cleanup
+ * function is provided.
  */
 typedef struct TfwCfgSpec TfwCfgSpec;
 struct TfwCfgSpec {
@@ -281,6 +297,7 @@ int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
+void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 
 /* Various helpers for building custom handler functions. */
 int tfw_cfg_check_range(long value, long min, long max);
