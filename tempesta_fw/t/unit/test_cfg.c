@@ -952,8 +952,10 @@ TEST(tfw_cfg_handle_children, parses_nested_entries_recursively)
 		{ 0 }
 	};
 	TfwCfgSpec root_specs[] = {
-		{ "section1", NULL, tfw_cfg_handle_children, section1_specs },
-		{ "section2", NULL, tfw_cfg_handle_children, section2_specs },
+		{ "section1", NULL, tfw_cfg_handle_children, section1_specs,
+		  .cleanup = tfw_cfg_cleanup_children },
+		{ "section2", NULL, tfw_cfg_handle_children, section2_specs,
+		  .cleanup = tfw_cfg_cleanup_children },
 		{ "incr", NULL, cb_incr_ctr, &counter3, .allow_repeat = true },
 		{ "decr", NULL, cb_decr_ctr, &counter3, .allow_repeat = true },
 		{ 0 }
@@ -1007,7 +1009,8 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 			"section", NULL,
 			tfw_cfg_handle_children,
 			nested_specs,
-			.allow_repeat = true
+			.allow_repeat = true,
+			.cleanup = tfw_cfg_cleanup_children
 		},
 		{ 0 }
 	};

@@ -1039,8 +1039,7 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 		},
 		.allow_none = true,
 		.allow_repeat = true,
-		/* .cleanup function in a section with
-		   children causes a BUG_ON in cfg.c. */
+		.cleanup = tfw_cfg_cleanup_children
 	},
 	{ 0 },
 };
