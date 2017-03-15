@@ -744,6 +744,8 @@ spec_start_handling(TfwCfgSpec specs[])
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
 		BUG_ON(spec->call_counter < 0);
+		if (spec->handler == &tfw_cfg_handle_children)
+			BUG_ON(!spec->cleanup);
 	}
 }
 
@@ -857,8 +859,6 @@ err_dflt_val:
 	return r;
 }
 
-static void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
-
 static void
 spec_cleanup(TfwCfgSpec specs[])
 {
@@ -870,18 +870,6 @@ spec_cleanup(TfwCfgSpec specs[])
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
-
-		/**
-		 * When spec processing function is tfw_cfg_handle_children(),
-		 * a user-defined .cleanup function for that spec is not
-		 * allowed. Instead, an special .cleanup function is assigned
-		 * to that spec, thus overwriting the (zero) value there.
-		 * When the whole cleanup process completes, revert that spec
-		 * entry to original (zero) value. That will allow reuse of
-		 * the spec.
-		 */
-		if (spec->cleanup == &tfw_cfg_cleanup_children)
-			spec->cleanup = NULL;
 	}
 }
 
@@ -1065,12 +1053,13 @@ tfw_cfg_parse_int(const char *s, int *out_int)
 }
 EXPORT_SYMBOL(tfw_cfg_parse_int);
 
-static void
+void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
 {
 	TfwCfgSpec *nested_specs = cs->dest;
 	spec_cleanup(nested_specs);
 }
+EXPORT_SYMBOL(tfw_cfg_cleanup_children);
 
 /**
  * This handler allows to parse nested entries recursively.
@@ -1104,18 +1093,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	int ret;
 
 	BUG_ON(!nested_specs);
+	BUG_ON(!cs->cleanup);
 	/*
-	 * If no cleanup function provided - set generic one, if any - reset
-	 * call counters for children to allow parsing non-repeatable specs.
-	 * Reseting call counters is safe: presence of custom .cleanup()
-	 * functions means that user is responsible to clear up nested
-	 * specs.
+	 * If spec is repeateble, it must have non-generic cleanup function.
+	 * In onther way parsing non-repeatable nestes specs will fail.
 	 */
-	BUG_ON(cs->call_counter && !cs->cleanup);
-	if (!cs->cleanup) {
-		cs->cleanup = tfw_cfg_cleanup_children;
-	}
-	else if (cs->cleanup != &tfw_cfg_cleanup_children) {
+
+	if (cs->allow_repeat && (cs->cleanup != &tfw_cfg_cleanup_children)) {
 		TfwCfgSpec *spec;
 		TFW_CFG_FOR_EACH_SPEC(spec, nested_specs)
 			spec->call_counter = 0;

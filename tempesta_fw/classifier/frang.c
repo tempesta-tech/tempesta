@@ -1075,7 +1075,8 @@ static TfwCfgSpec frang_cfg_toplevel_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_cfg_section_specs
+		.dest = &frang_cfg_section_specs,
+		.cleanup = tfw_cfg_cleanup_children
 	},
 	{}
 };

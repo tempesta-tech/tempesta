@@ -281,6 +281,7 @@ int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
+void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 
 /* Various helpers for building custom handler functions. */
 int tfw_cfg_check_range(long value, long min, long max);
