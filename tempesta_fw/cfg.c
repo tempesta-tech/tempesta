@@ -857,6 +857,8 @@ err_dflt_val:
 	return r;
 }
 
+static void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
+
 static void
 spec_cleanup(TfwCfgSpec specs[])
 {
@@ -878,7 +880,7 @@ spec_cleanup(TfwCfgSpec specs[])
 		 * entry to original (zero) value. That will allow reuse of
 		 * the spec.
 		 */
-		if (spec->handler == &tfw_cfg_handle_children)
+		if (spec->cleanup == &tfw_cfg_cleanup_children)
 			spec->cleanup = NULL;
 	}
 }
@@ -1102,8 +1104,22 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	int ret;
 
 	BUG_ON(!nested_specs);
-	BUG_ON(!cs->call_counter && cs->cleanup);
-	cs->cleanup = tfw_cfg_cleanup_children;
+	/*
+	 * If no cleanup function provided - set generic one, if any - reset
+	 * call counters for children to allow parsing non-repeatable specs.
+	 * Reseting call counters is safe: presence of custom .cleanup()
+	 * functions means that user is responsible to clear up nested
+	 * specs.
+	 */
+	BUG_ON(cs->call_counter && !cs->cleanup);
+	if (!cs->cleanup) {
+		cs->cleanup = tfw_cfg_cleanup_children;
+	}
+	else if (cs->cleanup != &tfw_cfg_cleanup_children) {
+		TfwCfgSpec *spec;
+		TFW_CFG_FOR_EACH_SPEC(spec, nested_specs)
+			spec->call_counter = 0;
+	}
 
 	if (!e->have_children) {
 		TFW_ERR("the entry has no nested children entries\n");
