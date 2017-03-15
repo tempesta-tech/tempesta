@@ -1,6 +1,6 @@
 # Kbuild output
 *.o
-*.o.cmd
+*.o.*
 *.ko
 *.ko.cmd
 *.obj
