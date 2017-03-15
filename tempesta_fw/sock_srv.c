@@ -864,7 +864,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR("%s %s: Invalid number of arguments: %zd\n",
 			cs->name, ce->val_n ? ce->vals[0] : "", ce->val_n);
 			return -EINVAL;
-        }
+	}
 	if (ce->attr_n) {
 		TFW_ERR("%s %s: Arguments may not have the \'=\' sign\n",
 			cs->name, ce->vals[0]);
@@ -1163,6 +1163,7 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			},
 			.allow_none = true,
 			.allow_repeat = true,
+			.cleanup = tfw_clean_srv_groups,
 		},
 		{ 0 }
 	}

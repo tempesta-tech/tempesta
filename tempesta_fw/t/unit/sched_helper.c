@@ -45,19 +45,6 @@ test_spec_cleanup(TfwCfgSpec specs[])
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
-
-		/**
-		 * When spec processing function is tfw_cfg_handle_children(),
-		 * a user-defined .cleanup function for that spec is not
-		 * allowed. Instead, an special .cleanup function is assigned
-		 * to that spec, thus overwriting the (zero) value there.
-		 * When the whole cleanup process completes, revert that spec
-		 * entry to original (zero) value. That will allow reuse of
-		 * the spec.
-		 */
-		if (spec->handler == &tfw_cfg_handle_children) {
-			spec->cleanup = NULL;
-		}
 	}
 }
 
