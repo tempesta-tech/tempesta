@@ -47,7 +47,7 @@
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
-#define STICKY_KEY_MAXLEN	(sizeof(((TfwHttpSess *)0)->hmac))
+#define STICKY_KEY_MAXLEN	FIELD_SIZEOF(TfwHttpSess, hmac)
 
 #define SESS_HASH_BITS		17
 #define SESS_HASH_SZ		(1 << SESS_HASH_BITS)

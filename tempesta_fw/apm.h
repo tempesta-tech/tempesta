@@ -52,6 +52,7 @@ void *tfw_apm_create(void);
 void tfw_apm_destroy(void *data);
 void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats(void *data, TfwPrcntlStats *pstats);
+int tfw_apm_stats_bh(void *data, TfwPrcntlStats *pstats);
 int tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz);
 
 #endif /* __TFW_APM_H__ */
