@@ -88,18 +88,23 @@
  * and acts as an interface between the parser FSM and TfwCfgSpec->handler.
  * The parser accumulates data in the TfwCfgEntry, and when the current entry is
  * finished, the parser executes the handler and then destroys the structure.
+ *
+ * @line_no	- Current line number, used to show propper config parsing error
+ *		  to user.
+ * @line	- Pointer to start of the current line, for same purpose.
  */
 typedef struct {
 	bool have_children;
 	size_t val_n;
 	size_t attr_n;
-	int line; /* The current line */
 	const char *name;
 	const char *vals[TFW_CFG_ENTRY_VAL_MAX];
 	struct {
 		const char *key;
 		const char *val;
 	} attrs[TFW_CFG_ENTRY_ATTR_MAX];
+	size_t line_no;
+	const char *line;
 } TfwCfgEntry;
 
 /**
