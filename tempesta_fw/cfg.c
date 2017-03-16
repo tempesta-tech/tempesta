@@ -395,7 +395,7 @@ do {					\
 do {					\
 	ps->prev_c = ps->c;		\
 	ps->c = *(++ps->pos);		\
-	printk("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
+	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	if (ps->prev_c == '\n') {	\
 		++ps->line_no;		\
 		ps->line = ps->pos;	\
@@ -1423,10 +1423,10 @@ print_parse_error(const TfwCfgParserState *ps)
 	const char* eos = strchrnul(ps->e.line, '\n');
 
 	len = min(80, (int)(eos - ps->e.line));
-	TFW_ERR("configuration parsing error:\n"
-	       "%4zu: %.*s\n"
-	       "      %.*s\n",
-	       ps->e.line_no + 1, len, ps->e.line, len, ticks);
+	TFW_ERR_NL("configuration parsing error:\n"
+		   "%4zu: %.*s\n"
+		   "      %.*s\n",
+		   ps->e.line_no + 1, len, ps->e.line, len, ticks);
 }
 
 /*
