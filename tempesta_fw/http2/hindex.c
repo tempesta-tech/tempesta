@@ -22,6 +22,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
@@ -30,14 +31,25 @@
 #include "hindex.h"
 #include "hstatic.h"
 
+#define Debug_HIndex 1
+
+#if Debug_HIndex
+#define DPRINTF(...) printf("HIndex: " __VA_ARGS__)
+#define DPUTS(...) puts("HIndex: " __VA_ARGS__)
+#else
+#define DPRINTF(...)
+#define DPUTS(...)
+#endif
+
 static HPackEntry *
 hpack_find_index(HTTP2Index * __restrict ip, ufast index)
 {
 	if (index <= HPACK_STATIC_ENTRIES) {
+		DPUTS("Static table entry:");
 		return hpack_static_table + index - 1;
 	} else {
 		index -= HPACK_STATIC_ENTRIES + 1;
-		if (index <= ip->n) {
+		if (index < ip->n) {
 			ufast current = ip->current;
 
 			if (index <= current) {
@@ -45,6 +57,7 @@ hpack_find_index(HTTP2Index * __restrict ip, ufast index)
 			} else {
 				current += ip->length - index;
 			}
+			DPUTS("Dynamic table entry:");
 			return ip->entries + current;
 		} else {
 			return NULL;
@@ -255,6 +268,11 @@ hpack_add(HTTP2Index * __restrict ip,
 		value.count = 0;
 		return hpack_add_and_prune(ip, &name, &value);
 	}
+#if HIndex_Debug
+	else {
+		DPUTS("Entry is not added to dictionary");
+	}
+#endif
 	return 0;
 }
 
@@ -271,6 +289,8 @@ hpack_add_index(HTTP2Index * __restrict ip,
 		HPackStr local_value;
 		uint8 arena = name->arena;
 
+		DPRINTF("           %s: %s\n",
+			(char *)entry->name.ptr, (char *)entry->value.ptr);
 		if (flags & HPack_Flags_Add && arena == HPack_Arena_Dynamic) {
 			name->count++;
 		}

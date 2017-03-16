@@ -22,30 +22,40 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
 #include "errors.h"
 #include "buffers.h"
 
-#define Debug_Buffers 0
+#define Debug_Buffers 1
 
-/* -------------------------------------------------- */
-/* Input buffer (used by parser to handle fragments): */
-/* -------------------------------------------------- */
+#if Debug_Buffers
+#define DPRINTF(...) printf("Buffers: " __VA_ARGS__)
+#define DPUTS(...) puts("Buffers: " __VA_ARGS__)
+#else
+#define DPRINTF(...)
+#define DPUTS(...)
+#endif
+
+/* ------------------------------------------------------- */
+/* Input buffer (used in the parsers to handle fragments): */
+/* ------------------------------------------------------- */
 
 /* Initialize input buffer from the TfwStr: */
 
 void
 buffer_from_tfwstr(HTTP2Input * __restrict p, const TfwStr * __restrict str)
 {
-	p->offset = 0;
-	p->n = str->len;
-	p->current = 0;
-	p->tail = 0;		/* p->tail is initialized here only to avoid */
-	/* partial writing into cache line, really */
-	/* it does not used by buffer_get() call. */
 	p->str = str;
+	p->current = 0;
+	p->n = str->len;
+/* p->tail is initialized here only to avoid */
+/* partial writing into cache line, really */
+/* it does not used by buffer_get() call: */
+	p->tail = 0;
+	p->offset = 0;
 }
 
 /* Get pointer to and length of the current fragment ("m"): */
@@ -53,25 +63,20 @@ buffer_from_tfwstr(HTTP2Input * __restrict p, const TfwStr * __restrict str)
 const uchar *
 buffer_get(HTTP2Input * __restrict p, uwide * __restrict m)
 {
-	const uwide offset = p->offset;
 	const TfwStr *__restrict fp = p->str;
+	const uwide offset = p->offset;
+	uwide tail;
 
 	if (TFW_STR_PLAIN(fp)) {
-#if Debug_Buffers
-		puts("Plain string...");
-#endif
-		*m = p->n;
+		tail = p->n;
 	} else {
-		uwide tail;
-
 		fp = __TFW_STR_CH(fp, p->current);
 		tail = fp->len - offset;
-		p->tail = tail;
-		*m = tail;
 	}
-#if Debug_Buffers
-	printf("Open at: %u, current: %u bytes...\n", offset, *m);
-#endif
+	p->tail = tail;
+	*m = tail;
+	DPRINTF("Open at: %" PRIuPTR ", current: %" PRIuPTR " bytes...\n",
+		offset, tail);
 	return (const uchar *)fp->ptr + offset;
 }
 
@@ -84,14 +89,12 @@ buffer_next(HTTP2Input * __restrict p, uwide * __restrict m)
 	const TfwStr *const __restrict fp = __TFW_STR_CH(p->str, current);
 	const uwide length = fp->len;
 
-	p->offset = 0;
-	p->n -= p->tail;
 	p->current = current;
+	p->n -= p->tail;
 	p->tail = length;
+	p->offset = 0;
 	*m = length;
-#if Debug_Buffers
-	printf("Next fragment: %u bytes...\n", length);
-#endif
+	DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", length);
 	return (const uchar *)fp->ptr;
 }
 
@@ -101,25 +104,17 @@ buffer_next(HTTP2Input * __restrict p, uwide * __restrict m)
 void
 buffer_close(HTTP2Input * __restrict p, uwide m)
 {
-	const uwide tail = p->tail;
+	const uwide bias = p->tail - m;
 
-	if (m) {
-		const uwide bias = tail - m;
-
-		if (bias) {
+	if (bias) {
+		DPRINTF("Consumed %" PRIuPTR " bytes...\n", bias);
+		p->n -= bias;
+		if (m) {
 			p->offset += bias;
-			p->n -= bias;
-#if Debug_Buffers
-			printf("Shift forward to %u bytes...\n", bias);
-#endif
+		} else {
+			p->current++;
+			p->offset = 0;
 		}
-	} else {
-		p->offset = 0;
-		p->n -= tail;
-		p->current++;
-#if Debug_Buffers
-		printf("Consumed %u bytes...\n", tail);
-#endif
 	}
 }
 
@@ -143,15 +138,14 @@ buffer_count(HTTP2Input * __restrict p,
 
 	if (unlikely(m == 0)) {
 		fp++;
-		p->offset = 0;
+		current++;
 		p->n -= p->tail;
-		p->current = ++current;
 		m = fp->len;
+		p->current = current;
 		p->tail = m;
-#if Debug_Buffers
-		printf("Next fragment: %u bytes...\n", m);
-#endif
+		p->offset = 0;
 		src = (const uchar *)fp->ptr;
+		DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
 	}
 	*m_new = m;
 	c = 1;
@@ -181,33 +175,30 @@ buffer_extract(HTTP2Input * __restrict p,
 	       TfwPool * __restrict pool, ufast * __restrict rc)
 {
 	if (m >= length) {
+		*m_new = m - length;
 		out->ptr = (uchar *) src;
 		out->len = length;
 		out->skb = NULL;
 		out->eolen = 0;
 		out->flags = 0;
-		*m_new = m - length;
-		*rc = 0;
 		src += length;
+		*rc = 0;
 	} else {
-		TfwStr *__restrict sp;
-		uwide tail = p->tail;
-		uwide count;
-		uwide current = p->current;
+		ufast count;
 		const TfwStr *const __restrict str = p->str;
+		uwide current = p->current;
+		uwide tail = p->tail;
 		const TfwStr *__restrict fp = __TFW_STR_CH(str, current);
+		TfwStr *__restrict sp;
 
 		if (unlikely(m == 0)) {
 			fp++;
 			current++;
-			p->offset = 0;
 			p->n -= tail;
 			m = fp->len;
 			tail = m;
-#if Debug_Buffers
-			printf("Next fragment: %u bytes...\n", m);
-#endif
 			src = (const uchar *)fp->ptr;
+			DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
 		}
 		{
 			const TfwStr *__restrict __fp = fp;
@@ -234,16 +225,16 @@ buffer_extract(HTTP2Input * __restrict p,
 		p->n -= length;
 		p->offset = 0;
 		do {
-			ufast copied;
+			uwide copied;
 
 			if (unlikely(m == 0)) {
 				fp++;
 				current++;
-				tail = fp->len;
-#if Debug_Buffers
-				printf("Next fragment: %u bytes...\n", tail);
-#endif
+				m = fp->len;
+				tail = m;
 				src = (const uchar *)fp->ptr;
+				DPRINTF("Next fragment: %" PRIuPTR
+					" bytes...\n", m);
 			}
 			copied = m;
 			if (m >= length) {
@@ -258,7 +249,7 @@ buffer_extract(HTTP2Input * __restrict p,
 			src += copied;
 			m -= copied;
 			length -= copied;
-		} while (--count);
+		} while (length);
 		*rc = 0;
  Save:
 		p->current = current;
@@ -284,8 +275,10 @@ buffer_copy(HTTP2Input * __restrict p,
 	    uwide m,
 	    uwide length, HTTP2Output * __restrict out, ufast * __restrict rc)
 {
-	ufast k;
-	uchar *__restrict dst = buffer_open(out, &k);
+	uwide tail;
+	ufast k, code;
+	const TfwStr *__restrict fp;
+	uchar *__restrict dst = buffer_open(out, &k, 0);
 
 	if (m >= length) {
 		*m_new = m - length;
@@ -309,43 +302,40 @@ buffer_copy(HTTP2Input * __restrict p,
 			length -= copied;
 		} while (length);
 	} else {
-		uwide tail = p->tail;
-		uwide current = p->current;
 		const TfwStr *const __restrict str = p->str;
-		const TfwStr *__restrict fp = __TFW_STR_CH(str, current);
+		uwide current = p->current;
 
+		tail = p->tail;
+		fp = __TFW_STR_CH(str, current);
 		if (unlikely(m == 0)) {
 			fp++;
 			current++;
-			p->offset = 0;
 			p->n -= tail;
 			m = fp->len;
 			tail = m;
-#if Debug_Buffers
-			printf("Next fragment: %u bytes...\n", m);
-#endif
 			src = (const uchar *)fp->ptr;
+			DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
 		}
 		p->n -= length;
 		p->offset = 0;
 		do {
-			ufast copied;
+			uwide fragment;
 
 			if (unlikely(m == 0)) {
 				fp++;
 				current++;
-				tail = fp->len;
-#if Debug_Buffers
-				printf("Next fragment: %u bytes...\n", tail);
-#endif
+				m = fp->len;
+				tail = m;
 				src = (const uchar *)fp->ptr;
+				DPRINTF("Next fragment: %" PRIuPTR
+					" bytes...\n", m);
 			}
-			copied = m;
+			fragment = m;
 			if (m >= length) {
-				copied = length;
+				fragment = length;
 			}
 			do {
-				uwide fragment;
+				uwide copied;
 
 				if (unlikely(k == 0)) {
 					dst = buffer_expand(out, &k);
@@ -353,48 +343,60 @@ buffer_copy(HTTP2Input * __restrict p,
 						goto Bug2;
 					}
 				}
-				fragment = k;
-				if (k >= copied) {
-					fragment = copied;
+				copied = k;
+				if (k >= fragment) {
+					copied = fragment;
 				}
-				memcpy(dst, src, fragment);
-				dst += fragment;
-				src += fragment;
-				k -= fragment;
-				m -= fragment;
-				copied -= fragment;
-				length -= fragment;
-			} while (copied);
+				memcpy(dst, src, copied);
+				dst += copied;
+				src += copied;
+				k -= copied;
+				m -= copied;
+				length -= copied;
+				fragment -= copied;
+			} while (fragment);
 		} while (length);
  Save:
 		p->current = current;
 		p->tail = tail;
 		*m_new = m;
 	}
+	code = 0;
  Emit:
-	*rc = buffer_emit(out, k);
+	*rc = buffer_emit(out, k) || code;
 	return src;
-/* Partially rewind last fragment: */
  Bug:
+/* Partially rewind input buffer: */
 	*m_new += length;
-	*rc = Err_HTTP2_OutOfMemory;
+	code = Err_HTTP2_OutOfMemory;
 	goto Emit;
  Bug2:
-	*rc = Err_HTTP2_OutOfMemory;
+/* Partially rewind input buffer: */
+	p->n += length;
+	p->offset = fp->len - tail;
+	code = Err_HTTP2_OutOfMemory;
 	goto Save;
 }
 
-/* --------------------------------------------- */
-/* Output buffer (used to write decoded stings): */
-/* --------------------------------------------- */
+/* ------------------------------------------- */
+/* Output buffer (used to store decoded stings */
+/* in the parser or to store encoded strings   */
+/* in the packet generators).		       */
+/* ------------------------------------------- */
 
 /* Initialize new output buffer: */
 
 void
-buffer_new(HTTP2Output * __restrict p, TfwPool * __restrict pool)
+buffer_new(HTTP2Output * __restrict p,
+	   TfwPool * __restrict pool, ufast alignment)
 {
+	ufast align = Word_Size - 1;
+
+	if (alignment) {
+		align = ~alignment & (alignment - 1);
+	}
 /* Many fields initialized here only to avoid */
-/* partial writing into cache line: */
+/* partial writing into cache lines: */
 	p->last = NULL;
 	p->first = NULL;
 	p->current = NULL;
@@ -402,7 +404,61 @@ buffer_new(HTTP2Output * __restrict p, TfwPool * __restrict pool)
 	p->tail = 0;
 	p->count = 0;
 	p->total = 0;
+	p->def_align = align;
+	p->align = align;
 	p->pool = pool;
+}
+
+/* Open output buffer before decoding the new string. */
+/* There "n" is the length of available space in the buffer: */
+
+uchar *
+buffer_open(HTTP2Output * __restrict p, ufast * __restrict n, ufast alignment)
+{
+	ufast tail = p->tail;
+	uwide align;
+
+	if (alignment == 0) {
+		align = p->def_align;
+	} else {
+		align = ~alignment & (alignment - 1);
+	}
+	*n = tail;
+	if (tail) {
+		HTTP2Block *const __restrict last = p->last;
+		ufast offset = p->offset;
+		uchar *dst = last->data + offset;
+
+		p->current = last;
+		/* Calculate the distance to the next aligned block.          */
+		/* Typecast to the signed integer was added here to eliminate */
+		/* compiler warning about unary minus operator (which would   */
+		/* be applied to the unsigned integer otherwise) - we know    */
+		/* exactly what we do:                                        */
+		ufast delta = (uwide) (-(wide) dst) & align;
+
+		if (likely(delta <= tail)) {
+			tail -= delta;
+			if (tail >= align) {
+				p->count = 1;
+				if (delta) {
+					dst += delta;
+					p->tail = tail;
+					p->offset = offset + delta;
+				}
+				DPRINTF
+				    ("Open output buffer with %u unused bytes (offset = %u)...\n",
+				     p->tail, p->offset);
+				return dst;
+			}
+			/* Rewind alignment back: */
+			tail += delta;
+		}
+		last->tail = tail;
+		p->tail = 0;
+	}
+	DPUTS("Return empty output buffer...");
+	return NULL;
 }
 
 #ifndef offsetof
@@ -413,7 +469,6 @@ buffer_new(HTTP2Output * __restrict p, TfwPool * __restrict pool)
 /* and zero length ("n") if unable to allocate memory: */
 
 #define Page_Size 4096
-#define Unused_Space (Page_Size - offsetof(HTTP2Block, data))
 
 uchar *
 buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n)
@@ -421,80 +476,60 @@ buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n)
 	HTTP2Block *const __restrict block = tfw_pool_alloc(p->pool, Page_Size);
 
 	if (block) {
+		uchar *__restrict dst = block->data;
 		HTTP2Block *__restrict last = p->last;
+		const uwide align = p->align;
 
+		/* Calculate the distance to the next aligned block.          */
+		/* Typecast to the signed integer was added here to eliminate */
+		/* compiler warning about unary minus operator (which would   */
+		/* be applied to the unsigned integer otherwise) - we know    */
+		/* exactly what we do:                                        */
+		const ufast delta = (uwide) (-(wide) dst) & align;
+		const ufast length =
+		    Page_Size - offsetof(HTTP2Block, data) - delta;
+		dst += delta;
 		block->next = NULL;
 		block->n = Page_Size;
-		*n = Unused_Space;
+		block->tail = length;
+		*n = length;
 		p->last = block;
 		if (last) {
 			const ufast tail = p->tail;
 
 			last->next = block;
 			if (tail) {
-				p->tail = Unused_Space;
+				p->tail = length;
 				p->count++;
 				p->total += tail;
-#if Debug_Buffers
-				printf
-				    ("New fragment added to string: %u bytes...\n",
+				DPRINTF
+				    ("New fragment of %u bytes added to string...\n",
 				     tail);
-#endif
 			} else {
 				p->current = block;
-				p->offset = 0;
-				p->tail = Unused_Space;
-#if Debug_Buffers
-				puts("New string started at offset 0...");
-#endif
+				p->offset = delta;
+				p->tail = length;
+				p->count = 1;
+				DPRINTF("New string started at offset %u...\n",
+					delta);
 			}
 		} else {
+			DPUTS("Initial block was allocated...");
 			p->first = block;
 			p->current = block;
-			p->offset = 0;	/* p->offset is initialized here */
-			/* only to avoid partial writing */
-			/* into cache line. */
-			p->tail = Unused_Space;
-#if Debug_Buffers
-			puts("Initial block allocated...");
-#endif
+			/* This is first block for of the new string,   */
+			/* therefore we need to initialize offset here: */
+			p->offset = delta;
+			p->tail = length;
+			p->count = 1;
 		}
-#if Debug_Buffers
-		printf("New offset = %u\n", p->offset);
-		printf("New block allocated: %u unused bytes...\n", p->tail);
-#endif
-		return block->data;
+		DPRINTF("New offset = %u\n", p->offset);
+		DPRINTF("New block with %u unused bytes was allocated...\n",
+			p->tail);
+		return dst;
 	} else {
-#if Debug_Buffers
-		puts("Unable to allocate memory block...");
-#endif
+		DPUTS("Unable to allocate memory block...");
 		*n = 0;
-		return NULL;
-	}
-}
-
-/* Open output buffer before decoding the new string. */
-/* There "n" is the length of available space in the buffer: */
-
-uchar *
-buffer_open(HTTP2Output * __restrict p, ufast * __restrict n)
-{
-	const ufast tail = p->tail;
-
-	*n = tail;
-	if (tail) {
-		HTTP2Block *const __restrict last = p->last;
-
-		p->current = last;
-#if Debug_Buffers
-		printf("Open output buffer with %u bytes (offset = %u)...\n",
-		       tail, p->offset);
-#endif
-		return last->data + p->offset;
-	} else {
-#if Debug_Buffers
-		puts("Return empty output buffer...");
-#endif
 		return NULL;
 	}
 }
@@ -510,10 +545,8 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 	ufast count = p->count;
 	const uwide total = p->total + tail;
 
-#if Debug_Buffers
-	printf("In emit, total length: %u, last delta: %u...\n", total, tail);
-	printf("Offset = %u\n", offset);
-#endif
+	DPRINTF("In emit, total length: %u, last delta: %u...\n", total, tail);
+	DPRINTF("Offset = %u\n", offset);
 	if (total) {
 		TfwPool *const __restrict pool = p->pool;
 		HTTP2Block *__restrict current = p->current;
@@ -541,26 +574,26 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 			p->str.flags = count << TFW_STR_CN_SHIFT;
 			fp->ptr = current->data + offset;
 			fp->len =
-			    current->n - offsetof(HTTP2Block, data) - offset;
+			    current->n - offsetof(HTTP2Block,
+						  data) - offset -
+			    current->tail;
 			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
-#if Debug_Buffers
-			printf("Fragment: %u bytes...\n", fp->len);
-#endif
+			DPRINTF("Fragment: %u bytes...\n", (uint) fp->len);
 			fp++;
 			count -= 2;
 			while (count) {
 				current = current->next;
 				fp->ptr = current->data;
 				fp->len =
-				    current->n - offsetof(HTTP2Block, data);
+				    current->n - offsetof(HTTP2Block,
+							  data) - current->tail;
 				fp->skb = NULL;
 				fp->eolen = 0;
 				fp->flags = 0;
-#if Debug_Buffers
-				printf("Fragment: %u bytes...\n", fp->len);
-#endif
+				DPRINTF("Fragment: %u bytes...\n",
+					(uint) fp->len);
 				fp++;
 				count--;
 			}
@@ -570,9 +603,7 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
-#if Debug_Buffers
-			printf("Fragment: %u bytes...\n", fp->len);
-#endif
+			DPRINTF("Fragment: %u bytes...\n", (uint) fp->len);
 		}
 	} else {
 		p->str.ptr = NULL;
@@ -592,7 +623,7 @@ buffer_put(HTTP2Output * __restrict p,
 	   const uchar * __restrict src, uwide length)
 {
 	ufast k;
-	uchar *__restrict dst = buffer_open(p, &k);
+	uchar *__restrict dst = buffer_open(p, &k, 0);
 
 	while (length) {
 		uwide copied;
@@ -623,7 +654,7 @@ buffer_put(HTTP2Output * __restrict p,
 /* Copy data from the TfwStr to plain array: */
 
 void
-buffer_str_to_array(uchar * __restrict data, TfwStr * __restrict str)
+buffer_str_to_array(uchar * __restrict data, const TfwStr * __restrict str)
 {
 	uwide n = str->flags >> TFW_STR_CN_SHIFT;
 
@@ -641,5 +672,67 @@ buffer_str_to_array(uchar * __restrict data, TfwStr * __restrict str)
 			fp++;
 			data += length;
 		} while (--n);
+	}
+}
+
+/* Print TfwStr string: */
+
+void
+buffer_str_print(const TfwStr * __restrict str)
+{
+	ufast copied;
+	char buf[1025];
+	uwide length = str->len;
+
+	if (unlikely(length == 0)) {
+		return;
+	}
+	if (TFW_STR_PLAIN(str)) {
+		const char *__restrict ptr = (const char *)str->ptr;
+
+		do {
+			copied = length;
+			if (length >= sizeof(buf)) {
+				copied = sizeof(buf) - 1;
+			}
+			memcpy(buf, ptr, copied);
+			buf[copied] = 0;
+			ptr += copied;
+			length -= copied;
+			printf("%s", buf);
+		} while (length);
+	} else {
+		TfwStr *__restrict fp = (TfwStr *) str->ptr;
+		char *__restrict bp = buf;
+		ufast count = TFW_STR_CHUNKN(str);
+		ufast space = sizeof(buf) - 1;
+
+		do {
+			const char *__restrict ptr = (const char *)str->ptr;
+			uwide m = fp->len;
+
+			fp++;
+			do {
+				if (space == 0) {
+					*bp = 0;
+					printf("%s", buf);
+					space = sizeof(buf) - 1;
+					bp = buf;
+				}
+				copied = m;
+				if (m > space) {
+					copied = space;
+				}
+				space -= copied;
+				memcpy(bp, ptr, copied);
+				ptr += copied;
+				bp += copied;
+				m -= copied;
+			} while (m);
+		} while (--count);
+		if (bp != buf) {
+			*bp = 0;
+			printf("%s", buf);
+		}
 	}
 }

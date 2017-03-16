@@ -37,7 +37,7 @@
  * Platform_32bit: 32-bit platform.
  * Platform_64bit: 64-bit platform.
  */
-#define Platform_32bit
+#define Platform_64bit
 
 /*
  * Platform_Little: little-endian platform.
@@ -341,8 +341,8 @@
 	#endif
 	#if __GNUC__ >= 4
 		#define Compiler_Restrict
-		#define Opt_Likely(x) __builtin_expect(x, 1)
-		#define Opt_Unlikely(x) __builtin_expect(x, 0)
+		#define likely(x) __builtin_expect(x, 1)
+		#define unlikely(x) __builtin_expect(x, 0)
 	#endif
 #elif defined(_MSC_VER)
 	#pragma once
@@ -381,14 +381,6 @@
 	#endif
 	#define Attribute_Align(x) __declspec(align(x))
 	#define Attribute_NoReturn __declspec(noreturn)
-#endif
-
-#ifndef likely
-#define likely Opt_Likely
-#endif
-
-#ifndef unlikely
-#define unlikely Opt_Unlikely
 #endif
 
 #ifndef common_cdecl
@@ -540,12 +532,12 @@ typedef unsigned char  uint8;
 	#define Attribute_NoReturn
 #endif
 
-#ifndef Opt_Likely
-	#define Opt_Likely(x) (x)
+#ifndef likely
+	#define likely(x) (x)
 #endif
 
-#ifndef Opt_Unlikely
-	#define Opt_Unlikely(x) (x)
+#ifndef unlikely
+	#define unlikely(x) (x)
 #endif
 
 /*

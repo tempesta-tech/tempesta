@@ -1,3 +1,13 @@
+ifneq ($(OS),Windows_NT)
+LIBEXT = .a
+SOEXT  = .so
+EXEEXT =
+else
+LIBEXT = .lib
+SOEXT  = .dll
+EXEEXT = .exe
+endif
+
 options = -Wall -Wextra -Wstrict-overflow=5 -Wno-unused-parameter \
 	  -O3 -fno-strict-overflow -fstrict-aliasing -fno-math-errno \
 	  -ftree-loop-im -fivopts -fira-hoist-pressure \
@@ -11,9 +21,9 @@ shared = ../buffers.c ../huffman.c pool_emulator.c
 all: huffman_test fragments_test hpack_test
 
 hftestdata.h: hgendata
-	./hgendata > hftestdata.h
+	./hgendata > $@
 
-hgendata: ../common.h ../huffman.h ../hgen/hfcode.h
+hgendata: ../hgen/hfcode.h ../huffman.h
 hgendata: hgentest.c
 	gcc $(options) -o $@ $< $(shared)
 
@@ -30,9 +40,6 @@ hpack_test: hpack_test.c $(shared) ../hpack_decoder.c ../hindex.c
 	gcc $(options) -o $@ $< $(shared) ../hpack_decoder.c ../hindex.c
 
 clean:
-	rm -rf ./huffman_test
-	rm -rf ./fragments_test
-	rm -rf ./hpack_test
-	rm -rf ./huffman_test.exe
-	rm -rf ./fragments_test.exe
-	rm -rf ./hpack_test.exe
+	$(RM) ./huffman_test$(EXEEXT)
+	$(RM) ./fragments_test$(EXEEXT)
+	$(RM) ./hpack_test$(EXEEXT)

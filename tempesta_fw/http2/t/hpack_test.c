@@ -86,35 +86,6 @@ Random32_Index(const ufast n)
 	}
 }
 
-#if Print_Results
-
-static void
-Print_TfwStr(TfwStr * __restrict str)
-{
-	static char buf[1024];
-	ufast length = str->len;
-
-	if (TFW_STR_PLAIN(str)) {
-		memcpy(buf, str->ptr, length);
-	} else {
-		char *__restrict bp = buf;
-		TfwStr *__restrict fp = (TfwStr *) str->ptr;
-		const ufast count = TFW_STR_CHUNKN(str);
-		ufast cnt = count;
-
-		do {
-			const ufast m = fp->len;
-
-			memcpy(bp, fp->ptr, m);
-			bp += m;
-			fp++;
-		} while (--cnt);
-	}
-	buf[length] = 0;
-	printf("%s", buf);
-}
-#endif
-
 int common_cdecl
 main(void)
 {
@@ -134,7 +105,7 @@ main(void)
 	fragments[0].ptr = buf2;
 	fragments[1].ptr = buf1;
 	fragments[2].ptr = buf3;
-	buffer_new(&out, NULL);
+	buffer_new(&out, NULL, 0);
 	hp = hpack_new(4096, NULL);
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
@@ -211,9 +182,9 @@ main(void)
 			}
 			do {
 #if Print_Results
-				Print_TfwStr(&fields->name);
+				buffer_str_print(&fields->name);
 				printf(":");
-				Print_TfwStr(&fields->value);
+				buffer_str_print(&fields->value);
 				printf("\n");
 #endif
 				buffer_str_free(NULL, &fields->name);
