@@ -27,11 +27,11 @@
 #include "errors.h"
 #include "buffers.h"
 
-fast huffman_decode(const char *__restrict source,
-		    char *__restrict dst, uwide n);
+ufast huffman_decode(const char *__restrict source,
+		     char *__restrict dst, uwide n);
 
-fast huffman_decode_fragments(HTTP2Input * __restrict source,
-			      HTTP2Output * __restrict destination, uwide n);
+ufast huffman_decode_fragments(HTTP2Input * __restrict source,
+			       HTTP2Output * __restrict destination, uwide n);
 
 uwide huffman_encode(const char *__restrict source,
 		     char *__restrict dst, uwide n);

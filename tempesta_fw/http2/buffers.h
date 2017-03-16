@@ -28,24 +28,24 @@
 #include "../str.h"
 #include "errors.h"
 
-/* -------------------------------------------------- */
-/* Input buffer (used by parser to handle fragments): */
-/* -------------------------------------------------- */
+/* ------------------------------------------------------- */
+/* Input buffer (used in the parsers to handle fragments): */
+/* ------------------------------------------------------- */
 
-/* offset:  Offset in the current fragment.    */
+/* str:     Source string.		       */
+/* current: Index of the current TfwStr chunk. */
 /* n:	    Total number of unparsed octets    */
 /*	    in the string.		       */
-/* current: Index of the current TfwStr chunk. */
-/* tail:    Length of the unparsed tail in     */
+/* tail:    Length of the unparsed tail of     */
 /*	    the current fragment.	       */
-/* str:     Source string.		       */
+/* offset:  Offset in the current fragment.    */
 
 typedef struct {
-	uwide offset;
-	uwide n;
-	uwide current;
-	uwide tail;
 	const TfwStr *str;
+	uwide current;
+	uwide n;
+	uwide tail;
+	uwide offset;
 } HTTP2Input;
 
 /* Initialize input buffer from the TfwStr: */
@@ -107,32 +107,43 @@ const uchar *buffer_copy(HTTP2Input * __restrict p,
 			 uwide length,
 			 HTTP2Output * __restrict out, ufast * __restrict rc);
 
-/* --------------------------------------------- */
-/* Output buffer (used to write decoded stings): */
-/* --------------------------------------------- */
+/* ------------------------------------------- */
+/* Output buffer (used to store decoded stings */
+/* in the parser or to store encoded strings   */
+/* in the packet generators).		       */
+/* ------------------------------------------- */
 
-/* next: Next allocated block. */
-/* n:	 Block length.	       */
-/* data: Decoded data.	       */
+/* next: Next allocated block.	   */
+/* n:	 Block length.		   */
+/* tail: Length of the unused tail */
+/*	 of the block (in bytes).  */
+/* data: Encoded or decoded data.  */
 
 typedef struct HTTP2Block {
 	struct HTTP2Block *next;
 	uint16 n;
+	uint16 tail;
 	uchar data[1];
 } HTTP2Block;
 
-/* first:   First allocated block.		      */
-/* last:    Last allocated block.		      */
-/* current: Block where current string is started.    */
-/* offset:  Offset of the current string in the first */
-/*	    block where it started.		      */
-/* tail:    Length of the unused tail of the current  */
-/*	    block.				      */
-/* count:   Total number of chunks in the current     */
-/*	    string.				      */
-/* total:   Total length of the current string.       */
-/* str:     Last decored string.		      */
-/* pool:    Memory allocation pool.		      */
+/* first:     First allocated block in the queue.    */
+/* last:      Last allocated block in the queue.     */
+/* current:   Block where current string is started. */
+/* offset:    Offset of the current string in the    */
+/*	      first block where it started.	     */
+/* tail:      Length of the unused tail of the last  */
+/*	      block.				     */
+/* count:     Total number of chunks in the current  */
+/*	      string.				     */
+/* total:     Total length of the current string.    */
+/* pool:      Memory allocation pool.		     */
+/* def_align: Default alignment for the next block   */
+/*	      allocated from this buffer, converted  */
+/*	      into a (2^n - 1) mask.		     */
+/* align:     Alignment requirement for the current  */
+/*	      string (converted into a mask).	     */
+/* str:       Last string, which is created in	     */
+/*	      the buffer.			     */
 
 struct HTTP2Output {
 	HTTP2Block *first;
@@ -142,23 +153,27 @@ struct HTTP2Output {
 	uint16 tail;
 	uint32 count;
 	uwide total;
-	TfwStr str;
 	TfwPool *pool;
+	uint16 align;
+	uint16 def_align;
+	TfwStr str;
 };
 
 /* Initialize new output buffer: */
 
-void buffer_new(HTTP2Output * __restrict p, TfwPool * __restrict pool);
+void buffer_new(HTTP2Output * __restrict p,
+		TfwPool * __restrict pool, ufast alignment);
+
+/* Open output buffer before decoding the new string. */
+/* There "n" is the length of available space in the buffer: */
+
+uchar *buffer_open(HTTP2Output * __restrict p,
+		   ufast * __restrict n, ufast alignment);
 
 /* Add new block to the output buffer. Returns the NULL */
 /* and zero length ("n") if unable to allocate memory: */
 
 uchar *buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n);
-
-/* Open output buffer before decoding the new string. */
-/* There "n" is the length of available space in the buffer: */
-
-uchar *buffer_open(HTTP2Output * __restrict p, ufast * __restrict n);
 
 /* Emit the new string. Returns error code if unable */
 /* to allocate memory: */
@@ -177,7 +192,12 @@ ufast buffer_put(HTTP2Output * __restrict p,
 
 /* Copy data from the TfwStr to plain array: */
 
-void buffer_str_to_array(uchar * __restrict data, TfwStr * __restrict str);
+void buffer_str_to_array(uchar * __restrict data,
+			 const TfwStr * __restrict str);
+
+/* Print TfwStr string: */
+
+void buffer_str_print(const TfwStr * __restrict str);
 
 /* Free memory occupied by the TfwStr descriptors, */
 /* which may be allocated for compound strings:    */

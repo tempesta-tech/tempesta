@@ -105,7 +105,7 @@ main(void)
 	fragments[0].ptr = buf2;
 	fragments[1].ptr = buf1;
 	fragments[2].ptr = buf3;
-	buffer_new(&out, NULL);
+	buffer_new(&out, NULL, 0);
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
 			const char *__restrict encoded = test[i].encoded;

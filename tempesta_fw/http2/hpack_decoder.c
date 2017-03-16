@@ -21,6 +21,8 @@
  */
 
 #include <string.h>
+#include <inttypes.h>
+#include <stdio.h>
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
@@ -32,6 +34,16 @@
 #include "hpack_helpers.h"
 #include "hpack.h"
 
+#define Debug_HPack 1
+
+#if Debug_HPack
+#define DPRINTF(...) printf("HPack: " __VA_ARGS__)
+#define DPUTS(...) puts("HPack: " __VA_ARGS__)
+#else
+#define DPRINTF(...)
+#define DPUTS(...)
+#endif
+
 #define HPACK_COPY_STRING(value)    \
 do {				    \
 	n -= length;		    \
@@ -39,7 +51,7 @@ do {				    \
 		source, &m, src, m, \
 		length, buffer, rc  \
 	);			    \
-	if (unlikely(rc != 0)) {    \
+	if (unlikely(* rc)) {	    \
 		goto Bug;	    \
 	}			    \
 	field->value = buffer->str; \
@@ -71,6 +83,8 @@ hpack_decode(HPack * __restrict hp,
 			switch (state & HPack_State_Mask) {
 			case HPack_State_Index:
 				GET_CONTINUE(index);
+				DPRINTF("Index finally decoded: %" PRIuPTR "\n",
+					index);
 				if ((state & HPack_Flags_No_Value) == 0) {
 					if (n) {
 						goto Get_Value;
@@ -85,8 +99,12 @@ hpack_decode(HPack * __restrict hp,
 				break;
 			case HPack_State_Window:
 				GET_CONTINUE(index);
+				DPRINTF("Window finally decoded: %" PRIuPTR
+					"\n", index);
  Set_Window:
+				DPRINTF("Window size: %" PRIuPTR "\n", index);
 				if (index <= hp->max_window) {
+					DPUTS("Set window size...");
 					hp->window = index;
 					hpack_set_length(hp->dynamic, index);
 					state = HPack_State_Ready;
@@ -97,6 +115,8 @@ hpack_decode(HPack * __restrict hp,
 				break;
 			case HPack_State_Name_Length:
 				GET_CONTINUE(length);
+				DPRINTF("Length finally decoded: %" PRIuPTR
+					"\n", index);
 				if (n >= length) {
 					goto Get_Name_Text;
 				} else {
@@ -106,6 +126,8 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Value_Length:
 				GET_CONTINUE(length);
+				DPRINTF("Length finally decoded: %" PRIuPTR
+					"\n", index);
 				if (n >= length) {
 					goto Get_Value_Text;
 				} else {
@@ -132,6 +154,7 @@ hpack_decode(HPack * __restrict hp,
 					n--;
 					m--;
 					if (c & 0x80) {
+						DPUTS("Reference by index...");
 						state =
 						    HPack_State_Index |
 						    HPack_Flags_No_Value;
@@ -143,8 +166,12 @@ hpack_decode(HPack * __restrict hp,
 							    Err_HPack_InvalidIndex;
 							goto Bug;
 						}
+						DPRINTF("Decoded index: %"
+							PRIuPTR "\n", index);
 						goto Duplicate;
 					} else if (c & 0x40) {
+						DPUTS
+						    ("Reference with addition...");
 						state =
 						    HPack_State_Index |
 						    HPack_Flags_Add;
@@ -152,21 +179,32 @@ hpack_decode(HPack * __restrict hp,
 						if (index == 0x3F) {
  Index:
 							GET_FLEXIBLE(index);
+							DPRINTF
+							    ("Decoded index: %"
+							     PRIuPTR "\n",
+							     index);
 							state =
 							    HPack_State_Value;
 							goto Get_Value;
 						}
 					} else if (c & 0x20) {
+						DPUTS("New window size...");
 						index = c & 0x1F;
 						if (index == 0x1F) {
 							state =
 							    HPack_State_Window;
 							GET_FLEXIBLE(index);
 						}
+						DPRINTF("Decoded window: %"
+							PRIuPTR "\n", index);
 						goto Set_Window;
 					} else {
+						DPUTS
+						    ("Reference with value...");
 						state = HPack_State_Index;
 						if (c & 0x10) {
+							DPUTS
+							    ("Transit header...");
 							state =
 							    HPack_State_Index |
 							    HPack_Flags_Transit;
@@ -175,6 +213,10 @@ hpack_decode(HPack * __restrict hp,
 						if (index == 15) {
 							goto Index;
 						}
+					}
+					if (index) {
+						DPRINTF("Decoded index: %"
+							PRIuPTR "\n", index);
 					}
 					if (n) {
 						if (index) {
@@ -192,6 +234,7 @@ hpack_decode(HPack * __restrict hp,
 				{
 					uchar c;
 
+					DPUTS("Decode header name length...");
 					if (unlikely(m == 0)) {
 						src = buffer_next(source, &m);
 					}
@@ -200,6 +243,8 @@ hpack_decode(HPack * __restrict hp,
 					m--;
 					length = c & 0x7F;
 					if (c & 0x80) {
+						DPUTS
+						    ("Huffman encoding used...");
 						state |=
 						    HPack_Flags_Huffman_Name;
 					}
@@ -213,6 +258,8 @@ hpack_decode(HPack * __restrict hp,
 						    Err_HPack_InvalidNameLength;
 						goto Bug;
 					}
+					DPRINTF("Name length: %" PRIuPTR "\n",
+						length);
 					if (n >= length) {
 						goto Get_Name_Text;
 					} else {
@@ -224,10 +271,15 @@ hpack_decode(HPack * __restrict hp,
 			case HPack_State_Name_Text:
 				{
 					if (unlikely(n < length)) {
+						DPUTS("Not enough data...");
 						break;
 					}
  Get_Name_Text:
+					DPUTS("Decode header name...");
 					if (state & HPack_Flags_Huffman_Name) {
+						DPRINTF("Decode %" PRIuPTR
+							" bytes of Huffman data...\n",
+							length);
 						ufast hrc;
 
 						buffer_close(source, m);
@@ -239,6 +291,11 @@ hpack_decode(HPack * __restrict hp,
 							goto Bug;
 						}
 						field->name = buffer->str;
+#if Debug_HPack
+						printf("Decoded name: \"");
+						buffer_str_print(&buffer->str);
+						printf("\"\n");
+#endif
 						n -= length;
 						if (likely(n)) {
 							src =
@@ -246,8 +303,16 @@ hpack_decode(HPack * __restrict hp,
 								       &m);
 						}
 					} else {
+						DPRINTF("Copy %" PRIuPTR
+							" bytes of plain text...\n",
+							length);
 						HPACK_COPY_STRING(name);
 					}
+#if Debug_HPack
+					printf("Decoded name: \"");
+					buffer_str_print(&field->name);
+					printf("\"\n");
+#endif
 					if (unlikely(n == 0)) {
 						state &= ~HPack_State_Mask;
 						state |= HPack_State_Value;
@@ -258,6 +323,7 @@ hpack_decode(HPack * __restrict hp,
 					uchar c;
 
  Get_Value:
+					DPUTS("Decode header value length...");
 					if (unlikely(m == 0)) {
 						src = buffer_next(source, &m);
 					}
@@ -266,6 +332,8 @@ hpack_decode(HPack * __restrict hp,
 					m--;
 					length = c & 0x7F;
 					if (c & 0x80) {
+						DPRINTF("Name length: %" PRIuPTR
+							"\n", length);
 						state |=
 						    HPack_Flags_Huffman_Value;
 					}
@@ -275,6 +343,8 @@ hpack_decode(HPack * __restrict hp,
 						    HPack_State_Value_Length;
 						GET_FLEXIBLE(length);
 					}
+					DPRINTF("Value length: %" PRIuPTR "\n",
+						length);
 					if (n >= length) {
 						goto Get_Value_Text;
 					} else {
@@ -288,12 +358,18 @@ hpack_decode(HPack * __restrict hp,
 					ufast hrc;
 
 					if (unlikely(n < length)) {
+						DPUTS("Not enough data...");
 						break;
 					}
  Get_Value_Text:
+					DPUTS("Decode header value...");
 					if (length) {
 						if (state &
 						    HPack_Flags_Huffman_Value) {
+							DPRINTF("Decode %"
+								PRIuPTR
+								" bytes of Huffman data...\n",
+								length);
 							buffer_close(source, m);
 							hrc =
 							    huffman_decode_fragments
@@ -313,25 +389,54 @@ hpack_decode(HPack * __restrict hp,
 								     &m);
 							}
 						} else {
+							DPRINTF("Copy %" PRIuPTR
+								" bytes of plain text...\n",
+								length);
 							HPACK_COPY_STRING
 							    (value);
 						}
+#if Debug_HPack
+						printf("Decoded value: \"");
+						buffer_str_print(&field->value);
+						printf("\"\n");
+#endif
 					}
 					if (index) {
  Duplicate:
+						DPRINTF
+						    ("Add header by dictionary index: %"
+						     PRIuPTR "\n", index);
+#if Fast_Capacity > 32
+						if ((index >> 32) == 0) {
+							hrc =
+							    hpack_add_index(hp->
+									    dynamic,
+									    field,
+									    index,
+									    state,
+									    buffer);
+						} else {
+							hrc =
+							    Err_HTTP2_IntegerOveflow;
+						}
+#else
 						hrc =
 						    hpack_add_index(hp->dynamic,
 								    field,
 								    index,
 								    state,
 								    buffer);
+#endif
 					} else {
+						DPUTS
+						    ("Add header with name and value...");
 						hrc =
 						    hpack_add(hp->dynamic,
 							      field, state,
 							      buffer);
 					}
-					if (hrc) {
+					if (hrc == 0) {
+						DPUTS("New header added...");
 						if (fp) {
 							bp->next = field;
 						} else {
@@ -341,6 +446,9 @@ hpack_decode(HPack * __restrict hp,
 						field = NULL;
 						state = HPack_State_Ready;
 					} else {
+						DPRINTF
+						    ("New header was NOT ADDED, rc = %u\n",
+						     hrc);
 						*rc = hrc;
 						goto Bug;
 					}
@@ -404,6 +512,8 @@ hpack_free_list(HTTP2Output * __restrict buffer, HTTP2Field * __restrict p)
 	TfwPool *__restrict pool = buffer->pool;
 
 	if (p) {
+		/* Reverse list to incease probability of successful */
+		/* coalescence of the free memory blocks in the pool: */
 		p = hpack_list_reverse(p);
 		do {
 			HTTP2Field *n = p->next;

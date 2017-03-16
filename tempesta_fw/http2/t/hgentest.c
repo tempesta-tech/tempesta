@@ -91,8 +91,8 @@ main(void)
 	printf("/* This is generated file, please do not edit it... */\n\n");
 	puts("static const HTestData test [] = {");
 	for (i = 0; i < ITERATIONS; i++) {
-		byte buf[MAXLEN];
-		byte encoded[MAXLEN * 4];
+		char buf[MAXLEN];
+		char encoded[MAXLEN * 4];
 		ufast n = Random32_Index(MAXLEN) + 1;
 		ufast k = 0;
 		ufast m;
@@ -130,7 +130,7 @@ main(void)
 		printf("/* Iteration: %u */\n", i);
 		printf("\t{\"");
 		for (k = 0; k < n; k++) {
-			printf("\\x%02X", buf[k]);
+			printf("\\x%02X", (uchar) buf[k]);
 		}
 		printf("\", %u,\n\t \"", n);
 		m = huffman_encode(buf, encoded, n);
@@ -139,7 +139,7 @@ main(void)
 			return 1;
 		}
 		for (k = 0; k < m; k++) {
-			printf("\\x%02X", encoded[k]);
+			printf("\\x%02X", (uchar) encoded[k]);
 		}
 		printf("\", %u%s\n", m, i == ITERATIONS - 1 ? "}" : "},");
 	}

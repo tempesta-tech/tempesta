@@ -22,7 +22,7 @@
 
 static HPackTestData test [] = {
 
-	{23, 0,
+	{26, 0,
 	 "\x40"                               /* == Literal indexed ==       */
 	 "\x0A"                               /* Literal name (len = 10)     */
 	 "\x63\x75\x73\x74\x6F\x6D\x2D\x6B"   /* custom-key                  */
