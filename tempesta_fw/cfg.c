@@ -857,11 +857,11 @@ spec_finish_handling(TfwCfgSpec specs[])
 	return 0;
 
 err_no_entry:
-	TFW_ERR("the required entry is not found: '%s'\n", spec->name);
+	TFW_ERR_NL("the required entry is not found: '%s'\n", spec->name);
 	return -EINVAL;
 
 err_dflt_val:
-	TFW_ERR("Error handling default value for: '%s'\n", spec->name);
+	TFW_ERR_NL("Error handling default value for: '%s'\n", spec->name);
 	return r;
 }
 
@@ -1421,8 +1421,18 @@ print_parse_error(const TfwCfgParserState *ps)
 	int len = 0;
 	const char *ticks = "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
 			    "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
-	const char* eos = strchrnul(ps->e.line, '\n');
+	const char* eos = NULL;
 
+	/*
+	 * Line is not known: mandatory option is not present, error is raised
+	 * by @spec_finish_handling() function.
+	 */
+	if (!ps->e.line) {
+		TFW_ERR_NL("configuration parsing error");
+		return;
+	}
+
+	eos = strchrnul(ps->e.line, '\n');
 	len = min(80, (int)(eos - ps->e.line));
 	TFW_ERR_NL("configuration parsing error:\n"
 		   "%4zu: %.*s\n"
