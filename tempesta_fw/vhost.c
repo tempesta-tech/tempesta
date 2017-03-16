@@ -397,12 +397,12 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(!tfwcfg_this_location);
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 3) {
-		TFW_ERR("%s: Invalid number of arguments.\n", cs->name);
+		TFW_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -410,8 +410,8 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	in_method = ce->vals[0];
 	ret = tfw_cfg_map_enum(tfw_method_enum, in_method, &method);
 	if (ret) {
-		TFW_ERR("Unsupported HTTP method: '%s %s'\n",
-			cs->name, in_method);
+		TFW_ERR_NL("Unsupported HTTP method: '%s %s'\n",
+			   cs->name, in_method);
 		return -EINVAL;
 	}
 
@@ -432,10 +432,10 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * (URI path) that is not the last entry.
 	 */
 	if (tfw_nipdef_lookup_dup(loc, method, op, arg, len))
-		TFW_WARN("%s: Duplicate entry in location '%s': "
-			 "'%s %s %s %s'\n", cs->name,
-			 loc == &tfw_location_dflt ? "default" : loc->arg,
-			 cs->name, in_method, in_op, arg);
+		TFW_WARN_NL("%s: Duplicate entry in location '%s': "
+			    "'%s %s %s %s'\n", cs->name,
+			    loc == &tfw_location_dflt ? "default" : loc->arg,
+			    cs->name, in_method, in_op, arg);
 
 	/*
 	 * Do not add a "duplicate" entry within a location. If the
@@ -547,13 +547,13 @@ tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 	BUG_ON((cmd != TFW_D_CACHE_BYPASS) && (cmd != TFW_D_CACHE_FULFILL));
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n < 2) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
@@ -562,7 +562,7 @@ tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 	/* Convert the match operator string to the enum value. */
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR("Unknown match OP: '%s %s'\n", cs->name, in_op);
+		TFW_ERR_NL("Unknown match OP: '%s %s'\n", cs->name, in_op);
 		return -EINVAL;
 	}
 
@@ -576,8 +576,8 @@ tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 		/* Get the cache policy entry. */
 		capo = tfw_capolicy_lookup(cmd, op, arg, len);
 		if (capo) {
-			TFW_WARN("%s: Duplicate entry: '%s %s %s'\n",
-				 cs->name, cs->name, in_op, arg);
+			TFW_WARN_NL("%s: Duplicate entry: '%s %s %s'\n",
+				    cs->name, cs->name, in_op, arg);
 			continue;
 		}
 		capo = tfw_capolicy_new(cmd, op, arg, len);
@@ -693,13 +693,13 @@ tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *in_op, *arg;
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 2) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
@@ -711,23 +711,23 @@ tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	/* Convert the match operator string to the enum value. */
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR("%s: Unknown match OP: '%s %s %s'\n",
-			cs->name, cs->name, in_op, arg);
+		TFW_ERR_NL("%s: Unknown match OP: '%s %s %s'\n",
+			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Make sure the location is not a duplicate. */
 	if (tfw_location_lookup(op, arg, len)) {
-		TFW_ERR("%s: Duplicate entry: '%s %s %s'\n",
-			cs->name, cs->name, in_op, arg);
+		TFW_ERR_NL("%s: Duplicate entry: '%s %s %s'\n",
+			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Add new location and set it to be the current one. */
 	tfwcfg_this_location = tfw_location_new(op, arg, len);
 	if (tfwcfg_this_location == NULL) {
-		TFW_ERR("%s: Unable to add new location: '%s %s %s'\n",
-			cs->name, cs->name, in_op, arg);
+		TFW_ERR_NL("%s: Unable to add new location: '%s %s %s'\n",
+			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
@@ -829,20 +829,20 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TfwAddr addr = { 0 };
 
 		if (tfw_addr_pton_cidr(val, &addr)) {
-			TFW_ERR("%s: Invalid ACL entry: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: Invalid ACL entry: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		/* Make sure the address is not a duplicate. */
 		if (tfw_capuacl_lookup(vhost, &addr)) {
-			TFW_ERR("%s: Duplicate IP address or prefix: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: Duplicate IP address or prefix: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		/* Add new ACL entry. */
 		if (vhost->capuacl_sz == TFW_CAPUACL_ARRAY_SZ) {
-			TFW_ERR("%s: Unable to add new ACL: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: Unable to add new ACL: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		vhost->capuacl[vhost->capuacl_sz++] = addr;
@@ -876,8 +876,8 @@ tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (!strcasecmp(val, "invalidate")) {
 			vhost->cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
 		} else {
-			TFW_ERR("%s: unsupported argument: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: unsupported argument: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 	}
@@ -898,13 +898,13 @@ tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 1) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
