@@ -545,8 +545,8 @@ tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		goto parse_err;
 
 parse_err:
-	TFW_ERR("Unable to parse 'listen' value: '%s'\n",
-		in_str ? in_str : "No value specified");
+	TFW_ERR_NL("Unable to parse 'listen' value: '%s'\n",
+		   in_str ? in_str : "No value specified");
 	return -EINVAL;
 }
 
@@ -561,16 +561,16 @@ tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout);
 	if (r) {
-		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			ce->vals[0]
-			? ce->vals[0]
-			: "No value specified");
+		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			   ce->vals[0]
+			   ? ce->vals[0]
+			   : "No value specified");
 		return -EINVAL;
 	}
 
 	if (tfw_cli_cfg_ka_timeout < 0) {
-		TFW_ERR("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			"Value less the zero");
+		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			   "Value less the zero");
 		return -EINVAL;
 	}
 
