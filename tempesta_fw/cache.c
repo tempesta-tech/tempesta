@@ -1409,18 +1409,18 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		} else if (!strcasecmp(val, "POST")) {
 			method = TFW_HTTP_METH_POST;
 		} else {
-			TFW_ERR("%s: unsupported method: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: unsupported method: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_nc_test(method)) {
-			TFW_ERR("%s: non-cacheable method: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: non-cacheable method: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_test(method)) {
-			TFW_WARN("%s: duplicate method: '%s'\n",
-				 cs->name, val);
+			TFW_WARN_NL("%s: duplicate method: '%s'\n",
+				    cs->name, val);
 			continue;
 		}
 		__cache_method_add(method);

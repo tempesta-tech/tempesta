@@ -238,7 +238,7 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -EINVAL;
 
 	if (e->val_n == ARRAY_SIZE(e->vals)) {
-		TFW_ERR("maximum number of values per entry reached\n");
+		TFW_ERR_NL("maximum number of values per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -268,7 +268,7 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 		return -EINVAL;
 
 	if (e->attr_n == ARRAY_SIZE(e->attrs)) {
-		TFW_ERR("maximum number of attributes per entry reached\n");
+		TFW_ERR_NL("maximum number of attributes per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -761,8 +761,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	int r;
 
 	if (!spec->allow_repeat && spec->call_counter) {
-		TFW_ERR("duplicate entry: '%s', only one such entry is allowed."
-			"\n", parsed_entry->name);
+		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
+			   " allowed.\n", parsed_entry->name);
 		return -EINVAL;
 	}
 
@@ -977,8 +977,8 @@ int
 tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
 {
 	if (e->val_n != val_n) {
-		TFW_ERR("invalid number of values; expected: %d, got: %zu\n",
-			val_n, e->val_n);
+		TFW_ERR_NL("invalid number of values; expected: %d, got: %zu\n",
+			   val_n, e->val_n);
 		return -EINVAL;
 	}
 	return 0;
@@ -1000,13 +1000,13 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 	int r = -EINVAL;
 
 	if (e->val_n == 0)
-		TFW_ERR("no value specified\n");
+		TFW_ERR_NL("no value specified\n");
 	else if (e->val_n > 1)
-		TFW_ERR("more than one value specified\n");
+		TFW_ERR_NL("more than one value specified\n");
 	else if (e->attr_n)
-		TFW_ERR("unexpected attributes\n");
+		TFW_ERR_NL("unexpected attributes\n");
 	else if (e->have_children)
-		TFW_ERR("unexpected children entries\n");
+		TFW_ERR_NL("unexpected children entries\n");
 	else
 		r = 0;
 
@@ -1112,7 +1112,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	}
 
 	if (!e->have_children) {
-		TFW_ERR("the entry has no nested children entries\n");
+		TFW_ERR_NL("the entry has no nested children entries\n");
 		return -EINVAL;
 	}
 
@@ -1222,7 +1222,7 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(is_true && is_false);
 	if (!is_true && !is_false) {
-		TFW_ERR("invalid boolean value: '%s'\n", in_str);
+		TFW_ERR_NL("invalid boolean value: '%s'\n", in_str);
 		return -EINVAL;
 	}
 
@@ -1327,14 +1327,15 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 		min = cse->len_range.min;
 		max = cse->len_range.max;
 		if (min != max && (len < min || len > max)) {
-			TFW_ERR("the string length (%d) is out of valid range "
-				" (%d, %d): '%s'\n", len, min, max, str);
+			TFW_ERR_NL("the string length (%d) is out of valid "
+				   "range (%d, %d): '%s'\n", len, min, max,
+				   str);
 			return -EINVAL;
 		}
 
 		cset = cse->cset;
 		if (cset && !is_matching_to_cset(str, cset)) {
-			TFW_ERR("invalid characters found: '%s'\n", str);
+			TFW_ERR_NL("invalid characters found: '%s'\n", str);
 			return -EINVAL;
 		}
 	}

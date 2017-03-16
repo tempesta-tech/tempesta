@@ -447,20 +447,20 @@ tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	mbedtls_x509_crt_init(&tfw_tls.crt);
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 1) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
 	crt_data = tfw_cfg_read_file((const char *)ce->vals[0], &crt_size);
 	if (!crt_data) {
-		TFW_ERR("%s: Can't read certificate file '%s'\n",
-			ce->name, (const char *)ce->vals[0]);
+		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
+			   ce->name, (const char *)ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -470,8 +470,8 @@ tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	vfree(crt_data);
 
 	if (r) {
-		TFW_ERR("%s: Invalid certificate specified (%x)\n",
-			cs->name, -r);
+		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
+			   cs->name, -r);
 		return -EINVAL;
 	}
 
@@ -491,20 +491,20 @@ tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	mbedtls_pk_init(&tfw_tls.key);
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 1) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
 	key_data = tfw_cfg_read_file((const char *)ce->vals[0], &key_size);
 	if (!key_data) {
-		TFW_ERR("%s: Can't read certificate file '%s'\n",
-			ce->name, (const char *)ce->vals[0]);
+		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
+			   ce->name, (const char *)ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -514,8 +514,8 @@ tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	vfree(key_data);
 
 	if (r) {
-		TFW_ERR("%s: Invalid private key specified (%x)\n",
-			cs->name, -r);
+		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",
+			   cs->name, -r);
 		return -EINVAL;
 	}
 
