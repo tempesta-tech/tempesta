@@ -352,7 +352,10 @@ typedef struct {
 	/* Length of @lit (the @lit is not terminated). */
 	int lit_len;
 	int prev_lit_len;
-	int line;
+
+	/* Current line. */
+	size_t line_no;
+	const char *line;
 
 	int  err;  /* The latest error code. */
 
@@ -388,14 +391,16 @@ do {					\
 
 /* Macros specific to TFSM. */
 
-#define TFSM_MOVE(to_state)	\
-do {				\
-	ps->prev_c = ps->c;	\
-	ps->c = *(++ps->pos);	\
-	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
-	FSM_JMP(to_state);	\
-	if ( ps->prev_c == '\n'){\
-		++ps->line; }	 \
+#define TFSM_MOVE(to_state)		\
+do {					\
+	ps->prev_c = ps->c;		\
+	ps->c = *(++ps->pos);		\
+	printk("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
+	if (ps->prev_c == '\n') {	\
+		++ps->line_no;		\
+		ps->line = ps->pos;	\
+	}				\
+	FSM_JMP(to_state);		\
 } while (0)
 
 #define TFSM_MOVE_EXIT(token_type)	\
@@ -616,6 +621,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
+		ps->e.line_no = ps->line_no;
 		ps->e.line = ps->line;
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
@@ -764,7 +770,7 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	r = spec->handler(spec, parsed_entry);
 	++spec->call_counter;
 	if (r)
-		TFW_ERR("configuration handler returned error: %d\n", r);
+		TFW_DBG("configuration handler returned error: %d\n", r);
 
 	return r;
 }
@@ -790,7 +796,7 @@ spec_handle_default(TfwCfgSpec *spec)
 	TFW_DBG2("use default entry: '%s'\n", fake_entry_buf);
 
 	memset(&ps, 0, sizeof(ps));
-	ps.in = ps.pos = fake_entry_buf;
+	ps.line = ps.in = ps.pos = fake_entry_buf;
 	parse_cfg_entry(&ps);
 	BUG_ON(!ps.e.name);
 	BUG_ON(ps.err);
@@ -1411,9 +1417,16 @@ mod_stop(TfwCfgMod *mod)
 static void
 print_parse_error(const TfwCfgParserState *ps)
 {
+	int len = 0;
+	const char *ticks = "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+			    "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
+	const char* eos = strchrnul(ps->e.line, '\n');
 
-	TFW_ERR("configuration parsing error: str:%d;w:%s\n", ps->e.line + 1,
-		ps->e.name);
+	len = min(80, (int)(eos - ps->e.line));
+	TFW_ERR("configuration parsing error:\n"
+	       "%4zu: %.*s\n"
+	       "      %.*s\n",
+	       ps->e.line_no + 1, len, ps->e.line, len, ticks);
 }
 
 /*
@@ -1440,7 +1453,8 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 {
 	TfwCfgParserState ps = {
 		.in = cfg_text,
-		.pos = cfg_text
+		.pos = cfg_text,
+		.line = cfg_text
 	};
 	TfwCfgMod *mod;
 	TfwCfgSpec *matching_spec = NULL;
@@ -1466,14 +1480,13 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 		}
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
-			entry_reset(&ps.e);
 			goto err;
 		}
 
 		r = spec_handle_entry(matching_spec, &ps.e);
-		entry_reset(&ps.e);
 		if (r)
 			goto err;
+		entry_reset(&ps.e);
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
@@ -1485,6 +1498,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 	return 0;
 err:
 	print_parse_error(&ps);
+	entry_reset(&ps.e);
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
@@ -1507,7 +1521,7 @@ tfw_cfg_start_mods(const char *cfg_text)
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, &tfw_cfg_mods);
 	if (ret) {
-		TFW_ERR("can't parse configuration data\n");
+		TFW_DBG("can't parse configuration data\n");
 		goto err_recover_cleanup;
 	}
 
