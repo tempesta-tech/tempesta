@@ -238,7 +238,7 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -EINVAL;
 
 	if (e->val_n == ARRAY_SIZE(e->vals)) {
-		TFW_ERR("maximum number of values per entry reached\n");
+		TFW_ERR_NL("maximum number of values per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -268,7 +268,7 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 		return -EINVAL;
 
 	if (e->attr_n == ARRAY_SIZE(e->attrs)) {
-		TFW_ERR("maximum number of attributes per entry reached\n");
+		TFW_ERR_NL("maximum number of attributes per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -352,7 +352,10 @@ typedef struct {
 	/* Length of @lit (the @lit is not terminated). */
 	int lit_len;
 	int prev_lit_len;
-	int line;
+
+	/* Current line. */
+	size_t line_no;
+	const char *line;
 
 	int  err;  /* The latest error code. */
 
@@ -388,14 +391,16 @@ do {					\
 
 /* Macros specific to TFSM. */
 
-#define TFSM_MOVE(to_state)	\
-do {				\
-	ps->prev_c = ps->c;	\
-	ps->c = *(++ps->pos);	\
+#define TFSM_MOVE(to_state)		\
+do {					\
+	ps->prev_c = ps->c;		\
+	ps->c = *(++ps->pos);		\
 	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
-	FSM_JMP(to_state);	\
-	if ( ps->prev_c == '\n'){\
-		++ps->line; }	 \
+	if (ps->prev_c == '\n') {	\
+		++ps->line_no;		\
+		ps->line = ps->pos;	\
+	}				\
+	FSM_JMP(to_state);		\
 } while (0)
 
 #define TFSM_MOVE_EXIT(token_type)	\
@@ -616,6 +621,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
 
 		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
+		ps->e.line_no = ps->line_no;
 		ps->e.line = ps->line;
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
@@ -744,6 +750,8 @@ spec_start_handling(TfwCfgSpec specs[])
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
 		BUG_ON(spec->call_counter < 0);
+		if (spec->handler == &tfw_cfg_handle_children)
+			BUG_ON(!spec->cleanup);
 	}
 }
 
@@ -753,8 +761,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	int r;
 
 	if (!spec->allow_repeat && spec->call_counter) {
-		TFW_ERR("duplicate entry: '%s', only one such entry is allowed."
-			"\n", parsed_entry->name);
+		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
+			   " allowed.\n", parsed_entry->name);
 		return -EINVAL;
 	}
 
@@ -762,7 +770,7 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	r = spec->handler(spec, parsed_entry);
 	++spec->call_counter;
 	if (r)
-		TFW_ERR("configuration handler returned error: %d\n", r);
+		TFW_DBG("configuration handler returned error: %d\n", r);
 
 	return r;
 }
@@ -788,7 +796,7 @@ spec_handle_default(TfwCfgSpec *spec)
 	TFW_DBG2("use default entry: '%s'\n", fake_entry_buf);
 
 	memset(&ps, 0, sizeof(ps));
-	ps.in = ps.pos = fake_entry_buf;
+	ps.line = ps.in = ps.pos = fake_entry_buf;
 	parse_cfg_entry(&ps);
 	BUG_ON(!ps.e.name);
 	BUG_ON(ps.err);
@@ -849,11 +857,11 @@ spec_finish_handling(TfwCfgSpec specs[])
 	return 0;
 
 err_no_entry:
-	TFW_ERR("the required entry is not found: '%s'\n", spec->name);
+	TFW_ERR_NL("the required entry is not found: '%s'\n", spec->name);
 	return -EINVAL;
 
 err_dflt_val:
-	TFW_ERR("Error handling default value for: '%s'\n", spec->name);
+	TFW_ERR_NL("Error handling default value for: '%s'\n", spec->name);
 	return r;
 }
 
@@ -868,18 +876,6 @@ spec_cleanup(TfwCfgSpec specs[])
 			spec->cleanup(spec);
 		}
 		spec->call_counter = 0;
-
-		/**
-		 * When spec processing function is tfw_cfg_handle_children(),
-		 * a user-defined .cleanup function for that spec is not
-		 * allowed. Instead, an special .cleanup function is assigned
-		 * to that spec, thus overwriting the (zero) value there.
-		 * When the whole cleanup process completes, revert that spec
-		 * entry to original (zero) value. That will allow reuse of
-		 * the spec.
-		 */
-		if (spec->handler == &tfw_cfg_handle_children)
-			spec->cleanup = NULL;
 	}
 }
 
@@ -981,8 +977,8 @@ int
 tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
 {
 	if (e->val_n != val_n) {
-		TFW_ERR("invalid number of values; expected: %d, got: %zu\n",
-			val_n, e->val_n);
+		TFW_ERR_NL("invalid number of values; expected: %d, got: %zu\n",
+			   val_n, e->val_n);
 		return -EINVAL;
 	}
 	return 0;
@@ -1004,13 +1000,13 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 	int r = -EINVAL;
 
 	if (e->val_n == 0)
-		TFW_ERR("no value specified\n");
+		TFW_ERR_NL("no value specified\n");
 	else if (e->val_n > 1)
-		TFW_ERR("more than one value specified\n");
+		TFW_ERR_NL("more than one value specified\n");
 	else if (e->attr_n)
-		TFW_ERR("unexpected attributes\n");
+		TFW_ERR_NL("unexpected attributes\n");
 	else if (e->have_children)
-		TFW_ERR("unexpected children entries\n");
+		TFW_ERR_NL("unexpected children entries\n");
 	else
 		r = 0;
 
@@ -1063,12 +1059,13 @@ tfw_cfg_parse_int(const char *s, int *out_int)
 }
 EXPORT_SYMBOL(tfw_cfg_parse_int);
 
-static void
+void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
 {
 	TfwCfgSpec *nested_specs = cs->dest;
 	spec_cleanup(nested_specs);
 }
+EXPORT_SYMBOL(tfw_cfg_cleanup_children);
 
 /**
  * This handler allows to parse nested entries recursively.
@@ -1102,11 +1099,20 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	int ret;
 
 	BUG_ON(!nested_specs);
-	BUG_ON(!cs->call_counter && cs->cleanup);
-	cs->cleanup = tfw_cfg_cleanup_children;
+	BUG_ON(!cs->cleanup);
+
+	/*
+	 * If spec is repeateble, it must have non-generic cleanup function.
+	 * In other way parsing non-repeatable nested specs will fail.
+	 */
+	if (cs->allow_repeat && (cs->cleanup != &tfw_cfg_cleanup_children)) {
+		TfwCfgSpec *spec;
+		TFW_CFG_FOR_EACH_SPEC(spec, nested_specs)
+			spec->call_counter = 0;
+	}
 
 	if (!e->have_children) {
-		TFW_ERR("the entry has no nested children entries\n");
+		TFW_ERR_NL("the entry has no nested children entries\n");
 		return -EINVAL;
 	}
 
@@ -1216,7 +1222,7 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(is_true && is_false);
 	if (!is_true && !is_false) {
-		TFW_ERR("invalid boolean value: '%s'\n", in_str);
+		TFW_ERR_NL("invalid boolean value: '%s'\n", in_str);
 		return -EINVAL;
 	}
 
@@ -1321,14 +1327,15 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 		min = cse->len_range.min;
 		max = cse->len_range.max;
 		if (min != max && (len < min || len > max)) {
-			TFW_ERR("the string length (%d) is out of valid range "
-				" (%d, %d): '%s'\n", len, min, max, str);
+			TFW_ERR_NL("the string length (%d) is out of valid "
+				   "range (%d, %d): '%s'\n", len, min, max,
+				   str);
 			return -EINVAL;
 		}
 
 		cset = cse->cset;
 		if (cset && !is_matching_to_cset(str, cset)) {
-			TFW_ERR("invalid characters found: '%s'\n", str);
+			TFW_ERR_NL("invalid characters found: '%s'\n", str);
 			return -EINVAL;
 		}
 	}
@@ -1411,9 +1418,26 @@ mod_stop(TfwCfgMod *mod)
 static void
 print_parse_error(const TfwCfgParserState *ps)
 {
+	int len = 0;
+	const char *ticks = "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+			    "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
+	const char* eos = NULL;
 
-	TFW_ERR("configuration parsing error: str:%d;w:%s\n", ps->e.line + 1,
-		ps->e.name);
+	/*
+	 * Line is not known: mandatory option is not present, error is raised
+	 * by @spec_finish_handling() function.
+	 */
+	if (!ps->e.line) {
+		TFW_ERR_NL("configuration parsing error");
+		return;
+	}
+
+	eos = strchrnul(ps->e.line, '\n');
+	len = min(80, (int)(eos - ps->e.line));
+	TFW_ERR_NL("configuration parsing error:\n"
+		   "%4zu: %.*s\n"
+		   "      %.*s\n",
+		   ps->e.line_no + 1, len, ps->e.line, len, ticks);
 }
 
 /*
@@ -1440,7 +1464,8 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 {
 	TfwCfgParserState ps = {
 		.in = cfg_text,
-		.pos = cfg_text
+		.pos = cfg_text,
+		.line = cfg_text
 	};
 	TfwCfgMod *mod;
 	TfwCfgSpec *matching_spec = NULL;
@@ -1466,14 +1491,13 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 		}
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
-			entry_reset(&ps.e);
 			goto err;
 		}
 
 		r = spec_handle_entry(matching_spec, &ps.e);
-		entry_reset(&ps.e);
 		if (r)
 			goto err;
+		entry_reset(&ps.e);
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
@@ -1485,6 +1509,7 @@ tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
 	return 0;
 err:
 	print_parse_error(&ps);
+	entry_reset(&ps.e);
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
@@ -1507,7 +1532,7 @@ tfw_cfg_start_mods(const char *cfg_text)
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	ret = tfw_cfg_parse_mods_cfg(cfg_text, &tfw_cfg_mods);
 	if (ret) {
-		TFW_ERR("can't parse configuration data\n");
+		TFW_DBG("can't parse configuration data\n");
 		goto err_recover_cleanup;
 	}
 
@@ -1555,7 +1580,7 @@ tfw_cfg_start(void)
 
 	TFW_LOG("Starting all modules...\n");
 	if ((r = tfw_cfg_start_mods(cfg_text_buf)))
-		TFW_ERR("failed to start modules\n");
+		TFW_ERR_NL("failed to start modules\n");
 
 	vfree(cfg_text_buf);
 
