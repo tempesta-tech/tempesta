@@ -882,7 +882,7 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
 				     &method_id);
 		if (r) {
-			TFW_ERR("frang: invalid method: '%s'\n", method_str);
+			TFW_ERR_NL("frang: invalid method: '%s'\n", method_str);
 			return -EINVAL;
 		}
 
@@ -1075,7 +1075,8 @@ static TfwCfgSpec frang_cfg_toplevel_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_cfg_section_specs
+		.dest = &frang_cfg_section_specs,
+		.cleanup = tfw_cfg_cleanup_children
 	},
 	{}
 };
