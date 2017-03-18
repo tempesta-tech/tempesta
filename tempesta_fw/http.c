@@ -1599,6 +1599,9 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
+	if (r < 0)
+		return r;
+
 	if (resp->flags & TFW_HTTP_RESP_STALE) {
 #define S_WARN_110 "Warning: 110 - Response is stale"
 		/* TODO: ajust for #215 */
