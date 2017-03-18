@@ -720,6 +720,18 @@ tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r = tfw_cfg_set_int(cs, ce);
+
+	/* @sess_lifetime value of 0 means unlimited. */
+	if (!r && !tfw_cfg_sticky.sess_lifetime)
+		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
+
+	return r;
+}
+
 TfwCfgMod tfw_http_sess_cfg_mod = {
 	.name = "http_sticky",
 	.start = tfw_cfg_sess_start,
@@ -736,12 +748,16 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 			.allow_none = true,
 		},
 		{
+			/* Value is parsed as int, set max to INT_MAX*/
 			.name = "sess_lifetime",
 			.deflt = "0",
-			.handler = tfw_cfg_set_int,
+			.handler = tfw_http_sticky_sess_lifetime_cfg,
 			.dest = &tfw_cfg_sticky.sess_lifetime,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 			.allow_none = true,
 		},
-		{}
+		{ 0 }
 	}
 };
