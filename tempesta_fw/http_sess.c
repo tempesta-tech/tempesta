@@ -506,7 +506,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 static inline void
 sess_destroy(TfwHttpSess *sess)
 {
-	TfwHttpSessConn *sess_conn, *tmp;
+	TfwStickyConn *sess_conn, *tmp;
 
 	list_for_each_entry_safe(sess_conn, tmp, &sess->conns, list) {
 		list_del(&sess_conn->list);
@@ -611,10 +611,10 @@ found:
 	return 0;
 }
 
-static inline TfwHttpSessConn *
+static inline TfwStickyConn *
 __sess_get_conn(TfwHttpSess *sess, TfwSrvGroup *sg)
 {
-	TfwHttpSessConn *sess_conn;
+	TfwStickyConn *sess_conn;
 
 	list_for_each_entry(sess_conn, &sess->conns, list)
 		if (sess_conn->sg == sg) {
@@ -628,11 +628,11 @@ __sess_get_conn(TfwHttpSess *sess, TfwSrvGroup *sg)
 /**
  * Get last used connections to server group @sg.
  */
-TfwHttpSessConn *
+TfwStickyConn *
 tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 {
 	TfwHttpSess *sess = req->sess;
-	TfwHttpSessConn *sess_conn;
+	TfwStickyConn *sess_conn;
 
 	BUG_ON(!sess);
 
@@ -657,7 +657,7 @@ tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg)
 			return NULL;
 		}
 
-		memset(sess_conn, 0, sizeof(TfwHttpSessConn));
+		memset(sess_conn, 0, sizeof(TfwStickyConn));
 		sess_conn->sg = sg;
 		rwlock_init(&sess_conn->lock);
 		INIT_LIST_HEAD(&sess_conn->list);
@@ -701,7 +701,7 @@ tfw_http_sess_init(void)
 		goto err_shash;
 
 	sess_conn_cache = kmem_cache_create("tfw_sess_conn_cache",
-					    sizeof(TfwHttpSessConn), 0, 0,
+					    sizeof(TfwStickyConn), 0, 0,
 					    NULL);
 	if (!sess_conn_cache)
 		goto err_cache;

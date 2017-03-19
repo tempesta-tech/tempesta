@@ -34,21 +34,26 @@ typedef struct {
   * List item of server connections binded to HTTP session.
   *
   * @list	- member in the list of connections;
-  * @sg		- target server group;
   * @conn	- last used connection of primary or backup server;
   * @lock	- protect for the whole struct.
+  *
+  * Sticky session cannot be pinned to more than server in the same time.
+  * Server group @sg *must* have either exactly one backup server group listed
+  * in 'sched_http_rules' (http_scheduler) or no backups. All other variants
+  * meants that session will be pinned to more than one server in the end.
+  *
   */
 typedef struct {
 	struct list_head	list;
-	TfwSrvGroup		*sg;
 	TfwSrvConn		*conn;
+	u_int			use_backup;
 	rwlock_t		lock;
-} TfwHttpSessConn;
+} TfwStickyConn;
 
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
 
-TfwHttpSessConn *tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg);
+TfwStickyConn *tfw_http_sess_get_conn(TfwHttpReq *req, TfwSrvGroup *sg);
 
 #endif /* __TFW_HTTP_SESS_H__ */

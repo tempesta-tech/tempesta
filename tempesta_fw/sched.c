@@ -71,6 +71,53 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 	return NULL;
 }
 
+static inline TfwSrvConn *
+__sched(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+{
+	TfwSrvConn *srv_conn;
+
+	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
+
+	srv_conn = main_sg->sched->sched_sg(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg)) {
+		TFW_DBG("sched_http: the main group is offline, use backup:"
+			" '%s'\n", sg->name);
+		srv_conn = backup_sg->sched->sched_sg(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched_http: Unable to select server from group"
+			 " '%s'\n", sg->name);
+
+	return srv_conn;
+}
+
+static inline TfwSrvConn *
+__sticky_sched(TfwMsg *msg, TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+{
+	/* TODO */
+
+	return NULL;
+}
+
+TfwSrvConn *
+tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			  TfwSrvGroup *backup_sg)
+{
+	BUG_ON(!main_sg);
+
+	/* TODO */
+	if (false) {
+		TFW_DBG2("sched_http: use sticky session\n");
+		return __sticky_sched(msg, main_sg, backup_sg);
+	}
+	return __sched(msg, main_sg, backup_sg);
+
+	return NULL;
+}
+EXPORT_SYMBOL(tfw_sched_get_sg_srv_conn);
+
 /*
  * Lookup a scheduler by name.
  *
