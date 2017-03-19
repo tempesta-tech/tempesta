@@ -82,7 +82,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -120,13 +120,13 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	BUG_ON(!sg);
 	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
 
-	srv_conn = sg->sched->sched_srv(msg, sg);
+	srv_conn = sg->sched->sched_sg_conn(msg, sg);
 
 	if (unlikely(!srv_conn && rule->backup_sg)) {
 		sg = rule->backup_sg;
 		TFW_DBG("sched_http: the main group is offline, use backup:"
 			" '%s'\n", sg->name);
-		srv_conn = sg->sched->sched_srv(msg, sg);
+		srv_conn = sg->sched->sched_sg_conn(msg, sg);
 	}
 
 	if (unlikely(!srv_conn))
@@ -137,9 +137,17 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 }
 
 static TfwSrvConn *
-tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
+	return NULL;
+}
+
+static TfwSrvConn *
+tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
+{
+	WARN_ONCE(true, "tfw_sched_http can't select connection from a server"
+			"\n");
 	return NULL;
 }
 
@@ -147,7 +155,8 @@ static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
-	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
+	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 };
 
 
