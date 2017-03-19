@@ -27,7 +27,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 /**
@@ -86,6 +86,7 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 		sl->srvs[s].srv = srv;
 		++sl->srv_n;
 		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
+		srv->sched_data = &sl->srvs[s];
 	}
 
 	srv_cl = &sl->srvs[s];
@@ -98,6 +99,30 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 	srv_cl->conns[c] = srv_conn;
 	++srv_cl->conn_n;
 	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
+}
+
+static inline TfwSrvConn *
+__sched_srv(TfwRrSrv *srv_cl, int skipnip, int *nipconn)
+{
+	size_t c;
+
+	for (c = 0; c < srv_cl->conn_n; ++c) {
+		unsigned long idxval = atomic64_inc_return(&srv_cl->rr_counter);
+		TfwSrvConn *srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
+
+		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+			     || tfw_srv_conn_queue_full(srv_conn)))
+			continue;
+		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+			if (likely(tfw_srv_conn_live(srv_conn)))
+				++(*nipconn);
+			continue;
+		}
+		if (likely(tfw_srv_conn_get_if_live(srv_conn)))
+			return srv_conn;
+	}
+
+	return NULL;
 }
 
 /**
@@ -118,35 +143,51 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
  * there are available server connections.
  */
 static TfwSrvConn *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_rr_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	size_t c, s;
-	unsigned long idxval;
+	size_t s;
 	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
-	TfwRrSrv *srv_cl;
-	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sl);
 rerun:
 	for (s = 0; s < sl->srv_n; ++s) {
-		idxval = atomic64_inc_return(&sl->rr_counter);
-		srv_cl = &sl->srvs[idxval % sl->srv_n];
-		for (c = 0; c < srv_cl->conn_n; ++c) {
-			idxval = atomic64_inc_return(&srv_cl->rr_counter);
-			srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
-			if (unlikely(tfw_srv_conn_restricted(srv_conn)
-				     || tfw_srv_conn_queue_full(srv_conn)))
-				continue;
-			if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
-				if (likely(tfw_srv_conn_live(srv_conn)))
-					nipconn++;
-				continue;
-			}
-			if (likely(tfw_srv_conn_get_if_live(srv_conn)))
+		unsigned long idxval = atomic64_inc_return(&sl->rr_counter);
+		TfwRrSrv *srv_cl = &sl->srvs[idxval % sl->srv_n];
+		TfwSrvConn *srv_conn;
+
+		if ((srv_conn = __sched_srv(srv_cl, skipnip, &nipconn)))
 				return srv_conn;
-		}
 	}
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
+	}
+	return NULL;
+}
+
+/**
+ * Same as @tfw_sched_rr_get_sg_conn(), but but schedule for a specific server
+ * in a group.
+ */
+static TfwSrvConn *
+tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+	int skipnip = 1, nipconn = 0;
+	TfwRrSrv *srv_cl = srv->sched_data;
+	TfwSrvConn *srv_conn;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+rerun:
+	if ((srv_conn = __sched_srv(srv_cl, skipnip, &nipconn)))
+		return srv_conn;
+
 	if (skipnip && nipconn) {
 		skipnip = 0;
 		goto rerun;
@@ -160,6 +201,7 @@ static TfwScheduler tfw_sched_rr = {
 	.add_grp	= tfw_sched_rr_alloc_data,
 	.del_grp	= tfw_sched_rr_free_data,
 	.add_conn	= tfw_sched_rr_add_conn,
+	.sched_sg	= tfw_sched_rr_get_sg_conn,
 	.sched_srv	= tfw_sched_rr_get_srv_conn,
 };
 

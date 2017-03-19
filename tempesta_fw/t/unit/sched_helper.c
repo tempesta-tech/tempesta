@@ -141,8 +141,11 @@ test_conn_release_all(TfwSrvGroup *sg)
 	}
 }
 
+/**
+ * Unit test. Message cannot be scheduled to empty server group.
+ */
 void
-test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
+test_sched_sg_empty_sg(struct TestSchedHelper *sched_helper)
 {
 	size_t i;
 	TfwSrvGroup *sg;
@@ -157,7 +160,7 @@ test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConn *srv_conn = sg->sched->sched_sg(msg, sg);
 
 		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
@@ -166,8 +169,12 @@ test_sched_generic_empty_sg(struct TestSchedHelper *sched_helper)
 	test_sg_release_all();
 }
 
+/**
+ * Unit test. Message cannot be scheduled to server group if server in that
+ * group have no live connections.
+ */
 void
-test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
+test_sched_sg_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 {
 	size_t i;
 	TfwSrvGroup *sg;
@@ -184,7 +191,7 @@ test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+		TfwSrvConn *srv_conn = sg->sched->sched_sg(msg, sg);
 
 		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
@@ -193,8 +200,13 @@ test_sched_generic_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	test_sg_release_all();
 }
 
+/**
+ * Unit test. Message cannot be scheduled to server group if servers in that
+ * group have no live connections. Server group contain as much servers as
+ * possible.
+ */
 void
-test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
+test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 {
 	size_t i, j;
 	TfwSrvGroup *sg;
@@ -213,12 +225,130 @@ test_sched_generic_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
 			TfwMsg *msg = sched_helper->get_sched_arg(i);
-			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn = sg->sched->sched_sg(msg, sg);
 
 			EXPECT_NULL(srv_conn);
 			sched_helper->free_sched_arg(msg);
 		}
 	}
 
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to server if it has no live
+ * connections.
+ */
+void
+test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i;
+	TfwSrvGroup *sg;
+	TfwServer *srv;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test", sched_helper->sched);
+
+	srv = test_create_srv("127.0.0.1", sg);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, srv);
+
+		EXPECT_NULL(srv_conn);
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to any server of server group if
+ * there is no no live connections across all server.
+ */
+void
+test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test", sched_helper->sched);
+
+	for (j = 0; j < TFW_SG_MAX_SRV; ++j)
+		test_create_srv("127.0.0.1", sg);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwServer *srv;
+
+		list_for_each_entry(srv, &sg->srv_list, list) {
+			TfwMsg *msg = sched_helper->get_sched_arg(i);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, srv);
+
+			EXPECT_NULL(srv_conn);
+			sched_helper->free_sched_arg(msg);
+		}
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to server if it is in failovering
+ * process.
+ */
+void
+test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
+{
+	size_t i;
+	size_t offline_num = 3;
+	TfwServer *offline_srv = NULL;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+	BUG_ON(offline_num >= TFW_SG_MAX_SRV);
+
+	sg = test_create_sg("test", sched_helper->sched);
+
+	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+		TfwServer *srv = test_create_srv("127.0.0.1", sg);
+		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, srv_conn);
+
+		if (i == offline_num) {
+			offline_srv = srv;
+			atomic_set(&srv_conn->refcnt, 0);
+		}
+	}
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwServer *srv;
+		list_for_each_entry(srv, &sg->srv_list, list) {
+			TfwMsg *msg = sched_helper->get_sched_arg(i);
+			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, srv);
+
+			if (srv == offline_srv)
+				EXPECT_NULL(srv_conn);
+			else
+				EXPECT_NOT_NULL(srv_conn);
+			sched_helper->free_sched_arg(msg);
+		}
+	}
+
+	test_conn_release_all(sg);
 	test_sg_release_all();
 }
