@@ -84,22 +84,15 @@ sched_hash_get_arg(size_t conn_type)
 
 TEST(tfw_sched_hash, sg_empty)
 {
-	test_sched_generic_empty_sg(&sched_helper_hash);
+	test_sched_sg_empty_sg(&sched_helper_hash);
 }
 
-TEST(tfw_sched_hash, one_srv_in_sg_and_zero_conn)
+TEST(tfw_sched_hash, sched_sg_one_srv_zero_conn)
 {
-	test_sched_generic_one_srv_zero_conn(&sched_helper_hash);
+	test_sched_sg_one_srv_zero_conn(&sched_helper_hash);
 }
 
-/*
- * This unit test is implementation aware and checks more than just interface.
- * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
- * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be
- * updated
- */
-TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
+TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 {
 	size_t i, j;
 
@@ -113,17 +106,18 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwSrvConn *expect_conn = NULL;
+		TfwSrvConn *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn =
+					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
-			if (!expect_conn)
-				expect_conn = srv_conn;
+			if (!exp_conn)
+				exp_conn = srv_conn;
 			else
-				EXPECT_EQ(srv_conn, expect_conn);
+				EXPECT_EQ(srv_conn, exp_conn);
 
 			tfw_srv_conn_put(srv_conn);
 			sched_helper_hash.free_sched_arg(msg);
@@ -134,19 +128,12 @@ TEST(tfw_sched_hash, one_srv_in_sg_and_max_conn)
 	test_sg_release_all();
 }
 
-TEST(tfw_sched_hash, max_srv_in_sg_and_zero_conn)
+TEST(tfw_sched_hash, sched_sg_max_srv_zero_conn)
 {
-	test_sched_generic_max_srv_zero_conn(&sched_helper_hash);
+	test_sched_sg_max_srv_zero_conn(&sched_helper_hash);
 }
 
-/*
- * This unit test is implementation aware and checks more than just interface.
- * Note, that it is very similar to other tests (one_srv_in_sg_and_max_conn and
- * max_srv_in_sg_and_max_conn) for round-robin and hash schedullers. So if test
- * structure is changed, other mentioned in above tests should be also be
- * updated
- */
-TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
+TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 {
 	size_t i, j;
 
@@ -163,17 +150,18 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
-		TfwSrvConn *expect_conn = NULL;
+		TfwSrvConn *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
-			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
+			TfwSrvConn *srv_conn =
+					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
-			if (!expect_conn)
-				expect_conn = srv_conn;
+			if (!exp_conn)
+				exp_conn = srv_conn;
 			else
-				EXPECT_EQ(srv_conn, expect_conn);
+				EXPECT_EQ(srv_conn, exp_conn);
 
 			tfw_srv_conn_put(srv_conn);
 			sched_helper_hash.free_sched_arg(msg);
@@ -182,6 +170,105 @@ TEST(tfw_sched_hash, max_srv_in_sg_and_max_conn)
 
 	test_conn_release_all(sg);
 	test_sg_release_all();
+}
+
+TEST(tfw_sched_hash, sched_srv_one_srv_zero_conn)
+{
+	test_sched_srv_one_srv_zero_conn(&sched_helper_hash);
+}
+
+TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
+{
+	size_t i, j;
+
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
+	TfwServer *srv = test_create_srv("127.0.0.1", sg);
+
+	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
+		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
+		sg->sched->add_conn(sg, srv, srv_conn);
+	}
+
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwSrvConn *exp_conn = NULL;
+
+		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
+			TfwSrvConn *srv_conn =
+					sg->sched->sched_srv_conn(msg, srv);
+
+			EXPECT_NOT_NULL(srv_conn);
+			EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
+
+			if (!exp_conn)
+				exp_conn = srv_conn;
+			else
+				EXPECT_EQ(srv_conn, exp_conn);
+
+			tfw_srv_conn_put(srv_conn);
+			sched_helper_hash.free_sched_arg(msg);
+		}
+	}
+
+	test_conn_release_all(sg);
+	test_sg_release_all();
+}
+
+TEST(tfw_sched_hash, sched_srv_max_srv_zero_conn)
+{
+	test_sched_srv_max_srv_zero_conn(&sched_helper_hash);
+}
+
+TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
+{
+	size_t i, j;
+
+	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
+
+	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+		TfwServer *srv = test_create_srv("127.0.0.1", sg);
+
+		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+			TfwSrvConn *srv_conn =
+					test_create_conn((TfwPeer *)srv);
+			sg->sched->add_conn(sg, srv, srv_conn);
+		}
+	}
+
+	/* Check that every request is scheduled to the same connection. */
+	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwServer *srv;
+
+		list_for_each_entry(srv, &sg->srv_list, list) {
+			TfwSrvConn *exp_conn = NULL;
+
+			for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+				TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
+				TfwSrvConn *srv_conn =
+					sg->sched->sched_srv_conn(msg, srv);
+
+				EXPECT_NOT_NULL(srv_conn);
+				EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
+
+				if (!exp_conn)
+					exp_conn = srv_conn;
+				else
+					EXPECT_EQ(srv_conn, exp_conn);
+
+				tfw_srv_conn_put(srv_conn);
+				sched_helper_hash.free_sched_arg(msg);
+			}
+		}
+	}
+
+	test_conn_release_all(sg);
+	test_sg_release_all();
+}
+
+TEST(tfw_sched_hash, sched_srv_offline_srv)
+{
+	test_sched_srv_offline_srv(&sched_helper_hash);
 }
 
 TEST_SUITE(sched_hash)
@@ -193,9 +280,29 @@ TEST_SUITE(sched_hash)
 
 	kernel_fpu_begin();
 
+	/*
+	 * Schedulers have the same interface so some test cases can use generic
+	 * implementations. Some test cases still have to know how scheduler
+	 * work at low level. Please, keep same structure for implementation
+	 * aware test cases across all schedulers.
+	 *
+	 * Implementation aware cases:
+	 * sched_sg_one_srv_max_conn
+	 * sched_sg_max_srv_max_conn
+	 * sched_srv_one_srv_max_conn
+	 * sched_srv_max_srv_max_conn
+	 */
+
 	TEST_RUN(tfw_sched_hash, sg_empty);
-	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_zero_conn);
-	TEST_RUN(tfw_sched_hash, one_srv_in_sg_and_max_conn);
-	TEST_RUN(tfw_sched_hash, max_srv_in_sg_and_zero_conn);
-	TEST_RUN(tfw_sched_hash, max_srv_in_sg_and_max_conn);
+
+	TEST_RUN(tfw_sched_hash, sched_sg_one_srv_zero_conn);
+	TEST_RUN(tfw_sched_hash, sched_sg_one_srv_max_conn);
+	TEST_RUN(tfw_sched_hash, sched_sg_max_srv_zero_conn);
+	TEST_RUN(tfw_sched_hash, sched_sg_max_srv_max_conn);
+
+	TEST_RUN(tfw_sched_hash, sched_srv_one_srv_zero_conn);
+	TEST_RUN(tfw_sched_hash, sched_srv_one_srv_max_conn);
+	TEST_RUN(tfw_sched_hash, sched_srv_max_srv_zero_conn);
+	TEST_RUN(tfw_sched_hash, sched_srv_max_srv_max_conn);
+	TEST_RUN(tfw_sched_hash, sched_srv_offline_srv);
 }
