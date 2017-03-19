@@ -44,6 +44,7 @@
 #include "client.h"
 #include "hash.h"
 #include "http_msg.h"
+#include "http_sess.h"
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
@@ -78,12 +79,13 @@ typedef struct {
 	spinlock_t		lock;
 } SessHashBucket;
 
-static TfwCfgSticky tfw_cfg_sticky;
+static TfwCfgSticky		tfw_cfg_sticky;
+TfwCfgStickySess		tfw_cfg_sticky_sess = { 0 };
 /* Secret server value to genrate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
-SessHashBucket sess_hash[SESS_HASH_SZ] = {
+static SessHashBucket sess_hash[SESS_HASH_SZ] = {
 	[0 ... (SESS_HASH_SZ - 1)] = {
 		HLIST_HEAD_INIT,
 	}
@@ -137,7 +139,7 @@ static int
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
-	const unsigned int clen = tfw_cfg_sticky.name_eq.len;
+	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end, *next;
 	TfwStr tmp = { .flags = 0, };
 	unsigned int n = TFW_STR_CHUNKN(cookie);
@@ -310,7 +312,7 @@ static int
 tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	static const unsigned int len = sizeof(StickyVal) * 2;
-	unsigned int r;
+	int r;
 	TfwHttpSess *sess = req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
@@ -565,7 +567,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			goto found;
 	}
 
-	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
+	if (!(sess = kmem_cache_zalloc(sess_cache, GFP_ATOMIC))) {
 		spin_unlock(&hb->lock);
 		return -ENOMEM;
 	}
@@ -581,7 +583,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
-	sess->srv_conn = NULL; /* TODO #593 not scheduled yet */
+	rwlock_init(&sess->st_conn.conn_lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -598,36 +600,34 @@ found:
 int __init
 tfw_http_sess_init(void)
 {
-	int ret, i;
+	int i, ret = -ENOMEM;
 	u_char *ptr;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
-	}
+
 	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
 		pr_err("shash allocation failed\n");
-		return  PTR_ERR(tfw_sticky_shash);
+		ret = (int)PTR_ERR(tfw_sticky_shash);
+		goto err;
 	}
 
 	get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
 	ret = crypto_shash_setkey(tfw_sticky_shash,
 				  (u8 *)tfw_sticky_key,
 				  sizeof(tfw_sticky_key));
-	if (ret) {
-		crypto_free_shash(tfw_sticky_shash);
-		return ret;
-	}
+	if (ret)
+		goto err_shash;
+	ret = -ENOMEM;
 
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
 				       0, 0, NULL);
-	if (!sess_cache) {
-		crypto_free_shash(tfw_sticky_shash);
-		return -ENOMEM;
-	}
+	if (!sess_cache)
+		goto err_shash;
 
 	/*
 	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
@@ -637,6 +637,12 @@ tfw_http_sess_init(void)
 		spin_lock_init(&sess_hash[i].lock);
 
 	return 0;
+
+err_shash:
+	crypto_free_shash(tfw_sticky_shash);
+err:
+	kfree(tfw_cfg_sticky.name.ptr);
+	return ret;
 }
 
 void
@@ -658,6 +664,7 @@ tfw_http_sess_exit(void)
 
 	kfree(tfw_cfg_sticky.name.ptr);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
+	memset(&tfw_cfg_sticky_sess, 0, sizeof(tfw_cfg_sticky_sess));
 	crypto_free_shash(tfw_sticky_shash);
 }
 
@@ -673,6 +680,7 @@ static void
 tfw_cfg_sess_stop(void)
 {
 	tfw_cfg_sticky.enabled = 0;
+	memset(&tfw_cfg_sticky_sess, 0, sizeof(tfw_cfg_sticky_sess));
 }
 
 static int
@@ -732,6 +740,42 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return r;
 }
 
+static int
+tfw_http_sticky_sessions_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	tfw_cfg_sticky_sess.enabled = 1;
+
+	if (TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
+		TFW_ERR_NL("%s: sticky cookies must be enabled!\n",
+			   cs->name);
+		return -EINVAL;
+	}
+
+	if (ce->attr_n) {
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n > 1) {
+		TFW_ERR_NL("%s: Invalid number of arguments: %zu\n",
+			   cs->name, ce->val_n);
+		return -EINVAL;
+	}
+
+	if (ce->val_n) {
+		if (!strcasecmp(ce->vals[0], "allow_failover")) {
+			tfw_cfg_sticky_sess.allow_failover = 1;
+		}
+		else {
+			TFW_ERR_NL("%s: Unsupported argument: %s\n",
+				   cs->name, ce->vals[0]);
+			return  -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 TfwCfgMod tfw_http_sess_cfg_mod = {
 	.name = "http_sticky",
 	.start = tfw_cfg_sess_start,
@@ -756,6 +800,11 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 			.spec_ext = &(TfwCfgSpecInt) {
 				.range = { 0, INT_MAX },
 			},
+			.allow_none = true,
+		},
+		{
+			.name = "sticky_sessions",
+			.handler = tfw_http_sticky_sessions_cfg,
 			.allow_none = true,
 		},
 		{ 0 }

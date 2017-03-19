@@ -26,8 +26,11 @@
 #include "connection.h"
 #include "gfsm.h"
 #include "msg.h"
+#include "server.h"
 #include "str.h"
 #include "vhost.h"
+
+typedef struct tfw_http_sess_t TfwHttpSess;
 
 /**
  * HTTP Generic FSM states.
@@ -269,25 +272,6 @@ typedef struct {
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x040000
 
-/**
- * HTTP session descriptor.
- *
- * @hmac	- crypto hash from values of an HTTP request;
- * @hentry	- hash list entry for all sessions hash;
- * @users	- the session use counter;
- * @ts		- timestamp for the client's session;
- * @expire	- expiration time for the session;
- * @srv_conn	- upstream server connection servicing the session;
- */
-typedef struct {
-	unsigned char		hmac[SHA1_DIGEST_SIZE];
-	struct hlist_node	hentry;
-	atomic_t		users;
-	unsigned long		ts;
-	unsigned long		expires;
-	TfwSrvConn		*srv_conn;
-} TfwHttpSess;
-
 /*
  * The structure to hold data for an HTTP error response.
  * An error response is sent later in an unlocked queue context.
@@ -487,12 +471,5 @@ int tfw_http_send_504(TfwHttpReq *req, const char *reason);
  */
 void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
 void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
-
-/*
- * HTTP session routines.
- */
-int tfw_http_sess_obtain(TfwHttpReq *req);
-int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
-void tfw_http_sess_put(TfwHttpSess *sess);
 
 #endif /* __TFW_HTTP_H__ */
