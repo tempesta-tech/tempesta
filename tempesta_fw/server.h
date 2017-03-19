@@ -46,7 +46,6 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*sched_data;
 	void			*apm;
-	int			stress;
 } TfwServer;
 
 /**
