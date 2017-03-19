@@ -80,7 +80,7 @@ typedef struct {
 } SessHashBucket;
 
 static TfwCfgSticky		tfw_cfg_sticky;
-static TfwCfgStickySess		tfw_cfg_sticky_sess;
+TfwCfgStickySess		tfw_cfg_sticky_sess = { 0 };
 /* Secret server value to genrate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
@@ -567,7 +567,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			goto found;
 	}
 
-	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
+	if (!(sess = kmem_cache_zalloc(sess_cache, GFP_ATOMIC))) {
 		spin_unlock(&hb->lock);
 		return -ENOMEM;
 	}
@@ -583,7 +583,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
-	sess->srv_conn = NULL; /* TODO #593 not scheduled yet */
+	rwlock_init(&sess->st_conn.conn_lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -745,7 +745,7 @@ tfw_http_sticky_sessions_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_sticky_sess.enabled = 1;
 
-	if (!tfw_cfg_sticky.enabled) {
+	if (TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
 		TFW_ERR_NL("%s: sticky cookies must be enabled!\n",
 			   cs->name);
 		return -EINVAL;

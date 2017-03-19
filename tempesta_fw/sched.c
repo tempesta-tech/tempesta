@@ -23,6 +23,7 @@
 #include "tempesta_fw.h"
 #include "log.h"
 #include "server.h"
+#include "http_sess.h"
 
 /*
  * Normally, schedulers are separate modules. Schedulers register
@@ -39,20 +40,8 @@
 static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
-/*
- * Find an outgoing connection for an HTTP message.
- *
- * Where an HTTP message goes in controlled by schedulers. It may
- * or may not depend on properties of HTTP message itself. In any
- * case, schedulers are polled in sequential order until a result
- * is received. Schedulers that distribute HTTP messages among
- * server groups come first in the list. The search stops when
- * these schedulers run out.
- *
- * This function is always called in SoftIRQ context.
- */
-TfwSrvConn *
-tfw_sched_get_srv_conn(TfwMsg *msg)
+static inline TfwSrvConn *
+__get_srv_conn(TfwMsg *msg)
 {
 	TfwSrvConn *srv_conn;
 	TfwScheduler *sched;
@@ -70,6 +59,145 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 
 	return NULL;
 }
+
+static inline TfwSrvConn *
+__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
+{
+	TfwServer *srv;
+
+	if (unlikely(!st_conn->srv_conn))
+		return NULL;
+
+	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
+	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
+	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
+	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
+	{
+		return st_conn->srv_conn;
+	}
+
+	/* Try to sched from the same server. */
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+
+	return srv->sg->sched->sched_srv(msg, srv);
+}
+
+static inline TfwSrvConn *
+__get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
+{
+	TfwStickyConn *st_conn = &sess->st_conn;
+	TfwSrvConn *srv_conn;
+
+	read_lock(&st_conn->conn_lock);
+
+	if ((srv_conn = __try_conn(msg, st_conn))) {
+		read_unlock(&st_conn->conn_lock);
+		return srv_conn;
+	}
+
+	read_unlock(&st_conn->conn_lock);
+
+	if (st_conn->srv_conn) {
+		/* Failed to sched from the same server. */
+		if (!tfw_cfg_sticky_sess.allow_failover) {
+			return NULL;
+		}
+		else {
+			TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
+			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+			tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
+			TFW_WARN("sched %s: Unable to schedule new request in "
+				 "session to the same server %s in group %s\n",
+				 srv->sg->sched->name, addr_str, srv->sg->name);
+		}
+	}
+
+	write_lock(&st_conn->conn_lock);
+
+	/* Connection may return back online while we were trying for a lock. */
+	if ((srv_conn = __try_conn(msg, st_conn))) {
+		write_unlock(&st_conn->conn_lock);
+		return srv_conn;
+	}
+
+	if (unlikely(!st_conn->srv_conn)) {
+		st_conn->srv_conn = __get_srv_conn(msg);
+		write_unlock(&st_conn->conn_lock);
+		return st_conn->srv_conn;
+	}
+
+	st_conn->srv_conn = tfw_sched_get_sg_srv_conn(msg,
+						      st_conn->main_sg,
+						      st_conn->backup_sg);
+	if (st_conn->srv_conn) {
+		write_unlock(&st_conn->conn_lock);
+		return st_conn->srv_conn;
+	}
+
+	write_unlock(&st_conn->conn_lock);
+
+	return NULL;
+}
+
+/*
+ * Find an outgoing connection for an HTTP message.
+ *
+ * Where an HTTP message goes in controlled by schedulers. It may
+ * or may not depend on properties of HTTP message itself. In any
+ * case, schedulers are polled in sequential order until a result
+ * is received. Schedulers that distribute HTTP messages among
+ * server groups come first in the list. The search stops when
+ * these schedulers run out.
+ *
+ * This function is always called in SoftIRQ context.
+ */
+TfwSrvConn *
+tfw_sched_get_srv_conn(TfwMsg *msg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwHttpSess *sess = req->sess;
+
+	/* Sticky sessions disabled or client doesn't support cookies. */
+	if (!tfw_cfg_sticky_sess.enabled || !sess)
+		return __get_srv_conn(msg);
+
+	return __get_sticky_srv_conn(msg, sess);
+}
+
+TfwSrvConn *
+tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			  TfwSrvGroup *backup_sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwSrvConn *srv_conn;
+
+	BUG_ON(!main_sg);
+	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
+
+	if (req->sess && tfw_cfg_sticky_sess.enabled) {
+		TfwStickyConn *st_conn = &req->sess->st_conn;
+
+		/* @st_conn->lock is already acquired for writing. */
+		st_conn->main_sg = main_sg;
+		st_conn->backup_sg = backup_sg;
+	}
+
+	srv_conn = main_sg->sched->sched_sg(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg)) {
+		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
+			sg->name);
+		srv_conn = backup_sg->sched->sched_sg(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched: Unable to select server from group '%s'\n",
+			 sg->name);
+
+	return srv_conn;
+}
+EXPORT_SYMBOL(tfw_sched_get_sg_srv_conn);
 
 /*
  * Lookup a scheduler by name.
