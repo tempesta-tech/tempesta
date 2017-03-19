@@ -734,19 +734,6 @@ __tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
 }
 
 /*
- * Forward unsent requests in server connection @srv_conn.
- * It's assumed that the forwarding queue in @srv_conn is locked.
- */
-static inline void
-tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
-{
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
-
-	if (tfw_http_conn_need_fwd(srv_conn))
-		__tfw_http_conn_fwd_unsent(srv_conn, equeue);
-}
-
-/*
  * Forward the request @req to server connection @srv_conn.
  *
  * The request is added to the server connection's forwarding queue.
@@ -868,6 +855,31 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *equeue)
 }
 
 /*
+ * Remove restrictions from a server connection.
+ */
+static inline void
+__tfw_srv_conn_clear_restricted(TfwSrvConn *srv_conn)
+{
+	clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+	if (test_and_clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags))
+		TFW_DEC_STAT_BH(serv.conn_restricted);
+}
+
+/*
+ * Make the connection full-functioning again if done with repair.
+ */
+static inline bool
+tfw_srv_conn_reenable_if_done(TfwSrvConn *srv_conn)
+{
+	if (!list_empty(&srv_conn->fwd_queue))
+		return false;
+	BUG_ON(srv_conn->qsize);
+	BUG_ON(srv_conn->msg_sent);
+	__tfw_srv_conn_clear_restricted(srv_conn);
+	return true;
+}
+
+/*
  * Handle the complete re-forwarding of requests in a server connection
  * that is being repaired, after the first request had been re-forwarded.
  * The connection is not scheduled until all requests in it are re-sent.
@@ -879,14 +891,11 @@ __tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
 	BUG_ON(!tfw_srv_conn_restricted(srv_conn));
 
-	if (list_empty(&srv_conn->fwd_queue)) {
-		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		if (test_bit(TFW_CONN_B_RESEND, &srv_conn->flags)) {
-			TFW_DEC_STAT_BH(serv.conn_restricted);
-			clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
-		}
-	} else if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
-		tfw_http_conn_fwd_unsent(srv_conn, equeue);
+	if (tfw_srv_conn_reenable_if_done(srv_conn))
+		return;
+	if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
+		if (tfw_http_conn_need_fwd(srv_conn))
+			__tfw_http_conn_fwd_unsent(srv_conn, equeue);
 	} else {
 		/*
 		 * Resend all previously forwarded requests. After that
@@ -900,11 +909,11 @@ __tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
 		if (srv_conn->msg_sent)
 			srv_conn->msg_sent =
 				tfw_http_conn_resend(srv_conn, false, equeue);
-		if (!tfw_http_conn_on_hold(srv_conn)) {
-			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-			tfw_http_conn_fwd_unsent(srv_conn, equeue);
-		}
+		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+		if (tfw_http_conn_need_fwd(srv_conn))
+			__tfw_http_conn_fwd_unsent(srv_conn, equeue);
 	}
+	tfw_srv_conn_reenable_if_done(srv_conn);
 }
 
 /*
@@ -1091,8 +1100,11 @@ tfw_http_conn_repair(TfwConn *conn)
 			srv_conn->msg_sent = NULL;
 	/* If none re-sent, then send the remaining unsent requests. */
 	if (!srv_conn->msg_sent) {
-		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		tfw_http_conn_fwd_unsent(srv_conn, &equeue);
+		if (!list_empty(&srv_conn->fwd_queue)) {
+			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+			__tfw_http_conn_fwd_unsent(srv_conn, &equeue);
+		}
+		tfw_srv_conn_reenable_if_done(srv_conn);
 	}
 	spin_unlock(&srv_conn->fwd_qlock);
 
@@ -1239,11 +1251,7 @@ tfw_http_conn_release(TfwConn *conn)
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	if (likely(ss_active())) {
-		clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-		if (test_bit(TFW_CONN_B_RESEND, &srv_conn->flags)) {
-			TFW_DEC_STAT_BH(serv.conn_restricted);
-			clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
-		}
+		__tfw_srv_conn_clear_restricted(srv_conn);
 		return;
 	}
 
