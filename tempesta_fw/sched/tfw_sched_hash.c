@@ -231,7 +231,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	/* Try several times even if server has just a few connections. */
-	tries = max(srv_cl->conn_n, TFW_SRV_MAX_CONN / 4);
+	tries = max(srv_cl->conn_n, (size_t)TFW_SRV_MAX_CONN / 4);
 	while (--tries) {
 		unsigned long best_weight = 0;
 		TfwSrvConn *best_conn = NULL;
