@@ -150,7 +150,13 @@ __find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
 			continue;
 
 		curr_weight = msg_hash ^ srv_cl->hash[i];
-		if (curr_weight > *best_weight) {
+		/*
+		 * XOR might return 0, more or equal comparisson is required.
+		 * If server have only one active connection it still may
+		 * be the best connecton to serve the request. More likely
+		 * to happen when serving via @tfw_sched_hash_get_srv_conn().
+		 */
+		if (curr_weight >= *best_weight) {
 			*best_weight = curr_weight;
 			*best_conn = conn;
 		}
