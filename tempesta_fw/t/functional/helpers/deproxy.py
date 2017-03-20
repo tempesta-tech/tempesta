@@ -345,7 +345,7 @@ class Response(HttpMessage):
         words = statusline.rstrip('\r\n').split()
         if len(words) >= 3:
             self.version, self.status = words[0:2]
-            self.reason = words[2:]
+            self.reason = ' '.join(words[2:])
         elif len(words) == 2:
             self.version, self.status = words
         else:
