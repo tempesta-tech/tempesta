@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,8 +32,19 @@
 #define ENOMEM		1
 #endif
 
+#define ARRAY_SIZE(x)   (sizeof(x) / sizeof(*(x)))
+
 #define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_warn(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
+
+/* asm/cache.h */
+#ifndef L1_CACHE_BYTES
+#define L1_CACHE_BYTES 64
+#endif
+
+#define SMP_CACHE_BYTES L1_CACHE_BYTES
+#define ____cacheline_aligned __attribute__((__aligned__(SMP_CACHE_BYTES)))
+#define ____cacheline_aligned_in_smp ____cacheline_aligned
 
 #endif /* __KERNEL_H__ */
