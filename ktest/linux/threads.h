@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -56,7 +56,7 @@ __thr_func_wrapper(void *data)
 	return ret;
 }
 
-static int
+static inline int
 spawn_thread(pthread_t *thr_id, void *(func)(void *), void *arg)
 {
 	__ThrData *d = malloc(sizeof(__ThrData));
