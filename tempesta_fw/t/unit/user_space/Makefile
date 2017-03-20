@@ -30,11 +30,14 @@ CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 CFLAGS		= -O0 -ggdb -Wall -Werror \
 		  -pthread -DL1_CACHE_BYTES=$(CACHELINE) \
 		  -I../../../../ktest
-TARGETS		= percentiles slr
+TARGETS		= alb percentiles slr
 
 all : $(TARGETS)
 
 percentiles : percentiles.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+alb : alb.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 slr : slr.cc
