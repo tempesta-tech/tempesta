@@ -262,8 +262,8 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	main_sg = tfw_sg_lookup(in_main_sg);
 	if (!main_sg) {
-		TFW_ERR("sched_http: srv_group is not found: '%s'\n",
-			in_main_sg);
+		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
+			   in_main_sg);
 		return -EINVAL;
 	}
 
@@ -272,23 +272,23 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	} else {
 		backup_sg = tfw_sg_lookup(in_backup_sg);
 		if (!backup_sg) {
-			TFW_ERR("sched_http: backup srv_group is not found:"
-				" '%s'\n", in_backup_sg);
+			TFW_ERR_NL("sched_http: backup srv_group is not found:"
+				   " '%s'\n", in_backup_sg);
 			return -EINVAL;
 		}
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum, in_field, &field);
 	if (r) {
-		TFW_ERR("sched_http: invalid HTTP request field: '%s'\n",
-			in_field);
+		TFW_ERR_NL("sched_http: invalid HTTP request field: '%s'\n",
+			   in_field);
 		return -EINVAL;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_op_enum, in_op, &op);
 	if (r) {
-		TFW_ERR("sched_http: invalid matching operator: '%s'\n",
-			in_op);
+		TFW_ERR_NL("sched_http: invalid matching operator: '%s'\n",
+			   in_op);
 		return -EINVAL;
 	}
 
@@ -298,7 +298,8 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule = tfw_http_match_entry_new(tfw_sched_http_rules,
 					TfwSchedHttpRule, rule, arg_size);
 	if (!rule) {
-		TFW_ERR("sched_http: can't allocate memory for parsed rule\n");
+		TFW_ERR_NL("sched_http: can't allocate memory for parsed "
+			   "rule\n");
 		return -ENOMEM;
 	}
 
@@ -416,7 +417,8 @@ static TfwCfgMod tfw_sched_http_cfg_mod = {
 				.begin_hook = tfw_sched_http_cfg_begin_rules,
 				.finish_hook = tfw_sched_http_cfg_finish_rules
 			},
-			.allow_none = true
+			.allow_none = true,
+			.cleanup = tfw_cfg_cleanup_children
 		},
 		{}
 	}

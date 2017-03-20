@@ -819,8 +819,6 @@ tfw_http_msg_alloc_err_resp(void)
 
 	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO)))
 		return NULL;
-
-	INIT_LIST_HEAD(&hm->msg.seq_list);
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 
 	return hm;
@@ -885,7 +883,6 @@ tfw_http_msg_alloc(int type)
 	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
-	INIT_LIST_HEAD(&hm->msg.seq_list);
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 
 	hm->parser.to_read = -1; /* unknown body size */
@@ -895,6 +892,7 @@ tfw_http_msg_alloc(int type)
 		__hbh_parser_init_resp((TfwHttpResp *)hm);
 
 	if (type & Conn_Clnt) {
+		INIT_LIST_HEAD(&hm->msg.seq_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;

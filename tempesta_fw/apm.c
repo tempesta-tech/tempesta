@@ -911,7 +911,7 @@ tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
 	 * the maximum value possible for TfwPcntCtl{}->end. Currently
 	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
 	 */
-	if (likely(rtt < (1UL << sizeof(((TfwPcntCtl *)0)->end) * 8)))
+	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
 		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
 }
 
@@ -1069,12 +1069,13 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val;
 
 	if (ce->val_n) {
-		TFW_ERR("%s: Arguments must be a key=value pair.\n", cs->name);
+		TFW_ERR_NL("%s: Arguments must be a key=value pair.\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (!ce->attr_n) {
-		TFW_WARN("%s: arguments missing, using default values.\n",
-			 cs->name);
+		TFW_WARN_NL("%s: arguments missing, using default values.\n",
+			    cs->name);
 		return 0;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
@@ -1085,8 +1086,8 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_tmwscale)))
 				return r;
 		} else {
-			TFW_ERR("%s: unsupported argument: '%s=%s'.\n",
-				cs->name, key, val);
+			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				   cs->name, key, val);
 			return -EINVAL;
 		}
 	}

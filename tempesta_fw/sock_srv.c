@@ -603,13 +603,13 @@ tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 	int ret;
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 1) {
-		TFW_ERR("%s: Invalid number of arguments: %d\n",
-			cs->name, (int)ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 	if ((ret = tfw_cfg_parse_int(ce->vals[0], intval)))
@@ -658,7 +658,8 @@ static inline int
 tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 {
 	if (ce->attr_n || ce->val_n) {
-		TFW_ERR("%s: The option may not have arguments.\n", cs->name);
+		TFW_ERR_NL("%s: The option may not have arguments.\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	*retry_nip = 1;
@@ -717,35 +718,37 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	const char *key, *val, *saddr;
 
 	if (ce->val_n != 1) {
-		TFW_ERR("%s: %s %s: Invalid number of arguments: %zd\n",
-			sg->name, cs->name, ce->val_n ? ce->vals[0] : "",
-			ce->val_n);
+		TFW_ERR_NL("%s: %s %s: Invalid number of arguments: %zd\n",
+			   sg->name, cs->name, ce->val_n ? ce->vals[0] : "",
+			   ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n > 2) {
-		TFW_ERR("%s: %s %s: Invalid number of key=value pairs: %zd\n",
-			sg->name, cs->name, ce->vals[0], ce->attr_n);
+		TFW_ERR_NL("%s: %s %s: Invalid number of key=value pairs: %zd\n",
+			   sg->name, cs->name, ce->vals[0], ce->attr_n);
 		return -EINVAL;
 	}
 
 	saddr = ce->vals[0];
 
 	if (tfw_addr_pton(&TFW_STR_FROM(saddr), &addr)) {
-		TFW_ERR("%s: %s %s: Invalid IP address: '%s'\n",
-			sg->name, cs->name, saddr, saddr);
+		TFW_ERR_NL("%s: %s %s: Invalid IP address: '%s'\n",
+			   sg->name, cs->name, saddr, saddr);
 		return -EINVAL;
 	}
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "conns_n")) {
 			if (has_conns_n) {
-				TFW_ERR("%s: %s %s: Duplicate arg: '%s=%s'\n",
-					sg->name, cs->name, saddr, key, val);
+				TFW_ERR_NL("%s: %s %s: Duplicate arg: '%s=%s'"
+					   "\n", sg->name, cs->name, saddr, key,
+					   val);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &conns_n)) {
-				TFW_ERR("%s: %s %s: Invalid value: '%s=%s'\n",
-					sg->name, cs->name, saddr, key, val);
+				TFW_ERR_NL("%s: %s %s: Invalid value: '%s=%s'"
+					   "\n", sg->name, cs->name, saddr, key,
+					   val);
 				return -EINVAL;
 			}
 			has_conns_n = true;
@@ -762,8 +765,8 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 			}
 			has_weight = true;
 		} else {
-			TFW_ERR("%s: %s %s: Unsupported argument: '%s=%s'\n",
-				sg->name, cs->name, saddr, key, val);
+			TFW_ERR_NL("%s: %s %s: Unsupported argument: '%s=%s'\n",
+				   sg->name, cs->name, saddr, key, val);
 			return -EINVAL;
 		}
 	}
@@ -771,8 +774,9 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	if (!has_conns_n) {
 		conns_n = TFW_CFG_SRV_CONNS_N_DEF;
 	} else if ((conns_n < 1) || (conns_n > TFW_SRV_MAX_CONN)) {
-		TFW_ERR("%s: %s %s: Out of range of [1..%d]: 'conns_n=%d'\n",
-			sg->name, cs->name, saddr, TFW_SRV_MAX_CONN, conns_n);
+		TFW_ERR_NL("%s: %s %s: Out of range of [1..%d]: 'conns_n=%d'\n",
+			   sg->name, cs->name, saddr, TFW_SRV_MAX_CONN,
+			   conns_n);
 		return -EINVAL;
 	}
 	/* Default weight is set only for static ratio scheduler. */
@@ -784,8 +788,8 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	}
 
 	if (!(srv = tfw_server_create(&addr))) {
-		TFW_ERR("%s: %s %s: Error handling the server\n",
-			sg->name, cs->name, saddr);
+		TFW_ERR_NL("%s: %s %s: Error handling the server\n",
+			   sg->name, cs->name, saddr);
 		return -EINVAL;
 	}
 	srv->weight = weight;
@@ -858,7 +862,7 @@ tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		static const char __read_mostly s_default[] = "default";
 
 		if (!(tfw_cfg_out_sg = tfw_sg_new(s_default, GFP_KERNEL))) {
-			TFW_ERR("Unable to add default server group\n");
+			TFW_ERR_NL("Unable to add default server group\n");
 			return -EINVAL;
 		}
 	}
@@ -887,18 +891,19 @@ static int
 tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (ce->val_n != 1) {
-		TFW_ERR("%s %s: Invalid number of arguments: %zd\n",
-			cs->name, ce->val_n ? ce->vals[0] : "", ce->val_n);
-		return -EINVAL;
+		TFW_ERR_NL("%s %s: Invalid number of arguments: %zd\n",
+			   cs->name, ce->val_n ? ce->vals[0] : "", ce->val_n);
+			return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR("%s %s: Arguments may not have the \'=\' sign\n",
-			cs->name, ce->vals[0]);
+		TFW_ERR_NL("%s %s: Arguments may not have the \'=\' sign\n",
+			   cs->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
 	if (!(tfw_cfg_in_sg = tfw_sg_new(ce->vals[0], GFP_KERNEL))) {
-		TFW_ERR("%s %s: Unable to add group\n", cs->name, ce->vals[0]);
+		TFW_ERR_NL("%s %s: Unable to add group\n", cs->name,
+			   ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -991,8 +996,8 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 			return -EINVAL;
 	}
 	if (tfw_sg_set_sched(sg, tfw_cfg_in_sched->name)) {
-		TFW_ERR("%s %s: Unable to set scheduler: '%s'\n",
-			cs->name, sg->name, tfw_cfg_in_sched->name);
+		TFW_ERR_NL("%s %s: Unable to set scheduler: '%s'\n",
+			   cs->name, sg->name, tfw_cfg_in_sched->name);
 		return -EINVAL;
 	}
 	/* Add connections only after a scheduler is set. */
@@ -1001,9 +1006,9 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 		if (tfw_sock_srv_add_conns(srv, tfw_cfg_in_nconn[i])) {
 			char as[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 			tfw_addr_ntop(&srv->addr, as, sizeof(as));
-			TFW_ERR("%s %s: server '%s': "
-				"Error adding connections\n",
-				cs->name, sg->name, as);
+			TFW_ERR_NL("%s %s: server '%s': "
+				   "Error adding connections\n",
+				   cs->name, sg->name, as);
 			return -EINVAL;
 		}
 	}
@@ -1087,19 +1092,19 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	TfwScheduler *sched;
 
 	if (!ce->val_n) {
-		TFW_ERR("%s: Invalid number of arguments: %zd\n",
-			cs->name, ce->val_n);
+		TFW_ERR_NL("%s: Invalid number of arguments: %zd\n",
+			   cs->name, ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR("%s %s: Arguments may not have the \'=\' sign\n",
-			cs->name, ce->vals[0]);
+		TFW_ERR_NL("%s %s: Arguments may not have the \'=\' sign\n",
+			   cs->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
 	if (!(sched = tfw_sched_lookup(ce->vals[0]))) {
-		TFW_ERR("%s %s: Unrecognized scheduler: '%s'\n",
-			cs->name, ce->vals[0], ce->vals[0]);
+		TFW_ERR_NL("%s %s: Unrecognized scheduler: '%s'\n",
+			   cs->name, ce->vals[0], ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -1169,8 +1174,8 @@ tfw_sock_srv_start(void)
 				return -EINVAL;
 		}
 		if (tfw_sg_set_sched(sg, tfw_cfg_out_sched->name)) {
-			TFW_ERR("srv_group %s: Unable to set scheduler: "
-				"'%s'\n", sg->name, tfw_cfg_out_sched->name);
+			TFW_ERR_NL("srv_group %s: Unable to set scheduler: "
+				   "'%s'\n", sg->name, tfw_cfg_out_sched->name);
 			return -EINVAL;
 		}
 		/* Add connections only after a scheduler is set. */
@@ -1179,9 +1184,9 @@ tfw_sock_srv_start(void)
 			if (tfw_sock_srv_add_conns(srv, tfw_cfg_out_nconn[i])) {
 				char as[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 				tfw_addr_ntop(&srv->addr, as, sizeof(as));
-				TFW_ERR("srv_group %s: server '%s': "
-					"Error adding connections\n",
-					sg->name, as);
+				TFW_ERR_NL("srv_group %s: server '%s': "
+					   "Error adding connections\n",
+					   sg->name, as);
 				return -EINVAL;
 			}
 		}
@@ -1320,6 +1325,7 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			},
 			.allow_none = true,
 			.allow_repeat = true,
+			.cleanup = tfw_clean_srv_groups,
 		},
 		{ 0 }
 	}

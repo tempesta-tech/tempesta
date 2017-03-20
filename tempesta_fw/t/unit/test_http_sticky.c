@@ -188,6 +188,7 @@ static void
 http_sticky_suite_setup(void)
 {
 	struct sk_buff *skb;
+	TfwCliConn *cli_conn;
 
 	BUG_ON(mock.req);
 	BUG_ON(mock.resp);
@@ -212,6 +213,11 @@ http_sticky_suite_setup(void)
 
 	tfw_connection_init(&mock.conn_req);
 	tfw_connection_init(&mock.conn_resp);
+
+	cli_conn = (TfwCliConn *)&mock.conn_req;
+	INIT_LIST_HEAD(&cli_conn->seq_queue);
+	spin_lock_init(&cli_conn->seq_qlock);
+	spin_lock_init(&cli_conn->ret_qlock);
 
 	tfw_connection_revive(&mock.conn_req);
 	mock.conn_req.peer = (TfwPeer *)&mock.client;
