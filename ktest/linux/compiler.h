@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@
 #define __COMPILER_H__
 
 #include <assert.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 /* asm/types.h */
 #define BITS_PER_LONG	64
