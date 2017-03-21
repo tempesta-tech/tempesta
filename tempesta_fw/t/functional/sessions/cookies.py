@@ -13,7 +13,7 @@ def chains():
     chain = functional.base_message_chain()
     return [chain for i in range(CHAIN_LENGTH)]
 
-def make_302(request, server_response):
+def make_302(request):
     response = deproxy.Response(
                 'HTTP/1.1 302 Found\r\n'
                 'Content-Length: 0\r\n'
@@ -21,11 +21,15 @@ def make_302(request, server_response):
                 'Connection: keep-alive\r\n'
                 '\r\n'
                 % (tf_cfg.cfg.get('Tempesta', 'ip'), request.uri))
-    response.headers.add(
-        'Date', server_response.headers['Date'])
-    response.update()
     return response
 
+def make_502():
+    response = deproxy.Response(
+        'HTTP/1.1 502 Bad Gateway\r\n'
+        'Content-Length: 0\r\n'
+        'Connection: keep-alive\r\n'
+        '\r\n')
+    return response
 
 class TesterIgnoreCookies(deproxy.Deproxy):
     """Tester helper. Emulate client that does not support cookies."""
@@ -51,6 +55,11 @@ class TesterIgnoreCookies(deproxy.Deproxy):
         assert cookie not in self.cookies, \
             'Recieved non-uniquee cookie!'
 
+        if exp_resp.status != '200':
+            exp_resp.headers.delete_all('Date')
+            exp_resp.headers.add('Date', response.headers['Date'])
+            exp_resp.update()
+
         deproxy.Deproxy.recieved_response(self, response)
 
 
@@ -59,8 +68,7 @@ class TesterIgnoreEnforcedCookies(TesterIgnoreCookies):
     def __init__(self, *args, **kwargs):
          TesterIgnoreCookies.__init__(self, *args, **kwargs)
          self.message_chains[0].response = make_302(
-            self.message_chains[0].request,
-            self.message_chains[0].server_response)
+            self.message_chains[0].request)
          self.message_chains[0].server_response = deproxy.Response()
          self.message_chains[0].fwd_request = deproxy.Request()
 
@@ -102,6 +110,12 @@ class TesterUseCookies(deproxy.Deproxy):
 
             self.cookie_parsed = True
 
+        exp_resp = self.current_chain.response
+        if exp_resp.status != '200':
+            exp_resp.headers.delete_all('Date')
+            exp_resp.headers.add('Date', response.headers['Date'])
+            exp_resp.update()
+
         deproxy.Deproxy.recieved_response(self, response)
 
 
@@ -110,7 +124,6 @@ class TesterUseEnforcedCookies(TesterUseCookies):
     def __init__(self, *args, **kwargs):
          TesterUseCookies.__init__(self, *args, **kwargs)
          self.message_chains[0].response = make_302(
-            self.message_chains[0].request,
-            self.message_chains[0].server_response)
+            self.message_chains[0].request)
          self.message_chains[0].server_response = deproxy.Response()
          self.message_chains[0].fwd_request = deproxy.Request()

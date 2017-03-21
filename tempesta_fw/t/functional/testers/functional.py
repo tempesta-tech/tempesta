@@ -33,7 +33,8 @@ class FunctionalTest(unittest.TestCase):
         port = tempesta.upstream_port_start_from()
         self.servers = [deproxy.Server(port=port)]
 
-    def create_servers_helper(self, count, start_port=None, keep_alive=None):
+    def create_servers_helper(self, count, start_port=None, keep_alive=None,
+                              connections=None):
         """ Helper function to spawn `count` servers in default configuration.
         """
         if start_port is None:
@@ -41,7 +42,8 @@ class FunctionalTest(unittest.TestCase):
         self.servers = []
         for i in range(count):
             self.servers.append(deproxy.Server(port=(start_port + i),
-                                               keep_alive=keep_alive))
+                                               keep_alive=keep_alive,
+                                               connections=connections))
 
     def setUp(self):
         self.client = None
