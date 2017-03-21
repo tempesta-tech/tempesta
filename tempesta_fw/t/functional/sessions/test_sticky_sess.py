@@ -15,20 +15,24 @@ defconfig = (
     'cache 0;\n'
     'sticky %s;\n'
     'sticky_secret "f00)9eR59*_/22";\n'
-    'sticky_sessions %s;\n'
     '\n')
 
 class TestSticky(functional.FunctionalTest):
     """ Functional test for using sticky sessions. """
 
-    # No enforce, no failover.
-    config = defconfig % ('', '')
-    # No enforce, allow failover.
-    config_failover = defconfig % ('', 'allow_failover')
+    # No enforce
+    config = defconfig % ''
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group(),
                                    connections=1)
+    def configure_tempesta(self):
+        functional.FunctionalTest.configure_tempesta(self)
+        sg = self.tempesta.config.server_groups[0]
+        if self.allow_failover:
+            sg.options = 'sticky_sessions allow_failover;'
+        else:
+            sg.options = 'sticky_sessions;'
 
     def create_tester(self, message_chain):
         self.tester = TesterSticky(message_chain, self.client, self.servers)
@@ -42,8 +46,8 @@ class TestSticky(functional.FunctionalTest):
         chain.response = cookies.make_502()
         return [chain for i in range(cookies.CHAIN_LENGTH)]
 
-    def check_failover(self, config, new_message_chain_provider):
-        self.generic_test_routine(config, [])
+    def check_failover(self, new_message_chain_provider):
+        self.generic_test_routine(self.config, [])
         message_chains = self.tester.message_chains
         # Shutdown server pinned to session and all its connections.
         self.previous_srv = self.tester.pinned_srv
@@ -61,8 +65,8 @@ class TestSticky(functional.FunctionalTest):
         # Restore original message chains
         self.tester.message_chains = message_chains
 
-    def check_back_online(self, config, new_message_chain_provider, restore):
-        self.check_failover(config, new_message_chain_provider)
+    def check_back_online(self, new_message_chain_provider, restore):
+        self.check_failover(new_message_chain_provider)
         # Return previous server back online.
         self.tester.srv_connections = (
             [conn for conn in self.tester.srv_connections if not conn.server is self.previous_srv])
@@ -84,33 +88,35 @@ class TestSticky(functional.FunctionalTest):
 
     def test(self):
         """Simply sticky connections."""
+        self.allow_failover = False
         self.generic_test_routine(self.config, [])
 
     def test_failover_fobbiden(self):
         """No Failover: if pinned server goes donw, return 502."""
-        self.check_failover(self.config, self.chain_failover_fobbiden)
+        self.allow_failover = False
+        self.check_failover(self.chain_failover_fobbiden)
 
     def test_failover(self):
         """With Failover: if pinned server goes down use new one."""
-        self.check_failover(self.config_failover, self.chain_failover_ok)
+        self.allow_failover = True
+        self.check_failover(self.chain_failover_ok)
 
     def test_back_online_no_failover(self):
         """No Failover: continue use pinned server if it back online."""
-        self.check_back_online(self.config, self.chain_failover_fobbiden, True)
+        self.allow_failover = False
+        self.check_back_online(self.chain_failover_fobbiden, True)
 
     def test_back_online_after_failover(self):
         """With Failover: even if original server returned back proceed with
         the replacement server."""
-        self.check_back_online(self.config_failover, self.chain_failover_ok,
-                               False)
+        self.allow_failover = True
+        self.check_back_online(self.chain_failover_ok, False)
 
 
 class TestStickyEnforcedCookies(TestSticky):
     """ Functional test for using sticky sessions, cookies are enforced. """
-    # Enforce, no failover.
-    config = defconfig % ('enforce', '')
-    # Enforce, allow failover.
-    config_failover = defconfig % ('enforce', 'allow_failover')
+    # Enforce
+    config = defconfig % 'enforce'
 
     def create_tester(self, message_chain):
         self.tester = TesterStickyEnforcedCookies(

@@ -266,6 +266,15 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 				   " '%s'\n", in_backup_sg);
 			return -EINVAL;
 		}
+
+		if ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+		    (main_sg->flags & TFW_SRV_STICKY_FLAGS)) {
+			TFW_ERR_NL("sched_http: backup srv_group '%s' must have"
+				   " the same sticky sessions settings as '%s'"
+				   "srv_group has.\n",
+				   in_backup_sg, in_main_sg);
+			return -EINVAL;
+		}
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum, in_field, &field);

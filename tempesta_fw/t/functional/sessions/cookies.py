@@ -64,6 +64,9 @@ class TesterIgnoreCookies(deproxy.Deproxy):
 
 
 class TesterIgnoreEnforcedCookies(TesterIgnoreCookies):
+    """Tester helper. Emulate client that does not support cookies, but
+    Tempesta enforces cookies.
+    """
 
     def __init__(self, *args, **kwargs):
          TesterIgnoreCookies.__init__(self, *args, **kwargs)
@@ -72,17 +75,9 @@ class TesterIgnoreEnforcedCookies(TesterIgnoreCookies):
          self.message_chains[0].server_response = deproxy.Response()
          self.message_chains[0].fwd_request = deproxy.Request()
 
-    def recieved_response(self, response):
-        # Tempesta builds 302 error from scratch, reuse its Date header.
-        exp_resp = self.current_chain.response
-        exp_resp.headers.delete_all('Date')
-        exp_resp.headers.add('Date', response.headers['Date'])
-        exp_resp.update()
-
-        TesterIgnoreCookies.recieved_response(self, response)
-
 
 class TesterUseCookies(deproxy.Deproxy):
+    """Tester helper. Emulate client that support cookies."""
 
     def __init__(self, *args, **kwargs):
          deproxy.Deproxy.__init__(self, *args, **kwargs)
@@ -120,6 +115,7 @@ class TesterUseCookies(deproxy.Deproxy):
 
 
 class TesterUseEnforcedCookies(TesterUseCookies):
+    """Tester helper. Emulate client that support cookies."""
 
     def __init__(self, *args, **kwargs):
          TesterUseCookies.__init__(self, *args, **kwargs)

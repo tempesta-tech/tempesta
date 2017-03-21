@@ -22,16 +22,6 @@
 
 #include "http.h"
 
-/**
- * Sticky sessions configuration.
- */
-typedef struct {
-	u_int		enabled : 1,
-			allow_failover : 1;
-} TfwCfgStickySess;
-
-extern TfwCfgStickySess tfw_cfg_sticky_sess;
-
 typedef struct {
 	TfwSrvConn		*srv_conn;
 	TfwSrvGroup		*main_sg;
