@@ -420,7 +420,7 @@ class Client(asyncore.dispatcher):
         self.response_buffer += self.recv(MAX_MESSAGE_SIZE)
         if not self.response_buffer:
             return
-        tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from server.')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
             response = Response(self.response_buffer)
@@ -461,7 +461,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
         self.responses_done = 0
         self.request_buffer = ''
         self.tester.register_srv_connection(self)
-        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: New server connection.')
+        tf_cfg.dbg(6, '\tDeproxy: SrvConnection: New server connection.')
 
     def handle_read(self):
         self.request_buffer += self.recv(MAX_MESSAGE_SIZE)
@@ -505,7 +505,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
         asyncore.dispatcher_with_send.handle_close(self)
 
     def close(self):
-        tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Close connection.')
+        tf_cfg.dbg(6, '\tDeproxy: SrvConnection: Close connection.')
         asyncore.dispatcher_with_send.close(self)
 
 
