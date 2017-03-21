@@ -99,37 +99,43 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 
 	if (st_conn->srv_conn) {
 		/* Failed to sched from the same server. */
+		TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
+		char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
+
 		if (!tfw_cfg_sticky_sess.allow_failover) {
+			TFW_ERR("sched %s: Unable to schedule new request in "
+				"session to server %s in group %s\n",
+				srv->sg->sched->name, addr_str, srv->sg->name);
 			return NULL;
 		}
 		else {
-			TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
-			char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
-
-			tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 			TFW_WARN("sched %s: Unable to schedule new request in "
-				 "session to the same server %s in group %s\n",
+				 "session to server %s in group %s,"
+				 " fallback to a new server\n",
 				 srv->sg->sched->name, addr_str, srv->sg->name);
 		}
 	}
 
 	write_lock(&st_conn->conn_lock);
 
-	/* Connection may return back online while we were trying for a lock. */
+	/*
+	 * Connection and server may return back online while we were trying
+	 * for a lock.
+	 */
 	if ((srv_conn = __try_conn(msg, st_conn))) {
 		write_unlock(&st_conn->conn_lock);
 		return srv_conn;
 	}
 
-	if (unlikely(!st_conn->srv_conn)) {
+	/* Get new server from the same groups. */
+	if (st_conn->main_sg)
+		st_conn->srv_conn = tfw_sched_get_sg_srv_conn(
+					msg, st_conn->main_sg,
+					st_conn->backup_sg);
+	else
 		st_conn->srv_conn = __get_srv_conn(msg);
-		write_unlock(&st_conn->conn_lock);
-		return st_conn->srv_conn;
-	}
-
-	st_conn->srv_conn = tfw_sched_get_sg_srv_conn(msg,
-						      st_conn->main_sg,
-						      st_conn->backup_sg);
 	if (st_conn->srv_conn) {
 		write_unlock(&st_conn->conn_lock);
 		return st_conn->srv_conn;
@@ -175,10 +181,14 @@ tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 	BUG_ON(!main_sg);
 	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
 
-	if (req->sess && tfw_cfg_sticky_sess.enabled) {
+	if (req->sess && tfw_cfg_sticky_sess.enabled
+	    && !req->sess->st_conn.main_sg) {
 		TfwStickyConn *st_conn = &req->sess->st_conn;
 
-		/* @st_conn->lock is already acquired for writing. */
+		/*
+		 * @st_conn->lock is already acquired for writing, if called
+		 * from @__get_sticky_srv_conn().
+		 */
 		st_conn->main_sg = main_sg;
 		st_conn->backup_sg = backup_sg;
 	}
