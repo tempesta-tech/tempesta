@@ -27,6 +27,7 @@
 
 #include "tempesta_fw.h"
 #include "connection.h"
+#include "http_sess.h"
 #include "addr.h"
 #include "log.h"
 #include "server.h"
@@ -569,6 +570,7 @@ tfw_sock_srv_delete_all_conns(void)
 #define TFW_CFG_SRV_FWD_RETRIES_DEF	5	/* Default number of tries */
 #define TFW_CFG_SRV_CNS_RETRIES_DEF	10	/* Reconnect tries. */
 #define TFW_CFG_SRV_RETRY_NIP_DEF	0	/* Do NOT resend NIP reqs */
+#define TFW_CFG_SRV_STICKY_DEF		0	/* Don't use sticky sessions */
 
 static TfwServer *tfw_cfg_in_slst[TFW_SG_MAX_SRV];
 static TfwServer *tfw_cfg_out_slst[TFW_SG_MAX_SRV];
@@ -583,12 +585,14 @@ static int tfw_cfg_in_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
 static int tfw_cfg_in_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
 static int tfw_cfg_in_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
 static int tfw_cfg_in_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
+static unsigned int tfw_cfg_in_sticky = TFW_CFG_SRV_STICKY_DEF;
 
 static int tfw_cfg_out_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
 static int tfw_cfg_out_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
 static int tfw_cfg_out_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
 static int tfw_cfg_out_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
 static int tfw_cfg_out_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
+static unsigned int tfw_cfg_out_sticky = TFW_CFG_SRV_STICKY_DEF;
 
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
@@ -659,6 +663,36 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 	return 0;
 }
 
+static inline int
+tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
+{
+	if (ce->attr_n) {
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n > 1) {
+		TFW_ERR_NL("%s: Invalid number of arguments: %zu\n",
+			   cs->name, ce->val_n);
+		return -EINVAL;
+	}
+
+	if (ce->val_n) {
+		if (!strcasecmp(ce->vals[0], "allow_failover")) {
+			*use_sticky |= TFW_SRV_STICKY_FAILOVER;
+		}
+		else {
+			TFW_ERR_NL("%s: Unsupported argument: %s\n",
+				   cs->name, ce->vals[0]);
+			return  -EINVAL;
+		}
+	}
+
+	*use_sticky |= TFW_SRV_STICKY;
+
+	return 0;
+}
+
 static int
 tfw_cfgop_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -669,6 +703,18 @@ static int
 tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_out_retry_nip);
+}
+
+static int
+tfw_cfgop_in_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_sticky(cs, ce, &tfw_cfg_in_sticky);
+}
+
+static int
+tfw_cfgop_out_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_sticky(cs, ce, &tfw_cfg_out_sticky);
 }
 
 static int
@@ -889,6 +935,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_in_fwd_retries = tfw_cfg_out_fwd_retries;
 	tfw_cfg_in_cns_retries = tfw_cfg_out_cns_retries;
 	tfw_cfg_in_retry_nip = tfw_cfg_out_retry_nip;
+	tfw_cfg_in_sticky = tfw_cfg_out_sticky;
 
 	return 0;
 }
@@ -921,6 +968,7 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 		      : ULONG_MAX;
 	sg->max_refwd = tfw_cfg_in_fwd_retries ? : UINT_MAX;
 	sg->flags |= tfw_cfg_in_retry_nip ? TFW_SRV_RETRY_NIP : 0;
+	sg->flags |= tfw_cfg_in_sticky;
 
 	if (tfw_sg_set_sched(sg, tfw_cfg_in_sched->name)) {
 		TFW_ERR_NL("%s %s: Unable to set scheduler: '%s'\n",
@@ -1015,6 +1063,7 @@ tfw_sock_srv_start(void)
 			      : ULONG_MAX;
 		sg->max_refwd = tfw_cfg_out_fwd_retries ? : UINT_MAX;
 		sg->flags |= tfw_cfg_out_retry_nip ? TFW_SRV_RETRY_NIP : 0;
+		sg->flags |= tfw_cfg_out_sticky;
 
 		if (tfw_sg_set_sched(sg, tfw_cfg_out_sched->name)) {
 			TFW_ERR_NL("srv_group %s: Unable to set scheduler: "
@@ -1100,6 +1149,13 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
+	{
+		"sticky_sessions", NULL,
+		tfw_cfgop_in_sticky,
+		.allow_none = true,
+		.allow_repeat = false,
+		.cleanup = tfw_clean_srv_groups,
+	},
 	{ 0 }
 };
 
@@ -1155,6 +1211,13 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			tfw_cfgop_out_conn_retries,
 			.allow_none = true,
 			.allow_repeat = true,
+			.cleanup = tfw_clean_srv_groups,
+		},
+		{
+			"sticky_sessions", NULL,
+			tfw_cfgop_out_sticky,
+			.allow_none = true,
+			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
