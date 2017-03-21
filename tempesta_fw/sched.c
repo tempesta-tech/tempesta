@@ -104,7 +104,7 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 
-		if (!tfw_cfg_sticky_sess.allow_failover) {
+		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
 			TFW_ERR("sched %s: Unable to schedule new request in "
 				"session to server %s in group %s\n",
 				srv->sg->sched->name, addr_str, srv->sg->name);
@@ -119,31 +119,28 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 	}
 
 	write_lock(&st_conn->conn_lock);
-
 	/*
 	 * Connection and server may return back online while we were trying
 	 * for a lock.
 	 */
-	if ((srv_conn = __try_conn(msg, st_conn))) {
-		write_unlock(&st_conn->conn_lock);
-		return srv_conn;
-	}
+	if ((srv_conn = __try_conn(msg, st_conn)))
+		goto done;
 
-	/* Get new server from the same groups. */
 	if (st_conn->main_sg)
-		st_conn->srv_conn = tfw_sched_get_sg_srv_conn(
-					msg, st_conn->main_sg,
-					st_conn->backup_sg);
+		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
+						     st_conn->backup_sg);
 	else
-		st_conn->srv_conn = __get_srv_conn(msg);
-	if (st_conn->srv_conn) {
-		write_unlock(&st_conn->conn_lock);
-		return st_conn->srv_conn;
+		srv_conn = __get_srv_conn(msg);
+
+	if (srv_conn
+	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
+		st_conn->srv_conn = srv_conn;
 	}
 
+done:
 	write_unlock(&st_conn->conn_lock);
 
-	return NULL;
+	return srv_conn;
 }
 
 /*
@@ -165,7 +162,7 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 	TfwHttpSess *sess = req->sess;
 
 	/* Sticky sessions disabled or client doesn't support cookies. */
-	if (!tfw_cfg_sticky_sess.enabled || !sess)
+	if (!sess)
 		return __get_srv_conn(msg);
 
 	return __get_sticky_srv_conn(msg, sess);
@@ -181,8 +178,7 @@ tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 	BUG_ON(!main_sg);
 	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
 
-	if (req->sess && tfw_cfg_sticky_sess.enabled
-	    && !req->sess->st_conn.main_sg) {
+	if (req->sess && (main_sg->flags & TFW_SRV_STICKY)) {
 		TfwStickyConn *st_conn = &req->sess->st_conn;
 
 		/*
