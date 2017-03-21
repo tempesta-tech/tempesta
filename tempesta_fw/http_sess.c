@@ -56,7 +56,7 @@
 /**
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
- * @sess_lifetime	- sesscion lifetime in seconds;
+ * @sess_lifetime	- session lifetime in seconds;
  */
 typedef struct {
 	TfwStr		name;
@@ -80,7 +80,6 @@ typedef struct {
 } SessHashBucket;
 
 static TfwCfgSticky		tfw_cfg_sticky;
-TfwCfgStickySess		tfw_cfg_sticky_sess = { 0 };
 /* Secret server value to genrate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
@@ -664,7 +663,6 @@ tfw_http_sess_exit(void)
 
 	kfree(tfw_cfg_sticky.name.ptr);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	memset(&tfw_cfg_sticky_sess, 0, sizeof(tfw_cfg_sticky_sess));
 	crypto_free_shash(tfw_sticky_shash);
 }
 
@@ -680,7 +678,6 @@ static void
 tfw_cfg_sess_stop(void)
 {
 	tfw_cfg_sticky.enabled = 0;
-	memset(&tfw_cfg_sticky_sess, 0, sizeof(tfw_cfg_sticky_sess));
 }
 
 static int
@@ -701,7 +698,6 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		 if (!strcasecmp(val, "enforce")) {
 			tfw_cfg_sticky.enforce = 1;
-			break;
 		}
 	}
 
@@ -740,42 +736,6 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return r;
 }
 
-static int
-tfw_http_sticky_sessions_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	tfw_cfg_sticky_sess.enabled = 1;
-
-	if (TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
-		TFW_ERR_NL("%s: sticky cookies must be enabled!\n",
-			   cs->name);
-		return -EINVAL;
-	}
-
-	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n > 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %zu\n",
-			   cs->name, ce->val_n);
-		return -EINVAL;
-	}
-
-	if (ce->val_n) {
-		if (!strcasecmp(ce->vals[0], "allow_failover")) {
-			tfw_cfg_sticky_sess.allow_failover = 1;
-		}
-		else {
-			TFW_ERR_NL("%s: Unsupported argument: %s\n",
-				   cs->name, ce->vals[0]);
-			return  -EINVAL;
-		}
-	}
-
-	return 0;
-}
-
 TfwCfgMod tfw_http_sess_cfg_mod = {
 	.name = "http_sticky",
 	.start = tfw_cfg_sess_start,
@@ -800,11 +760,6 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 			.spec_ext = &(TfwCfgSpecInt) {
 				.range = { 0, INT_MAX },
 			},
-			.allow_none = true,
-		},
-		{
-			.name = "sticky_sessions",
-			.handler = tfw_http_sticky_sessions_cfg,
 			.allow_none = true,
 		},
 		{ 0 }

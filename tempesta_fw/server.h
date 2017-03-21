@@ -83,6 +83,10 @@ struct tfw_srv_group_t {
 
 /* Server related flags. */
 #define TFW_SRV_RETRY_NIP	0x0001	/* Retry non-idemporent req. */
+#define TFW_SRV_STICKY_FLAGS	(TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER)
+#define TFW_SRV_STICKY		0x0002	/* Use sticky sessions. */
+#define TFW_SRV_STICKY_FAILOVER	0x0004	/* Allow failovering of sticky
+					   sessions*/
 
 /**
  * Requests scheduling algorithm handler.
