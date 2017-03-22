@@ -22,6 +22,14 @@
 
 #include "http.h"
 
+/**
+ * Connection, servicing HTTP session.
+ *
+ * @srv_conn	- last used connection;
+ * @main_sg	- primary server group to schedule connection on failovering;
+ * @backup_sg	- backup server group;
+ * @conn_lock	- protects whole @TfwStickyConn;
+ */
 typedef struct {
 	TfwSrvConn		*srv_conn;
 	TfwSrvGroup		*main_sg;

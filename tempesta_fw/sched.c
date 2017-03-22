@@ -40,6 +40,16 @@
 static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
+/**
+ * Find an outgoing connection for an HTTP message.
+ *
+ * Where an HTTP message goes in controlled by schedulers. It may
+ * or may not depend on properties of HTTP message itself. In any
+ * case, schedulers are polled in sequential order until a result
+ * is received. Schedulers that distribute HTTP messages among
+ * server groups come first in the list. The search stops when
+ * these schedulers run out.
+ */
 static inline TfwSrvConn *
 __get_srv_conn(TfwMsg *msg)
 {
@@ -60,6 +70,9 @@ __get_srv_conn(TfwMsg *msg)
 	return NULL;
 }
 
+/**
+ * Try to reuse last used connection or last used server.
+ */
 static inline TfwSrvConn *
 __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
 {
@@ -82,6 +95,10 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
 	return srv->sg->sched->sched_srv_conn(msg, srv);
 }
 
+/**
+ * Find an outgoing connection for client with tempesta sticky cookie.
+ * @sess is not null when calling the function.
+ */
 static inline TfwSrvConn *
 __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 {
@@ -132,6 +149,10 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 	else
 		srv_conn = __get_srv_conn(msg);
 
+	/*
+	 * Save connection into session only if used server group is configured
+	 * to have sticky connections.
+	 */
 	if (srv_conn
 	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
 		st_conn->srv_conn = srv_conn;
@@ -144,14 +165,7 @@ done:
 }
 
 /*
- * Find an outgoing connection for an HTTP message.
- *
- * Where an HTTP message goes in controlled by schedulers. It may
- * or may not depend on properties of HTTP message itself. In any
- * case, schedulers are polled in sequential order until a result
- * is received. Schedulers that distribute HTTP messages among
- * server groups come first in the list. The search stops when
- * these schedulers run out.
+ * Find an outgoing server connection for an HTTP message.
  *
  * This function is always called in SoftIRQ context.
  */
@@ -161,13 +175,19 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwHttpSess *sess = req->sess;
 
-	/* Sticky sessions disabled or client doesn't support cookies. */
+	/* Sticky cookies are disabled or client doesn't support cookies. */
 	if (!sess)
 		return __get_srv_conn(msg);
 
 	return __get_sticky_srv_conn(msg, sess);
 }
 
+/**
+ * Find connection for a message @msg in @main_sg or @backup_sg server groups.
+ *
+ * If client support cookies the function is called under session's write lock,
+ * and updates to session informations are possible.
+ */
 TfwSrvConn *
 tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 			  TfwSrvGroup *backup_sg)
