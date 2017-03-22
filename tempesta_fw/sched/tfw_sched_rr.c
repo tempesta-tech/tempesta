@@ -39,7 +39,7 @@ typedef struct {
 	atomic64_t	rr_counter;
 	size_t		conn_n;
 	TfwServer	*srv;
-	TfwSrvConn	*conns[TFW_SRV_MAX_CONN];
+	TfwSrvConn	**conns;
 } TfwRrSrv;
 
 /**
@@ -51,20 +51,69 @@ typedef struct {
 typedef struct {
 	atomic64_t	rr_counter;
 	size_t		srv_n;
-	TfwRrSrv	srvs[TFW_SG_MAX_SRV];
+	TfwRrSrv	*srvs;
 } TfwRrSrvList;
 
 static void
+tfw_sched_rr_cleanup(TfwSrvGroup *sg)
+{
+	size_t s;
+	TfwRrSrvList *sl = sg->sched_data;
+
+	if (!sl)
+		return;
+	for (s = 0; s < sg->srv_n; ++s)
+		if (sl->srvs[s].conns)
+			kfree(sl->srvs[s].conns);
+	kfree(sl->srvs);
+	kfree(sl);
+	sg->sched_data = NULL;
+}
+
+static int
 tfw_sched_rr_alloc_data(TfwSrvGroup *sg)
 {
+	int ret;
+	size_t size, srv_n = 0;
+	TfwRrSrvList *sl;
+	TfwServer *srv;
+
 	sg->sched_data = kzalloc(sizeof(TfwRrSrvList), GFP_KERNEL);
-	BUG_ON(!sg->sched_data);
+	if (!sg->sched_data)
+		return -ENOMEM;
+	sl = sg->sched_data;
+
+	sl->srvs = kzalloc(sizeof(TfwRrSrv) * sg->srv_n, GFP_KERNEL);
+	if (!sl->srvs) {
+		kfree(sl);
+		return -ENOMEM;
+	}
+
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		if (srv_n >= sg->srv_n) {
+			ret = -EINVAL;
+			goto cleanup;
+		}
+		size = sizeof(TfwSrvConn *) * srv->conn_n;
+		sl->srvs[srv_n].conns = kzalloc(size, GFP_KERNEL);
+		if (!sl->srvs[srv_n].conns) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+		++srv_n;
+	}
+
+	return 0;
+
+cleanup:
+	tfw_sched_rr_cleanup(sg);
+	return ret;
 }
 
 static void
 tfw_sched_rr_free_data(TfwSrvGroup *sg)
 {
-	kfree(sg->sched_data);
+	tfw_sched_rr_cleanup(sg);
 }
 
 /**
@@ -83,22 +132,26 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 	for (s = 0; s < sl->srv_n; ++s)
 		if (sl->srvs[s].srv == srv)
 			break;
+	BUG_ON(s >= sg->srv_n);
+
 	if (s == sl->srv_n) {
 		sl->srvs[s].srv = srv;
 		++sl->srv_n;
-		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
 	}
 
 	srv_cl = &sl->srvs[s];
 	for (c = 0; c < srv_cl->conn_n; ++c)
 		if (srv_cl->conns[c] == srv_conn) {
-			TFW_WARN("sched_rr: Try to add existing connection,"
-				 " srv=%zu conn=%zu\n", s, c);
+			TFW_WARN("sched '%s': attempt to add an existing "
+				 "connection: srv_group '%s' server '%zd' "
+				 "connection '%zd'\n",
+				 sg->sched->name, sg->name, s, c);
 			return;
 		}
+	BUG_ON(c >= srv->conn_n);
+
 	srv_cl->conns[c] = srv_conn;
 	++srv_cl->conn_n;
-	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
 
 /**
