@@ -51,23 +51,43 @@ MODULE_LICENSE("GPL");
 typedef struct {
 	TfwSrvConn	*srv_conn;
 	unsigned long	hash;
+} TfwConnHashEnt;
+
+typedef struct {
+	TfwConnHashEnt	*chent;
+	int		conn_n;
 } TfwConnHash;
 
-/* The last item is used as the list teminator. */
+/* The last item is used as the list terminator. */
 #define __HLIST_SZ(n)		((n) + 1)
-#define __HDATA_SZ(n)		(__HLIST_SZ(n) * sizeof(TfwConnHash))
+#define __HDATA_SZ(n)		(__HLIST_SZ(n) * sizeof(TfwConnHashEnt))
 
-static void
+static int
 tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
 {
-	sg->sched_data = kzalloc(__HDATA_SZ(TFW_SG_MAX_CONN), GFP_KERNEL);
-	BUG_ON(!sg->sched_data);
+	int conn_n = 0;
+	TfwServer *srv;
+	TfwConnHash *ch;
+
+	list_for_each_entry(srv, &sg->srv_list, list)
+		conn_n += srv->conn_n;
+
+	ch = kzalloc(sizeof(TfwConnHash) + __HDATA_SZ(conn_n), GFP_KERNEL);
+	if (!ch)
+		return -ENOMEM;
+
+	ch->chent = (TfwConnHashEnt *)(ch + 1);
+	ch->conn_n = conn_n;
+	sg->sched_data = ch;
+
+	return 0;
 }
 
 static void
 tfw_sched_hash_free_data(TfwSrvGroup *sg)
 {
 	kfree(sg->sched_data);
+	sg->sched_data = NULL;
 }
 
 static unsigned long
@@ -102,14 +122,14 @@ static void
 tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	size_t i;
-	TfwConnHash *conn_hash = sg->sched_data;
+	TfwConnHash *ch = sg->sched_data;
 
-	BUG_ON(!conn_hash);
-	for (i = 0; i < __HLIST_SZ(TFW_SG_MAX_CONN); ++i) {
-		if (conn_hash[i].srv_conn)
+	BUG_ON(!ch);
+	for (i = 0; i < __HLIST_SZ(ch->conn_n); ++i) {
+		if (ch->chent[i].srv_conn)
 			continue;
-		conn_hash[i].srv_conn = srv_conn;
-		conn_hash[i].hash = __calc_conn_hash(srv, i);
+		ch->chent[i].srv_conn = srv_conn;
+		ch->chent[i].hash = __calc_conn_hash(srv, i);
 		return;
 	}
 	BUG();
@@ -140,19 +160,20 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
 	TfwSrvConn *best_srv_conn = NULL;
-	TfwConnHash *ch;
+	TfwConnHash *ch = sg->sched_data;
+	TfwConnHashEnt *chent;
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (tries = 0; tries < __HLIST_SZ(TFW_SG_MAX_CONN); ++tries) {
-		for (ch = sg->sched_data; ch->srv_conn; ++ch) {
-			if (unlikely(tfw_srv_conn_restricted(ch->srv_conn)
-				     || tfw_srv_conn_queue_full(ch->srv_conn)
-				     || !tfw_srv_conn_live(ch->srv_conn)))
+	for (tries = 0; tries < __HLIST_SZ(ch->conn_n); ++tries) {
+		for (chent = ch->chent; chent->srv_conn; ++chent) {
+			if (unlikely(tfw_srv_conn_restricted(chent->srv_conn)
+				     || tfw_srv_conn_queue_full(chent->srv_conn)
+				     || !tfw_srv_conn_live(chent->srv_conn)))
 				continue;
-			curr_weight = msg_hash ^ ch->hash;
+			curr_weight = msg_hash ^ chent->hash;
 			if (curr_weight > best_weight) {
 				best_weight = curr_weight;
-				best_srv_conn = ch->srv_conn;
+				best_srv_conn = chent->srv_conn;
 			}
 		}
 		if (unlikely(!best_srv_conn))
