@@ -117,15 +117,13 @@ tfw_sg_new(const char *name, gfp_t flags)
 
 	TFW_DBG("new server group: '%s'\n", name);
 
-	sg = kmalloc(sizeof(*sg) + name_size, flags);
+	sg = kmalloc(sizeof(*sg) + name_size, flags | __GFP_ZERO);
 	if (!sg)
 		return NULL;
 
 	INIT_LIST_HEAD(&sg->list);
 	INIT_LIST_HEAD(&sg->srv_list);
 	rwlock_init(&sg->lock);
-	sg->sched = NULL;
-	sg->sched_data = NULL;
 	memcpy(sg->name, name, name_size);
 
 	write_lock(&sg_lock);
@@ -161,9 +159,8 @@ tfw_sg_count(void)
 	TfwSrvGroup *sg;
 
 	read_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list) {
+	list_for_each_entry(sg, &sg_list, list)
 		++count;
-	}
 	read_unlock(&sg_lock);
 
 	return count;
@@ -181,6 +178,7 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	TFW_DBG2("Add new backend server\n");
 	write_lock(&sg->lock);
 	list_add(&srv->list, &sg->srv_list);
+	++sg->srv_n;
 	write_unlock(&sg->lock);
 }
 
@@ -201,7 +199,7 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 
 	sg->sched = s;
 	if (s->add_grp)
-		s->add_grp(sg);
+		return s->add_grp(sg);
 
 	return 0;
 }

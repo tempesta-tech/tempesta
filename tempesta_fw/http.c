@@ -343,7 +343,7 @@ tfw_http_send_502(TfwHttpReq *req, const char *reason)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 502 response: %s:\n", reason);
+	TFW_DBG("Send HTTP 502 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -368,7 +368,7 @@ tfw_http_send_504(TfwHttpReq *req, const char *reason)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 504 response: %s:\n", reason);
+	TFW_DBG("Send HTTP 504 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }

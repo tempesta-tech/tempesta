@@ -58,6 +58,7 @@ sched_rr_free_arg(TfwMsg *msg __attribute__((unused)))
 static struct TestSchedHelper sched_helper_rr = {
 	.sched = "round-robin",
 	.conn_types = 1,
+	.flags = TFW_SG_F_SCHED_RATIO_STATIC,
 	.get_sched_arg = &sched_rr_get_arg,
 	.free_sched_arg = &sched_rr_free_arg,
 };
@@ -84,32 +85,34 @@ TEST(tfw_sched_rr, one_srv_in_sg_and_max_conn)
 	size_t i, j;
 	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.sched);
+	TfwSrvGroup *sg = test_create_sg("test");
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
-		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
-		sg->sched->add_conn(sg, srv, srv_conn);
+	for (i = 0; i < TFW_TEST_SRV_MAX_CONN_N; ++i) {
+		TfwSrvConn *srv_conn = test_create_srv_conn(srv);
 		conn_acc ^= (long long)srv_conn;
 	}
+
+	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg, sched_helper_rr.sched);
 
 	/*
 	 * Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
 	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 		conn_acc_check = 0;
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
+		for (j = 0; j < TFW_TEST_SRV_MAX_CONN_N; ++j) {
 			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
-			sched_helper_rr.free_sched_arg(msg);
 		}
 
+		sched_helper_rr.free_sched_arg(msg);
 		EXPECT_EQ(conn_acc, conn_acc_check);
 	}
 
@@ -131,38 +134,40 @@ TEST(tfw_sched_rr, max_srv_in_sg_and_zero_conn)
  */
 TEST(tfw_sched_rr, max_srv_in_sg_and_max_conn)
 {
-	size_t i, j;
+	unsigned long i, j;
 	long long conn_acc = 0, conn_acc_check = 0;
 
-	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.sched);
+	TfwSrvGroup *sg = test_create_sg("test");
 
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+	for (i = 0; i < TFW_TEST_SG_MAX_SRV_N; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
-			sg->sched->add_conn(sg, srv, srv_conn);
+		for (j = 0; j < TFW_TEST_SRV_MAX_CONN_N; ++j) {
+			TfwSrvConn *srv_conn = test_create_srv_conn(srv);
 			conn_acc ^= (long long)srv_conn;
 		}
 	}
+
+	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg, sched_helper_rr.sched);
 
 	/*
 	 * Check that connections is scheduled in the fair way:
 	 * every connection will be scheduled only once
 	 */
 	for (i = 0; i < sched_helper_rr.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
 		conn_acc_check = 0;
 
-		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_rr.get_sched_arg(i);
+		for (j = 0; j < TFW_TEST_SG_MAX_CONN_N; ++j) {
 			TfwSrvConn *srv_conn = sg->sched->sched_srv(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
-			sched_helper_rr.free_sched_arg(msg);
 		}
 
+		sched_helper_rr.free_sched_arg(msg);
 		EXPECT_EQ(conn_acc, conn_acc_check);
 	}
 
