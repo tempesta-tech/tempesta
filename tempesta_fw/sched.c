@@ -98,6 +98,11 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
 /**
  * Find an outgoing connection for client with tempesta sticky cookie.
  * @sess is not null when calling the function.
+ *
+ * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
+ * then get a new connection for req->sess->srv_conn->peer from
+ * an appropriate scheduler. That eliminates the long generic
+ * scheduling work flow.
  */
 static inline TfwSrvConn *
 __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
