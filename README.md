@@ -632,11 +632,11 @@ due to networking errors) client receives `502` responses. When the server
 is back online it will continue serving this client.
 
 Session persistence is the highest priority for the method. So if the whole
-primary server group is offline session will be pinned to a server in the
+primary server group is offline new sessions will be pinned to a server in the
 backup group if applied. Backup server will continue serving the client even
 when the primary group is back online. That means that switching from backup
 server group back to the primary group ends only after all the current
-sessions pinned to backup server group expires.
+sessions pinned to backup server group are expired.
 
 `allow_failover` option allow Tempesta pin sessions to a new server if
 the current pinned server went offline. Accident will be logged. Moving client
