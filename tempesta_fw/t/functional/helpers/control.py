@@ -235,6 +235,23 @@ def clients_run_parallel(clients):
     pool.map(__clients_parse_output, parse_args)
     pool.map(__clients_cleanup, clients)
 
+def clients_parallel_load(client, count=None):
+    """ Spawn @count processes without parsing output. Just make high load.
+    Python is too slow to spawn multiple (>100) processes.
+    """
+    if count is None:
+        count = min(int(tf_cfg.cfg.get('General', 'concurrent_connections')), 1000)
+    tf_cfg.dbg(3, ('\tRunning %d HTTP clients on %s' %
+                   (count, remote.client.host)))
+    error.assertTrue(client.prepare())
+    cmd = 'seq %d | xargs -Iz -P1000 %s -q' % (count, client.cmd)
+
+    pool = multiprocessing.Pool(2)
+    results = pool.map(remote.client.run_cmd, [client.cmd, cmd])
+
+    stdout, stderr = results[0]
+    client.parse_out(stdout, stderr)
+    client.cleanup()
 
 #-------------------------------------------------------------------------------
 # Tempesta
