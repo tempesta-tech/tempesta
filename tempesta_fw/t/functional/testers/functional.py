@@ -1,6 +1,7 @@
 from __future__ import print_function
 import unittest
 import copy
+import asyncore
 from helpers import tf_cfg, control, tempesta, deproxy
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -43,7 +44,7 @@ class FunctionalTest(unittest.TestCase):
         for i in range(count):
             self.servers.append(deproxy.Server(port=(start_port + i),
                                                keep_alive=keep_alive,
-                                               connections=connections))
+                                               conns_n=connections))
 
     def setUp(self):
         self.client = None
@@ -56,12 +57,17 @@ class FunctionalTest(unittest.TestCase):
 
     def tearDown(self):
         # Close client connection before stopping the TempestaFW.
+        asyncore.close_all()
         if self.client:
             self.client.close()
         if self.tempesta:
             self.tempesta.stop()
         if self.tester:
             self.tester.close_all()
+
+    @classmethod
+    def tearDownClass(cls):
+        asyncore.close_all()
 
     def assert_tempesta(self):
         """ Assert that tempesta had no errors during test. """

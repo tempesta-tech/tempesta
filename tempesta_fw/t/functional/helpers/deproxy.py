@@ -500,33 +500,54 @@ class ServerConnection(asyncore.dispatcher_with_send):
         error.bug('\tDeproxy: SrvConnection: %s' % v)
 
     def handle_close(self):
+        tf_cfg.dbg(6, '\tDeproxy: SrvConnection: Close connection.')
+        self.close()
         if self.tester:
             self.tester.remove_srv_connection(self)
-        asyncore.dispatcher_with_send.handle_close(self)
-
-    def close(self):
-        tf_cfg.dbg(6, '\tDeproxy: SrvConnection: Close connection.')
-        asyncore.dispatcher_with_send.close(self)
+        if self.server:
+            try:
+                self.server.connections.remove(self)
+            except:
+                pass
 
 
 class Server(asyncore.dispatcher):
 
-    def __init__(self, port, host=None, connections=None, keep_alive=None):
+    def __init__(self, port, host=None, conns_n=None, keep_alive=None):
         asyncore.dispatcher.__init__(self)
         self.tester = None
         self.port = port
-        if connections is None:
-            connections = tempesta.server_conns_default()
-        self.conns_n = connections
+        self.connections = []
+        if conns_n is None:
+            conns_n = tempesta.server_conns_default()
+        self.conns_n = conns_n
         self.keep_alive = keep_alive
         if host is None:
             host = 'Client'
-        addr = tf_cfg.cfg.get('Client', 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (addr, port))
+        self.addr_str = tf_cfg.cfg.get('Client', 'ip')
+        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.addr_str, port))
+        self.setup()
+
+    def setup(self):
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
-        self.bind((addr, port))
+        self.bind((self.addr_str, self.port))
         self.listen(socket.SOMAXCONN)
+
+    def restart(self):
+        asyncore.dispatcher.__init__(self)
+        self.tester.servers.append(self)
+        self.setup()
+
+    def stop(self):
+        tf_cfg.dbg(4, '\tDeproxy: Server: Stop on %s:%d.' % (self.addr_str,
+                                                             self.port))
+        self.close()
+        connections = [conn for conn in self.connections]
+        for conn in connections:
+            conn.handle_close()
+        if self.tester:
+            self.tester.servers.remove(self)
 
     def set_tester(self, tester):
         self.tester = tester
@@ -537,10 +558,20 @@ class Server(asyncore.dispatcher):
             sock, addr = pair
             handler = ServerConnection(self.tester, server=self, sock=sock,
                                        keep_alive=self.keep_alive)
+            self.connections.append(handler)
+            assert len(self.connections) <= self.conns_n, \
+                ('Too lot connections, expect %d, got %d'
+                    & (self.conns_n, len(self.connections)))
+
+    def active_conns_n(self):
+        return len(self.connections)
 
     def handle_error(self):
         t, v, tb = sys.exc_info()
-        error.bug('\tDeproxy: Server: %s' % v)
+        error.bug('\tDeproxy: Server %s:%d: %s' % (self.addr_str, self.port, v))
+
+    def handle_close(self):
+        self.stop()
 
 
 #-------------------------------------------------------------------------------
@@ -639,6 +670,8 @@ class Deproxy(object):
         return self.current_chain.server_response
 
     def register_srv_connection(self, connection):
+        assert connection.server in self.servers, \
+            'Register connection, which comes from not registred server!'
         self.srv_connections.append(connection)
 
     def remove_srv_connection(self, connection):
@@ -651,11 +684,12 @@ class Deproxy(object):
 
     def is_srvs_ready(self):
         expected_conns_n = sum([s.conns_n for s in self.servers])
+        assert len(self.srv_connections) <= expected_conns_n, \
+            'Registered more connections that must be!.'
         return expected_conns_n == len(self.srv_connections)
 
     def close_all(self):
-        self.client.close()
-        for conn in self.srv_connections:
-            conn.close()
-        for server in self.servers:
-            server.close()
+        self.client.handle_close()
+        servers = [server for server in self.servers]
+        for server in servers:
+            server.handle_close()
