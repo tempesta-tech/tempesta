@@ -126,6 +126,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 	rwlock_init(&sg->lock);
 	sg->sched = NULL;
 	sg->sched_data = NULL;
+	sg->flags = 0;
 	memcpy(sg->name, name, name_size);
 
 	write_lock(&sg_lock);
