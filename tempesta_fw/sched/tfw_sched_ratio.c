@@ -1,8 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,11 +26,11 @@
 #include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.3.1");
+MODULE_DESCRIPTION("Tempesta ratio scheduler");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
-#define	TFW_RATIO_TIMEOUT	(HZ/20)		/* The timer periodicity. */
+#define	TFW_RATIO_TIMEOUT	(HZ / 20)	/* The timer periodicity. */
 
 /*
  * The size of pool of TfwRatioRated{} entries for RCU substitution.
@@ -62,7 +61,7 @@ typedef struct {
 	TfwSrvConn 		*conns[TFW_SRV_MAX_CONN];
 } TfwRatioSrv;
 
-/*
+/**
  * RCU-fortified array of pointers to TfwRatioSrv{} ranged by each
  * back-end server's weight. The number of times a server is found
  * in the array is defined by the server's weight relative to other
@@ -422,9 +421,13 @@ tfw_sched_ratio_alloc_data(TfwSrvGroup *sg)
 	rcu_assign_pointer(sl->rated, &sl->epool[0]);
 	sg->sched_data = sl;
 
-	atomic_set(&sl->rearm, 1);
-	setup_timer(&sl->timer, tfw_sched_ratio_tmfn, (unsigned long)sg);
-	mod_timer(&sl->timer, jiffies + TFW_RATIO_TIMEOUT);
+	/* Set up ALB recalculation timer. */
+	if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC) {
+		atomic_set(&sl->rearm, 1);
+		setup_timer(&sl->timer, tfw_sched_ratio_tmfn,
+			    (unsigned long)sg);
+		mod_timer(&sl->timer, jiffies + TFW_RATIO_TIMEOUT);
+	}
 }
 
 static void
