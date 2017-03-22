@@ -267,12 +267,15 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 
-		if ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
-		    (main_sg->flags & TFW_SRV_STICKY_FLAGS)) {
-			TFW_ERR_NL("sched_http: backup srv_group '%s' must have"
-				   " the same sticky sessions settings as '%s'"
-				   "srv_group has.\n",
-				   in_backup_sg, in_main_sg);
+		/* "Default" group is not fully parsed field flag is not set. */
+		if (strcasecmp(in_main_sg, "default")
+		    && strcasecmp(in_backup_sg, "default")
+		    && ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+			(main_sg->flags & TFW_SRV_STICKY_FLAGS)))
+		{
+			TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+				   "have the same sticky sessions settings\n",
+				   in_main_sg, in_backup_sg);
 			return -EINVAL;
 		}
 	}
