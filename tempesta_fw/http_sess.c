@@ -698,6 +698,7 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		 if (!strcasecmp(val, "enforce")) {
 			tfw_cfg_sticky.enforce = 1;
+			break;
 		}
 	}
 
