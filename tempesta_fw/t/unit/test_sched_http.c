@@ -110,7 +110,9 @@ TEST(tfw_sched_http, zero_rules_and_zero_conns)
 
 TEST(tfw_sched_http, one_rule_and_zero_conns)
 {
-	test_create_sg("default", "ratio");
+	TfwSrvGroup *sg = test_create_sg("default");
+	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -128,10 +130,11 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	TfwServer *srv;
 	TfwSrvConn *expect_conn;
 
-	sg = test_create_sg("default", "ratio");
+	sg = test_create_sg("default");
 	srv = test_create_srv("127.0.0.1", sg);
-	expect_conn = test_create_conn((TfwPeer *)srv);
-	sg->sched->add_conn(sg, srv, expect_conn);
+	expect_conn = test_create_srv_conn(srv);
+	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -153,55 +156,65 @@ TEST(tfw_sched_http, some_rules)
 		   *expect_conn5, *expect_conn6, *expect_conn7, *expect_conn8,
 		   *expect_conn9, *expect_conn10;
 
-	sg1 = test_create_sg("sg1", "ratio");
+	sg1 = test_create_sg("sg1");
 	srv = test_create_srv("127.0.0.1", sg1);
-	expect_conn1 = test_create_conn((TfwPeer *)srv);
-	sg1->sched->add_conn(sg1, srv, expect_conn1);
+	expect_conn1 = test_create_srv_conn(srv);
+	sg1->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg1, "ratio");
 
-	sg2 = test_create_sg("sg2", "ratio");
+	sg2 = test_create_sg("sg2");
 	srv = test_create_srv("127.0.0.1", sg2);
-	expect_conn2 = test_create_conn((TfwPeer *)srv);
-	sg2->sched->add_conn(sg2, srv, expect_conn2);
+	expect_conn2 = test_create_srv_conn(srv);
+	sg2->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg2, "ratio");
 
-	sg3 = test_create_sg("sg3", "ratio");
+	sg3 = test_create_sg("sg3");
 	srv = test_create_srv("127.0.0.1", sg3);
-	expect_conn3 = test_create_conn((TfwPeer *)srv);
-	sg3->sched->add_conn(sg3, srv, expect_conn3);
+	expect_conn3 = test_create_srv_conn(srv);
+	sg3->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg3, "ratio");
 
-	sg4 = test_create_sg("sg4", "ratio");
+	sg4 = test_create_sg("sg4");
 	srv = test_create_srv("127.0.0.1", sg4);
-	expect_conn4 = test_create_conn((TfwPeer *)srv);
-	sg4->sched->add_conn(sg4, srv, expect_conn4);
+	expect_conn4 = test_create_srv_conn(srv);
+	sg4->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg4, "ratio");
 
-	sg5 = test_create_sg("sg5", "ratio");
+	sg5 = test_create_sg("sg5");
 	srv = test_create_srv("127.0.0.1", sg5);
-	expect_conn5 = test_create_conn((TfwPeer *)srv);
-	sg5->sched->add_conn(sg5, srv, expect_conn5);
+	expect_conn5 = test_create_srv_conn(srv);
+	sg5->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg5, "ratio");
 
-	sg6 = test_create_sg("sg6", "ratio");
+	sg6 = test_create_sg("sg6");
 	srv = test_create_srv("127.0.0.1", sg6);
-	expect_conn6 = test_create_conn((TfwPeer *)srv);
-	sg6->sched->add_conn(sg6, srv, expect_conn6);
+	expect_conn6 = test_create_srv_conn(srv);
+	sg6->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg6, "ratio");
 
-	sg7 = test_create_sg("sg7", "ratio");
+	sg7 = test_create_sg("sg7");
 	srv = test_create_srv("127.0.0.1", sg7);
-	expect_conn7 = test_create_conn((TfwPeer *)srv);
-	sg7->sched->add_conn(sg7, srv, expect_conn7);
+	expect_conn7 = test_create_srv_conn(srv);
+	sg7->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg7, "ratio");
 
-	sg8 = test_create_sg("sg8", "ratio");
+	sg8 = test_create_sg("sg8");
 	srv = test_create_srv("127.0.0.1", sg8);
-	expect_conn8 = test_create_conn((TfwPeer *)srv);
-	sg8->sched->add_conn(sg8, srv, expect_conn8);
+	expect_conn8 = test_create_srv_conn(srv);
+	sg8->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg8, "ratio");
 
-	sg9 = test_create_sg("sg9", "ratio");
+	sg9 = test_create_sg("sg9");
 	srv = test_create_srv("127.0.0.1", sg9);
-	expect_conn9 = test_create_conn((TfwPeer *)srv);
-	sg9->sched->add_conn(sg9, srv, expect_conn9);
+	expect_conn9 = test_create_srv_conn(srv);
+	sg9->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg9, "ratio");
 
-	sg10 = test_create_sg("sg10", "ratio");
+	sg10 = test_create_sg("sg10");
 	srv = test_create_srv("127.0.0.1", sg10);
-	expect_conn10 = test_create_conn((TfwPeer *)srv);
-	sg10->sched->add_conn(sg10, srv, expect_conn10);
+	expect_conn10 = test_create_srv_conn(srv);
+	sg10->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+	test_start_sg(sg10, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch sg1 uri eq /foo;\n\
 	                                   match sg2 uri prefix /foo/bar;\n\
@@ -313,10 +326,11 @@ TEST(tfw_sched_http, one_rule)
 		TfwServer *srv;
 		TfwSrvConn *expect_conn;
 
-		sg = test_create_sg("default", "ratio");
+		sg = test_create_sg("default");
 		srv = test_create_srv("127.0.0.1", sg);
-		expect_conn = test_create_conn((TfwPeer *)srv);
-		sg->sched->add_conn(sg, srv, expect_conn);
+		expect_conn = test_create_srv_conn(srv);
+		sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
+		test_start_sg(sg, "ratio");
 
 		if (parse_cfg(test_cases[i].rule_str)) {
 			TEST_FAIL("can't parse rules\n");

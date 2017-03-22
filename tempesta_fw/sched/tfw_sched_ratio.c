@@ -42,12 +42,7 @@ MODULE_LICENSE("GPL");
  * The size of scale that is used to range back-end servers.
  * It's most effective in calculations when it's a power of two. 
  */
-#define TFW_RATIO_SCALE_64	(1 << 6)
-#if TFW_SG_MAX_SRV > TFW_RATIO_SCALE_64
-#define TFW_RATIO_SCALE		TFW_SG_MAX_SRV
-#else
-#define TFW_RATIO_SCALE		TFW_RATIO_SCALE_64
-#endif
+#define TFW_RATIO_SCALE		TFW_SG_MAX_SRV_N
 
 /**
  * List of connections to an upstream server.
@@ -58,7 +53,7 @@ typedef struct {
 	atomic64_t		counter;
 	size_t			conn_n;
 	TfwServer		*srv;
-	TfwSrvConn 		*conns[TFW_SRV_MAX_CONN];
+	TfwSrvConn 		**conns;
 } TfwRatioSrv;
 
 /**
@@ -85,7 +80,7 @@ typedef struct {
 	size_t			srv_n;
 	atomic_t		rearm;
 	struct timer_list	timer;
-	TfwRatioSrv		srvs[TFW_SG_MAX_SRV];
+	TfwRatioSrv		*srvs;
 	TfwRatioRated		epool[TFW_RATIO_EPOOLSZ];
 	TfwRatioRated __rcu	*rated;
 } TfwRatioSrvList;
@@ -97,10 +92,10 @@ tfw_sched_ratio_calc(int *weight, int *ratio, size_t sz)
 	unsigned long calc[sz], sum = 0, unit;
 
 	for (s = 0; s < sz; ++s) {
-		calc[s] = ((1 << 16) * TFW_RATIO_SCALE) / weight[s];
+		calc[s] = ((1UL << 16) * TFW_RATIO_SCALE) / weight[s];
 		sum += calc[s];
 	}
-	unit = ((1 << 16) * TFW_RATIO_SCALE) / sum;
+	unit = ((1UL << 16) * TFW_RATIO_SCALE) / sum;
 	for (s = 0; s < sz; ++s)
 		ratio[s] = (calc[s] * unit) / (1 << 16) ? : 1;
 }
@@ -221,7 +216,6 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 	for (s = 0; s < sl->srv_n; ++s)
 		if (sl->srvs[s].srv == srv)
 			break;
-	BUG_ON(s == TFW_SG_MAX_SRV);
 
 	cl = &sl->srvs[s];
 
@@ -253,7 +247,6 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 			return;
 		}
 	}
-	BUG_ON(c == TFW_SRV_MAX_CONN);
 
 	cl->conns[c] = srv_conn;
 	++cl->conn_n;
@@ -401,6 +394,19 @@ rearm:
 		mod_timer(&sl->timer, jiffies + timeout);
 }
 
+void
+tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
+{
+	int i;
+	TfwRatioSrvList *sl = sg->sched_data;
+
+	for (i = 0; i < sl->srv_n; ++i)
+		kfree(sl->srvs[i].conns);
+	kfree(sl->srvs);
+	kfree(sl);
+	sg->sched_data = NULL;
+}
+
 /*
  * Called when a scheduler is set for a server group.
  * That's when a server group becomes full-functioning.
@@ -409,17 +415,34 @@ static void
 tfw_sched_ratio_alloc_data(TfwSrvGroup *sg)
 {
 	int i;
+	TfwServer *srv;
 	TfwRatioSrvList *sl;
 
 	BUG_ON(!(sg->flags & ~TFW_SG_F_PSTATS_IDX_MASK));
 
 	sl = kzalloc(sizeof(TfwRatioSrvList), GFP_KERNEL);
-	BUG_ON(!sl);
+	if (!sl)
+		goto error;
+	sg->sched_data = sl;
+
+	sl->srvs = kzalloc(sizeof(TfwRatioSrv) * sg->srv_n, GFP_KERNEL);
+	if (!sl->srvs)
+		goto cleanup;
+
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		if (sl->srv_n < sg->srv_n) {
+			size_t size = sizeof(TfwSrvConn *) * srv->conn_n;
+			sl->srvs[sl->srv_n].conns = kzalloc(size, GFP_KERNEL);
+		}
+		if (!sl->srvs[sl->srv_n].conns)
+			goto cleanup;
+		++sl->srv_n;
+	}
+	sl->srv_n = 0;
 
 	for (i = 1; i < TFW_RATIO_EPOOLSZ; ++i)
 		atomic_set(&sl->epool[i].free, 1);
 	rcu_assign_pointer(sl->rated, &sl->epool[0]);
-	sg->sched_data = sl;
 
 	/* Set up ALB recalculation timer. */
 	if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC) {
@@ -428,6 +451,13 @@ tfw_sched_ratio_alloc_data(TfwSrvGroup *sg)
 			    (unsigned long)sg);
 		mod_timer(&sl->timer, jiffies + TFW_RATIO_TIMEOUT);
 	}
+
+	return;
+
+cleanup:
+	tfw_sched_ratio_cleanup(sg);
+error:
+	TFW_ERR("'%s' scheduler initialization error.\n", sg->sched->name);
 }
 
 static void
@@ -435,11 +465,14 @@ tfw_sched_ratio_free_data(TfwSrvGroup *sg)
 {
 	TfwRatioSrvList *sl = sg->sched_data;
 
-	atomic_set(&sl->rearm, 0);
-	smp_mb__after_atomic();
-	del_timer_sync(&sl->timer);
+	if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC) {
+		atomic_set(&sl->rearm, 0);
+		smp_mb__after_atomic();
+		del_timer_sync(&sl->timer);
+	}
 
-	kfree(sg->sched_data);
+	synchronize_rcu();
+	tfw_sched_ratio_cleanup(sg);
 }
 
 static TfwScheduler tfw_sched_ratio = {
@@ -467,4 +500,3 @@ tfw_sched_ratio_exit(void)
 	synchronize_rcu();
 }
 module_exit(tfw_sched_ratio_exit);
-
