@@ -23,6 +23,7 @@ class DeproxyDummyTest(functional.FunctionalTest):
     def setUp(self):
         self.client = None
         self.servers = []
+        self.tester = None
         tf_cfg.dbg(3) # Step to the next line after name of test case.
         tf_cfg.dbg(3, '\tInit test case...')
 
@@ -38,7 +39,7 @@ class DeproxyDummyTest(functional.FunctionalTest):
 
     def create_servers(self):
         port = tempesta.upstream_port_start_from()
-        self.servers = [deproxy.Server(port=port, connections=1)]
+        self.servers = [deproxy.Server(port=port, conns_n=1)]
 
     def routine(self, message_chains):
         self.create_servers()

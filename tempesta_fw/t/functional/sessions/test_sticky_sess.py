@@ -51,10 +51,7 @@ class TestSticky(functional.FunctionalTest):
         message_chains = self.tester.message_chains
         # Shutdown server pinned to session and all its connections.
         self.previous_srv = self.tester.pinned_srv
-        self.previous_srv.close()
-        for conn in self.tester.srv_connections:
-            if conn.server is self.previous_srv:
-                conn.close()
+        self.previous_srv.handle_close()
         self.tester.pinned_srv = None
         self.tester.used_srv = None
         # Set new message chain after shutdown:
@@ -68,19 +65,11 @@ class TestSticky(functional.FunctionalTest):
     def check_back_online(self, new_message_chain_provider, restore):
         self.check_failover(new_message_chain_provider)
         # Return previous server back online.
-        self.tester.srv_connections = (
-            [conn for conn in self.tester.srv_connections if not conn.server is self.previous_srv])
-        self.tester.servers = (
-            [srv for srv in self.tester.servers if not srv is self.previous_srv])
-        self.previous_srv = deproxy.Server(
-            port=self.previous_srv.port,
-            connections=self.previous_srv.conns_n)
-        self.tester.servers.append(self.previous_srv)
-        self.previous_srv.tester = self.tester
+        self.previous_srv.restart()
 
         if restore:
             self.tester.pinned_srv = self.previous_srv
-            # Remove cookie negotiation, reuse old one.
+            # Remove cookie negotiation chain, reuse old cookie.
             self.tester.message_chains = self.tester.message_chains[1:]
         else:
             self.tester.message_chains = new_message_chain_provider()
