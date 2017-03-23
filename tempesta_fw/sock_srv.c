@@ -564,7 +564,6 @@ tfw_sock_srv_delete_all_conns(void)
 /*
  * Default values for various configuration directives and options.
  */
-#define TFW_CFG_SRV_CONNS_N_DEF		32	/* Default # of connections */
 #define TFW_CFG_SRV_QUEUE_SIZE_DEF	1000	/* Max queue size */
 #define TFW_CFG_SRV_FWD_TIMEOUT_DEF	60	/* Default request timeout */
 #define TFW_CFG_SRV_FWD_RETRIES_DEF	5	/* Default number of tries */
@@ -572,10 +571,10 @@ tfw_sock_srv_delete_all_conns(void)
 #define TFW_CFG_SRV_RETRY_NIP_DEF	0	/* Do NOT resend NIP reqs */
 #define TFW_CFG_SRV_STICKY_DEF		0	/* Don't use sticky sessions */
 
-static TfwServer *tfw_cfg_in_slst[TFW_SG_MAX_SRV];
-static TfwServer *tfw_cfg_out_slst[TFW_SG_MAX_SRV];
-static int tfw_cfg_in_nconn[TFW_SG_MAX_SRV];
-static int tfw_cfg_out_nconn[TFW_SG_MAX_SRV];
+static TfwServer **tfw_cfg_in_slst;
+static TfwServer **tfw_cfg_out_slst;
+static int *tfw_cfg_in_nconn;
+static int *tfw_cfg_out_nconn;
 static int tfw_cfg_in_slstsz, tfw_cfg_out_slstsz;
 static TfwScheduler *tfw_cfg_in_sched, *tfw_cfg_out_sched;
 static TfwSrvGroup *tfw_cfg_in_sg, *tfw_cfg_out_sg;
@@ -799,10 +798,10 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	}
 
 	if (!has_conns_n) {
-		conns_n = TFW_CFG_SRV_CONNS_N_DEF;
-	} else if ((conns_n < 1) || (conns_n > TFW_SRV_MAX_CONN)) {
+		conns_n = TFW_SRV_DEF_CONN_N;
+	} else if ((conns_n < 1) || (conns_n > TFW_SRV_MAX_CONN_N)) {
 		TFW_ERR_NL("%s: %s %s: Out of range of [1..%d]: 'conns_n=%d'\n",
-			   sg->name, cs->name, saddr, TFW_SRV_MAX_CONN,
+			   sg->name, cs->name, saddr, TFW_SRV_MAX_CONN_N,
 			   conns_n);
 		return -EINVAL;
 	}
@@ -836,7 +835,7 @@ tfw_cfgop_in_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int nconn;
 	TfwServer *srv;
 
-	if (tfw_cfg_in_slstsz >= TFW_SG_MAX_SRV)
+	if (tfw_cfg_in_slstsz >= TFW_SG_MAX_SRV_N)
 		return -EINVAL;
 	if (tfw_cfgop_server(cs, ce, tfw_cfg_in_sg, &srv, &nconn))
 		return -EINVAL;
@@ -871,7 +870,7 @@ tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int nconn;
 	TfwServer *srv;
 
-	if (tfw_cfg_out_slstsz >= TFW_SG_MAX_SRV)
+	if (tfw_cfg_out_slstsz >= TFW_SG_MAX_SRV_N)
 		return -EINVAL;
 	/*
 	 * The group "default" is created implicitly, and only when
@@ -1245,6 +1244,18 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 int
 tfw_sock_srv_init(void)
 {
+#define INIT_ARRAY(x, size)						\
+do {									\
+	BUG_ON(x);							\
+	x = kcalloc(size, TFW_SG_MAX_SRV_N, GFP_KERNEL);		\
+	BUG_ON(!x);							\
+} while (0)
+
+	INIT_ARRAY(tfw_cfg_in_slst, sizeof(TfwServer *));
+	INIT_ARRAY(tfw_cfg_out_slst, sizeof(TfwServer *));
+	INIT_ARRAY(tfw_cfg_in_nconn, sizeof(int));
+	INIT_ARRAY(tfw_cfg_out_nconn, sizeof(int));
+
 	BUG_ON(tfw_srv_conn_cache);
 	tfw_srv_conn_cache = kmem_cache_create("tfw_srv_conn_cache",
 					       sizeof(TfwSrvConn), 0, 0, NULL);
@@ -1254,5 +1265,10 @@ tfw_sock_srv_init(void)
 void
 tfw_sock_srv_exit(void)
 {
+	kfree(tfw_cfg_in_slst);
+	kfree(tfw_cfg_out_slst);
+	kfree(tfw_cfg_in_nconn);
+	kfree(tfw_cfg_out_nconn);
+
 	kmem_cache_destroy(tfw_srv_conn_cache);
 }

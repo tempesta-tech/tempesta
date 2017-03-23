@@ -99,7 +99,7 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
+	for (i = 0; i < TFW_TEST_SRV_CONN_N; ++i) {
 		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
 		sg->sched->add_conn(sg, srv, srv_conn);
 	}
@@ -108,11 +108,13 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
 		TfwSrvConn *exp_conn = NULL;
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+		for (j = 0; j < TFW_TEST_SRV_CONN_N; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 
 			if (!exp_conn)
 				exp_conn = srv_conn;
@@ -123,7 +125,7 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -139,10 +141,10 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 
 	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+	for (i = 0; i < TFW_TEST_SG_SRV_N; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+		for (j = 0; j < TFW_TEST_SRV_CONN_N; ++j) {
 			TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, srv_conn);
 		}
@@ -152,11 +154,13 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
 		TfwSrvConn *exp_conn = NULL;
 
-		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+		for (j = 0; j < TFW_TEST_SG_CONN_N; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 
 			if (!exp_conn)
 				exp_conn = srv_conn;
@@ -167,7 +171,7 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -184,7 +188,7 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 	TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-	for (i = 0; i < TFW_SRV_MAX_CONN; ++i) {
+	for (i = 0; i < TFW_TEST_SRV_CONN_N; ++i) {
 		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
 		sg->sched->add_conn(sg, srv, srv_conn);
 	}
@@ -193,12 +197,14 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
 		TfwSrvConn *exp_conn = NULL;
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+		for (j = 0; j < TFW_TEST_SRV_CONN_N; ++j) {
 			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 			EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 			if (!exp_conn)
@@ -210,7 +216,7 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 			sched_helper_hash.free_sched_arg(msg);
 		}
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -226,10 +232,10 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 
 	TfwSrvGroup *sg = test_create_sg("test", sched_helper_hash.sched);
 
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
+	for (i = 0; i < TFW_TEST_SG_SRV_N; ++i) {
 		TfwServer *srv = test_create_srv("127.0.0.1", sg);
 
-		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
+		for (j = 0; j < TFW_TEST_SRV_CONN_N; ++j) {
 			TfwSrvConn *srv_conn =
 					test_create_conn((TfwPeer *)srv);
 			sg->sched->add_conn(sg, srv, srv_conn);
@@ -243,12 +249,14 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			TfwSrvConn *exp_conn = NULL;
 
-			for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
+			for (j = 0; j < TFW_TEST_SG_CONN_N; ++j) {
 				TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 				TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
 				EXPECT_NOT_NULL(srv_conn);
+				if (!srv_conn)
+					goto err;
 				EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 				if (!exp_conn)
@@ -261,7 +269,7 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 			}
 		}
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }

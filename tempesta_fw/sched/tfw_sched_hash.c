@@ -51,26 +51,106 @@ MODULE_LICENSE("GPL");
 typedef struct {
 	size_t			conn_n;
 	TfwServer		*srv;
-	TfwSrvConn		*conn[TFW_SRV_MAX_CONN];
-	unsigned long		hash[TFW_SRV_MAX_CONN];
+	size_t			size;
+	TfwSrvConn		**conns;
+	unsigned long		*hash;
 } TfwHashSrv;
 
 typedef struct {
 	size_t			srv_n;
-	TfwHashSrv		srvs[TFW_SG_MAX_SRV];
+	size_t			size;
+	size_t			conn_n;	/* total across all servers. */
+	TfwHashSrv		*srvs;
 } TfwHashSrvList;
+
+static inline void
+__alloc_conn_list(TfwHashSrv *s_cl)
+{
+	s_cl->conns = kcalloc(sizeof(TfwSrvConn *), TFW_SRV_DEF_CONN_N,
+			      GFP_KERNEL);
+	BUG_ON(!s_cl->conns);
+
+	s_cl->hash = kcalloc(sizeof(TfwSrvConn *), TFW_SRV_DEF_CONN_N,
+			      GFP_KERNEL);
+	BUG_ON(!s_cl->hash);
+
+	s_cl->size =  TFW_SRV_DEF_CONN_N;
+	s_cl->conn_n = 0;
+}
+
+static inline void
+__grow_conn_list(TfwHashSrv *s_cl)
+{
+	BUG_ON(s_cl->size > TFW_SRV_MAX_CONN_N);
+
+	s_cl->size *= 2;
+	s_cl->conns = krealloc(s_cl->conns, s_cl->size * sizeof(TfwSrvConn *),
+			       GFP_KERNEL);
+	BUG_ON(!s_cl->conns);
+	memset(&s_cl->conns[s_cl->conn_n], 0,
+	       (s_cl->size - s_cl->conn_n) * sizeof(TfwSrvConn *));
+
+	s_cl->hash = krealloc(s_cl->hash, s_cl->size * sizeof(unsigned long),
+			      GFP_KERNEL);
+	BUG_ON(!s_cl->hash);
+	memset(&s_cl->hash[s_cl->conn_n], 0,
+	       (s_cl->size - s_cl->conn_n) * sizeof(unsigned long));
+}
+
+static inline void
+__alloc_srv_list(TfwHashSrvList *srv_l)
+{
+	srv_l->srvs = kcalloc(sizeof(TfwHashSrv), TFW_SG_DEF_SRV_N, GFP_KERNEL);
+	BUG_ON(!srv_l->srvs);
+	srv_l->size = TFW_SG_DEF_SRV_N;
+	srv_l->srv_n = 0;
+}
+
+static inline void
+__grow_srv_list(TfwHashSrvList *srv_l)
+{
+	size_t i;
+
+	BUG_ON(srv_l->size > TFW_SG_MAX_SRV_N);
+
+	srv_l->size *= 2;
+	srv_l->srvs = krealloc(srv_l->srvs, srv_l->size * sizeof(TfwHashSrv),
+			       GFP_KERNEL);
+	BUG_ON(!srv_l->srvs);
+	memset(&srv_l->srvs[srv_l->srv_n], 0,
+	       (srv_l->size - srv_l->srv_n) * sizeof(TfwHashSrv));
+
+	for (i = 0; i < srv_l->srv_n; ++i) {
+		TfwHashSrv *s_cl = &srv_l->srvs[i];
+
+		s_cl->srv->sched_data = s_cl;
+	}
+}
 
 static void
 tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
 {
+	TfwHashSrvList* srv_l;
+
 	sg->sched_data = kzalloc(sizeof(TfwHashSrvList), GFP_KERNEL);
 	BUG_ON(!sg->sched_data);
+
+	srv_l = (TfwHashSrvList*)sg->sched_data;
+	__alloc_srv_list(srv_l);
 }
 
 static void
 tfw_sched_hash_free_data(TfwSrvGroup *sg)
 {
-	kfree(sg->sched_data);
+	TfwHashSrvList* srv_l = (TfwHashSrvList*)sg->sched_data;
+	size_t i;
+
+	for (i = 0; i < srv_l->srv_n; ++i) {
+		kfree(srv_l->srvs[i].conns);
+		kfree(srv_l->srvs[i].hash);
+	}
+	kfree(srv_l->srvs);
+	kfree(srv_l);
 }
 
 static unsigned long
@@ -101,8 +181,39 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 	return hash_long(hash ^ conn_idx, BITS_PER_LONG);
 }
 
+static inline void
+__add_connection(TfwHashSrv *s_cl, TfwServer *srv, TfwSrvConn *srv_conn,
+		 size_t conn_idx)
+{
+	if (s_cl->conn_n == s_cl->size)
+		__grow_conn_list(s_cl);
+
+	BUG_ON(s_cl->size > TFW_SRV_MAX_CONN_N);
+	s_cl->conns[s_cl->conn_n] = srv_conn;
+	s_cl->hash[s_cl->conn_n] = __calc_conn_hash(srv, conn_idx);
+	++s_cl->conn_n;
+}
+
+static inline void
+__add_server(TfwHashSrvList *srv_l, TfwServer *srv)
+{
+	TfwHashSrv *s_cl;
+
+	if (srv_l->srv_n == srv_l->size)
+		__grow_srv_list(srv_l);
+
+	BUG_ON(srv_l->size > TFW_SG_MAX_SRV_N);
+	s_cl = &srv_l->srvs[srv_l->srv_n];
+
+	__alloc_conn_list(s_cl);
+	s_cl->srv = srv;
+
+	++srv_l->srv_n;
+	srv->sched_data = s_cl;
+}
+
 static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *conn)
+tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	size_t s, c;
 	TfwHashSrv *srv_cl;
@@ -113,25 +224,18 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *conn)
 	for (s = 0; s < sl->srv_n; ++s)
 		if (sl->srvs[s].srv == srv)
 			break;
-	if (s == sl->srv_n) {
-		sl->srvs[s].srv = srv;
-		++sl->srv_n;
-		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
-		srv->sched_data = &sl->srvs[s];
-	}
+	if (s == sl->srv_n)
+		__add_server(sl, srv);
 
 	srv_cl = &sl->srvs[s];
-
 	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->conn[c] == conn) {
+		if (srv_cl->conns[c] == srv_conn) {
 			TFW_WARN("sched_hash: Try to add existing connection,"
 				 " srv=%zu conn=%zu\n", s, c);
 			return;
 		}
-	srv_cl->conn[c] = conn;
-	srv_cl->hash[c] = __calc_conn_hash(srv, s * TFW_SRV_MAX_CONN + c);
-	++srv_cl->conn_n;
-	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
+	__add_connection(srv_cl, srv, srv_conn, sl->conn_n);
+	++sl->conn_n;
 }
 
 static inline void
@@ -142,7 +246,7 @@ __find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
 
 	for (i = 0; i < srv_cl->conn_n; ++i) {
 		unsigned long curr_weight;
-		TfwSrvConn *conn = srv_cl->conn[i];
+		TfwSrvConn *conn = srv_cl->conns[i];
 
 		if (unlikely(tfw_srv_conn_restricted(conn)
 			     || tfw_srv_conn_queue_full(conn)
@@ -187,12 +291,13 @@ static TfwSrvConn *
 tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned long msg_hash;
-	unsigned long tries = TFW_SG_MAX_CONN;
+	unsigned long tries;
 	TfwHashSrvList *sl = sg->sched_data;
 
 	BUG_ON(!sl);
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	tries = sl->conn_n + 1;
 	while (--tries) {
 		size_t i;
 		unsigned long best_weight = 0;
