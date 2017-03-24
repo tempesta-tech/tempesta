@@ -110,14 +110,14 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 	TfwStickyConn *st_conn = &sess->st_conn;
 	TfwSrvConn *srv_conn;
 
-	read_lock(&st_conn->conn_lock);
+	read_lock(&st_conn->lock);
 
 	if ((srv_conn = __try_conn(msg, st_conn))) {
-		read_unlock(&st_conn->conn_lock);
+		read_unlock(&st_conn->lock);
 		return srv_conn;
 	}
 
-	read_unlock(&st_conn->conn_lock);
+	read_unlock(&st_conn->lock);
 
 	if (st_conn->srv_conn) {
 		/* Failed to sched from the same server. */
@@ -140,7 +140,7 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 		}
 	}
 
-	write_lock(&st_conn->conn_lock);
+	write_lock(&st_conn->lock);
 	/*
 	 * Connection and server may return back online while we were trying
 	 * for a lock.
@@ -164,7 +164,7 @@ __get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
 	}
 
 done:
-	write_unlock(&st_conn->conn_lock);
+	write_unlock(&st_conn->lock);
 
 	return srv_conn;
 }

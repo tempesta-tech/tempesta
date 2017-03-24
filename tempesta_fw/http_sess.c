@@ -79,7 +79,7 @@ typedef struct {
 	spinlock_t		lock;
 } SessHashBucket;
 
-static TfwCfgSticky		tfw_cfg_sticky;
+static TfwCfgSticky tfw_cfg_sticky;
 /* Secret server value to genrate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
@@ -582,7 +582,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
-	rwlock_init(&sess->st_conn.conn_lock);
+	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -614,14 +614,6 @@ tfw_http_sess_init(void)
 		ret = (int)PTR_ERR(tfw_sticky_shash);
 		goto err;
 	}
-
-	get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
-	ret = crypto_shash_setkey(tfw_sticky_shash,
-				  (u8 *)tfw_sticky_key,
-				  sizeof(tfw_sticky_key));
-	if (ret)
-		goto err_shash;
-	ret = -ENOMEM;
 
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
 				       0, 0, NULL);
@@ -708,15 +700,23 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r, len = strlen(ce->vals[0]);
+	int r;
+	unsigned int len = (unsigned int)strlen(ce->vals[0]);
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 	if (len > STICKY_KEY_MAXLEN)
 		return -EINVAL;
 
-	memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
-	memcpy(tfw_sticky_key, ce->vals[0], len);
+	if (len) {
+		memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
+		memcpy(tfw_sticky_key, ce->vals[0], len);
+	}
+	else {
+		get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
+		len = sizeof(tfw_sticky_key);
+	}
+
 	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
 	if (r) {
 		crypto_free_shash(tfw_sticky_shash);
@@ -728,9 +728,14 @@ tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r = tfw_cfg_set_int(cs, ce);
+	int r;
+	cs->dest = &tfw_cfg_sticky.sess_lifetime;
 
-	/* @sess_lifetime value of 0 means unlimited. */
+	r = tfw_cfg_set_int(cs, ce);
+	/*
+	 * "sess_lifetime 0;" means unlimited session lifetime,
+	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
+	*/
 	if (!r && !tfw_cfg_sticky.sess_lifetime)
 		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
 
@@ -749,6 +754,7 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 		},
 		{
 			.name = "sticky_secret",
+			.deflt = "",
 			.handler = tfw_http_sticky_secret_cfg,
 			.allow_none = true,
 		},
@@ -757,7 +763,6 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 			.name = "sess_lifetime",
 			.deflt = "0",
 			.handler = tfw_http_sticky_sess_lifetime_cfg,
-			.dest = &tfw_cfg_sticky.sess_lifetime,
 			.spec_ext = &(TfwCfgSpecInt) {
 				.range = { 0, INT_MAX },
 			},

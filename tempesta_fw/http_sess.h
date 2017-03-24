@@ -28,13 +28,13 @@
  * @srv_conn	- last used connection;
  * @main_sg	- primary server group to schedule connection on failovering;
  * @backup_sg	- backup server group;
- * @conn_lock	- protects whole @TfwStickyConn;
+ * @lock	- protects whole @TfwStickyConn;
  */
 typedef struct {
 	TfwSrvConn		*srv_conn;
 	TfwSrvGroup		*main_sg;
 	TfwSrvGroup		*backup_sg;
-	rwlock_t		conn_lock;
+	rwlock_t		lock;
 } TfwStickyConn;
 
 /**
