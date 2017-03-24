@@ -98,20 +98,18 @@ struct tfw_srv_group_t {
  * @add_conn	- add connection and server if it's new, called in process
  * 		  context at configuration time;
  * @sched_grp	- server group scheduling virtual method, typically returns
- *		  result of underlying @sched_sg_conn();
- * @sched_sg_conn - requests scheduling virtual method, can be called in heavy
- *		  concurrent environment;
- * @sched_srv_conn - requests scheduling virtual method, can be called in heavy
- *		  concurrent environment;
+ *		  result of @tfw_sched_get_sg_srv_conn();
+ * @sched_sg_conn - virtual method, schedules request to a server from given
+ *		  server group, returns server connection;
+ * @sched_srv_conn - schedule request to the given server,
+ *		  returns server connection;
  *
- * All schedulers must be able to scheduler messages among servers of one
- * server group, i.e. @sched_sg_conn must be defined.
- * However, not all the schedulers are able to designate target server group.
- * If a scheduler determines server group, then it should register @sched_grp
- * callback. The callback determines the target server group which references
- * a scheduler responsible to distribute messages in the group.
- * For the avoidance of unnecessary calls, any @sched_grp callback must call
- * @sched_sg_conn callback or @sched_srv_conn of the target scheduler.
+ * There can be 2 kind of schedulers. Tier-2 schedulers can determine
+ * target server connection by server or server group (@sched_srv_conn and
+ * @sched_sg_conn callbacks). Every server group is bound to one of the tier-2
+ * schedulers. Group schedulers can find out target server group
+ * by message content (@sched_grp callback) and then find and outgoing
+ * connection by @tfw_sched_get_sg_srv_conn().
  */
 struct tfw_scheduler_t {
 	const char		*name;
