@@ -26,6 +26,11 @@
 #include "cfg.h"
 #include "connection.h"
 
+/* Force schedulers to reallocate. */
+#define TFW_TEST_SG_SRV_N (TFW_SG_DEF_SRV_N * 3)
+#define TFW_TEST_SRV_CONN_N (TFW_SRV_DEF_CONN_N * 3)
+#define TFW_TEST_SG_CONN_N (TFW_TEST_SG_SRV_N * TFW_TEST_SRV_CONN_N)
+
 int tfw_server_init(void);
 int tfw_sched_rr_init(void);
 void sched_helper_init(void);

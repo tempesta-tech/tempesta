@@ -25,9 +25,13 @@
 #include "connection.h"
 #include "peer.h"
 
-#define TFW_SRV_MAX_CONN	32	/* TfwSrvConn{} per TfwServer{} */
-#define TFW_SG_MAX_SRV		32	/* TfwServer{} per TfwSrvGroup{} */
-#define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
+/* Default number of connections between Tempesta and a backend server. */
+#define TFW_SRV_DEF_CONN_N	32
+#define TFW_SRV_MAX_CONN_N	USHRT_MAX
+/* Default number of servers in server group. */
+#define TFW_SG_DEF_SRV_N	32
+#define TFW_SG_MAX_SRV_N	USHRT_MAX
+
 
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
