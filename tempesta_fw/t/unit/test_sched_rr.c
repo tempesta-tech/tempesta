@@ -98,6 +98,8 @@ TEST(tfw_sched_rr, sched_sg_one_srv_max_conn)
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
@@ -113,7 +115,7 @@ TEST(tfw_sched_rr, sched_sg_one_srv_max_conn)
 		EXPECT_EQ(conn_acc, conn_acc_check);
 		sched_helper_rr.free_sched_arg(msg);
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -152,6 +154,8 @@ TEST(tfw_sched_rr, sched_sg_max_srv_max_conn)
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
@@ -160,7 +164,7 @@ TEST(tfw_sched_rr, sched_sg_max_srv_max_conn)
 		EXPECT_EQ(conn_acc, conn_acc_check);
 		sched_helper_rr.free_sched_arg(msg);
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -196,6 +200,8 @@ TEST(tfw_sched_rr, sched_srv_one_srv_max_conn)
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 			EXPECT_NOT_NULL(srv_conn);
+			if (!srv_conn)
+				goto err;
 			EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 			conn_acc_check ^= (long long)srv_conn;
@@ -213,7 +219,7 @@ TEST(tfw_sched_rr, sched_srv_one_srv_max_conn)
 		EXPECT_EQ(conn_acc, conn_acc_check);
 		sched_helper_rr.free_sched_arg(msg);
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
@@ -261,6 +267,8 @@ TEST(tfw_sched_rr, sched_srv_max_srv_max_conn)
 				TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 				EXPECT_NOT_NULL(srv_conn);
+				if (!srv_conn)
+					goto err;
 				EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 				conn_acc_check ^= (long long)srv_conn;
@@ -283,7 +291,7 @@ TEST(tfw_sched_rr, sched_srv_max_srv_max_conn)
 		}
 		sched_helper_rr.free_sched_arg(msg);
 	}
-
+err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
 }
