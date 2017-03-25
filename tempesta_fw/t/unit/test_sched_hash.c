@@ -106,10 +106,10 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 		TfwSrvConn *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
@@ -120,8 +120,15 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 				EXPECT_EQ(srv_conn, exp_conn);
 
 			tfw_srv_conn_put(srv_conn);
-			sched_helper_hash.free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog suppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper_hash.free_sched_arg(msg);
 	}
 
 	test_conn_release_all(sg);
@@ -150,10 +157,10 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 		TfwSrvConn *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
@@ -164,8 +171,15 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 				EXPECT_EQ(srv_conn, exp_conn);
 
 			tfw_srv_conn_put(srv_conn);
-			sched_helper_hash.free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog suppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper_hash.free_sched_arg(msg);
 	}
 
 	test_conn_release_all(sg);
@@ -191,10 +205,10 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 		TfwSrvConn *exp_conn = NULL;
 
 		for (j = 0; j < TFW_SRV_MAX_CONN; ++j) {
-			TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
@@ -207,8 +221,15 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 				EXPECT_EQ(srv_conn, exp_conn);
 
 			tfw_srv_conn_put(srv_conn);
-			sched_helper_hash.free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog suppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper_hash.free_sched_arg(msg);
 	}
 
 	test_conn_release_all(sg);
@@ -238,13 +259,13 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
+		TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 		TfwServer *srv;
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			TfwSrvConn *exp_conn = NULL;
 
 			for (j = 0; j < TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN; ++j) {
-				TfwMsg *msg = sched_helper_hash.get_sched_arg(i);
 				TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
@@ -257,9 +278,17 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 					EXPECT_EQ(srv_conn, exp_conn);
 
 				tfw_srv_conn_put(srv_conn);
-				sched_helper_hash.free_sched_arg(msg);
+
+				/*
+				 * Don't let wachtdog suppose that we have
+				 * stucked on long cycles.
+				 */
+				kernel_fpu_end();
+				schedule();
+				kernel_fpu_begin();
 			}
 		}
+		sched_helper_hash.free_sched_arg(msg);
 	}
 
 	test_conn_release_all(sg);
