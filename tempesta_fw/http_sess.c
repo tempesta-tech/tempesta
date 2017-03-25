@@ -85,9 +85,9 @@ static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
 static SessHashBucket sess_hash[SESS_HASH_SZ] = {
-	[0 ... (SESS_HASH_SZ - 1)] = {
-		HLIST_HEAD_INIT,
-	}
+//	[0 ... (SESS_HASH_SZ - 1)] = {
+//		HLIST_HEAD_INIT,
+//	}
 };
 
 static struct kmem_cache *sess_cache;
@@ -754,7 +754,7 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 		},
 		{
 			.name = "sticky_secret",
-			.deflt = "",
+			.deflt = "\"\"",
 			.handler = tfw_http_sticky_secret_cfg,
 			.allow_none = true,
 		},
