@@ -26,23 +26,31 @@
 #include "cfg.h"
 #include "connection.h"
 
+#define TFW_TEST_SG_MAX_SRV_N		128
+#define TFW_TEST_SRV_MAX_CONN_N		128
+#define TFW_TEST_SG_MAX_CONN_N		\
+	(TFW_TEST_SG_MAX_SRV_N * TFW_TEST_SRV_MAX_CONN_N)
+
 int tfw_server_init(void);
-int tfw_sched_rr_init(void);
+void tfw_server_exit(void);
+int tfw_sched_ratio_init(void);
+void tfw_sched_ratio_exit(void);
 void sched_helper_init(void);
 
 void test_spec_cleanup(TfwCfgSpec specs[]);
-TfwSrvGroup *test_create_sg(const char *name, const char *sched_name);
+TfwSrvGroup *test_create_sg(const char *name);
+void test_start_sg(TfwSrvGroup *sg, const char *sched_name);
 void test_sg_release_all(void);
 
 TfwServer *test_create_srv(const char *in_addr, TfwSrvGroup *sg);
-
-TfwSrvConn *test_create_conn(TfwPeer *peer);
+TfwSrvConn *test_create_srv_conn(TfwServer *srv);
 
 void test_conn_release_all(TfwSrvGroup *sg);
 
 struct TestSchedHelper {
 	const char *sched;
 	size_t conn_types;
+	unsigned int flags;
 	TfwMsg *(*get_sched_arg)(size_t conn_type);
 	void (*free_sched_arg)(TfwMsg *);
 };

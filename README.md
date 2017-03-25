@@ -388,13 +388,16 @@ location prefix "/society/" {
 A back end HTTP server is defined with `server` directive. The full syntax is
 as follows:
 ```
-server <IPADDR>[:<PORT>] [conns_n=<N>];
+server <IPADDR>[:<PORT>] [conns_n=<N>] [weight=<N>];
 ```
-`IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
+* `IPADDR` can be either IPv4 or IPv6 address. Hostnames are not allowed.
 IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
-`PORT` defaults to 80 if not specified.
-`conns_n=<N>` is the number of parallel connections to the server.
+* `PORT` defaults to 80 if not specified.
+* `conns_n=<N>` is the number of parallel connections to the server.
 `N` defaults to 32 if not specified.
+* `weight=<N>` is the static weight of the server. If not specified, then
+the default weight of 50 is used with the static ratio scheduler. Just the
+weight that is different from default may be specified for convenience.
 
 Multiple back end servers may be defined. For example:
 ```
@@ -465,16 +468,20 @@ with this directive. If not specified, the queue size is set to 1000.
 Back end servers can be grouped together into a single unit for the purpose of
 load balancing. Servers within a group are considered interchangeable.
 The load is distributed evenly among servers within a group.
-If a server goes offline, other servers in a group take the load.
+If a server goes offline, then other servers in a group take the load.
 The full syntax is as follows:
 ```
 srv_group <NAME> {
-	server <IPADDR>[:<PORT>] [conns_n=<N>];
+	sched <SCHED_NAME>;
+	server <IPADDR>[:<PORT>] [conns_n=<N>] [weight=<N>];
 	...
 }
 ```
 `NAME` is a unique identifier of the group that may be used to refer to it
 later.
+`SCHED_NAME` is the name of scheduler module that distributes load among
+servers within the group. Default scheduler is used if `sched` directive is
+not specified.
 
 Servers that are defined outside of any group implicitly form a special group
 called `default`.
@@ -486,13 +493,13 @@ speficied for a group.
 Below is an example of server group definition:
 ```
 srv_group static_storage {
-	sched hash;
 	server 10.10.0.1:8080;
 	server 10.10.0.2:8080;
 	server [fc00::3]:8081 conns_n=1;
 	server_queue_size 500;
 	server_forward_timeout 30;
 	server_connect_retries 15;
+	sched hash;
 }
 ```
 
@@ -502,33 +509,79 @@ Scheduler is used to distribute load among servers within a group. The group
 can be either explicit, defined with `srv_group` directive, or implicit.
 The syntax is as follows:
 ```
-sched <SCHED_NAME>;
+sched <SCHED_NAME> [OPTIONS];
 ```
 `SCHED_NAME` is the name of a scheduler available in Tempesta.
+`OPTIONS` are optional. Not all schedulers have additional options.
 
 Currently there are two schedulers available:
-* **round-robin** - Rotates all servers in a group in round-robin manner so
-that requests are distributed uniformly across servers. This is the default
-scheduler.
+* **ratio** - Balances the load across servers in a group based on each
+server's weight. Requests are forwarded more to servers with more weight,
+and less to servers with less weight. As a result, each server in a group
+receives an optimal load. In default configuration where weights are not
+specified, servers weights are considered equal, and the scheduler works
+in pure round-robin fashion. This is the default scheduler.
 * **hash** - Chooses a server based on a URI/Host hash of a request.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
 
-The round-robin scheduler is the fastest scheduler. However, the presence
-of a non-idempotent request in a connection means that subsequent requests
-may not be sent out until a response is received to the non-idempotent
-request. With that in mind, an attempt is made to put new requests to
-connections that don't currently have non-idempotent requests. If all
-connections have a non-idempotent request in them, then such a connection
-is used as there's no other choice.
+Only one `sched` directive is allowed per group, either explicit or implicit.
+`sched` directive may be specified anywhere in the group. It applies to all
+servers within a group, so the scope of `sched` directive is limited by
+a current group.
 
-Only one `sched` directive is allowed per explicit or implicit group.
-A scheduler defined for the implicit group becomes the scheduler for an
-explicit group defined with `srv_group` directive if the explicit group
-is missing the `sched` directive.
+If there's a `sched` directive outside of any groups that comes before
+`srv_group` definitions, then it's considered global. Any subsequent server
+group that is missing `sched` directive inherits the global definition.
 
-If no scheduler is defined for a group, then scheduler defaults
-to `round-robin`.
+If no scheduler is defined, then scheduler defaults to `ratio`.
+
+**ratio** scheduler may have the following options:
+* **static** - The weight of each server in a group is defined statically
+with `[weight=<NN>]` option of the `server` directive. This is the default
+`ratio` scheduler option.
+* **dynamic** - The weight of each server in a group is defined dynamically.
+Specific type of dynamic weight is specified with additional options:
+    * **minimum** - The current minimum response time from a server;
+    * **maximum** - The current maximum response time from a server;
+    * **average** - The current average response time from a server;
+    * **percentile `[<NN>]`** - The current response time from a server that
+    is within specified percentile. The percentile may be one of 50, 75, 90,
+    95, 99. If none is given, then the default percentile of 90 is used.
+If a specific type of dynamic weight is not specified, then the default type
+of `average` is used.
+
+Naturally, if a dynamic scheduler is specified for a group, and there's
+a server in that group with the `weight` option, then an error is produced
+as that combination is incompatible.
+
+The following are examples of scheduler specification in configuration.
+Again, only one `sched` directive is allowed per group.
+```
+# Use hash scheduler
+sched hash;
+# Use ratio scheduler. By default, static weight distribution is used.
+sched ratio;
+# Use ratio scheduler with static weight distribution.
+sched ratio static;
+# Use dynamic scheduler. By default, current average response time is used
+# for weight distribution.
+sched dynamic;
+# Use dynamic scheduler with maximum response time for weight distribution.
+sched dynamic maximum;
+# Use dynamic scheduler, default percentile of 90 is used.
+sched dynamic percentile;
+# Use dynamic scheduler, percentile of 75 is used for weight distribution.
+sched dynamic percentile 75;
+```
+
+Servers should be grouped together with proper care. Server groups should
+be created with servers that handle similar resources. For instance, if
+servers with static content that is served quickly are grouped together
+with servers with dynamic content that is I/O bound, then the quick
+response times from servers with static content will be nearly invisible
+in comparison to longer response times from servers with dynamic content.
+The distribution of load among these server will be severely skewed.
 
 
 #### HTTP Scheduler

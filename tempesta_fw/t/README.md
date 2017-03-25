@@ -41,7 +41,7 @@ A typical scenario for such test looks like this:
 2. Configure Tempesta to connect to our back-end server.
 3. Send some HTTP requests to check certain behavior, e.g. send a malicious request and check that it is filtered-out by Tempesta (didn't received by the back-end server).
 
-So in contrast to unit tests, the functional testing is (mostly) a black-box testing. We don't check source code here, but rather certain features like "caching" or "round-robin load balancing". Also we run tests in a realistic environment: we send real HTTP requests via real sockets, configuring Tempesta as it was working on a real-world server, etc.
+So in contrast to unit tests, the functional testing is (mostly) a black-box testing. We don't check source code here, but rather certain features like "caching" or "ratio load balancing". Also we run tests in a realistic environment: we send real HTTP requests via real sockets, configuring Tempesta as it was working on a real-world server, etc.
 
 We also trying to keep things simple here. Each test is a separate `.py` file under the `functional/` directory. It is executed linearly as a script without usual complicated stuff like organizing tests into classes that represents suites. Every test is a separate program that executes whatever it likes to. To run a test, just execute the corresponding `.py` file.
 

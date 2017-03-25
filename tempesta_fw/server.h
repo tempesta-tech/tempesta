@@ -25,9 +25,10 @@
 #include "connection.h"
 #include "peer.h"
 
-#define TFW_SRV_MAX_CONN	32	/* TfwSrvConn{} per TfwServer{} */
-#define TFW_SG_MAX_SRV		32	/* TfwServer{} per TfwSrvGroup{} */
-#define TFW_SG_MAX_CONN		(TFW_SG_MAX_SRV * TFW_SRV_MAX_CONN)
+#define TFW_SRV_MAX_CONN_N	256  /* TfwSrvConn{} per TfwServer{} */
+#define TFW_SG_MAX_SRV_N	256  /* TfwServer{} per TfwSrvGroup{} */
+#define TFW_SG_MAX_CONN_N	\
+	((unsigned long)TFW_SG_MAX_SRV_N * TFW_SRV_MAX_CONN_N)
 
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
@@ -35,9 +36,11 @@ typedef struct tfw_scheduler_t TfwScheduler;
 /**
  * Server descriptor, a TfwPeer successor.
  *
- * @list	- member pointer in the list of servers of a server group;
+ * @list	- member in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @apm		- opaque handle for APM stats;
+ * @weight	- static server weight for load balancers;
+ * @conn_n	- configured number of connections to the server;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -45,6 +48,8 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*apm;
 	int			stress;
+	int			weight;
+	int			conn_n;
 } TfwServer;
 
 /**
@@ -59,6 +64,7 @@ typedef struct {
  * @lock	- synchronizes the group readers with updaters;
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
+ * @srv_n	- configured number of servers in the group;
  * @max_qsize	- maximum queue size of a server connection;
  * @max_refwd	- maximum number of tries for forwarding a request;
  * @max_jqage	- maximum age of a request in a server connection, in jiffies;
@@ -72,6 +78,7 @@ struct tfw_srv_group_t {
 	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void			*sched_data;
+	int			srv_n;
 	unsigned int		max_qsize;
 	unsigned int		max_refwd;
 	unsigned long		max_jqage;
@@ -80,22 +87,31 @@ struct tfw_srv_group_t {
 	char			name[0];
 };
 
-/* Server related flags. */
-#define TFW_SRV_RETRY_NIP	0x0001	/* Retry non-idemporent req. */
+/*
+ * Server related flags.
+ * Lower 4 bits keep an index into APM stats array.
+ */
+#define TFW_SG_F_PSTATS_IDX_MASK	0x000f
+#define TFW_SG_F_SCHED_RATIO_STATIC	0x0010
+#define TFW_SG_F_SCHED_RATIO_DYNAMIC	0x0020
+#define TFW_SG_F_SCHED_RATIO_PREDICT	0x0040
+#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idemporent req. */
 
 /**
  * Requests scheduling algorithm handler.
  *
  * @name	- name of the algorithm;
- * @list	- list of registered schedulers;
- * @add_grp	- add server group to the scheduler;
+ * @list	- member in the list of registered schedulers;
+ * @add_grp	- add server group to the scheduler.
+		  Called in process context at configuration time.
+ *		  Called only after the group is set up with all servers;
  * @del_grp	- delete server group from the scheduler;
- * @add_conn	- add connection and server if it's new, called in process
- * 		  context at configuration time;
- * @sched_grp	- server group scheduling virtual method, typically returns
- *		  result of underlying @sched_srv();
- * @sched_srv	- requests scheduling virtual method, can be called in heavy
- *		  concurrent environment;
+ * @add_conn	- add connection and server if it's new.
+		  Called in process context at configuration time;
+ * @sched_grp	- server group scheduling virtual method.
+		  Typically returns the result of underlying @sched_srv();
+ * @sched_srv	- requests scheduling virtual method.
+		  May be called in heavily concurrent environment;
  *
  * All schedulers must be able to scheduler messages among servers of one
  * server group, i.e. @sched_srv must be defined.
