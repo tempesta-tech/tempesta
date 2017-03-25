@@ -223,14 +223,22 @@ test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 		test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+
 		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
-			TfwMsg *msg = sched_helper->get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 
 			EXPECT_NULL(srv_conn);
-			sched_helper->free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog wuppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper->free_sched_arg(msg);
 	}
 
 	test_sg_release_all();
@@ -290,16 +298,23 @@ test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 		test_create_srv("127.0.0.1", sg);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
 		TfwServer *srv;
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			TfwMsg *msg = sched_helper->get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NULL(srv_conn);
-			sched_helper->free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog wuppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper->free_sched_arg(msg);
 	}
 
 	test_sg_release_all();
@@ -338,9 +353,9 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 	}
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
 		TfwServer *srv;
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			TfwMsg *msg = sched_helper->get_sched_arg(i);
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_srv_conn(msg, srv);
 
@@ -348,8 +363,15 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 				EXPECT_NULL(srv_conn);
 			else
 				EXPECT_NOT_NULL(srv_conn);
-			sched_helper->free_sched_arg(msg);
+			/*
+			 * Don't let wachtdog wuppose that we have stucked
+			 * on long cycles.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
 		}
+		sched_helper->free_sched_arg(msg);
 	}
 
 	test_conn_release_all(sg);
