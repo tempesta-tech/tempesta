@@ -20,4 +20,4 @@
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../ -I$(src)/../../tempesta_db/core
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
-obj-m = tfw_sched_hash.o tfw_sched_http.o tfw_sched_rr.o
+obj-m = tfw_sched_hash.o tfw_sched_http.o tfw_sched_ratio.o tfw_sched_rr.o
