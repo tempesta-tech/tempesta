@@ -1084,7 +1084,7 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		return -EINVAL;
 	}
 
-	if (!strcasecmp(sched->name, "round-robin"))
+	if (!strcasecmp(sched->name, "ratio"))
 		if (tfw_cfg_handle_ratio(cs, ce, sg_flags))
 			return -EINVAL;
 
