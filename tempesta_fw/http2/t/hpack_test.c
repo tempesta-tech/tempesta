@@ -106,7 +106,8 @@ main(void)
 	fragments[1].ptr = buf1;
 	fragments[2].ptr = buf3;
 	buffer_new(&out, NULL, 0);
-	hp = hpack_new(4096, NULL);
+	hpack_init(NULL);
+	hp = hpack_new(4096, 0, NULL);
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
 			fast window;
@@ -196,5 +197,6 @@ main(void)
 	}
 	tm = (double)(clock() - ts) / CLOCKS_PER_SEC;
 	printf("Time = %g\n", tm);
+	hpack_shutdown();
 	return 0;
 }

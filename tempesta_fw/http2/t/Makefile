@@ -13,10 +13,11 @@ options = -Wall -Wextra -Wstrict-overflow=5 -Wno-unused-parameter \
 	  -ftree-loop-im -fivopts -fira-hoist-pressure \
 	  -fbranch-target-load-optimize
 
-hfiles = ../common.h ../netconv.h ../rotate.h
+hfiles = ../common.h ../bits.h ../netconv.h ../rotate.h
+hfiles += ../subs.h ../hash.h
 hfiles += ../buffers.h ../errors.h ../hfstate.h ../huffman.h
 
-shared = ../buffers.c ../huffman.c pool_emulator.c
+shared = ../subs.c ../hash.c ../buffers.c ../huffman.c pool_emulator.c
 
 all: huffman_test fragments_test hpack_test
 
@@ -35,7 +36,7 @@ fragments_test: $(hfiles) hftestdata.h
 fragments_test: fragments_test.c $(shared)
 	gcc $(options) -o $@ $< $(shared)
 
-hpack_test: $(hfiles) hptestdata.h
+hpack_test: $(hfiles) hptestdata.h ../hstatic.h
 hpack_test: hpack_test.c $(shared) ../hpack_decoder.c ../hindex.c
 	gcc $(options) -o $@ $< $(shared) ../hpack_decoder.c ../hindex.c
 

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * HPACK (RFC-7541) decoder and encoder.
+ * HPACK (RFC-7541) decoder.
  *
  * Copyright (C) 2017 Tempesta Technologies, Inc.
  *
@@ -558,7 +558,7 @@ hpack_set_window(HPack * __restrict hp, ufast window)
 }
 
 HPack *
-hpack_new(ufast max_window, TfwPool * __restrict pool)
+hpack_new(ufast max_window, byte is_encoder, TfwPool * __restrict pool)
 {
 	HTTP2Index *__restrict dynamic;
 
@@ -570,7 +570,7 @@ hpack_new(ufast max_window, TfwPool * __restrict pool)
 	if (max_window == 0) {
 		max_window = (uint32) - 1;
 	}
-	dynamic = hpack_new_index(max_window, pool);
+	dynamic = hpack_new_index(max_window, is_encoder, pool);
 	if (dynamic) {
 		HPack *const __restrict hp =
 		    tfw_pool_alloc(pool, sizeof(HPack));
@@ -603,4 +603,16 @@ hpack_free(HPack * __restrict hp)
 	}
 	hpack_free_index(hp->dynamic);
 	tfw_pool_free(pool, hp, sizeof(HPack));
+}
+
+void
+hpack_init(TfwPool * __restrict pool)
+{
+	hpack_index_init(pool);
+}
+
+void
+hpack_shutdown(void)
+{
+	hpack_index_shutdown();
 }

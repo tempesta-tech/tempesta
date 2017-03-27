@@ -27,10 +27,12 @@
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
+#include "subs.h"
+#include "hash.h"
 #include "errors.h"
 #include "hpack.h"
 
-/* HPack string (used for the ring buffer): */
+/* HPack string (used for the various buffers): */
 
 enum {
 	HPack_Arena_Static,	/* String resides in the static memory.     */
@@ -60,8 +62,8 @@ typedef struct {
 /* Ring buffer (dictionary) entry: */
 
 typedef struct {
-	HPackStr name;
-	HPackStr value;
+	HPackStr *name;
+	HPackStr *value;
 } HPackEntry;
 
 /* HPack index structure: */
@@ -76,6 +78,10 @@ typedef struct {
 /*	    table (in bytes). This value used as     */
 /*	    threshold to flushing old entries.	     */
 /* entries: Dynamic table entries.		     */
+/* sub:     Sub-allocator for HPackStr descriptors.  */
+/* hash:    Hash table texts of names and values.    */
+/* pairs:   Hash table with {name, value} tuples.    */
+/* names:   Hash table with name pointers.	     */
 /* pool:    Memory pool, which used for dynamic      */
 /*	    table.				     */
 
@@ -86,6 +92,10 @@ struct HTTP2Index {
 	ufast size;
 	ufast window;
 	 HPackEntry * entries;
+	Sub *sub;
+	 Hash * hash;
+	 Hash * pairs;
+	 Hash * names;
 	 TfwPool * pool;
 };
 
@@ -97,10 +107,22 @@ ufast hpack_add_index(HTTP2Index * __restrict ip,
 		      HTTP2Field * __restrict fp,
 		      ufast index, ufast flags, HTTP2Output * __restrict out);
 
+HPackStr *hpack_find_string(HTTP2Index * __restrict ip,
+			    HPackStr * __restrict name);
+
+ufast hpack_find_entry(HTTP2Index * __restrict ip,
+		       HPackStr * __restrict name,
+		       HPackStr * __restrict value, ufast * __restrict flags);
+
 void hpack_set_length(HTTP2Index * __restrict ip, ufast window);
 
-HTTP2Index *hpack_new_index(ufast window, TfwPool * __restrict pool);
+HTTP2Index *hpack_new_index(ufast window, byte is_encoder,
+			    TfwPool * __restrict pool);
 
 void hpack_free_index(HTTP2Index * __restrict ip);
+
+void hpack_index_init(TfwPool * __restrict pool);
+
+void hpack_index_shutdown(void);
 
 #endif

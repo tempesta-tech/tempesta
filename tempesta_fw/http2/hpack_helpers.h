@@ -32,82 +32,82 @@
 /* Flexible integer decoding as specified */
 /* in the HPACK RFC-7541: */
 
-#define GET_FLEXIBLE(x) 						\
-	do {								\
-		ufast __m = 0;						\
-		ufast __c;						\
-		do {							\
-			if (unlikely(m == 0)) { 			\
-				if (n) {				\
-					src = buffer_next(source, &m);	\
-				}					\
-				else {					\
-					hp->shift = __m;		\
-					hp->saved = x;			\
-					goto Incomplete;		\
-				}					\
-			}						\
-			__c = * src++;					\
-			n--;						\
-			m--;						\
-			if (__m <  HPACK_LIMIT ||			\
-			   (__m == HPACK_LIMIT &&			\
-			    __c <= HPACK_LAST)) 			\
-			{						\
-				x += (__c & 127) << __m;		\
-				__m += 7;				\
-			}						\
-			else if (__c) { 				\
-				goto Overflow;				\
-			}						\
-		} while (__c > 127);					\
-	} while (0)
+#define GET_FLEXIBLE(x) 				       \
+do {							       \
+	ufast __m = 0;					       \
+	ufast __c;					       \
+	do {						       \
+		if (unlikely(m == 0)) { 		       \
+			if (n) {			       \
+				src = buffer_next(source, &m); \
+			}				       \
+			else {				       \
+				hp->shift = __m;	       \
+				hp->saved = x;		       \
+				goto Incomplete;	       \
+			}				       \
+		}					       \
+		__c = * src++;				       \
+		n--;					       \
+		m--;					       \
+		if (__m <  HPACK_LIMIT ||		       \
+		   (__m == HPACK_LIMIT &&		       \
+		    __c <= HPACK_LAST)) 		       \
+		{					       \
+			x += (__c & 127) << __m;	       \
+			__m += 7;			       \
+		}					       \
+		else if (__c) { 			       \
+			goto Overflow;			       \
+		}					       \
+	} while (__c > 127);				       \
+} while (0)
 
 /* Continue decoding after interruption due */
 /* to absence of the next fragment: */
 
-#define GET_CONTINUE(x) 						\
-	do {								\
-		ufast __m = hp->shift;					\
-		ufast __c = * src++;					\
-		x = hp->saved;						\
-		n--;							\
-		m--;							\
-		if (__m <  HPACK_LIMIT ||				\
-		   (__m == HPACK_LIMIT &&				\
-		    __c <= HPACK_LAST)) 				\
-		{							\
-			x += (__c & 127) << __m;			\
-			__m += 7;					\
-		}							\
-		else if (__c) { 					\
-			goto Overflow;					\
-		}							\
-		while (__c > 127) {					\
-			if (unlikely(m == 0)) { 			\
-				if (n) {				\
-					src = buffer_next(source, &m);	\
-				}					\
-				else {					\
-					hp->shift = __m;		\
-					hp->saved = x;			\
-					goto Incomplete;		\
-				}					\
-			}						\
-			__c = * src++;					\
-			n--;						\
-			m--;						\
-			if (__m <  HPACK_LIMIT ||			\
-			   (__m == HPACK_LIMIT &&			\
-			    __c <= HPACK_LAST)) 			\
-			{						\
-				x = Bit_Join(__c & 127, __m, x);	\
-				__m += 7;				\
-			}						\
-			else if (__c) { 				\
-				goto Overflow;				\
-			}						\
-		}							\
-	} while (0)
+#define GET_CONTINUE(x) 				       \
+do {							       \
+	ufast __m = hp->shift;				       \
+	ufast __c = * src++;				       \
+	x = hp->saved;					       \
+	n--;						       \
+	m--;						       \
+	if (__m <  HPACK_LIMIT ||			       \
+	   (__m == HPACK_LIMIT &&			       \
+	    __c <= HPACK_LAST)) 			       \
+	{						       \
+		x += (__c & 127) << __m;		       \
+		__m += 7;				       \
+	}						       \
+	else if (__c) { 				       \
+		goto Overflow;				       \
+	}						       \
+	while (__c > 127) {				       \
+		if (unlikely(m == 0)) { 		       \
+			if (n) {			       \
+				src = buffer_next(source, &m); \
+			}				       \
+			else {				       \
+				hp->shift = __m;	       \
+				hp->saved = x;		       \
+				goto Incomplete;	       \
+			}				       \
+		}					       \
+		__c = * src++;				       \
+		n--;					       \
+		m--;					       \
+		if (__m <  HPACK_LIMIT ||		       \
+		   (__m == HPACK_LIMIT &&		       \
+		    __c <= HPACK_LAST)) 		       \
+		{					       \
+			x = Bit_Join(__c & 127, __m, x);       \
+			__m += 7;			       \
+		}					       \
+		else if (__c) { 			       \
+			goto Overflow;			       \
+		}					       \
+	}						       \
+} while (0)
 
 #endif

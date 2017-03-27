@@ -94,15 +94,19 @@ HTTP2Field *hpack_decode(HPack * __restrict hp,
 void hpack_free_list(HTTP2Output * __restrict hp, HTTP2Field * __restrict fp);
 
 ufast hpack_encode(HPack * __restrict hp,
-		   const TfwHttpHdrTbl * __restrict source,
-		   HTTP2Output * __restrict buffer);
+		   HTTP2Output * __restrict out,
+		   const HTTP2Field * __restrict source, uwide n);
 
 ufast hpack_set_max_window(HPack * __restrict hp, ufast max_window);
 
 ufast hpack_set_window(HPack * __restrict hp, ufast window);
 
-HPack *hpack_new(ufast max_window, TfwPool * __restrict pool);
+HPack *hpack_new(ufast max_window, byte is_encoder, TfwPool * __restrict pool);
 
 void hpack_free(HPack * __restrict hp);
+
+void hpack_init(TfwPool * __restrict pool);
+
+void hpack_shutdown(void);
 
 #endif

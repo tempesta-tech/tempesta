@@ -28,7 +28,12 @@
 #include "hpack.h"
 #include "hindex.h"
 
-static HPackEntry hpack_static_table [] = {
+typedef struct {
+	HPackStr name;
+	HPackStr value;
+} HPackStatic;
+
+static const HPackStatic static_data [] = {
 	{{":authority", 10, 0, 0},                  {NULL, 0, 0, 0}},
 	{{":method", 7, 0, 0},                      {"GET", 3, 0, 0}},
 	{{":method", 7, 0, 0},                      {"POST", 4, 0, 0}},
@@ -92,6 +97,8 @@ static HPackEntry hpack_static_table [] = {
 	{{"www-authenticate", 16, 0, 0},            {NULL, 0, 0, 0}}
 };
 
-#define HPACK_STATIC_ENTRIES (sizeof(hpack_static_table) / sizeof(HPackEntry))
+#define HPACK_STATIC_ENTRIES (sizeof(static_data) / sizeof(HPackStatic))
+
+static HPackEntry static_table [HPACK_STATIC_ENTRIES];
 
 #endif
