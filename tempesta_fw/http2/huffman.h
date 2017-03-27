@@ -31,17 +31,29 @@ ufast huffman_decode(const char *__restrict source,
 		     char *__restrict dst, uwide n);
 
 ufast huffman_decode_fragments(HTTP2Input * __restrict source,
-			       HTTP2Output * __restrict destination, uwide n);
+			       HTTP2Output * __restrict out, uwide n);
 
 uwide huffman_encode(const char *__restrict source,
 		     char *__restrict dst, uwide n);
 
+uchar *huffman_encode_fragments(HTTP2Output * __restrict out,
+				uchar * __restrict dst,
+				ufast * __restrict k_new,
+				const TfwStr * __restrict source,
+				ufast * __restrict rc);
+
+uchar *huffman_encode_plain(HTTP2Output * __restrict out,
+			    uchar * __restrict dst,
+			    ufast * __restrict k_new,
+			    uchar * __restrict src,
+			    uwide n, ufast * __restrict rc);
+
 uwide huffman_encode_length(const char *__restrict source, uwide n);
 
-/* Same as http2_huffman_encode_check, */
-/* but stops check if encoding longer  */
-/* than source: 		       */
+/* Same as http2_huffman_encode_check, but stops calculating */
+/* length if encoding longer than source:		     */
 
-uwide huffman_encode_check(const char *__restrict source, uwide n);
+uwide huffman_check(const char *__restrict source, uwide n);
+uwide huffman_check_fragments(const TfwStr * __restrict source, uwide n);
 
 #endif

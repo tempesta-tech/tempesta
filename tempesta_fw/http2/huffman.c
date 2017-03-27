@@ -419,7 +419,7 @@ huffman_decode(const char *__restrict source, char *__restrict dst, uwide n)
 
 static ufast
 huffman_decode_tail_f(ufast c,
-		      HTTP2Output * __restrict destination,
+		      HTTP2Output * __restrict out,
 		      fast current,
 		      const HTState * __restrict state,
 		      uchar * __restrict dst, ufast k)
@@ -431,7 +431,7 @@ huffman_decode_tail_f(ufast c,
 
 		if (unlikely(current == -HT_NBITS)) {
 			if (likely(state == ht_decode)) {
-				return buffer_emit(destination, k);
+				return buffer_emit(out, k);
 			} else {
 				return Err_Huffman_CodeTooShort;
 			}
@@ -442,12 +442,7 @@ huffman_decode_tail_f(ufast c,
 			if (shift > current + HT_NBITS) {
 				break;
 			}
-			if (unlikely(k == 0)) {
-				dst = buffer_expand(destination, &k);
-				if (unlikely(k == 0)) {
-					return Err_HTTP2_OutOfMemory;
-				}
-			}
+			CheckByte(out);
 			*dst++ = (uchar) state[i].offset;
 			k--;
 			current -= shift;
@@ -467,7 +462,7 @@ huffman_decode_tail_f(ufast c,
 		}
 	}
 	if (state == ht_decode && (i ^ (HT_EOS_HIGH >> 1)) < (1U << -current)) {
-		return buffer_emit(destination, k);
+		return buffer_emit(out, k);
 	} else {
 		return Err_Huffman_CodeTooShort;
 	}
@@ -475,7 +470,7 @@ huffman_decode_tail_f(ufast c,
 
 static ufast
 huffman_decode_tail_s_f(ufast c,
-			HTTP2Output * __restrict destination,
+			HTTP2Output * __restrict out,
 			fast current,
 			const HTState * __restrict state,
 			uchar * __restrict dst, ufast k)
@@ -494,17 +489,12 @@ huffman_decode_tail_s_f(ufast c,
 		if (unlikely(shift > current + HT_NBITS)) {
 			return Err_Huffman_CodeTooShort;
 		}
-		if (unlikely(k == 0)) {
-			dst = buffer_expand(destination, &k);
-			if (unlikely(k == 0)) {
-				return Err_HTTP2_OutOfMemory;
-			}
-		}
+		CheckByte(out);
 		*dst++ = (uchar) offset;
 		k--;
 		current -= shift;
-		return huffman_decode_tail_f(c, destination, current, ht_decode,
-					     dst, k);
+		return huffman_decode_tail_f(c, out, current, ht_decode, dst,
+					     k);
 	} else {
 		/* Condition here equivalent to the    */
 		/* "-shift <= current + HT_NBITS", but */
@@ -627,7 +617,7 @@ do {					   \
 
 ufast
 huffman_decode_fragments(HTTP2Input * __restrict source,
-			 HTTP2Output * __restrict destination, uwide n)
+			 HTTP2Output * __restrict out, uwide n)
 {
 	if (n) {
 		uwide m;
@@ -636,7 +626,7 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 		fast current;
 		int16 offset;
 		ufast k;
-		uchar *__restrict dst = buffer_open(destination, &k, 0);
+		uchar *__restrict dst = buffer_open(out, &k, 0);
 
 #ifdef Platform_32bit
 		GET_FIRST_FR(HT_NBITS);
@@ -729,7 +719,7 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 						/* (see current <= 0 above): */
 						buffer_close(source, m);
 						return huffman_decode_tail_f(c,
-									     destination,
+									     out,
 									     current,
 									     state,
 									     dst,
@@ -740,15 +730,7 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 				shift = state[i].shift;
 				offset = state[i].offset;
 				if (shift >= 0) {
-					if (unlikely(k == 0)) {
-						dst =
-						    buffer_expand(destination,
-								  &k);
-						if (unlikely(k == 0)) {
-							return
-							    Err_HTTP2_OutOfMemory;
-						}
-					}
+					CheckByte(out);
 					*dst++ = (uchar) offset;
 					k--;
 					current -= shift;
@@ -853,7 +835,7 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 						buffer_close(source, m);
 						return
 						    huffman_decode_tail_s_f(c,
-									    destination,
+									    out,
 									    current,
 									    state,
 									    dst,
@@ -864,15 +846,7 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 				shift = state[i].shift;
 				offset = state[i].offset;
 				if (likely(shift >= 0)) {
-					if (unlikely(k == 0)) {
-						dst =
-						    buffer_expand(destination,
-								  &k);
-						if (unlikely(k == 0)) {
-							return
-							    Err_HTTP2_OutOfMemory;
-						}
-					}
+					CheckByte(out);
 					*dst++ = (uchar) offset;
 					k--;
 					current -= shift;
@@ -888,37 +862,68 @@ huffman_decode_fragments(HTTP2Input * __restrict source,
 	}
 }
 
-#ifdef Platform_32bit
-
-#define Write1()		     \
-	dst[0] = (char) (aux >> 24)
-#define Write2()		     \
-	Write1();		     \
-	dst[1] = (char) (aux >> 16)
-#define Write4()		     \
-	Write2();		     \
+#define Write4Big()		     \
+	dst[0] = (char) (aux >> 24); \
+	dst[1] = (char) (aux >> 16); \
 	dst[2] = (char) (aux >> 8);  \
 	dst[3] = (char) aux
-#define WriteAux Write4
 
-#else
+#ifdef Platform_64bit
 
-#define Write1()		     \
-	dst[0] = (char) (aux >> 56)
-#define Write2()		     \
-	Write1();		     \
-	dst[1] = (char) (aux >> 48)
-#define Write4()		     \
-	Write2();		     \
+#define Write8Big()		     \
+	dst[0] = (char) (aux >> 56); \
+	dst[1] = (char) (aux >> 48); \
 	dst[2] = (char) (aux >> 40); \
-	dst[3] = (char) (aux >> 32)
-#define WriteAux()		     \
-	Write4();		     \
+	dst[3] = (char) (aux >> 32); \
 	dst[4] = (char) (aux >> 24); \
 	dst[5] = (char) (aux >> 16); \
 	dst[6] = (char) (aux >> 8);  \
 	dst[7] = (char) aux
 
+#endif
+
+#ifdef Platform_Big
+
+#define Write2()		    \
+	dst[0] = (char) (aux >> 7); \
+	dst[1] = (char) aux
+
+#define Write4 Write4Big
+
+#ifdef Platfrom_64bit
+
+#define Write8 Write8Big
+
+#endif
+
+#else
+
+#define Write2()		   \
+	dst[0] = (char) aux;	   \
+	dst[1] = (char) (aux >> 7)
+
+#define Write4()		     \
+	Write2();		     \
+	dst[2] = (char) (aux >> 16); \
+	dst[3] = (char) (aux >> 24)
+
+#ifdef Platform_64bit
+
+#define Write8()		     \
+	Write4();		     \
+	dst[4] = (char) (aux >> 32); \
+	dst[5] = (char) (aux >> 40); \
+	dst[6] = (char) (aux >> 48); \
+	dst[7] = (char) (aux >> 56)
+
+#endif
+
+#endif
+
+#ifdef Platfrom_64bit
+#define WriteAux Write8Big
+#else
+#define WriteAux Write4Big
 #endif
 
 uwide
@@ -935,21 +940,25 @@ huffman_encode(const char *__restrict source, char *__restrict dst, uwide n)
 			const ufast s = *src++;
 			const ufast d = Bit_Capacity - current;
 			const ufast c = ht_encode[s];
-			const ufast m = ht_length[s];
+			const ufast l = ht_length[s];
 
-			current += m;
-			if (m <= d) {
-				aux = Bit_Join(aux, m, c);
+			current += l;
+			if (l <= d) {
+				aux = Bit_Join(aux, l, c);
 			} else {
 				current -= Bit_Capacity;
 				aux = Bit_Join(aux, d, c >> current);
-#ifndef Platform_Alignment
-#ifdef Platform_Little
-				aux = SwapBytes(aux);
+#ifdef Platform_Alignment
+				if (((uwide) dst & (Word_Size - 1)) == 0) {
 #endif
-				*(uwide *) dst = aux;
-#else
-				WriteAux();
+#ifdef Platform_Little
+					aux = SwapBytes(aux);
+#endif
+					*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+				} else {
+					WriteAux();
+				}
 #endif
 				dst += Word_Size;
 				aux = c;
@@ -965,15 +974,19 @@ huffman_encode(const char *__restrict source, char *__restrict dst, uwide n)
 				current += d;
 			}
 			aux <<= Bit_Capacity - current;
-#if defined(Platform_Little) && !defined(Platform_Alignment)
+#ifdef Platform_Little
 			aux = SwapBytes(aux);
 #endif
 #ifdef Platform_64bit
 			if (current == Bit_Capacity) {
 #ifdef Platform_Alignment
-				WriteAux();
-#else
-				*(uwide *) dst = aux;
+				if (((uwide) dst & (Word_Size - 1)) == 0) {
+#endif
+					*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+				} else {
+					Write8();
+				}
 #endif
 				dst += Word_Size;
 				goto Exit;
@@ -981,48 +994,356 @@ huffman_encode(const char *__restrict source, char *__restrict dst, uwide n)
 #endif
 			if (current > 31) {
 #ifdef Platform_Alignment
-				Write4();
-#else
-				*(uint32 *) dst = (uint32) aux;
+				if (((uwide) dst & 3) == 0) {
+#endif
+					*(uint32 *) dst = (uint32) aux;
+#ifdef Platform_Alignment
+				} else {
+					Write4();
+				}
 #endif
 				dst += 4;
 #ifdef Platform_32bit
 				goto Exit;
 #else
-#ifndef Platform_Alignment
 				aux >>= 32;
-#else
-				aux <<= 32;
-#endif
 				current -= 32;
 #endif
 			}
 			if (current > 15) {
-#ifndef Platform_Alignment
-				*(uint16 *) dst = (uint16) aux;
-#else
-				Write2();
+#ifdef Platform_Alignment
+				if (((uwide) dst & 1) == 0) {
+#endif
+					*(uint16 *) dst = (uint16) aux;
+#ifdef Platform_Alignment
+				} else {
+					Write2();
+				}
 #endif
 				dst += 2;
-#ifndef Platform_Alignment
 				aux >>= 16;
-#else
-				aux <<= 16;
-#endif
 				current -= 16;
 			}
 			if (current) {
-#ifndef Platform_Alignment
 				*dst++ = (char)aux;
-#else
-				Write1();
-				dst++;
-#endif
 			}
 		}
 	}
  Exit:
 	return dst - dst_saved;
+}
+
+#ifdef Platform_Little
+
+#define WriteBytes(n)		      \
+do {				      \
+	ufast __n = n;		      \
+	do {			      \
+		CheckByte_goto(out);  \
+		* dst++ = (char) aux; \
+		aux >>= 8;	      \
+		k--;		      \
+	} while (--__n);	      \
+} while (0)
+
+#else
+
+#define WriteBytes(n)					   \
+do {							   \
+	ufast __n = n;					   \
+	do {						   \
+		CheckByte_goto(out);			   \
+		* dst++ = (char) (aux >> (((n) - 1) * 8)); \
+		aux <<= 8;				   \
+		k--;					   \
+	} while (--__n);				   \
+} while (0)
+
+#endif
+
+uchar *
+huffman_encode_fragments(HTTP2Output * __restrict out,
+			 uchar * __restrict dst,
+			 ufast * __restrict k_new,
+			 const TfwStr * __restrict source,
+			 ufast * __restrict rc)
+{
+	uwide n = source->len;
+
+	if (TFW_STR_PLAIN(source)) {
+		return huffman_encode_plain(out, dst, k_new, source->ptr, n,
+					    rc);
+	}
+	if (n) {
+		const TfwStr *__restrict fp = source->ptr;
+		const uchar *__restrict src = fp->ptr;
+		uwide m = fp->len;
+		ufast k = *k_new;
+		fast current = 0;
+		uwide aux = 0;
+
+		fp++;
+		do {
+			if (unlikely(m == 0)) {
+				src = fp->ptr;
+				m = fp->len;
+				fp++;
+			}
+			{
+				const ufast s = *src++;
+				const ufast d = Bit_Capacity - current;
+				const ufast c = ht_encode[s];
+				const ufast l = ht_length[s];
+
+				current += l;
+				if (l <= d) {
+					aux = Bit_Join(aux, l, c);
+				} else {
+					current -= Bit_Capacity;
+					aux = Bit_Join(aux, d, c >> current);
+					if (k >= Word_Size) {
+#ifdef Platform_Alignment
+						if (((uwide) dst &
+						     (Word_Size - 1)) == 0) {
+#endif
+#ifdef Platform_Little
+							aux = SwapBytes(aux);
+#endif
+							*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+						} else {
+							WriteAux();
+						}
+#endif
+						dst += Word_Size;
+					} else {
+						WriteBytes(Word_Size);
+					}
+					aux = c;
+				}
+			}
+			m--;
+		} while (--n);
+		if (current) {
+			ufast tail = current & 7;
+
+			if (tail) {
+				ufast d = 8 - tail;
+
+				aux = Bit_Join(aux, d, HT_EOS_HIGH >> tail);
+				current += d;
+			}
+			aux <<= Bit_Capacity - current;
+#ifdef Platform_Little
+			aux = SwapBytes(aux);
+#endif
+#ifdef Platform_64bit
+			if (current == Bit_Capacity) {
+				if (k >= Word_Size) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & (Word_Size - 1)) ==
+					    0) {
+#endif
+						*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+					} else {
+						Write8();
+					}
+#endif
+					dst += Word_Size;
+				} else {
+					WriteBytes(Word_Size);
+				}
+				goto Exit;
+			}
+#endif
+			if (current > 31) {
+				if (k >= 4) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & 3) == 0) {
+#endif
+						*(uint32 *) dst = (uint32) aux;
+#ifdef Platform_Alignment
+					} else {
+						Write4();
+					}
+#endif
+					dst += 4;
+				} else {
+					WriteBytes(4);
+				}
+#ifdef Platform_32bit
+				goto Exit;
+#else
+				aux >>= 32;
+				current -= 32;
+#endif
+			}
+			if (current > 15) {
+				if (k >= 2) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & 1) == 0) {
+#endif
+						*(uint16 *) dst = (uint16) aux;
+#ifdef Platform_Alignment
+					} else {
+						Write2();
+					}
+#endif
+					dst += 2;
+				} else {
+					WriteBytes(2);
+				}
+				aux >>= 16;
+				current -= 16;
+			}
+			if (current) {
+				CheckByte_goto(out);
+				*dst++ = (char)aux;
+			}
+		}
+ Exit:
+		*k_new = k;
+	}
+	*rc = 0;
+	return dst;
+ Bug:
+	*rc = Err_HTTP2_OutOfMemory;
+	*k_new = 0;
+	return NULL;
+}
+
+uchar *
+huffman_encode_plain(HTTP2Output * __restrict out,
+		     uchar * __restrict dst,
+		     ufast * __restrict k_new,
+		     uchar * __restrict src, uwide n, ufast * __restrict rc)
+{
+	if (n) {
+		ufast k = *k_new;
+		fast current = 0;
+		uwide aux = 0;
+
+		do {
+			const ufast s = *src++;
+			const ufast d = Bit_Capacity - current;
+			const ufast c = ht_encode[s];
+			const ufast l = ht_length[s];
+
+			current += l;
+			if (l <= d) {
+				aux = Bit_Join(aux, l, c);
+			} else {
+				current -= Bit_Capacity;
+				aux = Bit_Join(aux, d, c >> current);
+				if (k >= Word_Size) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & (Word_Size - 1)) ==
+					    0) {
+#endif
+#ifdef Platform_Little
+						aux = SwapBytes(aux);
+#endif
+						*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+					} else {
+						WriteAux();
+					}
+#endif
+					dst += Word_Size;
+				} else {
+					WriteBytes(Word_Size);
+				}
+				aux = c;
+			}
+		} while (--n);
+		if (current) {
+			ufast tail = current & 7;
+
+			if (tail) {
+				ufast d = 8 - tail;
+
+				aux = Bit_Join(aux, d, HT_EOS_HIGH >> tail);
+				current += d;
+			}
+			aux <<= Bit_Capacity - current;
+#ifdef Platform_Little
+			aux = SwapBytes(aux);
+#endif
+#ifdef Platform_64bit
+			if (current == Bit_Capacity) {
+				if (k >= Word_Size) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & (Word_Size - 1)) ==
+					    0) {
+#endif
+						*(uwide *) dst = aux;
+#ifdef Platform_Alignment
+					} else {
+						Write8();
+					}
+#endif
+					dst += Word_Size;
+				} else {
+					WriteBytes(Word_Size);
+				}
+				goto Exit;
+			}
+#endif
+			if (current > 31) {
+				if (k >= 4) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & 3) == 0) {
+#endif
+						*(uint32 *) dst = (uint32) aux;
+#ifdef Platform_Alignment
+					} else {
+						Write4();
+					}
+#endif
+					dst += 4;
+				} else {
+					WriteBytes(4);
+				}
+#ifdef Platform_32bit
+				goto Exit;
+#else
+				aux >>= 32;
+				current -= 32;
+#endif
+			}
+			if (current > 15) {
+				if (k >= 2) {
+#ifdef Platform_Alignment
+					if (((uwide) dst & 1) == 0) {
+#endif
+						*(uint16 *) dst = (uint16) aux;
+#ifdef Platform_Alignment
+					} else {
+						Write2();
+					}
+#endif
+					dst += 2;
+				} else {
+					WriteBytes(2);
+				}
+				aux >>= 16;
+				current -= 16;
+			}
+			if (current) {
+				CheckByte_goto(out);
+				*dst++ = (char)aux;
+			}
+		}
+ Exit:
+		*k_new = k;
+	}
+	*rc = 0;
+	return dst;
+ Bug:
+	*rc = Err_HTTP2_OutOfMemory;
+	*k_new = 0;
+	return NULL;
 }
 
 uwide
@@ -1042,10 +1363,10 @@ huffman_encode_length(const char *__restrict source, uwide n)
 }
 
 /* Same as http2_huffman_encode_check, but stops calculating */
-/* length if encoding longer than source: */
+/* length if encoding longer than source:		     */
 
 uwide
-huffman_encode_check(const char *__restrict source, uwide n)
+huffman_check(const char *__restrict source, uwide n)
 {
 	if (n) {
 		const uchar *__restrict src = (const uchar *)source;
@@ -1055,6 +1376,37 @@ huffman_encode_check(const char *__restrict source, uwide n)
 		while (--n && current < limit) {
 			current += ht_length[*src++];
 		}
+		return (current + 7) >> 3;
+	} else {
+		return 0;
+	}
+}
+
+uwide
+huffman_check_fragments(const TfwStr * __restrict source, uwide n)
+{
+	if (TFW_STR_PLAIN(source)) {
+		return huffman_check(source->ptr, n);
+	}
+	if (n) {
+		const TfwStr *__restrict fp = source->ptr;
+		const uchar *__restrict src = fp->ptr;
+		uwide m = fp->len;
+		uwide current = 0;
+		uwide limit = 0;
+
+		fp++;
+		do {
+			while (unlikely(m == 0)) {
+				src = fp->ptr;
+				m = fp->len;
+				fp++;
+			}
+			do {
+				current += ht_length[*src++];
+				--n;
+			} while (--m && current < limit);
+		} while (current < limit && n);
 		return (current + 7) >> 3;
 	} else {
 		return 0;
