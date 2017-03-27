@@ -52,14 +52,14 @@ typedef struct {
  *
  * @sidx	- server id this data is for.
  * @weight	- server weight.
- * @osratio	- original server ratio.
- * @csratio	- current server ratio.
+ * @cratio	- current server ratio.
+ * @oratio	- original server ratio.
  */
 typedef struct {
 	size_t		sidx;
 	unsigned int	weight;
-	unsigned int	osratio;
-	unsigned int	csratio;
+	unsigned int	cratio;
+	unsigned int	oratio;
 } TfwRatioSrvData;
 
 /**
@@ -80,9 +80,9 @@ typedef struct {
 	spinlock_t	lock;
 	size_t		csidx;
 	size_t		rearm;
-	unsigned int    riter;
-	unsigned int    crsum;
-	unsigned int    orsum;
+	unsigned int	riter;
+	unsigned long	crsum;
+	unsigned long	orsum;
 } TfwRatioSchedData;
 
 /**
@@ -161,6 +161,40 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 }
 
 /**
+ * Set up initial or static ratios for all servers in the group.
+ */
+static void
+tfw_sched_ratio_set_static(TfwRatio *ratio)
+{
+	size_t srv_i;
+	unsigned int diff = 0, wequal;
+
+	BUG_ON(!ratio);
+	wequal = ratio->srvs[0].srv->weight;
+
+	for (srv_i = 0; srv_i < ratio->srv_n; ++srv_i) {
+		unsigned int weight_i = ratio->srvs[srv_i].srv->weight;
+		ratio->sched.srvdata[srv_i].sidx = srv_i;
+		ratio->sched.srvdata[srv_i].weight = weight_i;
+		diff |= (wequal != weight_i);
+	}
+	if (!diff) {
+		for (srv_i = 0; srv_i < ratio->srv_n; ++srv_i) {
+			ratio->sched.srvdata[srv_i].cratio =
+			ratio->sched.srvdata[srv_i].oratio = 1;
+		}
+		ratio->sched.schdata.csidx = 0;
+		ratio->sched.schdata.riter = 1;
+		ratio->sched.schdata.rearm = ratio->srv_n;
+		ratio->sched.schdata.crsum =
+		ratio->sched.schdata.orsum = ratio->srv_n;
+		return;
+	}
+	printk(KERN_ERR "%s: Different weights are not supported yet.\n",
+			__func__);
+}
+
+/**
  * Add a server group to Ratio Scheduler.
  *
  * At the time this function is called the server group is fully formed
@@ -226,19 +260,21 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 		atomic64_set(&rsrv->counter, 0);
 		list_for_each_entry(srv_conn, &srv->conn_list, list)
 			rsrv->conns[conn_i++] = srv_conn;
-		ratio->sched.srvdata[srv_i].weight = srv->weight;
 		++rsrv;
 		++srv_i;
 	}
+	ratio->srv_n = sg->srv_n;
 
 	/* Set up the initial ratio data. */
+	if (!(sg->flags & (TFW_SG_F_SCHED_RATIO_STATIC
+			   | TFW_SG_F_SCHED_RATIO_DYNAMIC)))
+		BUG();
 	if (sg->flags & TFW_SG_F_SCHED_RATIO_STATIC)
 		printk(KERN_ERR "ratio static.\n");
 	else if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC)
 		printk(KERN_ERR "ratio dynamic: %d\n",
 				sg->flags & TFW_SG_F_PSTATS_IDX_MASK);
-	else
-		BUG();
+	tfw_sched_ratio_set_static(ratio);
 
 	return 0;
 
@@ -254,6 +290,8 @@ cleanup:
  * The whole server and server connections data for a group is complete
  * at the time the group is added to the scheduler with add_grp(). Thus
  * the actual role of the function is to make cure that data is the same.
+ * The logic is based on the assumption that servers and connections are
+ * submitted in the same order as they were when add_grp() was called.
  */
 static void
 tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
@@ -281,6 +319,88 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 	}
 }
 
+static inline bool
+tfw_sched_ratio_is_srv_turn(TfwRatio *ratio, size_t csidx)
+{
+	unsigned int headsum2, tailsum2;
+	TfwRatioSrvData *srvdata = ratio->sched.srvdata;
+	TfwRatioSchedData *schdata = &ratio->sched.schdata;
+
+	if (!csidx)
+		return true;
+	headsum2 = (srvdata[0].cratio + srvdata[csidx - 1].cratio) * csidx;
+	tailsum2 = (srvdata[csidx].cratio
+		    + (srvdata[ratio->srv_n - 1].cratio
+		       ? : srvdata[ratio->srv_n - 1].cratio))
+		   * (ratio->srv_n - csidx);
+	return tailsum2 * schdata->riter > headsum2;
+}
+
+/*
+ * Get the index of the next server
+ *
+ * The function is synchronized by a plain spin lock. A lock-free
+ * implementation of the algorithm as it is would require too many
+ * atomic operations including CMPXCHG and checking loops, so it seems
+ * we won't win anything.
+ */
+static size_t
+tfw_sched_ratio_next_srv(TfwRatio *ratio)
+{
+	size_t csidx;
+	TfwRatioSrvData *srvdata = ratio->sched.srvdata;
+	TfwRatioSchedData *schdata = &ratio->sched.schdata;
+
+	spin_lock(&schdata->lock);
+retry:
+	csidx = schdata->csidx;
+	if (!srvdata[csidx].cratio) {
+		if (schdata->rearm != csidx) {
+			++schdata->csidx;
+			if (schdata->csidx == ratio->srv_n) {
+				schdata->csidx = 0;
+				schdata->riter = 1;
+			}
+			goto retry;
+		}
+		srvdata[csidx].cratio = srvdata[csidx].oratio;
+		++schdata->rearm;
+	}
+	/*
+	 * If it's the turn of the current server then take off a point
+	 * from the server's current ratio (decrement it). Then prepare
+	 * for the next time this function is called. If ratios of all
+	 * servers got down to zero, then rearm everything and start
+	 * from the beginning. Otherwise, if it's the last server in
+	 * the group, then also start from the beginning, but do not
+	 * re-arm as it's been re-armed already (make sure of that).
+	 */
+	if (likely(tfw_sched_ratio_is_srv_turn(ratio, csidx))) {
+		--srvdata[csidx].cratio;
+		if (unlikely(!--schdata->crsum)) {
+			schdata->csidx = 0;
+			schdata->riter = 1;
+			schdata->crsum = schdata->orsum;
+			schdata->rearm = 0;
+		} else if (unlikely(++schdata->csidx == ratio->srv_n)) {
+			BUG_ON(schdata->rearm != ratio->srv_n);
+			schdata->csidx = 0;
+			schdata->riter = 1;
+		}
+		spin_unlock(&schdata->lock);
+		return csidx;
+	}
+	/*
+	 * This is not the turn of the current server. Start
+	 * a new iteration from the server with highest ratio.
+	 */
+	schdata->csidx = 0;
+	++schdata->riter;
+	goto retry;
+
+	spin_unlock(&schdata->lock);
+}
+
 /**
  * On each subsequent call the function returns the next available
  * connection to one of the servers in the group. Connections to a
@@ -303,7 +423,33 @@ tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
 static TfwSrvConn *
 tfw_sched_ratio_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
 {
+	uint64_t idxval;
+	size_t csidx;
+	TfwRatioPool *rpool = sg->sched_data;
+	TfwRatio *ratio;
+	TfwRatioSrv *rsrv;
+	TfwSrvConn *srv_conn;
+
 	printk(KERN_ERR "%s scheduler called.\n", sg->sched->name);
+	BUG_ON(!rpool);
+
+	rcu_read_lock();
+	ratio = rcu_dereference(rpool->ratio);
+	BUG_ON(!ratio);
+
+	csidx = tfw_sched_ratio_next_srv(ratio);
+	rsrv = &ratio->srvs[csidx];
+	idxval = atomic64_inc_return(&rsrv->counter);
+	srv_conn = rsrv->conns[idxval % rsrv->conn_n];
+	if (tfw_srv_conn_get_if_live(srv_conn)) {
+		printk(KERN_ERR "%s: sched srv=[%zd] conn=[%zd]\n",
+				__func__, csidx,
+				(size_t)(idxval % rsrv->conn_n));
+		rcu_read_unlock();
+		return(srv_conn);
+	}
+
+	rcu_read_unlock();
 	return NULL;
 }
 

@@ -902,12 +902,9 @@ tfw_cfg_sg_ratio_adjust(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
 
-	if (sg->flags & TFW_SG_F_SCHED_RATIO_STATIC) {
-		list_for_each_entry(srv, tfw_cfg_slst, list)
-			if (!srv->weight)
-				srv->weight = TFW_CFG_SRV_WEIGHT_DEF;
-	}
-
+	list_for_each_entry(srv, tfw_cfg_slst, list)
+		if (!srv->weight)
+			srv->weight = TFW_CFG_SRV_WEIGHT_DEF;
 	return 0;
 }
 
@@ -953,7 +950,12 @@ tfw_cfgop_setup_srv_group(void)
 	tfw_cfg_sg->flags = tfw_cfg_sg_flags;
 	tfw_cfg_sg->flags |= tfw_cfg_retry_nip ? TFW_SRV_RETRY_NIP : 0;
 
-	/* Check 'ratio' scheduler configuration for incompatibilities. */
+	/*
+	 * Check 'ratio' scheduler configuration for incompatibilities.
+	 * Set weight to default value for each server in the group
+	 * if no weight is provided in the configuration. For dynamic
+	 * ratio this sets initial equal weights to all servers.
+	 */
 	if (!strcasecmp(tfw_cfg_sched->name, "ratio")) {
 		if (tfw_cfg_sg_ratio_verify(tfw_cfg_sg))
 			return -EINVAL;
