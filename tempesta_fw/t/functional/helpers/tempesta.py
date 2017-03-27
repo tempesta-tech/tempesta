@@ -140,6 +140,8 @@ class ServerGroup(object):
         self.name = name
         self.sched = sched
         self.servers = []
+        # Server group options, isserted after servers.
+        self.options = ''
 
     def add_server(self, ip, port, conns=server_conns_default()):
         error.assertTrue(conns <= server_conns_max())
@@ -151,11 +153,12 @@ class ServerGroup(object):
     def get_config(self):
         sg = ''
         if self.name == 'default':
-            sg = '\n'.join(['sched %s;' % self.sched] + self.servers)
+            sg = '\n'.join(['sched %s;' % self.sched] + self.servers
+                            + [self.options])
         else:
             sg = '\n'.join(
                 ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +
-                self.servers + ['}'])
+                self.servers + [self.options] + ['}'])
         return sg
 
 class Config(object):
