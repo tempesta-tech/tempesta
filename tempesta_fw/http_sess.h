@@ -56,9 +56,27 @@ struct tfw_http_sess_t {
 	TfwStickyConn		st_conn;
 };
 
-
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
+
+/* Sticky sessions scheduling routines. */
+TfwSrvConn *tfw_http_sess_get_srv_conn(TfwMsg *msg);
+
+static inline void
+tfw_http_sess_save_sg(TfwHttpReq *req, TfwSrvGroup *main_sg,
+		      TfwSrvGroup *backup_sg)
+{
+	if (req->sess && (main_sg->flags & TFW_SRV_STICKY)) {
+		TfwStickyConn *st_conn = &req->sess->st_conn;
+
+		/*
+		 * @st_conn->lock is already acquired for writing, if called
+		 * during  @tfw_http_sess_get_srv_conn() routine.
+		 */
+		st_conn->main_sg = main_sg;
+		st_conn->backup_sg = backup_sg;
+	}
+}
 
 #endif /* __TFW_HTTP_SESS_H__ */

@@ -41,6 +41,40 @@ static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
 /**
+ * Find connection for a message @msg in @main_sg or @backup_sg server groups.
+ *
+ * If client support cookies the function is called under session's write lock,
+ * and updates to session informations are possible.
+ */
+TfwSrvConn *
+tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			  TfwSrvGroup *backup_sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwSrvConn *srv_conn;
+
+	BUG_ON(!main_sg);
+	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
+
+	tfw_http_sess_save_sg(req, main_sg, backup_sg);
+
+	srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg)) {
+		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
+			sg->name);
+		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched: Unable to select server from group '%s'\n",
+			 sg->name);
+
+	return srv_conn;
+}
+EXPORT_SYMBOL(tfw_sched_get_sg_srv_conn);
+
+/**
  * Find an outgoing connection for an HTTP message.
  *
  * Where an HTTP message goes in controlled by schedulers. It may
@@ -50,8 +84,8 @@ static DEFINE_SPINLOCK(sched_lock);
  * server groups come first in the list. The search stops when
  * these schedulers run out.
  */
-static inline TfwSrvConn *
-__get_srv_conn(TfwMsg *msg)
+TfwSrvConn *
+__tfw_sched_get_srv_conn(TfwMsg *msg)
 {
 	TfwSrvConn *srv_conn;
 	TfwScheduler *sched;
@@ -70,105 +104,6 @@ __get_srv_conn(TfwMsg *msg)
 	return NULL;
 }
 
-/**
- * Try to reuse last used connection or last used server.
- */
-static inline TfwSrvConn *
-__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
-{
-	TfwServer *srv;
-
-	if (unlikely(!st_conn->srv_conn))
-		return NULL;
-
-	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
-	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
-	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
-	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
-	{
-		return st_conn->srv_conn;
-	}
-
-	/* Try to sched from the same server. */
-	srv = (TfwServer *)st_conn->srv_conn->peer;
-
-	return srv->sg->sched->sched_srv_conn(msg, srv);
-}
-
-/**
- * Find an outgoing connection for client with tempesta sticky cookie.
- * @sess is not null when calling the function.
- *
- * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
- * then get a new connection for req->sess->srv_conn->peer from
- * an appropriate scheduler. That eliminates the long generic
- * scheduling work flow.
- */
-static inline TfwSrvConn *
-__get_sticky_srv_conn(TfwMsg *msg, TfwHttpSess *sess)
-{
-	TfwStickyConn *st_conn = &sess->st_conn;
-	TfwSrvConn *srv_conn;
-
-	read_lock(&st_conn->lock);
-
-	if ((srv_conn = __try_conn(msg, st_conn))) {
-		read_unlock(&st_conn->lock);
-		return srv_conn;
-	}
-
-	read_unlock(&st_conn->lock);
-
-	if (st_conn->srv_conn) {
-		/* Failed to sched from the same server. */
-		TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
-		char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
-
-		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
-
-		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
-			TFW_ERR("sched %s: Unable to schedule new request in "
-				"session to server %s in group %s\n",
-				srv->sg->sched->name, addr_str, srv->sg->name);
-			return NULL;
-		}
-		else {
-			TFW_WARN("sched %s: Unable to schedule new request in "
-				 "session to server %s in group %s,"
-				 " fallback to a new server\n",
-				 srv->sg->sched->name, addr_str, srv->sg->name);
-		}
-	}
-
-	write_lock(&st_conn->lock);
-	/*
-	 * Connection and server may return back online while we were trying
-	 * for a lock.
-	 */
-	if ((srv_conn = __try_conn(msg, st_conn)))
-		goto done;
-
-	if (st_conn->main_sg)
-		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
-						     st_conn->backup_sg);
-	else
-		srv_conn = __get_srv_conn(msg);
-
-	/*
-	 * Save connection into session only if used server group is configured
-	 * to have sticky connections.
-	 */
-	if (srv_conn
-	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
-		st_conn->srv_conn = srv_conn;
-	}
-
-done:
-	write_unlock(&st_conn->lock);
-
-	return srv_conn;
-}
-
 /*
  * Find an outgoing server connection for an HTTP message.
  *
@@ -182,53 +117,10 @@ tfw_sched_get_srv_conn(TfwMsg *msg)
 
 	/* Sticky cookies are disabled or client doesn't support cookies. */
 	if (!sess)
-		return __get_srv_conn(msg);
+		return __tfw_sched_get_srv_conn(msg);
 
-	return __get_sticky_srv_conn(msg, sess);
+	return tfw_http_sess_get_srv_conn(msg);
 }
-
-/**
- * Find connection for a message @msg in @main_sg or @backup_sg server groups.
- *
- * If client support cookies the function is called under session's write lock,
- * and updates to session informations are possible.
- */
-TfwSrvConn *
-tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
-			  TfwSrvGroup *backup_sg)
-{
-	TfwHttpReq *req = (TfwHttpReq *)msg;
-	TfwSrvConn *srv_conn;
-
-	BUG_ON(!main_sg);
-	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
-
-	if (req->sess && (main_sg->flags & TFW_SRV_STICKY)) {
-		TfwStickyConn *st_conn = &req->sess->st_conn;
-
-		/*
-		 * @st_conn->lock is already acquired for writing, if called
-		 * from @__get_sticky_srv_conn().
-		 */
-		st_conn->main_sg = main_sg;
-		st_conn->backup_sg = backup_sg;
-	}
-
-	srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
-
-	if (unlikely(!srv_conn && backup_sg)) {
-		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
-			sg->name);
-		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
-	}
-
-	if (unlikely(!srv_conn))
-		TFW_DBG2("sched: Unable to select server from group '%s'\n",
-			 sg->name);
-
-	return srv_conn;
-}
-EXPORT_SYMBOL(tfw_sched_get_sg_srv_conn);
 
 /*
  * Lookup a scheduler by name.
