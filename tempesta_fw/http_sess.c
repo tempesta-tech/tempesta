@@ -85,9 +85,9 @@ static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
 static SessHashBucket sess_hash[SESS_HASH_SZ] = {
-//	[0 ... (SESS_HASH_SZ - 1)] = {
-//		HLIST_HEAD_INIT,
-//	}
+	[0 ... (SESS_HASH_SZ - 1)] = {
+		HLIST_HEAD_INIT,
+	}
 };
 
 static struct kmem_cache *sess_cache;
@@ -566,7 +566,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			goto found;
 	}
 
-	if (!(sess = kmem_cache_zalloc(sess_cache, GFP_ATOMIC))) {
+	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
 		spin_unlock(&hb->lock);
 		return -ENOMEM;
 	}
@@ -582,6 +582,9 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
+	sess->st_conn.srv_conn = NULL;
+	sess->st_conn.main_sg = NULL;
+	sess->st_conn.backup_sg = NULL;
 	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
@@ -594,6 +597,109 @@ found:
 	req->sess = sess;
 
 	return 0;
+}
+
+/**
+ * Try to reuse last used connection or last used server.
+ */
+static inline TfwSrvConn *
+__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
+{
+	TfwServer *srv;
+
+	if (unlikely(!st_conn->srv_conn))
+		return NULL;
+
+	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
+	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
+	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
+	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
+	{
+		return st_conn->srv_conn;
+	}
+
+	/* Try to sched from the same server. */
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+
+	return srv->sg->sched->sched_srv_conn(msg, srv);
+}
+
+/**
+ * Find an outgoing connection for client with tempesta sticky cookie.
+ * @sess is not null when calling the function.
+ *
+ * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
+ * then get a new connection for req->sess->srv_conn->peer from
+ * an appropriate scheduler. That eliminates the long generic
+ * scheduling work flow.
+ */
+TfwSrvConn *
+tfw_http_sess_get_srv_conn(TfwMsg *msg)
+{
+	TfwHttpSess *sess = ((TfwHttpReq *)msg)->sess;
+	TfwStickyConn *st_conn;
+	TfwSrvConn *srv_conn;
+
+	BUG_ON(!sess);
+	st_conn = &sess->st_conn;
+
+	read_lock(&st_conn->lock);
+
+	if ((srv_conn = __try_conn(msg, st_conn))) {
+		read_unlock(&st_conn->lock);
+		return srv_conn;
+	}
+
+	read_unlock(&st_conn->lock);
+
+	if (st_conn->srv_conn) {
+		/* Failed to sched from the same server. */
+		TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
+		char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
+
+		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
+			TFW_ERR("sched %s: Unable to schedule new request in "
+				"session to server %s in group %s\n",
+				srv->sg->sched->name, addr_str, srv->sg->name);
+			return NULL;
+		}
+		else {
+			TFW_WARN("sched %s: Unable to schedule new request in "
+				 "session to server %s in group %s,"
+				 " fallback to a new server\n",
+				 srv->sg->sched->name, addr_str, srv->sg->name);
+		}
+	}
+
+	write_lock(&st_conn->lock);
+	/*
+	 * Connection and server may return back online while we were trying
+	 * for a lock.
+	 */
+	if ((srv_conn = __try_conn(msg, st_conn)))
+		goto done;
+
+	if (st_conn->main_sg)
+		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
+						     st_conn->backup_sg);
+	else
+		srv_conn = __tfw_sched_get_srv_conn(msg);
+
+	/*
+	 * Save connection into session only if used server group is configured
+	 * to have sticky connections.
+	 */
+	if (srv_conn
+	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
+		st_conn->srv_conn = srv_conn;
+	}
+
+done:
+	write_unlock(&st_conn->lock);
+
+	return srv_conn;
 }
 
 int __init
