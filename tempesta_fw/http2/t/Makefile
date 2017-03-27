@@ -1,12 +1,6 @@
-ifneq ($(OS),Windows_NT)
 LIBEXT = .a
 SOEXT  = .so
 EXEEXT =
-else
-LIBEXT = .lib
-SOEXT  = .dll
-EXEEXT = .exe
-endif
 
 options = -Wall -Wextra -Wstrict-overflow=5 -Wno-unused-parameter \
 	  -O3 -fno-strict-overflow -fstrict-aliasing -fno-math-errno \
