@@ -126,6 +126,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 	rwlock_init(&sg->lock);
 	sg->sched = NULL;
 	sg->sched_data = NULL;
+	sg->flags = 0;
 	memcpy(sg->name, name, name_size);
 
 	write_lock(&sg_lock);
@@ -154,10 +155,10 @@ tfw_sg_free(TfwSrvGroup *sg)
 	kfree(sg);
 }
 
-int
+unsigned int
 tfw_sg_count(void)
 {
-	int count = 0;
+	unsigned int count = 0;
 	TfwSrvGroup *sg;
 
 	read_lock(&sg_lock);

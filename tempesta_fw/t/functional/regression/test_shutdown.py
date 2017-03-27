@@ -25,10 +25,10 @@ class ShutdownTest(functional.FunctionalTest):
         self.clients = []
 
     def tearDown(self):
-        if self.tester:
-            self.tester.close_all()
         if self.tempesta:
             self.tempesta.stop()
+        if self.tester:
+            self.tester.close_all()
 
     def create_client(self):
         for i in range(100):
@@ -99,8 +99,7 @@ class ShutdownTester(deproxy.Deproxy):
 
     def close_all(self):
         for client in self.clients:
-            client.close()
-        for conn in self.srv_connections:
-            conn.close()
-        for server in self.servers:
-            server.close()
+            client.handle_close()
+        servers = [server for server in self.servers]
+        for server in servers:
+            server.handle_close()
