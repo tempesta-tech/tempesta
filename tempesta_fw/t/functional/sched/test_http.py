@@ -61,7 +61,7 @@ class HttpRules(functional.FunctionalTest):
 
         for group, uri, header, value in server_options:
             # Dont need too lot connections here.
-            server = deproxy.Server(port=port, connections=1)
+            server = deproxy.Server(port=port, conns_n=1)
             port += 1
             server.group = group
             server.chains = self.make_chains(uri=uri,
@@ -148,7 +148,7 @@ class HttpRulesBackupServers(HttpRules):
         return [chain for i in range(self.requests_n)]
 
     def create_server_helper(self, group, port):
-        server = deproxy.Server(port=port, connections=1)
+        server = deproxy.Server(port=port, conns_n=1)
         server.group = group
         server.chains = self.make_chains()
         return server
