@@ -54,7 +54,7 @@ typedef struct {
 void buffer_from_tfwstr(HTTP2Input * __restrict p,
 			const TfwStr * __restrict str);
 
-/* Get pointer to and length of the current fragment ("m"): */
+/* Get pointer to and length ("m") of the current fragment: */
 
 const uchar *buffer_get(HTTP2Input * __restrict p, uwide * __restrict m);
 
@@ -81,7 +81,7 @@ const uchar *buffer_count(HTTP2Input * __restrict p,
 
 /* Extract string of the "length" bytes from the     */
 /* input buffer, starting from the current position. */
-/* Here "out" is the pointer to descriptio of the    */
+/* Here "out" is the pointer to descriptor of the    */
 /* output string and "m_new" is the pointer to       */
 /* updated length of the current fragment.	     */
 
@@ -139,7 +139,7 @@ do {						      \
 	}					      \
 } while (0)
 
-#define CheckByte_goto(out)			 \
+#define CheckByte_goto(out, Bug)		 \
 do {						 \
 	if (unlikely(k == 0)) { 		 \
 		dst = buffer_expand(out, &k, k); \
@@ -189,11 +189,10 @@ struct HTTP2Output {
 void buffer_new(HTTP2Output * __restrict p,
 		TfwPool * __restrict pool, ufast alignment);
 
-/* Opens the output buffer. For example it may be used */
-/* to stored decoded data while parsing the encoded    */
-/* string, which placed in the input buffer. Output    */
-/* parameter "n" is the length of available space in   */
-/* the opened buffer:				       */
+/* Opens the output buffer. For example it may be used	    */
+/* to stored decoded data while parsing the encoded string, */
+/* which located in the input buffer. Output parameter "n"  */
+/* is the length of available space in the opened buffer:   */
 
 uchar *buffer_open(HTTP2Output * __restrict p,
 		   ufast * __restrict n, ufast alignment);
@@ -205,8 +204,8 @@ uchar *buffer_open(HTTP2Output * __restrict p,
 uchar *buffer_open_small(HTTP2Output * __restrict p,
 			 ufast * __restrict n, ufast size, ufast alignment);
 
-/* Reserving "size" bytes in the output buffer without */
-/* opening it:					       */
+/* Reserving the "size" bytes in the output buffer (without */
+/* opening it): 					    */
 
 uchar *buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment);
 
@@ -230,11 +229,11 @@ uchar *buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n);
 uchar *buffer_expand(HTTP2Output * __restrict p,
 		     ufast * __restrict n_new, ufast n);
 
-/* Forms a new string from the data stored in  */
-/* the buffer. Returns error code if unable to */
-/* allocate memory for the string descriptor.  */
-/* Here "n" is the number of unused bytes in   */
-/* the last fragment of the buffer.	       */
+/* Forms a new string from the data stored in the   */
+/* buffer. Returns error code if unable to allocate */
+/* memory for the string descriptor. Here "n" is    */
+/* the number of unused bytes in the last fragment  */
+/* of the buffer.				    */
 
 ufast buffer_emit(HTTP2Output * __restrict p, ufast n);
 
