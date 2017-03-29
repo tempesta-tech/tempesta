@@ -46,7 +46,7 @@
       __r; \
    }))
 
-#define Bit_FastLog(x) \
+#define Bit_FastLog2(x) \
    (__extension__ ({ \
       register uwide __r; \
       __asm__( \
@@ -66,7 +66,7 @@
       __r; \
    }))
 
-#define Bit_FastLog(x) \
+#define Bit_FastLog2(x) \
    (__extension__ ({ \
       register uwide __r; \
       __asm__( \
@@ -80,7 +80,7 @@
 #else
 
 common_inline ufast
-Bit_FastLog(uwide value)
+Bit_FastLog2(uwide value)
 {
 	ufast x = (ufast) value;
 	ufast n = 0;
@@ -126,7 +126,7 @@ common_inline uwide
 Bit_UpPowerOfTwo(uwide x)
 {
 	if (likely(x > 2)) {
-		x = (uwide) 2 << Bit_FastLog(x - 1);
+		x = (uwide) 2 << Bit_FastLog2(x - 1);
 	}
 	return x;
 }

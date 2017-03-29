@@ -57,17 +57,17 @@ write_index(HTTP2Output * __restrict out,
 		index |= mask;
 	} else {
 		index -= max;
-		CheckByte_goto(out);
+		CheckByte_goto(out, Bug);
 		*dst++ = max | mask;
 		k--;
 		while (index > 0x7F) {
-			CheckByte_goto(out);
+			CheckByte_goto(out, Bug);
 			*dst++ = (index & 0x7F) | 0x80;
 			k--;
 			index >>= 7;
 		}
 	}
-	CheckByte_goto(out);
+	CheckByte_goto(out, Bug);
 	*dst++ = index;
 	*k_new = k - 1;
 	*rc = 0;
@@ -122,7 +122,7 @@ write_string(HTTP2Output * __restrict out,
 		}
 	}
 	k = *k_new;
-	CheckByte_goto(out);
+	CheckByte_goto(out, Bug);
 	*dst++ = 0;
 	*k_new = k - 1;
 	*rc = 0;

@@ -35,7 +35,7 @@
 /* HPack string (used for the various buffers): */
 
 enum {
-	HPack_Arena_Static,	/* String resides in the static memory.     */
+	HPack_Arena_Static = 0,	/* String resides in the static memory.     */
 	HPack_Arena_Dynamic,	/* String allocated from the classic heap.  */
 	HPack_Arena_User	/* String allocated from the user-conrolled */
 	    /* memory (in form of the TfwStr).          */

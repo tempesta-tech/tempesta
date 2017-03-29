@@ -29,9 +29,11 @@
 #endif
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include "common.h"
 #include "../pool.h"
 #include "../str.h"
+#include "bits.h"
 #include "subs.h"
 #include "hash.h"
 #include "errors.h"
@@ -268,6 +270,9 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 		if (data) {
 			HPackStr *__restrict np = Sub_Allocate(ip->sub);
 
+			if (unlikely(np == NULL)) {
+				return Err_HTTP2_OutOfMemory;
+			}
 			np->ptr = data;
 			np->len = length;
 			np->arena = HPack_Arena_Dynamic;
@@ -291,6 +296,9 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 		if (data) {
 			HPackStr *__restrict vp = Sub_Allocate(ip->sub);
 
+			if (unlikely(vp == NULL)) {
+				return Err_HTTP2_OutOfMemory;
+			}
 			vp->ptr = data;
 			vp->len = length;
 			vp->arena = HPack_Arena_Dynamic;
@@ -326,6 +334,12 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 	ufast new_size = size + delta;
 	HPackEntry *entries = ip->entries;
 
+/* Debug printfs: */
+	DPRINTF("Name length: %" PRIuPTR " (arena = %u)\n",
+		name_len, name->arena);
+	DPRINTF("Value length: %" PRIuPTR " (arena = %d)\n",
+		value ? value->len : 0, value ? (int)value->arena : -1);
+	DPRINTF("Window: %u, current size: %u\n", window, size);
 /* Check for integer overflow during calculation of the delta: */
 	if (unlikely(delta < 32 || delta < name_len)) {
 		goto Empty;
@@ -333,6 +347,8 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 /* Check for integer overflow during summation of */
 /* the actual window size and delta: */
 	if (new_size >= delta) {
+		DPRINTF("New dictionary size: %u, delta: %u...\n", new_size,
+			delta);
 		if (new_size > window) {
  Save:
 			if (delta <= window) {
@@ -345,6 +361,9 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 					early += length - count;
 				}
 				window -= delta;
+				DPRINTF("Current: %u, early: %u, length: %u\n",
+					current, early, length);
+				DPRINTF("Maximum allowed size: %u\n", window);
 				cp = entries + early;
 				do {
 					if (size > window) {
@@ -386,10 +405,18 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 			ufast old = length;
 			ufast log = 0;
 
-			do {
-				length += length;
-				log++;
-			} while (count > length);
+			DPUTS("Reallocation of the index structures...");
+			DPRINTF("New size: %u items...\n", count);
+			if (length) {
+				do {
+					length += length;
+					log++;
+				} while (count > length);
+			} else {
+				length = Bit_UpPowerOfTwo(count);
+				log = Bit_FastLog2(count);
+			}
+			DPRINTF("New length: %u, log: %u\n", length, log);
 			ip->length = length;
 			block = length * (uwide) sizeof(HPackEntry);
 			entries = tfw_pool_alloc(pool, block);
@@ -407,8 +434,8 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 				       wrap);
 				tfw_pool_free(pool, previous, block);
 			}
-
 		}
+		DPUTS("Put new item into dictionary...");
 		return hpack_copy_data(ip, entries + current, name, value);
 	} else if (likely(delta > window)) {
  Empty:
@@ -699,16 +726,16 @@ void
 hpack_index_init(TfwPool * __restrict pool)
 {
 	ufast i;
-	Hash *const __restrict ht = Hash_New("static", 0,
-					     HPACK_STATIC_ENTRIES, 0,
+	Hash *const __restrict ht = Hash_New("static",
+					     HPACK_STATIC_ENTRIES, 0, 16,
 					     hpack_hash,
 					     hpack_equal, pool);
-	Hash *const __restrict hp = Hash_New("static-pairs", 0,
-					     HPACK_STATIC_ENTRIES, 0,
+	Hash *const __restrict hp = Hash_New("static-pairs",
+					     HPACK_STATIC_ENTRIES, 0, 0,
 					     hpack_pair_hash,
 					     hpack_pair_equal, pool);
-	Hash *const __restrict hn = Hash_New("static-names", 0,
-					     HPACK_STATIC_ENTRIES, 0,
+	Hash *const __restrict hn = Hash_New("static-names",
+					     HPACK_STATIC_ENTRIES, 0, 0,
 					     hpack_pair_hash,
 					     hpack_pair_equal, pool);
 
@@ -717,17 +744,17 @@ hpack_index_init(TfwPool * __restrict pool)
 	static_pairs = hp;
 	static_names = hn;
 	for (i = 0; i < HPACK_STATIC_ENTRIES; i++) {
-		const HPackStr *__restrict np = &static_data[i].name;
-		const HPackStr *__restrict vp = &static_data[i].value;
+		HPackStr *__restrict np = (HPackStr *) & static_data[i].name;
+		HPackStr *__restrict vp = (HPackStr *) & static_data[i].value;
 
 		if (vp->len == 0) {
 			vp = NULL;
 		}
-		static_table[i].name = (HPackStr *) np;
-		static_table[i].value = (HPackStr *) vp;
-		np = hpack_hash_add(ht, (HPackStr *) np, NULL);
+		static_table[i].name = np;
+		static_table[i].value = vp;
+		np = hpack_hash_add(ht, np, NULL);
 		if (vp) {
-			vp = hpack_hash_add(ht, (HPackStr *) vp, NULL);
+			vp = hpack_hash_add(ht, vp, NULL);
 		}
 		Hash_Add(hp, static_table + i, static_table + i);
 		Hash_Add(hn, np, static_table + i);

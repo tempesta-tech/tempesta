@@ -60,7 +60,7 @@ buffer_from_tfwstr(HTTP2Input * __restrict p, const TfwStr * __restrict str)
 	p->offset = 0;
 }
 
-/* Get pointer to and length of the current fragment ("m"): */
+/* Get pointer to and length ("m") of the current fragment: */
 
 const uchar *
 buffer_get(HTTP2Input * __restrict p, uwide * __restrict m)
@@ -77,8 +77,8 @@ buffer_get(HTTP2Input * __restrict p, uwide * __restrict m)
 	}
 	p->tail = tail;
 	*m = tail;
-	DPRINTF("Open at: %" PRIuPTR ", current: %" PRIuPTR " bytes...\n",
-		offset, tail);
+	DPRINTF("Open the input buffer at: %" PRIuPTR ", tail: %" PRIuPTR
+		" bytes...\n", offset, tail);
 	return (const uchar *)fp->ptr + offset;
 }
 
@@ -133,37 +133,36 @@ buffer_count(HTTP2Input * __restrict p,
 	     const uchar * __restrict src,
 	     uwide m, uwide length, uwide * __restrict count)
 {
-	uwide c;
-	uwide current = p->current;
 	const TfwStr *const __restrict str = p->str;
+	uwide current = p->current;
 	const TfwStr *__restrict fp = __TFW_STR_CH(str, current);
+	const TfwStr *__restrict fp_start;
 
 	if (unlikely(m == 0)) {
 		fp++;
 		current++;
-		p->n -= p->tail;
 		m = fp->len;
 		p->current = current;
+		p->n -= p->tail;
 		p->tail = m;
 		p->offset = 0;
 		src = (const uchar *)fp->ptr;
 		DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
 	}
 	*m_new = m;
-	c = 1;
+	fp_start = fp;
 	do {
 		length -= m;
 		m = fp->len;
 		fp++;
-		c++;
 	} while (length > m);
-	*count = c;
+	*count = (fp - fp_start) + 1;
 	return src;
 }
 
 /* Extract string of the "length" bytes from the     */
 /* input buffer, starting from the current position. */
-/* Here "out" is the pointer to descriptio of the    */
+/* Here "out" is the pointer to descriptor of the    */
 /* output string and "m_new" is the pointer to       */
 /* updated length of the current fragment.	     */
 
@@ -196,8 +195,8 @@ buffer_extract(HTTP2Input * __restrict p,
 		if (unlikely(m == 0)) {
 			fp++;
 			current++;
-			p->n -= tail;
 			m = fp->len;
+			p->n -= tail;
 			tail = m;
 			src = (const uchar *)fp->ptr;
 			DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
@@ -207,13 +206,12 @@ buffer_extract(HTTP2Input * __restrict p,
 			uwide __m = m;
 			uwide __length = length;
 
-			count = 1;
 			do {
 				__length -= __m;
 				__m = __fp->len;
 				__fp++;
-				count++;
 			} while (__length > __m);
+			count = (__fp - fp) + 1;
 		}
 		sp = tfw_pool_alloc(pool, count * sizeof(TfwStr));
 		if (unlikely(sp == NULL)) {
@@ -277,7 +275,7 @@ buffer_copy(HTTP2Input * __restrict p,
 	    uwide m,
 	    uwide length, HTTP2Output * __restrict out, ufast * __restrict rc)
 {
-	uwide tail;
+	uwide tail, fragment;
 	ufast k, code;
 	const TfwStr *__restrict fp;
 	uchar *__restrict dst = buffer_open(out, &k, 0);
@@ -287,12 +285,7 @@ buffer_copy(HTTP2Input * __restrict p,
 		do {
 			uwide copied;
 
-			if (unlikely(k == 0)) {
-				dst = buffer_expand(out, &k, k);
-				if (unlikely(k == 0)) {
-					goto Bug;
-				}
-			}
+			CheckByte_goto(out, Bug);
 			copied = k;
 			if (k >= length) {
 				copied = length;
@@ -303,6 +296,7 @@ buffer_copy(HTTP2Input * __restrict p,
 			k -= copied;
 			length -= copied;
 		} while (length);
+		code = 0;
 	} else {
 		const TfwStr *const __restrict str = p->str;
 		uwide current = p->current;
@@ -312,8 +306,8 @@ buffer_copy(HTTP2Input * __restrict p,
 		if (unlikely(m == 0)) {
 			fp++;
 			current++;
-			p->n -= tail;
 			m = fp->len;
+			p->n -= tail;
 			tail = m;
 			src = (const uchar *)fp->ptr;
 			DPRINTF("Next fragment: %" PRIuPTR " bytes...\n", m);
@@ -321,8 +315,6 @@ buffer_copy(HTTP2Input * __restrict p,
 		p->n -= length;
 		p->offset = 0;
 		do {
-			uwide fragment;
-
 			if (unlikely(m == 0)) {
 				fp++;
 				current++;
@@ -336,15 +328,12 @@ buffer_copy(HTTP2Input * __restrict p,
 			if (m >= length) {
 				fragment = length;
 			}
+			m -= fragment;
+			length -= fragment;
 			do {
 				uwide copied;
 
-				if (unlikely(k == 0)) {
-					dst = buffer_expand(out, &k, k);
-					if (unlikely(k == 0)) {
-						goto Bug2;
-					}
-				}
+				CheckByte_goto(out, Bug2);
 				copied = k;
 				if (k >= fragment) {
 					copied = fragment;
@@ -353,27 +342,31 @@ buffer_copy(HTTP2Input * __restrict p,
 				dst += copied;
 				src += copied;
 				k -= copied;
-				m -= copied;
-				length -= copied;
 				fragment -= copied;
 			} while (fragment);
 		} while (length);
+		code = 0;
  Save:
 		p->current = current;
 		p->tail = tail;
 		*m_new = m;
 	}
-	code = 0;
  Emit:
-	*rc = buffer_emit(out, k) || code;
+	*rc = buffer_emit(out, k);
+	if (likely(code == 0)) {
+		return src;
+	}
+	*rc = code;
 	return src;
  Bug:
-/* Partially rewind input buffer: */
+/* Partially rewind the input buffer: */
 	*m_new += length;
 	code = Err_HTTP2_OutOfMemory;
 	goto Emit;
  Bug2:
-/* Partially rewind input buffer: */
+/* Partially rewind the input buffer: */
+	length += fragment;
+	m += fragment;
 	p->n += length;
 	p->offset = fp->len - tail;
 	code = Err_HTTP2_OutOfMemory;
@@ -399,25 +392,24 @@ buffer_new(HTTP2Output * __restrict p,
 	}
 /* Many fields initialized here only to avoid */
 /* partial writing into cache lines: */
-	p->last = NULL;
-	p->first = NULL;
-	p->current = NULL;
-	p->offset = 0;
-	p->tail = 0;
-	p->start = 0;
 	p->space = 0;
-	p->count = 0;
-	p->total = 0;
 	p->def_align = align;
 	p->align = align;
+	p->tail = 0;
+	p->offset = 0;
+	p->total = 0;
+	p->start = 0;
+	p->count = 0;
+	p->last = NULL;
+	p->current = NULL;
+	p->first = NULL;
 	p->pool = pool;
 }
 
-/* Opens the output buffer. For example it may be used */
-/* to stored decoded data while parsing the encoded    */
-/* string, which placed in the input buffer. Output    */
-/* parameter "n" is the length of available space in   */
-/* the opened buffer:				       */
+/* Opens the output buffer. For example it may be used	    */
+/* to stored decoded data while parsing the encoded string, */
+/* which located in the input buffer. Output parameter "n"  */
+/* is the length of available space in the opened buffer:   */
 
 uchar *
 buffer_open(HTTP2Output * __restrict p, ufast * __restrict n, ufast alignment)
@@ -449,9 +441,10 @@ buffer_open(HTTP2Output * __restrict p, ufast * __restrict n, ufast alignment)
 			p->space = tail;
 			p->start = offset + delta;
 			p->current = last;
+			DPRINTF
+			    ("Open the output buffer with %u unused bytes...\n",
+			     tail);
 			DPRINTF("New offset = %u\n", p->start);
-			DPRINTF("Open output buffer with %u unused bytes...\n",
-				p->space);
 			return dst + delta;
 		}
 	}
@@ -477,6 +470,7 @@ buffer_open_small(HTTP2Output * __restrict p,
 {
 	ufast tail = p->tail;
 	ufast align = ~alignment & (alignment - 1);
+	ufast delta, length;
 	HTTP2Block *const __restrict last = p->last;
 	HTTP2Block *__restrict block;
 
@@ -489,74 +483,79 @@ buffer_open_small(HTTP2Output * __restrict p,
 		/* compiler warning about unary minus operator (which would   */
 		/* be applied to the unsigned integer otherwise) - we know    */
 		/* exactly what we do:                                        */
-		const ufast delta = (ufast) (-(fast) dst) & align;
-
+		delta = (ufast) (-(fast) dst) & align;
 		if (likely(delta + size <= tail)) {
 			tail -= delta;
 			*n = tail;
 			p->space = tail;
 			p->start = offset + delta;
 			p->current = last;
+			DPRINTF
+			    ("Open the output buffer with %u unused bytes...\n",
+			     tail);
 			DPRINTF("New offset = %u\n", p->start);
-			DPRINTF("Open output buffer with %u unused bytes...\n",
-				p->space);
 			return dst + delta;
 		}
 	}
-	block = tfw_pool_alloc(p->pool, Page_Size);
-	if (block) {
-		uchar *__restrict dst = block->data;
-
-		/* Calculate distance to the next aligned block.              */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
-		const ufast delta = (ufast) (-(fast) dst) & align;
-		const ufast length =
-		    Page_Size - offsetof(HTTP2Block, data) - delta;
-		dst += delta;
-		block->next = NULL;
-		block->n = Page_Size;
-		block->tail = length;
-		p->last = block;
-		*n = length;
-		if (likely(last != NULL)) {
-			last->next = block;
-			last->tail = tail;
+	if (last == NULL || last->next == NULL) {
+		block = tfw_pool_alloc(p->pool, Page_Size);
+		if (block) {
+			/* Calculate distance to the next aligned block.              */
+			/* Typecast to the signed integer was added here to eliminate */
+			/* compiler warning about unary minus operator (which would   */
+			/* be applied to the unsigned integer otherwise) - we know    */
+			/* exactly what we do:                                        */
+			delta = (ufast) (-(fast) block->data) & align;
+			length = Page_Size - offsetof(HTTP2Block, data) - delta;
+			block->next = NULL;
+			block->n = Page_Size;
+			if (likely(last != NULL)) {
+				last->next = block;
+				last->tail = tail;
+			} else {
+				DPUTS("Initial block was allocated...");
+				p->first = block;
+			}
 		} else {
-			DPUTS("Initial block was allocated...");
-			p->first = block;
+			DPUTS("Unable to allocate memory block...");
+			*n = 0;
+			return NULL;
 		}
-		/* This is first block with the new string, therefore */
-		/* we need to initialize start offset (and available  */
-		/* space) here:                                       */
-		p->space = length;
-		p->start = delta;
-		p->current = block;
-		DPRINTF("Reserve place for the new item of the %u bytes...\n",
-			size);
-		DPRINTF("Offset = %u, buffer has the %u unused bytes...\n",
-			p->start, p->tail);
-		return dst;
 	} else {
-		DPUTS("Unable to allocate memory block...");
-		return NULL;
+		block = last->next;
+		last->tail = tail;
+		/* Calculate distance to the next aligned block: */
+		delta = (ufast) (-(fast) block->data) & align;
+		length = block->n - (offsetof(HTTP2Block, data) + delta);
 	}
+	block->tail = length;
+	*n = length;
+/* This is the first block of the new string, therefore we need */
+/* to initialize start offset (and available space) here:	*/
+	p->space = length;
+	p->last = block;
+	p->start = delta;
+	p->current = block;
+	DPRINTF("Reserve place for the new item of the %u bytes...\n", size);
+	DPRINTF("New offset = %u, buffer has the %u unused bytes...\n",
+		delta, length);
+	return block->data + delta;
 }
 
-/* Reserving "size" bytes in the output buffer without */
-/* opening it:					       */
+/* Reserving the "size" bytes in the output buffer (without */
+/* opening it): 					    */
 
 uchar *
 buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 {
 	ufast tail = p->tail;
 	ufast align = ~alignment & (alignment - 1);
+	ufast delta, length;
 	HTTP2Block *const __restrict last = p->last;
 	HTTP2Block *__restrict block;
 
 	if (tail) {
+		ufast shift;
 		const ufast offset = p->offset;
 		uchar *__restrict dst = last->data + offset;
 
@@ -565,55 +564,60 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 		/* compiler warning about unary minus operator (which would   */
 		/* be applied to the unsigned integer otherwise) - we know    */
 		/* exactly what we do:                                        */
-		const ufast delta = (ufast) (-(fast) dst) & align;
-		const ufast shift = delta + size;
-
+		delta = (ufast) (-(fast) dst) & align;
+		shift = delta + size;
 		if (likely(shift <= tail)) {
 			p->offset = offset + shift;
 			p->tail = tail - shift;
 			DPRINTF
-			    ("Place the new item of the %u bytes into buffer...\n",
+			    ("Place new item of the %u bytes into output buffer...\n",
 			     size);
-			DPRINTF("Offset = %u, buffer has %u unused bytes...\n",
-				p->offset - size, p->tail);
+			DPRINTF
+			    ("Item offset = %u, buffer has %u unused bytes...\n",
+			     p->offset - size, p->tail);
 			return dst + delta;
 		}
 	}
-	block = tfw_pool_alloc(p->pool, Page_Size);
-	if (block) {
-		uchar *__restrict dst = block->data;
-
-		/* Calculate distance to the next aligned block.              */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
-		const ufast delta = (ufast) (-(fast) dst) & align;
-		const ufast length =
-		    Page_Size - offsetof(HTTP2Block, data) - delta - size;
-		dst += delta;
-		block->next = NULL;
-		block->n = Page_Size;
-		block->tail = length;
-		p->last = block;
-		p->tail = length;
-		p->offset = delta + size;
-		if (likely(last != NULL)) {
-			last->next = block;
-			last->tail = tail;
+	if (last == NULL || last->next == NULL) {
+		block = tfw_pool_alloc(p->pool, Page_Size);
+		if (block) {
+			/* Calculate distance to the next aligned block.              */
+			/* Typecast to the signed integer was added here to eliminate */
+			/* compiler warning about unary minus operator (which would   */
+			/* be applied to the unsigned integer otherwise) - we know    */
+			/* exactly what we do:                                        */
+			delta = (ufast) (-(fast) block->data) & align;
+			length =
+			    Page_Size - offsetof(HTTP2Block,
+						 data) - (delta + size);
+			block->next = NULL;
+			block->n = Page_Size;
+			if (likely(last != NULL)) {
+				last->next = block;
+				last->tail = tail;
+			} else {
+				DPUTS("Initial block was allocated...");
+				p->first = block;
+			}
 		} else {
-			p->first = block;
-			DPUTS("Initial block was allocated...");
+			DPUTS("Unable to allocate memory block...");
+			return NULL;
 		}
-		DPRINTF("Reserve place for the new item of the %u bytes...\n",
-			size);
-		DPRINTF("Offset = %u, buffer has the %u unused bytes...\n",
-			p->offset - size, p->tail);
-		return dst;
 	} else {
-		DPUTS("Unable to allocate memory block...");
-		return NULL;
+		block = last->next;
+		last->tail = tail;
+		/* Calculate distance to the next aligned block: */
+		delta = (ufast) (-(fast) block->data) & align;
+		length = block->n - (offsetof(HTTP2Block, data) + delta + size);
 	}
+	block->tail = length;
+	p->tail = length;
+	p->offset = delta + size;
+	p->last = block;
+	DPRINTF("Reserve place for the new item of the %u bytes...\n", size);
+	DPRINTF("Item offset = %u, buffer has the %u unused bytes...\n",
+		delta, length);
+	return block->data + delta;
 }
 
 /* Pause writing to the output buffer without */
@@ -623,15 +627,18 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 void
 buffer_pause(HTTP2Output * __restrict p, ufast n)
 {
-	const ufast space = p->space;
-	const ufast used = space - n;
+	const ufast used = p->space - n;
 
-	if (used && space) {
+	if (used) {
+		/* Length of the unused tail must be updated here because  */
+		/* subsequent buffer_expand() call may use it if available */
+		/* space (p->space) is equal to zero:                      */
 		p->tail = n;
 		p->space = n;
 		p->total += used;
-		DPRINTF("New fragment of %u bytes was added before pause...\n",
-			used);
+		DPRINTF
+		    ("New fragment of the %u bytes was added before pause...\n",
+		     used);
 	}
 	DPRINTF("Pausing writing to the output buffer...");
 }
@@ -656,9 +663,9 @@ buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n)
 		/* another block:                                */
 		const ufast offset =
 		    last->n - offsetof(HTTP2Block, data) - space;
-		DPRINTF("Current offset = %u\n", offset);
 		DPRINTF("Reopen output buffer with %u unused bytes...\n",
 			space);
+		DPRINTF("Current offset = %u\n", offset);
 		return last->data + offset;
 	} else {
 		DPUTS("Reopen the empty output buffer...");
@@ -674,93 +681,97 @@ buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n)
 uchar *
 buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n_new, ufast n)
 {
-	HTTP2Block *const __restrict block = tfw_pool_alloc(p->pool, Page_Size);
+	ufast delta, length;
+	ufast space, used;
+	const fast align = p->align;
+	HTTP2Block *__restrict block;
+	HTTP2Block *__restrict last = p->last;
 
-	if (block) {
-		const fast align = p->align;
-		uchar *__restrict dst = block->data;
-
-		/* Calculate distance to the next aligned block.              */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
-		const ufast delta = (ufast) (-(fast) dst) & align;
-		const ufast length =
-		    Page_Size - offsetof(HTTP2Block, data) - delta;
-		HTTP2Block *__restrict last = p->last;
-
-		dst += delta;
-		block->next = NULL;
-		block->n = Page_Size;
-		block->tail = length;
-		p->last = block;
-		*n_new = length;
-		if (likely(last != NULL)) {
-			const ufast space = p->space;
-			const ufast used = space - n;
-
-			last->next = block;
-			last->tail = space ? n : p->tail;
-			p->space = length;
-			if (likely(used)) {
-				p->total += used;
-				p->count++;
-				DPRINTF
-				    ("New fragment of %u bytes was added to the string...\n",
-				     used);
+	if (last == NULL || last->next == NULL) {
+		block = tfw_pool_alloc(p->pool, Page_Size);
+		if (block) {
+			/* Calculate distance to the next aligned block.              */
+			/* Typecast to the signed integer was added here to eliminate */
+			/* compiler warning about unary minus operator (which would   */
+			/* be applied to the unsigned integer otherwise) - we know    */
+			/* exactly what we do:                                        */
+			delta = (ufast) (-(fast) block->data) & align;
+			length = Page_Size - offsetof(HTTP2Block, data) - delta;
+			block->next = NULL;
+			block->n = Page_Size;
+			if (likely(last != NULL)) {
+				last->next = block;
 			} else {
+				DPUTS("Initial block was allocated...");
+				p->first = block;
 				goto L1;
 			}
 		} else {
-			DPUTS("Initial block was allocated...");
-			p->space = length;
-			p->first = block;
- L1:
-			/* This is first block with the new string, therefore */
-			/* we need to initialize start offset here:           */
-			p->start = delta;
-			p->current = block;
-			DPRINTF("New string started at offset %u...\n", delta);
+			DPUTS("Unable to allocate memory block...");
+			*n_new = 0;
+			return NULL;
 		}
-		DPRINTF("New offset = %u\n", delta);
-		DPRINTF("New block with %u unused bytes was allocated...\n",
-			p->space);
-		return dst;
 	} else {
-		DPUTS("Unable to allocate memory block...");
-		*n_new = 0;
-		return NULL;
+		block = last->next;
+		/* Calculate distance to the next aligned block: */
+		delta = (ufast) (-(fast) block->data) & align;
+		length = block->n - (offsetof(HTTP2Block, data) + delta);
 	}
+	space = p->space;
+	used = space - n;
+	last->tail = space ? n : p->tail;
+	if (likely(used)) {
+		p->total += used;
+		p->count++;
+		DPRINTF("New fragment of %u bytes was added to the string...\n",
+			used);
+	} else {
+		/* This is the first block of the new string, therefore */
+		/* we need to initialize start offset here:             */
+ L1:
+		p->start = delta;
+		p->current = block;
+		DPRINTF("New string started at offset: %u...\n", delta);
+	}
+	block->tail = length;
+	*n_new = length;
+	p->space = length;
+	p->last = block;
+	DPRINTF("New block with %u unused bytes was allocated...\n", length);
+	DPRINTF("New offset = %u\n", delta);
+	return block->data + delta;
 }
 
-/* Forms a new string from the data stored in  */
-/* the buffer. Returns error code if unable to */
-/* allocate memory for the string descriptor.  */
-/* Here "n" is the number of unused bytes in   */
-/* the last fragment of the buffer.	       */
+/* Forms a new string from the data stored in the   */
+/* buffer. Returns error code if unable to allocate */
+/* memory for the string descriptor. Here "n" is    */
+/* the number of unused bytes in the last fragment  */
+/* of the buffer.				    */
 
 ufast
 buffer_emit(HTTP2Output * __restrict p, ufast n)
 {
+	const ufast used = p->space - n;
 	const ufast offset = p->start;
-	const ufast space = p->space;
-	const ufast used = space - n;
 	ufast count = p->count;
 	const uwide total = p->total + used;
 
-	DPRINTF("Emitting the new string of the %u bytes...\n", total);
+	DPRINTF("Emitting the new string of the %" PRIuPTR " bytes...\n",
+		total);
 	if (total) {
 		HTTP2Block *__restrict current = p->current;
 
-		p->offset = count ? used : used + offset;
-		if (space) {
+		if (likely(used)) {
 			p->tail = n;
+			p->offset = count ? used : used + offset;
+		} else {
+			/* If the last fragment is not used at all, then */
+			/* we should decrement the fragment counter:     */
+			count--;
 		}
 		p->count = 0;
 		p->total = 0;
-		DPRINTF("Offset = %u, last fragment is the %u bytes\n", offset,
-			used);
+		DPRINTF("Last added fragment is the %u bytes...\n", used);
 		if (likely(count == 0)) {
 			p->str.ptr = current->data + offset;
 		} else {
@@ -776,8 +787,9 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 			p->str.eolen = 0;
 			p->str.flags = count << TFW_STR_CN_SHIFT;
 			fp->ptr = current->data + offset;
-			fp->len = current->n - current->tail -
-			    offsetof(HTTP2Block, data) - offset;
+			fp->len = current->n -
+			    (offsetof(HTTP2Block, data) + offset +
+			     current->tail);
 			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
@@ -800,7 +812,22 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 			}
 			current = current->next;
 			fp->ptr = current->data;
-			fp->len = used;
+			if (likely(used)) {
+				fp->len = used;
+			} else {
+				/* Rewind to the last fragment: */
+				const ufast tail = current->tail;
+				const ufast last = current->n - tail -
+				    offsetof(HTTP2Block, data);
+				p->tail = tail;
+				p->offset = last;
+				p->last = current;
+				fp->len = last;
+				DPUTS("Rewind to the last fragment...");
+				DPRINTF
+				    ("New offset = %u, buffer has the %u unused bytes...\n",
+				     last, tail);
+			}
 			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
