@@ -22,6 +22,9 @@
 #include <linux/module.h>
 #include "test.h"
 
+#undef tfw_apm_stats
+#define tfw_apm_stats	test_tfw_apm_stats
+
 #include "apm.c"
 #include "vhost.c"
 
