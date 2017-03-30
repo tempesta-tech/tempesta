@@ -782,7 +782,8 @@ __tfw_apm_calc(TfwApmData *data, TfwPrcntlStats *pstats, int recalc)
 static void
 tfw_apm_calc(TfwApmData *data)
 {
-	int nfilled, wridx, recalc;
+	int nfilled, recalc;
+	unsigned int rdidx;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
@@ -791,8 +792,8 @@ tfw_apm_calc(TfwApmData *data)
 	};
 	TfwApmSEnt *asent;
 
-	wridx = ((unsigned int)atomic_read(&data->stats.rdidx) + 1) % 2;
-	asent = &data->stats.asent[wridx];
+	rdidx = atomic_read(&data->stats.rdidx);
+	asent = &data->stats.asent[(rdidx + 1) % 2];
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
 	nfilled = __tfw_apm_calc(data, &pstats, recalc);
@@ -839,15 +840,15 @@ tfw_apm_pstats_fn(unsigned long fndata)
  * tfw_apm_stats_bh() should be used for calls in user context.
  */
 #define __tfw_apm_stats_body(apmdata, pstats, fn_lock, fn_unlock)	\
-	int rdidx, seq = pstats->seq;					\
+	unsigned int rdidx, seq = pstats->seq;				\
 	TfwApmData *data = apmdata;					\
 	TfwApmSEnt *asent;						\
 									\
 	BUG_ON(!apmdata);						\
 									\
 	smp_mb__before_atomic();					\
-	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;	\
-	asent = &data->stats.asent[rdidx];				\
+	rdidx = atomic_read(&data->stats.rdidx);			\
+	asent = &data->stats.asent[rdidx % 2];				\
 									\
 	fn_lock(&asent->rwlock);					\
 	memcpy(pstats->val, asent->pstats.val,				\
@@ -868,6 +869,7 @@ tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 {
 	__tfw_apm_stats_body(apmdata, pstats, read_lock, read_unlock);
 }
+EXPORT_SYMBOL(tfw_apm_stats);
 
 /*
  * Verify that an APM Stats user using the same set of percentiles.
