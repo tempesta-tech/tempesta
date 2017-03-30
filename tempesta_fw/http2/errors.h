@@ -18,11 +18,6 @@
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- *
- * Copyright (C) Julius Goryavsky. Original code of this module
- * is granted by the author for unrestricted use in the Tempesta FW
- * and for distribution under GNU General Public License without
- * any restrictions.
  */
 
 #ifndef HTTP2_ERRORS_H
