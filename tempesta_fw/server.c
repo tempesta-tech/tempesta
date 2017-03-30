@@ -246,25 +246,14 @@ tfw_sg_release_all(void)
 	TfwServer *srv, *srv_tmp;
 	TfwSrvGroup *sg, *sg_tmp;
 
-	write_lock(&sg_lock);
-
 	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
-		write_lock(&sg->lock);
-
 		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
 			tfw_server_destroy(srv);
-
-		write_unlock(&sg->lock);
-
 		if (sg->sched && sg->sched->del_grp)
 			sg->sched->del_grp(sg);
-
 		kfree(sg);
 	}
-
 	INIT_LIST_HEAD(&sg_list);
-
-	write_unlock(&sg_lock);
 }
 
 int __init
