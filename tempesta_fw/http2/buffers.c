@@ -77,8 +77,8 @@ buffer_get(HTTP2Input * __restrict p, uwide * __restrict m)
 	}
 	p->tail = tail;
 	*m = tail;
-	DPRINTF("Open the input buffer at: %" PRIuPTR ", tail: %" PRIuPTR
-		" bytes...\n", offset, tail);
+	DPRINTF("Open the input buffer at: %" PRIuPTR
+		", tail: %" PRIuPTR " bytes...\n", offset, tail);
 	return (const uchar *)fp->ptr + offset;
 }
 
@@ -178,8 +178,8 @@ buffer_extract(HTTP2Input * __restrict p,
 	if (m >= length) {
 		*m_new = m - length;
 		out->ptr = (uchar *) src;
-		out->len = length;
 		out->skb = NULL;
+		out->len = length;
 		out->eolen = 0;
 		out->flags = 0;
 		src += length;
@@ -218,8 +218,8 @@ buffer_extract(HTTP2Input * __restrict p,
 			goto Bug;
 		}
 		out->ptr = sp;
-		out->len = length;
 		out->skb = NULL;
+		out->len = length;
 		out->eolen = 0;
 		out->flags = count << TFW_STR_CN_SHIFT;
 		p->n -= length;
@@ -241,8 +241,8 @@ buffer_extract(HTTP2Input * __restrict p,
 				copied = length;
 			}
 			sp->ptr = (uchar *) src;
-			sp->len = copied;
 			sp->skb = NULL;
+			sp->len = copied;
 			sp->eolen = 0;
 			sp->flags = 0;
 			sp++;
@@ -428,11 +428,11 @@ buffer_open(HTTP2Output * __restrict p, ufast * __restrict n, ufast alignment)
 		const ufast offset = p->offset;
 		uchar *__restrict dst = last->data + offset;
 
-		/* Calculate the distance to the next aligned block.          */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
+		/* Calculate distance to the next aligned block.    */
+		/* Typecast to the signed integer was added here    */
+		/* to eliminate compiler warning about unary minus  */
+		/* operator (which would be applied to the unsigned */
+		/* integer otherwise) - we know exactly what we do: */
 		const ufast delta = (ufast) (-(fast) dst) & align;
 
 		if (likely(delta + align <= tail)) {
@@ -478,11 +478,11 @@ buffer_open_small(HTTP2Output * __restrict p,
 		const ufast offset = p->offset;
 		uchar *__restrict dst = last->data + offset;
 
-		/* Calculate the distance to the next aligned block.          */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
+		/* Calculate distance to the next aligned block.    */
+		/* Typecast to the signed integer was added here    */
+		/* to eliminate compiler warning about unary minus  */
+		/* operator (which would be applied to the unsigned */
+		/* integer otherwise) - we know exactly what we do: */
 		delta = (ufast) (-(fast) dst) & align;
 		if (likely(delta + size <= tail)) {
 			tail -= delta;
@@ -497,18 +497,14 @@ buffer_open_small(HTTP2Output * __restrict p,
 			return dst + delta;
 		}
 	}
-	if (last == NULL || last->next == NULL) {
+	if (last == NULL || (block = last->next) == NULL) {
 		block = tfw_pool_alloc(p->pool, Page_Size);
 		if (block) {
-			/* Calculate distance to the next aligned block.              */
-			/* Typecast to the signed integer was added here to eliminate */
-			/* compiler warning about unary minus operator (which would   */
-			/* be applied to the unsigned integer otherwise) - we know    */
-			/* exactly what we do:                                        */
-			delta = (ufast) (-(fast) block->data) & align;
-			length = Page_Size - offsetof(HTTP2Block, data) - delta;
 			block->next = NULL;
 			block->n = Page_Size;
+			/* Calculate distance to the next aligned block: */
+			delta = (ufast) (-(fast) block->data) & align;
+			length = Page_Size - offsetof(HTTP2Block, data) - delta;
 			if (likely(last != NULL)) {
 				last->next = block;
 				last->tail = tail;
@@ -522,10 +518,10 @@ buffer_open_small(HTTP2Output * __restrict p,
 			return NULL;
 		}
 	} else {
-		block = last->next;
-		last->tail = tail;
 		/* Calculate distance to the next aligned block: */
 		delta = (ufast) (-(fast) block->data) & align;
+		/* Save old and calculate new tail length: */
+		last->tail = tail;
 		length = block->n - (offsetof(HTTP2Block, data) + delta);
 	}
 	block->tail = length;
@@ -542,8 +538,8 @@ buffer_open_small(HTTP2Output * __restrict p,
 	return block->data + delta;
 }
 
-/* Reserving the "size" bytes in the output buffer (without */
-/* opening it): 					    */
+/* Reserving the "size" bytes in the output buffer */
+/* without opening it:				   */
 
 uchar *
 buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
@@ -559,11 +555,11 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 		const ufast offset = p->offset;
 		uchar *__restrict dst = last->data + offset;
 
-		/* Calculate the distance to the next aligned block.          */
-		/* Typecast to the signed integer was added here to eliminate */
-		/* compiler warning about unary minus operator (which would   */
-		/* be applied to the unsigned integer otherwise) - we know    */
-		/* exactly what we do:                                        */
+		/* Calculate distance to the next aligned block.    */
+		/* Typecast to the signed integer was added here    */
+		/* to eliminate compiler warning about unary minus  */
+		/* operator (which would be applied to the unsigned */
+		/* integer otherwise) - we know exactly what we do: */
 		delta = (ufast) (-(fast) dst) & align;
 		shift = delta + size;
 		if (likely(shift <= tail)) {
@@ -578,20 +574,16 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 			return dst + delta;
 		}
 	}
-	if (last == NULL || last->next == NULL) {
+	if (last == NULL || (block = last->next) == NULL) {
 		block = tfw_pool_alloc(p->pool, Page_Size);
 		if (block) {
-			/* Calculate distance to the next aligned block.              */
-			/* Typecast to the signed integer was added here to eliminate */
-			/* compiler warning about unary minus operator (which would   */
-			/* be applied to the unsigned integer otherwise) - we know    */
-			/* exactly what we do:                                        */
+			block->next = NULL;
+			block->n = Page_Size;
+			/* Calculate distance to the next aligned block: */
 			delta = (ufast) (-(fast) block->data) & align;
 			length =
 			    Page_Size - offsetof(HTTP2Block,
 						 data) - (delta + size);
-			block->next = NULL;
-			block->n = Page_Size;
 			if (likely(last != NULL)) {
 				last->next = block;
 				last->tail = tail;
@@ -604,10 +596,10 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 			return NULL;
 		}
 	} else {
-		block = last->next;
-		last->tail = tail;
 		/* Calculate distance to the next aligned block: */
 		delta = (ufast) (-(fast) block->data) & align;
+		/* Save old and calculate new tail length: */
+		last->tail = tail;
 		length = block->n - (offsetof(HTTP2Block, data) + delta + size);
 	}
 	block->tail = length;
@@ -627,50 +619,47 @@ buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment)
 void
 buffer_pause(HTTP2Output * __restrict p, ufast n)
 {
-	const ufast used = p->space - n;
+	HTTP2Block *const __restrict last = p->last;
 
-	if (used) {
-		/* Length of the unused tail must be updated here because  */
-		/* subsequent buffer_expand() call may use it if available */
-		/* space (p->space) is equal to zero:                      */
-		p->tail = n;
-		p->space = n;
-		p->total += used;
-		DPRINTF
-		    ("New fragment of the %u bytes was added before pause...\n",
-		     used);
+	if (last) {
+		last->tail = n;
 	}
 	DPRINTF("Pausing writing to the output buffer...");
 }
 
 /* Reopen the output buffer that is paused before. */
-/* Here "n" is the length of available space in    */
-/* the buffer:					   */
+/* Output parameter "n" is the length of available */
+/* space in the buffer: 			   */
 
 uchar *
 buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n)
 {
-	ufast space = p->space;
+	HTTP2Block *const __restrict last = p->last;
 
-	*n = space;
-	if (space) {
-		HTTP2Block *const __restrict last = p->last;
+	if (last) {
+		ufast space = last->tail;
 
-		/* Recalculate the offset from the current block */
-		/* using its size, because the "start" field was */
-		/* currently used to store starting offset of    */
-		/* the incomplete string and it may points to    */
-		/* another block:                                */
-		const ufast offset =
-		    last->n - offsetof(HTTP2Block, data) - space;
-		DPRINTF("Reopen output buffer with %u unused bytes...\n",
-			space);
-		DPRINTF("Current offset = %u\n", offset);
-		return last->data + offset;
+		*n = space;
+		if (space) {
+			/* Recalculate offset from the current block   */
+			/* using its size, because the "start" field   */
+			/* was currently used to store starting offset */
+			/* of the incomplete string and it may points  */
+			/* to another block:                           */
+			uchar *const __restrict dst =
+			    (uchar *) last + (last->n - space);
+			DPRINTF
+			    ("Reopen output buffer with %u unused bytes...\n",
+			     space);
+			DPRINTF("Current offset = %u\n",
+				(ufast) (dst - last->data));
+			return dst;
+		}
 	} else {
-		DPUTS("Reopen the empty output buffer...");
-		return NULL;
+		*n = 0;
 	}
+	DPUTS("Reopen the empty output buffer...");
+	return NULL;
 }
 
 /* Add new block to the output buffer. Returns the NULL    */
@@ -682,23 +671,22 @@ uchar *
 buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n_new, ufast n)
 {
 	ufast delta, length;
-	ufast space, used;
 	const fast align = p->align;
 	HTTP2Block *__restrict block;
 	HTTP2Block *__restrict last = p->last;
 
-	if (last == NULL || last->next == NULL) {
+	if (last == NULL || (block = last->next) == NULL) {
 		block = tfw_pool_alloc(p->pool, Page_Size);
 		if (block) {
-			/* Calculate distance to the next aligned block.              */
-			/* Typecast to the signed integer was added here to eliminate */
-			/* compiler warning about unary minus operator (which would   */
-			/* be applied to the unsigned integer otherwise) - we know    */
-			/* exactly what we do:                                        */
-			delta = (ufast) (-(fast) block->data) & align;
-			length = Page_Size - offsetof(HTTP2Block, data) - delta;
 			block->next = NULL;
 			block->n = Page_Size;
+			/* Calculate distance to the next aligned block.    */
+			/* Typecast to the signed integer was added here    */
+			/* to eliminate compiler warning about unary minus  */
+			/* operator (which would be applied to the unsigned */
+			/* integer otherwise) - we know exactly what we do: */
+			delta = (ufast) (-(fast) block->data) & align;
+			length = Page_Size - offsetof(HTTP2Block, data) - delta;
 			if (likely(last != NULL)) {
 				last->next = block;
 			} else {
@@ -708,30 +696,39 @@ buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n_new, ufast n)
 			}
 		} else {
 			DPUTS("Unable to allocate memory block...");
-			*n_new = 0;
-			return NULL;
+			*n_new = n;
+			if (last) {
+				/* Restore pointer to the current position: */
+				return (uchar *) last + (last->n - n);
+			} else {
+				return NULL;
+			}
 		}
 	} else {
-		block = last->next;
 		/* Calculate distance to the next aligned block: */
 		delta = (ufast) (-(fast) block->data) & align;
+		/* Calculate new tail length: */
 		length = block->n - (offsetof(HTTP2Block, data) + delta);
 	}
-	space = p->space;
-	used = space - n;
-	last->tail = space ? n : p->tail;
-	if (likely(used)) {
-		p->total += used;
-		p->count++;
-		DPRINTF("New fragment of %u bytes was added to the string...\n",
-			used);
-	} else {
-		/* This is the first block of the new string, therefore */
-		/* we need to initialize start offset here:             */
+	{
+		const ufast space = p->space;
+		const ufast used = space - n;
+
+		last->tail = space ? n : p->tail;
+		if (likely(used)) {
+			p->total += used;
+			p->count++;
+			DPRINTF
+			    ("New fragment of %u bytes was added to the string...\n",
+			     used);
+		} else {
+			/* This is the first block of the new string, therefore */
+			/* we need to initialize start offset here:             */
  L1:
-		p->start = delta;
-		p->current = block;
-		DPRINTF("New string started at offset: %u...\n", delta);
+			p->start = delta;
+			p->current = block;
+			DPRINTF("New string started at offset: %u...\n", delta);
+		}
 	}
 	block->tail = length;
 	*n_new = length;
@@ -742,16 +739,15 @@ buffer_expand(HTTP2Output * __restrict p, ufast * __restrict n_new, ufast n)
 	return block->data + delta;
 }
 
-/* Forms a new string from the data stored in the   */
-/* buffer. Returns error code if unable to allocate */
-/* memory for the string descriptor. Here "n" is    */
-/* the number of unused bytes in the last fragment  */
-/* of the buffer.				    */
+/* Forms a new string from the data stored in the output   */
+/* buffer. Returns error code if unable to allocate memory */
+/* for the string descriptor. Input parameter "n" is the   */
+/* number of unused bytes of the tail fragment: 	   */
 
 ufast
 buffer_emit(HTTP2Output * __restrict p, ufast n)
 {
-	const ufast used = p->space - n;
+	ufast used = p->space - n;
 	const ufast offset = p->start;
 	ufast count = p->count;
 	const uwide total = p->total + used;
@@ -767,7 +763,16 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 		} else {
 			/* If the last fragment is not used at all, then */
 			/* we should decrement the fragment counter:     */
-			count--;
+			if (unlikely(--count == 0)) {
+				/* Rewind to the last fragment: */
+				p->tail = current->tail;
+				p->offset = offset + total;
+				p->last = current;
+				DPUTS("Rewind to the previous fragment...");
+				DPRINTF
+				    ("New offset = %u, buffer has the %u unused bytes...\n",
+				     p->offset, p->tail);
+			}
 		}
 		p->count = 0;
 		p->total = 0;
@@ -782,15 +787,15 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 				return Err_HTTP2_OutOfMemory;
 			}
 			p->str.ptr = fp;
-			p->str.len = total;
 			p->str.skb = NULL;
+			p->str.len = total;
 			p->str.eolen = 0;
 			p->str.flags = count << TFW_STR_CN_SHIFT;
 			fp->ptr = current->data + offset;
+			fp->skb = NULL;
 			fp->len = current->n -
 			    (offsetof(HTTP2Block, data) + offset +
 			     current->tail);
-			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
 			DPRINTF("Fragment: %u bytes...\n", (uint) fp->len);
@@ -800,9 +805,9 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 				do {
 					current = current->next;
 					fp->ptr = current->data;
+					fp->skb = NULL;
 					fp->len = current->n - current->tail -
 					    offsetof(HTTP2Block, data);
-					fp->skb = NULL;
 					fp->eolen = 0;
 					fp->flags = 0;
 					DPRINTF("Fragment: %u bytes...\n",
@@ -812,23 +817,25 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 			}
 			current = current->next;
 			fp->ptr = current->data;
+			fp->skb = NULL;
 			if (likely(used)) {
 				fp->len = used;
 			} else {
 				/* Rewind to the last fragment: */
 				const ufast tail = current->tail;
-				const ufast last = current->n - tail -
-				    offsetof(HTTP2Block, data);
+
+				used =
+				    current->n - tail - offsetof(HTTP2Block,
+								 data);
 				p->tail = tail;
-				p->offset = last;
+				p->offset = used;
 				p->last = current;
-				fp->len = last;
-				DPUTS("Rewind to the last fragment...");
+				fp->len = used;
+				DPUTS("Rewind to the previous fragment...");
 				DPRINTF
 				    ("New offset = %u, buffer has the %u unused bytes...\n",
-				     last, tail);
+				     used, tail);
 			}
-			fp->skb = NULL;
 			fp->eolen = 0;
 			fp->flags = 0;
 			DPRINTF("Fragment: %u bytes...\n", used);
@@ -837,8 +844,8 @@ buffer_emit(HTTP2Output * __restrict p, ufast n)
 	} else {
 		p->str.ptr = NULL;
 	}
-	p->str.len = total;
 	p->str.skb = NULL;
+	p->str.len = total;
 	p->str.eolen = 0;
 	p->str.flags = 0;
 	return 0;
@@ -851,81 +858,16 @@ ufast
 buffer_put(HTTP2Output * __restrict p,
 	   const uchar * __restrict src, uwide length)
 {
-	if (length) {
+	ufast align = p->def_align;
+
+	if (length > align) {
 		ufast k;
-		ufast align = p->def_align;
+		uchar *__restrict dst = buffer_open(p, &k, align);
 
-		if (length > align) {
-			uchar *__restrict dst = buffer_open(p, &k, align);
-
-			do {
-				ufast copied;
-
-				if (unlikely(k == 0)) {
-					dst = buffer_expand(p, &k, k);
-					if (unlikely(k == 0)) {
-						return Err_HTTP2_OutOfMemory;
-					}
-				}
-				copied = k;
-				if (k >= length) {
-					copied = length;
-				}
-				memcpy(dst, src, copied);
-				dst += copied;
-				src += copied;
-				k -= copied;
-				length -= copied;
-			} while (length);
-			return buffer_emit(p, k);
-		} else {
-			uchar *__restrict dst = buffer_small(p, length, align);
-
-			if (dst) {
-				memcpy(dst, src, length);
-				p->str.ptr = dst;
-			} else {
-				return Err_HTTP2_OutOfMemory;
-			}
-		}
-	} else {
-		p->str.ptr = NULL;
-	}
-	p->str.len = length;
-	p->str.skb = NULL;
-	p->str.eolen = 0;
-	p->str.flags = 0;
-	return 0;
-}
-
-/* Copy raw data from the plain memory block to the output */
-/* buffer, which already opened by the buffer_open() call: */
-
-uchar *
-buffer_put_raw(HTTP2Output * __restrict p,
-	       uchar * __restrict dst,
-	       ufast * __restrict n,
-	       const uchar * __restrict src,
-	       uwide length, ufast * __restrict rc)
-{
-	ufast k = *n;
-
-	if (length <= k) {
-		if (length) {
-			memcpy(dst, src, length);
-			dst += length;
-			*n = k - length;
-		}
-	} else {
 		do {
-			ufast copied;
+			uwide copied;
 
-			if (unlikely(k == 0)) {
-				dst = buffer_expand(p, &k, k);
-				if (unlikely(k == 0)) {
-					goto Bug;
-				}
-			}
+			CheckByte(p);
 			copied = k;
 			if (k >= length) {
 				copied = length;
@@ -936,31 +878,167 @@ buffer_put_raw(HTTP2Output * __restrict p,
 			k -= copied;
 			length -= copied;
 		} while (length);
-		*n = k;
+		return buffer_emit(p, k);
+	} else if (length) {
+		uchar *const __restrict dst = buffer_small(p, length, align);
+
+		if (dst) {
+			memcpy(dst, src, length);
+			p->str.ptr = dst;
+		} else {
+			return Err_HTTP2_OutOfMemory;
+		}
+	} else {
+		p->str.ptr = NULL;
 	}
+	p->str.skb = NULL;
+	p->str.len = length;
+	p->str.eolen = 0;
+	p->str.flags = 0;
+	return 0;
+}
+
+/* Copy data from the plain memory block to the output */
+/* buffer (which is already opened before this call):  */
+
+uchar *
+buffer_put_raw(HTTP2Output * __restrict p,
+	       uchar * __restrict dst,
+	       ufast * __restrict k_new,
+	       const uchar * __restrict src,
+	       uwide length, ufast * __restrict rc)
+{
+	ufast k = *k_new;
+
+	if (length <= k) {
+		k -= length;
+		if (length) {
+			memcpy(dst, src, length);
+			dst += length;
+		}
+	} else {
+		do {
+			uwide copied;
+
+			CheckByte_goto(p, Bug);
+			copied = k;
+			if (k >= length) {
+				copied = length;
+			}
+			memcpy(dst, src, copied);
+			dst += copied;
+			src += copied;
+			k -= copied;
+			length -= copied;
+		} while (length);
+	}
+	*k_new = k;
 	*rc = 0;
 	return dst;
  Bug:
-	*n = 0;
+	*k_new = k;
 	*rc = Err_HTTP2_OutOfMemory;
-	return NULL;
+	return dst;
+}
+
+/* Copy data from the TfwStr string to the output      */
+/* buffer (which is already opened before this call).  */
+/* If error occured, then output parameter "remainder" */
+/* contains the length of unprocessed part of the      */
+/* TfwStr string (user can supply NULL pointer here):  */
+
+uchar *
+buffer_put_string(HTTP2Output * __restrict p,
+		  uchar * __restrict dst,
+		  ufast * __restrict k_new,
+		  const TfwStr * __restrict source,
+		  ufast * __restrict rc, uwide * __restrict remainder)
+{
+	ufast k = *k_new;
+	uwide length = source->len;
+	uwide fragment;
+
+	if (TFW_STR_PLAIN(source)) {
+		const uchar *__restrict src = (const uchar *)source->ptr;
+
+		do {
+			uwide copied;
+
+			CheckByte_goto(p, Bug);
+			copied = k;
+			if (k >= length) {
+				copied = length;
+			}
+			memcpy(dst, src, copied);
+			dst += copied;
+			src += copied;
+			k -= copied;
+			length -= copied;
+		} while (length);
+	} else {
+		const TfwStr *__restrict fp = (const TfwStr *)source->ptr;
+		const uchar *__restrict src = (const uchar *)fp->ptr;
+		ufast m = fp->len;
+
+		fp++;
+		do {
+			if (unlikely(m == 0)) {
+				src = (const uchar *)fp->ptr;
+				m = fp->len;
+				fp++;
+			}
+			fragment = m;
+			if (m >= length) {
+				fragment = length;
+			}
+			m -= fragment;
+			length -= fragment;
+			do {
+				uwide copied;
+
+				CheckByte_goto(p, Bug2);
+				copied = k;
+				if (k >= fragment) {
+					copied = fragment;
+				}
+				memcpy(dst, src, copied);
+				dst += copied;
+				src += copied;
+				k -= copied;
+				fragment -= copied;
+			} while (fragment);
+		} while (length);
+	}
+	*rc = 0;
+ Save:
+	*k_new = k;
+	if (remainder) {
+		*remainder = length;
+	}
+	return dst;
+ Bug2:
+	length += fragment;
+ Bug:
+	*rc = Err_HTTP2_OutOfMemory;
+	goto Save;
 }
 
 /* ------------------------------------------ */
 /* Supplementary functions related to TfwStr: */
 /* ------------------------------------------ */
 
-/* Compare plain memory string "x" with array of the   */
-/* TfwStr fragments represented by the "fp" pointer.   */
-/* Here "n" is the minimum between the total length    */
-/* of all "fp" fragments and the length of "x" string: */
+/* Compare plain memory string "x" with array of the */
+/* TfwStr fragments represented by the "fp" pointer. */
+/* Parameter "n" is the minimum between the total    */
+/* length of all "fp" fragments and the length of    */
+/* the "x" string:                                   */
 
-int
+fast
 buffer_str_cmp_plain(const uchar * __restrict x,
 		     const TfwStr * __restrict fp, uwide n)
 {
-	const uchar *__restrict y = fp->ptr;
-	ufast length = fp->len;
+	const uchar *__restrict y = (const uchar *)fp->ptr;
+	uwide length = fp->len;
 
 	fp++;
 	do {
@@ -968,7 +1046,7 @@ buffer_str_cmp_plain(const uchar * __restrict x,
 		uwide count;
 
 		if (unlikely(length == 0)) {
-			y = fp->ptr;
+			y = (const uchar *)fp->ptr;
 			length = fp->len;
 			fp++;
 		}
@@ -993,60 +1071,66 @@ buffer_str_cmp_plain(const uchar * __restrict x,
 /* between the total length of all "fx" fragments and the */
 /* total length of all "fy" fragments:                    */
 
-int
+fast
 buffer_str_cmp_complex(const TfwStr * __restrict fx,
 		       const TfwStr * __restrict fy, uwide n)
 {
-	const char *__restrict x = fx->ptr;
-	const char *__restrict y = fy->ptr;
-	ufast cx = fx->len;
-	ufast cy = fy->len;
+	const uchar *__restrict x = (const uchar *)fx->ptr;
+	const uchar *__restrict y = (const uchar *)fy->ptr;
+	uwide cx = fx->len;
+	uwide cy = fy->len;
 
 	fx++;
 	fy++;
 	do {
-		int rc;
-		uwide count;
+		uwide fragment;
 
 		if (unlikely(cx == 0)) {
-			x = fx->ptr;
+			x = (const uchar *)fx->ptr;
 			cx = fx->len;
 			fx++;
 		}
-		if (unlikely(cy == 0)) {
-			y = fy->ptr;
-			cx = fy->len;
-			fy++;
-		}
-		count = n;
+		fragment = n;
 		if (n > cx) {
-			count = cx;
+			fragment = cx;
 		}
-		if (count > cy) {
+		cx -= fragment;
+		n -= fragment;
+		do {
+			int rc;
+			uwide count;
+
+			if (unlikely(cy == 0)) {
+				y = (const uchar *)fy->ptr;
+				cy = fy->len;
+				fy++;
+			}
 			count = cy;
-		}
-		rc = memcmp(x, y, count);
-		if (rc) {
-			return rc;
-		}
-		x += count;
-		y += count;
-		cx -= count;
-		cy -= count;
-		n -= count;
+			if (cy > fragment) {
+				count = fragment;
+			}
+			rc = memcmp(x, y, count);
+			if (rc) {
+				return rc;
+			}
+			x += count;
+			y += count;
+			cy -= count;
+			fragment -= count;
+		} while (fragment);
 	} while (n);
 	return 0;
 }
 
 /* Compare two TfwStr strings: */
 
-wide
+fast
 buffer_str_cmp(const TfwStr * __restrict x, const TfwStr * __restrict y)
 {
-	int rc;
-	uwide dx, dy;
-	uwide cx = x->len;
-	uwide cy = y->len;
+	fast rc;
+	wide delta;
+	const uwide cx = x->len;
+	const uwide cy = y->len;
 	uwide min = cx;
 
 	if (cx > cy) {
@@ -1055,39 +1139,37 @@ buffer_str_cmp(const TfwStr * __restrict x, const TfwStr * __restrict y)
 	if (TFW_STR_PLAIN(x)) {
 		if (TFW_STR_PLAIN(y)) {
 			rc = memcmp(x->ptr, y->ptr, min);
- Final:
-			if (rc) {
-				return rc;
-			}
-			dx = cx >> 1;
-			dy = cy >> 1;
-			if (dx == dy) {
-				dx = cx;
-				dy = cy;
-			}
-			return dx - dy;
 		} else {
-			rc = buffer_str_cmp_plain(x->ptr, y->ptr, min);
-			goto Final;
+			rc = buffer_str_cmp_plain((const uchar *)x->ptr,
+						  (const TfwStr *)y->ptr, min);
 		}
 	} else if (TFW_STR_PLAIN(y)) {
-		rc = buffer_str_cmp_plain(y->ptr, x->ptr, min);
-		if (rc) {
-			return -rc;
+		rc = buffer_str_cmp_plain((const uchar *)y->ptr,
+					  (const TfwStr *)x->ptr, min);
+		if (rc == 0) {
+			goto Final;
 		}
-		dx = cx >> 1;
-		dy = cy >> 1;
-		if (dx == dy) {
-			dx = cx;
-			dy = cy;
-		}
-		return dy - dx;
+		return -rc;
 	} else {
-		return buffer_str_cmp_complex(x->ptr, y->ptr, min);
+		rc = buffer_str_cmp_complex((const TfwStr *)x->ptr,
+					    (const TfwStr *)y->ptr, min);
 	}
+	if (rc) {
+		return rc;
+	}
+ Final:
+	delta = (cx >> 1) - (cy >> 1);
+	if (delta) {
+#if Fast_Capacity < Bit_Capacity
+		return (delta >> (Bit_Capacity - Fast_Capacity)) | 1;
+#else
+		return delta;
+#endif
+	}
+	return (fast) (cx - cy);
 }
 
-/* Calculate simple hash function by the string: */
+/* Calculate simple hash function of the TfwStr string: */
 
 uwide
 buffer_str_hash(const TfwStr * __restrict x)
@@ -1097,14 +1179,14 @@ buffer_str_hash(const TfwStr * __restrict x)
 	if (TFW_STR_PLAIN(x)) {
 		return Byte_Hash_Chain(x->ptr, length, 0);
 	} else {
-		const TfwStr *__restrict fp = x->ptr;
+		const TfwStr *__restrict fp = (const TfwStr *)x->ptr;
 		uwide processed = fp->len;
 		uwide h = Byte_Hash_Chain(fp->ptr, processed, 0);
 
 		fp++;
 		length -= processed;
 		while (length) {
-			uwide count = fp->len;
+			const uwide count = fp->len;
 
 			h ^= Byte_Hash_Chain(fp->ptr, count, processed);
 			fp++;
@@ -1115,35 +1197,40 @@ buffer_str_hash(const TfwStr * __restrict x)
 	}
 }
 
-/* Copy data from the TfwStr to plain array: */
+/* Copy data from the TfwStr string to plain array: */
 
 void
 buffer_str_to_array(uchar * __restrict data, const TfwStr * __restrict str)
 {
-	uwide n = str->flags >> TFW_STR_CN_SHIFT;
+	ufast count = str->flags >> TFW_STR_CN_SHIFT;
 
-	if (n == 0) {
+	if (count == 0) {
 		const uwide length = str->len;
 
-		memcpy(data, str->ptr, length);
+		if (likely(length)) {
+			memcpy(data, str->ptr, length);
+		}
 	} else {
-		const TfwStr *__restrict fp = str->ptr;
+		const TfwStr *__restrict fp = (const TfwStr *)str->ptr;
 
 		do {
 			const uwide length = fp->len;
 
-			memcpy(data, fp->ptr, length);
+			if (likely(length)) {
+				memcpy(data, fp->ptr, length);
+			}
 			fp++;
 			data += length;
-		} while (--n);
+		} while (--count);
 	}
 }
 
-/* Print TfwStr string: */
+/* Print the TfwStr string: */
 
 void
 buffer_str_print(const TfwStr * __restrict str)
 {
+	ufast count;
 	ufast copied;
 	char buf[1025];
 	uwide length = str->len;
@@ -1151,7 +1238,8 @@ buffer_str_print(const TfwStr * __restrict str)
 	if (unlikely(length == 0)) {
 		return;
 	}
-	if (TFW_STR_PLAIN(str)) {
+	count = str->flags >> TFW_STR_CN_SHIFT;
+	if (count == 0) {
 		const char *__restrict ptr = (const char *)str->ptr;
 
 		do {
@@ -1160,37 +1248,36 @@ buffer_str_print(const TfwStr * __restrict str)
 				copied = sizeof(buf) - 1;
 			}
 			memcpy(buf, ptr, copied);
-			buf[copied] = 0;
 			ptr += copied;
-			length -= copied;
+			buf[copied] = 0;
 			printf("%s", buf);
+			length -= copied;
 		} while (length);
 	} else {
-		TfwStr *__restrict fp = (TfwStr *) str->ptr;
+		const TfwStr *__restrict fp = (const TfwStr *)str->ptr;
 		char *__restrict bp = buf;
-		ufast count = TFW_STR_CHUNKN(str);
 		ufast space = sizeof(buf) - 1;
 
 		do {
-			const char *__restrict ptr = (const char *)str->ptr;
+			const char *__restrict src = (const char *)fp->ptr;
 			uwide m = fp->len;
 
 			fp++;
 			do {
-				if (space == 0) {
+				if (unlikely(space == 0)) {
 					*bp = 0;
 					printf("%s", buf);
 					space = sizeof(buf) - 1;
 					bp = buf;
 				}
-				copied = m;
-				if (m > space) {
-					copied = space;
+				copied = space;
+				if (space > m) {
+					copied = m;
 				}
-				space -= copied;
-				memcpy(bp, ptr, copied);
-				ptr += copied;
+				memcpy(bp, src, copied);
+				src += copied;
 				bp += copied;
+				space -= copied;
 				m -= copied;
 			} while (m);
 		} while (--count);

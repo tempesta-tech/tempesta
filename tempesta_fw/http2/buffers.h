@@ -204,8 +204,8 @@ uchar *buffer_open(HTTP2Output * __restrict p,
 uchar *buffer_open_small(HTTP2Output * __restrict p,
 			 ufast * __restrict n, ufast size, ufast alignment);
 
-/* Reserving the "size" bytes in the output buffer (without */
-/* opening it): 					    */
+/* Reserving the "size" bytes in the output buffer */
+/* without opening it:				   */
 
 uchar *buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment);
 
@@ -216,8 +216,8 @@ uchar *buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment);
 void buffer_pause(HTTP2Output * __restrict p, ufast n);
 
 /* Reopen the output buffer that is paused before. */
-/* Here "n" is the length of available space in    */
-/* the buffer:					   */
+/* Output parameter "n" is the length of available */
+/* space in the buffer: 			   */
 
 uchar *buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n);
 
@@ -229,11 +229,10 @@ uchar *buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n);
 uchar *buffer_expand(HTTP2Output * __restrict p,
 		     ufast * __restrict n_new, ufast n);
 
-/* Forms a new string from the data stored in the   */
-/* buffer. Returns error code if unable to allocate */
-/* memory for the string descriptor. Here "n" is    */
-/* the number of unused bytes in the last fragment  */
-/* of the buffer.				    */
+/* Forms a new string from the data stored in the output   */
+/* buffer. Returns error code if unable to allocate memory */
+/* for the string descriptor. Input parameter "n" is the   */
+/* number of unused bytes of the tail fragment: 	   */
 
 ufast buffer_emit(HTTP2Output * __restrict p, ufast n);
 
@@ -243,32 +242,36 @@ ufast buffer_emit(HTTP2Output * __restrict p, ufast n);
 ufast buffer_put(HTTP2Output * __restrict p,
 		 const uchar * __restrict src, uwide length);
 
-/* Copy raw data from the plain memory block to the output */
-/* buffer, which already opened by the buffer_open() call: */
+/* Copy data from the plain memory block to the output */
+/* buffer (which is already opened before this call):  */
 
 uchar *buffer_put_raw(HTTP2Output * __restrict p,
 		      uchar * __restrict dst,
-		      ufast * __restrict n,
+		      ufast * __restrict k_new,
 		      const uchar * __restrict src,
 		      uwide length, ufast * __restrict rc);
 
-/* Copy raw data from the plain memory block to the output */
-/* buffer, which already opened by the buffer_open() call: */
+/* Copy data from the TfwStr string to the output      */
+/* buffer (which is already opened before this call).  */
+/* If error occured, then output parameter "remainder" */
+/* contains the length of unprocessed part of the      */
+/* TfwStr string (user can supply NULL pointer here):  */
 
 uchar *buffer_put_string(HTTP2Output * __restrict p,
 			 uchar * __restrict dst,
-			 ufast * __restrict n,
+			 ufast * __restrict k_new,
 			 const TfwStr * __restrict source,
-			 ufast * __restrict rc);
+			 ufast * __restrict rc, uwide * __restrict remainder);
 
 /* ------------------------------------------ */
 /* Supplementary functions related to TfwStr: */
 /* ------------------------------------------ */
 
-/* Compare plain memory string "x" with array of the   */
-/* TfwStr fragments represented by the "fp" pointer.   */
-/* Here "n" is the minimum between the total length    */
-/* of all "fp" fragments and the length of "x" string: */
+/* Compare plain memory string "x" with array of the */
+/* TfwStr fragments represented by the "fp" pointer. */
+/* Parameter "n" is the minimum between the total    */
+/* length of all "fp" fragments and the length of    */
+/* the "x" string:                                   */
 
 int buffer_str_cmp_plain(const uchar * __restrict x,
 			 const TfwStr * __restrict fp, uwide n);
@@ -285,16 +288,16 @@ int buffer_str_cmp_complex(const TfwStr * __restrict fx,
 
 wide buffer_str_cmp(const TfwStr * __restrict x, const TfwStr * __restrict y);
 
-/* Calculate simple hash function by the string: */
+/* Calculate simple hash function of the TfwStr string: */
 
 uwide buffer_str_hash(const TfwStr * __restrict x);
 
-/* Copy data from the TfwStr to plain array: */
+/* Copy data from the TfwStr string to plain array: */
 
 void buffer_str_to_array(uchar * __restrict data,
 			 const TfwStr * __restrict str);
 
-/* Print TfwStr string: */
+/* Print the TfwStr string: */
 
 void buffer_str_print(const TfwStr * __restrict str);
 
