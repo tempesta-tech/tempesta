@@ -42,6 +42,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  *
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
+ * @sched_data	- private scheduler data for the server;
  * @apm		- opaque handle for APM stats;
  * @weight	- static server weight for load balancers;
  * @conn_n	- configured number of connections to the server;
@@ -50,8 +51,8 @@ typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	TfwSrvGroup		*sg;
+	void			*sched_data;
 	void			*apm;
-	int			stress;
 	int			weight;
 	int			conn_n;
 } TfwServer;
@@ -91,15 +92,19 @@ struct tfw_srv_group_t {
 	char			name[0];
 };
 
-/* Server related flags. */
-#define TFW_SRV_RETRY_NIP	0x0001	/* Retry non-idemporent req. */
-/*
+/* Server related flags.
  * Lower 4 bits keep an index into APM stats array.
  */
 #define TFW_SG_F_PSTATS_IDX_MASK	0x000f
 #define TFW_SG_F_SCHED_RATIO_STATIC	0x0010
 #define TFW_SG_F_SCHED_RATIO_DYNAMIC	0x0020
 #define TFW_SG_F_SCHED_RATIO_PREDICT	0x0040
+
+#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idemporent req. */
+#define TFW_SRV_STICKY			0x0200	/* Use sticky sessions. */
+#define TFW_SRV_STICKY_FAILOVER		0x0400	/* Allow failovering. */
+#define TFW_SRV_STICKY_FLAGS		\
+	(TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER)
 
 /**
  * Requests scheduling algorithm handler.
@@ -113,18 +118,18 @@ struct tfw_srv_group_t {
  * @add_conn	- add connection and server if it's new.
 		  Called in process context at configuration time;
  * @sched_grp	- server group scheduling virtual method.
-		  Typically returns the result of underlying @sched_srv();
- * @sched_srv	- requests scheduling virtual method.
-		  May be called in heavily concurrent environment;
+		  Typically returns the result of @tfw_sched_get_sg_srv_conn();
+ * @sched_sg_conn	- virtual method. Schedule a request to a server from
+ *			  given server group. Returns a server connection;
+ * @sched_srv_conn	- schedule a request to the given server.
+ *			  Returns a server connection;
  *
- * All schedulers must be able to scheduler messages among servers of one
- * server group, i.e. @sched_srv must be defined.
- * However, not all the schedulers are able to designate target server group.
- * If a scheduler determines server group, then it should register @sched_grp
- * callback. The callback determines the target server group which references
- * a scheduler responsible to distribute messages in the group.
- * For the avoidance of unnecessary calls, any @sched_grp callback must call
- * @sched_srv callback of the target scheduler.
+ * There can be 2 kind of schedulers. Tier-2 schedulers can determine the
+ * target server connection by server or server group (@sched_srv_conn and
+ * @sched_sg_conn callbacks). Each server group is bound to one of tier-2
+ * schedulers. Group schedulers can determine the target server group from
+ * request's content (@sched_grp callback) and then get an outgoing
+ * connection by calling @tfw_sched_get_sg_srv_conn().
  */
 struct tfw_scheduler_t {
 	const char		*name;
@@ -134,7 +139,8 @@ struct tfw_scheduler_t {
 	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
 					    TfwSrvConn *srv_conn);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
-	TfwSrvConn		*(*sched_srv)(TfwMsg *msg, TfwSrvGroup *sg);
+	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
+	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 };
 
 /* Server specific routines. */
@@ -168,7 +174,7 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 TfwSrvGroup *tfw_sg_lookup(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 void tfw_sg_free(TfwSrvGroup *sg);
-int tfw_sg_count(void);
+unsigned int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn);
@@ -178,6 +184,9 @@ void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwSrvConn *__tfw_sched_get_srv_conn(TfwMsg *msg);
+TfwSrvConn *tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+				      TfwSrvGroup *backup_sg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);

@@ -16,6 +16,8 @@ class Config(object):
         self.options = [
             # Default concurrent.
             ('concurrent', '25'),
+            # Limit of threads.
+            ('limit', '255'),
             # Disable printing eash transaction to stdout.
             ('verbose', 'false'),
             # Leave color for humas. It breaks regexes.

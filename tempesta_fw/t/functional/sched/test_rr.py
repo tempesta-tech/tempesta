@@ -8,6 +8,7 @@ count.
 import unittest
 import math
 import random
+import sys
 from helpers import tempesta
 from testers import stress
 
@@ -15,19 +16,28 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-
-class FairLoadEqualConns(stress.StressTest):
-    """ Round-Robin scheduler loads all the upstream servers in the fair
-        way. In this test servers have the same connections count.
-        """
-
-    # Precision of fair loading.
-    precision = 0.02
+class RrStressTest(stress.StressTest):
+    """Stress test for RR scheduler: max servers in group, default keep-alive
+    settings. Clients must not recieve non-2xx answers.
+    """
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
 
+    def test_rr(self):
+        self.generic_test_routine('cache 0;\n')
+
+
+class FairLoadEqualConns(RrStressTest):
+    """ Round-Robin scheduler loads all the upstream servers in the fair
+    way. In this test servers have the same connections count.
+    """
+
+    # Precision of fair loading.
+    precision = 0.005
+
     def assert_servers(self):
+        """All servers must recieve almost equal amount of requests."""
         self.servers_get_stats()
         cl_reqs = self.tempesta.stats.cl_msg_forwarded
         s_reqs_expected = cl_reqs / len(self.servers)
@@ -39,6 +49,9 @@ class FairLoadEqualConns(stress.StressTest):
         self.assertEqual(s_reqs, self.tempesta.stats.cl_msg_forwarded)
 
     def test_rr(self):
+        # Server connections failovering may affect load distribution.
+        for s in self.servers:
+            s.config.set_ka(sys.maxsize)
         self.generic_test_routine('cache 0;\n')
 
 
