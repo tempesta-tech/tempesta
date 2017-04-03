@@ -45,50 +45,21 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	TfwSrvConn	*srv_conn;
-	unsigned long	hash;
-} TfwConnHashEnt;
+	size_t			conn_n;
+	TfwServer		*srv;
+	TfwSrvConn		**conn;
+	unsigned long		*hash;
+} TfwHashSrv;
 
 typedef struct {
-	TfwConnHashEnt	*chent;
-	int		conn_n;
-} TfwConnHash;
-
-/* The last item is used as the list terminator. */
-#define __HLIST_SZ(n)		((n) + 1)
-#define __HDATA_SZ(n)		(__HLIST_SZ(n) * sizeof(TfwConnHashEnt))
-
-static int
-tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
-{
-	int conn_n = 0;
-	TfwServer *srv;
-	TfwConnHash *ch;
-
-	list_for_each_entry(srv, &sg->srv_list, list)
-		conn_n += srv->conn_n;
-
-	ch = kzalloc(sizeof(TfwConnHash) + __HDATA_SZ(conn_n), GFP_KERNEL);
-	if (!ch)
-		return -ENOMEM;
-
-	ch->chent = (TfwConnHashEnt *)(ch + 1);
-	ch->conn_n = conn_n;
-	sg->sched_data = ch;
-
-	return 0;
-}
-
-static void
-tfw_sched_hash_free_data(TfwSrvGroup *sg)
-{
-	kfree(sg->sched_data);
-	sg->sched_data = NULL;
-}
+	size_t			conn_n;
+	size_t			srv_n;
+	TfwHashSrv		*srvs;
+} TfwHashSrvList;
 
 static unsigned long
 __calc_conn_hash(TfwServer *srv, size_t conn_idx)
@@ -118,21 +89,33 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 	return hash_long(hash ^ conn_idx, BITS_PER_LONG);
 }
 
-static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
+static inline void
+__find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
+		 unsigned long *best_weight, unsigned long msg_hash)
 {
 	size_t i;
-	TfwConnHash *ch = sg->sched_data;
 
-	BUG_ON(!ch);
-	for (i = 0; i < __HLIST_SZ(ch->conn_n); ++i) {
-		if (ch->chent[i].srv_conn)
+	for (i = 0; i < srv_cl->conn_n; ++i) {
+		unsigned long curr_weight;
+		TfwSrvConn *conn = srv_cl->conn[i];
+
+		if (unlikely(tfw_srv_conn_restricted(conn)
+			     || tfw_srv_conn_queue_full(conn)
+			     || !tfw_srv_conn_live(conn)))
 			continue;
-		ch->chent[i].srv_conn = srv_conn;
-		ch->chent[i].hash = __calc_conn_hash(srv, i);
-		return;
+
+		curr_weight = msg_hash ^ srv_cl->hash[i];
+		/*
+		 * XOR might return 0, more or equal comparisson is required.
+		 * If server have only one active connection it still may
+		 * be the best connecton to serve the request. More likely
+		 * to happen when serving via @tfw_sched_hash_get_srv_conn().
+		 */
+		if (curr_weight >= *best_weight) {
+			*best_weight = curr_weight;
+			*best_conn = conn;
+		}
 	}
-	BUG();
 }
 
 /**
@@ -156,42 +139,169 @@ tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
  *    a matching one with the highest weight. That adds some overhead.
  */
 static TfwSrvConn *
-tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	unsigned long tries, msg_hash, curr_weight, best_weight = 0;
-	TfwSrvConn *best_srv_conn = NULL;
-	TfwConnHash *ch = sg->sched_data;
-	TfwConnHashEnt *chent;
+	TfwHashSrvList *sl = sg->sched_data;
+	unsigned long msg_hash;
+	unsigned long tries = sl->conn_n;;
+
+	BUG_ON(!sl);
 
 	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	for (tries = 0; tries < __HLIST_SZ(ch->conn_n); ++tries) {
-		for (chent = ch->chent; chent->srv_conn; ++chent) {
-			if (unlikely(tfw_srv_conn_restricted(chent->srv_conn)
-				     || tfw_srv_conn_queue_full(chent->srv_conn)
-				     || !tfw_srv_conn_live(chent->srv_conn)))
-				continue;
-			curr_weight = msg_hash ^ chent->hash;
-			if (curr_weight > best_weight) {
-				best_weight = curr_weight;
-				best_srv_conn = chent->srv_conn;
-			}
+	while (--tries) {
+		size_t i;
+		unsigned long best_weight = 0;
+		TfwSrvConn *best_conn = NULL;
+
+		for (i = 0; i < sl->srv_n; ++i) {
+			TfwHashSrv *srv_cl = &sl->srvs[i];
+			__find_best_conn(&best_conn, srv_cl, &best_weight,
+					 msg_hash);
 		}
-		if (unlikely(!best_srv_conn))
+		if (unlikely(!best_conn))
 			return NULL;
-		if (likely(tfw_srv_conn_get_if_live(best_srv_conn)))
-			return best_srv_conn;
+		if (likely(tfw_srv_conn_get_if_live(best_conn)))
+			return best_conn;
 	}
 	return NULL;
 }
 
+/**
+ * Same as @tfw_sched_hash_get_sg_conn(), but schedule for a specific server
+ * in a group.
+ */
+static TfwSrvConn *
+tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+	unsigned long msg_hash;
+	size_t tries;
+	TfwHashSrv *srv_cl = srv->sched_data;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	/* Try several times even if server has just a few connections. */
+	tries = srv_cl->conn_n + 1;
+	while (--tries) {
+		unsigned long best_weight = 0;
+		TfwSrvConn *best_conn = NULL;
+
+		__find_best_conn(&best_conn, srv_cl, &best_weight, msg_hash);
+		if (unlikely(!best_conn))
+			return NULL;
+		if (likely(tfw_srv_conn_get_if_live(best_conn)))
+			return best_conn;
+	}
+	return NULL;
+}
+
+static void
+tfw_sched_hash_cleanup(TfwSrvGroup *sg)
+{
+	size_t si;
+	TfwHashSrvList *sl = sg->sched_data;
+
+	if (!sl)
+		return;
+
+	for (si = 0; si < sl->srv_n; ++si) {
+		if (sl->srvs[si].conn)
+			kfree(sl->srvs[si].conn);
+		if (sl->srvs[si].hash)
+			kfree(sl->srvs[si].hash);
+	}
+
+	kfree(sl);
+	sg->sched_data = NULL;
+}
+
+static void
+tfw_sched_hash_del_grp(TfwSrvGroup *sg)
+{
+	tfw_sched_hash_cleanup(sg);
+}
+
+static int
+tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+{
+	int ret = -ENOMEM;
+	size_t size, si, ci;
+	unsigned int sum_conn_n;
+	TfwServer *srv;
+	TfwSrvConn *srv_conn;
+	TfwHashSrv *hsrv;
+	TfwHashSrvList *sl;
+
+	/*
+	 * Validate the number of servers in the group, and the number
+	 * of connections for each server.
+	 */
+	si = 0;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		ci = 0;
+		list_for_each_entry(srv_conn, &srv->conn_list, list)
+			++ci;
+		if (ci > srv->conn_n)
+			return -EINVAL;
+		++si;
+	}
+	if (si > sg->srv_n)
+		return -EINVAL;
+
+	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
+	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+	sl = sg->sched_data;
+	sl->srvs = sg->sched_data + sizeof(TfwHashSrvList);
+	sl->srv_n = sg->srv_n;
+
+	sum_conn_n = 0;
+	hsrv = sl->srvs;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		size = sizeof(hsrv->conn[0]) * srv->conn_n;
+		if (!(hsrv->conn = kzalloc(size, GFP_KERNEL)))
+			goto cleanup;
+		size = sizeof(hsrv->hash[0]) * srv->conn_n;
+		if (!(hsrv->hash = kzalloc(size, GFP_KERNEL)))
+			goto cleanup;
+		ci = 0;
+		list_for_each_entry(srv_conn, &srv->conn_list, list) {
+			++sum_conn_n;
+			hsrv->conn[ci] = srv_conn;
+			hsrv->hash[ci++] = __calc_conn_hash(srv, sum_conn_n);
+		}
+		hsrv->conn_n = srv->conn_n;
+		hsrv->srv = srv;
+		srv->sched_data = hsrv;
+		++hsrv;
+	}
+	sl->conn_n = sum_conn_n;
+
+	return 0;
+
+cleanup:
+	tfw_sched_hash_cleanup(sg);
+	return ret;
+}
+
+static void
+tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *conn)
+{
+}
 
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
-	.add_grp	= tfw_sched_hash_alloc_data,
-	.del_grp	= tfw_sched_hash_free_data,
+	.add_grp	= tfw_sched_hash_add_grp,
+	.del_grp	= tfw_sched_hash_del_grp,
 	.add_conn	= tfw_sched_hash_add_conn,
-	.sched_srv	= tfw_sched_hash_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
+	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };
 
 int

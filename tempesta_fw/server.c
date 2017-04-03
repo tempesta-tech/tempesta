@@ -152,10 +152,10 @@ tfw_sg_free(TfwSrvGroup *sg)
 	kfree(sg);
 }
 
-int
+unsigned int
 tfw_sg_count(void)
 {
-	int count = 0;
+	unsigned int count = 0;
 	TfwSrvGroup *sg;
 
 	read_lock(&sg_lock);

@@ -43,7 +43,7 @@ MODULE_LICENSE("GPL");
  * @conns	- list of pointers to server connection structures.
  * @counter	- monotonic counter for choosing the next connection.
  * @conn_n	- number of connections to server.
- * @seq		- current sequence number for APM pstats.
+ * @seq		- current sequence number for APM stats.
  */
 typedef struct {
 	TfwServer	*srv;
@@ -538,7 +538,7 @@ tfw_sched_ratio_is_srv_turn(TfwRatio *ratio, size_t csidx)
  * many atomic operations including CMPXCHG and checking loops. It seems
  * that it won't give any advantage.
  */
-static size_t
+static TfwRatioSrvDesc *
 tfw_sched_ratio_next_srv(TfwRatio *ratio)
 {
 	size_t csidx;
@@ -593,7 +593,7 @@ retry:
 			schdata->riter = 1;
 		}
 		spin_unlock(&schdata->lock);
-		return srvdata[csidx].sdidx;
+		return ratio->srvdesc + srvdata[csidx].sdidx;
 	}
 	/*
 	 * This is not the turn of the current server. Start
@@ -604,6 +604,59 @@ retry:
 	goto retry;
 
 	spin_unlock(&schdata->lock);
+}
+
+static inline TfwSrvConn *
+__sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
+{
+	size_t ci;
+
+	for (ci = 0; ci < srvdesc->conn_n; ++ci) {
+		unsigned long idxval = atomic64_inc_return(&srvdesc->counter);
+		TfwSrvConn *srv_conn = srvdesc->conns[idxval % srvdesc->conn_n];
+
+		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+			     || tfw_srv_conn_queue_full(srv_conn)))
+			continue;
+		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+			if (likely(tfw_srv_conn_live(srv_conn)))
+				++(*nipconn);
+			continue;
+		}
+		if (likely(tfw_srv_conn_get_if_live(srv_conn)))
+			return srv_conn;
+	}
+
+	return NULL;
+}
+
+/**
+ * Same as @tfw_sched_ratio_sched_sg_conn(), but schedule a connection
+ * to a specific server in a group.
+ */
+static TfwSrvConn *
+tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+        int skipnip = 1, nipconn = 0;
+        TfwRatioSrvDesc *srvdesc = srv->sched_data;
+        TfwSrvConn *srv_conn;
+
+        /*
+	 * For @srv without connections @srvdesc will be NULL. Normally,
+	 * it doesn't happen in real life, but unit tests check this case.
+	 */
+        if (unlikely(!srvdesc))
+                return NULL;
+rerun:
+        if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
+                return srv_conn;
+
+        if (skipnip && nipconn) {
+                skipnip = 0;
+                goto rerun;
+        }
+
+        return NULL;
 }
 
 /**
@@ -626,28 +679,49 @@ retry:
  * according to servers weights.
  */
 static TfwSrvConn *
-tfw_sched_ratio_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	uint64_t idxval;
-	size_t csidx;
+	size_t srv_tried_n = 0;
+        int skipnip = 1, nipconn = 0;
 	TfwRatioPool *rpool = sg->sched_data;
-	TfwRatio *ratio;
-	TfwRatioSrvDesc *srvdesc;
+	TfwRatioSrvDesc *srvdesc, *srvdesc_last = NULL;
 	TfwSrvConn *srv_conn;
+	TfwRatio *ratio;
 
 	BUG_ON(!rpool);
 
 	rcu_read_lock();
 	ratio = rcu_dereference(rpool->ratio);
 	BUG_ON(!ratio);
-
-	csidx = tfw_sched_ratio_next_srv(ratio);
-	srvdesc = &ratio->srvdesc[csidx];
-	idxval = atomic64_inc_return(&srvdesc->counter);
-	srv_conn = srvdesc->conns[idxval % srvdesc->conn_n];
-	if (tfw_srv_conn_get_if_live(srv_conn)) {
-		rcu_read_unlock();
-		return(srv_conn);
+rerun:
+	/*
+	 * Try each server in a group. Attempt to schedule a connection
+	 * to a server that doesn't fall under a set of restrictions.
+	 *
+	 * FIXME: The way the algorithm works, same server may be chosen
+	 * multiple times in a row, even if that's the server where all
+	 * connections were under restrictions for one reason or another.
+	 * The idea is that the conditions for server's connections may
+	 * change any time, and so the next time one or more connections
+	 * to the same server will not be restricted.
+	 * Perhaps, though, it makes sense to skip these servers that
+	 * were restricted, and go directly to the next server. Getting
+	 * the next server reqires a lock, so perhaps it makes sense to
+	 * to skip these repetitive servers while under the lock.
+	 */
+	while (srv_tried_n < ratio->srv_n) {
+		srvdesc = tfw_sched_ratio_next_srv(ratio);
+		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
+			rcu_read_unlock();
+			return srv_conn;
+		}
+		if (srvdesc != srvdesc_last)
+			++srv_tried_n;
+	}
+	/* Relax the restrictions and re-run the search cycle. */
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
 	}
 
 	rcu_read_unlock();
@@ -669,9 +743,13 @@ tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 
 	/* Free the data that is shared between pool entries. */
 	ratio = rpool->rpool;
-	for (si = 0; si < sg->srv_n; ++si)
-		if (ratio->srvdesc[si].conns)
-			kfree(ratio->srvdesc[si].conns);
+	for (si = 0; si < sg->srv_n; ++si) {
+		TfwRatioSrvDesc *srvdesc = &ratio->srvdesc[si];
+		if (srvdesc->conns)
+			kfree(srvdesc->conns);
+		if (srvdesc->srv)
+			srvdesc->srv->sched_data = NULL;
+	}
 	kfree(ratio->srvdesc);
 
 	/* Free the data that is unique for each pool entry. */
@@ -771,6 +849,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 		srvdesc->conn_n = srv->conn_n;
 		srvdesc->srv = srv;
 		atomic64_set(&srvdesc->counter, 0);
+		srv->sched_data = srvdesc;
 		++srvdesc;
 	}
 
@@ -837,7 +916,8 @@ static TfwScheduler tfw_sched_ratio = {
 	.add_grp	= tfw_sched_ratio_add_grp,
 	.del_grp	= tfw_sched_ratio_del_grp,
 	.add_conn	= tfw_sched_ratio_add_conn,
-	.sched_srv	= tfw_sched_ratio_sched_srv,
+	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
+	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
 };
 
 int

@@ -27,7 +27,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta round-robin scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 /**
@@ -54,104 +54,28 @@ typedef struct {
 	TfwRrSrv	*srvs;
 } TfwRrSrvList;
 
-static void
-tfw_sched_rr_cleanup(TfwSrvGroup *sg)
+static inline TfwSrvConn *
+__sched_srv(TfwRrSrv *srv_cl, int skipnip, int *nipconn)
 {
-	size_t s;
-	TfwRrSrvList *sl = sg->sched_data;
+	size_t c;
 
-	if (!sl)
-		return;
-	for (s = 0; s < sg->srv_n; ++s)
-		if (sl->srvs[s].conns)
-			kfree(sl->srvs[s].conns);
-	kfree(sl->srvs);
-	kfree(sl);
-	sg->sched_data = NULL;
-}
+	for (c = 0; c < srv_cl->conn_n; ++c) {
+		unsigned long idxval = atomic64_inc_return(&srv_cl->rr_counter);
+		TfwSrvConn *srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
 
-static int
-tfw_sched_rr_alloc_data(TfwSrvGroup *sg)
-{
-	int ret;
-	size_t size, srv_n = 0;
-	TfwRrSrvList *sl;
-	TfwServer *srv;
-
-	sg->sched_data = kzalloc(sizeof(TfwRrSrvList), GFP_KERNEL);
-	if (!sg->sched_data)
-		return -ENOMEM;
-	sl = sg->sched_data;
-
-	sl->srvs = kzalloc(sizeof(TfwRrSrv) * sg->srv_n, GFP_KERNEL);
-	if (!sl->srvs) {
-		kfree(sl);
-		return -ENOMEM;
+		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+			     || tfw_srv_conn_queue_full(srv_conn)))
+			continue;
+		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
+			if (likely(tfw_srv_conn_live(srv_conn)))
+				++(*nipconn);
+			continue;
+		}
+		if (likely(tfw_srv_conn_get_if_live(srv_conn)))
+			return srv_conn;
 	}
 
-	list_for_each_entry(srv, &sg->srv_list, list) {
-		if (srv_n >= sg->srv_n) {
-			ret = -EINVAL;
-			goto cleanup;
-		}
-		size = sizeof(TfwSrvConn *) * srv->conn_n;
-		sl->srvs[srv_n].conns = kzalloc(size, GFP_KERNEL);
-		if (!sl->srvs[srv_n].conns) {
-			ret = -ENOMEM;
-			goto cleanup;
-		}
-		++srv_n;
-	}
-
-	return 0;
-
-cleanup:
-	tfw_sched_rr_cleanup(sg);
-	return ret;
-}
-
-static void
-tfw_sched_rr_free_data(TfwSrvGroup *sg)
-{
-	tfw_sched_rr_cleanup(sg);
-}
-
-/**
- * Add a connection and a server, if new, to the scheduler.
- * Called at configuration stage, no synchronization is required.
- */
-static void
-tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	size_t s, c;
-	TfwRrSrv *srv_cl;
-	TfwRrSrvList *sl = sg->sched_data;
-
-	BUG_ON(!sl);
-
-	for (s = 0; s < sl->srv_n; ++s)
-		if (sl->srvs[s].srv == srv)
-			break;
-	BUG_ON(s >= sg->srv_n);
-
-	if (s == sl->srv_n) {
-		sl->srvs[s].srv = srv;
-		++sl->srv_n;
-	}
-
-	srv_cl = &sl->srvs[s];
-	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->conns[c] == srv_conn) {
-			TFW_WARN("sched '%s': attempt to add an existing "
-				 "connection: srv_group '%s' server '%zd' "
-				 "connection '%zd'\n",
-				 sg->sched->name, sg->name, s, c);
-			return;
-		}
-	BUG_ON(c >= srv->conn_n);
-
-	srv_cl->conns[c] = srv_conn;
-	++srv_cl->conn_n;
+	return NULL;
 }
 
 /**
@@ -172,49 +96,154 @@ tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
  * there are available server connections.
  */
 static TfwSrvConn *
-tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_rr_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	size_t c, s;
-	uint64_t idxval;
+	size_t s;
 	int skipnip = 1, nipconn = 0;
 	TfwRrSrvList *sl = sg->sched_data;
-	TfwRrSrv *srv_cl;
-	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sl);
 rerun:
 	for (s = 0; s < sl->srv_n; ++s) {
-		idxval = atomic64_inc_return(&sl->rr_counter);
-		srv_cl = &sl->srvs[idxval % sl->srv_n];
-		for (c = 0; c < srv_cl->conn_n; ++c) {
-			idxval = atomic64_inc_return(&srv_cl->rr_counter);
-			srv_conn = srv_cl->conns[idxval % srv_cl->conn_n];
-			if (unlikely(tfw_srv_conn_restricted(srv_conn)
-				     || tfw_srv_conn_queue_full(srv_conn)))
-				continue;
-			if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
-				if (likely(tfw_srv_conn_live(srv_conn)))
-					nipconn++;
-				continue;
-			}
-			if (likely(tfw_srv_conn_get_if_live(srv_conn)))
-				return srv_conn;
-		}
+		unsigned long idxval = atomic64_inc_return(&sl->rr_counter);
+		TfwRrSrv *srv_cl = &sl->srvs[idxval % sl->srv_n];
+		TfwSrvConn *srv_conn;
+
+		if ((srv_conn = __sched_srv(srv_cl, skipnip, &nipconn)))
+			return srv_conn;
 	}
 	if (skipnip && nipconn) {
 		skipnip = 0;
 		goto rerun;
 	}
+
 	return NULL;
+}
+
+/**
+ * Same as @tfw_sched_rr_get_sg_conn(), but but schedule for a specific server
+ * in a group.
+ */
+static TfwSrvConn *
+tfw_sched_rr_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+{
+	int skipnip = 1, nipconn = 0;
+	TfwRrSrv *srv_cl = srv->sched_data;
+	TfwSrvConn *srv_conn;
+
+	/*
+	 * For @srv without connections srv_cl will be NULL, that normally
+	 * does not happen in real life, but unit tests check that case.
+	*/
+	if (unlikely(!srv_cl))
+		return NULL;
+
+rerun:
+	if ((srv_conn = __sched_srv(srv_cl, skipnip, &nipconn)))
+		return srv_conn;
+
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
+	}
+
+	return NULL;
+}
+
+static void
+tfw_sched_rr_cleanup(TfwSrvGroup *sg)
+{
+	size_t si;
+	TfwRrSrvList *sl = sg->sched_data;
+
+	if (!sl)
+		return;
+
+	for (si = 0; si < sg->srv_n; ++si)
+		if (sl->srvs[si].conns)
+			kfree(sl->srvs[si].conns);
+
+	kfree(sl);
+	sg->sched_data = NULL;
+}
+
+static void
+tfw_sched_rr_del_grp(TfwSrvGroup *sg)
+{
+	tfw_sched_rr_cleanup(sg);
+}
+
+static int
+tfw_sched_rr_add_grp(TfwSrvGroup *sg)
+{
+	int ret = -ENOMEM;
+	size_t size, si, ci;
+	TfwServer *srv;
+	TfwSrvConn *srv_conn;
+	TfwRrSrv *rrsrv;
+	TfwRrSrvList *sl;
+
+	/*
+	 * Validate the number of servers in the group, and the number
+	 * of connections for each server.
+	 */
+	si = 0;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		ci = 0;
+		list_for_each_entry(srv_conn, &srv->conn_list, list)
+			++ci;
+		if (ci > srv->conn_n)
+			return -EINVAL;
+		++si;
+	}
+	if (si > sg->srv_n)
+		return -EINVAL;
+
+	size = sizeof(TfwRrSrvList) + sizeof(TfwRrSrv) * sg->srv_n;
+	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+	sl = sg->sched_data;
+	sl->srvs = sg->sched_data + sizeof(TfwRrSrvList);
+	sl->srv_n = sg->srv_n;
+
+	rrsrv = sl->srvs;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		size = sizeof(rrsrv->conns[0]) * srv->conn_n;
+		if (!(rrsrv->conns = kzalloc(size, GFP_KERNEL)))
+			goto cleanup;
+		ci = 0;
+		list_for_each_entry(srv_conn, &srv->conn_list, list)
+			rrsrv->conns[ci++] = srv_conn;
+		rrsrv->conn_n = srv->conn_n;
+		rrsrv->srv = srv;
+		srv->sched_data = rrsrv;
+		++rrsrv;
+	}
+
+	return 0;
+
+cleanup:
+	tfw_sched_rr_cleanup(sg);
+	return ret;
+}
+
+/**
+ * Add a connection and a server, if new, to the scheduler.
+ * Called at configuration stage, no synchronization is required.
+ */
+static void
+tfw_sched_rr_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
+{
 }
 
 static TfwScheduler tfw_sched_rr = {
 	.name		= "round-robin",
 	.list		= LIST_HEAD_INIT(tfw_sched_rr.list),
-	.add_grp	= tfw_sched_rr_alloc_data,
-	.del_grp	= tfw_sched_rr_free_data,
+	.add_grp	= tfw_sched_rr_add_grp,
+	.del_grp	= tfw_sched_rr_del_grp,
 	.add_conn	= tfw_sched_rr_add_conn,
-	.sched_srv	= tfw_sched_rr_get_srv_conn,
+	.sched_sg_conn	= tfw_sched_rr_get_sg_conn,
+	.sched_srv_conn	= tfw_sched_rr_get_srv_conn,
 };
 
 int
