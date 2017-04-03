@@ -334,6 +334,7 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 	 * It's guaranteed here that NOT all calculated ratio values are
 	 * equal. See if there are ratio values that equal to 1. If so,
 	 * do actions described in step 1 in the function's description.
+	 * Adjust the sum of ratios that is changed in this procedure.
 	 */
 	for (si = 0; si < ratio->srv_n; ++si) {
 		if (srvdata[si].oratio == 1) {
@@ -342,6 +343,7 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 		}
 	}
 	if (has_one_val) {
+		unsigned int orsum = ratio->schdata.orsum;
 		TfwRatioSrvData sdent_one = srvdata[si];
 		TfwRatioSrvData sdent_max = srvdata[max_val_idx];
 
@@ -353,12 +355,15 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 				srvdata[si].weight = sdent_max.weight;
 				srvdata[si].oratio =
 				srvdata[si].cratio = sdent_max.oratio;
+				orsum += sdent_max.oratio - 1;
 			} else if (srvdata[si].oratio == sdent_max.oratio) {
 				srvdata[si].weight = sdent_one.weight;
 				srvdata[si].oratio =
 				srvdata[si].cratio = sdent_one.oratio;
+				orsum -= sdent_max.oratio - 1;
 			}
 		}
+		ratio->schdata.crsum = ratio->schdata.orsum = orsum;
 	}
 
 	/* Sort server data entries by ratio in descending order. */
@@ -743,19 +748,16 @@ tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 
 	/* Free the data that is shared between pool entries. */
 	ratio = rpool->rpool;
-	for (si = 0; si < sg->srv_n; ++si) {
-		TfwRatioSrvDesc *srvdesc = &ratio->srvdesc[si];
-		if (srvdesc->conns)
-			kfree(srvdesc->conns);
-		if (srvdesc->srv)
-			srvdesc->srv->sched_data = NULL;
-	}
+	for (si = 0; si < sg->srv_n; ++si)
+		if (ratio->srvdesc[si].conns)
+			kfree(ratio->srvdesc[si].conns);
 	kfree(ratio->srvdesc);
 
 	/* Free the data that is unique for each pool entry. */
-	for (si = 0, ratio = rpool->rpool; si <= nr_cpu_ids; ++si, ++ratio)
-		if (ratio->srvdata)
-			kfree(ratio->srvdata);
+	ratio = rpool->rpool;
+	for (si = 0; si <= nr_cpu_ids; ++si)
+		if (ratio[si].srvdata)
+			kfree(ratio[si].srvdata);
 
 	kfree(rpool);
 	sg->sched_data = NULL;
@@ -853,7 +855,10 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 		++srvdesc;
 	}
 
-	/* Set up the initial ratio data. */
+	/*
+	 * Set up the initial ratio data. For dynamic ratios it's all
+	 * equal initial weights.
+	 */
 	if (!(sg->flags & (TFW_SG_F_SCHED_RATIO_STATIC
 			   | TFW_SG_F_SCHED_RATIO_DYNAMIC)))
 		BUG();
