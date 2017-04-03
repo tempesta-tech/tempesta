@@ -82,7 +82,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -102,8 +102,6 @@ static TfwHttpMatchList *tfw_sched_http_rules;
 static TfwSrvConn *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
-	TfwSrvGroup *sg;
-	TfwSrvConn *srv_conn;
 	TfwSchedHttpRule *rule;
 
 	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
@@ -116,30 +114,21 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		return NULL;
 	}
 
-	sg = rule->main_sg;
-	BUG_ON(!sg);
-	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
-
-	srv_conn = sg->sched->sched_srv(msg, sg);
-
-	if (unlikely(!srv_conn && rule->backup_sg)) {
-		sg = rule->backup_sg;
-		TFW_DBG("sched_http: the main group is offline, use backup:"
-			" '%s'\n", sg->name);
-		srv_conn = sg->sched->sched_srv(msg, sg);
-	}
-
-	if (unlikely(!srv_conn))
-		TFW_DBG2("sched_http: Unable to select server from group"
-			 " '%s'\n", sg->name);
-
-	return srv_conn;
+	return tfw_sched_get_sg_srv_conn(msg, rule->main_sg, rule->backup_sg);
 }
 
 static TfwSrvConn *
-tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
+	return NULL;
+}
+
+static TfwSrvConn *
+tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
+{
+	WARN_ONCE(true, "tfw_sched_http can't select connection from a server"
+			"\n");
 	return NULL;
 }
 
@@ -147,7 +136,8 @@ static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
-	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
+	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 };
 
 
@@ -274,6 +264,18 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 		if (!backup_sg) {
 			TFW_ERR_NL("sched_http: backup srv_group is not found:"
 				   " '%s'\n", in_backup_sg);
+			return -EINVAL;
+		}
+
+		/* "Default" group is not fully parsed field flag is not set. */
+		if (strcasecmp(in_main_sg, "default")
+		    && strcasecmp(in_backup_sg, "default")
+		    && ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+			(main_sg->flags & TFW_SRV_STICKY_FLAGS)))
+		{
+			TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+				   "have the same sticky sessions settings\n",
+				   in_main_sg, in_backup_sg);
 			return -EINVAL;
 		}
 	}
