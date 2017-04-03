@@ -1,0 +1,21 @@
+Source: tempesta-fw-dkms
+Section: web
+Priority: optional
+Maintainer: Tempeststa Technologies, Inc. <info@tempesta-tech.com>
+Build-Depends: debhelper (>= 9.20160709~), dkms
+Standards-Version: 3.9.8
+Homepage: http://tempesta-tech.com
+Vcs-Git: https://github.com/tempesta-tech/tempesta.git
+Vcs-Browser: https://github.com/tempesta-tech/tempesta.git
+
+Package: tempesta-fw-dkms
+Architecture: amd64
+Depends: dkms (>= 1.95),
+ libboost-dev,
+ libboost-program-options-dev,
+ ${misc:Depends}
+Description: Open-source high-speed application delivery controller.
+ Tempesta FW is an open-source application delivery controller (ADC) built
+ into Linux that provides fast web content acceleration and web application
+ protection. Built into the Linux TCP/IP stack for better and more stable
+ performance relative to usual modern HTTP accelerators and load balancers.
