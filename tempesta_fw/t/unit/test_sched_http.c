@@ -112,7 +112,7 @@ TEST(tfw_sched_http, one_rule_and_zero_conns)
 {
 	TfwSrvGroup *sg = test_create_sg("default");
 	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg, "round-robin");
+	test_start_sg(sg, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -134,7 +134,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	srv = test_create_srv("127.0.0.1", sg);
 	expect_conn = test_create_srv_conn(srv);
 	sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg, "round-robin");
+	test_start_sg(sg, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
@@ -160,61 +160,61 @@ TEST(tfw_sched_http, some_rules)
 	srv = test_create_srv("127.0.0.1", sg1);
 	expect_conn1 = test_create_srv_conn(srv);
 	sg1->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg1, "round-robin");
+	test_start_sg(sg1, "ratio");
 
 	sg2 = test_create_sg("sg2");
 	srv = test_create_srv("127.0.0.1", sg2);
 	expect_conn2 = test_create_srv_conn(srv);
 	sg2->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg2, "round-robin");
+	test_start_sg(sg2, "ratio");
 
 	sg3 = test_create_sg("sg3");
 	srv = test_create_srv("127.0.0.1", sg3);
 	expect_conn3 = test_create_srv_conn(srv);
 	sg3->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg3, "round-robin");
+	test_start_sg(sg3, "ratio");
 
 	sg4 = test_create_sg("sg4");
 	srv = test_create_srv("127.0.0.1", sg4);
 	expect_conn4 = test_create_srv_conn(srv);
 	sg4->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg4, "round-robin");
+	test_start_sg(sg4, "ratio");
 
 	sg5 = test_create_sg("sg5");
 	srv = test_create_srv("127.0.0.1", sg5);
 	expect_conn5 = test_create_srv_conn(srv);
 	sg5->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg5, "round-robin");
+	test_start_sg(sg5, "ratio");
 
 	sg6 = test_create_sg("sg6");
 	srv = test_create_srv("127.0.0.1", sg6);
 	expect_conn6 = test_create_srv_conn(srv);
 	sg6->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg6, "round-robin");
+	test_start_sg(sg6, "ratio");
 
 	sg7 = test_create_sg("sg7");
 	srv = test_create_srv("127.0.0.1", sg7);
 	expect_conn7 = test_create_srv_conn(srv);
 	sg7->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg7, "round-robin");
+	test_start_sg(sg7, "ratio");
 
 	sg8 = test_create_sg("sg8");
 	srv = test_create_srv("127.0.0.1", sg8);
 	expect_conn8 = test_create_srv_conn(srv);
 	sg8->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg8, "round-robin");
+	test_start_sg(sg8, "ratio");
 
 	sg9 = test_create_sg("sg9");
 	srv = test_create_srv("127.0.0.1", sg9);
 	expect_conn9 = test_create_srv_conn(srv);
 	sg9->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg9, "round-robin");
+	test_start_sg(sg9, "ratio");
 
 	sg10 = test_create_sg("sg10");
 	srv = test_create_srv("127.0.0.1", sg10);
 	expect_conn10 = test_create_srv_conn(srv);
 	sg10->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-	test_start_sg(sg10, "round-robin");
+	test_start_sg(sg10, "ratio");
 
 	if (parse_cfg("sched_http_rules {\nmatch sg1 uri eq /foo;\n\
 	                                   match sg2 uri prefix /foo/bar;\n\
@@ -330,7 +330,7 @@ TEST(tfw_sched_http, one_rule)
 		srv = test_create_srv("127.0.0.1", sg);
 		expect_conn = test_create_srv_conn(srv);
 		sg->flags = TFW_SG_F_SCHED_RATIO_STATIC;
-		test_start_sg(sg, "round-robin");
+		test_start_sg(sg, "ratio");
 
 		if (parse_cfg(test_cases[i].rule_str)) {
 			TEST_FAIL("can't parse rules\n");
@@ -351,9 +351,9 @@ TEST_SUITE(sched_http)
 
 	kernel_fpu_end();
 
-	s = tfw_sched_lookup("round-robin");
+	s = tfw_sched_lookup("ratio");
 	if (!s)
-		tfw_sched_rr_init();
+		tfw_sched_ratio_init();
 	tfw_sched_http_init();
 	tfw_server_init();
 

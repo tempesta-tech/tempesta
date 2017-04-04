@@ -32,7 +32,6 @@
 	(TFW_TEST_SG_MAX_SRV_N * TFW_TEST_SRV_MAX_CONN_N)
 
 int tfw_server_init(void);
-int tfw_sched_rr_init(void);
 int tfw_sched_ratio_init(void);
 void sched_helper_init(void);
 

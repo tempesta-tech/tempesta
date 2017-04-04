@@ -1243,7 +1243,7 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.cleanup = tfw_clean_srv_groups
 	},
 	{
-		"sched", "round-robin",
+		"sched", "ratio",
 		tfw_cfgop_in_sched,
 		.allow_none = true,
 		.allow_repeat = false,
@@ -1307,7 +1307,7 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"sched", "round-robin",
+			"sched", "ratio",
 			tfw_cfgop_out_sched,
 			.allow_none = true,
 			.allow_repeat = false,
