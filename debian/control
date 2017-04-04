@@ -13,6 +13,7 @@ Architecture: amd64
 Depends: dkms (>= 1.95),
  libboost-dev,
  libboost-program-options-dev,
+ kdump-tools,
  ${misc:Depends}
 Description: Open-source high-speed application delivery controller.
  Tempesta FW is an open-source application delivery controller (ADC) built
