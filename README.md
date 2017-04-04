@@ -516,7 +516,9 @@ Currently there are two schedulers available:
 * **ratio** - Balances the load across servers in a group based on each
 server's weight. Requests are forwarded more to servers with more weight,
 and less to servers with less weight. As a result, each server in a group
-receives an optimal load. This is the default scheduler.
+receives an optimal load. In default configuration where weights are not
+specified, servers weights are considered equal, and the scheduler works
+in pure round-robin fashion. This is the default scheduler.
 * **hash** - Chooses a server based on a URI/Host hash of a request.
 Requests are distributed uniformly, and requests with the same URI/Host are
 always sent to the same server.
@@ -574,6 +576,16 @@ sched dynamic percentile;
 # Use dynamic scheduler, percentile of 75 is used for weight distribution.
 sched dynamic percentile 75;
 ```
+
+Servers should be grouped together with proper care. Server groups should
+be created with servers that handle similar resources. For instance, if
+servers with static content that is served quickly are grouped together
+with servers with dynamic content that is I/O bound, then the quick
+response times from servers with static content will be nearly invisible
+in comparison to longer response times from servers with dynamic content.
+In that case the distribution of load among these servers will be severely
+skewed.
+
 
 #### HTTP Scheduler
 
