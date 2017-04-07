@@ -780,6 +780,33 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	tfw_sched_ratio_cleanup(sg);
 }
 
+/**     
+ * Validate the integrity of a group.
+ *
+ * Make sure that number of servers in the group, and the number
+ * of connections for each server match the recorded values.
+ */
+static int
+tfw_sched_hash_validate_grp(TfwSrvGroup *sg)
+{
+	size_t si = 0, ci;
+	TfwServer *srv;
+	TfwSrvConn *srv_conn;
+
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		ci = 0;
+		list_for_each_entry(srv_conn, &srv->conn_list, list)
+			++ci;
+		if (ci > srv->conn_n)
+			return -EINVAL;
+		++si;
+	}
+	if (si > sg->srv_n)
+		return -EINVAL;
+
+	return 0;
+}
+
 /**
  * Add a server group to Ratio Scheduler.
  *
@@ -797,20 +824,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 	TfwRatioPool *rpool;
 	TfwRatioSrvDesc *trsdesc, *srvdesc;
 
-	/*
-	 * Validate the number of servers in the group, and the number
-	 * of connections for each server.
-	 */
-	si = 0;
-	list_for_each_entry(srv, &sg->srv_list, list) {
-		ci = 0;
-		list_for_each_entry(srv_conn, &srv->conn_list, list)
-			++ci;
-		if (ci > srv->conn_n)
-			return -EINVAL;
-		++si;
-	}
-	if (si > sg->srv_n)
+	if (!tfw_sched_hash_validate_grp(sg))
 		return -EINVAL;
 
 	/* Pool of TfwRatio{}. Initial place for Ratio Scheduler data. */
@@ -879,48 +893,11 @@ cleanup:
 	return ret;
 }
 
-/**
- * Add a connection and a server, if new, to the scheduler.
- * Called at configuration stage, no synchronization is required.
- *
- * The whole server and server connections data for a group is complete
- * at the time the group is added to the scheduler with add_grp(). Thus
- * the actual role of the function is to make cure that data is the same.
- * The logic is based on the assumption that servers and connections are
- * submitted in the same order as they were when add_grp() was called.
- */
-static void
-tfw_sched_ratio_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	static size_t si = 0, ci = 0;
-	TfwRatioPool *rpool = sg->sched_data;
-	TfwRatio *ratio;
-	TfwRatioSrvDesc *srvdesc;
-	TfwSrvConn *rconn;
-
-	BUG_ON(!rpool);
-	ratio = rpool->ratio;
-
-	/* Make sure that data is the same. */
-	srvdesc = ratio->srvdesc + si;
-	BUG_ON(srvdesc->srv != srv);
-
-	rconn = srvdesc->conns[ci];
-	BUG_ON(rconn != srv_conn);
-
-	if (++ci == srv->conn_n) {
-		ci = 0;
-		if (++si == sg->srv_n)
-			si = 0;
-	}
-}
-
 static TfwScheduler tfw_sched_ratio = {
 	.name		= "ratio",
 	.list		= LIST_HEAD_INIT(tfw_sched_ratio.list),
 	.add_grp	= tfw_sched_ratio_add_grp,
 	.del_grp	= tfw_sched_ratio_del_grp,
-	.add_conn	= tfw_sched_ratio_add_conn,
 	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
 };

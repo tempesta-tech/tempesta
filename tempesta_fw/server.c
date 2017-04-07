@@ -182,13 +182,6 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	write_unlock(&sg->lock);
 }
 
-void
-tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	if (sg->sched && sg->sched->add_conn)
-		sg->sched->add_conn(sg, srv, srv_conn);
-}
-
 int
 tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 {
