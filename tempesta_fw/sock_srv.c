@@ -527,24 +527,6 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
-static inline int
-__tfw_sock_srv_sg_add_conn_cb(TfwSrvConn *srv_conn)
-{
-	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	tfw_sg_add_conn(srv->sg, srv, srv_conn);
-
-	return 0;
-}
-
-static int
-tfw_sock_srv_sg_add_conns(TfwServer *srv)
-{
-	TfwSrvConn *srv_conn;
-
-	return tfw_peer_for_each_conn(srv, srv_conn, list,
-				      __tfw_sock_srv_sg_add_conn_cb);
-}
-
 static int
 tfw_sock_srv_add_conns(TfwServer *srv)
 {
@@ -1212,11 +1194,6 @@ tfw_sock_srv_start(void)
 
 		if ((ret = tfw_cfgop_setup_srv_group()))
 			return ret;
-	}
-	/* Add connections to scheduler for all servers in all groups. */
-	if ((ret = tfw_sg_for_each_srv(tfw_sock_srv_sg_add_conns)) != 0) {
-		TFW_ERR_NL("Error adding server connections\n");
-		return ret;
 	}
 	/*
 	 * This must be executed only after the complete configuration

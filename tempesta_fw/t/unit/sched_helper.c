@@ -68,19 +68,12 @@ test_create_sg(const char *name)
 void
 test_start_sg(TfwSrvGroup *sg, const char *sched_name)
 {
-	TfwServer *srv;
-	TfwSrvConn *srv_conn;
-
 	kernel_fpu_end();
 
 	{
 		int r = tfw_sg_set_sched(sg, sched_name);
 		BUG_ON(r);
 	}
-
-	list_for_each_entry(srv, &sg->srv_list, list)
-		list_for_each_entry(srv_conn, &srv->conn_list, list)
-			sg->sched->add_conn(sg, srv, srv_conn);
 
 	kernel_fpu_begin();
 }
