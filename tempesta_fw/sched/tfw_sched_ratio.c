@@ -28,7 +28,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta Ratio Scheduler");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
 
 #define TFW_SCHED_RATIO_INTVL	(HZ / 20)	/* The timer periodicity. */
@@ -73,7 +73,7 @@ typedef struct {
  *
  * @lock	- must be in the same cache line for faster operations.
  * @csidx	- index of current server data entry.
- * @reidx       - index of next server data entry which ratio we need
+ * @reidx	- index of next server data entry which ratio we need
  *		  to reset, or @srv_n if no resetting is needed.
  * @riter	- ratio iteration, indicates the number of times we need
  *		  to choose all servers before the current one until we
@@ -169,10 +169,10 @@ tfw_sched_ratio_srvdata_cmp(const void *lhs, const void *rhs)
  * Return a non-zero value if additional actions are needed.
  */
 static int
-tfw_sched_ratio_calc(TfwRatio *ratio, unsigned int *arg_max_val_idx)
+tfw_sched_ratio_calc(TfwRatio *ratio, size_t *arg_max_val_idx)
 {
-	size_t si;
-	unsigned int diff, max_val_idx, max_wgt, oratio;
+	size_t si, max_val_idx;
+	unsigned int diff, max_wgt, oratio;
 	unsigned long unit, sum_wgt = 0, sum_ratio = 0;
 	TfwRatioSrvData *srvdata = ratio->srvdata;
 	TfwRatioSchData *schdata = &ratio->schdata;
@@ -236,8 +236,7 @@ tfw_sched_ratio_calc(TfwRatio *ratio, unsigned int *arg_max_val_idx)
 static void
 tfw_sched_ratio_calc_static(TfwRatio *ratio)
 {
-	size_t si;
-	unsigned int max_val_idx = 0;
+	size_t si, max_val_idx = 0;
 	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 	TfwRatioSrvData *srvdata = ratio->srvdata;
 
@@ -285,9 +284,8 @@ tfw_sched_ratio_calc_static(TfwRatio *ratio)
 static int
 tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 {
-	size_t si, left = 0, right = 0;
-	unsigned int recalc = 0, max_ratio = 0;
-	unsigned int has_one_val = 0, max_val_idx = 0;
+	size_t si, max_val_idx = 0, left = 0, right = 0;
+	unsigned int recalc = 0, max_ratio = 0, has_one_val = 0;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
@@ -343,7 +341,7 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 		}
 	}
 	if (has_one_val) {
-		unsigned int orsum = ratio->schdata.orsum;
+		unsigned long orsum = ratio->schdata.orsum;
 		TfwRatioSrvData sdent_one = srvdata[si];
 		TfwRatioSrvData sdent_max = srvdata[max_val_idx];
 
@@ -377,7 +375,7 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 	 * end of the array. Reverse the sequence of server descriptor
 	 * indices in that part of the array.
 	 */
-	if (has_one_val) {
+	if (!has_one_val) {
 		left = 0;
 		right = ratio->srv_n - 1;
 	} else {
@@ -398,9 +396,9 @@ tfw_sched_ratio_calc_dynamic(TfwRatio *ratio)
 	return 1;
 }
 
-/*
- *  * Get a free for use entry from the RCU pool.
- *   */
+/**
+ * Get a free for use entry from the RCU pool.
+ */
 static TfwRatio *
 tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
 {
@@ -415,23 +413,23 @@ tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
 		}
 	}
 
-        return NULL;
+	return NULL;
 }
 
-/*
+/**
  * Return an entry to the RCU pool.
  */
 static inline void
 __tfw_sched_ratio_rpool_put(TfwRatio *ratio)
 {
-        atomic_set(&ratio->free, 1);
-        smp_mb__after_atomic();
+	atomic_set(&ratio->free, 1);
+	smp_mb__after_atomic();
 }
 
 static void
 tfw_sched_ratio_rpool_put(struct rcu_head *rcup)
 {
-        TfwRatio *ratio = container_of(rcup, TfwRatio, rcu);
+	TfwRatio *ratio = container_of(rcup, TfwRatio, rcu);
 	__tfw_sched_ratio_rpool_put(ratio);
 }
 
@@ -515,7 +513,7 @@ rearm:
 static inline bool
 tfw_sched_ratio_is_srv_turn(TfwRatio *ratio, size_t csidx)
 {
-	unsigned int headsum2, tailsum2;
+	unsigned long headsum2, tailsum2;
 	TfwRatioSrvData *srvdata = ratio->srvdata;
 	TfwRatioSchData *schdata = &ratio->schdata;
 
@@ -642,26 +640,26 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 static TfwSrvConn *
 tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
-        int skipnip = 1, nipconn = 0;
-        TfwRatioSrvDesc *srvdesc = srv->sched_data;
-        TfwSrvConn *srv_conn;
+	int skipnip = 1, nipconn = 0;
+	TfwRatioSrvDesc *srvdesc = srv->sched_data;
+	TfwSrvConn *srv_conn;
 
-        /*
+	/*
 	 * For @srv without connections @srvdesc will be NULL. Normally,
 	 * it doesn't happen in real life, but unit tests check this case.
 	 */
-        if (unlikely(!srvdesc))
-                return NULL;
+	if (unlikely(!srvdesc))
+		return NULL;
 rerun:
-        if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
-                return srv_conn;
+	if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
+		return srv_conn;
 
-        if (skipnip && nipconn) {
-                skipnip = 0;
-                goto rerun;
-        }
+	if (skipnip && nipconn) {
+		skipnip = 0;
+		goto rerun;
+	}
 
-        return NULL;
+	return NULL;
 }
 
 /**
@@ -686,10 +684,9 @@ rerun:
 static TfwSrvConn *
 tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	size_t srv_tried_n = 0;
-        int skipnip = 1, nipconn = 0;
+	unsigned int attempts, skipnip = 1, nipconn = 0;
 	TfwRatioPool *rpool = sg->sched_data;
-	TfwRatioSrvDesc *srvdesc, *srvdesc_last = NULL;
+	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn;
 	TfwRatio *ratio;
 
@@ -700,28 +697,34 @@ tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	BUG_ON(!ratio);
 rerun:
 	/*
-	 * Try each server in a group. Attempt to schedule a connection
-	 * to a server that doesn't fall under a set of restrictions.
+	 * Try servers in a group according to their ratios. Attempt to
+	 * schedule a connection that is not under a set of restrictions.
 	 *
-	 * FIXME: The way the algorithm works, same server may be chosen
+	 * NOTE: The way the algorithm works, same server may be chosen
 	 * multiple times in a row, even if that's the server where all
 	 * connections were under restrictions for one reason or another.
 	 * The idea is that the conditions for server's connections may
 	 * change any time, and so the next time one or more connections
 	 * to the same server will not be restricted.
-	 * Perhaps, though, it makes sense to skip these servers that
-	 * were restricted, and go directly to the next server. Getting
-	 * the next server reqires a lock, so perhaps it makes sense to
-	 * to skip these repetitive servers while under the lock.
+	 * Also, servers are chosen concurrently, so a particular thread
+	 * may not be able to probe all servers in a group.
+	 *
+	 * These properties suggest that a limit is needed on the number
+	 * of attempts to find the right connection. This limit appears
+	 * to be purely empirical.
+	 *
+	 * A tricky issue here is that the algorithm assumes two passes.
+	 * One runs under full set of restrictions, and the other runs
+	 * under restrictions that are slightly relaxed. It's likely
+	 * that servers probed in these two passes are not the same.
 	 */
-	while (srv_tried_n < ratio->srv_n) {
+	attempts = ratio->srv_n * 2 + 1;
+	while (--attempts) {
 		srvdesc = tfw_sched_ratio_next_srv(ratio);
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
 			rcu_read_unlock();
 			return srv_conn;
 		}
-		if (srvdesc != srvdesc_last)
-			++srv_tried_n;
 	}
 	/* Relax the restrictions and re-run the search cycle. */
 	if (skipnip && nipconn) {
