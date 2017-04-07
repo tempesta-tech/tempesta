@@ -45,7 +45,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.4.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -143,7 +143,7 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	TfwHashSrvList *sl = sg->sched_data;
 	unsigned long msg_hash;
-	unsigned long tries = sl->conn_n;;
+	unsigned long tries = sl->conn_n;
 
 	BUG_ON(!sl);
 
@@ -226,22 +226,19 @@ tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 	tfw_sched_hash_cleanup(sg);
 }
 
+/**
+ * Validate the integrity of a group.
+ *
+ * Make sure that number of servers in the group, and the number
+ * of connections for each server match the recorded values.
+ */
 static int
-tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+tfw_sched_hash_validate_grp(TfwSrvGroup *sg)
 {
-	int ret = -ENOMEM;
-	size_t size, si, ci;
-	unsigned int sum_conn_n;
+	size_t si = 0, ci;
 	TfwServer *srv;
 	TfwSrvConn *srv_conn;
-	TfwHashSrv *hsrv;
-	TfwHashSrvList *sl;
 
-	/*
-	 * Validate the number of servers in the group, and the number
-	 * of connections for each server.
-	 */
-	si = 0;
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		ci = 0;
 		list_for_each_entry(srv_conn, &srv->conn_list, list)
@@ -251,6 +248,23 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 		++si;
 	}
 	if (si > sg->srv_n)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+{
+	int ret = -ENOMEM;
+	size_t size, ci;
+	unsigned int sum_conn_n;
+	TfwServer *srv;
+	TfwSrvConn *srv_conn;
+	TfwHashSrv *hsrv;
+	TfwHashSrvList *sl;
+
+	if (!tfw_sched_hash_validate_grp(sg))
 		return -EINVAL;
 
 	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
@@ -289,17 +303,11 @@ cleanup:
 	return ret;
 }
 
-static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *conn)
-{
-}
-
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
 	.add_grp	= tfw_sched_hash_add_grp,
 	.del_grp	= tfw_sched_hash_del_grp,
-	.add_conn	= tfw_sched_hash_add_conn,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };

@@ -112,13 +112,12 @@ struct tfw_srv_group_t {
  * @name	- name of the algorithm;
  * @list	- member in the list of registered schedulers;
  * @add_grp	- add server group to the scheduler.
-		  Called in process context at configuration time.
- *		  Called only after the group is set up with all servers;
+ *		  Called in process context at configuration time.
+ *		  Called only after all servers are set up with connections,
+ *		  and the group is set up with all servers;
  * @del_grp	- delete server group from the scheduler;
- * @add_conn	- add connection and server if it's new.
-		  Called in process context at configuration time;
  * @sched_grp	- server group scheduling virtual method.
-		  Typically returns the result of @tfw_sched_get_sg_srv_conn();
+ *		  Typically returns the result of @tfw_sched_get_sg_srv_conn();
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
@@ -136,8 +135,6 @@ struct tfw_scheduler_t {
 	struct list_head	list;
 	int			(*add_grp)(TfwSrvGroup *sg);
 	void			(*del_grp)(TfwSrvGroup *sg);
-	void			(*add_conn)(TfwSrvGroup *sg, TfwServer *srv,
-					    TfwSrvConn *srv_conn);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
@@ -177,7 +174,6 @@ void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
