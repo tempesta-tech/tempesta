@@ -790,6 +790,8 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			ss_do_close(sk);
 			sock_put(sk);
+			if (!lsk)
+				ss_active_guard_exit(SS_V_ACT_LIVECONN);
 			return;
 		}
 
