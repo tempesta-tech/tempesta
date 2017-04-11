@@ -1329,7 +1329,8 @@ huffman_check(const char *__restrict source, uwide n)
 		while (--n && current < limit) {
 			current += ht_length[*src++];
 		}
-		return (current + 7) >> 3;
+		current = (current + 7) >> 3;
+		return current <= n ? current : n;
 	} else {
 		return 0;
 	}
@@ -1360,7 +1361,8 @@ huffman_check_fragments(const TfwStr * __restrict source, uwide n)
 				--n;
 			} while (--m && current < limit);
 		} while (current < limit && n);
-		return (current + 7) >> 3;
+		current = (current + 7) >> 3;
+		return current <= n ? current : n;
 	} else {
 		return 0;
 	}

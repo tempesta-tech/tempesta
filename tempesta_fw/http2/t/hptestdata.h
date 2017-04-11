@@ -21,7 +21,6 @@
  */
 
 static HPackTestData test [] = {
-
 	{26, 0,
 	 "\x40"                               /* == Literal indexed ==       */
 	 "\x0A"                               /* Literal name (len = 10)     */
@@ -52,7 +51,7 @@ static HPackTestData test [] = {
 					      /* :method		     */
 					      /* GET			     */
 
-	{19, -4096,
+	{20, -4096,
 	 "\x82"                               /* == Indexed - Add ==         */
 					      /* idx = 2		     */
 					      /* :method		     */
@@ -68,7 +67,7 @@ static HPackTestData test [] = {
 	 "\x41"                               /* == Literal indexed ==       */
 					      /* Indexed name (idx = 1)      */
 					      /* :authority		     */
-					      /* Literal value (len = 15)    */
+	 "\x0F"                               /* Literal value (len = 15)    */
 	 "\x77\x77\x77\x2E\x65\x78\x61\x6D"   /* www.example.com             */
 	 "\x70\x6C\x65\x2E\x63\x6F\x6D"},     /*                             */
 

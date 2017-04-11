@@ -66,6 +66,9 @@ enum {
 /*	       decoding interrupted due to absence    */
 /*	       of the next fragment.		      */
 /* saved:      Current integer value (see above).     */
+/* index:      Saved index value, used when decoding  */
+/*	       interruped due to absence of the next  */
+/*	       fragment.			      */
 /* field:      Last header field name and value,      */
 /*	       used when decoding proccess interruped */
 /*	       due to absence of the next fragment.   */
@@ -78,9 +81,10 @@ typedef struct {
 	ufast state;
 	ufast shift;
 	uwide saved;
-	 HTTP2Field * field;
-	 TfwPool * pool;
-	 HTTP2Index * dynamic;
+	uwide index;
+	HTTP2Field *field;
+	TfwPool *pool;
+	HTTP2Index *dynamic;
 	ufast max_window;
 	ufast window;
 } HPack;
