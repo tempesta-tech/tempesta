@@ -90,47 +90,50 @@ write_string(HTTP2Output * __restrict out,
 		ufast n = x->len;
 
 		if (x->arena == HPack_Arena_User) {
-			ufast m = huffman_check_fragments(x->ptr, n);
+			const ufast m = huffman_check_fragments(x->ptr, n);
 
 			dst =
-			    write_index(out, dst, k_new, m, 0x7F, (n < n) << 7,
+			    write_index(out, dst, k_new, m, 0x7F, (m < n) << 7,
 					rc);
-			if (unlikely(rc)) {
-				goto Bug;
-			}
-			if (m < n) {
-				return huffman_encode_fragments(out, dst, k_new,
-								x->ptr, rc);
-			} else {
-				return buffer_put_raw(out, dst, k_new, x->ptr,
-						      n, rc);
+			if (rc == 0) {
+				if (m < n) {
+					return huffman_encode_fragments(out,
+									dst,
+									k_new,
+									x->ptr,
+									rc);
+				} else {
+					return buffer_put_string(out, dst,
+								 k_new, x->ptr,
+								 rc, NULL);
+				}
 			}
 		} else {
-			ufast m = huffman_check(x->ptr, n);
+			const ufast m = huffman_check(x->ptr, n);
 
-			write_index(out, dst, k_new, m, 0x7F, (n < n) << 7, rc);
-			if (unlikely(rc)) {
-				goto Bug;
-			}
-			if (m < n) {
-				return huffman_encode_plain(out, dst, k_new,
-							    x->ptr, m, rc);
-			} else {
-				return buffer_put_raw(out, dst, k_new, x->ptr,
-						      n, rc);
+			dst =
+			    write_index(out, dst, k_new, m, 0x7F, (m < n) << 7,
+					rc);
+			if (rc == 0) {
+				if (m < n) {
+					return huffman_encode_plain(out, dst,
+								    k_new,
+								    x->ptr, m,
+								    rc);
+				} else {
+					return buffer_put_raw(out, dst, k_new,
+							      x->ptr, n, rc);
+				}
 			}
 		}
+	} else {
+		k = *k_new;
+		CheckByte_goto(out, Bug);
+		*dst++ = 0;
+		*k_new = k - 1;
+		*rc = 0;
 	}
-	k = *k_new;
-	CheckByte_goto(out, Bug);
-	*dst++ = 0;
-	*k_new = k - 1;
-	*rc = 0;
 	return dst;
- Bug:
-	*rc = Err_HTTP2_OutOfMemory;
-	*k_new = 0;
-	return NULL;
 }
 
 ufast

@@ -35,10 +35,10 @@
 /* HPack string (used for the various buffers): */
 
 enum {
-	HPack_Arena_Static = 0,	/* String resides in the static memory.     */
+	HPack_Arena_Static = 0, /* String resides in the static memory.     */
 	HPack_Arena_Dynamic,	/* String allocated from the classic heap.  */
 	HPack_Arena_User	/* String allocated from the user-conrolled */
-	    /* memory (in form of the TfwStr).          */
+				/* memory (in form of the TfwStr).	    */
 };
 
 /* ptr:   Pointer to the static memory block (plain, may be directly  */
@@ -68,22 +68,23 @@ typedef struct {
 
 /* HPack index structure: */
 
-/* n:	    Current length of the dynamic table      */
-/*	    (in entries).			     */
-/* current: Circular buffer pointer to recent entry. */
-/* length:  Real number of allocated entries.	     */
-/* size:    Current pseudo-length of the dynamic     */
-/*	    headers table (in bytes).		     */
-/* window:  Maximum pseudo-length of the dynamic     */
-/*	    table (in bytes). This value used as     */
-/*	    threshold to flushing old entries.	     */
-/* entries: Dynamic table entries.		     */
-/* sub:     Sub-allocator for HPackStr descriptors.  */
-/* hash:    Hash table texts of names and values.    */
-/* pairs:   Hash table with {name, value} tuples.    */
-/* names:   Hash table with name pointers.	     */
-/* pool:    Memory pool, which used for dynamic      */
-/*	    table.				     */
+/* n:	       Current length of the dynamic table	*/
+/*	       (in entries).				*/
+/* current:    Circular buffer pointer to recent entry. */
+/* length:     Real number of allocated entries.	*/
+/* size:       Current pseudo-length of the dynamic	*/
+/*	       headers table (in bytes).		*/
+/* window:     Maximum pseudo-length of the dynamic	*/
+/*	       table (in bytes). This value used as	*/
+/*	       threshold to flushing old entries.	*/
+/* entries:    Dynamic table entries.			*/
+/* sub:        Sub-allocator for HPackStr descriptors.	*/
+/* is_encoder: Non-zero if HPack index used by encoder. */
+/* hash:       Hash table texts of names and values.	*/
+/* pairs:      Hash table with {name, value} tuples.	*/
+/* names:      Hash table with name pointers.		*/
+/* pool:       Memory pool, which used for dynamic	*/
+/*	       table.					*/
 
 struct HTTP2Index {
 	ufast n;
@@ -91,12 +92,13 @@ struct HTTP2Index {
 	ufast length;
 	ufast size;
 	ufast window;
-	 HPackEntry * entries;
+	HPackEntry *entries;
 	Sub *sub;
-	 Hash * hash;
-	 Hash * pairs;
-	 Hash * names;
-	 TfwPool * pool;
+	byte is_encoder;
+	Hash *hash;
+	Hash *pairs;
+	Hash *names;
+	TfwPool *pool;
 };
 
 ufast hpack_add(HTTP2Index * __restrict ip,
@@ -124,5 +126,7 @@ void hpack_free_index(HTTP2Index * __restrict ip);
 void hpack_index_init(TfwPool * __restrict pool);
 
 void hpack_index_shutdown(void);
+
+void hpack_str_print(const HPackStr * __restrict str);
 
 #endif

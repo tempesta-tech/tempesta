@@ -76,8 +76,9 @@ hpack_decode(HPack * __restrict hp,
 		ufast state = hp->state;
 
 		do {
+			uwide index = hp->index;
+
 			/* Initialized only to prevent compiler warnings: */
-			uwide index = 0;
 			uwide length = 0;
 
 			switch (state & HPack_State_Mask) {
@@ -85,6 +86,7 @@ hpack_decode(HPack * __restrict hp,
 				GET_CONTINUE(index);
 				DPRINTF("Index finally decoded: %" PRIuPTR "\n",
 					index);
+				hp->index = index;
 				if ((state & HPack_Flags_No_Value) == 0) {
 					if (n) {
 						goto Get_Value;
@@ -115,8 +117,9 @@ hpack_decode(HPack * __restrict hp,
 				break;
 			case HPack_State_Name_Length:
 				GET_CONTINUE(length);
-				DPRINTF("Length finally decoded: %" PRIuPTR
-					"\n", index);
+				DPRINTF("Name length finally decoded: %" PRIuPTR
+					"\n", length);
+				field->name.len = length;
 				if (n >= length) {
 					goto Get_Name_Text;
 				} else {
@@ -126,8 +129,9 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Value_Length:
 				GET_CONTINUE(length);
-				DPRINTF("Length finally decoded: %" PRIuPTR
-					"\n", index);
+				DPRINTF("Value length finally decoded: %"
+					PRIuPTR "\n", length);
+				field->value.len = length;
 				if (n >= length) {
 					goto Get_Value_Text;
 				} else {
@@ -183,6 +187,7 @@ hpack_decode(HPack * __restrict hp,
 							    ("Decoded index: %"
 							     PRIuPTR "\n",
 							     index);
+							hp->index = index;
 							state =
 							    HPack_State_Value;
 							goto Get_Value;
@@ -214,6 +219,7 @@ hpack_decode(HPack * __restrict hp,
 							goto Index;
 						}
 					}
+					hp->index = index;
 					if (index) {
 						DPRINTF("Decoded index: %"
 							PRIuPTR "\n", index);
@@ -260,6 +266,7 @@ hpack_decode(HPack * __restrict hp,
 					}
 					DPRINTF("Name length: %" PRIuPTR "\n",
 						length);
+					field->name.len = length;
 					if (n >= length) {
 						goto Get_Name_Text;
 					} else {
@@ -270,6 +277,7 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Name_Text:
 				{
+					length = field->name.len;
 					if (unlikely(n < length)) {
 						DPUTS("Not enough data...");
 						break;
@@ -345,6 +353,7 @@ hpack_decode(HPack * __restrict hp,
 					}
 					DPRINTF("Value length: %" PRIuPTR "\n",
 						length);
+					field->value.len = length;
 					if (n >= length) {
 						goto Get_Value_Text;
 					} else {
@@ -357,6 +366,7 @@ hpack_decode(HPack * __restrict hp,
 				{
 					ufast hrc;
 
+					length = field->value.len;
 					if (unlikely(n < length)) {
 						DPUTS("Not enough data...");
 						break;
@@ -401,6 +411,11 @@ hpack_decode(HPack * __restrict hp,
 						printf("\"\n");
 #endif
 					}
+#if Debug_HPack
+					else {
+						DPUTS("Zero-length value");
+					}
+#endif
 					if (index) {
  Duplicate:
 						DPRINTF
