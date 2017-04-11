@@ -33,9 +33,9 @@
 #include "../hpack.h"
 
 typedef struct {
-	uint32	     encoded_len;
-	int32	     window;
-	const char * encoded;
+	uint32 encoded_len;
+	int32 window;
+	const char *encoded;
 } HPackTestData;
 
 #include "hptestdata.h"
@@ -57,10 +57,12 @@ static ufast Random_y = 0xAAAAAAAA;
 /* Very simple random number generator, designed for */
 /* test purposes only, based on two mod 2^32 LCGs: */
 
-static ufast Random32 (void)
+static ufast
+Random32(void)
 {
 	const ufast x = Random_x * rm_a + rm_c1;
 	const ufast y = Random_y * rm_b + rm_c2;
+
 	Random_x = x;
 	Random_y = y;
 	return (x >> 8) ^ (y << 8);
@@ -68,34 +70,37 @@ static ufast Random32 (void)
 
 /* Unbiased random index in the {0; n} range: */
 
-static ufast Random32_Index (const ufast n)
+static ufast
+Random32_Index(const ufast n)
 {
 	if (n) {
 		ufast limit = 4294967295U - 4294967295U % n;
 		ufast x;
+
 		do {
 			x = Random32();
 		} while (x >= limit);
 		return x % n;
-	}
-	else {
+	} else {
 		return 0;
 	}
 }
 
-int common_cdecl main (void)
+int common_cdecl
+main(void)
 {
-	static TfwStr fragments [3];
+	static TfwStr fragments[3];
 	static TfwStr root;
-	static char buf1 [256];
-	static char buf2 [256];
-	static char buf3 [256];
+	static char buf1[256];
+	static char buf2[256];
+	static char buf3[256];
 	static HTTP2Input in;
 	static HTTP2Output out;
-	HPack * hp;
+	HPack *hp;
 	ufast k, i;
 	uwide ts;
 	double tm;
+
 	ts = clock();
 	fragments[0].ptr = buf2;
 	fragments[1].ptr = buf1;
@@ -106,17 +111,17 @@ int common_cdecl main (void)
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
 			fast window;
-			HTTP2Field * fields;
-			const char * __restrict encoded = test[i].encoded;
+			HTTP2Field *fields;
+			const char *__restrict encoded = test[i].encoded;
 			ufast rc;
 			ufast length = test[i].encoded_len;
+
 			if (length == 1) {
 				root.ptr = buf1;
 				root.len = 1;
 				root.flags = 0;
 				buf1[0] = encoded[0];
-			}
-			else {
+			} else {
 				root.ptr = fragments;
 				root.len = length;
 				if (length == 2) {
@@ -125,53 +130,64 @@ int common_cdecl main (void)
 					fragments[1].len = 1;
 					buf2[0] = encoded[0];
 					buf1[0] = encoded[1];
-				}
-				else {
-					const ufast split2 = Random32_Index(length - 1) + 1;
-					const ufast split1 = Random32_Index(split2) + 1;
+				} else {
+					const ufast split2 =
+					    Random32_Index(length - 1) + 1;
+					const ufast split1 =
+					    Random32_Index(split2) + 1;
 					if (split1 == split2) {
-						root.flags = 2 << TFW_STR_CN_SHIFT;
+						root.flags =
+						    2 << TFW_STR_CN_SHIFT;
 						fragments[0].len = split1;
-						fragments[1].len = length - split1;
+						fragments[1].len =
+						    length - split1;
 						memcpy(buf2, encoded, split1);
-						memcpy(buf1, encoded + split1, length - split1);
-					}
-					else {
-						root.flags = 3 << TFW_STR_CN_SHIFT;
+						memcpy(buf1, encoded + split1,
+						       length - split1);
+					} else {
+						root.flags =
+						    3 << TFW_STR_CN_SHIFT;
 						fragments[0].len = split1;
-						fragments[1].len = split2 - split1;
-						fragments[2].len = length - split2;
+						fragments[1].len =
+						    split2 - split1;
+						fragments[2].len =
+						    length - split2;
 						memcpy(buf2, encoded, split1);
-						memcpy(buf1, encoded + split1, split2 - split1);
-						memcpy(buf3, encoded + split2, length - split2);
+						memcpy(buf1, encoded + split1,
+						       split2 - split1);
+						memcpy(buf3, encoded + split2,
+						       length - split2);
 					}
 				}
 			}
 			buffer_from_tfwstr(&in, &root);
 			window = test[i].window;
 			if (window) {
-			   if (window < 0) {
-			      hpack_set_window(hp, 0);
-			      window = -window;
-			   }
-			   hpack_set_window(hp, window);
+				if (window < 0) {
+					hpack_set_window(hp, 0);
+					window = -window;
+				}
+				hpack_set_window(hp, window);
 			}
 			fields = hpack_decode(hp, &in, length, &out, &rc);
 			if (rc) {
-				printf("Bug #1: Iteration: %u, rc = %u...\n", i, rc);
+				printf("Bug #1: Iteration: %u, rc = %u...\n", i,
+				       rc);
 				return 1;
 			}
 			if (fields == NULL) {
-				printf("Bug #2: Iteration: %u, no headers decoded...\n", i);
+				printf
+				    ("Bug #2: Iteration: %u, no headers decoded...\n",
+				     i);
 				return 1;
 			}
 			do {
-				#if Print_Results
-					buffer_str_print(&fields->name);
-					printf(":");
-					buffer_str_print(&fields->value);
-					printf("\n");
-				#endif
+#if Print_Results
+				buffer_str_print(&fields->name);
+				printf(":");
+				buffer_str_print(&fields->value);
+				printf("\n");
+#endif
 				buffer_str_free(NULL, &fields->name);
 				buffer_str_free(NULL, &fields->value);
 				fields = fields->next;
@@ -179,7 +195,7 @@ int common_cdecl main (void)
 			hpack_free_list(&out, fields);
 		}
 	}
-	tm = (double) (clock() - ts) / CLOCKS_PER_SEC;
+	tm = (double)(clock() - ts) / CLOCKS_PER_SEC;
 	printf("Time = %g\n", tm);
 	hpack_shutdown();
 	return 0;
