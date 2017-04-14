@@ -31,3 +31,4 @@ Module.symvers
 #debian package
 build-stamp
 configure-stamp
+debian
