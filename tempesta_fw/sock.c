@@ -790,6 +790,11 @@ ss_tcp_state_change(struct sock *sk)
 			 */
 			ss_do_close(sk);
 			sock_put(sk);
+			/*
+			 * The case of a connect to an upstream server that
+			 * cannot be completed now. Paired with ss_connect()
+			 * and ss_active_guard_enter() there.
+			 */
 			if (!lsk)
 				ss_active_guard_exit(SS_V_ACT_LIVECONN);
 			return;
