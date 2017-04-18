@@ -117,7 +117,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 
 	TFW_DBG("new server group: '%s'\n", name);
 
-	sg = kmalloc(sizeof(*sg) + name_size, flags | __GFP_ZERO);
+	sg = kzalloc(sizeof(*sg) + name_size, flags);
 	if (!sg)
 		return NULL;
 

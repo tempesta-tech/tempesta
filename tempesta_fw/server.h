@@ -53,8 +53,8 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*sched_data;
 	void			*apm;
-	int			weight;
-	int			conn_n;
+	unsigned int		weight;
+	size_t			conn_n;
 } TfwServer;
 
 /**
@@ -92,7 +92,18 @@ struct tfw_srv_group_t {
 	char			name[0];
 };
 
-/* Server related flags.
+/**
+ * @past	- period of time (secs) to keep past APM values;
+ * @rate	- rate (times per sec) of retrieval of past APM values;
+ * @ahead	- period of time (secs) for a prediction;
+ */
+typedef struct {
+	unsigned int		past;
+	unsigned int		rate;
+	unsigned int		ahead;
+} TfwSchrefPredict;
+
+/* Server and server group related flags.
  * Lower 4 bits keep an index into APM stats array.
  */
 #define TFW_SG_F_PSTATS_IDX_MASK	0x000f

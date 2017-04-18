@@ -264,7 +264,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 	TfwHashSrv *hsrv;
 	TfwHashSrvList *sl;
 
-	if (!tfw_sched_hash_validate_grp(sg))
+	if (tfw_sched_hash_validate_grp(sg))
 		return -EINVAL;
 
 	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
