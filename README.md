@@ -552,10 +552,20 @@ Specific type of dynamic weight is specified with additional options:
     95, 99. If none is given, then the default percentile of 90 is used.
 If a specific type of dynamic weight is not specified, then the default type
 of `average` is used.
+* **predict** - The weight of each server in a group is predicted dynamically
+for a time in the future, based on server's behavior in the past. Additional
+options include those that are defined for **dynamic** weight, as well as
+the following options:
+    * **past** - Period of time (in seconds) to keep past response time
+    values from a server. The default value is 30 seconds.
+    * **rate** - Rate (times per second) of retrieval of past response time
+    values. The default value is 20 times per second.
+    * **ahead** - Period of time (in seconds) for which to make a prediction;
+    It can't be more than half of **past**. The default value is 15 seconds.
 
-Naturally, if a dynamic scheduler is specified for a group, and there's
+Naturally, if a Dynamic Scheduler is specified for a group, and there's
 a server in that group with the `weight` option, then an error is produced
-as that combination is incompatible.
+as that combination is incompatible. Same is true for Predictive Scheduler.
 
 The following are examples of scheduler specification in configuration.
 Again, only one `sched` directive is allowed per group.
@@ -575,6 +585,11 @@ sched dynamic maximum;
 sched dynamic percentile;
 # Use dynamic scheduler, percentile of 75 is used for weight distribution.
 sched dynamic percentile 75;
+# Use predictive scheduler, percentile of 75 is used for weight distribution.
+# The values of weights of each server are collected for past 60 seconds
+# at the rate of 20 times per second, the weight of each server in predicted
+# for the time of 2 seconds ahead.
+sched predict percentile 75 past=60 rate=20 ahead=2;
 ```
 
 Servers should be grouped together with proper care. Server groups should
