@@ -566,51 +566,28 @@ tfw_sock_srv_delete_all_conns(void)
  *	Configuration handling
  * ------------------------------------------------------------------------
  */
-
-/*
- * Default values for various configuration directives and options.
- */
-#define TFW_CFG_SRV_CONNS_N_DEF		32	/* Default # of connections */
-#define TFW_CFG_SRV_QUEUE_SIZE_DEF	1000	/* Max queue size */
-#define TFW_CFG_SRV_FWD_TIMEOUT_DEF	60	/* Default request timeout */
-#define TFW_CFG_SRV_FWD_RETRIES_DEF	5	/* Default number of tries */
-#define TFW_CFG_SRV_CNS_RETRIES_DEF	10	/* Reconnect tries. */
-#define TFW_CFG_SRV_RETRY_NIP_DEF	0	/* Do NOT resend NIP reqs */
-#define TFW_CFG_SRV_STICKY_SESS_DEF	0	/* Don't use sticky sessions */
-#define TFW_CFG_SRV_WEIGHT_MIN		1
-#define TFW_CFG_SRV_WEIGHT_MAX		100
-#define TFW_CFG_SRV_WEIGHT_DEF		50
-#define TFW_CFG_SG_NAME_DEF		"default"
+#define TFW_CFG_DFLT_VAL	"__dfltval__"	/* Use a default value. */
 
 static struct list_head tfw_cfg_in_slst = LIST_HEAD_INIT(tfw_cfg_in_slst);
 static struct list_head tfw_cfg_out_slst = LIST_HEAD_INIT(tfw_cfg_out_slst);
 static struct list_head *tfw_cfg_slst;
 static int tfw_cfg_slstsz, tfw_cfg_out_slstsz;
 static TfwScheduler *tfw_cfg_sched, *tfw_cfg_out_sched;
+static TfwSchrefPredict tfw_cfg_schref_predict, tfw_cfg_out_schref_predict;
+static void *tfw_cfg_schref, *tfw_cfg_out_schref;
 static TfwSrvGroup *tfw_cfg_sg, *tfw_cfg_out_sg;
 
-static int tfw_cfg_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
-static int tfw_cfg_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
-static int tfw_cfg_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
-static unsigned int tfw_cfg_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
-static unsigned int tfw_cfg_sticky_sess = TFW_CFG_SRV_STICKY_SESS_DEF;
-
-static int tfw_cfg_out_queue_size = TFW_CFG_SRV_QUEUE_SIZE_DEF;
-static int tfw_cfg_out_fwd_timeout = TFW_CFG_SRV_FWD_TIMEOUT_DEF;
-static int tfw_cfg_out_fwd_retries = TFW_CFG_SRV_FWD_RETRIES_DEF;
-static int tfw_cfg_out_cns_retries = TFW_CFG_SRV_CNS_RETRIES_DEF;
-static unsigned int tfw_cfg_out_retry_nip = TFW_CFG_SRV_RETRY_NIP_DEF;
-static unsigned int tfw_cfg_out_sticky_sess = TFW_CFG_SRV_STICKY_SESS_DEF;
-
-static unsigned int tfw_cfg_sg_flags = TFW_SG_F_SCHED_RATIO_STATIC;
-static unsigned int tfw_cfg_out_sg_flags = TFW_SG_F_SCHED_RATIO_STATIC;
+static int tfw_cfg_queue_size, tfw_cfg_out_queue_size;
+static int tfw_cfg_fwd_timeout, tfw_cfg_out_fwd_timeout;
+static int tfw_cfg_fwd_retries, tfw_cfg_out_fwd_retries;
+static int tfw_cfg_cns_retries, tfw_cfg_out_cns_retries;
+static unsigned int tfw_cfg_retry_nip, tfw_cfg_out_retry_nip;
+static unsigned int tfw_cfg_sticky_sess, tfw_cfg_out_sticky_sess;
+static unsigned int tfw_cfg_sg_flags, tfw_cfg_out_sg_flags;
 
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 {
-	int ret;
-
 	if (ce->val_n != 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 			return -EINVAL;
@@ -619,10 +596,9 @@ tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
-	if ((ret = tfw_cfg_parse_int(ce->vals[0], intval)))
-		return ret;
 
-	return 0;
+	cs->dest = intval;
+	return tfw_cfg_set_int(cs, ce);
 }
 
 static int
@@ -664,12 +640,19 @@ tfw_cfgop_out_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static inline int
 tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 {
-	if (ce->attr_n || ce->val_n) {
-		TFW_ERR_NL("The option may not have arguments.\n");
+	if (ce->attr_n) {
+		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
-
-	*retry_nip = 1;
+	if (!ce->val_n) {
+		*retry_nip = TFW_SRV_RETRY_NIP;
+	} else if (!strcasecmp(ce->vals[0], TFW_CFG_DFLT_VAL))	{
+		BUG_ON(ce->val_n != 1);
+		*retry_nip = 0;
+	} else {
+		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -685,17 +668,16 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-
-	if (ce->val_n) {
-		if (!strcasecmp(ce->vals[0], "allow_failover")) {
-			*use_sticky |= TFW_SRV_STICKY_FAILOVER;
-		} else {
-			TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
-			return  -EINVAL;
-		}
+	if (!ce->val_n) {
+		*use_sticky = TFW_SRV_STICKY;
+	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
+		*use_sticky = TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER;
+	} else if (!strcasecmp(ce->vals[0], TFW_CFG_DFLT_VAL)) {
+		*use_sticky = 0;
+	} else  {
+		TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
+		return  -EINVAL;
 	}
-
-	*use_sticky |= TFW_SRV_STICKY;
 
 	return 0;
 }
@@ -750,7 +732,13 @@ tfw_cfgop_set_conn_retries(TfwSrvGroup *sg, int recns)
 	return 0;
 }
 
-/*
+/* Default and maximum values for "server" options. */
+#define TFW_CFG_SRV_CONNS_N_DEF		32	/* Default # of connections */
+#define TFW_CFG_SRV_WEIGHT_MIN		1	/* Min static weight value */
+#define TFW_CFG_SRV_WEIGHT_MAX		100	/* Max static weight value */
+#define TFW_CFG_SRV_WEIGHT_DEF		50	/* Dflt static weight value */
+
+/**
  * Common code to handle 'server' directive.
  */
 static int
@@ -812,7 +800,9 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, struct list_head *slst)
 		return -EINVAL;
 	}
 	/* Default weight is set only for static ratio scheduler. */
-	if (has_weight && ((weight < 1) || (weight > 100))) {
+	if (has_weight && ((weight < TFW_CFG_SRV_WEIGHT_MIN)
+			   || (weight > TFW_CFG_SRV_WEIGHT_MAX)))
+	{
 		TFW_ERR_NL("Out of range of [%d..%d]: 'weight=%d'\n",
 			   TFW_CFG_SRV_WEIGHT_MIN, TFW_CFG_SRV_WEIGHT_MAX,
 			   weight);
@@ -916,6 +906,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_sticky_sess = tfw_cfg_out_sticky_sess;
 	tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
 	tfw_cfg_sched = tfw_cfg_out_sched;
+	tfw_cfg_schref = tfw_cfg_out_schref;
 
 	BUG_ON(!list_empty(&tfw_cfg_in_slst));
 	tfw_cfg_slst = &tfw_cfg_in_slst;
@@ -975,8 +966,8 @@ tfw_cfgop_setup_srv_group(void)
 	tfw_cfg_sg->max_refwd = tfw_cfg_fwd_retries ? : UINT_MAX;
 
 	tfw_cfg_sg->flags = tfw_cfg_sg_flags;
-	tfw_cfg_sg->flags |= tfw_cfg_retry_nip ? TFW_SRV_RETRY_NIP : 0;
-	tfw_cfg_sg->flags |= tfw_cfg_sticky_sess;
+	tfw_cfg_sg->flags |= tfw_cfg_retry_nip | tfw_cfg_sticky_sess;
+	tfw_cfg_sg->sched_data = tfw_cfg_schref;
 
 	/*
 	 * Check 'ratio' scheduler configuration for incompatibilities.
@@ -1031,9 +1022,146 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 }
 
 static int
-tfw_cfg_handle_ratio(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
+tfw_cfg_handle_ratio_predyn_opts(TfwCfgEntry *ce, unsigned int *arg_flags)
 {
-	unsigned int idx, flags, value;
+	unsigned int idx, value, flags = *arg_flags;
+
+	if (ce->val_n < 3) {
+		/* Default dynamic type. */
+		flags |= TFW_PSTATS_IDX_AVG;
+		goto done;
+	}
+	if (!strcasecmp(ce->vals[2], "minimum")) {
+		idx = TFW_PSTATS_IDX_MIN;
+	}else if (!strcasecmp(ce->vals[2], "maximum")) {
+		idx = TFW_PSTATS_IDX_MAX;
+	} else if (!strcasecmp(ce->vals[2], "average")) {
+		idx = TFW_PSTATS_IDX_AVG;
+	} else if (!strcasecmp(ce->vals[2], "percentile")) {
+		if (ce->val_n < 4) {
+			/* Default percentile. */
+			flags |= TFW_PSTATS_IDX_P90;
+			goto done;
+		}
+		if (tfw_cfg_parse_int(ce->vals[3], &value)) {
+			TFW_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
+			return -EINVAL;
+		}
+		for (idx = 0; idx < ARRAY_SIZE(tfw_pstats_ith); ++idx) {
+			if (!tfw_pstats_ith[idx])
+				continue;
+			if (tfw_pstats_ith[idx] == value)
+				break;
+		}
+		if (idx == ARRAY_SIZE(tfw_pstats_ith)) {
+			TFW_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
+			return -EINVAL;
+		}
+	} else {
+		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
+		return -EINVAL;
+	}
+	flags |= idx;
+
+done:
+	*arg_flags = flags;
+	return 0;
+}
+
+/* Default and maximum values for "sched ratio predict" options. */
+#define TFW_CFG_PAST_DEF	30	/* 30 secs of past APM vals */
+#define TFW_CFG_PAST_MAX	120	/* 120 secs of past APM vals */
+#define TFW_CFG_RATE_DEF	20	/* 20 times/sec */
+#define TFW_CFG_RATE_MAX	20	/* 20 times/sec */
+
+static int
+tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
+			     void *arg_schref, unsigned int *arg_flags)
+{
+	int i, ret;
+	const char *key, *val;
+	bool has_past = false, has_rate = false, has_ahead = false;
+	TfwSchrefPredict schref = { 0 };
+
+	if ((ret = tfw_cfg_handle_ratio_predyn_opts(ce, arg_flags)))
+		return ret;
+
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "past")) {
+			if (has_past) {
+				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
+			if (tfw_cfg_parse_int(val, &schref.past)) {
+				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				return -EINVAL;
+			}
+			has_past = true;
+		} else if (!strcasecmp(key, "rate")) {
+			if (has_rate) {
+				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
+			if (tfw_cfg_parse_int(val, &schref.rate)) {
+				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				return -EINVAL;
+			}
+			has_rate = true;
+		} else if (!strcasecmp(key, "ahead")) {
+			if (has_ahead) {
+				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
+			if (tfw_cfg_parse_int(val, &schref.ahead)) {
+				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				return -EINVAL;
+			}
+			has_ahead = true;
+		}
+	}
+	if (!has_past) {
+		schref.past = TFW_CFG_PAST_DEF;
+	} else if ((schref.past < 1) || (schref.past > TFW_CFG_PAST_MAX)) {
+		TFW_ERR_NL("Out of range of [1..%d]: 'past=%d'\n",
+			   TFW_CFG_PAST_MAX, schref.past);
+		return -EINVAL;
+	}
+	if (!has_rate) {
+		schref.rate = TFW_CFG_RATE_DEF;
+	} else if ((schref.rate < 1) || (schref.rate > TFW_CFG_RATE_MAX)) {
+		TFW_ERR_NL("Out of range of [1..%d]: 'rate=%d'\n",
+			   TFW_CFG_RATE_MAX, schref.rate);
+		return -EINVAL;
+	}
+	if (!has_ahead) {
+		schref.ahead = schref.past > 1 ? schref.past / 2 : 1;
+	} else if ((schref.ahead < 1) || (schref.ahead > schref.past / 2)) {
+		TFW_ERR_NL("Out of range of [1..%d]: 'ahead=%d'."
+			   "Can't be greater than half of 'past=%d'.\n",
+			   schref.past / 2, schref.ahead, schref.past);
+		return -EINVAL;
+	}
+
+	*(TfwSchrefPredict *)arg_schref = schref;
+	return 0;
+}
+
+static int
+tfw_cfg_handle_ratio_dynamic(TfwCfgEntry *ce, unsigned int *arg_flags)
+{
+	if (ce->attr_n) {
+		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		return -EINVAL;
+	}
+
+	return tfw_cfg_handle_ratio_predyn_opts(ce, arg_flags);
+}
+
+static int
+tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *schref, unsigned int *sg_flags)
+{
+	int ret;
+	unsigned int flags;
 
 	if (ce->val_n < 2) {
 		/* Default ratio scheduler type. */
@@ -1042,52 +1170,18 @@ tfw_cfg_handle_ratio(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
 		flags = TFW_SG_F_SCHED_RATIO_STATIC;
 	} else if (!strcasecmp(ce->vals[1], "dynamic")) {
 		flags = TFW_SG_F_SCHED_RATIO_DYNAMIC;
-		if (ce->val_n < 3) {
-			/* Default dynamic type. */
-			flags |= TFW_PSTATS_IDX_AVG;
-			goto done;
-		}
-		if (!strcasecmp(ce->vals[2], "minimum")) {
-			idx = TFW_PSTATS_IDX_MIN;
-		}else if (!strcasecmp(ce->vals[2], "maximum")) {
-			idx = TFW_PSTATS_IDX_MAX;
-		} else if (!strcasecmp(ce->vals[2], "average")) {
-			idx = TFW_PSTATS_IDX_AVG;
-		} else if (!strcasecmp(ce->vals[2], "percentile")) {
-			if (ce->val_n < 4) {
-				/* Default percentile. */
-				flags |= TFW_PSTATS_IDX_P90;
-				goto done;
-			}
-			if (tfw_cfg_parse_int(ce->vals[3], &value)) {
-				TFW_ERR_NL("Invalid value: '%s'\n",
-					   ce->vals[3]);
-				return -EINVAL;
-			}
-			for (idx = 0; idx < ARRAY_SIZE(tfw_pstats_ith); ++idx) {
-				if (!tfw_pstats_ith[idx])
-					continue;
-				if (tfw_pstats_ith[idx] == value)
-					break;
-			}
-			if (idx == ARRAY_SIZE(tfw_pstats_ith)) {
-				TFW_ERR_NL("Invalid value: '%s'\n",
-					   ce->vals[3]);
-				return -EINVAL;
-			}
-		} else {
-			TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
-			return -EINVAL;
-		}
-		flags |= idx;
+		if ((ret = tfw_cfg_handle_ratio_dynamic(ce, &flags)))
+			return ret;
+	} else if (!strcasecmp(ce->vals[1], "predict")) {
+		flags = TFW_SG_F_SCHED_RATIO_PREDICT;
+		if ((ret = tfw_cfg_handle_ratio_predict(ce, schref, &flags)))
+			return ret;
 	} else {
 		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[1]);
 		return -EINVAL;
 	}
 
-done:
 	*sg_flags = flags;
-
 	return 0;
 }
 
@@ -1095,17 +1189,13 @@ done:
  * Common code to handle 'sched' directive.
  */
 static int
-tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce,
-		     TfwScheduler **arg_sched, unsigned int *sg_flags)
+tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched,
+		void *schref, unsigned int *sg_flags)
 {
 	TfwScheduler *sched;
 
 	if (!ce->val_n) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
-	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
 
@@ -1115,7 +1205,7 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	}
 
 	if (!strcasecmp(sched->name, "ratio"))
-		if (tfw_cfg_handle_ratio(cs, ce, sg_flags))
+		if (tfw_cfg_handle_ratio(ce, schref, sg_flags))
 			return -EINVAL;
 
 	*arg_sched = sched;
@@ -1126,14 +1216,20 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce,
 static int
 tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_schref = &tfw_cfg_schref_predict;
+
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sched,
+				       tfw_cfg_schref,
 				       &tfw_cfg_sg_flags);
 }
 
 static int
 tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_out_schref = &tfw_cfg_out_schref_predict;
+
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_out_sched,
+				       tfw_cfg_out_schref,
 				       &tfw_cfg_out_sg_flags);
 }
 
@@ -1158,6 +1254,7 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 
 	tfw_cfg_sg = tfw_cfg_out_sg = NULL;
 	tfw_cfg_sched = tfw_cfg_out_sched = NULL;
+	tfw_cfg_schref = tfw_cfg_out_schref = NULL;
 	tfw_cfg_slstsz = tfw_cfg_out_slstsz = 0;
 
 	tfw_sock_srv_delete_all_conns();
@@ -1174,7 +1271,7 @@ tfw_sock_srv_start(void)
 	 * a server outside of any group is found in the configuration.
 	 */
 	if (tfw_cfg_out_slstsz) {
-		tfw_cfg_out_sg = tfw_sg_new(TFW_CFG_SG_NAME_DEF, GFP_KERNEL);
+		tfw_cfg_out_sg = tfw_sg_new("default", GFP_KERNEL);
 		if (!tfw_cfg_out_sg) {
 			TFW_ERR_NL("Unable to add default server group\n");
 			return -EINVAL;
@@ -1184,12 +1281,13 @@ tfw_sock_srv_start(void)
 		tfw_cfg_queue_size  = tfw_cfg_out_queue_size;
 		tfw_cfg_fwd_timeout = tfw_cfg_out_fwd_timeout;
 		tfw_cfg_fwd_retries = tfw_cfg_out_fwd_retries;
-		tfw_cfg_retry_nip = tfw_cfg_out_retry_nip;
 		tfw_cfg_sticky_sess = tfw_cfg_out_sticky_sess;
+		tfw_cfg_retry_nip = tfw_cfg_out_retry_nip;
 		tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
 		tfw_cfg_slst = &tfw_cfg_out_slst;
 		tfw_cfg_slstsz = tfw_cfg_out_slstsz;
 		tfw_cfg_sched = tfw_cfg_out_sched;
+		tfw_cfg_schref = tfw_cfg_out_schref;
 		tfw_cfg_sg = tfw_cfg_out_sg;
 
 		if ((ret = tfw_cfgop_setup_srv_group()))
@@ -1220,49 +1318,61 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.cleanup = tfw_clean_srv_groups
 	},
 	{
-		"sched", "ratio",
+		"sched", "ratio static",
 		tfw_cfgop_in_sched,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_queue_size", NULL,
+		"server_queue_size", "1000",
 		tfw_cfgop_in_queue_size,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
 	},
 	{
-		"server_forward_timeout", NULL,
+		"server_forward_timeout", "60",
 		tfw_cfgop_in_fwd_timeout,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
 	},
 	{
-		"server_forward_retries", NULL,
+		"server_forward_retries", "5",
 		tfw_cfgop_in_fwd_retries,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
 	},
 	{
-		"server_retry_nonidempotent", NULL,
+		"server_retry_nonidempotent", TFW_CFG_DFLT_VAL,
 		tfw_cfgop_in_retry_nip,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_connect_retries", NULL,
+		"server_connect_retries", "10",
 		tfw_cfgop_in_conn_retries,
 		.allow_none = true,
 		.allow_repeat = false,
 		.cleanup = tfw_clean_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
 	},
 	{
-		"sticky_sessions", NULL,
+		"sticky_sessions", TFW_CFG_DFLT_VAL,
 		tfw_cfgop_in_sticky_sess,
 		.allow_none = true,
 		.allow_repeat = false,
@@ -1284,49 +1394,61 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"sched", "ratio",
+			"sched", "ratio static",
 			tfw_cfgop_out_sched,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_queue_size", NULL,
+			"server_queue_size", "1000",
 			tfw_cfgop_out_queue_size,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 		},
 		{
-			"server_forward_timeout", NULL,
+			"server_forward_timeout", "60",
 			tfw_cfgop_out_fwd_timeout,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 		},
 		{
-			"server_forward_retries", NULL,
+			"server_forward_retries", "5",
 			tfw_cfgop_out_fwd_retries,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 		},
 		{
-			"server_retry_non_idempotent", NULL,
+			"server_retry_non_idempotent", TFW_CFG_DFLT_VAL,
 			tfw_cfgop_out_retry_nip,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
 		},
 		{
-			"server_connect_retries", NULL,
+			"server_connect_retries", "10",
 			tfw_cfgop_out_conn_retries,
 			.allow_none = true,
 			.allow_repeat = false,
 			.cleanup = tfw_clean_srv_groups,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 		},
 		{
-			"sticky_sessions", NULL,
+			"sticky_sessions", TFW_CFG_DFLT_VAL,
 			tfw_cfgop_out_sticky_sess,
 			.allow_none = true,
 			.allow_repeat = false,
