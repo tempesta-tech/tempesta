@@ -968,12 +968,21 @@ tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 
 /**
  * Delete a server group from Ratio Scheduler.
+ *
+ * Note that at this time the group is inactive. That means there are no
+ * attempts to schedule to servers in this group and enter RCU read-side
+ * critical section. There's no need for synchronize_rcu() to wait for
+ * expiration of an RCU grace period.
  */
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
 	TfwRatioPool *rpool = sg->sched_data;
 
+	/*
+	 * Make sure the timer doesn't re-arms itself. This
+	 * also ensures that no more RCU callbacks are created.
+	 */
 	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
 			 | TFW_SG_F_SCHED_RATIO_PREDICT))
 	{
@@ -981,7 +990,11 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 		smp_mb__after_atomic();
 		del_timer_sync(&rpool->timer);
 	}
-	synchronize_rcu();
+
+	/* Wait for outstanding RCU callbacks to complete. */
+	rcu_barrier();
+
+	/* Release all memory allocated for the group. */
 	tfw_sched_ratio_cleanup(sg);
 }
 
