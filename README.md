@@ -643,6 +643,11 @@ when the primary group is back online. That means that switching from backup
 server group back to the primary group ends only after all the current
 sessions pinned to backup server group are expired.
 
+Directive is applied per server group and has the following syntax:
+```
+sticky_sessions [allow_failover];
+```
+
 `allow_failover` option allow Tempesta pin sessions to a new server if
 the current pinned server went offline. Accident will be logged. Moving client
 session from one server to another actually brakes session persistence, so
