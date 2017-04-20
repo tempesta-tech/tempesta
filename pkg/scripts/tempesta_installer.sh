@@ -101,6 +101,11 @@ tfw_install()
 	mkdir -p $DOWNLOAD_DIR
 
 	tfw_install_deps
+	# TempestaFW is shipped as DKMS module. By default, dkms framework
+	# installs module only for running kernel. Configure dkms to install
+	# module to all kernels. BUILD_EXCLUSIVE variable in TempestaFW's
+	# dkms.conf will prevent building against unsupported kernels.
+	echo -e "autoinstall_all_kernels=\"yes\"" >> /etc/dkms/framework.conf
 
 	tfw_install_packages $GITHUB_REPO_LINUX "${FILES_LINUX[@]}"
 	tfw_install_packages $GITHUB_REPO_TEMPESTA "${FILES_TEMPESTA[@]}"
