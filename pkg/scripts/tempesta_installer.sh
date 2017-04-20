@@ -92,7 +92,8 @@ tfw_install_packages()
 tfw_install_deps()
 {
 	echo "Install dependencies ..."
-	apt-get install -y dkms libboost-dev libboost-program-options-dev kdump-tools
+	# curl and wget are required for the script itself.
+	apt-get install -y dkms libboost-dev libboost-program-options-dev kdump-tools curl wget
 }
 
 tfw_install()
