@@ -1,0 +1,4 @@
+# Find first non-rc tarball linked from kernel.org.
+# We need to DFSG-clean it, so use our own script instead of uupdate.
+version=3
+https://www.kernel.org/ .*/linux-([0-9.]+).tar.xz debian debian/bin/uscan-hook

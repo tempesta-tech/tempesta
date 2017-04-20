@@ -1,0 +1,5 @@
+# 32-bit PowerMacs mostly have either ATI Rage 128 or Radeon graphics
+# chips for which the offb driver doesn't work properly.  aty128fb is
+# currently built-in but that could plausibly change in future.
+aty128fb
+radeonfb

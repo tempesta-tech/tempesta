@@ -1,0 +1,532 @@
+##
+## file: arch/mips/Kconfig
+##
+## choice: System type
+CONFIG_MIPS_MALTA=y
+## end choice
+## choice: Kernel page size
+CONFIG_PAGE_SIZE_4KB=y
+## end choice
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_PATA_HPT366=m
+CONFIG_PATA_NETCELL=m
+CONFIG_PATA_OLDPIIX=m
+CONFIG_PATA_PDC2027X=m
+CONFIG_PATA_PDC_OLD=m
+CONFIG_PATA_SIL680=m
+CONFIG_PATA_MPIIX=m
+CONFIG_PATA_NS87410=m
+
+##
+## file: drivers/block/Kconfig
+##
+CONFIG_BLK_DEV_FD=m
+CONFIG_BLK_CPQ_CISS_DA=m
+CONFIG_CISS_SCSI_TAPE=y
+CONFIG_BLK_DEV_DAC960=m
+CONFIG_BLK_DEV_UMEM=m
+CONFIG_BLK_DEV_SX8=m
+CONFIG_CDROM_PKTCDVD=m
+
+##
+## file: drivers/bluetooth/Kconfig
+##
+CONFIG_BT_HCIUART=m
+CONFIG_BT_HCIUART_H4=y
+CONFIG_BT_HCIUART_BCSP=y
+CONFIG_BT_HCIBCM203X=m
+CONFIG_BT_HCIBPA10X=m
+CONFIG_BT_HCIBFUSB=m
+CONFIG_BT_HCIVHCI=m
+
+##
+## file: drivers/char/Kconfig
+##
+CONFIG_PRINTER=m
+CONFIG_PPDEV=m
+
+##
+## file: drivers/char/ipmi/Kconfig
+##
+CONFIG_IPMI_HANDLER=m
+CONFIG_IPMI_SI=m
+CONFIG_IPMI_WATCHDOG=m
+CONFIG_IPMI_POWEROFF=m
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+CONFIG_DRM=m
+CONFIG_DRM_TDFX=m
+CONFIG_DRM_R128=m
+CONFIG_DRM_RADEON=m
+CONFIG_DRM_MGA=m
+
+##
+## file: drivers/hwmon/Kconfig
+##
+CONFIG_SENSORS_ADM1021=m
+CONFIG_SENSORS_ADM1025=m
+CONFIG_SENSORS_ADM1026=m
+CONFIG_SENSORS_ADM1031=m
+CONFIG_SENSORS_DS1621=m
+CONFIG_SENSORS_MAX1619=m
+CONFIG_SENSORS_LM63=m
+CONFIG_SENSORS_LM75=m
+CONFIG_SENSORS_LM77=m
+CONFIG_SENSORS_LM78=m
+CONFIG_SENSORS_LM80=m
+CONFIG_SENSORS_LM83=m
+CONFIG_SENSORS_LM85=m
+CONFIG_SENSORS_LM87=m
+CONFIG_SENSORS_LM90=m
+CONFIG_SENSORS_LM92=m
+CONFIG_SENSORS_PCF8591=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=m
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_PIIX4=m
+CONFIG_I2C_PARPORT=m
+CONFIG_I2C_PARPORT_LIGHT=m
+
+##
+## file: drivers/input/gameport/Kconfig
+##
+CONFIG_GAMEPORT=m
+CONFIG_GAMEPORT_EMU10K1=m
+CONFIG_GAMEPORT_FM801=m
+
+##
+## file: drivers/input/joystick/Kconfig
+##
+CONFIG_INPUT_JOYSTICK=y
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_KEYBOARD_NEWTON=m
+CONFIG_KEYBOARD_SUNKBD=m
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_MOUSE_PS2=m
+CONFIG_MOUSE_SERIAL=m
+CONFIG_MOUSE_APPLETOUCH=m
+CONFIG_MOUSE_VSXXXAA=m
+
+##
+## file: drivers/input/serio/Kconfig
+##
+CONFIG_SERIO_I8042=y
+CONFIG_SERIO_SERPORT=m
+CONFIG_SERIO_PARKBD=m
+CONFIG_SERIO_PCIPS2=y
+CONFIG_SERIO_LIBPS2=y
+CONFIG_SERIO_RAW=m
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+CONFIG_INPUT_TOUCHSCREEN=y
+
+##
+## file: drivers/mfd/Kconfig
+##
+CONFIG_MFD_SM501=m
+
+##
+## file: drivers/mmc/Kconfig
+##
+CONFIG_MMC=m
+
+##
+## file: drivers/mmc/card/Kconfig
+##
+CONFIG_MMC_BLOCK=m
+
+##
+## file: drivers/mtd/Kconfig
+##
+CONFIG_MTD_REDBOOT_PARTS=y
+CONFIG_FTL=m
+CONFIG_NFTL=m
+CONFIG_NFTL_RW=y
+CONFIG_INFTL=m
+
+##
+## file: drivers/mtd/chips/Kconfig
+##
+CONFIG_MTD_CFI=m
+CONFIG_MTD_JEDECPROBE=m
+CONFIG_MTD_CFI_INTELEXT=m
+CONFIG_MTD_CFI_AMDSTD=m
+CONFIG_MTD_CFI_STAA=m
+CONFIG_MTD_ROM=m
+CONFIG_MTD_ABSENT=m
+
+##
+## file: drivers/mtd/devices/Kconfig
+##
+CONFIG_MTD_PMC551=m
+CONFIG_MTD_SLRAM=m
+CONFIG_MTD_PHRAM=m
+CONFIG_MTD_MTDRAM=m
+CONFIG_MTD_BLOCK2MTD=m
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_COMPLEX_MAPPINGS=y
+CONFIG_MTD_PHYSMAP=m
+CONFIG_MTD_PCI=m
+
+##
+## file: drivers/mtd/nand/Kconfig
+##
+CONFIG_MTD_NAND=m
+CONFIG_MTD_NAND_DISKONCHIP=m
+
+##
+## file: drivers/net/Kconfig
+##
+CONFIG_NET_FC=y
+
+##
+## file: drivers/net/ethernet/Kconfig
+##
+CONFIG_FEALNX=m
+
+##
+## file: drivers/net/ethernet/3com/Kconfig
+##
+CONFIG_VORTEX=m
+CONFIG_TYPHOON=m
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+CONFIG_NE2K_PCI=m
+
+##
+## file: drivers/net/ethernet/amd/Kconfig
+##
+CONFIG_AMD8111_ETH=m
+
+##
+## file: drivers/net/ethernet/broadcom/Kconfig
+##
+CONFIG_B44=m
+
+##
+## file: drivers/net/ethernet/dec/tulip/Kconfig
+##
+CONFIG_NET_TULIP=y
+CONFIG_DE2104X=m
+CONFIG_TULIP=m
+CONFIG_DM9102=m
+
+##
+## file: drivers/net/ethernet/dlink/Kconfig
+##
+CONFIG_SUNDANCE=m
+
+##
+## file: drivers/net/ethernet/intel/Kconfig
+##
+CONFIG_E100=m
+
+##
+## file: drivers/net/ethernet/natsemi/Kconfig
+##
+CONFIG_NATSEMI=m
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_8139CP=m
+CONFIG_8139TOO=m
+
+##
+## file: drivers/net/ethernet/sis/Kconfig
+##
+CONFIG_SIS900=m
+
+##
+## file: drivers/net/ethernet/smsc/Kconfig
+##
+CONFIG_EPIC100=m
+
+##
+## file: drivers/net/ethernet/via/Kconfig
+##
+CONFIG_VIA_RHINE=m
+
+##
+## file: drivers/net/irda/Kconfig
+##
+CONFIG_IRTTY_SIR=m
+CONFIG_USB_IRDA=m
+CONFIG_SIGMATEL_FIR=m
+CONFIG_VLSI_FIR=m
+
+##
+## file: drivers/net/wireless/atmel/Kconfig
+##
+CONFIG_ATMEL=m
+CONFIG_PCI_ATMEL=m
+
+##
+## file: drivers/net/wireless/intel/ipw2x00/Kconfig
+##
+CONFIG_IPW2100=m
+CONFIG_IPW2100_MONITOR=y
+
+##
+## file: drivers/net/wireless/intersil/orinoco/Kconfig
+##
+CONFIG_HERMES=m
+CONFIG_PLX_HERMES=m
+CONFIG_TMD_HERMES=m
+CONFIG_PCI_HERMES=m
+
+##
+## file: drivers/net/wireless/marvell/mwifiex/Kconfig
+##
+CONFIG_MWIFIEX=m
+CONFIG_MWIFIEX_SDIO=m
+
+##
+## file: drivers/net/wireless/zydas/Kconfig
+##
+CONFIG_USB_ZD1201=m
+
+##
+## file: drivers/pci/pcie/Kconfig
+##
+# CONFIG_PCIEPORTBUS is not set
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_DS1307=m
+CONFIG_RTC_DRV_DS1672=m
+CONFIG_RTC_DRV_MAX6900=m
+CONFIG_RTC_DRV_RS5C372=m
+CONFIG_RTC_DRV_ISL1208=m
+CONFIG_RTC_DRV_X1205=m
+CONFIG_RTC_DRV_PCF8563=m
+CONFIG_RTC_DRV_PCF8583=m
+CONFIG_RTC_DRV_RS5C348=m
+CONFIG_RTC_DRV_MAX6902=m
+CONFIG_RTC_DRV_CMOS=y
+CONFIG_RTC_DRV_M48T86=m
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI_ARCMSR=m
+CONFIG_SCSI_DMX3191D=m
+CONFIG_SCSI_FUTURE_DOMAIN=m
+CONFIG_SCSI_IPS=m
+CONFIG_SCSI_INITIO=m
+CONFIG_SCSI_INIA100=m
+CONFIG_SCSI_SYM53C8XX_2=m
+CONFIG_SCSI_QLOGIC_1280=m
+CONFIG_SCSI_DC395x=m
+CONFIG_SCSI_AM53C974=m
+CONFIG_SCSI_DEBUG=m
+
+##
+## file: drivers/scsi/megaraid/Kconfig.megaraid
+##
+CONFIG_MEGARAID_NEWGEN=y
+CONFIG_MEGARAID_MM=m
+CONFIG_MEGARAID_MAILBOX=m
+CONFIG_MEGARAID_LEGACY=m
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_JSM=m
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250_NR_UARTS=4
+CONFIG_SERIAL_8250_RUNTIME_UARTS=4
+CONFIG_SERIAL_8250_EXTENDED=y
+CONFIG_SERIAL_8250_SHARE_IRQ=y
+CONFIG_SERIAL_8250_RSA=y
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB_USS720=m
+
+##
+## file: drivers/usb/atm/Kconfig
+##
+CONFIG_USB_ATM=m
+CONFIG_USB_SPEEDTOUCH=m
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_ISP116X_HCD=m
+CONFIG_USB_UHCI_HCD=m
+CONFIG_USB_SL811_HCD=m
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB_MODE_HELPERS=y
+CONFIG_FB_TILEBLITTING=y
+CONFIG_FB_CIRRUS=y
+CONFIG_FB_PM2=m
+CONFIG_FB_PM2_FIFO_DISCONNECT=y
+CONFIG_FB_CYBER2000=m
+CONFIG_FB_S1D13XXX=m
+CONFIG_FB_MATROX=m
+CONFIG_FB_MATROX_MILLENIUM=y
+CONFIG_FB_MATROX_MYSTIQUE=y
+CONFIG_FB_MATROX_G=y
+CONFIG_FB_MATROX_I2C=m
+CONFIG_FB_MATROX_MAVEN=m
+CONFIG_FB_RADEON=m
+CONFIG_FB_RADEON_I2C=y
+CONFIG_FB_RADEON_BACKLIGHT=y
+CONFIG_FB_ATY128=m
+CONFIG_FB_ATY128_BACKLIGHT=y
+CONFIG_FB_ATY=m
+CONFIG_FB_ATY_CT=y
+CONFIG_FB_ATY_GX=y
+CONFIG_FB_ATY_BACKLIGHT=y
+CONFIG_FB_SAVAGE=m
+CONFIG_FB_SIS=m
+CONFIG_FB_SIS_300=y
+CONFIG_FB_SIS_315=y
+CONFIG_FB_NEOMAGIC=m
+CONFIG_FB_KYRO=m
+CONFIG_FB_VOODOO1=m
+CONFIG_FB_TRIDENT=m
+CONFIG_FB_VIRTUAL=m
+
+##
+## file: drivers/watchdog/Kconfig
+##
+CONFIG_PCIPCWATCHDOG=m
+CONFIG_WDTPCI=m
+CONFIG_USBPCWATCHDOG=m
+
+##
+## file: net/ax25/Kconfig
+##
+CONFIG_HAMRADIO=y
+CONFIG_AX25=m
+CONFIG_NETROM=m
+CONFIG_ROSE=m
+
+##
+## file: net/decnet/Kconfig
+##
+CONFIG_DECNET=m
+
+##
+## file: net/decnet/netfilter/Kconfig
+##
+CONFIG_DECNET_NF_GRABULATOR=m
+
+##
+## file: net/ipx/Kconfig
+##
+CONFIG_IPX=m
+
+##
+## file: net/irda/Kconfig
+##
+CONFIG_IRDA=m
+CONFIG_IRDA_CACHE_LAST_LSAP=y
+CONFIG_IRDA_FAST_RR=y
+
+##
+## file: net/irda/ircomm/Kconfig
+##
+CONFIG_IRCOMM=m
+
+##
+## file: net/irda/irlan/Kconfig
+##
+CONFIG_IRLAN=m
+
+##
+## file: net/irda/irnet/Kconfig
+##
+CONFIG_IRNET=m
+
+##
+## file: net/lapb/Kconfig
+##
+CONFIG_LAPB=m
+
+##
+## file: sound/drivers/Kconfig
+##
+CONFIG_SND_DUMMY=m
+CONFIG_SND_VIRMIDI=m
+CONFIG_SND_MTPAV=m
+CONFIG_SND_SERIAL_U16550=m
+CONFIG_SND_MPU401=m
+
+##
+## file: sound/pci/Kconfig
+##
+CONFIG_SND_ALI5451=m
+CONFIG_SND_ATIIXP=m
+CONFIG_SND_ATIIXP_MODEM=m
+CONFIG_SND_AU8810=m
+CONFIG_SND_AU8820=m
+CONFIG_SND_AU8830=m
+CONFIG_SND_AZT3328=m
+CONFIG_SND_BT87X=m
+CONFIG_SND_CA0106=m
+CONFIG_SND_CMIPCI=m
+CONFIG_SND_CS4281=m
+CONFIG_SND_CS46XX=m
+CONFIG_SND_CS46XX_NEW_DSP=y
+CONFIG_SND_EMU10K1=m
+CONFIG_SND_EMU10K1X=m
+CONFIG_SND_ENS1370=m
+CONFIG_SND_ENS1371=m
+CONFIG_SND_ES1938=m
+CONFIG_SND_ES1968=m
+CONFIG_SND_FM801=m
+CONFIG_SND_FM801_TEA575X_BOOL=y
+CONFIG_SND_HDSP=m
+CONFIG_SND_ICE1712=m
+CONFIG_SND_ICE1724=m
+CONFIG_SND_INTEL8X0=m
+CONFIG_SND_INTEL8X0M=m
+CONFIG_SND_KORG1212=m
+CONFIG_SND_MAESTRO3=m
+CONFIG_SND_MIXART=m
+CONFIG_SND_NM256=m
+CONFIG_SND_RME32=m
+CONFIG_SND_RME96=m
+CONFIG_SND_RME9652=m
+CONFIG_SND_SONICVIBES=m
+CONFIG_SND_TRIDENT=m
+CONFIG_SND_VIA82XX=m
+CONFIG_SND_VIA82XX_MODEM=m
+CONFIG_SND_VX222=m
+CONFIG_SND_YMFPCI=m
+

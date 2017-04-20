@@ -1,0 +1,3 @@
+#include "../../../ppc64/modules/ppc64/scsi-modules"
+
+ps3rom -

@@ -1,0 +1,25 @@
+# This file is used to build up the control file. The kernel version and
+# "-di" are appended to the package names. Section can be left out. So can
+# architecture, which is derived from the files in the modules directory.
+# It overwrites specifications from /usr/share/kernel-wedge/package-list.
+#
+
+Package: pata-modules
+Depends: kernel-image, ata-modules, core-modules
+
+Package: nic-pcmcia-modules
+Depends: kernel-image, nic-modules, nic-shared-modules, nic-wireless-modules, pcmcia-modules, core-modules
+
+Package: hypervisor-modules
+Depends: kernel-image
+Priority: standard
+Description: IBM 64bit hypervisor console modules
+ Contains drivers for the hypervisor console, used as console for linux
+ running in logical partitions of IBM hardware supporting it.
+
+Package: fancontrol-modules
+Depends: kernel-image
+Priority: standard
+Description: Apple powermac fancontrol modules
+ Contains drivers for macintosh i2c bus as well as for the monitoring devices
+ connected to it. This allows to control the fans during installation.

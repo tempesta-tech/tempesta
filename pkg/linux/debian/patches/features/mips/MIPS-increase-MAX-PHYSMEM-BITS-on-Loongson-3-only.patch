@@ -1,0 +1,29 @@
+From: Aurelien Jarno <aurelien@aurel32.net>
+Subject: MIPS: increase MAX_PHYSMEM_BITS on Loongson 3 only
+Bug-Debian: https://bugs.debian.org/764223
+Forwarded: no
+
+Commit c4617318 broke Loongson-2 support and maybe even more by increasing
+the value of MAX_PHYSMEM_BITS. At it is currently only needed on
+Loongson-3, define it conditionally.
+
+Note: this should be replace by upstream fix when available.
+
+diff --git a/arch/mips/include/asm/sparsemem.h b/arch/mips/include/asm/sparsemem.h
+index b1071c1..778dca7 100644
+--- a/arch/mips/include/asm/sparsemem.h
++++ b/arch/mips/include/asm/sparsemem.h
+@@ -11,7 +11,12 @@
+ #else
+ # define SECTION_SIZE_BITS	28
+ #endif
+-#define MAX_PHYSMEM_BITS	48
++
++#if defined(CONFIG_CPU_LOONGSON3)
++# define MAX_PHYSMEM_BITS	48
++#else
++# define MAX_PHYSMEM_BITS	35
++#endif
+ 
+ #endif /* CONFIG_SPARSEMEM */
+ #endif /* _MIPS_SPARSEMEM_H */

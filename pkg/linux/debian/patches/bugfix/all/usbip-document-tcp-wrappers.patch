@@ -1,0 +1,29 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sun, 24 Jun 2012 02:51:39 +0100
+Subject: usbip: Document TCP wrappers
+Forwarded: no
+
+Add references to TCP wrappers configuration in the manual page.
+
+--- a/tools/usb/usbip/doc/usbipd.8
++++ b/tools/usb/usbip/doc/usbipd.8
+@@ -14,7 +14,8 @@ Devices have to explicitly be exported u
+ before usbipd makes them available to other hosts.
+ 
+ The daemon accepts connections from USB/IP clients
+-on TCP port 3240 by default.
++on TCP port 3240 by default.  The clients authorised to connect may be
++configured as documented in hosts_access(5).
+ 
+ .SH OPTIONS
+ .HP
+@@ -69,7 +70,8 @@ Show version.
+ 
+ .B usbipd
+ offers no authentication or authorization for USB/IP. Any
+-USB/IP client can connect and use exported devices.
++USB/IP client running on an authorised host can connect and
++use exported devices.
+ 
+ .SH EXAMPLES
+ 

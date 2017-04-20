@@ -1,0 +1,80 @@
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Sun, 17 Jul 2011 21:33:18 +0200
+Subject: radix-tree: Make RT aware
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Disable radix_tree_preload() on -RT. This functions returns with
+preemption disabled which may cause high latencies and breaks if the
+user tries to grab any locks after invoking it.
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ include/linux/radix-tree.h |   12 +++++++++++-
+ lib/radix-tree.c           |    5 ++++-
+ 2 files changed, 15 insertions(+), 2 deletions(-)
+
+--- a/include/linux/radix-tree.h
++++ b/include/linux/radix-tree.h
+@@ -289,9 +289,19 @@ unsigned int radix_tree_gang_lookup(stru
+ unsigned int radix_tree_gang_lookup_slot(struct radix_tree_root *root,
+ 			void ***results, unsigned long *indices,
+ 			unsigned long first_index, unsigned int max_items);
++#ifdef CONFIG_PREEMPT_RT_FULL
++static inline int radix_tree_preload(gfp_t gm) { return 0; }
++static inline int radix_tree_maybe_preload(gfp_t gfp_mask) { return 0; }
++static inline int radix_tree_maybe_preload_order(gfp_t gfp_mask, int order)
++{
++	return 0;
++};
++
++#else
+ int radix_tree_preload(gfp_t gfp_mask);
+ int radix_tree_maybe_preload(gfp_t gfp_mask);
+ int radix_tree_maybe_preload_order(gfp_t gfp_mask, int order);
++#endif
+ void radix_tree_init(void);
+ void *radix_tree_tag_set(struct radix_tree_root *root,
+ 			unsigned long index, unsigned int tag);
+@@ -316,7 +326,7 @@ unsigned long radix_tree_locate_item(str
+ 
+ static inline void radix_tree_preload_end(void)
+ {
+-	preempt_enable();
++	preempt_enable_nort();
+ }
+ 
+ /**
+--- a/lib/radix-tree.c
++++ b/lib/radix-tree.c
+@@ -290,13 +290,14 @@ radix_tree_node_alloc(struct radix_tree_
+ 		 * succeed in getting a node here (and never reach
+ 		 * kmem_cache_alloc)
+ 		 */
+-		rtp = this_cpu_ptr(&radix_tree_preloads);
++		rtp = &get_cpu_var(radix_tree_preloads);
+ 		if (rtp->nr) {
+ 			ret = rtp->nodes;
+ 			rtp->nodes = ret->private_data;
+ 			ret->private_data = NULL;
+ 			rtp->nr--;
+ 		}
++		put_cpu_var(radix_tree_preloads);
+ 		/*
+ 		 * Update the allocation stack trace as this is more useful
+ 		 * for debugging.
+@@ -336,6 +337,7 @@ radix_tree_node_free(struct radix_tree_n
+ 	call_rcu(&node->rcu_head, radix_tree_node_rcu_free);
+ }
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /*
+  * Load up this CPU's radix_tree_node buffer with sufficient objects to
+  * ensure that the addition of a single element in the tree cannot fail.  On
+@@ -455,6 +457,7 @@ int radix_tree_maybe_preload_order(gfp_t
+ 
+ 	return __radix_tree_preload(gfp_mask, nr_nodes);
+ }
++#endif
+ 
+ /*
+  * The maximum index which can be stored in a radix tree

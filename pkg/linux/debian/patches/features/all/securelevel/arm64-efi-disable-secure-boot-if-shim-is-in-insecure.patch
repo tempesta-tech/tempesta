@@ -1,0 +1,59 @@
+From: Linn Crosetto <linn@hpe.com>
+Date: Mon, 22 Feb 2016 12:54:37 -0700
+Subject: arm64/efi: Disable secure boot if shim is in insecure mode
+
+Port to arm64 a patch originally written by Josh Boyer for the x86 EFI
+stub.
+
+A user can manually tell the shim boot loader to disable validation of
+images it loads.  When a user does this, it creates a UEFI variable called
+MokSBState that does not have the runtime attribute set.  Given that the
+user explicitly disabled validation, we can honor that and not enable
+secure boot mode if that variable is set.
+
+Signed-off-by: Linn Crosetto <linn@hpe.com>
+Cc: Josh Boyer <jwboyer@fedoraproject.org>
+---
+ drivers/firmware/efi/libstub/arm-stub.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+--- a/drivers/firmware/efi/libstub/arm-stub.c
++++ b/drivers/firmware/efi/libstub/arm-stub.c
+@@ -26,11 +26,14 @@ static int efi_get_secureboot(efi_system
+ 		'S', 'e', 'c', 'u', 'r', 'e', 'B', 'o', 'o', 't', 0 };
+ 	static efi_char16_t const sm_var_name[] = {
+ 		'S', 'e', 't', 'u', 'p', 'M', 'o', 'd', 'e', 0 };
++	static efi_char16_t const mk_var_name[] = {
++		'M', 'o', 'k', 'S', 'B', 'S', 't', 'a', 't', 'e', 0 };
+ 
+ 	efi_guid_t var_guid = EFI_GLOBAL_VARIABLE_GUID;
+ 	efi_get_variable_t *f_getvar = sys_table_arg->runtime->get_variable;
+ 	u8 val;
+ 	unsigned long size = sizeof(val);
++	u32 attr;
+ 	efi_status_t status;
+ 
+ 	status = f_getvar((efi_char16_t *)sb_var_name, (efi_guid_t *)&var_guid,
+@@ -51,6 +54,22 @@ static int efi_get_secureboot(efi_system
+ 	if (val == 1)
+ 		return 0;
+ 
++	/* See if a user has put shim into insecure_mode.  If so, and the variable
++	 * doesn't have the runtime attribute set, we might as well honor that.
++	 */
++	var_guid = EFI_SHIM_LOCK_GUID;
++	status = f_getvar((efi_char16_t *)mk_var_name, (efi_guid_t *)&var_guid,
++				&attr, &size, &val);
++
++	/* If it fails, we don't care why.  Default to secure */
++	if (status != EFI_SUCCESS)
++		return 1;
++
++	if (!(attr & EFI_VARIABLE_RUNTIME_ACCESS)) {
++		if (val == 1)
++			return 0;
++	}
++
+ 	return 1;
+ 
+ out_efi_err:

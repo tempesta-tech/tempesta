@@ -1,0 +1,13 @@
+add_modules() {
+  echo '** Loaded modules:' >&3
+  # List modules along with any taint flags.
+  # We should be able to tell cut to use an empty output delimiter, but
+  # currently (coreutils 8.13-3) this results in null bytes in the output.
+  cut -d' ' -f1,7 /proc/modules | sed 's/ //' >&3
+  echo >&3
+}
+
+ask_modules() {
+  true
+}
+

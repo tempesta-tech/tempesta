@@ -1,0 +1,22 @@
+[base]
+featuresets:
+ none
+ rt
+kernel-arch: x86
+
+[build]
+debug-info: true
+image-file: arch/x86/boot/bzImage
+vdso: true
+
+[image]
+bootloaders: grub-pc grub-efi-amd64 extlinux
+install-stem: vmlinuz
+breaks: xserver-xorg-input-vmmouse (<< 1:13.0.99)
+
+[relations]
+headers%gcc-5: linux-compiler-gcc-5-x86
+
+[amd64_description]
+hardware: 64-bit PCs
+hardware-long: PCs with AMD64, Intel 64 or VIA Nano processors

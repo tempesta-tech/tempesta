@@ -1,0 +1,14 @@
+linear
+md-mod
+dm-mod
+multipath
+raid0
+raid1
+raid456
+raid10
+dm-mirror
+dm-snapshot
+
+# RAID-related libraries, also used by btrfs
+raid6_pq
+xor

@@ -1,0 +1,44 @@
+From: Ian Campbell <ijc@hellion.org.uk>
+Date: Thu, 17 Jan 2013 08:55:21 +0000
+Subject: Tweak gitignore for Debian pkg-kernel using git svn.
+Forwarded: not-needed
+
+[bwh: Tweak further for pure git]
+
+--- a/.gitignore
++++ b/.gitignore
+@@ -53,23 +53,11 @@ Module.symvers
+ /Module.markers
+ 
+ #
+-# Debian directory (make deb-pkg)
+-#
+-/debian/
+-
+-#
+ # tar directory (make tar*-pkg)
+ #
+ /tar-install/
+ 
+ #
+-# git files that we don't want to ignore even if they are dot-files
+-#
+-!.gitignore
+-!.mailmap
+-!.cocciconfig
+-
+-#
+ # Generated include files
+ #
+ include/config
+@@ -114,3 +102,10 @@ all.config
+ 
+ # Kdevelop4
+ *.kdev4
++
++#
++# Debian packaging: ignore everything at the top level, since it isn't
++# included in our repository
++#
++/*
++!/debian/

@@ -1,0 +1,46 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Fri, 8 Feb 2013 11:12:13 -0800
+Subject: [10/18] x86: Restrict MSR access when securelevel is set
+Origin: https://github.com/mjg59/linux/commit/c6ad37822699967e60fae57a64ae89676f543182
+
+Permitting write access to MSRs allows userspace to modify the running
+kernel. Prevent this if securelevel has been set. Based on a patch by Kees
+Cook.
+
+Cc: Kees Cook <keescook@chromium.org>
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ arch/x86/kernel/msr.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+--- a/arch/x86/kernel/msr.c
++++ b/arch/x86/kernel/msr.c
+@@ -39,6 +39,7 @@
+ #include <linux/notifier.h>
+ #include <linux/uaccess.h>
+ #include <linux/gfp.h>
++#include <linux/security.h>
+ 
+ #include <asm/cpufeature.h>
+ #include <asm/msr.h>
+@@ -83,6 +84,9 @@ static ssize_t msr_write(struct file *fi
+ 	int err = 0;
+ 	ssize_t bytes = 0;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (count % 8)
+ 		return -EINVAL;	/* Invalid chunk size */
+ 
+@@ -130,6 +134,10 @@ static long msr_ioctl(struct file *file,
+ 			err = -EBADF;
+ 			break;
+ 		}
++		if (get_securelevel() > 0) {
++			err = -EPERM;
++			break;
++		}
+ 		if (copy_from_user(&regs, uregs, sizeof regs)) {
+ 			err = -EFAULT;
+ 			break;

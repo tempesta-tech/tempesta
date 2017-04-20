@@ -1,0 +1,64 @@
+From: Jan Kara <jack@suse.cz>
+Date: Thu, 26 May 2016 17:12:41 +0200
+Subject: fuse: Propagate dentry down to inode_change_ok()
+Origin: https://git.kernel.org/linus/62490330769c1ce5dcba3f1f3e8f4005e9b797e6
+
+To avoid clearing of capabilities or security related extended
+attributes too early, inode_change_ok() will need to take dentry instead
+of inode. Propagate it down to fuse_do_setattr().
+
+Acked-by: Miklos Szeredi <mszeredi@redhat.com>
+Reviewed-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Jan Kara <jack@suse.cz>
+[carnil: backport for 4.8]
+---
+ fs/fuse/dir.c    | 7 ++++---
+ fs/fuse/file.c   | 2 +-
+ fs/fuse/fuse_i.h | 2 +-
+ 3 files changed, 6 insertions(+), 5 deletions(-)
+
+--- a/fs/fuse/dir.c
++++ b/fs/fuse/dir.c
+@@ -1591,9 +1591,10 @@ int fuse_flush_times(struct inode *inode
+  * vmtruncate() doesn't allow for this case, so do the rlimit checking
+  * and the actual truncation by hand.
+  */
+-int fuse_do_setattr(struct inode *inode, struct iattr *attr,
++int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
+ 		    struct file *file)
+ {
++	struct inode *inode = d_inode(dentry);
+ 	struct fuse_conn *fc = get_fuse_conn(inode);
+ 	struct fuse_inode *fi = get_fuse_inode(inode);
+ 	FUSE_ARGS(args);
+@@ -1735,7 +1736,7 @@ static int fuse_setattr(struct dentry *e
+ 	if (!attr->ia_valid)
+ 		return 0;
+ 
+-	ret = fuse_do_setattr(inode, attr, file);
++	ret = fuse_do_setattr(entry, attr, file);
+ 	if (!ret) {
+ 		/* Directory mode changed, may need to revalidate access */
+ 		if (d_is_dir(entry) && (attr->ia_valid & ATTR_MODE))
+--- a/fs/fuse/file.c
++++ b/fs/fuse/file.c
+@@ -2842,7 +2842,7 @@ static void fuse_do_truncate(struct file
+ 	attr.ia_file = file;
+ 	attr.ia_valid |= ATTR_FILE;
+ 
+-	fuse_do_setattr(inode, &attr, file);
++	fuse_do_setattr(file_dentry(file), &attr, file);
+ }
+ 
+ static inline loff_t fuse_round_up(loff_t off)
+--- a/fs/fuse/fuse_i.h
++++ b/fs/fuse/fuse_i.h
+@@ -958,7 +958,7 @@ bool fuse_write_update_size(struct inode
+ int fuse_flush_times(struct inode *inode, struct fuse_file *ff);
+ int fuse_write_inode(struct inode *inode, struct writeback_control *wbc);
+ 
+-int fuse_do_setattr(struct inode *inode, struct iattr *attr,
++int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
+ 		    struct file *file);
+ 
+ void fuse_set_initialized(struct fuse_conn *fc);

@@ -1,0 +1,215 @@
+Subject: x86: Support for lazy preemption
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Thu, 01 Nov 2012 11:03:47 +0100
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Implement the x86 pieces for lazy preempt.
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ arch/x86/Kconfig                   |    1 +
+ arch/x86/entry/common.c            |    4 ++--
+ arch/x86/entry/entry_32.S          |   17 +++++++++++++++++
+ arch/x86/entry/entry_64.S          |   16 ++++++++++++++++
+ arch/x86/include/asm/preempt.h     |   31 ++++++++++++++++++++++++++++++-
+ arch/x86/include/asm/thread_info.h |   10 ++++++++++
+ arch/x86/kernel/asm-offsets.c      |    2 ++
+ 7 files changed, 78 insertions(+), 3 deletions(-)
+
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -17,6 +17,7 @@ config X86_64
+ ### Arch settings
+ config X86
+ 	def_bool y
++	select HAVE_PREEMPT_LAZY
+ 	select ACPI_LEGACY_TABLES_LOOKUP	if ACPI
+ 	select ACPI_SYSTEM_POWER_STATES_SUPPORT	if ACPI
+ 	select ANON_INODES
+--- a/arch/x86/entry/common.c
++++ b/arch/x86/entry/common.c
+@@ -136,7 +136,7 @@ static long syscall_trace_enter(struct p
+ 
+ #define EXIT_TO_USERMODE_LOOP_FLAGS				\
+ 	(_TIF_SIGPENDING | _TIF_NOTIFY_RESUME | _TIF_UPROBE |	\
+-	 _TIF_NEED_RESCHED | _TIF_USER_RETURN_NOTIFY)
++	 _TIF_NEED_RESCHED_MASK | _TIF_USER_RETURN_NOTIFY)
+ 
+ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
+ {
+@@ -152,7 +152,7 @@ static void exit_to_usermode_loop(struct
+ 		/* We have work to do. */
+ 		local_irq_enable();
+ 
+-		if (cached_flags & _TIF_NEED_RESCHED)
++		if (cached_flags & _TIF_NEED_RESCHED_MASK)
+ 			schedule();
+ 
+ #ifdef ARCH_RT_DELAYS_SIGNAL_SEND
+--- a/arch/x86/entry/entry_32.S
++++ b/arch/x86/entry/entry_32.S
+@@ -271,8 +271,25 @@ END(ret_from_exception)
+ ENTRY(resume_kernel)
+ 	DISABLE_INTERRUPTS(CLBR_ANY)
+ need_resched:
++	# preempt count == 0 + NEED_RS set?
+ 	cmpl	$0, PER_CPU_VAR(__preempt_count)
++#ifndef CONFIG_PREEMPT_LAZY
+ 	jnz	restore_all
++#else
++	jz test_int_off
++
++	# atleast preempt count == 0 ?
++	cmpl $_PREEMPT_ENABLED,PER_CPU_VAR(__preempt_count)
++	jne restore_all
++
++	GET_THREAD_INFO(%ebp)
++	cmpl $0,TI_preempt_lazy_count(%ebp)	# non-zero preempt_lazy_count ?
++	jnz restore_all
++
++	testl $_TIF_NEED_RESCHED_LAZY, TI_flags(%ebp)
++	jz restore_all
++test_int_off:
++#endif
+ 	testl	$X86_EFLAGS_IF, PT_EFLAGS(%esp)	# interrupts off (exception path) ?
+ 	jz	restore_all
+ 	call	preempt_schedule_irq
+--- a/arch/x86/entry/entry_64.S
++++ b/arch/x86/entry/entry_64.S
+@@ -512,7 +512,23 @@ GLOBAL(retint_user)
+ 	bt	$9, EFLAGS(%rsp)		/* were interrupts off? */
+ 	jnc	1f
+ 0:	cmpl	$0, PER_CPU_VAR(__preempt_count)
++#ifndef CONFIG_PREEMPT_LAZY
+ 	jnz	1f
++#else
++	jz	do_preempt_schedule_irq
++
++	# atleast preempt count == 0 ?
++	cmpl $_PREEMPT_ENABLED,PER_CPU_VAR(__preempt_count)
++	jnz	1f
++
++	GET_THREAD_INFO(%rcx)
++	cmpl	$0, TI_preempt_lazy_count(%rcx)
++	jnz	1f
++
++	bt	$TIF_NEED_RESCHED_LAZY,TI_flags(%rcx)
++	jnc	1f
++do_preempt_schedule_irq:
++#endif
+ 	call	preempt_schedule_irq
+ 	jmp	0b
+ 1:
+--- a/arch/x86/include/asm/preempt.h
++++ b/arch/x86/include/asm/preempt.h
+@@ -79,17 +79,46 @@ static __always_inline void __preempt_co
+  * a decrement which hits zero means we have no preempt_count and should
+  * reschedule.
+  */
+-static __always_inline bool __preempt_count_dec_and_test(void)
++static __always_inline bool ____preempt_count_dec_and_test(void)
+ {
+ 	GEN_UNARY_RMWcc("decl", __preempt_count, __percpu_arg(0), e);
+ }
+ 
++static __always_inline bool __preempt_count_dec_and_test(void)
++{
++	if (____preempt_count_dec_and_test())
++		return true;
++#ifdef CONFIG_PREEMPT_LAZY
++	if (current_thread_info()->preempt_lazy_count)
++		return false;
++	return test_thread_flag(TIF_NEED_RESCHED_LAZY);
++#else
++	return false;
++#endif
++}
++
+ /*
+  * Returns true when we need to resched and can (barring IRQ state).
+  */
+ static __always_inline bool should_resched(int preempt_offset)
+ {
++#ifdef CONFIG_PREEMPT_LAZY
++	u32 tmp;
++
++	tmp = raw_cpu_read_4(__preempt_count);
++	if (tmp == preempt_offset)
++		return true;
++
++	/* preempt count == 0 ? */
++	tmp &= ~PREEMPT_NEED_RESCHED;
++	if (tmp)
++		return false;
++	if (current_thread_info()->preempt_lazy_count)
++		return false;
++	return test_thread_flag(TIF_NEED_RESCHED_LAZY);
++#else
+ 	return unlikely(raw_cpu_read_4(__preempt_count) == preempt_offset);
++#endif
+ }
+ 
+ #ifdef CONFIG_PREEMPT
+--- a/arch/x86/include/asm/thread_info.h
++++ b/arch/x86/include/asm/thread_info.h
+@@ -57,6 +57,8 @@ struct thread_info {
+ 	__u32			flags;		/* low level flags */
+ 	__u32			status;		/* thread synchronous flags */
+ 	__u32			cpu;		/* current CPU */
++	int			preempt_lazy_count;	/* 0 => lazy preemptable
++							   <0 => BUG */
+ };
+ 
+ #define INIT_THREAD_INFO(tsk)			\
+@@ -73,6 +75,10 @@ struct thread_info {
+ 
+ #include <asm/asm-offsets.h>
+ 
++#define GET_THREAD_INFO(reg) \
++	_ASM_MOV PER_CPU_VAR(cpu_current_top_of_stack),reg ; \
++	_ASM_SUB $(THREAD_SIZE),reg ;
++
+ #endif
+ 
+ /*
+@@ -91,6 +97,7 @@ struct thread_info {
+ #define TIF_SYSCALL_EMU		6	/* syscall emulation active */
+ #define TIF_SYSCALL_AUDIT	7	/* syscall auditing active */
+ #define TIF_SECCOMP		8	/* secure computing */
++#define TIF_NEED_RESCHED_LAZY	9	/* lazy rescheduling necessary */
+ #define TIF_USER_RETURN_NOTIFY	11	/* notify kernel of userspace return */
+ #define TIF_UPROBE		12	/* breakpointed or singlestepping */
+ #define TIF_NOTSC		16	/* TSC is not accessible in userland */
+@@ -115,6 +122,7 @@ struct thread_info {
+ #define _TIF_SYSCALL_EMU	(1 << TIF_SYSCALL_EMU)
+ #define _TIF_SYSCALL_AUDIT	(1 << TIF_SYSCALL_AUDIT)
+ #define _TIF_SECCOMP		(1 << TIF_SECCOMP)
++#define _TIF_NEED_RESCHED_LAZY	(1 << TIF_NEED_RESCHED_LAZY)
+ #define _TIF_USER_RETURN_NOTIFY	(1 << TIF_USER_RETURN_NOTIFY)
+ #define _TIF_UPROBE		(1 << TIF_UPROBE)
+ #define _TIF_NOTSC		(1 << TIF_NOTSC)
+@@ -151,6 +159,8 @@ struct thread_info {
+ #define _TIF_WORK_CTXSW_PREV (_TIF_WORK_CTXSW|_TIF_USER_RETURN_NOTIFY)
+ #define _TIF_WORK_CTXSW_NEXT (_TIF_WORK_CTXSW)
+ 
++#define _TIF_NEED_RESCHED_MASK	(_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)
++
+ #define STACK_WARN		(THREAD_SIZE/8)
+ 
+ /*
+--- a/arch/x86/kernel/asm-offsets.c
++++ b/arch/x86/kernel/asm-offsets.c
+@@ -31,6 +31,7 @@ void common(void) {
+ 	BLANK();
+ 	OFFSET(TI_flags, thread_info, flags);
+ 	OFFSET(TI_status, thread_info, status);
++	OFFSET(TI_preempt_lazy_count, thread_info, preempt_lazy_count);
+ 
+ 	BLANK();
+ 	OFFSET(TASK_addr_limit, task_struct, thread.addr_limit);
+@@ -88,4 +89,5 @@ void common(void) {
+ 
+ 	BLANK();
+ 	DEFINE(PTREGS_SIZE, sizeof(struct pt_regs));
++	DEFINE(_PREEMPT_ENABLED, PREEMPT_ENABLED);
+ }

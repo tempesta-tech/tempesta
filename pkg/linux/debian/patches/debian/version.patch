@@ -1,0 +1,138 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: Include package version along with kernel release in stack traces
+Date: Tue, 24 Jul 2012 03:13:10 +0100
+Forwarded: not-needed
+
+For distribution binary packages we assume
+$DISTRIBUTION_OFFICIAL_BUILD, $DISTRIBUTOR and $DISTRIBUTION_VERSION
+are set.
+
+--- a/Makefile
++++ b/Makefile
+@@ -1004,7 +1004,7 @@ endif
+ prepare2: prepare3 prepare-compiler-check outputmakefile asm-generic
+ 
+ prepare1: prepare2 $(version_h) include/generated/utsrelease.h \
+-                   include/config/auto.conf
++                   include/config/auto.conf include/generated/package.h
+ 	$(cmd_crmodverdir)
+ 	$(Q)test -e include/generated/autoksyms.h || \
+ 	    touch   include/generated/autoksyms.h
+@@ -1079,6 +1079,16 @@ define filechk_version.h
+ 	echo '#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))';)
+ endef
+ 
++ifneq ($(DISTRIBUTION_OFFICIAL_BUILD),)
++define filechk_package.h
++	echo \#define LINUX_PACKAGE_ID \" $(DISTRIBUTOR) $(DISTRIBUTION_VERSION)\"
++endef
++else
++define filechk_package.h
++	echo \#define LINUX_PACKAGE_ID \"\"
++endef
++endif
++
+ $(version_h): $(srctree)/Makefile FORCE
+ 	$(call filechk,version.h)
+ 	$(Q)rm -f $(old_version_h)
+@@ -1086,6 +1096,9 @@ $(version_h): $(srctree)/Makefile FORCE
+ include/generated/utsrelease.h: include/config/kernel.release FORCE
+ 	$(call filechk,utsrelease.h)
+ 
++include/generated/package.h: $(srctree)/Makefile FORCE
++	$(call filechk,package.h)
++
+ PHONY += headerdep
+ headerdep:
+ 	$(Q)find $(srctree)/include/ -name '*.h' | xargs --max-args 1 \
+--- a/arch/x86/um/sysrq_64.c
++++ b/arch/x86/um/sysrq_64.c
+@@ -8,6 +8,7 @@
+ #include <linux/module.h>
+ #include <linux/sched.h>
+ #include <linux/utsname.h>
++#include <generated/package.h>
+ #include <asm/current.h>
+ #include <asm/ptrace.h>
+ #include <asm/sysrq.h>
+@@ -16,8 +17,9 @@ void show_regs(struct pt_regs *regs)
+ {
+ 	printk("\n");
+ 	print_modules();
+-	printk(KERN_INFO "Pid: %d, comm: %.20s %s %s\n", task_pid_nr(current),
+-		current->comm, print_tainted(), init_utsname()->release);
++	printk(KERN_INFO "Pid: %d, comm: %.20s %s %s%s\n", task_pid_nr(current),
++		current->comm, print_tainted(), init_utsname()->release,
++		LINUX_PACKAGE_ID);
+ 	printk(KERN_INFO "RIP: %04lx:[<%016lx>]\n", PT_REGS_CS(regs) & 0xffff,
+ 	       PT_REGS_IP(regs));
+ 	printk(KERN_INFO "RSP: %016lx  EFLAGS: %08lx\n", PT_REGS_SP(regs),
+--- a/arch/ia64/kernel/process.c
++++ b/arch/ia64/kernel/process.c
+@@ -30,6 +30,7 @@
+ #include <linux/utsname.h>
+ #include <linux/tracehook.h>
+ #include <linux/rcupdate.h>
++#include <generated/package.h>
+ 
+ #include <asm/cpu.h>
+ #include <asm/delay.h>
+@@ -103,9 +104,9 @@ show_regs (struct pt_regs *regs)
+ 	print_modules();
+ 	printk("\n");
+ 	show_regs_print_info(KERN_DEFAULT);
+-	printk("psr : %016lx ifs : %016lx ip  : [<%016lx>]    %s (%s)\n",
++	printk("psr : %016lx ifs : %016lx ip  : [<%016lx>]    %s (%s%s)\n",
+ 	       regs->cr_ipsr, regs->cr_ifs, ip, print_tainted(),
+-	       init_utsname()->release);
++	       init_utsname()->release, LINUX_PACKAGE_ID);
+ 	print_symbol("ip is at %s\n", ip);
+ 	printk("unat: %016lx pfs : %016lx rsc : %016lx\n",
+ 	       regs->ar_unat, regs->ar_pfs, regs->ar_rsc);
+--- a/arch/powerpc/kernel/process.c
++++ b/arch/powerpc/kernel/process.c
+@@ -39,6 +39,7 @@
+ #include <linux/hw_breakpoint.h>
+ #include <linux/uaccess.h>
+ #include <linux/elf-randomize.h>
++#include <generated/package.h>
+ 
+ #include <asm/pgtable.h>
+ #include <asm/io.h>
+@@ -1309,8 +1310,9 @@ void show_regs(struct pt_regs * regs)
+ 
+ 	printk("NIP: "REG" LR: "REG" CTR: "REG"\n",
+ 	       regs->nip, regs->link, regs->ctr);
+-	printk("REGS: %p TRAP: %04lx   %s  (%s)\n",
+-	       regs, regs->trap, print_tainted(), init_utsname()->release);
++	printk("REGS: %p TRAP: %04lx   %s  (%s%s)\n",
++	       regs, regs->trap, print_tainted(), init_utsname()->release,
++	       LINUX_PACKAGE_ID);
+ 	printk("MSR: "REG" ", regs->msr);
+ 	print_msr_bits(regs->msr);
+ 	printk("  CR: %08lx  XER: %08lx\n", regs->ccr, regs->xer);
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -45,6 +45,7 @@
+ #include <linux/utsname.h>
+ #include <linux/ctype.h>
+ #include <linux/uio.h>
++#include <generated/package.h>
+ 
+ #include <asm/uaccess.h>
+ #include <asm/sections.h>
+@@ -3291,11 +3292,12 @@ void __init dump_stack_set_arch_desc(con
+  */
+ void dump_stack_print_info(const char *log_lvl)
+ {
+-	printk("%sCPU: %d PID: %d Comm: %.20s %s %s %.*s\n",
++	printk("%sCPU: %d PID: %d Comm: %.20s %s %s %.*s%s\n",
+ 	       log_lvl, raw_smp_processor_id(), current->pid, current->comm,
+ 	       print_tainted(), init_utsname()->release,
+ 	       (int)strcspn(init_utsname()->version, " "),
+-	       init_utsname()->version);
++	       init_utsname()->version,
++	       LINUX_PACKAGE_ID);
+ 
+ 	if (dump_stack_arch_desc_str[0] != '\0')
+ 		printk("%sHardware name: %s\n",

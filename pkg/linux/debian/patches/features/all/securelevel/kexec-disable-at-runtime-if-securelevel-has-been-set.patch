@@ -1,0 +1,36 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Fri, 9 Aug 2013 03:33:56 -0400
+Subject: [08/18] kexec: Disable at runtime if securelevel has been set.
+Origin: https://github.com/mjg59/linux/commit/ec87b6aac76fd553578cec2c05674e22b79afe3e
+
+kexec permits the loading and execution of arbitrary code in ring 0, which
+permits the modification of the running kernel. Prevent this if securelevel
+has been set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ kernel/kexec.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/kernel/kexec.c b/kernel/kexec.c
+index ee70aef5cd81..542655ea297c 100644
+--- a/kernel/kexec.c
++++ b/kernel/kexec.c
+@@ -17,6 +17,7 @@
+ #include <linux/syscalls.h>
+ #include <linux/vmalloc.h>
+ #include <linux/slab.h>
++#include <linux/security.h>
+ 
+ #include "kexec_internal.h"
+ 
+@@ -134,6 +135,9 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
+ 	if (!capable(CAP_SYS_BOOT) || kexec_load_disabled)
+ 		return -EPERM;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	/*
+ 	 * Verify we have a legal set of flags
+ 	 * This leaves us room for future extensions.

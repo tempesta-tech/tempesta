@@ -1,0 +1,32 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Fri, 27 May 2016 15:11:51 +0200
+Subject: [PATCH] locallock: add local_lock_on()
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/locallock.h |    6 ++++++
+ 1 file changed, 6 insertions(+)
+
+--- a/include/linux/locallock.h
++++ b/include/linux/locallock.h
+@@ -60,6 +60,9 @@ static inline void __local_lock(struct l
+ #define local_lock(lvar)					\
+ 	do { __local_lock(&get_local_var(lvar)); } while (0)
+ 
++#define local_lock_on(lvar, cpu)				\
++	do { __local_lock(&per_cpu(lvar, cpu)); } while (0)
++
+ static inline int __local_trylock(struct local_irq_lock *lv)
+ {
+ 	if (lv->owner != current && spin_trylock_local(&lv->lock)) {
+@@ -98,6 +101,9 @@ static inline void __local_unlock(struct
+ 		put_local_var(lvar);				\
+ 	} while (0)
+ 
++#define local_unlock_on(lvar, cpu)                       \
++	do { __local_unlock(&per_cpu(lvar, cpu)); } while (0)
++
+ static inline void __local_lock_irq(struct local_irq_lock *lv)
+ {
+ 	spin_lock_irqsave(&lv->lock, lv->flags);

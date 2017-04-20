@@ -1,0 +1,734 @@
+##
+## file: arch/arm64/Kconfig
+##
+CONFIG_PCI=y
+CONFIG_ARM64_ERRATUM_834220=y
+#. Until we decide how/whether to handle this in userland as well
+# CONFIG_ARM64_ERRATUM_843419 is not set
+## choice: Virtual address space size
+CONFIG_ARM64_VA_BITS_48=y
+## end choice
+CONFIG_SCHED_MC=y
+CONFIG_SECCOMP=y
+CONFIG_XEN=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_RANDOMIZE_MODULE_REGION_FULL=y
+CONFIG_EFI_SECURE_BOOT_SECURELEVEL=y
+CONFIG_COMPAT=y
+
+##
+## file: arch/arm64/crypto/Kconfig
+##
+CONFIG_ARM64_CRYPTO=y
+CONFIG_CRYPTO_SHA1_ARM64_CE=m
+CONFIG_CRYPTO_SHA2_ARM64_CE=m
+CONFIG_CRYPTO_GHASH_ARM64_CE=m
+CONFIG_CRYPTO_AES_ARM64_CE=m
+CONFIG_CRYPTO_AES_ARM64_CE_CCM=m
+CONFIG_CRYPTO_AES_ARM64_CE_BLK=m
+# CONFIG_CRYPTO_AES_ARM64_NEON_BLK is not set
+CONFIG_CRYPTO_CRC32_ARM64=y
+
+##
+## file: arch/arm64/Kconfig.platforms
+##
+CONFIG_ARCH_BCM2835=y
+CONFIG_ARCH_HISI=y
+CONFIG_ARCH_QCOM=y
+CONFIG_ARCH_SEATTLE=y
+CONFIG_ARCH_TEGRA=y
+CONFIG_ARCH_VEXPRESS=y
+CONFIG_ARCH_XGENE=y
+
+##
+## file: drivers/acpi/Kconfig
+##
+CONFIG_ACPI=y
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_SATA_AHCI_PLATFORM=m
+CONFIG_AHCI_TEGRA=m
+CONFIG_AHCI_XGENE=m
+
+##
+## file: drivers/bus/Kconfig
+##
+CONFIG_TEGRA_ACONNECT=y
+
+##
+## file: drivers/char/hw_random/Kconfig
+##
+CONFIG_HW_RANDOM_BCM2835=m
+CONFIG_HW_RANDOM_HISI=m
+CONFIG_HW_RANDOM_MSM=m
+
+##
+## file: drivers/char/ipmi/Kconfig
+##
+CONFIG_IPMI_HANDLER=m
+CONFIG_IPMI_DEVICE_INTERFACE=m
+CONFIG_IPMI_SSIF=m
+
+##
+## file: drivers/clk/Kconfig
+##
+CONFIG_COMMON_CLK_XGENE=y
+
+##
+## file: drivers/clk/hisilicon/Kconfig
+##
+CONFIG_STUB_CLK_HI6220=y
+
+##
+## file: drivers/clk/qcom/Kconfig
+##
+CONFIG_COMMON_CLK_QCOM=y
+CONFIG_MSM_GCC_8916=y
+CONFIG_MSM_GCC_8996=y
+CONFIG_MSM_MMCC_8996=y
+
+##
+## file: drivers/cpuidle/Kconfig.arm
+##
+CONFIG_ARM_CPUIDLE=y
+
+##
+## file: drivers/crypto/Kconfig
+##
+CONFIG_CRYPTO_DEV_QCE=m
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_DMADEVICES=y
+CONFIG_DMA_BCM2835=y
+CONFIG_TEGRA20_APB_DMA=y
+CONFIG_TEGRA210_ADMA=y
+CONFIG_XGENE_DMA=m
+
+##
+## file: drivers/dma/qcom/Kconfig
+##
+CONFIG_QCOM_BAM_DMA=m
+CONFIG_QCOM_HIDMA_MGMT=m
+CONFIG_QCOM_HIDMA=m
+
+##
+## file: drivers/edac/Kconfig
+##
+CONFIG_EDAC=y
+CONFIG_EDAC_MM_EDAC=m
+CONFIG_EDAC_XGENE=m
+
+##
+## file: drivers/extcon/Kconfig
+##
+CONFIG_EXTCON=m
+CONFIG_EXTCON_USB_GPIO=m
+
+##
+## file: drivers/firmware/Kconfig
+##
+CONFIG_RASPBERRYPI_FIRMWARE=y
+
+##
+## file: drivers/gpio/Kconfig
+##
+CONFIG_GPIOLIB=y
+CONFIG_GPIO_PCA953X=y
+CONFIG_GPIO_PCA953X_IRQ=y
+CONFIG_GPIO_MAX77620=y
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+CONFIG_DRM=m
+
+##
+## file: drivers/gpu/drm/bridge/adv7511/Kconfig
+##
+CONFIG_DRM_I2C_ADV7511=m
+
+##
+## file: drivers/gpu/drm/hisilicon/kirin/Kconfig
+##
+CONFIG_DRM_HISI_KIRIN=m
+
+##
+## file: drivers/gpu/drm/msm/Kconfig
+##
+CONFIG_DRM_MSM=m
+CONFIG_DRM_MSM_DSI=y
+CONFIG_DRM_MSM_DSI_PLL=y
+CONFIG_DRM_MSM_DSI_28NM_PHY=y
+CONFIG_DRM_MSM_DSI_20NM_PHY=y
+
+##
+## file: drivers/gpu/drm/panel/Kconfig
+##
+CONFIG_DRM_PANEL_SIMPLE=m
+
+##
+## file: drivers/gpu/drm/tegra/Kconfig
+##
+CONFIG_DRM_TEGRA=m
+CONFIG_DRM_TEGRA_STAGING=y
+
+##
+## file: drivers/gpu/drm/vc4/Kconfig
+##
+CONFIG_DRM_VC4=m
+
+##
+## file: drivers/gpu/host1x/Kconfig
+##
+CONFIG_TEGRA_HOST1X=m
+
+##
+## file: drivers/hwspinlock/Kconfig
+##
+CONFIG_HWSPINLOCK_QCOM=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_BCM2835=m
+CONFIG_I2C_DESIGNWARE_PLATFORM=m
+CONFIG_I2C_QUP=m
+CONFIG_I2C_TEGRA=m
+CONFIG_I2C_CROS_EC_TUNNEL=m
+CONFIG_I2C_XGENE_SLIMPRO=m
+
+##
+## file: drivers/iio/adc/Kconfig
+##
+CONFIG_QCOM_SPMI_IADC=m
+CONFIG_QCOM_SPMI_VADC=m
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_KEYBOARD_TEGRA=m
+
+##
+## file: drivers/input/misc/Kconfig
+##
+CONFIG_INPUT_MISC=y
+CONFIG_INPUT_PM8941_PWRKEY=m
+CONFIG_INPUT_UINPUT=m
+CONFIG_INPUT_HISI_POWERKEY=m
+
+##
+## file: drivers/iommu/Kconfig
+##
+CONFIG_TEGRA_IOMMU_SMMU=y
+
+##
+## file: drivers/leds/Kconfig
+##
+CONFIG_LEDS_GPIO=m
+
+##
+## file: drivers/mailbox/Kconfig
+##
+CONFIG_MAILBOX=y
+CONFIG_BCM2835_MBOX=y
+CONFIG_HI6220_MBOX=y
+CONFIG_XGENE_SLIMPRO_MBOX=m
+
+##
+## file: drivers/memory/tegra/Kconfig
+##
+CONFIG_TEGRA_MC=y
+
+##
+## file: drivers/mfd/Kconfig
+##
+CONFIG_MFD_CROS_EC=y
+CONFIG_MFD_CROS_EC_I2C=m
+CONFIG_MFD_CROS_EC_SPI=m
+CONFIG_MFD_HI655X_PMIC=m
+CONFIG_MFD_MAX77620=y
+CONFIG_MFD_QCOM_RPM=m
+CONFIG_MFD_SPMI_PMIC=m
+
+##
+## file: drivers/misc/Kconfig
+##
+CONFIG_QCOM_COINCELL=m
+
+##
+## file: drivers/mmc/Kconfig
+##
+CONFIG_MMC=y
+
+##
+## file: drivers/mmc/host/Kconfig
+##
+CONFIG_MMC_ARMMMCI=m
+CONFIG_MMC_QCOM_DML=m
+CONFIG_MMC_SDHCI_PLTFM=m
+CONFIG_MMC_SDHCI_TEGRA=m
+CONFIG_MMC_SDHCI_IPROC=m
+CONFIG_MMC_SDHCI_MSM=m
+CONFIG_MMC_SPI=m
+CONFIG_MMC_DW=m
+CONFIG_MMC_DW_K3=m
+
+##
+## file: drivers/mtd/spi-nor/Kconfig
+##
+CONFIG_SPI_HISI_SFC=m
+
+##
+## file: drivers/net/ethernet/Kconfig
+##
+CONFIG_FEALNX=m
+
+##
+## file: drivers/net/ethernet/3com/Kconfig
+##
+CONFIG_NET_VENDOR_3COM=y
+CONFIG_VORTEX=m
+CONFIG_TYPHOON=m
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+CONFIG_NET_VENDOR_8390=y
+CONFIG_NE2K_PCI=m
+
+##
+## file: drivers/net/ethernet/adaptec/Kconfig
+##
+CONFIG_NET_VENDOR_ADAPTEC=y
+CONFIG_ADAPTEC_STARFIRE=m
+
+##
+## file: drivers/net/ethernet/amd/Kconfig
+##
+CONFIG_AMD_XGBE=m
+
+##
+## file: drivers/net/ethernet/apm/xgene/Kconfig
+##
+CONFIG_NET_XGENE=m
+
+##
+## file: drivers/net/ethernet/dec/tulip/Kconfig
+##
+CONFIG_NET_TULIP=y
+CONFIG_DE2104X=m
+CONFIG_TULIP=m
+# CONFIG_TULIP_MWI is not set
+# CONFIG_TULIP_MMIO is not set
+CONFIG_WINBOND_840=m
+CONFIG_DM9102=m
+
+##
+## file: drivers/net/ethernet/dlink/Kconfig
+##
+CONFIG_NET_VENDOR_DLINK=y
+CONFIG_SUNDANCE=m
+# CONFIG_SUNDANCE_MMIO is not set
+
+##
+## file: drivers/net/ethernet/hisilicon/Kconfig
+##
+CONFIG_NET_VENDOR_HISILICON=y
+CONFIG_HIX5HD2_GMAC=m
+CONFIG_HISI_FEMAC=m
+CONFIG_HIP04_ETH=m
+CONFIG_HNS=m
+CONFIG_HNS_DSAF=m
+CONFIG_HNS_ENET=m
+
+##
+## file: drivers/net/ethernet/intel/Kconfig
+##
+CONFIG_NET_VENDOR_INTEL=y
+CONFIG_E100=m
+
+##
+## file: drivers/net/ethernet/natsemi/Kconfig
+##
+CONFIG_NET_VENDOR_NATSEMI=y
+CONFIG_NATSEMI=m
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_8139CP=m
+CONFIG_8139TOO=m
+
+##
+## file: drivers/net/ethernet/smsc/Kconfig
+##
+CONFIG_NET_VENDOR_SMSC=y
+CONFIG_SMC91X=m
+CONFIG_EPIC100=m
+CONFIG_SMSC911X=m
+
+##
+## file: drivers/net/ethernet/stmicro/stmmac/Kconfig
+##
+CONFIG_STMMAC_ETH=m
+CONFIG_STMMAC_PLATFORM=m
+CONFIG_DWMAC_GENERIC=m
+CONFIG_DWMAC_IPQ806X=m
+
+##
+## file: drivers/net/fddi/Kconfig
+##
+CONFIG_FDDI=y
+CONFIG_SKFP=m
+
+##
+## file: drivers/net/phy/Kconfig
+##
+CONFIG_MDIO_HISI_FEMAC=m
+
+##
+## file: drivers/net/wireless/ath/wcn36xx/Kconfig
+##
+CONFIG_WCN36XX=m
+
+##
+## file: drivers/net/wireless/ti/Kconfig
+##
+CONFIG_WLAN_VENDOR_TI=y
+CONFIG_WILINK_PLATFORM_DATA=y
+
+##
+## file: drivers/net/wireless/ti/wl1251/Kconfig
+##
+CONFIG_WL1251=m
+CONFIG_WL1251_SPI=m
+CONFIG_WL1251_SDIO=m
+
+##
+## file: drivers/net/wireless/ti/wl12xx/Kconfig
+##
+CONFIG_WL12XX=m
+
+##
+## file: drivers/net/wireless/ti/wl18xx/Kconfig
+##
+CONFIG_WL18XX=m
+
+##
+## file: drivers/net/wireless/ti/wlcore/Kconfig
+##
+CONFIG_WLCORE=m
+CONFIG_WLCORE_SPI=m
+CONFIG_WLCORE_SDIO=m
+
+##
+## file: drivers/nvmem/Kconfig
+##
+CONFIG_QCOM_QFPROM=m
+
+##
+## file: drivers/pci/host/Kconfig
+##
+CONFIG_PCI_HOST_GENERIC=y
+CONFIG_PCI_XGENE=y
+CONFIG_PCI_HISI=y
+CONFIG_PCIE_QCOM=y
+
+##
+## file: drivers/phy/Kconfig
+##
+CONFIG_PHY_HI6220_USB=m
+CONFIG_PHY_QCOM_APQ8064_SATA=m
+CONFIG_PHY_QCOM_IPQ806X_SATA=m
+CONFIG_PHY_XGENE=m
+CONFIG_PHY_QCOM_UFS=m
+
+##
+## file: drivers/phy/tegra/Kconfig
+##
+CONFIG_PHY_TEGRA_XUSB=m
+
+##
+## file: drivers/pinctrl/Kconfig
+##
+CONFIG_PINCTRL_SINGLE=y
+CONFIG_PINCTRL_MAX77620=y
+
+##
+## file: drivers/pinctrl/qcom/Kconfig
+##
+CONFIG_PINCTRL_MSM8916=y
+CONFIG_PINCTRL_MSM8996=y
+CONFIG_PINCTRL_QCOM_SPMI_PMIC=y
+CONFIG_PINCTRL_QCOM_SSBI_PMIC=y
+
+##
+## file: drivers/platform/chrome/Kconfig
+##
+CONFIG_CHROME_PLATFORMS=y
+
+##
+## file: drivers/power/Kconfig
+##
+CONFIG_BATTERY_BQ27XXX=m
+CONFIG_CHARGER_QCOM_SMBB=m
+
+##
+## file: drivers/power/reset/Kconfig
+##
+CONFIG_POWER_RESET_HISI=y
+CONFIG_POWER_RESET_MSM=y
+CONFIG_POWER_RESET_VEXPRESS=y
+CONFIG_POWER_RESET_XGENE=y
+CONFIG_POWER_RESET_SYSCON=y
+CONFIG_POWER_RESET_SYSCON_POWEROFF=y
+
+##
+## file: drivers/pwm/Kconfig
+##
+CONFIG_PWM=y
+CONFIG_PWM_BCM2835=m
+CONFIG_PWM_TEGRA=m
+
+##
+## file: drivers/regulator/Kconfig
+##
+CONFIG_REGULATOR=y
+CONFIG_REGULATOR_FIXED_VOLTAGE=m
+CONFIG_REGULATOR_HI655X=m
+CONFIG_REGULATOR_MAX77620=m
+CONFIG_REGULATOR_PWM=m
+CONFIG_REGULATOR_QCOM_RPM=m
+CONFIG_REGULATOR_QCOM_SMD_RPM=m
+CONFIG_REGULATOR_QCOM_SPMI=m
+
+##
+## file: drivers/remoteproc/Kconfig
+##
+CONFIG_QCOM_Q6V5_PIL=m
+
+##
+## file: drivers/reset/Kconfig
+##
+CONFIG_RESET_CONTROLLER=y
+
+##
+## file: drivers/reset/hisilicon/Kconfig
+##
+CONFIG_COMMON_RESET_HI6220=m
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_MAX77686=y
+CONFIG_RTC_DRV_EFI=y
+CONFIG_RTC_DRV_PL031=y
+CONFIG_RTC_DRV_PM8XXX=m
+CONFIG_RTC_DRV_TEGRA=y
+CONFIG_RTC_DRV_XGENE=y
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI_DMX3191D=m
+
+##
+## file: drivers/scsi/hisi_sas/Kconfig
+##
+CONFIG_SCSI_HISI_SAS=m
+
+##
+## file: drivers/soc/bcm/Kconfig
+##
+CONFIG_RASPBERRYPI_POWER=y
+
+##
+## file: drivers/soc/qcom/Kconfig
+##
+CONFIG_QCOM_GSBI=m
+CONFIG_QCOM_SMEM=m
+CONFIG_QCOM_SMD=m
+CONFIG_QCOM_SMD_RPM=m
+CONFIG_QCOM_SMP2P=m
+CONFIG_QCOM_SMSM=m
+CONFIG_QCOM_WCNSS_CTRL=m
+
+##
+## file: drivers/soc/tegra/Kconfig
+##
+CONFIG_ARCH_TEGRA_132_SOC=y
+CONFIG_ARCH_TEGRA_210_SOC=y
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI_BCM2835=m
+CONFIG_SPI_BCM2835AUX=m
+CONFIG_SPI_QUP=m
+CONFIG_SPI_TEGRA114=m
+CONFIG_SPI_TEGRA20_SFLASH=m
+CONFIG_SPI_TEGRA20_SLINK=m
+
+##
+## file: drivers/spmi/Kconfig
+##
+CONFIG_SPMI=y
+CONFIG_SPMI_MSM_PMIC_ARB=y
+
+##
+## file: drivers/thermal/Kconfig
+##
+CONFIG_THERMAL=y
+CONFIG_CPU_THERMAL=y
+CONFIG_HISI_THERMAL=m
+CONFIG_QCOM_SPMI_TEMP_ALARM=m
+
+##
+## file: drivers/thermal/tegra/Kconfig
+##
+CONFIG_TEGRA_SOCTHERM=y
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_AMBA_PL010=y
+CONFIG_SERIAL_AMBA_PL010_CONSOLE=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_SERIAL_TEGRA=y
+CONFIG_SERIAL_MSM=y
+CONFIG_SERIAL_MSM_CONSOLE=y
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_DEPRECATED_OPTIONS=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_DMA=y
+CONFIG_SERIAL_8250_NR_UARTS=4
+CONFIG_SERIAL_8250_RUNTIME_UARTS=4
+CONFIG_SERIAL_8250_EXTENDED=y
+CONFIG_SERIAL_8250_SHARE_IRQ=y
+CONFIG_SERIAL_8250_BCM2835AUX=y
+CONFIG_SERIAL_8250_DW=y
+# CONFIG_SERIAL_8250_EM is not set
+CONFIG_SERIAL_OF_PLATFORM=y
+
+##
+## file: drivers/usb/chipidea/Kconfig
+##
+CONFIG_USB_CHIPIDEA=m
+CONFIG_USB_CHIPIDEA_UDC=y
+CONFIG_USB_CHIPIDEA_HOST=y
+
+##
+## file: drivers/usb/dwc2/Kconfig
+##
+CONFIG_USB_DWC2=m
+## choice: DWC2 Mode Selection
+CONFIG_USB_DWC2_DUAL_ROLE=y
+## end choice
+
+##
+## file: drivers/usb/dwc3/Kconfig
+##
+CONFIG_USB_DWC3=m
+## choice: DWC3 Mode Selection
+CONFIG_USB_DWC3_DUAL_ROLE=y
+## end choice
+
+##
+## file: drivers/usb/gadget/Kconfig
+##
+CONFIG_USB_GADGET=m
+
+##
+## file: drivers/usb/host/Kconfig
+##
+#. xhci-platform apparently does not build as module, so xhci_hcd can't be either
+CONFIG_USB_XHCI_HCD=m
+CONFIG_USB_XHCI_PLATFORM=m
+CONFIG_USB_XHCI_TEGRA=m
+CONFIG_USB_EHCI_HCD=m
+CONFIG_USB_EHCI_MSM=m
+CONFIG_USB_EHCI_TEGRA=m
+CONFIG_USB_EHCI_HCD_PLATFORM=m
+CONFIG_USB_OHCI_HCD=m
+CONFIG_USB_OHCI_HCD_PLATFORM=m
+
+##
+## file: drivers/usb/misc/Kconfig
+##
+CONFIG_USB_HSIC_USB3503=m
+
+##
+## file: drivers/usb/phy/Kconfig
+##
+CONFIG_USB_MSM_OTG=m
+CONFIG_USB_QCOM_8X16_PHY=m
+
+##
+## file: drivers/video/backlight/Kconfig
+##
+CONFIG_BACKLIGHT_GENERIC=m
+CONFIG_BACKLIGHT_LP855X=m
+
+##
+## file: drivers/virtio/Kconfig
+##
+CONFIG_VIRTIO_MMIO=m
+
+##
+## file: drivers/watchdog/Kconfig
+##
+CONFIG_TEGRA_WATCHDOG=m
+CONFIG_QCOM_WDT=m
+CONFIG_BCM2835_WDT=m
+
+##
+## file: fs/pstore/Kconfig
+##
+CONFIG_PSTORE=y
+
+##
+## file: sound/pci/hda/Kconfig
+##
+CONFIG_SND_HDA_TEGRA=m
+
+##
+## file: sound/soc/Kconfig
+##
+CONFIG_SND_SOC=m
+
+##
+## file: sound/soc/bcm/Kconfig
+##
+CONFIG_SND_BCM2835_SOC_I2S=m
+
+##
+## file: sound/soc/qcom/Kconfig
+##
+CONFIG_SND_SOC_QCOM=m
+
+##
+## file: sound/soc/tegra/Kconfig
+##
+CONFIG_SND_SOC_TEGRA=m
+CONFIG_SND_SOC_TEGRA_RT5640=m
+CONFIG_SND_SOC_TEGRA_WM8753=m
+CONFIG_SND_SOC_TEGRA_WM8903=m
+CONFIG_SND_SOC_TEGRA_TRIMSLICE=m
+CONFIG_SND_SOC_TEGRA_ALC5632=m
+CONFIG_SND_SOC_TEGRA_MAX98090=m
+CONFIG_SND_SOC_TEGRA_RT5677=m
+

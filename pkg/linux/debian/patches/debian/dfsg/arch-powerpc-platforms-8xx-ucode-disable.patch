@@ -1,0 +1,29 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 13 Apr 2009 17:34:00 +0100
+Subject: Remove microcode patches for mgsuvd (not enabled in Debian configs)
+Forwarded: not-needed
+
+diff --git a/arch/powerpc/platforms/8xx/Kconfig b/arch/powerpc/platforms/8xx/Kconfig
+index 48a920a..81570b6 100644
+--- a/arch/powerpc/platforms/8xx/Kconfig
++++ b/arch/powerpc/platforms/8xx/Kconfig
+@@ -160,16 +160,19 @@ config NO_UCODE_PATCH
+ 
+ config USB_SOF_UCODE_PATCH
+ 	bool "USB SOF patch"
++	depends on BROKEN
+ 	help
+ 	  Help not implemented yet, coming soon.
+ 
+ config I2C_SPI_UCODE_PATCH
+ 	bool "I2C/SPI relocation patch"
++	depends on BROKEN
+ 	help
+ 	  Help not implemented yet, coming soon.
+ 
+ config I2C_SPI_SMC1_UCODE_PATCH
+ 	bool "I2C/SPI/SMC1 relocation patch"
++	depends on BROKEN
+ 	help
+ 	  Help not implemented yet, coming soon.
+ 

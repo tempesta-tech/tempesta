@@ -1,0 +1,174 @@
+##
+## file: arch/sh/Kconfig
+##
+## choice: Processor sub-type selection
+CONFIG_CPU_SUBTYPE_SH7751R=y
+## end choice
+CONFIG_SH_PCLK_FREQ=60000000
+CONFIG_PCI=y
+
+##
+## file: arch/sh/boards/Kconfig
+##
+CONFIG_SH_RTS7751R2D=y
+
+##
+## file: arch/sh/boards/mach-r2d/Kconfig
+##
+CONFIG_RTS7751R2D_PLUS=y
+
+##
+## file: arch/sh/Kconfig.cpu
+##
+## choice: Endianness selection
+CONFIG_CPU_LITTLE_ENDIAN=y
+## end choice
+CONFIG_SH_FPU=y
+
+##
+## file: arch/sh/mm/Kconfig
+##
+CONFIG_MMU=y
+CONFIG_FORCE_MAX_ZONEORDER=11
+CONFIG_MEMORY_START=0x0c000000
+CONFIG_MEMORY_SIZE=0x04000000
+CONFIG_VSYSCALL=y
+## choice: Kernel page size
+CONFIG_PAGE_SIZE_4KB=y
+## end choice
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_ATA=y
+CONFIG_ATA_VERBOSE_ERROR=y
+CONFIG_SATA_PMP=y
+CONFIG_ATA_SFF=y
+CONFIG_PATA_PLATFORM=y
+
+##
+## file: drivers/clocksource/Kconfig
+##
+CONFIG_SH_TIMER_TMU=y
+
+##
+## file: drivers/hid/Kconfig
+##
+CONFIG_HID=y
+
+##
+## file: drivers/hid/usbhid/Kconfig
+##
+CONFIG_USB_HID=y
+
+##
+## file: drivers/input/Kconfig
+##
+CONFIG_INPUT=y
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_INPUT_KEYBOARD=y
+
+##
+## file: drivers/mfd/Kconfig
+##
+CONFIG_MFD_SM501=y
+
+##
+## file: drivers/mtd/Kconfig
+##
+CONFIG_MTD=y
+CONFIG_MTD_BLOCK=y
+
+##
+## file: drivers/mtd/chips/Kconfig
+##
+CONFIG_MTD_CFI=y
+CONFIG_MTD_MAP_BANK_WIDTH_1=y
+CONFIG_MTD_MAP_BANK_WIDTH_2=y
+CONFIG_MTD_MAP_BANK_WIDTH_4=y
+CONFIG_MTD_CFI_I1=y
+CONFIG_MTD_CFI_I2=y
+CONFIG_MTD_CFI_AMDSTD=y
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_PHYSMAP=y
+
+##
+## file: drivers/net/Kconfig
+##
+CONFIG_NETDEVICES=y
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_8139CP=y
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_R9701=y
+# CONFIG_RTC_DRV_SH is not set
+# CONFIG_RTC_DRV_GENERIC is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI=y
+CONFIG_SPI_BITBANG=y
+CONFIG_SPI_SH_SCI=y
+
+##
+## file: drivers/tty/Kconfig
+##
+CONFIG_VT=y
+CONFIG_CONSOLE_TRANSLATIONS=y
+CONFIG_VT_CONSOLE=y
+CONFIG_VT_HW_CONSOLE_BINDING=y
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_SH_SCI=y
+CONFIG_SERIAL_SH_SCI_NR_UARTS=6
+CONFIG_SERIAL_SH_SCI_CONSOLE=y
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB_SUPPORT=y
+CONFIG_USB=y
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_OHCI_HCD=y
+
+##
+## file: drivers/video/console/Kconfig
+##
+CONFIG_FRAMEBUFFER_CONSOLE=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=y
+CONFIG_FB_SM501=y
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_FLATMEM_MANUAL=y
+## end choice
+

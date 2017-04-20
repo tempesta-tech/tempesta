@@ -1,0 +1,56 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 29 Sep 2015 02:55:06 +0100
+Subject: [PATCH] alpha: uapi: Add support for __SANE_USERSPACE_TYPES__
+Forwarded: http://mid.gmane.org/1443659755.2730.14.camel@decadent.org.uk
+
+This fixes compiler errors in perf such as:
+
+tests/attr.c: In function 'store_event':
+tests/attr.c:66:27: error: format '%llu' expects argument of type 'long long unsigned int', but argument 6 has type '__u64 {aka long unsigned int}' [-Werror=format=]
+  snprintf(path, PATH_MAX, "%s/event-%d-%llu-%d", dir,
+                           ^
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+Tested-by: Michael Cree <mcree@orcon.net.nz>
+Cc: stable@vger.kernel.org
+---
+ arch/alpha/include/asm/types.h      |  2 +-
+ arch/alpha/include/uapi/asm/types.h | 12 +++++++++++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+# diff --git a/arch/alpha/include/asm/types.h b/arch/alpha/include/asm/types.h
+# index 4cb4b6d..0bc66e1 100644
+# --- a/arch/alpha/include/asm/types.h
+# +++ b/arch/alpha/include/asm/types.h
+# @@ -1,6 +1,6 @@
+#  #ifndef _ALPHA_TYPES_H
+#  #define _ALPHA_TYPES_H
+#  
+# -#include <asm-generic/int-ll64.h>
+# +#include <uapi/asm/types.h>
+#  
+#  #endif /* _ALPHA_TYPES_H */
+diff --git a/arch/alpha/include/uapi/asm/types.h b/arch/alpha/include/uapi/asm/types.h
+index 9fd3cd4..8d1024d 100644
+--- a/arch/alpha/include/uapi/asm/types.h
++++ b/arch/alpha/include/uapi/asm/types.h
+@@ -9,8 +9,18 @@
+  * need to be careful to avoid a name clashes.
+  */
+ 
+-#ifndef __KERNEL__
++/*
++ * This is here because we used to use l64 for alpha
++ * and we don't want to impact user mode with our change to ll64
++ * in the kernel.
++ *
++ * However, some user programs are fine with this.  They can
++ * flag __SANE_USERSPACE_TYPES__ to get int-ll64.h here.
++ */
++#if !defined(__SANE_USERSPACE_TYPES__) && !defined(__KERNEL__)
+ #include <asm-generic/int-l64.h>
++#else
++#include <asm-generic/int-ll64.h>
+ #endif
+ 
+ #endif /* _UAPI_ALPHA_TYPES_H */

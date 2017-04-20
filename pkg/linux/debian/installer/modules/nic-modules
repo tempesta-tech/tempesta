@@ -1,0 +1,22 @@
+# Include Ethernet controller and PHY drivers by default
+drivers/net/ethernet/**
+drivers/net/phy/*
+
+# Include paravirtual network drivers with minimal dependencies
+vmxnet3 ?
+xen-netfront ?
+
+# Include VLAN driver
+8021q
+
+# Exclude drivers packaged in nic-pcmcia-modules
+drivers/net/**_cs -
+b44 -
+xircom_cb -
+
+# Exclude libraries packaged in nic-{common,shared} modules
+8390 -
+libphy -
+
+# Exclude iSCSI drivers packaged in scsi-modules
+cnic -

@@ -1,0 +1,9 @@
+[Unit]
+Description=Hyper-V volume shadow copy service (VSS) daemon
+ConditionVirtualization=microsoft
+
+[Service]
+ExecStart=/usr/sbin/hv_vss_daemon -n
+
+[Install]
+WantedBy=multi-user.target

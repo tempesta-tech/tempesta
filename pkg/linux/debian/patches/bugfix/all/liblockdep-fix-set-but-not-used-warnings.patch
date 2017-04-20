@@ -1,0 +1,44 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 20:13:24 +0100
+Subject: [PATCH 6/7] liblockdep: Fix 'set but not used' warnings
+Forwarded: http://mid.gmane.org/20160614204900.GY7555@decadent.org.uk
+
+liblockdep defines trivial macros for working with interrupt flags, as
+interrupts are never disabled in userland.  This results in warnings
+from gcc when -Wunused-but-set-variable is enabled, and it is enabled
+by -Wall.  Fix this by evaluating the flags parameter and casting it to
+void.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/uinclude/linux/irqflags.h | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/tools/lib/lockdep/uinclude/linux/irqflags.h b/tools/lib/lockdep/uinclude/linux/irqflags.h
+index 6cc296f0fad0..df77669cfe1c 100644
+--- a/tools/lib/lockdep/uinclude/linux/irqflags.h
++++ b/tools/lib/lockdep/uinclude/linux/irqflags.h
+@@ -17,19 +17,19 @@
+ #define raw_local_irq_disable() do { } while (0)
+ #define raw_local_irq_enable() do { } while (0)
+ #define raw_local_irq_save(flags) ((flags) = 0)
+-#define raw_local_irq_restore(flags) do { } while (0)
++#define raw_local_irq_restore(flags) ((void)(flags))
+ #define raw_local_save_flags(flags) ((flags) = 0)
+-#define raw_irqs_disabled_flags(flags) do { } while (0)
++#define raw_irqs_disabled_flags(flags) ((void)(flags))
+ #define raw_irqs_disabled() 0
+ #define raw_safe_halt()
+ 
+ #define local_irq_enable() do { } while (0)
+ #define local_irq_disable() do { } while (0)
+ #define local_irq_save(flags) ((flags) = 0)
+-#define local_irq_restore(flags) do { } while (0)
++#define local_irq_restore(flags) ((void)(flags))
+ #define local_save_flags(flags)	((flags) = 0)
+ #define irqs_disabled() (1)
+-#define irqs_disabled_flags(flags) (0)
++#define irqs_disabled_flags(flags) ((void)(flags), 0)
+ #define safe_halt() do { } while (0)
+ 
+ #define trace_lock_release(x, y)

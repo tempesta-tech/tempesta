@@ -1,0 +1,4 @@
+[base]
+kernel-arch: s390
+featuresets:
+# empty; s390 must be part of a multiarch installation with an s390x kernel

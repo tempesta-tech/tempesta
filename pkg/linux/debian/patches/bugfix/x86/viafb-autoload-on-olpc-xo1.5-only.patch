@@ -1,0 +1,34 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sat, 20 Apr 2013 15:52:02 +0100
+Subject: viafb: Autoload on OLPC XO 1.5 only
+Bug-Debian: https://bugs.debian.org/705788
+Forwarded: no
+
+It appears that viafb won't work automatically on all the boards for
+which it has a PCI device ID match.  Currently, it is blacklisted by
+udev along with most other framebuffer drivers, so this doesn't matter
+much.
+
+However, this driver is required for console support on the XO 1.5.
+We need to allow it to be autoloaded on this model only, and then
+un-blacklist it in udev.
+
+---
+--- a/drivers/video/fbdev/via/via-core.c
++++ b/drivers/video/fbdev/via/via-core.c
+@@ -753,7 +753,14 @@ static struct pci_device_id via_pci_tabl
+ 	  .driver_data = UNICHROME_VX900 },
+ 	{ }
+ };
+-MODULE_DEVICE_TABLE(pci, via_pci_table);
++
++static const struct pci_device_id via_pci_autoload_table[] __initconst = {
++	/* OLPC XO 1.5 */
++	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, UNICHROME_VX855_DID),
++	  .subvendor = 0x152d, .subdevice = 0x0833 },
++	{ }
++};
++MODULE_DEVICE_TABLE(pci, via_pci_autoload_table);
+ 
+ static struct pci_driver via_driver = {
+ 	.name		= "viafb",

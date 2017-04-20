@@ -1,0 +1,4 @@
+#include <scsi-core-modules>
+
+# Needed by hv_storvsc in hyperv-modules as well as scsi-modules
+scsi_transport_fc

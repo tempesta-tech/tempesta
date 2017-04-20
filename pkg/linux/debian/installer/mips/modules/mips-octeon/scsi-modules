@@ -1,0 +1,6 @@
+#include <scsi-modules>
+DAC960 -
+cciss -
+dmx3191d -
+ips -
+sym53c8xx -

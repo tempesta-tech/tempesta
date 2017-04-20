@@ -1,0 +1,26 @@
+From: Marcelo Tosatti <mtosatti@redhat.com>
+Date: Wed, 8 Apr 2015 20:33:25 -0300
+Subject: KVM: lapic: mark LAPIC timer handler as irqsafe
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Since lapic timer handler only wakes up a simple waitqueue,
+it can be executed from hardirq context.
+
+Reduces average cyclictest latency by 3us.
+
+Signed-off-by: Marcelo Tosatti <mtosatti@redhat.com>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ arch/x86/kvm/lapic.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/arch/x86/kvm/lapic.c
++++ b/arch/x86/kvm/lapic.c
+@@ -1938,6 +1938,7 @@ int kvm_create_lapic(struct kvm_vcpu *vc
+ 	hrtimer_init(&apic->lapic_timer.timer, CLOCK_MONOTONIC,
+ 		     HRTIMER_MODE_ABS_PINNED);
+ 	apic->lapic_timer.timer.function = apic_timer_fn;
++	apic->lapic_timer.timer.irqsafe = 1;
+ 
+ 	/*
+ 	 * APIC is created enabled. This will prevent kvm_lapic_set_base from

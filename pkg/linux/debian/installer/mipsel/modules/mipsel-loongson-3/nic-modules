@@ -1,0 +1,11 @@
+#include <nic-modules>
+dmfe -
+epic100 -
+fealnx -
+natsemi -
+skfp -
+starfire -
+sundance -
+tulip -
+typhoon -
+winbond-840 -

@@ -1,0 +1,80 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: radeon: Firmware is required for DRM and KMS on R600 onward
+Date: Tue, 08 Jan 2013 03:25:52 +0000
+Bug-Debian: https://bugs.debian.org/607194
+Bug-Debian: https://bugs.debian.org/607471
+Bug-Debian: https://bugs.debian.org/610851
+Bug-Debian: https://bugs.debian.org/627497
+Bug-Debian: https://bugs.debian.org/632212
+Bug-Debian: https://bugs.debian.org/637943
+Bug-Debian: https://bugs.debian.org/649448
+Bug-Debian: https://bugs.debian.org/697229
+Forwarded: no
+
+radeon requires firmware/microcode for the GPU in all chips, but for
+newer chips (apparently R600 'Evergreen' onward) it also expects
+firmware for the memory controller and other sub-blocks.
+
+radeon attempts to gracefully fall back and disable some features if
+the firmware is not available, but becomes unstable - the framebuffer
+and/or system memory may be corrupted, or the display may stay black.
+
+Therefore, perform a basic check for the existence of
+/lib/firmware/radeon when a device is probed, and abort if it is
+missing, except for the pre-R600 case.
+
+---
+--- a/drivers/gpu/drm/radeon/radeon_drv.c
++++ b/drivers/gpu/drm/radeon/radeon_drv.c
+@@ -42,6 +42,8 @@
+ 
+ #include "drm_crtc_helper.h"
+ #include "radeon_kfd.h"
++#include <linux/namei.h>
++#include <linux/path.h>
+ 
+ /*
+  * KMS wrapper.
+@@ -309,6 +311,29 @@ MODULE_DEVICE_TABLE(pci, pciidlist);
+ 
+ static struct drm_driver kms_driver;
+ 
++/* Test that /lib/firmware/radeon is a directory (or symlink to a
++ * directory).  We could try to match the udev search path, but let's
++ * assume people take the easy route and install
++ * firmware-linux-nonfree.
++ */
++static bool radeon_firmware_installed(void)
++{
++#if IS_BUILTIN(CONFIG_DRM_RADEON)
++	/* It may be too early to tell.  Assume it's there. */
++	return true;
++#else
++	struct path path;
++
++	if (kern_path("/lib/firmware/radeon", LOOKUP_DIRECTORY | LOOKUP_FOLLOW,
++		      &path) == 0) {
++		path_put(&path);
++		return true;
++	}
++
++	return false;
++#endif
++}
++
+ static int radeon_kick_out_firmware_fb(struct pci_dev *pdev)
+ {
+ 	struct apertures_struct *ap;
+@@ -346,6 +371,12 @@ static int radeon_pci_probe(struct pci_d
+ 	if (vga_switcheroo_client_probe_defer(pdev))
+ 		return -EPROBE_DEFER;
+ 
++	if ((ent->driver_data & RADEON_FAMILY_MASK) >= CHIP_R600 &&
++	    !radeon_firmware_installed()) {
++		DRM_ERROR("radeon kernel modesetting for R600 or later requires firmware-linux-nonfree.\n");
++		return -ENODEV;
++	}
++
+ 	/* Get rid of things like offb */
+ 	ret = radeon_kick_out_firmware_fb(pdev);
+ 	if (ret)

@@ -1,0 +1,56 @@
+From: Steven Rostedt <rostedt@goodmis.org>
+Date: Thu, 5 Dec 2013 09:16:52 -0500
+Subject: cpu hotplug: Document why PREEMPT_RT uses a spinlock
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The patch:
+
+    cpu: Make hotplug.lock a "sleeping" spinlock on RT
+
+    Tasks can block on hotplug.lock in pin_current_cpu(), but their
+    state might be != RUNNING. So the mutex wakeup will set the state
+    unconditionally to RUNNING. That might cause spurious unexpected
+    wakeups. We could provide a state preserving mutex_lock() function,
+    but this is semantically backwards. So instead we convert the
+    hotplug.lock() to a spinlock for RT, which has the state preserving
+    semantics already.
+
+Fixed a bug where the hotplug lock on PREEMPT_RT can be called after a
+task set its state to TASK_UNINTERRUPTIBLE and before it called
+schedule. If the hotplug_lock used a mutex, and there was contention,
+the current task's state would be turned to TASK_RUNNABLE and the
+schedule call will not sleep. This caused unexpected results.
+
+Although the patch had a description of the change, the code had no
+comments about it. This causes confusion to those that review the code,
+and as PREEMPT_RT is held in a quilt queue and not git, it's not as easy
+to see why a change was made. Even if it was in git, the code should
+still have a comment for something as subtle as this.
+
+Document the rational for using a spinlock on PREEMPT_RT in the hotplug
+lock code.
+
+Reported-by: Nicholas Mc Guire <der.herr@hofr.at>
+Signed-off-by: Steven Rostedt <rostedt@goodmis.org>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ kernel/cpu.c |    8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -187,6 +187,14 @@ struct hotplug_pcp {
+ 	int grab_lock;
+ 	struct completion synced;
+ #ifdef CONFIG_PREEMPT_RT_FULL
++	/*
++	 * Note, on PREEMPT_RT, the hotplug lock must save the state of
++	 * the task, otherwise the mutex will cause the task to fail
++	 * to sleep when required. (Because it's called from migrate_disable())
++	 *
++	 * The spinlock_t on PREEMPT_RT is a mutex that saves the task's
++	 * state.
++	 */
+ 	spinlock_t lock;
+ #else
+ 	struct mutex mutex;

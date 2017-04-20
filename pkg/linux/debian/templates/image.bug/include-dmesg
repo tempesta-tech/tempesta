@@ -1,0 +1,21 @@
+add_dmesg() {
+  local got_log=
+  echo '** Kernel log:' >&3
+  if [ "$(cat /proc/sys/kernel/dmesg_restrict)" = 0 ]; then
+    dmesg > >(tail -n 100 >&3) && got_log=y
+  elif command -v sudo >/dev/null; then
+    yesno "Use sudo to read the kernel log? " yep
+    if [ "$REPLY" = yep ]; then
+      sudo dmesg > >(tail -n 100 >&3) && got_log=y
+    fi
+  fi
+  test "$got_log" || echo 'Unable to read kernel log; any relevant messages should be attached' >&3
+  echo >&3
+}
+
+ask_dmesg() {
+  # Remind the user to attach the kernel log.  This should also trigger
+  # a reminder in some MUAs if the user tries to send without it.
+  echo '** Kernel log: boot messages should be attached' >&3
+  echo >&3
+}

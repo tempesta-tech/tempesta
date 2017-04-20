@@ -1,0 +1,53 @@
+From: Ingo Molnar <mingo@elte.hu>
+Date: Fri, 3 Jul 2009 08:44:07 -0500
+Subject: relay: Fix timer madness
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+remove timer calls (!!!) from deep within the tracing infrastructure.
+This was totally bogus code that can cause lockups and worse.  Poll
+the buffer every 2 jiffies for now.
+
+Signed-off-by: Ingo Molnar <mingo@elte.hu>
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+
+---
+ kernel/relay.c |   14 +++++---------
+ 1 file changed, 5 insertions(+), 9 deletions(-)
+
+--- a/kernel/relay.c
++++ b/kernel/relay.c
+@@ -336,6 +336,10 @@ static void wakeup_readers(unsigned long
+ {
+ 	struct rchan_buf *buf = (struct rchan_buf *)data;
+ 	wake_up_interruptible(&buf->read_wait);
++	/*
++	 * Stupid polling for now:
++	 */
++	mod_timer(&buf->timer, jiffies + 1);
+ }
+ 
+ /**
+@@ -353,6 +357,7 @@ static void __relay_reset(struct rchan_b
+ 		init_waitqueue_head(&buf->read_wait);
+ 		kref_init(&buf->kref);
+ 		setup_timer(&buf->timer, wakeup_readers, (unsigned long)buf);
++		mod_timer(&buf->timer, jiffies + 1);
+ 	} else
+ 		del_timer_sync(&buf->timer);
+ 
+@@ -767,15 +772,6 @@ size_t relay_switch_subbuf(struct rchan_
+ 		else
+ 			buf->early_bytes += buf->chan->subbuf_size -
+ 					    buf->padding[old_subbuf];
+-		smp_mb();
+-		if (waitqueue_active(&buf->read_wait))
+-			/*
+-			 * Calling wake_up_interruptible() from here
+-			 * will deadlock if we happen to be logging
+-			 * from the scheduler (trying to re-grab
+-			 * rq->lock), so defer it.
+-			 */
+-			mod_timer(&buf->timer, jiffies + 1);
+ 	}
+ 
+ 	old = buf->data;

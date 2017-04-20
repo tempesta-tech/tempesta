@@ -1,0 +1,78 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Sun, 16 Aug 2015 14:27:50 +0200
+Subject: dump stack: don't disable preemption during trace
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+I see here large latencies during a stack dump on x86. The
+preempt_disable() and get_cpu() should forbid moving the task to another
+CPU during a stack dump and avoiding two stack traces in parallel on the
+same CPU. However a stack trace from a second CPU may still happen in
+parallel. Also nesting is allowed so a stack trace happens in
+process-context and we may have another one from IRQ context. With migrate
+disable we keep this code preemptible and allow a second backtrace on
+the same CPU by another task.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ arch/x86/kernel/dumpstack_32.c |    4 ++--
+ arch/x86/kernel/dumpstack_64.c |    8 ++++----
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+--- a/arch/x86/kernel/dumpstack_32.c
++++ b/arch/x86/kernel/dumpstack_32.c
+@@ -42,7 +42,7 @@ void dump_trace(struct task_struct *task
+ 		unsigned long *stack, unsigned long bp,
+ 		const struct stacktrace_ops *ops, void *data)
+ {
+-	const unsigned cpu = get_cpu();
++	const unsigned cpu = get_cpu_light();
+ 	int graph = 0;
+ 	u32 *prev_esp;
+ 
+@@ -84,7 +84,7 @@ void dump_trace(struct task_struct *task
+ 			break;
+ 		touch_nmi_watchdog();
+ 	}
+-	put_cpu();
++	put_cpu_light();
+ }
+ EXPORT_SYMBOL(dump_trace);
+ 
+--- a/arch/x86/kernel/dumpstack_64.c
++++ b/arch/x86/kernel/dumpstack_64.c
+@@ -152,7 +152,7 @@ void dump_trace(struct task_struct *task
+ 		unsigned long *stack, unsigned long bp,
+ 		const struct stacktrace_ops *ops, void *data)
+ {
+-	const unsigned cpu = get_cpu();
++	const unsigned cpu = get_cpu_light();
+ 	unsigned long *irq_stack = (unsigned long *)per_cpu(irq_stack_ptr, cpu);
+ 	unsigned long dummy;
+ 	unsigned used = 0;
+@@ -239,7 +239,7 @@ void dump_trace(struct task_struct *task
+ 	 * This handles the process stack:
+ 	 */
+ 	bp = ops->walk_stack(task, stack, bp, ops, data, NULL, &graph);
+-	put_cpu();
++	put_cpu_light();
+ }
+ EXPORT_SYMBOL(dump_trace);
+ 
+@@ -253,7 +253,7 @@ show_stack_log_lvl(struct task_struct *t
+ 	int cpu;
+ 	int i;
+ 
+-	preempt_disable();
++	migrate_disable();
+ 	cpu = smp_processor_id();
+ 
+ 	irq_stack_end	= (unsigned long *)(per_cpu(irq_stack_ptr, cpu));
+@@ -299,7 +299,7 @@ show_stack_log_lvl(struct task_struct *t
+ 		stack++;
+ 		touch_nmi_watchdog();
+ 	}
+-	preempt_enable();
++	migrate_enable();
+ 
+ 	pr_cont("\n");
+ 	show_trace_log_lvl(task, regs, sp, bp, log_lvl);

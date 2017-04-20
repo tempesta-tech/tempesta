@@ -1,0 +1,21 @@
+[base]
+flavours:
+ powerpc64
+kernel-arch: powerpc
+
+[build]
+image-file: vmlinux
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+vdso: true
+
+[image]
+configs:
+suggests: mkvmlinuz
+install-stem: vmlinux
+
+[powerpc64_description]
+hardware: 64-bit PowerPC
+
+[powerpc64_image]
+configs: kernelarch-powerpc/config-arch-64 kernelarch-powerpc/config-arch-64-be

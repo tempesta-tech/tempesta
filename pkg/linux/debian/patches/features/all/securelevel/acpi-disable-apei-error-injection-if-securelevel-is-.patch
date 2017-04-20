@@ -1,0 +1,45 @@
+From: Linn Crosetto <linn@hpe.com>
+Date: Wed, 16 Mar 2016 14:43:33 -0600
+Subject: [17/18] acpi: Disable APEI error injection if securelevel is set
+Origin: https://github.com/mjg59/linux/commit/d7a6be58edc01b1c66ecd8fcc91236bfbce0a420
+
+ACPI provides an error injection mechanism, EINJ, for debugging and testing
+the ACPI Platform Error Interface (APEI) and other RAS features. If
+supported by the firmware, ACPI specification 5.0 and later provide for a
+way to specify a physical memory address to which to inject the error.
+
+Injecting errors through EINJ can produce errors which to the platform are
+indistinguishable from real hardware errors. This can have undesirable
+side-effects, such as causing the platform to mark hardware as needing
+replacement.
+
+While it does not provide a method to load unauthenticated privileged code,
+the effect of these errors may persist across reboots and affect trust in
+the underlying hardware, so disable error injection through EINJ if
+securelevel is set.
+
+Signed-off-by: Linn Crosetto <linn@hpe.com>
+---
+ drivers/acpi/apei/einj.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+--- a/drivers/acpi/apei/einj.c
++++ b/drivers/acpi/apei/einj.c
+@@ -29,6 +29,7 @@
+ #include <linux/nmi.h>
+ #include <linux/delay.h>
+ #include <linux/mm.h>
++#include <linux/security.h>
+ #include <asm/unaligned.h>
+ 
+ #include "apei-internal.h"
+@@ -521,6 +522,9 @@ static int einj_error_inject(u32 type, u
+ 	int rc;
+ 	u64 base_addr, size;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	/* If user manually set "flags", make sure it is legal */
+ 	if (flags && (flags &
+ 		~(SETWA_FLAGS_APICID|SETWA_FLAGS_MEM|SETWA_FLAGS_PCIE_SBDF)))

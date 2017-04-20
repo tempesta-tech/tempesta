@@ -1,0 +1,28 @@
+##
+## file: arch/parisc/Kconfig
+##
+## choice: Processor type
+CONFIG_PA7000=y
+# CONFIG_PA8X00 is not set
+## end choice
+CONFIG_SMP=y
+# CONFIG_HPUX is not set
+CONFIG_NR_CPUS=8
+
+##
+## file: drivers/net/ethernet/ti/Kconfig
+##
+CONFIG_TLAN=m
+
+##
+## file: drivers/scsi/Kconfig
+##
+# CONFIG_SCSI_DPT_I2O is not set
+# CONFIG_SCSI_NSP32 is not set
+
+##
+## file: drivers/scsi/pcmcia/Kconfig
+##
+CONFIG_PCMCIA_AHA152X=m
+CONFIG_PCMCIA_NINJA_SCSI=m
+

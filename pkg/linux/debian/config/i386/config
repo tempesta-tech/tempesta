@@ -1,0 +1,565 @@
+##
+## file: arch/x86/Kconfig
+##
+# CONFIG_64BIT is not set
+CONFIG_SMP=y
+CONFIG_X86_BIGSMP=y
+CONFIG_NR_CPUS=32
+# CONFIG_X86_LEGACY_VM86 is not set
+CONFIG_TOSHIBA=m
+CONFIG_X86_REBOOTFIXUPS=y
+## choice: High Memory Support
+# CONFIG_NOHIGHMEM is not set
+CONFIG_HIGHMEM4G=y
+# CONFIG_HIGHMEM64G is not set
+## end choice
+## choice: Memory split
+CONFIG_VMSPLIT_3G=y
+# CONFIG_VMSPLIT_3G_OPT is not set
+# CONFIG_VMSPLIT_2G is not set
+# CONFIG_VMSPLIT_2G_OPT is not set
+# CONFIG_VMSPLIT_1G is not set
+## end choice
+# CONFIG_X86_PAE is not set
+# CONFIG_NUMA is not set
+CONFIG_HIGHPTE=y
+CONFIG_PHYSICAL_ALIGN=0x1000000
+CONFIG_APM=m
+# CONFIG_APM_IGNORE_USER_SUSPEND is not set
+# CONFIG_APM_DO_ENABLE is not set
+# CONFIG_APM_CPU_IDLE is not set
+# CONFIG_APM_DISPLAY_BLANK is not set
+# CONFIG_APM_ALLOW_INTS is not set
+## choice: PCI access mode
+# CONFIG_PCI_GOBIOS is not set
+# CONFIG_PCI_GOMMCONFIG is not set
+# CONFIG_PCI_GODIRECT is not set
+# CONFIG_PCI_GOOLPC is not set
+CONFIG_PCI_GOANY=y
+## end choice
+CONFIG_PCI_MMCONFIG=y
+CONFIG_ISA=y
+CONFIG_SCx200=m
+CONFIG_SCx200HR_TIMER=m
+# CONFIG_OLPC is not set
+
+##
+## file: arch/x86/Kconfig.cpu
+##
+CONFIG_X86_GENERIC=y
+# CONFIG_X86_PPRO_FENCE is not set
+
+##
+## file: arch/x86/lguest/Kconfig
+##
+# CONFIG_LGUEST_GUEST is not set
+
+##
+## file: crypto/Kconfig
+##
+CONFIG_CRYPTO_AES_586=m
+CONFIG_CRYPTO_SALSA20_586=m
+CONFIG_CRYPTO_SERPENT_SSE2_586=m
+CONFIG_CRYPTO_TWOFISH_586=m
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_PATA_CS5520=m
+CONFIG_PATA_CS5530=m
+CONFIG_PATA_CS5535=m
+CONFIG_PATA_CS5536=m
+CONFIG_PATA_SC1200=m
+CONFIG_PATA_ISAPNP=m
+CONFIG_PATA_OPTI=m
+CONFIG_PATA_LEGACY=m
+
+##
+## file: drivers/atm/Kconfig
+##
+CONFIG_ATM_NICSTAR=m
+# CONFIG_ATM_NICSTAR_USE_SUNI is not set
+# CONFIG_ATM_NICSTAR_USE_IDT77105 is not set
+CONFIG_ATM_IA=m
+# CONFIG_ATM_IA_DEBUG is not set
+
+##
+## file: drivers/auxdisplay/Kconfig
+##
+CONFIG_CFAG12864B=m
+CONFIG_CFAG12864B_RATE=20
+
+##
+## file: drivers/char/Kconfig
+##
+CONFIG_SONYPI=m
+CONFIG_SCx200_GPIO=m
+
+##
+## file: drivers/char/agp/Kconfig
+##
+#. Workaround
+CONFIG_AGP_ALI=y
+#. Workaround
+CONFIG_AGP_ATI=y
+#. Workaround
+CONFIG_AGP_AMD=y
+#. Workaround
+CONFIG_AGP_NVIDIA=y
+#. Workaround
+CONFIG_AGP_SWORKS=y
+#. Workaround
+CONFIG_AGP_EFFICEON=y
+
+##
+## file: drivers/cpufreq/Kconfig.x86
+##
+CONFIG_X86_POWERNOW_K6=m
+CONFIG_X86_POWERNOW_K7=m
+CONFIG_X86_GX_SUSPMOD=m
+CONFIG_X86_SPEEDSTEP_CENTRINO_TABLE=y
+CONFIG_X86_SPEEDSTEP_ICH=m
+CONFIG_X86_SPEEDSTEP_SMI=m
+CONFIG_X86_CPUFREQ_NFORCE2=m
+CONFIG_X86_LONGRUN=m
+CONFIG_X86_LONGHAUL=m
+# CONFIG_X86_E_POWERSAVER is not set
+CONFIG_X86_SPEEDSTEP_RELAXED_CAP_CHECK=y
+
+##
+## file: drivers/crypto/Kconfig
+##
+CONFIG_CRYPTO_DEV_GEODE=m
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_PCH_DMA=m
+
+##
+## file: drivers/gpio/Kconfig
+##
+CONFIG_GPIO_VX855=m
+CONFIG_GPIO_CS5535=m
+CONFIG_GPIO_PCH=m
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+CONFIG_DRM_I810=m
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_EG20T=m
+CONFIG_I2C_PXA=m
+
+##
+## file: drivers/input/misc/Kconfig
+##
+CONFIG_INPUT_WISTRON_BTNS=m
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+# CONFIG_MOUSE_PS2_OLPC is not set
+CONFIG_MOUSE_INPORT=m
+# CONFIG_MOUSE_ATIXL is not set
+CONFIG_MOUSE_LOGIBM=m
+CONFIG_MOUSE_PC110PAD=m
+
+##
+## file: drivers/iommu/Kconfig
+##
+# CONFIG_INTEL_IOMMU is not set
+
+##
+## file: drivers/isdn/hardware/avm/Kconfig
+##
+CONFIG_ISDN_DRV_AVMB1_B1ISA=m
+CONFIG_ISDN_DRV_AVMB1_T1ISA=m
+
+##
+## file: drivers/leds/Kconfig
+##
+CONFIG_LEDS_WRAP=m
+
+##
+## file: drivers/lguest/Kconfig
+##
+# CONFIG_LGUEST is not set
+
+##
+## file: drivers/macintosh/Kconfig
+##
+# CONFIG_MACINTOSH_DRIVERS is not set
+
+##
+## file: drivers/media/radio/Kconfig
+##
+CONFIG_V4L_RADIO_ISA_DRIVERS=y
+CONFIG_RADIO_CADET=m
+CONFIG_RADIO_RTRACK=m
+CONFIG_RADIO_RTRACK2=m
+CONFIG_RADIO_AZTECH=m
+CONFIG_RADIO_GEMTEK=m
+CONFIG_RADIO_MIROPCM20=m
+CONFIG_RADIO_SF16FMI=m
+CONFIG_RADIO_SF16FMR2=m
+CONFIG_RADIO_TERRATEC=m
+CONFIG_RADIO_TRUST=m
+CONFIG_RADIO_TYPHOON=m
+CONFIG_RADIO_ZOLTRIX=m
+
+##
+## file: drivers/mfd/Kconfig
+##
+CONFIG_MFD_CS5535=m
+CONFIG_MFD_VX855=m
+
+##
+## file: drivers/misc/Kconfig
+##
+CONFIG_CS5535_MFGPT=m
+CONFIG_CS5535_CLOCK_EVENT_SRC=m
+CONFIG_PCH_PHUB=m
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_SCx200_DOCFLASH=m
+CONFIG_MTD_PCMCIA=m
+# CONFIG_MTD_PCMCIA_ANONYMOUS is not set
+
+##
+## file: drivers/net/arcnet/Kconfig
+##
+CONFIG_ARCNET_COM20020_ISA=m
+
+##
+## file: drivers/net/can/Kconfig
+##
+CONFIG_PCH_CAN=m
+
+##
+## file: drivers/net/can/cc770/Kconfig
+##
+CONFIG_CAN_CC770=m
+CONFIG_CAN_CC770_ISA=m
+# CONFIG_CAN_CC770_PLATFORM is not set
+
+##
+## file: drivers/net/ethernet/3com/Kconfig
+##
+CONFIG_NET_VENDOR_3COM=y
+CONFIG_EL3=m
+CONFIG_3C515=m
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+CONFIG_NET_VENDOR_8390=y
+CONFIG_NE2000=m
+CONFIG_ULTRA=m
+CONFIG_WD80x3=m
+
+##
+## file: drivers/net/ethernet/amd/Kconfig
+##
+CONFIG_NET_VENDOR_AMD=y
+CONFIG_LANCE=m
+CONFIG_NI65=m
+
+##
+## file: drivers/net/ethernet/cirrus/Kconfig
+##
+CONFIG_NET_VENDOR_CIRRUS=y
+CONFIG_CS89x0=m
+
+##
+## file: drivers/net/ethernet/dec/Kconfig
+##
+CONFIG_NET_VENDOR_DEC=y
+
+##
+## file: drivers/net/ethernet/fujitsu/Kconfig
+##
+CONFIG_NET_VENDOR_FUJITSU=y
+
+##
+## file: drivers/net/ethernet/oki-semi/pch_gbe/Kconfig
+##
+CONFIG_PCH_GBE=m
+
+##
+## file: drivers/net/ethernet/smsc/Kconfig
+##
+CONFIG_NET_VENDOR_SMSC=y
+CONFIG_SMC9194=m
+
+##
+## file: drivers/net/hamradio/Kconfig
+##
+CONFIG_SCC=m
+# CONFIG_SCC_DELAY is not set
+# CONFIG_SCC_TRXECHO is not set
+
+##
+## file: drivers/net/irda/Kconfig
+##
+CONFIG_TOSHIBA_FIR=m
+
+##
+## file: drivers/net/wan/Kconfig
+##
+CONFIG_HOSTESS_SV11=m
+CONFIG_COSA=m
+CONFIG_SEALEVEL_4021=m
+CONFIG_N2=m
+CONFIG_C101=m
+CONFIG_SDLA=m
+
+##
+## file: drivers/net/wireless/intel/ipw2x00/Kconfig
+##
+CONFIG_IPW2100=m
+CONFIG_IPW2100_MONITOR=y
+# CONFIG_IPW2100_DEBUG is not set
+
+##
+## file: drivers/pci/hotplug/Kconfig
+##
+CONFIG_HOTPLUG_PCI_COMPAQ=m
+CONFIG_HOTPLUG_PCI_IBM=m
+
+##
+## file: drivers/pcmcia/Kconfig
+##
+CONFIG_I82365=m
+
+##
+## file: drivers/platform/x86/Kconfig
+##
+CONFIG_TC1100_WMI=m
+
+##
+## file: drivers/pnp/isapnp/Kconfig
+##
+CONFIG_ISAPNP=y
+
+##
+## file: drivers/pnp/pnpbios/Kconfig
+##
+CONFIG_PNPBIOS=y
+# CONFIG_PNPBIOS_PROC_FS is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI_IN2000=m
+CONFIG_SCSI_DTC3280=m
+CONFIG_SCSI_EATA_PIO=m
+# CONFIG_SCSI_GENERIC_NCR5380 is not set
+# CONFIG_SCSI_GENERIC_NCR5380_MMIO is not set
+# CONFIG_SCSI_INIA100 is not set
+CONFIG_SCSI_NCR53C406A=m
+CONFIG_SCSI_PAS16=m
+CONFIG_SCSI_QLOGIC_FAS=m
+CONFIG_SCSI_SYM53C416=m
+CONFIG_SCSI_T128=m
+CONFIG_SCSI_U14_34F=m
+CONFIG_SCSI_U14_34F_TAGGED_QUEUE=y
+CONFIG_SCSI_U14_34F_LINKED_COMMANDS=y
+CONFIG_SCSI_U14_34F_MAX_TAGS=8
+CONFIG_SCSI_ULTRASTOR=m
+CONFIG_SCSI_NSP32=m
+
+##
+## file: drivers/scsi/pcmcia/Kconfig
+##
+CONFIG_PCMCIA_NINJA_SCSI=m
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI_TOPCLIFF_PCH=m
+
+##
+## file: drivers/staging/comedi/Kconfig
+##
+CONFIG_COMEDI_ISA_DRIVERS=y
+CONFIG_COMEDI_PCL711=m
+CONFIG_COMEDI_PCL724=m
+CONFIG_COMEDI_PCL726=m
+CONFIG_COMEDI_PCL730=m
+CONFIG_COMEDI_PCL812=m
+CONFIG_COMEDI_PCL816=m
+CONFIG_COMEDI_PCL818=m
+CONFIG_COMEDI_PCM3724=m
+CONFIG_COMEDI_AMPLC_DIO200_ISA=m
+CONFIG_COMEDI_AMPLC_PC236_ISA=m
+CONFIG_COMEDI_AMPLC_PC263_ISA=m
+CONFIG_COMEDI_RTI800=m
+CONFIG_COMEDI_RTI802=m
+CONFIG_COMEDI_DAC02=m
+CONFIG_COMEDI_DAS16M1=m
+CONFIG_COMEDI_DAS08_ISA=m
+CONFIG_COMEDI_DAS16=m
+CONFIG_COMEDI_DAS800=m
+CONFIG_COMEDI_DAS1800=m
+CONFIG_COMEDI_DAS6402=m
+CONFIG_COMEDI_DT2801=m
+CONFIG_COMEDI_DT2811=m
+CONFIG_COMEDI_DT2814=m
+CONFIG_COMEDI_DT2815=m
+CONFIG_COMEDI_DT2817=m
+CONFIG_COMEDI_DT282X=m
+CONFIG_COMEDI_DMM32AT=m
+CONFIG_COMEDI_FL512=m
+CONFIG_COMEDI_AIO_AIO12_8=m
+CONFIG_COMEDI_AIO_IIRO_16=m
+CONFIG_COMEDI_C6XDIGIO=m
+CONFIG_COMEDI_MPC624=m
+CONFIG_COMEDI_ADQ12B=m
+CONFIG_COMEDI_NI_AT_A2150=m
+CONFIG_COMEDI_NI_AT_AO=m
+CONFIG_COMEDI_NI_ATMIO=m
+CONFIG_COMEDI_NI_ATMIO16D=m
+CONFIG_COMEDI_NI_LABPC_ISA=m
+CONFIG_COMEDI_PCMAD=m
+CONFIG_COMEDI_PCMDA12=m
+CONFIG_COMEDI_PCMMIO=m
+CONFIG_COMEDI_PCMUIO=m
+CONFIG_COMEDI_MULTIQ3=m
+
+##
+## file: drivers/staging/olpc_dcon/Kconfig
+##
+CONFIG_FB_OLPC_DCON=m
+CONFIG_FB_OLPC_DCON_1=y
+CONFIG_FB_OLPC_DCON_1_5=y
+
+##
+## file: drivers/staging/speakup/Kconfig
+##
+CONFIG_SPEAKUP_SYNTH_DECPC=m
+
+##
+## file: drivers/tty/Kconfig
+##
+# CONFIG_ISI is not set
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_PCH_UART=m
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250_EXAR_ST16C554=m
+
+##
+## file: drivers/usb/gadget/udc/Kconfig
+##
+CONFIG_USB_AMD5536UDC=m
+
+##
+## file: drivers/video/console/Kconfig
+##
+CONFIG_MDA_CONSOLE=m
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB_I810=m
+CONFIG_FB_I810_GTF=y
+CONFIG_FB_I810_I2C=y
+CONFIG_FB_MATROX_G=y
+CONFIG_FB_MATROX_MAVEN=m
+CONFIG_FB_ATY_GENERIC_LCD=y
+CONFIG_FB_SAVAGE_I2C=y
+
+##
+## file: drivers/watchdog/Kconfig
+##
+CONFIG_SCx200_WDT=m
+CONFIG_SBC8360_WDT=m
+CONFIG_SBC7240_WDT=m
+CONFIG_PCWATCHDOG=m
+CONFIG_MIXCOMWD=m
+CONFIG_WDT=m
+
+##
+## file: fs/Kconfig.binfmt
+##
+CONFIG_BINFMT_AOUT=m
+
+##
+## file: kernel/irq/Kconfig
+##
+# CONFIG_SPARSE_IRQ is not set
+
+##
+## file: lib/Kconfig.debug
+##
+CONFIG_FRAME_WARN=1024
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_FLATMEM_MANUAL=y
+# CONFIG_DISCONTIGMEM_MANUAL is not set
+# CONFIG_SPARSEMEM_MANUAL is not set
+## end choice
+
+##
+## file: security/Kconfig
+##
+CONFIG_LSM_MMAP_MIN_ADDR=0
+
+##
+## file: sound/isa/Kconfig
+##
+CONFIG_SND_ISA=y
+CONFIG_SND_ADLIB=m
+CONFIG_SND_AD1816A=m
+CONFIG_SND_AD1848=m
+CONFIG_SND_ALS100=m
+CONFIG_SND_AZT1605=m
+CONFIG_SND_AZT2316=m
+CONFIG_SND_AZT2320=m
+CONFIG_SND_CMI8330=m
+CONFIG_SND_CS4231=m
+CONFIG_SND_CS4236=m
+CONFIG_SND_ES1688=m
+CONFIG_SND_ES18XX=m
+CONFIG_SND_SC6000=m
+CONFIG_SND_GUSCLASSIC=m
+CONFIG_SND_GUSEXTREME=m
+CONFIG_SND_GUSMAX=m
+CONFIG_SND_INTERWAVE=m
+CONFIG_SND_INTERWAVE_STB=m
+CONFIG_SND_JAZZ16=m
+CONFIG_SND_OPL3SA2=m
+CONFIG_SND_OPTI92X_AD1848=m
+CONFIG_SND_OPTI92X_CS4231=m
+CONFIG_SND_OPTI93X=m
+CONFIG_SND_MIRO=m
+CONFIG_SND_SB8=m
+CONFIG_SND_SB16=m
+CONFIG_SND_SBAWE=m
+CONFIG_SND_SB16_CSP=y
+CONFIG_SND_SSCAPE=m
+CONFIG_SND_WAVEFRONT=m
+CONFIG_SND_MSND_PINNACLE=m
+CONFIG_SND_MSND_CLASSIC=m
+
+##
+## file: sound/pci/Kconfig
+##
+CONFIG_SND_CS5530=m
+CONFIG_SND_CS5535AUDIO=m
+CONFIG_SND_SIS7019=m
+

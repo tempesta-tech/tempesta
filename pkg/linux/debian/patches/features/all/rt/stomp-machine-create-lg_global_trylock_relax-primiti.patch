@@ -1,0 +1,87 @@
+From: Mike Galbraith <umgwanakikbuti@gmail.com>
+Date: Fri, 2 May 2014 13:13:22 +0200
+Subject: stomp-machine: create lg_global_trylock_relax() primitive
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Create lg_global_trylock_relax() for use by stopper thread when it cannot
+schedule, to deal with stop_cpus_lock, which is now an lglock.
+
+Signed-off-by: Mike Galbraith <umgwanakikbuti@gmail.com>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/lglock.h      |    6 ++++++
+ include/linux/spinlock_rt.h |    1 +
+ kernel/locking/lglock.c     |   25 +++++++++++++++++++++++++
+ kernel/locking/rtmutex.c    |    5 +++++
+ 4 files changed, 37 insertions(+)
+
+--- a/include/linux/lglock.h
++++ b/include/linux/lglock.h
+@@ -82,6 +82,12 @@ void lg_double_unlock(struct lglock *lg,
+ void lg_global_lock(struct lglock *lg);
+ void lg_global_unlock(struct lglock *lg);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
++#define lg_global_trylock_relax(name)	lg_global_lock(name)
++#else
++void lg_global_trylock_relax(struct lglock *lg);
++#endif
++
+ #else
+ /* When !CONFIG_SMP, map lglock to spinlock */
+ #define lglock spinlock
+--- a/include/linux/spinlock_rt.h
++++ b/include/linux/spinlock_rt.h
+@@ -40,6 +40,7 @@ extern int atomic_dec_and_spin_lock(atom
+ extern void __lockfunc __rt_spin_lock__no_mg(struct rt_mutex *lock);
+ extern void __lockfunc __rt_spin_lock(struct rt_mutex *lock);
+ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
++extern int __lockfunc __rt_spin_trylock(struct rt_mutex *lock);
+ 
+ #define spin_lock(lock)			rt_spin_lock(lock)
+ 
+--- a/kernel/locking/lglock.c
++++ b/kernel/locking/lglock.c
+@@ -127,3 +127,28 @@ void lg_global_unlock(struct lglock *lg)
+ 	preempt_enable_nort();
+ }
+ EXPORT_SYMBOL(lg_global_unlock);
++
++#ifdef CONFIG_PREEMPT_RT_FULL
++/*
++ * HACK: If you use this, you get to keep the pieces.
++ * Used in queue_stop_cpus_work() when stop machinery
++ * is called from inactive CPU, so we can't schedule.
++ */
++# define lg_do_trylock_relax(l)			\
++	do {					\
++		while (!__rt_spin_trylock(l))	\
++			cpu_relax();		\
++	} while (0)
++
++void lg_global_trylock_relax(struct lglock *lg)
++{
++	int i;
++
++	lock_acquire_exclusive(&lg->lock_dep_map, 0, 0, NULL, _RET_IP_);
++	for_each_possible_cpu(i) {
++		lg_lock_ptr *lock;
++		lock = per_cpu_ptr(lg->lock, i);
++		lg_do_trylock_relax(lock);
++	}
++}
++#endif
+--- a/kernel/locking/rtmutex.c
++++ b/kernel/locking/rtmutex.c
+@@ -1279,6 +1279,11 @@ void __lockfunc rt_spin_unlock_wait(spin
+ }
+ EXPORT_SYMBOL(rt_spin_unlock_wait);
+ 
++int __lockfunc __rt_spin_trylock(struct rt_mutex *lock)
++{
++	return rt_mutex_trylock(lock);
++}
++
+ int __lockfunc rt_spin_trylock__no_mg(spinlock_t *lock)
+ {
+ 	int ret;

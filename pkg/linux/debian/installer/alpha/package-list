@@ -1,0 +1,22 @@
+# This file is used to build up the control file. The kernel version and
+# "-di" are appended to the package names. Section can be left out. So can
+# architecture, which is derived from the files in the modules directory.
+# It overwrites specifications from /usr/share/kernel-wedge/package-list.
+#
+Package: kernel-image
+
+Package: usb-storage-modules
+Depends: kernel-image, scsi-modules, usb-modules
+
+Package: pata-modules
+Depends: kernel-image, ata-modules, scsi-core-modules
+
+Package: fb-modules
+Depends: kernel-image, i2c-modules
+
+Package: srm-modules
+Depends: kernel-image
+Priority: standard
+Description: SRM modules
+ This package contains the srm_env module which provides access to the SRM
+ environment.

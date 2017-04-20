@@ -1,0 +1,29 @@
+[base]
+flavours:
+ 5kc-malta
+ octeon
+kernel-arch: mips
+
+[build]
+image-file: vmlinux
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+install-stem: vmlinux
+
+[5kc-malta_description]
+hardware: MIPS Malta
+hardware-long: MIPS Malta boards
+
+[5kc-malta_image]
+configs:
+ kernelarch-mips/config.malta
+ kernelarch-mips/config.mips64r2
+
+[octeon_description]
+hardware: Octeon
+hardware-long: Cavium Networks Octeon
+
+[octeon_image]
+configs: kernelarch-mips/config.octeon

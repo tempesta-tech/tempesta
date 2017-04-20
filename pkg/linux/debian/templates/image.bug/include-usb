@@ -1,0 +1,11 @@
+add_usb() {
+  echo '** USB devices:' >&3
+  lsusb >&3 2>/dev/null || echo 'not available' >&3
+  echo >&3
+}
+
+ask_usb() {
+  # This information shouldn't vary much between kernel versions, so
+  # include it anyway.
+  test $same_system = nop || add_usb 
+}

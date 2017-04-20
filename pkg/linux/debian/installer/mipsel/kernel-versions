@@ -1,0 +1,4 @@
+# arch version flavour       installedname suffix build-depends
+mipsel -       4kc-malta     -             y      -
+mipsel -       loongson-3    -             y      -
+mipsel -       octeon        -             y      -

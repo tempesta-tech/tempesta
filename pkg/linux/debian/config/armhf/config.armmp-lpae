@@ -1,0 +1,21 @@
+##
+## file: arch/arm/Kconfig
+##
+CONFIG_ARM_DMA_IOMMU_ALIGNMENT=8
+
+##
+## file: arch/arm/kvm/Kconfig
+##
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+
+##
+## file: arch/arm/mm/Kconfig
+##
+CONFIG_ARM_LPAE=y
+
+##
+## file: drivers/iommu/Kconfig
+##
+CONFIG_ARM_SMMU=y
+

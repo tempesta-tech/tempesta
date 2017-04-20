@@ -1,0 +1,15 @@
+# Include sound drivers by default
+sound/**
+
+# Exclude any core/shared modules that aren't pulled in by dependencies
+sound/core/** -
+sound/drivers/** -
+sound/i2c/** -
+
+# Exclude synthesiser drivers
+snd-adlib -
+sound/**-synth -
+
+# Exclude soft-modem drivers
+sound/**-modem -
+snd-intel8x0m -

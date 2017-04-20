@@ -1,0 +1,135 @@
+# Changes to support package build system
+debian/version.patch
+debian/uname-version-timestamp.patch
+debian/kernelvariables.patch
+debian/gitignore.patch
+debian/mips-disable-werror.patch
+debian/arch-sh4-fix-uimage-build.patch
+debian/powerpcspe-omit-uimage.patch
+features/all/Kbuild-kconfig-Verbose-version-of-listnewconfig.patch
+debian/modpost-symbol-prefix.patch
+debian/tools-perf-version.patch
+debian/tools-perf-install.patch
+
+# Fixes/improvements to firmware loading
+features/all/drivers-media-dvb-usb-af9005-request_firmware.patch
+debian/iwlwifi-do-not-request-unreleased-firmware.patch
+bugfix/all/firmware_class-log-every-success-and-failure.patch
+bugfix/all/firmware-remove-redundant-log-messages-from-drivers.patch
+bugfix/all/radeon-firmware-is-required-for-drm-and-kms-on-r600-onward.patch
+
+# Patches from aufs4 repository, imported with
+# debian/patches/features/all/aufs4/gen-patch.  These are only the
+# changes needed to allow aufs to be built out-of-tree.
+features/all/aufs4/aufs4-base.patch
+features/all/aufs4/aufs4-mmap.patch
+features/all/aufs4/aufs4-standalone.patch
+
+# Change some defaults for security reasons
+debian/af_802154-Disable-auto-loading-as-mitigation-against.patch
+debian/rds-Disable-auto-loading-as-mitigation-against-local.patch
+debian/decnet-Disable-auto-loading-as-mitigation-against-lo.patch
+debian/fs-enable-link-security-restrictions-by-default.patch
+
+# Set various features runtime-disabled by default
+debian/sched-autogroup-disabled.patch
+debian/yama-disable-by-default.patch
+debian/add-sysctl-to-disallow-unprivileged-CLONE_NEWUSER-by-default.patch
+features/all/security-perf-allow-further-restriction-of-perf_event_open.patch
+
+# Disable autoloading/probing of various drivers by default
+debian/cdc_ncm-cdc_mbim-use-ncm-by-default.patch
+debian/snd-pcsp-disable-autoload.patch
+bugfix/x86/viafb-autoload-on-olpc-xo1.5-only.patch
+
+# Taint if dangerous features are used
+debian/fanotify-taint-on-use-of-fanotify_access_permissions.patch
+
+# Arch bug fixes
+bugfix/arm64/arm64-mm-limit-task_size_64-for-compatibility.patch
+bugfix/powerpc/powerpc-boot-request-no-dynamic-linker-for-boot-wrap.patch
+
+# Arch features
+features/mips/MIPS-increase-MAX-PHYSMEM-BITS-on-Loongson-3-only.patch
+features/mips/MIPS-Loongson-3-Add-Loongson-LS3A-RS780E-1-way-machi.patch
+features/mips/MIPS-octeon-Add-support-for-the-UBNT-E200-board.patch
+features/x86/x86-memtest-WARN-if-bad-RAM-found.patch
+features/x86/x86-make-x32-syscall-support-conditional.patch
+features/arm/arm-dts-imx53-add-support-for-usb-armory-board.patch
+features/arm/arm-dts-add-support-for-turris-omnia.patch
+
+# Miscellaneous bug fixes
+bugfix/all/kbuild-use-nostdinc-in-compile-tests.patch
+bugfix/all/disable-some-marvell-phys.patch
+bugfix/all/fs-add-module_softdep-declarations-for-hard-coded-cr.patch
+bugfix/all/kbuild-do-not-use-hyphen-in-exported-variable-name.patch
+bugfix/all/ext4-fix-bug-838544.patch
+bugfix/all/mm-memcontrol-use-special-workqueue-for-creating-per-memcg-caches.patch
+bugfix/all/docs-sphinx-extensions-make-rstFlatTable-work-with-d.patch
+
+# Miscellaneous features
+
+# Securelevel patchset from mjg59
+features/all/securelevel/add-bsd-style-securelevel-support.patch
+features/all/securelevel/enforce-module-signatures-when-securelevel-is-greate.patch
+features/all/securelevel/pci-lock-down-bar-access-when-securelevel-is-enabled.patch
+features/all/securelevel/x86-lock-down-io-port-access-when-securelevel-is-ena.patch
+features/all/securelevel/restrict-dev-mem-and-dev-kmem-when-securelevel-is-se.patch
+features/all/securelevel/acpi-limit-access-to-custom_method-if-securelevel-is.patch
+features/all/securelevel/acpi-ignore-acpi_rsdp-kernel-parameter-when-securele.patch
+features/all/securelevel/kexec-disable-at-runtime-if-securelevel-has-been-set.patch
+features/all/securelevel/uswsusp-disable-when-securelevel-is-set.patch
+features/all/securelevel/x86-restrict-msr-access-when-securelevel-is-set.patch
+features/all/securelevel/asus-wmi-restrict-debugfs-interface-when-securelevel.patch
+features/all/securelevel/add-option-to-automatically-set-securelevel-when-in-.patch
+features/all/securelevel/efi-disable-secure-boot-if-shim-is-in-insecure-mode.patch
+features/all/securelevel/hibernate-disable-when-securelevel-is-set.patch
+features/all/securelevel/kexec-uefi-copy-secure_boot-flag-in-boot-params-acro.patch
+features/all/securelevel/acpi-disable-acpi-table-override-if-securelevel-is-s.patch
+features/all/securelevel/acpi-disable-apei-error-injection-if-securelevel-is-.patch
+features/all/securelevel/enable-cold-boot-attack-mitigation.patch
+features/all/securelevel/mtd-disable-slram-and-phram-when-securelevel-is-enabled.patch
+# same for arm64
+features/all/securelevel/arm64-efi-disable-secure-boot-if-shim-is-in-insecure.patch
+features/all/securelevel/arm64-add-kernel-config-option-to-set-securelevel-wh.patch
+
+# Security fixes
+bugfix/all/ptrace-being-capable-wrt-a-process-requires-mapped-uids-gids.patch
+debian/i386-686-pae-pci-set-pci-nobios-by-default.patch
+bugfix/all/xfs-Propagate-dentry-down-to-inode_change_ok.patch
+bugfix/all/ceph-Propagate-dentry-down-to-inode_change_ok.patch
+bugfix/all/fuse-Propagate-dentry-down-to-inode_change_ok.patch
+bugfix/all/fs-Give-dentry-to-inode_change_ok-instead-of-inode.patch
+bugfix/all/fs-Avoid-premature-clearing-of-capabilities.patch
+bugfix/all/vfio-pci-Fix-integer-overflows-bitmask-check.patch
+bugfix/all/mnt-Add-a-per-mount-namespace-limit-on-the-number-of.patch
+bugfix/all/net-handle-no-dst-on-skb-in-icmp6_send.patch
+bugfix/all/netfilter-ipv6-nf_defrag-drop-mangled-skb-on-ream-er.patch
+bugfix/all/sg_write-bsg_write-is-not-fit-to-be-called-under-KER.patch
+bugfix/all/kvm-nVMX-Allow-L1-to-intercept-software-exceptions-B.patch
+
+# ABI maintenance
+
+# Tools bug fixes
+bugfix/all/usbip-document-tcp-wrappers.patch
+bugfix/all/kbuild-fix-recordmcount-dependency.patch
+bugfix/all/tools-perf-man-date.patch
+bugfix/all/lockdep-fix-oot-build.patch
+bugfix/all/lockdep-fix-soname.patch
+bugfix/all/tools-perf-remove-shebangs.patch
+bugfix/all/tools-lib-traceevent-use-ldflags.patch
+bugfix/all/tools-lib-lockdep-use-ldflags.patch
+bugfix/x86/tools-hv-fix-fortify-format-warning.patch
+bugfix/x86/revert-perf-build-fix-libunwind-feature-detection-on.patch
+bugfix/alpha/alpha-uapi-add-support-for-__sane_userspace_types__.patch
+bugfix/all/tools-build-remove-bpf-run-time-check-at-build-time.patch
+bugfix/all/tools-lib-traceevent-fix-use-of-uninitialized-variables.patch
+bugfix/all/cpupower-bump-soname-version.patch
+bugfix/all/cpupower-fix-checks-for-cpu-existence.patch
+bugfix/all/liblockdep-fix-undefined-symbol-prandom_u32.patch
+bugfix/all/liblockdep-reduce-max_lock_depth-to-avoid-overflowin.patch
+bugfix/all/liblockdep-define-the-array_size-macro.patch
+bugfix/all/liblockdep-enable-wall-by-default.patch
+bugfix/all/liblockdep-fix-unused-value-warnings.patch
+bugfix/all/liblockdep-fix-set-but-not-used-warnings.patch
+bugfix/all/liblockdep-fix-defined-but-not-used-warning-for-init.patch

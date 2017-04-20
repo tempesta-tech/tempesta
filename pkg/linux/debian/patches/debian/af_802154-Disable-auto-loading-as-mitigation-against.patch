@@ -1,0 +1,29 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 19 Nov 2010 02:12:48 +0000
+Subject: [PATCH 2/3] af_802154: Disable auto-loading as mitigation against local exploits
+Forwarded: not-needed
+
+Recent review has revealed several bugs in obscure protocol
+implementations that can be exploited by local users for denial of
+service or privilege escalation.  We can mitigate the effect of any
+remaining vulnerabilities in such protocols by preventing unprivileged
+users from loading the modules, so that they are only exploitable on
+systems where the administrator has chosen to load the protocol.
+
+The 'af_802154' (IEEE 802.15.4) protocol is not widely used, was
+not present in the 'lenny' kernel, and seems to receive only sporadic
+maintenance.  Therefore disable auto-loading.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ net/ieee802154/socket.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+--- a/net/ieee802154/socket.c
++++ b/net/ieee802154/socket.c
+@@ -1122,4 +1122,4 @@ module_init(af_ieee802154_init);
+ module_exit(af_ieee802154_remove);
+ 
+ MODULE_LICENSE("GPL");
+-MODULE_ALIAS_NETPROTO(PF_IEEE802154);
++/* MODULE_ALIAS_NETPROTO(PF_IEEE802154); */

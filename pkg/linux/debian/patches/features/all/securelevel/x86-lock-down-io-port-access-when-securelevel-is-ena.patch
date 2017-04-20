@@ -1,0 +1,74 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Thu, 8 Mar 2012 10:35:59 -0500
+Subject: [04/18] x86: Lock down IO port access when securelevel is enabled
+Origin: https://github.com/mjg59/linux/commit/2ad64f6ea1f1164c8b552860faa27392d9da9928
+
+IO port access would permit users to gain access to PCI configuration
+registers, which in turn (on a lot of hardware) give access to MMIO register
+space. This would potentially permit root to trigger arbitrary DMA, so lock
+it down when securelevel is set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ arch/x86/kernel/ioport.c | 5 +++--
+ drivers/char/mem.c       | 7 +++++++
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+--- a/arch/x86/kernel/ioport.c
++++ b/arch/x86/kernel/ioport.c
+@@ -15,6 +15,7 @@
+ #include <linux/thread_info.h>
+ #include <linux/syscalls.h>
+ #include <linux/bitmap.h>
++#include <linux/security.h>
+ #include <asm/syscalls.h>
+ 
+ /*
+@@ -28,7 +29,7 @@ asmlinkage long sys_ioperm(unsigned long
+ 
+ 	if ((from + num <= from) || (from + num > IO_BITMAP_BITS))
+ 		return -EINVAL;
+-	if (turn_on && !capable(CAP_SYS_RAWIO))
++	if (turn_on && (!capable(CAP_SYS_RAWIO) || (get_securelevel() > 0)))
+ 		return -EPERM;
+ 
+ 	/*
+@@ -108,7 +109,7 @@ SYSCALL_DEFINE1(iopl, unsigned int, leve
+ 		return -EINVAL;
+ 	/* Trying to gain more privileges? */
+ 	if (level > old) {
+-		if (!capable(CAP_SYS_RAWIO))
++		if (!capable(CAP_SYS_RAWIO) || (get_securelevel() > 0))
+ 			return -EPERM;
+ 	}
+ 	regs->flags = (regs->flags & ~X86_EFLAGS_IOPL) |
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -27,6 +27,7 @@
+ #include <linux/export.h>
+ #include <linux/io.h>
+ #include <linux/uio.h>
++#include <linux/security.h>
+ 
+ #include <linux/uaccess.h>
+ 
+@@ -559,6 +560,9 @@ static ssize_t read_port(struct file *fi
+ 	unsigned long i = *ppos;
+ 	char __user *tmp = buf;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (!access_ok(VERIFY_WRITE, buf, count))
+ 		return -EFAULT;
+ 	while (count-- > 0 && i < 65536) {
+@@ -577,6 +581,9 @@ static ssize_t write_port(struct file *f
+ 	unsigned long i = *ppos;
+ 	const char __user *tmp = buf;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (!access_ok(VERIFY_READ, buf, count))
+ 		return -EFAULT;
+ 	while (count-- > 0 && i < 65536) {

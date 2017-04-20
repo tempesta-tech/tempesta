@@ -1,0 +1,37 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sat, 20 Nov 2010 02:24:55 +0000
+Subject: [PATCH] decnet: Disable auto-loading as mitigation against local exploits
+Forwarded: not-needed
+
+Recent review has revealed several bugs in obscure protocol
+implementations that can be exploited by local users for denial of
+service or privilege escalation.  We can mitigate the effect of any
+remaining vulnerabilities in such protocols by preventing unprivileged
+users from loading the modules, so that they are only exploitable on
+systems where the administrator has chosen to load the protocol.
+
+The 'decnet' protocol is unmaintained and of mostly historical
+interest, and the user-space support package 'dnet-common' loads the
+module explicitly.  Therefore disable auto-loading.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ net/decnet/af_decnet.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/net/decnet/af_decnet.c b/net/decnet/af_decnet.c
+index 7a58c87..ed9e2b0 100644
+--- a/net/decnet/af_decnet.c
++++ b/net/decnet/af_decnet.c
+@@ -2358,7 +2358,7 @@ void dn_unregister_sysctl(void);
+ MODULE_DESCRIPTION("The Linux DECnet Network Protocol");
+ MODULE_AUTHOR("Linux DECnet Project Team");
+ MODULE_LICENSE("GPL");
+-MODULE_ALIAS_NETPROTO(PF_DECnet);
++/* MODULE_ALIAS_NETPROTO(PF_DECnet); */
+ 
+ static char banner[] __initdata = KERN_INFO "NET4: DECnet for Linux: V.2.5.68s (C) 1995-2003 Linux DECnet Project Team\n";
+ 
+-- 
+1.7.2.3
+

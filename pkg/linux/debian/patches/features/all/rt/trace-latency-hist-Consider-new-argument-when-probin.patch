@@ -1,0 +1,38 @@
+From: Carsten Emde <C.Emde@osadl.org>
+Date: Tue, 5 Jan 2016 10:21:59 +0100
+Subject: trace/latency-hist: Consider new argument when probing the
+ sched_switch tracer
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The sched_switch tracer has got a new argument. Fix the latency tracer
+accordingly.
+
+Recently: c73464b1c843 ("sched/core: Fix trace_sched_switch()") since
+v4.4-rc1.
+
+Signed-off-by: Carsten Emde <C.Emde@osadl.org>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ kernel/trace/latency_hist.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/kernel/trace/latency_hist.c
++++ b/kernel/trace/latency_hist.c
+@@ -117,7 +117,7 @@ static char *wakeup_latency_hist_dir_sha
+ static notrace void probe_wakeup_latency_hist_start(void *v,
+ 	struct task_struct *p);
+ static notrace void probe_wakeup_latency_hist_stop(void *v,
+-	struct task_struct *prev, struct task_struct *next);
++	bool preempt, struct task_struct *prev, struct task_struct *next);
+ static notrace void probe_sched_migrate_task(void *,
+ 	struct task_struct *task, int cpu);
+ static struct enable_data wakeup_latency_enabled_data = {
+@@ -907,7 +907,7 @@ static notrace void probe_wakeup_latency
+ }
+ 
+ static notrace void probe_wakeup_latency_hist_stop(void *v,
+-	struct task_struct *prev, struct task_struct *next)
++	bool preempt, struct task_struct *prev, struct task_struct *next)
+ {
+ 	unsigned long flags;
+ 	int cpu = task_cpu(next);

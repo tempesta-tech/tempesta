@@ -1,0 +1,28 @@
+# Include USB serial drivers by default
+drivers/usb/serial/*
+
+# Exclude drivers that are useless for serial consoles
+aircable -
+cyberjack -
+cypress_m8 -
+empeg -
+garmin_gps -
+ipaq -
+ipw -
+ir-usb -
+iuu_phoenix -
+kobil_sct -
+metro-usb -
+navman -
+omninet -
+opticon -
+option -
+qcaux -
+qcserial -
+sierra -
+symbolserial -
+usb_debug -
+usb_wwan -
+visor -
+wishbone-serial -
+xsens_mt -

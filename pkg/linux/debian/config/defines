@@ -1,0 +1,70 @@
+[abi]
+abiname: 2
+ignore-changes:
+ module:arch/x86/kvm/*
+ module:drivers/nvdimm/libnvdimm
+
+[base]
+arches:
+ alpha
+ amd64
+ arm64
+ armel
+ armhf
+ hppa
+ i386
+ m68k
+ mips
+ mipsel
+ mipsn32
+ mipsn32el
+ mips64
+ mips64el
+# Disabled until dak accepts them in the control file
+# mipsr6
+# mipsr6el
+# mipsn32r6
+# mipsn32r6el
+# mips64r6
+# mips64r6el
+ or1k
+ powerpc
+ powerpcspe
+ ppc64
+ ppc64el
+ s390
+ s390x
+ sh4
+ sparc
+ sparc64
+ tilegx
+ x32
+compiler: gcc-5
+featuresets:
+ none
+ rt
+
+[build]
+debug-info: true
+# Enable module signing by default (implemented in the linux-signed package)
+signed-modules: true
+
+[featureset-rt_base]
+enabled: true
+
+[description]
+part-long-up: This kernel is not suitable for SMP (multi-processor,
+ multi-core or hyper-threaded) systems.
+part-long-xen: This kernel also runs on a Xen hypervisor.
+ It supports both privileged (dom0) and unprivileged (domU) operation.
+
+[image]
+initramfs-generators: initramfs-tools initramfs-fallback
+
+[relations]
+# compilers
+gcc-5: gcc-5 <!stage1 !cross>, gcc-5-@gnu-type-package@:native <!stage1 cross>
+
+# initramfs-generators
+initramfs-fallback: linux-initramfs-tool
+initramfs-tools: initramfs-tools (>= 0.110~)

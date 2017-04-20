@@ -1,0 +1,7 @@
+#include <endian.h>
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define HOST_ELFDATA ELFDATA2LSB
+#elif __BYTE_ORDER == __BIG_ENDIAN
+#define HOST_ELFDATA ELFDATA2MSB
+#endif

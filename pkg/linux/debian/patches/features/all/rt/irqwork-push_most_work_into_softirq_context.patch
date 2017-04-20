@@ -1,0 +1,186 @@
+Subject: irqwork: push most work into softirq context
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Tue, 23 Jun 2015 15:32:51 +0200
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Initially we defered all irqwork into softirq because we didn't want the
+latency spikes if perf or another user was busy and delayed the RT task.
+The NOHZ trigger (nohz_full_kick_work) was the first user that did not work
+as expected if it did not run in the original irqwork context so we had to
+bring it back somehow for it. push_irq_work_func is the second one that
+requires this.
+
+This patch adds the IRQ_WORK_HARD_IRQ which makes sure the callback runs
+in raw-irq context. Everything else is defered into softirq context. Without
+-RT we have the orignal behavior.
+
+This patch incorporates tglx orignal work which revoked a little bringing back
+the arch_irq_work_raise() if possible and a few fixes from Steven Rostedt and
+Mike Galbraith,
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/irq_work.h |    1 +
+ kernel/irq_work.c        |   47 ++++++++++++++++++++++++++++++++++-------------
+ kernel/sched/rt.c        |    1 +
+ kernel/time/tick-sched.c |    1 +
+ kernel/time/timer.c      |    6 +++++-
+ 5 files changed, 42 insertions(+), 14 deletions(-)
+
+--- a/include/linux/irq_work.h
++++ b/include/linux/irq_work.h
+@@ -16,6 +16,7 @@
+ #define IRQ_WORK_BUSY		2UL
+ #define IRQ_WORK_FLAGS		3UL
+ #define IRQ_WORK_LAZY		4UL /* Doesn't want IPI, wait for tick */
++#define IRQ_WORK_HARD_IRQ	8UL /* Run hard IRQ context, even on RT */
+ 
+ struct irq_work {
+ 	unsigned long flags;
+--- a/kernel/irq_work.c
++++ b/kernel/irq_work.c
+@@ -17,6 +17,7 @@
+ #include <linux/cpu.h>
+ #include <linux/notifier.h>
+ #include <linux/smp.h>
++#include <linux/interrupt.h>
+ #include <asm/processor.h>
+ 
+ 
+@@ -65,6 +66,8 @@ void __weak arch_irq_work_raise(void)
+  */
+ bool irq_work_queue_on(struct irq_work *work, int cpu)
+ {
++	struct llist_head *list;
++
+ 	/* All work should have been flushed before going offline */
+ 	WARN_ON_ONCE(cpu_is_offline(cpu));
+ 
+@@ -75,7 +78,12 @@ bool irq_work_queue_on(struct irq_work *
+ 	if (!irq_work_claim(work))
+ 		return false;
+ 
+-	if (llist_add(&work->llnode, &per_cpu(raised_list, cpu)))
++	if (IS_ENABLED(CONFIG_PREEMPT_RT_FULL) && !(work->flags & IRQ_WORK_HARD_IRQ))
++		list = &per_cpu(lazy_list, cpu);
++	else
++		list = &per_cpu(raised_list, cpu);
++
++	if (llist_add(&work->llnode, list))
+ 		arch_send_call_function_single_ipi(cpu);
+ 
+ 	return true;
+@@ -86,6 +94,9 @@ EXPORT_SYMBOL_GPL(irq_work_queue_on);
+ /* Enqueue the irq work @work on the current CPU */
+ bool irq_work_queue(struct irq_work *work)
+ {
++	struct llist_head *list;
++	bool lazy_work, realtime = IS_ENABLED(CONFIG_PREEMPT_RT_FULL);
++
+ 	/* Only queue if not already pending */
+ 	if (!irq_work_claim(work))
+ 		return false;
+@@ -93,13 +104,15 @@ bool irq_work_queue(struct irq_work *wor
+ 	/* Queue the entry and raise the IPI if needed. */
+ 	preempt_disable();
+ 
+-	/* If the work is "lazy", handle it from next tick if any */
+-	if (work->flags & IRQ_WORK_LAZY) {
+-		if (llist_add(&work->llnode, this_cpu_ptr(&lazy_list)) &&
+-		    tick_nohz_tick_stopped())
+-			arch_irq_work_raise();
+-	} else {
+-		if (llist_add(&work->llnode, this_cpu_ptr(&raised_list)))
++	lazy_work = work->flags & IRQ_WORK_LAZY;
++
++	if (lazy_work || (realtime && !(work->flags & IRQ_WORK_HARD_IRQ)))
++		list = this_cpu_ptr(&lazy_list);
++	else
++		list = this_cpu_ptr(&raised_list);
++
++	if (llist_add(&work->llnode, list)) {
++		if (!lazy_work || tick_nohz_tick_stopped())
+ 			arch_irq_work_raise();
+ 	}
+ 
+@@ -116,9 +129,8 @@ bool irq_work_needs_cpu(void)
+ 	raised = this_cpu_ptr(&raised_list);
+ 	lazy = this_cpu_ptr(&lazy_list);
+ 
+-	if (llist_empty(raised) || arch_irq_work_has_interrupt())
+-		if (llist_empty(lazy))
+-			return false;
++	if (llist_empty(raised) && llist_empty(lazy))
++		return false;
+ 
+ 	/* All work should have been flushed before going offline */
+ 	WARN_ON_ONCE(cpu_is_offline(smp_processor_id()));
+@@ -132,7 +144,7 @@ static void irq_work_run_list(struct lli
+ 	struct irq_work *work;
+ 	struct llist_node *llnode;
+ 
+-	BUG_ON(!irqs_disabled());
++	BUG_ON_NONRT(!irqs_disabled());
+ 
+ 	if (llist_empty(list))
+ 		return;
+@@ -169,7 +181,16 @@ static void irq_work_run_list(struct lli
+ void irq_work_run(void)
+ {
+ 	irq_work_run_list(this_cpu_ptr(&raised_list));
+-	irq_work_run_list(this_cpu_ptr(&lazy_list));
++	if (IS_ENABLED(CONFIG_PREEMPT_RT_FULL)) {
++		/*
++		 * NOTE: we raise softirq via IPI for safety,
++		 * and execute in irq_work_tick() to move the
++		 * overhead from hard to soft irq context.
++		 */
++		if (!llist_empty(this_cpu_ptr(&lazy_list)))
++			raise_softirq(TIMER_SOFTIRQ);
++	} else
++		irq_work_run_list(this_cpu_ptr(&lazy_list));
+ }
+ EXPORT_SYMBOL_GPL(irq_work_run);
+ 
+--- a/kernel/sched/rt.c
++++ b/kernel/sched/rt.c
+@@ -102,6 +102,7 @@ void init_rt_rq(struct rt_rq *rt_rq)
+ 	rt_rq->push_cpu = nr_cpu_ids;
+ 	raw_spin_lock_init(&rt_rq->push_lock);
+ 	init_irq_work(&rt_rq->push_work, push_irq_work_func);
++	rt_rq->push_work.flags |= IRQ_WORK_HARD_IRQ;
+ #endif
+ #endif /* CONFIG_SMP */
+ 	/* We start is dequeued state, because no RT tasks are queued */
+--- a/kernel/time/tick-sched.c
++++ b/kernel/time/tick-sched.c
+@@ -217,6 +217,7 @@ static void nohz_full_kick_func(struct i
+ 
+ static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) = {
+ 	.func = nohz_full_kick_func,
++	.flags = IRQ_WORK_HARD_IRQ,
+ };
+ 
+ /*
+--- a/kernel/time/timer.c
++++ b/kernel/time/timer.c
+@@ -1644,7 +1644,7 @@ void update_process_times(int user_tick)
+ 	scheduler_tick();
+ 	run_local_timers();
+ 	rcu_check_callbacks(user_tick);
+-#ifdef CONFIG_IRQ_WORK
++#if defined(CONFIG_IRQ_WORK) && !defined(CONFIG_PREEMPT_RT_FULL)
+ 	if (in_irq())
+ 		irq_work_tick();
+ #endif
+@@ -1684,6 +1684,10 @@ static void run_timer_softirq(struct sof
+ {
+ 	struct timer_base *base = this_cpu_ptr(&timer_bases[BASE_STD]);
+ 
++#if defined(CONFIG_IRQ_WORK) && defined(CONFIG_PREEMPT_RT_FULL)
++	irq_work_tick();
++#endif
++
+ 	__run_timers(base);
+ 	if (IS_ENABLED(CONFIG_NO_HZ_COMMON) && base->nohz_active)
+ 		__run_timers(this_cpu_ptr(&timer_bases[BASE_DEF]));

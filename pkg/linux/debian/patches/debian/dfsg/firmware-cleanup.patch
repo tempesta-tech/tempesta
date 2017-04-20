@@ -1,0 +1,34 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 15 Mar 2011 04:48:15 +0000
+Subject: Remove the entire firmware directory
+Forwarded: no
+
+Some of this is DFSG-free, but it has been moved to firmware-free so
+we don't need it in linux-2.6 as well.
+
+diff --git a/Makefile b/Makefile
+index d6592b6..9afac11 100644
+--- a/Makefile
++++ b/Makefile
+@@ -487,7 +487,7 @@ scripts: scripts_basic include/config/auto.conf include/config/tristate.conf
+ 
+ # Objects we will link into vmlinux / subdirs we need to visit
+ init-y		:= init/
+-drivers-y	:= drivers/ sound/ firmware/
++drivers-y	:= drivers/ sound/
+ net-y		:= net/
+ libs-y		:= lib/
+ core-y		:= usr/
+diff --git a/scripts/Makefile.fwinst b/scripts/Makefile.fwinst
+index 6bf8e87..2f6db83 100644
+--- a/scripts/Makefile.fwinst
++++ b/scripts/Makefile.fwinst
+@@ -13,7 +13,7 @@ src := $(obj)
+ -include $(objtree)/.config
+ 
+ include scripts/Kbuild.include
+-include $(src)/Makefile
++-include $(src)/Makefile
+ 
+ include scripts/Makefile.host
+ 

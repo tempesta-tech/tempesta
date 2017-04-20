@@ -1,0 +1,26 @@
+Package: @source_package@-source-@version@
+Build-Profiles: <!stage1>
+Architecture: all
+Section: kernel
+Depends: binutils, xz-utils, ${misc:Depends}
+Recommends: libc6-dev | libc-dev, gcc, make, bc
+Suggests: libncurses-dev | ncurses-dev, libqt4-dev, pkg-config
+Multi-Arch: foreign
+Description: Linux kernel source for version @version@ with Debian patches
+ This package provides source code for the Linux kernel version @version@.
+ This source closely tracks official Linux kernel releases.  Debian's
+ modifications to that source consist of security fixes, bug fixes, and
+ features that have already been (or are believed to be) accepted by the
+ upstream maintainers.
+
+Package: @source_package@-support-@abiname@
+Build-Profiles: <!stage1>
+Architecture: all
+Section: devel
+Depends: ${python3:Depends}, ${misc:Depends}
+Multi-Arch: foreign
+Description: Support files for Linux @upstreamversion@
+ This package provides support files for the Linux kernel build,
+ e.g. scripts to handle ABI information and for generation of
+ build system meta data.
+

@@ -1,0 +1,34 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 19 Nov 2010 02:12:48 +0000
+Subject: [PATCH 1/3] rds: Disable auto-loading as mitigation against local exploits
+Forwarded: not-needed
+
+Recent review has revealed several bugs in obscure protocol
+implementations that can be exploited by local users for denial of
+service or privilege escalation.  We can mitigate the effect of any
+remaining vulnerabilities in such protocols by preventing unprivileged
+users from loading the modules, so that they are only exploitable on
+systems where the administrator has chosen to load the protocol.
+
+The 'rds' protocol is one such protocol that has been found to be
+vulnerable, and which was not present in the 'lenny' kernel.
+Therefore disable auto-loading.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ net/rds/af_rds.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/net/rds/af_rds.c b/net/rds/af_rds.c
+index 98e0538..d8d4525 100644
+--- a/net/rds/af_rds.c
++++ b/net/rds/af_rds.c
+@@ -574,4 +574,4 @@ MODULE_DESCRIPTION("RDS: Reliable Datagram Sockets"
+ 		   " v" DRV_VERSION " (" DRV_RELDATE ")");
+ MODULE_VERSION(DRV_VERSION);
+ MODULE_LICENSE("Dual BSD/GPL");
+-MODULE_ALIAS_NETPROTO(PF_RDS);
++/* MODULE_ALIAS_NETPROTO(PF_RDS); */
+-- 
+1.7.2.3
+

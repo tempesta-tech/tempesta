@@ -1,0 +1,87 @@
+##
+## file: arch/x86/Kconfig
+##
+CONFIG_X86_32_IRIS=m
+# CONFIG_MATH_EMULATION is not set
+# CONFIG_EISA is not set
+CONFIG_OLPC=y
+CONFIG_OLPC_XO1_PM=y
+CONFIG_OLPC_XO1_RTC=y
+CONFIG_OLPC_XO1_SCI=y
+CONFIG_OLPC_XO15_SCI=y
+CONFIG_ALIX=y
+CONFIG_NET5501=y
+CONFIG_GEOS=y
+
+##
+## file: arch/x86/Kconfig.cpu
+##
+## choice: Processor family
+# CONFIG_M486 is not set
+CONFIG_M686=y
+## end choice
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C_STUB=m
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+# CONFIG_I2C_ELEKTOR is not set
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_KEYBOARD_GPIO_POLLED=m
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_MOUSE_PS2_OLPC=y
+
+##
+## file: drivers/leds/Kconfig
+##
+CONFIG_LEDS_GPIO=m
+
+##
+## file: drivers/net/hamradio/Kconfig
+##
+# CONFIG_DMASCC is not set
+
+##
+## file: drivers/pci/hotplug/Kconfig
+##
+# CONFIG_HOTPLUG_PCI_COMPAQ_NVRAM is not set
+
+##
+## file: drivers/platform/x86/Kconfig
+##
+CONFIG_XO1_RFKILL=m
+CONFIG_XO15_EBOOK=m
+
+##
+## file: drivers/power/Kconfig
+##
+CONFIG_BATTERY_OLPC=m
+
+##
+## file: drivers/tty/Kconfig
+##
+# CONFIG_MOXA_INTELLIO is not set
+
+##
+## file: drivers/video/fbdev/geode/Kconfig
+##
+CONFIG_FB_GEODE=y
+CONFIG_FB_GEODE_LX=m
+CONFIG_FB_GEODE_GX=m
+CONFIG_FB_GEODE_GX1=m
+
+##
+## file: lib/Kconfig.debug
+##
+# CONFIG_DEBUG_HIGHMEM is not set
+

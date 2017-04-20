@@ -1,0 +1,38 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Fri, 9 Mar 2012 09:28:15 -0500
+Subject: [05/18] Restrict /dev/mem and /dev/kmem when securelevel is set.
+Origin: https://github.com/mjg59/linux/commit/401996625d478c814fe9e736ca9e6c5c5f055f06
+
+Allowing users to write to address space provides mechanisms that may permit
+modification of the kernel at runtime. Prevent this if securelevel has been
+set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ drivers/char/mem.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/char/mem.c b/drivers/char/mem.c
+index cef0d40a3d74..c810f1e15c73 100644
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -167,6 +167,9 @@ static ssize_t write_mem(struct file *file, const char __user *buf,
+ 	if (p != *ppos)
+ 		return -EFBIG;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (!valid_phys_addr_range(p, count))
+ 		return -EFAULT;
+ 
+@@ -513,6 +516,9 @@ static ssize_t write_kmem(struct file *file, const char __user *buf,
+ 	char *kbuf; /* k-addr because vwrite() takes vmlist_lock rwlock */
+ 	int err = 0;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (p < (unsigned long) high_memory) {
+ 		unsigned long to_write = min_t(unsigned long, count,
+ 					       (unsigned long)high_memory - p);

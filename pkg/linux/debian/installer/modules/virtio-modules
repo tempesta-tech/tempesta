@@ -1,0 +1,9 @@
+virtio_net
+virtio_blk
+virtio_balloon
+virtio_scsi
+virtio_input
+
+# Some architectures do not have PCI bus
+virtio_pci ?
+virtio_mmio ?

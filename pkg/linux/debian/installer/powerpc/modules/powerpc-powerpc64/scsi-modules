@@ -1,0 +1,5 @@
+#include <scsi-modules>
+
+ibmvscsi
+ps3disk ?
+ps3rom

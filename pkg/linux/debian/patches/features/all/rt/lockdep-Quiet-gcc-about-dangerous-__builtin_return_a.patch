@@ -1,0 +1,111 @@
+From: Steven Rostedt <rostedt@goodmis.org>
+Date: Thu, 8 Sep 2016 12:34:33 -0400
+Subject: [PATCH] lockdep: Quiet gcc about dangerous __builtin_return_address()
+ operations
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+[
+  Boris, does this quiet gcc for you?
+  I haven't fully tested this yet, as I still don't have a compiler
+  that does the warning.
+]
+
+Gcc's new warnings about __builtin_return_address(n) operations with
+n > 0 is popping up around the kernel. The operation is dangerous, and
+the warning is "good to know". But there's instances that we use
+__builtin_return_address(n) with n > 0 and are aware of the issues,
+and work around them. And its used mostly for tracing and debugging. In
+these cases, the warning becomes a distraction and is not helpful.
+
+To get better lock issue traces, a function like get_lock_parent_ip()
+uses __builtin_return_address() to find the caller of the lock, and
+skip over the internal callers of the lock itself. Currently it is only
+used in the kernel/ directory and only if certain configs are enabled.
+
+Create a new config called CONFIG_USING_GET_LOCK_PARENT_IP that gets
+selected when another config relies on get_lock_parent_ip(), and this
+will now enable the function get_lock_parent_ip(), otherwise it wont be
+defined. It will also disable the frame-address warnings from gcc in
+the kernel directory.
+
+Reported-by: Borislav Petkov <bp@alien8.de>
+Signed-off-by: Steven Rostedt <rostedt@goodmis.org>
+---
+ include/linux/ftrace.h |    2 ++
+ kernel/Makefile        |    7 +++++++
+ kernel/trace/Kconfig   |    1 +
+ lib/Kconfig.debug      |   10 ++++++++++
+ 4 files changed, 20 insertions(+)
+
+--- a/include/linux/ftrace.h
++++ b/include/linux/ftrace.h
+@@ -714,6 +714,7 @@ static inline void __ftrace_enabled_rest
+ #define CALLER_ADDR5 ((unsigned long)ftrace_return_address(5))
+ #define CALLER_ADDR6 ((unsigned long)ftrace_return_address(6))
+ 
++#ifdef CONFIG_USING_GET_LOCK_PARENT_IP
+ static inline unsigned long get_lock_parent_ip(void)
+ {
+ 	unsigned long addr = CALLER_ADDR0;
+@@ -725,6 +726,7 @@ static inline unsigned long get_lock_par
+ 		return addr;
+ 	return CALLER_ADDR2;
+ }
++#endif
+ 
+ #ifdef CONFIG_IRQSOFF_TRACER
+   extern void time_hardirqs_on(unsigned long a0, unsigned long a1);
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -11,6 +11,13 @@ obj-y     = fork.o exec_domain.o panic.o
+ 	    notifier.o ksysfs.o cred.o reboot.o \
+ 	    async.o range.o smpboot.o
+ 
++# Tracing may do some dangerous __builtin_return_address() operations
++# We know they are dangerous, we don't need gcc telling us that.
++ifdef CONFIG_USING_GET_LOCK_PARENT_IP
++FRAME_CFLAGS := $(call cc-disable-warning,frame-address)
++KBUILD_CFLAGS += $(FRAME_CFLAGS)
++endif
++
+ obj-$(CONFIG_MULTIUSER) += groups.o
+ 
+ ifdef CONFIG_FUNCTION_TRACER
+--- a/kernel/trace/Kconfig
++++ b/kernel/trace/Kconfig
+@@ -197,6 +197,7 @@ config PREEMPT_TRACER
+ 	select RING_BUFFER_ALLOW_SWAP
+ 	select TRACER_SNAPSHOT
+ 	select TRACER_SNAPSHOT_PER_CPU_SWAP
++	select USING_GET_LOCK_PARENT_IP
+ 	help
+ 	  This option measures the time spent in preemption-off critical
+ 	  sections, with microsecond accuracy.
+--- a/lib/Kconfig.debug
++++ b/lib/Kconfig.debug
+@@ -977,6 +977,7 @@ config TIMER_STATS
+ config DEBUG_PREEMPT
+ 	bool "Debug preemptible kernel"
+ 	depends on DEBUG_KERNEL && PREEMPT && TRACE_IRQFLAGS_SUPPORT
++	select USING_GET_LOCK_PARENT_IP
+ 	default y
+ 	help
+ 	  If you say Y here then the kernel will use a debug variant of the
+@@ -1159,8 +1160,17 @@ config LOCK_TORTURE_TEST
+ 
+ endmenu # lock debugging
+ 
++config USING_GET_LOCK_PARENT_IP
++        bool
++	help
++	  Enables the use of the function get_lock_parent_ip() that
++	  will use __builtin_return_address(n) with n > 0 causing
++	  some gcc warnings. When this is selected, those warnings
++	  will be suppressed.
++
+ config TRACE_IRQFLAGS
+ 	bool
++	select USING_GET_LOCK_PARENT_IP
+ 	help
+ 	  Enables hooks to interrupt enabling and disabling for
+ 	  either tracing or lock debugging.

@@ -1,0 +1,77 @@
+From: Jan Kara <jack@suse.cz>
+Date: Thu, 26 May 2016 16:10:38 +0200
+Subject: ceph: Propagate dentry down to inode_change_ok()
+Origin: https://git.kernel.org/linus/fd5472ed44683cf593322a2ef54b9a7675dc780a
+
+To avoid clearing of capabilities or security related extended
+attributes too early, inode_change_ok() will need to take dentry instead
+of inode. ceph_setattr() has the dentry easily available but
+__ceph_setattr() is also called from ceph_set_acl() where dentry is not
+easily available. Luckily that call path does not need inode_change_ok()
+to be called anyway. So reorganize functions a bit so that
+inode_change_ok() is called only from paths where dentry is available.
+
+Reviewed-by: Christoph Hellwig <hch@lst.de>
+Acked-by: Jeff Layton <jlayton@redhat.com>
+Signed-off-by: Jan Kara <jack@suse.cz>
+---
+ fs/ceph/acl.c   |  5 +++++
+ fs/ceph/inode.c | 19 +++++++++++--------
+ 2 files changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/fs/ceph/acl.c b/fs/ceph/acl.c
+index d0b6b342..987044b 100644
+--- a/fs/ceph/acl.c
++++ b/fs/ceph/acl.c
+@@ -125,6 +125,11 @@ int ceph_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+ 			goto out_free;
+ 	}
+ 
++	if (ceph_snap(inode) != CEPH_NOSNAP) {
++		ret = -EROFS;
++		goto out_free;
++	}
++
+ 	if (new_mode != old_mode) {
+ 		newattrs.ia_mode = new_mode;
+ 		newattrs.ia_valid = ATTR_MODE;
+diff --git a/fs/ceph/inode.c b/fs/ceph/inode.c
+index dd3a6db..2aa3c0bc 100644
+--- a/fs/ceph/inode.c
++++ b/fs/ceph/inode.c
+@@ -1905,13 +1905,6 @@ int __ceph_setattr(struct inode *inode, struct iattr *attr)
+ 	int inode_dirty_flags = 0;
+ 	bool lock_snap_rwsem = false;
+ 
+-	if (ceph_snap(inode) != CEPH_NOSNAP)
+-		return -EROFS;
+-
+-	err = inode_change_ok(inode, attr);
+-	if (err != 0)
+-		return err;
+-
+ 	prealloc_cf = ceph_alloc_cap_flush();
+ 	if (!prealloc_cf)
+ 		return -ENOMEM;
+@@ -2124,7 +2117,17 @@ int __ceph_setattr(struct inode *inode, struct iattr *attr)
+  */
+ int ceph_setattr(struct dentry *dentry, struct iattr *attr)
+ {
+-	return __ceph_setattr(d_inode(dentry), attr);
++	struct inode *inode = d_inode(dentry);
++	int err;
++
++	if (ceph_snap(inode) != CEPH_NOSNAP)
++		return -EROFS;
++
++	err = inode_change_ok(inode, attr);
++	if (err != 0)
++		return err;
++
++	return __ceph_setattr(inode, attr);
+ }
+ 
+ /*
+-- 
+2.10.2
+

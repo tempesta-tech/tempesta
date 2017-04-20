@@ -1,0 +1,214 @@
+##
+## file: arch/x86/Kconfig
+##
+CONFIG_64BIT=y
+CONFIG_SMP=y
+CONFIG_X86_X2APIC=y
+CONFIG_CALGARY_IOMMU=y
+CONFIG_CALGARY_IOMMU_ENABLED_BY_DEFAULT=y
+# CONFIG_MAXSMP is not set
+CONFIG_NR_CPUS=512
+CONFIG_X86_16BIT=y
+CONFIG_X86_VSYSCALL_EMULATION=y
+CONFIG_NUMA=y
+CONFIG_AMD_NUMA=y
+CONFIG_X86_64_ACPI_NUMA=y
+CONFIG_NUMA_EMU=y
+CONFIG_X86_INTEL_MEMORY_PROTECTION_KEYS=y
+CONFIG_EFI_MIXED=y
+CONFIG_KEXEC_FILE=y
+CONFIG_KEXEC_VERIFY_SIG=y
+CONFIG_KEXEC_BZIMAGE_VERIFY_SIG=y
+CONFIG_RANDOMIZE_MEMORY=y
+## choice: vsyscall table for legacy applications
+# CONFIG_LEGACY_VSYSCALL_NATIVE is not set
+CONFIG_LEGACY_VSYSCALL_EMULATE=y
+# CONFIG_LEGACY_VSYSCALL_NONE is not set
+## end choice
+CONFIG_PCI_MMCONFIG=y
+CONFIG_ISA_DMA_API=y
+CONFIG_X86_X32=y
+CONFIG_X86_X32_DISABLED=y
+
+##
+## file: arch/x86/Kconfig.cpu
+##
+## choice: Processor family
+# CONFIG_MK8 is not set
+# CONFIG_MPSC is not set
+# CONFIG_MCORE2 is not set
+# CONFIG_MATOM is not set
+CONFIG_GENERIC_CPU=y
+## end choice
+
+##
+## file: arch/x86/xen/Kconfig
+##
+CONFIG_XEN_512GB=y
+
+##
+## file: crypto/Kconfig
+##
+CONFIG_CRYPTO_CRCT10DIF_PCLMUL=m
+CONFIG_CRYPTO_POLY1305_X86_64=m
+CONFIG_CRYPTO_SHA1_SSSE3=m
+CONFIG_CRYPTO_SHA256_SSSE3=m
+CONFIG_CRYPTO_SHA512_SSSE3=m
+CONFIG_CRYPTO_GHASH_CLMUL_NI_INTEL=m
+CONFIG_CRYPTO_AES_X86_64=m
+CONFIG_CRYPTO_BLOWFISH_X86_64=m
+CONFIG_CRYPTO_CAMELLIA_X86_64=m
+CONFIG_CRYPTO_CAMELLIA_AESNI_AVX_X86_64=m
+CONFIG_CRYPTO_CAMELLIA_AESNI_AVX2_X86_64=m
+CONFIG_CRYPTO_CAST5_AVX_X86_64=m
+CONFIG_CRYPTO_CAST6_AVX_X86_64=m
+CONFIG_CRYPTO_DES3_EDE_X86_64=m
+CONFIG_CRYPTO_SALSA20_X86_64=m
+CONFIG_CRYPTO_CHACHA20_X86_64=m
+CONFIG_CRYPTO_SERPENT_SSE2_X86_64=m
+CONFIG_CRYPTO_SERPENT_AVX_X86_64=m
+CONFIG_CRYPTO_SERPENT_AVX2_X86_64=m
+CONFIG_CRYPTO_TWOFISH_X86_64=m
+CONFIG_CRYPTO_TWOFISH_X86_64_3WAY=m
+CONFIG_CRYPTO_TWOFISH_AVX_X86_64=m
+
+##
+## file: crypto/asymmetric_keys/Kconfig
+##
+CONFIG_SIGNED_PE_FILE_VERIFICATION=y
+
+##
+## file: drivers/acpi/Kconfig
+##
+CONFIG_ACPI_BGRT=y
+
+##
+## file: drivers/block/Kconfig
+##
+CONFIG_BLK_DEV_RSXX=m
+
+##
+## file: drivers/char/agp/Kconfig
+##
+CONFIG_AGP=y
+#. Needed by GART_IOMMU
+CONFIG_AGP_AMD64=y
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_INTEL_MIC_X100_DMA=m
+
+##
+## file: drivers/edac/Kconfig
+##
+CONFIG_EDAC_SBRIDGE=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C_STUB=m
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_MOUSE_PS2_LOGIPS2PP=y
+CONFIG_MOUSE_PS2_SYNAPTICS=y
+CONFIG_MOUSE_PS2_LIFEBOOK=y
+CONFIG_MOUSE_PS2_TRACKPOINT=y
+
+##
+## file: drivers/iommu/Kconfig
+##
+CONFIG_AMD_IOMMU=y
+#. Can be built as a module, but nothing will trigger loading
+CONFIG_AMD_IOMMU_V2=y
+
+##
+## file: drivers/macintosh/Kconfig
+##
+CONFIG_MACINTOSH_DRIVERS=y
+CONFIG_MAC_EMUMOUSEBTN=y
+
+##
+## file: drivers/misc/mic/Kconfig
+##
+CONFIG_INTEL_MIC_BUS=m
+CONFIG_SCIF_BUS=m
+CONFIG_VOP_BUS=m
+CONFIG_INTEL_MIC_HOST=m
+# CONFIG_INTEL_MIC_CARD is not set
+CONFIG_SCIF=m
+CONFIG_MIC_COSM=m
+CONFIG_VOP=m
+
+##
+## file: drivers/net/Kconfig
+##
+CONFIG_FUJITSU_ES=m
+
+##
+## file: drivers/net/wireless/intel/ipw2x00/Kconfig
+##
+# CONFIG_IPW2100 is not set
+
+##
+## file: drivers/nvdimm/Kconfig
+##
+CONFIG_NVDIMM_PFN=y
+
+##
+## file: drivers/pci/Kconfig
+##
+CONFIG_PCI_HYPERV=y
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI_INIA100=m
+
+##
+## file: drivers/tty/Kconfig
+##
+CONFIG_MOXA_INTELLIO=m
+CONFIG_ISI=m
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB_MATROX_G=y
+CONFIG_FB_MATROX_MAVEN=m
+# CONFIG_FB_ATY_GENERIC_LCD is not set
+# CONFIG_FB_SAVAGE_I2C is not set
+
+##
+## file: init/Kconfig
+##
+CONFIG_RCU_FANOUT=64
+CONFIG_KALLSYMS_ALL=y
+
+##
+## file: kernel/livepatch/Kconfig
+##
+CONFIG_LIVEPATCH=y
+
+##
+## file: lib/Kconfig.debug
+##
+CONFIG_FRAME_WARN=2048
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_SPARSEMEM_MANUAL=y
+## end choice
+CONFIG_SPARSEMEM_VMEMMAP=y
+# CONFIG_MOVABLE_NODE is not set
+CONFIG_ZONE_DEVICE=y
+
+##
+## file: security/Kconfig
+##
+CONFIG_LSM_MMAP_MIN_ADDR=65536
+

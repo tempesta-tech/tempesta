@@ -1,0 +1,18 @@
+#!/usr/bin/perl
+# Author: Michael Gilbert <michael.s.gilbert@gmail.com>
+# Origin: Stripped down version of the linux-headers postinst from Ubuntu's
+#         2.6.32-14-generic kernel, which was itself derived from a
+#         Debian linux-image postinst script.
+
+$|=1;
+my $version  = "@abiname@@localversion@";
+
+if (-d "/etc/kernel/header_postinst.d") {
+  system ("run-parts --report --exit-on-error --arg=$version " .
+          "/etc/kernel/header_postinst.d") &&
+            die "Failed to process /etc/kernel/header_postinst.d";
+}
+
+exit 0;
+
+__END__

@@ -1,0 +1,22 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: fs: Enable link security restrictions by default
+Date: Fri, 02 Nov 2012 05:32:06 +0000
+Bug-Debian: https://bugs.debian.org/609455
+Forwarded: not-needed
+
+This reverts commit 561ec64ae67ef25cac8d72bb9c4bfc955edfd415
+('VFS: don't do protected {sym,hard}links by default').
+
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -847,8 +847,8 @@ static inline void put_link(struct namei
+ 		path_put(&last->link);
+ }
+ 
+-int sysctl_protected_symlinks __read_mostly = 0;
+-int sysctl_protected_hardlinks __read_mostly = 0;
++int sysctl_protected_symlinks __read_mostly = 1;
++int sysctl_protected_hardlinks __read_mostly = 1;
+ 
+ /**
+  * may_follow_link - Check symlink following for unsafe situations

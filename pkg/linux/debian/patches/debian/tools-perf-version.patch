@@ -1,0 +1,106 @@
+From: Bastian Blank <waldi@debian.org>
+Date: Mon, 26 Sep 2011 13:53:12 +0100
+Subject: Create manpages and binaries including the version
+Forwarded: no
+
+[bwh: Fix version insertion in perf man page cross-references and perf
+man page title.  Install bash_completion script for perf with a
+version-dependent name.  And do the same for trace.]
+
+--- a/tools/perf/Makefile.perf
++++ b/tools/perf/Makefile.perf
+@@ -539,18 +539,18 @@ install-gtk:
+ install-tools: all install-gtk
+ 	$(call QUIET_INSTALL, binaries) \
+ 		$(INSTALL) -d -m 755 '$(DESTDIR_SQ)$(bindir_SQ)'; \
+-		$(INSTALL) $(OUTPUT)perf '$(DESTDIR_SQ)$(bindir_SQ)'; \
+-		$(LN) '$(DESTDIR_SQ)$(bindir_SQ)/perf' '$(DESTDIR_SQ)$(bindir_SQ)/trace'
++		$(INSTALL) $(OUTPUT)perf '$(DESTDIR_SQ)$(bindir_SQ)/perf_$(VERSION)'; \
++		$(LN) '$(DESTDIR_SQ)$(bindir_SQ)/perf_$(VERSION)' '$(DESTDIR_SQ)$(bindir_SQ)/trace_$(VERSION)'
++	$(call QUIET_INSTALL, libexec) \
++		$(INSTALL) -d -m 755 '$(DESTDIR_SQ)$(perfexec_instdir_SQ)'
+ ifndef NO_PERF_READ_VDSO32
+ 	$(call QUIET_INSTALL, perf-read-vdso32) \
+-		$(INSTALL) $(OUTPUT)perf-read-vdso32 '$(DESTDIR_SQ)$(bindir_SQ)';
++		$(INSTALL) $(OUTPUT)perf-read-vdso32 '$(DESTDIR_SQ)$(perfexec_instdir_SQ)';
+ endif
+ ifndef NO_PERF_READ_VDSOX32
+ 	$(call QUIET_INSTALL, perf-read-vdsox32) \
+-		$(INSTALL) $(OUTPUT)perf-read-vdsox32 '$(DESTDIR_SQ)$(bindir_SQ)';
++		$(INSTALL) $(OUTPUT)perf-read-vdsox32 '$(DESTDIR_SQ)$(perfexec_instdir_SQ)';
+ endif
+-	$(call QUIET_INSTALL, libexec) \
+-		$(INSTALL) -d -m 755 '$(DESTDIR_SQ)$(perfexec_instdir_SQ)'
+ 	$(call QUIET_INSTALL, perf-archive) \
+ 		$(INSTALL) $(OUTPUT)perf-archive -t '$(DESTDIR_SQ)$(perfexec_instdir_SQ)'
+ 	$(call QUIET_INSTALL, perf-with-kcore) \
+@@ -578,7 +578,7 @@ ifndef NO_LIBPYTHON
+ endif
+ 	$(call QUIET_INSTALL, perf_completion-script) \
+ 		$(INSTALL) -d -m 755 '$(DESTDIR_SQ)$(sysconfdir_SQ)/bash_completion.d'; \
+-		$(INSTALL) perf-completion.sh '$(DESTDIR_SQ)$(sysconfdir_SQ)/bash_completion.d/perf'
++		$(INSTALL) perf-completion.sh '$(DESTDIR_SQ)$(sysconfdir_SQ)/bash_completion.d/perf_$(VERSION)'
+ 	$(call QUIET_INSTALL, perf-tip) \
+ 		$(INSTALL) -d -m 755 '$(DESTDIR_SQ)$(tip_instdir_SQ)'; \
+ 		$(INSTALL) Documentation/tips.txt -t '$(DESTDIR_SQ)$(tip_instdir_SQ)'
+@@ -599,7 +599,7 @@ install-python_ext:
+ 
+ # 'make install-doc' should call 'make -C Documentation install'
+ $(INSTALL_DOC_TARGETS):
+-	$(QUIET_SUBDIR0)Documentation $(QUIET_SUBDIR1) $(@:-doc=)
++	$(QUIET_SUBDIR0)Documentation $(QUIET_SUBDIR1) $(@:-doc=) VERSION=$(VERSION)
+ 
+ ### Cleaning rules
+ 
+--- a/tools/perf/Documentation/Makefile
++++ b/tools/perf/Documentation/Makefile
+@@ -183,14 +183,16 @@ ifdef missing_tools
+ 	$(error "You need to install $(missing_tools) for man pages")
+ endif
+ 
+-do-install-man: man
++do-install-man: $(addprefix install-man-,$(_DOC_MAN1))
++
++install-man-perf.1: $(OUTPUT)perf.1
++	$(INSTALL) -d -m 755 $(DESTDIR)$(man1dir)
++	sed -e 's/"PERF"/"PERF_$(VERSION)"/' -e 's/fBperf-/fBperf_$(VERSION)-/g' $^ > $(DESTDIR)$(man1dir)/perf_$(VERSION).1
++
++install-man-perf%.1: $(OUTPUT)perf%.1
+ 	$(call QUIET_INSTALL, Documentation-man) \
+ 		$(INSTALL) -d -m 755 $(DESTDIR)$(man1dir); \
+-#		$(INSTALL) -d -m 755 $(DESTDIR)$(man5dir); \
+-#		$(INSTALL) -d -m 755 $(DESTDIR)$(man7dir); \
+-		$(INSTALL) -m 644 $(DOC_MAN1) $(DESTDIR)$(man1dir); \
+-#		$(INSTALL) -m 644 $(DOC_MAN5) $(DESTDIR)$(man5dir); \
+-#		$(INSTALL) -m 644 $(DOC_MAN7) $(DESTDIR)$(man7dir)
++		sed -e 's/"PERF\\-/"PERF_$(VERSION)\\-/' -e 's/fBperf-/fBperf_$(VERSION)-/g' $^ > $(DESTDIR)$(man1dir)/perf_$(VERSION)$*.1
+ 
+ install-man: check-man-tools man
+ 
+--- a/tools/perf/util/Build
++++ b/tools/perf/util/Build
+@@ -138,6 +138,7 @@ CFLAGS_rbtree.o        += -Wno-unused-pa
+ CFLAGS_libstring.o     += -Wno-unused-parameter -DETC_PERFCONFIG="BUILD_STR($(ETC_PERFCONFIG_SQ))"
+ CFLAGS_hweight.o       += -Wno-unused-parameter -DETC_PERFCONFIG="BUILD_STR($(ETC_PERFCONFIG_SQ))"
+ CFLAGS_parse-events.o  += -Wno-redundant-decls
++CFLAGS_vdso.o		+= -DPERFEXECDIR='"$(perfexec_instdir_SQ)"'
+ 
+ $(OUTPUT)util/kallsyms.o: ../lib/symbol/kallsyms.c FORCE
+ 	$(call rule_mkdir)
+--- a/tools/perf/util/vdso.c
++++ b/tools/perf/util/vdso.c
+@@ -51,12 +51,12 @@ static struct vdso_info *vdso_info__new(
+ 		.vdso32  = {
+ 			.temp_file_name = VDSO__TEMP_FILE_NAME,
+ 			.dso_name = DSO__NAME_VDSO32,
+-			.read_prog = "perf-read-vdso32",
++			.read_prog = PERFEXECDIR "/perf-read-vdso32",
+ 		},
+ 		.vdsox32  = {
+ 			.temp_file_name = VDSO__TEMP_FILE_NAME,
+ 			.dso_name = DSO__NAME_VDSOX32,
+-			.read_prog = "perf-read-vdsox32",
++			.read_prog = PERFEXECDIR "/perf-read-vdsox32",
+ 		},
+ #endif
+ 	};

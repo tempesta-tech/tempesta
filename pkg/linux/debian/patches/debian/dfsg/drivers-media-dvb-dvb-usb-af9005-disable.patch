@@ -1,0 +1,15 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 17 Aug 2009 02:45:41 +0100
+Subject: dvb-usb-af9005: mark as broken
+Forwarded: not-needed
+
+--- a/drivers/media/usb/dvb-usb/Kconfig
++++ b/drivers/media/usb/dvb-usb/Kconfig
+@@ -227,6 +227,7 @@ config DVB_USB_OPERA1
+ 
+ config DVB_USB_AF9005
+ 	tristate "Afatech AF9005 DVB-T USB1.1 support"
++	depends on BROKEN
+ 	depends on DVB_USB
+ 	select MEDIA_TUNER_MT2060 if MEDIA_SUBDRV_AUTOSELECT
+ 	select MEDIA_TUNER_QT1010 if MEDIA_SUBDRV_AUTOSELECT

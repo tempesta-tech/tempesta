@@ -1,0 +1,14 @@
+#include <usb-modules>
+dwc3-exynos
+dwc3-omap
+ohci-exynos
+ohci-omap3
+ehci-exynos
+ehci-omap
+ehci-orion
+ehci-tegra
+ci_hdrc_imx
+dwc2
+dwc3
+omap-ocp2scp
+extcon-usb-gpio

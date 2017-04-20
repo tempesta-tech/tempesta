@@ -1,0 +1,24 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Mon, 9 Sep 2013 08:46:52 -0400
+Subject: [02/18] Enforce module signatures when securelevel is greater than 0
+Origin: https://github.com/mjg59/linux/commit/90e0fa532b145d1bb76c368277a3a3e3b3eb5c94
+
+If securelevel has been set to 1 or greater, require that all modules have
+valid signatures.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ kernel/module.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/kernel/module.c
++++ b/kernel/module.c
+@@ -2616,7 +2616,7 @@ static int module_sig_check(struct load_
+ 	}
+ 
+ 	/* Not having a signature is only an error if we're strict. */
+-	if (err == -ENOKEY && !sig_enforce)
++	if ((err == -ENOKEY && !sig_enforce) && (get_securelevel() <= 0))
+ 		err = 0;
+ 
+ 	return err;

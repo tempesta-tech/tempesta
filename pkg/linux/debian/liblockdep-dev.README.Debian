@@ -1,0 +1,13 @@
+liblockdep for Debian
+---------------------
+
+liblockdep does not have proper documentation, but these articles
+provide an introduction:
+
+    https://lwn.net/Articles/536363/
+    http://www.vctlabs.com/posts/2014/Jul/09/liblockdep/
+
+'lockdep-design.txt' explains some more detail about what lockdep
+does, both in the kernel and as liblockdep.
+
+ -- Ben Hutchings <ben@decadent.org.uk>, Fri, 14 Aug 2015 14:22:55 +0200

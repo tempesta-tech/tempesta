@@ -1,0 +1,4 @@
+# arch version flavour       installedname suffix build-depends
+mips64el -       5kc-malta     -             y      -
+mips64el -       loongson-3    -             y      -
+mips64el -       octeon        -             y      -

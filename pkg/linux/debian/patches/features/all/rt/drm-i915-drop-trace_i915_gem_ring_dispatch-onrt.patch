@@ -1,0 +1,59 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 25 Apr 2013 18:12:52 +0200
+Subject: drm/i915: drop trace_i915_gem_ring_dispatch on rt
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+This tracepoint is responsible for:
+
+|[<814cc358>] __schedule_bug+0x4d/0x59
+|[<814d24cc>] __schedule+0x88c/0x930
+|[<814d3b90>] ? _raw_spin_unlock_irqrestore+0x40/0x50
+|[<814d3b95>] ? _raw_spin_unlock_irqrestore+0x45/0x50
+|[<810b57b5>] ? task_blocks_on_rt_mutex+0x1f5/0x250
+|[<814d27d9>] schedule+0x29/0x70
+|[<814d3423>] rt_spin_lock_slowlock+0x15b/0x278
+|[<814d3786>] rt_spin_lock+0x26/0x30
+|[<a00dced9>] gen6_gt_force_wake_get+0x29/0x60 [i915]
+|[<a00e183f>] gen6_ring_get_irq+0x5f/0x100 [i915]
+|[<a00b2a33>] ftrace_raw_event_i915_gem_ring_dispatch+0xe3/0x100 [i915]
+|[<a00ac1b3>] i915_gem_do_execbuffer.isra.13+0xbd3/0x1430 [i915]
+|[<810f8943>] ? trace_buffer_unlock_commit+0x43/0x60
+|[<8113e8d2>] ? ftrace_raw_event_kmem_alloc+0xd2/0x180
+|[<8101d063>] ? native_sched_clock+0x13/0x80
+|[<a00acf29>] i915_gem_execbuffer2+0x99/0x280 [i915]
+|[<a00114a3>] drm_ioctl+0x4c3/0x570 [drm]
+|[<8101d0d9>] ? sched_clock+0x9/0x10
+|[<a00ace90>] ? i915_gem_execbuffer+0x480/0x480 [i915]
+|[<810f1c18>] ? rb_commit+0x68/0xa0
+|[<810f1c6c>] ? ring_buffer_unlock_commit+0x1c/0xa0
+|[<81197467>] do_vfs_ioctl+0x97/0x540
+|[<81021318>] ? ftrace_raw_event_sys_enter+0xd8/0x130
+|[<811979a1>] sys_ioctl+0x91/0xb0
+|[<814db931>] tracesys+0xe1/0xe6
+
+Chris Wilson does not like to move i915_trace_irq_get() out of the macro
+
+|No. This enables the IRQ, as well as making a number of
+|very expensively serialised read, unconditionally.
+
+so it is gone now on RT.
+
+
+Reported-by: Joakim Hernberg <jbh@alchemy.lu>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ drivers/gpu/drm/i915/i915_gem_execbuffer.c |    2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/drivers/gpu/drm/i915/i915_gem_execbuffer.c
++++ b/drivers/gpu/drm/i915/i915_gem_execbuffer.c
+@@ -1302,7 +1302,9 @@ i915_gem_ringbuffer_submission(struct i9
+ 	if (ret)
+ 		return ret;
+ 
++#ifndef CONFIG_PREEMPT_RT_BASE
+ 	trace_i915_gem_ring_dispatch(params->request, params->dispatch_flags);
++#endif
+ 
+ 	i915_gem_execbuffer_move_to_active(vmas, params->request);
+ 

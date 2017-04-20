@@ -1,0 +1,7 @@
+[abi]
+ignore-changes: *
+
+[description]
+part-long-rt: This kernel includes the PREEMPT_RT realtime patch set.
+part-short-rt: PREEMPT_RT
+parts: rt

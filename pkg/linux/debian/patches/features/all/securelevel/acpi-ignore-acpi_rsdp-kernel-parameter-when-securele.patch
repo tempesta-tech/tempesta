@@ -1,0 +1,36 @@
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Mon, 25 Jun 2012 19:57:30 -0400
+Subject: [07/18] acpi: Ignore acpi_rsdp kernel parameter when securelevel is
+ set
+Origin: https://github.com/mjg59/linux/commit/9524fadac774fbe85e2ac6abe7b957b1750c7e36
+
+This option allows userspace to pass the RSDP address to the kernel, which
+makes it possible for a user to execute arbitrary code in the kernel.
+Disable this when securelevel is set.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ drivers/acpi/osl.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/osl.c b/drivers/acpi/osl.c
+index 814d5f83b75e..242ca81bb606 100644
+--- a/drivers/acpi/osl.c
++++ b/drivers/acpi/osl.c
+@@ -40,6 +40,7 @@
+ #include <linux/list.h>
+ #include <linux/jiffies.h>
+ #include <linux/semaphore.h>
++#include <linux/security.h>
+ 
+ #include <asm/io.h>
+ #include <asm/uaccess.h>
+@@ -254,7 +255,7 @@ early_param("acpi_rsdp", setup_acpi_rsdp);
+ acpi_physical_address __init acpi_os_get_root_pointer(void)
+ {
+ #ifdef CONFIG_KEXEC
+-	if (acpi_rsdp)
++	if (acpi_rsdp && (get_securelevel() <= 0))
+ 		return acpi_rsdp;
+ #endif
+ 

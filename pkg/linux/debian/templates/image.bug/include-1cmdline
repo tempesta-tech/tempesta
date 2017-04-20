@@ -1,0 +1,9 @@
+add_1cmdline() {
+  echo '** Command line:' >&3
+  cat /proc/cmdline >&3
+  echo >&3
+}
+
+ask_1cmdline() {
+  true
+}

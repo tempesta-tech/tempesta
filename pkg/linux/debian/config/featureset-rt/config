@@ -1,0 +1,9 @@
+# CONFIG_PREEMPT_VOLUNTARY is not set
+CONFIG_PREEMPT_RT_FULL=y
+CONFIG_SCHED_TRACER=y
+CONFIG_MISSED_TIMER_OFFSETS_HIST=y
+CONFIG_WAKEUP_LATENCY_HIST=y
+CONFIG_RCU_EXPERT=y
+#. Certificate paths are resolved relative to debian/build/source_rt
+CONFIG_SYSTEM_TRUSTED_KEYS="../../certs/benh@debian.org.cert.pem"
+CONFIG_HWLAT_DETECTOR=m

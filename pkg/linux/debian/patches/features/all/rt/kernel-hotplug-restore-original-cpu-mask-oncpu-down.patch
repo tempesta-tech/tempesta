@@ -1,0 +1,59 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Fri, 14 Jun 2013 17:16:35 +0200
+Subject: kernel/hotplug: restore original cpu mask oncpu/down
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+If a task which is allowed to run only on CPU X puts CPU Y down then it
+will be allowed on all CPUs but the on CPU Y after it comes back from
+kernel. This patch ensures that we don't lose the initial setting unless
+the CPU the task is running is going down.
+
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ kernel/cpu.c |   13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -1088,6 +1088,7 @@ static int __ref _cpu_down(unsigned int
+ 	bool hasdied = false;
+ 	int mycpu;
+ 	cpumask_var_t cpumask;
++	cpumask_var_t cpumask_org;
+ 
+ 	if (num_online_cpus() == 1)
+ 		return -EBUSY;
+@@ -1098,6 +1099,12 @@ static int __ref _cpu_down(unsigned int
+ 	/* Move the downtaker off the unplug cpu */
+ 	if (!alloc_cpumask_var(&cpumask, GFP_KERNEL))
+ 		return -ENOMEM;
++	if (!alloc_cpumask_var(&cpumask_org, GFP_KERNEL))  {
++		free_cpumask_var(cpumask);
++		return -ENOMEM;
++	}
++
++	cpumask_copy(cpumask_org, tsk_cpus_allowed(current));
+ 	cpumask_andnot(cpumask, cpu_online_mask, cpumask_of(cpu));
+ 	set_cpus_allowed_ptr(current, cpumask);
+ 	free_cpumask_var(cpumask);
+@@ -1106,7 +1113,8 @@ static int __ref _cpu_down(unsigned int
+ 	if (mycpu == cpu) {
+ 		printk(KERN_ERR "Yuck! Still on unplug CPU\n!");
+ 		migrate_enable();
+-		return -EBUSY;
++		ret = -EBUSY;
++		goto restore_cpus;
+ 	}
+ 
+ 	cpu_hotplug_begin();
+@@ -1160,6 +1168,9 @@ static int __ref _cpu_down(unsigned int
+ 	/* This post dead nonsense must die */
+ 	if (!ret && hasdied)
+ 		cpu_notify_nofail(CPU_POST_DEAD, cpu);
++restore_cpus:
++	set_cpus_allowed_ptr(current, cpumask_org);
++	free_cpumask_var(cpumask_org);
+ 	return ret;
+ }
+ 

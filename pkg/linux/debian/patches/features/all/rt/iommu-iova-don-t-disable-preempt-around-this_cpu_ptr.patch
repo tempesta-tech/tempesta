@@ -1,0 +1,82 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 15 Sep 2016 16:58:19 +0200
+Subject: [PATCH] iommu/iova: don't disable preempt around this_cpu_ptr()
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Commit 583248e6620a ("iommu/iova: Disable preemption around use of
+this_cpu_ptr()") disables preemption while accessing a per-CPU variable.
+This does keep lockdep quiet. However I don't see the point why it is
+bad if we get migrated after its access to another CPU.
+__iova_rcache_insert() and __iova_rcache_get() immediately locks the
+variable after obtaining it - before accessing its members.
+_If_ we get migrated away after retrieving the address of cpu_rcache
+before taking the lock then the *other* task on the same CPU will
+retrieve the same address of cpu_rcache and will spin on the lock.
+
+alloc_iova_fast() disables preemption while invoking
+free_cpu_cached_iovas() on each CPU. The function itself uses
+per_cpu_ptr() which does not trigger a warning (like this_cpu_ptr()
+does) because it assumes the caller knows what he does because he might
+access the data structure from a different CPU (which means he needs
+protection against concurrent access).
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ drivers/iommu/iova.c |    9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+--- a/drivers/iommu/iova.c
++++ b/drivers/iommu/iova.c
+@@ -22,6 +22,7 @@
+ #include <linux/slab.h>
+ #include <linux/smp.h>
+ #include <linux/bitops.h>
++#include <linux/cpu.h>
+ 
+ static bool iova_rcache_insert(struct iova_domain *iovad,
+ 			       unsigned long pfn,
+@@ -420,10 +421,8 @@ alloc_iova_fast(struct iova_domain *iova
+ 
+ 		/* Try replenishing IOVAs by flushing rcache. */
+ 		flushed_rcache = true;
+-		preempt_disable();
+ 		for_each_online_cpu(cpu)
+ 			free_cpu_cached_iovas(cpu, iovad);
+-		preempt_enable();
+ 		goto retry;
+ 	}
+ 
+@@ -751,7 +750,7 @@ static bool __iova_rcache_insert(struct
+ 	bool can_insert = false;
+ 	unsigned long flags;
+ 
+-	cpu_rcache = get_cpu_ptr(rcache->cpu_rcaches);
++	cpu_rcache = raw_cpu_ptr(rcache->cpu_rcaches);
+ 	spin_lock_irqsave(&cpu_rcache->lock, flags);
+ 
+ 	if (!iova_magazine_full(cpu_rcache->loaded)) {
+@@ -781,7 +780,6 @@ static bool __iova_rcache_insert(struct
+ 		iova_magazine_push(cpu_rcache->loaded, iova_pfn);
+ 
+ 	spin_unlock_irqrestore(&cpu_rcache->lock, flags);
+-	put_cpu_ptr(rcache->cpu_rcaches);
+ 
+ 	if (mag_to_free) {
+ 		iova_magazine_free_pfns(mag_to_free, iovad);
+@@ -815,7 +813,7 @@ static unsigned long __iova_rcache_get(s
+ 	bool has_pfn = false;
+ 	unsigned long flags;
+ 
+-	cpu_rcache = get_cpu_ptr(rcache->cpu_rcaches);
++	cpu_rcache = raw_cpu_ptr(rcache->cpu_rcaches);
+ 	spin_lock_irqsave(&cpu_rcache->lock, flags);
+ 
+ 	if (!iova_magazine_empty(cpu_rcache->loaded)) {
+@@ -837,7 +835,6 @@ static unsigned long __iova_rcache_get(s
+ 		iova_pfn = iova_magazine_pop(cpu_rcache->loaded, limit_pfn);
+ 
+ 	spin_unlock_irqrestore(&cpu_rcache->lock, flags);
+-	put_cpu_ptr(rcache->cpu_rcaches);
+ 
+ 	return iova_pfn;
+ }

@@ -1,0 +1,17 @@
+[base]
+kernel-arch: arm64
+featuresets:
+ none
+
+[build]
+debug-info: true
+image-file: arch/arm64/boot/Image
+vdso: true
+
+[image]
+install-stem: vmlinuz
+
+[arm64_description]
+hardware: 64-bit ARMv8 machines
+
+[arm64_image]

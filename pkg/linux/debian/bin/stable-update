@@ -1,0 +1,126 @@
+#!/usr/bin/python3
+
+import sys
+sys.path.append(sys.path[0] + "/../lib/python")
+
+import os, re, subprocess
+
+from debian_linux.debian import Changelog, VersionLinux
+
+def base_version(ver):
+    # Assume base version is at least 3.0, thus only 2 components wanted
+    match = re.match(r'^(\d+\.\d+)', ver)
+    assert match
+    return match.group(1)
+
+def add_update(ver, inc):
+    base = base_version(ver)
+    if base == ver:
+        update = 0
+    else:
+        update = int(ver[len(base)+1:])
+    update += inc
+    if update == 0:
+        return base
+    else:
+        return '{}.{}'.format(base, update)
+
+def next_update(ver):
+    return add_update(ver, 1)
+
+def print_stable_log(log, cur_ver, new_ver):
+    major_ver = re.sub(r'^(\d+)\..*', r'\1', cur_ver)
+    while cur_ver != new_ver:
+        next_ver = next_update(cur_ver)
+        print('    https://www.kernel.org/pub/linux/kernel/v{}.x/ChangeLog-{}'
+              .format(major_ver, next_ver),
+              file=log)
+        log.flush() # serialise our output with git's
+        subprocess.check_call(['git', 'log', '--reverse',
+                               '--pretty=    - %s',
+                               'v{}..v{}^'.format(cur_ver, next_ver)],
+                              stdout=log)
+        cur_ver = next_ver
+
+def main(repo, new_ver):
+    os.environ['GIT_DIR'] = repo + '/.git'
+
+    changelog = Changelog(version=VersionLinux)
+    cur_pkg_ver = changelog[0].version
+    cur_ver = cur_pkg_ver.linux_upstream_full
+
+    if base_version(new_ver) != base_version(cur_ver):
+        print('{} is not on the same stable series as {}'
+              .format(new_ver, cur_ver),
+              file=sys.stderr)
+        sys.exit(2)
+
+    new_pkg_ver = new_ver + '-1'
+    if cur_pkg_ver.linux_revision_experimental:
+        new_pkg_ver += '~exp1'
+
+    # Three possible cases:
+    # 1. The current version has been released so we need to add a new
+    #    version to the changelog.
+    # 2. The current version has not been released so we're changing its
+    #    version string.
+    #    (a) There are no stable updates included in the current version,
+    #        so we need to insert an introductory line, the URL(s) and
+    #        git log(s) and a blank line at the top.
+    #    (b) One or more stable updates are already included in the current
+    #        version, so we need to insert the URL(s) and git log(s) after
+    #        them.
+
+    changelog_intro = 'New upstream stable update:'
+
+    # Case 1
+    if changelog[0].distribution != 'UNRELEASED':
+        subprocess.check_call(['dch', '-v', new_pkg_ver, '-D', 'UNRELEASED',
+                               changelog_intro])
+
+    with open('debian/changelog', 'r') as old_log:
+        with open('debian/changelog.new', 'w') as new_log:
+            line_no = 0
+            inserted = False
+            intro_line = '  * {}\n'.format(changelog_intro)
+
+            for line in old_log:
+                line_no += 1
+
+                # Case 2
+                if changelog[0].distribution == 'UNRELEASED' and line_no == 1:
+                    print('{} ({}) UNRELEASED; urgency={}'
+                          .format(changelog[0].source, new_pkg_ver,
+                                  changelog[0].urgency),
+                          file=new_log)
+                    continue
+
+                if not inserted:
+                    # Case 2(a)
+                    if line_no == 3 and line != intro_line:
+                        new_log.write(intro_line)
+                        print_stable_log(new_log, cur_ver, new_ver)
+                        new_log.write('\n')
+                        inserted = True
+                    # Case 1 or 2(b)
+                    elif line_no > 3 and line == '\n':
+                        print_stable_log(new_log, cur_ver, new_ver)
+                        inserted = True
+
+                # Check that we inserted before hitting the end of the
+                # first version entry
+                assert not (line.startswith(' -- ') and not inserted)
+
+                new_log.write(line)
+
+    os.rename('debian/changelog.new', 'debian/changelog')
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        print('''\
+Usage: {} REPO VERSION"
+REPO is the git repository to generate a changelog from
+VERSION is the stable version (without leading v)'''.format(sys.argv[0]),
+              file=sys.stderr)
+        sys.exit(2)
+    main(*sys.argv[1:])

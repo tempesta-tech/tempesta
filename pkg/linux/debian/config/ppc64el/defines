@@ -1,0 +1,19 @@
+[base]
+flavours:
+ powerpc64le
+kernel-arch: powerpc
+
+[build]
+image-file: vmlinux
+vdso: true
+
+[image]
+configs:
+suggests: mkvmlinuz
+install-stem: vmlinux
+
+[powerpc64le_description]
+hardware: Little-endian 64-bit PowerPC
+
+[powerpc64le_image]
+configs: kernelarch-powerpc/config-arch-64 kernelarch-powerpc/config-arch-64-le

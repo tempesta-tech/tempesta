@@ -1,0 +1,33 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: Make mkcompile_h accept an alternate timestamp string
+Date: Tue, 12 May 2015 19:29:22 +0100
+Forwarded: not-needed
+
+We want to include the Debian version in the utsname::version string
+instead of a full timestamp string.  However, we still need to provide
+a standard timestamp string for gen_initramfs_list.sh to make the
+kernel image reproducible.
+
+Make mkcompile_h use $KBUILD_BUILD_VERSION_TIMESTAMP in preference to
+$KBUILD_BUILD_TIMESTAMP.
+
+--- a/scripts/mkcompile_h
++++ b/scripts/mkcompile_h
+@@ -37,10 +37,14 @@ else
+ 	VERSION=$KBUILD_BUILD_VERSION
+ fi
+ 
+-if [ -z "$KBUILD_BUILD_TIMESTAMP" ]; then
+-	TIMESTAMP=`date`
++if [ -z "$KBUILD_BUILD_VERSION_TIMESTAMP" ]; then
++	if [ -z "$KBUILD_BUILD_TIMESTAMP" ]; then
++		TIMESTAMP=`date`
++	else
++		TIMESTAMP=$KBUILD_BUILD_TIMESTAMP
++	fi
+ else
+-	TIMESTAMP=$KBUILD_BUILD_TIMESTAMP
++	TIMESTAMP=$KBUILD_BUILD_VERSION_TIMESTAMP
+ fi
+ if test -z "$KBUILD_BUILD_USER"; then
+ 	LINUX_COMPILE_BY=$(whoami | sed 's/\\/\\\\/')

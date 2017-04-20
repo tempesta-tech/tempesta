@@ -1,0 +1,10 @@
+##
+## file: security/apparmor/Kconfig
+##
+# CONFIG_SECURITY_APPARMOR is not set
+
+##
+## file: security/tomoyo/Kconfig
+##
+# CONFIG_SECURITY_TOMOYO is not set
+

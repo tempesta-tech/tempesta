@@ -1,0 +1,45 @@
+From 309789b8125b7eee6fd1c3a4716fcb6ea1ad32ba Mon Sep 17 00:00:00 2001
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Fri, 21 Oct 2016 10:29:11 +0200
+Subject: [PATCH] x86/apic: get rid of "warning: 'acpi_ioapic_lock' defined but
+ not used"
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+kbuild test robot reported this against the -RT tree:
+
+|   In file included from include/linux/mutex.h:30:0,
+|                    from include/linux/notifier.h:13,
+|                    from include/linux/memory_hotplug.h:6,
+|                    from include/linux/mmzone.h:777,
+|                    from include/linux/gfp.h:5,
+|                    from include/linux/slab.h:14,
+|                    from include/linux/resource_ext.h:19,
+|                    from include/linux/acpi.h:26,
+|                    from arch/x86/kernel/acpi/boot.c:27:
+|>> arch/x86/kernel/acpi/boot.c:90:21: warning: 'acpi_ioapic_lock' defined but not used [-Wunused-variable]
+|    static DEFINE_MUTEX(acpi_ioapic_lock);
+|                        ^
+|   include/linux/mutex_rt.h:27:15: note: in definition of macro 'DEFINE_MUTEX'
+|     struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
+                  ^~~~~~~~~
+which is also true (as in non-used) for !RT but the compiler does not
+emit a warning.
+
+Reported-by: kbuild test robot <fengguang.wu@intel.com>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ arch/x86/kernel/acpi/boot.c |    2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -87,7 +87,9 @@ static u64 acpi_lapic_addr __initdata =
+  *		->ioapic_mutex
+  *			->ioapic_lock
+  */
++#ifdef CONFIG_X86_IO_APIC
+ static DEFINE_MUTEX(acpi_ioapic_lock);
++#endif
+ 
+ /* --------------------------------------------------------------------------
+                               Boot-time Configuration

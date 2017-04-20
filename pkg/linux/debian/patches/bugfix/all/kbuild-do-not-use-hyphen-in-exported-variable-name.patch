@@ -1,0 +1,48 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 26 Aug 2016 01:31:28 +0100
+Subject: kbuild: Do not use hyphen in exported variable name
+Bug-Debian: https://bugs.debian.org/833561
+
+This definition in Makefile.dtbinst:
+
+    export dtbinst-root ?= $(obj)
+
+should define and export dtbinst-root when handling the root dts
+directory, and do nothing in the subdirectories.  However, the
+variable does not reliably get exported to the environment, perhaps
+because its name contains a hyphen.
+
+Rename the variable to dtbinst_root.
+
+References: https://bugs.debian.org/833561
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/scripts/Makefile.dtbinst
++++ b/scripts/Makefile.dtbinst
+@@ -14,7 +14,7 @@ src := $(obj)
+ PHONY := __dtbs_install
+ __dtbs_install:
+ 
+-export dtbinst-root ?= $(obj)
++export dtbinst_root ?= $(obj)
+ 
+ include include/config/auto.conf
+ include scripts/Kbuild.include
+@@ -22,7 +22,7 @@ include $(src)/Makefile
+ 
+ PHONY += __dtbs_install_prep
+ __dtbs_install_prep:
+-ifeq ("$(dtbinst-root)", "$(obj)")
++ifeq ("$(dtbinst_root)", "$(obj)")
+ 	$(Q)mkdir -p $(INSTALL_DTBS_PATH)
+ endif
+ 
+@@ -33,7 +33,7 @@ dtbinst-dirs	:= $(dts-dirs)
+ quiet_cmd_dtb_install =	INSTALL $<
+       cmd_dtb_install =	mkdir -p $(2); cp $< $(2)
+ 
+-install-dir = $(patsubst $(dtbinst-root)%,$(INSTALL_DTBS_PATH)%,$(obj))
++install-dir = $(patsubst $(dtbinst_root)%,$(INSTALL_DTBS_PATH)%,$(obj))
+ 
+ $(dtbinst-files) $(dtbinst-dirs): | __dtbs_install_prep
+ 

@@ -1,0 +1,154 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 29 Jan 2015 17:19:44 +0100
+Subject: mm/workingset: Do not protect workingset_shadow_nodes with irq off
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+workingset_shadow_nodes is protected by local_irq_disable(). Some users
+use spin_lock_irq().
+Replace the irq/on with a local_lock(). Rename workingset_shadow_nodes
+so I catch users of it which will be introduced later.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/swap.h |    4 +++-
+ mm/filemap.c         |   13 +++++++++----
+ mm/truncate.c        |    7 +++++--
+ mm/workingset.c      |   23 ++++++++++++-----------
+ 4 files changed, 29 insertions(+), 18 deletions(-)
+
+--- a/include/linux/swap.h
++++ b/include/linux/swap.h
+@@ -11,6 +11,7 @@
+ #include <linux/fs.h>
+ #include <linux/atomic.h>
+ #include <linux/page-flags.h>
++#include <linux/locallock.h>
+ #include <asm/page.h>
+ 
+ struct notifier_block;
+@@ -243,7 +244,8 @@ struct swap_info_struct {
+ void *workingset_eviction(struct address_space *mapping, struct page *page);
+ bool workingset_refault(void *shadow);
+ void workingset_activation(struct page *page);
+-extern struct list_lru workingset_shadow_nodes;
++extern struct list_lru __workingset_shadow_nodes;
++DECLARE_LOCAL_IRQ_LOCK(workingset_shadow_lock);
+ 
+ static inline unsigned int workingset_node_pages(struct radix_tree_node *node)
+ {
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -159,9 +159,12 @@ static int page_cache_tree_insert(struct
+ 		 * node->private_list is protected by
+ 		 * mapping->tree_lock.
+ 		 */
+-		if (!list_empty(&node->private_list))
+-			list_lru_del(&workingset_shadow_nodes,
++		if (!list_empty(&node->private_list)) {
++			local_lock(workingset_shadow_lock);
++			list_lru_del(&__workingset_shadow_nodes,
+ 				     &node->private_list);
++			local_unlock(workingset_shadow_lock);
++		}
+ 	}
+ 	return 0;
+ }
+@@ -217,8 +220,10 @@ static void page_cache_tree_delete(struc
+ 		if (!dax_mapping(mapping) && !workingset_node_pages(node) &&
+ 				list_empty(&node->private_list)) {
+ 			node->private_data = mapping;
+-			list_lru_add(&workingset_shadow_nodes,
+-					&node->private_list);
++			local_lock(workingset_shadow_lock);
++			list_lru_add(&__workingset_shadow_nodes,
++				     &node->private_list);
++			local_unlock(workingset_shadow_lock);
+ 		}
+ 	}
+ 
+--- a/mm/truncate.c
++++ b/mm/truncate.c
+@@ -62,9 +62,12 @@ static void clear_exceptional_entry(stru
+ 	 * protected by mapping->tree_lock.
+ 	 */
+ 	if (!workingset_node_shadows(node) &&
+-	    !list_empty(&node->private_list))
+-		list_lru_del(&workingset_shadow_nodes,
++	    !list_empty(&node->private_list)) {
++		local_lock(workingset_shadow_lock);
++		list_lru_del(&__workingset_shadow_nodes,
+ 				&node->private_list);
++		local_unlock(workingset_shadow_lock);
++	}
+ 	__radix_tree_delete_node(&mapping->page_tree, node);
+ unlock:
+ 	spin_unlock_irq(&mapping->tree_lock);
+--- a/mm/workingset.c
++++ b/mm/workingset.c
+@@ -334,7 +334,8 @@ void workingset_activation(struct page *
+  * point where they would still be useful.
+  */
+ 
+-struct list_lru workingset_shadow_nodes;
++struct list_lru __workingset_shadow_nodes;
++DEFINE_LOCAL_IRQ_LOCK(workingset_shadow_lock);
+ 
+ static unsigned long count_shadow_nodes(struct shrinker *shrinker,
+ 					struct shrink_control *sc)
+@@ -344,9 +345,9 @@ static unsigned long count_shadow_nodes(
+ 	unsigned long pages;
+ 
+ 	/* list_lru lock nests inside IRQ-safe mapping->tree_lock */
+-	local_irq_disable();
+-	shadow_nodes = list_lru_shrink_count(&workingset_shadow_nodes, sc);
+-	local_irq_enable();
++	local_lock_irq(workingset_shadow_lock);
++	shadow_nodes = list_lru_shrink_count(&__workingset_shadow_nodes, sc);
++	local_unlock_irq(workingset_shadow_lock);
+ 
+ 	if (sc->memcg) {
+ 		pages = mem_cgroup_node_nr_lru_pages(sc->memcg, sc->nid,
+@@ -438,9 +439,9 @@ static enum lru_status shadow_lru_isolat
+ 	spin_unlock(&mapping->tree_lock);
+ 	ret = LRU_REMOVED_RETRY;
+ out:
+-	local_irq_enable();
++	local_unlock_irq(workingset_shadow_lock);
+ 	cond_resched();
+-	local_irq_disable();
++	local_lock_irq(workingset_shadow_lock);
+ 	spin_lock(lru_lock);
+ 	return ret;
+ }
+@@ -451,10 +452,10 @@ static unsigned long scan_shadow_nodes(s
+ 	unsigned long ret;
+ 
+ 	/* list_lru lock nests inside IRQ-safe mapping->tree_lock */
+-	local_irq_disable();
+-	ret =  list_lru_shrink_walk(&workingset_shadow_nodes, sc,
++	local_lock_irq(workingset_shadow_lock);
++	ret =  list_lru_shrink_walk(&__workingset_shadow_nodes, sc,
+ 				    shadow_lru_isolate, NULL);
+-	local_irq_enable();
++	local_unlock_irq(workingset_shadow_lock);
+ 	return ret;
+ }
+ 
+@@ -492,7 +493,7 @@ static int __init workingset_init(void)
+ 	pr_info("workingset: timestamp_bits=%d max_order=%d bucket_order=%u\n",
+ 	       timestamp_bits, max_order, bucket_order);
+ 
+-	ret = list_lru_init_key(&workingset_shadow_nodes, &shadow_nodes_key);
++	ret = list_lru_init_key(&__workingset_shadow_nodes, &shadow_nodes_key);
+ 	if (ret)
+ 		goto err;
+ 	ret = register_shrinker(&workingset_shadow_shrinker);
+@@ -500,7 +501,7 @@ static int __init workingset_init(void)
+ 		goto err_list_lru;
+ 	return 0;
+ err_list_lru:
+-	list_lru_destroy(&workingset_shadow_nodes);
++	list_lru_destroy(&__workingset_shadow_nodes);
+ err:
+ 	return ret;
+ }

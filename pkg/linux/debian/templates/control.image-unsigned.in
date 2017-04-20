@@ -1,0 +1,10 @@
+Package: linux-image-@abiname@@localversion@-unsigned
+Build-Profiles: <!stage1>
+Depends: kmod, linux-base (>= 4.3~), ${misc:Depends}
+Recommends: firmware-linux-free, ${kernel:Recommends}
+Suggests: linux-doc-@version@, debian-kernel-handbook
+Conflicts: linux-image-@abiname@@localversion@
+Replaces: linux-image-@abiname@@localversion@
+Provides: linux-image-@abiname@@localversion@
+Description: Linux @upstreamversion@ for @class@
+ The Linux kernel @upstreamversion@ and modules for use on @longclass@.

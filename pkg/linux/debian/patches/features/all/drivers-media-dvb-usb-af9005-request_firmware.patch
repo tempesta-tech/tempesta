@@ -1,0 +1,145 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 24 Aug 2009 23:19:58 +0100
+Subject: af9005: Use request_firmware() to load register init script
+Forwarded: no
+
+Read the register init script from the Windows driver.  This is sick
+but should avoid the potential copyright infringement in distributing
+a version of the script which is directly derived from the driver.
+---
+ drivers/media/dvb/dvb-usb/Kconfig     |    2 +-
+ drivers/media/dvb/dvb-usb/af9005-fe.c |   66 ++++++++++++++++++++++++++------
+ 2 files changed, 54 insertions(+), 14 deletions(-)
+
+--- a/drivers/media/usb/dvb-usb/Kconfig
++++ b/drivers/media/usb/dvb-usb/Kconfig
+@@ -227,10 +227,10 @@ config DVB_USB_OPERA1
+ 
+ config DVB_USB_AF9005
+ 	tristate "Afatech AF9005 DVB-T USB1.1 support"
+-	depends on BROKEN
+ 	depends on DVB_USB
+ 	select MEDIA_TUNER_MT2060 if MEDIA_SUBDRV_AUTOSELECT
+ 	select MEDIA_TUNER_QT1010 if MEDIA_SUBDRV_AUTOSELECT
++	select FW_LOADER
+ 	help
+ 	  Say Y here to support the Afatech AF9005 based DVB-T USB1.1 receiver
+ 	  and the TerraTec Cinergy T USB XE (Rev.1)
+--- a/drivers/media/usb/dvb-usb/af9005-fe.c
++++ b/drivers/media/usb/dvb-usb/af9005-fe.c
+@@ -22,10 +22,26 @@
+  * see Documentation/dvb/README.dvb-usb for more information
+  */
+ #include "af9005.h"
+-#include "af9005-script.h"
+ #include "mt2060.h"
+ #include "qt1010.h"
+ #include <asm/div64.h>
++#include <linux/firmware.h>
++
++/* Register initialisation script to be extracted from the Windows driver */
++
++typedef struct {
++	__le16 reg;
++	u8 pos;
++	u8 len;
++	u8 val;
++	u8 pad;
++} __packed RegDesc;
++
++#define WIN_DRV_NAME		"AF05BDA.sys"
++#define WIN_DRV_VERSION		"6.3.2.1"
++#define WIN_DRV_SIZE		133504
++#define WIN_DRV_SCRIPT_OFFSET	88316
++#define WIN_DRV_SCRIPT_SIZE	1110
+ 
+ struct af9005_fe_state {
+ 	struct dvb_usb_device *d;
+@@ -816,6 +832,8 @@ static int af9005_fe_init(struct dvb_fro
+ {
+ 	struct af9005_fe_state *state = fe->demodulator_priv;
+ 	struct dvb_usb_adapter *adap = fe->dvb->priv;
++	const struct firmware *fw;
++	const RegDesc *script;
+ 	int ret, i, scriptlen;
+ 	u8 temp, temp0 = 0, temp1 = 0, temp2 = 0;
+ 	u8 buf[2];
+@@ -968,37 +986,55 @@ static int af9005_fe_init(struct dvb_fro
+ 	if ((ret = af9005_write_ofdm_register(state->d, 0xaefb, 0x01)))
+ 		return ret;
+ 
+-	/* load init script */
+-	deb_info("load init script\n");
+-	scriptlen = sizeof(script) / sizeof(RegDesc);
++	/* load and validate init script */
++	deb_info("load init script from Windows driver\n");
++	ret = request_firmware(&fw, WIN_DRV_NAME, &state->d->udev->dev);
++	if (ret)
++		return ret;
++	BUILD_BUG_ON(sizeof(RegDesc) != 6);
++	if (fw->size != WIN_DRV_SIZE ||
++	    memcmp(fw->data + WIN_DRV_SCRIPT_OFFSET,
++		   "\x80\xa1\x00\x08\x0a\x00", 6) ||
++	    memcmp(fw->data + WIN_DRV_SCRIPT_OFFSET + WIN_DRV_SCRIPT_SIZE - 6,
++		   "\x49\xa3\x00\x06\x02\x00", 6)) {
++		err("%s is invalid - should be version %s, size %u bytes\n",
++		    WIN_DRV_NAME, WIN_DRV_VERSION, WIN_DRV_SIZE);
++		ret = -EINVAL;
++		goto fail_release;
++	}
++
++	script = (const RegDesc *)(fw->data + WIN_DRV_SCRIPT_OFFSET);
++	scriptlen = WIN_DRV_SCRIPT_SIZE / sizeof(RegDesc);
+ 	for (i = 0; i < scriptlen; i++) {
++		u16 reg = le16_to_cpu(script[i].reg);
+ 		if ((ret =
+-		     af9005_write_register_bits(state->d, script[i].reg,
++		     af9005_write_register_bits(state->d, reg,
+ 						script[i].pos,
+ 						script[i].len, script[i].val)))
+-			return ret;
++			goto fail_release;
+ 		/* save 3 bytes of original fcw */
+-		if (script[i].reg == 0xae18)
++		if (reg == 0xae18)
+ 			temp2 = script[i].val;
+-		if (script[i].reg == 0xae19)
++		if (reg == 0xae19)
+ 			temp1 = script[i].val;
+-		if (script[i].reg == 0xae1a)
++		if (reg == 0xae1a)
+ 			temp0 = script[i].val;
+ 
+ 		/* save original unplug threshold */
+-		if (script[i].reg == xd_p_reg_unplug_th)
++		if (reg == xd_p_reg_unplug_th)
+ 			state->original_if_unplug_th = script[i].val;
+-		if (script[i].reg == xd_p_reg_unplug_rf_gain_th)
++		if (reg == xd_p_reg_unplug_rf_gain_th)
+ 			state->original_rf_unplug_th = script[i].val;
+-		if (script[i].reg == xd_p_reg_unplug_dtop_if_gain_th)
++		if (reg == xd_p_reg_unplug_dtop_if_gain_th)
+ 			state->original_dtop_if_unplug_th = script[i].val;
+-		if (script[i].reg == xd_p_reg_unplug_dtop_rf_gain_th)
++		if (reg == xd_p_reg_unplug_dtop_rf_gain_th)
+ 			state->original_dtop_rf_unplug_th = script[i].val;
+ 
+ 	}
+ 	state->original_fcw =
+ 	    ((u32) temp2 << 16) + ((u32) temp1 << 8) + (u32) temp0;
+ 
++	release_firmware(fw);
+ 
+ 	/* save original TOPs */
+ 	deb_info("save original TOPs\n");
+@@ -1078,6 +1114,10 @@ static int af9005_fe_init(struct dvb_fro
+ 
+ 	deb_info("profit!\n");
+ 	return 0;
++
++fail_release:
++	release_firmware(fw);
++	return ret;
+ }
+ 
+ static int af9005_fe_sleep(struct dvb_frontend *fe)

@@ -1,0 +1,595 @@
+###########################################################
+# DELTA against a known Linus release
+###########################################################
+
+############################################################
+# UPSTREAM changes queued
+############################################################
+
+############################################################
+# UPSTREAM FIXES, patches pending
+############################################################
+features/all/rt/timer-make-the-base-lock-raw.patch
+
+############################################################
+# Stuff broken upstream, patches submitted
+############################################################
+features/all/rt/sc16is7xx_Drop_bogus_use_of_IRQF_ONESHOT.patch
+
+# Those two should vanish soon (not use PIT during bootup)
+features/all/rt/at91_dont_enable_disable_clock.patch
+
+############################################################
+# Stuff which needs addressing upstream, but requires more
+# information
+############################################################
+features/all/rt/rfc-arm-smp-__cpu_disable-fix-sleeping-function-called-from-invalid-context.patch
+
+############################################################
+# Stuff broken upstream, need to be sent
+############################################################
+features/all/rt/rtmutex--Handle-non-enqueued-waiters-gracefully.patch
+features/all/rt/fs-dcache-include-wait.h.patch
+features/all/rt/rbtree-include-rcu.h-because-we-use-it.patch
+features/all/rt/fs-dcache-init-in_lookup_hashtable.patch
+features/all/rt/iommu-iova-don-t-disable-preempt-around-this_cpu_ptr.patch
+features/all/rt/iommu-vt-d-don-t-disable-preemption-while-accessing-.patch
+features/all/rt/lockdep-Quiet-gcc-about-dangerous-__builtin_return_a.patch
+features/all/rt/x86-apic-get-rid-of-warning-acpi_ioapic_lock-defined.patch
+features/all/rt/rxrpc-remove-unused-static-variables.patch
+features/all/rt/rcu-update-make-RCU_EXPEDITE_BOOT-default.patch
+
+# Wants a different fix for upstream
+features/all/rt/NFSv4-replace-seqcount_t-with-a-seqlock_t.patch
+
+############################################################
+# Submitted on LKML
+############################################################
+
+# SPARC part of erly printk consolidation
+features/all/rt/sparc64-use-generic-rwsem-spinlocks-rt.patch
+
+# SRCU
+features/all/rt/kernel-SRCU-provide-a-static-initializer.patch
+
+############################################################
+# Submitted to mips ML
+############################################################
+
+############################################################
+# Submitted to ARM ML
+############################################################
+
+############################################################
+# Submitted to PPC ML
+############################################################
+
+############################################################
+# Submitted on LKML
+############################################################
+
+############################################################
+# Submitted to net-dev
+############################################################
+
+############################################################
+# Pending in tip
+############################################################
+
+############################################################
+# Stuff which should go upstream ASAP
+############################################################
+
+# SCHED BLOCK/WQ
+features/all/rt/block-shorten-interrupt-disabled-regions.patch
+
+# Timekeeping split jiffies lock. Needs a good argument :)
+features/all/rt/timekeeping-split-jiffies-lock.patch
+
+# Tracing
+features/all/rt/tracing-account-for-preempt-off-in-preempt_schedule.patch
+
+# PTRACE/SIGNAL crap
+features/all/rt/signal-revert-ptrace-preempt-magic.patch
+
+# ARM lock annotation
+features/all/rt/arm-convert-boot-lock-to-raw.patch
+features/all/rt/arm-kprobe-replace-patch_lock-to-raw-lock.patch
+
+# PREEMPT_ENABLE_NO_RESCHED
+
+# SIGNALS / POSIXTIMERS
+features/all/rt/posix-timers-no-broadcast.patch
+features/all/rt/signals-allow-rt-tasks-to-cache-one-sigqueue-struct.patch
+
+# SCHED
+
+# GENERIC CMPXCHG
+
+# SHORTEN PREEMPT DISABLED
+features/all/rt/drivers-random-reduce-preempt-disabled-region.patch
+
+# CLOCKSOURCE
+features/all/rt/arm-at91-pit-remove-irq-handler-when-clock-is-unused.patch
+features/all/rt/clockevents-drivers-timer-atmel-pit-fix-double-free_.patch
+features/all/rt/clocksource-tclib-allow-higher-clockrates.patch
+
+# DRIVERS NET
+features/all/rt/drivers-net-8139-disable-irq-nosync.patch
+
+# PREEMPT
+
+# PM
+features/all/rt/suspend-prevernt-might-sleep-splats.patch
+
+# NETWORKING
+features/all/rt/net-prevent-abba-deadlock.patch
+features/all/rt/net-sched-dev_deactivate_many-use-msleep-1-instead-o.patch
+
+# X86
+features/all/rt/x86-io-apic-migra-no-unmask.patch
+
+# RCU
+
+# LOCKING INIT FIXES
+
+# PCI
+features/all/rt/pci-access-use-__wake_up_all_locked.patch
+
+# WORKQUEUE
+
+
+#####################################################
+# Stuff which should go mainline, but wants some care
+#####################################################
+
+# SEQLOCK
+
+# ANON RW SEMAPHORES
+
+# TRACING
+features/all/rt/latencyhist-disable-jump-labels.patch
+features/all/rt/latency-hist.patch
+features/all/rt/latency_hist-update-sched_wakeup-probe.patch
+features/all/rt/trace-latency-hist-Consider-new-argument-when-probin.patch
+features/all/rt/trace_Use_rcuidle_version_for_preemptoff_hist_trace_point.patch
+
+# HW LATENCY DETECTOR - this really wants a rewrite
+features/all/rt/hwlatdetect.patch
+features/all/rt/hwlat-detector-Update-hwlat_detector-to-add-outer-lo.patch
+features/all/rt/hwlat-detector-Use-trace_clock_local-if-available.patch
+features/all/rt/hwlat-detector-Use-thread-instead-of-stop-machine.patch
+features/all/rt/hwlat-detector-Don-t-ignore-threshold-module-paramet.patch
+
+##################################################
+# REAL RT STUFF starts here
+##################################################
+
+# PRINTK
+features/all/rt/printk-kill.patch
+features/all/rt/printk-27force_early_printk-27-boot-param-to-help-with-debugging.patch
+
+# Enable RT CONFIG
+features/all/rt/rt-preempt-base-config.patch
+features/all/rt/kconfig-disable-a-few-options-rt.patch
+features/all/rt/kconfig-preempt-rt-full.patch
+
+# WARN/BUG_ON_RT
+features/all/rt/bug-rt-dependend-variants.patch
+features/all/rt/iommu-amd--Use-WARN_ON_NORT.patch
+
+# LOCAL_IRQ_RT/NON_RT
+features/all/rt/local-irq-rt-depending-variants.patch
+
+# PREEMPT NORT
+features/all/rt/preempt-nort-rt-variants.patch
+
+# local locks & migrate disable
+features/all/rt/introduce_migrate_disable_cpu_light.patch
+features/all/rt/rt-local-irq-lock.patch
+features/all/rt/locallock-add-local_lock_on.patch
+
+# ANNOTATE local_irq_disable sites
+features/all/rt/ata-disable-interrupts-if-non-rt.patch
+features/all/rt/ide-use-nort-local-irq-variants.patch
+features/all/rt/infiniband-mellanox-ib-use-nort-irq.patch
+features/all/rt/inpt-gameport-use-local-irq-nort.patch
+features/all/rt/user-use-local-irq-nort.patch
+features/all/rt/usb-use-_nort-in-giveback.patch
+features/all/rt/mm-scatterlist-dont-disable-irqs-on-RT.patch
+features/all/rt/mm-workingset-do-not-protect-workingset_shadow_nodes.patch
+
+# Sigh
+features/all/rt/signal-fix-up-rcu-wreckage.patch
+features/all/rt/oleg-signal-rt-fix.patch
+features/all/rt/x86-signal-delay-calling-signals-on-32bit.patch
+
+# ANNOTATE BUG/WARNON
+features/all/rt/net-wireless-warn-nort.patch
+
+# BIT SPINLOCKS - SIGH
+features/all/rt/fs-replace-bh_uptodate_lock-for-rt.patch
+features/all/rt/fs-jbd-replace-bh_state-lock.patch
+
+# GENIRQ
+features/all/rt/list_bl.h-make-list-head-locking-RT-safe.patch
+features/all/rt/list_bl-fixup-bogus-lockdep-warning.patch
+features/all/rt/genirq-disable-irqpoll-on-rt.patch
+features/all/rt/genirq-force-threading.patch
+
+# DRIVERS NET
+features/all/rt/drivers-net-vortex-fix-locking-issues.patch
+
+# MM PAGE_ALLOC
+features/all/rt/mm-page_alloc-rt-friendly-per-cpu-pages.patch
+features/all/rt/mm-page_alloc-reduce-lock-sections-further.patch
+
+# MM SWAP
+features/all/rt/mm-convert-swap-to-percpu-locked.patch
+features/all/rt/mm-perform-lru_add_drain_all-remotely.patch
+
+# MM vmstat
+features/all/rt/mm-make-vmstat-rt-aware.patch
+
+# MM memory
+features/all/rt/re-preempt_rt_full-arm-coredump-fails-for-cpu-3e-3d-4.patch
+
+# MM bounce
+features/all/rt/mm-bounce-local-irq-save-nort.patch
+
+# MM SLxB
+features/all/rt/mm-disable-sloub-rt.patch
+features/all/rt/mm-enable-slub.patch
+features/all/rt/slub-enable-irqs-for-no-wait.patch
+features/all/rt/slub-disable-SLUB_CPU_PARTIAL.patch
+
+# MM
+features/all/rt/mm-page-alloc-use-local-lock-on-target-cpu.patch
+features/all/rt/mm-memcontrol-Don-t-call-schedule_work_on-in-preempt.patch
+features/all/rt/mm-memcontrol-do_not_disable_irq.patch
+features/all/rt/mm-memcontrol-mem_cgroup_migrate-replace-another-loc.patch
+features/all/rt/mm-backing-dev-don-t-disable-IRQs-in-wb_congested_pu.patch
+features/all/rt/mm_zsmalloc_copy_with_get_cpu_var_and_locking.patch
+
+# RADIX TREE
+features/all/rt/radix-tree-rt-aware.patch
+
+# PANIC
+features/all/rt/panic-disable-random-on-rt.patch
+
+# IPC
+features/all/rt/ipc-msg-Implement-lockless-pipelined-wakeups.patch
+
+# RELAY
+features/all/rt/relay-fix-timer-madness.patch
+
+# TIMERS
+features/all/rt/timers-prepare-for-full-preemption.patch
+features/all/rt/timer-delay-waking-softirqs-from-the-jiffy-tick.patch
+
+# HRTIMERS
+features/all/rt/hrtimers-prepare-full-preemption.patch
+features/all/rt/hrtimer-enfore-64byte-alignment.patch
+features/all/rt/hrtimer-fixup-hrtimer-callback-changes-for-preempt-r.patch
+features/all/rt/sched-deadline-dl_task_timer-has-to-be-irqsafe.patch
+features/all/rt/timer-fd-avoid-live-lock.patch
+features/all/rt/tick-broadcast--Make-hrtimer-irqsafe.patch
+
+# POSIX-CPU-TIMERS
+features/all/rt/posix-timers-thread-posix-cpu-timers-on-rt.patch
+
+# SCHEDULER
+features/all/rt/sched-delay-put-task.patch
+features/all/rt/sched-limit-nr-migrate.patch
+features/all/rt/sched-mmdrop-delayed.patch
+features/all/rt/sched-rt-mutex-wakeup.patch
+features/all/rt/sched-might-sleep-do-not-account-rcu-depth.patch
+features/all/rt/cond-resched-softirq-rt.patch
+features/all/rt/cond-resched-lock-rt-tweak.patch
+features/all/rt/sched-disable-ttwu-queue.patch
+features/all/rt/sched-disable-rt-group-sched-on-rt.patch
+features/all/rt/sched-ttwu-ensure-success-return-is-correct.patch
+features/all/rt/sched-workqueue-Only-wake-up-idle-workers-if-not-blo.patch
+
+# STOP MACHINE
+features/all/rt/stop_machine-convert-stop_machine_run-to-PREEMPT_RT.patch
+features/all/rt/stop-machine-raw-lock.patch
+
+# MIGRATE DISABLE AND PER CPU
+features/all/rt/hotplug-light-get-online-cpus.patch
+features/all/rt/hotplug-sync_unplug-no-27-5cn-27-in-task-name.patch
+features/all/rt/re-migrate_disable-race-with-cpu-hotplug-3f.patch
+features/all/rt/ftrace-migrate-disable-tracing.patch
+features/all/rt/hotplug-use-migrate-disable.patch
+
+# NOHZ
+
+# LOCKDEP
+features/all/rt/lockdep-no-softirq-accounting-on-rt.patch
+
+# SOFTIRQ
+features/all/rt/mutex-no-spin-on-rt.patch
+features/all/rt/tasklet-rt-prevent-tasklets-from-going-into-infinite-spin-in-rt.patch
+features/all/rt/softirq-preempt-fix-3-re.patch
+features/all/rt/softirq-disable-softirq-stacks-for-rt.patch
+features/all/rt/softirq-split-locks.patch
+features/all/rt/kernel-softirq-unlock-with-irqs-on.patch
+features/all/rt/kernel-migrate_disable-do-fastpath-in-atomic-irqs-of.patch
+features/all/rt/irq-allow-disabling-of-softirq-processing-in-irq-thread-context.patch
+features/all/rt/softirq-split-timer-softirqs-out-of-ksoftirqd.patch
+features/all/rt/rtmutex-trylock-is-okay-on-RT.patch
+
+# compile fix due to rtmutex locks
+features/all/rt/gpu_don_t_check_for_the_lock_owner.patch
+features/all/rt/fs-nfs-turn-rmdir_sem-into-a-semaphore.patch
+
+# FUTEX/RTMUTEX
+features/all/rt/rtmutex-futex-prepare-rt.patch
+features/all/rt/futex-requeue-pi-fix.patch
+features/all/rt/futex-Ensure-lock-unlock-symetry-versus-pi_lock-and-.patch
+
+# RTMUTEX
+features/all/rt/pid.h-include-atomic.h.patch
+features/all/rt/locking-locktorture-Do-NOT-include-rwlock.h-directly.patch
+features/all/rt/rtmutex-lock-killable.patch
+features/all/rt/spinlock-types-separate-raw.patch
+features/all/rt/rtmutex-avoid-include-hell.patch
+features/all/rt/rtmutex_dont_include_rcu.patch
+features/all/rt/rt-add-rt-locks.patch
+features/all/rt/kernel-futex-don-t-deboost-too-early.patch
+features/all/rt/rtmutex-add-a-first-shot-of-ww_mutex.patch
+features/all/rt/ptrace-fix-ptrace-vs-tasklist_lock-race.patch
+
+# RCU
+features/all/rt/peter_zijlstra-frob-rcu.patch
+features/all/rt/rcu-merge-rcu-bh-into-rcu-preempt-for-rt.patch
+features/all/rt/patch-to-introduce-rcu-bh-qs-where-safe-from-softirq.patch
+features/all/rt/rcutree-rcu_bh_qs-disable-irq-while-calling-rcu_pree.patch
+
+# LGLOCKS - lovely
+features/all/rt/lglocks-rt.patch
+features/all/rt/lockinglglocks_Use_preempt_enabledisable_nort.patch
+
+# STOP machine (depend on lglock & rtmutex)
+features/all/rt/stomp-machine-create-lg_global_trylock_relax-primiti.patch
+features/all/rt/stomp-machine-use-lg_global_trylock_relax-to-dead-wi.patch
+
+# DRIVERS SERIAL
+features/all/rt/drivers-tty-fix-omap-lock-crap.patch
+features/all/rt/drivers-tty-pl011-irq-disable-madness.patch
+features/all/rt/rt-serial-warn-fix.patch
+features/all/rt/tty-serial-8250-don-t-take-the-trylock-during-oops.patch
+
+# SIMPLE WAITQUEUE
+features/all/rt/wait.h-include-atomic.h.patch
+features/all/rt/work-simple-Simple-work-queue-implemenation.patch
+features/all/rt/completion-use-simple-wait-queues.patch
+features/all/rt/fs-aio-simple-simple-work.patch
+features/all/rt/genirq-do-not-invoke-the-affinity-callback-via-a-wor.patch
+features/all/rt/hrtimer-Move-schedule_work-call-to-helper-thread.patch
+
+# FS
+features/all/rt/fs-namespace-preemption-fix.patch
+features/all/rt/mm-protect-activate-switch-mm.patch
+features/all/rt/fs-block-rt-support.patch
+features/all/rt/fs-ntfs-disable-interrupt-non-rt.patch
+features/all/rt/fs-jbd2-pull-your-plug-when-waiting-for-space.patch
+
+# X86
+features/all/rt/x86-mce-timer-hrtimer.patch
+features/all/rt/x86-mce-use-swait-queue-for-mce-wakeups.patch
+features/all/rt/x86-stackprot-no-random-on-rt.patch
+features/all/rt/x86-use-gen-rwsem-spinlocks-rt.patch
+features/all/rt/x86-UV-raw_spinlock-conversion.patch
+features/all/rt/thermal-Defer-thermal-wakups-to-threads.patch
+
+# CPU get light
+features/all/rt/epoll-use-get-cpu-light.patch
+features/all/rt/mm-vmalloc-use-get-cpu-light.patch
+features/all/rt/block-mq-use-cpu_light.patch
+features/all/rt/block-mq-drop-preempt-disable.patch
+features/all/rt/block-mq-don-t-complete-requests-via-IPI.patch
+features/all/rt/dump-stack-don-t-disable-preemption-during-trace.patch
+features/all/rt/md-raid5-percpu-handling-rt-aware.patch
+
+# CPU CHILL
+features/all/rt/rt-introduce-cpu-chill.patch
+features/all/rt/cpu_chill-Add-a-UNINTERRUPTIBLE-hrtimer_nanosleep.patch
+
+# block
+features/all/rt/blk-mq-revert-raw-locks-post-pone-notifier-to-POST_D.patchto-POST_D.patch
+features/all/rt/block-blk-mq-use-swait.patch
+
+# BLOCK LIVELOCK PREVENTION
+features/all/rt/block-use-cpu-chill.patch
+
+# FS LIVELOCK PREVENTION
+features/all/rt/fs-dcache-use-cpu-chill-in-trylock-loops.patch
+features/all/rt/net-use-cpu-chill.patch
+features/all/rt/fs-dcache-use-swait_queue-instead-of-waitqueue.patch
+
+# WORKQUEUE more fixes
+features/all/rt/workqueue-use-rcu.patch
+features/all/rt/workqueue-use-locallock.patch
+features/all/rt/workqueue-use-rcu_readlock-in-put_pwq_unlocked.patch
+features/all/rt/work-queue-work-around-irqsafe-timer-optimization.patch
+features/all/rt/workqueue-distangle-from-rq-lock.patch
+
+# IDR
+features/all/rt/idr-use-local-lock-for-protection.patch
+features/all/rt/percpu_ida-use-locklocks.patch
+
+# DEBUGOBJECTS
+features/all/rt/debugobjects-rt.patch
+
+# JUMPLABEL
+features/all/rt/jump-label-rt.patch
+
+# SEQLOCKS
+features/all/rt/seqlock-prevent-rt-starvation.patch
+
+# NETWORKING
+features/all/rt/sunrpc-make-svc_xprt_do_enqueue-use-get_cpu_light.patch
+features/all/rt/skbufhead-raw-lock.patch
+features/all/rt/skbufhead-raw-lock-free-skbs.patch
+features/all/rt/net-core-cpuhotplug-drain-input_pkt_queue-lockless.patch
+features/all/rt/net-move-xmit_recursion-to-per-task-variable-on-RT.patch
+features/all/rt/net-provide-a-way-to-delegate-processing-a-softirq-t.patch
+features/all/rt/net-dev-always-take-qdisc-s-busylock-in-__dev_xmit_s.patch
+features/all/rt/net-Qdisc-use-a-seqlock-instead-seqcount.patch
+features/all/rt/net-add-back-the-missing-serialization-in-ip_send_un.patch
+features/all/rt/net-add-a-lock-around-icmp_sk.patch
+features/all/rt/net-Have-__napi_schedule_irqoff-disable-interrupts-o.patch
+
+# NETWORK DEBUGGING AID
+features/all/rt/ping-sysrq.patch
+
+# irqwork
+features/all/rt/irqwork-push_most_work_into_softirq_context.patch
+features/all/rt/irqwork-Move-irq-safe-work-to-irq-context.patch
+
+# Sound
+features/all/rt/snd-pcm-fix-snd_pcm_stream_lock-irqs_disabled-splats.patch
+
+# CONSOLE. NEEDS more thought !!!
+features/all/rt/printk-rt-aware.patch
+features/all/rt/kernel-printk-Don-t-try-to-print-from-IRQ-NMI-region.patch
+features/all/rt/HACK-printk-drop-the-logbuf_lock-more-often.patch
+
+# POWERC
+features/all/rt/power-use-generic-rwsem-on-rt.patch
+features/all/rt/powerpc-kvm-Disable-in-kernel-MPIC-emulation-for-PRE.patch
+features/all/rt/powerpc-ps3-device-init.c-adapt-to-completions-using.patch
+
+# ARM
+features/all/rt/arm-at91-tclib-default-to-tclib-timer-for-rt.patch
+features/all/rt/arm-unwind-use_raw_lock.patch
+features/all/rt/ARM-enable-irq-in-translation-section-permission-fau.patch
+features/all/rt/genirq-update-irq_set_irqchip_state-documentation.patch
+features/all/rt/KVM-arm-arm64-downgrade-preempt_disable-d-region-to-.patch
+
+# ARM64
+features/all/rt/arm64-xen--Make-XEN-depend-on-non-rt.patch
+
+# KGDB
+features/all/rt/kgb-serial-hackaround.patch
+
+# SYSFS - RT indicator
+features/all/rt/sysfs-realtime-entry.patch
+
+# KMAP/HIGHMEM
+features/all/rt/power-disable-highmem-on-rt.patch
+features/all/rt/mips-disable-highmem-on-rt.patch
+features/all/rt/mm-rt-kmap-atomic-scheduling.patch
+features/all/rt/mm--rt--Fix-generic-kmap_atomic-for-RT.patch
+features/all/rt/x86-highmem-add-a-already-used-pte-check.patch
+features/all/rt/arm-highmem-flush-tlb-on-unmap.patch
+features/all/rt/arm-enable-highmem-for-rt.patch
+
+# IPC
+features/all/rt/ipc-sem-rework-semaphore-wakeups.patch
+
+# SYSRQ
+
+# KVM require constant freq TSC (smp function call -> cpufreq)
+features/all/rt/x86-kvm-require-const-tsc-for-rt.patch
+features/all/rt/KVM-lapic-mark-LAPIC-timer-handler-as-irqsafe.patch
+
+# SCSI/FCOE
+features/all/rt/scsi-fcoe-rt-aware.patch
+features/all/rt/sas-ata-isci-dont-t-disable-interrupts-in-qc_issue-h.patch
+
+# X86 crypto
+features/all/rt/x86-crypto-reduce-preempt-disabled-regions.patch
+features/all/rt/crypto-Reduce-preempt-disabled-regions-more-algos.patch
+
+# Device mapper
+features/all/rt/dm-make-rt-aware.patch
+
+# ACPI
+features/all/rt/acpi-rt-Convert-acpi_gbl_hardware-lock-back-to-a-raw.patch
+
+# CPUMASK OFFSTACK
+features/all/rt/cpumask-disable-offstack-on-rt.patch
+
+# RANDOM
+features/all/rt/random-make-it-work-on-rt.patch
+
+# HOTPLUG
+features/all/rt/cpu-rt-make-hotplug-lock-a-sleeping-spinlock-on-rt.patch
+features/all/rt/cpu-rt-rework-cpu-down.patch
+features/all/rt/cpu-hotplug-Document-why-PREEMPT_RT-uses-a-spinlock.patch
+features/all/rt/kernel-cpu-fix-cpu-down-problem-if-kthread-s-cpu-is-.patch
+features/all/rt/kernel-hotplug-restore-original-cpu-mask-oncpu-down.patch
+features/all/rt/cpu_down_move_migrate_enable_back.patch
+features/all/rt/hotplug-Use-set_cpus_allowed_ptr-in-sync_unplug_thre.patch
+
+features/all/rt/rt-locking-Reenable-migration-accross-schedule.patch
+
+# SCSCI QLA2xxx
+features/all/rt/scsi-qla2xxx-fix-bug-sleeping-function-called-from-invalid-context.patch
+
+# NET
+features/all/rt/upstream-net-rt-remove-preemption-disabling-in-netif_rx.patch
+features/all/rt/net-another-local-irq-disable-alloc-atomic-headache.patch
+features/all/rt/net-core-protect-users-of-napi_alloc_cache-against-r.patch
+features/all/rt/net-fix-iptable-xt-write-recseq-begin-rt-fallout.patch
+features/all/rt/net-make-devnet_rename_seq-a-mutex.patch
+
+# CRYPTO
+features/all/rt/peterz-srcu-crypto-chain.patch
+
+# LOCKDEP
+features/all/rt/lockdep-selftest-only-do-hardirq-context-test-for-raw-spinlock.patch
+features/all/rt/lockdep-selftest-fix-warnings-due-to-missing-PREEMPT.patch
+
+# PERF
+features/all/rt/perf-make-swevent-hrtimer-irqsafe.patch
+features/all/rt/kernel-perf-mark-perf_cpu_context-s-timer-as-irqsafe.patch
+
+# RCU
+features/all/rt/rcu-disable-rcu-fast-no-hz-on-rt.patch
+features/all/rt/rcu-Eliminate-softirq-processing-from-rcutree.patch
+features/all/rt/rcu-make-RCU_BOOST-default-on-RT.patch
+features/all/rt/rcu-enable-rcu_normal_after_boot-by-default-for-RT.patch
+
+# PREEMPT LAZY
+features/all/rt/preempt-lazy-support.patch
+features/all/rt/ftrace-Fix-trace-header-alignment.patch
+features/all/rt/x86-preempt-lazy.patch
+features/all/rt/arm-preempt-lazy-support.patch
+features/all/rt/powerpc-preempt-lazy-support.patch
+features/all/rt/arch-arm64-Add-lazy-preempt-support.patch
+
+# LEDS
+features/all/rt/leds-trigger-disable-CPU-trigger-on-RT.patch
+
+# DRIVERS
+features/all/rt/mmci-remove-bogus-irq-save.patch
+features/all/rt/cpufreq-drop-K8-s-driver-from-beeing-selected.patch
+features/all/rt/connector-cn_proc-Protect-send_msg-with-a-local-lock.patch
+features/all/rt/drivers-block-zram-Replace-bit-spinlocks-with-rtmute.patch
+features/all/rt/drivers-zram-Don-t-disable-preemption-in-zcomp_strea.patch
+
+# I915
+features/all/rt/drm-i915-drop-trace_i915_gem_ring_dispatch-onrt.patch
+features/all/rt/i915-bogus-warning-from-i915-when-running-on-PREEMPT.patch
+features/all/rt/drmradeoni915_Use_preempt_disableenable_rt()_where_recommended.patch
+features/all/rt/drmi915_Use_local_lockunlock_irq()_in_intel_pipe_update_startend().patch
+
+# CGROUPS
+features/all/rt/cgroups-use-simple-wait-in-css_release.patch
+features/all/rt/cgroups-scheduling-while-atomic-in-cgroup-code.patch
+
+# New stuff
+# Revisit: We need this in other places as well
+features/all/rt/move_sched_delayed_work_to_helper.patch
+
+# MD
+features/all/rt/md-disable-bcache.patch
+
+# WORKQUEUE SIGH
+features/all/rt/workqueue-prevent-deadlock-stall.patch
+
+# Add RT to version
+features/all/rt/localversion.patch

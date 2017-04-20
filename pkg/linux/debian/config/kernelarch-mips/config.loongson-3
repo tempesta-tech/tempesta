@@ -1,0 +1,97 @@
+##
+## file: arch/mips/Kconfig
+##
+## choice: System type
+CONFIG_MACH_LOONGSON64=y
+## end choice
+## choice: Kernel code model
+# CONFIG_32BIT is not set
+CONFIG_64BIT=y
+## end choice
+CONFIG_SMP=y
+CONFIG_HOTPLUG_CPU=y
+
+##
+## file: arch/mips/loongson64/Kconfig
+##
+## choice: Machine Type
+CONFIG_LOONGSON_MACH3X=y
+## end choice
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_SATA_AHCI=y
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+CONFIG_DRM=m
+CONFIG_DRM_RADEON=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+
+##
+## file: drivers/i2c/algos/Kconfig
+##
+CONFIG_I2C_ALGOBIT=y
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+CONFIG_NE2K_PCI=m
+
+##
+## file: drivers/net/ethernet/intel/Kconfig
+##
+CONFIG_E100=m
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_8139CP=m
+CONFIG_8139TOO=m
+
+##
+## file: drivers/pci/pcie/Kconfig
+##
+# CONFIG_PCIEPORTBUS is not set
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_CMOS=y
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+# CONFIG_SERIAL_8250_EXTENDED is not set
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_ISP116X_HCD=m
+CONFIG_USB_UHCI_HCD=m
+CONFIG_USB_SL811_HCD=m
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB_RADEON=y
+
+##
+## file: kernel/Kconfig.preempt
+##
+## choice: Preemption Model
+# CONFIG_PREEMPT_VOLUNTARY is not set
+CONFIG_PREEMPT=y
+## end choice
+
+##
+## file: sound/pci/hda/Kconfig
+##
+CONFIG_SND_HDA_INTEL=m
+

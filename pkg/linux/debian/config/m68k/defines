@@ -1,0 +1,17 @@
+[base]
+cflags: -ffreestanding
+flavours:
+ m68k
+kernel-arch: m68k
+
+[build]
+image-file: vmlinux.gz
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+suggests: vmelilo, fdutils
+install-stem: vmlinuz
+
+[m68k_description]
+hardware: Motorola MC68020+ family

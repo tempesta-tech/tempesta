@@ -1,0 +1,26 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: iwlwifi: Do not request unreleased firmware for IWL6000
+Bug-Debian: https://bugs.debian.org/689416
+Forwarded: not-needed
+
+The iwlwifi driver currently supports firmware API versions 4-6 for
+these devices.  It will request the file for the latest supported
+version and then fall back to earlier versions.  However, the latest
+version that has actually been released is 4, so we expect the
+requests for versions 6 and then 5 to fail.
+
+The installer appears to report any failed request, and it is probably
+not easy to detect that this particular failure is harmless.  So stop
+requesting the unreleased firmware.
+
+--- a/drivers/net/wireless/intel/iwlwifi/iwl-6000.c
++++ b/drivers/net/wireless/intel/iwlwifi/iwl-6000.c
+@@ -31,7 +31,7 @@
+ #include "dvm/commands.h" /* needed for BT for now */
+ 
+ /* Highest firmware API version supported */
+-#define IWL6000_UCODE_API_MAX 6
++#define IWL6000_UCODE_API_MAX 4 /* v5-6 are supported but not released */
+ #define IWL6050_UCODE_API_MAX 5
+ #define IWL6000G2_UCODE_API_MAX 6
+ #define IWL6035_UCODE_API_MAX 6

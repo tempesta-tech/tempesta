@@ -1,0 +1,70 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sun, 20 Mar 2016 21:09:02 +0000
+Subject: tools lib traceevent: Fix use of uninitialized variables
+Forwarded: no
+
+Fix a number of correct warnings from gcc:
+
+> plugin_function.c:133:6: warning: 'index' may be used uninitialized in this function [-Wmaybe-uninitialized]
+>   int index;
+>       ^
+
+'index' is initialized only if indentation is wanted.  Move the
+printing of indentation using 'index' into the same if-statement.
+
+> kbuffer-parse.c:339:27: warning: 'length' may be used uninitialized in this function [-Wmaybe-uninitialized]
+>   kbuf->next = kbuf->index + length;
+>                            ^
+> kbuffer-parse.c:297:15: note: 'length' was declared here
+>   unsigned int length;
+>                ^
+
+'length' is not initialized when handling an OLD_RINGBUF_TYPE_TIME_EXTEND
+record.  Based on what trace-cmd does, set length = 0 in this case.
+
+> kbuffer-parse.c: In function 'kbuffer_read_at_offset':
+> kbuffer-parse.c:632:9: warning: 'data' may be used uninitialized in this function [-Wmaybe-uninitialized]
+>   return data;
+>          ^
+
+'data' is not initialized if the offset is too small.  Initialize it
+to NULL so that the behaviour is the same as when the offset is too
+large.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/tools/lib/traceevent/kbuffer-parse.c
++++ b/tools/lib/traceevent/kbuffer-parse.c
+@@ -314,6 +314,7 @@ static unsigned int old_update_pointers(
+ 		extend <<= TS_SHIFT;
+ 		extend += delta;
+ 		delta = extend;
++		length = 0;
+ 		ptr += 4;
+ 		break;
+ 
+@@ -613,7 +614,7 @@ unsigned long long kbuffer_timestamp(str
+ void *kbuffer_read_at_offset(struct kbuffer *kbuf, int offset,
+ 			     unsigned long long *ts)
+ {
+-	void *data;
++	void *data = NULL;
+ 
+ 	if (offset < kbuf->start)
+ 		offset = 0;
+--- a/tools/lib/traceevent/plugin_function.c
++++ b/tools/lib/traceevent/plugin_function.c
+@@ -142,10 +142,10 @@ static int function_handler(struct trace
+ 
+ 	parent = pevent_find_function(pevent, pfunction);
+ 
+-	if (parent && ftrace_indent->set)
++	if (parent && ftrace_indent->set) {
+ 		index = add_and_get_index(parent, func, record->cpu);
+-
+-	trace_seq_printf(s, "%*s", index*3, "");
++		trace_seq_printf(s, "%*s", index*3, "");
++	}
+ 
+ 	if (func)
+ 		trace_seq_printf(s, "%s", func);

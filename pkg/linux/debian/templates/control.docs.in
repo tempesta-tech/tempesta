@@ -1,0 +1,33 @@
+Package: @source_package@-doc-@version@
+Build-Profiles: <!stage1 !nodoc>
+Architecture: all
+Depends: ${misc:Depends}
+Section: doc
+Multi-Arch: foreign
+Description: Linux kernel specific documentation for version @version@
+ This package provides the various README files and HTML documentation for
+ the Linux kernel version @version@.  Plenty of information, including the
+ descriptions of various kernel subsystems, filesystems, driver-specific
+ notes and the like.  Consult the file
+ /usr/share/doc/linux-doc-@version@/Documentation/00-INDEX
+ for the detailed description of the contents.
+
+Package: @source_package@-manual-@version@
+Build-Profiles: <!stage1 !nodoc>
+Architecture: all
+Depends: ${misc:Depends}
+Section: doc
+Provides: linux-manual
+Conflicts: linux-manual
+Replaces: linux-manual
+Multi-Arch: foreign
+Description: Linux kernel API manual pages for version @version@
+ This package provides the Kernel Hacker's Guide in the form of
+ manual pages, describing the kernel API functions.  They
+ are installed into section 9 of the manual.
+ .
+ As the files containing manual pages for different kernel versions
+ are installed in the same location, only one linux-manual package
+ may be installed at a time.  The linux-doc package containing the
+ documentation in other formats is free from such restriction.
+

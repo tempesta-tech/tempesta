@@ -1,0 +1,28 @@
+[base]
+flavours: parisc parisc64-smp
+kernel-arch: parisc
+
+[build]
+image-file: vmlinux
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+suggests: palo
+install-stem: vmlinux
+
+[parisc_description]
+hardware: 32-bit PA-RISC
+hardware-long: HP PA-RISC 32-bit systems with max 4 GB RAM
+
+[parisc64-smp_base]
+cflags: -fno-cse-follow-jumps
+override-host-type: hppa64-linux-gnu
+
+[parisc64-smp_description]
+hardware: multiprocessor 64-bit PA-RISC
+hardware-long: HP PA-RISC 64-bit SMP systems with support for more than 4 GB RAM
+
+[relations]
+gcc-5: gcc-5 <!stage1 !cross>, binutils-hppa64-linux-gnu <!stage1 !cross>, gcc-5-hppa64-linux-gnu <!stage1 !cross>, gcc-5-hppa-linux-gnu:native <!stage1 cross>, binutils-hppa64-linux-gnu:native <!stage1 cross>, gcc-5-hppa64-linux-gnu:native <!stage1 cross>
+

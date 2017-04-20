@@ -1,0 +1,3 @@
+#include <mtd-modules>
+mxc_nand
+pxa3xx_nand

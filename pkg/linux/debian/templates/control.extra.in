@@ -1,0 +1,26 @@
+Package: linux-compiler-gcc-5-arm
+Build-Profiles: <!stage1>
+Depends: gcc-5, ${misc:Depends}
+Architecture: armel armhf
+Multi-Arch: foreign
+Description: Compiler for Linux on ARM (meta-package)
+ This package depends on gcc 5 of the appropriate architecture for
+ Linux on armel and armhf.
+
+Package: linux-compiler-gcc-5-s390
+Build-Profiles: <!stage1>
+Depends: gcc-5, ${misc:Depends}
+Architecture: s390 s390x
+Multi-Arch: foreign
+Description: Compiler for Linux on IBM zSeries (meta-package)
+ This package depends on gcc 5 of the appropriate architecture for
+ Linux on s390 and s390x.
+
+Package: linux-compiler-gcc-5-x86
+Build-Profiles: <!stage1>
+Depends: gcc-5, ${misc:Depends}
+Architecture: amd64 i386 x32
+Multi-Arch: foreign
+Description: Compiler for Linux on x86 (meta-package)
+ This package depends on gcc 5 of the appropriate architecture for
+ Linux on amd64, i386 and x32.

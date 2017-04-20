@@ -1,0 +1,366 @@
+Subject: rcu: Merge RCU-bh into RCU-preempt
+Date: Wed, 5 Oct 2011 11:59:38 -0700
+From: Thomas Gleixner <tglx@linutronix.de>
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The Linux kernel has long RCU-bh read-side critical sections that
+intolerably increase scheduling latency under mainline's RCU-bh rules,
+which include RCU-bh read-side critical sections being non-preemptible.
+This patch therefore arranges for RCU-bh to be implemented in terms of
+RCU-preempt for CONFIG_PREEMPT_RT_FULL=y.
+
+This has the downside of defeating the purpose of RCU-bh, namely,
+handling the case where the system is subjected to a network-based
+denial-of-service attack that keeps at least one CPU doing full-time
+softirq processing.  This issue will be fixed by a later commit.
+
+The current commit will need some work to make it appropriate for
+mainline use, for example, it needs to be extended to cover Tiny RCU.
+
+[ paulmck: Added a useful changelog ]
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+Signed-off-by: Paul E. McKenney <paulmck@linux.vnet.ibm.com>
+Link: http://lkml.kernel.org/r/20111005185938.GA20403@linux.vnet.ibm.com
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+
+---
+ include/linux/rcupdate.h |   23 +++++++++++++++++++++++
+ include/linux/rcutree.h  |   21 ++++++++++++++++++---
+ kernel/rcu/rcutorture.c  |    7 +++++++
+ kernel/rcu/tree.c        |   24 ++++++++++++++++++++++++
+ kernel/rcu/tree.h        |    2 ++
+ kernel/rcu/update.c      |    2 ++
+ 6 files changed, 76 insertions(+), 3 deletions(-)
+
+--- a/include/linux/rcupdate.h
++++ b/include/linux/rcupdate.h
+@@ -179,6 +179,9 @@ void call_rcu(struct rcu_head *head,
+ 
+ #endif /* #else #ifdef CONFIG_PREEMPT_RCU */
+ 
++#ifdef CONFIG_PREEMPT_RT_FULL
++#define call_rcu_bh	call_rcu
++#else
+ /**
+  * call_rcu_bh() - Queue an RCU for invocation after a quicker grace period.
+  * @head: structure to be used for queueing the RCU updates.
+@@ -202,6 +205,7 @@ void call_rcu(struct rcu_head *head,
+  */
+ void call_rcu_bh(struct rcu_head *head,
+ 		 rcu_callback_t func);
++#endif
+ 
+ /**
+  * call_rcu_sched() - Queue an RCU for invocation after sched grace period.
+@@ -339,7 +343,11 @@ static inline int rcu_preempt_depth(void
+ /* Internal to kernel */
+ void rcu_init(void);
+ void rcu_sched_qs(void);
++#ifdef CONFIG_PREEMPT_RT_FULL
++static inline void rcu_bh_qs(void) { }
++#else
+ void rcu_bh_qs(void);
++#endif
+ void rcu_check_callbacks(int user);
+ void rcu_report_dead(unsigned int cpu);
+ 
+@@ -508,7 +516,14 @@ extern struct lockdep_map rcu_callback_m
+ int debug_lockdep_rcu_enabled(void);
+ 
+ int rcu_read_lock_held(void);
++#ifdef CONFIG_PREEMPT_RT_FULL
++static inline int rcu_read_lock_bh_held(void)
++{
++	return rcu_read_lock_held();
++}
++#else
+ int rcu_read_lock_bh_held(void);
++#endif
+ 
+ /**
+  * rcu_read_lock_sched_held() - might we be in RCU-sched read-side critical section?
+@@ -906,10 +921,14 @@ static inline void rcu_read_unlock(void)
+ static inline void rcu_read_lock_bh(void)
+ {
+ 	local_bh_disable();
++#ifdef CONFIG_PREEMPT_RT_FULL
++	rcu_read_lock();
++#else
+ 	__acquire(RCU_BH);
+ 	rcu_lock_acquire(&rcu_bh_lock_map);
+ 	RCU_LOCKDEP_WARN(!rcu_is_watching(),
+ 			 "rcu_read_lock_bh() used illegally while idle");
++#endif
+ }
+ 
+ /*
+@@ -919,10 +938,14 @@ static inline void rcu_read_lock_bh(void
+  */
+ static inline void rcu_read_unlock_bh(void)
+ {
++#ifdef CONFIG_PREEMPT_RT_FULL
++	rcu_read_unlock();
++#else
+ 	RCU_LOCKDEP_WARN(!rcu_is_watching(),
+ 			 "rcu_read_unlock_bh() used illegally while idle");
+ 	rcu_lock_release(&rcu_bh_lock_map);
+ 	__release(RCU_BH);
++#endif
+ 	local_bh_enable();
+ }
+ 
+--- a/include/linux/rcutree.h
++++ b/include/linux/rcutree.h
+@@ -44,7 +44,11 @@ static inline void rcu_virt_note_context
+ 	rcu_note_context_switch();
+ }
+ 
++#ifdef CONFIG_PREEMPT_RT_FULL
++# define synchronize_rcu_bh	synchronize_rcu
++#else
+ void synchronize_rcu_bh(void);
++#endif
+ void synchronize_sched_expedited(void);
+ void synchronize_rcu_expedited(void);
+ 
+@@ -72,7 +76,11 @@ static inline void synchronize_rcu_bh_ex
+ }
+ 
+ void rcu_barrier(void);
++#ifdef CONFIG_PREEMPT_RT_FULL
++# define rcu_barrier_bh                rcu_barrier
++#else
+ void rcu_barrier_bh(void);
++#endif
+ void rcu_barrier_sched(void);
+ unsigned long get_state_synchronize_rcu(void);
+ void cond_synchronize_rcu(unsigned long oldstate);
+@@ -82,17 +90,14 @@ void cond_synchronize_sched(unsigned lon
+ extern unsigned long rcutorture_testseq;
+ extern unsigned long rcutorture_vernum;
+ unsigned long rcu_batches_started(void);
+-unsigned long rcu_batches_started_bh(void);
+ unsigned long rcu_batches_started_sched(void);
+ unsigned long rcu_batches_completed(void);
+-unsigned long rcu_batches_completed_bh(void);
+ unsigned long rcu_batches_completed_sched(void);
+ unsigned long rcu_exp_batches_completed(void);
+ unsigned long rcu_exp_batches_completed_sched(void);
+ void show_rcu_gp_kthreads(void);
+ 
+ void rcu_force_quiescent_state(void);
+-void rcu_bh_force_quiescent_state(void);
+ void rcu_sched_force_quiescent_state(void);
+ 
+ void rcu_idle_enter(void);
+@@ -109,6 +114,16 @@ extern int rcu_scheduler_active __read_m
+ 
+ bool rcu_is_watching(void);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
++void rcu_bh_force_quiescent_state(void);
++unsigned long rcu_batches_started_bh(void);
++unsigned long rcu_batches_completed_bh(void);
++#else
++# define rcu_bh_force_quiescent_state	rcu_force_quiescent_state
++# define rcu_batches_completed_bh	rcu_batches_completed
++# define rcu_batches_started_bh		rcu_batches_completed
++#endif
++
+ void rcu_all_qs(void);
+ 
+ /* RCUtree hotplug events */
+--- a/kernel/rcu/rcutorture.c
++++ b/kernel/rcu/rcutorture.c
+@@ -404,6 +404,7 @@ static struct rcu_torture_ops rcu_ops =
+ 	.name		= "rcu"
+ };
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /*
+  * Definitions for rcu_bh torture testing.
+  */
+@@ -443,6 +444,12 @@ static struct rcu_torture_ops rcu_bh_ops
+ 	.name		= "rcu_bh"
+ };
+ 
++#else
++static struct rcu_torture_ops rcu_bh_ops = {
++	.ttype		= INVALID_RCU_FLAVOR,
++};
++#endif
++
+ /*
+  * Don't even think about trying any of these in real life!!!
+  * The names includes "busted", and they really means it!
+--- a/kernel/rcu/tree.c
++++ b/kernel/rcu/tree.c
+@@ -259,6 +259,7 @@ void rcu_sched_qs(void)
+ 			   this_cpu_ptr(&rcu_sched_data), true);
+ }
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ void rcu_bh_qs(void)
+ {
+ 	if (__this_cpu_read(rcu_bh_data.cpu_no_qs.s)) {
+@@ -268,6 +269,7 @@ void rcu_bh_qs(void)
+ 		__this_cpu_write(rcu_bh_data.cpu_no_qs.b.norm, false);
+ 	}
+ }
++#endif
+ 
+ static DEFINE_PER_CPU(int, rcu_sched_qs_mask);
+ 
+@@ -448,11 +450,13 @@ EXPORT_SYMBOL_GPL(rcu_batches_started_sc
+ /*
+  * Return the number of RCU BH batches started thus far for debug & stats.
+  */
++#ifndef CONFIG_PREEMPT_RT_FULL
+ unsigned long rcu_batches_started_bh(void)
+ {
+ 	return rcu_bh_state.gpnum;
+ }
+ EXPORT_SYMBOL_GPL(rcu_batches_started_bh);
++#endif
+ 
+ /*
+  * Return the number of RCU batches completed thus far for debug & stats.
+@@ -472,6 +476,7 @@ unsigned long rcu_batches_completed_sche
+ }
+ EXPORT_SYMBOL_GPL(rcu_batches_completed_sched);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /*
+  * Return the number of RCU BH batches completed thus far for debug & stats.
+  */
+@@ -480,6 +485,7 @@ unsigned long rcu_batches_completed_bh(v
+ 	return rcu_bh_state.completed;
+ }
+ EXPORT_SYMBOL_GPL(rcu_batches_completed_bh);
++#endif
+ 
+ /*
+  * Return the number of RCU expedited batches completed thus far for
+@@ -503,6 +509,7 @@ unsigned long rcu_exp_batches_completed_
+ }
+ EXPORT_SYMBOL_GPL(rcu_exp_batches_completed_sched);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /*
+  * Force a quiescent state.
+  */
+@@ -521,6 +528,13 @@ void rcu_bh_force_quiescent_state(void)
+ }
+ EXPORT_SYMBOL_GPL(rcu_bh_force_quiescent_state);
+ 
++#else
++void rcu_force_quiescent_state(void)
++{
++}
++EXPORT_SYMBOL_GPL(rcu_force_quiescent_state);
++#endif
++
+ /*
+  * Force a quiescent state for RCU-sched.
+  */
+@@ -571,9 +585,11 @@ void rcutorture_get_gp_data(enum rcutort
+ 	case RCU_FLAVOR:
+ 		rsp = rcu_state_p;
+ 		break;
++#ifndef CONFIG_PREEMPT_RT_FULL
+ 	case RCU_BH_FLAVOR:
+ 		rsp = &rcu_bh_state;
+ 		break;
++#endif
+ 	case RCU_SCHED_FLAVOR:
+ 		rsp = &rcu_sched_state;
+ 		break;
+@@ -3192,6 +3208,7 @@ void call_rcu_sched(struct rcu_head *hea
+ }
+ EXPORT_SYMBOL_GPL(call_rcu_sched);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /*
+  * Queue an RCU callback for invocation after a quicker grace period.
+  */
+@@ -3200,6 +3217,7 @@ void call_rcu_bh(struct rcu_head *head,
+ 	__call_rcu(head, func, &rcu_bh_state, -1, 0);
+ }
+ EXPORT_SYMBOL_GPL(call_rcu_bh);
++#endif
+ 
+ /*
+  * Queue an RCU callback for lazy invocation after a grace period.
+@@ -3291,6 +3309,7 @@ void synchronize_sched(void)
+ }
+ EXPORT_SYMBOL_GPL(synchronize_sched);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /**
+  * synchronize_rcu_bh - wait until an rcu_bh grace period has elapsed.
+  *
+@@ -3317,6 +3336,7 @@ void synchronize_rcu_bh(void)
+ 		wait_rcu_gp(call_rcu_bh);
+ }
+ EXPORT_SYMBOL_GPL(synchronize_rcu_bh);
++#endif
+ 
+ /**
+  * get_state_synchronize_rcu - Snapshot current RCU state
+@@ -3695,6 +3715,7 @@ static void _rcu_barrier(struct rcu_stat
+ 	mutex_unlock(&rsp->barrier_mutex);
+ }
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /**
+  * rcu_barrier_bh - Wait until all in-flight call_rcu_bh() callbacks complete.
+  */
+@@ -3703,6 +3724,7 @@ void rcu_barrier_bh(void)
+ 	_rcu_barrier(&rcu_bh_state);
+ }
+ EXPORT_SYMBOL_GPL(rcu_barrier_bh);
++#endif
+ 
+ /**
+  * rcu_barrier_sched - Wait for in-flight call_rcu_sched() callbacks.
+@@ -4196,7 +4218,9 @@ void __init rcu_init(void)
+ 
+ 	rcu_bootup_announce();
+ 	rcu_init_geometry();
++#ifndef CONFIG_PREEMPT_RT_FULL
+ 	rcu_init_one(&rcu_bh_state);
++#endif
+ 	rcu_init_one(&rcu_sched_state);
+ 	if (dump_tree)
+ 		rcu_dump_rcu_node_tree(&rcu_sched_state);
+--- a/kernel/rcu/tree.h
++++ b/kernel/rcu/tree.h
+@@ -587,7 +587,9 @@ extern struct list_head rcu_struct_flavo
+  */
+ extern struct rcu_state rcu_sched_state;
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ extern struct rcu_state rcu_bh_state;
++#endif
+ 
+ #ifdef CONFIG_PREEMPT_RCU
+ extern struct rcu_state rcu_preempt_state;
+--- a/kernel/rcu/update.c
++++ b/kernel/rcu/update.c
+@@ -293,6 +293,7 @@ int rcu_read_lock_held(void)
+ }
+ EXPORT_SYMBOL_GPL(rcu_read_lock_held);
+ 
++#ifndef CONFIG_PREEMPT_RT_FULL
+ /**
+  * rcu_read_lock_bh_held() - might we be in RCU-bh read-side critical section?
+  *
+@@ -319,6 +320,7 @@ int rcu_read_lock_bh_held(void)
+ 	return in_softirq() || irqs_disabled();
+ }
+ EXPORT_SYMBOL_GPL(rcu_read_lock_bh_held);
++#endif
+ 
+ #endif /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
+ 

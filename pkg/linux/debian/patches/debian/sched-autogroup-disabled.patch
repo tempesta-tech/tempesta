@@ -1,0 +1,19 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: sched: Do not enable autogrouping by default
+Date: Wed, 16 Mar 2011 03:17:06 +0000
+Forwarded: not-needed
+
+We want to provide the option of autogrouping but without enabling
+it by default yet.
+
+--- a/kernel/sched/auto_group.c
++++ b/kernel/sched/auto_group.c
+@@ -9,7 +9,7 @@
+ #include <linux/security.h>
+ #include <linux/export.h>
+ 
+-unsigned int __read_mostly sysctl_sched_autogroup_enabled = 1;
++unsigned int __read_mostly sysctl_sched_autogroup_enabled = 0;
+ static struct autogroup autogroup_default;
+ static atomic_t autogroup_seq_nr;
+ 

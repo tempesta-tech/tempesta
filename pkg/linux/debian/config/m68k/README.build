@@ -1,0 +1,26 @@
+HOWTO cross-build m68k linux-image
+
+Building linux-image packages takes a while, especially on the "slower
+arches", ie m68k. Cross-compiling is an alternative, and it works very well
+for m68k.
+
+You need to set up a cross-compiler. The toolchain-source package has some
+limitations, I prefer using cross-tools, see this page for instructions:
+
+ http://people.debian.org/~cts/debian-m68k/cross-compile/
+
+Now you only have to tell the debian build system, that you do want to build
+packages for m68k. It used to be sufficient to pass an option to debuild,
+since recently you also have to set an environment variable, like this:
+
+ DEB_HOST_ARCH=m68k debuild -B -am68k
+
+If you also want to build source packages, omit the -B. 
+
+If you want to build images for just one of the currently nine subarches,
+you can uncomment some lines in the flavours section in:
+ debian/arch/m68k/defines
+
+The first run of debuild will give you an error message that updating the
+configs suceeded, the second run will build the images.
+

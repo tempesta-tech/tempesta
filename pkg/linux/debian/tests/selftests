@@ -1,0 +1,88 @@
+#!/bin/bash -eu
+
+PATH=/usr/sbin:/sbin:/usr/bin:/bin
+
+getconfig() {
+    debian/bin/getconfig.py "$@"
+}
+
+# Look up current ABI name and 'localversion' (featureset/flavour) suffixes
+abiname=$(getconfig version abiname)
+arch=$(dpkg --print-architecture)
+localversion=()
+for featureset in $(getconfig base $arch featuresets); do
+    if [ "$(getconfig base '' $featureset enabled || echo True)" = True ]; then
+	for flavour in $(getconfig base $arch $featureset flavours); do
+	    if [ "$featureset" = none ]; then
+		localversion+=(-$flavour)
+	    else
+		localversion+=(-$featureset-$flavour)
+	    fi
+	done
+    fi
+done
+steps=${#localversion[*]}
+
+case "${ADT_REBOOT_MARK:-}" in
+    "")
+	step=-1
+	;;
+    step*)
+	step=${ADT_REBOOT_MARK#step}
+	;;
+esac
+
+if [ "$step" -ge 0 ]; then
+    ver=$abiname${localversion[$step]}
+
+    if [ "$(uname -r)" != "$ver" ]; then
+	echo >&2 "Should be running: $ver"
+	echo >&2 "Actually running: $(uname -r)"
+    else
+	cp -lR . $ADTTMP/build
+	cd $ADTTMP/build
+	make headers_install
+
+	# Ignore compiler warnings
+	{
+	    make -C tools/testing/selftests &&
+	    make -C tools/testing/selftests/memfd build_fuse
+	} 2>&1 || echo >&2 "Build failed"
+
+	# Enable testing CLONE_USERNS by unprivileged users
+	sysctl kernel.unprivileged_userns_clone=1
+
+	# Some tests will write to stderr despite being successful,
+	# and the exit code from make will be 0 even if tests failed.
+	# So we have to do some post-analysis...
+	set -o pipefail
+	{
+	    make -C tools/testing/selftests quicktest=1 run_tests &&
+	    make -C tools/testing/selftests/cpu-hotplug run_full_test &&
+	    make -C tools/testing/selftests/memory-hotplug run_full_test &&
+	    make -C tools/testing/selftests/memfd run_fuse &&
+	    make -C tools/testing/selftests/timers run_destructive_tests
+	} 2>&1 | tee $ADTTMP/log
+	set +o pipefail
+	if grep -E '\[(FAIL|UNSUPPORTED)\]|recipe for target .run_tests. failed' $ADTTMP/log | \
+	    grep -q -v \
+		 -e '^selftests: fw_userhelper.sh \[FAIL\]' \
+		 -e 'ftrace - function profiler with function tracing   \[UNSUPPORTED\]' \
+		 -e '^selftests: ftracetest \[FAIL\]' \
+		 -e '|| echo .*\[FAIL\]' \
+		 ; then
+	    echo >&2 "Unexpected failures found"
+	fi
+    fi
+fi
+
+step=$((step + 1))
+
+if [ "$step" -lt "$steps" ]; then
+    # Load the next kernel
+    ver=$abiname${localversion[$step]}
+    kexec -l /boot/vmlinuz-$ver --initrd /boot/initrd.img-$ver --reuse-cmdline
+    /tmp/autopkgtest-reboot step$step
+fi
+
+exit 0

@@ -1,0 +1,29 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: fanotify: Taint on use of FANOTIFY_ACCESS_PERMISSIONS
+Date: Wed, 13 Jul 2016 01:37:22 +0100
+Forwarded: not-needed
+
+Various free and proprietary AV products use this feature and users
+apparently want it.  But punting access checks to userland seems like
+an easy way to deadlock the system, and there will be nothing we can
+do about that.  So warn and taint the kernel if this feature is
+actually used.
+
+---
+--- a/fs/notify/fanotify/fanotify_user.c
++++ b/fs/notify/fanotify/fanotify_user.c
+@@ -847,6 +847,14 @@ SYSCALL_DEFINE5(fanotify_mark, int, fano
+ #endif
+ 		return -EINVAL;
+ 
++#ifdef CONFIG_FANOTIFY_ACCESS_PERMISSIONS
++	if (mask & FAN_ALL_PERM_EVENTS) {
++		pr_warn_once("%s (%d): Using fanotify permission checks may lead to deadlock; tainting kernel\n",
++			     current->comm, current->pid);
++		add_taint(TAINT_USER, LOCKDEP_STILL_OK);
++	}
++#endif
++
+ 	f = fdget(fanotify_fd);
+ 	if (unlikely(!f.file))
+ 		return -EBADF;

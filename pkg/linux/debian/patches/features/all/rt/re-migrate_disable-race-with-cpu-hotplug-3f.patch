@@ -1,0 +1,35 @@
+From: Yong Zhang <yong.zhang0@gmail.com>
+Date: Thu, 28 Jul 2011 11:16:00 +0800
+Subject: hotplug: Reread hotplug_pcp on pin_current_cpu() retry
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+When retry happens, it's likely that the task has been migrated to
+another cpu (except unplug failed), but it still derefernces the
+original hotplug_pcp per cpu data.
+
+Update the pointer to hotplug_pcp in the retry path, so it points to
+the current cpu.
+
+Signed-off-by: Yong Zhang <yong.zhang0@gmail.com>
+Cc: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Link: http://lkml.kernel.org/r/20110728031600.GA338@windriver.com
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ kernel/cpu.c |    4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -184,9 +184,11 @@ static DEFINE_PER_CPU(struct hotplug_pcp
+  */
+ void pin_current_cpu(void)
+ {
+-	struct hotplug_pcp *hp = this_cpu_ptr(&hotplug_pcp);
++	struct hotplug_pcp *hp;
+ 
+ retry:
++	hp = this_cpu_ptr(&hotplug_pcp);
++
+ 	if (!hp->unplug || hp->refcount || preempt_count() > 1 ||
+ 	    hp->unplug == current) {
+ 		hp->refcount++;

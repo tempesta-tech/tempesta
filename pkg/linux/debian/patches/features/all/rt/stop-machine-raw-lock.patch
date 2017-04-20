@@ -1,0 +1,99 @@
+Subject: stop_machine: Use raw spinlocks
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Wed, 29 Jun 2011 11:01:51 +0200
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Use raw-locks in stomp_machine() to allow locking in irq-off regions.
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ kernel/stop_machine.c |   24 ++++++++++++------------
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+--- a/kernel/stop_machine.c
++++ b/kernel/stop_machine.c
+@@ -37,7 +37,7 @@ struct cpu_stop_done {
+ struct cpu_stopper {
+ 	struct task_struct	*thread;
+ 
+-	spinlock_t		lock;
++	raw_spinlock_t		lock;
+ 	bool			enabled;	/* is this stopper enabled? */
+ 	struct list_head	works;		/* list of pending works */
+ 
+@@ -83,14 +83,14 @@ static bool cpu_stop_queue_work(unsigned
+ 	unsigned long flags;
+ 	bool enabled;
+ 
+-	spin_lock_irqsave(&stopper->lock, flags);
++	raw_spin_lock_irqsave(&stopper->lock, flags);
+ 	enabled = stopper->enabled;
+ 	if (enabled)
+ 		__cpu_stop_queue_work(stopper, work);
+ 	else if (work->done)
+ 		cpu_stop_signal_done(work->done);
+-	spin_unlock_irqrestore(&stopper->lock, flags);
+ 
++	raw_spin_unlock_irqrestore(&stopper->lock, flags);
+ 	return enabled;
+ }
+ 
+@@ -232,8 +232,8 @@ static int cpu_stop_queue_two_works(int
+ 	int err;
+ 
+ 	lg_double_lock(&stop_cpus_lock, cpu1, cpu2);
+-	spin_lock_irq(&stopper1->lock);
+-	spin_lock_nested(&stopper2->lock, SINGLE_DEPTH_NESTING);
++	raw_spin_lock_irq(&stopper1->lock);
++	raw_spin_lock_nested(&stopper2->lock, SINGLE_DEPTH_NESTING);
+ 
+ 	err = -ENOENT;
+ 	if (!stopper1->enabled || !stopper2->enabled)
+@@ -243,8 +243,8 @@ static int cpu_stop_queue_two_works(int
+ 	__cpu_stop_queue_work(stopper1, work1);
+ 	__cpu_stop_queue_work(stopper2, work2);
+ unlock:
+-	spin_unlock(&stopper2->lock);
+-	spin_unlock_irq(&stopper1->lock);
++	raw_spin_unlock(&stopper2->lock);
++	raw_spin_unlock_irq(&stopper1->lock);
+ 	lg_double_unlock(&stop_cpus_lock, cpu1, cpu2);
+ 
+ 	return err;
+@@ -433,9 +433,9 @@ static int cpu_stop_should_run(unsigned
+ 	unsigned long flags;
+ 	int run;
+ 
+-	spin_lock_irqsave(&stopper->lock, flags);
++	raw_spin_lock_irqsave(&stopper->lock, flags);
+ 	run = !list_empty(&stopper->works);
+-	spin_unlock_irqrestore(&stopper->lock, flags);
++	raw_spin_unlock_irqrestore(&stopper->lock, flags);
+ 	return run;
+ }
+ 
+@@ -446,13 +446,13 @@ static void cpu_stopper_thread(unsigned
+ 
+ repeat:
+ 	work = NULL;
+-	spin_lock_irq(&stopper->lock);
++	raw_spin_lock_irq(&stopper->lock);
+ 	if (!list_empty(&stopper->works)) {
+ 		work = list_first_entry(&stopper->works,
+ 					struct cpu_stop_work, list);
+ 		list_del_init(&work->list);
+ 	}
+-	spin_unlock_irq(&stopper->lock);
++	raw_spin_unlock_irq(&stopper->lock);
+ 
+ 	if (work) {
+ 		cpu_stop_fn_t fn = work->fn;
+@@ -536,7 +536,7 @@ static int __init cpu_stop_init(void)
+ 	for_each_possible_cpu(cpu) {
+ 		struct cpu_stopper *stopper = &per_cpu(cpu_stopper, cpu);
+ 
+-		spin_lock_init(&stopper->lock);
++		raw_spin_lock_init(&stopper->lock);
+ 		INIT_LIST_HEAD(&stopper->works);
+ 	}
+ 

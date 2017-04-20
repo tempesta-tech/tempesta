@@ -1,0 +1,27 @@
+[base]
+flavours:
+ sh7751r
+ sh7785lcr
+kernel-arch: sh
+
+[build]
+image-file: arch/sh/boot/zImage
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+install-stem: vmlinuz
+
+[sh7751r_description]
+hardware: sh7751r
+hardware-long: Renesas SH7751R R2D plus board
+
+[sh7785lcr_description]
+hardware: sh7785lcr
+hardware-long: Renesas SH7785 reference board
+
+[sh7785lcr_image]
+recommends: u-boot-tools
+# Kernel partition size: 4MB
+check-size: 4194304
+

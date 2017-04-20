@@ -1,0 +1,8 @@
+Please ensure that you are currently running the kernel version that you
+are reporting on.  This will allow your bug report to include useful
+diagnostic information about the running kernel.
+
+If you are reporting that the kernel fails to boot, please use a digital
+camera, serial console or netconsole to record the boot messages and
+attach these to your report.  You can use the kernel parameter
+'boot_delay=1000' to slow down the boot messages.

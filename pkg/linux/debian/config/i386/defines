@@ -1,0 +1,35 @@
+[base]
+featuresets:
+ none
+ rt
+kernel-arch: x86
+
+[build]
+image-file: arch/x86/boot/bzImage
+vdso: true
+
+[description]
+part-long-pae: This kernel requires PAE (Physical Address Extension).
+ This feature is supported by the Intel Pentium Pro/II/III/4/4M/D, Xeon,
+ Core and Atom; AMD Geode NX, Athlon (K7), Duron, Opteron, Sempron,
+ Turion or Phenom; Transmeta Efficeon; VIA C7; and some other processors.
+
+[image]
+bootloaders: grub-pc extlinux
+install-stem: vmlinuz
+breaks: xserver-xorg-input-vmmouse (<< 1:13.0.99)
+
+[relations]
+headers%gcc-5: linux-compiler-gcc-5-x86
+
+[686_description]
+hardware: older PCs
+hardware-long: PCs with one or more processors not supporting PAE
+
+[686-pae_build]
+debug-info: true
+
+[686-pae_description]
+hardware: modern PCs
+hardware-long: PCs with one or more processors supporting PAE
+parts: pae

@@ -1,0 +1,128 @@
+From: Linn Crosetto <linn@hpe.com>
+Date: Tue, 30 Aug 2016 11:54:38 -0600
+Subject: arm64: add kernel config option to set securelevel when in Secure Boot mode
+
+Add a kernel configuration option to enable securelevel, to restrict
+userspace's ability to modify the running kernel when UEFI Secure Boot is
+enabled. Based on the x86 patch by Matthew Garrett.
+
+Determine the state of Secure Boot in the EFI stub and pass this to the
+kernel using the FDT.
+
+Signed-off-by: Linn Crosetto <linn@hpe.com>
+---
+v2:
+
+ - Add cpu_to_fdt32() when setting Secure Boot flag in FDT (Ben Hutchings)
+
+ arch/arm64/Kconfig                      | 13 +++++++++++++
+ drivers/firmware/efi/arm-init.c         |  7 +++++++
+ drivers/firmware/efi/efi.c              |  3 ++-
+ drivers/firmware/efi/libstub/arm-stub.c |  2 +-
+ drivers/firmware/efi/libstub/efistub.h  |  1 +
+ drivers/firmware/efi/libstub/fdt.c      |  7 +++++++
+ include/linux/efi.h                     |  1 +
+ 7 files changed, 32 insertions(+), 2 deletions(-)
+
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -972,6 +972,19 @@ config EFI
+ 	  allow the kernel to be booted as an EFI application. This
+ 	  is only useful on systems that have UEFI firmware.
+ 
++config EFI_SECURE_BOOT_SECURELEVEL
++	def_bool n
++	depends on SECURITY_SECURELEVEL
++	depends on EFI
++	prompt "Automatically set securelevel when UEFI Secure Boot is enabled"
++	---help---
++	  UEFI Secure Boot provides a mechanism for ensuring that the
++	  firmware will only load signed bootloaders and kernels. Certain
++	  use cases may also require that the kernel restrict any userspace
++	  mechanism that could insert untrusted code into the kernel.
++	  Say Y here to automatically enable securelevel enforcement
++	  when a system boots with UEFI Secure Boot enabled.
++
+ config DMI
+ 	bool "Enable support for SMBIOS (DMI) tables"
+ 	depends on EFI
+--- a/drivers/firmware/efi/arm-init.c
++++ b/drivers/firmware/efi/arm-init.c
+@@ -21,6 +21,7 @@
+ #include <linux/of_fdt.h>
+ #include <linux/platform_device.h>
+ #include <linux/screen_info.h>
++#include <linux/security.h>
+ 
+ #include <asm/efi.h>
+ 
+@@ -243,6 +244,12 @@ void __init efi_init(void)
+ 	     "Unexpected EFI_MEMORY_DESCRIPTOR version %ld",
+ 	      efi.memmap.desc_version);
+ 
++#ifdef CONFIG_EFI_SECURE_BOOT_SECURELEVEL
++	if (params.secure_boot > 0) {
++		set_securelevel(1);
++	}
++#endif
++
+ 	if (uefi_init() < 0)
+ 		return;
+ 
+--- a/drivers/firmware/efi/efi.c
++++ b/drivers/firmware/efi/efi.c
+@@ -580,7 +580,8 @@ static __initdata struct params fdt_para
+ 	UEFI_PARAM("MemMap Address", "linux,uefi-mmap-start", mmap),
+ 	UEFI_PARAM("MemMap Size", "linux,uefi-mmap-size", mmap_size),
+ 	UEFI_PARAM("MemMap Desc. Size", "linux,uefi-mmap-desc-size", desc_size),
+-	UEFI_PARAM("MemMap Desc. Version", "linux,uefi-mmap-desc-ver", desc_ver)
++	UEFI_PARAM("MemMap Desc. Version", "linux,uefi-mmap-desc-ver", desc_ver),
++	UEFI_PARAM("Secure Boot Enabled", "linux,uefi-secure-boot", secure_boot)
+ };
+ 
+ static __initdata struct params xen_fdt_params[] = {
+--- a/drivers/firmware/efi/libstub/arm-stub.c
++++ b/drivers/firmware/efi/libstub/arm-stub.c
+@@ -20,7 +20,7 @@
+ 
+ bool __nokaslr;
+ 
+-static int efi_get_secureboot(efi_system_table_t *sys_table_arg)
++int efi_get_secureboot(efi_system_table_t *sys_table_arg)
+ {
+ 	static efi_char16_t const sb_var_name[] = {
+ 		'S', 'e', 'c', 'u', 'r', 'e', 'B', 'o', 'o', 't', 0 };
+--- a/drivers/firmware/efi/libstub/efistub.h
++++ b/drivers/firmware/efi/libstub/efistub.h
+@@ -62,4 +62,5 @@ efi_status_t efi_random_alloc(efi_system
+ 
+ efi_status_t check_platform_features(efi_system_table_t *sys_table_arg);
+ 
++int efi_get_secureboot(efi_system_table_t *sys_table_arg);
+ #endif
+--- a/drivers/firmware/efi/libstub/fdt.c
++++ b/drivers/firmware/efi/libstub/fdt.c
+@@ -139,6 +139,13 @@ efi_status_t update_fdt(efi_system_table
+ 			return efi_status;
+ 		}
+ 	}
++
++	fdt_val32 = cpu_to_fdt32(efi_get_secureboot(sys_table));
++	status = fdt_setprop(fdt, node, "linux,uefi-secure-boot",
++			     &fdt_val32, sizeof(fdt_val32));
++	if (status)
++		goto fdt_set_fail;
++
+ 	return EFI_SUCCESS;
+ 
+ fdt_set_fail:
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -687,6 +687,7 @@ struct efi_fdt_params {
+ 	u32 mmap_size;
+ 	u32 desc_size;
+ 	u32 desc_ver;
++	u32 secure_boot;
+ };
+ 
+ typedef struct {

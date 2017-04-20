@@ -1,0 +1,266 @@
+From: "Eric W. Biederman" <ebiederm@xmission.com>
+Date: Wed, 28 Sep 2016 00:27:17 -0500
+Subject: mnt: Add a per mount namespace limit on the number of mounts
+Origin: https://git.kernel.org/linus/d29216842a85c7970c536108e093963f02714498
+
+CAI Qian <caiqian@redhat.com> pointed out that the semantics
+of shared subtrees make it possible to create an exponentially
+increasing number of mounts in a mount namespace.
+
+    mkdir /tmp/1 /tmp/2
+    mount --make-rshared /
+    for i in $(seq 1 20) ; do mount --bind /tmp/1 /tmp/2 ; done
+
+Will create create 2^20 or 1048576 mounts, which is a practical problem
+as some people have managed to hit this by accident.
+
+As such CVE-2016-6213 was assigned.
+
+Ian Kent <raven@themaw.net> described the situation for autofs users
+as follows:
+
+> The number of mounts for direct mount maps is usually not very large because of
+> the way they are implemented, large direct mount maps can have performance
+> problems. There can be anywhere from a few (likely case a few hundred) to less
+> than 10000, plus mounts that have been triggered and not yet expired.
+>
+> Indirect mounts have one autofs mount at the root plus the number of mounts that
+> have been triggered and not yet expired.
+>
+> The number of autofs indirect map entries can range from a few to the common
+> case of several thousand and in rare cases up to between 30000 and 50000. I've
+> not heard of people with maps larger than 50000 entries.
+>
+> The larger the number of map entries the greater the possibility for a large
+> number of active mounts so it's not hard to expect cases of a 1000 or somewhat
+> more active mounts.
+
+So I am setting the default number of mounts allowed per mount
+namespace at 100,000.  This is more than enough for any use case I
+know of, but small enough to quickly stop an exponential increase
+in mounts.  Which should be perfect to catch misconfigurations and
+malfunctioning programs.
+
+For anyone who needs a higher limit this can be changed by writing
+to the new /proc/sys/fs/mount-max sysctl.
+
+Tested-by: CAI Qian <caiqian@redhat.com>
+Signed-off-by: "Eric W. Biederman" <ebiederm@xmission.com>
+[carnil: Adjust context for 4.8]
+---
+ Documentation/sysctl/fs.txt |  7 +++++++
+ fs/mount.h                  |  2 ++
+ fs/namespace.c              | 49 ++++++++++++++++++++++++++++++++++++++++++++-
+ fs/pnode.c                  |  2 +-
+ fs/pnode.h                  |  1 +
+ include/linux/mount.h       |  2 ++
+ kernel/sysctl.c             |  9 +++++++++
+ 7 files changed, 70 insertions(+), 2 deletions(-)
+
+--- a/Documentation/sysctl/fs.txt
++++ b/Documentation/sysctl/fs.txt
+@@ -265,6 +265,13 @@ aio-nr can grow to.
+ 
+ ==============================================================
+ 
++mount-max:
++
++This denotes the maximum number of mounts that may exist
++in a mount namespace.
++
++==============================================================
++
+ 
+ 2. /proc/sys/fs/binfmt_misc
+ ----------------------------------------------------------
+--- a/fs/mount.h
++++ b/fs/mount.h
+@@ -13,6 +13,8 @@ struct mnt_namespace {
+ 	u64			seq;	/* Sequence number to prevent loops */
+ 	wait_queue_head_t poll;
+ 	u64 event;
++	unsigned int		mounts; /* # of mounts in the namespace */
++	unsigned int		pending_mounts;
+ };
+ 
+ struct mnt_pcp {
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -27,6 +27,9 @@
+ #include "pnode.h"
+ #include "internal.h"
+ 
++/* Maximum number of mounts in a mount namespace */
++unsigned int sysctl_mount_max __read_mostly = 100000;
++
+ static unsigned int m_hash_mask __read_mostly;
+ static unsigned int m_hash_shift __read_mostly;
+ static unsigned int mp_hash_mask __read_mostly;
+@@ -900,6 +903,9 @@ static void commit_tree(struct mount *mn
+ 
+ 	list_splice(&head, n->list.prev);
+ 
++	n->mounts += n->pending_mounts;
++	n->pending_mounts = 0;
++
+ 	attach_shadowed(mnt, parent, shadows);
+ 	touch_mnt_namespace(n);
+ }
+@@ -1420,11 +1426,16 @@ static void umount_tree(struct mount *mn
+ 		propagate_umount(&tmp_list);
+ 
+ 	while (!list_empty(&tmp_list)) {
++		struct mnt_namespace *ns;
+ 		bool disconnect;
+ 		p = list_first_entry(&tmp_list, struct mount, mnt_list);
+ 		list_del_init(&p->mnt_expire);
+ 		list_del_init(&p->mnt_list);
+-		__touch_mnt_namespace(p->mnt_ns);
++		ns = p->mnt_ns;
++		if (ns) {
++			ns->mounts--;
++			__touch_mnt_namespace(ns);
++		}
+ 		p->mnt_ns = NULL;
+ 		if (how & UMOUNT_SYNC)
+ 			p->mnt.mnt_flags |= MNT_SYNC_UMOUNT;
+@@ -1842,6 +1853,28 @@ static int invent_group_ids(struct mount
+ 	return 0;
+ }
+ 
++int count_mounts(struct mnt_namespace *ns, struct mount *mnt)
++{
++	unsigned int max = READ_ONCE(sysctl_mount_max);
++	unsigned int mounts = 0, old, pending, sum;
++	struct mount *p;
++
++	for (p = mnt; p; p = next_mnt(p, mnt))
++		mounts++;
++
++	old = ns->mounts;
++	pending = ns->pending_mounts;
++	sum = old + pending;
++	if ((old > sum) ||
++	    (pending > sum) ||
++	    (max < sum) ||
++	    (mounts > (max - sum)))
++		return -ENOSPC;
++
++	ns->pending_mounts = pending + mounts;
++	return 0;
++}
++
+ /*
+  *  @source_mnt : mount tree to be attached
+  *  @nd         : place the mount tree @source_mnt is attached
+@@ -1911,10 +1944,18 @@ static int attach_recursive_mnt(struct m
+ 			struct path *parent_path)
+ {
+ 	HLIST_HEAD(tree_list);
++	struct mnt_namespace *ns = dest_mnt->mnt_ns;
+ 	struct mount *child, *p;
+ 	struct hlist_node *n;
+ 	int err;
+ 
++	/* Is there space to add these mounts to the mount namespace? */
++	if (!parent_path) {
++		err = count_mounts(ns, source_mnt);
++		if (err)
++			goto out;
++	}
++
+ 	if (IS_MNT_SHARED(dest_mnt)) {
+ 		err = invent_group_ids(source_mnt, true);
+ 		if (err)
+@@ -1951,11 +1992,13 @@ static int attach_recursive_mnt(struct m
+  out_cleanup_ids:
+ 	while (!hlist_empty(&tree_list)) {
+ 		child = hlist_entry(tree_list.first, struct mount, mnt_hash);
++		child->mnt_parent->mnt_ns->pending_mounts = 0;
+ 		umount_tree(child, UMOUNT_SYNC);
+ 	}
+ 	unlock_mount_hash();
+ 	cleanup_group_ids(source_mnt, NULL);
+  out:
++	ns->pending_mounts = 0;
+ 	return err;
+ }
+ 
+@@ -2758,6 +2801,8 @@ static struct mnt_namespace *alloc_mnt_n
+ 	init_waitqueue_head(&new_ns->poll);
+ 	new_ns->event = 0;
+ 	new_ns->user_ns = get_user_ns(user_ns);
++	new_ns->mounts = 0;
++	new_ns->pending_mounts = 0;
+ 	return new_ns;
+ }
+ 
+@@ -2807,6 +2852,7 @@ struct mnt_namespace *copy_mnt_ns(unsign
+ 	q = new;
+ 	while (p) {
+ 		q->mnt_ns = new_ns;
++		new_ns->mounts++;
+ 		if (new_fs) {
+ 			if (&p->mnt == new_fs->root.mnt) {
+ 				new_fs->root.mnt = mntget(&q->mnt);
+@@ -2845,6 +2891,7 @@ static struct mnt_namespace *create_mnt_
+ 		struct mount *mnt = real_mount(m);
+ 		mnt->mnt_ns = new_ns;
+ 		new_ns->root = mnt;
++		new_ns->mounts++;
+ 		list_add(&mnt->mnt_list, &new_ns->list);
+ 	} else {
+ 		mntput(m);
+--- a/fs/pnode.c
++++ b/fs/pnode.c
+@@ -259,7 +259,7 @@ static int propagate_one(struct mount *m
+ 		read_sequnlock_excl(&mount_lock);
+ 	}
+ 	hlist_add_head(&child->mnt_hash, list);
+-	return 0;
++	return count_mounts(m->mnt_ns, child);
+ }
+ 
+ /*
+--- a/fs/pnode.h
++++ b/fs/pnode.h
+@@ -52,4 +52,5 @@ void mnt_set_mountpoint(struct mount *,
+ struct mount *copy_tree(struct mount *, struct dentry *, int);
+ bool is_path_reachable(struct mount *, struct dentry *,
+ 			 const struct path *root);
++int count_mounts(struct mnt_namespace *ns, struct mount *mnt);
+ #endif /* _LINUX_PNODE_H */
+--- a/include/linux/mount.h
++++ b/include/linux/mount.h
+@@ -96,4 +96,6 @@ extern void mark_mounts_for_expiry(struc
+ 
+ extern dev_t name_to_dev_t(const char *name);
+ 
++extern unsigned int sysctl_mount_max;
++
+ #endif /* _LINUX_MOUNT_H */
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -65,6 +65,7 @@
+ #include <linux/sched/sysctl.h>
+ #include <linux/kexec.h>
+ #include <linux/bpf.h>
++#include <linux/mount.h>
+ 
+ #include <asm/uaccess.h>
+ #include <asm/processor.h>
+@@ -1850,6 +1851,14 @@ static struct ctl_table fs_table[] = {
+ 		.mode		= 0644,
+ 		.proc_handler	= proc_doulongvec_minmax,
+ 	},
++	{
++		.procname	= "mount-max",
++		.data		= &sysctl_mount_max,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0644,
++		.proc_handler	= proc_dointvec_minmax,
++		.extra1		= &one,
++	},
+ 	{ }
+ };
+ 

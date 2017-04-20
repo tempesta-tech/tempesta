@@ -1,0 +1,448 @@
+##
+## file: arch/arm/Kconfig
+##
+CONFIG_PCI=y
+CONFIG_ZBOOT_ROM_TEXT=0x0
+CONFIG_ZBOOT_ROM_BSS=0x0
+CONFIG_CMDLINE=""
+# CONFIG_XIP_KERNEL is not set
+CONFIG_ATAGS_PROC=y
+CONFIG_FPE_NWFPE=y
+# CONFIG_FPE_NWFPE_XP is not set
+# CONFIG_FPE_FASTFPE is not set
+CONFIG_VFP=y
+
+##
+## file: arch/arm/Kconfig.debug
+##
+# CONFIG_DEBUG_USER is not set
+
+##
+## file: arch/arm/mach-imx/Kconfig
+##
+# CONFIG_ARCH_MXC is not set
+
+##
+## file: arch/arm/mach-versatile/Kconfig
+##
+CONFIG_ARCH_VERSATILE=y
+
+##
+## file: arch/arm/mm/Kconfig
+##
+CONFIG_ARM_THUMB=y
+# CONFIG_CPU_ICACHE_DISABLE is not set
+# CONFIG_CPU_DCACHE_DISABLE is not set
+# CONFIG_CPU_DCACHE_WRITETHROUGH is not set
+# CONFIG_CPU_CACHE_ROUND_ROBIN is not set
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_ATA=m
+CONFIG_SATA_AHCI=m
+CONFIG_SATA_SIL24=m
+# CONFIG_PDC_ADMA is not set
+# CONFIG_SATA_QSTOR is not set
+CONFIG_SATA_SX4=m
+# CONFIG_ATA_PIIX is not set
+# CONFIG_SATA_MV is not set
+# CONFIG_SATA_NV is not set
+CONFIG_SATA_PROMISE=m
+CONFIG_SATA_SIL=m
+# CONFIG_SATA_SIS is not set
+# CONFIG_SATA_SVW is not set
+# CONFIG_SATA_ULI is not set
+CONFIG_SATA_VIA=m
+# CONFIG_SATA_VITESSE is not set
+# CONFIG_PATA_ALI is not set
+# CONFIG_PATA_AMD is not set
+# CONFIG_PATA_ARTOP is not set
+# CONFIG_PATA_ATIIXP is not set
+# CONFIG_PATA_CMD64X is not set
+# CONFIG_PATA_CS5520 is not set
+# CONFIG_PATA_CYPRESS is not set
+# CONFIG_PATA_EFAR is not set
+# CONFIG_PATA_HPT366 is not set
+# CONFIG_PATA_HPT37X is not set
+# CONFIG_PATA_HPT3X2N is not set
+# CONFIG_PATA_HPT3X3 is not set
+# CONFIG_PATA_IT8213 is not set
+# CONFIG_PATA_IT821X is not set
+# CONFIG_PATA_JMICRON is not set
+# CONFIG_PATA_MARVELL is not set
+# CONFIG_PATA_NETCELL is not set
+# CONFIG_PATA_NS87415 is not set
+# CONFIG_PATA_OLDPIIX is not set
+# CONFIG_PATA_OPTIDMA is not set
+# CONFIG_PATA_PDC2027X is not set
+# CONFIG_PATA_PDC_OLD is not set
+# CONFIG_PATA_RADISYS is not set
+# CONFIG_PATA_SC1200 is not set
+# CONFIG_PATA_SERVERWORKS is not set
+# CONFIG_PATA_SIL680 is not set
+# CONFIG_PATA_SIS is not set
+# CONFIG_PATA_TRIFLEX is not set
+# CONFIG_PATA_VIA is not set
+# CONFIG_PATA_WINBOND is not set
+# CONFIG_PATA_CMD640_PCI is not set
+# CONFIG_PATA_MPIIX is not set
+# CONFIG_PATA_NS87410 is not set
+# CONFIG_PATA_OPTI is not set
+# CONFIG_PATA_RZ1000 is not set
+# CONFIG_ATA_GENERIC is not set
+
+##
+## file: drivers/atm/Kconfig
+##
+CONFIG_ATM_DRIVERS=y
+# CONFIG_ATM_DUMMY is not set
+# CONFIG_ATM_TCP is not set
+# CONFIG_ATM_LANAI is not set
+# CONFIG_ATM_ENI is not set
+# CONFIG_ATM_FIRESTREAM is not set
+# CONFIG_ATM_ZATM is not set
+# CONFIG_ATM_NICSTAR is not set
+# CONFIG_ATM_IDT77252 is not set
+# CONFIG_ATM_AMBASSADOR is not set
+# CONFIG_ATM_HORIZON is not set
+# CONFIG_ATM_IA is not set
+# CONFIG_ATM_HE is not set
+
+##
+## file: drivers/char/Kconfig
+##
+# CONFIG_NVRAM is not set
+# CONFIG_APPLICOM is not set
+
+##
+## file: drivers/gpio/Kconfig
+##
+#. Needed for SMC91X
+CONFIG_GPIOLIB=y
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=m
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+# CONFIG_I2C_ISCH is not set
+# CONFIG_I2C_OCORES is not set
+CONFIG_I2C_PCA_PLATFORM=m
+# CONFIG_I2C_SIMTEC is not set
+CONFIG_I2C_VERSATILE=m
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_INPUT_KEYBOARD=y
+CONFIG_KEYBOARD_ATKBD=y
+# CONFIG_KEYBOARD_LKKBD is not set
+# CONFIG_KEYBOARD_NEWTON is not set
+CONFIG_KEYBOARD_STOWAWAY=m
+# CONFIG_KEYBOARD_SUNKBD is not set
+# CONFIG_KEYBOARD_XTKBD is not set
+
+##
+## file: drivers/input/serio/Kconfig
+##
+CONFIG_SERIO=y
+CONFIG_SERIO_SERPORT=y
+CONFIG_SERIO_AMBAKMI=y
+# CONFIG_SERIO_PCIPS2 is not set
+CONFIG_SERIO_LIBPS2=y
+# CONFIG_SERIO_RAW is not set
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+# CONFIG_INPUT_TOUCHSCREEN is not set
+
+##
+## file: drivers/net/Kconfig
+##
+# CONFIG_NET_FC is not set
+CONFIG_IFB=m
+
+##
+## file: drivers/net/arcnet/Kconfig
+##
+# CONFIG_ARCNET is not set
+
+##
+## file: drivers/net/ethernet/Kconfig
+##
+CONFIG_FEALNX=m
+
+##
+## file: drivers/net/ethernet/3com/Kconfig
+##
+CONFIG_NET_VENDOR_3COM=y
+CONFIG_VORTEX=m
+CONFIG_TYPHOON=m
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+# CONFIG_AX88796 is not set
+CONFIG_NE2K_PCI=m
+
+##
+## file: drivers/net/ethernet/adaptec/Kconfig
+##
+CONFIG_ADAPTEC_STARFIRE=m
+
+##
+## file: drivers/net/ethernet/alteon/Kconfig
+##
+# CONFIG_ACENIC is not set
+
+##
+## file: drivers/net/ethernet/amd/Kconfig
+##
+CONFIG_AMD8111_ETH=m
+
+##
+## file: drivers/net/ethernet/broadcom/Kconfig
+##
+# CONFIG_B44 is not set
+# CONFIG_BNX2 is not set
+# CONFIG_TIGON3 is not set
+# CONFIG_BNX2X is not set
+
+##
+## file: drivers/net/ethernet/davicom/Kconfig
+##
+# CONFIG_DM9000 is not set
+
+##
+## file: drivers/net/ethernet/dlink/Kconfig
+##
+CONFIG_SUNDANCE=m
+# CONFIG_SUNDANCE_MMIO is not set
+
+##
+## file: drivers/net/ethernet/hp/Kconfig
+##
+CONFIG_HP100=m
+
+##
+## file: drivers/net/ethernet/intel/Kconfig
+##
+CONFIG_E100=m
+
+##
+## file: drivers/net/ethernet/natsemi/Kconfig
+##
+CONFIG_NATSEMI=m
+
+##
+## file: drivers/net/ethernet/nvidia/Kconfig
+##
+# CONFIG_FORCEDETH is not set
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_8139CP=m
+CONFIG_8139TOO=m
+
+##
+## file: drivers/net/ethernet/silan/Kconfig
+##
+CONFIG_SC92031=m
+
+##
+## file: drivers/net/ethernet/sis/Kconfig
+##
+CONFIG_SIS900=m
+
+##
+## file: drivers/net/ethernet/smsc/Kconfig
+##
+CONFIG_SMC91X=m
+CONFIG_EPIC100=m
+
+##
+## file: drivers/net/ethernet/sun/Kconfig
+##
+# CONFIG_HAPPYMEAL is not set
+# CONFIG_SUNGEM is not set
+# CONFIG_CASSINI is not set
+
+##
+## file: drivers/net/ethernet/ti/Kconfig
+##
+# CONFIG_TLAN is not set
+
+##
+## file: drivers/net/ethernet/via/Kconfig
+##
+CONFIG_VIA_RHINE=m
+# CONFIG_VIA_RHINE_MMIO is not set
+
+##
+## file: drivers/net/fddi/Kconfig
+##
+# CONFIG_FDDI is not set
+
+##
+## file: drivers/net/hippi/Kconfig
+##
+# CONFIG_HIPPI is not set
+
+##
+## file: drivers/pci/Kconfig
+##
+CONFIG_PCI_IOV=y
+
+##
+## file: drivers/pcmcia/Kconfig
+##
+# CONFIG_PCCARD is not set
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_PL031=y
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI_SYM53C8XX_2=m
+
+##
+## file: drivers/spi/Kconfig
+##
+# CONFIG_SPI is not set
+
+##
+## file: drivers/tty/Kconfig
+##
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+# CONFIG_SERIAL_NONSTANDARD is not set
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+# CONFIG_SERIAL_JSM is not set
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+# CONFIG_SERIAL_8250 is not set
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB_SUPPORT=y
+CONFIG_USB=m
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_EHCI_HCD=m
+CONFIG_USB_ISP116X_HCD=m
+CONFIG_USB_OHCI_HCD=m
+# CONFIG_USB_OHCI_HCD_SSB is not set
+CONFIG_USB_UHCI_HCD=m
+# CONFIG_USB_U132_HCD is not set
+# CONFIG_USB_SL811_HCD is not set
+# CONFIG_USB_R8A66597_HCD is not set
+
+##
+## file: drivers/video/backlight/Kconfig
+##
+CONFIG_BACKLIGHT_CLASS_DEVICE=m
+
+##
+## file: drivers/video/console/Kconfig
+##
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=y
+CONFIG_FIRMWARE_EDID=y
+CONFIG_FB_MODE_HELPERS=y
+CONFIG_FB_TILEBLITTING=y
+CONFIG_FB_CIRRUS=m
+# CONFIG_FB_PM2 is not set
+CONFIG_FB_ARMCLCD=y
+# CONFIG_FB_CYBER2000 is not set
+# CONFIG_FB_ASILIANT is not set
+# CONFIG_FB_IMSTT is not set
+# CONFIG_FB_S1D13XXX is not set
+# CONFIG_FB_MATROX is not set
+# CONFIG_FB_RADEON is not set
+# CONFIG_FB_ATY128 is not set
+# CONFIG_FB_ATY is not set
+CONFIG_FB_S3=m
+CONFIG_FB_S3_DDC=y
+# CONFIG_FB_SAVAGE is not set
+# CONFIG_FB_SIS is not set
+# CONFIG_FB_NEOMAGIC is not set
+# CONFIG_FB_KYRO is not set
+# CONFIG_FB_3DFX is not set
+# CONFIG_FB_VOODOO1 is not set
+# CONFIG_FB_VT8623 is not set
+# CONFIG_FB_TRIDENT is not set
+CONFIG_FB_ARK=m
+CONFIG_FB_PM3=m
+CONFIG_FB_SM501=m
+CONFIG_FB_VIRTUAL=m
+
+##
+## file: drivers/virtio/Kconfig
+##
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_BALLOON=y
+
+##
+## file: lib/Kconfig.debug
+##
+CONFIG_ENABLE_WARN_DEPRECATED=y
+CONFIG_ENABLE_MUST_CHECK=y
+CONFIG_UNUSED_SYMBOLS=y
+# CONFIG_HEADERS_CHECK is not set
+CONFIG_DEBUG_BUGVERBOSE=y
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_FLATMEM_MANUAL=y
+# CONFIG_DISCONTIGMEM_MANUAL is not set
+# CONFIG_SPARSEMEM_MANUAL is not set
+## end choice
+
+##
+## file: net/decnet/Kconfig
+##
+CONFIG_DECNET=m
+CONFIG_DECNET_ROUTER=y
+
+##
+## file: net/ipx/Kconfig
+##
+CONFIG_IPX=m
+CONFIG_IPX_INTERN=y
+
+##
+## file: net/irda/Kconfig
+##
+# CONFIG_IRDA is not set
+
+##
+## file: net/lapb/Kconfig
+##
+# CONFIG_LAPB is not set
+

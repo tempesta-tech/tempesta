@@ -1,0 +1,66 @@
+##
+## file: arch/Kconfig
+##
+## choice: Stack Protector buffer overflow detection
+CONFIG_CC_STACKPROTECTOR_REGULAR=y
+# CONFIG_CC_STACKPROTECTOR_STRONG is not set
+## end choice
+
+##
+## file: arch/sh/Kconfig
+##
+CONFIG_KEXEC=y
+CONFIG_SECCOMP=y
+
+##
+## file: arch/sh/Kconfig.cpu
+##
+## choice: Endianness selection
+CONFIG_CPU_LITTLE_ENDIAN=y
+## end choice
+CONFIG_SH_FPU=y
+CONFIG_SH_STORE_QUEUES=y
+
+##
+## file: arch/sh/drivers/Kconfig
+##
+CONFIG_HEARTBEAT=y
+
+##
+## file: arch/sh/mm/Kconfig
+##
+## choice: Cache mode
+CONFIG_CACHE_WRITEBACK=y
+## end choice
+
+##
+## file: drivers/cpufreq/Kconfig
+##
+CONFIG_CPU_FREQ_STAT_DETAILS=y
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+CONFIG_SH_CPU_FREQ=y
+
+##
+## file: drivers/pci/pcie/Kconfig
+##
+# CONFIG_PCIEPORTBUS is not set
+
+##
+## file: kernel/Kconfig.hz
+##
+## choice: Timer frequency
+CONFIG_HZ_250=y
+## end choice
+
+##
+## file: kernel/irq/Kconfig
+##
+CONFIG_SPARSE_IRQ=y
+
+##
+## file: kernel/Kconfig.preempt
+##
+## choice: Preemption Model
+CONFIG_PREEMPT_NONE=y
+## end choice
+
