@@ -69,6 +69,10 @@ DIR_ORIG = ../orig/$(SOURCE)-$(VERSION_UPSTREAM)
 TAR_ORIG_NAME = $(SOURCE)_$(VERSION_UPSTREAM).orig.tar.xz
 TAR_ORIG = $(firstword $(wildcard ../$(TAR_ORIG_NAME)) $(wildcard ../orig/$(TAR_ORIG_NAME)))
 
+get-orig-source:
+	@echo "Downloading orig tarball..."
+	uscan --verbose --force-download
+
 orig: $(DIR_ORIG)
 	rsync --delete --exclude /debian --exclude .svk --exclude .svn --exclude .git --link-dest=$(DIR_ORIG)/ -a $(DIR_ORIG)/ .
 	QUILT_PATCHES='$(CURDIR)/debian/patches' QUILT_PC=.pc quilt push --quiltrc - -a -q --fuzz=0

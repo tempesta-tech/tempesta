@@ -24,5 +24,5 @@ hardware: multiprocessor 64-bit PA-RISC
 hardware-long: HP PA-RISC 64-bit SMP systems with support for more than 4 GB RAM
 
 [relations]
-gcc-5: gcc-5 <!stage1 !cross>, binutils-hppa64-linux-gnu <!stage1 !cross>, gcc-5-hppa64-linux-gnu <!stage1 !cross>, gcc-5-hppa-linux-gnu:native <!stage1 cross>, binutils-hppa64-linux-gnu:native <!stage1 cross>, gcc-5-hppa64-linux-gnu:native <!stage1 cross>
+gcc-6: gcc-6 <!stage1 !cross>, binutils-hppa64-linux-gnu <!stage1 !cross>, gcc-6-hppa64-linux-gnu <!stage1 !cross>, gcc-6-hppa-linux-gnu:native <!stage1 cross>, binutils-hppa64-linux-gnu:native <!stage1 cross>, gcc-6-hppa64-linux-gnu:native <!stage1 cross>
 

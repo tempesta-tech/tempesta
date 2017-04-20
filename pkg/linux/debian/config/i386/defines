@@ -20,7 +20,7 @@ install-stem: vmlinuz
 breaks: xserver-xorg-input-vmmouse (<< 1:13.0.99)
 
 [relations]
-headers%gcc-5: linux-compiler-gcc-5-x86
+headers%gcc-6: linux-compiler-gcc-6-x86
 
 [686_description]
 hardware: older PCs

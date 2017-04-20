@@ -63,7 +63,7 @@ CONFIG_EFI_PARTITION=y
 #. Signatures are added in linux-signed
 CONFIG_MODULE_SIG_KEY=""
 #. Actually a list of X.509 certificates, not keys
-CONFIG_SYSTEM_TRUSTED_KEYS="debian/certs/benh@debian.org.cert.pem"
+CONFIG_SYSTEM_TRUSTED_KEYS=""
 
 ##
 ## file: crypto/Kconfig
@@ -5597,11 +5597,13 @@ CONFIG_PERF_EVENTS=y
 CONFIG_VM_EVENT_COUNTERS=y
 # CONFIG_COMPAT_BRK is not set
 ## choice: Choose SLAB allocator
-CONFIG_SLAB=y
-# CONFIG_SLUB is not set
+# CONFIG_SLAB is not set
+CONFIG_SLUB=y
 # CONFIG_SLOB is not set
 ## end choice
 CONFIG_SLAB_FREELIST_RANDOM=y
+CONFIG_SLUB_DEBUG=y
+CONFIG_SLUB_CPU_PARTIAL=y
 # CONFIG_MMAP_ALLOW_UNINITIALIZED is not set
 CONFIG_PROFILING=y
 CONFIG_MODULES=y
@@ -6723,7 +6725,8 @@ CONFIG_LSM_MMAP_MIN_ADDR=32768
 CONFIG_HARDENED_USERCOPY=y
 # CONFIG_HARDENED_USERCOPY_PAGESPAN is not set
 ## choice: Default security module
-CONFIG_DEFAULT_SECURITY_DAC=y
+CONFIG_DEFAULT_SECURITY_TEMPESTA=y
+CONFIG_DEFAULT_SECURITY="tempesta"
 ## end choice
 
 ##
@@ -6732,6 +6735,11 @@ CONFIG_DEFAULT_SECURITY_DAC=y
 CONFIG_SECURITY_APPARMOR=y
 CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE=1
 CONFIG_SECURITY_APPARMOR_HASH=y
+
+##
+## file: security/tempesta/Kconfig
+##
+CONFIG_SECURITY_TEMPESTA=y
 
 ##
 ## file: security/integrity/Kconfig

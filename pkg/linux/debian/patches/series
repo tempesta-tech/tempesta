@@ -2,7 +2,6 @@
 debian/version.patch
 debian/uname-version-timestamp.patch
 debian/kernelvariables.patch
-debian/gitignore.patch
 debian/mips-disable-werror.patch
 debian/arch-sh4-fix-uimage-build.patch
 debian/powerpcspe-omit-uimage.patch

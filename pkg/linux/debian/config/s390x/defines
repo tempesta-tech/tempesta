@@ -12,7 +12,7 @@ bootloaders: s390-tools
 install-stem: vmlinuz
 
 [relations]
-headers%gcc-5: linux-compiler-gcc-5-s390
+headers%gcc-6: linux-compiler-gcc-6-s390
 
 [s390x_build]
 debug-info: true

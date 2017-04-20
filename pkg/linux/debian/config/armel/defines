@@ -15,7 +15,7 @@ signed-modules: false
 install-stem: vmlinuz
 
 [relations]
-headers%gcc-5: linux-compiler-gcc-5-arm
+headers%gcc-6: linux-compiler-gcc-6-arm
 
 [marvell_description]
 hardware: Marvell Kirkwood/Orion
