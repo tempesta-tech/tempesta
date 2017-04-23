@@ -790,8 +790,6 @@ retry:
 	schdata->csidx = 0;
 	++schdata->riter;
 	goto retry;
-
-	spin_unlock(&schdata->lock);
 }
 
 /*
