@@ -18,38 +18,10 @@ We do our best to keep the kernel modifications as small as possible. Current
 is just about 2,000 lines.
 
 
-### Prerequisites
+### Prerequisites & Installation
 
-#### Common
-
-* **x86-64 Haswell** or later CPU. Tempesta FW requires **SSE 4.2**, **AVX2**
-  and **2MB huge pages** enabled (check **sse4\_2**, **avx2** and **pse** flags
-  in your /proc/cpuinfo);
-* At least **2GB RAM**;
-* **RSS** capable network adapter;
-* Linux CentOS/RHEL 7 or Debian 8;
-* Filesystem with `fallocate(2)` system call (e.g. **ext4**, **btrfs** or
-  **xfs**);
-* GNU Make 3.82 or higher;
-* GCC and G++ compilers of versions 4.8 or higher;
-* Boost library of version 1.53 or higher;
-
-
-#### Kernel
-
-Tempesta requires that the following Linux kernel configuration options are
-switched on:
-
-* CONFIG\_SECURITY
-* CONFIG\_SECURITY\_NETWORK
-* CONFIG\_SECURITY\_TEMPESTA
-* CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
-* CONFIG\_DEFAULT\_SECURITY="tempesta"
-
-We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
-please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
-additional stress to synchronization of several algorithms. Also note that
-CONFIG\_PREEMPT is not supported at all.
+Please see our [Wiki](https://github.com/tempesta-tech/tempesta/wiki) for system
+requirements and installation procedures.
 
 
 ### Build
