@@ -711,8 +711,9 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 
 		for (i = 0; i < rbuf->rbufsz; ++i)
 			total_cnt += atomic64_read(&rbent[i].pcntrng.tot_cnt);
+		entry_cnt = atomic64_read(&rbent[centry].pcntrng.tot_cnt);
 
-		rbctl->entry_cnt = 0;
+		rbctl->entry_cnt = entry_cnt;
 		rbctl->total_cnt = total_cnt;
 		rbctl->jtmwstamp = jtmwstart;
 
