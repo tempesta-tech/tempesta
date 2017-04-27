@@ -1055,7 +1055,6 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 		return -ENOMEM;
 	rpool = sg->sched_data;
 	rpool->rpool = sg->sched_data + sizeof(TfwRatioPool);
-	rpool->ratio = rpool->rpool;
 
 	/* Array for server descriptors. Shared between RCU pool entries. */
 	size = sizeof(TfwRatioSrvDesc) * sg->srv_n;
@@ -1123,6 +1122,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 	}
 
 	/* Calculate initial ratios for each server. */
+	rcu_assign_pointer(rpool->ratio, tfw_sched_ratio_rpool_get(rpool));
 	tfw_sched_ratio_calc_static(rpool, rpool->ratio);
 
 	/* Set up periodic re-calculation of ratios. */
