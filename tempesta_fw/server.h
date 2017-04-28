@@ -43,7 +43,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @list	- member pointer in the list of servers of a server group;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
- * @apm		- opaque handle for APM stats;
+ * @apmref	- opaque handle for APM stats;
  * @weight	- static server weight for load balancers;
  * @conn_n	- configured number of connections to the server;
  */
@@ -52,7 +52,7 @@ typedef struct {
 	struct list_head	list;
 	TfwSrvGroup		*sg;
 	void			*sched_data;
-	void			*apm;
+	void			*apmref;
 	unsigned int		weight;
 	size_t			conn_n;
 } TfwServer;
@@ -153,7 +153,6 @@ struct tfw_scheduler_t {
 
 /* Server specific routines. */
 TfwServer *tfw_server_create(const TfwAddr *addr);
-int tfw_server_apm_create(TfwServer *srv);
 void tfw_server_destroy(TfwServer *srv);
 
 void tfw_srv_conn_release(TfwSrvConn *srv_conn);

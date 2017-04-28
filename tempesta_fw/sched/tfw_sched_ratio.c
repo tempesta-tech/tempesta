@@ -448,7 +448,7 @@ tfw_sched_ratio_fill_apmdata(TfwRatioPool *rpool, TfwRatio *ratio)
 	 */
 	for (si = 0; si < rpool->srv_n; ++si) {
 		pstats.seq = srvdesc[si].seq;
-		recalc |= tfw_apm_stats(srvdesc[si].srv->apm, &pstats);
+		recalc |= tfw_apm_stats(srvdesc[si].srv->apmref, &pstats);
 		srvdesc[si].seq = pstats.seq;
 
 		srvdata[si].sdidx = si;
