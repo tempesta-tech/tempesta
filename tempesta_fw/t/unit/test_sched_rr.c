@@ -236,7 +236,7 @@ TEST(tfw_sched_rr, sched_srv_max_srv_max_conn)
 	struct {
 		TfwServer *srv;
 		long long conn_acc;
-	} srv_acc[TFW_SG_MAX_SRV] = { 0 };
+	} srv_acc[TFW_SG_MAX_SRV] = { {0} };
 
 	TfwSrvGroup *sg = test_create_sg("test", sched_helper_rr.sched);
 
