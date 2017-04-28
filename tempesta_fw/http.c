@@ -2178,7 +2178,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * value of RTT has an upper boundary in the APM.
 	 */
 	if (resp->conn)
-		tfw_apm_update(((TfwServer *)resp->conn->peer)->apm,
+		tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
 				resp->jrxtstamp,
 				resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_resp_fwd(req, resp);

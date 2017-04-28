@@ -29,6 +29,7 @@
 #include "log.h"
 #include "pool.h"
 #include "procfs.h"
+#include "work_queue.h"
 
 /*
  * The algorithm is constructed to be as efficient as possible. That's
@@ -204,7 +205,7 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
  * largest response time faced.
  */
 static void
-__tfw_stats_adjust(TfwPcntRanges *rng, int r)
+tfw_stats_adjust(TfwPcntRanges *rng, int r)
 {
 	TfwPcntCtl pc;
 	unsigned long i, cnt = 0, sum = 0, max = 0, i_max = 0;
@@ -265,23 +266,6 @@ __tfw_stats_adjust(TfwPcntRanges *rng, int r)
 }
 
 /*
- * See if the range @r contains large outliers. Adjust it if so.
- * This is the locked version.
- *
- * If the lock is busy then either the ranges are being adjusted
- * or the percentiles are being calculated at this very moment.
- * Just skip the adjustment of ranges and do it next time.
- */
-static inline void
-tfw_stats_adjust(TfwPcntRanges *rng, int r, spinlock_t *slock)
-{
-	if (!spin_trylock(slock))
-		return;
-	__tfw_stats_adjust(rng, r);
-	spin_unlock(slock);
-}
-
-/*
  * Set the new maximum value.
  * Return true if the new value has been set.
  * Return false if the maximum value remained the same.
@@ -331,7 +315,7 @@ tfw_stats_adj_min(TfwPcntRanges *rng, unsigned int r_time)
  * We only care about correct array indexing.
  */
 static void
-tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time, spinlock_t *slock)
+tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 {
 	TfwPcntCtl pc3, pc2 = { .atomic = rng->ctl[2].atomic };
 
@@ -346,7 +330,7 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time, spinlock_t *slock)
 		TfwPcntCtl pc0, pc1 = { .atomic = rng->ctl[1].atomic };
 		if (pc1.end < r_time) {
 			atomic_inc(__rng(&pc2, rng->cnt[2], r_time));
-			tfw_stats_adjust(rng, 2, slock);
+			tfw_stats_adjust(rng, 2);
 			atomic64_inc(&rng->tot_cnt);
 			return;
 		}
@@ -355,27 +339,24 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time, spinlock_t *slock)
 		BUG_ON(pc0.begin != 1); /* left bound is never moved */
 		if (pc0.end < r_time) {
 			atomic_inc(__rng(&pc1, rng->cnt[1], r_time));
-			tfw_stats_adjust(rng, 1, slock);
+			tfw_stats_adjust(rng, 1);
 			atomic64_inc(&rng->tot_cnt);
 			return;
 		}
 		atomic_inc(__rng(&pc0, rng->cnt[0], r_time));
-		tfw_stats_adjust(rng, 0, slock);
+		tfw_stats_adjust(rng, 0);
 		atomic64_inc(&rng->tot_cnt);
 		return;
 	}
 
-	if (!spin_trylock(slock))
-		return;
 	pc3.atomic = rng->ctl[3].atomic;
 	if (unlikely(r_time > pc3.end)) {
 		tfw_stats_extend(rng, r_time);
 		pc3.atomic = rng->ctl[3].atomic;
 	}
 	atomic_inc(__rng(&pc3, rng->cnt[3], r_time));
-	__tfw_stats_adjust(rng, 3);
+	tfw_stats_adjust(rng, 3);
 	atomic64_inc(&rng->tot_cnt);
-	spin_unlock(slock);
 }
 
 /*
@@ -388,6 +369,7 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time, spinlock_t *slock)
  */
 /*
  * A ring buffer entry structure.
+ *
  * @pcntrng	- Struct for response time data by the percentiles algorithm.
  * @jtmistamp	- The start of the time interval for the current entry.
  * @reset	- The entry can be reset by one thread at a time.
@@ -400,8 +382,10 @@ typedef struct {
 
 /*
  * The ring buffer contol structure.
+ *
  * This is a supporting structure. It keeps related data that is useful
  * in making decisions on the need of recalculation of percentiles.
+ *
  * @jtmwstamp	- The start of the time window the percentiles are for.
  * @entry_cnt	- The number of hits in the current buffer ring entry.
  * @total_cnt	- The number of hits within the current time window.
@@ -415,6 +399,7 @@ typedef struct {
 
 /*
  * The ring buffer structure.
+ *
  * @rbent	- Array of ring buffer entries.
  * @slock	- The lock to adjust the ranges in the current entry.
  * @rbufsz	- The size of @rbent.
@@ -428,6 +413,7 @@ typedef struct {
 /*
  * The stats entry data structure.
  * Keeps the latest values of calculated percentiles.
+ *
  * @pstats	- The percentile stats structure.
  * @rwlock	- Protect updates.
  */
@@ -438,6 +424,7 @@ typedef struct {
 
 /*
  * The stats data structure.
+ *
  * There's only one updater that runs on timer. It calculates the latest
  * percentiles and updates the stored values. There are multiple readers
  * of the stored values. The stored values of the latest percentiles are
@@ -446,6 +433,7 @@ typedef struct {
  * at @asent[@rdidx % 2]. The writer writes the new percentile values to
  * @asent[(@rdidx + 1) % 2], and then increments @rdidx. The reading and
  * the writing are protected by a rwlock.
+ *
  * @asent	- The stats entries for reading/writing (flip-flop manner).
  * @rdidx	- The current index in @asent for readers.
  */
@@ -456,27 +444,33 @@ typedef struct {
 
 /*
  * APM Data structure.
+ *
  * Note that the organization of the supporting data heavily depends
  * on the fact that there's only one party that does the calculation
  * of percentiles - the function that runs periodically on timer.
  * If there are several different parties that do the calculation,
  * then the data may need to be organized differently.
+ *
+ * @list	- Member in @tfw_apm_qcalc or @tfw_apm_qrecalc.
  * @rbuf	- The ring buffer for the specified time window.
  * @rbctl	- The control data helpful in taking optimizations.
  * @stats	- The latest percentiles.
  * @timer	- The periodic timer handle.
  * @flags	- The atomic flags (see below).
+ * @refcnt	- The reference count.
  */
-#define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
-#define TFW_APM_DATA_F_RECALC	(0x0002)	/* Need to recalculate. */
+#define TFW_APM_DATA_F_RECALC	(0x0001)	/* Need to recalculate. */
+#define TFW_APM_DATA_F_UPDONE	(0x0002)	/* RTT update done. */
 #define TFW_APM_TIMER_TIMEOUT	(HZ/20)		/* The timer periodicity. */
 
 typedef struct {
+	struct list_head	list;
 	TfwApmRBuf		rbuf;
 	TfwApmRBCtl		rbctl;
 	TfwApmStats		stats;
 	struct timer_list	timer;
 	unsigned long		flags;
+	atomic_t		refcnt;
 } TfwApmData;
 
 /*
@@ -494,6 +488,30 @@ static int tfw_apm_jtmwindow;		/* Time window in jiffies. */
 static int tfw_apm_jtmintrvl;		/* Time interval in jiffies. */
 static int tfw_apm_tmwscale;		/* Time window scale. */
 
+/* Work Queue item for stats data. */
+typedef struct {
+	TfwApmData	*data;
+	unsigned long	jtstamp;
+	unsigned long	rtt;
+	unsigned long	__pad;
+} TfwApmWqItem;
+
+/* A Work Queue on each CPU. */
+static DEFINE_PER_CPU(TfwRBQueue, tfw_apm_wq);
+
+/*
+ * @tfw_apm_qcalc       - List of servers that require stats calculation.
+ * @tfw_apm_qrecalc     - List of servers that require stats re-calculation.
+ * @tfw_apm_rearm       - Atomic flag, tells if the timer needs re-arming.
+ * @tfw_apm_timer       - The periodic timer handle.
+ */
+#define TFW_APM_DATA_F_REARM    (0x0001)        /* Re-arm the timer. */
+
+static struct list_head tfw_apm_qcalc;
+static struct list_head tfw_apm_qrecalc;
+static unsigned long tfw_apm_rearm;
+static struct timer_list tfw_apm_timer;
+
 /*
  * Get the next bucket in the ring buffer entry that has a non-zero
  * hits count. Set the bucket's sequential number, the range number,
@@ -501,6 +519,7 @@ static int tfw_apm_tmwscale;		/* Time window scale. */
  */
 /*
  * Ring buffer entry state structure.
+ *
  * @v	- The response time value.
  * @i	- The current sequential bucket number across all ranges.
  * @r	- The current range number.
@@ -537,7 +556,8 @@ __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 			return;
 		}
 	}
-	__tfw_apm_state_set(st, USHRT_MAX, i, r, b);
+	__tfw_apm_state_set(st, USHRT_MAX, TFW_STATS_RANGES * TFW_STATS_BCKTS,
+					   TFW_STATS_RANGES, TFW_STATS_BCKTS);
 }
 
 static inline void
@@ -754,34 +774,11 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 /*
  * Calculate the latest percentiles if necessary.
  *
- * Return the number of percentile values that have been filled
- * if potentially new percentile values were calculated.
- * Return 0 if the percentile values didn't need the recalculation.
- * REturn -1 of the recalculation could not be performed.
+ * Return 0 if the calculation is successful.
+ * Return < 0 if there was a system error.
+ * Return > 0 and < @prcntlsz if the calculation is incomplete.
  */
 static int
-__tfw_apm_calc(TfwApmData *data, TfwPrcntlStats *pstats, int recalc)
-{
-	int ret;
-
-	if (!spin_trylock(&data->rbuf.slock))
-		return -1;
-	if ((ret = tfw_apm_rbctl_update(data, recalc)))
-		ret = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, pstats);
-	spin_unlock(&data->rbuf.slock);
-
-	return ret;
-}
-
-/*
- * Calculate the latest percentiles if necessary.
- *
- * Note that this function may also be used concurrently by other users
- * than the kernel timer function in this module, should the need arise.
- * That should only be done in exceptional cases (like testing), because
- * it would increase @data->rbuf->slock lock contention.
- */
-static void
 tfw_apm_calc(TfwApmData *data)
 {
 	int nfilled, recalc;
@@ -798,9 +795,11 @@ tfw_apm_calc(TfwApmData *data)
 	asent = &data->stats.asent[(rdidx + 1) % 2];
 
 	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	nfilled = __tfw_apm_calc(data, &pstats, recalc);
+	if (!tfw_apm_rbctl_update(data, recalc))
+		return 0;
+	nfilled = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 	if (!nfilled)
-		return;
+		return 0;
 
 	if (nfilled < asent->pstats.psz) {
 		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
@@ -813,22 +812,8 @@ tfw_apm_calc(TfwApmData *data)
 		atomic_inc(&data->stats.rdidx);
 		write_unlock(&asent->rwlock);
 	}
-}
 
-/*
- * Calculate the latest percentiles if necessary.
- * Runs periodically on timer. 
- */
-static void
-tfw_apm_pstats_fn(unsigned long fndata)
-{
-	TfwApmData *data = (TfwApmData *)fndata;
-
-	tfw_apm_calc(data);
-
-	smp_mb__before_atomic();
-	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
-		mod_timer(&data->timer, jiffies + TFW_APM_TIMER_TIMEOUT);
+	return nfilled % asent->pstats.psz;
 }
 
 /*
@@ -893,6 +878,19 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
 }
 
 static inline void
+tfw_apm_data_put(TfwApmData *data)
+{
+	if (atomic_dec_and_test(&data->refcnt))
+		kfree(data);
+}
+
+static inline void
+tfw_apm_data_get(TfwApmData *data)
+{
+	atomic_inc(&data->refcnt);
+}
+
+static inline void
 __tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtt)
 {
 	int centry = (jtstamp / tfw_apm_jtmintrvl) % rbuf->rbufsz;
@@ -900,39 +898,107 @@ __tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtt)
 	TfwApmRBEnt *crbent = &rbuf->rbent[centry];
 
 	tfw_apm_rbent_checkreset(crbent, jtmistart);
-	tfw_stats_update(&crbent->pcntrng, rtt, &rbuf->slock);
+	tfw_stats_update(&crbent->pcntrng, rtt);
+}
+
+/*
+ * Calculate the latest percentiles if necessary.
+ * Runs periodically on timer.
+ */
+static void
+tfw_apm_prcntl_tmfn(unsigned long fndata)
+{
+	int cpu, interval = TFW_APM_TIMER_TIMEOUT;
+	TfwApmData *data, *tmp;
+
+	/* No arguments. */
+	BUG_ON(fndata);
+
+	/*
+	 * Process work queues on all CPUs and update stats with data
+	 * from each work item in the queue. Add servers with updated
+	 * stats to the list for calculation of stats. Each server is
+	 * is added to the list just once.
+	 *
+	 * If server's APM data is already on the list, that means it
+	 * is on @qrecalc list. Just remove it from @qrecalc list and
+	 * it will be put on @qcalc list as usual for calculation of
+	 * stats values. Note that this is a highly unlikely case.
+	 *
+	 * Note that if server needs a recalculation of stats values,
+	 * it makes sense only if there were updates to server's stats
+	 * data. If there's no updates then a recalculation will lead
+	 * to the same (insufficient) result.
+	 */
+	for_each_online_cpu(cpu) {
+		TfwApmWqItem wq_item;
+		TfwRBQueue *wq = &per_cpu(tfw_apm_wq, cpu);
+
+		while (!tfw_wq_pop(wq, &wq_item)) {
+			data = wq_item.data;
+			__tfw_apm_update(&data->rbuf,
+					 wq_item.jtstamp, wq_item.rtt);
+			if (data->flags & TFW_APM_DATA_F_UPDONE) {
+				tfw_apm_data_put(data);
+				continue;
+			}
+			if (unlikely(!list_empty(&data->list)))
+				list_del_init(&data->list);
+			data->flags |= TFW_APM_DATA_F_UPDONE;
+			list_add_tail(&data->list, &tfw_apm_qcalc);
+		}
+	}
+	/*
+	 * Calculate stats values for each server that has been updated.
+	 * If the calculation cannot be completed with the current data,
+	 * then move that server to a separate list. When stats data is
+	 * updated, the calculation will be repeated.
+	 */
+	list_for_each_entry_safe(data, tmp, &tfw_apm_qcalc, list) {
+		BUG_ON(!(data->flags & TFW_APM_DATA_F_UPDONE));
+		list_del_init(&data->list);
+		data->flags &= ~TFW_APM_DATA_F_UPDONE;
+		if (unlikely(tfw_apm_calc(data))) {
+			list_add_tail(&data->list, &tfw_apm_qrecalc);
+			continue;
+		}
+		tfw_apm_data_put(data);
+	}
+
+	/*
+	 * Recalculation of stats values is needed for some servers.
+	 * Do it ASAP in anticipation that will be updates to stats
+	 * data for those servers.
+	 */
+	if (unlikely(!list_empty(&tfw_apm_qrecalc)))
+		interval = 1;
+
+	smp_mb();
+	if (test_bit(TFW_APM_DATA_F_REARM, &tfw_apm_rearm))
+		mod_timer(&tfw_apm_timer, jiffies + interval);
 }
 
 void
-tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
+tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 {
 	unsigned int rtt = jiffies_to_msecs(jrtt);
 
-	BUG_ON(!apmdata);
+	BUG_ON(!apmref);
 	/*
 	 * APM stats can't handle response times that are greater than
 	 * the maximum value possible for TfwPcntCtl{}->end. Currently
 	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
 	 */
-	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
-		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
-}
-
-/*
- * Destroy the specified APM ring buffer.
- */
-void
-tfw_apm_destroy(void *apmdata)
-{
-	TfwApmData *data = apmdata;
-
-	if (!data)
-		return;
-	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	smp_mb__after_atomic();
-	del_timer_sync(&data->timer);
-
-	kfree(data);
+	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8))) {
+		TfwApmWqItem wq_item = {
+			.data = apmref,
+			.jtstamp = jtstamp,
+			.rtt = rtt,
+		};
+		tfw_apm_data_get(wq_item.data);
+		if (__tfw_wq_push(this_cpu_ptr(&tfw_apm_wq), &wq_item, 0))
+			tfw_apm_data_put(wq_item.data);
+	}
 }
 
 /*
@@ -994,12 +1060,34 @@ tfw_apm_create(void)
 	rwlock_init(&data->stats.asent[1].rwlock);
 	atomic_set(&data->stats.rdidx, 0);
 
-	/* Start the timer for the percentile calculation. */
-	set_bit(TFW_APM_DATA_F_REARM, &data->flags);
-	setup_timer(&data->timer, tfw_apm_pstats_fn, (unsigned long)data);
-	mod_timer(&data->timer, jiffies + TFW_APM_TIMER_TIMEOUT);
+	INIT_LIST_HEAD(&data->list);
 
 	return data;
+}
+
+int
+tfw_apm_add_srv(TfwServer *srv)
+{
+	TfwApmData *data;
+
+	BUG_ON(srv->apmref);
+
+	if (!(data = tfw_apm_create()))
+		return -ENOMEM;
+
+	tfw_apm_data_get(data);
+	srv->apmref = data;
+
+	return 0;
+}
+
+void
+tfw_apm_del_srv(TfwServer *srv)
+{
+	TfwApmData *data = srv->apmref;
+
+	srv->apmref = NULL;
+	tfw_apm_data_put(data);
 }
 
 #define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
@@ -1015,6 +1103,7 @@ tfw_apm_create(void)
 static int
 tfw_apm_cfg_start(void)
 {
+	int cpu;
 	unsigned int jtmwindow;
 
 	if (!tfw_apm_jtmwindow)
@@ -1052,7 +1141,48 @@ tfw_apm_cfg_start(void)
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
+	TFW_WQ_CHECKSZ(TfwApmWqItem);
+	for_each_online_cpu(cpu) {
+		TfwRBQueue *wq = &per_cpu(tfw_apm_wq, cpu);
+		tfw_wq_init(wq, cpu_to_node(cpu));
+	}
+
+	tfw_apm_rearm = 0;
+	INIT_LIST_HEAD(&tfw_apm_qcalc);
+	INIT_LIST_HEAD(&tfw_apm_qrecalc);
+
+	/* Start the timer for the percentile calculation. */
+	set_bit(TFW_APM_DATA_F_REARM, &tfw_apm_rearm);
+	setup_timer(&tfw_apm_timer, tfw_apm_prcntl_tmfn, 0UL);
+	mod_timer(&tfw_apm_timer, jiffies + TFW_APM_TIMER_TIMEOUT);
+
 	return 0;
+}
+
+static void
+tfw_apm_cfg_stop(void)
+{
+	int cpu;
+	TfwApmData *data, *tmp;
+
+	clear_bit(TFW_APM_DATA_F_REARM, &tfw_apm_rearm);
+	smp_mb__after_atomic();
+	del_timer_sync(&tfw_apm_timer);
+
+	for_each_online_cpu(cpu) {
+		TfwApmWqItem wq_item;
+		TfwRBQueue *wq = &per_cpu(tfw_apm_wq, cpu);
+
+		while (!tfw_wq_pop(wq, &wq_item))
+			tfw_apm_data_put(wq_item.data);
+
+		tfw_wq_destroy(wq);
+	}
+	list_for_each_entry_safe(data, tmp, &tfw_apm_qrecalc, list) {
+		list_del_init(&data->list);
+		tfw_apm_data_put(data);
+	}
+	BUG_ON(!list_empty(&tfw_apm_qcalc));
 }
 
 /**
@@ -1112,5 +1242,6 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 TfwCfgMod tfw_apm_cfg_mod = {
 	.name  = "apm",
 	.start = tfw_apm_cfg_start,
+	.stop = tfw_apm_cfg_stop,
 	.specs = tfw_apm_cfg_specs,
 };

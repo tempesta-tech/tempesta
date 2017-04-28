@@ -1298,7 +1298,7 @@ tfw_sock_srv_start(void)
 	 * has been processed as it depends on configuration directives
 	 * that can be located anywhere in the configuration file.
 	 */
-	if ((ret = tfw_sg_for_each_srv(tfw_server_apm_create)) != 0)
+	if ((ret = tfw_sg_for_each_srv(tfw_apm_add_srv)) != 0)
 		return ret;
 
 	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
