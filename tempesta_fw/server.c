@@ -47,7 +47,7 @@ tfw_server_destroy(TfwServer *srv)
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 
-	tfw_apm_destroy(srv->apm);
+	tfw_apm_del_srv(srv);
 	kmem_cache_free(srv_cache, srv);
 }
 
@@ -62,16 +62,6 @@ tfw_server_create(const TfwAddr *addr)
 	INIT_LIST_HEAD(&srv->list);
 
 	return srv;
-}
-
-int
-tfw_server_apm_create(TfwServer *srv)
-{
-	BUG_ON(!srv);
-
-	if (!(srv->apm = tfw_apm_create()))
-		return -ENOMEM;
-	return 0;
 }
 
 /*

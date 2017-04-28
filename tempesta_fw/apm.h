@@ -21,6 +21,7 @@
 #define __TFW_APM_H__
 
 #include "pool.h"
+#include "server.h"
 
 /*
  * @ith		- array of percentile numbers, with space for min/max/avg;
@@ -57,11 +58,11 @@ static const unsigned int __read_mostly tfw_pstats_ith[] = {
 	[TFW_PSTATS_IDX_P99] = 99,
 };
 
-void *tfw_apm_create(void);
-void tfw_apm_destroy(void *data);
-void tfw_apm_update(void *data, unsigned long jtstamp, unsigned long jrtime);
-int tfw_apm_stats(void *data, TfwPrcntlStats *pstats);
-int tfw_apm_stats_bh(void *data, TfwPrcntlStats *pstats);
+int tfw_apm_add_srv(TfwServer *srv);
+void tfw_apm_del_srv(TfwServer *srv);
+void tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtime);
+int tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats);
+int tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats);
 int tfw_apm_pstats_verify(TfwPrcntlStats *pstats);
 
 #endif /* __TFW_APM_H__ */
