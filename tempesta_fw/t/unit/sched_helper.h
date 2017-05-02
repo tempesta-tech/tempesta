@@ -37,7 +37,7 @@ void sched_helper_init(void);
 
 void test_spec_cleanup(TfwCfgSpec specs[]);
 TfwSrvGroup *test_create_sg(const char *name);
-void test_start_sg(TfwSrvGroup *sg, const char *sched_name);
+void test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags);
 void test_sg_release_all(void);
 
 TfwServer *test_create_srv(const char *in_addr, TfwSrvGroup *sg);
