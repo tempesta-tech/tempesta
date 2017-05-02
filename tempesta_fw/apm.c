@@ -500,12 +500,12 @@ typedef struct {
 static DEFINE_PER_CPU(TfwRBQueue, tfw_apm_wq);
 
 /*
- * @tfw_apm_qcalc       - List of servers that require stats calculation.
- * @tfw_apm_qrecalc     - List of servers that require stats re-calculation.
- * @tfw_apm_rearm       - Atomic flag, tells if the timer needs re-arming.
- * @tfw_apm_timer       - The periodic timer handle.
+ * @tfw_apm_qcalc	- List of servers that require stats calculation.
+ * @tfw_apm_qrecalc	- List of servers that require stats re-calculation.
+ * @tfw_apm_rearm	- Atomic flag, tells if the timer needs re-arming.
+ * @tfw_apm_timer	- The periodic timer handle.
  */
-#define TFW_APM_DATA_F_REARM    (0x0001)        /* Re-arm the timer. */
+#define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
 
 static struct list_head tfw_apm_qcalc;
 static struct list_head tfw_apm_qrecalc;
