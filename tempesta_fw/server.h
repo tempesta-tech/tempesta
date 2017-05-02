@@ -83,7 +83,7 @@ struct tfw_srv_group_t {
 	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void			*sched_data;
-	int			srv_n;
+	size_t			srv_n;
 	unsigned int		max_qsize;
 	unsigned int		max_refwd;
 	unsigned long		max_jqage;

@@ -102,8 +102,7 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 
 	for (i = 0; i < TFW_TEST_SRV_MAX_CONN_N; ++i)
 		test_create_srv_conn(srv);
-
-	test_start_sg(sg, sched_helper_hash.sched);
+	test_start_sg(sg, sched_helper_hash.sched, 0);
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
@@ -155,8 +154,7 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 		for (j = 0; j < TFW_TEST_SRV_MAX_CONN_N; ++j)
 			test_create_srv_conn(srv);
 	}
-
-	test_start_sg(sg, sched_helper_hash.sched);
+	test_start_sg(sg, sched_helper_hash.sched, 0);
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
@@ -205,8 +203,7 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 
 	for (i = 0; i < TFW_TEST_SRV_MAX_CONN_N; ++i)
 		test_create_srv_conn(srv);
-
-	test_start_sg(sg, sched_helper_hash.sched);
+	test_start_sg(sg, sched_helper_hash.sched, 0);
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {
@@ -260,8 +257,7 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 		for (j = 0; j < TFW_TEST_SRV_MAX_CONN_N; ++j)
 			test_create_srv_conn(srv);
 	}
-
-	test_start_sg(sg, sched_helper_hash.sched);
+	test_start_sg(sg, sched_helper_hash.sched, 0);
 
 	/* Check that every request is scheduled to the same connection. */
 	for (i = 0; i < sched_helper_hash.conn_types; ++i) {

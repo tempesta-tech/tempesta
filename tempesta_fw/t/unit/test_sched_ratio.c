@@ -86,9 +86,7 @@ TEST(tfw_sched_ratio, sched_sg_one_srv_max_conn)
 		srv_conn = test_create_srv_conn(srv);
 		conn_acc ^= (long long)srv_conn;
 	}
-
-	sg->flags = sched_helper_ratio.flags;
-	test_start_sg(sg, sched_helper_ratio.sched);
+	test_start_sg(sg, sched_helper_ratio.sched, sched_helper_ratio.flags);
 
 	/*
 	 * Check that connections are scheduled in fair way:
@@ -115,7 +113,6 @@ TEST(tfw_sched_ratio, sched_sg_one_srv_max_conn)
 			kernel_fpu_begin();
 		}
 
-		sched_helper_ratio.free_sched_arg(msg);
 		EXPECT_EQ(conn_acc, conn_acc_check);
 		sched_helper_ratio.free_sched_arg(msg);
 	}
@@ -146,9 +143,7 @@ TEST(tfw_sched_ratio, sched_sg_max_srv_max_conn)
 			conn_acc ^= (long long)srv_conn;
 		}
 	}
-
-	sg->flags = sched_helper_ratio.flags;
-	test_start_sg(sg, sched_helper_ratio.sched);
+	test_start_sg(sg, sched_helper_ratio.sched, sched_helper_ratio.flags);
 
 	/*
 	 * Check that connections are scheduled in fair way:
@@ -168,7 +163,6 @@ TEST(tfw_sched_ratio, sched_sg_max_srv_max_conn)
 			tfw_srv_conn_put(srv_conn);
 		}
 
-		sched_helper_ratio.free_sched_arg(msg);
 		EXPECT_EQ(conn_acc, conn_acc_check);
 		sched_helper_ratio.free_sched_arg(msg);
 	}
@@ -195,9 +189,7 @@ TEST(tfw_sched_ratio, sched_srv_one_srv_max_conn)
 		srv_conn = test_create_srv_conn(srv);
 		conn_acc ^= (long long)srv_conn;
 	}
-
-	sg->flags = sched_helper_ratio.flags;
-	test_start_sg(sg, sched_helper_ratio.sched);
+	test_start_sg(sg, sched_helper_ratio.sched, sched_helper_ratio.flags);
 
 	/*
 	 * Check that connections are scheduled in fair way:
@@ -261,9 +253,7 @@ TEST(tfw_sched_ratio, sched_srv_max_srv_max_conn)
 			srv_acc[i].conn_acc ^= (long long)srv_conn;
 		}
 	}
-
-	sg->flags = sched_helper_ratio.flags;
-	test_start_sg(sg, sched_helper_ratio.sched);
+	test_start_sg(sg, sched_helper_ratio.sched, sched_helper_ratio.flags);
 
 	/*
 	 * Check that connections are scheduled in fair way:

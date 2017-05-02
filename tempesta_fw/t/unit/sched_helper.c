@@ -66,13 +66,14 @@ test_create_sg(const char *name)
 }
 
 void
-test_start_sg(TfwSrvGroup *sg, const char *sched_name)
+test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 {
 	kernel_fpu_end();
 
 	{
 		int r = tfw_sg_set_sched(sg, sched_name);
 		BUG_ON(r);
+		sg->flags = flags;
 	}
 
 	kernel_fpu_begin();
@@ -167,8 +168,7 @@ test_sched_sg_empty_sg(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->free_sched_arg);
 
 	sg = test_create_sg("test");
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -199,8 +199,7 @@ test_sched_sg_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	sg = test_create_sg("test");
 	test_create_srv("127.0.0.1", sg);
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -234,9 +233,7 @@ test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
 		test_create_srv("127.0.0.1", sg);
-
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -279,8 +276,7 @@ test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	sg = test_create_sg("test");
 	srv = test_create_srv("127.0.0.1", sg);
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -313,9 +309,7 @@ test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
 		test_create_srv("127.0.0.1", sg);
-
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -377,9 +371,7 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 			break;
 		}
 	}
-
-	sg->flags = sched_helper->flags;
-	test_start_sg(sg, sched_helper->sched);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
