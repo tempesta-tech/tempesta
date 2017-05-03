@@ -1084,10 +1084,11 @@ tfw_apm_add_srv(TfwServer *srv)
 void
 tfw_apm_del_srv(TfwServer *srv)
 {
-	TfwApmData *data = srv->apmref;
+	if (!srv->apmref)
+		return;
 
+	tfw_apm_data_put(srv->apmref);
 	srv->apmref = NULL;
-	tfw_apm_data_put(data);
 }
 
 #define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
