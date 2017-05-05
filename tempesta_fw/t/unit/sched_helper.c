@@ -68,13 +68,13 @@ test_create_sg(const char *name)
 void
 test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 {
+	int r;
+
 	kernel_fpu_end();
 
-	{
-		int r = tfw_sg_set_sched(sg, sched_name);
-		BUG_ON(r);
-		sg->flags = flags;
-	}
+	sg->flags = flags;
+	r = tfw_sg_set_sched(sg, sched_name);
+	BUG_ON(r);
 
 	kernel_fpu_begin();
 }
