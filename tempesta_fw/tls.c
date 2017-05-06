@@ -407,7 +407,7 @@ tfw_tls_do_cleanup(void)
  */
 
 static int
-tfw_tls_cfg_start(void)
+tfw_tls_start(void)
 {
 	int r;
 
@@ -428,7 +428,7 @@ tfw_tls_cfg_start(void)
 }
 
 static void
-tfw_tls_cfg_stop(void)
+tfw_tls_stop(void)
 {
 	mbedtls_x509_crt_free(&tfw_tls.crt);
 	mbedtls_pk_free(&tfw_tls.key);
@@ -522,7 +522,7 @@ tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwCfgSpec tfw_tls_cfg_specs[] = {
+static TfwCfgSpec tfw_tls_specs[] = {
 	{
 		"ssl_certificate", NULL,
 		tfw_tls_cfg_handle_crt,
@@ -535,14 +535,14 @@ static TfwCfgSpec tfw_tls_cfg_specs[] = {
 		.allow_none = true,
 		.allow_repeat = false,
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_tls_cfg_mod = {
+TfwMod tfw_tls_mod = {
 	.name	= "tls",
-	.start	= tfw_tls_cfg_start,
-	.stop	= tfw_tls_cfg_stop,
-	.specs	= tfw_tls_cfg_specs,
+	.start	= tfw_tls_start,
+	.stop	= tfw_tls_stop,
+	.specs	= tfw_tls_specs,
 };
 
 /*
@@ -567,6 +567,7 @@ tfw_tls_init(void)
 	}
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_TLS);
+	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
 }
@@ -574,6 +575,7 @@ tfw_tls_init(void)
 void
 tfw_tls_exit(void)
 {
+	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_TLS);
 	tfw_tls_do_cleanup();

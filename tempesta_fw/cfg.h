@@ -216,45 +216,6 @@ struct TfwCfgSpec {
 #define TFW_CFG_FOR_EACH_SPEC(spec_pos, spec_arr) \
 	for ((spec_pos) = (spec_arr); (spec_pos)->name; ++(spec_pos))
 
-/**
- * Internally, the Tmpesta FW code is split into modules (not kernel modules,
- * but rather loosely coupled pieces of code). We need to distribute parsed
- * configuration data and start/stop events over them, but we don't want to make
- * the parser depend on all possible modules, so we utilize the late binding
- * approach here.
- *
- * Each module defines a TfwCfgMod structure and calls tfw_cfg_mod_register().
- * We maintain a list of registered modules in runtime and push events and
- * configuration data via callbacks.
- *
- * @name is a unique text identifier of the module.
- * Just like C identifiers, it must consist of alphanumeric characters and start
- * with a letter and so on.
- *
- * @specs is the specification for the configuration parser that lists all
- * possible configuration sections and directives for this module and describes
- * how to handle them.
- * @specs must be an array of TfwCfgSpec structures which is terminated
- * by a null (zero'ed) element.
- *
- * @start and @stop callbacks are invoked when corresponding events are received
- * via sysctl. The @start is called after the configuration is parsed and @specs
- * are handled.
- */
-typedef struct {
-	struct list_head list;	/* Private. Don't touch. */
-	const char *name;	/* [A-Za-z0-9_], starts with a letter. */
-	int  (*start)(void);
-	void (*stop)(void);
-	TfwCfgSpec *specs;	/* An array terminated by a null element. */
-} TfwCfgMod;
-
-/* Subscribe/unsubscribe a module to sysctl events and configuration updates. */
-int tfw_cfg_mod_register(TfwCfgMod *mod);
-void tfw_cfg_mod_unregister(TfwCfgMod *mod);
-
-TfwCfgMod *tfw_cfg_mod_find(const char *name);
-
 /*
  * ------------------------------------------------------------------------
  *	Generic TfwCfgSpec->handler functions.
@@ -331,7 +292,7 @@ int tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list);
 
 void *tfw_cfg_read_file(const char *path, size_t *file_size);
 
-int tfw_cfg_start(void);
-void tfw_cfg_stop(void);
+int tfw_cfg_start(struct list_head *mod_list);
+void tfw_cfg_stop(struct list_head *mod_list);
 
 #endif /* __TFW_CFG_H__ */

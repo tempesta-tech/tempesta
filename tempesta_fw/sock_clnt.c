@@ -420,7 +420,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
  * entries).
  */
 static int
-tfw_listen_sock_start_all(void)
+tfw_sock_clnt_start(void)
 {
 	int r;
 	TfwListenSock *ls;
@@ -437,7 +437,7 @@ tfw_listen_sock_start_all(void)
 }
 
 static void
-tfw_sock_clnt_stop_all(void)
+tfw_sock_clnt_stop(void)
 {
 	TfwListenSock *ls;
 
@@ -591,11 +591,11 @@ tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 	tfw_listen_sock_del_all();
 }
 
-TfwCfgMod tfw_sock_clnt_cfg_mod  = {
+TfwMod tfw_sock_clnt_mod  = {
 	.name	= "sock_clnt",
-	.start	= tfw_listen_sock_start_all,
-	.stop	= tfw_sock_clnt_stop_all,
-	.specs	= (TfwCfgSpec[]){
+	.start	= tfw_sock_clnt_start,
+	.stop	= tfw_sock_clnt_stop,
+	.specs	= (TfwCfgSpec[]) {
 		{
 			"listen",
 			"80",
@@ -610,7 +610,7 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			.allow_repeat = false,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
 		},
-		{}
+		{ 0 }
 	}
 };
 
@@ -631,20 +631,23 @@ tfw_sock_clnt_init(void)
 	tfw_tls_conn_cache = kmem_cache_create("tfw_tls_conn_cache",
 					       sizeof(TfwTlsConn), 0, 0, NULL);
 
-	if (tfw_cli_conn_cache && tfw_tls_conn_cache)
+	if (tfw_cli_conn_cache && tfw_tls_conn_cache) {
+		tfw_mod_register(&tfw_sock_clnt_mod);
 		return 0;
+	}
 
 	if (tfw_cli_conn_cache)
 		kmem_cache_destroy(tfw_cli_conn_cache);
 	if (tfw_tls_conn_cache)
 		kmem_cache_destroy(tfw_tls_conn_cache);
 
-	return 0;
+	return -ENOMEM;
 }
 
 void
 tfw_sock_clnt_exit(void)
 {
+	tfw_mod_unregister(&tfw_sock_clnt_mod);
 	kmem_cache_destroy(tfw_tls_conn_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }

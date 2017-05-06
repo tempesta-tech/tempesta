@@ -298,7 +298,7 @@ tfw_filter_stop(void)
 	tdb_close(ip_filter_db);
 }
 
-static TfwCfgSpec tfw_filter_cfg_specs[] = {
+static TfwCfgSpec tfw_filter_specs[] = {
 	{
 		"filter_tbl_size",
 		"16777216",
@@ -318,12 +318,25 @@ static TfwCfgSpec tfw_filter_cfg_specs[] = {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_filter_cfg_mod = {
+TfwMod tfw_filter_mod = {
 	.name 	= "filter",
 	.start	= tfw_filter_start,
 	.stop	= tfw_filter_stop,
-	.specs	= tfw_filter_cfg_specs,
+	.specs	= tfw_filter_specs,
 };
+
+int
+tfw_filter_init(void)
+{
+	tfw_mod_register(&tfw_filter_mod);
+	return 0;
+}
+
+void
+tfw_filter_exit(void)
+{
+	tfw_mod_unregister(&tfw_filter_mod);
+}

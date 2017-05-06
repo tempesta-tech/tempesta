@@ -265,7 +265,7 @@ tfw_procfs_srv_create(TfwServer *srv)
 }
 
 static int
-tfw_procfs_cfg_start(void)
+tfw_procfs_start(void)
 {
 	int i, ret;
 	TfwPrcntlStats pstats = {
@@ -289,20 +289,20 @@ tfw_procfs_cfg_start(void)
 }
 
 static void
-tfw_procfs_cfg_stop(void)
+tfw_procfs_stop(void)
 {
 	remove_proc_subtree("servers", tfw_procfs_tempesta);
 }
 
-static TfwCfgSpec tfw_procfs_cfg_specs[] = {
-	{},
+static TfwCfgSpec tfw_procfs_specs[] = {
+	{ 0 },
 };
 
-TfwCfgMod tfw_procfs_cfg_mod = {
-        .name  = "procfs",
-        .start = tfw_procfs_cfg_start,
-        .stop  = tfw_procfs_cfg_stop,
-	.specs = tfw_procfs_cfg_specs,
+TfwMod tfw_procfs_mod = {
+        .name	= "procfs",
+        .start	= tfw_procfs_start,
+        .stop	= tfw_procfs_stop,
+	.specs	= tfw_procfs_specs,
 };
 
 /*
@@ -329,6 +329,8 @@ tfw_procfs_init(void)
 	if (!tfw_procfs_perfstat)
 		goto out_tempesta;
 
+	tfw_mod_register(&tfw_procfs_mod);
+
 	return 0;
 
 out:
@@ -341,6 +343,7 @@ out_tempesta:
 void
 tfw_procfs_exit(void)
 {
+	tfw_mod_unregister(&tfw_procfs_mod);
 	remove_proc_entry("perfstat", tfw_procfs_tempesta);
 	remove_proc_entry("tempesta", NULL);
 }

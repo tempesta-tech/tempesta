@@ -333,7 +333,7 @@ tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
 }
 
 /* Forward declaration */
-static TfwCfgMod tfw_sched_http_cfg_mod;
+static TfwMod tfw_sched_http_mod;
 
 static int
 tfw_sched_http_start(void)
@@ -341,7 +341,7 @@ tfw_sched_http_start(void)
 	TfwHttpMatchRule *mrule;
 	TfwSrvGroup *sg_default;
 	struct list_head mod_list;
-	TfwCfgMod cfg_mod;
+	TfwMod sched_mod;
 	TfwCfgSpec *cfg_spec;
 	static const char cfg_text[] =
 		"sched_http_rules {\nmatch default * * *;\n}\n";
@@ -377,12 +377,12 @@ tfw_sched_http_start(void)
 	 * rule exactly the same way it would have been done if it were
 	 * in the configuration file.
 	 */
-	cfg_mod = tfw_sched_http_cfg_mod;
-	INIT_LIST_HEAD(&cfg_mod.list);
+	sched_mod = tfw_sched_http_mod;
+	INIT_LIST_HEAD(&sched_mod.list);
 	INIT_LIST_HEAD(&mod_list);
-	list_add(&cfg_mod.list, &mod_list);
+	list_add(&sched_mod.list, &mod_list);
 
-	cfg_spec = tfw_cfg_spec_find(cfg_mod.specs, "sched_http_rules");
+	cfg_spec = tfw_cfg_spec_find(sched_mod.specs, "sched_http_rules");
 	cfg_spec->allow_repeat = true;
 
 	if (tfw_cfg_parse_mods_cfg(cfg_text, &mod_list))
@@ -406,11 +406,11 @@ static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
 	{}
 };
 
-static TfwCfgMod tfw_sched_http_cfg_mod = {
-	.name  = "tfw_sched_http",
-	.start = tfw_sched_http_start,
-	.stop  = tfw_sched_http_stop,
-	.specs = (TfwCfgSpec[]) {
+static TfwMod tfw_sched_http_mod = {
+	.name	= "tfw_sched_http",
+	.start	= tfw_sched_http_start,
+	.stop	= tfw_sched_http_stop,
+	.specs	= (TfwCfgSpec[]) {
 		{
 			"sched_http_rules", NULL,
 			tfw_cfg_handle_children,
@@ -422,7 +422,7 @@ static TfwCfgMod tfw_sched_http_cfg_mod = {
 			.allow_none = true,
 			.cleanup = tfw_cfg_cleanup_children
 		},
-		{}
+		{ 0 }
 	}
 };
 
@@ -439,16 +439,11 @@ tfw_sched_http_init(void)
 
 	TFW_DBG("sched_http: init\n");
 
-	ret = tfw_cfg_mod_register(&tfw_sched_http_cfg_mod);
-	if (ret) {
-		TFW_ERR("sched_http: can't register configuration module\n");
-		return ret;
-	}
+	tfw_mod_register(&tfw_sched_http_mod);
 
-	ret = tfw_sched_register(&tfw_sched_http);
-	if (ret) {
-		TFW_ERR("sched_http: can't register scheduler module\n");
-		tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+	if ((ret = tfw_sched_register(&tfw_sched_http))) {
+		TFW_ERR("sched_http: Unable to register the module\n");
+		tfw_mod_unregister(&tfw_sched_http_mod);
 		return ret;
 	}
 
@@ -462,7 +457,7 @@ tfw_sched_http_exit(void)
 
 	BUG_ON(tfw_sched_http_rules);
 	tfw_sched_unregister(&tfw_sched_http);
-	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+	tfw_mod_unregister(&tfw_sched_http_mod);
 }
 
 module_init(tfw_sched_http_init);
