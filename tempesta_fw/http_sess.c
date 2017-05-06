@@ -704,82 +704,6 @@ done:
 	return srv_conn;
 }
 
-int __init
-tfw_http_sess_init(void)
-{
-	int i, ret = -ENOMEM;
-	u_char *ptr;
-
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
-		return -ENOMEM;
-
-	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
-	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
-
-	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
-	if (IS_ERR(tfw_sticky_shash)) {
-		pr_err("shash allocation failed\n");
-		ret = (int)PTR_ERR(tfw_sticky_shash);
-		goto err;
-	}
-
-	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				       0, 0, NULL);
-	if (!sess_cache)
-		goto err_shash;
-
-	/*
-	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
-	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
-	 */
-	for (i = 0; i < SESS_HASH_SZ; ++i)
-		spin_lock_init(&sess_hash[i].lock);
-
-	return 0;
-
-err_shash:
-	crypto_free_shash(tfw_sticky_shash);
-err:
-	kfree(tfw_cfg_sticky.name.ptr);
-	return ret;
-}
-
-void
-tfw_http_sess_exit(void)
-{
-	int i;
-
-	for (i = 0; i < SESS_HASH_SZ; ++i) {
-		TfwHttpSess *s;
-		struct hlist_node *tmp;
-		SessHashBucket *hb = &sess_hash[i];
-
-		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
-			hash_del(&s->hentry);
-			kmem_cache_free(sess_cache, s);
-		}
-	}
-	kmem_cache_destroy(sess_cache);
-
-	kfree(tfw_cfg_sticky.name.ptr);
-	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	crypto_free_shash(tfw_sticky_shash);
-}
-
-static int
-tfw_cfg_sess_start(void)
-{
-	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
-
-	return 0;
-}
-
-static void
-tfw_cfg_sess_stop(void)
-{
-	tfw_cfg_sticky.enabled = 0;
-}
-
 static int
 tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -850,11 +774,25 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return r;
 }
 
-TfwCfgMod tfw_http_sess_cfg_mod = {
-	.name = "http_sticky",
-	.start = tfw_cfg_sess_start,
-	.stop = tfw_cfg_sess_stop,
-	.specs = (TfwCfgSpec[]) {
+static int
+tfw_cfg_sess_start(void)
+{
+	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
+
+	return 0;
+}
+
+static void
+tfw_cfg_sess_stop(void)
+{
+	tfw_cfg_sticky.enabled = 0;
+}
+
+TfwMod tfw_http_sess_mod = {
+	.name	= "http_sess",
+	.start	= tfw_cfg_sess_start,
+	.stop	= tfw_cfg_sess_stop,
+	.specs	= (TfwCfgSpec[]) {
 		{
 			.name = "sticky",
 			.handler = tfw_http_sticky_cfg,
@@ -879,3 +817,69 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 		{ 0 }
 	}
 };
+
+int __init
+tfw_http_sess_init(void)
+{
+	int i, ret = -ENOMEM;
+	u_char *ptr;
+
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
+		return -ENOMEM;
+
+	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
+	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
+
+	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
+	if (IS_ERR(tfw_sticky_shash)) {
+		pr_err("shash allocation failed\n");
+		ret = (int)PTR_ERR(tfw_sticky_shash);
+		goto err;
+	}
+
+	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
+				       0, 0, NULL);
+	if (!sess_cache)
+		goto err_shash;
+
+	/*
+	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
+	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
+	 */
+	for (i = 0; i < SESS_HASH_SZ; ++i)
+		spin_lock_init(&sess_hash[i].lock);
+
+	tfw_mod_register(&tfw_http_sess_mod);
+
+	return 0;
+
+err_shash:
+	crypto_free_shash(tfw_sticky_shash);
+err:
+	kfree(tfw_cfg_sticky.name.ptr);
+	return ret;
+}
+
+void
+tfw_http_sess_exit(void)
+{
+	int i;
+
+	tfw_mod_unregister(&tfw_http_sess_mod);
+
+	for (i = 0; i < SESS_HASH_SZ; ++i) {
+		TfwHttpSess *s;
+		struct hlist_node *tmp;
+		SessHashBucket *hb = &sess_hash[i];
+
+		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
+			hash_del(&s->hentry);
+			kmem_cache_free(sess_cache, s);
+		}
+	}
+	kmem_cache_destroy(sess_cache);
+
+	kfree(tfw_cfg_sticky.name.ptr);
+	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
+	crypto_free_shash(tfw_sticky_shash);
+}

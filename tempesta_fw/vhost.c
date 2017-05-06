@@ -952,7 +952,7 @@ tfw_cleanup_hdrvia(TfwCfgSpec *cs)
 }
 
 static int
-tfw_vhost_cfg_start(void)
+tfw_vhost_start(void)
 {
 	BUILD_BUG_ON(sizeof(tfw_nipdef_dflt[0]->method) * 8 - 1
 		     < _TFW_HTTP_METH_COUNT);
@@ -970,7 +970,7 @@ tfw_vhost_cfg_start(void)
 }
 
 static void
-tfw_vhost_cfg_stop(void)
+tfw_vhost_stop(void)
 {
 	__tfw_cleanup_hdrvia();
 	__tfw_cleanup_locache();
@@ -1001,7 +1001,7 @@ static TfwCfgSpec tfw_location_specs[] = {
 	{ 0 }
 };
 
-static TfwCfgSpec tfw_vhost_cfg_specs[] = {
+static TfwCfgSpec tfw_vhost_specs[] = {
 	{
 		"hdr_via", NULL,
 		tfw_handle_hdr_via,
@@ -1059,16 +1059,17 @@ static TfwCfgSpec tfw_vhost_cfg_specs[] = {
 	{ 0 },
 };
 
-TfwCfgMod tfw_vhost_cfg_mod = {
+TfwMod tfw_vhost_mod = {
 	.name	= "vhost",
-	.start	= tfw_vhost_cfg_start,
-	.stop	= tfw_vhost_cfg_stop,
-	.specs	= tfw_vhost_cfg_specs,
+	.start	= tfw_vhost_start,
+	.stop	= tfw_vhost_stop,
+	.specs	= tfw_vhost_specs,
 };
 
 int
 tfw_vhost_init(void)
 {
+	tfw_mod_register(&tfw_vhost_mod);
 	return 0;
 }
 
@@ -1076,6 +1077,8 @@ void
 tfw_vhost_exit(void)
 {
 	size_t i;
+
+	tfw_mod_unregister(&tfw_vhost_mod);
 
 	for (i = 0; i < tfw_location_sz; ++i)
 		if (tfw_location[i].capo)

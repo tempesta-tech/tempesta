@@ -1417,11 +1417,11 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 	{ 0 }
 };
 
-TfwCfgMod tfw_sock_srv_cfg_mod = {
-	.name  = "sock_srv",
-	.start = tfw_sock_srv_start,
-	.stop  = tfw_sock_srv_stop,
-	.specs = (TfwCfgSpec[] ) {
+TfwMod tfw_sock_srv_mod = {
+	.name	= "sock_srv",
+	.start	= tfw_sock_srv_start,
+	.stop	= tfw_sock_srv_stop,
+	.specs	= (TfwCfgSpec[]) {
 		{
 			"server", NULL,
 			tfw_cfgop_out_server,
@@ -1517,13 +1517,20 @@ tfw_sock_srv_init(void)
 {
 	BUILD_BUG_ON(_TFW_PSTATS_IDX_COUNT > TFW_SG_M_PSTATS_IDX);
 	BUG_ON(tfw_srv_conn_cache);
+
 	tfw_srv_conn_cache = kmem_cache_create("tfw_srv_conn_cache",
 					       sizeof(TfwSrvConn), 0, 0, NULL);
-	return !tfw_srv_conn_cache ? -ENOMEM : 0;
+	if (!tfw_srv_conn_cache)
+		return -ENOMEM;
+
+	tfw_mod_register(&tfw_sock_srv_mod);
+
+	return 0;
 }
 
 void
 tfw_sock_srv_exit(void)
 {
+	tfw_mod_unregister(&tfw_sock_srv_mod);
 	kmem_cache_destroy(tfw_srv_conn_cache);
 }
