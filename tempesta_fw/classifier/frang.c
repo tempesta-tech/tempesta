@@ -1003,7 +1003,7 @@ frang_start(void)
 	return 0;
 }
 
-static TfwCfgSpec frang_cfg_section_specs[] = {
+static TfwCfgSpec frang_specs_section[] = {
 	{
 		"ip_block", "off",
 		tfw_cfg_set_bool,
@@ -1095,23 +1095,23 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		.allow_none = 1,
 		.cleanup = frang_free_ct_vals,
 	},
-	{}
+	{ 0 }
 };
 
-static TfwCfgSpec frang_cfg_toplevel_specs[] = {
+static TfwCfgSpec frang_specs_toplevel[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_cfg_section_specs,
+		.dest = &frang_specs_section,
 		.cleanup = tfw_cfg_cleanup_children
 	},
-	{}
+	{ 0 }
 };
 
-static TfwCfgMod frang_cfg_mod = {
-	.name = "frang",
-	.start = frang_start,
-	.specs = frang_cfg_toplevel_specs
+static TfwMod frang_mod = {
+	.name	= "frang",
+	.start	= frang_start,
+	.specs	= frang_specs_toplevel
 };
 
 static int __init
@@ -1121,12 +1121,7 @@ frang_init(void)
 
 	BUILD_BUG_ON((sizeof(FrangAcc) > sizeof(TfwClassifierPrvt)));
 
-	r = tfw_cfg_mod_register(&frang_cfg_mod);
-	if (r) {
-		TFW_ERR("frang: can't register as a configuration module\n");
-		return -EINVAL;
-	}
-
+	tfw_mod_register(&frang_mod);
 	tfw_classifier_register(&frang_class_ops);
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG, frang_http_req_handler);
@@ -1159,7 +1154,7 @@ err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
 err_fsm:
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);
+	tfw_mod_unregister(&frang_mod);
 	return r;
 }
 
@@ -1171,7 +1166,7 @@ frang_exit(void)
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);
+	tfw_mod_unregister(&frang_mod);
 }
 
 module_init(frang_init);

@@ -26,8 +26,8 @@
 #define tfw_sock_srv_exit test_hash_sock_srv_exit
 #undef tfw_srv_conn_release
 #define tfw_srv_conn_release test_hash_srv_conn_release
-#undef tfw_sock_srv_cfg_mod
-#define tfw_sock_srv_cfg_mod test_hash_sock_srv_cfg_mod
+#undef tfw_sock_srv_mod
+#define tfw_sock_srv_mod test_hash_sock_srv_mod
 
 #include "sock_srv.c"
 

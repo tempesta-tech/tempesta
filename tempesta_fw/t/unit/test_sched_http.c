@@ -25,8 +25,8 @@
 #define tfw_sock_srv_exit test_http_sock_srv_exit
 #undef tfw_srv_conn_release
 #define tfw_srv_conn_release test_http_srv_conn_release
-#undef tfw_sock_srv_cfg_mod
-#define tfw_sock_srv_cfg_mod test_http_sock_srv_cfg_mod
+#undef tfw_sock_srv_mod
+#define tfw_sock_srv_mod test_http_sock_srv_mod
 
 #include "sock_srv.c"
 
@@ -49,16 +49,16 @@ static int
 parse_cfg(const char *cfg_text)
 {
 	struct list_head mod_list;
-	TfwCfgMod cfg_mod;
+	TfwMod sched_mod;
 	int r;
 
 	kernel_fpu_end();
 
-	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
+	sched_mod = *tfw_mod_find("tfw_sched_http");
 	
-	INIT_LIST_HEAD(&cfg_mod.list);
+	INIT_LIST_HEAD(&sched_mod.list);
 	INIT_LIST_HEAD(&mod_list);
-	list_add(&cfg_mod.list, &mod_list);
+	list_add(&sched_mod.list, &mod_list);
 
 	r = tfw_cfg_parse_mods_cfg(cfg_text, &mod_list);
 
@@ -70,11 +70,10 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-	TfwCfgMod cfg_mod;
+	TfwMod sched_mod;
 
-
-	cfg_mod = *tfw_cfg_mod_find("tfw_sched_http");
-	test_spec_cleanup(cfg_mod.specs);
+	sched_mod = *tfw_mod_find("tfw_sched_http");
+	test_spec_cleanup(sched_mod.specs);
 }
 
 static void

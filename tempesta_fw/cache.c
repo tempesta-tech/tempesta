@@ -1849,7 +1849,7 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwCfgSpec tfw_cache_cfg_specs[] = {
+static TfwCfgSpec tfw_cache_specs[] = {
 	{
 		"cache",
 		"2",
@@ -1885,12 +1885,25 @@ static TfwCfgSpec tfw_cache_cfg_specs[] = {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_cache_cfg_mod = {
+TfwMod tfw_cache_mod = {
 	.name 	= "cache",
 	.start	= tfw_cache_start,
 	.stop	= tfw_cache_stop,
-	.specs	= tfw_cache_cfg_specs,
+	.specs	= tfw_cache_specs,
 };
+
+int
+tfw_cache_init(void)
+{
+	tfw_mod_register(&tfw_cache_mod);
+	return 0;
+}
+
+void
+tfw_cache_exit(void)
+{
+	tfw_mod_unregister(&tfw_cache_mod);
+}
