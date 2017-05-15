@@ -201,7 +201,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 }
 
 static void
-tfw_sched_hash_cleanup(TfwSrvGroup *sg)
+tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	size_t si;
 	TfwHashSrvList *sl = sg->sched_data;
@@ -209,62 +209,24 @@ tfw_sched_hash_cleanup(TfwSrvGroup *sg)
 	if (!sl)
 		return;
 
-	for (si = 0; si < sl->srv_n; ++si) {
+	for (si = 0; si < sl->srv_n; ++si)
 		if (sl->srvs[si].conn)
 			kfree(sl->srvs[si].conn);
-		if (sl->srvs[si].hash)
-			kfree(sl->srvs[si].hash);
-	}
-
 	kfree(sl);
 	sg->sched_data = NULL;
-}
-
-static void
-tfw_sched_hash_del_grp(TfwSrvGroup *sg)
-{
-	tfw_sched_hash_cleanup(sg);
-}
-
-/**
- * Validate the integrity of a group.
- *
- * Make sure that number of servers in the group, and the number
- * of connections for each server match the recorded values.
- */
-static int
-tfw_sched_hash_validate_grp(TfwSrvGroup *sg)
-{
-	size_t si = 0, ci;
-	TfwServer *srv;
-	TfwSrvConn *srv_conn;
-
-	list_for_each_entry(srv, &sg->srv_list, list) {
-		ci = 0;
-		list_for_each_entry(srv_conn, &srv->conn_list, list)
-			++ci;
-		if (ci > srv->conn_n)
-			return -EINVAL;
-		++si;
-	}
-	if (si > sg->srv_n)
-		return -EINVAL;
-
-	return 0;
 }
 
 static int
 tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 {
-	int ret = -ENOMEM;
-	size_t size, ci;
+	int ret = -EINVAL;
+	size_t size, si, ci;
 	unsigned int sum_conn_n;
 	TfwServer *srv;
-	TfwSrvConn *srv_conn;
 	TfwHashSrv *hsrv;
 	TfwHashSrvList *sl;
 
-	if (tfw_sched_hash_validate_grp(sg))
+	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
 
 	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
@@ -274,32 +236,49 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 	sl->srvs = sg->sched_data + sizeof(TfwHashSrvList);
 	sl->srv_n = sg->srv_n;
 
-	sum_conn_n = 0;
+	si = sum_conn_n = 0;
 	hsrv = sl->srvs;
 	list_for_each_entry(srv, &sg->srv_list, list) {
-		size = sizeof(hsrv->conn[0]) * srv->conn_n;
-		if (!(hsrv->conn = kzalloc(size, GFP_KERNEL)))
+		TfwSrvConn **conn, *srv_conn;
+		unsigned long *hash;
+
+		if (unlikely((si++ == sg->srv_n) || !srv->conn_n
+			     || list_empty(&srv->conn_list)))
 			goto cleanup;
-		size = sizeof(hsrv->hash[0]) * srv->conn_n;
-		if (!(hsrv->hash = kzalloc(size, GFP_KERNEL)))
+
+		size = (sizeof(hsrv->conn[0]) + sizeof(hsrv->hash[0]))
+		       * srv->conn_n;
+		if (!(hsrv->conn = kzalloc(size, GFP_KERNEL))) {
+			ret = -ENOMEM;
 			goto cleanup;
-		ci = 0;
-		list_for_each_entry(srv_conn, &srv->conn_list, list) {
-			++sum_conn_n;
-			hsrv->conn[ci] = srv_conn;
-			hsrv->hash[ci++] = __calc_conn_hash(srv, sum_conn_n);
 		}
+		hsrv->hash = (typeof(hsrv->hash))(hsrv->conn + srv->conn_n);
+
+		ci = 0;
+		conn = hsrv->conn;
+		hash = hsrv->hash;
+		list_for_each_entry(srv_conn, &srv->conn_list, list) {
+			if (unlikely(ci++ == srv->conn_n))
+				goto cleanup;
+			++sum_conn_n;
+			*conn++ = srv_conn;
+			*hash++ = __calc_conn_hash(srv, sum_conn_n);
+		}
+		if (unlikely(ci != srv->conn_n))
+			goto cleanup;
 		hsrv->conn_n = srv->conn_n;
 		hsrv->srv = srv;
 		srv->sched_data = hsrv;
 		++hsrv;
 	}
+	if (unlikely(si != sg->srv_n))
+		goto cleanup;
 	sl->conn_n = sum_conn_n;
 
 	return 0;
 
 cleanup:
-	tfw_sched_hash_cleanup(sg);
+	tfw_sched_hash_del_grp(sg);
 	return ret;
 }
 

@@ -918,7 +918,7 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 	 * Process work queues on all CPUs and update stats with data
 	 * from each work item in the queue. Add servers with updated
 	 * stats to the list for calculation of stats. Each server is
-	 * is added to the list just once.
+	 * added to the list just once.
 	 *
 	 * If server's APM data is already on the list, that means it
 	 * is on @qrecalc list. Just remove it from @qrecalc list and
