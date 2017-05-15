@@ -222,6 +222,11 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 
 /**
  * Release all server groups with all servers.
+ *
+ * Note: The function is called at shutdown and in user context when
+ * it's guaranteed that all activity has stopped. Therefore the locks
+ * are not just not necessary, they can't be used as the code in user
+ * context may sleep.
  */
 void
 tfw_sg_release_all(void)
