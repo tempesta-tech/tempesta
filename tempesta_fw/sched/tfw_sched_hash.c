@@ -160,7 +160,9 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 		}
 		if (unlikely(!best_conn))
 			return NULL;
-		if (likely(tfw_srv_conn_get_if_live(best_conn)))
+		if (likely(!tfw_srv_conn_restricted(best_conn)
+			   && !tfw_srv_conn_queue_full(best_conn)
+			   && tfw_srv_conn_get_if_live(best_conn)))
 			return best_conn;
 	}
 	return NULL;
@@ -194,7 +196,9 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 		__find_best_conn(&best_conn, srv_cl, &best_weight, msg_hash);
 		if (unlikely(!best_conn))
 			return NULL;
-		if (likely(tfw_srv_conn_get_if_live(best_conn)))
+		if (likely(!tfw_srv_conn_restricted(best_conn)
+			   && !tfw_srv_conn_queue_full(best_conn)
+			   && tfw_srv_conn_get_if_live(best_conn)))
 			return best_conn;
 	}
 	return NULL;
