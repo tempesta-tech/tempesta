@@ -459,8 +459,10 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * is locked, and spews lots of warnings. LOCKDEP doesn't know
 	 * that parallel execution can't happen with the same socket.
 	 */
-	return tfw_peer_for_each_conn(srv, srv_conn, list,
-				      __tfw_sock_srv_connect_try_later_cb);
+	list_for_each_entry(srv_conn, &srv->conn_list, list)
+		tfw_sock_srv_connect_try_later(srv_conn);
+
+	return 0;
 }
 
 /**
