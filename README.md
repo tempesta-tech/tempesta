@@ -6,47 +6,22 @@
 ### What it is?
 
 **Tempesta FW** is a hybrid solution that combines a reverse proxy and
-a firewall at the same time. It accelerates Web applications and provides
-high performance framework with access to all network layers for running
-complex network traffic classification and blocking modules.
+a firewall at the same time. It accelerates Web applications and protects
+them against DDoS attacks and several Web application attacks.
 
 **Tempesta FW** is built into Linux TCP/IP stack for better and more stable
 performance characteristics in comparison with TCP servers on top of common
 Socket API or even kernel sockets.
 
-
-### Prerequisites
-
-#### Common
-
-* **x86-64 Haswell** or later CPU. Tempesta FW requires **SSE 4.2**, **AVX2**
-  and **2MB huge pages** enabled (check **sse4\_2**, **avx2** and **pse** flags
-  in your /proc/cpuinfo);
-* At least **2GB RAM**;
-* **RSS** capable network adapter;
-* Linux CentOS/RHEL 7 or Debian 8;
-* Filesystem with `fallocate(2)` system call (e.g. **ext4**, **btrfs** or
-  **xfs**);
-* GNU Make 3.82 or higher;
-* GCC and G++ compilers of versions 4.8 or higher;
-* Boost library of version 1.53 or higher;
+We do our best to keep the kernel modifications as small as possible. Current
+[patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.8.15.patch)
+is just about 2,000 lines.
 
 
-#### Kernel
+### Prerequisites & Installation
 
-Tempesta requires that the following Linux kernel configuration options are
-switched on:
-
-* CONFIG\_SECURITY
-* CONFIG\_SECURITY\_NETWORK
-* CONFIG\_SECURITY\_TEMPESTA
-* CONFIG\_DEFAULT\_SECURITY\_TEMPESTA
-* CONFIG\_DEFAULT\_SECURITY="tempesta"
-
-We suggest that CONFIG\_PREEMPT\_NONE is used for better throughput. However,
-please use CONFIG\_PREEMPT\_VOLUNTARY for debugging since this mode causes
-additional stress to synchronization of several algorithms. Also note that
-CONFIG\_PREEMPT is not supported at all.
+Please see our [Wiki](https://github.com/tempesta-tech/tempesta/wiki) for system
+requirements and installation procedures.
 
 
 ### Build
@@ -54,6 +29,8 @@ CONFIG\_PREEMPT is not supported at all.
 To build the module you need to do the following steps:
 
 * Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.8.15-tfw)
+  or patch vanilla kernel on your own using
+  [linux-4.8.15.patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.8.15.patch).
 * Build, install, and then boot the kernel. Classic build and install procedure
   is used. For that, go to the directory with the patched kernel sources, make
   sure you have a correct `.config` file, and then do the following (`<N>` is
@@ -708,6 +685,11 @@ backup group if applied. Backup server will continue serving the client even
 when the primary group is back online. That means that switching from backup
 server group back to the primary group ends only after all the current
 sessions pinned to backup server group are expired.
+
+Directive is applied per server group and has the following syntax:
+```
+sticky_sessions [allow_failover];
+```
 
 `allow_failover` option allow Tempesta pin sessions to a new server if
 the current pinned server went offline. Accident will be logged. Moving client

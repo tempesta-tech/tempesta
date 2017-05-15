@@ -1,0 +1,6 @@
+tempesta-fw-dkms/
+debhelper-build-stamp
+files
+*.debhelper.log
+*.substvars
+*.debhelper
