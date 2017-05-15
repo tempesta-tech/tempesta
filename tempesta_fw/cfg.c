@@ -1555,9 +1555,19 @@ tfw_cfg_start_mods(const char *cfg_text)
 
 err_recover_stop:
 	TFW_DBG2("stopping already stared modules\n");
+
+	/*
+	 * TODO Perhaps a certain architectural redesign is required.
+	 * This function is also called in main.c.
+	 */
+	ss_stop();
+
 	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, &tfw_cfg_mods) {
 		mod_stop(tmp_mod);
 	}
+
+	/* See the comment in tfw_cfg_stop() regarding this function. */
+	ss_synchronize();
 
 err_recover_cleanup:
 	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods) {
@@ -1603,9 +1613,9 @@ tfw_cfg_stop(void)
 		mod_stop(mod);
 
 	/*
-	 * Wait untill all networking activity is stopped before we can safely
-	 * cleanup modules data structures.
-	 * TODO the call shouldn't be here, see comment for tfw_cfg_mods.
+	 * Wait until all networking activity is stopped before modules'
+	 * data structures can be safely cleaned up.
+	 * TODO the call shouldn't be here, see comment for tfw_cfg_mods().
 	 */
 	ss_synchronize();
 

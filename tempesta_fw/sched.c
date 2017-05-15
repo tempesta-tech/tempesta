@@ -54,7 +54,7 @@ tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 	TfwSrvConn *srv_conn;
 
 	BUG_ON(!main_sg);
-	TFW_DBG2("sched: use server group: '%s'\n", sg->name);
+	TFW_DBG2("sched: use server group: '%s'\n", main_sg->name);
 
 	tfw_http_sess_save_sg(req, main_sg, backup_sg);
 
@@ -62,13 +62,13 @@ tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
 
 	if (unlikely(!srv_conn && backup_sg)) {
 		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
-			sg->name);
+			backup_sg->name);
 		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
 	}
 
 	if (unlikely(!srv_conn))
 		TFW_DBG2("sched: Unable to select server from group '%s'\n",
-			 sg->name);
+			 backup_sg ? backup_sg->name : main_sg->name);
 
 	return srv_conn;
 }
