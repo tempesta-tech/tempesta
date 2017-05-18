@@ -532,11 +532,13 @@ tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio)
 static void
 tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
 {
+	static const long MUL = 1000;
+	int ni, sz;
+	size_t si, max_val_idx;
+	unsigned long sum_wgt;
+	long cnt, rtt, ahead, prediction;
 	TfwRatioHstData *hstdata = rpool->hstdata;
 	TfwRatioSrvData *srvdata = ratio->srvdata;
-	static const long MUL = 1000;
-	unsigned long cnt, rtt, ahead, sum_wgt;
-	size_t si, sz, ni, max_val_idx;
 
 	ni = hstdata->counter % hstdata->slot_n;
 	cnt = hstdata->counter * MUL;
@@ -544,7 +546,6 @@ tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
 
 	sum_wgt = max_val_idx = 0;
 	for (si = 0; si < rpool->srv_n; ++si) {
-		long prediction;
 		TfwRatioHstDesc *hd = &hstdata->past[si];
 
 		__tfw_sched_ratio_get_rtt(si, rpool, ratio);
@@ -567,8 +568,8 @@ tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
 				(hd->cnt_sq_avg * ni + cnt * cnt) / sz;
 			hd->cnt_avg_sq = hd->cnt_avg * hd->cnt_avg;
 		} else {
-			unsigned long h_cnt = hd->hist[ni].cnt;
-			unsigned long h_rtt = hd->hist[ni].rtt;
+			long h_cnt = hd->hist[ni].cnt;
+			long h_rtt = hd->hist[ni].rtt;
 			sz = hstdata->slot_n;
 			hd->cnt_avg = hd->cnt_avg - (h_cnt - cnt) / sz;
 			hd->rtt_avg = hd->rtt_avg - (h_rtt - rtt) / sz;
