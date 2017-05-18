@@ -150,13 +150,13 @@ typedef struct {
  * the whole run-time. That may change in the future.
  *
  * @rcu		- RCU control structure;
- * @free	- indicates that the pool entry is available for use.
+ * @busy	- indicates that the pool entry is currently used.
  * @srvdata	- scheduler data specific to each server in the group.
  * @schdata	- scheduler data common to all servers in the group.
  */
 typedef struct {
 	struct rcu_head		rcu;
-	atomic_t		free;
+	atomic_t		busy;
 	TfwRatioSrvData		*srvdata;
 	TfwRatioSchData		schdata;
 } TfwRatio;
@@ -610,7 +610,7 @@ tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
 
 /**
  * Get a free for use entry from the RCU pool.
- * Note that @ratio->free is always either 1 or 0.
+ * Note that @ratio->busy is always either 1 or 0.
  */
 static TfwRatio *
 tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
@@ -619,7 +619,7 @@ tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
 	TfwRatio *ratio = rpool->rpool;
 
 	for (si = 0; si <= nr_cpu_ids; ++si, ++ratio)
-		if (atomic_cmpxchg(&ratio->free, 1, 0))
+		if (!atomic_cmpxchg(&ratio->busy, 0, 1))
 			return ratio;
 
 	return NULL;
@@ -628,17 +628,11 @@ tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
 /**
  * Return an entry to the RCU pool.
  */
-static inline void
-__tfw_sched_ratio_rpool_put(TfwRatio *ratio)
-{
-	atomic_set(&ratio->free, 1);
-}
-
 static void
 tfw_sched_ratio_rpool_put(struct rcu_head *rcup)
 {
 	TfwRatio *ratio = container_of(rcup, TfwRatio, rcu);
-	__tfw_sched_ratio_rpool_put(ratio);
+	atomic_set(&ratio->busy, 0);
 }
 
 /**
@@ -1066,17 +1060,17 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 	rpool->rpool = sg->sched_data + sizeof(TfwRatioPool);
 	ratio_end = rpool->rpool + nr_cpu_ids + 1;
 
-	/* Array for server descriptors. Shared between RCU pool entries. */
-	rpool->srvdesc = (TfwRatioSrvDesc *)ratio_end;
-	rpool->psidx = sg->flags & TFW_SG_F_PSTATS_IDX_MASK;
 	rpool->srv_n = sg->srv_n;
+	rpool->psidx = sg->flags & TFW_SG_F_PSTATS_IDX_MASK;
+
+	/* Array of server descriptors. Shared between RCU pool entries. */
+	rpool->srvdesc = (TfwRatioSrvDesc *)ratio_end;
 
 	/* Set up each RCU pool entry with required arrays and data. */
 	srvdata = (TfwRatioSrvData *)(rpool->srvdesc + sg->srv_n);
 	for (ratio = rpool->rpool; ratio < ratio_end; ++ratio) {
-		ratio->srvdata = srvdata;
 		spin_lock_init(&ratio->schdata.lock);
-		atomic_set(&ratio->free, 1);
+		ratio->srvdata = srvdata;
 		srvdata += sg->srv_n;
 	}
 
