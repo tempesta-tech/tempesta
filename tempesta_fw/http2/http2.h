@@ -33,41 +33,58 @@
 #include "hash.h"
 #include "hpack.h"
 
-typedef ufast HStreamId;
+typedef unsigned int HStreamId;
+
+/* Basic states: */
 
 enum {
-	HTTP2_State_Ready = 0,
-	HTTP2_State_Length,
-	HTTP2_State_Type,
+	HTTP2_State_Preface = 0x10,
+	HTTP2_State_Ready,
 	HTTP2_State_Flags,
 	HTTP2_State_StreamId,
-	HTTP2_State_Pad_Length,
-	HTTP2_State_Data,
-	HTTP2_State_Padding,
-	HTTP2_State_Weight,
-	HTTP2_State_Error_Code,
-	HTTP2_State_Id,
-	HTTP2_State_Value,
-	HTTP2_State_Window_Size
+	HTTP2_State_Skip,
+	HTTP2_State_Close
 };
+
+/* Frame header states: */
 
 enum {
-	HTTP2_Type_DATA = 0x0,
-	HTTP2_Type_HEADERS = 0x1,
-	HTTP2_Type_PRIORITY = 0x2,
-	HTTP2_Type_PST_STEAM = 0x3,
-	HTTP2_Type_SETTINGS = 0x4,
-	HTTP2_Type_PUSH_PROMISE = 0x5,
-	HTTP2_Type_PING = 0x6,
-	HTTP2_Type_GOAWAY = 0x7,
-	HTTP2_Type_WINDOW_UPDATE = 0x8,
-	HTTP2_Type_CONTINUATION = 0x9
+	HTTP2_Frame_DATA = 0x0,
+	HTTP2_Frame_HEADERS = 0x1,
+	HTTP2_Frame_PRIORITY = 0x2,
+	HTTP2_Frame_PST_STEAM = 0x3,
+	HTTP2_Frame_SETTINGS = 0x4,
+	HTTP2_Frame_PUSH_PROMISE = 0x5,
+	HTTP2_Frame_PING = 0x6,
+	HTTP2_Frame_GOAWAY = 0x7,
+	HTTP2_Frame_WINDOW_UPDATE = 0x8,
+	HTTP2_Frame_CONTINUATION = 0x9,
+	HTTP2_Frame_Unknown
 };
 
-#define HTTP2_State_Mask 15
+/* Additional states: */
+
+enum {
+	HTTP2_Frame_DATA_Payload = 0x20,
+	HTTP2_Frame_HEADERS_Priority,
+	HTTP2_Frame_HEADERS_Payload
+};
+
+/* HTTP/2 frame-related flags: */
+
+enum {
+	HTTP2_Flags_Settings_Ack = 0x01,
+	HTTP2_Flags_End_Stream = 0x01,
+	HTTP2_Flags_End_Headers = 0x04,
+	HTTP2_Flags_Padded = 0x08,
+	HTTP2_Flags_Priority = 0x20
+};
+
+/* Stream states: */
 
 enum {
 	HStream_State_Idle = 0,
+	HStream_State_Open,
 	HStream_State_Closed,
 	HStream_State_Reserved,
 	HStream_State_Half_Closed
@@ -82,53 +99,85 @@ enum {
 /* out:    Output buffer.	      */
 /* pool:   Memory pool. 	      */
 
+typedef struct HTTP2 HTTP2;
+
 typedef struct {
 	HStreamId id;
 	HStreamId parent;
-	ufast state;
-	ufast weight;
-	ufast window;
-	ufast error;
+	unsigned int state;
+	unsigned int weight;
+	unsigned int window;
+	unsigned int error;
 	HTTP2Output out;
 	TfwPool *pool;
+	HTTP2 *http;
 } HStream;
 
-/* state:  Current state.			  */
-/* frame:  Current frame type.			  */
-/* shift:  Current shift (used when integer	  */
-/*	   decoding interrupted due to absence	  */
-/*	   of the next fragment).		  */
-/* saved:  Current integer value (see above).	  */
-/* window: Current congestion window (for all	  */
-/*	   streams).				  */
-/* pool:   Memory pool. 			  */
-/* hp:	   HPack encoder/decoder.		  */
-/* sub:    Sub-allocator for HStream descriptors. */
-/* hash:   Hash-table for HStream descriptors.	  */
+/* HTTP/2 settings, as decribed in the RFC-7540: */
 
-typedef struct {
-	ufast state;
-	ufast frame;
-	ufast shift;
-	uwide saved;
-	uwide window;
-	TfwPool *pool;
-	HPack *hp;
+enum {
+	SETTINGS_HEADER_TABLE_SIZE = 0x1,
+	SETTINGS_ENABLE_PUSH = 0x2,
+	SETTINGS_MAX_CONCURRENT_STREAMS = 0x3,
+	SETTINGS_INITIAL_WINDOW_SIZE = 0x4,
+	SETTINGS_MAX_FRAME_SIZE = 0x5,
+	SETTINGS_MAX_HEADER_LIST_SIZE = 0x6,
+	SETTINGS_UNKNOWN
+};
+
+/* state:     Current state.		   */
+/* frame:     Current frame type.	   */
+/* length:    Current frame length.	   */
+/* flags:     Current frame flags.	   */
+/* stream:    Current stream.		   */
+/* window:    Current congestion window    */
+/*	      (for all streams).	   */
+/* padding:   Padding length.		   */
+/* is_client: Non-zero if HTTP2 object	   */
+/*	      created by the client.	   */
+/* pool:      Memory pool.		   */
+/* hp:	      HPack decoder.		   */
+/* hp_out:    HPack encoder.		   */
+/* sub:       Sub-allocator for stream	   */
+/*	      descriptors.		   */
+/* streams:   Hash-table of streams.	   */
+/* settings:  HTTP/2 protocol settings, as */
+/*	      specified in the RFC-7540.   */
+/* output:    Output buffer.		   */
+
+struct HTTP2 {
+	unsigned char state;
+	unsigned char frame;
+	unsigned char flags;
+	uint32_t length;
+	HStream * stream;
+	unsigned char padding;
+	uint32_t window;
+	TfwPool * pool;
+	HPack * hp;
+	HPack * hp_out;
 	Sub *sub;
-	Hash *hash;
-} HTTP2;
+	Hash *streams;
+	uint32_t settings[6];
+	HTTP2Output output;
+};
 
-ufast http2_decode(HTTP2 * __restrict http,
-		   HTTP2Input * __restrict source, uwide n);
+void http2_decode(HTTP2 * __restrict http,
+		  HTTP2Input * __restrict source,
+		  uintptr_t n, unsigned int *__restrict rc);
 
-ufast http2_send_header(HTTP2 * __restrict hp,
-			const HStreamId stream,
-			const HTTP2Field * __restrict source, uwide n);
+unsigned int http2_close(HTTP2 * __restrict http, unsigned int rc);
 
-ufast http2_send_data(HTTP2 * __restrict hp,
-		      const HStreamId stream, const TfwStr * __restrict data);
+unsigned int http2_send_header(HTTP2 * __restrict hp,
+			       const HStreamId stream,
+			       const HTTP2Field * __restrict source,
+			       uintptr_t n);
 
-HTTP2 *http2_new(byte is_encoder, TfwPool * __restrict pool);
+unsigned int http2_send_data(HTTP2 * __restrict hp,
+			     const HStreamId stream,
+			     const TfwStr * __restrict data);
+
+HTTP2 *http2_new(unsigned char is_encoder, TfwPool * __restrict pool);
 
 void http2_free(HTTP2 * __restrict hp);
 

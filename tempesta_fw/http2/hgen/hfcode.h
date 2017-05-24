@@ -22,9 +22,9 @@
  */
 
 typedef struct {
-	int16 symbol;
-	uint32 code;
-	uint8 length;
+	int16_t symbol;
+	uint32_t code;
+	uint8_t length;
 } hcode;
 
 static hcode source[] = {

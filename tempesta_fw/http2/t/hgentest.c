@@ -38,17 +38,17 @@
 #define rm_c1 1013904223
 #define rm_c2 1
 
-static ufast Random_x = 0x55555555;
-static ufast Random_y = 0xAAAAAAAA;
+static unsigned int Random_x = 0x55555555;
+static unsigned int Random_y = 0xAAAAAAAA;
 
 /* Very simple random number generator, designed for */
 /* test purposes only, based on two mod 2^32 LCGs: */
 
-static ufast
+static unsigned int
 Random32(void)
 {
-	const ufast x = Random_x * rm_a + rm_c1;
-	const ufast y = Random_y * rm_b + rm_c2;
+	const unsigned int x = Random_x * rm_a + rm_c1;
+	const unsigned int y = Random_y * rm_b + rm_c2;
 
 	Random_x = x;
 	Random_y = y;
@@ -57,12 +57,12 @@ Random32(void)
 
 /* Unbiased random index in the {0; n} range: */
 
-static ufast
-Random32_Index(const ufast n)
+static unsigned int
+Random32_Index(const unsigned int n)
 {
 	if (n) {
-		ufast limit = 4294967295U - 4294967295U % n;
-		ufast x;
+		unsigned int limit = 4294967295U - 4294967295U % n;
+		unsigned int x;
 
 		do {
 			x = Random32();
@@ -75,12 +75,12 @@ Random32_Index(const ufast n)
 
 static double ranges[HF_SYMBOLS - 1];
 
-static uint32 counters[256];
+static uint32_t counters[256];
 
 int __cdecl
 main(void)
 {
-	ufast i;
+	unsigned int i;
 	double end;
 
 	end = 0;
@@ -93,20 +93,20 @@ main(void)
 	for (i = 0; i < ITERATIONS; i++) {
 		char buf[MAXLEN];
 		char encoded[MAXLEN * 4];
-		ufast n = Random32_Index(MAXLEN) + 1;
-		ufast k = 0;
-		ufast m;
+		unsigned int n = Random32_Index(MAXLEN) + 1;
+		unsigned int k = 0;
+		unsigned int m;
 
 		do {
-			int16 symbol;
+			int16_t symbol;
 			const double x =
-			    end * (Random32() / (double)(uint32) - 1);
-			ufast l, u;
+			    end * (Random32() / (double)(uint32_t) - 1);
+			unsigned int l, u;
 
 			l = 1;
 			u = HF_SYMBOLS - 1;
 			do {
-				const ufast j = (l + u) / 2;
+				const unsigned int j = (l + u) / 2;
 				const double qx = ranges[j - 1];
 
 				if (qx > x) {
@@ -118,7 +118,7 @@ main(void)
 					break;
 				}
 			} while (l <= u);
-			if ((fast) (l - 1) < 0 || (l - 1) >= HF_SYMBOLS - 1) {
+			if ((int)(l - 1) < 0 || (l - 1) >= HF_SYMBOLS - 1) {
 				puts("BUG in binary search or range generation!");
 				return 1;
 			}
@@ -130,7 +130,7 @@ main(void)
 		printf("/* Iteration: %u */\n", i);
 		printf("\t{\"");
 		for (k = 0; k < n; k++) {
-			printf("\\x%02X", (uchar) buf[k]);
+			printf("\\x%02X", (unsigned char)buf[k]);
 		}
 		printf("\", %u,\n\t \"", n);
 		m = huffman_encode(buf, encoded, n);
@@ -139,7 +139,7 @@ main(void)
 			return 1;
 		}
 		for (k = 0; k < m; k++) {
-			printf("\\x%02X", (uchar) encoded[k]);
+			printf("\\x%02X", (unsigned char)encoded[k]);
 		}
 		printf("\", %u%s\n", m, i == ITERATIONS - 1 ? "}" : "},");
 	}

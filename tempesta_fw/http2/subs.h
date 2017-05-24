@@ -48,30 +48,30 @@ typedef struct {
 struct Sub {
 /* Next field must be first field in the structure: */
 	SList Next;
-	uint32 Block;
-	uint32 Length;
+	uint32_t Block;
+	uint32_t Length;
 	TfwPool *heap;
 	SList Chunk;
-	uint32 Initial;
-	uint32 Quant;
+	uint32_t Initial;
+	uint32_t Quant;
 	const char *Name;
-	uint32 True_Length;
-	uint32 Allocated;
-	byte Data[1];
+	uint32_t True_Length;
+	uint32_t Allocated;
+	unsigned char Data[1];
 };
 
 #define Sub_New(Name, Length, Initial, Quant, Heap) \
 	Sub_New_Internal(Name, Length, Initial, Quant, Heap)
 
 Sub *Sub_New_Internal(const char *const Name,
-		      const fast Length,
-		      const fast Initial, const fast Quant, TfwPool * const hp);
+		      const int Length,
+		      const int Initial, const int Quant, TfwPool * const hp);
 void *Sub_Allocate2(Sub * const Object);
 void Sub_Delete(Sub * const Object);
 void Sub_Clear(Sub * const Object);
-void *Sub_Allocate_List(Sub * const Object, const fast Count, void *const Last);
+void *Sub_Allocate_List(Sub * const Object, const int Count, void *const Last);
 void Sub_Free_List(Sub * const Object, void *const First_Element);
-ufast Sub_Query_Length(const Sub * const Object);
+unsigned int Sub_Query_Length(const Sub * const Object);
 
 common_inline void *
 Sub_Allocate(Sub * const Object)

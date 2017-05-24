@@ -33,28 +33,30 @@
 
 typedef struct Hash Hash;
 
-typedef ufast Hash_Equal(const void *const x, const void *const y);
+typedef unsigned int
+ Hash_Equal(const void *const x, const void *const y);
 
-typedef uwide Hash_Function(const void *const Name);
+typedef uintptr_t Hash_Function(const void *const Name);
 
 typedef void
 
 Hash_Iterator_Function(const void *const Key,
 		       void *const Value, void *const User);
 
-typedef ufast
+typedef unsigned int
+
 Hash_Iterator_Function2(const void *const Key,
 			void *const Value, void *const User);
 
-typedef ufast
-Hash_Filter_Function(void *const Key, void *const Value, void *const User);
+typedef unsigned int
+ Hash_Filter_Function(void *const Key, void *const Value, void *const User);
 
 /* Hash table control functions: */
 
 Hash *Hash_New(const char *__restrict const Name,
-	       const fast Initial_Size,
-	       const fast Minimal_Size,
-	       const fast Quant,
+	       const int Initial_Size,
+	       const int Minimal_Size,
+	       const int Quant,
 	       Hash_Function * const Function,
 	       Hash_Equal * const Equal_Function,
 	       TfwPool * __restrict const hp);
@@ -70,11 +72,12 @@ void
 
 Hash_Clear2(Hash * __restrict const ht,
 	    Hash_Iterator_Function * const Function, void *const User);
-uwide Hash_Count(const Hash * __restrict const ht);
+uintptr_t Hash_Count(const Hash * __restrict const ht);
 
 /* Hash table manipulation functions: */
 
-ufast
+unsigned int
+
 Hash_SoftAdd(Hash * __restrict const ht,
 	     const void *__restrict const Key,
 	     const void *__restrict const Value);
@@ -95,7 +98,8 @@ void
 
 Hash_Iterator(const Hash * __restrict const ht,
 	      Hash_Iterator_Function * const Function, void *const User);
-ufast
+unsigned int
+
 Hash_Iterator2(const Hash * __restrict const ht,
 	       Hash_Iterator_Function2 * const Function, void *const User);
 void
@@ -106,7 +110,7 @@ Hash_Filter(Hash * __restrict const ht,
 #define Hash_Delete Hash_SoftDelete
 #define Hash_Add Hash_SoftAdd
 
-uwide Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
-		      const ufast Shift);
+uintptr_t Byte_Hash_Chain(const void *__restrict const x,
+			  const uintptr_t Length, const unsigned int Shift);
 
 #endif

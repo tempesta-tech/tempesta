@@ -43,10 +43,10 @@
 
 typedef struct {
 	const TfwStr *str;
-	uwide current;
-	uwide n;
-	uwide tail;
-	uwide offset;
+	uintptr_t current;
+	uintptr_t n;
+	uintptr_t tail;
+	uintptr_t offset;
 } HTTP2Input;
 
 /* Initialize input buffer from the TfwStr: */
@@ -56,57 +56,70 @@ void buffer_from_tfwstr(HTTP2Input * __restrict p,
 
 /* Get pointer to and length ("m") of the current fragment: */
 
-const uchar *buffer_get(HTTP2Input * __restrict p, uwide * __restrict m);
+const unsigned char *buffer_get(HTTP2Input * __restrict p,
+				uintptr_t * __restrict m);
 
 /* Get the next pointer and length of the next fragment: */
 
-const uchar *buffer_next(HTTP2Input * __restrict p, uwide * __restrict m);
+const unsigned char *buffer_next(HTTP2Input * __restrict p,
+				 uintptr_t * __restrict m);
 
 /* Close current parser iteration. Here "m" is the length */
 /* of unparsed tail of the current fragment: */
 
-void buffer_close(HTTP2Input * __restrict p, uwide m);
+void buffer_close(HTTP2Input * __restrict p, uintptr_t m);
 
-/* Count number of the fragments consumed by the string */
-/* of "length" bytes, which starts from the current     */
-/* position in the buffer. If the current fragment is	*/
-/* fully consumed by decoder, then get pointer to the	*/
-/* next fragment and return its length in the "m_new"   */
-/* output parameter.					*/
+/* Skip "n" bytes in the input buffer: */
 
-const uchar *buffer_count(HTTP2Input * __restrict p,
-			  uwide * __restrict m_new,
-			  const uchar * __restrict src,
-			  uwide m, uwide length, uwide * __restrict count);
+const unsigned char *buffer_skip(HTTP2Input * __restrict p,
+				 const unsigned char *__restrict src,
+				 uintptr_t m,
+				 uintptr_t * __restrict m_new, uintptr_t n);
+
+/* Count number of the fragments consumed by the   */
+/* string of "length" bytes, which starts from the */
+/* current position in the buffer. If the current  */
+/* fragment is fully consumed by decoder, then get */
+/* pointer to the next fragment and return its	   */
+/* length in the "m_new" output parameter:         */
+
+const unsigned char *buffer_count(HTTP2Input * __restrict p,
+				  uintptr_t * __restrict m_new,
+				  const unsigned char *__restrict src,
+				  uintptr_t m,
+				  uintptr_t length,
+				  uintptr_t * __restrict count);
 
 /* Extract string of the "length" bytes from the     */
 /* input buffer, starting from the current position. */
 /* Here "out" is the pointer to descriptor of the    */
 /* output string and "m_new" is the pointer to       */
-/* updated length of the current fragment.	     */
+/* updated length of the current fragment:	     */
 
-const uchar *buffer_extract(HTTP2Input * __restrict p,
-			    uwide * __restrict m_new,
-			    const uchar * __restrict src,
-			    uwide m,
-			    uwide length,
-			    TfwStr * __restrict out,
-			    TfwPool * __restrict pool, ufast * __restrict rc);
+const unsigned char *buffer_extract(HTTP2Input * __restrict p,
+				    uintptr_t * __restrict m_new,
+				    const unsigned char *__restrict src,
+				    uintptr_t m,
+				    uintptr_t length,
+				    TfwStr * __restrict out,
+				    TfwPool * __restrict pool,
+				    unsigned int *__restrict rc);
 
 /* Copy string of the "length" bytes from the input */
 /* buffer (starting from the current position) to   */
 /* the output buffer. Here "out" is the pointer to  */
 /* the output buffer and "m_new" is the pointer to  */
-/* updated length of the current fragment.	    */
+/* updated length of the current fragment:	    */
 
 typedef struct HTTP2Output HTTP2Output;
 
-const uchar *buffer_copy(HTTP2Input * __restrict p,
-			 uwide * __restrict m_new,
-			 const uchar * __restrict src,
-			 uwide m,
-			 uwide length,
-			 HTTP2Output * __restrict out, ufast * __restrict rc);
+const unsigned char *buffer_copy(HTTP2Input * __restrict p,
+				 uintptr_t * __restrict m_new,
+				 const unsigned char *__restrict src,
+				 uintptr_t m,
+				 uintptr_t length,
+				 HTTP2Output * __restrict out,
+				 unsigned int *__restrict rc);
 
 /* ------------------------------------------------- */
 /* Output buffers, which are used to store decoded   */
@@ -122,9 +135,9 @@ const uchar *buffer_copy(HTTP2Input * __restrict p,
 
 typedef struct HTTP2Block {
 	struct HTTP2Block *next;
-	uint16 n;
-	uint16 tail;
-	uchar data[1];
+	uint16_t n;
+	uint16_t tail;
+	unsigned char data[1];
 } HTTP2Block;
 
 /* Useful macros for checking before writing one byte: */
@@ -169,14 +182,14 @@ do {						 \
 /*	      the buffer.			     */
 
 struct HTTP2Output {
-	uint16 space;
-	uint8 def_align;
-	uint8 align;
-	uint16 tail;
-	uint16 offset;
-	uwide total;
-	uint16 start;
-	uint32 count;
+	uint16_t space;
+	uint8_t def_align;
+	uint8_t align;
+	uint16_t tail;
+	uint16_t offset;
+	uintptr_t total;
+	uint16_t start;
+	uint32_t count;
 	HTTP2Block *last;
 	HTTP2Block *current;
 	HTTP2Block *first;
@@ -187,69 +200,72 @@ struct HTTP2Output {
 /* Initialize new output buffer: */
 
 void buffer_new(HTTP2Output * __restrict p,
-		TfwPool * __restrict pool, ufast alignment);
+		TfwPool * __restrict pool, unsigned int alignment);
 
 /* Opens the output buffer. For example it may be used	    */
 /* to stored decoded data while parsing the encoded string, */
 /* which located in the input buffer. Output parameter "n"  */
 /* is the length of available space in the opened buffer:   */
 
-uchar *buffer_open(HTTP2Output * __restrict p,
-		   ufast * __restrict n, ufast alignment);
+unsigned char *buffer_open(HTTP2Output * __restrict p,
+			   unsigned int *__restrict n, unsigned int alignment);
 
 /* Opens the output buffer and reserves the "size" bytes     */
 /* in that opened buffer. Output parameter "n" is the length */
 /* of available space in the opened buffer:		     */
 
-uchar *buffer_open_small(HTTP2Output * __restrict p,
-			 ufast * __restrict n, ufast size, ufast alignment);
+unsigned char *buffer_open_small(HTTP2Output * __restrict p,
+				 unsigned int *__restrict n,
+				 unsigned int size, unsigned int alignment);
 
 /* Reserving the "size" bytes in the output buffer */
 /* without opening it:				   */
 
-uchar *buffer_small(HTTP2Output * __restrict p, ufast size, ufast alignment);
+unsigned char *buffer_small(HTTP2Output * __restrict p,
+			    unsigned int size, unsigned int alignment);
 
 /* Pause writing to the output buffer without */
 /* emitting string. Here "n" is the length of */
 /* the unused space in the last fragment:     */
 
-void buffer_pause(HTTP2Output * __restrict p, ufast n);
+void buffer_pause(HTTP2Output * __restrict p, unsigned int n);
 
 /* Reopen the output buffer that is paused before. */
 /* Output parameter "n" is the length of available */
 /* space in the buffer: 			   */
 
-uchar *buffer_resume(HTTP2Output * __restrict p, ufast * __restrict n);
+unsigned char *buffer_resume(HTTP2Output * __restrict p,
+			     unsigned int *__restrict n);
 
 /* Add new block to the output buffer. Returns the NULL    */
 /* and zero length ("n_new") if unable to allocate memory. */
 /* Here "n" is the number of unused bytes in the current   */
-/* fragment of the buffer.				   */
+/* fragment of the buffer:				   */
 
-uchar *buffer_expand(HTTP2Output * __restrict p,
-		     ufast * __restrict n_new, ufast n);
+unsigned char *buffer_expand(HTTP2Output * __restrict p,
+			     unsigned int *__restrict n_new, unsigned int n);
 
 /* Forms a new string from the data stored in the output   */
 /* buffer. Returns error code if unable to allocate memory */
 /* for the string descriptor. Input parameter "n" is the   */
 /* number of unused bytes of the tail fragment: 	   */
 
-ufast buffer_emit(HTTP2Output * __restrict p, ufast n);
+unsigned int buffer_emit(HTTP2Output * __restrict p, unsigned int n);
 
 /* Copy data from the plain memory block to the output	  */
 /* buffer and build a TfwStr string from the copied data: */
 
-ufast buffer_put(HTTP2Output * __restrict p,
-		 const uchar * __restrict src, uwide length);
+unsigned int buffer_put(HTTP2Output * __restrict p,
+			const unsigned char *__restrict src, uintptr_t length);
 
 /* Copy data from the plain memory block to the output */
 /* buffer (which is already opened before this call):  */
 
-uchar *buffer_put_raw(HTTP2Output * __restrict p,
-		      uchar * __restrict dst,
-		      ufast * __restrict k_new,
-		      const uchar * __restrict src,
-		      uwide length, ufast * __restrict rc);
+unsigned char *buffer_put_raw(HTTP2Output * __restrict p,
+			      unsigned char *__restrict dst,
+			      unsigned int *__restrict k_new,
+			      const unsigned char *__restrict src,
+			      uintptr_t length, unsigned int *__restrict rc);
 
 /* Copy data from the TfwStr string to the output      */
 /* buffer (which is already opened before this call).  */
@@ -257,11 +273,12 @@ uchar *buffer_put_raw(HTTP2Output * __restrict p,
 /* contains the length of unprocessed part of the      */
 /* TfwStr string (user can supply NULL pointer here):  */
 
-uchar *buffer_put_string(HTTP2Output * __restrict p,
-			 uchar * __restrict dst,
-			 ufast * __restrict k_new,
-			 const TfwStr * __restrict source,
-			 ufast * __restrict rc, uwide * __restrict remainder);
+unsigned char *buffer_put_string(HTTP2Output * __restrict p,
+				 unsigned char *__restrict dst,
+				 unsigned int *__restrict k_new,
+				 const TfwStr * __restrict source,
+				 unsigned int *__restrict rc,
+				 uintptr_t * __restrict remainder);
 
 /* ------------------------------------------ */
 /* Supplementary functions related to TfwStr: */
@@ -273,8 +290,8 @@ uchar *buffer_put_string(HTTP2Output * __restrict p,
 /* length of all "fp" fragments and the length of    */
 /* the "x" string:                                   */
 
-int buffer_str_cmp_plain(const uchar * __restrict x,
-			 const TfwStr * __restrict fp, uwide n);
+int buffer_str_cmp_plain(const unsigned char *__restrict x,
+			 const TfwStr * __restrict fp, uintptr_t n);
 
 /* Compare two arrays of the TfwStr fragments represented */
 /* by the "fx" and "fy" pointers. Here "n" is the minimum */
@@ -282,19 +299,20 @@ int buffer_str_cmp_plain(const uchar * __restrict x,
 /* total length of all "fy" fragments:                    */
 
 int buffer_str_cmp_complex(const TfwStr * __restrict fx,
-			   const TfwStr * __restrict fy, uwide n);
+			   const TfwStr * __restrict fy, uintptr_t n);
 
 /* Compare two TfwStr strings: */
 
-wide buffer_str_cmp(const TfwStr * __restrict x, const TfwStr * __restrict y);
+intptr_t buffer_str_cmp(const TfwStr * __restrict x,
+			const TfwStr * __restrict y);
 
 /* Calculate simple hash function of the TfwStr string: */
 
-uwide buffer_str_hash(const TfwStr * __restrict x);
+uintptr_t buffer_str_hash(const TfwStr * __restrict x);
 
 /* Copy data from the TfwStr string to plain array: */
 
-void buffer_str_to_array(uchar * __restrict data,
+void buffer_str_to_array(unsigned char *__restrict data,
 			 const TfwStr * __restrict str);
 
 /* Print the TfwStr string: */
@@ -308,7 +326,7 @@ common_inline void
 buffer_str_free(TfwPool * __restrict pool, TfwStr * __restrict str)
 {
 	if (!TFW_STR_PLAIN(str)) {
-		const ufast count = TFW_STR_CHUNKN(str);
+		const unsigned int count = TFW_STR_CHUNKN(str);
 
 		tfw_pool_free(pool, str->ptr, count * sizeof(TfwStr));
 	}

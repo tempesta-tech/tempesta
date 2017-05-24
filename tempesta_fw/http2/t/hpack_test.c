@@ -33,8 +33,8 @@
 #include "../hpack.h"
 
 typedef struct {
-	uint32 encoded_len;
-	int32 window;
+	uint32_t encoded_len;
+	int32_t window;
 	const char *encoded;
 } HPackTestData;
 
@@ -51,17 +51,17 @@ typedef struct {
 #define rm_c1 1013904223
 #define rm_c2 1
 
-static ufast Random_x = 0x55555555;
-static ufast Random_y = 0xAAAAAAAA;
+static unsigned int Random_x = 0x55555555;
+static unsigned int Random_y = 0xAAAAAAAA;
 
 /* Very simple random number generator, designed for */
 /* test purposes only, based on two mod 2^32 LCGs: */
 
-static ufast
+static unsigned int
 Random32(void)
 {
-	const ufast x = Random_x * rm_a + rm_c1;
-	const ufast y = Random_y * rm_b + rm_c2;
+	const unsigned int x = Random_x * rm_a + rm_c1;
+	const unsigned int y = Random_y * rm_b + rm_c2;
 
 	Random_x = x;
 	Random_y = y;
@@ -70,12 +70,12 @@ Random32(void)
 
 /* Unbiased random index in the {0; n} range: */
 
-static ufast
-Random32_Index(const ufast n)
+static unsigned int
+Random32_Index(const unsigned int n)
 {
 	if (n) {
-		ufast limit = 4294967295U - 4294967295U % n;
-		ufast x;
+		unsigned int limit = 4294967295U - 4294967295U % n;
+		unsigned int x;
 
 		do {
 			x = Random32();
@@ -97,24 +97,24 @@ main(void)
 	static HTTP2Input in;
 	static HTTP2Output out;
 	HPack *hp;
-	ufast k, i;
-	uwide ts;
+	unsigned int k, i;
+	uintptr_t ts;
 	double tm;
 
 	ts = clock();
 	fragments[0].ptr = buf2;
 	fragments[1].ptr = buf1;
 	fragments[2].ptr = buf3;
-	buffer_new(&out, NULL, 0);
+	buffer_new(&out, NULL, 1);
 	hpack_init(NULL);
 	hp = hpack_new(4096, 0, NULL);
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
-			fast window;
+			int window;
 			HTTP2Field *fields;
 			const char *__restrict encoded = test[i].encoded;
-			ufast rc;
-			ufast length = test[i].encoded_len;
+			unsigned int rc;
+			unsigned int length = test[i].encoded_len;
 
 			if (length == 1) {
 				root.ptr = buf1;
@@ -131,9 +131,9 @@ main(void)
 					buf2[0] = encoded[0];
 					buf1[0] = encoded[1];
 				} else {
-					const ufast split2 =
+					const unsigned int split2 =
 					    Random32_Index(length - 1) + 1;
-					const ufast split1 =
+					const unsigned int split1 =
 					    Random32_Index(split2) + 1;
 					if (split1 == split2) {
 						root.flags =

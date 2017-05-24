@@ -20,6 +20,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <stdint.h>
 #include <string.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -60,7 +61,8 @@ do {				    \
 HTTP2Field *
 hpack_decode(HPack * __restrict hp,
 	     HTTP2Input * __restrict source,
-	     uwide n, HTTP2Output * __restrict buffer, ufast * __restrict rc)
+	     uintptr_t n,
+	     HTTP2Output * __restrict buffer, unsigned int *__restrict rc)
 {
 	TfwPool *const __restrict pool = buffer->pool;
 	HTTP2Field *__restrict field = hp->field;
@@ -71,15 +73,15 @@ hpack_decode(HPack * __restrict hp,
 
 	*rc = 0;
 	if (n) {
-		uwide m;
+		uintptr_t m;
 		const uchar *__restrict src = buffer_get(source, &m);
-		ufast state = hp->state;
+		unsigned int state = hp->state;
 
 		do {
-			uwide index = hp->index;
+			uintptr_t index = hp->index;
 
 			/* Initialized only to prevent compiler warnings: */
-			uwide length = 0;
+			uintptr_t length = 0;
 
 			switch (state & HPack_State_Mask) {
 			case HPack_State_Index:
@@ -288,7 +290,7 @@ hpack_decode(HPack * __restrict hp,
 						DPRINTF("Decode %" PRIuPTR
 							" bytes of Huffman data...\n",
 							length);
-						ufast hrc;
+						unsigned int hrc;
 
 						buffer_close(source, m);
 						hrc =
@@ -299,11 +301,6 @@ hpack_decode(HPack * __restrict hp,
 							goto Bug;
 						}
 						field->name = buffer->str;
-#if Debug_HPack
-						printf("Decoded name: \"");
-						buffer_str_print(&buffer->str);
-						printf("\"\n");
-#endif
 						n -= length;
 						if (likely(n)) {
 							src =
@@ -364,7 +361,8 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Value_Text:
 				{
-					ufast hrc;
+					uchar *dst;
+					unsigned int hrc;
 
 					length = field->value.len;
 					if (unlikely(n < length)) {
@@ -374,6 +372,15 @@ hpack_decode(HPack * __restrict hp,
  Get_Value_Text:
 					DPUTS("Decode header value...");
 					if (length) {
+						if ((state & HPack_Flags_Pseudo)
+						    == 0) {
+							/* Add ":" between name and value: */
+							dst =
+							    buffer_small(buffer,
+									 2, 1);
+							dst[0] = ':';
+							dst[1] = ' ';
+						}
 						if (state &
 						    HPack_Flags_Huffman_Value) {
 							DPRINTF("Decode %"
@@ -449,6 +456,13 @@ hpack_decode(HPack * __restrict hp,
 						    hpack_add(hp->dynamic,
 							      field, state,
 							      buffer);
+					}
+					if ((state & HPack_Flags_Pseudo) == 0) {
+						/* Add CR/LF after decoded field: */
+						dst =
+						    buffer_small(buffer, 2, 1);
+						dst[0] = '\r';
+						dst[1] = '\n';
 					}
 					if (hrc == 0) {
 						DPUTS("New header added...");
@@ -541,16 +555,16 @@ hpack_free_list(HTTP2Output * __restrict buffer, HTTP2Field * __restrict p)
 	}
 }
 
-ufast
-hpack_set_max_window(HPack * __restrict hp, ufast max_window)
+unsigned int
+hpack_set_max_window(HPack * __restrict hp, unsigned int max_window)
 {
 #if Fast_Capacity > 32
-	if (unlikely(max_window > (uint32) - 1)) {
+	if (unlikely(max_window > (uint32_t) - 1)) {
 		return Err_HPack_InvalidTableSize;
 	}
 #endif
 	if (max_window == 0) {
-		max_window = (uint32) - 1;
+		max_window = (uint32_t) - 1;
 	}
 	hp->max_window = max_window;
 	if (unlikely(hp->window > max_window)) {
@@ -560,8 +574,8 @@ hpack_set_max_window(HPack * __restrict hp, ufast max_window)
 	return 0;
 }
 
-ufast
-hpack_set_window(HPack * __restrict hp, ufast window)
+unsigned int
+hpack_set_window(HPack * __restrict hp, unsigned int window)
 {
 	if (window <= hp->max_window) {
 		hp->window = window;
@@ -573,17 +587,18 @@ hpack_set_window(HPack * __restrict hp, ufast window)
 }
 
 HPack *
-hpack_new(ufast max_window, byte is_encoder, TfwPool * __restrict pool)
+hpack_new(unsigned int max_window, unsigned char is_encoder,
+	  TfwPool * __restrict pool)
 {
 	HTTP2Index *__restrict dynamic;
 
 #if Fast_Capacity > 32
-	if (unlikely(max_window > (uint32) - 1)) {
+	if (unlikely(max_window > (uint32_t) - 1)) {
 		return NULL;
 	}
 #endif
 	if (max_window == 0) {
-		max_window = (uint32) - 1;
+		max_window = (uint32_t) - 1;
 	}
 	dynamic = hpack_new_index(max_window, is_encoder, pool);
 	if (dynamic) {

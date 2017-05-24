@@ -35,10 +35,10 @@
 /* HPack string (used for the various buffers): */
 
 enum {
-	HPack_Arena_Static = 0, /* String resides in the static memory.     */
+	HPack_Arena_Static = 0,	/* String resides in the static memory.     */
 	HPack_Arena_Dynamic,	/* String allocated from the classic heap.  */
 	HPack_Arena_User	/* String allocated from the user-conrolled */
-				/* memory (in form of the TfwStr).	    */
+	                        /* memory (in form of the TfwStr).          */
 };
 
 /* ptr:   Pointer to the static memory block (plain, may be directly  */
@@ -54,9 +54,9 @@ enum {
 
 typedef struct {
 	void *ptr;
-	uwide len;
-	uint8 arena;
-	uint32 count;
+	uintptr_t len;
+	uint8_t arena;
+	uint32_t count;
 } HPackStr;
 
 /* Ring buffer (dictionary) entry: */
@@ -87,38 +87,40 @@ typedef struct {
 /*	       table.					*/
 
 struct HTTP2Index {
-	ufast n;
-	ufast current;
-	ufast length;
-	ufast size;
-	ufast window;
+	unsigned int n;
+	unsigned int current;
+	unsigned int length;
+	unsigned int size;
+	unsigned int window;
 	HPackEntry *entries;
 	Sub *sub;
-	byte is_encoder;
+	unsigned char is_encoder;
 	Hash *hash;
 	Hash *pairs;
 	Hash *names;
 	TfwPool *pool;
 };
 
-ufast hpack_add(HTTP2Index * __restrict ip,
-		HTTP2Field * __restrict fp,
-		ufast flags, HTTP2Output * __restrict out);
+unsigned int hpack_add(HTTP2Index * __restrict ip,
+		       HTTP2Field * __restrict fp,
+		       unsigned int flags, HTTP2Output * __restrict out);
 
-ufast hpack_add_index(HTTP2Index * __restrict ip,
-		      HTTP2Field * __restrict fp,
-		      ufast index, ufast flags, HTTP2Output * __restrict out);
+unsigned int hpack_add_index(HTTP2Index * __restrict ip,
+			     HTTP2Field * __restrict fp,
+			     unsigned int index,
+			     unsigned int flags, HTTP2Output * __restrict out);
 
 HPackStr *hpack_find_string(HTTP2Index * __restrict ip,
 			    HPackStr * __restrict name);
 
-ufast hpack_find_entry(HTTP2Index * __restrict ip,
-		       HPackStr * __restrict name,
-		       HPackStr * __restrict value, ufast * __restrict flags);
+unsigned int hpack_find_entry(HTTP2Index * __restrict ip,
+			      HPackStr * __restrict name,
+			      HPackStr * __restrict value,
+			      unsigned int *__restrict flags);
 
-void hpack_set_length(HTTP2Index * __restrict ip, ufast window);
+void hpack_set_length(HTTP2Index * __restrict ip, unsigned int window);
 
-HTTP2Index *hpack_new_index(ufast window, byte is_encoder,
+HTTP2Index *hpack_new_index(unsigned int window, unsigned char is_encoder,
 			    TfwPool * __restrict pool);
 
 void hpack_free_index(HTTP2Index * __restrict ip);

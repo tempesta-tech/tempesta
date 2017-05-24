@@ -25,14 +25,15 @@
  * any restrictions.
  */
 
+#include <stdint.h>
 #include "common.h"
 #include "subs.h"
 
 #ifndef offsetof
-#define offsetof(x, y) ((uwide) &((x *) 0)->y))
+#define offsetof(x, y) ((uintptr_t) &((x *) 0)->y))
 #endif
 
-#define Bit_UMul32(x, y) (uint32) ((x) * (y))
+#define Bit_UMul32(x, y) (uint32_t) ((x) * (y))
 
 #define Sub_Shift(n) \
    Shift = (offsetof(Sub, Data) + (Word_Size - 1)) & \
@@ -42,24 +43,24 @@
 				    ~(2 * Word_Size - 1); \
    }
 
-static void Sub_Chunk(Sub * const Object, void *const x, ufast n,
-		      const ufast Length);
+static void Sub_Chunk(Sub * const Object, void *const x, unsigned int n,
+		      const unsigned int Length);
 
-static void *Sub_Allocate_Tail(Sub * const Object, ufast n, void * *q);
+static void *Sub_Allocate_Tail(Sub * const Object, unsigned int n, void * *q);
 
 Sub *
-Sub_New_Internal(const char *const Name, const fast Length,
-		 const fast Initial, const fast Quant, TfwPool * const hp)
+Sub_New_Internal(const char *const Name, const int Length,
+		 const int Initial, const int Quant, TfwPool * const hp)
 {
 	if (Length >= 1) {
-		const ufast n = (Length + (Word_Size - 1)) & ~(Word_Size - 1);
-
+		const unsigned int n =
+		    (Length + (Word_Size - 1)) & ~(Word_Size - 1);
 		if ((Quant | Initial) >= 0) {
-			ufast Allocated;
+			unsigned int Allocated;
 			Sub *Object;
 
 			if (Initial) {
-				ufast Shift;
+				unsigned int Shift;
 
 				Sub_Shift(Length);
 				Allocated = Shift + Bit_UMul32(n, Initial);
@@ -68,7 +69,8 @@ Sub_New_Internal(const char *const Name, const fast Length,
 					return NULL;
 				}
 				Object->Allocated = Allocated;
-				Sub_Chunk(Object, (byte *) Object + Shift,
+				Sub_Chunk(Object,
+					  (unsigned char *)Object + Shift,
 					  Initial, n);
 			} else {
 				Allocated = offsetof(Sub, Data);
@@ -98,17 +100,18 @@ Sub_New_Internal(const char *const Name, const fast Length,
 }
 
 static void
-Sub_Chunk(Sub * const Object, void *const x, ufast n, const ufast Length)
+Sub_Chunk(Sub * const Object, void *const x, unsigned int n,
+	  const unsigned int Length)
 {
 	void **p = x;
 	void **q;
 
 	Object->Next.p = x;
 	while (--n) {
-		q = (void * *)((byte *) p + Length);
+		q = (void * *)((unsigned char *)p + Length);
 		*p = q;
 		if (--n) {
-			p = (void * *)((byte *) q + Length);
+			p = (void * *)((unsigned char *)q + Length);
 			*q = p;
 		} else {
 			*q = NULL;
@@ -118,7 +121,7 @@ Sub_Chunk(Sub * const Object, void *const x, ufast n, const ufast Length)
 	*p = NULL;
 }
 
-ufast
+unsigned int
 Sub_Query_Length(const Sub * const Object)
 {
 	return Object->Length;
@@ -127,12 +130,13 @@ Sub_Query_Length(const Sub * const Object)
 void *
 Sub_Allocate2(Sub * const Object)
 {
-	const ufast b = Object->Block;
+	const unsigned int b = Object->Block;
 	TfwPool *const hp = Object->heap;
 
 	if (b) {
-		ufast n;
-		byte *const Chunk = tfw_pool_alloc(hp, b + sizeof(void *));
+		unsigned int n;
+		unsigned char *const Chunk =
+		    tfw_pool_alloc(hp, b + sizeof(void *));
 		void **const Tail = (void * *)(Chunk + b);
 
 		if (unlikely(Chunk == NULL)) {
@@ -142,7 +146,7 @@ Sub_Allocate2(Sub * const Object)
 		*Tail = Object->Chunk.p;
 		Object->Chunk.p = Tail;
 		if (--n) {
-			const ufast m = Object->Length;
+			const unsigned int m = Object->Length;
 
 			Sub_Chunk(Object, Chunk + m, n, m);
 		}
@@ -167,7 +171,7 @@ Sub_Free_List(Sub * const Object, void *const First_Element)
 }
 
 void *
-Sub_Allocate_List(Sub * const Object, const fast Count, void *const Last)
+Sub_Allocate_List(Sub * const Object, const int Count, void *const Last)
 {
 	if (Count >= 1) {
 		void **p;
@@ -175,7 +179,7 @@ Sub_Allocate_List(Sub * const Object, const fast Count, void *const Last)
 		void **Next = Object->Next.p;
 
 		if (Count != 1) {
-			ufast n = Count;
+			unsigned int n = Count;
 
 			if (Next) {
 				p = Next;
@@ -212,23 +216,23 @@ Sub_Allocate_List(Sub * const Object, const fast Count, void *const Last)
 }
 
 static void *
-Sub_Allocate_Tail(Sub * const Object, ufast n, void * *q)
+Sub_Allocate_Tail(Sub * const Object, unsigned int n, void * *q)
 {
-	const ufast b = Object->Block;
+	const unsigned int b = Object->Block;
 	TfwPool *const hp = Object->heap;
 
 	if (b) {
-		ufast k, l;
+		unsigned int k, l;
 		void **Next;
-		byte *cp;
-		byte *cf;
+		unsigned char *cp;
+		unsigned char *cf;
 
 		cp = tfw_pool_alloc(hp, b + sizeof(void *));
 		cf = cp + b;
 		k = Object->Quant;
 		l = Object->Length;
 		while (k < n) {
-			ufast m;
+			unsigned int m;
 
 			Next = (void * *)cp;
 			n = n - k;
@@ -236,7 +240,7 @@ Sub_Allocate_Tail(Sub * const Object, ufast n, void * *q)
 			do {
 				*q = Next;
 				q = Next;
-				Next = (void * *)((byte *) Next + l);
+				Next = (void * *)((unsigned char *)Next + l);
 			} while (--m);
 			cp = tfw_pool_alloc(hp, b + sizeof(void *));
 			*Next = (void * *)(cp + b);
@@ -248,7 +252,7 @@ Sub_Allocate_Tail(Sub * const Object, ufast n, void * *q)
 		do {
 			*q = Next;
 			q = Next;
-			Next = (void * *)((byte *) Next + l);
+			Next = (void * *)((unsigned char *)Next + l);
 		} while (--n);
 		*q = NULL;
 		if (k) {
@@ -269,10 +273,10 @@ Sub_Delete(Sub * const Object)
 	void **p = Object->Chunk.p;
 
 	if (p) {
-		const ufast b = Object->Block;
+		const unsigned int b = Object->Block;
 
 		do {
-			byte *const q = (byte *) p - b;
+			unsigned char *const q = (unsigned char *)p - b;
 
 			p = *p;
 			tfw_pool_free(hp, q, b + sizeof(void *));
@@ -285,24 +289,24 @@ void
 Sub_Clear(Sub * const Object)
 {
 	void **p;
-	const ufast Initial = Object->Initial;
+	const unsigned int Initial = Object->Initial;
 
 	Object->Next.p = NULL;
 	if (Initial) {
-		ufast Shift;
-		const ufast n = Object->Length;
+		unsigned int Shift;
+		const unsigned int n = Object->Length;
 
 		Sub_Shift(Object->True_Length);
-		Sub_Chunk(Object, (byte *) Object + Shift, Initial, n);
+		Sub_Chunk(Object, (unsigned char *)Object + Shift, Initial, n);
 	}
 	p = Object->Chunk.p;
 	if (p) {
 		TfwPool *const hp = Object->heap;
-		const ufast b = Object->Block;
+		const unsigned int b = Object->Block;
 
 		Object->Chunk.p = NULL;
 		do {
-			byte *const q = (byte *) p - b;
+			unsigned char *const q = (unsigned char *)p - b;
 
 			p = *p;
 			tfw_pool_free(hp, q, b + sizeof(void *));
