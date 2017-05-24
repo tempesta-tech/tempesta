@@ -22,6 +22,7 @@
 
 #define USE_KMALLOC 0
 
+#include <stdint.h>
 #if USE_KMALLOC
 #include <linux/vmalloc.h>
 #else
@@ -73,7 +74,7 @@ hpack_str_print(const HPackStr * __restrict str)
 }
 
 static void *
-hpack_mem_allocate(uwide length)
+hpack_mem_allocate(uintptr_t length)
 {
 #if USE_KMALLOC
 	return kmalloc(length, GFP_KERNEL);
@@ -92,13 +93,13 @@ hpack_mem_free(void *p)
 #endif
 }
 
-static ufast
+static unsigned int
 hpack_equal(const void *const xp, const void *const yp)
 {
 	const HPackStr *__restrict x = xp;
 	const HPackStr *__restrict y = yp;
-	const uwide cx = x->len;
-	const uwide cy = y->len;
+	const uintptr_t cx = x->len;
+	const uintptr_t cy = y->len;
 
 	if (cx == cy) {
 		const TfwStr *__restrict fp;
@@ -125,7 +126,7 @@ hpack_equal(const void *const xp, const void *const yp)
 	return 0;
 }
 
-static uwide
+static uintptr_t
 hpack_hash(const void *const xp)
 {
 	const HPackStr *const __restrict x = xp;
@@ -150,7 +151,7 @@ hpack_hash_add(Hash * const __restrict ht,
 		}
 		return prev;
 	} else if (p->arena == HPack_Arena_User) {
-		const ufast length = p->len;
+		const unsigned int length = p->len;
 		uchar *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
@@ -167,7 +168,7 @@ hpack_hash_add(Hash * const __restrict ht,
 	return p;
 }
 
-static ufast
+static unsigned int
 hpack_pair_equal(const void *const xp, const void *const yp)
 {
 	const HPackEntry *__restrict x = xp;
@@ -176,24 +177,24 @@ hpack_pair_equal(const void *const xp, const void *const yp)
 	return x->name == y->name && x->value == y->value;
 }
 
-static uwide
+static uintptr_t
 hpack_pair_hash(const void *const xp)
 {
 	const HPackEntry *const __restrict x = xp;
 
-	return (uwide) x->name ^ (uwide) x->value;
+	return (uintptr_t) x->name ^ (uintptr_t) x->value;
 }
 
-static ufast
+static unsigned int
 hpack_name_equal(const void *const xp, const void *const yp)
 {
 	return xp == yp;
 }
 
-static uwide
+static uintptr_t
 hpack_name_hash(const void *const xp)
 {
-	return (uwide) xp;
+	return (uintptr_t) xp;
 }
 
 HPackStr *
@@ -225,7 +226,7 @@ hpack_find_string(HTTP2Index * __restrict ip, HPackStr * __restrict name)
 #if Debug_HIndex
 
 static void
-DPRINT_ENTRY(ufast index,
+DPRINT_ENTRY(unsigned int index,
 	     HPackStr * const __restrict name,
 	     HPackStr * const __restrict value)
 {
@@ -251,10 +252,10 @@ DPRINT_ENTRY(ufast index,
 
 #endif
 
-ufast
+unsigned int
 hpack_find_entry(HTTP2Index * __restrict ip,
 		 HPackStr * __restrict name,
-		 HPackStr * __restrict value, ufast * __restrict flags)
+		 HPackStr * __restrict value, unsigned int *__restrict flags)
 {
 	HPackEntry *__restrict entry;
 
@@ -265,18 +266,18 @@ hpack_find_entry(HTTP2Index * __restrict ip,
 		pattern.value = value;
 		entry = Hash_Find(static_pairs, &pattern);
 		if (entry) {
-			ufast index;
+			unsigned int index;
 
 			*flags |= HPack_Flags_No_Value;
  S1:
-			index = (ufast) (entry - static_table) + 1;
+			index = (unsigned int)(entry - static_table) + 1;
 			DPRINT_ENTRY(index, name, value);
 			return index;
 		}
 		entry = Hash_Find(ip->pairs, &pattern);
 		if (entry) {
-			ufast shift;
-			ufast index;
+			unsigned int shift;
+			unsigned int index;
 
 			*flags |= HPack_Flags_No_Value;
 			if (value && value->arena != HPack_Arena_Static) {
@@ -287,7 +288,7 @@ hpack_find_entry(HTTP2Index * __restrict ip,
 				name->count++;
 			}
 			index = ip->current;
-			shift = (ufast) (entry - ip->entries);
+			shift = (unsigned int)(entry - ip->entries);
 			if (shift < index) {
 				index -= shift;
 			} else {
@@ -322,14 +323,14 @@ hpack_find_entry(HTTP2Index * __restrict ip,
 }
 
 static HPackEntry *
-hpack_find_index(HTTP2Index * __restrict ip, ufast index)
+hpack_find_index(HTTP2Index * __restrict ip, unsigned int index)
 {
 	if (index <= HPACK_STATIC_ENTRIES) {
 		return static_table + index - 1;
 	} else {
 		index -= HPACK_STATIC_ENTRIES;
 		if (index <= ip->n) {
-			ufast current = ip->current;
+			unsigned int current = ip->current;
 
 			if (index <= current) {
 				current -= index;
@@ -365,7 +366,7 @@ hpack_free_entry(HTTP2Index * __restrict ip,
 		}
 	}
 	if (np->arena != HPack_Arena_Static) {
-		ufast count = np->count;
+		unsigned int count = np->count;
 
 		if (count == 1) {
 			if (ht) {
@@ -379,7 +380,7 @@ hpack_free_entry(HTTP2Index * __restrict ip,
 		}
 	}
 	if (vp && vp->arena != HPack_Arena_Static) {
-		ufast count = vp->count;
+		unsigned int count = vp->count;
 
 		if (count == 1) {
 			if (ht) {
@@ -394,7 +395,7 @@ hpack_free_entry(HTTP2Index * __restrict ip,
 	}
 }
 
-static ufast
+static unsigned int
 hpack_copy_data(HTTP2Index * __restrict ip,
 		HPackEntry * __restrict cp,
 		HPackStr * __restrict name, HPackStr * __restrict value)
@@ -402,7 +403,7 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 	Hash *const __restrict ht = ip->hash;
 
 	if (name->arena == HPack_Arena_User) {
-		const uwide length = name->len;
+		const uintptr_t length = name->len;
 		uchar *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
@@ -426,7 +427,7 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 		}
 	}
 	if (value && value->arena == HPack_Arena_User) {
-		const uwide length = value->len;
+		const uintptr_t length = value->len;
 		uchar *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
@@ -458,16 +459,16 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 	return 0;
 }
 
-static ufast
+static unsigned int
 hpack_add_and_prune(HTTP2Index * __restrict ip,
 		    HPackStr * __restrict name, HPackStr * __restrict value)
 {
-	const uwide name_len = name->len;
-	const ufast delta = 32 + name_len + (value ? value->len : 0);
-	ufast count = ip->n;
-	ufast current = ip->current;
-	ufast length = ip->length;
-	ufast window, size, new_size;
+	const uintptr_t name_len = name->len;
+	const unsigned int delta = 32 + name_len + (value ? value->len : 0);
+	unsigned int count = ip->n;
+	unsigned int current = ip->current;
+	unsigned int length = ip->length;
+	unsigned int window, size, new_size;
 	HPackEntry *entries = ip->entries;
 
 /* Check for integer overflow occured during calculation of */
@@ -492,7 +493,7 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 		/* to the current window size:                             */
 		if (delta <= window) {
 			HPackEntry *__restrict cp;
-			ufast early = current;
+			unsigned int early = current;
 
 			if (current >= count) {
 				early -= count;
@@ -560,7 +561,7 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 	} else if (unlikely(count == length)) {
 		HPackEntry *const __restrict previous = entries;
 		TfwPool *const __restrict pool = ip->pool;
-		uwide block;
+		uintptr_t block;
 
 		DPUTS("Reallocation of the index structures...");
 		if (length) {
@@ -569,7 +570,7 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 			length = 32;
 		}
 		DPRINTF("New index size: %u\n", length);
-		block = length * (uwide) sizeof(HPackEntry);
+		block = length * (uintptr_t) sizeof(HPackEntry);
 		entries = tfw_pool_alloc(pool, block);
 		if (unlikely(entries == NULL)) {
 			return Err_HTTP2_OutOfMemory;
@@ -577,7 +578,7 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 		ip->length = length;
 		ip->entries = entries;
 		if (count) {
-			const uwide wrap = current * sizeof(HPackEntry);
+			const uintptr_t wrap = current * sizeof(HPackEntry);
 
 			block = (block >> 1) - wrap;
 			if (block) {
@@ -607,14 +608,14 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 }
 
 void
-hpack_set_length(HTTP2Index * __restrict ip, ufast window)
+hpack_set_length(HTTP2Index * __restrict ip, unsigned int window)
 {
-	ufast size = ip->size;
+	unsigned int size = ip->size;
 
 	if (size > window) {
-		ufast count = ip->n;
-		ufast early = ip->current;
-		const ufast length = ip->length;
+		unsigned int count = ip->n;
+		unsigned int early = ip->current;
+		const unsigned int length = ip->length;
 		HPackEntry *const entries = ip->entries;
 		HPackEntry *__restrict cp;
 
@@ -651,9 +652,10 @@ hpack_set_length(HTTP2Index * __restrict ip, ufast window)
 	ip->window = window;
 }
 
-ufast
+unsigned int
 hpack_add(HTTP2Index * __restrict ip,
-	  HTTP2Field * __restrict fp, ufast flags, HTTP2Output * __restrict out)
+	  HTTP2Field * __restrict fp,
+	  unsigned int flags, HTTP2Output * __restrict out)
 {
 	if (flags & HPack_Flags_Add) {
 		HPackStr name;
@@ -677,10 +679,11 @@ hpack_add(HTTP2Index * __restrict ip,
 	return 0;
 }
 
-ufast
+unsigned int
 hpack_add_index(HTTP2Index * __restrict ip,
 		HTTP2Field * __restrict fp,
-		ufast index, ufast flags, HTTP2Output * __restrict out)
+		unsigned int index,
+		unsigned int flags, HTTP2Output * __restrict out)
 {
 	HPackEntry *const __restrict entry = hpack_find_index(ip, index);
 
@@ -688,7 +691,7 @@ hpack_add_index(HTTP2Index * __restrict ip,
 		HPackStr *const __restrict name = entry->name;
 		HPackStr *__restrict value;
 		HPackStr local_value;
-		uint8 arena = name->arena;
+		uint8_t arena = name->arena;
 
 		DPRINT_ENTRY(index, entry->name, entry->value);
 		if (arena == HPack_Arena_Static) {
@@ -698,7 +701,7 @@ hpack_add_index(HTTP2Index * __restrict ip,
 			fp->name.eolen = 0;
 			fp->name.flags = 0;
 		} else {
-			ufast rc = buffer_put(out, name->ptr, name->len);
+			unsigned int rc = buffer_put(out, name->ptr, name->len);
 
 			if (rc == 0) {
 				fp->name = out->str;
@@ -722,7 +725,7 @@ hpack_add_index(HTTP2Index * __restrict ip,
 					fp->value.eolen = 0;
 					fp->value.flags = 0;
 				} else {
-					ufast rc =
+					unsigned int rc =
 					    buffer_put(out, value->ptr,
 						       value->len);
 					if (rc == 0) {
@@ -753,7 +756,8 @@ hpack_add_index(HTTP2Index * __restrict ip,
 }
 
 HTTP2Index *
-hpack_new_index(ufast window, byte is_encoder, TfwPool * __restrict pool)
+hpack_new_index(unsigned int window, unsigned char is_encoder,
+		TfwPool * __restrict pool)
 {
 	HTTP2Index *const __restrict ip =
 	    tfw_pool_alloc(pool, sizeof(HTTP2Index));
@@ -833,7 +837,7 @@ static TfwPool *__restrict global_pool;
 void
 hpack_index_init(TfwPool * __restrict pool)
 {
-	ufast i;
+	unsigned int i;
 	Hash *const __restrict ht = Hash_New("static",
 					     HPACK_STATIC_ENTRIES, 0, 16,
 					     hpack_hash,

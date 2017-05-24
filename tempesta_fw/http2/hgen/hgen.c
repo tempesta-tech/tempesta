@@ -35,32 +35,32 @@
 #define small (1 << mbits)
 #define step (1 << (nbits - mbits))
 
-static uint32 codes[257];
-static uint8 codes_n[257];
+static uint32_t codes[257];
+static uint8_t codes_n[257];
 
 typedef struct htree {
-	int16 symbol;
-	uint8 shift;
-	uint8 count;
-	uint8 max;
-	uint16 offset;
+	int16_t symbol;
+	uint8_t shift;
+	uint8_t count;
+	uint8_t max;
+	uint16_t offset;
 	struct htree *down;
 } htree;
 
 static htree root[big];
 
 static void
-ht_add(htree * __restrict base, uint32 code, uint8 length, int16 symbol)
+ht_add(htree * __restrict base, uint32_t code, uint8_t length, int16_t symbol)
 {
-	ufast index = code >> (32 - nbits);
-	fast remain = length - nbits;
+	unsigned int index = code >> (32 - nbits);
+	int remain = length - nbits;
 
 	if (remain <= 0) {
 		base[index].symbol = symbol;
 		base[index].shift = length;
 		if (remain < 0) {
-			ufast n = 1 << (ufast) - remain;
-			ufast j;
+			unsigned int n = 1 << (unsigned int)-remain;
+			unsigned int j;
 
 			for (j = 1; j < n; j++) {
 				base[index + j].symbol = symbol;
@@ -73,7 +73,7 @@ ht_add(htree * __restrict base, uint32 code, uint8 length, int16 symbol)
 
 		hp = hb->down;
 		if (hp == NULL) {
-			ufast j;
+			unsigned int j;
 
 			hp = calloc(big * sizeof(htree), 1);
 			if (hp == NULL) {
@@ -98,7 +98,7 @@ ht_add(htree * __restrict base, uint32 code, uint8 length, int16 symbol)
 static void
 ht_print(htree * __restrict base)
 {
-	ufast i;
+	unsigned int i;
 
 	for (i = 0; i < big; i++) {
 		if (base[i].down == NULL) {
@@ -121,10 +121,10 @@ ht_print(htree * __restrict base)
 
 #endif
 
-static ufast
-ht_gen(htree * __restrict base, ufast offset)
+static unsigned int
+ht_gen(htree * __restrict base, unsigned int offset)
 {
-	ufast i;
+	unsigned int i;
 
 	offset += big;
 	for (i = 0; i < big; i++) {
@@ -138,10 +138,10 @@ ht_gen(htree * __restrict base, ufast offset)
 	return offset;
 }
 
-static ufast
-ht_gen16(htree * __restrict base, ufast offset)
+static unsigned int
+ht_gen16(htree * __restrict base, unsigned int offset)
 {
-	ufast i;
+	unsigned int i;
 
 	for (i = 0; i < big; i++) {
 		htree *__restrict hp = base[i].down;
@@ -158,12 +158,13 @@ ht_gen16(htree * __restrict base, ufast offset)
 	return offset;
 }
 
-static byte Incomplete_Path = 0;
+static unsigned char Incomplete_Path = 0;
 
-static ufast
-ht_out(const htree * __restrict base, ufast offset, const ufast last)
+static unsigned int
+ht_out(const htree * __restrict base,
+       unsigned int offset, const unsigned int last)
 {
-	ufast i;
+	unsigned int i;
 
 	printf("/* --- [TABLE-%u: offset = %u] --- */\n", big, offset);
 	offset += big;
@@ -174,8 +175,8 @@ ht_out(const htree * __restrict base, ufast offset, const ufast last)
 			comma = ' ';
 		}
 		if (base[i].down == NULL) {
-			ufast shift = base[i].shift;
-			fast symbol = base[i].symbol;
+			unsigned int shift = base[i].shift;
+			int symbol = base[i].symbol;
 
 			if (symbol == -1) {
 				printf("\t{%u,  %4d}%c /* %u: EOS */\n",
@@ -218,26 +219,28 @@ ht_out(const htree * __restrict base, ufast offset, const ufast last)
 	return offset;
 }
 
-static ufast
-ht_out16(const htree * __restrict base, ufast offset, const ufast last)
+static unsigned int
+ht_out16(const htree * __restrict base,
+	 unsigned int offset, const unsigned int last)
 {
-	ufast i;
+	unsigned int i;
 
 	for (i = 0; i < big; i++) {
 		htree *__restrict hp = base[i].down;
 
 		if (hp) {
 			if (base[i].max <= mbits) {
-				ufast j;
+				unsigned int j;
 
 				printf
 				    ("/* --- [TABLE-%u: offset = %u] --- */\n",
 				     small, offset);
 				offset += small;
 				for (j = 0; j < big; j += step) {
-					ufast shift = hp[j].shift;
-					ufast shift2 = shift + nbits - mbits;
-					fast symbol = hp[j].symbol;
+					unsigned int shift = hp[j].shift;
+					unsigned int shift2 =
+					    shift + nbits - mbits;
+					int symbol = hp[j].symbol;
 					char comma = ',';
 
 					if (i == big - step && offset == last) {
@@ -289,18 +292,18 @@ ht_out16(const htree * __restrict base, ufast offset, const ufast last)
 int common_cdecl
 main(void)
 {
-	ufast i;
-	ufast offset;
-	ufast offset16;
+	unsigned int i;
+	unsigned int offset;
+	unsigned int offset16;
 
 	for (i = 0; i < big; i++) {
 		root[i].symbol = -2;
 	}
 	for (i = 0; i < HF_SYMBOLS; i++) {
-		ufast code = source[i].code;
-		ufast length = source[i].length;
-		int16 symbol = source[i].symbol;
-		ufast index = symbol >= 0 ? symbol : 256;
+		unsigned int code = source[i].code;
+		unsigned int length = source[i].length;
+		int16_t symbol = source[i].symbol;
+		unsigned int index = symbol >= 0 ? symbol : 256;
 
 		codes[index] = code;
 		codes_n[index] = length;
@@ -324,10 +327,10 @@ main(void)
 	printf("#define HT_MMASK %u\n\n", small - 1);
 	printf("#define HT_SMALL %u\n", offset);
 	printf("#define HT_TOTAL %u\n\n", offset16);
-	printf("static const uint32 ht_encode [] = {\n\t");
+	printf("static const uint32_t ht_encode [] = {\n\t");
 	for (i = 0; i < 256; i += 4) {
-		ufast j;
-		ufast code;
+		unsigned int j;
+		unsigned int code;
 
 		for (j = 0; j < 3; j++) {
 			code = codes[i + j];
@@ -340,9 +343,9 @@ main(void)
 			printf("0x%08X\n};\n\n", code);
 		}
 	}
-	printf("static const uint8 ht_length [] = {\n\t");
+	printf("static const uint8_t ht_length [] = {\n\t");
 	for (i = 0; i < 256; i += 16) {
-		ufast j;
+		unsigned int j;
 
 		for (j = 0; j < 15; j++) {
 			printf("%2u, ", codes_n[i + j]);
@@ -354,8 +357,8 @@ main(void)
 		}
 	}
 	{
-		ufast code = codes[256];
-		ufast length = codes_n[256];
+		unsigned int code = codes[256];
+		unsigned int length = codes_n[256];
 
 		printf("#define HT_EOS 0x%08X\n", code);
 		printf("#define HT_EOS_HIGH 0x%02X\n", code >> (length - 8));

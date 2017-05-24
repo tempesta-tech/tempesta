@@ -1,4 +1,4 @@
-﻿/**
+/**
  *		Tempesta FW
  *
  * Conversion between little and big endian numbers.
@@ -38,6 +38,7 @@ enum {
 	Err_HTTP2_EnhanceYourCalm    = 0xB,    /* 11   */
 	Err_HTTP2_InadequateSecurity = 0xC,    /* 12   */
 	Err_HTTP2_HTTP11Required     = 0xD,    /* 13   */
+	Err_HTTP2_Custom,		       /* 14   */
 	Err_HTTP2_OutOfMemory	     = 0x400,  /* 1024 */
 	Err_HTTP2_IntegerOverflow,	       /* 1025 */
 	Err_Huffman_InvalidCode      = 0x1000, /* 4096 */

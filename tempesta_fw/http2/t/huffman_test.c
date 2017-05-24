@@ -31,17 +31,17 @@
 
 typedef struct {
 	const char *source;
-	uint32 source_len;
+	uint32_t source_len;
 	const char *encoded;
-	uint32 encoded_len;
+	uint32_t encoded_len;
 } HTestData;
 
 #include "hftestdata.h"
 
 #define ITEMS (sizeof(test) / sizeof(HTestData))
 
-fast ngx_http_v2_huff_decode(const uchar * src,
-			     size_t len, uchar * dst, ufast last);
+int ngx_http_v2_huff_decode(const unsigned char *src,
+			    size_t len, unsigned char *dst, unsigned int last);
 #define With_Compare 0
 #define Iterations 768
 
@@ -49,19 +49,19 @@ int common_cdecl
 main(void)
 {
 	static char buf[64 * 4];
-	ufast k, i;
-	uwide ts;
+	unsigned int k, i;
+	uintptr_t ts;
 	double tm;
 
 	ts = clock();
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
-			fast rc;
+			int rc;
 
-			rc = ngx_http_v2_huff_decode((const uchar *)test[i].
-						     encoded,
+			rc = ngx_http_v2_huff_decode((const unsigned char *)
+						     test[i].encoded,
 						     test[i].encoded_len,
-						     (uchar *) buf, 1);
+						     (unsigned char *)buf, 1);
 			if (rc) {
 				printf("Bug #1: Iteration: %u, rc = %d...\n", i,
 				       rc);
@@ -82,7 +82,7 @@ main(void)
 	ts = clock();
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
-			ufast rc;
+			unsigned int rc;
 
 			rc = huffman_decode(test[i].encoded, buf,
 					    test[i].encoded_len);

@@ -25,6 +25,7 @@
  * any restrictions.
  */
 
+#include <stdint.h>
 #include <string.h>
 #include "common.h"
 #include "../pool.h"
@@ -56,36 +57,36 @@ typedef struct Hash_Entry {
 /* Index_Size:	  Amount of memory allocated for index. */
 
 struct Hash {
-	uwide Mask;
-	uwide Count;
+	uintptr_t Mask;
+	uintptr_t Count;
 	Hash_Entry **Index;
 	Hash_Function *Function;
 	Hash_Equal *Equal;
 	Sub *Pool;
-	uwide Threshold;
-	uwide Minimal;
-	uint32 Initial_Size;
-	uint32 Minimal_Size;
-	uint32 Initial_Bound;
-	uint32 Quant;
+	uintptr_t Threshold;
+	uintptr_t Minimal;
+	uint32_t Initial_Size;
+	uint32_t Minimal_Size;
+	uint32_t Initial_Bound;
+	uint32_t Quant;
 	TfwPool *heap;
 	const char *Name;
-	uwide Index_Size;
+	uintptr_t Index_Size;
 };
 
 static Hash_Entry **Hash_Reindex(Hash * __restrict const ht,
 				 Hash_Entry * *__restrict const x,
-				 const uwide m, uwide n);
-static void Hash_Expand(Hash * __restrict const ht, uwide m);
-static void Hash_Compact(Hash * __restrict const ht, const uwide n);
-static void Hash_Compress(Hash * __restrict const ht, const uwide c);
+				 const uintptr_t m, uintptr_t n);
+static void Hash_Expand(Hash * __restrict const ht, uintptr_t m);
+static void Hash_Compact(Hash * __restrict const ht, const uintptr_t n);
+static void Hash_Compress(Hash * __restrict const ht, const uintptr_t c);
 
 /* ------------------------------------------- */
 /* Some helper routines:		       */
 /* ------------------------------------------- */
 
-local_function uwide
-HF(const uwide k)
+local_function uintptr_t
+HF(const uintptr_t k)
 {
 #ifdef __GNUC__
 	return Bit_CRC(k, k);
@@ -96,17 +97,17 @@ HF(const uwide k)
 
 Hash *
 Hash_New(const char *__restrict const Name,
-	 const fast Initial_Size,
-	 const fast Minimal_Size,
-	 const fast Quant,
+	 const int Initial_Size,
+	 const int Minimal_Size,
+	 const int Quant,
 	 Hash_Function * const Function,
 	 Hash_Equal * const Equal_Function, TfwPool * __restrict const hp)
 {
 	if ((Initial_Size | Quant) >= 0 && Minimal_Size >= -1) {
-		uwide Index_Size;
-		uwide Size;
-		uwide Threshold;
-		uwide Minimal = Minimal_Size;
+		uintptr_t Index_Size;
+		uintptr_t Size;
+		uintptr_t Threshold;
+		uintptr_t Minimal = Minimal_Size;
 		Hash *__restrict ht;
 		Hash_Entry **__restrict Index;
 
@@ -170,8 +171,8 @@ Hash_Free2(Hash * __restrict const ht,
 void
 Hash_Clear(Hash * __restrict const ht)
 {
-	const uwide Current = ht->Mask + 1;
-	uwide m = ht->Initial_Size;
+	const uintptr_t Current = ht->Mask + 1;
+	uintptr_t m = ht->Initial_Size;
 	Hash_Entry **__restrict Index;
 
 	if (m < Current) {
@@ -202,20 +203,20 @@ Hash_Clear2(Hash * __restrict const ht,
 	Hash_Clear(ht);
 }
 
-uwide
+uintptr_t
 Hash_Count(const Hash * __restrict const ht)
 {
 	return ht->Count;
 }
 
-ufast
+unsigned int
 Hash_SoftAdd(Hash * __restrict const ht,
 	     const void *__restrict const Name,
 	     const void *__restrict const Value)
 {
 	Hash_Entry *__restrict h;
 	Hash_Entry **__restrict Previous;
-	const uwide Code = HF(ht->Function(Name));
+	const uintptr_t Code = HF(ht->Function(Name));
 
 	Previous = &ht->Index[Code & ht->Mask];
 	h = *Previous;
@@ -244,7 +245,7 @@ Hash_FindAdd(Hash * __restrict const ht,
 {
 	Hash_Entry *__restrict h;
 	Hash_Entry **__restrict Previous;
-	const uwide Code = HF(ht->Function(Name));
+	const uintptr_t Code = HF(ht->Function(Name));
 
 	Previous = &ht->Index[Code & ht->Mask];
 	h = *Previous;
@@ -273,7 +274,7 @@ Hash_Replace(Hash * __restrict const ht,
 {
 	Hash_Entry *__restrict h;
 	Hash_Entry **__restrict Previous;
-	const uwide Code = HF(ht->Function(Name));
+	const uintptr_t Code = HF(ht->Function(Name));
 
 	Previous = &ht->Index[Code & ht->Mask];
 	h = *Previous;
@@ -303,7 +304,7 @@ Hash_SoftDelete(Hash * __restrict const ht, const void *__restrict const Name)
 {
 	Hash_Entry *__restrict h;
 	Hash_Entry **__restrict Previous;
-	const uwide Code = HF(ht->Function(Name));
+	const uintptr_t Code = HF(ht->Function(Name));
 
 	Previous = &ht->Index[Code & ht->Mask];
 	h = *Previous;
@@ -329,7 +330,7 @@ Hash_SoftDelete(Hash * __restrict const ht, const void *__restrict const Name)
 
 static Hash_Entry **
 Hash_Reindex(Hash * __restrict const ht,
-	     Hash_Entry * *__restrict const x, const uwide m, uwide n)
+	     Hash_Entry * *__restrict const x, const uintptr_t m, uintptr_t n)
 {
 	Hash_Entry **__restrict y;
 	Hash_Entry **__restrict z;
@@ -345,7 +346,7 @@ Hash_Reindex(Hash * __restrict const ht,
 			Hash_Entry *__restrict h = *y++;
 
 			while (h) {
-				uwide c;
+				uintptr_t c;
 				Hash_Entry *__restrict p;
 				Hash_Entry *__restrict q;
 
@@ -368,15 +369,15 @@ Hash_Reindex(Hash * __restrict const ht,
 }
 
 static void
-Hash_Expand(Hash * __restrict const ht, uwide m)
+Hash_Expand(Hash * __restrict const ht, uintptr_t m)
 {
 	TfwPool *__restrict hp;
 	Hash_Entry **__restrict x;
 	Hash_Entry **__restrict y;
-	uwide Index_Size;
-	uwide l;
-	uwide t;
-	uwide n = m + 1;
+	uintptr_t Index_Size;
+	uintptr_t l;
+	uintptr_t t;
+	uintptr_t n = m + 1;
 
 	m += n;
 	l = m + 1;
@@ -395,10 +396,10 @@ Hash_Expand(Hash * __restrict const ht, uwide m)
 }
 
 static void
-Hash_Compact(Hash * __restrict const ht, const uwide n)
+Hash_Compact(Hash * __restrict const ht, const uintptr_t n)
 {
-	uwide m, l, t;
-	uwide Index_Size;
+	uintptr_t m, l, t;
+	uintptr_t Index_Size;
 	TfwPool *__restrict hp;
 	Hash_Entry **__restrict x;
 	Hash_Entry **__restrict y;
@@ -423,10 +424,10 @@ Hash_Compact(Hash * __restrict const ht, const uwide n)
 }
 
 static void
-Hash_Compress(Hash * __restrict const ht, const uwide c)
+Hash_Compress(Hash * __restrict const ht, const uintptr_t c)
 {
-	uwide Index_Size;
-	uwide m, t;
+	uintptr_t Index_Size;
+	uintptr_t m, t;
 	TfwPool *__restrict hp;
 	Hash_Entry **__restrict x;
 	Hash_Entry **__restrict y;
@@ -492,7 +493,7 @@ void
 Hash_Iterator(const Hash * __restrict const ht,
 	      Hash_Iterator_Function * const Function, void *const User)
 {
-	uwide c = ht->Count;
+	uintptr_t c = ht->Count;
 
 	if (c) {
 		Hash_Entry *__restrict const *__restrict x = ht->Index;
@@ -512,11 +513,11 @@ Hash_Iterator(const Hash * __restrict const ht,
 	}
 }
 
-ufast
+unsigned int
 Hash_Iterator2(const Hash * __restrict const ht,
 	       Hash_Iterator_Function2 * const Function, void *const User)
 {
-	uwide c = ht->Count;
+	uintptr_t c = ht->Count;
 
 	if (c) {
 		Hash_Entry *__restrict const *__restrict x = ht->Index;
@@ -528,8 +529,8 @@ Hash_Iterator2(const Hash * __restrict const ht,
 				p = *x++;
 			} while (p == NULL);
 			do {
-				ufast rc = Function(p->Name, p->Value, User);
-
+				unsigned int rc =
+				    Function(p->Name, p->Value, User);
 				if (unlikely(rc)) {
 					return rc;
 				}
@@ -545,12 +546,12 @@ void
 Hash_Filter(Hash * __restrict const ht,
 	    Hash_Filter_Function * const Function, void *const User)
 {
-	uwide c = ht->Count;
+	uintptr_t c = ht->Count;
 
 	if (c) {
 		Hash_Entry **__restrict x = ht->Index;
-		uwide n = ht->Mask + 1;
-		uwide l;
+		uintptr_t n = ht->Mask + 1;
+		uintptr_t l;
 
 		do {
 			Hash_Entry *__restrict p = *x;
@@ -589,18 +590,18 @@ Hash_Filter(Hash * __restrict const ht,
 	}
 }
 
-uwide
-Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
-		const ufast Shift)
+uintptr_t
+Byte_Hash_Chain(const void *__restrict const x, const uintptr_t Length,
+		const unsigned int Shift)
 {
-	const byte *__restrict t = x;
-	uwide m;
-	uwide n = Length;
-	uwide h = 0;
-	ufast l = (uwide) t & (sizeof(uwide) - 1);
+	const unsigned char *__restrict t = x;
+	uintptr_t m;
+	uintptr_t n = Length;
+	uintptr_t h = 0;
+	unsigned int l = (uintptr_t) t & (sizeof(uintptr_t) - 1);
 
 	if (l) {
-		l = sizeof(uwide) - l;
+		l = sizeof(uintptr_t) - l;
 		if (n >= l) {
 			n = n - l;
 #ifdef Platform_Big
@@ -612,12 +613,12 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 #else
 			if (l & 2) {
 #endif
-				h = Bit_Shift(h, 16, *(uint16 *) t);
+				h = Bit_Shift(h, 16, *(uint16_t *) t);
 				t = t + 2;
 			}
 #ifdef Platform_64bit
 			if (l >= 4) {
-				h = Bit_Shift(h, 32, *(uint32 *) t);
+				h = Bit_Shift(h, 32, *(uint32_t *) t);
 				t = t + 4;
 			}
 #endif
@@ -628,30 +629,30 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 			}
 			if (l >= 2) {
 #if defined(Compiler_Rotate) && ! defined(_MSC_VER)
-				h = Rotate_Left(h | *(uint16 *) t, 16);
+				h = Rotate_Left(h | *(uint16_t *) t, 16);
 #else
-				h = Bit_Shift(*(uint16 *) t, 16, h >> 16);
+				h = Bit_Shift(*(uint16_t *) t, 16, h >> 16);
 #endif
 				t = t + 2;
 			}
 #else
 			if (l & 1) {
-				h = (uwide) * t++ << 56;
+				h = (uintptr_t) * t++ << 56;
 			}
 			if (l & 2) {
 #if defined(Compiler_Rotate64)
-				h = Rotate_Left(h | *(uint16 *) t, 48);
+				h = Rotate_Left(h | *(uint16_t *) t, 48);
 #else
-				h = Bit_Shift((uwide) * (uint16 *) t, 48,
+				h = Bit_Shift((uintptr_t) * (uint16_t *) t, 48,
 					      h >> 16);
 #endif
 				t = t + 2;
 			}
 			if (l >= 4) {
 #if defined(Compiler_Rotate64)
-				h = Rotate_Left(h | *(uint32 *) t, 32);
+				h = Rotate_Left(h | *(uint32_t *) t, 32);
 #else
-				h = Bit_Shift((uwide) * (uint32 *) t, 32,
+				h = Bit_Shift((uintptr_t) * (uint32_t *) t, 32,
 					      h >> 32);
 #endif
 				t = t + 4;
@@ -673,7 +674,7 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 #endif
 #else
 #ifdef Platform_Little
-			ufast s = (l & 1) << 3;
+			unsigned int s = (l & 1) << 3;
 
 			if (s) {
 				h = *t;
@@ -683,7 +684,8 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 				t = t + 1;
 			}
 			if (n >= 2) {
-				h = Bit_Shift((uwide) * (uint16 *) t, s, h);
+				h = Bit_Shift((uintptr_t) * (uint16_t *) t, s,
+					      h);
 				n = n - 2;
 				if (n == 0) {
 					goto L0;
@@ -691,8 +693,8 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 				t = t + 2;
 				s = s + 16;
 				if (n >= 2) {
-					h = Bit_Shift((uwide) * (uint16 *) t, s,
-						      h);
+					h = Bit_Shift((uintptr_t) *
+						      (uint16_t *) t, s, h);
 					if (n == 2) {
 						goto L0;
 					}
@@ -700,12 +702,12 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 					s = s + 16;
 				}
 			}
-			h = Bit_Shift((uwide) * t, s, h);
+			h = Bit_Shift((uintptr_t) * t, s, h);
 #else
-			ufast s = 64;
+			unsigned int s = 64;
 
 			if (l & 1) {
-				h = (uwide) * t << 56;
+				h = (uintptr_t) * t << 56;
 				if (--n == 0) {
 					goto L0;
 				}
@@ -714,7 +716,8 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 			}
 			if (n >= 2) {
 				s = s - 16;
-				h = Bit_Shift((uwide) * (uint16 *) t, s, h);
+				h = Bit_Shift((uintptr_t) * (uint16_t *) t, s,
+					      h);
 				n = n - 2;
 				if (n == 0) {
 					goto L0;
@@ -722,15 +725,15 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 				t = t + 2;
 				if (n >= 2) {
 					s = s - 16;
-					h = Bit_Shift((uwide) * (uint16 *) t, s,
-						      h);
+					h = Bit_Shift((uintptr_t) *
+						      (uint16_t *) t, s, h);
 					if (n == 2) {
 						goto L0;
 					}
 					t = t + 2;
 				}
 			}
-			h = Bit_Shift((uwide) * t, s - 8, h);
+			h = Bit_Shift((uintptr_t) * t, s - 8, h);
 #endif
  L0:
 #endif
@@ -742,35 +745,35 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 		}
 	}
 	l = (l + Shift) & (Word_Size - 1);
-	m = n / sizeof(uwide);
+	m = n / sizeof(uintptr_t);
 	if (m) {
 		do {
-			h = h ^ *(uwide *) t;
-			t = t + sizeof(uwide);
+			h = h ^ *(uintptr_t *) t;
+			t = t + sizeof(uintptr_t);
 		} while (--m);
 	}
-	if (n & (sizeof(uwide) - 1)) {
-		ufast s;
+	if (n & (sizeof(uintptr_t) - 1)) {
+		unsigned int s;
 
 #ifdef Platform_Little
 #ifdef Platform_64bit
 		s = (n & 4) << 3;
 		if (s) {
-			h = h ^ *(uint32 *) t;
+			h = h ^ *(uint32_t *) t;
 			t = t + 4;
 		}
 		if (n & 2) {
-			h = h ^ ((uwide) * (uint16 *) t << s);
+			h = h ^ ((uintptr_t) * (uint16_t *) t << s);
 			t = t + 2;
 			s = s + 16;
 		}
 		if (n & 1) {
-			h = h ^ ((uwide) * t << s);
+			h = h ^ ((uintptr_t) * t << s);
 		}
 #else
 		s = n & 2;
 		if (s) {
-			h = h ^ *(uint16 *) t;
+			h = h ^ *(uint16_t *) t;
 			t = t + 2;
 		}
 		if (n & 1) {
@@ -781,22 +784,22 @@ Byte_Hash_Chain(const void *__restrict const x, const uwide Length,
 #ifdef Platform_64bit
 		s = 64;
 		if (n & 4) {
-			h = h ^ ((uwide) * (uint32 *) t << 32);
+			h = h ^ ((uintptr_t) * (uint32_t *) t << 32);
 			t = t + 4;
 			s = 32;
 		}
 		if (n & 2) {
 			s = s - 16;
-			h = h ^ ((uwide) * (uint16 *) t << s);
+			h = h ^ ((uintptr_t) * (uint16_t *) t << s);
 			t = t + 2;
 		}
 		if (n & 1) {
-			h = h ^ ((uwide) * t << (s - 8));
+			h = h ^ ((uintptr_t) * t << (s - 8));
 		}
 #else
 		s = 24;
 		if (n & 2) {
-			h = h ^ (*(uint16 *) t << 16);
+			h = h ^ (*(uint16_t *) t << 16);
 			t = t + 2;
 			s = 8;
 		}

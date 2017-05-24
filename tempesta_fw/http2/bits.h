@@ -39,18 +39,18 @@
 
 #define Bit_CRC(crc, x) \
    (__extension__ ({ \
-      register uwide __r = crc; \
+      register uintptr_t __r = crc; \
       __asm__( \
-	 "crc32q %2,%0" : "=r" (__r) : "0" (__r), "rm" ((uwide) x) : "cc" \
+	 "crc32q %2,%0" : "=r" (__r) : "0" (__r), "rm" ((uintptr_t) x) : "cc" \
       ); \
       __r; \
    }))
 
 #define Bit_FastLog2(x) \
    (__extension__ ({ \
-      register uwide __r; \
+      register uintptr_t __r; \
       __asm__( \
-	 "bsrq %1,%0" : "=r" (__r) : "rm" ((uwide) x) : "cc" \
+	 "bsrq %1,%0" : "=r" (__r) : "rm" ((uintptr_t) x) : "cc" \
       ); \
       __r; \
    }))
@@ -59,18 +59,18 @@
 
 #define Bit_CRC(crc, x) \
    (__extension__ ({ \
-      register uwide __r = crc; \
+      register uintptr_t __r = crc; \
       __asm__( \
-	 "crc32 %2,%0" : "=r" (__r) : "0" (__r), "rm" ((uwide) x) : "cc" \
+	 "crc32 %2,%0" : "=r" (__r) : "0" (__r), "rm" ((uintptr_t) x) : "cc" \
       ); \
       __r; \
    }))
 
 #define Bit_FastLog2(x) \
    (__extension__ ({ \
-      register uwide __r; \
+      register uintptr_t __r; \
       __asm__( \
-	 "bsr %1,%0" : "=r" (__r) : "rm" ((uwide) x) : "cc" \
+	 "bsr %1,%0" : "=r" (__r) : "rm" ((uintptr_t) x) : "cc" \
       ); \
       __r; \
    }))
@@ -79,15 +79,15 @@
 
 #else
 
-common_inline ufast
-Bit_FastLog2(uwide value)
+common_inline unsigned int
+Bit_FastLog2(uintptr_t value)
 {
-	ufast x = (ufast) value;
-	ufast n = 0;
+	unsigned int x = (unsigned int)value;
+	unsigned int n = 0;
 
 #ifdef Platform_64bit
 	if (Bit_High(value, 32)) {
-		x = (ufast) (value >> 32);
+		x = (unsigned int)(value >> 32);
 		n = 32;
 	}
 	if (Bit_High(x, 16))
@@ -105,7 +105,7 @@ Bit_FastLog2(uwide value)
 		x = x >> 2, n += 2;
 	n = n + (x >> 1);
 #else
-	ufast c;
+	unsigned int c;
 
 	x = (x | 1) >> n;
 	n = n + 15;
@@ -122,11 +122,11 @@ Bit_FastLog2(uwide value)
 
 #endif
 
-common_inline uwide
-Bit_UpPowerOfTwo(uwide x)
+common_inline uintptr_t
+Bit_UpPowerOfTwo(uintptr_t x)
 {
 	if (likely(x > 2)) {
-		x = (uwide) 2 << Bit_FastLog2(x - 1);
+		x = (uintptr_t) 2 << Bit_FastLog2(x - 1);
 	}
 	return x;
 }

@@ -60,6 +60,7 @@ enum {
 #define HPack_Flags_Transit	  0x040	/* Transit header field. */
 #define HPack_Flags_Huffman_Name  0x080	/* Huffman encoding used for field name. */
 #define HPack_Flags_Huffman_Value 0x100	/* Huffman encoding used for field value. */
+#define HPack_Flags_Pseudo	  0x200	/* HTTP/2 pseudo-header. */
 
 /* state:      Current state.			      */
 /* shift:      Current shift, used when integer       */
@@ -78,34 +79,36 @@ enum {
 /* window:     Current dynamic table size (in bytes). */
 
 typedef struct {
-	ufast state;
-	ufast shift;
-	uwide saved;
-	uwide index;
+	unsigned int state;
+	unsigned int shift;
+	uintptr_t saved;
+	uintptr_t index;
 	HTTP2Field *field;
 	TfwPool *pool;
 	HTTP2Index *dynamic;
-	ufast max_window;
-	ufast window;
+	unsigned int max_window;
+	unsigned int window;
 } HPack;
 
 HTTP2Field *hpack_decode(HPack * __restrict hp,
 			 HTTP2Input * __restrict source,
-			 uwide n,
+			 uintptr_t n,
 			 HTTP2Output * __restrict buffer,
-			 ufast * __restrict rc);
+			 unsigned int *__restrict rc);
 
 void hpack_free_list(HTTP2Output * __restrict hp, HTTP2Field * __restrict fp);
 
-ufast hpack_encode(HPack * __restrict hp,
-		   HTTP2Output * __restrict out,
-		   const HTTP2Field * __restrict source, uwide n);
+unsigned int hpack_encode(HPack * __restrict hp,
+			  HTTP2Output * __restrict out,
+			  const HTTP2Field * __restrict source, uintptr_t n);
 
-ufast hpack_set_max_window(HPack * __restrict hp, ufast max_window);
+unsigned int hpack_set_max_window(HPack * __restrict hp,
+				  unsigned int max_window);
 
-ufast hpack_set_window(HPack * __restrict hp, ufast window);
+unsigned int hpack_set_window(HPack * __restrict hp, unsigned int window);
 
-HPack *hpack_new(ufast max_window, byte is_encoder, TfwPool * __restrict pool);
+HPack *hpack_new(unsigned int max_window, unsigned char is_encoder,
+		 TfwPool * __restrict pool);
 
 void hpack_free(HPack * __restrict hp);
 

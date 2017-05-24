@@ -34,9 +34,9 @@
 
 typedef struct {
 	const char *source;
-	uint32 source_len;
+	uint32_t source_len;
 	const char *encoded;
-	uint32 encoded_len;
+	uint32_t encoded_len;
 } HTestData;
 
 #include "hftestdata.h"
@@ -52,17 +52,17 @@ typedef struct {
 #define rm_c1 1013904223
 #define rm_c2 1
 
-static ufast Random_x = 0x55555555;
-static ufast Random_y = 0xAAAAAAAA;
+static unsigned int Random_x = 0x55555555;
+static unsigned int Random_y = 0xAAAAAAAA;
 
 /* Very simple random number generator, designed for */
 /* test purposes only, based on two mod 2^32 LCGs: */
 
-static ufast
+static unsigned int
 Random32(void)
 {
-	const ufast x = Random_x * rm_a + rm_c1;
-	const ufast y = Random_y * rm_b + rm_c2;
+	const unsigned int x = Random_x * rm_a + rm_c1;
+	const unsigned int y = Random_y * rm_b + rm_c2;
 
 	Random_x = x;
 	Random_y = y;
@@ -71,12 +71,12 @@ Random32(void)
 
 /* Unbiased random index in the {0; n} range: */
 
-static ufast
-Random32_Index(const ufast n)
+static unsigned int
+Random32_Index(const unsigned int n)
 {
 	if (n) {
-		ufast limit = 4294967295U - 4294967295U % n;
-		ufast x;
+		unsigned int limit = 4294967295U - 4294967295U % n;
+		unsigned int x;
 
 		do {
 			x = Random32();
@@ -97,8 +97,8 @@ main(void)
 	static char buf3[4 * 64];
 	static HTTP2Input in;
 	static HTTP2Output out;
-	ufast k, i;
-	uwide ts;
+	unsigned int k, i;
+	uintptr_t ts;
 	double tm;
 
 	ts = clock();
@@ -109,9 +109,9 @@ main(void)
 	for (k = 0; k < Iterations; k++) {
 		for (i = 0; i < ITEMS; i++) {
 			const char *__restrict encoded = test[i].encoded;
-			ufast rc;
-			uwide n;
-			ufast length = test[i].encoded_len;
+			unsigned int rc;
+			uintptr_t n;
+			unsigned int length = test[i].encoded_len;
 
 			if (length == 1) {
 				root.ptr = buf1;
@@ -128,9 +128,9 @@ main(void)
 					buf2[0] = encoded[0];
 					buf1[0] = encoded[1];
 				} else {
-					const ufast split2 =
+					const unsigned int split2 =
 					    Random32_Index(length - 1) + 1;
-					const ufast split1 =
+					const unsigned int split1 =
 					    Random32_Index(split2) + 1;
 					if (split1 == split2) {
 						root.flags =
@@ -167,7 +167,7 @@ main(void)
 			n = out.str.len;
 			if (n != test[i].source_len) {
 				printf("Bug #3: Iteration: %u, "
-				       "length = %u...\n", i, (ufast) n);
+				       "length = %u...\n", i, (unsigned int)n);
 				return 1;
 			}
 #if With_Compare
@@ -184,12 +184,12 @@ main(void)
 				} else {
 					TfwStr *__restrict fp =
 					    (TfwStr *) out.str.ptr;
-					const ufast count =
+					const unsigned int count =
 					    TFW_STR_CHUNKN(&out.str);
-					ufast cnt = count;
+					unsigned int cnt = count;
 
 					do {
-						const ufast m = fp->len;
+						const unsigned int m = fp->len;
 
 						if (m == 0) {
 							printf
@@ -214,8 +214,8 @@ main(void)
 			}
 #else
 			if (!TFW_STR_PLAIN(&out.str)) {
-				const ufast count = TFW_STR_CHUNKN(&out.str);
-
+				const unsigned int count =
+				    TFW_STR_CHUNKN(&out.str);
 				tfw_pool_free(NULL, out.str.ptr,
 					      sizeof(TfwStr) * count);
 			}

@@ -20,6 +20,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include <stdint.h>
 #include <string.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -48,10 +49,11 @@
 static uchar *
 write_index(HTTP2Output * __restrict out,
 	    uchar * __restrict dst,
-	    ufast * __restrict k_new,
-	    ufast index, ufast max, ufast mask, ufast * __restrict rc)
+	    unsigned int *__restrict k_new,
+	    unsigned int index,
+	    unsigned int max, unsigned int mask, unsigned int *__restrict rc)
 {
-	ufast k = *k_new;
+	unsigned int k = *k_new;
 
 	if (likely(index < max)) {
 		index |= mask;
@@ -81,17 +83,17 @@ write_index(HTTP2Output * __restrict out,
 static uchar *
 write_string(HTTP2Output * __restrict out,
 	     uchar * __restrict dst,
-	     ufast * __restrict k_new,
-	     const HPackStr * __restrict x, ufast * __restrict rc)
+	     unsigned int *__restrict k_new,
+	     const HPackStr * __restrict x, unsigned int *__restrict rc)
 {
-	ufast k;
+	unsigned int k;
 
 	if (x) {
-		ufast n = x->len;
+		unsigned int n = x->len;
 
 		if (x->arena == HPack_Arena_User) {
-			const ufast m = huffman_check_fragments(x->ptr, n);
-
+			const unsigned int m =
+			    huffman_check_fragments(x->ptr, n);
 			dst =
 			    write_index(out, dst, k_new, m, 0x7F, (m < n) << 7,
 					rc);
@@ -109,7 +111,7 @@ write_string(HTTP2Output * __restrict out,
 				}
 			}
 		} else {
-			const ufast m = huffman_check(x->ptr, n);
+			const unsigned int m = huffman_check(x->ptr, n);
 
 			dst =
 			    write_index(out, dst, k_new, m, 0x7F, (m < n) << 7,
@@ -134,28 +136,31 @@ write_string(HTTP2Output * __restrict out,
 		*rc = 0;
 	}
 	return dst;
+ Bug:
+	*rc = Err_HTTP2_OutOfMemory;
+	return NULL;
 }
 
-ufast
+unsigned int
 hpack_encode(HPack * __restrict hp,
 	     HTTP2Output * __restrict out,
-	     const HTTP2Field * __restrict source, uwide n)
+	     const HTTP2Field * __restrict source, uintptr_t n)
 {
 	HTTP2Index *const __restrict ip = hp->dynamic;
-	ufast rc;
-	ufast k;
+	unsigned int rc;
+	unsigned int k;
 	uchar *__restrict dst = buffer_open(out, &k, 0);
 
 	do {
-		uwide value_len;
+		uintptr_t value_len;
 		const TfwStr *name = &source->name;
 		const TfwStr *value = &source->value;
 		HPackStr nbuf;
 		HPackStr vbuf;
 		HPackStr *np = &nbuf;
 		HPackStr *vp = &vbuf;
-		ufast index;
-		ufast flags;
+		unsigned int index;
+		unsigned int flags;
 
 		nbuf.ptr = (TfwStr *) name;
 		nbuf.len = name->len;
@@ -198,7 +203,7 @@ hpack_encode(HPack * __restrict hp,
 				dst = write_string(out, dst, &k, vp, &rc);
 			}
 		} else {
-			byte command = 0;
+			unsigned char command = 0;
 
 			if (flags & HPack_Flags_Add) {
 				command = 0x40;

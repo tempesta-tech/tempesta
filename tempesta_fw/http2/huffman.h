@@ -27,33 +27,35 @@
 #include "errors.h"
 #include "buffers.h"
 
-ufast huffman_decode(const char *__restrict source,
-		     char *__restrict dst, uwide n);
+unsigned int huffman_decode(const char *__restrict source,
+			    char *__restrict dst, uintptr_t n);
 
-ufast huffman_decode_fragments(HTTP2Input * __restrict source,
-			       HTTP2Output * __restrict out, uwide n);
+unsigned int huffman_decode_fragments(HTTP2Input * __restrict source,
+				      HTTP2Output * __restrict out,
+				      uintptr_t n);
 
-uwide huffman_encode(const char *__restrict source,
-		     char *__restrict dst, uwide n);
+uintptr_t huffman_encode(const char *__restrict source,
+			 char *__restrict dst, uintptr_t n);
 
-uchar *huffman_encode_fragments(HTTP2Output * __restrict out,
-				uchar * __restrict dst,
-				ufast * __restrict k_new,
-				const TfwStr * __restrict source,
-				ufast * __restrict rc);
+unsigned char *huffman_encode_fragments(HTTP2Output * __restrict out,
+					unsigned char *__restrict dst,
+					unsigned int *__restrict k_new,
+					const TfwStr * __restrict source,
+					unsigned int *__restrict rc);
 
-uchar *huffman_encode_plain(HTTP2Output * __restrict out,
-			    uchar * __restrict dst,
-			    ufast * __restrict k_new,
-			    uchar * __restrict src,
-			    uwide n, ufast * __restrict rc);
+unsigned char *huffman_encode_plain(HTTP2Output * __restrict out,
+				    unsigned char *__restrict dst,
+				    unsigned int *__restrict k_new,
+				    unsigned char *__restrict src,
+				    uintptr_t n, unsigned int *__restrict rc);
 
-uwide huffman_encode_length(const char *__restrict source, uwide n);
+uintptr_t huffman_encode_length(const char *__restrict source, uintptr_t n);
 
 /* Same as http2_huffman_encode_check, but stops calculating */
 /* length if encoding longer than source:		     */
 
-uwide huffman_check(const char *__restrict source, uwide n);
-uwide huffman_check_fragments(const TfwStr * __restrict source, uwide n);
+uintptr_t huffman_check(const char *__restrict source, uintptr_t n);
+uintptr_t huffman_check_fragments(const TfwStr * __restrict source,
+				  uintptr_t n);
 
 #endif
