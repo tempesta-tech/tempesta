@@ -556,18 +556,23 @@ __ss_close(struct sock *sk, int flags)
 	 * if it's live. However, in some cases this may be called multiple
 	 * times on the same socket. Do it only once for the socket.
 	 *
-	 * TODO: Calling ss_close_sync() multiple times on the same socket
-	 * doesn't look like a reasonable thing to do. Please see the comment
-	 * in tfw_http_resp_fwd() for the reasons this may be called multiple
-	 * times. Perhaps there's a better way. Please see the issue #687.
+	 * We can be called from tcp_v4_rcv() under the socket lock, so lock
+	 * the socket only if it isn't locked. It safe because we just checked
+	 * the socket's CPU.
 	 */
-	bh_lock_sock(sk);
-	if (unlikely(!ss_sock_live(sk))) {
+	if (raw_spin_is_locked(&sk->sk_lock.slock.rlock)) {
+		if (unlikely(!ss_sock_live(sk)))
+			return SS_OK;
+		ss_do_close(sk);
+	} else {
+		bh_lock_sock(sk);
+		if (unlikely(!ss_sock_live(sk))) {
+			bh_unlock_sock(sk);
+			return SS_OK;
+		}
+		ss_do_close(sk);
 		bh_unlock_sock(sk);
-		return SS_OK;
 	}
-	ss_do_close(sk);
-	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)
 		SS_CALL_GUARD_EXIT(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
