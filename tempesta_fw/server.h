@@ -106,10 +106,13 @@ typedef struct {
 /* Server and server group related flags.
  * Lower 4 bits keep an index into APM stats array.
  */
-#define TFW_SG_F_PSTATS_IDX_MASK	0x000f
+#define TFW_SG_M_PSTATS_IDX		0x000f
 #define TFW_SG_F_SCHED_RATIO_STATIC	0x0010
 #define TFW_SG_F_SCHED_RATIO_DYNAMIC	0x0020
 #define TFW_SG_F_SCHED_RATIO_PREDICT	0x0040
+#define TFW_SG_M_SCHED_RATIO_TYPE	(TFW_SG_F_SCHED_RATIO_STATIC	\
+					 | TFW_SG_F_SCHED_RATIO_DYNAMIC	\
+					 | TFW_SG_F_SCHED_RATIO_PREDICT)
 
 #define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idemporent req. */
 #define TFW_SRV_STICKY			0x0200	/* Use sticky sessions. */
