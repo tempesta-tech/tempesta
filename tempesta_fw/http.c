@@ -1677,20 +1677,6 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * Doing ss_close_sync() on client connection's socket is safe
 	 * as long as @req that holds a reference to the connection is
 	 * not freed.
-	 *
-	 * TODO: Responses come from different server connections and on
-	 * different threads/CPUs. This code is called for each response.
-	 * If @seq_queue is empty, then ss_close_sync() may get called
-	 * multiple times, which doesn't look like a reasonable thing to
-	 * do. Perhaps, ss_close_sync() can be called only if ss_close()
-	 * fails. Also, perhaps the state of the client connection can be
-	 * checked in attempt to avoid a call to ss_close() altogether.
-	 * Note that ss_close_sync() is used because otherwise queueing
-	 * of the close() action is not guaranteed. Also note that calling
-	 * of ss_close_sync() multiple times is supported by the code in
-	 * __ss_close() that prevents closing of a socket (and a connection)
-	 * that is closed already. Please see a comment there, and the
-	 * issue #687.
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	if (unlikely(list_empty(seq_queue))) {
