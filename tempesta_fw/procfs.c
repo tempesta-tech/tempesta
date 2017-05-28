@@ -146,9 +146,10 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
 #define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
 
-	int i;
+	size_t i, rc;
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
+	unsigned int qsize[srv->conn_n];
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
@@ -167,12 +168,21 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	for (i = TFW_PSTATS_IDX_ITH; i < ARRAY_SIZE(tfw_pstats_ith); ++i)
 		seq_printf(seq, "%02d%%:\t%dms\n",
 				pstats.ith[i], pstats.val[i]);
-	i = 0;
+
+	i = rc = 0;
+	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		qsize[i++] = READ_ONCE(srv_conn->qsize);
+		if (tfw_srv_conn_restricted(srv_conn))
+			rc++;
+	}
+
+	seq_printf(seq, "Total schedulable connections\t: %zd\n",
+			srv->conn_n - rc);
 	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
 			srv->sg->max_qsize);
-	list_for_each_entry(srv_conn, &srv->conn_list, list)
-		seq_printf(seq, "\tConnection %03d queue size\t: %d\n",
-				++i, ACCESS_ONCE(srv_conn->qsize));
+	for (i = 0; i < srv->conn_n; ++i)
+		seq_printf(seq, "\tConnection %03zd queue size\t: %d\n",
+				i, qsize[i]);
 
 	return 0;
 #undef SPRNE
