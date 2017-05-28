@@ -984,7 +984,7 @@ tfw_http_conn_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 	 */
 	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
 		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
-			TFW_WARN("Unable to find a backend server\n");
+			TFW_DBG("Unable to find a backend server\n");
 			tfw_http_req_error(srv_conn, req, equeue, 502,
 					   "request dropped: unable to find"
 					   " an available back end server");
@@ -1811,7 +1811,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * to prevail over cache misses, so this is not a frequent path.
 	 */
 	if (!(srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
-		TFW_WARN("Unable to find a back end server\n");
+		TFW_DBG("Unable to find a backend server\n");
 		goto send_502;
 	}
 
