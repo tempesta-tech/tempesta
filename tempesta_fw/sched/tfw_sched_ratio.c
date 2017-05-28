@@ -54,7 +54,7 @@ typedef struct {
 } TfwRatioSrvDesc;
 
 /**
- * Server data for scheduler.
+ * Individual server data for scheduler.
  *
  * @sdidx	- index of server descriptor this data is for.
  * @weight	- server weight.
@@ -134,57 +134,53 @@ typedef struct {
  * @ahead	- predict for this number of @intvl ahead.
  * @slot_n	- total number of slots for past data.
  * @counter	- slot that is available for storing past data.
- * @past	- past data for each server (@past[@srv_n]).
+ * @hstdesc	- past data for each server (@hstdesc[@srv_n]).
  */
 typedef struct {
 	unsigned int	ahead;
 	size_t		slot_n;
 	unsigned long	counter;
-	TfwRatioHstDesc	*past;
+	TfwRatioHstDesc	*hstdesc;
 } TfwRatioHstData;
 
 /**
- * The main Ratio Scheduler structure.
+ * The main Ratio Scheduler data structure.
  *
  * All servers, either dead or live, are present in the list during
  * the whole run-time. That may change in the future.
  *
- * @rcu		- RCU control structure;
- * @busy	- indicates that the pool entry is currently used.
+ * @rcu		- RCU control structure.
  * @srvdata	- scheduler data specific to each server in the group.
  * @schdata	- scheduler data common to all servers in the group.
  */
 typedef struct {
 	struct rcu_head		rcu;
-	atomic_t		busy;
 	TfwRatioSrvData		*srvdata;
 	TfwRatioSchData		schdata;
-} TfwRatio;
+} TfwRatioData;
 
 /**
- * The pool of TfwRatio{} structures for RCU.
+ * The main structure for the group.
  *
  * @srv_n	- number of upstream servers.
  * @psidx	- APM pstats[] value index for dynamic ratios.
  * @intvl	- interval for re-arming the timer.
- * @rpool	- pool of TfwRatio{} for RCU.
- * @ratio	- pointer to the currently used structure.
- * @hstdata	- historic data for predictive scheduler.
- * @srvdesc	- array of upstream server descriptors.
  * @rearm	- indicates if the timer can be re-armed.
  * @timer	- periodic timer for dynamic APM data.
+ * @hstdata	- historic data for predictive scheduler.
+ * @srvdesc	- array of upstream server descriptors.
+ * @rtodata	- pointer to the currently used scheduler data.
  */
 typedef struct {
 	size_t			srv_n;
 	size_t			psidx;
 	unsigned int		intvl;
-	TfwRatio		*rpool;
-	TfwRatio __rcu		*ratio;
-	TfwRatioHstData		*hstdata;
-	TfwRatioSrvDesc		*srvdesc;
 	atomic_t		rearm;
 	struct timer_list	timer;
-} TfwRatioPool;
+	TfwRatioHstData		*hstdata;
+	TfwRatioSrvDesc		*srvdesc;
+	TfwRatioData __rcu	*rtodata;
+} TfwRatio;
 
 /**
  * Swap two server data entries. Required for sorting by sort().
@@ -219,20 +215,20 @@ tfw_sched_ratio_srvdata_cmp(const void *lhs, const void *rhs)
  * Return a non-zero value if additional actions are needed.
  */
 static int
-tfw_sched_ratio_calc(TfwRatioPool *rpool, TfwRatio *ratio,
+tfw_sched_ratio_calc(TfwRatio *ratio, TfwRatioData *rtodata,
 		     unsigned long sum_wgt, size_t max_val_idx,
 		     size_t *arg_ovidx)
 {
 	size_t si, one_val_idx;
 	unsigned int diff, max_wgt, oratio;
 	unsigned long unit, sum_ratio = 0;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
-	TfwRatioSchData *schdata = &ratio->schdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
+	TfwRatioSchData *schdata = &rtodata->schdata;
 
 	/* Set up the common part of scheduler data. */
 	schdata->csidx = 0;
 	schdata->riter = 1;
-	schdata->reidx = rpool->srv_n;
+	schdata->reidx = ratio->srv_n;
 
 	/*
 	 * Calculate each server's ratio using the following formula:
@@ -243,8 +239,8 @@ tfw_sched_ratio_calc(TfwRatioPool *rpool, TfwRatio *ratio,
 	 */
 	diff = one_val_idx = 0;
 	max_wgt = srvdata[max_val_idx].weight;
-	unit = ((max_wgt + rpool->srv_n) * max_wgt) / sum_wgt;
-	for (si = 0; si < rpool->srv_n; ++si) {
+	unit = ((max_wgt + ratio->srv_n) * max_wgt) / sum_wgt;
+	for (si = 0; si < ratio->srv_n; ++si) {
 		oratio = (unit * srvdata[si].weight) / max_wgt ? : 1;
 		srvdata[si].cratio = srvdata[si].oratio = oratio;
 		diff |= (oratio != srvdata[0].oratio);
@@ -265,13 +261,13 @@ tfw_sched_ratio_calc(TfwRatioPool *rpool, TfwRatio *ratio,
  * weights that are statically defined in the configuration file.
  */
 static void
-tfw_sched_ratio_calc_static(TfwRatioPool *rpool, TfwRatio *ratio)
+tfw_sched_ratio_calc_static(TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	unsigned long sum_wgt;
 	unsigned int diff;
 	size_t si, max_val_idx, one_val_idx;
-	TfwRatioSrvDesc *srvdesc = rpool->srvdesc;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
+	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
 
 	/*
 	 * Collect server weights from the configuration. Calculate the
@@ -281,7 +277,7 @@ tfw_sched_ratio_calc_static(TfwRatioPool *rpool, TfwRatio *ratio)
 	 * are the same.
 	 */
 	sum_wgt = diff = max_val_idx = 0;
-	for (si = 0; si < rpool->srv_n; ++si) {
+	for (si = 0; si < ratio->srv_n; ++si) {
 		unsigned int weight = srvdesc[si].srv->weight;
 		srvdata[si].sdidx = si;
 		srvdata[si].weight = weight;
@@ -297,23 +293,23 @@ tfw_sched_ratio_calc_static(TfwRatioPool *rpool, TfwRatio *ratio)
 	 * do anything else. Set up all ratios to 1 and be done with it.
 	 */
 	if (!diff) {
-		TfwRatioSchData *schdata = &ratio->schdata;
+		TfwRatioSchData *schdata = &rtodata->schdata;
 
 		/* Set up the common part of scheduler data. */
 		schdata->csidx = 0;
 		schdata->riter = 1;
-		schdata->reidx = rpool->srv_n;
+		schdata->reidx = ratio->srv_n;
 
-		schdata->crsum = schdata->orsum = rpool->srv_n;
+		schdata->crsum = schdata->orsum = ratio->srv_n;
 	}
 
 	/* Calculate ratios based on different weights of servers. */
-	if (!tfw_sched_ratio_calc(rpool, ratio, sum_wgt,
+	if (!tfw_sched_ratio_calc(ratio, rtodata, sum_wgt,
 				  max_val_idx, &one_val_idx))
 		return;
 
 	/* Sort server data entries by ratio in descending order. */
-	sort(srvdata, rpool->srv_n, sizeof(srvdata[0]),
+	sort(srvdata, ratio->srv_n, sizeof(srvdata[0]),
 	     tfw_sched_ratio_srvdata_cmp, tfw_sched_ratio_srvdata_swap);
 }
 
@@ -356,15 +352,15 @@ tfw_sched_ratio_calc_static(TfwRatioPool *rpool, TfwRatio *ratio)
  *    ratio:   60  60  60  50  30  25  15  10   5   1
  */
 static void
-__tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio,
+__tfw_sched_ratio_calc_dynamic(TfwRatio *ratio, TfwRatioData *rtodata,
 			       unsigned long sum_wgt, size_t max_val_idx)
 {
 	size_t si, one_val_idx, left, right;
 	unsigned int max_ratio, has_one_val;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
 
 	/* Calculate ratios based on server RTT values. */
-	if (!tfw_sched_ratio_calc(rpool, ratio, sum_wgt,
+	if (!tfw_sched_ratio_calc(ratio, rtodata, sum_wgt,
 				  max_val_idx, &one_val_idx))
 		return;
 
@@ -377,14 +373,14 @@ __tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio,
 	has_one_val = (srvdata[one_val_idx].oratio == 1);
 
 	if (has_one_val) {
-		unsigned long orsum = ratio->schdata.orsum;
+		unsigned long orsum = rtodata->schdata.orsum;
 		TfwRatioSrvData sdent_one = srvdata[one_val_idx];
 		TfwRatioSrvData sdent_max = srvdata[max_val_idx];
 
 		/* Save maximum ratio value for future use. */
 		max_ratio = srvdata[max_val_idx].oratio;
 
-		for (si = 0; si < rpool->srv_n; ++si) {
+		for (si = 0; si < ratio->srv_n; ++si) {
 			if (srvdata[si].oratio == 1) {
 				srvdata[si].weight = sdent_max.weight;
 				srvdata[si].oratio =
@@ -397,11 +393,11 @@ __tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio,
 				orsum -= sdent_max.oratio - 1;
 			}
 		}
-		ratio->schdata.crsum = ratio->schdata.orsum = orsum;
+		rtodata->schdata.crsum = rtodata->schdata.orsum = orsum;
 	}
 
 	/* Sort server data entries by ratio in descending order. */
-	sort(srvdata, rpool->srv_n, sizeof(srvdata[0]),
+	sort(srvdata, ratio->srv_n, sizeof(srvdata[0]),
 	     tfw_sched_ratio_srvdata_cmp, tfw_sched_ratio_srvdata_swap);
 
 	/*
@@ -413,9 +409,9 @@ __tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio,
 	 */
 	if (!has_one_val) {
 		left = 0;
-		right = rpool->srv_n - 1;
+		right = ratio->srv_n - 1;
 	} else {
-		for (si = 0; si < rpool->srv_n; ++si)
+		for (si = 0; si < ratio->srv_n; ++si)
 			if (srvdata[si].oratio == max_ratio) {
 				left = si + 1;
 			} else if (srvdata[si].oratio == 1) {
@@ -455,7 +451,7 @@ __tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio,
  *    a partial recalculation of ratios?
  */
 static inline int
-__tfw_sched_ratio_get_rtt(size_t si, TfwRatioPool *rpool, TfwRatio *ratio)
+__tfw_sched_ratio_get_rtt(size_t si, TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	unsigned int recalc;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
@@ -464,15 +460,15 @@ __tfw_sched_ratio_get_rtt(size_t si, TfwRatioPool *rpool, TfwRatio *ratio)
 		.val = val,
 		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
-	TfwRatioSrvData *srvdata = ratio->srvdata;
-	TfwRatioSrvDesc *srvdesc = rpool->srvdesc;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
+	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 
 	pstats.seq = srvdesc[si].seq;
 	recalc = tfw_apm_stats(srvdesc[si].srv->apmref, &pstats);
 	srvdesc[si].seq = pstats.seq;
 
 	srvdata[si].sdidx = si;
-	srvdata[si].weight = pstats.val[rpool->psidx] ? : 1;
+	srvdata[si].weight = pstats.val[ratio->psidx] ? : 1;
 
 	return recalc;
 }
@@ -482,29 +478,29 @@ __tfw_sched_ratio_get_rtt(size_t si, TfwRatioPool *rpool, TfwRatio *ratio)
  * Latest dynamic data is provided by APM module and represent RTT values
  * for each server in a group. Ratios are calculated on those RTT values.
  *
- * The function runs periodically on timer and provides the data that
- * is used by the ratio scheduler for outgoing requests.
+ * The function runs periodically on timer and provides the data that is
+ * used by the ratio scheduler for outgoing requests.
  */
 static void
-tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio)
+tfw_sched_ratio_calc_dynamic(TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	size_t si, max_val_idx = 0;
 	unsigned long sum_wgt = 0;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
 
 	/*
 	 * Calculate the sum of server's weights in the group. Remember
 	 * the index of server data entry with maximum weight. That same
 	 * entry will also have the maximum ratio.
 	 */
-	for (si = 0; si < rpool->srv_n; ++si) {
-		__tfw_sched_ratio_get_rtt(si, rpool, ratio);
+	for (si = 0; si < ratio->srv_n; ++si) {
+		__tfw_sched_ratio_get_rtt(si, ratio, rtodata);
 		if (srvdata[max_val_idx].weight < srvdata[si].weight)
 			max_val_idx = si;
 		sum_wgt += srvdata[si].weight;
 	}
 
-	__tfw_sched_ratio_calc_dynamic(rpool, ratio, sum_wgt, max_val_idx);
+	__tfw_sched_ratio_calc_dynamic(ratio, rtodata, sum_wgt, max_val_idx);
 }
 
 /**
@@ -530,25 +526,25 @@ tfw_sched_ratio_calc_dynamic(TfwRatioPool *rpool, TfwRatio *ratio)
  * is used by the ratio scheduler for outgoing requests.
  */
 static void
-tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
+tfw_sched_ratio_calc_predict(TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	static const long MUL = 1000;
 	int ni, sz;
 	size_t si, max_val_idx;
 	unsigned long sum_wgt;
 	long cnt, rtt, ahead, prediction;
-	TfwRatioHstData *hstdata = rpool->hstdata;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
+	TfwRatioHstData *hstdata = ratio->hstdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
 
 	ni = hstdata->counter % hstdata->slot_n;
 	cnt = hstdata->counter * MUL;
 	ahead = hstdata->counter + hstdata->ahead;
 
 	sum_wgt = max_val_idx = 0;
-	for (si = 0; si < rpool->srv_n; ++si) {
-		TfwRatioHstDesc *hd = &hstdata->past[si];
+	for (si = 0; si < ratio->srv_n; ++si) {
+		TfwRatioHstDesc *hd = &hstdata->hstdesc[si];
 
-		__tfw_sched_ratio_get_rtt(si, rpool, ratio);
+		__tfw_sched_ratio_get_rtt(si, ratio, rtodata);
 
 		rtt = srvdata[si].weight * MUL;
 
@@ -605,89 +601,80 @@ tfw_sched_ratio_calc_predict(TfwRatioPool *rpool, TfwRatio *ratio)
 
 	++hstdata->counter;
 
-	__tfw_sched_ratio_calc_dynamic(rpool, ratio, sum_wgt, max_val_idx);
+	__tfw_sched_ratio_calc_dynamic(ratio, rtodata, sum_wgt, max_val_idx);
 }
 
 /**
- * Get a free for use entry from the RCU pool.
- * Note that @ratio->busy is always either 1 or 0.
+ * Get and set up a new ratio data entry.
  */
-static TfwRatio *
-tfw_sched_ratio_rpool_get(TfwRatioPool *rpool)
+static TfwRatioData *
+tfw_sched_ratio_rtodata_get(TfwRatio *ratio)
 {
-	int si;
-	TfwRatio *ratio = rpool->rpool;
+	size_t size;
+	TfwRatioData *rtodata;
 
-	for (si = 0; si <= nr_cpu_ids; ++si, ++ratio)
-		if (!atomic_cmpxchg(&ratio->busy, 0, 1))
-			return ratio;
+	size = sizeof(TfwRatioData) + sizeof(TfwRatioSrvData) * ratio->srv_n;
+	if (!(rtodata = kmalloc(size, GFP_ATOMIC)))
+		return NULL;
+	rtodata->srvdata = (TfwRatioSrvData *)(rtodata + 1);
+	spin_lock_init(&rtodata->schdata.lock);
 
-	return NULL;
+	return rtodata;
 }
 
 /**
- * Return an entry to the RCU pool.
+ * Release a ratio data entry that is no longer used.
  */
 static void
-tfw_sched_ratio_rpool_put(struct rcu_head *rcup)
+tfw_sched_ratio_rtodata_put(struct rcu_head *rcup)
 {
-	TfwRatio *ratio = container_of(rcup, TfwRatio, rcu);
-	atomic_set(&ratio->busy, 0);
+	TfwRatioData *rtodata = container_of(rcup, TfwRatioData, rcu);
+	kfree(rtodata);
 }
 
 /**
  * Calculate the latest ratios for each server in the group in real time.
  *
  * RCU is used to avoid locks. When recalculation is in order, the new
- * data is placed in an available entry from the RCU pool. The new entry
- * then is seamlessly set as the current entry. The formerly active entry
- * is returned to the RCU pool when all users of it are done and gone.
- *
- * It may happen that no RCU pool entry is available at the moment.
- * That's not a big deal. Scheduling of upstream servers will continue
- * to run on currently active data. The timer is scheduled to run ASAP
- * and catch an RCU pool entry the moment it gets available.
- * To make this case less probable, the number of RCU pool entries
- * is chosen as one more than the number of CPU slots in the system.
+ * data is placed in a new allocated entry. The new entry is seamlessly
+ * set as the current entry by using RCU. The formerly active entry is
+ * released in due time when all users of it are done and gone.
  */
 static void
 tfw_sched_ratio_calc_tmfn(TfwSrvGroup *sg,
-			  void (*calc_fn)(TfwRatioPool *, TfwRatio *))
+			  void (*calc_fn)(TfwRatio *, TfwRatioData *))
 {
-	TfwRatioPool *rpool = sg->sched_data;
-	TfwRatio *cratio, *nratio;
-	int interval = rpool->intvl;
+	TfwRatio *ratio = sg->sched_data;
+	TfwRatioData *crtodata, *nrtodata;
 
 	/*
-	 * Get an available ratio entry from the RCU pool. If there's
-	 * none at the moment, then try it again in a short while on
-	 * the next run of timer function.
+	 * Get a new ratio data entry. Usually, if unsuccessful, that's
+	 * not a big deal. Scheduling of upstream servers will continue
+	 * to run on currently active data. However, the lack of memory
+	 * is a critical issue in itself.
 	 */
-	nratio = tfw_sched_ratio_rpool_get(rpool);
-	if (unlikely(!nratio)) {
-		interval = 1;
+	if (!(nrtodata = tfw_sched_ratio_rtodata_get(ratio))) {
+		TFW_ERR("Sched ratio: Insufficient memory for group '%s'\n",
+			sg->name);
 		goto rearm;
 	}
 
-	/*
-	 * Calculate dynamic ratios. If there's nothing to do,
-	 * then return the ratio entry back to the RCU pool.
-	 */
-	calc_fn(rpool, nratio);
+	/* Calculate dynamic ratios. */
+	calc_fn(ratio, nrtodata);
 
 	/*
-	 * Substitute the current ratio entry with the new one for
-	 * scheduler. The former entry will be returned to the RCU
-	 * pool when there are no users of it.
+	 * Substitute the current ratio data entry with the new one for
+	 * the scheduler. The former entry will be released when there
+	 * are no users of it. Use the faster non-lazy RCU.
 	 */
-	cratio = rpool->ratio;
-	rcu_assign_pointer(rpool->ratio, nratio);
-	call_rcu(&cratio->rcu, tfw_sched_ratio_rpool_put);
+	crtodata = ratio->rtodata;
+	rcu_assign_pointer(ratio->rtodata, nrtodata);
+	call_rcu(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
 
 rearm:
 	smp_mb();
-	if (atomic_read(&rpool->rearm))
-		mod_timer(&rpool->timer, jiffies + interval);
+	if (atomic_read(&ratio->rearm))
+		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 }
 
 /**
@@ -730,20 +717,20 @@ tfw_sched_ratio_predict_tmfn(unsigned long tmfn_data)
  * TODO: The algorithm may and should be improved.
  */
 static inline bool
-tfw_sched_ratio_is_srv_turn(TfwRatioPool *rpool, TfwRatio *ratio, size_t csidx)
+tfw_sched_ratio_is_srv_turn(TfwRatio *ratio, TfwRatioData *rtodata, size_t csidx)
 {
 	unsigned long headsum2, tailsum2;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
-	TfwRatioSchData *schdata = &ratio->schdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
+	TfwRatioSchData *schdata = &rtodata->schdata;
 
 	if (!csidx)
 		return true;
 
 	headsum2 = (srvdata[0].cratio + srvdata[csidx - 1].cratio) * csidx;
 	tailsum2 = (srvdata[csidx].cratio
-		    + (srvdata[rpool->srv_n - 1].cratio
-		       ? : srvdata[rpool->srv_n - 1].oratio))
-		   * (rpool->srv_n - csidx);
+		    + (srvdata[ratio->srv_n - 1].cratio
+		       ? : srvdata[ratio->srv_n - 1].oratio))
+		   * (ratio->srv_n - csidx);
 
 	return tailsum2 * schdata->riter > headsum2;
 }
@@ -761,11 +748,11 @@ tfw_sched_ratio_is_srv_turn(TfwRatioPool *rpool, TfwRatio *ratio, size_t csidx)
  * that it won't give any advantage.
  */
 static TfwRatioSrvDesc *
-tfw_sched_ratio_next_srv(TfwRatioPool *rpool, TfwRatio *ratio)
+tfw_sched_ratio_next_srv(TfwRatio *ratio, TfwRatioData *rtodata)
 {
 	size_t csidx;
-	TfwRatioSrvData *srvdata = ratio->srvdata;
-	TfwRatioSchData *schdata = &ratio->schdata;
+	TfwRatioSrvData *srvdata = rtodata->srvdata;
+	TfwRatioSchData *schdata = &rtodata->schdata;
 
 	/* Start with server that has the highest ratio. */
 	spin_lock(&schdata->lock);
@@ -783,7 +770,7 @@ retry:
 		 */
 		if (schdata->reidx != csidx) {
 			++schdata->csidx;
-			if (schdata->csidx == rpool->srv_n) {
+			if (schdata->csidx == ratio->srv_n) {
 				schdata->csidx = 0;
 				schdata->riter = 1;
 			}
@@ -802,20 +789,20 @@ retry:
 	 * the group, then also start from the beginning, but do not
 	 * reset as it's been reset already (make sure of that).
 	 */
-	if (likely(tfw_sched_ratio_is_srv_turn(rpool, ratio, csidx))) {
+	if (likely(tfw_sched_ratio_is_srv_turn(ratio, rtodata, csidx))) {
 		--srvdata[csidx].cratio;
 		if (unlikely(!--schdata->crsum)) {
 			schdata->csidx = 0;
 			schdata->riter = 1;
 			schdata->crsum = schdata->orsum;
 			schdata->reidx = 0;
-		} else if (unlikely(++schdata->csidx == rpool->srv_n)) {
-			BUG_ON(schdata->reidx != rpool->srv_n);
+		} else if (unlikely(++schdata->csidx == ratio->srv_n)) {
+			BUG_ON(schdata->reidx != ratio->srv_n);
 			schdata->csidx = 0;
 			schdata->riter = 1;
 		}
 		spin_unlock(&schdata->lock);
-		return rpool->srvdesc + srvdata[csidx].sdidx;
+		return ratio->srvdesc + srvdata[csidx].sdidx;
 	}
 	/*
 	 * This is not the turn of the current server. Start
@@ -912,16 +899,16 @@ static TfwSrvConn *
 tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned int attempts, skipnip = 1, nipconn = 0;
-	TfwRatioPool *rpool = sg->sched_data;
+	TfwRatio *ratio = sg->sched_data;
 	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn;
-	TfwRatio *ratio;
+	TfwRatioData *rtodata;
 
-	BUG_ON(!rpool);
+	BUG_ON(!ratio);
 
 	rcu_read_lock();
-	ratio = rcu_dereference(rpool->ratio);
-	BUG_ON(!ratio);
+	rtodata = rcu_dereference(ratio->rtodata);
+	BUG_ON(!rtodata);
 rerun:
 	/*
 	 * Try servers in a group according to their ratios. Attempt to
@@ -951,9 +938,9 @@ rerun:
 	 * this group. Spinning in the loop here would just aggravate
 	 * the issue on Tempesta's side.
 	 */
-	attempts = rpool->srv_n;
+	attempts = ratio->srv_n;
 	while (attempts--) {
-		srvdesc = tfw_sched_ratio_next_srv(rpool, ratio);
+		srvdesc = tfw_sched_ratio_next_srv(ratio, rtodata);
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
 			rcu_read_unlock();
 			return srv_conn;
@@ -976,19 +963,19 @@ static void
 tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 {
 	size_t si;
-	TfwRatioPool *rpool = sg->sched_data;
+	TfwRatio *ratio = sg->sched_data;
 
-	if (!rpool)
+	if (!ratio)
 		return;
 
-	/* Free the data that is shared between pool entries. */
+	/* Data that is shared between pool entries. */
 	for (si = 0; si < sg->srv_n; ++si)
-		kfree(rpool->srvdesc[si].conn);
+		kfree(ratio->srvdesc[si].conn);
 
-	/* Free the data allocated for predictive scheduler. */
-	kfree(rpool->hstdata);
+	kfree(ratio->hstdata);
+	kfree(ratio->rtodata);
 
-	kfree(rpool);
+	kfree(ratio);
 	sg->sched_data = NULL;
 }
 
@@ -1003,7 +990,7 @@ tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatioPool *rpool = sg->sched_data;
+	TfwRatio *ratio = sg->sched_data;
 
 	/*
 	 * Make sure the timer doesn't re-arms itself. This
@@ -1012,9 +999,9 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
 			 | TFW_SG_F_SCHED_RATIO_PREDICT))
 	{
-		atomic_set(&rpool->rearm, 0);
+		atomic_set(&ratio->rearm, 0);
 		smp_mb__after_atomic();
-		del_timer_sync(&rpool->timer);
+		del_timer_sync(&ratio->timer);
 	}
 
 	/* Wait for outstanding RCU callbacks to complete. */
@@ -1033,72 +1020,36 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
  * Additional configuration data required for Predictive scheduler are
  * passed via @sg->sched_data.
  */
+
+/* Set up the upstream server descriptors. */
 static int
-tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
+tfw_sched_ratio_srvdesc_setup(TfwSrvGroup *sg)
 {
-	int ret = -EINVAL;
-	size_t size, si, ci;
+	size_t size, si = 0, ci;
 	TfwServer *srv;
-	TfwRatioPool *rpool;
-	TfwRatioSrvDesc *srvdesc;
-	TfwRatioSrvData *srvdata;
-	TfwRatio *ratio, *ratio_end;
-	void *sched_data = sg->sched_data;
+	TfwRatio *ratio = sg->sched_data;
+	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 
-	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
-		return -EINVAL;
-
-	size = sizeof(TfwRatioPool)
-	       + sizeof(TfwRatio) * (nr_cpu_ids + 1)
-	       + sizeof(TfwRatioSrvDesc) * sg->srv_n
-	       + sizeof(TfwRatioSrvData) * sg->srv_n * (nr_cpu_ids + 1);
-	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
-		return -ENOMEM;
-
-	/* Pool of TfwRatio{}. Initial place for Ratio Scheduler data. */
-	rpool = sg->sched_data;
-	rpool->rpool = sg->sched_data + sizeof(TfwRatioPool);
-	ratio_end = rpool->rpool + nr_cpu_ids + 1;
-
-	rpool->srv_n = sg->srv_n;
-	rpool->psidx = sg->flags & TFW_SG_F_PSTATS_IDX_MASK;
-
-	/* Array of server descriptors. Shared between RCU pool entries. */
-	rpool->srvdesc = (TfwRatioSrvDesc *)ratio_end;
-
-	/* Set up each RCU pool entry with required arrays and data. */
-	srvdata = (TfwRatioSrvData *)(rpool->srvdesc + sg->srv_n);
-	for (ratio = rpool->rpool; ratio < ratio_end; ++ratio) {
-		spin_lock_init(&ratio->schdata.lock);
-		ratio->srvdata = srvdata;
-		srvdata += sg->srv_n;
-	}
-
-	/* Initial setup of upstream server descriptors. */
-	si = 0;
-	srvdesc = rpool->srvdesc;
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		TfwSrvConn **conn, *srv_conn;
 
 		if (unlikely((si++ == sg->srv_n) || !srv->conn_n
 			     || list_empty(&srv->conn_list)))
-			goto cleanup;
+			return -EINVAL;
 
 		size = sizeof(TfwSrvConn *) * srv->conn_n;
-		if (!(srvdesc->conn = kzalloc(size, GFP_KERNEL))) {
-			ret = -ENOMEM;
-			goto cleanup;
-		}
+		if (!(srvdesc->conn = kzalloc(size, GFP_KERNEL)))
+			return -ENOMEM;
 
 		ci = 0;
 		conn = srvdesc->conn;
 		list_for_each_entry(srv_conn, &srv->conn_list, list) {
 			if (unlikely(ci++ == srv->conn_n))
-				goto cleanup;
+				return -EINVAL;
 			*conn++ = srv_conn;
 		}
 		if (unlikely(ci != srv->conn_n))
-			goto cleanup;
+			return -EINVAL;
 
 		srvdesc->conn_n = srv->conn_n;
 		srvdesc->srv = srv;
@@ -1107,71 +1058,143 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
 		++srvdesc;
 	}
 	if (unlikely(si != sg->srv_n))
-		goto cleanup;
+		return -EINVAL;
+
+	return 0;
+}
+
+static TfwRatio *
+tfw_sched_ration_add_grp_common(TfwSrvGroup *sg)
+{
+	int ret;
+	size_t size;
+	TfwRatio *ratio;
+	TfwRatioData *rtodata;
+
+	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
+
+	size = sizeof(TfwRatio) + sizeof(TfwRatioSrvDesc) * sg->srv_n;
+	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+		return ERR_PTR(-ENOMEM);
+
+	ratio = sg->sched_data;
+	ratio->srv_n = sg->srv_n;
+	ratio->psidx = sg->flags & TFW_SG_M_PSTATS_IDX;
+
+	ratio->srvdesc = (TfwRatioSrvDesc *)(ratio + 1);
+	if ((ret = tfw_sched_ratio_srvdesc_setup(sg)))
+		return ERR_PTR(ret);
+
+	if (!(rtodata = tfw_sched_ratio_rtodata_get(ratio)))
+		return ERR_PTR(-ENOMEM);
+	rcu_assign_pointer(ratio->rtodata, rtodata);
+
+	return ratio;
+}
+
+static int
+tfw_sched_ratio_add_grp_static(TfwSrvGroup *sg)
+{
+	TfwRatio *ratio;
+
+	ratio = tfw_sched_ration_add_grp_common(sg);
+	if (IS_ERR(ratio))
+		return PTR_ERR(ratio);
+
+	/* Calculate the static ratio data for each server. */
+	tfw_sched_ratio_calc_static(ratio, ratio->rtodata);
+
+	return 0;
+}
+
+static int
+tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg)
+{
+	TfwRatio *ratio;
+	TfwSchrefPredict *schref = sg->sched_data;
+
+	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
+
+	ratio = tfw_sched_ration_add_grp_common(sg);
+	if (IS_ERR(ratio))
+		return PTR_ERR(ratio);
 
 	/* Set up the necessary workspace for predictive scheduler. */
 	if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT) {
-		size_t slot_n;
+		size_t size, slot_n;
 		TfwRatioHstUnit *hunit;
 		TfwRatioHstData *hdata;
-		TfwRatioHstDesc *hpast, *hpast_end;
-		TfwSchrefPredict *schref = sched_data;
+		TfwRatioHstDesc *hdesc, *hdesc_end;
+
 		BUG_ON(!schref);
 
 		slot_n = schref->past * schref->rate;
 		size = sizeof(TfwRatioHstData)
 		       + sizeof(TfwRatioHstDesc) * sg->srv_n
 		       + sizeof(TfwRatioHstUnit) * sg->srv_n * slot_n;
+		if (!(ratio->hstdata = kzalloc(size, GFP_KERNEL)))
+			return -ENOMEM;
 
-		if (!(rpool->hstdata = kzalloc(size, GFP_KERNEL))) {
-			ret = -ENOMEM;
-			goto cleanup;
-		}
-		hdata = rpool->hstdata;
-		hdata->past = (TfwRatioHstDesc *)(hdata + 1);
+		hdata = ratio->hstdata;
+		hdata->hstdesc = (TfwRatioHstDesc *)(hdata + 1);
 		hdata->slot_n = slot_n;
 		hdata->ahead = schref->ahead * schref->rate;
 
-		hpast_end = hdata->past + sg->srv_n;
-		hunit = (TfwRatioHstUnit *)hpast_end;
-		for (hpast = hdata->past; hpast < hpast_end; ++hpast) {
-			hpast->hist = hunit;
+		hdesc_end = hdata->hstdesc + sg->srv_n;
+		hunit = (TfwRatioHstUnit *)hdesc_end;
+		for (hdesc = hdata->hstdesc; hdesc < hdesc_end; ++hdesc) {
+			hdesc->hist = hunit;
 			hunit += slot_n;
 		}
 	}
 
 	/*
-	 * Set up the initial ratio data. For dynamic ratios it's all
-	 * equal initial weights.
+	 * Calculate the initial ratio data for each server. That's
+	 * based on equal initial (default) weights that are set by
+	 * the configuration processing routines.
 	 */
-	if (!(sg->flags & (TFW_SG_F_SCHED_RATIO_STATIC
-			   | TFW_SG_F_SCHED_RATIO_DYNAMIC
-			   | TFW_SG_F_SCHED_RATIO_PREDICT)))
-	{
-		ret = -EINVAL;
-		goto cleanup;
-	}
-
-	/* Calculate initial ratios for each server. */
-	rcu_assign_pointer(rpool->ratio, tfw_sched_ratio_rpool_get(rpool));
-	tfw_sched_ratio_calc_static(rpool, rpool->ratio);
+	tfw_sched_ratio_calc_static(ratio, ratio->rtodata);
 
 	/* Set up periodic re-calculation of ratios. */
 	if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC) {
-		rpool->intvl = TFW_SCHED_RATIO_INTVL;
-		atomic_set(&rpool->rearm, 1);
+		ratio->intvl = TFW_SCHED_RATIO_INTVL;
+		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
-		setup_timer(&rpool->timer,
+		setup_timer(&ratio->timer,
 			    tfw_sched_ratio_dynamic_tmfn, (unsigned long)sg);
-		mod_timer(&rpool->timer, jiffies + rpool->intvl);
+		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	} else if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT) {
-		TfwSchrefPredict *schref = sched_data;
-		rpool->intvl = msecs_to_jiffies(1000 / schref->rate);
-		atomic_set(&rpool->rearm, 1);
+		ratio->intvl = msecs_to_jiffies(1000 / schref->rate);
+		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
-		setup_timer(&rpool->timer,
+		setup_timer(&ratio->timer,
 			    tfw_sched_ratio_predict_tmfn, (unsigned long)sg);
-		mod_timer(&rpool->timer, jiffies + rpool->intvl);
+		mod_timer(&ratio->timer, jiffies + ratio->intvl);
+	}
+
+	return 0;
+}
+
+static int
+tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
+{
+	int ret;
+
+	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
+		return -EINVAL;
+
+	switch (sg->flags & TFW_SG_M_SCHED_RATIO_TYPE) {
+	case TFW_SG_F_SCHED_RATIO_STATIC:
+		if ((ret = tfw_sched_ratio_add_grp_static(sg)))
+			goto cleanup;
+		break;
+	case TFW_SG_F_SCHED_RATIO_DYNAMIC:
+	case TFW_SG_F_SCHED_RATIO_PREDICT:
+		if ((ret = tfw_sched_ratio_add_grp_dynamic(sg)))
+			goto cleanup;
+		break;
+	default:
+		return -EINVAL;
 	}
 
 	return 0;

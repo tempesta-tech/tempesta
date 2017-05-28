@@ -934,7 +934,9 @@ tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
 	TfwServer *srv;
 	int count = 0;
 
-	if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC) {
+	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
+			 || TFW_SG_F_SCHED_RATIO_PREDICT))
+	{
 		list_for_each_entry(srv, tfw_cfg_slst, list) {
 			if (srv->weight)
 				break;
@@ -975,7 +977,8 @@ tfw_cfgop_setup_srv_group(void)
 	 * Check 'ratio' scheduler configuration for incompatibilities.
 	 * Set weight to default value for each server in the group
 	 * if no weight is provided in the configuration. For dynamic
-	 * ratio this sets initial equal weights to all servers.
+	 * or predictive ratios this sets initial equal weights to all
+	 * servers.
 	 */
 	if (!strcasecmp(tfw_cfg_sched->name, "ratio")) {
 		if (tfw_cfg_sg_ratio_verify(tfw_cfg_sg))
@@ -1481,7 +1484,7 @@ TfwCfgMod tfw_sock_srv_cfg_mod = {
 int
 tfw_sock_srv_init(void)
 {
-	BUILD_BUG_ON(_TFW_PSTATS_IDX_COUNT > TFW_SG_F_PSTATS_IDX_MASK);
+	BUILD_BUG_ON(_TFW_PSTATS_IDX_COUNT > TFW_SG_M_PSTATS_IDX);
 	BUG_ON(tfw_srv_conn_cache);
 	tfw_srv_conn_cache = kmem_cache_create("tfw_srv_conn_cache",
 					       sizeof(TfwSrvConn), 0, 0, NULL);
