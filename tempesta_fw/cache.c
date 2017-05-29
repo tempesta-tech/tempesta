@@ -173,20 +173,28 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
- * Currently none of the non-cacheable methods are supported.
- * Note: POST method is cacheable but not supported at this time.
+ * Safe methods that do not depend on a current or authoritative response
+ * are defined as cacheable: GET, HEAD, and POST.
+ * Note: caching of POST method responces is not supported at this time.
  */
-static unsigned int tfw_cache_nc_methods = (1 << TFW_HTTP_METH_POST);
+static unsigned int tfw_cache_nc_methods =
+		~((1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD));
 
 static inline bool
 __cache_method_nc_test(tfw_http_meth_t method)
 {
+	BUILD_BUG_ON(sizeof(tfw_cache_nc_methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
+
 	return tfw_cache_nc_methods & (1 << method);
 }
 
 static inline void
 __cache_method_add(tfw_http_meth_t method)
 {
+	BUILD_BUG_ON(sizeof(cache_cfg.methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
+
 	cache_cfg.methods |= (1 << method);
 }
 
@@ -1399,7 +1407,9 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	unsigned int i, method;
 	const char *val;
 
-	BUILD_BUG_ON(sizeof(cache_cfg.methods) * 8 < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(cache_cfg.methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(method) * BITS_PER_BYTE < _TFW_HTTP_METH_COUNT);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (!strcasecmp(val, "GET")) {
