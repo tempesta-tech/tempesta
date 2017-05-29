@@ -84,11 +84,30 @@ enum {
 };
 
 typedef enum {
-	TFW_HTTP_METH_NONE,
-	TFW_HTTP_METH_GET,
-	TFW_HTTP_METH_HEAD,
-	TFW_HTTP_METH_POST,
+	_TFW_HTTP_METH_NONE,
+	/*
+	 * Most popular methods, registered in IANA.
+	 * https://www.iana.org/assignments/http-methods/http-methods.xhtml
+	 */
+	TFW_HTTP_METH_COPY,
+	TFW_HTTP_METH_DELETE,
+	TFW_HTTP_METH_GET,		/* Safe. */
+	TFW_HTTP_METH_HEAD,		/* Safe. */
+	TFW_HTTP_METH_LOCK,		/* Non-idempotent. */
+	TFW_HTTP_METH_MKCOL,
+	TFW_HTTP_METH_MOVE,
+	TFW_HTTP_METH_OPTIONS,		/* Safe. */
+	TFW_HTTP_METH_PATCH,		/* Non-idempotent. */
+	TFW_HTTP_METH_POST,		/* Non-idempotent. */
+	TFW_HTTP_METH_PROPFIND,		/* Safe. */
+	TFW_HTTP_METH_PROPPATCH,
+	TFW_HTTP_METH_PUT,
+	TFW_HTTP_METH_TRACE,		/* Safe. */
+	TFW_HTTP_METH_UNLOCK,
+	/* Well-known methods, not listed in RFCs. */
 	TFW_HTTP_METH_PURGE,
+	/* Unknown method, passed to upstream without additional processing. */
+	_TFW_HTTP_METH_UNKNOWN,
 	_TFW_HTTP_METH_COUNT
 } tfw_http_meth_t;
 
