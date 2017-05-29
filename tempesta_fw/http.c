@@ -1256,9 +1256,9 @@ tfw_http_conn_release(TfwConn *conn)
 		return;
 	}
 
-	spin_lock(&srv_conn->fwd_qlock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
 	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
-	spin_unlock(&srv_conn->fwd_qlock);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		tfw_http_req_delist(srv_conn, req);
