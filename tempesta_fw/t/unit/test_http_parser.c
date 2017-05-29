@@ -201,6 +201,14 @@ TEST(http_parser, leading_eol)
 
 TEST(http_parser, parses_req_method)
 {
+	FOR_REQ("COPY /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_COPY);
+	}
+
+	FOR_REQ("DELETE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_DELETE);
+	}
+
 	FOR_REQ("GET / HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_GET);
 	}
@@ -209,8 +217,132 @@ TEST(http_parser, parses_req_method)
 		EXPECT_EQ(req->method, TFW_HTTP_METH_HEAD);
 	}
 
+	FOR_REQ("LOCK /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_LOCK);
+	}
+
+	FOR_REQ("MKCOL /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_MKCOL);
+	}
+
+	FOR_REQ("MOVE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_MOVE);
+	}
+
+	FOR_REQ("OPTIONS /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_OPTIONS);
+	}
+
+	FOR_REQ("PATCH /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PATCH);
+	}
+
 	FOR_REQ("POST /a?p=1 HTTP/1.1\r\n\r\n") {
 		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+	}
+
+	FOR_REQ("PROPFIND /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PROPFIND);
+	}
+
+	FOR_REQ("PROPPATCH /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PROPPATCH);
+	}
+
+	FOR_REQ("PUT /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PUT);
+	}
+
+	FOR_REQ("TRACE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_TRACE);
+	}
+
+	FOR_REQ("UNLOCK /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_UNLOCK);
+	}
+
+	/* Supported Non-RFC methods. */
+	FOR_REQ("PURGE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, TFW_HTTP_METH_PURGE);
+	}
+
+	/* RFC methods, not supported by TempestaFW. */
+	FOR_REQ("ACL /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("BASELINE-CONTROL /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("BIND /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("CHECKIN /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("CHECKOUT /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("CONNECT /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("LABEL /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("LINK /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("MERGE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("MKACTIVITY /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("MKCALENDAR /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("MKREDIRECTREF /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("MKWORKSPACE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("ORDERPATCH /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("PRI /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("REBIND /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("REPORT /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("SEARCH /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("UNBIND /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("UNCHECKOUT /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("UNLINK /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("UPDATE /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("UPDATEREDIRECTREF /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+	FOR_REQ("VERSION-CONTROL /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
+	}
+
+	/* Unknown methods. */
+	FOR_REQ("UNKNOWN /filename HTTP/1.1\r\n\r\n") {
+		EXPECT_EQ(req->method, _TFW_HTTP_METH_UNKNOWN);
 	}
 }
 
