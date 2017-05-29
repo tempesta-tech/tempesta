@@ -76,6 +76,14 @@ tfw_cli_conn_alloc(int type)
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
+#ifdef CONFIG_LOCKDEP
+	/*
+	 * The lock is acquired at only one place where there is no conflict
+	 * with the socket lock, so prevent LOCKDEP complaining the dependency.
+	 */
+	lockdep_init_map(&cli_conn->ret_qlock.dep_map, "cli_conn->ret_qlock",
+			 &__lockdep_no_validate__, SINGLE_DEPTH_NESTING);
+#endif
 
 	setup_timer(&cli_conn->timer,
 		    tfw_sock_cli_keepalive_timer_cb,
