@@ -186,6 +186,18 @@ do {									\
 #define __FSM_MATCH_MOVE(alphabet, to)	__FSM_MATCH_MOVE_f(alphabet, to, \
 							   &msg->parser.hdr)
 
+#define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
+do {									\
+	__fsm_n = __data_remain(p);					\
+	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
+	p += __fsm_sz;							\
+	if (unlikely(__fsm_sz == __fsm_n)) {				\
+		__fsm_const_state = to;					\
+		r = TFW_POSTPONE;					\
+		__FSM_EXIT()						\
+	}								\
+} while (0)
+
 /*
  * __FSM_I_* macros are intended to help with parsing of message
  * header values. That is done with separate, nested, or interior
@@ -319,6 +331,21 @@ __FSM_STATE(st) {							\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
 	__FSM_JMP(st_fallback);						\
+}
+
+#define __FSM_METH_MOVE(st, ch, st_next)				\
+__FSM_STATE(st) {							\
+	if (likely(c == (ch)))						\
+		__FSM_MOVE_nofixup(st_next);				\
+	__FSM_MOVE_nofixup(Req_MethodUnknown);				\
+}
+
+#define __FSM_METH_MOVE_finish(st, ch, m_type)				\
+__FSM_STATE(st) {							\
+	if (unlikely(c != (ch)))					\
+		__FSM_MOVE_nofixup(Req_MethodUnknown);			\
+	req->method = (m_type);						\
+	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
 
 /**
@@ -1325,14 +1352,63 @@ enum {
 	Req_0,
 	/* Request line. */
 	Req_Method,
+	Req_MethodUnknown,
+	Req_MethC,
+	Req_MethCo,
+	Req_MethCop,
+	Req_MethD,
+	Req_MethDe,
+	Req_MethDel,
+	Req_MethDele,
+	Req_MethDelet,
 	Req_MethG,
 	Req_MethGe,
 	Req_MethH,
 	Req_MethHe,
 	Req_MethHea,
+	Req_MethL,
+	Req_MethLo,
+	Req_MethLoc,
+	Req_MethM,
+	Req_MethMk,
+	Req_MethMkc,
+	Req_MethMkco,
+	Req_MethMo,
+	Req_MethMov,
+	Req_MethO,
+	Req_MethOp,
+	Req_MethOpt,
+	Req_MethOpti,
+	Req_MethOptio,
+	Req_MethOption,
 	Req_MethP,
+	Req_MethPa,
+	Req_MethPat,
+	Req_MethPatc,
 	Req_MethPo,
 	Req_MethPos,
+	Req_MethPr,
+	Req_MethPro,
+	Req_MethProp,
+	Req_MethPropf,
+	Req_MethPropfi,
+	Req_MethPropfin,
+	Req_MethPropp,
+	Req_MethProppa,
+	Req_MethProppat,
+	Req_MethProppatc,
+	Req_MethPu,
+	Req_MethPur,
+	Req_MethPurg,
+	Req_MethT,
+	Req_MethTr,
+	Req_MethTra,
+	Req_MethTrac,
+	Req_MethU,
+	Req_MethUn,
+	Req_MethUnl,
+	Req_MethUnlo,
+	Req_MethUnloc,
 	Req_MUSpace,
 	Req_Uri,
 	Req_UriSchH,
@@ -2083,6 +2159,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		/* Fast path: compare 4 characters at once. */
 		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
+			/* Most expected methods: GET, HEAD, POST. */
 			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
 				req->method = TFW_HTTP_METH_GET;
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
@@ -2092,6 +2169,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
 				req->method = TFW_HTTP_METH_POST;
 				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+			/* Methods for Tempesta Configuration: PURGE. */
 			case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
 				if (likely(__data_available(p, 5))
 				    && (*(p + 4) == 'E'))
@@ -2099,8 +2177,93 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 					req->method = TFW_HTTP_METH_PURGE;
 					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
 				}
+				__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
+			/*
+			 * Other popular methods: COPY, DELETE, LOCK, MKCOL,
+			 * MOVE, OPTIONS, PATCH, PROPFIND, PROPPATCH, PUT,
+			 * TRACE, UNLOCK.
+			 */
+			case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
+				req->method = TFW_HTTP_METH_COPY;
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+			case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
+				if (likely(__data_available(p, 6))
+				    && (*(p + 4) == 'T') && (*(p + 5) == 'E'))
+				{
+					req->method = TFW_HTTP_METH_DELETE;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 6);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethDele, 4);
+			case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
+				req->method = TFW_HTTP_METH_LOCK;
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+			case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
+				if (likely(__data_available(p, 5))
+				    && (*(p + 4) == 'L'))
+				{
+					req->method = TFW_HTTP_METH_MKCOL;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
+			case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
+				req->method = TFW_HTTP_METH_MOVE;
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+			case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
+				if (likely(__data_available(p, 8))
+				    && (*((unsigned int *)p + 1)
+					== TFW_CHAR4_INT('O', 'N', 'S', ' ')))
+				{
+					req->method = TFW_HTTP_METH_OPTIONS;
+					__FSM_MOVE_nofixup_n(Req_Uri, 8);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
+			case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
+				if (likely(__data_available(p, 5))
+				    && (*(p + 4) == 'H'))
+				{
+					req->method = TFW_HTTP_METH_PATCH;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
+			case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
+				if (likely(__data_available(p, 8))
+				    && (*((unsigned int *)p + 1)
+					== TFW_CHAR4_INT('F', 'I', 'N', 'D')))
+				{
+					req->method = TFW_HTTP_METH_PROPFIND;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 8);
+				}
+				if (likely(__data_available(p, 9))
+				    && (*((unsigned int *)p + 1)
+					== TFW_CHAR4_INT('P', 'A', 'T', 'C'))
+				    && (*(p + 8) == 'H'))
+				{
+					req->method = TFW_HTTP_METH_PROPPATCH;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 9);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethProp, 4);
+			case TFW_CHAR4_INT('P', 'U', 'T', ' '):
+				req->method = TFW_HTTP_METH_PUT;
+				__FSM_MOVE_nofixup_n(Req_Uri, 4);
+			case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
+				if (likely(__data_available(p, 5))
+				    && (*(p + 4) == 'E'))
+				{
+					req->method = TFW_HTTP_METH_TRACE;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
+			case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
+				if (likely(__data_available(p, 6))
+				    && (*(p + 4) == 'C') && (*(p + 5) == 'K'))
+				{
+					req->method = TFW_HTTP_METH_UNLOCK;
+					__FSM_MOVE_nofixup_n(Req_MUSpace, 6);
+				}
+				__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
 			}
-			TFW_PARSER_BLOCK(Req_Method); /* Unsupported method */
+			/* TODO: unknown */
+			__FSM_MOVE_nofixup(Req_MethodUnknown); /* Unsupported method */
 		}
 		/* Slow path: step char-by-char. */
 		switch (c) {
@@ -2110,8 +2273,28 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_MethH);
 		case 'P':
 			__FSM_MOVE_nofixup(Req_MethP);
+		case 'C':
+			__FSM_MOVE_nofixup(Req_MethC);
+		case 'D':
+			__FSM_MOVE_nofixup(Req_MethD);
+		case 'L':
+			__FSM_MOVE_nofixup(Req_MethL);
+		case 'M':
+			__FSM_MOVE_nofixup(Req_MethM);
+		case 'O':
+			__FSM_MOVE_nofixup(Req_MethO);
+		case 'T':
+			__FSM_MOVE_nofixup(Req_MethT);
+		case 'U':
+			__FSM_MOVE_nofixup(Req_MethU);
+		/* TODO: unknown */
 		}
-		TFW_PARSER_BLOCK(Req_Method); /* Unsupported method */
+		__FSM_MOVE_nofixup(Req_MethodUnknown); /* Unsupported method */
+	}
+	__FSM_STATE(Req_MethodUnknown) {
+		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
+		req->method = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
 	}
 
 	/*
@@ -2539,36 +2722,124 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* ----------------    Improbable states    ---------------- */
 
-	/*
-	 * HTTP Method processing.
-	 *
-	 * GET
-	 */
-	__FSM_TX_nofixup(Req_MethG, 'E', Req_MethGe);
-	__FSM_STATE(Req_MethGe) {
-		if (unlikely(c != 'T'))
-			TFW_PARSER_BLOCK(Req_MethGe);
-		req->method = TFW_HTTP_METH_GET;
-		__FSM_MOVE_nofixup(Req_MUSpace);
+	/* HTTP Method processing. */
+	/* GET */
+	__FSM_METH_MOVE(Req_MethG, 'E', Req_MethGe);
+	__FSM_METH_MOVE_finish(Req_MethGe, 'T', TFW_HTTP_METH_GET);
+	/* P* */
+	__FSM_STATE(Req_MethP) {
+		switch (c)
+		{
+		case 'O':
+			__FSM_MOVE_nofixup(Req_MethPo);
+		case 'A':
+			__FSM_MOVE_nofixup(Req_MethPa);
+		case 'R':
+			__FSM_MOVE_nofixup(Req_MethPr);
+		case 'U':
+			__FSM_MOVE_nofixup(Req_MethPu);
+		}
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
 	}
 	/* POST */
-	__FSM_TX_nofixup(Req_MethP, 'O', Req_MethPo);
-	__FSM_TX_nofixup(Req_MethPo, 'S', Req_MethPos);
-	__FSM_STATE(Req_MethPos) {
-		if (unlikely(c != 'T'))
-			TFW_PARSER_BLOCK(Req_MethPos);
-		req->method = TFW_HTTP_METH_POST;
-		__FSM_MOVE_nofixup(Req_MUSpace);
+	__FSM_METH_MOVE(Req_MethPo, 'S', Req_MethPos);
+	__FSM_METH_MOVE_finish(Req_MethPos, 'T', TFW_HTTP_METH_POST);
+	/* PATCH */
+	__FSM_METH_MOVE(Req_MethPa, 'T', Req_MethPat);
+	__FSM_METH_MOVE(Req_MethPat, 'C', Req_MethPatc);
+	__FSM_METH_MOVE_finish(Req_MethPatc, 'H', TFW_HTTP_METH_PATCH);
+	/* PROP* */
+	__FSM_METH_MOVE(Req_MethPr, 'O', Req_MethPro);
+	__FSM_METH_MOVE(Req_MethPro, 'P', Req_MethProp);
+	__FSM_STATE(Req_MethProp) {
+		switch (c)
+		{
+		case 'F':
+			__FSM_MOVE_nofixup(Req_MethPropf);
+		case 'P':
+			__FSM_MOVE_nofixup(Req_MethPropp);
+		}
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
 	}
+	/* PROPFIND */
+	__FSM_METH_MOVE(Req_MethPropf, 'I', Req_MethPropfi);
+	__FSM_METH_MOVE(Req_MethPropfi, 'N', Req_MethPropfin);
+	__FSM_METH_MOVE_finish(Req_MethPropfin, 'D', TFW_HTTP_METH_PROPFIND);
+	/* PROPPATCH */
+	__FSM_METH_MOVE(Req_MethPropp, 'A', Req_MethProppa);
+	__FSM_METH_MOVE(Req_MethProppa, 'T', Req_MethProppat);
+	__FSM_METH_MOVE(Req_MethProppat, 'C', Req_MethProppatc);
+	__FSM_METH_MOVE_finish(Req_MethProppatc, 'H', TFW_HTTP_METH_PROPPATCH);
+	/* PU* */
+	__FSM_STATE(Req_MethPu) {
+		switch (c)
+		{
+		case 'R':
+			__FSM_MOVE_nofixup(Req_MethPur);
+		case 'T':
+			/* PUT */
+			req->method = TFW_HTTP_METH_PUT;
+			__FSM_MOVE_nofixup(Req_MUSpace);
+		}
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
+	}
+	/* PURGE */
+	__FSM_METH_MOVE(Req_MethPur, 'G', Req_MethPurg);
+	__FSM_METH_MOVE_finish(Req_MethPurg, 'E', TFW_HTTP_METH_PURGE);
 	/* HEAD */
-	__FSM_TX_nofixup(Req_MethH, 'E', Req_MethHe);
-	__FSM_TX_nofixup(Req_MethHe, 'A', Req_MethHea);
-	__FSM_STATE(Req_MethHea) {
-		if (unlikely(c != 'D'))
-			TFW_PARSER_BLOCK(Req_MethHea);
-		req->method = TFW_HTTP_METH_HEAD;
-		__FSM_MOVE_nofixup(Req_MUSpace);
+	__FSM_METH_MOVE(Req_MethH, 'E', Req_MethHe);
+	__FSM_METH_MOVE(Req_MethHe, 'A', Req_MethHea);
+	__FSM_METH_MOVE_finish(Req_MethHea, 'D', TFW_HTTP_METH_HEAD);
+	/* COPY */
+	__FSM_METH_MOVE(Req_MethC, 'O', Req_MethCo);
+	__FSM_METH_MOVE(Req_MethCo, 'P', Req_MethCop);
+	__FSM_METH_MOVE_finish(Req_MethCop, 'Y', TFW_HTTP_METH_COPY);
+	/* DELETE */
+	__FSM_METH_MOVE(Req_MethD, 'E', Req_MethDe);
+	__FSM_METH_MOVE(Req_MethDe, 'L', Req_MethDel);
+	__FSM_METH_MOVE(Req_MethDel, 'E', Req_MethDele);
+	__FSM_METH_MOVE(Req_MethDele, 'T', Req_MethDelet);
+	__FSM_METH_MOVE_finish(Req_MethDelet, 'E', TFW_HTTP_METH_DELETE);
+	/* LOCK */
+	__FSM_METH_MOVE(Req_MethL, 'O', Req_MethLo);
+	__FSM_METH_MOVE(Req_MethLo, 'C', Req_MethLoc);
+	__FSM_METH_MOVE_finish(Req_MethLoc, 'K', TFW_HTTP_METH_LOCK);
+	/* M* */
+	__FSM_STATE(Req_MethM) {
+		switch (c)
+		{
+		case 'K':
+			__FSM_MOVE_nofixup(Req_MethMk);
+		case 'O':
+			__FSM_MOVE_nofixup(Req_MethMo);
+		}
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
 	}
+	/* MKCOL */
+	__FSM_METH_MOVE(Req_MethMk, 'C', Req_MethMkc);
+	__FSM_METH_MOVE(Req_MethMkc, 'O', Req_MethMkco);
+	__FSM_METH_MOVE_finish(Req_MethMkco, 'L', TFW_HTTP_METH_MKCOL);
+	/* MOVE */
+	__FSM_METH_MOVE(Req_MethMo, 'V', Req_MethMov);
+	__FSM_METH_MOVE_finish(Req_MethMov, 'E', TFW_HTTP_METH_MOVE);
+	/* OPTIONS */
+	__FSM_METH_MOVE(Req_MethO, 'P', Req_MethOp);
+	__FSM_METH_MOVE(Req_MethOp, 'T', Req_MethOpt);
+	__FSM_METH_MOVE(Req_MethOpt, 'I', Req_MethOpti);
+	__FSM_METH_MOVE(Req_MethOpti, 'O', Req_MethOptio);
+	__FSM_METH_MOVE(Req_MethOptio, 'N', Req_MethOption);
+	__FSM_METH_MOVE_finish(Req_MethOption, 'S', TFW_HTTP_METH_OPTIONS);
+	/* TRACE */
+	__FSM_METH_MOVE(Req_MethT, 'R', Req_MethTr);
+	__FSM_METH_MOVE(Req_MethTr, 'A', Req_MethTra);
+	__FSM_METH_MOVE(Req_MethTra, 'C', Req_MethTrac);
+	__FSM_METH_MOVE_finish(Req_MethTrac, 'E', TFW_HTTP_METH_TRACE);
+	/* UNLOCK */
+	__FSM_METH_MOVE(Req_MethU, 'N', Req_MethUn);
+	__FSM_METH_MOVE(Req_MethUn, 'L', Req_MethUnl);
+	__FSM_METH_MOVE(Req_MethUnl, 'O', Req_MethUnlo);
+	__FSM_METH_MOVE(Req_MethUnlo, 'C', Req_MethUnloc);
+	__FSM_METH_MOVE_finish(Req_MethUnloc, 'K', TFW_HTTP_METH_UNLOCK);
 
 	/* process URI scheme: "http://" */
 	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
