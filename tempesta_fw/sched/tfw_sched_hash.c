@@ -100,9 +100,6 @@ __bsearch(const unsigned long hash, TfwHashConnList *cl)
 	ssize_t start = 0, end = (ssize_t)cl->conn_n - 1, mid = 0;
 	unsigned long mid_hash;
 
-	if (!cl->conn_n)
-		return -EINVAL;
-
 	while (start < end) {
 		mid = start + (end - start) / 2;
 
@@ -149,15 +146,15 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	unsigned long best_hash = (~0UL ^ msg_hash) & HASH_MASK;
 
+	if (unlikely(!cl->conn_n))
+		return NULL;
+
 	/*
 	 * Find a connection with hash as close to @best_hash as possible.
 	 * Value of (msg_hash ^ srv_conn_hash) will be biggest for that
 	 * connection.
 	 */
 	idx = __bsearch(best_hash, cl);
-	if (idx < 0)
-		return NULL;
-
 	conn = cl->conns[idx].conn;
 	if (likely(!tfw_srv_conn_restricted(conn)
 		   && !tfw_srv_conn_queue_full(conn)
@@ -246,15 +243,15 @@ __add_conn(TfwHashConnList *cl, TfwSrvConn *conn, unsigned long hash)
 	ssize_t idx;
 	TfwHashConn new_hcon = {hash, conn};
 
-	idx = __bsearch(hash, cl);
-	if (idx < 0) {
-		/* @cl is empty. */
+	/* @cl is empty. */
+	if (unlikely(!cl->conn_n)) {
 		cl->conns[0] = new_hcon;
 		++cl->conn_n;
 
 		return 0;
 	}
 
+	idx = __bsearch(hash, cl);
 	if (cl->conns[idx].hash == hash)
 		return -EEXIST;
 
@@ -290,22 +287,24 @@ __fill_srv_lists(TfwHashConnList *cl)
 static int
 tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 {
-	int ret;
-	size_t size, conn_n = 0, seed = 0;
+	size_t size, conn_n = 0, seed, seed_inc;
 	TfwServer *srv;
 	TfwHashConnList *cl;
 
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
 
-	list_for_each_entry(srv, &sg->srv_list, list) {
+	seed = get_random_long();
+	seed_inc = get_random_int() & 0xffff;
+
+	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
-	}
 
 	size = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
 	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
 	cl = sg->sched_data;
+
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		TfwSrvConn *conn;
@@ -316,28 +315,18 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 		if (!(srv->sched_data = kzalloc(size, GFP_KERNEL)))
 			return -ENOMEM;
 
-		list_for_each_entry(conn, &srv->conn_list, list) {
-			unsigned long hash;
-retry:
-			seed += 1;
-			hash = hash_long(srv_hash ^ seed, BITS_PER_LONG);
-
-			ret = __add_conn(cl, conn, hash);
-			if (ret) {
-				if (ret == -EEXIST)
-					goto retry;
-				goto cleanup;
-			}
-		}
+		list_for_each_entry(conn, &srv->conn_list, list)
+			do {
+				unsigned long hash;
+				seed += seed_inc;
+				hash = hash_long(srv_hash ^ seed,
+						 BITS_PER_LONG);
+			} while (__add_conn(cl, conn, hash));
 	}
 	/* Create per-server connection lists. */
 	__fill_srv_lists(cl);
 
 	return 0;
-
-cleanup:
-	tfw_sched_hash_del_grp(sg);
-	return ret;
 }
 
 static TfwScheduler tfw_sched_hash = {
