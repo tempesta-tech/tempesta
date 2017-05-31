@@ -528,14 +528,14 @@ static inline void
 __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
 	int i = st->i, r, b;
-	unsigned short rtime;
+	unsigned short rtt;
 
 	for (r = i / TFW_STATS_BCKTS; r < TFW_STATS_RANGES; ++r) {
 		for (b = i % TFW_STATS_BCKTS; b < TFW_STATS_BCKTS; ++b, ++i) {
 			if (!atomic_read(&rng->cnt[r][b]))
 				continue;
-			rtime = rng->ctl[r].begin + (b << rng->ctl[r].order);
-			__tfw_apm_state_set(st, rtime, i, r, b);
+			rtt = rng->ctl[r].begin + (b << rng->ctl[r].order);
+			__tfw_apm_state_set(st, rtt, i, r, b);
 			return;
 		}
 	}
@@ -825,30 +825,43 @@ tfw_apm_prcntl_fn(unsigned long fndata)
  *
  * Return 0 if the percentile values didn't need recalculation.
  * Return 1 if potentially new percentile values were calculated.
+ *
+ * The two functions below differ only by the type of lock used.
+ * tfw_apm_stats() should be used for calls in kernel context.
+ * tfw_apm_stats_bh() should be used for calls in user context.
  */
+#define __tfw_apm_stats_body(apmdata, pstats, fn_lock, fn_unlock)	\
+	int rdidx, seq = pstats->seq;					\
+	TfwApmData *data = apmdata;					\
+	TfwApmSEnt *asent;						\
+									\
+	BUG_ON(!apmdata);						\
+									\
+	smp_mb__before_atomic();					\
+	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;	\
+	asent = &data->stats.asent[rdidx];				\
+									\
+	fn_lock(&asent->rwlock);					\
+	memcpy(pstats->prcntl, asent->pstats.prcntl,			\
+	       pstats->prcntlsz * sizeof(TfwPrcntl));			\
+	pstats->min = asent->pstats.min;				\
+	pstats->max = asent->pstats.max;				\
+	pstats->avg = asent->pstats.avg;				\
+	fn_unlock(&asent->rwlock);					\
+	pstats->seq = rdidx;						\
+									\
+	return (seq != rdidx);
+
+int
+tfw_apm_stats_bh(void *apmdata, TfwPrcntlStats *pstats)
+{
+	__tfw_apm_stats_body(apmdata, pstats, read_lock_bh, read_unlock_bh);
+}
+
 int
 tfw_apm_stats(void *apmdata, TfwPrcntlStats *pstats)
 {
-	int rdidx, seq = pstats->seq;
-	TfwApmData *data = apmdata;
-	TfwApmSEnt *asent;
-
-	BUG_ON(!apmdata);
-
-	smp_mb__before_atomic();
-	rdidx = (unsigned int)atomic_read(&data->stats.rdidx) % 2;
-	asent = &data->stats.asent[rdidx];
-
-	read_lock(&asent->rwlock);
-	memcpy(pstats->prcntl, asent->pstats.prcntl,
-	       pstats->prcntlsz * sizeof(TfwPrcntl));
-	pstats->min = asent->pstats.min;
-	pstats->max = asent->pstats.max;
-	pstats->avg = asent->pstats.avg;
-	read_unlock(&asent->rwlock);
-	pstats->seq = rdidx;
-
-	return (seq != rdidx);
+	__tfw_apm_stats_body(apmdata, pstats, read_lock, read_unlock);
 }
 
 /*
@@ -871,22 +884,29 @@ tfw_apm_prcntl_verify(TfwPrcntl *prcntl, unsigned int prcntlsz)
 }
 
 static inline void
-__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtime)
+__tfw_apm_update(TfwApmRBuf *rbuf, unsigned long jtstamp, unsigned int rtt)
 {
 	int centry = (jtstamp / tfw_apm_jtmintrvl) % rbuf->rbufsz;
 	unsigned long jtmistart = jtstamp - (jtstamp % tfw_apm_jtmintrvl);
 	TfwApmRBEnt *crbent = &rbuf->rbent[centry];
 
 	tfw_apm_rbent_checkreset(crbent, jtmistart);
-	tfw_stats_update(&crbent->pcntrng, rtime, &rbuf->slock);
+	tfw_stats_update(&crbent->pcntrng, rtt, &rbuf->slock);
 }
 
 void
-tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtime)
+tfw_apm_update(void *apmdata, unsigned long jtstamp, unsigned long jrtt)
 {
+	unsigned int rtt = jiffies_to_msecs(jrtt);
+
 	BUG_ON(!apmdata);
-	__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf,
-			 jtstamp, jiffies_to_msecs(jrtime));
+	/*
+	 * APM stats can't handle response times that are greater than
+	 * the maximum value possible for TfwPcntCtl{}->end. Currently
+	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
+	 */
+	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
+		__tfw_apm_update(&((TfwApmData *)apmdata)->rbuf, jtstamp, rtt);
 }
 
 /*
@@ -1044,12 +1064,13 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val;
 
 	if (ce->val_n) {
-		TFW_ERR("%s: Arguments must be a key=value pair.\n", cs->name);
+		TFW_ERR_NL("%s: Arguments must be a key=value pair.\n",
+			   cs->name);
 		return -EINVAL;
 	}
 	if (!ce->attr_n) {
-		TFW_WARN("%s: arguments missing, using default values.\n",
-			 cs->name);
+		TFW_WARN_NL("%s: arguments missing, using default values.\n",
+			    cs->name);
 		return 0;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
@@ -1060,8 +1081,8 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_tmwscale)))
 				return r;
 		} else {
-			TFW_ERR("%s: unsupported argument: '%s=%s'.\n",
-				cs->name, key, val);
+			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				   cs->name, key, val);
 			return -EINVAL;
 		}
 	}

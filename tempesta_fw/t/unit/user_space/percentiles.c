@@ -24,7 +24,7 @@
  *    value for different percentilie, e.g. 81st. This is very possibe if we
  *    don't have enough data for accurate percentilies calculation.
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -47,7 +47,6 @@
 #include <linux/atomic.h>
 #include <linux/spinlock.h>
 
-#define ARRAY_SIZE(x)	(sizeof(x) / sizeof(*(x)))
 #define SET(s)		{ARRAY_SIZE(s), s}
 
 /*

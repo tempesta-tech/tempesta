@@ -24,7 +24,7 @@
  * Or, that singular header fields may not be duplicated in an HTTP header.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -156,12 +156,12 @@ frang_conn_limit(FrangAcc *ra, struct sock *unused)
 	}
 
 	/*
-	 * Increment connection counters even if we return TFW_BLOCK.
-	 * Linux will call sk_free() from inet_csk_clone_lock(),
-	 * so our frang_conn_close() is also called. conn_curr is
-	 * decremented there, but conn_new is not changed. We count
-	 * both failed connection attempts and connections that were
-	 * successfully established.
+	 * Increment connection counters even when we return TFW_BLOCK.
+	 * Linux will call sk_free() from inet_csk_clone_lock(), so our
+	 * frang_conn_close() is also called. @conn_curr is decremented
+	 * there, but @conn_new is not changed. We count both failed
+	 * connection attempts and connections that were successfully
+	 * established.
 	 */
 	ra->history[i].conn_new++;
 	ra->conn_curr++;
@@ -219,14 +219,14 @@ frang_conn_new(struct sock *sk)
 	spin_lock(&ra->lock);
 
 	/*
-	 * sk->sk_user_data references TfwConnection which in turn references
-	 * TfwPeer, so basically we can get FrangAcc from TfwConnection.
+	 * sk->sk_user_data references TfwConn{} which in turn references
+	 * TfwPeer, so basically we can get FrangAcc from TfwConn{}.
 	 * However, socket can live (for a short period of time, when kernel
 	 * just allocated the socket and called tempesta_new_clntsk()) w/o
-	 * TfwConnection and vise versa - TfwConnection can leave w/o socket
+	 * TfwConn{} and vise versa - TfwConn{} can leave w/o socket
 	 * (e.g. server connections during failover). Thus to keep design
 	 * consistent we  two references to TfwPeer: from socket and
-	 * TfwConnection.
+	 * TfwConn{}.
 	 */
 	sk->sk_security = ra;
 
@@ -601,7 +601,7 @@ do {									\
 } while (0)
 
 static int
-frang_http_req_process(FrangAcc *ra, TfwConnection *conn, struct sk_buff *skb,
+frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 		       unsigned int off)
 {
 	int r = TFW_PASS;
@@ -848,7 +848,7 @@ static int
 frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 {
 	int r;
-	TfwConnection *conn = (TfwConnection *)obj;
+	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 
 	r = frang_http_req_process(ra, conn, skb, off);
@@ -882,7 +882,7 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
 				     &method_id);
 		if (r) {
-			TFW_ERR("frang: invalid method: '%s'\n", method_str);
+			TFW_ERR_NL("frang: invalid method: '%s'\n", method_str);
 			return -EINVAL;
 		}
 
@@ -1075,7 +1075,8 @@ static TfwCfgSpec frang_cfg_toplevel_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_cfg_section_specs
+		.dest = &frang_cfg_section_specs,
+		.cleanup = tfw_cfg_cleanup_children
 	},
 	{}
 };

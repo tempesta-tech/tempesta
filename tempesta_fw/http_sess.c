@@ -44,10 +44,11 @@
 #include "client.h"
 #include "hash.h"
 #include "http_msg.h"
+#include "http_sess.h"
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
-#define STICKY_KEY_MAXLEN	(sizeof(((TfwHttpSess *)0)->hmac))
+#define STICKY_KEY_MAXLEN	FIELD_SIZEOF(TfwHttpSess, hmac)
 
 #define SESS_HASH_BITS		17
 #define SESS_HASH_SZ		(1 << SESS_HASH_BITS)
@@ -55,7 +56,7 @@
 /**
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
- * @sess_lifetime	- sesscion lifetime in seconds;
+ * @sess_lifetime	- session lifetime in seconds;
  */
 typedef struct {
 	TfwStr		name;
@@ -83,7 +84,7 @@ static TfwCfgSticky tfw_cfg_sticky;
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
-SessHashBucket sess_hash[SESS_HASH_SZ] = {
+static SessHashBucket sess_hash[SESS_HASH_SZ] = {
 	[0 ... (SESS_HASH_SZ - 1)] = {
 		HLIST_HEAD_INIT,
 	}
@@ -94,13 +95,14 @@ static struct kmem_cache *sess_cache;
 static int
 tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 {
-	TfwConnection *conn = req->conn;
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr chunks[3], cookie = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
-	TfwHttpMsg resp;
+	TfwHttpMsg *hmresp;
 	char buf[sizeof(*sv) * 2];
 
+	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+		return -ENOMEM;
 	/*
 	 * Form the cookie as:
 	 *
@@ -124,9 +126,10 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if (tfw_http_prep_302(&resp, req, &cookie))
+	if (tfw_http_prep_302(hmresp, req, &cookie))
 		return -1;
-	tfw_cli_conn_send(conn, (TfwMsg *)&resp);
+
+	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
 	return 0;
 }
@@ -135,7 +138,7 @@ static int
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
-	const unsigned int clen = tfw_cfg_sticky.name_eq.len;
+	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end, *next;
 	TfwStr tmp = { .flags = 0, };
 	unsigned int n = TFW_STR_CHUNKN(cookie);
@@ -308,7 +311,7 @@ static int
 tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	static const unsigned int len = sizeof(StickyVal) * 2;
-	unsigned int r;
+	int r;
 	TfwHttpSess *sess = req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
@@ -579,7 +582,10 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires = tfw_cfg_sticky.sess_lifetime
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
-	sess->srv_conn = NULL; /* TODO #593 not scheduled yet */
+	sess->st_conn.srv_conn = NULL;
+	sess->st_conn.main_sg = NULL;
+	sess->st_conn.backup_sg = NULL;
+	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -593,39 +599,132 @@ found:
 	return 0;
 }
 
+/**
+ * Try to reuse last used connection or last used server.
+ */
+static inline TfwSrvConn *
+__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
+{
+	TfwServer *srv;
+
+	if (unlikely(!st_conn->srv_conn))
+		return NULL;
+
+	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
+	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
+	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
+	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
+	{
+		return st_conn->srv_conn;
+	}
+
+	/* Try to sched from the same server. */
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+
+	return srv->sg->sched->sched_srv_conn(msg, srv);
+}
+
+/**
+ * Find an outgoing connection for client with tempesta sticky cookie.
+ * @sess is not null when calling the function.
+ *
+ * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
+ * then get a new connection for req->sess->srv_conn->peer from
+ * an appropriate scheduler. That eliminates the long generic
+ * scheduling work flow.
+ */
+TfwSrvConn *
+tfw_http_sess_get_srv_conn(TfwMsg *msg)
+{
+	TfwHttpSess *sess = ((TfwHttpReq *)msg)->sess;
+	TfwStickyConn *st_conn;
+	TfwSrvConn *srv_conn;
+
+	BUG_ON(!sess);
+	st_conn = &sess->st_conn;
+
+	read_lock(&st_conn->lock);
+
+	if ((srv_conn = __try_conn(msg, st_conn))) {
+		read_unlock(&st_conn->lock);
+		return srv_conn;
+	}
+
+	read_unlock(&st_conn->lock);
+
+	if (st_conn->srv_conn) {
+		/* Failed to sched from the same server. */
+		TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
+		char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
+
+		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
+
+		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
+			TFW_ERR("sched %s: Unable to schedule new request in "
+				"session to server %s in group %s\n",
+				srv->sg->sched->name, addr_str, srv->sg->name);
+			return NULL;
+		}
+		else {
+			TFW_WARN("sched %s: Unable to schedule new request in "
+				 "session to server %s in group %s,"
+				 " fallback to a new server\n",
+				 srv->sg->sched->name, addr_str, srv->sg->name);
+		}
+	}
+
+	write_lock(&st_conn->lock);
+	/*
+	 * Connection and server may return back online while we were trying
+	 * for a lock.
+	 */
+	if ((srv_conn = __try_conn(msg, st_conn)))
+		goto done;
+
+	if (st_conn->main_sg)
+		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
+						     st_conn->backup_sg);
+	else
+		srv_conn = __tfw_sched_get_srv_conn(msg);
+
+	/*
+	 * Save connection into session only if used server group is configured
+	 * to have sticky connections.
+	 */
+	if (srv_conn
+	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
+		st_conn->srv_conn = srv_conn;
+	}
+
+done:
+	write_unlock(&st_conn->lock);
+
+	return srv_conn;
+}
+
 int __init
 tfw_http_sess_init(void)
 {
-	int ret, i;
+	int i, ret = -ENOMEM;
 	u_char *ptr;
 
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL) {
+	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
-	}
+
 	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
 	if (IS_ERR(tfw_sticky_shash)) {
 		pr_err("shash allocation failed\n");
-		return  PTR_ERR(tfw_sticky_shash);
-	}
-
-	get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
-	ret = crypto_shash_setkey(tfw_sticky_shash,
-				  (u8 *)tfw_sticky_key,
-				  sizeof(tfw_sticky_key));
-	if (ret) {
-		crypto_free_shash(tfw_sticky_shash);
-		return ret;
+		ret = (int)PTR_ERR(tfw_sticky_shash);
+		goto err;
 	}
 
 	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				      0, 0, NULL);
-	if (!sess_cache) {
-		crypto_free_shash(tfw_sticky_shash);
-		return -ENOMEM;
-	}
+				       0, 0, NULL);
+	if (!sess_cache)
+		goto err_shash;
 
 	/*
 	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
@@ -635,6 +734,12 @@ tfw_http_sess_init(void)
 		spin_lock_init(&sess_hash[i].lock);
 
 	return 0;
+
+err_shash:
+	crypto_free_shash(tfw_sticky_shash);
+err:
+	kfree(tfw_cfg_sticky.name.ptr);
+	return ret;
 }
 
 void
@@ -701,21 +806,46 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r, len = strlen(ce->vals[0]);
+	int r;
+	unsigned int len = (unsigned int)strlen(ce->vals[0]);
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 	if (len > STICKY_KEY_MAXLEN)
 		return -EINVAL;
 
-	memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
-	memcpy(tfw_sticky_key, ce->vals[0], len);
+	if (len) {
+		memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
+		memcpy(tfw_sticky_key, ce->vals[0], len);
+	}
+	else {
+		get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
+		len = sizeof(tfw_sticky_key);
+	}
+
 	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
 	if (r) {
 		crypto_free_shash(tfw_sticky_shash);
 		return r;
 	}
 	return 0;
+}
+
+static int
+tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	cs->dest = &tfw_cfg_sticky.sess_lifetime;
+
+	r = tfw_cfg_set_int(cs, ce);
+	/*
+	 * "sess_lifetime 0;" means unlimited session lifetime,
+	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
+	*/
+	if (!r && !tfw_cfg_sticky.sess_lifetime)
+		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
+
+	return r;
 }
 
 TfwCfgMod tfw_http_sess_cfg_mod = {
@@ -730,16 +860,20 @@ TfwCfgMod tfw_http_sess_cfg_mod = {
 		},
 		{
 			.name = "sticky_secret",
+			.deflt = "\"\"",
 			.handler = tfw_http_sticky_secret_cfg,
 			.allow_none = true,
 		},
 		{
+			/* Value is parsed as int, set max to INT_MAX*/
 			.name = "sess_lifetime",
 			.deflt = "0",
-			.handler = tfw_cfg_set_int,
-			.dest = &tfw_cfg_sticky.sess_lifetime,
+			.handler = tfw_http_sticky_sess_lifetime_cfg,
+			.spec_ext = &(TfwCfgSpecInt) {
+				.range = { 0, INT_MAX },
+			},
 			.allow_none = true,
 		},
-		{}
+		{ 0 }
 	}
 };

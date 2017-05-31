@@ -24,9 +24,10 @@
 tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
-class_path="$tfw_path/classifier/"
+class_path=${TFW_CLS_PATH:="$tfw_path/classifier/"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
-sched_ko_files=($(ls $tfw_path/sched/*.ko))
+sched_path=${TFW_SCHED_PATH:="$tfw_path/sched/"}
+sched_ko_files=($(ls $sched_path/tfw_sched_*.ko))
 
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db

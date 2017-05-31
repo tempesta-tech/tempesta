@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2017 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ distribute_queues()
 
 	echo "...distribute $dev queues"
 
-	if [ -n "$RXQ_MAX" -a $RXQ_MAX -gt 0 ]; then
+	if [ -n "$RXQ_MAX" -a ${RXQ_MAX:-0} -gt 0 ]; then
 		echo "...set rx channels to $RXQ_MAX, please wait..."
 		# Set maximum number of available channels for better
 		# packets hashing.

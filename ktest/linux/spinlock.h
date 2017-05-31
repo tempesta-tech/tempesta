@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ typedef pthread_mutex_t	spinlock_t;
 
 #define __RAW_SPIN_LOCK_UNLOCKED(lock)	PTHREAD_MUTEX_INITIALIZER
 
+#define spin_lock_init(lock)		pthread_mutex_init(lock, NULL)
 #define spin_lock(lock)			pthread_mutex_lock(lock)
 #define spin_trylock(lock)		(!pthread_mutex_trylock(lock))
 #define spin_unlock(lock)		pthread_mutex_unlock(lock)

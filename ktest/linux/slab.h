@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2017 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,11 +28,6 @@
 #include "percpu.h"
 #include "spinlock.h"
 #include "threads.h"
-
-/* asm/cache.h */
-#ifndef L1_CACHE_BYTES
-#define L1_CACHE_BYTES 64
-#endif
 
 /* asm/page.h */
 #define PAGE_SIZE	4096UL

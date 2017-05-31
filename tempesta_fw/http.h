@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,8 +26,11 @@
 #include "connection.h"
 #include "gfsm.h"
 #include "msg.h"
+#include "server.h"
 #include "str.h"
 #include "vhost.h"
+
+typedef struct tfw_http_sess_t TfwHttpSess;
 
 /**
  * HTTP Generic FSM states.
@@ -255,13 +258,13 @@ typedef struct {
 #define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
 #define TFW_HTTP_CONN_EXTRA		0x000004
 #define TFW_HTTP_CHUNKED		0x000008
-#define TFW_HTTP_MSG_SENT		0x000010
 
 /* Request flags */
 #define TFW_HTTP_HAS_STICKY		0x000100
 #define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
+#define TFW_HTTP_NON_IDEMP		0x000800
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
@@ -269,54 +272,64 @@ typedef struct {
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x040000
 
-/**
- * HTTP session descriptor.
+/*
+ * The structure to hold data for an HTTP error response.
+ * An error response is sent later in an unlocked queue context.
  *
- * @hmac	- crypto hash from values of an HTTP request;
- * @hentry	- hash list entry for all sessions hash;
- * @users	- the session use counter;
- * @ts		- timestamp for the client's session;
- * @expire	- expiration time for the session;
- * @srv_conn	- upstream server connection servicing the session;
+ * @reason	- the error response message;
+ * @status	- HTTP error response status;
  */
 typedef struct {
-	unsigned char		hmac[SHA1_DIGEST_SIZE];
-	struct hlist_node	hentry;
-	atomic_t		users;
-	unsigned long		ts;
-	unsigned long		expires;
-	TfwConnection		*srv_conn;
-} TfwHttpSess;
+	const char	*reason;
+	unsigned short	status;
+}TfwHttpError;
 
 /**
  * Common HTTP message members.
  *
+ * @msg			- the base data of an HTTP message;
+ * @pool		- message's memory allocation pool;
+ * @h_tbl		- table of message's HTTP headers in internal form;
+ * @parser		- parser state data while a message is parsed;
+ * @httperr		- HTTP error data used to form an error response;
+ * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
- * @flags		- message related flags. The flags are used in
- *			  concurrent read and writes, but concurrent writes
- *			  aren't alowed. So use atomic operations if concurrent
+ * @flags		- message related flags. The flags are tested
+ *			  concurrently, but concurrent updates aren't
+ *			  allowed. Use atomic operations if concurrent
  *			  updates are possible;
  * @content_length	- the value of Content-Length header field;
- * @conn		- connection which the message was received on;
- * @jtstamp		- time the message has been received, in jiffies;
  * @keep_alive		- the value of timeout specified in Keep-Alive header;
+ * @conn		- connection which the message was received on;
+ * @destructor		- called when a connection is destroyed;
  * @crlf		- pointer to CRLF between headers and body;
  * @body		- pointer to the body of a message;
  *
  * TfwStr members must be the last for efficient scanning.
+ *
+ * NOTE: The space taken by @parser member is shared with @httperr member.
+ * When a message results in an error, the parser state data is not used
+ * anymore, so this is safe. The reason for reuse is that it's imperative
+ * that saving the error data succeeds. If it fails, that will lead to
+ * a request without a response - a hole in @seq_queue. Alternatively,
+ * memory allocation from pool may fail, even if that's a rare case.
+ * BUILD_BUG_ON() is used in tfw_http_init() to ensure that @httperr
+ * doesn't make the whole structure bigger.
  */
 #define TFW_HTTP_MSG_COMMON						\
 	TfwMsg		msg;						\
 	TfwPool		*pool;						\
 	TfwHttpHdrTbl	*h_tbl;						\
-	TfwHttpParser	parser;						\
+	union {								\
+		TfwHttpParser	parser;					\
+		TfwHttpError	httperr;				\
+	};								\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
 	unsigned int	flags;						\
 	unsigned long	content_length;					\
-	unsigned long	jtstamp;					\
 	unsigned int	keep_alive;					\
-	TfwConnection	*conn;						\
+	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
@@ -340,12 +353,19 @@ typedef struct {
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @fwd_list	- member in the queue of forwarded/backlogged requests;
+ * @nip_list	- member in the queue of non-idempotent requests;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  * @node	- NUMA node where request is serviced;
  * @frang_st	- current state of FRANG classifier;
+ * @chunk_cnt	- header or body chunk count for Frang classifier;
+ * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
+ * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
+ * @resp	- the response paired with this request;
+ * @retries	- the number of re-send attempts;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -357,13 +377,19 @@ typedef struct {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
+	struct list_head	fwd_list;
+	struct list_head	nip_list;
 	unsigned char		method;
 	unsigned short		node;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
+	unsigned long		jtxtstamp;
+	unsigned long		jrxtstamp;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	TfwHttpMsg		*resp;
+	unsigned short		retries;
 } TfwHttpReq;
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
@@ -371,14 +397,16 @@ typedef struct {
 
 /**
  * HTTP Response.
- *
  * TfwStr members must be the first for efficient scanning.
+ *
+ * @jrxtstamp	- time the message has been received, in jiffies;
  */
 typedef struct {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
+	unsigned long		jrxtstamp;
 } TfwHttpResp;
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
@@ -423,6 +451,7 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
+void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 
 /*
  * Functions to send an HTTP error response to a client.
@@ -442,12 +471,5 @@ int tfw_http_send_504(TfwHttpReq *req, const char *reason);
  */
 void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
 void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
-
-/*
- * HTTP session routines.
- */
-int tfw_http_sess_obtain(TfwHttpReq *req);
-int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
-void tfw_http_sess_put(TfwHttpSess *sess);
 
 #endif /* __TFW_HTTP_H__ */
