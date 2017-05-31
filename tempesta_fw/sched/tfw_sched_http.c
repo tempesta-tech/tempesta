@@ -148,7 +148,7 @@ static TfwScheduler tfw_sched_http = {
  */
 
 /* e.g.: match group ENUM eq "pattern"; */
-static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_field_enum[] = {
+static const TfwCfgEnum tfw_sched_http_cfg_field_enum[] = {
 	{ "*",		TFW_HTTP_MATCH_F_WILDCARD },
 	{ "uri",	TFW_HTTP_MATCH_F_URI },
 	{ "host",	TFW_HTTP_MATCH_F_HOST },
@@ -159,7 +159,7 @@ static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_field_enum[] = {
 };
 
 /* e.g.: match group uri ENUM "pattern"; */
-static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_op_enum[] = {
+static const TfwCfgEnum tfw_sched_http_cfg_op_enum[] = {
 	{ "*",		TFW_HTTP_MATCH_O_WILDCARD },
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
@@ -169,7 +169,7 @@ static const TfwCfgEnum __read_mostly tfw_sched_http_cfg_op_enum[] = {
 };
 
 static const tfw_http_match_arg_t
-__read_mostly tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
@@ -343,7 +343,7 @@ tfw_sched_http_start(void)
 	struct list_head mod_list;
 	TfwCfgMod cfg_mod;
 	TfwCfgSpec *cfg_spec;
-	static const char __read_mostly cfg_text[] =
+	static const char cfg_text[] =
 		"sched_http_rules {\nmatch default * * *;\n}\n";
 
 	/*

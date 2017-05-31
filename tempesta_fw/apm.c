@@ -515,7 +515,7 @@ typedef struct {
  * [1ms, 349ms] should be sufficient for almost any installation,
  * including cross atlantic.
  */
-static const TfwPcntCtl __read_mostly tfw_rngctl_init[TFW_STATS_RANGES] = {
+static const TfwPcntCtl tfw_rngctl_init[TFW_STATS_RANGES] = {
 	{{0, 1, 16}},
 	{{1, 17, 47}},
 	{{2, 48, 108}},
