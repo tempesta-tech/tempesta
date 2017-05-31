@@ -48,9 +48,6 @@ MODULE_DESCRIPTION("Tempesta hash-based scheduler");
 MODULE_VERSION("0.4.1");
 MODULE_LICENSE("GPL");
 
-/* Hash is 32-bit long since @hash_long returns u32. */
-#define HASH_MASK		0xffffffff
-
 typedef struct {
 	unsigned long		hash;
 	TfwSrvConn		*conn;
@@ -61,16 +58,17 @@ typedef struct {
 	TfwHashConn		conns[0];
 } TfwHashConnList;
 
+/* Same as hash_64_generic, but return 64-bit value. */
+static __always_inline unsigned long
+__hash_64(unsigned long val)
+{
+	return val * GOLDEN_RATIO_64;
+}
+
 static unsigned long
 __calc_srv_hash(TfwServer *srv)
 {
-	/* hash_64() works better when bits are distributed uniformly. */
-	unsigned long hash = REPEAT_BYTE(0xAA);
-	size_t i, bytes_n;
-	union {
-		TfwAddr addr;
-		unsigned char bytes[0];
-	} *a;
+	unsigned long hash;
 
 	/*
 	 * Here we just cast the whole TfwAddr to an array of bytes.
@@ -80,12 +78,17 @@ __calc_srv_hash(TfwServer *srv)
 	 *  - No structure fields (e.g. sin6_flowinfo) are changed if we
 	 *    re-connect to the same server.
 	 */
-	a = (void *)&srv->addr;
-	bytes_n = tfw_addr_sa_len(&a->addr);
-	for (i = 0; i < bytes_n; ++i)
-		hash = hash_long(hash ^ a->bytes[i], BITS_PER_LONG);
-
-	return hash;
+	hash = tdb_hash_calc((char *)&srv->addr, tfw_addr_sa_len(&srv->addr));
+	/*
+	 * If TfwAddr represents IPv4 address @tdb_hash_calc() will always
+	 * generate a 32-bit value. In the same time IPv6 servers are likely to
+	 * have a 64-bit hashes. That will lead to situation when IPv6 will
+	 * take all the load since message hash is most likely to be a 64-bit
+	 * value.
+	 *
+	 * Use @__hash_64 to get 64-bit hash value.
+	 */
+	return __hash_64(hash);
 }
 
 /**
@@ -144,7 +147,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 	ssize_t l_idx, r_idx, idx;
 	TfwSrvConn *conn;
 	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	unsigned long best_hash = (~0UL ^ msg_hash) & HASH_MASK;
+	unsigned long best_hash = (~0UL ^ msg_hash);
 
 	if (unlikely(!cl->conn_n))
 		return NULL;
@@ -295,7 +298,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 		return -EINVAL;
 
 	seed = get_random_long();
-	seed_inc = get_random_int() & 0xffff;
+	seed_inc = get_random_int();
 
 	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
@@ -315,13 +318,13 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 		if (!(srv->sched_data = kzalloc(size, GFP_KERNEL)))
 			return -ENOMEM;
 
-		list_for_each_entry(conn, &srv->conn_list, list)
+		list_for_each_entry(conn, &srv->conn_list, list) {
+			unsigned long hash;
 			do {
-				unsigned long hash;
+				hash = __hash_64(srv_hash ^ seed);
 				seed += seed_inc;
-				hash = hash_long(srv_hash ^ seed,
-						 BITS_PER_LONG);
 			} while (__add_conn(cl, conn, hash));
+		}
 	}
 	/* Create per-server connection lists. */
 	__fill_srv_lists(cl);
