@@ -254,6 +254,15 @@ tfw_pool_init(void)
 void
 tfw_pool_exit(void)
 {
+	int i;
+
+	for_each_online_cpu(i) {
+		unsigned int pgn = per_cpu(pg_next, i);
+		unsigned long *pgc = (unsigned long *)per_cpu_ptr(pg_cache, i);
+		while (pgn--)
+			free_page(pgc[pgn]);
+	}
+
 	free_percpu(pg_cache);
 }
 
