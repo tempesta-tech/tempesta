@@ -590,7 +590,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
 	unsigned long i;
-	static const TfwStr block[] __read_mostly = {
+	static const TfwStr block[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec headers */
 		TfwStr_string("host:"),
