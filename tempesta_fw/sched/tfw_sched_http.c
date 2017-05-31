@@ -53,10 +53,10 @@
  * "srv_group") are handled in other modules.
  *
  * TODO:
- *   - Extended string matching operators: "suffix", "regex", "substring".
+ *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -99,11 +99,9 @@ static TfwHttpMatchList *tfw_sched_http_rules;
  * The search is based on contents of an HTTP request and match rules
  * that specify which Server Group the request should be forwarded to.
  */
-static TfwConnection *
+static TfwSrvConn *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
-	TfwSrvGroup *sg;
-	TfwConnection *conn;
 	TfwSchedHttpRule *rule;
 
 	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
@@ -116,30 +114,21 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		return NULL;
 	}
 
-	sg = rule->main_sg;
-	BUG_ON(!sg);
-	TFW_DBG2("sched_http: use server group: '%s'\n", sg->name);
-
-	conn = sg->sched->sched_srv(msg, sg);
-
-	if (unlikely(!conn && rule->backup_sg)) {
-		sg = rule->backup_sg;
-		TFW_DBG("sched_http: the main group is offline, use backup:"
-			" '%s'\n", sg->name);
-		conn = sg->sched->sched_srv(msg, sg);
-	}
-
-	if (unlikely(!conn))
-		TFW_DBG2("sched_http: Unable to select server from group"
-			 " '%s'\n", sg->name);
-
-	return conn;
+	return tfw_sched_get_sg_srv_conn(msg, rule->main_sg, rule->backup_sg);
 }
 
-static TfwConnection *
-tfw_sched_http_sched_srv(TfwMsg *msg, TfwSrvGroup *sg)
+static TfwSrvConn *
+tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
+	return NULL;
+}
+
+static TfwSrvConn *
+tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
+{
+	WARN_ONCE(true, "tfw_sched_http can't select connection from a server"
+			"\n");
 	return NULL;
 }
 
@@ -147,7 +136,8 @@ static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
-	.sched_srv	= tfw_sched_http_sched_srv,
+	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
+	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 };
 
 
@@ -262,8 +252,8 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	main_sg = tfw_sg_lookup(in_main_sg);
 	if (!main_sg) {
-		TFW_ERR("sched_http: srv_group is not found: '%s'\n",
-			in_main_sg);
+		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
+			   in_main_sg);
 		return -EINVAL;
 	}
 
@@ -272,23 +262,35 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	} else {
 		backup_sg = tfw_sg_lookup(in_backup_sg);
 		if (!backup_sg) {
-			TFW_ERR("sched_http: backup srv_group is not found:"
-				" '%s'\n", in_backup_sg);
+			TFW_ERR_NL("sched_http: backup srv_group is not found:"
+				   " '%s'\n", in_backup_sg);
+			return -EINVAL;
+		}
+
+		/* "Default" group is not fully parsed field flag is not set. */
+		if (strcasecmp(in_main_sg, "default")
+		    && strcasecmp(in_backup_sg, "default")
+		    && ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+			(main_sg->flags & TFW_SRV_STICKY_FLAGS)))
+		{
+			TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+				   "have the same sticky sessions settings\n",
+				   in_main_sg, in_backup_sg);
 			return -EINVAL;
 		}
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum, in_field, &field);
 	if (r) {
-		TFW_ERR("sched_http: invalid HTTP request field: '%s'\n",
-			in_field);
+		TFW_ERR_NL("sched_http: invalid HTTP request field: '%s'\n",
+			   in_field);
 		return -EINVAL;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_op_enum, in_op, &op);
 	if (r) {
-		TFW_ERR("sched_http: invalid matching operator: '%s'\n",
-			in_op);
+		TFW_ERR_NL("sched_http: invalid matching operator: '%s'\n",
+			   in_op);
 		return -EINVAL;
 	}
 
@@ -298,7 +300,8 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule = tfw_http_match_entry_new(tfw_sched_http_rules,
 					TfwSchedHttpRule, rule, arg_size);
 	if (!rule) {
-		TFW_ERR("sched_http: can't allocate memory for parsed rule\n");
+		TFW_ERR_NL("sched_http: can't allocate memory for parsed "
+			   "rule\n");
 		return -ENOMEM;
 	}
 
@@ -416,7 +419,8 @@ static TfwCfgMod tfw_sched_http_cfg_mod = {
 				.begin_hook = tfw_sched_http_cfg_begin_rules,
 				.finish_hook = tfw_sched_http_cfg_finish_rules
 			},
-			.allow_none = true
+			.allow_none = true,
+			.cleanup = tfw_cfg_cleanup_children
 		},
 		{}
 	}

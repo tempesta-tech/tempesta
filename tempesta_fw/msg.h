@@ -4,7 +4,7 @@
  * Generic protocol message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,13 +30,21 @@
 #include "sync_socket.h"
 
 /**
- * @msg_list	- messages queue to send to peer;
- * @skb_list	- list of sk_buff's belonging to the message;
+ * @seq_list	- member in the ordered queue of messages;
+ * @skb_list	- list of sk_buff that belong to the message;
  * @ss_flags	- message processing flags;
- * @len		- total body length;
+ * @len		- total message length;
+ *
+ * TODO: Currently seq_list is used only in requests. Responses are not
+ * put in any queues, they are simply attached to requests as req->resp.
+ * However, a queue for responses may also be needed to mitigate sending
+ * of responses and improve the distribution of load in Tempesta. Please
+ * refer to issues #391 and #488.
+ * After these issues are resolved, it may well be that seq_list is more
+ * suitable to stay in TfwHttpReq{} rather than here in TfwMsg{}.
  */
 typedef struct {
-	struct list_head	msg_list;
+	struct list_head	seq_list;
 	int			ss_flags;
 	SsSkbList		skb_list;
 	size_t			len;

@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -935,12 +935,12 @@ tfw_cache_purge_method(TfwHttpReq *req)
 
 	/* Deny PURGE requests by default. */
 	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req, "unconfigured purge request");
+		return tfw_http_send_403(req, "purge: not configured");
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
 	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req, "purge request ACL violation");
+		return tfw_http_send_403(req, "purge: ACL violation");
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
@@ -948,11 +948,11 @@ tfw_cache_purge_method(TfwHttpReq *req)
 		ret = tfw_cache_purge_invalidate(req);
 		break;
 	default:
-		return tfw_http_send_403(req, "bad purge option");
+		return tfw_http_send_403(req, "purge: invalid option");
 	}
 
 	return ret
-		? tfw_http_send_404(req, "purge error")
+		? tfw_http_send_404(req, "purge: processing error")
 		: tfw_http_send_200(req);
 }
 
@@ -1120,14 +1120,14 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	TfwMsgIter it;
 
 	/*
-	 * Allocated response won't be checked by any filters and
+	 * The allocated response won't be checked by any filters and
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	resp = (TfwHttpResp *)tfw_http_msg_create(NULL, &it, Conn_Srv,
-						  ce->hdr_len + 2);
-	if (!resp)
+	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv))))
 		return NULL;
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
+		goto free;
 
 	/*
 	 * Allocate HTTP headers table of proper size.
@@ -1175,6 +1175,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	return resp;
 err:
 	TFW_WARN("Cannot use cached response, key=%lx\n", ce->key);
+free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return NULL;
 }
@@ -1408,18 +1409,18 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		} else if (!strcasecmp(val, "POST")) {
 			method = TFW_HTTP_METH_POST;
 		} else {
-			TFW_ERR("%s: unsupported method: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: unsupported method: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_nc_test(method)) {
-			TFW_ERR("%s: non-cacheable method: '%s'\n",
-				cs->name, val);
+			TFW_ERR_NL("%s: non-cacheable method: '%s'\n",
+				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_test(method)) {
-			TFW_WARN("%s: duplicate method: '%s'\n",
-				 cs->name, val);
+			TFW_WARN_NL("%s: duplicate method: '%s'\n",
+				    cs->name, val);
 			continue;
 		}
 		__cache_method_add(method);

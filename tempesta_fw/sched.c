@@ -4,7 +4,7 @@
  * Requst schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "tempesta_fw.h"
 #include "log.h"
 #include "server.h"
+#include "http_sess.h"
 
 /*
  * Normally, schedulers are separate modules. Schedulers register
@@ -39,7 +40,41 @@
 static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
-/*
+/**
+ * Find connection for a message @msg in @main_sg or @backup_sg server groups.
+ *
+ * If client support cookies the function is called under session's write lock,
+ * and updates to session informations are possible.
+ */
+TfwSrvConn *
+tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			  TfwSrvGroup *backup_sg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwSrvConn *srv_conn;
+
+	BUG_ON(!main_sg);
+	TFW_DBG2("sched: use server group: '%s'\n", main_sg->name);
+
+	tfw_http_sess_save_sg(req, main_sg, backup_sg);
+
+	srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg)) {
+		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
+			backup_sg->name);
+		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched: Unable to select server from group '%s'\n",
+			 backup_sg ? backup_sg->name : main_sg->name);
+
+	return srv_conn;
+}
+EXPORT_SYMBOL(tfw_sched_get_sg_srv_conn);
+
+/**
  * Find an outgoing connection for an HTTP message.
  *
  * Where an HTTP message goes in controlled by schedulers. It may
@@ -48,28 +83,43 @@ static DEFINE_SPINLOCK(sched_lock);
  * is received. Schedulers that distribute HTTP messages among
  * server groups come first in the list. The search stops when
  * these schedulers run out.
- *
- * This function is always called in SoftIRQ context.
  */
-TfwConnection *
-tfw_sched_get_srv_conn(TfwMsg *msg)
+TfwSrvConn *
+__tfw_sched_get_srv_conn(TfwMsg *msg)
 {
-	TfwConnection *conn;
+	TfwSrvConn *srv_conn;
 	TfwScheduler *sched;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sched, &sched_list, list) {
 		if (!sched->sched_grp)
 			break;
-		conn = sched->sched_grp(msg);
-		if (conn) {
+		if ((srv_conn = sched->sched_grp(msg))) {
 			rcu_read_unlock();
-			return conn;
+			return srv_conn;
 		}
 	}
 	rcu_read_unlock();
 
 	return NULL;
+}
+
+/*
+ * Find an outgoing server connection for an HTTP message.
+ *
+ * This function is always called in SoftIRQ context.
+ */
+TfwSrvConn *
+tfw_sched_get_srv_conn(TfwMsg *msg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwHttpSess *sess = req->sess;
+
+	/* Sticky cookies are disabled or client doesn't support cookies. */
+	if (!sess)
+		return __tfw_sched_get_srv_conn(msg);
+
+	return tfw_http_sess_get_srv_conn(msg);
 }
 
 /*
@@ -133,5 +183,7 @@ tfw_sched_unregister(TfwScheduler *sched)
 
 	/* Make sure the removed @sched is not used. */
 	synchronize_rcu();
+	/* Clear up scheduler for future use. */
+	INIT_LIST_HEAD(&sched->list);
 }
 EXPORT_SYMBOL(tfw_sched_unregister);

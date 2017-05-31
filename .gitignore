@@ -1,6 +1,6 @@
 # Kbuild output
 *.o
-*.o.cmd
+*.o.*
 *.ko
 *.ko.cmd
 *.obj
@@ -27,3 +27,8 @@ Module.symvers
 # tdb binaries
 /tempesta_db/libtdb/libtdb.so
 /tempesta_db/tdbq/tdbq
+
+#debian package
+build-stamp
+configure-stamp
+debian
