@@ -89,6 +89,22 @@ ttls_ssl_close_notify(TfwTlsContext *tls)
 	return r;
 }
 
+static inline int
+ttls_ssl_is_http2(TfwTlsContext *tls)
+{
+	char * protocol;
+
+	spin_lock(&tls->lock);
+	protocol = mbedtls_ssl_get_alpn_protocol(&tls->ssl);
+	spin_unlock(&tls->lock);
+
+	if (protocol) {
+		return strcmp(protocol, "h2") == 0;
+	} else {
+		return 0;
+	}
+}
+
 /**
  * Decrypted response messages should be directly placed in TDB area
  * to avoid copying.
@@ -128,6 +144,8 @@ tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 			return r ? TFW_BLOCK : TFW_PASS;
 		}
 
+		tls_dbg(c, "-- HTTP/2: %d", ttls_ssl_is_http2(tls));
+
 		tls_dbg(c, "-- got %d data bytes (%.*s)", r, r, nskb->data);
 
 		skb_trim(nskb, r);
@@ -143,7 +161,6 @@ tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 
 	return TFW_BLOCK;
 }
-
 
 /**
  * Send @buf of length @len using TLS context @tls.
@@ -368,6 +385,11 @@ tfw_tls_rnd_cb(void *rnd, unsigned char *out, size_t len)
 	return 0;
 }
 
+const char * alpn_protocols [] = {
+   "h2",
+   NULL
+};
+
 static int
 tfw_tls_do_init(void)
 {
@@ -380,6 +402,14 @@ tfw_tls_do_init(void)
 					MBEDTLS_SSL_PRESET_DEFAULT);
 	if (r) {
 		TFW_ERR("TLS: can't set config defaults (%x)\n", -r);
+		return -EINVAL;
+	}
+
+	r = mbedtls_ssl_conf_alpn_protocols(&tfw_tls.cfg,
+	                                    alpn_protocols);
+	if (r) {
+		TFW_ERR("TLS: can't enable HTTP/2 ALPN "
+		        "protocol negotiation (%x)\n", -r);
 		return -EINVAL;
 	}
 
