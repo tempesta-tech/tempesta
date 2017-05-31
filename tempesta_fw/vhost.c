@@ -24,7 +24,7 @@
 #include "str.h"
 
 /* Mappings for match operators. */
-static TfwCfgEnum const __read_mostly tfw_match_enum[] = {
+static const TfwCfgEnum tfw_match_enum[] = {
 	{ "*",		TFW_HTTP_MATCH_O_WILDCARD },
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
@@ -33,7 +33,7 @@ static TfwCfgEnum const __read_mostly tfw_match_enum[] = {
 };
 
 /* Mappings for HTTP request methods. */
-static TfwCfgEnum const __read_mostly tfw_method_enum[] = {
+static const TfwCfgEnum tfw_method_enum[] = {
 	{ "*",		UINT_MAX },
 	{ "COPY",	1 << TFW_HTTP_METH_COPY },
 	{ "DELETE",	1 << TFW_HTTP_METH_DELETE },
@@ -118,7 +118,7 @@ static TfwAddr		tfw_capuacl[TFW_CAPUACL_ARRAY_SZ];
  * Note that @loc_dflt in the default vhost serves as global
  * default caching policy.
  */
-static char const __read_mostly s_hdr_via_dflt[] =
+static const char s_hdr_via_dflt[] =
 	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
 
 static TfwVhost		tfw_vhost_dflt = {
@@ -187,7 +187,7 @@ __tfw_match_prefix(tfw_match_t op, const char *cstr, size_t len, TfwStr *arg)
 
 typedef bool (*__tfw_match_fn)(tfw_match_t, const char *, size_t, TfwStr *);
 
-static __tfw_match_fn const __read_mostly __tfw_match_fn_tbl[] = {
+static const __tfw_match_fn __tfw_match_fn_tbl[] = {
 	[0 ... _TFW_HTTP_MATCH_O_COUNT] = NULL,
 	[TFW_HTTP_MATCH_O_WILDCARD]	= __tfw_match_wildcard,
 	[TFW_HTTP_MATCH_O_EQ]		= __tfw_match_eq,

@@ -584,7 +584,7 @@ EXPORT_SYMBOL(tfw_str_to_cstr);
 
 #ifdef DEBUG
 void
-tfw_str_dprint(TfwStr *str, const char *msg)
+tfw_str_dprint(const TfwStr *str, const char *msg)
 {
 	TfwStr *dup, *dup_end, *c, *chunk_end;
 

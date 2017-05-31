@@ -73,10 +73,10 @@ tfw_http_prep_date_from(char *buf, time_t date)
 	struct tm tm;
 	char *ptr = buf;
 
-	static char *wday[] __read_mostly =
+	static const char * const wday[] =
 		{ "Sun, ", "Mon, ", "Tue, ",
 		  "Wed, ", "Thu, ", "Fri, ", "Sat, " };
-	static char *month[] __read_mostly =
+	static const char * const month[] =
 		{ " Jan ", " Feb ", " Mar ", " Apr ", " May ", " Jun ",
 		  " Jul ", " Aug ", " Sep ", " Oct ", " Nov ", " Dec " };
 
@@ -1497,7 +1497,7 @@ static int
 tfw_http_add_hdr_via(TfwHttpMsg *hm)
 {
 	int r;
-	static const char const * __read_mostly s_http_version[] = {
+	static const char * const s_http_version[] = {
 		[0 ... _TFW_HTTP_VER_COUNT] = NULL,
 		[TFW_HTTP_VER_09] = "0.9 ",
 		[TFW_HTTP_VER_10] = "1.0 ",
@@ -1505,7 +1505,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		[TFW_HTTP_VER_20] = "2.0 ",
 	};
 	TfwVhost *vhost = tfw_vhost_get_default();
-	TfwStr rh = {
+	const TfwStr rh = {
 #define S_VIA	"Via: "
 		.ptr = (TfwStr []) {
 			{ .ptr = S_VIA, .len = SLEN(S_VIA) },
@@ -1853,7 +1853,7 @@ static void
 tfw_http_req_mark_nip(TfwHttpReq *req)
 {
 	/* See RFC 7231 4.2.1 */
-	static const unsigned int __read_mostly safe_methods =
+	static const unsigned int safe_methods =
 		(1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD)
 		| (1 << TFW_HTTP_METH_OPTIONS) | (1 << TFW_HTTP_METH_PROPFIND)
 		| (1 << TFW_HTTP_METH_TRACE);
