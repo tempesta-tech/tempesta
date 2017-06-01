@@ -53,12 +53,6 @@ struct TestSchedHelper {
 	void (*free_sched_arg)(TfwMsg *);
 };
 
-void test_sched_sg_empty_sg(struct TestSchedHelper *sched_helper);
-void test_sched_sg_one_srv_zero_conn(struct TestSchedHelper *sched_helper);
-void test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper);
-
-void test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper);
-void test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper);
 void test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper);
 
 #endif /* __TFW_SCHED_HELPER_H__ */
