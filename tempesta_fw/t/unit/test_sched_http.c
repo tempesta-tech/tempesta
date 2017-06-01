@@ -101,26 +101,11 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 	tfw_srv_conn_put(srv_conn);
 }
 
-TEST(tfw_sched_http, zero_rules_and_zero_conns)
+TEST(tfw_sched_http, sched_null_grp)
 {
 	TfwScheduler *sched = tfw_sched_lookup("http");
 
 	EXPECT_TRUE(sched->sched_grp(NULL) == NULL);
-}
-
-TEST(tfw_sched_http, one_rule_and_zero_conns)
-{
-	TfwSrvGroup *sg = test_create_sg("default");
-	test_start_sg(sg, "ratio", TFW_SG_F_SCHED_RATIO_STATIC);
-
-	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
-		TEST_FAIL("can't parse rules\n");
-	}
-
-	test_req(NULL, NULL);
-
-	cleanup_cfg();
-	test_sg_release_all();
 }
 
 TEST(tfw_sched_http, one_wildcard_rule)
@@ -346,8 +331,7 @@ TEST_SUITE(sched_http)
 
 	kernel_fpu_begin();
 
-	TEST_RUN(tfw_sched_http, zero_rules_and_zero_conns);
-	TEST_RUN(tfw_sched_http, one_rule_and_zero_conns);
+	TEST_RUN(tfw_sched_http, sched_null_grp);
 	TEST_RUN(tfw_sched_http, one_wildcard_rule);
 	TEST_RUN(tfw_sched_http, some_rules);
 	TEST_RUN(tfw_sched_http, one_rule);

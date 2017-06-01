@@ -903,6 +903,10 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+/**
+ * Set default static weights if not set. Used during configuration and in
+ * unittests.
+ */
 static int
 tfw_cfg_sg_ratio_adjust(struct list_head *slst)
 {
