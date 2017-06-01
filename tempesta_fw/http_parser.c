@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2262,8 +2262,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				}
 				__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
 			}
-			/* TODO: unknown */
-			__FSM_MOVE_nofixup(Req_MethodUnknown); /* Unsupported method */
+			__FSM_MOVE_nofixup(Req_MethodUnknown);
 		}
 		/* Slow path: step char-by-char. */
 		switch (c) {
@@ -2287,9 +2286,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_MethT);
 		case 'U':
 			__FSM_MOVE_nofixup(Req_MethU);
-		/* TODO: unknown */
 		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown); /* Unsupported method */
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
 	}
 	__FSM_STATE(Req_MethodUnknown) {
 		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
