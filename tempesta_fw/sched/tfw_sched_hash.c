@@ -229,10 +229,7 @@ tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 	TfwServer *srv;
 
 	list_for_each_entry(srv, &sg->srv_list, list)
-		if (srv->sched_data) {
-			kfree(srv->sched_data);
-			srv->sched_data = NULL;
-		}
+		srv->sched_data = NULL;
 
 	if (sg->sched_data) {
 		kfree(sg->sched_data);
@@ -290,7 +287,7 @@ __fill_srv_lists(TfwHashConnList *cl)
 static int
 tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 {
-	size_t size, conn_n = 0, seed, seed_inc;
+	size_t size, conn_n = 0, offset = 0, seed, seed_inc;
 	TfwServer *srv;
 	TfwHashConnList *cl;
 
@@ -303,20 +300,21 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 	list_for_each_entry(srv, &sg->srv_list, list)
 		conn_n += srv->conn_n;
 
-	size = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
+	size = sizeof(TfwHashConnList) * (sg->srv_n + 1)
+			+ sizeof(TfwHashConn) * conn_n * 2;
 	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
 	cl = sg->sched_data;
+	offset = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
 
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		TfwSrvConn *conn;
 		unsigned long srv_hash = __calc_srv_hash(srv);
 
-		size = sizeof(TfwHashConnList)
+		srv->sched_data = (void *)cl + offset;
+		offset += sizeof(TfwHashConnList)
 				+ sizeof(TfwHashConn) * srv->conn_n;
-		if (!(srv->sched_data = kzalloc(size, GFP_KERNEL)))
-			return -ENOMEM;
 
 		list_for_each_entry(conn, &srv->conn_list, list) {
 			unsigned long hash;
