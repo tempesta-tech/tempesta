@@ -720,20 +720,6 @@ tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_cns_retries);
 }
 
-static int
-tfw_cfgop_set_conn_retries(TfwSrvGroup *sg, int recns)
-{
-	if (!recns) {
-		sg->max_recns = UINT_MAX;
-	} else if (recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		sg->max_recns = ARRAY_SIZE(tfw_srv_tmo_vals);
-	} else {
-		sg->max_recns = recns;
-	}
-
-	return 0;
-}
-
 /* Default and maximum values for "server" options. */
 #define TFW_CFG_SRV_CONNS_N_DEF		32	/* Default # of connections */
 #define TFW_CFG_SRV_WEIGHT_MIN		1	/* Min static weight value */
@@ -918,24 +904,24 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfg_sg_ratio_adjust(TfwSrvGroup *sg)
+tfw_cfg_sg_ratio_adjust(struct list_head *slst)
 {
 	TfwServer *srv;
 
-	list_for_each_entry(srv, tfw_cfg_slst, list)
+	list_for_each_entry(srv, slst, list)
 		if (!srv->weight)
 			srv->weight = TFW_CFG_SRV_WEIGHT_DEF;
 	return 0;
 }
 
 static int
-tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
+tfw_cfg_sg_ratio_verify(void)
 {
 	TfwServer *srv;
 	int count = 0;
 
-	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
-			 || TFW_SG_F_SCHED_RATIO_PREDICT))
+	if (tfw_cfg_sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
+				 || TFW_SG_F_SCHED_RATIO_PREDICT))
 	{
 		list_for_each_entry(srv, tfw_cfg_slst, list) {
 			if (srv->weight)
@@ -945,7 +931,7 @@ tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
 		if (count < tfw_cfg_slstsz) {
 			TFW_ERR_NL("srv_group %s: static weight [%d] used "
 				   "with 'dynamic' scheduler option\n",
-				   sg->name, srv->weight);
+				   tfw_cfg_sg->name, srv->weight);
 			return -EINVAL;
 		}
 	}
@@ -962,12 +948,15 @@ tfw_cfgop_setup_srv_group(void)
 	BUG_ON(!tfw_cfg_sg);
 	BUG_ON(!tfw_cfg_sched);
 
-	tfw_cfgop_set_conn_retries(tfw_cfg_sg, tfw_cfg_cns_retries);
 	tfw_cfg_sg->max_qsize = tfw_cfg_queue_size ? : UINT_MAX;
 	tfw_cfg_sg->max_jqage = tfw_cfg_fwd_timeout
 			      ? msecs_to_jiffies(tfw_cfg_fwd_timeout * 1000)
 			      : ULONG_MAX;
 	tfw_cfg_sg->max_refwd = tfw_cfg_fwd_retries ? : UINT_MAX;
+	tfw_cfg_sg->max_recns = tfw_cfg_cns_retries
+			      ? max_t(int, tfw_cfg_cns_retries,
+				      ARRAY_SIZE(tfw_srv_tmo_vals))
+			      : UINT_MAX;
 
 	tfw_cfg_sg->flags = tfw_cfg_sg_flags;
 	tfw_cfg_sg->flags |= tfw_cfg_retry_nip | tfw_cfg_sticky_sess;
@@ -981,9 +970,9 @@ tfw_cfgop_setup_srv_group(void)
 	 * servers.
 	 */
 	if (!strcasecmp(tfw_cfg_sched->name, "ratio")) {
-		if (tfw_cfg_sg_ratio_verify(tfw_cfg_sg))
+		if (tfw_cfg_sg_ratio_verify())
 			return -EINVAL;
-		if (tfw_cfg_sg_ratio_adjust(tfw_cfg_sg))
+		if (tfw_cfg_sg_ratio_adjust(tfw_cfg_slst))
 			return -EINVAL;
 	}
 	/* Set up the server group with all servers that are in it. */
