@@ -194,9 +194,6 @@ __cache_method_nc_test(tfw_http_meth_t method)
 static inline void
 __cache_method_add(tfw_http_meth_t method)
 {
-	BUILD_BUG_ON(sizeof(cache_cfg.methods) * BITS_PER_BYTE
-		     < _TFW_HTTP_METH_COUNT);
-
 	cache_cfg.methods |= (1 << method);
 }
 
