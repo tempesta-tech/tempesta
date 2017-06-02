@@ -159,9 +159,10 @@ class HeaderCollection(object):
 class HttpMessage(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, message_text=None, body_parsing=True):
+    def __init__(self, message_text=None, body_parsing=True, body_void=False):
         self.msg = ''
         self.body_parsing = True
+        self.body_void = body_void # For responses to HEAD requests
         self.headers = HeaderCollection()
         self.trailer = HeaderCollection()
         self.body = ''
@@ -225,6 +226,8 @@ class HttpMessage(object):
         self.parse_trailer(stream)
 
     def read_sized_body(self, stream, size):
+        if self.body_void:
+            return
         if size == 0:
             return
         self.body = stream.read(size)
@@ -286,8 +289,17 @@ class HttpMessage(object):
 
 class Request(HttpMessage):
 
-    methods = ['OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'TRACE',
-               'CONNECT', 'PATCH']
+    # All methods registered in IANA.
+    # https://www.iana.org/assignments/http-methods/http-methods.xhtml
+    methods = ['ACL', 'BASELINE-CONTROL', 'BIND', 'CHECKIN', 'CHECKOUT',
+               'CONNECT', 'COPY', 'DELETE', 'GET', 'HEAD', 'LABEL', 'LINK',
+               'LOCK', 'MERGE', 'MKACTIVITY', 'MKCALENDAR', 'MKCOL',
+               'MKREDIRECTREF', 'MKWORKSPACE', 'MOVE', 'OPTIONS', 'ORDERPATCH',
+               'PATCH', 'POST', 'PRI', 'PROPFIND', 'PROPPATCH', 'PUT', 'REBIND',
+               'REPORT', 'SEARCH', 'TRACE', 'UNBIND', 'UNCHECKOUT', 'UNLINK',
+               'UNLOCK', 'UPDATE', 'UPDATEREDIRECTREF', 'VERSION-CONTROL',
+               # Not RFC methods:
+               'PURGE']
 
     def __init__(self, *args, **kwargs):
         self.method = None
@@ -389,6 +401,7 @@ class Client(asyncore.dispatcher):
 
     def __init__(self, host=None, port=80):
         asyncore.dispatcher.__init__(self)
+        self.request = None
         self.request_buffer = ''
         self.response_buffer = ''
         self.tester = None
@@ -405,6 +418,7 @@ class Client(asyncore.dispatcher):
 
     def set_request(self, request):
         if request:
+            self.request = request
             self.request_buffer = request.msg
 
     def set_tester(self, tester):
@@ -423,7 +437,8 @@ class Client(asyncore.dispatcher):
         tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
-            response = Response(self.response_buffer)
+            response = Response(self.response_buffer,
+                                body_void=(self.request.method == 'HEAD'))
         except IncompliteMessage:
             return
         except ParseError:
