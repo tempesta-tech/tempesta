@@ -49,7 +49,7 @@ test_spec_cleanup(TfwCfgSpec specs[])
 }
 
 TfwSrvGroup *
-test_create_sg(const char *name, const char *sched_name)
+test_create_sg(const char *name)
 {
 	TfwSrvGroup *sg;
 
@@ -58,16 +58,25 @@ test_create_sg(const char *name, const char *sched_name)
 	sg = tfw_sg_new(name, GFP_ATOMIC);
 	BUG_ON(!sg);
 
-	{
-		int r = tfw_sg_set_sched(sg, sched_name);
-		BUG_ON(r);
-	}
-
 	sg->max_qsize = 100;
 
 	kernel_fpu_begin();
 
 	return sg;
+}
+
+void
+test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
+{
+	int r;
+
+	kernel_fpu_end();
+
+	sg->flags = flags;
+	r = tfw_sg_set_sched(sg, sched_name);
+	BUG_ON(r);
+
+	kernel_fpu_begin();
 }
 
 void
@@ -100,28 +109,30 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 }
 
 TfwSrvConn *
-test_create_conn(TfwPeer *peer)
+test_create_srv_conn(TfwServer *srv)
 {
 	static struct sock __test_sock = {
 		.sk_state = TCP_ESTABLISHED,
 	};
-	TfwConn *conn;
+	TfwSrvConn *srv_conn;
 
 	kernel_fpu_end();
 
 	if (!tfw_srv_conn_cache)
 		tfw_sock_srv_init();
-	conn = (TfwConn *)tfw_srv_conn_alloc();
-	BUG_ON(!conn);
+	srv_conn = tfw_srv_conn_alloc();
+	BUG_ON(!srv_conn);
 
-	tfw_connection_link_peer(conn, peer);
-	conn->sk = &__test_sock;
+	tfw_connection_link_peer((TfwConn *)srv_conn, (TfwPeer *)srv);
+	srv_conn->sk = &__test_sock;
 	/* A connection is skipped by schedulers if (refcnt <= 0). */
-	tfw_connection_revive(conn);
+	tfw_connection_revive((TfwConn *)srv_conn);
+
+	srv->conn_n++;
 
 	kernel_fpu_begin();
 
-	return (TfwSrvConn *)conn;
+	return srv_conn;
 }
 
 void
@@ -156,7 +167,8 @@ test_sched_sg_empty_sg(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->sched);
+	sg = test_create_sg("test");
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -185,9 +197,9 @@ test_sched_sg_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->sched);
-
+	sg = test_create_sg("test");
 	test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -217,22 +229,23 @@ test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->sched);
+	sg = test_create_sg("test");
 
-	for (j = 0; j < TFW_SG_MAX_SRV; ++j)
+	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
 		test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
 
-		for (j = 0; j < TFW_SG_MAX_SRV; ++j) {
+		for (j = 0; j < sg->srv_n; ++j) {
 			TfwSrvConn *srv_conn =
-					sg->sched->sched_sg_conn(msg, sg);
+				sg->sched->sched_sg_conn(msg, sg);
 
 			EXPECT_NULL(srv_conn);
 			/*
-			 * Don't let wachtdog wuppose that we have stucked
-			 * on long cycles.
+			 * Don't let the kernel watchdog decide
+			 * that we're stuck in a locked context.
 			 */
 			kernel_fpu_end();
 			schedule();
@@ -261,9 +274,9 @@ test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->sched);
-
+	sg = test_create_sg("test");
 	srv = test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -292,10 +305,11 @@ test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
 
-	sg = test_create_sg("test", sched_helper->sched);
+	sg = test_create_sg("test");
 
-	for (j = 0; j < TFW_SG_MAX_SRV; ++j)
+	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
 		test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
@@ -303,12 +317,12 @@ test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			TfwSrvConn *srv_conn =
-					sg->sched->sched_srv_conn(msg, srv);
+				sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NULL(srv_conn);
 			/*
-			 * Don't let wachtdog wuppose that we have stucked
-			 * on long cycles.
+			 * Don't let the kernel watchdog decide
+			 * that we're stuck in a locked context.
 			 */
 			kernel_fpu_end();
 			schedule();
@@ -331,41 +345,47 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 	size_t offline_num = 3;
 	TfwServer *offline_srv = NULL;
 	TfwSrvGroup *sg;
+	TfwServer *srv;
+	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sched_helper);
 	BUG_ON(!sched_helper->sched);
 	BUG_ON(!sched_helper->conn_types);
 	BUG_ON(!sched_helper->get_sched_arg);
 	BUG_ON(!sched_helper->free_sched_arg);
-	BUG_ON(offline_num >= TFW_SG_MAX_SRV);
+	BUG_ON(offline_num >= TFW_TEST_SG_MAX_SRV_N);
 
-	sg = test_create_sg("test", sched_helper->sched);
+	sg = test_create_sg("test");
 
-	for (i = 0; i < TFW_SG_MAX_SRV; ++i) {
-		TfwServer *srv = test_create_srv("127.0.0.1", sg);
-		TfwSrvConn *srv_conn = test_create_conn((TfwPeer *)srv);
-		sg->sched->add_conn(sg, srv, srv_conn);
+	for (i = 0; i < TFW_TEST_SG_MAX_SRV_N; ++i) {
+		srv = test_create_srv("127.0.0.1", sg);
+		srv_conn = test_create_srv_conn(srv);
 
-		if (i == offline_num) {
+		if (i == offline_num)
 			offline_srv = srv;
-			atomic_set(&srv_conn->refcnt, 0);
+	}
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		if (srv == offline_srv) {
+			list_for_each_entry(srv_conn, &srv->conn_list, list)
+				atomic_set(&srv_conn->refcnt, 0);
+			break;
 		}
 	}
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwServer *srv;
+
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			TfwSrvConn *srv_conn =
-					sg->sched->sched_srv_conn(msg, srv);
+			srv_conn = sg->sched->sched_srv_conn(msg, srv);
 
 			if (srv == offline_srv)
 				EXPECT_NULL(srv_conn);
 			else
 				EXPECT_NOT_NULL(srv_conn);
 			/*
-			 * Don't let wachtdog wuppose that we have stucked
-			 * on long cycles.
+			 * Don't let the kernel watchdog decide
+			 * that we're stuck in a locked context.
 			 */
 			kernel_fpu_end();
 			schedule();

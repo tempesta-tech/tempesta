@@ -22,6 +22,9 @@
 #include <linux/module.h>
 #include "test.h"
 
+#undef tfw_apm_stats
+#define tfw_apm_stats	test_tfw_apm_stats
+
 #include "apm.c"
 #include "vhost.c"
 
@@ -92,7 +95,7 @@ TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
-TEST_SUITE(sched_rr);
+TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
 
@@ -117,7 +120,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(http_sticky);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);
-	TEST_SUITE_RUN(sched_rr);
+	TEST_SUITE_RUN(sched_ratio);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(sched_http);
 
