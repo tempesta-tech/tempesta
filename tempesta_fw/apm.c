@@ -29,7 +29,6 @@
 #include "log.h"
 #include "pool.h"
 #include "procfs.h"
-#include "work_queue.h"
 
 /*
  * The algorithm is constructed to be as efficient as possible. That's
@@ -1048,19 +1047,18 @@ tfw_apm_create(void)
 	rwlock_init(&data->stats.asent[1].rwlock);
 	atomic_set(&data->stats.rdidx, 0);
 
-	size = 2 * sizeof(TfwApmUBEnt) * TFW_APM_UBUF_SZ;
+	size = 2 * TFW_APM_UBUF_SZ * sizeof(TfwApmUBEnt);
 	for_each_online_cpu(icpu) {
 		TfwApmUBEnt *ubent;
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
-		if (!(ubent = kzalloc(size, GFP_ATOMIC)))
+		ubent = kmalloc_node(size, GFP_ATOMIC, cpu_to_node(icpu));
+		if (!ubent)
 			goto cleanup;
+		for (i = 0; i < 2 * TFW_APM_UBUF_SZ; ++i)
+			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 		ubuf->ubent[0] = ubent;
 		ubuf->ubent[1] = ubent + TFW_APM_UBUF_SZ;
 		ubuf->ubufsz = TFW_APM_UBUF_SZ;
-		for (i = 0; i < ubuf->ubufsz; ++i)
-			WRITE_ONCE(ubuf->ubent[0][i].data, ULONG_MAX);
-		for (i = 0; i < ubuf->ubufsz; ++i)
-			WRITE_ONCE(ubuf->ubent[1][i].data, ULONG_MAX);
 	}
 
 	return data;
