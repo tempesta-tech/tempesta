@@ -344,7 +344,7 @@ tfw_http_send_502(TfwHttpReq *req, const char *reason)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 502 response: %s:\n", reason);
+	TFW_DBG("Send HTTP 502 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -369,7 +369,7 @@ tfw_http_send_504(TfwHttpReq *req, const char *reason)
 		.flags = 4 << TFW_STR_CN_SHIFT
 	};
 
-	TFW_DBG("Send HTTP 504 response: %s:\n", reason);
+	TFW_DBG("Send HTTP 504 response: %s\n", reason);
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
@@ -2178,7 +2178,7 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * value of RTT has an upper boundary in the APM.
 	 */
 	if (resp->conn)
-		tfw_apm_update(((TfwServer *)resp->conn->peer)->apm,
+		tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
 				resp->jrxtstamp,
 				resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_resp_fwd(req, resp);

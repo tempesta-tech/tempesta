@@ -47,7 +47,7 @@ tfw_server_destroy(TfwServer *srv)
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 
-	tfw_apm_destroy(srv->apm);
+	tfw_apm_del_srv(srv);
 	kmem_cache_free(srv_cache, srv);
 }
 
@@ -62,16 +62,6 @@ tfw_server_create(const TfwAddr *addr)
 	INIT_LIST_HEAD(&srv->list);
 
 	return srv;
-}
-
-int
-tfw_server_apm_create(TfwServer *srv)
-{
-	BUG_ON(!srv);
-
-	if (!(srv->apm = tfw_apm_create()))
-		return -ENOMEM;
-	return 0;
 }
 
 /*
@@ -117,16 +107,13 @@ tfw_sg_new(const char *name, gfp_t flags)
 
 	TFW_DBG("new server group: '%s'\n", name);
 
-	sg = kmalloc(sizeof(*sg) + name_size, flags);
+	sg = kzalloc(sizeof(*sg) + name_size, flags);
 	if (!sg)
 		return NULL;
 
 	INIT_LIST_HEAD(&sg->list);
 	INIT_LIST_HEAD(&sg->srv_list);
 	rwlock_init(&sg->lock);
-	sg->sched = NULL;
-	sg->sched_data = NULL;
-	sg->flags = 0;
 	memcpy(sg->name, name, name_size);
 
 	write_lock(&sg_lock);
@@ -162,9 +149,8 @@ tfw_sg_count(void)
 	TfwSrvGroup *sg;
 
 	read_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list) {
+	list_for_each_entry(sg, &sg_list, list)
 		++count;
-	}
 	read_unlock(&sg_lock);
 
 	return count;
@@ -182,14 +168,8 @@ tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
 	TFW_DBG2("Add new backend server\n");
 	write_lock(&sg->lock);
 	list_add(&srv->list, &sg->srv_list);
+	++sg->srv_n;
 	write_unlock(&sg->lock);
-}
-
-void
-tfw_sg_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *srv_conn)
-{
-	if (sg->sched && sg->sched->add_conn)
-		sg->sched->add_conn(sg, srv, srv_conn);
 }
 
 int
@@ -202,7 +182,7 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 
 	sg->sched = s;
 	if (s->add_grp)
-		s->add_grp(sg);
+		return s->add_grp(sg);
 
 	return 0;
 }
@@ -242,6 +222,11 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 
 /**
  * Release all server groups with all servers.
+ *
+ * Note: The function is called at shutdown and in user context when
+ * it's guaranteed that all activity has stopped. Therefore the locks
+ * are not just not necessary, they can't be used as the code in user
+ * context may sleep.
  */
 void
 tfw_sg_release_all(void)
@@ -249,25 +234,14 @@ tfw_sg_release_all(void)
 	TfwServer *srv, *srv_tmp;
 	TfwSrvGroup *sg, *sg_tmp;
 
-	write_lock(&sg_lock);
-
 	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
-		write_lock(&sg->lock);
-
 		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
 			tfw_server_destroy(srv);
-
-		write_unlock(&sg->lock);
-
 		if (sg->sched && sg->sched->del_grp)
 			sg->sched->del_grp(sg);
-
 		kfree(sg);
 	}
-
 	INIT_LIST_HEAD(&sg_list);
-
-	write_unlock(&sg_lock);
 }
 
 int __init

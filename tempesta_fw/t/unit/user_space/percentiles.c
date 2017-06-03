@@ -174,7 +174,7 @@ static void
 __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 {
 	int i;
-	unsigned long tmp;
+	unsigned long cnt_full, cnt_half;
 
 	--pc->order;
 	pc->begin = pc->end - ((TFW_STAT_BCKTS - 1) << pc->order);
@@ -190,14 +190,15 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	 */
 	for (i = 1; i < TFW_STAT_BCKTS / 2; ++i)
 		atomic_add(atomic_read(&rng->cnt[r][i]), &rng->cnt[r][0]);
-	tmp = atomic_read(&rng->cnt[r][TFW_STAT_BCKTS / 2]) / 2;
-	atomic_add(tmp, &rng->cnt[r][0]);
-	atomic_set(&rng->cnt[r][1], tmp);
+	cnt_full = atomic_read(&rng->cnt[r][TFW_STAT_BCKTS / 2]);
+	cnt_half = cnt_full / 2;
+	atomic_add(cnt_half, &rng->cnt[r][0]);
+	atomic_set(&rng->cnt[r][1], cnt_full - cnt_half);
 	for (i = 1; i < TFW_STAT_BCKTS / 2; ++i) {
-		tmp = atomic_read(&rng->cnt[r][TFW_STAT_BCKTS / 2 + i]);
-		tmp /= 2;
-		atomic_set(&rng->cnt[r][i * 2], tmp);
-		atomic_set(&rng->cnt[r][i * 2 + 1], tmp);
+		cnt_full = atomic_read(&rng->cnt[r][TFW_STAT_BCKTS / 2 + i]);
+		cnt_half = cnt_full / 2;
+		atomic_set(&rng->cnt[r][i * 2], cnt_half);
+		atomic_set(&rng->cnt[r][i * 2 + 1], cnt_full - cnt_half);
 	}
 }
 
