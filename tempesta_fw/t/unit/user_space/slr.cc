@@ -24,14 +24,13 @@
 
 #include <iostream>
 
-template<class T>
+template<class T, const long wsz>
 class SLR {
-	static const long WSZ	= 5;
 	// Use the multiplier to calculate @y with 1/MUL
 	// precission on integer arithmetic. */
 	static const long MUL	= 1000;
 
-	unsigned long n; /* observation number */
+	long n; /* observation number */
 	T x_avg, y_avg;
 	T xy_avg; /* avg(x * y) */
 	T x_avg_y_avg; /* avg(x) * avg(y) */
@@ -41,7 +40,7 @@ class SLR {
 	struct {
 		T x;
 		T y;
-	} win[WSZ];
+	} win[wsz];
 
 public:
 	SLR()
@@ -52,30 +51,30 @@ public:
 	void
 	slr_upd(long x, long y)
 	{
-		size_t ni, cnt;
+		int ni, sz;
 
 		y *= MUL;
 		x *= MUL;
+		ni = n % wsz;
 
-		if (n < WSZ) {
-			ni = n;
-			cnt = n + 1;
-			x_avg = (x_avg * n + x) / cnt;
-			y_avg = (y_avg * n + y) / cnt;
-			xy_avg = (xy_avg * n + y * x) / cnt;
+		if (n < wsz) {
+			sz = ni + 1;
+			x_avg = (x_avg * n + x) / sz;
+			y_avg = (y_avg * n + y) / sz;
+			xy_avg = (xy_avg * n + y * x) / sz;
 			x_avg_y_avg = x_avg * y_avg;
-			x_sq_avg = (x_sq_avg * n + x * x) / cnt;
+			x_sq_avg = (x_sq_avg * n + x * x) / sz;
 			x_avg_sq = x_avg * x_avg;
 		} else {
 			// Forget history before the window
 			// to adopt to new pattern.
-			ni = n % WSZ;
-			x_avg = x_avg - (win[ni].x - x) / WSZ;
-			y_avg = y_avg - (win[ni].y - y) / WSZ;
-			xy_avg = xy_avg - (win[ni].x * win[ni].y - y * x) / WSZ;
+			sz = wsz;
+			x_avg = x_avg - (win[ni].x - x) / sz;
+			y_avg = y_avg - (win[ni].y - y) / sz;
+			xy_avg = xy_avg - (win[ni].x * win[ni].y - y * x) / sz;
 			x_avg_y_avg = x_avg * y_avg;
 			x_sq_avg = x_sq_avg - (win[ni].x * win[ni].x - x * x)
-					      / WSZ;
+					      / sz;
 			x_avg_sq = x_avg * x_avg;
 		}
 
@@ -127,11 +126,11 @@ public:
 	}
 };
 
-template<class T>
+template<class T, const long wsz>
 void
 test()
 {
-	SLR<T> slr;
+	SLR<T, wsz> slr;
 
 	slr.add_data(1, 3);
 	slr.add_data(2, 5);
@@ -149,14 +148,44 @@ test()
 	slr.predict(15);
 }
 
+// The major thing this test verifies is that the calculations
+// don't break when they're switched from working on partial
+// history to working on full-size history.
+template<class T, const long wsz>
+void
+test_verified()
+{
+	SLR<T, wsz> slr;
+
+	slr.add_data(1, 1);
+	slr.add_data(2, 1);
+	slr.add_data(3, 1);
+	slr.add_data(4, 1);
+	slr.add_data(5, 1);
+	slr.add_data(6, 1);
+	slr.add_data(7, 1);
+	slr.add_data(8, 1);
+	slr.add_data(9, 1);
+	slr.add_data(10, 1);
+	slr.add_data(11, 1);
+	slr.add_data(12, 1);
+	slr.add_data(13, 1);
+
+	slr.predict(15);
+}
+
 int
 main(int argc, char *argv[])
 {
 	std::cout << "TEST for double" << std::endl;
-	test<double>();
+	test<double, 5>();
 
 	std::cout << "TEST for long" << std::endl;
-	test<long>();
+	test<long, 5>();
+
+	std::cout << "Verified test for long, the result should be '1'" << std::endl;
+	test_verified<long, 8>();
+
 	return 0;
 
 	std::cout << std::endl;
@@ -170,7 +199,7 @@ main(int argc, char *argv[])
 	std::cout << "> ";
 
 	long x, y, pred_x;
-	SLR<double> slr;
+	SLR<double, 5> slr;
 	while (std::cin >> x >> y >> pred_x) {
 		slr.slr_upd(x, y);
 		std::cout << "(x=" << x << " y=" << y

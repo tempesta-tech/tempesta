@@ -45,33 +45,21 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.4.0");
 MODULE_LICENSE("GPL");
 
 typedef struct {
 	size_t			conn_n;
 	TfwServer		*srv;
-	TfwSrvConn		*conn[TFW_SRV_MAX_CONN];
-	unsigned long		hash[TFW_SRV_MAX_CONN];
+	TfwSrvConn		**conn;
+	unsigned long		*hash;
 } TfwHashSrv;
 
 typedef struct {
+	size_t			conn_n;
 	size_t			srv_n;
-	TfwHashSrv		srvs[TFW_SG_MAX_SRV];
+	TfwHashSrv		*srvs;
 } TfwHashSrvList;
-
-static void
-tfw_sched_hash_alloc_data(TfwSrvGroup *sg)
-{
-	sg->sched_data = kzalloc(sizeof(TfwHashSrvList), GFP_KERNEL);
-	BUG_ON(!sg->sched_data);
-}
-
-static void
-tfw_sched_hash_free_data(TfwSrvGroup *sg)
-{
-	kfree(sg->sched_data);
-}
 
 static unsigned long
 __calc_conn_hash(TfwServer *srv, size_t conn_idx)
@@ -99,39 +87,6 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 
 	/* Also mix-in the conn_idx. */
 	return hash_long(hash ^ conn_idx, BITS_PER_LONG);
-}
-
-static void
-tfw_sched_hash_add_conn(TfwSrvGroup *sg, TfwServer *srv, TfwSrvConn *conn)
-{
-	size_t s, c;
-	TfwHashSrv *srv_cl;
-	TfwHashSrvList *sl = sg->sched_data;
-
-	BUG_ON(!sl);
-
-	for (s = 0; s < sl->srv_n; ++s)
-		if (sl->srvs[s].srv == srv)
-			break;
-	if (s == sl->srv_n) {
-		sl->srvs[s].srv = srv;
-		++sl->srv_n;
-		BUG_ON(sl->srv_n > TFW_SG_MAX_SRV);
-		srv->sched_data = &sl->srvs[s];
-	}
-
-	srv_cl = &sl->srvs[s];
-
-	for (c = 0; c < srv_cl->conn_n; ++c)
-		if (srv_cl->conn[c] == conn) {
-			TFW_WARN("sched_hash: Try to add existing connection,"
-				 " srv=%zu conn=%zu\n", s, c);
-			return;
-		}
-	srv_cl->conn[c] = conn;
-	srv_cl->hash[c] = __calc_conn_hash(srv, s * TFW_SRV_MAX_CONN + c);
-	++srv_cl->conn_n;
-	BUG_ON(srv_cl->conn_n > TFW_SRV_MAX_CONN);
 }
 
 static inline void
@@ -186,9 +141,9 @@ __find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
 static TfwSrvConn *
 tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	unsigned long msg_hash;
-	unsigned long tries = TFW_SG_MAX_CONN;
 	TfwHashSrvList *sl = sg->sched_data;
+	unsigned long msg_hash;
+	unsigned long tries = sl->conn_n;
 
 	BUG_ON(!sl);
 
@@ -249,12 +204,93 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 	return NULL;
 }
 
+static void
+tfw_sched_hash_del_grp(TfwSrvGroup *sg)
+{
+	size_t si;
+	TfwHashSrvList *sl = sg->sched_data;
+
+	if (!sl)
+		return;
+
+	for (si = 0; si < sl->srv_n; ++si)
+		if (sl->srvs[si].conn)
+			kfree(sl->srvs[si].conn);
+	kfree(sl);
+	sg->sched_data = NULL;
+}
+
+static int
+tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+{
+	int ret = -EINVAL;
+	size_t size, si, ci;
+	unsigned int sum_conn_n;
+	TfwServer *srv;
+	TfwHashSrv *hsrv;
+	TfwHashSrvList *sl;
+
+	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
+		return -EINVAL;
+
+	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
+	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+	sl = sg->sched_data;
+	sl->srvs = sg->sched_data + sizeof(TfwHashSrvList);
+	sl->srv_n = sg->srv_n;
+
+	si = sum_conn_n = 0;
+	hsrv = sl->srvs;
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		TfwSrvConn **conn, *srv_conn;
+		unsigned long *hash;
+
+		if (unlikely((si++ == sg->srv_n) || !srv->conn_n
+			     || list_empty(&srv->conn_list)))
+			goto cleanup;
+
+		size = (sizeof(hsrv->conn[0]) + sizeof(hsrv->hash[0]))
+		       * srv->conn_n;
+		if (!(hsrv->conn = kzalloc(size, GFP_KERNEL))) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+		hsrv->hash = (typeof(hsrv->hash))(hsrv->conn + srv->conn_n);
+
+		ci = 0;
+		conn = hsrv->conn;
+		hash = hsrv->hash;
+		list_for_each_entry(srv_conn, &srv->conn_list, list) {
+			if (unlikely(ci++ == srv->conn_n))
+				goto cleanup;
+			++sum_conn_n;
+			*conn++ = srv_conn;
+			*hash++ = __calc_conn_hash(srv, sum_conn_n);
+		}
+		if (unlikely(ci != srv->conn_n))
+			goto cleanup;
+		hsrv->conn_n = srv->conn_n;
+		hsrv->srv = srv;
+		srv->sched_data = hsrv;
+		++hsrv;
+	}
+	if (unlikely(si != sg->srv_n))
+		goto cleanup;
+	sl->conn_n = sum_conn_n;
+
+	return 0;
+
+cleanup:
+	tfw_sched_hash_del_grp(sg);
+	return ret;
+}
+
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
-	.add_grp	= tfw_sched_hash_alloc_data,
-	.del_grp	= tfw_sched_hash_free_data,
-	.add_conn	= tfw_sched_hash_add_conn,
+	.add_grp	= tfw_sched_hash_add_grp,
+	.del_grp	= tfw_sched_hash_del_grp,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };
