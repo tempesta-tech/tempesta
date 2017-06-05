@@ -121,6 +121,14 @@ __bsearch(const unsigned long hash, TfwHashConnList *cl)
 	return start;
 }
 
+static inline int
+__is_conn_suitable(TfwSrvConn *conn)
+{
+	return !tfw_srv_conn_restricted(conn)
+		&& !tfw_srv_conn_queue_full(conn)
+		&& tfw_srv_conn_get_if_live(conn);
+}
+
 /**
  * Find an appropriate server connection for the HTTP request @msg.
  * The server is chosen based on the hash value of URI/Host fields of the @msg,
@@ -159,9 +167,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 	 */
 	idx = __bsearch(best_hash, cl);
 	conn = cl->conns[idx].conn;
-	if (likely(!tfw_srv_conn_restricted(conn)
-		   && !tfw_srv_conn_queue_full(conn)
-		   && tfw_srv_conn_get_if_live(conn)))
+	if (likely(__is_conn_suitable(conn)))
 		return conn;
 
 	/*
@@ -180,9 +186,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 		ssize_t best_idx = (l_diff <= r_diff) ? l_idx : r_idx;
 
 		conn = cl->conns[best_idx].conn;
-		if (likely(!tfw_srv_conn_restricted(conn)
-			   && !tfw_srv_conn_queue_full(conn)
-			   && tfw_srv_conn_get_if_live(conn)))
+		if (likely(__is_conn_suitable(conn)))
 			return conn;
 
 		if (l_diff <= r_diff)

@@ -73,12 +73,9 @@ test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 	kernel_fpu_end();
 
 	sg->flags = flags;
-	/* Adjust servers weights for static ratio scheduler. */
-	if (!strcmp(sched_name, "ratio")
-	    && (sg->flags & TFW_SG_F_SCHED_RATIO_STATIC))
-	{
+	/* Adjust servers weights for ratio scheduler. */
+	if (!strcmp(sched_name, "ratio"))
 		tfw_cfg_sg_ratio_adjust(&sg->srv_list);
-	}
 	r = tfw_sg_set_sched(sg, sched_name);
 	BUG_ON(r);
 
