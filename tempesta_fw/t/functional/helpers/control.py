@@ -194,11 +194,13 @@ class Siege(Client):
 #-------------------------------------------------------------------------------
 
 def client_run_blocking(client):
+    """ User must call client.prepare() before calling the function and
+    client.cleanup() after the call if applied.
+    """
     tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
-    error.assertTrue(client.prepare())
-    stdout, stderr = remote.client.run_cmd(client.cmd)
+    stdout, stderr = remote.client.run_cmd(client.cmd,
+                                           timeout=(client.duration + 5))
     error.assertTrue(client.parse_out(stdout, stderr))
-    client.cleanup()
 
 def __clients_prepare(client):
     return client.prepare()
