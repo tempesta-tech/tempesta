@@ -940,7 +940,7 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
  * Note that due to specifics of Tempesta start up process this code
  * is executed in SoftIRQ context (so that sleeping is not allowed).
  */
-void *
+static void *
 tfw_apm_create(void)
 {
 	TfwApmData *data;
