@@ -290,6 +290,7 @@ tfw_init(void)
 		return -1;
 	}
 
+	/* The order of initialization is highly important. */
 	DO_INIT(pool);
 	DO_INIT(cfg);
 	DO_INIT(apm);

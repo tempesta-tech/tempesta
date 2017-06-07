@@ -190,12 +190,15 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
+int tfw_sg_add(TfwSrvGroup *sg);
+void tfw_sg_del(TfwSrvGroup *sg);
 void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
 
-void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
+void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
 
 /* Scheduler routines. */
