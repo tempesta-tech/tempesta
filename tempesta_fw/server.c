@@ -64,7 +64,7 @@ tfw_server_create(const TfwAddr *addr)
 	return srv;
 }
 
-/*
+/**
  * Look up Server Group by name, and return it to caller.
  *
  * This function is called only when Tempesta is starting, during
@@ -88,8 +88,8 @@ tfw_sg_lookup(const char *name)
 }
 EXPORT_SYMBOL(tfw_sg_lookup);
 
-/*
- * Create new Server Group and put it on the list.
+/**
+ * Create a new Server Group.
  *
  * This function is called only when Tempesta is starting,
  * during configuration processing.
@@ -100,12 +100,7 @@ tfw_sg_new(const char *name, gfp_t flags)
 	TfwSrvGroup *sg;
 	size_t name_size = strlen(name) + 1;
 
-	if (tfw_sg_lookup(name)) {
-		TFW_ERR("duplicate server group: '%s'\n", name);
-		return NULL;
-	}
-
-	TFW_DBG("new server group: '%s'\n", name);
+	TFW_DBG("Create new server group: '%s'\n", name);
 
 	sg = kzalloc(sizeof(*sg) + name_size, flags);
 	if (!sg)
@@ -116,28 +111,54 @@ tfw_sg_new(const char *name, gfp_t flags)
 	rwlock_init(&sg->lock);
 	memcpy(sg->name, name, name_size);
 
+	return sg;
+}
+
+/**
+ * Add a Server Group to the list.
+ *
+ * This function is called only when Tempesta is starting,
+ * during configuration processing.
+ */
+int
+tfw_sg_add(TfwSrvGroup *sg)
+{
+	TFW_DBG("Add new server group: '%s'\n", sg->name);
+
+	if (tfw_sg_lookup(sg->name)) {
+		TFW_ERR("duplicate server group: '%s'\n", sg->name);
+		return -EINVAL;
+	}
+
 	write_lock(&sg_lock);
 	list_add(&sg->list, &sg_list);
 	write_unlock(&sg_lock);
 
-	return sg;
+	return 0;
 }
 
-/*
- * Remove Server Group from the list, and free it.
+/**
+ * Remove a Server Group from the list.
  * This function is called only when Tempesta is stopping.
  */
 void
-tfw_sg_free(TfwSrvGroup *sg)
+tfw_sg_del(TfwSrvGroup *sg)
 {
-	read_lock(&sg->lock);
-	if (!list_empty(&sg->srv_list))
-		TFW_WARN("Free non-empty server group\n");
-	read_unlock(&sg->lock);
+	BUG_ON(list_empty_careful(&sg->list));
 
 	write_lock(&sg_lock);
 	list_del(&sg->list);
 	write_unlock(&sg_lock);
+}
+
+/**
+ * Free the memory allocated for a server group.
+ */
+void
+tfw_sg_free(TfwSrvGroup *sg)
+{
+	BUG_ON(!list_empty_careful(&sg->list));
+	BUG_ON(!list_empty_careful(&sg->srv_list));
 
 	kfree(sg);
 }
@@ -156,11 +177,11 @@ tfw_sg_count(void)
 	return count;
 }
 
-/*
- * Add server to a server group.
+/**
+ * Add a server to a server group.
  */
 void
-tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv)
+tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg);
 	srv->sg = sg;
@@ -221,6 +242,21 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 }
 
 /**
+ * Release a single server group with servers.
+ */
+void
+tfw_sg_release(TfwSrvGroup *sg)
+{
+	TfwServer *srv, *srv_tmp;
+
+	if (sg->sched && sg->sched->del_grp)
+		sg->sched->del_grp(sg);
+	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
+		tfw_server_destroy(srv);
+	kfree(sg);
+}
+
+/**
  * Release all server groups with all servers.
  *
  * Note: The function is called at shutdown and in user context when
@@ -231,16 +267,10 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 void
 tfw_sg_release_all(void)
 {
-	TfwServer *srv, *srv_tmp;
 	TfwSrvGroup *sg, *sg_tmp;
 
-	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
-		if (sg->sched && sg->sched->del_grp)
-			sg->sched->del_grp(sg);
-		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
-			tfw_server_destroy(srv);
-		kfree(sg);
-	}
+	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list)
+		tfw_sg_release(sg);
 	INIT_LIST_HEAD(&sg_list);
 }
 

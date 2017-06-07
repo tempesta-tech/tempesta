@@ -921,7 +921,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	if (!(tfw_cfg_sg = tfw_sg_new(ce->vals[0], GFP_KERNEL))) {
-		TFW_ERR_NL("Unable to add group: '%s'\n", ce->vals[0]);
+		TFW_ERR_NL("Unable to create a group: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -1016,8 +1016,11 @@ tfw_cfgop_setup_srv_group(void)
 		if ((ret = tfw_sock_srv_add_conns(srv)) != 0)
 			return ret;
 		list_del(&srv->list);
-		tfw_sg_add(tfw_cfg_sg, srv);
+		tfw_sg_add_srv(tfw_cfg_sg, srv);
 	}
+	/* Add the server group to the list. */
+	if ((ret = tfw_sg_add(tfw_cfg_sg)))
+		return ret;
 	/*
 	 * Set up a scheduler and add the server group to the scheduler.
 	 * Must be called only after the server group is set up with all
@@ -1280,18 +1283,30 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 	static const typeof(tfw_cfg_is_set) cfg_is_set_empty = { 0 };
 
 	list_for_each_entry_safe(srv, tmp, &tfw_cfg_in_slst, list) {
-		list_del(&srv->list);
 		tfw_sock_srv_del_conns(srv);
 		tfw_server_destroy(srv);
 	}
 	list_for_each_entry_safe(srv, tmp, &tfw_cfg_out_slst, list) {
-		list_del(&srv->list);
 		tfw_sock_srv_del_conns(srv);
 		tfw_server_destroy(srv);
+	}
+	if (tfw_cfg_out_sg && list_empty(&tfw_cfg_out_sg->list)) {
+		list_for_each_entry(srv, &tfw_cfg_out_sg->srv_list, list)
+			tfw_sock_srv_del_conns(srv);
+		tfw_sg_release(tfw_cfg_out_sg);
+	}
+	if (tfw_cfg_sg && (tfw_cfg_sg != tfw_cfg_out_sg)
+	    && list_empty(&tfw_cfg_sg->list))
+	{
+		list_for_each_entry(srv, &tfw_cfg_sg->srv_list, list)
+			tfw_sock_srv_del_conns(srv);
+		tfw_sg_release(tfw_cfg_sg);
 	}
 
 	tfw_cfg_slstsz = tfw_cfg_out_slstsz = 0;
 	tfw_cfg_is_set = cfg_is_set_empty;
+	INIT_LIST_HEAD(&tfw_cfg_in_slst);
+	INIT_LIST_HEAD(&tfw_cfg_out_slst);
 
 	tfw_sock_srv_delete_all_conns();
 	tfw_sg_release_all();
@@ -1309,7 +1324,7 @@ tfw_sock_srv_start(void)
 	if (tfw_cfg_out_slstsz) {
 		tfw_cfg_out_sg = tfw_sg_new("default", GFP_KERNEL);
 		if (!tfw_cfg_out_sg) {
-			TFW_ERR_NL("Unable to add default server group\n");
+			TFW_ERR_NL("Unable to create default server group\n");
 			return -EINVAL;
 		}
 
