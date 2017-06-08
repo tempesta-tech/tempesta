@@ -63,16 +63,6 @@ static struct TestSchedHelper sched_helper_ratio = {
 	.free_sched_arg = &sched_ratio_free_arg,
 };
 
-TEST(tfw_sched_ratio, sg_empty)
-{
-	test_sched_sg_empty_sg(&sched_helper_ratio);
-}
-
-TEST(tfw_sched_ratio, sched_sg_one_srv_zero_conn)
-{
-	test_sched_sg_one_srv_zero_conn(&sched_helper_ratio);
-}
-
 TEST(tfw_sched_ratio, sched_sg_one_srv_max_conn)
 {
 	size_t i, j;
@@ -121,11 +111,6 @@ err:
 	test_sg_release_all();
 }
 
-TEST(tfw_sched_ratio, sched_sg_max_srv_zero_conn)
-{
-	test_sched_sg_max_srv_zero_conn(&sched_helper_ratio);
-}
-
 TEST(tfw_sched_ratio, sched_sg_max_srv_max_conn)
 {
 	unsigned long i, j;
@@ -169,11 +154,6 @@ TEST(tfw_sched_ratio, sched_sg_max_srv_max_conn)
 err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
-}
-
-TEST(tfw_sched_ratio, sched_srv_one_srv_zero_conn)
-{
-	test_sched_srv_one_srv_zero_conn(&sched_helper_ratio);
 }
 
 TEST(tfw_sched_ratio, sched_srv_one_srv_max_conn)
@@ -224,11 +204,6 @@ TEST(tfw_sched_ratio, sched_srv_one_srv_max_conn)
 err:
 	test_conn_release_all(sg);
 	test_sg_release_all();
-}
-
-TEST(tfw_sched_ratio, sched_srv_max_srv_zero_conn)
-{
-	test_sched_srv_max_srv_zero_conn(&sched_helper_ratio);
 }
 
 TEST(tfw_sched_ratio, sched_srv_max_srv_max_conn)
@@ -313,28 +288,12 @@ TEST_SUITE(sched_ratio)
 	kernel_fpu_begin();
 
 	/*
-	 * Schedulers have the same interface so some test cases can use generic
-	 * implementations. Some test cases still have to know how scheduler
-	 * work at low level. Please, keep same structure for implementation
-	 * aware test cases across all schedulers.
-	 *
-	 * Implementation aware cases:
-	 * sched_sg_one_srv_max_conn
-	 * sched_sg_max_srv_max_conn
-	 * sched_srv_one_srv_max_conn
-	 * sched_srv_max_srv_max_conn
+	 * Static ratios, each server has default weight TFW_CFG_SRV_WEIGHT_DEF.
 	 */
-
-	TEST_RUN(tfw_sched_ratio, sg_empty);
-
-	TEST_RUN(tfw_sched_ratio, sched_sg_one_srv_zero_conn);
 	TEST_RUN(tfw_sched_ratio, sched_sg_one_srv_max_conn);
-	TEST_RUN(tfw_sched_ratio, sched_sg_max_srv_zero_conn);
 	TEST_RUN(tfw_sched_ratio, sched_sg_max_srv_max_conn);
 
-	TEST_RUN(tfw_sched_ratio, sched_srv_one_srv_zero_conn);
 	TEST_RUN(tfw_sched_ratio, sched_srv_one_srv_max_conn);
-	TEST_RUN(tfw_sched_ratio, sched_srv_max_srv_zero_conn);
 	TEST_RUN(tfw_sched_ratio, sched_srv_max_srv_max_conn);
 	TEST_RUN(tfw_sched_ratio, sched_srv_offline_srv);
 }

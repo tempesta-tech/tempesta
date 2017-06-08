@@ -45,32 +45,30 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.4.0");
+MODULE_VERSION("0.4.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	size_t			conn_n;
-	TfwServer		*srv;
-	TfwSrvConn		**conn;
-	unsigned long		*hash;
-} TfwHashSrv;
+	unsigned long		hash;
+	TfwSrvConn		*conn;
+} TfwHashConn;
 
 typedef struct {
 	size_t			conn_n;
-	size_t			srv_n;
-	TfwHashSrv		*srvs;
-} TfwHashSrvList;
+	TfwHashConn		conns[0];
+} TfwHashConnList;
+
+/* Same as hash_64_generic, but return 64-bit value. */
+static __always_inline unsigned long
+__hash_64(unsigned long val)
+{
+	return val * GOLDEN_RATIO_64;
+}
 
 static unsigned long
-__calc_conn_hash(TfwServer *srv, size_t conn_idx)
+__calc_srv_hash(TfwServer *srv)
 {
-	/* hash_64() works better when bits are distributed uniformly. */
-	unsigned long hash = REPEAT_BYTE(0xAA);
-	size_t i, bytes_n;
-	union {
-		TfwAddr addr;
-		unsigned char bytes[0];
-	} *a;
+	unsigned long hash;
 
 	/*
 	 * Here we just cast the whole TfwAddr to an array of bytes.
@@ -80,42 +78,55 @@ __calc_conn_hash(TfwServer *srv, size_t conn_idx)
 	 *  - No structure fields (e.g. sin6_flowinfo) are changed if we
 	 *    re-connect to the same server.
 	 */
-	a = (void *)&srv->addr;
-	bytes_n = tfw_addr_sa_len(&a->addr);
-	for (i = 0; i < bytes_n; ++i)
-		hash = hash_long(hash ^ a->bytes[i], BITS_PER_LONG);
-
-	/* Also mix-in the conn_idx. */
-	return hash_long(hash ^ conn_idx, BITS_PER_LONG);
+	hash = tdb_hash_calc((char *)&srv->addr, tfw_addr_sa_len(&srv->addr));
+	/*
+	 * If TfwAddr represents IPv4 address @tdb_hash_calc() will always
+	 * generate a 32-bit value. In the same time IPv6 servers are likely to
+	 * have a 64-bit hashes. That will lead to situation when IPv6 will
+	 * take all the load since message hash is most likely to be a 64-bit
+	 * value.
+	 *
+	 * Use @__hash_64 to get 64-bit hash value.
+	 */
+	return __hash_64(hash);
 }
 
-static inline void
-__find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
-		 unsigned long *best_weight, unsigned long msg_hash)
+/**
+ * Binary search for connection with hash closest to @hash value in connection
+ * list @cl. Most likely, that exact @hash value cannot be found.
+ *
+ * Returns index of closest element in array.
+ */
+static ssize_t
+__bsearch(const unsigned long hash, TfwHashConnList *cl)
 {
-	size_t i;
+	ssize_t start = 0, end = (ssize_t)cl->conn_n - 1, mid = 0;
+	unsigned long mid_hash;
 
-	for (i = 0; i < srv_cl->conn_n; ++i) {
-		unsigned long curr_weight;
-		TfwSrvConn *conn = srv_cl->conn[i];
+	while (start < end) {
+		mid = start + (end - start) / 2;
 
-		if (unlikely(tfw_srv_conn_restricted(conn)
-			     || tfw_srv_conn_queue_full(conn)
-			     || !tfw_srv_conn_live(conn)))
-			continue;
-
-		curr_weight = msg_hash ^ srv_cl->hash[i];
-		/*
-		 * XOR might return 0, more or equal comparisson is required.
-		 * If server have only one active connection it still may
-		 * be the best connecton to serve the request. More likely
-		 * to happen when serving via @tfw_sched_hash_get_srv_conn().
-		 */
-		if (curr_weight >= *best_weight) {
-			*best_weight = curr_weight;
-			*best_conn = conn;
-		}
+		mid_hash = cl->conns[mid].hash;
+		if (hash < mid_hash)
+			end = mid;
+		else if (hash > mid_hash)
+			start = mid + 1;
+		else
+			return mid; /* an unexpected outcome. */
 	}
+	/*
+	 * Most expected outcome: exact @hash not found, @start points to the
+	 * closest item.
+	 */
+	return start;
+}
+
+static inline int
+__is_conn_suitable(TfwSrvConn *conn)
+{
+	return !tfw_srv_conn_restricted(conn)
+		&& !tfw_srv_conn_queue_full(conn)
+		&& tfw_srv_conn_get_if_live(conn);
 }
 
 /**
@@ -138,34 +149,63 @@ __find_best_conn(TfwSrvConn **best_conn, TfwHashSrv *srv_cl,
  *  - For every HTTP request, we have to scan the list of all servers to find
  *    a matching one with the highest weight. That adds some overhead.
  */
+static inline TfwSrvConn *
+__find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
+{
+	ssize_t l_idx, r_idx, idx;
+	TfwSrvConn *conn;
+	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
+	unsigned long best_hash = (~0UL ^ msg_hash);
+
+	if (unlikely(!cl->conn_n))
+		return NULL;
+
+	/*
+	 * Find a connection with hash as close to @best_hash as possible.
+	 * Value of (msg_hash ^ srv_conn_hash) will be biggest for that
+	 * connection.
+	 */
+	idx = __bsearch(best_hash, cl);
+	conn = cl->conns[idx].conn;
+	if (likely(__is_conn_suitable(conn)))
+		return conn;
+
+	/*
+	 * The best connection is dead or overfilled. Take the nearest live
+	 * neighbour.
+	*/
+	r_idx = idx + 1;
+	l_idx = idx - 1;
+	while (l_idx >= 0 || r_idx < (ssize_t)cl->conn_n) {
+		unsigned long l_diff = (l_idx >= 0)
+				? (best_hash - cl->conns[l_idx].hash)
+				: ULONG_MAX;
+		unsigned long r_diff = (l_idx >= 0)
+				? (cl->conns[r_idx].hash - best_hash)
+				: ULONG_MAX;
+		ssize_t best_idx = (l_diff <= r_diff) ? l_idx : r_idx;
+
+		conn = cl->conns[best_idx].conn;
+		if (likely(__is_conn_suitable(conn)))
+			return conn;
+
+		if (l_diff <= r_diff)
+			--l_idx;
+		else
+			++r_idx;
+	};
+
+	return NULL;
+}
+
 static TfwSrvConn *
 tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	TfwHashSrvList *sl = sg->sched_data;
-	unsigned long msg_hash;
-	unsigned long tries = sl->conn_n;
+	TfwHashConnList *cl = sg->sched_data;
 
-	BUG_ON(!sl);
+	BUG_ON(!cl);
 
-	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	while (--tries) {
-		size_t i;
-		unsigned long best_weight = 0;
-		TfwSrvConn *best_conn = NULL;
-
-		for (i = 0; i < sl->srv_n; ++i) {
-			TfwHashSrv *srv_cl = &sl->srvs[i];
-			__find_best_conn(&best_conn, srv_cl, &best_weight,
-					 msg_hash);
-		}
-		if (unlikely(!best_conn))
-			return NULL;
-		if (likely(!tfw_srv_conn_restricted(best_conn)
-			   && !tfw_srv_conn_queue_full(best_conn)
-			   && tfw_srv_conn_get_if_live(best_conn)))
-			return best_conn;
-	}
-	return NULL;
+	return __find_best_conn(msg, cl);
 }
 
 /**
@@ -175,115 +215,123 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static TfwSrvConn *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
-	unsigned long msg_hash;
-	size_t tries;
-	TfwHashSrv *srv_cl = srv->sched_data;
+	TfwHashConnList *cl = srv->sched_data;
 
 	/*
-	 * For @srv without connections srv_cl will be NULL, that normally
+	 * For @srv without connections @cl will be NULL, that normally
 	 * does not happen in real life, but unit tests check that case.
 	*/
-	if (unlikely(!srv_cl))
+	if (unlikely(!cl))
 		return NULL;
 
-	msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
-	/* Try several times even if server has just a few connections. */
-	tries = srv_cl->conn_n + 1;
-	while (--tries) {
-		unsigned long best_weight = 0;
-		TfwSrvConn *best_conn = NULL;
-
-		__find_best_conn(&best_conn, srv_cl, &best_weight, msg_hash);
-		if (unlikely(!best_conn))
-			return NULL;
-		if (likely(!tfw_srv_conn_restricted(best_conn)
-			   && !tfw_srv_conn_queue_full(best_conn)
-			   && tfw_srv_conn_get_if_live(best_conn)))
-			return best_conn;
-	}
-	return NULL;
+	return __find_best_conn(msg, cl);
 }
 
 static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
-	size_t si;
-	TfwHashSrvList *sl = sg->sched_data;
+	TfwServer *srv;
 
-	if (!sl)
-		return;
+	list_for_each_entry(srv, &sg->srv_list, list)
+		srv->sched_data = NULL;
 
-	for (si = 0; si < sl->srv_n; ++si)
-		if (sl->srvs[si].conn)
-			kfree(sl->srvs[si].conn);
-	kfree(sl);
-	sg->sched_data = NULL;
+	if (sg->sched_data) {
+		kfree(sg->sched_data);
+		sg->sched_data = NULL;
+	}
+}
+
+static int
+__add_conn(TfwHashConnList *cl, TfwSrvConn *conn, unsigned long hash)
+{
+	ssize_t idx;
+	TfwHashConn new_hcon = {hash, conn};
+
+	/* @cl is empty. */
+	if (unlikely(!cl->conn_n)) {
+		cl->conns[0] = new_hcon;
+		++cl->conn_n;
+
+		return 0;
+	}
+
+	idx = __bsearch(hash, cl);
+	if (cl->conns[idx].hash == hash)
+		return -EEXIST;
+
+	/* Need to insert connection before or after found index. */
+	if ((hash > cl->conns[idx].hash) && (idx != (ssize_t)cl->conn_n))
+		++idx;
+
+	if ((size_t)idx != cl->conn_n)
+		memmove(&cl->conns[idx+1], &cl->conns[idx],
+			sizeof(TfwHashConn) * (cl->conn_n - (size_t)idx));
+
+	cl->conns[idx] = new_hcon;
+	++cl->conn_n;
+
+	return 0;
+}
+
+static void
+__fill_srv_lists(TfwHashConnList *cl)
+{
+	size_t i;
+
+	for (i = 0; i < cl->conn_n; ++i) {
+		TfwHashConn *hconn = &cl->conns[i];
+		TfwServer *srv = (TfwServer *)hconn->conn->peer;
+		TfwHashConnList *scl = srv->sched_data;
+
+		scl->conns[scl->conn_n] = *hconn;
+		++scl->conn_n;
+	}
 }
 
 static int
 tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 {
-	int ret = -EINVAL;
-	size_t size, si, ci;
-	unsigned int sum_conn_n;
+	size_t size, conn_n = 0, offset = 0, seed, seed_inc;
 	TfwServer *srv;
-	TfwHashSrv *hsrv;
-	TfwHashSrvList *sl;
+	TfwHashConnList *cl;
 
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
 
-	size = sizeof(TfwHashSrvList) + sizeof(TfwHashSrv) * sg->srv_n;
+	seed = get_random_long();
+	seed_inc = get_random_int();
+
+	list_for_each_entry(srv, &sg->srv_list, list)
+		conn_n += srv->conn_n;
+
+	size = sizeof(TfwHashConnList) * (sg->srv_n + 1)
+			+ sizeof(TfwHashConn) * conn_n * 2;
 	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
-	sl = sg->sched_data;
-	sl->srvs = sg->sched_data + sizeof(TfwHashSrvList);
-	sl->srv_n = sg->srv_n;
+	cl = sg->sched_data;
+	offset = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
 
-	si = sum_conn_n = 0;
-	hsrv = sl->srvs;
+
 	list_for_each_entry(srv, &sg->srv_list, list) {
-		TfwSrvConn **conn, *srv_conn;
-		unsigned long *hash;
+		TfwSrvConn *conn;
+		unsigned long srv_hash = __calc_srv_hash(srv);
 
-		if (unlikely((si++ == sg->srv_n) || !srv->conn_n
-			     || list_empty(&srv->conn_list)))
-			goto cleanup;
+		srv->sched_data = (void *)cl + offset;
+		offset += sizeof(TfwHashConnList)
+				+ sizeof(TfwHashConn) * srv->conn_n;
 
-		size = (sizeof(hsrv->conn[0]) + sizeof(hsrv->hash[0]))
-		       * srv->conn_n;
-		if (!(hsrv->conn = kzalloc(size, GFP_KERNEL))) {
-			ret = -ENOMEM;
-			goto cleanup;
+		list_for_each_entry(conn, &srv->conn_list, list) {
+			unsigned long hash;
+			do {
+				hash = __hash_64(srv_hash ^ seed);
+				seed += seed_inc;
+			} while (__add_conn(cl, conn, hash));
 		}
-		hsrv->hash = (typeof(hsrv->hash))(hsrv->conn + srv->conn_n);
-
-		ci = 0;
-		conn = hsrv->conn;
-		hash = hsrv->hash;
-		list_for_each_entry(srv_conn, &srv->conn_list, list) {
-			if (unlikely(ci++ == srv->conn_n))
-				goto cleanup;
-			++sum_conn_n;
-			*conn++ = srv_conn;
-			*hash++ = __calc_conn_hash(srv, sum_conn_n);
-		}
-		if (unlikely(ci != srv->conn_n))
-			goto cleanup;
-		hsrv->conn_n = srv->conn_n;
-		hsrv->srv = srv;
-		srv->sched_data = hsrv;
-		++hsrv;
 	}
-	if (unlikely(si != sg->srv_n))
-		goto cleanup;
-	sl->conn_n = sum_conn_n;
+	/* Create per-server connection lists. */
+	__fill_srv_lists(cl);
 
 	return 0;
-
-cleanup:
-	tfw_sched_hash_del_grp(sg);
-	return ret;
 }
 
 static TfwScheduler tfw_sched_hash = {
