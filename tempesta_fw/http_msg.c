@@ -120,7 +120,7 @@ static bool
 __hdr_is_singular(const TfwStr *hdr)
 {
 	int i, fc;
-	static const TfwStr hdr_singular[] __read_mostly = {
+	static const TfwStr hdr_singular[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
@@ -612,7 +612,7 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
  * Add a header, probably duplicated, without any checking of current headers.
  */
 int
-tfw_http_msg_hdr_add(TfwHttpMsg *hm, TfwStr *hdr)
+tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int hid;
 	TfwHttpHdrTbl *ht = hm->h_tbl;

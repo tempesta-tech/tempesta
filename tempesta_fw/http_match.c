@@ -335,8 +335,7 @@ match_wildcard(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
 
-static const match_fn
-__read_mostly match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= match_wildcard,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
