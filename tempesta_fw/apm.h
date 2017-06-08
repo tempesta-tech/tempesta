@@ -49,7 +49,7 @@ enum {
 	_TFW_PSTATS_IDX_COUNT
 };
 
-static const unsigned int __read_mostly tfw_pstats_ith[] = {
+static const unsigned int tfw_pstats_ith[] = {
 	[TFW_PSTATS_IDX_MIN ... TFW_PSTATS_IDX_AVG] = 0,
 	[TFW_PSTATS_IDX_P50] = 50,
 	[TFW_PSTATS_IDX_P75] = 75,

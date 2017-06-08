@@ -351,7 +351,7 @@ int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
 int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
-                     tfw_str_eq_flags_t flags);
+		     tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
@@ -360,7 +360,7 @@ bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
 #ifdef DEBUG
-void tfw_str_dprint(TfwStr *str, const char *msg);
+void tfw_str_dprint(const TfwStr *str, const char *msg);
 #else
 #define tfw_str_dprint(str, msg)
 #endif
