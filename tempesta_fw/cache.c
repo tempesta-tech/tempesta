@@ -881,8 +881,6 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	unsigned long key;
 	bool keep_skb = false;
 
-	if (!tfw_cache_msg_cacheable(req))
-		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
 		goto out;
 
