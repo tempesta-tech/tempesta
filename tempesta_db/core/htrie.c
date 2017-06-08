@@ -588,7 +588,8 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	} else {
 		ptr += sizeof(TdbFRec);
 	}
-	memcpy(ptr, data, len);
+	if (data)
+		memcpy(ptr, data, len);
 
 	return r;
 }

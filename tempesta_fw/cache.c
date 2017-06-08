@@ -852,7 +852,7 @@ static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 		 unsigned long key)
 {
-	TfwCacheEntry *ce, cdata = {{}};
+	TfwCacheEntry *ce;
 	size_t data_len = __cache_entry_size(resp, req);
 	size_t len = data_len;
 
@@ -861,8 +861,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 	 * TDB should provide enough space to place at least head of
 	 * the record key at first chunk.
 	 */
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
-	BUG_ON(len <= sizeof(cdata));
+	ce = (TfwCacheEntry *)tdb_entry_alloc(db, key, &len);
+	BUG_ON(len <= sizeof(TfwCacheEntry));
 	if (!ce)
 		return;
 
@@ -881,8 +881,6 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	unsigned long key;
 	bool keep_skb = false;
 
-	if (!tfw_cache_msg_cacheable(req))
-		goto out;
 	if (!tfw_cache_employ_resp(req, resp))
 		goto out;
 
@@ -1077,15 +1075,13 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 					   off, f_size);
 			skb_frag_ref(it->skb, it->frag);
 			ss_skb_adjust_data_len(it->skb, f_size);
-		} else {
-			p = NULL;
-		}
-		if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
-						&resp->body, p, f_size,
-						it->skb))
-			return - ENOMEM;
 
-		++it->frag;
+			if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
+							&resp->body, p, f_size,
+							it->skb))
+				return - ENOMEM;
+			++it->frag;
+		}
 		if (!(trec = tdb_next_rec_chunk(db, trec)))
 			break;
 		BUG_ON(trec && !f_size);
