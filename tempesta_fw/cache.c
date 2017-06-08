@@ -1077,15 +1077,13 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 					   off, f_size);
 			skb_frag_ref(it->skb, it->frag);
 			ss_skb_adjust_data_len(it->skb, f_size);
-		} else {
-			p = NULL;
-		}
-		if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
-						&resp->body, p, f_size,
-						it->skb))
-			return - ENOMEM;
 
-		++it->frag;
+			if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
+							&resp->body, p, f_size,
+							it->skb))
+				return - ENOMEM;
+			++it->frag;
+		}
 		if (!(trec = tdb_next_rec_chunk(db, trec)))
 			break;
 		BUG_ON(trec && !f_size);
