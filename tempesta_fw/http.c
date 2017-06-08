@@ -1854,10 +1854,15 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 {
 	/* See RFC 7231 4.2.1 */
 	static const unsigned int __read_mostly safe_methods =
-		(1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD);
+		(1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD)
+		| (1 << TFW_HTTP_METH_OPTIONS) | (1 << TFW_HTTP_METH_PROPFIND)
+		| (1 << TFW_HTTP_METH_TRACE);
 	TfwLocation *loc = req->location;
 	TfwLocation *loc_dflt = req->vhost->loc_dflt;
 	TfwLocation *base_loc = (tfw_vhost_get_default())->loc_dflt;
+
+	BUILD_BUG_ON(sizeof(safe_methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
 
 	/*
 	 * Search in the current location of the current vhost. If there
