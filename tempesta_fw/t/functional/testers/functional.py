@@ -104,7 +104,7 @@ class FunctionalTest(unittest.TestCase):
         self.assert_tempesta()
 
 
-def base_message_chain(uri='/'):
+def base_message_chain(uri='/', method='GET'):
     """Base message chain. Looks like simple Curl request to Tempesta and
     response for it.
 
@@ -114,13 +114,13 @@ def base_message_chain(uri='/'):
                         'User-Agent: curl/7.53.1',
                         'Connection: keep-alive',
                         'Accept: */*']
-    request = deproxy.Request.create('GET', request_headers, uri=uri)
+    request = deproxy.Request.create(method, request_headers, uri=uri)
 
     fwd_request_headers = (
         request_headers +
         ['Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version(),
          'X-Forwarded-For: %s' % tf_cfg.cfg.get('Client', 'ip')])
-    fwd_request = deproxy.Request.create('GET', fwd_request_headers, uri=uri)
+    fwd_request = deproxy.Request.create(method, fwd_request_headers, uri=uri)
 
     response_headers = ['Content-type: text/html',
                         'Connection: keep-alive',
