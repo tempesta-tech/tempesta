@@ -36,7 +36,7 @@ MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
 
 /**
- * Create TDB entry and copy @len contigious bytes from @data to the entry.
+ * Create TDB entry and copy @len contiguous bytes from @data to the entry.
  */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
@@ -58,7 +58,7 @@ tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
 {
 	TdbRec *r = tdb_htrie_insert(db->hdr, key, NULL, len);
 	if (!r)
-		TDB_ERR("Cannot create cache entry for key=%#lx\n", key);
+		TDB_ERR("Cannot allocate cache entry for key=%#lx\n", key);
 
 	return r;
 }
