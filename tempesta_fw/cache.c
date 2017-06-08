@@ -852,7 +852,7 @@ static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 		 unsigned long key)
 {
-	TfwCacheEntry *ce, cdata = {{}};
+	TfwCacheEntry *ce;
 	size_t data_len = __cache_entry_size(resp, req);
 	size_t len = data_len;
 
@@ -861,8 +861,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 	 * TDB should provide enough space to place at least head of
 	 * the record key at first chunk.
 	 */
-	ce = (TfwCacheEntry *)tdb_entry_create(db, key, &cdata.ce_body, &len);
-	BUG_ON(len <= sizeof(cdata));
+	ce = (TfwCacheEntry *)tdb_entry_alloc(db, key, &len);
+	BUG_ON(len <= sizeof(TfwCacheEntry));
 	if (!ce)
 		return;
 

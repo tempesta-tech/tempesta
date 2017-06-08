@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015 - 2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,13 +28,16 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.15"
+#define TDB_VERSION	"0.1.16"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
 MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
 
+/**
+ * Create TDB entry and copy @len contigious bytes from @data to the entry.
+ */
 TdbRec *
 tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 {
@@ -46,6 +49,20 @@ tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len)
 	return r;
 }
 EXPORT_SYMBOL(tdb_entry_create);
+
+/**
+ * Create TDB entry to store @len bytes.
+ */
+TdbRec *
+tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
+{
+	TdbRec *r = tdb_htrie_insert(db->hdr, key, NULL, len);
+	if (!r)
+		TDB_ERR("Cannot create cache entry for key=%#lx\n", key);
+
+	return r;
+}
+EXPORT_SYMBOL(tdb_entry_alloc);
 
 /**
  * @return pointer to free area of size at least @size bytes or allocate
