@@ -173,14 +173,21 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
 
 /*
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
- * Currently none of the non-cacheable methods are supported.
- * Note: POST method is cacheable but not supported at this time.
+ * Safe methods that do not depend on a current or authoritative response
+ * are defined as cacheable: GET, HEAD, and POST.
+ * Note: caching of POST method responces is not supported at this time.
+ * Issue #506 describes, which steps must be made to support caching of POST
+ * requests.
  */
-static unsigned int tfw_cache_nc_methods = (1 << TFW_HTTP_METH_POST);
+static unsigned int tfw_cache_nc_methods =
+		~((1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD));
 
 static inline bool
 __cache_method_nc_test(tfw_http_meth_t method)
 {
+	BUILD_BUG_ON(sizeof(tfw_cache_nc_methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
+
 	return tfw_cache_nc_methods & (1 << method);
 }
 
@@ -1393,30 +1400,46 @@ tfw_cache_stop(void)
 		tdb_close(c_nodes[i].db);
 }
 
+static const TfwCfgEnum cache_http_methods_enum[] = {
+	{ "copy",	TFW_HTTP_METH_COPY },
+	{ "delete",	TFW_HTTP_METH_DELETE },
+	{ "get",	TFW_HTTP_METH_GET },
+	{ "head",	TFW_HTTP_METH_HEAD },
+	{ "lock",	TFW_HTTP_METH_LOCK },
+	{ "mkcol",	TFW_HTTP_METH_MKCOL },
+	{ "move",	TFW_HTTP_METH_MOVE },
+	{ "options",	TFW_HTTP_METH_OPTIONS },
+	{ "patch",	TFW_HTTP_METH_PATCH },
+	{ "post",	TFW_HTTP_METH_POST },
+	{ "propfind",	TFW_HTTP_METH_PROPFIND },
+	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "put",	TFW_HTTP_METH_PUT },
+	{ "trace",	TFW_HTTP_METH_TRACE },
+	{ "unlock",	TFW_HTTP_METH_UNLOCK },
+	/* Unknown methods can't be cached. */
+	{}
+};
+
 static int
 tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned int i, method;
 	const char *val;
 
-	BUILD_BUG_ON(sizeof(cache_cfg.methods) * 8 < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(cache_cfg.methods) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
+	BUILD_BUG_ON(sizeof(method) * BITS_PER_BYTE < _TFW_HTTP_METH_COUNT);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (!strcasecmp(val, "GET")) {
-			method = TFW_HTTP_METH_GET;
-		} else if (!strcasecmp(val, "HEAD")) {
-			method = TFW_HTTP_METH_HEAD;
-		} else if (!strcasecmp(val, "POST")) {
-			method = TFW_HTTP_METH_POST;
-		} else {
+		if (tfw_cfg_map_enum(cache_http_methods_enum, val, &method)) {
 			TFW_ERR_NL("%s: unsupported method: '%s'\n",
 				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_nc_test(method)) {
-			TFW_ERR_NL("%s: non-cacheable method: '%s'\n",
+			TFW_WARN_NL("%s: non-cacheable method '%s' is set "
+				    "as cacheable\n",
 				   cs->name, val);
-			return -EINVAL;
 		}
 		if (__cache_method_test(method)) {
 			TFW_WARN_NL("%s: duplicate method: '%s'\n",

@@ -35,10 +35,23 @@ static TfwCfgEnum const __read_mostly tfw_match_enum[] = {
 /* Mappings for HTTP request methods. */
 static TfwCfgEnum const __read_mostly tfw_method_enum[] = {
 	{ "*",		UINT_MAX },
+	{ "COPY",	1 << TFW_HTTP_METH_COPY },
+	{ "DELETE",	1 << TFW_HTTP_METH_DELETE },
 	{ "GET",	1 << TFW_HTTP_METH_GET },
 	{ "HEAD",	1 << TFW_HTTP_METH_HEAD },
+	{ "LOCK",	1 << TFW_HTTP_METH_LOCK },
+	{ "MKCOL",	1 << TFW_HTTP_METH_MKCOL },
+	{ "MOVE",	1 << TFW_HTTP_METH_MOVE },
+	{ "OPTIONS",	1 << TFW_HTTP_METH_OPTIONS },
+	{ "PATCH",	1 << TFW_HTTP_METH_PATCH },
 	{ "POST",	1 << TFW_HTTP_METH_POST },
+	{ "PROPFIND",	1 << TFW_HTTP_METH_PROPFIND },
+	{ "PROPPATCH",	1 << TFW_HTTP_METH_PROPPATCH },
+	{ "PUT",	1 << TFW_HTTP_METH_PUT },
+	{ "TRACE",	1 << TFW_HTTP_METH_TRACE },
+	{ "UNLOCK",	1 << TFW_HTTP_METH_UNLOCK, },
 	{ "PURGE",	1 << TFW_HTTP_METH_PURGE },
+	{ "unknown",	1 << _TFW_HTTP_METH_UNKNOWN },
 	{ 0 }
 };
 
@@ -394,6 +407,8 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwLocation *loc = tfwcfg_this_location;
 	TfwNipDef *nipdef;
 
+	BUILD_BUG_ON(sizeof(tfw_method_enum[0].value) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
 	BUG_ON(!tfwcfg_this_location);
 
 	if (ce->attr_n) {

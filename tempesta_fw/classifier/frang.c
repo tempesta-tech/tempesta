@@ -359,7 +359,7 @@ frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra)
 static int
 frang_http_methods(const TfwHttpReq *req, FrangAcc *ra)
 {
-	unsigned long mbit = (1 << req->method);
+	unsigned long mbit = (1UL << req->method);
 
 	if (!(frang_cfg.http_methods_mask & mbit)) {
 		frang_msg("restricted HTTP method", &FRANG_ACC2CLI(ra)->addr,
@@ -691,7 +691,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_Method) {
 		if (frang_cfg.http_methods_mask) {
-			if (req->method == TFW_HTTP_METH_NONE) {
+			if (req->method == _TFW_HTTP_METH_NONE) {
 				__FRANG_FSM_EXIT();
 			}
 			r = frang_http_methods(req, ra);
@@ -865,9 +865,22 @@ static TfwClassifier frang_class_ops = {
 };
 
 static const TfwCfgEnum frang_http_methods_enum[] = {
-	{ "get", TFW_HTTP_METH_GET },
-	{ "post", TFW_HTTP_METH_POST },
-	{ "head", TFW_HTTP_METH_HEAD },
+	{ "copy",	TFW_HTTP_METH_COPY },
+	{ "delete",	TFW_HTTP_METH_DELETE },
+	{ "get",	TFW_HTTP_METH_GET },
+	{ "head",	TFW_HTTP_METH_HEAD },
+	{ "lock",	TFW_HTTP_METH_LOCK },
+	{ "mkcol",	TFW_HTTP_METH_MKCOL },
+	{ "move",	TFW_HTTP_METH_MOVE },
+	{ "options",	TFW_HTTP_METH_OPTIONS },
+	{ "patch",	TFW_HTTP_METH_PATCH },
+	{ "post",	TFW_HTTP_METH_POST },
+	{ "propfind",	TFW_HTTP_METH_PROPFIND },
+	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "put",	TFW_HTTP_METH_PUT },
+	{ "trace",	TFW_HTTP_METH_TRACE },
+	{ "unlock",	TFW_HTTP_METH_UNLOCK },
+	{ "unknown",	_TFW_HTTP_METH_UNKNOWN }, /* Pass unknown methods. */
 	{}
 };
 
@@ -877,6 +890,9 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int i, r, method_id;
 	const char *method_str;
 	unsigned long methods_mask = 0;
+
+	BUILD_BUG_ON(sizeof(frang_cfg.http_methods_mask) * BITS_PER_BYTE
+		     < _TFW_HTTP_METH_COUNT);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, method_str) {
 		r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
@@ -888,7 +904,7 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 		TFW_DBG3("frang: parsed method: %s => %d\n",
 			 method_str, method_id);
-		methods_mask |= (1 << method_id);
+		methods_mask |= (1UL << method_id);
 	}
 
 	TFW_DBG3("parsed methods_mask: %#lx\n", methods_mask);
