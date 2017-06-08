@@ -1,0 +1,28 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Wed, 14 Sep 2016 17:57:03 +0200
+Subject: [PATCH] fs/dcache: init in_lookup_hashtable
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+in_lookup_hashtable was introduced in commit 94bdd655caba ("parallel
+lookups machinery, part 3") and never initialized but since it is in
+the data it is all zeros. But we need this for -RT.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ fs/dcache.c |    5 +++++
+ 1 file changed, 5 insertions(+)
+
+--- a/fs/dcache.c
++++ b/fs/dcache.c
+@@ -3601,6 +3601,11 @@ EXPORT_SYMBOL(d_genocide);
+ 
+ void __init vfs_caches_init_early(void)
+ {
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(in_lookup_hashtable); i++)
++		INIT_HLIST_BL_HEAD(&in_lookup_hashtable[i]);
++
+ 	dcache_init_early();
+ 	inode_init_early();
+ }

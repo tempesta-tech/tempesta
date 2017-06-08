@@ -1,0 +1,16 @@
+Package: linux-headers-@abiname@-all
+Build-Profiles: <!stage1>
+Depends: linux-headers-@abiname@-all-${kernel:Arch} (= ${binary:Version}), ${misc:Depends}
+Description: All header files for Linux @version@ (meta-package)
+ This package depends against all architecture-specific kernel header files
+ for Linux kernel version @upstreamversion@, generally used for building out-of-tree
+ kernel modules.
+
+Package: linux-headers-@abiname@-all-@arch@
+Build-Profiles: <!stage1>
+Depends: ${misc:Depends}
+Description: All header files for Linux @version@ (meta-package)
+ This package depends against all architecture-specific kernel header files
+ for Linux kernel version @upstreamversion@, generally used for building out-of-tree
+ kernel modules.
+

@@ -1,0 +1,2 @@
+#include <usb-modules>
+ehci-orion

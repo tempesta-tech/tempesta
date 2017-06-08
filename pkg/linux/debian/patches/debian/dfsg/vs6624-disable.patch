@@ -1,0 +1,15 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sun, 27 May 2012 01:56:58 +0100
+Subject: vs6624: mark as broken
+Forwarded: not-needed
+
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -422,6 +422,7 @@ config VIDEO_OV7670
+ 	  controller.
+ 
+ config VIDEO_VS6624
++	depends on BROKEN
+ 	tristate "ST VS6624 sensor support"
+ 	depends on VIDEO_V4L2 && I2C
+ 	depends on MEDIA_CAMERA_SUPPORT

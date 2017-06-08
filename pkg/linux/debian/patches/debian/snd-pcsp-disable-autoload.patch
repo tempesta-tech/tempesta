@@ -1,0 +1,30 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Wed, 05 Feb 2014 23:01:30 +0000
+Subject: snd-pcsp: Disable autoload
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/697709
+
+There are two drivers claiming the platform:pcspkr device:
+- pcspkr creates an input(!) device that can only beep
+- snd-pcsp creates an equivalent input device plus a PCM device that can
+  play barely recognisable renditions of sampled sound
+
+snd-pcsp is blacklisted by the alsa-base package, but not everyone
+installs that.  On PCs where no sound is wanted at all, both drivers
+will still be loaded and one or other will complain that it couldn't
+claim the relevant I/O range.
+
+In case anyone finds snd-pcsp useful, we continue to build it.  But
+remove the alias, to ensure it's not loaded where it's not wanted.
+
+--- a/sound/drivers/pcsp/pcsp.c
++++ b/sound/drivers/pcsp/pcsp.c
+@@ -21,7 +21,7 @@ MODULE_AUTHOR("Stas Sergeev <stsp@users.
+ MODULE_DESCRIPTION("PC-Speaker driver");
+ MODULE_LICENSE("GPL");
+ MODULE_SUPPORTED_DEVICE("{{PC-Speaker, pcsp}}");
+-MODULE_ALIAS("platform:pcspkr");
++/*MODULE_ALIAS("platform:pcspkr");*/
+ 
+ static int index = SNDRV_DEFAULT_IDX1;	/* Index 0-MAX */
+ static char *id = SNDRV_DEFAULT_STR1;	/* ID for this card */

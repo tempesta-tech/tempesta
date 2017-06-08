@@ -1,0 +1,113 @@
+##
+## file: arch/powerpc/Kconfig
+##
+CONFIG_HIGHMEM=y
+# CONFIG_ISA is not set
+
+##
+## file: arch/powerpc/platforms/512x/Kconfig
+##
+# CONFIG_MPC5121_ADS is not set
+
+##
+## file: arch/powerpc/platforms/52xx/Kconfig
+##
+CONFIG_PPC_MPC52xx=y
+# CONFIG_PPC_MPC5200_SIMPLE is not set
+CONFIG_PPC_EFIKA=y
+# CONFIG_PPC_LITE5200 is not set
+CONFIG_PPC_MPC5200_BUGFIX=y
+
+##
+## file: arch/powerpc/platforms/chrp/Kconfig
+##
+CONFIG_PPC_CHRP=y
+
+##
+## file: arch/powerpc/platforms/Kconfig.cputype
+##
+# CONFIG_PPC64 is not set
+## choice: Processor Type
+# CONFIG_PPC_85xx is not set
+# CONFIG_PPC_8xx is not set
+# CONFIG_40x is not set
+# CONFIG_44x is not set
+# CONFIG_E200 is not set
+## end choice
+CONFIG_ALTIVEC=y
+# CONFIG_SMP is not set
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_PATA_MPC52xx=m
+
+##
+## file: drivers/block/Kconfig
+##
+CONFIG_MAC_FLOPPY=y
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_DMADEVICES=y
+
+##
+## file: drivers/dma/bestcomm/Kconfig
+##
+CONFIG_PPC_BESTCOMM=m
+
+##
+## file: drivers/macintosh/Kconfig
+##
+CONFIG_SENSORS_AMS=m
+CONFIG_SENSORS_AMS_PMU=y
+CONFIG_SENSORS_AMS_I2C=y
+
+##
+## file: drivers/net/ethernet/freescale/Kconfig
+##
+CONFIG_FEC_MPC52xx=m
+CONFIG_FEC_MPC52xx_MDIO=y
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI_MPC52xx_PSC=m
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_MPC52xx=y
+CONFIG_SERIAL_MPC52xx_CONSOLE=y
+CONFIG_SERIAL_MPC52xx_CONSOLE_BAUD=115200
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB_CONTROL=y
+CONFIG_FB_PLATINUM=y
+CONFIG_FB_VALKYRIE=y
+CONFIG_FB_CT65550=y
+CONFIG_FB_IMSTT=y
+CONFIG_FB_MATROX=y
+CONFIG_FB_ATY128=y
+CONFIG_FB_ATY=y
+CONFIG_FB_SIS=y
+CONFIG_FB_3DFX=y
+CONFIG_FB_VOODOO1=y
+
+##
+## file: init/Kconfig
+##
+CONFIG_SYSFS_SYSCALL=y
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_FLATMEM_MANUAL=y
+# CONFIG_DISCONTIGMEM_MANUAL is not set
+# CONFIG_SPARSEMEM_MANUAL is not set
+## end choice
+

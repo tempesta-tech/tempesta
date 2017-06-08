@@ -1,0 +1,155 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Sep 2010 04:33:34 +0100
+Subject: Kbuild: kconfig: Verbose version of --listnewconfig
+Forwarded: http://thread.gmane.org/gmane.linux.kbuild.devel/5774
+
+If the KBUILD_VERBOSE environment variable is set to non-zero, show
+the default values of new symbols and not just their names.
+
+Based on work by Bastian Blank <waldi@debian.org> and
+maximilian attems <max@stro.at>.  Simplified by Michal Marek
+<mmarek@suse.cz>.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ scripts/kconfig/conf.c      |   42 ++++++++++++++++++++++++++++++++----------
+ scripts/kconfig/confdata.c  |    9 +++++++++
+ scripts/kconfig/expr.h      |    2 ++
+ scripts/kconfig/lkc_proto.h |    1 +
+ 4 files changed, 44 insertions(+), 10 deletions(-)
+
+--- a/scripts/kconfig/conf.c
++++ b/scripts/kconfig/conf.c
+@@ -369,7 +369,6 @@ static void conf(struct menu *menu)
+ 		switch (prop->type) {
+ 		case P_MENU:
+ 			if ((input_mode == silentoldconfig ||
+-			     input_mode == listnewconfig ||
+ 			     input_mode == olddefconfig) &&
+ 			    rootEntry != menu) {
+ 				check_conf(menu);
+@@ -430,11 +429,7 @@ static void check_conf(struct menu *menu
+ 	if (sym && !sym_has_value(sym)) {
+ 		if (sym_is_changable(sym) ||
+ 		    (sym_is_choice(sym) && sym_get_tristate_value(sym) == yes)) {
+-			if (input_mode == listnewconfig) {
+-				if (sym->name && !sym_is_choice_value(sym)) {
+-					printf("%s%s\n", CONFIG_, sym->name);
+-				}
+-			} else if (input_mode != olddefconfig) {
++			if (input_mode != olddefconfig) {
+ 				if (!conf_cnt++)
+ 					printf(_("*\n* Restart config...\n*\n"));
+ 				rootEntry = menu_get_parent_menu(menu);
+@@ -447,6 +442,30 @@ static void check_conf(struct menu *menu
+ 		check_conf(child);
+ }
+ 
++static void report_conf(struct menu *menu, bool verbose)
++{
++	struct symbol *sym;
++	struct menu *child;
++
++	if (!menu_is_visible(menu))
++		return;
++
++	if (verbose && menu == &rootmenu) {
++		printf("\n#\n"
++		       "# Changes:\n"
++		       "#\n");
++	}
++
++	sym = menu->sym;
++	if (sym && (sym->flags & SYMBOL_NEW) &&
++	    sym_is_changable(sym) && sym->name && !sym_is_choice_value(sym)) {
++		conf_write_new_symbol(stdout, sym, verbose);
++	}
++
++	for (child = menu->list; child; child = child->next)
++		report_conf(child, verbose);
++}
++
+ static struct option long_opts[] = {
+ 	{"oldaskconfig",    no_argument,       NULL, oldaskconfig},
+ 	{"oldconfig",       no_argument,       NULL, oldconfig},
+@@ -494,6 +513,7 @@ int main(int ac, char **av)
+ 	const char *progname = av[0];
+ 	int opt;
+ 	const char *name, *defconfig_file = NULL /* gcc uninit */;
++	const char *value;
+ 	struct stat tmpstat;
+ 
+ 	setlocale(LC_ALL, "");
+@@ -673,16 +693,18 @@ int main(int ac, char **av)
+ 		input_mode = silentoldconfig;
+ 		/* fall through */
+ 	case oldconfig:
+-	case listnewconfig:
+ 	case olddefconfig:
+ 	case silentoldconfig:
+ 		/* Update until a loop caused no more changes */
+ 		do {
+ 			conf_cnt = 0;
+ 			check_conf(&rootmenu);
+-		} while (conf_cnt &&
+-			 (input_mode != listnewconfig &&
+-			  input_mode != olddefconfig));
++		} while (conf_cnt && input_mode != olddefconfig);
++		break;
++	case listnewconfig:
++		conf_set_all_new_symbols(def_default);
++		value = getenv("KBUILD_VERBOSE");
++		report_conf(&rootmenu, value && atoi(value));
+ 		break;
+ 	}
+ 
+--- a/scripts/kconfig/confdata.c
++++ b/scripts/kconfig/confdata.c
+@@ -738,6 +738,14 @@ next_menu:
+ 	return 0;
+ }
+ 
++void conf_write_new_symbol(FILE *fp, struct symbol *sym, bool verbose)
++{
++	if (verbose)
++		conf_write_symbol(fp, sym, &kconfig_printer_cb, NULL);
++	else
++		fprintf(fp, "%s%s\n", CONFIG_, sym->name);
++}
++
+ int conf_write(const char *name)
+ {
+ 	FILE *out;
+@@ -1171,7 +1179,10 @@ bool conf_set_all_new_symbols(enum conf_
+ 	bool has_changed = false;
+ 
+ 	for_all_symbols(i, sym) {
+-		if (sym_has_value(sym) || (sym->flags & SYMBOL_VALID))
++		if (sym_has_value(sym))
++			continue;
++		sym->flags |= SYMBOL_NEW;
++		if (sym->flags & SYMBOL_VALID)
+ 			continue;
+ 		switch (sym_get_type(sym)) {
+ 		case S_BOOLEAN:
+--- a/scripts/kconfig/expr.h
++++ b/scripts/kconfig/expr.h
+@@ -114,6 +114,8 @@ struct symbol {
+ /* Set symbol to y if allnoconfig; used for symbols that hide others */
+ #define SYMBOL_ALLNOCONFIG_Y 0x200000
+ 
++#define SYMBOL_NEW        0x400000 /* symbol is new (loaded config did not provide a value) */
++
+ #define SYMBOL_MAXLENGTH	256
+ #define SYMBOL_HASHSIZE		9973
+ 
+--- a/scripts/kconfig/lkc_proto.h
++++ b/scripts/kconfig/lkc_proto.h
+@@ -7,6 +7,7 @@ int conf_read_simple(const char *name, i
+ int conf_write_defconfig(const char *name);
+ int conf_write(const char *name);
+ int conf_write_autoconf(void);
++void conf_write_new_symbol(FILE*, struct symbol*, bool);
+ bool conf_get_changed(void);
+ void conf_set_changed_callback(void (*fn)(void));
+ void conf_set_message_callback(void (*fn)(const char *fmt, va_list ap));

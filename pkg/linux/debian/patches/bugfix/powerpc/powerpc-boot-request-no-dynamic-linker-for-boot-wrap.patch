@@ -1,0 +1,70 @@
+From: Nicholas Piggin <npiggin@gmail.com>
+Date: Mon, 28 Nov 2016 12:42:26 +1100
+Subject: powerpc/boot: Request no dynamic linker for boot wrapper
+Origin: https://git.kernel.org/linus/ff45000fcb56b5b0f1a14a865d3541746d838a0a
+Bug-Debian: https://bugs.debian.org/848851
+
+The boot wrapper performs its own relocations and does not require
+PT_INTERP segment. However currently we don't tell the linker that.
+
+Prior to binutils 2.28 that works OK. But since binutils commit
+1a9ccd70f9a7 ("Fix the linker so that it will not silently generate ELF
+binaries with invalid program headers. Fix readelf to report such
+invalid binaries.") binutils tries to create a program header segment
+due to PT_INTERP, and the link fails because there is no space for it:
+
+  ld: arch/powerpc/boot/zImage.pseries: Not enough room for program headers, try linking with -N
+  ld: final link failed: Bad value
+
+So tell the linker not to do that, by passing --no-dynamic-linker.
+
+Cc: stable@vger.kernel.org
+Reported-by: Anton Blanchard <anton@samba.org>
+Signed-off-by: Nicholas Piggin <npiggin@gmail.com>
+[mpe: Drop dependency on ld-version.sh and massage change log]
+Signed-off-by: Michael Ellerman <mpe@ellerman.id.au>
+[bwh: Backported to 4.8: adjust context]
+---
+ arch/powerpc/boot/wrapper | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+--- a/arch/powerpc/boot/wrapper
++++ b/arch/powerpc/boot/wrapper
+@@ -161,6 +161,28 @@ case "$elfformat" in
+     elf32-powerpc)	format=elf32ppc	;;
+ esac
+ 
++ld_version()
++{
++    # Poached from scripts/ld-version.sh, but we don't want to call that because
++    # this script (wrapper) is distributed separately from the kernel source.
++    # Extract linker version number from stdin and turn into single number.
++    awk '{
++	gsub(".*\\)", "");
++	gsub(".*version ", "");
++	gsub("-.*", "");
++	split($1,a, ".");
++	print a[1]*100000000 + a[2]*1000000 + a[3]*10000;
++	exit
++    }'
++}
++
++# Do not include PT_INTERP segment when linking pie. Non-pie linking
++# just ignores this option.
++LD_VERSION=$(${CROSS}ld --version | ld_version)
++LD_NO_DL_MIN_VERSION=$(echo 2.26 | ld_version)
++if [ "$LD_VERSION" -ge "$LD_NO_DL_MIN_VERSION" ] ; then
++	nodl="--no-dynamic-linker"
++fi
+ 
+ platformo=$object/"$platform".o
+ lds=$object/zImage.lds
+@@ -417,7 +439,7 @@ if [ "$platform" != "miboot" ]; then
+     if [ -n "$link_address" ] ; then
+         text_start="-Ttext $link_address"
+     fi
+-    ${CROSS}ld -m $format -T $lds $text_start $pie -o "$ofile" \
++    ${CROSS}ld -m $format -T $lds $text_start $pie $nodl -o "$ofile" \
+ 	$platformo $tmp $object/wrapper.a
+     rm $tmp
+ fi

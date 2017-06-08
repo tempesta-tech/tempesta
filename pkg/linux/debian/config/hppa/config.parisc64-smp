@@ -1,0 +1,58 @@
+##
+## file: arch/parisc/Kconfig
+##
+## choice: Processor type
+# CONFIG_PA7000 is not set
+CONFIG_PA8X00=y
+## end choice
+CONFIG_64BIT=y
+CONFIG_SMP=y
+CONFIG_NR_CPUS=8
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_PATA_SIL680=m
+
+##
+## file: drivers/char/agp/Kconfig
+##
+#. for ATI FireGL DRM in C8000 workstation
+CONFIG_AGP=y
+CONFIG_AGP_PARISC=y
+
+##
+## file: drivers/char/ipmi/Kconfig
+##
+CONFIG_IPMI_HANDLER=m
+CONFIG_IPMI_DEVICE_INTERFACE=m
+CONFIG_IPMI_SI=m
+CONFIG_IPMI_WATCHDOG=m
+CONFIG_IPMI_POWEROFF=m
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+#. for ATI FireGL DRM in C8000 workstation
+CONFIG_DRM=y
+CONFIG_DRM_RADEON=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+
+##
+## file: drivers/i2c/algos/Kconfig
+##
+CONFIG_I2C_ALGOBIT=y
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+# CONFIG_FLATMEM_MANUAL is not set
+CONFIG_DISCONTIGMEM_MANUAL=y
+# CONFIG_SPARSEMEM_MANUAL is not set
+## end choice
+

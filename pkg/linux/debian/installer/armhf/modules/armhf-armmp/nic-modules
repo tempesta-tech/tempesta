@@ -1,0 +1,14 @@
+#include <nic-modules>
+mvneta
+mvmdio
+smsc911x
+stmmac
+stmmac-platform
+dwmac-generic
+dwmac-altr-socfpga
+dwmac-sunxi
+sun4i-emac
+xgmac
+ti_cpsw
+davinci_mdio
+davinci_cpdma

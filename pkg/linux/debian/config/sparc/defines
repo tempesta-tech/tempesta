@@ -1,0 +1,4 @@
+[base]
+kernel-arch: sparc
+featuresets:
+# empty; sparc must be part of a multiarch installation with a sparc64 kernel

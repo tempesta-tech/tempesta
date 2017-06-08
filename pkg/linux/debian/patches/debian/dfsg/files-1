@@ -1,0 +1,20 @@
+rm Documentation/netlabel/draft-ietf-cipso-ipsecurity-01.txt
+
+# Some of this is DFSG-free, but it has been moved to firmware-free so
+# we don't need it in linux as well.
+rm firmware
+
+rm arch/powerpc/sysdev/micropatch.c
+
+rm drivers/media/usb/dvb-usb/af9005-script.h
+
+rm drivers/media/i2c/vs6624.c
+
+rm drivers/net/appletalk/cops.c
+rm drivers/net/appletalk/cops.h
+rm drivers/net/appletalk/cops_ffdrv.h
+rm drivers/net/appletalk/cops_ltdrv.h
+
+# These include apparently obfuscated code
+rm drivers/video/fbdev/nvidia/
+rm drivers/video/fbdev/riva/

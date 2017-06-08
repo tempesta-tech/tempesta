@@ -1,0 +1,9 @@
+Package: xen-linux-system-@abiname@@localversion@
+Build-Profiles: <!stage1>
+Section: metapackages
+Depends: linux-image-@abiname@@localversion@ (>= ${binary:Version}),
+ linux-image-@abiname@@localversion@ (<< ${binary:Version}+deb),
+ ${misc:Depends}
+Description: Xen system with Linux @upstreamversion@ on @class@ (meta-package)
+ This package depends on the binary Linux image and hypervisors.
+

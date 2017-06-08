@@ -1,0 +1,32 @@
+##
+## file: arch/powerpc/Kconfig
+##
+CONFIG_HIGHMEM=y
+CONFIG_CMDLINE_BOOL=y
+CONFIG_CMDLINE="console=ttyS0,115200"
+
+##
+## file: arch/powerpc/platforms/85xx/Kconfig
+##
+CONFIG_MPC8540_ADS=y
+CONFIG_MPC8560_ADS=y
+CONFIG_MPC85xx_CDS=y
+CONFIG_MPC85xx_MDS=y
+CONFIG_MPC8536_DS=y
+CONFIG_MPC85xx_DS=y
+CONFIG_MPC85xx_RDB=y
+
+##
+## file: arch/powerpc/platforms/Kconfig.cputype
+##
+## choice: Processor Type
+CONFIG_PPC_85xx=y
+## end choice
+CONFIG_PHYS_64BIT=y
+CONFIG_SMP=y
+
+##
+## file: drivers/gpio/Kconfig
+##
+CONFIG_GPIOLIB=y
+

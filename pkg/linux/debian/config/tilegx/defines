@@ -1,0 +1,4 @@
+[base]
+kernel-arch: tile
+featuresets:
+# empty; just building headers yet

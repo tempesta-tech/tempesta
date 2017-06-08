@@ -1,0 +1,38 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Mon, 05 Dec 2016 18:09:34 +0100
+Subject: net: free the sbs in skbufhead
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+In "skbufhead-raw-lock.patch" we moved the memory to a list and the hunk that
+cleared the list got misplaced.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ net/core/dev.c |    8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -5201,13 +5201,21 @@ static void net_rx_action(struct softirq
+ 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+ 	unsigned long time_limit = jiffies + 2;
+ 	int budget = netdev_budget;
++	struct sk_buff_head tofree_q;
++	struct sk_buff *skb;
+ 	LIST_HEAD(list);
+ 	LIST_HEAD(repoll);
+ 
++	__skb_queue_head_init(&tofree_q);
++
+ 	local_irq_disable();
++	skb_queue_splice_init(&sd->tofree_queue, &tofree_q);
+ 	list_splice_init(&sd->poll_list, &list);
+ 	local_irq_enable();
+ 
++	while ((skb = __skb_dequeue(&tofree_q)))
++		kfree_skb(skb);
++
+ 	for (;;) {
+ 		struct napi_struct *n;
+ 

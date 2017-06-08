@@ -1,0 +1,26 @@
+From: Mike Galbraith <bitbucket@online.de>
+Date: Fri, 30 Aug 2013 07:57:25 +0200
+Subject: hwlat-detector: Don't ignore threshold module parameter
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+If the user specified a threshold at module load time, use it.
+
+
+Acked-by: Steven Rostedt <rostedt@goodmis.org>
+Signed-off-by: Mike Galbraith <bitbucket@online.de>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ drivers/misc/hwlat_detector.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/misc/hwlat_detector.c
++++ b/drivers/misc/hwlat_detector.c
+@@ -414,7 +414,7 @@ static int init_stats(void)
+ 		goto out;
+ 
+ 	__reset_stats();
+-	data.threshold = DEFAULT_LAT_THRESHOLD;	    /* threshold us */
++	data.threshold = threshold ?: DEFAULT_LAT_THRESHOLD; /* threshold us */
+ 	data.sample_window = DEFAULT_SAMPLE_WINDOW; /* window us */
+ 	data.sample_width = DEFAULT_SAMPLE_WIDTH;   /* width us */
+ 

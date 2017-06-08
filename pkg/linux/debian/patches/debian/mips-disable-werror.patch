@@ -1,0 +1,28 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 13 Sep 2010 02:16:18 +0100
+Subject: [PATCH] Partially revert "MIPS: Add -Werror to arch/mips/Kbuild"
+Forwarded: not-needed
+
+This reverts commit 66f9ba101f54bda63ab1db97f9e9e94763d0651b.
+
+We really don't want to add -Werror anywhere.
+---
+ arch/mips/Kbuild |    5 -----
+ 1 files changed, 0 insertions(+), 5 deletions(-)
+
+diff --git a/arch/mips/Kbuild b/arch/mips/Kbuild
+index e322d65..2e6b28f 100644
+--- a/arch/mips/Kbuild
++++ b/arch/mips/Kbuild
+@@ -1,8 +1,3 @@
+-# Fail on warnings - also for files referenced in subdirs
+-# -Werror can be disabled for specific files using:
+-# CFLAGS_<file.o> := -Wno-error
+-subdir-ccflags-y := -Werror
+-
+ # platform specific definitions
+ include arch/mips/Kbuild.platforms
+ obj-y := $(platform-y)
+-- 
+1.7.1
+

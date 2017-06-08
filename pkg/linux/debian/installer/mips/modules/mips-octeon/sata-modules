@@ -1,0 +1,3 @@
+#include <sata-modules>
+ahci_platform
+ahci_octeon

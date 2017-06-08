@@ -1,0 +1,16 @@
+##
+## file: arch/alpha/Kconfig
+##
+CONFIG_SMP=y
+CONFIG_NR_CPUS=64
+
+##
+## file: arch/alpha/Kconfig.debug
+##
+# CONFIG_ALPHA_LEGACY_START_ADDRESS is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI=y
+

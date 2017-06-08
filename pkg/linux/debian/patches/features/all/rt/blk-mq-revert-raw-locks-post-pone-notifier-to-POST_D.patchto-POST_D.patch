@@ -1,0 +1,84 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Sat, 3 May 2014 11:00:29 +0200
+Subject: blk-mq: revert raw locks, post pone notifier to POST_DEAD
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The blk_mq_cpu_notify_lock should be raw because some CPU down levels
+are called with interrupts off. The notifier itself calls currently one
+function that is blk_mq_hctx_notify().
+That function acquires the ctx->lock lock which is sleeping and I would
+prefer to keep it that way. That function only moves IO-requests from
+the CPU that is going offline to another CPU and it is currently the
+only one. Therefore I revert the list lock back to sleeping spinlocks
+and let the notifier run at POST_DEAD time.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ block/blk-mq-cpu.c |   17 ++++++++++-------
+ block/blk-mq.c     |    2 +-
+ 2 files changed, 11 insertions(+), 8 deletions(-)
+
+--- a/block/blk-mq-cpu.c
++++ b/block/blk-mq-cpu.c
+@@ -16,7 +16,7 @@
+ #include "blk-mq.h"
+ 
+ static LIST_HEAD(blk_mq_cpu_notify_list);
+-static DEFINE_RAW_SPINLOCK(blk_mq_cpu_notify_lock);
++static DEFINE_SPINLOCK(blk_mq_cpu_notify_lock);
+ 
+ static int blk_mq_main_cpu_notify(struct notifier_block *self,
+ 				  unsigned long action, void *hcpu)
+@@ -25,7 +25,10 @@ static int blk_mq_main_cpu_notify(struct
+ 	struct blk_mq_cpu_notifier *notify;
+ 	int ret = NOTIFY_OK;
+ 
+-	raw_spin_lock(&blk_mq_cpu_notify_lock);
++	if (action != CPU_POST_DEAD)
++		return NOTIFY_OK;
++
++	spin_lock(&blk_mq_cpu_notify_lock);
+ 
+ 	list_for_each_entry(notify, &blk_mq_cpu_notify_list, list) {
+ 		ret = notify->notify(notify->data, action, cpu);
+@@ -33,7 +36,7 @@ static int blk_mq_main_cpu_notify(struct
+ 			break;
+ 	}
+ 
+-	raw_spin_unlock(&blk_mq_cpu_notify_lock);
++	spin_unlock(&blk_mq_cpu_notify_lock);
+ 	return ret;
+ }
+ 
+@@ -41,16 +44,16 @@ void blk_mq_register_cpu_notifier(struct
+ {
+ 	BUG_ON(!notifier->notify);
+ 
+-	raw_spin_lock(&blk_mq_cpu_notify_lock);
++	spin_lock(&blk_mq_cpu_notify_lock);
+ 	list_add_tail(&notifier->list, &blk_mq_cpu_notify_list);
+-	raw_spin_unlock(&blk_mq_cpu_notify_lock);
++	spin_unlock(&blk_mq_cpu_notify_lock);
+ }
+ 
+ void blk_mq_unregister_cpu_notifier(struct blk_mq_cpu_notifier *notifier)
+ {
+-	raw_spin_lock(&blk_mq_cpu_notify_lock);
++	spin_lock(&blk_mq_cpu_notify_lock);
+ 	list_del(&notifier->list);
+-	raw_spin_unlock(&blk_mq_cpu_notify_lock);
++	spin_unlock(&blk_mq_cpu_notify_lock);
+ }
+ 
+ void blk_mq_init_cpu_notifier(struct blk_mq_cpu_notifier *notifier,
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -1687,7 +1687,7 @@ static int blk_mq_hctx_notify(void *data
+ {
+ 	struct blk_mq_hw_ctx *hctx = data;
+ 
+-	if (action == CPU_DEAD || action == CPU_DEAD_FROZEN)
++	if (action == CPU_POST_DEAD)
+ 		return blk_mq_hctx_cpu_offline(hctx, cpu);
+ 
+ 	/*

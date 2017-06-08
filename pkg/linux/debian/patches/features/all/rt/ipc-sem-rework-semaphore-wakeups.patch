@@ -1,0 +1,70 @@
+Subject: ipc/sem: Rework semaphore wakeups
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Wed, 14 Sep 2011 11:57:04 +0200
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Current sysv sems have a weird ass wakeup scheme that involves keeping
+preemption disabled over a potential O(n^2) loop and busy waiting on
+that on other CPUs.
+
+Kill this and simply wake the task directly from under the sem_lock.
+
+This was discovered by a migrate_disable() debug feature that
+disallows:
+
+  spin_lock();
+  preempt_disable();
+  spin_unlock()
+  preempt_enable();
+
+Cc: Manfred Spraul <manfred@colorfullife.com>
+Suggested-by: Thomas Gleixner <tglx@linutronix.de>
+Reported-by: Mike Galbraith <efault@gmx.de>
+Signed-off-by: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Cc: Manfred Spraul <manfred@colorfullife.com>
+Link: http://lkml.kernel.org/r/1315994224.5040.1.camel@twins
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ ipc/sem.c |   10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+--- a/ipc/sem.c
++++ b/ipc/sem.c
+@@ -712,6 +712,13 @@ static int perform_atomic_semop(struct s
+ static void wake_up_sem_queue_prepare(struct list_head *pt,
+ 				struct sem_queue *q, int error)
+ {
++#ifdef CONFIG_PREEMPT_RT_BASE
++	struct task_struct *p = q->sleeper;
++	get_task_struct(p);
++	q->status = error;
++	wake_up_process(p);
++	put_task_struct(p);
++#else
+ 	if (list_empty(pt)) {
+ 		/*
+ 		 * Hold preempt off so that we don't get preempted and have the
+@@ -723,6 +730,7 @@ static void wake_up_sem_queue_prepare(st
+ 	q->pid = error;
+ 
+ 	list_add_tail(&q->list, pt);
++#endif
+ }
+ 
+ /**
+@@ -736,6 +744,7 @@ static void wake_up_sem_queue_prepare(st
+  */
+ static void wake_up_sem_queue_do(struct list_head *pt)
+ {
++#ifndef CONFIG_PREEMPT_RT_BASE
+ 	struct sem_queue *q, *t;
+ 	int did_something;
+ 
+@@ -748,6 +757,7 @@ static void wake_up_sem_queue_do(struct
+ 	}
+ 	if (did_something)
+ 		preempt_enable();
++#endif
+ }
+ 
+ static void unlink_queue(struct sem_array *sma, struct sem_queue *q)

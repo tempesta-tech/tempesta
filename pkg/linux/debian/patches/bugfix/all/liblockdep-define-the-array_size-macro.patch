@@ -1,0 +1,26 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 21:14:14 +0100
+Subject: [PATCH 3/7] liblockdep: Define the ARRAY_SIZE() macro
+Forwarded: http://mid.gmane.org/20160614204803.GV7555@decadent.org.uk
+
+lockdep.c now uses ARRAY_SIZE().
+
+Fixes: 75dd602a5198 ("lockdep: Fix lock_chain::base size")
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/uinclude/linux/kernel.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tools/lib/lockdep/uinclude/linux/kernel.h b/tools/lib/lockdep/uinclude/linux/kernel.h
+index 276c7a8b2ed1..da87bd9ad2c1 100644
+--- a/tools/lib/lockdep/uinclude/linux/kernel.h
++++ b/tools/lib/lockdep/uinclude/linux/kernel.h
+@@ -7,6 +7,8 @@
+ #include <linux/hardirq.h>
+ #include <linux/kern_levels.h>
+ 
++#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
++
+ #ifndef container_of
+ #define container_of(ptr, type, member) ({			\
+ 	const typeof(((type *)0)->member) * __mptr = (ptr);	\

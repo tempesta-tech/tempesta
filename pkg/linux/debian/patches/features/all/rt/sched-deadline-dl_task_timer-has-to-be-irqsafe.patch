@@ -1,0 +1,23 @@
+From: Juri Lelli <juri.lelli@gmail.com>
+Date: Tue, 13 May 2014 15:30:20 +0200
+Subject: sched/deadline: dl_task_timer has to be irqsafe
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+As for rt_period_timer, dl_task_timer has to be irqsafe.
+
+Signed-off-by: Juri Lelli <juri.lelli@gmail.com>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ kernel/sched/deadline.c |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/kernel/sched/deadline.c
++++ b/kernel/sched/deadline.c
+@@ -697,6 +697,7 @@ void init_dl_task_timer(struct sched_dl_
+ 
+ 	hrtimer_init(timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	timer->function = dl_task_timer;
++	timer->irqsafe = 1;
+ }
+ 
+ static

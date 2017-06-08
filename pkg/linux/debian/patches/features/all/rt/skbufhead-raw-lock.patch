@@ -1,0 +1,114 @@
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Tue, 12 Jul 2011 15:38:34 +0200
+Subject: net: Use skbufhead with raw lock
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Use the rps lock as rawlock so we can keep irq-off regions. It looks low
+latency. However we can't kfree() from this context therefore we defer this
+to the softirq and use the tofree_queue list for it (similar to process_queue).
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ include/linux/netdevice.h |    1 +
+ include/linux/skbuff.h    |    7 +++++++
+ net/core/dev.c            |   19 +++++++++++++------
+ 3 files changed, 21 insertions(+), 6 deletions(-)
+
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -2831,6 +2831,7 @@ struct softnet_data {
+ 	unsigned int		dropped;
+ 	struct sk_buff_head	input_pkt_queue;
+ 	struct napi_struct	backlog;
++	struct sk_buff_head	tofree_queue;
+ 
+ };
+ 
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -284,6 +284,7 @@ struct sk_buff_head {
+ 
+ 	__u32		qlen;
+ 	spinlock_t	lock;
++	raw_spinlock_t	raw_lock;
+ };
+ 
+ struct sk_buff;
+@@ -1565,6 +1566,12 @@ static inline void skb_queue_head_init(s
+ 	__skb_queue_head_init(list);
+ }
+ 
++static inline void skb_queue_head_init_raw(struct sk_buff_head *list)
++{
++	raw_spin_lock_init(&list->raw_lock);
++	__skb_queue_head_init(list);
++}
++
+ static inline void skb_queue_head_init_class(struct sk_buff_head *list,
+ 		struct lock_class_key *class)
+ {
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -211,14 +211,14 @@ static inline struct hlist_head *dev_ind
+ static inline void rps_lock(struct softnet_data *sd)
+ {
+ #ifdef CONFIG_RPS
+-	spin_lock(&sd->input_pkt_queue.lock);
++	raw_spin_lock(&sd->input_pkt_queue.raw_lock);
+ #endif
+ }
+ 
+ static inline void rps_unlock(struct softnet_data *sd)
+ {
+ #ifdef CONFIG_RPS
+-	spin_unlock(&sd->input_pkt_queue.lock);
++	raw_spin_unlock(&sd->input_pkt_queue.raw_lock);
+ #endif
+ }
+ 
+@@ -4323,7 +4323,7 @@ static void flush_backlog(void *arg)
+ 	skb_queue_walk_safe(&sd->input_pkt_queue, skb, tmp) {
+ 		if (skb->dev == dev) {
+ 			__skb_unlink(skb, &sd->input_pkt_queue);
+-			kfree_skb(skb);
++			__skb_queue_tail(&sd->tofree_queue, skb);
+ 			input_queue_head_incr(sd);
+ 		}
+ 	}
+@@ -4332,10 +4332,13 @@ static void flush_backlog(void *arg)
+ 	skb_queue_walk_safe(&sd->process_queue, skb, tmp) {
+ 		if (skb->dev == dev) {
+ 			__skb_unlink(skb, &sd->process_queue);
+-			kfree_skb(skb);
++			__skb_queue_tail(&sd->tofree_queue, skb);
+ 			input_queue_head_incr(sd);
+ 		}
+ 	}
++
++	if (!skb_queue_empty(&sd->tofree_queue))
++		raise_softirq_irqoff(NET_RX_SOFTIRQ);
+ }
+ 
+ static int napi_gro_complete(struct sk_buff *skb)
+@@ -8004,6 +8007,9 @@ static int dev_cpu_callback(struct notif
+ 		netif_rx_ni(skb);
+ 		input_queue_head_incr(oldsd);
+ 	}
++	while ((skb = __skb_dequeue(&oldsd->tofree_queue))) {
++		kfree_skb(skb);
++	}
+ 
+ 	return NOTIFY_OK;
+ }
+@@ -8305,8 +8311,9 @@ static int __init net_dev_init(void)
+ 	for_each_possible_cpu(i) {
+ 		struct softnet_data *sd = &per_cpu(softnet_data, i);
+ 
+-		skb_queue_head_init(&sd->input_pkt_queue);
+-		skb_queue_head_init(&sd->process_queue);
++		skb_queue_head_init_raw(&sd->input_pkt_queue);
++		skb_queue_head_init_raw(&sd->process_queue);
++		skb_queue_head_init_raw(&sd->tofree_queue);
+ 		INIT_LIST_HEAD(&sd->poll_list);
+ 		sd->output_queue_tailp = &sd->output_queue;
+ #ifdef CONFIG_RPS

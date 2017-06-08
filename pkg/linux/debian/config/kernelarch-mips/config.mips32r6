@@ -1,0 +1,10 @@
+##
+## file: arch/mips/Kconfig
+##
+## choice: CPU type
+CONFIG_CPU_MIPS32_R6=y
+## end choice
+## choice: Kernel code model
+CONFIG_32BIT=y
+## end choice
+

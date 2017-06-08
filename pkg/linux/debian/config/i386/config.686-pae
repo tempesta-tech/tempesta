@@ -1,0 +1,54 @@
+##
+## file: arch/x86/Kconfig
+##
+# CONFIG_X86_32_IRIS is not set
+## choice: High Memory Support
+# CONFIG_NOHIGHMEM is not set
+# CONFIG_HIGHMEM4G is not set
+CONFIG_HIGHMEM64G=y
+## end choice
+CONFIG_X86_PAE=y
+# CONFIG_MATH_EMULATION is not set
+# CONFIG_EISA is not set
+# CONFIG_ALIX is not set
+# CONFIG_NET5501 is not set
+# CONFIG_GEOS is not set
+
+##
+## file: arch/x86/Kconfig.cpu
+##
+## choice: Processor family
+# CONFIG_M486 is not set
+CONFIG_M686=y
+## end choice
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C_STUB=m
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+# CONFIG_I2C_ELEKTOR is not set
+
+##
+## file: drivers/net/hamradio/Kconfig
+##
+# CONFIG_DMASCC is not set
+
+##
+## file: drivers/pci/hotplug/Kconfig
+##
+# CONFIG_HOTPLUG_PCI_COMPAQ_NVRAM is not set
+
+##
+## file: drivers/tty/Kconfig
+##
+# CONFIG_MOXA_INTELLIO is not set
+
+##
+## file: lib/Kconfig.debug
+##
+# CONFIG_DEBUG_HIGHMEM is not set
+

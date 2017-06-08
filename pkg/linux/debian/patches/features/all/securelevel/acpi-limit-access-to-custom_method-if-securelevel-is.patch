@@ -1,0 +1,36 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Fri, 9 Mar 2012 08:39:37 -0500
+Subject: [06/18] acpi: Limit access to custom_method if securelevel is set
+Origin: https://github.com/mjg59/linux/commit/3cdc48db6b6d1b3cc1412d428389889f74cafe83
+
+custom_method effectively allows arbitrary access to system memory, making
+it possible for an attacker to modify the kernel at runtime. Prevent this
+if securelevel has been set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ drivers/acpi/custom_method.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/acpi/custom_method.c b/drivers/acpi/custom_method.c
+index c68e72414a67..359f45d54543 100644
+--- a/drivers/acpi/custom_method.c
++++ b/drivers/acpi/custom_method.c
+@@ -8,6 +8,7 @@
+ #include <linux/uaccess.h>
+ #include <linux/debugfs.h>
+ #include <linux/acpi.h>
++#include <linux/security.h>
+ 
+ #include "internal.h"
+ 
+@@ -29,6 +30,9 @@ static ssize_t cm_write(struct file *file, const char __user * user_buf,
+ 	struct acpi_table_header table;
+ 	acpi_status status;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (!(*ppos)) {
+ 		/* parse the table header to get the table length */
+ 		if (count <= sizeof(struct acpi_table_header))

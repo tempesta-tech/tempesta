@@ -1,0 +1,10 @@
+##
+## file: arch/alpha/Kconfig
+##
+# CONFIG_SMP is not set
+
+##
+## file: arch/alpha/Kconfig.debug
+##
+# CONFIG_ALPHA_LEGACY_START_ADDRESS is not set
+

@@ -1,0 +1,40 @@
+From: Dmitry Shachnev <mitya57@debian.org>
+Date: Sun, 18 Dec 2016 13:11:46 +0300
+Subject: docs: sphinx-extensions: make rstFlatTable work with docutils 0.13
+Origin: https://www.spinics.net/lists/linux-doc/msg42218.html
+Bug-Debian: https://bugs.debian.org/848349
+
+In docutils 0.13, the return type of get_column_widths method of the
+Table directive has changed [1], which breaks our flat-table directive
+and leads to a TypeError when trying to build the docs [2].
+
+This patch adds support for the new return type, while keeping support
+for older docutils versions too.
+
+[1] https://sourceforge.net/p/docutils/patches/120/
+[2] https://sourceforge.net/p/docutils/bugs/303/
+
+Signed-off-by: Dmitry Shachnev <mitya57@debian.org>
+---
+ Documentation/sphinx/rstFlatTable.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/sphinx/rstFlatTable.py b/Documentation/sphinx/rstFlatTable.py
+index 55f2757..25feb0d 100755
+--- a/Documentation/sphinx/rstFlatTable.py
++++ b/Documentation/sphinx/rstFlatTable.py
+@@ -157,6 +157,11 @@ class ListTableBuilder(object):
+     def buildTableNode(self):
+ 
+         colwidths    = self.directive.get_column_widths(self.max_cols)
++        if isinstance(colwidths, tuple):
++            # Since docutils 0.13, get_column_widths returns a (widths,
++            # colwidths) tuple, where widths is a string (i.e. 'auto').
++            # See https://sourceforge.net/p/docutils/patches/120/.
++            colwidths = colwidths[1]
+         stub_columns = self.directive.options.get('stub-columns', 0)
+         header_rows  = self.directive.options.get('header-rows', 0)
+ 
+-- 
+2.1.4
+

@@ -1,0 +1,180 @@
+##
+## file: arch/mips/Kconfig
+##
+## choice: System type
+CONFIG_CAVIUM_OCTEON_SOC=y
+## end choice
+## choice: Kernel code model
+# CONFIG_32BIT is not set
+CONFIG_64BIT=y
+## end choice
+CONFIG_SMP=y
+# CONFIG_HOTPLUG_CPU is not set
+CONFIG_NR_CPUS=32
+
+##
+## file: arch/mips/cavium-octeon/Kconfig
+##
+CONFIG_CAVIUM_CN63XXP1=y
+CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE=1
+# CONFIG_CAVIUM_OCTEON_2ND_KERNEL is not set
+CONFIG_CAVIUM_OCTEON_LOCK_L2=y
+CONFIG_CAVIUM_OCTEON_LOCK_L2_TLB=y
+CONFIG_CAVIUM_OCTEON_LOCK_L2_EXCEPTION=y
+CONFIG_CAVIUM_OCTEON_LOCK_L2_LOW_LEVEL_INTERRUPT=y
+CONFIG_CAVIUM_OCTEON_LOCK_L2_INTERRUPT=y
+CONFIG_CAVIUM_OCTEON_LOCK_L2_MEMCPY=y
+
+##
+## file: crypto/Kconfig
+##
+CONFIG_CRYPTO_MD5_OCTEON=m
+CONFIG_CRYPTO_SHA1_OCTEON=m
+CONFIG_CRYPTO_SHA256_OCTEON=m
+CONFIG_CRYPTO_SHA512_OCTEON=m
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_SATA_AHCI_PLATFORM=m
+CONFIG_AHCI_OCTEON=m
+CONFIG_PATA_OCTEON_CF=y
+
+##
+## file: drivers/char/hw_random/Kconfig
+##
+CONFIG_HW_RANDOM_OCTEON=m
+
+##
+## file: drivers/edac/Kconfig
+##
+CONFIG_EDAC=y
+CONFIG_EDAC_MM_EDAC=m
+CONFIG_EDAC_OCTEON_PC=m
+CONFIG_EDAC_OCTEON_L2C=m
+CONFIG_EDAC_OCTEON_LMC=m
+CONFIG_EDAC_OCTEON_PCI=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_OCTEON=y
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+# CONFIG_KEYBOARD_ATKBD is not set
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+# CONFIG_MOUSE_PS2 is not set
+
+##
+## file: drivers/input/serio/Kconfig
+##
+# CONFIG_SERIO_I8042 is not set
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+# CONFIG_INPUT_TOUCHSCREEN is not set
+
+##
+## file: drivers/mmc/Kconfig
+##
+CONFIG_MMC=m
+
+##
+## file: drivers/mmc/card/Kconfig
+##
+CONFIG_MMC_BLOCK=m
+
+##
+## file: drivers/mtd/Kconfig
+##
+CONFIG_MTD=y
+CONFIG_MTD_BLOCK=y
+
+##
+## file: drivers/mtd/chips/Kconfig
+##
+CONFIG_MTD_CFI=y
+CONFIG_MTD_CFI_AMDSTD=y
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_PHYSMAP=y
+
+##
+## file: drivers/net/ethernet/cavium/Kconfig
+##
+CONFIG_OCTEON_MGMT_ETHERNET=y
+
+##
+## file: drivers/net/phy/Kconfig
+##
+CONFIG_MDIO_OCTEON=y
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_DS1307=y
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI_OCTEON=y
+
+##
+## file: drivers/staging/octeon/Kconfig
+##
+CONFIG_OCTEON_ETHERNET=y
+
+##
+## file: drivers/staging/octeon-usb/Kconfig
+##
+CONFIG_OCTEON_USB=y
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250_NR_UARTS=2
+CONFIG_SERIAL_8250_RUNTIME_UARTS=2
+CONFIG_SERIAL_8250_DW=y
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_OCTEON_EHCI=y
+CONFIG_USB_OCTEON_OHCI=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+# CONFIG_FB is not set
+
+##
+## file: kernel/power/Kconfig
+##
+# CONFIG_SUSPEND is not set
+# CONFIG_HIBERNATION is not set
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_SPARSEMEM_MANUAL=y
+## end choice
+
+##
+## file: unknown
+##
+CONFIG_OCTEON_MMC=m
+

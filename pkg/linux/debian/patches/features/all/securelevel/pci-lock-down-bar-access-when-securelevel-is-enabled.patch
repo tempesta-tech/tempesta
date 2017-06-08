@@ -1,0 +1,108 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Thu, 8 Mar 2012 10:10:38 -0500
+Subject: [03/18] PCI: Lock down BAR access when securelevel is enabled
+Origin: https://github.com/mjg59/linux/commit/2533a3844cf8c43bf58b653334f8925cd1e7d405
+
+Any hardware that can potentially generate DMA has to be locked down from
+userspace in order to avoid it being possible for an attacker to modify
+kernel code. This should be prevented if securelevel has been set. Default
+to paranoid - in future we can potentially relax this for sufficiently
+IOMMU-isolated devices.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ drivers/pci/pci-sysfs.c | 9 +++++++++
+ drivers/pci/proc.c      | 9 ++++++++-
+ drivers/pci/syscall.c   | 3 ++-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
+
+--- a/drivers/pci/pci-sysfs.c
++++ b/drivers/pci/pci-sysfs.c
+@@ -716,6 +716,9 @@ static ssize_t pci_write_config(struct f
+ 	loff_t init_off = off;
+ 	u8 *data = (u8 *) buf;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (off > dev->cfg_size)
+ 		return 0;
+ 	if (off + count > dev->cfg_size) {
+@@ -1007,6 +1010,9 @@ static int pci_mmap_resource(struct kobj
+ 	resource_size_t start, end;
+ 	int i;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	for (i = 0; i < PCI_ROM_RESOURCE; i++)
+ 		if (res == &pdev->resource[i])
+ 			break;
+@@ -1106,6 +1112,9 @@ static ssize_t pci_write_resource_io(str
+ 				     struct bin_attribute *attr, char *buf,
+ 				     loff_t off, size_t count)
+ {
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	return pci_resource_io(filp, kobj, attr, buf, off, count, true);
+ }
+ 
+--- a/drivers/pci/proc.c
++++ b/drivers/pci/proc.c
+@@ -11,6 +11,7 @@
+ #include <linux/proc_fs.h>
+ #include <linux/seq_file.h>
+ #include <linux/capability.h>
++#include <linux/security.h>
+ #include <asm/uaccess.h>
+ #include <asm/byteorder.h>
+ #include "pci.h"
+@@ -116,6 +117,9 @@ static ssize_t proc_bus_pci_write(struct
+ 	int size = dev->cfg_size;
+ 	int cnt;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (pos >= size)
+ 		return 0;
+ 	if (nbytes >= size)
+@@ -195,6 +199,9 @@ static long proc_bus_pci_ioctl(struct fi
+ #endif /* HAVE_PCI_MMAP */
+ 	int ret = 0;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	switch (cmd) {
+ 	case PCIIOC_CONTROLLER:
+ 		ret = pci_domain_nr(dev->bus);
+@@ -233,7 +240,7 @@ static int proc_bus_pci_mmap(struct file
+ 	struct pci_filp_private *fpriv = file->private_data;
+ 	int i, ret, write_combine;
+ 
+-	if (!capable(CAP_SYS_RAWIO))
++	if (!capable(CAP_SYS_RAWIO) || (get_securelevel() > 0))
+ 		return -EPERM;
+ 
+ 	/* Make sure the caller is mapping a real resource for this device */
+--- a/drivers/pci/syscall.c
++++ b/drivers/pci/syscall.c
+@@ -10,6 +10,7 @@
+ #include <linux/errno.h>
+ #include <linux/pci.h>
+ #include <linux/syscalls.h>
++#include <linux/security.h>
+ #include <asm/uaccess.h>
+ #include "pci.h"
+ 
+@@ -92,7 +93,7 @@ SYSCALL_DEFINE5(pciconfig_write, unsigne
+ 	u32 dword;
+ 	int err = 0;
+ 
+-	if (!capable(CAP_SYS_ADMIN))
++	if (!capable(CAP_SYS_ADMIN) || (get_securelevel() > 0))
+ 		return -EPERM;
+ 
+ 	dev = pci_get_bus_and_slot(bus, dfn);

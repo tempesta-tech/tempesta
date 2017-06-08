@@ -1,0 +1,212 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 25 Jul 2014 01:16:15 +0100
+Subject: x86: Make x32 syscall support conditional on a kernel parameter
+Bug-Debian: https://bugs.debian.org/708070
+Forwarded: http://mid.gmane.org/1415245982.3398.53.camel@decadent.org.uk
+
+Enabling x32 in the standard amd64 kernel would increase its attack
+surface while provide no benefit to the vast majority of its users.
+No-one seems interested in regularly checking for vulnerabilities
+specific to x32 (at least no-one with a white hat).
+
+Still, adding another flavour just to turn on x32 seems wasteful.  And
+the only differences on syscall entry are two instructions (mask out
+the x32 flag and compare the syscall number).
+
+So pad the standard comparison with a nop and add a kernel parameter
+"syscall.x32" which controls whether this is replaced with the x32
+version at boot time.  Add a Kconfig parameter to set the default.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ Documentation/kernel-parameters.txt |  4 ++++
+ arch/x86/Kconfig                    |  8 +++++++
+ arch/x86/include/asm/elf.h          |  8 ++++++-
+ arch/x86/entry/entry_64.S           | 36 ++++++++++++++++++++++---------
+ arch/x86/entry/syscall_64.c         | 43 +++++++++++++++++++++++++++++++++++++
+ 5 files changed, 88 insertions(+), 11 deletions(-)
+
+--- a/Documentation/kernel-parameters.txt
++++ b/Documentation/kernel-parameters.txt
+@@ -3877,6 +3877,10 @@ bytes respectively. Such letter suffixes
+ 
+ 	switches=	[HW,M68k]
+ 
++	syscall.x32=	[KNL,x86_64] Enable/disable use of x32 syscalls on
++			an x86_64 kernel where CONFIG_X86_X32 is enabled.
++			Default depends on CONFIG_X86_X32_DISABLED.
++
+ 	sysfs.deprecated=0|1 [KNL]
+ 			Enable/disable old style sysfs layout for old udev
+ 			on older distributions. When this option is enabled
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -2665,6 +2665,14 @@ config X86_X32
+ 	  elf32_x86_64 support enabled to compile a kernel with this
+ 	  option set.
+ 
++config X86_X32_DISABLED
++	bool "x32 ABI disabled by default"
++	depends on X86_X32
++	default n
++	help
++	  Disable the x32 ABI unless explicitly enabled using the
++	  kernel paramter "syscall.x32=y".
++
+ config COMPAT
+ 	def_bool y
+ 	depends on IA32_EMULATION || X86_X32
+--- a/arch/x86/include/asm/elf.h
++++ b/arch/x86/include/asm/elf.h
+@@ -9,6 +9,7 @@
+ #include <asm/ptrace.h>
+ #include <asm/user.h>
+ #include <asm/auxvec.h>
++#include <asm/syscall.h>
+ 
+ typedef unsigned long elf_greg_t;
+ 
+@@ -162,7 +163,7 @@ do {						\
+ 
+ #define compat_elf_check_arch(x)					\
+ 	(elf_check_arch_ia32(x) ||					\
+-	 (IS_ENABLED(CONFIG_X86_X32_ABI) && (x)->e_machine == EM_X86_64))
++	 (x32_enabled && (x)->e_machine == EM_X86_64))
+ 
+ #if __USER32_DS != __USER_DS
+ # error "The following code assumes __USER32_DS == __USER_DS"
+--- a/arch/x86/entry/entry_64.S
++++ b/arch/x86/entry/entry_64.S
+@@ -193,8 +193,12 @@ entry_SYSCALL_64_fastpath:
+ #if __SYSCALL_MASK == ~0
+ 	cmpq	$__NR_syscall_max, %rax
+ #else
+-	andl	$__SYSCALL_MASK, %eax
+-	cmpl	$__NR_syscall_max, %eax
++.global system_call_fast_compare
++.global system_call_fast_compare_end
++system_call_fast_compare:
++	cmpq	$511, %rax			/* x32 syscalls start at 512 */
++	.byte	P6_NOP4
++system_call_fast_compare_end:
+ #endif
+ 	ja	1f				/* return -ENOSYS (already in pt_regs->ax) */
+ 	movq	%r10, %rcx
+@@ -324,6 +328,16 @@ opportunistic_sysret_failed:
+ 	jmp	restore_c_regs_and_iret
+ END(entry_SYSCALL_64)
+ 
++#if __SYSCALL_MASK != ~0
++	/* This replaces the usual comparisons if syscall.x32 is set */
++.global system_call_mask_compare
++.global system_call_mask_compare_end
++system_call_mask_compare:
++	andl	$__SYSCALL_MASK, %eax
++	cmpl	$__NR_syscall_max, %eax
++system_call_mask_compare_end:
++#endif
++
+ ENTRY(stub_ptregs_64)
+ 	/*
+ 	 * Syscalls marked as needing ptregs land here.
+--- a/arch/x86/entry/syscall_64.c
++++ b/arch/x86/entry/syscall_64.c
+@@ -3,8 +3,14 @@
+ #include <linux/linkage.h>
+ #include <linux/sys.h>
+ #include <linux/cache.h>
++#include <linux/moduleparam.h>
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "syscall."
++#include <linux/bug.h>
++#include <linux/init.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/syscall.h>
++#include <asm/text-patching.h>
+ 
+ #define __SYSCALL_64_QUAL_(sym) sym
+ #define __SYSCALL_64_QUAL_ptregs(sym) ptregs_##sym
+@@ -25,3 +31,36 @@ asmlinkage const sys_call_ptr_t sys_call
+ 	[0 ... __NR_syscall_max] = &sys_ni_syscall,
+ #include <asm/syscalls_64.h>
+ };
++
++#ifdef CONFIG_X86_X32_ABI
++
++/* Maybe enable x32 syscalls */
++
++bool x32_enabled = !IS_ENABLED(CONFIG_X86_X32_DISABLED);
++module_param_named(x32, x32_enabled, bool, 0444);
++
++extern char system_call_fast_compare_end[], system_call_fast_compare[],
++	system_call_mask_compare_end[], system_call_mask_compare[];
++
++static int __init x32_enable(void)
++{
++	BUG_ON(system_call_fast_compare_end - system_call_fast_compare != 10);
++	BUG_ON(system_call_mask_compare_end - system_call_mask_compare != 10);
++
++	if (x32_enabled) {
++		text_poke_early(system_call_fast_compare,
++				system_call_mask_compare, 10);
++#ifdef CONFIG_X86_X32_DISABLED
++		pr_info("Enabled x32 syscalls\n");
++#endif
++	}
++#ifndef CONFIG_X86_X32_DISABLED
++	else
++		pr_info("Disabled x32 syscalls\n");
++#endif
++
++	return 0;
++}
++late_initcall(x32_enable);
++
++#endif
+--- a/arch/x86/entry/common.c
++++ b/arch/x86/entry/common.c
+@@ -334,6 +334,7 @@ __visible void do_syscall_64(struct pt_r
+ {
+ 	struct thread_info *ti = pt_regs_to_thread_info(regs);
+ 	unsigned long nr = regs->orig_ax;
++	unsigned int syscall_mask, nr_syscalls_enabled;
+ 
+ 	enter_from_user_mode();
+ 	local_irq_enable();
+@@ -346,8 +347,19 @@ __visible void do_syscall_64(struct pt_r
+ 	 * table.  The only functional difference is the x32 bit in
+ 	 * regs->orig_ax, which changes the behavior of some syscalls.
+ 	 */
+-	if (likely((nr & __SYSCALL_MASK) < NR_syscalls)) {
+-		regs->ax = sys_call_table[nr & __SYSCALL_MASK](
++	if (__SYSCALL_MASK == ~0U || x32_enabled) {
++		syscall_mask = __SYSCALL_MASK;
++		nr_syscalls_enabled = NR_syscalls;
++	} else {
++		/*
++		 * x32 syscalls present but not enabled.  Don't mask out
++		 * the x32 flag and don't enable any x32-specific calls.
++		 */
++		syscall_mask = ~0U;
++		nr_syscalls_enabled = 512;
++	}
++	if (likely((nr & syscall_mask) < nr_syscalls_enabled)) {
++		regs->ax = sys_call_table[nr & syscall_mask](
+ 			regs->di, regs->si, regs->dx,
+ 			regs->r10, regs->r8, regs->r9);
+ 	}
+--- a/arch/x86/include/asm/syscall.h
++++ b/arch/x86/include/asm/syscall.h
+@@ -35,6 +35,12 @@ extern const sys_call_ptr_t sys_call_tab
+ extern const sys_call_ptr_t ia32_sys_call_table[];
+ #endif
+ 
++#if defined(CONFIG_X86_X32_ABI)
++extern bool x32_enabled;
++#else
++#define x32_enabled 0
++#endif
++
+ /*
+  * Only the low 32 bits of orig_ax are meaningful, so we return int.
+  * This importantly ignores the high bits on 64-bit, so comparisons

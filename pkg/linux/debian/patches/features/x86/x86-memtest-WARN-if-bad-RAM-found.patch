@@ -1,0 +1,28 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 5 Dec 2011 04:00:58 +0000
+Subject: x86: memtest: WARN if bad RAM found
+Bug-Debian: https://bugs.debian.org/613321
+Forwarded: http://thread.gmane.org/gmane.linux.kernel/1286471
+
+Since this is not a particularly thorough test, if we find any bad
+bits of RAM then there is a fair chance that there are other bad bits
+we fail to detect.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ mm/memtest.c |    2 ++
+ 1 files changed, 2 insertions(+), 0 deletions(-)
+
+--- a/mm/memtest.c
++++ b/mm/memtest.c
+@@ -26,6 +26,10 @@ static u64 patterns[] __initdata = {
+ 
+ static void __init reserve_bad_mem(u64 pattern, phys_addr_t start_bad, phys_addr_t end_bad)
+ {
++#ifdef CONFIG_X86
++	WARN_ONCE(1, "Bad RAM detected. Use memtest86+ to perform a thorough test\n"
++		  "and the memmap= parameter to reserve the bad areas.");
++#endif
+ 	pr_info("  %016llx bad mem addr %pa - %pa reserved\n",
+ 		cpu_to_be64(pattern), &start_bad, &end_bad);
+ 	memblock_reserve(start_bad, end_bad - start_bad);

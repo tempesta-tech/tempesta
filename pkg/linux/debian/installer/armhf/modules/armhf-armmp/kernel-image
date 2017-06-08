@@ -1,0 +1,17 @@
+#include <kernel-image>
+
+# Clocks
+clk-palmas ?
+clk-s2mps11 ?
+clk-twl6040 ?
+
+# GPIO
+gpio-da9052 ?
+gpio-pca953x ?
+
+# PCIe PHYs
+phy-omap-control ?
+phy-ti-pipe3 ?
+
+# Regulators
+drivers/regulator/**

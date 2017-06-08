@@ -1,0 +1,198 @@
+Subject: hotplug: Lightweight get online cpus
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Wed, 15 Jun 2011 12:36:06 +0200
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+get_online_cpus() is a heavy weight function which involves a global
+mutex. migrate_disable() wants a simpler construct which prevents only
+a CPU from going doing while a task is in a migrate disabled section.
+
+Implement a per cpu lockless mechanism, which serializes only in the
+real unplug case on a global mutex. That serialization affects only
+tasks on the cpu which should be brought down.
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ include/linux/cpu.h |    7 +--
+ kernel/cpu.c        |  118 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 122 insertions(+), 3 deletions(-)
+
+--- a/include/linux/cpu.h
++++ b/include/linux/cpu.h
+@@ -185,9 +185,6 @@ static inline void cpu_notifier_register
+ #endif /* CONFIG_SMP */
+ extern struct bus_type cpu_subsys;
+ 
+-static inline void pin_current_cpu(void) { }
+-static inline void unpin_current_cpu(void) { }
+-
+ #ifdef CONFIG_HOTPLUG_CPU
+ /* Stop CPUs going up and down. */
+ 
+@@ -197,6 +194,8 @@ extern void get_online_cpus(void);
+ extern void put_online_cpus(void);
+ extern void cpu_hotplug_disable(void);
+ extern void cpu_hotplug_enable(void);
++extern void pin_current_cpu(void);
++extern void unpin_current_cpu(void);
+ #define hotcpu_notifier(fn, pri)	cpu_notifier(fn, pri)
+ #define __hotcpu_notifier(fn, pri)	__cpu_notifier(fn, pri)
+ #define register_hotcpu_notifier(nb)	register_cpu_notifier(nb)
+@@ -214,6 +213,8 @@ static inline void cpu_hotplug_done(void
+ #define put_online_cpus()	do { } while (0)
+ #define cpu_hotplug_disable()	do { } while (0)
+ #define cpu_hotplug_enable()	do { } while (0)
++static inline void pin_current_cpu(void) { }
++static inline void unpin_current_cpu(void) { }
+ #define hotcpu_notifier(fn, pri)	do { (void)(fn); } while (0)
+ #define __hotcpu_notifier(fn, pri)	do { (void)(fn); } while (0)
+ /* These aren't inline functions due to a GCC bug. */
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -166,6 +166,100 @@ static struct {
+ #define cpuhp_lock_acquire()      lock_map_acquire(&cpu_hotplug.dep_map)
+ #define cpuhp_lock_release()      lock_map_release(&cpu_hotplug.dep_map)
+ 
++struct hotplug_pcp {
++	struct task_struct *unplug;
++	int refcount;
++	struct completion synced;
++};
++
++static DEFINE_PER_CPU(struct hotplug_pcp, hotplug_pcp);
++
++/**
++ * pin_current_cpu - Prevent the current cpu from being unplugged
++ *
++ * Lightweight version of get_online_cpus() to prevent cpu from being
++ * unplugged when code runs in a migration disabled region.
++ *
++ * Must be called with preemption disabled (preempt_count = 1)!
++ */
++void pin_current_cpu(void)
++{
++	struct hotplug_pcp *hp = this_cpu_ptr(&hotplug_pcp);
++
++retry:
++	if (!hp->unplug || hp->refcount || preempt_count() > 1 ||
++	    hp->unplug == current) {
++		hp->refcount++;
++		return;
++	}
++	preempt_enable();
++	mutex_lock(&cpu_hotplug.lock);
++	mutex_unlock(&cpu_hotplug.lock);
++	preempt_disable();
++	goto retry;
++}
++
++/**
++ * unpin_current_cpu - Allow unplug of current cpu
++ *
++ * Must be called with preemption or interrupts disabled!
++ */
++void unpin_current_cpu(void)
++{
++	struct hotplug_pcp *hp = this_cpu_ptr(&hotplug_pcp);
++
++	WARN_ON(hp->refcount <= 0);
++
++	/* This is safe. sync_unplug_thread is pinned to this cpu */
++	if (!--hp->refcount && hp->unplug && hp->unplug != current)
++		wake_up_process(hp->unplug);
++}
++
++/*
++ * FIXME: Is this really correct under all circumstances ?
++ */
++static int sync_unplug_thread(void *data)
++{
++	struct hotplug_pcp *hp = data;
++
++	preempt_disable();
++	hp->unplug = current;
++	set_current_state(TASK_UNINTERRUPTIBLE);
++	while (hp->refcount) {
++		schedule_preempt_disabled();
++		set_current_state(TASK_UNINTERRUPTIBLE);
++	}
++	set_current_state(TASK_RUNNING);
++	preempt_enable();
++	complete(&hp->synced);
++	return 0;
++}
++
++/*
++ * Start the sync_unplug_thread on the target cpu and wait for it to
++ * complete.
++ */
++static int cpu_unplug_begin(unsigned int cpu)
++{
++	struct hotplug_pcp *hp = &per_cpu(hotplug_pcp, cpu);
++	struct task_struct *tsk;
++
++	init_completion(&hp->synced);
++	tsk = kthread_create(sync_unplug_thread, hp, "sync_unplug/%d\n", cpu);
++	if (IS_ERR(tsk))
++		return (PTR_ERR(tsk));
++	kthread_bind(tsk, cpu);
++	wake_up_process(tsk);
++	wait_for_completion(&hp->synced);
++	return 0;
++}
++
++static void cpu_unplug_done(unsigned int cpu)
++{
++	struct hotplug_pcp *hp = &per_cpu(hotplug_pcp, cpu);
++
++	hp->unplug = NULL;
++}
+ 
+ void get_online_cpus(void)
+ {
+@@ -799,6 +893,8 @@ static int __ref _cpu_down(unsigned int
+ 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
+ 	int prev_state, ret = 0;
+ 	bool hasdied = false;
++	int mycpu;
++	cpumask_var_t cpumask;
+ 
+ 	if (num_online_cpus() == 1)
+ 		return -EBUSY;
+@@ -806,7 +902,27 @@ static int __ref _cpu_down(unsigned int
+ 	if (!cpu_present(cpu))
+ 		return -EINVAL;
+ 
++	/* Move the downtaker off the unplug cpu */
++	if (!alloc_cpumask_var(&cpumask, GFP_KERNEL))
++		return -ENOMEM;
++	cpumask_andnot(cpumask, cpu_online_mask, cpumask_of(cpu));
++	set_cpus_allowed_ptr(current, cpumask);
++	free_cpumask_var(cpumask);
++	preempt_disable();
++	mycpu = smp_processor_id();
++	if (mycpu == cpu) {
++		printk(KERN_ERR "Yuck! Still on unplug CPU\n!");
++		preempt_enable();
++		return -EBUSY;
++	}
++	preempt_enable();
++
+ 	cpu_hotplug_begin();
++	ret = cpu_unplug_begin(cpu);
++	if (ret) {
++		printk("cpu_unplug_begin(%d) failed\n", cpu);
++		goto out_cancel;
++	}
+ 
+ 	cpuhp_tasks_frozen = tasks_frozen;
+ 
+@@ -845,6 +961,8 @@ static int __ref _cpu_down(unsigned int
+ 
+ 	hasdied = prev_state != st->state && st->state == CPUHP_OFFLINE;
+ out:
++	cpu_unplug_done(cpu);
++out_cancel:
+ 	cpu_hotplug_done();
+ 	/* This post dead nonsense must die */
+ 	if (!ret && hasdied)

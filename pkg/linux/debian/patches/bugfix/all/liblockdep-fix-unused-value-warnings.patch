@@ -1,0 +1,72 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 20:13:23 +0100
+Subject: [PATCH 5/7] liblockdep: Fix 'unused value' warnings
+Forwarded: http://mid.gmane.org/20160614204853.GX7555@decadent.org.uk
+
+liblockdep defines various macros that may expand to an expression
+with no effect, while the in-kernel definition does have an effect.
+This results in warnings from gcc when -Wunused-value is enabled, and
+is is enabled by -Wall.  Fix this by introducing trivial functions,
+as function return values are generally allowed to be ignored.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/uinclude/linux/debug_locks.h |  2 +-
+ tools/lib/lockdep/uinclude/linux/kernel.h      | 12 +++++++++---
+ tools/lib/lockdep/uinclude/linux/lockdep.h     |  6 +++++-
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/tools/lib/lockdep/uinclude/linux/debug_locks.h b/tools/lib/lockdep/uinclude/linux/debug_locks.h
+index f38eb64df794..1d4fbec5c649 100644
+--- a/tools/lib/lockdep/uinclude/linux/debug_locks.h
++++ b/tools/lib/lockdep/uinclude/linux/debug_locks.h
+@@ -4,7 +4,7 @@
+ #include <stddef.h>
+ #include <linux/compiler.h>
+ 
+-#define DEBUG_LOCKS_WARN_ON(x) (x)
++#define DEBUG_LOCKS_WARN_ON(x) WARN_ON(x)
+ 
+ extern bool debug_locks;
+ extern bool debug_locks_silent;
+diff --git a/tools/lib/lockdep/uinclude/linux/kernel.h b/tools/lib/lockdep/uinclude/linux/kernel.h
+index da87bd9ad2c1..021cff4f4e3d 100644
+--- a/tools/lib/lockdep/uinclude/linux/kernel.h
++++ b/tools/lib/lockdep/uinclude/linux/kernel.h
+@@ -22,10 +22,16 @@
+ 	_max1 > _max2 ? _max1 : _max2; })
+ 
+ #define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
+-#define WARN_ON(x) (x)
+-#define WARN_ON_ONCE(x) (x)
++
++static inline int lockdep_warn(int condition)
++{
++	return condition;
++}
++#define WARN_ON(x) lockdep_warn(x)
++#define WARN_ON_ONCE(x) WARN_ON(x)
++#define WARN(x, y...) WARN_ON(x)
++
+ #define likely(x) (x)
+-#define WARN(x, y...) (x)
+ #define uninitialized_var(x) x
+ #define __init
+ #define noinline
+diff --git a/tools/lib/lockdep/uinclude/linux/lockdep.h b/tools/lib/lockdep/uinclude/linux/lockdep.h
+index d30214221920..d1079034a14d 100644
+--- a/tools/lib/lockdep/uinclude/linux/lockdep.h
++++ b/tools/lib/lockdep/uinclude/linux/lockdep.h
+@@ -29,7 +29,11 @@ extern struct task_struct *__curr(void);
+ 
+ #define current (__curr())
+ 
+-#define debug_locks_off() 1
++static inline int debug_locks_off(void)
++{
++	return 1;
++}
++
+ #define task_pid_nr(tsk) ((tsk)->pid)
+ 
+ #define KSYM_NAME_LEN 128

@@ -1,0 +1,15 @@
+# Include USB wired drivers by default
+drivers/net/usb/*
+
+# Include rndis_wlan, which depends on rndis_host
+rndis_wlan
+
+# Exclude wireless modem drivers which need extra configuration
+cdc_mbim -
+cdc-phonet -
+hso -
+huawei_cdc_ncm -
+kalmia -
+lg-vl600 -
+qmi_wwan -
+sierra_net -

@@ -1,0 +1,2 @@
+#include <nic-shared-modules>
+of_mdio

@@ -1,0 +1,9 @@
+#include <sata-modules>
+ahci_platform
+ahci_imx
+ahci_sunxi
+ahci_tegra
+sata_highbank
+
+# SATA PHYs
+phy-exynos5250-sata

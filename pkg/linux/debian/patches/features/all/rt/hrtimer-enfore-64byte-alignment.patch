@@ -1,0 +1,28 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Wed, 23 Dec 2015 20:57:41 +0100
+Subject: hrtimer: enfore 64byte alignment
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The patch "hrtimer: Fixup hrtimer callback changes for preempt-rt" adds
+a list_head expired to struct hrtimer_clock_base and with it we run into
+BUILD_BUG_ON(sizeof(struct hrtimer_clock_base) > HRTIMER_CLOCK_BASE_ALIGN);
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/hrtimer.h |    4 ----
+ 1 file changed, 4 deletions(-)
+
+--- a/include/linux/hrtimer.h
++++ b/include/linux/hrtimer.h
+@@ -127,11 +127,7 @@ struct hrtimer_sleeper {
+ 	struct task_struct *task;
+ };
+ 
+-#ifdef CONFIG_64BIT
+ # define HRTIMER_CLOCK_BASE_ALIGN	64
+-#else
+-# define HRTIMER_CLOCK_BASE_ALIGN	32
+-#endif
+ 
+ /**
+  * struct hrtimer_clock_base - the timer base for a specific clock

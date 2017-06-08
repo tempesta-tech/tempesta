@@ -1,0 +1,14 @@
+hyperv-daemon for Debian
+------------------------
+
+ If you want to change screen resolution on Linux guest, 
+ plese update kernel parameter.
+
+  1. edit /etc/default/grub file
+     - add 'video=hyperv_fb:"horizontal"x"vertical"' to 
+       'GRUB_CMDLINE_LINUX_DEFAULT=' or 'GRUB_CMDLINE_LINUX=' line
+        (e.g. GRUB_CMDLINE_LINUX=video=hyperv_fb:1280x1024)
+  2. then, exec update-grub
+  3. reboot Linux guest
+
+ -- Hideki Yamane <henrich@debian.org>  Thu, 28 May 2015 10:23:52 +0900

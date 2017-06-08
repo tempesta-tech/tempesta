@@ -1,0 +1,19 @@
+#!/bin/bash -e
+
+# This script is invoked by uscan after downloading a new tarball
+
+if [ "x$1" != "x--upstream-version" -o $# != 3 ]; then
+   echo >&2 "invalid arguments: $*"
+   exit 2
+fi
+
+version="$2"
+filename="$3"
+
+upstream_tarball="$(readlink -f "$filename")"
+rm "$filename"
+debian/bin/genorig.py --override-version "$version" "$upstream_tarball"
+
+dch -v "$version-1" 'New upstream release'
+
+debian/rules orig

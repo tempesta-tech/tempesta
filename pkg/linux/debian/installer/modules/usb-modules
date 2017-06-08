@@ -1,0 +1,13 @@
+# Include USB host drivers by default
+drivers/usb/host/**
+
+# Exclude some obscure host drivers
+hwa-hc -
+sl811_cs -
+sl811-hcd -
+u132-hcd -
+whci-hcd -
+
+# Include USB PHY drivers by default
+drivers/phy/phy-*-usb* ?
+drivers/usb/phy/* ?

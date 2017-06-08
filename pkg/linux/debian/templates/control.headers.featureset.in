@@ -1,0 +1,9 @@
+Package: linux-headers-@abiname@-common@localversion_headers@
+Build-Profiles: <!stage1>
+Depends: ${misc:Depends}
+Description: Common header files for Linux @abiname@@localversion_headers@
+ This package provides the architecture-specific common kernel header files
+ for Linux kernel version @abiname@@localversion_headers@, generally used for building out-of-tree
+ kernel modules.  To obtain a complete set of headers you also need to install
+ the linux-headers-@abiname@-(flavour) package, matching the
+ flavour of the kernel you intend the build for.

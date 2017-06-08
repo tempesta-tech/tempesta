@@ -1,0 +1,893 @@
+##
+## file: arch/m68k/Kconfig
+##
+# CONFIG_PM is not set
+
+##
+## file: arch/m68k/Kconfig.bus
+##
+CONFIG_ZORRO=y
+CONFIG_AMIGA_PCMCIA=y
+CONFIG_ATARI_ROM_ISA=y
+
+##
+## file: arch/m68k/Kconfig.cpu
+##
+CONFIG_M68020=y
+CONFIG_M68030=y
+CONFIG_M68040=y
+CONFIG_M68060=y
+CONFIG_M68KFPU_EMU=y
+# CONFIG_ADVANCED is not set
+
+##
+## file: arch/m68k/Kconfig.debug
+##
+CONFIG_EARLY_PRINTK=y
+
+##
+## file: arch/m68k/Kconfig.devices
+##
+CONFIG_HEARTBEAT=y
+CONFIG_PROC_HARDWARE=y
+CONFIG_NATFEAT=y
+CONFIG_NFBLOCK=y
+CONFIG_NFCON=y
+CONFIG_NFETH=y
+CONFIG_ATARI_ETHERNAT=y
+CONFIG_ATARI_ETHERNEC=y
+CONFIG_ATARI_DSP56K=m
+CONFIG_AMIGA_BUILTIN_SERIAL=y
+CONFIG_SERIAL_CONSOLE=y
+
+##
+## file: arch/m68k/Kconfig.machine
+##
+CONFIG_AMIGA=y
+CONFIG_ATARI=y
+CONFIG_MAC=y
+CONFIG_APOLLO=y
+CONFIG_VME=y
+CONFIG_MVME147=y
+CONFIG_MVME16x=y
+CONFIG_BVME6000=y
+# CONFIG_HP300 is not set
+# CONFIG_SUN3X is not set
+CONFIG_Q40=y
+# CONFIG_SUN3 is not set
+
+##
+## file: block/Kconfig
+##
+# CONFIG_BLK_DEV_INTEGRITY is not set
+
+##
+## file: block/Kconfig.iosched
+##
+CONFIG_IOSCHED_DEADLINE=m
+
+##
+## file: block/partitions/Kconfig
+##
+CONFIG_PARTITION_ADVANCED=y
+CONFIG_AMIGA_PARTITION=y
+CONFIG_ATARI_PARTITION=y
+CONFIG_MAC_PARTITION=y
+CONFIG_MSDOS_PARTITION=y
+CONFIG_BSD_DISKLABEL=y
+CONFIG_MINIX_SUBPARTITION=y
+CONFIG_SOLARIS_X86_PARTITION=y
+CONFIG_UNIXWARE_DISKLABEL=y
+CONFIG_LDM_PARTITION=y
+CONFIG_LDM_DEBUG=y
+CONFIG_SUN_PARTITION=y
+# CONFIG_KARMA_PARTITION is not set
+CONFIG_SYSV68_PARTITION=y
+
+##
+## file: drivers/accessibility/Kconfig
+##
+# CONFIG_ACCESSIBILITY is not set
+
+##
+## file: drivers/bcma/Kconfig
+##
+# CONFIG_BCMA is not set
+
+##
+## file: drivers/block/Kconfig
+##
+CONFIG_BLK_DEV_FD=m
+CONFIG_AMIGA_FLOPPY=m
+CONFIG_ATARI_FLOPPY=m
+CONFIG_BLK_DEV_SWIM=m
+CONFIG_AMIGA_Z2RAM=y
+CONFIG_CDROM_PKTCDVD=m
+# CONFIG_BLK_DEV_HD is not set
+# CONFIG_BLK_DEV_RBD is not set
+
+##
+## file: drivers/block/drbd/Kconfig
+##
+# CONFIG_BLK_DEV_DRBD is not set
+
+##
+## file: drivers/block/mtip32xx/Kconfig
+##
+# CONFIG_BLK_DEV_PCIESSD_MTIP32XX is not set
+
+##
+## file: drivers/char/Kconfig
+##
+CONFIG_PRINTER=m
+# CONFIG_LP_CONSOLE is not set
+# CONFIG_PPDEV is not set
+CONFIG_NVRAM=y
+
+##
+## file: drivers/connector/Kconfig
+##
+CONFIG_CONNECTOR=m
+
+##
+## file: drivers/crypto/Kconfig
+##
+# CONFIG_CRYPTO_HW is not set
+
+##
+## file: drivers/firewire/Kconfig
+##
+# CONFIG_FIREWIRE is not set
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+# CONFIG_DRM is not set
+
+##
+## file: drivers/hwmon/Kconfig
+##
+# CONFIG_HWMON is not set
+
+##
+## file: drivers/i2c/Kconfig
+##
+# CONFIG_I2C is not set
+
+##
+## file: drivers/ide/Kconfig
+##
+CONFIG_IDE=m
+# CONFIG_BLK_DEV_IDE_SATA is not set
+CONFIG_BLK_DEV_IDECS=m
+CONFIG_BLK_DEV_IDECD=m
+CONFIG_BLK_DEV_IDETAPE=m
+CONFIG_IDE_GENERIC=m
+CONFIG_BLK_DEV_PLATFORM=m
+CONFIG_BLK_DEV_GAYLE=m
+CONFIG_BLK_DEV_BUDDHA=m
+CONFIG_BLK_DEV_FALCON_IDE=m
+CONFIG_BLK_DEV_MAC_IDE=m
+CONFIG_BLK_DEV_Q40IDE=m
+
+##
+## file: drivers/iio/Kconfig
+##
+# CONFIG_IIO is not set
+
+##
+## file: drivers/infiniband/Kconfig
+##
+# CONFIG_INFINIBAND is not set
+
+##
+## file: drivers/input/Kconfig
+##
+CONFIG_INPUT_MOUSEDEV=y
+
+##
+## file: drivers/input/gameport/Kconfig
+##
+# CONFIG_GAMEPORT is not set
+
+##
+## file: drivers/input/joystick/Kconfig
+##
+CONFIG_INPUT_JOYSTICK=y
+# CONFIG_JOYSTICK_ANALOG is not set
+# CONFIG_JOYSTICK_A3D is not set
+# CONFIG_JOYSTICK_ADI is not set
+# CONFIG_JOYSTICK_COBRA is not set
+# CONFIG_JOYSTICK_GF2K is not set
+# CONFIG_JOYSTICK_GRIP is not set
+# CONFIG_JOYSTICK_GRIP_MP is not set
+# CONFIG_JOYSTICK_GUILLEMOT is not set
+# CONFIG_JOYSTICK_INTERACT is not set
+# CONFIG_JOYSTICK_SIDEWINDER is not set
+# CONFIG_JOYSTICK_TMDC is not set
+# CONFIG_JOYSTICK_WARRIOR is not set
+# CONFIG_JOYSTICK_MAGELLAN is not set
+# CONFIG_JOYSTICK_SPACEORB is not set
+# CONFIG_JOYSTICK_SPACEBALL is not set
+# CONFIG_JOYSTICK_STINGER is not set
+# CONFIG_JOYSTICK_TWIDJOY is not set
+# CONFIG_JOYSTICK_ZHENHUA is not set
+CONFIG_JOYSTICK_DB9=m
+# CONFIG_JOYSTICK_GAMECON is not set
+# CONFIG_JOYSTICK_TURBOGRAFX is not set
+CONFIG_JOYSTICK_AMIGA=m
+# CONFIG_JOYSTICK_JOYDUMP is not set
+
+##
+## file: drivers/input/joystick/iforce/Kconfig
+##
+# CONFIG_JOYSTICK_IFORCE is not set
+# CONFIG_JOYSTICK_IFORCE_232 is not set
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_INPUT_KEYBOARD=y
+# CONFIG_KEYBOARD_ADP5588 is not set
+CONFIG_KEYBOARD_AMIGA=y
+CONFIG_KEYBOARD_ATARI=y
+CONFIG_KEYBOARD_ATKBD=y
+# CONFIG_KEYBOARD_QT2160 is not set
+# CONFIG_KEYBOARD_LM8323 is not set
+# CONFIG_KEYBOARD_MAX7359 is not set
+# CONFIG_KEYBOARD_OPENCORES is not set
+# CONFIG_KEYBOARD_STOWAWAY is not set
+
+##
+## file: drivers/input/misc/Kconfig
+##
+CONFIG_INPUT_MISC=y
+CONFIG_INPUT_M68K_BEEP=m
+# CONFIG_INPUT_ATI_REMOTE2 is not set
+# CONFIG_INPUT_KEYSPAN_REMOTE is not set
+# CONFIG_INPUT_POWERMATE is not set
+# CONFIG_INPUT_YEALINK is not set
+# CONFIG_INPUT_CM109 is not set
+CONFIG_INPUT_UINPUT=m
+# CONFIG_INPUT_PCF50633_PMU is not set
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_INPUT_MOUSE=y
+CONFIG_MOUSE_PS2=m
+# CONFIG_MOUSE_PS2_LIFEBOOK is not set
+# CONFIG_MOUSE_PS2_ELANTECH is not set
+# CONFIG_MOUSE_PS2_SENTELIC is not set
+# CONFIG_MOUSE_PS2_TOUCHKIT is not set
+# CONFIG_MOUSE_PS2_OLPC is not set
+CONFIG_MOUSE_SERIAL=m
+# CONFIG_MOUSE_INPORT is not set
+# CONFIG_MOUSE_LOGIBM is not set
+# CONFIG_MOUSE_PC110PAD is not set
+CONFIG_MOUSE_AMIGA=m
+CONFIG_MOUSE_ATARI=m
+# CONFIG_MOUSE_SYNAPTICS_I2C is not set
+# CONFIG_MOUSE_SYNAPTICS_USB is not set
+
+##
+## file: drivers/input/serio/Kconfig
+##
+CONFIG_SERIO=y
+CONFIG_SERIO_SERPORT=y
+CONFIG_SERIO_Q40KBD=y
+CONFIG_SERIO_LIBPS2=y
+# CONFIG_SERIO_ALTERA_PS2 is not set
+
+##
+## file: drivers/input/tablet/Kconfig
+##
+# CONFIG_INPUT_TABLET is not set
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+# CONFIG_INPUT_TOUCHSCREEN is not set
+
+##
+## file: drivers/iommu/Kconfig
+##
+# CONFIG_IOMMU_SUPPORT is not set
+
+##
+## file: drivers/leds/Kconfig
+##
+# CONFIG_NEW_LEDS is not set
+
+##
+## file: drivers/macintosh/Kconfig
+##
+CONFIG_ADB=y
+CONFIG_ADB_MACII=y
+# CONFIG_ADB_MACIISI is not set
+CONFIG_ADB_IOP=y # switched on for the benefit of IIfx, Q900, Q950
+CONFIG_ADB_PMU68K=y
+CONFIG_ADB_CUDA=y
+CONFIG_INPUT_ADBHID=y
+CONFIG_MAC_EMUMOUSEBTN=m
+
+##
+## file: drivers/media/Kconfig
+##
+# CONFIG_MEDIA_SUPPORT is not set
+
+##
+## file: drivers/memstick/Kconfig
+##
+# CONFIG_MEMSTICK is not set
+
+##
+## file: drivers/mfd/Kconfig
+##
+# CONFIG_HTC_PASIC3 is not set
+# CONFIG_MFD_SM501 is not set
+
+##
+## file: drivers/misc/Kconfig
+##
+# CONFIG_ENCLOSURE_SERVICES is not set
+
+##
+## file: drivers/misc/c2port/Kconfig
+##
+# CONFIG_C2PORT is not set
+
+##
+## file: drivers/misc/eeprom/Kconfig
+##
+# CONFIG_EEPROM_93CX6 is not set
+
+##
+## file: drivers/mmc/Kconfig
+##
+# CONFIG_MMC is not set
+
+##
+## file: drivers/mtd/Kconfig
+##
+# CONFIG_MTD is not set
+
+##
+## file: drivers/net/appletalk/Kconfig
+##
+CONFIG_DEV_APPLETALK=m
+
+##
+## file: drivers/net/arcnet/Kconfig
+##
+# CONFIG_ARCNET is not set
+
+##
+## file: drivers/net/ethernet/Kconfig
+##
+# CONFIG_DNET is not set
+# CONFIG_ETHOC is not set
+
+##
+## file: drivers/net/ethernet/8390/Kconfig
+##
+CONFIG_HYDRA=m
+CONFIG_MAC8390=y
+CONFIG_NE2000=m
+CONFIG_APNE=m
+CONFIG_ZORRO8390=m
+
+##
+## file: drivers/net/ethernet/amd/Kconfig
+##
+CONFIG_A2065=m
+CONFIG_ARIADNE=m
+CONFIG_ATARILANCE=m
+CONFIG_MVME147_NET=m
+
+##
+## file: drivers/net/ethernet/apple/Kconfig
+##
+CONFIG_MACMACE=y
+
+##
+## file: drivers/net/ethernet/cirrus/Kconfig
+##
+CONFIG_MAC89x0=m
+
+##
+## file: drivers/net/ethernet/i825xx/Kconfig
+##
+CONFIG_BVME6000_NET=m
+CONFIG_MVME16x_NET=m
+
+##
+## file: drivers/net/ethernet/micrel/Kconfig
+##
+# CONFIG_KS8851_MLL is not set
+
+##
+## file: drivers/net/ethernet/natsemi/Kconfig
+##
+CONFIG_MACSONIC=m
+
+##
+## file: drivers/net/ethernet/smsc/Kconfig
+##
+CONFIG_SMC91X=m
+
+##
+## file: drivers/net/ethernet/wiznet/Kconfig
+##
+# CONFIG_WIZNET_W5100 is not set
+# CONFIG_WIZNET_W5300 is not set
+
+##
+## file: drivers/net/plip/Kconfig
+##
+CONFIG_PLIP=m
+
+##
+## file: drivers/net/wan/Kconfig
+##
+# CONFIG_WAN is not set
+
+##
+## file: drivers/net/wireless/Kconfig
+##
+# CONFIG_WLAN is not set
+
+##
+## file: drivers/parport/Kconfig
+##
+# CONFIG_PARPORT_PC is not set
+CONFIG_PARPORT_AMIGA=m
+CONFIG_PARPORT_MFC3=m
+CONFIG_PARPORT_ATARI=m
+
+##
+## file: drivers/pnp/Kconfig
+##
+# CONFIG_PNP is not set
+
+##
+## file: drivers/power/Kconfig
+##
+# CONFIG_POWER_SUPPLY is not set
+
+##
+## file: drivers/ptp/Kconfig
+##
+# CONFIG_PTP_1588_CLOCK is not set
+
+##
+## file: drivers/rtc/Kconfig
+##
+# CONFIG_RTC_DRV_DS1286 is not set
+# CONFIG_RTC_DRV_DS1511 is not set
+# CONFIG_RTC_DRV_DS1553 is not set
+# CONFIG_RTC_DRV_DS1742 is not set
+# CONFIG_RTC_DRV_STK17TA8 is not set
+# CONFIG_RTC_DRV_M48T86 is not set
+# CONFIG_RTC_DRV_M48T35 is not set
+# CONFIG_RTC_DRV_M48T59 is not set
+# CONFIG_RTC_DRV_MSM6242 is not set
+# CONFIG_RTC_DRV_BQ4802 is not set
+CONFIG_RTC_DRV_RP5C01=y
+# CONFIG_RTC_DRV_V3020 is not set
+# CONFIG_RTC_DRV_WM831X is not set
+# CONFIG_RTC_DRV_WM8350 is not set
+CONFIG_RTC_DRV_GENERIC=y
+
+##
+## file: drivers/scsi/Kconfig
+##
+#. for MAC_SCSI and MVME147_SCSI that are not tristate
+CONFIG_SCSI=y
+CONFIG_SCSI_SPI_ATTRS=m
+# CONFIG_SCSI_FC_ATTRS is not set
+# CONFIG_SCSI_AHA152X is not set
+# CONFIG_SCSI_ADVANSYS is not set
+# CONFIG_LIBFC is not set
+CONFIG_A3000_SCSI=m
+CONFIG_A2091_SCSI=m
+CONFIG_GVP11_SCSI=m
+CONFIG_SCSI_A4000T=m
+CONFIG_SCSI_ZORRO7XX=m
+CONFIG_ATARI_SCSI=m
+CONFIG_MAC_SCSI=y
+CONFIG_SCSI_MAC_ESP=m
+CONFIG_MVME147_SCSI=y
+CONFIG_MVME16x_SCSI=m
+CONFIG_BVME6000_SCSI=m
+
+##
+## file: drivers/scsi/ufs/Kconfig
+##
+# CONFIG_SCSI_UFSHCD is not set
+
+##
+## file: drivers/spi/Kconfig
+##
+# CONFIG_SPI is not set
+
+##
+## file: drivers/ssb/Kconfig
+##
+# CONFIG_SSB is not set
+
+##
+## file: drivers/staging/Kconfig
+##
+# CONFIG_STAGING is not set
+
+##
+## file: drivers/tty/Kconfig
+##
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+# CONFIG_SERIAL_NONSTANDARD is not set
+# CONFIG_N_GSM is not set
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_PMACZILOG=y
+CONFIG_SERIAL_PMACZILOG_TTYS=y
+CONFIG_SERIAL_PMACZILOG_CONSOLE=y
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250=m
+CONFIG_SERIAL_8250_CS=m
+CONFIG_SERIAL_8250_NR_UARTS=4
+CONFIG_SERIAL_8250_RUNTIME_UARTS=4
+# CONFIG_SERIAL_8250_EXTENDED is not set
+
+##
+## file: drivers/usb/Kconfig
+##
+# CONFIG_USB_SUPPORT is not set
+
+##
+## file: drivers/video/backlight/Kconfig
+##
+# CONFIG_BACKLIGHT_LCD_SUPPORT is not set
+
+##
+## file: drivers/video/console/Kconfig
+##
+CONFIG_FRAMEBUFFER_CONSOLE=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=y
+# CONFIG_FIRMWARE_EDID is not set
+CONFIG_FB_FOREIGN_ENDIAN=y
+## choice: Choice endianness support
+CONFIG_FB_BOTH_ENDIAN=y
+## end choice
+# CONFIG_FB_MODE_HELPERS is not set
+# CONFIG_FB_TILEBLITTING is not set
+CONFIG_FB_CIRRUS=y
+CONFIG_FB_PM2=m
+CONFIG_FB_AMIGA=y
+CONFIG_FB_AMIGA_OCS=y
+CONFIG_FB_AMIGA_ECS=y
+CONFIG_FB_AMIGA_AGA=y
+CONFIG_FB_FM2=y
+CONFIG_FB_ATARI=y
+CONFIG_FB_VALKYRIE=y
+CONFIG_FB_MAC=y
+# CONFIG_FB_UVESA is not set
+# CONFIG_FB_S1D13XXX is not set
+CONFIG_FB_ATY=y
+# CONFIG_FB_ATY_BACKLIGHT is not set
+# CONFIG_FB_VIRTUAL is not set
+# CONFIG_FB_METRONOME is not set
+
+##
+## file: drivers/video/logo/Kconfig
+##
+# CONFIG_LOGO is not set
+
+##
+## file: drivers/w1/Kconfig
+##
+# CONFIG_W1 is not set
+
+##
+## file: drivers/watchdog/Kconfig
+##
+# CONFIG_WATCHDOG is not set
+
+##
+## file: drivers/zorro/Kconfig
+##
+CONFIG_ZORRO_NAMES=y
+
+##
+## file: fs/adfs/Kconfig
+##
+# CONFIG_ADFS_FS is not set
+
+##
+## file: fs/afs/Kconfig
+##
+# CONFIG_AFS_FS is not set
+
+##
+## file: fs/befs/Kconfig
+##
+# CONFIG_BEFS_FS is not set
+
+##
+## file: fs/bfs/Kconfig
+##
+# CONFIG_BFS_FS is not set
+
+##
+## file: fs/Kconfig.binfmt
+##
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_AOUT=m
+CONFIG_BINFMT_MISC=m
+
+##
+## file: fs/ceph/Kconfig
+##
+# CONFIG_CEPH_FS is not set
+
+##
+## file: fs/dlm/Kconfig
+##
+# CONFIG_DLM is not set
+
+##
+## file: fs/efs/Kconfig
+##
+# CONFIG_EFS_FS is not set
+
+##
+## file: fs/exofs/Kconfig
+##
+# CONFIG_EXOFS_FS is not set
+
+##
+## file: fs/f2fs/Kconfig
+##
+# CONFIG_F2FS_FS is not set
+
+##
+## file: fs/freevxfs/Kconfig
+##
+# CONFIG_VXFS_FS is not set
+
+##
+## file: fs/gfs2/Kconfig
+##
+# CONFIG_GFS2_FS is not set
+
+##
+## file: fs/jfs/Kconfig
+##
+# CONFIG_JFS_FS is not set
+
+##
+## file: fs/logfs/Kconfig
+##
+# CONFIG_LOGFS is not set
+
+##
+## file: fs/ntfs/Kconfig
+##
+# CONFIG_NTFS_FS is not set
+
+##
+## file: fs/ocfs2/Kconfig
+##
+# CONFIG_OCFS2_FS is not set
+
+##
+## file: fs/omfs/Kconfig
+##
+# CONFIG_OMFS_FS is not set
+
+##
+## file: fs/qnx4/Kconfig
+##
+# CONFIG_QNX4FS_FS is not set
+
+##
+## file: fs/reiserfs/Kconfig
+##
+# CONFIG_REISERFS_FS_SECURITY is not set
+
+##
+## file: fs/ubifs/Kconfig
+##
+# CONFIG_UBIFS_FS is not set
+
+##
+## file: init/Kconfig
+##
+CONFIG_USELIB=y
+# CONFIG_AUDIT is not set
+# CONFIG_IKCONFIG is not set
+CONFIG_LOG_BUF_SHIFT=16
+# CONFIG_SCHED_AUTOGROUP is not set
+## choice: Compiler optimization level
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+## end choice
+CONFIG_SGETMASK_SYSCALL=y
+CONFIG_SYSFS_SYSCALL=y
+CONFIG_COMPAT_BRK=y
+# CONFIG_MODULE_SIG is not set
+
+##
+## file: kernel/time/Kconfig
+##
+## choice: Timer tick handling
+CONFIG_HZ_PERIODIC=y
+# CONFIG_NO_HZ_IDLE is not set
+# CONFIG_NO_HZ_FULL is not set
+## end choice
+# CONFIG_NO_HZ is not set
+# CONFIG_HIGH_RES_TIMERS is not set
+
+##
+## file: lib/Kconfig.debug
+##
+# CONFIG_DEBUG_FS is not set
+# CONFIG_FRAME_POINTER is not set
+# CONFIG_SCHED_DEBUG is not set
+# CONFIG_TIMER_STATS is not set
+
+##
+## file: mm/Kconfig
+##
+# CONFIG_COMPACTION is not set
+# CONFIG_MIGRATION is not set
+# CONFIG_KSM is not set
+
+##
+## file: net/Kconfig
+##
+# CONFIG_WIRELESS is not set
+
+##
+## file: net/atm/Kconfig
+##
+# CONFIG_ATM is not set
+
+##
+## file: net/ax25/Kconfig
+##
+# CONFIG_HAMRADIO is not set
+
+##
+## file: net/batman-adv/Kconfig
+##
+# CONFIG_BATMAN_ADV is not set
+
+##
+## file: net/can/Kconfig
+##
+# CONFIG_CAN is not set
+
+##
+## file: net/ceph/Kconfig
+##
+# CONFIG_CEPH_LIB is not set
+
+##
+## file: net/dcb/Kconfig
+##
+# CONFIG_DCB is not set
+
+##
+## file: net/ieee802154/Kconfig
+##
+# CONFIG_IEEE802154 is not set
+
+##
+## file: net/ipv4/Kconfig
+##
+# CONFIG_IP_ADVANCED_ROUTER is not set
+# CONFIG_TCP_MD5SIG is not set
+
+##
+## file: net/ipv6/Kconfig
+##
+CONFIG_IPV6=m
+
+##
+## file: net/ipx/Kconfig
+##
+CONFIG_IPX=m
+
+##
+## file: net/irda/Kconfig
+##
+# CONFIG_IRDA is not set
+
+##
+## file: net/lapb/Kconfig
+##
+# CONFIG_LAPB is not set
+
+##
+## file: net/llc/Kconfig
+##
+# CONFIG_LLC2 is not set
+
+##
+## file: net/mac80211/Kconfig
+##
+# CONFIG_MAC80211 is not set
+
+##
+## file: net/nfc/Kconfig
+##
+# CONFIG_NFC is not set
+
+##
+## file: net/phonet/Kconfig
+##
+# CONFIG_PHONET is not set
+
+##
+## file: net/rds/Kconfig
+##
+# CONFIG_RDS is not set
+
+##
+## file: net/rfkill/Kconfig
+##
+# CONFIG_RFKILL is not set
+
+##
+## file: net/rxrpc/Kconfig
+##
+# CONFIG_AF_RXRPC is not set
+
+##
+## file: net/sctp/Kconfig
+##
+# CONFIG_IP_SCTP is not set
+
+##
+## file: net/tipc/Kconfig
+##
+# CONFIG_TIPC is not set
+
+##
+## file: net/wimax/Kconfig
+##
+# CONFIG_WIMAX is not set
+
+##
+## file: net/wireless/Kconfig
+##
+# CONFIG_CFG80211 is not set
+
+##
+## file: security/Kconfig
+##
+# CONFIG_SECURITY is not set
+# CONFIG_SECURITYFS is not set
+
+##
+## file: sound/Kconfig
+##
+# CONFIG_SND is not set
+
+##
+## file: sound/oss/dmasound/Kconfig
+##
+CONFIG_DMASOUND_ATARI=m
+CONFIG_DMASOUND_PAULA=m
+CONFIG_DMASOUND_Q40=m
+

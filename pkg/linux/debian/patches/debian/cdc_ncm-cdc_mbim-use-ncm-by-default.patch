@@ -1,0 +1,27 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: cdc_ncm,cdc_mbim: Use NCM by default
+Date: Sun, 31 Mar 2013 03:58:04 +0100
+Forwarded: not-needed
+
+Devices that support both NCM and MBIM modes should be kept in NCM
+mode unless there is userland support for MBIM.
+
+Set the default value of cdc_ncm.prefer_mbim to false and leave it to
+userland (modem-manager) to override this with a modprobe.conf file
+once it's ready to speak MBIM.
+
+---
+--- a/drivers/net/usb/cdc_ncm.c
++++ b/drivers/net/usb/cdc_ncm.c
+@@ -53,11 +53,7 @@
+ #include <linux/usb/cdc.h>
+ #include <linux/usb/cdc_ncm.h>
+ 
+-#if IS_ENABLED(CONFIG_USB_NET_CDC_MBIM)
+-static bool prefer_mbim = true;
+-#else
+ static bool prefer_mbim;
+-#endif
+ module_param(prefer_mbim, bool, S_IRUGO | S_IWUSR);
+ MODULE_PARM_DESC(prefer_mbim, "Prefer MBIM setting on dual NCM/MBIM functions");
+ 

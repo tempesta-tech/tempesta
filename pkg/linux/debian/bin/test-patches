@@ -1,0 +1,101 @@
+#!/bin/bash
+
+set -e
+shopt -s extglob
+
+# Set defaults from the running kernel
+arch="$(dpkg --print-architecture)"
+kernelabi="$(uname -r)"
+ff="${kernelabi#+([^-])-@(trunk|+([0-9]))-}"
+if [ "x$ff" != "x$kernelabi" ]; then
+    flavour="${ff#@(openvz|rt|vserver|xen)-}"
+    if [ "x$flavour" != "x$ff" ]; then
+	featureset="${ff%-$flavour}"
+    else
+	featureset=none
+    fi
+else
+    flavour=
+    featureset=none
+fi
+
+fuzz=0
+
+eval "set -- $(getopt -n "$0" -o "f:j:s:" -l "fuzz:" -- "$@")"
+while true; do
+    case "$1" in
+	-f) flavour="$2"; shift 2 ;;
+	-j) export MAKEFLAGS="$MAKEFLAGS -j$2"; shift 2 ;;
+	-s) featureset="$2"; shift 2 ;;
+	--fuzz) fuzz="$2"; shift 2;;
+	--) shift 1; break ;;
+    esac
+done
+	    
+if [ $# -lt 1 ]; then
+    echo >&2 "Usage: $0 [<options>] <patch>..."
+    cat >&2 <<EOF
+Options:
+     -f <flavour>     specify the 'flavour' of kernel to build, e.g. 686-pae
+     -j <jobs>        specify number of compiler jobs to run in parallel
+     -s <featureset>  specify an optional featureset to apply, e.g. rt
+     --fuzz <num>     set the maximum patch fuzz factor (default: 0)
+EOF
+    exit 2
+fi
+
+if [ -z "$flavour" ]; then
+    echo >&2 "You must specify a flavour to build with the -f option"
+    exit 2
+fi
+
+dpkg-checkbuilddeps -B
+
+# Append 'a~test' to Debian version; this should be less than any official
+# successor and easily recognisable
+version="$(dpkg-parsechangelog | sed 's/^Version: //; t; d')"
+if [ "${version%a~test}" = "$version" ]; then
+    version="$version"a~test
+    dch -v "$version" --distribution UNRELEASED "Testing patches $*"
+fi
+
+# Make new directory for patches
+mkdir -p debian/patches/test
+
+# Ignore user's .quiltrc
+alias quilt='quilt --quiltrc -'
+
+# Try to clean up any previous test patches
+if [ "$featureset" = none ]; then
+    while patch="$(quilt next 2>/dev/null || quilt top 2>/dev/null)" && \
+	[ "${patch#test/}" != "$patch" ]; do
+        quilt delete -r "$patch"
+    done
+else
+    sed -i '/^test\//d' debian/patches/series-${featureset}
+fi
+
+# Prepare a new directory for the patches
+rm -rf debian/patches/test/
+mkdir debian/patches/test
+
+# Regenerate control and included rules
+rm debian/control debian/rules.gen
+debian/rules debian/control-real && exit 1 || true
+test -f debian/control
+test -f debian/rules.gen
+
+# Clean up old build; apply existing patches for featureset
+debian/rules clean
+debian/rules source
+
+# Apply the additional patches
+for patch in "$@"; do
+    patch_abs="$(readlink -f "$patch")"
+    (cd "debian/build/source_${featureset}" && \
+     quilt import -P "test/$(basename "$patch")" "$patch_abs" && \
+     quilt push --fuzz="$fuzz")
+done
+
+# Build selected binaries
+fakeroot make -f debian/rules.gen binary-arch_"$arch"_"$featureset"_"$flavour"

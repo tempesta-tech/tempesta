@@ -1,0 +1,50 @@
+From: Frederik Schüler <fs@debian.org>
+Date: Fri, 05 Jan 2007 15:55:24 +0000
+Subject: Add removal patches for: 3c359, smctr, keyspan, cops
+Forwarded: not-needed
+
+diff -ruN a/drivers/net/appletalk/Kconfig b/drivers/net/appletalk/Kconfig
+--- a/drivers/net/appletalk/Kconfig	2006-11-29 21:57:37.000000000 +0000
++++ b/drivers/net/appletalk/Kconfig	2007-01-05 15:34:44.000000000 +0000
+@@ -49,32 +49,6 @@
+ 	  This driver is experimental, which means that it may not work.
+ 	  See the file <file:Documentation/networking/ltpc.txt>.
+ 
+-config COPS
+-	tristate "COPS LocalTalk PC support"
+-	depends on DEV_APPLETALK && (ISA || EISA)
+-	help
+-	  This allows you to use COPS AppleTalk cards to connect to LocalTalk
+-	  networks. You also need version 1.3.3 or later of the netatalk
+-	  package. This driver is experimental, which means that it may not
+-	  work. This driver will only work if you choose "AppleTalk DDP"
+-	  networking support, above.
+-	  Please read the file <file:Documentation/networking/cops.txt>.
+-
+-config COPS_DAYNA
+-	bool "Dayna firmware support"
+-	depends on COPS
+-	help
+-	  Support COPS compatible cards with Dayna style firmware (Dayna
+-	  DL2000/ Daynatalk/PC (half length), COPS LT-95, Farallon PhoneNET PC
+-	  III, Farallon PhoneNET PC II).
+-
+-config COPS_TANGENT
+-	bool "Tangent firmware support"
+-	depends on COPS
+-	help
+-	  Support COPS compatible cards with Tangent style firmware (Tangent
+-	  ATB_II, Novell NL-1000, Daystar Digital LT-200.
+-
+ config IPDDP
+ 	tristate "Appletalk-IP driver support"
+ 	depends on DEV_APPLETALK && ATALK
+diff -ruN a/drivers/net/appletalk/Makefile b/drivers/net/appletalk/Makefile
+--- a/drivers/net/appletalk/Makefile	2006-11-29 21:57:37.000000000 +0000
++++ b/drivers/net/appletalk/Makefile	2007-01-05 15:34:11.000000000 +0000
+@@ -3,5 +3,4 @@
+ #
+ 
+ obj-$(CONFIG_IPDDP) += ipddp.o
+-obj-$(CONFIG_COPS) += cops.o
+ obj-$(CONFIG_LTPC) += ltpc.o

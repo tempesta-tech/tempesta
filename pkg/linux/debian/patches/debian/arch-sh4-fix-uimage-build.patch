@@ -1,0 +1,18 @@
+From: Nobuhiro Iwamatsu <iwamatsu@nigauri.org>
+Subject: [sh4] Fix uImage build
+Bug-Debian: https://bugs.debian.org/569034
+Forwarded: not-needed
+
+[bwh: This was added without a description, but I think it is dealing
+with a similar issue to powerpcspe-omit-uimage.patch]
+
+--- a/arch/sh/Makefile
++++ b/arch/sh/Makefile
+@@ -75,7 +75,6 @@
+ 
+ # Give the various platforms the opportunity to set default image types
+ defaultimage-$(CONFIG_SUPERH32)			:= zImage
+-defaultimage-$(CONFIG_SH_SH7785LCR)		:= uImage
+ defaultimage-$(CONFIG_SH_RSK)			:= uImage
+ defaultimage-$(CONFIG_SH_URQUELL)		:= uImage
+ defaultimage-$(CONFIG_SH_MIGOR)			:= uImage

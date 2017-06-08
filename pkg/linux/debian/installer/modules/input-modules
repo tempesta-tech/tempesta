@@ -1,0 +1,39 @@
+# Include HID drivers by default
+drivers/hid/**
+
+# Exclude hid-hyperv, packaged in hyperv-modules
+hid-hyperv -
+
+# Exclude drivers for anything but keyboard and mouse/trackball/touchpad
+drivers/hid/hid-*ff -
+hid-dr -
+hid-elecom -
+hid-gyration -
+hid-icade -
+hid-lcpower -
+hid-ntrig -
+hid-petalynx -
+hid-picolcd -
+hid-pl -
+hid-prodikeys -
+hid-ps3remote -
+hid-quanta -
+drivers/hid/hid-roccat-ko* -
+hid-roccat-pyra -
+hid-saitek -
+hid-sensor-hub -
+hid-sony -
+hid-tivo -
+hid-twinhan -
+hid-uclogic -
+hid-wacom -
+hid-waltop -
+hid-wiimote -
+hid-zydacron -
+wacom -
+
+# Miscellaneous input drivers
+synaptics_usb ?
+wistron_btns ?
+gpio_keys ?
+soc_button_array ?

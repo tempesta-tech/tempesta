@@ -1,0 +1,30 @@
+From: Clark Williams <williams@redhat.com>
+Date: Tue, 26 May 2015 10:43:43 -0500
+Subject: i915: bogus warning from i915 when running on PREEMPT_RT
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The i915 driver has a 'WARN_ON(!in_interrupt())' in the display
+handler, which whines constanly on the RT kernel (since the interrupt
+is actually handled in a threaded handler and not actual interrupt
+context).
+
+Change the WARN_ON to WARN_ON_NORT
+
+Tested-by: Joakim Hernberg <jhernberg@alchemy.lu>
+Signed-off-by: Clark Williams <williams@redhat.com>
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ drivers/gpu/drm/i915/intel_display.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/gpu/drm/i915/intel_display.c
++++ b/drivers/gpu/drm/i915/intel_display.c
+@@ -11670,7 +11670,7 @@ void intel_check_page_flip(struct drm_i9
+ 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+ 	struct intel_flip_work *work;
+ 
+-	WARN_ON(!in_interrupt());
++	WARN_ON_NONRT(!in_interrupt());
+ 
+ 	if (crtc == NULL)
+ 		return;

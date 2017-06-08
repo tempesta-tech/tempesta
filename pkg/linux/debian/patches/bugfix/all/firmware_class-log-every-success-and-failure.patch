@@ -1,0 +1,64 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Subject: firmware_class: Log every success and failure against given device
+Date: Sun, 09 Dec 2012 16:02:00 +0000
+Forwarded: no
+
+The hundreds of users of request_firmware() have nearly as many
+different log formats for reporting failures.  They also have only the
+vaguest hint as to what went wrong; only firmware_class really knows
+that.  Therefore, add specific log messages for the failure modes that
+aren't currently logged.
+
+In case of a driver that tries multiple names, this may result in the
+impression that it failed to initialise.  Therefore, also log successes.
+
+This makes many error messages in drivers redundant, which will be
+removed in later patches.
+
+This does not cover the case where we fall back to a user-mode helper
+(which is no longer enabled in Debian).
+
+NOTE: hw-detect will depend on the "firmware: failed to load %s (%d)\n"
+format to detect missing firmware.
+---
+--- a/drivers/base/firmware_class.c
++++ b/drivers/base/firmware_class.c
+@@ -350,21 +350,22 @@ fw_get_filesystem_firmware(struct device
+ 		rc = kernel_read_file_from_path(path, &buf->data, &size, msize,
+ 						id);
+ 		if (rc) {
+-			if (rc == -ENOENT)
+-				dev_dbg(device, "loading %s failed with error %d\n",
+-					 path, rc);
+-			else
+-				dev_warn(device, "loading %s failed with error %d\n",
+-					 path, rc);
++			dev_dbg(device, "loading %s failed with error %d\n",
++				path, rc);
+ 			continue;
+ 		}
+-		dev_dbg(device, "direct-loading %s\n", buf->fw_id);
++		dev_info(device, "firmware: direct-loading firmware %s\n",
++			 buf->fw_id);
+ 		buf->size = size;
+ 		fw_finish_direct_load(device, buf);
+ 		break;
+ 	}
+ 	__putname(path);
+ 
++	if (rc)
++		dev_err(device, "firmware: failed to load %s (%d)\n",
++			buf->fw_id, rc);
++
+ 	return rc;
+ }
+ 
+@@ -1155,7 +1156,7 @@ _request_firmware(const struct firmware
+ 	if (opt_flags & FW_OPT_NOWAIT) {
+ 		timeout = usermodehelper_read_lock_wait(timeout);
+ 		if (!timeout) {
+-			dev_dbg(device, "firmware: %s loading timed out\n",
++			dev_err(device, "firmware: %s loading timed out\n",
+ 				name);
+ 			ret = -EBUSY;
+ 			goto out;

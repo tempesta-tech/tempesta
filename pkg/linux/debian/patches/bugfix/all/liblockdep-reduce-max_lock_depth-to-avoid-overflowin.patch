@@ -1,0 +1,44 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 20:44:14 +0100
+Subject: [PATCH 2/7] liblockdep: Reduce MAX_LOCK_DEPTH to avoid overflowing
+ lock_chain::depth
+Forwarded: http://mid.gmane.org/20160614204752.GU7555@decadent.org.uk
+
+liblockdep has been broken since commit 75dd602a5198 ("lockdep: Fix
+lock_chain::base size"), as that adds a check that MAX_LOCK_DEPTH is
+within the range of lock_chain::depth and in liblockdep it is much
+too large.
+
+That should have resulted in a compiler error, but didn't because:
+
+- the check uses ARRAY_SIZE(), which isn't yet defined in liblockdep
+  so is assumed to be an (undeclared) function
+- putting a function call inside a BUILD_BUG_ON() expression quietly
+  turns it into some nonsense involving a variable-length array
+
+It did produce a compiler warning, but I didn't notice because
+liblockdep already produces too many warnings if -Wall is enabled
+(which I'll fix shortly).
+
+Even before that commit, which reduced lock_chain::depth from 8 bits
+to 6, MAX_LOCK_DEPTH was too large.
+
+Cc: <stable@vger.kernel.org> # for versions before 4.6, use a value of 255
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/uinclude/linux/lockdep.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/lib/lockdep/uinclude/linux/lockdep.h b/tools/lib/lockdep/uinclude/linux/lockdep.h
+index c808c7d02d21..d30214221920 100644
+--- a/tools/lib/lockdep/uinclude/linux/lockdep.h
++++ b/tools/lib/lockdep/uinclude/linux/lockdep.h
+@@ -8,7 +8,7 @@
+ #include <linux/utsname.h>
+ #include <linux/compiler.h>
+ 
+-#define MAX_LOCK_DEPTH 2000UL
++#define MAX_LOCK_DEPTH 63UL
+ 
+ #define asmlinkage
+ #define __visible

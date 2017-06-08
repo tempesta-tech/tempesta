@@ -1,0 +1,39 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 25 Sep 2015 20:09:23 +0100
+Subject: tools/perf: Remove shebang lines from perf scripts
+Forwarded: no
+
+perf scripts need to be invoked through perf, not directly through
+perl (or other language interpreter).  So including shebang lines in
+them is useless and possibly misleading.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/tools/perf/scripts/perl/rw-by-file.pl
++++ b/tools/perf/scripts/perl/rw-by-file.pl
+@@ -1,4 +1,3 @@
+-#!/usr/bin/perl -w
+ # (c) 2009, Tom Zanussi <tzanussi@gmail.com>
+ # Licensed under the terms of the GNU GPL License version 2
+ 
+--- a/tools/perf/scripts/perl/rw-by-pid.pl
++++ b/tools/perf/scripts/perl/rw-by-pid.pl
+@@ -1,4 +1,3 @@
+-#!/usr/bin/perl -w
+ # (c) 2009, Tom Zanussi <tzanussi@gmail.com>
+ # Licensed under the terms of the GNU GPL License version 2
+ 
+--- a/tools/perf/scripts/perl/rwtop.pl
++++ b/tools/perf/scripts/perl/rwtop.pl
+@@ -1,4 +1,3 @@
+-#!/usr/bin/perl -w
+ # (c) 2010, Tom Zanussi <tzanussi@gmail.com>
+ # Licensed under the terms of the GNU GPL License version 2
+ 
+--- a/tools/perf/scripts/perl/wakeup-latency.pl
++++ b/tools/perf/scripts/perl/wakeup-latency.pl
+@@ -1,4 +1,3 @@
+-#!/usr/bin/perl -w
+ # (c) 2009, Tom Zanussi <tzanussi@gmail.com>
+ # Licensed under the terms of the GNU GPL License version 2
+ 

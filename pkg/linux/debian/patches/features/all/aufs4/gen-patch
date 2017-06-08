@@ -1,0 +1,31 @@
+#!/bin/bash -e
+
+aufs_dir="$1"
+
+export GIT_DIR="$aufs_dir/.git"
+
+from_line='From: J. R. Okajima <hooanon05@yahoo.co.jp>'
+if [ -d "$GIT_DIR" ]; then
+    origin_line="Origin: https://github.com/sfjro/aufs4-standalone/tree/$(git rev-list HEAD -1)"
+else
+    echo >&2 "W: Cannot include a specific origin URL without an aufs git repo"
+    origin_line='Origin: https://github.com/sfjro/aufs4-standalone/branches'
+fi
+bug_line='Bug-Debian: https://bugs.debian.org/541828'
+
+for patch in aufs4-{base,mmap,standalone}.patch; do
+    {
+	echo "$from_line"
+	if [ -d "$GIT_DIR" ]; then
+	    git log --pretty='Date: %ad' HEAD -1 -- "$patch"
+	fi
+	echo -n 'Subject: '
+	head -1 "$aufs_dir/$patch"
+	echo "$origin_line"
+	echo "$bug_line"
+	echo
+	echo 'Patch headers added by debian/patches/features/all/aufs4/gen-patch'
+	echo
+	sed 's/^+.*EXPORT_SYMBOL\b/&_GPL/' < "$aufs_dir"/"$patch"
+    } > debian/patches/features/all/aufs4/"$patch"
+done

@@ -1,0 +1,27 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 16 Feb 2016 02:45:42 +0000
+Subject: [i386/686-pae] PCI: Set pci=nobios by default
+Forwarded: not-needed
+
+CONFIG_PCI_GOBIOS results in physical addresses 640KB-1MB being mapped
+W+X, which is undesirable for security reasons and will result in a
+warning at boot now that we enable CONFIG_DEBUG_WX.
+
+This can be overridden using the kernel parameter "pci=nobios", but we
+want to disable W+X by default.  Disable PCI BIOS probing by default;
+it can still be enabled using "pci=bios".
+
+---
+--- a/arch/x86/pci/common.c
++++ b/arch/x86/pci/common.c
+@@ -20,8 +20,8 @@
+ #include <asm/pci_x86.h>
+ #include <asm/setup.h>
+ 
+-unsigned int pci_probe = PCI_PROBE_BIOS | PCI_PROBE_CONF1 | PCI_PROBE_CONF2 |
+-				PCI_PROBE_MMCONF;
++unsigned int pci_probe = PCI_PROBE_CONF1 | PCI_PROBE_CONF2 | PCI_PROBE_MMCONF |
++	(IS_ENABLED(CONFIG_X86_64) || IS_ENABLED(CONFIG_X86_PAE) ? 0 : PCI_PROBE_BIOS);
+ 
+ unsigned int pci_early_dump_regs;
+ static int pci_bf_sort;

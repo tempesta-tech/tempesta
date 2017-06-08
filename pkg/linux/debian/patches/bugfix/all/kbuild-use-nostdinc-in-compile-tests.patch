@@ -1,0 +1,84 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sat, 19 Oct 2013 19:43:35 +0100
+Subject: kbuild: Use -nostdinc in compile tests
+Bug-Debian: https://bugs.debian.org/726861
+Bug-Debian: https://bugs.debian.org/717557
+Forwarded: http://mid.gmane.org/1415235534.3398.35.camel@decadent.org.uk
+
+Debian's gcc 4.8 pre-includes <stdc-predef.h> by default, which in
+turn includes <bits/predefs.h>.  This fails when building a 64-bit
+kernel and only 32-bit C library headers installed.
+
+The -nostdinc option disables this, though it isn't explicitly
+documented.  This option is already used when actually building
+the kernel.
+
+--- a/scripts/Kbuild.include
++++ b/scripts/Kbuild.include
+@@ -116,12 +116,12 @@ CC_OPTION_CFLAGS = $(filter-out $(GCC_PL
+ # Usage: cflags-y += $(call cc-option,-march=winchip-c6,-march=i586)
+ 
+ cc-option = $(call try-run,\
+-	$(CC) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) $(1) -c -x c /dev/null -o "$$TMP",$(1),$(2))
++	$(CC) $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) $(1) -c -x c /dev/null -o "$$TMP",$(1),$(2))
+ 
+ # cc-option-yn
+ # Usage: flag := $(call cc-option-yn,-march=winchip-c6)
+ cc-option-yn = $(call try-run,\
+-	$(CC) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) $(1) -c -x c /dev/null -o "$$TMP",y,n)
++	$(CC) $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) $(1) -c -x c /dev/null -o "$$TMP",y,n)
+ 
+ # cc-option-align
+ # Prefix align with either -falign or -malign
+@@ -131,18 +131,19 @@ cc-option-align = $(subst -functions=0,,
+ # cc-disable-warning
+ # Usage: cflags-y += $(call cc-disable-warning,unused-but-set-variable)
+ cc-disable-warning = $(call try-run,\
+-	$(CC) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) -W$(strip $(1)) -c -x c /dev/null -o "$$TMP",-Wno-$(strip $(1)))
++	$(CC) $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(CC_OPTION_CFLAGS) -W$(strip $(1)) -c -x c /dev/null -o "$$TMP",-Wno-$(strip $(1)))
+ 
+ # cc-name
+ # Expands to either gcc or clang
+ cc-name = $(shell $(CC) -v 2>&1 | grep -q "clang version" && echo clang || echo gcc)
+ 
+ # cc-version
+-cc-version = $(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-version.sh $(CC))
++cc-version = $(shell $(CONFIG_SHELL) \
++	$(srctree)/scripts/gcc-version.sh $(CC) $(NOSTDINC_FLAGS))
+ 
+ # cc-fullversion
+ cc-fullversion = $(shell $(CONFIG_SHELL) \
+-	$(srctree)/scripts/gcc-version.sh -p $(CC))
++	$(srctree)/scripts/gcc-version.sh -p $(CC) $(NOSTDINC_FLAGS))
+ 
+ # cc-ifversion
+ # Usage:  EXTRA_CFLAGS += $(call cc-ifversion, -lt, 0402, -O1)
+@@ -156,7 +157,7 @@ cc-ldoption = $(call try-run,\
+ # ld-option
+ # Usage: LDFLAGS += $(call ld-option, -X)
+ ld-option = $(call try-run,\
+-	$(CC) -x c /dev/null -c -o "$$TMPO" ; $(LD) $(1) "$$TMPO" -o "$$TMP",$(1),$(2))
++	$(CC) $(NOSTDINC_FLAGS) -x c /dev/null -c -o "$$TMPO" ; $(LD) $(1) "$$TMPO" -o "$$TMP",$(1),$(2))
+ 
+ # ar-option
+ # Usage: KBUILD_ARFLAGS := $(call ar-option,D)
+--- a/Makefile
++++ b/Makefile
+@@ -634,6 +634,8 @@ KBUILD_CFLAGS   += -O2
+ endif
+ endif
+ 
++NOSTDINC_FLAGS += -nostdinc
++
+ # Tell gcc to never replace conditional load with a non-conditional one
+ KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
+ 
+@@ -752,7 +754,7 @@ KBUILD_CFLAGS += $(call cc-option, -fno-
+ endif
+ 
+ # arch Makefile may override CC so keep this after arch Makefile is included
+-NOSTDINC_FLAGS += -nostdinc -isystem $(shell $(CC) -print-file-name=include)
++NOSTDINC_FLAGS += -isystem $(shell $(CC) -print-file-name=include)
+ CHECKFLAGS     += $(NOSTDINC_FLAGS)
+ 
+ # warn about C99 declaration after statement

@@ -1,0 +1,28 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 21:26:01 +0100
+Subject: [PATCH 4/7] liblockdep: Enable -Wall by default
+Forwarded: http://mid.gmane.org/20160614204841.GW7555@decadent.org.uk
+
+Regressions in liblockdep may be missed because it doesn't enable
+warnings.
+
+Adding -Wall immediately introduces a lot of warnings, but those will
+be fixed by the following commits.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tools/lib/lockdep/Makefile b/tools/lib/lockdep/Makefile
+index 1d57af56814b..710a0edfe1b1 100644
+--- a/tools/lib/lockdep/Makefile
++++ b/tools/lib/lockdep/Makefile
+@@ -79,6 +79,7 @@ INCLUDES = -I. -I./uinclude -I./include -I../../include $(CONFIG_INCLUDES)
+ # Set compile option CFLAGS if not set elsewhere
+ CFLAGS ?= -g -DCONFIG_LOCKDEP -DCONFIG_STACKTRACE -DCONFIG_PROVE_LOCKING -DBITS_PER_LONG=__WORDSIZE -DLIBLOCKDEP_VERSION='"$(LIBLOCKDEP_VERSION)"' -rdynamic -O0 -g
+ CFLAGS += -fPIC
++CFLAGS += -Wall
+ 
+ override CFLAGS += $(CONFIG_FLAGS) $(INCLUDES) $(PLUGIN_DIR_SQ)
+ 

@@ -1,0 +1,77 @@
+_add_pstore_log() {
+  if [ $# -le 3 ]; then
+    return
+  fi
+
+  local backend="$1"
+  local event="$2"
+  local date="$3"
+
+  yesno "Include log of $event at $(date -d @$date +%c) stored by $backend?" yep
+  if [ $REPLY != yep ]; then
+    return
+  fi
+
+  echo >&3
+  echo "*** Log of $event at $(date -d @$date -Iseconds) from $backend" >&3
+
+  shift 3
+  for file in "$@"; do
+    tail -n +2 "$file" | sed 's/^<.>//' >&3
+  done
+}
+
+add_pstore() {
+  local backend
+  local i
+  local j
+  local file
+  local date
+  local head
+  local event
+  local log_files
+
+  if ! mountpoint -q /sys/fs/pstore; then
+    return 0
+  fi
+
+  set -- /sys/fs/pstore/dmesg-*-1
+  backend=${1#*/dmesg-}
+  backend=${backend%-1}
+  if [ "$backend" = '*' ]; then
+    return 0
+  fi
+
+  i=1
+  while [ -f /sys/fs/pstore/dmesg-$backend-$i ]; do
+    file=/sys/fs/pstore/dmesg-$backend-$i
+    head="$(head -1 "$file")"
+
+    # Is this the first part of a log?
+    if [ "x${head% Part1}" != "x$head" ]; then
+      # Flush previous log, if any
+      _add_pstore_log "$backend" "$event" "$date" $log_files
+
+      event="${head% Part1}"
+      date=$(stat -c %Y $file)
+      log_files=
+      j=1
+    fi
+
+    if [ "x$head" = "x$event Part$j" ]; then
+      # Each part is prepended to the list, because they're numbered
+      # backward in log history
+      log_files="$file $log_files"
+      j=$((j + 1))
+    fi
+
+    i=$((i + 1))
+  done
+
+  # Flush last log, if any
+  _add_pstore_log "$backend" "$event" "$date" $log_files
+}
+
+ask_pstore() {
+  add_pstore
+}

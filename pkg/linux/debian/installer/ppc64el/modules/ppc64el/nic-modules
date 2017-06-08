@@ -1,0 +1,5 @@
+#include "../../../ppc64/modules/ppc64/nic-modules"
+
+airport -
+ps3_gelic -
+spidernet -

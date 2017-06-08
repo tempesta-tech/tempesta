@@ -1,0 +1,15 @@
+# Include SATA drivers by default
+drivers/ata/sata_*
+
+# sata-sis depends on pata-sis; avoid a dependency
+pata_sis ?
+
+# Include more SATA drivers with unusual names
+ata_piix ?
+ahci ?
+sx8 ?
+pdc_adma ?
+mtip32xx ?
+
+# XXX not actually SATA
+nvme ?

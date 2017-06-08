@@ -1,0 +1,160 @@
+Subject: x86/mce: use swait queue for mce wakeups
+From: Steven Rostedt <rostedt@goodmis.org>
+Date:	Fri, 27 Feb 2015 15:20:37 +0100
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+We had a customer report a lockup on a 3.0-rt kernel that had the
+following backtrace:
+
+[ffff88107fca3e80] rt_spin_lock_slowlock at ffffffff81499113
+[ffff88107fca3f40] rt_spin_lock at ffffffff81499a56
+[ffff88107fca3f50] __wake_up at ffffffff81043379
+[ffff88107fca3f80] mce_notify_irq at ffffffff81017328
+[ffff88107fca3f90] intel_threshold_interrupt at ffffffff81019508
+[ffff88107fca3fa0] smp_threshold_interrupt at ffffffff81019fc1
+[ffff88107fca3fb0] threshold_interrupt at ffffffff814a1853
+
+It actually bugged because the lock was taken by the same owner that
+already had that lock. What happened was the thread that was setting
+itself on a wait queue had the lock when an MCE triggered. The MCE
+interrupt does a wake up on its wait list and grabs the same lock.
+
+NOTE: THIS IS NOT A BUG ON MAINLINE
+
+Sorry for yelling, but as I Cc'd mainline maintainers I want them to
+know that this is an PREEMPT_RT bug only. I only Cc'd them for advice.
+
+On PREEMPT_RT the wait queue locks are converted from normal
+"spin_locks" into an rt_mutex (see the rt_spin_lock_slowlock above).
+These are not to be taken by hard interrupt context. This usually isn't
+a problem as most all interrupts in PREEMPT_RT are converted into
+schedulable threads. Unfortunately that's not the case with the MCE irq.
+
+As wait queue locks are notorious for long hold times, we can not
+convert them to raw_spin_locks without causing issues with -rt. But
+Thomas has created a "simple-wait" structure that uses raw spin locks
+which may have been a good fit.
+
+Unfortunately, wait queues are not the only issue, as the mce_notify_irq
+also does a schedule_work(), which grabs the workqueue spin locks that
+have the exact same issue.
+
+Thus, this patch I'm proposing is to move the actual work of the MCE
+interrupt into a helper thread that gets woken up on the MCE interrupt
+and does the work in a schedulable context.
+
+NOTE: THIS PATCH ONLY CHANGES THE BEHAVIOR WHEN PREEMPT_RT IS SET
+
+Oops, sorry for yelling again, but I want to stress that I keep the same
+behavior of mainline when PREEMPT_RT is not set. Thus, this only changes
+the MCE behavior when PREEMPT_RT is configured.
+
+Signed-off-by: Steven Rostedt <rostedt@goodmis.org>
+[bigeasy@linutronix: make mce_notify_work() a proper prototype, use
+		     kthread_run()]
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+[wagi: use work-simple framework to defer work to a kthread]
+Signed-off-by: Daniel Wagner <daniel.wagner@bmw-carit.de>
+---
+ arch/x86/kernel/cpu/mcheck/mce.c |   68 ++++++++++++++++++++++++++++++++-------
+ 1 file changed, 56 insertions(+), 12 deletions(-)
+
+--- a/arch/x86/kernel/cpu/mcheck/mce.c
++++ b/arch/x86/kernel/cpu/mcheck/mce.c
+@@ -42,6 +42,7 @@
+ #include <linux/irq_work.h>
+ #include <linux/export.h>
+ #include <linux/jiffies.h>
++#include <linux/swork.h>
+ 
+ #include <asm/processor.h>
+ #include <asm/traps.h>
+@@ -1368,6 +1369,56 @@ static void mce_do_trigger(struct work_s
+ 
+ static DECLARE_WORK(mce_trigger_work, mce_do_trigger);
+ 
++static void __mce_notify_work(struct swork_event *event)
++{
++	/* Not more than two messages every minute */
++	static DEFINE_RATELIMIT_STATE(ratelimit, 60*HZ, 2);
++
++	/* wake processes polling /dev/mcelog */
++	wake_up_interruptible(&mce_chrdev_wait);
++
++	/*
++	 * There is no risk of missing notifications because
++	 * work_pending is always cleared before the function is
++	 * executed.
++	 */
++	if (mce_helper[0] && !work_pending(&mce_trigger_work))
++		schedule_work(&mce_trigger_work);
++
++	if (__ratelimit(&ratelimit))
++		pr_info(HW_ERR "Machine check events logged\n");
++}
++
++#ifdef CONFIG_PREEMPT_RT_FULL
++static bool notify_work_ready __read_mostly;
++static struct swork_event notify_work;
++
++static int mce_notify_work_init(void)
++{
++	int err;
++
++	err = swork_get();
++	if (err)
++		return err;
++
++	INIT_SWORK(&notify_work, __mce_notify_work);
++	notify_work_ready = true;
++	return 0;
++}
++
++static void mce_notify_work(void)
++{
++	if (notify_work_ready)
++		swork_queue(&notify_work);
++}
++#else
++static void mce_notify_work(void)
++{
++	__mce_notify_work(NULL);
++}
++static inline int mce_notify_work_init(void) { return 0; }
++#endif
++
+ /*
+  * Notify the user(s) about new machine check events.
+  * Can be called from interrupt context, but not from machine check/NMI
+@@ -1375,19 +1426,8 @@ static DECLARE_WORK(mce_trigger_work, mc
+  */
+ int mce_notify_irq(void)
+ {
+-	/* Not more than two messages every minute */
+-	static DEFINE_RATELIMIT_STATE(ratelimit, 60*HZ, 2);
+-
+ 	if (test_and_clear_bit(0, &mce_need_notify)) {
+-		/* wake processes polling /dev/mcelog */
+-		wake_up_interruptible(&mce_chrdev_wait);
+-
+-		if (mce_helper[0])
+-			schedule_work(&mce_trigger_work);
+-
+-		if (__ratelimit(&ratelimit))
+-			pr_info(HW_ERR "Machine check events logged\n");
+-
++		mce_notify_work();
+ 		return 1;
+ 	}
+ 	return 0;
+@@ -2539,6 +2579,10 @@ static __init int mcheck_init_device(voi
+ 		goto err_out;
+ 	}
+ 
++	err = mce_notify_work_init();
++	if (err)
++		goto err_out;
++
+ 	if (!zalloc_cpumask_var(&mce_device_initialized, GFP_KERNEL)) {
+ 		err = -ENOMEM;
+ 		goto err_out;

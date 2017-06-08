@@ -1,0 +1,52 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 03 Jun 2016 00:48:39 +0100
+Subject: mtd: Disable slram and phram when securelevel is enabled
+
+The slram and phram drivers both allow mapping regions of physical
+address space such that they can then be read and written by userland
+through the MTD interface.  This is probably usable to manipulate
+hardware into overwriting kernel code on many systems.  Prevent that
+if securelevel is set.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/drivers/mtd/devices/phram.c
++++ b/drivers/mtd/devices/phram.c
+@@ -25,6 +25,7 @@
+ #include <linux/moduleparam.h>
+ #include <linux/slab.h>
+ #include <linux/mtd/mtd.h>
++#include <linux/security.h>
+ 
+ struct phram_mtd_list {
+ 	struct mtd_info mtd;
+@@ -226,6 +227,9 @@ static int phram_setup(const char *val)
+ 	uint64_t len;
+ 	int i, ret;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if (strnlen(val, sizeof(buf)) >= sizeof(buf))
+ 		parse_err("parameter too long\n");
+ 
+--- a/drivers/mtd/devices/slram.c
++++ b/drivers/mtd/devices/slram.c
+@@ -42,6 +42,7 @@
+ #include <linux/ioctl.h>
+ #include <linux/init.h>
+ #include <linux/io.h>
++#include <linux/security.h>
+ 
+ #include <linux/mtd/mtd.h>
+ 
+@@ -230,6 +231,9 @@ static int parse_cmdline(char *devname,
+ 	unsigned long devstart;
+ 	unsigned long devlength;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	if ((!devname) || (!szstart) || (!szlength)) {
+ 		unregister_devices();
+ 		return(-EINVAL);

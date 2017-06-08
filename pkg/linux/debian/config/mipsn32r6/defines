@@ -1,0 +1,4 @@
+[base]
+kernel-arch: mips
+featuresets:
+# empty; mipsn32r6 must be part of a multiarch installation with a mips64r6 kernel

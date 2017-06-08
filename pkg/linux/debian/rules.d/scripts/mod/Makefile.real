@@ -1,0 +1,23 @@
+PROGS = modpost.real-$(TYPE)
+
+include $(top_rulesdir)/Makefile.inc
+
+wrapperdir = $(top_rulesdir)/$(OUTDIR)
+CFLAGS += -I $(CURDIR)/real-$(TYPE) -I $(wrapperdir)/real-$(TYPE)
+
+modpost.real-$(TYPE): file2alias.real-$(TYPE).o modpost.real-$(TYPE).o sumversion.real-$(TYPE).o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+%.real-$(TYPE).o: $(SOURCEDIR)/%.c real-$(TYPE)/devicetable-offsets.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+real-$(TYPE)/devicetable-offsets.s: $(SOURCEDIR)/devicetable-offsets.c
+	mkdir -p real-$(TYPE)
+	$(CC) -include $(wrapperdir)/real-$(TYPE)/types.h $(CFLAGS) -nostdinc -I$(top_srcdir)/include -S -o $@ $<
+
+real-$(TYPE)/devicetable-offsets.h: real-$(TYPE)/devicetable-offsets.s
+	echo >$@ "#define __DEVICEVTABLE_OFFSETS_H__"
+	sed -ne "/^->/{s:->#\(.*\):/* \1 */:; \
+		s:^->\([^ ]*\) [\$$#]*\([-0-9]*\) \(.*\):#define \1 \2 /* \3 */:; \
+		s:^->\([^ ]*\) [\$$#]*\([^ ]*\) \(.*\):#define \1 \2 /* \3 */:; \
+		s:->::; p;}" $< >>$@

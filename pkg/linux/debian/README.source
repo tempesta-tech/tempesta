@@ -1,0 +1,239 @@
+Updating the upstream source
+============================
+
+In addition to the build-dependencies, you will need the rsync and
+unifdef packages installed.
+
+1) It is recommended to fetch the release tag from the relevant upstream git
+   repository, one of:
+
+   * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+   * https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+   * git://kernel.ubuntu.com/ubuntu/linux.git
+
+   However, it is also possible to use upstream tarball and patch releases.
+   Both tags and files should be signed by the relevant maintainer, which
+   you *must* verify using commands such as:
+
+   $ git tag -v v4.5
+   $ xzcat linux-4.5.tar.xz | gpg --verify linux-4.5.tar.sign -
+   $ xzcat patch-4.5.1.xz | gpg --verify patch-4.5.1.sign -
+
+   The upstream maintainers' key fingerprints are:
+
+   pub   2048R/00411886 2011-09-20
+         Key fingerprint = ABAF 11C6 5A29 70B1 30AB  E3C4 79BE 3E43 0041 1886
+   uid                  Linus Torvalds <torvalds@linux-foundation.org>
+   sub   2048R/012F54CA 2011-09-20
+
+   pub   4096R/6092693E 2011-09-23
+         Key fingerprint = 647F 2865 4894 E3BD 4571  99BE 38DB BDC8 6092 693E
+   uid                  Greg Kroah-Hartman (Linux kernel stable release signing key) <greg@kroah.com>
+   sub   4096R/76D54749 2011-09-23
+
+   pub   4096R/FDCE24FC 2011-12-10
+         Key fingerprint = D4E1 E317 4470 9144 B0F8  101A DB74 AEB8 FDCE 24FC
+   uid                  Luis Henriques <luis.henriques@canonical.com>
+   uid                  Luis Henriques <henrix@camandro.org>
+   sub   4096R/EFBC394A 2011-12-10
+
+2) Run: ./debian/bin/genorig.py <repository>
+   or:  ./debian/bin/genorig.py <tarball> [patch]
+
+   This will produce ../orig/linux_<version>.orig.tar.xz
+   (e.g. linux_3.5~rc1.orig.tar.xz).
+
+   It involves applying several patches and file deletions for DFSG
+   compliance, as listed in debian/patches/series-orig.  Occasionally
+   you will need to refresh these.
+
+3) Run: make -f debian/rules orig
+
+   This will apply the main quilt series to the upstream source, which
+   will usually fail due to conflicts with upstream changes.  You need
+   to resolve those by dropping or refreshing patches.
+
+Recording updates in the changelog
+----------------------------------
+
+Upstream commits that we already cherry-picked and included in a
+previous package upload should not be mentioned, since they don't make
+any difference to the package.  Any other commits that fix a Debian
+bug report and/or a security issue with a CVE ID should always be
+listed, along with the (Closes: #nnnnnn) and/or (CVE-yyyy-nnnn)
+reference.
+
+Aside from those general rules:
+
+* For an upstream release candidate, don't attempt to list the changes
+
+* For a stable release by Linus, refer to the summary at
+  kernelnewbies.org, e.g. http://kernelnewbies.org/Linux_4.5
+
+* For a stable update, refer to the changelog on kernel.org, e.g.
+  https://www.kernel.org/pub/linux/kernel/v4.x/ChangeLog-4.5.1, and
+  list all changes that are relevant to our package and that fix bugs
+  that we would consider 'important' or higher severity
+
+  - The script debian/bin/stable-update updates the changelog
+    version and inserts the list of changes.  It doesn't attempt to
+    filter out irrelevant or unimportant changes.
+
+  - The script debian/bin/ckt-stable-update.sh does the same for
+    stable updates by the Canonical Kernel Team.
+
+  - If you have time, please delete irrelevant changes such as:
+    + Fixes for architectures not supported by the package
+    + Fixes for drivers that aren't enabled in any of our configurations
+    + Build fixes for configurations that we don't use
+    + Fixes for lockdep false positives
+
+If you have time, please add bracketted prefixes to the upstream
+change list as described below under "Changelog conventions".
+
+Applying patches to the Debian kernel tree
+==========================================
+
+The Debian kernel packaging uses the quilt patch system, but with
+multiple series to allow for featuresets.
+
+Patches are stored below debian/patches, loosely sorted in bugfix/,
+features/ and debian/. Patches are in the standard kernel patch
+format (unified diff to be applied with patch -p1) and generally have
+DEP-3 headers.
+
+The series file 'series' is used for all configurations and a series
+file 'series-<featureset>' is used for each optional featureset.
+
+If you want to generate a source tree with all patches applied, run
+make -f debian/rules source
+
+The resulting source can be found below debian/build.
+
+Changelog conventions
+=====================
+
+If a change only affects some architectures, flavours or featuresets,
+this should be noted with a bracketted prefix on the changelog line:
+
+* [<fset>] Change to featureset <fset>
+* [<arch>] Change that affects Debian architecture <arch>
+* [<arch1>,<arch2>...] Change that affects Debian architectures
+  <arch1>, <arch2>, ...
+* [<arch>/<flavour>] Change that affects kernel flavour <flavour>
+  on Debian architecture <arch>
+* [<arch>/{<flavour1>,<flavour2>...}] Change that affects kernel
+  flavours <flavour1>, <flavour2>, ... on Debian architecture <arch>
+
+You can use wildcards to cover multiple values, e.g. 'arm*' for armel,
+armhf and arm64 architectures.  Also 'x86' is used to cover the Debian
+architectures amd64, i386 and x32.
+
+Kernel config files
+===================
+
+Each kernel configuration file is constructed dynamically from a
+number of files under debian/config.  They are read in the following
+order, such that files later on the list can override settings from
+earlier files.  Most of the files are optional and the filenames can
+generally be overridden by explicit lists (possibly empty) specified
+in the 'defines' files.
+
+1. Common:
+   - Default filename: config
+   - Filename list: [image]configs in defines
+2. Per kernel architecture:
+   - Filename: kernelarch-<karch>/config (optional)
+3. Per architecture:
+   - Default filename: <arch>/config
+   - Filename list: [image]configs in <arch>/defines
+4. Per architecture and flavour:
+   - Default filename: <arch>/config.<flavour> (optional)
+   - Filename list: [<flavour>_image]configs in <arch>/defines
+5. Per featureset:
+   - Default filename: featureset-<fset>/config (optional)
+   - Filename list: [image]configs in featureset-<fset>/defines
+6. Per architecture and featureset:
+   - Default filename: <arch>/<fset>/config (optional)
+   - Filename list: [image]configs in <arch>/<fset>/defines
+7. Per architecture, featureset, and flavour:
+   - Default filename: <arch>/<fset>/config.<flavour> (optional)
+   - Filename list: [<flavour>_image]configs in <arch>/<fset>/defines
+
+You can check the final list of configuration files by reading
+debian/rules.gen.  Each binary-arch_<arch>_<fset>_<flavour>_real
+rule passes the list to debian/rules.real as the KCONFIG variable.
+
+Control file
+============
+The master control file debian/control must be generated before
+the package is uploaded. debian/rules contains the debian/control 
+target, which generates the control file by invoking the 
+debian/bin/gencontrol.py script, which combines the templates from
+the templates directory and architecture-specific defines file to
+produce the debian/control file. Note that this target is intentionally
+made to fail with a non-zero exit code to make sure that it is never
+run during an automatic build. The following variables are substituted
+into the templates:
+
+@version@      Upstream kernel version, for example 2.6.11.
+@arch@         The Debian arch name, such as powerpc or i386.
+@flavour@      The build flavour, such as 686 or k7-smp.
+@class@        The CPU/architecture class; displayed in synopsis.  It should
+               be fairly short, as the synopsis is supposed to be <80 chars.
+               It should be in the form "foo class", and will show up in the
+	       description as "foo class machines".
+@longclass@    The CPU/architecture class; displayed in the extended
+               description.  The same rules apply as in @class@.  If
+	       this is unset, it will default to @class@.
+@desc@         (Potentially) multi-line verbiage that's appended to
+               -image descriptions.
+@abiname@      Current abiname, a single digit.
+
+Normally, the arch-specific contents should be controlled by
+adjusting the corresponding defines file.
+
+TODO:
+- Patches applied to the upstream source
+- How to define a flavour
+- More detail on generation of debian/control and configs
+
+Running tests
+=============
+
+linux supports autopkgtest and should be able to run most of the
+kernel's self-tests on any architecture where kexec is supported,
+but it has higher resource requirements than most packages:
+
+- A VM with plenty of disk space (10GB is enough), RAM (1GB is
+  probably enough) and at least 2 CPUs
+- The temporary directory for adt-virt-qemu (-o option) will need
+  several GB of space, so a tmpfs may not be suitable
+
+Note that if you tell adt-run to use an 'unbuilt tree' (i.e. an
+unpacked source package) it does not exclude VCS directories such as
+.git.  Either use a packed source package or copy the working tree
+elsewhere excluding .git.
+
+Example invocation:
+
+    adt-run -B ../linux-image-4.2.0-rc6-amd64_4.2~rc6-1~exp2_amd64.deb \
+        ../linux_4.2~rc6-1~exp2.dsc \
+	--timeout-test=1200 \
+        --- adt-virt-qemu /var/cache/autopkgtest/adt-sid.img -o /var/tmp -c 2
+
+Build profiles
+==============
+
+Several build profiles are understood and supported:
+
+- stage1: Needed when bootstrapping an architecture.  A stage1 build
+  produces only the linux-libc-dev package and has no host
+  build-dependencies.
+- nodoc: Exclude most documentation
+- pkg.linux.notools: Exclude userland tool packages (linux-kbuild-<version>,
+  linux-perf-<version>, etc.)
+- cross: Needed when cross-building.  Currently this must be used together
+  with nopython as the build-dependencies will be unsatisfiable otherwise.
+- nopython: Disable Python bindings.  This currently disables building the
+  linux-perf-<version> package, as the perf program embeds Python.

@@ -1,0 +1,6 @@
+Package: linux-image-@abiname@@localversion@-dbgsym
+Build-Profiles: <!stage1>
+Depends: ${misc:Depends}
+Section: debug
+Priority: extra
+Description: Debug symbols for linux-image-@abiname@@localversion@

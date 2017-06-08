@@ -1,0 +1,117 @@
+##
+## file: arch/arm/Kconfig
+##
+CONFIG_MMU=y
+CONFIG_AEABI=y
+# CONFIG_OABI_COMPAT is not set
+CONFIG_CPU_SW_DOMAIN_PAN=y
+CONFIG_SECCOMP=y
+CONFIG_KEXEC=y
+
+##
+## file: arch/arm/crypto/Kconfig
+##
+CONFIG_CRYPTO_SHA1_ARM=m
+CONFIG_CRYPTO_AES_ARM=m
+
+##
+## file: arch/arm/Kconfig.debug
+##
+CONFIG_DEBUG_LL=y
+CONFIG_EARLY_PRINTK=y
+
+##
+## file: arch/arm/mm/Kconfig
+##
+#. Support Thumb user binaries
+CONFIG_ARM_THUMB=y
+
+##
+## file: drivers/input/misc/Kconfig
+##
+CONFIG_INPUT_MISC=y
+CONFIG_INPUT_UINPUT=m
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_INPUT_MOUSE=y
+CONFIG_MOUSE_PS2=m
+CONFIG_MOUSE_APPLETOUCH=m
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+# CONFIG_TOUCHSCREEN_EETI is not set
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_PHYSMAP=y
+
+##
+## file: drivers/net/wireless/intel/ipw2x00/Kconfig
+##
+# CONFIG_IPW2100 is not set
+
+##
+## file: drivers/parport/Kconfig
+##
+#. Causes lockups on ARM (see #588164)
+# CONFIG_PARPORT_PC is not set
+
+##
+## file: drivers/pci/Kconfig
+##
+# CONFIG_PCI_IOV is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+# CONFIG_BLK_DEV_3W_XXXX_RAID is not set
+# CONFIG_SCSI_3W_9XXX is not set
+# CONFIG_SCSI_AACRAID is not set
+# CONFIG_SCSI_HPTIOP is not set
+
+##
+## file: drivers/scsi/aic7xxx/Kconfig.aic79xx
+##
+# CONFIG_SCSI_AIC79XX is not set
+
+##
+## file: drivers/scsi/aic7xxx/Kconfig.aic7xxx
+##
+# CONFIG_SCSI_AIC7XXX is not set
+
+##
+## file: drivers/scsi/aic94xx/Kconfig
+##
+# CONFIG_SCSI_AIC94XX is not set
+
+##
+## file: drivers/scsi/megaraid/Kconfig.megaraid
+##
+# CONFIG_MEGARAID_SAS is not set
+
+##
+## file: drivers/scsi/qla2xxx/Kconfig
+##
+# CONFIG_SCSI_QLA_FC is not set
+
+##
+## file: drivers/scsi/qla4xxx/Kconfig
+##
+# CONFIG_SCSI_QLA_ISCSI is not set
+
+##
+## file: drivers/thermal/Kconfig
+##
+CONFIG_THERMAL=y
+CONFIG_CPU_THERMAL=y
+
+##
+## file: lib/xz/Kconfig
+##
+CONFIG_XZ_DEC_ARM=y
+CONFIG_XZ_DEC_ARMTHUMB=y
+

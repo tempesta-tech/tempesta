@@ -1,0 +1,9 @@
+# Include PATA drivers by default
+drivers/ata/pata_*
+
+# Exclude pata_sis, which goes in sata-modules as a dependency of sata_sis
+pata_sis -
+
+# Exclude drivers packaged in pcmcia-storage-modules
+pata_ninja32 -
+pata_pcmcia -

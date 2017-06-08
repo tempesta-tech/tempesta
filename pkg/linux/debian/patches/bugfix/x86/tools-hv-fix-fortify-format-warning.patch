@@ -1,0 +1,55 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 25 Sep 2015 20:28:10 +0100
+Subject: tools/hv: Fix fortify format warning
+Forwarded: no
+
+With fortify enabled, gcc warns:
+
+tools/hv/hv_kvp_daemon.c:705:2: error: format not a string literal and no format arguments [-Werror=format-security]
+  snprintf(dev_id, sizeof(dev_id), kvp_net_dir);
+  ^
+
+kvp_net_dir is a pointer to a string literal, but lacks const
+qualification.  As it is never modified, it should be a const
+array rather than a pointer.
+
+Also, while snprintf() has a bounds check, the following strcat()s
+do not.  Combine them into a single snprintf().
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/tools/hv/hv_kvp_daemon.c
++++ b/tools/hv/hv_kvp_daemon.c
+@@ -691,10 +691,10 @@ static char *kvp_mac_to_if_name(char *ma
+ 	DIR *dir;
+ 	struct dirent *entry;
+ 	FILE    *file;
+-	char    *p, *q, *x;
++	char    *p, *x;
+ 	char    *if_name = NULL;
+ 	char    buf[256];
+-	char *kvp_net_dir = "/sys/class/net/";
++	const char kvp_net_dir[] = "/sys/class/net/";
+ 	char dev_id[256];
+ 	unsigned int i;
+ 
+@@ -702,17 +702,9 @@ static char *kvp_mac_to_if_name(char *ma
+ 	if (dir == NULL)
+ 		return NULL;
+ 
+-	snprintf(dev_id, sizeof(dev_id), kvp_net_dir);
+-	q = dev_id + strlen(kvp_net_dir);
+-
+ 	while ((entry = readdir(dir)) != NULL) {
+-		/*
+-		 * Set the state for the next pass.
+-		 */
+-		*q = '\0';
+-
+-		strcat(dev_id, entry->d_name);
+-		strcat(dev_id, "/address");
++		snprintf(dev_id, sizeof(dev_id), "%s%s/address",
++			 kvp_net_dir, entry->d_name);
+ 
+ 		file = fopen(dev_id, "r");
+ 		if (file == NULL)

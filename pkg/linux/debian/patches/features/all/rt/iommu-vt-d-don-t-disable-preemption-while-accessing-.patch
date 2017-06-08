@@ -1,0 +1,59 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 15 Sep 2016 17:16:44 +0200
+Subject: [PATCH] iommu/vt-d: don't disable preemption while accessing
+ deferred_flush()
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+get_cpu() disables preemption and returns the current CPU number. The
+CPU number is later only used once while retrieving the address of the
+local's CPU deferred_flush pointer.
+We can instead use raw_cpu_ptr() while we remain preemptible. The worst
+thing that can happen is that flush_unmaps_timeout() is invoked multiple
+times: once by taskA after seeing HIGH_WATER_MARK and then preempted to
+another CPU and then by taskB which saw HIGH_WATER_MARK on the same CPU
+as taskA. It is also likely that ->size got from HIGH_WATER_MARK to 0
+right after its read because another CPU invoked flush_unmaps_timeout()
+for this CPU.
+The access to flush_data is protected by a spinlock so even if we get
+migrated to another CPU or preempted - the data structure is protected.
+
+While at it, I marked deferred_flush static since I can't find a
+reference to it outside of this file.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ drivers/iommu/intel-iommu.c |    8 ++------
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+--- a/drivers/iommu/intel-iommu.c
++++ b/drivers/iommu/intel-iommu.c
+@@ -479,7 +479,7 @@ struct deferred_flush_data {
+ 	struct deferred_flush_table *tables;
+ };
+ 
+-DEFINE_PER_CPU(struct deferred_flush_data, deferred_flush);
++static DEFINE_PER_CPU(struct deferred_flush_data, deferred_flush);
+ 
+ /* bitmap for indexing intel_iommus */
+ static int g_num_of_iommus;
+@@ -3649,10 +3649,8 @@ static void add_unmap(struct dmar_domain
+ 	struct intel_iommu *iommu;
+ 	struct deferred_flush_entry *entry;
+ 	struct deferred_flush_data *flush_data;
+-	unsigned int cpuid;
+ 
+-	cpuid = get_cpu();
+-	flush_data = per_cpu_ptr(&deferred_flush, cpuid);
++	flush_data = raw_cpu_ptr(&deferred_flush);
+ 
+ 	/* Flush all CPUs' entries to avoid deferring too much.  If
+ 	 * this becomes a bottleneck, can just flush us, and rely on
+@@ -3685,8 +3683,6 @@ static void add_unmap(struct dmar_domain
+ 	}
+ 	flush_data->size++;
+ 	spin_unlock_irqrestore(&flush_data->lock, flags);
+-
+-	put_cpu();
+ }
+ 
+ static void intel_unmap(struct device *dev, dma_addr_t dev_addr, size_t size)

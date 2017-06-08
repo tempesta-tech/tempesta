@@ -1,0 +1,33 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 13 Jul 2015 20:29:20 +0100
+Subject: perf tools: Use $KBUILD_BUILD_TIMESTAMP as man page date
+Forwarded: http://mid.gmane.org/20160517132809.GE7555@decadent.org.uk
+    
+This allows man pages to be built reproducibly.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/tools/perf/Documentation/Makefile
++++ b/tools/perf/Documentation/Makefile
+@@ -120,6 +120,9 @@ endif
+ ifdef DOCBOOK_SUPPRESS_SP
+ XMLTO_EXTRA += -m manpage-suppress-sp.xsl
+ endif
++ifdef KBUILD_BUILD_TIMESTAMP
++ASCIIDOC_EXTRA += -a revdate=$(shell date -u -d '$(KBUILD_BUILD_TIMESTAMP)' +%Y-%m-%d)
++endif
+ 
+ SHELL_PATH ?= $(SHELL)
+ # Shell quote;
+--- a/tools/perf/Documentation/asciidoc.conf
++++ b/tools/perf/Documentation/asciidoc.conf
+@@ -71,6 +71,9 @@ ifdef::backend-docbook[]
+ [header]
+ template::[header-declarations]
+ <refentry>
++<refentryinfo>
++template::[docinfo]
++</refentryinfo>
+ <refmeta>
+ <refentrytitle>{mantitle}</refentrytitle>
+ <manvolnum>{manvolnum}</manvolnum>

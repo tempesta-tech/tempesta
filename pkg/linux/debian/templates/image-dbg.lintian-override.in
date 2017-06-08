@@ -1,0 +1,2 @@
+# Kernel dbg packages contain a full image with debug data
+linux-image-@abiname@@localversion@-dbgsym: dbg-package-missing-depends

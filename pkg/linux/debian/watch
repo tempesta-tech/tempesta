@@ -1,0 +1,7 @@
+# We need to DFSG-clean it, so use our own script instead of uupdate.
+version=3
+
+# Tempesta kernel is hosted on GitHub
+opts="filenamemangle=s%(?:.*?)?v?(\d[\d.]*-tfw\d+)\.tar\.gz%linux-$1.tar.gz%" \
+   https://github.com/tempesta-tech/linux-4.8.15-tfw/tags \
+   (?:.*?/)?v?(\d[\d.]*-tfw\d+)\.tar\.gz debian debian/bin/uscan-hook

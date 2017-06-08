@@ -1,0 +1,57 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Fri, 9 Mar 2012 08:46:50 -0500
+Subject: [11/18] asus-wmi: Restrict debugfs interface when securelevel is set
+Origin: https://github.com/mjg59/linux/commit/f6e21827205ffcbfcce4b13d3a233427c3e742e0
+
+We have no way of validating what all of the Asus WMI methods do on a
+given machine, and there's a risk that some will allow hardware state to
+be manipulated in such a way that arbitrary code can be executed in the
+kernel. Prevent that if securelevel is set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ drivers/platform/x86/asus-wmi.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/platform/x86/asus-wmi.c b/drivers/platform/x86/asus-wmi.c
+index a96630d52346..93943e480a67 100644
+--- a/drivers/platform/x86/asus-wmi.c
++++ b/drivers/platform/x86/asus-wmi.c
+@@ -45,6 +45,7 @@
+ #include <linux/seq_file.h>
+ #include <linux/platform_device.h>
+ #include <linux/thermal.h>
++#include <linux/security.h>
+ #include <linux/acpi.h>
+ #include <linux/dmi.h>
+ #include <acpi/video.h>
+@@ -1867,6 +1868,9 @@ static int show_dsts(struct seq_file *m, void *data)
+ 	int err;
+ 	u32 retval = -1;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	err = asus_wmi_get_devstate(asus, asus->debug.dev_id, &retval);
+ 
+ 	if (err < 0)
+@@ -1883,6 +1887,9 @@ static int show_devs(struct seq_file *m, void *data)
+ 	int err;
+ 	u32 retval = -1;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	err = asus_wmi_set_devstate(asus->debug.dev_id, asus->debug.ctrl_param,
+ 				    &retval);
+ 
+@@ -1907,6 +1914,9 @@ static int show_call(struct seq_file *m, void *data)
+ 	union acpi_object *obj;
+ 	acpi_status status;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID,
+ 				     1, asus->debug.method_id,
+ 				     &input, &output);

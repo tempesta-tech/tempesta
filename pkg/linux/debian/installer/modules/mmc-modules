@@ -1,0 +1,5 @@
+mmc_block
+drivers/mmc/host/**
+
+# Adds a dependency on pcmcia-modules
+sdricoh_cs -

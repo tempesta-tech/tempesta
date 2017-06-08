@@ -1,0 +1,47 @@
+[base]
+flavours:
+ 4kc-malta
+ 5kc-malta
+ loongson-3
+ octeon
+kernel-arch: mips
+
+[build]
+image-file: vmlinux
+# linux-signed should not wait for slow builds
+signed-modules: false
+
+[image]
+install-stem: vmlinux
+
+[4kc-malta_description]
+hardware: MIPS Malta
+hardware-long: MIPS Malta boards
+
+[4kc-malta_image]
+configs:
+ kernelarch-mips/config.malta
+ kernelarch-mips/config.mips32r2
+
+[5kc-malta_description]
+hardware: MIPS Malta (64-bit)
+hardware-long: MIPS Malta boards (64-bit)
+
+[5kc-malta_image]
+configs:
+ kernelarch-mips/config.malta
+ kernelarch-mips/config.mips64r2
+
+[loongson-3_description]
+hardware: Loongson 3A/3B
+hardware-long: Loongson 3A or 3B based systems (e.g. from Loongson or Lemote)
+
+[loongson-3_image]
+configs: kernelarch-mips/config.loongson-3
+
+[octeon_description]
+hardware: Octeon
+hardware-long: Cavium Networks Octeon
+
+[octeon_image]
+configs: kernelarch-mips/config.octeon

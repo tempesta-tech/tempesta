@@ -1,0 +1,34 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Sun, 21 Feb 2016 15:33:15 +0000
+Subject: tools/build: Remove bpf() run-time check at build time
+Forwarded: no
+
+It is not correct to test that a syscall works on the build system's
+kernel.  We might be building on an earlier kernel version or with
+security restrictions that block bpf().
+
+Also fix the test for whether __NR_bpf is defined.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/tools/build/feature/test-bpf.c
++++ b/tools/build/feature/test-bpf.c
+@@ -9,6 +9,7 @@
+ #  define __NR_bpf 321
+ # elif defined(__aarch64__)
+ #  define __NR_bpf 280
++# else
+ #  error __NR_bpf not defined. libbpf does not support your arch.
+ # endif
+ #endif
+@@ -27,9 +28,5 @@ int main(void)
+ 	attr.log_level = 0;
+ 	attr.kern_version = 0;
+ 
+-	/*
+-	 * Test existence of __NR_bpf and BPF_PROG_LOAD.
+-	 * This call should fail if we run the testcase.
+-	 */
+-	return syscall(__NR_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
++	return 0;
+ }

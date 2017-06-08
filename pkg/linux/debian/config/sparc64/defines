@@ -1,0 +1,27 @@
+[base]
+flavours:
+ sparc64
+ sparc64-smp
+kernel-arch: sparc
+
+[build]
+image-file: arch/sparc/boot/zImage
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+configs:
+suggests: silo, fdutils
+install-stem: vmlinuz
+
+[sparc64_description]
+hardware: uniprocessor 64-bit UltraSPARC
+
+[sparc64_image]
+configs: kernelarch-sparc/config-up
+
+[sparc64-smp_description]
+hardware: multiprocessor 64-bit UltraSPARC
+
+[sparc64-smp_image]
+configs: kernelarch-sparc/config-smp

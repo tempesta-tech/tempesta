@@ -1,0 +1,102 @@
+From: Jann Horn <jann@thejh.net>
+Subject: ptrace: being capable wrt a process requires mapped uids/gids
+Date: Sat, 26 Dec 2015 03:52:31 +0100
+Origin: https://lkml.org/lkml/2015/12/25/71
+
+ptrace_has_cap() checks whether the current process should be
+treated as having a certain capability for ptrace checks
+against another process. Until now, this was equivalent to
+has_ns_capability(current, target_ns, CAP_SYS_PTRACE).
+
+However, if a root-owned process wants to enter a user
+namespace for some reason without knowing who owns it and
+therefore can't change to the namespace owner's uid and gid
+before entering, as soon as it has entered the namespace,
+the namespace owner can attach to it via ptrace and thereby
+gain access to its uid and gid.
+
+While it is possible for the entering process to switch to
+the uid of a claimed namespace owner before entering,
+causing the attempt to enter to fail if the claimed uid is
+wrong, this doesn't solve the problem of determining an
+appropriate gid.
+
+With this change, the entering process can first enter the
+namespace and then safely inspect the namespace's
+properties, e.g. through /proc/self/{uid_map,gid_map},
+assuming that the namespace owner doesn't have access to
+uid 0.
+Changed in v2: The caller needs to be capable in the
+namespace into which tcred's uids/gids can be mapped.
+
+Signed-off-by: Jann Horn <jann@thejh.net>
+---
+ kernel/ptrace.c | 33 ++++++++++++++++++++++++++++-----
+ 1 file changed, 28 insertions(+), 5 deletions(-)
+
+--- a/kernel/ptrace.c
++++ b/kernel/ptrace.c
+@@ -20,6 +20,7 @@
+ #include <linux/uio.h>
+ #include <linux/audit.h>
+ #include <linux/pid_namespace.h>
++#include <linux/user_namespace.h>
+ #include <linux/syscalls.h>
+ #include <linux/uaccess.h>
+ #include <linux/regset.h>
+@@ -207,12 +208,34 @@ static int ptrace_check_attach(struct ta
+ 	return ret;
+ }
+ 
+-static int ptrace_has_cap(struct user_namespace *ns, unsigned int mode)
++static bool ptrace_has_cap(const struct cred *tcred, unsigned int mode)
+ {
++	struct user_namespace *tns = tcred->user_ns;
++
++	/* When a root-owned process enters a user namespace created by a
++	 * malicious user, the user shouldn't be able to execute code under
++	 * uid 0 by attaching to the root-owned process via ptrace.
++	 * Therefore, similar to the capable_wrt_inode_uidgid() check,
++	 * verify that all the uids and gids of the target process are
++	 * mapped into a namespace below the current one in which the caller
++	 * is capable.
++	 * No fsuid/fsgid check because __ptrace_may_access doesn't do it
++	 * either.
++	 */
++	while (
++	    !kuid_has_mapping(tns, tcred->euid) ||
++	    !kuid_has_mapping(tns, tcred->suid) ||
++	    !kuid_has_mapping(tns, tcred->uid)  ||
++	    !kgid_has_mapping(tns, tcred->egid) ||
++	    !kgid_has_mapping(tns, tcred->sgid) ||
++	    !kgid_has_mapping(tns, tcred->gid)) {
++		tns = tns->parent;
++	}
++
+ 	if (mode & PTRACE_MODE_NOAUDIT)
+-		return has_ns_capability_noaudit(current, ns, CAP_SYS_PTRACE);
++		return has_ns_capability_noaudit(current, tns, CAP_SYS_PTRACE);
+ 	else
+-		return has_ns_capability(current, ns, CAP_SYS_PTRACE);
++		return has_ns_capability(current, tns, CAP_SYS_PTRACE);
+ }
+ 
+ /* Returns 0 on success, -errno on denial. */
+@@ -264,7 +287,7 @@ static int __ptrace_may_access(struct ta
+ 	    gid_eq(caller_gid, tcred->sgid) &&
+ 	    gid_eq(caller_gid, tcred->gid))
+ 		goto ok;
+-	if (ptrace_has_cap(tcred->user_ns, mode))
++	if (ptrace_has_cap(tcred, mode))
+ 		goto ok;
+ 	rcu_read_unlock();
+ 	return -EPERM;
+@@ -275,7 +298,7 @@ ok:
+ 		dumpable = get_dumpable(task->mm);
+ 	rcu_read_lock();
+ 	if (dumpable != SUID_DUMP_USER &&
+-	    !ptrace_has_cap(__task_cred(task)->user_ns, mode)) {
++	    !ptrace_has_cap(__task_cred(task), mode)) {
+ 		rcu_read_unlock();
+ 		return -EPERM;
+ 	}

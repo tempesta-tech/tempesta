@@ -1,0 +1,10 @@
+[base]
+flavours:
+ amd64
+
+[amd64_description]
+parts: xen
+
+[amd64_xen]
+flavours:
+ amd64

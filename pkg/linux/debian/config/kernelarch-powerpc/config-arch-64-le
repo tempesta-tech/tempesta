@@ -1,0 +1,37 @@
+##
+## file: arch/powerpc/Kconfig
+##
+# CONFIG_CMDLINE_BOOL is not set
+
+##
+## file: arch/powerpc/platforms/Kconfig.cputype
+##
+CONFIG_NR_CPUS=2048
+## choice: Endianness selection
+# CONFIG_CPU_BIG_ENDIAN is not set
+CONFIG_CPU_LITTLE_ENDIAN=y
+## end choice
+
+##
+## file: arch/powerpc/platforms/powermac/Kconfig
+##
+#. This needs to be explicitly disabled currently (3.15)
+# CONFIG_PPC_PMAC is not set
+
+##
+## file: drivers/cpufreq/Kconfig
+##
+## choice: Default CPUFreq governor
+# CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE is not set
+CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND=y
+# CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE is not set
+## end choice
+
+##
+## file: kernel/power/Kconfig
+##
+#. See #789070
+# CONFIG_HIBERNATION is not set
+

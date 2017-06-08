@@ -1,0 +1,22 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 25 Sep 2015 22:50:50 +0100
+Subject: Revert "perf build: Fix libunwind feature detection on 32-bit x86"
+Forwarded: no
+
+This reverts commit 05b41775e2edd69a83f592e3534930c934d4038e.
+It broke feature detection that was working just fine for us.
+---
+ tools/perf/Makefile.config | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/tools/perf/Makefile.config
++++ b/tools/perf/Makefile.config
+@@ -38,7 +38,7 @@ ifeq ($(ARCH),x86)
+     LIBUNWIND_LIBS = -lunwind -lunwind-x86_64
+     $(call detected,CONFIG_X86_64)
+   else
+-    LIBUNWIND_LIBS = -lunwind-x86 -llzma -lunwind
++    LIBUNWIND_LIBS = -lunwind -lunwind-x86
+   endif
+   NO_PERF_REGS := 0
+ endif

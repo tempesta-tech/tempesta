@@ -1,0 +1,40 @@
+Subject: hotplug: Use migrate disable on unplug
+From: Thomas Gleixner <tglx@linutronix.de>
+Date: Sun, 17 Jul 2011 19:35:29 +0200
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Migration needs to be disabled accross the unplug handling to make
+sure that the unplug thread is off the unplugged cpu.
+
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ kernel/cpu.c |    6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -910,14 +910,13 @@ static int __ref _cpu_down(unsigned int
+ 	cpumask_andnot(cpumask, cpu_online_mask, cpumask_of(cpu));
+ 	set_cpus_allowed_ptr(current, cpumask);
+ 	free_cpumask_var(cpumask);
+-	preempt_disable();
++	migrate_disable();
+ 	mycpu = smp_processor_id();
+ 	if (mycpu == cpu) {
+ 		printk(KERN_ERR "Yuck! Still on unplug CPU\n!");
+-		preempt_enable();
++		migrate_enable();
+ 		return -EBUSY;
+ 	}
+-	preempt_enable();
+ 
+ 	cpu_hotplug_begin();
+ 	ret = cpu_unplug_begin(cpu);
+@@ -966,6 +965,7 @@ static int __ref _cpu_down(unsigned int
+ 	cpu_unplug_done(cpu);
+ out_cancel:
+ 	cpu_hotplug_done();
++	migrate_enable();
+ 	/* This post dead nonsense must die */
+ 	if (!ret && hasdied)
+ 		cpu_notify_nofail(CPU_POST_DEAD, cpu);

@@ -1,0 +1,60 @@
+grep_model() {
+  case "$(uname -m)" in
+  alpha)
+    egrep '^(system (type|variation|revision)|platform string)\b' /proc/cpuinfo
+    ;;
+  arm*)
+    egrep '^(Processor|Hardware|Revision)\b' /proc/cpuinfo
+    ;;
+  i386|x86_64)
+    local found=
+    for name in {sys,product,chassis,bios,board}_{vendor,name,version}; do
+      if [ -f /sys/class/dmi/id/$name ]; then
+	echo -n "$name: "
+	cat /sys/class/dmi/id/$name
+	found=y
+      fi
+    done
+    test -n "$found"
+    ;;
+  mips|mips64)
+    egrep '^(system type|cpu model)\b' /proc/cpuinfo
+    ;;
+  parisc|parisc64)
+    egrep '^(model|[hs]version)\b' /proc/cpuinfo
+    ;;
+  ppc|ppc64|ppc64le)
+    egrep -i '^(board|machine|model|motherboard|platform|revision|vendor)\b' /proc/cpuinfo
+    ;;
+  s390|s390x)
+    egrep '^processor\b' /proc/cpuinfo
+    ;;
+  sparc|sparc64)
+    egrep '^(cpu|fpu|pmu|prom|type)\b' /proc/cpuinfo
+    ;;
+  sh4|sh4a)
+    egrep '^(machine|cpu)\b' /proc/cpuinfo
+    ;;
+  *)
+    false
+    ;;
+  esac
+
+  # Device Tree model
+  if [ -r /proc/device-tree/model ]; then
+    echo "Device Tree model:" $(cat /proc/device-tree/model)
+  fi
+}
+
+add_model() {
+  local found=
+  echo '** Model information' >&3
+  grep_model >&3 2>/dev/null || echo "not available" >&3
+  echo >&3
+}
+
+ask_model() {
+  # This is still valid as long as the bug is being reported on the same
+  # system.
+  test $same_system = nop || add_model
+}

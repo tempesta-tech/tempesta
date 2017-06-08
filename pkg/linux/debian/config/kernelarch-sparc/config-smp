@@ -1,0 +1,7 @@
+##
+## file: arch/sparc/Kconfig
+##
+CONFIG_SMP=y
+CONFIG_NR_CPUS=256
+CONFIG_SCHED_SMT=y
+

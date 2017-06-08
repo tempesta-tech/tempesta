@@ -1,0 +1,162 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 29 Sep 2016 18:49:22 +0200
+Subject: [PATCH] kernel/futex: don't deboost too early
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The sequence:
+ T1 holds futex
+ T2 blocks on futex and boosts T1
+ T1 unlocks futex and holds hb->lock
+ T1 unlocks rt mutex, so T1 has no more pi waiters
+ T3 blocks on hb->lock and adds itself to the pi waiters list of T1
+ T1 unlocks hb->lock and deboosts itself
+ T4 preempts T1 so the wakeup of T2 gets delayed
+
+As a workaround I attempt here do unlock the hb->lock without a deboost
+and perform the deboost after the wake up of the waiter.
+
+Cc: stable-rt@vger.kernel.org
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/spinlock.h    |    6 ++++
+ include/linux/spinlock_rt.h |    2 +
+ kernel/futex.c              |    2 -
+ kernel/locking/rtmutex.c    |   53 ++++++++++++++++++++++++++++++++++++++------
+ 4 files changed, 55 insertions(+), 8 deletions(-)
+
+--- a/include/linux/spinlock.h
++++ b/include/linux/spinlock.h
+@@ -355,6 +355,12 @@ static __always_inline void spin_unlock(
+ 	raw_spin_unlock(&lock->rlock);
+ }
+ 
++static __always_inline int spin_unlock_no_deboost(spinlock_t *lock)
++{
++	raw_spin_unlock(&lock->rlock);
++	return 0;
++}
++
+ static __always_inline void spin_unlock_bh(spinlock_t *lock)
+ {
+ 	raw_spin_unlock_bh(&lock->rlock);
+--- a/include/linux/spinlock_rt.h
++++ b/include/linux/spinlock_rt.h
+@@ -26,6 +26,7 @@ extern void __lockfunc rt_spin_lock(spin
+ extern unsigned long __lockfunc rt_spin_lock_trace_flags(spinlock_t *lock);
+ extern void __lockfunc rt_spin_lock_nested(spinlock_t *lock, int subclass);
+ extern void __lockfunc rt_spin_unlock(spinlock_t *lock);
++extern int __lockfunc rt_spin_unlock_no_deboost(spinlock_t *lock);
+ extern void __lockfunc rt_spin_unlock_wait(spinlock_t *lock);
+ extern int __lockfunc rt_spin_trylock_irqsave(spinlock_t *lock, unsigned long *flags);
+ extern int __lockfunc rt_spin_trylock_bh(spinlock_t *lock);
+@@ -111,6 +112,7 @@ static inline unsigned long spin_lock_tr
+ #define spin_lock_nest_lock(lock, nest_lock) spin_lock_nested(lock, 0)
+ 
+ #define spin_unlock(lock)			rt_spin_unlock(lock)
++#define spin_unlock_no_deboost(lock)		rt_spin_unlock_no_deboost(lock)
+ 
+ #define spin_unlock_bh(lock)				\
+ 	do {						\
+--- a/kernel/futex.c
++++ b/kernel/futex.c
+@@ -1368,7 +1368,7 @@ static int wake_futex_pi(u32 __user *uad
+ 	 * deboost first (and lose our higher priority), then the task might get
+ 	 * scheduled away before the wake up can take place.
+ 	 */
+-	spin_unlock(&hb->lock);
++	deboost |= spin_unlock_no_deboost(&hb->lock);
+ 	wake_up_q(&wake_q);
+ 	wake_up_q_sleeper(&wake_sleeper_q);
+ 	if (deboost)
+--- a/kernel/locking/rtmutex.c
++++ b/kernel/locking/rtmutex.c
+@@ -997,13 +997,14 @@ static inline void rt_spin_lock_fastlock
+ 		slowfn(lock);
+ }
+ 
+-static inline void rt_spin_lock_fastunlock(struct rt_mutex *lock,
+-					   void  (*slowfn)(struct rt_mutex *lock))
++static inline int rt_spin_lock_fastunlock(struct rt_mutex *lock,
++					  int (*slowfn)(struct rt_mutex *lock))
+ {
+-	if (likely(rt_mutex_cmpxchg_release(lock, current, NULL)))
++	if (likely(rt_mutex_cmpxchg_release(lock, current, NULL))) {
+ 		rt_mutex_deadlock_account_unlock(current);
+-	else
+-		slowfn(lock);
++		return 0;
++	}
++	return slowfn(lock);
+ }
+ #ifdef CONFIG_SMP
+ /*
+@@ -1138,7 +1139,7 @@ static void mark_wakeup_next_waiter(stru
+ /*
+  * Slow path to release a rt_mutex spin_lock style
+  */
+-static void  noinline __sched rt_spin_lock_slowunlock(struct rt_mutex *lock)
++static int noinline __sched rt_spin_lock_slowunlock(struct rt_mutex *lock)
+ {
+ 	unsigned long flags;
+ 	WAKE_Q(wake_q);
+@@ -1153,7 +1154,7 @@ static void  noinline __sched rt_spin_lo
+ 	if (!rt_mutex_has_waiters(lock)) {
+ 		lock->owner = NULL;
+ 		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
+-		return;
++		return 0;
+ 	}
+ 
+ 	mark_wakeup_next_waiter(&wake_q, &wake_sleeper_q, lock);
+@@ -1164,6 +1165,33 @@ static void  noinline __sched rt_spin_lo
+ 
+ 	/* Undo pi boosting.when necessary */
+ 	rt_mutex_adjust_prio(current);
++	return 0;
++}
++
++static int noinline __sched rt_spin_lock_slowunlock_no_deboost(struct rt_mutex *lock)
++{
++	unsigned long flags;
++	WAKE_Q(wake_q);
++	WAKE_Q(wake_sleeper_q);
++
++	raw_spin_lock_irqsave(&lock->wait_lock, flags);
++
++	debug_rt_mutex_unlock(lock);
++
++	rt_mutex_deadlock_account_unlock(current);
++
++	if (!rt_mutex_has_waiters(lock)) {
++		lock->owner = NULL;
++		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
++		return 0;
++	}
++
++	mark_wakeup_next_waiter(&wake_q, &wake_sleeper_q, lock);
++
++	raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
++	wake_up_q(&wake_q);
++	wake_up_q_sleeper(&wake_sleeper_q);
++	return 1;
+ }
+ 
+ void __lockfunc rt_spin_lock__no_mg(spinlock_t *lock)
+@@ -1221,6 +1249,17 @@ void __lockfunc rt_spin_unlock(spinlock_
+ }
+ EXPORT_SYMBOL(rt_spin_unlock);
+ 
++int __lockfunc rt_spin_unlock_no_deboost(spinlock_t *lock)
++{
++	int ret;
++
++	/* NOTE: we always pass in '1' for nested, for simplicity */
++	spin_release(&lock->dep_map, 1, _RET_IP_);
++	ret = rt_spin_lock_fastunlock(&lock->lock, rt_spin_lock_slowunlock_no_deboost);
++	migrate_enable();
++	return ret;
++}
++
+ void __lockfunc __rt_spin_unlock(struct rt_mutex *lock)
+ {
+ 	rt_spin_lock_fastunlock(lock, rt_spin_lock_slowunlock);

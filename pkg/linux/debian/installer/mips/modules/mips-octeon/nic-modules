@@ -1,0 +1,15 @@
+#include <nic-modules>
+8139cp -
+8139too -
+dmfe -
+e100 -
+epic100 -
+fealnx -
+natsemi -
+ne2k-pci -
+skfp -
+sundance -
+starfire -
+tulip -
+typhoon -
+winbond-840 -

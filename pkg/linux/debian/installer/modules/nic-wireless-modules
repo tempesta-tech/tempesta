@@ -1,0 +1,31 @@
+# Include wireless drivers by default
+drivers/net/wireless/**
+
+# Include staging wireless drivers
+prism2_usb ?
+drivers/staging/rtl8** ?
+vt6656_stage ?
+
+# Exclude drivers packaged in nic-pcmcia-modules
+drivers/net/wireless/**_cs -
+airo -
+hostap_plx -
+
+# Don't separate these from their driver families
+libertas_cs ?
+spectrum_cs ?
+
+# Exclude drivers packaged in nic-usb-modules
+rndis_wlan -
+
+# Exclude debug driver
+mac80211_hwsim -
+
+# lib80211 encryption algorithms
+lib80211_crypt_wep ?
+lib80211_crypt_ccmp ?
+lib80211_crypt_tkip ?
+
+# Crypto modules needed for ieee80211 WEP support
+ecb ?
+arc4 ?

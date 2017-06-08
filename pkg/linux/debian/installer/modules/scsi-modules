@@ -1,0 +1,50 @@
+# Include SCSI controller drivers by default
+drivers/scsi/**
+DAC960 ?
+cciss ?
+mptfc
+mptsas
+mptspi
+
+# Include iSCSI boot support
+iscsi_ibft ?
+
+# Include Xen block driver even though it's not SCSI
+xen-blkfront ?
+
+# Exclude hv_storvsc, packaged in hyperv-modules
+hv_storvsc -
+
+# Exclude virtio_scsi, packaged in virtio-modules
+virtio_scsi -
+
+# Exclude PCMCIA drivers, which depend on pcmcia-modules (FIXME)
+drivers/scsi/pcmcia/* -
+
+# Exclude Chelsio iSCSI drivers, which depend on the corresponding Ethernet
+# drivers in nic-modules (FIXME)
+drivers/scsi/cxgbi/* -
+cxgb3i -
+cxgb4i -
+
+# Exclude enclosure driver
+ses -
+
+# Exclude target drivers
+tcm_qla2xxx -
+
+# Exclude common code packaged in {cdrom,scsi}-core-modules
+scsi_mod -
+sd_mod -
+sr_mod -
+scsi_transport_sas -
+scsi_transport_spi -
+
+# Exclude any other common code that isn't pulled in by dependencies
+drivers/scsi/device_handler/* -
+drivers/scsi/lib** -
+drivers/scsi/osd/* -
+drivers/scsi/scsi_transport_* -
+fcoe -
+raid_class -
+scsi_debug -

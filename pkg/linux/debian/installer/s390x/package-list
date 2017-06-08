@@ -1,0 +1,19 @@
+# This file is used to build up the control file. The kernel version and
+# "-di" are appended to the package names. Section can be left out. So can
+# architecture, which is derived from the files in the modules directory.
+# It overwrites specifications from /usr/share/kernel-wedge/package-list.
+#
+
+Package: dasd-modules
+Depends: kernel-image
+Priority: standard
+Description: dasd modules
+ This package contains dasd modules.
+
+Package: dasd-extra-modules
+Depends: kernel-image, dasd-modules
+Priority: extra
+Description: optional dasd DIAG support
+ This package contains the module for dasd DIAG support. The udeb is
+ not loaded by default as the installer does not actually support this.
+ It can however be useful to have available in rescue situations.

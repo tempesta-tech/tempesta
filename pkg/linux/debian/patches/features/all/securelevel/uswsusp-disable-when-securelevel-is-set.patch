@@ -1,0 +1,36 @@
+From: Matthew Garrett <mjg59@srcf.ucam.org>
+Date: Tue, 3 Sep 2013 11:23:29 -0400
+Subject: [09/18] uswsusp: Disable when securelevel is set
+Origin: https://github.com/mjg59/linux/commit/504f45f7cc9b4265a4d89728c4f8254295e81977
+
+uswsusp allows a user process to dump and then restore kernel state, which
+makes it possible to modify the running kernel. Disable this if securelevel
+has been set.
+
+Signed-off-by: Matthew Garrett <mjg59@srcf.ucam.org>
+---
+ kernel/power/user.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/kernel/power/user.c b/kernel/power/user.c
+index 526e8911460a..40618bf41620 100644
+--- a/kernel/power/user.c
++++ b/kernel/power/user.c
+@@ -24,6 +24,7 @@
+ #include <linux/console.h>
+ #include <linux/cpu.h>
+ #include <linux/freezer.h>
++#include <linux/security.h>
+ 
+ #include <asm/uaccess.h>
+ 
+@@ -52,6 +53,9 @@ static int snapshot_open(struct inode *inode, struct file *filp)
+ 	if (!hibernation_available())
+ 		return -EPERM;
+ 
++	if (get_securelevel() > 0)
++		return -EPERM;
++
+ 	lock_system_sleep();
+ 
+ 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {

@@ -1,0 +1,115 @@
+Subject: cpu: Make hotplug.lock a "sleeping" spinlock on RT
+From: Steven Rostedt <rostedt@goodmis.org>
+Date: Fri, 02 Mar 2012 10:36:57 -0500
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Tasks can block on hotplug.lock in pin_current_cpu(), but their state
+might be != RUNNING. So the mutex wakeup will set the state
+unconditionally to RUNNING. That might cause spurious unexpected
+wakeups. We could provide a state preserving mutex_lock() function,
+but this is semantically backwards. So instead we convert the
+hotplug.lock() to a spinlock for RT, which has the state preserving
+semantics already.
+
+Signed-off-by: Steven Rostedt <rostedt@goodmis.org>
+Cc: Carsten Emde <C.Emde@osadl.org>
+Cc: John Kacur <jkacur@redhat.com>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Cc: Clark Williams <clark.williams@gmail.com>
+
+Link: http://lkml.kernel.org/r/1330702617.25686.265.camel@gandalf.stny.rr.com
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ kernel/cpu.c |   32 +++++++++++++++++++++++++-------
+ 1 file changed, 25 insertions(+), 7 deletions(-)
+
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -137,10 +137,16 @@ static int cpu_hotplug_disabled;
+ 
+ static struct {
+ 	struct task_struct *active_writer;
++
+ 	/* wait queue to wake up the active_writer */
+ 	wait_queue_head_t wq;
++#ifdef CONFIG_PREEMPT_RT_FULL
++	/* Makes the lock keep the task's state */
++	spinlock_t lock;
++#else
+ 	/* verifies that no writer will get active while readers are active */
+ 	struct mutex lock;
++#endif
+ 	/*
+ 	 * Also blocks the new readers during
+ 	 * an ongoing cpu hotplug operation.
+@@ -153,12 +159,24 @@ static struct {
+ } cpu_hotplug = {
+ 	.active_writer = NULL,
+ 	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(cpu_hotplug.wq),
++#ifdef CONFIG_PREEMPT_RT_FULL
++	.lock = __SPIN_LOCK_UNLOCKED(cpu_hotplug.lock),
++#else
+ 	.lock = __MUTEX_INITIALIZER(cpu_hotplug.lock),
++#endif
+ #ifdef CONFIG_DEBUG_LOCK_ALLOC
+ 	.dep_map = {.name = "cpu_hotplug.lock" },
+ #endif
+ };
+ 
++#ifdef CONFIG_PREEMPT_RT_FULL
++# define hotplug_lock()		rt_spin_lock__no_mg(&cpu_hotplug.lock)
++# define hotplug_unlock()	rt_spin_unlock__no_mg(&cpu_hotplug.lock)
++#else
++# define hotplug_lock()		mutex_lock(&cpu_hotplug.lock)
++# define hotplug_unlock()	mutex_unlock(&cpu_hotplug.lock)
++#endif
++
+ /* Lockdep annotations for get/put_online_cpus() and cpu_hotplug_begin/end() */
+ #define cpuhp_lock_acquire_read() lock_map_acquire_read(&cpu_hotplug.dep_map)
+ #define cpuhp_lock_acquire_tryread() \
+@@ -195,8 +213,8 @@ void pin_current_cpu(void)
+ 		return;
+ 	}
+ 	preempt_enable();
+-	mutex_lock(&cpu_hotplug.lock);
+-	mutex_unlock(&cpu_hotplug.lock);
++	hotplug_lock();
++	hotplug_unlock();
+ 	preempt_disable();
+ 	goto retry;
+ }
+@@ -269,9 +287,9 @@ void get_online_cpus(void)
+ 	if (cpu_hotplug.active_writer == current)
+ 		return;
+ 	cpuhp_lock_acquire_read();
+-	mutex_lock(&cpu_hotplug.lock);
++	hotplug_lock();
+ 	atomic_inc(&cpu_hotplug.refcount);
+-	mutex_unlock(&cpu_hotplug.lock);
++	hotplug_unlock();
+ }
+ EXPORT_SYMBOL_GPL(get_online_cpus);
+ 
+@@ -324,11 +342,11 @@ void cpu_hotplug_begin(void)
+ 	cpuhp_lock_acquire();
+ 
+ 	for (;;) {
+-		mutex_lock(&cpu_hotplug.lock);
++		hotplug_lock();
+ 		prepare_to_wait(&cpu_hotplug.wq, &wait, TASK_UNINTERRUPTIBLE);
+ 		if (likely(!atomic_read(&cpu_hotplug.refcount)))
+ 				break;
+-		mutex_unlock(&cpu_hotplug.lock);
++		hotplug_unlock();
+ 		schedule();
+ 	}
+ 	finish_wait(&cpu_hotplug.wq, &wait);
+@@ -337,7 +355,7 @@ void cpu_hotplug_begin(void)
+ void cpu_hotplug_done(void)
+ {
+ 	cpu_hotplug.active_writer = NULL;
+-	mutex_unlock(&cpu_hotplug.lock);
++	hotplug_unlock();
+ 	cpuhp_lock_release();
+ }
+ 

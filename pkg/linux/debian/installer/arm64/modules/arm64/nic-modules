@@ -1,0 +1,9 @@
+#include <nic-modules>
+amd-xgbe
+smc91x
+smsc911x
+stmmac
+stmmac-platform
+dwmac-generic
+dwmac-ipq806x
+xgene-enet

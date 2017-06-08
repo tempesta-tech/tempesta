@@ -1,0 +1,9 @@
+Package: linux-libc-dev
+Section: devel
+Depends: ${misc:Depends}
+# Remove this Provides when #826519 is closed
+Provides: linux-kernel-headers
+Multi-Arch: same
+Description: Linux support headers for userspace development
+ This package provides userspaces headers from the Linux kernel.  These headers
+ are used by the installed headers for GNU libc and other system libraries.

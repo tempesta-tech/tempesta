@@ -1,0 +1,14 @@
+# This file is used to build up the control file. The kernel version and
+# "-di" are appended to the package names. Section can be left out. So can
+# architecture, which is derived from the files in the modules directory.
+# It overwrites specifications from /usr/share/kernel-wedge/package-list.
+#
+
+Package: kernel-image
+Provides: rtc-modules, zlib-modules
+
+Package: fat-modules
+Priority: standard
+
+Package: fb-modules
+Depends: kernel-image, i2c-modules

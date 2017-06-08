@@ -1,0 +1,85 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Wed, 13 Apr 2016 21:48:06 +0100
+Subject: fs: Add MODULE_SOFTDEP declarations for hard-coded crypto drivers
+Bug-Debian: https://bugs.debian.org/819725
+Forwarded: http://mid.gmane.org/20160517133631.GF7555@decadent.org.uk
+
+This helps initramfs builders and other tools to find the full
+dependencies of a module.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -2456,3 +2456,4 @@ late_initcall(init_btrfs_fs);
+ module_exit(exit_btrfs_fs)
+ 
+ MODULE_LICENSE("GPL");
++MODULE_SOFTDEP("pre: crypto-crc32c");
+--- a/fs/cifs/cifsfs.c
++++ b/fs/cifs/cifsfs.c
+@@ -1373,5 +1373,13 @@ MODULE_DESCRIPTION
+     ("VFS to access servers complying with the SNIA CIFS Specification "
+      "e.g. Samba and Windows");
+ MODULE_VERSION(CIFS_VERSION);
++
++#ifdef CONFIG_CIFS_SMB2
++#define CIFS_SMB2_EXTRA_SOFTDEPS " crypto-aes crypto-cmac crypto-sha256"
++#else
++#define CIFS_SMB2_EXTRA_SOFTDEPS ""
++#endif
++MODULE_SOFTDEP("pre: crypto-arc4 crypto-des crypto-ecb crypto-hmac crypto-md4 crypto-md5" CIFS_SMB2_EXTRA_SOFTDEPS);
++
+ module_init(init_cifs)
+ module_exit(exit_cifs)
+--- a/fs/crypto/crypto.c
++++ b/fs/crypto/crypto.c
+@@ -566,3 +566,4 @@ static void __exit fscrypt_exit(void)
+ module_exit(fscrypt_exit);
+ 
+ MODULE_LICENSE("GPL");
++MODULE_SOFTDEP("pre: crypto-aes crypto-ecb");
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -5441,5 +5441,13 @@ static void __exit ext4_exit_fs(void)
+ MODULE_AUTHOR("Remy Card, Stephen Tweedie, Andrew Morton, Andreas Dilger, Theodore Ts'o and others");
+ MODULE_DESCRIPTION("Fourth Extended Filesystem");
+ MODULE_LICENSE("GPL");
++
++#ifdef CONFIG_EXT4_FS_ENCRYPTION
++#define EXT4_ENC_EXTRA_SOFTDEPS " crypto-aes crypto-ecb"
++#else
++#define EXT4_ENC_EXTRA_SOFTDEPS ""
++#endif
++MODULE_SOFTDEP("pre: crypto-crc32c" EXT4_ENC_EXTRA_SOFTDEPS);
++
+ module_init(ext4_init_fs)
+ module_exit(ext4_exit_fs)
+--- a/fs/f2fs/super.c
++++ b/fs/f2fs/super.c
+@@ -1742,3 +1742,4 @@ module_exit(exit_f2fs_fs)
+ MODULE_AUTHOR("Samsung Electronics's Praesto Team");
+ MODULE_DESCRIPTION("Flash Friendly File System");
+ MODULE_LICENSE("GPL");
++MODULE_SOFTDEP("pre: crypto-crc32c");
+--- a/fs/jbd2/journal.c
++++ b/fs/jbd2/journal.c
+@@ -2716,6 +2716,7 @@ static void __exit journal_exit(void)
+ }
+ 
+ MODULE_LICENSE("GPL");
++MODULE_SOFTDEP("pre: crypto-crc32c");
+ module_init(journal_init);
+ module_exit(journal_exit);
+ 
+--- a/fs/nfsd/nfsctl.c
++++ b/fs/nfsd/nfsctl.c
+@@ -1314,5 +1314,8 @@ static void __exit exit_nfsd(void)
+ 
+ MODULE_AUTHOR("Olaf Kirch <okir@monad.swb.de>");
+ MODULE_LICENSE("GPL");
++#ifdef CONFIG_NFSD_V4
++MODULE_SOFTDEP("pre: crypto-md5");
++#endif
+ module_init(init_nfsd)
+ module_exit(exit_nfsd)

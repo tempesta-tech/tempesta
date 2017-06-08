@@ -1,0 +1,17 @@
+[base]
+flavours:
+ powerpcspe
+kernel-arch: powerpc
+
+[build]
+image-file: vmlinux
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+vdso: true
+
+[image]
+suggests: mkvmlinuz
+install-stem: vmlinux
+
+[description]
+hardware: 32-bit PowerPC with SPE (instead of AltiVec) with SMP support

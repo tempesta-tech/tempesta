@@ -1,0 +1,68 @@
+##
+## file: arch/mips/Kconfig
+##
+CONFIG_RELOCATABLE=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_KEXEC=y
+CONFIG_SECCOMP=y
+CONFIG_PCI=y
+# CONFIG_RAPIDIO is not set
+#. Ignored in 32-bit configurations
+CONFIG_MIPS32_O32=y
+CONFIG_MIPS32_N32=y
+
+##
+## file: arch/mips/Kconfig.debug
+##
+CONFIG_EARLY_PRINTK=y
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_ATA=y
+
+##
+## file: drivers/net/ethernet/sun/Kconfig
+##
+# CONFIG_NIU is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB=m
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_EHCI_HCD=m
+CONFIG_USB_OHCI_HCD=m
+
+##
+## file: drivers/video/console/Kconfig
+##
+# CONFIG_VGA_CONSOLE is not set
+CONFIG_FRAMEBUFFER_CONSOLE=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=y
+
+##
+## file: init/Kconfig
+##
+CONFIG_SGETMASK_SYSCALL=y
+CONFIG_SYSFS_SYSCALL=y
+

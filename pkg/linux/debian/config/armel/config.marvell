@@ -1,0 +1,783 @@
+##
+## file: arch/Kconfig
+##
+# CONFIG_KPROBES is not set
+## choice: Stack Protector buffer overflow detection
+CONFIG_CC_STACKPROTECTOR_REGULAR=y
+# CONFIG_CC_STACKPROTECTOR_STRONG is not set
+## end choice
+
+##
+## file: arch/arm/Kconfig
+##
+CONFIG_ARCH_MULTI_V5=y
+# CONFIG_ARCH_MULTI_V7 is not set
+CONFIG_PCI=y
+CONFIG_HIGHMEM=y
+CONFIG_UACCESS_WITH_MEMCPY=y
+CONFIG_ZBOOT_ROM_TEXT=0x0
+CONFIG_ZBOOT_ROM_BSS=0x0
+CONFIG_ARM_APPENDED_DTB=y
+CONFIG_ARM_ATAG_DTB_COMPAT=y
+CONFIG_CMDLINE=""
+# CONFIG_XIP_KERNEL is not set
+CONFIG_ATAGS_PROC=y
+CONFIG_VFP=y
+
+##
+## file: arch/arm/Kconfig.debug
+##
+## choice: Kernel low-level debugging port
+# CONFIG_DEBUG_ICEDCC is not set
+CONFIG_DEBUG_LL_UART_8250=y
+## end choice
+#. Kirkwood (with new boot loader) and Orion both have an 8250 at
+#. physical address 0xf1012000.
+CONFIG_DEBUG_UART_PHYS=0xf1012000
+#. MVEBU is flexible about the virtual address (relying on
+#. debug_ll_io_init()) but Orion maps the 8250 as part of a larger
+#. block of registers.  So use the VA that Orion requires.
+CONFIG_DEBUG_UART_VIRT=0xfe012000
+
+##
+## file: arch/arm/mach-imx/Kconfig
+##
+# CONFIG_ARCH_MXC is not set
+
+##
+## file: arch/arm/mach-mvebu/Kconfig
+##
+CONFIG_ARCH_MVEBU=y
+CONFIG_MACH_KIRKWOOD=y
+
+##
+## file: arch/arm/mach-orion5x/Kconfig
+##
+CONFIG_ARCH_ORION5X=y
+CONFIG_MACH_DB88F5281=y
+CONFIG_MACH_RD88F5182=y
+CONFIG_MACH_RD88F5182_DT=y
+CONFIG_MACH_KUROBOX_PRO=y
+#. Only 1.5 MB flash available for kernel
+# CONFIG_MACH_DNS323 is not set
+CONFIG_MACH_TS209=y
+CONFIG_MACH_TERASTATION_PRO2=y
+CONFIG_MACH_LINKSTATION_PRO=y
+CONFIG_MACH_LINKSTATION_LSCHL=y
+CONFIG_MACH_LINKSTATION_MINI=y
+CONFIG_MACH_LINKSTATION_LS_HGL=y
+CONFIG_MACH_TS409=y
+CONFIG_MACH_WRT350N_V2=y
+CONFIG_MACH_TS78XX=y
+CONFIG_MACH_MV2120=y
+CONFIG_MACH_NET2BIG=y
+CONFIG_MACH_MSS2_DT=y
+CONFIG_MACH_WNR854T=y
+CONFIG_MACH_RD88F5181L_GE=y
+CONFIG_MACH_RD88F5181L_FXO=y
+CONFIG_MACH_RD88F6183AP_GE=y
+
+##
+## file: arch/arm/mm/Kconfig
+##
+CONFIG_CPU_FEROCEON_OLD_ID=y
+CONFIG_ARM_THUMB=y
+# CONFIG_CPU_ICACHE_DISABLE is not set
+# CONFIG_CPU_DCACHE_DISABLE is not set
+# CONFIG_CPU_DCACHE_WRITETHROUGH is not set
+
+##
+## file: block/Kconfig.iosched
+##
+CONFIG_IOSCHED_DEADLINE=m
+
+##
+## file: block/partitions/Kconfig
+##
+CONFIG_ACORN_PARTITION=y
+# CONFIG_ACORN_PARTITION_CUMANA is not set
+# CONFIG_ACORN_PARTITION_EESOX is not set
+CONFIG_ACORN_PARTITION_ICS=y
+# CONFIG_ACORN_PARTITION_ADFS is not set
+# CONFIG_ACORN_PARTITION_POWERTEC is not set
+CONFIG_ACORN_PARTITION_RISCIX=y
+CONFIG_OSF_PARTITION=y
+CONFIG_AMIGA_PARTITION=y
+CONFIG_ATARI_PARTITION=y
+CONFIG_MAC_PARTITION=y
+CONFIG_BSD_DISKLABEL=y
+CONFIG_MINIX_SUBPARTITION=y
+CONFIG_SOLARIS_X86_PARTITION=y
+CONFIG_UNIXWARE_DISKLABEL=y
+CONFIG_LDM_PARTITION=y
+# CONFIG_LDM_DEBUG is not set
+CONFIG_SGI_PARTITION=y
+CONFIG_ULTRIX_PARTITION=y
+CONFIG_SUN_PARTITION=y
+
+##
+## file: crypto/Kconfig
+##
+# CONFIG_CRYPTO_FIPS is not set
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_ATA=m
+CONFIG_SATA_AHCI=m
+# CONFIG_SATA_SIL24 is not set
+CONFIG_ATA_SFF=y
+# CONFIG_PDC_ADMA is not set
+# CONFIG_SATA_QSTOR is not set
+# CONFIG_SATA_SX4 is not set
+# CONFIG_ATA_PIIX is not set
+CONFIG_SATA_MV=m
+# CONFIG_SATA_NV is not set
+# CONFIG_SATA_PROMISE is not set
+# CONFIG_SATA_SIL is not set
+# CONFIG_SATA_SIS is not set
+# CONFIG_SATA_SVW is not set
+# CONFIG_SATA_ULI is not set
+# CONFIG_SATA_VIA is not set
+# CONFIG_SATA_VITESSE is not set
+# CONFIG_PATA_ALI is not set
+# CONFIG_PATA_AMD is not set
+# CONFIG_PATA_ARTOP is not set
+# CONFIG_PATA_ATIIXP is not set
+# CONFIG_PATA_CMD64X is not set
+# CONFIG_PATA_CS5520 is not set
+# CONFIG_PATA_CYPRESS is not set
+# CONFIG_PATA_EFAR is not set
+# CONFIG_PATA_HPT366 is not set
+# CONFIG_PATA_HPT37X is not set
+# CONFIG_PATA_HPT3X2N is not set
+# CONFIG_PATA_HPT3X3 is not set
+# CONFIG_PATA_IT8213 is not set
+# CONFIG_PATA_IT821X is not set
+# CONFIG_PATA_JMICRON is not set
+# CONFIG_PATA_MARVELL is not set
+# CONFIG_PATA_NETCELL is not set
+# CONFIG_PATA_NINJA32 is not set
+# CONFIG_PATA_NS87415 is not set
+# CONFIG_PATA_OLDPIIX is not set
+# CONFIG_PATA_OPTIDMA is not set
+# CONFIG_PATA_PDC2027X is not set
+# CONFIG_PATA_PDC_OLD is not set
+# CONFIG_PATA_RADISYS is not set
+# CONFIG_PATA_SC1200 is not set
+# CONFIG_PATA_SCH is not set
+# CONFIG_PATA_SERVERWORKS is not set
+# CONFIG_PATA_SIL680 is not set
+# CONFIG_PATA_SIS is not set
+# CONFIG_PATA_TRIFLEX is not set
+# CONFIG_PATA_VIA is not set
+# CONFIG_PATA_WINBOND is not set
+# CONFIG_PATA_CMD640_PCI is not set
+# CONFIG_PATA_MPIIX is not set
+# CONFIG_PATA_NS87410 is not set
+# CONFIG_PATA_OPTI is not set
+# CONFIG_PATA_RZ1000 is not set
+# CONFIG_ATA_GENERIC is not set
+
+##
+## file: drivers/bluetooth/Kconfig
+##
+# CONFIG_BT_HCIUART is not set
+CONFIG_BT_HCIBCM203X=m
+CONFIG_BT_HCIBPA10X=m
+CONFIG_BT_HCIBFUSB=m
+CONFIG_BT_HCIVHCI=m
+
+##
+## file: drivers/cpuidle/Kconfig
+##
+CONFIG_CPU_IDLE=y
+
+##
+## file: drivers/cpuidle/Kconfig.arm
+##
+CONFIG_ARM_KIRKWOOD_CPUIDLE=y
+
+##
+## file: drivers/crypto/Kconfig
+##
+# CONFIG_CRYPTO_DEV_MV_CESA is not set
+CONFIG_CRYPTO_DEV_MARVELL_CESA=m
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_DMADEVICES=y
+CONFIG_MV_XOR=y
+
+##
+## file: drivers/gpu/drm/Kconfig
+##
+# CONFIG_DRM is not set
+
+##
+## file: drivers/gpu/vga/Kconfig
+##
+# CONFIG_VGA_ARB is not set
+
+##
+## file: drivers/hwmon/Kconfig
+##
+CONFIG_SENSORS_G760A=m
+CONFIG_SENSORS_GPIO_FAN=m
+CONFIG_SENSORS_LM75=m
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+CONFIG_I2C_CHARDEV=y
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_MV64XXX=y
+
+##
+## file: drivers/input/gameport/Kconfig
+##
+CONFIG_GAMEPORT=m
+
+##
+## file: drivers/input/joystick/Kconfig
+##
+CONFIG_INPUT_JOYSTICK=y
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+# CONFIG_KEYBOARD_ATKBD is not set
+CONFIG_KEYBOARD_GPIO=m
+
+##
+## file: drivers/input/serio/Kconfig
+##
+CONFIG_SERIO=m
+CONFIG_SERIO_SERPORT=m
+# CONFIG_SERIO_PCIPS2 is not set
+CONFIG_SERIO_LIBPS2=m
+# CONFIG_SERIO_RAW is not set
+
+##
+## file: drivers/input/touchscreen/Kconfig
+##
+CONFIG_INPUT_TOUCHSCREEN=y
+
+##
+## file: drivers/isdn/Kconfig
+##
+CONFIG_ISDN=y
+CONFIG_ISDN_CAPI=m
+
+##
+## file: drivers/isdn/capi/Kconfig
+##
+CONFIG_ISDN_CAPI_CAPI20=m
+CONFIG_ISDN_CAPI_MIDDLEWARE=y
+CONFIG_ISDN_CAPI_CAPIDRV=m
+
+##
+## file: drivers/isdn/hardware/avm/Kconfig
+##
+CONFIG_CAPI_AVM=y
+CONFIG_ISDN_DRV_AVMB1_B1PCI=m
+CONFIG_ISDN_DRV_AVMB1_B1PCIV4=y
+CONFIG_ISDN_DRV_AVMB1_B1PCMCIA=m
+CONFIG_ISDN_DRV_AVMB1_AVM_CS=m
+CONFIG_ISDN_DRV_AVMB1_T1PCI=m
+CONFIG_ISDN_DRV_AVMB1_C4=m
+
+##
+## file: drivers/isdn/hardware/eicon/Kconfig
+##
+CONFIG_CAPI_EICON=y
+CONFIG_ISDN_DIVAS=m
+CONFIG_ISDN_DIVAS_BRIPCI=y
+CONFIG_ISDN_DIVAS_PRIPCI=y
+CONFIG_ISDN_DIVAS_DIVACAPI=m
+CONFIG_ISDN_DIVAS_USERIDI=m
+CONFIG_ISDN_DIVAS_MAINT=m
+
+##
+## file: drivers/leds/Kconfig
+##
+CONFIG_LEDS_GPIO=y
+CONFIG_LEDS_NS2=m
+CONFIG_LEDS_NETXBIG=m
+
+##
+## file: drivers/leds/trigger/Kconfig
+##
+CONFIG_LEDS_TRIGGER_TIMER=y
+CONFIG_LEDS_TRIGGER_DEFAULT_ON=y
+
+##
+## file: drivers/mmc/Kconfig
+##
+CONFIG_MMC=m
+
+##
+## file: drivers/mmc/card/Kconfig
+##
+CONFIG_MMC_BLOCK=m
+
+##
+## file: drivers/mmc/host/Kconfig
+##
+CONFIG_MMC_MVSDIO=m
+
+##
+## file: drivers/mtd/Kconfig
+##
+CONFIG_MTD=y
+# CONFIG_MTD_REDBOOT_PARTS is not set
+CONFIG_MTD_CMDLINE_PARTS=y
+# CONFIG_MTD_AFS_PARTS is not set
+CONFIG_MTD_OF_PARTS=y
+CONFIG_MTD_BLOCK=y
+CONFIG_FTL=m
+CONFIG_NFTL=m
+# CONFIG_NFTL_RW is not set
+# CONFIG_INFTL is not set
+# CONFIG_RFD_FTL is not set
+# CONFIG_SSFDC is not set
+# CONFIG_MTD_OOPS is not set
+
+##
+## file: drivers/mtd/chips/Kconfig
+##
+CONFIG_MTD_CFI=y
+CONFIG_MTD_JEDECPROBE=y
+CONFIG_MTD_CFI_ADV_OPTIONS=y
+## choice: Flash cmd/query data swapping
+CONFIG_MTD_CFI_NOSWAP=y
+# CONFIG_MTD_CFI_BE_BYTE_SWAP is not set
+# CONFIG_MTD_CFI_LE_BYTE_SWAP is not set
+## end choice
+CONFIG_MTD_CFI_GEOMETRY=y
+CONFIG_MTD_MAP_BANK_WIDTH_1=y
+CONFIG_MTD_MAP_BANK_WIDTH_2=y
+CONFIG_MTD_MAP_BANK_WIDTH_4=y
+# CONFIG_MTD_MAP_BANK_WIDTH_8 is not set
+# CONFIG_MTD_MAP_BANK_WIDTH_16 is not set
+# CONFIG_MTD_MAP_BANK_WIDTH_32 is not set
+CONFIG_MTD_CFI_I1=y
+CONFIG_MTD_CFI_I2=y
+CONFIG_MTD_CFI_I4=y
+# CONFIG_MTD_CFI_I8 is not set
+# CONFIG_MTD_OTP is not set
+#. Needed e.g. on QNAP devices
+CONFIG_MTD_CFI_INTELEXT=y
+#. Needed e.g. on D-Link DNS-323, Buffalo KuroBox-Pro, Buffalo Linkstation LS-GL / LS-WTGL, etc
+CONFIG_MTD_CFI_AMDSTD=y
+CONFIG_MTD_CFI_STAA=m
+# CONFIG_MTD_RAM is not set
+# CONFIG_MTD_ROM is not set
+# CONFIG_MTD_ABSENT is not set
+
+##
+## file: drivers/mtd/devices/Kconfig
+##
+# CONFIG_MTD_PMC551 is not set
+# CONFIG_MTD_SLRAM is not set
+# CONFIG_MTD_PHRAM is not set
+# CONFIG_MTD_MTDRAM is not set
+# CONFIG_MTD_BLOCK2MTD is not set
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+# CONFIG_MTD_COMPLEX_MAPPINGS is not set
+CONFIG_MTD_PHYSMAP_OF=y
+# CONFIG_MTD_IMPA7 is not set
+# CONFIG_MTD_INTEL_VR_NOR is not set
+# CONFIG_MTD_PLATRAM is not set
+
+##
+## file: drivers/mtd/nand/Kconfig
+##
+CONFIG_MTD_NAND=y
+# CONFIG_MTD_NAND_DISKONCHIP is not set
+# CONFIG_MTD_NAND_CAFE is not set
+CONFIG_MTD_NAND_ORION=y
+
+##
+## file: drivers/mtd/onenand/Kconfig
+##
+# CONFIG_MTD_ONENAND is not set
+
+##
+## file: drivers/mtd/spi-nor/Kconfig
+##
+CONFIG_MTD_SPI_NOR=m
+
+##
+## file: drivers/net/arcnet/Kconfig
+##
+# CONFIG_ARCNET is not set
+
+##
+## file: drivers/net/ethernet/atheros/Kconfig
+##
+# CONFIG_ATL1 is not set
+
+##
+## file: drivers/net/ethernet/broadcom/Kconfig
+##
+# CONFIG_BNX2 is not set
+# CONFIG_TIGON3 is not set
+# CONFIG_BNX2X is not set
+
+##
+## file: drivers/net/ethernet/dlink/Kconfig
+##
+# CONFIG_DL2K is not set
+
+##
+## file: drivers/net/ethernet/intel/Kconfig
+##
+# CONFIG_E1000 is not set
+# CONFIG_E1000E is not set
+# CONFIG_IGB is not set
+
+##
+## file: drivers/net/ethernet/marvell/Kconfig
+##
+CONFIG_MV643XX_ETH=m
+CONFIG_MVMDIO=m
+# CONFIG_SKGE is not set
+# CONFIG_SKY2 is not set
+
+##
+## file: drivers/net/ethernet/natsemi/Kconfig
+##
+# CONFIG_NS83820 is not set
+
+##
+## file: drivers/net/ethernet/packetengines/Kconfig
+##
+# CONFIG_HAMACHI is not set
+# CONFIG_YELLOWFIN is not set
+
+##
+## file: drivers/net/ethernet/qlogic/Kconfig
+##
+# CONFIG_QLA3XXX is not set
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+# CONFIG_R8169 is not set
+
+##
+## file: drivers/net/ethernet/sis/Kconfig
+##
+# CONFIG_SIS190 is not set
+
+##
+## file: drivers/net/ethernet/via/Kconfig
+##
+# CONFIG_VIA_VELOCITY is not set
+
+##
+## file: drivers/net/wireless/marvell/mwifiex/Kconfig
+##
+CONFIG_MWIFIEX=m
+CONFIG_MWIFIEX_SDIO=m
+
+##
+## file: drivers/pci/host/Kconfig
+##
+CONFIG_PCI_MVEBU=y
+
+##
+## file: drivers/pci/pcie/Kconfig
+##
+# CONFIG_PCIE_DPC is not set
+
+##
+## file: drivers/pcmcia/Kconfig
+##
+# CONFIG_PCCARD is not set
+
+##
+## file: drivers/power/reset/Kconfig
+##
+CONFIG_POWER_RESET=y
+CONFIG_POWER_RESET_GPIO=y
+CONFIG_POWER_RESET_QNAP=y
+CONFIG_POWER_RESET_RESTART=y
+
+##
+## file: drivers/regulator/Kconfig
+##
+CONFIG_REGULATOR=y
+CONFIG_REGULATOR_FIXED_VOLTAGE=y
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_DS1307=y
+CONFIG_RTC_DRV_RS5C372=y
+CONFIG_RTC_DRV_PCF8563=y
+CONFIG_RTC_DRV_M41T80=y
+CONFIG_RTC_DRV_S35390A=y
+CONFIG_RTC_DRV_MV=y
+
+##
+## file: drivers/scsi/Kconfig
+##
+# CONFIG_BLK_DEV_3W_XXXX_RAID is not set
+# CONFIG_SCSI_3W_9XXX is not set
+# CONFIG_SCSI_AACRAID is not set
+# CONFIG_SCSI_DPT_I2O is not set
+# CONFIG_SCSI_ARCMSR is not set
+# CONFIG_SCSI_HPTIOP is not set
+# CONFIG_SCSI_DMX3191D is not set
+# CONFIG_SCSI_FUTURE_DOMAIN is not set
+# CONFIG_SCSI_IPS is not set
+# CONFIG_SCSI_INITIO is not set
+# CONFIG_SCSI_INIA100 is not set
+# CONFIG_SCSI_STEX is not set
+# CONFIG_SCSI_SYM53C8XX_2 is not set
+# CONFIG_SCSI_IPR is not set
+# CONFIG_SCSI_QLOGIC_1280 is not set
+# CONFIG_SCSI_LPFC is not set
+# CONFIG_SCSI_DC395x is not set
+# CONFIG_SCSI_NSP32 is not set
+
+##
+## file: drivers/scsi/aic7xxx/Kconfig.aic79xx
+##
+# CONFIG_SCSI_AIC79XX is not set
+
+##
+## file: drivers/scsi/aic7xxx/Kconfig.aic7xxx
+##
+# CONFIG_SCSI_AIC7XXX is not set
+
+##
+## file: drivers/scsi/aic94xx/Kconfig
+##
+# CONFIG_SCSI_AIC94XX is not set
+
+##
+## file: drivers/scsi/megaraid/Kconfig.megaraid
+##
+# CONFIG_MEGARAID_NEWGEN is not set
+# CONFIG_MEGARAID_LEGACY is not set
+# CONFIG_MEGARAID_SAS is not set
+
+##
+## file: drivers/scsi/mvsas/Kconfig
+##
+# CONFIG_SCSI_MVSAS is not set
+
+##
+## file: drivers/scsi/qla2xxx/Kconfig
+##
+# CONFIG_SCSI_QLA_FC is not set
+
+##
+## file: drivers/scsi/qla4xxx/Kconfig
+##
+# CONFIG_SCSI_QLA_ISCSI is not set
+
+##
+## file: drivers/spi/Kconfig
+##
+CONFIG_SPI_ORION=y
+
+##
+## file: drivers/ssb/Kconfig
+##
+# CONFIG_SSB is not set
+
+##
+## file: drivers/staging/xgifb/Kconfig
+##
+CONFIG_FB_XGI=m
+
+##
+## file: drivers/thermal/Kconfig
+##
+CONFIG_KIRKWOOD_THERMAL=m
+
+##
+## file: drivers/tty/serial/8250/Kconfig
+##
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_NR_UARTS=4
+CONFIG_SERIAL_8250_RUNTIME_UARTS=2
+# CONFIG_SERIAL_8250_EXTENDED is not set
+# CONFIG_SERIAL_8250_DW is not set
+CONFIG_SERIAL_OF_PLATFORM=y
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB_SUPPORT=y
+CONFIG_USB=m
+
+##
+## file: drivers/usb/atm/Kconfig
+##
+CONFIG_USB_ATM=m
+CONFIG_USB_SPEEDTOUCH=m
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_EHCI_HCD=m
+CONFIG_USB_EHCI_HCD_ORION=y
+# CONFIG_USB_ISP116X_HCD is not set
+CONFIG_USB_OHCI_HCD=m
+CONFIG_USB_UHCI_HCD=m
+CONFIG_USB_SL811_HCD=m
+
+##
+## file: drivers/video/console/Kconfig
+##
+# CONFIG_VGA_CONSOLE is not set
+CONFIG_FRAMEBUFFER_CONSOLE=m
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=m
+
+##
+## file: drivers/virtio/Kconfig
+##
+# CONFIG_VIRTIO_PCI is not set
+# CONFIG_VIRTIO_BALLOON is not set
+
+##
+## file: drivers/watchdog/Kconfig
+##
+CONFIG_ORION_WATCHDOG=m
+
+##
+## file: fs/Kconfig
+##
+# CONFIG_FS_DAX is not set
+
+##
+## file: fs/notify/fanotify/Kconfig
+##
+# CONFIG_FANOTIFY_ACCESS_PERMISSIONS is not set
+
+##
+## file: init/Kconfig
+##
+#. Saves about 7K
+# CONFIG_MEMCG is not set
+# CONFIG_CFS_BANDWIDTH is not set
+# CONFIG_CHECKPOINT_RESTORE is not set
+## choice: Compiler optimization level
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+## end choice
+# CONFIG_PROFILING is not set
+# CONFIG_MODULE_SIG is not set
+
+##
+## file: kernel/power/Kconfig
+##
+# CONFIG_SUSPEND is not set
+# CONFIG_HIBERNATION is not set
+# CONFIG_PM is not set
+
+##
+## file: kernel/trace/Kconfig
+##
+# CONFIG_FUNCTION_GRAPH_TRACER is not set
+# CONFIG_FTRACE_SYSCALLS is not set
+# CONFIG_STACK_TRACER is not set
+
+##
+## file: lib/Kconfig.debug
+##
+# CONFIG_SCHEDSTATS is not set
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_FLATMEM_MANUAL=y
+# CONFIG_DISCONTIGMEM_MANUAL is not set
+# CONFIG_SPARSEMEM_MANUAL is not set
+## end choice
+#. Saves about 7K
+# CONFIG_COMPACTION is not set
+# CONFIG_KSM is not set
+
+##
+## file: net/Kconfig
+##
+#. Saves about 3K
+# CONFIG_BPF_JIT is not set
+# CONFIG_LWTUNNEL is not set
+
+##
+## file: net/atm/Kconfig
+##
+CONFIG_ATM=m
+
+##
+## file: net/ax25/Kconfig
+##
+CONFIG_HAMRADIO=y
+CONFIG_AX25=m
+# CONFIG_AX25_DAMA_SLAVE is not set
+CONFIG_NETROM=m
+CONFIG_ROSE=m
+
+##
+## file: net/ipv6/Kconfig
+##
+CONFIG_IPV6=m
+
+##
+## file: net/l3mdev/Kconfig
+##
+# CONFIG_NET_L3_MASTER_DEV is not set
+
+##
+## file: net/mpls/Kconfig
+##
+# CONFIG_NET_MPLS_GSO is not set
+
+##
+## file: sound/soc/Kconfig
+##
+CONFIG_SND_SOC=m
+
+##
+## file: sound/soc/codecs/Kconfig
+##
+# CONFIG_SND_SOC_ALL_CODECS is not set
+CONFIG_SND_SOC_ALC5623=m
+CONFIG_SND_SOC_CS42L51_I2C=m
+
+##
+## file: sound/soc/generic/Kconfig
+##
+CONFIG_SND_SIMPLE_CARD=m
+
+##
+## file: sound/soc/kirkwood/Kconfig
+##
+CONFIG_SND_KIRKWOOD_SOC=m
+
+##
+## file: usr/Kconfig
+##
+# CONFIG_RD_LZO is not set
+# CONFIG_RD_LZ4 is not set
+

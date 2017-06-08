@@ -1,0 +1,48 @@
+From: Al Viro <viro@zeniv.linux.org.uk>
+Date: Fri, 16 Dec 2016 13:42:06 -0500
+Subject: sg_write()/bsg_write() is not fit to be called under KERNEL_DS
+Origin: https://git.kernel.org/linus/128394eff343fc6d2f32172f03e24829539c5835
+
+Both damn things interpret userland pointers embedded into the payload;
+worse, they are actually traversing those.  Leaving aside the bad
+API design, this is very much _not_ safe to call with KERNEL_DS.
+Bail out early if that happens.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Al Viro <viro@zeniv.linux.org.uk>
+---
+ block/bsg.c       | 3 +++
+ drivers/scsi/sg.c | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/block/bsg.c b/block/bsg.c
+index 8a05a404ae70..a57046de2f07 100644
+--- a/block/bsg.c
++++ b/block/bsg.c
+@@ -655,6 +655,9 @@ bsg_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+ 
+ 	dprintk("%s: write %Zd bytes\n", bd->name, count);
+ 
++	if (unlikely(segment_eq(get_fs(), KERNEL_DS)))
++		return -EINVAL;
++
+ 	bsg_set_block(bd, file);
+ 
+ 	bytes_written = 0;
+diff --git a/drivers/scsi/sg.c b/drivers/scsi/sg.c
+index 070332eb41f3..dbe5b4b95df0 100644
+--- a/drivers/scsi/sg.c
++++ b/drivers/scsi/sg.c
+@@ -581,6 +581,9 @@ sg_write(struct file *filp, const char __user *buf, size_t count, loff_t * ppos)
+ 	sg_io_hdr_t *hp;
+ 	unsigned char cmnd[SG_MAX_CDB_SIZE];
+ 
++	if (unlikely(segment_eq(get_fs(), KERNEL_DS)))
++		return -EINVAL;
++
+ 	if ((!(sfp = (Sg_fd *) filp->private_data)) || (!(sdp = sfp->parentdp)))
+ 		return -ENXIO;
+ 	SCSI_LOG_TIMEOUT(3, sg_printk(KERN_INFO, sdp,
+-- 
+2.11.0
+

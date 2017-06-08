@@ -1,0 +1,4 @@
+[base]
+kernel-arch: x86
+featuresets:
+# empty; x32 must be part of a multiarch installation with an amd64 kernel

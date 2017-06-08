@@ -1,0 +1,76 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Thu, 21 Mar 2013 19:01:05 +0100
+Subject: printk: Drop the logbuf_lock more often
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+The lock is hold with irgs off. The latency drops 500us+ on my arm bugs
+with a "full" buffer after executing "dmesg" on the shell.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ kernel/printk/printk.c |   26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -1399,6 +1399,7 @@ static int syslog_print_all(char __user
+ {
+ 	char *text;
+ 	int len = 0;
++	int attempts = 0;
+ 
+ 	text = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
+ 	if (!text)
+@@ -1410,6 +1411,14 @@ static int syslog_print_all(char __user
+ 		u64 seq;
+ 		u32 idx;
+ 		enum log_flags prev;
++		int num_msg;
++try_again:
++		attempts++;
++		if (attempts > 10) {
++			len = -EBUSY;
++			goto out;
++		}
++		num_msg = 0;
+ 
+ 		/*
+ 		 * Find first record that fits, including all following records,
+@@ -1425,6 +1434,14 @@ static int syslog_print_all(char __user
+ 			prev = msg->flags;
+ 			idx = log_next(idx);
+ 			seq++;
++			num_msg++;
++			if (num_msg > 5) {
++				num_msg = 0;
++				raw_spin_unlock_irq(&logbuf_lock);
++				raw_spin_lock_irq(&logbuf_lock);
++				if (clear_seq < log_first_seq)
++					goto try_again;
++			}
+ 		}
+ 
+ 		/* move first record forward until length fits into the buffer */
+@@ -1438,6 +1455,14 @@ static int syslog_print_all(char __user
+ 			prev = msg->flags;
+ 			idx = log_next(idx);
+ 			seq++;
++			num_msg++;
++			if (num_msg > 5) {
++				num_msg = 0;
++				raw_spin_unlock_irq(&logbuf_lock);
++				raw_spin_lock_irq(&logbuf_lock);
++				if (clear_seq < log_first_seq)
++					goto try_again;
++			}
+ 		}
+ 
+ 		/* last message fitting into this dump */
+@@ -1478,6 +1503,7 @@ static int syslog_print_all(char __user
+ 		clear_seq = log_next_seq;
+ 		clear_idx = log_next_idx;
+ 	}
++out:
+ 	raw_spin_unlock_irq(&logbuf_lock);
+ 
+ 	kfree(text);

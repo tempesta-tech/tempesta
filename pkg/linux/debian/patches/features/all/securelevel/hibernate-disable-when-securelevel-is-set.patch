@@ -1,0 +1,36 @@
+From: Josh Boyer <jwboyer@fedoraproject.org>
+Date: Fri, 20 Jun 2014 08:53:24 -0400
+Subject: [14/18] hibernate: Disable when securelevel is set
+Origin: https://github.com/mjg59/linux/commit/500a87278c5c0608ba88ed8af7a35fcfa955c492
+
+There is currently no way to verify the resume image when returning
+from hibernate.  This might compromise the securelevel trust model,
+so until we can work with signed hibernate images we disable it in
+a secure modules environment.
+
+Signed-off-by: Josh Boyer <jwboyer@fedoraproject.org>
+---
+ kernel/power/hibernate.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
+index fca9254280ee..7bf7f723a27f 100644
+--- a/kernel/power/hibernate.c
++++ b/kernel/power/hibernate.c
+@@ -29,6 +29,7 @@
+ #include <linux/ctype.h>
+ #include <linux/genhd.h>
+ #include <linux/ktime.h>
++#include <linux/security.h>
+ #include <trace/events/power.h>
+ 
+ #include "power.h"
+@@ -66,7 +67,7 @@ static const struct platform_hibernation_ops *hibernation_ops;
+ 
+ bool hibernation_available(void)
+ {
+-	return (nohibernate == 0);
++	return ((nohibernate == 0) && (get_securelevel() <= 0));
+ }
+ 
+ /**

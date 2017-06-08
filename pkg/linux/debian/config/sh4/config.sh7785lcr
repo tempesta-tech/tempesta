@@ -1,0 +1,228 @@
+##
+## file: arch/sh/Kconfig
+##
+## choice: Processor sub-type selection
+CONFIG_CPU_SUBTYPE_SH7785=y
+## end choice
+CONFIG_SH_PCLK_FREQ=50000000
+CONFIG_PCI=y
+
+##
+## file: arch/sh/boards/Kconfig
+##
+CONFIG_SH_SH7785LCR=y
+
+##
+## file: arch/sh/Kconfig.cpu
+##
+## choice: Endianness selection
+CONFIG_CPU_LITTLE_ENDIAN=y
+## end choice
+CONFIG_SH_FPU=y
+CONFIG_SH_STORE_QUEUES=y
+
+##
+## file: arch/sh/mm/Kconfig
+##
+CONFIG_MMU=y
+CONFIG_FORCE_MAX_ZONEORDER=11
+CONFIG_MEMORY_START=0x48000000
+CONFIG_MEMORY_SIZE=0x18000000
+CONFIG_VSYSCALL=y
+## choice: Kernel page size
+CONFIG_PAGE_SIZE_4KB=y
+## end choice
+## choice: HugeTLB page size
+CONFIG_HUGETLB_PAGE_SIZE_64K=y
+## end choice
+
+##
+## file: drivers/ata/Kconfig
+##
+CONFIG_ATA=y
+CONFIG_ATA_VERBOSE_ERROR=y
+CONFIG_SATA_PMP=y
+CONFIG_ATA_SFF=y
+CONFIG_SATA_SIL=y
+
+##
+## file: drivers/clocksource/Kconfig
+##
+CONFIG_SH_TIMER_TMU=y
+
+##
+## file: drivers/dma/Kconfig
+##
+CONFIG_DMADEVICES=y
+
+##
+## file: drivers/hid/Kconfig
+##
+CONFIG_HID=y
+
+##
+## file: drivers/hid/usbhid/Kconfig
+##
+CONFIG_USB_HID=y
+
+##
+## file: drivers/i2c/Kconfig
+##
+CONFIG_I2C=y
+CONFIG_I2C_COMPAT=y
+CONFIG_I2C_HELPER_AUTO=y
+
+##
+## file: drivers/i2c/algos/Kconfig
+##
+CONFIG_I2C_ALGOPCA=y
+
+##
+## file: drivers/i2c/busses/Kconfig
+##
+CONFIG_I2C_PCA_PLATFORM=y
+
+##
+## file: drivers/input/Kconfig
+##
+CONFIG_INPUT=y
+CONFIG_INPUT_MOUSEDEV=y
+CONFIG_INPUT_MOUSEDEV_PSAUX=y
+CONFIG_INPUT_MOUSEDEV_SCREEN_X=1024
+CONFIG_INPUT_MOUSEDEV_SCREEN_Y=768
+CONFIG_INPUT_EVDEV=y
+
+##
+## file: drivers/input/keyboard/Kconfig
+##
+CONFIG_INPUT_KEYBOARD=y
+CONFIG_KEYBOARD_ATKBD=y
+
+##
+## file: drivers/input/mouse/Kconfig
+##
+CONFIG_INPUT_MOUSE=y
+CONFIG_MOUSE_PS2=y
+CONFIG_MOUSE_PS2_ALPS=y
+CONFIG_MOUSE_PS2_LOGIPS2PP=y
+CONFIG_MOUSE_PS2_SYNAPTICS=y
+CONFIG_MOUSE_PS2_TRACKPOINT=y
+
+##
+## file: drivers/input/serio/Kconfig
+##
+CONFIG_SERIO=y
+CONFIG_SERIO_I8042=y
+CONFIG_SERIO_SERPORT=y
+CONFIG_SERIO_LIBPS2=y
+
+##
+## file: drivers/mfd/Kconfig
+##
+CONFIG_MFD_SM501=y
+
+##
+## file: drivers/mtd/Kconfig
+##
+CONFIG_MTD=y
+CONFIG_MTD_BLOCK=y
+
+##
+## file: drivers/mtd/chips/Kconfig
+##
+CONFIG_MTD_CFI=y
+CONFIG_MTD_MAP_BANK_WIDTH_1=y
+CONFIG_MTD_MAP_BANK_WIDTH_2=y
+CONFIG_MTD_MAP_BANK_WIDTH_4=y
+CONFIG_MTD_CFI_I1=y
+CONFIG_MTD_CFI_I2=y
+CONFIG_MTD_CFI_AMDSTD=y
+
+##
+## file: drivers/mtd/maps/Kconfig
+##
+CONFIG_MTD_PHYSMAP=y
+
+##
+## file: drivers/net/Kconfig
+##
+CONFIG_NETDEVICES=y
+
+##
+## file: drivers/net/ethernet/realtek/Kconfig
+##
+CONFIG_R8169=y
+
+##
+## file: drivers/rtc/Kconfig
+##
+CONFIG_RTC_DRV_RS5C372=y
+# CONFIG_RTC_DRV_SH is not set
+# CONFIG_RTC_DRV_GENERIC is not set
+
+##
+## file: drivers/scsi/Kconfig
+##
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+
+##
+## file: drivers/tty/Kconfig
+##
+CONFIG_VT=y
+CONFIG_CONSOLE_TRANSLATIONS=y
+CONFIG_VT_CONSOLE=y
+CONFIG_VT_HW_CONSOLE_BINDING=y
+CONFIG_UNIX98_PTYS=y
+
+##
+## file: drivers/tty/serial/Kconfig
+##
+CONFIG_SERIAL_SH_SCI=y
+CONFIG_SERIAL_SH_SCI_NR_UARTS=6
+CONFIG_SERIAL_SH_SCI_CONSOLE=y
+
+##
+## file: drivers/usb/Kconfig
+##
+CONFIG_USB_SUPPORT=y
+CONFIG_USB=y
+
+##
+## file: drivers/usb/host/Kconfig
+##
+CONFIG_USB_EHCI_HCD=y
+CONFIG_USB_R8A66597_HCD=y
+
+##
+## file: drivers/usb/storage/Kconfig
+##
+CONFIG_USB_STORAGE=y
+
+##
+## file: drivers/video/console/Kconfig
+##
+CONFIG_FRAMEBUFFER_CONSOLE=y
+
+##
+## file: drivers/video/fbdev/Kconfig
+##
+CONFIG_FB=y
+CONFIG_FB_SM501=y
+
+##
+## file: drivers/watchdog/Kconfig
+##
+CONFIG_WATCHDOG=y
+CONFIG_SH_WDT=y
+# CONFIG_USBPCWATCHDOG is not set
+
+##
+## file: mm/Kconfig
+##
+## choice: Memory model
+CONFIG_SPARSEMEM_MANUAL=y
+## end choice
+CONFIG_MIGRATION=y
+CONFIG_DEFAULT_MMAP_MIN_ADDR=4096
+

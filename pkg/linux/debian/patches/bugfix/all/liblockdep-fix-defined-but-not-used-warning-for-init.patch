@@ -1,0 +1,54 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 14 Jun 2016 21:32:11 +0100
+Subject: [PATCH 7/7] liblockdep: Fix 'defined but not used' warning for
+ init_utsname()
+Forwarded: http://mid.gmane.org/20160614204909.GZ7555@decadent.org.uk
+
+We define init_utsname() as static but not inline, resulting
+in a warning for every source file that includes lockdep.h but
+doesn't call it.
+
+Since it is only used by lockdep.c, define it in there.
+
+Signed-off-by: Ben Hutchings <ben@decadent.org.uk>
+---
+ tools/lib/lockdep/lockdep.c                | 10 ++++++++++
+ tools/lib/lockdep/uinclude/linux/lockdep.h | 10 ----------
+ 2 files changed, 10 insertions(+), 10 deletions(-)
+
+--- a/tools/lib/lockdep/lockdep.c
++++ b/tools/lib/lockdep/lockdep.c
+@@ -12,4 +12,14 @@ u32 prandom_u32(void)
+ 	abort();
+ }
+ 
++static struct new_utsname *init_utsname(void)
++{
++	static struct new_utsname n = (struct new_utsname) {
++		.release = "liblockdep",
++		.version = LIBLOCKDEP_VERSION,
++	};
++
++	return &n;
++}
++
+ #include "../../../kernel/locking/lockdep.c"
+--- a/tools/lib/lockdep/uinclude/linux/lockdep.h
++++ b/tools/lib/lockdep/uinclude/linux/lockdep.h
+@@ -44,16 +44,6 @@ static inline int debug_locks_off(void)
+ #define atomic_t unsigned long
+ #define atomic_inc(x) ((*(x))++)
+ 
+-static struct new_utsname *init_utsname(void)
+-{
+-	static struct new_utsname n = (struct new_utsname) {
+-		.release = "liblockdep",
+-		.version = LIBLOCKDEP_VERSION,
+-	};
+-
+-	return &n;
+-}
+-
+ #define print_tainted() ""
+ #define static_obj(x) 1
+ 

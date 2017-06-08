@@ -1,0 +1,73 @@
+From: Linn Crosetto <linn@hpe.com>
+Date: Fri, 4 Mar 2016 16:08:24 -0700
+Subject: [16/18] acpi: Disable ACPI table override if securelevel is set
+Origin: https://github.com/mjg59/linux/commit/a4a5ed2835e8ea042868b7401dced3f517cafa76
+
+From the kernel documentation (initrd_table_override.txt):
+
+  If the ACPI_INITRD_TABLE_OVERRIDE compile option is true, it is possible
+  to override nearly any ACPI table provided by the BIOS with an
+  instrumented, modified one.
+
+When securelevel is set, the kernel should disallow any unauthenticated
+changes to kernel space. ACPI tables contain code invoked by the kernel, so
+do not allow ACPI tables to be overridden if securelevel is set.
+
+Signed-off-by: Linn Crosetto <linn@hpe.com>
+[bwh: Forward-ported to 4.7: ACPI override code moved to drivers/acpi/tables.c]
+---
+ arch/x86/kernel/setup.c | 12 ++++++------
+ drivers/acpi/tables.c   |  6 ++++++
+ 2 files changed, 12 insertions(+), 6 deletions(-)
+
+--- a/arch/x86/kernel/setup.c
++++ b/arch/x86/kernel/setup.c
+@@ -1155,6 +1155,12 @@ void __init setup_arch(char **cmdline_p)
+ 	/* Allocate bigger log buffer */
+ 	setup_log_buf(1);
+ 
++#ifdef CONFIG_EFI_SECURE_BOOT_SECURELEVEL
++	if (boot_params.secure_boot) {
++		set_securelevel(1);
++	}
++#endif
++
+ 	reserve_initrd();
+ 
+ 	acpi_table_upgrade();
+@@ -1163,12 +1169,6 @@ void __init setup_arch(char **cmdline_p)
+ 
+ 	io_delay_init();
+ 
+-#ifdef CONFIG_EFI_SECURE_BOOT_SECURELEVEL
+-	if (boot_params.secure_boot) {
+-		set_securelevel(1);
+-	}
+-#endif
+-
+ 	/*
+ 	 * Parse the ACPI tables for possible boot-time SMP configuration.
+ 	 */
+--- a/drivers/acpi/tables.c
++++ b/drivers/acpi/tables.c
+@@ -36,6 +36,7 @@
+ #include <linux/memblock.h>
+ #include <linux/initrd.h>
+ #include <linux/acpi.h>
++#include <linux/security.h>
+ #include "internal.h"
+ 
+ #ifdef CONFIG_ACPI_CUSTOM_DSDT
+@@ -543,6 +544,12 @@ void __init acpi_table_upgrade(void)
+ 	if (table_nr == 0)
+ 		return;
+ 
++	if (get_securelevel() > 0) {
++		pr_notice(PREFIX
++			"securelevel enabled, ignoring table override\n");
++		return;
++	}
++
+ 	acpi_tables_addr =
+ 		memblock_find_in_range(0, ACPI_TABLE_UPGRADE_MAX_PHYS,
+ 				       all_tables_size, PAGE_SIZE);

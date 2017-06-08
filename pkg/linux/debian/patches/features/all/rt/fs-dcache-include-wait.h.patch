@@ -1,0 +1,24 @@
+From: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+Date: Wed, 14 Sep 2016 11:55:23 +0200
+Subject: fs/dcache: include wait.h
+Origin: https://www.kernel.org/pub/linux/kernel/projects/rt/4.8/older/patches-4.8.15-rt10.tar.xz
+
+Since commit d9171b934526 ("parallel lookups machinery, part 4 (and
+last)") dcache.h is using but does not include wait.h. It works as long
+as it is included somehow earlier and fails otherwise.
+
+Signed-off-by: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
+---
+ include/linux/dcache.h |    1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/include/linux/dcache.h
++++ b/include/linux/dcache.h
+@@ -11,6 +11,7 @@
+ #include <linux/rcupdate.h>
+ #include <linux/lockref.h>
+ #include <linux/stringhash.h>
++#include <linux/wait.h>
+ 
+ struct path;
+ struct vfsmount;

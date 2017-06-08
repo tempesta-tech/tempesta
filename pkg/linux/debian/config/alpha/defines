@@ -1,0 +1,20 @@
+[base]
+flavours: alpha-generic alpha-smp
+kernel-arch: alpha
+
+[build]
+image-file: arch/alpha/boot/vmlinux.gz
+# linux-signed only works for architectures in the main archive
+signed-modules: false
+
+[image]
+suggests: aboot, fdutils
+install-stem: vmlinuz
+
+[alpha-generic_description]
+hardware: Alpha
+hardware-long: DEC Alpha systems with extended kernel start address (Wildfire, Titan, Marvel)
+
+[alpha-smp_description]
+hardware: Alpha SMP
+hardware-long: DEC Alpha SMP systems with extended kernel start address (Wildfire, Titan, Marvel)
