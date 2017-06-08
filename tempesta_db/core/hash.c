@@ -35,3 +35,4 @@ tdb_hash_calc(const char *data, size_t len)
 
 	return (crc1 << 32) | crc0;
 }
+EXPORT_SYMBOL(tdb_hash_calc);
