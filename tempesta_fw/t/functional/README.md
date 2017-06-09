@@ -123,7 +123,8 @@ $ ./run_tests.py -h
 `workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
 host. R/W access is required, must be absolute path.
 
-`ab`, `siege` and `wrk` - absolute path to corresponding binaries.
+`ab`, `siege` and `wrk` - path to corresponding binaries. The binaries must
+be located in PATH or absolute pathes must be provided.
 
 #### Tempesta Section
 
@@ -146,7 +147,8 @@ Options listed in [Tempesta Section](#tempesta-section): `ip`, `hostname`,
 `workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
 host. R/W access is required, must be absolute path.
 
-`nginx` - absolute path to corresponding binary.
+`nginx` - path to corresponding binary. The binary must be located in PATH
+or absolute path must be provided.
 
 `resourses` - absolute path to directory with sample web pages. Must be
 reachable by `nginx`.
