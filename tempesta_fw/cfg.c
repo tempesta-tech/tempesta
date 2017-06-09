@@ -748,9 +748,9 @@ spec_start_handling(TfwCfgSpec specs[])
 		BUG_ON(!*spec->name);
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
-		BUG_ON(spec->call_counter < 0);
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
+		spec->__called_now = false;
 	}
 }
 
@@ -759,7 +759,7 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
 
-	if (!spec->allow_repeat && spec->call_counter) {
+	if (!spec->allow_repeat && spec->__called_now) {
 		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
 			   " allowed.\n", parsed_entry->name);
 		return -EINVAL;
@@ -767,7 +767,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 
 	TFW_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
-	++spec->call_counter;
+	spec->__called_now = true;
+	spec->__called_ever = true;
 	if (r)
 		TFW_DBG("configuration handler returned error: %d\n", r);
 
@@ -838,7 +839,7 @@ spec_finish_handling(TfwCfgSpec specs[])
 	 *     default value is provided, so issue an error.
 	 */
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter)
+		if (spec->__called_now)
 			continue;
 		if (spec->handler == tfw_cfg_handle_children) {
 			if (!spec->allow_none)
@@ -871,11 +872,11 @@ spec_cleanup(TfwCfgSpec specs[])
 	TfwCfgSpec *spec;
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter && spec->cleanup) {
+		if (spec->__called_ever && spec->cleanup) {
 			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
 			spec->cleanup(spec);
 		}
-		spec->call_counter = 0;
+		spec->__called_ever = false;
 	}
 }
 
@@ -1101,16 +1102,6 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!nested_specs);
 	BUG_ON(!cs->cleanup);
 
-	/*
-	 * If spec is repeateble, it must have non-generic cleanup function.
-	 * In other way parsing non-repeatable nested specs will fail.
-	 */
-	if (cs->allow_repeat && (cs->cleanup != &tfw_cfg_cleanup_children)) {
-		TfwCfgSpec *spec;
-		TFW_CFG_FOR_EACH_SPEC(spec, nested_specs)
-			spec->call_counter = 0;
-	}
-
 	if (!e->have_children) {
 		TFW_ERR_NL("the entry has no nested children entries\n");
 		return -EINVAL;
@@ -1241,8 +1232,8 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	TfwCfgSpecInt *cse;
 
 	BUG_ON(!cs->dest);
-	r = tfw_cfg_check_single_val(e);
-	if (r)
+
+	if ((r = tfw_cfg_check_single_val(e)))
 		goto err;
 
 	/* First, try to substitute an enum keyword with an integer value. */
@@ -1283,7 +1274,7 @@ tfw_cfg_cleanup_str(TfwCfgSpec *cs)
 	char **strp = cs->dest;
 	char *str = *strp;
 
-	/* The function shall only be called when some memory was allocated. */
+	/* The function may only be called when memory was allocated. */
 	BUG_ON(!str);
 	kfree(str);
 	*strp = NULL;
@@ -1309,7 +1300,7 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(!cs);
 	BUG_ON(!cs->dest);
-	BUG_ON(cs->call_counter);
+	BUG_ON(cs->__called_now);
 	BUG_ON(cs->cleanup);
 
 	r = tfw_cfg_check_single_val(e);
@@ -1517,6 +1508,7 @@ tfw_cfg_start(struct list_head *mod_list)
 	ret = tfw_cfg_parse(cfg_text_buf, mod_list);
 
 	vfree(cfg_text_buf);
+
 	return ret;
 }
 

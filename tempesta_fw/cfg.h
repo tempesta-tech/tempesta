@@ -32,14 +32,14 @@
 #define TFW_CFG_PATH "/etc/tempesta/tempesta_fw.conf"
 
 /*
- * For simplicity, we store attributes and values as a static array,
- * so at this point we can't handle arbitrary many values like this:
+ * For simplicity, attributes and values are stored in a static array.
+ * At this point we can't handle unlimited number of values like this:
  *   listen :8081 :8082 :8083 :8084 :8085 :8086 :8087 :8088 :8089 8090;
  *
- * Currently we have the maximum of 16 values and 16 attributes per entry.
+ * Currently there's the maximum of 16 values and 16 attributes per entry.
  *
- * Also, such long lists of values looks ugly, so you almost always want to
- * transform the example above to something like this:
+ * Also, long lists of values looks ugly, so almost always you would want
+ * to transform the example above to something like this:
  *   listen 8081;
  *   listen 8082;
  *   listen 8083;
@@ -56,8 +56,8 @@
  *         listen 10.0.0.1:80 192.168.0.1:80 :8080 proto=http;
  *         listen :443 [::0]:443 proto=https;
  *     }
- * This is not a real configuration, but it is synthetically valid, and if you
- * parse it, the parser will produce the following three entries:
+ * This is not a real configuration, but it is synthetically correct.
+ * If it's parsed, the parser would produce the following three entries:
  *  1. TfwCfgEntry {
  *         .name = "server",
  *         .val_n = 1,
@@ -81,18 +81,18 @@
  *         .have_children = false
  *     }
  *
- * Both sections and directives are expressed by the TfwCfgEntry structure.
- * The difference is only in the @have_children flag which is true for sections.
- * @dflt_value is set to true when a default value is submitted for parsing.
+ * Both sections and directives are expressed by TfwCfgEntry{} structure.
+ * The difference is in @have_children flag which is true for sections.
  *
- * Generally this is a temporary structure that lives only during the parsing
- * and acts as an interface between the parser FSM and TfwCfgSpec->handler.
- * The parser accumulates data in the TfwCfgEntry, and when the current entry is
- * finished, the parser executes the handler and then destroys the structure.
+ * This is a temporary structure that lives only during the parsing and
+ * acts as an interface between the parser FSM and TfwCfgSpec{}->handler.
+ * The parser accumulates data in a TfwCfgEntry{} instance. When the
+ * current entry is complete, the parser executes the handler and then
+ * destroys the instance.
  *
- * @line_no	- Current line number, used to show propper config parsing error
- *		  to user.
- * @line	- Pointer to start of the current line, for same purpose.
+ * These two members help to show a proper parsing error to a user:
+ * @line_no	- Current line number in the configuration file.
+ * @line	- Pointer to the start of the current line.
  */
 typedef struct {
 	struct {
@@ -133,67 +133,94 @@ typedef struct {
 	     (v) = (e)->vals[++(idx)])
 
 /**
- * TfwCfgSpec is a single instruction for the configuration parser.
- * It specifies a @handler which is executed when the parser mets an entry with
- * the given @name.
+ * TfwCfgSpec{} is a single instruction for the configuration parser.
+ * It specifies a @handler which is executed when the parser meets
+ * an entry with given @name.
  *
- * @name is the key for matching with TfwCfgEntry->name. Usually you provide an
- * array of TfwCfgSpec structures to the parser, and it searches for a matching
- * one for every parsed configuration entry.
+ * @name is the name of a configuration directive. It is the key for
+ * matching with TfwCfgEntry{}->name that is constructed from a string
+ * in the configuration file. Typically, an array of TfwCfgSpec{}
+ * structures is provided to the parser, and the parser searches for
+ * a matching specification for every parsed configuration directive.
  *
- * @deflt is a default value which is used when the configuration file contains
- * no matching entries. In this case the field is parsed into a fake TfwCfgEntry
- * object and pushed to the @handler in the same way as if it was a part of a
- * real configuration file. That is awkward for simple data types like integers
- * or booleans, but beneficial for complex ones like IP addresses and strings
- * where handler functions allocate memory.
+ * @deflt is a default value which is used when the configuration file
+ * contains no matching directives. In that case the field is parsed
+ * into a fake TfwCfgEntry{} object and pushed to @handler in the same
+ * way as if it were a part of a real configuration file. That's awkward
+ * for simple data types like integers or booleans, but beneficial for
+ * complex values like IP addresses and strings where handler functions
+ * allocate memory.
  *
  * @handler is a callback function which is responsible for:
  *  1. Serializing strings into native data types.
- *     We don't make the parser bloated by handling all sorts of data types in
- *     there. Instead, we do only basic syntax parsing and leave rest of the job
- *     to the @handler. You choose an appropriate handler function that converts
- *     string to a desired type (int, bool, TfwAddr, etc); or you can implement
- *     your own handler without augmenting the parser, so this is flexible.
+ *     The parser is not bloated by handling all sorts of data types.
+ *     Instead, it does only basic syntax parsing and leaves the rest
+ *     to @handler. You may choose an appropriate handler function that
+ *     converts a string to a desired type (int, bool, TfwAddr, etc).
+ *     Alternatively, you may implement your own handler function
+ *     without augmenting the parser, so this is flexible.
  *  2. Copying strings from TfwCfgEntry to some storage.
- *     The TfwCfgEntry is destroyed after the @handler returns, so you can't
- *     save pointers and you have to copy strings located in there. Usually you
- *     don't want strings, or you prefer to store them in a more efficient way,
- *     so we don't complicate things here with reference counters.
+ *     The TfwCfgEntry{} instance is destroyed after @handler returns.
+ *     You can't just save pointers, you need to copy strings located
+ *     in the entry. Usually these strings are not needed after they
+ *     are parsed, or you can store them in a more efficient way.
+ *     That's an easy and simple alternative to reference counters.
  *
- * @dest and @spec_ext are "arguments" used by the @handler.
- * Each handler function has its own types of these arguments.
- * Usually @dest is a destination object which is modified by the @handler,
- * and @spec_ext is a spec extension like TfwCfgSpecInt that contains some
- * constraints like minimum/maximum values,
- * WARNING: no type checking. You have to check carefully that these fields are
- * what @handler desires, or you get a memory corruption.
+ * @dest and @spec_ext are "arguments" used by @handler. Each handler
+ * function has its own types of these arguments. Typically, @dest is
+ * a destination object which is modified by @handler, and @spec_ext
+ * is a spec extension like TfwCfgSpecInt, TfwCfgSpecStr, etc. that
+ * describes some constraints like minimum/maximum values.
+ * BEWARE: there's no type checking. You need to check carefully that
+ * these fields are what @handler expects, or you get a memory corruption.
  *
- * @call_counter is how many times the @handler was invoked during the parsing
- * process. It is used by the parser to determine whether it needs to process
- * the @deflt field. The counter is reset when configuration is re-loaded.
+ * @cleanup is another callback the purpose of which is to free memory
+ * allocated by @handler. It is called when the configuration is unloaded
+ * (the system is stopped, or an error occured). The callback is invoked
+ * when @handler was called at least once regardless of the handler's
+ * return value.
  *
- * @cleanup is another callback which is supposed to free memory allocated
- * by the @handler. It is called when the configuration is un-loaded (either the
- * system is stopped, or new configuration is available, or an error occurred).
- * The @cleanup callback is invoked when @handler was called at least once
- * regardless of the handler's return value.
+ * @allow_repeat allows to set a restriction on the number of times
+ * a directive @name can be seen in the configuration files. If it's
+ * set to 'true', then the directive can be specified multiple times.
+ * Otherwise, it can be specified just once. Note that the scope of
+ * the restriction is the current set of TfwCfgSpec{} definitions.
+ * That's either a nested set of definitions, a top-level set of
+ * definitions.
  *
- * Configuration specification may have nested entries. In that case @handler
- * must be filled with pointer to function @tfw_cfg_handle_children(),
- * @dest - null-terminated array of nested specifications, @spec_ext -
- * poitner to instance of @TfwCfgSpecChild struct. @cleanup function cleaning
- * specification and all the nested entries is a mandatory in this case.
- * Generic @tfw_cfg_cleanup_children() function calls @cleanup functions for all
- * the nested entries and may be used here. Or user-defined function may be
- * provided, if so it takes responsibility to clean up all the nested entries.
+ * @allow_none allows to request a mandatory presence of a directive.
+ * If it's set to 'false', then the presence of a directive is mandatory.
+ * This is the default behavior. Otherwise, a directive can be omitted
+ * in the configuration. Again, the scope of the restriction is the
+ * current set of TfwCfgSpec{} definitions.
  *
- * Note: There is special case of repeatable specifications containing
- * non-repeatable nested entries. Such entries need @call_counter values
- * of non-repeatable child entries to be reset before using specs in the
- * configuration parser. That breaks generic @cleanup approach based on
- * @call_counter values, so reset will take place only if user-defined cleanup
- * function is provided.
+ * @__called_now is an internal field. It's set when @handler is invoked
+ * during parsing process that is controlled by current set (array) of
+ * TfwCfgSpec{} entries. It's used by the parser to determine whether
+ * it needs to process the @deflt field. Also, it's used by the parser
+ * to handle restrictions set by @allow_repeat and @allow_none members.
+ * @__called_now field is reset when the control of parsing is switched
+ * to a nested set of TfwCfgSpec{} entries. Typically, a nested set of
+ * TfwCfgSpec{} entries represents a grouping of some sort, and these
+ * groups may be repeated multiple times in the configuration file.
+ * @__called_now is reset each time that group is parsed.
+ *
+ * @__called_ever is also an internal field. It's also set when @handler
+ * is invoked during parsing process. However, it's never reset until
+ * the system is completely stopped. It's used to determine whether it's
+ * needed to invoke @cleanup callback.
+ *
+ * It's been mentioned that a configuration specification may have nested
+ * sets of entries (children). In that case @handler must be set to point
+ * to @tfw_cfg_handle_children() function, @dest - to a null-terminated
+ * array of nested specs, and @spec_ext must point to an instance of
+ * TfwCfgSpecChild{} struct. @cleanup function that cleans up the results
+ * of parsing of a specific parent specification and its nested entries
+ * is mandatory in this case. Generic @tfw_cfg_cleanup_children() function
+ * calls @cleanup functions for all nested entries and may be used here.
+ * Otherwise, a user-defined function may be provided. In that case it
+ * takes responsibility for cleaning up of all nested entries and the
+ * parent entry.
  */
 typedef struct TfwCfgSpec TfwCfgSpec;
 struct TfwCfgSpec {
@@ -201,11 +228,12 @@ struct TfwCfgSpec {
 	const char *deflt;
 	int (*handler)(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 	void *dest;
-	void *spec_ext;			/* TfwCfgSpecInt, TfwCfgSpecStr, etc. */
-	int call_counter;		/* Incremented after @handler call. */
+	void *spec_ext;
 	struct {
-		bool allow_repeat:1;	/* allow @call_counter > 1 */
-		bool allow_none:1;	/* allow @call_counter == 0 */
+		bool allow_repeat:1;
+		bool allow_none:1;
+		bool __called_now:1;
+		bool __called_ever:1;
 	};
 	void (*cleanup)(TfwCfgSpec *self);
 };
@@ -254,8 +282,8 @@ typedef struct {
 /**
  * TfwCfgSpec->spec_ext for tfw_cfg_handle_children().
  *
- * The @begin_hook is called before any children is parsed,
- * and the @finish_hook is called after all children entries are parsed.
+ * The @begin_hook is called before any children are parsed.
+ * The @finish_hook is called after all children entries are parsed.
  */
 typedef struct {
 	int (*begin_hook)(TfwCfgSpec *self, TfwCfgEntry *parent_entry);
