@@ -12,7 +12,13 @@ __license__ = 'GPL2'
 
 class TestFrameworkCfg(object):
 
-    def __init__(self, cfg_file):
+    cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                        '/../tests_config.ini'])
+
+    def __init__(self, file=None):
+        cfg_file = self.cfg_file
+        if file:
+            cfg_file = file
         self.defaults()
         self.file_err = True
         if os.path.isfile(cfg_file):
@@ -66,20 +72,24 @@ class TestFrameworkCfg(object):
 
     def save_defaults(self):
         self.defaults()
-        with open('tests_config.ini', 'w') as configfile:
+        with open(self.cfg_file, 'w') as configfile:
             self.config.write(configfile)
+        print('Default configuration saved to %s' % self.cfg_file)
+
+    def error(self, reason):
+        print('Tests configuration error! %s Exiting.' % reason)
+        sys.exit(1)
 
     def check(self):
         if self.file_err:
-            return False, 'Configuration file "tests_config.ini" not found.'
+            self.error('Configuration file "tests_config.ini" not found.')
         #TODO: check configuration options
         for host in ['Client', 'Tempesta', 'Server']:
             if not self.config[host]['workdir'].endswith('/'):
                 self.config[host]['workdir'] += '/'
 
         if self.config['Client']['hostname'] != 'localhost':
-            return False, "Running clients on remote host is not supported yet."
-        return True, ''
+            self.error('Running clients on remote host is not supported yet.')
 
 def debug():
     return int(cfg.get('General', 'Verbose')) >= 3
@@ -91,11 +101,8 @@ def dbg(level, *args, **kwargs):
     if int(cfg.get('General', 'Verbose')) >= level:
         print(*args, **kwargs)
 
-CFG_FILE = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                    '/../tests_config.ini'])
-cfg = TestFrameworkCfg(CFG_FILE)
 
-r, reason = cfg.check()
-if not r:
-    print("Error:", reason)
-    sys.exit(1)
+skip_check = False
+cfg = TestFrameworkCfg()
+if not skip_check:
+    cfg.check()
