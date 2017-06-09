@@ -63,10 +63,10 @@
 /**
  * @list	- member in the list of modules;
  * @name	- module name, [A-Za-z0-9_], starts with a letter;
- * @start	- called to start a module after all configuration is parsed;
- * @stop	- called to stop module when Tempesta is stopped;
- * @specs	- array of configuration directives specifications for a module,
- *		  terminated by a null element;
+ * @start	- called to start a module after configuration is parsed;
+ * @stop	- called to stop a module when Tempesta is stopped;
+ * @specs	- array of configuration directives specifications
+ *		  for a module, terminated by a null element;
  */
 typedef struct {
 	struct list_head	list;
