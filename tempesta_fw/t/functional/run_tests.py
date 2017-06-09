@@ -1,6 +1,11 @@
 #!/usr/bin/env python2
 
 import unittest, getopt, sys
+
+# Disable configuration check for now and call it explicitly later
+from helpers.tf_cfg import skip_check
+skip_check = True
+
 from helpers import tf_cfg
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -58,10 +63,7 @@ for opt, arg in options:
         usage()
         sys.exit(0)
 
-r, reason = tf_cfg.cfg.check()
-if not r:
-    print(reason)
-    sys.exit(1)
+tf_cfg.cfg.check()
 
 # Verbose level for unit tests must be > 1.
 v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1
@@ -78,7 +80,7 @@ Running functional tests...
 #run tests
 loader = unittest.TestLoader()
 tests = loader.discover('.')
-testRunner = unittest.runner.TextTestRunner(verbosity = v_level,
-                                            failfast = fail_fast,
-                                            descriptions = False)
+testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
+                                            failfast=fail_fast,
+                                            descriptions=False)
 testRunner.run(tests)
