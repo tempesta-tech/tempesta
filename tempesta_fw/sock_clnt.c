@@ -501,7 +501,7 @@ tfw_sock_check_listeners(void)
  */
 
 static int
-tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	int port;
@@ -559,7 +559,7 @@ parse_err:
 }
 
 static int
-tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
@@ -586,32 +586,34 @@ tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
 	tfw_listen_sock_del_all();
 }
+
+static TfwCfgSpec tfw_sock_clnt_specs[] = {
+	{
+		.name = "listen",
+		.deflt = "80",
+		.handler = tfw_cfgop_listen,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = true,
+	},
+	{
+		.name = "keepalive_timeout",
+		.deflt = "75",
+		.handler = tfw_cfgop_keepalive_timeout,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = false,
+	},
+	{ 0 }
+};
 
 TfwMod tfw_sock_clnt_mod  = {
 	.name	= "sock_clnt",
 	.start	= tfw_sock_clnt_start,
 	.stop	= tfw_sock_clnt_stop,
-	.specs	= (TfwCfgSpec[]) {
-		{
-			"listen",
-			"80",
-			tfw_sock_clnt_cfg_handle_listen,
-			.allow_repeat = true,
-			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
-		},
-		{
-			"keepalive_timeout",
-			"75",
-			tfw_sock_clnt_cfg_handle_keepalive,
-			.allow_repeat = false,
-			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
-		},
-		{ 0 }
-	}
+	.specs	= tfw_sock_clnt_specs,
 };
 
 /*

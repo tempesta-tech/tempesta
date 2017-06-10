@@ -80,7 +80,7 @@ typedef struct {
 } SessHashBucket;
 
 static TfwCfgSticky tfw_cfg_sticky;
-/* Secret server value to genrate reliable client identifiers. */
+/* Secret server value to generate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
 
@@ -705,7 +705,7 @@ done:
 }
 
 static int
-tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i, len;
 	const char *val;
@@ -730,7 +730,7 @@ tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	unsigned int len = (unsigned int)strlen(ce->vals[0]);
@@ -750,19 +750,18 @@ tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
-	if (r) {
-		crypto_free_shash(tfw_sticky_shash);
+	if (r)
 		return r;
-	}
+
 	return 0;
 }
 
 static int
-tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	cs->dest = &tfw_cfg_sticky.sess_lifetime;
 
+	cs->dest = &tfw_cfg_sticky.sess_lifetime;
 	r = tfw_cfg_set_int(cs, ce);
 	/*
 	 * "sess_lifetime 0;" means unlimited session lifetime,
@@ -775,7 +774,7 @@ tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfg_sess_start(void)
+tfw_http_sess_start(void)
 {
 	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
 
@@ -783,39 +782,41 @@ tfw_cfg_sess_start(void)
 }
 
 static void
-tfw_cfg_sess_stop(void)
+tfw_http_sess_stop(void)
 {
 	tfw_cfg_sticky.enabled = 0;
 }
 
+static TfwCfgSpec tfw_http_sess_specs[] = {
+	{
+		.name = "sticky",
+		.handler = tfw_cfgop_sticky,
+		.allow_none = true,
+	},
+	{
+		.name = "sticky_secret",
+		.deflt = "\"\"",
+		.handler = tfw_cfgop_sticky_secret,
+		.allow_none = true,
+	},
+	{
+		/* Value is parsed as int, set max to INT_MAX*/
+		.name = "sess_lifetime",
+		.deflt = "0",
+		.handler = tfw_cfgop_sess_lifetime,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+	},
+	{ 0 }
+};
+
 TfwMod tfw_http_sess_mod = {
 	.name	= "http_sess",
-	.start	= tfw_cfg_sess_start,
-	.stop	= tfw_cfg_sess_stop,
-	.specs	= (TfwCfgSpec[]) {
-		{
-			.name = "sticky",
-			.handler = tfw_http_sticky_cfg,
-			.allow_none = true,
-		},
-		{
-			.name = "sticky_secret",
-			.deflt = "\"\"",
-			.handler = tfw_http_sticky_secret_cfg,
-			.allow_none = true,
-		},
-		{
-			/* Value is parsed as int, set max to INT_MAX*/
-			.name = "sess_lifetime",
-			.deflt = "0",
-			.handler = tfw_http_sticky_sess_lifetime_cfg,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-			.allow_none = true,
-		},
-		{ 0 }
-	}
+	.start	= tfw_http_sess_start,
+	.stop	= tfw_http_sess_stop,
+	.specs	= tfw_http_sess_specs,
 };
 
 int __init

@@ -895,7 +895,7 @@ static const TfwCfgEnum frang_http_methods_enum[] = {
 };
 
 static int
-frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
+frang_cfgop_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r, method_id;
 	const char *method_str;
@@ -923,13 +923,13 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-frang_clear_methods_mask(TfwCfgSpec *cs)
+frang_cfgop_cleanup_http_methods(TfwCfgSpec *cs)
 {
 	frang_cfg.http_methods_mask = 0;
 }
 
 static int
-frang_set_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
+frang_cfgop_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	void *mem;
 	const char *in_str;
@@ -986,7 +986,7 @@ frang_set_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-frang_free_ct_vals(TfwCfgSpec *cs)
+frang_cfgop_cleanup_http_ct_vals(TfwCfgSpec *cs)
 {
 	kfree(frang_cfg.http_ct_vals);
 	frang_cfg.http_ct_vals = NULL;
@@ -1003,107 +1003,125 @@ frang_start(void)
 	return 0;
 }
 
-static TfwCfgSpec frang_specs_section[] = {
+static TfwCfgSpec frang_limits_specs[] = {
 	{
-		"ip_block", "off",
-		tfw_cfg_set_bool,
-		&frang_cfg.ip_block,
+		.name = "ip_block",
+		.deflt = "off",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.ip_block,
 	},
 	{
-		"request_rate", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.req_rate,
+		.name = "request_rate",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.req_rate,
 	},
 	{
-		"request_burst", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.req_burst,
+		.name = "request_burst",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.req_burst,
 	},
 	{
-		"connection_rate", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_rate,
+		.name = "connection_rate",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_rate,
 	},
 	{
-		"connection_burst", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_burst,
+		.name = "connection_burst",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_burst,
 	},
 	{
-		"concurrent_connections", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_max,
+		.name = "concurrent_connections",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_max,
 	},
 	{
-		"client_header_timeout", "0",
-		tfw_cfg_set_int,
-		(unsigned int *)&frang_cfg.clnt_hdr_timeout,
+		.name = "client_header_timeout",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = (unsigned int *)&frang_cfg.clnt_hdr_timeout,
 	},
 	{
-		"client_body_timeout", "0",
-		tfw_cfg_set_int,
-		(unsigned int *)&frang_cfg.clnt_body_timeout,
+		.name = "client_body_timeout",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = (unsigned int *)&frang_cfg.clnt_body_timeout,
 	},
 	{
-		"http_uri_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_uri_len,
+		.name = "http_uri_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_uri_len,
 	},
 	{
-		"http_field_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_field_len,
+		.name = "http_field_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_field_len,
 	},
 	{
-		"http_body_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_body_len,
+		.name = "http_body_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_body_len,
 	},
 	{
-		"http_header_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_hdr_cnt,
+		.name = "http_header_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_hdr_cnt,
 	},
 	{
-		"http_header_chunk_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_hchunk_cnt,
+		.name = "http_header_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_hchunk_cnt,
 	},
 	{
-		"http_body_chunk_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_bchunk_cnt,
+		.name = "http_body_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_bchunk_cnt,
 	},
 	{
-		"http_host_required", "true",
-		tfw_cfg_set_bool,
-		&frang_cfg.http_host_required,
+		.name = "http_host_required",
+		.deflt = "true",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.http_host_required,
 	},
 	{
-		"http_ct_required", "false",
-		tfw_cfg_set_bool,
-		&frang_cfg.http_ct_required,
+		.name = "http_ct_required",
+		.deflt = "false",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.http_ct_required,
 	},
 	{
-		"http_methods", "",
-		frang_set_methods_mask,
-		.cleanup = frang_clear_methods_mask,
+		.name = "http_methods",
+		.deflt = "",
+		.handler = frang_cfgop_http_methods,
+		.cleanup = frang_cfgop_cleanup_http_methods,
 	},
 	{
-		"http_ct_vals", NULL,
-		frang_set_ct_vals,
+		.name = "http_ct_vals",
+		.deflt = NULL,
+		.handler = frang_cfgop_http_ct_vals,
 		.allow_none = 1,
-		.cleanup = frang_free_ct_vals,
+		.cleanup = frang_cfgop_cleanup_http_ct_vals,
 	},
 	{ 0 }
 };
 
-static TfwCfgSpec frang_specs_toplevel[] = {
+static TfwCfgSpec frang_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_specs_section,
-		.cleanup = tfw_cfg_cleanup_children
+		.cleanup = tfw_cfg_cleanup_children,
+		.dest = frang_limits_specs,
 	},
 	{ 0 }
 };
@@ -1111,7 +1129,7 @@ static TfwCfgSpec frang_specs_toplevel[] = {
 static TfwMod frang_mod = {
 	.name	= "frang",
 	.start	= frang_start,
-	.specs	= frang_specs_toplevel
+	.specs	= frang_specs,
 };
 
 static int __init

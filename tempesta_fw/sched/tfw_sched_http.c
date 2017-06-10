@@ -184,7 +184,7 @@ tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
  * Allocate the tfw_sched_http_rules list. All nested rules are added to the list.
  */
 static int
-tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sched_http_rules_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TFW_DBG("sched_http: begin sched_http_rules\n");
 
@@ -197,7 +197,7 @@ tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_sched_http_cfg_finish_rules(TfwCfgSpec *cs)
+tfw_cfgop_sched_http_rules_finish(TfwCfgSpec *cs)
 {
 	TFW_DBG("sched_http: finish sched_http_rules\n");
 	BUG_ON(!tfw_sched_http_rules);
@@ -229,7 +229,7 @@ tfw_sched_http_cfg_finish_rules(TfwCfgSpec *cs)
  *
  */
 static int
-tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
+tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
 	size_t arg_size;
@@ -326,7 +326,7 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
  * Delete all rules parsed out of the "sched_http_rules" section.
  */
 static void
-tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_rules(TfwCfgSpec *cs)
 {
 	tfw_http_match_list_free(tfw_sched_http_rules);
 	tfw_sched_http_rules = NULL;
@@ -334,6 +334,7 @@ tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
 
 /* Forward declaration */
 static TfwMod tfw_sched_http_mod;
+static TfwCfgSpec tfw_sched_http_rules_specs[];
 
 static int
 tfw_sched_http_start(void)
@@ -391,39 +392,37 @@ tfw_sched_http_start(void)
 	return 0;
 }
 
-static void
-tfw_sched_http_stop(void)
-{
-}
-
-static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
+static TfwCfgSpec tfw_sched_http_rules_specs[] = {
 	{
-		"match", NULL,
-		tfw_sched_http_cfg_handle_match,
+		.name = "match",
+		.deflt = NULL,
+		.handler = tfw_cfgop_match,
+		.cleanup = tfw_cfgop_cleanup_rules,
 		.allow_repeat = true,
-		.cleanup = tfw_sched_http_cfg_clean_rules,
 	},
 	{}
+};
+
+static TfwCfgSpec tfw_sched_http_specs[] = {
+	{
+		.name = "sched_http_rules",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfg_cleanup_children,
+		.dest = tfw_sched_http_rules_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_sched_http_rules_begin,
+			.finish_hook = tfw_cfgop_sched_http_rules_finish
+		},
+		.allow_none = true,
+	},
+	{ 0 }
 };
 
 static TfwMod tfw_sched_http_mod = {
 	.name	= "tfw_sched_http",
 	.start	= tfw_sched_http_start,
-	.stop	= tfw_sched_http_stop,
-	.specs	= (TfwCfgSpec[]) {
-		{
-			"sched_http_rules", NULL,
-			tfw_cfg_handle_children,
-			tfw_sched_http_rules_section_specs,
-			&(TfwCfgSpecChild) {
-				.begin_hook = tfw_sched_http_cfg_begin_rules,
-				.finish_hook = tfw_sched_http_cfg_finish_rules
-			},
-			.allow_none = true,
-			.cleanup = tfw_cfg_cleanup_children
-		},
-		{ 0 }
-	}
+	.specs	= tfw_sched_http_specs,
 };
 
 /*
