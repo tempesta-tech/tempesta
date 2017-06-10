@@ -64,6 +64,22 @@ error()
 # Tempesta requires kernel module loading, so we need root credentials.
 [ `id -u` -ne 0 ] && error "Please, run the script as root"
 
+load_one_module()
+{
+	if [ -z "$1" ]; then
+		echo "$0: Empty argument";
+		exit 255;
+	fi
+
+	MOD_PATH_NAME="$1"; shift;
+	MOD_NAME="$(basename ${MOD_PATH_NAME%%.*})";
+
+	lsmod | grep -w "${MOD_NAME}" 2>&1 > /dev/null || {
+		echo "Loading module ${MOD_NAME} $@";
+		insmod "${MOD_PATH_NAME}" "$@";
+	}
+}
+
 # The separate load_modules/unload_modules routines are used for unit testing.
 load_modules()
 {
@@ -73,24 +89,24 @@ load_modules()
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
 
-	insmod $tls_path/$tls_mod.ko
-	[ $? -ne 0 ] && error "cannot load tempesta TLS module"
+	load_one_module "$tls_path/$tls_mod.ko" ||
+		error "cannot load tempesta TLS module"
 
-	insmod $tdb_path/$tdb_mod.ko
-	[ $? -ne 0 ] && error "cannot load tempesta database module"
+	load_one_module "$tdb_path/$tdb_mod.ko" ||
+		error "cannot load tempesta database module"
 
-	insmod $tfw_path/$tfw_mod.ko tfw_cfg_path=$tfw_cfg_path
-	[ $? -ne 0 ] && error "cannot load tempesta module"
+	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_path" ||
+		error "cannot load tempesta module"
 
 	for ko_file in "${sched_ko_files[@]}"; do
-		insmod $ko_file
-		[ $? -ne 0 ] && error "cannot load tempesta scheduler module"
+		load_one_module "$ko_file" ||
+			error "cannot load tempesta scheduler module"
 	done
 
 	if [ "$frang_enable" ]; then
 		echo "Load Frang"
-		insmod $class_path/$frang_mod.ko
-		[ $? -ne 0 ] && error "cannot load $frang_mod module"
+		load_one_module "$class_path/$frang_mod.ko" ||
+			error "cannot load $frang_mod module"
 	fi
 }
 
@@ -108,10 +124,8 @@ unload_modules()
 	rmmod $tls_mod
 }
 
-start()
+setup()
 {
-	echo "Starting Tempesta..."
-
 	tfw_set_net_queues "$devs"
 
 	# Tempesta builds socket buffers by itself, don't cork TCP segments.
@@ -120,16 +134,28 @@ start()
 	sysctl -w net.core.netdev_max_backlog=10000 >/dev/null
 	sysctl -w net.core.somaxconn=131072 >/dev/null
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
+}
 
-	echo "...load Tempesta modules"
-	load_modules
+start()
+{
+	echo "Starting Tempesta..."
 
-	# Create database directory if it doesn't exist.
-	mkdir -p /opt/tempesta/db/
-	# At this time we don't have stable TDB data format, so
-	# it would be nice to clean all the tables before the start.
-	# TODO: Remove the hack when TDB is fixed.
-	rm -f /opt/tempesta/db/*.tdb
+	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
+	TFW_STATE=${TFW_STATE##* }
+
+	[[ -z ${TFW_STATE} ]] && {
+		setup;
+
+		echo "...load Tempesta modules"
+		load_modules;
+
+		# Create database directory if it doesn't exist.
+		mkdir -p /opt/tempesta/db/;
+		# At this time we don't have stable TDB data format, so
+		# it would be nice to clean all the tables before the start.
+		# TODO: Remove the hack when TDB is fixed.
+		rm -f /opt/tempesta/db/*.tdb;
+	}
 
 	echo "...start Tempesta FW"
 	sysctl -w net.tempesta.state=start >/dev/null
