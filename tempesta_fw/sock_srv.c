@@ -1277,7 +1277,7 @@ tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * Clean everything produced during parsing "server" and "srv_group" entries.
  */
 static void
-tfw_clean_srv_groups(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 {
 	TfwServer *srv, *tmp;
 	static const typeof(tfw_cfg_is_set) cfg_is_set_empty = { 0 };
@@ -1363,71 +1363,172 @@ tfw_sock_srv_stop(void)
 
 static TfwCfgSpec tfw_srv_group_specs[] = {
 	{
-		"server", NULL,
-		tfw_cfgop_in_server,
+		.name = "server",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_server,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_repeat = true,
-		.cleanup = tfw_clean_srv_groups
 	},
 	{
-		"sched", "ratio static",
-		tfw_cfgop_in_sched,
+		.name = "sched",
+		.deflt = "ratio static",
+		.handler = tfw_cfgop_in_sched,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_queue_size", "1000",
-		tfw_cfgop_in_queue_size,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
+		.name = "server_queue_size",
+		.deflt = "1000",
+		.handler = tfw_cfgop_in_queue_size,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-	},
-	{
-		"server_forward_timeout", "60",
-		tfw_cfgop_in_fwd_timeout,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		.name = "server_forward_timeout",
+		.deflt = "60",
+		.handler = tfw_cfgop_in_fwd_timeout,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-	},
-	{
-		"server_forward_retries", "5",
-		tfw_cfgop_in_fwd_retries,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		.name = "server_forward_retries",
+		.deflt = "5",
+		.handler = tfw_cfgop_in_fwd_retries,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-	},
-	{
-		"server_retry_nonidempotent", TFW_CFG_DFLT_VAL,
-		tfw_cfgop_in_retry_nip,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
 	},
 	{
-		"server_connect_retries", "10",
-		tfw_cfgop_in_conn_retries,
+		.name = "server_retry_nonidempotent",
+		.deflt = TFW_CFG_DFLT_VAL,
+		.handler = tfw_cfgop_in_retry_nip,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		.name = "server_connect_retries",
+		.deflt = "10",
+		.handler = tfw_cfgop_in_conn_retries,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-	},
-	{
-		"sticky_sessions", TFW_CFG_DFLT_VAL,
-		tfw_cfgop_in_sticky_sess,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_clean_srv_groups,
+	},
+	{
+		.name = "sticky_sessions",
+		.deflt = TFW_CFG_DFLT_VAL,
+		.handler = tfw_cfgop_in_sticky_sess,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{ 0 }
+};
+
+static TfwCfgSpec tfw_sock_srv_specs[] = {
+	{
+		.name = "server",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_server,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "sched",
+		.deflt = "ratio static",
+		.handler = tfw_cfgop_out_sched,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "server_queue_size",
+		.deflt = "1000",
+		.handler = tfw_cfgop_out_queue_size,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "server_forward_timeout",
+		.deflt = "60",
+		.handler = tfw_cfgop_out_fwd_timeout,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "server_forward_retries",
+		.deflt = "5",
+		.handler = tfw_cfgop_out_fwd_retries,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "server_retry_non_idempotent",
+		.deflt = TFW_CFG_DFLT_VAL,
+		.handler = tfw_cfgop_out_retry_nip,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "server_connect_retries",
+		.deflt = "10",
+		.handler = tfw_cfgop_out_conn_retries,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "sticky_sessions",
+		.deflt = TFW_CFG_DFLT_VAL,
+		.handler = tfw_cfgop_out_sticky_sess,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "srv_group",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.dest = tfw_srv_group_specs,
+		.spec_ext = &(TfwCfgSpecChild ) {
+			.begin_hook = tfw_cfgop_begin_srv_group,
+			.finish_hook = tfw_cfgop_finish_srv_group
+		},
+		.allow_none = true,
+		.allow_repeat = true,
 	},
 	{ 0 }
 };
@@ -1436,89 +1537,7 @@ TfwMod tfw_sock_srv_mod = {
 	.name	= "sock_srv",
 	.start	= tfw_sock_srv_start,
 	.stop	= tfw_sock_srv_stop,
-	.specs	= (TfwCfgSpec[]) {
-		{
-			"server", NULL,
-			tfw_cfgop_out_server,
-			.allow_none = true,
-			.allow_repeat = true,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{
-			"sched", "ratio static",
-			tfw_cfgop_out_sched,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{
-			"server_queue_size", "1000",
-			tfw_cfgop_out_queue_size,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-		},
-		{
-			"server_forward_timeout", "60",
-			tfw_cfgop_out_fwd_timeout,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-		},
-		{
-			"server_forward_retries", "5",
-			tfw_cfgop_out_fwd_retries,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-		},
-		{
-			"server_retry_non_idempotent", TFW_CFG_DFLT_VAL,
-			tfw_cfgop_out_retry_nip,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{
-			"server_connect_retries", "10",
-			tfw_cfgop_out_conn_retries,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-		},
-		{
-			"sticky_sessions", TFW_CFG_DFLT_VAL,
-			tfw_cfgop_out_sticky_sess,
-			.allow_none = true,
-			.allow_repeat = false,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{
-			"srv_group", NULL,
-			tfw_cfg_handle_children,
-			tfw_srv_group_specs,
-			&(TfwCfgSpecChild ) {
-				.begin_hook = tfw_cfgop_begin_srv_group,
-				.finish_hook = tfw_cfgop_finish_srv_group
-			},
-			.allow_none = true,
-			.allow_repeat = true,
-			.cleanup = tfw_clean_srv_groups,
-		},
-		{ 0 }
-	}
+	.specs	= tfw_sock_srv_specs,
 };
 
 /*

@@ -1818,7 +1818,7 @@ static const TfwCfgEnum cache_http_methods_enum[] = {
 };
 
 static int
-tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned int i, method;
 	const char *val;
@@ -1851,37 +1851,37 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 static TfwCfgSpec tfw_cache_specs[] = {
 	{
-		"cache",
-		"2",
-		tfw_cfg_set_int,
-		&cache_cfg.cache,
-		&(TfwCfgSpecInt) {
+		.name = "cache",
+		.deflt = "2",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_cfg.cache,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, 2 },
-		}
+		},
 	},
 	{
-		"cache_methods",
-		"GET",
-		tfw_cache_cfg_method,
+		.name = "cache_methods",
+		.deflt = "GET",
+		.handler = tfw_cfgop_cache_methods,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
 	{
-		"cache_size",
-		"268435456",
-		tfw_cfg_set_int,
-		&cache_cfg.db_size,
-		&(TfwCfgSpecInt) {
+		.name = "cache_size",
+		.deflt = "268435456",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.multiple_of = PAGE_SIZE,
 			.range = { PAGE_SIZE, (1 << 30) },
 		}
 	},
 	{
-		"cache_db",
-		"/opt/tempesta/db/cache.tdb",
-		tfw_cfg_set_str,
-		&cache_cfg.db_path,
-		&(TfwCfgSpecStr) {
+		.name = "cache_db",
+		.deflt = "/opt/tempesta/db/cache.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &cache_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
