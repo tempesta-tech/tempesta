@@ -1110,13 +1110,13 @@ tfw_apm_start(void)
  * and the APM timers are deleted.
  */
 static void
-tfw_apm_cfg_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_apm(TfwCfgSpec *cs)
 {
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
+	tfw_apm_jtmwindow = tfw_apm_tmwscale = 0;
 }
 
 static int
-tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r;
 	const char *key, *val;
@@ -1131,6 +1131,7 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			    cs->name);
 		return 0;
 	}
+
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "window")) {
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_jtmwindow)))
@@ -1150,11 +1151,12 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 static TfwCfgSpec tfw_apm_specs[] = {
 	{
-		"apm_stats", NULL,
-		tfw_handle_apm_stats,
+		.name = "apm_stats",
+		.deflt = NULL,
+		.handler = tfw_cfgop_apm_stats,
+		.cleanup  = tfw_cfgop_cleanup_apm,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup  = tfw_apm_cfg_cleanup,
 	},
 	{ 0 }
 };

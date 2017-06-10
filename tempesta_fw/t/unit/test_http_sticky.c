@@ -571,10 +571,10 @@ TEST_SUITE(http_sticky)
 
 	/* emulate configuration file */
 	ce_sticky.val_n = 0; /* remove "enforce" parameter */
-	tfw_http_sticky_cfg(&tfw_http_sess_mod.specs[0], &ce_sticky);
-	tfw_http_sticky_secret_cfg(&tfw_http_sess_mod.specs[1], &ce_secret);
+	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
+	tfw_cfgop_sticky_secret(&tfw_http_sess_mod.specs[1], &ce_secret);
 
-	tfw_cfg_sess_start();
+	tfw_http_sess_start();
 
 	kernel_fpu_begin();
 
@@ -590,14 +590,14 @@ TEST_SUITE(http_sticky)
 
 	/* test "enforce" mode */
 	ce_sticky.val_n = 1; /* return "enforce" parameter */
-	tfw_http_sticky_cfg(&tfw_http_sess_mod.specs[0], &ce_sticky);
+	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
 
 	TEST_RUN(http_sticky, req_no_cookie_enforce);
 	TEST_RUN(http_sticky, req_have_cookie_enforce);
 
 	kernel_fpu_end();
 
-	tfw_cfg_sess_stop();
+	tfw_http_sess_stop();
 	tfw_http_sess_exit();
 
 	kernel_fpu_begin();

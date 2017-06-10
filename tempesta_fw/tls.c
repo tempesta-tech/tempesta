@@ -438,7 +438,7 @@ tfw_tls_stop(void)
  * Handle 'ssl_certificate <path>' config entry.
  */
 static int
-tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *crt_data;
@@ -482,7 +482,7 @@ tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * Handle 'ssl_certificate_key <path>' config entry.
  */
 static int
-tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *key_data;
@@ -524,14 +524,16 @@ tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
-		"ssl_certificate", NULL,
-		tfw_tls_cfg_handle_crt,
+		.name = "ssl_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_ssl_certificate,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
 	{
-		"ssl_certificate_key", NULL,
-		tfw_tls_cfg_handle_crt_key,
+		.name = "ssl_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_ssl_certificate_key,
 		.allow_none = true,
 		.allow_repeat = false,
 	},

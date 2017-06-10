@@ -399,7 +399,7 @@ tfw_nipdef_addnew(TfwLocation *loc, int method,
 }
 
 static int
-tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t len;
 	int ret, method, op;
@@ -470,17 +470,17 @@ tfw_handle_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_handle_in_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_nonidempotent(cs, ce);
+	return tfw_cfgop_nonidempotent(cs, ce);
 }
 
 static int
-tfw_handle_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (!tfwcfg_this_location)
 		tfwcfg_this_location = &tfw_location_dflt;
-	return tfw_handle_nonidempotent(cs, ce);
+	return tfw_cfgop_nonidempotent(cs, ce);
 }
 
 /*
@@ -551,7 +551,7 @@ tfw_capolicy_add(TfwLocation *loc, TfwCaPolicy *capo)
  * string that is listed.
  */
 static int
-tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
+tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 {
 	int ret;
 	size_t i, len;
@@ -614,31 +614,31 @@ tfw_handle_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
  * outside of any location section.
  */
 static int
-tfw_handle_in_cache_fulfill(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_cache_fulfill(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_capolicy(cs, ce, TFW_D_CACHE_FULFILL);
+	return tfw_cfgop_capolicy(cs, ce, TFW_D_CACHE_FULFILL);
 }
 
 static int
-tfw_handle_in_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_handle_capolicy(cs, ce, TFW_D_CACHE_BYPASS);
+	return tfw_cfgop_capolicy(cs, ce, TFW_D_CACHE_BYPASS);
 }
 
 static int
-tfw_handle_out_cache_fulfill(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_cache_fulfill(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (!tfwcfg_this_location)
 		tfwcfg_this_location = &tfw_location_dflt;
-	return tfw_handle_capolicy(cs, ce, TFW_D_CACHE_FULFILL);
+	return tfw_cfgop_capolicy(cs, ce, TFW_D_CACHE_FULFILL);
 }
 
 static int
-tfw_handle_out_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_out_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (!tfwcfg_this_location)
 		tfwcfg_this_location = &tfw_location_dflt;
-	return tfw_handle_capolicy(cs, ce, TFW_D_CACHE_BYPASS);
+	return tfw_cfgop_capolicy(cs, ce, TFW_D_CACHE_BYPASS);
 }
 
 /*
@@ -700,7 +700,7 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
  * policy directives in the configuration.
  */
 static int
-tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int ret;
 	size_t len;
@@ -753,7 +753,7 @@ tfw_begin_location(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * Close the section for a location directive.
  */
 static int
-tfw_finish_location(TfwCfgSpec *cs)
+tfw_cfgop_location_finish(TfwCfgSpec *cs)
 {
 	BUG_ON(!tfwcfg_this_location);
 	tfwcfg_this_location = NULL;
@@ -765,7 +765,7 @@ tfw_finish_location(TfwCfgSpec *cs)
  * configuration directives. Make sure the memory is not freed twice.
  */
 static void
-__tfw_cleanup_locache(void)
+tfw_cfgop_cleanup_locache(TfwCfgSpec *cs)
 {
 	size_t i, k;
 
@@ -802,12 +802,6 @@ __tfw_cleanup_locache(void)
 	tfw_location_dflt.nipdef_sz = 0;
 }
 
-static void
-tfw_cleanup_locache(TfwCfgSpec *cs)
-{
-	__tfw_cleanup_locache();
-}
-
 /*
  *  Match the ip address against the ACL list.
  */
@@ -829,7 +823,7 @@ tfw_capuacl_lookup(TfwVhost *vhost, TfwAddr *addr)
  * Process the cache_purge_acl directive.
  */
 static int
-tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
 	const char *val;
@@ -840,6 +834,7 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			cs->name);
 		return -EINVAL;
 	}
+
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		TfwAddr addr = { 0 };
 
@@ -871,7 +866,7 @@ tfw_handle_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * Process the cache_purge directive.
  */
 static int
-tfw_handle_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
 	const char *val;
@@ -902,12 +897,22 @@ done:
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_cache_purge(TfwCfgSpec *cs)
+{
+	TfwVhost *vhost = &tfw_vhost_dflt;
+
+	vhost->cache_purge =
+	vhost->cache_purge_mode =
+	vhost->cache_purge_acl = 0;
+}
+
 /*
  * Process hdr_via directive.
  * Default value is preset statically.
  */
 static int
-tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t len;
 	TfwVhost *vhost = &tfw_vhost_dflt;
@@ -938,17 +943,13 @@ tfw_handle_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-__tfw_cleanup_hdrvia(void)
+tfw_cfgop_cleanup_hdrvia(TfwCfgSpec *cs)
 {
 	TfwVhost *vhost = &tfw_vhost_dflt;
+
 	if (vhost->hdr_via && (vhost->hdr_via != s_hdr_via_dflt))
 		kfree(vhost->hdr_via);
-}
-
-static void
-tfw_cleanup_hdrvia(TfwCfgSpec *cs)
-{
-	__tfw_cleanup_hdrvia();
+	vhost->hdr_via = s_hdr_via_dflt;
 }
 
 static int
@@ -972,89 +973,98 @@ tfw_vhost_start(void)
 static void
 tfw_vhost_stop(void)
 {
-	__tfw_cleanup_hdrvia();
-	__tfw_cleanup_locache();
+	tfw_vhost_dflt.loc_sz = 0;
 }
 
-static TfwCfgSpec tfw_location_specs[] = {
+static TfwCfgSpec tfw_vhost_location_specs[] = {
 	{
-		"cache_bypass", NULL,
-		tfw_handle_in_cache_bypass,
+		.name = "cache_bypass",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_bypass,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{
-		"cache_fulfill", NULL,
-		tfw_handle_in_cache_fulfill,
+		.name = "cache_fulfill",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_cache_fulfill,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{
-		"nonidempotent", NULL,
-		tfw_handle_in_nonidempotent,
+		.name = "nonidempotent",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_nonidempotent,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{ 0 }
 };
 
 static TfwCfgSpec tfw_vhost_specs[] = {
 	{
-		"hdr_via", NULL,
-		tfw_handle_hdr_via,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_cleanup_hdrvia
-	},
-	{
-		"cache_purge",
-		NULL,
-		tfw_handle_cache_purge,
+		.name = "hdr_via",
+		.deflt = NULL,
+		.handler = tfw_cfgop_hdr_via,
+		.cleanup = tfw_cfgop_cleanup_hdrvia,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
 	{
-		"cache_purge_acl",
-		NULL,
-		tfw_handle_cache_purge_acl,
+		.name = "cache_purge",
+		.deflt = NULL,
+		.handler = tfw_cfgop_cache_purge,
+		.cleanup = tfw_cfgop_cleanup_cache_purge,
+		.allow_none = true,
+		.allow_repeat = false,
+	},
+	{
+		.name = "cache_purge_acl",
+		.deflt = NULL,
+		.handler = tfw_cfgop_cache_purge_acl,
+		.cleanup = tfw_cfgop_cleanup_cache_purge,
 		.allow_none = true,
 		.allow_repeat = true,
 	},
 	{
-		"cache_bypass", NULL,
-		tfw_handle_out_cache_bypass,
+		.name = "cache_bypass",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_bypass,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{
-		"cache_fulfill", NULL,
-		tfw_handle_out_cache_fulfill,
+		.name = "cache_fulfill",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_cache_fulfill,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{
-		"nonidempotent", NULL,
-		tfw_handle_out_nonidempotent,
+		.name = "nonidempotent",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_nonidempotent,
+		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cleanup_locache
 	},
 	{
-		"location", NULL,
-		tfw_cfg_handle_children,
-		tfw_location_specs,
-		&(TfwCfgSpecChild) {
-			.begin_hook = tfw_begin_location,
-			.finish_hook = tfw_finish_location
+		.name = "location",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfg_cleanup_children,
+		.dest = tfw_vhost_location_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_location_begin,
+			.finish_hook = tfw_cfgop_location_finish
 		},
 		.allow_none = true,
 		.allow_repeat = true,
-		.cleanup = tfw_cfg_cleanup_children
 	},
 	{ 0 },
 };
@@ -1076,11 +1086,5 @@ tfw_vhost_init(void)
 void
 tfw_vhost_exit(void)
 {
-	size_t i;
-
 	tfw_mod_unregister(&tfw_vhost_mod);
-
-	for (i = 0; i < tfw_location_sz; ++i)
-		if (tfw_location[i].capo)
-			kfree(tfw_location[i].capo);
 }
