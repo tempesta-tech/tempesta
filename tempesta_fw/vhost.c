@@ -962,6 +962,9 @@ tfw_vhost_start(void)
 	BUILD_BUG_ON(sizeof(tfw_location_dflt.op) * 8 - 1
 		     < _TFW_HTTP_MATCH_O_COUNT);
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
 	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
 		TFW_WARN("cache_purge directive works only in combination"
 			 " with cache_purge_acl directive.\n");
@@ -973,6 +976,8 @@ tfw_vhost_start(void)
 static void
 tfw_vhost_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	tfw_vhost_dflt.loc_sz = 0;
 }
 

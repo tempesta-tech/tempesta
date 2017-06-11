@@ -275,26 +275,29 @@ tfw_filter_start(void)
 {
 	int r;
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
 	ip_filter_db = tdb_open(filter_cfg.db_path, filter_cfg.db_size,
 				sizeof(TfwFRule), numa_node_id());
 	if (!ip_filter_db)
 		return -EINVAL;
 
-	r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-	if (r) {
+	if ((r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops)))) {
 		TFW_ERR("can't register netfilter hooks\n");
 		tdb_close(ip_filter_db);
 		return r;
 	}
 
-	return r;
+	return 0;
 }
 
 static void
 tfw_filter_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-
 	tdb_close(ip_filter_db);
 }
 
