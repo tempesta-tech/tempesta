@@ -415,64 +415,6 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	return 0;
 }
 
-/**
- * Start listening on all existing sockets (added via "listen" configuration
- * entries).
- */
-static int
-tfw_sock_clnt_start(void)
-{
-	int r;
-	TfwListenSock *ls;
-
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		r = tfw_listen_sock_start(ls);
-		if (r) {
-			TFW_ERR_ADDR("can't start listening on", &ls->addr);
-			return r;
-		}
-	}
-
-	return 0;
-}
-
-static void
-tfw_sock_clnt_stop(void)
-{
-	TfwListenSock *ls;
-
-	might_sleep();
-
-	/* Stop listening sockets. */
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		BUG_ON(!ls->sk);
-		ss_release(ls->sk);
-		ls->sk = NULL;
-	}
-	ss_wait_newconn();
-
-	/*
-	 * Now all listening sockets are closed, so no new connections
-	 * can appear. Close all established client connections.
-	 * We're going to acquie client hash bucket and peer connection list
-	 * locks, so disable softiqs to avoid deadlock with the sockets closing
-	 * in softiq context.
-	 */
-	local_bh_disable();
-	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
-		/*
-		 * SS transport is overloaded: let softirqs make progress and
-		 * repeat again. Not a big deal that we'll probably close the
-		 * same connections - SS can handle it and it's expected that
-		 * softirqs close some of them while we wait.
-		 */
-		local_bh_enable();
-		schedule();
-		local_bh_disable();
-	}
-	local_bh_enable();
-}
-
 static int
 tfw_sock_check_lst(TfwServer *srv)
 {
@@ -563,16 +505,12 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
-	r = tfw_cfg_check_val_n(ce, 1);
-	if (r)
+	if ((r = tfw_cfg_check_val_n(ce, 1)))
 		return -EINVAL;
 
-	r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout);
-	if (r) {
+	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
 		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   ce->vals[0]
-			   ? ce->vals[0]
-			   : "No value specified");
+			   ce->vals[0] ? : "No value specified");
 		return -EINVAL;
 	}
 
@@ -589,6 +527,76 @@ static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
 	tfw_listen_sock_del_all();
+}
+
+/**
+ * Start listening on all existing sockets (added via "listen" configuration
+ * entries).
+ */
+static int
+tfw_sock_clnt_start(void)
+{
+	int r;
+	TfwListenSock *ls;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	TFW_DBG("Checking backends and listeners\n");
+	if ((r = tfw_sock_check_listeners())) {
+		TFW_ERR("One of the backends is Tempesta itself!"
+			" Please, fix the configuration.\n");
+		return r;
+	}
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if ((r = tfw_listen_sock_start(ls))) {
+			TFW_ERR_ADDR("can't start listening on", &ls->addr);
+			return r;
+		}
+	}
+
+	return 0;
+}
+
+static void
+tfw_sock_clnt_stop(void)
+{
+	TfwListenSock *ls;
+
+	if (tfw_runstate_is_reconfig())
+		return;
+
+	might_sleep();
+
+	/* Stop listening sockets. */
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+	}
+	ss_wait_newconn();
+
+	/*
+	 * Now all listening sockets are closed, so no new connections
+	 * can appear. Close all established client connections.
+	 * We're going to acquie client hash bucket and peer connection list
+	 * locks, so disable softiqs to avoid deadlock with the sockets closing
+	 * in softiq context.
+	 */
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		/*
+		 * SS transport is overloaded: let softirqs make progress and
+		 * repeat again. Not a big deal that we'll probably close the
+		 * same connections - SS can handle it and it's expected that
+		 * softirqs close some of them while we wait.
+		 */
+		local_bh_enable();
+		schedule();
+		local_bh_disable();
+	}
+	local_bh_enable();
 }
 
 static TfwCfgSpec tfw_sock_clnt_specs[] = {

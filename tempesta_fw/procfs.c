@@ -273,6 +273,8 @@ tfw_procfs_start(void)
 		.psz = ARRAY_SIZE(tfw_pstats_ith)
 	};
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
 	if (tfw_apm_pstats_verify(&pstats))
@@ -291,6 +293,8 @@ tfw_procfs_start(void)
 static void
 tfw_procfs_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	remove_proc_subtree("servers", tfw_procfs_tempesta);
 }
 

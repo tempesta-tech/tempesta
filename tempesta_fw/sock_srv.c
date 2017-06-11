@@ -1317,6 +1317,8 @@ tfw_sock_srv_start(void)
 {
 	int ret;
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
 	/*
 	 * The group "default" is created implicitly, and only when
 	 * a server outside of any group is found in the configuration.
@@ -1358,6 +1360,8 @@ tfw_sock_srv_start(void)
 static void
 tfw_sock_srv_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 

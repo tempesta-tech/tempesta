@@ -347,6 +347,8 @@ tfw_sched_http_start(void)
 	static const char cfg_text[] =
 		"sched_http_rules {\nmatch default * * *;\n}\n";
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
 	/*
 	 * See if we need to add a default rule that forwards all
 	 * requests that do not match any rule to group 'default'.
@@ -386,7 +388,7 @@ tfw_sched_http_start(void)
 	cfg_spec = tfw_cfg_spec_find(sched_mod.specs, "sched_http_rules");
 	cfg_spec->allow_repeat = true;
 
-	if (tfw_cfg_parse_mods_cfg(cfg_text, &mod_list))
+	if (tfw_cfg_parse_mods(cfg_text, &mod_list))
 		return -EINVAL;
 
 	return 0;

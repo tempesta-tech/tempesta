@@ -411,6 +411,9 @@ tfw_tls_start(void)
 {
 	int r;
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
 	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
 	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
 		TFW_ERR("TLS: SSL certificate/key pair is incomplete\n");
@@ -430,6 +433,8 @@ tfw_tls_start(void)
 static void
 tfw_tls_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	mbedtls_x509_crt_free(&tfw_tls.crt);
 	mbedtls_pk_free(&tfw_tls.key);
 }

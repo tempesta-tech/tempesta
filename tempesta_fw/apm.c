@@ -1065,6 +1065,9 @@ tfw_apm_start(void)
 {
 	unsigned int jtmwindow;
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
 	{

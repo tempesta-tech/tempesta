@@ -61,7 +61,7 @@ do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 	test_dummy_mod.specs = specs;
 	list_add(&test_dummy_mod.list, &test_tfw_mods);
 
-	if ((ret = tfw_cfg_parse(cfg_text, &test_tfw_mods)))
+	if ((ret = tfw_cfg_parse_mods(cfg_text, &test_tfw_mods)))
 		return ret;
 
 	return tfw_start_mods(&test_tfw_mods);

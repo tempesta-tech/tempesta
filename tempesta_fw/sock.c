@@ -29,6 +29,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "sync_socket.h"
+#include "tempesta_fw.h"
 #include "work_queue.h"
 
 typedef enum {
@@ -1493,7 +1494,12 @@ EXPORT_SYMBOL(ss_synchronize);
 void
 ss_start(void)
 {
-	/* Concurrent starts are synchronized at sysctl layer. */
+	/*
+	 * Concurrent starts are synchronized at sysctl layer.
+	 * Consecutive starts without stopping are for reconfiguration.
+	 */
+	if (tfw_runstate_is_reconfig())
+		return;
 	WRITE_ONCE(__ss_active, true);
 }
 EXPORT_SYMBOL(ss_start);
@@ -1501,6 +1507,8 @@ EXPORT_SYMBOL(ss_start);
 void
 ss_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	WRITE_ONCE(__ss_active, false);
 }
 EXPORT_SYMBOL(ss_stop);

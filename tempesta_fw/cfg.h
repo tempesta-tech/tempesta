@@ -194,9 +194,18 @@ typedef struct {
  * in the configuration. Again, the scope of the restriction is the
  * current set of TfwCfgSpec{} definitions.
  *
+ * @allow_reconfig allows a live reconfiguration of a directive when
+ * Tempesta is running already. @handler for the directive must know
+ * how to handle a live reconfiguration.
+ * NOTE: This is an interim solution. Every configuration directive
+ * should have a corresponding handler function that can handle a live
+ * reconfiguration. At least to a degree where it's able to report that
+ * the value of that directive has changed, but a live reconfiguration
+ * is not supported for the directive.
+ *
  * @__called_now is an internal field. It's set when @handler is invoked
- * during parsing process that is controlled by current set (array) of
- * TfwCfgSpec{} entries. It's used by the parser to determine whether
+ * during the parsing process that is controlled by current set (array)
+ * of TfwCfgSpec{} entries. It's used by the parser to determine whether
  * it needs to process the @deflt field. Also, it's used by the parser
  * to handle restrictions set by @allow_repeat and @allow_none members.
  * @__called_now field is reset when the control of parsing is switched
@@ -205,10 +214,18 @@ typedef struct {
  * groups may be repeated multiple times in the configuration file.
  * @__called_now is reset each time that group is parsed.
  *
- * @__called_ever is also an internal field. It's also set when @handler
- * is invoked during parsing process. However, it's never reset until
- * the system is completely stopped. It's used to determine whether it's
- * needed to invoke @cleanup callback.
+ * @__called_cfg is also an internal field. It's also set when @handler
+ * is invoked during the parsing process. However, it's not reset until
+ * the parsing is completed and Tempesta is (re)started. Before it is
+ * reset, its state migrates to a corresponding @__called_ever field.
+ * If an error occurs before that, it's used to determine whether to
+ * invoke a corresponding @cleanup callback.
+ *
+ * @__called_ever is another internal field. It tracks the state of a
+ * corresponding @__called_cfg field after the configuration has been
+ * processed and Tempesta successfully (re)started, but not before that.
+ * It's never reset until Tempesta is completely stopped. It is used to
+ * determine whether to invoke a corresponding @cleanup callback.
  *
  * It's been mentioned that a configuration specification may have nested
  * sets of entries (children). In that case @handler must be set to point
@@ -230,9 +247,11 @@ struct TfwCfgSpec {
 	void *dest;
 	void *spec_ext;
 	struct {
-		bool allow_repeat:1;
 		bool allow_none:1;
+		bool allow_repeat:1;
+		bool allow_reconfig:1;
 		bool __called_now:1;
+		bool __called_cfg:1;
 		bool __called_ever:1;
 	};
 	void (*cleanup)(TfwCfgSpec *self);
@@ -316,11 +335,12 @@ const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 
 /* Functions for making dynamic additions to configuration. */
 TfwCfgSpec *tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name);
-int tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list);
+int tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list);
 
 void *tfw_cfg_read_file(const char *path, size_t *file_size);
 
-int tfw_cfg_start(struct list_head *mod_list);
-void tfw_cfg_stop(struct list_head *mod_list);
+int tfw_cfg_parse(struct list_head *mod_list);
+void tfw_cfg_cleanup(struct list_head *mod_list);
+void tfw_cfg_conclude(struct list_head *mod_list);
 
 #endif /* __TFW_CFG_H__ */
