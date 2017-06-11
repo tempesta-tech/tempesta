@@ -86,4 +86,6 @@ void tfw_mod_register(TfwMod *mod);
 void tfw_mod_unregister(TfwMod *mod);
 TfwMod *tfw_mod_find(const char *name);
 
+bool tfw_runstate_is_reconfig(void);
+
 #endif /* __TEMPESTA_FW_H__ */

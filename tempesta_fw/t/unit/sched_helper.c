@@ -40,10 +40,12 @@ test_spec_cleanup(TfwCfgSpec specs[])
 	TfwCfgSpec *spec;
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->__called_ever && spec->cleanup) {
-			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+		bool called = spec->__called_cfg | spec->__called_ever;
+		if (called && spec->cleanup) {
+			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
+		spec->__called_cfg = false;
 		spec->__called_ever = false;
 	}
 }

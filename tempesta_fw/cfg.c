@@ -759,6 +759,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
 
+	if (tfw_runstate_is_reconfig() && !spec->allow_reconfig)
+		return 0;
 	if (!spec->allow_repeat && spec->__called_now) {
 		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
 			   " allowed.\n", parsed_entry->name);
@@ -768,7 +770,7 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	TFW_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
 	spec->__called_now = true;
-	spec->__called_ever = true;
+	spec->__called_cfg = true;
 	if (r)
 		TFW_DBG("configuration handler returned error: %d\n", r);
 
@@ -870,13 +872,19 @@ static void
 spec_cleanup(TfwCfgSpec specs[])
 {
 	TfwCfgSpec *spec;
+	bool called, reconfig = tfw_runstate_is_reconfig();
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->__called_ever && spec->cleanup) {
-			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+		called = spec->__called_cfg;
+		spec->__called_cfg = false;
+		if (!reconfig) {
+			called |= spec->__called_ever;
+			spec->__called_ever = false;
+		}
+		if (called && spec->cleanup) {
+			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
-		spec->__called_ever = false;
 	}
 }
 
@@ -1401,7 +1409,7 @@ EXPORT_SYMBOL(tfw_cfg_spec_find);
  * of all modules in the @mod_list.
  */
 int
-tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
+tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 {
 	TfwCfgParserState ps = {
 		.in = cfg_text,
@@ -1453,50 +1461,23 @@ err:
 	entry_reset(&ps.e);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
+EXPORT_SYMBOL(tfw_cfg_parse_mods);
 
 /**
  * Clean up parsed configuration data in modules.
  */
 void
-tfw_cfg_stop(struct list_head *mod_list)
+tfw_cfg_cleanup(struct list_head *mod_list)
 {
 	TfwMod *mod;
 
+	TFW_DBG3("Configuration cleanup...\n");
 	MOD_FOR_EACH_REVERSE(mod, mod_list)
 		spec_cleanup(mod->specs);
 }
 
-/**
- * Parse @cfg_text_buf and push parsed data to modules.
- */
-static int
-tfw_cfg_parse(const char *cfg_text, struct list_head *mod_list)
-{
-	int ret;
-
-	TFW_DBG2("parsing configuration and pushing it to modules...\n");
-	if ((ret = tfw_cfg_parse_mods_cfg(cfg_text, mod_list))) {
-		TFW_DBG("Error parsing configuration data\n");
-		goto cleanup;
-	}
-
-	TFW_DBG("Checking backends and listeners\n");
-	if ((ret = tfw_sock_check_listeners())) {
-		TFW_ERR("One of the backends is tempesta itself!"
-			" Fix the configuration\n");
-		goto cleanup;
-	}
-
-	return 0;
-
-cleanup:
-	tfw_cfg_stop(mod_list);
-	return ret;
-}
-
 int
-tfw_cfg_start(struct list_head *mod_list)
+tfw_cfg_parse(struct list_head *mod_list)
 {
 	int ret;
 	char *cfg_text_buf;
@@ -1505,11 +1486,35 @@ tfw_cfg_start(struct list_head *mod_list)
 	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL)))
 		return -ENOENT;
 
-	ret = tfw_cfg_parse(cfg_text_buf, mod_list);
+	TFW_DBG2("parsing configuration and pushing it to modules...\n");
+	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
+		TFW_DBG("Error parsing configuration data\n");
 
 	vfree(cfg_text_buf);
 
 	return ret;
+}
+
+static void
+tfw_cfg_migrate_state(TfwCfgSpec *cs)
+{
+	TfwCfgSpec *spec;
+
+	TFW_CFG_FOR_EACH_SPEC(spec, cs) {
+		if (spec->__called_cfg)
+			spec->__called_ever = true;
+		if (spec->handler == &tfw_cfg_handle_children)
+			tfw_cfg_migrate_state(spec->dest);
+	}
+}
+
+void
+tfw_cfg_conclude(struct list_head *mod_list)
+{
+	TfwMod *mod;
+
+	MOD_FOR_EACH(mod, mod_list)
+		tfw_cfg_migrate_state(mod->specs);
 }
 
 /*

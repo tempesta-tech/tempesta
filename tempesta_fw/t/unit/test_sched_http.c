@@ -60,7 +60,7 @@ parse_cfg(const char *cfg_text)
 	INIT_LIST_HEAD(&mod_list);
 	list_add(&sched_mod.list, &mod_list);
 
-	r = tfw_cfg_parse_mods_cfg(cfg_text, &mod_list);
+	r = tfw_cfg_parse_mods(cfg_text, &mod_list);
 
 	kernel_fpu_begin();
 

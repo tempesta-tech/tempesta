@@ -40,6 +40,7 @@ size_t  exit_hooks_n;
 
 DEFINE_MUTEX(tfw_sysctl_mtx);
 static bool tfw_started = false;
+static bool tfw_reconfig = false;
 
 /*
  * The global list of all registered modules
@@ -47,6 +48,16 @@ static bool tfw_started = false;
  */
 static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
+
+/**
+ * Return true if Tempesta is running, and false otherwise.
+ */
+bool
+tfw_runstate_is_reconfig(void)
+{
+	return READ_ONCE(tfw_reconfig);
+}
+EXPORT_SYMBOL(tfw_runstate_is_reconfig);
 
 /**
  * Add @mod to the global list of registered modules.
@@ -99,25 +110,38 @@ tfw_mod_find(const char *name)
 	return NULL;
 }
 
-static void
-tfw_stop(struct list_head *mod_list)
+static inline void
+tfw_cleanup(struct list_head *mod_list)
+{
+	/*
+	 * Wait until all network activity is stopped
+	 * before data in modules can be cleaned up safely.
+	 */
+	ss_synchronize();
+	tfw_cfg_cleanup(mod_list);
+}
+
+static inline void
+tfw_stop_mods(struct list_head *mod_list)
 {
 	TfwMod *mod;
 
 	ss_stop();
 
 	TFW_LOG("Stopping all modules...\n");
-	MOD_FOR_EACH_REVERSE(mod, mod_list)
+	MOD_FOR_EACH_REVERSE(mod, mod_list) {
+		TFW_DBG2("mod_stop(): %s\n", mod->name);
 		if (mod->stop)
 			mod->stop();
+	}
+	TFW_LOG("modules are stopped\n");
+}
 
-	/*
-	 * Wait until all network activity is stopped
-	 * before data in modules can be cleaned up safely.
-	 */
-	ss_synchronize();
-
-	tfw_cfg_stop(mod_list);
+static void
+tfw_stop(struct list_head *mod_list)
+{
+	tfw_stop_mods(mod_list);
+	tfw_cleanup(mod_list);
 }
 
 static int
@@ -134,12 +158,11 @@ tfw_start_mods(struct list_head *mod_list)
 		if ((ret = mod->start())) {
 			TFW_ERR("Unable to start module '%s': %d\n",
 				mod->name, ret);
-			tfw_stop(mod_list);
 			return ret;
 		}
 	}
-
 	TFW_LOG("modules are started\n");
+
 	return 0;
 }
 
@@ -149,9 +172,17 @@ tfw_start(struct list_head *mod_list)
 	int ret;
 
 	ss_start();
-	if ((ret = tfw_cfg_start(mod_list)))
-		return ret;
-	return tfw_start_mods(mod_list);
+	if ((ret = tfw_cfg_parse(mod_list)))
+		goto cleanup;
+	if ((ret = tfw_start_mods(mod_list)))
+		goto stop_mods;
+	tfw_cfg_conclude(mod_list);
+	return 0;
+stop_mods:
+	tfw_stop_mods(mod_list);
+cleanup:
+	tfw_cleanup(mod_list);
+	return ret;
 }
 
 /**
@@ -167,12 +198,13 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 		int r;
 
 		if (READ_ONCE(tfw_started)) {
-			TFW_WARN("Trying to start a running system\n");
-			return -EINVAL;
+			WRITE_ONCE(tfw_reconfig, true);
+			TFW_LOG("Live reconfiguration of Tempesta.\n");
 		}
 
 		if (!(r = tfw_start(&tfw_mods)))
 			WRITE_ONCE(tfw_started, true);
+		WRITE_ONCE(tfw_reconfig, false);
 
 		return r;
 	}
