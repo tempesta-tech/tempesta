@@ -1054,11 +1054,9 @@ tfw_apm_del_srv(TfwServer *srv)
 
 #define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
 #define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
-#define TFW_APM_DEF_TMWSCALE	5	/* Default time window scale. */
 
 #define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
 #define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
-#define TFW_APM_DEF_TMWINDOW	300	/* Default time window (secs). */
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
@@ -1066,11 +1064,6 @@ static int
 tfw_apm_start(void)
 {
 	unsigned int jtmwindow;
-
-	if (!tfw_apm_jtmwindow)
-		tfw_apm_jtmwindow = TFW_APM_DEF_TMWINDOW;
-	if (!tfw_apm_tmwscale)
-		tfw_apm_tmwscale = TFW_APM_DEF_TMWSCALE;
 
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
@@ -1152,7 +1145,7 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static TfwCfgSpec tfw_apm_specs[] = {
 	{
 		.name = "apm_stats",
-		.deflt = NULL,
+		.deflt = "window=300 scale=5",
 		.handler = tfw_cfgop_apm_stats,
 		.cleanup  = tfw_cfgop_cleanup_apm,
 		.allow_none = true,
