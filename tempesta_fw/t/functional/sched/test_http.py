@@ -135,7 +135,7 @@ class HttpRulesBackupServers(HttpRules):
         'cache 0;\n'
         '\n'
         'sched_http_rules {\n'
-        '  match default * * * backup=backup;\n'
+        '  match primary * * * backup=backup;\n'
         '}\n'
         '\n')
 
@@ -155,10 +155,10 @@ class HttpRulesBackupServers(HttpRules):
 
     def create_servers(self):
         port=tempesta.upstream_port_start_from()
-        for group in ['default', 'backup']:
+        for group in ['primary', 'backup']:
             server = self.create_server_helper(group, port)
             port += 1
-            if group == 'default':
+            if group == 'primary':
                 self.main_server = server
             else:
                 self.backup_server = server
