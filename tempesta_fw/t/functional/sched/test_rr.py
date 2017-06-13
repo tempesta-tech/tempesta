@@ -1,8 +1,6 @@
 """
-Round-robin scheduler is fast and fair scheduler. First it choses server in
-round-robin manner, then does the same to choose connection to server. Load of
-all servers is quite identical even for servers with different connections
-count.
+Ratio scheduler is fast and fair scheduler based on weighted round-robin
+principle.
 """
 
 import unittest
@@ -16,20 +14,21 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class RrStressTest(stress.StressTest):
-    """Stress test for RR scheduler: max servers in group, default keep-alive
-    settings. Clients must not recieve non-2xx answers.
+class RatioStressTest(stress.StressTest):
+    """Stress test for ratio scheduler in default configuration: max servers in
+    group, deffault weights for all servers, Servers are configured to support
+    infinite keep-alive requests. Clients must not recieve non-2xx answers.
     """
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
 
-    def test_rr(self):
+    def test_ratio(self):
         self.generic_test_routine('cache 0;\n')
 
 
-class FairLoadEqualConns(RrStressTest):
-    """ Round-Robin scheduler loads all the upstream servers in the fair
+class FairLoadEqualConns(RatioStressTest):
+    """ Ratio scheduler loads all the upstream servers in the fair
     way. In this test servers have the same connections count.
     """
 
@@ -48,7 +47,7 @@ class FairLoadEqualConns(RrStressTest):
             s_reqs += s.requests
         self.assertEqual(s_reqs, self.tempesta.stats.cl_msg_forwarded)
 
-    def test_rr(self):
+    def test_ratio(self):
         # Server connections failovering may affect load distribution.
         for s in self.servers:
             s.config.set_ka(sys.maxsize)
