@@ -5,6 +5,7 @@ are used.
 """
 
 import unittest
+import sys
 from helpers import tempesta
 from testers import stress
 
@@ -21,6 +22,10 @@ class BindToServer(stress.StressTest):
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
+        # Hash scheduler can't use the same server for the same requests if
+        # it can go offline.
+        for s in self.servers:
+            s.config.set_ka(sys.maxsize)
 
     def configure_tempesta(self):
         """Configure Tempesta to use hash scheduler instead of default one.
