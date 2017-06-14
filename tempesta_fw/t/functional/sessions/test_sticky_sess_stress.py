@@ -25,26 +25,31 @@ class OneClient(stress.StressTest):
             sg.options = 'sticky_sessions;'
 
     def create_clients(self):
-        siege = control.Siege()
-        siege.rc.set_option('limit', '4096')
-        siege.rc.set_option('connection', 'keep-alive')
-        siege.rc.set_option('parser', 'false')
-        self.clients = [siege]
+        self.wrk = control.Wrk()
+        self.wrk.set_script("cookie-one-client")
+        self.clients = [self.wrk]
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
 
     def assert_servers(self):
         self.servers_get_stats()
+        # Wrk does not treat 302 responses as errors, but 302 response means
+        # that message was not forwarded to server.
         expected_err = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
-        exp_min = self.clients[0].requests -  expected_err - 1
-        exp_max = self.clients[0].requests +  expected_err + 1
+        exp_min = self.wrk.requests -  expected_err - 1
+        exp_max = self.wrk.requests
         # Only one server must pull all the load.
         loaded = 0
         for s in self.servers:
             if s.requests:
                 loaded += 1
-                self.assertTrue(s.requests in range(exp_min, exp_max))
+                self.assertTrue(
+                    s.requests in range(exp_min, exp_max + 1),
+                    msg=("Number of requests forwarded to server (%d) "
+                         "doesn't match expected value: [%d, %d]"
+                         % (s.requests, exp_min, exp_max + 1))
+                    )
         self.assertEqual(loaded, 1)
 
     def test(self):
@@ -53,22 +58,17 @@ class OneClient(stress.StressTest):
 
 class LotOfClients(OneClient):
 
+    # Override maximum number of clients
+    clients_num = min(int(tf_cfg.cfg.get('General', 'concurrent_connections')),
+                      1000)
+
     def create_clients(self):
-        # Don't use client array here. Too slow for running
-        self.siege = control.Siege()
-        self.siege.rc.set_option('connection', 'keep-alive')
-        self.siege.rc.set_option('parser', 'false')
-        self.siege.connections = 25
-        self.clients = [self.siege]
+        # Create one thread per client to set unique User-Agent header for
+        # each client.
+        self.wrk = control.Wrk(threads=self.clients_num)
+        self.wrk.connections = self.wrk.threads
+        self.wrk.set_script("cookie-many-clients")
+        self.clients = [self.wrk]
 
-    def test(self):
-        self.tempesta.config.set_defconfig(self.config)
-        self.configure_tempesta()
-        control.servers_start(self.servers)
-        self.tempesta.start()
-
-        control.clients_parallel_load(self.siege)
-
-        self.tempesta.get_stats()
-        self.assert_clients()
-        self.assert_tempesta()
+    def assert_servers(self):
+        stress.StressTest.assert_servers(self)
