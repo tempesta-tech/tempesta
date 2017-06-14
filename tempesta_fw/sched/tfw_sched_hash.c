@@ -180,7 +180,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 		unsigned long l_diff = (l_idx >= 0)
 				? (best_hash - cl->conns[l_idx].hash)
 				: ULONG_MAX;
-		unsigned long r_diff = (l_idx >= 0)
+		unsigned long r_diff = (r_idx < (ssize_t)cl->conn_n)
 				? (cl->conns[r_idx].hash - best_hash)
 				: ULONG_MAX;
 		ssize_t best_idx = (l_diff <= r_diff) ? l_idx : r_idx;

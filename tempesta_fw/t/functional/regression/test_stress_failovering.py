@@ -17,8 +17,8 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 
-class RoudRobinFailovering(stress.StressTest):
-    """Use Round-robin scheduler (default) with different keep-alive requests
+class RatioFailovering(stress.StressTest):
+    """Use ratio scheduler (default) with different keep-alive requests
     configuration on HTTP server.
 
     Use one server with default connections count. Since overall amount of
@@ -57,8 +57,8 @@ class RoudRobinFailovering(stress.StressTest):
         self.run_test(sys.maxsize)
 
 
-class HashFailovering(RoudRobinFailovering):
-    """Absolutely the same as RoudRobinFailovering, bus uses `hash` scheduler
+class HashFailovering(RatioFailovering):
+    """Absolutely the same as RatioFailovering, bus uses `hash` scheduler
     instead.
     """
 
