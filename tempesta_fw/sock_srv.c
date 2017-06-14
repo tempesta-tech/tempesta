@@ -1013,7 +1013,8 @@ tfw_cfgop_setup_srv_group(void)
 static int
 tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 {
-	BUG_ON(list_empty(&tfw_cfg_sg->srv_list));
+	if (list_empty(tfw_cfg_slst))
+		return -EINVAL;
 	TFW_DBG("finish srv_group: %s\n", tfw_cfg_sg->name);
 
 	return tfw_cfgop_setup_srv_group();
