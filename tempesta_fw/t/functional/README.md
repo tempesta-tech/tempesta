@@ -182,6 +182,14 @@ For a list of all the command-line options:
 $ python2 -m unittest -h
 ```
 
+Note: some tests work with a very large amount of sockets and may fail if
+limit for maximum amount of files to open is relatively low. Set bigger limits
+by running command below before running tests:
+```sh
+$ ulimit -n 4096
+or
+$ ulimit -n unlimited
+```
 
 ## Adding new tests
 
