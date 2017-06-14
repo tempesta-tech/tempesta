@@ -3,6 +3,7 @@
 from __future__ import print_function
 import abc
 import re
+import os
 import multiprocessing.dummy as multiprocessing
 from . import tf_cfg, remote, error, nginx, tempesta, siege
 
@@ -108,6 +109,20 @@ class Wrk(Client):
     def __init__(self, threads=-1, uri='/'):
         Client.__init__(self, 'wrk', uri)
         self.threads = threads
+        self.script = ''
+
+    def set_script(self, script):
+        self.script = script
+
+    def append_script_option(self):
+        if not self.script:
+            return
+        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                        '/../wrk/', self.script, '.lua'])
+        script_path = os.path.abspath(path)
+        assert os.path.isfile(script_path), \
+               'No script found: %s !' % script_path
+        self.options.append('-s %s' % script_path)
 
     def form_command(self):
         self.options.append('-d %d' % self.duration)
@@ -118,6 +133,7 @@ class Wrk(Client):
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
+        self.append_script_option()
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
