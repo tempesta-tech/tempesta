@@ -586,7 +586,7 @@ EXPORT_SYMBOL(tfw_str_to_cstr);
 void
 tfw_str_dprint(const TfwStr *str, const char *msg)
 {
-	TfwStr *dup, *dup_end, *c, *chunk_end;
+	const TfwStr *dup, *dup_end, *c, *chunk_end;
 
 	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
 		str, str->skb, str->len, str->flags, str->eolen);
