@@ -213,7 +213,7 @@ TEST(tfw_sched_ratio, sched_srv_max_srv_max_conn)
 	struct {
 		TfwServer *srv;
 		long long conn_acc;
-	} srv_acc[TFW_TEST_SG_MAX_SRV_N] = { 0 };
+	} srv_acc[TFW_TEST_SG_MAX_SRV_N] = {{ 0 }};
 	TfwServer *srv;
 	TfwSrvConn *srv_conn;
 
