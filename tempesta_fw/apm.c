@@ -201,6 +201,9 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	TfwPcntCtl pc;
 	unsigned long i, cnt = 0, sum = 0, max = 0, i_max = 0;
 
+	if (unlikely(r == 0))
+		return;
+
 	for (i = 0; i < TFW_STATS_BCKTS; ++i) {
 		if (rng->cnt[r][i]) {
 			sum += rng->cnt[r][i];
@@ -217,7 +220,7 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	if (likely(max <= sum * 2 / cnt))
 		return;
 
-	if (r && i_max == 0) {
+	if (i_max == 0) {
 		/*
 		 * Too many hits in the gap between r'th and (r - 1)'th ranges.
 		 * Move the right bound of the (r - 1)'th range to the right.
@@ -249,12 +252,9 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	 * If servers are too fast (all responses within 1ms), then there's
 	 * nothing to do here.
 	 */
-	if (!r)
-		return;
 	pc.atomic = rng->ctl[r].atomic;
-	if (likely(pc.order)) {
+	if (likely(pc.order))
 		__range_shrink_left(rng, &pc, r);
-	}
 }
 
 /*
@@ -321,7 +321,6 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 			return;
 		}
 		++(*__rng(&pc0, rng->cnt[0], r_time));
-		tfw_stats_adjust(rng, 0);
 		++rng->tot_cnt;
 		return;
 	}
