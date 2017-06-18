@@ -183,6 +183,8 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 		rng->cnt[TFW_STATS_RLAST][i] =
 			rng->cnt[TFW_STATS_RLAST][2 * i]
 			+ rng->cnt[TFW_STATS_RLAST][2 * i + 1];
+	for (i = TFW_STATS_BCKTS / 2; i < TFW_STATS_BCKTS; ++i)
+		rng->cnt[TFW_STATS_RLAST][i] = 0;
 }
 
 /**
