@@ -475,7 +475,6 @@ typedef struct {
  * @flags	- The atomic flags (see below).
  */
 #define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
-#define TFW_APM_DATA_F_RECALC	(0x0002)	/* Need to recalculate. */
 
 #define TFW_APM_TIMER_INTVL	(HZ / 20)
 #define TFW_APM_UBUF_SZ		TFW_APM_TIMER_INTVL	/* a slot per ms. */
@@ -563,21 +562,8 @@ tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 
 /*
  * Calculate the latest percentiles from the current stats data.
- *
- * Note that the calculation is run under a lock that protects against
- * concurrent updates to ranges in the current ring buffer entry. That
- * makes the values of @tot_cnt and the hits numbers in the buckets
- * mostly consistent. However, there's still a small chance for a race
- * condition. @tot_cnt and the buckets' @cnt[][] are updated without
- * a lock, asynchronously and at slightly different times. Due to a
- * tiny discrepancy between @tot_cnt and the sum of hit counters in
- * @cnt[][], the calculation may not be able to reach the target value.
- * In that case the calculation exits prematurely, and a recalculation
- * is scheduled at the next run of the timer.
- *
- * Returns the number of percentile values that have been filled.
  */
-static int
+static void
 tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats)
 {
 #define IDX_MIN		TFW_PSTATS_IDX_MIN
@@ -608,21 +594,7 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 			if (st[i].v < v_min)
 				v_min = st[i].v;
 		}
-		/*
-		 * If the race condition has occured, then the results
-		 * are incomplete and can be used only partially.
-		 */
-		if (unlikely(v_min == USHRT_MAX)) {
-			TFW_DBG3("%s: Calculation stopped prematurely: "
-				 "cnt [%lu] total_cnt [%lu]\n",
-				 __func__, cnt, rbctl->total_cnt);
-			TFW_DBG3("%s: [%lu] [%lu] [%lu] [%lu] [%lu] [%lu]\n",
-				 __func__,
-				 pval[IDX_ITH], pval[IDX_ITH + 1],
-				 pval[IDX_ITH + 2], pval[IDX_ITH + 3],
-				 pval[IDX_ITH + 4], pval[IDX_ITH + 5]);
-			break;
-		}
+		BUG_ON(v_min == USHRT_MAX);
 		for (i = 0; i < rbuf->rbufsz; i++) {
 			if (st[i].v != v_min)
 				continue;
@@ -647,8 +619,6 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 	}
 	if (likely(cnt))
 		pstats->val[IDX_AVG] = val / cnt;
-
-	return p;
 
 #undef IDX_ITH
 #undef IDX_AVG
@@ -697,7 +667,7 @@ tfw_apm_rbent_checkreset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
  * Return false if the percentile values don't need the recalculation.
  */
 static bool
-tfw_apm_rbctl_update(TfwApmData *data, int recalc)
+tfw_apm_rbctl_update(TfwApmData *data)
 {
 	int i, centry;
 	unsigned long jtmnow = jiffies;
@@ -742,15 +712,8 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 
 	/* Nothing to do if there were no stats updates. */
 	entry_cnt = rbent[centry].pcntrng.tot_cnt;
-	if (unlikely(rbctl->entry_cnt == entry_cnt)) {
-		if (unlikely(recalc)) {
-			TFW_DBG3("%s: Old time window: recalculate: "
-				 "centry [%d] total_cnt [%lu]\n",
-				 __func__, centry, rbctl->total_cnt);
-			return true;
-		}
+	if (unlikely(rbctl->entry_cnt == entry_cnt))
 		return false;
-	}
 	BUG_ON(rbctl->entry_cnt > entry_cnt);
 
 	/* Update the counts incrementally. */
@@ -765,15 +728,10 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 
 /*
  * Calculate the latest percentiles if necessary.
- *
- * Return 0 if the calculation is successful.
- * Return < 0 if there was a system error.
- * Return > 0 and < @prcntlsz if the calculation is incomplete.
  */
-static int
+static void
 tfw_apm_calc(TfwApmData *data)
 {
-	int nfilled, recalc;
 	unsigned int rdidx;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
@@ -786,26 +744,18 @@ tfw_apm_calc(TfwApmData *data)
 	rdidx = atomic_read(&data->stats.rdidx);
 	asent = &data->stats.asent[(rdidx + 1) % 2];
 
-	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	if (!tfw_apm_rbctl_update(data, recalc))
-		return 0;
-	nfilled = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
-	if (!nfilled)
-		return 0;
+	if (!tfw_apm_rbctl_update(data))
+		return;
+	tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 
-	if (nfilled < asent->pstats.psz) {
-		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
-		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	} else {
-		TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
-		write_lock(&asent->rwlock);
-		memcpy(asent->pstats.val, pstats.val,
-		       asent->pstats.psz * sizeof(asent->pstats.val[0]));
-		atomic_inc(&data->stats.rdidx);
-		write_unlock(&asent->rwlock);
-	}
+	TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
+	write_lock(&asent->rwlock);
+	memcpy(asent->pstats.val, pstats.val,
+	       asent->pstats.psz * sizeof(asent->pstats.val[0]));
+	atomic_inc(&data->stats.rdidx);
+	write_unlock(&asent->rwlock);
 
-	return nfilled % asent->pstats.psz;
+	return;
 }
 
 /*
@@ -904,9 +854,8 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 			++updone;
 		}
 	}
-	if (updone && unlikely(tfw_apm_calc(data))) {
-		TFW_DBG2("%s: Incomplete calculation\n", __func__);
-	}
+	if (updone)
+		tfw_apm_calc(data);
 
 	smp_mb();
 	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
