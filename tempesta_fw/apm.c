@@ -845,7 +845,7 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
 static void
 tfw_apm_prcntl_tmfn(unsigned long fndata)
 {
-	int i, icpu, updone = 0;
+	int i, icpu;
 	TfwApmData *data = (TfwApmData *)fndata;
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
@@ -870,11 +870,9 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 			tfw_stats_update(&rbent[rtt_data.centry].pcntrng,
 					 rtt_data.rtt);
-			++updone;
 		}
 	}
-	if (updone)
-		tfw_apm_calc(data);
+	tfw_apm_calc(data);
 
 	smp_mb();
 	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
