@@ -164,15 +164,33 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
  * Extend the last range so that larger response times can be handled.
  */
 static void
-tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
+tfw_stats_extend(TfwPcntRanges *rng, unsigned int *r_time)
 {
 	int i;
 	TfwPcntCtl pc = { .atomic = rng->ctl[TFW_STATS_RLAST].atomic };
+	unsigned int end = pc.end, prend;
 
 	do {
 		++pc.order;
-		pc.end = pc.begin + ((TFW_STATS_BCKTS - 1) << pc.order);
-	} while (pc.end < r_time);
+		prend = end;
+		end = pc.begin + ((TFW_STATS_BCKTS - 1) << pc.order);
+	} while (end < *r_time);
+
+	/*
+	 * If the value of "end" exceeds the maximum value of unsigned
+	 * short, then the previous value of "end" is definitely within
+	 * the limits. Roll back to the previous values, and adjust
+	 * "r_time" to fit the range. If unable to expand at all, then
+	 * just return the adjusted "r_time".
+	 */
+	if (end >= (1U << (FIELD_SIZEOF(TfwPcntCtl, end) * 8))) {
+		--pc.order;
+		*r_time = end = prend;
+		if (end == pc.end)
+			return;
+	}
+
+	pc.end = (unsigned short)end;
 	rng->ctl[TFW_STATS_RLAST].atomic = pc.atomic;
 
 	TFW_DBG3("  -- extend last range to begin=%u order=%u end=%u\n",
@@ -298,20 +316,13 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 {
 	TfwPcntCtl pc3, pc2 = { .atomic = rng->ctl[2].atomic };
 
-	/* Adjust min/max values. */
-	if (!tfw_stats_adj_min(rng, r_time))
-		tfw_stats_adj_max(rng, r_time);
-	/* Add to @tot_val for AVG calculation. */
-	rng->tot_val += r_time;
-
 	/* Binary search of an appropriate range. */
 	if (r_time <= pc2.end) {
 		TfwPcntCtl pc0, pc1 = { .atomic = rng->ctl[1].atomic };
 		if (pc1.end < r_time) {
 			++(*__rng(&pc2, rng->cnt[2], r_time));
 			tfw_stats_adjust(rng, 2);
-			++rng->tot_cnt;
-			return;
+			goto totals;
 		}
 
 		pc0.atomic = rng->ctl[0].atomic;
@@ -319,22 +330,29 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 		if (pc0.end < r_time) {
 			++(*__rng(&pc1, rng->cnt[1], r_time));
 			tfw_stats_adjust(rng, 1);
-			++rng->tot_cnt;
-			return;
+			goto totals;
 		}
 		++(*__rng(&pc0, rng->cnt[0], r_time));
-		++rng->tot_cnt;
-		return;
+		goto totals;
 	}
 
 	pc3.atomic = rng->ctl[3].atomic;
 	if (unlikely(r_time > pc3.end)) {
-		tfw_stats_extend(rng, r_time);
+		tfw_stats_extend(rng, &r_time);
 		pc3.atomic = rng->ctl[3].atomic;
 	}
 	++(*__rng(&pc3, rng->cnt[3], r_time));
 	tfw_stats_adjust(rng, 3);
+
+totals:
+	/* Adjust min/max values. */
+	if (!tfw_stats_adj_min(rng, r_time))
+		tfw_stats_adj_max(rng, r_time);
+	/* Add to @tot_val for AVG calculation. */
+	rng->tot_val += r_time;
 	++rng->tot_cnt;
+
+	return;
 }
 
 /*
@@ -864,7 +882,7 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 }
 
 static void
-__tfw_apm_update(TfwApmData *data, unsigned long jtstamp, unsigned long rtt)
+__tfw_apm_update(TfwApmData *data, unsigned long jtstamp, unsigned int rtt)
 {
 	TfwApmUBuf *ubuf = this_cpu_ptr(data->ubuf);
 	unsigned long idxval = atomic64_add_return(0, &ubuf->counter);
@@ -888,7 +906,7 @@ tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 	 * the maximum value possible for TfwPcntCtl{}->end. Currently
 	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
 	 */
-	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
+	if (likely(rtt < (1U << (FIELD_SIZEOF(TfwPcntCtl, end) * 8))))
 		__tfw_apm_update(apmref, jtstamp, rtt);
 }
 
