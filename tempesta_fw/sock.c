@@ -1212,13 +1212,26 @@ ss_tx_action(void)
 			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
-			if (!ss_sock_live(sk)) {
+			switch (sk->sk_state) {
+			case TCP_ESTABLISHED:
+				__sk_close_locked(sk); /* paired with bh_lock_sock() */
+				break;
+			case TCP_SYN_SENT:
+				/*
+				 * The socket failed to connected to a server
+				 * must be closed to avoid reconnection
+				 * attempts.
+				 */
+				ss_do_close(sk);
+				bh_unlock_sock(sk);
+				sock_put(sk); /* paired with ss_do_close() */
+				break;
+			default:
 				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
-			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		default:
 			BUG();

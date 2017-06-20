@@ -181,6 +181,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		return r == SS_SHUTDOWN ? 0 : r;
 	}
 
+	/* Link Tempesta with the socket. */
+	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
 	/*
 	 * Set connection destructor such that connection failover can
 	 * take place if the connection attempt fails.
@@ -308,8 +310,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	/* Link Tempesta with the socket. */
-	tfw_connection_link_to_sk(conn, sk);
+	BUG_ON(conn->sk != sk);
 
 	/* Notify higher level layers. */
 	if ((r = tfw_connection_new(conn))) {
