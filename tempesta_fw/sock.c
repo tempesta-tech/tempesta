@@ -528,7 +528,7 @@ __ss_close(struct sock *sk, int flags)
 		return SS_OK;
 	sk_incoming_cpu_update(sk);
 
-	if (!(flags & SS_F_SYNC) || !in_softirq()
+	if (!(flags & SS_F_SYNC) || !in_serving_softirq()
 	    || smp_processor_id() != sk->sk_incoming_cpu)
 	{
 		SsWork sw = {
