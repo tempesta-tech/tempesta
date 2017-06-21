@@ -265,9 +265,9 @@ tfw_procfs_srv_create(TfwServer *srv)
 }
 
 static int
-tfw_procfs_start(void)
+tfw_procfs_cfgfin(void)
 {
-	int i, ret;
+	int ret;
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.psz = ARRAY_SIZE(tfw_pstats_ith)
@@ -275,15 +275,25 @@ tfw_procfs_start(void)
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-	if (!tfw_procfs_tempesta)
-		return -ENOENT;
 	if (tfw_apm_pstats_verify(&pstats))
 		return -EINVAL;
+	if ((ret = tfw_sg_for_each_srv(tfw_procfs_srv_collect)) != 0)
+		return ret;
+	return 0;
+}
+
+static int
+tfw_procfs_start(void)
+{
+	int i, ret;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+	if (!tfw_procfs_tempesta)
+		return -ENOENT;
 	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
 	if (!tfw_procfs_srvstats)
 		return -ENOENT;
-	if ((ret = tfw_sg_for_each_srv(tfw_procfs_srv_collect)) != 0)
-		return ret;
 	for (i = 0; i < slsz; ++i)
 		if ((ret = tfw_procfs_srv_create(srvlst[i])))
 			return ret;
@@ -304,6 +314,7 @@ static TfwCfgSpec tfw_procfs_specs[] = {
 
 TfwMod tfw_procfs_mod = {
         .name	= "procfs",
+        .cfgfin	= tfw_procfs_cfgfin,
         .start	= tfw_procfs_start,
         .stop	= tfw_procfs_stop,
 	.specs	= tfw_procfs_specs,
