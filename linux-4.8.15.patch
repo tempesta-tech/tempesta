@@ -30,7 +30,7 @@ index 1429a7c..7963636 100644
  extern void __kernel_fpu_end(void);
  extern void kernel_fpu_begin(void);
 diff --git a/arch/x86/kernel/fpu/core.c b/arch/x86/kernel/fpu/core.c
-index c289e2f..10e7abf 100644
+index c289e2f..3ddbc89 100644
 --- a/arch/x86/kernel/fpu/core.c
 +++ b/arch/x86/kernel/fpu/core.c
 @@ -109,7 +109,8 @@ bool irq_fpu_usable(void)
@@ -66,7 +66,7 @@ index c289e2f..10e7abf 100644
 +void __kernel_fpu_begin(void)
 +{
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	if (in_softirq())
++	if (in_serving_softirq())
 +		return;
 +#endif
 +	__kernel_fpu_begin_bh();
@@ -76,7 +76,7 @@ index c289e2f..10e7abf 100644
 +void __kernel_fpu_end(void)
 +{
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	if (in_softirq())
++	if (in_serving_softirq())
 +		return;
 +#endif
 +	__kernel_fpu_end_bh();
@@ -1449,7 +1449,7 @@ index 61a9dee..4b7bbde 100644
  		req->dl_next = NULL;
  		if (queue->rskq_accept_head == NULL)
 diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
-index 77c20a4..01926e6 100644
+index 77c20a4..f9aa003 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
 @@ -619,7 +619,8 @@ other_parity_scan:
@@ -1457,7 +1457,7 @@ index 77c20a4..01926e6 100644
  next_port:
  		spin_unlock_bh(&head->lock);
 -		cond_resched();
-+		if (!in_softirq())
++		if (!in_serving_softirq())
 +			cond_resched();
  	}
  
