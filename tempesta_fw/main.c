@@ -122,7 +122,7 @@ tfw_cleanup(struct list_head *mod_list)
 }
 
 static inline void
-tfw_stop_mods(struct list_head *mod_list)
+tfw_mods_stop(struct list_head *mod_list)
 {
 	TfwMod *mod;
 
@@ -140,12 +140,12 @@ tfw_stop_mods(struct list_head *mod_list)
 static void
 tfw_stop(struct list_head *mod_list)
 {
-	tfw_stop_mods(mod_list);
+	tfw_mods_stop(mod_list);
 	tfw_cleanup(mod_list);
 }
 
 static int
-tfw_start_mods(struct list_head *mod_list)
+tfw_mods_start(struct list_head *mod_list)
 {
 	int ret;
 	TfwMod *mod;
@@ -167,6 +167,28 @@ tfw_start_mods(struct list_head *mod_list)
 }
 
 static int
+tfw_mods_cfgfin(struct list_head *mod_list)
+{
+	int ret;
+	TfwMod *mod;
+
+	TFW_DBG2("Completing the configuration processing...\n");
+	MOD_FOR_EACH(mod, mod_list) {
+		if (!mod->cfgfin)
+			continue;
+		TFW_DBG2("mod_cfgfin(): %s\n", mod->name);
+		if ((ret = mod->cfgfin())) {
+			TFW_ERR("Unable to complete the configuration "
+				"of module '%s': %d\n", mod->name, ret);
+			return ret;
+		}
+	}
+	TFW_LOG("Configuration processing is completed.\n");
+
+	return 0;
+}
+
+static int
 tfw_start(struct list_head *mod_list)
 {
 	int ret;
@@ -174,12 +196,14 @@ tfw_start(struct list_head *mod_list)
 	ss_start();
 	if ((ret = tfw_cfg_parse(mod_list)))
 		goto cleanup;
-	if ((ret = tfw_start_mods(mod_list)))
+	if ((ret = tfw_mods_cfgfin(mod_list)))
+		goto stop_mods;
+	if ((ret = tfw_mods_start(mod_list)))
 		goto stop_mods;
 	tfw_cfg_conclude(mod_list);
 	return 0;
 stop_mods:
-	tfw_stop_mods(mod_list);
+	tfw_mods_stop(mod_list);
 cleanup:
 	tfw_cleanup(mod_list);
 	return ret;

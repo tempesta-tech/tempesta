@@ -1313,7 +1313,7 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 }
 
 static int
-tfw_sock_srv_start(void)
+tfw_sock_srv_cfgfin(void)
 {
 	int ret;
 
@@ -1346,14 +1346,19 @@ tfw_sock_srv_start(void)
 		if ((ret = tfw_cfgop_setup_srv_group()))
 			return ret;
 	}
-	/*
-	 * This must be executed only after the complete configuration
-	 * has been processed as it depends on configuration directives
-	 * that can be located anywhere in the configuration file.
-	 */
+
+	return 0;
+}
+
+static int
+tfw_sock_srv_start(void)
+{
+	int ret;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
 	if ((ret = tfw_sg_for_each_srv(tfw_apm_add_srv)) != 0)
 		return ret;
-
 	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
 }
 
@@ -1539,6 +1544,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 
 TfwMod tfw_sock_srv_mod = {
 	.name	= "sock_srv",
+	.cfgfin = tfw_sock_srv_cfgfin,
 	.start	= tfw_sock_srv_start,
 	.stop	= tfw_sock_srv_stop,
 	.specs	= tfw_sock_srv_specs,

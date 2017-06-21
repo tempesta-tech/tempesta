@@ -529,6 +529,24 @@ tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 	tfw_listen_sock_del_all();
 }
 
+static int
+tfw_sock_clnt_cfgfin(void)
+{
+	int r;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	TFW_DBG("Checking backends and listeners\n");
+	if ((r = tfw_sock_check_listeners())) {
+		TFW_ERR("One of the backends is Tempesta itself!"
+			" Please, fix the configuration.\n");
+		return r;
+	}
+
+	return 0;
+}
+
 /**
  * Start listening on all existing sockets (added via "listen" configuration
  * entries).
@@ -542,12 +560,6 @@ tfw_sock_clnt_start(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
-	TFW_DBG("Checking backends and listeners\n");
-	if ((r = tfw_sock_check_listeners())) {
-		TFW_ERR("One of the backends is Tempesta itself!"
-			" Please, fix the configuration.\n");
-		return r;
-	}
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if ((r = tfw_listen_sock_start(ls))) {
 			TFW_ERR_ADDR("can't start listening on", &ls->addr);
@@ -619,6 +631,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 
 TfwMod tfw_sock_clnt_mod  = {
 	.name	= "sock_clnt",
+	.cfgfin = tfw_sock_clnt_cfgfin,
 	.start	= tfw_sock_clnt_start,
 	.stop	= tfw_sock_clnt_stop,
 	.specs	= tfw_sock_clnt_specs,
