@@ -4,8 +4,7 @@ test, check that the same server connection is used for the same resource.
 """
 
 from __future__ import print_function
-import unittest
-from helpers import deproxy, tf_cfg, tempesta
+from helpers import deproxy, tempesta
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -29,7 +28,7 @@ class HashSchedulerTest(functional.FunctionalTest):
 
     def chains(self):
         chain = functional.base_message_chain()
-        return [chain for i in range (self.messages)]
+        return [chain for _ in range(self.messages)]
 
     def test_hash_scheduler(self):
         self.generic_test_routine('cache 0;\n', self.chains())

@@ -29,16 +29,20 @@ class Node(object):
 
     @abc.abstractmethod
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''): pass
+                err_msg=''):
+        pass
 
     @abc.abstractmethod
-    def mkdir(self, path): pass
+    def mkdir(self, path):
+        pass
 
     @abc.abstractmethod
-    def copy_file(self, filename, content, path=None): pass
+    def copy_file(self, filename, content, path=None):
+        pass
 
     @abc.abstractmethod
-    def remove_file(self, filename): pass
+    def remove_file(self, filename):
+        pass
 
 
 class LocalNode(Node):
@@ -150,7 +154,7 @@ class RemoteNode(Node):
             sftp.close()
         except Exception as e:
             error.bug(("Error copying file %s to %s: %s" %
-                      (filename, self.host, e)))
+                       (filename, self.host, e)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:
@@ -161,7 +165,7 @@ class RemoteNode(Node):
             sftp.close()
         except Exception as e:
             error.bug(("Error removing file %s on %s: %s" %
-                      (filename, self.host, e)))
+                       (filename, self.host, e)))
 
 
 

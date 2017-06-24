@@ -45,6 +45,8 @@ class Client(object):
         self.files = []
         # List of files to be removed from remote node after client finish.
         self.cleanup_files = []
+        self.requests = 0
+        self.errors = 0
 
     def set_uri(self, uri):
         """ For some clients uri is an optional parameter, e.g. for Siege.
@@ -234,7 +236,7 @@ def __clients_cleanup(client):
 def clients_run_parallel(clients):
     tf_cfg.dbg(3, ('\tRunning %d HTTP clients on %s' %
                    (len(clients), remote.client.host)))
-    if not len(clients):
+    if not clients:
         return True
     # In most cases all Siege instances use the same config file. no need to
     # copy in many times.
@@ -386,8 +388,7 @@ def __servers_pool_size(n_servers):
     if remote.server.is_remote():
         # By default MasSessions in sshd config is 10. Do not overflow it.
         return 4
-    else:
-        return min(n_servers, MAX_THREADS)
+    return min(n_servers, MAX_THREADS)
 
 def servers_start(servers):
     threads = __servers_pool_size(len(servers))

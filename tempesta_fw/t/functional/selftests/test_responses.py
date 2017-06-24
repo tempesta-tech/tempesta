@@ -222,7 +222,8 @@ Expires: Wed, 21 Dec 2015 07:28:00 GMT
 
 class ParseBody(unittest.TestCase):
 
-    def default_body(self):
+    @staticmethod
+    def default_body():
         return ("<html>\n"
                 "<head>\n"
                 "  <title>An Example Page</title>\n"
@@ -232,7 +233,8 @@ class ParseBody(unittest.TestCase):
                 "</body>\n"
                 "</html>\n")
 
-    def chunked_body(self):
+    @staticmethod
+    def chunked_body():
         return ("4\n"
                 "1234\n"
                 "0\n"

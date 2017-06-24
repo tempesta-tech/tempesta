@@ -1,5 +1,4 @@
 from __future__ import print_function
-import unittest
 from helpers import deproxy, tf_cfg, tempesta
 from testers import functional
 

@@ -11,16 +11,16 @@ CHAIN_LENGTH = 20
 
 def chains():
     chain = functional.base_message_chain()
-    return [chain for i in range(CHAIN_LENGTH)]
+    return [chain for _ in range(CHAIN_LENGTH)]
 
 def make_302(request):
     response = deproxy.Response(
-                'HTTP/1.1 302 Found\r\n'
-                'Content-Length: 0\r\n'
-                'Location: http://%s%s\r\n'
-                'Connection: keep-alive\r\n'
-                '\r\n'
-                % (tf_cfg.cfg.get('Tempesta', 'ip'), request.uri))
+        'HTTP/1.1 302 Found\r\n'
+        'Content-Length: 0\r\n'
+        'Location: http://%s%s\r\n'
+        'Connection: keep-alive\r\n'
+        '\r\n'
+        % (tf_cfg.cfg.get('Tempesta', 'ip'), request.uri))
     return response
 
 def make_502():
@@ -35,9 +35,9 @@ class TesterIgnoreCookies(deproxy.Deproxy):
     """Tester helper. Emulate client that does not support cookies."""
 
     def __init__(self, *args, **kwargs):
-         deproxy.Deproxy.__init__(self, *args, **kwargs)
-         self.message_chains = chains()
-         self.cookies = []
+        deproxy.Deproxy.__init__(self, *args, **kwargs)
+        self.message_chains = chains()
+        self.cookies = []
 
     def recieved_response(self, response):
         m = re.search(r'__tfw=([a-f0-9]+)', response.headers['Set-Cookie'])
@@ -69,21 +69,21 @@ class TesterIgnoreEnforcedCookies(TesterIgnoreCookies):
     """
 
     def __init__(self, *args, **kwargs):
-         TesterIgnoreCookies.__init__(self, *args, **kwargs)
-         self.message_chains[0].response = make_302(
+        TesterIgnoreCookies.__init__(self, *args, **kwargs)
+        self.message_chains[0].response = make_302(
             self.message_chains[0].request)
-         self.message_chains[0].server_response = deproxy.Response()
-         self.message_chains[0].fwd_request = deproxy.Request()
+        self.message_chains[0].server_response = deproxy.Response()
+        self.message_chains[0].fwd_request = deproxy.Request()
 
 
 class TesterUseCookies(deproxy.Deproxy):
     """Tester helper. Emulate client that support cookies."""
 
     def __init__(self, *args, **kwargs):
-         deproxy.Deproxy.__init__(self, *args, **kwargs)
-         # The first message chain is unique.
-         self.message_chains = [functional.base_message_chain()] + chains()
-         self.cookie_parsed = False
+        deproxy.Deproxy.__init__(self, *args, **kwargs)
+        # The first message chain is unique.
+        self.message_chains = [functional.base_message_chain()] + chains()
+        self.cookie_parsed = False
 
     def recieved_response(self, response):
         if not self.cookie_parsed:
@@ -118,8 +118,8 @@ class TesterUseEnforcedCookies(TesterUseCookies):
     """Tester helper. Emulate client that support cookies."""
 
     def __init__(self, *args, **kwargs):
-         TesterUseCookies.__init__(self, *args, **kwargs)
-         self.message_chains[0].response = make_302(
+        TesterUseCookies.__init__(self, *args, **kwargs)
+        self.message_chains[0].response = make_302(
             self.message_chains[0].request)
-         self.message_chains[0].server_response = deproxy.Response()
-         self.message_chains[0].fwd_request = deproxy.Request()
+        self.message_chains[0].server_response = deproxy.Response()
+        self.message_chains[0].fwd_request = deproxy.Request()

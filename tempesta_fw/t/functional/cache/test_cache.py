@@ -1,8 +1,6 @@
 """Functional tests of caching responses."""
 
 from __future__ import print_function
-import unittest
-from helpers import deproxy, tf_cfg, tempesta
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -92,9 +90,9 @@ def proxy_chain(uri):
 def cache_chains(count, uri='/'):
     chains = [proxy_chain(uri)]
     chain = cache_chain(uri)
-    cached_chains = [chain for i in range (1, count)]
+    cached_chains = [chain for _ in range(1, count)]
     return chains + cached_chains
 
 def proxy_chains(count, uri='/'):
     chain = proxy_chain(uri)
-    return [chain for i in range (count)]
+    return [chain for _ in range(count)]
