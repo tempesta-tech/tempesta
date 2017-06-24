@@ -4,7 +4,6 @@ test. Can't track server connections here, but real HTTP servers and clients
 are used.
 """
 
-import unittest
 import sys
 from helpers import tempesta
 from testers import stress

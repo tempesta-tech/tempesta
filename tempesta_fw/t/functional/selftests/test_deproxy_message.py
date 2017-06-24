@@ -1,6 +1,5 @@
 from __future__ import print_function
 import unittest
-import asyncore
 from helpers import deproxy
 
 class TestDeproxyMessage(unittest.TestCase):

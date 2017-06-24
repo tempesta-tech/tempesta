@@ -3,7 +3,6 @@ Ratio scheduler is fast and fair scheduler based on weighted round-robin
 principle.
 """
 
-import unittest
 import math
 import random
 import sys

@@ -4,8 +4,7 @@ clients/servers are established.
 """
 
 from __future__ import print_function
-import unittest
-from helpers import deproxy, tf_cfg, tempesta, remote
+from helpers import deproxy, tempesta, remote
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -31,7 +30,7 @@ class ShutdownTest(functional.FunctionalTest):
             self.tester.close_all()
 
     def create_client(self):
-        for i in range(100):
+        for _ in range(100):
             self.clients.append(deproxy.Client())
 
     def create_servers(self):
