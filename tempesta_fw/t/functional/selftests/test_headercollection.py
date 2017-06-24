@@ -36,12 +36,8 @@ class TestHeaderCollection(unittest.TestCase):
 
     def test_bracket_case(self):
         self.headers.add('Name', 'Value')
-
-        try:
-            self.assertEqual(self.headers['name'], 'Value')
-            self.assertEqual(self.headers['Name'], 'Value')
-        except:
-            self.fail()
+        self.assertEqual(self.headers['name'], 'Value')
+        self.assertEqual(self.headers['Name'], 'Value')
 
     def test_get(self):
         self.headers.add('Name', 'Value')
@@ -92,8 +88,8 @@ class TestHeaderCollection(unittest.TestCase):
                 set(parsed_headers.find_all(header)),
                 set(['custom header values', 'custom header values 2']))
 
-        expect_headers = [ (header.strip(), value.strip())
-                            for (header, value) in test_headers]
+        expect_headers = [(header.strip(), value.strip())
+                          for (header, value) in test_headers]
         self.assertEqual(expect_headers, parsed_headers.items())
 
     def test_is_equal(self):

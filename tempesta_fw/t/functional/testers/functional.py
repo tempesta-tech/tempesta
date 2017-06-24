@@ -39,7 +39,7 @@ class FunctionalTest(unittest.TestCase):
         """ Helper function to spawn `count` servers in default configuration.
         """
         if start_port is None:
-            start_port=tempesta.upstream_port_start_from()
+            start_port = tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):
             self.servers.append(deproxy.Server(port=(start_port + i),
@@ -110,10 +110,10 @@ def base_message_chain(uri='/', method='GET'):
 
     Return new message chain.
     """
-    request_headers = [ 'Host: %s' % tf_cfg.cfg.get('Tempesta', 'ip'),
-                        'User-Agent: curl/7.53.1',
-                        'Connection: keep-alive',
-                        'Accept: */*']
+    request_headers = ['Host: %s' % tf_cfg.cfg.get('Tempesta', 'ip'),
+                       'User-Agent: curl/7.53.1',
+                       'Connection: keep-alive',
+                       'Accept: */*']
     request = deproxy.Request.create(method, request_headers, uri=uri)
 
     fwd_request_headers = (

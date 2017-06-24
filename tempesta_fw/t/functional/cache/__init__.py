@@ -1,1 +1,1 @@
-__all__ = ['check_cache']
+__all__ = ['test_cache', 'test_cache_methods']

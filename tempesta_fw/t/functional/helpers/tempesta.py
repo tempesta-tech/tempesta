@@ -34,7 +34,7 @@ def version():
     if tfw_version:
         return tfw_version
     version_header = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../../../tempesta_fw.h'])
+                              '/../../../tempesta_fw.h'])
     with open(version_header, 'r') as header:
         read_data = header.read()
         m = re.search(r'#define TFW_VERSION\s+"([0-9a-z.-]+)"', read_data)
@@ -123,7 +123,8 @@ class Stats(object):
         self.srv_rx_bytes = self.parse_option(
             stats, 'Server RX bytes')
 
-    def parse_option(self, stats, name):
+    @staticmethod
+    def parse_option(stats, name):
         s = r'%s\s+: (\d+)' % name
         m = re.search(s.encode('ascii'), stats)
         if m:
@@ -154,7 +155,7 @@ class ServerGroup(object):
         sg = ''
         if self.name == 'default':
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
-                            + [self.options])
+                           + [self.options])
         else:
             sg = '\n'.join(
                 ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +

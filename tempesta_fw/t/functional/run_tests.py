@@ -1,6 +1,8 @@
 #!/usr/bin/env python2
-
-import unittest, getopt, sys
+from __future__ import print_function
+import unittest
+import getopt
+import sys
 
 # Disable configuration check for now and call it explicitly later
 from helpers.tf_cfg import skip_check
@@ -13,8 +15,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 def usage():
-    print(
-"""
+    print("""
 Functional tests for TempestaFW.
 
 Test Framework Configuration is stored in 'tests_config.ini', Use '-d' option
@@ -31,8 +32,7 @@ key, not password. `ssh-copy-id` can be used for that.
                                     and exit.
 -t, --duration <seconds>          - Duration of every single test.
 -f, --failfast                    - Stop tests after first error.
-"""
-    )
+""")
 
 fail_fast = False
 
@@ -52,7 +52,7 @@ for opt, arg in options:
     if opt in ('-v', '--verbose'):
         tf_cfg.cfg.inc_verbose()
     if opt in ('-t', '--duration'):
-        if tf_cfg.cfg.set_duration(arg) == False:
+        if not tf_cfg.cfg.set_duration(arg):
             print('Invalid option: ', opt, arg)
             usage()
             sys.exit(0)

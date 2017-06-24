@@ -1,8 +1,7 @@
 """Functional tests of caching different methods."""
 
 from __future__ import print_function
-import unittest
-from helpers import deproxy, tf_cfg, tempesta
+from helpers import tf_cfg
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -45,49 +44,49 @@ class TestCacheMethods(functional.FunctionalTest):
                   % (self.cache_mode, cache_method))
         self.generic_test_routine(config, chain)
 
-    def test_COPY(self):
+    def test_copy(self):
         self.try_method('COPY')
 
-    def test_DELETE(self):
+    def test_delete(self):
         self.try_method('DELETE')
 
-    def test_GET(self):
+    def test_get(self):
         self.try_method('GET')
 
-    def test_HEAD(self):
+    def test_head(self):
         self.try_method('HEAD')
 
-    def test_LOCK(self):
+    def test_lock(self):
         self.try_method('LOCK')
 
-    def test_MKCOL(self):
+    def test_mkcol(self):
         self.try_method('MKCOL')
 
-    def test_MOVE(self):
+    def test_move(self):
         self.try_method('MOVE')
 
-    def test_OPTIONS(self):
+    def test_options(self):
         self.try_method('OPTIONS')
 
-    def test_PATCH(self):
+    def test_patch(self):
         self.try_method('PATCH')
 
-    def test_POST(self):
+    def test_post(self):
         self.try_method('POST')
 
-    def test_PROPFIND(self):
+    def test_propfind(self):
         self.try_method('PROPFIND')
 
-    def test_PROPPATCH(self):
+    def test_proppatch(self):
         self.try_method('PROPPATCH')
 
-    def test_PUT(self):
+    def test_put(self):
         self.try_method('PUT')
 
-    def test_TRACE(self):
+    def test_trace(self):
         self.try_method('TRACE')
 
-    def test_UNLOCK(self):
+    def test_unlock(self):
         self.try_method('UNLOCK')
 
 
@@ -119,9 +118,9 @@ def proxy_chain(method, uri):
 def cache_chains(count, method, uri):
     chains = [proxy_chain(method, uri)]
     chain = cache_chain(method, uri)
-    cached_chains = [chain for i in range (1, count)]
+    cached_chains = [chain for _ in range(1, count)]
     return chains + cached_chains
 
 def proxy_chains(count, method, uri):
     chain = proxy_chain(method, uri)
-    return [chain for i in range (count)]
+    return [chain for _ in range(count)]

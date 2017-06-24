@@ -3,7 +3,6 @@ With sticky sessions each client is pinned to only one server in group.
 """
 
 from __future__ import print_function
-import unittest, sys
 from helpers import control, tempesta, tf_cfg
 from testers import stress
 
