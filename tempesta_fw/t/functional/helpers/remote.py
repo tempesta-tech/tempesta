@@ -20,9 +20,10 @@ DEFAULT_TIMEOUT = 5
 class Node(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, hostname, workdir):
+    def __init__(self, type, hostname, workdir):
         self.host = hostname
         self.workdir = workdir
+        self.type = type
 
     def is_remote(self):
         return self.host != 'localhost'
@@ -46,8 +47,8 @@ class Node(object):
 
 
 class LocalNode(Node):
-    def __init__(self, hostname, workdir):
-        Node.__init__(self, hostname, workdir)
+    def __init__(self, type, hostname, workdir):
+        Node.__init__(self, type, hostname, workdir)
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
                 err_msg=''):
@@ -94,8 +95,8 @@ class LocalNode(Node):
 
 
 class RemoteNode(Node):
-    def __init__(self, hostname, workdir, user, port=22):
-        Node.__init__(self, hostname, workdir)
+    def __init__(self, type, hostname, workdir, user, port=22):
+        Node.__init__(self, type, hostname, workdir)
         self.user = user
         self.port = port
         self.connect()
@@ -176,8 +177,8 @@ def create_node(host):
     if hostname != 'localhost':
         port = int(tf_cfg.cfg.get(host, 'port'))
         username = tf_cfg.cfg.get(host, 'user')
-        return RemoteNode(hostname, workdir, username, port)
-    return LocalNode(hostname, workdir)
+        return RemoteNode(host, hostname, workdir, username, port)
+    return LocalNode(host, hostname, workdir)
 
 
 #-------------------------------------------------------------------------------
