@@ -28,7 +28,7 @@ endif
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
 CFLAGS		= -O0 -ggdb -Wall -Werror \
-		  -pthread -DL1_CACHE_BYTES=$(CACHELINE) \
+		  -DL1_CACHE_BYTES=$(CACHELINE) \
 		  -I../../../../ktest
 CXXFLAGS	= -std=c++11 ${CFLAGS}
 TARGETS		= alb percentiles slr
