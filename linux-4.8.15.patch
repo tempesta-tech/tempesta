@@ -772,7 +772,7 @@ index 0000000..a131d48
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
 diff --git a/net/core/dev.c b/net/core/dev.c
-index 9ce9d72..23ffa06 100644
+index 9ce9d72..a33a8fc 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
 @@ -3856,6 +3856,27 @@ int netif_rx_ni(struct sk_buff *skb)
@@ -831,7 +831,7 @@ index 9ce9d72..23ffa06 100644
 -			kmem_cache_free(skbuff_head_cache, skb);
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +			if (skb->skb_page)
-+				put_page(virt_to_head_page(skb));
++				put_page(virt_to_page(skb));
 +			else
 +#endif
 +				kmem_cache_free(skbuff_head_cache, skb);
@@ -848,7 +848,7 @@ index 5d26056..ee02253 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 3864b4b..da1d05c 100644
+index 3864b4b..90bf764 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -925,7 +925,7 @@ index 3864b4b..da1d05c 100644
 +		while (pool->count > pool->max) {
 +			struct list_head *pc = pool->lh.next;
 +			list_del(pc);
-+			put_page(virt_to_head_page(pc));
++			put_page(virt_to_page(pc));
 +			--pool->count;
 +		}
 +		return false;
@@ -986,7 +986,7 @@ index 3864b4b..da1d05c 100644
 +		list_del(pc);
 +		--pools[o].count;
 +		ptr = (char *)pc;
-+		pg = virt_to_head_page(ptr);
++		pg = virt_to_page(ptr);
 +		goto assign_tail_chunks;
 +	}
 +
@@ -1192,7 +1192,7 @@ index 3864b4b..da1d05c 100644
 -		kmem_cache_free(skbuff_head_cache, skb);
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		if (skb->skb_page)
-+			put_page(virt_to_head_page(skb));
++			put_page(virt_to_page(skb));
 +		else
 +#endif
 +			kmem_cache_free(skbuff_head_cache, skb);
@@ -1205,7 +1205,7 @@ index 3864b4b..da1d05c 100644
  fastpath:
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	BUG_ON(!skb->skb_page);
-+	put_page(virt_to_head_page(skb));
++	put_page(virt_to_page(skb));
 +#else
  	kmem_cache_free(skbuff_fclone_cache, fclones);
 +#endif
@@ -1222,7 +1222,7 @@ index 3864b4b..da1d05c 100644
 +	 */
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	if (skb->skb_page) {
-+		put_page(virt_to_head_page(skb));
++		put_page(virt_to_page(skb));
 +		return;
 +	}
 +#endif
@@ -1318,7 +1318,7 @@ index 3864b4b..da1d05c 100644
  
  nofrags:
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	put_page(virt_to_head_page(data));
++	put_page(virt_to_page(data));
 +#else
  	kfree(data);
 +#endif
@@ -1396,7 +1396,7 @@ index 3864b4b..da1d05c 100644
 -		kmem_cache_free(skbuff_head_cache, skb);
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		if (skb->skb_page)
-+			put_page(virt_to_head_page(skb));
++			put_page(virt_to_page(skb));
 +		else
 +#endif
 +			kmem_cache_free(skbuff_head_cache, skb);
