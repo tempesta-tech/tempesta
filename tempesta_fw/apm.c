@@ -81,10 +81,11 @@
  */
 #define TFW_STATS_RANGES	4
 #define TFW_STATS_RLAST		(TFW_STATS_RANGES - 1)
-#define TFW_STATS_BCKTS		16
+#define TFW_STATS_BCKTS_ORDER	4
+#define TFW_STATS_BCKTS		(1 << TFW_STATS_BCKTS_ORDER)
 
 #define TFW_STATS_RSPAN(order)		((TFW_STATS_BCKTS - 1) << (order))
-#define TFW_STATS_RSPANUL(order)	((TFW_STATS_BCKTS - 1UL) << (order))
+#define TFW_STATS_RSPAN_UL(order)	((TFW_STATS_BCKTS - 1UL) << (order))
 
 typedef struct {
 	unsigned int	order;
@@ -122,7 +123,7 @@ __range_grow_right(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	TFW_DBG3("  -- extend right bound of range %d to begin=%u order=%u"
 		 " end=%u\n", r, pc->begin, pc->order, pc->end);
 
-	/* Coalesce all counters to left half of the buckets. */
+	/* Coalesce counters to buckets on the left half of the range. */
 	for (i = 0; i < TFW_STATS_BCKTS / 2; ++i)
 		rng->cnt[r][i] = rng->cnt[r][2 * i] + rng->cnt[r][2 * i + 1];
 }
@@ -160,46 +161,62 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
  * Extend the last range so that larger response times can be handled.
  */
 static void
-tfw_stats_extend(TfwPcntRanges *rng, unsigned int *r_time)
+tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 {
-	int i;
+	int i, b;
 	TfwPcntCtl *pc = &rng->ctl[TFW_STATS_RLAST];
-	unsigned long end = pc->end, prend;
+	unsigned int sum, parts, units, shift, order = pc->order;
+
+	BUILD_BUG_ON_NOT_POWER_OF_2(TFW_STATS_BCKTS);
 
 	do {
-		++pc->order;
-		prend = end;
-		end = pc->begin + TFW_STATS_RSPANUL(pc->order);
-	} while (end < *r_time);
+		++order;
+		pc->end = pc->begin + TFW_STATS_RSPAN_UL(order);
+	} while (pc->end < r_time);
 
 	/*
-	 * If the value of "end" exceeds the maximum value of unsigned
-	 * short, then the previous value of "end" is definitely within
-	 * the limits. Roll back to the previous values, and adjust
-	 * "r_time" to fit the range. If unable to expand at all, then
-	 * just return the adjusted "r_time".
+	 * Consirering that TfwPcntCtl{}->end is of type unsigned int,
+	 * it's totally unimaginable that this situation may ever happen.
 	 */
-	if (unlikely(end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)))) {
-		TFW_DBG3("%s: Unable to extend beyond r_time=[%u] end=[%lu]."
-			__func__, *r_time, end);
-		--pc->order;
-		*r_time = end = prend;
-		if (end == pc->end)
-			return;
-	}
+	BUG_ON(pc->end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
 
-	pc->end = (typeof(pc->end))end;
+	shift = min_t(unsigned int, order - pc->order, TFW_STATS_BCKTS_ORDER);
+	units = 1 << shift;
+	parts = TFW_STATS_BCKTS >> shift;
+
+	pc->order = order;
 
 	TFW_DBG3("  -- extend last range to begin=%u order=%u end=%u\n",
 		 pc->begin, pc->order, pc->end);
 
-	/* Coalesce all counters to the left half of the buckets. */
-	for (i = 0; i < TFW_STATS_BCKTS / 2; ++i)
-		rng->cnt[TFW_STATS_RLAST][i] =
-			rng->cnt[TFW_STATS_RLAST][2 * i]
-			+ rng->cnt[TFW_STATS_RLAST][2 * i + 1];
-	for (i = TFW_STATS_BCKTS / 2; i < TFW_STATS_BCKTS; ++i)
-		rng->cnt[TFW_STATS_RLAST][i] = 0;
+	/*
+	 * Coalesce counters to buckets on the left side of the range.
+	 * Clear the buckets that represent the new extended range.
+	 */
+	for (i = 0; i < parts; ++i) {
+		switch (units) {
+		case 2:
+			rng->cnt[TFW_STATS_RLAST][i] =
+				rng->cnt[TFW_STATS_RLAST][2 * i]
+				+ rng->cnt[TFW_STATS_RLAST][2 * i + 1];
+			break;
+		case 4:
+			rng->cnt[TFW_STATS_RLAST][i] =
+				rng->cnt[TFW_STATS_RLAST][4 * i]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 1]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 2]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 3];
+			break;
+		default:
+			sum = 0;
+			for (b = i * units; b < (i + 1) * units; ++b)
+				sum += rng->cnt[TFW_STATS_RLAST][b];
+			rng->cnt[TFW_STATS_RLAST][i] = sum;
+			break;
+		}
+	}
+	memset(&rng->cnt[TFW_STATS_RLAST][parts], 0,
+	       sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
 }
 
 /**
@@ -219,8 +236,7 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	TfwPcntCtl *pc, *prepc;
 	unsigned long prend, cnt = 0, sum = 0, max = 0, i_max = 0;
 
-	if (unlikely(r == 0))
-		return;
+	BUG_ON(r == 0);
 
 	for (i = 0; i < TFW_STATS_BCKTS; ++i) {
 		if (rng->cnt[r][i]) {
@@ -238,6 +254,9 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	if (likely(max <= sum * 2 / cnt))
 		return;
 
+	TFW_DBG3("  -- range %d has an outlier %lu (avg=%lu total=%lu) at"
+		 " bucket %lu\n", r, max, sum / cnt, sum, i_max);
+
 	/*
 	 * If too many hits fall in the gap between r'th and (r - 1)'th
 	 * ranges, and (r - 1)'th range can grow, then grow that range
@@ -249,7 +268,7 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	 */
 	pc = &rng->ctl[r];
 	prepc = &rng->ctl[r - 1];
-	prend = prepc->begin + TFW_STATS_RSPANUL(prepc->order + 1);
+	prend = prepc->begin + TFW_STATS_RSPAN_UL(prepc->order + 1);
 
 	if ((i_max == 0) && (prend < pc->begin)) {
 		__range_grow_right(rng, prepc, r - 1);
@@ -332,7 +351,7 @@ tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 
 	pc3 = &rng->ctl[3];
 	if (unlikely(r_time > pc3->end))
-		tfw_stats_extend(rng, &r_time);
+		tfw_stats_extend(rng, r_time);
 	++(*__rng(pc3, rng->cnt[3], r_time));
 	tfw_stats_adjust(rng, 3);
 
@@ -547,7 +566,7 @@ static inline void
 __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
 	int i = st->i, r, b;
-	unsigned short rtt;
+	unsigned int rtt;
 
 	for (r = i / TFW_STATS_BCKTS; r < TFW_STATS_RANGES; ++r) {
 		for (b = i % TFW_STATS_BCKTS; b < TFW_STATS_BCKTS; ++b, ++i) {
