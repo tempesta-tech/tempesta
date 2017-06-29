@@ -82,16 +82,25 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
+/* TODO #668 remove the function after the tests. */
 static void
 ss_sock_cpu_check(struct sock *sk, const char *op)
 {
-	if (unlikely(sk->sk_incoming_cpu != TFW_SK_CPU_INIT
+	if (unlikely(sk->sk_incoming_cpu != -1
 		     && sk->sk_incoming_cpu != smp_processor_id()))
 	{
-		SS_DBG("Bad socket cpu locality on <%s>:"
-			" sk=%p old_cpu=%d curr_cpu=%d\n",
-			op, sk, sk->sk_incoming_cpu, smp_processor_id());
+		SS_WARN("Bad socket cpu locality on <%s>:"
+			" sk=%p (peer=%x:%x) old_cpu=%d curr_cpu=%d\n",
+			op, sk, sk->sk_daddr, sk->sk_dport,
+			sk->sk_incoming_cpu, smp_processor_id());
 	}
+}
+
+static void
+ss_sk_incoming_cpu_update(struct sock *sk)
+{
+	if (sk->sk_incoming_cpu == -1)
+		sk->sk_incoming_cpu = raw_smp_processor_id();
 }
 
 static inline void
@@ -526,7 +535,7 @@ __ss_close(struct sock *sk, int flags)
 {
 	if (unlikely(!sk))
 		return SS_OK;
-	sk_incoming_cpu_update(sk);
+	ss_sk_incoming_cpu_update(sk);
 
 	if (!(flags & SS_F_SYNC) || !in_serving_softirq()
 	    || smp_processor_id() != sk->sk_incoming_cpu)
@@ -541,10 +550,10 @@ __ss_close(struct sock *sk, int flags)
 	}
 
 	/*
-	 * Don't put the work to work queue if we should execute it on current
-	 * CPU and we're in softirq now. We avoid overhead on work queue
-	 * operations and prevent infinite loop on synchronous push() if a
-	 * consumer is actually the same softirq context.
+	 * Don't put the work to work queue if we should execute it
+	 * synchronously on current CPU and we're in softirq now.
+	 * We avoid overhead on work queue operations and prevent infinite loop
+	 * on synchronous push() if a consumer is actually the same softirq.
 	 *
 	 * Keep in mind possible ordering problem: the socket can already have
 	 * a queued work when we close it synchronously, so the socket can be
@@ -556,23 +565,15 @@ __ss_close(struct sock *sk, int flags)
 	 * if it's live. However, in some cases this may be called multiple
 	 * times on the same socket. Do it only once for the socket.
 	 *
-	 * We can be called from tcp_v4_rcv() under the socket lock, so lock
-	 * the socket only if it isn't locked. It safe because we just checked
-	 * the socket's CPU.
+	 * We can be called from tcp_v4_rcv() under the socket lock.
 	 */
-	if (raw_spin_is_locked(&sk->sk_lock.slock.rlock)) {
-		if (unlikely(!ss_sock_live(sk)))
-			return SS_OK;
-		ss_do_close(sk);
-	} else {
-		bh_lock_sock(sk);
-		if (unlikely(!ss_sock_live(sk))) {
-			bh_unlock_sock(sk);
-			return SS_OK;
-		}
-		ss_do_close(sk);
+	bh_lock_sock_nested(sk);
+	if (unlikely(!ss_sock_live(sk))) {
 		bh_unlock_sock(sk);
+		return SS_OK;
 	}
+	ss_do_close(sk);
+	bh_unlock_sock(sk);
 	if (flags & SS_F_CONN_CLOSE)
 		SS_CALL_GUARD_EXIT(connection_drop, sk);
 	sock_put(sk); /* paired with ss_do_close() */
@@ -725,7 +726,7 @@ out:
  */
 /*
  * Called when a new data received on the socket.
- * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
+ * Called under bh_lock_sock(sk) (see tcp_v4_rcv()).
  */
 static void
 ss_tcp_data_ready(struct sock *sk)
@@ -778,7 +779,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	sk_incoming_cpu_update(sk);
+	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -994,7 +995,7 @@ ss_inet_create(struct net *net, int family,
 	sock_init_data(NULL, sk);
 	sk->sk_type = type;
 	sk->sk_allocation = GFP_ATOMIC;
-	sk->sk_incoming_cpu = TFW_SK_CPU_INIT;
+	sk->sk_incoming_cpu = -1; /* same as in sock_init_data() */
 	sk->sk_destruct = inet_sock_destruct;
 	sk->sk_protocol = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
