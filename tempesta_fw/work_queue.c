@@ -118,6 +118,11 @@ __update_guards(TfwRBQueue *q)
 		atomic64_set(&q->last_tail, last_tail);
 }
 
+/**
+ * FIXME A caller must be very careful with @sync: if two softirqs are running
+ * the operation to add an item to queues of each other, then they can spin
+ * forever (i.e. deadlock is possible).
+ */
 int
 __tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 {
