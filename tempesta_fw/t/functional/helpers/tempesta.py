@@ -20,10 +20,10 @@ def server_conns_max():
     return 32
 
 def upstream_port_start_from():
-    """ Start value for upstream servers listen port. Just for convinence. """
+    """ Start value for upstream servers listen port. Just for convenience. """
     return 8000
 
-# Vesion_info_cache
+# Version_info_cache
 tfw_version = ''
 
 def version():
@@ -141,7 +141,7 @@ class ServerGroup(object):
         self.name = name
         self.sched = sched
         self.servers = []
-        # Server group options, isserted after servers.
+        # Server group options, inserted after servers.
         self.options = ''
 
     def add_server(self, ip, port, conns=server_conns_default()):

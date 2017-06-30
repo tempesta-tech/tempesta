@@ -1,5 +1,5 @@
 """
-Hash scheduler pins resourses to specific servers and connections. Functional
+Hash scheduler pins resources to specific servers and connections. Functional
 test, check that the same server connection is used for the same resource.
 """
 

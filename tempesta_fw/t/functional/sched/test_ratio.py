@@ -15,8 +15,8 @@ __license__ = 'GPL2'
 
 class RatioStressTest(stress.StressTest):
     """Stress test for ratio scheduler in default configuration: max servers in
-    group, deffault weights for all servers, Servers are configured to support
-    infinite keep-alive requests. Clients must not recieve non-2xx answers.
+    group, default weights for all servers, Servers are configured to support
+    infinite keep-alive requests. Clients must not receive non-2xx answers.
     """
 
     def create_servers(self):
@@ -35,7 +35,7 @@ class FairLoadEqualConns(RatioStressTest):
     precision = 0.005
 
     def assert_servers(self):
-        """All servers must recieve almost equal amount of requests."""
+        """All servers must receive almost equal amount of requests."""
         self.servers_get_stats()
         cl_reqs = self.tempesta.stats.cl_msg_forwarded
         s_reqs_expected = cl_reqs / len(self.servers)
@@ -55,8 +55,8 @@ class FairLoadEqualConns(RatioStressTest):
 
 class FairLoadRandConns(FairLoadEqualConns):
     """ Same as FairLoadEqualConns, but in this test servers have random
-    connections count. Roun-robin scheduler still distributes load uniformely
-    arcross all the servers.
+    connections count. Roun-robin scheduler still distributes load uniformly
+    across all the servers.
     """
 
     def create_servers(self):

@@ -21,7 +21,7 @@ Functional tests for TempestaFW.
 Test Framework Configuration is stored in 'tests_config.ini', Use '-d' option
 to get defaults. Normally 3 machines are used to run tests: one to run HTTP
 clients, second for TempestaFw it self and third one for HTTP servers. Running
-tests on localhost is possible but not recomended for development environment.
+tests on localhost is possible but not recommended for development environment.
 
 Remote nodes controlled via SSH protocol. Make sure that you can be autorised by
 key, not password. `ssh-copy-id` can be used for that.

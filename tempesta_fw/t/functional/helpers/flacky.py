@@ -30,13 +30,13 @@ class Filter(object):
                               self.direction])
 
     def init_chains(self):
-        """Create custom chain and insert before evey other chain or rule."""
+        """Create custom chain and insert before every other chain or rule."""
         create_cmd = 'iptables -N %s' % self.chain
         self.node.run_cmd(create_cmd)
         insert_cmd = 'iptables -I %s -j %s' % (self.direction, self.chain)
         self.node.run_cmd(insert_cmd)
 
-    def drop_on_pors(self, dest_ports):
+    def drop_on_ports(self, dest_ports):
         """Block given list of ports."""
         for port in dest_ports:
             drop_cmd = ('iptables -A %s -p tcp --dport %d -j DROP'

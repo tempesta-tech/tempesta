@@ -11,7 +11,7 @@ __license__ = 'GPL2'
 class FunctionalTest(unittest.TestCase):
 
     def create_client(self):
-        """ Override to set desired list of benchmarkers and their options. """
+        """ Override to set desired list of benchmarks and their options. """
         self.client = deproxy.Client()
 
     def create_tempesta(self):

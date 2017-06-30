@@ -14,7 +14,7 @@ __license__ = 'GPL2'
 
 # Don't remove files from remote node. Helpful for tests development.
 DEBUG_FILES = False
-# Defult timeout for SSH sessions and command processing.
+# Default timeout for SSH sessions and command processing.
 DEFAULT_TIMEOUT = 5
 
 class Node(object):
@@ -116,7 +116,7 @@ class RemoteNode(Node):
             error.bug("Error connecting %s: %s" % (self.host, e))
 
     def close(self):
-        """ Release SSH connection without waitning for GC. """
+        """ Release SSH connection without waiting for GC. """
         self.ssh.close()
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
@@ -193,7 +193,7 @@ def get_max_thread_count(node):
     return int(m.group(1).decode('ascii'))
 
 #-------------------------------------------------------------------------------
-# Global accessable SSH/Local connections
+# Global accessible SSH/Local connections
 #-------------------------------------------------------------------------------
 client = create_node('Client')
 tempesta = create_node('Tempesta')
