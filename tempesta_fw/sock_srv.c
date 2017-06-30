@@ -416,10 +416,14 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * resources. Otherwise, use synchronous closing to ensure that
 	 * the job is enqueued.
 	 */
-	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
+	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT) {
+		if (conn->sk)
+			ret = ss_close_sync(conn->sk, true);
 		tfw_connection_release(conn);
-	else
+	}
+	else {
 		ret = ss_close_sync(conn->sk, true);
+	}
 
 	return ret;
 }
