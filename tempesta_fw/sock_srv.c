@@ -407,6 +407,7 @@ static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	int ret = 0;
+	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&conn->timer);
@@ -416,13 +417,13 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * resources. Otherwise, use synchronous closing to ensure that
 	 * the job is enqueued.
 	 */
-	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT) {
-		if (conn->sk)
-			ret = ss_close_sync(conn->sk, true);
+	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
 		tfw_connection_release(conn);
-	}
-	else {
-		ret = ss_close_sync(conn->sk, true);
+	if (sk) {
+		sock_hold(sk);
+		tfw_connection_unlink_to_sk(conn);
+		ret = ss_close_sync(sk, true);
+		sock_put(sk);
 	}
 
 	return ret;
