@@ -62,8 +62,8 @@
  *
  * @order	- The order of a range. The ranges grow logarithmically.
  *		  Motivation: time estimation error becomes negligible as
- *		  the time grows, so higher response times can be estimated
- *		  less accurately;
+ *		  the time grows, so higher response times may be estimated
+ *		  with less accuracy;
  * @begin	- the start response time value of a range;
  * @end		- the end response time value of a range;
  * @atomic	- atomic control handler to update all control fields
@@ -76,37 +76,36 @@
  *		  fall to a specific bucket in a range.
  *
  * Keep the members cache line aligned to minimize false sharing: each range
- * is placed on a separate cache line, and control hadlers are also on their
+ * is placed on a separate cache line, and control handlers are also on their
  * own cache lines.
  */
 #define TFW_STATS_RANGES	4
 #define TFW_STATS_RLAST		(TFW_STATS_RANGES - 1)
-#define TFW_STATS_BCKTS		16
-#define TFW_STATS_TOTAL_BCKTS	(TFW_STATS_RANGES * TFW_STATS_BCKTS)
+#define TFW_STATS_BCKTS_ORDER	4
+#define TFW_STATS_BCKTS		(1 << TFW_STATS_BCKTS_ORDER)
 
-typedef union {
-	struct {
-		unsigned int	order;
-		unsigned short	begin;
-		unsigned short	end;
-	} __attribute__((packed));
-	unsigned long		atomic;
+#define TFW_STATS_RSPAN(order)		((TFW_STATS_BCKTS - 1) << (order))
+#define TFW_STATS_RSPAN_UL(order)	((TFW_STATS_BCKTS - 1UL) << (order))
+
+typedef struct {
+	unsigned int	order;
+	unsigned int	begin;
+	unsigned int	end;
 } TfwPcntCtl;
 
 typedef struct {
 	TfwPcntCtl	ctl[TFW_STATS_RANGES];
 	char		__reset_from[0];
-	atomic64_t	tot_cnt;
-	atomic64_t	tot_val;
-	atomic_t	min_val;
-	atomic_t	max_val;
-	unsigned long	__pad_ulong;
-	atomic_t	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
+	unsigned long	tot_cnt;
+	unsigned long	tot_val;
+	unsigned long	min_val;
+	unsigned long	max_val;
+	unsigned long	cnt[TFW_STATS_RANGES][TFW_STATS_BCKTS];
 	char		__reset_till[0];
 } TfwPcntRanges __attribute__((aligned(L1_CACHE_BYTES)));
 
-static inline atomic_t *
-__rng(TfwPcntCtl *pc, atomic_t *cnt, unsigned int r_time)
+static inline unsigned long *
+__rng(TfwPcntCtl *pc, unsigned long *cnt, unsigned int r_time)
 {
 	if (r_time <= pc->begin)
 		return &cnt[0];
@@ -119,19 +118,14 @@ __range_grow_right(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	int i;
 
 	++pc->order;
-	pc->end = pc->begin + ((TFW_STATS_BCKTS - 1) << pc->order);
-	rng->ctl[r].atomic = pc->atomic;
+	pc->end = pc->begin + TFW_STATS_RSPAN(pc->order);
 
 	TFW_DBG3("  -- extend right bound of range %d to begin=%u order=%u"
 		 " end=%u\n", r, pc->begin, pc->order, pc->end);
-	/*
-	 * Coalesce all counters to left half of the buckets.
-	 * Some concurrent updates can be lost.
-	 */
+
+	/* Coalesce counters to buckets on the left half of the range. */
 	for (i = 0; i < TFW_STATS_BCKTS / 2; ++i)
-		atomic_set(&rng->cnt[r][i],
-			   atomic_read(&rng->cnt[r][2 * i])
-			   + atomic_read(&rng->cnt[r][2 * i + 1]));
+		rng->cnt[r][i] = rng->cnt[r][2 * i] + rng->cnt[r][2 * i + 1];
 }
 
 static void
@@ -141,27 +135,25 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	unsigned long cnt_full, cnt_half;
 
 	--pc->order;
-	pc->begin = pc->end - ((TFW_STATS_BCKTS - 1) << pc->order);
-	rng->ctl[r].atomic = pc->atomic;
+	pc->begin = pc->end - TFW_STATS_RSPAN(pc->order);
 
 	TFW_DBG3("  -- shrink left bound of range %d to begin=%u order=%u"
 		 " end=%u\n", r, pc->begin, pc->order, pc->end);
 	/*
 	 * Write sum of the left half counters to the first bucket and equally
-	 * split counters of the right half among rest of the buckets.
-	 * Some concurrent updates may be lost.
+	 * split counters of the right half among the rest of the buckets.
 	 */
 	for (i = 1; i < TFW_STATS_BCKTS / 2; ++i)
-		atomic_add(atomic_read(&rng->cnt[r][i]), &rng->cnt[r][0]);
-	cnt_full = atomic_read(&rng->cnt[r][TFW_STATS_BCKTS / 2]);
+		rng->cnt[r][0] += rng->cnt[r][i];
+	cnt_full = rng->cnt[r][TFW_STATS_BCKTS / 2];
 	cnt_half = cnt_full / 2;
-	atomic_add(cnt_half, &rng->cnt[r][0]);
-	atomic_set(&rng->cnt[r][1], cnt_full - cnt_half);
+	rng->cnt[r][0] += cnt_half;
+	rng->cnt[r][1] = cnt_full - cnt_half;
 	for (i = 1; i < TFW_STATS_BCKTS / 2; ++i) {
-		cnt_full = atomic_read(&rng->cnt[r][TFW_STATS_BCKTS / 2 + i]);
+		cnt_full = rng->cnt[r][TFW_STATS_BCKTS / 2 + i];
 		cnt_half = cnt_full / 2;
-		atomic_set(&rng->cnt[r][i * 2], cnt_half);
-		atomic_set(&rng->cnt[r][i * 2 + 1], cnt_full - cnt_half);
+		rng->cnt[r][i * 2] = cnt_half;
+		rng->cnt[r][i * 2 + 1] = cnt_full - cnt_half;
 	}
 }
 
@@ -171,30 +163,64 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 static void
 tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 {
-	int i;
-	TfwPcntCtl pc = { .atomic = rng->ctl[TFW_STATS_RLAST].atomic };
+	int i, b;
+	TfwPcntCtl *pc = &rng->ctl[TFW_STATS_RLAST];
+	unsigned int sum, parts, units, shift, order = pc->order;
+
+	BUILD_BUG_ON_NOT_POWER_OF_2(TFW_STATS_BCKTS);
 
 	do {
-		++pc.order;
-		pc.end = pc.begin + ((TFW_STATS_BCKTS - 1) << pc.order);
-	} while (pc.end < r_time);
-	rng->ctl[TFW_STATS_RLAST].atomic = pc.atomic;
+		++order;
+		pc->end = pc->begin + TFW_STATS_RSPAN_UL(order);
+	} while (pc->end < r_time);
+
+	/*
+	 * Consirering that TfwPcntCtl{}->end is of type unsigned int,
+	 * it's totally unimaginable that this situation may ever happen.
+	 */
+	BUG_ON(pc->end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
+
+	shift = min_t(unsigned int, order - pc->order, TFW_STATS_BCKTS_ORDER);
+	units = 1 << shift;
+	parts = TFW_STATS_BCKTS >> shift;
+
+	pc->order = order;
 
 	TFW_DBG3("  -- extend last range to begin=%u order=%u end=%u\n",
-		 pc.begin, pc.order, pc.end);
+		 pc->begin, pc->order, pc->end);
+
 	/*
-	 * Coalesce all counters to the left half of the buckets.
-	 * Some concurrent updates may be lost.
+	 * Coalesce counters to buckets on the left side of the range.
+	 * Clear the buckets that represent the new extended range.
 	 */
-	for (i = 0; i < TFW_STATS_BCKTS / 2; ++i)
-		atomic_set(&rng->cnt[TFW_STATS_RLAST][i],
-			   atomic_read(&rng->cnt[TFW_STATS_RLAST][2 * i])
-			   + atomic_read(&rng->cnt[TFW_STATS_RLAST][2 * i + 1]));
+	for (i = 0; i < parts; ++i) {
+		switch (units) {
+		case 2:
+			rng->cnt[TFW_STATS_RLAST][i] =
+				rng->cnt[TFW_STATS_RLAST][2 * i]
+				+ rng->cnt[TFW_STATS_RLAST][2 * i + 1];
+			break;
+		case 4:
+			rng->cnt[TFW_STATS_RLAST][i] =
+				rng->cnt[TFW_STATS_RLAST][4 * i]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 1]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 2]
+				+ rng->cnt[TFW_STATS_RLAST][4 * i + 3];
+			break;
+		default:
+			sum = 0;
+			for (b = i * units; b < (i + 1) * units; ++b)
+				sum += rng->cnt[TFW_STATS_RLAST][b];
+			rng->cnt[TFW_STATS_RLAST][i] = sum;
+			break;
+		}
+	}
+	memset(&rng->cnt[TFW_STATS_RLAST][parts], 0,
+	       sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
 }
 
 /**
- * See if the range @r contains large outliers. Adjust it if so.
- * This is the unlocked version.
+ * See if range @r contains large outliers. Adjust it if so.
  *
  * The leftmost bound is fixed to 1ms. The rightmost bound is only growing
  * to handle large values. So the adjustment may either increase the gaps
@@ -206,49 +232,51 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 static void
 tfw_stats_adjust(TfwPcntRanges *rng, int r)
 {
-	TfwPcntCtl pc;
-	unsigned long i, cnt = 0, sum = 0, max = 0, i_max = 0;
+	int i;
+	TfwPcntCtl *pc, *prepc;
+	unsigned long prend, cnt = 0, sum = 0, max = 0, i_max = 0;
+
+	BUG_ON(r == 0);
 
 	for (i = 0; i < TFW_STATS_BCKTS; ++i) {
-		if (atomic_read(&rng->cnt[r][i])) {
-			sum += atomic_read(&rng->cnt[r][i]);
+		if (rng->cnt[r][i]) {
+			sum += rng->cnt[r][i];
 			++cnt;
 		}
-		if (max < atomic_read(&rng->cnt[r][i])) {
-			max = atomic_read(&rng->cnt[r][i]);
+		if (max < rng->cnt[r][i]) {
+			max = rng->cnt[r][i];
 			i_max = i;
 		}
 	}
+	BUG_ON(!cnt);
+
 	/* outlier means (max < avg * 2) */
 	if (likely(max <= sum * 2 / cnt))
 		return;
 
-	if (r && i_max == 0) {
-		/*
-		 * Too many hits in the gap between r'th and (r - 1)'th ranges.
-		 * Move the right bound of the (r - 1)'th range to the right.
-		 */
-		TfwPcntCtl pc_curr = { .atomic = rng->ctl[r].atomic };
-		pc.atomic = rng->ctl[r - 1].atomic;
-		if (pc.begin + ((TFW_STATS_BCKTS - 1) << (pc.order + 1))
-		    < pc_curr.begin)
-		{
-			__range_grow_right(rng, &pc, r - 1);
-			/*
-			 * Evenly distibute hits among the right half of the
-			 * (r - 1)'th range. This is a rough approximation.
-			 */
-			cnt = max / (TFW_STATS_BCKTS / 2 + 1);
-			atomic_sub(cnt * (TFW_STATS_BCKTS / 2),
-				   &rng->cnt[r][0]);
-			for (i = TFW_STATS_BCKTS / 2; i < TFW_STATS_BCKTS; ++i)
-				atomic_set(&rng->cnt[r - 1][i], cnt);
-		}
-		/*
-		 * Fall through to reduce the range order. The first bucket
-		 * gets a higher count. Since the left bound has been moved,
-		 * the right bound of (r - 1)'th range will be moved next time.
-		 */
+	TFW_DBG3("  -- range %d has an outlier %lu (avg=%lu total=%lu) at"
+		 " bucket %lu\n", r, max, sum / cnt, sum, i_max);
+
+	/*
+	 * If too many hits fall in the gap between r'th and (r - 1)'th
+	 * ranges, and (r - 1)'th range can grow, then grow that range
+	 * and spread these hits evenly in the right half of (r - 1)'th
+	 * range as a rough approximation. Afterwards, move on to reduce
+	 * the range order. The first bucket gets a higher count. Since
+	 * the left bound has been moved, the right bound of (r - 1)'th
+	 * range will be moved next time.
+	 */
+	pc = &rng->ctl[r];
+	prepc = &rng->ctl[r - 1];
+	prend = prepc->begin + TFW_STATS_RSPAN_UL(prepc->order + 1);
+
+	if ((i_max == 0) && (prend < pc->begin)) {
+		__range_grow_right(rng, prepc, r - 1);
+
+		cnt = max / (TFW_STATS_BCKTS / 2 + 1);
+		rng->cnt[r][0] -= cnt * (TFW_STATS_BCKTS / 2);
+		for (i = TFW_STATS_BCKTS / 2; i < TFW_STATS_BCKTS; ++i)
+			rng->cnt[r - 1][i] = cnt;
 	}
 
 	/*
@@ -256,12 +284,8 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	 * If servers are too fast (all responses within 1ms), then there's
 	 * nothing to do here.
 	 */
-	if (!r)
-		return;
-	pc.atomic = rng->ctl[r].atomic;
-	if (likely(pc.order)) {
-		__range_shrink_left(rng, &pc, r);
-	}
+	if (likely(pc->order))
+		__range_shrink_left(rng, pc, r);
 }
 
 /*
@@ -272,15 +296,10 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 static inline bool
 tfw_stats_adj_max(TfwPcntRanges *rng, unsigned int r_time)
 {
-	int old_val, max_val = atomic_read(&rng->max_val);
-
-	while (r_time > max_val) {
-		old_val = atomic_cmpxchg(&rng->max_val, max_val, r_time);
-		if (likely(old_val == max_val))
-			return true;
-		max_val = old_val;
+	if (r_time > rng->max_val) {
+		rng->max_val = r_time;
+		return true;
 	}
-
 	return false;
 }
 
@@ -292,70 +311,59 @@ tfw_stats_adj_max(TfwPcntRanges *rng, unsigned int r_time)
 static inline bool
 tfw_stats_adj_min(TfwPcntRanges *rng, unsigned int r_time)
 {
-	int old_val, min_val = atomic_read(&rng->min_val);
-
-	while (r_time < min_val) {
-		old_val = atomic_cmpxchg(&rng->min_val, min_val, r_time);
-		if (likely(old_val == min_val))
-			return true;
-		min_val = old_val;
+	if (r_time < rng->min_val) {
+		rng->min_val = r_time;
+		return true;
 	}
-
 	return false;
 }
 
 /**
  * Update server response time statistic.
  * @r_time is in milliseconds (1/HZ second), use jiffies to get it.
- *
- * The control handlers may be changed during the execution of this
- * function. In that case a wrong bucket and/or range may be updated
- * in a parallel thread of execution. That's acceptable in our model.
- * We only care about correct array indexing.
  */
 static void
 tfw_stats_update(TfwPcntRanges *rng, unsigned int r_time)
 {
-	TfwPcntCtl pc3, pc2 = { .atomic = rng->ctl[2].atomic };
+	TfwPcntCtl *pc3, *pc2 = &rng->ctl[2];
 
+	/* Binary search of an appropriate range. */
+	if (r_time <= pc2->end) {
+		TfwPcntCtl *pc0, *pc1 = &rng->ctl[1];
+
+		if (r_time > pc1->end) {
+			++(*__rng(pc2, rng->cnt[2], r_time));
+			tfw_stats_adjust(rng, 2);
+			goto totals;
+		}
+
+		pc0 = &rng->ctl[0];
+		BUG_ON(pc0->begin != 1); /* left bound is never moved */
+		if (r_time > pc0->end) {
+			++(*__rng(pc1, rng->cnt[1], r_time));
+			tfw_stats_adjust(rng, 1);
+			goto totals;
+		}
+
+		++(*__rng(pc0, rng->cnt[0], r_time));
+		goto totals;
+	}
+
+	pc3 = &rng->ctl[3];
+	if (unlikely(r_time > pc3->end))
+		tfw_stats_extend(rng, r_time);
+	++(*__rng(pc3, rng->cnt[3], r_time));
+	tfw_stats_adjust(rng, 3);
+
+totals:
 	/* Adjust min/max values. */
 	if (!tfw_stats_adj_min(rng, r_time))
 		tfw_stats_adj_max(rng, r_time);
 	/* Add to @tot_val for AVG calculation. */
-	atomic64_add(r_time, &rng->tot_val);
+	rng->tot_val += r_time;
+	++rng->tot_cnt;
 
-	/* Binary search of an appropriate range. */
-	if (r_time <= pc2.end) {
-		TfwPcntCtl pc0, pc1 = { .atomic = rng->ctl[1].atomic };
-		if (pc1.end < r_time) {
-			atomic_inc(__rng(&pc2, rng->cnt[2], r_time));
-			tfw_stats_adjust(rng, 2);
-			atomic64_inc(&rng->tot_cnt);
-			return;
-		}
-
-		pc0.atomic = rng->ctl[0].atomic;
-		BUG_ON(pc0.begin != 1); /* left bound is never moved */
-		if (pc0.end < r_time) {
-			atomic_inc(__rng(&pc1, rng->cnt[1], r_time));
-			tfw_stats_adjust(rng, 1);
-			atomic64_inc(&rng->tot_cnt);
-			return;
-		}
-		atomic_inc(__rng(&pc0, rng->cnt[0], r_time));
-		tfw_stats_adjust(rng, 0);
-		atomic64_inc(&rng->tot_cnt);
-		return;
-	}
-
-	pc3.atomic = rng->ctl[3].atomic;
-	if (unlikely(r_time > pc3.end)) {
-		tfw_stats_extend(rng, r_time);
-		pc3.atomic = rng->ctl[3].atomic;
-	}
-	atomic_inc(__rng(&pc3, rng->cnt[3], r_time));
-	tfw_stats_adjust(rng, 3);
-	atomic64_inc(&rng->tot_cnt);
+	return;
 }
 
 /*
@@ -497,7 +505,6 @@ typedef struct {
  * @flags	- The atomic flags (see below).
  */
 #define TFW_APM_DATA_F_REARM	(0x0001)	/* Re-arm the timer. */
-#define TFW_APM_DATA_F_RECALC	(0x0002)	/* Need to recalculate. */
 
 #define TFW_APM_TIMER_INTVL	(HZ / 20)
 #define TFW_APM_UBUF_SZ		TFW_APM_TIMER_INTVL	/* a slot per ms. */
@@ -516,10 +523,10 @@ typedef struct {
  * including cross atlantic.
  */
 static const TfwPcntCtl tfw_rngctl_init[TFW_STATS_RANGES] = {
-	{{0, 1, 16}},
-	{{1, 17, 47}},
-	{{2, 48, 108}},
-	{{4, 109, 349}}
+	{0, 1, 16},
+	{1, 17, 47},
+	{2, 48, 108},
+	{4, 109, 349}
 };
 
 static int tfw_apm_jtmwindow;		/* Time window in jiffies. */
@@ -559,11 +566,11 @@ static inline void
 __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
 	int i = st->i, r, b;
-	unsigned short rtt;
+	unsigned int rtt;
 
 	for (r = i / TFW_STATS_BCKTS; r < TFW_STATS_RANGES; ++r) {
 		for (b = i % TFW_STATS_BCKTS; b < TFW_STATS_BCKTS; ++b, ++i) {
-			if (!atomic_read(&rng->cnt[r][b]))
+			if (!rng->cnt[r][b])
 				continue;
 			rtt = rng->ctl[r].begin + (b << rng->ctl[r].order);
 			__tfw_apm_state_set(st, rtt, i, r, b);
@@ -577,7 +584,7 @@ __tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 static inline void
 tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 {
-	BUG_ON(st->i >= TFW_STATS_TOTAL_BCKTS);
+	BUG_ON(st->i >= TFW_STATS_RANGES * TFW_STATS_BCKTS);
 
 	++st->i;
 	__tfw_apm_state_next(rng, st);
@@ -585,21 +592,8 @@ tfw_apm_state_next(TfwPcntRanges *rng, TfwApmRBEState *st)
 
 /*
  * Calculate the latest percentiles from the current stats data.
- *
- * Note that the calculation is run under a lock that protects against
- * concurrent updates to ranges in the current ring buffer entry. That
- * makes the values of @tot_cnt and the hits numbers in the buckets
- * mostly consistent. However, there's still a small chance for a race
- * condition. @tot_cnt and the buckets' @cnt[][] are updated without
- * a lock, asynchronously and at slightly different times. Due to a
- * tiny discrepancy between @tot_cnt and the sum of hit counters in
- * @cnt[][], the calculation may not be able to reach the target value.
- * In that case the calculation exits prematurely, and a recalculation
- * is scheduled at the next run of the timer.
- *
- * Returns the number of percentile values that have been filled.
  */
-static int
+static void
 tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats)
 {
 #define IDX_MIN		TFW_PSTATS_IDX_MIN
@@ -630,26 +624,12 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 			if (st[i].v < v_min)
 				v_min = st[i].v;
 		}
-		/*
-		 * If the race condition has occured, then the results
-		 * are incomplete and can be used only partially.
-		 */
-		if (unlikely(v_min == USHRT_MAX)) {
-			TFW_DBG3("%s: Calculation stopped prematurely: "
-				 "cnt [%lu] total_cnt [%lu]\n",
-				 __func__, cnt, rbctl->total_cnt);
-			TFW_DBG3("%s: [%lu] [%lu] [%lu] [%lu] [%lu] [%lu]\n",
-				 __func__,
-				 pval[IDX_ITH], pval[IDX_ITH + 1],
-				 pval[IDX_ITH + 2], pval[IDX_ITH + 3],
-				 pval[IDX_ITH + 4], pval[IDX_ITH + 5]);
-			break;
-		}
+		BUG_ON(v_min == USHRT_MAX);
 		for (i = 0; i < rbuf->rbufsz; i++) {
 			if (st[i].v != v_min)
 				continue;
 			pcntrng = &rbent[i].pcntrng;
-			cnt += atomic_read(&pcntrng->cnt[st[i].r][st[i].b]);
+			cnt += pcntrng->cnt[st[i].r][st[i].b];
 			tfw_apm_state_next(pcntrng, &st[i]);
 		}
 		for ( ; p < pstats->psz && pval[p] <= cnt; ++p)
@@ -660,17 +640,15 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 	pstats->val[IDX_MIN] = UINT_MAX;
 	for (i = 0; i < rbuf->rbufsz; i++) {
 		pcntrng = &rbent[i].pcntrng;
-		if (pstats->val[IDX_MIN] > atomic_read(&pcntrng->min_val))
-			pstats->val[IDX_MIN] = atomic_read(&pcntrng->min_val);
-		if (pstats->val[IDX_MAX] < atomic_read(&pcntrng->max_val))
-			pstats->val[IDX_MAX] = atomic_read(&pcntrng->max_val);
-		cnt += atomic64_read(&pcntrng->tot_cnt);
-		val += atomic64_read(&pcntrng->tot_val);
+		if (pstats->val[IDX_MIN] > pcntrng->min_val)
+			pstats->val[IDX_MIN] = pcntrng->min_val;
+		if (pstats->val[IDX_MAX] < pcntrng->max_val)
+			pstats->val[IDX_MAX] = pcntrng->max_val;
+		cnt += pcntrng->tot_cnt;
+		val += pcntrng->tot_val;
 	}
 	if (likely(cnt))
 		pstats->val[IDX_AVG] = val / cnt;
-
-	return p;
 
 #undef IDX_ITH
 #undef IDX_AVG
@@ -719,7 +697,7 @@ tfw_apm_rbent_checkreset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
  * Return false if the percentile values don't need the recalculation.
  */
 static bool
-tfw_apm_rbctl_update(TfwApmData *data, int recalc)
+tfw_apm_rbctl_update(TfwApmData *data)
 {
 	int i, centry;
 	unsigned long jtmnow = jiffies;
@@ -744,8 +722,8 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 		tfw_apm_rbent_checkreset(&rbent[centry], jtmistart);
 
 		for (i = 0; i < rbuf->rbufsz; ++i)
-			total_cnt += atomic64_read(&rbent[i].pcntrng.tot_cnt);
-		entry_cnt = atomic64_read(&rbent[centry].pcntrng.tot_cnt);
+			total_cnt += rbent[i].pcntrng.tot_cnt;
+		entry_cnt = rbent[centry].pcntrng.tot_cnt;
 
 		rbctl->entry_cnt = entry_cnt;
 		rbctl->total_cnt = total_cnt;
@@ -763,16 +741,9 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 	 */
 
 	/* Nothing to do if there were no stats updates. */
-	entry_cnt = atomic64_read(&rbent[centry].pcntrng.tot_cnt);
-	if (unlikely(rbctl->entry_cnt == entry_cnt)) {
-		if (unlikely(recalc)) {
-			TFW_DBG3("%s: Old time window: recalculate: "
-				 "centry [%d] total_cnt [%lu]\n",
-				 __func__, centry, rbctl->total_cnt);
-			return true;
-		}
+	entry_cnt = rbent[centry].pcntrng.tot_cnt;
+	if (unlikely(rbctl->entry_cnt == entry_cnt))
 		return false;
-	}
 	BUG_ON(rbctl->entry_cnt > entry_cnt);
 
 	/* Update the counts incrementally. */
@@ -787,15 +758,10 @@ tfw_apm_rbctl_update(TfwApmData *data, int recalc)
 
 /*
  * Calculate the latest percentiles if necessary.
- *
- * Return 0 if the calculation is successful.
- * Return < 0 if there was a system error.
- * Return > 0 and < @prcntlsz if the calculation is incomplete.
  */
-static int
+static void
 tfw_apm_calc(TfwApmData *data)
 {
-	int nfilled, recalc;
 	unsigned int rdidx;
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
@@ -808,26 +774,18 @@ tfw_apm_calc(TfwApmData *data)
 	rdidx = atomic_read(&data->stats.rdidx);
 	asent = &data->stats.asent[(rdidx + 1) % 2];
 
-	recalc = test_and_clear_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	if (!tfw_apm_rbctl_update(data, recalc))
-		return 0;
-	nfilled = tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
-	if (!nfilled)
-		return 0;
+	if (!tfw_apm_rbctl_update(data))
+		return;
+	tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 
-	if (nfilled < asent->pstats.psz) {
-		TFW_DBG3("%s: Percentile calculation incomplete.\n", __func__);
-		set_bit(TFW_APM_DATA_F_RECALC, &data->flags);
-	} else {
-		TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
-		write_lock(&asent->rwlock);
-		memcpy(asent->pstats.val, pstats.val,
-		       asent->pstats.psz * sizeof(asent->pstats.val[0]));
-		atomic_inc(&data->stats.rdidx);
-		write_unlock(&asent->rwlock);
-	}
+	TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
+	write_lock(&asent->rwlock);
+	memcpy(asent->pstats.val, pstats.val,
+	       asent->pstats.psz * sizeof(asent->pstats.val[0]));
+	atomic_inc(&data->stats.rdidx);
+	write_unlock(&asent->rwlock);
 
-	return nfilled % asent->pstats.psz;
+	return;
 }
 
 /*
@@ -898,7 +856,7 @@ tfw_apm_pstats_verify(TfwPrcntlStats *pstats)
 static void
 tfw_apm_prcntl_tmfn(unsigned long fndata)
 {
-	int i, icpu, updone = 0;
+	int i, icpu;
 	TfwApmData *data = (TfwApmData *)fndata;
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
@@ -923,12 +881,9 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 			tfw_stats_update(&rbent[rtt_data.centry].pcntrng,
 					 rtt_data.rtt);
-			++updone;
 		}
 	}
-	if (updone && unlikely(tfw_apm_calc(data))) {
-		TFW_DBG2("%s: Incomplete calculation\n", __func__);
-	}
+	tfw_apm_calc(data);
 
 	smp_mb();
 	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
@@ -936,7 +891,7 @@ tfw_apm_prcntl_tmfn(unsigned long fndata)
 }
 
 static void
-__tfw_apm_update(TfwApmData *data, unsigned long jtstamp, unsigned long rtt)
+__tfw_apm_update(TfwApmData *data, unsigned long jtstamp, unsigned int rtt)
 {
 	TfwApmUBuf *ubuf = this_cpu_ptr(data->ubuf);
 	unsigned long idxval = atomic64_add_return(0, &ubuf->counter);
@@ -952,16 +907,8 @@ __tfw_apm_update(TfwApmData *data, unsigned long jtstamp, unsigned long rtt)
 void
 tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtt)
 {
-	unsigned int rtt = jiffies_to_msecs(jrtt);
-
 	BUG_ON(!apmref);
-	/*
-	 * APM stats can't handle response times that are greater than
-	 * the maximum value possible for TfwPcntCtl{}->end. Currently
-	 * the value is USHRT_MAX which is about 65 secs in milliseconds.
-	 */
-	if (likely(rtt < (1UL << FIELD_SIZEOF(TfwPcntCtl, end) * 8)))
-		__tfw_apm_update(apmref, jtstamp, rtt);
+	__tfw_apm_update(apmref, jtstamp, jiffies_to_msecs(jrtt));
 }
 
 static void
