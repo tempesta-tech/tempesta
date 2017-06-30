@@ -82,7 +82,7 @@ class DeproxyTestFailOver(DeproxyTest):
             def check_expectations(self):
                 # We closed server connection after response. Tempesta must
                 # failover the connection. Run loop with small timeout
-                # once again to pocess events.
+                # once again to process events.
                 self.loop(0.1)
                 assert self.is_srvs_ready(), 'Failovering failed!'
                 deproxy.Deproxy.check_expectations(self)

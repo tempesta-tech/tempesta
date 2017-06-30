@@ -1,5 +1,5 @@
 """
-Hash scheduler pins resourses to specific servers and connections. Stress
+Hash scheduler pins resources to specific servers and connections. Stress
 test. Can't track server connections here, but real HTTP servers and clients
 are used.
 """

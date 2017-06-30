@@ -28,7 +28,7 @@ class IncompliteMessage(ParseError):
 class HeaderCollection(object):
     """
     A collection class for HTTP Headers. This class combines aspects of a list
-    and a dict. Lookup is always case-insenitive. A key can be added multiple
+    and a dict. Lookup is always case-insensitive. A key can be added multiple
     times with different values, and all of those values will be kept.
     """
 
@@ -217,7 +217,7 @@ class HttpMessage(object):
                 if size == 0:
                     break
             except:
-                raise ParseError('Error in chuncked body')
+                raise ParseError('Error in chunked body')
 
         # Parsing trailer will eat last CRLF
         self.parse_trailer(stream)
@@ -306,7 +306,7 @@ class Request(HttpMessage):
     def parse_firstline(self, stream):
         requestline = stream.readline()
         if requestline[-1] != '\n':
-            raise IncompliteMessage('Incomplite request line!')
+            raise IncompliteMessage('Incomplete request line!')
 
         words = requestline.rstrip('\r\n').split()
         if len(words) == 3:
@@ -349,7 +349,7 @@ class Response(HttpMessage):
     def parse_firstline(self, stream):
         statusline = stream.readline()
         if statusline[-1] != '\n':
-            raise IncompliteMessage('Incomplite Status line!')
+            raise IncompliteMessage('Incomplete Status line!')
 
         words = statusline.rstrip('\r\n').split()
         if len(words) >= 3:
@@ -405,7 +405,7 @@ class Client(asyncore.dispatcher):
         if host is None:
             host = 'Tempesta'
         addr = tf_cfg.cfg.get(host, 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Client: Conect to %s:%d.' % (addr, port))
+        tf_cfg.dbg(4, '\tDeproxy: Client: Connect to %s:%d.' % (addr, port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect((addr, port))
 
@@ -431,7 +431,7 @@ class Client(asyncore.dispatcher):
         self.response_buffer += self.recv(MAX_MESSAGE_SIZE)
         if not self.response_buffer:
             return
-        tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from Tempesta.')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Receive response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
             response = Response(self.response_buffer,
@@ -667,13 +667,13 @@ class Deproxy(object):
             expected = getattr(self.current_chain, message)
             recieved = getattr(self.recieved_chain, message)
             assert expected == recieved, \
-                ("Recieved message (%s) does not suit expected one!\n\n"
-                 "\tRecieved:\n<<<<<|\n%s|>>>>>\n"
+                ("Received message (%s) does not suit expected one!\n\n"
+                 "\tReceieved:\n<<<<<|\n%s|>>>>>\n"
                  "\tExpected:\n<<<<<|\n%s|>>>>>\n"
                  % (message, recieved.msg, expected.msg))
 
     def recieved_response(self, response):
-        """Client recieved response for its request."""
+        """Client received response for its request."""
         self.recieved_chain.response = response
         raise asyncore.ExitNow
 
@@ -683,11 +683,11 @@ class Deproxy(object):
 
     def register_srv_connection(self, connection):
         assert connection.server in self.servers, \
-            'Register connection, which comes from not registred server!'
+            'Register connection, which comes from not registered server!'
         self.srv_connections.append(connection)
 
     def remove_srv_connection(self, connection):
-        # Normaly we have the connection in the list, but do not crash test
+        # Normally we have the connection in the list, but do not crash test
         # framework if that is not true.
         try:
             self.srv_connections.remove(connection)
