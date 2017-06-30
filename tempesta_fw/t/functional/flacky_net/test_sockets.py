@@ -102,17 +102,17 @@ class CloseOnShutdown(stress.StressTest):
         if not self.servers:
             return
         self.init_filter()
-        self.filter.drop_on_pors(self.filter_ports)
+        self.filter.drop_on_ports(self.filter_ports)
         self.check_sockets(allow_conns=False)
 
     def force_reconnects(self):
-        tf_cfg.dbg(3, 'Wait untill connections would be reestablished, '
+        tf_cfg.dbg(3, 'Wait until connections would be reestablished, '
                       'send some requests and wait for kernel timers.')
         node = self.clients[0].node
         node.run_cmd('curl -m 180 %s || true' % self.clients[0].uri)
 
     def test_reachable_then_closed(self):
-        """First servers are reacable, but after that the will be plased bedind
+        """First servers are reachable, but after that the will be placed behind
         firewall.
         """
         if not self.servers:
@@ -123,7 +123,7 @@ class CloseOnShutdown(stress.StressTest):
         self.start_all()
         self.check_after_start(True)
 
-        self.filter.drop_on_pors(self.filter_ports)
+        self.filter.drop_on_ports(self.filter_ports)
         self.force_reconnects()
         self.check_after_start(False)
         self.check_after_stop()

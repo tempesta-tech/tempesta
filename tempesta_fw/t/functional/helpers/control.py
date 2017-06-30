@@ -1,4 +1,4 @@
-""" Controlls node over SSH if remote, or via OS if local one. """
+""" Controls node over SSH if remote, or via OS if local one. """
 
 from __future__ import print_function
 import abc
@@ -51,7 +51,7 @@ class Client(object):
     def set_uri(self, uri):
         """ For some clients uri is an optional parameter, e.g. for Siege.
         They use file with list of uris instead. Don't force clients to use
-        iri field.
+        uri field.
         """
         if uri:
             server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
@@ -386,7 +386,7 @@ MAX_THREADS = 32
 
 def __servers_pool_size(n_servers):
     if remote.server.is_remote():
-        # By default MasSessions in sshd config is 10. Do not overflow it.
+        # By default MaxSessions in sshd config is 10. Do not overflow it.
         return 4
     return min(n_servers, MAX_THREADS)
 

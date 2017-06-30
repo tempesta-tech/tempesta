@@ -53,7 +53,7 @@ class TesterIgnoreCookies(deproxy.Deproxy):
         # Client doesn't support cookies: Tempesta will generate new cookie for
         # each request.
         assert cookie not in self.cookies, \
-            'Recieved non-uniquee cookie!'
+            'Received non-unique cookie!'
 
         if exp_resp.status != '200':
             exp_resp.headers.delete_all('Date')
@@ -97,7 +97,7 @@ class TesterUseCookies(deproxy.Deproxy):
             exp_resp.headers.add('Set-Cookie', response.headers['Set-Cookie'])
             exp_resp.update()
 
-            # All folowing requests must contain Cookie header
+            # All following requests must contain Cookie header
             for req in [self.message_chains[1].request,
                         self.message_chains[1].fwd_request]:
                 req.headers.add('Cookie', ''.join(['__tfw=', cookie]))
