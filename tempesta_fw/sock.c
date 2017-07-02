@@ -1212,29 +1212,15 @@ ss_tx_action(void)
 			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
-			switch (sk->sk_state) {
-			case TCP_ESTABLISHED:
-				/* Paired with bh_lock_sock(): */
-				__sk_close_locked(sk);
-				break;
-			case TCP_SYN_SENT:
-				SS_DBG("[%d]: %s: Socket couldn't establish a "
-				       "connection: sk %p\n",
-				       smp_processor_id(), __func__, sk);
-				/*
-				 * I.e. connect requests was silently dropped by
-				 * a firewall.
-				 */
-				ss_do_close(sk);
-				bh_unlock_sock(sk);
-				sock_put(sk); /* paired with ss_do_close() */
-				break;
-			default:
+			if (!((1 << sk->sk_state)
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT)))
+			{
 				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
+			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		default:
 			BUG();

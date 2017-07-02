@@ -141,6 +141,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	}
 
 	/*
+	 * Save @sk in case the connect request is silently dropped by
+	 * the other end (i.e. a firewall). It will be needed to close
+	 * the socket. Initialize TfwSrvConn{}->refcnt to a special value.
 	 * Setup connection handlers before ss_connect() call. We can get
 	 * an established connection right when we're in the call in case
 	 * of a local peer connection, so all handlers must be installed
@@ -150,6 +153,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	sock_set_flag(sk, SOCK_DBG);
 #endif
 	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
+	tfw_srv_conn_init_as_dead(srv_conn);
 	ss_set_callbacks(sk);
 
 	/*
@@ -364,17 +368,13 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TFW_DBG_ADDR("connection error", &srv->addr);
 
 	/*
-	 * Distiguish connections that go to failover state from those that
-	 * are in that state already. In the latter case, take an extra
-	 * connection reference to indicate that the connection is in the
-	 * failover state.
+	 * Distiguish connections that go to failover state
+	 * from those that are in failover state already.
 	 */
 	if (tfw_connection_live(conn)) {
 		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_put_to_death(conn);
 		tfw_connection_drop(conn);
-	} else {
-		tfw_connection_get(conn);
 	}
 
 	tfw_connection_unlink_from_sk(sk);
@@ -419,12 +419,8 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 */
 	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
 		tfw_connection_release(conn);
-	if (sk) {
-		sock_hold(sk);
-		tfw_connection_unlink_to_sk(conn);
+	else
 		ret = ss_close_sync(sk, true);
-		sock_put(sk);
-	}
 
 	return ret;
 }
