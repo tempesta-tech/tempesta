@@ -82,20 +82,6 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
 
-/* TODO #668 remove the function after the tests. */
-static void
-ss_sock_cpu_check(struct sock *sk, const char *op)
-{
-	if (unlikely(sk->sk_incoming_cpu != -1
-		     && sk->sk_incoming_cpu != smp_processor_id()))
-	{
-		SS_WARN("Bad socket cpu locality on <%s>:"
-			" sk=%p (peer=%x:%x) old_cpu=%d curr_cpu=%d\n",
-			op, sk, sk->sk_daddr, sk->sk_dport,
-			sk->sk_incoming_cpu, smp_processor_id());
-	}
-}
-
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
 {
@@ -243,8 +229,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		ss_skb_queue_purge(skb_list);
 		return;
 	}
-
-	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		/*
@@ -403,7 +387,6 @@ ss_do_close(struct sock *sk)
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	ss_sock_cpu_check(sk, "close");
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
@@ -733,7 +716,6 @@ ss_tcp_data_ready(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
