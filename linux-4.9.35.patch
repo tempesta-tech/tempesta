@@ -1,0 +1,2022 @@
+diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
+index 86a6746..b13d049 100644
+--- a/Documentation/kernel-parameters.txt
++++ b/Documentation/kernel-parameters.txt
+@@ -4051,6 +4051,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
+ 
+ 	tdfx=		[HW,DRM]
+ 
++	tempesta_dbmem=	[KNL]
++			Order of 2MB memory blocks reserved on each NUMA node
++			for Tempesta database. Huge pages are used if
++			possible.
++
+ 	test_suspend=	[SUSPEND][,N]
+ 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
+ 			standby suspend) or "freeze" (for suspend type freeze)
+diff --git a/arch/x86/include/asm/fpu/api.h b/arch/x86/include/asm/fpu/api.h
+index 1429a7c..7963636 100644
+--- a/arch/x86/include/asm/fpu/api.h
++++ b/arch/x86/include/asm/fpu/api.h
+@@ -20,6 +20,10 @@
+  * All other cases use kernel_fpu_begin/end() which disable preemption
+  * during kernel FPU usage.
+  */
++#ifdef CONFIG_SECURITY_TEMPESTA
++extern void __kernel_fpu_begin_bh(void);
++extern void __kernel_fpu_end_bh(void);
++#endif
+ extern void __kernel_fpu_begin(void);
+ extern void __kernel_fpu_end(void);
+ extern void kernel_fpu_begin(void);
+diff --git a/arch/x86/kernel/fpu/core.c b/arch/x86/kernel/fpu/core.c
+index 96d80df..6e1dabb 100644
+--- a/arch/x86/kernel/fpu/core.c
++++ b/arch/x86/kernel/fpu/core.c
+@@ -110,7 +110,8 @@ bool irq_fpu_usable(void)
+ }
+ EXPORT_SYMBOL(irq_fpu_usable);
+ 
+-void __kernel_fpu_begin(void)
++void
++__kernel_fpu_begin_bh(void)
+ {
+ 	struct fpu *fpu = &current->thread.fpu;
+ 
+@@ -129,9 +130,10 @@ void __kernel_fpu_begin(void)
+ 		__fpregs_activate_hw();
+ 	}
+ }
+-EXPORT_SYMBOL(__kernel_fpu_begin);
++EXPORT_SYMBOL(__kernel_fpu_begin_bh);
+ 
+-void __kernel_fpu_end(void)
++void
++__kernel_fpu_end_bh(void)
+ {
+ 	struct fpu *fpu = &current->thread.fpu;
+ 
+@@ -142,10 +144,38 @@ void __kernel_fpu_end(void)
+ 
+ 	kernel_fpu_enable();
+ }
++EXPORT_SYMBOL(__kernel_fpu_end_bh);
++
++
++void __kernel_fpu_begin(void)
++{
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (in_serving_softirq())
++		return;
++#endif
++	__kernel_fpu_begin_bh();
++}
++EXPORT_SYMBOL(__kernel_fpu_begin);
++
++void __kernel_fpu_end(void)
++{
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (in_serving_softirq())
++		return;
++#endif
++	__kernel_fpu_end_bh();
++}
+ EXPORT_SYMBOL(__kernel_fpu_end);
+ 
++/*
++ * We don't know in which context the two functions at the below will be called,
++ * but we know preciseely that softirq uses FPU, so we have to disable softirq
++ * as well as task preemption.
++ */
++
+ void kernel_fpu_begin(void)
+ {
++	local_bh_disable();
+ 	preempt_disable();
+ 	__kernel_fpu_begin();
+ }
+@@ -155,6 +185,7 @@ void kernel_fpu_end(void)
+ {
+ 	__kernel_fpu_end();
+ 	preempt_enable();
++	local_bh_enable();
+ }
+ EXPORT_SYMBOL_GPL(kernel_fpu_end);
+ 
+diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
+index 72f0721..a70fdce 100644
+--- a/include/linux/interrupt.h
++++ b/include/linux/interrupt.h
+@@ -431,13 +431,13 @@ extern bool force_irqthreads;
+    tasklets are more than enough. F.e. all serial device BHs et
+    al. should be converted to tasklets, not to softirqs.
+  */
+-
++/* Tempesta: process RX before TX to proxy traffic in one softirq shot. */
+ enum
+ {
+ 	HI_SOFTIRQ=0,
+ 	TIMER_SOFTIRQ,
+-	NET_TX_SOFTIRQ,
+ 	NET_RX_SOFTIRQ,
++	NET_TX_SOFTIRQ,
+ 	BLOCK_SOFTIRQ,
+ 	IRQ_POLL_SOFTIRQ,
+ 	TASKLET_SOFTIRQ,
+@@ -482,7 +482,7 @@ extern void softirq_init(void);
+ extern void __raise_softirq_irqoff(unsigned int nr);
+ 
+ extern void raise_softirq_irqoff(unsigned int nr);
+-extern void raise_softirq(unsigned int nr);
++void raise_softirq(unsigned int nr);
+ 
+ DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
+ 
+diff --git a/include/linux/net.h b/include/linux/net.h
+index cd0c8bd..df4de18 100644
+--- a/include/linux/net.h
++++ b/include/linux/net.h
+@@ -204,6 +204,8 @@ struct net_proto_family {
+ 	struct module	*owner;
+ };
+ 
++extern const struct net_proto_family *get_proto_family(int family);
++
+ struct iovec;
+ struct kvec;
+ 
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index 32810f2..1a5e7ff 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -652,8 +652,12 @@ struct sk_buff {
+ 	 * layer. Please put your private variables there. If you
+ 	 * want to keep them across layers you have to do a skb_clone()
+ 	 * first. This is owned by whoever has the skb queued ATM.
++	 *
++	 * Tempesta. Extend the control block from original 48 bytes to
++	 * 64, so we can place our own control block at the end of @cb
++	 * and safely pass the skb to TCP and IP layers.
+ 	 */
+-	char			cb[48] __aligned(8);
++	char			cb[64] __aligned(8);
+ 
+ 	unsigned long		_skb_refdst;
+ 	void			(*destructor)(struct sk_buff *skb);
+@@ -691,8 +695,10 @@ struct sk_buff {
+ 				fclone:2,
+ 				peeked:1,
+ 				head_frag:1,
+-				xmit_more:1,
+-				__unused:1; /* one bit hole */
++#ifdef CONFIG_SECURITY_TEMPESTA
++				skb_page:1,
++#endif
++				xmit_more:1;
+ 	kmemcheck_bitfield_end(flags1);
+ 
+ 	/* fields enclosed in headers_start/headers_end are copied
+@@ -711,6 +717,7 @@ struct sk_buff {
+ #define PKT_TYPE_OFFSET()	offsetof(struct sk_buff, __pkt_type_offset)
+ 
+ 	__u8			__pkt_type_offset[0];
++	kmemcheck_bitfield_begin(flags2);
+ 	__u8			pkt_type:3;
+ 	__u8			pfmemalloc:1;
+ 	__u8			ignore_df:1;
+@@ -742,7 +749,10 @@ struct sk_buff {
+ #ifdef CONFIG_NET_SWITCHDEV
+ 	__u8			offload_fwd_mark:1;
+ #endif
+-	/* 2, 4 or 5 bit hole */
++	/* 1, 3 or 4 bit hole */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	__u8			tail_lock:1;
++#endif
+ 
+ #ifdef CONFIG_NET_SCHED
+ 	__u16			tc_index;	/* traffic control index */
+@@ -1791,7 +1801,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+ 
+ static inline bool skb_is_nonlinear(const struct sk_buff *skb)
+ {
++#ifdef CONFIG_SECURITY_TEMPESTA
++	return skb->tail_lock || skb->data_len;
++#else
+ 	return skb->data_len;
++#endif
+ }
+ 
+ static inline unsigned int skb_headlen(const struct sk_buff *skb)
+@@ -1977,6 +1991,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+ 	return skb->data - skb->head;
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/**
++ *	skb_tailroom_locked - bytes at buffer end
++ *	@skb: buffer to check
++ *
++ *	Return the number of bytes of free space at the tail of an sk_buff with
++ *	respect to tail locking only.
++ */
++static inline int skb_tailroom_locked(const struct sk_buff *skb)
++{
++	return skb->tail_lock ? 0 : skb->end - skb->tail;
++}
++#endif
++
+ /**
+  *	skb_tailroom - bytes at buffer end
+  *	@skb: buffer to check
+@@ -3873,5 +3901,29 @@ static inline __wsum lco_csum(struct sk_buff *skb)
+ 	return csum_partial(l4_hdr, csum_start - l4_hdr, partial);
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/*
++ * ------------------------------------------------------------------------
++ * 		Tempesta FW
++ * ------------------------------------------------------------------------
++ */
++/*
++ * We use this additional skb list to be able to reference skbs which are
++ * processed by standard Linux TCP/IP stack w/o skb cloning.
++ */
++typedef struct {
++	struct sk_buff	*next;
++	struct sk_buff	*prev;
++} SsSkbCb;
++
++#define TFW_SKB_CB(s)		((SsSkbCb *)((s)->cb + sizeof((s)->cb)	\
++						      - sizeof(SsSkbCb)))
++#define TFW_SKB_CB_INIT(skb)						\
++do {									\
++	TFW_SKB_CB(skb)->prev = NULL;					\
++	TFW_SKB_CB(skb)->next = NULL;					\
++} while (0)
++#endif  /* CONFIG_SECURITY_TEMPESTA */
++
+ #endif	/* __KERNEL__ */
+ #endif	/* _LINUX_SKBUFF_H */
+diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
+new file mode 100644
+index 0000000..55049bd
+--- /dev/null
++++ b/include/linux/tempesta.h
+@@ -0,0 +1,54 @@
++/**
++ * Linux interface for Tempesta FW.
++ *
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#ifndef __TEMPESTA_H__
++#define __TEMPESTA_H__
++
++#include <net/sock.h>
++
++typedef void (*TempestaTxAction)(void);
++
++typedef struct {
++	int (*sk_alloc)(struct sock *sk);
++	void (*sk_free)(struct sock *sk);
++	int (*sock_tcp_rcv)(struct sock *sk, struct sk_buff *skb);
++} TempestaOps;
++
++typedef struct {
++	unsigned long	addr;
++	unsigned long	pages; /* number of 4KB pages */
++} TempestaMapping;
++
++/* Security hooks. */
++int tempesta_new_clntsk(struct sock *newsk);
++void tempesta_register_ops(TempestaOps *tops);
++void tempesta_unregister_ops(TempestaOps *tops);
++
++/* Network hooks. */
++void tempesta_set_tx_action(TempestaTxAction action);
++void tempesta_del_tx_action(void);
++
++/* Memory management. */
++void tempesta_reserve_pages(void);
++void tempesta_reserve_vmpages(void);
++int tempesta_get_mapping(int node, TempestaMapping **tm);
++
++#endif /* __TEMPESTA_H__ */
++
+diff --git a/include/net/sock.h b/include/net/sock.h
+index 92b2697..1bc3805 100644
+--- a/include/net/sock.h
++++ b/include/net/sock.h
+@@ -743,6 +743,9 @@ enum sock_flags {
+ 	SOCK_FILTER_LOCKED, /* Filter cannot be changed anymore */
+ 	SOCK_SELECT_ERR_QUEUE, /* Wake select on error queue */
+ 	SOCK_RCU_FREE, /* wait rcu grace period in sk_destruct() */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	SOCK_TEMPESTA, /* The socket is managed by Tempesta FW */
++#endif
+ };
+ 
+ #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
+@@ -1679,8 +1682,7 @@ static inline void sk_rethink_txhash(struct sock *sk)
+ static inline struct dst_entry *
+ __sk_dst_get(struct sock *sk)
+ {
+-	return rcu_dereference_check(sk->sk_dst_cache,
+-				     lockdep_sock_is_held(sk));
++	return rcu_dereference_raw(sk->sk_dst_cache);
+ }
+ 
+ static inline struct dst_entry *
+diff --git a/include/net/tcp.h b/include/net/tcp.h
+index 123979f..545f52b 100644
+--- a/include/net/tcp.h
++++ b/include/net/tcp.h
+@@ -329,6 +329,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
+ 
+ 
+ extern struct proto tcp_prot;
++extern struct proto tcpv6_prot;
+ 
+ #define TCP_INC_STATS(net, field)	SNMP_INC_STATS((net)->mib.tcp_statistics, field)
+ #define __TCP_INC_STATS(net, field)	__SNMP_INC_STATS((net)->mib.tcp_statistics, field)
+@@ -604,6 +605,16 @@ static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
+ /* tcp.c */
+ void tcp_get_info(struct sock *, struct tcp_info *);
+ 
++/* Routines required by Tempesta FW. */
++void tcp_cleanup_rbuf(struct sock *sk, int copied);
++extern void tcp_push(struct sock *sk, int flags, int mss_now, int nonagle,
++		     int size_goal);
++extern int tcp_send_mss(struct sock *sk, int *size_goal, int flags);
++extern void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb);
++extern void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags);
++extern void tcp_queue_skb(struct sock *sk, struct sk_buff *skb);
++extern int tcp_close_state(struct sock *sk);
++
+ /* Read 'sendfile()'-style from a TCP socket */
+ int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
+ 		  sk_read_actor_t recv_actor);
+diff --git a/include/uapi/linux/netlink.h b/include/uapi/linux/netlink.h
+index 0dba4e4..82910ff 100644
+--- a/include/uapi/linux/netlink.h
++++ b/include/uapi/linux/netlink.h
+@@ -27,6 +27,7 @@
+ #define NETLINK_ECRYPTFS	19
+ #define NETLINK_RDMA		20
+ #define NETLINK_CRYPTO		21	/* Crypto layer */
++#define NETLINK_TEMPESTA	22	/* TODO remove me */
+ 
+ #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
+ 
+diff --git a/init/main.c b/init/main.c
+index ae3996a..dd9a8e7 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -88,6 +88,8 @@
+ #include <asm/sections.h>
+ #include <asm/cacheflush.h>
+ 
++#include <linux/tempesta.h>
++
+ static int kernel_init(void *);
+ 
+ extern void init_IRQ(void);
+@@ -469,11 +471,25 @@ static void __init mm_init(void)
+ 	 */
+ 	page_ext_init_flatmem();
+ 	mem_init();
++
++	/*
++	 * Tempesta: reserve pages just when zones are initialized
++	 * to get continous address space of huge pages.
++	 */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	tempesta_reserve_pages();
++#endif
++
+ 	kmem_cache_init();
+ 	percpu_init_late();
+ 	pgtable_init();
+ 	vmalloc_init();
+ 	ioremap_huge_init();
++
++	/* Try vmalloc() if the previous one failed. */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	tempesta_reserve_vmpages();
++#endif
+ }
+ 
+ asmlinkage __visible void __init start_kernel(void)
+diff --git a/kernel/softirq.c b/kernel/softirq.c
+index 744fa61..da91fc7 100644
+--- a/kernel/softirq.c
++++ b/kernel/softirq.c
+@@ -26,6 +26,7 @@
+ #include <linux/smpboot.h>
+ #include <linux/tick.h>
+ #include <linux/irq.h>
++#include <asm/fpu/api.h>
+ 
+ #define CREATE_TRACE_POINTS
+ #include <trace/events/irq.h>
+@@ -261,6 +262,10 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
+ 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+ 	in_hardirq = lockdep_softirq_start();
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	__kernel_fpu_begin_bh();
++#endif
++
+ restart:
+ 	/* Reset the pending bitmask before enabling irqs */
+ 	set_softirq_pending(0);
+@@ -305,6 +310,9 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
+ 		wakeup_softirqd();
+ 	}
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	__kernel_fpu_end_bh();
++#endif
+ 	lockdep_softirq_end(in_hardirq);
+ 	account_irq_exit_time(current);
+ 	__local_bh_enable(SOFTIRQ_OFFSET);
+@@ -437,6 +445,7 @@ void raise_softirq(unsigned int nr)
+ 	raise_softirq_irqoff(nr);
+ 	local_irq_restore(flags);
+ }
++EXPORT_SYMBOL(raise_softirq);
+ 
+ void __raise_softirq_irqoff(unsigned int nr)
+ {
+diff --git a/mm/Makefile b/mm/Makefile
+index 295bd7a..20c191e 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -100,3 +100,4 @@ obj-$(CONFIG_IDLE_PAGE_TRACKING) += page_idle.o
+ obj-$(CONFIG_FRAME_VECTOR) += frame_vector.o
+ obj-$(CONFIG_DEBUG_PAGE_REF) += debug_page_ref.o
+ obj-$(CONFIG_HARDENED_USERCOPY) += usercopy.o
++obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
+diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
+new file mode 100644
+index 0000000..a131d48
+--- /dev/null
++++ b/mm/tempesta_mm.c
+@@ -0,0 +1,278 @@
++/**
++ *		Tempesta Memory Reservation
++ *
++ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#include <linux/gfp.h>
++#include <linux/hugetlb.h>
++#include <linux/tempesta.h>
++#include <linux/topology.h>
++#include <linux/vmalloc.h>
++
++#include "internal.h"
++
++#define MAX_PGORDER		16	/* 128GB per one table */
++#define MIN_PGORDER		0	/* 2MB - one extent */
++#define DEFAULT_PGORDER		8	/* 512MB */
++/* Modern processors support up to 1.5TB of RAM, be ready for 2TB. */
++#define GREEDY_ARNUM		(1024 * 1024 + 1)
++#define PGNUM			(1 << pgorder)
++#define PGNUM4K			(PGNUM * (1 << HUGETLB_PAGE_ORDER))
++
++static int pgorder = DEFAULT_PGORDER;
++static gfp_t gfp_f = GFP_HIGHUSER | __GFP_COMP | __GFP_THISNODE | __GFP_ZERO
++		     | __GFP_REPEAT |__GFP_NOWARN;
++static TempestaMapping map[MAX_NUMNODES];
++/*
++ * Modern x86-64 has not more than 512GB RAM per physical node.
++ * This is very large amount of memory, but it will be freed when
++ * initialization phase ends.
++ */
++static struct page *greedy[GREEDY_ARNUM] __initdata = { 0 };
++
++static int __init
++tempesta_setup_pages(char *str)
++{
++	get_option(&str, &pgorder);
++	if (pgorder < MIN_PGORDER) {
++		pr_err("Tempesta: bad dbmem value %d, must be [%d:%d]\n",
++		       pgorder, MIN_PGORDER, MAX_PGORDER);
++		pgorder = MIN_PGORDER;
++	}
++	if (pgorder > MAX_PGORDER) {
++		pr_err("Tempesta: bad dbmem value %d, must be [%d:%d]\n",
++		       pgorder, MIN_PGORDER, MAX_PGORDER);
++		pgorder = MAX_PGORDER;
++	}
++
++	return 1;
++}
++__setup("tempesta_dbmem=", tempesta_setup_pages);
++
++/**
++ * The code is somewhat stollen from mm/hugetlb.c.
++ */
++static struct page *
++tempesta_alloc_hpage(int nid)
++{
++	struct page *p;
++
++	p = alloc_pages_node(nid, gfp_f, HUGETLB_PAGE_ORDER);
++	if (!p)
++		return NULL;
++
++	count_vm_event(HTLB_BUDDY_PGALLOC);
++
++	__ClearPageReserved(p);
++	prep_compound_page(p, HUGETLB_PAGE_ORDER);
++
++	/* Acquire the page immediately. */
++	set_page_refcounted(p);
++
++	return p;
++}
++
++static void
++tempesta_free_hpage(struct page *p)
++{
++	__free_pages(p, HUGETLB_PAGE_ORDER);
++}
++
++/**
++ * Greedely alloc huge pages and try to find continous region organized
++ * by sorted set of allocated pages. When the region is found, all pages
++ * out of it are returned to system.
++ */
++static struct page *
++tempesta_alloc_contmem(int nid)
++{
++	long min = -1, start = -1, curr = 0, end = -1, max = -1;
++	struct page *p;
++
++	while (1) {
++		p = tempesta_alloc_hpage(nid);
++		if (!p)
++			goto err;
++		curr = ((long)page_address(p) - PAGE_OFFSET) >> HPAGE_SHIFT;
++		/*
++		 * The first kernel mapped page is always reserved.
++		 * Keep untouched (zero) bounds for faster lookups.
++		 */
++		BUG_ON(curr < 1 || curr >= GREEDY_ARNUM);
++		greedy[curr] = p;
++
++		/* First time initialization. */
++		if (min < 0) {
++			min = start = end = max = curr;
++		} else {
++			/* Update bounds for faster pages return. */
++			if (min > curr)
++				min = curr;
++			if (max < curr)
++				max = curr;
++			/* Update continous memory segment bounds. */
++			if (curr == end + 1) {
++				while (end <= max && greedy[end + 1])
++					++end;
++			}
++			else if (curr + 1 == start) {
++				while (start >= min && greedy[start - 1])
++					--start;
++			}
++			else {
++				/* Try to find new continous segment. */
++				long i, d_max = 0, good_start = start = min;
++				for (i = min; i <= max; ++i) {
++					if (greedy[i]) {
++						if (start == -1)
++							start = i;
++						end = i;
++						if (i - start + 1 == PGNUM)
++							break;
++						continue;
++					}
++
++					if (start > 0 && end - start > d_max) {
++						good_start = start;
++						d_max = end - start;
++					}
++					start = -1;
++				}
++				if (end - start < d_max) {
++					start = good_start;
++					end = start + d_max;
++				}
++			}
++		}
++
++		if (end - start + 1 == PGNUM)
++			break; /* continous space is built! */
++	}
++
++	/* Return unnecessary pages. */
++	BUG_ON(min < 0 || start < 0 || end < 0 || max < 0);
++	for ( ; min < start; ++min)
++		if (greedy[min]) {
++			tempesta_free_hpage(greedy[min]);
++			greedy[min] = NULL;
++		}
++	for ( ; max > end; --max)
++		if (greedy[max]) {
++			tempesta_free_hpage(greedy[max]);
++			greedy[max] = NULL;
++		}
++	return greedy[start];
++
++err:
++	pr_err("Tempesta: cannot allocate %u continous huge pages at node"
++	       " %d\n", PGNUM, nid);
++	for ( ; min >= 0 && min <= max; ++min)
++		if (greedy[min]) {
++			tempesta_free_hpage(greedy[min]);
++			greedy[min] = NULL;
++		}
++	return NULL;
++}
++
++/**
++ * Allocate continous virtual space of huge pages for Tempesta.
++ * We do not use giantic 1GB pages since not all modern x86-64 CPUs
++ * allows them in virtualized mode.
++ *
++ * TODO try firstly to allocate giantic pages, next huge pages and finally
++ * fallback to common 4KB pages allocation if previous tries failed.
++ */
++void __init
++tempesta_reserve_pages(void)
++{
++	int nid;
++	struct page *p;
++
++	for_each_online_node(nid) {
++		p = tempesta_alloc_contmem(nid);
++		if (!p)
++			goto err;
++
++		map[nid].addr = (unsigned long)page_address(p);
++		map[nid].pages = PGNUM4K;
++
++		pr_info("Tempesta: allocated huge pages space %p %luMB at node"
++			" %d\n", page_address(p),
++			PGNUM4K * PAGE_SIZE / (1024 * 1024), nid);
++	}
++
++	return;
++err:
++	for_each_online_node(nid) {
++		struct page *pend;
++		if (!map[nid].addr)
++			continue;
++		for (p = virt_to_page(map[nid].addr), pend = p + PGNUM4K;
++		     p < pend; p += 1 << HUGETLB_PAGE_ORDER)
++			tempesta_free_hpage(p);
++	}
++	memset(map, 0, sizeof(map));
++}
++
++/**
++ * Allocates necessary space if tempesta_reserve_pages() failed.
++ */
++void __init
++tempesta_reserve_vmpages(void)
++{
++	int nid, maps = 0;
++	size_t vmsize = PGNUM * (1 << HPAGE_SHIFT);
++
++	for_each_online_node(nid)
++		maps += !!map[nid].addr;
++
++	BUG_ON(maps && maps < nr_online_nodes);
++	if (maps == nr_online_nodes)
++		return;
++
++	for_each_online_node(nid) {
++		pr_warn("Tempesta: allocate %u vmalloc pages at node %d\n",
++			PGNUM4K, nid);
++
++		map[nid].addr = (unsigned long)vzalloc_node(vmsize, nid);
++		if (!map[nid].addr)
++			goto err;
++		map[nid].pages = PGNUM4K;
++	}
++
++	return;
++err:
++	pr_err("Tempesta: cannot vmalloc area of %lu bytes at node %d\n",
++	       vmsize, nid);
++	for_each_online_node(nid)
++		if (map[nid].addr)
++			vfree((void *)map[nid].addr);
++	memset(map, 0, sizeof(map));
++}
++
++int
++tempesta_get_mapping(int nid, TempestaMapping **tm)
++{
++	if (unlikely(!map[nid].addr))
++		return -ENOMEM;
++
++	*tm = &map[nid];
++
++	return 0;
++}
++EXPORT_SYMBOL(tempesta_get_mapping);
++
+diff --git a/net/core/dev.c b/net/core/dev.c
+index 2e04fd1..aa05858 100644
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -3863,6 +3863,28 @@ int netif_rx_ni(struct sk_buff *skb)
+ }
+ EXPORT_SYMBOL(netif_rx_ni);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++#include <linux/tempesta.h>
++
++static TempestaTxAction __rcu tempesta_tx_action = NULL;
++
++void
++tempesta_set_tx_action(TempestaTxAction action)
++{
++	rcu_assign_pointer(tempesta_tx_action, action);
++}
++EXPORT_SYMBOL(tempesta_set_tx_action);
++
++void
++tempesta_del_tx_action(void)
++{
++	rcu_assign_pointer(tempesta_tx_action, NULL);
++	synchronize_rcu();
++}
++EXPORT_SYMBOL(tempesta_del_tx_action);
++#endif
++
++
+ static __latent_entropy void net_tx_action(struct softirq_action *h)
+ {
+ 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+@@ -3894,6 +3916,20 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
+ 		__kfree_skb_flush();
+ 	}
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	{
++		TempestaTxAction action;
++
++		rcu_read_lock();
++
++		action = rcu_dereference(tempesta_tx_action);
++		if (likely(action))
++			action();
++
++		rcu_read_unlock();
++	}
++#endif
++
+ 	if (sd->output_queue) {
+ 		struct Qdisc *head;
+ 
+@@ -4655,7 +4691,12 @@ static gro_result_t napi_skb_finish(gro_result_t ret, struct sk_buff *skb)
+ 	case GRO_MERGED_FREE:
+ 		if (NAPI_GRO_CB(skb)->free == NAPI_GRO_FREE_STOLEN_HEAD) {
+ 			skb_dst_drop(skb);
+-			kmem_cache_free(skbuff_head_cache, skb);
++#ifdef CONFIG_SECURITY_TEMPESTA
++			if (skb->skb_page)
++				put_page(virt_to_page(skb));
++			else
++#endif
++				kmem_cache_free(skbuff_head_cache, skb);
+ 		} else {
+ 			__kfree_skb(skb);
+ 		}
+diff --git a/net/core/request_sock.c b/net/core/request_sock.c
+index 5d26056..ee02253 100644
+--- a/net/core/request_sock.c
++++ b/net/core/request_sock.c
+@@ -136,3 +136,4 @@ void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
+ out:
+ 	spin_unlock_bh(&fastopenq->lock);
+ }
++EXPORT_SYMBOL(reqsk_fastopen_remove);
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index fe008f1..6ead5bf 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -79,7 +79,9 @@
+ #include <linux/user_namespace.h>
+ 
+ struct kmem_cache *skbuff_head_cache __read_mostly;
++#ifndef CONFIG_SECURITY_TEMPESTA
+ static struct kmem_cache *skbuff_fclone_cache __read_mostly;
++#endif
+ int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
+ EXPORT_SYMBOL(sysctl_max_skb_frags);
+ 
+@@ -115,6 +117,7 @@ static void skb_under_panic(struct sk_buff *skb, unsigned int sz, void *addr)
+ 	skb_panic(skb, sz, addr, __func__);
+ }
+ 
++#ifndef CONFIG_SECURITY_TEMPESTA
+ /*
+  * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
+  * the caller if emergency pfmemalloc reserves are being used. If it is and
+@@ -151,6 +154,166 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+ 
+ 	return obj;
+ }
++#else
++/*
++ * Chunks of size 512B, 1KB and 2KB.
++ * Typical sk_buff requires ~248B or ~504B (for fclone),
++ * skb_shared_info is ~320B.
++ */
++#define PG_LISTS_N		3
++#define PG_CHUNK_BITS		(PAGE_SHIFT - 3)
++#define PG_CHUNK_SZ		(1 << PG_CHUNK_BITS)
++#define PG_CHUNK_MASK		(~(PG_CHUNK_SZ - 1))
++#define PG_ALLOC_SZ(s)		(((s) + (PG_CHUNK_SZ - 1)) & PG_CHUNK_MASK)
++#define PG_CHUNK_NUM(s)		(PG_ALLOC_SZ(s) >> PG_CHUNK_BITS)
++#define PG_POOL_HLIM_BASE	256
++
++/**
++ * @lh		- list head of chunk pool;
++ * @count	- current number of chunks in @lh;
++ * @h_limit	- hard limit for size of @lh;
++ * @max		- current maximum allowed size of the list, can be 0.
++ */
++typedef struct {
++	struct list_head	lh;
++	unsigned int		count;
++	unsigned int		h_limit;
++	unsigned int		max;
++} TfwSkbMemPool;
++
++static DEFINE_PER_CPU(TfwSkbMemPool [PG_LISTS_N], pg_mpool);
++
++static bool
++__pg_pool_grow(TfwSkbMemPool *pool)
++{
++	if (!pool->count) {
++		/* Too few chunks were provisioned. */
++		unsigned int n = max(pool->max, 1U) << 1; /* start from 2 */
++		pool->max = (n > pool->h_limit) ? pool->h_limit : n;
++		return false;
++	}
++	if (pool->max < pool->h_limit)
++		++pool->max;
++	return true;
++}
++
++static bool
++__pg_pool_shrink(TfwSkbMemPool *pool)
++{
++	if (unlikely(pool->count >= pool->max)) {
++		/* Producers are much faster consumers right now. */
++		pool->max >>= 1;
++		while (pool->count > pool->max) {
++			struct list_head *pc = pool->lh.next;
++			list_del(pc);
++			put_page(virt_to_page(pc));
++			--pool->count;
++		}
++		return false;
++	}
++	/*
++	 * Producers and consumers look balanced.
++	 * Slowly reduce provisioning.
++	 */
++	if (pool->max)
++		--pool->max;
++	return true;
++}
++
++static void *
++__pg_skb_alloc(unsigned int size, gfp_t gfp_mask, int node)
++{
++	/*
++	 * Don't disable softirq if hardirqs are already disabled to avoid
++	 * warning in __local_bh_enable_ip(). Disable user space process
++	 * preemption as well as preemption by softirq (see SOFTIRQ_LOCK_OFFSET
++	 * usage in spin locks for the same motivation).
++	 */
++	bool dolock = !(in_irq() || irqs_disabled());
++#define PREEMPT_CTX_DISABLE()						\
++do {									\
++	if (dolock)							\
++		local_bh_disable();					\
++	preempt_disable();						\
++} while (0)
++
++#define PREEMPT_CTX_ENABLE()						\
++do {									\
++	preempt_enable();						\
++	if (dolock)							\
++		local_bh_enable();					\
++} while (0)
++
++	char *ptr;
++	struct page *pg;
++	TfwSkbMemPool *pools;
++	unsigned int c, cn, o, l, po;
++
++	cn = PG_CHUNK_NUM(size);
++	po = get_order(PG_ALLOC_SZ(size));
++
++	PREEMPT_CTX_DISABLE();
++
++	pools = this_cpu_ptr(pg_mpool);
++
++	for (o = (cn == 1) ? 0 : (cn == 2) ? 1 : (cn <= 4) ? 2 : PG_LISTS_N;
++	     o < PG_LISTS_N; ++o)
++	{
++		struct list_head *pc;
++		if (!__pg_pool_grow(&pools[o]))
++			continue;
++
++		pc = pools[o].lh.next;
++		list_del(pc);
++		--pools[o].count;
++		ptr = (char *)pc;
++		pg = virt_to_page(ptr);
++		goto assign_tail_chunks;
++	}
++
++	PREEMPT_CTX_ENABLE();
++
++	/* Add compound page metadata, if page order is > 0. */
++	gfp_mask |= __GFP_NOWARN | __GFP_NOMEMALLOC | __GFP_NORETRY
++		    | (po ? __GFP_COMP : 0);
++	pg = alloc_pages_node(node, gfp_mask, po);
++	if (!pg)
++		return NULL;
++	ptr = (char *)page_address(pg);
++	/*
++	 * Don't try to split compound page.
++	 * TODO compound pages can be split as __alloc_page_frag() does it
++	 * using fragment size in page reference counter.
++	 */
++	if (po)
++		return ptr;
++	o = PAGE_SHIFT - PG_CHUNK_BITS;
++
++	PREEMPT_CTX_DISABLE();
++
++	pools = this_cpu_ptr(pg_mpool);
++
++assign_tail_chunks:
++	/* Split and store small tail chunks. */
++	for (c = cn, cn = 1 << o, l = PG_LISTS_N - 1; c < cn; c += (1 << l)) {
++		struct list_head *chunk;
++		while (c + (1 << l) > cn)
++			--l;
++		chunk = (struct list_head *)(ptr + PG_CHUNK_SZ * c);
++		if (__pg_pool_shrink(&pools[l])) {
++			get_page(pg);
++			list_add(chunk, &pools[l].lh);
++			++pools[l].count;
++		}
++	}
++
++	PREEMPT_CTX_ENABLE();
++
++	return ptr;
++#undef PREEMPT_CTX_DISABLE
++#undef PREEMPT_CTX_ENABLE
++}
++#endif
+ 
+ /* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
+  *	'private' fields and also do memory statistics to find all the
+@@ -183,6 +346,54 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
+ 	return skb;
+ }
+ 
++static void
++__alloc_skb_init(struct sk_buff *skb, u8 *data, unsigned int size,
++		 int flags, bool pfmemalloc)
++{
++	struct skb_shared_info *shinfo;
++
++	/*
++	 * Only clear those fields we need to clear, not those that we will
++	 * actually initialise below. Hence, don't put any more fields after
++	 * the tail pointer in struct sk_buff!
++	 */
++	memset(skb, 0, offsetof(struct sk_buff, tail));
++	/* Account for allocated memory : skb + skb->head */
++	skb->truesize = SKB_TRUESIZE(size);
++	skb->pfmemalloc = pfmemalloc;
++	atomic_set(&skb->users, 1);
++	skb->head = data;
++	skb->data = data;
++	skb_reset_tail_pointer(skb);
++	skb->end = skb->tail + size;
++	skb->mac_header = (typeof(skb->mac_header))~0U;
++	skb->transport_header = (typeof(skb->transport_header))~0U;
++
++	/* make sure we initialize shinfo sequentially */
++	shinfo = skb_shinfo(skb);
++	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
++	atomic_set(&shinfo->dataref, 1);
++	kmemcheck_annotate_variable(shinfo->destructor_arg);
++
++	if (flags & SKB_ALLOC_FCLONE) {
++		struct sk_buff_fclones *fclones;
++
++		fclones = container_of(skb, struct sk_buff_fclones, skb1);
++
++		kmemcheck_annotate_bitfield(&fclones->skb2, flags1);
++		skb->fclone = SKB_FCLONE_ORIG;
++		atomic_set(&fclones->fclone_ref, 1);
++
++		kmemcheck_annotate_bitfield(&fclones->skb2, flags2);
++		fclones->skb2.fclone = SKB_FCLONE_CLONE;
++		fclones->skb2.pfmemalloc = pfmemalloc;
++#ifdef CONFIG_SECURITY_TEMPESTA
++		fclones->skb2.skb_page = 1;
++		fclones->skb2.head_frag = 1;
++#endif
++	}
++}
++
+ /**
+  *	__alloc_skb	-	allocate a network buffer
+  *	@size: size to allocate
+@@ -200,11 +411,11 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
+  *	Buffers may only be allocated from interrupts using a @gfp_mask of
+  *	%GFP_ATOMIC.
+  */
++#ifndef CONFIG_SECURITY_TEMPESTA
+ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+ 			    int flags, int node)
+ {
+ 	struct kmem_cache *cache;
+-	struct skb_shared_info *shinfo;
+ 	struct sk_buff *skb;
+ 	u8 *data;
+ 	bool pfmemalloc;
+@@ -238,41 +449,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+ 	size = SKB_WITH_OVERHEAD(ksize(data));
+ 	prefetchw(data + size);
+ 
+-	/*
+-	 * Only clear those fields we need to clear, not those that we will
+-	 * actually initialise below. Hence, don't put any more fields after
+-	 * the tail pointer in struct sk_buff!
+-	 */
+-	memset(skb, 0, offsetof(struct sk_buff, tail));
+-	/* Account for allocated memory : skb + skb->head */
+-	skb->truesize = SKB_TRUESIZE(size);
+-	skb->pfmemalloc = pfmemalloc;
+-	atomic_set(&skb->users, 1);
+-	skb->head = data;
+-	skb->data = data;
+-	skb_reset_tail_pointer(skb);
+-	skb->end = skb->tail + size;
+-	skb->mac_header = (typeof(skb->mac_header))~0U;
+-	skb->transport_header = (typeof(skb->transport_header))~0U;
+-
+-	/* make sure we initialize shinfo sequentially */
+-	shinfo = skb_shinfo(skb);
+-	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
+-	atomic_set(&shinfo->dataref, 1);
+-	kmemcheck_annotate_variable(shinfo->destructor_arg);
+-
+-	if (flags & SKB_ALLOC_FCLONE) {
+-		struct sk_buff_fclones *fclones;
+-
+-		fclones = container_of(skb, struct sk_buff_fclones, skb1);
+-
+-		kmemcheck_annotate_bitfield(&fclones->skb2, flags1);
+-		skb->fclone = SKB_FCLONE_ORIG;
+-		atomic_set(&fclones->fclone_ref, 1);
+-
+-		fclones->skb2.fclone = SKB_FCLONE_CLONE;
+-		fclones->skb2.pfmemalloc = pfmemalloc;
+-	}
++	__alloc_skb_init(skb, data, size, flags, pfmemalloc);
+ out:
+ 	return skb;
+ nodata:
+@@ -280,6 +457,42 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+ 	skb = NULL;
+ 	goto out;
+ }
++#else
++/**
++ * Tempesta: allocate skb on the same page with data to improve space locality
++ * and make head data fragmentation easier.
++ */
++struct sk_buff *
++__alloc_skb(unsigned int size, gfp_t gfp_mask, int flags, int node)
++{
++	struct sk_buff *skb;
++	struct page *pg;
++	u8 *data;
++	size_t skb_sz = (flags & SKB_ALLOC_FCLONE)
++			? SKB_DATA_ALIGN(sizeof(struct sk_buff_fclones))
++			: SKB_DATA_ALIGN(sizeof(struct sk_buff));
++	size_t shi_sz = SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
++	size_t n = skb_sz + shi_sz + SKB_DATA_ALIGN(size);
++
++	if (sk_memalloc_socks() && (flags & SKB_ALLOC_RX))
++		gfp_mask |= __GFP_MEMALLOC;
++
++	if (!(skb = __pg_skb_alloc(n, gfp_mask, node)))
++		return NULL;
++
++	data = (u8 *)skb + skb_sz;
++	size = SKB_WITH_OVERHEAD(PG_ALLOC_SZ(n) - skb_sz);
++	prefetchw(data + size);
++
++	pg = virt_to_head_page(data);
++	get_page(pg);
++	__alloc_skb_init(skb, data, size, flags, page_is_pfmemalloc(pg));
++	skb->head_frag = 1;
++	skb->skb_page = 1;
++
++	return skb;
++}
++#endif
+ EXPORT_SYMBOL(__alloc_skb);
+ 
+ /**
+@@ -620,7 +833,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+ 
+ 	switch (skb->fclone) {
+ 	case SKB_FCLONE_UNAVAILABLE:
+-		kmem_cache_free(skbuff_head_cache, skb);
++#ifdef CONFIG_SECURITY_TEMPESTA
++		if (skb->skb_page)
++			put_page(virt_to_page(skb));
++		else
++#endif
++			kmem_cache_free(skbuff_head_cache, skb);
+ 		return;
+ 
+ 	case SKB_FCLONE_ORIG:
+@@ -641,7 +859,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+ 	if (!atomic_dec_and_test(&fclones->fclone_ref))
+ 		return;
+ fastpath:
++#ifdef CONFIG_SECURITY_TEMPESTA
++	BUG_ON(!skb->skb_page);
++	put_page(virt_to_page(skb));
++#else
+ 	kmem_cache_free(skbuff_fclone_cache, fclones);
++#endif
+ }
+ 
+ static void skb_release_head_state(struct sk_buff *skb)
+@@ -777,6 +1000,17 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
+ 	/* drop skb->head and call any destructors for packet */
+ 	skb_release_all(skb);
+ 
++	/*
++	 * Tempesta uses its own fast page allocator for socket buffers,
++	 * so no need to use napi_alloc_cache for paged skbs.
++	 */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	if (skb->skb_page) {
++		put_page(virt_to_page(skb));
++		return;
++	}
++#endif
++
+ 	/* record skb to CPU local list */
+ 	nc->skb_cache[nc->skb_count++] = skb;
+ 
+@@ -837,7 +1071,12 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ 	new->tstamp		= old->tstamp;
+ 	/* We do not copy old->sk */
+ 	new->dev		= old->dev;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	memcpy(new->cb, old->cb, sizeof(old->cb) - sizeof(SsSkbCb));
++	TFW_SKB_CB_INIT(new);
++#else
+ 	memcpy(new->cb, old->cb, sizeof(old->cb));
++#endif
+ 	skb_dst_copy(new, old);
+ #ifdef CONFIG_XFRM
+ 	new->sp			= secpath_get(old->sp);
+@@ -932,6 +1171,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
+ struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src)
+ {
+ 	skb_release_all(dst);
++#ifdef CONFIG_SECURITY_TEMPESTA
++	dst->skb_page = src->skb_page;
++#endif
+ 	return __skb_clone(dst, src);
+ }
+ EXPORT_SYMBOL_GPL(skb_morph);
+@@ -1025,6 +1267,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+ 	    atomic_read(&fclones->fclone_ref) == 1) {
+ 		n = &fclones->skb2;
+ 		atomic_set(&fclones->fclone_ref, 2);
++#ifdef CONFIG_SECURITY_TEMPESTA
++		BUG_ON(!skb->skb_page);
++		BUG_ON(!n->skb_page);
++#endif
+ 	} else {
+ 		if (skb_pfmemalloc(skb))
+ 			gfp_mask |= __GFP_MEMALLOC;
+@@ -1035,6 +1281,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+ 
+ 		kmemcheck_annotate_bitfield(n, flags1);
+ 		n->fclone = SKB_FCLONE_UNAVAILABLE;
++#ifdef CONFIG_SECURITY_TEMPESTA
++		n->skb_page = 0;
++#endif
+ 	}
+ 
+ 	return __skb_clone(n, skb);
+@@ -1205,15 +1454,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+ 	if (skb_shared(skb))
+ 		BUG();
+ 
+-	size = SKB_DATA_ALIGN(size);
++	size = SKB_DATA_ALIGN(size)
++	       + SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+ 
+ 	if (skb_pfmemalloc(skb))
+ 		gfp_mask |= __GFP_MEMALLOC;
+-	data = kmalloc_reserve(size + SKB_DATA_ALIGN(sizeof(struct skb_shared_info)),
+-			       gfp_mask, NUMA_NO_NODE, NULL);
++#ifdef CONFIG_SECURITY_TEMPESTA
++	data = __pg_skb_alloc(size, gfp_mask, NUMA_NO_NODE);
++	if (!data)
++		goto nodata;
++	size = SKB_WITH_OVERHEAD(PG_ALLOC_SZ(size));
++#else
++	data = kmalloc_reserve(size, gfp_mask, NUMA_NO_NODE, NULL);
+ 	if (!data)
+ 		goto nodata;
+ 	size = SKB_WITH_OVERHEAD(ksize(data));
++#endif
+ 
+ 	/* Copy only real data... and, alas, header. This should be
+ 	 * optimized for the cases when header is void.
+@@ -1246,7 +1502,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+ 	off = (data + nhead) - skb->head;
+ 
+ 	skb->head     = data;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	skb->head_frag = 1;
++	skb->tail_lock = 0;
++#else
+ 	skb->head_frag = 0;
++#endif
+ 	skb->data    += off;
+ #ifdef NET_SKBUFF_DATA_USES_OFFSET
+ 	skb->end      = size;
+@@ -1263,7 +1524,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+ 	return 0;
+ 
+ nofrags:
++#ifdef CONFIG_SECURITY_TEMPESTA
++	put_page(virt_to_page(data));
++#else
+ 	kfree(data);
++#endif
+ nodata:
+ 	return -ENOMEM;
+ }
+@@ -1372,7 +1637,11 @@ int skb_pad(struct sk_buff *skb, int pad)
+ 		return 0;
+ 	}
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	ntail = skb->data_len + pad - skb_tailroom_locked(skb);
++#else
+ 	ntail = skb->data_len + pad - (skb->end - skb->tail);
++#endif
+ 	if (likely(skb_cloned(skb) || ntail > 0)) {
+ 		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
+ 		if (unlikely(err))
+@@ -1607,7 +1876,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+ 	 * plus 128 bytes for future expansions. If we have enough
+ 	 * room at tail, reallocate without expansion only if skb is cloned.
+ 	 */
+-	int i, k, eat = (skb->tail + delta) - skb->end;
++	int i, k, eat;
++
++#ifdef CONFIG_SECURITY_TEMPESTA
++	eat = delta - skb_tailroom_locked(skb);
++#else
++	eat = (skb->tail + delta) - skb->end;
++#endif
+ 
+ 	if (eat > 0 || skb_cloned(skb)) {
+ 		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
+@@ -3463,16 +3738,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
+ 
+ void __init skb_init(void)
+ {
+-	skbuff_head_cache = kmem_cache_create("skbuff_head_cache",
+-					      sizeof(struct sk_buff),
+-					      0,
+-					      SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+-					      NULL);
++#ifdef CONFIG_SECURITY_TEMPESTA
++	int cpu, l;
++	for_each_possible_cpu(cpu)
++		for (l = 0; l < PG_LISTS_N; ++l) {
++			TfwSkbMemPool *pool = per_cpu_ptr(&pg_mpool[l], cpu);
++			INIT_LIST_HEAD(&pool->lh);
++			/*
++			 * Large chunks are also can be used to get smaller
++			 * chunks, so we cache them more aggressively.
++			 */
++			pool->h_limit = PG_POOL_HLIM_BASE << l;
++		}
++#else
+ 	skbuff_fclone_cache = kmem_cache_create("skbuff_fclone_cache",
+ 						sizeof(struct sk_buff_fclones),
+ 						0,
+ 						SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+ 						NULL);
++#endif
++
++	skbuff_head_cache = kmem_cache_create("skbuff_head_cache",
++					      sizeof(struct sk_buff),
++					      0,
++					      SLAB_HWCACHE_ALIGN|SLAB_PANIC,
++					      NULL);
+ }
+ 
+ /**
+@@ -4262,7 +4552,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+ {
+ 	if (head_stolen) {
+ 		skb_release_head_state(skb);
+-		kmem_cache_free(skbuff_head_cache, skb);
++#ifdef CONFIG_SECURITY_TEMPESTA
++		if (skb->skb_page)
++			put_page(virt_to_page(skb));
++		else
++#endif
++			kmem_cache_free(skbuff_head_cache, skb);
+ 	} else {
+ 		__kfree_skb(skb);
+ 	}
+@@ -4704,13 +4999,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+ 
+ 	if (skb_pfmemalloc(skb))
+ 		gfp_mask |= __GFP_MEMALLOC;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
++	data = __pg_skb_alloc(size, gfp_mask, NUMA_NO_NODE);
++	if (!data)
++		return -ENOMEM;
++	size = SKB_WITH_OVERHEAD(PG_ALLOC_SZ(size));
++#else
+ 	data = kmalloc_reserve(size +
+ 			       SKB_DATA_ALIGN(sizeof(struct skb_shared_info)),
+ 			       gfp_mask, NUMA_NO_NODE, NULL);
+ 	if (!data)
+ 		return -ENOMEM;
+-
+ 	size = SKB_WITH_OVERHEAD(ksize(data));
++#endif
+ 
+ 	/* Copy real data, and all frags */
+ 	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
+@@ -4828,13 +5130,20 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+ 
+ 	if (skb_pfmemalloc(skb))
+ 		gfp_mask |= __GFP_MEMALLOC;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
++	data = __pg_skb_alloc(size, gfp_mask, NUMA_NO_NODE);
++	if (!data)
++		return -ENOMEM;
++	size = SKB_WITH_OVERHEAD(PG_ALLOC_SZ(size));
++#else
+ 	data = kmalloc_reserve(size +
+ 			       SKB_DATA_ALIGN(sizeof(struct skb_shared_info)),
+ 			       gfp_mask, NUMA_NO_NODE, NULL);
+ 	if (!data)
+ 		return -ENOMEM;
+-
+ 	size = SKB_WITH_OVERHEAD(ksize(data));
++#endif
+ 
+ 	memcpy((struct skb_shared_info *)(data + size),
+ 	       skb_shinfo(skb), offsetof(struct skb_shared_info,
+diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
+index cf3d567..e93129c 100644
+--- a/net/ipv4/inet_connection_sock.c
++++ b/net/ipv4/inet_connection_sock.c
+@@ -801,7 +801,14 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
+ 	if (unlikely(sk->sk_state != TCP_LISTEN)) {
+ 		inet_child_forget(sk, req, child);
+ 		child = NULL;
+-	} else {
++	}
++#ifdef CONFIG_SECURITY_TEMPESTA
++	else if (sock_flag(sk, SOCK_TEMPESTA)) {
++		/* Tempesta doesn't use accept queue, just put the request. */
++		reqsk_put(req);
++	}
++#endif
++	else {
+ 		req->sk = child;
+ 		req->dl_next = NULL;
+ 		if (queue->rskq_accept_head == NULL)
+diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
+index ca97835..8427f32 100644
+--- a/net/ipv4/inet_hashtables.c
++++ b/net/ipv4/inet_hashtables.c
+@@ -621,7 +621,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
+ 		goto ok;
+ next_port:
+ 		spin_unlock_bh(&head->lock);
+-		cond_resched();
++		if (!in_serving_softirq())
++			cond_resched();
+ 	}
+ 
+ 	offset++;
+diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
+index 86fbf0f..c70b181 100644
+--- a/net/ipv4/tcp.c
++++ b/net/ipv4/tcp.c
+@@ -592,11 +592,12 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
+ }
+ EXPORT_SYMBOL(tcp_ioctl);
+ 
+-static inline void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb)
++void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb)
+ {
+ 	TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
+ 	tp->pushed_seq = tp->write_seq;
+ }
++EXPORT_SYMBOL(tcp_mark_push);
+ 
+ static inline bool forced_push(const struct tcp_sock *tp)
+ {
+@@ -647,8 +648,8 @@ static bool tcp_should_autocork(struct sock *sk, struct sk_buff *skb,
+ 	       atomic_read(&sk->sk_wmem_alloc) > skb->truesize;
+ }
+ 
+-static void tcp_push(struct sock *sk, int flags, int mss_now,
+-		     int nonagle, int size_goal)
++void tcp_push(struct sock *sk, int flags, int mss_now, int nonagle,
++	      int size_goal)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 	struct sk_buff *skb;
+@@ -681,6 +682,7 @@ static void tcp_push(struct sock *sk, int flags, int mss_now,
+ 
+ 	__tcp_push_pending_frames(sk, mss_now, nonagle);
+ }
++EXPORT_SYMBOL(tcp_push);
+ 
+ static int tcp_splice_data_recv(read_descriptor_t *rd_desc, struct sk_buff *skb,
+ 				unsigned int offset, size_t len)
+@@ -871,7 +873,7 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
+ 	return max(size_goal, mss_now);
+ }
+ 
+-static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
++int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
+ {
+ 	int mss_now;
+ 
+@@ -880,6 +882,7 @@ static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
+ 
+ 	return mss_now;
+ }
++EXPORT_SYMBOL(tcp_send_mss);
+ 
+ static ssize_t do_tcp_sendpages(struct sock *sk, struct page *page, int offset,
+ 				size_t size, int flags)
+@@ -1422,7 +1425,7 @@ static int tcp_peek_sndq(struct sock *sk, struct msghdr *msg, int len)
+  * calculation of whether or not we must ACK for the sake of
+  * a window update.
+  */
+-static void tcp_cleanup_rbuf(struct sock *sk, int copied)
++void tcp_cleanup_rbuf(struct sock *sk, int copied)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 	bool time_to_ack = false;
+@@ -1479,6 +1482,7 @@ static void tcp_cleanup_rbuf(struct sock *sk, int copied)
+ 	if (time_to_ack)
+ 		tcp_send_ack(sk);
+ }
++EXPORT_SYMBOL(tcp_cleanup_rbuf);
+ 
+ static void tcp_prequeue_process(struct sock *sk)
+ {
+@@ -2012,7 +2016,7 @@ static const unsigned char new_state[16] = {
+   [TCP_NEW_SYN_RECV]	= TCP_CLOSE,	/* should not happen ! */
+ };
+ 
+-static int tcp_close_state(struct sock *sk)
++int tcp_close_state(struct sock *sk)
+ {
+ 	int next = (int)new_state[sk->sk_state];
+ 	int ns = next & TCP_STATE_MASK;
+@@ -2021,6 +2025,7 @@ static int tcp_close_state(struct sock *sk)
+ 
+ 	return next & TCP_ACTION_FIN;
+ }
++EXPORT_SYMBOL(tcp_close_state);
+ 
+ /*
+  *	Shutdown the sending side of a connection. Much like close except
+@@ -2060,6 +2065,7 @@ bool tcp_check_oom(struct sock *sk, int shift)
+ 		net_info_ratelimited("out of memory -- consider tuning tcp_mem\n");
+ 	return too_many_orphans || out_of_socket_memory;
+ }
++EXPORT_SYMBOL(tcp_check_oom);
+ 
+ void tcp_close(struct sock *sk, long timeout)
+ {
+diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
+index 01336aa..3e47409 100644
+--- a/net/ipv4/tcp_input.c
++++ b/net/ipv4/tcp_input.c
+@@ -642,6 +642,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
+ 	tp->rcvq_space.seq = tp->copied_seq;
+ 	tp->rcvq_space.time = tcp_time_stamp;
+ }
++EXPORT_SYMBOL(tcp_rcv_space_adjust);
+ 
+ /* There is something which you must keep in mind when you analyze the
+  * behavior of the tp->ato delayed ack timeout interval.  When a
+diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
+index 6988566..4ea486e 100644
+--- a/net/ipv4/tcp_ipv4.c
++++ b/net/ipv4/tcp_ipv4.c
+@@ -62,6 +62,7 @@
+ #include <linux/init.h>
+ #include <linux/times.h>
+ #include <linux/slab.h>
++#include <linux/tempesta.h>
+ 
+ #include <net/net_namespace.h>
+ #include <net/icmp.h>
+@@ -155,8 +156,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+ 		return -EAFNOSUPPORT;
+ 
+ 	nexthop = daddr = usin->sin_addr.s_addr;
+-	inet_opt = rcu_dereference_protected(inet->inet_opt,
+-					     lockdep_sock_is_held(sk));
++	inet_opt = rcu_dereference_raw(inet->inet_opt);
+ 	if (inet_opt && inet_opt->opt.srr) {
+ 		if (!daddr)
+ 			return -EINVAL;
+@@ -894,8 +894,7 @@ struct tcp_md5sig_key *tcp_md5_do_lookup(const struct sock *sk,
+ 	const struct tcp_md5sig_info *md5sig;
+ 
+ 	/* caller either holds rcu_read_lock() or socket lock */
+-	md5sig = rcu_dereference_check(tp->md5sig_info,
+-				       lockdep_sock_is_held(sk));
++	md5sig = rcu_dereference_raw(tp->md5sig_info);
+ 	if (!md5sig)
+ 		return NULL;
+ #if IS_ENABLED(CONFIG_IPV6)
+@@ -1343,6 +1342,14 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
+ 	}
+ #endif
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * We need already initialized socket addresses,
++	 * so there is no appropriate security hook.
++	 */
++	if (tempesta_new_clntsk(newsk))
++		goto put_and_exit;
++#endif
+ 	if (__inet_inherit_port(sk, newsk) < 0)
+ 		goto put_and_exit;
+ 	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash));
+@@ -1709,7 +1716,16 @@ int tcp_v4_rcv(struct sk_buff *skb)
+ 
+ 	sk_incoming_cpu_update(sk);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * The socket is just retrieved by __inet_lookup_skb(), so there is
++	 * no real nested locking yet. Leave the nested locking possiblity to
++	 * Tempesta.
++	 */
++	bh_lock_sock(sk);
++#else
+ 	bh_lock_sock_nested(sk);
++#endif
+ 	tcp_segs_in(tcp_sk(sk), skb);
+ 	ret = 0;
+ 	if (!sock_owned_by_user(sk)) {
+diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
+index 64e1ba4..3a9bd13 100644
+--- a/net/ipv4/tcp_minisocks.c
++++ b/net/ipv4/tcp_minisocks.c
+@@ -343,6 +343,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
+ 	tcp_update_metrics(sk);
+ 	tcp_done(sk);
+ }
++EXPORT_SYMBOL(tcp_time_wait);
+ 
+ void tcp_twsk_destructor(struct sock *sk)
+ {
+diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
+index dc4258f..8deac53 100644
+--- a/net/ipv4/tcp_output.c
++++ b/net/ipv4/tcp_output.c
+@@ -391,7 +391,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
+ /* Constructs common control bits of non-data skb. If SYN/FIN is present,
+  * auto increment end seqno.
+  */
+-static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
++void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+ {
+ 	skb->ip_summed = CHECKSUM_PARTIAL;
+ 	skb->csum = 0;
+@@ -406,6 +406,7 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+ 		seq++;
+ 	TCP_SKB_CB(skb)->end_seq = seq;
+ }
++EXPORT_SYMBOL(tcp_init_nondata_skb);
+ 
+ static inline bool tcp_urg_mode(const struct tcp_sock *tp)
+ {
+@@ -1048,7 +1049,7 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
+  * NOTE: probe0 timer is not checked, do not forget tcp_push_pending_frames,
+  * otherwise socket can stall.
+  */
+-static void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
++void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
+ {
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 
+@@ -1059,6 +1060,7 @@ static void tcp_queue_skb(struct sock *sk, struct sk_buff *skb)
+ 	sk->sk_wmem_queued += skb->truesize;
+ 	sk_mem_charge(sk, skb->truesize);
+ }
++EXPORT_SYMBOL(tcp_queue_skb);
+ 
+ /* Initialize TSO segments for a packet. */
+ static void tcp_set_skb_tso_segs(struct sk_buff *skb, unsigned int mss_now)
+@@ -1470,6 +1472,7 @@ unsigned int tcp_current_mss(struct sock *sk)
+ 
+ 	return mss_now;
+ }
++EXPORT_SYMBOL(tcp_current_mss);
+ 
+ /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
+  * As additional protections, we do not touch cwnd in retransmission phases,
+@@ -2360,6 +2363,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+ 			   sk_gfp_mask(sk, GFP_ATOMIC)))
+ 		tcp_check_probe_timer(sk);
+ }
++EXPORT_SYMBOL(__tcp_push_pending_frames);
+ 
+ /* Send _single_ skb sitting at the send head. This function requires
+  * true push pending frames to setup probe timer etc.
+@@ -2987,6 +2991,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+ 
+ 	TCP_INC_STATS(sock_net(sk), TCP_MIB_OUTRSTS);
+ }
++EXPORT_SYMBOL(tcp_send_active_reset);
+ 
+ /* Send a crossed SYN-ACK during socket establishment.
+  * WARNING: This routine must only be called when we have already sent
+diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
+index 7ac2365..36e2e14 100644
+--- a/net/ipv6/tcp_ipv6.c
++++ b/net/ipv6/tcp_ipv6.c
+@@ -68,6 +68,7 @@
+ 
+ #include <crypto/hash.h>
+ #include <linux/scatterlist.h>
++#include <linux/tempesta.h>
+ 
+ static void	tcp_v6_send_reset(const struct sock *sk, struct sk_buff *skb);
+ static void	tcp_v6_reqsk_send_ack(const struct sock *sk, struct sk_buff *skb,
+@@ -1181,7 +1182,17 @@ static struct sock *tcp_v6_syn_recv_sock(const struct sock *sk, struct sk_buff *
+ 			       sk_gfp_mask(sk, GFP_ATOMIC));
+ 	}
+ #endif
+-
++#ifdef CONFIG_SECURITY_TEMPESTA
++	/*
++	 * We need already initialized socket addresses,
++	 * so there is no appropriate security hook.
++	 */
++	if (tempesta_new_clntsk(newsk)) {
++		inet_csk_prepare_forced_close(newsk);
++		tcp_done(newsk);
++		goto out;
++	}
++#endif
+ 	if (__inet_inherit_port(sk, newsk) < 0) {
+ 		inet_csk_prepare_forced_close(newsk);
+ 		tcp_done(newsk);
+@@ -1870,6 +1881,7 @@ static struct tcp_seq_afinfo tcp6_seq_afinfo = {
+ 		.show		= tcp6_seq_show,
+ 	},
+ };
++EXPORT_SYMBOL(tcpv6_prot);
+ 
+ int __net_init tcp6_proc_init(struct net *net)
+ {
+diff --git a/net/socket.c b/net/socket.c
+index 6bbccf0..d3b1119 100644
+--- a/net/socket.c
++++ b/net/socket.c
+@@ -162,6 +162,12 @@ static const struct file_operations socket_file_ops = {
+ static DEFINE_SPINLOCK(net_family_lock);
+ static const struct net_proto_family __rcu *net_families[NPROTO] __read_mostly;
+ 
++const struct net_proto_family *get_proto_family(int family)
++{
++	return rcu_dereference(net_families[family]);
++}
++EXPORT_SYMBOL(get_proto_family);
++
+ /*
+  *	Statistics counters of the socket lists
+  */
+diff --git a/security/Kconfig b/security/Kconfig
+index 118f454..9110590 100644
+--- a/security/Kconfig
++++ b/security/Kconfig
+@@ -164,11 +164,13 @@ source security/tomoyo/Kconfig
+ source security/apparmor/Kconfig
+ source security/loadpin/Kconfig
+ source security/yama/Kconfig
++source security/tempesta/Kconfig
+ 
+ source security/integrity/Kconfig
+ 
+ choice
+ 	prompt "Default security module"
++	default DEFAULT_SECURITY_TEMPESTA if SECURITY_TEMPESTA
+ 	default DEFAULT_SECURITY_SELINUX if SECURITY_SELINUX
+ 	default DEFAULT_SECURITY_SMACK if SECURITY_SMACK
+ 	default DEFAULT_SECURITY_TOMOYO if SECURITY_TOMOYO
+@@ -179,6 +181,9 @@ choice
+ 	  Select the security module that will be used by default if the
+ 	  kernel parameter security= is not specified.
+ 
++	config DEFAULT_SECURITY_TEMPESTA
++		bool "Tempesta FW" if SECURITY_TEMPESTA=y
++
+ 	config DEFAULT_SECURITY_SELINUX
+ 		bool "SELinux" if SECURITY_SELINUX=y
+ 
+@@ -198,6 +203,7 @@ endchoice
+ 
+ config DEFAULT_SECURITY
+ 	string
++	default "tempesta" if DEFAULT_SECURITY_TEMPESTA
+ 	default "selinux" if DEFAULT_SECURITY_SELINUX
+ 	default "smack" if DEFAULT_SECURITY_SMACK
+ 	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
+diff --git a/security/Makefile b/security/Makefile
+index f2d71cd..aa864f0 100644
+--- a/security/Makefile
++++ b/security/Makefile
+@@ -9,6 +9,7 @@ subdir-$(CONFIG_SECURITY_TOMOYO)        += tomoyo
+ subdir-$(CONFIG_SECURITY_APPARMOR)	+= apparmor
+ subdir-$(CONFIG_SECURITY_YAMA)		+= yama
+ subdir-$(CONFIG_SECURITY_LOADPIN)	+= loadpin
++subdir-$(CONFIG_SECURITY_TEMPESTA)	+= tempesta
+ 
+ # always enable default capabilities
+ obj-y					+= commoncap.o
+@@ -24,6 +25,7 @@ obj-$(CONFIG_SECURITY_TOMOYO)		+= tomoyo/
+ obj-$(CONFIG_SECURITY_APPARMOR)		+= apparmor/
+ obj-$(CONFIG_SECURITY_YAMA)		+= yama/
+ obj-$(CONFIG_SECURITY_LOADPIN)		+= loadpin/
++obj-$(CONFIG_SECURITY_TEMPESTA)		+= tempesta/
+ obj-$(CONFIG_CGROUP_DEVICE)		+= device_cgroup.o
+ 
+ # Object integrity file lists
+diff --git a/security/security.c b/security/security.c
+index f825304..f103e81 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -26,6 +26,7 @@
+ #include <linux/personality.h>
+ #include <linux/backing-dev.h>
+ #include <net/flow.h>
++#include <net/sock.h>
+ 
+ #define MAX_LSM_EVM_XATTR	2
+ 
+@@ -1334,6 +1335,8 @@ EXPORT_SYMBOL(security_socket_getpeersec_dgram);
+ 
+ int security_sk_alloc(struct sock *sk, int family, gfp_t priority)
+ {
++	sk->sk_security = NULL;
++
+ 	return call_int_hook(sk_alloc_security, 0, sk, family, priority);
+ }
+ 
+diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
+new file mode 100644
+index 0000000..0fa2cb4
+--- /dev/null
++++ b/security/tempesta/Kconfig
+@@ -0,0 +1,14 @@
++config SECURITY_TEMPESTA
++	bool "Tempesta FW Support"
++	depends on SECURITY && NET && INET
++	select SECURITY_NETWORK
++	select RPS
++	select CRYPTO
++	select CRYPTO_HMAC
++	select CRYPTO_SHA1
++	select CRYPTO_SHA1_SSSE3
++	default y
++	help
++	  This selects Tempesta FW security module.
++	  Further information may be found at https://github.com/natsys/tempesta
++	  If you are unsure how to answer this question, answer N.
+diff --git a/security/tempesta/Makefile b/security/tempesta/Makefile
+new file mode 100644
+index 0000000..4c439ac
+--- /dev/null
++++ b/security/tempesta/Makefile
+@@ -0,0 +1,3 @@
++obj-y := tempesta.o
++
++tempesta-y := tempesta_lsm.o
+diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
+new file mode 100644
+index 0000000..d5d3a4b
+--- /dev/null
++++ b/security/tempesta/tempesta_lsm.c
+@@ -0,0 +1,133 @@
++/**
++ *		Tempesta FW
++ *
++ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
++ * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License,
++ * or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++ * FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc., 59
++ * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++#include <linux/ipv6.h>
++#include <linux/lsm_hooks.h>
++#include <linux/spinlock.h>
++#include <linux/tempesta.h>
++
++static TempestaOps __rcu *tempesta_ops = NULL;
++static DEFINE_SPINLOCK(tops_lock);
++
++void
++tempesta_register_ops(TempestaOps *tops)
++{
++	spin_lock(&tops_lock);
++
++	BUG_ON(tempesta_ops);
++
++	rcu_assign_pointer(tempesta_ops, tops);
++
++	spin_unlock(&tops_lock);
++}
++EXPORT_SYMBOL(tempesta_register_ops);
++
++void
++tempesta_unregister_ops(TempestaOps *tops)
++{
++	spin_lock(&tops_lock);
++
++	BUG_ON(tempesta_ops != tops);
++
++	rcu_assign_pointer(tempesta_ops, NULL);
++
++	spin_unlock(&tops_lock);
++
++	/*
++	 * tempesta_ops is called in softirq only, so if there are some users
++	 * of the structures then they are active on their CPUs.
++	 * After the below we can be sure that nobody refers @tops and we can
++	 * go forward and destroy it.
++	 */
++	synchronize_rcu();
++}
++EXPORT_SYMBOL(tempesta_unregister_ops);
++
++int
++tempesta_new_clntsk(struct sock *newsk)
++{
++	int r = 0;
++
++	TempestaOps *tops;
++
++	WARN_ON(newsk->sk_security);
++
++	rcu_read_lock();
++
++	tops = rcu_dereference(tempesta_ops);
++	if (likely(tops))
++		r = tops->sk_alloc(newsk);
++
++	rcu_read_unlock();
++
++	return r;
++}
++EXPORT_SYMBOL(tempesta_new_clntsk);
++
++static void
++tempesta_sk_free(struct sock *sk)
++{
++	TempestaOps *tops;
++
++	if (!sk->sk_security)
++		return;
++
++	rcu_read_lock();
++
++	tops = rcu_dereference(tempesta_ops);
++	if (likely(tops))
++		tops->sk_free(sk);
++
++	rcu_read_unlock();
++}
++
++static int
++tempesta_sock_tcp_rcv(struct sock *sk, struct sk_buff *skb)
++{
++	int r = 0;
++	TempestaOps *tops;
++
++	rcu_read_lock();
++
++	tops = rcu_dereference(tempesta_ops);
++	if (likely(tops)) {
++		if (skb->protocol == htons(ETH_P_IP))
++			r = tops->sock_tcp_rcv(sk, skb);
++	}
++
++	rcu_read_unlock();
++
++	return r;
++}
++
++static struct security_hook_list tempesta_hooks[] __read_mostly = {
++	LSM_HOOK_INIT(sk_free_security, tempesta_sk_free),
++	LSM_HOOK_INIT(socket_sock_rcv_skb, tempesta_sock_tcp_rcv),
++};
++
++static __init int
++tempesta_init(void)
++{
++	security_add_hooks(tempesta_hooks, ARRAY_SIZE(tempesta_hooks));
++
++	return 0;
++}
++
++security_initcall(tempesta_init);

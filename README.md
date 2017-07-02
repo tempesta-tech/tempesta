@@ -14,7 +14,7 @@ performance characteristics in comparison with TCP servers on top of common
 Socket API or even kernel sockets.
 
 We do our best to keep the kernel modifications as small as possible. Current
-[patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.8.15.patch)
+[patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.9.35.patch)
 is just about 2,000 lines.
 
 
@@ -28,9 +28,9 @@ requirements and installation procedures.
 
 To build the module you need to do the following steps:
 
-* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.8.15-tfw)
+* Download [the patched Linux kernel](https://github.com/tempesta-tech/linux-4.9.35-tfw)
   or patch vanilla kernel on your own using
-  [linux-4.8.15.patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.8.15.patch).
+  [linux-4.9.35.patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.9.35.patch).
 * Build, install, and then boot the kernel. Classic build and install procedure
   is used. For that, go to the directory with the patched kernel sources, make
   sure you have a correct `.config` file, and then do the following (`<N>` is
