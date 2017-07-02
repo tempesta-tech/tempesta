@@ -350,6 +350,18 @@ tfw_connection_revive(TfwConn *conn)
 }
 
 /*
+ * Initialize a server connection to a special value. The value
+ * indicates that the connection is dead and can't take requests
+ * from schedulers. Also, it indicates that a TfwConn{} instance
+ * is busy and can't be released yet.
+ */
+static inline void
+tfw_srv_conn_init_as_dead(TfwSrvConn *srv_conn)
+{
+	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT + 1);
+}
+
+/*
  * Link Sync Sockets layer with Tempesta. The socket @sk now carries
  * a reference to Tempesta's @conn instance. When a Tempesta's socket
  * callback is called by Sync Sockets on an event in the socket, then
