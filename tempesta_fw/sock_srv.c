@@ -153,8 +153,14 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	sock_set_flag(sk, SOCK_DBG);
 #endif
 	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
+	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
 	tfw_srv_conn_init_as_dead(srv_conn);
 	ss_set_callbacks(sk);
+	/*
+	 * Set connection destructor such that connection failover can
+	 * take place if the connection attempt fails.
+	 */
+	srv_conn->destructor = (void *)tfw_srv_conn_release;
 
 	/*
 	 * There are two possible use patterns of this function:
@@ -178,20 +184,14 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
+		/* Put the extra reference taken by tfw_srv_conn_init_as_dead. */
+		tfw_connection_put((TfwConn *)srv_conn);
 		/*
 		 * We hadle shutdown by closing the socket, so we can return
 		 * successful return code to upper layer.
 		 */
 		return r == SS_SHUTDOWN ? 0 : r;
 	}
-
-	/* Link Tempesta with the socket. */
-	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
-	/*
-	 * Set connection destructor such that connection failover can
-	 * take place if the connection attempt fails.
-	 */
-	srv_conn->destructor = (void *)tfw_srv_conn_release;
 
 	return 0;
 }
