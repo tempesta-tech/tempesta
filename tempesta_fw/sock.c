@@ -785,8 +785,9 @@ ss_tcp_state_change(struct sock *sk)
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
 			/*
 			 * Tempesta is shutting down. However, Tempesta isn't
-			 * aware about @sk, so we have to close it on our own
-			 * without calling upper layer hooks.
+			 * aware about any @sk except connections to server,
+			 * so we have to close it on our own without calling
+			 * upper layer hooks.
 			 */
 			ss_do_close(sk);
 			sock_put(sk);
@@ -796,7 +797,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * and ss_active_guard_enter() there.
 			 */
 			if (!lsk)
-				ss_active_guard_exit(SS_V_ACT_LIVECONN);
+				SS_CALL_GUARD_EXIT(connection_drop, sk);
 			return;
 		}
 
