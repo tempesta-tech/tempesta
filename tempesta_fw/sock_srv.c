@@ -184,8 +184,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
-		/* Put the reference taken by tfw_srv_conn_init_as_dead(). */
-		tfw_connection_put((TfwConn *)srv_conn);
+		/* Drop failed connection. */
+		srv_conn->proto.hooks->connection_drop(sk);
 		/*
 		 * We hadle shutdown by closing the socket, so we can return
 		 * successful return code to upper layer.
