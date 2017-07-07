@@ -184,7 +184,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
-		/* Put the extra reference taken by tfw_srv_conn_init_as_dead. */
+		/* Put the reference taken by tfw_srv_conn_init_as_dead(). */
 		tfw_connection_put((TfwConn *)srv_conn);
 		/*
 		 * We hadle shutdown by closing the socket, so we can return
@@ -413,13 +413,12 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	del_timer_sync(&conn->timer);
 
 	/*
-	 * If the connection is closed already, then simply release its
-	 * resources. Otherwise, use synchronous closing to ensure that
-	 * the job is enqueued.
+	 * All resources attached to a connection is released  by calling
+	 * connection destructor once the socket linked to a connection is
+	 * closed. So no additional cleanup is needed if connection->refcnt
+	 * is equals TFW_CONN_DEATHCNT.
 	 */
-	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
-		tfw_connection_release(conn);
-	else
+	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
 
 	return ret;
@@ -469,6 +468,12 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 
 /**
  * There should be no server socket users when the function is called.
+ *
+ * All resources attached a the server connection will be released once socket
+ * linked to the server connection (e.g. http messages stored in connection's
+ * forward queue and client connections referenced by that messages). So single
+ * ss_synchronize() in tfw_cfg_stop() will guarantee that all server and client
+ * connections was released.
  */
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
