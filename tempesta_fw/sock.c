@@ -1243,8 +1243,13 @@ do {									\
 	}								\
 } while (0)
 
+/**
+ * Synchronize with establishing new connections. It is guaranteed that there
+ * will be no more new client connections and re-established connections to
+ * backend servers after the call.
+ */
 void
-ss_wait_listeners(void)
+ss_wait_newconn(void)
 {
 	int cpu;
 	long acc = 0, acc_old = 0;
@@ -1266,7 +1271,7 @@ ss_wait_listeners(void)
 		}
 	}
 }
-EXPORT_SYMBOL(ss_wait_listeners);
+EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
  * Wait until there are no queued works and no runnign tasklets.
