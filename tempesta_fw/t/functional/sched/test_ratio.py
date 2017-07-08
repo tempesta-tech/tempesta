@@ -64,3 +64,5 @@ class FairLoadRandConns(FairLoadEqualConns):
         FairLoadEqualConns.create_servers(self)
         for s in self.servers:
             s.conns_n = random.randrange(1, tempesta.server_conns_max())
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

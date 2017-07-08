@@ -26,3 +26,5 @@ def assertTrue(expression, msg=''):
 def bug(msg=''):
     """Raise test framework error."""
     raise Error(msg)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -404,3 +404,5 @@ def servers_get_stats(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
     pool.map(Nginx.get_stats, servers)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

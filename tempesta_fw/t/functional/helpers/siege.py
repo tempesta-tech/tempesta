@@ -56,3 +56,5 @@ class Config(object):
     def get_config(self):
         cfg = '\n'.join(['%s = %s' % opt for opt in self.options])
         return cfg
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

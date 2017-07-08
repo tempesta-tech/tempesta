@@ -68,3 +68,5 @@ class RebootUnderLoadNoTimeoutTest(RebootUnderLoadTest):
 
     restart_timeout = 0
     warm_timeout = 5
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -210,3 +210,5 @@ class TestDeproxyMessage(unittest.TestCase):
             "</html>\r\n")
         created = deproxy.Response.create(200, headers, body=body)
         self.assertEqual(response, created)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

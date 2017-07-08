@@ -84,3 +84,5 @@ testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
                                             failfast=fail_fast,
                                             descriptions=False)
 testRunner.run(tests)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
