@@ -68,3 +68,5 @@ class HashFailovering(RatioFailovering):
         stress.StressTest.configure_tempesta(self)
         for sg in self.tempesta.config.server_groups:
             sg.sched = 'hash'
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

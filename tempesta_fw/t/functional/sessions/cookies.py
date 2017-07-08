@@ -123,3 +123,5 @@ class TesterUseEnforcedCookies(TesterUseCookies):
             self.message_chains[0].request)
         self.message_chains[0].server_response = deproxy.Response()
         self.message_chains[0].fwd_request = deproxy.Request()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

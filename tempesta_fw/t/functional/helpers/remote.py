@@ -203,3 +203,5 @@ server = create_node('Server')
 # Tempesta contains sources and must exist.
 for node in [client, server]:
     node.mkdir(node.workdir)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

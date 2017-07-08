@@ -71,3 +71,5 @@ class LotOfClients(OneClient):
 
     def assert_servers(self):
         stress.StressTest.assert_servers(self)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

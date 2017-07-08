@@ -124,3 +124,5 @@ def cache_chains(count, method, uri):
 def proxy_chains(count, method, uri):
     chain = proxy_chain(method, uri)
     return [chain for _ in range(count)]
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -222,3 +222,5 @@ class HttpSchedTester(deproxy.Deproxy):
         # instead call the
         self.recieved_chain.response = response
         self.response_cb()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

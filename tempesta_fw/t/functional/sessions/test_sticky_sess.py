@@ -149,3 +149,5 @@ class TesterStickyEnforcedCookies(cookies.TesterUseEnforcedCookies):
         cookies.TesterUseCookies.check_expectations(self)
         assert self.pinned_srv is self.used_srv, \
             'Session is not Sticky, request forwarded to other server!'
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

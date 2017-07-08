@@ -130,3 +130,5 @@ class TestHeaderCollection(unittest.TestCase):
         lowed.add('b', 'asdf')
         self.assertTrue(self.headers == lowed)
         self.assertFalse(self.headers != lowed)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

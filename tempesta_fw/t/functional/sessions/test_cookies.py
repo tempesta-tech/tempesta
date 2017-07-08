@@ -49,3 +49,5 @@ class TestEnforcedCookiesSupport(TestNoEnforcedCookiesSupport):
     def create_tester(self, message_chain):
         self.tester = cookies.TesterUseEnforcedCookies(
             message_chain, self.client, self.servers)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
