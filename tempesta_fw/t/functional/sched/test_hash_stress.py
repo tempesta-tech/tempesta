@@ -46,3 +46,5 @@ class BindToServer(stress.StressTest):
 
     def test_hash(self):
         self.generic_test_routine('cache 0;\n')
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

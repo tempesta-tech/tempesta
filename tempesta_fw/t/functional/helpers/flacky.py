@@ -56,3 +56,5 @@ class Filter(object):
         self.node.run_cmd(remove_links_cmd)
         remove_chain_cmd = 'iptables -X %s' % self.chain
         self.node.run_cmd(remove_chain_cmd)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

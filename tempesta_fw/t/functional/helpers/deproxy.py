@@ -705,3 +705,5 @@ class Deproxy(object):
         servers = [server for server in self.servers]
         for server in servers:
             server.handle_close()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

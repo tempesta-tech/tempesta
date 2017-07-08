@@ -88,3 +88,5 @@ class DeproxyTestFailOver(DeproxyTest):
                 deproxy.Deproxy.check_expectations(self)
 
         self.tester = DeproxyFailOver(message_chain, self.client, self.servers)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

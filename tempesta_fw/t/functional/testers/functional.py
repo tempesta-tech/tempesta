@@ -175,3 +175,5 @@ def base_message_chain_chunked(uri='/'):
 
 if __name__ == '__main__':
     unittest.main()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

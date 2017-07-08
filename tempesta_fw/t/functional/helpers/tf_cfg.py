@@ -107,3 +107,5 @@ skip_check = False
 cfg = TestFrameworkCfg()
 if not skip_check:
     cfg.check()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

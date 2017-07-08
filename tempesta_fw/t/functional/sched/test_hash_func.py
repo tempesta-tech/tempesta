@@ -74,3 +74,5 @@ class HashTester(deproxy.Deproxy):
             assert self.used_connection is connection
         return deproxy.Deproxy.recieved_forwarded_request(self, request,
                                                           connection)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

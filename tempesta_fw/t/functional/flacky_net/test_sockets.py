@@ -145,3 +145,5 @@ class CloseOnShutdown(stress.StressTest):
         # immediately.
         self.check_estab_conns(expect_estab=False, expext_failed=None)
         self.check_after_stop()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

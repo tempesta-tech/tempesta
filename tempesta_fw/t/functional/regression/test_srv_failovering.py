@@ -85,3 +85,5 @@ class FailoverTester(deproxy.Deproxy):
             if conn:
                 conn.socket.shutdown(socket.SHUT_RDWR)
                 conn.handle_close()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
