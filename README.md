@@ -411,7 +411,7 @@ server_forward_timeout <N>;
 
 `server_forward_retries` sets the maximum number of attempts to re-forward
 a request to a server. If not defined, the default number of attempts is 5.
-The value of zero specified for `N` means unlimited number of attempts.
+The value of zero specified for `N` means that requests will be sent only once.
 
 `server_forward_timeout` set the maximum time frame in seconds within which
 a request may still be forwarded. If not defined, the default time frame
