@@ -45,11 +45,12 @@
  * It initiates a connect attempt and just exits without blocking.
  *
  * Later on, when connection state is changed, a callback is invoked:
- *  - tfw_sock_srv_connect_retry()    - a connect attempt has failed.
  *  - tfw_sock_srv_connect_complete() - a connection is established.
- *  - tfw_sock_srv_connect_failover() - an established connection is closed.
+ *  - tfw_sock_srv_connect_failover() - an established connection is closed or
+ *                                      a connect attempt has failed.
  *
- * Both retry() and failover() call connect_try() again to re-establish the
+ * After connection was closed the connection destructor is called to set up
+ * timer to call connect_try() again and re-establish the
  * connection. Thus connect_try() is called repeatedly until the connection
  * is finally established (or until this "loop" of callbacks is stopped by
  * tfw_sock_srv_disconnect()).
@@ -125,7 +126,7 @@ static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
  */
-static int
+static void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
@@ -137,7 +138,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
 		TFW_ERR("Unable to create server socket\n");
-		return r;
+		return;
 	}
 
 	/*
@@ -184,16 +185,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
-		/* Drop failed connection. */
-		srv_conn->proto.hooks->connection_drop(sk);
-		/*
-		 * We hadle shutdown by closing the socket, so we can return
-		 * successful return code to upper layer.
-		 */
-		return r == SS_SHUTDOWN ? 0 : r;
+		srv_conn->proto.hooks->connection_error(sk);
+		/* Another try is handled in tfw_srv_conn_release() */
 	}
-
-	return 0;
 }
 
 /*
@@ -265,8 +259,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)data;
 
 	/* A new socket is created for each connect attempt. */
-	if (tfw_sock_srv_connect_try(srv_conn))
-		tfw_sock_srv_connect_try_later(srv_conn);
+	tfw_sock_srv_connect_try(srv_conn);
 }
 
 static inline void
