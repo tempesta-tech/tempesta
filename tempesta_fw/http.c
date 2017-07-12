@@ -1090,9 +1090,11 @@ tfw_http_conn_repair(TfwConn *conn)
 		goto zap_error;
 	}
 
-	BUG_ON(!tfw_srv_conn_restricted(srv_conn));
-
 	spin_lock(&srv_conn->fwd_qlock);
+	if (list_empty(&srv_conn->fwd_queue)) {
+		spin_unlock(&srv_conn->fwd_qlock);
+		return;
+	}
 	/* Treat a non-idempotent request if any. */
 	tfw_http_conn_treatnip(srv_conn, &equeue);
 	/* Re-send only the first unanswered request. */
