@@ -550,15 +550,21 @@ tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
  * saved as well.
  */
 static inline void
+__tfw_http_req_error(TfwHttpReq *req, struct list_head *equeue,
+		     unsigned short status, const char *reason)
+{
+	list_add_tail(&req->fwd_list, equeue);
+	req->httperr.status = status;
+	req->httperr.reason = reason;
+}
+
+static inline void
 tfw_http_req_error(TfwSrvConn *srv_conn, TfwHttpReq *req,
 		   struct list_head *equeue, unsigned short status,
 		   const char *reason)
 {
 	tfw_http_req_delist(srv_conn, req);
-	list_add_tail(&req->fwd_list, equeue);
-
-	req->httperr.status = status;
-	req->httperr.reason = reason;
+	__tfw_http_req_error(req, equeue, status, reason);
 }
 
 /*
@@ -918,28 +924,16 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
 }
 
 /*
- * Re-schedule requests in a dead server connection's queue to a live
- * server connection. Idempotent requests are always rescheduled.
+ * Collect requests in a dead server connection's queue that are suited
+ * for re-scheduling. Idempotent requests are always rescheduled.
  * Non-idempotent requests may be rescheduled depending on the option
  * in configuration.
- *
- * No locks are needed as the server connection is dead at the moment.
- *
- * Note: re-scheduled requests are put at the tail of a new server's
- * connection queue, and NOT according to their original timestamps.
- * That's the intended behaviour. These requests are unlucky already.
- * They were delayed by waiting in their original server connections,
- * and then by the time spent on multiple attempts to reconnect. Now
- * they have much greater chance to be evicted when it's their turn
- * to be forwarded. The main effort is put into servicing requests
- * that are on time. Unlucky requests are just given another chance
- * with minimal effort.
  */
 static void
-tfw_http_conn_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
+tfw_http_conn_collect(TfwSrvConn *srv_conn, struct list_head *sch_queue,
+		      struct list_head *equeue)
 {
 	TfwHttpReq *req, *tmp;
-	TfwSrvConn *sch_conn;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
@@ -954,7 +948,7 @@ tfw_http_conn_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 	 * of @srv_conn->msg_sent in each loop iteration.
 	 *
 	 * Note: The limit on re-forward attempts is checked against
-	 * the maximum value for the current server group. Then the
+	 * the maximum value for the current server group. Later the
 	 * request is placed in another connection in the same group.
 	 * It's essential that all servers in a group have the same
 	 * limit. Otherwise, it will be necessary to check requests
@@ -979,23 +973,52 @@ tfw_http_conn_resched(TfwSrvConn *srv_conn, struct list_head *equeue)
 	}
 
 	/*
-	 * Process the complete forwarding queue and re-schedule all
-	 * reguests to other servers/connections.
+	 * Move the remaining requests to @sch_queue. These requests
+	 * will be re-scheduled to other servers and/or connections.
 	 */
 	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
-		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
-			TFW_DBG("Unable to find a backend server\n");
-			tfw_http_req_error(srv_conn, req, equeue, 502,
-					   "request dropped: unable to find"
-					   " an available back end server");
-			continue;
-		}
 		tfw_http_req_delist(srv_conn, req);
-		tfw_http_req_fwd(sch_conn, req, equeue);
-		tfw_srv_conn_put(sch_conn);
+		list_add_tail(&req->fwd_list, sch_queue);
 	}
 	BUG_ON(srv_conn->qsize);
 	srv_conn->msg_sent = NULL;
+}
+
+/*
+ * Re-schedule requests collected from a dead server connection's
+ * queue to a live server connection.
+ *
+ * Note: re-scheduled requests are put at the tail of a new server's
+ * connection queue, and NOT according to their original timestamps.
+ * That's the intended behaviour. These requests are unlucky already.
+ * They were delayed by waiting in their original server connections,
+ * and then by the time spent on multiple attempts to reconnect. Now
+ * they have much greater chance to be evicted when it's their turn
+ * to be forwarded. The main effort is put into servicing requests
+ * that are on time. Unlucky requests are just given another chance
+ * with minimal effort.
+ */
+static void
+tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue)
+{
+	TfwSrvConn *sch_conn;
+	TfwHttpReq *req, *tmp;
+
+	/*
+	 * Process the complete queue and re-schedule all requests
+	 * to other servers/connections.
+	 */
+	list_for_each_entry_safe(req, tmp, sch_queue, fwd_list) {
+		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+			TFW_DBG("Unable to find a backend server\n");
+			__tfw_http_req_error(req, equeue, 502,
+					     "request dropped: unable to find"
+					     " an available back end server");
+			continue;
+		}
+		tfw_http_req_fwd(sch_conn, req, equeue);
+		tfw_srv_conn_put(sch_conn);
+	}
 }
 
 /*
@@ -1072,25 +1095,30 @@ tfw_http_conn_repair(TfwConn *conn)
 {
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	LIST_HEAD(equeue);
+	LIST_HEAD(sch_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	/* See if requests need to be rescheduled. */
-	if (unlikely(!tfw_srv_conn_live(srv_conn))) {
-		if (list_empty(&srv_conn->fwd_queue))
-			return;
-		tfw_http_conn_evict_timeout(srv_conn, &equeue);
-		if (unlikely(tfw_srv_conn_need_resched(srv_conn)))
-			tfw_http_conn_resched(srv_conn, &equeue);
-		goto zap_error;
-	}
-
 	spin_lock(&srv_conn->fwd_qlock);
+
 	if (list_empty(&srv_conn->fwd_queue)) {
 		spin_unlock(&srv_conn->fwd_qlock);
 		return;
 	}
+
+	/* See if requests need to be rescheduled. */
+	if (unlikely(!tfw_srv_conn_live(srv_conn))) {
+		tfw_http_conn_evict_timeout(srv_conn, &equeue);
+		if (unlikely(tfw_srv_conn_need_resched(srv_conn)))
+			tfw_http_conn_collect(srv_conn, &sch_queue, &equeue);
+		spin_unlock(&srv_conn->fwd_qlock);
+
+		if (!list_empty(&sch_queue))
+			tfw_http_conn_resched(&sch_queue, &equeue);
+		goto zap_error;
+	}
+
 	/* Treat a non-idempotent request if any. */
 	tfw_http_conn_treatnip(srv_conn, &equeue);
 	/* Re-send only the first unanswered request. */
@@ -1105,6 +1133,7 @@ tfw_http_conn_repair(TfwConn *conn)
 		}
 		tfw_srv_conn_reenable_if_done(srv_conn);
 	}
+
 	spin_unlock(&srv_conn->fwd_qlock);
 
 zap_error:
