@@ -157,7 +157,7 @@ typedef struct {
  * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
  * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
  * @flags	- atomic flags related to server connection's state;
- * @qsize	- current number of requests in server's @msg_queue;
+ * @qsize	- current number of requests in server's @fwd_queue;
  * @recns	- the number of reconnect attempts;
  * @msg_sent	- request that was sent last in a server connection;
  */
