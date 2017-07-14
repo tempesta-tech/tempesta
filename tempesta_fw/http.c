@@ -1081,12 +1081,8 @@ tfw_http_conn_repair(TfwConn *conn)
 		if (list_empty(&srv_conn->fwd_queue))
 			return;
 		tfw_http_conn_evict_timeout(srv_conn, &equeue);
-		if (test_bit(TFW_CONN_B_FAULTY, &srv_conn->flags)) {
+		if (unlikely(tfw_srv_conn_need_resched(srv_conn)))
 			tfw_http_conn_resched(srv_conn, &equeue);
-		} else if (unlikely(tfw_srv_conn_need_resched(srv_conn))) {
-			set_bit(TFW_CONN_B_FAULTY, &srv_conn->flags);
-			tfw_http_conn_resched(srv_conn, &equeue);
-		}
 		goto zap_error;
 	}
 
@@ -1219,7 +1215,6 @@ tfw_http_conn_init(TfwConn *conn)
 			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
 			TFW_INC_STAT_BH(serv.conn_restricted);
 		}
-		clear_bit(TFW_CONN_B_FAULTY, &srv_conn->flags);
 	}
 	tfw_gfsm_state_init(&conn->state, conn, TFW_HTTP_FSM_INIT);
 	return 0;
