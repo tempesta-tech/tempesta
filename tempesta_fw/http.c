@@ -583,6 +583,8 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	TFW_DBG2("%s: queue is %sempty\n",
 		 __func__, list_empty(equeue) ? "" : "NOT ");
+	if (list_empty(equeue))
+		return;
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
@@ -1123,8 +1125,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	spin_unlock(&srv_conn->fwd_qlock);
 
 zap_error:
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+	tfw_http_req_zap_error(&equeue);
 }
 
 /*
@@ -1832,8 +1833,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 
 	/* Forward request to the server. */
 	tfw_http_req_fwd(srv_conn, req, &equeue);
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+	tfw_http_req_zap_error(&equeue);
 	goto conn_put;
 
 send_502:
@@ -2238,8 +2238,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 		tfw_http_conn_fwd_unsent(srv_conn, &equeue);
 	spin_unlock(&srv_conn->fwd_qlock);
 
-	if (!list_empty(&equeue))
-		tfw_http_req_zap_error(&equeue);
+	tfw_http_req_zap_error(&equeue);
 
 	return req;
 }
