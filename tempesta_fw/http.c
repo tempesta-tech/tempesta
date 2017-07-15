@@ -420,7 +420,6 @@ tfw_http_req_is_nip(TfwHttpReq *req)
 static inline void
 __tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
-	BUG_ON(list_empty(&req->nip_list));
 	list_del_init(&req->nip_list);
 	if (list_empty(&srv_conn->nip_queue))
 		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
@@ -716,19 +715,6 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *equeue)
 	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
-	/* A frequent case: there's just one request in the queue. */
-	if (likely(list_is_singular(fwd_queue))) {
-		tfw_http_req_fwd_single(srv_conn, srv, req, equeue);
-		/* See if the idempotent request was non-idempotent. */
-		tfw_http_req_nip_delist(srv_conn, req);
-		return;
-	}
-	/*
-	 * A less frequent case: the queue was on hold due to forwarding
-	 * a non-idempotent request, and a number of subsequent requests
-	 * had piled up. Process the server connection's full queue of
-	 * pending requests.
-	 */
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		if (!tfw_http_req_fwd_single(srv_conn, srv, req, equeue))
 			continue;
