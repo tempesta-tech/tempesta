@@ -157,7 +157,7 @@ typedef struct {
  * @nip_queue	- queue of non-idempotent messages in server's @fwd_queue;
  * @fwd_qlock	- lock for accessing @fwd_queue and @nip_queue;
  * @flags	- atomic flags related to server connection's state;
- * @qsize	- current number of requests in server's @msg_queue;
+ * @qsize	- current number of requests in server's @fwd_queue;
  * @recns	- the number of reconnect attempts;
  * @msg_sent	- request that was sent last in a server connection;
  */
@@ -179,13 +179,11 @@ enum {
 	TFW_CONN_B_RESEND = 0,	/* Need to re-send requests. */
 	TFW_CONN_B_QFORWD,	/* Need to forward requests in the queue. */
 	TFW_CONN_B_HASNIP,	/* Has non-idempotent requests. */
-	TFW_CONN_B_FAULTY,	/* Reconnects failed, need to re-schedule. */
 };
 
 #define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
 #define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
 #define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-#define TFW_CONN_F_FAULTY	(1 << TFW_CONN_B_FAULTY)
 
 /**
  * TLS hardened connection.
@@ -269,15 +267,6 @@ static inline bool
 tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
 {
 	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
-}
-
-/*
- * Tell if all attempts to re-connect had failed.
- */
-static inline bool
-tfw_srv_conn_faulty(TfwSrvConn *srv_conn)
-{
-	return test_bit(TFW_CONN_B_FAULTY, &srv_conn->flags);
 }
 
 static inline bool
