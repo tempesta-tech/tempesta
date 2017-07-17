@@ -39,7 +39,7 @@ class HttpRules(functional.FunctionalTest):
                 req.headers.add(header, value)
                 req.update()
 
-        return [chain for i in range(self.requests_n)]
+        return [chain for _ in range(self.requests_n)]
 
     def create_client(self):
         # Client will be created for every server.
@@ -47,13 +47,13 @@ class HttpRules(functional.FunctionalTest):
             server.client = deproxy.Client()
 
     def create_servers(self):
-        port=tempesta.upstream_port_start_from()
+        port = tempesta.upstream_port_start_from()
         server_options = [
-            (('uri_p'),   ('/static/index.html'), None, None),
-            (('uri_s'),   ('/script.php'), None, None),
-            (('host_p'),  ('/'), ('host'), ('static.example.com')),
-            (('host_s'),  ('/'), ('host'),  ('s.tempesta-tech.com')),
-            (('host_e'),  ('/'), ('host'),  ('foo.example.com')),
+            (('uri_p'), ('/static/index.html'), None, None),
+            (('uri_s'), ('/script.php'), None, None),
+            (('host_p'), ('/'), ('host'), ('static.example.com')),
+            (('host_s'), ('/'), ('host'), ('s.tempesta-tech.com')),
+            (('host_e'), ('/'), ('host'), ('foo.example.com')),
             (('hdr_h_p'), ('/'), ('host'), ('bar.example.com')),
             (('hdr_h_s'), ('/'), ('host'), ('test.natsys-lab.com')),
             (('hdr_h_e'), ('/'), ('host'), ('buzz.natsys-lab.com')),
@@ -145,7 +145,7 @@ class HttpRulesBackupServers(HttpRules):
             chain = deproxy.MessageChain.empty()
         else:
             chain = functional.base_message_chain()
-        return [chain for i in range(self.requests_n)]
+        return [chain for _ in range(self.requests_n)]
 
     def create_server_helper(self, group, port):
         server = deproxy.Server(port=port, conns_n=1)
@@ -154,7 +154,7 @@ class HttpRulesBackupServers(HttpRules):
         return server
 
     def create_servers(self):
-        port=tempesta.upstream_port_start_from()
+        port = tempesta.upstream_port_start_from()
         for group in ['primary', 'backup']:
             server = self.create_server_helper(group, port)
             port += 1
@@ -222,3 +222,5 @@ class HttpSchedTester(deproxy.Deproxy):
         # instead call the
         self.recieved_chain.response = response
         self.response_cb()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

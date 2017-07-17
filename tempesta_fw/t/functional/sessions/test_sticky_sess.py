@@ -1,9 +1,6 @@
 from __future__ import print_function
-import sys
-import unittest
-import re
 import copy
-from helpers import deproxy, tempesta
+from helpers import tempesta
 from testers import functional
 from . import cookies
 
@@ -22,6 +19,8 @@ class TestSticky(functional.FunctionalTest):
 
     # No enforce
     config = defconfig % ''
+
+    allow_failover = False
 
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group(),
@@ -44,7 +43,7 @@ class TestSticky(functional.FunctionalTest):
         chain = copy.copy(self.tester.message_chains[1])
         chain.no_forward()
         chain.response = cookies.make_502()
-        return [chain for i in range(cookies.CHAIN_LENGTH)]
+        return [chain for _ in range(cookies.CHAIN_LENGTH)]
 
     def check_failover(self, new_message_chain_provider):
         self.generic_test_routine(self.config, [])
@@ -135,9 +134,9 @@ class TesterSticky(cookies.TesterUseCookies):
 class TesterStickyEnforcedCookies(cookies.TesterUseEnforcedCookies):
 
     def __init__(self, *args, **kwargs):
-         cookies.TesterUseEnforcedCookies.__init__(self, *args, **kwargs)
-         self.pinned_srv = None
-         self.used_srv = None
+        cookies.TesterUseEnforcedCookies.__init__(self, *args, **kwargs)
+        self.pinned_srv = None
+        self.used_srv = None
 
     def recieved_forwarded_request(self, request, connection):
         if not self.pinned_srv:
@@ -150,3 +149,5 @@ class TesterStickyEnforcedCookies(cookies.TesterUseEnforcedCookies):
         cookies.TesterUseCookies.check_expectations(self)
         assert self.pinned_srv is self.used_srv, \
             'Session is not Sticky, request forwarded to other server!'
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

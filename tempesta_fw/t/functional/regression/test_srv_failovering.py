@@ -3,11 +3,10 @@ Test Servers connections failovering.
 """
 
 from __future__ import print_function
-import unittest
 import random
 import socket
 import asyncore
-from helpers import deproxy, tf_cfg, tempesta, remote
+from helpers import deproxy, tempesta
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -75,14 +74,16 @@ class FailoverTester(deproxy.Deproxy):
             raise asyncore.ExitNow
 
     def random_close(self):
-        for i in range (self.expected_conns_n // 4):
+        for _ in range(self.expected_conns_n // 4):
             conn = random.choice(self.srv_connections)
             if conn:
                 conn.handle_close()
 
     def random_shutdown(self):
-        for i in range (self.expected_conns_n // 4):
+        for _ in range(self.expected_conns_n // 4):
             conn = random.choice(self.srv_connections)
             if conn:
                 conn.socket.shutdown(socket.SHUT_RDWR)
                 conn.handle_close()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

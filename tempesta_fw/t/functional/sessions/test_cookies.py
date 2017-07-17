@@ -1,8 +1,4 @@
 from __future__ import print_function
-import sys
-import unittest
-import re
-from helpers import deproxy
 from testers import functional
 from . import cookies
 
@@ -25,7 +21,7 @@ class TestNoCookiesSupport(functional.FunctionalTest):
                                                   self.servers)
 
     def test(self):
-       self.generic_test_routine(self.config, [])
+        self.generic_test_routine(self.config, [])
 
 
 class TestCookiesSupport(TestNoCookiesSupport):
@@ -53,3 +49,5 @@ class TestEnforcedCookiesSupport(TestNoEnforcedCookiesSupport):
     def create_tester(self, message_chain):
         self.tester = cookies.TesterUseEnforcedCookies(
             message_chain, self.client, self.servers)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

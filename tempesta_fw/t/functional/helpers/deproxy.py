@@ -1,6 +1,5 @@
 from __future__ import print_function
 import abc
-import httplib
 from StringIO import StringIO
 import asyncore
 import select
@@ -29,7 +28,7 @@ class IncompliteMessage(ParseError):
 class HeaderCollection(object):
     """
     A collection class for HTTP Headers. This class combines aspects of a list
-    and a dict. Lookup is always case-insenitive. A key can be added multiple
+    and a dict. Lookup is always case-insensitive. A key can be added multiple
     times with different values, and all of those values will be kept.
     """
 
@@ -62,10 +61,9 @@ class HeaderCollection(object):
         lower = key.lower()
         for i, header in enumerate(self.headers):
             if header[0].lower() == lower:
-                headers[i] = (header[0], value)
+                self.headers[i] = (header[0], value)
                 return
-        else:
-            self.add(key.lower(), value)
+        self.add(key.lower(), value)
 
     def __delitem__(self, key):
         self.delete_all(name=key)
@@ -137,13 +135,13 @@ class HeaderCollection(object):
             headers.add(name, value)
         return headers
 
-    def __eq__(left, right):
-        h_left = set([(hed.lower(), val) for hed, val in left.items()])
-        h_right = set([(hed.lower(), val) for hed, val in right.items()])
-        return h_left == h_right
+    def __eq__(self, other):
+        h_self = set([(hed.lower(), val) for hed, val in self.items()])
+        h_other = set([(hed.lower(), val) for hed, val in other.items()])
+        return h_self == h_other
 
-    def __ne__(left, right):
-        return not HeaderCollection.__eq__(left, right)
+    def __ne__(self, other):
+        return not HeaderCollection.__eq__(self, other)
 
     def __str__(self):
         return ''.join(['%s: %s\r\n' % (hed, val) for hed, val in self.items()])
@@ -191,7 +189,6 @@ class HttpMessage(object):
 
     def parse_body(self, stream):
         if self.body_parsing and 'Transfer-Encoding' in self.headers:
-            chunked = False
             enc = self.headers['Transfer-Encoding']
             option = enc.split(',')[-1] # take the last option
 
@@ -220,7 +217,7 @@ class HttpMessage(object):
                 if size == 0:
                     break
             except:
-                raise ParseError('Error in chuncked body')
+                raise ParseError('Error in chunked body')
 
         # Parsing trailer will eat last CRLF
         self.parse_trailer(stream)
@@ -243,14 +240,14 @@ class HttpMessage(object):
         self.trailer = HeaderCollection().from_stream(stream, no_crlf=True)
 
     @abc.abstractmethod
-    def __eq__(left, right):
-        return ((left.headers == right.headers) and
-                (left.body == right.body) and
-                (left.trailer == right.trailer))
+    def __eq__(self, other):
+        return ((self.headers == other.headers) and
+                (self.body == other.body) and
+                (self.trailer == other.trailer))
 
     @abc.abstractmethod
-    def __ne__(left, right):
-        return not HttpMessage.__eq__(left, right)
+    def __ne__(self, other):
+        return not HttpMessage.__eq__(self, other)
 
     def __str__(self):
         return ''.join([str(self.headers), '\r\n', self.body, str(self.trailer)])
@@ -268,7 +265,7 @@ class HttpMessage(object):
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         if timestamp is None:
             timestamp = time.time()
-        year, month, day, hh, mm, ss, wd, y, z = time.gmtime(timestamp)
+        year, month, day, hh, mm, ss, wd, _, _ = time.gmtime(timestamp)
         s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
             weekdayname[wd], day, monthname[month], year, hh, mm, ss)
         return s
@@ -309,7 +306,7 @@ class Request(HttpMessage):
     def parse_firstline(self, stream):
         requestline = stream.readline()
         if requestline[-1] != '\n':
-            raise IncompliteMessage('Incomplite request line!')
+            raise IncompliteMessage('Incomplete request line!')
 
         words = requestline.rstrip('\r\n').split()
         if len(words) == 3:
@@ -321,14 +318,14 @@ class Request(HttpMessage):
         if not self.method in self.methods:
             raise ParseError('Invalid request method!')
 
-    def __eq__(left, right):
-        return ((left.method == right.method)
-                and (left.version == right.version)
-                and (left.uri == right.uri)
-                and HttpMessage.__eq__(left, right))
+    def __eq__(self, other):
+        return ((self.method == other.method)
+                and (self.version == other.version)
+                and (self.uri == other.uri)
+                and HttpMessage.__eq__(self, other))
 
-    def __ne__(left, right):
-        return not Request.__eq__(left, right)
+    def __ne__(self, other):
+        return not Request.__eq__(self, other)
 
     def update(self):
         HttpMessage.update(self,
@@ -352,7 +349,7 @@ class Response(HttpMessage):
     def parse_firstline(self, stream):
         statusline = stream.readline()
         if statusline[-1] != '\n':
-            raise IncompliteMessage('Incomplite Status line!')
+            raise IncompliteMessage('Incomplete Status line!')
 
         words = statusline.rstrip('\r\n').split()
         if len(words) >= 3:
@@ -368,14 +365,14 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
-    def __eq__(left, right):
-        return ((left.status == right.status)
-                and (left.version == right.version)
-                and (left.reason == right.reason)
-                and HttpMessage.__eq__(left, right))
+    def __eq__(self, other):
+        return ((self.status == other.status)
+                and (self.version == other.version)
+                and (self.reason == other.reason)
+                and HttpMessage.__eq__(self, other))
 
-    def __ne__(left, right):
-        return not Response.__eq__(left, right)
+    def __ne__(self, other):
+        return not Response.__eq__(self, other)
 
     def update(self):
         status = int(self.status)
@@ -408,7 +405,7 @@ class Client(asyncore.dispatcher):
         if host is None:
             host = 'Tempesta'
         addr = tf_cfg.cfg.get(host, 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Client: Conect to %s:%d.' % (addr, port))
+        tf_cfg.dbg(4, '\tDeproxy: Client: Connect to %s:%d.' % (addr, port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect((addr, port))
 
@@ -434,7 +431,7 @@ class Client(asyncore.dispatcher):
         self.response_buffer += self.recv(MAX_MESSAGE_SIZE)
         if not self.response_buffer:
             return
-        tf_cfg.dbg(4, '\tDeproxy: Client: Recieve response from Tempesta.')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Receive response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
             response = Response(self.response_buffer,
@@ -462,7 +459,7 @@ class Client(asyncore.dispatcher):
         self.request_buffer = self.request_buffer[sent:]
 
     def handle_error(self):
-        t, v, tb = sys.exc_info()
+        _, v, _ = sys.exc_info()
         error.bug('\tDeproxy: Client: %s' % v)
 
 
@@ -511,7 +508,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
                 self.handle_close()
 
     def handle_error(self):
-        t, v, tb = sys.exc_info()
+        _, v, _ = sys.exc_info()
         error.bug('\tDeproxy: SrvConnection: %s' % v)
 
     def handle_close(self):
@@ -522,7 +519,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
         if self.server:
             try:
                 self.server.connections.remove(self)
-            except:
+            except ValueError:
                 pass
 
 
@@ -570,19 +567,19 @@ class Server(asyncore.dispatcher):
     def handle_accept(self):
         pair = self.accept()
         if pair is not None:
-            sock, addr = pair
+            sock, _ = pair
             handler = ServerConnection(self.tester, server=self, sock=sock,
                                        keep_alive=self.keep_alive)
             self.connections.append(handler)
             assert len(self.connections) <= self.conns_n, \
                 ('Too lot connections, expect %d, got %d'
-                    & (self.conns_n, len(self.connections)))
+                 & (self.conns_n, len(self.connections)))
 
     def active_conns_n(self):
         return len(self.connections)
 
     def handle_error(self):
-        t, v, tb = sys.exc_info()
+        _, v, _ = sys.exc_info()
         error.bug('\tDeproxy: Server %s:%d: %s' % (self.addr_str, self.port, v))
 
     def handle_close(self):
@@ -645,15 +642,15 @@ class Deproxy(object):
         """Poll for socket events no more than `timeout` seconds."""
         try:
             eta = time.time() + timeout
-            map =  asyncore.socket_map
+            s_map = asyncore.socket_map
 
             if hasattr(select, 'poll'):
                 poll_fun = asyncore.poll2
             else:
                 poll_fun = asyncore.poll
 
-            while (eta > time.time()) and map:
-                poll_fun(min(self.timeout, timeout), map)
+            while (eta > time.time()) and s_map:
+                poll_fun(min(self.timeout, timeout), s_map)
         except asyncore.ExitNow:
             pass
 
@@ -670,31 +667,31 @@ class Deproxy(object):
             expected = getattr(self.current_chain, message)
             recieved = getattr(self.recieved_chain, message)
             assert expected == recieved, \
-                ("Recieved message (%s) does not suit expected one!\n\n"
-                 "\tRecieved:\n<<<<<|\n%s|>>>>>\n"
+                ("Received message (%s) does not suit expected one!\n\n"
+                 "\tReceieved:\n<<<<<|\n%s|>>>>>\n"
                  "\tExpected:\n<<<<<|\n%s|>>>>>\n"
                  % (message, recieved.msg, expected.msg))
 
     def recieved_response(self, response):
-        """Client recieved response for its request."""
+        """Client received response for its request."""
         self.recieved_chain.response = response
         raise asyncore.ExitNow
 
-    def recieved_forwarded_request(self, request, connection):
+    def recieved_forwarded_request(self, request, connection=None):
         self.recieved_chain.fwd_request = request
         return self.current_chain.server_response
 
     def register_srv_connection(self, connection):
         assert connection.server in self.servers, \
-            'Register connection, which comes from not registred server!'
+            'Register connection, which comes from not registered server!'
         self.srv_connections.append(connection)
 
     def remove_srv_connection(self, connection):
-        # Normaly we have the connection in the list, but do not crash test
+        # Normally we have the connection in the list, but do not crash test
         # framework if that is not true.
         try:
             self.srv_connections.remove(connection)
-        except:
+        except ValueError:
             pass
 
     def is_srvs_ready(self):
@@ -708,3 +705,5 @@ class Deproxy(object):
         servers = [server for server in self.servers]
         for server in servers:
             server.handle_close()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

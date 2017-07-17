@@ -3,10 +3,9 @@ Test TempestaFW reeboot under heavy load.
 """
 
 from __future__ import print_function
-import unittest
 from threading import Thread
 from time import sleep
-from helpers import deproxy, tf_cfg, tempesta, remote, control
+from helpers import tf_cfg, remote, control
 from testers import stress
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -69,3 +68,5 @@ class RebootUnderLoadNoTimeoutTest(RebootUnderLoadTest):
 
     restart_timeout = 0
     warm_timeout = 5
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
