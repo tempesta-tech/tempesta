@@ -1,5 +1,4 @@
 from __future__ import print_function
-import unittest
 from helpers import deproxy, tf_cfg, tempesta
 from testers import functional
 
@@ -83,9 +82,11 @@ class DeproxyTestFailOver(DeproxyTest):
             def check_expectations(self):
                 # We closed server connection after response. Tempesta must
                 # failover the connection. Run loop with small timeout
-                # once again to pocess events.
+                # once again to process events.
                 self.loop(0.1)
                 assert self.is_srvs_ready(), 'Failovering failed!'
                 deproxy.Deproxy.check_expectations(self)
 
         self.tester = DeproxyFailOver(message_chain, self.client, self.servers)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

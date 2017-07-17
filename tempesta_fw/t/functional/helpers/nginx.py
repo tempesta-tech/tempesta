@@ -90,3 +90,5 @@ http {
             location = tf_cfg.cfg.get('Server', 'resources')
         self.__replace(r'root[ ]+([\w._/]+);',
                        ' '.join(['root', location, ';']))
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

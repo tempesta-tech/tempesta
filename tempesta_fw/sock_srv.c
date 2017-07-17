@@ -45,11 +45,12 @@
  * It initiates a connect attempt and just exits without blocking.
  *
  * Later on, when connection state is changed, a callback is invoked:
- *  - tfw_sock_srv_connect_retry()    - a connect attempt has failed.
  *  - tfw_sock_srv_connect_complete() - a connection is established.
- *  - tfw_sock_srv_connect_failover() - an established connection is closed.
+ *  - tfw_sock_srv_connect_failover() - an established connection is closed or
+ *                                      a connect attempt has failed.
  *
- * Both retry() and failover() call connect_try() again to re-establish the
+ * After connection was closed the connection destructor is called to set up
+ * timer to call connect_try() again and re-establish the
  * connection. Thus connect_try() is called repeatedly until the connection
  * is finally established (or until this "loop" of callbacks is stopped by
  * tfw_sock_srv_disconnect()).
@@ -125,7 +126,7 @@ static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
  */
-static int
+static void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
@@ -137,10 +138,13 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
 		TFW_ERR("Unable to create server socket\n");
-		return r;
+		return;
 	}
 
 	/*
+	 * Save @sk in case the connect request is silently dropped by
+	 * the other end (i.e. a firewall). It will be needed to close
+	 * the socket. Initialize TfwSrvConn{}->refcnt to a special value.
 	 * Setup connection handlers before ss_connect() call. We can get
 	 * an established connection right when we're in the call in case
 	 * of a local peer connection, so all handlers must be installed
@@ -150,7 +154,14 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	sock_set_flag(sk, SOCK_DBG);
 #endif
 	tfw_connection_link_from_sk((TfwConn *)srv_conn, sk);
+	tfw_connection_link_to_sk((TfwConn *)srv_conn, sk);
+	tfw_srv_conn_init_as_dead(srv_conn);
 	ss_set_callbacks(sk);
+	/*
+	 * Set connection destructor such that connection failover can
+	 * take place if the connection attempt fails.
+	 */
+	srv_conn->destructor = (void *)tfw_srv_conn_release;
 
 	/*
 	 * There are two possible use patterns of this function:
@@ -174,20 +185,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
-		/*
-		 * We hadle shutdown by closing the socket, so we can return
-		 * successful return code to upper layer.
-		 */
-		return r == SS_SHUTDOWN ? 0 : r;
+		SS_CALL(connection_error, sk);
+		/* Another try is handled in tfw_srv_conn_release() */
 	}
-
-	/*
-	 * Set connection destructor such that connection failover can
-	 * take place if the connection attempt fails.
-	 */
-	srv_conn->destructor = (void *)tfw_srv_conn_release;
-
-	return 0;
 }
 
 /*
@@ -259,8 +259,7 @@ tfw_sock_srv_connect_retry_timer_cb(unsigned long data)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)data;
 
 	/* A new socket is created for each connect attempt. */
-	if (tfw_sock_srv_connect_try(srv_conn))
-		tfw_sock_srv_connect_try_later(srv_conn);
+	tfw_sock_srv_connect_try(srv_conn);
 }
 
 static inline void
@@ -308,8 +307,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	/* Link Tempesta with the socket. */
-	tfw_connection_link_to_sk(conn, sk);
+	BUG_ON(conn->sk != sk);
 
 	/* Notify higher level layers. */
 	if ((r = tfw_connection_new(conn))) {
@@ -363,17 +361,13 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TFW_DBG_ADDR("connection error", &srv->addr);
 
 	/*
-	 * Distiguish connections that go to failover state from those that
-	 * are in that state already. In the latter case, take an extra
-	 * connection reference to indicate that the connection is in the
-	 * failover state.
+	 * Distiguish connections that go to failover state
+	 * from those that are in failover state already.
 	 */
 	if (tfw_connection_live(conn)) {
 		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_put_to_death(conn);
 		tfw_connection_drop(conn);
-	} else {
-		tfw_connection_get(conn);
 	}
 
 	tfw_connection_unlink_from_sk(sk);
@@ -406,19 +400,19 @@ static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	int ret = 0;
+	struct sock *sk = conn->sk;
 
 	/* Prevent races with timer callbacks. */
 	del_timer_sync(&conn->timer);
 
 	/*
-	 * If the connection is closed already, then simply release its
-	 * resources. Otherwise, use synchronous closing to ensure that
-	 * the job is enqueued.
+	 * All resources attached to a connection is released  by calling
+	 * connection destructor once the socket linked to a connection is
+	 * closed. So no additional cleanup is needed if connection->refcnt
+	 * is equals TFW_CONN_DEATHCNT.
 	 */
-	if (atomic_read(&conn->refcnt) == TFW_CONN_DEATHCNT)
-		tfw_connection_release(conn);
-	else
-		ret = ss_close_sync(conn->sk, true);
+	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+		ret = ss_close_sync(sk, true);
 
 	return ret;
 }
@@ -438,13 +432,6 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * for not having a global list of all TfwSrvConn{} objects, and for storing
  * not-yet-established connections in the TfwServer->conn_list.
  */
-
-static inline int
-__tfw_sock_srv_connect_try_later_cb(TfwSrvConn *srv_conn)
-{
-	tfw_sock_srv_connect_try_later(srv_conn);
-	return 0;
-}
 
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)
@@ -467,6 +454,12 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 
 /**
  * There should be no server socket users when the function is called.
+ *
+ * All resources attached a the server connection will be released once socket
+ * linked to the server connection (e.g. http messages stored in connection's
+ * forward queue and client connections referenced by that messages). So single
+ * ss_synchronize() in tfw_cfg_stop() will guarantee that all server and client
+ * connections was released.
  */
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)

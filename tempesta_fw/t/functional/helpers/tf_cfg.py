@@ -15,10 +15,10 @@ class TestFrameworkCfg(object):
     cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
                         '/../tests_config.ini'])
 
-    def __init__(self, file=None):
+    def __init__(self, filename=None):
         cfg_file = self.cfg_file
-        if file:
-            cfg_file = file
+        if filename:
+            cfg_file = filename
         self.defaults()
         self.file_err = True
         if os.path.isfile(cfg_file):
@@ -76,7 +76,8 @@ class TestFrameworkCfg(object):
             self.config.write(configfile)
         print('Default configuration saved to %s' % self.cfg_file)
 
-    def error(self, reason):
+    @staticmethod
+    def error(reason):
         print('Tests configuration error! %s Exiting.' % reason)
         sys.exit(1)
 
@@ -106,3 +107,5 @@ skip_check = False
 cfg = TestFrameworkCfg()
 if not skip_check:
     cfg.check()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

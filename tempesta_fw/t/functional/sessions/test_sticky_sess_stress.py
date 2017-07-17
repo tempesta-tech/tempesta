@@ -3,7 +3,7 @@ With sticky sessions each client is pinned to only one server in group.
 """
 
 from __future__ import print_function
-import unittest, sys
+import sys
 from helpers import control, tempesta, tf_cfg
 from testers import stress
 
@@ -53,6 +53,10 @@ class OneClient(stress.StressTest):
         self.assertEqual(loaded, 1)
 
     def test(self):
+        # Server connections failovering is tested in functional test.
+        # It will cause only non-200 responses.
+        for s in self.servers:
+            s.config.set_ka(sys.maxsize)
         self.generic_test_routine(self.config)
 
 
@@ -72,3 +76,5 @@ class LotOfClients(OneClient):
 
     def assert_servers(self):
         stress.StressTest.assert_servers(self)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

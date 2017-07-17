@@ -110,10 +110,15 @@ int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);
 int ss_bind(struct sock *sk, struct sockaddr *addr, int addrlen);
 int ss_listen(struct sock *sk, int backlog);
 void ss_getpeername(struct sock *sk, TfwAddr *addr);
-void ss_wait_listeners(void);
+void ss_wait_newconn(void);
 void ss_synchronize(void);
 void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
+
+#define SS_CALL(f, ...)							\
+	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
+	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
+	: 0)
 
 #endif /* __SS_SOCK_H__ */

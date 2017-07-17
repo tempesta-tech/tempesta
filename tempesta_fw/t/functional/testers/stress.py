@@ -7,12 +7,12 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class StressTest(unittest.TestCase):
-    """ Test Suite to use HTTP benchmarkers as a clients. Can be used for
+    """ Test Suite to use HTTP benchmarks as a clients. Can be used for
     functional testing of schedulers and stress testing for other components.
     """
 
     def create_clients(self):
-        """ Override to set desired list of benchmarkers and their options. """
+        """ Override to set desired list of benchmarks and their options. """
         self.clients = [control.Wrk()]
 
     def create_tempesta(self):
@@ -40,7 +40,7 @@ class StressTest(unittest.TestCase):
         See comment in Nginx.get_stats().
         """
         if start_port is None:
-            start_port=tempesta.upstream_port_start_from()
+            start_port = tempesta.upstream_port_start_from()
         self.servers = []
         for i in range(count):
             self.servers.append(control.Nginx(listen_port=(start_port + i)))
@@ -57,7 +57,7 @@ class StressTest(unittest.TestCase):
 
     def tearDown(self):
         """ Carefully stop all servers. Error on stop will make next test fail,
-        so mark test as failed even if eveything other is fine.
+        so mark test as failed even if everything other is fine.
         """
         # Call functions only if variables not None: there might be an error
         # before tempesta would be created.
@@ -90,8 +90,8 @@ class StressTest(unittest.TestCase):
             req, err = c.results()
             cl_req_cnt += req
             self.assertEqual(err, 0, msg='HTTP client detected errors')
-        # Clients counts only complited requests and closes connections before
-        # Tempesta can send responses. So Tempesta recieved requests count
+        # Clients counts only completed requests and closes connections before
+        # Tempesta can send responses. So Tempesta received requests count
         # differ from request count shown by clients. Didn't find any way how to
         # fix that.
         # Just check that difference is less than concurrent connections count.
@@ -133,7 +133,7 @@ class StressTest(unittest.TestCase):
         control.clients_run_parallel(self.clients)
         self.show_performance()
 
-        # Tempesta statistics is valueble to client assertions.
+        # Tempesta statistics is valuable to client assertions.
         self.tempesta.get_stats()
 
         self.assert_clients()
@@ -142,3 +142,5 @@ class StressTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

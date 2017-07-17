@@ -14,36 +14,41 @@ __license__ = 'GPL2'
 
 # Don't remove files from remote node. Helpful for tests development.
 DEBUG_FILES = False
-# Defult timeout for SSH sessions and command processing.
+# Default timeout for SSH sessions and command processing.
 DEFAULT_TIMEOUT = 5
 
 class Node(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, hostname, workdir):
+    def __init__(self, type, hostname, workdir):
         self.host = hostname
         self.workdir = workdir
+        self.type = type
 
     def is_remote(self):
         return self.host != 'localhost'
 
     @abc.abstractmethod
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''): pass
+                err_msg=''):
+        pass
 
     @abc.abstractmethod
-    def mkdir(self, path): pass
+    def mkdir(self, path):
+        pass
 
     @abc.abstractmethod
-    def copy_file(self, filename, content, path=None): pass
+    def copy_file(self, filename, content, path=None):
+        pass
 
     @abc.abstractmethod
-    def remove_file(self, filename): pass
+    def remove_file(self, filename):
+        pass
 
 
 class LocalNode(Node):
-    def __init__(self, hostname, workdir):
-        Node.__init__(self, hostname, workdir)
+    def __init__(self, type, hostname, workdir):
+        Node.__init__(self, type, hostname, workdir)
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
                 err_msg=''):
@@ -90,8 +95,8 @@ class LocalNode(Node):
 
 
 class RemoteNode(Node):
-    def __init__(self, hostname, workdir, user, port=22):
-        Node.__init__(self, hostname, workdir)
+    def __init__(self, type, hostname, workdir, user, port=22):
+        Node.__init__(self, type, hostname, workdir)
         self.user = user
         self.port = port
         self.connect()
@@ -111,7 +116,7 @@ class RemoteNode(Node):
             error.bug("Error connecting %s: %s" % (self.host, e))
 
     def close(self):
-        """ Release SSH connection without waitning for GC. """
+        """ Release SSH connection without waiting for GC. """
         self.ssh.close()
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
@@ -150,7 +155,7 @@ class RemoteNode(Node):
             sftp.close()
         except Exception as e:
             error.bug(("Error copying file %s to %s: %s" %
-                      (filename, self.host, e)))
+                       (filename, self.host, e)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:
@@ -161,7 +166,7 @@ class RemoteNode(Node):
             sftp.close()
         except Exception as e:
             error.bug(("Error removing file %s on %s: %s" %
-                      (filename, self.host, e)))
+                       (filename, self.host, e)))
 
 
 
@@ -172,8 +177,8 @@ def create_node(host):
     if hostname != 'localhost':
         port = int(tf_cfg.cfg.get(host, 'port'))
         username = tf_cfg.cfg.get(host, 'user')
-        return RemoteNode(hostname, workdir, username, port)
-    return LocalNode(hostname, workdir)
+        return RemoteNode(host, hostname, workdir, username, port)
+    return LocalNode(host, hostname, workdir)
 
 
 #-------------------------------------------------------------------------------
@@ -188,7 +193,7 @@ def get_max_thread_count(node):
     return int(m.group(1).decode('ascii'))
 
 #-------------------------------------------------------------------------------
-# Global accessable SSH/Local connections
+# Global accessible SSH/Local connections
 #-------------------------------------------------------------------------------
 client = create_node('Client')
 tempesta = create_node('Tempesta')
@@ -198,3 +203,5 @@ server = create_node('Server')
 # Tempesta contains sources and must exist.
 for node in [client, server]:
     node.mkdir(node.workdir)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -77,11 +77,6 @@ static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
 
-#define SS_CALL(f, ...)							\
-	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
-	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
-	: 0)
-
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
 {
@@ -773,8 +768,9 @@ ss_tcp_state_change(struct sock *sk)
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
 			/*
 			 * Tempesta is shutting down. However, Tempesta isn't
-			 * aware about @sk, so we have to close it on our own
-			 * without calling upper layer hooks.
+			 * aware about any @sk except connections to server,
+			 * so we have to close it on our own without calling
+			 * upper layer hooks.
 			 */
 			ss_do_close(sk);
 			sock_put(sk);
@@ -784,7 +780,7 @@ ss_tcp_state_change(struct sock *sk)
 			 * and ss_active_guard_enter() there.
 			 */
 			if (!lsk)
-				ss_active_guard_exit(SS_V_ACT_LIVECONN);
+				SS_CALL_GUARD_EXIT(connection_drop, sk);
 			return;
 		}
 
@@ -1200,7 +1196,9 @@ ss_tx_action(void)
 			__sk_close_locked(sk); /* paired with bh_lock_sock() */
 			break;
 		case SS_CLOSE:
-			if (!ss_sock_live(sk)) {
+			if (!((1 << sk->sk_state)
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT)))
+			{
 				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
@@ -1229,8 +1227,13 @@ do {									\
 	}								\
 } while (0)
 
+/**
+ * Synchronize with establishing new connections. It is guaranteed that there
+ * will be no more new client connections and re-established connections to
+ * backend servers after the call.
+ */
 void
-ss_wait_listeners(void)
+ss_wait_newconn(void)
 {
 	int cpu;
 	long acc = 0, acc_old = 0;
@@ -1252,7 +1255,7 @@ ss_wait_listeners(void)
 		}
 	}
 }
-EXPORT_SYMBOL(ss_wait_listeners);
+EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
  * Wait until there are no queued works and no runnign tasklets.
