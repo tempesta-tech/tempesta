@@ -32,17 +32,12 @@ typedef struct {
 #define WQ_ITEM_SZ		sizeof(__WqItem)
 #define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
-typedef struct __ThrPos {
-	atomic64_t		tail, head;
-} __ThrPos;
-
 typedef struct {
-	__ThrPos __percpu	*thr_pos;
+	atomic64_t __percpu	*heads;
 	__WqItem		*array;
+	unsigned long		last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
-	atomic64_t		last_head ____cacheline_aligned;
-	atomic64_t		last_tail ____cacheline_aligned;
 } TfwRBQueue;
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
