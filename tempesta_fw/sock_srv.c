@@ -185,7 +185,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		ss_close_sync(sk, false);
-		srv_conn->proto.hooks->connection_error(sk);
+		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
 }
@@ -432,13 +432,6 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * for not having a global list of all TfwSrvConn{} objects, and for storing
  * not-yet-established connections in the TfwServer->conn_list.
  */
-
-static inline int
-__tfw_sock_srv_connect_try_later_cb(TfwSrvConn *srv_conn)
-{
-	tfw_sock_srv_connect_try_later(srv_conn);
-	return 0;
-}
 
 static int
 tfw_sock_srv_connect_srv(TfwServer *srv)

@@ -116,4 +116,9 @@ void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
 
+#define SS_CALL(f, ...)							\
+	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
+	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
+	: 0)
+
 #endif /* __SS_SOCK_H__ */
