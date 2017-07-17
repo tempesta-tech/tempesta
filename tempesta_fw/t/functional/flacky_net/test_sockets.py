@@ -128,8 +128,8 @@ class CloseOnShutdown(stress.StressTest):
         self.check_after_start(False)
         self.check_after_stop()
 
-    def test_unreachable(self):
-        """Server does not exist and cannot be reached."""
+    def test_not_started_server(self):
+        """HTTP Server is not started on available server."""
         self.check_before_start()
 
         self.tempesta.config.set_defconfig(self.config)
@@ -144,6 +144,31 @@ class CloseOnShutdown(stress.StressTest):
         # node. It is local for Tempesta node, sockets will be closed
         # immediately.
         self.check_estab_conns(expect_estab=False, expext_failed=None)
+        self.check_after_stop()
+
+    def test_sometimes_available(self):
+        """Start when server behind firewall, swich firewall off and on again.
+        """
+        # Start when server behind firewall
+        self.init_filter()
+        self.filter.drop_on_ports(self.filter_ports)
+        self.check_before_start()
+        self.start_all()
+        self.check_after_start(False)
+
+        self.force_reconnects()
+        self.check_after_start(False)
+
+        # Swich firewall off
+        self.filter.clean()
+        self.force_reconnects()
+        self.check_after_start(True)
+
+        # Swich firewall on
+        self.filter.drop_on_ports(self.filter_ports)
+        self.force_reconnects()
+        self.check_after_start(False)
+
         self.check_after_stop()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
