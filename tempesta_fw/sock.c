@@ -77,11 +77,6 @@ static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
 
-#define SS_CALL(f, ...)							\
-	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
-	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
-	: 0)
-
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
 {
