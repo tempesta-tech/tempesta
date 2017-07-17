@@ -83,15 +83,10 @@ static DEFINE_PER_CPU(struct irq_work, ipi_work);
 	: 0)
 
 static void
-ss_sock_cpu_check(struct sock *sk, const char *op)
+ss_sk_incoming_cpu_update(struct sock *sk)
 {
-	if (unlikely(sk->sk_incoming_cpu != TFW_SK_CPU_INIT
-		     && sk->sk_incoming_cpu != smp_processor_id()))
-	{
-		SS_DBG("Bad socket cpu locality on <%s>:"
-			" sk=%p old_cpu=%d curr_cpu=%d\n",
-			op, sk, sk->sk_incoming_cpu, smp_processor_id());
-	}
+	if (sk->sk_incoming_cpu == -1)
+		sk->sk_incoming_cpu = raw_smp_processor_id();
 }
 
 static inline void
@@ -234,8 +229,6 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		ss_skb_queue_purge(skb_list);
 		return;
 	}
-
-	ss_sock_cpu_check(sk, "send");
 
 	while ((skb = ss_skb_dequeue(skb_list))) {
 		/*
@@ -394,7 +387,6 @@ ss_do_close(struct sock *sk)
 	       smp_processor_id(), sk, ss_statename[sk->sk_state],
 	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	ss_sock_cpu_check(sk, "close");
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON(sock_flag(sk, SOCK_LINGER));
@@ -526,9 +518,9 @@ __ss_close(struct sock *sk, int flags)
 {
 	if (unlikely(!sk))
 		return SS_OK;
-	sk_incoming_cpu_update(sk);
+	ss_sk_incoming_cpu_update(sk);
 
-	if (!(flags & SS_F_SYNC) || !in_softirq()
+	if (!(flags & SS_F_SYNC) || !in_serving_softirq()
 	    || smp_processor_id() != sk->sk_incoming_cpu)
 	{
 		SsWork sw = {
@@ -541,10 +533,10 @@ __ss_close(struct sock *sk, int flags)
 	}
 
 	/*
-	 * Don't put the work to work queue if we should execute it on current
-	 * CPU and we're in softirq now. We avoid overhead on work queue
-	 * operations and prevent infinite loop on synchronous push() if a
-	 * consumer is actually the same softirq context.
+	 * Don't put the work to work queue if we should execute it
+	 * synchronously on current CPU and we're in softirq now.
+	 * We avoid overhead on work queue operations and prevent infinite loop
+	 * on synchronous push() if a consumer is actually the same softirq.
 	 *
 	 * Keep in mind possible ordering problem: the socket can already have
 	 * a queued work when we close it synchronously, so the socket can be
@@ -556,12 +548,9 @@ __ss_close(struct sock *sk, int flags)
 	 * if it's live. However, in some cases this may be called multiple
 	 * times on the same socket. Do it only once for the socket.
 	 *
-	 * TODO: Calling ss_close_sync() multiple times on the same socket
-	 * doesn't look like a reasonable thing to do. Please see the comment
-	 * in tfw_http_resp_fwd() for the reasons this may be called multiple
-	 * times. Perhaps there's a better way. Please see the issue #687.
+	 * We can be called from tcp_v4_rcv() under the socket lock.
 	 */
-	bh_lock_sock(sk);
+	bh_lock_sock_nested(sk);
 	if (unlikely(!ss_sock_live(sk))) {
 		bh_unlock_sock(sk);
 		return SS_OK;
@@ -720,14 +709,13 @@ out:
  */
 /*
  * Called when a new data received on the socket.
- * Called under bh_lock_sock_nested(sk) (see tcp_v4_rcv()).
+ * Called under bh_lock_sock(sk) (see tcp_v4_rcv()).
  */
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	ss_sock_cpu_check(sk, "recv");
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
@@ -773,7 +761,7 @@ ss_tcp_state_change(struct sock *sk)
 {
 	SS_DBG("[%d]: %s: sk=%p state=%s\n",
 	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
-	sk_incoming_cpu_update(sk);
+	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
@@ -990,7 +978,7 @@ ss_inet_create(struct net *net, int family,
 	sock_init_data(NULL, sk);
 	sk->sk_type = type;
 	sk->sk_allocation = GFP_ATOMIC;
-	sk->sk_incoming_cpu = TFW_SK_CPU_INIT;
+	sk->sk_incoming_cpu = -1; /* same as in sock_init_data() */
 	sk->sk_destruct = inet_sock_destruct;
 	sk->sk_protocol = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
