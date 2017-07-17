@@ -18,16 +18,16 @@ class Config(object):
             ('concurrent', '25'),
             # Limit of threads.
             ('limit', '255'),
-            # Disable printing eash transaction to stdout.
+            # Disable printing each transaction to stdout.
             ('verbose', 'false'),
-            # Leave color for humas. It breaks regexes.
+            # Leave color for humans. It breaks regexes.
             ('color', 'off'),
             ('protocol', 'HTTP/1.1'),
             ('quiet', 'false'),
             ('show-logfile', 'false'),
             ('logging', 'false'),
             ('accept-encoding', 'gzip;deflate'),
-            # Cache revalidation.
+            # Cache re-validation.
             ('cache', 'false'),
             # Method used, when running with `-g` option.
             ('gmethod', 'HEAD'),
@@ -56,3 +56,5 @@ class Config(object):
     def get_config(self):
         cfg = '\n'.join(['%s = %s' % opt for opt in self.options])
         return cfg
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

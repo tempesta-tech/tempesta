@@ -20,10 +20,10 @@ def server_conns_max():
     return 32
 
 def upstream_port_start_from():
-    """ Start value for upstream servers listen port. Just for convinence. """
+    """ Start value for upstream servers listen port. Just for convenience. """
     return 8000
 
-# Vesion_info_cache
+# Version_info_cache
 tfw_version = ''
 
 def version():
@@ -34,7 +34,7 @@ def version():
     if tfw_version:
         return tfw_version
     version_header = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../../../tempesta_fw.h'])
+                              '/../../../tempesta_fw.h'])
     with open(version_header, 'r') as header:
         read_data = header.read()
         m = re.search(r'#define TFW_VERSION\s+"([0-9a-z.-]+)"', read_data)
@@ -123,7 +123,8 @@ class Stats(object):
         self.srv_rx_bytes = self.parse_option(
             stats, 'Server RX bytes')
 
-    def parse_option(self, stats, name):
+    @staticmethod
+    def parse_option(stats, name):
         s = r'%s\s+: (\d+)' % name
         m = re.search(s.encode('ascii'), stats)
         if m:
@@ -140,7 +141,7 @@ class ServerGroup(object):
         self.name = name
         self.sched = sched
         self.servers = []
-        # Server group options, isserted after servers.
+        # Server group options, inserted after servers.
         self.options = ''
 
     def add_server(self, ip, port, conns=server_conns_default()):
@@ -154,7 +155,7 @@ class ServerGroup(object):
         sg = ''
         if self.name == 'default':
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
-                            + [self.options])
+                           + [self.options])
         else:
             sg = '\n'.join(
                 ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +
@@ -179,3 +180,5 @@ class Config(object):
 
     def set_defconfig(self, config):
         self.defconfig = config
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

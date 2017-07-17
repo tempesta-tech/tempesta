@@ -1,6 +1,5 @@
 from __future__ import print_function
 import unittest
-import asyncore
 from helpers import deproxy
 
 class TestDeproxyMessage(unittest.TestCase):
@@ -211,3 +210,5 @@ class TestDeproxyMessage(unittest.TestCase):
             "</html>\r\n")
         created = deproxy.Response.create(200, headers, body=body)
         self.assertEqual(response, created)
+
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

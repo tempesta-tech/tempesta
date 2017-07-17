@@ -449,7 +449,7 @@ tfw_sock_clnt_stop_all(void)
 		ss_release(ls->sk);
 		ls->sk = NULL;
 	}
-	ss_wait_listeners();
+	ss_wait_newconn();
 
 	/*
 	 * Now all listening sockets are closed, so no new connections
