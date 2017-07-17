@@ -956,7 +956,7 @@ tfw_cfgop_setup_srv_group(void)
 	tfw_cfg_sg->max_jqage = tfw_cfg_fwd_timeout
 			      ? msecs_to_jiffies(tfw_cfg_fwd_timeout * 1000)
 			      : ULONG_MAX;
-	tfw_cfg_sg->max_refwd = tfw_cfg_fwd_retries ? : UINT_MAX;
+	tfw_cfg_sg->max_refwd = tfw_cfg_fwd_retries;
 	tfw_cfg_sg->max_recns = tfw_cfg_cns_retries
 			      ? max_t(int, tfw_cfg_cns_retries,
 				      ARRAY_SIZE(tfw_srv_tmo_vals))

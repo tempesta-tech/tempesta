@@ -355,7 +355,7 @@ static void
 __tfw_sched_ratio_calc_dynamic(TfwRatio *ratio, TfwRatioData *rtodata,
 			       unsigned long sum_wgt, size_t max_val_idx)
 {
-	size_t si, one_val_idx, left, right;
+	size_t si, one_val_idx, left = 0, right = 0;
 	unsigned int max_ratio, has_one_val;
 	TfwRatioSrvData *srvdata = rtodata->srvdata;
 
