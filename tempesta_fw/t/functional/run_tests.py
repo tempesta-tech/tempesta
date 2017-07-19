@@ -79,7 +79,11 @@ Running functional tests...
 
 #run tests
 loader = unittest.TestLoader()
-tests = loader.discover('.')
+if not remainder:
+    tests = loader.discover('.')
+else:
+    tests = loader.loadTestsFromNames(remainder)
+
 testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
                                             failfast=fail_fast,
                                             descriptions=False)
