@@ -71,6 +71,11 @@
 #endif
 
 #if defined(DEBUG) && (DEBUG == 3)
+#define __CALLSTACK_MSG(...)						\
+do {									\
+	printk(__VA_ARGS__);						\
+	__WARN();							\
+} while (0)
 #define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
 					"ERROR: " __VA_ARGS__)
 #define TFW_WARN(...)	__CALLSTACK_MSG(KERN_WARNING TFW_BANNER		\
@@ -145,29 +150,5 @@ do {									\
 #define TFW_ERR_ADDR6(msg, addr_ptr)					\
 	TFW_WITH_ADDR6_FMT(addr_ptr, addr_str,				\
 			   TFW_ERR("%s: %s\n", msg, addr_str))
-
-/*
- * Keep SS debug primitives separate.
- */
-#define SS_BANNER	"[sync_sockets] "
-
-#if defined(DEBUG) && (DEBUG >= 2)
-#define __CALLSTACK_MSG(...)						\
-do {									\
-	printk(__VA_ARGS__);						\
-	__WARN();							\
-} while (0)
-
-#define SS_DBG(...)	pr_debug(SS_BANNER "  " __VA_ARGS__)
-#define SS_ERR(...)	__CALLSTACK_MSG(KERN_ERR SS_BANNER		\
-					"ERROR: " __VA_ARGS__)
-#define SS_WARN(...)	__CALLSTACK_MSG(KERN_WARNING SS_BANNER		\
-					"Warning: " __VA_ARGS__)
-#else
-#include <linux/net.h>
-#define SS_DBG(...)
-#define SS_ERR(...)	net_err_ratelimited(SS_BANNER "ERROR: " __VA_ARGS__)
-#define SS_WARN(...)	net_warn_ratelimited(SS_BANNER "Warning: " __VA_ARGS__)
-#endif
 
 #endif /* __TFW_LOG_H__ */
