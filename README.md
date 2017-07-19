@@ -109,8 +109,11 @@ option was given, then **HTTP** is supposed by the default.
 
 ### TLS/SSL support
 
-Tempesta allows to use TLS-encrypted HTTP connections (HTTPS). It is
-required that public certificate and private key have been configured as
+Tempesta allows the use of TLS-encrypted HTTP connections (HTTPS).
+HTTPS traffic is terminated by Tempesta. Backend servers always receive
+unecrypted traffic.
+
+It is required that public certificate and private key are configured as
 follows:
 ```
 ssl_certificate /path/to/tfw-root.crt;
