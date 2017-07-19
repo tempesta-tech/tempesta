@@ -189,7 +189,7 @@ enum {
  * TLS hardened connection.
  */
 typedef struct {
-	TfwConn		conn;
+	TfwCliConn	cli_conn;
 	TfwTlsContext	tls;
 } TfwTlsConn;
 
