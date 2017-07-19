@@ -23,8 +23,14 @@ def assertTrue(expression, msg=''):
     if not expression:
         raise Error(msg)
 
-def bug(msg=''):
+def bug(msg='', stdout=None, stderr=None):
     """Raise test framework error."""
+    if stdout is not None:
+        stdout = "\n\t" + "\n\t".join(stdout.splitlines()) + "\n"
+        msg += "\nstdout:%s" % stdout
+    if stderr is not None:
+        stderr = "\n\t" + "\n\t".join(stderr.splitlines()) + "\n"
+        msg += "\nstderr:%s" % stderr
     raise Error(msg)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
