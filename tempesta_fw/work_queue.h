@@ -42,23 +42,36 @@ typedef struct {
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
-int __tfw_wq_push(TfwRBQueue *wq, void *ptr, bool sync);
-int tfw_wq_pop(TfwRBQueue *wq, void *buf);
+unsigned long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
+int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, unsigned long *ticket);
 
-static inline int
-tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
-	    void (*local_cpu_cb)(struct irq_work *), bool sync)
+static inline void
+tfw_raise_softirq(int cpu, struct irq_work *work,
+		  void (*local_cpu_cb)(struct irq_work *))
 {
-	int r = __tfw_wq_push(q, ptr, sync);
-	if (unlikely(r))
-		return r;
-
 	if (smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);
 	else
 		local_cpu_cb(work);
+}
+
+static inline unsigned long
+tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
+	    void (*local_cpu_cb)(struct irq_work *))
+{
+	unsigned long ticket = __tfw_wq_push(q, ptr);
+	if (unlikely(ticket))
+		return ticket;
+
+	tfw_raise_softirq(cpu, work, local_cpu_cb);
 
 	return 0;
+}
+
+static inline int
+tfw_wq_pop(TfwRBQueue *wq, void *buf)
+{
+	return tfw_wq_pop_ticket(wq, buf, NULL);
 }
 
 static inline int
