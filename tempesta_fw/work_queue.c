@@ -26,6 +26,10 @@
 
 #include "work_queue.h"
 
+/*
+ * The queue size shouldn't be too large to avoid a live lock at
+ * a consumer side. Now it's twice as large as netdev budget.
+ */
 #define QSZ		2048
 #define QMASK		(QSZ - 1)
 
@@ -66,15 +70,14 @@ tfw_wq_destroy(TfwRBQueue *q)
 }
 
 /**
- * FIXME A caller must be very careful with @sync: if two softirqs are running
- * the operation to add an item to queues of each other, then they can spin
- * forever (i.e. deadlock is possible).
+ * If there is no space in the queue, then current head value is returned
+ * to be used as a ticket for trunstilie synchronization. Since we have QSZ
+ * free slots, then the ticket value is always greater than 0.
  */
-int
-__tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
+unsigned long
+__tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
-	int r = -EBUSY;
-	unsigned long long head;
+	unsigned long head, tail;
 	atomic64_t *head_local;
 
 	/*
@@ -87,12 +90,10 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 	head_local = this_cpu_ptr(q->heads);
 	while (1) {
 		head = atomic64_read(&q->head);
-		if (unlikely(head >= atomic64_read(&q->tail) + QSZ)) {
-			if (!sync)
-				goto full_out;
-			cpu_relax();
-			continue;
-		}
+		tail = atomic64_read(&q->tail);
+		BUG_ON(head > tail + QSZ);
+		if (unlikely(head == tail + QSZ))
+			goto full_out;
 
 		/*
 		 * There is an empty slot to push a new item.
@@ -108,24 +109,30 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
 	wmb();
 
-	r = 0;
+	head = 0;
 full_out:
 	/* Now it's safe to release current head position. */
-	atomic64_set(head_local, LLONG_MAX);
+	atomic64_set(head_local, ULONG_MAX);
 	local_bh_enable();
-	return r;
+	return head;
 }
 
+/**
+ * Sets tail value to be compared with current turnstile ticket, so
+ * @ticket is the identifier of currently successully pop()'ed item or an item
+ * to be pop()'ed next time.
+ */
 int
-tfw_wq_pop(TfwRBQueue *q, void *buf)
+tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, unsigned long *ticket)
 {
-	int cpu;
-	unsigned long long tail;
+	int cpu, r = -EBUSY;
+	unsigned long tail;
 
 	local_bh_disable();
 
 	tail = atomic64_read(&q->tail);
-	if (unlikely(tail >= q->last_head)) {
+	BUG_ON(tail > q->last_head);
+	if (unlikely(tail == q->last_head)) {
 		/*
 		 * Actualize @last_head from heads of all current
 		 * producers. We do it here since atomic reads are
@@ -145,11 +152,9 @@ tfw_wq_pop(TfwRBQueue *q, void *buf)
 		}
 
 		/* Second try. */
-		if (tail >= q->last_head) {
-			/* The queue is empty, don't wait producers. */
-			local_bh_enable();
-			return -EBUSY;
-		}
+		BUG_ON(tail > q->last_head);
+		if (tail == q->last_head)
+			goto out;
 	}
 
 	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
@@ -160,8 +165,10 @@ tfw_wq_pop(TfwRBQueue *q, void *buf)
 	 * instead of increment.
 	 */
 	atomic64_set(&q->tail, tail + 1);
-
+	r = 0;
+out:
 	local_bh_enable();
-
-	return 0;
+	if (ticket)
+		*ticket = tail;
+	return r;
 }
