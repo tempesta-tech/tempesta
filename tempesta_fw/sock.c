@@ -57,8 +57,8 @@ typedef struct {
 typedef struct {
 	struct list_head	head;
 	spinlock_t		lock;
-	unsigned long		turn;
-	unsigned long		size;
+	long			turn;
+	size_t			size;
 } SsCloseBacklog;
 
 /**
@@ -70,7 +70,7 @@ typedef struct {
  * @sw		- work descriptor to perform.
  */
 typedef struct {
-	unsigned long		ticket;
+	long			ticket;
 	struct list_head	list;
 	SsWork			sw;
 } SsCblNode;
@@ -187,7 +187,7 @@ ss_ipi(struct irq_work *work)
 }
 
 static int
-ss_turnstile_push(unsigned long ticket, SsWork *sw)
+ss_turnstile_push(long ticket, SsWork *sw)
 {
 	int cpu = sw->sk->sk_incoming_cpu;
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
@@ -232,7 +232,7 @@ ss_backlog_validate_cleanup(int cpu)
 	WARN_ON(cb->turn != ULONG_MAX);
 }
 
-static unsigned long
+static long
 ss_wq_push(SsWork *sw)
 {
 	int cpu = sw->sk->sk_incoming_cpu;
@@ -243,7 +243,7 @@ ss_wq_push(SsWork *sw)
 }
 
 static int
-ss_wq_pop(SsWork *sw, unsigned long *ticket)
+ss_wq_pop(SsWork *sw, long *ticket)
 {
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
@@ -633,7 +633,7 @@ ss_linkerror(struct sock *sk)
 int
 __ss_close(struct sock *sk, int flags)
 {
-	unsigned long ticket;
+	long ticket;
 	SsWork sw = {
 		.sk	= sk,
 		.flags  = flags,
@@ -1283,7 +1283,7 @@ static void
 ss_tx_action(void)
 {
 	SsWork sw;
-	unsigned long ticket = 0;
+	long ticket = 0;
 	int budget;
 
 	/*

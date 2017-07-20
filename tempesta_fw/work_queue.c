@@ -74,10 +74,10 @@ tfw_wq_destroy(TfwRBQueue *q)
  * to be used as a ticket for trunstilie synchronization. Since we have QSZ
  * free slots, then the ticket value is always greater than 0.
  */
-unsigned long
+long
 __tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
-	unsigned long head, tail;
+	long head, tail;
 	atomic64_t *head_local;
 
 	/*
@@ -112,7 +112,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	head = 0;
 full_out:
 	/* Now it's safe to release current head position. */
-	atomic64_set(head_local, ULONG_MAX);
+	atomic64_set(head_local, LONG_MAX);
 	local_bh_enable();
 	return head;
 }
@@ -123,10 +123,10 @@ full_out:
  * to be pop()'ed next time.
  */
 int
-tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, unsigned long *ticket)
+tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 {
 	int cpu, r = -EBUSY;
-	unsigned long tail;
+	long tail;
 
 	local_bh_disable();
 
@@ -143,7 +143,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, unsigned long *ticket)
 		q->last_head = atomic64_read(&q->head);
 		for_each_online_cpu(cpu) {
 			atomic64_t *head_local = per_cpu_ptr(q->heads, cpu);
-			long long curr_h = atomic64_read(head_local);
+			long curr_h = atomic64_read(head_local);
 
 			/* Force compiler to use curr_h only once. */
 			barrier();
