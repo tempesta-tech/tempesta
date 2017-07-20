@@ -215,7 +215,7 @@ static void
 ss_turnstile_update_turn(SsCloseBacklog *cb)
 {
 	if (list_empty(&cb->head)) {
-		cb->turn = ULONG_MAX;
+		cb->turn = LONG_MAX;
 	} else {
 		SsCblNode *cn = list_first_entry(&cb->head, SsCblNode, list);
 		cb->turn = cn->ticket;
@@ -229,7 +229,7 @@ ss_backlog_validate_cleanup(int cpu)
 
 	WARN_ON(!list_empty(&cb->head));
 	WARN_ON(cb->size);
-	WARN_ON(cb->turn != ULONG_MAX);
+	WARN_ON(cb->turn != LONG_MAX);
 }
 
 static long
@@ -1330,7 +1330,7 @@ dead_sock:
 	}
 
 	/*
-	 * Rearm softirq if there are more jobs to do
+	 * Rearm softirq for local CPU if there are more jobs to do
 	 * or we're in closing state.
 	 */
 	if (!budget)
@@ -1360,19 +1360,6 @@ ss_get_stat(SsStat *stat)
 	}
 }
 
-#define HANDLE_TOO_LONG_WAIT(t0, job)					\
-do {									\
-	if (t0 + HZ * 5 < jiffies) {					\
-		TFW_WARN("pending " job " for 5s (connections count %#lx)\n",\
-			 acc);						\
-		/*							\
-		 * Something is very wrong with socket accounting.	\
-		 * Give up waiting and hope for the best.		\
-		 */							\
-		return;							\
-	}								\
-} while (0)
-
 /**
  * Synchronize with establishing new connections. It is guaranteed that there
  * will be no more new client connections and re-established connections to
@@ -1387,14 +1374,18 @@ ss_wait_newconn(void)
 
 	might_sleep();
 	while (1) {
+		schedule(); /* let softirq finish works */
 		for_each_online_cpu(cpu)
 			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
 		BUG_ON(acc < 0);
 		if (!(acc & SS_M_ACT_NEWCONN))
 			break;
-		schedule();
 		if (acc == acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "listening sockets");
+			if (t0 + HZ * 5 < jiffies) {
+				TFW_WARN("pending listening sockets for 5s"
+					 " (connections count %#lx)\n", acc);
+				return;
+			}
 		} else {
 			acc_old = acc;
 			acc = 0;
@@ -1428,16 +1419,30 @@ ss_synchronize(void)
 		BUG_ON(acc < 0);
 		if (!acc && !wq_acc)
 			break;
-		schedule();
-		for_each_online_cpu(cpu)
-			irq_work_sync(&per_cpu(ipi_work, cpu));
 		if (acc == acc_old && wq_acc == wq_acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "active connections");
+			if (t0 + HZ * 5 < jiffies) {
+				TFW_WARN("pending active connections for 5s"
+					 " (connections count %#lx,"
+					 " queues count %d)\n", acc, wq_acc);
+				for_each_online_cpu(cpu) {
+					TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+					SsCloseBacklog *cb;
+					cb = &per_cpu(close_backlog,cpu);
+					TFW_WARN("  backlog size %lu,"
+						 " work queue size %d\n",
+						 cb->size, tfw_wq_size(wq));
+				}
+				TFW_WARN("Memory leakage is possible\n");
+				return;
+			}
 		} else {
 			acc_old = acc;
 			wq_acc_old = wq_acc;
 			acc = wq_acc = 0;
 		}
+		for_each_online_cpu(cpu)
+			irq_work_sync(&per_cpu(ipi_work, cpu));
+		schedule(); /* let softirq finish works */
 	}
 }
 EXPORT_SYMBOL(ss_synchronize);
@@ -1497,7 +1502,7 @@ tfw_sync_socket_init(void)
 
 		INIT_LIST_HEAD(&cb->head);
 		spin_lock_init(&cb->lock);
-		cb->turn = ULONG_MAX;
+		cb->turn = LONG_MAX;
 	}
 	tempesta_set_tx_action(ss_tx_action);
 
