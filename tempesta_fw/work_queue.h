@@ -35,15 +35,15 @@ typedef struct {
 typedef struct {
 	atomic64_t __percpu	*heads;
 	__WqItem		*array;
-	unsigned long		last_head;
+	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
 } TfwRBQueue;
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
-unsigned long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
-int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, unsigned long *ticket);
+long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
+int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
 
 static inline void
 tfw_raise_softirq(int cpu, struct irq_work *work,
@@ -55,11 +55,11 @@ tfw_raise_softirq(int cpu, struct irq_work *work,
 		local_cpu_cb(work);
 }
 
-static inline unsigned long
+static inline long
 tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	    void (*local_cpu_cb)(struct irq_work *))
 {
-	unsigned long ticket = __tfw_wq_push(q, ptr);
+	long ticket = __tfw_wq_push(q, ptr);
 	if (unlikely(ticket))
 		return ticket;
 
@@ -77,8 +77,8 @@ tfw_wq_pop(TfwRBQueue *wq, void *buf)
 static inline int
 tfw_wq_size(TfwRBQueue *q)
 {
-	long long t = atomic64_read(&q->tail);
-	long long h = atomic64_read(&q->head);
+	long t = atomic64_read(&q->tail);
+	long h = atomic64_read(&q->head);
 
 	return t > h ? 0 : h - t;
 }
