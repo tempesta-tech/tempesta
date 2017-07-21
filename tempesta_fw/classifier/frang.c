@@ -389,6 +389,16 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra)
 
 	/*
 	 * Verify that Content-Type value is on the list of allowed values.
+	 * Use prefix match to allow parameters, see RFC 7231 3.1.1:
+	 *
+	 *	Content-Type = media-type
+	 *	media-type = type "/" subtype *( OWS ";" OWS parameter )
+	 *
+	 * FIXME this matching is too permissive, e.g. we can pass
+	 * "text/plain1", which isn't a correct subtipe. Strong FSM processing
+	 * is required. Or HTTP parser must pass only known types and Frang
+	 * decides which of them are allowed.
+	 * See also comment in frang_set_ct_vals().
 	 *
 	 * TODO: possible improvement: binary search.
 	 * Generally binary search is more efficient, but linear search
