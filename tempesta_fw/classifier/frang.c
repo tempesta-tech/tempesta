@@ -1090,9 +1090,10 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		.cleanup = frang_clear_methods_mask,
 	},
 	{
-		"http_ct_vals", "",
+		"http_ct_vals", NULL,
 		frang_set_ct_vals,
-		.cleanup = frang_free_ct_vals
+		.allow_none = 1,
+		.cleanup = frang_free_ct_vals,
 	},
 	{}
 };
