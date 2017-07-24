@@ -27,6 +27,7 @@
 
 #include "addr.h"
 #include "log.h"
+#include "procfs.h"
 #include "sync_socket.h"
 #include "work_queue.h"
 
@@ -186,12 +187,16 @@ ss_ipi(struct irq_work *work)
 	raise_softirq(NET_TX_SOFTIRQ);
 }
 
+/**
+ * The socket can move from one CPU to another, so we have to pass @cpu as
+ * a parameter to guarantee that we use work queue and backlog for the same
+ * CPU.
+ */
 static int
-ss_turnstile_push(long ticket, SsWork *sw)
+ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 {
-	int cpu = sw->sk->sk_incoming_cpu;
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
-	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
+	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
 	SsCblNode *cn;
 
 	cn = kmem_cache_alloc(ss_cbacklog_cache, GFP_ATOMIC);
@@ -233,13 +238,16 @@ ss_backlog_validate_cleanup(int cpu)
 }
 
 static long
-ss_wq_push(SsWork *sw)
+ss_wq_push(SsWork *sw, int cpu)
 {
-	int cpu = sw->sk->sk_incoming_cpu;
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
+	long r;
 
-	return tfw_wq_push(wq, sw, cpu, iw, ss_ipi);
+	r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi);
+	if (r)
+		TFW_INC_STAT_BH(ss.wq_full);
+	return r;
 }
 
 static int
@@ -282,6 +290,21 @@ ss_wq_pop(SsWork *sw, long *ticket)
 	}
 
 	return tfw_wq_pop_ticket(wq, sw, ticket);
+}
+
+static size_t
+__ss_close_q_sz(int cpu)
+{
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+
+	return tfw_wq_size(wq) + cb->size;
+}
+
+static size_t
+ss_close_q_sz(void)
+{
+	return __ss_close_q_sz(smp_processor_id());
 }
 
 /*
@@ -396,7 +419,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 int
 ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
-	int r = 0;
+	int cpu, r = 0;
 	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
@@ -406,9 +429,13 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
+
+	cpu = sk->sk_incoming_cpu;
+
 	TFW_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
-	        smp_processor_id(), __func__,
-	        sk, sk->sk_incoming_cpu, ss_statename[sk->sk_state]);
+	        smp_processor_id(), __func__, sk, cpu,
+		ss_statename[sk->sk_state]);
+
 	/*
 	 * This isn't reliable check, but rather just an optimization to
 	 * avoid expensive work queue operations.
@@ -452,10 +479,10 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * leakage, so we never use synchronous sending.
 	 */
 	sock_hold(sk);
-	if (ss_wq_push(&sw)) {
-		TfwRBQueue *wq = &per_cpu(si_wq, sk->sk_incoming_cpu);
-		TFW_WARN("Cannot schedule socket %p for transmission"
-			 " (queue size %d)\n", sk, tfw_wq_size(wq));
+	if (ss_wq_push(&sw, cpu)) {
+		TFW_DBG("Cannot schedule socket %p for transmission"
+			" (queue size %d)\n", sk,
+			tfw_wq_size(&per_cpu(si_wq, cpu)));
 		sock_put(sk);
 		r = -EBUSY;
 		goto err;
@@ -633,6 +660,7 @@ ss_linkerror(struct sock *sk)
 int
 __ss_close(struct sock *sk, int flags)
 {
+	int cpu;
 	long ticket;
 	SsWork sw = {
 		.sk	= sk,
@@ -644,9 +672,10 @@ __ss_close(struct sock *sk, int flags)
 		return SS_OK;
 
 	ss_sk_incoming_cpu_update(sk);
+	cpu = sk->sk_incoming_cpu;
 
 	sock_hold(sk);
-	ticket = ss_wq_push(&sw);
+	ticket = ss_wq_push(&sw, cpu);
 	if (!ticket)
 		return SS_OK;
 	if (!(flags & SS_F_SYNC))
@@ -656,7 +685,7 @@ __ss_close(struct sock *sk, int flags)
 	 * Slow path: the system is overloaded, but we have to close the socket,
 	 * so use locked linked list with a turnstile to keep works order.
 	 */
-	if (ss_turnstile_push(ticket, &sw)) {
+	if (ss_turnstile_push(ticket, &sw, cpu)) {
 		TFW_WARN("Cannot schedule socket %p for closing\n", sk);
 		goto err;
 	}
@@ -1288,11 +1317,10 @@ ss_tx_action(void)
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
-	 * new items. Double work queue size is taken to process the backlog of
-	 * closing socket. We also use some small integer as a lower bound to
-	 * catch just ariving items.
+	 * new items. We use some small integer as a lower bound to catch just
+	 * ariving items.
 	 */
-	budget = max(10, tfw_wq_size(this_cpu_ptr(&si_wq)) * 2);
+	budget = max(10UL, ss_close_q_sz());
 	while ((!ss_active() || budget--) && !ss_wq_pop(&sw, &ticket)) {
 		struct sock *sk = sw.sk;
 
@@ -1330,8 +1358,9 @@ dead_sock:
 	}
 
 	/*
-	 * Rearm softirq for local CPU if there are more jobs to do
-	 * or we're in closing state.
+	 * Rearm softirq for local CPU if there are more jobs to do.
+	 * ss_synchronize() is responsible for raising the softirq if there are
+	 * more jobs in the work queue or the backlog.
 	 */
 	if (!budget)
 		raise_softirq(NET_TX_SOFTIRQ);
@@ -1410,11 +1439,14 @@ ss_synchronize(void)
 	might_sleep();
 	while (1) {
 		for_each_online_cpu(cpu) {
-			TfwRBQueue *wq = &per_cpu(si_wq, cpu);
-			SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
-
-			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
-			wq_acc += tfw_wq_size(wq) + cb->size;
+			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu));
+			int n_q = __ss_close_q_sz(cpu);
+			if (n_conn + n_q) {
+				irq_work_sync(&per_cpu(ipi_work, cpu));
+				schedule(); /* let softirq finish works */
+			}
+			acc += n_conn;
+			wq_acc += n_q;
 		}
 		BUG_ON(acc < 0);
 		if (!acc && !wq_acc)
@@ -1427,22 +1459,23 @@ ss_synchronize(void)
 				for_each_online_cpu(cpu) {
 					TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 					SsCloseBacklog *cb;
-					cb = &per_cpu(close_backlog,cpu);
-					TFW_WARN("  backlog size %lu,"
+					cb = &per_cpu(close_backlog, cpu);
+					TFW_WARN("  cpu %d(%d), backlog size %lu,"
 						 " work queue size %d\n",
-						 cb->size, tfw_wq_size(wq));
+						 cpu, smp_processor_id(), cb->size,
+						 tfw_wq_size(wq));
 				}
 				TFW_WARN("Memory leakage is possible\n");
 				return;
 			}
-		} else {
-			acc_old = acc;
-			wq_acc_old = wq_acc;
-			acc = wq_acc = 0;
 		}
-		for_each_online_cpu(cpu)
-			irq_work_sync(&per_cpu(ipi_work, cpu));
-		schedule(); /* let softirq finish works */
+		else if (acc + wq_acc < acc_old + wq_acc_old) {
+			/* Reset the timeout if we're doing progress. */
+			t0 = jiffies;
+		}
+		acc_old = acc;
+		wq_acc_old = wq_acc;
+		acc = wq_acc = 0;
 	}
 }
 EXPORT_SYMBOL(ss_synchronize);
