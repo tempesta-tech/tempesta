@@ -8,7 +8,7 @@ import sys
 from helpers.tf_cfg import skip_check
 skip_check = True
 
-from helpers import tf_cfg
+from helpers import tf_cfg, remote
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -76,6 +76,8 @@ print("""
 Running functional tests...
 ----------------------------------------------------------------------
 """)
+
+remote.connect()
 
 #run tests
 loader = unittest.TestLoader()
