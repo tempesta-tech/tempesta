@@ -64,8 +64,8 @@ class LocalNode(Node):
                 assert p.returncode == 0, "Return code is not 0."
             except Exception as e:
                 if not err_msg:
-                    err_msg = ("Error running command '%s' on %s: %s" %
-                               (cmd, self.host, e))
+                    err_msg = ("Error running command '%s' on %s" %
+                               (cmd, self.host))
                 error.bug(err_msg, stdout=stdout, stderr=stderr)
         return stdout, stderr
 
@@ -113,7 +113,7 @@ class RemoteNode(Node):
             self.ssh.connect(hostname=self.host, username=self.user,
                              port=self.port, timeout=DEFAULT_TIMEOUT)
         except Exception as e:
-            error.bug("Error connecting %s: %s" % (self.host, e))
+            error.bug("Error connecting %s" % self.host)
 
     def close(self):
         """ Release SSH connection without waiting for GC. """
@@ -132,8 +132,8 @@ class RemoteNode(Node):
             assert out_f.channel.recv_exit_status() == 0, "Return code is not 0."
         except Exception as e:
             if not err_msg:
-                err_msg = ("Error running command '%s' on %s: %s" %
-                           (cmd, self.host, e))
+                err_msg = ("Error running command '%s' on %s" %
+                           (cmd, self.host))
             error.bug(err_msg, stdout=stdout, stderr=stderr)
         return stdout, stderr
 
@@ -154,8 +154,8 @@ class RemoteNode(Node):
             sfile.flush()
             sftp.close()
         except Exception as e:
-            error.bug(("Error copying file %s to %s: %s" %
-                       (filename, self.host, e)))
+            error.bug(("Error copying file %s to %s" %
+                       (filename, self.host)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:
@@ -165,8 +165,8 @@ class RemoteNode(Node):
             sftp.unlink(filename)
             sftp.close()
         except Exception as e:
-            error.bug(("Error removing file %s on %s: %s" %
-                       (filename, self.host, e)))
+            error.bug(("Error removing file %s on %s" %
+                       (filename, self.host)))
 
 
 
