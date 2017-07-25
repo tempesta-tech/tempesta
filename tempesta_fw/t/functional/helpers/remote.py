@@ -195,13 +195,22 @@ def get_max_thread_count(node):
 #-------------------------------------------------------------------------------
 # Global accessible SSH/Local connections
 #-------------------------------------------------------------------------------
-client = create_node('Client')
-tempesta = create_node('Tempesta')
-server = create_node('Server')
 
-# Create working directories on client and server nodes. Work directory on
-# Tempesta contains sources and must exist.
-for node in [client, server]:
-    node.mkdir(node.workdir)
+client = None
+tempesta = None
+server = None
+
+def connect():
+    global client
+    client = create_node('Client')
+
+    global tempesta
+    tempesta = create_node('Tempesta')
+
+    global server
+    server = create_node('Server')
+
+    for node in [client, server]:
+        node.mkdir(node.workdir)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
