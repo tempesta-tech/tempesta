@@ -1,6 +1,10 @@
 /**
  *		Tempesta FW
  *
+ * MPSC queue on lock-free ring buffer. Read design description for more
+ * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
+ * multi-producer-multi-consumer-queue-ring-buffer .
+ *
  * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -23,22 +27,8 @@
 #include "work_queue.h"
 
 /*
- * ------------------------------------------------------------------------
- *	MPMC queue on lock-free ring buffer.
- *
- * INVARIANTS:
- * 	1. tail <= head
- * 	2. last_tail <= tail
- * 	3. last_head <= head
- * 	4. tail == head <=> queue is empty
- * 	5. tail + size == head <=> queue is full
- * 	6. head <= last_tail + size
- * 	7. tail <= last_head
- *
- * 	2,6,7: head <= last_head + size
- *	3,6,7: tail <= last_tail + size
- *
- * ------------------------------------------------------------------------
+ * The queue size shouldn't be too large to avoid a live lock at
+ * a consumer side. Now it's twice as large as netdev budget.
  */
 #define QSZ		2048
 #define QMASK		(QSZ - 1)
@@ -48,23 +38,21 @@ tfw_wq_init(TfwRBQueue *q, int node)
 {
 	int cpu;
 
-	q->thr_pos = alloc_percpu(struct __ThrPos);
-	if (!q->thr_pos)
+	q->heads = alloc_percpu(atomic64_t);
+	if (!q->heads)
 		return -ENOMEM;
-	for_each_possible_cpu(cpu) {
-		__ThrPos *pos = per_cpu_ptr(q->thr_pos, cpu);
-		atomic64_set(&pos->head, LLONG_MAX);
-		atomic64_set(&pos->tail, LLONG_MAX);
-	}
 
+	for_each_possible_cpu(cpu) {
+		atomic64_t *local_head = per_cpu_ptr(q->heads, cpu);
+		atomic64_set(local_head, LLONG_MAX);
+	}
+	q->last_head = 0;
 	atomic64_set(&q->head, 0);
 	atomic64_set(&q->tail, 0);
-	atomic64_set(&q->last_head, 0);
-	atomic64_set(&q->last_tail, 0);
 
 	q->array = kmalloc_node(QSZ * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
-		free_percpu(q->thr_pos);
+		free_percpu(q->heads);
 		return -ENOMEM;
 	}
 
@@ -78,56 +66,19 @@ tfw_wq_destroy(TfwRBQueue *q)
 	BUG_ON(tfw_wq_size(q));
 
 	kfree(q->array);
-	free_percpu(q->thr_pos);
+	free_percpu(q->heads);
 }
 
 /**
- * Called when the caller need to wait for tail or head guard progress.
- * Move head and tail guards simultaneously to reduce overall number of the
- * per-cpu guards array traversing and number of slow path passing in callers.
+ * If there is no space in the queue, then current head value is returned
+ * to be used as a ticket for trunstilie synchronization. Since we have QSZ
+ * free slots, then the ticket value is always greater than 0.
  */
-static void
-__update_guards(TfwRBQueue *q)
+long
+__tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
-	long long last_head = atomic64_read(&q->head);
-	long long last_tail = atomic64_read(&q->tail);
-	int cpu;
-
-	/* Don't support switching off cpus in runtime. */
-	for_each_online_cpu(cpu) {
-		__ThrPos *pos = per_cpu_ptr(q->thr_pos, cpu);
-		long long curr_h = atomic64_read(&pos->head);
-		long long curr_t = atomic64_read(&pos->tail);
-
-		/* Force compiler to use curr_h and curr_t only once. */
-		barrier();
-
-		if (curr_h < last_head)
-			last_head = curr_h;
-		if (curr_t < last_tail)
-			last_tail = curr_t;
-	}
-
-	/*
-	 * Avoid unnecessary cache lines bouncing: write to the shared memory
-	 * only if head and tail pointers were changed.
-	 */
-	if (atomic64_read(&q->last_head) < last_head)
-		atomic64_set(&q->last_head, last_head);
-	if (atomic64_read(&q->last_tail) < last_tail)
-		atomic64_set(&q->last_tail, last_tail);
-}
-
-/**
- * FIXME A caller must be very careful with @sync: if two softirqs are running
- * the operation to add an item to queues of each other, then they can spin
- * forever (i.e. deadlock is possible).
- */
-int
-__tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
-{
-	unsigned long long head;
-	__ThrPos *pos;
+	long head, tail;
+	atomic64_t *head_local;
 
 	/*
 	 * Producers can run on the same CPU (softirq and user space process),
@@ -136,24 +87,21 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 	 */
 	local_bh_disable();
 
-	pos = this_cpu_ptr(q->thr_pos);
-
+	head_local = this_cpu_ptr(q->heads);
 	while (1) {
 		head = atomic64_read(&q->head);
+		tail = atomic64_read(&q->tail);
+		BUG_ON(head > tail + QSZ);
+		if (unlikely(head == tail + QSZ))
+			goto full_out;
 
-		if (unlikely(head >= atomic64_read(&q->last_tail) + QSZ)) {
-			__update_guards(q);
-			/* Second try. */
-			if (!sync && (head >= atomic64_read(&q->last_tail) + QSZ)) {
-				/* The queue is full, don't wait consumers. */
-				atomic64_set(&pos->head, LLONG_MAX);
-				local_bh_enable();
-				return -EBUSY;
-			}
-		}
-
-		/* Set a guard for current position and move global head. */
-		atomic64_set(&pos->head, head);
+		/*
+		 * There is an empty slot to push a new item.
+		 * Set a guard for current position and move global head -
+		 * try to acquire current head. If current head position is
+		 * acquired by a competing poroducer, then try again.
+		 */
+		atomic64_set(head_local, head);
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
 			break;
 	}
@@ -161,49 +109,66 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr, bool sync)
 	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
 	wmb();
 
-	atomic64_set(&pos->head, LLONG_MAX);
-
+	head = 0;
+full_out:
+	/* Now it's safe to release current head position. */
+	atomic64_set(head_local, LONG_MAX);
 	local_bh_enable();
-
-	return 0;
+	return head;
 }
 
+/**
+ * Sets tail value to be compared with current turnstile ticket, so
+ * @ticket is the identifier of currently successully pop()'ed item or an item
+ * to be pop()'ed next time.
+ */
 int
-tfw_wq_pop(TfwRBQueue *q, void *buf)
+tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 {
-	unsigned long long tail;
-	__ThrPos *pos;
+	int cpu, r = -EBUSY;
+	long tail;
 
 	local_bh_disable();
 
-	pos = this_cpu_ptr(q->thr_pos);
+	tail = atomic64_read(&q->tail);
+	BUG_ON(tail > q->last_head);
+	if (unlikely(tail == q->last_head)) {
+		/*
+		 * Actualize @last_head from heads of all current
+		 * producers. We do it here since atomic reads are
+		 * faster than updates and we can do this only when
+		 * we need a new value, i.e. not so frequently.
+		 * Don't support switching off cpus in runtime.
+		 */
+		q->last_head = atomic64_read(&q->head);
+		for_each_online_cpu(cpu) {
+			atomic64_t *head_local = per_cpu_ptr(q->heads, cpu);
+			long curr_h = atomic64_read(head_local);
 
-	while (1) {
-		tail = atomic64_read(&q->tail);
-
-		if (unlikely(tail >= atomic64_read(&q->last_head))) {
-			__update_guards(q);
-			/* Second try. */
-			if (tail >= atomic64_read(&q->last_head)) {
-				/* The queue is empty, don't wait producers. */
-				atomic64_set(&pos->tail, LLONG_MAX);
-				local_bh_enable();
-				return -EBUSY;
-			}
+			/* Force compiler to use curr_h only once. */
+			barrier();
+			if (curr_h < q->last_head)
+				q->last_head = curr_h;
 		}
 
-		/* Set a guard for current position and move global tail. */
-		atomic64_set(&pos->tail, tail);
-		if (atomic64_cmpxchg(&q->tail, tail, tail + 1) == tail)
-			break;
+		/* Second try. */
+		BUG_ON(tail > q->last_head);
+		if (tail == q->last_head)
+			goto out;
 	}
 
 	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
 	mb();
 
-	atomic64_set(&pos->tail, LLONG_MAX);
-
+	/*
+	 * Since only one CPU writes @tail, then use faster atomic write
+	 * instead of increment.
+	 */
+	atomic64_set(&q->tail, tail + 1);
+	r = 0;
+out:
 	local_bh_enable();
-
-	return 0;
+	if (ticket)
+		*ticket = tail;
+	return r;
 }

@@ -62,6 +62,17 @@ typedef struct ss_hooks {
 			       unsigned int off);
 } SsHooks;
 
+/**
+ * Synchronous sockets per-CPU statistics.
+ *
+ * @rb_wq_sz	- number of items in ring-buffer work queue;
+ * @backlog_sz	- size of backlog;
+ */
+typedef struct {
+	unsigned int	rb_wq_sz;
+	unsigned int	backlog_sz;
+} SsStat;
+
 static inline void
 ss_sock_hold(struct sock *sk)
 {
@@ -115,6 +126,7 @@ void ss_synchronize(void);
 void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
+void ss_get_stat(SsStat *stat);
 
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
