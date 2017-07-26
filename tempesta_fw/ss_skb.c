@@ -269,12 +269,14 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
 	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
+	BUG_ON((n <= 0) || (n > 2));
 	BUG_ON(from > si->nr_frags);
 
 	/* No room for @n extra page fragments in the SKB. */
 	if (si->nr_frags + n > MAX_SKB_FRAGS) {
 		skb_frag_t *f;
 		struct sk_buff *nskb;
+		unsigned int e_size = 0;
 
 		/*
 		 * The number of page fragments that don't fit in the SKB
@@ -301,17 +303,19 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
 			__skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
+
+		/* No fragments to shift. */
+		if (from == si->nr_frags)
+			return 0;
+
 		/* Shift @n_excess number of page fragments to new SKB. */
-		if (from < si->nr_frags) {
-			unsigned int e_size = 0;
-			for (i = n_excess - 1; i >= 0; --i) {
-				f = &si->frags[MAX_SKB_FRAGS - n + i];
-				skb_shinfo(nskb)->frags[i] = *f;
-				e_size += skb_frag_size(f);
-			}
-			ss_skb_adjust_data_len(skb, -e_size);
-			ss_skb_adjust_data_len(nskb, e_size);
+		for (i = n_excess - 1; i >= 0; --i) {
+			f = &si->frags[MAX_SKB_FRAGS - n + i];
+			skb_shinfo(nskb)->frags[i] = *f;
+			e_size += skb_frag_size(f);
 		}
+		ss_skb_adjust_data_len(skb, -e_size);
+		ss_skb_adjust_data_len(nskb, e_size);
 	}
 
 	/* Make room for @n page fragments in the SKB. */
@@ -393,7 +397,7 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	int tail_off = pspt - (char *)page_address(page);
 
-	SS_DBG("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
+	TFW_DBG("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
 		smp_processor_id(), __func__, skb, pspt, len, tail_len);
 	BUG_ON(!skb->head_frag);
 	BUG_ON(tail_len <= 0);
@@ -497,7 +501,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	struct sk_buff *skb_dst, *skb_new;
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 
-	SS_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+	TFW_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
 		smp_processor_id(), __func__,
 		skb, i, off, len, skb_frag_size(frag));
 
@@ -581,12 +585,12 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	SS_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+	TFW_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
 		smp_processor_id(), __func__,
 		skb, i, off, len, skb_frag_size(frag));
 
 	if (unlikely(off + len > skb_frag_size(frag))) {
-		SS_WARN("Attempt to delete too much\n");
+		TFW_WARN("Attempt to delete too much\n");
 		return -EFAULT;
 	}
 
@@ -689,7 +693,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	SS_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
+	TFW_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
 		" data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
 		" truesize [%u] nr_frags [%u]\n",
 		smp_processor_id(), __func__, len, pspt, skb, skb->head,
@@ -761,7 +765,7 @@ append:
 	__it_next_data(skb, i + 1, it);
 
 done:
-	SS_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
+	TFW_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
 		" tail [%p] end [%p] len [%u] data_len [%u]"
 		" truesize [%u] nr_frags [%u]\n",
 		smp_processor_id(), __func__, it->ptr, skb, skb->head,
@@ -785,7 +789,7 @@ skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
 	int r;
 
 	if (abs(len) > PAGE_SIZE) {
-		SS_WARN("Attempt to add or delete too much data: %u\n", len);
+		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
 	}
 
@@ -855,7 +859,7 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 		memset(&it, 0, sizeof(TfwStr));
 		r = skb_fragment(skb_list, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
-			SS_WARN("Cannot delete hdr tail\n");
+			TFW_WARN("Cannot delete hdr tail\n");
 			return r;
 		}
 		BUG_ON(r > tail);

@@ -47,6 +47,7 @@ tfw_perfstat_collect(TfwPerfStat *stat)
 		/* Ss statistics. */
 		SADD(ss.pfl_hits);
 		SADD(ss.pfl_misses);
+		SADD(ss.wq_full);
 
 		/* Cache statistics. */
 		SADD(cache.hits);
@@ -88,6 +89,10 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 
 	TfwPerfStat stat;
 	u64 serv_conn_active, serv_conn_sched;
+	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
+				  GFP_KERNEL);
+	if (!ss_stat)
+		TFW_WARN("Cannot allocate sync sockets statistics\n");
 
 	memset(&stat, 0, sizeof(stat));
 	tfw_perfstat_collect(&stat);
@@ -95,6 +100,23 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	/* Ss statistics. */
 	SPRN("SS pfl hits\t\t\t\t", ss.pfl_hits);
 	SPRN("SS pfl misses\t\t\t\t", ss.pfl_misses);
+	SPRN("SS work queue full\t\t\t", ss.wq_full);
+	if (ss_stat) {
+		int cpu;
+
+		ss_get_stat(ss_stat);
+		seq_printf(seq, "SS work queues' sizes\t\t\t:");
+		for_each_online_cpu(cpu)
+			seq_printf(seq, " %u", ss_stat[cpu].rb_wq_sz);
+		seq_printf(seq, "\nSS backlog's sizes\t\t\t:");
+		for_each_online_cpu(cpu)
+			seq_printf(seq, " %u", ss_stat[cpu].backlog_sz);
+		seq_printf(seq, "\n");
+		kfree(ss_stat);
+	} else {
+		seq_printf(seq, "SS work queues' sizes\t\t\t: n/a\n");
+		seq_printf(seq, "SS backlog's sizes\t\t\t: n/a\n");
+	}
 
 	/* Cache statistics. */
 	SPRN("Cache hits\t\t\t\t", cache.hits);
