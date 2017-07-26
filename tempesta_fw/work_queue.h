@@ -32,45 +32,53 @@ typedef struct {
 #define WQ_ITEM_SZ		sizeof(__WqItem)
 #define TFW_WQ_CHECKSZ(t)	BUILD_BUG_ON(sizeof(t) != WQ_ITEM_SZ)
 
-typedef struct __ThrPos {
-	atomic64_t		tail, head;
-} __ThrPos;
-
 typedef struct {
-	__ThrPos __percpu	*thr_pos;
+	atomic64_t __percpu	*heads;
 	__WqItem		*array;
+	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
-	atomic64_t		last_head ____cacheline_aligned;
-	atomic64_t		last_tail ____cacheline_aligned;
 } TfwRBQueue;
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
-int __tfw_wq_push(TfwRBQueue *wq, void *ptr, bool sync);
-int tfw_wq_pop(TfwRBQueue *wq, void *buf);
+long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
+int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
 
-static inline int
-tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
-	    void (*local_cpu_cb)(struct irq_work *), bool sync)
+static inline void
+tfw_raise_softirq(int cpu, struct irq_work *work,
+		  void (*local_cpu_cb)(struct irq_work *))
 {
-	int r = __tfw_wq_push(q, ptr, sync);
-	if (unlikely(r))
-		return r;
-
 	if (smp_processor_id() != cpu)
 		irq_work_queue_on(work, cpu);
 	else
 		local_cpu_cb(work);
+}
+
+static inline long
+tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
+	    void (*local_cpu_cb)(struct irq_work *))
+{
+	long ticket = __tfw_wq_push(q, ptr);
+	if (unlikely(ticket))
+		return ticket;
+
+	tfw_raise_softirq(cpu, work, local_cpu_cb);
 
 	return 0;
 }
 
 static inline int
+tfw_wq_pop(TfwRBQueue *wq, void *buf)
+{
+	return tfw_wq_pop_ticket(wq, buf, NULL);
+}
+
+static inline int
 tfw_wq_size(TfwRBQueue *q)
 {
-	long long t = atomic64_read(&q->tail);
-	long long h = atomic64_read(&q->head);
+	long t = atomic64_read(&q->tail);
+	long h = atomic64_read(&q->head);
 
 	return t > h ? 0 : h - t;
 }

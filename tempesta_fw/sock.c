@@ -27,6 +27,7 @@
 
 #include "addr.h"
 #include "log.h"
+#include "procfs.h"
 #include "sync_socket.h"
 #include "work_queue.h"
 
@@ -42,7 +43,40 @@ typedef struct {
 	SsAction	action;
 } SsWork;
 
-#if defined(DEBUG) && (DEBUG >= 2)
+/**
+ * Backlog for synchronous close operations. Uses turnstile to keep order with
+ * ring-buffer work queue. The work queue tail is used as a ticket for the
+ * turnstile. The backlog is used in slow path if the-ring buffer work queue
+ * is full.
+ *
+ * @head	- head of backlog queue;
+ * @lock	- synchronization for the backlog (MPSC);
+ * @turn	- last pop()'ed node ticket value, used to decide where to pop()
+ * 		  a next item from without locking;
+ * @size	- current backlog queue size, just for statistics;
+ */
+typedef struct {
+	struct list_head	head;
+	spinlock_t		lock;
+	long			turn;
+	size_t			size;
+} SsCloseBacklog;
+
+/**
+ * Node of close backlog.
+ *
+ * @ticket	- the work ticket used in trurnstile to order items from the
+ * 		  backlog with ring-buffer items;
+ * @list	- list entry in the backlog;
+ * @sw		- work descriptor to perform.
+ */
+typedef struct {
+	long			ticket;
+	struct list_head	list;
+	SsWork			sw;
+} SsCblNode;
+
+#if defined(DEBUG)
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
@@ -76,6 +110,13 @@ static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
 	= ATOMIC_INIT(0);
 static DEFINE_PER_CPU(TfwRBQueue, si_wq);
 static DEFINE_PER_CPU(struct irq_work, ipi_work);
+/*
+ * llist can not be used since llist_del_first() returns the newest added
+ * item, while we need FIFO queue. Not a big deal - we use it only at slow
+ * path.
+ */
+static DEFINE_PER_CPU(SsCloseBacklog, close_backlog);
+static struct kmem_cache *ss_cbacklog_cache;
 
 static void
 ss_sk_incoming_cpu_update(struct sock *sk)
@@ -146,27 +187,124 @@ ss_ipi(struct irq_work *work)
 	raise_softirq(NET_TX_SOFTIRQ);
 }
 
+/**
+ * The socket can move from one CPU to another, so we have to pass @cpu as
+ * a parameter to guarantee that we use work queue and backlog for the same
+ * CPU.
+ */
 static int
-ss_wq_push(SsWork *sw, bool sync)
+ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 {
-	int r, cpu = sw->sk->sk_incoming_cpu;
+	struct irq_work *iw = &per_cpu(ipi_work, cpu);
+	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+	SsCblNode *cn;
+
+	cn = kmem_cache_alloc(ss_cbacklog_cache, GFP_ATOMIC);
+	if (!cn)
+		return -ENOMEM;
+	cn->ticket = ticket;
+	memcpy(&cn->sw, sw, sizeof(*sw));
+	spin_lock(&cb->lock);
+	list_add(&cn->list, &cb->head);
+	cb->size++;
+	if (cb->turn > ticket)
+		cb->turn = ticket;
+	spin_unlock(&cb->lock);
+
+	tfw_raise_softirq(cpu, iw, ss_ipi);
+
+	return 0;
+}
+
+static void
+ss_turnstile_update_turn(SsCloseBacklog *cb)
+{
+	if (list_empty(&cb->head)) {
+		cb->turn = LONG_MAX;
+	} else {
+		SsCblNode *cn = list_first_entry(&cb->head, SsCblNode, list);
+		cb->turn = cn->ticket;
+	}
+}
+
+static void
+ss_backlog_validate_cleanup(int cpu)
+{
+	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+
+	WARN_ON(!list_empty(&cb->head));
+	WARN_ON(cb->size);
+	WARN_ON(cb->turn != LONG_MAX);
+}
+
+static long
+ss_wq_push(SsWork *sw, int cpu)
+{
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
+	long r;
+
+	r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi);
+	if (r)
+		TFW_INC_STAT_BH(ss.wq_full);
+	return r;
+}
+
+static int
+ss_wq_pop(SsWork *sw, long *ticket)
+{
+	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
+	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
 
 	/*
-	 * It may happen that there are multiple action requests on
-	 * the same socket. Also, a request to close may be started
-	 * by the other side of a connection and executed outside
-	 * of this work queue. Hold the socket. That way the socket
-	 * won't be reused until the scheduled action is completed.
-	 * See ss_tx_action().
+	 * Since backlog is used for closing only, items from the work queue
+	 * are fetched first.
 	 */
-	sock_hold(sw->sk);
-	if ((r = tfw_wq_push(wq, sw, cpu, iw, ss_ipi, sync))) {
-		TFW_WARN("Socket work queue overrun: [%d]\n", sw->action);
-		sock_put(sw->sk);
+	if (!*ticket && !tfw_wq_pop_ticket(wq, sw, ticket))
+		return 0;
+
+	/*
+	 * @turn stores @wq->head value of a next item to insert (the position
+	 * was unavailable when we tried it), so if we fetched i'th item last
+	 * time, then now we should fetch (i + 1)'th item from the backlog.
+	 * While there are many producers, they have different head views and
+	 * they can put the items to the backlog with wrong order. Thus, we
+	 * should fetch all the items with small enough tickets.
+	 */
+	if (*ticket + 1 >= cb->turn) {
+		SsCblNode *cn = NULL;
+
+		spin_lock(&cb->lock);
+		if (!list_empty(&cb->head)) {
+			cn = list_first_entry(&cb->head, SsCblNode, list);
+			list_del(&cn->list);
+			ss_turnstile_update_turn(cb);
+			cb->size--;
+		}
+		spin_unlock(&cb->lock);
+		if (cn) {
+			memcpy(sw, &cn->sw, sizeof(*sw));
+			kmem_cache_free(ss_cbacklog_cache, cn);
+			return 0;
+		}
 	}
-	return r;
+
+	return tfw_wq_pop_ticket(wq, sw, ticket);
+}
+
+static size_t
+__ss_close_q_sz(int cpu)
+{
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+
+	return tfw_wq_size(wq) + cb->size;
+}
+
+static size_t
+ss_close_q_sz(void)
+{
+	return __ss_close_q_sz(smp_processor_id());
 }
 
 /*
@@ -213,11 +351,11 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	struct sk_buff *skb;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	SS_DBG("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
-	       " sk_state=%d mss=%d size=%d\n",
-	       smp_processor_id(), __func__,
-	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-	       sk->sk_state, mss, size);
+	TFW_DBG("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
+	        " sk_state=%d mss=%d size=%d\n",
+	        smp_processor_id(), __func__,
+	        sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+	        sk->sk_state, mss, size);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
@@ -232,9 +370,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		 * these SKBs.
 		 */
 		if (!skb->len) {
-			SS_DBG("[%d]: %s: drop skb=%p data_len=%u len=%u\n",
-			       smp_processor_id(), __func__,
-			       skb, skb->data_len, skb->len);
+			TFW_DBG("[%d]: %s: drop skb=%p data_len=%u len=%u\n",
+			        smp_processor_id(), __func__,
+			        skb, skb->data_len, skb->len);
 			kfree_skb(skb);
 			continue;
 		}
@@ -247,9 +385,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		/* Clear sender_cpu so flow_disscector can set it properly. */
 		skb_sender_cpu_clear(skb);
 
-		SS_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
-		       smp_processor_id(), __func__,
-		       skb, skb->data_len, skb->len);
+		TFW_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
+		        smp_processor_id(), __func__,
+		        skb, skb->data_len, skb->len);
 
 		ss_skb_entail(sk, skb);
 
@@ -257,9 +395,9 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	SS_DBG("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
-	       smp_processor_id(), __func__,
-	       sk, tcp_send_head(sk), sk->sk_state);
+	TFW_DBG("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	        smp_processor_id(), __func__,
+	        sk, tcp_send_head(sk), sk->sk_state);
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to
@@ -281,7 +419,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 int
 ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 {
-	int r = 0;
+	int cpu, r = 0;
 	struct sk_buff *skb, *twin_skb;
 	SsWork sw = {
 		.sk	= sk,
@@ -291,15 +429,19 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 	BUG_ON(!sk);
 	BUG_ON(ss_skb_queue_empty(skb_list));
-	SS_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
-	       smp_processor_id(), __func__,
-	       sk, sk->sk_incoming_cpu, ss_statename[sk->sk_state]);
+
+	cpu = sk->sk_incoming_cpu;
+
+	TFW_DBG("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
+	        smp_processor_id(), __func__, sk, cpu,
+		ss_statename[sk->sk_state]);
+
 	/*
 	 * This isn't reliable check, but rather just an optimization to
 	 * avoid expensive work queue operations.
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
-		SS_DBG("Attempt to send on inactive socket %p\n", sk);
+		TFW_DBG("Attempt to send on inactive socket %p\n", sk);
 		return -EBADF;
 	}
 
@@ -314,7 +456,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 			/* tcp_transmit_skb() will clone the skb. */
 			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!twin_skb) {
-				SS_WARN("Unable to copy an egress SKB.\n");
+				TFW_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
 				goto err;
 			}
@@ -332,9 +474,16 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * We can't transmit the data escaping the queueing because we have to
 	 * order transmissions and other CPUs can push data to transmit for
 	 * the socket while current CPU was servicing other sockets.
+	 *
+	 * Synchronous operations with the work queue are used to avoid memory
+	 * leakage, so we never use synchronous sending.
 	 */
-	if (ss_wq_push(&sw, flags & SS_F_SYNC)) {
-		SS_WARN("Cannot schedule socket %p for transmission\n", sk);
+	sock_hold(sk);
+	if (ss_wq_push(&sw, cpu)) {
+		TFW_DBG("Cannot schedule socket %p for transmission"
+			" (queue size %d)\n", sk,
+			tfw_wq_size(&per_cpu(si_wq, cpu)));
+		sock_put(sk);
 		r = -EBUSY;
 		goto err;
 	}
@@ -378,9 +527,9 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	SS_DBG("[%d]: Close socket %p (%s): account=%d refcnt=%d\n",
-	       smp_processor_id(), sk, ss_statename[sk->sk_state],
-	       sk_has_account(sk), atomic_read(&sk->sk_refcnt));
+	TFW_DBG("[%d]: Close socket %p (%s): account=%d refcnt=%d\n",
+	        smp_processor_id(), sk, ss_statename[sk->sk_state],
+	        sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	BUG_ON(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
@@ -397,7 +546,7 @@ ss_do_close(struct sock *sk)
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
 		data_was_unread += len;
-		SS_DBG("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
+		TFW_DBG("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
 
@@ -429,7 +578,7 @@ ss_do_close(struct sock *sk)
 			skb = alloc_skb_fclone(MAX_TCP_HEADER,
 					       sk->sk_allocation);
 			if (!skb) {
-				SS_WARN("can't send FIN due to bad alloc");
+				TFW_WARN("can't send FIN due to bad alloc");
 			} else {
 				skb_reserve(skb, MAX_TCP_HEADER);
 				tcp_init_nondata_skb(skb, tp->write_seq,
@@ -511,52 +660,40 @@ ss_linkerror(struct sock *sk)
 int
 __ss_close(struct sock *sk, int flags)
 {
+	int cpu;
+	long ticket;
+	SsWork sw = {
+		.sk	= sk,
+		.flags  = flags,
+		.action	= SS_CLOSE,
+	};
+
 	if (unlikely(!sk))
 		return SS_OK;
+
 	ss_sk_incoming_cpu_update(sk);
+	cpu = sk->sk_incoming_cpu;
 
-	if (!(flags & SS_F_SYNC) || !in_serving_softirq()
-	    || smp_processor_id() != sk->sk_incoming_cpu)
-	{
-		SsWork sw = {
-			.sk	= sk,
-			.flags  = flags,
-			.action	= SS_CLOSE,
-		};
-
-		return ss_wq_push(&sw, (flags & SS_F_SYNC));
-	}
+	sock_hold(sk);
+	ticket = ss_wq_push(&sw, cpu);
+	if (!ticket)
+		return SS_OK;
+	if (!(flags & SS_F_SYNC))
+		goto err;
 
 	/*
-	 * Don't put the work to work queue if we should execute it
-	 * synchronously on current CPU and we're in softirq now.
-	 * We avoid overhead on work queue operations and prevent infinite loop
-	 * on synchronous push() if a consumer is actually the same softirq.
-	 *
-	 * Keep in mind possible ordering problem: the socket can already have
-	 * a queued work when we close it synchronously, so the socket can be
-	 * closed before processing the queued work. That's not a big deal if
-	 * the queued work is closing and simply pretend that socket closing
-	 * event happened before the socket transmission event.
-	 *
-	 * The socket is owned by current CPU, so there's no need to check
-	 * if it's live. However, in some cases this may be called multiple
-	 * times on the same socket. Do it only once for the socket.
-	 *
-	 * We can be called from tcp_v4_rcv() under the socket lock.
+	 * Slow path: the system is overloaded, but we have to close the socket,
+	 * so use locked linked list with a turnstile to keep works order.
 	 */
-	bh_lock_sock_nested(sk);
-	if (unlikely(!ss_sock_live(sk))) {
-		bh_unlock_sock(sk);
-		return SS_OK;
+	if (ss_turnstile_push(ticket, &sw, cpu)) {
+		TFW_WARN("Cannot schedule socket %p for closing\n", sk);
+		goto err;
 	}
-	ss_do_close(sk);
-	bh_unlock_sock(sk);
-	if (flags & SS_F_CONN_CLOSE)
-		SS_CALL_GUARD_EXIT(connection_drop, sk);
-	sock_put(sk); /* paired with ss_do_close() */
 
 	return SS_OK;
+err:
+	sock_put(sk);
+	return SS_BAD;
 }
 EXPORT_SYMBOL(__ss_close);
 
@@ -612,17 +749,17 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, offset);
 
 		if (r < 0) {
-			SS_DBG("[%d]: Processing error: sk %p r %d\n",
-			       smp_processor_id(), sk, r);
+			TFW_DBG("[%d]: Processing error: sk %p r %d\n",
+			        smp_processor_id(), sk, r);
 			goto out; /* connection dropped */
 		} else if (r == SS_STOP) {
-			SS_DBG("[%d]: Stop processing: sk %p\n",
-			       smp_processor_id(), sk);
+			TFW_DBG("[%d]: Stop processing: sk %p\n",
+			        smp_processor_id(), sk);
 			break;
 		}
 	}
 	if (tcp_fin) {
-		SS_DBG("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
+		TFW_DBG("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
@@ -640,8 +777,7 @@ out:
  * tcp_read_sock() calls __kfree_skb() through sk_eat_skb() which is good
  * for copying data from skb, but we need to manage skb's ourselves.
  *
- * TODO:
- * -- process URG
+ * TODO process URG.
  */
 static bool
 ss_tcp_process_data(struct sock *sk)
@@ -654,9 +790,9 @@ ss_tcp_process_data(struct sock *sk)
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
 		if (unlikely(before(tp->copied_seq, TCP_SKB_CB(skb)->seq))) {
-			SS_WARN("recvmsg bug: TCP sequence gap at seq %X"
-				" recvnxt %X\n",
-				tp->copied_seq, TCP_SKB_CB(skb)->seq);
+			TFW_WARN("recvmsg bug: TCP sequence gap at seq %X"
+				 " recvnxt %X\n",
+				 tp->copied_seq, TCP_SKB_CB(skb)->seq);
 			goto out;
 		}
 
@@ -680,9 +816,10 @@ ss_tcp_process_data(struct sock *sk)
 		else if (r == SS_STOP)
 			break;
 		else if (!count)
-			SS_WARN("recvmsg bug: overlapping TCP segment at %X"
-				" seq %X rcvnxt %X len %x\n",
-				tp->copied_seq, skb_seq, tp->rcv_nxt, skb_len);
+			TFW_WARN("recvmsg bug: overlapping TCP segment at %X"
+				 " seq %X rcvnxt %X len %x\n",
+				 tp->copied_seq, skb_seq, tp->rcv_nxt,
+				 skb_len);
 	}
 	droplink = false;
 out:
@@ -709,8 +846,8 @@ out:
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	SS_DBG("[%d]: %s: sk=%p state=%s\n",
-	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	TFW_DBG("[%d]: %s: sk=%p state=%s\n",
+	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
@@ -718,7 +855,7 @@ ss_tcp_data_ready(struct sock *sk)
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		SS_ERR("error data in socket %p\n", sk);
+		TFW_ERR("error data in socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk)) {
@@ -742,8 +879,8 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			SS_DBG("[%d]: urgent data in socket %p\n",
-			       smp_processor_id(), sk);
+			TFW_DBG("[%d]: urgent data in socket %p\n",
+			        smp_processor_id(), sk);
 		}
 	}
 }
@@ -754,8 +891,8 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	SS_DBG("[%d]: %s: sk=%p state=%s\n",
-	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	TFW_DBG("[%d]: %s: sk=%p state=%s\n",
+	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 
@@ -799,8 +936,8 @@ ss_tcp_state_change(struct sock *sk)
 		r = lsk ? SS_CALL_GUARD_ENTER(connection_new, sk)
 			: SS_CALL(connection_new, sk);
 		if (r) {
-			SS_DBG("[%d]: New connection hook failed, r=%d\n",
-			       smp_processor_id(), r);
+			TFW_DBG("[%d]: New connection hook failed, r=%d\n",
+			        smp_processor_id(), r);
 			ss_linkerror(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
@@ -836,7 +973,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
-		SS_DBG("[%d]: Peer connection closing\n", smp_processor_id());
+		TFW_DBG("[%d]: Peer connection closing\n", smp_processor_id());
 		ss_linkerror(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
@@ -1002,7 +1139,7 @@ ss_inet_create(struct net *net, int family,
 
 	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
-		SS_ERR("cannot create socket, %d\n", err);
+		TFW_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
 		return err;
 	}
@@ -1141,8 +1278,8 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 
 	if (unlikely(!inet->inet_dport
 		     || ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_SYN_SENT))))
-		SS_WARN("%s: bad socket dport=%x state=%x\n", __func__,
-			inet->inet_dport, sk->sk_state);
+		TFW_WARN("%s: bad socket dport=%x state=%x\n", __func__,
+			 inet->inet_dport, sk->sk_state);
 
 	addr->family = AF_INET6;
 	addr->v6.sin6_port = inet->inet_sport;
@@ -1175,9 +1312,16 @@ static void
 ss_tx_action(void)
 {
 	SsWork sw;
+	long ticket = 0;
+	int budget;
 
-	/* FIXME The loop is unlimited, so we can face live lock in softirq. */
-	while (!tfw_wq_pop(this_cpu_ptr(&si_wq), &sw)) {
+	/*
+	 * @budget limits the loop to prevent live lock on constantly arriving
+	 * new items. We use some small integer as a lower bound to catch just
+	 * ariving items.
+	 */
+	budget = max(10UL, ss_close_q_sz());
+	while ((!ss_active() || budget--) && !ss_wq_pop(&sw, &ticket)) {
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
@@ -1199,8 +1343,8 @@ ss_tx_action(void)
 			if (!((1 << sk->sk_state)
 			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT)))
 			{
-				SS_DBG("[%d]: %s: Socket inactive: sk %p\n",
-				       smp_processor_id(), __func__, sk);
+				TFW_DBG("[%d]: %s: Socket inactive: sk %p\n",
+				        smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
@@ -1210,22 +1354,40 @@ ss_tx_action(void)
 			BUG();
 		}
 dead_sock:
-		sock_put(sk); /* paired with tfw_wq_push() */
+		sock_put(sk); /* paired with push() calls */
 	}
+
+	/*
+	 * Rearm softirq for local CPU if there are more jobs to do.
+	 * ss_synchronize() is responsible for raising the softirq if there are
+	 * more jobs in the work queue or the backlog.
+	 */
+	if (!budget)
+		raise_softirq(NET_TX_SOFTIRQ);
 }
 
-#define HANDLE_TOO_LONG_WAIT(t0, job)					\
-do {									\
-	if (t0 + HZ * 5 < jiffies) {					\
-		SS_WARN("pending " job " for 5s (connections count %#lx)\n",\
-			acc);						\
-		/*							\
-		 * Something is very wrong with socket accounting.	\
-		 * Give up waiting and hope for the best.		\
-		 */							\
-		return;							\
-	}								\
-} while (0)
+/*
+ * ------------------------------------------------------------------------
+ *  	Management stuff
+ * ------------------------------------------------------------------------
+ */
+/**
+ * Write per-CPU statistics to @stat.
+ * @stat must point to large enough array.
+ */
+void
+ss_get_stat(SsStat *stat)
+{
+	int cpu;
+
+	for_each_online_cpu(cpu) {
+		SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+
+		stat[cpu].rb_wq_sz = tfw_wq_size(wq);
+		stat[cpu].backlog_sz = cb->size;
+	}
+}
 
 /**
  * Synchronize with establishing new connections. It is guaranteed that there
@@ -1241,14 +1403,18 @@ ss_wait_newconn(void)
 
 	might_sleep();
 	while (1) {
+		schedule(); /* let softirq finish works */
 		for_each_online_cpu(cpu)
 			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
 		BUG_ON(acc < 0);
 		if (!(acc & SS_M_ACT_NEWCONN))
 			break;
-		schedule();
 		if (acc == acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "listening sockets");
+			if (t0 + HZ * 5 < jiffies) {
+				TFW_WARN("pending listening sockets for 5s"
+					 " (connections count %#lx)\n", acc);
+				return;
+			}
 		} else {
 			acc_old = acc;
 			acc = 0;
@@ -1273,24 +1439,43 @@ ss_synchronize(void)
 	might_sleep();
 	while (1) {
 		for_each_online_cpu(cpu) {
-			TfwRBQueue *wq = &per_cpu(si_wq, cpu);
-
-			acc += atomic64_read(per_cpu_ptr(&__ss_act_cnt, cpu));
-			wq_acc += tfw_wq_size(wq);
+			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu));
+			int n_q = __ss_close_q_sz(cpu);
+			if (n_conn + n_q) {
+				irq_work_sync(&per_cpu(ipi_work, cpu));
+				schedule(); /* let softirq finish works */
+			}
+			acc += n_conn;
+			wq_acc += n_q;
 		}
 		BUG_ON(acc < 0);
 		if (!acc && !wq_acc)
 			break;
-		schedule();
-		for_each_online_cpu(cpu)
-			irq_work_sync(&per_cpu(ipi_work, cpu));
 		if (acc == acc_old && wq_acc == wq_acc_old) {
-			HANDLE_TOO_LONG_WAIT(t0, "active connections");
-		} else {
-			acc_old = acc;
-			wq_acc_old = wq_acc;
-			acc = wq_acc = 0;
+			if (t0 + HZ * 5 < jiffies) {
+				TFW_WARN("pending active connections for 5s"
+					 " (connections count %#lx,"
+					 " queues count %d)\n", acc, wq_acc);
+				for_each_online_cpu(cpu) {
+					TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+					SsCloseBacklog *cb;
+					cb = &per_cpu(close_backlog, cpu);
+					TFW_WARN("  cpu %d(%d), backlog size %lu,"
+						 " work queue size %d\n",
+						 cpu, smp_processor_id(), cb->size,
+						 tfw_wq_size(wq));
+				}
+				TFW_WARN("Memory leakage is possible\n");
+				return;
+			}
 		}
+		else if (acc + wq_acc < acc_old + wq_acc_old) {
+			/* Reset the timeout if we're doing progress. */
+			t0 = jiffies;
+		}
+		acc_old = acc;
+		wq_acc_old = wq_acc;
+		acc = wq_acc = 0;
 	}
 }
 EXPORT_SYMBOL(ss_synchronize);
@@ -1333,13 +1518,24 @@ tfw_sync_socket_init(void)
 	int r, cpu;
 
 	TFW_WQ_CHECKSZ(SsWork);
+	ss_cbacklog_cache = kmem_cache_create("ss_cbacklog_cache",
+					      sizeof(SsCblNode), 0, 0, NULL);
+	if (!ss_cbacklog_cache)
+		return -ENOMEM;
 	for_each_online_cpu(cpu) {
+		SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
+
 		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
-			SS_ERR("Cannot initialize softirq tx work queue\n");
+			TFW_ERR("Cannot initialize softirq tx work queue\n");
+			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}
 		init_irq_work(&per_cpu(ipi_work, cpu), ss_ipi);
+
+		INIT_LIST_HEAD(&cb->head);
+		spin_lock_init(&cb->lock);
+		cb->turn = LONG_MAX;
 	}
 	tempesta_set_tx_action(ss_tx_action);
 
@@ -1355,5 +1551,7 @@ tfw_sync_socket_exit(void)
 	for_each_online_cpu(cpu) {
 		irq_work_sync(&per_cpu(ipi_work, cpu));
 		tfw_wq_destroy(&per_cpu(si_wq, cpu));
+		ss_backlog_validate_cleanup(cpu);
 	}
+	kmem_cache_destroy(ss_cbacklog_cache);
 }
