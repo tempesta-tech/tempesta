@@ -218,8 +218,9 @@ do {									\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
+		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(r); /* let finish update the @r */ 		\
 	}								\
 	goto to;							\
 } while (0)
@@ -237,8 +238,9 @@ do {									\
 		__msg_hdr_chunk_fixup(data, len);			\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
+		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT(TFW_POSTPONE);				\
+		__FSM_EXIT(r); /* let finish update the @r */		\
 	}								\
 } while (0)
 
