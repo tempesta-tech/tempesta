@@ -31,7 +31,7 @@ class Node(object):
 
     @abc.abstractmethod
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
+                err_msg='', env={}):
         pass
 
     @abc.abstractmethod
@@ -52,14 +52,18 @@ class LocalNode(Node):
         Node.__init__(self, type, hostname, workdir)
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
-        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
+                err_msg='', env={}):
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s with environment %s" % (cmd, self.host, env))
         stdout = ''
         stderr = ''
         stderr_pipe = (open(os.devnull, 'w') if ignore_stderr
                        else subprocess.PIPE)
+        # Popen() expects full environment
+        env_full = {}
+        env_full.update(os.environ)
+        env_full.update(env)
         with subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                              stderr=stderr_pipe) as p:
+                              stderr=stderr_pipe, env=env_full) as p:
             try:
                 stdout, stderr = p.communicate(timeout)
                 assert p.returncode == 0, "Return code is not 0."
@@ -123,10 +127,20 @@ class RemoteNode(Node):
         self.ssh.close()
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
-        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
+                err_msg='', env={}):
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s with environment %s" %
+                      (cmd, self.host, env))
         stderr = ''
         stdout = ''
+        # we could simply pass environment to exec_command(), but openssh' default
+        # is to reject such environment variables, so pass them via env(1)
+        if len(env) > 0:
+            cmd = ' '.join([
+                'env',
+                ' '.join([ "%s='%s'" % (k, v) for k, v in env.items() ]),
+                cmd
+            ])
+            tf_cfg.dbg(4, "\tEffective command '%s' after injecting environment" % cmd)
         try:
             _, out_f, err_f = self.ssh.exec_command(cmd, timeout=timeout)
             stdout = out_f.read()
