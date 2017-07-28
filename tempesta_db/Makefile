@@ -21,13 +21,13 @@ all: libtdb tdbq
 
 .PHONY: libtdb
 libtdb:
-	make -C libtdb
+	$(MAKE) -C libtdb
 
 .PHONY: tdbq
 tdbq:
-	make -C tdbq
+	$(MAKE) -C tdbq
 
 .PHONY: clean
 clean:
-	make -C libtdb clean
-	make -C tdbq clean
+	$(MAKE) -C libtdb clean
+	$(MAKE) -C tdbq clean

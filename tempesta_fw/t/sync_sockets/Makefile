@@ -47,13 +47,13 @@ server : server.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 kernel : FORCE
-	make -C /lib/modules/$(KVERSION)/build M=$(PWD)/kernel modules
+	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD)/kernel modules
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@ $(DEFINES)
 
 clean : FORCE
 	rm -f *.o $(TARGETS)
-	make -C /lib/modules/$(KVERSION)/build M=$(PWD)/kernel clean
+	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD)/kernel clean
 
 FORCE :
