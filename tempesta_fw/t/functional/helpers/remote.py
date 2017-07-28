@@ -5,6 +5,7 @@ import re
 import os
 import abc
 import paramiko
+import errno
 import subprocess32 as subprocess
 from . import tf_cfg, error
 
@@ -166,7 +167,11 @@ class RemoteNode(Node):
             return
         try:
             sftp = self.ssh.open_sftp()
-            sftp.unlink(filename)
+            try:
+                sftp.unlink(filename)
+            except IOError as e:
+                if e.errno != errno.ENOENT:
+                    raise
             sftp.close()
         except Exception as e:
             error.bug(("Error removing file %s on %s" %
