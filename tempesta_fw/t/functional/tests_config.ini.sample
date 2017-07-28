@@ -87,6 +87,12 @@ hostname = localhost
 #
 workdir = /root/tempesta
 
+# Absolute or workdir-relative path to the temporary TempestaFW config
+# (it will be created during testing).
+#
+# ex.: config = etc/tempesta_test.conf (default /tmp/tempesta.conf)
+config = /tmp/tempesta.conf
+
 
 [Server]
 # Configuration for the host running HTTP servers. Host may be remote or local

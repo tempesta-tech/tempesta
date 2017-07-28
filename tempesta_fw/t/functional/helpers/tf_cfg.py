@@ -40,7 +40,8 @@ class TestFrameworkCfg(object):
                                             'hostname': 'localhost',
                                             'user': 'root',
                                             'port': '22',
-                                            'workdir': '/root/tempesta'},
+                                            'workdir': '/root/tempesta',
+                                            'config': '/tmp/tempesta.conf'},
                                'Server': {'ip': '127.0.0.1',
                                           'hostname': 'localhost',
                                           'user': 'root',
@@ -90,6 +91,7 @@ class TestFrameworkCfg(object):
                 ('Client', 'workdir'),
                 ('Tempesta', 'workdir'),
                 ('Server', 'workdir'),
+                ('Tempesta', 'config')
         ]
         for item in normalize:
             self.config[item[0]][item[1]] = os.path.normpath(self.config[item[0]][item[1]])
