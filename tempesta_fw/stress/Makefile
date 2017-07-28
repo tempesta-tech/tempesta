@@ -26,8 +26,8 @@ obj-m = th_stress_sys.o
 th_stress_sys-objs = sys.o
 
 all:
-	make -C ../../linux-$(KVERSION) M=$(PWD) modules
+	$(MAKE) -C ../../linux-$(KVERSION) M=$(PWD) modules
 
 clean:
-	make -C ../../linux-$(KVERSION) M=$(PWD) clean
+	$(MAKE) -C ../../linux-$(KVERSION) M=$(PWD) clean
 
