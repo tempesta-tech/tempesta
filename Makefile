@@ -58,8 +58,8 @@ endif
 ifndef AVX2
 	$(warning WARNING: NO AVX2 SUPPORT, YOU WILL BE SLOW)
 endif
-	make -C tempesta_db
-	make -C $(KERNEL) M=$(PWD) modules
+	$(MAKE) -C tempesta_db
+	$(MAKE) -C $(KERNEL) M=$(PWD) modules
 
 test: build
 	./scripts/tempesta.sh --load
@@ -67,7 +67,7 @@ test: build
 	./scripts/tempesta.sh --unload
 
 clean:
-	make -C $(KERNEL) M=$(PWD) clean
-	make -C tempesta_db clean
+	$(MAKE) -C $(KERNEL) M=$(PWD) clean
+	$(MAKE) -C tempesta_db clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;

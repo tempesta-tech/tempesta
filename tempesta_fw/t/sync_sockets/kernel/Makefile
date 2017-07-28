@@ -11,7 +11,7 @@ ss_kclient-objs = \
 	../../../addr.o
 
 all:
-	make -C /lib/modules/$(KVERSION)/build M=$(PWD) modules 
+	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) modules
 
 clean:
-	make -C /lib/modules/$(KVERSION)/build M=$(PWD) clean
+	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) clean
