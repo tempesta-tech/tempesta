@@ -411,16 +411,11 @@ tfw_http_req_is_nip(TfwHttpReq *req)
 }
 
 /*
- * Remove @req from the list of non-idempotent requests in @srv_conn.
- * If it is the last request on the list, then clear the flag saying
- * that @srv_conn has non-idempotent requests.
- *
- * @req must be confirmed to be on the list.
+ * Reset the flag saying that @srv_conn has non-idempotent requests.
  */
 static inline void
-__tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 {
-	list_del_init(&req->nip_list);
 	if (list_empty(&srv_conn->nip_queue))
 		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
@@ -430,7 +425,7 @@ __tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
  * Raise the flag saying that @srv_conn has non-idempotent requests.
  */
 static inline void
-__tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
@@ -439,13 +434,18 @@ __tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 
 /*
  * Remove @req from the list of non-idempotent requests in @srv_conn.
+ * If it is the last request on the list, then clear the flag saying
+ * that @srv_conn has non-idempotent requests.
+ *
  * Does nothing if @req is NOT on the list.
  */
 static inline void
 tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
-	if (!list_empty(&req->nip_list))
-		__tfw_http_req_nip_delist(srv_conn, req);
+	if (!list_empty(&req->nip_list)) {
+		list_del_init(&req->nip_list);
+		tfw_http_conn_nip_reset(srv_conn);
+	}
 }
 
 /*
@@ -456,15 +456,16 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
  * to tfw_http_req_add_seq_queue().
  */
 static inline void
-tfw_http_conn_nip_delist(TfwSrvConn *srv_conn)
+tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 {
 	TfwHttpReq *req, *tmp;
 
 	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
 		if (!tfw_http_req_is_nip(req)) {
 			BUG_ON(list_empty(&req->nip_list));
-			__tfw_http_req_nip_delist(srv_conn, req);
+			list_del_init(&req->nip_list);
 		}
+	tfw_http_conn_nip_reset(srv_conn);
 }
 
 /*
@@ -771,7 +772,7 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn,
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
-		__tfw_http_req_nip_enlist(srv_conn, req);
+		tfw_http_req_nip_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)) {
 		spin_unlock(&srv_conn->fwd_qlock);
 		return;
@@ -1277,7 +1278,8 @@ tfw_http_conn_release(TfwConn *conn)
 	 */
 	spin_lock_bh(&srv_conn->fwd_qlock);
 	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
-		__tfw_http_req_nip_delist(srv_conn, req);
+		list_del_init(&req->nip_list);
+	tfw_http_conn_nip_reset(srv_conn);
 	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
 	srv_conn->qsize = 0;
 	spin_unlock_bh(&srv_conn->fwd_qlock);
@@ -2236,7 +2238,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
 	tfw_http_req_delist(srv_conn, req);
-	tfw_http_conn_nip_delist(srv_conn);
+	tfw_http_conn_nip_adjust(srv_conn);
 	/*
 	 * Run special processing if the connection is in repair
 	 * mode. Otherwise, forward pending requests to the server.
