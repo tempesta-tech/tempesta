@@ -1269,12 +1269,25 @@ tfw_http_conn_release(TfwConn *conn)
 		return;
 	}
 
+	/*
+	 * Destroy server connection's queues. Spend minimum time under
+	 * the lock and do it fast while maintaining consistency. First
+	 * destroy @nip_queue, most often it has just one entry. Then
+	 * snip @fwd_queue, move it to @zap_queue, and zero @qsize.
+	 */
 	spin_lock_bh(&srv_conn->fwd_qlock);
+	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
+		__tfw_http_req_nip_delist(srv_conn, req);
 	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
+	srv_conn->qsize = 0;
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
+	/*
+	 * Remove requests from @zap_queue (formerly @fwd_queue) and from
+	 * @seq_queue of respective client connections, then destroy them.
+	 */
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
-		tfw_http_req_delist(srv_conn, req);
+		list_del_init(&req->fwd_list);
 		if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
 			spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
 			if (unlikely(!list_empty(&req->msg.seq_list)))
