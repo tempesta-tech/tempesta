@@ -38,7 +38,7 @@ class Node(object):
         pass
 
     @abc.abstractmethod
-    def copy_file(self, filename, content, path=None):
+    def copy_file(self, filename, content):
         pass
 
     @abc.abstractmethod
@@ -76,13 +76,15 @@ class LocalNode(Node):
             if not os.path.isdir(path):
                 raise
 
-    def copy_file(self, filename, content, path=None):
-        # Create dir first.
-        if path is None:
-            path = self.workdir
-        else:
-            self.mkdir(path)
-        filename = ''.join([path, filename])
+    def copy_file(self, filename, content):
+        # workdir will be ignored if an absolute filename is passed
+        filename = os.path.join(self.workdir, filename)
+        dirname = os.path.dirname(filename)
+
+        # assume that workdir exists to avoid unnecessary actions
+        if dirname != self.workdir:
+            self.mkdir(dirname)
+
         with open(filename, 'w') as f:
             f.write(content)
 
@@ -140,13 +142,15 @@ class RemoteNode(Node):
     def mkdir(self, path):
         self.run_cmd('mkdir -p %s' % path)
 
-    def copy_file(self, filename, content, path=None):
-        # Create directory it is not default workdir.
-        if path is None:
-            path = self.workdir
-        else:
-            self.mkdir(path)
-        filename = ''.join([path, filename])
+    def copy_file(self, filename, content):
+        # workdir will be ignored if an absolute filename is passed
+        filename = os.path.join(self.workdir, filename)
+        dirname = os.path.dirname(filename)
+
+        # assume that workdir exists to avoid unnecessary actions
+        if dirname != self.workdir:
+            self.mkdir(dirname)
+
         try:
             sftp = self.ssh.open_sftp()
             sfile = sftp.file(filename, 'w', -1)
