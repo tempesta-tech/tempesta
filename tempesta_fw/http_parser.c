@@ -122,12 +122,16 @@ st: __attribute__((unused)) 						\
 	TFW_DBG3("parser: " #st "(%d:%d): c=%#x(%c), p_off=%ld\n",	\
 		 st, parser->_i_st, c, isprint(c) ? c : '.', p - data);
 
-#define __FSM_EXIT()			goto done;
+#define __FSM_EXIT(ret)							\
+do {									\
+	r = ret;							\
+	goto done;							\
+} while (0)
 
-#define FSM_EXIT()							\
+#define FSM_EXIT(ret)							\
 do {									\
 	p += 1; /* eat current character */				\
-	__FSM_EXIT();							\
+	__FSM_EXIT(ret);						\
 } while (0)
 
 #define __FSM_FINISH(m)							\
@@ -140,9 +144,8 @@ done:									\
 do {									\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
@@ -151,12 +154,11 @@ do {									\
 do {									\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		BUG_ON(!(field)->ptr);					\
 		__msg_field_fixup(field, data + len);			\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
@@ -177,9 +179,8 @@ do {									\
 		BUG_ON(!(field)->ptr);					\
 		__msg_field_fixup(field, data + len);			\
 		__fsm_const_state = to;					\
-		r = TFW_POSTPONE;					\
 		p += __fsm_sz;						\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 } while (0)
 
@@ -193,8 +194,7 @@ do {									\
 	p += __fsm_sz;							\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		__fsm_const_state = to;					\
-		r = TFW_POSTPONE;					\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 } while (0)
 
@@ -215,12 +215,12 @@ do {									\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		r = TFW_POSTPONE; /* postpone to more data available */	\
 		__fsm_const_state = to; /* start from state @to nest time */\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
+		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT()						\
+		__FSM_EXIT(r); /* let finish update the @r */ 		\
 	}								\
 	goto to;							\
 } while (0)
@@ -240,7 +240,7 @@ do {									\
 		__fsm_const_state = to;					\
 		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT()						\
+		__FSM_EXIT(r); /* let finish update the @r */		\
 	}								\
 } while (0)
 
@@ -263,9 +263,8 @@ do {									\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		r = TFW_POSTPONE;					\
 		__fsm_const_state = to;					\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
@@ -279,8 +278,7 @@ do {									\
 		__FSM_I_chunk_flags(flag);				\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
-		r = TFW_POSTPONE;					\
-		__FSM_EXIT()						\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 } while (0)
 
@@ -762,8 +760,7 @@ do {									\
 			msg->crlf.flags |= TFW_STR_COMPLETE;		\
 			__FSM_JMP(RGen_BodyInit);			\
 		}							\
-		r = TFW_PASS;						\
-		FSM_EXIT();						\
+		FSM_EXIT(TFW_PASS);					\
 	}								\
 } while (0)
 
@@ -780,8 +777,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
 		__msg_field_finish(&msg->crlf, p + 1);			\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
-	r = TFW_PASS;							\
-	FSM_EXIT();							\
+	FSM_EXIT(TFW_PASS);						\
 }
 
 /*
@@ -930,8 +926,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 	}								\
 	/* There is no body. */						\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
-	r = TFW_PASS;							\
-	FSM_EXIT();							\
+	FSM_EXIT(TFW_PASS);						\
 }
 
 /* Process according RFC 7230 3.3.3 */
@@ -950,8 +945,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 	{								\
 		/* There is no body. */					\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
-		r = TFW_PASS;						\
-		FSM_EXIT();						\
+		FSM_EXIT(TFW_PASS);					\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/* The alternative: remove "Content-Length" header. */	\
@@ -969,8 +963,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		}							\
 		/* There is no body. */					\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
-		r = TFW_PASS;						\
-		FSM_EXIT();						\
+		FSM_EXIT(TFW_PASS);					\
 	}								\
 	/* Process the body until the connection is closed. */		\
 	/*								\
