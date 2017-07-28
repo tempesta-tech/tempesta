@@ -913,6 +913,27 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *equeue)
 }
 
 /*
+ * Snip @fwd_queue (and @nip_queue) and move its contents to @out_queue.
+ *
+ * This is run under a lock, so spend minimum time under the lock and
+ * do it fast while maintaining consistency. First destroy @nip_queue,
+ * most often it has just one entry. Then snip @fwd_queue, move it to
+ * @out_queue, and zero @qsize and @msg_sent.
+ */
+static void
+tfw_http_conn_snip_fwd_queue(TfwSrvConn *srv_conn, struct list_head *out_queue)
+{
+	TfwHttpReq *req, *tmp;
+
+	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
+		list_del_init(&req->nip_list);
+	tfw_http_conn_nip_reset(srv_conn);
+	list_splice_tail_init(&srv_conn->fwd_queue, out_queue);
+	srv_conn->qsize = 0;
+	srv_conn->msg_sent = NULL;
+}
+
+/*
  * Collect requests in a dead server connection's queue that are suited
  * for re-scheduling. Idempotent requests are always rescheduled.
  * Non-idempotent requests may be rescheduled depending on the option
@@ -965,12 +986,7 @@ tfw_http_conn_collect(TfwSrvConn *srv_conn, struct list_head *sch_queue,
 	 * Move the remaining requests to @sch_queue. These requests
 	 * will be re-scheduled to other servers and/or connections.
 	 */
-	list_for_each_entry_safe(req, tmp, fwd_queue, fwd_list) {
-		tfw_http_req_delist(srv_conn, req);
-		list_add_tail(&req->fwd_list, sch_queue);
-	}
-	BUG_ON(srv_conn->qsize);
-	srv_conn->msg_sent = NULL;
+	tfw_http_conn_snip_fwd_queue(srv_conn, sch_queue);
 }
 
 /*
@@ -1271,17 +1287,11 @@ tfw_http_conn_release(TfwConn *conn)
 	}
 
 	/*
-	 * Destroy server connection's queues. Spend minimum time under
-	 * the lock and do it fast while maintaining consistency. First
-	 * destroy @nip_queue, most often it has just one entry. Then
-	 * snip @fwd_queue, move it to @zap_queue, and zero @qsize.
+	 * Destroy server connection's queues.
+	 * Move all requests from them to @zap_queue.
 	 */
 	spin_lock_bh(&srv_conn->fwd_qlock);
-	list_for_each_entry_safe(req, tmp, &srv_conn->nip_queue, nip_list)
-		list_del_init(&req->nip_list);
-	tfw_http_conn_nip_reset(srv_conn);
-	list_splice_tail_init(&srv_conn->fwd_queue, &zap_queue);
-	srv_conn->qsize = 0;
+	tfw_http_conn_snip_fwd_queue(srv_conn, &zap_queue);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	/*
