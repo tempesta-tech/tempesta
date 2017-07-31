@@ -328,7 +328,8 @@ class Nginx(object):
         self.requests = 0
 
     def get_name(self):
-        return ':'.join([self.node.host, str(self.config.port)])
+        ip = tf_cfg.cfg.get('Server', 'ip')
+        return ':'.join([ip, str(self.config.port)])
 
     def start(self):
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
