@@ -71,11 +71,9 @@ class HttpRules(functional.FunctionalTest):
     def configure_tempesta(self):
         """ Add every server to it's own server group with default scheduler.
         """
-        # We run server on the Client host.
-        ip = tf_cfg.cfg.get('Client', 'ip')
         for s in self.servers:
             sg = tempesta.ServerGroup(s.group)
-            sg.add_server(ip, s.port, s.conns_n)
+            sg.add_server(s.ip, s.port, s.conns_n)
             self.tempesta.config.add_sg(sg)
 
     def create_testers(self):
