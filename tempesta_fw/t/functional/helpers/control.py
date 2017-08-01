@@ -319,6 +319,7 @@ class Nginx(object):
     def __init__(self, listen_port, workers=1):
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
+        self.ip = tf_cfg.cfg.get('Server', 'ip')
         self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
         # Configure number of connections used by TempestaFW.
@@ -328,8 +329,7 @@ class Nginx(object):
         self.requests = 0
 
     def get_name(self):
-        ip = tf_cfg.cfg.get('Server', 'ip')
-        return ':'.join([ip, str(self.config.port)])
+        return ':'.join([self.ip, str(self.config.port)])
 
     def start(self):
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
