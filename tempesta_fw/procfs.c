@@ -200,10 +200,10 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
 			srv->conn_n - rc);
-	seq_printf(seq, "Maximum forwarding queue size\t: %d\n",
+	seq_printf(seq, "Maximum forwarding queue size\t: %u\n",
 			srv->sg->max_qsize);
 	for (i = 0; i < srv->conn_n; ++i)
-		seq_printf(seq, "\tConnection %03zd queue size\t: %d\n",
+		seq_printf(seq, "\tConnection %03zd queue size\t: %u\n",
 				i, qsize[i]);
 
 	return 0;
