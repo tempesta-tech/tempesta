@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 import re
+import os
 from . import tf_cfg, error
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -83,7 +84,7 @@ http {
     def set_workdir(self, workdir):
         error.assertTrue(workdir)
         self.__replace(r'pid[ ]+([\w._/]+);',
-                       ''.join(['pid ', workdir, self.pidfile_name, ' ;']))
+                       ''.join(['pid ', os.path.join(workdir, self.pidfile_name), ' ;']))
 
     def set_resourse_location(self, location=''):
         if not location:
