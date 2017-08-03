@@ -84,11 +84,17 @@ class TestFrameworkCfg(object):
     def check(self):
         if self.file_err:
             self.error('Configuration file "tests_config.ini" not found.')
-        #TODO: check configuration options
-        for host in ['Client', 'Tempesta', 'Server']:
-            if not self.config[host]['workdir'].endswith('/'):
-                self.config[host]['workdir'] += '/'
 
+        # normalize pathes
+        normalize = [
+                ('Client', 'workdir'),
+                ('Tempesta', 'workdir'),
+                ('Server', 'workdir'),
+        ]
+        for item in normalize:
+            self.config[item[0]][item[1]] = os.path.normpath(self.config[item[0]][item[1]])
+
+        #TODO: check configuration options
         if self.config['Client']['hostname'] != 'localhost':
             self.error('Running clients on remote host is not supported yet.')
 
