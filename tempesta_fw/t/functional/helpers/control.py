@@ -96,7 +96,7 @@ class Client(object):
         copied to remote node, present in command line as parameter and
         removed after client finish.
         """
-        full_name = ''.join([self.workdir, filename])
+        os.path.join(self.workdir, filename)
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
@@ -191,7 +191,7 @@ class Siege(Client):
         if self.copy_rc:
             self.add_option_file('-R', self.rc.filename, self.rc.get_config())
         else:
-            self.options.append('-R %s%s' % (self.workdir, self.rc.filename))
+            self.options.append('-R %s' % os.path.join(self.workdir, self.rc.filename))
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
@@ -338,15 +338,15 @@ class Nginx(object):
         self.node.copy_file(self.config.config_name, self.config.config)
         # Nginx forks on start, no background threads needed,
         # but it holds stderr open after demonisation.
-        config_file = ''.join([self.workdir, self.config.config_name])
+        config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('start', self.get_name())))
 
     def stop(self):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
-        pid_file = ''.join([self.workdir, self.config.pidfile_name])
-        config_file = ''.join([self.workdir, self.config.config_name])
+        pid_file = os.path.join(self.workdir, self.config.pidfile_name)
+        config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('stop', self.get_name())))
