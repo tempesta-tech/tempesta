@@ -98,13 +98,13 @@ There is 4 sections in configuration: `General`, `Client`, `Tempesta`, `Server`.
 `General` section describes the options related to testing framework itself.
 
 `verbose`: verbose level of output:
-- `0` - quiet mode, result of each test is shown by symbols. `.` - passed, `F` -
-failed, `u` - unexpected success, `x` - expected failure. `s` - skipped;
-- `1` - Show test names and doc strings;
-- `2` - Show tests names and performance counters;
-- `3` - Full debug output.
+- `0` — quiet mode, result of each test is shown by symbols. `.` — passed, `F` -
+failed, `u` — unexpected success, `x` — expected failure. `s` — skipped;
+- `1` — Show test names and doc strings;
+- `2` — Show tests names and performance counters;
+- `3` — Full debug output.
 
-`Duration` option controls duration in seconds of each workload test. Use small
+`duration` option controls duration in seconds of each workload test. Use small
 values to obtain results quickly add large for more heavy stress tests. Default
 is `10` seconds.
 
@@ -116,43 +116,45 @@ $ ./run_tests.py -h
 
 #### Client Section
 
-`ip` - IPv4/IPv6 address of the host in test network. Default is `127.0.0.1`.
+Clients are always ran locally (on the same host where the testing framework
+runs). In certain tests, backend servers are also ran locally (disregarding
+[server configuration](#server-section)).
 
-`workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
-host. R/W access is required, must be absolute path.
+`ip` — IPv4/IPv6 address of this host in the test network, as reachable from
+the host running TempestaFW.
 
-`ab`, `wrk` - path to corresponding binaries. The binaries must
-be located in PATH or absolute pathes must be provided.
+`workdir` — absolute path to a R/W directory on the host to place temporary
+files in.
+
+`ab`, `wrk` — pathes to the corresponding binaries, either absolute pathes or
+names available in PATH.
 
 #### Tempesta Section
 
-`ip` - IPv4/IPv6 address of the host in test network. Used to run `wrk`,
-`tempesta`, `nginx` and others with right parameters. Default is `127.0.0.1`.
+`ip` — IPv4/IPv6 address of the TempestaFW host in test network, as reachable
+from the client and server hosts. 
 
-`hostname`, `port`, `user` - this options describes "management" interface of
-the host. Testing framework uses this fields to connect to each test node.
+`hostname`, `port`, `user` — address and credentials used to reach the host via
+SSH. If hostname is `localhost`, TempestaFW will be ran locally.
 
-Options above are common for hosts `Server` and `Tempesta` and present in each
-section.
+`workdir` — absolute path to the TempestaFW source tree.
 
-`workdir` - Directory with TempestaFW sources. Must be absolute path.
-
-`config` - workdir-relative path to the temporary TempestaFW config that will
-be created during testing.
+`config` — workdir-relative or absolute path to the temporary TempestaFW config
+that will be created during testing.
 
 #### Server Section
 
-Options listed in [Tempesta Section](#tempesta-section): `ip`, `hostname`,
-`port`, `user` are also applied to this section.
+`ip` — IPv4/IPv6 address of the backend server host in test network, as
+reachable from the host running TempestaFW.
 
-`workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
-host. R/W access is required, must be absolute path.
+`workdir` — absolute path to a R/W directory on the host to place temporary
+files in.
 
-`nginx` - path to corresponding binary. The binary must be located in PATH
-or absolute path must be provided.
+`nginx` — path to the corresponding binary, either absolute path or a name
+available in PATH.
 
-`resourses` - absolute path to directory with sample web pages. Must be
-reachable by `nginx`.
+`resources` — absolute path to a sample web site root. Must be reachable by
+nginx.
 
 
 ### Run tests
@@ -162,34 +164,13 @@ To run all the tests simply run:
 $ ./run_tests.py
 ```
 
-The unittest module can be used from the command line to run tests from modules,
-classes or even individual test methods:
+To run individual tests, name them in the arguments to the `run_tests.py` script
+in dot-separated format (as if you were importing them as python modules,
+although it is also possible to run specific testcases or even methods inside a
+testcase):
 ```sh
-$ python2 -m unittest test_module1 test_module2
-$ python2 -m unittest test_module.TestClass
-$ python2 -m unittest test_module.TestClass.test_method
-```
-Next command will run all tests from specified directory:
-```sh
-$ python2 -m unittest discover <directory>
-```
-In this case verbosity of the tests names is controlled separately from
-configuration flie:
-```sh
-$ python2 -m unittest -v test_module.TestClass
-```
-For a list of all the command-line options:
-```sh
-$ python2 -m unittest -h
-```
-
-Note: some tests work with a very large amount of sockets and may fail if
-limit for maximum amount of files to open is relatively low. Set bigger limits
-by running command below before running tests:
-```sh
-$ ulimit -n 4096
-or
-$ ulimit -n unlimited
+$ ./run_tests.py cache.test_cache
+$ ./run_tests.py cache.test_cache.TestCacheDisabled.test_cache_fullfill_all
 ```
 
 ## Adding new tests
