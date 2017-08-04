@@ -25,7 +25,7 @@ class OneClient(stress.StressTest):
             sg.options = 'sticky_sessions;'
 
     def create_clients(self):
-        self.wrk = control.Wrk()
+        self.wrk = control.Wrk(threads = 1)
         self.wrk.set_script("cookie-one-client")
         self.clients = [self.wrk]
 
