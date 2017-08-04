@@ -33,8 +33,13 @@ concurrent_connections = 10
 
 
 [Client]
-# Configuration for HTTP clients.
-# IPv4/IPv6 address of this host, as reachable from the host running TempestaFW.
+# Configuration for the HTTP clients. Clients are always ran locally.
+# Note: in some tests, HTTP servers are also ran locally using this configuration
+# (disregarding [Server] section).
+
+# IPv4/IPv6 address of this host in the test network, as reachable from the host
+# running TempestaFW.
+# This value will be used internally, in command lines and configuration files.
 #
 # ex.: ip = 192.168.11.6 (default 127.0.0.1)
 #
@@ -63,62 +68,64 @@ wrk = wrk
 
 
 [Tempesta]
-# Configuration for the host running TempesaFW. Host may be remote or local
-# one. Refer to Readmi.md for more information.
+# Configuration for the host running TempestaFW. It may be configured to run
+# locally or remotely (using SSH). Refer to README.md for more information.
 
-# IPv4/IPv6 address of interface used for testing. This value will be used
-# as a parameter in commands or configuration files.
+# IPv4/IPv6 address of the host running TempestaFW in the test network,
+# as reachable from this host.
+# This value will be used internally, in command lines and configuration files.
 #
 # ex.: ip = 192.168.11.6 (default 127.0.0.1)
 #
 ip = 127.0.0.1
 
-# Target host description. Host can be remote or local one. Remote hosts are
-# controlled via SSH protocol.
+# Target host description. These values will be used to SSH into the remote host.
+# If hostname is 'localhost', TempestaFW will be ran locally.
 #
-# ex.: Use remote host to run TempestaFW:
+# ex.: Use a remote host to run TempestaFW:
 #       hostname = tempesta.test  (default localhost)
 #       user = rtest              (default root)
 #       port = 22022              (default 22)
 #
-# ex.: Use the local host to run HTTP clients (default):
+# ex.: Use the local host to run TempestaFW (default):
 #       hostname = localhost
 #
 hostname = localhost
 
-# Absolute path to TempestaFW sources directory.
+# Absolute path to the TempestaFW source tree.
 #
 # ex.: workdir = /home/user/tempesta (default /root/tempesta)
 #
 workdir = /root/tempesta
 
 # Absolute or workdir-relative path to the temporary TempestaFW config
-# (it will be created during testing).
+# (created during testing).
 #
 # ex.: config = etc/tempesta_test.conf (default /tmp/tempesta.conf)
+#
 config = /tmp/tempesta.conf
 
 
 [Server]
-# Configuration for the host running HTTP servers. Host may be remote or local
-# one. Refer to Readmi.md for more information.
+# Configuration for the host running HTTP servers. They may be configured to run
+# locally or remotely (using SSH). Refer to README.md for more information.
 
-# IPv4/IPv6 address of interface used for testing. This value will be used
-# as a parameter in commands or configuration files.
+# IPv4/IPv6 address of the host running HTTP servers in the test network,
+# as reachable from the host running TempestaFW.
 #
 # ex.: ip = 192.168.11.7 (default 127.0.0.1)
 #
 ip = 127.0.0.1
 
-# Target host description. Host can be remote or local one. Remote hosts are
-# controlled via SSH protocol.
+# Target host description. These values will be used to SSH into the remote host.
+# If hostname is 'localhost', HTTP servers will be ran locally.
 #
-# ex.: Use remote host to run HTTP servers:
+# ex.: Use a remote host to run HTTP servers:
 #       hostname = remote.com   (default localhost)
 #       user = rtest            (default root)
 #       port = 22022            (default 22)
 #
-# ex.: Use the local host to run HTTP clients (default):
+# ex.: Use the local host to run HTTP servers (default):
 #       hostname = localhost
 #
 hostname = localhost
