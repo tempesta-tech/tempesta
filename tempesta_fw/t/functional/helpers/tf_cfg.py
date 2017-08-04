@@ -34,7 +34,6 @@ class TestFrameworkCfg(object):
                                           'hostname': 'localhost',
                                           'ab': 'ab',
                                           'wrk': 'wrk',
-                                          'siege': 'siege',
                                           'workdir': '/tmp/client'},
                                'Tempesta': {'ip': '127.0.0.1',
                                             'hostname': 'localhost',
