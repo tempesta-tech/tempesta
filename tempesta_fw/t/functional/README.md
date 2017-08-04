@@ -116,6 +116,8 @@ $ ./run_tests.py -h
 
 #### Client Section
 
+`ip` - IPv4/IPv6 address of the host in test network. Default is `127.0.0.1`.
+
 `workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
 host. R/W access is required, must be absolute path.
 
@@ -134,6 +136,9 @@ Options above are common for hosts `Server` and `Tempesta` and present in each
 section.
 
 `workdir` - Directory with TempestaFW sources. Must be absolute path.
+
+`config` - workdir-relative path to the temporary TempestaFW config that will
+be created during testing.
 
 #### Server Section
 
