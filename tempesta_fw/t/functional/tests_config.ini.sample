@@ -50,12 +50,6 @@ ab = ab
 #
 wrk = wrk
 
-# Siege benchmark utility.
-#
-# ex.: siege = /usr/bin/siege (default siege)
-#
-siege = /usr/bin/siege
-
 
 [Tempesta]
 # Configuration for the host running TempesaFW. Host may be remote or local

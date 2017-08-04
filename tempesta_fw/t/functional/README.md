@@ -49,7 +49,7 @@ a lot of resources.
 ```
 
 There is two different models of tests: workload tests and pure functional
-tests. Workload tests uses fully functional HTTP benchmark programs (ab, siege,
+tests. Workload tests uses fully functional HTTP benchmark programs (ab,
 wrk) and HTTP servers (Apache, nginx) to check TempestaFW behaviour. This type
 of tests is used for schedulers, stress and performance testing.
 
@@ -61,7 +61,7 @@ forwarded to server, and vice versa, which server connections are used.
 ## Requirements
 
 - Host for testing framework: `Python2`, `python2-paramiko`,
-`python-configparser`, `python-subprocess32`, `wrk`, `ab`, `siege`
+`python-configparser`, `python-subprocess32`, `wrk`, `ab`
 - All hosts except previous one: `sftp-server`
 - Host for running TempestaFW: Linux kernel with Tempesta, TempestaFW sources
 - Host for running server: `nginx`, web content directory accessible by nginx
@@ -70,10 +70,6 @@ forwarded to server, and vice versa, which server connections are used.
 
 `ab` is Apache benchmark tool, that can be found in `apache2-utils` package in
 Debian or `httpd-tools` in CentOS.
-
-`siege` is an HTTP benchmarking tool, available in `siege` package in Debian
-and `siege` in [EPEL repository](https://dl.fedoraproject.org/pub/epel/7/x86_64/s/siege-4.0.2-2.el7.x86_64.rpm)
-in CentOS.
 
 Unfortunately, CentOS does not have `python-subprocess32` package, but it can be
 downloaded from [CentOS CBS](https://cbs.centos.org/koji/buildinfo?buildID=10904)
@@ -123,7 +119,7 @@ $ ./run_tests.py -h
 `workdir` - directory to place temporary files (configs, pidfiles, etc.) on the
 host. R/W access is required, must be absolute path.
 
-`ab`, `siege` and `wrk` - path to corresponding binaries. The binaries must
+`ab`, `wrk` - path to corresponding binaries. The binaries must
 be located in PATH or absolute pathes must be provided.
 
 #### Tempesta Section

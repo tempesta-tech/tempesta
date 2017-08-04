@@ -5,7 +5,7 @@ import abc
 import re
 import os
 import multiprocessing.dummy as multiprocessing
-from . import tf_cfg, remote, error, nginx, tempesta, siege
+from . import tf_cfg, remote, error, nginx, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -174,39 +174,6 @@ class Ab(Client):
         return True
 
 
-class Siege(Client):
-    """ HTTP regression test and benchmark utility. """
-
-    def __init__(self, uri='/'):
-        Client.__init__(self, 'siege', uri=uri)
-        self.rc = siege.Config()
-        self.copy_rc = True
-
-    def form_command(self):
-        # Benchmark: no delays between requests.
-        self.options.append('-b')
-        self.options.append('-t %dS' % self.duration)
-        self.options.append('-c %d' % self.connections)
-        # Add RC file.
-        if self.copy_rc:
-            self.add_option_file('-R', self.rc.filename, self.rc.get_config())
-        else:
-            self.options.append('-R %s' % os.path.join(self.workdir, self.rc.filename))
-        return Client.form_command(self)
-
-    def parse_out(self, stdout, stderr):
-        """ Siege prints results to stderr. """
-        m = re.search(r'Successful transactions:\s+(\d+)', stderr)
-        if m:
-            self.requests = int(m.group(1))
-        m = re.search(r'Failed transactions:\s+(\d+)', stderr)
-        if m:
-            self.errors = int(m.group(1))
-        return True
-
-    def set_user_agent(self, ua):
-        self.options.append('-A \'%s\'' % ua)
-
 #-------------------------------------------------------------------------------
 # Client helpers
 #-------------------------------------------------------------------------------
@@ -238,11 +205,6 @@ def clients_run_parallel(clients):
                    (len(clients), remote.client.host)))
     if not clients:
         return True
-    # In most cases all Siege instances use the same config file. no need to
-    # copy in many times.
-    if isinstance(clients[0], Siege):
-        for i in range(1, len(clients)):
-            clients[i].copy_rc = False
 
     pool = multiprocessing.Pool(len(clients))
     results = pool.map(__clients_prepare, clients)
