@@ -34,6 +34,17 @@ concurrent_connections = 10
 
 [Client]
 # Configuration for HTTP clients.
+# IPv4/IPv6 address of this host, as reachable from the host running TempestaFW.
+#
+# ex.: ip = 192.168.11.6 (default 127.0.0.1)
+#
+ip = 127.0.0.1
+
+# Absolute path to the working (temporary) directory on this host.
+#
+# ex.: workdir = /home/user/client (default /tmp/client)
+#
+workdir = /tmp/client
 
 # Binaries of utilities used for testing. Must be present in PATH or
 # absolute paths must be given.
@@ -118,7 +129,13 @@ hostname = localhost
 #
 nginx = nginx
 
-# Absolute path to sample HTTP root location. Must be reachable by nginx.
+# Absolute path to the working (temporary) directory on the server host.
+#
+# ex.: workdir = /home/user/nginx (default /tmp/nginx)
+#
+workdir = /tmp/nginx
+
+# Absolute path to the sample web site root location. Must be reachable by nginx.
 #
 # ex.: resources = /usr/share/nginx/http/ (default /var/www/html/)
 #
