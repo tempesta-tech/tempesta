@@ -140,26 +140,6 @@ typedef struct {
 
 static CaNode c_nodes[MAX_NUMNODES];
 
-static const TfwCfgEnum cache_http_methods_enum[] = {
-	{ "copy",	TFW_HTTP_METH_COPY },
-	{ "delete",	TFW_HTTP_METH_DELETE },
-	{ "get",	TFW_HTTP_METH_GET },
-	{ "head",	TFW_HTTP_METH_HEAD },
-	{ "lock",	TFW_HTTP_METH_LOCK },
-	{ "mkcol",	TFW_HTTP_METH_MKCOL },
-	{ "move",	TFW_HTTP_METH_MOVE },
-	{ "options",	TFW_HTTP_METH_OPTIONS },
-	{ "patch",	TFW_HTTP_METH_PATCH },
-	{ "post",	TFW_HTTP_METH_POST },
-	{ "propfind",	TFW_HTTP_METH_PROPFIND },
-	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
-	{ "put",	TFW_HTTP_METH_PUT },
-	{ "trace",	TFW_HTTP_METH_TRACE },
-	{ "unlock",	TFW_HTTP_METH_UNLOCK },
-	/* Unknown methods can't be cached. */
-	{}
-};
-
 /*
  * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
  * on restarts, so comment to logic out.
@@ -438,7 +418,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
 
-	if (ce->method != req->method)
+	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
 		return false;
 	if (req->uri_path.len
 	    + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len != ce->key_len)
@@ -937,27 +917,24 @@ out:
 static int
 tfw_cache_purge_invalidate(TfwHttpReq *req)
 {
-	unsigned char orig_meth = req->method;
-	int i;
-	bool hit = false;
+	TdbIter iter;
+	TDB *db = node_db();
+	TfwCacheEntry *ce = NULL;
 
-	/* Remove all cached responses. */
-	for (i = 0; cache_http_methods_enum[i].name; ++i) {
-		TdbIter iter;
-		TDB *db = node_db();
-		TfwCacheEntry *ce = NULL;
+	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
+		return -ENOENT;
+	ce->lifetime = 0;
 
-		req->method = cache_http_methods_enum[i].value;
+	do {
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+		if (ce && tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
+	} while (ce);
 
-		if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
-			continue;
-		ce->lifetime = 0;
-		tfw_cache_dbce_put(ce);
-		hit = true;
-	}
-	req->method = orig_meth;
+	tfw_cache_dbce_put(ce);
 
-	return hit ? 0 : -ENOENT;
+	return 0;
 }
 
 /**
@@ -1428,6 +1405,26 @@ tfw_cache_stop(void)
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
 }
+
+static const TfwCfgEnum cache_http_methods_enum[] = {
+	{ "copy",	TFW_HTTP_METH_COPY },
+	{ "delete",	TFW_HTTP_METH_DELETE },
+	{ "get",	TFW_HTTP_METH_GET },
+	{ "head",	TFW_HTTP_METH_HEAD },
+	{ "lock",	TFW_HTTP_METH_LOCK },
+	{ "mkcol",	TFW_HTTP_METH_MKCOL },
+	{ "move",	TFW_HTTP_METH_MOVE },
+	{ "options",	TFW_HTTP_METH_OPTIONS },
+	{ "patch",	TFW_HTTP_METH_PATCH },
+	{ "post",	TFW_HTTP_METH_POST },
+	{ "propfind",	TFW_HTTP_METH_PROPFIND },
+	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "put",	TFW_HTTP_METH_PUT },
+	{ "trace",	TFW_HTTP_METH_TRACE },
+	{ "unlock",	TFW_HTTP_METH_UNLOCK },
+	/* Unknown methods can't be cached. */
+	{}
+};
 
 static int
 tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
