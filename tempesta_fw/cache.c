@@ -140,6 +140,26 @@ typedef struct {
 
 static CaNode c_nodes[MAX_NUMNODES];
 
+static const TfwCfgEnum cache_http_methods_enum[] = {
+	{ "copy",	TFW_HTTP_METH_COPY },
+	{ "delete",	TFW_HTTP_METH_DELETE },
+	{ "get",	TFW_HTTP_METH_GET },
+	{ "head",	TFW_HTTP_METH_HEAD },
+	{ "lock",	TFW_HTTP_METH_LOCK },
+	{ "mkcol",	TFW_HTTP_METH_MKCOL },
+	{ "move",	TFW_HTTP_METH_MOVE },
+	{ "options",	TFW_HTTP_METH_OPTIONS },
+	{ "patch",	TFW_HTTP_METH_PATCH },
+	{ "post",	TFW_HTTP_METH_POST },
+	{ "propfind",	TFW_HTTP_METH_PROPFIND },
+	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "put",	TFW_HTTP_METH_PUT },
+	{ "trace",	TFW_HTTP_METH_TRACE },
+	{ "unlock",	TFW_HTTP_METH_UNLOCK },
+	/* Unknown methods can't be cached. */
+	{}
+};
+
 /*
  * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
  * on restarts, so comment to logic out.
@@ -797,7 +817,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
-		" key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)",
+		" key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)\n",
 		resp->content_length, resp->msg.len, ce, ce->trec.len,
 		ce->key_len, ce->status_len, ce->hdr_num, ce->hdr_len,
 		ce->key, ce->status, ce->hdrs, ce->body);
@@ -917,15 +937,27 @@ out:
 static int
 tfw_cache_purge_invalidate(TfwHttpReq *req)
 {
-	TdbIter iter;
-	TDB *db = node_db();
-	TfwCacheEntry *ce = NULL;
+	unsigned char orig_meth = req->method;
+	int i;
+	bool hit = false;
 
-	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
-		return -ENOENT;
-	ce->lifetime = 0;
-	tfw_cache_dbce_put(ce);
-	return 0;
+	/* Remove all cached responses. */
+	for (i = 0; cache_http_methods_enum[i].name; ++i) {
+		TdbIter iter;
+		TDB *db = node_db();
+		TfwCacheEntry *ce = NULL;
+
+		req->method = cache_http_methods_enum[i].value;
+
+		if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
+			continue;
+		ce->lifetime = 0;
+		tfw_cache_dbce_put(ce);
+		hit = true;
+	}
+	req->method = orig_meth;
+
+	return hit ? 0 : -ENOENT;
 }
 
 /**
@@ -1396,26 +1428,6 @@ tfw_cache_stop(void)
 	for_each_node_with_cpus(i)
 		tdb_close(c_nodes[i].db);
 }
-
-static const TfwCfgEnum cache_http_methods_enum[] = {
-	{ "copy",	TFW_HTTP_METH_COPY },
-	{ "delete",	TFW_HTTP_METH_DELETE },
-	{ "get",	TFW_HTTP_METH_GET },
-	{ "head",	TFW_HTTP_METH_HEAD },
-	{ "lock",	TFW_HTTP_METH_LOCK },
-	{ "mkcol",	TFW_HTTP_METH_MKCOL },
-	{ "move",	TFW_HTTP_METH_MOVE },
-	{ "options",	TFW_HTTP_METH_OPTIONS },
-	{ "patch",	TFW_HTTP_METH_PATCH },
-	{ "post",	TFW_HTTP_METH_POST },
-	{ "propfind",	TFW_HTTP_METH_PROPFIND },
-	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
-	{ "put",	TFW_HTTP_METH_PUT },
-	{ "trace",	TFW_HTTP_METH_TRACE },
-	{ "unlock",	TFW_HTTP_METH_UNLOCK },
-	/* Unknown methods can't be cached. */
-	{}
-};
 
 static int
 tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
