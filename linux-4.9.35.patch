@@ -1,15 +1,16 @@
 diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
-index 86a6746..b13d049 100644
+index 86a6746..fcd8903 100644
 --- a/Documentation/kernel-parameters.txt
 +++ b/Documentation/kernel-parameters.txt
-@@ -4051,6 +4051,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
+@@ -4051,6 +4051,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
  
  	tdfx=		[HW,DRM]
  
 +	tempesta_dbmem=	[KNL]
 +			Order of 2MB memory blocks reserved on each NUMA node
 +			for Tempesta database. Huge pages are used if
-+			possible.
++			possible. Minimum value to start Tempesta is 4 (32MB).
++			Default is 8, i.e. 512MB is reserved.
 +
  	test_suspend=	[SUSPEND][,N]
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
@@ -476,7 +477,7 @@ index 295bd7a..20c191e 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 0000000..a131d48
+index 0000000..8c976f0
 --- /dev/null
 +++ b/mm/tempesta_mm.c
 @@ -0,0 +1,278 @@
@@ -508,7 +509,7 @@ index 0000000..a131d48
 +#include "internal.h"
 +
 +#define MAX_PGORDER		16	/* 128GB per one table */
-+#define MIN_PGORDER		0	/* 2MB - one extent */
++#define MIN_PGORDER		4	/* 32MB */
 +#define DEFAULT_PGORDER		8	/* 512MB */
 +/* Modern processors support up to 1.5TB of RAM, be ready for 2TB. */
 +#define GREEDY_ARNUM		(1024 * 1024 + 1)
@@ -836,7 +837,7 @@ index 5d26056..ee02253 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1..d5b7bcf 100644
+index fe008f1..6d564e1 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -990,9 +991,9 @@ index fe008f1..d5b7bcf 100644
 +	/*
 +	 * Don't try to split compound page.
 +	 * TODO compound pages can be split as __alloc_page_frag() does it
-+	 * using fragment size in page reference counter. However, it seems
-+	 * the workflow is quite rare, in fact we've never seen large @size
-+	 * in calls of the function.
++	 * using fragment size in page reference counter. Large messages
++	 * (e.g. large HTML pages returned by a backend server) go this way
++	 * and allocate compound pages.
 +	 */
 +	if (po)
 +		return ptr;
