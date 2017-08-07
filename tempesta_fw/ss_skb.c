@@ -1134,4 +1134,42 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 
 	return 0;
 }
-EXPORT_SYMBOL(ss_skb_unroll);
+
+/**
+ * The routine helps you to dump content of any skb.
+ * It's supposed to be used for debugging purpose, so non-limited printing
+ * is used.
+ * BEWARE: dont' call it too frequetly.
+ */
+void
+ss_skb_dump(struct sk_buff *skb)
+{
+	int i;
+	struct sk_buff *f_skb;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	TFW_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
+		   skb, skb->len, skb->data_len, skb->truesize,
+		   atomic_read(&skb->users));
+	TFW_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
+		   skb->head, skb->data, skb->tail, skb->end);
+	TFW_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",
+		   si->nr_frags, skb_shinfo(skb)->frag_list,
+		   skb->next, skb->prev);
+	TFW_LOG_NL("  head data (%u):\n", skb_headlen(skb));
+	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
+		       skb->data, skb_headlen(skb), true);
+
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *f = &si->frags[i];
+		TFW_LOG_NL("  frag %d (addr=%p pg_off=%u size=%u pg_ref=%d):\n",
+			   i, skb_frag_address(f), f->page_offset,
+			   skb_frag_size(f), page_ref_count(skb_frag_page(f)));
+		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
+			       skb_frag_address(f), skb_frag_size(f), true);
+	}
+
+	skb_walk_frags(skb, f_skb)
+		ss_skb_dump(f_skb);
+}
+EXPORT_SYMBOL(ss_skb_dump);
