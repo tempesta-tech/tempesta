@@ -1135,3 +1135,189 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 	return 0;
 }
 EXPORT_SYMBOL(ss_skb_unroll);
+
+/*
+ * Dump the contents of the specified chunk of data. This is data
+ * either for the linear part of an SKB, or from one of the paged
+ * fragments.
+ */
+int
+ss_skb_dump_data(void *obj, unsigned char *data, size_t len)
+{
+	size_t this_len = len;
+	size_t offset = 0;
+	char *tag = obj ? (char *)obj : "";
+
+	printk(KERN_INFO "+++++++++++++++++++++++++++++++++++++++\n");
+
+	while (this_len) {
+		int plen = min_t(int, this_len, 80);
+		printk(KERN_INFO "[%d]: %s: [(%p) (%03d)] '%.*s'\n",
+				 smp_processor_id(), tag,
+				 data + offset, plen, plen, data + offset);
+		printk(KERN_INFO "- - - - - - - - - - - - - - - - - - - -\n");
+		print_hex_dump(KERN_INFO, "DUMP: ",
+					  DUMP_PREFIX_ADDRESS, 16, 1,
+					  data + offset, plen, true);
+		offset += plen;
+		this_len -= plen;
+	}
+
+	return SS_POSTPONE;
+}
+EXPORT_SYMBOL(ss_skb_dump_data);
+
+/*
+ * Don't dump the contents of the specified chunk of data.
+ */
+int
+ss_skb_dont_dump_data(void *obj, unsigned char *data, size_t len)
+{
+	return SS_POSTPONE;
+}
+EXPORT_SYMBOL(ss_skb_dont_dump_data);
+
+/*
+ * Dump the information on specified SKB, possibly with the contents.
+ *
+ * The function prints every interesting piece of info on an SKB
+ * which is very helpful when debugging various SKB-related issues.
+ *
+ * Furthermore, ss_skb_dump_data() can be used as an actor function
+ * to dump full contents of an SKB. ss_skb_dont_dump_data() can be
+ * used as an actor function when full data dump is not needed.
+ *
+ * @tag is prepended to each printed line. It's intended to indicate
+ * the source - where SKB dumping is called.
+ *
+ * Note: info on different SKBs may be printed concurrently from
+ * different threads. That's why some info is printed as a single
+ * very long line that is wrapped on the screen. Each printed line
+ * is prepended with CPU id to differentiate between threads.
+ *
+ * Note: the function does pretty heavy printing which introduces
+ * additional run-time overhead and changes various timings.
+ * Please use with caution.
+ */
+void
+ss_skb_dump(struct sk_buff *skb, ss_skb_actor_t actor, const char *tag)
+{
+	unsigned int i;
+	unsigned int off = 0;
+
+	printk(KERN_INFO "[%d]: %s: skb=[%p] "
+			 "len=[%u] data_len=[%u] truesize=[%u] users=[%u] "
+			 "head=[%p] data=[%p] data offset=[%ld] "
+			 "tail offset=[%ld] end offset=[%ld] "
+			 "nr_frags=[%u] frag_list=[%p] "
+			 "ss_prev=[%p] ss_next=[%p]\n",
+			 smp_processor_id(), tag, skb,
+			 skb->len, skb->data_len, skb->truesize,
+			 atomic_read(&skb->users), skb->head, skb->data,
+			 (long)(skb->data - skb->head),
+			 (long)(skb_tail_pointer(skb) - skb->head),
+			 (long)(skb_end_pointer(skb) - skb->head),
+			 skb_shinfo(skb)->nr_frags,
+			 skb_shinfo(skb)->frag_list,
+			 TFW_SKB_CB(skb)->prev, TFW_SKB_CB(skb)->next);
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+		printk(KERN_INFO "[%d]: %s: [%02u]: "
+				 "refcnt=[%d], page_offset=[%u], "
+				 "frag_size=[%u] address=[%p]\n",
+				 smp_processor_id(), tag, i,
+				 atomic_read(&(frag->page.p->_refcount)),
+				 frag->page_offset, skb_frag_size(frag),
+				 skb_frag_address(frag));
+	}
+
+	ss_skb_process(skb, &off, actor, (void *)tag);
+}
+EXPORT_SYMBOL(ss_skb_dump);
+
+/*
+ * Check various aspects of an SKB for consistency. Report an error
+ * and dump the stack trace if an inconsistency is found.
+ */
+int
+ss_skb_validate(struct sk_buff *skb, const char *tag)
+{
+	if (skb->tail > skb->end) {
+		printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+				 "tail offset=[%ld] > end offset=[%ld]\n",
+				 smp_processor_id(), tag, skb,
+				 (long)(skb_tail_pointer(skb) - skb->head),
+				 (long)(skb_end_pointer(skb) - skb->head));
+		goto error;
+	}
+
+	if (skb->data < skb->head) {
+		printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+				 "data=[%p] < head=[%p]\n",
+				 smp_processor_id(), tag, skb,
+				 skb->data, skb->head);
+		goto error;
+	}
+
+	if ((skb_tail_pointer(skb) - skb->data) != skb_headlen(skb)) {
+		printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+				 "(tail offset=[%ld] - data offset=[%ld]) != "
+				 "skb_headlen=[%u]\n",
+				 smp_processor_id(), tag, skb,
+				 (long)(skb_tail_pointer(skb) - skb->head),
+				 (long)(skb->data - skb->head),
+				 skb_headlen(skb));
+		goto error;
+	}
+
+	if (skb->len < skb->data_len) {
+		printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+				 "len=[%u] < data_len=[%u]\n",
+				 smp_processor_id(), tag, skb,
+				 skb->len, skb->data_len);
+		goto error;
+	}
+
+	if (skb->data_len) {
+		struct sk_buff *iter;
+		unsigned int i, zero_frags = 0;
+		unsigned int fragdata_len = 0, fraglist_len = 0;
+
+		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+			skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
+			fragdata_len += skb_frag_size(frag);
+			zero_frags += !skb_frag_size(frag);
+		}
+		skb_walk_frags(skb, iter)
+			fraglist_len += iter->len;
+
+		if ((fragdata_len + fraglist_len) != skb->data_len) {
+			printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+					 "Invalid data_len: data_len=[%u] "
+					 "fragdata_len=[%u] "
+					 "fraglist_len=[%u]\n",
+					 smp_processor_id(), tag, skb,
+					 skb->data_len, fragdata_len,
+					 fraglist_len);
+			goto error;
+		}
+
+		if (zero_frags) {
+			printk(KERN_INFO "[%d]: %s: skb=[%p]: "
+					 "skb has [%u] frags of zero size\n",
+					 smp_processor_id(), tag, skb,
+					 zero_frags);
+			goto error;
+		}
+	}
+
+	return 0;
+
+error:
+	ss_skb_dump(skb, ss_skb_dump_data, tag);
+	dump_stack();
+
+	return 1;
+}
+EXPORT_SYMBOL(ss_skb_validate);

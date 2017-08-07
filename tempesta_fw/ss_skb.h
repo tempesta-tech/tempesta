@@ -216,4 +216,9 @@ int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 
 int ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb);
 
+void ss_skb_dump(struct sk_buff *skb, ss_skb_actor_t actor, const char *tag);
+int ss_skb_dump_data(void *obj, unsigned char *data, size_t len);
+int ss_skb_dont_dump_data(void *obj, unsigned char *data, size_t len);
+int ss_skb_validate(struct sk_buff *skb, const char *tag);
+
 #endif /* __TFW_SS_SKB_H__ */
