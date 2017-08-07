@@ -715,8 +715,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	/* See if the split starts in the linear data. */
 	d_size = skb_headlen(skb);
 	offset = pspt - (char *)skb->data;
-
-	if ((offset >= 0) && (offset < d_size)) {
+	if (offset >= 0 && offset < d_size) {
 		int t_size = d_size - offset;
 		len = max(len, -t_size);
 		ret = __split_linear_data(skb, pspt, len, it);
@@ -745,10 +744,16 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
-		if ((offset >= 0) && (offset <= d_size)) {
+		if (offset >= 0 && offset <= d_size) {
 			int t_size = d_size - offset;
-			if (unlikely(!t_size))
+			if (!t_size && len > 0) {
+				/*
+				 * @pspt is at the end of the frag (zero tail
+				 * length): append if @len > 0 or move to the
+				 * next frag for deletion.
+				 */
 				goto append;
+			}
 			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
