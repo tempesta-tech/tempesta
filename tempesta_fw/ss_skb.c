@@ -746,13 +746,15 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 
 		if (offset >= 0 && offset <= d_size) {
 			int t_size = d_size - offset;
-			if (!t_size && len > 0) {
+			if (!t_size) {
 				/*
 				 * @pspt is at the end of the frag (zero tail
 				 * length): append if @len > 0 or move to the
 				 * next frag for deletion.
 				 */
-				goto append;
+				if (len > 0)
+					goto append;
+				continue;
 			}
 			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
@@ -764,7 +766,6 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	return -ENOENT;
 
 append:
-	BUG_ON(len < 0);
 	/* Add new frag in case of splitting after the last chunk */
 	ret = __new_pgfrag(skb, len, i + 1, 1);
 	__it_next_data(skb, i + 1, it);
