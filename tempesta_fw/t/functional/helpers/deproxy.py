@@ -595,7 +595,7 @@ class Server(asyncore.dispatcher):
 #-------------------------------------------------------------------------------
 # Message Chain
 #-------------------------------------------------------------------------------
-TEST_CHAIN_TIMEOUT = 1.0
+TEST_CHAIN_TIMEOUT = 5
 
 class MessageChain(object):
 
