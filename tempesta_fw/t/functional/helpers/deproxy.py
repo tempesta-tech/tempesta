@@ -135,9 +135,15 @@ class HeaderCollection(object):
             headers.add(name, value)
         return headers
 
+    def _as_dict_lower(self):
+        ret = {}
+        for hed, val in self.items():
+            ret.setdefault(hed.lower(), []).append(val)
+        return ret
+
     def __eq__(self, other):
-        h_self = set([(hed.lower(), val) for hed, val in self.items()])
-        h_other = set([(hed.lower(), val) for hed, val in other.items()])
+        h_self = self._as_dict_lower()
+        h_other = other._as_dict_lower()
         return h_self == h_other
 
     def __ne__(self, other):
