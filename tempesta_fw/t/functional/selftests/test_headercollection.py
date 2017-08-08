@@ -101,12 +101,21 @@ class TestHeaderCollection(unittest.TestCase):
 
         reorderd = deproxy.HeaderCollection()
         reorderd.add('C', 'zxcv')
+        reorderd.add('A', 'qwerty')
         reorderd.add('A', 'uiop')
         reorderd.add('A', 'jkl;')
-        reorderd.add('A', 'qwerty')
         reorderd.add('B', 'asdf')
         self.assertTrue(self.headers == reorderd)
         self.assertFalse(self.headers != reorderd)
+
+        same_keys_reorderd = deproxy.HeaderCollection()
+        same_keys_reorderd.add('C', 'zxcv')
+        same_keys_reorderd.add('A', 'uiop')
+        same_keys_reorderd.add('A', 'jkl;')
+        same_keys_reorderd.add('A', 'qwerty')
+        same_keys_reorderd.add('B', 'asdf')
+        self.assertTrue(self.headers != same_keys_reorderd)
+        self.assertFalse(self.headers == same_keys_reorderd)
 
         other = deproxy.HeaderCollection()
         other.add('C', 'zxcv')
@@ -124,9 +133,9 @@ class TestHeaderCollection(unittest.TestCase):
 
         lowed = deproxy.HeaderCollection()
         lowed.add('c', 'zxcv')
+        lowed.add('a', 'qwerty')
         lowed.add('a', 'uiop')
         lowed.add('A', 'jkl;')
-        lowed.add('a', 'qwerty')
         lowed.add('b', 'asdf')
         self.assertTrue(self.headers == lowed)
         self.assertFalse(self.headers != lowed)
