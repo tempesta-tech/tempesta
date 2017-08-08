@@ -3,6 +3,8 @@ from __future__ import print_function
 import unittest
 import getopt
 import sys
+import os
+import resource
 
 # Disable configuration check for now and call it explicitly later
 from helpers.tf_cfg import skip_check
@@ -79,6 +81,10 @@ print("""
 Running functional tests...
 ----------------------------------------------------------------------
 """)
+
+# the default value of fs.nr_open
+nofile = 1048576
+resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
 
 remote.connect()
 
