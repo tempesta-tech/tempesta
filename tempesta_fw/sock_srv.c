@@ -945,7 +945,8 @@ tfw_cfgop_setup_srv_group(void)
 	BUG_ON(!tfw_cfg_sg);
 	BUG_ON(!tfw_cfg_sched);
 
-	tfw_cfg_sg->max_qsize = tfw_cfg_queue_size ? : UINT_MAX;
+	/* Limit maximum value to prevent race in tfw_srv_conn_queue_full(). */
+	tfw_cfg_sg->max_qsize = tfw_cfg_queue_size ? : INT_MAX;
 	tfw_cfg_sg->max_jqage = tfw_cfg_fwd_timeout
 			      ? msecs_to_jiffies(tfw_cfg_fwd_timeout * 1000)
 			      : ULONG_MAX;
