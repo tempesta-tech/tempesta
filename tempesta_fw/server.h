@@ -160,6 +160,13 @@ void tfw_server_destroy(TfwServer *srv);
 
 void tfw_srv_conn_release(TfwSrvConn *srv_conn);
 
+/*
+ * TODO: The function is racy: we can push into @srv_conn more requests than
+ * allowed for the server group if @srv_conn is on hold due to non-idempotent
+ * request forwarding. srv_conn->qsize is incremented during push, so values
+ * close to UINT_MAX can be vulnerable to integer overflow.
+ *
+ */
 static inline bool
 tfw_srv_conn_queue_full(TfwSrvConn *srv_conn)
 {
