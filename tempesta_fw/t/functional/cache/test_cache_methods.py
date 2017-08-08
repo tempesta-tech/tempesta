@@ -96,6 +96,33 @@ class TestCacheMethodsNC(TestCacheMethods):
     allow_method_caching = False
 
 
+class TestMultipleMethods(functional.FunctionalTest):
+    """TempestaFW must return cached responses to exactly matching request
+    methods only. I.e. if we receive HEAD requests, we must not return response
+    cached for GET method.
+    RFC 7234:
+        The primary cache key consists of the request method and target URI.
+    """
+
+    config = ('cache 2;\n'
+              'cache_fulfill * *;\n'
+              'cache_methods GET HEAD;\n')
+
+    def chains(self):
+        uri = '/page.html'
+        chains = [# Populate Cache
+                  proxy_chain(method='GET', uri=uri),
+                  proxy_chain(method='HEAD', uri=uri),
+                  # Serve from cache
+                  cache_chain(method='GET', uri=uri),
+                  cache_chain(method='HEAD', uri=uri),
+                  ]
+        return chains
+
+    def test_purge(self):
+        self.generic_test_routine(self.config, self.chains())
+
+
 def remove_body(response):
     response.body = ''
     response.body_void = True

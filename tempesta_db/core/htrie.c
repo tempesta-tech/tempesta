@@ -869,6 +869,12 @@ next_bckt:
 		if (*b) {
 			read_lock_bh(&(*b)->lock);
 			r = TDB_HTRIE_BCKT_1ST_REC(*b);
+
+			if (r && tdb_live_rec(dbh, r) && r->key == key) {
+				read_unlock_bh(&_b->lock);
+				/* Unlock the bucket by tdb_rec_put(). */
+				return r;
+			}
 		}
 		read_unlock_bh(&_b->lock);
 		_b = *b;

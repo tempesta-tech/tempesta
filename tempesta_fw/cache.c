@@ -418,7 +418,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
 
-	if (ce->method != req->method)
+	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
 		return false;
 	if (req->uri_path.len
 	    + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len != ce->key_len)
@@ -797,7 +797,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
-		" key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)",
+		" key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)\n",
 		resp->content_length, resp->msg.len, ce, ce->trec.len,
 		ce->key_len, ce->status_len, ce->hdr_num, ce->hdr_len,
 		ce->key, ce->status, ce->hdrs, ce->body);
@@ -924,7 +924,16 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 	if (!(ce = tfw_cache_dbce_get(db, &iter, req)))
 		return -ENOENT;
 	ce->lifetime = 0;
+
+	do {
+		tdb_rec_next(db, &iter);
+		ce = (TfwCacheEntry *)iter.rec;
+		if (ce && tfw_cache_entry_key_eq(db, req, ce))
+			ce->lifetime = 0;
+	} while (ce);
+
 	tfw_cache_dbce_put(ce);
+
 	return 0;
 }
 

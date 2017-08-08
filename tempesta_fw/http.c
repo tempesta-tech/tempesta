@@ -2583,7 +2583,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	if (req->hash)
 		return req->hash;
 
-	req->hash = tfw_hash_str(&req->uri_path) ^ req->method;
+	req->hash = tfw_hash_str(&req->uri_path);
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &host);
