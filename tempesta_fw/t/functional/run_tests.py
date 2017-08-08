@@ -63,6 +63,9 @@ for opt, arg in options:
         usage()
         sys.exit(0)
 
+if os.geteuid() != 0:
+    raise Exception("Tests must be run as root.")
+
 tf_cfg.cfg.check()
 
 # Verbose level for unit tests must be > 1.
