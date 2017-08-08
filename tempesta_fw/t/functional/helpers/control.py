@@ -309,7 +309,12 @@ class Nginx(object):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
         pid_file = os.path.join(self.workdir, self.config.pidfile_name)
         config_file = os.path.join(self.workdir, self.config.config_name)
-        cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
+        cmd = ' && '.join([
+            '[[ -e %s ]]' % pid_file,
+            'pid=$(cat %s)' % pid_file,
+            'kill -s TERM $pid',
+            'while [[ -e /proc/$pid ]]; do sleep 0.5; done'
+        ])
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('stop', self.get_name())))
         self.node.remove_file(config_file)
