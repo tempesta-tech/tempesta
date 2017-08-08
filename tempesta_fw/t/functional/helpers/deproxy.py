@@ -632,8 +632,8 @@ class Deproxy(object):
         self.current_chain = None
         # Current chain of recieved messages.
         self.recieved_chain = None
-        # Timeout to wait for test completion.
-        self.timeout = 1
+        # Default per-message-chain loop timeout.
+        self.timeout = TEST_CHAIN_TIMEOUT
         # Registered connections.
         self.srv_connections = []
         if register:
@@ -644,8 +644,13 @@ class Deproxy(object):
         for server in self.servers:
             server.set_tester(self)
 
-    def loop(self, timeout=TEST_CHAIN_TIMEOUT):
-        """Poll for socket events no more than `timeout` seconds."""
+    def loop(self, timeout=None):
+        """Poll for socket events no more than `self.timeout` or `timeout` seconds."""
+        if timeout is not None:
+            timeout = min(timeout, self.timeout)
+        else:
+            timeout = self.timeout
+
         try:
             eta = time.time() + timeout
             s_map = asyncore.socket_map
@@ -656,7 +661,7 @@ class Deproxy(object):
                 poll_fun = asyncore.poll
 
             while (eta > time.time()) and s_map:
-                poll_fun(min(self.timeout, timeout), s_map)
+                poll_fun(eta - time.time(), s_map)
         except asyncore.ExitNow:
             pass
 
