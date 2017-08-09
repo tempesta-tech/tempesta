@@ -5,7 +5,7 @@ import abc
 import re
 import os
 import multiprocessing.dummy as multiprocessing
-from . import tf_cfg, remote, error, nginx, tempesta, siege
+from . import tf_cfg, remote, error, nginx, tempesta
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -96,7 +96,7 @@ class Client(object):
         copied to remote node, present in command line as parameter and
         removed after client finish.
         """
-        full_name = ''.join([self.workdir, filename])
+        os.path.join(self.workdir, filename)
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
@@ -174,39 +174,6 @@ class Ab(Client):
         return True
 
 
-class Siege(Client):
-    """ HTTP regression test and benchmark utility. """
-
-    def __init__(self, uri='/'):
-        Client.__init__(self, 'siege', uri=uri)
-        self.rc = siege.Config()
-        self.copy_rc = True
-
-    def form_command(self):
-        # Benchmark: no delays between requests.
-        self.options.append('-b')
-        self.options.append('-t %dS' % self.duration)
-        self.options.append('-c %d' % self.connections)
-        # Add RC file.
-        if self.copy_rc:
-            self.add_option_file('-R', self.rc.filename, self.rc.get_config())
-        else:
-            self.options.append('-R %s%s' % (self.workdir, self.rc.filename))
-        return Client.form_command(self)
-
-    def parse_out(self, stdout, stderr):
-        """ Siege prints results to stderr. """
-        m = re.search(r'Successful transactions:\s+(\d+)', stderr)
-        if m:
-            self.requests = int(m.group(1))
-        m = re.search(r'Failed transactions:\s+(\d+)', stderr)
-        if m:
-            self.errors = int(m.group(1))
-        return True
-
-    def set_user_agent(self, ua):
-        self.options.append('-A \'%s\'' % ua)
-
 #-------------------------------------------------------------------------------
 # Client helpers
 #-------------------------------------------------------------------------------
@@ -238,11 +205,6 @@ def clients_run_parallel(clients):
                    (len(clients), remote.client.host)))
     if not clients:
         return True
-    # In most cases all Siege instances use the same config file. no need to
-    # copy in many times.
-    if isinstance(clients[0], Siege):
-        for i in range(1, len(clients)):
-            clients[i].copy_rc = False
 
     pool = multiprocessing.Pool(len(clients))
     results = pool.map(__clients_prepare, clients)
@@ -283,7 +245,7 @@ class Tempesta(object):
     def __init__(self):
         self.node = remote.tempesta
         self.workdir = self.node.workdir
-        self.config_name = 'tempesta_fw.conf'
+        self.config_name = os.path.join(self.workdir, tf_cfg.cfg.get('Tempesta', 'config'))
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
         self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
@@ -292,19 +254,17 @@ class Tempesta(object):
     def start(self):
         tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % self.host)
         self.stats.clear()
-        # Use relative path to work dir to get rid of extra mkdir command.
-        self.node.copy_file(''.join(['etc/', self.config_name]),
-                            self.config.get_config())
+        self.node.copy_file(self.config_name, self.config.get_config())
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
-        self.node.run_cmd(cmd, err_msg=(self.err_msg % 'start'))
+        env = { 'TFW_CFG_PATH': self.config_name }
+        self.node.run_cmd(cmd, timeout=30, env=env, err_msg=(self.err_msg % 'start'))
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
-        # Tempesta waits for active connections 5 secs before closing.
-        timeout = remote.DEFAULT_TIMEOUT + 5
-        self.node.run_cmd(cmd, timeout=timeout, err_msg=(self.err_msg % 'stop'))
+        self.node.run_cmd(cmd, timeout=30, err_msg=(self.err_msg % 'stop'))
+        self.node.remove_file(self.config_name)
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'
@@ -321,6 +281,7 @@ class Nginx(object):
     def __init__(self, listen_port, workers=1):
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
+        self.ip = tf_cfg.cfg.get('Server', 'ip')
         self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
         # Configure number of connections used by TempestaFW.
@@ -330,7 +291,7 @@ class Nginx(object):
         self.requests = 0
 
     def get_name(self):
-        return ':'.join([self.node.host, str(self.config.port)])
+        return ':'.join([self.ip, str(self.config.port)])
 
     def start(self):
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
@@ -339,15 +300,15 @@ class Nginx(object):
         self.node.copy_file(self.config.config_name, self.config.config)
         # Nginx forks on start, no background threads needed,
         # but it holds stderr open after demonisation.
-        config_file = ''.join([self.workdir, self.config.config_name])
+        config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = ' '.join([tf_cfg.cfg.get('Server', 'nginx'), '-c', config_file])
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('start', self.get_name())))
 
     def stop(self):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
-        pid_file = ''.join([self.workdir, self.config.pidfile_name])
-        config_file = ''.join([self.workdir, self.config.config_name])
+        pid_file = os.path.join(self.workdir, self.config.pidfile_name)
+        config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = '[ -f %s ] && kill -s TERM $(cat %s)' % (pid_file, pid_file)
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('stop', self.get_name())))

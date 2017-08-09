@@ -25,7 +25,7 @@ class OneClient(stress.StressTest):
             sg.options = 'sticky_sessions;'
 
     def create_clients(self):
-        self.wrk = control.Wrk()
+        self.wrk = control.Wrk(threads = 1)
         self.wrk.set_script("cookie-one-client")
         self.clients = [self.wrk]
 
@@ -34,21 +34,30 @@ class OneClient(stress.StressTest):
 
     def assert_servers(self):
         self.servers_get_stats()
-        # Wrk does not treat 302 responses as errors, but 302 response means
-        # that message was not forwarded to server.
-        expected_err = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
-        exp_min = self.wrk.requests -  expected_err - 1
-        exp_max = self.wrk.requests
+        # Negative allowance: this means some requests are not forwarded to the
+        # server. This happens because some (at least one per wrk thread,
+        # at most one per connection) requests are sent without a session cookie
+        # and replied 302 by Tempesta without any forwarding, which is still
+        # considered a "success" by wrk. So, [1; concurrent_connections]
+        # requests will not be received by the backend.
+        # This allowance is specific to the session stress tests.
+        exp_min = self.wrk.requests - self.wrk.connections
+        # Positive allowance: this means some responses are missed by the client.
+        # It is believed (nobody actually checked though...) that wrk does not
+        # wait for responses to last requests in each connection before closing
+        # it and does not account for those requests.
+        # So, [0; concurrent_connections] responses will be missed by the client.
+        exp_max = self.wrk.requests + self.wrk.connections - 1
         # Only one server must pull all the load.
         loaded = 0
         for s in self.servers:
             if s.requests:
                 loaded += 1
                 self.assertTrue(
-                    s.requests in range(exp_min, exp_max + 1),
+                    s.requests >= exp_min and s.requests <= exp_max,
                     msg=("Number of requests forwarded to server (%d) "
                          "doesn't match expected value: [%d, %d]"
-                         % (s.requests, exp_min, exp_max + 1))
+                         % (s.requests, exp_min, exp_max))
                     )
         self.assertEqual(loaded, 1)
 
