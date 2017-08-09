@@ -536,14 +536,14 @@ class Server(asyncore.dispatcher):
         self.keep_alive = keep_alive
         if host is None:
             host = 'Client'
-        self.addr_str = tf_cfg.cfg.get('Client', 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.addr_str, port))
+        self.ip = tf_cfg.cfg.get('Client', 'ip')
+        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.ip, port))
         self.setup()
 
     def setup(self):
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
-        self.bind((self.addr_str, self.port))
+        self.bind((self.ip, self.port))
         self.listen(socket.SOMAXCONN)
 
     def restart(self):
@@ -552,7 +552,7 @@ class Server(asyncore.dispatcher):
         self.setup()
 
     def stop(self):
-        tf_cfg.dbg(4, '\tDeproxy: Server: Stop on %s:%d.' % (self.addr_str,
+        tf_cfg.dbg(4, '\tDeproxy: Server: Stop on %s:%d.' % (self.ip,
                                                              self.port))
         self.close()
         connections = [conn for conn in self.connections]
@@ -580,7 +580,7 @@ class Server(asyncore.dispatcher):
 
     def handle_error(self):
         _, v, _ = sys.exc_info()
-        error.bug('\tDeproxy: Server %s:%d: %s' % (self.addr_str, self.port, v))
+        error.bug('\tDeproxy: Server %s:%d: %s' % (self.ip, self.port, v))
 
     def handle_close(self):
         self.stop()
