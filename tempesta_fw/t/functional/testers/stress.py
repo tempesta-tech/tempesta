@@ -24,9 +24,8 @@ class StressTest(unittest.TestCase):
     def configure_tempesta(self):
         """ Add all servers to default server group with default scheduler. """
         sg = tempesta.ServerGroup('default')
-        ip = tf_cfg.cfg.get('Server', 'ip')
         for s in self.servers:
-            sg.add_server(ip, s.config.port, s.conns_n)
+            sg.add_server(s.ip, s.config.port, s.conns_n)
         self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
@@ -86,35 +85,45 @@ class StressTest(unittest.TestCase):
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
+        cl_conn_cnt = 0
         for c in self.clients:
             req, err = c.results()
             cl_req_cnt += req
+            cl_conn_cnt += c.connections
             self.assertEqual(err, 0, msg='HTTP client detected errors')
-        # Clients counts only completed requests and closes connections before
-        # Tempesta can send responses. So Tempesta received requests count
-        # differ from request count shown by clients. Didn't find any way how to
-        # fix that.
-        # Just check that difference is less than concurrent connections count.
-        expected_diff = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
-        self.assertTrue((self.tempesta.stats.cl_msg_received - cl_req_cnt) <=
-                        expected_diff)
+        exp_min = cl_req_cnt
+        # Positive allowance: this means some responses are missed by the client.
+        # It is believed (nobody actually checked though...) that wrk does not
+        # wait for responses to last requests in each connection before closing
+        # it and does not account for those requests.
+        # So, [0; concurrent_connections] responses will be missed by the client.
+        exp_max = cl_req_cnt + cl_conn_cnt
+        self.assertTrue(
+            self.tempesta.stats.cl_msg_received >= exp_min and
+            self.tempesta.stats.cl_msg_received <= exp_max
+        )
 
     def assert_tempesta(self):
         """ Assert that tempesta had no errors during test. """
         msg = 'Tempesta have errors in processing HTTP %s.'
+        cl_conn_cnt = 0
+        for c in self.clients:
+            cl_conn_cnt += c.connections
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
                          msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
                          msg=(msg % 'responses'))
-        # See comment in `assert_clients()`
-        expected_err = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
+        # See comment on "positive allowance" in `assert_clients()`
+        expected_err = cl_conn_cnt
         self.assertTrue(self.tempesta.stats.cl_msg_other_errors <=
                         expected_err, msg=(msg % 'requests'))
-        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <=
-                        expected_err, msg=(msg % 'responses'))
+        self.assertEqual(self.tempesta.stats.srv_msg_other_errors, 0,
+                        msg=(msg % 'responses'))
 
     def assert_servers(self):
         # Nothing to do for nginx in default configuration.
+        # Implementers of this method should take into account the deficiency
+        # of wrk described above.
         pass
 
     def servers_get_stats(self):

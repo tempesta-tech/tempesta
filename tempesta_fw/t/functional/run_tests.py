@@ -3,12 +3,14 @@ from __future__ import print_function
 import unittest
 import getopt
 import sys
+import os
+import resource
 
 # Disable configuration check for now and call it explicitly later
 from helpers.tf_cfg import skip_check
 skip_check = True
 
-from helpers import tf_cfg
+from helpers import tf_cfg, remote
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -63,6 +65,9 @@ for opt, arg in options:
         usage()
         sys.exit(0)
 
+if os.geteuid() != 0:
+    raise Exception("Tests must be run as root.")
+
 tf_cfg.cfg.check()
 
 # Verbose level for unit tests must be > 1.
@@ -77,9 +82,19 @@ Running functional tests...
 ----------------------------------------------------------------------
 """)
 
+# the default value of fs.nr_open
+nofile = 1048576
+resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+
+remote.connect()
+
 #run tests
 loader = unittest.TestLoader()
-tests = loader.discover('.')
+if not remainder:
+    tests = loader.discover('.')
+else:
+    tests = loader.loadTestsFromNames(remainder)
+
 testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
                                             failfast=fail_fast,
                                             descriptions=False)

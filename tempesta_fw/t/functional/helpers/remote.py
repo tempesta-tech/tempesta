@@ -5,6 +5,7 @@ import re
 import os
 import abc
 import paramiko
+import errno
 import subprocess32 as subprocess
 from . import tf_cfg, error
 
@@ -30,7 +31,7 @@ class Node(object):
 
     @abc.abstractmethod
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
+                err_msg='', env={}):
         pass
 
     @abc.abstractmethod
@@ -38,7 +39,7 @@ class Node(object):
         pass
 
     @abc.abstractmethod
-    def copy_file(self, filename, content, path=None):
+    def copy_file(self, filename, content):
         pass
 
     @abc.abstractmethod
@@ -51,22 +52,26 @@ class LocalNode(Node):
         Node.__init__(self, type, hostname, workdir)
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
-        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
+                err_msg='', env={}):
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s with environment %s" % (cmd, self.host, env))
         stdout = ''
         stderr = ''
         stderr_pipe = (open(os.devnull, 'w') if ignore_stderr
                        else subprocess.PIPE)
+        # Popen() expects full environment
+        env_full = {}
+        env_full.update(os.environ)
+        env_full.update(env)
         with subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
-                              stderr=stderr_pipe) as p:
+                              stderr=stderr_pipe, env=env_full) as p:
             try:
                 stdout, stderr = p.communicate(timeout)
                 assert p.returncode == 0, "Return code is not 0."
             except Exception as e:
                 if not err_msg:
-                    err_msg = ("Error running command '%s' on %s: %s" %
-                               (cmd, self.host, e))
-                error.bug(err_msg)
+                    err_msg = ("Error running command '%s' on %s" %
+                               (cmd, self.host))
+                error.bug(err_msg, stdout=stdout, stderr=stderr)
         return stdout, stderr
 
     def mkdir(self, path):
@@ -76,13 +81,15 @@ class LocalNode(Node):
             if not os.path.isdir(path):
                 raise
 
-    def copy_file(self, filename, content, path=None):
-        # Create dir first.
-        if path is None:
-            path = self.workdir
-        else:
-            self.mkdir(path)
-        filename = ''.join([path, filename])
+    def copy_file(self, filename, content):
+        # workdir will be ignored if an absolute filename is passed
+        filename = os.path.join(self.workdir, filename)
+        dirname = os.path.dirname(filename)
+
+        # assume that workdir exists to avoid unnecessary actions
+        if dirname != self.workdir:
+            self.mkdir(dirname)
+
         with open(filename, 'w') as f:
             f.write(content)
 
@@ -113,17 +120,27 @@ class RemoteNode(Node):
             self.ssh.connect(hostname=self.host, username=self.user,
                              port=self.port, timeout=DEFAULT_TIMEOUT)
         except Exception as e:
-            error.bug("Error connecting %s: %s" % (self.host, e))
+            error.bug("Error connecting %s" % self.host)
 
     def close(self):
         """ Release SSH connection without waiting for GC. """
         self.ssh.close()
 
     def run_cmd(self, cmd, timeout=DEFAULT_TIMEOUT, ignore_stderr=False,
-                err_msg=''):
-        tf_cfg.dbg(4, "\tRun command '%s' on host %s" % (cmd, self.host))
+                err_msg='', env={}):
+        tf_cfg.dbg(4, "\tRun command '%s' on host %s with environment %s" %
+                      (cmd, self.host, env))
         stderr = ''
         stdout = ''
+        # we could simply pass environment to exec_command(), but openssh' default
+        # is to reject such environment variables, so pass them via env(1)
+        if len(env) > 0:
+            cmd = ' '.join([
+                'env',
+                ' '.join([ "%s='%s'" % (k, v) for k, v in env.items() ]),
+                cmd
+            ])
+            tf_cfg.dbg(4, "\tEffective command '%s' after injecting environment" % cmd)
         try:
             _, out_f, err_f = self.ssh.exec_command(cmd, timeout=timeout)
             stdout = out_f.read()
@@ -132,21 +149,23 @@ class RemoteNode(Node):
             assert out_f.channel.recv_exit_status() == 0, "Return code is not 0."
         except Exception as e:
             if not err_msg:
-                err_msg = ("Error running command '%s' on %s: %s" %
-                           (cmd, self.host, e))
-            error.bug(err_msg)
+                err_msg = ("Error running command '%s' on %s" %
+                           (cmd, self.host))
+            error.bug(err_msg, stdout=stdout, stderr=stderr)
         return stdout, stderr
 
     def mkdir(self, path):
         self.run_cmd('mkdir -p %s' % path)
 
-    def copy_file(self, filename, content, path=None):
-        # Create directory it is not default workdir.
-        if path is None:
-            path = self.workdir
-        else:
-            self.mkdir(path)
-        filename = ''.join([path, filename])
+    def copy_file(self, filename, content):
+        # workdir will be ignored if an absolute filename is passed
+        filename = os.path.join(self.workdir, filename)
+        dirname = os.path.dirname(filename)
+
+        # assume that workdir exists to avoid unnecessary actions
+        if dirname != self.workdir:
+            self.mkdir(dirname)
+
         try:
             sftp = self.ssh.open_sftp()
             sfile = sftp.file(filename, 'w', -1)
@@ -154,19 +173,23 @@ class RemoteNode(Node):
             sfile.flush()
             sftp.close()
         except Exception as e:
-            error.bug(("Error copying file %s to %s: %s" %
-                       (filename, self.host, e)))
+            error.bug(("Error copying file %s to %s" %
+                       (filename, self.host)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:
             return
         try:
             sftp = self.ssh.open_sftp()
-            sftp.unlink(filename)
+            try:
+                sftp.unlink(filename)
+            except IOError as e:
+                if e.errno != errno.ENOENT:
+                    raise
             sftp.close()
         except Exception as e:
-            error.bug(("Error removing file %s on %s: %s" %
-                       (filename, self.host, e)))
+            error.bug(("Error removing file %s on %s" %
+                       (filename, self.host)))
 
 
 
@@ -195,13 +218,22 @@ def get_max_thread_count(node):
 #-------------------------------------------------------------------------------
 # Global accessible SSH/Local connections
 #-------------------------------------------------------------------------------
-client = create_node('Client')
-tempesta = create_node('Tempesta')
-server = create_node('Server')
 
-# Create working directories on client and server nodes. Work directory on
-# Tempesta contains sources and must exist.
-for node in [client, server]:
-    node.mkdir(node.workdir)
+client = None
+tempesta = None
+server = None
+
+def connect():
+    global client
+    client = create_node('Client')
+
+    global tempesta
+    tempesta = create_node('Tempesta')
+
+    global server
+    server = create_node('Server')
+
+    for node in [client, server]:
+        node.mkdir(node.workdir)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

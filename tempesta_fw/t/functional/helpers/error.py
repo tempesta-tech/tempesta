@@ -1,4 +1,5 @@
 from __future__ import print_function
+import sys # for sys.exc_info
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -23,8 +24,17 @@ def assertTrue(expression, msg=''):
     if not expression:
         raise Error(msg)
 
-def bug(msg=''):
+def bug(msg='', stdout=None, stderr=None):
     """Raise test framework error."""
-    raise Error(msg)
+    exc_info = sys.exc_info()
+    if exc_info[1] is not None:
+        msg += " (%s: %s)" % (exc_info[0].__name__, exc_info[1])
+    if stdout is not None:
+        stdout = "\n\t" + "\n\t".join(stdout.splitlines()) + "\n"
+        msg += "\nstdout:%s" % stdout
+    if stderr is not None:
+        stderr = "\n\t" + "\n\t".join(stderr.splitlines()) + "\n"
+        msg += "\nstderr:%s" % stderr
+    raise Error(msg), None, exc_info[2]
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

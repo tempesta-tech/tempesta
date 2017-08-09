@@ -27,17 +27,16 @@ class CloseOnShutdown(stress.StressTest):
 
             self.assertEqual(
                 expected_conns, estab_conns,
-                msg=('Got unexpected count of established connections to server'
-                     ' %s! Expected %d but got %d!'
-                     % (server.get_name(), expected_conns, estab_conns)))
+                msg=('Got %d (expected %d) established connections to server %s'
+                     % (estab_conns, expected_conns, server.get_name())))
 
             if expext_failed is None:
                 continue
             failed_conns_exp = server.conns_n if expext_failed else 0
             self.assertEqual(
                 failed_conns, failed_conns_exp,
-                msg=('Got %d opened but not established connections '
-                     'to server %s' % (failed_conns, server.get_name())))
+                msg=('Got %d (expected %d) opened but not established connections to server %s'
+                     % (failed_conns, failed_conns_exp, server.get_name())))
 
     def check_before_start(self):
         tf_cfg.dbg(3, 'Check that there is no opened sockets to servers '
