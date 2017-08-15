@@ -9,9 +9,13 @@ __license__ = 'GPL2'
 class ParseRequest(unittest.TestCase):
 
     def setUp(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = True
         self.plain = deproxy.Request(PLAIN)
         self.reordered = deproxy.Request(REORDERED)
         self.duplicated = deproxy.Request(DUPLICATED)
+
+    def tearDown(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = False
 
     def test_equal(self):
         # Reordering of headers is allowed.
