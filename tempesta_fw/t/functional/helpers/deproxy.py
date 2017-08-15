@@ -6,6 +6,7 @@ import select
 import socket
 import sys
 import time
+import calendar # for calendar.timegm()
 from  BaseHTTPServer import BaseHTTPRequestHandler
 from . import error, tf_cfg, tempesta
 
@@ -34,12 +35,18 @@ class HeaderCollection(object):
 
     def __init__(self, mapping=None, **kwargs):
         self.headers = []
+        self.is_expected = False
+        self.expected_time_delta = None
         if mapping is not None:
             for k, v in mapping.iteritems():
                 self.add(k, v)
         if kwargs is not None:
             for k, v in kwargs.iteritems():
                 self.add(k, v)
+
+    def set_expected(self, expected_time_delta = 0):
+        self.is_expected = True
+        self.expected_time_delta = expected_time_delta
 
     def __contains__(self, item):
         item = item.lower()
@@ -141,9 +148,38 @@ class HeaderCollection(object):
             ret.setdefault(hed.lower(), []).append(val)
         return ret
 
+    def _has_good_date(self):
+        return len(self.headers.get('date', [])) == 1
+
+    _disable_report_wrong_is_expected = False
+
+    def _report_wrong_is_expected(self, other):
+            if not HeaderCollection._disable_report_wrong_is_expected:
+                error.bug("HeaderCollection: comparing is_expected=(%s, %s)\n" %
+                          (self.is_expected, other.is_expected))
+
     def __eq__(self, other):
         h_self = self._as_dict_lower()
         h_other = other._as_dict_lower()
+
+        if self.is_expected == other.is_expected:
+            self._report_wrong_is_expected(other)
+        else:
+            if self.is_expected:
+                h_expected, h_received = h_self, h_other
+            else:
+                h_expected, h_received = h_other, h_self
+
+            # Special-case "Date: " header if both headers have it and it looks OK
+            # (i. e. not duplicated):
+            if (len(h_expected.get('date', [])) == 1 and
+                len(h_received.get('date', [])) == 1):
+                ts_expected = HttpMessage.parse_date_time_string(h_expected.pop('date')[0])
+                ts_received = HttpMessage.parse_date_time_string(h_received.pop('date')[0])
+                if not (ts_received >= ts_expected and
+                        ts_received <= ts_expected + self.expected_time_delta):
+                    return False
+
         return h_self == h_other
 
     def __ne__(self, other):
@@ -262,19 +298,25 @@ class HttpMessage(object):
         message = '\r\n'.join([firstline, str(self)])
         self.parse_text(message)
 
+    def set_expected(self, *args, **kwargs):
+        for obj in [self.headers, self.trailer]:
+            obj.set_expected(*args, **kwargs)
+
     @staticmethod
     def date_time_string(timestamp=None):
         """Return the current date and time formatted for a message header."""
-        weekdayname = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        monthname = [None,
-                     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         if timestamp is None:
             timestamp = time.time()
-        year, month, day, hh, mm, ss, wd, _, _ = time.gmtime(timestamp)
-        s = "%s, %02d %3s %4d %02d:%02d:%02d GMT" % (
-            weekdayname[wd], day, monthname[month], year, hh, mm, ss)
+        struct_time = time.gmtime(timestamp)
+        s = time.strftime("%a, %02d %3b %4Y %02H:%02M:%02S GMT", struct_time)
         return s
+
+    @staticmethod
+    def parse_date_time_string(s):
+        """Return a timestamp corresponding to the given Date: header."""
+        struct_time = time.strptime(s, "%a, %d %b %Y %H:%M:%S GMT")
+        timestamp = calendar.timegm(struct_time)
+        return timestamp
 
     @staticmethod
     def create(first_line, headers, date=None, srv_version=None, body=None):
@@ -670,6 +712,7 @@ class Deproxy(object):
         for message in ['response', 'fwd_request']:
             expected = getattr(self.current_chain, message)
             recieved = getattr(self.recieved_chain, message)
+            expected.set_expected(expected_time_delta=self.timeout)
             assert expected == recieved, \
                 ("Received message (%s) does not suit expected one!\n\n"
                  "\tReceieved:\n<<<<<|\n%s|>>>>>\n"
