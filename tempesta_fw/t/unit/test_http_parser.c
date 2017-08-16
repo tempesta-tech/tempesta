@@ -1369,7 +1369,7 @@ TEST(http_parser, if_none_match)
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
-		"If-None-Match:    \"" ETAG_1 "\", \"" ETAG_2 "\", W/\"" ETAG_3 "\"  \r\n"
+		"If-None-Match:    \"" ETAG_1 "\", W/\"" ETAG_2 "\", \"" ETAG_3 "\"  \r\n"
 		"\r\n")
 	{
 		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
