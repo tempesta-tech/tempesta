@@ -309,13 +309,20 @@ EXPORT_SYMBOL(tfw_strcat);
  *  -1 - strings do not match;
  */
 static inline int
-__cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
+__cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
+	      int cs)
 {
 	unsigned char c1, c2;
 
 	while (n) {
-		c1 = TFW_LC(*s1++);
-		c2 = TFW_LC(*s2++);
+		if (cs) {
+			c1 = *s1++;
+			c2 = *s2++;
+		}
+		else {
+			c1 = TFW_LC(*s1++);
+			c2 = TFW_LC(*s2++);
+		}
 		if (c1 != c2)
 			return -1;
 		if (unlikely(c1 == stop))
@@ -327,15 +334,20 @@ __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
 }
 
 /**
- * Like strcasecmp(3) for TfwStr, but stops matching when faces @stop.
+ * Like strcmp/strcasecmp(3) for TfwStr, but stops matching when faces @stop.
  * Do not use it for duplicate strings, rather call it for each duplicate
  * substring separately.
+ * @cs - case sensitive
  */
 int
-tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
+__tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 {
 	int i1, i2, off1, off2, n;
 	const TfwStr *c1, *c2;
+	/* TODO: replace generic memcmp with AVX2-enabled function. */
+	int (*cmp)(const char *s1, const char *s2, size_t len) =
+		cs ? (int (*)(const char *, const char *, size_t)) memcmp
+		   : tfw_stricmp;
 
 	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
 
@@ -356,14 +368,14 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		if (stop) {
 			r = __cstricmpspn((unsigned char *)c1->ptr + off1,
 					  (unsigned char *)c2->ptr + off2,
-					  cn, stop);
+					  cn, stop, cs);
 			if (r > 0)
 				return 0;
 			if (r < 0)
 				return 1;
 		} else {
-			r = tfw_stricmp((char *)c1->ptr + off1,
-					(char *)c2->ptr + off2, cn);
+			r = (*cmp)((char *)c1->ptr + off1,
+				   (char *)c2->ptr + off2, cn);
 			if (r)
 				return r;
 		}
@@ -387,7 +399,7 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 
 	return stop ? -1 : 0;
 }
-EXPORT_SYMBOL(tfw_stricmpspn);
+EXPORT_SYMBOL(__tfw_strcmpspn);
 
 /**
  * Generic function for comparing TfwStr and C strings.
