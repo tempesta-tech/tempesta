@@ -272,6 +272,11 @@ tfw_cache_employ_req(TfwHttpReq *req)
 	BUG_ON(cmd != TFW_D_CACHE_FULFILL);
 
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
+		/*
+		 * TODO: We can use some headers of the stored response to
+		 * revalidate stored entries while origin server handles
+		 * the request.
+		 */
 		return false;
 
 	return true;
@@ -623,6 +628,25 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 		TFW_INC_STAT_BH(cache.misses);
 		return NULL;
 	}
+	/*
+	 * Cache may store one or more responses to the effective Request URI.
+	 * Basicaly, it is suffitient to store only the most recent response and
+	 * remove other representations from cache. (RFC 7234 4: When more than
+	 * one suitable response is stored, a cache MUST use the most recent
+	 * response) But there are still some cases when it is needed to store
+	 * more than one representation:
+	 *   - If selected representation of the effective Request URI depends
+	 *     on client capabilities. See RFC 7234 4.1 (Vary Header).
+	 *   - If origin server has several states of the resource, so during
+	 *     revalidation we can get the current state without downloading the
+	 *     full representation. This can reduce traffic to origin server.
+	 *     See RFC 7323 2.1 for the example.
+	 *
+	 * TODO: tfw_cache_entry_key_eq() should be extended to support
+	 * secondary keys (#508) and to skip not current representations.
+	 * Currently this function is used in two cases: to serve client and to
+	 * invalidate all cached responses (purge method).
+	 */
 	ce = (TfwCacheEntry *)iter->rec;
 	do {
 		/*
@@ -1067,6 +1091,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 	size_t data_len = __cache_entry_size(resp, req);
 	size_t len = data_len;
 
+	/* TODO #788: revalidate existing entries before inserting a new one. */
+
 	/*
 	 * Try to place the cached response in single memory chunk.
 	 * TDB should provide enough space to place at least head of
@@ -1429,6 +1455,11 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_handle_validation_req(req, ce))
 		goto put;
 
+	/*
+	 * TODO: RFC7234 4 Constructing Responses from Caches:
+	 * When a stored response is used to satisfy a request without
+	 * validation, a cache MUST generate an Age header field.
+	 */
 	resp = tfw_cache_build_resp(ce);
 	if (lifetime > ce->lifetime)
 		resp->flags |= TFW_HTTP_RESP_STALE;
@@ -1436,6 +1467,11 @@ out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_504(req, "resource not cached");
 	else
+		/*
+		 * TODO: RFC 7234 4.3.2: Extend preconditional request headers
+		 * if any with values from cached entries to revalidate stored
+		 * stale responses for both: client and Tempesta.
+		 */
 		action(req, resp);
 put:
 	tfw_cache_dbce_put(ce);
