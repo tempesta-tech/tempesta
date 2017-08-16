@@ -44,6 +44,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
+		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
 	};
 
 	TfwStr *c, *end;
@@ -59,6 +60,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 
 	if (unlikely(id == TFW_HTTP_HDR_SERVER && client))
 		nlen = SLEN("User-Agent:");
+	else if (unlikely(id == TFW_HTTP_HDR_ETAG && client))
+		nlen = SLEN("If-None-Match:");
 	else
 		nlen = hdr_lens[id];
 
@@ -124,7 +127,6 @@ __hdr_is_singular(const TfwStr *hdr)
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
-		TfwStr_string("if-modified-since:"),
 		TfwStr_string("if-unmodified-since:"),
 		TfwStr_string("location:"),
 		TfwStr_string("max-forwards:"),
