@@ -235,10 +235,10 @@ tfw_sg_release_all(void)
 	TfwSrvGroup *sg, *sg_tmp;
 
 	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
-		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
-			tfw_server_destroy(srv);
 		if (sg->sched && sg->sched->del_grp)
 			sg->sched->del_grp(sg);
+		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
+			tfw_server_destroy(srv);
 		kfree(sg);
 	}
 	INIT_LIST_HEAD(&sg_list);
