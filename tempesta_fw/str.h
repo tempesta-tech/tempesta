@@ -364,6 +364,8 @@ bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
 
+TfwStr tfw_str_next_str_val(const TfwStr *str);
+
 #ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
 #else
