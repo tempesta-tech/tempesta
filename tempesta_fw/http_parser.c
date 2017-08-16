@@ -600,6 +600,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 		TfwStr_string("user-agent:"),
 		TfwStr_string("server:"),
 		TfwStr_string("cookie:"),
+		TfwStr_string("etag:"),
 		/* End-to-end raw headers. */
 		TfwStr_string("age:"),
 		TfwStr_string("authorization:"),
@@ -667,8 +668,34 @@ enum {
 	I_TransEncod, /* Transfer-Encoding */
 	I_TransEncodChunked,
 	I_TransEncodOther,
+	/* ETag header */
+	I_Etag,
+	I_Etag_W,
+	I_Etag_We,
+	I_Etag_Weak,
+	I_Etag_Val,
+	/* Http-Date */
+	I_Date,
+	I_DateDay,
+	I_DateMonthSP,
+	I_DateMonth,
+	I_DateMonth_A,
+	I_DateMonth_J,
+	I_DateMonth_M,
+	I_DateMonth_Other,
+	I_DateYearSP,
+	I_DateYear,
+	I_DateHourSP,
+	I_DateHour,
+	I_DateMinCln,
+	I_DateMin,
+	I_DateSecCln,
+	I_DateSec,
+	I_DateSecSP,
+	I_DateZone,
 
 	I_EoT, /* end of term */
+	I_EoL,
 };
 
 /* Initialize TRY_STR parsing context */
@@ -830,7 +857,7 @@ __FSM_STATE(st_curr) {							\
 #define TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id) \
 	__TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, 1)
 
-#define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func)		\
+#define __TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func, saveval)	\
 __FSM_STATE(st_curr) {							\
 	BUG_ON(__data_off(p) > len);					\
 	__fsm_sz = __data_remain(p);					\
@@ -859,13 +886,17 @@ __FSM_STATE(st_curr) {							\
 	default:							\
 		BUG_ON(__fsm_n < 0);					\
 		/* The header value is fully parsed, move forward. */	\
-		__msg_hdr_chunk_fixup(p, __fsm_n);			\
+		if (saveval)						\
+			__msg_hdr_chunk_fixup(p, __fsm_n);		\
 		mark_raw_hbh(msg, &parser->hdr);			\
 		parser->_i_st = RGen_EoL;				\
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;			\
 		__FSM_MOVE_n(RGen_OWS, __fsm_n); /* skip OWS */		\
 	}								\
 }
+
+#define TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func) \
+	__TFW_HTTP_PARSE_RAWHDR_VAL(st_curr, st_i, hm, func, 1)
 
 /*
  * Parse raw (common) HTTP headers.
@@ -1497,6 +1528,35 @@ enum {
 	Req_HdrHos,
 	Req_HdrHost,
 	Req_HdrHostV,
+	Req_HdrI,
+	Req_HdrIf,
+	Req_HdrIf_,
+	Req_HdrIf_M,
+	Req_HdrIf_Mo,
+	Req_HdrIf_Mod,
+	Req_HdrIf_Modi,
+	Req_HdrIf_Modif,
+	Req_HdrIf_Modifi,
+	Req_HdrIf_Modifie,
+	Req_HdrIf_Modified,
+	Req_HdrIf_Modified_,
+	Req_HdrIf_Modified_S,
+	Req_HdrIf_Modified_Si,
+	Req_HdrIf_Modified_Sin,
+	Req_HdrIf_Modified_Sinc,
+	Req_HdrIf_Modified_Since,
+	Req_HdrIf_Modified_SinceV,
+	Req_HdrIf_N,
+	Req_HdrIf_No,
+	Req_HdrIf_Non,
+	Req_HdrIf_None,
+	Req_HdrIf_None_,
+	Req_HdrIf_None_M,
+	Req_HdrIf_None_Ma,
+	Req_HdrIf_None_Mat,
+	Req_HdrIf_None_Matc,
+	Req_HdrIf_None_Match,
+	Req_HdrIf_None_MatchV,
 	Req_HdrK,
 	Req_HdrKe,
 	Req_HdrKee,
@@ -1872,6 +1932,116 @@ done:
 	return r;
 }
 
+#define __FSM_TX_ETAG(st, ch, st_next)					\
+__FSM_STATE(st) {							\
+	if (likely(c == (ch)))						\
+		__FSM_I_MOVE_fixup(st_next, 1, 0);			\
+	return CSTR_NEQ;						\
+}
+
+/**
+ * Parse response ETag, RFC 7232 section-2.3
+ */
+static int
+__parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int weak, r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	/*
+	 * ETag value and closing DQUOTE is placed into separate chunks marked
+	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionaly).
+	 * Closing DQUOTE is used to support empty Etags. Opening is not added
+	 * to simplify usage of tfw_stricmpspn()
+	 *
+	 * Note: Weak indicator is case-sensitive!
+	 */
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(I_Etag) {
+		TfwHttpReq *req = (TfwHttpReq *)hm; /* for If-None-Match. */
+
+		if (likely(c == '"')) {
+			if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+				req->cond.flags |= TFW_HTTP_COND_ETAG_LIST;
+			__FSM_I_MOVE_fixup(I_Etag_Val, 1, 0);
+		}
+
+		if (likely(__data_available(p, 3))
+		    && (*p == 'W') && (*(p + 1) == '/') && (*(p + 2) == '"'))
+		{
+			__FSM_I_MOVE_fixup(I_Etag_Weak, 3, 0);
+		}
+		if (c == 'W')
+			__FSM_I_MOVE_fixup(I_Etag_W, 1, 0);
+
+		if ((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && c == '*') {
+			if (req->cond.flags & TFW_HTTP_COND_ETAG_LIST)
+				return CSTR_NEQ;
+
+			req->cond.flags |= TFW_HTTP_COND_ETAG_ANY;
+			__FSM_I_MOVE_fixup(I_EoL, 1, 0);
+		}
+
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_Etag, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	__FSM_TX_ETAG(I_Etag_W, '/', I_Etag_We);
+	__FSM_TX_ETAG(I_Etag_We, '"', I_Etag_Weak);
+
+	/*
+	 * Need to store WEAK flag, it is safe to store the flag in parser->hdr,
+	 * but only after first fixup in this function: header must became
+	 * compound string.
+	 */
+	__FSM_STATE(I_Etag_Weak) {
+		parser->hdr.flags |= TFW_STR_ETAG_WEAK;
+		__FSM_JMP(I_Etag_Val);
+	}
+
+	/*
+	 * ETag-value can have zero length, but we still have to store it
+	 * in separate TfwStr chunk.
+	 */
+	__FSM_STATE(I_Etag_Val) {
+		weak = parser->hdr.flags & TFW_STR_ETAG_WEAK;
+		__FSM_I_MATCH_MOVE_fixup(token, I_Etag_Val,
+					 (TFW_STR_VALUE | weak));
+		c = *(p + __fsm_sz);
+		if (likely(c == '"')) {
+			parser->hdr.flags &= ~TFW_STR_ETAG_WEAK;
+			__FSM_I_MOVE_fixup(I_EoT, __fsm_sz + 1,
+					   TFW_STR_VALUE | weak);
+		}
+		return CSTR_NEQ;
+	}
+
+	/* End of token */
+	__FSM_STATE(I_EoT) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		if ((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && c == ',')
+			__FSM_I_MOVE_fixup(I_Etag, 1, 0);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_EoL) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoL, 1, 0);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+	}/* FSM END */
+done:
+	return r;
+}
+
 /**
  * Parse request Host header, RFC 7230 5.4.
  *
@@ -1936,6 +2106,352 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	} /* FSM END */
 done:
 	return r;
+}
+
+/**
+ * Parse response Expires, RFC 2616 14.21.
+ *
+ * We support only RFC 1123 date as it's most usable by modern software.
+ * However RFC 2616 reuires that all server and client software MUST support
+ * all 3 formats specified in 3.3.1 chapter. We leave this for TODO.
+ *
+ * @return number of seconds since epoch in GMT.
+ */
+#define SEC24H		(24 * 3600)
+/* Seconds Before a month in a non leap year. */
+#define SB_FEB		(31 * SEC24H)
+#define SB_MAR		(SB_FEB + 28 * SEC24H)
+#define SB_APR		(SB_MAR + 31 * SEC24H)
+#define SB_MAY		(SB_APR + 30 * SEC24H)
+#define SB_JUN		(SB_MAY + 31 * SEC24H)
+#define SB_JUL		(SB_JUN + 30 * SEC24H)
+#define SB_AUG		(SB_JUL + 31 * SEC24H)
+#define SB_SEP		(SB_AUG + 31 * SEC24H)
+#define SB_OCT		(SB_SEP + 30 * SEC24H)
+#define SB_NOV		(SB_OCT + 31 * SEC24H)
+#define SB_DEC		(SB_NOV + 30 * SEC24H)
+/* Number of days before epoch including leap years. */
+#define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
+
+static int
+__year_day_secs(unsigned int year, unsigned int day_sec)
+{
+	unsigned int days = year * 365 + year / 4 - year / 100 + year / 400;
+
+	/* Add SEC24H if the year is leap and we left Feb behind. */
+	if (year % 4 == 0 && !(year % 100 == 0 && year % 400 != 0))
+		day_sec += SEC24H;
+
+	if (days < EPOCH_DAYS)
+		return -1;
+
+	return (days - EPOCH_DAYS) * SEC24H + day_sec;
+}
+
+static size_t
+__skip_weekday(unsigned char *p, size_t len)
+{
+	unsigned char lc, *c, *end = p + len;
+
+	for (c = p; c < end; ++c) {
+		lc = TFW_LC(*c);
+		if ((unsigned)(lc - 'a') > (unsigned)('z' - 'a') && lc != ',')
+			return (*c != ' ') ? CSTR_NEQ : c - p;
+	}
+	return len;
+}
+
+enum {
+	I_Hdr_Expires,
+	I_Hdr_Date,
+	I_Hdr_Last_Modified,
+	I_Hdr_If_Modified_Since,
+};
+
+static int
+__parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	static const unsigned long colon_a[] ____cacheline_aligned = {
+		/* ':' (0x3a)(58) Colon */
+		0x0400000000000000UL, 0, 0, 0
+	};
+	int r = CSTR_NEQ;
+	TfwHttpResp *resp = (TfwHttpResp *)hm;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(I_Date) {
+		switch (parser->_date_hdr) {
+		case I_Hdr_Expires:
+			/*
+			 * A duplicate invalidates the header's value.
+			 * @resp->expires is set to zero - already expired.
+			 */
+			if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
+				__FSM_I_MOVE_n(I_EoL, 0);
+			break;
+		case I_Hdr_Date:
+			if (resp->flags & TFW_HTTP_HAS_HDR_DATE)
+				return CSTR_NEQ;
+			break;
+		case I_Hdr_Last_Modified:
+			if (resp->flags & TFW_HTTP_HAS_HDR_LMODIFIED)
+				return CSTR_NEQ;
+			break;
+		case I_Hdr_If_Modified_Since:
+			if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
+				return CSTR_NEQ;
+			break;
+		default:
+			TFW_DBG2("%s: Unknown date header [%d], caller's FSM "
+				 "state: [%d]\n",
+				 __func__, parser->_date_hdr, parser->state);
+			BUG();
+			return CSTR_NEQ;
+		}
+		/*
+		 * Skip a weekday with comma (e.g. "Sun,") as redundant
+		 * information.
+		 */
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __skip_weekday(p, __fsm_sz);
+		if (__fsm_sz == __fsm_n)
+			__FSM_I_MOVE_n(I_Date, __fsm_sz);
+		if (unlikely(__fsm_n == CSTR_NEQ))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_n(I_DateDay, __fsm_n + 1);
+	}
+
+	__FSM_STATE(I_DateDay) {
+		__fsm_sz = __data_remain(p);
+		/* Parse a 2-digit day. */
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		if (parser->_acc < 1 || parser->_acc > 31)
+			return CSTR_BADLEN;
+		/* Add seconds in full passed days. */
+		parser->_date = (parser->_acc - 1) * SEC24H;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(I_DateMonthSP, __fsm_n);
+	}
+
+	__FSM_STATE(I_DateMonthSP) {
+		if (likely(c == ' '))
+			__FSM_I_MOVE(I_DateMonth);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateMonth) {
+		switch (c) {
+		case 'A':
+			__FSM_I_MOVE_n(I_DateMonth_A, 0);
+		case 'J':
+			__FSM_I_MOVE_n(I_DateMonth_J, 0);
+		case 'M':
+			__FSM_I_MOVE_n(I_DateMonth_M, 0);
+		}
+		__FSM_I_MOVE_n(I_DateMonth_Other, 0);
+	}
+
+	__FSM_STATE(I_DateMonth_A) {
+		TRY_STR_LAMBDA("apr", {
+			parser->_date += SB_APR;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("aug", {
+			parser->_date += SB_AUG;
+		}, I_DateYearSP);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateMonth_J) {
+		TRY_STR("jan", I_DateYearSP);
+		TRY_STR_LAMBDA("jun", {
+			parser->_date += SB_JUN;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("jul", {
+			parser->_date += SB_JUL;
+		}, I_DateYearSP);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateMonth_M) {
+		TRY_STR_LAMBDA("mar", {
+			/* Add SEC24H for leap year on year parsing. */
+			parser->_date += SB_MAR;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("may", {
+			parser->_date += SB_MAY;
+		}, I_DateYearSP);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateMonth_Other) {
+		TRY_STR_LAMBDA("feb", {
+			parser->_date += SB_FEB;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("sep", {
+			parser->_date += SB_SEP;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("oct", {
+			parser->_date += SB_OCT;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("nov", {
+			parser->_date += SB_NOV;
+		}, I_DateYearSP);
+		TRY_STR_LAMBDA("dec", {
+			parser->_date += SB_DEC;
+		}, I_DateYearSP);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	/* Eat SP between Month and Year. */
+	__FSM_STATE(I_DateYearSP) {
+		if (c == ' ')
+			__FSM_I_MOVE(I_DateYear);
+		return CSTR_NEQ;
+	}
+
+	/* 4-digit year. */
+	__FSM_STATE(I_DateYear) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		parser->_date = __year_day_secs(parser->_acc, parser->_date);
+		if (parser->_date < 0)
+			return CSTR_NEQ;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(I_DateHourSP, __fsm_n);
+	}
+
+	__FSM_STATE(I_DateHourSP) {
+		if (likely(c == ' '))
+			__FSM_I_MOVE(I_DateHour);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateHour) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		parser->_date += parser->_acc * 3600;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(I_DateMinCln, __fsm_n);
+	}
+
+	__FSM_STATE(I_DateMinCln) {
+		if (likely(c == ':'))
+			__FSM_I_MOVE(I_DateMin);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateMin) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		parser->_date += parser->_acc * 60;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(I_DateSecCln, __fsm_n);
+	}
+
+	__FSM_STATE(I_DateSecCln) {
+		if (likely(c == ':'))
+			__FSM_I_MOVE(I_DateSec);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateSec) {
+		__fsm_sz = __data_remain(p);
+		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
+		if (__fsm_n == CSTR_POSTPONE)
+			__msg_hdr_chunk_fixup(data, len);
+		if (__fsm_n < 0)
+			return __fsm_n;
+		parser->_date += parser->_acc;
+		parser->_acc = 0;
+		__FSM_I_MOVE_n(I_DateSecSP, __fsm_n);
+	}
+
+	__FSM_STATE(I_DateSecSP) {
+		if (likely(c == ' '))
+			__FSM_I_MOVE(I_DateZone);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_DateZone) {
+		TRY_STR("gmt", I_EoL);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_EoL) {
+		/* Skip the rest of the line. */
+		__FSM_I_MATCH_MOVE(nctl, I_EoL);
+		if (!IS_CRLF(*(p + __fsm_sz)))
+			return CSTR_NEQ;
+		TFW_DBG3("%s: parsed date %lu", __func__, parser->_date);
+		switch (parser->_date_hdr) {
+		case I_Hdr_Expires:
+			resp->cache_ctl.expires = parser->_date;
+			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
+			break;
+		case I_Hdr_Date:
+			resp->date = parser->_date;
+			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
+			break;
+		case I_Hdr_Last_Modified:
+			resp->last_modified = parser->_date;
+			resp->flags |= TFW_HTTP_HAS_HDR_LMODIFIED;
+			break;
+		case I_Hdr_If_Modified_Since:
+			req->cond.m_date = parser->_date;
+			req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
+			break;
+		}
+		return __data_off(p + __fsm_sz);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
+/**
+ * Parse If-modified-since.
+ * RFC 7232 Section-3.3: A recipient MUST ignore the If-Modified-Since header
+ * field if the received field-value is not a valid HTTP-date.
+ */
+static int
+__req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
+{
+	int ret;
+	msg->parser._date_hdr = I_Hdr_If_Modified_Since;
+	ret = __parse_http_date(msg, data, len);
+	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
+		/* On error just swallow the rest of the line. */
+		BUG_ON(msg->parser.state != Req_HdrIf_Modified_SinceV);
+		msg->parser._date = 0;
+		msg->parser._i_st = I_EoL;
+		ret = __parse_http_date(msg, data, len);
+	}
+	return ret;
 }
 
 /**
@@ -2555,6 +3071,33 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 5);
 			}
 			__FSM_MOVE(Req_HdrH);
+		case 'i':
+			if (likely(__data_available(p, 18)
+				   && TFW_LC(*(p + 1)) == 'f'
+				   && *(p + 2) == '-'
+				   && C4_INT_LCM(p + 3, 'm', 'o', 'd', 'i')
+				   && C4_INT_LCM(p + 7, 'f', 'i', 'e', 'd')
+				   && *(p + 11) == '-'
+				   && C4_INT_LCM(p + 12, 's', 'i', 'n', 'c')
+				   && TFW_LC(*(p + 16)) == 'e'
+				   && *(p + 17) == ':'))
+			{
+				parser->_i_st = Req_HdrIf_Modified_SinceV;
+				__FSM_MOVE_n(RGen_OWS, 18);
+			}
+			if (likely(__data_available(p, 14)
+				   && TFW_LC(*(p + 1)) == 'f'
+				   && *(p + 2) == '-'
+				   && C4_INT_LCM(p + 3, 'n', 'o', 'n', 'e')
+				   && *(p + 7) == '-'
+				   && C4_INT_LCM(p + 8, 'm', 'a', 't', 'c')
+				   && TFW_LC(*(p + 12)) == 'h'
+				   && *(p + 13) == ':'))
+			{
+				parser->_i_st = Req_HdrIf_None_MatchV;
+				__FSM_MOVE_n(RGen_OWS, 14);
+			}
+			__FSM_MOVE(Req_HdrI);
 		case 'k':
 			if (likely(__data_available(p, 11)
 				   && C4_INT_LCM(p, 'k', 'e', 'e', 'p')
@@ -2671,6 +3214,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* 'Host:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
 				   __req_parse_host, TFW_HTTP_HDR_HOST);
+
+	/* 'If-None-Match:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrIf_None_MatchV, I_Etag, msg,
+				     __parse_etag, TFW_HTTP_HDR_IF_NONE_MATCH, 0);
+
+	/* 'If-Modified-Since:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrIf_Modified_SinceV, I_Date, msg,
+				  __req_parse_if_msince);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrKeep_AliveV, I_KeepAlive, msg,
@@ -2963,6 +3514,48 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		__FSM_JMP(RGen_HdrOther);
 	}
 
+	/* If-* header processing. */
+	__FSM_TX_AF(Req_HdrI, 'f', Req_HdrIf, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf, '-', Req_HdrIf_, RGen_HdrOther);
+	__FSM_STATE(Req_HdrIf_) {
+		switch (TFW_LC(c)) {
+		case 'm':
+			__FSM_MOVE(Req_HdrIf_M);
+		case 'n':
+			__FSM_MOVE(Req_HdrIf_N);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+
+	/* If-Modified-Since header processing. */
+	__FSM_TX_AF(Req_HdrIf_M, 'o', Req_HdrIf_Mo, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Mo, 'd', Req_HdrIf_Mod, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Mod, 'i', Req_HdrIf_Modi, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modi, 'f', Req_HdrIf_Modif, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modif, 'i', Req_HdrIf_Modifi, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modifi, 'e', Req_HdrIf_Modifie, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modifie, 'd', Req_HdrIf_Modified, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified, '-', Req_HdrIf_Modified_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified_, 's', Req_HdrIf_Modified_S, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified_S, 'i', Req_HdrIf_Modified_Si, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified_Si, 'n', Req_HdrIf_Modified_Sin, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified_Sin, 'c', Req_HdrIf_Modified_Sinc, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Modified_Sinc, 'e', Req_HdrIf_Modified_Since, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrIf_Modified_Since, ':', Req_HdrIf_Modified_SinceV, RGen_HdrOther);
+
+	/* If-None-Match header processing. */
+	__FSM_TX_AF(Req_HdrIf_N, 'o', Req_HdrIf_No, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_No, 'n', Req_HdrIf_Non, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_Non, 'e', Req_HdrIf_None, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None, '-', Req_HdrIf_None_, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None_, 'm', Req_HdrIf_None_M, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None_M, 'a', Req_HdrIf_None_Ma, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None_Ma, 't', Req_HdrIf_None_Mat, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None_Mat, 'c', Req_HdrIf_None_Matc, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrIf_None_Matc, 'h', Req_HdrIf_None_Match, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrIf_None_Match, ':', Req_HdrIf_None_MatchV, RGen_HdrOther);
+
 	/* Keep-Alive header processing. */
 	__FSM_TX_AF(Req_HdrK, 'e', Req_HdrKe, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrKe, 'e', Req_HdrKee, RGen_HdrOther);
@@ -3116,6 +3709,10 @@ enum {
 	Resp_HdrDate,
 	Resp_HdrDateV,
 	Resp_HdrE,
+	Resp_HdrEt,
+	Resp_HdrEta,
+	Resp_HdrEtag,
+	Resp_HdrEtagV,
 	Resp_HdrEx,
 	Resp_HdrExp,
 	Resp_HdrExpi,
@@ -3134,6 +3731,20 @@ enum {
 	Resp_HdrKeep_Aliv,
 	Resp_HdrKeep_Alive,
 	Resp_HdrKeep_AliveV,
+	Resp_HdrL,
+	Resp_HdrLa,
+	Resp_HdrLas,
+	Resp_HdrLast,
+	Resp_HdrLast_,
+	Resp_HdrLast_M,
+	Resp_HdrLast_Mo,
+	Resp_HdrLast_Mod,
+	Resp_HdrLast_Modi,
+	Resp_HdrLast_Modif,
+	Resp_HdrLast_Modifi,
+	Resp_HdrLast_Modifie,
+	Resp_HdrLast_Modified,
+	Resp_HdrLast_ModifiedV,
 	Resp_HdrS,
 	Resp_HdrSe,
 	Resp_HdrSer,
@@ -3183,25 +3794,6 @@ enum {
 	Resp_I_CC_s,
 	Resp_I_CC_MaxAgeV,
 	Resp_I_CC_SMaxAgeV,
-	/* Http-Date */
-	Resp_I_Date,
-	Resp_I_DateDay,
-	Resp_I_DateMonthSP,
-	Resp_I_DateMonth,
-	Resp_I_DateMonth_A,
-	Resp_I_DateMonth_J,
-	Resp_I_DateMonth_M,
-	Resp_I_DateMonth_Other,
-	Resp_I_DateYearSP,
-	Resp_I_DateYear,
-	Resp_I_DateHourSP,
-	Resp_I_DateHour,
-	Resp_I_DateMinCln,
-	Resp_I_DateMin,
-	Resp_I_DateSecCln,
-	Resp_I_DateSec,
-	Resp_I_DateSecSP,
-	Resp_I_DateZone,
 	/* Server header. */
 	Resp_I_Server,
 
@@ -3386,303 +3978,11 @@ done:
 	return r;
 }
 
-/**
- * Parse response Expires, RFC 2616 14.21.
- *
- * We support only RFC 1123 date as it's most usable by modern software.
- * However RFC 2616 reuires that all server and client software MUST support
- * all 3 formats specified in 3.3.1 chapter. We leave this for TODO.
- *
- * @return number of seconds since epoch in GMT.
- */
-#define SEC24H		(24 * 3600)
-/* Seconds Before a month in a non leap year. */
-#define SB_FEB		(31 * SEC24H)
-#define SB_MAR		(SB_FEB + 28 * SEC24H)
-#define SB_APR		(SB_MAR + 31 * SEC24H)
-#define SB_MAY		(SB_APR + 30 * SEC24H)
-#define SB_JUN		(SB_MAY + 31 * SEC24H)
-#define SB_JUL		(SB_JUN + 30 * SEC24H)
-#define SB_AUG		(SB_JUL + 31 * SEC24H)
-#define SB_SEP		(SB_AUG + 31 * SEC24H)
-#define SB_OCT		(SB_SEP + 30 * SEC24H)
-#define SB_NOV		(SB_OCT + 31 * SEC24H)
-#define SB_DEC		(SB_NOV + 30 * SEC24H)
-/* Number of days before epoch including leap years. */
-#define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
-
 static int
-__year_day_secs(unsigned int year, unsigned int day_sec)
+__resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
-	unsigned int days = year * 365 + year / 4 - year / 100 + year / 400;
-
-	/* Add SEC24H if the year is leap and we left Feb behind. */
-	if (year % 4 == 0 && !(year % 100 == 0 && year % 400 != 0))
-		day_sec += SEC24H;
-
-	if (days < EPOCH_DAYS)
-		return -1;
-
-	return (days - EPOCH_DAYS) * SEC24H + day_sec;
-}
-
-static size_t
-__skip_weekday(unsigned char *p, size_t len)
-{
-	unsigned char lc, *c, *end = p + len;
-
-	for (c = p; c < end; ++c) {
-		lc = TFW_LC(*c);
-		if ((unsigned)(lc - 'a') > (unsigned)('z' - 'a') && lc != ',')
-			return (*c != ' ') ? CSTR_NEQ : c - p;
-	}
-	return len;
-}
-
-static int
-__resp_parse_http_date(TfwHttpResp *resp, unsigned char *data, size_t len)
-{
-	static const unsigned long colon_a[] ____cacheline_aligned = {
-		/* ':' (0x3a)(58) Colon */
-		0x0400000000000000UL, 0, 0, 0
-	};
-	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(resp);
-
-	__FSM_START(parser->_i_st) {
-
-	__FSM_STATE(Resp_I_Date) {
-		switch (parser->state) {
-		case Resp_HdrExpiresV:
-			/*
-			 * A duplicate invalidates the header's value.
-			 * @resp->expires is set to zero - already expired.
-			 */
-			if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
-				__FSM_I_MOVE_n(Resp_I_EoL, 0);
-			break;
-		case Resp_HdrDateV:
-			if (resp->flags & TFW_HTTP_HAS_HDR_DATE)
-				return CSTR_NEQ;
-			break;
-		default:
-			TFW_DBG2("%s: Unknown caller's FSM state: [%d]\n",
-				 __func__, parser->state);
-			BUG();
-			return CSTR_NEQ;
-		}
-		/*
-		 * Skip a weekday with comma (e.g. "Sun,") as redundant
-		 * information.
-		 */
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __skip_weekday(p, __fsm_sz);
-		if (__fsm_sz == __fsm_n)
-			__FSM_I_MOVE_n(Resp_I_Date, __fsm_sz);
-		if (unlikely(__fsm_n == CSTR_NEQ))
-			return CSTR_NEQ;
-		__FSM_I_MOVE_n(Resp_I_DateDay, __fsm_n + 1);
-	}
-
-	__FSM_STATE(Resp_I_DateDay) {
-		__fsm_sz = __data_remain(p);
-		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		if (parser->_acc < 1 || parser->_acc > 31)
-			return CSTR_BADLEN;
-		/* Add seconds in full passed days. */
-		parser->_date = (parser->_acc - 1) * SEC24H;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_DateMonthSP, __fsm_n);
-	}
-
-	__FSM_STATE(Resp_I_DateMonthSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(Resp_I_DateMonth);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateMonth) {
-		switch (c) {
-		case 'A':
-			__FSM_I_MOVE_n(Resp_I_DateMonth_A, 0);
-		case 'J':
-			__FSM_I_MOVE_n(Resp_I_DateMonth_J, 0);
-		case 'M':
-			__FSM_I_MOVE_n(Resp_I_DateMonth_M, 0);
-		}
-		__FSM_I_MOVE_n(Resp_I_DateMonth_Other, 0);
-	}
-
-	__FSM_STATE(Resp_I_DateMonth_A) {
-		TRY_STR_LAMBDA("apr", {
-			parser->_date += SB_APR;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("aug", {
-			parser->_date += SB_AUG;
-		}, Resp_I_DateYearSP);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateMonth_J) {
-		TRY_STR("jan", Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("jun", {
-			parser->_date += SB_JUN;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("jul", {
-			parser->_date += SB_JUL;
-		}, Resp_I_DateYearSP);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateMonth_M) {
-		TRY_STR_LAMBDA("mar", {
-			/* Add SEC24H for leap year on year parsing. */
-			parser->_date += SB_MAR;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("may", {
-			parser->_date += SB_MAY;
-		}, Resp_I_DateYearSP);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateMonth_Other) {
-		TRY_STR_LAMBDA("feb", {
-			parser->_date += SB_FEB;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("sep", {
-			parser->_date += SB_SEP;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("oct", {
-			parser->_date += SB_OCT;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("nov", {
-			parser->_date += SB_NOV;
-		}, Resp_I_DateYearSP);
-		TRY_STR_LAMBDA("dec", {
-			parser->_date += SB_DEC;
-		}, Resp_I_DateYearSP);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	/* Eat SP between Month and Year. */
-	__FSM_STATE(Resp_I_DateYearSP) {
-		if (c == ' ')
-			__FSM_I_MOVE(Resp_I_DateYear);
-		return CSTR_NEQ;
-	}
-
-	/* 4-digit year. */
-	__FSM_STATE(Resp_I_DateYear) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date = __year_day_secs(parser->_acc, parser->_date);
-		if (parser->_date < 0)
-			return CSTR_NEQ;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_DateHourSP, __fsm_n);
-	}
-
-	__FSM_STATE(Resp_I_DateHourSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(Resp_I_DateHour);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateHour) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 3600;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_DateMinCln, __fsm_n);
-	}
-
-	__FSM_STATE(Resp_I_DateMinCln) {
-		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_DateMin);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateMin) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 60;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_DateSecCln, __fsm_n);
-	}
-
-	__FSM_STATE(Resp_I_DateSecCln) {
-		if (likely(c == ':'))
-			__FSM_I_MOVE(Resp_I_DateSec);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateSec) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_DateSecSP, __fsm_n);
-	}
-
-	__FSM_STATE(Resp_I_DateSecSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(Resp_I_DateZone);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_DateZone) {
-		TRY_STR("gmt", Resp_I_EoL);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Resp_I_EoL) {
-		/* Skip the rest of the line. */
-		__FSM_I_MATCH_MOVE(nctl, Resp_I_EoL);
-		if (!IS_CRLF(*(p + __fsm_sz)))
-			return CSTR_NEQ;
-		TFW_DBG3("%s: parsed date %lu", __func__, parser->_date);
-		switch (parser->state) {
-		case Resp_HdrExpiresV:
-			resp->cache_ctl.expires = parser->_date;
-			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
-			break;
-		case Resp_HdrDateV:
-			resp->date = parser->_date;
-			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
-			break;
-		}
-		return __data_off(p + __fsm_sz);
-	}
-
-	} /* FSM END */
-done:
-	return r;
+	msg->parser._date_hdr = I_Hdr_Date;
+	return __parse_http_date(msg, data, len);
 }
 
 /*
@@ -3692,20 +3992,30 @@ done:
  * See RFC 7234 5.3.
  */
 static int
-__resp_parse_expires(TfwHttpResp *resp, unsigned char *data, size_t len)
+__resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
-	int ret = __resp_parse_http_date(resp, data, len);
+	int ret;
+
+	msg->parser._date_hdr = I_Hdr_Expires;
+	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
 		/*
 		 * On error just swallow the rest of the line.
 		 * @resp->expires is set to zero - already expired.
 		 */
-		BUG_ON(resp->parser.state != Resp_HdrExpiresV);
-		resp->parser._date = 0;
-		resp->parser._i_st = Resp_I_EoL;
-		ret = __resp_parse_http_date(resp, data, len);
+		BUG_ON(msg->parser.state != Resp_HdrExpiresV);
+		msg->parser._date = 0;
+		msg->parser._i_st = I_EoL;
+		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
+}
+
+static int
+__resp_parse_last_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
+{
+	msg->parser._date_hdr = I_Hdr_Last_Modified;
+	return __parse_http_date(msg, data, len);
 }
 
 static int
@@ -3924,6 +4234,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrD);
 		case 'e':
+			if (likely(__data_available(p, 5)
+				   && C4_INT_LCM(p + 1, 't', 'a', 'g', ':')))
+			{
+				parser->_i_st = Resp_HdrEtagV;
+				__FSM_MOVE_n(RGen_OWS, 5);
+			}
 			if (likely(__data_available(p, 8)
 				   && C8_INT_LCM(p, 'e', 'x', 'p', 'i',
 						    'r', 'e', 's', ':')))
@@ -3944,6 +4260,19 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 11);
 			}
 			__FSM_MOVE(Resp_HdrK);
+		case 'l':
+			if (likely(__data_available(p, 14)
+				   && C4_INT_LCM(p, 'l', 'a', 's', 't')
+				   && *(p + 4) == '-'
+				   && C4_INT_LCM(p + 5, 'm', 'o', 'd', 'i')
+				   && C4_INT_LCM(p + 9, 'f', 'i', 'e', 'd')
+				   && *(p + 13) == ':'))
+			{
+				parser->_i_st = Resp_HdrLast_ModifiedV;
+				__FSM_MOVE_n(RGen_OWS, 14);
+			}
+			__FSM_MOVE(Resp_HdrL);
+
 		case 's':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'r', 'v', 'e')
@@ -4020,16 +4349,24 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
 	/* 'Date:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, Resp_I_Date, resp,
-				  __resp_parse_http_date);
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, I_Date, msg,
+				  __resp_parse_date);
+
+	/* 'ETag:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrEtagV, I_Etag, msg,
+				    __parse_etag, TFW_HTTP_HDR_ETAG, 0);
 
 	/* 'Expires:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, Resp_I_Date, resp,
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, I_Date, msg,
 				  __resp_parse_expires);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrKeep_AliveV, I_KeepAlive, msg,
 				  __parse_keep_alive, TFW_HTTP_HDR_KEEP_ALIVE);
+
+	/* 'Last-Modified:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrLast_ModifiedV, I_Date, msg,
+				  __resp_parse_last_modified);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,
@@ -4150,8 +4487,22 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrDat, 'e', Resp_HdrDate, RGen_HdrOther);
 	__FSM_TX_AF_OWS(Resp_HdrDate, ':', Resp_HdrDateV, RGen_HdrOther);
 
+	__FSM_STATE(Resp_HdrE) {
+		switch (TFW_LC(c)) {
+		case 't':
+			__FSM_MOVE(Resp_HdrEt);
+		case 'x':
+			__FSM_MOVE(Resp_HdrEx);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+	/* ETag header processing. */
+	__FSM_TX_AF(Resp_HdrEt, 'a', Resp_HdrEta, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrEta, 'g', Resp_HdrEtag, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrEtag, ':', Resp_HdrEtagV, RGen_HdrOther);
+
 	/* Expires header processing. */
-	__FSM_TX_AF(Resp_HdrE, 'x', Resp_HdrEx, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrEx, 'p', Resp_HdrExp, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrExp, 'i', Resp_HdrExpi, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrExpi, 'r', Resp_HdrExpir, RGen_HdrOther);
@@ -4170,6 +4521,21 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrKeep_Ali, 'v', Resp_HdrKeep_Aliv, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrKeep_Aliv, 'e', Resp_HdrKeep_Alive, RGen_HdrOther);
 	__FSM_TX_AF_OWS(Resp_HdrKeep_Alive, ':', Resp_HdrKeep_AliveV, RGen_HdrOther);
+
+	/* Last-Modified header processing. */
+	__FSM_TX_AF(Resp_HdrL, 'a', Resp_HdrLa, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLa, 's', Resp_HdrLas, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLas, 't', Resp_HdrLast, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast, '-', Resp_HdrLast_, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_, 'm', Resp_HdrLast_M, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_M, 'o', Resp_HdrLast_Mo, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Mo, 'd', Resp_HdrLast_Mod, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Mod, 'i', Resp_HdrLast_Modi, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Modi, 'f', Resp_HdrLast_Modif, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Modif, 'i', Resp_HdrLast_Modifi, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Modifi, 'e', Resp_HdrLast_Modifie, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrLast_Modifie, 'd', Resp_HdrLast_Modified, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrLast_Modified, ':', Resp_HdrLast_ModifiedV, RGen_HdrOther);
 
 	/* Server header processing. */
 	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, RGen_HdrOther);

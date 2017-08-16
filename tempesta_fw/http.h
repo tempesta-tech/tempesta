@@ -182,6 +182,8 @@ typedef enum {
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
+	TFW_HTTP_HDR_IF_NONE_MATCH,
+	TFW_HTTP_HDR_ETAG = TFW_HTTP_HDR_IF_NONE_MATCH,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
@@ -257,12 +259,16 @@ typedef struct {
  * @hdr		- currently parsed header.
  * @hbh_parser	- list of special and raw headers names to be treated as
  *		  hop-by-hop
+ * @_date	- currently parsed http date value;
+ * @_date_hdr	- defines which exact date header is processed, see enum before
+ *		__parse_http_date().
  */
 typedef struct {
 	unsigned short	to_go;
 	int		state;
 	int		_i_st;
 	int		to_read;
+	int		_date_hdr;
 	unsigned long	_acc;
 	time_t		_date;
 	unsigned int	_hdr_tag;
@@ -288,8 +294,9 @@ typedef struct {
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
+#define TFW_HTTP_HAS_HDR_LMODIFIED	0x040000 /* Has Last-Modified: header */
 /* It is stale, but pass with a warning */
-#define TFW_HTTP_RESP_STALE		0x040000
+#define TFW_HTTP_RESP_STALE		0x080000
 
 /*
  * The structure to hold data for an HTTP error response.
@@ -363,6 +370,21 @@ typedef struct {
 
 #define __MSG_STR_START(m)		(&(m)->crlf)
 
+#define TFW_HTTP_COND_IF_MSINCE		0x0001
+#define TFW_HTTP_COND_ETAG_ANY		0x0002
+#define TFW_HTTP_COND_ETAG_LIST		0x0004
+
+/**
+ * Conditional Request.
+ *
+ * @flags	- Which conditional headers are used,
+ * @m_date	- requested modification date
+ */
+typedef struct {
+	unsigned int	flags;
+	time_t		m_date;
+} TfwHttpCond;
+
 /**
  * HTTP Request.
  *
@@ -393,6 +415,7 @@ typedef struct {
 	TfwVhost		*vhost;
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
+	TfwHttpCond		cond;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
@@ -425,6 +448,7 @@ typedef struct {
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
+	time_t			last_modified;
 	unsigned long		jrxtstamp;
 } TfwHttpResp;
 
