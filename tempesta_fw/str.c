@@ -594,6 +594,43 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 }
 EXPORT_SYMBOL(tfw_str_to_cstr);
 
+/**
+ * HTTP parser can break strings into several chuncks and mark some of them
+ * with TFW_STR_VALUE flag. Single string value may oqupie more than one chunk,
+ * independent string values divided by non-flagged chunks.
+ *
+ * Return compaund TfwStr starting at next string value.
+ */
+TfwStr
+tfw_str_next_str_val(const TfwStr *str)
+{
+	TfwStr r_str = { 0 }, *chunk, *end;
+	bool skip = true;
+
+	if (!str || TFW_STR_DUP(str) || TFW_STR_PLAIN(str))
+		return r_str;
+
+	end =  (TfwStr*)str->ptr + TFW_STR_CHUNKN(str);
+	__TFW_STR_CHUNKN_SET(&r_str, TFW_STR_CHUNKN(str));
+	r_str.len = str->len;
+
+	for (chunk = str->ptr; chunk != end; ++chunk) {
+		if (!skip && (chunk->flags & TFW_STR_VALUE))
+			break;
+		if (!(chunk->flags & TFW_STR_VALUE))
+			skip = false;
+		r_str.len -= chunk->len;
+		TFW_STR_CHUNKN_SUB(&r_str, 1);
+	}
+	if (unlikely(chunk == end))
+		TFW_STR_INIT(&r_str);
+	else
+		r_str.ptr = chunk;
+
+	return r_str;
+}
+EXPORT_SYMBOL(tfw_str_next_str_val);
+
 #ifdef DEBUG
 void
 tfw_str_dprint(const TfwStr *str, const char *msg)
