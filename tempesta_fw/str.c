@@ -606,8 +606,8 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
 			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, eolen=%u ptr=%p '%.*s'\n",
-				c->len, c->eolen, c->ptr,
+			TFW_DBG("   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
+				c->len, c->eolen, c->ptr, c->flags,
 				(int)c->len, (char *)c->ptr);
 	}
 }
