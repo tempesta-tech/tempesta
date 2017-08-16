@@ -83,6 +83,7 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
+/* TODO: When CONNECT will be added, add it to tfw_handle_validation_req() */
 typedef enum {
 	_TFW_HTTP_METH_NONE,
 	/*

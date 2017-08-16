@@ -62,7 +62,9 @@
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
  * @version	- HTTP version of the response;
+ * @resp_status - Http status of the cached response.
  * @hmflags	- flags of the response after parsing and post-processing.
+ * @etag	- entity-tag, stored as a pointer to ETag header in @hdrs.
  */
 typedef struct {
 	TdbVRec		trec;
@@ -78,12 +80,15 @@ typedef struct {
 	time_t		req_time;
 	time_t		resp_time;
 	time_t		lifetime;
+	time_t		last_modified;
 	long		key;
 	long		status;
 	long		hdrs;
 	long		body;
 	unsigned char	version;
+	unsigned short	resp_status;
 	unsigned int	hmflags;
+	TfwStr		etag;
 } TfwCacheEntry;
 
 #define CE_BODY_SIZE							\
@@ -411,6 +416,113 @@ tfw_cache_entry_is_live(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 static bool
+tfw_cache_cond_none_match(TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	TfwStr match_list, iter;
+
+	if (TFW_STR_EMPTY(&ce->etag))
+		return true;
+
+	if (req->cond.flags & TFW_HTTP_COND_ETAG_ANY)
+		return false;
+
+	match_list = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+	iter = tfw_str_next_str_val(&match_list);
+
+	while (!TFW_STR_EMPTY(&iter)) {
+		/* RFC 7232 3.2: Weak validation. Don't check WEAK tagging. */
+		if (!tfw_strcmpspn(&iter, &ce->etag, '"'))
+			return false;
+
+		iter = tfw_str_next_str_val(&iter);
+	}
+
+	return true;
+}
+
+/**
+ * RFC 7232 Section-4.1: The server generating a 304 response MUST generate:
+ * Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
+ */
+int
+__send_304(TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	TfwHttpMsg *hmresp;
+
+	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+		return -ENOMEM;
+
+
+	if (tfw_http_prep_304(hmresp, req, &ce->etag))
+		return -1;
+
+	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
+
+	return 0;
+}
+
+/**
+ * Received request can contain validation information. Process it according to
+ * RFC 7234 Section 4.3.2.
+ *
+ * Return value:
+ *	@true: @req can be served from cache;
+ *	@false: Response was sent to client (412 or 304).
+ */
+static bool
+tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
+{
+	if ((ce->resp_status != 200) && (ce->resp_status != 206))
+		return true;
+	/* RFC 7232 Section 5. */
+	/* TODO: Add CONNECT */
+	if ((req->method == TFW_HTTP_METH_OPTIONS)
+	    || (req->method == TFW_HTTP_METH_TRACE))
+		return true;
+
+	/* If-None-Match: */
+	if (!TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH])) {
+		if (!tfw_cache_cond_none_match(req, ce)) {
+			if ((req->method == TFW_HTTP_METH_GET)
+			    || (req->method == TFW_HTTP_METH_HEAD))
+				__send_304(req, ce);
+			else
+				tfw_http_send_412(req);
+
+			return false;
+		}
+	}
+	/* If-Modified-Since: */
+	else if (req->cond.m_date
+	    && ((req->method == TFW_HTTP_METH_GET)
+		|| (req->method == TFW_HTTP_METH_HEAD)))
+	{
+		bool send_304 = false;
+
+		if (ce->last_modified) {
+			if (ce->last_modified <= req->cond.m_date)
+				send_304 = true;
+		}
+		else if (ce->date) {
+			if (ce->date <= req->cond.m_date)
+				send_304 = true;
+		}
+		else {
+			if (ce->resp_time <= req->cond.m_date)
+				send_304 = true;
+		}
+
+		if (send_304) {
+			__send_304(req, ce);
+			return false;
+		}
+	}
+	/* TODO: Range GET requests. RFC 7232 Section 6, step 5. */
+
+	return true;
+}
+
+static bool
 tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	/* Record key starts at first data chunk. */
@@ -708,6 +820,92 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 }
 
 /**
+ * Fill @ce->etag with entity-tag value. RFC 7232 Section-2.3 doesn't limit
+ * etag size, so can't just have a copy of entity-tag value somewhere in @ce,
+ * insted fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
+ * WEAK tag to the first chunk of @ce->etag if applied. This is needed for Range
+ * requests.
+ *
+ * @h_off, @h_trec	- supposed offset and record of stored 'ETag:' header;
+ * @curr_p, @curr_rec	- used to store compaund @ce->etag.
+ */
+static int
+__set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
+	   char *curr_p, TdbVRec **curr_trec)
+{
+	char *e_p;
+	size_t len = 0;
+	TfwStr etag_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
+	TDB *db = node_db();
+
+	if (TFW_STR_EMPTY(h))
+		return 0;
+	etag_val = tfw_str_next_str_val(h); /* not emptpy after http parser. */
+
+	/* Update supposed Etag offset to real value. */
+	e_p = TDB_PTR(db->hdr, h_off);
+	if (e_p + sizeof(TfwCStr) > h_trec->data + h_trec->len) {
+		h_trec = tdb_next_rec_chunk(db, h_trec);
+		e_p = h_trec->data;
+	}
+	/* Skip anything that is not a etag value. */
+	e_p += sizeof(TfwCStr);
+	TFW_STR_FOR_EACH_CHUNK(c, h, end) {
+		size_t c_size = c->len;
+
+		if (c->flags & TFW_STR_VALUE)
+			break;
+		while (c_size) {
+			size_t tail = h_trec->len - (e_p - h_trec->data);
+			if (c_size > tail) {
+				c_size -= tail;
+				h_trec = tdb_next_rec_chunk(db, h_trec);
+				e_p = h_trec->data;
+			}
+			else {
+				e_p += c_size;
+				c_size = 0;
+			}
+		}
+	}
+	for ( ; (c < end) && (c->flags & TFW_STR_VALUE); ++c)
+		len += c->len;
+
+	/* Create TfWStr that contains only entity-tag value. */
+	ce->etag.ptr = e_p;
+	ce->etag.flags = TFW_STR_CHUNK(&etag_val, 0)->flags;
+	ce->etag.len = min(len, (size_t)(h_trec->len -
+					 (e_p - h_trec->data)));
+	len -= ce->etag.len;
+
+	while (len) {
+		h_trec = tdb_next_rec_chunk(db, h_trec);
+		e_p = h_trec->data;
+		c = tfw_str_add_compound(resp->pool, &ce->etag);
+		if (!c)
+			return -ENOMEM;
+		c->ptr = e_p;
+		c->len = min(len, (size_t)(h_trec->len -
+					   (e_p - h_trec->data)));
+		len -= c->len;
+	}
+
+	/* Compaund string was allocated in resp->pool, move to cache entry. */
+	if (!TFW_STR_PLAIN(&ce->etag)) {
+		len = sizeof(TfwStr *) * TFW_STR_CHUNKN(&ce->etag);
+		curr_p = tdb_entry_get_room(node_db(), curr_trec, curr_p, len,
+					    len);
+		if (!curr_p)
+			return -ENOMEM;
+		memcpy(curr_p, ce->etag.ptr, len);
+		ce->etag.ptr = curr_p;
+		/* Old ce->etag.ptr will be destroyed with resp. */
+	}
+
+	return 0;
+}
+
+/**
  * Copy response skbs to database mapped area.
  * @tot_len - total length of actual data to write w/o TfwCStr's etc.
  *
@@ -722,11 +920,12 @@ static int
 tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 		    size_t tot_len)
 {
-	long n;
+	long n, etag_off = 0;
 	char *p;
-	TdbVRec *trec = &ce->trec;
+	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	TDB *db = node_db();
 	TfwStr *field, *h, *end1, *end2, empty = {};
+	int r;
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -766,6 +965,11 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 			--ce->hdr_num;
 			continue;
 		}
+		if (field - resp->h_tbl->tbl == TFW_HTTP_HDR_ETAG) {
+			/* Must be updated after tfw_cache_copy_hdr(). */
+			etag_off = TDB_OFF(db->hdr, p);
+			etag_trec = trec;
+		}
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
@@ -794,6 +998,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->req_time = req->cache_ctl.timestamp;
 	ce->resp_time = resp->cache_ctl.timestamp;
 	ce->lifetime = tfw_cache_calc_lifetime(resp);
+	ce->last_modified = resp->last_modified;
+	ce->resp_status = resp->status;
+
+	if ((r = __set_etag(ce, resp, etag_off, etag_trec, p, &trec))) {
+		TFW_ERR("Cache: cannot copy entity-tag\n");
+		return r;
+	}
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
 		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
@@ -1215,6 +1426,9 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		ce->body);
 	TFW_INC_STAT_BH(cache.hits);
 
+	if (!tfw_handle_validation_req(req, ce))
+		goto put;
+
 	resp = tfw_cache_build_resp(ce);
 	if (lifetime > ce->lifetime)
 		resp->flags |= TFW_HTTP_RESP_STALE;
@@ -1223,7 +1437,7 @@ out:
 		tfw_http_send_504(req, "resource not cached");
 	else
 		action(req, resp);
-
+put:
 	tfw_cache_dbce_put(ce);
 }
 
