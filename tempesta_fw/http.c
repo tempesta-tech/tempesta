@@ -43,8 +43,10 @@ int ghprio; /* GFSM hook priority. */
 
 #define S_200			"HTTP/1.1 200 OK"
 #define S_302			"HTTP/1.1 302 Found"
+#define S_304			"HTTP/1.1 304 Not Modified"
 #define S_403			"HTTP/1.1 403 Forbidden"
 #define S_404			"HTTP/1.1 404 Not Found"
+#define S_412			"HTTP/1.1 412 Precondition Failed"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
 #define S_504			"HTTP/1.1 504 Gateway Timeout"
@@ -54,6 +56,7 @@ int ghprio; /* GFSM hook priority. */
 #define S_F_CONTENT_LENGTH	"Content-Length: "
 #define S_F_LOCATION		"Location: "
 #define S_F_CONNECTION		"Connection: "
+#define S_F_ETAG		"ETag: "
 
 #define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
 #define S_V_CONTENT_LENGTH	"9999"
@@ -185,6 +188,65 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	return TFW_PASS;
 }
 
+#define S_304_PART_01	S_304 S_CRLF S_F_DATE
+#define S_304_PART_02	S_CRLF S_F_ETAG "\""
+#define S_304_FIXLEN	SLEN(S_304_PART_01 S_V_DATE)
+#define S_304_KEEP	S_CRLF S_H_CONN_KA
+#define S_304_CLOSE	S_CRLF S_H_CONN_CLOSE
+/*
+ * HTTP 304 response: Not Modified.
+ */
+int
+tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *etag_val)
+{
+	size_t data_len = S_304_FIXLEN;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
+	TfwMsgIter it;
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+		},
+		.len = S_304_FIXLEN,
+		.flags = 2 << TFW_STR_CN_SHIFT
+	};
+	static TfwStr part2 = {
+		.ptr = S_304_PART_02, .len = SLEN(S_304_PART_02) };
+	static TfwStr crlfcrlf = {
+		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	static TfwStr crlf_keep = {
+		.ptr = S_304_KEEP, .len = SLEN(S_304_KEEP) };
+	static TfwStr crlf_close = {
+		.ptr = S_304_CLOSE, .len = SLEN(S_304_CLOSE) };
+	TfwStr *crlf = &crlfcrlf;
+
+	/* Set "Connection:" header field if needed. */
+	if (conn_flag == TFW_HTTP_CONN_CLOSE)
+		crlf = &crlf_close;
+	else if (conn_flag == TFW_HTTP_CONN_KA)
+		crlf = &crlf_keep;
+
+	/* Add variable part of data length to get the total */
+	data_len += crlf->len;
+	if (!TFW_STR_EMPTY(etag_val))
+		data_len += part2.len + etag_val->len;
+
+	if (tfw_http_msg_setup(resp, &it, data_len))
+		return TFW_BLOCK;
+
+	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
+	tfw_http_msg_write(&it, resp, &rh);
+	if (!TFW_STR_EMPTY(etag_val)) {
+		tfw_http_msg_write(&it, resp, &part2);
+		tfw_http_msg_write(&it, resp, etag_val);
+	}
+	tfw_http_msg_write(&it, resp, crlf);
+
+	TFW_DBG("Send HTTP 304 response\n");
+
+	return TFW_PASS;
+}
+
 /*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
@@ -295,6 +357,30 @@ tfw_http_send_404(TfwHttpReq *req, const char *reason)
 	};
 
 	TFW_DBG("Send HTTP 404 response: %s\n", reason);
+
+	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+}
+
+#define S_412_PART_01	S_412 S_CRLF S_F_DATE
+#define S_412_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+/*
+ * HTTP 412 response: Preconditional headers are evaluated to false.
+ */
+int
+tfw_http_send_412(TfwHttpReq *req)
+{
+	TfwStr rh = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_412_PART_01, .len = SLEN(S_412_PART_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_412_PART_02, .len = SLEN(S_412_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_CRLF),
+		.flags = 4 << TFW_STR_CN_SHIFT
+	};
+
+	TFW_DBG("Send HTTP 412 response\n");
 
 	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
