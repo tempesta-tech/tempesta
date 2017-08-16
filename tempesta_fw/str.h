@@ -349,7 +349,10 @@ typedef enum {
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
-int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
+int __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs);
+#define tfw_stricmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 0)
+#define tfw_strcmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 1)
+
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 		     tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
