@@ -191,7 +191,7 @@ class HttpMessage(object):
         pass
 
     def parse_headers(self, stream):
-        self.headers = HeaderCollection().from_stream(stream)
+        self.headers = HeaderCollection.from_stream(stream)
 
     def parse_body(self, stream):
         if self.body_parsing and 'Transfer-Encoding' in self.headers:
@@ -243,7 +243,7 @@ class HttpMessage(object):
                               % (size, len(self.body))))
 
     def parse_trailer(self, stream):
-        self.trailer = HeaderCollection().from_stream(stream, no_crlf=True)
+        self.trailer = HeaderCollection.from_stream(stream, no_crlf=True)
 
     @abc.abstractmethod
     def __eq__(self, other):
