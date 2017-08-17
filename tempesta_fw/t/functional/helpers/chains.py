@@ -16,6 +16,21 @@ def base(uri='/', method='GET', forward=True, date=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
 
+    sample_body = (
+        "<html>\r\n"
+        "<head>\r\n"
+        "  <title>An Example Page</title>\r\n"
+        "</head>\r\n"
+        "<body>\r\n"
+        "  Hello World, this is a very simple HTML document.\r\n"
+        "</body>\r\n"
+        "</html>\r\n"
+    )
+    sample_headers = [
+        'Content-Length: 138',
+        'Content-type: text/html'
+    ]
+
     #
     # Prepare request and response contents (common variant for a GET request)
     #
@@ -35,29 +50,18 @@ def base(uri='/', method='GET', forward=True, date=None):
         'Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version(),
         'X-Forwarded-For: %s' % tf_cfg.cfg.get('Client', 'ip')
     ]
+    common_req_body = ''
 
     # response HTTP code
     common_resp_code = 200
     # response Date: header
     common_resp_date = date
     # response body
-    common_resp_body = (
-        "<html>\r\n"
-        "<head>\r\n"
-        "  <title>An Example Page</title>\r\n"
-        "</head>\r\n"
-        "<body>\r\n"
-        "  Hello World, this is a very simple HTML document.\r\n"
-        "</body>\r\n"
-        "</html>\r\n"
-    )
+    common_resp_body = ''
     common_resp_body_void = False
     # common part of response headers 
     common_resp_headers = [
-        'Content-type: text/html',
         'Connection: keep-alive',
-        'Content-Length: 138',
-        'Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT'
     ]
     # response headers added in tempesta->client
     tempesta_resp_headers_addn = [
@@ -75,17 +79,50 @@ def base(uri='/', method='GET', forward=True, date=None):
 
     if method == "PURGE":
         assert(forward == False)
-        common_resp_headers = [
-            'Connection: keep-alive',
+        common_resp_headers += [
             'Content-Length: 0'
         ]
-        tempesta_resp_headers_addn = []
-        common_resp_body = ''
-    elif method == "HEAD":
-        common_resp_body = ''
-        common_resp_body_void = True
+        tempesta_resp_headers_addn = [
+        ]
+
+    elif method == "HEAD" or method == "GET":
+        common_resp_headers += sample_headers + [
+            'Last-Modified: Mon, 12 Dec 2016 13:59:39 GMT'
+        ]
+        if method == "GET":
+            common_resp_body = sample_body
+        else:
+            common_resp_body_void = True
+
+    elif method == "POST":
+        common_req_headers += [
+            'Content-type: multipart/form-data;boundary="boundary"',
+            'Content-Length: 162'
+        ]
+        common_req_body = (
+            '--boundary\r\n'
+            'Content-Disposition: form-data; name="field1"\r\n'
+            '\r\n'
+            'value1\r\n'
+            '--boundary\r\n'
+            'Content-Disposition: form-data; name="field2"; filename="example.txt"\r\n'
+            '\r\n'
+            'value2\r\n'
+        )
+        common_resp_code = 204
+
+    elif method == "PUT":
+        common_req_headers += sample_headers
+        common_req_body = sample_body
+        common_resp_code = 204
+
+    elif method == "DELETE":
+        common_resp_code = 204
+
     else:
-        pass
+        common_resp_headers += [
+            'Content-Length: 0'
+        ]
 
     #
     # Build requests and responses
@@ -94,7 +131,8 @@ def base(uri='/', method='GET', forward=True, date=None):
     client_req = deproxy.Request.create(
         method=method,
         headers=common_req_headers + client_req_headers_addn,
-        uri=uri
+        uri=uri,
+        body=common_req_body
     )
     tempesta_resp = deproxy.Response.create(
         status=common_resp_code,
@@ -108,7 +146,8 @@ def base(uri='/', method='GET', forward=True, date=None):
         tempesta_req = deproxy.Request.create(
             method=method,
             headers=common_req_headers + tempesta_req_headers_addn,
-            uri=uri
+            uri=uri,
+            body=common_req_body
         )
         backend_resp = deproxy.Response.create(
             status=common_resp_code,
