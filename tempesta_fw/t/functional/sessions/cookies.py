@@ -1,6 +1,6 @@
 from __future__ import print_function
 import re
-from helpers import deproxy, tf_cfg
+from helpers import deproxy, tf_cfg, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -8,10 +8,6 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 CHAIN_LENGTH = 20
-
-def chains():
-    chain = functional.base_message_chain()
-    return [chain for _ in range(CHAIN_LENGTH)]
 
 def make_302(request):
     response = deproxy.Response(
@@ -36,7 +32,7 @@ class TesterIgnoreCookies(deproxy.Deproxy):
 
     def __init__(self, *args, **kwargs):
         deproxy.Deproxy.__init__(self, *args, **kwargs)
-        self.message_chains = chains()
+        self.message_chains = chains.base_repeated(CHAIN_LENGTH)
         self.cookies = []
 
     def recieved_response(self, response):
@@ -82,7 +78,7 @@ class TesterUseCookies(deproxy.Deproxy):
     def __init__(self, *args, **kwargs):
         deproxy.Deproxy.__init__(self, *args, **kwargs)
         # The first message chain is unique.
-        self.message_chains = [functional.base_message_chain()] + chains()
+        self.message_chains = [chains.base()] + chains.base_repeated(CHAIN_LENGTH)
         self.cookie_parsed = False
 
     def recieved_response(self, response):

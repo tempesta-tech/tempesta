@@ -4,7 +4,7 @@ Test fo http scheduler:
 
 from __future__ import print_function
 import asyncore
-from helpers import tempesta, deproxy, tf_cfg
+from helpers import tempesta, deproxy, tf_cfg, chains
 from testers import functional
 
 class HttpRules(functional.FunctionalTest):
@@ -30,7 +30,7 @@ class HttpRules(functional.FunctionalTest):
         '\n')
 
     def make_chains(self, uri, extra_header=(None, None)):
-        chain = functional.base_message_chain(uri=uri)
+        chain = chains.base(uri=uri)
 
         header, value = extra_header
         if not header is None:
@@ -142,7 +142,7 @@ class HttpRulesBackupServers(HttpRules):
         if empty:
             chain = deproxy.MessageChain.empty()
         else:
-            chain = functional.base_message_chain()
+            chain = chains.base()
         return [chain for _ in range(self.requests_n)]
 
     def create_server_helper(self, group, port):

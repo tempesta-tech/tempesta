@@ -277,9 +277,9 @@ class HttpMessage(object):
         return s
 
     @staticmethod
-    def create(first_line, headers, date=False, srv_version=None, body=None):
+    def create(first_line, headers, date=None, srv_version=None, body=None):
         if date:
-            date = ''.join(['Date: ', HttpMessage.date_time_string()])
+            date = ''.join(['Date: ', date])
             headers.append(date)
         if srv_version:
             version = ''.join(['Server: ', srv_version])
@@ -388,12 +388,12 @@ class Response(HttpMessage):
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
-               srv_version=None, body=None):
+               srv_version=None, body=None, body_void=False):
         reason = BaseHTTPRequestHandler.responses
         first_line = ' '.join([version, str(status), reason[status][0]])
         msg = HttpMessage.create(first_line, headers, date=date,
                                  srv_version=srv_version, body=body)
-        return Response(msg)
+        return Response(msg, body_void=body_void)
 
 #-------------------------------------------------------------------------------
 # HTTP Client/Server
@@ -608,14 +608,7 @@ class MessageChain(object):
         # Expexted request forwarded to server by Tempesta to server.
         self.fwd_request = forwarded_request if forwarded_request else Request()
         # Server response in reply to forwarded request.
-        self.server_response = (
-            server_response if expected_response else Response())
-
-    def no_forward(self):
-        # Expexted request forwarded to server by Tempesta to server.
-        self.fwd_request = Request()
-        # Server response in reply to forwarded request.
-        self.server_response = Response()
+        self.server_response = server_response if server_response else Response()
 
     @staticmethod
     def empty():

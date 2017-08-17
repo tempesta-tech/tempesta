@@ -4,7 +4,7 @@ test, check that the same server connection is used for the same resource.
 """
 
 from __future__ import print_function
-from helpers import deproxy, tempesta
+from helpers import deproxy, tempesta, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -27,7 +27,7 @@ class HashSchedulerTest(functional.FunctionalTest):
         self.tester = HashTester(message_chain, self.client, self.servers)
 
     def chains(self):
-        chain = functional.base_message_chain()
+        chain = chains.base()
         return [chain for _ in range(self.messages)]
 
     def test_hash_scheduler(self):
