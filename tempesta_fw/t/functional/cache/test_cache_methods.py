@@ -1,7 +1,7 @@
 """Functional tests of caching different methods."""
 
 from __future__ import print_function
-from helpers import tf_cfg
+from helpers import tf_cfg, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -27,8 +27,8 @@ class TestCacheMethods(functional.FunctionalTest):
         if self.cache_mode == 0:
             cache_alowed = False
         if cache_alowed:
-            return cache_chains(self.messages, method=method, uri=uri)
-        return proxy_chains(self.messages, method=method, uri=uri)
+            return chains.cache_repeated(self.messages, method=method, uri=uri)
+        return chains.proxy_repeated(self.messages, method=method, uri=uri)
 
     def try_method(self, method):
         tf_cfg.dbg(3, '\tTest method %s.' % method)
@@ -110,46 +110,16 @@ class TestMultipleMethods(functional.FunctionalTest):
 
     def chains(self):
         uri = '/page.html'
-        chains = [# Populate Cache
-                  proxy_chain(method='GET', uri=uri),
-                  proxy_chain(method='HEAD', uri=uri),
+        result = [# Populate Cache
+                  chains.proxy(method='GET', uri=uri),
+                  chains.proxy(method='HEAD', uri=uri),
                   # Serve from cache
-                  cache_chain(method='GET', uri=uri),
-                  cache_chain(method='HEAD', uri=uri),
+                  chains.cache(method='GET', uri=uri),
+                  chains.cache(method='HEAD', uri=uri),
                   ]
-        return chains
+        return result
 
     def test_purge(self):
         self.generic_test_routine(self.config, self.chains())
-
-
-def remove_body(response):
-    response.body = ''
-    response.body_void = True
-    response.update()
-
-def cache_chain(method, uri):
-    chain = functional.base_message_chain(uri=uri, method=method)
-    chain.no_forward()
-    if method == 'HEAD':
-        remove_body(chain.response)
-    return chain
-
-def proxy_chain(method, uri):
-    chain = functional.base_message_chain(uri=uri, method=method)
-    if method == 'HEAD':
-        remove_body(chain.response)
-        remove_body(chain.server_response)
-    return chain
-
-def cache_chains(count, method, uri):
-    chains = [proxy_chain(method, uri)]
-    chain = cache_chain(method, uri)
-    cached_chains = [chain for _ in range(1, count)]
-    return chains + cached_chains
-
-def proxy_chains(count, method, uri):
-    chain = proxy_chain(method, uri)
-    return [chain for _ in range(count)]
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
