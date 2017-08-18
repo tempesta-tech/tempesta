@@ -6,10 +6,6 @@ import sys
 import os
 import resource
 
-# Disable configuration check for now and call it explicitly later
-from helpers.tf_cfg import skip_check
-skip_check = True
-
 from helpers import tf_cfg, remote
 
 __author__ = 'Tempesta Technologies, Inc.'
