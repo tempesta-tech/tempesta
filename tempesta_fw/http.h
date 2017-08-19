@@ -502,7 +502,8 @@ void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *etag);
+int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+		      size_t hdrs_size);
 int tfw_http_send_403(TfwHttpReq *req, const char *reason);
 int tfw_http_send_404(TfwHttpReq *req, const char *reason);
 int tfw_http_send_412(TfwHttpReq *req);

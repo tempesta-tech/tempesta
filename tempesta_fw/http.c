@@ -188,59 +188,44 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 	return TFW_PASS;
 }
 
-#define S_304_PART_01	S_304 S_CRLF S_F_DATE
-#define S_304_PART_02	S_CRLF S_F_ETAG "\""
-#define S_304_FIXLEN	SLEN(S_304_PART_01 S_V_DATE)
-#define S_304_KEEP	S_CRLF S_H_CONN_KA
-#define S_304_CLOSE	S_CRLF S_H_CONN_CLOSE
+#define S_304_PART_01	S_304 S_CRLF
+#define S_304_KEEP	S_F_CONNECTION S_V_CONN_KA S_CRLF
+#define S_304_CLOSE	S_F_CONNECTION S_V_CONN_CLOSE S_CRLF
 /*
  * HTTP 304 response: Not Modified.
  */
 int
-tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *etag_val)
+tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+		  size_t hdrs_size)
 {
-	size_t data_len = S_304_FIXLEN;
+	size_t data_len = SLEN(S_304_PART_01);
+	TfwMsgIter *it = (TfwMsgIter *)msg_it;
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
-	TfwMsgIter it;
-	TfwStr rh = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-		},
-		.len = S_304_FIXLEN,
-		.flags = 2 << TFW_STR_CN_SHIFT
-	};
-	static TfwStr part2 = {
-		.ptr = S_304_PART_02, .len = SLEN(S_304_PART_02) };
-	static TfwStr crlfcrlf = {
-		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	static TfwStr rh = {
+		.ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) };
 	static TfwStr crlf_keep = {
 		.ptr = S_304_KEEP, .len = SLEN(S_304_KEEP) };
 	static TfwStr crlf_close = {
 		.ptr = S_304_CLOSE, .len = SLEN(S_304_CLOSE) };
-	TfwStr *crlf = &crlfcrlf;
+	TfwStr *end = NULL;
 
 	/* Set "Connection:" header field if needed. */
 	if (conn_flag == TFW_HTTP_CONN_CLOSE)
-		crlf = &crlf_close;
+		end = &crlf_close;
 	else if (conn_flag == TFW_HTTP_CONN_KA)
-		crlf = &crlf_keep;
+		end = &crlf_keep;
 
 	/* Add variable part of data length to get the total */
-	data_len += crlf->len;
-	if (!TFW_STR_EMPTY(etag_val))
-		data_len += part2.len + etag_val->len;
+	data_len += hdrs_size;
+	if (end)
+		data_len += end->len;
 
-	if (tfw_http_msg_setup(resp, &it, data_len))
+	if (tfw_http_msg_setup(resp, it, data_len))
 		return TFW_BLOCK;
 
-	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-	tfw_http_msg_write(&it, resp, &rh);
-	if (!TFW_STR_EMPTY(etag_val)) {
-		tfw_http_msg_write(&it, resp, &part2);
-		tfw_http_msg_write(&it, resp, etag_val);
-	}
-	tfw_http_msg_write(&it, resp, crlf);
+	tfw_http_msg_write(it, resp, &rh);
+	if (end)
+		tfw_http_msg_write(it, resp, end);
 
 	TFW_DBG("Send HTTP 304 response\n");
 

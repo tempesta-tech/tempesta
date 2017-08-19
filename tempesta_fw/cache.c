@@ -41,6 +41,26 @@
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
 #endif
 
+static const int tfw_cache_spec_headers_304[] = {
+	[0 ... TFW_HTTP_HDR_RAW] = 0,
+	[TFW_HTTP_HDR_ETAG] = 1,
+};
+static const TfwStr tfw_cache_raw_headers_304[] = {
+#define TfwStr_string(v)	{ (v), NULL, sizeof(v) - 1, 0 }
+	TfwStr_string("cache-control:"),
+	TfwStr_string("content-location:"),
+	TfwStr_string("date:"),
+	TfwStr_string("expires:"),
+	TfwStr_string("last-modified:"),
+	TfwStr_string("vary:"),
+	/* Etag are Spec headers */
+#undef TfwStr_string
+};
+#define TFW_CACHE_304_SPEC_HDRS_NUM	1	/* ETag. */
+#define TFW_CACHE_304_HDRS_NUM						\
+	ARRAY_SIZE(tfw_cache_raw_headers_304) + TFW_CACHE_304_SPEC_HDRS_NUM
+
+
 /* Flags stored in a Cache Entry. */
 #define TFW_CE_MUST_REVAL	0x0001		/* MUST revalidate if stale. */
 
@@ -73,6 +93,7 @@ typedef struct {
 	unsigned int	status_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_len;
+	unsigned int	hdr_len_304;
 	unsigned int	method: 4;
 	unsigned int	flags: 28;
 	time_t		age;
@@ -85,6 +106,7 @@ typedef struct {
 	long		status;
 	long		hdrs;
 	long		body;
+	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
 	unsigned char	version;
 	unsigned short	resp_status;
 	unsigned int	hmflags;
@@ -212,6 +234,58 @@ bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
 	return cache_cfg.cache && __cache_method_test(req->method);
+}
+
+/**
+ * Get NUMA node by the cache key.
+ * The function gives different results if number of nodes changes,
+ * e.g. due to hot-plug CPU. Cache eviction restores memory acquired by
+ * inaccessible entries. The event of new/dead CPU is rare, so there is
+ * no sense to use expensive rendezvous hashing.
+ */
+static unsigned short
+tfw_cache_key_node(unsigned long key)
+{
+	return key % num_online_nodes();
+}
+
+/**
+ * Just choose any CPU for each node to use queue_work_on() for
+ * nodes scheduling. Reserve 0th CPU for other tasks.
+ */
+static void
+tfw_init_node_cpus(void)
+{
+	int cpu, node;
+
+	for_each_online_cpu(cpu) {
+		node = cpu_to_node(cpu);
+		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
+	}
+}
+
+static TDB *
+node_db(void)
+{
+	return c_nodes[numa_node_id()].db;
+}
+
+/**
+ * Get a CPU identifier from @node to schedule a work.
+ * The request should be processed on remote node, use round robin strategy
+ * to distribute such requests.
+ *
+ * Note that atomic_t is a signed 32-bit value, and it's intentionally
+ * cast to unsigned type value before taking a modulo operation.
+ * If this place becomes a hot spot, then @cpu_idx may be made per_cpu.
+ */
+static int
+tfw_cache_sched_cpu(TfwHttpReq *req)
+{
+	CaNode *node = &c_nodes[req->node];
+	unsigned int idx = atomic_inc_return(&node->cpu_idx);
+
+	return node->cpu[idx % node->nr_cpus];
 }
 
 /*
@@ -445,25 +519,134 @@ tfw_cache_cond_none_match(TfwHttpReq *req, TfwCacheEntry *ce)
 	return true;
 }
 
+static int
+tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
+		      TfwMsgIter *it, char **data, size_t len, TfwStr *hdr)
+{
+	int r, copied = 0;
+	TdbVRec *tr = *trec;
+	TfwStr c = { 0 };
+
+	while (1)  {
+		c.ptr = *data;
+		c.len = min(tr->data + tr->len - *data,
+			    (long)(len - copied));
+		r = hdr
+		    ? tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c)
+		    : tfw_http_msg_write(it, (TfwHttpMsg *)resp, &c);
+		if (r)
+			return r;
+
+		copied += c.len;
+		*data += c.len;
+		if (copied == len)
+			break;
+
+		tr = *trec = tdb_next_rec_chunk(db, tr);
+		BUG_ON(!tr);
+		*data = tr->data;
+	}
+
+	/* Every non-empty header contains CRLF at the end. We need to translate
+	 * it to { str, eolen } presentation. */
+	if (hdr && hdr->len)
+		tfw_str_fixup_eol(hdr, SLEN(S_CRLF));
+
+	return 0;
+}
+
+/**
+ * Write HTTP header to skb data.
+ * The headers are likely to be adjusted, so copy them.
+ */
+static int
+tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
+			 TdbVRec **trec, TfwMsgIter *it, char **p)
+{
+	int r, d, dn;
+	TfwStr *dups;
+	TfwCStr *s = (TfwCStr *)*p;
+
+	*p += TFW_CSTR_HDRLEN;
+	BUG_ON(*p > (*trec)->data + (*trec)->len);
+
+	if (likely(!(s->flags & TFW_STR_DUPLICATE)))
+		return tfw_cache_write_field(db, trec, resp, it, p, s->len,
+					     hdr);
+
+	/* Process duplicated headers. */
+	dn = s->len;
+	dups = tfw_pool_alloc(resp->pool, dn * sizeof(TfwStr));
+	if (!dups)
+		return -ENOMEM;
+
+	for (d = 0; d < dn; ++d) {
+		s = (TfwCStr *)*p;
+		BUG_ON(s->flags);
+		TFW_STR_INIT(&dups[d]);
+		*p += TFW_CSTR_HDRLEN;
+		if ((r = tfw_cache_write_field(db, trec, resp, it, p, s->len,
+					       &dups[d])))
+			return r;
+	}
+
+	if (hdr) {
+		hdr->ptr = dups;
+		__TFW_STR_CHUNKN_SET(hdr, dn);
+		hdr->flags |= TFW_STR_DUPLICATE;
+	}
+
+	return 0;
+}
+
 /**
  * RFC 7232 Section-4.1: The server generating a 304 response MUST generate:
  * Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
+ * Last-Modified might be used if the response does not have an ETag field.
  */
 int
 __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	TfwHttpMsg *hmresp;
+	TfwHttpResp *resp;
+	TfwMsgIter it;
+	int r, i;
+	char *p;
+	TdbVRec *trec = &ce->trec;
+	TDB *db = node_db();
 
-	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv)))
 		return -ENOMEM;
 
 
-	if (tfw_http_prep_304(hmresp, req, &ce->etag))
-		return -1;
+	if ((r = tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
+				   ce->hdr_len_304)))
+		goto err;
 
-	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
+	/* Put 304 headers */
+	for (i = 0; i < ARRAY_SIZE(ce->hdrs_304); ++i) {
+		if (!ce->hdrs_304[i])
+			continue;
+
+		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
+		while (trec && (p > trec->data + trec->len))
+		     trec = tdb_next_rec_chunk(db, trec);
+		BUG_ON(!trec);
+
+		if ((r = tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &it,
+						  &p)))
+			goto err;
+	}
+
+	if ((r = tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf)))
+		goto err;
+
+	tfw_http_resp_fwd(req, resp);
 
 	return 0;
+err:
+	TFW_WARN("Can't build 304 response, key=%lx\n", ce->key);
+	tfw_http_msg_free((TfwHttpMsg *)resp);
+	return r;
 }
 
 /**
@@ -563,58 +746,6 @@ this_chunk:
 	}
 
 	return true;
-}
-
-/**
- * Get NUMA node by the cache key.
- * The function gives different results if number of nodes changes,
- * e.g. due to hot-plug CPU. Cache eviction restores memory acquired by
- * inaccessible entries. The event of new/dead CPU is rare, so there is
- * no sense to use expensive rendezvous hashing.
- */
-static unsigned short
-tfw_cache_key_node(unsigned long key)
-{
-	return key % num_online_nodes();
-}
-
-/**
- * Just choose any CPU for each node to use queue_work_on() for
- * nodes scheduling. Reserve 0th CPU for other tasks.
- */
-static void
-tfw_init_node_cpus(void)
-{
-	int cpu, node;
-
-	for_each_online_cpu(cpu) {
-		node = cpu_to_node(cpu);
-		c_nodes[node].cpu[c_nodes[node].nr_cpus++] = cpu;
-	}
-}
-
-static TDB *
-node_db(void)
-{
-	return c_nodes[numa_node_id()].db;
-}
-
-/**
- * Get a CPU identifier from @node to schedule a work.
- * The request should be processed on remote node, use round robin strategy
- * to distribute such requests.
- *
- * Note that atomic_t is a signed 32-bit value, and it's intentionally
- * cast to unsigned type value before taking a modulo operation.
- * If this place becomes a hot spot, then @cpu_idx may be made per_cpu.
- */
-static int
-tfw_cache_sched_cpu(TfwHttpReq *req)
-{
-	CaNode *node = &c_nodes[req->node];
-	unsigned int idx = atomic_inc_return(&node->cpu_idx);
-
-	return node->cpu[idx % node->nr_cpus];
 }
 
 static TfwCacheEntry *
@@ -867,13 +998,14 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	etag_val = tfw_str_next_str_val(h); /* not emptpy after http parser. */
 
 	/* Update supposed Etag offset to real value. */
+	/* FIXME: #803 */
 	e_p = TDB_PTR(db->hdr, h_off);
-	if (e_p + sizeof(TfwCStr) > h_trec->data + h_trec->len) {
+	if (e_p + TFW_CSTR_HDRLEN > h_trec->data + h_trec->len) {
 		h_trec = tdb_next_rec_chunk(db, h_trec);
 		e_p = h_trec->data;
 	}
 	/* Skip anything that is not a etag value. */
-	e_p += sizeof(TfwCStr);
+	e_p += TFW_CSTR_HDRLEN;
 	TFW_STR_FOR_EACH_CHUNK(c, h, end) {
 		size_t c_size = c->len;
 
@@ -929,6 +1061,52 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	return 0;
 }
 
+static bool
+__save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
+{
+	int i, fc;
+	unsigned int num;
+
+	if (TFW_STR_EMPTY(hdr))
+		return false;
+
+	num = hdr - resp->h_tbl->tbl;
+	if (num < TFW_HTTP_HDR_RAW) {
+		if (!tfw_cache_spec_headers_304[num])
+			return false;
+
+		for (i = 0; ce->hdrs_304[i]; ++i)
+			;
+		ce->hdrs_304[i] = off;
+		return true;
+	}
+
+	/* Raw headers. */
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(hdr, 0)->ptr));
+	for (i = 0; i < ARRAY_SIZE(tfw_cache_raw_headers_304); i++) {
+		const TfwStr *sh = &tfw_cache_raw_headers_304[i];
+		int sc = *(unsigned char *)sh->ptr;
+		if (fc > sc)
+			continue;
+		if (fc < sc)
+			break;
+		if (!tfw_stricmpspn(hdr, sh, ':')) {
+			/*
+			 * RFC 7234 4.1: Don't send Last-Modified if ETag is
+			 * present.
+			 */
+			if ((sc == 'l')
+			    && !TFW_STR_EMPTY(&resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG]))
+				return false;
+
+			ce->hdrs_304[i + TFW_CACHE_304_SPEC_HDRS_NUM] = off;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /**
  * Copy response skbs to database mapped area.
  * @tot_len - total length of actual data to write w/o TfwCStr's etc.
@@ -949,7 +1127,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
 	TDB *db = node_db();
 	TfwStr *field, *h, *end1, *end2, empty = {};
-	int r;
+	int r, i;
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -980,6 +1158,8 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
 	FOR_EACH_HDR_FIELD(field, end1, resp) {
+		bool hdr_304 = false;
+
 		/* Skip hop-by-hop headers. */
 		if (!(field->flags & TFW_STR_HBH_HDR)) {
 			h = field;
@@ -994,10 +1174,15 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 			etag_off = TDB_OFF(db->hdr, p);
 			etag_trec = trec;
 		}
+		hdr_304 = __save_hdr_304_off(ce, resp, field,
+					     TDB_OFF(db->hdr, p));
+
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
 			TFW_ERR("Cache: cannot copy HTTP header\n");
 			return -ENOMEM;
+		} else if (hdr_304) {
+			ce->hdr_len_304 += n;
 		}
 		ce->hdr_len += n;
 	}
@@ -1028,6 +1213,22 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 	if ((r = __set_etag(ce, resp, etag_off, etag_trec, p, &trec))) {
 		TFW_ERR("Cache: cannot copy entity-tag\n");
 		return r;
+	}
+
+	/* Update offsets of 304 headers to real values */
+	/* FIXME: #803 */
+	trec = &ce->trec;
+	for (i = 0; i < ARRAY_SIZE(ce->hdrs_304); ++i) {
+		if (!ce->hdrs_304[i])
+			continue;
+
+		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
+		while (trec && (p + TFW_CSTR_HDRLEN > trec->data + trec->len)) {
+			trec = tdb_next_rec_chunk(db, trec);
+		}
+		BUG_ON(!trec);
+
+		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
 	}
 
 	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
@@ -1205,82 +1406,6 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	return ret
 		? tfw_http_send_404(req, "purge: processing error")
 		: tfw_http_send_200(req);
-}
-
-static int
-tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
-		      TfwMsgIter *it, char **data, size_t len, TfwStr *hdr)
-{
-	int r, copied = 0;
-	TdbVRec *tr = *trec;
-	TfwStr c = { 0 };
-
-	while (1)  {
-		c.ptr = *data;
-		c.len = min(tr->data + tr->len - *data,
-			    (long)(len - copied));
-		r = tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c);
-		if (r)
-			return r;
-
-		copied += c.len;
-		*data += c.len;
-		if (copied == len)
-			break;
-
-		tr = *trec = tdb_next_rec_chunk(db, tr);
-		BUG_ON(!tr);
-		*data = tr->data;
-	}
-
-	/* Every non-empty header contains CRLF at the end. We need to translate
-	 * it to { str, eolen } presentation. */
-	if (hdr->len)
-		tfw_str_fixup_eol(hdr, SLEN(S_CRLF));
-
-	return 0;
-}
-
-/**
- * Write HTTP header to skb data.
- * The headers are likely to be adjusted, so copy them.
- */
-static int
-tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
-			 TdbVRec **trec, TfwMsgIter *it, char **p)
-{
-	int r, d, dn;
-	TfwStr *dups;
-	TfwCStr *s = (TfwCStr *)*p;
-
-	*p += TFW_CSTR_HDRLEN;
-	BUG_ON(*p > (*trec)->data + (*trec)->len);
-
-	if (likely(!(s->flags & TFW_STR_DUPLICATE)))
-		return tfw_cache_write_field(db, trec, resp, it, p, s->len,
-					     hdr);
-
-	/* Process duplicated headers. */
-	dn = s->len;
-	dups = tfw_pool_alloc(resp->pool, dn * sizeof(TfwStr));
-	if (!dups)
-		return -ENOMEM;
-
-	for (d = 0; d < dn; ++d) {
-		s = (TfwCStr *)*p;
-		BUG_ON(s->flags);
-		TFW_STR_INIT(&dups[d]);
-		*p += TFW_CSTR_HDRLEN;
-		if ((r = tfw_cache_write_field(db, trec, resp, it, p, s->len,
-					       &dups[d])))
-			return r;
-	}
-
-	hdr->ptr = dups;
-	__TFW_STR_CHUNKN_SET(hdr, dn);
-	hdr->flags |= TFW_STR_DUPLICATE;
-
-	return 0;
 }
 
 /**
