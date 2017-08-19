@@ -133,7 +133,7 @@ __hdr_is_singular(const TfwStr *hdr)
 #undef TfwStr_string
 	};
 
-	fc = tolower(*(unsigned char *)TFW_STR_CHUNK(hdr, 0));
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(hdr, 0)->ptr));
 	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
 		const TfwStr *sh = &hdr_singular[i];
 		int sc = *(unsigned char *)sh->ptr;
