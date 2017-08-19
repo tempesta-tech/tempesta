@@ -135,17 +135,8 @@ __hdr_is_singular(const TfwStr *hdr)
 #undef TfwStr_string
 	};
 
-	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(hdr, 0)->ptr));
-	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
-		const TfwStr *sh = &hdr_singular[i];
-		int sc = *(unsigned char *)sh->ptr;
-		if (fc > sc)
-			continue;
-		if (fc < sc)
-			break;
-		if (!tfw_stricmpspn(hdr, sh, ':'))
-			return true;
-	}
+	TFW_STR_IF_IN_ARRAY(hdr, hdr_singular, { return true; });
+
 	return false;
 }
 
