@@ -478,7 +478,7 @@ parse_int_list(unsigned char *data, size_t len, unsigned long *acc)
  * @return number of parsed bytes.
  */
 static int
-parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
+parse_int_hex(unsigned char *data, size_t len, unsigned long *acc, unsigned short *cnt)
 {
 	unsigned char *p;
 
@@ -489,7 +489,10 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 			return CSTR_NEQ;
 		if (unlikely(*acc > (UINT_MAX - 16) / 16))
 			return CSTR_BADLEN;
+		if (unlikely(*cnt >= (sizeof(int) * 2)))
+			return CSTR_BADLEN;
 		*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;
+		++*cnt;
 	}
 
 	return CSTR_POSTPONE;
@@ -1022,7 +1025,7 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 __FSM_STATE(RGen_BodyChunkLen) {					\
 	__fsm_sz = __data_remain(p);					\
 	/* Read next chunk length. */					\
-	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc);		\
+	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc, &parser->_cnt); \
 	TFW_DBG3("data chunk: remain_len=%zu ret=%d to_read=%lu\n",	\
 		 __fsm_sz, __fsm_n, parser->_acc);			\
 	switch (__fsm_n) {						\
@@ -1034,6 +1037,7 @@ __FSM_STATE(RGen_BodyChunkLen) {					\
 	default:							\
 		parser->to_read = parser->_acc;				\
 		parser->_acc = 0;					\
+		parser->_cnt = 0;					\
 		__FSM_MOVE_nf(RGen_BodyChunkExt, __fsm_n, &msg->body);	\
 	}								\
 }									\
