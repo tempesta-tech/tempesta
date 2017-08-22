@@ -173,6 +173,13 @@ $ ./run_tests.py cache.test_cache
 $ ./run_tests.py cache.test_cache.TestCacheDisabled.test_cache_fullfill_all
 ```
 
+To ignore specific tests, specify them in the arguments prefixed with `-`
+(you may need to use `--` to avoid treating that as a flag):
+```sh
+$ ./run_tests.py cache -cache.test_purge # run cache.*, except cache.test_purge.*
+$ ./run_tests.py -- -cache # run everything, except cache.*
+```
+
 ## Adding new tests
 
 Adding new tests is easy. First, create new Python file in the new Python module
