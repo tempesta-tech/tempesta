@@ -180,6 +180,20 @@ $ ./run_tests.py cache -cache.test_purge # run cache.*, except cache.test_purge.
 $ ./run_tests.py -- -cache # run everything, except cache.*
 ```
 
+If the testsuite was interrupted or aborted, next run will continue from the
+interruption point. The resumption information is stored in the
+`tests_resume.txt` file in the current working directory. It is also possible
+to resume the testsuite from a specific test:
+```sh
+$ ./run_tests.py --resume flacky_net
+$ ./run_tests.py --resume-after cache.test_purge
+```
+
+In all cases, prefix specifications are allowed, i. e. `cache.test_cache` will
+match all tests in `cache/test_cache.py`, but `test_cache` will not match
+anything. When resuming, execution will continue from (after) the first test
+that matches the specified string.
+
 ## Adding new tests
 
 Adding new tests is easy. First, create new Python file in the new Python module
