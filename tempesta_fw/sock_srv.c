@@ -414,6 +414,8 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
 
+	tfw_connection_release(conn);
+
 	return ret;
 }
 
