@@ -6,7 +6,7 @@ import sys
 import os
 import resource
 
-from helpers import tf_cfg, remote
+from helpers import tf_cfg, remote, shell
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -30,6 +30,12 @@ key, not password. `ssh-copy-id` can be used for that.
                                     and exit.
 -t, --duration <seconds>          - Duration of every single test.
 -f, --failfast                    - Stop tests after first error.
+
+Non-flag arguments may be used to include/exclude specific tests.
+Specify a dotted-style name or prefix to include every matching test:
+`cache.test_cache`, `flacky_net` (but not `sched.test_`).
+Prefix an argument with `-` to exclude every matching test: `-cache.test_purge`,
+`-flacky_net.test_sockets.CloseOnShutdown`.
 """)
 
 fail_fast = False
@@ -72,11 +78,50 @@ v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1
 # Install Ctrl-C handler for graceful stop.
 unittest.installHandler()
 
+#
+# Process exclusions/inclusions/resumption
+#
+
+# process filter arguments
+inclusions = []
+exclusions = []
+for name in remainder:
+    # determine if this is an inclusion or exclusion
+    if name.startswith('-'):
+        name = name[1:]
+        exclusions.append(name)
+    else:
+        inclusions.append(name)
+
+#
+# Discover tests, configure environment and run tests
+#
+
 print("""
 ----------------------------------------------------------------------
 Running functional tests...
 ----------------------------------------------------------------------
 """)
+
+# For the sake of simplicity, Unconditionally discover all tests and filter them
+# afterwards instead of importing individual tests by positive filters.
+loader = unittest.TestLoader()
+tests = []
+shell.testsuite_flatten(tests, loader.discover('.'))
+
+# Now that we initialized the loader, convert arguments to dotted form (if any).
+for lst in (inclusions, exclusions):
+    lst[:] = [shell.test_id_parse(loader, t) for t in lst]
+
+# filter testcases
+tests = [ t
+          for t in tests
+          if (not inclusions or shell.testcase_in(t, inclusions))
+          and not shell.testcase_in(t, exclusions) ]
+
+#
+# Configure environment, connect to the nodes
+#
 
 # the default value of fs.nr_open
 nofile = 1048576
@@ -84,16 +129,15 @@ resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
 
 remote.connect()
 
-#run tests
-loader = unittest.TestLoader()
-if not remainder:
-    tests = loader.discover('.')
-else:
-    tests = loader.loadTestsFromNames(remainder)
+#
+# Run the discovered tests
+#
 
+testsuite = unittest.TestSuite(tests)
 testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
                                             failfast=fail_fast,
                                             descriptions=False)
-testRunner.run(tests)
+testRunner.run(testsuite)
+
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
