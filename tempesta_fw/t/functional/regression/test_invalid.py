@@ -16,6 +16,14 @@ class TestInvalidResponse(functional.FunctionalTest):
     )
 
     @unittest.expectedFailure
+    def test_204_with_body(self):
+        chain = chains.proxy()
+        for msg in (chain.server_response, chain.response):
+            msg.status = '204'
+            msg.update()
+        self.generic_test_routine(self.config, [chain])
+
+    @unittest.expectedFailure
     def test_no_crlf_before_body(self):
         chain = chains.proxy()
         chain.server_response.msg = chain.server_response.msg.replace('\r\n\r\n', '\r\n', 1)
