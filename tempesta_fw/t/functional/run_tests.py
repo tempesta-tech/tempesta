@@ -69,7 +69,7 @@ for opt, arg in options:
         if not tf_cfg.cfg.set_duration(arg):
             print('Invalid option: ', opt, arg)
             usage()
-            sys.exit(0)
+            sys.exit(2)
     elif opt in ('-d', '--save'):
         tf_cfg.cfg.save_defaults()
         sys.exit(0)
@@ -133,7 +133,7 @@ print("""
 ----------------------------------------------------------------------
 Running functional tests%s...
 ----------------------------------------------------------------------
-""" % addn_status)
+""" % addn_status, file=sys.stderr)
 
 # For the sake of simplicity, Unconditionally discover all tests and filter them
 # afterwards instead of importing individual tests by positive filters.

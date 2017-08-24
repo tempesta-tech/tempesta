@@ -70,7 +70,7 @@ class StressTest(unittest.TestCase):
             return
         if tf_cfg.v_level() == 2:
             # Go to new line, don't mess up output.
-            print()
+            tf_cfg.dbg(2)
         req_total = err_total = 0
         for c in self.clients:
             req, err = c.results()

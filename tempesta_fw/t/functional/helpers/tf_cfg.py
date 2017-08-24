@@ -10,20 +10,27 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
+class ConfigError(Exception):
+    def __init__(msg):
+        Exception.__init__("Test configuration error: %s" % msg)
+
 class TestFrameworkCfg(object):
 
-    cfg_file = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../tests_config.ini'])
+    cfg_file = os.path.relpath(os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        'tests_config.ini'
+    ))
 
     def __init__(self, filename=None):
-        cfg_file = self.cfg_file
         if filename:
-            cfg_file = filename
+            self.cfg_file = filename
         self.defaults()
-        self.file_err = True
-        if os.path.isfile(cfg_file):
-            self.file_err = False
-            self.config.read(cfg_file)
+        self.cfg_err = None
+        try:
+            self.config.read(self.cfg_file)
+        except:
+            self.cfg_err = sys.exc_info()
 
     def defaults(self):
         self.config = configparser.ConfigParser()
@@ -76,14 +83,13 @@ class TestFrameworkCfg(object):
             self.config.write(configfile)
         print('Default configuration saved to %s' % self.cfg_file)
 
-    @staticmethod
-    def error(reason):
-        print('Tests configuration error! %s Exiting.' % reason)
-        sys.exit(1)
-
     def check(self):
-        if self.file_err:
-            self.error('Configuration file "tests_config.ini" not found.')
+        if self.cfg_err is not None:
+            msg = ('unable to read "%s" (%s: %s)' %
+                   (self.cfg_file,
+                    self.cfg_err[0].__name__,
+                    self.cfg_err[1]))
+            raise ConfigError(msg), None, self.cfg_err[2]
 
         # normalize pathes
         normalize = [
@@ -96,8 +102,11 @@ class TestFrameworkCfg(object):
             self.config[item[0]][item[1]] = os.path.normpath(self.config[item[0]][item[1]])
 
         #TODO: check configuration options
-        if self.config['Client']['hostname'] != 'localhost':
-            self.error('Running clients on remote host is not supported yet.')
+        client_hostname = self.config['Client']['hostname']
+        if client_hostname != 'localhost':
+            msg = ('running clients on a remote host "%s" is not supported' %
+                   client_hostname)
+            raise ConfigError(msg)
 
 def debug():
     return int(cfg.get('General', 'Verbose')) >= 3
@@ -107,7 +116,7 @@ def v_level():
 
 def dbg(level, *args, **kwargs):
     if int(cfg.get('General', 'Verbose')) >= level:
-        print(*args, **kwargs)
+        print(file=sys.stderr, *args, **kwargs)
 
 cfg = TestFrameworkCfg()
 

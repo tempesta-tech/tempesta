@@ -153,8 +153,7 @@ class TestDeproxyMessage(unittest.TestCase):
             try:
                 deproxy.Response(message)
             except deproxy.ParseError:
-                print('Error happen when processed message\n%s' % message)
-                raise
+                error.bug('Error processing message\n%s' % message)
 
     def test_request_plain(self):
         request = deproxy.Request(
