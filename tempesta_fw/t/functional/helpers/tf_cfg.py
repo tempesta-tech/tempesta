@@ -36,7 +36,8 @@ class TestFrameworkCfg(object):
         self.config = configparser.ConfigParser()
         self.config.read_dict({'General': {'verbose': '0',
                                            'duration': '10',
-                                           'concurrent_connections': '10'},
+                                           'concurrent_connections': '10',
+                                           'log_file': 'tests_log.log'},
                                'Client': {'ip': '127.0.0.1',
                                           'hostname': 'localhost',
                                           'ab': 'ab',

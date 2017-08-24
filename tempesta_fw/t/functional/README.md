@@ -108,6 +108,8 @@ failed, `u` — unexpected success, `x` — expected failure. `s` — skipped;
 values to obtain results quickly add large for more heavy stress tests. Default
 is `10` seconds.
 
+`log_file` option specifies a file to tee (duplicate) tests' stderr to.
+
 This group of options can be overridden by command line options, for more
 information run tests with `-h` key.
 ```sh
