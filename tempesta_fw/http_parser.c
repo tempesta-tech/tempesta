@@ -483,13 +483,14 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc, unsigned shor
 	unsigned char *p;
 
 	for (p = data; p - data < len; ++p) {
-		if (unlikely(IS_CRLF(*p) || (*p == ';')))
+		if (unlikely(IS_CRLF(*p) || (*p == ';'))) {
+			if (unlikely(*acc > LONG_MAX))
+				return CSTR_BADLEN;
 			return p - data;
+		}
 		if (unlikely(!isxdigit(*p)))
 			return CSTR_NEQ;
-		if (unlikely(*acc > (UINT_MAX - 16) / 16))
-			return CSTR_BADLEN;
-		if (unlikely(*cnt >= (sizeof(int) * 2)))
+		if (unlikely(*cnt >= (sizeof(long) * 2)))
 			return CSTR_BADLEN;
 		*acc = (*acc << 4) + (*p & 0xf) + (*p >> 6) * 9;
 		++*cnt;
@@ -995,7 +996,7 @@ __FSM_STATE(RGen_BodyStart) {						\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyChunk) {						\
-	TFW_DBG3("read body: to_read=%d\n", parser->to_read);		\
+	TFW_DBG3("read body: to_read=%ld\n", parser->to_read);		\
 	if (parser->to_read == -1) {					\
 		/* Prevent @parse_int_hex false positives. */		\
 		if (!isxdigit(c))					\
@@ -1006,7 +1007,7 @@ __FSM_STATE(RGen_BodyChunk) {						\
 }									\
 __FSM_STATE(RGen_BodyReadChunk) {					\
 	BUG_ON(parser->to_read < 0);					\
-	__fsm_sz = min_t(int, parser->to_read, __data_remain(p));	\
+	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));      \
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
 		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \

@@ -1131,7 +1131,7 @@ TEST(http_parser, chunk_size)
 			 "Host:\r\n"
 			 "Transfer-Encoding: chunked\r\n"
 			 "\r\n"
-			 "000000007\r\n"
+			 "00000000000000007\r\n"
 			 "abcdefg\r\n"
 			 "0\n"
 			 "\r\n");
@@ -1142,14 +1142,23 @@ TEST(http_parser, chunk_size)
 			 "\r\n"
 			 "7\r\n"
 			 "abcdefg\r\n"
-			 "000000000\r\n"
+			 "00000000000000000\r\n"
 			 "\r\n");
 
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
+			 "Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "8000000000000000\r\n"
+			 "abcdefg\r\n"
+			 "0\r\n"
+			 "\r\n");
+	
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Host:\r\n"
 		"Transfer-Encoding: chunked\r\n"
 		"\r\n"
-		"00000007\r\n"
+		"0000000000000007\r\n"
 		"abcdefg\r\n"
 		"0\r\n"
 		"\r\n");
