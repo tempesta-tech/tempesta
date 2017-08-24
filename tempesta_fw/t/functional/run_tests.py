@@ -5,6 +5,7 @@ import getopt
 import sys
 import os
 import resource
+import subprocess
 
 from helpers import tf_cfg, remote, shell
 
@@ -35,6 +36,7 @@ key, not password. `ssh-copy-id` can be used for that.
 -a, --resume-after <id>           - Continue execution _after_ the first test
                                     matching this ID prefix
 -n, --no-resume                   - Do not resume from state file
+-l, --log <file>                  - Duplcate tests' stderr to this file
 
 Non-flag arguments may be used to include/exclude specific tests.
 Specify a dotted-style name or prefix to include every matching test:
@@ -50,10 +52,10 @@ fail_fast = False
 test_resume = shell.TestResume()
 
 try:
-    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:n',
+    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:nl:',
                                        ['help', 'verbose', 'defaults',
                                         'duration=', 'failfast', 'resume=',
-                                        'resume-after=', 'no-resume'])
+                                        'resume-after=', 'no-resume', 'log='])
 
 except getopt.GetoptError as e:
     print(e)
@@ -82,11 +84,23 @@ for opt, arg in options:
         test_resume.set(arg, after=True)
     elif opt in ('-n', '--no-resume'):
         test_resume.unlink_file()
+    elif opt in ('-l', '--log'):
+        tf_cfg.cfg.config['General']['log_file'] = arg
 
 if os.geteuid() != 0:
     raise Exception("Tests must be run as root.")
 
 tf_cfg.cfg.check()
+
+# Redirect stderr into a file
+tee = subprocess.Popen(
+    ['tee', '-i', tf_cfg.cfg.get('General', 'log_file')],
+    stdin=subprocess.PIPE,
+    stdout=sys.stderr
+)
+sys.stderr.flush()
+os.dup2(tee.stdin.fileno(), sys.stderr.fileno())
+tee.stdin.close()
 
 # Verbose level for unit tests must be > 1.
 v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1
