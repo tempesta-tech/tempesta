@@ -310,10 +310,10 @@ class Nginx(object):
         pid_file = os.path.join(self.workdir, self.config.pidfile_name)
         config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = ' && '.join([
-            '[[ -e %s ]]' % pid_file,
+            '[ -e \'%s\' ]' % pid_file,
             'pid=$(cat %s)' % pid_file,
             'kill -s TERM $pid',
-            'while [[ -e /proc/$pid ]]; do sleep 0.5; done'
+            'while [ -e \'/proc/$pid\' ]; do sleep 1; done'
         ])
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('stop', self.get_name())))
