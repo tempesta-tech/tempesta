@@ -37,6 +37,7 @@ key, not password. `ssh-copy-id` can be used for that.
                                     matching this ID prefix
 -n, --no-resume                   - Do not resume from state file
 -l, --log <file>                  - Duplcate tests' stderr to this file
+-L, --list                        - List all discovered tests subject to filters
 
 Non-flag arguments may be used to include/exclude specific tests.
 Specify a dotted-style name or prefix to include every matching test:
@@ -50,12 +51,14 @@ be resumed manually from any given test.
 
 fail_fast = False
 test_resume = shell.TestResume()
+list_tests = False
 
 try:
-    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:nl:',
+    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:nl:L',
                                        ['help', 'verbose', 'defaults',
                                         'duration=', 'failfast', 'resume=',
-                                        'resume-after=', 'no-resume', 'log='])
+                                        'resume-after=', 'no-resume', 'log=',
+                                        'list'])
 
 except getopt.GetoptError as e:
     print(e)
@@ -86,9 +89,8 @@ for opt, arg in options:
         test_resume.unlink_file()
     elif opt in ('-l', '--log'):
         tf_cfg.cfg.config['General']['log_file'] = arg
-
-if os.geteuid() != 0:
-    raise Exception("Tests must be run as root.")
+    elif opt in ('-L', '--list'):
+        list_tests = True
 
 tf_cfg.cfg.check()
 
@@ -137,18 +139,6 @@ if not test_resume.from_file:
 # Discover tests, configure environment and run tests
 #
 
-addn_status = ""
-if test_resume:
-    if test_resume.last_completed:
-        addn_status = " (resuming from after %s)" % test_resume.last_id
-    else:
-        addn_status = " (resuming from %s)" % test_resume.last_id
-print("""
-----------------------------------------------------------------------
-Running functional tests%s...
-----------------------------------------------------------------------
-""" % addn_status, file=sys.stderr)
-
 # For the sake of simplicity, Unconditionally discover all tests and filter them
 # afterwards instead of importing individual tests by positive filters.
 loader = unittest.TestLoader()
@@ -169,8 +159,31 @@ tests = [ t
           and not shell.testcase_in(t, exclusions) ]
 
 #
+# List tests and exit, if requested
+#
+if list_tests:
+    for t in tests:
+        print(t.id())
+    sys.exit(0)
+
+#
 # Configure environment, connect to the nodes
 #
+
+if os.geteuid() != 0:
+    raise Exception("Tests must be run as root.")
+
+addn_status = ""
+if test_resume:
+    if test_resume.last_completed:
+        addn_status = " (resuming from after %s)" % test_resume.last_id
+    else:
+        addn_status = " (resuming from %s)" % test_resume.last_id
+print("""
+----------------------------------------------------------------------
+Running functional tests%s...
+----------------------------------------------------------------------
+""" % addn_status, file=sys.stderr)
 
 # the default value of fs.nr_open
 nofile = 1048576
