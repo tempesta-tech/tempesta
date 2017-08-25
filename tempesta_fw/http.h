@@ -262,12 +262,12 @@ typedef struct {
 typedef struct {
 	unsigned short	to_go;
 	unsigned short	_cnt;
+	unsigned int	_hdr_tag;
 	int		state;
 	int		_i_st;
-	int		to_read;
+	long		to_read;
 	unsigned long	_acc;
 	time_t		_date;
-	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 	TfwHttpHbhHdrs	hbh_parser;
