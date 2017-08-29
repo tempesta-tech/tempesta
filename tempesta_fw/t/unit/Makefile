@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2017 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@ tfw_test-objs = \
 	test_cfg.o \
 	test_hash.o \
 	test_http_match.o \
+	test_http_msg.o \
 	tfw_str_helper.o \
 	test_tfw_str.o \
 	test_http_parser.o \
