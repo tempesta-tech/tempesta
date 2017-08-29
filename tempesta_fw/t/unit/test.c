@@ -93,6 +93,7 @@ TEST_SUITE(tfw_str);
 TEST_SUITE(http_parser);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
+TEST_SUITE(http_msg);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
 TEST_SUITE(sched_ratio);
@@ -117,6 +118,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(tfw_str);
 	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
+	TEST_SUITE_RUN(http_msg);
 	TEST_SUITE_RUN(http_sticky);
 	TEST_SUITE_RUN(hash);
 	TEST_SUITE_RUN(addr);

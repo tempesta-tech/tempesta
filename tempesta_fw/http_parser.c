@@ -638,7 +638,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 		hdr->len += s_colon.len;
 		++hbh->off;
 
-		TFW_STR_IF_IN_ARRAY(hdr, block, { return CSTR_NEQ; });
+		TFW_IF_HDR_IN_ARRAY(hdr, block, { return CSTR_NEQ; });
 		/*
 		 * Don't set TFW_STR_HBH_HDR flag if such header was already
 		 * parsed. See comment in mark_raw_hbh()
