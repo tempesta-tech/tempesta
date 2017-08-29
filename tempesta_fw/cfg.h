@@ -83,6 +83,7 @@
  *
  * Both sections and directives are expressed by the TfwCfgEntry structure.
  * The difference is only in the @have_children flag which is true for sections.
+ * @dflt_value is set to true when a default value is submitted for parsing.
  *
  * Generally this is a temporary structure that lives only during the parsing
  * and acts as an interface between the parser FSM and TfwCfgSpec->handler.
@@ -94,7 +95,10 @@
  * @line	- Pointer to start of the current line, for same purpose.
  */
 typedef struct {
-	bool have_children;
+	struct {
+		bool have_children : 1;
+		bool dflt_value : 1;
+	};
 	size_t val_n;
 	size_t attr_n;
 	const char *name;
@@ -296,6 +300,12 @@ typedef struct {
 	int (*begin_hook)(TfwCfgSpec *self, TfwCfgEntry *parent_entry);
 	int (*finish_hook)(TfwCfgSpec *self);
 } TfwCfgSpecChild;
+
+static inline bool
+tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
+{
+	return cfg_entry->dflt_value;
+}
 
 /* Generic TfwCfgSpec->handler functions. */
 int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
