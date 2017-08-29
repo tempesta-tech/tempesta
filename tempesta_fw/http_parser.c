@@ -1619,6 +1619,8 @@ enum {
 	/* Body */
 	/* URI normalization. */
 	Req_UriNorm,
+
+	Req_StatesNum
 };
 
 #ifdef TFW_HTTP_NORMALIZATION
@@ -1626,6 +1628,143 @@ enum {
 #else
 #define TFW_HTTP_URI_HOOK	Req_UriAbsPath
 #endif
+
+/* Main (parent) HTTP response processing states. */
+enum {
+	Resp_0 = 5000,
+
+	Resp_HttpVer,
+	Resp_HttpVerT1,
+	Resp_HttpVerT2,
+	Resp_HttpVerP,
+	Resp_HttpVerSlash,
+	Resp_HttpVer11,
+	Resp_HttpVerDot,
+	Resp_HttpVer12,
+	Resp_SSpace,
+	Resp_StatusCode,
+	Resp_ReasonPhrase,
+	/* Headers. */
+	Resp_Hdr,
+	Resp_HdrA,
+	Resp_HdrAg,
+	Resp_HdrAge,
+	Resp_HdrAgeV,
+	Resp_HdrC,
+	Resp_HdrCa,
+	Resp_HdrCac,
+	Resp_HdrCach,
+	Resp_HdrCache,
+	Resp_HdrCache_,
+	Resp_HdrCache_C,
+	Resp_HdrCache_Co,
+	Resp_HdrCache_Con,
+	Resp_HdrCache_Cont,
+	Resp_HdrCache_Contr,
+	Resp_HdrCache_Contro,
+	Resp_HdrCache_Control,
+	Resp_HdrCache_ControlV,
+	Resp_HdrCo,
+	Resp_HdrCon,
+	Resp_HdrConn,
+	Resp_HdrConne,
+	Resp_HdrConnec,
+	Resp_HdrConnect,
+	Resp_HdrConnecti,
+	Resp_HdrConnectio,
+	Resp_HdrConnection,
+	Resp_HdrConnectionV,
+	Resp_HdrCont,
+	Resp_HdrConte,
+	Resp_HdrConten,
+	Resp_HdrContent,
+	Resp_HdrContent_,
+	Resp_HdrContent_L,
+	Resp_HdrContent_Le,
+	Resp_HdrContent_Len,
+	Resp_HdrContent_Leng,
+	Resp_HdrContent_Lengt,
+	Resp_HdrContent_Length,
+	Resp_HdrContent_LengthV,
+	Resp_HdrContent_T,
+	Resp_HdrContent_Ty,
+	Resp_HdrContent_Typ,
+	Resp_HdrContent_Type,
+	Resp_HdrContent_TypeV,
+	Resp_HdrD,
+	Resp_HdrDa,
+	Resp_HdrDat,
+	Resp_HdrDate,
+	Resp_HdrDateV,
+	Resp_HdrE,
+	Resp_HdrEt,
+	Resp_HdrEta,
+	Resp_HdrEtag,
+	Resp_HdrEtagV,
+	Resp_HdrEx,
+	Resp_HdrExp,
+	Resp_HdrExpi,
+	Resp_HdrExpir,
+	Resp_HdrExpire,
+	Resp_HdrExpires,
+	Resp_HdrExpiresV,
+	Resp_HdrK,
+	Resp_HdrKe,
+	Resp_HdrKee,
+	Resp_HdrKeep,
+	Resp_HdrKeep_,
+	Resp_HdrKeep_A,
+	Resp_HdrKeep_Al,
+	Resp_HdrKeep_Ali,
+	Resp_HdrKeep_Aliv,
+	Resp_HdrKeep_Alive,
+	Resp_HdrKeep_AliveV,
+	Resp_HdrL,
+	Resp_HdrLa,
+	Resp_HdrLas,
+	Resp_HdrLast,
+	Resp_HdrLast_,
+	Resp_HdrLast_M,
+	Resp_HdrLast_Mo,
+	Resp_HdrLast_Mod,
+	Resp_HdrLast_Modi,
+	Resp_HdrLast_Modif,
+	Resp_HdrLast_Modifi,
+	Resp_HdrLast_Modifie,
+	Resp_HdrLast_Modified,
+	Resp_HdrLast_ModifiedV,
+	Resp_HdrS,
+	Resp_HdrSe,
+	Resp_HdrSer,
+	Resp_HdrServ,
+	Resp_HdrServe,
+	Resp_HdrServer,
+	Resp_HdrServerV,
+	Resp_HdrT,
+	Resp_HdrTr,
+	Resp_HdrTra,
+	Resp_HdrTran,
+	Resp_HdrTrans,
+	Resp_HdrTransf,
+	Resp_HdrTransfe,
+	Resp_HdrTransfer,
+	Resp_HdrTransfer_,
+	Resp_HdrTransfer_E,
+	Resp_HdrTransfer_En,
+	Resp_HdrTransfer_Enc,
+	Resp_HdrTransfer_Enco,
+	Resp_HdrTransfer_Encod,
+	Resp_HdrTransfer_Encodi,
+	Resp_HdrTransfer_Encodin,
+	Resp_HdrTransfer_Encoding,
+	Resp_HdrTransfer_EncodingV,
+	Resp_HdrDone,
+
+	Resp_BodyUnlimStart,
+	Resp_BodyUnlimRead,
+
+	Resp_StatesNum
+};
 
 /*
  * Helping (interior) FSM states
@@ -2157,13 +2296,6 @@ __skip_weekday(unsigned char *p, size_t len)
 	return len;
 }
 
-enum {
-	I_Hdr_Expires,
-	I_Hdr_Date,
-	I_Hdr_Last_Modified,
-	I_Hdr_If_Modified_Since,
-};
-
 static int
 __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
@@ -2179,8 +2311,8 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(I_Date) {
-		switch (parser->_date_hdr) {
-		case I_Hdr_Expires:
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
 			/*
 			 * A duplicate invalidates the header's value.
 			 * @resp->expires is set to zero - already expired.
@@ -2188,22 +2320,22 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
 				__FSM_I_MOVE_n(I_EoL, 0);
 			break;
-		case I_Hdr_Date:
+		case Resp_HdrDateV:
 			if (resp->flags & TFW_HTTP_HAS_HDR_DATE)
 				return CSTR_NEQ;
 			break;
-		case I_Hdr_Last_Modified:
+		case Resp_HdrLast_ModifiedV:
 			if (resp->flags & TFW_HTTP_HAS_HDR_LMODIFIED)
 				return CSTR_NEQ;
 			break;
-		case I_Hdr_If_Modified_Since:
+		case Req_HdrIf_Modified_SinceV:
 			if (req->cond.flags & TFW_HTTP_COND_IF_MSINCE)
 				return CSTR_NEQ;
 			break;
 		default:
-			TFW_DBG2("%s: Unknown date header [%d], caller's FSM "
+			TFW_DBG2("%s: Unknown date header, caller's FSM "
 				 "state: [%d]\n",
-				 __func__, parser->_date_hdr, parser->state);
+				 __func__, parser->state);
 			BUG();
 			return CSTR_NEQ;
 		}
@@ -2403,20 +2535,20 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (!IS_CRLF(*(p + __fsm_sz)))
 			return CSTR_NEQ;
 		TFW_DBG3("%s: parsed date %lu", __func__, parser->_date);
-		switch (parser->_date_hdr) {
-		case I_Hdr_Expires:
+		switch (parser->state) {
+		case Resp_HdrExpiresV:
 			resp->cache_ctl.expires = parser->_date;
 			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
 			break;
-		case I_Hdr_Date:
+		case Resp_HdrDateV:
 			resp->date = parser->_date;
 			resp->flags |= TFW_HTTP_HAS_HDR_DATE;
 			break;
-		case I_Hdr_Last_Modified:
+		case Resp_HdrLast_ModifiedV:
 			resp->last_modified = parser->_date;
 			resp->flags |= TFW_HTTP_HAS_HDR_LMODIFIED;
 			break;
-		case I_Hdr_If_Modified_Since:
+		case Req_HdrIf_Modified_SinceV:
 			req->cond.m_date = parser->_date;
 			req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 			break;
@@ -2438,7 +2570,6 @@ static int
 __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int ret;
-	msg->parser._date_hdr = I_Hdr_If_Modified_Since;
 	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
 		/* On error just swallow the rest of the line. */
@@ -3638,140 +3769,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
  *	HTTP response parsing
  * ------------------------------------------------------------------------
  */
-/* Main (parent) HTTP response processing states. */
-enum {
-	Resp_0,
-	Resp_HttpVer,
-	Resp_HttpVerT1,
-	Resp_HttpVerT2,
-	Resp_HttpVerP,
-	Resp_HttpVerSlash,
-	Resp_HttpVer11,
-	Resp_HttpVerDot,
-	Resp_HttpVer12,
-	Resp_SSpace,
-	Resp_StatusCode,
-	Resp_ReasonPhrase,
-	/* Headers. */
-	Resp_Hdr,
-	Resp_HdrA,
-	Resp_HdrAg,
-	Resp_HdrAge,
-	Resp_HdrAgeV,
-	Resp_HdrC,
-	Resp_HdrCa,
-	Resp_HdrCac,
-	Resp_HdrCach,
-	Resp_HdrCache,
-	Resp_HdrCache_,
-	Resp_HdrCache_C,
-	Resp_HdrCache_Co,
-	Resp_HdrCache_Con,
-	Resp_HdrCache_Cont,
-	Resp_HdrCache_Contr,
-	Resp_HdrCache_Contro,
-	Resp_HdrCache_Control,
-	Resp_HdrCache_ControlV,
-	Resp_HdrCo,
-	Resp_HdrCon,
-	Resp_HdrConn,
-	Resp_HdrConne,
-	Resp_HdrConnec,
-	Resp_HdrConnect,
-	Resp_HdrConnecti,
-	Resp_HdrConnectio,
-	Resp_HdrConnection,
-	Resp_HdrConnectionV,
-	Resp_HdrCont,
-	Resp_HdrConte,
-	Resp_HdrConten,
-	Resp_HdrContent,
-	Resp_HdrContent_,
-	Resp_HdrContent_L,
-	Resp_HdrContent_Le,
-	Resp_HdrContent_Len,
-	Resp_HdrContent_Leng,
-	Resp_HdrContent_Lengt,
-	Resp_HdrContent_Length,
-	Resp_HdrContent_LengthV,
-	Resp_HdrContent_T,
-	Resp_HdrContent_Ty,
-	Resp_HdrContent_Typ,
-	Resp_HdrContent_Type,
-	Resp_HdrContent_TypeV,
-	Resp_HdrD,
-	Resp_HdrDa,
-	Resp_HdrDat,
-	Resp_HdrDate,
-	Resp_HdrDateV,
-	Resp_HdrE,
-	Resp_HdrEt,
-	Resp_HdrEta,
-	Resp_HdrEtag,
-	Resp_HdrEtagV,
-	Resp_HdrEx,
-	Resp_HdrExp,
-	Resp_HdrExpi,
-	Resp_HdrExpir,
-	Resp_HdrExpire,
-	Resp_HdrExpires,
-	Resp_HdrExpiresV,
-	Resp_HdrK,
-	Resp_HdrKe,
-	Resp_HdrKee,
-	Resp_HdrKeep,
-	Resp_HdrKeep_,
-	Resp_HdrKeep_A,
-	Resp_HdrKeep_Al,
-	Resp_HdrKeep_Ali,
-	Resp_HdrKeep_Aliv,
-	Resp_HdrKeep_Alive,
-	Resp_HdrKeep_AliveV,
-	Resp_HdrL,
-	Resp_HdrLa,
-	Resp_HdrLas,
-	Resp_HdrLast,
-	Resp_HdrLast_,
-	Resp_HdrLast_M,
-	Resp_HdrLast_Mo,
-	Resp_HdrLast_Mod,
-	Resp_HdrLast_Modi,
-	Resp_HdrLast_Modif,
-	Resp_HdrLast_Modifi,
-	Resp_HdrLast_Modifie,
-	Resp_HdrLast_Modified,
-	Resp_HdrLast_ModifiedV,
-	Resp_HdrS,
-	Resp_HdrSe,
-	Resp_HdrSer,
-	Resp_HdrServ,
-	Resp_HdrServe,
-	Resp_HdrServer,
-	Resp_HdrServerV,
-	Resp_HdrT,
-	Resp_HdrTr,
-	Resp_HdrTra,
-	Resp_HdrTran,
-	Resp_HdrTrans,
-	Resp_HdrTransf,
-	Resp_HdrTransfe,
-	Resp_HdrTransfer,
-	Resp_HdrTransfer_,
-	Resp_HdrTransfer_E,
-	Resp_HdrTransfer_En,
-	Resp_HdrTransfer_Enc,
-	Resp_HdrTransfer_Enco,
-	Resp_HdrTransfer_Encod,
-	Resp_HdrTransfer_Encodi,
-	Resp_HdrTransfer_Encodin,
-	Resp_HdrTransfer_Encoding,
-	Resp_HdrTransfer_EncodingV,
-	Resp_HdrDone,
-
-	Resp_BodyUnlimStart,
-	Resp_BodyUnlimRead,
-};
-
 /*
  * Helping (interior) FSM states
  * for processing specific parts of an HTTP request.
@@ -3974,13 +3971,6 @@ done:
 	return r;
 }
 
-static int
-__resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
-{
-	msg->parser._date_hdr = I_Hdr_Date;
-	return __parse_http_date(msg, data, len);
-}
-
 /*
  * The value of "Expires:" header field is a date in HTTP-Date format.
  * However, if the format of a date is invalid, that is interpreted
@@ -3992,7 +3982,6 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int ret;
 
-	msg->parser._date_hdr = I_Hdr_Expires;
 	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
 		/*
@@ -4005,13 +3994,6 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
-}
-
-static int
-__resp_parse_last_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
-{
-	msg->parser._date_hdr = I_Hdr_Last_Modified;
-	return __parse_http_date(msg, data, len);
 }
 
 static int
@@ -4082,6 +4064,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
+
+	BUILD_BUG_ON((int)Req_StatesNum >= (int)Resp_0);
+	BUILD_BUG_ON((int)Resp_StatesNum >= (int)RGen_OWS);
 
 	TFW_DBG("parse %lu server data bytes (%.*s%s) on resp=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", resp);
@@ -4346,7 +4331,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* 'Date:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrDateV, I_Date, msg,
-				  __resp_parse_date);
+				  __parse_http_date);
 
 	/* 'ETag:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrEtagV, I_Etag, msg,
@@ -4362,7 +4347,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* 'Last-Modified:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrLast_ModifiedV, I_Date, msg,
-				  __resp_parse_last_modified);
+				  __parse_http_date);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,
