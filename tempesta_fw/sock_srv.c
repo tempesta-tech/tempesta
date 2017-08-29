@@ -596,6 +596,26 @@ static int tfw_cfg_cns_retries, tfw_cfg_out_cns_retries;
 static unsigned int tfw_cfg_retry_nip, tfw_cfg_out_retry_nip;
 static unsigned int tfw_cfg_sticky_sess, tfw_cfg_out_sticky_sess;
 static unsigned int tfw_cfg_sg_flags, tfw_cfg_out_sg_flags;
+static struct {
+	bool sched		: 1;
+	bool queue_size		: 1;
+	bool fwd_timeout	: 1;
+	bool fwd_retries	: 1;
+	bool cns_retries	: 1;
+	bool retry_nip		: 1;
+	bool sticky_sess	: 1;
+} __attribute__((packed)) tfw_cfg_is_set;
+
+/* Please keep the condition in these two macros in sync. */
+#define TFW_CFGOP_HAS_DFLT(ce, v)				\
+	(tfw_cfg_is_dflt_value(ce) && tfw_cfg_is_set.v)
+#define TFW_CFGOP_INHERIT(ce, v)				\
+({								\
+	if (tfw_cfg_is_dflt_value(ce) && tfw_cfg_is_set.v) {	\
+		tfw_cfg_##v = tfw_cfg_out_##v;			\
+		return 0;					\
+	}							\
+})
 
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
@@ -616,36 +636,42 @@ tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 static int
 tfw_cfgop_in_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, queue_size);
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_queue_size);
 }
 
 static int
 tfw_cfgop_out_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.queue_size = true;
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_queue_size);
 }
 
 static int
 tfw_cfgop_in_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, fwd_timeout);
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_fwd_timeout);
 }
 
 static int
 tfw_cfgop_out_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.fwd_timeout = true;
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_fwd_timeout);
 }
 
 static int
 tfw_cfgop_in_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, fwd_retries);
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_fwd_retries);
 }
 
 static int
 tfw_cfgop_out_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.fwd_retries = true;
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_fwd_retries);
 }
 
@@ -656,11 +682,10 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, int *retry_nip)
 		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
-	if (!ce->val_n) {
-		*retry_nip = TFW_SRV_RETRY_NIP;
-	} else if (!strcasecmp(ce->vals[0], TFW_CFG_DFLT_VAL))	{
-		BUG_ON(ce->val_n != 1);
+	if (tfw_cfg_is_dflt_value(ce)) {
 		*retry_nip = 0;
+	} else if (!ce->val_n) {
+		*retry_nip = TFW_SRV_RETRY_NIP;
 	} else {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
@@ -680,12 +705,12 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (!ce->val_n) {
+	if (tfw_cfg_is_dflt_value(ce)) {
+		*use_sticky = 0;
+	} else if (!ce->val_n) {
 		*use_sticky = TFW_SRV_STICKY;
 	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
 		*use_sticky = TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER;
-	} else if (!strcasecmp(ce->vals[0], TFW_CFG_DFLT_VAL)) {
-		*use_sticky = 0;
 	} else  {
 		TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
 		return  -EINVAL;
@@ -697,36 +722,42 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 static int
 tfw_cfgop_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, retry_nip);
 	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_retry_nip);
 }
 
 static int
 tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.retry_nip = true;
 	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_out_retry_nip);
 }
 
 static int
 tfw_cfgop_in_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, sticky_sess);
 	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sticky_sess);
 }
 
 static int
 tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.sticky_sess = true;
 	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_out_sticky_sess);
 }
 
 static int
 tfw_cfgop_in_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TFW_CFGOP_INHERIT(ce, cns_retries);
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_cns_retries);
 }
 
 static int
 tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.cns_retries = true;
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_out_cns_retries);
 }
 
@@ -1226,8 +1257,14 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched,
 static int
 tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	tfw_cfg_schref = &tfw_cfg_schref_predict;
+	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
+		tfw_cfg_sched = tfw_cfg_out_sched;
+		tfw_cfg_schref = tfw_cfg_out_schref;
+		tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
+		return 0;
+	}
 
+	tfw_cfg_schref = &tfw_cfg_schref_predict;
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sched,
 				       tfw_cfg_schref,
 				       &tfw_cfg_sg_flags);
@@ -1236,8 +1273,8 @@ tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	tfw_cfg_is_set.sched = true;
 	tfw_cfg_out_schref = &tfw_cfg_out_schref_predict;
-
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_out_sched,
 				       tfw_cfg_out_schref,
 				       &tfw_cfg_out_sg_flags);
@@ -1250,6 +1287,7 @@ static void
 tfw_clean_srv_groups(TfwCfgSpec *cs)
 {
 	TfwServer *srv, *tmp;
+	static const typeof(tfw_cfg_is_set) cfg_is_set_empty = { 0 };
 
 	list_for_each_entry_safe(srv, tmp, &tfw_cfg_in_slst, list) {
 		list_del(&srv->list);
@@ -1266,6 +1304,7 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 	tfw_cfg_sched = tfw_cfg_out_sched = NULL;
 	tfw_cfg_schref = tfw_cfg_out_schref = NULL;
 	tfw_cfg_slstsz = tfw_cfg_out_slstsz = 0;
+	tfw_cfg_is_set = cfg_is_set_empty;
 
 	tfw_sock_srv_delete_all_conns();
 	tfw_sg_release_all();
