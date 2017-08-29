@@ -70,6 +70,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @status_len	- length of response satus line;
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
+ * @hdr_len_304	- length of headers data used to build 304 response;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
  * @age		- the value of response Age: header field;
@@ -77,10 +78,12 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @req_time	- the time the request was issued;
  * @resp_time	- the time the response was received;
  * @lifetime	- the cache entry's current lifetime;
+ * @last_modified - the value of response Last-Modified: header field;
  * @key		- the cache enty key (URI + Host header);
  * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
+ * @hdrs_304	- pointers to headers used to build 304 response;
  * @version	- HTTP version of the response;
  * @resp_status - Http status of the cached response.
  * @hmflags	- flags of the response after parsing and post-processing.
@@ -347,9 +350,13 @@ tfw_cache_employ_req(TfwHttpReq *req)
 
 	if (req->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE)
 		/*
-		 * TODO: We can use some headers of the stored response to
-		 * revalidate stored entries while origin server handles
-		 * the request.
+		 * TODO: RFC 7234 4. "... a cache MUST NOT reuse a stored
+		 * response, unless... the request does not contain the no-cache
+		 * pragma, nor the no-cache cache directive unless the stored
+		 * response is successfully validated."
+		 *
+		 * We can validate the stored response and serve request from
+		 * cache. This reduses traffic to origin server.
 		 */
 		return false;
 
@@ -519,6 +526,10 @@ tfw_cache_cond_none_match(TfwHttpReq *req, TfwCacheEntry *ce)
 	return true;
 }
 
+/**
+ * Add a new data chunk size of @len starting from @data to HTTP response @resp.
+ * Properly set up @hdr if not NULL.
+ */
 static int
 tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		      TfwMsgIter *it, char **data, size_t len, TfwStr *hdr)
@@ -603,6 +614,10 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * RFC 7232 Section-4.1: The server generating a 304 response MUST generate:
  * Cache-Control, Content-Location, Date, ETag, Expires, and Vary.
  * Last-Modified might be used if the response does not have an ETag field.
+ *
+ * The 304 response should be as short as possible, we don't need to add
+ * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
+ * instead of tfw_http_msg_add_data() used to build full response.
  */
 int
 __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
@@ -617,7 +632,6 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv)))
 		return -ENOMEM;
 
-
 	if ((r = tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
 				   ce->hdr_len_304)))
 		goto err;
@@ -629,7 +643,7 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 		p = TDB_PTR(db->hdr, ce->hdrs_304[i]);
 		while (trec && (p > trec->data + trec->len))
-		     trec = tdb_next_rec_chunk(db, trec);
+			trec = tdb_next_rec_chunk(db, trec);
 		BUG_ON(!trec);
 
 		if ((r = tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &it,
@@ -682,8 +696,8 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 	}
 	/* If-Modified-Since: */
 	else if (req->cond.m_date
-	    && ((req->method == TFW_HTTP_METH_GET)
-		|| (req->method == TFW_HTTP_METH_HEAD)))
+		 && ((req->method == TFW_HTTP_METH_GET)
+		     || (req->method == TFW_HTTP_METH_HEAD)))
 	{
 		bool send_304 = false;
 
@@ -705,7 +719,7 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 			return false;
 		}
 	}
-	/* TODO: Range GET requests. RFC 7232 Section 6, step 5. */
+	/* TODO #499: Range GET requests. RFC 7232 Section 6, step 5. */
 
 	return true;
 }
@@ -1061,6 +1075,10 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	return 0;
 }
 
+/**
+ * Check if the header @hdr must be present in 304 response. If yes save its
+ * offset in cache entry @ce for fast creation of 304 response in __send_304().
+ */
 static bool
 __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 {
@@ -1091,6 +1109,7 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 			return false;
 
 		ce->hdrs_304[i + TFW_CACHE_304_SPEC_HDRS_NUM] = off;
+		return true;
 	});
 
 	return false;
