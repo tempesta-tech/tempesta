@@ -3225,8 +3225,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			if (likely(__data_available(p, 18)
 				   && TFW_LC(*(p + 1)) == 'f'
 				   && *(p + 2) == '-'
-				   && C4_INT_LCM(p + 3, 'm', 'o', 'd', 'i')
-				   && C4_INT_LCM(p + 7, 'f', 'i', 'e', 'd')
+				   && C8_INT_LCM(p + 3, 'm', 'o', 'd', 'i',
+							'f', 'i', 'e', 'd')
 				   && *(p + 11) == '-'
 				   && C4_INT_LCM(p + 12, 's', 'i', 'n', 'c')
 				   && TFW_LC(*(p + 16)) == 'e'
@@ -4288,8 +4288,8 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			if (likely(__data_available(p, 14)
 				   && C4_INT_LCM(p, 'l', 'a', 's', 't')
 				   && *(p + 4) == '-'
-				   && C4_INT_LCM(p + 5, 'm', 'o', 'd', 'i')
-				   && C4_INT_LCM(p + 9, 'f', 'i', 'e', 'd')
+				   && C8_INT_LCM(p + 5, 'm', 'o', 'd', 'i',
+							'f', 'i', 'e', 'd')
 				   && *(p + 13) == ':'))
 			{
 				parser->_i_st = Resp_HdrLast_ModifiedV;
