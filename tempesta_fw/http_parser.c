@@ -497,7 +497,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc)
 
 /**
  * Mark existing spec headers of http message @hm as hop-by-hop if they were
- * listed in Connection header or in @__hbh_parser_init_* function.
+ * listed in Connection header or in @tfw_http_init_parser_* function.
  */
 static void
 mark_spec_hbh(TfwHttpMsg *hm)
@@ -2769,6 +2769,29 @@ done:
 	return r;
 }
 
+/**
+ * Init parser fields common for both response and request.
+ */
+static inline void
+__parser_init(TfwHttpParser *parser)
+{
+	parser->to_read = -1; /* unknown body size */
+}
+
+void
+tfw_http_init_parser_req(TfwHttpReq *req)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+
+	__parser_init(&req->parser);
+	req->parser.state = Req_0;
+
+	/*  Add spec header indexes to list of hop-by-hop headers. */
+	BUG_ON(hbh_hdrs->spec);
+	/* Connection is hop-by-hop header by RFC 7230 6.1 */
+	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
+}
+
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 {
@@ -4056,6 +4079,26 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 		return (r == 0);
 	}
 	return false;
+}
+
+void
+tfw_http_init_parser_resp(TfwHttpResp *resp)
+{
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+
+	__parser_init(&resp->parser);
+	resp->parser.state = Resp_0;
+
+	/*  Add spec header indexes to list of hop-by-hop headers. */
+	BUG_ON(hbh_hdrs->spec);
+	/*
+	 * Connection is hop-by-hop header by RFC 7230 6.1
+	 *
+	 * Server header isn't defined as hop-by-hop by the RFC, but we
+	 * don't show protected server to world.
+	 */
+	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
+			 (0x1 << TFW_HTTP_HDR_SERVER);
 }
 
 int
