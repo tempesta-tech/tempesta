@@ -1064,7 +1064,7 @@ tfw_sched_ratio_srvdesc_setup(TfwSrvGroup *sg)
 }
 
 static TfwRatio *
-tfw_sched_ration_add_grp_common(TfwSrvGroup *sg)
+tfw_sched_ratio_add_grp_common(TfwSrvGroup *sg)
 {
 	int ret;
 	size_t size;
@@ -1097,7 +1097,7 @@ tfw_sched_ratio_add_grp_static(TfwSrvGroup *sg)
 {
 	TfwRatio *ratio;
 
-	ratio = tfw_sched_ration_add_grp_common(sg);
+	ratio = tfw_sched_ratio_add_grp_common(sg);
 	if (IS_ERR(ratio))
 		return PTR_ERR(ratio);
 
@@ -1115,7 +1115,7 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg)
 
 	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
-	ratio = tfw_sched_ration_add_grp_common(sg);
+	ratio = tfw_sched_ratio_add_grp_common(sg);
 	if (IS_ERR(ratio))
 		return PTR_ERR(ratio);
 
