@@ -261,15 +261,12 @@ typedef struct {
  * @hbh_parser	- list of special and raw headers names to be treated as
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
- * @_date_hdr	- defines which exact date header is processed, see enum before
- *		__parse_http_date().
  */
 typedef struct {
 	unsigned short	to_go;
 	int		state;
 	int		_i_st;
 	int		to_read;
-	int		_date_hdr;
 	unsigned long	_acc;
 	time_t		_date;
 	unsigned int	_hdr_tag;
