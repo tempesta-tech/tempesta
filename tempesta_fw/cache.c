@@ -1099,7 +1099,7 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 		return true;
 	}
 
-	TFW_STR_IF_IN_ARRAY(hdr, tfw_cache_raw_headers_304, {
+	TFW_IF_HDR_IN_ARRAY(hdr, tfw_cache_raw_headers_304, {
 		/*
 		 * RFC 7234 4.1: Don't send Last-Modified if ETag is
 		 * present.

@@ -135,7 +135,7 @@ __hdr_is_singular(const TfwStr *hdr)
 #undef TfwStr_string
 	};
 
-	TFW_STR_IF_IN_ARRAY(hdr, hdr_singular, { return true; });
+	TFW_IF_HDR_IN_ARRAY(hdr, hdr_singular, { return true; });
 
 	return false;
 }

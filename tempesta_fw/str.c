@@ -607,7 +607,8 @@ tfw_str_next_str_val(const TfwStr *str)
 	TfwStr r_str = { 0 }, *chunk, *end;
 	bool skip = true;
 
-	if (!str || TFW_STR_DUP(str) || TFW_STR_PLAIN(str))
+	BUG_ON(TFW_STR_DUP(str));
+	if (!str || TFW_STR_PLAIN(str))
 		return r_str;
 
 	end =  (TfwStr*)str->ptr + TFW_STR_CHUNKN(str);
