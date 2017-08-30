@@ -1207,6 +1207,292 @@ TEST(http_parser, cookie)
 		"\r\n");
 }
 
+TEST(http_parser, etag)
+{
+#define RESP_ETAG_START							\
+	"HTTP/1.1 200 OK\r\n"						\
+	"Date: Mon, 23 May 2005 22:38:34 GMT\r\n"			\
+	"Content-Type: text/html; charset=UTF-8\r\n"			\
+	"Content-Encoding: UTF-8\r\n"					\
+	"Content-Length: 10\r\n"					\
+	"Last-Modified: Wed, 08 Jan 2003 23:11:55 GMT\r\n"		\
+	"Server: Apache/1.3.3.7 (Unix) (Red-Hat/Linux)\r\n"
+
+#define RESP_ETAG_END							\
+	"Accept-Ranges: bytes\r\n"					\
+	"Connection: close\r\n"						\
+	"\r\n"								\
+	"0123456789"
+
+#define ETAG_VALUE	"3f80f-1b6-3e1cb03b"
+#define ETAG_H		"ETag:   \""
+#define ETAG_TAIL	"\"  \r\n"
+#define ETAG		ETAG_H ETAG_VALUE ETAG_TAIL
+#define ETAG_H_WEAK	"ETag:   W/\""
+#define ETAG_WEAK	ETAG_H_WEAK ETAG_VALUE ETAG_TAIL
+
+	FOR_RESP(RESP_ETAG_START
+		 ETAG
+		 RESP_ETAG_END)
+	{
+		TfwStr h_etag, s_etag;
+		DEFINE_TFW_STR(exp_etag, ETAG_VALUE "\"");
+
+		tfw_http_msg_srvhdr_val(&resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG],
+					TFW_HTTP_HDR_ETAG,
+					&h_etag);
+		s_etag = tfw_str_next_str_val(&h_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+	}
+
+	FOR_RESP(RESP_ETAG_START
+		 ETAG_WEAK
+		 RESP_ETAG_END)
+	{
+		TfwStr h_etag, s_etag;
+		DEFINE_TFW_STR(exp_etag, ETAG_VALUE "\"");
+
+		tfw_http_msg_srvhdr_val(&resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG],
+					TFW_HTTP_HDR_ETAG,
+					&h_etag);
+		s_etag = tfw_str_next_str_val(&h_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_TRUE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				    & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+	}
+
+	FOR_RESP(RESP_ETAG_START
+		 "ETag: \"\" \r\n"
+		 RESP_ETAG_END)
+	{
+		TfwStr h_etag, s_etag;
+		DEFINE_TFW_STR(exp_etag, "\"");
+
+		tfw_http_msg_srvhdr_val(&resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG],
+					TFW_HTTP_HDR_ETAG,
+					&h_etag);
+		s_etag = tfw_str_next_str_val(&h_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+	}
+
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: \"3f80f-1b6-3e1cb03b\"\r\n"
+			  "ETag: \"3f80f-1b6-3e1cb03b\"\r\n"
+			  RESP_ETAG_END);
+
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: \"3f80f-1b6-3e1cb03b\r\n"
+			  RESP_ETAG_END);
+
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: 3f80f-1b6-3e1cb03b\"\r\n"
+			  RESP_ETAG_END);
+
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: W/  \"3f80f-1b6-3e1cb03b\"\r\n"
+			  RESP_ETAG_END);
+
+	/* Same code is used to parse ETag header and If-None-Match header. */
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: \"3f80f\", \"3e1cb03b\"\r\n"
+			  RESP_ETAG_END);
+
+	EXPECT_BLOCK_RESP(RESP_ETAG_START
+			  "ETag: *\r\n"
+			  RESP_ETAG_END);
+
+#undef RESP_ETAG_START
+#undef RESP_ETAG_END
+#undef ETAG
+#undef ETAG_WEAK
+#undef ETAG_H
+#undef ETAG_H_WEAK
+#undef ETAG_TAIL
+#undef ETAG_VALUE
+}
+
+TEST(http_parser, if_none_match)
+{
+#define ETAG_1		"3f80f-1b6-3e1cb03b"
+#define ETAG_2		"dhjkshfkjSDFDS"
+#define ETAG_3		"3f80f"
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"If-None-Match:    \"" ETAG_1 "\"  \r\n"
+		"\r\n")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag, ETAG_1 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"If-None-Match:    \"\"  \r\n"
+		"\r\n")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag, "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"If-None-Match:    \"" ETAG_1 "\", \"" ETAG_2 "\"  \r\n"
+		"\r\n")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag_1, ETAG_1 "\"");
+		DEFINE_TFW_STR(exp_etag_2, ETAG_2 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"If-None-Match:    \"" ETAG_1 "\", W/\"" ETAG_2 "\", \"" ETAG_3 "\"  \r\n"
+		"\r\n")
+	{
+		TfwStr h_inm = req->h_tbl->tbl[TFW_HTTP_HDR_IF_NONE_MATCH];
+		TfwStr s_etag;
+		DEFINE_TFW_STR(exp_etag_1, ETAG_1 "\"");
+		DEFINE_TFW_STR(exp_etag_2, ETAG_2 "\"");
+		DEFINE_TFW_STR(exp_etag_3, ETAG_3 "\"");
+
+		s_etag = tfw_str_next_str_val(&h_inm);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_1, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_2, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_TRUE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				    & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_EQ(tfw_strcmpspn(&s_etag, &exp_etag_3, '"'), 0);
+		if (!TFW_STR_EMPTY(&s_etag)) {
+			EXPECT_FALSE((TFW_STR_CHUNK(&s_etag, 0))->flags
+				     & TFW_STR_ETAG_WEAK);
+		}
+
+		s_etag = tfw_str_next_str_val(&s_etag);
+		EXPECT_TRUE(TFW_STR_EMPTY(&s_etag));
+
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"If-None-Match:   *  \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_ETAG_ANY);
+	}
+
+	/* Empty header */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \r\n"
+			 "\r\n");
+	/* Not quoted value. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: " ETAG_1 "\r\n"
+			 "\r\n");
+	/* No closing quote. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \"" ETAG_1 "\r\n"
+			 "\r\n");
+	/* No opening quote. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: " ETAG_1 "\"\r\n"
+			 "\r\n");
+	/* Dublicated header. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \"" ETAG_1 "\"\r\n"
+			 "If-None-Match: \"" ETAG_1 "\"\r\n"
+			 "\r\n");
+	/* Incomplite header. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \"" ETAG_1 "\", \r\n"
+			 "\r\n");
+	/* No delimiter. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \"" ETAG_1 "\" \"" ETAG_2 "\" \r\n"
+			 "\r\n");
+	/* Etag list + Any etag. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: \"" ETAG_1 "\", * \r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "If-None-Match: *, \"" ETAG_1 "\" \r\n"
+			 "\r\n");
+
+#undef ETAG_1
+#undef ETAG_2
+#undef ETAG_3
+}
+
 TEST(http_parser, req_hop_by_hop)
 {
 	TfwHttpHdrTbl *ht;
@@ -1604,6 +1890,8 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, chunk_size);
 	TEST_RUN(http_parser, cookie);
+	TEST_RUN(http_parser, etag);
+	TEST_RUN(http_parser, if_none_match);
 	TEST_RUN(http_parser, req_hop_by_hop);
 	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);

@@ -28,6 +28,11 @@
 
 #define SLEN(s)			(sizeof(s) - 1)
 
+const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
+				      size_t size);
+#define tfw_http_msg_find_hdr(hdr, array)				\
+	__tfw_http_msg_find_hdr(hdr, array, ARRAY_SIZE(array))
+
 typedef struct {
 	unsigned int	frag;
 	struct sk_buff	*skb;

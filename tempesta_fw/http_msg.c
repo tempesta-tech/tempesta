@@ -27,6 +27,44 @@
 #include "ss_skb.h"
 
 /**
+ * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
+ * order. Similar to bsearch().
+ */
+const TfwStr *
+__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[], size_t size)
+{
+	size_t start = 0, end = size;
+	int result, fc;
+	const TfwStr *h;
+
+	if (!TFW_STR_DUP(hdr))
+		h = hdr;
+	else
+		h = (TfwStr *)hdr->ptr;
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->ptr));
+
+	while (start < end) {
+		size_t mid = start + (end - start) / 2;
+		const TfwStr *sh = &array[mid];
+		int sc = *(unsigned char *)sh->ptr;
+
+		result = fc - sc;
+		if (!result)
+			result = tfw_stricmpspn(h, sh, ':');
+
+		if (result < 0)
+			end = mid;
+		else if (result > 0)
+			start = mid + 1;
+		else
+			return sh;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL(__tfw_http_msg_find_hdr);
+
+/**
  * Fills @val with second part of special HTTP header containing the header
  * value.
  */
@@ -44,6 +82,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
+		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
 	};
 
 	TfwStr *c, *end;
@@ -59,6 +98,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 
 	if (unlikely(id == TFW_HTTP_HDR_SERVER && client))
 		nlen = SLEN("User-Agent:");
+	else if (unlikely(id == TFW_HTTP_HDR_ETAG && client))
+		nlen = SLEN("If-None-Match:");
 	else
 		nlen = hdr_lens[id];
 
@@ -116,15 +157,13 @@ EXPORT_SYMBOL(__http_msg_hdr_val);
  * so linear search is Ok here.
  * @return true for headers which must never have duplicates.
  */
-static bool
+static inline bool
 __hdr_is_singular(const TfwStr *hdr)
 {
-	int i, fc;
 	static const TfwStr hdr_singular[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
-		TfwStr_string("if-modified-since:"),
 		TfwStr_string("if-unmodified-since:"),
 		TfwStr_string("location:"),
 		TfwStr_string("max-forwards:"),
@@ -133,18 +172,7 @@ __hdr_is_singular(const TfwStr *hdr)
 #undef TfwStr_string
 	};
 
-	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(hdr, 0)->ptr));
-	for (i = 0; i < ARRAY_SIZE(hdr_singular); i++) {
-		const TfwStr *sh = &hdr_singular[i];
-		int sc = *(unsigned char *)sh->ptr;
-		if (fc > sc)
-			continue;
-		if (fc < sc)
-			break;
-		if (!tfw_stricmpspn(hdr, sh, ':'))
-			return true;
-	}
-	return false;
+	return tfw_http_msg_find_hdr(hdr, hdr_singular);
 }
 
 /**
@@ -825,38 +853,6 @@ tfw_http_msg_alloc_err_resp(void)
 }
 
 /**
- * Add spec header indexes to list of hop-by-hop headers.
- */
-static inline void
-__hbh_parser_init_req(TfwHttpReq *req)
-{
-	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
-
-	BUG_ON(hbh_hdrs->spec);
-	/* Connection is hop-by-hop header by RFC 7230 6.1 */
-	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
-}
-
-/**
- * Same as @__hbh_parser_init_req for response.
- */
-static inline void
-__hbh_parser_init_resp(TfwHttpResp *resp)
-{
-	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
-
-	BUG_ON(hbh_hdrs->spec);
-	/*
-	 * Connection is hop-by-hop header by RFC 7230 6.1
-	 *
-	 * Server header isn't defined as hop-by-hop by the RFC, but we
-	 * don't show protected server to world.
-	 */
-	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
-			 (0x1 << TFW_HTTP_HDR_SERVER);
-}
-
-/**
  * Allocate a new HTTP message.
  * The allocated message is set up and initialized with full support
  * for parsing and subsequent adjustment.
@@ -885,17 +881,16 @@ tfw_http_msg_alloc(int type)
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 
-	hm->parser.to_read = -1; /* unknown body size */
-	if (type & Conn_Clnt)
-		__hbh_parser_init_req((TfwHttpReq *)hm);
-	else
-		__hbh_parser_init_resp((TfwHttpResp *)hm);
-
 	if (type & Conn_Clnt) {
+		tfw_http_init_parser_req((TfwHttpReq *)hm);
+
 		INIT_LIST_HEAD(&hm->msg.seq_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;
+	}
+	else {
+		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 	}
 
 	return hm;

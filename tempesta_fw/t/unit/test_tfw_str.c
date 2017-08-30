@@ -401,6 +401,7 @@ TEST(tfw_strcat, compound)
 				    0));
 }
 
+/* Case-insensitive comparison. */
 TEST(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs)
 {
 	TFW_STR(s1, "abcdefghijklmnopqrst");
@@ -475,6 +476,96 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 'r'));
+}
+
+/* Case-sensitive comparison. */
+TEST(tfw_strcmpspn, returns_true_only_for_equal_tfw_strs)
+{
+	TFW_STR(s1, "abcdefghijklmnopqrst");
+	TFW_STR(s2, "ABcDefGHIJKLmnopqrst");
+	TFW_STR(s3, "abcdefghi");
+	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
+
+	EXPECT_FALSE(tfw_strcmpspn(s1, s2, 0) == 0);
+	EXPECT_FALSE(tfw_strcmpspn(s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_strcmpspn(s1, s3, 'f') == 0);
+	EXPECT_FALSE(tfw_strcmpspn(s1, s4, 0) == 0);
+	EXPECT_TRUE(tfw_strcmpspn(s1, s4, 't') == 0);
+}
+
+TEST(tfw_strcmpspn, handles_plain_and_compound_strs)
+{
+	TfwStr s1 = {
+		.len	= sizeof("abcdefghijklmnopqrst") - 1,
+		.ptr	= "abcdefghijklmnopqrst"
+	};
+	TFW_STR(s2, "abcdefghijklmnopqrst");
+	TFW_STR(s3, "abcdefghi");
+	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
+	TFW_STR(s5, "abCDEFGhijklmnopqrst");
+
+	EXPECT_TRUE(tfw_strcmpspn(&s1, s2, 0) == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_strcmpspn(&s1, s3, 'f') == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 'z') == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s4, 0) == 0);
+	EXPECT_TRUE(tfw_strcmpspn(&s1, s4, 't') == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s5, 0) == 0);
+}
+
+TEST(tfw_strcmpspn, handles_empty_strs)
+{
+	TfwStr s1 = {
+		.len	= 0,
+		.ptr	= "garbage"
+	};
+	TfwStr s2 = {
+		.len	= 0,
+		.ptr	= "trash"
+	};
+	TFW_STR(s3, "abcdefghijklmnopqrst");
+
+	EXPECT_TRUE(tfw_strcmpspn(&s1, &s2, 0) == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 0) == 0);
+	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 'a') == 0);
+}
+
+TEST(tfw_strcmpspn, handles_different_size_strs)
+{
+	TfwStr s1 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "ab", .len = sizeof("ab") - 1 },
+			{ .ptr = "cdefghijklmnopqrst",
+			  .len = sizeof("cdefghijklmnopqrst") - 1 }
+		},
+		.len = sizeof("abcdefghijklmnopqrst") - 1,
+		.flags = 2 << TFW_STR_CN_SHIFT
+	};
+	TfwStr s2 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "abcdefg", .len = sizeof("abcdefg") - 1 },
+			{ .ptr = "hi", .len = sizeof("hi") - 1 },
+			{ .ptr = "jklmnopqrst",
+			  .len = sizeof("jklmnopqrst") - 1 }
+		},
+		.len = sizeof("abcdefghijklmnopqrst") - 1,
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
+	TfwStr s3 = {
+		.ptr = (TfwStr []){
+			{ .ptr = "abcDefg", .len = sizeof("abcDefg") - 1 },
+			{ .ptr = "hi", .len = sizeof("hi") - 1 },
+			{ .ptr = "jklmNopQRst",
+			  .len = sizeof("jklmNopQRst") - 1 }
+		},
+		.len = sizeof("abcdefghijklmnopqrst") - 1,
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
+
+	EXPECT_ZERO(tfw_strcmpspn(&s1, &s2, 0));
+	EXPECT_ZERO(tfw_strcmpspn(&s1, &s2, 'r'));
+	EXPECT_FALSE(tfw_strcmpspn(&s1, &s3, 0) == 0);
 }
 
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
@@ -788,6 +879,11 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_stricmpspn, handles_plain_and_compound_strs);
 	TEST_RUN(tfw_stricmpspn, handles_empty_strs);
 	TEST_RUN(tfw_stricmpspn, handles_different_size_strs);
+
+	TEST_RUN(tfw_strcmpspn, returns_true_only_for_equal_tfw_strs);
+	TEST_RUN(tfw_strcmpspn, handles_plain_and_compound_strs);
+	TEST_RUN(tfw_strcmpspn, handles_empty_strs);
+	TEST_RUN(tfw_strcmpspn, handles_different_size_strs);
 
 	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strs);
 	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);

@@ -304,22 +304,30 @@ EXPORT_SYMBOL(tfw_strcat);
  * headers until ':', so plain C is Ok for now.
  *
  * Returns:
- *   0 - strings match;
- *   1 - strings match and @stop is found;
- *  -1 - strings do not match;
+ *   0		- strings match;
+ *   INT_MAX	- strings match and @stop is found;
+ *   -1		- strings do not match, @s1 < @s2;
+ *   1		- strings do not match, @s1 > @s2;
  */
 static inline int
-__cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
+__cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
+	      int cs)
 {
 	unsigned char c1, c2;
 
 	while (n) {
-		c1 = TFW_LC(*s1++);
-		c2 = TFW_LC(*s2++);
+		if (cs) {
+			c1 = *s1++;
+			c2 = *s2++;
+		}
+		else {
+			c1 = TFW_LC(*s1++);
+			c2 = TFW_LC(*s2++);
+		}
 		if (c1 != c2)
-			return -1;
+			return (c1 < c2) ? -1 : 1;
 		if (unlikely(c1 == stop))
-			return 1;
+			return INT_MAX;
 		n--;
 	}
 
@@ -327,15 +335,20 @@ __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop)
 }
 
 /**
- * Like strcasecmp(3) for TfwStr, but stops matching when faces @stop.
+ * Like strcmp/strcasecmp(3) for TfwStr, but stops matching when faces @stop.
  * Do not use it for duplicate strings, rather call it for each duplicate
  * substring separately.
+ * @cs - case sensitive
  */
 int
-tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
+__tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 {
 	int i1, i2, off1, off2, n;
 	const TfwStr *c1, *c2;
+	/* TODO: replace generic memcmp with AVX2-enabled function. */
+	int (*cmp)(const char *s1, const char *s2, size_t len) =
+		cs ? (int (*)(const char *, const char *, size_t)) memcmp
+		   : tfw_stricmp;
 
 	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
 
@@ -356,14 +369,14 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 		if (stop) {
 			r = __cstricmpspn((unsigned char *)c1->ptr + off1,
 					  (unsigned char *)c2->ptr + off2,
-					  cn, stop);
-			if (r > 0)
+					  cn, stop, cs);
+			if (r == INT_MAX)
 				return 0;
-			if (r < 0)
-				return 1;
+			if (r)
+				return r;
 		} else {
-			r = tfw_stricmp((char *)c1->ptr + off1,
-					(char *)c2->ptr + off2, cn);
+			r = (*cmp)((char *)c1->ptr + off1,
+				   (char *)c2->ptr + off2, cn);
 			if (r)
 				return r;
 		}
@@ -387,7 +400,7 @@ tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop)
 
 	return stop ? -1 : 0;
 }
-EXPORT_SYMBOL(tfw_stricmpspn);
+EXPORT_SYMBOL(__tfw_strcmpspn);
 
 /**
  * Generic function for comparing TfwStr and C strings.
@@ -582,6 +595,44 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 }
 EXPORT_SYMBOL(tfw_str_to_cstr);
 
+/**
+ * HTTP parser can break strings into several chuncks and mark some of them
+ * with TFW_STR_VALUE flag. Single string value may oqupie more than one chunk,
+ * independent string values divided by non-flagged chunks.
+ *
+ * Return compaund TfwStr starting at next string value.
+ */
+TfwStr
+tfw_str_next_str_val(const TfwStr *str)
+{
+	TfwStr r_str = { 0 }, *chunk, *end;
+	bool skip = true;
+
+	BUG_ON(TFW_STR_DUP(str));
+	if (!str || TFW_STR_PLAIN(str))
+		return r_str;
+
+	end =  (TfwStr*)str->ptr + TFW_STR_CHUNKN(str);
+	__TFW_STR_CHUNKN_SET(&r_str, TFW_STR_CHUNKN(str));
+	r_str.len = str->len;
+
+	for (chunk = str->ptr; chunk != end; ++chunk) {
+		if (!skip && (chunk->flags & TFW_STR_VALUE))
+			break;
+		if (!(chunk->flags & TFW_STR_VALUE))
+			skip = false;
+		r_str.len -= chunk->len;
+		TFW_STR_CHUNKN_SUB(&r_str, 1);
+	}
+	if (unlikely(chunk == end))
+		TFW_STR_INIT(&r_str);
+	else
+		r_str.ptr = chunk;
+
+	return r_str;
+}
+EXPORT_SYMBOL(tfw_str_next_str_val);
+
 #ifdef DEBUG
 void
 tfw_str_dprint(const TfwStr *str, const char *msg)
@@ -594,8 +645,8 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
 			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, eolen=%u ptr=%p '%.*s'\n",
-				c->len, c->eolen, c->ptr,
+			TFW_DBG("   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
+				c->len, c->eolen, c->ptr, c->flags,
 				(int)c->len, (char *)c->ptr);
 	}
 }
