@@ -382,19 +382,35 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 };
 
 /**
- * Close a server connection, or stop connection attempts if a connection
+ * Close a server connection, or stop attempts to connect if a connection
  * is not established. This is called only in user context at STOP time.
  *
- * There are two corner cases. In both cases calling ss_close_sync() won't
- * cause any effect as the connection is closed already. Instead, just free
- * the connection's resources directly.
- * 1. A connection has just been closed by the other side. A reconnect is
- *    prevented by stopping the timer. Yet the connection may have unfreed
- *    resources as closing was done as part of failover.
- * 2. A connection is being closed by the other side just as Tempesta is
- *    moved to STOP state. Both threads may call tfw_connection_release()
- *    at the same time. See the implementation of the underlying function
- *    tfw_srv_conn_release().
+ * There are two different ways of closing a connection.
+ * 1. A connection is closed by a backend. That is considered temporary.
+ *    All pending requests in the connection's forwarding queue are resent
+ *    to the backend if the connection is restored relatively quickly.
+ *    Otherwise, pending requests are re-scheduled to other connections
+ *    or servers. All of that is part of failover process.
+ * 2. A connection is closed by Tempesta. That is considered permanent.
+ *    The connection is not restored. Pending requests are deleted, and
+ *    all resources are released. Right now this happens only at shutdown.
+ *
+ * Tempesta is in the process of being shut down when this function is
+ * called. First, any attempts to reconnect are stopped. Then, closing
+ * of the connection is initiated if it's not being closed yet. Still,
+ * Closing of a connection may be initiated concurrently by a backend
+ * or Tempesta. Only one request for a close is allowed to proceed, so
+ * it may happen that request from a backend is serviced first. Either
+ * way, all resources attached to a connection are released by calling
+ * the connection destructor once the socket linked to a connection is
+ * closed. The release function in the destructor recognizes the state
+ * of shutdown and properly releases all resources. See the details of
+ * the underlying function tfw_srv_conn_release().
+ *
+ * If a server connection is closed at the time this function runs, then
+ * it had been closed by a backend before the shutdown, and the connection
+ * is still in failover (not re-connected yet). The resources attached to
+ * the connection had not been released, and it has to be done forcefully.
  */
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
@@ -402,17 +418,18 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	int ret = 0;
 	struct sock *sk = conn->sk;
 
-	/* Prevent races with timer callbacks. */
+	/* Stop any attempts to reconnect or reschedule. */
 	del_timer_sync(&conn->timer);
 
 	/*
-	 * All resources attached to a connection is released  by calling
-	 * connection destructor once the socket linked to a connection is
-	 * closed. So no additional cleanup is needed if connection->refcnt
-	 * is equals TFW_CONN_DEATHCNT.
+	 * Close the connection if it's not being closed yet. Resources
+	 * attached to the connection are released. If the connection is
+	 * closed already, then force the release of attached resources.
 	 */
 	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
+	else
+		tfw_connection_release(conn);
 
 	return ret;
 }
