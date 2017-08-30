@@ -9,6 +9,7 @@ __license__ = 'GPL2'
 class ParseResponse(unittest.TestCase):
 
     def setUp(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = True
         self.plain = deproxy.Response(PLAIN)
         self.reordered = deproxy.Response(REORDERED)
         self.o_body = deproxy.Response(OTHER_BODY)
@@ -17,6 +18,9 @@ class ParseResponse(unittest.TestCase):
 
         self.trailer = deproxy.Response(TRAILER)
         self.o_trailer = deproxy.Response(OTHER_TRAILER)
+
+    def tearDown(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = False
 
     def test_equal(self):
         # Reordering of headers is allowed.
