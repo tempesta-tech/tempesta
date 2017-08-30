@@ -2507,6 +2507,13 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 				TFW_WARN("Insufficient memory "
 					 "to create a response sibling\n");
 				TFW_INC_STAT_BH(serv.msgs_otherr);
+				
+				/* 
+				 * Unable to create a sibling message.
+				 * Send the parsed response to the client
+				 * and close the server connection.
+				 */
+				tfw_http_resp_cache(hmresp);
 				return TFW_BLOCK;
 			}
 		}
@@ -2542,7 +2549,7 @@ next_resp:
 bad_msg:
 	bad_req = tfw_http_popreq(hmresp);
 	if (bad_req)
-		tfw_http_conn_msg_free((TfwHttpMsg *)bad_req);
+		tfw_http_send_500(bad_req, "response dropped: processing error");
 	tfw_http_conn_msg_free(hmresp);
 	return r;
 }
