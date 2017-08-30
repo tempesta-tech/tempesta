@@ -346,6 +346,7 @@ http_parse_resp_helper(void)
 {
 	/* XXX reset parser explicitly to be able to call it multiple times */
 	memset(&mock.resp->parser, 0, sizeof(mock.resp->parser));
+	tfw_http_init_parser_resp(mock.resp);
 	mock.resp->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(mock.resp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 	TFW_STR_INIT(&mock.resp->crlf);

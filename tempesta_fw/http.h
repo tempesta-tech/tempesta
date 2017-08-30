@@ -83,6 +83,7 @@ enum {
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
 
+/* TODO: When CONNECT will be added, add it to tfw_handle_validation_req() */
 typedef enum {
 	_TFW_HTTP_METH_NONE,
 	/*
@@ -164,8 +165,8 @@ typedef struct {
  * repetition attacks. See __hdr_is_singular() and don't forget to
  * update the static headers array when add a new singular header here.
  * If the new header is hop-by-hop (must not be forwarded and cached by Tempesta)
- * it must be listed in __hbh_parser_init_req()/__hbh_parser_init_resp() for
- * unconditionally hop-by-hop header or in __parse_connection() otherwize.
+ * it must be listed in tfw_http_init_parser_req()/tfw_http_init_parser_resp()
+ * for unconditionally hop-by-hop header or in __parse_connection() otherwize.
  * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
  * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
@@ -182,6 +183,8 @@ typedef enum {
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
+	TFW_HTTP_HDR_IF_NONE_MATCH,
+	TFW_HTTP_HDR_ETAG = TFW_HTTP_HDR_IF_NONE_MATCH,
 
 	/* End of list of singular header. */
 	TFW_HTTP_HDR_NONSINGULAR,
@@ -219,7 +222,7 @@ typedef struct {
  * adjusting as well as saves cache storage.
  *
  * Headers unconditionaly treated as hop-by-hop must be listed in
- * __hbh_parser_init_req()/__hbh_parser_init_resp() functions and must be
+ * tfw_http_init_parser_req()/tfw_http_init_parser_resp() functions and must be
  * members of Special headers.
  * group.
  *
@@ -258,6 +261,7 @@ typedef struct {
  * @hdr		- currently parsed header.
  * @hbh_parser	- list of special and raw headers names to be treated as
  *		  hop-by-hop
+ * @_date	- currently parsed http date value;
  */
 typedef struct {
 	unsigned short	to_go;
@@ -290,8 +294,9 @@ typedef struct {
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
+#define TFW_HTTP_HAS_HDR_LMODIFIED	0x040000 /* Has Last-Modified: header */
 /* It is stale, but pass with a warning */
-#define TFW_HTTP_RESP_STALE		0x040000
+#define TFW_HTTP_RESP_STALE		0x080000
 
 /*
  * The structure to hold data for an HTTP error response.
@@ -365,6 +370,21 @@ typedef struct {
 
 #define __MSG_STR_START(m)		(&(m)->crlf)
 
+#define TFW_HTTP_COND_IF_MSINCE		0x0001
+#define TFW_HTTP_COND_ETAG_ANY		0x0002
+#define TFW_HTTP_COND_ETAG_LIST		0x0004
+
+/**
+ * Conditional Request.
+ *
+ * @flags	- Which conditional headers are used,
+ * @m_date	- requested modification date
+ */
+typedef struct {
+	unsigned int	flags;
+	time_t		m_date;
+} TfwHttpCond;
+
 /**
  * HTTP Request.
  *
@@ -395,6 +415,7 @@ typedef struct {
 	TfwVhost		*vhost;
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
+	TfwHttpCond		cond;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
@@ -427,6 +448,7 @@ typedef struct {
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
+	time_t			last_modified;
 	unsigned long		jrxtstamp;
 } TfwHttpResp;
 
@@ -464,6 +486,8 @@ tfw_current_timestamp(void)
 typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
 
 /* Internal (parser) HTTP functions. */
+void tfw_http_init_parser_req(TfwHttpReq *req);
+void tfw_http_init_parser_resp(TfwHttpResp *resp);
 int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
 int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 bool tfw_http_parse_terminate(TfwHttpMsg *hm);
@@ -479,8 +503,11 @@ void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
  */
 int tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
+int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+		      size_t hdrs_size);
 int tfw_http_send_403(TfwHttpReq *req, const char *reason);
 int tfw_http_send_404(TfwHttpReq *req, const char *reason);
+int tfw_http_send_412(TfwHttpReq *req);
 int tfw_http_send_502(TfwHttpReq *req, const char *reason);
 int tfw_http_send_504(TfwHttpReq *req, const char *reason);
 

@@ -179,6 +179,8 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_VALUE		0x08
 /* The string represents hop-by-hop header, not end-to-end one */
 #define TFW_STR_HBH_HDR		0x10
+/* Weak identifier was set for Etag value. */
+#define TFW_STR_ETAG_WEAK	0x20
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
@@ -349,7 +351,10 @@ typedef enum {
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
-int tfw_stricmpspn(const TfwStr *s1, const TfwStr *s2, int stop);
+int __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs);
+#define tfw_stricmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 0)
+#define tfw_strcmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 1)
+
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 		     tfw_str_eq_flags_t flags);
 bool tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
@@ -358,6 +363,8 @@ bool tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 			 int cstr_len, tfw_str_eq_flags_t flags);
 
 size_t tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size);
+
+TfwStr tfw_str_next_str_val(const TfwStr *str);
 
 #ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
