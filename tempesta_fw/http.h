@@ -248,6 +248,7 @@ typedef struct {
  * (e.g. process OWS using @state while current state is saved in @_i_st
  * or using @_i_st parse value of a header described.
  *
+ * @_cnt	- currently the count of hex digits in a body chunk size;
  * @to_go	- remaining number of bytes to process in the data chunk;
  *		  (limited by single packet size and never exceeds 64KB)
  * @state	- current parser state;
@@ -264,12 +265,13 @@ typedef struct {
  */
 typedef struct {
 	unsigned short	to_go;
+	unsigned short	_cnt;
+	unsigned int	_hdr_tag;
 	int		state;
 	int		_i_st;
-	int		to_read;
+	long		to_read;
 	unsigned long	_acc;
 	time_t		_date;
-	unsigned int	_hdr_tag;
 	TfwStr		_tmp_chunk;
 	TfwStr		hdr;
 	TfwHttpHbhHdrs	hbh_parser;

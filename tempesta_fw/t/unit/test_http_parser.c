@@ -1125,6 +1125,45 @@ TEST(http_parser, chunked)
 			 "\r\n");
 }
 
+TEST(http_parser, chunk_size)
+{
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
+			 "Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "00000000000000007\r\n"
+			 "abcdefg\r\n"
+			 "0\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
+			 "Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "7\r\n"
+			 "abcdefg\r\n"
+			 "00000000000000000\r\n"
+			 "\r\n");
+
+	EXPECT_BLOCK_REQ("POST / HTTP/1.1\r\n"
+			 "Host:\r\n"
+			 "Transfer-Encoding: chunked\r\n"
+			 "\r\n"
+			 "8000000000000000\r\n"
+			 "abcdefg\r\n"
+			 "0\r\n"
+			 "\r\n");
+	
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"\r\n"
+		"0000000000000007\r\n"
+		"abcdefg\r\n"
+		"0\r\n"
+		"\r\n");
+}
+
 TEST(http_parser, cookie)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1849,9 +1888,10 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, empty_host);
 	TEST_RUN(http_parser, chunked);
+	TEST_RUN(http_parser, chunk_size);
+	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, etag);
 	TEST_RUN(http_parser, if_none_match);
-	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, req_hop_by_hop);
 	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
