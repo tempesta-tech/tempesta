@@ -1,5 +1,5 @@
 from __future__ import print_function
-from helpers import deproxy, tf_cfg, tempesta
+from helpers import deproxy, tf_cfg, tempesta, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -7,10 +7,10 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 def sample_rule():
-    return functional.base_message_chain()
+    return chains.base()
 
 def sample_rule_chunked():
-    return functional.base_message_chain_chunked()
+    return chains.base_chunked()
 
 def defconfig():
     return 'cache 0;\n'
