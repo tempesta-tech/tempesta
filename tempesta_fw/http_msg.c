@@ -27,6 +27,44 @@
 #include "ss_skb.h"
 
 /**
+ * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
+ * order. Similar to bsearch().
+ */
+const TfwStr *
+__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[], size_t size)
+{
+	size_t start = 0, end = size;
+	int result, fc;
+	const TfwStr *h;
+
+	if (!TFW_STR_DUP(hdr))
+		h = hdr;
+	else
+		h = (TfwStr *)hdr->ptr;
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->ptr));
+
+	while (start < end) {
+		size_t mid = start + (end - start) / 2;
+		const TfwStr *sh = &array[mid];
+		int sc = *(unsigned char *)sh->ptr;
+
+		result = fc - sc;
+		if (!result)
+			result = tfw_stricmpspn(h, sh, ':');
+
+		if (result < 0)
+			end = mid;
+		else if (result > 0)
+			start = mid + 1;
+		else
+			return sh;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL(__tfw_http_msg_find_hdr);
+
+/**
  * Fills @val with second part of special HTTP header containing the header
  * value.
  */
@@ -119,10 +157,9 @@ EXPORT_SYMBOL(__http_msg_hdr_val);
  * so linear search is Ok here.
  * @return true for headers which must never have duplicates.
  */
-static bool
+static inline bool
 __hdr_is_singular(const TfwStr *hdr)
 {
-	int i, fc;
 	static const TfwStr hdr_singular[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
@@ -135,9 +172,7 @@ __hdr_is_singular(const TfwStr *hdr)
 #undef TfwStr_string
 	};
 
-	TFW_IF_HDR_IN_ARRAY(hdr, hdr_singular, { return true; });
-
-	return false;
+	return tfw_http_msg_find_hdr(hdr, hdr_singular);
 }
 
 /**

@@ -587,7 +587,6 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
-	unsigned long i;
 	static const TfwStr block[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
@@ -609,7 +608,6 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 		TfwStr_string("x-forwarded-for:"),
 #undef TfwStr_string
 	};
-	int fc;
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)
 		return CSTR_NEQ;
@@ -638,7 +636,8 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 		hdr->len += s_colon.len;
 		++hbh->off;
 
-		TFW_IF_HDR_IN_ARRAY(hdr, block, { return CSTR_NEQ; });
+		if (tfw_http_msg_find_hdr(hdr, block))
+			return CSTR_NEQ;
 		/*
 		 * Don't set TFW_STR_HBH_HDR flag if such header was already
 		 * parsed. See comment in mark_raw_hbh()

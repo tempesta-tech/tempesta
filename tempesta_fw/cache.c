@@ -1082,8 +1082,9 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 static bool
 __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 {
-	int i, fc;
+	int i;
 	unsigned int num;
+	const TfwStr *match;
 
 	if (TFW_STR_EMPTY(hdr))
 		return false;
@@ -1099,18 +1100,19 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 		return true;
 	}
 
-	TFW_IF_HDR_IN_ARRAY(hdr, tfw_cache_raw_headers_304, {
-		/*
-		 * RFC 7234 4.1: Don't send Last-Modified if ETag is
-		 * present.
-		 */
+	match = tfw_http_msg_find_hdr(hdr, tfw_cache_raw_headers_304);
+	if (match) {
+		unsigned char sc = *(unsigned char *)match->ptr;
+
+		/* RFC 7234 4.1: Don't send Last-Modified if ETag is present. */
 		 if ((sc == 'l')
 		     && !TFW_STR_EMPTY(&resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG]))
 			return false;
 
+		i = match - tfw_cache_raw_headers_304;
 		ce->hdrs_304[i + TFW_CACHE_304_SPEC_HDRS_NUM] = off;
 		return true;
-	});
+	}
 
 	return false;
 }
