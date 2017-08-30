@@ -304,9 +304,10 @@ EXPORT_SYMBOL(tfw_strcat);
  * headers until ':', so plain C is Ok for now.
  *
  * Returns:
- *   0 - strings match;
- *   1 - strings match and @stop is found;
- *  -1 - strings do not match;
+ *   0		- strings match;
+ *   INT_MAX	- strings match and @stop is found;
+ *   -1		- strings do not match, @s1 < @s2;
+ *   1		- strings do not match, @s1 > @s2;
  */
 static inline int
 __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
@@ -324,9 +325,9 @@ __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
 			c2 = TFW_LC(*s2++);
 		}
 		if (c1 != c2)
-			return -1;
+			return (c1 < c2) ? -1 : 1;
 		if (unlikely(c1 == stop))
-			return 1;
+			return INT_MAX;
 		n--;
 	}
 
@@ -369,10 +370,10 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 			r = __cstricmpspn((unsigned char *)c1->ptr + off1,
 					  (unsigned char *)c2->ptr + off2,
 					  cn, stop, cs);
-			if (r > 0)
+			if (r == INT_MAX)
 				return 0;
-			if (r < 0)
-				return 1;
+			if (r)
+				return r;
 		} else {
 			r = (*cmp)((char *)c1->ptr + off1,
 				   (char *)c2->ptr + off2, cn);

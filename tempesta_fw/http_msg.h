@@ -28,25 +28,10 @@
 
 #define SLEN(s)			(sizeof(s) - 1)
 
-/*
- * Do @lambda if name of header @hdr is listed in @array of header names.
- * @array must be sorted in alphabetical order.
- */
-#define TFW_IF_HDR_IN_ARRAY(hdr, array, lambda)				\
-	/* int fc; */							\
-	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(hdr, 0)->ptr));	\
-	for (i = 0; i < ARRAY_SIZE(array); i++) {			\
-		const TfwStr *sh = &array[i];				\
-		int sc = *(unsigned char *)sh->ptr;			\
-		if (fc > sc)						\
-			continue;					\
-		if (fc < sc)						\
-			break;						\
-		if (!tfw_stricmpspn(hdr, sh, ':')) {			\
-			lambda;						\
-			break;						\
-		}							\
-	}
+const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
+				      size_t size);
+#define tfw_http_msg_find_hdr(hdr, array)				\
+	__tfw_http_msg_find_hdr(hdr, array, ARRAY_SIZE(array))
 
 typedef struct {
 	unsigned int	frag;

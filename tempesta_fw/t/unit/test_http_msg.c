@@ -56,24 +56,33 @@ TEST(http_msg, hdr_in_array)
 		TfwStr_string("max-forwards:"),
 		TfwStr_string("content-location:"),
 	};
+#define S_PART_01	"cache-control: no-cache"
+#define S_PART_02	"cache-control: no-store"
+	TfwStr dup_hdr = {
+		.ptr = (TfwStr []){
+			TfwStr_string(S_PART_01),
+			TfwStr_string(S_PART_01),
+		},
+		.len = SLEN(S_PART_01 S_PART_02),
+		.flags = (2 << TFW_STR_CN_SHIFT) | TFW_STR_DUPLICATE,
+	};
 #undef TfwStr_string
+#undef S_PART_01
+#undef S_PART_02
 
 	for (i = 0; i < ARRAY_SIZE(hdrs); ++i) {
 		const TfwStr *h = &hdrs[i];
-		bool found = false;
-		int fc;
 
-		TFW_IF_HDR_IN_ARRAY(h, hdrs, { found = true; });
-		EXPECT_TRUE(found);
+		EXPECT_NOT_NULL(tfw_http_msg_find_hdr(h, hdrs));
 	};
 	for (i = 0; i < ARRAY_SIZE(o_hdrs); ++i) {
 		const TfwStr *h = &o_hdrs[i];
-		bool found = false;
-		int fc;
 
-		TFW_IF_HDR_IN_ARRAY(h, hdrs, { found = true; });
-		EXPECT_FALSE(found);
+		EXPECT_NULL(tfw_http_msg_find_hdr(h, hdrs));
 	};
+
+	/* Duplicated string */
+	EXPECT_NOT_NULL(tfw_http_msg_find_hdr(&dup_hdr, hdrs));
 }
 
 TEST_SUITE(http_msg)
