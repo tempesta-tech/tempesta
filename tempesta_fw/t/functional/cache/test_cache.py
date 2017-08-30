@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 from testers import functional
+from helpers import chains
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -20,8 +21,8 @@ class TestCacheDisabled(functional.FunctionalTest):
         if self.cache_mode == 0:
             cache_alowed = False
         if cache_alowed:
-            return cache_chains(self.messages, uri=uri)
-        return proxy_chains(self.messages, uri=uri)
+            return chains.cache_repeated(self.messages, uri=uri)
+        return chains.proxy_repeated(self.messages, uri=uri)
 
     def test_cache_fulfill_all(self):
         config = ('cache %d;\n'
@@ -77,24 +78,5 @@ class TestCacheReplicated(TestCacheDisabled):
 
     # Replicated mode.
     cache_mode = 2
-
-
-def cache_chain(uri):
-    cached_chain = functional.base_message_chain(uri=uri)
-    cached_chain.no_forward()
-    return cached_chain
-
-def proxy_chain(uri):
-    return functional.base_message_chain(uri=uri)
-
-def cache_chains(count, uri='/'):
-    chains = [proxy_chain(uri)]
-    chain = cache_chain(uri)
-    cached_chains = [chain for _ in range(1, count)]
-    return chains + cached_chains
-
-def proxy_chains(count, uri='/'):
-    chain = proxy_chain(uri)
-    return [chain for _ in range(count)]
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

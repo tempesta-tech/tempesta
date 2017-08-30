@@ -108,6 +108,8 @@ failed, `u` — unexpected success, `x` — expected failure. `s` — skipped;
 values to obtain results quickly add large for more heavy stress tests. Default
 is `10` seconds.
 
+`log_file` option specifies a file to tee (duplicate) tests' stderr to.
+
 This group of options can be overridden by command line options, for more
 information run tests with `-h` key.
 ```sh
@@ -172,6 +174,27 @@ testcase):
 $ ./run_tests.py cache.test_cache
 $ ./run_tests.py cache.test_cache.TestCacheDisabled.test_cache_fullfill_all
 ```
+
+To ignore specific tests, specify them in the arguments prefixed with `-`
+(you may need to use `--` to avoid treating that as a flag):
+```sh
+$ ./run_tests.py cache -cache.test_purge # run cache.*, except cache.test_purge.*
+$ ./run_tests.py -- -cache # run everything, except cache.*
+```
+
+If the testsuite was interrupted or aborted, next run will continue from the
+interruption point. The resumption information is stored in the
+`tests_resume.txt` file in the current working directory. It is also possible
+to resume the testsuite from a specific test:
+```sh
+$ ./run_tests.py --resume flacky_net
+$ ./run_tests.py --resume-after cache.test_purge
+```
+
+In all cases, prefix specifications are allowed, i. e. `cache.test_cache` will
+match all tests in `cache/test_cache.py`, but `test_cache` will not match
+anything. When resuming, execution will continue from (after) the first test
+that matches the specified string.
 
 ## Adding new tests
 

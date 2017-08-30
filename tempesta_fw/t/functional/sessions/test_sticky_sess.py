@@ -1,6 +1,6 @@
 from __future__ import print_function
 import copy
-from helpers import tempesta
+from helpers import tempesta, deproxy
 from testers import functional
 from . import cookies
 
@@ -40,9 +40,10 @@ class TestSticky(functional.FunctionalTest):
         return self.tester.message_chains[1:]
 
     def chain_failover_fobbiden(self):
-        chain = copy.copy(self.tester.message_chains[1])
-        chain.no_forward()
-        chain.response = cookies.make_502()
+        chain = deproxy.MessageChain(
+            request = self.tester.message_chains[1].request,
+            expected_response = cookies.make_502()
+        )
         return [chain for _ in range(cookies.CHAIN_LENGTH)]
 
     def check_failover(self, new_message_chain_provider):

@@ -4,6 +4,12 @@ from helpers import deproxy
 
 class TestDeproxyMessage(unittest.TestCase):
 
+    def setUp(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = True
+
+    def tearDown(self):
+        deproxy.HeaderCollection._disable_report_wrong_is_expected = False
+
     def test_incomplite(self):
         message_1 = "HTTP/1.1 20"
         message_2 = ("HTTP/1.1 200 OK\r\n"
@@ -147,8 +153,7 @@ class TestDeproxyMessage(unittest.TestCase):
             try:
                 deproxy.Response(message)
             except deproxy.ParseError:
-                print('Error happen when processed message\n%s' % message)
-                raise
+                error.bug('Error processing message\n%s' % message)
 
     def test_request_plain(self):
         request = deproxy.Request(

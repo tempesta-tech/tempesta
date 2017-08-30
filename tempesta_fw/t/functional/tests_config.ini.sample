@@ -31,6 +31,11 @@ duration = 10
 #
 concurrent_connections = 10
 
+# Absolte or cwd-relative path to a log file to tee (duplicate) tests' stderr to.
+#
+# ex.: log_file = /tmp/log.txt (default tests_log.txt)
+log_file = tests_log.txt
+
 
 [Client]
 # Configuration for the HTTP clients. Clients are always ran locally.
