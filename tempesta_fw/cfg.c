@@ -802,6 +802,7 @@ spec_handle_default(TfwCfgSpec *spec)
 	BUG_ON(ps.err);
 	BUG_ON(ps.t != TOKEN_NA);
 
+	ps.e.dflt_value = true;
 	r = spec_handle_entry(spec, &ps.e);
 	entry_reset(&ps.e);
 	return r;
