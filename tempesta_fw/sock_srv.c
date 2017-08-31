@@ -595,7 +595,7 @@ static int tfw_cfg_fwd_retries, tfw_cfg_out_fwd_retries;
 static int tfw_cfg_cns_retries, tfw_cfg_out_cns_retries;
 static unsigned int tfw_cfg_retry_nip, tfw_cfg_out_retry_nip;
 static unsigned int tfw_cfg_sticky_sess, tfw_cfg_out_sticky_sess;
-static unsigned int tfw_cfg_sg_flags, tfw_cfg_out_sg_flags;
+static unsigned int tfw_cfg_sched_flags, tfw_cfg_out_sched_flags;
 static struct {
 	bool sched		: 1;
 	bool queue_size		: 1;
@@ -927,16 +927,6 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_DBG("begin srv_group: %s\n", tfw_cfg_sg->name);
 
-	tfw_cfg_queue_size = tfw_cfg_out_queue_size;
-	tfw_cfg_fwd_timeout = tfw_cfg_out_fwd_timeout;
-	tfw_cfg_fwd_retries = tfw_cfg_out_fwd_retries;
-	tfw_cfg_cns_retries = tfw_cfg_out_cns_retries;
-	tfw_cfg_retry_nip = tfw_cfg_out_retry_nip;
-	tfw_cfg_sticky_sess = tfw_cfg_out_sticky_sess;
-	tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
-	tfw_cfg_sched = tfw_cfg_out_sched;
-	tfw_cfg_schref = tfw_cfg_out_schref;
-
 	BUG_ON(!list_empty(&tfw_cfg_in_slst));
 	tfw_cfg_slst = &tfw_cfg_in_slst;
 	tfw_cfg_slstsz = 0;
@@ -1004,7 +994,7 @@ tfw_cfgop_setup_srv_group(void)
 				      ARRAY_SIZE(tfw_srv_tmo_vals))
 			      : UINT_MAX;
 
-	tfw_cfg_sg->flags = tfw_cfg_sg_flags;
+	tfw_cfg_sg->flags = tfw_cfg_sched_flags;
 	tfw_cfg_sg->flags |= tfw_cfg_retry_nip | tfw_cfg_sticky_sess;
 	tfw_cfg_sg->sched_data = tfw_cfg_schref;
 
@@ -1260,14 +1250,14 @@ tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
 		tfw_cfg_sched = tfw_cfg_out_sched;
 		tfw_cfg_schref = tfw_cfg_out_schref;
-		tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
+		tfw_cfg_sched_flags = tfw_cfg_out_sched_flags;
 		return 0;
 	}
 
 	tfw_cfg_schref = &tfw_cfg_schref_predict;
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sched,
 				       tfw_cfg_schref,
-				       &tfw_cfg_sg_flags);
+				       &tfw_cfg_sched_flags);
 }
 
 static int
@@ -1277,7 +1267,7 @@ tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_out_schref = &tfw_cfg_out_schref_predict;
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_out_sched,
 				       tfw_cfg_out_schref,
-				       &tfw_cfg_out_sg_flags);
+				       &tfw_cfg_out_sched_flags);
 }
 
 /**
@@ -1300,9 +1290,6 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 		tfw_server_destroy(srv);
 	}
 
-	tfw_cfg_sg = tfw_cfg_out_sg = NULL;
-	tfw_cfg_sched = tfw_cfg_out_sched = NULL;
-	tfw_cfg_schref = tfw_cfg_out_schref = NULL;
 	tfw_cfg_slstsz = tfw_cfg_out_slstsz = 0;
 	tfw_cfg_is_set = cfg_is_set_empty;
 
@@ -1330,9 +1317,9 @@ tfw_sock_srv_start(void)
 		tfw_cfg_queue_size  = tfw_cfg_out_queue_size;
 		tfw_cfg_fwd_timeout = tfw_cfg_out_fwd_timeout;
 		tfw_cfg_fwd_retries = tfw_cfg_out_fwd_retries;
+		tfw_cfg_sched_flags = tfw_cfg_out_sched_flags;
 		tfw_cfg_sticky_sess = tfw_cfg_out_sticky_sess;
 		tfw_cfg_retry_nip = tfw_cfg_out_retry_nip;
-		tfw_cfg_sg_flags = tfw_cfg_out_sg_flags;
 		tfw_cfg_slst = &tfw_cfg_out_slst;
 		tfw_cfg_slstsz = tfw_cfg_out_slstsz;
 		tfw_cfg_sched = tfw_cfg_out_sched;
