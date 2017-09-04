@@ -1018,6 +1018,14 @@ tfw_cfgop_setup_srv_group(void)
 		list_del(&srv->list);
 		tfw_sg_add(tfw_cfg_sg, srv);
 	}
+
+	/*
+	 * Set up an APM data for each server in the group. This must
+	 * be done before the scheduler data is set into the group.
+	 */	
+	if ((ret = tfw_for_each_srv(tfw_cfg_sg, tfw_apm_add_srv)) != 0)
+		return ret;
+
 	/*
 	 * Set up a scheduler and add the server group to the scheduler.
 	 * Must be called only after the server group is set up with all
@@ -1329,14 +1337,12 @@ tfw_sock_srv_start(void)
 		if ((ret = tfw_cfgop_setup_srv_group()))
 			return ret;
 	}
+	
 	/*
 	 * This must be executed only after the complete configuration
 	 * has been processed as it depends on configuration directives
 	 * that can be located anywhere in the configuration file.
 	 */
-	if ((ret = tfw_sg_for_each_srv(tfw_apm_add_srv)) != 0)
-		return ret;
-
 	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);
 }
 
