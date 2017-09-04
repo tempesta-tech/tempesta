@@ -1229,7 +1229,6 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	 */
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		TfwHttpResp *resp = (TfwHttpResp *)msg;
-
 		if ((msg->flags & TFW_HTTP_VOID_BODY) && (resp->status != 304))
 			return CSTR_NEQ;
 	}
@@ -4185,7 +4184,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			/* Status code is fully parsed, move forward. */
 			resp->status = parser->_acc;
 			parser->_acc = 0;
-			/* Some responses are not allowed to have a body. */
+			/* RFC 7230 3.3.3: some responses don't have a body. */
 			/* TODO: Add (req == CONNECT && resp == 2xx) */
 			if (resp->status - 100U < 100U || resp->status == 204
 			    || resp->status == 304)
