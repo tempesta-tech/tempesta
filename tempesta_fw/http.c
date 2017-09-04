@@ -2546,9 +2546,9 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			 * The response is fully parsed,
 			 * fall through and process it.
 			 */
-			if(!(hmresp->flags
-			     & (TFW_HTTP_CHUNKED | TFW_HTTP_VOID_BODY))
-			   && (hmresp->content_length != hmresp->body.len))
+			if (!(hmresp->flags
+			      & (TFW_HTTP_CHUNKED | TFW_HTTP_VOID_BODY))
+			    && (hmresp->content_length != hmresp->body.len))
 				goto bad_msg;
 		}
 
