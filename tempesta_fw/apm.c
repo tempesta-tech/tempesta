@@ -1062,48 +1062,6 @@ tfw_apm_del_srv(TfwServer *srv)
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
-static int
-tfw_apm_cfg_start(void)
-{
-	unsigned int jtmwindow;
-
-	if (!tfw_apm_jtmwindow)
-		tfw_apm_jtmwindow = TFW_APM_DEF_TMWINDOW;
-	if (!tfw_apm_tmwscale)
-		tfw_apm_tmwscale = TFW_APM_DEF_TMWSCALE;
-
-	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
-	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
-	{
-		TFW_ERR("apm_stats: window: value '%d' is out of limits.\n",
-			tfw_apm_jtmwindow);
-		return -EINVAL;
-	}
-	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
-	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
-	{
-		TFW_ERR("apm_stats: scale: value '%d' is out of limits.\n",
-			tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-
-	/* Enforce @tfw_apm_tmwscale to be at least 2. */
-	if (tfw_apm_tmwscale == 1)
-		tfw_apm_tmwscale = 2;
-
-	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
-	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
-			    + !!(jtmwindow % tfw_apm_tmwscale);
-
-	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
-		TFW_ERR("apm_stats window=%d scale=%d: scale is too long.\n",
-			tfw_apm_jtmwindow, tfw_apm_tmwscale);
-		return -EINVAL;
-	}
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
-
-	return 0;
-}
 
 /**
  * Cleanup the configuration values when when all server groups are stopped
@@ -1161,6 +1119,62 @@ static TfwCfgSpec tfw_apm_cfg_specs[] = {
 
 TfwCfgMod tfw_apm_cfg_mod = {
 	.name  = "apm",
-	.start = tfw_apm_cfg_start,
 	.specs = tfw_apm_cfg_specs,
 };
+
+
+
+/*
+ * ------------------------------------------------------------------------
+ *	init/exit
+ * ------------------------------------------------------------------------
+ */
+
+int
+tfw_apm_init(void)
+{
+	unsigned int jtmwindow;
+
+	if (!tfw_apm_jtmwindow)
+		tfw_apm_jtmwindow = TFW_APM_DEF_TMWINDOW;
+	if (!tfw_apm_tmwscale)
+		tfw_apm_tmwscale = TFW_APM_DEF_TMWSCALE;
+
+	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
+	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
+	{
+		TFW_ERR("apm_stats: window: value '%d' is out of limits.\n",
+			tfw_apm_jtmwindow);
+		return -EINVAL;
+	}
+	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
+	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
+	{
+		TFW_ERR("apm_stats: scale: value '%d' is out of limits.\n",
+			tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+
+	/* Enforce @tfw_apm_tmwscale to be at least 2. */
+	if (tfw_apm_tmwscale == 1)
+		tfw_apm_tmwscale = 2;
+
+	jtmwindow = msecs_to_jiffies(tfw_apm_jtmwindow * 1000);
+	tfw_apm_jtmintrvl = jtmwindow / tfw_apm_tmwscale
+			    + !!(jtmwindow % tfw_apm_tmwscale);
+
+	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
+		TFW_ERR("apm_stats window=%d scale=%d: scale is too long.\n",
+			tfw_apm_jtmwindow, tfw_apm_tmwscale);
+		return -EINVAL;
+	}
+	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
+
+	return 0;
+}
+
+void
+tfw_apm_exit(void)
+{
+	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
+}

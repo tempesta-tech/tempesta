@@ -205,6 +205,7 @@ tfw_init(void)
 	DO_INIT(http);
 	DO_INIT(http_sess);
 
+	DO_INIT(apm);
 	DO_INIT(sync_socket);
 	DO_INIT(server);
 	DO_INIT(client);

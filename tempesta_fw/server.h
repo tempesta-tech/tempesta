@@ -195,6 +195,7 @@ unsigned int tfw_sg_count(void);
 
 void tfw_sg_add(TfwSrvGroup *sg, TfwServer *srv);
 int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
+int tfw_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release_all(void);
 
