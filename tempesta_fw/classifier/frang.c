@@ -69,20 +69,67 @@ typedef struct {
 	unsigned int	req;
 } FrangRates;
 
+/*
+ * Complement sizeof(FrangAcc) to TFW_CLASSIFIER_ACCSZ
+*/
+#define FRANG_RESP_CODE_TIME_FRAME 53
+
+/**
+ * Response code record
+ *
+ * @tb	- Beginning of the current time frame
+ * @cnt	- Total amount of error responses in the time frame
+ * @buf	- Circular buffer of error responses in the time frame
+ * @ab	- First element in the circular buffer
+*/
+typedef struct {
+	unsigned long	tb;
+	int		cnt;
+	unsigned short	buf[FRANG_RESP_CODE_TIME_FRAME];
+	short		ab;
+} FrangRespCodeStat;
+
+#define FRANG_HTTP_ERROR_CODE_MIN 100
+#define FRANG_HTTP_ERROR_CODE_MAX 599
+#define FRANG_HTTP_ERROR_CODE_BIT_NUM(code) (code) - FRANG_HTTP_ERROR_CODE_MIN
+
+/**
+ * Response code block setting
+ *
+ * @codes - Response code bitmap.
+ *   ____cacheline_aligned attribute of @codes whould make the size
+ *  of the whole structure equal to 128 bytes
+ * @limit - Quantity of allowed responses in a time frame
+ * @tf - Time frame in seconds
+ * @sf - Scale factor to fit all occurenses in the array
+ *   if its size is less than time frame in seconds
+ * @stat_buf_len - Real used length of the @FrangRespCodeStat.buf
+ *   depends on @tf and @sf
+ *
+*/
+typedef struct {
+	DECLARE_BITMAP(codes, 512);
+	unsigned short	limit;
+	unsigned short	tf;
+	short		sf;
+	short		stat_buf_len;
+} FrangHttpRespCodeBlock;
+
 /**
  * Main descriptor of client resource accounting.
  * @lock can be removed if RSS is tuned to schedule packets based on
- * <proto, src_ip> touple. However, the hashing could produce bad CPU load
- * balancing so, such settings are not desireble.
+ * <proto, src_ip> tuple. However, the hashing could produce bad CPU load
+ * balancing so, such settings are not desirable.
  *
- * @conn_curr	- current connections number;
- * @addr	- client IPv6 address (w/o port);
- * @history	- bursts history organized as a ring-buffer;
+ * @conn_curr		- current connections number;
+ * @history		- bursts history organized as a ring-buffer;
+ * @resp_code_stat	- response code record
  */
 typedef struct {
 	unsigned int		conn_curr;
 	spinlock_t		lock;
 	FrangRates		history[FRANG_FREQ];
+	FrangRespCodeStat	resp_code_stat;
 } FrangAcc;
 
 typedef struct {
@@ -121,11 +168,12 @@ typedef struct {
 	unsigned long 	http_methods_mask;
 	/* The list of allowed Content-Type values. */
 	FrangCtVal	*http_ct_vals;
+	FrangHttpRespCodeBlock *http_resp_code_block;
 } FrangCfg;
 
 static FrangCfg frang_cfg __read_mostly;
 /* GFSM hooks priorities. */
-int prio0, prio1;
+int prio0, prio1, fsm_hook_resp_prio = -1;
 
 #define FRANG_CLI2ACC(c)	((FrangAcc *)(&(c)->class_prvt))
 #define FRANG_ACC2CLI(a)	container_of((TfwClassifierPrvt *)a,	\
@@ -225,7 +273,7 @@ frang_conn_new(struct sock *sk)
 	 * just allocated the socket and called tempesta_new_clntsk()) w/o
 	 * TfwConn{} and vise versa - TfwConn{} can leave w/o socket
 	 * (e.g. server connections during failover). Thus to keep design
-	 * consistent we  two references to TfwPeer: from socket and
+	 * consistent we have two references to TfwPeer: from socket and
 	 * TfwConn{}.
 	 */
 	sk->sk_security = ra;
@@ -502,11 +550,73 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
+static short
+frang_resp_next_idx(short ab, const short len)
+{
+	return ++ab == len ? 0 : ab;
+}
+
+static short
+frang_resp_keep_frame(FrangHttpRespCodeBlock *conf, FrangRespCodeStat *stat)
+{
+	const unsigned long tc = jiffies / HZ;
+	const short ai = (tc % conf->tf) / conf->sf;
+
+	/*
+	 * FrangRespCodeStat is filled with zero in the beginning
+	 * because of TfwClient allocation with __GFP_ZERO flag
+	*/
+	if (tc - stat->tb >= conf->tf) {
+		/*
+		 * Current time frame is exceeded entirely
+		*/
+		if (tc - stat->tb + 1 >= (2 * conf->tf)) {
+			if (likely(stat->cnt)) {
+				memset(stat->buf, 0,
+				       sizeof(*stat->buf) * conf->stat_buf_len);
+				stat->cnt = 0;
+			}
+			stat->tb = tc;
+			stat->ab = ai;
+		}
+		/*
+		 * Decrease counter by values from the previous time frame
+		*/
+		else {
+			short ab = stat->ab;
+			const short alen = conf->stat_buf_len;
+			short after_ai = frang_resp_next_idx(ai, alen);
+			unsigned short *buf = stat->buf;
+			int cnt = stat->cnt;
+			/*
+			 *ai is the same for all tc from range [tc; tc + sf - 1]
+			*/
+			stat->tb = tc - conf->tf + conf->sf;
+			do {
+				cnt -= buf[ab];
+				buf[ab] = 0;
+				ab = frang_resp_next_idx(ab, alen);
+			} while (ab != after_ai);
+			stat->cnt = cnt;
+			stat->ab = ab;
+		}
+		BUG_ON(stat->cnt < 0);
+	}
+	return ai;
+}
+
+static int
+frang_resp_overlim(FrangHttpRespCodeBlock *conf, FrangRespCodeStat *stat)
+{
+	frang_resp_keep_frame(conf, stat);
+	return stat->cnt > conf->limit;
+}
+
 /*
  * The GFSM states aren't hookable, so don't open the states definitions and
  * only start and finish states are present.
  */
-#define TFW_GFSM_FRANG_STATE(s)	((TFW_FSM_FRANG << TFW_GFSM_FSM_SHIFT) | (s))
+#define TFW_GFSM_FRANG_STATE(s)	((TFW_FSM_FRANG_REQ << TFW_GFSM_FSM_SHIFT) | (s))
 enum {
 	TFW_FRANG_FSM_INIT	= TFW_GFSM_FRANG_STATE(0),
 	TFW_FRANG_FSM_DONE	= TFW_GFSM_FRANG_STATE(TFW_GFSM_STATE_LAST)
@@ -535,6 +645,10 @@ enum {
 	Frang_Req_Body_NoState,
 
 	Frang_Req_Done
+};
+
+enum {
+	TFW_FRANG_RESP_FSM_INIT	= TFW_FSM_FRANG_RESP << TFW_GFSM_FSM_SHIFT
 };
 
 #define FSM_HDR_STATE(state)						\
@@ -680,6 +794,13 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 	__FRANG_FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate)
 			r = frang_req_limit(ra);
+		if (r == TFW_PASS
+		    && frang_cfg.http_resp_code_block
+		    && frang_resp_overlim(frang_cfg.http_resp_code_block,
+					  &ra->resp_code_stat))
+		{
+			r = TFW_BLOCK;
+		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);
 	}
 
@@ -868,6 +989,43 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	return r;
 }
 
+static int
+frang_resp_code_range(const int n)
+{
+	return n <= FRANG_HTTP_ERROR_CODE_MAX && n >= FRANG_HTTP_ERROR_CODE_MIN;
+}
+
+/*
+ * Check response code and record it if it's listed in the filter.
+ * Called from tfw_http_resp_fwd() by tfw_gfsm_move()
+ * Always returs TFW_PASS because this handler is needed
+ * for collecting purposes only.
+*/
+static int
+frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
+{
+	TfwHttpReq *req = (TfwHttpReq *)obj;
+	TfwHttpResp *resp = (TfwHttpResp *)req->resp;
+	FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
+	FrangAcc *ra = (FrangAcc *)req->conn->sk->sk_security;
+	FrangRespCodeStat *stat = &ra->resp_code_stat;
+
+	if (!frang_resp_code_range(resp->status) ||
+	    !test_bit(FRANG_HTTP_ERROR_CODE_BIT_NUM(resp->status), conf->codes))
+	{
+		return TFW_PASS;
+	}
+
+	spin_lock(&ra->lock);
+
+	++stat->buf[frang_resp_keep_frame(conf, stat)];
+	++stat->cnt;
+
+	spin_unlock(&ra->lock);
+
+	return TFW_PASS;
+}
+
 static TfwClassifier frang_class_ops = {
 	.name			= "frang",
 	.classify_conn_estab	= frang_conn_new,
@@ -993,6 +1151,105 @@ frang_free_ct_vals(TfwCfgSpec *cs)
 }
 
 static int
+frang_register_fsm_resp(void)
+{
+	int r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_RESP, frang_resp_handler);
+	if (r) {
+		TFW_ERR("\nfrang: can't register response fsm");
+		return r;
+	}
+
+	fsm_hook_resp_prio = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+						    TFW_GFSM_HOOK_PRIORITY_ANY,
+						    TFW_HTTP_FSM_RESP_MSG_FWD,
+						    TFW_FSM_FRANG_RESP,
+						    TFW_FRANG_RESP_FSM_INIT);
+	if (fsm_hook_resp_prio < 0) {
+		TFW_ERR("\nfrang: can't register gfsm msg fwd hook");
+		tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
+		return fsm_hook_resp_prio;
+	}
+
+	return 0;
+}
+
+static int
+frang_parse_ushort(const char *s, int *n)
+{
+	if(tfw_cfg_parse_int(s, n) || *n < 1 || *n > USHRT_MAX) {
+		TFW_ERR_NL("frang: http_resp_code_block: \"%s\" isn't a valid value\n", s);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+/**
+ * Save response code block configuration
+*/
+static int
+frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int n, i;
+	const char *s;
+	FrangHttpRespCodeBlock *cb;
+
+	if (!ce->val_n)
+		return 0;
+
+	cb = kmalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
+	if (!cb)
+		return -ENOMEM;
+	if (ce->val_n < 3) {
+		TFW_ERR_NL("frang: http_resp_code_block: too few arguments\n");
+		return -EINVAL;
+	}
+	i = ce->val_n - 2;
+
+	memset(cb->codes, 0, sizeof(cb->codes));
+	while (--i >= 0) {
+		s = ce->vals[i];
+		if (tfw_cfg_parse_int(s, &n) || !frang_resp_code_range(n)) {
+			TFW_ERR_NL("\nfrang: http_resp_code_block: invalid HTTP error code \"%s\"", s);
+			return -EINVAL;
+		}
+		/*
+		 * Atomic restriction isn't needed here
+		*/
+		__set_bit(FRANG_HTTP_ERROR_CODE_BIT_NUM(n), cb->codes);
+	}
+
+	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &n))
+		return -EINVAL;
+	cb->limit = n;
+
+	if (frang_parse_ushort(ce->vals[ce->val_n - 1], &n))
+		return -EINVAL;
+	cb->tf = n;
+
+	cb->sf = cb->tf / FRANG_RESP_CODE_TIME_FRAME
+		+ (cb->tf % FRANG_RESP_CODE_TIME_FRAME != 0);
+	/*
+	 * (cb->tf - 1) / cb->sf is a maximum value of ai in frang_resp_handler()
+	*/
+	cb->stat_buf_len = ((cb->tf - 1) / cb->sf) + 1;
+	((FrangCfg *)cs->dest)->http_resp_code_block = cb;
+
+	return frang_register_fsm_resp();
+}
+
+static void
+frang_free_rsp_code_block(TfwCfgSpec *cs)
+{
+	kfree(frang_cfg.http_resp_code_block);
+	frang_cfg.http_resp_code_block = NULL;
+
+	if(fsm_hook_resp_prio >= 0) {
+		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, fsm_hook_resp_prio, TFW_HTTP_FSM_RESP_MSG_FWD);
+		tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
+	}
+}
+
+static int
 frang_start(void)
 {
 	/* Convert these timeouts to jiffies for convenience */
@@ -1093,7 +1350,14 @@ static TfwCfgSpec frang_cfg_section_specs[] = {
 		"http_ct_vals", NULL,
 		frang_set_ct_vals,
 		.allow_none = 1,
-		.cleanup = frang_free_ct_vals,
+		.cleanup = frang_free_ct_vals
+	},
+	{
+		"http_resp_code_block", NULL,
+		frang_set_rsp_code_block,
+		&frang_cfg,
+		.allow_none = 1,
+		.cleanup = frang_free_rsp_code_block
 	},
 	{}
 };
@@ -1129,7 +1393,7 @@ frang_init(void)
 
 	tfw_classifier_register(&frang_class_ops);
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG, frang_http_req_handler);
+	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
 		TFW_ERR("frang: can't register fsm\n");
 		goto err_fsm;
@@ -1137,7 +1401,7 @@ frang_init(void)
 
 	prio0 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
 				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG,
+				       TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG_REQ,
 				       TFW_FRANG_FSM_INIT);
 	if (prio0 < 0) {
 		TFW_ERR("frang: can't register gfsm msg hook\n");
@@ -1145,7 +1409,7 @@ frang_init(void)
 	}
 	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
 				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG,
+				       TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG_REQ,
 				       TFW_FRANG_FSM_INIT);
 	if (prio1 < 0) {
 		TFW_ERR("frang: can't register gfsm chunk hook\n");
@@ -1156,7 +1420,7 @@ frang_init(void)
 err_hook2:
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 err_hook:
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
 	tfw_classifier_unregister();
 	tfw_cfg_mod_unregister(&frang_cfg_mod);
@@ -1169,7 +1433,7 @@ frang_exit(void)
 	TFW_DBG("Frang module exit");
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
-	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG);
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();
 	tfw_cfg_mod_unregister(&frang_cfg_mod);
 }
