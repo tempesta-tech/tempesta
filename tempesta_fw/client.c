@@ -79,7 +79,7 @@ tfw_client_put(TfwClient *cli)
 EXPORT_SYMBOL(tfw_client_put);
 
 /**
- * Find a client corresponding to the @sk by IP addres.
+ * Find a client corresponding to the @sk by IP address.
  * More advanced identification is possible based on User-Agent,
  * Cookie and other HTTP headers.
  *
