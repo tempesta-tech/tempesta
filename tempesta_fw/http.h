@@ -292,7 +292,7 @@ typedef struct {
 #define TFW_HTTP_NON_IDEMP		0x000800
 
 /* Response flags */
-#define TFW_HTTP_VOID_BODY		0x010000	/* Resp to HEAD req */
+#define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
 #define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
 #define TFW_HTTP_HAS_HDR_LMODIFIED	0x040000 /* Has Last-Modified: header */
 /* It is stale, but pass with a warning */
