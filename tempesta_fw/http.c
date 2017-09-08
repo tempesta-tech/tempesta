@@ -236,9 +236,15 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
+ * If memory allocation error occurred, then client connection
+ * should be closed, because response-request pairing for
+ * pipelined requests is violated.
  *
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
+
+static void tfw_http_conn_msg_free(TfwHttpMsg *hm);
+
 static int
 tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 {
@@ -260,10 +266,10 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	}
 
 	if (!(hmresp = tfw_http_msg_alloc_err_resp()))
-		return -ENOMEM;
+		goto mem_err;
 	if (tfw_http_msg_setup(hmresp, &it, msg->len)) {
 		tfw_http_msg_free(hmresp);
-		return -ENOMEM;
+		goto mem_err;
 	}
 
 	tfw_http_prep_date(date->ptr);
@@ -272,6 +278,12 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
 	return 0;
+mem_err:
+	TFW_DBG2("%s: Memory allocation error: conn=[%p]\n",
+		 __func__, req->conn);
+	ss_close_sync(req->conn->sk, true);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	return -ENOMEM;
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -652,6 +664,7 @@ static void
 tfw_http_req_zap_error(struct list_head *equeue)
 {
 	TfwHttpReq *req, *tmp;
+	int ret = 0;
 
 	TFW_DBG2("%s: queue is %sempty\n",
 		 __func__, list_empty(equeue) ? "" : "NOT ");
@@ -660,24 +673,29 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		switch(req->httperr.status) {
-		case 404:
-			tfw_http_send_404(req, req->httperr.reason);
-			break;
-		case 500:
-			tfw_http_send_500(req, req->httperr.reason);
-			break;
-		case 502:
-			tfw_http_send_502(req, req->httperr.reason);
-			break;
-		case 504:
-			tfw_http_send_504(req, req->httperr.reason);
-			break;
-		default:
-			TFW_WARN("Unexpected response error code: [%d]\n",
-				 req->httperr.status);
-			tfw_http_send_500(req, req->httperr.reason);
-			break;
+		if (!ret) {
+			switch(req->httperr.status) {
+			case 404:
+				ret = tfw_http_send_404(req, req->httperr.reason);
+				break;
+			case 500:
+				ret = tfw_http_send_500(req, req->httperr.reason);
+				break;
+			case 502:
+				ret = tfw_http_send_502(req, req->httperr.reason);
+				break;
+			case 504:
+				ret = tfw_http_send_504(req, req->httperr.reason);
+				break;
+			default:
+				TFW_WARN("Unexpected response error code: [%d]\n",
+					 req->httperr.status);
+				ret = tfw_http_send_500(req, req->httperr.reason);
+				break;
+			}
+		} else {
+			ss_close_sync(req->conn->sk, true);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		}
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
