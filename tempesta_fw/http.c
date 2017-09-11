@@ -2424,9 +2424,9 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 
 	/*
 	 * FSM needs TfwHttpReq to record data. It needs TfwHttpResp as well.
-	 * It will be added to request later in tfw_http_resp_fwd(), but it's
+	 * It will be added to the request later in tfw_http_resp_fwd(), but it's
 	 * needed now. Save previous (NULL) value for the sake of safety
-	*/
+	 */
 	state = &hmresp->conn->state;
 	prev_state_obj = state->obj;
 	state->obj = req;
