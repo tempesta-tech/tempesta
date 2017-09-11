@@ -69,50 +69,46 @@ typedef struct {
 	unsigned int	req;
 } FrangRates;
 
-/*
- * Complement sizeof(FrangAcc) to TFW_CLASSIFIER_ACCSZ
-*/
-#define FRANG_RESP_CODE_TIME_FRAME 53
-
 /**
- * Response code record
+ * Response code record.
+ * Good precision isn't needed for this task and there
+ * should be some space for extension of the FrangAcc "history" member.
  *
- * @tb	- Beginning of the current time frame
- * @cnt	- Total amount of error responses in the time frame
- * @buf	- Circular buffer of error responses in the time frame
- * @ab	- First element in the circular buffer
-*/
+ * @tb	- Beginning of the current time frame;
+ * @cnt	- Total amount of responses in the time frame;
+ * @ab	- First element in the circular buffer;
+ * @buf	- Circular buffer of responses in the time frame;
+ */
+#define FRANG_RESP_CODE_TIME_FRAME 16
+
 typedef struct {
 	unsigned long	tb;
-	int		cnt;
+	long		cnt;
+	unsigned short	ab;
 	unsigned short	buf[FRANG_RESP_CODE_TIME_FRAME];
-	short		ab;
 } FrangRespCodeStat;
 
-#define FRANG_HTTP_ERROR_CODE_MIN 100
-#define FRANG_HTTP_ERROR_CODE_MAX 599
-#define FRANG_HTTP_ERROR_CODE_BIT_NUM(code) (code) - FRANG_HTTP_ERROR_CODE_MIN
+#define FRANG_HTTP_CODE_MIN 100
+#define FRANG_HTTP_CODE_MAX 599
+#define FRANG_HTTP_CODE_BIT_NUM(code) ((code) - FRANG_HTTP_CODE_MIN)
 
 /**
  * Response code block setting
  *
- * @codes - Response code bitmap.
- *   ____cacheline_aligned attribute of @codes whould make the size
- *  of the whole structure equal to 128 bytes
- * @limit - Quantity of allowed responses in a time frame
- * @tf - Time frame in seconds
- * @sf - Scale factor to fit all occurenses in the array
- *   if its size is less than time frame in seconds
- * @stat_buf_len - Real used length of the @FrangRespCodeStat.buf
- *   depends on @tf and @sf
- *
-*/
+ * @codes		- Response code bitmap;
+ * @limit		- Quantity of allowed responses in a time frame;
+ * @tf			- Time frame in seconds;
+ * @sf			- Scale factor to fit all occurrences in the array
+ *			  if its size is less than time frame in seconds;
+ * @stat_buf_len	- Real used length of the @FrangRespCodeStat.buf
+ *			  depends on @tf and @sf;
+ */
 typedef struct {
 	DECLARE_BITMAP(codes, 512);
 	unsigned short	limit;
 	unsigned short	tf;
-	short		sf;
-	short		stat_buf_len;
+	unsigned short	sf;
+	unsigned short	stat_buf_len;
 } FrangHttpRespCodeBlock;
 
 /**
@@ -139,36 +135,36 @@ typedef struct {
 
 typedef struct {
 	/* Limits (zero means unlimited). */
-	unsigned int 	req_rate;
-	unsigned int 	req_burst;
-	unsigned int 	conn_rate;
-	unsigned int 	conn_burst;
-	unsigned int 	conn_max;
+	unsigned int		req_rate;
+	unsigned int		req_burst;
+	unsigned int		conn_rate;
+	unsigned int		conn_burst;
+	unsigned int		conn_max;
 
 	/*
 	 * Limits on time it takes to receive
 	 * a full header or a body chunk.
 	 */
-	unsigned long	clnt_hdr_timeout;
-	unsigned long	clnt_body_timeout;
+	unsigned long		clnt_hdr_timeout;
+	unsigned long		clnt_body_timeout;
 
 	/* Limits for HTTP request contents: uri, headers, body, etc. */
-	unsigned int 	http_uri_len;
-	unsigned int 	http_field_len;
-	unsigned int 	http_body_len;
-	unsigned int	http_hchunk_cnt;
-	unsigned int	http_bchunk_cnt;
-	unsigned int	http_hdr_cnt;
-	bool 		http_ct_required;
-	bool 		http_host_required;
+	unsigned int		http_uri_len;
+	unsigned int		http_field_len;
+	unsigned int		http_body_len;
+	unsigned int		http_hchunk_cnt;
+	unsigned int		http_bchunk_cnt;
+	unsigned int		http_hdr_cnt;
+	bool			http_ct_required;
+	bool			http_host_required;
 
-	bool		ip_block;
+	bool			ip_block;
 
 	/* The bitmask of allowed HTTP Method values. */
-	unsigned long 	http_methods_mask;
+	unsigned long		http_methods_mask;
 	/* The list of allowed Content-Type values. */
-	FrangCtVal	*http_ct_vals;
-	FrangHttpRespCodeBlock *http_resp_code_block;
+	FrangCtVal		*http_ct_vals;
+	FrangHttpRespCodeBlock	*http_resp_code_block;
 } FrangCfg;
 
 static FrangCfg frang_cfg __read_mostly;
@@ -550,66 +546,60 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
-static short
-frang_resp_next_idx(short ab, const short len)
+static unsigned short
+frang_resp_next_idx(unsigned short ab, const unsigned short len)
 {
-	return ++ab == len ? 0 : ab;
+	return ++ab >= len ? 0 : ab;
 }
 
-static short
-frang_resp_keep_frame(FrangHttpRespCodeBlock *conf, FrangRespCodeStat *stat)
+static void
+frang_resp_keep_frame(FrangRespCodeStat *stat, const unsigned long tc)
 {
-	const unsigned long tc = jiffies / HZ;
-	const short ai = (tc % conf->tf) / conf->sf;
+	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
+	const unsigned short ai = (tc % conf->tf) / conf->sf;
 
 	/*
 	 * FrangRespCodeStat is filled with zero in the beginning
 	 * because of TfwClient allocation with __GFP_ZERO flag
-	*/
-	if (tc - stat->tb >= conf->tf) {
-		/*
-		 * Current time frame is exceeded entirely
-		*/
-		if (tc - stat->tb + 1 >= (2 * conf->tf)) {
-			if (likely(stat->cnt)) {
-				memset(stat->buf, 0,
-				       sizeof(*stat->buf) * conf->stat_buf_len);
-				stat->cnt = 0;
-			}
-			stat->tb = tc;
-			stat->ab = ai;
+	 */
+	if (tc - stat->tb < conf->tf)
+		return;
+	/*
+	 * Current time frame is exceeded entirely
+	 */
+	if (unlikely(tc - stat->tb + 1 >= (2 * conf->tf))) {
+		if (stat->cnt) {
+			memset(stat->buf, 0,
+			       sizeof(*stat->buf) * conf->stat_buf_len);
+			stat->cnt = 0;
 		}
-		/*
-		 * Decrease counter by values from the previous time frame
-		*/
-		else {
-			short ab = stat->ab;
-			const short alen = conf->stat_buf_len;
-			short after_ai = frang_resp_next_idx(ai, alen);
-			unsigned short *buf = stat->buf;
-			int cnt = stat->cnt;
-			/*
-			 *ai is the same for all tc from range [tc; tc + sf - 1]
-			*/
-			stat->tb = tc - conf->tf + conf->sf;
-			do {
-				cnt -= buf[ab];
-				buf[ab] = 0;
-				ab = frang_resp_next_idx(ab, alen);
-			} while (ab != after_ai);
-			stat->cnt = cnt;
-			stat->ab = ab;
-		}
-		BUG_ON(stat->cnt < 0);
+		stat->tb = tc;
+		stat->ab = ai;
 	}
-	return ai;
+	/*
+	 * Decrease counter by values from the previous time frame
+	 */
+	else {
+		unsigned short after_ai = frang_resp_next_idx(ai,
+							      conf->stat_buf_len);
+		stat->tb = tc - conf->tf + conf->sf;
+		do {
+			stat->cnt -= stat->buf[stat->ab];
+			stat->buf[stat->ab] = 0;
+			stat->ab = frang_resp_next_idx(stat->ab,
+						       conf->stat_buf_len);
+		} while (stat->ab != after_ai);
+	}
+	BUG_ON(stat->cnt < 0);
 }
 
 static int
-frang_resp_overlim(FrangHttpRespCodeBlock *conf, FrangRespCodeStat *stat)
+frang_bad_resp_limit(FrangAcc *ra)
 {
-	frang_resp_keep_frame(conf, stat);
-	return stat->cnt > conf->limit;
+	frang_resp_keep_frame(&ra->resp_code_stat, jiffies / HZ);
+	return ra->resp_code_stat.cnt > frang_cfg.http_resp_code_block->limit
+		? TFW_BLOCK
+		: TFW_PASS;
 }
 
 /*
@@ -618,8 +608,8 @@ frang_resp_overlim(FrangHttpRespCodeBlock *conf, FrangRespCodeStat *stat)
  */
 #define TFW_GFSM_FRANG_STATE(s)	((TFW_FSM_FRANG_REQ << TFW_GFSM_FSM_SHIFT) | (s))
 enum {
-	TFW_FRANG_FSM_INIT	= TFW_GFSM_FRANG_STATE(0),
-	TFW_FRANG_FSM_DONE	= TFW_GFSM_FRANG_STATE(TFW_GFSM_STATE_LAST)
+	TFW_FRANG_REQ_FSM_INIT	= TFW_GFSM_FRANG_STATE(0),
+	TFW_FRANG_REQ_FSM_DONE	= TFW_GFSM_FRANG_STATE(TFW_GFSM_STATE_LAST)
 };
 
 enum {
@@ -794,13 +784,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 	__FRANG_FSM_STATE(Frang_Req_0) {
 		if (frang_cfg.req_burst || frang_cfg.req_rate)
 			r = frang_req_limit(ra);
-		if (r == TFW_PASS
-		    && frang_cfg.http_resp_code_block
-		    && frang_resp_overlim(frang_cfg.http_resp_code_block,
-					  &ra->resp_code_stat))
-		{
-			r = TFW_BLOCK;
-		}
+		if (r == TFW_PASS && frang_cfg.http_resp_code_block)
+			r = frang_bad_resp_limit(ra);
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);
 	}
 
@@ -963,7 +948,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 
 	/* All limits are verified for current request. */
 	__FRANG_FSM_STATE(Frang_Req_Done) {
-		tfw_gfsm_move(&conn->state, TFW_FRANG_FSM_DONE, skb, off);
+		tfw_gfsm_move(&conn->state, TFW_FRANG_REQ_FSM_DONE, skb, off);
 		__FRANG_FSM_EXIT();
 	}
 
@@ -992,7 +977,7 @@ frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
 static int
 frang_resp_code_range(const int n)
 {
-	return n <= FRANG_HTTP_ERROR_CODE_MAX && n >= FRANG_HTTP_ERROR_CODE_MIN;
+	return n <= FRANG_HTTP_CODE_MAX && n >= FRANG_HTTP_CODE_MIN;
 }
 
 /*
@@ -1000,25 +985,26 @@ frang_resp_code_range(const int n)
  * Called from tfw_http_resp_fwd() by tfw_gfsm_move()
  * Always returs TFW_PASS because this handler is needed
  * for collecting purposes only.
-*/
+ */
 static int
 frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 {
 	TfwHttpReq *req = (TfwHttpReq *)obj;
 	TfwHttpResp *resp = (TfwHttpResp *)req->resp;
-	FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
 	FrangAcc *ra = (FrangAcc *)req->conn->sk->sk_security;
 	FrangRespCodeStat *stat = &ra->resp_code_stat;
+	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
+	unsigned long tc;
 
-	if (!frang_resp_code_range(resp->status) ||
-	    !test_bit(FRANG_HTTP_ERROR_CODE_BIT_NUM(resp->status), conf->codes))
-	{
+	if (!frang_resp_code_range(resp->status)
+	    || !test_bit(FRANG_HTTP_CODE_BIT_NUM(resp->status), conf->codes))
 		return TFW_PASS;
-	}
 
 	spin_lock(&ra->lock);
 
-	++stat->buf[frang_resp_keep_frame(conf, stat)];
+	tc = jiffies / HZ;
+	frang_resp_keep_frame(stat, tc);
+	++stat->buf[(tc % conf->tf) / conf->sf];
 	++stat->cnt;
 
 	spin_unlock(&ra->lock);
@@ -1174,65 +1160,60 @@ frang_register_fsm_resp(void)
 }
 
 static int
-frang_parse_ushort(const char *s, int *n)
+frang_parse_ushort(const char *s, unsigned short *out)
 {
-	if(tfw_cfg_parse_int(s, n) || *n < 1 || *n > USHRT_MAX) {
+	int n;
+	if(tfw_cfg_parse_int(s, &n) || n < 1 || n > USHRT_MAX) {
 		TFW_ERR_NL("frang: http_resp_code_block: \"%s\" isn't a valid value\n", s);
 		return -EINVAL;
 	}
+	*out = n;
 	return 0;
 }
 
 /**
  * Save response code block configuration
-*/
+ */
 static int
 frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int n, i;
-	const char *s;
 	FrangHttpRespCodeBlock *cb;
 
-	if (!ce->val_n)
-		return 0;
-
-	cb = kmalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
-	if (!cb)
-		return -ENOMEM;
 	if (ce->val_n < 3) {
 		TFW_ERR_NL("frang: http_resp_code_block: too few arguments\n");
 		return -EINVAL;
 	}
-	i = ce->val_n - 2;
 
+	cb = kmalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
+	if (!cb)
+		return -ENOMEM;
+	((FrangCfg *)cs->dest)->http_resp_code_block = cb;
+
+	i = ce->val_n - 2;
 	memset(cb->codes, 0, sizeof(cb->codes));
 	while (--i >= 0) {
-		s = ce->vals[i];
-		if (tfw_cfg_parse_int(s, &n) || !frang_resp_code_range(n)) {
-			TFW_ERR_NL("\nfrang: http_resp_code_block: invalid HTTP error code \"%s\"", s);
+		if (tfw_cfg_parse_int(ce->vals[i], &n) || !frang_resp_code_range(n)) {
+			TFW_ERR_NL("\nfrang: http_resp_code_block: invalid HTTP error code \"%s\"", ce->vals[i]);
 			return -EINVAL;
 		}
 		/*
 		 * Atomic restriction isn't needed here
-		*/
-		__set_bit(FRANG_HTTP_ERROR_CODE_BIT_NUM(n), cb->codes);
+		 */
+		__set_bit(FRANG_HTTP_CODE_BIT_NUM(n), cb->codes);
 	}
 
-	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &n))
+	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)
+	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
 		return -EINVAL;
-	cb->limit = n;
-
-	if (frang_parse_ushort(ce->vals[ce->val_n - 1], &n))
-		return -EINVAL;
-	cb->tf = n;
 
 	cb->sf = cb->tf / FRANG_RESP_CODE_TIME_FRAME
 		+ (cb->tf % FRANG_RESP_CODE_TIME_FRAME != 0);
 	/*
 	 * (cb->tf - 1) / cb->sf is a maximum value of ai in frang_resp_handler()
-	*/
+	 */
 	cb->stat_buf_len = ((cb->tf - 1) / cb->sf) + 1;
-	((FrangCfg *)cs->dest)->http_resp_code_block = cb;
+
 
 	return frang_register_fsm_resp();
 }
@@ -1402,7 +1383,7 @@ frang_init(void)
 	prio0 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
 				       TFW_GFSM_HOOK_PRIORITY_ANY,
 				       TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_FSM_INIT);
+				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio0 < 0) {
 		TFW_ERR("frang: can't register gfsm msg hook\n");
 		goto err_hook;
@@ -1410,7 +1391,7 @@ frang_init(void)
 	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
 				       TFW_GFSM_HOOK_PRIORITY_ANY,
 				       TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_FSM_INIT);
+				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio1 < 0) {
 		TFW_ERR("frang: can't register gfsm chunk hook\n");
 		goto err_hook2;
