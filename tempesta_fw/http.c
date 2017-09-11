@@ -233,6 +233,43 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 }
 
 /*
+ * Free an HTTP message.
+ * Also, free the connection instance if there's no more references.
+ *
+ * This function should be used anytime when there's a chance that
+ * a connection instance may belong to multiple messages, which is
+ * almost always. If a connection is suddenly closed then it still
+ * can be safely dereferenced and used in the code.
+ * In rare cases we're sure that a connection instance in a message
+ * doesn't have multiple users. For example, when an error response
+ * is prepared and sent by Tempesta, that HTTP message does not need
+ * a connection instance. The message is then immediately destroyed,
+ * and a simpler tfw_http_msg_free() can be used for that.
+ *
+ * NOTE: @hm->conn may be NULL if @hm is the response that was served
+ * from cache.
+ */
+static void
+tfw_http_conn_msg_free(TfwHttpMsg *hm)
+{
+	if (unlikely(!hm))
+		return;
+
+	if (hm->conn) {
+		/*
+		 * Unlink the connection while there is at least one
+		 * reference. Use atomic exchange to avoid races with
+		 * new messages arriving on the connection.
+		 */
+		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
+			  0UL, sizeof(long));
+		tfw_connection_put(hm->conn);
+	}
+
+	tfw_http_msg_free(hm);
+}
+
+/*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
@@ -242,13 +279,10 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
  *
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
-
-static void tfw_http_conn_msg_free(TfwHttpMsg *hm);
-
 static int
 tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 {
-	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK, ret = 0;
 	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
 	TfwHttpMsg *hmresp;
 	TfwMsgIter it;
@@ -265,25 +299,43 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 		msg->len += crlf->len - crlf_len;
 	}
 
-	if (!(hmresp = tfw_http_msg_alloc_err_resp()))
-		goto mem_err;
-	if (tfw_http_msg_setup(hmresp, &it, msg->len)) {
-		tfw_http_msg_free(hmresp);
-		goto mem_err;
+	if (!(hmresp = tfw_http_msg_alloc_err_resp())) {
+		TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
+			 __func__, req->conn);
+		ret = -ENOMEM;
+		goto err_create;
 	}
-
+	if ((ret = tfw_http_msg_setup(hmresp, &it, msg->len))) {
+		TFW_DBG2("%s: Response skb allocation error: conn=[%p]\n",
+			 __func__, req->conn);
+		goto err_setup;
+	}
 	tfw_http_prep_date(date->ptr);
-	tfw_http_msg_write(&it, hmresp, msg);
-
+	if ((ret = tfw_http_msg_write(&it, hmresp, msg))) {
+		TFW_DBG2("%s: Respnse allocation error: conn=[%p]\n",
+			 __func__, req->conn);
+		goto err_setup;
+	}
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
-
-	return 0;
-mem_err:
-	TFW_DBG2("%s: Memory allocation error: conn=[%p]\n",
-		 __func__, req->conn);
+	
+	return ret;
+err_setup:
+	tfw_http_msg_free(hmresp);
+err_create:
+	/*
+	 * Pairing of requests and responses gets broken here. As soon
+	 * as request is not linked with any response, sending to that
+	 * client stops starting with that request, because that creates
+	 * a "hole" in the chain of requests -- a request without a response.
+	 * Subsequent responses cannot be sent to the client until that
+	 * hole is closed, which at this point will never happen. To solve
+	 * this situation there is no choice but to close client connection.
+	 */
 	ss_close_sync(req->conn->sk, true);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	return -ENOMEM;
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	
+	return ret;
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -664,7 +716,6 @@ static void
 tfw_http_req_zap_error(struct list_head *equeue)
 {
 	TfwHttpReq *req, *tmp;
-	int ret = 0;
 
 	TFW_DBG2("%s: queue is %sempty\n",
 		 __func__, list_empty(equeue) ? "" : "NOT ");
@@ -673,29 +724,24 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if (!ret) {
-			switch(req->httperr.status) {
-			case 404:
-				ret = tfw_http_send_404(req, req->httperr.reason);
-				break;
-			case 500:
-				ret = tfw_http_send_500(req, req->httperr.reason);
-				break;
-			case 502:
-				ret = tfw_http_send_502(req, req->httperr.reason);
-				break;
-			case 504:
-				ret = tfw_http_send_504(req, req->httperr.reason);
-				break;
-			default:
-				TFW_WARN("Unexpected response error code: [%d]\n",
-					 req->httperr.status);
-				ret = tfw_http_send_500(req, req->httperr.reason);
-				break;
-			}
-		} else {
-			ss_close_sync(req->conn->sk, true);
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		switch(req->httperr.status) {
+		case 404:
+			tfw_http_send_404(req, req->httperr.reason);
+			break;
+		case 500:
+			tfw_http_send_500(req, req->httperr.reason);
+			break;
+		case 502:
+			tfw_http_send_502(req, req->httperr.reason);
+			break;
+		case 504:
+			tfw_http_send_504(req, req->httperr.reason);
+			break;
+		default:
+			TFW_WARN("Unexpected response error code: [%d]\n",
+				 req->httperr.status);
+			tfw_http_send_500(req, req->httperr.reason);
+			break;
 		}
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
@@ -1281,43 +1327,6 @@ tfw_http_conn_msg_alloc(TfwConn *conn)
 	}
 
 	return (TfwMsg *)hm;
-}
-
-/*
- * Free an HTTP message.
- * Also, free the connection instance if there's no more references.
- *
- * This function should be used anytime when there's a chance that
- * a connection instance may belong to multiple messages, which is
- * almost always. If a connection is suddenly closed then it still
- * can be safely dereferenced and used in the code.
- * In rare cases we're sure that a connection instance in a message
- * doesn't have multiple users. For example, when an error response
- * is prepared and sent by Tempesta, that HTTP message does not need
- * a connection instance. The message is then immediately destroyed,
- * and a simpler tfw_http_msg_free() can be used for that.
- *
- * NOTE: @hm->conn may be NULL if @hm is the response that was served
- * from cache.
- */
-static void
-tfw_http_conn_msg_free(TfwHttpMsg *hm)
-{
-	if (unlikely(!hm))
-		return;
-
-	if (hm->conn) {
-		/*
-		 * Unlink the connection while there is at least one
-		 * reference. Use atomic exchange to avoid races with
-		 * new messages arriving on the connection.
-		 */
-		__cmpxchg((unsigned long *)&hm->conn->msg, (unsigned long)hm,
-			  0UL, sizeof(long));
-		tfw_connection_put(hm->conn);
-	}
-
-	tfw_http_msg_free(hm);
 }
 
 /*
