@@ -129,7 +129,7 @@ int
 tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 {
 	size_t data_len = S_302_FIXLEN;
-	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK, ret = 0;
 	TfwMsgIter it;
 	TfwStr rh = {
 		.ptr = (TfwStr []){
@@ -170,22 +170,22 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-	tfw_http_msg_write(&it, resp, &rh);
+	ret = tfw_http_msg_write(&it, resp, &rh);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
 		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
-		tfw_http_msg_write(&it, resp, &proto);
-		tfw_http_msg_write(&it, resp, &host);
+		ret |= tfw_http_msg_write(&it, resp, &proto);
+		ret |= tfw_http_msg_write(&it, resp, &host);
 	}
-	tfw_http_msg_write(&it, resp, &req->uri_path);
-	tfw_http_msg_write(&it, resp, &part03);
-	tfw_http_msg_write(&it, resp, cookie);
-	tfw_http_msg_write(&it, resp, crlf);
+	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
+	ret |= tfw_http_msg_write(&it, resp, &part03);
+	ret |= tfw_http_msg_write(&it, resp, cookie);
+	ret |= tfw_http_msg_write(&it, resp, crlf);
 
-	return TFW_PASS;
+	return ret ? TFW_BLOCK : TFW_PASS;
 }
 
 #define S_304_PART_01	S_304 S_CRLF
@@ -200,7 +200,7 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 {
 	size_t data_len = SLEN(S_304_PART_01);
 	TfwMsgIter *it = (TfwMsgIter *)msg_it;
-	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK, ret = 0;
 	static TfwStr rh = {
 		.ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) };
 	static TfwStr crlf_keep = {
@@ -223,13 +223,13 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 	if (tfw_http_msg_setup(resp, it, data_len))
 		return TFW_BLOCK;
 
-	tfw_http_msg_write(it, resp, &rh);
+	ret = tfw_http_msg_write(it, resp, &rh);
 	if (end)
-		tfw_http_msg_write(it, resp, end);
+		ret |= tfw_http_msg_write(it, resp, end);
 
 	TFW_DBG("Send HTTP 304 response\n");
 
-	return TFW_PASS;
+	return ret ? TFW_BLOCK : TFW_PASS;
 }
 
 /*
@@ -270,6 +270,18 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 }
 
 /*
+ * Close the client connection and free unpaired request. This function
+ * is needed for cases when we cannot prepare response for this request.
+ */
+void
+tfw_http_req_conn_close(TfwHttpReq *req)
+{
+	ss_close_sync(req->conn->sk, true);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);	
+}
+
+/*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
@@ -279,10 +291,10 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  *
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
-static int
+static void
 tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 {
-	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK, ret = 0;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwStr *crlf = __TFW_STR_CH(msg, TFW_STR_CHUNKN(msg) - 1);
 	TfwHttpMsg *hmresp;
 	TfwMsgIter it;
@@ -302,23 +314,22 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 	if (!(hmresp = tfw_http_msg_alloc_err_resp())) {
 		TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
 			 __func__, req->conn);
-		ret = -ENOMEM;
 		goto err_create;
 	}
-	if ((ret = tfw_http_msg_setup(hmresp, &it, msg->len))) {
+	if (tfw_http_msg_setup(hmresp, &it, msg->len)) {
 		TFW_DBG2("%s: Response skb allocation error: conn=[%p]\n",
 			 __func__, req->conn);
 		goto err_setup;
 	}
 	tfw_http_prep_date(date->ptr);
-	if ((ret = tfw_http_msg_write(&it, hmresp, msg))) {
+	if (tfw_http_msg_write(&it, hmresp, msg)) {
 		TFW_DBG2("%s: Respnse allocation error: conn=[%p]\n",
 			 __func__, req->conn);
 		goto err_setup;
 	}
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 	
-	return ret;
+	return;
 err_setup:
 	tfw_http_msg_free(hmresp);
 err_create:
@@ -331,11 +342,7 @@ err_create:
 	 * hole is closed, which at this point will never happen. To solve
 	 * this situation there is no choice but to close client connection.
 	 */
-	ss_close_sync(req->conn->sk, true);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
-	
-	return ret;
+	tfw_http_req_conn_close(req);
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -343,7 +350,7 @@ err_create:
 /*
  * HTTP 200 response: Success.
  */
-int
+void
 tfw_http_send_200(TfwHttpReq *req)
 {
 	TfwStr rh = {
@@ -359,7 +366,7 @@ tfw_http_send_200(TfwHttpReq *req)
 
 	TFW_DBG("Send HTTP 200 response\n");
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_403_PART_01	S_403 S_CRLF S_F_DATE
@@ -367,7 +374,7 @@ tfw_http_send_200(TfwHttpReq *req)
 /*
  * HTTP 403 response: Access is forbidden.
  */
-int
+void
 tfw_http_send_403(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
@@ -382,8 +389,8 @@ tfw_http_send_403(TfwHttpReq *req, const char *reason)
 	};
 
 	TFW_DBG("Send HTTP 403 response: %s\n", reason);
-
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_404_PART_01	S_404 S_CRLF S_F_DATE
@@ -391,7 +398,7 @@ tfw_http_send_403(TfwHttpReq *req, const char *reason)
 /*
  * HTTP 404 response: Tempesta is unable to find the requested data.
  */
-int
+void
 tfw_http_send_404(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
@@ -407,7 +414,7 @@ tfw_http_send_404(TfwHttpReq *req, const char *reason)
 
 	TFW_DBG("Send HTTP 404 response: %s\n", reason);
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_412_PART_01	S_412 S_CRLF S_F_DATE
@@ -415,7 +422,7 @@ tfw_http_send_404(TfwHttpReq *req, const char *reason)
 /*
  * HTTP 412 response: Preconditional headers are evaluated to false.
  */
-int
+void
 tfw_http_send_412(TfwHttpReq *req)
 {
 	TfwStr rh = {
@@ -431,7 +438,7 @@ tfw_http_send_412(TfwHttpReq *req)
 
 	TFW_DBG("Send HTTP 412 response\n");
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_500_PART_01	S_500 S_CRLF S_F_DATE
@@ -440,7 +447,7 @@ tfw_http_send_412(TfwHttpReq *req)
  * HTTP 500 response: there was an internal error while forwarding
  * the request to a server.
  */
-static int
+static void
 tfw_http_send_500(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
@@ -456,7 +463,7 @@ tfw_http_send_500(TfwHttpReq *req, const char *reason)
 
 	TFW_DBG("Send HTTP 500 response: %s\n", reason);
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_502_PART_01	S_502 S_CRLF S_F_DATE
@@ -465,7 +472,7 @@ tfw_http_send_500(TfwHttpReq *req, const char *reason)
  * HTTP 502 response: Tempesta is unable to forward the request to
  * the designated server.
  */
-int
+void
 tfw_http_send_502(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
@@ -481,7 +488,7 @@ tfw_http_send_502(TfwHttpReq *req, const char *reason)
 
 	TFW_DBG("Send HTTP 502 response: %s\n", reason);
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 #define S_504_PART_01	S_504 S_CRLF S_F_DATE
@@ -490,7 +497,7 @@ tfw_http_send_502(TfwHttpReq *req, const char *reason)
  * HTTP 504 response: did not receive a timely response from
  * the designated server.
  */
-int
+void
 tfw_http_send_504(TfwHttpReq *req, const char *reason)
 {
 	TfwStr rh = {
@@ -506,7 +513,7 @@ tfw_http_send_504(TfwHttpReq *req, const char *reason)
 
 	TFW_DBG("Send HTTP 504 response: %s\n", reason);
 
-	return tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
+	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
 /*
