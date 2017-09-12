@@ -619,22 +619,22 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
  * instead of tfw_http_msg_add_data() used to build full response.
  */
-int
+void
 __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	TfwHttpResp *resp;
 	TfwMsgIter it;
-	int r, i;
+	int i;
 	char *p;
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
 
 	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv)))
-		return -ENOMEM;
+		goto err_create;
 
-	if ((r = tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
-				   ce->hdr_len_304)))
-		goto err;
+	if (tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
+			      ce->hdr_len_304))
+		goto err_setup;
 
 	/* Put 304 headers */
 	for (i = 0; i < ARRAY_SIZE(ce->hdrs_304); ++i) {
@@ -646,21 +646,21 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			trec = tdb_next_rec_chunk(db, trec);
 		BUG_ON(!trec);
 
-		if ((r = tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &it,
-						  &p)))
-			goto err;
+		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &it, &p))
+			goto err_setup;
 	}
 
-	if ((r = tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf)))
-		goto err;
+	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf))
+		goto err_setup;
 
 	tfw_http_resp_fwd(req, resp);
 
-	return 0;
-err:
+	return;
+err_setup:
 	TFW_WARN("Can't build 304 response, key=%lx\n", ce->key);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
-	return r;
+err_create:
+	tfw_http_req_conn_close(req);
 }
 
 /**
@@ -1388,34 +1388,39 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 /**
  * Process PURGE request method according to the configuration.
  */
-static int
+static void
 tfw_cache_purge_method(TfwHttpReq *req)
 {
-	int ret;
 	TfwAddr saddr;
 	TfwVhost *vhost = tfw_vhost_get_default();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl))
-		return tfw_http_send_403(req, "purge: not configured");
+	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl)) {
+		tfw_http_send_403(req, "purge: not configured");
+		return;
+	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
-	if (!tfw_capuacl_match(vhost, &saddr))
-		return tfw_http_send_403(req, "purge: ACL violation");
+	if (!tfw_capuacl_match(vhost, &saddr)) {
+		tfw_http_send_403(req, "purge: ACL violation");
+		return;
+	}
 
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		ret = tfw_cache_purge_invalidate(req);
+		if (tfw_cache_purge_invalidate(req)){
+			tfw_http_send_404(req, "purge: processing error");
+			return;
+		}
 		break;
 	default:
-		return tfw_http_send_403(req, "purge: invalid option");
+		tfw_http_send_403(req, "purge: invalid option");
+		return;
 	}
 
-	return ret
-		? tfw_http_send_404(req, "purge: processing error")
-		: tfw_http_send_200(req);
+	tfw_http_send_200(req);
 }
 
 /**

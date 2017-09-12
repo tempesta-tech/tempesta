@@ -126,8 +126,10 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if (tfw_http_prep_302(hmresp, req, &cookie))
+	if (tfw_http_prep_302(hmresp, req, &cookie)) {
+		tfw_http_msg_free(hmresp);
 		return -1;
+	}
 
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 

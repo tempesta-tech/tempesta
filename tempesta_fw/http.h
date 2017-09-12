@@ -497,19 +497,20 @@ int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
+void tfw_http_req_conn_close(TfwHttpReq *req);
 
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_send_200(TfwHttpReq *req);
+void tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
-int tfw_http_send_403(TfwHttpReq *req, const char *reason);
-int tfw_http_send_404(TfwHttpReq *req, const char *reason);
-int tfw_http_send_412(TfwHttpReq *req);
-int tfw_http_send_502(TfwHttpReq *req, const char *reason);
-int tfw_http_send_504(TfwHttpReq *req, const char *reason);
+void tfw_http_send_403(TfwHttpReq *req, const char *reason);
+void tfw_http_send_404(TfwHttpReq *req, const char *reason);
+void tfw_http_send_412(TfwHttpReq *req);
+void tfw_http_send_502(TfwHttpReq *req, const char *reason);
+void tfw_http_send_504(TfwHttpReq *req, const char *reason);
 
 /*
  * Functions to create SKBs with data stream.
