@@ -38,9 +38,9 @@ tfw_test_init(void)
 
 	printk("tfw_test: finish - ");
 	if (fail_count)
-		printk("failed %d assertions\n", fail_count);
+		printk(KERN_CONT "failed %d assertions\n", fail_count);
 	else
-		printk("all passed\n");
+		printk(KERN_CONT "all passed\n");
 
 	return 0;
 }
