@@ -622,15 +622,26 @@ fuzz_hdrs_compatible(TfwFuzzContext *ctx, int type, unsigned int v)
 	 * always terminated by the first empty line after the header
 	 * fields, regardless of the header fields present in the
 	 * message, and thus cannot contain a message body.
+	 *
+	 * RFC 7230 3.3.2: A server MUST NOT send a Content-Length header field
+	 * in any response with a status code of 1xx (Informational) or
+	 * 204 (No Content).
 	 */
 	if (type & FUZZ_RESP) {
-		if ((ctx->fld_flags[METHOD]
+		if ((ctx->fld_flags[RESP_CODE]
 		     & (FUZZ_FLD_F_STATUS_100
 			| FUZZ_FLD_F_STATUS_204
 			| FUZZ_FLD_F_STATUS_304))
-		    || (v & FUZZ_MSG_F_EMPTY_BODY))
+		    && !(v & FUZZ_MSG_F_EMPTY_BODY))
 		{
-			return true;
+			return false;
+		}
+		if ((ctx->fld_flags[RESP_CODE]
+		     & (FUZZ_FLD_F_STATUS_100
+			| FUZZ_FLD_F_STATUS_204))
+		    && (ctx->hdr_flags & (1 << CONTENT_LENGTH)))
+		{
+			return false;
 		}
 	}
 	/*
