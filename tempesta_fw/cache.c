@@ -660,7 +660,7 @@ err_setup:
 	TFW_WARN("Can't build 304 response, key=%lx\n", ce->key);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 err_create:
-	tfw_http_req_conn_close(req);
+	tfw_http_resp_build_error(req);
 }
 
 /**
@@ -1391,6 +1391,7 @@ tfw_cache_purge_invalidate(TfwHttpReq *req)
 static void
 tfw_cache_purge_method(TfwHttpReq *req)
 {
+	int ret;
 	TfwAddr saddr;
 	TfwVhost *vhost = tfw_vhost_get_default();
 
@@ -1410,17 +1411,17 @@ tfw_cache_purge_method(TfwHttpReq *req)
 	/* Only "invalidate" option is implemented at this time. */
 	switch (vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
-		if (tfw_cache_purge_invalidate(req)){
-			tfw_http_send_404(req, "purge: processing error");
-			return;
-		}
+		ret = tfw_cache_purge_invalidate(req);
 		break;
 	default:
 		tfw_http_send_403(req, "purge: invalid option");
 		return;
 	}
 
-	tfw_http_send_200(req);
+	if (ret)
+		tfw_http_send_404(req, "purge: processing error");
+	else
+		tfw_http_send_200(req);
 }
 
 /**
