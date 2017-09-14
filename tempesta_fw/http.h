@@ -497,7 +497,7 @@ int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
-void tfw_http_req_conn_close(TfwHttpReq *req);
+void tfw_http_resp_build_error(TfwHttpReq *req);
 
 /*
  * Functions to send an HTTP error response to a client.

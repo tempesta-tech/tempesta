@@ -274,20 +274,27 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * is needed for cases when we cannot prepare response for this request.
  */
 void
-tfw_http_req_conn_close(TfwHttpReq *req)
+tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	ss_close_sync(req->conn->sk, true);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	TFW_INC_STAT_BH(clnt.msgs_otherr);	
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
 }
 
 /*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
+ *
  * If memory allocation error occurred, then client connection
  * should be closed, because response-request pairing for
- * pipelined requests is violated.
+ * pipelined requests is violated. As soon as request is
+ * not linked with any response, sending to that client
+ * stops starting with that request, because that creates
+ * a "hole" in the chain of requests -- a request without a response.
+ * Subsequent responses cannot be sent to the client until that
+ * hole is closed, which at this point will never happen. To solve
+ * this situation there is no choice but to close client connection.
  *
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
@@ -311,38 +318,24 @@ tfw_http_send_resp(TfwHttpReq *req, TfwStr *msg, const TfwStr *date)
 		msg->len += crlf->len - crlf_len;
 	}
 
-	if (!(hmresp = tfw_http_msg_alloc_err_resp())) {
-		TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
-			 __func__, req->conn);
+	if (!(hmresp = tfw_http_msg_alloc_err_resp()))
 		goto err_create;
-	}
-	if (tfw_http_msg_setup(hmresp, &it, msg->len)) {
-		TFW_DBG2("%s: Response skb allocation error: conn=[%p]\n",
-			 __func__, req->conn);
+	if (tfw_http_msg_setup(hmresp, &it, msg->len))
 		goto err_setup;
-	}
+
 	tfw_http_prep_date(date->ptr);
-	if (tfw_http_msg_write(&it, hmresp, msg)) {
-		TFW_DBG2("%s: Respnse allocation error: conn=[%p]\n",
-			 __func__, req->conn);
+	if (tfw_http_msg_write(&it, hmresp, msg))
 		goto err_setup;
-	}
+
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
-	
+
 	return;
 err_setup:
+	TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
+		 __func__, req->conn);
 	tfw_http_msg_free(hmresp);
 err_create:
-	/*
-	 * Pairing of requests and responses gets broken here. As soon
-	 * as request is not linked with any response, sending to that
-	 * client stops starting with that request, because that creates
-	 * a "hole" in the chain of requests -- a request without a response.
-	 * Subsequent responses cannot be sent to the client until that
-	 * hole is closed, which at this point will never happen. To solve
-	 * this situation there is no choice but to close client connection.
-	 */
-	tfw_http_req_conn_close(req);
+	tfw_http_resp_build_error(req);
 }
 
 #define S_200_PART_01	S_200 S_CRLF S_F_DATE
@@ -389,7 +382,7 @@ tfw_http_send_403(TfwHttpReq *req, const char *reason)
 	};
 
 	TFW_DBG("Send HTTP 403 response: %s\n", reason);
-	
+
 	tfw_http_send_resp(req, &rh, __TFW_STR_CH(&rh, 1));
 }
 
