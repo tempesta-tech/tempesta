@@ -50,10 +50,14 @@
 #include "sock_clnt.c"
 #undef tfw_cli_conn_send
 
-/* rename original tfw_http_req_conn_close(), a custom version will be used here */
-#define tfw_http_req_conn_close	divert_tfw_http_req_conn_close
+/* rename original tfw_http_resp_build_error(), a custom version will be used here */
+#define tfw_http_resp_build_error	divert_tfw_http_resp_build_error
+/*
+ * TODO make working redefinition; current redefinition does not work as
+ * the definition and the call of the function are in the same file.
+ */
 #include "http.c"
-#undef tfw_http_req_conn_close
+#undef tfw_http_resp_build_error
 
 #include "hash.c"
 #include "addr.c"
@@ -188,7 +192,7 @@ int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 /* custom version for testing purposes */
 void
-tfw_http_req_conn_close(TfwHttpReq *req)
+tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	(void)req;
 }
