@@ -1144,14 +1144,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
-			entry_reset(&ps->e);
 			return -EINVAL;
 		}
 
 		ret = spec_handle_entry(matching_spec, &ps->e);
-		entry_reset(&ps->e);
 		if (ret)
 			return ret;
+		entry_reset(&ps->e);
 	}
 
 	/*
