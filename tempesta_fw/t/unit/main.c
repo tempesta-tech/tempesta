@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -38,9 +38,9 @@ tfw_test_init(void)
 
 	printk("tfw_test: finish - ");
 	if (fail_count)
-		printk("failed %d assertions\n", fail_count);
+		printk(KERN_CONT "failed %d assertions\n", fail_count);
 	else
-		printk("all passed\n");
+		printk(KERN_CONT "all passed\n");
 
 	return 0;
 }
