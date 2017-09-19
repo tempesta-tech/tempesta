@@ -69,24 +69,21 @@ typedef struct {
 	unsigned int	req;
 } FrangRates;
 
+/* The least power of two greater than a year in seconds */
+#define FRANG_RESP_TIME_PERIOD 33554432
+
 /**
  * Response code record.
- * Good precision isn't needed for this task and there
- * should be some space for extension of the FrangAcc "history" member.
  *
- * @tb	- Beginning of the current time frame;
- * @cnt	- Total amount of responses in the time frame;
- * @ab	- First element in the circular buffer;
- * @buf	- Circular buffer of responses in the time frame;
+ * @cnt	- Amount of responses in a time frame part;
+ * @ts	- Response time in seconds. Four bytes could be used to store enough
+ *   number of seconds in the assumption that there won't be delays between user
+ *   responses longer than a year;
  */
-#define FRANG_RESP_CODE_TIME_FRAME 16
-
 typedef struct {
-	unsigned long	tb;
-	long		cnt;
-	unsigned short	ab;
-	unsigned short	buf[FRANG_RESP_CODE_TIME_FRAME];
-} FrangRespCodeStat;
+	long	cnt;
+	int	ts;
+} __attribute__((packed)) FrangRespCodeStat;
 
 #define FRANG_HTTP_CODE_MIN 100
 #define FRANG_HTTP_CODE_MAX 599
@@ -95,20 +92,14 @@ typedef struct {
 /**
  * Response code block setting
  *
- * @codes		- Response code bitmap;
- * @limit		- Quantity of allowed responses in a time frame;
- * @tf			- Time frame in seconds;
- * @sf			- Scale factor to fit all occurrences in the array
- *			  if its size is less than time frame in seconds;
- * @stat_buf_len	- Real used length of the @FrangRespCodeStat.buf
- *			  depends on @tf and @sf;
+ * @codes	- Response code bitmap;
+ * @limit	- Quantity of allowed responses in a time frame;
+ * @tf		- Time frame in seconds;
  */
 typedef struct {
 	DECLARE_BITMAP(codes, 512);
 	unsigned short	limit;
 	unsigned short	tf;
-	unsigned short	sf;
-	unsigned short	stat_buf_len;
 } FrangHttpRespCodeBlock;
 
 /**
@@ -125,7 +116,7 @@ typedef struct {
 	unsigned int		conn_curr;
 	spinlock_t		lock;
 	FrangRates		history[FRANG_FREQ];
-	FrangRespCodeStat	resp_code_stat;
+	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
 } FrangAcc;
 
 typedef struct {
@@ -546,60 +537,28 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
-static unsigned short
-frang_resp_next_idx(unsigned short ab, const unsigned short len)
+static int
+frang_resp_time_in_frame(const int ta, const int tb)
 {
-	return ++ab >= len ? 0 : ab;
-}
-
-static void
-frang_resp_keep_frame(FrangRespCodeStat *stat, const unsigned long tc)
-{
-	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
-	const unsigned short ai = (tc % conf->tf) / conf->sf;
-
-	/*
-	 * FrangRespCodeStat is filled with zero in the beginning
-	 * because of TfwClient allocation with __GFP_ZERO flag
-	 */
-	if (tc - stat->tb < conf->tf)
-		return;
-	/*
-	 * Current time frame is exceeded entirely
-	 */
-	if (unlikely(tc - stat->tb + 1 >= (2 * conf->tf))) {
-		if (stat->cnt) {
-			memset(stat->buf, 0,
-			       sizeof(*stat->buf) * conf->stat_buf_len);
-			stat->cnt = 0;
-		}
-		stat->tb = tc;
-		stat->ab = ai;
-	}
-	/*
-	 * Decrease counter by values from the previous time frame
-	 */
-	else {
-		unsigned short after_ai = frang_resp_next_idx(ai,
-							      conf->stat_buf_len);
-		stat->tb = tc - conf->tf + conf->sf;
-		do {
-			stat->cnt -= stat->buf[stat->ab];
-			stat->buf[stat->ab] = 0;
-			stat->ab = frang_resp_next_idx(stat->ab,
-						       conf->stat_buf_len);
-		} while (stat->ab != after_ai);
-	}
-	BUG_ON(stat->cnt < 0);
+	return tb - ta + (ta > tb ? FRANG_RESP_TIME_PERIOD : 0)
+		< frang_cfg.http_resp_code_block->tf;
 }
 
 static int
 frang_bad_resp_limit(FrangAcc *ra)
 {
-	frang_resp_keep_frame(&ra->resp_code_stat, jiffies / HZ);
-	return ra->resp_code_stat.cnt > frang_cfg.http_resp_code_block->limit
-		? TFW_BLOCK
-		: TFW_PASS;
+	FrangRespCodeStat *stat = ra->resp_code_stat;
+	long cnt = 0;
+	int ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
+	int i = 0;
+
+	for (; i < FRANG_FREQ; ++i) {
+		if (frang_resp_time_in_frame(stat[i].ts, ts))
+			cnt += stat[i].cnt;
+		if (cnt > frang_cfg.http_resp_code_block->limit)
+			return TFW_BLOCK;
+	}
+	return TFW_PASS;
 }
 
 /*
@@ -992,9 +951,10 @@ frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	TfwHttpReq *req = (TfwHttpReq *)obj;
 	TfwHttpResp *resp = (TfwHttpResp *)req->resp;
 	FrangAcc *ra = (FrangAcc *)req->conn->sk->sk_security;
-	FrangRespCodeStat *stat = &ra->resp_code_stat;
+	FrangRespCodeStat *stat = ra->resp_code_stat;
 	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
-	unsigned long tc;
+	int ts;
+	int i;
 
 	if (!frang_resp_code_range(resp->status)
 	    || !test_bit(FRANG_HTTP_CODE_BIT_NUM(resp->status), conf->codes))
@@ -1002,10 +962,13 @@ frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 
 	spin_lock(&ra->lock);
 
-	tc = jiffies / HZ;
-	frang_resp_keep_frame(stat, tc);
-	++stat->buf[(tc % conf->tf) / conf->sf];
-	++stat->cnt;
+	ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
+	i = (ts % conf->tf) * ((float)FRANG_FREQ / conf->tf);
+	if (!frang_resp_time_in_frame(stat[i].ts, ts)) {
+		stat[i].ts = ts;
+		stat[i].cnt = 0;
+	}
+	++stat[i].cnt;
 
 	spin_unlock(&ra->lock);
 
@@ -1163,10 +1126,13 @@ static int
 frang_parse_ushort(const char *s, unsigned short *out)
 {
 	int n;
-	if(tfw_cfg_parse_int(s, &n) || n < 1 || n > USHRT_MAX) {
-		TFW_ERR_NL("frang: http_resp_code_block: \"%s\" isn't a valid value\n", s);
-		return -EINVAL;
+	if (tfw_cfg_parse_int(s, &n)) {
+		TFW_ERR_NL("frang: http_resp_code_block: "
+			   "\"%s\" isn't a valid value\n", s);
+			return -EINVAL;
 	}
+	if (tfw_cfg_check_range(n, 1, USHRT_MAX))
+		return -EINVAL;
 	*out = n;
 	return 0;
 }
@@ -1177,57 +1143,55 @@ frang_parse_ushort(const char *s, unsigned short *out)
 static int
 frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int n, i;
 	FrangHttpRespCodeBlock *cb;
+	static const char *error_msg_begin = "frang: http_resp_code_block:";
+	int n, i;
 
-	if (ce->val_n < 3) {
-		TFW_ERR_NL("frang: http_resp_code_block: too few arguments\n");
+	if (ce->attr_n) {
+		TFW_ERR_NL("%s arguments may not have the \'=\' sign\n",
+			   error_msg_begin);
 		return -EINVAL;
 	}
 
-	cb = kmalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
+	if (ce->val_n < 3) {
+		TFW_ERR_NL("%s too few arguments\n", error_msg_begin);
+		return -EINVAL;
+	}
+
+	cb = kzalloc(sizeof(FrangHttpRespCodeBlock), GFP_KERNEL);
 	if (!cb)
 		return -ENOMEM;
 	((FrangCfg *)cs->dest)->http_resp_code_block = cb;
 
 	i = ce->val_n - 2;
-	memset(cb->codes, 0, sizeof(cb->codes));
 	while (--i >= 0) {
-		if (tfw_cfg_parse_int(ce->vals[i], &n) || !frang_resp_code_range(n)) {
-			TFW_ERR_NL("\nfrang: http_resp_code_block: invalid HTTP error code \"%s\"", ce->vals[i]);
+		if (tfw_cfg_parse_int(ce->vals[i], &n)
+		    || !frang_resp_code_range(n)) {
+			TFW_ERR_NL("%s invalid HTTP error code \"%s\"",
+				   error_msg_begin, ce->vals[i]);
 			return -EINVAL;
 		}
-		/*
-		 * Atomic restriction isn't needed here
-		 */
+		/* Atomic restriction isn't needed here */
 		__set_bit(FRANG_HTTP_CODE_BIT_NUM(n), cb->codes);
 	}
 
 	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)
 	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
 		return -EINVAL;
-
-	cb->sf = cb->tf / FRANG_RESP_CODE_TIME_FRAME
-		+ (cb->tf % FRANG_RESP_CODE_TIME_FRAME != 0);
-	/*
-	 * (cb->tf - 1) / cb->sf is a maximum value of ai in frang_resp_handler()
-	 */
-	cb->stat_buf_len = ((cb->tf - 1) / cb->sf) + 1;
-
-
 	return frang_register_fsm_resp();
 }
 
 static void
 frang_free_rsp_code_block(TfwCfgSpec *cs)
 {
-	kfree(frang_cfg.http_resp_code_block);
-	frang_cfg.http_resp_code_block = NULL;
-
 	if(fsm_hook_resp_prio >= 0) {
-		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, fsm_hook_resp_prio, TFW_HTTP_FSM_RESP_MSG_FWD);
+		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, fsm_hook_resp_prio,
+					 TFW_HTTP_FSM_RESP_MSG_FWD);
 		tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	}
+
+	kfree(frang_cfg.http_resp_code_block);
+	frang_cfg.http_resp_code_block = NULL;
 }
 
 static int
@@ -1404,7 +1368,7 @@ err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);
+	tfw_cfg_mod_unregister(&frang_cfg_mod);	
 	return r;
 }
 
