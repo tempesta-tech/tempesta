@@ -272,11 +272,21 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 /*
  * Close the client connection and free unpaired request. This function
  * is needed for cases when we cannot prepare response for this request.
+ * As soon as request is not linked with any response, sending to that
+ * client stops starting with that request, because that creates
+ * a "hole" in the chain of requests -- a request without a response.
+ * Subsequent responses cannot be sent to the client until that
+ * hole is closed, which at this point will never happen. To solve
+ * this situation there is no choice but to close client connection.
  */
 void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	ss_close_sync(req->conn->sk, true);
+	spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
+	if (likely(!list_empty(&req->msg.seq_list)))
+		list_del_init(&req->msg.seq_list);
+	spin_unlock(&((TfwCliConn *)req->conn)->seq_qlock);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 }
@@ -285,16 +295,9 @@ tfw_http_resp_build_error(TfwHttpReq *req)
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
  * the "Connection:" header field if it was present in the request.
- *
- * If memory allocation error occurred, then client connection
- * should be closed, because response-request pairing for
- * pipelined requests is violated. As soon as request is
- * not linked with any response, sending to that client
- * stops starting with that request, because that creates
- * a "hole" in the chain of requests -- a request without a response.
- * Subsequent responses cannot be sent to the client until that
- * hole is closed, which at this point will never happen. To solve
- * this situation there is no choice but to close client connection.
+ * If memory allocation error or message setup errors occurred, then
+ * client connection should be closed, because response-request
+ * pairing for pipelined requests is violated.
  *
  * NOTE: This function expects that the last chunk of @msg is CRLF.
  */
