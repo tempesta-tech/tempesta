@@ -2423,6 +2423,8 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	}
 
 	/*
+	 * This hook isn't in tfw_http_resp_fwd() because it isn't needed
+	 * to count responses from a cache.
 	 * FSM needs TfwHttpReq to record data. It needs TfwHttpResp as well.
 	 * It will be added to the request later in tfw_http_resp_fwd(), but it's
 	 * needed now. Save previous (NULL) value for the sake of safety
