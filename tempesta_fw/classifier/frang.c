@@ -549,7 +549,7 @@ frang_bad_resp_limit(FrangAcc *ra)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	long cnt = 0;
-	int ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
+	const int ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
 	int i = 0;
 
 	for (; i < FRANG_FREQ; ++i) {
@@ -1167,7 +1167,7 @@ frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	while (--i >= 0) {
 		if (tfw_cfg_parse_int(ce->vals[i], &n)
 		    || !frang_resp_code_range(n)) {
-			TFW_ERR_NL("%s invalid HTTP error code \"%s\"",
+			TFW_ERR_NL("%s invalid HTTP code \"%s\"",
 				   error_msg_begin, ce->vals[i]);
 			return -EINVAL;
 		}
@@ -1368,7 +1368,7 @@ err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);	
+	tfw_cfg_mod_unregister(&frang_cfg_mod);
 	return r;
 }
 
