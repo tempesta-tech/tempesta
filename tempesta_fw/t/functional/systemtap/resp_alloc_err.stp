@@ -1,0 +1,6 @@
+probe module("tempesta_fw").function("tfw_http_msg_alloc_err_resp").return
+{
+	if ($return != 0) {
+		$return = 0
+	}
+}
