@@ -114,17 +114,13 @@ class Wrk(Client):
         self.script = ''
 
     def set_script(self, script):
-        self.script = script
+        self.script = ''.join([script, '.lua'])
 
     def append_script_option(self):
         if not self.script:
             return
-        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../wrk/', self.script, '.lua'])
-        script_path = os.path.abspath(path)
-        assert os.path.isfile(script_path), \
-               'No script found: %s !' % script_path
-        self.options.append('-s %s' % script_path)
+
+        self.options.append('-s %s' % get_script_path(self.script, 'wrk'))
 
     def form_command(self):
         self.options.append('-d %d' % self.duration)
@@ -177,6 +173,14 @@ class Ab(Client):
 #-------------------------------------------------------------------------------
 # Client helpers
 #-------------------------------------------------------------------------------
+
+def get_script_path(script, dir_name):
+    path = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                    '/../', dir_name, '/', script])
+    script_path = os.path.abspath(path)
+    assert os.path.isfile(script_path), \
+        'No script found: %s !' % script_path
+    return script_path
 
 def client_run_blocking(client):
     """ User must call client.prepare() before calling the function and
@@ -271,6 +275,54 @@ class Tempesta(object):
         stdout, _ = self.node.run_cmd(cmd,
                                       err_msg=(self.err_msg % 'get stats of'))
         self.stats.parse(stdout)
+
+
+class TempestaFI(Tempesta):
+    """ Tempesta class for testing with fault injection."""
+
+    def __init__(self, stap_script, mod=False, mod_name='stap_tempesta'):
+        Tempesta.__init__(self)
+        self.stap = ''.join([stap_script, '.stp'])
+        self.module_stap = mod
+        self.module_name = mod_name
+        if self.module_stap:
+            self.stap_msg = 'Cannot %s stap %s Tempesta.'
+            self.modules_dir = '/lib/modules/$(uname -r)/custom/'
+        else:
+            self.stap_msg = 'Cannot %s stap %s kernel.'
+
+    def inject_prepare(self):
+        if self.module_stap:
+            self.node.run_cmd('mkdir %s' % self.modules_dir)
+            cmd = 'find %s/ -name "*.ko" | xargs cp -t %s'
+            self.node.run_cmd(cmd % (self.workdir, self.modules_dir))
+
+    def inject(self):
+        cmd = 'stap -g -m %s -F %s' % (self.module_name,
+                                       get_script_path(self.stap, 'systemtap'))
+        self.node.run_cmd(cmd, timeout=30, err_msg=(self.stap_msg %
+                                                    ('inject', 'into')))
+
+    def letout(self):
+        cmd = 'rmmod %s' % self.module_name
+        self.node.run_cmd(cmd, timeout=30, err_msg=(self.stap_msg %
+                                                    ('remove', 'from')))
+        self.node.remove_file(''.join([self.module_name, '.ko']))
+
+    def letout_finish(self):
+        if self.module_stap:
+            self.node.run_cmd('rm -r %s' % self.modules_dir)
+
+    def start(self):
+        Tempesta.start(self)
+        self.inject_prepare()
+        self.inject()
+
+    def stop(self):
+        self.letout()
+        self.letout_finish()
+        Tempesta.stop(self)
+
 
 #-------------------------------------------------------------------------------
 # Server
