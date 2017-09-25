@@ -50,8 +50,16 @@
 #include "sock_clnt.c"
 #undef tfw_cli_conn_send
 
-#include "hash.c"
+/* rename original tfw_http_resp_build_error(), a custom version will be used here */
+#define tfw_http_resp_build_error	divert_tfw_http_resp_build_error
+/*
+ * TODO make working redefinition; current redefinition does not work as
+ * the definition and the call of the function are in the same file.
+ */
 #include "http.c"
+#undef tfw_http_resp_build_error
+
+#include "hash.c"
 #include "addr.c"
 #include "ss_skb.c"
 #include "sched.c"
@@ -182,6 +190,13 @@ int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return tfw_connection_send((TfwConn *)cli_conn, msg);
 }
 
+/* custom version for testing purposes */
+void
+tfw_http_resp_build_error(TfwHttpReq *req)
+{
+	(void)req;
+}
+
 /* setup/teardown helpers */
 
 static void
@@ -281,7 +296,7 @@ TEST(http_sticky, sending_502)
 	StickyVal sv = { .ts = 1 };
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-	EXPECT_EQ(tfw_http_send_502(mock.req, "sticky calculation"), 0);
+	tfw_http_send_502(mock.req, "sticky calculation");
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
