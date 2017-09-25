@@ -278,6 +278,14 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
  * Subsequent responses cannot be sent to the client until that
  * hole is closed, which at this point will never happen. To solve
  * this situation there is no choice but to close client connection.
+ *
+ * Note: As a consequence of closing a client connection on error of
+ * preparing a response, it's possible that some already prepared
+ * responses will not be sent to the client. That depends on the
+ * order in which CPUs close the connection and call tfw_http_resp_fwd().
+ * This is the intended behaviour. The goal is to free some memory
+ * at the cost of dropping a few clients, so that Tempesta can
+ * continue working.
  */
 void
 tfw_http_resp_build_error(TfwHttpReq *req)
