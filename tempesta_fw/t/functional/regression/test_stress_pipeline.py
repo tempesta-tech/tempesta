@@ -12,6 +12,13 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class Pipeline(stress.StressTest):
+    """ Test for cases with pipelined requests."""
+
+    # For pipeline test positive allowance must be corrected: it is
+    # needed to multiply the number of misaccounted requests by
+    # amount of pipeline requests from the 'wrk' lua script;
+    # See comment on "positive allowance" in `StressTest.assert_clients()`
+    pipelined_req = 7
 
     def create_clients(self):
         self.wrk = control.Wrk()
