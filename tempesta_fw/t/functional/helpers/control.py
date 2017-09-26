@@ -114,13 +114,17 @@ class Wrk(Client):
         self.script = ''
 
     def set_script(self, script):
-        self.script = ''.join([script, '.lua'])
+        self.script = script
 
     def append_script_option(self):
         if not self.script:
             return
-
-        self.options.append('-s %s' % get_script_path(self.script, 'wrk'))
+        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
+                        '/../wrk/', self.script, '.lua'])
+        script_path = os.path.abspath(path)
+        assert os.path.isfile(script_path), \
+            'No script found: %s !' % script_path
+        self.options.append('-s %s' % script_path)
 
     def form_command(self):
         self.options.append('-d %d' % self.duration)
@@ -173,14 +177,6 @@ class Ab(Client):
 #-------------------------------------------------------------------------------
 # Client helpers
 #-------------------------------------------------------------------------------
-
-def get_script_path(script, dir_name):
-    path = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                    '/../', dir_name, '/', script])
-    script_path = os.path.abspath(path)
-    assert os.path.isfile(script_path), \
-        'No script found: %s !' % script_path
-    return script_path
 
 def client_run_blocking(client):
     """ User must call client.prepare() before calling the function and
@@ -298,10 +294,10 @@ class TempestaFI(Tempesta):
             self.node.run_cmd(cmd % (self.workdir, self.modules_dir))
 
     def inject(self):
-        cmd = 'stap -g -m %s -F %s' % (self.module_name,
-                                       get_script_path(self.stap, 'systemtap'))
-        self.node.run_cmd(cmd, timeout=30, err_msg=(self.stap_msg %
-                                                    ('inject', 'into')))
+        cmd = 'stap -g -m %s -F %s/tempesta_fw/t/functional/systemtap/%s'
+        self.node.run_cmd(cmd % (self.module_name, self.workdir, self.stap),
+                          timeout=30, err_msg=(self.stap_msg %
+                                               ('inject', 'into')))
 
     def letout(self):
         cmd = 'rmmod %s' % self.module_name

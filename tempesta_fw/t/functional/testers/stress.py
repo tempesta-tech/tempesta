@@ -11,6 +11,8 @@ class StressTest(unittest.TestCase):
     functional testing of schedulers and stress testing for other components.
     """
 
+    pipelined_req = 1
+
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
         self.clients = [control.Wrk()]
@@ -89,7 +91,7 @@ class StressTest(unittest.TestCase):
         for c in self.clients:
             req, err = c.results()
             cl_req_cnt += req
-            cl_conn_cnt += c.connections
+            cl_conn_cnt += c.connections * self.pipelined_req
             self.assertEqual(err, 0, msg='HTTP client detected errors')
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
