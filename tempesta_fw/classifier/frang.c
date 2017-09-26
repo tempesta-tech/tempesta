@@ -69,25 +69,23 @@ typedef struct {
 	unsigned int	req;
 } FrangRates;
 
-/* The least power of two greater than a year in seconds */
-#define FRANG_RESP_TIME_PERIOD 33554432
-
 /**
  * Response code record.
  *
  * @cnt	- Amount of responses in a time frame part;
  * @ts	- Response time in seconds. Four bytes could be used to store enough
  *   number of seconds in the assumption that there won't be delays between user
- *   responses longer than a year;
+ *   responses longer than 68 years;
  */
 typedef struct {
-	long	cnt;
-	int	ts;
+	long		cnt;
+	unsigned int	ts;
 } __attribute__((packed)) FrangRespCodeStat;
 
 #define FRANG_HTTP_CODE_MIN 100
 #define FRANG_HTTP_CODE_MAX 599
 #define FRANG_HTTP_CODE_BIT_NUM(code) ((code) - FRANG_HTTP_CODE_MIN)
+#define FRANG_RESP_TIME_PERIOD (1 << (sizeof(int) * 8 - 1))
 
 /**
  * Response code block setting
@@ -297,6 +295,12 @@ frang_conn_close(struct sock *sk)
 }
 
 static int
+frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
+{
+	return tprev + FRANG_FREQ > tcur;
+}
+
+static int
 frang_req_limit(FrangAcc *ra)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
@@ -317,7 +321,7 @@ frang_req_limit(FrangAcc *ra)
 	}
 	/* Collect current request sum. */
 	for (i = 0; i < FRANG_FREQ; i++)
-		if (ra->history[i].ts + FRANG_FREQ >= ts)
+		if (frang_time_in_frame(ts, ra->history[i].ts))
 			rsum += ra->history[i].req;
 	if (frang_cfg.req_rate && rsum > frang_cfg.req_rate) {
 		frang_limmsg("request rate", rsum, frang_cfg.req_rate,
@@ -537,11 +541,11 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
-static int
-frang_resp_time_in_frame(const int ta, const int tb)
+static unsigned int
+frang_resp_quantum(void)
 {
-	return tb - ta + (ta > tb ? FRANG_RESP_TIME_PERIOD : 0)
-		< frang_cfg.http_resp_code_block->tf;
+	return ((jiffies / HZ) % FRANG_RESP_TIME_PERIOD) * FRANG_FREQ
+		/ frang_cfg.http_resp_code_block->tf;
 }
 
 static int
@@ -549,14 +553,18 @@ frang_bad_resp_limit(FrangAcc *ra)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	long cnt = 0;
-	const int ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
+	const unsigned int ts = frang_resp_quantum();
 	int i = 0;
 
 	for (; i < FRANG_FREQ; ++i) {
-		if (frang_resp_time_in_frame(stat[i].ts, ts))
+		if (frang_time_in_frame(ts, stat[i].ts))
 			cnt += stat[i].cnt;
-		if (cnt > frang_cfg.http_resp_code_block->limit)
-			return TFW_BLOCK;
+	}
+	if (cnt > frang_cfg.http_resp_code_block->limit) {
+		frang_limmsg("http_resp_code_block limit", cnt,
+			     frang_cfg.http_resp_code_block->limit,
+			     &FRANG_ACC2CLI(ra)->addr);
+		return TFW_BLOCK;
 	}
 	return TFW_PASS;
 }
@@ -953,7 +961,7 @@ frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	FrangAcc *ra = (FrangAcc *)req->conn->sk->sk_security;
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
-	int ts;
+	unsigned int ts;
 	int i;
 
 	if (!frang_resp_code_range(resp->status)
@@ -962,9 +970,9 @@ frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 
 	spin_lock(&ra->lock);
 
-	ts = (jiffies / HZ) % FRANG_RESP_TIME_PERIOD;
-	i = (ts % conf->tf) * ((float)FRANG_FREQ / conf->tf);
-	if (!frang_resp_time_in_frame(stat[i].ts, ts)) {
+	ts = frang_resp_quantum();
+	i = ts % FRANG_FREQ;
+	if (ts != stat[i].ts) {
 		stat[i].ts = ts;
 		stat[i].cnt = 0;
 	}
@@ -1129,7 +1137,7 @@ frang_parse_ushort(const char *s, unsigned short *out)
 	if (tfw_cfg_parse_int(s, &n)) {
 		TFW_ERR_NL("frang: http_resp_code_block: "
 			   "\"%s\" isn't a valid value\n", s);
-			return -EINVAL;
+		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(n, 1, USHRT_MAX))
 		return -EINVAL;
