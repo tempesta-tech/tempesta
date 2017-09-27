@@ -12,7 +12,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class Pipeline(stress.StressTest):
-    """ Test for cases with pipelined requests."""
+    """ Test with pipelined requests."""
 
     # For pipeline test positive allowance must be corrected: it is
     # needed to multiply the number of misaccounted requests by
@@ -28,25 +28,45 @@ class Pipeline(stress.StressTest):
     def create_servers(self):
         self.create_servers_helper(tempesta.servers_in_group())
 
-    def run_test(self, ka_reqs):
-        for s in self.servers:
-            s.config.set_ka(ka_reqs)
+    def test_pipelined_requests(self):
         self.generic_test_routine('cache 0;\n')
 
-    def test_unlimited_ka(self):
-        self.run_test(sys.maxsize)
 
-    @unittest.expectedFailure
-    def test_low_ka(self):
-        """Low keep_alive value, make the server to close after the limit
-        is exhausted connection; thus Tempesta must generate 502 response.
-        """
-        self.run_test(50)
+class PipelineFaultInjection(stress.StressTest):
 
-class PipelineFaultInjection(Pipeline):
+    pipelined_req = 7
+    cl_msg_errors = True
+
+    def create_clients(self):
+        self.wrk = control.Wrk()
+        self.wrk.set_script("pipeline")
+        self.clients = [self.wrk]
 
     def create_tempesta(self):
         self.tempesta = control.TempestaFI('resp_alloc_err', True)
+
+    def create_servers(self):
+        port = tempesta.upstream_port_start_from()
+        server = control.Nginx(listen_port=port)
+        server.conns_n = 1
+        self.servers = [server]
+
+    def assert_tempesta(self):
+        """ Assert that tempesta must have errors for client messages
+        in this test, as there is fault injected for memory allocation.
+        """
+        err_msg = 'Tempesta must have errors during response allocation fault'
+        stress.StressTest.assert_tempesta(self)
+        self.assertTrue(self.tempesta.stats.cl_msg_other_errors > 0,
+                        msg=err_msg)
+
+    def test_502_resp_fault(self):
+        """Low keep_alive value, make the server to close after the limit
+        is exhausted connection; thus Tempesta must generate 502 response.
+        """
+        for s in self.servers:
+            s.config.set_ka(10)
+        self.generic_test_routine('cache 0;\n')
 
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

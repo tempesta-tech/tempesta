@@ -12,6 +12,7 @@ class StressTest(unittest.TestCase):
     """
 
     pipelined_req = 1
+    cl_msg_errors = False
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
@@ -115,8 +116,9 @@ class StressTest(unittest.TestCase):
                          msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
                          msg=(msg % 'responses'))
-        self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
-                        msg=(msg % 'requests'))
+        if not self.cl_msg_errors:
+            self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
+                            msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
         self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,

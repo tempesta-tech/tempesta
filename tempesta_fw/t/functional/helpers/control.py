@@ -123,7 +123,7 @@ class Wrk(Client):
                         '/../wrk/', self.script, '.lua'])
         script_path = os.path.abspath(path)
         assert os.path.isfile(script_path), \
-            'No script found: %s !' % script_path
+               'No script found: %s !' % script_path
         self.options.append('-s %s' % script_path)
 
     def form_command(self):
