@@ -184,8 +184,8 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
- * @skb		- socket buffer containign the string data;
- * @len		- total length of compund or plain string (HTTP message body
+ * @skb		- socket buffer containing the string data;
+ * @len		- total length of compound or plain string (HTTP message body
  *		  size can be extreme large, so we need 64 bits to handle it);
  * @eolen	- the length of string's line endings, if present (as for now,
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
