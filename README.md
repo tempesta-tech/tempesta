@@ -294,7 +294,7 @@ nonidempotent <METHOD> <OP> <ARG>;
 `ARG` is an argument for `OP`, such as `/foo/bar.html`, `example.com`, etc.
 
 One or more of this directive may be specified. The directives apply to one
-or more locations as defined below in the [Locations](#Locations) section.
+or more locations as defined below in the [Locations](#locations) section.
 
 If this directive is not specified, then a non-idempotent request in defined
 as a request that has an unsafe method.
@@ -462,7 +462,7 @@ The list of available options:
 * **ip_block** - if the option is switched on, then Frang will add IP
 addresses of clients who reaches the limits to ```filter_db``` table,
 so that the clients traffic will be dropped much earlier.
-See also [Filter](#Filter) section.
+See also [Filter](#filter) section.
 
 * **request_rate** - maximum number of requests per second from a client;
 
@@ -505,6 +505,9 @@ request;
 
 * **http_methods** - the list of accepted HTTP methods;
 
+* **http_resp_code_block** - the list of HTTP response codes followed by the limit
+ of such responses in a time frame in seconds as the last parameter;
+
 Various back end servers may differ in interpretation of certain aspects of
 the standards. Some may follow strict standards, whereas others may allow a
 more relaxed interpretation. An example of this is the `Host:` header field.
@@ -520,7 +523,7 @@ Invalid requests would be denied before they reach a back end server.
 
 Let's see a simple example to understand Tempesta filtering.
 
-Run Tempesta with [Frang](#Frang) enabled and put some load onto the system
+Run Tempesta with [Frang](#frang) enabled and put some load onto the system
 to make Frang generate a blocking rule:
 ```
 $ dmesg | grep frang

@@ -36,7 +36,7 @@ typedef struct tfw_http_sess_t TfwHttpSess;
  * HTTP Generic FSM states.
  *
  * We (as Apache HTTP Server and other Web-servers do) define several phases
- * on HTTP messgas processing. However we set the hooks also to response
+ * on HTTP message processing. However we set the hooks also to response
  * processing (local and received from backend server) as well as to request
  * processing. We can depict the phases as following:
  *
@@ -79,6 +79,8 @@ enum {
 
 	/* Run just before localy generated response sending. */
 	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
+
+	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(6),
 
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
