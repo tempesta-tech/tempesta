@@ -57,7 +57,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.1.7");
+MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
