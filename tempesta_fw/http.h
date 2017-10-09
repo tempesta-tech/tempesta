@@ -290,6 +290,7 @@ typedef struct {
 /* URI has form http://authority/path, not just /path */
 #define TFW_HTTP_URI_FULL		0x000400
 #define TFW_HTTP_NON_IDEMP		0x000800
+#define TFW_HTTP_SUSPECTED		0x001000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
@@ -473,6 +474,12 @@ typedef struct {
 
 #define FOR_EACH_HDR_FIELD_FROM(pos, end, msg, soff)			\
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
+
+/* Bit flags for block action behaviour. */
+#define TFW_BLOCK_ACTION_ERROR_REPLY		0x0001
+#define TFW_BLOCK_ACTION_ATTACK_REPLY		0x0002
+#define TFW_BLOCK_ACTION_ERROR_NOLOG		0x0004
+#define TFW_BLOCK_ACTION_ATTACK_NOLOG		0x0008
 
 /* Get current timestamp in secs. */
 static inline time_t

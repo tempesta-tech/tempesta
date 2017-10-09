@@ -746,6 +746,11 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		 */
 		BUG_ON(conn == NULL);
 
+		if (SS_CONN_TYPE(sk) & Conn_Suspected) {
+			__kfree_skb(skb);
+			continue;
+		}
+
 		r = SS_CALL(connection_recv, conn, skb, offset);
 
 		if (r < 0) {
@@ -858,10 +863,13 @@ ss_tcp_data_ready(struct sock *sk)
 		TFW_ERR("error data in socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
-		if (ss_tcp_process_data(sk)) {
+		if (ss_tcp_process_data(sk) &&
+		    !(SS_CONN_TYPE(sk) & Conn_Suspected)) {
 			/*
 			 * Drop connection in case of internal errors,
-			 * banned packets, or FIN in the received packet.
+			 * banned packets, or FIN in the received packet,
+			 * and only if we don't wait for sending the error
+			 * response to client (Conn_Suspected bit set).
 			 *
 			 * ss_linkerror() is responsible for calling
 			 * application layer connection closing callback.

@@ -34,6 +34,8 @@
 
 #include "sync_socket.h"
 
+extern unsigned short tfw_block_action_flags;
+
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
@@ -713,6 +715,34 @@ tfw_http_req_error(TfwSrvConn *srv_conn, TfwHttpReq *req,
 	__tfw_http_req_error(req, equeue, status, reason);
 }
 
+static inline void
+tfw_http_error_resp_switch(TfwHttpReq *req, unsigned short status,
+			   const char *reason)
+{
+	switch(status) {
+	case 403:
+		tfw_http_send_403(req, reason);
+		break;
+	case 404:
+		tfw_http_send_404(req, reason);
+		break;
+	case 500:
+		tfw_http_send_500(req, reason);
+		break;
+	case 502:
+		tfw_http_send_502(req, reason);
+		break;
+	case 504:
+		tfw_http_send_504(req, reason);
+		break;
+	default:
+		TFW_WARN("Unexpected response error code: [%d]\n",
+			 status);
+		tfw_http_send_500(req, reason);
+		break;
+	}
+}
+
 /*
  * Forwarding of requests to a back end server is run under a lock
  * on the server connection's forwarding queue. It's performed as
@@ -735,25 +765,8 @@ tfw_http_req_zap_error(struct list_head *equeue)
 
 	list_for_each_entry_safe(req, tmp, equeue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		switch(req->httperr.status) {
-		case 404:
-			tfw_http_send_404(req, req->httperr.reason);
-			break;
-		case 500:
-			tfw_http_send_500(req, req->httperr.reason);
-			break;
-		case 502:
-			tfw_http_send_502(req, req->httperr.reason);
-			break;
-		case 504:
-			tfw_http_send_504(req, req->httperr.reason);
-			break;
-		default:
-			TFW_WARN("Unexpected response error code: [%d]\n",
-				 req->httperr.status);
-			tfw_http_send_500(req, req->httperr.reason);
-			break;
-		}
+		tfw_http_error_resp_switch(req, req->httperr.status,
+					   req->httperr.reason);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
@@ -1789,7 +1802,9 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
 		BUG_ON(!req->resp);
 		tfw_http_resp_init_ss_flags((TfwHttpResp *)req->resp, req);
-		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
+		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp) ||
+		    (TFW_CONN_TYPE(cli_conn) & Conn_Suspected &&
+		     req->flags & TFW_HTTP_SUSPECTED)) {
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
@@ -2058,6 +2073,69 @@ tfw_http_req_set_context(TfwHttpReq *req)
 	return !req->vhost;
 }
 
+/*
+ * Function defines logging and response behaviour during
+ * detection of malformed or malicious messages. Can be
+ * called from both - client and server connection contexts.
+ *
+ * NOTE: @mark must be set only for client connection context
+ * because in this case we must mark client connection in
+ * special manner to delay its closing until transmission
+ * of error response will be finished.
+ */
+static inline void
+tfw_http_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+			    unsigned short code, const char *msg, bool mark)
+{
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	if (reply) {
+		if (mark) {
+			BUG_ON(req->flags & TFW_HTTP_SUSPECTED ||
+			       TFW_CONN_TYPE(cli_conn) & Conn_Suspected);
+			TFW_CONN_TYPE(cli_conn) |= Conn_Suspected;
+			req->flags |= TFW_HTTP_SUSPECTED;
+			tfw_connection_unlink_msg(req->conn);
+			spin_lock(&cli_conn->seq_qlock);
+			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+			spin_unlock(&cli_conn->seq_qlock);
+		}
+		tfw_http_error_resp_switch(req, code, msg);
+	}
+	else {
+		spin_lock(&cli_conn->seq_qlock);
+		if (unlikely(!list_empty(&req->msg.seq_list)))
+			list_del_init(&req->msg.seq_list);
+		spin_unlock(&cli_conn->seq_qlock);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	}
+	if (!nolog)
+		TFW_WARN("Error response: %s, msg=%p conn=%p\n",
+			 msg, req, req->conn);
+}
+
+/**
+ * Defines behaviour for malformed messages depending on configuration
+ * settings: sending response error messages and logging.
+ */
+static void
+tfw_http_drop(TfwHttpReq *req, unsigned short code, const char *msg, bool mark)
+{
+	bool reply = tfw_block_action_flags & TFW_BLOCK_ACTION_ERROR_REPLY;
+ 	bool nolog = tfw_block_action_flags & TFW_BLOCK_ACTION_ERROR_NOLOG;
+	tfw_http_error_resp_and_log(reply, nolog, req, code, msg, mark);
+}
+
+/**
+ * Do the same as 'tfw_http_drop' function, but for malicious messages.
+ */
+static void
+tfw_http_block(TfwHttpReq *req, unsigned short code, const char *msg, bool mark)
+{
+	bool reply = tfw_block_action_flags & TFW_BLOCK_ACTION_ATTACK_REPLY;
+ 	bool nolog = tfw_block_action_flags & TFW_BLOCK_ACTION_ATTACK_NOLOG;
+	tfw_http_error_resp_and_log(reply, nolog, req, code, msg, mark);
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -2112,16 +2190,19 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			BUG();
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
+			tfw_http_drop(req, 403, "failed to"
+				      " parse request", true);
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state,
 					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
-				tfw_http_conn_msg_free((TfwHttpMsg *)req);
 				TFW_INC_STAT_BH(clnt.msgs_filtout);
+				tfw_http_block(req, 403, "postponed"
+					       " request has been"
+					       " filtered out", true);
 				return TFW_BLOCK;
 			}
 			/*
@@ -2145,8 +2226,9 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK) {
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
+			tfw_http_block(req, 403, "parsed request"
+				       " has been filtered out", true);
 			return TFW_BLOCK;
 		}
 
@@ -2159,7 +2241,9 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 
 		/* Assign the right Vhost for this request. */
 		if (tfw_http_req_set_context(req)) {
-			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_http_drop(req, 500, "cannot find"
+				      "Vhost for request", true);
 			return TFW_BLOCK;
 		}
 
@@ -2216,8 +2300,9 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 				 */
 				TFW_WARN("Not enough memory to create"
 					 " a request sibling\n");
-				tfw_http_conn_msg_free((TfwHttpMsg *)req);
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
+				tfw_http_drop(req, 500, "cannot create"
+					      " sibling request", true);
 				return TFW_BLOCK;
 			}
 		}
@@ -2414,7 +2499,7 @@ error:
 		return TFW_BLOCK;
 	}
 
-	tfw_http_send_502(req, "response dropped: filtered out");
+	tfw_http_block(req, 502, "response blocked: filtered out", false);
 	tfw_http_conn_msg_free(hmresp);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
@@ -2510,6 +2595,7 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 	unsigned int skb_len = skb->len;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp;
+	bool filtout = false;
 
 	BUG_ON(!conn->msg);
 	BUG_ON(data_off >= skb_len);
@@ -2570,6 +2656,7 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
 				TFW_INC_STAT_BH(serv.msgs_filtout);
+				filtout = true;
 				goto bad_msg;
 			}
 			/*
@@ -2658,8 +2745,16 @@ next_resp:
 	return r;
 bad_msg:
 	bad_req = tfw_http_popreq(hmresp);
-	if (bad_req)
-		tfw_http_send_500(bad_req, "response dropped: processing error");
+	if (bad_req) {
+		if (filtout)
+			tfw_http_block(bad_req, 502,
+				       "response blocked:"
+				       " filtered out", false);
+		else
+			tfw_http_drop(bad_req, 500,
+				      "response dropped:"
+				      " processing error", false);
+	}
 	tfw_http_conn_msg_free(hmresp);
 	return r;
 }

@@ -35,6 +35,12 @@ typedef struct ss_proto_t {
 	int			type;
 } SsProto;
 
+/* Flag bits offset for SsProto field. */
+#define	__Flag_Bits		0x10
+
+/* No requests longer accepted (flag only for client connections) */
+#define	Conn_Suspected		(0x1 << __Flag_Bits)
+
 /* Table of Synchronous Sockets connection callbacks. */
 typedef struct ss_hooks {
 	/* New connection accepted. */
@@ -132,5 +138,8 @@ void ss_get_stat(SsStat *stat);
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
 	: 0)
+
+#define SS_CONN_TYPE(sk)							\
+	(((SsProto *)(sk)->sk_user_data)->type)
 
 #endif /* __SS_SOCK_H__ */
