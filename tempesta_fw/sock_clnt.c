@@ -37,6 +37,8 @@
  * ------------------------------------------------------------------------
  */
 
+unsigned short tfw_block_action_flags = TFW_BLOCK_ACTION_ERROR_REPLY;
+
 static struct kmem_cache *tfw_cli_conn_cache;
 static struct kmem_cache *tfw_tls_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
@@ -44,8 +46,8 @@ static int tfw_cli_cfg_ka_timeout = -1;
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
-	return type == Conn_HttpClnt ?
-		tfw_cli_conn_cache : tfw_tls_conn_cache;
+	return type & TFW_FSM_HTTPS ?
+		tfw_tls_conn_cache : tfw_cli_conn_cache;
 }
 
 static void
@@ -585,6 +587,74 @@ tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_cfg_define_block_action(const char *action, unsigned short mask,
+			    unsigned short *flags)
+{
+	if (!strcasecmp(action, "reply")) {
+		*flags |= mask;
+	} else if (!strcasecmp(action, "drop")) {
+		*flags &= ~mask;
+	} else {
+		TFW_ERR_NL("Unsupported argument: '%s'\n", action);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int
+tfw_cfg_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
+			   unsigned short *flags)
+{
+	if (ce->val_n == 3) {
+		if (!strcasecmp(ce->vals[2], "nolog"))
+			*flags |= mask;
+		else {
+			TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
+			return -EINVAL;
+		}
+	} else {
+		*flags &= ~mask;
+	}
+	return 0;
+}
+
+static int
+tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->val_n < 2 || ce->val_n > 3) {
+		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	if (!strcasecmp(ce->vals[0], "error")) {
+		if (tfw_cfg_define_block_action(ce->vals[1],
+						TFW_BLOCK_ACTION_ERROR_REPLY,
+						&tfw_block_action_flags) ||
+		    tfw_cfg_define_block_nolog(ce,
+					       TFW_BLOCK_ACTION_ERROR_NOLOG,
+					       &tfw_block_action_flags))
+			return -EINVAL;
+	} else if (!strcasecmp(ce->vals[0], "attack")) {
+		if (tfw_cfg_define_block_action(ce->vals[1],
+						TFW_BLOCK_ACTION_ATTACK_REPLY,
+						&tfw_block_action_flags) ||
+		    tfw_cfg_define_block_nolog(ce,
+					       TFW_BLOCK_ACTION_ATTACK_NOLOG,
+					       &tfw_block_action_flags))
+			return -EINVAL;
+	} else {
+		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void
 tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 {
@@ -609,6 +679,13 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			tfw_sock_clnt_cfg_handle_keepalive,
 			.allow_repeat = false,
 			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
+		},
+		{
+			"block_action",
+			NULL,
+			tfw_sock_clnt_cfg_handle_block_action,
+			.allow_repeat = true,
+			.allow_none = true
 		},
 		{}
 	}
