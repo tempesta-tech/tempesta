@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1016,7 +1016,7 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	if (headlen) {
 		BUG_ON(!skb->head_frag);
 		head_frag.size = headlen;
-		head_frag.page.p = virt_to_head_page(skb->head);
+		head_frag.page.p = virt_to_page(skb->head);
 		head_frag.page_offset = skb->data -
 			(unsigned char *)page_address(head_frag.page.p);
 		if (__coalesce_frag(skb_list, &head_frag))
@@ -1042,12 +1042,18 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
 	const struct iphdr *ip4 = ip_hdr(from);
 	const struct ipv6hdr *ip6 = ipv6_hdr(from);
 
+	/*
+	 * Place IP header just after link layer headers,
+	 * see definitions of MAX_TCP_HEADER and MAX_IP_HDR_LEN.
+	 * Note that only new skbs allocated by ss_skb_alloc() are used here,
+	 * so all of them have reserved MAX_TCP_HEADER areas.
+	 */
+	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
+	skb_set_network_header(to, -128);
 	if (ip6->version == 6)
-		memcpy(to->data, ip6, sizeof(*ip6));
+		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
 	else
-		memcpy(to->data, ip4, sizeof(*ip4));
-
-	skb_reset_network_header(to);
+		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
 }
 
 /*
