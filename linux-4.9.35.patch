@@ -838,7 +838,7 @@ index 5d26056..ee02253 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1..5cbfdae 100644
+index fe008f1..f232d88 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -984,7 +984,7 @@ index fe008f1..5cbfdae 100644
 +
 +	/*
 +	 * Add compound page metadata, if page order is > 0.
-+	 * Don't use __GFP_NOMEMALLOC to allow caller access reserved pools if
++	 * Don't use __GFP_NOMEMALLOC to allow caller access to reserved pools if
 +	 * it requested so.
 +	 */
 +	gfp_mask |= __GFP_NOWARN | __GFP_NORETRY | (po ? __GFP_COMP : 0);
@@ -994,7 +994,7 @@ index fe008f1..5cbfdae 100644
 +	ptr = (char *)page_address(pg);
 +	/*
 +	 * Don't try to split compound page. Also don't try to reuse pages
-+	 * from reserved memory areas making them putted and freed quicker.
++	 * from reserved memory areas to put and free them quicker.
 +	 *
 +	 * TODO compound pages can be split as __alloc_page_frag() does it
 +	 * using fragment size in page reference counter. Large messages
