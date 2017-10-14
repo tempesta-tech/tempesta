@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -715,8 +715,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	/* See if the split starts in the linear data. */
 	d_size = skb_headlen(skb);
 	offset = pspt - (char *)skb->data;
-
-	if ((offset >= 0) && (offset < d_size)) {
+	if (offset >= 0 && offset < d_size) {
 		int t_size = d_size - offset;
 		len = max(len, -t_size);
 		ret = __split_linear_data(skb, pspt, len, it);
@@ -745,10 +744,18 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		d_size = skb_frag_size(frag);
 		offset = pspt - (char *)skb_frag_address(frag);
 
-		if ((offset >= 0) && (offset <= d_size)) {
+		if (offset >= 0 && offset <= d_size) {
 			int t_size = d_size - offset;
-			if (unlikely(!t_size))
-				goto append;
+			if (!t_size) {
+				/*
+				 * @pspt is at the end of the frag (zero tail
+				 * length): append if @len > 0 or move to the
+				 * next frag for deletion.
+				 */
+				if (len > 0)
+					goto append;
+				continue;
+			}
 			len = max(len, -t_size);
 			ret = __split_pgfrag(skb, i, offset, len, it);
 			goto done;
@@ -759,7 +766,6 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	return -ENOENT;
 
 append:
-	BUG_ON(len < 0);
 	/* Add new frag in case of splitting after the last chunk */
 	ret = __new_pgfrag(skb, len, i + 1, 1);
 	__it_next_data(skb, i + 1, it);
@@ -1010,7 +1016,7 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	if (headlen) {
 		BUG_ON(!skb->head_frag);
 		head_frag.size = headlen;
-		head_frag.page.p = virt_to_head_page(skb->head);
+		head_frag.page.p = virt_to_page(skb->head);
 		head_frag.page_offset = skb->data -
 			(unsigned char *)page_address(head_frag.page.p);
 		if (__coalesce_frag(skb_list, &head_frag))
@@ -1036,12 +1042,18 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
 	const struct iphdr *ip4 = ip_hdr(from);
 	const struct ipv6hdr *ip6 = ipv6_hdr(from);
 
+	/*
+	 * Place IP header just after link layer headers,
+	 * see definitions of MAX_TCP_HEADER and MAX_IP_HDR_LEN.
+	 * Note that only new skbs allocated by ss_skb_alloc() are used here,
+	 * so all of them have reserved MAX_TCP_HEADER areas.
+	 */
+	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
+	skb_set_network_header(to, -(MAX_TCP_HEADER - MAX_HEADER));
 	if (ip6->version == 6)
-		memcpy(to->data, ip6, sizeof(*ip6));
+		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
 	else
-		memcpy(to->data, ip4, sizeof(*ip4));
-
-	skb_reset_network_header(to);
+		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
 }
 
 /*
@@ -1134,4 +1146,42 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 
 	return 0;
 }
-EXPORT_SYMBOL(ss_skb_unroll);
+
+/**
+ * The routine helps you to dump content of any skb.
+ * It's supposed to be used for debugging purpose, so non-limited printing
+ * is used.
+ * BEWARE: dont' call it too frequetly.
+ */
+void
+ss_skb_dump(struct sk_buff *skb)
+{
+	int i;
+	struct sk_buff *f_skb;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	TFW_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
+		   skb, skb->len, skb->data_len, skb->truesize,
+		   atomic_read(&skb->users));
+	TFW_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
+		   skb->head, skb->data, skb->tail, skb->end);
+	TFW_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",
+		   si->nr_frags, skb_shinfo(skb)->frag_list,
+		   skb->next, skb->prev);
+	TFW_LOG_NL("  head data (%u):\n", skb_headlen(skb));
+	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
+		       skb->data, skb_headlen(skb), true);
+
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *f = &si->frags[i];
+		TFW_LOG_NL("  frag %d (addr=%p pg_off=%u size=%u pg_ref=%d):\n",
+			   i, skb_frag_address(f), f->page_offset,
+			   skb_frag_size(f), page_ref_count(skb_frag_page(f)));
+		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
+			       skb_frag_address(f), skb_frag_size(f), true);
+	}
+
+	skb_walk_frags(skb, f_skb)
+		ss_skb_dump(f_skb);
+}
+EXPORT_SYMBOL(ss_skb_dump);
