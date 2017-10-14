@@ -1049,7 +1049,7 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
 	 * so all of them have reserved MAX_TCP_HEADER areas.
 	 */
 	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
-	skb_set_network_header(to, -128);
+	skb_set_network_header(to, -(MAX_TCP_HEADER - MAX_HEADER));
 	if (ip6->version == 6)
 		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
 	else
