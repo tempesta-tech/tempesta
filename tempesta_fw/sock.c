@@ -318,24 +318,6 @@ ss_sock_active(struct sock *sk)
 	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT);
 }
 
-static inline void
-ss_skb_entail(struct sock *sk, struct sk_buff *skb)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
-
-	skb->csum    = 0;
-	tcb->seq     = tcb->end_seq = tp->write_seq;
-	tcb->tcp_flags = TCPHDR_ACK;
-	tcb->sacked  = 0;
-	__skb_header_release(skb);
-	tcp_add_write_queue_tail(sk, skb);
-	sk->sk_wmem_queued += skb->truesize;
-	sk_mem_charge(sk, skb->truesize);
-	if (tp->nonagle & TCP_NAGLE_PUSH)
-		tp->nonagle &= ~TCP_NAGLE_PUSH;
-}
-
 /*
  * ------------------------------------------------------------------------
  *  	Server and client connections handling
@@ -389,7 +371,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 		        smp_processor_id(), __func__,
 		        skb, skb->data_len, skb->len);
 
-		ss_skb_entail(sk, skb);
+		skb_entail(sk, skb);
 
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
@@ -1312,6 +1294,7 @@ static void
 ss_tx_action(void)
 {
 	SsWork sw;
+	struct sk_buff *skb;
 	long ticket = 0;
 	int budget;
 
@@ -1355,6 +1338,9 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		while ((skb = ss_skb_dequeue(&sw.skb_list)))
+			kfree_skb(skb);
+
 	}
 
 	/*
