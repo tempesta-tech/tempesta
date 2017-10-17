@@ -1061,7 +1061,7 @@ tfw_apm_del_srv(TfwServer *srv)
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 static int
-tfw_apm_cfgfin(void)
+tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
 
@@ -1159,7 +1159,7 @@ static TfwCfgSpec tfw_apm_specs[] = {
 
 TfwMod tfw_apm_mod = {
 	.name	= "apm",
-	.cfgfin	= tfw_apm_cfgfin,
+	.cfgend	= tfw_apm_cfgend,
 	.specs	= tfw_apm_specs,
 };
 

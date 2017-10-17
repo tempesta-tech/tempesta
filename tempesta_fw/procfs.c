@@ -265,7 +265,7 @@ tfw_procfs_srv_create(TfwServer *srv)
 }
 
 static int
-tfw_procfs_cfgfin(void)
+tfw_procfs_cfgend(void)
 {
 	int ret;
 	TfwPrcntlStats pstats = {
@@ -314,7 +314,7 @@ static TfwCfgSpec tfw_procfs_specs[] = {
 
 TfwMod tfw_procfs_mod = {
         .name	= "procfs",
-        .cfgfin	= tfw_procfs_cfgfin,
+        .cfgend	= tfw_procfs_cfgend,
         .start	= tfw_procfs_start,
         .stop	= tfw_procfs_stop,
 	.specs	= tfw_procfs_specs,
