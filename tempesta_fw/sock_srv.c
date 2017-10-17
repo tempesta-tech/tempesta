@@ -586,7 +586,7 @@ static struct list_head *tfw_cfg_slst;
 static int tfw_cfg_slstsz, tfw_cfg_out_slstsz;
 static TfwScheduler *tfw_cfg_sched, *tfw_cfg_out_sched;
 static TfwSchrefPredict tfw_cfg_schref_predict, tfw_cfg_out_schref_predict;
-static void *tfw_cfg_schref, *tfw_cfg_out_schref;
+static void *tfw_cfg_scharg, *tfw_cfg_out_scharg;
 static TfwSrvGroup *tfw_cfg_sg, *tfw_cfg_out_sg;
 
 static int tfw_cfg_queue_size, tfw_cfg_out_queue_size;
@@ -996,7 +996,6 @@ tfw_cfgop_setup_srv_group(void)
 
 	tfw_cfg_sg->flags = tfw_cfg_sched_flags;
 	tfw_cfg_sg->flags |= tfw_cfg_retry_nip | tfw_cfg_sticky_sess;
-	tfw_cfg_sg->sched_data = tfw_cfg_schref;
 
 	/*
 	 * Check 'ratio' scheduler configuration for incompatibilities.
@@ -1026,7 +1025,7 @@ tfw_cfgop_setup_srv_group(void)
 	 * Must be called only after the server group is set up with all
 	 * servers (and all connections) that are in it.
 	 */
-	if (tfw_sg_set_sched(tfw_cfg_sg, tfw_cfg_sched->name)) {
+	if (tfw_sg_set_sched(tfw_cfg_sg, tfw_cfg_sched->name, tfw_cfg_scharg)) {
 		TFW_ERR_NL("Unable to add srv_group '%s' to scheduler '%s'\n",
 			   tfw_cfg_sg->name, tfw_cfg_sched->name);
 		return -EINVAL;
@@ -1110,12 +1109,12 @@ done:
 
 static int
 tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
-			     void *arg_schref, unsigned int *arg_flags)
+			     void *scharg, unsigned int *arg_flags)
 {
 	int i, ret;
 	const char *key, *val;
 	bool has_past = false, has_rate = false, has_ahead = false;
-	TfwSchrefPredict schref = { 0 };
+	TfwSchrefPredict arg = { 0 };
 
 	if ((ret = tfw_cfg_handle_ratio_predyn_opts(ce, arg_flags)))
 		return ret;
@@ -1126,7 +1125,7 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &schref.past)) {
+			if (tfw_cfg_parse_int(val, &arg.past)) {
 				TFW_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
@@ -1136,7 +1135,7 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &schref.rate)) {
+			if (tfw_cfg_parse_int(val, &arg.rate)) {
 				TFW_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
@@ -1146,7 +1145,7 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &schref.ahead)) {
+			if (tfw_cfg_parse_int(val, &arg.ahead)) {
 				TFW_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
@@ -1154,29 +1153,29 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 		}
 	}
 	if (!has_past) {
-		schref.past = TFW_CFG_PAST_DEF;
-	} else if ((schref.past < 1) || (schref.past > TFW_CFG_PAST_MAX)) {
+		arg.past = TFW_CFG_PAST_DEF;
+	} else if ((arg.past < 1) || (arg.past > TFW_CFG_PAST_MAX)) {
 		TFW_ERR_NL("Out of range of [1..%d]: 'past=%d'\n",
-			   TFW_CFG_PAST_MAX, schref.past);
+			   TFW_CFG_PAST_MAX, arg.past);
 		return -EINVAL;
 	}
 	if (!has_rate) {
-		schref.rate = TFW_CFG_RATE_DEF;
-	} else if ((schref.rate < 1) || (schref.rate > TFW_CFG_RATE_MAX)) {
+		arg.rate = TFW_CFG_RATE_DEF;
+	} else if ((arg.rate < 1) || (arg.rate > TFW_CFG_RATE_MAX)) {
 		TFW_ERR_NL("Out of range of [1..%d]: 'rate=%d'\n",
-			   TFW_CFG_RATE_MAX, schref.rate);
+			   TFW_CFG_RATE_MAX, arg.rate);
 		return -EINVAL;
 	}
 	if (!has_ahead) {
-		schref.ahead = schref.past > 1 ? schref.past / 2 : 1;
-	} else if ((schref.ahead < 1) || (schref.ahead > schref.past / 2)) {
+		arg.ahead = arg.past > 1 ? arg.past / 2 : 1;
+	} else if ((arg.ahead < 1) || (arg.ahead > arg.past / 2)) {
 		TFW_ERR_NL("Out of range of [1..%d]: 'ahead=%d'."
 			   "Can't be greater than half of 'past=%d'.\n",
-			   schref.past / 2, schref.ahead, schref.past);
+			   arg.past / 2, arg.ahead, arg.past);
 		return -EINVAL;
 	}
 
-	*(TfwSchrefPredict *)arg_schref = schref;
+	*(TfwSchrefPredict *)scharg = arg;
 	return 0;
 }
 
@@ -1192,7 +1191,7 @@ tfw_cfg_handle_ratio_dynamic(TfwCfgEntry *ce, unsigned int *arg_flags)
 }
 
 static int
-tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *schref, unsigned int *sg_flags)
+tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *scharg, unsigned int *sg_flags)
 {
 	int ret;
 	unsigned int flags;
@@ -1208,7 +1207,7 @@ tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *schref, unsigned int *sg_flags)
 			return ret;
 	} else if (!strcasecmp(ce->vals[1], "predict")) {
 		flags = TFW_SG_F_SCHED_RATIO_PREDICT;
-		if ((ret = tfw_cfg_handle_ratio_predict(ce, schref, &flags)))
+		if ((ret = tfw_cfg_handle_ratio_predict(ce, scharg, &flags)))
 			return ret;
 	} else {
 		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[1]);
@@ -1224,7 +1223,7 @@ tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *schref, unsigned int *sg_flags)
  */
 static int
 tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched,
-		void *schref, unsigned int *sg_flags)
+		void *scharg, unsigned int *sg_flags)
 {
 	TfwScheduler *sched;
 
@@ -1239,7 +1238,7 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **arg_sched,
 	}
 
 	if (!strcasecmp(sched->name, "ratio"))
-		if (tfw_cfg_handle_ratio(ce, schref, sg_flags))
+		if (tfw_cfg_handle_ratio(ce, scharg, sg_flags))
 			return -EINVAL;
 
 	*arg_sched = sched;
@@ -1252,14 +1251,14 @@ tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
 		tfw_cfg_sched = tfw_cfg_out_sched;
-		tfw_cfg_schref = tfw_cfg_out_schref;
+		tfw_cfg_scharg = tfw_cfg_out_scharg;
 		tfw_cfg_sched_flags = tfw_cfg_out_sched_flags;
 		return 0;
 	}
 
-	tfw_cfg_schref = &tfw_cfg_schref_predict;
+	tfw_cfg_scharg = &tfw_cfg_schref_predict;
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sched,
-				       tfw_cfg_schref,
+				       tfw_cfg_scharg,
 				       &tfw_cfg_sched_flags);
 }
 
@@ -1267,9 +1266,9 @@ static int
 tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.sched = true;
-	tfw_cfg_out_schref = &tfw_cfg_out_schref_predict;
+	tfw_cfg_out_scharg = &tfw_cfg_out_schref_predict;
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_out_sched,
-				       tfw_cfg_out_schref,
+				       tfw_cfg_out_scharg,
 				       &tfw_cfg_out_sched_flags);
 }
 
@@ -1340,7 +1339,7 @@ tfw_sock_srv_cfgend(void)
 		tfw_cfg_slst = &tfw_cfg_out_slst;
 		tfw_cfg_slstsz = tfw_cfg_out_slstsz;
 		tfw_cfg_sched = tfw_cfg_out_sched;
-		tfw_cfg_schref = tfw_cfg_out_schref;
+		tfw_cfg_scharg = tfw_cfg_out_scharg;
 		tfw_cfg_sg = tfw_cfg_out_sg;
 
 		if ((ret = tfw_cfgop_setup_srv_group()))

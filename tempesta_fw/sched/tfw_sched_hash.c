@@ -58,6 +58,11 @@ typedef struct {
 	TfwHashConn		conns[0];
 } TfwHashConnList;
 
+typedef struct {
+	TfwServer		*srv;
+	TfwHashConnList		*cl;
+} TfwHashSrvConnList;
+
 /* Same as hash_64_generic, but return 64-bit value. */
 static __always_inline unsigned long
 __hash_64(unsigned long val)
@@ -201,11 +206,17 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 static TfwSrvConn *
 tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	TfwHashConnList *cl = sg->sched_data;
+	TfwHashConnList *cl;
+	TfwSrvConn *srv_conn = NULL;
 
-	BUG_ON(!cl);
+	rcu_read_lock();
+	cl = rcu_dereference(sg->sched_data);
 
-	return __find_best_conn(msg, cl);
+	if (likely(cl))
+		srv_conn = __find_best_conn(msg, cl);
+
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 /**
@@ -215,30 +226,33 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static TfwSrvConn *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
-	TfwHashConnList *cl = srv->sched_data;
+	TfwHashConnList *cl;
+	TfwSrvConn *srv_conn = NULL;
 
-	/*
-	 * For @srv without connections @cl will be NULL, that normally
-	 * does not happen in real life, but unit tests check that case.
-	*/
-	if (unlikely(!cl))
-		return NULL;
+	rcu_read_lock();
+	cl = rcu_dereference(srv->sched_data);
 
-	return __find_best_conn(msg, cl);
+	if (likely(cl))
+		srv_conn = __find_best_conn(msg, cl);
+
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
+	TfwHashConnList *cl = sg->sched_data;
 
 	list_for_each_entry(srv, &sg->srv_list, list)
-		srv->sched_data = NULL;
+		rcu_assign_pointer(srv->sched_data, NULL);
 
-	if (sg->sched_data) {
-		kfree(sg->sched_data);
-		sg->sched_data = NULL;
-	}
+	rcu_assign_pointer(sg->sched_data, NULL);
+
+	synchronize_rcu();
+	if (cl)
+		kfree(cl);
 }
 
 static int
@@ -274,26 +288,32 @@ __add_conn(TfwHashConnList *cl, TfwSrvConn *conn, unsigned long hash)
 }
 
 static void
-__fill_srv_lists(TfwHashConnList *cl)
+__fill_srv_lists(TfwHashConnList *cl, size_t srv_n, TfwHashSrvConnList *srv_cls)
 {
-	size_t i;
+	size_t i, j;
 
-	for (i = 0; i < cl->conn_n; ++i) {
-		TfwHashConn *hconn = &cl->conns[i];
-		TfwServer *srv = (TfwServer *)hconn->conn->peer;
-		TfwHashConnList *scl = srv->sched_data;
+	for (i = 0; i < srv_n; ++i) {
+		TfwServer *srv = srv_cls[i].srv;
+		TfwHashConnList *scl = srv_cls[i].cl;
 
-		scl->conns[scl->conn_n] = *hconn;
-		++scl->conn_n;
+		for (j = 0; j < cl->conn_n; ++j) {
+			TfwHashConn *hconn = &cl->conns[j];
+			if ((TfwServer *)hconn->conn->peer == srv) {
+				scl->conns[scl->conn_n] = *hconn;
+				++scl->conn_n;
+			}
+		}
+		rcu_assign_pointer(srv->sched_data, scl);
 	}
 }
 
 static int
-tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 {
-	size_t size, conn_n = 0, offset = 0, seed, seed_inc;
+	size_t size, conn_n = 0, offset = 0, seed, seed_inc, i = 0;
 	TfwServer *srv;
 	TfwHashConnList *cl;
+	TfwHashSrvConnList *srv_cls;
 
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
@@ -306,19 +326,24 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 
 	size = sizeof(TfwHashConnList) * (sg->srv_n + 1)
 			+ sizeof(TfwHashConn) * conn_n * 2;
-	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+	if (!(cl = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
-	cl = sg->sched_data;
+	if (!(srv_cls = kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList *),
+				GFP_KERNEL))) {
+		kfree(cl);
+		return -ENOMEM;
+	}
 	offset = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
-
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		TfwSrvConn *conn;
 		unsigned long srv_hash = __calc_srv_hash(srv);
 
-		srv->sched_data = (void *)cl + offset;
+		srv_cls[i].srv = srv;
+		srv_cls[i].cl = (void *)cl + offset;
 		offset += sizeof(TfwHashConnList)
 				+ sizeof(TfwHashConn) * srv->conn_n;
+		++i;
 
 		list_for_each_entry(conn, &srv->conn_list, list) {
 			unsigned long hash;
@@ -329,7 +354,10 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 		}
 	}
 	/* Create per-server connection lists. */
-	__fill_srv_lists(cl);
+	__fill_srv_lists(cl, sg->srv_n, srv_cls);
+
+	rcu_assign_pointer(sg->sched_data, cl);
+	kfree(srv_cls);
 
 	return 0;
 }

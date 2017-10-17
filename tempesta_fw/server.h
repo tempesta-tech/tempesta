@@ -51,7 +51,7 @@ typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	TfwSrvGroup		*sg;
-	void			*sched_data;
+	void __rcu		*sched_data;
 	void			*apmref;
 	unsigned int		weight;
 	size_t			conn_n;
@@ -82,7 +82,7 @@ struct tfw_srv_group_t {
 	struct list_head	srv_list;
 	rwlock_t		lock;
 	TfwScheduler		*sched;
-	void			*sched_data;
+	void __rcu		*sched_data;
 	size_t			srv_n;
 	unsigned int		max_qsize;
 	unsigned int		max_refwd;
@@ -147,7 +147,7 @@ typedef struct {
 struct tfw_scheduler_t {
 	const char		*name;
 	struct list_head	list;
-	int			(*add_grp)(TfwSrvGroup *sg);
+	int			(*add_grp)(TfwSrvGroup *sg, void *arg);
 	void			(*del_grp)(TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
@@ -196,7 +196,7 @@ void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
 
 void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
-int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched);
+int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched, void *arg);
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);

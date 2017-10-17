@@ -80,7 +80,7 @@ test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 	/* Adjust servers weights for ratio scheduler. */
 	if (!strcmp(sched_name, "ratio"))
 		tfw_cfg_sg_ratio_adjust(&sg->srv_list);
-	r = tfw_sg_set_sched(sg, sched_name);
+	r = tfw_sg_set_sched(sg, sched_name, NULL);
 	BUG_ON(r);
 
 	kernel_fpu_begin();
