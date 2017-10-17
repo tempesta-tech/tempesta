@@ -530,7 +530,7 @@ tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 }
 
 static int
-tfw_sock_clnt_cfgfin(void)
+tfw_sock_clnt_cfgend(void)
 {
 	int r;
 
@@ -631,7 +631,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 
 TfwMod tfw_sock_clnt_mod  = {
 	.name	= "sock_clnt",
-	.cfgfin = tfw_sock_clnt_cfgfin,
+	.cfgend = tfw_sock_clnt_cfgend,
 	.start	= tfw_sock_clnt_start,
 	.stop	= tfw_sock_clnt_stop,
 	.specs	= tfw_sock_clnt_specs,
