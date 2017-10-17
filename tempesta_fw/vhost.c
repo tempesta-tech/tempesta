@@ -953,7 +953,7 @@ tfw_cfgop_cleanup_hdrvia(TfwCfgSpec *cs)
 }
 
 static int
-tfw_vhost_cfgfin(void)
+tfw_vhost_cfgend(void)
 {
 	BUILD_BUG_ON(sizeof(tfw_nipdef_dflt[0]->method) * 8 - 1
 		     < _TFW_HTTP_METH_COUNT);
@@ -1076,7 +1076,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 
 TfwMod tfw_vhost_mod = {
 	.name	= "vhost",
-	.cfgfin	= tfw_vhost_cfgfin,
+	.cfgend	= tfw_vhost_cfgend,
 	.stop	= tfw_vhost_stop,
 	.specs	= tfw_vhost_specs,
 };

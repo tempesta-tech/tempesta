@@ -63,7 +63,7 @@ do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 
 	if ((ret = tfw_cfg_parse_mods(cfg_text, &test_tfw_mods)))
 		return ret;
-	if ((ret = tfw_mods_cfgfin(&test_tfw_mods)))
+	if ((ret = tfw_mods_cfgend(&test_tfw_mods)))
 		return ret;
 	return tfw_mods_start(&test_tfw_mods);
 }

@@ -1313,7 +1313,7 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 }
 
 static int
-tfw_sock_srv_cfgfin(void)
+tfw_sock_srv_cfgend(void)
 {
 	int ret;
 
@@ -1544,7 +1544,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 
 TfwMod tfw_sock_srv_mod = {
 	.name	= "sock_srv",
-	.cfgfin = tfw_sock_srv_cfgfin,
+	.cfgend = tfw_sock_srv_cfgend,
 	.start	= tfw_sock_srv_start,
 	.stop	= tfw_sock_srv_stop,
 	.specs	= tfw_sock_srv_specs,

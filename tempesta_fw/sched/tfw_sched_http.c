@@ -337,7 +337,7 @@ static TfwMod tfw_sched_http_mod;
 static TfwCfgSpec tfw_sched_http_rules_specs[];
 
 static int
-tfw_sched_http_cfgfin(void)
+tfw_sched_http_cfgend(void)
 {
 	TfwHttpMatchRule *mrule;
 	TfwSrvGroup *sg_default;
@@ -423,7 +423,7 @@ static TfwCfgSpec tfw_sched_http_specs[] = {
 
 static TfwMod tfw_sched_http_mod = {
 	.name	= "tfw_sched_http",
-	.cfgfin	= tfw_sched_http_cfgfin,
+	.cfgend	= tfw_sched_http_cfgend,
 	.specs	= tfw_sched_http_specs,
 };
 
