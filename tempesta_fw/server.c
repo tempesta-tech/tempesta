@@ -194,7 +194,7 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 }
 
 int
-tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
+tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name, void *arg)
 {
 	TfwScheduler *s = tfw_sched_lookup(sched_name);
 
@@ -203,7 +203,7 @@ tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched_name)
 
 	sg->sched = s;
 	if (s->add_grp)
-		return s->add_grp(sg);
+		return s->add_grp(sg, arg);
 
 	return 0;
 }
