@@ -476,10 +476,10 @@ typedef struct {
 	__FOR_EACH_HDR_FIELD(pos, end, msg, soff, (msg)->h_tbl->off)
 
 /* Bit flags for block action behaviour. */
-#define TFW_BLOCK_ACTION_ERROR_REPLY		0x0001
-#define TFW_BLOCK_ACTION_ATTACK_REPLY		0x0002
-#define TFW_BLOCK_ACTION_ERROR_NOLOG		0x0004
-#define TFW_BLOCK_ACTION_ATTACK_NOLOG		0x0008
+#define TFW_BLK_ERR_REPLY		0x0001
+#define TFW_BLK_ATT_REPLY		0x0002
+#define TFW_BLK_ERR_NOLOG		0x0004
+#define TFW_BLK_ATT_NOLOG		0x0008
 
 /* Get current timestamp in secs. */
 static inline time_t

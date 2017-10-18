@@ -35,11 +35,23 @@ typedef struct ss_proto_t {
 	int			type;
 } SsProto;
 
-/* Flag bits offset for SsProto field. */
-#define	__Flag_Bits		0x10
+/*
+ * Flag bits definition for SsProto.type field.
+ * NOTE: There are also flags definition for this
+ * field in Connection layer (in connection.h)
+ */
+enum {
+	/* Flag bits offset for SsProto field. */
+	__Flag_Bits		= 0x10,
 
-/* No requests longer accepted (flag only for client connections) */
-#define	Conn_Suspected		(0x1 << __Flag_Bits)
+	/*
+	 * Connection is in special state: it is alive and
+	 * continue send responses to client, but no new
+	 * requests longer accepted (flag is intended
+	 * only for client connections).
+	 */
+	Conn_OnHold		= 0x1 << __Flag_Bits,
+};
 
 /* Table of Synchronous Sockets connection callbacks. */
 typedef struct ss_hooks {
