@@ -34,7 +34,7 @@
 
 #include "sync_socket.h"
 
-extern unsigned short tfw_block_action_flags;
+extern unsigned short tfw_blk_flags;
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
@@ -272,6 +272,20 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 }
 
 /*
+ * Free request after removing it from seq_queue. This function is
+ * needed in cases when response is not sent to client for some reasons.
+ */
+static inline void
+tfw_http_conn_req_clean(TfwHttpReq *req)
+{
+	spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
+	if (likely(!list_empty(&req->msg.seq_list)))
+		list_del_init(&req->msg.seq_list);
+	spin_unlock(&((TfwCliConn *)req->conn)->seq_qlock);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+}
+
+/*
  * Close the client connection and free unpaired request. This function
  * is needed for cases when we cannot prepare response for this request.
  * As soon as request is not linked with any response, sending to that
@@ -293,11 +307,7 @@ void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	ss_close_sync(req->conn->sk, true);
-	spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
-	if (likely(!list_empty(&req->msg.seq_list)))
-		list_del_init(&req->msg.seq_list);
-	spin_unlock(&((TfwCliConn *)req->conn)->seq_qlock);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+	tfw_http_conn_req_clean(req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 }
 
@@ -1803,8 +1813,8 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		BUG_ON(!req->resp);
 		tfw_http_resp_init_ss_flags((TfwHttpResp *)req->resp, req);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp) ||
-		    (TFW_CONN_TYPE(cli_conn) & Conn_Suspected &&
-		     req->flags & TFW_HTTP_SUSPECTED)) {
+		    req->flags & TFW_HTTP_SUSPECTED)
+		{
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
@@ -2073,67 +2083,93 @@ tfw_http_req_set_context(TfwHttpReq *req)
 	return !req->vhost;
 }
 
-/*
- * Function defines logging and response behaviour during
- * detection of malformed or malicious messages. Can be
- * called from both - client and server connection contexts.
+static inline void
+tfw_http_req_mark_error(TfwHttpReq *req, unsigned short code,
+			const char *msg)
+{
+	TFW_CONN_TYPE(req->conn) |= Conn_OnHold;
+	req->flags |= TFW_HTTP_SUSPECTED;
+	tfw_http_error_resp_switch(req, code, msg);
+}
+
+/**
+ * Functions define logging and response behaviour during detection of
+ * malformed or malicious messages. Mark client connection in special
+ * manner to delay its closing until transmission of error response
+ * will be finished.
+ */
+static void
+tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+				unsigned short code, const char *msg)
+{
+	if (reply) {
+		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+		tfw_connection_unlink_msg(req->conn);
+		spin_lock(&cli_conn->seq_qlock);
+		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+		spin_unlock(&cli_conn->seq_qlock);
+		tfw_http_req_mark_error(req, code, msg);
+	}
+	else
+		tfw_http_conn_req_clean(req);
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+}
+
+static void
+tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+				unsigned short code, const char *msg)
+{
+	if (reply)
+		tfw_http_req_mark_error(req, code, msg);
+	else
+		tfw_http_conn_req_clean(req);
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+}
+
+/**
+ * Wrappers for calling tfw_http_cli_error_resp_and_log() and
+ * tfw_http_srv_error_resp_and_log() functions in client/server
+ * connection contexts depending on configuration settings:
+ * sending response error messages and logging.
  *
- * NOTE: @mark must be set only for client connection context
- * because in this case we must mark client connection in
- * special manner to delay its closing until transmission
- * of error response will be finished.
+ * NOTE: tfw_client_drop() and tfw_client_block() must be called
+ * only from client connection context, and tfw_srv_client_drop()
+ * and tfw_srv_client_block() - only from server connection context.
  */
 static inline void
-tfw_http_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-			    unsigned short code, const char *msg, bool mark)
+tfw_client_drop(TfwHttpReq *req, unsigned short code, const char *msg)
 {
-	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-	if (reply) {
-		if (mark) {
-			BUG_ON(req->flags & TFW_HTTP_SUSPECTED ||
-			       TFW_CONN_TYPE(cli_conn) & Conn_Suspected);
-			TFW_CONN_TYPE(cli_conn) |= Conn_Suspected;
-			req->flags |= TFW_HTTP_SUSPECTED;
-			tfw_connection_unlink_msg(req->conn);
-			spin_lock(&cli_conn->seq_qlock);
-			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-			spin_unlock(&cli_conn->seq_qlock);
-		}
-		tfw_http_error_resp_switch(req, code, msg);
-	}
-	else {
-		spin_lock(&cli_conn->seq_qlock);
-		if (unlikely(!list_empty(&req->msg.seq_list)))
-			list_del_init(&req->msg.seq_list);
-		spin_unlock(&cli_conn->seq_qlock);
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
-	}
-	if (!nolog)
-		TFW_WARN("Error response: %s, msg=%p conn=%p\n",
-			 msg, req, req->conn);
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
+					req, code, msg);
 }
 
-/**
- * Defines behaviour for malformed messages depending on configuration
- * settings: sending response error messages and logging.
- */
-static void
-tfw_http_drop(TfwHttpReq *req, unsigned short code, const char *msg, bool mark)
+static inline void
+tfw_client_block(TfwHttpReq *req, unsigned short code, const char *msg)
 {
-	bool reply = tfw_block_action_flags & TFW_BLOCK_ACTION_ERROR_REPLY;
- 	bool nolog = tfw_block_action_flags & TFW_BLOCK_ACTION_ERROR_NOLOG;
-	tfw_http_error_resp_and_log(reply, nolog, req, code, msg, mark);
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
+					req, code, msg);
 }
 
-/**
- * Do the same as 'tfw_http_drop' function, but for malicious messages.
- */
-static void
-tfw_http_block(TfwHttpReq *req, unsigned short code, const char *msg, bool mark)
+static inline void
+tfw_srv_client_drop(TfwHttpReq *req, unsigned short code, const char *msg)
 {
-	bool reply = tfw_block_action_flags & TFW_BLOCK_ACTION_ATTACK_REPLY;
- 	bool nolog = tfw_block_action_flags & TFW_BLOCK_ACTION_ATTACK_NOLOG;
-	tfw_http_error_resp_and_log(reply, nolog, req, code, msg, mark);
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
+					req, code, msg);
+}
+
+static inline void
+tfw_srv_client_block(TfwHttpReq *req, unsigned short code, const char *msg)
+{
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
+					req, code, msg);
 }
 
 /**
@@ -2191,8 +2227,7 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
-			tfw_http_drop(req, 403, "failed to"
-				      " parse request", true);
+			tfw_client_drop(req, 403, "failed to parse request");
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state,
@@ -2200,9 +2235,9 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
 				TFW_INC_STAT_BH(clnt.msgs_filtout);
-				tfw_http_block(req, 403, "postponed"
+				tfw_client_block(req, 403, "postponed"
 					       " request has been"
-					       " filtered out", true);
+					       " filtered out");
 				return TFW_BLOCK;
 			}
 			/*
@@ -2227,8 +2262,8 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_http_block(req, 403, "parsed request"
-				       " has been filtered out", true);
+			tfw_client_block(req, 403, "parsed request"
+				       " has been filtered out");
 			return TFW_BLOCK;
 		}
 
@@ -2242,8 +2277,8 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		/* Assign the right Vhost for this request. */
 		if (tfw_http_req_set_context(req)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_http_drop(req, 500, "cannot find"
-				      "Vhost for request", true);
+			tfw_client_drop(req, 500, "cannot find"
+				      "Vhost for request");
 			return TFW_BLOCK;
 		}
 
@@ -2301,8 +2336,8 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 				TFW_WARN("Not enough memory to create"
 					 " a request sibling\n");
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
-				tfw_http_drop(req, 500, "cannot create"
-					      " sibling request", true);
+				tfw_client_drop(req, 500, "cannot create"
+					      " sibling request");
 				return TFW_BLOCK;
 			}
 		}
@@ -2499,7 +2534,7 @@ error:
 		return TFW_BLOCK;
 	}
 
-	tfw_http_block(req, 502, "response blocked: filtered out", false);
+	tfw_srv_client_block(req, 502, "response blocked: filtered out");
 	tfw_http_conn_msg_free(hmresp);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
@@ -2747,13 +2782,13 @@ bad_msg:
 	bad_req = tfw_http_popreq(hmresp);
 	if (bad_req) {
 		if (filtout)
-			tfw_http_block(bad_req, 502,
-				       "response blocked:"
-				       " filtered out", false);
+			tfw_srv_client_block(bad_req, 502,
+					     "response blocked:"
+					     " filtered out");
 		else
-			tfw_http_drop(bad_req, 500,
-				      "response dropped:"
-				      " processing error", false);
+			tfw_srv_client_drop(bad_req, 500,
+					    "response dropped:"
+					    " processing error");
 	}
 	tfw_http_conn_msg_free(hmresp);
 	return r;
