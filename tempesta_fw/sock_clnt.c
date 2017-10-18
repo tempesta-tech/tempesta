@@ -37,7 +37,7 @@
  * ------------------------------------------------------------------------
  */
 
-unsigned short tfw_block_action_flags = TFW_BLOCK_ACTION_ERROR_REPLY;
+unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 
 static struct kmem_cache *tfw_cli_conn_cache;
 static struct kmem_cache *tfw_tls_conn_cache;
@@ -633,19 +633,19 @@ tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (!strcasecmp(ce->vals[0], "error")) {
 		if (tfw_cfg_define_block_action(ce->vals[1],
-						TFW_BLOCK_ACTION_ERROR_REPLY,
-						&tfw_block_action_flags) ||
+						TFW_BLK_ERR_REPLY,
+						&tfw_blk_flags) ||
 		    tfw_cfg_define_block_nolog(ce,
-					       TFW_BLOCK_ACTION_ERROR_NOLOG,
-					       &tfw_block_action_flags))
+					       TFW_BLK_ERR_NOLOG,
+					       &tfw_blk_flags))
 			return -EINVAL;
 	} else if (!strcasecmp(ce->vals[0], "attack")) {
 		if (tfw_cfg_define_block_action(ce->vals[1],
-						TFW_BLOCK_ACTION_ATTACK_REPLY,
-						&tfw_block_action_flags) ||
+						TFW_BLK_ATT_REPLY,
+						&tfw_blk_flags) ||
 		    tfw_cfg_define_block_nolog(ce,
-					       TFW_BLOCK_ACTION_ATTACK_NOLOG,
-					       &tfw_block_action_flags))
+					       TFW_BLK_ATT_NOLOG,
+					       &tfw_blk_flags))
 			return -EINVAL;
 	} else {
 		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
@@ -700,6 +700,14 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 int
 tfw_sock_clnt_init(void)
 {
+	/*
+	 * Check that flags for SS layer and Connection
+	 * layer are not overlapping.
+	 */
+	BUILD_BUG_ON(Conn_OnHold & (Conn_Clnt |
+				    Conn_Srv |
+				    TFW_FSM_HTTP |
+				    TFW_FSM_HTTPS));
 	BUG_ON(tfw_cli_conn_cache);
 	BUG_ON(tfw_tls_conn_cache);
 
