@@ -20,6 +20,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
+#include <linux/vmalloc.h>
+
 #include "cfg.h"
 #include "classifier.h"
 #include "client.h"
@@ -655,6 +658,85 @@ tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_cfg_parse_http_status(const char *status, int *out)
+{
+	int i;
+	for (i = 0; status[i]; ++i) {
+		if (isdigit(status[i]))
+			continue;
+
+		if (i == 1 && status[i] == '*' && !status[i+1]) {
+			/*
+			 * For status groups only two-character
+			 * sequences with first digit are
+			 * acceptable (e.g. 4* or 5*).
+			 */
+			if (status[0] == '4') {
+				*out = HTTP_STATUS_4XX;
+				return 0;
+			}
+			if (status[0] == '5') {
+				*out = HTTP_STATUS_5XX;
+				return 0;
+			}
+		}
+		return -EINVAL;
+	}
+	/*
+	 * For simple HTTP status value only
+	 * three-digit numbers are acceptable
+	 * currently.
+	 */
+	if (i != 3)
+		return -EINVAL;
+
+	return kstrtoint(status, 10, out);
+}
+
+static int
+tfw_sock_clnt_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	char *body_data;
+	size_t body_size;
+	int code, ret = 0;
+
+	if (tfw_cfg_check_val_n(ce, 2))
+		return -EINVAL;
+
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	if (tfw_cfg_parse_http_status(ce->vals[0], &code))
+	{
+		TFW_ERR_NL("Unable to parse 'response_body' value: '%s'\n",
+			   ce->vals[0]
+			   ? ce->vals[0]
+			   : "No value specified");
+		return -EINVAL;
+	}
+
+	body_data = tfw_cfg_read_file(ce->vals[1], &body_size);
+	if (!body_data) {
+		TFW_ERR_NL("Cannot read file with error response: '%s'\n",
+			   ce->vals[1]);
+		return -EINVAL;
+	}
+
+	ret = tfw_http_config_resp_body(code, body_data, body_size - 1);
+	vfree(body_data);
+
+	return ret;
+}
+
+static void
+tfw_sock_clnt_cfg_cleanup_resp_body(TfwCfgSpec *cs)
+{
+	tfw_http_del_resp_bodies();
+}
+
 static void
 tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
 {
@@ -686,6 +768,14 @@ TfwCfgMod tfw_sock_clnt_cfg_mod  = {
 			tfw_sock_clnt_cfg_handle_block_action,
 			.allow_repeat = true,
 			.allow_none = true
+		},
+		{
+			"response_body",
+			NULL,
+			tfw_sock_clnt_cfg_handle_resp_body,
+			.allow_repeat = true,
+			.allow_none = true,
+			.cleanup = tfw_sock_clnt_cfg_cleanup_resp_body
 		},
 		{}
 	}
