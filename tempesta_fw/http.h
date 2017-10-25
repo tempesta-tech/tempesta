@@ -481,6 +481,33 @@ typedef struct {
 #define TFW_BLK_ERR_NOLOG		0x0004
 #define TFW_BLK_ATT_NOLOG		0x0008
 
+/* HTTP codes enumeration for predefined responses */
+typedef enum {
+	RESP_200,
+	RESP_4XX_BEGIN,
+	RESP_403	= RESP_4XX_BEGIN,
+	RESP_404,
+	RESP_412,
+	RESP_4XX_END,
+	RESP_5XX_BEGIN	= RESP_4XX_END,
+	RESP_500	= RESP_5XX_BEGIN,
+	RESP_502,
+	RESP_504,
+	RESP_5XX_END,
+	RESP_NUM	= RESP_5XX_END
+} resp_code_t;
+
+#define HTTP_SEND_RESP(req, code, reason)				\
+do {									\
+	tfw_http_send_resp(req, RESP_##code);				\
+	TFW_DBG("Send HTTP %s response: %s\n", #code, reason);		\
+} while (0)
+
+enum {
+	HTTP_STATUS_4XX = 4,
+	HTTP_STATUS_5XX
+};
+
 /* Get current timestamp in secs. */
 static inline time_t
 tfw_current_timestamp(void)
@@ -509,15 +536,14 @@ void tfw_http_resp_build_error(TfwHttpReq *req);
 /*
  * Functions to send an HTTP error response to a client.
  */
-void tfw_http_send_200(TfwHttpReq *req);
 int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
-void tfw_http_send_403(TfwHttpReq *req, const char *reason);
-void tfw_http_send_404(TfwHttpReq *req, const char *reason);
-void tfw_http_send_412(TfwHttpReq *req);
-void tfw_http_send_502(TfwHttpReq *req, const char *reason);
-void tfw_http_send_504(TfwHttpReq *req, const char *reason);
+void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
+
+/* Configuration stage functions */
+int tfw_http_config_resp_body(int code, const char *body, size_t b_size);
+void tfw_http_del_resp_bodies(void);
 
 /*
  * Functions to create SKBs with data stream.
