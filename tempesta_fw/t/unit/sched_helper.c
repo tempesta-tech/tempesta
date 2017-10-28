@@ -71,6 +71,7 @@ void
 test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 {
 	int r;
+	TfwScheduler *sched;
 
 	kernel_fpu_end();
 
@@ -80,7 +81,10 @@ test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 	/* Adjust servers weights for ratio scheduler. */
 	if (!strcmp(sched_name, "ratio"))
 		tfw_cfg_sg_ratio_adjust(&sg->srv_list);
-	r = tfw_sg_set_sched(sg, sched_name, NULL);
+
+	sched = tfw_sched_lookup(sched_name);
+	BUG_ON(!sched);
+	r = tfw_sg_start_sched(sg, sched, NULL);
 	BUG_ON(r);
 
 	kernel_fpu_begin();
@@ -92,6 +96,7 @@ test_sg_release_all(void)
 	kernel_fpu_end();
 
 	tfw_sg_release_all();
+	tfw_sg_release_reconfig();
 
 	kernel_fpu_begin();
 }
