@@ -759,8 +759,10 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
 
-	if (tfw_runstate_is_reconfig() && !spec->allow_reconfig)
+	if (tfw_runstate_is_reconfig() && !spec->allow_reconfig) {
+		TFW_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
 		return 0;
+	}
 	if (!spec->allow_repeat && spec->__called_now) {
 		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
 			   " allowed.\n", parsed_entry->name);

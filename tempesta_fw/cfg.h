@@ -315,6 +315,22 @@ tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
 	return cfg_entry->dflt_value;
 }
 
+/*
+ * Tempesta strives to support live reconfiguration. New configuration
+ * is loaded, processed and set while Tempesta is running. Ultimately,
+ * directives in configuration file are translated into internal data
+ * stractures in Tempesta. Internal data structures for data that may
+ * be reconfigured need to have a configuration flags member that will
+ * indicate one of several major actions noted below. Implementation
+ * of each action is specific to configuration entry.
+ */
+#define TFW_CFG_F_ADD		0x0001	/* Add an entry */
+#define TFW_CFG_F_DEL		0x0002	/* Delete an entry */
+#define TFW_CFG_F_MOD		0x0004	/* Modify an entry */
+#define TFW_CFG_F_KEEP		0x0008	/* Keep an entry */
+#define TFW_CFG_M_ACTION	\
+	(TFW_CFG_F_ADD | TFW_CFG_F_DEL | TFW_CFG_F_MOD | TFW_CFG_F_KEEP)
+
 /* Generic TfwCfgSpec->handler functions. */
 int tfw_cfg_set_bool(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
