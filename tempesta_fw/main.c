@@ -145,6 +145,28 @@ tfw_stop(struct list_head *mod_list)
 }
 
 static int
+tfw_mods_cfgstart(struct list_head *mod_list)
+{
+	int ret;
+	TfwMod *mod;
+
+	TFW_DBG2("Prepare the configuration processing...\n");
+	MOD_FOR_EACH(mod, mod_list) {
+		if (!mod->cfgstart)
+			continue;
+		TFW_DBG2("mod_cfgstart(): %s\n", mod->name);
+		if ((ret = mod->cfgstart())) {
+			TFW_ERR("Unable to prepare for the configuration "
+				"of module '%s': %d\n", mod->name, ret);
+			return ret;
+		}
+	}
+	TFW_LOG("Prepearing fot the configuration processing.\n");
+
+	return 0;
+}
+
+static int
 tfw_mods_start(struct list_head *mod_list)
 {
 	int ret;
@@ -194,15 +216,23 @@ tfw_start(struct list_head *mod_list)
 	int ret;
 
 	ss_start();
+	if ((ret = tfw_mods_cfgstart(mod_list)))
+		goto cleanup;
 	if ((ret = tfw_cfg_parse(mod_list)))
 		goto cleanup;
 	if ((ret = tfw_mods_cfgend(mod_list)))
-		goto stop_mods;
+		goto cleanup;
 	if ((ret = tfw_mods_start(mod_list)))
 		goto stop_mods;
 	tfw_cfg_conclude(mod_list);
 	return 0;
 stop_mods:
+	/*
+	 * Live reconfiguration successfully parsed but failed just in the
+	 * middle of replacing the old configuration. This cannot be fixed
+	 * and Tempesta must be fully stopped and cleared.
+	 */
+	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
 cleanup:
 	tfw_cleanup(mod_list);
