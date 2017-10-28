@@ -61,6 +61,12 @@ parse_cfg(const char *cfg_text)
 	list_add(&sched_mod.list, &mod_list);
 
 	r = tfw_cfg_parse_mods(cfg_text, &mod_list);
+	/*
+	 * Only 'tfw_sched_http' is used, start it directly to make HTTP
+	 * scheduler working. cfgend() is not used since implicit default
+	 * match rule is undesirable in the tests.
+	 */
+	r &= tfw_sched_http_start();
 
 	kernel_fpu_begin();
 
