@@ -63,8 +63,9 @@
 /**
  * @list	- member in the list of modules;
  * @name	- module name, [A-Za-z0-9_], starts with a letter;
+ * @cfgstart	- called before configuration is parsed;
  * @cfgend	- called after configuration is parsed;
- * @start	- called to start a module;
+ * @start	- called to start or reconfig a module;
  * @stop	- called to stop a module when Tempesta is stopped;
  * @specs	- array of configuration directives specifications
  *		  for a module, terminated by a null element;
@@ -72,6 +73,7 @@
 typedef struct {
 	struct list_head	list;
 	const char		*name;
+	int			(*cfgstart)(void);
 	int			(*cfgend)(void);
 	int			(*start)(void);
 	void			(*stop)(void);

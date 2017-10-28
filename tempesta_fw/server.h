@@ -44,8 +44,9 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
- * @weight	- static server weight for load balancers;
  * @conn_n	- configured number of connections to the server;
+ * @weight	- static server weight for load balancers;
+ * @flags	- server related flags: TFW_CFG_M_ACTION.
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -53,8 +54,9 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void __rcu		*sched_data;
 	void			*apmref;
-	unsigned int		weight;
 	size_t			conn_n;
+	unsigned int		weight;
+	unsigned int		flags;
 } TfwServer;
 
 /**
@@ -79,6 +81,7 @@ typedef struct {
  */
 struct tfw_srv_group_t {
 	struct list_head	list;
+	struct list_head	list_reconfig;
 	struct list_head	srv_list;
 	rwlock_t		lock;
 	TfwScheduler		*sched;
@@ -188,18 +191,24 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 }
 
 /* Server group routines. */
-TfwSrvGroup *tfw_sg_lookup(const char *name);
+TfwSrvGroup *__tfw_sg_lookup(const char *name, bool reconfig);
+#define	tfw_sg_lookup(name)	__tfw_sg_lookup(name, true)
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 int tfw_sg_add(TfwSrvGroup *sg);
 void tfw_sg_del(TfwSrvGroup *sg);
 void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
+void tfw_sg_apply_reconfig(struct list_head *del_sg);
 
 void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
-int tfw_sg_set_sched(TfwSrvGroup *sg, const char *sched, void *arg);
-int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+void tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv);
+int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
+void tfw_sg_stop_sched(TfwSrvGroup *sg);
+int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
+int tfw_sg_for_each_srv(bool reconfig, int (*cb)(TfwServer *srv));
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
+void tfw_sg_release_reconfig(void);
 
 /* Scheduler routines. */
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
