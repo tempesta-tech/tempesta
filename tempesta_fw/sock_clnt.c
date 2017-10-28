@@ -433,7 +433,7 @@ int
 tfw_sock_check_listeners(void)
 {
 	TFW_DBG3("Call %s\n", __func__);
-	return tfw_sg_for_each_srv(tfw_sock_check_lst);
+	return tfw_sg_for_each_srv(true, tfw_sock_check_lst);
 }
 
 /*
@@ -533,9 +533,6 @@ static int
 tfw_sock_clnt_cfgend(void)
 {
 	int r;
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
 
 	TFW_DBG("Checking backends and listeners\n");
 	if ((r = tfw_sock_check_listeners())) {
