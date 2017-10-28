@@ -35,7 +35,7 @@ tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
 frang_mod="tfw_frang"
 declare frang_enable=
-declare -r LONG_OPTS="help,load,unload,start,stop,restart"
+declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
 declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
 
@@ -53,6 +53,7 @@ usage()
 	echo -e "  --start     Load modules and start."
 	echo -e "  --stop      Stop and unload modules."
 	echo -e "  --restart   Restart.\n"
+	echo -e "  --reload    Live reconfiguration.\n"
 }
 
 error()
@@ -179,6 +180,17 @@ stop()
 	echo "done"
 }
 
+reload()
+{
+	echo "Running live reconfiguration of Tempesta..."
+	sysctl -w net.tempesta.state=start >/dev/null
+	if [ $? -ne 0 ]; then
+		error "cannot reconfigure Tempesta FW"
+	else
+		echo "done"
+	fi
+}
+
 args=$(getopt -o "d:f" -a -l "$LONG_OPTS" -- "$@")
 eval set -- "${args}"
 while :; do
@@ -204,6 +216,10 @@ while :; do
 		--restart)
 			stop
 			start
+			exit
+			;;
+		--reload)
+			reload
 			exit
 			;;
 		# Ignore any options after action.
