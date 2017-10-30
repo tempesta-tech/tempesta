@@ -48,24 +48,24 @@
  *                 cases.
  */
 
-#define __TFW_DBG1(...) pr_debug(TFW_BANNER "  " __VA_ARGS__)
-#define __TFW_DBG2(...) pr_debug(TFW_BANNER "    " __VA_ARGS__)
-#define __TFW_DBG3(...) pr_debug(TFW_BANNER "      " __VA_ARGS__)
+#define __TFW_DBG1(...) 	pr_debug(TFW_BANNER "  " __VA_ARGS__)
+#define __TFW_DBG2(...) 	pr_debug(TFW_BANNER "    " __VA_ARGS__)
+#define __TFW_DBG3(...)		pr_debug(TFW_BANNER "      " __VA_ARGS__)
 
 #if defined(DEBUG) && (DEBUG >= 1)
-#define TFW_DBG(...) __TFW_DBG1(__VA_ARGS__)
+#define TFW_DBG(...) 		__TFW_DBG1(__VA_ARGS__)
 #else
 #define TFW_DBG(...)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
-#define TFW_DBG2(...) __TFW_DBG2(__VA_ARGS__)
+#define TFW_DBG2(...)		__TFW_DBG2(__VA_ARGS__)
 #else
 #define TFW_DBG2(...)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 3)
-#define TFW_DBG3(...) __TFW_DBG3(__VA_ARGS__)
+#define TFW_DBG3(...)		__TFW_DBG3(__VA_ARGS__)
 #else
 #define TFW_DBG3(...)
 #endif
@@ -76,24 +76,26 @@ do {									\
 	printk(__VA_ARGS__);						\
 	__WARN();							\
 } while (0)
-#define TFW_ERR(...)	__CALLSTACK_MSG(KERN_ERR TFW_BANNER		\
-					"ERROR: " __VA_ARGS__)
-#define TFW_WARN(...)	__CALLSTACK_MSG(KERN_WARNING TFW_BANNER		\
-					"Warning: " __VA_ARGS__)
-#define TFW_LOG(...)	pr_info(TFW_BANNER __VA_ARGS__)
-/* Non-limited printing for use only during start/stop. */
+#define TFW_ERR(...)		__CALLSTACK_MSG(KERN_ERR TFW_BANNER	\
+						"ERROR: " __VA_ARGS__)
+#define TFW_WARN(...)		__CALLSTACK_MSG(KERN_WARNING TFW_BANNER	\
+						"Warning: " __VA_ARGS__)
+#define TFW_LOG(...)		pr_info(TFW_BANNER __VA_ARGS__)
+/* Non-limited printing. */
 #define TFW_ERR_NL(...)		TFW_ERR(__VA_ARGS__)
 #define TFW_WARN_NL(...)	TFW_WARN(__VA_ARGS__)
 #define TFW_LOG_NL(...)		TFW_LOG(__VA_ARGS__)
 #else
 #include <linux/net.h>
-#define TFW_ERR(...)	net_err_ratelimited(TFW_BANNER "ERROR: " __VA_ARGS__)
-#define TFW_WARN(...)	net_warn_ratelimited(TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_LOG(...)	net_info_ratelimited(TFW_BANNER __VA_ARGS__)
-/* Non-limited printing for use only during start/stop. */
+#define TFW_ERR(...)		net_err_ratelimited(TFW_BANNER "ERROR: " \
+						    __VA_ARGS__)
+#define TFW_WARN(...)		net_warn_ratelimited(TFW_BANNER "Warning: " \
+						     __VA_ARGS__)
+#define TFW_LOG(...)		net_info_ratelimited(TFW_BANNER __VA_ARGS__)
+/* Non-limited printing. */
 #define TFW_ERR_NL(...)		pr_err(TFW_BANNER "ERROR: " __VA_ARGS__)
 #define TFW_WARN_NL(...)	pr_warn(TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_LOG_NL(...)		pr_log(TFW_BANNER __VA_ARGS__)
+#define TFW_LOG_NL(...)		pr_info(TFW_BANNER __VA_ARGS__)
 #endif
 
 /*

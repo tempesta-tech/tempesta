@@ -2429,6 +2429,9 @@ static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req;
+	TfwGState *state;
+	TfwHttpMsg *prev_resp;
+	void *prev_state_obj;
 	time_t timestamp = tfw_current_timestamp();
 
 	/*
@@ -2456,6 +2459,22 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		tfw_http_conn_msg_free(hmresp);
 		return -ENOENT;
 	}
+
+	/*
+	 * This hook isn't in tfw_http_resp_fwd() because it isn't needed
+	 * to count responses from a cache.
+	 * FSM needs TfwHttpReq to record data. It needs TfwHttpResp as well.
+	 * It will be added to the request later in tfw_http_resp_fwd(), but it's
+	 * needed now. Save previous (NULL) value for the sake of safety
+	 */
+	state = &hmresp->conn->state;
+	prev_state_obj = state->obj;
+	state->obj = req;
+	prev_resp = req->resp;
+	req->resp = hmresp;
+	tfw_gfsm_move(state, TFW_HTTP_FSM_RESP_MSG_FWD, NULL, 0);
+	state->obj = prev_state_obj;
+	req->resp = prev_resp;
 
 	/*
 	 * Complete HTTP message has been collected and processed
