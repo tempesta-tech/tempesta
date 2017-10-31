@@ -33,10 +33,22 @@ static struct kmem_cache *srv_cache;
 /*
  * Server group management.
  *
- * All server groups are defined in configuration. As configuration
- * is processed, server groups are placed in sg_list. After that
- * the list of server groups does not change. No groups are added
- * to or deleted from sg_list until Tempesta is stopped.
+ * There are two lists of server groups:
+ * sg_list		- list of active groups,
+ * sg_list_reconfig	- list of groups filled during configuration parsing.
+ *
+ * On the TempestaFW start or live reconfiguration a new configuration is
+ * parsed and all server groups declared in the configuration are added into
+ * sg_list_reconfig. If the configuration is valid sg_list_reconfig replaces
+ * sg_list by tfw_sg_apply_reconfig(). Otherwize reconfig list is cleared by
+ * sock_srv.c
+ *
+ * The same server group instance may be listed in both sg_list and
+ * sg_list_reconfig lists. That's why TfwSrvGroup has mambers .list and
+ * .list_reconfig.
+ *
+ * The list of active server groups may change only during configuration
+ * processing.
  */
 static LIST_HEAD(sg_list);
 static LIST_HEAD(sg_list_reconfig);
@@ -65,37 +77,51 @@ tfw_server_create(const TfwAddr *addr)
 	return srv;
 }
 
-#define __sg_lookup(head, member)					\
-	list_for_each_entry(sg, head, member) {				\
-		if (!strcasecmp(sg->name, name)) {			\
-			read_unlock(&sg_lock);				\
-			return sg;					\
-		}							\
-	}
-
 /**
  * Look up Server Group by name, and return it to caller.
  *
- * This function is called on initial configuration or reconfiguration.
- * The caller needs object available in the new configuration, so the search
- * is performed across reconfig list.
+ * The search is performed across active groups list.
  */
 TfwSrvGroup *
-__tfw_sg_lookup(const char *name, bool reconfig)
+tfw_sg_lookup(const char *name)
 {
 	TfwSrvGroup *sg;
 
 	read_lock(&sg_lock);
-	if (reconfig) {
-		__sg_lookup(&sg_list_reconfig, list_reconfig);
-	}
-	else {
-		__sg_lookup(&sg_list, list);
+	list_for_each_entry(sg, &sg_list, list) {
+		if (!strcasecmp(sg->name, name)) {
+			read_unlock(&sg_lock);
+			return sg;
+		}
 	}
 	read_unlock(&sg_lock);
 	return NULL;
 }
-EXPORT_SYMBOL(__tfw_sg_lookup);
+EXPORT_SYMBOL(tfw_sg_lookup);
+
+/**
+ * Look up Server Group by name, and return it to caller.
+ *
+ * This function is called on initial configuration or live reconfiguration.
+ * The caller needs object available in the new configuration, so the search
+ * is performed across reconfig list.
+ */
+TfwSrvGroup *
+tfw_sg_lookup_reconfig(const char *name)
+{
+	TfwSrvGroup *sg;
+
+	read_lock(&sg_lock);
+	list_for_each_entry(sg, &sg_list_reconfig, list_reconfig) {
+		if (!strcasecmp(sg->name, name)) {
+			read_unlock(&sg_lock);
+			return sg;
+		}
+	}
+	read_unlock(&sg_lock);
+	return NULL;
+}
+EXPORT_SYMBOL(tfw_sg_lookup_reconfig);
 
 /**
  * Create a new Server Group.
@@ -129,11 +155,11 @@ tfw_sg_new(const char *name, gfp_t flags)
  * This function is called only on configuration processing.
  */
 int
-tfw_sg_add(TfwSrvGroup *sg)
+tfw_sg_add_reconfig(TfwSrvGroup *sg)
 {
 	TFW_DBG("Add new server group: '%s'\n", sg->name);
 
-	if (tfw_sg_lookup(sg->name)) {
+	if (tfw_sg_lookup_reconfig(sg->name)) {
 		TFW_ERR("duplicate server group: '%s'\n", sg->name);
 		return -EINVAL;
 	}
@@ -181,7 +207,7 @@ tfw_sg_apply_reconfig(struct list_head *del_sg)
 
 /**
  * Remove a Server Group from the list.
- * This function is called only when Tempesta is stopping.
+ * This function is called only on configuration processing.
  */
 void
 tfw_sg_del(TfwSrvGroup *sg)
@@ -221,6 +247,7 @@ tfw_sg_count(void)
 
 /**
  * Add a server to a server group.
+ * This function is called only on configuration processing.
  */
 void
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
@@ -237,6 +264,7 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 
 /**
  * Remove server from group.
+ * This function is called only on configuration processing.
  */
 void
 tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv)
@@ -272,6 +300,13 @@ tfw_sg_stop_sched(TfwSrvGroup *sg)
 		sg->sched->del_grp(sg);
 }
 
+
+/**
+ * Iterate over all server groups of given server grop @sg and call @cb for
+ * each server.
+ * @cb is called under spin-lock, so can't sleep.
+ * @cb is considered as updater, so write lock is used.
+ */
 int
 __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
 {
@@ -286,30 +321,38 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
 	return ret;
 }
 
-#define __tfw_sg_for_each(head, member)					\
-	list_for_each_entry(sg, head, member) {				\
-		if ((ret = __tfw_sg_for_each_srv(sg, cb)))		\
-			break;						\
-	}
-
 /**
- * Iterate over all server groups and call @cb for each server.
+ * Iterate over all the acive server groups and call @cb for each server.
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
  */
 int
-tfw_sg_for_each_srv(bool reconfig, int (*cb)(TfwServer *srv))
+tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
 	int ret = 0;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-	if (reconfig) {
-		__tfw_sg_for_each(&sg_list_reconfig, list_reconfig);
-	}
-	else {
-		__tfw_sg_for_each(&sg_list, list);
-	}
+	list_for_each_entry(sg, &sg_list, list)
+		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
+			break;
+	write_unlock(&sg_lock);
+	return ret;
+}
+
+/**
+ * Same as tfw_sg_for_each_srv() but iterates over reconfig server group lists.
+ */
+int
+tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv))
+{
+	int ret = 0;
+	TfwSrvGroup *sg;
+
+	write_lock(&sg_lock);
+	list_for_each_entry(sg, &sg_list_reconfig, list_reconfig)
+		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
+			break;
 	write_unlock(&sg_lock);
 	return ret;
 }
@@ -332,7 +375,7 @@ tfw_sg_release(TfwSrvGroup *sg)
 }
 
 /**
- * Release all server groups with all servers.
+ * Release all active server groups with all servers.
  *
  * Note: The function is called at shutdown and in user context when
  * it's guaranteed that all activity has stopped. Therefore the locks
@@ -349,8 +392,12 @@ tfw_sg_release_all(void)
 	INIT_LIST_HEAD(&sg_list);
 }
 
+/**
+ * Release all reconfig server groups with all servers.
+ * ONLY for unittests.
+ */
 void
-tfw_sg_release_reconfig(void)
+__tfw_sg_release_all_reconfig(void)
 {
 	TfwSrvGroup *sg, *sg_tmp;
 

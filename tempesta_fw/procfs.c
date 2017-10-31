@@ -277,7 +277,7 @@ tfw_procfs_cfgend(void)
 		return 0;
 	if (tfw_apm_pstats_verify(&pstats))
 		return -EINVAL;
-	if ((ret = tfw_sg_for_each_srv(true, tfw_procfs_srv_collect)) != 0)
+	if ((ret = tfw_sg_for_each_srv_reconfig(tfw_procfs_srv_collect)) != 0)
 		return ret;
 	return 0;
 }

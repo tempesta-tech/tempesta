@@ -598,7 +598,7 @@ tfw_sock_srv_del_conns(TfwServer *srv)
 static void
 tfw_sock_srv_delete_all_conns(void)
 {
-	tfw_sg_for_each_srv(false, tfw_sock_srv_del_conns);
+	tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
 }
 
 /*
@@ -708,7 +708,7 @@ tfw_cfgop_new_sg_cfg(const char *name)
 		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 		return NULL;
 	}
-	sg_cfg->orig_sg = __tfw_sg_lookup(name, false);
+	sg_cfg->orig_sg = tfw_sg_lookup(name);
 	INIT_LIST_HEAD(&sg_cfg->list);
 
 	list_add(&sg_cfg->list, &sg_cfg_list);
@@ -1155,7 +1155,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	/* Reuse original group if possible. */
 	sg = sg_cfg->orig_sg ? : sg_cfg->parsed_sg;
-	if (!tfw_sg_add(sg)) {
+	if (!tfw_sg_add_reconfig(sg)) {
 		TFW_ERR_NL("Can't register already registered group '%s'\n",
 			   ce->vals[0]);
 		return -EINVAL;
@@ -1536,7 +1536,7 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	tfw_cfgop_cleanup_srv_cfgs();
 
 	if (tfw_runstate_is_reconfig()) {
-		tfw_sg_for_each_srv(true, tfw_sock_srv_del_conns);
+		tfw_sg_for_each_srv_reconfig(tfw_sock_srv_del_conns);
 
 		return;
 	}
@@ -1593,7 +1593,7 @@ tfw_sock_srv_cfgend(void)
 		return r;
 
 	sg = tfw_cfg_sg_def->orig_sg ? : tfw_cfg_sg_def->parsed_sg;
-	if (tfw_sg_add(sg)) {
+	if (tfw_sg_add_reconfig(sg)) {
 		TFW_ERR_NL("Unable to register implicit 'default' group\n");
 		return -EINVAL;
 	}
@@ -1784,7 +1784,7 @@ tfw_sock_srv_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 
-	tfw_sg_for_each_srv(false, tfw_sock_srv_disconnect_srv);
+	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 
 static TfwCfgSpec tfw_srv_group_specs[] = {

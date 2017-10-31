@@ -262,7 +262,7 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	in_arg = e->vals[3];
 	in_backup_sg = tfw_cfg_get_attr(e, "backup", NULL);
 
-	main_sg = tfw_sg_lookup(in_main_sg);
+	main_sg = tfw_sg_lookup_reconfig(in_main_sg);
 	if (!main_sg) {
 		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
 			   in_main_sg);
@@ -272,7 +272,7 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (!in_backup_sg) {
 		backup_sg = NULL;
 	} else {
-		backup_sg = tfw_sg_lookup(in_backup_sg);
+		backup_sg = tfw_sg_lookup_reconfig(in_backup_sg);
 		if (!backup_sg) {
 			TFW_ERR_NL("sched_http: backup srv_group is not found:"
 				   " '%s'\n", in_backup_sg);
@@ -401,7 +401,7 @@ tfw_sched_http_cfgend(void)
 	 * No default rule specified in the configuration, but there's no
 	 * group 'default' so we would have nowhere to point this rule to.
 	 */
-	if ((sg_default = tfw_sg_lookup("default")) == NULL)
+	if ((sg_default = tfw_sg_lookup_reconfig("default")) == NULL)
 		return 0;
 
 	/*
