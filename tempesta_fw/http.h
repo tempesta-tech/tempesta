@@ -541,10 +541,6 @@ int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
 
-/* Configuration stage functions */
-int tfw_http_config_resp_body(int code, const char *body, size_t b_size);
-void tfw_http_del_resp_bodies(void);
-
 /*
  * Functions to create SKBs with data stream.
  *

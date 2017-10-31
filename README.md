@@ -76,36 +76,12 @@ See `tempesta_fw.conf` for the list of available configuration directives,
 options and their descriptions.
 
 
-### Listening address
+### Handling clients
 
-Tempesta listens to incoming connections on specified address and port.
-The syntax is as follows:
-```
-listen <PORT> | <IPADDR>[:PORT] [proto=http|https];
-```
-`IPADDR` may be either IPv4 or IPv6 address. Host names are not allowed.
-IPv6 address must be enclosed in square brackets (e.g. "[::0]" but not "::0").
-If only `PORT` is specified, then address 0.0.0.0 (but not [::1]) is used.
-If only `IPADDR` is specified, then default HTTP port 80 is used.
+Guide on configuring of various client-side handling settings (listening address, keep-alive timeout etc)
+can be found on the following Wiki page:
+* [Handling clients](https://github.com/tempesta-tech/tempesta/wiki/Handling-clients).
 
-Tempesta opens one socket for each `listen` directive. Multiple `listen`
-directives may be defined to listen on multiple addresses/ports.
-If `listen` directive is not defined in the configuration file,
-then by default Tempesta listens on IPv4 address 0.0.0.0 and port 80,
-which is an equivalent to `listen 80` directive.
-
-Below are examples of `listen` directive:
-```
-listen 80;
-listen 443 proto=https;
-listen [::0]:80;
-listen 127.0.0.1:8001;
-listen [::1]:8001;
-```
-
-It is allowed to specify the type of listening socket via the `proto`. At
-the moment **HTTP** and **HTTPS** protos are supported. If no `proto`
-option was given, then **HTTP** is supposed by the default.
 
 ### TLS/SSL support
 
@@ -142,22 +118,6 @@ format. These files are used in Tempesta configuration as follows:
 ```
 ssl_certificate /path/to/tfw-root.crt;
 ssl_certificate_key /path/to/tfw-root.key;
-```
-
-### Keep-alive timeout
-
-Tempesta may use a single TCP connection to send and receive multiple HTTP
-requests/responses. The syntax is as follows:
-```
-keepalive_timeout <TIMEOUT>;
-```
-`TIMEOUT` is a timeout in seconds during which a keep-alive client connection
-will stay open in Tempesta. The zero value disables keep-alive client
-connections. Default value is 75.
-
-Below are examples of `keepalive_timeout` directive:
-```
-keepalive_timeout 75;
 ```
 
 ### Caching
