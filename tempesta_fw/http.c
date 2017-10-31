@@ -19,6 +19,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/string.h>
+#include <linux/vmalloc.h>
 
 #include "cache.h"
 #include "classifier.h"
@@ -38,7 +39,7 @@
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
 
-extern unsigned short tfw_blk_flags;
+unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -96,7 +97,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_403] = {
 		.ptr = (TfwStr []){
@@ -107,7 +108,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_404] = {
 		.ptr = (TfwStr []){
@@ -118,7 +119,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_412] = {
 		.ptr = (TfwStr []){
@@ -129,7 +130,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_500] = {
 		.ptr = (TfwStr []){
@@ -140,7 +141,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_502] = {
 		.ptr = (TfwStr []){
@@ -151,7 +152,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	},
 	[RESP_504] = {
 		.ptr = (TfwStr []){
@@ -162,10 +163,32 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = NULL, .len = 0 },
 		},
 		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
-		.flags = 4 << TFW_STR_CN_SHIFT
+		.flags = 5 << TFW_STR_CN_SHIFT
 	}
 };
 
+/*
+ * Chunks for various message parts in @http_predef_resps array
+ * have predefined positions:
+ * 1: Start line,
+ * 2: Date,
+ * 3: Content-Length header,
+ * 4: CRLF,
+ * 5: Message body.
+ * Some position-dependent macros specific to @http_predef_resps
+ * are defined below.
+ */
+#define TFW_STR_START_CH(msg)	__TFW_STR_CH(msg, 0)
+#define TFW_STR_DATE_CH(msg)	__TFW_STR_CH(msg, 1)
+#define TFW_STR_CLEN_CH(msg)	__TFW_STR_CH(msg, 2)
+#define TFW_STR_CRLF_CH(msg)	__TFW_STR_CH(msg, 3)
+#define TFW_STR_BODY_CH(msg)	__TFW_STR_CH(msg, 4)
+
+/*
+ * Two static TfwStr structures are needed due to have the opportunity
+ * to set separately one page body, e.g. for 500 answer, and another
+ * page body - for the remaining 5xx answers.
+ */
 static TfwStr http_4xx_resp_body = {
 	.ptr = (TfwStr []){
 		{ .ptr = NULL, .len = 0 },
@@ -173,7 +196,6 @@ static TfwStr http_4xx_resp_body = {
 	},
 	.len = 0,
 };
-
 static TfwStr http_5xx_resp_body = {
 	.ptr = (TfwStr []){
 		{ .ptr = NULL, .len = 0 },
@@ -439,14 +461,20 @@ tfw_http_resp_build_error(TfwHttpReq *req)
 void
 tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 {
-	TfwStr *msg = &http_predef_resps[code];
-	TfwStr *date = __TFW_STR_CH(msg, 1);
-	TfwStr *crlf = __TFW_STR_CH(msg, 3);
-	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
-	unsigned long init_len;
-	TfwHttpMsg *hmresp;
 	TfwMsgIter it;
+	TfwHttpMsg *hmresp;
+	TfwStr *date, *crlf, *body;
+	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
+	TfwStr msg = {
+		.ptr = (TfwStr []){ {}, {}, {}, {}, {} },
+		.len = 0,
+		.flags = 5 << TFW_STR_CN_SHIFT
+	};
 
+	if (tfw_strcpy_desc(&msg, &http_predef_resps[code]))
+		return;
+
+	crlf = TFW_STR_CRLF_CH(&msg);
 	if (conn_flag) {
 		unsigned long crlf_len = crlf->len;
 		if (conn_flag == TFW_HTTP_CONN_KA) {
@@ -456,37 +484,33 @@ tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 			crlf->ptr = S_H_CONN_CLOSE;
 			crlf->len = SLEN(S_H_CONN_CLOSE);
 		}
-		init_len = msg->len;
-		msg->len += crlf->len - crlf_len;
+		msg.len += crlf->len - crlf_len;
 	}
 
 	if (!(hmresp = tfw_http_msg_alloc_err_resp()))
 		goto err_create;
-	if (tfw_http_msg_setup(hmresp, &it, msg->len))
+	if (tfw_http_msg_setup(hmresp, &it, msg.len))
 		goto err_setup;
 
+	body = TFW_STR_BODY_CH(&msg);
+	date = TFW_STR_DATE_CH(&msg);
 	date->ptr = *this_cpu_ptr(&g_buf);
 	tfw_http_prep_date(date->ptr);
+	if (!body->ptr)
+		__TFW_STR_CHUNKN_SET(&msg, 4);
 
-	if (tfw_http_msg_write(&it, hmresp, msg))
+	if (tfw_http_msg_write(&it, hmresp, &msg))
 		goto err_setup;
 
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
-	goto done;
 
+	return;
 err_setup:
 	TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
 		 __func__, req->conn);
 	tfw_http_msg_free(hmresp);
 err_create:
 	tfw_http_resp_build_error(req);
-done:
-	date->ptr = NULL;
-	if (conn_flag) {
-		crlf->ptr = S_CRLF;
-		crlf->len = SLEN(S_CRLF);
-		msg->len = init_len;
-	}
 }
 
 /*
@@ -2051,7 +2075,7 @@ tfw_http_req_set_context(TfwHttpReq *req)
 static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status, const char *msg)
 {
-	TFW_CONN_TYPE(req->conn) |= Conn_OnHold;
+	TFW_CONN_TYPE(req->conn) |= Conn_Suspected;
 	req->flags |= TFW_HTTP_SUSPECTED;
 	tfw_http_error_resp_switch(req, status, msg);
 }
@@ -2107,40 +2131,32 @@ tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 static inline void
 tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags &
-					TFW_BLK_ERR_REPLY,
-					tfw_blk_flags &
-					TFW_BLK_ERR_NOLOG,
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
 					req, status, msg);
 }
 
 static inline void
 tfw_client_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags &
-					TFW_BLK_ATT_REPLY,
-					tfw_blk_flags &
-					TFW_BLK_ATT_NOLOG,
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
 					req, status, msg);
 }
 
 static inline void
 tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &
-					TFW_BLK_ERR_REPLY,
-					tfw_blk_flags &
-					TFW_BLK_ERR_NOLOG,
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
 					req, status, msg);
 }
 
 static inline void
 tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &
-					TFW_BLK_ATT_REPLY,
-					tfw_blk_flags &
-					TFW_BLK_ATT_NOLOG,
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
 					req, status, msg);
 }
 
@@ -2711,8 +2727,8 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 				TFW_WARN("Insufficient memory "
 					 "to create a response sibling\n");
 				TFW_INC_STAT_BH(serv.msgs_otherr);
-				
-				/* 
+
+				/*
 				 * Unable to create a sibling message.
 				 * Send the parsed response to the client
 				 * and close the server connection.
@@ -2791,192 +2807,6 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 		: tfw_http_resp_process(c, skb, off);
 }
 
-/* Macros specific to *_set_body() functions. */
-#define __TFW_STR_SET_BODY()						\
-	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
-	body_str->ptr = new_body;					\
-	body_str->len = b_size;						\
-	clen_str->ptr = new_length;					\
-	clen_str->len = l_size;
-
-static void
-tfw_http_set_body(resp_code_t code, char *new_length, size_t l_size,
-		  char *new_body, size_t b_size)
-{
-	TfwStr *msg = &http_predef_resps[code];
-	TfwStr *clen_str = __TFW_STR_CH(msg, 2);
-	TfwStr *body_str = __TFW_STR_CH(msg, 4);
-
-	void *prev_clen_ptr = NULL;
-	void *prev_body_ptr = body_str->ptr;
-	if (prev_body_ptr)
-		prev_clen_ptr = clen_str->ptr;
-
-	__TFW_STR_SET_BODY();
-
-	if (!prev_body_ptr) {
-		TFW_STR_CHUNKN_ADD(msg, 1);
-		return;
-	}
-
-	BUG_ON(!prev_clen_ptr);
-	if (prev_body_ptr != __TFW_STR_CH(&http_4xx_resp_body, 1)->ptr &&
-	    prev_body_ptr != __TFW_STR_CH(&http_5xx_resp_body, 1)->ptr)
-	{
-		kfree(prev_body_ptr);
-		kfree(prev_clen_ptr);
-	}
-}
-
-static int
-tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
-			 char *new_body, size_t b_size)
-{
-	TfwStr *msg;
-	resp_code_t i, begin, end;
-	TfwStr *clen_str;
-	TfwStr *body_str;
-	void *prev_clen_ptr = NULL;
-	void *prev_body_ptr = NULL;
-
-	switch(status_code) {
-	case HTTP_STATUS_4XX:
-		begin = RESP_4XX_BEGIN;
-		end = RESP_4XX_END;
-		msg = &http_4xx_resp_body;
-		break;
-	case HTTP_STATUS_5XX:
-		begin = RESP_5XX_BEGIN;
-		end = RESP_5XX_END;
-		msg = &http_5xx_resp_body;
-		break;
-	default:
-		TFW_ERR("undefined HTTP status group: [%d]\n", status_code);
-		return -EINVAL;
-	}
-
-	clen_str = __TFW_STR_CH(msg, 0);
-	body_str = __TFW_STR_CH(msg, 1);
-	prev_body_ptr = body_str->ptr;
-
-	if (prev_body_ptr)
-		prev_clen_ptr = clen_str->ptr;
-
-	__TFW_STR_SET_BODY();
-
-	for (i = begin; i < end; ++i) {
-		TfwStr *body_str =
-			__TFW_STR_CH(&http_predef_resps[i], 4);
-		if (!body_str->ptr ||
-		    body_str->ptr == prev_body_ptr)
-		{
-			TfwStr *msg = &http_predef_resps[i];
-			TfwStr *clen_str = __TFW_STR_CH(msg, 2);
-			__TFW_STR_SET_BODY();
-			__TFW_STR_CHUNKN_SET(msg, 5);
-		}
-	}
-
-	if (!prev_body_ptr) {
-		BUG_ON(prev_clen_ptr);
-		return 0;
-	}
-
-	BUG_ON(!prev_clen_ptr);
-	kfree(prev_body_ptr);
-	kfree(prev_clen_ptr);
-
-	return 0;
-}
-
-/**
- * Set message body for predefined response with corresponding code.
- */
-int
-tfw_http_config_resp_body(int status_code, const char *src_body, size_t b_size)
-{
-	resp_code_t code;
-	size_t digs_count, l_size;
-	char *new_length, *new_body;
-	char buff[TFW_ULTOA_BUF_SIZ] = {0};
-
-	if (!(digs_count = tfw_ultoa(b_size, buff, TFW_ULTOA_BUF_SIZ))) {
-		TFW_ERR("too small buffer for Content-Length header\n");
-		return -E2BIG;
-	}
-
-	l_size = 2*SLEN(S_CRLF) + SLEN(S_F_CONTENT_LENGTH) + digs_count;
-	new_length = kmalloc(l_size + 1, GFP_KERNEL);
-	if (!new_length) {
-		TFW_ERR("can't allocate memory for Content-Length header\n");
-		return -ENOMEM;
-	}
-	snprintf(new_length, l_size + 1, "%s%s%s%s",
-		 S_CRLF, S_F_CONTENT_LENGTH , buff, S_CRLF);
-
-	new_body = kmalloc(b_size, GFP_KERNEL);
-	if (!new_body) {
-		TFW_ERR("cannot allocate memory for message body\n");
-		kfree(new_length);
-		return -ENOMEM;
-	}
-	memcpy(new_body, src_body, b_size);
-
-	if (status_code == HTTP_STATUS_4XX || status_code == HTTP_STATUS_5XX) {
-		tfw_http_set_common_body(status_code, new_length,
-					 l_size, new_body, b_size);
-		return 0;
-	}
-
-	code = tfw_http_enum_resp_code(status_code);
-	if (code == RESP_NUM) {
-		TFW_ERR_NL("Unexpected status code: [%d]\n",
-			   status_code);
-		return -EINVAL;
-	}
-
-	tfw_http_set_body(code, new_length, l_size, new_body, b_size);
-
-	return 0;
-}
-
-/**
- * Delete all dynamically allocated message bodies for predefined
- * responses (for the cleanup case during shutdown).
- */
-void
-tfw_http_del_resp_bodies(void)
-{
-	TfwStr *clen_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 0);
-	TfwStr *body_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 1);
-	TfwStr *clen_str_5xx = __TFW_STR_CH(&http_5xx_resp_body, 0);
-	TfwStr *body_str_5xx = __TFW_STR_CH(&http_5xx_resp_body, 1);
-	resp_code_t i;
-	for (i = 0; i < RESP_NUM; ++i) {
-		TfwStr *body_str = __TFW_STR_CH(&http_predef_resps[i], 4);
-		if (body_str->ptr) {
-			TfwStr *clen_str =
-				__TFW_STR_CH(&http_predef_resps[i], 2);
-			if (body_str->ptr != body_str_4xx->ptr &&
-			    body_str->ptr != body_str_5xx->ptr)
-			{
-				kfree(body_str->ptr);
-				kfree(clen_str->ptr);
-			}
-		}
-	}
-	if (body_str_4xx->ptr) {
-		BUG_ON(!clen_str_4xx->ptr);
-		kfree(body_str_4xx->ptr);
-		kfree(clen_str_4xx->ptr);
-	}
-	if (body_str_5xx->ptr) {
-		BUG_ON(!clen_str_5xx->ptr);
-		kfree(body_str_5xx->ptr);
-		kfree(clen_str_5xx->ptr);
-	}
-}
-
 /**
  * Calculate the key of an HTTP request by hashing URI and Host header values.
  */
@@ -3006,6 +2836,366 @@ static TfwConnHooks http_conn_hooks = {
 	.conn_release	= tfw_http_conn_release,
 	.conn_send	= tfw_http_conn_send,
 };
+
+/*
+ * ------------------------------------------------------------------------
+ *	configuration handling
+ * ------------------------------------------------------------------------
+ */
+
+static int
+tfw_cfg_define_block_action(const char *action, unsigned short mask,
+			    unsigned short *flags)
+{
+	if (!strcasecmp(action, "reply")) {
+		*flags |= mask;
+	} else if (!strcasecmp(action, "drop")) {
+		*flags &= ~mask;
+	} else {
+		TFW_ERR_NL("Unsupported argument: '%s'\n", action);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int
+tfw_cfg_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
+			   unsigned short *flags)
+{
+	if (ce->val_n == 3) {
+		if (!strcasecmp(ce->vals[2], "nolog"))
+			*flags |= mask;
+		else {
+			TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
+			return -EINVAL;
+		}
+	} else {
+		*flags &= ~mask;
+	}
+	return 0;
+}
+
+static int
+tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->val_n < 2 || ce->val_n > 3) {
+		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	if (!strcasecmp(ce->vals[0], "error")) {
+		if (tfw_cfg_define_block_action(ce->vals[1],
+						TFW_BLK_ERR_REPLY,
+						&tfw_blk_flags) ||
+		    tfw_cfg_define_block_nolog(ce,
+					       TFW_BLK_ERR_NOLOG,
+					       &tfw_blk_flags))
+			return -EINVAL;
+	} else if (!strcasecmp(ce->vals[0], "attack")) {
+		if (tfw_cfg_define_block_action(ce->vals[1],
+						TFW_BLK_ATT_REPLY,
+						&tfw_blk_flags) ||
+		    tfw_cfg_define_block_nolog(ce,
+					       TFW_BLK_ATT_NOLOG,
+					       &tfw_blk_flags))
+			return -EINVAL;
+	} else {
+		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/* Macros specific to *_set_body() functions. */
+#define __TFW_STR_SET_BODY()						\
+	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
+	body_str->ptr = new_body;					\
+	body_str->len = b_size;						\
+	clen_str->ptr = new_length;					\
+	clen_str->len = l_size;
+
+static void
+tfw_http_set_body(resp_code_t code, char *new_length, size_t l_size,
+		  char *new_body, size_t b_size)
+{
+	unsigned long prev_len;
+	TfwStr *msg = &http_predef_resps[code];
+	TfwStr *clen_str = TFW_STR_CLEN_CH(msg);
+	TfwStr *body_str = TFW_STR_BODY_CH(msg);
+	void *prev_body_ptr = body_str->ptr;
+	void *prev_clen_ptr = NULL;
+
+	if (prev_body_ptr) {
+		prev_clen_ptr = clen_str->ptr;
+		prev_len = clen_str->len + body_str->len;
+	}
+
+	__TFW_STR_SET_BODY();
+
+	if (!prev_body_ptr)
+		return;
+
+	BUG_ON(!prev_clen_ptr);
+	if (prev_body_ptr != __TFW_STR_CH(&http_4xx_resp_body, 1)->ptr &&
+	    prev_body_ptr != __TFW_STR_CH(&http_5xx_resp_body, 1)->ptr)
+	{
+		free_pages((unsigned long)prev_clen_ptr, get_order(prev_len));
+	}
+}
+
+static int
+tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
+			 char *new_body, size_t b_size)
+{
+	TfwStr *msg;
+	resp_code_t i, begin, end;
+	TfwStr *clen_str;
+	TfwStr *body_str;
+	unsigned long prev_len;
+	void *prev_clen_ptr = NULL;
+	void *prev_body_ptr = NULL;
+
+	switch(status_code) {
+	case HTTP_STATUS_4XX:
+		begin = RESP_4XX_BEGIN;
+		end = RESP_4XX_END;
+		msg = &http_4xx_resp_body;
+		break;
+	case HTTP_STATUS_5XX:
+		begin = RESP_5XX_BEGIN;
+		end = RESP_5XX_END;
+		msg = &http_5xx_resp_body;
+		break;
+	default:
+		TFW_ERR("undefined HTTP status group: [%d]\n", status_code);
+		return -EINVAL;
+	}
+
+	clen_str = __TFW_STR_CH(msg, 0);
+	body_str = __TFW_STR_CH(msg, 1);
+	prev_body_ptr = body_str->ptr;
+
+	if (prev_body_ptr) {
+		prev_clen_ptr = clen_str->ptr;
+		prev_len = clen_str->len + body_str->len;
+	}
+
+	__TFW_STR_SET_BODY();
+
+	for (i = begin; i < end; ++i) {
+		TfwStr *msg = &http_predef_resps[i];
+		TfwStr *body_str = TFW_STR_BODY_CH(msg);
+		if (!body_str->ptr ||
+		    body_str->ptr == prev_body_ptr)
+		{
+			TfwStr *clen_str = TFW_STR_CLEN_CH(msg);
+			__TFW_STR_SET_BODY();
+		}
+	}
+
+	if (!prev_body_ptr) {
+		BUG_ON(prev_clen_ptr);
+		return 0;
+	}
+
+	BUG_ON(!prev_clen_ptr);
+	free_pages((unsigned long)prev_clen_ptr, get_order(prev_len));
+
+	return 0;
+}
+
+/**
+ * Set message body for predefined response with corresponding code.
+ */
+static int
+tfw_http_config_resp_body(int status_code, const char *src_body, size_t b_size)
+{
+	resp_code_t code;
+	size_t digs_count, l_size;
+	char *new_length, *new_body;
+	char buff[TFW_ULTOA_BUF_SIZ] = {0};
+
+	if (!(digs_count = tfw_ultoa(b_size, buff, TFW_ULTOA_BUF_SIZ))) {
+		TFW_ERR("too small buffer for Content-Length header\n");
+		return -E2BIG;
+	}
+
+	l_size = 2 * SLEN(S_CRLF) + SLEN(S_F_CONTENT_LENGTH) + digs_count;
+	new_length = (char *)__get_free_pages(GFP_KERNEL,
+					      get_order(l_size + b_size));
+	if (!new_length) {
+		TFW_ERR("can't allocate memory for Content-Length"
+			"header and body\n");
+		return -ENOMEM;
+	}
+	snprintf(new_length, l_size + 1, "%s%s%s%s",
+		 S_CRLF, S_F_CONTENT_LENGTH , buff, S_CRLF);
+	new_body = new_length + l_size;
+	memcpy(new_body, src_body, b_size);
+
+	if (status_code == HTTP_STATUS_4XX || status_code == HTTP_STATUS_5XX) {
+		tfw_http_set_common_body(status_code, new_length,
+					 l_size, new_body, b_size);
+		return 0;
+	}
+
+	code = tfw_http_enum_resp_code(status_code);
+	if (code == RESP_NUM) {
+		TFW_ERR_NL("Unexpected status code: [%d]\n",
+			   status_code);
+		return -EINVAL;
+	}
+
+	tfw_http_set_body(code, new_length, l_size, new_body, b_size);
+
+	return 0;
+}
+
+/**
+ * Delete all dynamically allocated message bodies for predefined
+ * responses (for the cleanup case during shutdown).
+ */
+static void
+tfw_http_cfg_cleanup_resp_body(TfwCfgSpec *cs)
+{
+	TfwStr *clen_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 0);
+	TfwStr *body_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 1);
+	TfwStr *clen_str_5xx = __TFW_STR_CH(&http_5xx_resp_body, 0);
+	TfwStr *body_str_5xx = __TFW_STR_CH(&http_5xx_resp_body, 1);
+	resp_code_t i;
+
+	for (i = 0; i < RESP_NUM; ++i) {
+		TfwStr *clen_str;
+		TfwStr *body_str = TFW_STR_BODY_CH(&http_predef_resps[i]);
+		if (!body_str->ptr)
+			continue;
+
+		if (body_str->ptr == body_str_4xx->ptr ||
+		    body_str->ptr == body_str_5xx->ptr)
+			continue;
+
+		clen_str = TFW_STR_CLEN_CH(&http_predef_resps[i]);
+		free_pages((unsigned long)clen_str->ptr,
+			   get_order(clen_str->len + body_str->len));
+	}
+
+	if (body_str_4xx->ptr) {
+		BUG_ON(!clen_str_4xx->ptr);
+		free_pages((unsigned long)clen_str_4xx->ptr,
+			   get_order(clen_str_4xx->len + body_str_4xx->len));
+	}
+	if (body_str_5xx->ptr) {
+		BUG_ON(!clen_str_5xx->ptr);
+		free_pages((unsigned long)clen_str_5xx->ptr,
+			   get_order(clen_str_5xx->len + body_str_5xx->len));
+	}
+}
+
+static int
+tfw_cfg_parse_http_status(const char *status, int *out)
+{
+	int i;
+	for (i = 0; status[i]; ++i) {
+		if (isdigit(status[i]))
+			continue;
+
+		if (i == 1 && status[i] == '*' && !status[i+1]) {
+			/*
+			 * For status groups only two-character
+			 * sequences with first digit are
+			 * acceptable (e.g. 4* or 5*).
+			 */
+			if (status[0] == '4') {
+				*out = HTTP_STATUS_4XX;
+				return 0;
+			}
+			if (status[0] == '5') {
+				*out = HTTP_STATUS_5XX;
+				return 0;
+			}
+		}
+		return -EINVAL;
+	}
+	/*
+	 * For simple HTTP status value only
+	 * three-digit numbers are acceptable
+	 * currently.
+	 */
+	if (i != 3)
+		return -EINVAL;
+
+	return kstrtoint(status, 10, out);
+}
+
+static int
+tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	char *body_data;
+	size_t body_size;
+	int code, ret = 0;
+
+	if (tfw_cfg_check_val_n(ce, 2))
+		return -EINVAL;
+
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	if (tfw_cfg_parse_http_status(ce->vals[0], &code))
+	{
+		TFW_ERR_NL("Unable to parse 'response_body' value: '%s'\n",
+			   ce->vals[0]
+			   ? ce->vals[0]
+			   : "No value specified");
+		return -EINVAL;
+	}
+
+	body_data = tfw_cfg_read_file(ce->vals[1], &body_size);
+	if (!body_data) {
+		TFW_ERR_NL("Cannot read file with error response: '%s'\n",
+			   ce->vals[1]);
+		return -EINVAL;
+	}
+
+	ret = tfw_http_config_resp_body(code, body_data, body_size - 1);
+	vfree(body_data);
+
+	return ret;
+}
+
+TfwCfgMod tfw_http_cfg_mod  = {
+	.name	= "http",
+	.specs	= (TfwCfgSpec[]){
+		{
+			"block_action",
+			NULL,
+			tfw_sock_clnt_cfg_handle_block_action,
+			.allow_repeat = true,
+			.allow_none = true
+		},
+		{
+			"response_body",
+			NULL,
+			tfw_http_cfg_handle_resp_body,
+			.allow_repeat = true,
+			.allow_none = true,
+			.cleanup = tfw_http_cfg_cleanup_resp_body
+		},
+		{}
+	}
+};
+
+/*
+ * ------------------------------------------------------------------------
+ *	init/exit
+ * ------------------------------------------------------------------------
+ */
 
 int __init
 tfw_http_init(void)
