@@ -433,7 +433,7 @@ int
 tfw_sock_check_listeners(void)
 {
 	TFW_DBG3("Call %s\n", __func__);
-	return tfw_sg_for_each_srv(true, tfw_sock_check_lst);
+	return tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst);
 }
 
 /*

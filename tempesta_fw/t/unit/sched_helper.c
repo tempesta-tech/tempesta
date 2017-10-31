@@ -76,7 +76,7 @@ test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 	kernel_fpu_end();
 
 	sg->flags = flags;
-	r = tfw_sg_add(sg);
+	r = tfw_sg_add_reconfig(sg);
 	BUG_ON(r);
 	/* Adjust servers weights for ratio scheduler. */
 	if (!strcmp(sched_name, "ratio"))
@@ -96,7 +96,7 @@ test_sg_release_all(void)
 	kernel_fpu_end();
 
 	tfw_sg_release_all();
-	tfw_sg_release_reconfig();
+	__tfw_sg_release_all_reconfig();
 
 	kernel_fpu_begin();
 }

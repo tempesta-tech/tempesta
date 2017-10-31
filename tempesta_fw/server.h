@@ -66,7 +66,9 @@ typedef struct {
  * Reverse proxy must define load balancing policy. Forward proxy must define
  * eviction policy. While both of them should define failovering policy.
  *
- * @list	- member pointer in the list of server groups;
+ * @list	- member pointer in the active server groups list;
+ * @list_reconfig - member pointer in the reconfig server groups list;
+ *		  See 'Server group management' comment in server.c;
  * @srv_list	- list of servers belonging to the group;
  * @lock	- synchronizes the group readers with updaters;
  * @sched	- requests scheduling handler;
@@ -191,10 +193,10 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 }
 
 /* Server group routines. */
-TfwSrvGroup *__tfw_sg_lookup(const char *name, bool reconfig);
-#define	tfw_sg_lookup(name)	__tfw_sg_lookup(name, true)
+TfwSrvGroup *tfw_sg_lookup(const char *name);
+TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
-int tfw_sg_add(TfwSrvGroup *sg);
+int tfw_sg_add_reconfig(TfwSrvGroup *sg);
 void tfw_sg_del(TfwSrvGroup *sg);
 void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
@@ -205,10 +207,11 @@ void tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv);
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
 void tfw_sg_stop_sched(TfwSrvGroup *sg);
 int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
-int tfw_sg_for_each_srv(bool reconfig, int (*cb)(TfwServer *srv));
+int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
-void tfw_sg_release_reconfig(void);
+void __tfw_sg_release_all_reconfig(void);
 
 /* Scheduler routines. */
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
