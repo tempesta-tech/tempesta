@@ -689,7 +689,7 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 			    || (req->method == TFW_HTTP_METH_HEAD))
 				__send_304(req, ce);
 			else
-				HTTP_SEND_RESP(req, 412, "request validatin:"
+				HTTP_SEND_RESP(req, 412, "request validation:"
 					       " precondition failed");
 
 			return false;
