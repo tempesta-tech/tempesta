@@ -340,6 +340,25 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
 }
 
 /**
+ * Iterate over all the acive server groups and call @cb for each server group.
+ * @cb is called under spin-lock, so can't sleep.
+ * @cb is considered as updater, so write lock is used.
+ */
+int
+tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg))
+{
+	int ret = 0;
+	TfwSrvGroup *sg;
+
+	write_lock(&sg_lock);
+	list_for_each_entry(sg, &sg_list, list)
+		if ((ret = cb(sg)))
+			break;
+	write_unlock(&sg_lock);
+	return ret;
+}
+
+/**
  * Iterate over all the acive server groups and call @cb for each server.
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
