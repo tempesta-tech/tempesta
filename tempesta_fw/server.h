@@ -208,6 +208,7 @@ void tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv);
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
 void tfw_sg_stop_sched(TfwSrvGroup *sg);
 int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
+int tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg));
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_release(TfwSrvGroup *sg);

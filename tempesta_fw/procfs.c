@@ -219,9 +219,15 @@ tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 /*
  * Start/stop routines.
  */
+#define TFW_PROCFS_SG_CNT_MAX		256
+#define TFW_PROCFS_SRV_CNT_MAX		256
+
 static struct proc_dir_entry *tfw_procfs_tempesta;
 static struct proc_dir_entry *tfw_procfs_perfstat;
 static struct proc_dir_entry *tfw_procfs_srvstats;
+static struct proc_dir_entry *tfw_procfs_sgstats;
+static size_t sg_stats_sz = 0;
+static size_t srv_stats_sz = 0;
 
 static struct file_operations tfw_srvstats_fops = {
 	.owner		= THIS_MODULE,
@@ -231,43 +237,39 @@ static struct file_operations tfw_srvstats_fops = {
 	.release	= single_release,
 };
 
-#define TFW_PROCFS_SRV_CNT_MAX		256
-static TfwServer *srvlst[TFW_PROCFS_SRV_CNT_MAX];
-static int slsz = 0;
-
-static int
-tfw_procfs_srv_collect(TfwServer *srv)
-{
-	int i;
-
-	if (slsz == TFW_PROCFS_SRV_CNT_MAX)
-		return 0;
-	for (i = 0; i < slsz; ++i)
-		if (tfw_addr_ifmatch(&srvlst[i]->addr, &srv->addr))
-			return 0;
-	srvlst[slsz++] = srv;
-	return 0;
-}
-
 static int
 tfw_procfs_srv_create(TfwServer *srv)
 {
 	struct proc_dir_entry *pfs_srv;
 	char srv_name[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 
+	if (++srv_stats_sz > TFW_PROCFS_SRV_CNT_MAX)
+		return 0;
+
 	tfw_addr_ntop(&srv->addr, srv_name, sizeof(srv_name));
 	pfs_srv = proc_create_data(srv_name, S_IRUGO,
-				   tfw_procfs_srvstats,
+				   tfw_procfs_sgstats,
 				   &tfw_srvstats_fops, srv);
-	if (!pfs_srv)
+
+	return pfs_srv ? 0 : -ENOENT;
+}
+
+static int
+tfw_procfs_sg_create(TfwSrvGroup *sg)
+{
+	if (++sg_stats_sz > TFW_PROCFS_SG_CNT_MAX)
+		return 0;
+	srv_stats_sz = 0;
+
+	if (!(tfw_procfs_sgstats = proc_mkdir(sg->name, tfw_procfs_srvstats)))
 		return -ENOENT;
-	return 0;
+
+	return __tfw_sg_for_each_srv(sg, tfw_procfs_srv_create);
 }
 
 static int
 tfw_procfs_cfgend(void)
 {
-	int ret;
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
 		.psz = ARRAY_SIZE(tfw_pstats_ith)
@@ -277,35 +279,33 @@ tfw_procfs_cfgend(void)
 		return 0;
 	if (tfw_apm_pstats_verify(&pstats))
 		return -EINVAL;
-	if ((ret = tfw_sg_for_each_srv_reconfig(tfw_procfs_srv_collect)) != 0)
-		return ret;
 	return 0;
+}
+
+static void
+tfw_procfs_cleanup(void)
+{
+	remove_proc_subtree("servers", tfw_procfs_tempesta);
+	tfw_procfs_srvstats = NULL;
+	sg_stats_sz = 0;
 }
 
 static int
 tfw_procfs_start(void)
 {
-	int i, ret;
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
 	if (!tfw_procfs_tempesta)
 		return -ENOENT;
-	tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta);
-	if (!tfw_procfs_srvstats)
+
+	tfw_procfs_cleanup();
+	if (!(tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta)))
 		return -ENOENT;
-	for (i = 0; i < slsz; ++i)
-		if ((ret = tfw_procfs_srv_create(srvlst[i])))
-			return ret;
-	return 0;
+	return tfw_sg_for_each_sg(tfw_procfs_sg_create);
 }
 
 static void
 tfw_procfs_stop(void)
 {
-	if (tfw_runstate_is_reconfig())
-		return;
-	remove_proc_subtree("servers", tfw_procfs_tempesta);
+	tfw_procfs_cleanup();
 }
 
 static TfwCfgSpec tfw_procfs_specs[] = {
