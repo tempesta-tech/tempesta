@@ -611,9 +611,53 @@ static struct kmem_cache *tfw_sg_cfg_cache;
 #define TFW_CFG_DFLT_VAL	"__dfltval__"	/* Use a default value. */
 #define TFW_CFG_IMPL_DFT_SG	"default"
 
+/* Server list of the group has changed. */
 #define TFW_CFG_MDF_SG_SRV	0x1
+/* Server group scheduler has changed. */
 #define TFW_CFG_MDF_SG_SCHED	0x2
 
+/**
+ * Describes how to change a server group to comply a new configuration.
+ *
+ * In-service configuration update (live reconfiguration) means that
+ * HTTP processing is running during configuration update. No unnecessary
+ * clients disconnects or backend server reconnects must happen. This means
+ * that simple rcu-like swap of the current and the new configuration is
+ * not possible. Instead current configuration must be updated step-by-step
+ * to comply the new configuration.
+ *
+ * Update process is splitted in two stages:
+ * - configuration parsing stage: tfw_sock_srv_cfgstart(), TfwCfgSpec handlers
+ * and tfw_sock_srv_cfgend(). It's normal if an error happens during the
+ * stage since the new configuration is provided by a user and may contain
+ * errors.
+ * - applying stage: tfw_sock_srv_start(). Errors are unrecoverable and mean
+ * that only a part of changes was appied, so the resulting configuration is
+ * invalid.
+ *
+ * On configuration parsing stage binary representation of a server group is
+ * saved into @parsed_sg, while @orig_sg poins to the existing server group
+ * with the same name if any. @orig_sg remain unchanged until applying stage.
+ * @orig_sg if any or @parsed_sg otherwize is registered as server group
+ * available after reconfig by tfw_sg_add_reconfig() call. This allow other
+ * TempestaFW modules to save pointer to the desired group.
+ *
+ * On applying stage changes from @parsed_sg are distributed to @orig_sg if
+ * @orig_sg is available, or @parsed_sg is promoted to active group by
+ * starting it's connetions otherwize. After that list of server groups
+ * available after reconfig replaces list of active groups by
+ * tfw_sg_apply_reconfig() call.
+ *
+ * @orig_sg		- server group instance from the current configuration;
+ * @parsed_sg		- server group representation based on a new
+ *			  configuration;
+ * @list		- member pointer in the sg_cfg_list list;
+ * @reconf_flags	- TFW_CFG_MDF_SG_* flags;
+ * @nip_flags		- non-idempotent req related flags;
+ * @sticky_flags	- sticky sessions processing flags;
+ * @sched_flags		- scheduler flags;
+ * @sched_arg		- scheduler init argument.
+ */
 typedef struct {
 	TfwSrvGroup		*orig_sg;
 	TfwSrvGroup		*parsed_sg;
@@ -996,7 +1040,6 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	int i, conns_n = 0, weight = 0;
 	bool has_conns_n = false, has_weight = false;
 	const char *key, *val;
-	struct list_head *slst = &sg_cfg->parsed_sg->srv_list;
 
 	if (ce->val_n != 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
@@ -1012,11 +1055,10 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		TFW_ERR_NL("Invalid IP address: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
-	list_for_each_entry(srv, slst, list)
-		if (tfw_addr_eq(&srv->addr, &addr)) {
-			TFW_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
-			return -EEXIST;
-		}
+	if (__cfgop_server_lookup(&sg_cfg->parsed_sg->srv_list, &addr)) {
+		TFW_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
+		return -EEXIST;
+	}
 
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "conns_n")) {
@@ -1220,7 +1262,7 @@ tfw_cfgop_sched_changed(TfwCfgSrvGroup *sg_cfg)
 	    (sg_cfg->orig_sg->flags & TFW_SG_M_SCHED_RATIO_TYPE))
 		return true;
 
-	/* TODO: check cheduler argument (not supported yet). */
+	/* TODO: check scheduler argument (not supported yet). */
 	return false;
 }
 
@@ -1231,7 +1273,8 @@ tfw_cfgop_setup_srv_group(TfwCfgSrvGroup *sg_cfg)
 
 	/* Some servers was removed, so scheduler update is required */
 	if (sg_cfg->orig_sg &&
-	    (sg_cfg->orig_sg->srv_n != sg_cfg->parsed_sg->srv_n)) {
+	    (sg_cfg->orig_sg->srv_n != sg_cfg->parsed_sg->srv_n))
+	{
 		sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
 	}
 
@@ -1497,9 +1540,9 @@ tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg)
+tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool reconf_failed)
 {
-	if (sg_cfg->orig_sg) {
+	if (sg_cfg->orig_sg || reconf_failed) {
 		__tfw_sg_for_each_srv(sg_cfg->parsed_sg,
 				      tfw_sock_srv_del_conns);
 		tfw_sg_release(sg_cfg->parsed_sg);
@@ -1513,12 +1556,12 @@ tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg)
 }
 
 static void
-tfw_cfgop_cleanup_srv_cfgs(void)
+tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 {
 	TfwCfgSrvGroup *sg_cfg, *tmp;
 
 	list_for_each_entry_safe(sg_cfg, tmp, &sg_cfg_list, list)
-		tfw_cfgop_cleanup_srv_cfg(sg_cfg);
+		tfw_cfgop_cleanup_srv_cfg(sg_cfg, reconf_failed);
 	INIT_LIST_HEAD(&sg_cfg_list);
 
 	tfw_cfg_sg = tfw_cfg_sg_def = NULL;
@@ -1526,6 +1569,8 @@ tfw_cfgop_cleanup_srv_cfgs(void)
 
 /**
  * Clean everything produced during parsing "server" and "srv_group" entries.
+ *
+ * Live reconfiguration may fail: on parsing stage
  */
 static void
 tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
@@ -1533,11 +1578,21 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	TfwSrvGroup *sg, *sg_tmp;
 	TfwServer *srv, *srv_tmp;
 
-	tfw_cfgop_cleanup_srv_cfgs();
+	/*
+	 * Configuration failed before tfw_sock_srv_start():
+	 * - must clear server.c:sg_list_reconfig
+	 * - must delete all sg_cfg_list->parsed_sg
+	 *
+	 * Configuration failed during or after tfw_sock_srv_start:
+	 * - must clear server.c:sg_list_reconfig if not cleared yet
+	 * - must delete all sg_cfg_list->parsed_sg
+	 * - must delete all active servers and groups (server.c:sg_list).
+	 */
+	tfw_sg_drop_reconfig();
+	tfw_cfgop_cleanup_srv_cfgs(true);
 
 	if (tfw_runstate_is_reconfig()) {
-		tfw_sg_for_each_srv_reconfig(tfw_sock_srv_del_conns);
-
+		/* tfw_sock_srv_start() was not called. */
 		return;
 	}
 
@@ -1549,11 +1604,13 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	/* Release structures from previous reconfigs. */
 	list_for_each_entry_safe(srv, srv_tmp, &orphan_srvs, list) {
 		tfw_sock_srv_del_conns(srv);
+		list_del_init(&srv->list);
 		tfw_server_destroy(srv);
 	}
 	TFW_DBG2("clean orphaned groups\n");
 	list_for_each_entry_safe(sg, sg_tmp, &orphan_sgs, list) {
 		__tfw_sg_for_each_srv(sg, tfw_sock_srv_del_conns);
+		list_del_init(&sg->list);
 		tfw_sg_release(sg);
 	}
 	INIT_LIST_HEAD(&orphan_sgs);
@@ -1584,7 +1641,7 @@ tfw_sock_srv_cfgend(void)
 	 * a server outside of any group is found in the configuration.
 	 */
 	if (!tfw_cfg_sg_def->parsed_sg->srv_n) {
-		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def);
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, true);
 		tfw_cfg_sg_def = NULL;
 		return 0;
 	}
@@ -1621,15 +1678,11 @@ tfw_cfgop_start_srv(TfwServer *srv)
 static int
 tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 {
-	TfwServer *srv = NULL;
+	TfwServer *srv;
 	int r;
 
-	list_for_each_entry(srv, &sg_cfg->parsed_sg->srv_list, list) {
-		if (tfw_addr_eq(&srv->addr, &orig_srv->addr))
-			break;
-	}
-
-	if (!srv)
+	if (!(srv = __cfgop_server_lookup(&sg_cfg->parsed_sg->srv_list,
+					  &orig_srv->addr)))
 		return -EINVAL;
 
 	TFW_DBG_ADDR("Update server options", &srv->addr);
@@ -1721,6 +1774,10 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
 		return 0;
 
+	/*
+	 * Schedulers walk over list of servers, so stop scheduler before
+	 * updating server list.
+	 */
 	tfw_sg_stop_sched(sg_cfg->orig_sg);
 
 	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV)
@@ -1761,7 +1818,7 @@ tfw_sock_srv_start(void)
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
 
-	tfw_cfgop_cleanup_srv_cfgs();
+	tfw_cfgop_cleanup_srv_cfgs(false);
 
 	/* Disconnect unused servers and groups */
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
@@ -1781,9 +1838,8 @@ tfw_sock_srv_start(void)
 static void
 tfw_sock_srv_stop(void)
 {
-	if (tfw_runstate_is_reconfig())
-		return;
-
+	/* tfw_sock_srv_start() may failed just in the middle. */
+	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 }
 

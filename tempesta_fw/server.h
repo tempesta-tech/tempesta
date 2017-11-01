@@ -201,6 +201,7 @@ void tfw_sg_del(TfwSrvGroup *sg);
 void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
 void tfw_sg_apply_reconfig(struct list_head *del_sg);
+void tfw_sg_drop_reconfig(void);
 
 void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
 void tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv);
