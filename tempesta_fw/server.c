@@ -206,6 +206,24 @@ tfw_sg_apply_reconfig(struct list_head *del_sg)
 }
 
 /**
+ * Clear reconfig group list.
+ *
+ *  This function is called when configuration processing is failed. Simply
+ * clean reconfig list, sock_srv.c is responsible to remove all groups
+ * added to the list.
+ */
+void
+tfw_sg_drop_reconfig(void)
+{
+	TfwSrvGroup *sg, *tmp;
+
+	write_lock(&sg_lock);
+	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig)
+		list_del_init(&sg->list_reconfig);
+	write_unlock(&sg_lock);
+}
+
+/**
  * Remove a Server Group from the list.
  * This function is called only on configuration processing.
  */
