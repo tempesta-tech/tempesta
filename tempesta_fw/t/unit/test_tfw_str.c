@@ -367,6 +367,38 @@ TEST(tfw_strcpy, both_compound)
 				    sizeof("abcdefghijklmnop") - 1, 0));
 }
 
+TEST(tfw_strcpy_desc, both_plain)
+{
+	TfwStr s1 = {};
+	TfwStr s2 = {
+		.len = sizeof("abcdefghijklmnop") - 1,
+		.ptr = "abcdefghijklmnop"
+	};
+
+	EXPECT_OK(tfw_strcpy_desc(&s1, &s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(&s1, "abcdefghijklmnop",
+				    sizeof("abcdefghijklmnop") - 1, 0));
+}
+
+TEST(tfw_strcpy_desc, both_compound)
+{
+	char buf[15] = "pqrstuvwxyz123";
+	TFW_STR(s1, buf);
+	TFW_STR(s2, "abcdefghijklno");
+
+	EXPECT_OK(tfw_strcpy_desc(s1, s2));
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklno",
+				    sizeof("abcdefghijklno") - 1, 0));	
+}
+
+TEST(tfw_strcpy_desc, plain_compound)
+{
+	TfwStr s1 = {};
+	TFW_STR(s2, "abcdefg");	
+
+	EXPECT_ERROR(tfw_strcpy_desc(&s1, s2));
+}
+
 TEST(tfw_strcat, plain)
 {
 	int chunks;
@@ -871,6 +903,10 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_strcpy, src_compound);
 	TEST_RUN(tfw_strcpy, dst_compound);
 	TEST_RUN(tfw_strcpy, both_compound);
+
+	TEST_RUN(tfw_strcpy_desc, both_plain);
+	TEST_RUN(tfw_strcpy_desc, both_compound);
+	TEST_RUN(tfw_strcpy_desc, plain_compound);
 
 	TEST_RUN(tfw_strcat, plain);
 	TEST_RUN(tfw_strcat, compound);
