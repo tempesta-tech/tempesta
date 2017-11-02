@@ -293,11 +293,7 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 
 	c2 = dst_num ? dst->ptr : dst;
 	TFW_STR_FOR_EACH_CHUNK(c1, src, end) {
-		c2->ptr = c1->ptr;
-		c2->skb = c1->skb;
-		c2->eolen = c1->eolen;
-		c2->len = c1->len;
-		c2->flags = c1->flags;
+		*c2 = *c1;
 		++c2;
 	}
 	if (dst_num) {
