@@ -216,6 +216,7 @@ tfw_init(void)
 	DO_CFG_REG(vhost);
 	DO_CFG_REG(filter);
 	DO_CFG_REG(cache);
+	DO_CFG_REG(http);
 	DO_CFG_REG(http_sess);
 	DO_CFG_REG(sock_srv);
 	DO_CFG_REG(sock_clnt);
