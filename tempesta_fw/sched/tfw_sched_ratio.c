@@ -1056,7 +1056,6 @@ tfw_sched_ratio_srvdesc_setup(TfwSrvGroup *sg, TfwRatio *ratio)
 		srvdesc->conn_n = srv->conn_n;
 		srvdesc->srv = srv;
 		atomic64_set(&srvdesc->counter, 0);
-		srv->sched_data = srvdesc;
 		++srvdesc;
 	}
 	if (unlikely(si != sg->srv_n))
@@ -1182,6 +1181,22 @@ cleanup:
 	return NULL;
 }
 
+void
+tfw_sched_ratio_set_sched_data(TfwSrvGroup *sg, TfwRatio *ratio)
+{
+	size_t i;
+
+	if (!ratio)
+		return;
+
+	for (i = 0; i < ratio->srv_n; ++i) {
+		TfwRatioSrvDesc *srvdesc = &ratio->srvdesc[i];
+
+		rcu_assign_pointer(srvdesc->srv->sched_data, srvdesc);
+	}
+	rcu_assign_pointer(sg->sched_data, ratio);
+}
+
 static int
 tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 {
@@ -1201,7 +1216,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 	default:
 		return -EINVAL;
 	}
-	rcu_assign_pointer(sg->sched_data, ratio);
+	tfw_sched_ratio_set_sched_data(sg, ratio);
 
 	return ratio ? 0 : -EINVAL;
 }
