@@ -536,7 +536,8 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_resp_init_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
 {
-	if (req->flags & TFW_HTTP_CONN_CLOSE)
+	if (req->flags & TFW_HTTP_CONN_CLOSE ||
+	    req->flags & TFW_HTTP_SUSPECTED)
 		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
 }
 
@@ -1801,9 +1802,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
 		BUG_ON(!req->resp);
 		tfw_http_resp_init_ss_flags((TfwHttpResp *)req->resp, req);
-		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp) ||
-		    req->flags & TFW_HTTP_SUSPECTED)
-		{
+		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
@@ -2075,7 +2074,7 @@ tfw_http_req_set_context(TfwHttpReq *req)
 static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status, const char *msg)
 {
-	TFW_CONN_TYPE(req->conn) |= Conn_Suspected;
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	req->flags |= TFW_HTTP_SUSPECTED;
 	tfw_http_error_resp_switch(req, status, msg);
 }
@@ -2303,8 +2302,13 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		 * released when handled in tfw_cache_req_process() below.
 		 * So, save the needed request flag for later use as it
 		 * may not be accessible later through @req->flags.
+		 * If the connection must be closed, it also should be marked
+		 * with @Conn_Stop flag - to left it alive for sending responses
+		 * and, at the same time, to stop passing data for processing
+		 * from the lower layer.
 		 */
-		req_conn_close = req->flags & TFW_HTTP_CONN_CLOSE;
+		if((req_conn_close = req->flags & TFW_HTTP_CONN_CLOSE))
+			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
 		if (!req_conn_close && (data_off < skb_len)) {
 			/*
@@ -2369,7 +2373,7 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		 * from this point on.
 		 */
 		if (req_conn_close)
-			return TFW_STOP;
+			return TFW_BLOCK;
 
 		if (hmsib) {
 			/*

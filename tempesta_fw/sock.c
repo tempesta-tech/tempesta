@@ -746,21 +746,22 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		 */
 		BUG_ON(conn == NULL);
 
-		if (SS_CONN_TYPE(sk) & Conn_Suspected) {
+		if (SS_CONN_TYPE(sk) & Conn_Stop) {
 			__kfree_skb(skb);
 			continue;
 		}
 
 		r = SS_CALL(connection_recv, conn, skb, offset);
 
+		if (SS_CONN_TYPE(sk) & Conn_Stop) {
+			TFW_DBG("[%d]: Stop processing: sk %p\n",
+				smp_processor_id(), sk);
+			break; /* connection stopped */
+		}
 		if (r < 0) {
 			TFW_DBG("[%d]: Processing error: sk %p r %d\n",
 			        smp_processor_id(), sk, r);
 			goto out; /* connection dropped */
-		} else if (r == SS_STOP) {
-			TFW_DBG("[%d]: Stop processing: sk %p\n",
-			        smp_processor_id(), sk);
-			break;
 		}
 	}
 	if (tcp_fin) {
@@ -818,8 +819,6 @@ ss_tcp_process_data(struct sock *sk)
 
 		if (r < 0)
 			goto out;
-		else if (r == SS_STOP)
-			break;
 		else if (!count)
 			TFW_WARN("recvmsg bug: overlapping TCP segment at %X"
 				 " seq %X rcvnxt %X len %x\n",
@@ -864,7 +863,7 @@ ss_tcp_data_ready(struct sock *sk)
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk) &&
-		    !(SS_CONN_TYPE(sk) & Conn_Suspected)) {
+		    !(SS_CONN_TYPE(sk) & Conn_Stop)) {
 			/*
 			 * Drop connection in case of internal errors,
 			 * banned packets, or FIN in the received packet,
