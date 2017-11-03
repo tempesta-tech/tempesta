@@ -243,7 +243,7 @@ static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
-	TfwHashConnList *cl = sg->sched_data;
+	TfwHashConnList *cl = rcu_dereference(sg->sched_data);
 
 	list_for_each_entry(srv, &sg->srv_list, list)
 		rcu_assign_pointer(srv->sched_data, NULL);
