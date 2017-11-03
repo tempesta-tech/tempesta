@@ -989,7 +989,7 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatio *ratio = sg->sched_data;
+	TfwRatio *ratio = rcu_dereference(sg->sched_data);
 
 	rcu_assign_pointer(sg->sched_data, NULL);
 	synchronize_rcu();
