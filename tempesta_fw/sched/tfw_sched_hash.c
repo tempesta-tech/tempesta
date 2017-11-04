@@ -287,6 +287,10 @@ __add_conn(TfwHashConnList *cl, TfwSrvConn *conn, unsigned long hash)
 	return 0;
 }
 
+/**
+ * Fill per-server sched_data according to sched_data of the entire server
+ * group.
+ */
 static void
 __fill_srv_lists(TfwHashConnList *cl, size_t srv_n, TfwHashSrvConnList *srv_cls)
 {
@@ -335,6 +339,10 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 	}
 	offset = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
 
+	/*
+	 * The add_group() function can be called during live reconfiguration,
+	 * assign srv->sched_data after the data is fully prepared and valid.
+	 */
 	list_for_each_entry(srv, &sg->srv_list, list) {
 		TfwSrvConn *conn;
 		unsigned long srv_hash = __calc_srv_hash(srv);

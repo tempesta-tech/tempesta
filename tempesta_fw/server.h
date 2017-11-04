@@ -148,6 +148,11 @@ typedef struct {
  * schedulers. Group schedulers can determine the target server group from
  * request's content (@sched_grp callback) and then get an outgoing
  * connection by calling @tfw_sched_get_sg_srv_conn().
+ *
+ * sched_*() methods can be called during live reconfiguration. Significant
+ * changes of a server group may ruin scheduling process, so the group must be
+ * removed from a scheduler before applying such changes. After that the group
+ * can be added to a scheduler once again.
  */
 struct tfw_scheduler_t {
 	const char		*name;

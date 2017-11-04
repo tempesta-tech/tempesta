@@ -61,8 +61,6 @@
  * TODO:
  *  - "include" directives.
  *  - Handling large sets of data, possibly via TDB.
- *  - Re-loading some parts of the configuration on the fly without stopping the
- *    whole system.
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
