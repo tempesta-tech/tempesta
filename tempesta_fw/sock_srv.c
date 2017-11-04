@@ -1721,6 +1721,8 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
 			tfw_sg_del_srv(sg, srv);
 			list_add(&srv->list, &orphan_srvs);
+			if ((r = tfw_sock_srv_disconnect_srv(srv)))
+				return r;
 		}
 		if (srv->flags & TFW_CFG_F_MOD)
 			if ((r = tfw_cfgop_update_srv(srv, sg_cfg)))
@@ -1810,7 +1812,6 @@ tfw_sock_srv_start(void)
 	int r;
 	TfwCfgSrvGroup *sg_cfg;
 	TfwSrvGroup *sg, *tmp_sg;
-	TfwServer *srv, *tmp_srv;
 
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
@@ -1819,16 +1820,14 @@ tfw_sock_srv_start(void)
 	tfw_sg_apply_reconfig(&orphan_sgs);
 
 	tfw_cfgop_cleanup_srv_cfgs(false);
-
-	/* Disconnect unused servers and groups */
+	/*
+	 * Disconnect unused server groups, orphaned servers are disconnected
+	 * in tfw_cfgop_update_sg_srv_list()
+	*/
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
 		tfw_sg_stop_sched(sg);
 		if ((r = __tfw_sg_for_each_srv(sg,
 					       tfw_sock_srv_disconnect_srv)))
-			return r;
-	}
-	list_for_each_entry_safe(srv, tmp_srv, &orphan_srvs, list) {
-		if ((r = tfw_sock_srv_disconnect_srv(srv)))
 			return r;
 	}
 
