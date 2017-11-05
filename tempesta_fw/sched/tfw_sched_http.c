@@ -96,6 +96,34 @@ static TfwHttpMatchList __rcu *tfw_rules;
 /* Reconfig HTTP Scheduler rules. */
 static TfwHttpMatchList *tfw_rules_reconfig;
 
+/**
+ * Find connection for a message @msg in @main_sg or @backup_sg server groups.
+ */
+static TfwSrvConn *
+tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			  TfwSrvGroup *backup_sg)
+{
+	TfwSrvConn *srv_conn = NULL;
+
+	BUG_ON(!main_sg);
+	TFW_DBG2("sched: use server group: '%s'\n", main_sg->name);
+
+	if (likely(main_sg->sched))
+		srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg && backup_sg->sched)) {
+		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
+			backup_sg->name);
+		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched: Unable to select server from group '%s'\n",
+			 backup_sg ? backup_sg->name : main_sg->name);
+
+	return srv_conn;
+}
+
 /*
  * Find a connection for an outgoing HTTP request.
  *

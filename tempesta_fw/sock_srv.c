@@ -681,6 +681,8 @@ static LIST_HEAD(sg_cfg_list);
 static LIST_HEAD(orphan_srvs);
 /* Server groups removed from active configuration during reconfiguration. */
 static LIST_HEAD(orphan_sgs);
+/* Sticky sessions scheduler is used in a new configuration */
+static bool tfw_cfg_use_sticky_sess;
 
 static struct {
 	bool max_qsize		: 1;
@@ -929,6 +931,8 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 		TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
 		return  -EINVAL;
 	}
+	if (*use_sticky & TFW_SRV_STICKY_FLAGS)
+		tfw_cfg_use_sticky_sess = true;
 
 	return 0;
 }
@@ -1627,6 +1631,7 @@ tfw_sock_srv_cfgstart(void)
 		return r;
 
 	tfw_cfg_sg = tfw_cfg_sg_def;
+	tfw_cfg_use_sticky_sess = false;
 
 	return 0;
 }
@@ -1818,6 +1823,7 @@ tfw_sock_srv_start(void)
 			return r;
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
+	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
 
 	tfw_cfgop_cleanup_srv_cfgs(false);
 	/*
@@ -1825,6 +1831,7 @@ tfw_sock_srv_start(void)
 	 * in tfw_cfgop_update_sg_srv_list()
 	*/
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
+		sg->flags |= TFW_SG_F_DEL;
 		tfw_sg_stop_sched(sg);
 		if ((r = __tfw_sg_for_each_srv(sg,
 					       tfw_sock_srv_disconnect_srv)))
