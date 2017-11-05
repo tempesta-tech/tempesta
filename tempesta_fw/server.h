@@ -45,6 +45,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
  * @conn_n	- configured number of connections to the server;
+ * @sess_n	- number of pinned sticky sessions;
  * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION.
  */
@@ -55,6 +56,7 @@ typedef struct {
 	void __rcu		*sched_data;
 	void			*apmref;
 	size_t			conn_n;
+	atomic64_t		sess_n;
 	unsigned int		weight;
 	unsigned int		flags;
 } TfwServer;
@@ -125,6 +127,8 @@ typedef struct {
 #define TFW_SRV_STICKY_FLAGS		\
 	(TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER)
 
+#define TFW_SG_F_DEL			0x8000	/* SG is to be removed. */
+
 /**
  * Requests scheduling algorithm handler.
  *
@@ -136,7 +140,6 @@ typedef struct {
  *		  and the group is set up with all servers;
  * @del_grp	- delete server group from the scheduler;
  * @sched_grp	- server group scheduling virtual method.
- *		  Typically returns the result of @tfw_sched_get_sg_srv_conn();
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
@@ -147,7 +150,7 @@ typedef struct {
  * @sched_sg_conn callbacks). Each server group is bound to one of tier-2
  * schedulers. Group schedulers can determine the target server group from
  * request's content (@sched_grp callback) and then get an outgoing
- * connection by calling @tfw_sched_get_sg_srv_conn().
+ * connection by using tier-2 scheduler assigned for a group.
  *
  * sched_*() methods can be called during live reconfiguration. Significant
  * changes of a server group may ruin scheduling process, so the group must be
@@ -223,8 +226,6 @@ void __tfw_sg_release_all_reconfig(void);
 /* Scheduler routines. */
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
 TfwSrvConn *__tfw_sched_get_srv_conn(TfwMsg *msg);
-TfwSrvConn *tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
-				      TfwSrvGroup *backup_sg);
 TfwScheduler *tfw_sched_lookup(const char *name);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);

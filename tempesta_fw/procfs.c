@@ -198,6 +198,8 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 			rc++;
 	}
 
+	seq_printf(seq, "Total pinned sessions\t\t: %zd\n",
+			atomic64_read(&srv->sess_n));
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
 			srv->conn_n - rc);
 	seq_printf(seq, "Maximum forwarding queue size\t: %u\n",
