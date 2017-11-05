@@ -83,6 +83,7 @@ static TfwCfgSticky tfw_cfg_sticky;
 /* Secret server value to generate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
+static bool tfw_cfg_sticky_sess = false;
 
 static SessHashBucket sess_hash[SESS_HASH_SZ] = {
 	[0 ... (SESS_HASH_SZ - 1)] = {
@@ -503,15 +504,34 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 	return tfw_http_sticky_add(resp, req);
 }
 
+/**
+ * Release pinned server to allow destroying servers and groups removed from
+ * current configuration.
+ */
+static void
+tfw_http_sess_unpin_srv(TfwStickyConn *st_conn)
+{
+	TfwServer *srv;
+
+	if (!st_conn->srv_conn)
+		return;
+
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+	atomic64_dec(&srv->sess_n);
+	st_conn->srv_conn = NULL;
+}
+
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
-	if (atomic_dec_and_test(&sess->users))
+	if (atomic_dec_and_test(&sess->users)) {
 		/*
 		 * Use counter reached 0, so session already expired and evicted
 		 * from the hash table.
 		 */
+		tfw_http_sess_unpin_srv(&sess->st_conn);
 		kmem_cache_free(sess_cache, sess);
+	}
 }
 
 /**
@@ -585,8 +605,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
 	sess->st_conn.srv_conn = NULL;
-	sess->st_conn.main_sg = NULL;
-	sess->st_conn.backup_sg = NULL;
+	sess->st_conn.flags = 0;
 	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
@@ -601,29 +620,70 @@ found:
 	return 0;
 }
 
+static void
+tfw_http_sess_set_expired(TfwHttpSess *sess)
+{
+	sess->expires = 0;
+}
+
+void
+tfw_http_sess_use_sticky_sess(bool use)
+{
+	WRITE_ONCE(tfw_cfg_sticky_sess, use);
+}
+
+static bool
+tfw_http_sess_has_sticky_sess(void)
+{
+	return READ_ONCE(tfw_cfg_sticky_sess);
+}
+
 /**
  * Try to reuse last used connection or last used server.
  */
 static inline TfwSrvConn *
-__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
+__try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 {
 	TfwServer *srv;
 
-	if (unlikely(!st_conn->srv_conn))
+	if (unlikely(!srv_conn))
 		return NULL;
 
-	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
-	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
-	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
-	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
+	if (!tfw_srv_conn_restricted(srv_conn)
+	    && !tfw_srv_conn_queue_full(srv_conn)
+	    && !tfw_srv_conn_hasnip(srv_conn)
+	    && tfw_srv_conn_get_if_live(srv_conn))
 	{
-		return st_conn->srv_conn;
+		return srv_conn;
 	}
 
-	/* Try to sched from the same server. */
-	srv = (TfwServer *)st_conn->srv_conn->peer;
+	/*
+	 * Try to sched from the same server. The server may be removed from
+	 * server group, see comment for TfwStickyConn.
+	 */
+	srv = (TfwServer *)srv_conn->peer;
+	return (srv->sg) ? srv->sg->sched->sched_srv_conn(msg, srv) : NULL;
+}
 
-	return srv->sg->sched->sched_srv_conn(msg, srv);
+/**
+ * Pin HTTP session to specified server. Called under write lock.
+ */
+static void
+tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
+{
+	TfwServer *srv;
+
+	tfw_http_sess_unpin_srv(st_conn);
+
+	if (!srv_conn)
+		return;
+
+	srv = (TfwServer *)srv_conn->peer;
+	if (srv->sg->flags & TFW_SRV_STICKY) {
+		st_conn->flags = srv->sg->flags & TFW_SRV_STICKY_FLAGS;
+		st_conn->srv_conn = srv_conn;
+		atomic64_inc(&srv->sess_n);
+	}
 }
 
 /**
@@ -631,9 +691,7 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
  * @sess is not null when calling the function.
  *
  * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
- * then get a new connection for req->sess->srv_conn->peer from
- * an appropriate scheduler. That eliminates the long generic
- * scheduling work flow.
+ * then get a new connection for the same server.
  */
 TfwSrvConn *
 tfw_http_sess_get_srv_conn(TfwMsg *msg)
@@ -647,12 +705,27 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	read_lock(&st_conn->lock);
 
-	if ((srv_conn = __try_conn(msg, st_conn))) {
+	/* The session is not pinned and pinning won't be needed. */
+	if (!st_conn->srv_conn && !tfw_http_sess_has_sticky_sess()) {
+		read_unlock(&st_conn->lock);
+		return __tfw_sched_get_srv_conn(msg);
+	}
+
+	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
 		read_unlock(&st_conn->lock);
 		return srv_conn;
 	}
 
 	read_unlock(&st_conn->lock);
+	write_lock(&st_conn->lock);
+	/*
+	 * Sessions was pinned to a new connection (or server returned back
+	 * online) while we were trying for a lock.
+	 */
+	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
+		write_unlock(&st_conn->lock);
+		return srv_conn;
+	}
 
 	if (st_conn->srv_conn) {
 		/* Failed to sched from the same server. */
@@ -661,44 +734,42 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 
-		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
-			TFW_ERR("sched %s: Unable to schedule new request in "
-				"session to server %s in group %s\n",
-				srv->sg->sched->name, addr_str, srv->sg->name);
+		/* The server or the entire group is to be removed. */
+		if (unlikely(!srv->sg
+			     || (srv->sg && (srv->sg->flags & TFW_SG_F_DEL))))
+		{
+			/*
+			 * Server is removed and disconnected, it will never
+			 * go up again, expire session to force releasing of
+			 * the server. unpin_srv() will be called in session
+			 * destructor.
+			 */
+			if (!(st_conn->flags & TFW_SRV_STICKY_FAILOVER)) {
+				TFW_LOG("sticky sched: server %s"
+					" was removed, close session\n",
+					addr_str);
+				tfw_http_sess_set_expired(sess);
+				return NULL;
+			}
+			TFW_WARN("sticky sched: pinned server %ss"
+				 "is removed, try find other server\n",
+				 addr_str);
+		}
+		else if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER))
+		{
+			TFW_ERR("sticky sched: pinned server %s in group %s"
+				"is down\n",
+				addr_str, srv->sg->name);
 			return NULL;
 		}
-		else {
-			TFW_WARN("sched %s: Unable to schedule new request in "
-				 "session to server %s in group %s,"
-				 " fallback to a new server\n",
-				 srv->sg->sched->name, addr_str, srv->sg->name);
-		}
+		TFW_WARN("sticky sched: pinned server %s in group %s"
+			 "is down, try find other server\n",
+			 addr_str, srv->sg->name);
 	}
 
-	write_lock(&st_conn->lock);
-	/*
-	 * Connection and server may return back online while we were trying
-	 * for a lock.
-	 */
-	if ((srv_conn = __try_conn(msg, st_conn)))
-		goto done;
+	srv_conn = __tfw_sched_get_srv_conn(msg);
+	tfw_http_sess_pin_srv(st_conn, srv_conn);
 
-	if (st_conn->main_sg)
-		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
-						     st_conn->backup_sg);
-	else
-		srv_conn = __tfw_sched_get_srv_conn(msg);
-
-	/*
-	 * Save connection into session only if used server group is configured
-	 * to have sticky connections.
-	 */
-	if (srv_conn
-	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
-		st_conn->srv_conn = srv_conn;
-	}
-
-done:
 	write_unlock(&st_conn->lock);
 
 	return srv_conn;
