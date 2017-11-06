@@ -684,6 +684,9 @@ static LIST_HEAD(orphan_sgs);
 /* Sticky sessions scheduler is used in a new configuration */
 static bool tfw_cfg_use_sticky_sess;
 
+static struct timer_list tfw_gc_timer;
+#define TFW_GC_TO 30000 /* 30 seconds. */
+
 static struct {
 	bool max_qsize		: 1;
 	bool max_refwd		: 1;
@@ -1818,6 +1821,9 @@ tfw_sock_srv_start(void)
 	TfwCfgSrvGroup *sg_cfg;
 	TfwSrvGroup *sg, *tmp_sg;
 
+	if (tfw_runstate_is_reconfig())
+		del_timer(&tfw_gc_timer);
+
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
 			return r;
@@ -1838,7 +1844,76 @@ tfw_sock_srv_start(void)
 			return r;
 	}
 
+	if (tfw_runstate_is_reconfig())
+		mod_timer(&tfw_gc_timer, jiffies + msecs_to_jiffies(TFW_GC_TO));
+
 	return 0;
+}
+
+/**
+ * Check if a server is still used by TempestaFW.
+ */
+static bool
+tfw_sock_srv_gc_srv_used(TfwServer *srv)
+{
+	TfwSrvConn *srv_conn;
+	size_t act_conns = 0;
+
+	if (atomic64_read(&srv->sess_n))
+		return true;
+
+	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		long refcnt = atomic_read(&srv_conn->refcnt);
+		if (refcnt && (refcnt != TFW_CONN_DEATHCNT))
+			++act_conns;
+	}
+
+	return act_conns;
+}
+
+static void
+tfw_sock_srv_gc_sg(TfwSrvGroup *sg)
+{
+	TfwServer *srv, *tmp_srv;
+
+	list_for_each_entry_safe(srv, tmp_srv, &sg->srv_list, list)
+		if (!tfw_sock_srv_gc_srv_used(srv)) {
+			tfw_sg_del_srv(sg, srv);
+			tfw_sock_srv_del_conns(srv);
+			tfw_server_destroy(srv);
+		}
+
+	if (list_empty(&sg->srv_list)) {
+		list_del_init(&sg->list);
+		tfw_sg_release(sg);
+	}
+}
+
+/**
+ * Garbage collector for orphan_* lists.
+ *
+ * Remove servers from orphan_* lists only if they are unused in current
+ * configuration.
+ */
+static void
+tfw_sock_srv_gc(unsigned long data)
+{
+	TfwSrvGroup *sg, *tmp_sg;
+	TfwServer *srv, *tmp_srv;
+
+	TFW_DBG2("sock_srv: remove servers unused after reconfig\n");
+
+	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
+		tfw_sock_srv_gc_sg(sg);
+	list_for_each_entry_safe(srv, tmp_srv, &orphan_srvs, list)
+	if (!tfw_sock_srv_gc_srv_used(srv)) {
+		list_del_init(&srv->list);
+		tfw_sock_srv_del_conns(srv);
+		tfw_server_destroy(srv);
+	}
+
+	if (!list_empty(&orphan_sgs) || !list_empty(&orphan_srvs))
+		mod_timer(&tfw_gc_timer, jiffies + msecs_to_jiffies(TFW_GC_TO));
 }
 
 static void
@@ -1847,6 +1922,7 @@ tfw_sock_srv_stop(void)
 	/* tfw_sock_srv_start() may failed just in the middle. */
 	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
+	del_timer(&tfw_gc_timer);
 }
 
 static TfwCfgSpec tfw_srv_group_specs[] = {
@@ -2069,6 +2145,7 @@ tfw_sock_srv_init(void)
 	if (!tfw_sg_cfg_cache)
 		return -ENOMEM;
 
+	setup_timer(&tfw_gc_timer, tfw_sock_srv_gc, 0);
 	tfw_mod_register(&tfw_sock_srv_mod);
 
 	return 0;
