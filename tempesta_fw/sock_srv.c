@@ -291,12 +291,11 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	/*
 	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer
-	 * callback). Whatever the reason for a disconnect was,
-	 * this is uniform for any of them.
+	 * callback). The only reason not to start new reconnect
+	 * attempt is removing server from the current configuration.
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags))) {
+	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	}
 }
 
 /**
@@ -781,13 +780,10 @@ tfw_cfgop_lookup_sg_cfg(const char *name)
 {
 	TfwCfgSrvGroup *sg_cfg;
 
-	list_for_each_entry(sg_cfg, &sg_cfg_list, list) {
-		TfwSrvGroup *sg = sg_cfg->orig_sg ? : sg_cfg->parsed_sg;
-
-		BUG_ON(!sg);
-		if (!strcasecmp(sg->name, name))
+	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
+		if (!strcasecmp(sg_cfg->parsed_sg->name, name))
 			return sg_cfg;
-	}
+
 	return NULL;
 }
 
@@ -903,14 +899,14 @@ static int
 tfw_cfgop_in_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TFW_CFGOP_INHERIT_FLAGS(ce, nip_flags);
-	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg->parsed_sg->flags);
+	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg->nip_flags);
 }
 
 static int
 tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.nip_flags = 1;
-	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg_def->parsed_sg->flags);
+	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg_def->nip_flags);
 }
 
 static inline int
@@ -951,7 +947,7 @@ static int
 tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.sticky_flags = 1;
-	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_def->parsed_sg->flags);
+	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_def->sticky_flags);
 }
 
 static int
@@ -1194,9 +1190,8 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * Default group exists in the list from the very begining of
 	 * configuration parsing.
 	*/
-	if (!sg_cfg && strcasecmp(ce->vals[0], TFW_CFG_IMPL_DFT_SG)) {
+	if (!sg_cfg && strcasecmp(ce->vals[0], TFW_CFG_IMPL_DFT_SG))
 		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0]);
-	}
 	if (!sg_cfg) {
 		TFW_ERR_NL("Unable to create a group: '%s'\n", ce->vals[0]);
 		return -EINVAL;
@@ -1204,7 +1199,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	/* Reuse original group if possible. */
 	sg = sg_cfg->orig_sg ? : sg_cfg->parsed_sg;
-	if (!tfw_sg_add_reconfig(sg)) {
+	if (tfw_sg_add_reconfig(sg)) {
 		TFW_ERR_NL("Can't register already registered group '%s'\n",
 			   ce->vals[0]);
 		return -EINVAL;
@@ -1745,6 +1740,8 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 			continue;
 
 		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
+		/* The server was not used yet, save to change it's group. */
+		srv->sg = NULL;
 		tfw_sg_add_srv(sg, srv);
 		if ((r = tfw_cfgop_start_srv(srv)))
 			goto err;
@@ -1837,7 +1834,6 @@ tfw_sock_srv_start(void)
 	 * in tfw_cfgop_update_sg_srv_list()
 	*/
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
-		sg->flags |= TFW_SG_F_DEL;
 		tfw_sg_stop_sched(sg);
 		if ((r = __tfw_sg_for_each_srv(sg,
 					       tfw_sock_srv_disconnect_srv)))
@@ -1871,6 +1867,29 @@ tfw_sock_srv_gc_srv_used(TfwServer *srv)
 	return act_conns;
 }
 
+/**
+ * Check if the server group @sg is used in currently exising servers.
+ *
+ * Server group class stores a lot of otpions suffitient for various TfwSrvConn
+ * callbacks. Servers in orphan_srvs list may have references to the group.
+ * This situation happens on repeated live reconfigs: in first reconfig
+ * a server is removed from group @sg, and on the next reconfig the entire
+ * server group is removed. There still can be situations, when the detached
+ * server instance still exist, e.g. there is sticky sessions pinned to that
+ * server.
+ */
+static bool
+tfw_sock_srv_gc_sg_used(TfwSrvGroup *sg)
+{
+	TfwServer *srv;
+
+	list_for_each_entry(srv, &orphan_srvs, list)
+		if (srv->sg == sg)
+			return true;
+
+	return false;
+}
+
 static void
 tfw_sock_srv_gc_sg(TfwSrvGroup *sg)
 {
@@ -1883,7 +1902,7 @@ tfw_sock_srv_gc_sg(TfwSrvGroup *sg)
 			tfw_server_destroy(srv);
 		}
 
-	if (list_empty(&sg->srv_list)) {
+	if (list_empty(&sg->srv_list) && !tfw_sock_srv_gc_sg_used(sg)) {
 		list_del_init(&sg->list);
 		tfw_sg_release(sg);
 	}

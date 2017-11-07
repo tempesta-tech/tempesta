@@ -53,13 +53,10 @@
  *
  * @srv_conn	- last used connection;
  * @lock	- protects whole @TfwStickyConn;
- * @flags	- sticky flags: TFW_SRV_STICKY_FLAGS
- *
  */
 typedef struct {
 	TfwSrvConn		*srv_conn;
 	rwlock_t		lock;
-	unsigned int		flags;
 } TfwStickyConn;
 
 /**
