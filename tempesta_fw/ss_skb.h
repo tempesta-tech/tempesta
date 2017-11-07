@@ -75,8 +75,6 @@ ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	/* The skb shouldn't be in any other queue. */
-	BUG_ON(skb->next || skb->prev);
 	BUG_ON(scb->next || scb->prev);
 
 	scb->prev = list->last;
