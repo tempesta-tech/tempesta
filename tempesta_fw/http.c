@@ -1391,7 +1391,14 @@ tfw_http_conn_release(TfwConn *conn)
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	if (likely(ss_active())) {
+		/*
+		 * Server is removed from configuration and won't be available
+		 * any more, reschedule it's forward queue.
+		 */
+		if (unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+			tfw_http_conn_repair(conn);
 		__tfw_srv_conn_clear_restricted(srv_conn);
+
 		return;
 	}
 

@@ -288,7 +288,10 @@ void
 tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg != sg);
-	srv->sg = NULL;
+	/*
+	 * Don't remove srv->sg reference, it's not supposed, that a server can
+	 * change it's group on the fly.
+	*/
 
 	TFW_DBG2("Remove backend server from group '%s'\n", sg->name);
 	write_lock(&sg->lock);

@@ -605,7 +605,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
 	sess->st_conn.srv_conn = NULL;
-	sess->st_conn.flags = 0;
 	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
@@ -680,7 +679,6 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 
 	srv = (TfwServer *)srv_conn->peer;
 	if (srv->sg->flags & TFW_SRV_STICKY) {
-		st_conn->flags = srv->sg->flags & TFW_SRV_STICKY_FLAGS;
 		st_conn->srv_conn = srv_conn;
 		atomic64_inc(&srv->sess_n);
 	}
@@ -705,7 +703,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	read_lock(&st_conn->lock);
 
-	/* The session is not pinned and pinning won't be needed. */
+	/* The session pinning won't be needed, avoid write_lock(). */
 	if (!st_conn->srv_conn && !tfw_http_sess_has_sticky_sess()) {
 		read_unlock(&st_conn->lock);
 		return __tfw_sched_get_srv_conn(msg);
@@ -734,33 +732,25 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 
-		/* The server or the entire group is to be removed. */
-		if (unlikely(!srv->sg
-			     || (srv->sg && (srv->sg->flags & TFW_SG_F_DEL))))
+		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER))
 		{
 			/*
 			 * Server is removed and disconnected, it will never
 			 * go up again, expire session to force releasing of
-			 * the server. unpin_srv() will be called in session
-			 * destructor.
+			 * the server instance. unpin_srv() will be called in
+			 * session destructor (tfw_http_sess_put()).
 			 */
-			if (!(st_conn->flags & TFW_SRV_STICKY_FAILOVER)) {
+			if (unlikely(srv->flags & TFW_CFG_F_DEL)) {
 				TFW_LOG("sticky sched: server %s"
-					" was removed, close session\n",
+					" was removed, set session expired\n",
 					addr_str);
 				tfw_http_sess_set_expired(sess);
-				return NULL;
+				goto err;
 			}
-			TFW_WARN("sticky sched: pinned server %ss"
-				 "is removed, try find other server\n",
-				 addr_str);
-		}
-		else if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER))
-		{
 			TFW_ERR("sticky sched: pinned server %s in group %s"
 				"is down\n",
 				addr_str, srv->sg->name);
-			return NULL;
+			goto err;
 		}
 		TFW_WARN("sticky sched: pinned server %s in group %s"
 			 "is down, try find other server\n",
@@ -769,7 +759,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	srv_conn = __tfw_sched_get_srv_conn(msg);
 	tfw_http_sess_pin_srv(st_conn, srv_conn);
-
+err:
 	write_unlock(&st_conn->lock);
 
 	return srv_conn;
