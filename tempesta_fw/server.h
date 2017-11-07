@@ -127,8 +127,6 @@ typedef struct {
 #define TFW_SRV_STICKY_FLAGS		\
 	(TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER)
 
-#define TFW_SG_F_DEL			0x8000	/* SG is to be removed. */
-
 /**
  * Requests scheduling algorithm handler.
  *
@@ -197,7 +195,8 @@ static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
-	return (ACCESS_ONCE(srv_conn->recns) >= sg->max_recns);
+	return ((ACCESS_ONCE(srv_conn->recns) >= sg->max_recns) ||
+		unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)));
 }
 
 /* Server group routines. */

@@ -332,7 +332,7 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 			+ sizeof(TfwHashConn) * conn_n * 2;
 	if (!(cl = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
-	if (!(srv_cls = kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList *),
+	if (!(srv_cls = kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList),
 				GFP_KERNEL))) {
 		kfree(cl);
 		return -ENOMEM;
