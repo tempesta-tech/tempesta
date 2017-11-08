@@ -192,6 +192,9 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 	return dup_str;
 }
 
+/**
+ * Function for deep TfwStr copying.
+ */
 int
 tfw_strcpy(TfwStr *dst, const TfwStr *src)
 {
@@ -270,6 +273,38 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 	return 0;
 }
 EXPORT_SYMBOL(tfw_strcpy);
+
+/**
+ * Function for copying of TfwStr descriptors only.
+ */
+int
+tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
+{
+	TfwStr *c1, *c2, *end;
+	int src_num = TFW_STR_CHUNKN(src);
+	int dst_num = TFW_STR_CHUNKN(dst);
+
+	/*
+	 * Only TfwStr descriptors with identical complexity
+	 * and chunks number are allowed.
+	 */
+	if (unlikely(src_num != dst_num))
+		return -E2BIG;
+
+	c2 = dst_num ? dst->ptr : dst;
+	TFW_STR_FOR_EACH_CHUNK(c1, src, end) {
+		*c2 = *c1;
+		++c2;
+	}
+	if (dst_num) {
+		/* The src and dst are compound. */
+		dst->len = src->len;
+		dst->flags = src->flags;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_strcpy_desc);
 
 int
 tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
