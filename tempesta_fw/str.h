@@ -349,6 +349,7 @@ typedef enum {
 } tfw_str_eq_flags_t;
 
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
+int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
 int __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs);
