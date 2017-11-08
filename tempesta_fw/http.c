@@ -2870,8 +2870,8 @@ static TfwConnHooks http_conn_hooks = {
  */
 
 static int
-tfw_cfg_define_block_action(const char *action, unsigned short mask,
-			    unsigned short *flags)
+tfw_cfgop_define_block_action(const char *action, unsigned short mask,
+			      unsigned short *flags)
 {
 	if (!strcasecmp(action, "reply")) {
 		*flags |= mask;
@@ -2885,8 +2885,8 @@ tfw_cfg_define_block_action(const char *action, unsigned short mask,
 }
 
 static int
-tfw_cfg_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
-			   unsigned short *flags)
+tfw_cfgop_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
+			     unsigned short *flags)
 {
 	if (ce->val_n == 3) {
 		if (!strcasecmp(ce->vals[2], "nolog"))
@@ -2902,7 +2902,7 @@ tfw_cfg_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
 }
 
 static int
-tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (ce->val_n < 2 || ce->val_n > 3) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
@@ -2914,20 +2914,20 @@ tfw_sock_clnt_cfg_handle_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	if (!strcasecmp(ce->vals[0], "error")) {
-		if (tfw_cfg_define_block_action(ce->vals[1],
-						TFW_BLK_ERR_REPLY,
-						&tfw_blk_flags) ||
-		    tfw_cfg_define_block_nolog(ce,
-					       TFW_BLK_ERR_NOLOG,
-					       &tfw_blk_flags))
+		if (tfw_cfgop_define_block_action(ce->vals[1],
+						  TFW_BLK_ERR_REPLY,
+						  &tfw_blk_flags) ||
+		    tfw_cfgop_define_block_nolog(ce,
+						 TFW_BLK_ERR_NOLOG,
+						 &tfw_blk_flags))
 			return -EINVAL;
 	} else if (!strcasecmp(ce->vals[0], "attack")) {
-		if (tfw_cfg_define_block_action(ce->vals[1],
-						TFW_BLK_ATT_REPLY,
-						&tfw_blk_flags) ||
-		    tfw_cfg_define_block_nolog(ce,
-					       TFW_BLK_ATT_NOLOG,
-					       &tfw_blk_flags))
+		if (tfw_cfgop_define_block_action(ce->vals[1],
+						  TFW_BLK_ATT_REPLY,
+						  &tfw_blk_flags) ||
+		    tfw_cfgop_define_block_nolog(ce,
+						 TFW_BLK_ATT_NOLOG,
+						 &tfw_blk_flags))
 			return -EINVAL;
 	} else {
 		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
@@ -3087,7 +3087,7 @@ tfw_http_config_resp_body(int status_code, const char *src_body, size_t b_size)
  * responses (for the cleanup case during shutdown).
  */
 static void
-tfw_http_cfg_cleanup_resp_body(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_resp_body(TfwCfgSpec *cs)
 {
 	TfwStr *clen_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 0);
 	TfwStr *body_str_4xx = __TFW_STR_CH(&http_4xx_resp_body, 1);
@@ -3123,7 +3123,7 @@ tfw_http_cfg_cleanup_resp_body(TfwCfgSpec *cs)
 }
 
 static int
-tfw_cfg_parse_http_status(const char *status, int *out)
+tfw_cfgop_parse_http_status(const char *status, int *out)
 {
 	int i;
 	for (i = 0; status[i]; ++i) {
@@ -3159,7 +3159,7 @@ tfw_cfg_parse_http_status(const char *status, int *out)
 }
 
 static int
-tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	char *body_data;
 	size_t body_size;
@@ -3173,7 +3173,7 @@ tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (tfw_cfg_parse_http_status(ce->vals[0], &code))
+	if (tfw_cfgop_parse_http_status(ce->vals[0], &code))
 	{
 		TFW_ERR_NL("Unable to parse 'response_body' value: '%s'\n",
 			   ce->vals[0]
@@ -3195,26 +3195,28 @@ tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return ret;
 }
 
-TfwCfgMod tfw_http_cfg_mod  = {
+static TfwCfgSpec tfw_http_specs[] = {
+	{
+		.name = "block_action",
+		.deflt = NULL,
+		.handler = tfw_cfgop_block_action,
+		.allow_repeat = true,
+		.allow_none = true,
+	},
+	{
+		.name = "response_body",
+		.deflt = NULL,
+		.handler = tfw_cfgop_resp_body,
+		.allow_repeat = true,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_resp_body,
+	},
+	{ 0 }
+};
+
+TfwMod tfw_http_mod  = {
 	.name	= "http",
-	.specs	= (TfwCfgSpec[]){
-		{
-			"block_action",
-			NULL,
-			tfw_sock_clnt_cfg_handle_block_action,
-			.allow_repeat = true,
-			.allow_none = true
-		},
-		{
-			"response_body",
-			NULL,
-			tfw_http_cfg_handle_resp_body,
-			.allow_repeat = true,
-			.allow_none = true,
-			.cleanup = tfw_http_cfg_cleanup_resp_body
-		},
-		{}
-	}
+	.specs	= tfw_http_specs,
 };
 
 /*
@@ -3244,6 +3246,7 @@ tfw_http_init(void)
 					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
 	if (ghprio < 0)
 		return ghprio;
+	tfw_mod_register(&tfw_http_mod);
 
 	return 0;
 }
@@ -3251,6 +3254,7 @@ tfw_http_init(void)
 void
 tfw_http_exit(void)
 {
+	tfw_mod_unregister(&tfw_http_mod);
 	tfw_gfsm_unregister_hook(TFW_FSM_TLS, ghprio, TFW_TLS_FSM_DATA_READY);
 	tfw_connection_hooks_unregister(TFW_FSM_HTTP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
