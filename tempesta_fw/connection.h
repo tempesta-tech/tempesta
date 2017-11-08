@@ -32,6 +32,11 @@
 #include "sync_socket.h"
 #include "tls.h"
 
+/*
+ * Flag bits definition for SsProto.type field.
+ * NOTE: There are also flags definition for this
+ * field in SS layer (in sync_socket.h)
+ */
 enum {
 	/* Protocol bits. */
 	__Conn_Bits	= 0x8,

@@ -24,7 +24,6 @@
 #include "classifier.h"
 #include "client.h"
 #include "connection.h"
-#include "http_msg.h"
 #include "log.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
@@ -44,8 +43,8 @@ static int tfw_cli_cfg_ka_timeout = -1;
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
-	return type == Conn_HttpClnt ?
-		tfw_cli_conn_cache : tfw_tls_conn_cache;
+	return type & TFW_FSM_HTTPS ?
+		tfw_tls_conn_cache : tfw_cli_conn_cache;
 }
 
 static void
@@ -523,6 +522,7 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
@@ -643,6 +643,14 @@ TfwMod tfw_sock_clnt_mod  = {
 int
 tfw_sock_clnt_init(void)
 {
+	/*
+	 * Check that flags for SS layer and Connection
+	 * layer are not overlapping.
+	 */
+	BUILD_BUG_ON(Conn_Suspected & (Conn_Clnt |
+				       Conn_Srv |
+				       TFW_FSM_HTTP |
+				       TFW_FSM_HTTPS));
 	BUG_ON(tfw_cli_conn_cache);
 	BUG_ON(tfw_tls_conn_cache);
 
