@@ -501,7 +501,7 @@ class Client(asyncore.dispatcher):
         return self.tester.is_srvs_ready() and (len(self.request_buffer) > 0)
 
     def handle_write(self):
-        tf_cfg.dbg(4, '\tDeproxy: Client: Send request to server.')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Send request to Tempesta.')
         tf_cfg.dbg(5, self.request_buffer)
         sent = self.send(self.request_buffer)
         self.request_buffer = self.request_buffer[sent:]
