@@ -536,8 +536,7 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_resp_init_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
 {
-	if (req->flags & TFW_HTTP_CONN_CLOSE ||
-	    req->flags & TFW_HTTP_SUSPECTED)
+	if (req->flags & (TFW_HTTP_CONN_CLOSE | TFW_HTTP_SUSPECTED))
 		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
 }
 
@@ -2373,7 +2372,7 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		 * from this point on.
 		 */
 		if (req_conn_close)
-			return TFW_BLOCK;
+			break;
 
 		if (hmsib) {
 			/*
