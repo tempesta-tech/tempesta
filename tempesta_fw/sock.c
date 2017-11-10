@@ -753,11 +753,6 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 
 		r = SS_CALL(connection_recv, conn, skb, offset);
 
-		if (SS_CONN_TYPE(sk) & Conn_Stop) {
-			TFW_DBG("[%d]: Stop processing: sk %p\n",
-				smp_processor_id(), sk);
-			break; /* connection stopped */
-		}
 		if (r < 0) {
 			TFW_DBG("[%d]: Processing error: sk %p r %d\n",
 			        smp_processor_id(), sk, r);
