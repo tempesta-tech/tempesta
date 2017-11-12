@@ -116,13 +116,15 @@ class StressTest(unittest.TestCase):
                          msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
                          msg=(msg % 'responses'))
-        if not self.tfw_msg_errors:
-            self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
-                            msg=(msg % 'requests'))
-            # See comment on "positive allowance" in `assert_clients()`
-            expected_err = cl_conn_cnt
-            self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,
-                            msg=(msg % 'responses'))
+        if self.tfw_msg_errors:
+            return
+
+        self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
+                        msg=(msg % 'requests'))
+        # See comment on "positive allowance" in `assert_clients()`
+        expected_err = cl_conn_cnt
+        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,
+                        msg=(msg % 'responses'))
 
     def assert_servers(self):
         # Nothing to do for nginx in default configuration.
