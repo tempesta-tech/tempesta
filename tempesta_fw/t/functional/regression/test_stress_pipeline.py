@@ -35,7 +35,7 @@ class Pipeline(stress.StressTest):
 class PipelineFaultInjection(stress.StressTest):
 
     pipelined_req = 7
-    cl_msg_errors = True
+    tfw_msg_errors = True
 
     def create_clients(self):
         self.wrk = control.Wrk()
@@ -51,6 +51,14 @@ class PipelineFaultInjection(stress.StressTest):
         server.conns_n = 1
         self.servers = [server]
 
+    def assert_clients(self):
+        """ Check results on client side: there may be an undefined
+        number of requests without responses, but there should be
+        no erroneous responses. """
+        for c in self.clients:
+            _, err = c.results()
+            self.assertEqual(err, 0, msg='HTTP client detected errors')
+
     def assert_tempesta(self):
         """ Assert that tempesta must have errors for client messages
         in this test, as there is fault injected for memory allocation.
@@ -61,8 +69,8 @@ class PipelineFaultInjection(stress.StressTest):
                         msg=err_msg)
 
     def test_502_resp_fault(self):
-        """Low keep_alive value, make the server to close after the limit
-        is exhausted connection; thus Tempesta must generate 502 response.
+        """Low keep_alive value, make the server to close connection after
+        the limit is exhausted; thus Tempesta must generate 502 response.
         """
         for s in self.servers:
             s.config.set_ka(10)

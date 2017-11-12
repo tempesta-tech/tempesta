@@ -1223,13 +1223,13 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 
 	/*
 	 * A server MUST NOT send a Content-Length header field in any response
-	 * with a status code of 1xx (Informational) or 204 (No Content).  A
-	 * server MUST NOT send a Content-Length header field in any 2xx
+	 * with a status code of 1xx (Informational) or 204 (No Content).
+	 * TODO: server MUST NOT send a Content-Length header field in any 2xx
 	 * (Successful) response to a CONNECT request
 	 */
 	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
 		TfwHttpResp *resp = (TfwHttpResp *)msg;
-		if ((msg->flags & TFW_HTTP_VOID_BODY) && (resp->status != 304))
+		if (resp->status - 100U < 100U || resp->status == 204)
 			return CSTR_NEQ;
 	}
 	/*
