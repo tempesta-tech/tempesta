@@ -1630,6 +1630,7 @@ tfw_sock_srv_cfgstart(void)
 
 	tfw_cfg_sg = tfw_cfg_sg_def;
 	tfw_cfg_use_sticky_sess = false;
+	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
 	return 0;
 }
