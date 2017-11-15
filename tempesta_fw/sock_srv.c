@@ -1728,13 +1728,15 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
 			tfw_sg_del_srv(sg, srv);
 			list_add(&srv->list, &orphan_srvs);
+			srv->flags |= TFW_CFG_F_DEL;
 			if ((r = tfw_sock_srv_disconnect_srv(srv)))
 				return r;
+			continue;
 		}
-		if (srv->flags & TFW_CFG_F_MOD)
+		else if (srv->flags & TFW_CFG_F_MOD)
 			if ((r = tfw_cfgop_update_srv(srv, sg_cfg)))
 				goto err;
-		/* Server is unchanged: srv->flags & TFW_CFG_F_KEEP. */
+		/* Nothing to do if TFW_CFG_F_KEEP is set. */
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
 
@@ -1818,6 +1820,14 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 }
 
 static int
+tfw_sock_srv_mark_removed(TfwServer *srv)
+{
+	srv->flags |= TFW_CFG_F_DEL;
+
+	return 0;
+}
+
+static int
 tfw_sock_srv_start(void)
 {
 	int r;
@@ -1832,6 +1842,8 @@ tfw_sock_srv_start(void)
 			return r;
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
+	list_for_each_entry(sg, &orphan_sgs, list)
+		__tfw_sg_for_each_srv(sg, tfw_sock_srv_mark_removed);
 	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
 
 	tfw_cfgop_cleanup_srv_cfgs(false);
