@@ -990,8 +990,11 @@ static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
 	TfwRatio *ratio = rcu_dereference(sg->sched_data);
+	TfwServer *srv;
 
 	rcu_assign_pointer(sg->sched_data, NULL);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		rcu_assign_pointer(srv->sched_data, NULL);
 	synchronize_rcu();
 	if (!ratio)
 		return;
@@ -1174,7 +1177,7 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg, void *arg)
 		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	}
 
-	return 0;
+	return ratio;
 
 cleanup:
 	tfw_sched_ratio_cleanup(ratio);
