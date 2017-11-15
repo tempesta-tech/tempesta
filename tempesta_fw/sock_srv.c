@@ -1779,17 +1779,19 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 
 	TFW_DBG2("Update group '%s'\n", sg_cfg->orig_sg->name);
 
-	tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
-
 	if (!(sg_cfg->reconf_flags &
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
+	{
+		tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
 		return 0;
-
+	}
 	/*
 	 * Schedulers walk over list of servers, so stop scheduler before
-	 * updating server list.
+	 * updating server list. Schedulers may use sg.flags, don't update
+	 * server group flags before scheduler is stopped.
 	 */
 	tfw_sg_stop_sched(sg_cfg->orig_sg);
+	tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
 
 	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV)
 		if ((r = tfw_cfgop_update_sg_srv_list(sg_cfg)))
