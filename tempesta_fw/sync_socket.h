@@ -50,7 +50,7 @@ enum {
 	 * requests longer accepted (flag is intended
 	 * only for client connections).
 	 */
-	Conn_Suspected		= 0x1 << __Flag_Bits,
+	Conn_Stop		= 0x1 << __Flag_Bits,
 };
 
 /* Table of Synchronous Sockets connection callbacks. */
