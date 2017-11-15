@@ -1653,6 +1653,9 @@ tfw_sock_srv_cfgend(void)
 	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
 		return r;
 
+	/* 'default' group was added explicitly in begin_srv_group(). */
+	if (tfw_sg_lookup_reconfig(TFW_CFG_IMPL_DFT_SG))
+		return 0;
 	sg = tfw_cfg_sg_def->orig_sg ? : tfw_cfg_sg_def->parsed_sg;
 	if (tfw_sg_add_reconfig(sg)) {
 		TFW_ERR_NL("Unable to register implicit 'default' group\n");
