@@ -116,8 +116,13 @@ do_split_and_parse(unsigned char *str, int type)
 	}
 
 	r = split_and_parse_n(str, type, len, chunks);
+	/*
+	 * Return any value which non-TFW_* constant to
+	 * stop splitting message into pieces bigger than
+	 * the message itself.
+	 */
 	if (++chunks > len)
-		return TFW_STOP;
+		return 1;
 
 	return r;
 }

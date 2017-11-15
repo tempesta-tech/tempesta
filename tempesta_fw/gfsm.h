@@ -110,12 +110,6 @@ enum {
  */
 enum {
 	/*
-	 * Stop passing data for processing from the lower layer.
-	 * Incoming data packets must be dropped.
-	 */
-	TFW_STOP	= SS_STOP,
-
-	/*
 	 * Current message looks good and we can safely pass it.
 	 */
 	TFW_PASS	= SS_OK,
