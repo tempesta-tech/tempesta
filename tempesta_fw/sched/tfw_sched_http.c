@@ -100,8 +100,8 @@ static TfwHttpMatchList *tfw_rules_reconfig;
  * Find connection for a message @msg in @main_sg or @backup_sg server groups.
  */
 static TfwSrvConn *
-tfw_sched_get_sg_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
-			  TfwSrvGroup *backup_sg)
+tfw_sched_http_get_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			    TfwSrvGroup *backup_sg)
 {
 	TfwSrvConn *srv_conn = NULL;
 
@@ -150,8 +150,8 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		goto done;
 	}
 
-	srv_conn = tfw_sched_get_sg_srv_conn(msg, rule->main_sg,
-					     rule->backup_sg);
+	srv_conn = tfw_sched_http_get_srv_conn(msg, rule->main_sg,
+					       rule->backup_sg);
 done:
 	rcu_read_unlock();
 	return srv_conn;

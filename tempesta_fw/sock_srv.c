@@ -1697,17 +1697,17 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	orig_srv->weight = srv->weight;
 
 	if (orig_srv->conn_n < srv->conn_n) {
-		if ((r = tfw_sock_srv_append_conns_n(
-			     srv, srv->conn_n - orig_srv->conn_n)))
+		r = tfw_sock_srv_append_conns_n(srv,
+						srv->conn_n - orig_srv->conn_n);
+		if (r)
 			return r;
-
 		orig_srv->conn_n = srv->conn_n;
 	}
-	else if (orig_srv->conn_n > srv->conn_n)
-	{
+	else if (orig_srv->conn_n > srv->conn_n) {
 		/*
-		 * TODO: shrink connections: disconnect connection and remove
-		 * it from server's conn_list
+		 * TODO: shrink number of connections: disconnect connection
+		 * from server's conn_list and destroy it. Not implemented
+		 * yet since sticky sessions may hold connections.
 		 */
 	}
 
@@ -1850,11 +1850,11 @@ tfw_sock_srv_start(void)
 	/*
 	 * Disconnect unused server groups, orphaned servers are disconnected
 	 * in tfw_cfgop_update_sg_srv_list()
-	*/
+	 */
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
 		tfw_sg_stop_sched(sg);
-		if ((r = __tfw_sg_for_each_srv(sg,
-					       tfw_sock_srv_disconnect_srv)))
+		r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_disconnect_srv);
+		if (r)
 			return r;
 	}
 
@@ -1943,11 +1943,11 @@ tfw_sock_srv_gc(unsigned long data)
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
 		tfw_sock_srv_gc_sg(sg);
 	list_for_each_entry_safe(srv, tmp_srv, &orphan_srvs, list)
-	if (!tfw_sock_srv_gc_srv_used(srv)) {
-		list_del_init(&srv->list);
-		tfw_sock_srv_del_conns(srv);
-		tfw_server_destroy(srv);
-	}
+		if (!tfw_sock_srv_gc_srv_used(srv)) {
+			list_del_init(&srv->list);
+			tfw_sock_srv_del_conns(srv);
+			tfw_server_destroy(srv);
+		}
 
 	if (!list_empty(&orphan_sgs) || !list_empty(&orphan_srvs))
 		mod_timer(&tfw_gc_timer, jiffies + msecs_to_jiffies(TFW_GC_TO));
