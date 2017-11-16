@@ -34,7 +34,7 @@
  *
  * 2. Session pinning is switched to 'disable'. Keep using pinned server until
  * session is expired. (Alternative: unpin sesion from a server and use generic
- * scheduling algorythm.)
+ * scheduling algorithm.)
  *
  * 3. A new server is added to main/backup group. New sessions will be
  * eventually pinned to the server.
