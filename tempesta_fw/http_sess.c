@@ -661,7 +661,7 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 	 * server group, see comment for TfwStickyConn.
 	 */
 	srv = (TfwServer *)srv_conn->peer;
-	return (srv->sg) ? srv->sg->sched->sched_srv_conn(msg, srv) : NULL;
+	return srv->sg->sched->sched_srv_conn(msg, srv);
 }
 
 /**
