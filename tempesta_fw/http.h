@@ -543,13 +543,4 @@ int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
 
-/*
- * Functions to create SKBs with data stream.
- *
- * These are designed to work together. tfw_msg_setup() returns a handle
- * that is passed on each call to tfw_msg_add_data().
- */
-void *tfw_msg_setup(TfwHttpMsg *hm, size_t len);
-void tfw_msg_add_data(void *handle, TfwMsg *msg, char *data, size_t len);
-
 #endif /* __TFW_HTTP_H__ */
