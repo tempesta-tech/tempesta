@@ -44,7 +44,7 @@ static struct kmem_cache *srv_cache;
  * sock_srv.c
  *
  * The same server group instance may be listed in both sg_list and
- * sg_list_reconfig lists. That's why TfwSrvGroup has mambers .list and
+ * sg_list_reconfig lists. That's why TfwSrvGroup has members .list and
  * .list_reconfig.
  *
  * The list of active server groups may change only during configuration

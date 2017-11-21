@@ -1504,6 +1504,7 @@ tfw_cfg_migrate_state(TfwCfgSpec *cs)
 			spec->__called_ever = true;
 		if (spec->handler == &tfw_cfg_handle_children)
 			tfw_cfg_migrate_state(spec->dest);
+		spec->__called_cfg = false;
 	}
 }
 
