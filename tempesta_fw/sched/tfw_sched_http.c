@@ -382,7 +382,7 @@ tfw_cfgop_cleanup_rules(TfwCfgSpec *cs)
 	tfw_http_match_list_free(tfw_rules_reconfig);
 	tfw_rules_reconfig = NULL;
 
-	if (tfw_runstate_is_reconfig())
+	if (!tfw_runstate_is_reconfig())
 		tfw_cfgop_replace_active_rules(NULL);
 }
 

@@ -635,7 +635,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * invalid.
  *
  * On configuration parsing stage binary representation of a server group is
- * saved into @parsed_sg, while @orig_sg poins to the existing server group
+ * saved into @parsed_sg, while @orig_sg points to the existing server group
  * with the same name if any. @orig_sg remain unchanged until applying stage.
  * @orig_sg if any or @parsed_sg otherwize is registered as server group
  * available after reconfig by tfw_sg_add_reconfig() call. This allow other
