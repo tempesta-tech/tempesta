@@ -336,8 +336,6 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 		*(short *)(str->ptr + str->len) = 0x0a0d; /* CRLF, '\r\n' */
 }
 
-void tfw_str_del_chunk(TfwStr *str, int id);
-
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 
