@@ -97,29 +97,6 @@ tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
 }
 EXPORT_SYMBOL(tfw_ultoa);
 
-void
-tfw_str_del_chunk(TfwStr *str, int id)
-{
-	unsigned int cn = TFW_STR_CHUNKN(str);
-
-	if (unlikely(TFW_STR_PLAIN(str)))
-		return;
-	BUG_ON(TFW_STR_DUP(str));
-	BUG_ON(id >= cn);
-
-	if (TFW_STR_CHUNKN(str) == 2) {
-		/* Just fall back to plain string. */
-		*str = *((TfwStr *)str->ptr + (id ^ 1));
-		return;
-	}
-
-	str->len -= TFW_STR_CHUNK(str, id)->len;
-	TFW_STR_CHUNKN_SUB(str, 1);
-	/* Move all chunks after @id. */
-	memmove((TfwStr *)str->ptr + id, (TfwStr *)str->ptr + id + 1,
-		(cn - id - 1) * sizeof(TfwStr));
-}
-
 /**
  * Grow @str for @n new chunks.
  * New branches of the string tree are created on 2nd level only,
