@@ -78,8 +78,12 @@ cleanup_cfg(void)
 {
 	TfwMod sched_mod;
 
+	kernel_fpu_end();
+
 	sched_mod = *tfw_mod_find("tfw_sched_http");
 	test_spec_cleanup(sched_mod.specs);
+
+	kernel_fpu_begin();
 }
 
 static void

@@ -608,7 +608,9 @@ tfw_sock_srv_delete_all_conns(void)
 static struct kmem_cache *tfw_sg_cfg_cache;
 
 #define TFW_CFG_DFLT_VAL	"__dfltval__"	/* Use a default value. */
-#define TFW_CFG_IMPL_DFT_SG	"default"
+#define TFW_CFG_SG_DFT_NAME	"default"
+/* Dummy name for tfw_cfg_sg_opts */
+#define TFW_CFG_SG_OPTS_NAME	"__dfltopts__"
 
 /* Server list of the group has changed. */
 #define TFW_CFG_MDF_SG_SRV	0x1
@@ -670,8 +672,14 @@ typedef struct {
 
 /* Currently parsed Server group. */
 static TfwCfgSrvGroup *tfw_cfg_sg = NULL;
-/* 'default' Server group. */
+/* 'default' server group, may be implicit or explicit. */
 static TfwCfgSrvGroup *tfw_cfg_sg_def = NULL;
+/*
+ * Default server group options. It's not possible to store default options in
+ * @tfw_cfg_sg_def since options of explicitly defined 'default' group must not
+ * be changed when user updates default server group options.
+ */
+static TfwCfgSrvGroup *tfw_cfg_sg_opts = NULL;
 
 /* List of parsed server groups (TfwCfgSrvGroup). */
 static LIST_HEAD(sg_cfg_list);
@@ -702,14 +710,14 @@ static struct {
 #define TFW_CFGOP_INHERIT_OPT(ce, v)					\
 ({									\
 	if (tfw_cfg_is_dflt_value(ce) && tfw_cfg_is_set.v) {		\
-		tfw_cfg_sg->parsed_sg->v = tfw_cfg_sg_def->parsed_sg->v;\
+		tfw_cfg_sg->parsed_sg->v = tfw_cfg_sg_opts->parsed_sg->v;\
 		return 0;						\
 	}								\
 })
 #define TFW_CFGOP_INHERIT_FLAGS(ce, v)					\
 ({									\
 	if (tfw_cfg_is_dflt_value(ce) && tfw_cfg_is_set.v) {		\
-		tfw_cfg_sg->v = tfw_cfg_sg_def->v;			\
+		tfw_cfg_sg->v = tfw_cfg_sg_opts->v;			\
 		return 0;						\
 	}								\
 })
@@ -744,7 +752,7 @@ tfw_cfgop_sg_copy_sched_arg(void **to, void *from)
 }
 
 static TfwCfgSrvGroup *
-tfw_cfgop_new_sg_cfg(const char *name)
+__tfw_cfgop_new_sg_cfg(const char *name)
 {
 	TfwCfgSrvGroup *sg_cfg = kmem_cache_alloc(tfw_sg_cfg_cache, GFP_KERNEL);
 	if (!sg_cfg)
@@ -756,23 +764,36 @@ tfw_cfgop_new_sg_cfg(const char *name)
 		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 		return NULL;
 	}
-	sg_cfg->orig_sg = tfw_sg_lookup(name);
 	INIT_LIST_HEAD(&sg_cfg->list);
 
+	return sg_cfg;
+}
+
+static TfwCfgSrvGroup *
+tfw_cfgop_new_sg_cfg(const char *name)
+{
+	TfwCfgSrvGroup *sg_cfg = __tfw_cfgop_new_sg_cfg(name);
+	if (!sg_cfg)
+		return NULL;
+	sg_cfg->orig_sg = tfw_sg_lookup(name);
 	list_add(&sg_cfg->list, &sg_cfg_list);
 
 	return sg_cfg;
 }
 
-static int
-tfw_cfgop_new_sg_cfg_default(void)
+/**
+ * Create 'default' group description. Called before configuration parsing.
+ * Don't add the description into sg_cfg_list unless it's required.
+ */
+static TfwCfgSrvGroup *
+tfw_cfgop_new_sg_cfg_def(void)
 {
-	BUG_ON(tfw_cfg_sg_def);
+	TfwCfgSrvGroup *sg_cfg = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_DFT_NAME);
+	if (!sg_cfg)
+		return NULL;
+	sg_cfg->orig_sg = tfw_sg_lookup(TFW_CFG_SG_DFT_NAME);
 
-	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg(TFW_CFG_IMPL_DFT_SG)))
-		return -ENOMEM;
-
-	return 0;
+	return sg_cfg;
 }
 
 static TfwCfgSrvGroup*
@@ -828,7 +849,7 @@ tfw_cfgop_out_queue_size(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.max_qsize = 1;
 	return tfw_cfgop_queue_size(cs, ce,
-				    &tfw_cfg_sg_def->parsed_sg->max_qsize);
+				    &tfw_cfg_sg_opts->parsed_sg->max_qsize);
 }
 
 static int
@@ -856,7 +877,7 @@ tfw_cfgop_out_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.max_jqage = 1;
 	return tfw_cfgop_fwd_timeout(cs, ce,
-				     &tfw_cfg_sg_def->parsed_sg->max_jqage);
+				     &tfw_cfg_sg_opts->parsed_sg->max_jqage);
 }
 
 static int
@@ -870,7 +891,7 @@ static int
 tfw_cfgop_out_fwd_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.max_refwd = 1;
-	return tfw_cfgop_intval(cs, ce, &tfw_cfg_sg_def->parsed_sg->max_refwd);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_sg_opts->parsed_sg->max_refwd);
 }
 
 static inline int
@@ -906,7 +927,7 @@ static int
 tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.nip_flags = 1;
-	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg_def->nip_flags);
+	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg_opts->nip_flags);
 }
 
 static inline int
@@ -926,7 +947,7 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 		*use_sticky = TFW_SRV_STICKY;
 	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
 		*use_sticky = TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER;
-	} else  {
+	} else {
 		TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
 		return  -EINVAL;
 	}
@@ -947,7 +968,7 @@ static int
 tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.sticky_flags = 1;
-	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_def->sticky_flags);
+	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_opts->sticky_flags);
 }
 
 static int
@@ -976,7 +997,7 @@ tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.max_recns = 1;
 	return tfw_cfgop_conn_retries(cs, ce,
-				      &tfw_cfg_sg_def->parsed_sg->max_recns);
+				      &tfw_cfg_sg_opts->parsed_sg->max_recns);
 }
 
 static TfwServer *
@@ -1155,6 +1176,22 @@ tfw_cfgop_in_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	if (!tfw_cfg_sg_def) {
+		TFW_ERR_NL("'default' group is declared implicitly after "
+			   "explicit declaration.\n");
+		return -EINVAL;
+	}
+	if (list_empty(&tfw_cfg_sg_def->parsed_sg->srv_list)) {
+		TfwSrvGroup *sg;
+
+		sg = tfw_cfg_sg_def->orig_sg ? : tfw_cfg_sg_def->parsed_sg;
+		if (tfw_sg_add_reconfig(sg)) {
+			TFW_ERR_NL("Unable to register implicit 'default' group\n");
+			return -EINVAL;
+		}
+		list_add(&tfw_cfg_sg_def->list, &sg_cfg_list);
+	}
+
 	return tfw_cfgop_server(cs, ce, tfw_cfg_sg_def);
 }
 
@@ -1185,18 +1222,24 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	sg_cfg = tfw_cfgop_lookup_sg_cfg(ce->vals[0]);
-	/*
-	 * Default group exists in the list from the very begining of
-	 * configuration parsing.
-	*/
-	if (!sg_cfg && strcasecmp(ce->vals[0], TFW_CFG_IMPL_DFT_SG))
-		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0]);
-	if (!sg_cfg) {
-		TFW_ERR_NL("Unable to create a group: '%s'\n", ce->vals[0]);
+	if (tfw_cfgop_lookup_sg_cfg(ce->vals[0])) {
+		TFW_ERR_NL("Group '%s' already exists in configuration"
+			   "\n", ce->vals[0]);
 		return -EINVAL;
 	}
-
+	if (!strcasecmp(ce->vals[0], TFW_CFG_SG_DFT_NAME)) {
+		sg_cfg = tfw_cfg_sg_def;
+		tfw_cfg_sg_def = NULL;
+		list_add(&sg_cfg->list, &sg_cfg_list);
+	}
+	else {
+		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0]);
+		if (!sg_cfg) {
+			TFW_ERR_NL("Unable to create a group: '%s'\n",
+				   ce->vals[0]);
+			return -ENOMEM;
+		}
+	}
 	/* Reuse original group if possible. */
 	sg = sg_cfg->orig_sg ? : sg_cfg->parsed_sg;
 	if (tfw_sg_add_reconfig(sg)) {
@@ -1273,7 +1316,7 @@ tfw_cfgop_setup_srv_group(TfwCfgSrvGroup *sg_cfg)
 {
 	TfwSrvGroup *sg = sg_cfg->parsed_sg;
 
-	/* Some servers was removed, so scheduler update is required */
+	/* Some servers was removed, so scheduler update is required. */
 	if (sg_cfg->orig_sg &&
 	    (sg_cfg->orig_sg->srv_n != sg_cfg->parsed_sg->srv_n))
 	{
@@ -1321,7 +1364,7 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 		return r;
 
 	TFW_DBG("finish srv_group: %s\n", tfw_cfg_sg->parsed_sg->name);
-	tfw_cfg_sg = tfw_cfg_sg_def;
+	tfw_cfg_sg = tfw_cfg_sg_opts;
 
 	return 0;
 }
@@ -1521,10 +1564,10 @@ static int
 tfw_cfgop_in_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (TFW_CFGOP_HAS_DFLT(ce, sched)) {
-		tfw_cfg_sg->parsed_sg->sched = tfw_cfg_sg_def->parsed_sg->sched;
-		tfw_cfg_sg->sched_flags = tfw_cfg_sg_def->sched_flags;
+		tfw_cfg_sg->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
+		tfw_cfg_sg->sched_flags = tfw_cfg_sg_opts->sched_flags;
 		tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg->sched_arg,
-					    tfw_cfg_sg_def->sched_arg);
+					    tfw_cfg_sg_opts->sched_arg);
 		return 0;
 	}
 	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg->parsed_sg->sched,
@@ -1536,9 +1579,9 @@ static int
 tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.sched = 1;
-	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg_def->parsed_sg->sched,
-				       &tfw_cfg_sg_def->sched_arg,
-				       &tfw_cfg_sg_def->sched_flags);
+	return tfw_cfgop_sched(cs, ce, &tfw_cfg_sg_opts->parsed_sg->sched,
+				       &tfw_cfg_sg_opts->sched_arg,
+				       &tfw_cfg_sg_opts->sched_flags);
 }
 
 static void
@@ -1566,7 +1609,15 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 		tfw_cfgop_cleanup_srv_cfg(sg_cfg, reconf_failed);
 	INIT_LIST_HEAD(&sg_cfg_list);
 
-	tfw_cfg_sg = tfw_cfg_sg_def = NULL;
+	if (tfw_cfg_sg_opts) {
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
+		tfw_cfg_sg_opts = NULL;
+	}
+	if (tfw_cfg_sg_def) {
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, reconf_failed);
+		tfw_cfg_sg_opts = NULL;
+	}
+	tfw_cfg_sg = NULL;
 }
 
 /**
@@ -1618,17 +1669,17 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	INIT_LIST_HEAD(&orphan_sgs);
 }
 
-
 static int
 tfw_sock_srv_cfgstart(void)
 {
-	int r;
-
 	INIT_LIST_HEAD(&sg_cfg_list);
-	if ((r = tfw_cfgop_new_sg_cfg_default()))
-		return r;
-
-	tfw_cfg_sg = tfw_cfg_sg_def;
+	if (!(tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME)))
+		return -ENOMEM;
+	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def())) {
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
+		return -ENOMEM;
+	}
+	tfw_cfg_sg = tfw_cfg_sg_opts;
 	tfw_cfg_use_sticky_sess = false;
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
@@ -1638,29 +1689,32 @@ tfw_sock_srv_cfgstart(void)
 static int
 tfw_sock_srv_cfgend(void)
 {
-	TfwSrvGroup *sg;
 	int r;
 	/*
-	 * The group "default" is created implicitly, and only when
-	 * a server outside of any group is found in the configuration.
+	 * The group 'default' to be created implicitly if at least one server
+	 * is defined outside of any group and there is no explicit 'default'
+	 * group.
 	 */
+	if (!tfw_cfg_sg_def)
+		return 0;
 	if (!tfw_cfg_sg_def->parsed_sg->srv_n) {
 		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, true);
 		tfw_cfg_sg_def = NULL;
 		return 0;
 	}
+	/* Options for implicit group are not filled, use current defaults. */
+	tfw_cfgop_sg_copy_opts(tfw_cfg_sg_def->parsed_sg,
+			       tfw_cfg_sg_opts->parsed_sg);
+	tfw_cfgop_sg_copy_sched_arg(&tfw_cfg_sg_def->sched_arg,
+				    tfw_cfg_sg_opts->sched_arg);
+	tfw_cfg_sg_def->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
+	tfw_cfg_sg_def->nip_flags = tfw_cfg_sg_opts->nip_flags;
+	tfw_cfg_sg_def->sticky_flags = tfw_cfg_sg_opts->sticky_flags;
+	tfw_cfg_sg_def->sched_flags = tfw_cfg_sg_opts->sched_flags;
 
 	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
 		return r;
-
-	/* 'default' group was added explicitly in begin_srv_group(). */
-	if (tfw_sg_lookup_reconfig(TFW_CFG_IMPL_DFT_SG))
-		return 0;
-	sg = tfw_cfg_sg_def->orig_sg ? : tfw_cfg_sg_def->parsed_sg;
-	if (tfw_sg_add_reconfig(sg)) {
-		TFW_ERR_NL("Unable to register implicit 'default' group\n");
-		return -EINVAL;
-	}
+	tfw_cfg_sg_def = NULL;
 
 	return 0;
 }
