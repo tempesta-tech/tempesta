@@ -164,6 +164,7 @@ static void
 tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 {
 	int i, b;
+	unsigned long end;
 	TfwPcntCtl *pc = &rng->ctl[TFW_STATS_RLAST];
 	unsigned int sum, parts, units, shift, order = pc->order;
 
@@ -171,14 +172,19 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 
 	do {
 		++order;
-		pc->end = pc->begin + TFW_STATS_RSPAN_UL(order);
-	} while (pc->end < r_time);
+		end = pc->begin + TFW_STATS_RSPAN_UL(order);
+	} while (end < r_time);
 
 	/*
+	 * It's conceivable that the value of pc->end was already near
+	 * the upper end of the range that the data type could hold.
+	 * As the value was extended to the next order it's conceivable
+	 * that the new value exceeded the maximum for the data type.
 	 * Consirering that TfwPcntCtl{}->end is of type unsigned int,
 	 * it's totally unimaginable that this situation may ever happen.
 	 */
-	BUG_ON(pc->end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
+	BUG_ON(end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
+	pc->end = end;
 
 	shift = min_t(unsigned int, order - pc->order, TFW_STATS_BCKTS_ORDER);
 	units = 1 << shift;
