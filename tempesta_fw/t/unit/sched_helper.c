@@ -28,6 +28,8 @@
 #define tfw_srv_conn_release test_srv_conn_release
 #undef tfw_sock_srv_mod
 #define tfw_sock_srv_mod test_sock_srv_mod
+#undef tfw_sg_grace_shutdown_finish
+#define tfw_sg_grace_shutdown_finish test_sg_grace_shutdown_finish
 #include "sock_srv.c"
 
 #include "server.h"
