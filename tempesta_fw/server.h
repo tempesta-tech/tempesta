@@ -41,6 +41,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
+ * @gs_timmer	- grace shutdown timer;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
@@ -54,6 +55,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
+	struct timer_list	gs_timer;
 	TfwSrvGroup		*sg;
 	void __rcu		*sched_data;
 	void			*apmref;
@@ -143,6 +145,10 @@ typedef struct {
  *		  Called only after all servers are set up with connections,
  *		  and the group is set up with all servers;
  * @del_grp	- delete server group from the scheduler;
+ * @add_srv	- add single server to the scheduler.
+ *		  Called in process context at re-configuration time.
+ * @del_srv	- delete single server added via add_srv.
+ *		  Called in SoftIRQ context.
  * @sched_grp	- server group scheduling virtual method.
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
@@ -166,6 +172,8 @@ struct tfw_scheduler_t {
 	struct list_head	list;
 	int			(*add_grp)(TfwSrvGroup *sg, void *arg);
 	void			(*del_grp)(TfwSrvGroup *sg);
+	int			(*add_srv)(TfwServer *srv);
+	void			(*del_srv)(TfwServer *srv);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
@@ -175,6 +183,8 @@ struct tfw_scheduler_t {
 TfwServer *tfw_server_create(const TfwAddr *addr);
 void tfw_server_destroy(TfwServer *srv);
 TfwServer *tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr);
+int tfw_server_start_sched(TfwServer *srv);
+void tfw_server_stop_sched(TfwServer *srv);
 
 void tfw_srv_conn_release(TfwSrvConn *srv_conn);
 
@@ -269,6 +279,7 @@ void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
 void __tfw_sg_release_all_reconfig(void);
 void tfw_sg_wait_release(void);
+unsigned long tfw_sg_grace_shutdown_finish(void);
 
 static inline bool
 tfw_sg_live(TfwSrvGroup *sg)
