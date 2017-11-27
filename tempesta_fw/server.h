@@ -242,8 +242,7 @@ static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
-	return ((ACCESS_ONCE(srv_conn->recns) >= sg->max_recns) ||
-		unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)));
+	return ((ACCESS_ONCE(srv_conn->recns) >= sg->max_recns));
 }
 
 /* Server group routines. */

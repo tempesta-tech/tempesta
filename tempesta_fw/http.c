@@ -1234,6 +1234,23 @@ tfw_http_conn_evict_timeout(TfwSrvConn *srv_conn, struct list_head *equeue)
 		tfw_http_req_evict_timeout(srv_conn, srv, req, equeue);
 }
 
+static void
+tfw_http_conn_release_closed(TfwSrvConn *srv_conn, bool resched)
+{
+	LIST_HEAD(equeue);
+	LIST_HEAD(sch_queue);
+
+	tfw_http_conn_evict_timeout(srv_conn, &equeue);
+	if (unlikely(resched))
+		tfw_http_conn_collect(srv_conn, &sch_queue, &equeue);
+	spin_unlock(&srv_conn->fwd_qlock);
+
+	if (!list_empty(&sch_queue))
+		tfw_http_conn_resched(&sch_queue, &equeue);
+
+	tfw_http_req_zap_error(&equeue);
+}
+
 /*
  * Repair a connection. Makes sense only for server connections.
  *
@@ -1258,7 +1275,6 @@ tfw_http_conn_repair(TfwConn *conn)
 {
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	LIST_HEAD(equeue);
-	LIST_HEAD(sch_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
@@ -1272,14 +1288,8 @@ tfw_http_conn_repair(TfwConn *conn)
 
 	/* See if requests need to be rescheduled. */
 	if (unlikely(!tfw_srv_conn_live(srv_conn))) {
-		tfw_http_conn_evict_timeout(srv_conn, &equeue);
-		if (unlikely(tfw_srv_conn_need_resched(srv_conn)))
-			tfw_http_conn_collect(srv_conn, &sch_queue, &equeue);
-		spin_unlock(&srv_conn->fwd_qlock);
-
-		if (!list_empty(&sch_queue))
-			tfw_http_conn_resched(&sch_queue, &equeue);
-		goto zap_error;
+		bool resched = tfw_srv_conn_need_resched(srv_conn);
+		return tfw_http_conn_release_closed(srv_conn, resched);
 	}
 
 	/* Treat a non-idempotent request if any. */
@@ -1299,7 +1309,6 @@ tfw_http_conn_repair(TfwConn *conn)
 
 	spin_unlock(&srv_conn->fwd_qlock);
 
-zap_error:
 	tfw_http_req_zap_error(&equeue);
 }
 
@@ -1408,7 +1417,7 @@ tfw_http_conn_release(TfwConn *conn)
 		 * any more, reschedule it's forward queue.
 		 */
 		if (unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
-			tfw_http_conn_repair(conn);
+			tfw_http_conn_release_closed(srv_conn, true);
 		__tfw_srv_conn_clear_restricted(srv_conn);
 
 		return;
