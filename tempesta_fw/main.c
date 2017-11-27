@@ -28,6 +28,7 @@
 #include "log.h"
 #include "str.h"
 #include "sync_socket.h"
+#include "server.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -119,6 +120,7 @@ tfw_cleanup(struct list_head *mod_list)
 	 */
 	ss_synchronize();
 	tfw_cfg_cleanup(mod_list);
+	tfw_sg_wait_release();
 }
 
 static inline void

@@ -46,8 +46,10 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @apmref	- opaque handle for APM stats;
  * @conn_n	- configured number of connections to the server;
  * @sess_n	- number of pinned sticky sessions;
+ * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION.
+ * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -57,8 +59,10 @@ typedef struct {
 	void			*apmref;
 	size_t			conn_n;
 	atomic64_t		sess_n;
+	atomic64_t		refcnt;
 	unsigned int		weight;
 	unsigned int		flags;
+	void			(*cleanup)(void *);
 } TfwServer;
 
 /**
@@ -76,6 +80,7 @@ typedef struct {
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
  * @srv_n	- configured number of servers in the group;
+ * @refcnt	- number of users of the server group structure instance;
  * @max_qsize	- maximum queue size of a server connection;
  * @max_refwd	- maximum number of tries for forwarding a request;
  * @max_jqage	- maximum age of a request in a server connection, in jiffies;
@@ -91,6 +96,7 @@ struct tfw_srv_group_t {
 	TfwScheduler		*sched;
 	void __rcu		*sched_data;
 	size_t			srv_n;
+	atomic64_t		refcnt;
 	unsigned int		max_qsize;
 	unsigned int		max_refwd;
 	unsigned long		max_jqage;
@@ -168,8 +174,49 @@ struct tfw_scheduler_t {
 /* Server specific routines. */
 TfwServer *tfw_server_create(const TfwAddr *addr);
 void tfw_server_destroy(TfwServer *srv);
+TfwServer *tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr);
 
 void tfw_srv_conn_release(TfwSrvConn *srv_conn);
+
+static inline bool
+tfw_server_live(TfwServer *srv)
+{
+	return atomic64_read(&srv->refcnt) > 0;
+}
+
+static inline void
+tfw_server_get(TfwServer *srv)
+{
+	atomic64_inc(&srv->refcnt);
+}
+
+static inline void
+tfw_server_put(TfwServer *srv)
+{
+	long rc;
+
+	if (unlikely(!srv))
+		return;
+
+	rc = atomic64_dec_return(&srv->refcnt);
+	if (likely(rc))
+		return;
+	tfw_server_destroy(srv);
+}
+
+static inline void
+tfw_server_pin_sess(TfwServer *srv)
+{
+	atomic64_inc(&srv->sess_n);
+	tfw_server_get(srv);
+}
+
+static inline void
+tfw_server_unpin_sess(TfwServer *srv)
+{
+	atomic64_dec(&srv->sess_n);
+	tfw_server_put(srv);
+}
 
 /*
  * TODO: The function is racy: we can push into @srv_conn more requests than
@@ -205,22 +252,50 @@ TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name);
 TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
 int tfw_sg_add_reconfig(TfwSrvGroup *sg);
 void tfw_sg_del(TfwSrvGroup *sg);
-void tfw_sg_free(TfwSrvGroup *sg);
 unsigned int tfw_sg_count(void);
 void tfw_sg_apply_reconfig(struct list_head *del_sg);
 void tfw_sg_drop_reconfig(void);
 
 void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
-void tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv);
+void __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock);
+#define tfw_sg_del_srv(sg, srv)	__tfw_sg_del_srv(sg, srv, true)
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
 void tfw_sg_stop_sched(TfwSrvGroup *sg);
 int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
 int tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg));
 int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
 int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
+void tfw_sg_destroy(TfwSrvGroup *sg);
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
 void __tfw_sg_release_all_reconfig(void);
+void tfw_sg_wait_release(void);
+
+static inline bool
+tfw_sg_live(TfwSrvGroup *sg)
+{
+	return atomic64_read(&sg->refcnt) > 0;
+}
+
+static inline void
+tfw_sg_get(TfwSrvGroup *sg)
+{
+	atomic64_inc(&sg->refcnt);
+}
+
+static inline void
+tfw_sg_put(TfwSrvGroup *sg)
+{
+	long rc;
+
+	if (unlikely(!sg))
+		return;
+
+	rc = atomic64_dec_return(&sg->refcnt);
+	if (likely(rc))
+		return;
+	tfw_sg_destroy(sg);
+}
 
 /* Scheduler routines. */
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
