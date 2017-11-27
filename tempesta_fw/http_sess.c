@@ -517,8 +517,8 @@ tfw_http_sess_unpin_srv(TfwStickyConn *st_conn)
 		return;
 
 	srv = (TfwServer *)st_conn->srv_conn->peer;
-	atomic64_dec(&srv->sess_n);
 	st_conn->srv_conn = NULL;
+	tfw_server_unpin_sess(srv);
 }
 
 void
@@ -532,6 +532,17 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		tfw_http_sess_unpin_srv(&sess->st_conn);
 		kmem_cache_free(sess_cache, sess);
 	}
+}
+
+/**
+ * Remove a session from hash bucket. @sess may become invalid after the
+ * function call.
+ */
+static void
+tfw_http_sess_remove(TfwHttpSess *sess)
+{
+	hash_del(&sess->hentry);
+	tfw_http_sess_put(sess);
 }
 
 /**
@@ -580,8 +591,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry) {
 		/* Collect garbage first to not to return expired session. */
 		if (sess->expires < jiffies) {
-			hash_del(&sess->hentry);
-			tfw_http_sess_put(sess);
+			tfw_http_sess_remove(sess);
+			continue;
 		}
 
 		if (!memcmp(sv.hmac, sess->hmac, sizeof(sess->hmac)))
@@ -679,8 +690,8 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 
 	srv = (TfwServer *)srv_conn->peer;
 	if (srv->sg->flags & TFW_SRV_STICKY) {
+		tfw_server_pin_sess(srv);
 		st_conn->srv_conn = srv_conn;
-		atomic64_inc(&srv->sess_n);
 	}
 }
 
@@ -790,6 +801,21 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_sticky_cleanup(TfwCfgSpec *cs)
+{
+	int i;
+
+	for (i = 0; i < SESS_HASH_SZ; ++i) {
+		TfwHttpSess *sess;
+		struct hlist_node *tmp;
+		SessHashBucket *hb = &sess_hash[i];
+
+		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
+			tfw_http_sess_remove(sess);
+	}
+}
+
 static int
 tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
@@ -856,6 +882,7 @@ static TfwCfgSpec tfw_http_sess_specs[] = {
 	{
 		.name = "sticky",
 		.handler = tfw_cfgop_sticky,
+		.cleanup = tfw_cfgop_sticky_cleanup,
 		.allow_none = true,
 	},
 	{
@@ -929,22 +956,8 @@ err:
 void
 tfw_http_sess_exit(void)
 {
-	int i;
-
 	tfw_mod_unregister(&tfw_http_sess_mod);
-
-	for (i = 0; i < SESS_HASH_SZ; ++i) {
-		TfwHttpSess *s;
-		struct hlist_node *tmp;
-		SessHashBucket *hb = &sess_hash[i];
-
-		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
-			hash_del(&s->hentry);
-			kmem_cache_free(sess_cache, s);
-		}
-	}
 	kmem_cache_destroy(sess_cache);
-
 	kfree(tfw_cfg_sticky.name.ptr);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
 	crypto_free_shash(tfw_sticky_shash);

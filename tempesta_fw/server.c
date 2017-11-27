@@ -29,6 +29,8 @@
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
+/* Total number of created server groups. */
+static atomic64_t act_sg_n = ATOMIC64_INIT(0);
 
 /*
  * Server group management.
@@ -49,6 +51,13 @@ static struct kmem_cache *srv_cache;
  *
  * The list of active server groups may change only during configuration
  * processing.
+ *
+ * Lifetime of both TfwServer and TfwSrvGroup is controlled by reference
+ * counters. Note, that TfwSrvGroup stores references to servers while
+ * TfwServer stores back reference to it's server group. Thus servers
+ * must be removed from a server group to breack the reference loop.
+ * When a server connection is scheduled for connect it increments server's
+ * reference count and decrements it after inteded disconnect.
  */
 static LIST_HEAD(sg_list);
 static LIST_HEAD(sg_list_reconfig);
@@ -57,10 +66,14 @@ static DEFINE_RWLOCK(sg_lock);
 void
 tfw_server_destroy(TfwServer *srv)
 {
+	if (srv->cleanup)
+		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 
 	tfw_apm_del_srv(srv);
+	if (srv->sg)
+		tfw_sg_put(srv->sg);
 	kmem_cache_free(srv_cache, srv);
 }
 
@@ -73,8 +86,26 @@ tfw_server_create(const TfwAddr *addr)
 
 	tfw_peer_init((TfwPeer *)srv, addr);
 	INIT_LIST_HEAD(&srv->list);
+	atomic64_set(&srv->refcnt, 1);
 
 	return srv;
+}
+
+TfwServer *
+tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
+{
+	TfwServer *srv;
+
+	write_lock(&sg->lock);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		if (tfw_addr_eq(&srv->addr, addr)) {
+			tfw_server_get(srv);
+			write_unlock(&sg->lock);
+			return srv;
+		}
+	write_unlock(&sg->lock);
+
+	return NULL;
 }
 
 /**
@@ -90,6 +121,7 @@ tfw_sg_lookup(const char *name)
 	read_lock(&sg_lock);
 	list_for_each_entry(sg, &sg_list, list) {
 		if (!strcasecmp(sg->name, name)) {
+			tfw_sg_get(sg);
 			read_unlock(&sg_lock);
 			return sg;
 		}
@@ -114,6 +146,7 @@ tfw_sg_lookup_reconfig(const char *name)
 	read_lock(&sg_lock);
 	list_for_each_entry(sg, &sg_list_reconfig, list_reconfig) {
 		if (!strcasecmp(sg->name, name)) {
+			tfw_sg_get(sg);
 			read_unlock(&sg_lock);
 			return sg;
 		}
@@ -144,7 +177,10 @@ tfw_sg_new(const char *name, gfp_t flags)
 	INIT_LIST_HEAD(&sg->list_reconfig);
 	INIT_LIST_HEAD(&sg->srv_list);
 	rwlock_init(&sg->lock);
+	atomic64_set(&sg->refcnt, 1);
 	memcpy(sg->name, name, name_size);
+
+	atomic64_inc(&act_sg_n);
 
 	return sg;
 }
@@ -164,6 +200,7 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
 		return -EINVAL;
 	}
 
+	tfw_sg_get(sg);
 	write_lock(&sg_lock);
 	list_add(&sg->list_reconfig, &sg_list_reconfig);
 	write_unlock(&sg_lock);
@@ -195,6 +232,7 @@ tfw_sg_apply_reconfig(struct list_head *del_sg)
 		}
 		else {
 			list_del_init(&sg->list_reconfig);
+			tfw_sg_put(sg);
 		}
 	}
 	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig) {
@@ -218,8 +256,10 @@ tfw_sg_drop_reconfig(void)
 	TfwSrvGroup *sg, *tmp;
 
 	write_lock(&sg_lock);
-	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig)
+	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig) {
 		list_del_init(&sg->list_reconfig);
+		tfw_sg_put(sg);
+	}
 	write_unlock(&sg_lock);
 }
 
@@ -235,18 +275,7 @@ tfw_sg_del(TfwSrvGroup *sg)
 	write_lock(&sg_lock);
 	list_del_init(&sg->list);
 	write_unlock(&sg_lock);
-}
-
-/**
- * Free the memory allocated for a server group.
- */
-void
-tfw_sg_free(TfwSrvGroup *sg)
-{
-	BUG_ON(!list_empty_careful(&sg->list));
-	BUG_ON(!list_empty_careful(&sg->srv_list));
-
-	kfree(sg);
+	tfw_sg_put(sg);
 }
 
 unsigned int
@@ -271,6 +300,8 @@ void
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg);
+	tfw_server_get(srv);
+	tfw_sg_get(sg);
 	srv->sg = sg;
 
 	TFW_DBG2("Add new backend server to group '%s'\n", sg->name);
@@ -285,7 +316,7 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
  * This function is called only on configuration processing.
  */
 void
-tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv)
+__tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 {
 	BUG_ON(srv->sg != sg);
 	/*
@@ -294,10 +325,14 @@ tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv)
 	*/
 
 	TFW_DBG2("Remove backend server from group '%s'\n", sg->name);
-	write_lock(&sg->lock);
+
+	if (lock)
+		write_lock(&sg->lock);
 	list_del_init(&srv->list);
 	--sg->srv_n;
-	write_unlock(&sg->lock);
+	if (lock)
+		write_unlock(&sg->lock);
+	tfw_server_put(srv);
 }
 
 int
@@ -316,11 +351,10 @@ void
 tfw_sg_stop_sched(TfwSrvGroup *sg)
 {
 	TFW_DBG2("Stop scheduler '%s' for group '%s'\n",
-		 sg->sched->name, sg->name);
+		 (sg->sched ? sg->sched->name : ""), sg->name);
 	if (sg->sched && sg->sched->del_grp)
 		sg->sched->del_grp(sg);
 }
-
 
 /**
  * Iterate over all server groups of given server grop @sg and call @cb for
@@ -401,35 +435,49 @@ tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv))
  * Release a single server group with servers.
  */
 void
+tfw_sg_destroy(TfwSrvGroup *sg)
+{
+	TFW_DBG2("release group: '%s'\n", sg->name);
+	BUG_ON(!list_empty(&sg->srv_list));
+
+	kfree(sg);
+	atomic64_dec(&act_sg_n);
+}
+EXPORT_SYMBOL(tfw_sg_destroy);
+
+/**
+ * Release server group and prepare it for removal. The group will be destroyed
+ * once it's reference count will reach zero.
+ */
+void
 tfw_sg_release(TfwSrvGroup *sg)
 {
 	TfwServer *srv, *srv_tmp;
 
-	TFW_DBG2("release group: '%s'\n", sg->name);
-
-	if (sg->sched && sg->sched->del_grp)
-		sg->sched->del_grp(sg);
+	tfw_sg_stop_sched(sg);
 	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
-		tfw_server_destroy(srv);
-	kfree(sg);
+		tfw_sg_del_srv(sg, srv);
 }
+
 
 /**
  * Release all active server groups with all servers.
- *
- * Note: The function is called at shutdown and in user context when
- * it's guaranteed that all activity has stopped. Therefore the locks
- * are not just not necessary, they can't be used as the code in user
- * context may sleep.
  */
 void
 tfw_sg_release_all(void)
 {
 	TfwSrvGroup *sg, *sg_tmp;
 
-	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list)
+	write_lock(&sg_lock);
+
+	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
 		tfw_sg_release(sg);
+		list_del_init(&sg->list);
+		tfw_sg_put(sg);
+	}
 	INIT_LIST_HEAD(&sg_list);
+
+	write_unlock(&sg_lock);
 }
 
 /**
@@ -441,9 +489,36 @@ __tfw_sg_release_all_reconfig(void)
 {
 	TfwSrvGroup *sg, *sg_tmp;
 
-	list_for_each_entry_safe(sg, sg_tmp, &sg_list_reconfig, list_reconfig)
+	write_lock(&sg_lock);
+
+	list_for_each_entry_safe(sg, sg_tmp, &sg_list_reconfig, list_reconfig) {
 		tfw_sg_release(sg);
+		list_del_init(&sg->list_reconfig);
+		tfw_sg_put(sg);
+	}
 	INIT_LIST_HEAD(&sg_list_reconfig);
+
+	write_unlock(&sg_lock);
+}
+
+/**
+ * Wait until all server groups and server are destructed. The function is
+ * called after ss_synchronize(): there is no active server connections.
+ * The fuction is called after configuration cleanup: all references taken to
+ * servers and groups are already released. Wait for servers with inactive
+ * connections to be destroyed. Happen on short configurations with a lot of
+ * offline servers.
+ */
+void
+tfw_sg_wait_release(void)
+{
+	unsigned long tend = jiffies + HZ * 5;
+
+	might_sleep();
+	while (atomic64_read(&act_sg_n) && time_is_after_jiffies(tend))
+		schedule();
+	if (time_is_before_eq_jiffies(tend))
+		TFW_WARN_NL("pending for server callbacks to complete for 5s\n");
 }
 
 int __init
@@ -459,5 +534,9 @@ tfw_server_init(void)
 void
 tfw_server_exit(void)
 {
+	long leak = atomic64_read(&act_sg_n);
+
 	kmem_cache_destroy(srv_cache);
+	if (leak != 0)
+		TFW_ERR_NL("leakage of %ld TfwSrvGroup!\n", leak);
 }

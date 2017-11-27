@@ -198,6 +198,10 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 			rc++;
 	}
 
+#ifdef DEBUG
+	seq_printf(seq, "References\t\t\t: %zd\n",
+			atomic64_read(&srv->refcnt));
+#endif
 	seq_printf(seq, "Total pinned sessions\t\t: %zd\n",
 			atomic64_read(&srv->sess_n));
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
@@ -213,9 +217,21 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 }
 
 static int
+tfw_srvstats_seq_reconfig(struct seq_file *seq, void *off)
+{
+	/* Reference to server may be broken during reconfig. */
+	seq_printf(seq,
+		   "Per-Server statistics is unavailable during reconfiguration\n");
+
+	return 0;
+}
+
+static int
 tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, tfw_srvstats_seq_show, PDE_DATA(inode));
+	if (!tfw_runstate_is_reconfig())
+		return single_open(file, tfw_srvstats_seq_show, PDE_DATA(inode));
+	return single_open(file, tfw_srvstats_seq_reconfig, PDE_DATA(inode));
 }
 
 /*
@@ -315,10 +331,10 @@ static TfwCfgSpec tfw_procfs_specs[] = {
 };
 
 TfwMod tfw_procfs_mod = {
-        .name	= "procfs",
-        .cfgend	= tfw_procfs_cfgend,
-        .start	= tfw_procfs_start,
-        .stop	= tfw_procfs_stop,
+	.name	= "procfs",
+	.cfgend	= tfw_procfs_cfgend,
+	.start	= tfw_procfs_start,
+	.stop	= tfw_procfs_stop,
 	.specs	= tfw_procfs_specs,
 };
 
