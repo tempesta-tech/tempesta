@@ -108,6 +108,24 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 	return NULL;
 }
 
+int
+tfw_server_start_sched(TfwServer *srv)
+{
+	TFW_DBG_ADDR("Start scheduler for server", &srv->addr);
+	if (srv->sg->sched->add_srv)
+		return srv->sg->sched->add_srv(srv);
+
+	return 0;
+}
+
+void
+tfw_server_stop_sched(TfwServer *srv)
+{
+	TFW_DBG_ADDR("Stop scheduler for server", &srv->addr);
+	if (srv->sg->sched && srv->sg->sched->del_srv)
+		srv->sg->sched->del_srv(srv);
+}
+
 /**
  * Look up Server Group by name, and return it to caller.
  *
@@ -455,10 +473,12 @@ tfw_sg_release(TfwSrvGroup *sg)
 	TfwServer *srv, *srv_tmp;
 
 	tfw_sg_stop_sched(sg);
-	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
-		tfw_sg_del_srv(sg, srv);
-}
 
+	write_lock(&sg->lock);
+	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
+		__tfw_sg_del_srv(sg, srv, false);
+	write_unlock(&sg->lock);
+}
 
 /**
  * Release all active server groups with all servers.
@@ -505,20 +525,35 @@ __tfw_sg_release_all_reconfig(void)
  * Wait until all server groups and server are destructed. The function is
  * called after ss_synchronize(): there is no active server connections.
  * The fuction is called after configuration cleanup: all references taken to
- * servers and groups are already released. Wait for servers with inactive
- * connections to be destroyed. Happen on short configurations with a lot of
- * offline servers.
+ * servers and groups are already released.
  */
 void
 tfw_sg_wait_release(void)
 {
 	unsigned long tend = jiffies + HZ * 5;
+	bool warn = true;
 
 	might_sleep();
-	while (atomic64_read(&act_sg_n) && time_is_after_jiffies(tend))
+	while (time_is_after_eq_jiffies(tfw_sg_grace_shutdown_finish())) {
+		if (warn) {
+			TFW_WARN_NL("wait for servers to complete grace shutdown"
+				    "\n");
+			warn = false;
+		}
 		schedule();
-	if (time_is_before_eq_jiffies(tend))
-		TFW_WARN_NL("pending for server callbacks to complete for 5s\n");
+	}
+	/*
+	 * Wait until all server groups will be destroyed, otherwise a crash is
+	 * a matter of time.
+	 */
+	while (atomic64_read(&act_sg_n)) {
+		schedule();
+		if (time_is_before_jiffies(tend)) {
+			TFW_WARN_NL("pending for server callbacks to complete "
+				    "for 5s\n");
+			tend = jiffies + HZ * 5;
+		}
+	}
 }
 
 int __init

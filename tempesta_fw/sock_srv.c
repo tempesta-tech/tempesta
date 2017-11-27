@@ -494,6 +494,14 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 				      tfw_sock_srv_disconnect);
 }
 
+static void
+tfw_sock_srv_grace_shutdown_cb(unsigned long data)
+{
+	TfwServer *srv = (TfwServer *)data;
+
+	tfw_server_stop_sched(srv);
+	tfw_sock_srv_disconnect_srv(srv);
+}
 /*
  * ------------------------------------------------------------------------
  *	TfwServer creation/deletion helpers.
@@ -511,6 +519,8 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
  */
 
 static struct kmem_cache *tfw_srv_conn_cache;
+/* Grace shutdown timeout. */
+static unsigned int tfw_cfg_grace_time = 0;
 
 static TfwSrvConn *
 tfw_srv_conn_alloc(void)
@@ -595,6 +605,73 @@ tfw_sock_srv_del_conns(void *psrv)
 		tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 		tfw_srv_conn_free(srv_conn);
 	}
+}
+
+static int
+tfw_sock_srv_start_srv(TfwServer *srv)
+{
+	int r;
+
+	TFW_DBG_ADDR("start server", &srv->addr);
+
+	if ((r = tfw_sock_srv_add_conns(srv)))
+		return r;
+	if ((r = tfw_apm_add_srv(srv)))
+		return r;
+	if ((r = tfw_sock_srv_connect_srv(srv)))
+		return r;
+
+	return 0;
+}
+
+/**
+ * Schedule graceful shutdown of a server. Allow server to finish it's
+ * forward queue or pinned sessions if any.
+ *
+ * The function is called under server group lock. @sg->srv_list is changed
+ * during this function.
+ */
+static int
+tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv)
+{
+	int r = 0;
+
+	tfw_server_get(srv);
+	__tfw_sg_del_srv(sg, srv, false);
+	srv->flags |= TFW_CFG_F_DEL;
+
+	if (!tfw_cfg_grace_time) {
+		r = tfw_sock_srv_disconnect_srv(srv);
+	} else {
+		if ((srv->sg->flags & TFW_SRV_STICKY) &&
+		    atomic64_read(&srv->sess_n))
+		{
+			tfw_server_start_sched(srv);
+		}
+		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
+			    (unsigned long)srv);
+		mod_timer(&srv->gs_timer, jiffies + tfw_cfg_grace_time * HZ);
+	}
+	tfw_server_put(srv);
+
+	return r;
+}
+
+static int
+tfw_sock_srv_grace_shutdown_sg(TfwSrvGroup *sg)
+{
+	TfwServer *srv, *srv_tmp;
+
+	tfw_sg_stop_sched(sg);
+
+	write_lock(&sg->lock);
+	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
+		tfw_sock_srv_grace_shutdown_srv(sg, srv);
+	write_unlock(&sg->lock);
+
+	tfw_sg_put(sg);
+
+	return 0;
 }
 
 /*
@@ -684,6 +761,9 @@ static LIST_HEAD(sg_cfg_list);
 /* Sticky sessions scheduler is used in a new configuration */
 static bool tfw_cfg_use_sticky_sess;
 
+/* Time when all grace shundown callback must fire. */
+static unsigned long tfw_cfg_grace_time_fin;
+
 static struct {
 	bool max_qsize		: 1;
 	bool max_refwd		: 1;
@@ -711,6 +791,12 @@ static struct {
 		return 0;						\
 	}								\
 })
+
+unsigned long
+tfw_sg_grace_shutdown_finish(void)
+{
+	return tfw_cfg_grace_time_fin;
+}
 
 static void
 tfw_cfgop_sg_copy_opts(TfwSrvGroup *to, TfwSrvGroup *from)
@@ -1630,6 +1716,15 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	 */
 }
 
+/**
+ * Parse graceful shutdown time.
+ */
+static int
+tfw_cfgop_grace_time(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_grace_time);
+}
+
 static int
 tfw_sock_srv_cfgstart(void)
 {
@@ -1681,23 +1776,6 @@ tfw_sock_srv_cfgend(void)
 }
 
 static int
-tfw_cfgop_start_srv(TfwServer *srv)
-{
-	int r;
-
-	TFW_DBG_ADDR("start server", &srv->addr);
-
-	if ((r = tfw_sock_srv_add_conns(srv)))
-		return r;
-	if ((r = tfw_apm_add_srv(srv)))
-		return r;
-	if ((r = tfw_sock_srv_connect_srv(srv)))
-		return r;
-
-	return 0;
-}
-
-static int
 tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 {
 	TfwServer *srv;
@@ -1741,14 +1819,8 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 	list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
 		/* Server was not found in new configuration. */
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
-			tfw_server_get(srv);
-			__tfw_sg_del_srv(sg, srv, false);
-			srv->flags |= TFW_CFG_F_DEL;
-			if ((r = tfw_sock_srv_disconnect_srv(srv))) {
-				tfw_server_put(srv);
+			if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv)))
 				return r;
-			}
-			tfw_server_put(srv);
 			continue;
 		}
 		else if (srv->flags & TFW_CFG_F_MOD)
@@ -1772,7 +1844,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
 
-		if ((r = tfw_cfgop_start_srv(srv)))
+		if ((r = tfw_sock_srv_start_srv(srv)))
 			goto err;
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
@@ -1836,18 +1908,10 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 
 	TFW_DBG2("Setup new group '%s' to use after reconfiguration\n",
 		 sg->name);
-	if ((r = __tfw_sg_for_each_srv(sg, tfw_cfgop_start_srv)))
+	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv)))
 		return r;
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg);
-}
-
-static int
-tfw_sock_srv_mark_removed(TfwServer *srv)
-{
-	srv->flags |= TFW_CFG_F_DEL;
-
-	return 0;
 }
 
 static int
@@ -1863,22 +1927,14 @@ tfw_sock_srv_start(void)
 			return r;
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
-	list_for_each_entry(sg, &orphan_sgs, list)
-		__tfw_sg_for_each_srv(sg, tfw_sock_srv_mark_removed);
-	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
-
-	tfw_cfgop_cleanup_srv_cfgs(false);
-	/*
-	 * Disconnect unused server groups, orphaned servers are disconnected
-	 * in tfw_cfgop_update_sg_srv_list()
-	 */
-	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
-		r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_disconnect_srv);
-		if (r)
+	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
+		if ((r = tfw_sock_srv_grace_shutdown_sg(sg)))
 			return r;
-		tfw_sg_release(sg);
-		tfw_sg_put(sg);
-	}
+
+	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
+	tfw_cfgop_cleanup_srv_cfgs(false);
+	if (tfw_runstate_is_reconfig())
+		tfw_cfg_grace_time_fin = jiffies + tfw_cfg_grace_time * HZ;
 
 	return 0;
 }
@@ -2076,6 +2132,17 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		},
 		.allow_none = true,
 		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "grace_shutdown_time",
+		.deflt = "0",
+		.handler = tfw_cfgop_grace_time,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{ 0 }
