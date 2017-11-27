@@ -270,10 +270,6 @@ class HttpMessage(object):
         if size == 0:
             return
         self.body = stream.read(size)
-        # Remove CRLF
-        line = stream.readline()
-        if line.rstrip('\r\n'):
-            raise ParseError('No CRLF after body.')
         if len(self.body) != size:
             raise ParseError(("Wrong body size: expect %d but got %d!"
                               % (size, len(self.body))))
@@ -413,6 +409,10 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
+    def get_length(self):
+        firstline = ' '.join([self.version, self.status, self.reason])
+        return len('\r\n'.join([firstline, str(self)]))
+
     def __eq__(self, other):
         return ((self.status == other.status)
                 and (self.version == other.version)
@@ -459,7 +459,6 @@ class Client(asyncore.dispatcher):
 
     def clear(self):
         self.request_buffer = ''
-        self.response_buffer = ''
 
     def set_request(self, request):
         if request:
@@ -484,6 +483,7 @@ class Client(asyncore.dispatcher):
         try:
             response = Response(self.response_buffer,
                                 body_void=(self.request.method == 'HEAD'))
+            self.response_buffer = self.response_buffer[response.get_length():]
         except IncompliteMessage:
             return
         except ParseError:
@@ -533,7 +533,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
             tf_cfg.dbg(4, ('Deproxy: SrvConnection: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.request_buffer))
-        # Hande will be called even if buffer is empty.
+        # Handler will be called even if buffer is empty.
         if not self.request_buffer:
             return
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from Tempesta.')
