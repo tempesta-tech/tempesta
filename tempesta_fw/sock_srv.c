@@ -296,6 +296,8 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 */
 	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
+	else
+		tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
 /**
@@ -432,7 +434,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
 	else
-		tfw_connection_release(conn);
+		tfw_srv_conn_release(srv_conn);
 
 	return ret;
 }
@@ -466,8 +468,10 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * is locked, and spews lots of warnings. LOCKDEP doesn't know
 	 * that parallel execution can't happen with the same socket.
 	 */
-	list_for_each_entry(srv_conn, &srv->conn_list, list)
+	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		tfw_server_get(srv);
 		tfw_sock_srv_connect_try_later(srv_conn);
+	}
 
 	return 0;
 }
@@ -581,23 +585,16 @@ tfw_sock_srv_add_conns(TfwServer *srv)
 	return 0;
 }
 
-static int
-tfw_sock_srv_del_conns(TfwServer *srv)
+static void
+tfw_sock_srv_del_conns(void *psrv)
 {
 	TfwSrvConn *srv_conn, *tmp;
+	TfwServer *srv = psrv;
 
 	list_for_each_entry_safe(srv_conn, tmp, &srv->conn_list, list) {
 		tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 		tfw_srv_conn_free(srv_conn);
 	}
-
-	return 0;
-}
-
-static void
-tfw_sock_srv_delete_all_conns(void)
-{
-	tfw_sg_for_each_srv(tfw_sock_srv_del_conns);
 }
 
 /*
@@ -684,15 +681,8 @@ static TfwCfgSrvGroup *tfw_cfg_sg_opts = NULL;
 /* List of parsed server groups (TfwCfgSrvGroup). */
 static LIST_HEAD(sg_cfg_list);
 
-/* Servers removed from active configuration during reconfiguration. */
-static LIST_HEAD(orphan_srvs);
-/* Server groups removed from active configuration during reconfiguration. */
-static LIST_HEAD(orphan_sgs);
 /* Sticky sessions scheduler is used in a new configuration */
 static bool tfw_cfg_use_sticky_sess;
-
-static struct timer_list tfw_gc_timer;
-#define TFW_GC_TO 30000 /* 30 seconds. */
 
 static struct {
 	bool max_qsize		: 1;
@@ -1000,18 +990,6 @@ tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				      &tfw_cfg_sg_opts->parsed_sg->max_recns);
 }
 
-static TfwServer *
-__cfgop_server_lookup(struct list_head *srv_list, TfwAddr *addr)
-{
-	TfwServer *srv;
-
-	list_for_each_entry(srv, srv_list, list)
-		if (tfw_addr_eq(&srv->addr, addr))
-			return srv;
-
-	return NULL;
-}
-
 /**
  * Mark @sg_cfg as requiring scheduler update if the @srv wasn't present in
  * previous configuration or if it's options changed.
@@ -1024,8 +1002,7 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 	if (!sg_cfg->orig_sg)
 		return;
 
-	orig_srv = __cfgop_server_lookup(&sg_cfg->orig_sg->srv_list,
-					 &srv->addr);
+	orig_srv = tfw_server_lookup(sg_cfg->orig_sg, &srv->addr);
 	if (!orig_srv) {
 		srv->flags |= TFW_CFG_F_ADD;
 		goto done;
@@ -1039,10 +1016,13 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 	orig_srv->flags |= TFW_CFG_F_KEEP;
 	srv->flags |= TFW_CFG_F_KEEP;
 
+	tfw_server_put(orig_srv);
+
 	return;
 changed:
 	orig_srv->flags |= TFW_CFG_F_MOD;
 	srv->flags |= TFW_CFG_F_MOD;
+	tfw_server_put(orig_srv);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
 }
@@ -1079,8 +1059,9 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		TFW_ERR_NL("Invalid IP address: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
-	if (__cfgop_server_lookup(&sg_cfg->parsed_sg->srv_list, &addr)) {
+	if ((srv = tfw_server_lookup(sg_cfg->parsed_sg, &addr))) {
 		TFW_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
+		tfw_server_put(srv);
 		return -EEXIST;
 	}
 
@@ -1132,10 +1113,13 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		TFW_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
+	srv->cleanup = tfw_sock_srv_del_conns;
 	srv->weight = weight;
 	srv->conn_n = conns_n;
 	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
 	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
+
+	tfw_server_put(srv);
 
 	return 0;
 }
@@ -1585,13 +1569,12 @@ tfw_cfgop_out_sched(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool reconf_failed)
+tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool release_parsed)
 {
-	if (sg_cfg->orig_sg || reconf_failed) {
-		__tfw_sg_for_each_srv(sg_cfg->parsed_sg,
-				      tfw_sock_srv_del_conns);
+	if (sg_cfg->orig_sg || release_parsed)
 		tfw_sg_release(sg_cfg->parsed_sg);
-	}
+	tfw_sg_put(sg_cfg->parsed_sg);
+	tfw_sg_put(sg_cfg->orig_sg);
 
 	if (sg_cfg->sched_arg)
 		kfree(sg_cfg->sched_arg);
@@ -1628,9 +1611,6 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 static void
 tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 {
-	TfwSrvGroup *sg, *sg_tmp;
-	TfwServer *srv, *srv_tmp;
-
 	/*
 	 * Configuration failed before tfw_sock_srv_start():
 	 * - must clear server.c:sg_list_reconfig
@@ -1644,29 +1624,10 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	tfw_sg_drop_reconfig();
 	tfw_cfgop_cleanup_srv_cfgs(true);
 
-	if (tfw_runstate_is_reconfig()) {
-		/* tfw_sock_srv_start() was not called. */
-		return;
-	}
-
-	/* Release active configuration. */
-	tfw_sock_srv_delete_all_conns();
-	tfw_sg_release_all();
-
-	TFW_DBG2("clean orphaned servers\n");
-	/* Release structures from previous reconfigs. */
-	list_for_each_entry_safe(srv, srv_tmp, &orphan_srvs, list) {
-		tfw_sock_srv_del_conns(srv);
-		list_del_init(&srv->list);
-		tfw_server_destroy(srv);
-	}
-	TFW_DBG2("clean orphaned groups\n");
-	list_for_each_entry_safe(sg, sg_tmp, &orphan_sgs, list) {
-		__tfw_sg_for_each_srv(sg, tfw_sock_srv_del_conns);
-		list_del_init(&sg->list);
-		tfw_sg_release(sg);
-	}
-	INIT_LIST_HEAD(&orphan_sgs);
+	/*
+	 * Active configuration will be cleaned up if tfw_sock_srv_stop()
+	 * was called.
+	 */
 }
 
 static int
@@ -1742,8 +1703,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	TfwServer *srv;
 	int r;
 
-	if (!(srv = __cfgop_server_lookup(&sg_cfg->parsed_sg->srv_list,
-					  &orig_srv->addr)))
+	if (!(srv = tfw_server_lookup(sg_cfg->parsed_sg, &orig_srv->addr)))
 		return -EINVAL;
 
 	TFW_DBG_ADDR("Update server options", &srv->addr);
@@ -1759,11 +1719,11 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	}
 	else if (orig_srv->conn_n > srv->conn_n) {
 		/*
-		 * TODO: shrink number of connections: disconnect connection
-		 * from server's conn_list and destroy it. Not implemented
-		 * yet since sticky sessions may hold connections.
+		 * TODO: shrink number of connections. Disconnects are performed
+		 * asynchronously, can't destroy connection here and now.
 		 */
 	}
+	tfw_server_put(srv);
 
 	return 0;
 }
@@ -1777,14 +1737,18 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 
 	TFW_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
 
+	write_lock(&sg->lock);
 	list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
 		/* Server was not found in new configuration. */
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
-			tfw_sg_del_srv(sg, srv);
-			list_add(&srv->list, &orphan_srvs);
+			tfw_server_get(srv);
+			__tfw_sg_del_srv(sg, srv, false);
 			srv->flags |= TFW_CFG_F_DEL;
-			if ((r = tfw_sock_srv_disconnect_srv(srv)))
+			if ((r = tfw_sock_srv_disconnect_srv(srv))) {
+				tfw_server_put(srv);
 				return r;
+			}
+			tfw_server_put(srv);
 			continue;
 		}
 		else if (srv->flags & TFW_CFG_F_MOD)
@@ -1793,16 +1757,21 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		/* Nothing to do if TFW_CFG_F_KEEP is set. */
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
+	write_unlock(&sg->lock);
 
 	/* Add new servers. */
 	list_for_each_entry_safe(srv, tmp, &sg_cfg->parsed_sg->srv_list, list) {
 		if (!(srv->flags & TFW_CFG_F_ADD))
 			continue;
 
-		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		/* The server was not used yet, save to change it's group. */
+		tfw_server_get(srv);
+		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		srv->sg = NULL;
 		tfw_sg_add_srv(sg, srv);
+		tfw_sg_put(sg_cfg->parsed_sg);
+		tfw_server_put(srv);
+
 		if ((r = tfw_cfgop_start_srv(srv)))
 			goto err;
 		srv->flags &= ~TFW_CFG_M_ACTION;
@@ -1887,9 +1856,7 @@ tfw_sock_srv_start(void)
 	int r;
 	TfwCfgSrvGroup *sg_cfg;
 	TfwSrvGroup *sg, *tmp_sg;
-
-	if (tfw_runstate_is_reconfig())
-		del_timer(&tfw_gc_timer);
+	LIST_HEAD(orphan_sgs);
 
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
@@ -1906,105 +1873,14 @@ tfw_sock_srv_start(void)
 	 * in tfw_cfgop_update_sg_srv_list()
 	 */
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list) {
-		tfw_sg_stop_sched(sg);
 		r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_disconnect_srv);
 		if (r)
 			return r;
+		tfw_sg_release(sg);
+		tfw_sg_put(sg);
 	}
-
-	if (tfw_runstate_is_reconfig())
-		mod_timer(&tfw_gc_timer, jiffies + msecs_to_jiffies(TFW_GC_TO));
 
 	return 0;
-}
-
-/**
- * Check if a server is still used by TempestaFW.
- */
-static bool
-tfw_sock_srv_gc_srv_used(TfwServer *srv)
-{
-	TfwSrvConn *srv_conn;
-	size_t act_conns = 0;
-
-	if (atomic64_read(&srv->sess_n))
-		return true;
-
-	list_for_each_entry(srv_conn, &srv->conn_list, list) {
-		long refcnt = atomic_read(&srv_conn->refcnt);
-		if (refcnt && (refcnt != TFW_CONN_DEATHCNT))
-			++act_conns;
-	}
-
-	return act_conns;
-}
-
-/**
- * Check if the server group @sg is used in currently exising servers.
- *
- * Server group class stores a lot of otpions suffitient for various TfwSrvConn
- * callbacks. Servers in orphan_srvs list may have references to the group.
- * This situation happens on repeated live reconfigs: in first reconfig
- * a server is removed from group @sg, and on the next reconfig the entire
- * server group is removed. There still can be situations, when the detached
- * server instance still exist, e.g. there is sticky sessions pinned to that
- * server.
- */
-static bool
-tfw_sock_srv_gc_sg_used(TfwSrvGroup *sg)
-{
-	TfwServer *srv;
-
-	list_for_each_entry(srv, &orphan_srvs, list)
-		if (srv->sg == sg)
-			return true;
-
-	return false;
-}
-
-static void
-tfw_sock_srv_gc_sg(TfwSrvGroup *sg)
-{
-	TfwServer *srv, *tmp_srv;
-
-	list_for_each_entry_safe(srv, tmp_srv, &sg->srv_list, list)
-		if (!tfw_sock_srv_gc_srv_used(srv)) {
-			tfw_sg_del_srv(sg, srv);
-			tfw_sock_srv_del_conns(srv);
-			tfw_server_destroy(srv);
-		}
-
-	if (list_empty(&sg->srv_list) && !tfw_sock_srv_gc_sg_used(sg)) {
-		list_del_init(&sg->list);
-		tfw_sg_release(sg);
-	}
-}
-
-/**
- * Garbage collector for orphan_* lists.
- *
- * Remove servers from orphan_* lists only if they are unused in current
- * configuration.
- */
-static void
-tfw_sock_srv_gc(unsigned long data)
-{
-	TfwSrvGroup *sg, *tmp_sg;
-	TfwServer *srv, *tmp_srv;
-
-	TFW_DBG2("sock_srv: remove servers unused after reconfig\n");
-
-	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
-		tfw_sock_srv_gc_sg(sg);
-	list_for_each_entry_safe(srv, tmp_srv, &orphan_srvs, list)
-		if (!tfw_sock_srv_gc_srv_used(srv)) {
-			list_del_init(&srv->list);
-			tfw_sock_srv_del_conns(srv);
-			tfw_server_destroy(srv);
-		}
-
-	if (!list_empty(&orphan_sgs) || !list_empty(&orphan_srvs))
-		mod_timer(&tfw_gc_timer, jiffies + msecs_to_jiffies(TFW_GC_TO));
 }
 
 static void
@@ -2013,7 +1889,7 @@ tfw_sock_srv_stop(void)
 	/* tfw_sock_srv_start() may failed just in the middle. */
 	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
-	del_timer(&tfw_gc_timer);
+	tfw_sg_release_all();
 }
 
 static TfwCfgSpec tfw_srv_group_specs[] = {
@@ -2236,7 +2112,6 @@ tfw_sock_srv_init(void)
 	if (!tfw_sg_cfg_cache)
 		return -ENOMEM;
 
-	setup_timer(&tfw_gc_timer, tfw_sock_srv_gc, 0);
 	tfw_mod_register(&tfw_sock_srv_mod);
 
 	return 0;

@@ -82,7 +82,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.3.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -244,6 +244,19 @@ tfw_cfgop_sched_http_rules_finish(TfwCfgSpec *cs)
 	return 0;
 }
 
+static int
+tfw_cfgop_rules_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+{
+	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
+	if (r)
+		TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+			   "have the same sticky sessions settings\n",
+			   main_sg->name, backup_sg->name);
+
+	return r;
+}
+
 /**
  * Handle a "match" entry within "sched_http_rules" section, e.g.:
  *   sched_http_rules {
@@ -304,19 +317,16 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 		if (!backup_sg) {
 			TFW_ERR_NL("sched_http: backup srv_group is not found:"
 				   " '%s'\n", in_backup_sg);
-			return -EINVAL;
+			r = -EINVAL;
+			goto err;
 		}
-
-		/* "Default" group is not fully parsed field flag is not set. */
+		/* 'default' group is not fully parsed, field flag is not set. */
 		if (strcasecmp(in_main_sg, "default")
 		    && strcasecmp(in_backup_sg, "default")
-		    && ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
-			(main_sg->flags & TFW_SRV_STICKY_FLAGS)))
+		    && tfw_cfgop_rules_check_flags(main_sg, backup_sg))
 		{
-			TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
-				   "have the same sticky sessions settings\n",
-				   in_main_sg, in_backup_sg);
-			return -EINVAL;
+			r = -EINVAL;
+			goto err;
 		}
 	}
 
@@ -324,14 +334,16 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (r) {
 		TFW_ERR_NL("sched_http: invalid HTTP request field: '%s'\n",
 			   in_field);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_op_enum, in_op, &op);
 	if (r) {
 		TFW_ERR_NL("sched_http: invalid matching operator: '%s'\n",
 			   in_op);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 
 	arg_size = strlen(in_arg) + 1;
@@ -342,7 +354,8 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (!rule) {
 		TFW_ERR_NL("sched_http: can't allocate memory for parsed "
 			   "rule\n");
-		return -ENOMEM;
+		r = -ENOMEM;
+		goto err;
 	}
 
 	TFW_DBG("sched_http: parsed rule: match"
@@ -360,6 +373,30 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule->backup_sg = backup_sg;
 
 	return 0;
+err:
+	tfw_sg_put(main_sg);
+	tfw_sg_put(backup_sg);
+
+	return r;
+}
+
+static int
+tfw_cfgop_release_sg(TfwSchedHttpRule *rule)
+{
+	tfw_sg_put(rule->main_sg);
+	tfw_sg_put(rule->backup_sg);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_free_rules(TfwHttpMatchList *rules)
+{
+	if (!rules)
+		return;
+	tfw_http_match_for_each(rules, TfwSchedHttpRule, rule,
+				tfw_cfgop_release_sg);
+	tfw_http_match_list_free(rules);
 }
 
 static void
@@ -370,7 +407,7 @@ tfw_cfgop_replace_active_rules(TfwHttpMatchList *new_rules)
 	rcu_assign_pointer(tfw_rules, new_rules);
 	synchronize_rcu();
 
-	tfw_http_match_list_free(active_rules);
+	tfw_cfgop_free_rules(active_rules);
 }
 
 /**
@@ -379,7 +416,7 @@ tfw_cfgop_replace_active_rules(TfwHttpMatchList *new_rules)
 static void
 tfw_cfgop_cleanup_rules(TfwCfgSpec *cs)
 {
-	tfw_http_match_list_free(tfw_rules_reconfig);
+	tfw_cfgop_free_rules(tfw_rules_reconfig);
 	tfw_rules_reconfig = NULL;
 
 	if (!tfw_runstate_is_reconfig())
@@ -400,6 +437,14 @@ tfw_sched_http_start(void)
 }
 
 static int
+tfw_sched_http_rules_check_flags(TfwSchedHttpRule *rule)
+{
+	if (!rule->backup_sg)
+		return 0;
+	return tfw_cfgop_rules_check_flags(rule->main_sg, rule->backup_sg);
+}
+
+static int
 tfw_sched_http_cfgend(void)
 {
 	TfwHttpMatchRule *mrule;
@@ -411,6 +456,13 @@ tfw_sched_http_cfgend(void)
 		"sched_http_rules {\nmatch default * * *;\n}\n";
 	int r;
 
+	/* Group 'default' ifs fully parsed now, check main/backup group
+	 * flags for incompatibilities.
+	 */
+	r = tfw_http_match_for_each(tfw_rules_reconfig, TfwSchedHttpRule, rule,
+				    tfw_sched_http_rules_check_flags);
+	if (r)
+		return -EINVAL;
 	/*
 	 * See if we need to add a default rule that forwards all
 	 * requests that do not match any rule to group 'default'.
@@ -431,6 +483,7 @@ tfw_sched_http_cfgend(void)
 	 */
 	if ((sg_default = tfw_sg_lookup_reconfig("default")) == NULL)
 		return 0;
+	tfw_sg_put(sg_default);
 
 	/*
 	 * Add a default rule that points to group 'default'. Note that
