@@ -14,7 +14,7 @@ Environment=TFW_CFG_PATH=/etc/tempesta_fw.conf
 RemainAfterExit=yes
 ExecStart=/lib/tempesta/scripts/tempesta.sh --start
 ExecStop=/lib/tempesta/scripts/tempesta.sh --stop
-ExecReload=/lib/tempesta/scripts/tempesta.sh --restart
+ExecReload=/lib/tempesta/scripts/tempesta.sh --reload
 
 [Install]
 WantedBy=multi-user.target
