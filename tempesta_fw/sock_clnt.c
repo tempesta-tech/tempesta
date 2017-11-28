@@ -647,10 +647,10 @@ tfw_sock_clnt_init(void)
 	 * Check that flags for SS layer and Connection
 	 * layer are not overlapping.
 	 */
-	BUILD_BUG_ON(Conn_Suspected & (Conn_Clnt |
-				       Conn_Srv |
-				       TFW_FSM_HTTP |
-				       TFW_FSM_HTTPS));
+	BUILD_BUG_ON(Conn_Stop & (Conn_Clnt |
+				  Conn_Srv |
+				  TFW_FSM_HTTP |
+				  TFW_FSM_HTTPS));
 	BUG_ON(tfw_cli_conn_cache);
 	BUG_ON(tfw_tls_conn_cache);
 
