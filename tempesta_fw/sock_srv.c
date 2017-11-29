@@ -422,6 +422,10 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	struct sock *sk = conn->sk;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
+	/* Server's refcounter is decreased on disconnect. */
+	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
+		return 0;
+
 	/* Stop any attempts to reconnect or reschedule. */
 	del_timer_sync(&conn->timer);
 	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
@@ -494,14 +498,6 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 				      tfw_sock_srv_disconnect);
 }
 
-static void
-tfw_sock_srv_grace_shutdown_cb(unsigned long data)
-{
-	TfwServer *srv = (TfwServer *)data;
-
-	tfw_server_stop_sched(srv);
-	tfw_sock_srv_disconnect_srv(srv);
-}
 /*
  * ------------------------------------------------------------------------
  *	TfwServer creation/deletion helpers.
@@ -519,8 +515,6 @@ tfw_sock_srv_grace_shutdown_cb(unsigned long data)
  */
 
 static struct kmem_cache *tfw_srv_conn_cache;
-/* Grace shutdown timeout. */
-static unsigned int tfw_cfg_grace_time = 0;
 
 static TfwSrvConn *
 tfw_srv_conn_alloc(void)
@@ -624,6 +618,55 @@ tfw_sock_srv_start_srv(TfwServer *srv)
 	return 0;
 }
 
+/*
+ * ------------------------------------------------------------------------
+ *	Grace shutdown operations
+ * ------------------------------------------------------------------------
+ */
+/* Grace shutdown timeout. */
+static unsigned int tfw_cfg_grace_time = 0;
+/* List of server on grace shutdown. */
+static LIST_HEAD(tfw_gs_servers);
+static DEFINE_SPINLOCK(tfw_gs_lock);
+
+static void
+tfw_sock_srv_grace_list_add(TfwServer *srv)
+{
+	spin_lock(&tfw_gs_lock);
+
+	tfw_server_get(srv);
+	list_add(&srv->list, &tfw_gs_servers);
+
+	spin_unlock(&tfw_gs_lock);
+}
+
+static void
+tfw_sock_srv_grace_list_del(TfwServer *srv)
+{
+	spin_lock(&tfw_gs_lock);
+
+	list_del_init(&srv->list);
+	tfw_server_put(srv);
+
+	spin_unlock(&tfw_gs_lock);
+}
+
+static void
+tfw_sock_srv_grace_stop(TfwServer *srv)
+{
+	tfw_server_stop_sched(srv);
+	tfw_sock_srv_disconnect_srv(srv);
+	tfw_sock_srv_grace_list_del(srv);
+}
+
+static void
+tfw_sock_srv_grace_shutdown_cb(unsigned long data)
+{
+	TfwServer *srv = (TfwServer *)data;
+
+	tfw_sock_srv_grace_stop(srv);
+}
+
 /**
  * Schedule graceful shutdown of a server. Allow server to finish it's
  * forward queue or pinned sessions if any.
@@ -651,6 +694,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv)
 		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
 			    (unsigned long)srv);
 		mod_timer(&srv->gs_timer, jiffies + tfw_cfg_grace_time * HZ);
+		tfw_sock_srv_grace_list_add(srv);
 	}
 	tfw_server_put(srv);
 
@@ -672,6 +716,33 @@ tfw_sock_srv_grace_shutdown_sg(TfwSrvGroup *sg)
 	tfw_sg_put(sg);
 
 	return 0;
+}
+
+/**
+ * Stop grace shutdown timers and stop servers.
+ */
+static void
+tfw_sock_srv_grace_shutdown_now(void)
+{
+	while (1)
+	{
+		TfwServer *srv;
+		int act;
+
+		spin_lock(&tfw_gs_lock);
+		srv = list_first_entry_or_null(&tfw_gs_servers, TfwServer, list);
+		if (srv)
+			tfw_server_get(srv);
+		spin_unlock(&tfw_gs_lock);
+
+		if (!srv)
+			break;
+
+		act = del_timer_sync(&srv->gs_timer);
+		if (act)
+			tfw_sock_srv_grace_stop(srv);
+		tfw_server_put(srv);
+	}
 }
 
 /*
@@ -761,8 +832,8 @@ static LIST_HEAD(sg_cfg_list);
 /* Sticky sessions scheduler is used in a new configuration */
 static bool tfw_cfg_use_sticky_sess;
 
-/* Time when all grace shundown callback must fire. */
-static unsigned long tfw_cfg_grace_time_fin;
+/* Grace shutdown timeout. */
+static unsigned int tfw_cfg_grace_time_reconfig = 0;
 
 static struct {
 	bool max_qsize		: 1;
@@ -791,12 +862,6 @@ static struct {
 		return 0;						\
 	}								\
 })
-
-unsigned long
-tfw_sg_grace_shutdown_finish(void)
-{
-	return tfw_cfg_grace_time_fin;
-}
 
 static void
 tfw_cfgop_sg_copy_opts(TfwSrvGroup *to, TfwSrvGroup *from)
@@ -1722,7 +1787,7 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 static int
 tfw_cfgop_grace_time(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_intval(cs, ce, &tfw_cfg_grace_time);
+	return tfw_cfgop_intval(cs, ce, &tfw_cfg_grace_time_reconfig);
 }
 
 static int
@@ -1922,6 +1987,8 @@ tfw_sock_srv_start(void)
 	TfwSrvGroup *sg, *tmp_sg;
 	LIST_HEAD(orphan_sgs);
 
+	tfw_cfg_grace_time = tfw_cfg_grace_time_reconfig;
+
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
 			return r;
@@ -1933,8 +2000,6 @@ tfw_sock_srv_start(void)
 
 	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
 	tfw_cfgop_cleanup_srv_cfgs(false);
-	if (tfw_runstate_is_reconfig())
-		tfw_cfg_grace_time_fin = jiffies + tfw_cfg_grace_time * HZ;
 
 	return 0;
 }
@@ -1944,6 +2009,7 @@ tfw_sock_srv_stop(void)
 {
 	/* tfw_sock_srv_start() may failed just in the middle. */
 	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
+	tfw_sock_srv_grace_shutdown_now();
 	tfw_sg_for_each_srv(tfw_sock_srv_disconnect_srv);
 	tfw_sg_release_all();
 }

@@ -279,7 +279,6 @@ void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
 void __tfw_sg_release_all_reconfig(void);
 void tfw_sg_wait_release(void);
-unsigned long tfw_sg_grace_shutdown_finish(void);
 
 static inline bool
 tfw_sg_live(TfwSrvGroup *sg)
