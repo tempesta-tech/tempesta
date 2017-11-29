@@ -523,25 +523,17 @@ __tfw_sg_release_all_reconfig(void)
 
 /**
  * Wait until all server groups and server are destructed. The function is
- * called after ss_synchronize(): there is no active server connections.
- * The fuction is called after configuration cleanup: all references taken to
- * servers and groups are already released.
+ * called after ss_synchronize(): there shouldn't be any active server
+ * connections, but this is still possible. The fuction is called after
+ * configuration cleanup: all references taken to servers and groups are
+ * already released.
  */
 void
 tfw_sg_wait_release(void)
 {
 	unsigned long tend = jiffies + HZ * 5;
-	bool warn = true;
 
 	might_sleep();
-	while (time_is_after_eq_jiffies(tfw_sg_grace_shutdown_finish())) {
-		if (warn) {
-			TFW_WARN_NL("wait for servers to complete grace shutdown"
-				    "\n");
-			warn = false;
-		}
-		schedule();
-	}
 	/*
 	 * Wait until all server groups will be destroyed, otherwise a crash is
 	 * a matter of time.
