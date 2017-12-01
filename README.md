@@ -55,25 +55,9 @@ To build the module you need to do the following steps:
 
 ### Run & Stop
 
-Use `tempesta.sh` script to run and stop Tempesta. The script provides help
-information with `--help` switch. Usage example:
-
-        $ ./scripts/tempesta.sh --start
-        $ ./scripts/tempesta.sh --stop
-
-
-### Configuration
-
-Tempesta is configured via plain-text configuration file.
-
-The file location is determined by the `TFW_CFG_PATH` environment variable:
-
-        $ TFW_CFG_PATH="/opt/tempesta.conf" ./scripts/tempesta.sh --start
-
-By default, the `tempesta_fw.conf` from this directory is used.
-
-See `tempesta_fw.conf` for the list of available configuration directives,
-options and their descriptions.
+Guide on starting and stopping TempestaFW can be found on the following
+Wiki page:
+[Run & Stop](https://github.com/tempesta-tech/tempesta/wiki/Run-&-Stop)
 
 
 ### Handling clients
@@ -162,86 +146,11 @@ cache_methods GET HEAD;
 
 #### Caching Policy
 
-Caching policy is controlled by rules that match the destination URL
-agsinst the pattern specified in the rule and using the match operator
-specified in the same rule. The full syntax is as follows:
-```
-<caching policy> <OP> <string> [<string>];
-```
+Guide on response caching can be found on the following
+Wiki page:
+[Caching Responses](https://github.com/tempesta-tech/tempesta/wiki/Caching-Responses)
 
-`<caching policy>` directive can be one of the following:
-* **cache_fulfill** - Serve the request from cache. If the response is not
-found in cache, then forward the request to a back end server, and store
-the response in cache to serve future requests for the same resource. Update
-the cached response when necessary.
-* **cache_bypass** - Skip the cache. Simply forward the request to a server.
-Do not store the response in cache.
-
-`<string>` is the anticipated substring of URL. It is matched against
-the URL in a request according to the match operator specified by `<OP>`.
-Note that the string must be verbatim. Regular expressions are not
-supported at this time.
-
-The following `<OP>` keywords (match operators) are supported:
-* **eq** - URL is fully equal to `<string>`.
-* **prefix** - URL starts with `<string>`.
-* **suffix** - URL ends with `<string>`.
-
-Caching policy directives are processed strictly in the order they
-are defined in the configuration file. Below are examples of caching
-policy directives:
-```
-cache_fulfill suffix ".jpg" ".png";
-cache_bypass suffix ".avi";
-cache_bypass prefix "/static/dynamic_zone/";
-cache_fulfill prefix "/static/";
-```
-
-Also, a special variant of wildcard matching is supported. It makes
-all requests and responses either use or skip the cache. It should
-be used with caution.
-```
-cache_fulfill * *;
-cache_bypass * *;
-```
-
-#### Manual Cache Purging
-
-Cached responses may be purged manually using the PURGE request method
-and the URL of the cached response. A typical use case is that when some
-content is changed on the upstream server, then a PURGE request followed
-by a GET request will update an appropriate entry in the cache.
-
-This functionality is controlled with the following directives:
-* **cache_purge `[invalidate]`;** - Defines the purge mode
-`invalidate` just makes the cache record invalid. The cached response may
-still be returned to a client under certain conditions. This is the default
-mode. Other modes will be added in future.
-* **cache_purge_acl `<ip_address>`;** - Specifies the IP addresses of hosts
-that are permitted to send PURGE requests. PURGE requests from all other
-hosts will be denied. That makes this directive mandatory when `cache_purge`
-directive is specified. Multiple addresses are separated with white spaces.
-
-`<ip_address>` can be an IPv4 or IPv6 address. An IP address can be specified
-in CIDR format where the address is followed by a slash character and the
-prefix (or mask) with the number of significant bits in the addresses. Below
-are examples of a valid IP address specification:
-```
-127.0.0.1
-192.168.10.50/24
-::ffff:c0a8:b0a
-[::ffff:c0a8:a0a]
-::ffff:c0a8:b0b/120
-[::ffff:c0a8:b0b]/120
-```
-
-A PURGE request can be issued using any tool that is convenient. Below is
-just one example:
-```
-curl -X PURGE http://192.168.10.10/
-```
-
-#### Non-Idempotent Requests
+### Non-Idempotent Requests
 
 The consideration of whether a request is considered non-idempotent may
 depend on specific application, server, and/or service. A special directive
