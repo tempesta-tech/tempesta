@@ -409,10 +409,6 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
-    def get_length(self):
-        firstline = ' '.join([self.version, self.status, self.reason])
-        return len('\r\n'.join([firstline, str(self)]))
-
     def __eq__(self, other):
         return ((self.status == other.status)
                 and (self.version == other.version)
@@ -483,7 +479,7 @@ class Client(asyncore.dispatcher):
         try:
             response = Response(self.response_buffer,
                                 body_void=(self.request.method == 'HEAD'))
-            self.response_buffer = self.response_buffer[response.get_length():]
+            self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
         except ParseError:

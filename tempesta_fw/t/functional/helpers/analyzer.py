@@ -33,13 +33,18 @@ class Sniffer(object):
         self.captured = 0
         self.packets = []
         self.dump_file = '/tmp/tmp_packet_dump'
-        cmd = 'timeout %s tcpdump -i any %s-w - tcp port %s || true'
-        count_flag = ('-c %s ' % count) if count else ''
+        cmd = 'timeout %s tcpdump -i any %s -w - tcp port %s || true'
+        count_flag = ('-c %s' % count) if count else ''
         self.cmd = cmd % (timeout, count_flag, port)
         self.err_msg = ' '.join(["Can't %s sniffer on", host])
         self.node_side_close = node_close
 
     def sniff(self):
+        '''Thread function for starting system sniffer and saving
+        its output. We need to use temporary file here, because
+        scapy.sniff(offline=file_obj) interface does not support
+        neither StringIO objects nor paramiko file objects.
+        '''
         stdout, stderr = self.node.run_cmd(self.cmd, timeout=None,
                                            err_msg=(self.err_msg % 'start'))
         match = re.search(r'(\d+) packets captured', stderr)
