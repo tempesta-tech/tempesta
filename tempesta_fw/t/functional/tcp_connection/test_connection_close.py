@@ -16,6 +16,11 @@ class CloseConnection(functional.FunctionalTest):
     """Regular connection closing."""
 
     def stop_and_close(self):
+        '''To check the correctness of connection closing - we need to close
+        it before stopping sniffer and analyzing sniffer's output (and throwing
+        an exception in case of failure); so, we need to close Deproxy client
+        and server connections in test_* function (not in tearDown).
+        '''
         asyncore.close_all()
         self.client.close()
         self.client = None
@@ -72,7 +77,5 @@ class CloseConnectionError403(CloseConnection):
         self.sniffer = analyzer.AnalyzerCloseRegular(self.tempesta.node,
                                                      self.tempesta.host,
                                                      timeout=10)
-
-
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -5,7 +5,7 @@ from __future__ import print_function
 import os
 from threading import Thread
 from scapy.all import *
-from . import remote, tf_cfg
+from . import remote, tf_cfg, error
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -64,6 +64,8 @@ class Sniffer(object):
                 self.packets = sniff(count=self.captured,
                                      offline=self.dump_file)
                 os.remove(self.dump_file)
+            else:
+                error.bug('Dump file "%s" does not exist!' % self.dump_file)
 
     def check_results(self):
         """Analyzing captured packets. Should be called after start-stop cycle.
