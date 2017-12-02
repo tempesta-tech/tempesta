@@ -212,9 +212,9 @@ class HttpMessage(object):
 
     def parse_text(self, message_text, body_parsing=True):
         self.body_parsing = body_parsing
-        self.msg = message_text
-        stream = StringIO(self.msg)
+        stream = StringIO(message_text)
         self.__parse(stream)
+        self.__set_str_msg()
 
     def __parse(self, stream):
         self.parse_firstline(stream)
@@ -222,9 +222,15 @@ class HttpMessage(object):
         self.body = ''
         self.parse_body(stream)
 
+    def __set_str_msg(self):
+        self.msg = '\r\n'.join([self.get_firstline(), str(self)])
+
     @abc.abstractmethod
     def parse_firstline(self, stream):
         pass
+
+    def get_firstline(self):
+        return ''
 
     def parse_headers(self, stream):
         self.headers = HeaderCollection.from_stream(stream)
@@ -362,6 +368,9 @@ class Request(HttpMessage):
         if not self.method in self.methods:
             raise ParseError('Invalid request method!')
 
+    def get_firstline(self):
+        return ' '.join([self.method, self.uri, self.version])
+
     def __eq__(self, other):
         return ((self.method == other.method)
                 and (self.version == other.version)
@@ -372,8 +381,7 @@ class Request(HttpMessage):
         return not Request.__eq__(self, other)
 
     def update(self):
-        HttpMessage.update(self,
-                           ' '.join([self.method, self.uri, self.version]))
+        HttpMessage.update(self, self.get_firstline())
 
     @staticmethod
     def create(method, headers, uri='/', version='HTTP/1.1', date=False,
@@ -409,6 +417,11 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
+    def get_firstline(self):
+        status = int(self.status)
+        reason = BaseHTTPRequestHandler.responses[status][0]
+        return ' '.join([self.version, self.status, reason])
+
     def __eq__(self, other):
         return ((self.status == other.status)
                 and (self.version == other.version)
@@ -419,10 +432,7 @@ class Response(HttpMessage):
         return not Response.__eq__(self, other)
 
     def update(self):
-        status = int(self.status)
-        reason = reason = BaseHTTPRequestHandler.responses[status][0]
-        HttpMessage.update(self,
-                           ' '.join([self.version, self.status, reason]))
+        HttpMessage.update(self, self.get_firstline())
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
