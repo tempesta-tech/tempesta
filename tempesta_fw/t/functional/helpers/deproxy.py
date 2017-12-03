@@ -223,7 +223,7 @@ class HttpMessage(object):
         self.parse_body(stream)
 
     def __set_str_msg(self):
-        self.msg = '\r\n'.join([self.get_firstline(), str(self)])
+        self.msg = str(self)
 
     @abc.abstractmethod
     def parse_firstline(self, stream):
@@ -294,11 +294,11 @@ class HttpMessage(object):
         return not HttpMessage.__eq__(self, other)
 
     def __str__(self):
-        return ''.join([str(self.headers), '\r\n', self.body, str(self.trailer)])
+        return ''.join([self.get_firstline(), '\r\n', str(self.headers), '\r\n',
+                        self.body, str(self.trailer)])
 
-    def update(self, firstline):
-        message = '\r\n'.join([firstline, str(self)])
-        self.parse_text(message)
+    def update(self):
+        self.parse_text(str(self))
 
     def set_expected(self, *args, **kwargs):
         for obj in [self.headers, self.trailer]:
@@ -380,9 +380,6 @@ class Request(HttpMessage):
     def __ne__(self, other):
         return not Request.__eq__(self, other)
 
-    def update(self):
-        HttpMessage.update(self, self.get_firstline())
-
     @staticmethod
     def create(method, headers, uri='/', version='HTTP/1.1', date=False,
                body=None):
@@ -430,9 +427,6 @@ class Response(HttpMessage):
 
     def __ne__(self, other):
         return not Response.__eq__(self, other)
-
-    def update(self):
-        HttpMessage.update(self, self.get_firstline())
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
