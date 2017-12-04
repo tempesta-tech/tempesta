@@ -212,9 +212,9 @@ class HttpMessage(object):
 
     def parse_text(self, message_text, body_parsing=True):
         self.body_parsing = body_parsing
-        self.msg = message_text
-        stream = StringIO(self.msg)
+        stream = StringIO(message_text)
         self.__parse(stream)
+        self.__set_str_msg()
 
     def __parse(self, stream):
         self.parse_firstline(stream)
@@ -222,9 +222,15 @@ class HttpMessage(object):
         self.body = ''
         self.parse_body(stream)
 
+    def __set_str_msg(self):
+        self.msg = str(self)
+
     @abc.abstractmethod
     def parse_firstline(self, stream):
         pass
+
+    def get_firstline(self):
+        return ''
 
     def parse_headers(self, stream):
         self.headers = HeaderCollection.from_stream(stream)
@@ -270,10 +276,6 @@ class HttpMessage(object):
         if size == 0:
             return
         self.body = stream.read(size)
-        # Remove CRLF
-        line = stream.readline()
-        if line.rstrip('\r\n'):
-            raise ParseError('No CRLF after body.')
         if len(self.body) != size:
             raise ParseError(("Wrong body size: expect %d but got %d!"
                               % (size, len(self.body))))
@@ -292,11 +294,11 @@ class HttpMessage(object):
         return not HttpMessage.__eq__(self, other)
 
     def __str__(self):
-        return ''.join([str(self.headers), '\r\n', self.body, str(self.trailer)])
+        return ''.join([self.get_firstline(), '\r\n', str(self.headers), '\r\n',
+                        self.body, str(self.trailer)])
 
-    def update(self, firstline):
-        message = '\r\n'.join([firstline, str(self)])
-        self.parse_text(message)
+    def update(self):
+        self.parse_text(str(self))
 
     def set_expected(self, *args, **kwargs):
         for obj in [self.headers, self.trailer]:
@@ -366,6 +368,9 @@ class Request(HttpMessage):
         if not self.method in self.methods:
             raise ParseError('Invalid request method!')
 
+    def get_firstline(self):
+        return ' '.join([self.method, self.uri, self.version])
+
     def __eq__(self, other):
         return ((self.method == other.method)
                 and (self.version == other.version)
@@ -374,10 +379,6 @@ class Request(HttpMessage):
 
     def __ne__(self, other):
         return not Request.__eq__(self, other)
-
-    def update(self):
-        HttpMessage.update(self,
-                           ' '.join([self.method, self.uri, self.version]))
 
     @staticmethod
     def create(method, headers, uri='/', version='HTTP/1.1', date=False,
@@ -413,6 +414,11 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
+    def get_firstline(self):
+        status = int(self.status)
+        reason = BaseHTTPRequestHandler.responses[status][0]
+        return ' '.join([self.version, self.status, reason])
+
     def __eq__(self, other):
         return ((self.status == other.status)
                 and (self.version == other.version)
@@ -421,12 +427,6 @@ class Response(HttpMessage):
 
     def __ne__(self, other):
         return not Response.__eq__(self, other)
-
-    def update(self):
-        status = int(self.status)
-        reason = reason = BaseHTTPRequestHandler.responses[status][0]
-        HttpMessage.update(self,
-                           ' '.join([self.version, self.status, reason]))
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
@@ -459,7 +459,6 @@ class Client(asyncore.dispatcher):
 
     def clear(self):
         self.request_buffer = ''
-        self.response_buffer = ''
 
     def set_request(self, request):
         if request:
@@ -484,6 +483,7 @@ class Client(asyncore.dispatcher):
         try:
             response = Response(self.response_buffer,
                                 body_void=(self.request.method == 'HEAD'))
+            self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
         except ParseError:
@@ -533,7 +533,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
             tf_cfg.dbg(4, ('Deproxy: SrvConnection: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.request_buffer))
-        # Hande will be called even if buffer is empty.
+        # Handler will be called even if buffer is empty.
         if not self.request_buffer:
             return
         tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Recieve request from Tempesta.')

@@ -1,6 +1,6 @@
 from __future__ import print_function
 import unittest
-from helpers import deproxy
+from helpers import deproxy, error
 
 class TestDeproxyMessage(unittest.TestCase):
 
