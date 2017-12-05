@@ -29,7 +29,11 @@
 #include "connection.h"
 
 /* Size of classifier private cliet accounting data. */
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+#define TFW_CLASSIFIER_ACCSZ	512
+#else
 #define TFW_CLASSIFIER_ACCSZ	256
+#endif
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
 
