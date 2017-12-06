@@ -99,6 +99,7 @@ TEST_SUITE(addr);
 TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
+TEST_SUITE(wq);
 
 int
 test_run_all(void)
@@ -107,6 +108,7 @@ test_run_all(void)
 
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
+	TEST_SUITE_RUN(wq);
 
 	kernel_fpu_begin();
 	tfw_str_init_const();
