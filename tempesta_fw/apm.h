@@ -22,6 +22,7 @@
 
 #include "pool.h"
 #include "server.h"
+#include "str.h"
 
 /*
  * @ith		- array of percentile numbers, with space for min/max/avg;
@@ -58,11 +59,36 @@ static const unsigned int tfw_pstats_ith[] = {
 	[TFW_PSTATS_IDX_P99] = 99,
 };
 
+/*
+ * Structures for health monitoring statistics accountings
+ * in procfs.
+ */
+typedef struct {
+	int		code;
+	unsigned int	sum;
+} TfwHMCodeStats;
+
+/*
+ * @rtime	- time until next server health checking;
+ * @ccnt	- count of @rsums elements;
+ * @rsums	- array of counters for separate HTTP codes;
+ */
+typedef struct {
+	unsigned int	rtime;
+	unsigned int	ccnt;
+	TfwHMCodeStats	*rsums;
+} TfwHMStats;
+
 int tfw_apm_add_srv(TfwServer *srv);
 void tfw_apm_del_srv(TfwServer *srv);
 void tfw_apm_update(void *apmref, unsigned long jtstamp, unsigned long jrtime);
 int tfw_apm_stats(void *apmref, TfwPrcntlStats *pstats);
 int tfw_apm_stats_bh(void *apmref, TfwPrcntlStats *pstats);
 int tfw_apm_pstats_verify(TfwPrcntlStats *pstats);
+void tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref);
+bool tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref);
+bool tfw_apm_hm_srv_limit(int status, void *apmref);
+bool tfw_apm_hm_set_srv(const char *name, TfwServer *srv);
+TfwHMStats *tfw_apm_hm_stats(void *apmref);
 
 #endif /* __TFW_APM_H__ */

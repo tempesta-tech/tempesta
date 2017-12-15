@@ -852,7 +852,7 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
  * to a specific server in a group.
  */
 static TfwSrvConn *
-tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
+tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
 {
 	int skipnip = 1, nipconn = 0;
 	TfwRatioSrvDesc *srvdesc = srv->sched_data;
@@ -863,6 +863,13 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	 * it doesn't happen in real life, but unit tests check this case.
 	 */
 	if (unlikely(!srvdesc))
+		return NULL;
+
+	/*
+	 * Bypass the suspend checking if connection is needed for
+	 * helth monitoring of backend server.
+	 */
+	if (!hmonitor && tfw_srv_suspended(srv))
 		return NULL;
 rerun:
 	if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
@@ -941,6 +948,9 @@ rerun:
 	attempts = ratio->srv_n;
 	while (attempts--) {
 		srvdesc = tfw_sched_ratio_next_srv(ratio, rtodata);
+		if (tfw_srv_suspended(srvdesc->srv))
+			continue;
+
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
 			rcu_read_unlock();
 			return srv_conn;
