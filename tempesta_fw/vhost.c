@@ -20,6 +20,7 @@
 #include "tempesta_fw.h"
 #include "http.h"
 #include "http_match.h"
+#include "http_msg.h"
 #include "vhost.h"
 #include "str.h"
 
@@ -74,6 +75,8 @@ static size_t		tfw_capolicy_sz = 0;	/* Current size. */
  */
 #define TFW_NIPDEF_ARRAY_SZ	(64)
 
+#define TFW_USRHDRS_ARRAY_SZ	(64)
+
 /*
  * All 'location' directives are put into a fixed size array.
  * Duplicate directives are not allowed.
@@ -90,6 +93,7 @@ static size_t		tfw_location_sz = 0;	/* Current size. */
  */
 static TfwCaPolicy	*tfw_capolicy_dflt[TFW_CAPOLICY_ARRAY_SZ];
 static TfwNipDef	*tfw_nipdef_dflt[TFW_NIPDEF_ARRAY_SZ];
+static TfwStr		*tfw_usr_hdrs_dflt[TFW_USRHDRS_ARRAY_SZ];
 
 static TfwLocation tfw_location_dflt = {
 	.op = TFW_HTTP_MATCH_O_WILDCARD,
@@ -99,7 +103,12 @@ static TfwLocation tfw_location_dflt = {
 	.capo_sz = 0,
 	.nipdef = tfw_nipdef_dflt,
 	.nipdef_sz = 0,
+	.usr_hdrs = tfw_usr_hdrs_dflt,
+	.usr_hdrs_sz = 0,
 };
+
+/* Pool for 'hdr_add' directive (TfwLocation->usr_hdrs) */
+static TfwPool *tfw_usr_hdrs_pool;
 
 /*
  * IP addresses that make the ACL for cache purge operations are put
@@ -483,6 +492,59 @@ tfw_cfgop_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_nonidempotent(cs, ce);
 }
 
+static int
+tfw_usr_hdrs_add(TfwLocation *loc, const char *name, const char *value)
+{
+	TfwStr *hdr;
+
+	if (loc->usr_hdrs_sz == TFW_USRHDRS_ARRAY_SZ) {
+		TFW_WARN_NL("Too lot of custom headers, %d supported.\n",
+			    TFW_USRHDRS_ARRAY_SZ);
+		return -EINVAL;
+	}
+	if (!(hdr = tfw_http_msg_make_hdr(tfw_usr_hdrs_pool, name, value))) {
+		TFW_WARN_NL("Can't create header.\n");
+		return -ENOMEM;
+	}
+	loc->usr_hdrs[loc->usr_hdrs_sz++] = hdr;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	TfwLocation *loc = tfwcfg_this_location;
+
+	BUG_ON(!tfwcfg_this_location);
+
+	if (ce->attr_n) {
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			   cs->name);
+		return -EINVAL;
+	}
+	if (ce->val_n != 2) {
+		TFW_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
+		return -EINVAL;
+	}
+
+	return tfw_usr_hdrs_add(loc, ce->vals[0], ce->vals[1]);
+}
+
+static int
+tfw_cfgop_in_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_hdr_add(cs, ce);
+}
+
+static int
+tfw_cfgop_out_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfwcfg_this_location)
+		tfwcfg_this_location = &tfw_location_dflt;
+	return tfw_cfgop_hdr_add(cs, ce);
+}
+
 /*
  * Find a cache policy directive entry. The entry is looked up
  * in the array that holds all cache policy directives from all
@@ -603,7 +665,7 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, int cmd)
 			return -ENOENT;
 	}
 
-        return 0;
+	return 0;
 }
 
 /*
@@ -670,7 +732,8 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 	TfwLocation *loc;
 	char *argmem, *data;
 	size_t size = sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
-		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ;
+		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
+		    + sizeof(TfwStr *) * TFW_USRHDRS_ARRAY_SZ;
 
 	if (tfw_location_sz == TFW_LOCATION_ARRAY_SZ)
 		return NULL;
@@ -690,6 +753,8 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 	loc->capo_sz = 0;
 	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
 	loc->nipdef_sz = 0;
+	loc->usr_hdrs = (TfwStr **)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
+	loc->usr_hdrs_sz = 0;
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
 	return loc;
@@ -1006,6 +1071,14 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_none = true,
 		.allow_repeat = true,
 	},
+	{
+		.name = "hdr_add",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
 	{ 0 }
 };
 
@@ -1059,6 +1132,14 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.allow_repeat = true,
 	},
 	{
+		.name = "hdr_add",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
 		.name = "location",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
@@ -1085,6 +1166,10 @@ int
 tfw_vhost_init(void)
 {
 	tfw_mod_register(&tfw_vhost_mod);
+	tfw_usr_hdrs_pool = __tfw_pool_new(0);
+	if (!tfw_usr_hdrs_pool)
+		return -ENOMEM;
+
 	return 0;
 }
 
@@ -1092,4 +1177,7 @@ void
 tfw_vhost_exit(void)
 {
 	tfw_mod_unregister(&tfw_vhost_mod);
+
+	tfw_pool_destroy(tfw_usr_hdrs_pool);
+	tfw_usr_hdrs_pool = NULL;
 }

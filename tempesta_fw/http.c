@@ -1725,6 +1725,32 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_add_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
+{
+	int i, r;
+	TfwLocation *loc = req->location;
+
+	if (!loc)
+		loc = req->vhost->loc_dflt;
+	if (!loc)
+		loc = (tfw_vhost_get_default())->loc_dflt;
+	BUG_ON(!loc);
+
+	for (i = 0; i < loc->usr_hdrs_sz; ++i) {
+		r = tfw_http_msg_hdr_add(hm, loc->usr_hdrs[i]);
+		if (r) {
+			TFW_ERR("can't add location header to msg %p\n", hm);
+			return r;
+		}
+		else {
+			TFW_DBG2("added location header to msg %p\n", hm);
+		}
+	}
+
+	return 0;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -1775,6 +1801,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_add_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
 
