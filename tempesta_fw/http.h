@@ -506,9 +506,16 @@ do {									\
 } while (0)
 
 enum {
-	HTTP_STATUS_4XX = 4,
+	HTTP_STATUS_1XX = 1,
+	HTTP_STATUS_2XX,
+	HTTP_STATUS_3XX,
+	HTTP_STATUS_4XX,
 	HTTP_STATUS_5XX
 };
+
+#define HTTP_CODE_MIN 100
+#define HTTP_CODE_MAX 599
+#define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
 
 /* Get current timestamp in secs. */
 static inline time_t
@@ -534,6 +541,8 @@ unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
+int tfw_http_parse_status(const char *status, int *out);
+void tfw_http_srv_hmonitor_send(TfwServer *srv, char *data, unsigned long len);
 
 /*
  * Functions to send an HTTP error response to a client.

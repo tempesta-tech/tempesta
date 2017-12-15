@@ -742,6 +742,55 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	tfw_http_send_resp(req, code);
 }
 
+static TfwHttpMsg *
+tfw_http_alloc_hmonitor_req(void)
+{
+	TfwHttpMsg *hm;
+
+	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)))
+		return NULL;
+
+	ss_skb_queue_head_init(&hm->msg.skb_list);
+	INIT_LIST_HEAD(&hm->msg.seq_list);
+	INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
+	INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
+	hm->destructor = tfw_http_req_destruct;
+
+	return hm;
+}
+
+static inline void
+tfw_http_srv_hmonitor(TfwHttpResp *resp)
+{
+	TfwServer *srv = (TfwServer *)resp->conn->peer;
+
+	if (!test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->flags))
+		return;
+
+	if (tfw_apm_hm_srv_limit(resp->status, srv->apmref)) {
+		if (!tfw_srv_suspended(srv)) {
+			tfw_srv_mark_suspended(srv);
+			TFW_WARN_ADDR("server has been suspended: limit"
+				      " for bad responses is exceeded",
+				      &srv->addr);
+		}
+		return;
+	}
+
+	if (!tfw_srv_suspended(srv) ||
+	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, srv->apmref))
+		return;
+
+	tfw_srv_mark_alive(srv);
+}
+
+static inline void
+tfw_http_srv_hmonitor_update(TfwHttpReq *req, TfwServer *srv)
+{
+	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->flags))
+		tfw_apm_hm_srv_rcount_update(&req->uri_path, srv->apmref);
+}
+
 /*
  * Forwarding of requests to a back end server is run under a lock
  * on the server connection's forwarding queue. It's performed as
@@ -831,8 +880,13 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
-		tfw_http_req_error(srv_conn, req, equeue, 500,
-				   "request dropped: forwarding error");
+		if (!req->conn) {
+			tfw_http_req_delist(srv_conn, req);
+			tfw_http_msg_free((TfwHttpMsg *)req);
+		}
+		else
+			tfw_http_req_error(srv_conn, req, equeue, 500,
+					   "request dropped: forwarding error");
 		return false;
 	}
 	return true;
@@ -1162,14 +1216,16 @@ tfw_http_conn_collect(TfwSrvConn *srv_conn, struct list_head *sch_queue,
  * with minimal effort.
  */
 static void
-tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue)
+tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue,
+		      TfwSrvConn *prev_conn)
 {
 	TfwSrvConn *sch_conn;
 	TfwHttpReq *req, *tmp;
 
 	/*
 	 * Process the complete queue and re-schedule all requests
-	 * to other servers/connections.
+	 * to other servers/connections. If other server is scheduled,
+	 * then evict health monitoring requests.
 	 */
 	list_for_each_entry_safe(req, tmp, sch_queue, fwd_list) {
 		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
@@ -1179,6 +1235,13 @@ tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue)
 					     " an available back end server");
 			continue;
 		}
+
+		if (!req->conn && sch_conn->peer != prev_conn->peer) {
+				list_del_init(&req->fwd_list);
+				tfw_http_msg_free((TfwHttpMsg *)req);
+		}
+
+		tfw_http_srv_hmonitor_update(req, (TfwServer *)sch_conn->peer);
 		tfw_http_req_fwd(sch_conn, req, equeue);
 		tfw_srv_conn_put(sch_conn);
 	}
@@ -1278,7 +1341,7 @@ tfw_http_conn_repair(TfwConn *conn)
 		spin_unlock(&srv_conn->fwd_qlock);
 
 		if (!list_empty(&sch_queue))
-			tfw_http_conn_resched(&sch_queue, &equeue);
+			tfw_http_conn_resched(&sch_queue, &equeue, srv_conn);
 		goto zap_error;
 	}
 
@@ -1977,6 +2040,9 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	if (tfw_http_adjust_req(req))
 		goto send_500;
 
+	/* Account current request in APM health monitoring statistics */
+	tfw_http_srv_hmonitor_update(req, (TfwServer *)srv_conn->peer);
+
 	/* Forward request to the server. */
 	tfw_http_req_fwd(srv_conn, req, &equeue);
 	tfw_http_req_zap_error(&equeue);
@@ -2088,6 +2154,11 @@ static void
 tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
+	if (!req->conn) {
+		tfw_http_msg_free((TfwHttpMsg *)req);
+		return;
+	}
+
 	if (reply) {
 		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 		tfw_connection_unlink_msg(req->conn);
@@ -2107,6 +2178,11 @@ static void
 tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
+	if (!req->conn) {
+		tfw_http_msg_free((TfwHttpMsg *)req);
+		return;
+	}
+
 	if (reply)
 		tfw_http_req_mark_error(req, status, msg);
 	else
@@ -2156,6 +2232,42 @@ tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
 	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
 					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
 					req, status, msg);
+}
+
+static inline bool
+tfw_http_check_wildcard_status(const char c, int *out)
+{
+	switch (c) {
+	case '1':
+		*out = HTTP_STATUS_1XX;
+		break;
+	case '2':
+		*out = HTTP_STATUS_2XX;
+		break;
+	case '3':
+		*out = HTTP_STATUS_3XX;
+		break;
+	case '4':
+		*out = HTTP_STATUS_4XX;
+		break;
+	case '5':
+		*out = HTTP_STATUS_5XX;
+		break;
+	default:
+		return false;
+	}
+	return true;
+}
+
+static inline void
+tfw_http_drop_hmonitor_resp(TfwHttpReq *req, TfwHttpResp *resp)
+{
+	tfw_connection_unlink_msg(resp->conn);
+	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
+		       resp->jrxtstamp,
+		       resp->jrxtstamp - req->jtxtstamp);
+	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+	tfw_http_msg_free((TfwHttpMsg *)req);
 }
 
 /**
@@ -2572,6 +2684,16 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	}
 
 	/*
+	 * If request does not have linked connection, it means that
+	 * it is health monitor request and its response need not to
+	 * send anywhere.
+	 */
+	if (!req->conn) {
+		tfw_http_drop_hmonitor_resp(req, (TfwHttpResp *)hmresp);
+		return 0;
+	}
+
+	/*
 	 * This hook isn't in tfw_http_resp_fwd() because it isn't needed
 	 * to count responses from a cache.
 	 * FSM needs TfwHttpReq to record data. It needs TfwHttpResp as well.
@@ -2723,6 +2845,12 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		}
 
 		/*
+		 * Validate response in context of http health monitor,
+		 * and mark server as disabled/enabled
+		 */
+		tfw_http_srv_hmonitor((TfwHttpResp *)hmresp);
+
+		/*
 		 * Pass the response to GFSM for further processing.
 		 * Drop server connection in case of serious error or security
 		 * event.
@@ -2827,6 +2955,50 @@ tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, skb, off)
 		: tfw_http_resp_process(c, skb, off);
+}
+
+/**
+ * Send monitoring request to backend server to check its state (alive or
+ * suspended) in the sense of HTTP accessibility.
+ */
+void
+tfw_http_srv_hmonitor_send(TfwServer *srv, char *data, unsigned long len)
+{
+	TfwMsgIter it;
+	TfwHttpMsg *hmreq;
+	TfwSrvConn *srv_conn;
+	TfwStr msg = {
+		.ptr = data,
+		.len = len,
+		.flags = 0
+	};
+	LIST_HEAD(equeue);
+
+	if (!(hmreq = tfw_http_alloc_hmonitor_req()))
+		return;
+	if (tfw_http_msg_setup(hmreq, &it, msg.len))
+		goto cleanup;
+	if (tfw_http_msg_write(&it, hmreq, &msg))
+		goto cleanup;
+
+	((TfwHttpReq *)hmreq)->jrxtstamp = jiffies;
+
+	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)hmreq, srv, true);
+	if (!srv_conn) {
+		TFW_WARN_ADDR("Unable to find connection for health"
+			      " monitoring of backend server", &srv->addr);
+		goto cleanup;
+	}
+
+	tfw_http_req_fwd(srv_conn, (TfwHttpReq *)hmreq, &equeue);
+	tfw_http_req_zap_error(&equeue);
+
+	tfw_srv_conn_put(srv_conn);
+
+	return;
+
+cleanup:
+	tfw_http_msg_free(hmreq);
 }
 
 /**
@@ -3118,8 +3290,8 @@ tfw_http_cfg_cleanup_resp_body(TfwCfgSpec *cs)
 	}
 }
 
-static int
-tfw_cfg_parse_http_status(const char *status, int *out)
+int
+tfw_http_parse_status(const char *status, int *out)
 {
 	int i;
 	for (i = 0; status[i]; ++i) {
@@ -3132,14 +3304,8 @@ tfw_cfg_parse_http_status(const char *status, int *out)
 			 * sequences with first digit are
 			 * acceptable (e.g. 4* or 5*).
 			 */
-			if (status[0] == '4') {
-				*out = HTTP_STATUS_4XX;
+			if (tfw_http_check_wildcard_status(status[0], out))
 				return 0;
-			}
-			if (status[0] == '5') {
-				*out = HTTP_STATUS_5XX;
-				return 0;
-			}
 		}
 		return -EINVAL;
 	}
@@ -3148,10 +3314,10 @@ tfw_cfg_parse_http_status(const char *status, int *out)
 	 * three-digit numbers are acceptable
 	 * currently.
 	 */
-	if (i != 3)
+	if (i != 3 || kstrtoint(status, 10, out))
 		return -EINVAL;
 
-	return kstrtoint(status, 10, out);
+	return tfw_cfg_check_range(*out, HTTP_CODE_MIN, HTTP_CODE_MAX);
 }
 
 static int
@@ -3169,7 +3335,7 @@ tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (tfw_cfg_parse_http_status(ce->vals[0], &code))
+	if (tfw_http_parse_status(ce->vals[0], &code))
 	{
 		TFW_ERR_NL("Unable to parse 'response_body' value: '%s'\n",
 			   ce->vals[0]
@@ -3192,8 +3358,8 @@ tfw_http_cfg_handle_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 TfwCfgMod tfw_http_cfg_mod  = {
-	.name	= "http",
-	.specs	= (TfwCfgSpec[]){
+	.name  = "http",
+	.specs = (TfwCfgSpec[]){
 		{
 			"block_action",
 			NULL,

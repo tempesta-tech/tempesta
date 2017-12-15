@@ -612,6 +612,10 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
 	if (unlikely(!st_conn->srv_conn))
 		return NULL;
 
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+	if (tfw_srv_suspended(srv))
+		return NULL;
+
 	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
 	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
 	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
@@ -621,9 +625,7 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
 	}
 
 	/* Try to sched from the same server. */
-	srv = (TfwServer *)st_conn->srv_conn->peer;
-
-	return srv->sg->sched->sched_srv_conn(msg, srv);
+	return srv->sg->sched->sched_srv_conn(msg, srv, false);
 }
 
 /**

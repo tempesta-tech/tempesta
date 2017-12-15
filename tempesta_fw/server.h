@@ -45,6 +45,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
  * @weight	- static server weight for load balancers;
+ * @flags	- atomic flags related to server's state;
  * @conn_n	- configured number of connections to the server;
  */
 typedef struct {
@@ -53,9 +54,15 @@ typedef struct {
 	TfwSrvGroup		*sg;
 	void			*sched_data;
 	void			*apmref;
+	unsigned int		flags;
 	unsigned int		weight;
 	size_t			conn_n;
 } TfwServer;
+
+enum {
+	TFW_SRV_B_HMONITOR = 0,	/* Health monitor is enabled for the server. */
+	TFW_SRV_B_SUSPEND	/* Server is excluded from processing. */
+};
 
 /**
  * The servers group with the same load balancing, failovering and eviction
@@ -151,7 +158,8 @@ struct tfw_scheduler_t {
 	void			(*del_grp)(TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
-	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
+	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv,
+						   bool hmonitor);
 };
 
 /* Server specific routines. */
@@ -185,6 +193,30 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return (ACCESS_ONCE(srv_conn->recns) >= sg->max_recns);
+}
+
+/*
+ * Put server into alive or suspended (exluded from processing) state.
+ */
+static inline void
+tfw_srv_mark_alive(TfwServer *srv)
+{
+	clear_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->flags);
+}
+
+static inline void
+tfw_srv_mark_suspended(TfwServer *srv)
+{
+	set_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->flags);
+}
+
+/*
+ * Tell if server is suspended.
+ */
+static inline bool
+tfw_srv_suspended(TfwServer *srv)
+{
+	return test_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->flags);
 }
 
 /* Server group routines. */
