@@ -25,8 +25,11 @@
 
 #define S_F_SET_COOKIE		"Set-Cookie: "
 #define S_CRLF			"\r\n"
+#define S_DLM			": "
 
 #define SLEN(s)			(sizeof(s) - 1)
+
+TfwStr *tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val);
 
 const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
 				      size_t size);

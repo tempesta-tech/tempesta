@@ -76,8 +76,10 @@ typedef struct {
 	size_t		len;
 	size_t		capo_sz;
 	size_t		nipdef_sz;
+	size_t		usr_hdrs_sz;
 	TfwCaPolicy	**capo;
 	TfwNipDef	**nipdef;
+	TfwStr		**usr_hdrs;
 } TfwLocation;
 
 /* Cache purge configuration modes. */

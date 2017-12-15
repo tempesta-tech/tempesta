@@ -27,6 +27,45 @@
 #include "ss_skb.h"
 
 /**
+ * Build TfwStr repesented HTTP header.
+ * @name	- header name without ':';
+ * @value	- header value;
+ */
+TfwStr *
+tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
+{
+	size_t n_len = strlen(name);
+	size_t v_len = strlen(val);
+	const TfwStr tmp_hdr = {
+		.ptr = (TfwStr []){
+			{ .ptr = (void *)name,	.len = n_len },
+			{ .ptr = S_DLM,		.len = SLEN(S_DLM) },
+			{ .ptr = (void *)val,	.len = v_len },
+		},
+		.len = n_len + SLEN(S_DLM) + v_len,
+		.eolen = 2,
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
+	TfwStr *hdr;
+
+	hdr = (TfwStr *)tfw_pool_alloc(pool, tmp_hdr.len + sizeof(TfwStr));
+	if (!hdr)
+		return NULL;
+	TFW_STR_INIT(hdr);
+	hdr->ptr = (void *)(hdr + 1);
+	hdr->len = tmp_hdr.len;
+	hdr->eolen = 2;
+	if (tfw_strcpy(hdr, &tmp_hdr)) {
+		kfree(hdr);
+		return NULL;
+	}
+
+	return hdr;
+}
+EXPORT_SYMBOL(tfw_http_msg_make_hdr);
+
+
+/**
  * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
  * order. Similar to bsearch().
  */
@@ -489,10 +528,10 @@ __hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
 	TfwStr hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = name,	.len = n_len },
-			{ .ptr = ": ",	.len = 2 },
+			{ .ptr = S_DLM,	.len = SLEN(S_DLM) },
 			{ .ptr = val,	.len = v_len },
 		},
-		.len = n_len + 2 + v_len,
+		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
@@ -555,10 +594,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 	TfwStr new_hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = name,	.len = n_len },
-			{ .ptr = ": ",	.len = 2 },
+			{ .ptr = S_DLM,	.len = SLEN(S_DLM) },
 			{ .ptr = val,	.len = v_len },
 		},
-		.len = n_len + 2 + v_len,
+		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
