@@ -198,7 +198,7 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			srv_conn = sg->sched->sched_srv_conn(msg, srv);
+			srv_conn = sg->sched->sched_srv_conn(msg, srv, false);
 
 			if (srv == offline_srv)
 				EXPECT_NULL(srv_conn);

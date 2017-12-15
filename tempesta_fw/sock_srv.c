@@ -583,6 +583,7 @@ tfw_sock_srv_delete_all_conns(void)
 static struct list_head tfw_cfg_in_slst = LIST_HEAD_INIT(tfw_cfg_in_slst);
 static struct list_head tfw_cfg_out_slst = LIST_HEAD_INIT(tfw_cfg_out_slst);
 static struct list_head *tfw_cfg_slst;
+static struct list_head tfw_cfg_health_lst = LIST_HEAD_INIT(tfw_cfg_health_lst);
 static int tfw_cfg_slstsz, tfw_cfg_out_slstsz;
 static TfwScheduler *tfw_cfg_sched, *tfw_cfg_out_sched;
 static TfwSchrefPredict tfw_cfg_schref_predict, tfw_cfg_out_schref_predict;
@@ -606,6 +607,12 @@ static struct {
 	bool sticky_sess	: 1;
 } __attribute__((packed)) tfw_cfg_is_set;
 
+typedef struct {
+	struct list_head	list;
+	char			*name;
+	TfwServer		*srv;
+} TfwSrvHealth;
+
 /* Please keep the condition in these two macros in sync. */
 #define TFW_CFGOP_HAS_DFLT(ce, v)				\
 	(tfw_cfg_is_dflt_value(ce) && tfw_cfg_is_set.v)
@@ -616,6 +623,63 @@ static struct {
 		return 0;					\
 	}							\
 })
+
+static int
+tfw_cfgop_srv_create_health(const char *name, TfwServer *srv)
+{
+	size_t size = strlen(name) + 1;
+	TfwSrvHealth *health = kzalloc(sizeof(TfwSrvHealth) + size, GFP_KERNEL);
+	if (!health) {
+		TFW_ERR_NL("can't allocate memory for server health entry\n");
+		return -ENOMEM;
+	}
+
+	INIT_LIST_HEAD(&health->list);
+	health->srv = srv;
+	health->name = (char *)(health + 1);
+	memcpy(health->name, name, size);
+	list_add_tail(&health->list, &tfw_cfg_health_lst);
+	__set_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->flags);
+
+	return 0;
+}
+
+static void
+tfw_clean_srvs_health_cfg(void)
+{
+	TfwSrvHealth *hth, *tmp;
+
+	if (list_empty(&tfw_cfg_health_lst))
+		return;
+
+	list_for_each_entry_safe(hth, tmp, &tfw_cfg_health_lst, list) {
+		list_del(&hth->list);
+		kfree(hth);
+	}
+
+	INIT_LIST_HEAD(&tfw_cfg_health_lst);
+}
+
+static int
+tfw_cfg_srvs_set_health(void)
+{
+	int ret = 0;
+	TfwSrvHealth *hth;
+
+	list_for_each_entry(hth, &tfw_cfg_health_lst, list) {
+		BUG_ON(!test_bit(TFW_SRV_B_HMONITOR,
+				 (unsigned long *)&hth->srv->flags));
+		if (!tfw_apm_hm_set_srv(hth->name, hth->srv)) {
+			TFW_ERR_NL("health monitor with name"
+				   " '%s' does not exist\n", hth->name);
+			ret = -EINVAL;
+			break;
+		}
+	}
+	tfw_clean_srvs_health_cfg();
+
+	return ret;
+}
 
 static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
@@ -775,15 +839,15 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, struct list_head *slst)
 {
 	TfwAddr addr;
 	TfwServer *srv;
-	int i, conns_n = 0, weight = 0;
-	bool has_conns_n = false, has_weight = false;
-	const char *key, *val;
+	int i, r, conns_n = 0, weight = 0;
+	bool has_conns_n = false, has_weight = false, has_health = false;
+	const char *key, *val, *hname;
 
 	if (ce->val_n != 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n > 2) {
+	if (ce->attr_n > 3) {
 		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
 			   ce->attr_n);
 		return -EINVAL;
@@ -815,6 +879,13 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, struct list_head *slst)
 				return -EINVAL;
 			}
 			has_weight = true;
+		} else if (!strcasecmp(key, "health")) {
+			if (has_health) {
+				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				return -EINVAL;
+			}
+			hname = val;
+			has_health = true;
 		} else {
 			TFW_ERR_NL("Unsupported argument: '%s'\n", key);
 			return -EINVAL;
@@ -842,6 +913,12 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, struct list_head *slst)
 		TFW_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
+
+	if (has_health) {
+		if ((r = tfw_cfgop_srv_create_health(hname, srv)))
+			return r;
+	}
+
 	srv->weight = weight;
 	srv->conn_n = conns_n;
 	list_add_tail(&srv->list, slst);
@@ -1279,6 +1356,8 @@ tfw_clean_srv_groups(TfwCfgSpec *cs)
 	TfwServer *srv, *tmp;
 	static const typeof(tfw_cfg_is_set) cfg_is_set_empty = { 0 };
 
+	tfw_clean_srvs_health_cfg();
+
 	list_for_each_entry_safe(srv, tmp, &tfw_cfg_in_slst, list) {
 		list_del(&srv->list);
 		tfw_sock_srv_del_conns(srv);
@@ -1329,12 +1408,16 @@ tfw_sock_srv_start(void)
 		if ((ret = tfw_cfgop_setup_srv_group()))
 			return ret;
 	}
+
 	/*
 	 * This must be executed only after the complete configuration
 	 * has been processed as it depends on configuration directives
 	 * that can be located anywhere in the configuration file.
 	 */
 	if ((ret = tfw_sg_for_each_srv(tfw_apm_add_srv)) != 0)
+		return ret;
+
+	if ((ret = tfw_cfg_srvs_set_health()) != 0)
 		return ret;
 
 	return tfw_sg_for_each_srv(tfw_sock_srv_connect_srv);

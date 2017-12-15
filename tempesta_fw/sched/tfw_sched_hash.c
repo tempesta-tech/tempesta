@@ -122,11 +122,12 @@ __bsearch(const unsigned long hash, TfwHashConnList *cl)
 }
 
 static inline int
-__is_conn_suitable(TfwSrvConn *conn)
+__is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
 	return !tfw_srv_conn_restricted(conn)
 		&& !tfw_srv_conn_queue_full(conn)
-		&& tfw_srv_conn_get_if_live(conn);
+		&& tfw_srv_conn_get_if_live(conn)
+		&& (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer));
 }
 
 /**
@@ -150,7 +151,7 @@ __is_conn_suitable(TfwSrvConn *conn)
  *    a matching one with the highest weight. That adds some overhead.
  */
 static inline TfwSrvConn *
-__find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
+__find_best_conn(TfwMsg *msg, TfwHashConnList *cl, bool hmonitor)
 {
 	ssize_t l_idx, r_idx, idx;
 	TfwSrvConn *conn;
@@ -167,7 +168,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 	 */
 	idx = __bsearch(best_hash, cl);
 	conn = cl->conns[idx].conn;
-	if (likely(__is_conn_suitable(conn)))
+	if (likely(__is_conn_suitable(conn, hmonitor)))
 		return conn;
 
 	/*
@@ -186,7 +187,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 		ssize_t best_idx = (l_diff <= r_diff) ? l_idx : r_idx;
 
 		conn = cl->conns[best_idx].conn;
-		if (likely(__is_conn_suitable(conn)))
+		if (likely(__is_conn_suitable(conn, hmonitor)))
 			return conn;
 
 		if (l_diff <= r_diff)
@@ -205,7 +206,7 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 
 	BUG_ON(!cl);
 
-	return __find_best_conn(msg, cl);
+	return __find_best_conn(msg, cl, false);
 }
 
 /**
@@ -213,7 +214,7 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
  * in a group.
  */
 static TfwSrvConn *
-tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
+tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
 {
 	TfwHashConnList *cl = srv->sched_data;
 
@@ -224,7 +225,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 	if (unlikely(!cl))
 		return NULL;
 
-	return __find_best_conn(msg, cl);
+	return __find_best_conn(msg, cl, hmonitor);
 }
 
 static void
