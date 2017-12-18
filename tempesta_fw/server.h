@@ -41,7 +41,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
- * @gs_timmer	- grace shutdown timer;
+ * @gs_timer	- grace shutdown timer;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
