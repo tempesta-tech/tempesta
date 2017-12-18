@@ -2014,12 +2014,12 @@ tfw_sock_srv_stop(void)
 	tfw_sg_release_all();
 }
 
+/* Group specs are cleaned up by tfw_sock_srv_specs["srv_group"].cleanup(). */
 static TfwCfgSpec tfw_srv_group_specs[] = {
 	{
 		.name = "server",
 		.deflt = NULL,
 		.handler = tfw_cfgop_in_server,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
@@ -2027,7 +2027,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "sched",
 		.deflt = "ratio static",
 		.handler = tfw_cfgop_in_sched,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
@@ -2036,7 +2035,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "server_queue_size",
 		.deflt = "1000",
 		.handler = tfw_cfgop_in_queue_size,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -2048,7 +2046,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "server_forward_timeout",
 		.deflt = "60",
 		.handler = tfw_cfgop_in_fwd_timeout,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -2060,7 +2057,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "server_forward_retries",
 		.deflt = "5",
 		.handler = tfw_cfgop_in_fwd_retries,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -2072,7 +2068,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "server_retry_nonidempotent",
 		.deflt = TFW_CFG_DFLT_VAL,
 		.handler = tfw_cfgop_in_retry_nip,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
@@ -2081,7 +2076,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "server_connect_retries",
 		.deflt = "10",
 		.handler = tfw_cfgop_in_conn_retries,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -2093,7 +2087,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.name = "sticky_sessions",
 		.deflt = TFW_CFG_DFLT_VAL,
 		.handler = tfw_cfgop_in_sticky_sess,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
