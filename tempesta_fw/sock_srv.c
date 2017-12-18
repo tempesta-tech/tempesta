@@ -693,8 +693,8 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv)
 		}
 		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
 			    (unsigned long)srv);
-		mod_timer(&srv->gs_timer, jiffies + tfw_cfg_grace_time * HZ);
 		tfw_sock_srv_grace_list_add(srv);
+		mod_timer(&srv->gs_timer, jiffies + tfw_cfg_grace_time * HZ);
 	}
 	tfw_server_put(srv);
 
@@ -778,7 +778,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * stage since the new configuration is provided by a user and may contain
  * errors.
  * - applying stage: tfw_sock_srv_start(). Errors are unrecoverable and mean
- * that only a part of changes was appied, so the resulting configuration is
+ * that only a part of changes was applied, so the resulting configuration is
  * invalid.
  *
  * On configuration parsing stage binary representation of a server group is

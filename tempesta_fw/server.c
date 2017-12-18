@@ -375,7 +375,7 @@ tfw_sg_stop_sched(TfwSrvGroup *sg)
 }
 
 /**
- * Iterate over all server groups of given server grop @sg and call @cb for
+ * Iterate over all servers of given server group @sg and call @cb for
  * each server.
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
@@ -395,7 +395,7 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
 }
 
 /**
- * Iterate over all the acive server groups and call @cb for each server group.
+ * Iterate over all the active server groups and call @cb for each server group.
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
  */
