@@ -1731,9 +1731,10 @@ tfw_http_add_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 	int i, r;
 	TfwLocation *loc = req->location;
 
-	if (!loc)
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->usr_hdrs_sz)
 		loc = req->vhost->loc_dflt;
-	if (!loc)
+	if (!loc || !loc->usr_hdrs_sz)
 		loc = (tfw_vhost_get_default())->loc_dflt;
 	BUG_ON(!loc);
 
@@ -2060,6 +2061,8 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 	 * the current vhost. If there are no entries there either, then
 	 * search in the default location of the default vhost - that is,
 	 * in the global policies.
+	 *
+	 * TODO #862: req->location must be the full set of options.
 	 */
 	if (loc && loc->nipdef_sz) {
 		if (tfw_nipdef_match(loc, req->method, &req->uri_path))
