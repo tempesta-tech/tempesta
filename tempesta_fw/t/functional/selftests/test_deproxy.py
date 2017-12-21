@@ -28,9 +28,9 @@ class DeproxyDummyTest(functional.FunctionalTest):
 
     def tearDown(self):
         if self.client:
-            self.client.close()
+            self.client.stop()
         if self.tester:
-            self.tester.close_all()
+            self.tester.stop()
 
     def create_clients(self):
         port = tempesta.upstream_port_start_from()
@@ -40,10 +40,16 @@ class DeproxyDummyTest(functional.FunctionalTest):
         port = tempesta.upstream_port_start_from()
         self.servers = [deproxy.Server(port=port, conns_n=1)]
 
+    def create_tester(self):
+        self.tester = deproxy.Deproxy(self.client, self.servers)
+
     def routine(self, message_chains):
         self.create_servers()
         self.create_clients()
-        self.create_tester(message_chains)
+        self.create_tester()
+        self.client.start()
+        self.tester.start()
+
         self.tester.run()
 
     def test_deproxy_one_chain(self):
@@ -76,7 +82,7 @@ class DeproxyTestFailOver(DeproxyTest):
         port = tempesta.upstream_port_start_from()
         self.servers = [deproxy.Server(port=port, keep_alive=1)]
 
-    def create_tester(self, message_chain):
+    def create_tester(self):
 
         class DeproxyFailOver(deproxy.Deproxy):
             def check_expectations(self):
@@ -87,6 +93,6 @@ class DeproxyTestFailOver(DeproxyTest):
                 assert self.is_srvs_ready(), 'Failovering failed!'
                 deproxy.Deproxy.check_expectations(self)
 
-        self.tester = DeproxyFailOver(message_chain, self.client, self.servers)
+        self.tester = DeproxyFailOver(self.client, self.servers)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

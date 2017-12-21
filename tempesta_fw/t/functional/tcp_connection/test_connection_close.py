@@ -22,12 +22,9 @@ class CloseConnection(functional.FunctionalTest):
         and server connections in test_* function (not in tearDown).
         '''
         asyncore.close_all()
-        self.client.close()
-        self.client = None
+        self.client.stop()
         self.tempesta.stop()
-        self.tempesta = None
-        self.tester.close_all()
-        self.tester = None
+        self.tester.stop()
 
     def create_sniffer(self):
         self.sniffer = analyzer.AnalyzerCloseRegular(self.tempesta.node,
