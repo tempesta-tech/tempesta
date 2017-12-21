@@ -20,14 +20,17 @@ class ShutdownTest(functional.FunctionalTest):
     """
 
     def setUp(self):
-        functional.FunctionalTest.setUp(self)
         self.clients = []
+        functional.FunctionalTest.setUp(self)
 
     def tearDown(self):
         if self.tempesta:
-            self.tempesta.stop()
+            self.tempesta.stop("Tempesta")
         if self.tester:
-            self.tester.close_all()
+            self.tester.stop("Tester")
+
+    def create_tester(self):
+        pass
 
     def create_client(self):
         for _ in range(100):
@@ -40,38 +43,41 @@ class ShutdownTest(functional.FunctionalTest):
         defconfig = 'cache 0;\n'
         self.tempesta.config.set_defconfig(defconfig)
         self.create_servers()
+        for server in self.servers:
+            server.start("Server")
         self.configure_tempesta()
-        self.tempesta.start()
+        self.tempesta.start("Tempesta")
         self.create_client()
         self.tester = ShutdownTester(self.clients, self.servers)
+        for client in self.clients:
+            client.start("Client")
+        self.tester.start("Tester")
 
     def test_shutdown(self):
         self.init()
         # Run loop for small time to allow clients and servers process socket
         # events.
         self.tester.loop()
-        self.tempesta.stop()
+        self.tempesta.stop("Tempesta")
         # Run random command on remote node to see if it is still alive.
         remote.tempesta.run_cmd('uname')
-        self.tempesta = None
 
     def test_shutdown_with_traffic(self):
         self.init()
         # Run loop for small time to allow clients and servers process socket
         # events.
         self.tester.run()
-        self.tempesta.stop()
+        self.tempesta.stop("Tempesta")
         # Run requests once more time.
         self.tester.run()
         # Run random command on remote node to see if it is still alive.
         remote.tempesta.run_cmd('uname')
-        self.tempesta = None
 
 
 class ShutdownTester(deproxy.Deproxy):
 
     def __init__(self, clients, servers):
-        deproxy.Deproxy.__init__(self, None, None, servers, register=False)
+        deproxy.Deproxy.__init__(self, None, servers, register=False)
         self.clients = clients
         request = deproxy.Request(
             "GET / HTTP/1.1\r\n"
@@ -82,6 +88,7 @@ class ShutdownTester(deproxy.Deproxy):
         self.current_chain = deproxy.MessageChain(request, response,
                                                   server_response=response)
         self.register_tester()
+        self.stop_procedures = [self.close_all]
 
     def register_tester(self):
         for client in self.clients:
@@ -98,9 +105,9 @@ class ShutdownTester(deproxy.Deproxy):
 
     def close_all(self):
         for client in self.clients:
-            client.handle_close()
+            client.stop("Client")
         servers = [server for server in self.servers]
         for server in servers:
-            server.handle_close()
+            server.stop("Server")
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
