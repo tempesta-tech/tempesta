@@ -1,6 +1,6 @@
 from __future__ import print_function
 import unittest
-from helpers import tf_cfg, control, tempesta
+from helpers import tf_cfg, control, tempesta, stateful
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -57,18 +57,39 @@ class StressTest(unittest.TestCase):
         self.create_servers()
         self.create_tempesta()
 
+    def force_stop(self):
+        """ Forcefully stop all servers. """
+        # Call functions only if variables not None: there might be an error
+        # before tempesta would be created.
+
+        if self.tempesta:
+            tf_cfg.dbg(2, "Stopping tempesta")
+            self.tempesta.force_stop()
+
+        if self.servers:
+            tf_cfg.dbg(2, "Stopping servers")
+            control.servers_force_stop(self.servers)
+
     def tearDown(self):
         """ Carefully stop all servers. Error on stop will make next test fail,
         so mark test as failed even if everything other is fine.
         """
         # Call functions only if variables not None: there might be an error
         # before tempesta would be created.
+
         if self.tempesta:
+            tf_cfg.dbg(2, "Stopping tempesta")
             self.tempesta.stop()
-            self.tempesta = None
+
         if self.servers:
+            tf_cfg.dbg(2, "Stopping servers")
             control.servers_stop(self.servers)
-            self.servers = None
+
+        if self.tempesta.state == stateful.STATE_ERROR:
+            raise Exception("Error during stopping tempesta")
+        for server in self.servers:
+            if server.state == stateful.STATE_ERROR:
+                raise Exception("Error during stopping servers")
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:

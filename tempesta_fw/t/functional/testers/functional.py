@@ -2,7 +2,7 @@ from __future__ import print_function
 import unittest
 import copy
 import asyncore
-from helpers import tf_cfg, control, tempesta, deproxy
+from helpers import tf_cfg, control, tempesta, deproxy, stateful
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -44,24 +44,68 @@ class FunctionalTest(unittest.TestCase):
                                                keep_alive=keep_alive,
                                                conns_n=connections))
 
+    def create_tester(self):
+        self.tester = deproxy.Deproxy(self.client, self.servers)
+
     def setUp(self):
         self.client = None
+        self.client_state = None
         self.tempesta = None
         self.servers = []
         self.tester = None
         tf_cfg.dbg(3) # Step to the next line after name of test case.
         tf_cfg.dbg(3, '\tInit test case...')
+        self.create_servers()
         self.create_tempesta()
+        self.create_client()
+        self.create_tester()
+
+    def force_stop(self):
+        # Close client connection before stopping the TempestaFW.
+        if self.client:
+            self.client.force_stop()
+
+        if self.tempesta:
+            self.tempesta.force_stop()
+
+        if self.tester:
+            self.tester.force_stop()
+
+        for server in self.servers:
+            server.force_stop()
+
+        try:
+            deproxy.finish_all_deproxy()
+        except:
+            print ('Unknown exception in stopping deproxy')
+
 
     def tearDown(self):
         # Close client connection before stopping the TempestaFW.
-        asyncore.close_all()
         if self.client:
-            self.client.close()
+            self.client.stop("Client")
+
         if self.tempesta:
-            self.tempesta.stop()
+            self.tempesta.stop("Tempesta")
+
         if self.tester:
-            self.tester.close_all()
+            self.tester.stop("Tester")
+
+        for server in self.servers:
+            server.stop("Deproxy server")
+
+        try:
+            deproxy.finish_all_deproxy()
+        except:
+            print ('Unknown exception in stopping deproxy')
+
+        for proc in [self.client, self.tempesta, self.tester]:
+            if proc.state == stateful.STATE_ERROR:
+                raise Exception("Error during stopping %s" %
+                                proc.__class__.__name__)
+        for server in self.servers:
+            if server.state == stateful.STATE_ERROR:
+                raise Exception("Error during stopping server")
 
     @classmethod
     def tearDownClass(cls):
@@ -79,28 +123,33 @@ class FunctionalTest(unittest.TestCase):
         self.assertEqual(self.tempesta.stats.srv_msg_other_errors, 0,
                          msg=(msg % 'responses'))
 
-    def create_tester(self, message_chain):
-        self.tester = deproxy.Deproxy(message_chain, self.client, self.servers)
-
     def generic_test_routine(self, tempesta_defconfig, message_chains):
         """ Make necessary updates to configs of servers, create tempesta config
         and run the routine in you `test_*()` function.
         """
+        if message_chains and message_chains != []:
+            self.tester.message_chains = message_chains
+
         # Set defconfig for Tempesta.
         self.tempesta.config.set_defconfig(tempesta_defconfig)
-
-        self.create_servers()
         self.configure_tempesta()
 
-        self.tempesta.start()
-        self.create_client()
+        tf_cfg.dbg(3, "Starting %i servers" % len(self.servers))
+        for server in self.servers:
+            server.start()
 
-        self.create_tester(message_chains)
+        tf_cfg.dbg(3, "Starting tempesta")
+        self.tempesta.start()
+        tf_cfg.dbg(3, "Starting client")
+        self.client.start()
+        tf_cfg.dbg(3, "Starting tester")
+        self.tester.start()
+        tf_cfg.dbg(3, "Starting completed")
+
         self.tester.run()
 
         self.tempesta.get_stats()
         self.assert_tempesta()
-
 
 if __name__ == '__main__':
     unittest.main()
