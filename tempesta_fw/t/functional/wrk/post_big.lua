@@ -1,6 +1,4 @@
-wrk.method  = "POST"
-wrk.headers = {["Content-Type"]="text/plain"}
-wrk.body    = [[
+local body = [[
     I
 Мой дядя самых честных правил,
 Когда не в шутку занемог,
@@ -883,3 +881,8 @@ LX
 И заслужи мне славы дань:
 Кривые толки, шум и брань!
 ]]
+
+
+wrk.method  = "POST"
+wrk.headers = {["Content-Type"]="text/plain", ["Content-Length"]=string.len(body)}
+wrk.body    = body
