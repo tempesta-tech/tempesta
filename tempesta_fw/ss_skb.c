@@ -27,6 +27,7 @@
 #include <linux/ipv6.h>
 #include <net/sock.h>
 #include <net/tcp.h>
+#include <net/xfrm.h>
 
 #include "addr.h"
 #include "procfs.h"
@@ -66,6 +67,9 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  *
  * Similar to alloc_skb_with_frags() except it doesn't allocate multi-page
  * fragments, and it sets up fragments with zero size.
+ *
+ * TODO #391: use less pages by allocating the skb from ss_skb_alloc()
+ * with maximum page header to fully utilize the page.
  */
 struct sk_buff *
 ss_skb_alloc_pages(size_t len)
@@ -200,10 +204,10 @@ __skb_data_address(struct sk_buff *skb)
 		return NULL;
 	if (skb_headlen(skb))
 		return skb->data;
-	BUG_ON(!skb_is_nonlinear(skb));
+	WARN_ON_ONCE(!skb_is_nonlinear(skb));
 	if (skb_shinfo(skb)->nr_frags)
 		return skb_frag_address(&skb_shinfo(skb)->frags[0]);
-	BUG_ON(skb_has_frag_list(skb));
+	WARN_ON_ONCE(skb_has_frag_list(skb));
 	return NULL;
 }
 
@@ -253,7 +257,7 @@ __skb_skblist_fixup(SsSkbList *skb_list)
 
 	if (lscb->next)
 		skb_list->last = lscb->next;
-	BUG_ON(TFW_SKB_CB(skb_list->last)->next);
+	WARN_ON_ONCE(TFW_SKB_CB(skb_list->last)->next);
 }
 
 /**
@@ -929,14 +933,6 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
 		}
 	}
 
-	/*
-	 * If paged fragments are full, in case of GRO skb_gro_receive()
-	 * adds SKBs to frag_list from gro_list. However, SKBs that have
-	 * frag_list are split into separate SKBs before they get to
-	 * Tempesta for processing.
-	 */
-	BUG_ON(skb_has_frag_list(skb));
-
 	return r;
 }
 EXPORT_SYMBOL(ss_skb_process);
@@ -957,7 +953,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	int nsize, asize, nlen;
 
 	/* Assert that the SKB is orphaned. */
-	BUG_ON(skb->destructor);
+	WARN_ON_ONCE(skb->destructor);
 
 	nsize = skb_headlen(skb) - len;
 	if (nsize < 0)
@@ -1056,6 +1052,58 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
 		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
 }
 
+/**
+ * Tempesta FW forwards skbs with application and transport payload as is,
+ * so initialize such skbs such that TCP/IP stack won't stumble on dirty
+ * data.
+ */
+void
+ss_skb_init_for_xmit(struct sk_buff *skb)
+{
+	struct skb_shared_info *shinfo = skb_shinfo(skb);
+	__u8 pfmemalloc = skb->pfmemalloc;
+
+	WARN_ON_ONCE(skb->next || skb->prev);
+	WARN_ON_ONCE(skb->sk);
+	WARN_ON_ONCE(skb->destructor);
+
+	if (!skb_transport_header_was_set(skb)) {
+		/* Quick path for new skbs. */
+		skb->ip_summed = CHECKSUM_PARTIAL;
+		return;
+	}
+
+	memset(&skb->skb_mstamp, 0, sizeof(skb->skb_mstamp));
+	skb->dev = NULL;
+	memset(skb->cb, 0, sizeof(skb->cb));
+	skb_dst_drop(skb);
+#ifdef CONFIG_XFRM
+	secpath_put(skb->sp);
+#endif
+	nf_reset(skb);
+	skb->mac_len = 0;
+	skb->queue_mapping = 0;
+	skb->peeked = 0;
+	skb->xmit_more = 0;
+	memset(&skb->headers_start, 0,
+	       offsetof(struct sk_buff, headers_end) -
+	       offsetof(struct sk_buff, headers_start));
+	skb->pfmemalloc = pfmemalloc;
+	skb->mac_header = (typeof(skb->mac_header))~0U;
+	skb->transport_header = (typeof(skb->transport_header))~0U;
+
+	shinfo->tx_flags = 0;
+	shinfo->gso_size = 0;
+	shinfo->gso_segs = 0;
+	shinfo->gso_type = 0;
+	memset(&shinfo->hwtstamps, 0, sizeof(shinfo->hwtstamps));
+	shinfo->tskey = 0;
+	shinfo->ip6_frag_id = 0;
+	shinfo->destructor_arg = NULL;
+
+	skb->ip_summed = CHECKSUM_PARTIAL;
+}
+
 /*
  * When the original SKB is a clone then its shinfo and payload cannot be
  * modified as they are shared with other SKB users. As the SKB is unrolled,
@@ -1127,14 +1175,14 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 	if (unlikely(skb_cloned(skb)))
 		return ss_skb_unroll_slow(skb_list, skb);
 
-	/*
-	 * Note, that skb_gro_receive() drops reference to the
-	 * SKB's header via the __skb_header_release(). So, to
-	 * not break the things we must take reference back.
-	 */
 	ss_skb_queue_tail(skb_list, skb);
 	skb_walk_frags(skb, f_skb) {
 		if (f_skb->nohdr) {
+			/*
+			 * skb_gro_receive() drops reference to the SKB's header
+			 * via the __skb_header_release(). So, to not break the
+			 * things we must take reference back.
+			 */
 			f_skb->nohdr = 0;
 			atomic_sub(1 << SKB_DATAREF_SHIFT,
 				   &skb_shinfo(f_skb)->dataref);
