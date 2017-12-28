@@ -65,8 +65,10 @@ class StressTest(unittest.TestCase):
         # before tempesta would be created.
         if self.tempesta:
             self.tempesta.stop()
+            self.tempesta = None
         if self.servers:
             control.servers_stop(self.servers)
+            self.servers = None
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
