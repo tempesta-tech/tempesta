@@ -724,10 +724,8 @@ tfw_sock_srv_grace_shutdown_sg(TfwSrvGroup *sg)
 static void
 tfw_sock_srv_grace_shutdown_now(void)
 {
-	while (1)
-	{
+	while (1) {
 		TfwServer *srv;
-		int act;
 
 		spin_lock(&tfw_gs_lock);
 		srv = list_first_entry_or_null(&tfw_gs_servers, TfwServer, list);
@@ -738,8 +736,7 @@ tfw_sock_srv_grace_shutdown_now(void)
 		if (!srv)
 			break;
 
-		act = del_timer_sync(&srv->gs_timer);
-		if (act)
+		if (del_timer_sync(&srv->gs_timer))
 			tfw_sock_srv_grace_stop(srv);
 		tfw_server_put(srv);
 	}
@@ -1862,8 +1859,9 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	}
 	else if (orig_srv->conn_n > srv->conn_n) {
 		/*
-		 * TODO: shrink number of connections. Disconnects are performed
-		 * asynchronously, can't destroy connection here and now.
+		 * TODO #687: shrink number of connections. Disconnects are
+		 * performed asynchronously, can't destroy connection here and
+		 * now.
 		 */
 	}
 	tfw_server_put(srv);
@@ -1884,13 +1882,17 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 	list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
 		/* Server was not found in new configuration. */
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
-			if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv)))
+			if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv))) {
+				write_unlock(&sg->lock);
 				return r;
+			}
 			continue;
 		}
 		else if (srv->flags & TFW_CFG_F_MOD)
-			if ((r = tfw_cfgop_update_srv(srv, sg_cfg)))
-				goto err;
+			if ((r = tfw_cfgop_update_srv(srv, sg_cfg))) {
+				write_unlock(&sg->lock);
+				return r;
+			}
 		/* Nothing to do if TFW_CFG_F_KEEP is set. */
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
@@ -1910,11 +1912,11 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_server_put(srv);
 
 		if ((r = tfw_sock_srv_start_srv(srv)))
-			goto err;
+			return r;
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
-err:
-	return r;
+
+	return 0;
 }
 
 /**
