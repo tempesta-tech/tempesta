@@ -96,14 +96,14 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 {
 	TfwServer *srv;
 
-	write_lock(&sg->lock);
+	read_lock(&sg->lock);
 	list_for_each_entry(srv, &sg->srv_list, list)
 		if (tfw_addr_eq(&srv->addr, addr)) {
 			tfw_server_get(srv);
-			write_unlock(&sg->lock);
+			read_unlock(&sg->lock);
 			return srv;
 		}
-	write_unlock(&sg->lock);
+	read_unlock(&sg->lock);
 
 	return NULL;
 }
@@ -456,7 +456,7 @@ void
 tfw_sg_destroy(TfwSrvGroup *sg)
 {
 	TFW_DBG2("release group: '%s'\n", sg->name);
-	BUG_ON(!list_empty(&sg->srv_list));
+	WARN_ON(!list_empty(&sg->srv_list));
 
 	kfree(sg);
 	atomic64_dec(&act_sg_n);
