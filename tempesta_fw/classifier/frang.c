@@ -1010,7 +1010,7 @@ static const TfwCfgEnum frang_http_methods_enum[] = {
 };
 
 static int
-frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
+frang_cfgop_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r, method_id;
 	const char *method_str;
@@ -1038,13 +1038,13 @@ frang_set_methods_mask(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-frang_clear_methods_mask(TfwCfgSpec *cs)
+frang_cfgop_cleanup_http_methods(TfwCfgSpec *cs)
 {
 	frang_cfg.http_methods_mask = 0;
 }
 
 static int
-frang_set_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
+frang_cfgop_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	void *mem;
 	const char *in_str;
@@ -1101,7 +1101,7 @@ frang_set_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-frang_free_ct_vals(TfwCfgSpec *cs)
+frang_cfgop_cleanup_http_ct_vals(TfwCfgSpec *cs)
 {
 	kfree(frang_cfg.http_ct_vals);
 	frang_cfg.http_ct_vals = NULL;
@@ -1213,122 +1213,141 @@ frang_start(void)
 	return 0;
 }
 
-static TfwCfgSpec frang_cfg_section_specs[] = {
+static TfwCfgSpec frang_limits_specs[] = {
 	{
-		"ip_block", "off",
-		tfw_cfg_set_bool,
-		&frang_cfg.ip_block,
+		.name = "ip_block",
+		.deflt = "off",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.ip_block,
 	},
 	{
-		"request_rate", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.req_rate,
+		.name = "request_rate",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.req_rate,
 	},
 	{
-		"request_burst", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.req_burst,
+		.name = "request_burst",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.req_burst,
 	},
 	{
-		"connection_rate", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_rate,
+		.name = "connection_rate",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_rate,
 	},
 	{
-		"connection_burst", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_burst,
+		.name = "connection_burst",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_burst,
 	},
 	{
-		"concurrent_connections", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.conn_max,
+		.name = "concurrent_connections",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.conn_max,
 	},
 	{
-		"client_header_timeout", "0",
-		tfw_cfg_set_int,
-		(unsigned int *)&frang_cfg.clnt_hdr_timeout,
+		.name = "client_header_timeout",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = (unsigned int *)&frang_cfg.clnt_hdr_timeout,
 	},
 	{
-		"client_body_timeout", "0",
-		tfw_cfg_set_int,
-		(unsigned int *)&frang_cfg.clnt_body_timeout,
+		.name = "client_body_timeout",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = (unsigned int *)&frang_cfg.clnt_body_timeout,
 	},
 	{
-		"http_uri_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_uri_len,
+		.name = "http_uri_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_uri_len,
 	},
 	{
-		"http_field_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_field_len,
+		.name = "http_field_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_field_len,
 	},
 	{
-		"http_body_len", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_body_len,
+		.name = "http_body_len",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_body_len,
 	},
 	{
-		"http_header_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_hdr_cnt,
+		.name = "http_header_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_hdr_cnt,
 	},
 	{
-		"http_header_chunk_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_hchunk_cnt,
+		.name = "http_header_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_hchunk_cnt,
 	},
 	{
-		"http_body_chunk_cnt", "0",
-		tfw_cfg_set_int,
-		&frang_cfg.http_bchunk_cnt,
+		.name = "http_body_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &frang_cfg.http_bchunk_cnt,
 	},
 	{
-		"http_host_required", "true",
-		tfw_cfg_set_bool,
-		&frang_cfg.http_host_required,
+		.name = "http_host_required",
+		.deflt = "true",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.http_host_required,
 	},
 	{
-		"http_ct_required", "false",
-		tfw_cfg_set_bool,
-		&frang_cfg.http_ct_required,
+		.name = "http_ct_required",
+		.deflt = "false",
+		.handler = tfw_cfg_set_bool,
+		.dest = &frang_cfg.http_ct_required,
 	},
 	{
-		"http_methods", "",
-		frang_set_methods_mask,
-		.cleanup = frang_clear_methods_mask,
+		.name = "http_methods",
+		.deflt = "",
+		.handler = frang_cfgop_http_methods,
+		.cleanup = frang_cfgop_cleanup_http_methods,
 	},
 	{
-		"http_ct_vals", NULL,
-		frang_set_ct_vals,
+		.name = "http_ct_vals",
+		.deflt = NULL,
+		.handler = frang_cfgop_http_ct_vals,
 		.allow_none = 1,
-		.cleanup = frang_free_ct_vals
+		.cleanup = frang_cfgop_cleanup_http_ct_vals,
 	},
 	{
-		"http_resp_code_block", NULL,
-		frang_set_rsp_code_block,
-		&frang_cfg,
+		.name = "http_resp_code_block",
+		.deflt = NULL,
+		.handler = frang_set_rsp_code_block,
+		.dest = &frang_cfg,
 		.allow_none = 1,
-		.cleanup = frang_free_rsp_code_block
+		.cleanup = frang_free_rsp_code_block,
 	},
-	{}
+	{ 0 }
 };
 
-static TfwCfgSpec frang_cfg_toplevel_specs[] = {
+static TfwCfgSpec frang_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.dest = &frang_cfg_section_specs,
-		.cleanup = tfw_cfg_cleanup_children
+		.cleanup = tfw_cfg_cleanup_children,
+		.dest = frang_limits_specs,
 	},
-	{}
+	{ 0 }
 };
 
-static TfwCfgMod frang_cfg_mod = {
-	.name = "frang",
-	.start = frang_start,
-	.specs = frang_cfg_toplevel_specs
+static TfwMod frang_mod = {
+	.name	= "frang",
+	.start	= frang_start,
+	.specs	= frang_specs,
 };
 
 static int __init
@@ -1338,12 +1357,7 @@ frang_init(void)
 
 	BUILD_BUG_ON((sizeof(FrangAcc) > sizeof(TfwClassifierPrvt)));
 
-	r = tfw_cfg_mod_register(&frang_cfg_mod);
-	if (r) {
-		TFW_ERR("frang: can't register as a configuration module\n");
-		return -EINVAL;
-	}
-
+	tfw_mod_register(&frang_mod);
 	tfw_classifier_register(&frang_class_ops);
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
@@ -1376,7 +1390,7 @@ err_hook:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);
+	tfw_mod_unregister(&frang_mod);
 	return r;
 }
 
@@ -1388,7 +1402,7 @@ frang_exit(void)
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();
-	tfw_cfg_mod_unregister(&frang_cfg_mod);
+	tfw_mod_unregister(&frang_mod);
 }
 
 module_init(frang_init);
