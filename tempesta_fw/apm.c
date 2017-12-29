@@ -946,7 +946,7 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
  * Note that due to specifics of Tempesta start up process this code
  * is executed in SoftIRQ context (so that sleeping is not allowed).
  */
-void *
+static void *
 tfw_apm_create(void)
 {
 	TfwApmData *data;
@@ -1060,23 +1060,19 @@ tfw_apm_del_srv(TfwServer *srv)
 
 #define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
 #define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
-#define TFW_APM_DEF_TMWSCALE	5	/* Default time window scale. */
 
 #define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
 #define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
-#define TFW_APM_DEF_TMWINDOW	300	/* Default time window (secs). */
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 static int
-tfw_apm_cfg_start(void)
+tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
 
-	if (!tfw_apm_jtmwindow)
-		tfw_apm_jtmwindow = TFW_APM_DEF_TMWINDOW;
-	if (!tfw_apm_tmwscale)
-		tfw_apm_tmwscale = TFW_APM_DEF_TMWSCALE;
+	if (tfw_runstate_is_reconfig())
+		return 0;
 
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
@@ -1116,13 +1112,13 @@ tfw_apm_cfg_start(void)
  * and the APM timers are deleted.
  */
 static void
-tfw_apm_cfg_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_apm(TfwCfgSpec *cs)
 {
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
+	tfw_apm_jtmwindow = tfw_apm_tmwscale = 0;
 }
 
 static int
-tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r;
 	const char *key, *val;
@@ -1137,6 +1133,7 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			    cs->name);
 		return 0;
 	}
+
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "window")) {
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_jtmwindow)))
@@ -1154,19 +1151,33 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwCfgSpec tfw_apm_cfg_specs[] = {
+static TfwCfgSpec tfw_apm_specs[] = {
 	{
-		"apm_stats", NULL,
-		tfw_handle_apm_stats,
+		.name = "apm_stats",
+		.deflt = "window=300 scale=5",
+		.handler = tfw_cfgop_apm_stats,
+		.cleanup  = tfw_cfgop_cleanup_apm,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup  = tfw_apm_cfg_cleanup,
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_apm_cfg_mod = {
-	.name  = "apm",
-	.start = tfw_apm_cfg_start,
-	.specs = tfw_apm_cfg_specs,
+TfwMod tfw_apm_mod = {
+	.name	= "apm",
+	.cfgend	= tfw_apm_cfgend,
+	.specs	= tfw_apm_specs,
 };
+
+int
+tfw_apm_init(void)
+{
+	tfw_mod_register(&tfw_apm_mod);
+	return 0;
+}
+
+void
+tfw_apm_exit(void)
+{
+	tfw_mod_unregister(&tfw_apm_mod);
+}

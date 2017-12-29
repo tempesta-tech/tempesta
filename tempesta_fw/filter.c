@@ -275,30 +275,33 @@ tfw_filter_start(void)
 {
 	int r;
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
 	ip_filter_db = tdb_open(filter_cfg.db_path, filter_cfg.db_size,
 				sizeof(TfwFRule), numa_node_id());
 	if (!ip_filter_db)
 		return -EINVAL;
 
-	r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-	if (r) {
+	if ((r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops)))) {
 		TFW_ERR("can't register netfilter hooks\n");
 		tdb_close(ip_filter_db);
 		return r;
 	}
 
-	return r;
+	return 0;
 }
 
 static void
 tfw_filter_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-
 	tdb_close(ip_filter_db);
 }
 
-static TfwCfgSpec tfw_filter_cfg_specs[] = {
+static TfwCfgSpec tfw_filter_specs[] = {
 	{
 		"filter_tbl_size",
 		"16777216",
@@ -318,12 +321,25 @@ static TfwCfgSpec tfw_filter_cfg_specs[] = {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_filter_cfg_mod = {
+TfwMod tfw_filter_mod = {
 	.name 	= "filter",
 	.start	= tfw_filter_start,
 	.stop	= tfw_filter_stop,
-	.specs	= tfw_filter_cfg_specs,
+	.specs	= tfw_filter_specs,
 };
+
+int
+tfw_filter_init(void)
+{
+	tfw_mod_register(&tfw_filter_mod);
+	return 0;
+}
+
+void
+tfw_filter_exit(void)
+{
+	tfw_mod_unregister(&tfw_filter_mod);
+}

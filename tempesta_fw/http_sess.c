@@ -80,9 +80,10 @@ typedef struct {
 } SessHashBucket;
 
 static TfwCfgSticky tfw_cfg_sticky;
-/* Secret server value to genrate reliable client identifiers. */
+/* Secret server value to generate reliable client identifiers. */
 static struct crypto_shash *tfw_sticky_shash;
 static char tfw_sticky_key[STICKY_KEY_MAXLEN];
+static bool tfw_cfg_sticky_sess = false;
 
 static SessHashBucket sess_hash[SESS_HASH_SZ] = {
 	[0 ... (SESS_HASH_SZ - 1)] = {
@@ -503,15 +504,45 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 	return tfw_http_sticky_add(resp, req);
 }
 
+/**
+ * Release pinned server to allow destroying servers and groups removed from
+ * current configuration.
+ */
+static void
+tfw_http_sess_unpin_srv(TfwStickyConn *st_conn)
+{
+	TfwServer *srv;
+
+	if (!st_conn->srv_conn)
+		return;
+
+	srv = (TfwServer *)st_conn->srv_conn->peer;
+	st_conn->srv_conn = NULL;
+	tfw_server_unpin_sess(srv);
+}
+
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
-	if (atomic_dec_and_test(&sess->users))
+	if (atomic_dec_and_test(&sess->users)) {
 		/*
 		 * Use counter reached 0, so session already expired and evicted
 		 * from the hash table.
 		 */
+		tfw_http_sess_unpin_srv(&sess->st_conn);
 		kmem_cache_free(sess_cache, sess);
+	}
+}
+
+/**
+ * Remove a session from hash bucket. @sess may become invalid after the
+ * function call.
+ */
+static void
+tfw_http_sess_remove(TfwHttpSess *sess)
+{
+	hash_del(&sess->hentry);
+	tfw_http_sess_put(sess);
 }
 
 /**
@@ -560,8 +591,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry) {
 		/* Collect garbage first to not to return expired session. */
 		if (sess->expires < jiffies) {
-			hash_del(&sess->hentry);
-			tfw_http_sess_put(sess);
+			tfw_http_sess_remove(sess);
+			continue;
 		}
 
 		if (!memcmp(sv.hmac, sess->hmac, sizeof(sess->hmac)))
@@ -585,8 +616,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
 			: 0;
 	sess->st_conn.srv_conn = NULL;
-	sess->st_conn.main_sg = NULL;
-	sess->st_conn.backup_sg = NULL;
 	rwlock_init(&sess->st_conn.lock);
 
 	TFW_DBG("new session %p\n", sess);
@@ -601,29 +630,69 @@ found:
 	return 0;
 }
 
+static void
+tfw_http_sess_set_expired(TfwHttpSess *sess)
+{
+	sess->expires = 0;
+}
+
+void
+tfw_http_sess_use_sticky_sess(bool use)
+{
+	WRITE_ONCE(tfw_cfg_sticky_sess, use);
+}
+
+static bool
+tfw_http_sess_has_sticky_sess(void)
+{
+	return READ_ONCE(tfw_cfg_sticky_sess);
+}
+
 /**
  * Try to reuse last used connection or last used server.
  */
 static inline TfwSrvConn *
-__try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
+__try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 {
 	TfwServer *srv;
 
-	if (unlikely(!st_conn->srv_conn))
+	if (unlikely(!srv_conn))
 		return NULL;
 
-	if (!tfw_srv_conn_restricted(st_conn->srv_conn)
-	    && !tfw_srv_conn_queue_full(st_conn->srv_conn)
-	    && !tfw_srv_conn_hasnip(st_conn->srv_conn)
-	    && tfw_srv_conn_get_if_live(st_conn->srv_conn))
+	if (!tfw_srv_conn_restricted(srv_conn)
+	    && !tfw_srv_conn_queue_full(srv_conn)
+	    && !tfw_srv_conn_hasnip(srv_conn)
+	    && tfw_srv_conn_get_if_live(srv_conn))
 	{
-		return st_conn->srv_conn;
+		return srv_conn;
 	}
 
-	/* Try to sched from the same server. */
-	srv = (TfwServer *)st_conn->srv_conn->peer;
-
+	/*
+	 * Try to sched from the same server. The server may be removed from
+	 * server group, see comment for TfwStickyConn.
+	 */
+	srv = (TfwServer *)srv_conn->peer;
 	return srv->sg->sched->sched_srv_conn(msg, srv);
+}
+
+/**
+ * Pin HTTP session to specified server. Called under write lock.
+ */
+static void
+tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
+{
+	TfwServer *srv;
+
+	tfw_http_sess_unpin_srv(st_conn);
+
+	if (!srv_conn)
+		return;
+
+	srv = (TfwServer *)srv_conn->peer;
+	if (srv->sg->flags & TFW_SRV_STICKY) {
+		tfw_server_pin_sess(srv);
+		st_conn->srv_conn = srv_conn;
+	}
 }
 
 /**
@@ -631,9 +700,7 @@ __try_conn(TfwMsg *msg, TfwStickyConn *st_conn)
  * @sess is not null when calling the function.
  *
  * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
- * then get a new connection for req->sess->srv_conn->peer from
- * an appropriate scheduler. That eliminates the long generic
- * scheduling work flow.
+ * then get a new connection for the same server.
  */
 TfwSrvConn *
 tfw_http_sess_get_srv_conn(TfwMsg *msg)
@@ -647,12 +714,27 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	read_lock(&st_conn->lock);
 
-	if ((srv_conn = __try_conn(msg, st_conn))) {
+	/* The session pinning won't be needed, avoid write_lock(). */
+	if (!st_conn->srv_conn && !tfw_http_sess_has_sticky_sess()) {
+		read_unlock(&st_conn->lock);
+		return __tfw_sched_get_srv_conn(msg);
+	}
+
+	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
 		read_unlock(&st_conn->lock);
 		return srv_conn;
 	}
 
 	read_unlock(&st_conn->lock);
+	write_lock(&st_conn->lock);
+	/*
+	 * Sessions was pinned to a new connection (or server returned back
+	 * online) while we were trying for a lock.
+	 */
+	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
+		write_unlock(&st_conn->lock);
+		return srv_conn;
+	}
 
 	if (st_conn->srv_conn) {
 		/* Failed to sched from the same server. */
@@ -661,48 +743,173 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 
-		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER)) {
-			TFW_ERR("sched %s: Unable to schedule new request in "
-				"session to server %s in group %s\n",
-				srv->sg->sched->name, addr_str, srv->sg->name);
-			return NULL;
+		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER))
+		{
+			/*
+			 * Server is removed and disconnected, it will never
+			 * go up again, expire session to force releasing of
+			 * the server instance. unpin_srv() will be called in
+			 * session destructor (tfw_http_sess_put()).
+			 */
+			if (unlikely(srv->flags & TFW_CFG_F_DEL)) {
+				TFW_LOG("sticky sched: server %s"
+					" was removed, set session expired\n",
+					addr_str);
+				tfw_http_sess_set_expired(sess);
+				goto err;
+			}
+			TFW_ERR("sticky sched: pinned server %s in group '%s'"
+				" is down\n",
+				addr_str, srv->sg->name);
+			goto err;
 		}
-		else {
-			TFW_WARN("sched %s: Unable to schedule new request in "
-				 "session to server %s in group %s,"
-				 " fallback to a new server\n",
-				 srv->sg->sched->name, addr_str, srv->sg->name);
-		}
+		TFW_WARN("sticky sched: pinned server %s in group '%s'"
+			 " is down, try find other server\n",
+			 addr_str, srv->sg->name);
 	}
 
-	write_lock(&st_conn->lock);
-	/*
-	 * Connection and server may return back online while we were trying
-	 * for a lock.
-	 */
-	if ((srv_conn = __try_conn(msg, st_conn)))
-		goto done;
-
-	if (st_conn->main_sg)
-		srv_conn = tfw_sched_get_sg_srv_conn(msg, st_conn->main_sg,
-						     st_conn->backup_sg);
-	else
-		srv_conn = __tfw_sched_get_srv_conn(msg);
-
-	/*
-	 * Save connection into session only if used server group is configured
-	 * to have sticky connections.
-	 */
-	if (srv_conn
-	    && (((TfwServer *)srv_conn->peer)->sg->flags & TFW_SRV_STICKY)) {
-		st_conn->srv_conn = srv_conn;
-	}
-
-done:
+	srv_conn = __tfw_sched_get_srv_conn(msg);
+	tfw_http_sess_pin_srv(st_conn, srv_conn);
+err:
 	write_unlock(&st_conn->lock);
 
 	return srv_conn;
 }
+
+static int
+tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	size_t i, len;
+	const char *val;
+
+	val = tfw_cfg_get_attr(ce, "name", STICKY_NAME_DEFAULT);
+	len = strlen(val);
+	if (len == 0 || len > STICKY_NAME_MAXLEN)
+		return -EINVAL;
+	memcpy(tfw_cfg_sticky.name.ptr, val, len);
+	tfw_cfg_sticky.name.len = len;
+	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
+	tfw_cfg_sticky.name_eq.len = len + 1;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		 if (!strcasecmp(val, "enforce")) {
+			tfw_cfg_sticky.enforce = 1;
+			break;
+		}
+	}
+
+	return 0;
+}
+
+static void
+tfw_cfgop_sticky_cleanup(TfwCfgSpec *cs)
+{
+	int i;
+
+	for (i = 0; i < SESS_HASH_SZ; ++i) {
+		TfwHttpSess *sess;
+		struct hlist_node *tmp;
+		SessHashBucket *hb = &sess_hash[i];
+
+		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
+			tfw_http_sess_remove(sess);
+	}
+}
+
+static int
+tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned int len = (unsigned int)strlen(ce->vals[0]);
+
+	if (tfw_cfg_check_single_val(ce))
+		return -EINVAL;
+	if (len > STICKY_KEY_MAXLEN)
+		return -EINVAL;
+
+	if (len) {
+		memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
+		memcpy(tfw_sticky_key, ce->vals[0], len);
+	}
+	else {
+		get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
+		len = sizeof(tfw_sticky_key);
+	}
+
+	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
+	if (r)
+		return r;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	cs->dest = &tfw_cfg_sticky.sess_lifetime;
+	r = tfw_cfg_set_int(cs, ce);
+	/*
+	 * "sess_lifetime 0;" means unlimited session lifetime,
+	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
+	*/
+	if (!r && !tfw_cfg_sticky.sess_lifetime)
+		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
+
+	return r;
+}
+
+static int
+tfw_http_sess_start(void)
+{
+	if (tfw_runstate_is_reconfig())
+		return 0;
+	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
+
+	return 0;
+}
+
+static void
+tfw_http_sess_stop(void)
+{
+	if (tfw_runstate_is_reconfig())
+		return;
+	tfw_cfg_sticky.enabled = 0;
+}
+
+static TfwCfgSpec tfw_http_sess_specs[] = {
+	{
+		.name = "sticky",
+		.handler = tfw_cfgop_sticky,
+		.cleanup = tfw_cfgop_sticky_cleanup,
+		.allow_none = true,
+	},
+	{
+		.name = "sticky_secret",
+		.deflt = "\"\"",
+		.handler = tfw_cfgop_sticky_secret,
+		.allow_none = true,
+	},
+	{
+		/* Value is parsed as int, set max to INT_MAX*/
+		.name = "sess_lifetime",
+		.deflt = "0",
+		.handler = tfw_cfgop_sess_lifetime,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_none = true,
+	},
+	{ 0 }
+};
+
+TfwMod tfw_http_sess_mod = {
+	.name	= "http_sess",
+	.start	= tfw_http_sess_start,
+	.stop	= tfw_http_sess_stop,
+	.specs	= tfw_http_sess_specs,
+};
 
 int __init
 tfw_http_sess_init(void)
@@ -735,6 +942,8 @@ tfw_http_sess_init(void)
 	for (i = 0; i < SESS_HASH_SZ; ++i)
 		spin_lock_init(&sess_hash[i].lock);
 
+	tfw_mod_register(&tfw_http_sess_mod);
+
 	return 0;
 
 err_shash:
@@ -747,135 +956,9 @@ err:
 void
 tfw_http_sess_exit(void)
 {
-	int i;
-
-	for (i = 0; i < SESS_HASH_SZ; ++i) {
-		TfwHttpSess *s;
-		struct hlist_node *tmp;
-		SessHashBucket *hb = &sess_hash[i];
-
-		hlist_for_each_entry_safe(s, tmp, &hb->list, hentry) {
-			hash_del(&s->hentry);
-			kmem_cache_free(sess_cache, s);
-		}
-	}
+	tfw_mod_unregister(&tfw_http_sess_mod);
 	kmem_cache_destroy(sess_cache);
-
 	kfree(tfw_cfg_sticky.name.ptr);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
 	crypto_free_shash(tfw_sticky_shash);
 }
-
-static int
-tfw_cfg_sess_start(void)
-{
-	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
-
-	return 0;
-}
-
-static void
-tfw_cfg_sess_stop(void)
-{
-	tfw_cfg_sticky.enabled = 0;
-}
-
-static int
-tfw_http_sticky_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	size_t i, len;
-	const char *val;
-
-	val = tfw_cfg_get_attr(ce, "name", STICKY_NAME_DEFAULT);
-	len = strlen(val);
-	if (len == 0 || len > STICKY_NAME_MAXLEN)
-		return -EINVAL;
-	memcpy(tfw_cfg_sticky.name.ptr, val, len);
-	tfw_cfg_sticky.name.len = len;
-	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
-	tfw_cfg_sticky.name_eq.len = len + 1;
-
-	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		 if (!strcasecmp(val, "enforce")) {
-			tfw_cfg_sticky.enforce = 1;
-			break;
-		}
-	}
-
-	return 0;
-}
-
-static int
-tfw_http_sticky_secret_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned int len = (unsigned int)strlen(ce->vals[0]);
-
-	if (tfw_cfg_check_single_val(ce))
-		return -EINVAL;
-	if (len > STICKY_KEY_MAXLEN)
-		return -EINVAL;
-
-	if (len) {
-		memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
-		memcpy(tfw_sticky_key, ce->vals[0], len);
-	}
-	else {
-		get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
-		len = sizeof(tfw_sticky_key);
-	}
-
-	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
-	if (r) {
-		crypto_free_shash(tfw_sticky_shash);
-		return r;
-	}
-	return 0;
-}
-
-static int
-tfw_http_sticky_sess_lifetime_cfg(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	cs->dest = &tfw_cfg_sticky.sess_lifetime;
-
-	r = tfw_cfg_set_int(cs, ce);
-	/*
-	 * "sess_lifetime 0;" means unlimited session lifetime,
-	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
-	*/
-	if (!r && !tfw_cfg_sticky.sess_lifetime)
-		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
-
-	return r;
-}
-
-TfwCfgMod tfw_http_sess_cfg_mod = {
-	.name = "http_sticky",
-	.start = tfw_cfg_sess_start,
-	.stop = tfw_cfg_sess_stop,
-	.specs = (TfwCfgSpec[]) {
-		{
-			.name = "sticky",
-			.handler = tfw_http_sticky_cfg,
-			.allow_none = true,
-		},
-		{
-			.name = "sticky_secret",
-			.deflt = "\"\"",
-			.handler = tfw_http_sticky_secret_cfg,
-			.allow_none = true,
-		},
-		{
-			/* Value is parsed as int, set max to INT_MAX*/
-			.name = "sess_lifetime",
-			.deflt = "0",
-			.handler = tfw_http_sticky_sess_lifetime_cfg,
-			.spec_ext = &(TfwCfgSpecInt) {
-				.range = { 0, INT_MAX },
-			},
-			.allow_none = true,
-		},
-		{ 0 }
-	}
-};
