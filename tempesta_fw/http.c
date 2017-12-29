@@ -1544,7 +1544,7 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 
 /**
  * Create a sibling for @msg message.
- * Siblings in HTTP are pipelined requests that share the same SKB.
+ * Siblings in HTTP are pipelined HTTP messages that share the same SKB.
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
