@@ -23,17 +23,39 @@
 #include "http.h"
 
 /**
- * Connection, servicing HTTP session.
+ * HTTP session pinning.
+ *
+ * An HTTP session may be pinned to a server from main or backup group
+ * according to a match rules defined in HTTP scheduler. But when live
+ * reconfiguration happens, the next situations may appear:
+ *
+ * 1. Session pinning is switched to 'enable'. Nothing special, use general
+ * scheduling routine to obtain target server and pin the session to it.
+ *
+ * 2. Session pinning is switched to 'disable'. Keep using pinned server until
+ * session is expired. (Alternative: unpin sesion from a server and use generic
+ * scheduling algorithm.)
+ *
+ * 3. A new server is added to main/backup group. New sessions will be
+ * eventually pinned to the server.
+ *
+ * 4. A server is removed from main/backup group. Re-pin sessions of that
+ * server to others using generic scheduling routine if allowed. Otherwise
+ * mark the session as expired, since the pinned server instance will never
+ * go up.
+ *
+ * 5. Main and backup group is removed from new configuration. Same as p. 4.
+ *
+ * 6. Main and backup group are no more interchangeable; according to the new
+ * HTTP match rules sessions must be pinned to complitely other server groups.
+ * This cases cannot be deduced during live reconfiguration, manual session
+ * removing is required. End user should avoid such configurations.
  *
  * @srv_conn	- last used connection;
- * @main_sg	- primary server group to schedule connection on failovering;
- * @backup_sg	- backup server group;
  * @lock	- protects whole @TfwStickyConn;
  */
 typedef struct {
 	TfwSrvConn		*srv_conn;
-	TfwSrvGroup		*main_sg;
-	TfwSrvGroup		*backup_sg;
 	rwlock_t		lock;
 } TfwStickyConn;
 
@@ -63,20 +85,6 @@ void tfw_http_sess_put(TfwHttpSess *sess);
 /* Sticky sessions scheduling routines. */
 TfwSrvConn *tfw_http_sess_get_srv_conn(TfwMsg *msg);
 
-static inline void
-tfw_http_sess_save_sg(TfwHttpReq *req, TfwSrvGroup *main_sg,
-		      TfwSrvGroup *backup_sg)
-{
-	if (req->sess && (main_sg->flags & TFW_SRV_STICKY)) {
-		TfwStickyConn *st_conn = &req->sess->st_conn;
-
-		/*
-		 * @st_conn->lock is already acquired for writing, if called
-		 * during  @tfw_http_sess_get_srv_conn() routine.
-		 */
-		st_conn->main_sg = main_sg;
-		st_conn->backup_sg = backup_sg;
-	}
-}
+void tfw_http_sess_use_sticky_sess(bool use);
 
 #endif /* __TFW_HTTP_SESS_H__ */
