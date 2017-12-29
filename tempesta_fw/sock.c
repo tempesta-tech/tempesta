@@ -126,14 +126,6 @@ ss_sk_incoming_cpu_update(struct sock *sk)
 		sk->sk_incoming_cpu = raw_smp_processor_id();
 }
 
-static inline void
-skb_sender_cpu_clear(struct sk_buff *skb)
-{
-#ifdef CONFIG_XPS
-	skb->sender_cpu = 0;
-#endif
-}
-
 /**
  * Enters critical section synchronized with ss_synchronize().
  * Active networking operations which involves SS callback calls must be
@@ -360,13 +352,7 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 			continue;
 		}
 
-		skb->ip_summed = CHECKSUM_PARTIAL;
-		tcp_skb_pcount_set(skb, 0);
-
-		/* @skb should be rerouted on forwarding. */
-		skb_dst_drop(skb);
-		/* Clear sender_cpu so flow_disscector can set it properly. */
-		skb_sender_cpu_clear(skb);
+		ss_skb_init_for_xmit(skb);
 
 		TFW_DBG("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		        smp_processor_id(), __func__,
@@ -411,7 +397,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	};
 
 	BUG_ON(!sk);
-	BUG_ON(ss_skb_queue_empty(skb_list));
+	WARN_ON_ONCE(ss_skb_queue_empty(skb_list));
 
 	cpu = sk->sk_incoming_cpu;
 
@@ -506,7 +492,6 @@ ss_do_close(struct sock *sk)
 {
 	struct sk_buff *skb;
 	int data_was_unread = 0;
-	int state;
 
 	if (unlikely(!sk))
 		return;
@@ -514,13 +499,14 @@ ss_do_close(struct sock *sk)
 	        smp_processor_id(), sk, ss_statename[sk->sk_state],
 	        sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	BUG_ON(sk->sk_state == TCP_LISTEN);
+	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
+	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
-	WARN_ON(sock_flag(sk, SOCK_LINGER));
+	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
 	/* We don't support virtual containers, so TCP_REPAIR is prohibited. */
-	WARN_ON(tcp_sk(sk)->repair);
+	WARN_ON_ONCE(tcp_sk(sk)->repair);
 	/* The socket must have atomic allocation mask. */
-	WARN_ON(!(sk->sk_allocation & GFP_ATOMIC));
+	WARN_ON_ONCE(!(sk->sk_allocation & GFP_ATOMIC));
 
 	/* The below is mostly copy-paste from tcp_close(). */
 	sk->sk_shutdown = SHUTDOWN_MASK;
@@ -550,7 +536,7 @@ ss_do_close(struct sock *sk)
 
 		skb = tcp_write_queue_tail(sk);
 
-		if (tcp_send_head(sk) != NULL) {
+		if (skb && tcp_send_head(sk)) {
 			/* Send FIN with data if we have any. */
 			TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_FIN;
 			TCP_SKB_CB(skb)->end_seq++;
@@ -573,7 +559,6 @@ ss_do_close(struct sock *sk)
 	}
 
 adjudge_to_death:
-	state = sk->sk_state;
 	sock_hold(sk);
 	sock_orphan(sk);
 
@@ -584,9 +569,6 @@ adjudge_to_death:
 	WARN_ON(sk->sk_backlog.tail);
 
 	percpu_counter_inc(sk->sk_prot->orphan_count);
-
-	if (state != TCP_CLOSE && sk->sk_state == TCP_CLOSE)
-		return;
 
 	if (sk->sk_state == TCP_FIN_WAIT2) {
 		const int tmo = tcp_fin_time(sk);
@@ -707,9 +689,10 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 
 	while ((skb = ss_skb_dequeue(&skb_list))) {
 		int off;
-		
-		/* We don't expect to see such SKBs here */
-		WARN_ON(skb->tail_lock);
+
+		WARN_ON_ONCE(skb->tail_lock);
+		WARN_ON_ONCE(skb_has_frag_list(skb));
+		WARN_ON_ONCE(skb->sk || skb->destructor);
 
 		if (unlikely(offset >= skb->len)) {
 			offset -= skb->len;
@@ -787,9 +770,7 @@ ss_tcp_process_data(struct sock *sk)
 		__skb_unlink(skb, &sk->sk_receive_queue);
 		skb_orphan(skb);
 
-		/* Shared SKBs shouldn't be seen here. */
-		if (skb_shared(skb))
-			BUG();
+		WARN_ON_ONCE(skb_shared(skb));
 
 		/* Save the original len and seq for reporting. */
 		skb_len = skb->len;
@@ -835,6 +816,7 @@ ss_tcp_data_ready(struct sock *sk)
 	TFW_DBG("[%d]: %s: sk=%p state=%s\n",
 	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
+	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -884,6 +866,7 @@ ss_tcp_state_change(struct sock *sk)
 	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
+	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
@@ -999,7 +982,7 @@ ss_proto_init(SsProto *proto, const SsHooks *hooks, int type)
 	 * The memory allocated for @proto should be already zero'ed, so don't
 	 * initialize this field to NULL, but instead check the invariant.
 	 */
-	BUG_ON(proto->listener);
+	WARN_ON_ONCE(proto->listener);
 }
 EXPORT_SYMBOL(ss_proto_init);
 
@@ -1026,7 +1009,7 @@ ss_set_callbacks(struct sock *sk)
 	 * ss_tcp_state_change() dereferences sk->sk_user_data as SsProto,
 	 * so the caller must initialize it before setting callbacks.
 	 */
-	BUG_ON(!sk->sk_user_data);
+	WARN_ON_ONCE(!sk->sk_user_data);
 
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
@@ -1068,7 +1051,7 @@ ss_inet_create(struct net *net, int family,
 	struct proto *answer_prot;
 
 	/* TCP only is supported for now. */
-	BUG_ON(type != SOCK_STREAM || protocol != IPPROTO_TCP);
+	WARN_ON_ONCE(type != SOCK_STREAM || protocol != IPPROTO_TCP);
 
 	/*
 	 * Get socket properties.
@@ -1173,12 +1156,12 @@ EXPORT_SYMBOL(ss_sock_create);
 
 /*
  * The original functions are inet_release() and inet6_release().
- * NOTE: Rework this function if/when Tempesta needs multicast support.
+ * Executes tcp_close(), so must be called from process context only.
  */
 void
 ss_release(struct sock *sk)
 {
-	BUG_ON(sock_flag(sk, SOCK_LINGER));
+	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
 
 	sk->sk_prot->close(sk, 0);
 }
@@ -1193,8 +1176,9 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 {
 	int r;
 
-	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
-	BUG_ON((uaddr->sa_family != AF_INET) && (uaddr->sa_family != AF_INET6));
+	WARN_ON_ONCE((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	WARN_ON_ONCE((uaddr->sa_family != AF_INET)
+		     && (uaddr->sa_family != AF_INET6));
 
 	if (uaddr_len < sizeof(uaddr->sa_family))
 		return -EINVAL;
@@ -1204,7 +1188,9 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	if (ss_active_guard_enter(SS_V_ACT_LIVECONN))
 		return SS_SHUTDOWN;
 
+	bh_lock_sock(sk);
 	r = sk->sk_prot->connect(sk, uaddr, uaddr_len);
+	bh_unlock_sock(sk);
 
 	/*
 	 * If connect() successfully returns, then the soket is living somewhere
@@ -1229,8 +1215,10 @@ ss_bind(struct sock *sk, struct sockaddr *uaddr, int uaddr_len)
 		.sk = sk,
 		.type = sk->sk_type
 	};
-	BUG_ON((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
-	BUG_ON(sk->sk_type != SOCK_STREAM);
+
+	WARN_ON_ONCE((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	WARN_ON_ONCE(sk->sk_type != SOCK_STREAM);
+
 	if (sk->sk_family == AF_INET)
 		return inet_bind(&sock, uaddr, uaddr_len);
 	else
@@ -1250,7 +1238,9 @@ ss_listen(struct sock *sk, int backlog)
 		.type = sk->sk_type,
 		.state = SS_UNCONNECTED
 	};
-	BUG_ON(sk->sk_type != SOCK_STREAM);
+
+	WARN_ON_ONCE(sk->sk_type != SOCK_STREAM);
+
 	return inet_listen(&sock, backlog);
 }
 EXPORT_SYMBOL(ss_listen);
@@ -1347,7 +1337,6 @@ dead_sock:
 		sock_put(sk); /* paired with push() calls */
 		while ((skb = ss_skb_dequeue(&sw.skb_list)))
 			kfree_skb(skb);
-
 	}
 
 	/*
