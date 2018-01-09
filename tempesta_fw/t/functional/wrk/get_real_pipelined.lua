@@ -1,8 +1,8 @@
 
-local r1 = {}
-r1.method="GET"
-r1.path="/"
-r1.headers = {
+local r1 = {
+    method="GET",
+    path="/",
+    headers = {
         ["Connection"] = "keep-alive",
         ["Cache-Control"] = "max-age=0",
         ["Upgrade-Insecure-Requests"] = "1",
@@ -13,12 +13,12 @@ r1.headers = {
         ["If-None-Match"] = "\"29cd-551189982e76f-gzip\"",
         ["If-Modified-Since"] = "Sun, 04 Jun 2017 01:49:40",
     }
+}
 
-
-local r2 = {}
-r2.method="GET"
-r2.path="/"
-r2.headers = {
+local r2 = {
+    method="GET",
+    path="/",
+    headers = {
         ["Host"] = "yandex.ru",
         ["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0",
         ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -29,12 +29,12 @@ r2.headers = {
         ["Upgrade-Insecure-Requests"] = "1",
         ["Cache-Control"] = "max-age=0",
     }
+}
 
-
-local r3 = {}
-r3.method="GET"
-r3.path="/www/_/i/H/t-h2mCk0raxxffOF6ttcnH40Q.js"
-r3.headers = {
+local r3 = {
+    method="GET",
+    path="/www/_/i/H/t-h2mCk0raxxffOF6ttcnH40Q.js",
+    headers = {
         ["Host"] = "yastatic.net",
         ["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0",
         ["Accept"] = "*/*",
@@ -47,6 +47,7 @@ r3.headers = {
         ["If-None-Match"] = "\"5a463682-28257\"",
         ["Cache-Control"] = "max-age=0",
     }
+}
 
 local req
 
