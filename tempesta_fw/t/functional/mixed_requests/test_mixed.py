@@ -11,9 +11,13 @@ class GetRequests(mixed_test.MixedRequests):
     """ HEAD, GET requests """
     script = "pipeline"
 
-class RealRequests(mixed_test.MixedRequests):
+class RealRequest(mixed_test.MixedRequests):
     """ Real GET request """
     script = "get_real"
+
+class RealRequestPipeline(mixed_test.MixedRequests):
+    """ Real pipelined GET request """
+    script = "get_real_pipelined"
 
 class GetPostRequests(mixed_test.MixedRequests):
     """ HEAD, GET requests """
