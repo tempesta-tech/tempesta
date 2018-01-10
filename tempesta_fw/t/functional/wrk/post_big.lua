@@ -884,5 +884,6 @@ LX
 
 
 wrk.method  = "POST"
-wrk.headers = {["Content-Type"]="text/plain", ["Content-Length"]=string.len(body)}
+wrk.path = "/"
+wrk.headers = {["Content-Type"]="text/plain", ["Content-Length"]=string.len(body), ["Host"] = "localhost"}
 wrk.body    = body

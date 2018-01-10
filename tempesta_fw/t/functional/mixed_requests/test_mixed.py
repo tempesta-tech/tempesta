@@ -15,6 +15,10 @@ class RealRequest(mixed_test.MixedRequests):
     """ Real GET request """
     script = "get_real"
 
+class RealRequest2(mixed_test.MixedRequests):
+    """ Real GET request 2"""
+    script = "get_real_2"
+
 class RealRequestPipeline(mixed_test.MixedRequests):
     """ Real pipelined GET request """
     script = "get_real_pipelined"
@@ -26,6 +30,10 @@ class GetPostRequests(mixed_test.MixedRequests):
 class HeadGetRequests(mixed_test.MixedRequests):
     """ HEAD, GET requests """
     script = "head_get"
+
+class EmptyPostRequests(mixed_test.MixedRequests):
+    """ POST requests """
+    script = "post_empty"
 
 class SmallPostRequests(mixed_test.MixedRequests):
     """ POST requests """
