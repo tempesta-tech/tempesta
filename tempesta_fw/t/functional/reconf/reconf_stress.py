@@ -47,7 +47,8 @@ class LiveReconfStress(stress.StressTest):
     def add_sg(self, config, sg_name, servers):
         sg = tempesta.ServerGroup(sg_name)
         for s in servers:
-            sg.add_server(s.ip, s.config.port, s.conns_n)
+            for listener in s.config.listeners:
+                sg.add_server(s.ip, listener.port, s.conns_n)
         config.add_sg(sg)
 
     def make_config(self, sg_name, servers, defconfig=None):

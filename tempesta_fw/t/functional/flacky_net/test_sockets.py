@@ -18,25 +18,30 @@ class CloseOnShutdown(stress.StressTest):
 
     def check_estab_conns(self, expect_estab=True, expext_failed=False):
         for server in self.servers:
-            expected_conns = server.conns_n if expect_estab else 0
-            estab_conns = flacky.get_sock_estab_count(
-                self.tempesta.node, server.get_name())
-            tot_conns = flacky.get_sock_count(
-                self.tempesta.node, server.get_name())
-            failed_conns = tot_conns - estab_conns
+            for listener in server.config.listeners:
+                server_ip_port = ":".join([listener.ip_listen, \
+                                           str(listener.port)])
+                expected_conns = server.conns_n if expect_estab else 0
+                estab_conns = flacky.get_sock_estab_count(
+                    self.tempesta.node, server_ip_port)
+                tot_conns = flacky.get_sock_count(
+                    self.tempesta.node, server_ip_port)
+                failed_conns = tot_conns - estab_conns
 
-            self.assertEqual(
-                expected_conns, estab_conns,
-                msg=('Got %d (expected %d) established connections to server %s'
-                     % (estab_conns, expected_conns, server.get_name())))
+                self.assertEqual(
+                    expected_conns, estab_conns,
+                    msg=('Got %d (expected %d) established '
+                         'connections to server %s'
+                         % (estab_conns, expected_conns, server_ip_port)))
 
-            if expext_failed is None:
-                continue
-            failed_conns_exp = server.conns_n if expext_failed else 0
-            self.assertEqual(
-                failed_conns, failed_conns_exp,
-                msg=('Got %d (expected %d) opened but not established connections to server %s'
-                     % (failed_conns, failed_conns_exp, server.get_name())))
+                if expext_failed is None:
+                    continue
+                failed_conns_exp = server.conns_n if expext_failed else 0
+                self.assertEqual(
+                    failed_conns, failed_conns_exp,
+                    msg=('Got %d (expected %d) opened but not established '
+                         'connections to server %s'
+                         % (failed_conns, failed_conns_exp, server_ip_port)))
 
     def check_before_start(self):
         tf_cfg.dbg(3, 'Check that there is no opened sockets to servers '
@@ -85,8 +90,9 @@ class CloseOnShutdown(stress.StressTest):
         node = self.servers[0].node
         self.filter = flacky.Filter(node)
         self.filter.init_chains()
+        # we have 1 listener in each server
         self.filter_ports = range(tempesta.upstream_port_start_from(),
-                                  self.servers[-1].config.port + 1)
+                                  self.servers[-1].config.listeners[0].port + 1)
 
     def test_reachable(self):
         """All servvers are reachable by TempestaFW, all connections will be

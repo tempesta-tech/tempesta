@@ -55,7 +55,11 @@ class TestFrameworkCfg(object):
                                           'port': '22',
                                           'nginx': 'nginx',
                                           'workdir': '/tmp/nginx',
-                                          'resources': '/var/www/html/'}
+                                          'resources': '/var/www/html/',
+                                          'aliases_interface': 'eth0',
+                                          'aliases_base_ip': '192.168.10.1',
+                                          'max_workers': '16',
+                                          }
                               })
 
     def inc_verbose(self):
