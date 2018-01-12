@@ -85,6 +85,13 @@ static const char *ss_statename[] = {
 };
 #endif
 
+#ifdef CONFIG_DEBUG_SPINLOCK
+#define TFW_VALIDATE_SK_LOCK_OWNER(sk)	\
+	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id())
+#else
+#define TFW_VALIDATE_SK_LOCK_OWNER(sk)
+#endif
+
 /**
  * Constants for active socket operations.
  * SS uses downcalls (SS functions calls from Tempesta layer) and upcalls
@@ -499,7 +506,7 @@ ss_do_close(struct sock *sk)
 	        smp_processor_id(), sk, ss_statename[sk->sk_state],
 	        sk_has_account(sk), atomic_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
-	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
+	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
 	/* We must return immediately, so LINGER option is meaningless. */
 	WARN_ON_ONCE(sock_flag(sk, SOCK_LINGER));
@@ -816,7 +823,7 @@ ss_tcp_data_ready(struct sock *sk)
 	TFW_DBG("[%d]: %s: sk=%p state=%s\n",
 	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
-	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
+	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (!skb_queue_empty(&sk->sk_error_queue)) {
 		/*
@@ -866,7 +873,7 @@ ss_tcp_state_change(struct sock *sk)
 	        smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
-	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id());
+	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
 	if (sk->sk_state == TCP_ESTABLISHED) {
 		/* Process the new TCP connection. */
