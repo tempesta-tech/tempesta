@@ -1074,14 +1074,15 @@ tfw_apm_rbent_init(TfwApmRBEnt *rbent, unsigned long jtmistamp)
  * Note that due to specifics of Tempesta start up process this code
  * is executed in SoftIRQ context (so that sleeping is not allowed).
  */
-void *
-tfw_apm_create(bool hm)
+
+static void *
+tfw_apm_create(void)
 {
 	TfwApmData *data;
 	TfwApmRBEnt *rbent;
 	TfwApmHMStats *hmstats;
 	TfwApmHMCfg *ent;
-	int i, icpu, size, hm_size = 0;
+	int i, icpu, size, hm_size;
 	unsigned int *val[2];
 	int rbufsz = tfw_apm_tmwscale;
 	int psz = ARRAY_SIZE(tfw_pstats_ith);
@@ -1091,14 +1092,7 @@ tfw_apm_create(bool hm)
 		return NULL;
 	}
 
-	if (hm) {
-		if (!tfw_hm_codes_cnt) {
-			TFW_ERR("No response codes specified for"
-				" server's health monitoring\n");
-			return NULL;
-		}
-		hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
-	}
+	hm_size = tfw_hm_codes_cnt * sizeof(TfwApmHMStats);
 
 	/* Keep complete stats for the full time window. */
 	size = sizeof(TfwApmData)
@@ -1154,7 +1148,7 @@ tfw_apm_create(bool hm)
 		ubuf->ubufsz = TFW_APM_UBUF_SZ;
 	}
 
-	if (hm) {
+	if (hm_size) {
 		i = 0;
 		hmstats = (TfwApmHMStats *)(val[1] + psz);
 		list_for_each_entry(ent, &tfw_hm_codes_list, list)
@@ -1170,15 +1164,21 @@ cleanup:
 	return NULL;
 }
 
+static inline void
+tfw_apm_hm_stop_timer(TfwApmData *data) {
+	BUG_ON(!data);	
+	atomic_set(&data->hmctl.rearm, 0);
+	smp_mb__after_atomic();
+	del_timer_sync(&data->hmctl.timer);
+}
+
 int
 tfw_apm_add_srv(TfwServer *srv)
 {
 	TfwApmData *data;
-	bool hm = test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->flags);
 
 	BUG_ON(srv->apmref);
-
-	if (!(data = tfw_apm_create(hm)))
+	if (!(data = tfw_apm_create()))
 		return -ENOMEM;
 
 	/* Start the timer for the percentile calculation. */
@@ -1199,12 +1199,9 @@ tfw_apm_del_srv(TfwServer *srv)
 	if (!data)
 		return;
 
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->flags)) {
-		/* Stop health monitor timer and the percentile calculation. */
-		atomic_set(&data->hmctl.rearm, 0);
-		smp_mb__after_atomic();
-		del_timer_sync(&data->hmctl.timer);
-	}
+	/* Stop health monitor timer. */
+	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
+		tfw_apm_hm_stop_timer(data);
 
 	/* Stop the timer and the percentile calculation. */
 	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
@@ -1293,16 +1290,28 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 }
 
 bool
-tfw_apm_hm_set_srv(const char *name, TfwServer *srv)
+tfw_apm_hm_enable_srv(const char *name, TfwServer *srv)
 {
 	TfwApmHMCtl *hmctl;
 	TfwApmHM *hm;
 	unsigned long now;
 
+	if (!tfw_hm_codes_cnt) {
+		TFW_ERR("No response codes specified for"
+			" server's health monitoring\n");
+		return false;
+	}
+	
 	BUG_ON(!srv->apmref);
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
 	list_for_each_entry(hm, &tfw_hm_list, list) {
+		BUG_ON(test_bit(TFW_SRV_B_HMONITOR,
+			       (unsigned long *)&srv->hm_flags));
 		if(!strcasecmp(name, hm->name)) {
+			WRITE_ONCE(hmctl->hm, hm);
+			atomic64_set(&hmctl->rcount, 0);
+			clear_bit(TFW_SRV_B_SUSPEND,
+				  (unsigned long *)&srv->hm_flags);
 			/* Start server's health monitoring timer. */
 			atomic_set(&hmctl->rearm, 1);
 			smp_mb__after_atomic();
@@ -1311,12 +1320,38 @@ tfw_apm_hm_set_srv(const char *name, TfwServer *srv)
 			now = jiffies;
 			mod_timer(&hmctl->timer, now + hm->tmt * HZ);
 			WRITE_ONCE(hmctl->jtmstamp, now);
-			hmctl->hm = hm;
+			set_bit(TFW_SRV_B_HMONITOR,
+				(unsigned long *)&srv->hm_flags);
 			return true;
 		}
 	}
+	TFW_ERR_NL("health monitor with name"
+		   " '%s' does not exist\n", name);
 	return false;
 }
+
+void
+tfw_apm_hm_disable_srv(TfwServer *srv)
+{
+	BUG_ON(!test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags));
+	clear_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
+	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
+}
+
+bool
+tfw_apm_hm_srv_eq(const char *name, TfwServer *srv)
+{
+	TfwApmHM *hm;
+
+	BUG_ON(!srv->apmref);
+	hm = ((TfwApmData *)srv->apmref)->hmctl.hm;
+	BUG_ON(!hm);
+	if(!strcasecmp(name, hm->name))
+		return true;
+
+	return false;
+}
+
 
 /*
  * Calculation of general health monitoring statistics (for procfs).
@@ -1360,23 +1395,19 @@ tfw_apm_hm_stats(void *apmref)
 
 #define TFW_APM_MIN_TMWSCALE	1	/* Minimum time window scale. */
 #define TFW_APM_MAX_TMWSCALE	50	/* Maximum time window scale. */
-#define TFW_APM_DEF_TMWSCALE	5	/* Default time window scale. */
 
 #define TFW_APM_MIN_TMWINDOW	60	/* Minimum time window (secs). */
 #define TFW_APM_MAX_TMWINDOW	3600	/* Maximum time window (secs). */
-#define TFW_APM_DEF_TMWINDOW	300	/* Default time window (secs). */
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
 static int
-tfw_apm_cfg_start(void)
+tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
 
-	if (!tfw_apm_jtmwindow)
-		tfw_apm_jtmwindow = TFW_APM_DEF_TMWINDOW;
-	if (!tfw_apm_tmwscale)
-		tfw_apm_tmwscale = TFW_APM_DEF_TMWSCALE;
+	if (tfw_runstate_is_reconfig())
+		return 0;
 
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
@@ -1416,13 +1447,13 @@ tfw_apm_cfg_start(void)
  * and the APM timers are deleted.
  */
 static void
-tfw_apm_cfg_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_apm(TfwCfgSpec *cs)
 {
-	tfw_apm_jtmwindow = tfw_apm_jtmintrvl = tfw_apm_tmwscale = 0;
+	tfw_apm_jtmwindow = tfw_apm_tmwscale = 0;
 }
 
 static int
-tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, r;
 	const char *key, *val;
@@ -1437,6 +1468,7 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			    cs->name);
 		return 0;
 	}
+
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "window")) {
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_jtmwindow)))
@@ -1455,7 +1487,7 @@ tfw_handle_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_handle_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwApmHMCfg *hm_entry;
 	int code, limit, tframe;
@@ -1468,7 +1500,7 @@ tfw_apm_handle_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (tfw_http_parse_status(ce->vals[0], &code)) {
+	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		TFW_ERR_NL("Unable to parse http code value: '%s'\n",
 			   ce->vals[0] ? ce->vals[0] : "No value specified");
 		return -EINVAL;
@@ -1504,7 +1536,7 @@ tfw_apm_handle_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_apm_cleanup_server_failover(TfwCfgSpec *cs)
+tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 {
 	TfwApmHMCfg *ent, *tmp;
 
@@ -1516,7 +1548,7 @@ tfw_apm_cleanup_server_failover(TfwCfgSpec *cs)
 }
 
 static int
-tfw_apm_hm_cfg_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwApmHM *hm;
 	size_t size;
@@ -1554,7 +1586,7 @@ tfw_apm_hm_cfg_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_hm_cfg_finish(TfwCfgSpec *cs)
+tfw_cfgop_finish_apm_hm(TfwCfgSpec *cs)
 {
 	BUG_ON(!tfw_hm_entry);
 	BUG_ON(list_empty(&tfw_hm_list));
@@ -1570,7 +1602,7 @@ tfw_apm_hm_cfg_finish(TfwCfgSpec *cs)
 }
 
 static int
-tfw_apm_hm_cfg_handle_request(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_hm_request(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned long size;
 
@@ -1593,7 +1625,7 @@ tfw_apm_hm_cfg_handle_request(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_hm_cfg_handle_req_url(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_hm_req_url(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	char *mptr;
 	int size;
@@ -1617,7 +1649,7 @@ tfw_apm_hm_cfg_handle_req_url(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_hm_cfg_handle_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int i, code;
 	const char *val;
@@ -1631,7 +1663,7 @@ tfw_apm_hm_cfg_handle_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_http_parse_status(val, &code)) {
+		if (tfw_cfgop_parse_http_status(val, &code)) {
 			TFW_ERR_NL("Unable to parse http code value: '%s'\n",
 				   val ? val : "No value specified");
 			return -EINVAL;
@@ -1642,7 +1674,7 @@ tfw_apm_hm_cfg_handle_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_hm_cfg_handle_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	u32 crc32;
 	if (tfw_cfg_check_single_val(ce))
@@ -1660,7 +1692,7 @@ tfw_apm_hm_cfg_handle_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_apm_hm_cfg_handle_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int timeout;
 
@@ -1681,7 +1713,7 @@ tfw_apm_hm_cfg_handle_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_apm_hm_cfg_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 {
 	TfwApmHM *hm, *tmp;
 
@@ -1697,80 +1729,93 @@ tfw_apm_hm_cfg_cleanup(TfwCfgSpec *cs)
 	INIT_LIST_HEAD(&tfw_hm_list);
 }
 
-static TfwCfgSpec tfw_apm_hm_cfg_specs[] = {
+static TfwCfgSpec tfw_apm_hm_specs[] = {
 	{
 		.name		= "request",
 		.deflt		= "\"GET / HTTTP/1.0\r\n\r\n\"",
-		.handler	= tfw_apm_hm_cfg_handle_request,
+		.handler	= tfw_cfgop_apm_hm_request,
 		.allow_none	= false,
 		.allow_repeat	= false,
 	},
 	{
 		.name		= "request_url",
 		.deflt		= NULL,
-		.handler	= tfw_apm_hm_cfg_handle_req_url,
+		.handler	= tfw_cfgop_apm_hm_req_url,
 		.allow_none	= false,
 		.allow_repeat	= false,
 	},
 	{
 		.name		= "resp_code",
 		.deflt		= NULL,
-		.handler	= tfw_apm_hm_cfg_handle_resp_code,
+		.handler	= tfw_cfgop_apm_hm_resp_code,
 		.allow_none	= true,
 		.allow_repeat	= false,
 	},
 	{
 		.name		= "resp_crc32",
 		.deflt		= NULL,
-		.handler	= tfw_apm_hm_cfg_handle_resp_crc32,
+		.handler	= tfw_cfgop_apm_hm_resp_crc32,
 		.allow_none	= true,
 		.allow_repeat	= false,
 	},
 	{
 		.name		= "timeout",
 		.deflt		= NULL,
-		.handler	= tfw_apm_hm_cfg_handle_timeout,
+		.handler	= tfw_cfgop_apm_hm_timeout,
 		.allow_none	= false,
 		.allow_repeat	= false,
 	},
 	{ 0 }
 };
 
-static TfwCfgSpec tfw_apm_cfg_specs[] = {
+static TfwCfgSpec tfw_apm_specs[] = {
 	{
 		.name		= "apm_stats",
-		.deflt		= NULL,
-		.handler	= tfw_handle_apm_stats,
+		.deflt		= "window=300 scale=5",
+		.handler	= tfw_cfgop_apm_stats,
+		.cleanup	= tfw_cfgop_cleanup_apm,
 		.allow_none	= true,
 		.allow_repeat	= false,
-		.cleanup	= tfw_apm_cfg_cleanup,
 	},
 	{
 		.name		= "server_failover_http",
 		.deflt		= NULL,
-		.handler	= tfw_apm_handle_server_failover,
+		.handler	= tfw_cfgop_apm_server_failover,
 		.allow_none	= true,
 		.allow_repeat	= true,
-		.cleanup	= tfw_apm_cleanup_server_failover,
+		.cleanup	= tfw_cfgop_apm_cleanup_server_failover,
 	},
 	{
 		.name		= "health_check",
 		.deflt		= NULL,
 		.handler	= tfw_cfg_handle_children,
-		.dest		= tfw_apm_hm_cfg_specs,
+		.dest		= tfw_apm_hm_specs,
 		.spec_ext	= &(TfwCfgSpecChild ) {
-			.begin_hook = tfw_apm_hm_cfg_begin,
-			.finish_hook = tfw_apm_hm_cfg_finish
+			.begin_hook = tfw_cfgop_begin_apm_hm,
+			.finish_hook = tfw_cfgop_finish_apm_hm
 		},
 		.allow_none	= true,
 		.allow_repeat	= true,
-		.cleanup	= tfw_apm_hm_cfg_cleanup,
+		.cleanup	= tfw_cfgop_cleanup_apm_hm,
 	},
 	{ 0 }
 };
 
-TfwCfgMod tfw_apm_cfg_mod = {
-	.name  = "apm",
-	.start = tfw_apm_cfg_start,
-	.specs = tfw_apm_cfg_specs,
+TfwMod tfw_apm_mod = {
+	.name	= "apm",
+	.cfgend	= tfw_apm_cfgend,
+	.specs	= tfw_apm_specs,
 };
+
+int
+tfw_apm_init(void)
+{
+	tfw_mod_register(&tfw_apm_mod);
+	return 0;
+}
+
+void
+tfw_apm_exit(void)
+{
+	tfw_mod_unregister(&tfw_apm_mod);
+}

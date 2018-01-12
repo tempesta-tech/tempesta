@@ -147,7 +147,7 @@ index cd0c8bd..df4de18 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 32810f2..3c5bd09 100644
+index 32810f2..107e395 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -652,8 +652,12 @@ struct sk_buff {
@@ -198,7 +198,20 @@ index 32810f2..3c5bd09 100644
  
  #ifdef CONFIG_NET_SCHED
  	__u16			tc_index;	/* traffic control index */
-@@ -1791,7 +1802,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+@@ -961,12 +972,6 @@ static inline struct sk_buff *alloc_skb_fclone(unsigned int size,
+ 	return __alloc_skb(size, priority, SKB_ALLOC_FCLONE, NUMA_NO_NODE);
+ }
+ 
+-struct sk_buff *__alloc_skb_head(gfp_t priority, int node);
+-static inline struct sk_buff *alloc_skb_head(gfp_t priority)
+-{
+-	return __alloc_skb_head(priority, -1);
+-}
+-
+ struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src);
+ int skb_copy_ubufs(struct sk_buff *skb, gfp_t gfp_mask);
+ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t priority);
+@@ -1791,7 +1796,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -210,7 +223,7 @@ index 32810f2..3c5bd09 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -1977,6 +1992,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -1977,6 +1986,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -231,7 +244,7 @@ index 32810f2..3c5bd09 100644
  /**
   *	skb_tailroom - bytes at buffer end
   *	@skb: buffer to check
-@@ -3873,5 +3902,29 @@ static inline __wsum lco_csum(struct sk_buff *skb)
+@@ -3873,5 +3896,29 @@ static inline __wsum lco_csum(struct sk_buff *skb)
  	return csum_partial(l4_hdr, csum_start - l4_hdr, partial);
  }
  
@@ -449,7 +462,7 @@ index 744fa61..da91fc7 100644
  restart:
  	/* Reset the pending bitmask before enabling irqs */
  	set_softirq_pending(0);
-@@ -305,6 +310,9 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
+@@ -305,6 +310,9 @@ restart:
  		wakeup_softirqd();
  	}
  
@@ -838,7 +851,7 @@ index 5d26056..ee02253 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1..f232d88 100644
+index fe008f1..a0d768f 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -859,7 +872,7 @@ index fe008f1..f232d88 100644
  /*
   * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
   * the caller if emergency pfmemalloc reserves are being used. If it is and
-@@ -151,6 +154,173 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+@@ -151,22 +154,179 @@ out:
  
  	return obj;
  }
@@ -876,13 +889,17 @@ index fe008f1..f232d88 100644
 +#define PG_ALLOC_SZ(s)		(((s) + (PG_CHUNK_SZ - 1)) & PG_CHUNK_MASK)
 +#define PG_CHUNK_NUM(s)		(PG_ALLOC_SZ(s) >> PG_CHUNK_BITS)
 +#define PG_POOL_HLIM_BASE	256
-+
+ 
+-/* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
+- *	'private' fields and also do memory statistics to find all the
+- *	[BEEP] leaks.
+- *
 +/**
 + * @lh		- list head of chunk pool;
 + * @count	- current number of chunks in @lh;
 + * @h_limit	- hard limit for size of @lh;
 + * @max		- current maximum allowed size of the list, can be 0.
-+ */
+  */
 +typedef struct {
 +	struct list_head	lh;
 +	unsigned int		count;
@@ -905,10 +922,12 @@ index fe008f1..f232d88 100644
 +		++pool->max;
 +	return true;
 +}
-+
+ 
+-struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
 +static bool
 +__pg_pool_shrink(TfwSkbMemPool *pool)
-+{
+ {
+-	struct sk_buff *skb;
 +	if (unlikely(pool->count >= pool->max)) {
 +		/* Producers are much faster consumers right now. */
 +		pool->max >>= 1;
@@ -928,7 +947,12 @@ index fe008f1..f232d88 100644
 +		--pool->max;
 +	return true;
 +}
-+
+ 
+-	/* Get the HEAD */
+-	skb = kmem_cache_alloc_node(skbuff_head_cache,
+-				    gfp_mask & ~__GFP_DMA, node);
+-	if (!skb)
+-		goto out;
 +static void *
 +__pg_skb_alloc(unsigned int size, gfp_t gfp_mask, int node)
 +{
@@ -1030,34 +1054,33 @@ index fe008f1..f232d88 100644
 +#undef PREEMPT_CTX_ENABLE
 +}
 +#endif
- 
- /* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
-  *	'private' fields and also do memory statistics to find all the
-@@ -183,6 +353,54 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
- 	return skb;
- }
- 
++
 +static void
 +__alloc_skb_init(struct sk_buff *skb, u8 *data, unsigned int size,
 +		 int flags, bool pfmemalloc)
 +{
 +	struct skb_shared_info *shinfo;
-+
-+	/*
-+	 * Only clear those fields we need to clear, not those that we will
-+	 * actually initialise below. Hence, don't put any more fields after
-+	 * the tail pointer in struct sk_buff!
-+	 */
-+	memset(skb, 0, offsetof(struct sk_buff, tail));
+ 
+ 	/*
+ 	 * Only clear those fields we need to clear, not those that we will
+@@ -174,13 +334,40 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
+ 	 * the tail pointer in struct sk_buff!
+ 	 */
+ 	memset(skb, 0, offsetof(struct sk_buff, tail));
+-	skb->head = NULL;
+-	skb->truesize = sizeof(struct sk_buff);
 +	/* Account for allocated memory : skb + skb->head */
 +	skb->truesize = SKB_TRUESIZE(size);
 +	skb->pfmemalloc = pfmemalloc;
-+	atomic_set(&skb->users, 1);
+ 	atomic_set(&skb->users, 1);
+-
 +	skb->head = data;
 +	skb->data = data;
 +	skb_reset_tail_pointer(skb);
 +	skb->end = skb->tail + size;
-+	skb->mac_header = (typeof(skb->mac_header))~0U;
+ 	skb->mac_header = (typeof(skb->mac_header))~0U;
+-out:
+-	return skb;
 +	skb->transport_header = (typeof(skb->transport_header))~0U;
 +
 +	/* make sure we initialize shinfo sequentially */
@@ -1083,12 +1106,10 @@ index fe008f1..f232d88 100644
 +		fclones->skb2.head_frag = 1;
 +#endif
 +	}
-+}
-+
+ }
+ 
  /**
-  *	__alloc_skb	-	allocate a network buffer
-  *	@size: size to allocate
-@@ -200,11 +418,11 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
+@@ -200,11 +387,11 @@ out:
   *	Buffers may only be allocated from interrupts using a @gfp_mask of
   *	%GFP_ATOMIC.
   */
@@ -1101,7 +1122,7 @@ index fe008f1..f232d88 100644
  	struct sk_buff *skb;
  	u8 *data;
  	bool pfmemalloc;
-@@ -238,41 +456,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+@@ -238,41 +425,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
  	size = SKB_WITH_OVERHEAD(ksize(data));
  	prefetchw(data + size);
  
@@ -1144,7 +1165,7 @@ index fe008f1..f232d88 100644
  out:
  	return skb;
  nodata:
-@@ -280,6 +464,42 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+@@ -280,6 +433,42 @@ nodata:
  	skb = NULL;
  	goto out;
  }
@@ -1187,7 +1208,7 @@ index fe008f1..f232d88 100644
  EXPORT_SYMBOL(__alloc_skb);
  
  /**
-@@ -620,7 +840,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -620,7 +809,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  
  	switch (skb->fclone) {
  	case SKB_FCLONE_UNAVAILABLE:
@@ -1201,7 +1222,7 @@ index fe008f1..f232d88 100644
  		return;
  
  	case SKB_FCLONE_ORIG:
-@@ -641,7 +866,12 @@ static void kfree_skbmem(struct sk_buff *skb)
+@@ -641,7 +835,12 @@ static void kfree_skbmem(struct sk_buff *skb)
  	if (!atomic_dec_and_test(&fclones->fclone_ref))
  		return;
  fastpath:
@@ -1214,7 +1235,7 @@ index fe008f1..f232d88 100644
  }
  
  static void skb_release_head_state(struct sk_buff *skb)
-@@ -777,6 +1007,17 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
+@@ -777,6 +976,17 @@ static inline void _kfree_skb_defer(struct sk_buff *skb)
  	/* drop skb->head and call any destructors for packet */
  	skb_release_all(skb);
  
@@ -1232,7 +1253,7 @@ index fe008f1..f232d88 100644
  	/* record skb to CPU local list */
  	nc->skb_cache[nc->skb_count++] = skb;
  
-@@ -837,7 +1078,12 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+@@ -837,7 +1047,12 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
  	new->tstamp		= old->tstamp;
  	/* We do not copy old->sk */
  	new->dev		= old->dev;
@@ -1245,17 +1266,7 @@ index fe008f1..f232d88 100644
  	skb_dst_copy(new, old);
  #ifdef CONFIG_XFRM
  	new->sp			= secpath_get(old->sp);
-@@ -932,6 +1178,9 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
- struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src)
- {
- 	skb_release_all(dst);
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	dst->skb_page = src->skb_page;
-+#endif
- 	return __skb_clone(dst, src);
- }
- EXPORT_SYMBOL_GPL(skb_morph);
-@@ -1025,6 +1274,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1025,6 +1240,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  	    atomic_read(&fclones->fclone_ref) == 1) {
  		n = &fclones->skb2;
  		atomic_set(&fclones->fclone_ref, 2);
@@ -1266,7 +1277,7 @@ index fe008f1..f232d88 100644
  	} else {
  		if (skb_pfmemalloc(skb))
  			gfp_mask |= __GFP_MEMALLOC;
-@@ -1035,6 +1288,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1035,6 +1254,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  
  		kmemcheck_annotate_bitfield(n, flags1);
  		n->fclone = SKB_FCLONE_UNAVAILABLE;
@@ -1276,7 +1287,7 @@ index fe008f1..f232d88 100644
  	}
  
  	return __skb_clone(n, skb);
-@@ -1205,15 +1461,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1205,15 +1427,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	if (skb_shared(skb))
  		BUG();
  
@@ -1302,7 +1313,7 @@ index fe008f1..f232d88 100644
  
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
-@@ -1246,7 +1509,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1246,7 +1475,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	off = (data + nhead) - skb->head;
  
  	skb->head     = data;
@@ -1315,7 +1326,7 @@ index fe008f1..f232d88 100644
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1263,7 +1531,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1263,7 +1497,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	return 0;
  
  nofrags:
@@ -1327,7 +1338,7 @@ index fe008f1..f232d88 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -1372,7 +1644,11 @@ int skb_pad(struct sk_buff *skb, int pad)
+@@ -1372,7 +1610,11 @@ int skb_pad(struct sk_buff *skb, int pad)
  		return 0;
  	}
  
@@ -1339,7 +1350,7 @@ index fe008f1..f232d88 100644
  	if (likely(skb_cloned(skb) || ntail > 0)) {
  		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
  		if (unlikely(err))
-@@ -1607,7 +1883,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+@@ -1607,7 +1849,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
  	 * plus 128 bytes for future expansions. If we have enough
  	 * room at tail, reallocate without expansion only if skb is cloned.
  	 */
@@ -1354,7 +1365,7 @@ index fe008f1..f232d88 100644
  
  	if (eat > 0 || skb_cloned(skb)) {
  		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
-@@ -3463,16 +3745,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
+@@ -3463,16 +3711,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
  
  void __init skb_init(void)
  {
@@ -1391,21 +1402,23 @@ index fe008f1..f232d88 100644
  }
  
  /**
-@@ -4262,7 +4559,12 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -4262,7 +4525,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
--		kmem_cache_free(skbuff_head_cache, skb);
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+		if (skb->skb_page)
-+			put_page(virt_to_page(skb));
-+		else
++		/*
++		 * fclones are possible here with Tempesta due to using
++		 * pskb_copy_for_clone() in ss_send().
++		 */
++		kfree_skbmem(skb);
++#else
+ 		kmem_cache_free(skbuff_head_cache, skb);
 +#endif
-+			kmem_cache_free(skbuff_head_cache, skb);
  	} else {
  		__kfree_skb(skb);
  	}
-@@ -4704,13 +5006,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4704,13 +4975,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1427,7 +1440,31 @@ index fe008f1..f232d88 100644
  
  	/* Copy real data, and all frags */
  	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
-@@ -4828,13 +5137,20 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -4723,7 +5001,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+ 	if (skb_cloned(skb)) {
+ 		/* drop the old head gracefully */
+ 		if (skb_orphan_frags(skb, gfp_mask)) {
++#ifdef CONFIG_SECURITY_TEMPESTA
++			skb_free_frag(data);
++#else
+ 			kfree(data);
++#endif
+ 			return -ENOMEM;
+ 		}
+ 		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
+@@ -4740,7 +5022,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+ 
+ 	skb->head = data;
+ 	skb->data = data;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	skb->head_frag = 1;
++#else
+ 	skb->head_frag = 0;
++#endif
+ #ifdef NET_SKBUFF_DATA_USES_OFFSET
+ 	skb->end = size;
+ #else
+@@ -4828,19 +5114,30 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1449,31 +1486,76 @@ index fe008f1..f232d88 100644
  
  	memcpy((struct skb_shared_info *)(data + size),
  	       skb_shinfo(skb), offsetof(struct skb_shared_info,
+ 					 frags[skb_shinfo(skb)->nr_frags]));
+ 	if (skb_orphan_frags(skb, gfp_mask)) {
++#ifdef CONFIG_SECURITY_TEMPESTA
++		skb_free_frag(data);
++#else
+ 		kfree(data);
++#endif
+ 		return -ENOMEM;
+ 	}
+ 	shinfo = (struct skb_shared_info *)(data + size);
+@@ -4878,8 +5175,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+ 	skb_release_data(skb);
+ 
+ 	skb->head = data;
+-	skb->head_frag = 0;
+ 	skb->data = data;
++#ifdef CONFIG_SECURITY_TEMPESTA
++	skb->head_frag = 1;
++#else
++	skb->head_frag = 0;
++#endif
+ #ifdef NET_SKBUFF_DATA_USES_OFFSET
+ 	skb->end = size;
+ #else
+diff --git a/net/core/sock.c b/net/core/sock.c
+index 1989b3d..471c4f6 100644
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -1642,8 +1642,16 @@ void sock_wfree(struct sk_buff *skb)
+ 	 * if sk_wmem_alloc reaches 0, we must finish what sk_free()
+ 	 * could not do because of in-flight packets
+ 	 */
+-	if (atomic_sub_and_test(len, &sk->sk_wmem_alloc))
++	if (atomic_sub_and_test(len, &sk->sk_wmem_alloc)) {
++		/*
++		 * We don't bother with Tempesta socket memory limitations
++		 * since in proxy mode we just forward packets instead of real
++		 * allocations. Probably this is an issue. Probably sockets
++		 * can be freed from under us.
++		 */
++		WARN_ON(sock_flag(sk, SOCK_TEMPESTA));
+ 		__sk_free(sk);
++	}
+ }
+ EXPORT_SYMBOL(sock_wfree);
+ 
 diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
-index cf3d567..e93129c 100644
+index cf3d567..0f00e28 100644
 --- a/net/ipv4/inet_connection_sock.c
 +++ b/net/ipv4/inet_connection_sock.c
-@@ -801,7 +801,14 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
- 	if (unlikely(sk->sk_state != TCP_LISTEN)) {
- 		inet_child_forget(sk, req, child);
- 		child = NULL;
--	} else {
-+	}
+@@ -797,6 +797,14 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
+ {
+ 	struct request_sock_queue *queue = &inet_csk(sk)->icsk_accept_queue;
+ 
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	else if (sock_flag(sk, SOCK_TEMPESTA)) {
++	if (sk->sk_state == TCP_LISTEN && sock_flag(sk, SOCK_TEMPESTA)) {
 +		/* Tempesta doesn't use accept queue, just put the request. */
 +		reqsk_put(req);
++		return child;
 +	}
 +#endif
-+	else {
- 		req->sk = child;
- 		req->dl_next = NULL;
- 		if (queue->rskq_accept_head == NULL)
++
+ 	spin_lock(&queue->rskq_lock);
+ 	if (unlikely(sk->sk_state != TCP_LISTEN)) {
+ 		inet_child_forget(sk, req, child);
 diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
 index ca97835..8427f32 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
-@@ -621,7 +621,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
+@@ -621,7 +621,8 @@ other_parity_scan:
  		goto ok;
  next_port:
  		spin_unlock_bh(&head->lock);
@@ -1484,7 +1566,7 @@ index ca97835..8427f32 100644
  
  	offset++;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 86fbf0f..6944a4a 100644
+index 86fbf0f..628b5df 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -592,18 +592,19 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
@@ -1509,7 +1591,20 @@ index 86fbf0f..6944a4a 100644
  {
  	struct tcp_sock *tp = tcp_sk(sk);
  	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
-@@ -621,6 +622,7 @@ static void skb_entail(struct sock *sk, struct sk_buff *skb)
+@@ -612,7 +613,11 @@ static void skb_entail(struct sock *sk, struct sk_buff *skb)
+ 	tcb->seq     = tcb->end_seq = tp->write_seq;
+ 	tcb->tcp_flags = TCPHDR_ACK;
+ 	tcb->sacked  = 0;
+-	__skb_header_release(skb);
++	/*
++	 * fclones are possible here, so accurately update
++	 * skb_shinfo(skb)->dataref.
++	 */
++	skb_header_release(skb);
+ 	tcp_add_write_queue_tail(sk, skb);
+ 	sk->sk_wmem_queued += skb->truesize;
+ 	sk_mem_charge(sk, skb->truesize);
+@@ -621,6 +626,7 @@ static void skb_entail(struct sock *sk, struct sk_buff *skb)
  
  	tcp_slow_start_after_idle_check(sk);
  }
@@ -1517,7 +1612,7 @@ index 86fbf0f..6944a4a 100644
  
  static inline void tcp_mark_urg(struct tcp_sock *tp, int flags)
  {
-@@ -647,8 +649,8 @@ static bool tcp_should_autocork(struct sock *sk, struct sk_buff *skb,
+@@ -647,8 +653,8 @@ static bool tcp_should_autocork(struct sock *sk, struct sk_buff *skb,
  	       atomic_read(&sk->sk_wmem_alloc) > skb->truesize;
  }
  
@@ -1528,7 +1623,7 @@ index 86fbf0f..6944a4a 100644
  {
  	struct tcp_sock *tp = tcp_sk(sk);
  	struct sk_buff *skb;
-@@ -681,6 +683,7 @@ static void tcp_push(struct sock *sk, int flags, int mss_now,
+@@ -681,6 +687,7 @@ static void tcp_push(struct sock *sk, int flags, int mss_now,
  
  	__tcp_push_pending_frames(sk, mss_now, nonagle);
  }
@@ -1536,7 +1631,7 @@ index 86fbf0f..6944a4a 100644
  
  static int tcp_splice_data_recv(read_descriptor_t *rd_desc, struct sk_buff *skb,
  				unsigned int offset, size_t len)
-@@ -871,7 +874,7 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
+@@ -871,7 +878,7 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
  	return max(size_goal, mss_now);
  }
  
@@ -1545,7 +1640,7 @@ index 86fbf0f..6944a4a 100644
  {
  	int mss_now;
  
-@@ -880,6 +883,7 @@ static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
+@@ -880,6 +887,7 @@ static int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
  
  	return mss_now;
  }
@@ -1553,7 +1648,7 @@ index 86fbf0f..6944a4a 100644
  
  static ssize_t do_tcp_sendpages(struct sock *sk, struct page *page, int offset,
  				size_t size, int flags)
-@@ -1422,7 +1426,7 @@ static int tcp_peek_sndq(struct sock *sk, struct msghdr *msg, int len)
+@@ -1422,7 +1430,7 @@ static int tcp_peek_sndq(struct sock *sk, struct msghdr *msg, int len)
   * calculation of whether or not we must ACK for the sake of
   * a window update.
   */
@@ -1562,7 +1657,7 @@ index 86fbf0f..6944a4a 100644
  {
  	struct tcp_sock *tp = tcp_sk(sk);
  	bool time_to_ack = false;
-@@ -1479,6 +1483,7 @@ static void tcp_cleanup_rbuf(struct sock *sk, int copied)
+@@ -1479,6 +1487,7 @@ static void tcp_cleanup_rbuf(struct sock *sk, int copied)
  	if (time_to_ack)
  		tcp_send_ack(sk);
  }
@@ -1570,7 +1665,7 @@ index 86fbf0f..6944a4a 100644
  
  static void tcp_prequeue_process(struct sock *sk)
  {
-@@ -2012,7 +2017,7 @@ static const unsigned char new_state[16] = {
+@@ -2012,7 +2021,7 @@ static const unsigned char new_state[16] = {
    [TCP_NEW_SYN_RECV]	= TCP_CLOSE,	/* should not happen ! */
  };
  
@@ -1579,7 +1674,7 @@ index 86fbf0f..6944a4a 100644
  {
  	int next = (int)new_state[sk->sk_state];
  	int ns = next & TCP_STATE_MASK;
-@@ -2021,6 +2026,7 @@ static int tcp_close_state(struct sock *sk)
+@@ -2021,6 +2030,7 @@ static int tcp_close_state(struct sock *sk)
  
  	return next & TCP_ACTION_FIN;
  }
@@ -1587,7 +1682,7 @@ index 86fbf0f..6944a4a 100644
  
  /*
   *	Shutdown the sending side of a connection. Much like close except
-@@ -2060,6 +2066,7 @@ bool tcp_check_oom(struct sock *sk, int shift)
+@@ -2060,6 +2070,7 @@ bool tcp_check_oom(struct sock *sk, int shift)
  		net_info_ratelimited("out of memory -- consider tuning tcp_mem\n");
  	return too_many_orphans || out_of_socket_memory;
  }
@@ -1599,7 +1694,7 @@ diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
 index 01336aa..3e47409 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
-@@ -642,6 +642,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
+@@ -642,6 +642,7 @@ new_measure:
  	tp->rcvq_space.seq = tp->copied_seq;
  	tp->rcvq_space.time = tcp_time_stamp;
  }

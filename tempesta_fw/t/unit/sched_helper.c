@@ -26,8 +26,8 @@
 #define tfw_sock_srv_exit test_sock_srv_exit
 #undef tfw_srv_conn_release
 #define tfw_srv_conn_release test_srv_conn_release
-#undef tfw_sock_srv_cfg_mod
-#define tfw_sock_srv_cfg_mod test_sock_srv_cfg_mod
+#undef tfw_sock_srv_mod
+#define tfw_sock_srv_mod test_sock_srv_mod
 #include "sock_srv.c"
 
 #include "server.h"
@@ -40,11 +40,13 @@ test_spec_cleanup(TfwCfgSpec specs[])
 	TfwCfgSpec *spec;
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter && spec->cleanup) {
-			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+		bool called = spec->__called_cfg | spec->__called_ever;
+		if (called && spec->cleanup) {
+			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
-		spec->call_counter = 0;
+		spec->__called_cfg = false;
+		spec->__called_ever = false;
 	}
 }
 
@@ -69,14 +71,20 @@ void
 test_start_sg(TfwSrvGroup *sg, const char *sched_name, unsigned int flags)
 {
 	int r;
+	TfwScheduler *sched;
 
 	kernel_fpu_end();
 
 	sg->flags = flags;
+	r = tfw_sg_add_reconfig(sg);
+	BUG_ON(r);
 	/* Adjust servers weights for ratio scheduler. */
 	if (!strcmp(sched_name, "ratio"))
 		tfw_cfg_sg_ratio_adjust(&sg->srv_list);
-	r = tfw_sg_set_sched(sg, sched_name);
+
+	sched = tfw_sched_lookup(sched_name);
+	BUG_ON(!sched);
+	r = tfw_sg_start_sched(sg, sched, NULL);
 	BUG_ON(r);
 
 	kernel_fpu_begin();
@@ -88,6 +96,7 @@ test_sg_release_all(void)
 	kernel_fpu_end();
 
 	tfw_sg_release_all();
+	__tfw_sg_release_all_reconfig();
 
 	kernel_fpu_begin();
 }
@@ -106,7 +115,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	srv = tfw_server_create(&addr);
 	BUG_ON(!srv);
 
-	tfw_sg_add(sg, srv);
+	tfw_sg_add_srv(sg, srv);
 
 	return srv;
 }
@@ -156,6 +165,188 @@ test_conn_release_all(TfwSrvGroup *sg)
 }
 
 /**
+ * Unit test. Message cannot be scheduled to empty server group.
+ */
+void
+test_sched_sg_empty_sg(struct TestSchedHelper *sched_helper)
+{
+	size_t i;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test");
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwSrvConn *srv_conn = sg->sched->sched_sg_conn(msg, sg);
+
+		EXPECT_NULL(srv_conn);
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to server group if server in that
+ * group have no live connections.
+ */
+void
+test_sched_sg_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test");
+	test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwSrvConn *srv_conn = sg->sched->sched_sg_conn(msg, sg);
+
+		EXPECT_NULL(srv_conn);
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to server group if servers in that
+ * group have no live connections. Server group contain as much servers as
+ * possible.
+ */
+void
+test_sched_sg_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test");
+
+	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
+		test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+
+		for (j = 0; j < sg->srv_n; ++j) {
+			TfwSrvConn *srv_conn =
+				sg->sched->sched_sg_conn(msg, sg);
+
+			EXPECT_NULL(srv_conn);
+			/*
+			 * Don't let the kernel watchdog decide
+			 * that we're stuck in a locked context.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
+		}
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to server if it has no live
+ * connections.
+ */
+void
+test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i;
+	TfwSrvGroup *sg;
+	TfwServer *srv;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test");
+	srv = test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwSrvConn *srv_conn = sg->sched->sched_srv_conn(msg, srv, false);//!!!
+
+		EXPECT_NULL(srv_conn);
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
+ * Unit test. Message cannot be scheduled to any server of server group if
+ * there is no no live connections across all server.
+ */
+void
+test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
+{
+	size_t i, j;
+	TfwSrvGroup *sg;
+
+	BUG_ON(!sched_helper);
+	BUG_ON(!sched_helper->sched);
+	BUG_ON(!sched_helper->conn_types);
+	BUG_ON(!sched_helper->get_sched_arg);
+	BUG_ON(!sched_helper->free_sched_arg);
+
+	sg = test_create_sg("test");
+
+	for (j = 0; j < TFW_TEST_SG_MAX_SRV_N; ++j)
+		test_create_srv("127.0.0.1", sg);
+	test_start_sg(sg, sched_helper->sched, sched_helper->flags);
+
+	for (i = 0; i < sched_helper->conn_types; ++i) {
+		TfwMsg *msg = sched_helper->get_sched_arg(i);
+		TfwServer *srv;
+
+		list_for_each_entry(srv, &sg->srv_list, list) {
+			TfwSrvConn *srv_conn =
+				sg->sched->sched_srv_conn(msg, srv, false);//!!!
+
+			EXPECT_NULL(srv_conn);
+			/*
+			 * Don't let the kernel watchdog decide
+			 * that we're stuck in a locked context.
+			 */
+			kernel_fpu_end();
+			schedule();
+			kernel_fpu_begin();
+		}
+		sched_helper->free_sched_arg(msg);
+	}
+
+	test_sg_release_all();
+}
+
+/**
  * Unit test. Message cannot be scheduled to server if it is in failovering
  * process.
  */
@@ -198,7 +389,7 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			srv_conn = sg->sched->sched_srv_conn(msg, srv, false);
+			srv_conn = sg->sched->sched_srv_conn(msg, srv, false);//!!!
 
 			if (srv == offline_srv)
 				EXPECT_NULL(srv_conn);

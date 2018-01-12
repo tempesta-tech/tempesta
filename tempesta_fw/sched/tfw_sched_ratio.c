@@ -28,7 +28,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta Ratio Scheduler");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
 
 #define TFW_SCHED_RATIO_INTVL	(HZ / 20)	/* The timer periodicity. */
@@ -39,6 +39,7 @@ MODULE_LICENSE("GPL");
  * Connections may go up or down during failover process.
  * Only fully established connections are considered by scheduler.
  *
+ * @rcu		- RCU control structure.
  * @srv		- pointer to server structure.
  * @conn	- list of pointers to server connection structures.
  * @counter	- monotonic counter for choosing the next connection.
@@ -46,11 +47,12 @@ MODULE_LICENSE("GPL");
  * @seq		- current sequence number for APM stats.
  */
 typedef struct {
-	TfwServer	*srv;
-	TfwSrvConn	**conn;
-	atomic64_t	counter;
-	size_t		conn_n;
-	unsigned int	seq;
+	struct rcu_head		rcu;
+	TfwServer		*srv;
+	TfwSrvConn		**conn;
+	atomic64_t		counter;
+	size_t			conn_n;
+	unsigned int		seq;
 } TfwRatioSrvDesc;
 
 /**
@@ -641,10 +643,9 @@ tfw_sched_ratio_rtodata_put(struct rcu_head *rcup)
  * released in due time when all users of it are done and gone.
  */
 static void
-tfw_sched_ratio_calc_tmfn(TfwSrvGroup *sg,
+tfw_sched_ratio_calc_tmfn(TfwRatio *ratio,
 			  void (*calc_fn)(TfwRatio *, TfwRatioData *))
 {
-	TfwRatio *ratio = sg->sched_data;
 	TfwRatioData *crtodata, *nrtodata;
 
 	/*
@@ -654,8 +655,7 @@ tfw_sched_ratio_calc_tmfn(TfwSrvGroup *sg,
 	 * is a critical issue in itself.
 	 */
 	if (!(nrtodata = tfw_sched_ratio_rtodata_get(ratio))) {
-		TFW_ERR("Sched ratio: Insufficient memory for group '%s'\n",
-			sg->name);
+		TFW_ERR("Sched ratio: Insufficient memory\n");
 		goto rearm;
 	}
 
@@ -683,7 +683,7 @@ rearm:
 static void
 tfw_sched_ratio_dynamic_tmfn(unsigned long tmfn_data)
 {
-	tfw_sched_ratio_calc_tmfn((TfwSrvGroup *)tmfn_data,
+	tfw_sched_ratio_calc_tmfn((TfwRatio *)tmfn_data,
 				   tfw_sched_ratio_calc_dynamic);
 }
 
@@ -693,7 +693,7 @@ tfw_sched_ratio_dynamic_tmfn(unsigned long tmfn_data)
 static void
 tfw_sched_ratio_predict_tmfn(unsigned long tmfn_data)
 {
-	tfw_sched_ratio_calc_tmfn((TfwSrvGroup *)tmfn_data,
+	tfw_sched_ratio_calc_tmfn((TfwRatio *)tmfn_data,
 				   tfw_sched_ratio_calc_predict);
 }
 
@@ -855,32 +855,31 @@ static TfwSrvConn *
 tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
 {
 	int skipnip = 1, nipconn = 0;
-	TfwRatioSrvDesc *srvdesc = srv->sched_data;
-	TfwSrvConn *srv_conn;
+	TfwRatioSrvDesc *srvdesc;
+	TfwSrvConn *srv_conn = NULL;
 
-	/*
-	 * For @srv without connections @srvdesc will be NULL. Normally,
-	 * it doesn't happen in real life, but unit tests check this case.
-	 */
+	rcu_read_lock();
+	srvdesc = rcu_dereference(srv->sched_data);
 	if (unlikely(!srvdesc))
-		return NULL;
+		goto done;
 
 	/*
 	 * Bypass the suspend checking if connection is needed for
 	 * helth monitoring of backend server.
 	 */
 	if (!hmonitor && tfw_srv_suspended(srv))
-		return NULL;
+		goto done;
+
 rerun:
 	if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn)))
-		return srv_conn;
-
+		goto done;
 	if (skipnip && nipconn) {
 		skipnip = 0;
 		goto rerun;
 	}
-
-	return NULL;
+done:
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 /**
@@ -906,14 +905,18 @@ static TfwSrvConn *
 tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
 	unsigned int attempts, skipnip = 1, nipconn = 0;
-	TfwRatio *ratio = sg->sched_data;
+	TfwRatio *ratio;
 	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn;
 	TfwRatioData *rtodata;
 
-	BUG_ON(!ratio);
-
 	rcu_read_lock();
+	ratio = rcu_dereference(sg->sched_data);
+	if (unlikely(!ratio)) {
+		rcu_read_unlock();
+		return NULL;
+	}
+
 	rtodata = rcu_dereference(ratio->rtodata);
 	BUG_ON(!rtodata);
 rerun:
@@ -970,23 +973,21 @@ rerun:
  * Release Ratio Scheduler data from a server group.
  */
 static void
-tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
+tfw_sched_ratio_cleanup(TfwRatio *ratio)
 {
 	size_t si;
-	TfwRatio *ratio = sg->sched_data;
 
 	if (!ratio)
 		return;
 
 	/* Data that is shared between pool entries. */
-	for (si = 0; si < sg->srv_n; ++si)
+	for (si = 0; si < ratio->srv_n; ++si)
 		kfree(ratio->srvdesc[si].conn);
 
 	kfree(ratio->hstdata);
 	kfree(ratio->rtodata);
 
 	kfree(ratio);
-	sg->sched_data = NULL;
 }
 
 /**
@@ -1000,8 +1001,15 @@ tfw_sched_ratio_cleanup(TfwSrvGroup *sg)
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatio *ratio = sg->sched_data;
+	TfwRatio *ratio = rcu_dereference(sg->sched_data);
+	TfwServer *srv;
 
+	rcu_assign_pointer(sg->sched_data, NULL);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		rcu_assign_pointer(srv->sched_data, NULL);
+	synchronize_rcu();
+	if (!ratio)
+		return;
 	/*
 	 * Make sure the timer doesn't re-arms itself. This
 	 * also ensures that no more RCU callbacks are created.
@@ -1018,7 +1026,33 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	rcu_barrier();
 
 	/* Release all memory allocated for the group. */
-	tfw_sched_ratio_cleanup(sg);
+	tfw_sched_ratio_cleanup(ratio);
+}
+
+static int
+tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
+{
+	size_t size, ci = 0;
+	TfwSrvConn **conn, *srv_conn;
+
+	size = sizeof(TfwSrvConn *) * srv->conn_n;
+	if (!(srvdesc->conn = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+
+	conn = srvdesc->conn;
+	list_for_each_entry(srv_conn, &srv->conn_list, list) {
+		if (unlikely(ci++ == srv->conn_n))
+			return -EINVAL;
+		*conn++ = srv_conn;
+	}
+	if (unlikely(ci != srv->conn_n))
+		return -EINVAL;
+
+	srvdesc->conn_n = srv->conn_n;
+	srvdesc->srv = srv;
+	atomic64_set(&srvdesc->counter, 0);
+
+	return 0;
 }
 
 /**
@@ -1033,38 +1067,19 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 
 /* Set up the upstream server descriptors. */
 static int
-tfw_sched_ratio_srvdesc_setup(TfwSrvGroup *sg)
+tfw_sched_ratio_srvdesc_setup(TfwSrvGroup *sg, TfwRatio *ratio)
 {
-	size_t size, si = 0, ci;
+	int r;
+	size_t si = 0;
 	TfwServer *srv;
-	TfwRatio *ratio = sg->sched_data;
 	TfwRatioSrvDesc *srvdesc = ratio->srvdesc;
 
 	list_for_each_entry(srv, &sg->srv_list, list) {
-		TfwSrvConn **conn, *srv_conn;
-
 		if (unlikely((si++ == sg->srv_n) || !srv->conn_n
 			     || list_empty(&srv->conn_list)))
 			return -EINVAL;
-
-		size = sizeof(TfwSrvConn *) * srv->conn_n;
-		if (!(srvdesc->conn = kzalloc(size, GFP_KERNEL)))
-			return -ENOMEM;
-
-		ci = 0;
-		conn = srvdesc->conn;
-		list_for_each_entry(srv_conn, &srv->conn_list, list) {
-			if (unlikely(ci++ == srv->conn_n))
-				return -EINVAL;
-			*conn++ = srv_conn;
-		}
-		if (unlikely(ci != srv->conn_n))
-			return -EINVAL;
-
-		srvdesc->conn_n = srv->conn_n;
-		srvdesc->srv = srv;
-		atomic64_set(&srvdesc->counter, 0);
-		srv->sched_data = srvdesc;
+		if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc)))
+			return r;
 		++srvdesc;
 	}
 	if (unlikely(si != sg->srv_n))
@@ -1084,50 +1099,51 @@ tfw_sched_ratio_add_grp_common(TfwSrvGroup *sg)
 	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
 	size = sizeof(TfwRatio) + sizeof(TfwRatioSrvDesc) * sg->srv_n;
-	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
-		return ERR_PTR(-ENOMEM);
+	if (!(ratio = kzalloc(size, GFP_KERNEL)))
+		return NULL;
 
-	ratio = sg->sched_data;
 	ratio->srv_n = sg->srv_n;
 	ratio->psidx = sg->flags & TFW_SG_M_PSTATS_IDX;
 
 	ratio->srvdesc = (TfwRatioSrvDesc *)(ratio + 1);
-	if ((ret = tfw_sched_ratio_srvdesc_setup(sg)))
-		return ERR_PTR(ret);
+	if ((ret = tfw_sched_ratio_srvdesc_setup(sg, ratio)))
+		goto cleanup;
 
 	if (!(rtodata = tfw_sched_ratio_rtodata_get(ratio)))
-		return ERR_PTR(-ENOMEM);
+		goto cleanup;
 	rcu_assign_pointer(ratio->rtodata, rtodata);
 
 	return ratio;
+
+cleanup:
+	tfw_sched_ratio_cleanup(ratio);
+	return NULL;
 }
 
-static int
+static TfwRatio *
 tfw_sched_ratio_add_grp_static(TfwSrvGroup *sg)
 {
 	TfwRatio *ratio;
 
-	ratio = tfw_sched_ratio_add_grp_common(sg);
-	if (IS_ERR(ratio))
-		return PTR_ERR(ratio);
+	if (!(ratio = tfw_sched_ratio_add_grp_common(sg)))
+		return ratio;
 
 	/* Calculate the static ratio data for each server. */
 	tfw_sched_ratio_calc_static(ratio, ratio->rtodata);
 
-	return 0;
+	return ratio;
 }
 
-static int
-tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg)
+static TfwRatio *
+tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg, void *arg)
 {
 	TfwRatio *ratio;
-	TfwSchrefPredict *schref = sg->sched_data;
+	TfwSchrefPredict *schref = arg;
 
 	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
-	ratio = tfw_sched_ratio_add_grp_common(sg);
-	if (IS_ERR(ratio))
-		return PTR_ERR(ratio);
+	if (!(ratio = tfw_sched_ratio_add_grp_common(sg)))
+		return ratio;
 
 	/* Set up the necessary workspace for predictive scheduler. */
 	if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT) {
@@ -1143,7 +1159,7 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg)
 		       + sizeof(TfwRatioHstDesc) * sg->srv_n
 		       + sizeof(TfwRatioHstUnit) * sg->srv_n * slot_n;
 		if (!(ratio->hstdata = kzalloc(size, GFP_KERNEL)))
-			return -ENOMEM;
+			goto cleanup;
 
 		hdata = ratio->hstdata;
 		hdata->hstdesc = (TfwRatioHstDesc *)(hdata + 1);
@@ -1171,47 +1187,98 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg)
 		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
 		setup_timer(&ratio->timer,
-			    tfw_sched_ratio_dynamic_tmfn, (unsigned long)sg);
+			    tfw_sched_ratio_dynamic_tmfn, (unsigned long)ratio);
 		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	} else if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT) {
 		ratio->intvl = msecs_to_jiffies(1000 / schref->rate);
 		atomic_set(&ratio->rearm, 1);
 		smp_mb__after_atomic();
 		setup_timer(&ratio->timer,
-			    tfw_sched_ratio_predict_tmfn, (unsigned long)sg);
+			    tfw_sched_ratio_predict_tmfn, (unsigned long)ratio);
 		mod_timer(&ratio->timer, jiffies + ratio->intvl);
 	}
 
-	return 0;
+	return ratio;
+
+cleanup:
+	tfw_sched_ratio_cleanup(ratio);
+	return NULL;
+}
+
+void
+tfw_sched_ratio_set_sched_data(TfwSrvGroup *sg, TfwRatio *ratio)
+{
+	size_t i;
+
+	if (!ratio)
+		return;
+
+	for (i = 0; i < ratio->srv_n; ++i) {
+		TfwRatioSrvDesc *srvdesc = &ratio->srvdesc[i];
+
+		rcu_assign_pointer(srvdesc->srv->sched_data, srvdesc);
+	}
+	rcu_assign_pointer(sg->sched_data, ratio);
 }
 
 static int
-tfw_sched_ratio_add_grp(TfwSrvGroup *sg)
+tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 {
-	int ret;
+	TfwRatio *ratio = NULL;
 
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
 
 	switch (sg->flags & TFW_SG_M_SCHED_RATIO_TYPE) {
 	case TFW_SG_F_SCHED_RATIO_STATIC:
-		if ((ret = tfw_sched_ratio_add_grp_static(sg)))
-			goto cleanup;
+		ratio = tfw_sched_ratio_add_grp_static(sg);
 		break;
 	case TFW_SG_F_SCHED_RATIO_DYNAMIC:
 	case TFW_SG_F_SCHED_RATIO_PREDICT:
-		if ((ret = tfw_sched_ratio_add_grp_dynamic(sg)))
-			goto cleanup;
+		ratio = tfw_sched_ratio_add_grp_dynamic(sg, arg);
 		break;
 	default:
 		return -EINVAL;
 	}
+	tfw_sched_ratio_set_sched_data(sg, ratio);
+
+	return ratio ? 0 : -EINVAL;
+}
+
+static int
+tfw_sched_ratio_add_srv(TfwServer *srv)
+{
+	TfwRatioSrvDesc *srvdesc = rcu_dereference(srv->sched_data);
+	int r;
+
+	if (unlikely(srvdesc))
+		return -EEXIST;
+
+	if (!(srvdesc = kzalloc(sizeof(TfwRatioSrvDesc), GFP_KERNEL)))
+		return -ENOMEM;
+	if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc)))
+		return r;
+
+	rcu_assign_pointer(srv->sched_data, srvdesc);
 
 	return 0;
+}
 
-cleanup:
-	tfw_sched_ratio_cleanup(sg);
-	return ret;
+static void
+tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
+{
+	TfwRatioSrvDesc *srvdesc = container_of(rcu, TfwRatioSrvDesc, rcu);
+	kfree(srvdesc);
+}
+
+static void
+tfw_sched_ratio_del_srv(TfwServer *srv)
+{
+	TfwRatioSrvDesc *srvdesc = rcu_dereference(srv->sched_data);
+
+	rcu_assign_pointer(srv->sched_data, NULL);
+	if (srvdesc)
+		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_ratio = {
@@ -1219,6 +1286,8 @@ static TfwScheduler tfw_sched_ratio = {
 	.list		= LIST_HEAD_INIT(tfw_sched_ratio.list),
 	.add_grp	= tfw_sched_ratio_add_grp,
 	.del_grp	= tfw_sched_ratio_del_grp,
+	.add_srv	= tfw_sched_ratio_add_srv,
+	.del_srv	= tfw_sched_ratio_del_srv,
 	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
 };
