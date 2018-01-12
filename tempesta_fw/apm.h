@@ -88,7 +88,9 @@ int tfw_apm_pstats_verify(TfwPrcntlStats *pstats);
 void tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref);
 bool tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref);
 bool tfw_apm_hm_srv_limit(int status, void *apmref);
-bool tfw_apm_hm_set_srv(const char *name, TfwServer *srv);
+bool tfw_apm_hm_enable_srv(const char *name, TfwServer *srv);
+void tfw_apm_hm_disable_srv(TfwServer *srv);
+bool tfw_apm_hm_srv_eq(const char *name, TfwServer *srv);
 TfwHMStats *tfw_apm_hm_stats(void *apmref);
 
 #endif /* __TFW_APM_H__ */

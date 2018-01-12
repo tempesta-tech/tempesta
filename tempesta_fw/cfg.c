@@ -43,16 +43,16 @@
  *  to SDL (http://www.ikayzo.org/display/SDL/Language+Guide), but our syntax
  *  and terminology is more habitual for C/Linux programmers and users.
  *
- *  Tempesta FW modules register themselves and provide their configuration
- *  specifications via TfwCfgMod and TfwCfgSpec structures. The code here pushes
- *  events and parsed configuration via callbacks specified in these structures.
+ *  Tempesta FW modules register themselves and provide configuration specs
+ *  via TfwMod{} and TfwCfgSpec{} structures. The code here pushes events
+ *  and parsed configuration via callbacks specified in these structures.
  *
  *  The code in this unit contains four main entities:
  *    1. The configuration parser.
  *       We utilize FSM approach for the parser. The code is divided into two
  *       FSMs: TFSM (tokenizer) and PFSM (the parser that produces entries).
  *    2. A bunch of generic  TfwCfgSpec->handler callbacks for the parser.
- *    3. TfwCfgMod list related routines, the top-level parsing routine.
+ *    3. TfwMod{} list related routines, the top-level parsing routine.
  *       This part of code implements publishing start/stop events and parsed
  *       configuration data across modules.
  *    4. The list of registered modules, VFS and sysctl helpers, kernel module
@@ -61,9 +61,6 @@
  * TODO:
  *  - "include" directives.
  *  - Handling large sets of data, possibly via TDB.
- *  - Re-loading some parts of the configuration on the fly without stopping the
- *    whole system.
- *  - Verbose error reporting: include file/line and expected/got messages.
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
@@ -749,9 +746,9 @@ spec_start_handling(TfwCfgSpec specs[])
 		BUG_ON(!*spec->name);
 		BUG_ON(!check_identifier(spec->name, strlen(spec->name)));
 		BUG_ON(!spec->handler);
-		BUG_ON(spec->call_counter < 0);
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
+		spec->__called_now = false;
 	}
 }
 
@@ -760,7 +757,11 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
 
-	if (!spec->allow_repeat && spec->call_counter) {
+	if (tfw_runstate_is_reconfig() && !spec->allow_reconfig) {
+		TFW_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
+		return 0;
+	}
+	if (!spec->allow_repeat && spec->__called_now) {
 		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
 			   " allowed.\n", parsed_entry->name);
 		return -EINVAL;
@@ -768,7 +769,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 
 	TFW_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
-	++spec->call_counter;
+	spec->__called_now = true;
+	spec->__called_cfg = true;
 	if (r)
 		TFW_DBG("configuration handler returned error: %d\n", r);
 
@@ -839,7 +841,7 @@ spec_finish_handling(TfwCfgSpec specs[])
 	 *     default value is provided, so issue an error.
 	 */
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter)
+		if (spec->__called_now)
 			continue;
 		if (spec->handler == tfw_cfg_handle_children) {
 			if (!spec->allow_none)
@@ -870,13 +872,19 @@ static void
 spec_cleanup(TfwCfgSpec specs[])
 {
 	TfwCfgSpec *spec;
+	bool called, reconfig = tfw_runstate_is_reconfig();
 
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
-		if (spec->call_counter && spec->cleanup) {
-			TFW_DBG2("spec cleanup: '%s'\n", spec->name);
+		called = spec->__called_cfg;
+		spec->__called_cfg = false;
+		if (!reconfig) {
+			called |= spec->__called_ever;
+			spec->__called_ever = false;
+		}
+		if (called && spec->cleanup) {
+			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
-		spec->call_counter = 0;
 	}
 }
 
@@ -1102,16 +1110,6 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!nested_specs);
 	BUG_ON(!cs->cleanup);
 
-	/*
-	 * If spec is repeateble, it must have non-generic cleanup function.
-	 * In other way parsing non-repeatable nested specs will fail.
-	 */
-	if (cs->allow_repeat && (cs->cleanup != &tfw_cfg_cleanup_children)) {
-		TfwCfgSpec *spec;
-		TFW_CFG_FOR_EACH_SPEC(spec, nested_specs)
-			spec->call_counter = 0;
-	}
-
 	if (!e->have_children) {
 		TFW_ERR_NL("the entry has no nested children entries\n");
 		return -EINVAL;
@@ -1146,14 +1144,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
 			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
-			entry_reset(&ps->e);
 			return -EINVAL;
 		}
 
 		ret = spec_handle_entry(matching_spec, &ps->e);
-		entry_reset(&ps->e);
 		if (ret)
 			return ret;
+		entry_reset(&ps->e);
 	}
 
 	/*
@@ -1242,8 +1239,8 @@ tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
 	TfwCfgSpecInt *cse;
 
 	BUG_ON(!cs->dest);
-	r = tfw_cfg_check_single_val(e);
-	if (r)
+
+	if ((r = tfw_cfg_check_single_val(e)))
 		goto err;
 
 	/* First, try to substitute an enum keyword with an integer value. */
@@ -1284,7 +1281,7 @@ tfw_cfg_cleanup_str(TfwCfgSpec *cs)
 	char **strp = cs->dest;
 	char *str = *strp;
 
-	/* The function shall only be called when some memory was allocated. */
+	/* The function may only be called when memory was allocated. */
 	BUG_ON(!str);
 	kfree(str);
 	*strp = NULL;
@@ -1310,7 +1307,7 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(!cs);
 	BUG_ON(!cs->dest);
-	BUG_ON(cs->call_counter);
+	BUG_ON(cs->__called_now);
 	BUG_ON(cs->cleanup);
 
 	r = tfw_cfg_check_single_val(e);
@@ -1358,14 +1355,6 @@ EXPORT_SYMBOL(tfw_cfg_set_str);
  * ------------------------------------------------------------------------
  */
 /*
- * The global list of all registered modules (consists of TfwCfgMod objects).
- *
- * TODO the architecture is broken. List of all loaded modules must be handled
- * by main Tempesta's module (main.c) and Cfg must use the list.
- */
-static LIST_HEAD(tfw_cfg_mods);
-static DEFINE_RWLOCK(cfg_mods_lock);
-/*
  * The file path is passed via the kernel module parameter.
  * Usually you would not like to change it on a running system.
  */
@@ -1373,48 +1362,6 @@ static char *tfw_cfg_path = TFW_CFG_PATH;
 module_param(tfw_cfg_path, charp, 0444);
 MODULE_PARM_DESC(tfw_cfg_path, "Path to Tempesta FW configuration file."
 			       " Must be absolute.");
-
-#define MOD_FOR_EACH(pos, head) \
-	list_for_each_entry(pos, head, list)
-
-#define MOD_FOR_EACH_REVERSE(pos, head) \
-	list_for_each_entry_reverse(pos, head, list)
-
-#define MOD_FOR_EACH_SAFE_REVERSE(pos, tmp, head) \
-	list_for_each_entry_safe_reverse(pos, tmp, head, list)
-
-/**
- * Iterate over modules in reverse order starting from current element
- * @curr_pos. Useful for roll-back'ing all previously processed modules
- * when an operation for current module has failed. We start from current
- * element as an operation for current module may have been half-done,
- * and the module needs to be called as well.
- */
-#define MOD_FOR_EACH_REVERSE_FROM_CURR(pos, curr_pos, head) 		\
-	for (pos = curr_pos;  &pos->list != head; 			\
-	     pos = list_entry(pos->list.prev, TfwCfgMod, list))
-
-static int
-mod_start(TfwCfgMod *mod)
-{
-	int ret = 0;
-
-	TFW_DBG2("mod_start(): %s\n", mod->name);
-	if (mod->start)
-		ret = mod->start();
-	if (ret)
-		TFW_ERR("start() for module '%s' returned the error: %d\n",
-			mod->name, ret);
-	return ret;
-}
-
-static void
-mod_stop(TfwCfgMod *mod)
-{
-	TFW_DBG2("mod_stop(): %s\n", mod->name);
-	if (mod->stop)
-		mod->stop();
-}
 
 static void
 print_parse_error(const TfwCfgParserState *ps)
@@ -1461,14 +1408,14 @@ EXPORT_SYMBOL(tfw_cfg_spec_find);
  * of all modules in the @mod_list.
  */
 int
-tfw_cfg_parse_mods_cfg(const char *cfg_text, struct list_head *mod_list)
+tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 {
 	TfwCfgParserState ps = {
 		.in = cfg_text,
 		.pos = cfg_text,
 		.line = cfg_text
 	};
-	TfwCfgMod *mod;
+	TfwMod *mod;
 	TfwCfgSpec *matching_spec = NULL;
 	int r = -EINVAL;
 
@@ -1513,115 +1460,61 @@ err:
 	entry_reset(&ps.e);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(tfw_cfg_parse_mods_cfg);
+EXPORT_SYMBOL(tfw_cfg_parse_mods);
 
 /**
- * Parse the @cfg_text with pushing parsed data to modules, and then start
- * all modules via the TfwCfgMod->start callback.
- *
- * Upon error, the function tries to roll-back the state: if any modules are
- * already started, it stops them and so on.
+ * Clean up parsed configuration data in modules.
  */
-static int
-tfw_cfg_start_mods(const char *cfg_text)
+void
+tfw_cfg_cleanup(struct list_head *mod_list)
+{
+	TfwMod *mod;
+
+	TFW_DBG3("Configuration cleanup...\n");
+	MOD_FOR_EACH_REVERSE(mod, mod_list)
+		spec_cleanup(mod->specs);
+}
+
+int
+tfw_cfg_parse(struct list_head *mod_list)
 {
 	int ret;
-	TfwCfgMod *mod, *tmp_mod;
+	char *cfg_text_buf;
 
-	BUG_ON(list_empty(&tfw_cfg_mods));
+	TFW_DBG3("reading configuration file...\n");
+	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL)))
+		return -ENOENT;
 
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
-	ret = tfw_cfg_parse_mods_cfg(cfg_text, &tfw_cfg_mods);
-	if (ret) {
-		TFW_DBG("can't parse configuration data\n");
-		goto err_recover_cleanup;
-	}
+	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
+		TFW_DBG("Error parsing configuration data\n");
 
-	TFW_DBG("Checking backends and listeners\n");
-	ret = tfw_sock_check_listeners();
-	if (ret) {
-		TFW_ERR("One of the backends is tempesta itself! Fix config\n");
-		goto err_recover_cleanup;
-	}
-
-	TFW_DBG2("starting modules...\n");
-	MOD_FOR_EACH(mod, &tfw_cfg_mods) {
-		ret = mod_start(mod);
-		if (ret)
-			goto err_recover_stop;
-	}
-
-	TFW_LOG("modules are started\n");
-	return 0;
-
-err_recover_stop:
-	TFW_DBG2("stopping already stared modules\n");
-
-	/*
-	 * TODO Perhaps a certain architectural redesign is required.
-	 * This function is also called in main.c.
-	 */
-	ss_stop();
-
-	MOD_FOR_EACH_REVERSE_FROM_CURR(tmp_mod, mod, &tfw_cfg_mods) {
-		mod_stop(tmp_mod);
-	}
-
-	/* See the comment in tfw_cfg_stop() regarding this function. */
-	ss_synchronize();
-
-err_recover_cleanup:
-	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods) {
-		spec_cleanup(mod->specs);
-	}
+	vfree(cfg_text_buf);
 
 	return ret;
 }
 
-int
-tfw_cfg_start(void)
+static void
+tfw_cfg_migrate_state(TfwCfgSpec *cs)
 {
-	int r;
-	char *cfg_text_buf;
+	TfwCfgSpec *spec;
 
-	TFW_DBG3("reading configuration file...\n");
-	cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL);
-	if (!cfg_text_buf)
-		return -ENOENT;
-
-	TFW_LOG("Starting all modules...\n");
-	if ((r = tfw_cfg_start_mods(cfg_text_buf)))
-		TFW_ERR_NL("failed to start modules\n");
-
-	vfree(cfg_text_buf);
-
-	return r;
+	TFW_CFG_FOR_EACH_SPEC(spec, cs) {
+		if (spec->__called_cfg)
+			spec->__called_ever = true;
+		if (spec->handler == &tfw_cfg_handle_children)
+			tfw_cfg_migrate_state(spec->dest);
+		spec->__called_cfg = false;
+	}
 }
 
-/**
- * Stop all registered modules and clean up theeir parsed configuration data.
- *
- * Passes are done in reverse order of tfw_cfg_mod_start_all()
- * (modules are started/stopped in LIFO manner).
- */
 void
-tfw_cfg_stop(void)
+tfw_cfg_conclude(struct list_head *mod_list)
 {
-	TfwCfgMod *mod;
+	TfwMod *mod;
 
-	TFW_LOG("Stopping all modules...\n");
-	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods)
-		mod_stop(mod);
-
-	/*
-	 * Wait until all networking activity is stopped before modules'
-	 * data structures can be safely cleaned up.
-	 * TODO the call shouldn't be here, see comment for tfw_cfg_mods().
-	 */
-	ss_synchronize();
-
-	MOD_FOR_EACH_REVERSE(mod, &tfw_cfg_mods)
-		spec_cleanup(mod->specs);
+	MOD_FOR_EACH(mod, mod_list)
+		tfw_cfg_migrate_state(mod->specs);
 }
 
 /*
@@ -1719,71 +1612,4 @@ tfw_cfg_init(void)
 void
 tfw_cfg_exit(void)
 {
-	TfwCfgMod *mod, *tmp;
-
-	TFW_DBG2("stopping and unregistering all cfg modules...\n");
-
-	list_for_each_entry_safe_reverse(mod, tmp, &tfw_cfg_mods, list)
-		tfw_cfg_mod_unregister(mod);
-}
-
-/**
- * Add @mod to the global list of registered modules and call @mod->init.
- *
- * After the registration the module starts receiving start/stop/setup/cleanup
- * events and configuration updates.
- */
-int
-tfw_cfg_mod_register(TfwCfgMod *mod)
-{
-	BUG_ON(!mod || !mod->name);
-
-	TFW_DBG2("register cfg: %s\n", mod->name);
-
-	write_lock(&cfg_mods_lock);
-
-	INIT_LIST_HEAD(&mod->list);
-	list_add_tail(&mod->list, &tfw_cfg_mods);
-
-	write_unlock(&cfg_mods_lock);
-
-	return 0;
-}
-EXPORT_SYMBOL(tfw_cfg_mod_register);
-
-/**
- * Remove the @mod from the global list and call the @mod->exit callback.
- */
-void
-tfw_cfg_mod_unregister(TfwCfgMod *mod)
-{
-	BUG_ON(!mod || !mod->name);
-
-	TFW_DBG2("unregister cfg: %s\n", mod->name);
-
-	write_lock(&cfg_mods_lock);
-
-	list_del(&mod->list);
-
-	write_unlock(&cfg_mods_lock);
-}
-EXPORT_SYMBOL(tfw_cfg_mod_unregister);
-
-TfwCfgMod *
-tfw_cfg_mod_find(const char *name)
-{
-	TfwCfgMod *mod;
-
-	read_lock(&cfg_mods_lock);
-
-	list_for_each_entry(mod, &tfw_cfg_mods, list) {
-		if (!name || !strcasecmp(name, mod->name)) {
-			read_unlock(&cfg_mods_lock);
-			return mod;
-		}
-	}
-
-	read_unlock(&cfg_mods_lock);
-
-	return NULL;
 }

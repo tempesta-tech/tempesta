@@ -139,6 +139,7 @@ class ServerGroup(object):
 
     def __init__(self, name='default', sched='ratio'):
         self.name = name
+        self.implicit = (name == 'default')
         self.sched = sched
         self.servers = []
         # Server group options, inserted after servers.
@@ -153,7 +154,7 @@ class ServerGroup(object):
 
     def get_config(self):
         sg = ''
-        if self.name == 'default':
+        if (self.name == 'default') and self.implicit:
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
                            + [self.options])
         else:
@@ -168,9 +169,14 @@ class Config(object):
         self.server_groups = []
         self.defconfig = ''
 
-    def add_sg(self, new_sg):
+    def find_sg(self, sg_name):
         for sg in self.server_groups:
-            error.assertTrue(sg.name != new_sg.name)
+            if sg.name == sg_name:
+                return sg
+        return None
+
+    def add_sg(self, new_sg):
+        error.assertTrue(self.find_sg(new_sg.name) is None)
         self.server_groups.append(new_sg)
 
     def get_config(self):

@@ -28,6 +28,14 @@
 #define EXPORT_SYMBOL(func)
 #endif
 #include "cfg.c"
+
+#undef module_init
+#undef module_exit
+#define module_init(fn)
+#define module_exit(fn)
+#define tfw_init(arg)	__maybe_unused __tfw_init(arg)
+#include "../../main.c"
+
 /*
  * ------------------------------------------------------------------------
  *	Generic helpers common for all tests.
@@ -38,26 +46,33 @@
  * The internal functions are imported to simplify testing.
  * We don't want to inject a real Tempesta FW module via public API because
  * our specs may interfere with already existing modules.
- * Instead, we create a dummy TfwCfgMod and pass it to them as if it was real.
+ * Instead, we create a dummy TfwMod{} and pass it to them as if it was real.
  */
 
-TfwCfgMod test_dummy_mod = { .name = "test_dummy_mod" };
+static LIST_HEAD(test_tfw_mods);
+TfwMod test_dummy_mod = { .name = "test_dummy_mod" };
 
 static int
 do_parse_cfg(const char *cfg_text, TfwCfgSpec specs[])
 {
-	BUG_ON(!list_empty(&tfw_cfg_mods));
-	test_dummy_mod.specs = specs;
-	list_add(&test_dummy_mod.list, &tfw_cfg_mods);
+	int ret;
 
-	return tfw_cfg_start_mods(cfg_text);
+	BUG_ON(!list_empty(&test_tfw_mods));
+	test_dummy_mod.specs = specs;
+	list_add(&test_dummy_mod.list, &test_tfw_mods);
+
+	if ((ret = tfw_cfg_parse_mods(cfg_text, &test_tfw_mods)))
+		return ret;
+	if ((ret = tfw_mods_cfgend(&test_tfw_mods)))
+		return ret;
+	return tfw_mods_start(&test_tfw_mods);
 }
 
 static void
 do_cleanup_cfg(void)
 {
-	BUG_ON(list_empty(&tfw_cfg_mods));
-	tfw_cfg_stop();
+	BUG_ON(list_empty(&test_tfw_mods));
+	tfw_stop(&test_tfw_mods);
 	list_del(&test_dummy_mod.list);
 }
 
@@ -1000,7 +1015,8 @@ TEST(tfw_cfg_handle_children, propagates_cleanup_to_nested_specs)
 			&call_ctr,
 			&cleanup_ctr,
 			.cleanup = cleanup_incr_ctr,
-			.allow_repeat = true
+			.allow_repeat = true,
+			.allow_none = true
 		},
 		{ 0 }
 	};

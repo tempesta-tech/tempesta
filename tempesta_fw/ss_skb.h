@@ -73,7 +73,8 @@ ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
 	SsSkbCb *scb = TFW_SKB_CB(skb);
 
-	BUG_ON(scb->next || scb->prev);
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(scb->next || scb->prev);
 
 	scb->prev = list->last;
 	if (ss_skb_queue_empty(list))
@@ -81,8 +82,6 @@ ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 	else
 		TFW_SKB_CB(list->last)->next = skb;
 	list->last = skb;
-
-	BUG_ON(scb->next);
 }
 
 static inline void
@@ -183,10 +182,12 @@ static inline unsigned char *
 ss_skb_put(struct sk_buff *skb, const int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
+
 	skb->tail += len;
 	skb->len  += len;
-	if (unlikely(skb->tail > skb->end))
-		BUG();
+
+	WARN_ON_ONCE(skb->tail > skb->end);
+
 	return tmp;
 }
 
@@ -217,6 +218,7 @@ int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
 
 int ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb);
+void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 
 #endif /* __TFW_SS_SKB_H__ */

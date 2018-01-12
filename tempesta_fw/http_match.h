@@ -149,6 +149,19 @@ TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t arg_len);
 	_c;								\
 })
 
+#define tfw_http_match_for_each(mlst, container, member, func) 		\
+({									\
+	int r = 0;							\
+	TfwHttpMatchRule *rule;					 	\
+	if (mlst)							\
+		list_for_each_entry(rule, &mlst->list, list) {		\
+			r = func(container_of(rule, container, member));\
+			if (r)						\
+				break;					\
+		}							\
+	r;								\
+})
+
 void tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg);
 

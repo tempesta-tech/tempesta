@@ -414,64 +414,6 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	return 0;
 }
 
-/**
- * Start listening on all existing sockets (added via "listen" configuration
- * entries).
- */
-static int
-tfw_listen_sock_start_all(void)
-{
-	int r;
-	TfwListenSock *ls;
-
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		r = tfw_listen_sock_start(ls);
-		if (r) {
-			TFW_ERR_ADDR("can't start listening on", &ls->addr);
-			return r;
-		}
-	}
-
-	return 0;
-}
-
-static void
-tfw_sock_clnt_stop_all(void)
-{
-	TfwListenSock *ls;
-
-	might_sleep();
-
-	/* Stop listening sockets. */
-	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		BUG_ON(!ls->sk);
-		ss_release(ls->sk);
-		ls->sk = NULL;
-	}
-	ss_wait_newconn();
-
-	/*
-	 * Now all listening sockets are closed, so no new connections
-	 * can appear. Close all established client connections.
-	 * We're going to acquie client hash bucket and peer connection list
-	 * locks, so disable softiqs to avoid deadlock with the sockets closing
-	 * in softiq context.
-	 */
-	local_bh_disable();
-	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
-		/*
-		 * SS transport is overloaded: let softirqs make progress and
-		 * repeat again. Not a big deal that we'll probably close the
-		 * same connections - SS can handle it and it's expected that
-		 * softirqs close some of them while we wait.
-		 */
-		local_bh_enable();
-		schedule();
-		local_bh_disable();
-	}
-	local_bh_enable();
-}
-
 static int
 tfw_sock_check_lst(TfwServer *srv)
 {
@@ -490,7 +432,7 @@ int
 tfw_sock_check_listeners(void)
 {
 	TFW_DBG3("Call %s\n", __func__);
-	return tfw_sg_for_each_srv(tfw_sock_check_lst);
+	return tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst);
 }
 
 /*
@@ -500,7 +442,7 @@ tfw_sock_check_listeners(void)
  */
 
 static int
-tfw_sock_clnt_cfg_handle_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	int port;
@@ -558,20 +500,16 @@ parse_err:
 }
 
 static int
-tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
-	r = tfw_cfg_check_val_n(ce, 1);
-	if (r)
+	if ((r = tfw_cfg_check_val_n(ce, 1)))
 		return -EINVAL;
 
-	r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout);
-	if (r) {
+	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
 		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   ce->vals[0]
-			   ? ce->vals[0]
-			   : "No value specified");
+			   ce->vals[0] ? : "No value specified");
 		return -EINVAL;
 	}
 
@@ -586,32 +524,114 @@ tfw_sock_clnt_cfg_handle_keepalive(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 
 static void
-tfw_sock_clnt_cfg_cleanup_listen(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
 	tfw_listen_sock_del_all();
 }
 
-TfwCfgMod tfw_sock_clnt_cfg_mod  = {
-	.name	= "sock_clnt",
-	.start	= tfw_listen_sock_start_all,
-	.stop	= tfw_sock_clnt_stop_all,
-	.specs	= (TfwCfgSpec[]){
-		{
-			"listen",
-			"80",
-			tfw_sock_clnt_cfg_handle_listen,
-			.allow_repeat = true,
-			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
-		},
-		{
-			"keepalive_timeout",
-			"75",
-			tfw_sock_clnt_cfg_handle_keepalive,
-			.allow_repeat = false,
-			.cleanup = tfw_sock_clnt_cfg_cleanup_listen
-		},
-		{}
+static int
+tfw_sock_clnt_cfgend(void)
+{
+	int r;
+
+	TFW_DBG("Checking backends and listeners\n");
+	if ((r = tfw_sock_check_listeners())) {
+		TFW_ERR("One of the backends is Tempesta itself!"
+			" Please, fix the configuration.\n");
+		return r;
 	}
+
+	return 0;
+}
+
+/**
+ * Start listening on all existing sockets (added via "listen" configuration
+ * entries).
+ */
+static int
+tfw_sock_clnt_start(void)
+{
+	int r;
+	TfwListenSock *ls;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if ((r = tfw_listen_sock_start(ls))) {
+			TFW_ERR_ADDR("can't start listening on", &ls->addr);
+			return r;
+		}
+	}
+
+	return 0;
+}
+
+static void
+tfw_sock_clnt_stop(void)
+{
+	TfwListenSock *ls;
+
+	if (tfw_runstate_is_reconfig())
+		return;
+
+	might_sleep();
+
+	/* Stop listening sockets. */
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+	}
+	ss_wait_newconn();
+
+	/*
+	 * Now all listening sockets are closed, so no new connections
+	 * can appear. Close all established client connections.
+	 * We're going to acquie client hash bucket and peer connection list
+	 * locks, so disable softiqs to avoid deadlock with the sockets closing
+	 * in softiq context.
+	 */
+	local_bh_disable();
+	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		/*
+		 * SS transport is overloaded: let softirqs make progress and
+		 * repeat again. Not a big deal that we'll probably close the
+		 * same connections - SS can handle it and it's expected that
+		 * softirqs close some of them while we wait.
+		 */
+		local_bh_enable();
+		schedule();
+		local_bh_disable();
+	}
+	local_bh_enable();
+}
+
+static TfwCfgSpec tfw_sock_clnt_specs[] = {
+	{
+		.name = "listen",
+		.deflt = "80",
+		.handler = tfw_cfgop_listen,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = true,
+	},
+	{
+		.name = "keepalive_timeout",
+		.deflt = "75",
+		.handler = tfw_cfgop_keepalive_timeout,
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_repeat = false,
+	},
+	{ 0 }
+};
+
+TfwMod tfw_sock_clnt_mod  = {
+	.name	= "sock_clnt",
+	.cfgend = tfw_sock_clnt_cfgend,
+	.start	= tfw_sock_clnt_start,
+	.stop	= tfw_sock_clnt_stop,
+	.specs	= tfw_sock_clnt_specs,
 };
 
 /*
@@ -639,20 +659,23 @@ tfw_sock_clnt_init(void)
 	tfw_tls_conn_cache = kmem_cache_create("tfw_tls_conn_cache",
 					       sizeof(TfwTlsConn), 0, 0, NULL);
 
-	if (tfw_cli_conn_cache && tfw_tls_conn_cache)
+	if (tfw_cli_conn_cache && tfw_tls_conn_cache) {
+		tfw_mod_register(&tfw_sock_clnt_mod);
 		return 0;
+	}
 
 	if (tfw_cli_conn_cache)
 		kmem_cache_destroy(tfw_cli_conn_cache);
 	if (tfw_tls_conn_cache)
 		kmem_cache_destroy(tfw_tls_conn_cache);
 
-	return 0;
+	return -ENOMEM;
 }
 
 void
 tfw_sock_clnt_exit(void)
 {
+	tfw_mod_unregister(&tfw_sock_clnt_mod);
 	kmem_cache_destroy(tfw_tls_conn_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }

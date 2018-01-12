@@ -541,7 +541,7 @@ unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
-int tfw_http_parse_status(const char *status, int *out);
+int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_srv_hmonitor_send(TfwServer *srv, char *data, unsigned long len);
 
 /*

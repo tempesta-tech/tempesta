@@ -45,7 +45,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.4.1");
+MODULE_VERSION("0.4.2");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -54,9 +54,15 @@ typedef struct {
 } TfwHashConn;
 
 typedef struct {
+	struct rcu_head		rcu;
 	size_t			conn_n;
 	TfwHashConn		conns[0];
 } TfwHashConnList;
+
+typedef struct {
+	TfwServer		*srv;
+	TfwHashConnList		*cl;
+} TfwHashSrvConnList;
 
 /* Same as hash_64_generic, but return 64-bit value. */
 static __always_inline unsigned long
@@ -202,11 +208,17 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl, bool hmonitor)
 static TfwSrvConn *
 tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 {
-	TfwHashConnList *cl = sg->sched_data;
+	TfwHashConnList *cl;
+	TfwSrvConn *srv_conn = NULL;
 
-	BUG_ON(!cl);
+	rcu_read_lock();
+	cl = rcu_dereference(sg->sched_data);
 
-	return __find_best_conn(msg, cl, false);
+	if (likely(cl))
+		srv_conn = __find_best_conn(msg, cl, false);
+
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 /**
@@ -216,30 +228,33 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 static TfwSrvConn *
 tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
 {
-	TfwHashConnList *cl = srv->sched_data;
+	TfwHashConnList *cl;
+	TfwSrvConn *srv_conn = NULL;
 
-	/*
-	 * For @srv without connections @cl will be NULL, that normally
-	 * does not happen in real life, but unit tests check that case.
-	*/
-	if (unlikely(!cl))
-		return NULL;
+	rcu_read_lock();
+	cl = rcu_dereference(srv->sched_data);
 
-	return __find_best_conn(msg, cl, hmonitor);
+	if (likely(cl))
+		srv_conn = __find_best_conn(msg, cl, hmonitor);
+
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
+	TfwHashConnList *cl = rcu_dereference(sg->sched_data);
 
 	list_for_each_entry(srv, &sg->srv_list, list)
-		srv->sched_data = NULL;
+		rcu_assign_pointer(srv->sched_data, NULL);
 
-	if (sg->sched_data) {
-		kfree(sg->sched_data);
-		sg->sched_data = NULL;
-	}
+	rcu_assign_pointer(sg->sched_data, NULL);
+
+	synchronize_rcu();
+	if (cl)
+		kfree(cl);
 }
 
 static int
@@ -274,27 +289,53 @@ __add_conn(TfwHashConnList *cl, TfwSrvConn *conn, unsigned long hash)
 	return 0;
 }
 
+/**
+ * Fill per-server sched_data according to sched_data of the entire server
+ * group.
+ */
 static void
-__fill_srv_lists(TfwHashConnList *cl)
+__fill_srv_lists(TfwHashConnList *cl, size_t srv_n, TfwHashSrvConnList *srv_cls)
 {
-	size_t i;
+	size_t i, j;
 
-	for (i = 0; i < cl->conn_n; ++i) {
-		TfwHashConn *hconn = &cl->conns[i];
-		TfwServer *srv = (TfwServer *)hconn->conn->peer;
-		TfwHashConnList *scl = srv->sched_data;
+	for (i = 0; i < srv_n; ++i) {
+		TfwServer *srv = srv_cls[i].srv;
+		TfwHashConnList *scl = srv_cls[i].cl;
 
-		scl->conns[scl->conn_n] = *hconn;
-		++scl->conn_n;
+		for (j = 0; j < cl->conn_n; ++j) {
+			TfwHashConn *hconn = &cl->conns[j];
+			if ((TfwServer *)hconn->conn->peer == srv) {
+				scl->conns[scl->conn_n] = *hconn;
+				++scl->conn_n;
+			}
+		}
+		rcu_assign_pointer(srv->sched_data, scl);
+	}
+}
+
+static void
+tfw_sched_hash_add_conns(TfwServer *srv, TfwHashConnList *cl, size_t *seed,
+			 size_t seed_inc)
+{
+	TfwSrvConn *conn;
+	unsigned long srv_hash = __calc_srv_hash(srv);
+
+	list_for_each_entry(conn, &srv->conn_list, list) {
+		unsigned long hash;
+		do {
+			hash = __hash_64(srv_hash ^ *seed);
+			*seed += seed_inc;
+		} while (__add_conn(cl, conn, hash));
 	}
 }
 
 static int
-tfw_sched_hash_add_grp(TfwSrvGroup *sg)
+tfw_sched_hash_add_grp(TfwSrvGroup *sg, void *data)
 {
-	size_t size, conn_n = 0, offset = 0, seed, seed_inc;
+	size_t size, conn_n = 0, offset = 0, seed, seed_inc, i = 0;
 	TfwServer *srv;
 	TfwHashConnList *cl;
+	TfwHashSrvConnList *srv_cls;
 
 	if (unlikely(!sg->srv_n || list_empty(&sg->srv_list)))
 		return -EINVAL;
@@ -307,32 +348,77 @@ tfw_sched_hash_add_grp(TfwSrvGroup *sg)
 
 	size = sizeof(TfwHashConnList) * (sg->srv_n + 1)
 			+ sizeof(TfwHashConn) * conn_n * 2;
-	if (!(sg->sched_data = kzalloc(size, GFP_KERNEL)))
+	if (!(cl = kzalloc(size, GFP_KERNEL)))
 		return -ENOMEM;
-	cl = sg->sched_data;
+	if (!(srv_cls = kcalloc(sg->srv_n, sizeof(TfwHashSrvConnList),
+				GFP_KERNEL)))
+	{
+		kfree(cl);
+		return -ENOMEM;
+	}
 	offset = sizeof(TfwHashConnList) + sizeof(TfwHashConn) * conn_n;
 
-
+	/*
+	 * The add_group() function can be called during live reconfiguration,
+	 * assign srv->sched_data after the data is fully prepared and valid.
+	 */
 	list_for_each_entry(srv, &sg->srv_list, list) {
-		TfwSrvConn *conn;
-		unsigned long srv_hash = __calc_srv_hash(srv);
 
-		srv->sched_data = (void *)cl + offset;
+		srv_cls[i].srv = srv;
+		srv_cls[i].cl = (void *)cl + offset;
 		offset += sizeof(TfwHashConnList)
 				+ sizeof(TfwHashConn) * srv->conn_n;
+		++i;
 
-		list_for_each_entry(conn, &srv->conn_list, list) {
-			unsigned long hash;
-			do {
-				hash = __hash_64(srv_hash ^ seed);
-				seed += seed_inc;
-			} while (__add_conn(cl, conn, hash));
-		}
+		tfw_sched_hash_add_conns(srv, cl, &seed, seed_inc);
 	}
 	/* Create per-server connection lists. */
-	__fill_srv_lists(cl);
+	__fill_srv_lists(cl, sg->srv_n, srv_cls);
+
+	rcu_assign_pointer(sg->sched_data, cl);
+	kfree(srv_cls);
 
 	return 0;
+}
+
+static int
+tfw_sched_hash_add_srv(TfwServer *srv)
+{
+	size_t size, seed, seed_inc = 0;
+	TfwHashConnList *cl = rcu_dereference(srv->sched_data);
+
+	if (unlikely(cl))
+		return -EEXIST;
+
+	seed = get_random_long();
+	seed_inc = get_random_int();
+
+	size = sizeof(TfwHashConnList) + srv->conn_n * sizeof(TfwHashConn);
+	if (!(cl = kzalloc(size, GFP_KERNEL)))
+		return -ENOMEM;
+
+	tfw_sched_hash_add_conns(srv, cl, &seed, seed_inc);
+
+	rcu_assign_pointer(srv->sched_data, cl);
+
+	return 0;
+}
+
+static void
+tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
+{
+	TfwHashConnList *cl = container_of(rcu, TfwHashConnList, rcu);
+	kfree(cl);
+}
+
+static void
+tfw_sched_hash_del_srv(TfwServer *srv)
+{
+	TfwHashConnList *cl = rcu_dereference(srv->sched_data);
+
+	rcu_assign_pointer(srv->sched_data, NULL);
+	if (cl)
+		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_hash = {
@@ -340,6 +426,8 @@ static TfwScheduler tfw_sched_hash = {
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
 	.add_grp	= tfw_sched_hash_add_grp,
 	.del_grp	= tfw_sched_hash_del_grp,
+	.add_srv	= tfw_sched_hash_add_srv,
+	.del_srv	= tfw_sched_hash_del_srv,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
 };
