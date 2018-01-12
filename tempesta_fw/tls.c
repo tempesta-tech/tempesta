@@ -407,9 +407,12 @@ tfw_tls_do_cleanup(void)
  */
 
 static int
-tfw_tls_cfg_start(void)
+tfw_tls_start(void)
 {
 	int r;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
 
 	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
 	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
@@ -428,8 +431,10 @@ tfw_tls_cfg_start(void)
 }
 
 static void
-tfw_tls_cfg_stop(void)
+tfw_tls_stop(void)
 {
+	if (tfw_runstate_is_reconfig())
+		return;
 	mbedtls_x509_crt_free(&tfw_tls.crt);
 	mbedtls_pk_free(&tfw_tls.key);
 }
@@ -438,7 +443,7 @@ tfw_tls_cfg_stop(void)
  * Handle 'ssl_certificate <path>' config entry.
  */
 static int
-tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *crt_data;
@@ -482,7 +487,7 @@ tfw_tls_cfg_handle_crt(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * Handle 'ssl_certificate_key <path>' config entry.
  */
 static int
-tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *key_data;
@@ -522,27 +527,29 @@ tfw_tls_cfg_handle_crt_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwCfgSpec tfw_tls_cfg_specs[] = {
+static TfwCfgSpec tfw_tls_specs[] = {
 	{
-		"ssl_certificate", NULL,
-		tfw_tls_cfg_handle_crt,
+		.name = "ssl_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_ssl_certificate,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
 	{
-		"ssl_certificate_key", NULL,
-		tfw_tls_cfg_handle_crt_key,
+		.name = "ssl_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_ssl_certificate_key,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_tls_cfg_mod = {
+TfwMod tfw_tls_mod = {
 	.name	= "tls",
-	.start	= tfw_tls_cfg_start,
-	.stop	= tfw_tls_cfg_stop,
-	.specs	= tfw_tls_cfg_specs,
+	.start	= tfw_tls_start,
+	.stop	= tfw_tls_stop,
+	.specs	= tfw_tls_specs,
 };
 
 /*
@@ -567,6 +574,7 @@ tfw_tls_init(void)
 	}
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_TLS);
+	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
 }
@@ -574,6 +582,7 @@ tfw_tls_init(void)
 void
 tfw_tls_exit(void)
 {
+	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_TLS);
 	tfw_tls_do_cleanup();

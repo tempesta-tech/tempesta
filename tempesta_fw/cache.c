@@ -1742,6 +1742,8 @@ tfw_cache_start(void)
 	int i, r = 1;
 	TfwVhost *vhost = tfw_vhost_get_default();
 
+	if (tfw_runstate_is_reconfig())
+		return 0;
 	if (!(cache_cfg.cache || vhost->cache_purge))
 		return 0;
 
@@ -1781,6 +1783,8 @@ tfw_cache_stop(void)
 {
 	int i;
 
+	if (tfw_runstate_is_reconfig())
+		return;
 	if (!cache_cfg.cache)
 		return;
 
@@ -1819,7 +1823,7 @@ static const TfwCfgEnum cache_http_methods_enum[] = {
 };
 
 static int
-tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	unsigned int i, method;
 	const char *val;
@@ -1850,48 +1854,61 @@ tfw_cache_cfg_method(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static TfwCfgSpec tfw_cache_cfg_specs[] = {
+static TfwCfgSpec tfw_cache_specs[] = {
 	{
-		"cache",
-		"2",
-		tfw_cfg_set_int,
-		&cache_cfg.cache,
-		&(TfwCfgSpecInt) {
+		.name = "cache",
+		.deflt = "2",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_cfg.cache,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, 2 },
-		}
+		},
 	},
 	{
-		"cache_methods",
-		"GET",
-		tfw_cache_cfg_method,
+		.name = "cache_methods",
+		.deflt = "GET",
+		.handler = tfw_cfgop_cache_methods,
 		.allow_none = true,
 		.allow_repeat = false,
 	},
 	{
-		"cache_size",
-		"268435456",
-		tfw_cfg_set_int,
-		&cache_cfg.db_size,
-		&(TfwCfgSpecInt) {
+		.name = "cache_size",
+		.deflt = "268435456",
+		.handler = tfw_cfg_set_int,
+		.dest = &cache_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.multiple_of = PAGE_SIZE,
 			.range = { PAGE_SIZE, (1 << 30) },
 		}
 	},
 	{
-		"cache_db",
-		"/opt/tempesta/db/cache.tdb",
-		tfw_cfg_set_str,
-		&cache_cfg.db_path,
-		&(TfwCfgSpecStr) {
+		.name = "cache_db",
+		.deflt = "/opt/tempesta/db/cache.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &cache_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
-	{}
+	{ 0 }
 };
 
-TfwCfgMod tfw_cache_cfg_mod = {
+TfwMod tfw_cache_mod = {
 	.name 	= "cache",
 	.start	= tfw_cache_start,
 	.stop	= tfw_cache_stop,
-	.specs	= tfw_cache_cfg_specs,
+	.specs	= tfw_cache_specs,
 };
+
+int
+tfw_cache_init(void)
+{
+	tfw_mod_register(&tfw_cache_mod);
+	return 0;
+}
+
+void
+tfw_cache_exit(void)
+{
+	tfw_mod_unregister(&tfw_cache_mod);
+}

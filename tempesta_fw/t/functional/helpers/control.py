@@ -245,7 +245,8 @@ class Tempesta(object):
     def __init__(self):
         self.node = remote.tempesta
         self.workdir = self.node.workdir
-        self.config_name = os.path.join(self.workdir, tf_cfg.cfg.get('Tempesta', 'config'))
+        self.config_name = os.path.join(self.workdir,
+                                        tf_cfg.cfg.get('Tempesta', 'config'))
         self.config = tempesta.Config()
         self.stats = tempesta.Stats()
         self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
@@ -257,7 +258,8 @@ class Tempesta(object):
         self.node.copy_file(self.config_name, self.config.get_config())
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
         env = { 'TFW_CFG_PATH': self.config_name }
-        self.node.run_cmd(cmd, timeout=30, env=env, err_msg=(self.err_msg % 'start'))
+        self.node.run_cmd(cmd, timeout=30, env=env,
+                          err_msg=(self.err_msg % 'start'))
 
     def stop(self):
         """ Stop and unload all TempestaFW modules. """
@@ -265,6 +267,15 @@ class Tempesta(object):
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
         self.node.run_cmd(cmd, timeout=30, err_msg=(self.err_msg % 'stop'))
         self.node.remove_file(self.config_name)
+
+    def reload(self):
+        """Live reconfiguration"""
+        tf_cfg.dbg(3, '\tReconfiguring TempestaFW on %s' % self.host)
+        self.node.copy_file(self.config_name, self.config.get_config())
+        cmd = '%s/scripts/tempesta.sh --reload' % self.workdir
+        env = { 'TFW_CFG_PATH': self.config_name }
+        self.node.run_cmd(cmd, timeout=30, env=env,
+                          err_msg=(self.err_msg % 'reload'))
 
     def get_stats(self):
         cmd = 'cat /proc/tempesta/perfstat'

@@ -1,7 +1,7 @@
 """Functional tests of caching different methods."""
 
 from __future__ import print_function
-from helpers import tf_cfg, deproxy
+from helpers import tf_cfg, deproxy, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -35,10 +35,10 @@ class TestConditional(functional.FunctionalTest):
         uri = '/page.html'
         # Tests uses castom ETag and Last-Modified, so remove predefined
         remove_hdrs = ['ETag', 'Last-Modified']
-        chains = [proxy_chain(method='GET', uri=uri),
-                  cache_chain(method='GET', uri=uri)]
-        for resp in [chains[0].response, chains[0].server_response,
-                     chains[1].response]:
+        test_chains = [chains.proxy(method='GET', uri=uri),
+                       chains.cache(method='GET', uri=uri)]
+        for resp in [test_chains[0].response, test_chains[0].server_response,
+                     test_chains[1].response]:
             for hdr in remove_hdrs:
                 del resp.headers[hdr]
             if etag:
@@ -46,7 +46,7 @@ class TestConditional(functional.FunctionalTest):
             if last_modified:
                 resp.headers['Last-Modified'] = last_modified
             resp.update()
-        return chains
+        return test_chains
 
     def chains_200(self, cond_hdr, etag=None, last_modified=None):
         chains = self.chains(etag, last_modified)
@@ -148,14 +148,3 @@ class TestConditional(functional.FunctionalTest):
         cond_hdr = ('If-Modified-Since', before_lm)
         chains = self.chains_200(cond_hdr, etag, lm)
         self.generic_test_routine(self.config, chains)
-
-
-
-def cache_chain(method, uri):
-    chain = functional.base_message_chain(uri=uri, method=method)
-    chain.no_forward()
-    return chain
-
-def proxy_chain(method, uri):
-    chain = functional.base_message_chain(uri=uri, method=method)
-    return chain

@@ -82,7 +82,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.3.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -91,7 +91,38 @@ typedef struct {
 	TfwHttpMatchRule rule;
 } TfwSchedHttpRule;
 
-static TfwHttpMatchList *tfw_sched_http_rules;
+/* Active HTTP Scheduler rules. */
+static TfwHttpMatchList __rcu *tfw_rules;
+/* Reconfig HTTP Scheduler rules. */
+static TfwHttpMatchList *tfw_rules_reconfig;
+
+/**
+ * Find connection for a message @msg in @main_sg or @backup_sg server groups.
+ */
+static TfwSrvConn *
+tfw_sched_http_get_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
+			    TfwSrvGroup *backup_sg)
+{
+	TfwSrvConn *srv_conn = NULL;
+
+	BUG_ON(!main_sg);
+	TFW_DBG2("sched: use server group: '%s'\n", main_sg->name);
+
+	if (likely(main_sg->sched))
+		srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
+
+	if (unlikely(!srv_conn && backup_sg && backup_sg->sched)) {
+		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
+			backup_sg->name);
+		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
+	}
+
+	if (unlikely(!srv_conn))
+		TFW_DBG2("sched: Unable to select server from group '%s'\n",
+			 backup_sg ? backup_sg->name : main_sg->name);
+
+	return srv_conn;
+}
 
 /*
  * Find a connection for an outgoing HTTP request.
@@ -103,18 +134,27 @@ static TfwSrvConn *
 tfw_sched_http_sched_grp(TfwMsg *msg)
 {
 	TfwSchedHttpRule *rule;
+	TfwHttpMatchList *active_rules;
+	TfwSrvConn *srv_conn = NULL;
 
-	if(!tfw_sched_http_rules || list_empty(&tfw_sched_http_rules->list))
-		return NULL;
+	rcu_read_lock();
+	active_rules = rcu_dereference(tfw_rules);
 
-	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, tfw_sched_http_rules,
+	if(!active_rules || list_empty(&active_rules->list))
+		goto done;
+
+	rule = tfw_http_match_req_entry((TfwHttpReq *)msg, active_rules,
 					TfwSchedHttpRule, rule);
 	if (unlikely(!rule)) {
 		TFW_DBG("sched_http: No matching rule found.\n");
-		return NULL;
+		goto done;
 	}
 
-	return tfw_sched_get_sg_srv_conn(msg, rule->main_sg, rule->backup_sg);
+	srv_conn = tfw_sched_http_get_srv_conn(msg, rule->main_sg,
+					       rule->backup_sg);
+done:
+	rcu_read_unlock();
+	return srv_conn;
 }
 
 static TfwSrvConn *
@@ -184,24 +224,37 @@ tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
  * Allocate the tfw_sched_http_rules list. All nested rules are added to the list.
  */
 static int
-tfw_sched_http_cfg_begin_rules(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_sched_http_rules_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TFW_DBG("sched_http: begin sched_http_rules\n");
 
-	if (!tfw_sched_http_rules)
-		tfw_sched_http_rules = tfw_http_match_list_alloc();
-	if (!tfw_sched_http_rules)
+	if (!tfw_rules_reconfig)
+		tfw_rules_reconfig = tfw_http_match_list_alloc();
+	if (!tfw_rules_reconfig)
 		return -ENOMEM;
 
 	return 0;
 }
 
 static int
-tfw_sched_http_cfg_finish_rules(TfwCfgSpec *cs)
+tfw_cfgop_sched_http_rules_finish(TfwCfgSpec *cs)
 {
 	TFW_DBG("sched_http: finish sched_http_rules\n");
-	BUG_ON(!tfw_sched_http_rules);
+	BUG_ON(!tfw_rules_reconfig);
 	return 0;
+}
+
+static int
+tfw_cfgop_rules_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
+{
+	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
+		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
+	if (r)
+		TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+			   "have the same sticky sessions settings\n",
+			   main_sg->name, backup_sg->name);
+
+	return r;
 }
 
 /**
@@ -229,7 +282,7 @@ tfw_sched_http_cfg_finish_rules(TfwCfgSpec *cs)
  *
  */
 static int
-tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
+tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
 	size_t arg_size;
@@ -250,7 +303,7 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	in_arg = e->vals[3];
 	in_backup_sg = tfw_cfg_get_attr(e, "backup", NULL);
 
-	main_sg = tfw_sg_lookup(in_main_sg);
+	main_sg = tfw_sg_lookup_reconfig(in_main_sg);
 	if (!main_sg) {
 		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
 			   in_main_sg);
@@ -260,23 +313,20 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (!in_backup_sg) {
 		backup_sg = NULL;
 	} else {
-		backup_sg = tfw_sg_lookup(in_backup_sg);
+		backup_sg = tfw_sg_lookup_reconfig(in_backup_sg);
 		if (!backup_sg) {
 			TFW_ERR_NL("sched_http: backup srv_group is not found:"
 				   " '%s'\n", in_backup_sg);
-			return -EINVAL;
+			r = -EINVAL;
+			goto err;
 		}
-
-		/* "Default" group is not fully parsed field flag is not set. */
+		/* 'default' group is not fully parsed, field flag is not set. */
 		if (strcasecmp(in_main_sg, "default")
 		    && strcasecmp(in_backup_sg, "default")
-		    && ((backup_sg->flags & TFW_SRV_STICKY_FLAGS) ^
-			(main_sg->flags & TFW_SRV_STICKY_FLAGS)))
+		    && tfw_cfgop_rules_check_flags(main_sg, backup_sg))
 		{
-			TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
-				   "have the same sticky sessions settings\n",
-				   in_main_sg, in_backup_sg);
-			return -EINVAL;
+			r = -EINVAL;
+			goto err;
 		}
 	}
 
@@ -284,25 +334,28 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (r) {
 		TFW_ERR_NL("sched_http: invalid HTTP request field: '%s'\n",
 			   in_field);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_op_enum, in_op, &op);
 	if (r) {
 		TFW_ERR_NL("sched_http: invalid matching operator: '%s'\n",
 			   in_op);
-		return -EINVAL;
+		r = -EINVAL;
+		goto err;
 	}
 
 	arg_size = strlen(in_arg) + 1;
 	type = tfw_sched_http_cfg_arg_tbl[field];
 
-	rule = tfw_http_match_entry_new(tfw_sched_http_rules,
+	rule = tfw_http_match_entry_new(tfw_rules_reconfig,
 					TfwSchedHttpRule, rule, arg_size);
 	if (!rule) {
 		TFW_ERR_NL("sched_http: can't allocate memory for parsed "
 			   "rule\n");
-		return -ENOMEM;
+		r = -ENOMEM;
+		goto err;
 	}
 
 	TFW_DBG("sched_http: parsed rule: match"
@@ -320,40 +373,104 @@ tfw_sched_http_cfg_handle_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	rule->backup_sg = backup_sg;
 
 	return 0;
+err:
+	tfw_sg_put(main_sg);
+	tfw_sg_put(backup_sg);
+
+	return r;
+}
+
+static int
+tfw_cfgop_release_sg(TfwSchedHttpRule *rule)
+{
+	tfw_sg_put(rule->main_sg);
+	tfw_sg_put(rule->backup_sg);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_free_rules(TfwHttpMatchList *rules)
+{
+	if (!rules)
+		return;
+	tfw_http_match_for_each(rules, TfwSchedHttpRule, rule,
+				tfw_cfgop_release_sg);
+	tfw_http_match_list_free(rules);
+}
+
+static void
+tfw_cfgop_replace_active_rules(TfwHttpMatchList *new_rules)
+{
+	TfwHttpMatchList *active_rules = tfw_rules;
+
+	rcu_assign_pointer(tfw_rules, new_rules);
+	synchronize_rcu();
+
+	tfw_cfgop_free_rules(active_rules);
 }
 
 /**
  * Delete all rules parsed out of the "sched_http_rules" section.
  */
 static void
-tfw_sched_http_cfg_clean_rules(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_rules(TfwCfgSpec *cs)
 {
-	tfw_http_match_list_free(tfw_sched_http_rules);
-	tfw_sched_http_rules = NULL;
+	tfw_cfgop_free_rules(tfw_rules_reconfig);
+	tfw_rules_reconfig = NULL;
+
+	if (!tfw_runstate_is_reconfig())
+		tfw_cfgop_replace_active_rules(NULL);
 }
 
 /* Forward declaration */
-static TfwCfgMod tfw_sched_http_cfg_mod;
+static TfwMod tfw_sched_http_mod;
+static TfwCfgSpec tfw_sched_http_rules_specs[];
 
 static int
 tfw_sched_http_start(void)
 {
+	tfw_cfgop_replace_active_rules(tfw_rules_reconfig);
+	tfw_rules_reconfig = NULL;
+
+	return 0;
+}
+
+static int
+tfw_sched_http_rules_check_flags(TfwSchedHttpRule *rule)
+{
+	if (!rule->backup_sg)
+		return 0;
+	return tfw_cfgop_rules_check_flags(rule->main_sg, rule->backup_sg);
+}
+
+static int
+tfw_sched_http_cfgend(void)
+{
 	TfwHttpMatchRule *mrule;
 	TfwSrvGroup *sg_default;
 	struct list_head mod_list;
-	TfwCfgMod cfg_mod;
+	TfwMod sched_mod;
 	TfwCfgSpec *cfg_spec;
 	static const char cfg_text[] =
 		"sched_http_rules {\nmatch default * * *;\n}\n";
+	int r;
 
+	/* Group 'default' ifs fully parsed now, check main/backup group
+	 * flags for incompatibilities.
+	 */
+	r = tfw_http_match_for_each(tfw_rules_reconfig, TfwSchedHttpRule, rule,
+				    tfw_sched_http_rules_check_flags);
+	if (r)
+		return -EINVAL;
 	/*
 	 * See if we need to add a default rule that forwards all
 	 * requests that do not match any rule to group 'default'.
 	 *
 	 * If there's a default rule already then we are all set.
 	 */
-	if (tfw_sched_http_rules && !list_empty(&tfw_sched_http_rules->list)) {
-		mrule = list_entry(tfw_sched_http_rules->list.prev,
+	if (tfw_rules_reconfig && !list_empty(&tfw_rules_reconfig->list)) {
+		mrule = list_entry(tfw_rules_reconfig->list.prev,
 				   TfwHttpMatchRule, list);
 		if ((mrule->field == TFW_HTTP_MATCH_F_WILDCARD)
 		    && (mrule->op == TFW_HTTP_MATCH_O_WILDCARD)
@@ -364,8 +481,9 @@ tfw_sched_http_start(void)
 	 * No default rule specified in the configuration, but there's no
 	 * group 'default' so we would have nowhere to point this rule to.
 	 */
-	if ((sg_default = tfw_sg_lookup("default")) == NULL)
+	if ((sg_default = tfw_sg_lookup_reconfig("default")) == NULL)
 		return 0;
+	tfw_sg_put(sg_default);
 
 	/*
 	 * Add a default rule that points to group 'default'. Note that
@@ -377,53 +495,53 @@ tfw_sched_http_start(void)
 	 * rule exactly the same way it would have been done if it were
 	 * in the configuration file.
 	 */
-	cfg_mod = tfw_sched_http_cfg_mod;
-	INIT_LIST_HEAD(&cfg_mod.list);
+	sched_mod = tfw_sched_http_mod;
+	INIT_LIST_HEAD(&sched_mod.list);
 	INIT_LIST_HEAD(&mod_list);
-	list_add(&cfg_mod.list, &mod_list);
+	list_add(&sched_mod.list, &mod_list);
 
-	cfg_spec = tfw_cfg_spec_find(cfg_mod.specs, "sched_http_rules");
+	cfg_spec = tfw_cfg_spec_find(sched_mod.specs, "sched_http_rules");
 	cfg_spec->allow_repeat = true;
 
-	if (tfw_cfg_parse_mods_cfg(cfg_text, &mod_list))
-		return -EINVAL;
+	r = tfw_cfg_parse_mods(cfg_text, &mod_list);
+	cfg_spec->allow_repeat = false;
 
-	return 0;
+	return r;
 }
 
-static void
-tfw_sched_http_stop(void)
-{
-}
-
-static TfwCfgSpec tfw_sched_http_rules_section_specs[] = {
+static TfwCfgSpec tfw_sched_http_rules_specs[] = {
 	{
-		"match", NULL,
-		tfw_sched_http_cfg_handle_match,
+		.name = "match",
+		.deflt = NULL,
+		.handler = tfw_cfgop_match,
 		.allow_repeat = true,
-		.cleanup = tfw_sched_http_cfg_clean_rules,
+		.allow_reconfig = true,
 	},
 	{}
 };
 
-static TfwCfgMod tfw_sched_http_cfg_mod = {
-	.name  = "tfw_sched_http",
-	.start = tfw_sched_http_start,
-	.stop  = tfw_sched_http_stop,
-	.specs = (TfwCfgSpec[]) {
-		{
-			"sched_http_rules", NULL,
-			tfw_cfg_handle_children,
-			tfw_sched_http_rules_section_specs,
-			&(TfwCfgSpecChild) {
-				.begin_hook = tfw_sched_http_cfg_begin_rules,
-				.finish_hook = tfw_sched_http_cfg_finish_rules
-			},
-			.allow_none = true,
-			.cleanup = tfw_cfg_cleanup_children
+static TfwCfgSpec tfw_sched_http_specs[] = {
+	{
+		.name = "sched_http_rules",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_cleanup_rules,
+		.dest = tfw_sched_http_rules_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_sched_http_rules_begin,
+			.finish_hook = tfw_cfgop_sched_http_rules_finish
 		},
-		{}
-	}
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
+
+static TfwMod tfw_sched_http_mod = {
+	.name	= "tfw_sched_http",
+	.cfgend	= tfw_sched_http_cfgend,
+	.start	= tfw_sched_http_start,
+	.specs	= tfw_sched_http_specs,
 };
 
 /*
@@ -439,16 +557,11 @@ tfw_sched_http_init(void)
 
 	TFW_DBG("sched_http: init\n");
 
-	ret = tfw_cfg_mod_register(&tfw_sched_http_cfg_mod);
-	if (ret) {
-		TFW_ERR("sched_http: can't register configuration module\n");
-		return ret;
-	}
+	tfw_mod_register(&tfw_sched_http_mod);
 
-	ret = tfw_sched_register(&tfw_sched_http);
-	if (ret) {
-		TFW_ERR("sched_http: can't register scheduler module\n");
-		tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+	if ((ret = tfw_sched_register(&tfw_sched_http))) {
+		TFW_ERR("sched_http: Unable to register the module\n");
+		tfw_mod_unregister(&tfw_sched_http_mod);
 		return ret;
 	}
 
@@ -460,9 +573,9 @@ tfw_sched_http_exit(void)
 {
 	TFW_DBG("sched_http: exit\n");
 
-	BUG_ON(tfw_sched_http_rules);
+	BUG_ON(tfw_rules_reconfig);
 	tfw_sched_unregister(&tfw_sched_http);
-	tfw_cfg_mod_unregister(&tfw_sched_http_cfg_mod);
+	tfw_mod_unregister(&tfw_sched_http_mod);
 }
 
 module_init(tfw_sched_http_init);

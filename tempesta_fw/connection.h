@@ -184,11 +184,14 @@ enum {
 	TFW_CONN_B_RESEND = 0,	/* Need to re-send requests. */
 	TFW_CONN_B_QFORWD,	/* Need to forward requests in the queue. */
 	TFW_CONN_B_HASNIP,	/* Has non-idempotent requests. */
+
+	TFW_CONN_B_DEL		/* Remove connection */
 };
 
 #define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
 #define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
 #define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
+
 
 /**
  * TLS hardened connection.
