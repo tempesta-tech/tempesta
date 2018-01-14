@@ -38,6 +38,12 @@ typedef struct {
 	struct sk_buff	*skb;
 } TfwMsgIter;
 
+/* Flags for specification of HTTP message creation type. */
+enum {
+	HTTP_MSG_DEFAULT,	/* Full http message object. */
+	HTTP_MSG_LIGHT		/* Message object without headers table. */
+};
+
 static inline void
 __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 {
@@ -91,7 +97,7 @@ int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
 
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 
-TfwHttpMsg *tfw_http_msg_alloc(int type);
+TfwHttpMsg *tfw_http_msg_alloc(int type, int intent);
 TfwHttpMsg *tfw_http_msg_alloc_err_resp(void);
 void tfw_http_msg_free(TfwHttpMsg *m);
 

@@ -183,8 +183,7 @@ struct tfw_scheduler_t {
 	void			(*del_srv)(TfwServer *srv);
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
-	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv,
-						   bool hmonitor);
+	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 };
 
 /* Server specific routines. */

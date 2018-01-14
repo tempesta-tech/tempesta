@@ -210,8 +210,10 @@ http_sticky_suite_setup(void)
 
 	memset(&mock, 0, sizeof(mock));
 
-	mock.req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
-	mock.resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
+	mock.req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt,
+						    HTTP_MSG_DEFAULT);
+	mock.resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv,
+						      HTTP_MSG_DEFAULT);
 
 	BUG_ON(!mock.req);
 	BUG_ON(!mock.resp);

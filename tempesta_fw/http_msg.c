@@ -841,7 +841,7 @@ EXPORT_SYMBOL(tfw_http_msg_free);
  * That allows for a shorter (limited) initialization.
  */
 TfwHttpMsg *
-tfw_http_msg_alloc_err_resp(void)
+tfw_http_msg_alloc_err_resp(void)//!!!
 {
 	TfwHttpMsg *hm;
 
@@ -854,11 +854,12 @@ tfw_http_msg_alloc_err_resp(void)
 
 /**
  * Allocate a new HTTP message.
- * The allocated message is set up and initialized with full support
- * for parsing and subsequent adjustment.
+ * @intent indicates how complex a message object is needed. When
+ * HTTP_MSG_DEFAULT specified, the allocated message is set up and
+ * initialized with full support for parsing and subsequent adjustment.
  */
 TfwHttpMsg *
-tfw_http_msg_alloc(int type)
+tfw_http_msg_alloc(int type, int intent)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
 			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq,
@@ -868,16 +869,17 @@ tfw_http_msg_alloc(int type)
 	if (!hm)
 		return NULL;
 
-	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
-	if (unlikely(!hm->h_tbl)) {
-		TFW_WARN("Insufficient memory to create message\n");
-		tfw_pool_destroy(hm->pool);
-		return NULL;
+	if (intent != HTTP_MSG_LIGHT) {
+		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+		if (unlikely(!hm->h_tbl)) {
+			TFW_WARN("Insufficient memory to create message\n");
+			tfw_pool_destroy(hm->pool);
+			return NULL;
+		}
+		hm->h_tbl->size = __HHTBL_SZ(1);
+		hm->h_tbl->off = TFW_HTTP_HDR_RAW;
+		memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 	}
-
-	hm->h_tbl->size = __HHTBL_SZ(1);
-	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
-	memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 

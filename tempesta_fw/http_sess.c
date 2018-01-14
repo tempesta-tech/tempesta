@@ -102,7 +102,7 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	TfwHttpMsg *hmresp;
 	char buf[sizeof(*sv) * 2];
 
-	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv, HTTP_MSG_DEFAULT)))
 		return -ENOMEM;
 	/*
 	 * Form the cookie as:
@@ -675,7 +675,7 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 	 * Try to sched from the same server. The server may be removed from
 	 * server group, see comment for TfwStickyConn.
 	 */
-	return srv->sg->sched->sched_srv_conn(msg, srv, false);
+	return srv->sg->sched->sched_srv_conn(msg, srv);
 }
 
 /**

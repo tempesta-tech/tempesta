@@ -180,7 +180,7 @@ TEST(tfw_sched_ratio, sched_srv_one_srv_max_conn)
 		conn_acc_check = 0;
 
 		for (j = 0; j < srv->conn_n; ++j) {
-			srv_conn = sg->sched->sched_srv_conn(msg, srv, false);
+			srv_conn = sg->sched->sched_srv_conn(msg, srv);
 			EXPECT_NOT_NULL(srv_conn);
 			if (!srv_conn)
 				goto err;
@@ -242,7 +242,7 @@ TEST(tfw_sched_ratio, sched_srv_max_srv_max_conn)
 			conn_acc_check = 0;
 
 			for (j = 0; j < srv->conn_n; ++j) {
-				srv_conn = sg->sched->sched_srv_conn(msg, srv, false);
+				srv_conn = sg->sched->sched_srv_conn(msg, srv);
 				EXPECT_NOT_NULL(srv_conn);
 				if (!srv_conn)
 					goto err;

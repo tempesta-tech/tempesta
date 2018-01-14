@@ -376,7 +376,6 @@ totals:
 /* Time granularity for HTTP codes accounting during health monitoring. */
 #define HM_FREQ		10
 
-
 /*
  * Structure for health monitor settings.
  *
@@ -394,10 +393,10 @@ typedef struct {
 	DECLARE_BITMAP(codes, 512);
 	struct list_head	list;
 	char			*name;
-	char			*url;
-	int			urlsz;
 	char			*req;
 	unsigned long		reqsz;
+	char			*url;
+	int			urlsz;
 	u32			crc32;
 	unsigned short		tmt;
 } TfwApmHM;
@@ -408,7 +407,9 @@ typedef struct {
  * @list	- entry in list of all monitored codes;
  * @tframe	- Time frame in seconds for @code accounting;
  * @limit	- allowed quantity of responses with @code in a @tframe period;
- * @code	- HTTP code;
+ * @code	- HTTP code; also wildcarded code values (of type 4*, 5* etc.)
+ *		  are allowed during configuration, so in this field they will
+ *		  have form of single-digit number (e.g. 4 or 5 respectively);
  */
 typedef struct {
 	struct list_head	list;
@@ -462,7 +463,7 @@ typedef struct {
 	atomic_t		rearm;
 } TfwApmHMCtl;
 
-/* Entry for configureation of separate health monitors. */
+/* Entry for configuration of separate health monitors. */
 static TfwApmHM			*tfw_hm_entry;
 /* Total count of monitred HTTP codes. */
 static unsigned int		tfw_hm_codes_cnt;
@@ -1224,19 +1225,24 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 bool
-tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
+tfw_apm_hm_srv_status_alive(int status, void *apmref)
 {
-	u32 crc32;
 	TfwApmHM *hm = ((TfwApmData *)apmref)->hmctl.hm;
 
 	BUG_ON(!hm);
-	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))
+	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))//!!! maybe range validation is necessary
 		return true;
 
-	if (hm->crc32
-	    && body->len
-	    && !tfw_str_crc32_calc(body, &crc32)
-	    && crc32 == hm->crc32)
+	return false;
+}
+
+bool
+tfw_apm_hm_srv_crc32_alive(u32 crc32, void *apmref)
+{
+	TfwApmHM *hm = ((TfwApmData *)apmref)->hmctl.hm;
+
+	BUG_ON(!hm);
+	if (hm->crc32 && crc32 == hm->crc32)
 		return true;
 
 	return false;
@@ -1253,8 +1259,13 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 
 	BUG_ON(!hmstats);
 	for (i = 0; i < tfw_hm_codes_cnt; ++i) {
+		/*
+		 * Wildcarded HTTP code values (of type 4*, 5* etc.) are
+		 * allowed during configuration, so these values also
+		 * must be checked via dividing by 100.
+		 */
 		if (hmstats[i].hmcfg->code == status ||
-		    hmstats[i].hmcfg->code == (int)(status / 100))
+		    hmstats[i].hmcfg->code == status / 100)
 		{
 			history = hmstats[i].history;
 			cfg = hmstats[i].hmcfg;
@@ -1307,23 +1318,23 @@ tfw_apm_hm_enable_srv(const char *name, TfwServer *srv)
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		BUG_ON(test_bit(TFW_SRV_B_HMONITOR,
 			       (unsigned long *)&srv->hm_flags));
-		if(!strcasecmp(name, hm->name)) {
-			WRITE_ONCE(hmctl->hm, hm);
-			atomic64_set(&hmctl->rcount, 0);
-			clear_bit(TFW_SRV_B_SUSPEND,
-				  (unsigned long *)&srv->hm_flags);
-			/* Start server's health monitoring timer. */
-			atomic_set(&hmctl->rearm, 1);
-			smp_mb__after_atomic();
-			setup_timer(&hmctl->timer, tfw_apm_hm_timer_cb,
-				    (unsigned long)srv);
-			now = jiffies;
-			mod_timer(&hmctl->timer, now + hm->tmt * HZ);
-			WRITE_ONCE(hmctl->jtmstamp, now);
-			set_bit(TFW_SRV_B_HMONITOR,
-				(unsigned long *)&srv->hm_flags);
-			return true;
-		}
+		if (strcasecmp(name, hm->name))
+			continue;
+		WRITE_ONCE(hmctl->hm, hm);//!!!
+		atomic64_set(&hmctl->rcount, 0);
+		clear_bit(TFW_SRV_B_SUSPEND,
+			  (unsigned long *)&srv->hm_flags);
+		/* Start server's health monitoring timer. */
+		atomic_set(&hmctl->rearm, 1);
+		smp_mb__after_atomic();
+		setup_timer(&hmctl->timer, tfw_apm_hm_timer_cb,
+			    (unsigned long)srv);
+		now = jiffies;
+		mod_timer(&hmctl->timer, now + hm->tmt * HZ);
+		WRITE_ONCE(hmctl->jtmstamp, now);
+		set_bit(TFW_SRV_B_HMONITOR,
+			(unsigned long *)&srv->hm_flags);
+		return true;
 	}
 	TFW_ERR_NL("health monitor with name"
 		   " '%s' does not exist\n", name);
@@ -1502,12 +1513,12 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		TFW_ERR_NL("Unable to parse http code value: '%s'\n",
-			   ce->vals[0] ? ce->vals[0] : "No value specified");
+			   ce->vals[0]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_parse_int(ce->vals[1], &limit)) {
 		TFW_ERR_NL("Unable to parse http limit value: '%s'\n",
-			   ce->vals[1] ? ce->vals[1] : "No value specified");
+			   ce->vals[1]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(limit, 1, USHRT_MAX))
@@ -1515,7 +1526,7 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_parse_int(ce->vals[2], &tframe)) {
 		TFW_ERR_NL("Unable to parse http tframe value: '%s'\n",
-			   ce->vals[2] ? ce->vals[2] : "No value specified");
+			   ce->vals[2]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
@@ -1663,9 +1674,11 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_cfgop_parse_http_status(val, &code)) {
+		if (tfw_cfgop_parse_http_status(val, &code)
+		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
+		{
 			TFW_ERR_NL("Unable to parse http code value: '%s'\n",
-				   val ? val : "No value specified");
+				   val);
 			return -EINVAL;
 		}
 		__set_bit(HTTP_CODE_BIT_NUM(code), tfw_hm_entry->codes);
@@ -1681,8 +1694,7 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	if (tfw_cfg_parse_int(ce->vals[0], &crc32)) {
-		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n",
-			   ce->vals[0] ? ce->vals[0] : "No value specified");
+		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -1701,7 +1713,7 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_parse_int(ce->vals[0], &timeout)) {
 		TFW_ERR_NL("Unable to parse http timeout value: '%s'\n",
-			   ce->vals[0] ? ce->vals[0] : "No value specified");
+			   ce->vals[0]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(timeout, 1, USHRT_MAX))

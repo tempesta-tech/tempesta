@@ -21,7 +21,6 @@
 #include <linux/bug.h>
 #include <linux/kernel.h>
 #include <linux/ctype.h>
-#include <linux/crc32.h>
 
 #include "htype.h"
 #include "str.h"
@@ -668,34 +667,6 @@ tfw_str_next_str_val(const TfwStr *str)
 	return r_str;
 }
 EXPORT_SYMBOL(tfw_str_next_str_val);
-
-/**
- * Function for crc32 calculation from TfwStr object.
- * May be called from interrupt context.
- */
-int
-tfw_str_crc32_calc(const TfwStr *str, u32 *crc32)
-{
-	const TfwStr *c, *end;
-	char *p, *data;
-	unsigned long len = 0;
-
-	BUG_ON(str->len && !str->ptr);
-	data = p = kmalloc(str->len, GFP_ATOMIC);
-	if (!data)
-		return -ENOMEM;
-	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
-		memcpy(p, c->ptr, c->len);
-		len += c->len;
-		p += c->len;
-	}
-	BUG_ON(len != str->len);
-	*crc32 = crc32(0, data, len);
-	kfree(data);
-
-	return 0;
-}
-EXPORT_SYMBOL(tfw_str_crc32_calc);
 
 #ifdef DEBUG
 void
